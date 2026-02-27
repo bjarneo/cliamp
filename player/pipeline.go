@@ -60,14 +60,37 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 
 	decoder, format, err := decode(rc, path, p.sr)
 	if err != nil {
+		// Native decoder failed (e.g., IEEE float WAV). Fall back to ffmpeg,
+		// which reads from the path directly and handles more formats.
+		// Close rc first — it's partially consumed and ffmpeg doesn't need it.
 		rc.Close()
-		return nil, fmt.Errorf("decode: %w", err)
+		decoder, format, err = decodeFFmpeg(path, p.sr)
+		if err != nil {
+			return nil, fmt.Errorf("decode: %w", err)
+		}
+		// pcmStreamer is fully buffered in memory — always seekable, no rc to manage.
+		return &trackPipeline{
+			decoder:  decoder,
+			stream:   decoder, // decodeFFmpeg outputs at target sample rate
+			format:   format,
+			seekable: true,
+		}, nil
 	}
 
 	// HTTP streams decoded natively read from a non-seekable http.Response.Body.
 	// FFmpeg-decoded streams are fully buffered in memory and therefore seekable.
 	_, isPCM := decoder.(*pcmStreamer)
 	seekable := !isURL(path) || isPCM
+
+	// Native decoders (mp3, vorbis, flac, wav) wrap rc internally and their
+	// Close() already closes the underlying reader. Set rc to nil so
+	// trackPipeline.close() doesn't double-close the file descriptor.
+	// FFmpeg decoders (reached via needsFFmpeg) read via the path argument;
+	// rc is unused but still needs cleanup, so keep it set for that path.
+	pipelineRC := rc
+	if !isPCM {
+		pipelineRC = nil
+	}
 
 	var s beep.Streamer = decoder
 	if format.SampleRate != p.sr {
@@ -79,7 +102,7 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 		stream:   s,
 		format:   format,
 		seekable: seekable,
-		rc:       rc,
+		rc:       pipelineRC,
 	}, nil
 }
 

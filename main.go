@@ -15,6 +15,7 @@ import (
 	"cliamp/player"
 	"cliamp/playlist"
 	"cliamp/resolve"
+	"cliamp/theme"
 	"cliamp/ui"
 )
 
@@ -62,10 +63,15 @@ SoundCloud/YouTube/Bandcamp require yt-dlp (brew install yt-dlp)`)
 	cfg.ApplyPlayer(p)
 	cfg.ApplyPlaylist(pl)
 
-	m := ui.NewModel(p, pl, provider)
+	themes := theme.LoadAll()
+
+	m := ui.NewModel(p, pl, provider, themes)
 	m.SetPendingURLs(resolved.Pending)
 	if cfg.EQPreset != "" && cfg.EQPreset != "Custom" {
 		m.SetEQPreset(cfg.EQPreset)
+	}
+	if cfg.Theme != "" {
+		m.SetTheme(cfg.Theme)
 	}
 
 	prog := tea.NewProgram(m, tea.WithAltScreen())
@@ -75,8 +81,21 @@ SoundCloud/YouTube/Bandcamp require yt-dlp (brew install yt-dlp)`)
 		go prog.Send(mpris.InitMsg{Svc: svc})
 	}
 
-	_, err = prog.Run()
-	return err
+	finalModel, err := prog.Run()
+	if err != nil {
+		return err
+	}
+
+	// Persist theme selection across restarts.
+	if fm, ok := finalModel.(ui.Model); ok {
+		cfg.Theme = fm.ThemeName()
+		if cfg.Theme == theme.DefaultName {
+			cfg.Theme = ""
+		}
+		_ = config.Save(cfg)
+	}
+
+	return nil
 }
 
 func main() {

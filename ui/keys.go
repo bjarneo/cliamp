@@ -20,6 +20,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
+	// Theme picker overlay — interactive navigation
+	if m.showThemes {
+		return m.handleThemeKey(msg)
+	}
+
 	if m.searching {
 		return m.handleSearchKey(msg)
 	}
@@ -195,6 +200,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		m.prevFocus = m.focus
 		m.focus = focusSearch
 
+	case "t":
+		m.openThemePicker()
+
 	case "ctrl+k":
 		m.showKeymap = true
 	}
@@ -322,5 +330,32 @@ func (m *Model) handleSearchKey(msg tea.KeyMsg) tea.Cmd {
 		}
 	}
 
+	return nil
+}
+
+// handleThemeKey processes key presses while the theme picker is open.
+func (m *Model) handleThemeKey(msg tea.KeyMsg) tea.Cmd {
+	count := len(m.themes) + 1 // +1 for Default
+	switch msg.String() {
+	case "ctrl+c":
+		m.themePickerCancel()
+		m.player.Close()
+		m.quitting = true
+		return tea.Quit
+	case "up", "k":
+		if m.themeCursor > 0 {
+			m.themeCursor--
+			m.themePickerApply() // live preview
+		}
+	case "down", "j":
+		if m.themeCursor < count-1 {
+			m.themeCursor++
+			m.themePickerApply() // live preview
+		}
+	case "enter":
+		m.themePickerSelect()
+	case "esc", "q", "t":
+		m.themePickerCancel()
+	}
 	return nil
 }

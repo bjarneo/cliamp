@@ -11,6 +11,7 @@ import (
 	"cliamp/player"
 	"cliamp/playlist"
 	"cliamp/resolve"
+	"cliamp/theme"
 )
 
 type focusArea int
@@ -73,16 +74,25 @@ type Model struct {
 
 	// MPRIS D-Bus service (nil on non-Linux or if D-Bus unavailable)
 	mpris *mpris.Service
+
+	// Theme state: -1 = Default (ANSI), 0+ = index into themes
+	themes       []theme.Theme
+	themeIdx     int
+	showThemes   bool // theme picker overlay visible
+	themeCursor  int  // cursor in theme picker (0 = Default, 1+ = themes[i-1])
+	themeSavedIdx int // themeIdx before opening picker, for cancel/restore
 }
 
 // NewModel creates a Model wired to the given player and playlist.
-func NewModel(p *player.Player, pl *playlist.Playlist, prov playlist.Provider) Model {
+func NewModel(p *player.Player, pl *playlist.Playlist, prov playlist.Provider, themes []theme.Theme) Model {
 	m := Model{
 		player:      p,
 		playlist:    pl,
 		vis:         NewVisualizer(44100),
 		plVisible:   5,
 		eqPresetIdx: -1, // custom until a preset is selected
+		themes:      themes,
+		themeIdx:    -1, // Default (ANSI)
 	}
 	if prov != nil {
 		m.provider = prov
@@ -90,6 +100,70 @@ func NewModel(p *player.Player, pl *playlist.Playlist, prov playlist.Provider) M
 		m.provLoading = true
 	}
 	return m
+}
+
+// SetTheme finds a theme by name and applies it. Returns true if found.
+func (m *Model) SetTheme(name string) bool {
+	if name == "" || strings.EqualFold(name, "default") {
+		m.themeIdx = -1
+		applyTheme(theme.Default())
+		return true
+	}
+	for i, t := range m.themes {
+		if strings.EqualFold(t.Name, name) {
+			m.themeIdx = i
+			applyTheme(t)
+			return true
+		}
+	}
+	return false
+}
+
+// ThemeName returns the current theme name.
+func (m Model) ThemeName() string {
+	if m.themeIdx < 0 || m.themeIdx >= len(m.themes) {
+		return theme.DefaultName
+	}
+	return m.themes[m.themeIdx].Name
+}
+
+// openThemePicker re-loads themes from disk (picking up new user files)
+// and opens the theme selector overlay.
+func (m *Model) openThemePicker() {
+	m.themes = theme.LoadAll()
+	m.showThemes = true
+	m.themeSavedIdx = m.themeIdx
+	// Position cursor on the currently active theme.
+	// Picker list: 0 = Default, 1..N = themes[0..N-1]
+	m.themeCursor = m.themeIdx + 1
+}
+
+// themePickerApply applies the theme under the cursor for live preview.
+func (m *Model) themePickerApply() {
+	if m.themeCursor == 0 {
+		m.themeIdx = -1
+		applyTheme(theme.Default())
+	} else {
+		m.themeIdx = m.themeCursor - 1
+		applyTheme(m.themes[m.themeIdx])
+	}
+}
+
+// themePickerSelect confirms the current selection and closes the picker.
+func (m *Model) themePickerSelect() {
+	m.themePickerApply()
+	m.showThemes = false
+}
+
+// themePickerCancel restores the theme from before the picker was opened.
+func (m *Model) themePickerCancel() {
+	m.themeIdx = m.themeSavedIdx
+	if m.themeIdx < 0 {
+		applyTheme(theme.Default())
+	} else {
+		applyTheme(m.themes[m.themeIdx])
+	}
+	m.showThemes = false
 }
 
 // SetPendingURLs stores remote URLs (feeds, M3U) for async resolution after Init.

@@ -5,6 +5,9 @@ import (
 	"strings"
 )
 
+// Compile-time interface check.
+var _ io.ReadCloser = (*icyReader)(nil)
+
 // icyReader strips interleaved ICY metadata from a SHOUTcast/Icecast stream.
 //
 // The server sends icy-metaint bytes of audio, then a 1-byte length prefix

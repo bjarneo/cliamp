@@ -29,6 +29,7 @@ type Config struct {
 	Repeat   string      // "off", "all", or "one"
 	Shuffle  bool
 	Mono     bool
+	Theme    string // theme name, or "" for ANSI default
 }
 
 // Default returns a Config with sensible defaults.
@@ -89,6 +90,8 @@ func Load() (Config, error) {
 			cfg.EQ = parseEQ(val)
 		case "eq_preset":
 			cfg.EQPreset = strings.Trim(val, `"'`)
+		case "theme":
+			cfg.Theme = strings.Trim(val, `"'`)
 		}
 	}
 
@@ -125,6 +128,10 @@ shuffle = %t
 # Start with mono output (L+R downmix)
 mono = %t
 
+# Color theme name (e.g. "catppuccin", "dracula")
+# Leave empty for default ANSI terminal colors
+theme = "%s"
+
 # EQ preset name (e.g. "Rock", "Jazz", "Classical", "Bass Boost")
 # Leave empty or "Custom" to use the manual eq values below
 eq_preset = "%s"
@@ -138,6 +145,7 @@ eq = [%s]
 		cfg.Repeat,
 		cfg.Shuffle,
 		cfg.Mono,
+		cfg.Theme,
 		cfg.EQPreset,
 		strings.Join(eqParts, ", "),
 	)

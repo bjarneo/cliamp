@@ -7,6 +7,12 @@ import (
 	"github.com/gopxl/beep/v2/vorbis"
 )
 
+// Compile-time interface checks.
+var (
+	_ io.ReadCloser         = noCloseReader{}
+	_ beep.StreamSeekCloser = (*chainedOggStreamer)(nil)
+)
+
 // noCloseReader wraps an io.Reader with a Close that is a no-op.
 // This prevents vorbis.Decode from closing the underlying HTTP body
 // when we re-initialize the decoder for a new logical bitstream.

@@ -73,10 +73,12 @@ func (p *Player) Play(path string) error {
 
 	if p.started {
 		// Lock the speaker so the goroutine finishes any in-progress Stream()
-		// call before we swap the source. This prevents reading from a decoder
-		// that we're about to close.
+		// call before we swap the source and unpause. The ctrl.Paused write
+		// must happen under the speaker lock because the audio thread reads it
+		// on every Stream() call.
 		speaker.Lock()
 		p.gapless.Replace(tp.stream)
+		p.ctrl.Paused = false
 		speaker.Unlock()
 	}
 
@@ -109,8 +111,6 @@ func (p *Player) Play(path string) error {
 		return nil
 	}
 
-	// Unpause if paused
-	p.ctrl.Paused = false
 	p.playing = true
 	p.paused = false
 	p.mu.Unlock()
@@ -208,6 +208,7 @@ func (p *Player) Stop() {
 // Returns nil immediately for non-seekable streams (e.g., HTTP without ffmpeg).
 // The speaker lock is acquired first (outer), then p.mu briefly to snapshot
 // the current pipeline, ensuring consistent lock ordering with the audio thread.
+// Clears the preloaded next pipeline to prevent a stale gapless transition.
 func (p *Player) Seek(d time.Duration) error {
 	speaker.Lock()
 	defer speaker.Unlock()
@@ -226,7 +227,21 @@ func (p *Player) Seek(d time.Duration) error {
 	if newSample >= cur.decoder.Len() {
 		newSample = cur.decoder.Len() - 1
 	}
-	return cur.decoder.Seek(newSample)
+	if err := cur.decoder.Seek(newSample); err != nil {
+		return err
+	}
+	// Invalidate the preloaded next pipeline — the gapless transition point
+	// has moved and the old preload may be stale. The speaker lock is already
+	// held, so we can safely clear the gapless next stream.
+	p.gapless.SetNext(nil)
+	p.mu.Lock()
+	old := p.nextPipeline
+	p.nextPipeline = nil
+	p.mu.Unlock()
+	if old != nil {
+		old.close()
+	}
+	return nil
 }
 
 // Position returns the current playback position.
@@ -244,6 +259,8 @@ func (p *Player) Position() time.Duration {
 
 // Duration returns the total duration of the current track.
 func (p *Player) Duration() time.Duration {
+	speaker.Lock()
+	defer speaker.Unlock()
 	p.mu.Lock()
 	cur := p.current
 	p.mu.Unlock()
