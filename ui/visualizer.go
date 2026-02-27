@@ -12,7 +12,15 @@ import (
 const (
 	numBands = 10
 	fftSize  = 2048
-	barWidth = 6 // character width of each spectrum bar
+)
+
+// VisMode selects the visualizer rendering style.
+type VisMode int
+
+const (
+	VisBars   VisMode = iota // smooth fractional blocks
+	VisBricks                // solid bricks with gaps
+	visCount                 // sentinel for cycling
 )
 
 // Unicode block elements for bar height (9 levels including space)
@@ -33,6 +41,7 @@ type Visualizer struct {
 	prev [numBands]float64 // previous frame for temporal smoothing
 	sr   float64
 	buf  []float64 // reusable FFT buffer to avoid per-frame allocation
+	Mode VisMode
 }
 
 // NewVisualizer creates a Visualizer for the given sample rate.
@@ -40,6 +49,21 @@ func NewVisualizer(sampleRate float64) *Visualizer {
 	return &Visualizer{
 		sr:  sampleRate,
 		buf: make([]float64, fftSize),
+	}
+}
+
+// CycleMode advances to the next visualizer mode.
+func (v *Visualizer) CycleMode() {
+	v.Mode = (v.Mode + 1) % visCount
+}
+
+// ModeName returns the display name of the current mode.
+func (v *Visualizer) ModeName() string {
+	switch v.Mode {
+	case VisBricks:
+		return "Bricks"
+	default:
+		return "Bars"
 	}
 }
 
@@ -110,26 +134,35 @@ func (v *Visualizer) Analyze(samples []float64) [numBands]float64 {
 	return bands
 }
 
-// barHeight is the number of character rows for the spectrum bars.
-const barHeight = 5
-
-// Render converts band levels into a multi-row colored spectrum bar string.
+// Render dispatches to the active visualizer mode.
 func (v *Visualizer) Render(bands [numBands]float64) string {
-	lines := make([]string, barHeight)
+	switch v.Mode {
+	case VisBricks:
+		return v.renderBricks(bands)
+	default:
+		return v.renderBars(bands)
+	}
+}
 
-	for row := range barHeight {
+// renderBars is the default smooth spectrum with fractional Unicode blocks.
+func (v *Visualizer) renderBars(bands [numBands]float64) string {
+	const (
+		height = 5
+		bw     = 6 // character width per band
+	)
+
+	lines := make([]string, height)
+
+	for row := range height {
 		var sb strings.Builder
-		// threshold: top row = highest level, bottom row = lowest
-		rowBottom := float64(barHeight-1-row) / float64(barHeight)
-		rowTop := float64(barHeight-row) / float64(barHeight)
+		rowBottom := float64(height-1-row) / float64(height)
+		rowTop := float64(height-row) / float64(height)
 
 		for i, level := range bands {
 			var block string
 			if level >= rowTop {
-				// Fully filled row
 				block = "█"
 			} else if level > rowBottom {
-				// Partially filled — pick a fractional block
 				frac := (level - rowBottom) / (rowTop - rowBottom)
 				idx := int(frac * float64(len(barBlocks)-1))
 				idx = max(0, min(idx, len(barBlocks)-1))
@@ -138,18 +171,8 @@ func (v *Visualizer) Render(bands [numBands]float64) string {
 				block = " "
 			}
 
-			// Color gradient based on row height
-			var style lipgloss.Style
-			switch {
-			case rowBottom >= 0.6:
-				style = specHighStyle
-			case rowBottom >= 0.3:
-				style = specMidStyle
-			default:
-				style = specLowStyle
-			}
-
-			sb.WriteString(style.Render(strings.Repeat(block, barWidth)))
+			style := specStyle(rowBottom)
+			sb.WriteString(style.Render(strings.Repeat(block, bw)))
 			if i < numBands-1 {
 				sb.WriteString(" ")
 			}
@@ -158,4 +181,51 @@ func (v *Visualizer) Render(bands [numBands]float64) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// renderBricks draws solid block columns with visible gaps between rows and bands.
+// Uses half-height blocks (▄) so each brick is half a terminal row, with blank
+// gaps between them, keeping total height equal to the bars visualizer.
+func (v *Visualizer) renderBricks(bands [numBands]float64) string {
+	const (
+		height = 5
+		bw     = 6 // character width per band
+		gap    = 1 // space between bands
+	)
+
+	lines := make([]string, height)
+	pad := strings.Repeat(" ", gap)
+	blank := strings.Repeat(" ", bw)
+
+	for row := range height {
+		var sb strings.Builder
+		rowThreshold := float64(height-1-row) / float64(height)
+
+		for i, level := range bands {
+			style := specStyle(rowThreshold)
+			if level > rowThreshold {
+				sb.WriteString(style.Render(strings.Repeat("▄", bw)))
+			} else {
+				sb.WriteString(blank)
+			}
+			if i < numBands-1 {
+				sb.WriteString(pad)
+			}
+		}
+		lines[row] = sb.String()
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// specStyle returns the spectrum color style for a given row height (0-1).
+func specStyle(rowBottom float64) lipgloss.Style {
+	switch {
+	case rowBottom >= 0.6:
+		return specHighStyle
+	case rowBottom >= 0.3:
+		return specMidStyle
+	default:
+		return specLowStyle
+	}
 }

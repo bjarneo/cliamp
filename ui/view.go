@@ -87,6 +87,7 @@ func (m Model) renderKeymapOverlay() string {
 		{"m", "Toggle mono"},
 		{"e", "Cycle EQ preset"},
 		{"t", "Choose theme"},
+		{"v", "Cycle visualizer"},
 		{"↑ ↓", "Playlist scroll / EQ adjust"},
 		{"h l", "EQ cursor left/right"},
 		{"Enter", "Play selected track"},
@@ -491,7 +492,7 @@ func (m Model) renderHelp() string {
 	if !track.Stream && strings.HasPrefix(track.Path, os.TempDir()) {
 		help += "[S]Save "
 	}
-	help += "[+-]Vol [m]Mono [e]EQ [t]Theme [a]Queue [/]Search "
+	help += "[+-]Vol [m]Mono [e]EQ [t]Theme [v]Vis [a]Queue [/]Search "
 
 	// Conditionally show the back button if a provider is configured
 	if m.provider != nil {

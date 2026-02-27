@@ -203,6 +203,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	case "t":
 		m.openThemePicker()
 
+	case "v":
+		m.vis.CycleMode()
+
 	case "ctrl+k":
 		m.showKeymap = true
 	}

@@ -35,7 +35,7 @@ curl -fsSL https://raw.githubusercontent.com/bjarneo/cliamp/HEAD/install.sh | sh
 │  ▶ 1. Song One                                                   │
 │    2. Song Two                                                   │
 │                                                                  │
-│  [Spc]⏯ [<>]Trk [←→]Seek [+-]Vol [m]Mono [e]EQ [/]Search [Q]Quit │
+│  [Spc]⏯ [<>]Trk [←→]Seek [+-]Vol [m]Mono [e]EQ [t]Theme [v]Vis [Q]Quit │
 │                                                                  │
 ╰──────────────────────────────────────────────────────────────────╯
 ```
@@ -161,6 +161,8 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 | `h` `l` | EQ cursor left/right |
 | `Enter` | Play selected track |
 | `e` | Cycle EQ preset |
+| `t` | Choose theme |
+| `v` | Cycle visualizer |
 | `/` | Search playlist |
 | `a` | Toggle queue (play next) |
 | `r` | Cycle repeat (Off / All / One) |
