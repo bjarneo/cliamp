@@ -29,6 +29,8 @@ func run() error {
 		provider = c
 	}
 
+	defer resolve.CleanupYTDL()
+
 	resolved, err := resolve.Args(os.Args[1:])
 	if err != nil {
 		return err
@@ -41,10 +43,14 @@ func run() error {
   HTTP stream     cliamp https://example.com/song.mp3
   Radio / M3U     cliamp http://radio.example.com/stream.m3u
   Podcast feed    cliamp https://example.com/podcast/feed.xml
+  SoundCloud      cliamp https://soundcloud.com/user/sets/playlist
+  YouTube         cliamp https://www.youtube.com/watch?v=...
+  Bandcamp        cliamp https://artist.bandcamp.com/album/...
 
   Navidrome       Set NAVIDROME_URL, NAVIDROME_USER, NAVIDROME_PASS
 
-Formats: mp3, wav, flac, ogg, m4a, aac, opus, wma (aac/opus/wma need ffmpeg)`)
+Formats: mp3, wav, flac, ogg, m4a, aac, opus, wma (aac/opus/wma need ffmpeg)
+SoundCloud/YouTube/Bandcamp require yt-dlp (brew install yt-dlp)`)
 	}
 
 	pl := playlist.New()

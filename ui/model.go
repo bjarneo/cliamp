@@ -67,6 +67,10 @@ type Model struct {
 	// Live stream title from ICY metadata (e.g., "Artist - Song")
 	streamTitle string
 
+	// Temporary status message (e.g., "Saved to ...")
+	saveMsg    string
+	saveMsgTTL int // ticks remaining before clearing
+
 	// MPRIS D-Bus service (nil on non-Linux or if D-Bus unavailable)
 	mpris *mpris.Service
 }
@@ -156,6 +160,20 @@ type streamPlayedMsg struct{ err error }
 // streamPreloadedMsg signals that async stream Preload() completed.
 type streamPreloadedMsg struct{}
 
+// ytdlResolvedMsg carries a lazily resolved yt-dlp track (direct audio URL).
+type ytdlResolvedMsg struct {
+	index int
+	track playlist.Track
+	err   error
+}
+
+func resolveYTDLCmd(index int, pageURL string) tea.Cmd {
+	return func() tea.Msg {
+		track, err := resolve.ResolveYTDLTrack(pageURL)
+		return ytdlResolvedMsg{index: index, track: track, err: err}
+	}
+}
+
 func playStreamCmd(p *player.Player, path string) tea.Cmd {
 	return func() tea.Msg {
 		return streamPlayedMsg{err: p.Play(path)}
@@ -212,6 +230,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tickMsg:
+		// Expire temporary status messages.
+		if m.saveMsgTTL > 0 {
+			m.saveMsgTTL--
+			if m.saveMsgTTL == 0 {
+				m.saveMsg = ""
+			}
+		}
 		// Surface stream errors (e.g., connection drops) before checking track done
 		if err := m.player.StreamErr(); err != nil {
 			m.err = err
@@ -277,6 +302,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamPreloadedMsg:
 		return m, nil
+
+	case ytdlResolvedMsg:
+		m.buffering = false
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		// Update the track with the downloaded local file and metadata.
+		m.playlist.SetTrack(msg.index, msg.track)
+		// Play the local file (seekable).
+		cmd := m.playTrack(msg.track)
+		m.notifyMPRIS()
+		return m, cmd
 
 	case error:
 		m.err = msg
@@ -357,8 +395,16 @@ func (m *Model) playCurrentTrack() tea.Cmd {
 }
 
 // playTrack plays a track, using async HTTP for streams and sync I/O for local files.
+// yt-dlp URLs are lazily resolved to direct audio streams before playback.
 func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 	m.streamTitle = ""
+	// Lazy-resolve yt-dlp URLs (SoundCloud, YouTube, etc.) to direct audio streams.
+	if playlist.IsYTDL(track.Path) {
+		m.buffering = true
+		m.err = nil
+		_, idx := m.playlist.Current()
+		return resolveYTDLCmd(idx, track.Path)
+	}
 	if track.Stream {
 		m.buffering = true
 		m.err = nil
@@ -378,6 +424,10 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 func (m *Model) preloadNext() tea.Cmd {
 	next, ok := m.playlist.PeekNext()
 	if !ok {
+		return nil
+	}
+	// Can't preload yt-dlp tracks — they need lazy resolution first.
+	if playlist.IsYTDL(next.Path) {
 		return nil
 	}
 	if next.Stream {

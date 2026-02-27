@@ -4,11 +4,13 @@ package resolve
 
 import (
 	"bufio"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -32,7 +34,7 @@ func Args(args []string) (Result, error) {
 
 	for _, arg := range args {
 		if playlist.IsURL(arg) {
-			if playlist.IsFeed(arg) || playlist.IsM3U(arg) {
+			if playlist.IsFeed(arg) || playlist.IsM3U(arg) || playlist.IsYTDL(arg) {
 				r.Pending = append(r.Pending, arg)
 			} else {
 				files = append(files, arg)
@@ -63,6 +65,12 @@ func Remote(urls []string) ([]playlist.Track, error) {
 	var tracks []playlist.Track
 	for _, u := range urls {
 		switch {
+		case playlist.IsYTDL(u):
+			t, err := resolveYTDL(u)
+			if err != nil {
+				return nil, fmt.Errorf("resolving yt-dlp %s: %w", u, err)
+			}
+			tracks = append(tracks, t...)
 		case playlist.IsFeed(u):
 			t, err := resolveFeed(u)
 			if err != nil {
@@ -173,4 +181,165 @@ func resolveM3U(m3uURL string) ([]string, error) {
 		urls = append(urls, line)
 	}
 	return urls, scanner.Err()
+}
+
+// ytdlFlatEntry holds JSON fields from yt-dlp --flat-playlist output.
+type ytdlFlatEntry struct {
+	URL                string `json:"url"`
+	WebpageURL         string `json:"webpage_url"`
+	Title              string `json:"title"`
+	Uploader           string `json:"uploader"`
+	PlaylistUploader   string `json:"playlist_uploader"`
+	WebpageURLBasename string `json:"webpage_url_basename"`
+}
+
+// ytdlFullEntry holds JSON fields from yt-dlp --print-json output (download mode).
+type ytdlFullEntry struct {
+	Title    string `json:"title"`
+	Uploader string `json:"uploader"`
+	Filename string `json:"_filename"`
+}
+
+// ytdlTempDirs tracks temp directories created by ResolveYTDLTrack for cleanup.
+var ytdlTempDirs []string
+
+// CleanupYTDL removes all temp files created by yt-dlp downloads.
+func CleanupYTDL() {
+	for _, d := range ytdlTempDirs {
+		os.RemoveAll(d)
+	}
+}
+
+// resolveYTDL uses yt-dlp --flat-playlist to quickly enumerate tracks.
+// Tracks are returned with their page URLs as Path (not direct audio URLs).
+// Use ResolveYTDLTrack to lazily resolve individual tracks before playback.
+func resolveYTDL(pageURL string) ([]playlist.Track, error) {
+	if _, err := exec.LookPath("yt-dlp"); err != nil {
+		return nil, fmt.Errorf("yt-dlp not found in PATH — install it with: brew install yt-dlp")
+	}
+
+	cmd := exec.Command("yt-dlp", "--flat-playlist", "-j", pageURL)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	stdout, err := cmd.Output()
+	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			return nil, fmt.Errorf("yt-dlp: %s", msg)
+		}
+		return nil, fmt.Errorf("yt-dlp: %w", err)
+	}
+
+	var tracks []playlist.Track
+	scanner := bufio.NewScanner(strings.NewReader(string(stdout)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var e ytdlFlatEntry
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			continue
+		}
+		trackURL := e.WebpageURL
+		if trackURL == "" {
+			trackURL = e.URL
+		}
+		if trackURL == "" {
+			continue
+		}
+		title := e.Title
+		if title == "" {
+			title = humanizeBasename(e.WebpageURLBasename)
+		}
+		if title == "" {
+			title = trackURL
+		}
+		artist := e.Uploader
+		if artist == "" {
+			artist = e.PlaylistUploader
+		}
+		tracks = append(tracks, playlist.Track{
+			Path:   trackURL,
+			Title:  title,
+			Artist: artist,
+			Stream: true,
+		})
+	}
+	return tracks, scanner.Err()
+}
+
+// ResolveYTDLTrack downloads a single track via yt-dlp to a temp file and
+// returns a Track pointing to the local file. Local files are seekable,
+// unlike HTTP streams.
+func ResolveYTDLTrack(pageURL string) (playlist.Track, error) {
+	tmpDir, err := os.MkdirTemp("", "cliamp-ytdl-")
+	if err != nil {
+		return playlist.Track{}, fmt.Errorf("creating temp dir: %w", err)
+	}
+	ytdlTempDirs = append(ytdlTempDirs, tmpDir)
+
+	outTemplate := filepath.Join(tmpDir, "%(id)s.%(ext)s")
+	cmd := exec.Command("yt-dlp",
+		"-f", "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio",
+		"--no-playlist",
+		"--print-json",
+		"-o", outTemplate,
+		pageURL)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	stdout, err := cmd.Output()
+	if err != nil {
+		os.RemoveAll(tmpDir)
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			return playlist.Track{}, fmt.Errorf("yt-dlp: %s", msg)
+		}
+		return playlist.Track{}, fmt.Errorf("yt-dlp: %w", err)
+	}
+
+	var e ytdlFullEntry
+	if err := json.Unmarshal(stdout, &e); err != nil {
+		// Best-effort: find the file in tmpDir even if JSON parsing fails.
+		e.Filename = findFirstFile(tmpDir)
+	}
+
+	filePath := e.Filename
+	if filePath == "" {
+		filePath = findFirstFile(tmpDir)
+	}
+	if filePath == "" {
+		os.RemoveAll(tmpDir)
+		return playlist.Track{}, fmt.Errorf("yt-dlp: no file downloaded for %s", pageURL)
+	}
+
+	title := e.Title
+	if title == "" {
+		title = pageURL
+	}
+	return playlist.Track{
+		Path:   filePath,
+		Title:  title,
+		Artist: e.Uploader,
+		Stream: false,
+	}, nil
+}
+
+// findFirstFile returns the path of the first file in a directory, or "".
+func findFirstFile(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			return filepath.Join(dir, e.Name())
+		}
+	}
+	return ""
+}
+
+// humanizeBasename converts a URL basename like "clr-podcast-467" into "clr podcast 467".
+func humanizeBasename(s string) string {
+	return strings.ReplaceAll(s, "-", " ")
 }

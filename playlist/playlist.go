@@ -55,6 +55,32 @@ func IsM3U(path string) bool {
 	return ext == ".m3u" || ext == ".m3u8"
 }
 
+// IsYTDL reports whether the URL points to a site supported by yt-dlp
+// (SoundCloud, YouTube, Bandcamp, etc.).
+func IsYTDL(path string) bool {
+	if !IsURL(path) {
+		return false
+	}
+	u, err := url.Parse(path)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	host = strings.TrimPrefix(host, "www.")
+	host = strings.TrimPrefix(host, "m.")
+	switch host {
+	case "soundcloud.com",
+		"youtube.com", "youtu.be", "music.youtube.com",
+		"bandcamp.com":
+		return true
+	}
+	// Bandcamp artist subdomains (e.g. artist.bandcamp.com)
+	if strings.HasSuffix(host, ".bandcamp.com") {
+		return true
+	}
+	return false
+}
+
 // IsFeed reports whether the URL points to a podcast RSS/XML feed.
 func IsFeed(path string) bool {
 	if !IsURL(path) {
@@ -285,6 +311,13 @@ func (p *Playlist) QueuePosition(trackIdx int) int {
 
 // QueueLen returns the number of tracks in the queue.
 func (p *Playlist) QueueLen() int { return len(p.queue) }
+
+// SetTrack replaces the track at index i.
+func (p *Playlist) SetTrack(i int, t Track) {
+	if i >= 0 && i < len(p.tracks) {
+		p.tracks[i] = t
+	}
+}
 
 // Tracks returns all tracks in the playlist.
 func (p *Playlist) Tracks() []Track { return p.tracks }

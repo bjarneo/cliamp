@@ -1,6 +1,11 @@
 package ui
 
 import (
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -176,6 +181,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 			}
 		}
 
+	case "S":
+		m.saveTrack()
+
 	case "m":
 		m.player.ToggleMono()
 
@@ -192,6 +200,81 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	}
 
 	return nil
+}
+
+// saveTrack copies the current track to ~/Music/cliamp/ with a clean filename.
+// Only works for downloaded yt-dlp tracks (temp files).
+func (m *Model) saveTrack() {
+	track, idx := m.playlist.Current()
+	if idx < 0 {
+		m.saveMsg = "Nothing to save"
+		m.saveMsgTTL = 40 // ~2s at 50ms ticks
+		return
+	}
+
+	// Only save local temp files (yt-dlp downloads), not streams or user's own files.
+	if track.Stream || !strings.HasPrefix(track.Path, os.TempDir()) {
+		m.saveMsg = "Only downloaded tracks can be saved"
+		m.saveMsgTTL = 40
+		return
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		m.saveMsg = fmt.Sprintf("Save failed: %s", err)
+		m.saveMsgTTL = 40
+		return
+	}
+
+	saveDir := filepath.Join(home, "Music", "cliamp")
+	if err := os.MkdirAll(saveDir, 0o755); err != nil {
+		m.saveMsg = fmt.Sprintf("Save failed: %s", err)
+		m.saveMsgTTL = 40
+		return
+	}
+
+	ext := filepath.Ext(track.Path)
+	name := track.Title
+	if track.Artist != "" {
+		name = track.Artist + " - " + name
+	}
+	// Sanitize filename: remove path separators and other problematic chars.
+	name = strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|' {
+			return '_'
+		}
+		return r
+	}, name)
+
+	dest := filepath.Join(saveDir, name+ext)
+
+	if err := copyFile(track.Path, dest); err != nil {
+		m.saveMsg = fmt.Sprintf("Save failed: %s", err)
+		m.saveMsgTTL = 40
+		return
+	}
+
+	m.saveMsg = fmt.Sprintf("Saved to ~/Music/cliamp/%s", name+ext)
+	m.saveMsgTTL = 60 // ~3s
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
 }
 
 // handleSearchKey processes key presses while in search mode.
