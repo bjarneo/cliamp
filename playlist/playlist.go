@@ -103,12 +103,13 @@ func IsFeed(path string) bool {
 
 // TrackFromPath creates a Track by parsing the filename or URL.
 // Supports "Artist - Title" format, otherwise uses the filename as title.
+// Non-Latin filenames encoded in legacy codepages are re-decoded to UTF-8.
 func TrackFromPath(path string) Track {
 	if IsURL(path) {
 		return trackFromURL(path)
 	}
 	base := filepath.Base(path)
-	name := strings.TrimSuffix(base, filepath.Ext(base))
+	name := sanitizeTag(strings.TrimSuffix(base, filepath.Ext(base)))
 	parts := strings.SplitN(name, " - ", 2)
 	if len(parts) == 2 {
 		return Track{Path: path, Artist: strings.TrimSpace(parts[0]), Title: strings.TrimSpace(parts[1])}
