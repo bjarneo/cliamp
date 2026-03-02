@@ -235,6 +235,7 @@ func (c *NavidromeClient) Tracks(id string) ([]playlist.Track, error) {
 					Year        int    `json:"year"`
 					TrackNumber int    `json:"track"`
 					Genre       string `json:"genre"`
+					Duration    int    `json:"duration"`
 				} `json:"entry"`
 			} `json:"playlist"`
 		} `json:"subsonic-response"`
@@ -249,14 +250,15 @@ func (c *NavidromeClient) Tracks(id string) ([]playlist.Track, error) {
 	var tracks []playlist.Track
 	for _, t := range result.SubsonicResponse.Playlist.Entry {
 		tracks = append(tracks, playlist.Track{
-			Path:        c.streamURL(t.ID),
-			Title:       t.Title,
-			Artist:      t.Artist,
-			Album:       t.Album,
-			Year:        t.Year,
-			TrackNumber: t.TrackNumber,
-			Genre:       t.Genre,
-			Stream:      true,
+			Path:         c.streamURL(t.ID),
+			Title:        t.Title,
+			Artist:       t.Artist,
+			Album:        t.Album,
+			Year:         t.Year,
+			TrackNumber:  t.TrackNumber,
+			Genre:        t.Genre,
+			Stream:       true,
+			DurationSecs: t.Duration,
 		})
 	}
 	return tracks, nil
@@ -445,6 +447,7 @@ func (c *NavidromeClient) AlbumTracks(albumID string) ([]playlist.Track, error) 
 					Year        int    `json:"year"`
 					TrackNumber int    `json:"track"`
 					Genre       string `json:"genre"`
+					Duration    int    `json:"duration"`
 				} `json:"song"`
 			} `json:"album"`
 		} `json:"subsonic-response"`
@@ -459,14 +462,15 @@ func (c *NavidromeClient) AlbumTracks(albumID string) ([]playlist.Track, error) 
 	var tracks []playlist.Track
 	for _, s := range result.SubsonicResponse.Album.Song {
 		tracks = append(tracks, playlist.Track{
-			Path:        c.streamURL(s.ID),
-			Title:       s.Title,
-			Artist:      s.Artist,
-			Album:       s.Album,
-			Year:        s.Year,
-			TrackNumber: s.TrackNumber,
-			Genre:       s.Genre,
-			Stream:      true,
+			Path:         c.streamURL(s.ID),
+			Title:        s.Title,
+			Artist:       s.Artist,
+			Album:        s.Album,
+			Year:         s.Year,
+			TrackNumber:  s.TrackNumber,
+			Genre:        s.Genre,
+			Stream:       true,
+			DurationSecs: s.Duration,
 		})
 	}
 	return tracks, nil

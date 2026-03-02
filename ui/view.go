@@ -529,8 +529,8 @@ func (m Model) renderFullVisualizer() string {
 }
 
 func (m Model) renderSeekBar() string {
-	// Show a static streaming bar for non-seekable streams
-	if !m.player.Seekable() && m.player.IsPlaying() {
+	// Show a static streaming bar for non-seekable streams with no known duration.
+	if !m.player.Seekable() && m.player.IsPlaying() && m.player.Duration() == 0 {
 		label := " STREAMING "
 		pad := panelWidth - lipgloss.Width(label)
 		left := pad / 2

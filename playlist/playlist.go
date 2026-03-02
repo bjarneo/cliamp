@@ -31,14 +31,15 @@ func (r RepeatMode) String() string {
 
 // Track represents a single audio file or HTTP stream.
 type Track struct {
-	Path        string
-	Title       string
-	Artist      string
-	Album       string
-	Genre       string
-	Year        int
-	TrackNumber int
-	Stream      bool // true for HTTP/HTTPS URLs
+	Path         string
+	Title        string
+	Artist       string
+	Album        string
+	Genre        string
+	Year         int
+	TrackNumber  int
+	Stream       bool // true for HTTP/HTTPS URLs
+	DurationSecs int  // known duration in seconds (0 = unknown)
 }
 
 // IsURL reports whether path is an HTTP or HTTPS URL.

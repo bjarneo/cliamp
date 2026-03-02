@@ -3,17 +3,19 @@ package player
 import (
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/gopxl/beep/v2"
 )
 
 // trackPipeline bundles a decoded track's resources.
 type trackPipeline struct {
-	decoder  beep.StreamSeekCloser // raw decoder (for Position/Duration/Seek)
-	stream   beep.Streamer         // decoder + optional resample (fed to gapless)
-	format   beep.Format
-	seekable bool
-	rc       io.ReadCloser // source file/HTTP body
+	decoder       beep.StreamSeekCloser // raw decoder (for Position/Duration/Seek)
+	stream        beep.Streamer         // decoder + optional resample (fed to gapless)
+	format        beep.Format
+	seekable      bool
+	rc            io.ReadCloser // source file/HTTP body
+	knownDuration time.Duration // metadata duration hint (0 = unknown); used when decoder.Len()==0
 }
 
 // close releases the pipeline's resources.

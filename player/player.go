@@ -76,11 +76,14 @@ func New(q Quality) (*Player, error) {
 // Play opens and starts playing an audio file. On the first call it builds
 // the long-lived EQ → volume → tap → ctrl chain and starts the speaker.
 // Subsequent calls swap only the track source via the gapless streamer.
-func (p *Player) Play(path string) error {
+// knownDuration is the metadata duration (use 0 if unknown); it is used as a
+// fallback when the decoder cannot determine the length (e.g. HTTP streams).
+func (p *Player) Play(path string, knownDuration time.Duration) error {
 	tp, err := p.buildPipeline(path)
 	if err != nil {
 		return err
 	}
+	tp.knownDuration = knownDuration
 
 	// Collect old pipelines to close after releasing locks.
 	var oldCurrent, oldNext *trackPipeline
@@ -136,11 +139,13 @@ func (p *Player) Play(path string) error {
 }
 
 // Preload builds a pipeline for the next track and queues it for gapless transition.
-func (p *Player) Preload(path string) error {
+// knownDuration is the metadata duration (use 0 if unknown).
+func (p *Player) Preload(path string, knownDuration time.Duration) error {
 	tp, err := p.buildPipeline(path)
 	if err != nil {
 		return err
 	}
+	tp.knownDuration = knownDuration
 
 	// Lock speaker to atomically swap the gapless next stream, ensuring no
 	// in-flight transition reads from the old pipeline we're about to close.
@@ -278,6 +283,9 @@ func (p *Player) Position() time.Duration {
 }
 
 // Duration returns the total duration of the current track.
+// For seekable local files it is derived from the decoder's sample count.
+// For HTTP streams where the decoder reports Len()==0, the metadata hint
+// stored at pipeline build time (knownDuration) is returned instead.
 func (p *Player) Duration() time.Duration {
 	speaker.Lock()
 	defer speaker.Unlock()
@@ -287,7 +295,10 @@ func (p *Player) Duration() time.Duration {
 	if cur == nil {
 		return 0
 	}
-	return cur.format.SampleRate.D(cur.decoder.Len())
+	if n := cur.decoder.Len(); n > 0 {
+		return cur.format.SampleRate.D(n)
+	}
+	return cur.knownDuration
 }
 
 // SetVolume sets the volume in dB, clamped to [-30, +6].
@@ -352,6 +363,13 @@ func (p *Player) IsPaused() bool {
 // Drained returns true if the current track ended with no preloaded next track.
 func (p *Player) Drained() bool {
 	return p.gapless.Drained()
+}
+
+// HasPreload returns true if a next track is already queued for gapless transition.
+func (p *Player) HasPreload() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.nextPipeline != nil
 }
 
 // StreamTitle returns the current ICY stream title (e.g., "Artist - Song").
