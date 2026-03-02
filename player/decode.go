@@ -49,10 +49,11 @@ func isURL(path string) bool {
 	return strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://")
 }
 
-// sourceResult holds the opened stream and optional HTTP Content-Type.
+// sourceResult holds the opened stream and optional HTTP metadata.
 type sourceResult struct {
-	body        io.ReadCloser
-	contentType string // e.g. "audio/aacp"; empty for local files
+	body          io.ReadCloser
+	contentType   string // e.g. "audio/aacp"; empty for local files
+	contentLength int64  // -1 if unknown; from Content-Length header for HTTP
 }
 
 // openSource returns a ReadCloser for the given path, handling both
@@ -62,9 +63,16 @@ type sourceResult struct {
 // If the server responds with icy-metaint, the body is wrapped in an icyReader
 // that strips metadata and fires onMeta with each StreamTitle update.
 func openSource(path string, onMeta func(string)) (sourceResult, error) {
+	return openSourceAt(path, 0, onMeta)
+}
+
+// openSourceAt is like openSource but starts the HTTP stream at the given byte
+// offset using an HTTP Range request (Range: bytes=offset-). For local files
+// the offset is ignored (use decoder.Seek for local files).
+func openSourceAt(path string, byteOffset int64, onMeta func(string)) (sourceResult, error) {
 	if !isURL(path) {
 		f, err := os.Open(path)
-		return sourceResult{body: f}, err
+		return sourceResult{body: f, contentLength: -1}, err
 	}
 	req, err := http.NewRequest("GET", path, nil)
 	if err != nil {
@@ -73,12 +81,16 @@ func openSource(path string, onMeta func(string)) (sourceResult, error) {
 	req.Header.Set("User-Agent", "cliamp/1.0 (https://github.com/bjarneo/cliamp)")
 	// Request ICY metadata — servers that don't support it simply ignore this header.
 	req.Header.Set("Icy-MetaData", "1")
+	if byteOffset > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", byteOffset))
+	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return sourceResult{}, fmt.Errorf("http get: %w", err)
 	}
-	if resp.StatusCode != http.StatusOK {
+	// Accept 200 OK (full response) or 206 Partial Content (range response).
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		resp.Body.Close()
 		return sourceResult{}, fmt.Errorf("http status %s", resp.Status)
 	}
@@ -92,7 +104,11 @@ func openSource(path string, onMeta func(string)) (sourceResult, error) {
 		}
 	}
 
-	return sourceResult{body: body, contentType: resp.Header.Get("Content-Type")}, nil
+	return sourceResult{
+		body:          body,
+		contentType:   resp.Header.Get("Content-Type"),
+		contentLength: resp.ContentLength,
+	}, nil
 }
 
 // extFromContentType maps an HTTP Content-Type to a file extension.

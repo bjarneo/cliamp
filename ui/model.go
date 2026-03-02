@@ -62,6 +62,7 @@ const (
 	tickFast = 50 * time.Millisecond  // 20 FPS — visualizer active
 	tickSlow = 200 * time.Millisecond // 5 FPS — visualizer off or overlay
 )
+
 // streamPreloadLeadTime is how far before the end of a stream we arm the
 // gapless next pipeline. Preloading too early causes premature track skips
 // when the server's transcoded stream ends slightly before the true duration.
@@ -685,6 +686,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.player.IsPlaying() && !m.player.IsPaused() {
 			m.titleOff++
 		}
+		// Retry deferred stream preload: preloadNext() returns nil (defers) when
+		// the current stream has >streamPreloadLeadTime remaining. Poll every tick
+		// until we're within the window and the preload gets armed.
+		if m.player.IsPlaying() && !m.player.IsPaused() && !m.buffering && !m.player.HasPreload() {
+			if cmd := m.preloadNext(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
 
 		// Use fast ticks only when the visualizer is rendering; otherwise
 		// slow ticks are enough for time/seek updates and save significant
@@ -896,7 +905,16 @@ func (m *Model) nextTrack() tea.Cmd {
 // prevTrack goes to the previous track, or restarts if >3s into the current one.
 func (m *Model) prevTrack() tea.Cmd {
 	if m.player.Position() > 3*time.Second {
-		m.player.Seek(-m.player.Position())
+		if m.player.Seekable() {
+			// Local file or seekable stream: jump back to the beginning.
+			m.player.Seek(-m.player.Position())
+			return nil
+		}
+		// Non-seekable stream (e.g. Icecast radio): restart by replaying the URL.
+		track, idx := m.playlist.Current()
+		if idx >= 0 {
+			return m.playTrack(track)
+		}
 		return nil
 	}
 	track, ok := m.playlist.Prev()

@@ -16,6 +16,14 @@ type trackPipeline struct {
 	seekable      bool
 	rc            io.ReadCloser // source file/HTTP body
 	knownDuration time.Duration // metadata duration hint (0 = unknown); used when decoder.Len()==0
+
+	// HTTP stream seek-by-reconnect fields.
+	// seekableStream is true when the server returned a Content-Length and we
+	// know the total duration, so we can reconnect with a Range header.
+	seekableStream bool
+	contentLength  int64         // Content-Length from the initial HTTP response
+	path           string        // original URL (needed to reconnect for seek)
+	streamOffset   time.Duration // playback time offset of the current ranged connection
 }
 
 // close releases the pipeline's resources.
@@ -38,7 +46,16 @@ func closePipelines(ps ...*trackPipeline) {
 }
 
 // buildPipeline opens and decodes a track, returning a ready-to-play pipeline.
+// knownDuration is passed in so seek-by-reconnect can be enabled for HTTP streams
+// that provide a Content-Length. Call buildPipelineAt to open a ranged stream.
 func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
+	return p.buildPipelineAt(path, 0, 0)
+}
+
+// buildPipelineAt is like buildPipeline but starts the HTTP stream at byteOffset
+// (using a Range: bytes=N- header) and records timeOffset as the playback origin.
+// For local files byteOffset is ignored; use decoder.Seek instead.
+func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.Duration) (*trackPipeline, error) {
 	// Clear stream title on each new pipeline build.
 	p.streamTitle.Store("")
 
@@ -48,7 +65,7 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 		onMeta = p.setStreamTitle
 	}
 
-	src, err := openSource(path, onMeta)
+	src, err := openSourceAt(path, byteOffset, onMeta)
 	if err != nil {
 		return nil, err
 	}
@@ -127,13 +144,25 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 		s = beep.Resample(p.resampleQuality, format.SampleRate, p.sr, s)
 	}
 
-	return &trackPipeline{
-		decoder:  decoder,
-		stream:   s,
-		format:   format,
-		seekable: seekable,
-		rc:       pipelineRC,
-	}, nil
+	tp := &trackPipeline{
+		decoder:      decoder,
+		stream:       s,
+		format:       format,
+		seekable:     seekable,
+		rc:           pipelineRC,
+		path:         path,
+		streamOffset: timeOffset,
+	}
+
+	// Mark HTTP streams with a known Content-Length as seek-by-reconnect capable.
+	// We need contentLength > 0 to compute byte offsets; knownDuration is checked
+	// later in Seek() when it is set on the pipeline.
+	if isURL(path) && !seekable && src.contentLength > 0 {
+		tp.seekableStream = true
+		tp.contentLength = src.contentLength
+	}
+
+	return tp, nil
 }
 
 // buildChainedOggPipeline creates a pipeline with a chainedOggStreamer for
