@@ -87,19 +87,13 @@ HTTP/HTTPS paths are automatically treated as streams.
 
 ### Browsing and Loading Playlists
 
-When TOML playlists exist on disk, running `cliamp` without arguments opens the playlist browser:
+Running `cliamp` without arguments connects to the built-in radio channel. If Navidrome is configured, it opens the provider browser instead.
 
-```sh
-cliamp
-```
-
-Navigate with `Up`/`Down` (or `j`/`k`) and press `Enter` to load a playlist. Tracks are added to the player and playback starts immediately.
-
-To switch to a different playlist, press `Esc` or `b` during playback to return to the browser and pick another one. Press `Tab` to jump back to the now-playing playlist without reloading.
+To browse your local playlists, press `Esc` or `b` during playback to open the provider browser. Navigate with `Up`/`Down` (or `j`/`k`) and press `Enter` to load a playlist. Tracks replace the current playlist and playback starts immediately. Press `Tab` to jump back to the now-playing playlist without reloading.
 
 If Navidrome is also configured, both sources appear in the same list with provider labels (e.g., `[Navidrome] Jazz`, `[Local Playlists] favorites`).
 
-You can also start with CLI files and browse playlists later — press `Esc`/`b` to open the browser at any time:
+You can start with CLI files and browse playlists later:
 
 ```sh
 cliamp song.mp3                    # starts playing, Esc opens browser

@@ -94,13 +94,9 @@ title = "My Song"
 artist = "My Artist"
 ```
 
-Run `cliamp` without arguments to browse and play your playlists:
+Press `p` to open the playlist manager where you can browse playlists, add the currently playing track, remove tracks, and delete playlists. Select "+ New Playlist..." to create one from scratch.
 
-```sh
-./cliamp                           # opens playlist browser
-```
-
-Use arrow keys to navigate, Enter to load a playlist. Press `Esc`/`b` during playback to return to the browser and pick another. Press `p` to open the playlist manager — browse playlists, add/remove tracks, and delete playlists.
+If you have local playlists or Navidrome configured, press `Esc`/`b` to open the provider browser and switch between playlists. Without any arguments or providers, cliamp connects to the built-in radio channel.
 
 See [docs/playlists.md](docs/playlists.md) for the full guide.
 

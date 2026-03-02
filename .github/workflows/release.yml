@@ -175,6 +175,9 @@ jobs:
           class Cliamp < Formula
             desc "A retro terminal music player inspired by Winamp 2.x"
             homepage "https://github.com/bjarneo/cliamp"
+
+            depends_on "ffmpeg" => :recommended
+            depends_on "yt-dlp" => :recommended
           FORMULA
 
           cat >> Formula/cliamp.rb << EOF
