@@ -34,3 +34,14 @@ eq_preset = "Flat"
 # Bands: 70Hz, 180Hz, 320Hz, 600Hz, 1kHz, 3kHz, 6kHz, 12kHz, 14kHz, 16kHz
 # Only used when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+# ---
+# Navidrome / Subsonic server (optional)
+# When configured, cliamp opens the playlist browser on startup and streams
+# tracks directly from your server.
+# These values take precedence over the NAVIDROME_URL / NAVIDROME_USER /
+# NAVIDROME_PASS environment variables when both are present.
+# [navidrome]
+# url      = "https://music.example.com"
+# user     = "alice"
+# password = "secret"

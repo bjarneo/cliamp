@@ -30,7 +30,10 @@ func run(overrides config.Overrides, positional []string) error {
 	overrides.Apply(&cfg)
 
 	var navProv playlist.Provider
-	if c := navidrome.NewFromEnv(); c != nil {
+	// Config file takes precedence; fall back to environment variables.
+	if c := navidrome.NewFromConfig(cfg.Navidrome); c != nil {
+		navProv = c
+	} else if c := navidrome.NewFromEnv(); c != nil {
 		navProv = c
 	}
 	localProv := local.New()
@@ -153,8 +156,9 @@ Examples:
   cliamp https://www.youtube.com/watch?v=...
 
 Environment:
-  NAVIDROME_URL, NAVIDROME_USER, NAVIDROME_PASS   Navidrome server
+  NAVIDROME_URL, NAVIDROME_USER, NAVIDROME_PASS   Navidrome server (env fallback)
 
+Config:    ~/.config/cliamp/config.toml  (see config.toml.example)
 Playlists: ~/.config/cliamp/playlists/*.toml
 Formats:   mp3, wav, flac, ogg, m4a, aac, opus, wma (aac/opus/wma need ffmpeg)
 SoundCloud/YouTube/Bandcamp require yt-dlp`

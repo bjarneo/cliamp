@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"cliamp/config"
 	"cliamp/playlist"
 )
 
@@ -38,6 +39,15 @@ func NewFromEnv() *NavidromeClient {
 		return nil
 	}
 	return New(u, user, pass)
+}
+
+// NewFromConfig creates a NavidromeClient from a config.NavidromeConfig value.
+// Returns nil if any of the required fields (URL, User, Password) are empty.
+func NewFromConfig(cfg config.NavidromeConfig) *NavidromeClient {
+	if !cfg.IsSet() {
+		return nil
+	}
+	return New(cfg.URL, cfg.User, cfg.Password)
 }
 
 func (c *NavidromeClient) Name() string {

@@ -21,6 +21,19 @@ func configPath() (string, error) {
 	return filepath.Join(home, ".config", "cliamp", "config.toml"), nil
 }
 
+// NavidromeConfig holds credentials for a Navidrome/Subsonic server.
+// All three fields must be non-empty for a client to be constructed.
+type NavidromeConfig struct {
+	URL      string // e.g. "https://music.example.com"
+	User     string
+	Password string
+}
+
+// IsSet reports whether all three Navidrome credentials are present.
+func (n NavidromeConfig) IsSet() bool {
+	return n.URL != "" && n.User != "" && n.Password != ""
+}
+
 // Config holds user preferences loaded from the config file.
 type Config struct {
 	Volume          float64     // dB, range [-30, +6]
@@ -29,10 +42,11 @@ type Config struct {
 	Repeat          string      // "off", "all", or "one"
 	Shuffle         bool
 	Mono            bool
-	Theme           string // theme name, or "" for ANSI default
-	SampleRate      int    // output sample rate: 22050, 44100, 48000, 96000, 192000
-	BufferMs        int    // speaker buffer in milliseconds (50–500)
-	ResampleQuality int    // beep resample quality factor (1–4)
+	Theme           string          // theme name, or "" for ANSI default
+	SampleRate      int             // output sample rate: 22050, 44100, 48000, 96000, 192000
+	BufferMs        int             // speaker buffer in milliseconds (50–500)
+	ResampleQuality int             // beep resample quality factor (1–4)
+	Navidrome       NavidromeConfig // optional Navidrome/Subsonic server credentials
 }
 
 // Default returns a Config with sensible defaults.
@@ -65,11 +79,19 @@ func Load() (Config, error) {
 	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
+	section := "" // current [section] header, empty = top-level
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+
+		// Section header: [navidrome]
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.ToLower(line[1 : len(line)-1])
+			continue
+		}
+
 		key, val, ok := strings.Cut(line, "=")
 		if !ok {
 			continue
@@ -77,38 +99,50 @@ func Load() (Config, error) {
 		key = strings.TrimSpace(key)
 		val = strings.TrimSpace(val)
 
-		switch key {
-		case "volume":
-			if v, err := strconv.ParseFloat(val, 64); err == nil {
-				cfg.Volume = v
+		switch section {
+		case "navidrome":
+			switch key {
+			case "url":
+				cfg.Navidrome.URL = strings.Trim(val, `"'`)
+			case "user":
+				cfg.Navidrome.User = strings.Trim(val, `"'`)
+			case "password":
+				cfg.Navidrome.Password = strings.Trim(val, `"'`)
 			}
-		case "repeat":
-			val = strings.Trim(val, `"'`)
-			switch strings.ToLower(val) {
-			case "all", "one", "off":
-				cfg.Repeat = strings.ToLower(val)
-			}
-		case "shuffle":
-			cfg.Shuffle = val == "true"
-		case "mono":
-			cfg.Mono = val == "true"
-		case "eq":
-			cfg.EQ = parseEQ(val)
-		case "eq_preset":
-			cfg.EQPreset = strings.Trim(val, `"'`)
-		case "theme":
-			cfg.Theme = strings.Trim(val, `"'`)
-		case "sample_rate":
-			if v, err := strconv.Atoi(val); err == nil {
-				cfg.SampleRate = v
-			}
-		case "buffer_ms":
-			if v, err := strconv.Atoi(val); err == nil {
-				cfg.BufferMs = v
-			}
-		case "resample_quality":
-			if v, err := strconv.Atoi(val); err == nil {
-				cfg.ResampleQuality = v
+		default:
+			switch key {
+			case "volume":
+				if v, err := strconv.ParseFloat(val, 64); err == nil {
+					cfg.Volume = v
+				}
+			case "repeat":
+				val = strings.Trim(val, `"'`)
+				switch strings.ToLower(val) {
+				case "all", "one", "off":
+					cfg.Repeat = strings.ToLower(val)
+				}
+			case "shuffle":
+				cfg.Shuffle = val == "true"
+			case "mono":
+				cfg.Mono = val == "true"
+			case "eq":
+				cfg.EQ = parseEQ(val)
+			case "eq_preset":
+				cfg.EQPreset = strings.Trim(val, `"'`)
+			case "theme":
+				cfg.Theme = strings.Trim(val, `"'`)
+			case "sample_rate":
+				if v, err := strconv.Atoi(val); err == nil {
+					cfg.SampleRate = v
+				}
+			case "buffer_ms":
+				if v, err := strconv.Atoi(val); err == nil {
+					cfg.BufferMs = v
+				}
+			case "resample_quality":
+				if v, err := strconv.Atoi(val); err == nil {
+					cfg.ResampleQuality = v
+				}
 			}
 		}
 	}
