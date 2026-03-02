@@ -45,3 +45,9 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # url      = "https://music.example.com"
 # user     = "alice"
 # password = "secret"
+#
+# Album browse sort order for the Navidrome browser (press N to open).
+# Valid values: alphabeticalByName, alphabeticalByArtist, newest, recent,
+#               frequent, starred, byYear, byGenre
+# This is updated automatically when you press [s] inside the browser.
+# browse_sort = alphabeticalByName

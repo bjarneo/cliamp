@@ -30,10 +30,13 @@ func run(overrides config.Overrides, positional []string) error {
 	overrides.Apply(&cfg)
 
 	var navProv playlist.Provider
+	var navClient *navidrome.NavidromeClient
 	// Config file takes precedence; fall back to environment variables.
 	if c := navidrome.NewFromConfig(cfg.Navidrome); c != nil {
+		navClient = c
 		navProv = c
 	} else if c := navidrome.NewFromEnv(); c != nil {
+		navClient = c
 		navProv = c
 	}
 	localProv := local.New()
@@ -80,7 +83,7 @@ func run(overrides config.Overrides, positional []string) error {
 
 	themes := theme.LoadAll()
 
-	m := ui.NewModel(p, pl, provider, localProv, themes)
+	m := ui.NewModel(p, pl, provider, localProv, themes, cfg.Navidrome, navClient)
 	m.SetPendingURLs(resolved.Pending)
 	if len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 {
 		m.StartInProvider()

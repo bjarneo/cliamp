@@ -8,7 +8,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"cliamp/config"
 	"cliamp/external/local"
+	"cliamp/external/navidrome"
 	"cliamp/mpris"
 	"cliamp/player"
 	"cliamp/playlist"
@@ -31,6 +33,25 @@ const (
 	plMgrScreenList plMgrScreenType = iota
 	plMgrScreenTracks
 	plMgrScreenNewName
+)
+
+// navBrowseModeType identifies which Navidrome browse mode is active.
+type navBrowseModeType int
+
+const (
+	navBrowseModeMenu          navBrowseModeType = iota // top-level mode selector
+	navBrowseModeByAlbum                                // paginated album list → track list
+	navBrowseModeByArtist                               // artist list → track list (album-separated)
+	navBrowseModeByArtistAlbum                          // artist list → album list → track list
+)
+
+// navBrowseScreenType identifies which screen within the active browse mode is shown.
+type navBrowseScreenType int
+
+const (
+	navBrowseScreenList   navBrowseScreenType = iota // first-level list (artists or albums)
+	navBrowseScreenAlbums                            // artist's albums (ArtistAlbum mode only)
+	navBrowseScreenTracks                            // final song list in any mode
 )
 
 type tickMsg time.Time
@@ -126,11 +147,38 @@ type Model struct {
 	fbCursor        int
 	fbSelected      map[string]bool
 	fbErr           string
+
+	// Navidrome explore browser overlay
+	showNavBrowser  bool
+	navClient       *navidrome.NavidromeClient // nil when Navidrome is not configured
+	navMode         navBrowseModeType
+	navScreen       navBrowseScreenType
+	navCursor       int
+	navScroll       int
+	navArtists      []navidrome.Artist
+	navAlbums       []navidrome.Album
+	navTracks       []playlist.Track
+	navSelArtist    navidrome.Artist
+	navSelAlbum     navidrome.Album
+	navSortType     string // current album sort type, persisted to config
+	navAlbumLoading bool   // true while an album page fetch is in progress
+	navAlbumDone    bool   // true once the server signals no more pages (isLast)
+	navLoading      bool   // general loading flag for artists/tracks
+	navSearching    bool   // true while the nav search bar is open
+	navSearch       string // current nav search query
+	navSearchIdx    []int  // filtered indices into the active list (nil = no filter)
 }
 
 // NewModel creates a Model wired to the given player and playlist.
 // localProv is an optional direct reference to the local provider for write ops.
-func NewModel(p *player.Player, pl *playlist.Playlist, prov playlist.Provider, localProv *local.Provider, themes []theme.Theme) Model {
+// navCfg is the Navidrome config used to seed the initial browse sort preference.
+// nav is the raw NavidromeClient (may be nil); stored directly so the browser
+// key handler doesn't have to unwrap a CompositeProvider.
+func NewModel(p *player.Player, pl *playlist.Playlist, prov playlist.Provider, localProv *local.Provider, themes []theme.Theme, navCfg config.NavidromeConfig, nav *navidrome.NavidromeClient) Model {
+	sortType := navCfg.BrowseSort
+	if sortType == "" {
+		sortType = navidrome.SortAlphabeticalByName
+	}
 	m := Model{
 		player:        p,
 		playlist:      pl,
@@ -140,6 +188,8 @@ func NewModel(p *player.Player, pl *playlist.Playlist, prov playlist.Provider, l
 		themes:        themes,
 		themeIdx:      -1, // Default (ANSI)
 		localProvider: localProv,
+		navSortType:   sortType,
+		navClient:     nav,
 	}
 	if prov != nil {
 		m.provider = prov
@@ -369,6 +419,164 @@ func fetchTracksCmd(prov playlist.Provider, playlistID string) tea.Cmd {
 	}
 }
 
+// — Navidrome browser message types —
+
+// navArtistsLoadedMsg carries the full artist list from getArtists.
+type navArtistsLoadedMsg []navidrome.Artist
+
+// navAlbumsLoadedMsg carries one page of albums and the fetch offset.
+type navAlbumsLoadedMsg struct {
+	albums []navidrome.Album
+	offset int  // the offset this page was requested at
+	isLast bool // true when the server returned fewer than the requested page size
+}
+
+// navTracksLoadedMsg carries the track list for the selected album/artist.
+type navTracksLoadedMsg []playlist.Track
+
+func fetchNavArtistsCmd(c *navidrome.NavidromeClient) tea.Cmd {
+	return func() tea.Msg {
+		artists, err := c.Artists()
+		if err != nil {
+			return err
+		}
+		return navArtistsLoadedMsg(artists)
+	}
+}
+
+func fetchNavArtistAlbumsCmd(c *navidrome.NavidromeClient, artistID string) tea.Cmd {
+	return func() tea.Msg {
+		albums, err := c.ArtistAlbums(artistID)
+		if err != nil {
+			return err
+		}
+		// Artist album lists are complete in one call — treat as last page.
+		return navAlbumsLoadedMsg{albums: albums, offset: 0, isLast: true}
+	}
+}
+
+const navAlbumPageSize = 100
+
+func fetchNavAlbumListCmd(c *navidrome.NavidromeClient, sortType string, offset int) tea.Cmd {
+	return func() tea.Msg {
+		albums, err := c.AlbumList(sortType, offset, navAlbumPageSize)
+		if err != nil {
+			return err
+		}
+		return navAlbumsLoadedMsg{
+			albums: albums,
+			offset: offset,
+			isLast: len(albums) < navAlbumPageSize,
+		}
+	}
+}
+
+func fetchNavAlbumTracksCmd(c *navidrome.NavidromeClient, albumID string) tea.Cmd {
+	return func() tea.Msg {
+		tracks, err := c.AlbumTracks(albumID)
+		if err != nil {
+			return err
+		}
+		return navTracksLoadedMsg(tracks)
+	}
+}
+
+func fetchNavArtistTracksCmd(c *navidrome.NavidromeClient, albums []navidrome.Album) tea.Cmd {
+	return func() tea.Msg {
+		var all []playlist.Track
+		for _, album := range albums {
+			tracks, err := c.AlbumTracks(album.ID)
+			if err != nil {
+				return err
+			}
+			all = append(all, tracks...)
+		}
+		return navTracksLoadedMsg(all)
+	}
+}
+
+// fetchNavArtistAllTracksCmd first fetches the artist's album list, then fetches
+// all tracks across every album. This is used by the "By Artist" browse mode.
+func (m *Model) fetchNavArtistAllTracksCmd(navClient *navidrome.NavidromeClient, artistID string) tea.Cmd {
+	return func() tea.Msg {
+		albums, err := navClient.ArtistAlbums(artistID)
+		if err != nil {
+			return err
+		}
+		var all []playlist.Track
+		for _, album := range albums {
+			tracks, err := navClient.AlbumTracks(album.ID)
+			if err != nil {
+				return err
+			}
+			all = append(all, tracks...)
+		}
+		return navTracksLoadedMsg(all)
+	}
+}
+
+// navUpdateSearch rebuilds navSearchIdx from the current navSearch query
+// against whichever list is active on the current nav screen.
+func (m *Model) navUpdateSearch() {
+	q := strings.ToLower(m.navSearch)
+	if q == "" {
+		m.navSearchIdx = nil
+		return
+	}
+	m.navSearchIdx = nil
+	switch {
+	case m.navMode == navBrowseModeByArtist && m.navScreen == navBrowseScreenList,
+		m.navMode == navBrowseModeByArtistAlbum && m.navScreen == navBrowseScreenList:
+		for i, a := range m.navArtists {
+			if strings.Contains(strings.ToLower(a.Name), q) {
+				m.navSearchIdx = append(m.navSearchIdx, i)
+			}
+		}
+	case m.navMode == navBrowseModeByAlbum && m.navScreen == navBrowseScreenList,
+		m.navMode == navBrowseModeByArtistAlbum && m.navScreen == navBrowseScreenAlbums:
+		for i, a := range m.navAlbums {
+			if strings.Contains(strings.ToLower(a.Name), q) ||
+				strings.Contains(strings.ToLower(a.Artist), q) {
+				m.navSearchIdx = append(m.navSearchIdx, i)
+			}
+		}
+	case m.navScreen == navBrowseScreenTracks:
+		for i, t := range m.navTracks {
+			if strings.Contains(strings.ToLower(t.Title), q) ||
+				strings.Contains(strings.ToLower(t.Artist), q) ||
+				strings.Contains(strings.ToLower(t.Album), q) {
+				m.navSearchIdx = append(m.navSearchIdx, i)
+			}
+		}
+	}
+}
+
+// navClearSearch resets the nav search state.
+func (m *Model) navClearSearch() {
+	m.navSearching = false
+	m.navSearch = ""
+	m.navSearchIdx = nil
+	m.navCursor = 0
+	m.navScroll = 0
+}
+
+func (m *Model) openNavBrowser() {
+	m.showNavBrowser = true
+	m.navMode = navBrowseModeMenu
+	m.navScreen = navBrowseScreenList
+	m.navCursor = 0
+	m.navScroll = 0
+	m.navArtists = nil
+	m.navAlbums = nil
+	m.navTracks = nil
+	m.navLoading = false
+	m.navAlbumLoading = false
+	m.navAlbumDone = false
+	m.navSearching = false
+	m.navSearch = ""
+	m.navSearchIdx = nil
+}
+
 // Init starts the tick timer and requests the terminal size.
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{tickCmd(), tea.WindowSize()}
@@ -470,6 +678,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notifyMPRIS()
 			return m, cmd
 		}
+		return m, nil
+
+	case navArtistsLoadedMsg:
+		m.navArtists = []navidrome.Artist(msg)
+		m.navLoading = false
+		m.navCursor = 0
+		m.navScroll = 0
+		return m, nil
+
+	case navAlbumsLoadedMsg:
+		if msg.offset == 0 {
+			// Fresh load (new sort or drill-in): replace the list.
+			m.navAlbums = msg.albums
+			m.navAlbumDone = false
+		} else {
+			// Lazy-load page: append.
+			m.navAlbums = append(m.navAlbums, msg.albums...)
+		}
+		if msg.isLast {
+			m.navAlbumDone = true
+		}
+		m.navAlbumLoading = false
+		if msg.offset == 0 {
+			m.navCursor = 0
+			m.navScroll = 0
+		}
+		// If we just loaded the first page and it was a full menu → list transition,
+		// also clear the general loading flag.
+		m.navLoading = false
+		return m, nil
+
+	case navTracksLoadedMsg:
+		m.navTracks = []playlist.Track(msg)
+		m.navLoading = false
+		m.navCursor = 0
+		m.navScroll = 0
+		m.navScreen = navBrowseScreenTracks
 		return m, nil
 
 	case feedsLoadedMsg:

@@ -24,9 +24,10 @@ func configPath() (string, error) {
 // NavidromeConfig holds credentials for a Navidrome/Subsonic server.
 // All three fields must be non-empty for a client to be constructed.
 type NavidromeConfig struct {
-	URL      string // e.g. "https://music.example.com"
-	User     string
-	Password string
+	URL        string // e.g. "https://music.example.com"
+	User       string
+	Password   string
+	BrowseSort string // album browse sort order, e.g. "alphabeticalByName"
 }
 
 // IsSet reports whether all three Navidrome credentials are present.
@@ -108,6 +109,8 @@ func Load() (Config, error) {
 				cfg.Navidrome.User = strings.Trim(val, `"'`)
 			case "password":
 				cfg.Navidrome.Password = strings.Trim(val, `"'`)
+			case "browse_sort":
+				cfg.Navidrome.BrowseSort = strings.Trim(val, `"'`)
 			}
 		default:
 			switch key {
@@ -191,6 +194,79 @@ func Save(key, value string) error {
 	}
 	if !found {
 		lines = append(lines, line)
+	}
+
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
+}
+
+// SaveNavidromeSort persists the given album browse sort type to the
+// [navidrome] section of the config file. It rewrites the browse_sort key
+// in-place, or appends it after the [navidrome] section if not present.
+// If no [navidrome] section exists, one is appended along with the key.
+func SaveNavidromeSort(sortType string) error {
+	path, err := configPath()
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+
+	line := fmt.Sprintf("browse_sort = %s", sortType)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		// No file: create with section + key.
+		return os.WriteFile(path, []byte("[navidrome]\n"+line+"\n"), 0o644)
+	}
+
+	lines := strings.Split(string(data), "\n")
+
+	// Try to replace an existing browse_sort inside [navidrome].
+	inNavidrome := false
+	for i, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			inNavidrome = strings.ToLower(trimmed[1:len(trimmed)-1]) == "navidrome"
+			continue
+		}
+		if inNavidrome {
+			k, _, ok := strings.Cut(trimmed, "=")
+			if ok && strings.TrimSpace(k) == "browse_sort" {
+				lines[i] = line
+				return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
+			}
+		}
+	}
+
+	// Key not found: append after the last line in the [navidrome] section,
+	// or append a new [navidrome] section at the end.
+	inNavidrome = false
+	insertAt := -1
+	for i, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			if inNavidrome && insertAt >= 0 {
+				break // we've moved past [navidrome]
+			}
+			inNavidrome = strings.ToLower(trimmed[1:len(trimmed)-1]) == "navidrome"
+		}
+		if inNavidrome {
+			insertAt = i
+		}
+	}
+
+	if insertAt >= 0 {
+		// Insert after the last line we saw inside [navidrome].
+		tail := append([]string{line}, lines[insertAt+1:]...)
+		lines = append(lines[:insertAt+1], tail...)
+	} else {
+		// No [navidrome] section found: append one.
+		lines = append(lines, "[navidrome]", line)
 	}
 
 	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)

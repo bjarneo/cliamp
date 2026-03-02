@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"cliamp/external/navidrome"
 	"cliamp/theme"
 )
 
@@ -33,6 +34,10 @@ func (m Model) View() string {
 
 	if m.showFileBrowser {
 		return m.renderFileBrowser()
+	}
+
+	if m.showNavBrowser {
+		return m.renderNavBrowser()
 	}
 
 	if m.showPlManager {
@@ -814,4 +819,401 @@ func (m Model) renderHelp() string {
 	parts += helpKey("+-", "Vol ") + helpKey("/", "Search ") + helpKey("a", "Queue ") + helpKey("Tab", "Focus ") + helpKey("Ctrl+K", "Keys ") + helpKey("Q", "Quit")
 
 	return parts
+}
+
+// — Navidrome browser renderers —
+
+func (m Model) renderNavBrowser() string {
+	switch m.navMode {
+	case navBrowseModeMenu:
+		return m.renderNavMenu()
+	case navBrowseModeByAlbum:
+		switch m.navScreen {
+		case navBrowseScreenTracks:
+			return m.renderNavTrackList()
+		default:
+			return m.renderNavAlbumList(false)
+		}
+	case navBrowseModeByArtist:
+		switch m.navScreen {
+		case navBrowseScreenTracks:
+			return m.renderNavTrackList()
+		default:
+			return m.renderNavArtistList()
+		}
+	case navBrowseModeByArtistAlbum:
+		switch m.navScreen {
+		case navBrowseScreenAlbums:
+			return m.renderNavAlbumList(true)
+		case navBrowseScreenTracks:
+			return m.renderNavTrackList()
+		default:
+			return m.renderNavArtistList()
+		}
+	}
+	return m.renderNavMenu()
+}
+
+func (m Model) renderNavMenu() string {
+	lines := []string{
+		titleStyle.Render("N A V I D R O M E"),
+		"",
+	}
+
+	items := []string{"By Album", "By Artist", "By Artist / Album"}
+	for i, item := range items {
+		if i == m.navCursor {
+			lines = append(lines, playlistSelectedStyle.Render("> "+item))
+		} else {
+			lines = append(lines, dimStyle.Render("  "+item))
+		}
+	}
+
+	lines = append(lines, "",
+		helpKey("↑↓", "Navigate ")+helpKey("Enter", "Select ")+helpKey("Esc", "Close"))
+
+	return m.centerOverlay(strings.Join(lines, "\n"))
+}
+
+func (m Model) renderNavArtistList() string {
+	lines := []string{
+		titleStyle.Render("A R T I S T S"),
+		"",
+	}
+
+	if m.navLoading && len(m.navArtists) == 0 {
+		lines = append(lines, dimStyle.Render("  Loading artists..."))
+		lines = append(lines, "", helpKey("Esc", "Back"))
+		return m.centerOverlay(strings.Join(lines, "\n"))
+	}
+
+	if len(m.navArtists) == 0 {
+		lines = append(lines, dimStyle.Render("  No artists found."))
+		lines = append(lines, "", helpKey("Esc", "Back"))
+		return m.centerOverlay(strings.Join(lines, "\n"))
+	}
+
+	maxVisible := m.plVisible
+	if maxVisible < 5 {
+		maxVisible = 5
+	}
+
+	// Use filtered index when a search is active.
+	list := m.navArtists
+	useFilter := len(m.navSearchIdx) > 0 || m.navSearch != ""
+
+	scroll := m.navScroll
+	rendered := 0
+	if useFilter {
+		for j := scroll; j < len(m.navSearchIdx) && rendered < maxVisible; j++ {
+			i := m.navSearchIdx[j]
+			a := list[i]
+			label := fmt.Sprintf("%s (%d albums)", a.Name, a.AlbumCount)
+			maxW := panelWidth - 6
+			lr := []rune(label)
+			if len(lr) > maxW {
+				label = string(lr[:maxW-1]) + "…"
+			}
+			if j == m.navCursor {
+				lines = append(lines, playlistSelectedStyle.Render("> "+label))
+			} else {
+				lines = append(lines, dimStyle.Render("  "+label))
+			}
+			rendered++
+		}
+	} else {
+		for i := scroll; i < len(list) && rendered < maxVisible; i++ {
+			a := list[i]
+			label := fmt.Sprintf("%s (%d albums)", a.Name, a.AlbumCount)
+			maxW := panelWidth - 6
+			lr := []rune(label)
+			if len(lr) > maxW {
+				label = string(lr[:maxW-1]) + "…"
+			}
+			if i == m.navCursor {
+				lines = append(lines, playlistSelectedStyle.Render("> "+label))
+			} else {
+				lines = append(lines, dimStyle.Render("  "+label))
+			}
+			rendered++
+		}
+	}
+
+	// Pad to fixed height.
+	for range maxVisible - rendered {
+		lines = append(lines, "")
+	}
+
+	if useFilter {
+		lines = append(lines, "",
+			dimStyle.Render(fmt.Sprintf("  %d/%d artists (filtered)", len(m.navSearchIdx), len(list))))
+	} else {
+		lines = append(lines, "",
+			dimStyle.Render(fmt.Sprintf("  %d/%d artists", m.navCursor+1, len(list))))
+	}
+
+	// Search bar or hint.
+	if m.navSearching {
+		lines = append(lines, "", playlistSelectedStyle.Render("  / "+m.navSearch+"_"))
+	} else if m.navSearch != "" {
+		lines = append(lines, "", dimStyle.Render("  / "+m.navSearch)+" "+helpKey("/", "Clear"))
+	} else {
+		lines = append(lines, "", helpKey("←↑↓→", "Navigate ")+helpKey("Enter", "Open ")+helpKey("/", "Search"))
+	}
+
+	return m.centerOverlay(strings.Join(lines, "\n"))
+}
+
+func (m Model) renderNavAlbumList(artistAlbums bool) string {
+	var titleStr string
+	if artistAlbums {
+		titleStr = titleStyle.Render("A L B U M S : " + m.navSelArtist.Name)
+	} else {
+		titleStr = titleStyle.Render("A L B U M S")
+	}
+
+	lines := []string{titleStr, ""}
+
+	if !artistAlbums {
+		sortLabel := navidrome.SortTypeLabel(m.navSortType)
+		lines = append(lines, dimStyle.Render("  Sort: ")+activeToggle.Render(sortLabel), "")
+	}
+
+	if m.navLoading && len(m.navAlbums) == 0 {
+		lines = append(lines, dimStyle.Render("  Loading albums..."))
+		if artistAlbums {
+			lines = append(lines, "", helpKey("Esc", "Back"))
+		} else {
+			lines = append(lines, "", helpKey("s", "Sort ")+helpKey("Esc", "Back"))
+		}
+		return m.centerOverlay(strings.Join(lines, "\n"))
+	}
+
+	if len(m.navAlbums) == 0 {
+		lines = append(lines, dimStyle.Render("  No albums found."))
+		if artistAlbums {
+			lines = append(lines, "", helpKey("Esc", "Back"))
+		} else {
+			lines = append(lines, "", helpKey("s", "Sort ")+helpKey("Esc", "Back"))
+		}
+		return m.centerOverlay(strings.Join(lines, "\n"))
+	}
+
+	maxVisible := m.plVisible
+	if maxVisible < 5 {
+		maxVisible = 5
+	}
+
+	list := m.navAlbums
+	useFilter := len(m.navSearchIdx) > 0 || m.navSearch != ""
+
+	scroll := m.navScroll
+	rendered := 0
+	if useFilter {
+		for j := scroll; j < len(m.navSearchIdx) && rendered < maxVisible; j++ {
+			i := m.navSearchIdx[j]
+			a := list[i]
+			var label string
+			if a.Year > 0 {
+				label = fmt.Sprintf("%s — %s (%d)", a.Name, a.Artist, a.Year)
+			} else {
+				label = fmt.Sprintf("%s — %s", a.Name, a.Artist)
+			}
+			maxW := panelWidth - 6
+			lr := []rune(label)
+			if len(lr) > maxW {
+				label = string(lr[:maxW-1]) + "…"
+			}
+			if j == m.navCursor {
+				lines = append(lines, playlistSelectedStyle.Render("> "+label))
+			} else {
+				lines = append(lines, dimStyle.Render("  "+label))
+			}
+			rendered++
+		}
+	} else {
+		for i := scroll; i < len(list) && rendered < maxVisible; i++ {
+			a := list[i]
+			var label string
+			if a.Year > 0 {
+				label = fmt.Sprintf("%s — %s (%d)", a.Name, a.Artist, a.Year)
+			} else {
+				label = fmt.Sprintf("%s — %s", a.Name, a.Artist)
+			}
+			maxW := panelWidth - 6
+			lr := []rune(label)
+			if len(lr) > maxW {
+				label = string(lr[:maxW-1]) + "…"
+			}
+			if i == m.navCursor {
+				lines = append(lines, playlistSelectedStyle.Render("> "+label))
+			} else {
+				lines = append(lines, dimStyle.Render("  "+label))
+			}
+			rendered++
+		}
+	}
+
+	// Pad to fixed height.
+	for range maxVisible - rendered {
+		lines = append(lines, "")
+	}
+
+	// Loading indicator when fetching next page.
+	if m.navAlbumLoading {
+		lines = append(lines, dimStyle.Render("  Loading more..."))
+	} else if useFilter {
+		lines = append(lines, dimStyle.Render(fmt.Sprintf("  %d/%d albums (filtered)", len(m.navSearchIdx), len(list))))
+	} else {
+		lines = append(lines, dimStyle.Render(fmt.Sprintf("  %d/%d albums", m.navCursor+1, len(list))))
+	}
+	lines = append(lines, "")
+
+	// Search bar or help line.
+	if m.navSearching {
+		lines = append(lines, playlistSelectedStyle.Render("  / "+m.navSearch+"_"))
+	} else if m.navSearch != "" {
+		lines = append(lines, dimStyle.Render("  / "+m.navSearch)+" "+helpKey("/", "Clear"))
+	} else if artistAlbums {
+		lines = append(lines,
+			helpKey("←↑↓→", "Navigate ")+helpKey("Enter", "Open ")+helpKey("/", "Search"))
+	} else {
+		lines = append(lines,
+			helpKey("←↑↓→", "Navigate ")+helpKey("Enter", "Open ")+helpKey("s", "Sort ")+helpKey("/", "Search"))
+	}
+
+	return m.centerOverlay(strings.Join(lines, "\n"))
+}
+
+func (m Model) renderNavTrackList() string {
+	// Build a breadcrumb title based on the active mode.
+	var breadcrumb string
+	switch m.navMode {
+	case navBrowseModeByArtist:
+		breadcrumb = "A R T I S T : " + m.navSelArtist.Name
+	case navBrowseModeByAlbum:
+		breadcrumb = "A L B U M : " + m.navSelAlbum.Name
+	case navBrowseModeByArtistAlbum:
+		breadcrumb = m.navSelArtist.Name + " / " + m.navSelAlbum.Name
+	}
+
+	lines := []string{titleStyle.Render(breadcrumb), ""}
+
+	if m.navLoading && len(m.navTracks) == 0 {
+		lines = append(lines, dimStyle.Render("  Loading tracks..."))
+		lines = append(lines, "", helpKey("Esc", "Back"))
+		return m.centerOverlay(strings.Join(lines, "\n"))
+	}
+
+	if len(m.navTracks) == 0 {
+		lines = append(lines, dimStyle.Render("  No tracks found."))
+		lines = append(lines, "", helpKey("Esc", "Back"))
+		return m.centerOverlay(strings.Join(lines, "\n"))
+	}
+
+	maxVisible := m.plVisible
+	if maxVisible < 5 {
+		maxVisible = 5
+	}
+
+	list := m.navTracks
+	useFilter := len(m.navSearchIdx) > 0 || m.navSearch != ""
+
+	scroll := m.navScroll
+	rendered := 0
+
+	if useFilter {
+		for j := scroll; j < len(m.navSearchIdx) && rendered < maxVisible; j++ {
+			i := m.navSearchIdx[j]
+			t := list[i]
+			name := t.DisplayName()
+			maxW := panelWidth - 8
+			nr := []rune(name)
+			if len(nr) > maxW {
+				name = string(nr[:maxW-1]) + "…"
+			}
+			label := fmt.Sprintf("%d. %s", i+1, name)
+			if j == m.navCursor {
+				lines = append(lines, playlistSelectedStyle.Render("> "+label))
+			} else {
+				lines = append(lines, dimStyle.Render("  "+label))
+			}
+			rendered++
+		}
+	} else {
+		prevAlbum := ""
+		if scroll > 0 {
+			prevAlbum = list[scroll-1].Album
+		}
+
+		for i := scroll; i < len(list) && rendered < maxVisible; i++ {
+			t := list[i]
+
+			// Album separator header when album changes.
+			if album := t.Album; album != "" && album != prevAlbum {
+				label := "── " + album
+				if t.Year != 0 {
+					label += fmt.Sprintf(" (%d)", t.Year)
+				}
+				label += " "
+				labelLen := len([]rune(label))
+				if labelLen < panelWidth {
+					label += strings.Repeat("─", panelWidth-labelLen)
+				}
+				lines = append(lines, dimStyle.Render(label))
+				if rendered >= maxVisible {
+					break
+				}
+			}
+			prevAlbum = t.Album
+
+			name := t.DisplayName()
+			maxW := panelWidth - 8
+			nr := []rune(name)
+			if len(nr) > maxW {
+				name = string(nr[:maxW-1]) + "…"
+			}
+
+			label := fmt.Sprintf("%d. %s", i+1, name)
+			if i == m.navCursor {
+				lines = append(lines, playlistSelectedStyle.Render("> "+label))
+			} else {
+				lines = append(lines, dimStyle.Render("  "+label))
+			}
+			rendered++
+		}
+	}
+
+	// Pad to fixed height.
+	for range maxVisible - rendered {
+		lines = append(lines, "")
+	}
+
+	if useFilter {
+		lines = append(lines, "",
+			dimStyle.Render(fmt.Sprintf("  %d/%d tracks (filtered)", len(m.navSearchIdx), len(list))))
+	} else {
+		lines = append(lines, "",
+			dimStyle.Render(fmt.Sprintf("  %d/%d tracks", m.navCursor+1, len(list))))
+	}
+
+	// Search bar or help line.
+	if m.navSearching {
+		lines = append(lines, "", playlistSelectedStyle.Render("  / "+m.navSearch+"_"))
+	} else if m.navSearch != "" {
+		lines = append(lines, "", dimStyle.Render("  / "+m.navSearch)+" "+helpKey("/", "Clear"))
+	} else {
+		lines = append(lines, "",
+			helpKey("←↑↓→", "Navigate ")+
+				helpKey("Enter", "Play ")+
+				helpKey("R", "Replace ")+
+				helpKey("a", "Append ")+
+				helpKey("/", "Search"))
+	}
+
+	if m.saveMsg != "" {
+		lines = append(lines, "", statusStyle.Render(m.saveMsg))
+	}
+
+	return m.centerOverlay(strings.Join(lines, "\n"))
 }

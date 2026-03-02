@@ -17,6 +17,72 @@ import (
 // httpClient is used for all Navidrome API calls with a finite timeout.
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
+// Sort type constants for album browsing (Subsonic getAlbumList2 "type" parameter).
+const (
+	SortAlphabeticalByName   = "alphabeticalByName"
+	SortAlphabeticalByArtist = "alphabeticalByArtist"
+	SortNewest               = "newest"
+	SortRecent               = "recent"
+	SortFrequent             = "frequent"
+	SortStarred              = "starred"
+	SortByYear               = "byYear"
+	SortByGenre              = "byGenre"
+)
+
+// SortTypes is the ordered list of sort modes used for cycling.
+var SortTypes = []string{
+	SortAlphabeticalByName,
+	SortAlphabeticalByArtist,
+	SortNewest,
+	SortRecent,
+	SortFrequent,
+	SortStarred,
+	SortByYear,
+	SortByGenre,
+}
+
+// SortTypeLabel returns a human-readable label for a sort type constant.
+func SortTypeLabel(s string) string {
+	switch s {
+	case SortAlphabeticalByName:
+		return "Alphabetical by Name"
+	case SortAlphabeticalByArtist:
+		return "Alphabetical by Artist"
+	case SortNewest:
+		return "Newest"
+	case SortRecent:
+		return "Recently Played"
+	case SortFrequent:
+		return "Most Played"
+	case SortStarred:
+		return "Starred"
+	case SortByYear:
+		return "By Year"
+	case SortByGenre:
+		return "By Genre"
+	default:
+		return s
+	}
+}
+
+// Artist represents a Navidrome/Subsonic artist entry.
+type Artist struct {
+	ID         string
+	Name       string
+	AlbumCount int
+}
+
+// Album represents a Navidrome/Subsonic album entry.
+type Album struct {
+	ID        string
+	Name      string
+	Artist    string
+	ArtistID  string
+	Year      int
+	SongCount int
+	Genre     string
+}
+
 // NavidromeClient implements playlist.Provider for a Navidrome/Subsonic server.
 type NavidromeClient struct {
 	url      string
@@ -124,9 +190,13 @@ func (c *NavidromeClient) Tracks(id string) ([]playlist.Track, error) {
 		SubsonicResponse struct {
 			Playlist struct {
 				Entry []struct {
-					ID     string `json:"id"`
-					Title  string `json:"title"`
-					Artist string `json:"artist"`
+					ID          string `json:"id"`
+					Title       string `json:"title"`
+					Artist      string `json:"artist"`
+					Album       string `json:"album"`
+					Year        int    `json:"year"`
+					TrackNumber int    `json:"track"`
+					Genre       string `json:"genre"`
 				} `json:"entry"`
 			} `json:"playlist"`
 		} `json:"subsonic-response"`
@@ -138,10 +208,204 @@ func (c *NavidromeClient) Tracks(id string) ([]playlist.Track, error) {
 	var tracks []playlist.Track
 	for _, t := range result.SubsonicResponse.Playlist.Entry {
 		tracks = append(tracks, playlist.Track{
-			Path:   c.streamURL(t.ID),
-			Title:  t.Title,
-			Artist: t.Artist,
-			Stream: true,
+			Path:        c.streamURL(t.ID),
+			Title:       t.Title,
+			Artist:      t.Artist,
+			Album:       t.Album,
+			Year:        t.Year,
+			TrackNumber: t.TrackNumber,
+			Genre:       t.Genre,
+			Stream:      true,
+		})
+	}
+	return tracks, nil
+}
+
+// Artists returns all artists from the server, flattening the index structure.
+func (c *NavidromeClient) Artists() ([]Artist, error) {
+	resp, err := httpClient.Get(c.buildURL("getArtists", nil))
+	if err != nil {
+		return nil, fmt.Errorf("navidrome: getArtists: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("navidrome: getArtists: http status %s", resp.Status)
+	}
+
+	var result struct {
+		SubsonicResponse struct {
+			Artists struct {
+				Index []struct {
+					Artist []struct {
+						ID         string `json:"id"`
+						Name       string `json:"name"`
+						AlbumCount int    `json:"albumCount"`
+					} `json:"artist"`
+				} `json:"index"`
+			} `json:"artists"`
+		} `json:"subsonic-response"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("navidrome: getArtists: %w", err)
+	}
+
+	var artists []Artist
+	for _, idx := range result.SubsonicResponse.Artists.Index {
+		for _, a := range idx.Artist {
+			artists = append(artists, Artist{
+				ID:         a.ID,
+				Name:       a.Name,
+				AlbumCount: a.AlbumCount,
+			})
+		}
+	}
+	return artists, nil
+}
+
+// ArtistAlbums returns all albums for the given artist ID.
+func (c *NavidromeClient) ArtistAlbums(artistID string) ([]Album, error) {
+	resp, err := httpClient.Get(c.buildURL("getArtist", url.Values{"id": {artistID}}))
+	if err != nil {
+		return nil, fmt.Errorf("navidrome: getArtist: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("navidrome: getArtist: http status %s", resp.Status)
+	}
+
+	var result struct {
+		SubsonicResponse struct {
+			Artist struct {
+				Album []struct {
+					ID        string `json:"id"`
+					Name      string `json:"name"`
+					Artist    string `json:"artist"`
+					ArtistID  string `json:"artistId"`
+					Year      int    `json:"year"`
+					SongCount int    `json:"songCount"`
+					Genre     string `json:"genre"`
+				} `json:"album"`
+			} `json:"artist"`
+		} `json:"subsonic-response"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("navidrome: getArtist: %w", err)
+	}
+
+	var albums []Album
+	for _, a := range result.SubsonicResponse.Artist.Album {
+		albums = append(albums, Album{
+			ID:        a.ID,
+			Name:      a.Name,
+			Artist:    a.Artist,
+			ArtistID:  a.ArtistID,
+			Year:      a.Year,
+			SongCount: a.SongCount,
+			Genre:     a.Genre,
+		})
+	}
+	return albums, nil
+}
+
+// AlbumList returns a page of albums sorted by sortType.
+// offset and size control pagination; size should be ≤ 500.
+func (c *NavidromeClient) AlbumList(sortType string, offset, size int) ([]Album, error) {
+	if sortType == "" {
+		sortType = SortAlphabeticalByName
+	}
+	params := url.Values{
+		"type":   {sortType},
+		"offset": {fmt.Sprintf("%d", offset)},
+		"size":   {fmt.Sprintf("%d", size)},
+	}
+	resp, err := httpClient.Get(c.buildURL("getAlbumList2", params))
+	if err != nil {
+		return nil, fmt.Errorf("navidrome: getAlbumList2: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("navidrome: getAlbumList2: http status %s", resp.Status)
+	}
+
+	var result struct {
+		SubsonicResponse struct {
+			AlbumList2 struct {
+				Album []struct {
+					ID        string `json:"id"`
+					Name      string `json:"name"`
+					Artist    string `json:"artist"`
+					ArtistID  string `json:"artistId"`
+					Year      int    `json:"year"`
+					SongCount int    `json:"songCount"`
+					Genre     string `json:"genre"`
+				} `json:"album"`
+			} `json:"albumList2"`
+		} `json:"subsonic-response"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("navidrome: getAlbumList2: %w", err)
+	}
+
+	var albums []Album
+	for _, a := range result.SubsonicResponse.AlbumList2.Album {
+		albums = append(albums, Album{
+			ID:        a.ID,
+			Name:      a.Name,
+			Artist:    a.Artist,
+			ArtistID:  a.ArtistID,
+			Year:      a.Year,
+			SongCount: a.SongCount,
+			Genre:     a.Genre,
+		})
+	}
+	return albums, nil
+}
+
+// AlbumTracks returns all tracks for the given album ID with full metadata.
+func (c *NavidromeClient) AlbumTracks(albumID string) ([]playlist.Track, error) {
+	resp, err := httpClient.Get(c.buildURL("getAlbum", url.Values{"id": {albumID}}))
+	if err != nil {
+		return nil, fmt.Errorf("navidrome: getAlbum: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("navidrome: getAlbum: http status %s", resp.Status)
+	}
+
+	var result struct {
+		SubsonicResponse struct {
+			Album struct {
+				Song []struct {
+					ID          string `json:"id"`
+					Title       string `json:"title"`
+					Artist      string `json:"artist"`
+					Album       string `json:"album"`
+					Year        int    `json:"year"`
+					TrackNumber int    `json:"track"`
+					Genre       string `json:"genre"`
+				} `json:"song"`
+			} `json:"album"`
+		} `json:"subsonic-response"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("navidrome: getAlbum: %w", err)
+	}
+
+	var tracks []playlist.Track
+	for _, s := range result.SubsonicResponse.Album.Song {
+		tracks = append(tracks, playlist.Track{
+			Path:        c.streamURL(s.ID),
+			Title:       s.Title,
+			Artist:      s.Artist,
+			Album:       s.Album,
+			Year:        s.Year,
+			TrackNumber: s.TrackNumber,
+			Genre:       s.Genre,
+			Stream:      true,
 		})
 	}
 	return tracks, nil

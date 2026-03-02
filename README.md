@@ -221,6 +221,7 @@ Flags can appear before, after, or between file arguments. See [docs/cli.md](doc
 | `/` | Search playlist |
 | `x` | Expand/collapse playlist |
 | `o` | Open file browser |
+| `N` | Navidrome browser |
 | `a` | Toggle queue (play next) |
 | `A` | Queue manager |
 | `p` | Playlist manager |
