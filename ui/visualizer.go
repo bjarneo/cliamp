@@ -111,6 +111,34 @@ func (v *Visualizer) ModeName() string {
 	}
 }
 
+// StringToVisMode converts a visualizer mode name (case-insensitive) to VisMode.
+// Returns VisBars (default) if the name is not recognized or empty.
+func StringToVisMode(name string) VisMode {
+	if name == "" {
+		return VisBars
+	}
+	switch strings.ToLower(name) {
+	case "bars":
+		return VisBars
+	case "bricks":
+		return VisBricks
+	case "columns":
+		return VisColumns
+	case "wave":
+		return VisWave
+	case "scatter":
+		return VisScatter
+	case "flame":
+		return VisFlame
+	case "retro":
+		return VisRetro
+	case "none":
+		return VisNone
+	default:
+		return VisBars
+	}
+}
+
 // Analyze runs FFT on raw audio samples and returns 10 normalized band levels (0-1).
 func (v *Visualizer) Analyze(samples []float64) [numBands]float64 {
 	v.frame++

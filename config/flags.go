@@ -13,6 +13,7 @@ type Overrides struct {
 	Repeat          *string
 	Mono            *bool
 	Theme           *string
+	Visualizer      *string
 	EQPreset        *string
 	SampleRate      *int
 	BufferMs        *int
@@ -36,6 +37,9 @@ func (o Overrides) Apply(cfg *Config) {
 	}
 	if o.Theme != nil {
 		cfg.Theme = *o.Theme
+	}
+	if o.Visualizer != nil {
+		cfg.Visualizer = *o.Visualizer
 	}
 	if o.EQPreset != nil {
 		cfg.EQPreset = *o.EQPreset
@@ -113,6 +117,12 @@ func ParseFlags(args []string) (action string, ov Overrides, positional []string
 				return "", ov, nil, e
 			}
 			ov.Theme = &v
+		case "--visualizer":
+			v, e := requireNextString(args, &i, arg)
+			if e != nil {
+				return "", ov, nil, e
+			}
+			ov.Visualizer = &v
 		case "--eq-preset":
 			v, e := requireNextString(args, &i, arg)
 			if e != nil {

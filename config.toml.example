@@ -35,6 +35,12 @@ eq_preset = "Flat"
 # Only used when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
+# UI theme name (check ~/.config/cliamp/themes/ for available themes)
+# theme = "Tokyo Night"
+
+# Visualizer mode: Bars, Bricks, Columns, Wave, Scatter, Flame, Retro, or None
+# visualizer = "Bars"
+
 # ---
 # Navidrome / Subsonic server (optional)
 # When configured, cliamp opens the playlist browser on startup and streams

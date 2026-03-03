@@ -183,6 +183,13 @@ eq_preset = "Flat"
 # Bands: 70Hz, 180Hz, 320Hz, 600Hz, 1kHz, 3kHz, 6kHz, 12kHz, 14kHz, 16kHz
 # Only used when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+# Visualizer mode (leave empty for default Bars)
+# Options: Bars, Bricks, Columns, Wave, Scatter, Flame, Retro, None
+visualizer = "Bars"
+
+# UI theme name (see available themes in ~/.config/cliamp/themes/)
+theme = "Tokyo Night"
 ```
 
 ## CLI Flags
@@ -193,8 +200,12 @@ Override config options for a single session:
 cliamp --shuffle --volume -5 track.mp3
 cliamp track.mp3 --repeat all --mono
 cliamp --auto-play --theme "Amber CRT" ~/Music
+cliamp --visualizer Flame ~/Music
 cliamp --sample-rate 48000 --buffer-ms 200 track.mp3
+cliamp --eq-preset "Bass Boost" --visualizer Wave track.mp3
 ```
+
+Visualizer modes: `Bars`, `Bricks`, `Columns`, `Wave`, `Scatter`, `Flame`, `Retro`, or `None` (hidden).
 
 Flags can appear before, after, or between file arguments. See [docs/cli.md](docs/cli.md) for the full reference.
 

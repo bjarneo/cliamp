@@ -44,6 +44,7 @@ type Config struct {
 	Shuffle         bool
 	Mono            bool
 	Theme           string          // theme name, or "" for ANSI default
+	Visualizer      string          // visualizer mode name, or "" for default (Bars)
 	SampleRate      int             // output sample rate: 22050, 44100, 48000, 96000, 192000
 	BufferMs        int             // speaker buffer in milliseconds (50–500)
 	ResampleQuality int             // beep resample quality factor (1–4)
@@ -134,6 +135,8 @@ func Load() (Config, error) {
 				cfg.EQPreset = strings.Trim(val, `"'`)
 			case "theme":
 				cfg.Theme = strings.Trim(val, `"'`)
+			case "visualizer":
+				cfg.Visualizer = strings.Trim(val, `"'`)
 			case "sample_rate":
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.SampleRate = v

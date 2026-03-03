@@ -94,6 +94,9 @@ func run(overrides config.Overrides, positional []string) error {
 	if cfg.Theme != "" {
 		m.SetTheme(cfg.Theme)
 	}
+	if cfg.Visualizer != "" {
+		m.SetVisualizer(cfg.Visualizer)
+	}
 	if overrides.Play != nil && *overrides.Play {
 		m.SetAutoPlay(true)
 	}
@@ -140,6 +143,7 @@ Audio engine:
 
 Appearance:
   --theme <name>          UI theme name
+  --visualizer <mode>     Visualizer mode (Bars, Bricks, Columns, Wave, Scatter, Flame, Retro, None)
   --eq-preset <name>      EQ preset name (e.g. "Bass Boost")
 
 General:
