@@ -11,6 +11,7 @@ import (
 	"cliamp/config"
 	"cliamp/external/local"
 	"cliamp/external/navidrome"
+	"cliamp/lyrics"
 	"cliamp/mpris"
 	"cliamp/player"
 	"cliamp/playlist"
@@ -154,6 +155,12 @@ type Model struct {
 
 	// Full-screen visualizer mode (Shift+V)
 	fullVis bool
+
+	// Lyrics overlay
+	showLyrics    bool
+	lyricsLines   []lyrics.Line
+	lyricsLoading bool
+	lyricsErr     error
 
 	// Queue manager overlay
 	showQueue   bool
@@ -429,6 +436,19 @@ func resolveRemoteCmd(urls []string) tea.Cmd {
 			return err
 		}
 		return feedsLoadedMsg(tracks)
+	}
+}
+
+// lyricsLoadedMsg carries parsed LRC output.
+type lyricsLoadedMsg struct {
+	lines []lyrics.Line
+	err   error
+}
+
+func fetchLyricsCmd(artist, title string) tea.Cmd {
+	return func() tea.Msg {
+		lines, err := lyrics.Fetch(artist, title)
+		return lyricsLoadedMsg{lines: lines, err: err}
 	}
 }
 
@@ -867,6 +887,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case lyricsLoadedMsg:
+		m.lyricsLoading = false
+		m.lyricsErr = msg.err
+		if msg.err == nil {
+			m.lyricsLines = msg.lines
+		}
+		return m, nil
+
 	case fbTracksResolvedMsg:
 		if len(msg.tracks) == 0 {
 			m.saveMsg = "No audio files found"
@@ -1036,23 +1064,36 @@ func (m *Model) playCurrentTrack() tea.Cmd {
 // yt-dlp URLs are lazily resolved to direct audio streams before playback.
 func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 	m.streamTitle = ""
+
+	m.lyricsLines = nil
+	m.lyricsErr = nil
+	var fetchCmd tea.Cmd
+	if m.showLyrics && track.Artist != "" && track.Title != "" {
+		m.lyricsLoading = true
+		fetchCmd = fetchLyricsCmd(track.Artist, track.Title)
+	}
+
 	// Lazy-resolve yt-dlp URLs (SoundCloud, YouTube, etc.) to direct audio streams.
 	if playlist.IsYTDL(track.Path) {
 		m.buffering = true
 		m.err = nil
 		_, idx := m.playlist.Current()
-		return resolveYTDLCmd(idx, track.Path)
+		return tea.Batch(resolveYTDLCmd(idx, track.Path), fetchCmd)
 	}
 	dur := time.Duration(track.DurationSecs) * time.Second
 	if track.Stream {
 		m.buffering = true
 		m.err = nil
-		return playStreamCmd(m.player, track.Path, dur)
+		return tea.Batch(playStreamCmd(m.player, track.Path, dur), fetchCmd)
 	}
 	if err := m.player.Play(track.Path, dur); err != nil {
 		m.err = err
 	} else {
 		m.err = nil
+	}
+
+	if fetchCmd != nil {
+		return tea.Batch(m.preloadNext(), fetchCmd)
 	}
 	return m.preloadNext()
 }
