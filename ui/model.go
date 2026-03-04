@@ -780,6 +780,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// not a user-visible problem. Clear any pending error so the red
 			// message doesn't flash at every track transition.
 			m.err = nil
+			// Fire now-playing notification for the track the audio engine just
+			// started. playTrack() is not called on this path, so we must notify
+			// here explicitly.
+			if newTrack, idx := m.playlist.Current(); idx >= 0 {
+				m.nowPlaying(newTrack)
+			}
 			cmds = append(cmds, m.preloadNext())
 			m.notifyMPRIS()
 		}
