@@ -56,6 +56,10 @@ func (m Model) View() string {
 		return m.renderSearchOverlay()
 	}
 
+	if m.netSearching {
+		return m.renderNetSearchOverlay()
+	}
+
 	if m.fullVis {
 		return m.renderFullVisualizer()
 	}
@@ -827,6 +831,17 @@ func (m Model) renderSearchOverlay() string {
 	return m.centerOverlay(strings.Join(lines, "\n"))
 }
 
+func (m Model) renderNetSearchOverlay() string {
+	lines := []string{
+		titleStyle.Render("F I N D   O N L I N E"),
+		"",
+		playlistSelectedStyle.Render("  Search: " + m.netSearchQuery + "_"),
+		"",
+		helpKey("Enter", "Search & Queue ") + helpKey("Esc", "Cancel"),
+	}
+	return m.centerOverlay(strings.Join(lines, "\n"))
+}
+
 // helpKey renders a key in accent color inside dim brackets, followed by a dim label.
 func helpKey(key, label string) string {
 	return dimStyle.Render("[") + activeToggle.Render(key) + dimStyle.Render("]") + helpStyle.Render(label)
@@ -844,7 +859,7 @@ func (m Model) renderHelp() string {
 		parts += helpKey("←→", "Seek ")
 	}
 
-	parts += helpKey("+-", "Vol ") + helpKey("/", "Search ") + helpKey("a", "Queue ") + helpKey("Tab", "Focus ") + helpKey("Ctrl+K", "Keys ") + helpKey("Q", "Quit")
+	parts += helpKey("+-", "Vol ") + helpKey("/", "Search ") + helpKey("f", "Find ") + helpKey("a", "Queue ") + helpKey("Tab", "Focus ") + helpKey("Ctrl+K", "Keys ") + helpKey("Q", "Quit")
 
 	return parts
 }

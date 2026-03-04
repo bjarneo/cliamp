@@ -25,6 +25,7 @@ const (
 	focusEQ
 	focusSearch
 	focusProvider
+	focusNetSearch
 )
 
 type plMgrScreenType int
@@ -108,6 +109,10 @@ type Model struct {
 	searchResults []int // indices into playlist tracks
 	searchCursor  int
 	prevFocus     focusArea // focus to restore on cancel
+
+	// Dynamic internet search
+	netSearching   bool
+	netSearchQuery string
 
 	// Async feed/M3U URL resolution
 	pendingURLs []string
@@ -270,7 +275,7 @@ func (m Model) ThemeName() string {
 func (m *Model) isOverlayActive() bool {
 	return m.showKeymap || m.showThemes || m.showFileBrowser ||
 		m.showNavBrowser || m.showPlManager || m.showQueue ||
-		m.showInfo || m.searching
+		m.showInfo || m.searching || m.netSearching
 }
 
 // openThemePicker re-loads themes from disk (picking up new user files)
@@ -424,6 +429,19 @@ func resolveRemoteCmd(urls []string) tea.Cmd {
 			return err
 		}
 		return feedsLoadedMsg(tracks)
+	}
+}
+
+// netSearchLoadedMsg carries tracks dynamically searched from the internet.
+type netSearchLoadedMsg []playlist.Track
+
+func fetchNetSearchCmd(query string) tea.Cmd {
+	return func() tea.Msg {
+		tracks, err := resolve.Remote([]string{query})
+		if err != nil {
+			return err
+		}
+		return netSearchLoadedMsg(tracks)
 	}
 }
 
@@ -826,6 +844,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd := m.playCurrentTrack()
 			m.notifyMPRIS()
 			return m, cmd
+		}
+		return m, nil
+
+	case netSearchLoadedMsg:
+		if len(msg) > 0 {
+			startIdx := m.playlist.Len()
+			m.playlist.Add(msg...)
+			for i := startIdx; i < m.playlist.Len(); i++ {
+				m.playlist.Queue(i)
+			}
+			m.saveMsg = fmt.Sprintf("Added to Queue: %s", msg[0].DisplayName())
+			m.saveMsgTTL = 60
+			if !m.player.IsPlaying() {
+				cmd := m.playCurrentTrack()
+				m.notifyMPRIS()
+				return m, cmd
+			}
+		} else {
+			m.saveMsg = "No tracks found online."
+			m.saveMsgTTL = 60
 		}
 		return m, nil
 

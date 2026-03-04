@@ -65,6 +65,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return m.handleSearchKey(msg)
 	}
 
+	if m.netSearching {
+		return m.handleNetSearchKey(msg)
+	}
+
 	if m.focus == focusProvider {
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -257,6 +261,12 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		m.prevFocus = m.focus
 		m.focus = focusSearch
 
+	case "f":
+		m.netSearching = true
+		m.netSearchQuery = ""
+		m.prevFocus = m.focus
+		m.focus = focusNetSearch
+
 	case "p":
 		if m.localProvider != nil {
 			m.openPlaylistManager()
@@ -447,6 +457,48 @@ func (m *Model) handleSearchKey(msg tea.KeyMsg) tea.Cmd {
 		if msg.Type == tea.KeyRunes {
 			m.searchQuery += string(msg.Runes)
 			m.updateSearch()
+		}
+	}
+
+	return nil
+}
+
+// handleNetSearchKey processes key presses while in net search mode.
+func (m *Model) handleNetSearchKey(msg tea.KeyMsg) tea.Cmd {
+	switch msg.String() {
+	case "ctrl+k":
+		m.showKeymap = true
+		return nil
+	}
+
+	switch msg.Type {
+	case tea.KeyEscape:
+		m.netSearching = false
+		m.focus = m.prevFocus
+
+	case tea.KeyEnter:
+		var cmd tea.Cmd
+		m.netSearching = false
+		m.focus = m.prevFocus
+		if strings.TrimSpace(m.netSearchQuery) != "" {
+			m.saveMsg = "Queuing search..."
+			m.saveMsgTTL = 40
+			cmd = fetchNetSearchCmd("ytsearch1:" + strings.TrimSpace(m.netSearchQuery))
+		}
+		return cmd
+
+	case tea.KeyBackspace:
+		if len(m.netSearchQuery) > 0 {
+			_, size := utf8.DecodeLastRuneInString(m.netSearchQuery)
+			m.netSearchQuery = m.netSearchQuery[:len(m.netSearchQuery)-size]
+		}
+
+	case tea.KeySpace:
+		m.netSearchQuery += " "
+
+	default:
+		if msg.Type == tea.KeyRunes {
+			m.netSearchQuery += string(msg.Runes)
 		}
 	}
 
@@ -743,6 +795,7 @@ var keymapEntries = []keymapEntry{
 	{"z", "Toggle shuffle"},
 	{"x", "Expand/collapse playlist"},
 	{"/", "Search playlist"},
+	{"f", "Find online (queue play next)"},
 	{"Tab", "Toggle focus"},
 	{"Esc", "Back to provider"},
 	{"Ctrl+K", "This keymap"},
