@@ -1247,6 +1247,12 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyMsg) tea.Cmd {
 			m.playlist.Queue(newIdx)
 			m.saveMsg = fmt.Sprintf("Queued: %s", t.DisplayName())
 			m.saveMsgTTL = 80
+			if !m.player.IsPlaying() {
+				m.playlist.Next()
+				cmd := m.playCurrentTrack()
+				m.notifyMPRIS()
+				return cmd
+			}
 		}
 	case "esc", "h", "left", "backspace":
 		// Navigate back one level depending on the mode and how we got here.

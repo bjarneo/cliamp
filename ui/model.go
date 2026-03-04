@@ -857,6 +857,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.saveMsg = fmt.Sprintf("Added to Queue: %s", msg[0].DisplayName())
 			m.saveMsgTTL = 60
 			if !m.player.IsPlaying() {
+				m.playlist.Next()
 				cmd := m.playCurrentTrack()
 				m.notifyMPRIS()
 				return m, cmd
