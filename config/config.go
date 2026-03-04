@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // configPath returns the path to the config file.
@@ -51,7 +50,6 @@ type Config struct {
 	Repeat          string      // "off", "all", or "one"
 	Shuffle         bool
 	Mono            bool
-	SeekStepLarge   int             // seconds for Shift+Left/Right seek jumps
 	Theme           string          // theme name, or "" for ANSI default
 	Visualizer      string          // visualizer mode name, or "" for default (Bars)
 	SampleRate      int             // output sample rate: 22050, 44100, 48000, 96000, 192000
@@ -65,7 +63,6 @@ type Config struct {
 func Default() Config {
 	return Config{
 		Repeat:          "off",
-		SeekStepLarge:   30,
 		SampleRate:      44100,
 		BufferMs:        100,
 		ResampleQuality: 4,
@@ -144,10 +141,6 @@ func Load() (Config, error) {
 				cfg.Shuffle = val == "true"
 			case "mono":
 				cfg.Mono = val == "true"
-			case "seek_large_step_sec":
-				if v, err := strconv.Atoi(val); err == nil {
-					cfg.SeekStepLarge = v
-				}
 			case "eq":
 				cfg.EQ = parseEQ(val)
 			case "eq_preset":
@@ -356,15 +349,9 @@ func (c Config) ApplyPlaylist(pl PlaylistConfig) {
 	}
 }
 
-// SeekStepLargeDuration returns the configured Shift+Left/Right seek jump.
-func (c Config) SeekStepLargeDuration() time.Duration {
-	return time.Duration(c.SeekStepLarge) * time.Second
-}
-
 // clamp constrains all Config fields to their valid ranges.
 func (c *Config) clamp() {
 	c.Volume = max(min(c.Volume, 6), -30)
-	c.SeekStepLarge = max(min(c.SeekStepLarge, 600), 6)
 	c.SampleRate = clampSampleRate(c.SampleRate)
 	c.BufferMs = max(min(c.BufferMs, 500), 50)
 	c.ResampleQuality = max(min(c.ResampleQuality, 4), 1)

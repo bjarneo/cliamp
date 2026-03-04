@@ -55,10 +55,6 @@ func (m Model) View() string {
 		return m.renderSearchOverlay()
 	}
 
-	if m.jumping {
-		return m.renderJumpOverlay()
-  }
-  
 	if m.netSearching {
 		return m.renderNetSearchOverlay()
 	}
@@ -448,104 +444,6 @@ func (m Model) renderPlaylist() string {
 	}
 
 	return strings.Join(lines, "\n")
-}
-
-func (m Model) renderSearchOverlay() string {
-	lines := []string{
-		titleStyle.Render("S E A R C H"),
-		"",
-		playlistSelectedStyle.Render("  / " + m.searchQuery + "_"),
-		"",
-	}
-
-	tracks := m.playlist.Tracks()
-	maxVisible := 12
-	rendered := 0
-
-	if len(m.searchResults) == 0 {
-		if m.searchQuery != "" {
-			lines = append(lines, dimStyle.Render("  No matches"))
-		} else {
-			lines = append(lines, dimStyle.Render("  Type to search…"))
-		}
-		rendered = 1
-	} else {
-		currentIdx := m.playlist.Index()
-		scroll := 0
-		if m.searchCursor >= maxVisible {
-			scroll = m.searchCursor - maxVisible + 1
-		}
-
-		for j := scroll; j < scroll+maxVisible && j < len(m.searchResults); j++ {
-			i := m.searchResults[j]
-			prefix := "  "
-			style := dimStyle
-
-			if i == currentIdx && m.player.IsPlaying() {
-				prefix = "▶ "
-				style = playlistActiveStyle
-			}
-
-			if j == m.searchCursor {
-				style = playlistSelectedStyle
-			}
-
-			name := tracks[i].DisplayName()
-			queueSuffix := ""
-			if qp := m.playlist.QueuePosition(i); qp > 0 {
-				queueSuffix = fmt.Sprintf(" [Q%d]", qp)
-			}
-			maxW := panelWidth - 8 - len([]rune(queueSuffix))
-			nameRunes := []rune(name)
-			if len(nameRunes) > maxW {
-				name = string(nameRunes[:maxW-1]) + "…"
-			}
-
-			line := fmt.Sprintf("%s%d. %s", prefix, i+1, name)
-			if queueSuffix != "" {
-				lines = append(lines, style.Render(line)+activeToggle.Render(queueSuffix))
-			} else {
-				lines = append(lines, style.Render(line))
-			}
-			rendered++
-		}
-	}
-
-	// Pad to fixed height so the overlay doesn't shift.
-	for range maxVisible - rendered {
-		lines = append(lines, "")
-	}
-
-	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d found", len(m.searchResults))))
-	lines = append(lines, "", helpKey("↑↓", "Navigate ")+helpKey("Enter", "Play ")+helpKey("Tab", "Queue ")+helpKey("Ctrl+K", "Keymap ")+helpKey("Esc", "Close"))
-
-	return m.centerOverlay(strings.Join(lines, "\n"))
-}
-
-func (m Model) renderJumpOverlay() string {
-	pos := m.player.Position()
-	dur := m.player.Duration()
-	timeLine := fmt.Sprintf("%s / %s", formatJumpClock(pos), formatJumpClock(dur))
-	inputLine := dimStyle.Faint(true).Render("  " + formatJumpPlaceholder(dur))
-	if m.jumpInput != "" {
-		inputLine = playlistSelectedStyle.Render("  " + m.jumpInput + "_")
-	}
-
-	lines := []string{
-		titleStyle.Render("J U M P  T O  T I M E"),
-		"",
-		dimStyle.Render("  " + timeLine),
-		"",
-		inputLine,
-	}
-
-	lines = append(lines, "", helpKey("Enter", "Jump ")+helpKey("Esc", "Cancel"))
-	return m.centerOverlay(strings.Join(lines, "\n"))
-}
-
-// helpKey renders a key in accent color inside dim brackets, followed by a dim label.
-func helpKey(key, label string) string {
-	return dimStyle.Render("[") + activeToggle.Render(key) + dimStyle.Render("]") + helpStyle.Render(label)
 }
 
 func (m Model) renderHelp() string {

@@ -75,20 +75,19 @@ const streamPreloadLeadTime = 3 * time.Second
 
 // Model is the Bubbletea model for the CLIAMP TUI.
 type Model struct {
-	player   *player.Player
-	playlist *playlist.Playlist
-	vis      *Visualizer
-	seekStepLarge time.Duration
-	focus         focusArea
-	eqCursor      int // selected EQ band (0-9)
-	plCursor      int // selected playlist item
-	plScroll      int // scroll offset for playlist view
-	plVisible     int // max visible playlist items
-	titleOff      int // scroll offset for long track titles
-	err           error
-	quitting      bool
-	width         int
-	height        int
+	player    *player.Player
+	playlist  *playlist.Playlist
+	vis       *Visualizer
+	focus     focusArea
+	eqCursor  int // selected EQ band (0-9)
+	plCursor  int // selected playlist item
+	plScroll  int // scroll offset for playlist view
+	plVisible int // max visible playlist items
+	titleOff  int // scroll offset for long track titles
+	err       error
+	quitting  bool
+	width     int
+	height    int
 
 	provider      playlist.Provider
 	localProvider *local.Provider // direct ref for write operations (add-to-playlist)
@@ -111,10 +110,6 @@ type Model struct {
 	searchCursor  int
 	prevFocus     focusArea // focus to restore on cancel
 
-	// Jump to time mode state
-	jumping   bool
-	jumpInput string
-  
 	// Dynamic internet search
 	netSearching   bool
 	netSearchQuery string
@@ -228,7 +223,6 @@ func NewModel(p *player.Player, pl *playlist.Playlist, prov playlist.Provider, l
 		navSortType:        sortType,
 		navClient:          nav,
 		navScrobbleEnabled: navCfg.ScrobbleEnabled(),
-    seekStepLarge: 30 * time.Second,
 	}
 	if prov != nil {
 		m.provider = prov
@@ -238,18 +232,6 @@ func NewModel(p *player.Player, pl *playlist.Playlist, prov playlist.Provider, l
 
 // SetAutoPlay makes the player start playback immediately on Init.
 func (m *Model) SetAutoPlay(v bool) { m.autoPlay = v }
-
-// SetSeekStepLarge configures the Shift+Left/Right seek jump amount.
-func (m *Model) SetSeekStepLarge(d time.Duration) {
-	switch {
-	case d <= 0:
-		m.seekStepLarge = 30 * time.Second
-	case d <= 5*time.Second:
-		m.seekStepLarge = 6 * time.Second
-	default:
-		m.seekStepLarge = d
-	}
-}
 
 // SetTheme finds a theme by name and applies it. Returns true if found.
 func (m *Model) SetTheme(name string) bool {
@@ -295,7 +277,7 @@ func (m Model) ThemeName() string {
 func (m *Model) isOverlayActive() bool {
 	return m.showKeymap || m.showThemes || m.showFileBrowser ||
 		m.showNavBrowser || m.showPlManager || m.showQueue ||
-		m.showInfo || m.searching || m.netSearching || m.jumping
+		m.showInfo || m.searching || m.netSearching
 }
 
 // openThemePicker re-loads themes from disk (picking up new user files)
