@@ -251,6 +251,7 @@ func (c *NavidromeClient) Tracks(id string) ([]playlist.Track, error) {
 	for _, t := range result.SubsonicResponse.Playlist.Entry {
 		tracks = append(tracks, playlist.Track{
 			Path:         c.streamURL(t.ID),
+			NavidromeID:  t.ID,
 			Title:        t.Title,
 			Artist:       t.Artist,
 			Album:        t.Album,
@@ -463,6 +464,7 @@ func (c *NavidromeClient) AlbumTracks(albumID string) ([]playlist.Track, error) 
 	for _, s := range result.SubsonicResponse.Album.Song {
 		tracks = append(tracks, playlist.Track{
 			Path:         c.streamURL(s.ID),
+			NavidromeID:  s.ID,
 			Title:        s.Title,
 			Artist:       s.Artist,
 			Album:        s.Album,
@@ -479,4 +481,25 @@ func (c *NavidromeClient) AlbumTracks(albumID string) ([]playlist.Track, error) 
 // streamURL generates the authenticated streaming URL for a track ID.
 func (c *NavidromeClient) streamURL(id string) string {
 	return c.buildURL("stream", url.Values{"id": {id}, "format": {"mp3"}})
+}
+
+// Scrobble reports playback of a track to the Subsonic server.
+// If submission is false, it registers a "now playing" notification only.
+// If submission is true, it records a full play (updates play count, last.fm, etc.).
+// The call is best-effort: errors are silently discarded.
+func (c *NavidromeClient) Scrobble(id string, submission bool) {
+	params := url.Values{
+		"id":         {id},
+		"submission": {fmt.Sprintf("%t", submission)},
+	}
+	if submission {
+		// Pass the current wall-clock time in milliseconds as required by
+		// the spec for submission=true (Subsonic API 1.8.0+).
+		params.Set("time", fmt.Sprintf("%d", time.Now().UnixMilli()))
+	}
+	resp, err := httpClient.Get(c.buildURL("scrobble", params))
+	if err != nil {
+		return // fire-and-forget; ignore network errors
+	}
+	resp.Body.Close()
 }

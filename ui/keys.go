@@ -123,11 +123,19 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		m.notifyMPRIS()
 
 	case ">", ".":
+		// Scrobble the current track if ≥50% has been played.
+		if track, _ := m.playlist.Current(); track.NavidromeID != "" {
+			m.maybeScrobble(track, m.player.Position(), m.player.Duration())
+		}
 		cmd := m.nextTrack()
 		m.notifyMPRIS()
 		return cmd
 
 	case "<", ",":
+		// Scrobble the current track if ≥50% has been played.
+		if track, _ := m.playlist.Current(); track.NavidromeID != "" {
+			m.maybeScrobble(track, m.player.Position(), m.player.Duration())
+		}
 		cmd := m.prevTrack()
 		m.notifyMPRIS()
 		return cmd
@@ -182,6 +190,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "enter":
 		if m.focus == focusPlaylist {
+			// Scrobble the track being replaced if ≥50% was heard.
+			if track, _ := m.playlist.Current(); track.NavidromeID != "" {
+				m.maybeScrobble(track, m.player.Position(), m.player.Duration())
+			}
 			m.playlist.SetIndex(m.plCursor)
 			cmd := m.playCurrentTrack()
 			m.notifyMPRIS()

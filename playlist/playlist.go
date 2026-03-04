@@ -38,8 +38,9 @@ type Track struct {
 	Genre        string
 	Year         int
 	TrackNumber  int
-	Stream       bool // true for HTTP/HTTPS URLs
-	DurationSecs int  // known duration in seconds (0 = unknown)
+	Stream       bool   // true for HTTP/HTTPS URLs
+	DurationSecs int    // known duration in seconds (0 = unknown)
+	NavidromeID  string // Subsonic song ID; empty for non-Navidrome tracks
 }
 
 // IsURL reports whether path is an HTTP or HTTPS URL.

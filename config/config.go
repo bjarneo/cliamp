@@ -24,15 +24,22 @@ func configPath() (string, error) {
 // NavidromeConfig holds credentials for a Navidrome/Subsonic server.
 // All three fields must be non-empty for a client to be constructed.
 type NavidromeConfig struct {
-	URL        string // e.g. "https://music.example.com"
-	User       string
-	Password   string
-	BrowseSort string // album browse sort order, e.g. "alphabeticalByName"
+	URL              string // e.g. "https://music.example.com"
+	User             string
+	Password         string
+	BrowseSort       string // album browse sort order, e.g. "alphabeticalByName"
+	ScrobbleDisabled bool   // true only when "scrobble = false" is explicitly set
 }
 
 // IsSet reports whether all three Navidrome credentials are present.
 func (n NavidromeConfig) IsSet() bool {
 	return n.URL != "" && n.User != "" && n.Password != ""
+}
+
+// ScrobbleEnabled reports whether scrobbling is active.
+// Scrobbling is opt-out: it is enabled unless "scrobble = false" is explicitly set.
+func (n NavidromeConfig) ScrobbleEnabled() bool {
+	return !n.ScrobbleDisabled
 }
 
 // Config holds user preferences loaded from the config file.
@@ -114,6 +121,9 @@ func Load() (Config, error) {
 				cfg.Navidrome.Password = strings.Trim(val, `"'`)
 			case "browse_sort":
 				cfg.Navidrome.BrowseSort = strings.Trim(val, `"'`)
+			case "scrobble":
+				// Opt-out: only mark disabled when the value is explicitly "false".
+				cfg.Navidrome.ScrobbleDisabled = strings.ToLower(val) == "false"
 			}
 		default:
 			switch key {
