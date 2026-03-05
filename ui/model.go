@@ -1250,7 +1250,7 @@ func (m *Model) togglePlayPause() tea.Cmd {
 	}
 	if m.player.IsPaused() {
 		track, idx := m.playlist.Current()
-		if idx >= 0 && track.Stream {
+		if idx >= 0 && track.IsLive() {
 			m.player.Stop()
 			return m.playTrack(track)
 		}

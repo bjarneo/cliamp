@@ -165,6 +165,12 @@ func trackFromURL(rawURL string) Track {
 	return t
 }
 
+// IsLive reports whether the track is a live stream (e.g. Icecast radio)
+// that requires reconnection on unpause.
+func (t Track) IsLive() bool {
+	return t.Stream && t.DurationSecs == 0
+}
+
 // DisplayName returns a formatted display string for the track.
 func (t Track) DisplayName() string {
 	if t.Artist != "" {

@@ -296,12 +296,13 @@ func resolvePLS(plsURL string) ([]playlist.Track, error) {
 
 // ytdlFlatEntry holds JSON fields from yt-dlp --flat-playlist output.
 type ytdlFlatEntry struct {
-	URL                string `json:"url"`
-	WebpageURL         string `json:"webpage_url"`
-	Title              string `json:"title"`
-	Uploader           string `json:"uploader"`
-	PlaylistUploader   string `json:"playlist_uploader"`
-	WebpageURLBasename string `json:"webpage_url_basename"`
+	URL                string  `json:"url"`
+	WebpageURL         string  `json:"webpage_url"`
+	Title              string  `json:"title"`
+	Uploader           string  `json:"uploader"`
+	PlaylistUploader   string  `json:"playlist_uploader"`
+	WebpageURLBasename string  `json:"webpage_url_basename"`
+	Duration           float64 `json:"duration"`
 }
 
 // ytdlFullEntry holds JSON fields from yt-dlp --print-json output (download mode).
@@ -380,10 +381,11 @@ func resolveYTDL(pageURL string) ([]playlist.Track, error) {
 			artist = e.PlaylistUploader
 		}
 		tracks = append(tracks, playlist.Track{
-			Path:   trackURL,
-			Title:  title,
-			Artist: artist,
-			Stream: true,
+			Path:         trackURL,
+			Title:        title,
+			Artist:       artist,
+			Stream:       true,
+			DurationSecs: int(e.Duration),
 		})
 	}
 	return tracks, scanner.Err()
