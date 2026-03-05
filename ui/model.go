@@ -74,6 +74,11 @@ const (
 // and any resulting early skip is imperceptible (≤3 s from the true end).
 const streamPreloadLeadTime = 3 * time.Second
 
+// ytdlPreloadLeadTime is the lead time used for yt-dlp (YouTube/SoundCloud)
+// URLs. These need longer because spinning up the yt-dlp | ffmpeg pipe chain
+// takes 3-10 seconds, so we start preloading much earlier.
+const ytdlPreloadLeadTime = 15 * time.Second
+
 // Model is the Bubbletea model for the CLIAMP TUI.
 type Model struct {
 	player        *player.Player
@@ -837,6 +842,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			drainDur := time.Duration(finishedTrack.DurationSecs) * time.Second
 			m.maybeScrobble(finishedTrack, drainDur, drainDur)
 
+			// Stop the player before dispatching the async nextTrack command.
+			// This clears the gapless streamer so the finished track cannot
+			// replay while waiting for a yt-dlp pipe chain to spin up.
+			m.player.Stop()
 			cmds = append(cmds, m.nextTrack())
 			m.notifyMPRIS()
 		}
@@ -1202,7 +1211,7 @@ func (m *Model) preloadNext() tea.Cmd {
 		dur := m.player.Duration()
 		if dur > 0 {
 			remaining := dur - m.player.Position()
-			if remaining > streamPreloadLeadTime {
+			if remaining > ytdlPreloadLeadTime {
 				return nil
 			}
 		}
