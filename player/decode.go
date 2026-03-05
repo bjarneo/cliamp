@@ -174,6 +174,20 @@ func decode(rc io.ReadCloser, path string, sr beep.SampleRate, bitDepth int) (be
 	return decodeWithExt(rc, formatExt(path), path, sr, bitDepth)
 }
 
+// isNavidromeURL reports whether path is a Subsonic stream or download endpoint.
+// Used to select the navBuffer pipeline path in buildPipelineAt.
+func isNavidromeURL(path string) bool {
+	u, err := url.Parse(path)
+	if err != nil {
+		return false
+	}
+	p := strings.ToLower(u.Path)
+	return strings.HasSuffix(p, "/rest/stream") ||
+		strings.HasSuffix(p, "/rest/stream.view") ||
+		strings.HasSuffix(p, "/rest/download") ||
+		strings.HasSuffix(p, "/rest/download.view")
+}
+
 // decodeWithExt selects the decoder using an explicit extension.
 func decodeWithExt(rc io.ReadCloser, ext, path string, sr beep.SampleRate, bitDepth int) (beep.StreamSeekCloser, beep.Format, error) {
 	if needsFFmpeg(ext) {

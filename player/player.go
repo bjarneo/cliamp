@@ -89,7 +89,7 @@ func (p *Player) Play(path string, knownDuration time.Duration) error {
 	if err != nil {
 		return err
 	}
-	tp.knownDuration = knownDuration
+	tp.setKnownDuration(knownDuration)
 	return p.playPipeline(tp)
 }
 
@@ -168,7 +168,7 @@ func (p *Player) Preload(path string, knownDuration time.Duration) error {
 	if err != nil {
 		return err
 	}
-	tp.knownDuration = knownDuration
+	tp.setKnownDuration(knownDuration)
 	return p.preloadPipeline(tp)
 }
 
