@@ -67,13 +67,13 @@ var (
 
 // Visualizer performs FFT analysis and renders spectrum bars.
 type Visualizer struct {
-	prev     [numBands]float64 // previous frame for temporal smoothing
-	sr       float64
-	buf      []float64 // reusable FFT buffer to avoid per-frame allocation
-	Mode     VisMode
-	Rows     int       // display height in terminal rows (default 5)
-	waveBuf  []float64 // raw samples for wave mode
-	frame    uint64    // frame counter for scatter animation
+	prev    [numBands]float64 // previous frame for temporal smoothing
+	sr      float64
+	buf     []float64 // reusable FFT buffer to avoid per-frame allocation
+	Mode    VisMode
+	Rows    int       // display height in terminal rows (default 5)
+	waveBuf []float64 // raw samples for wave mode
+	frame   uint64    // frame counter for scatter animation
 }
 
 // NewVisualizer creates a Visualizer for the given sample rate.

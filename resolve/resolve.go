@@ -445,6 +445,41 @@ func ResolveYTDLTrack(pageURL string) (playlist.Track, error) {
 	}, nil
 }
 
+// DownloadYTDL downloads a single track via yt-dlp to the given directory
+// and returns the output file path. Uses yt-dlp's default naming template.
+func DownloadYTDL(pageURL, saveDir string) (string, error) {
+	if _, err := exec.LookPath("yt-dlp"); err != nil {
+		return "", fmt.Errorf("yt-dlp not found in PATH")
+	}
+
+	outTemplate := filepath.Join(saveDir, "%(artist,uploader)s - %(title)s.%(ext)s")
+	cmd := exec.Command("yt-dlp",
+		"-f", "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio",
+		"--no-playlist",
+		"--print-json",
+		"-o", outTemplate,
+		pageURL)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	stdout, err := cmd.Output()
+	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			return "", fmt.Errorf("yt-dlp: %s", msg)
+		}
+		return "", fmt.Errorf("yt-dlp: %w", err)
+	}
+
+	var e ytdlFullEntry
+	if err := json.Unmarshal(stdout, &e); err != nil {
+		return "", fmt.Errorf("parsing yt-dlp output: %w", err)
+	}
+	if e.Filename == "" {
+		return "", fmt.Errorf("yt-dlp: no file downloaded for %s", pageURL)
+	}
+	return e.Filename, nil
+}
+
 // findFirstFile returns the path of the first file in a directory, or "".
 func findFirstFile(dir string) string {
 	entries, err := os.ReadDir(dir)

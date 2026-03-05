@@ -89,8 +89,25 @@ func (p *Player) Play(path string, knownDuration time.Duration) error {
 	if err != nil {
 		return err
 	}
-	tp.knownDuration = knownDuration
+	tp.setKnownDuration(knownDuration)
+	return p.playPipeline(tp)
+}
 
+// PlayYTDL starts playing a yt-dlp page URL via a piped yt-dlp | ffmpeg chain.
+// Playback starts as soon as the first PCM samples arrive (~1-3s). Not seekable.
+func (p *Player) PlayYTDL(pageURL string, knownDuration time.Duration) error {
+	tp, err := p.buildYTDLPipeline(pageURL)
+	if err != nil {
+		return err
+	}
+	tp.knownDuration = knownDuration
+	return p.playPipeline(tp)
+}
+
+// playPipeline wires a ready-to-play trackPipeline into the speaker chain.
+// On the first call it builds the long-lived EQ → volume → tap → ctrl chain.
+// Subsequent calls swap only the track source via the gapless streamer.
+func (p *Player) playPipeline(tp *trackPipeline) error {
 	// Collect old pipelines to close after releasing locks.
 	var oldCurrent, oldNext *trackPipeline
 
@@ -151,8 +168,22 @@ func (p *Player) Preload(path string, knownDuration time.Duration) error {
 	if err != nil {
 		return err
 	}
-	tp.knownDuration = knownDuration
+	tp.setKnownDuration(knownDuration)
+	return p.preloadPipeline(tp)
+}
 
+// PreloadYTDL builds a yt-dlp pipe pipeline and queues it for gapless transition.
+func (p *Player) PreloadYTDL(pageURL string, knownDuration time.Duration) error {
+	tp, err := p.buildYTDLPipeline(pageURL)
+	if err != nil {
+		return err
+	}
+	tp.knownDuration = knownDuration
+	return p.preloadPipeline(tp)
+}
+
+// preloadPipeline queues a ready trackPipeline for gapless transition.
+func (p *Player) preloadPipeline(tp *trackPipeline) error {
 	// Lock speaker to atomically swap the gapless next stream, ensuring no
 	// in-flight transition reads from the old pipeline we're about to close.
 	speaker.Lock()

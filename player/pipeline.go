@@ -57,6 +57,17 @@ func (tp *trackPipeline) close() {
 	}
 }
 
+// setKnownDuration stores the metadata duration hint and, for navFFmpegStreamer
+// pipelines, converts it to sample frames so Len() and proportional seeking work.
+func (tp *trackPipeline) setKnownDuration(d time.Duration) {
+	tp.knownDuration = d
+	if d > 0 {
+		if ns, ok := tp.decoder.(*navFFmpegStreamer); ok && ns.total == 0 {
+			ns.total = int(ns.sr.N(d))
+		}
+	}
+}
+
 // closePipelines closes one or more pipelines that are no longer in use.
 func closePipelines(ps ...*trackPipeline) {
 	for _, tp := range ps {
@@ -84,6 +95,43 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 	var onMeta func(string)
 	if isURL(path) {
 		onMeta = p.setStreamTitle
+	}
+
+	// Navidrome/Subsonic tracks: buffer-while-playing via navBuffer + ffmpeg pipe.
+	// The navBuffer downloads in the background; ffmpeg reads from it via stdin
+	// and starts producing PCM as soon as the first frames arrive — no waiting
+	// for the full download. seekable=true routes Seek() through navFFmpegStreamer
+	// which repositions the navBuffer and restarts ffmpeg without HTTP reconnect.
+	if isURL(path) && isNavidromeURL(path) && byteOffset == 0 {
+		nb, contentLen, err := newNavBuffer(path)
+		if err != nil {
+			return nil, fmt.Errorf("navidrome buffer: %w", err)
+		}
+
+		// Derive total sample frames from the metadata duration hint so the
+		// seek bar and Len() work correctly. knownDuration is set by the caller
+		// (Play/Preload) onto the returned pipeline after buildPipeline returns,
+		// so we compute it here from timeOffset which is always 0 on first open.
+		// We use p.sr so the frame count matches the output sample rate.
+		totalFrames := 0
+		_ = timeOffset // unused for navBuffer path (byteOffset == 0 guard above)
+
+		decoder, format, err := decodeNavFFmpeg(nb, p.sr, p.bitDepth, totalFrames)
+		if err != nil {
+			nb.Close()
+			return nil, fmt.Errorf("decode navidrome: %w", err)
+		}
+		var s beep.Streamer = decoder
+		return &trackPipeline{
+			decoder:       decoder,
+			stream:        s,
+			format:        format,
+			seekable:      true, // navFFmpegStreamer.Seek() handles seeking without reconnect
+			rc:            nb,   // trackPipeline.close() calls nb.Close()
+			path:          path,
+			bytesRead:     &nb.bytesIn,
+			contentLength: contentLen,
+		}, nil
 	}
 
 	src, err := openSourceAt(path, byteOffset, onMeta)

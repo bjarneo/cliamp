@@ -61,6 +61,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
+	if m.jumping {
+		return m.handleJumpKey(msg)
+	}
+
 	if m.searching {
 		return m.handleSearchKey(msg)
 	}
@@ -100,6 +104,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 			if m.navClient != nil {
 				m.openNavBrowser()
 			}
+		case "J":
+			m.openJumpMode()
 		}
 		return nil
 	}
@@ -127,11 +133,19 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		m.notifyMPRIS()
 
 	case ">", ".":
+		// Scrobble the current track if ≥50% has been played.
+		if track, _ := m.playlist.Current(); track.NavidromeID != "" {
+			m.maybeScrobble(track, m.player.Position(), m.player.Duration())
+		}
 		cmd := m.nextTrack()
 		m.notifyMPRIS()
 		return cmd
 
 	case "<", ",":
+		// Scrobble the current track if ≥50% has been played.
+		if track, _ := m.playlist.Current(); track.NavidromeID != "" {
+			m.maybeScrobble(track, m.player.Position(), m.player.Duration())
+		}
 		cmd := m.prevTrack()
 		m.notifyMPRIS()
 		return cmd
@@ -148,6 +162,12 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 			}
 		}
 
+	case "shift+left":
+		m.player.Seek(-m.seekStepLarge)
+		if m.mpris != nil {
+			m.mpris.EmitSeeked(m.player.Position().Microseconds())
+		}
+
 	case "right":
 		if m.focus == focusEQ {
 			if m.eqCursor < numBands-1 {
@@ -158,6 +178,12 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 			if m.mpris != nil {
 				m.mpris.EmitSeeked(m.player.Position().Microseconds())
 			}
+		}
+
+	case "shift+right":
+		m.player.Seek(m.seekStepLarge)
+		if m.mpris != nil {
+			m.mpris.EmitSeeked(m.player.Position().Microseconds())
 		}
 
 	case "up", "k":
@@ -186,6 +212,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "enter":
 		if m.focus == focusPlaylist {
+			// Scrobble the track being replaced if ≥50% was heard.
+			if track, _ := m.playlist.Current(); track.NavidromeID != "" {
+				m.maybeScrobble(track, m.player.Position(), m.player.Duration())
+			}
 			m.playlist.SetIndex(m.plCursor)
 			cmd := m.playCurrentTrack()
 			m.notifyMPRIS()
@@ -248,7 +278,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		}
 
 	case "S":
-		m.saveTrack()
+		return m.saveTrack()
 
 	case "m":
 		m.player.ToggleMono()
@@ -261,11 +291,15 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		m.prevFocus = m.focus
 		m.focus = focusSearch
 
-	case "f":
+	case "f", "F":
 		m.netSearching = true
 		m.netSearchQuery = ""
+		m.netSearchSC = msg.String() == "F"
 		m.prevFocus = m.focus
 		m.focus = focusNetSearch
+
+	case "J":
+		m.openJumpMode()
 
 	case "p":
 		if m.localProvider != nil {
@@ -315,34 +349,42 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 // saveTrack copies the current track to ~/Music/cliamp/ with a clean filename.
-// Only works for downloaded yt-dlp tracks (temp files).
-func (m *Model) saveTrack() {
+// For yt-dlp tracks (piped streams), triggers an async download via yt-dlp.
+// For local temp files, copies synchronously.
+func (m *Model) saveTrack() tea.Cmd {
 	track, idx := m.playlist.Current()
 	if idx < 0 {
 		m.saveMsg = "Nothing to save"
 		m.saveMsgTTL = 40 // ~2s at 50ms ticks
-		return
-	}
-
-	// Only save local temp files (yt-dlp downloads), not streams or user's own files.
-	if track.Stream || !strings.HasPrefix(track.Path, os.TempDir()) {
-		m.saveMsg = "Only downloaded tracks can be saved"
-		m.saveMsgTTL = 40
-		return
+		return nil
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
 		m.saveMsg = fmt.Sprintf("Save failed: %s", err)
 		m.saveMsgTTL = 40
-		return
+		return nil
 	}
 
 	saveDir := filepath.Join(home, "Music", "cliamp")
 	if err := os.MkdirAll(saveDir, 0o755); err != nil {
 		m.saveMsg = fmt.Sprintf("Save failed: %s", err)
 		m.saveMsgTTL = 40
-		return
+		return nil
+	}
+
+	// yt-dlp tracks: async download directly to ~/Music/cliamp/.
+	if playlist.IsYTDL(track.Path) {
+		m.saveMsg = "Downloading..."
+		m.saveMsgTTL = 600 // cleared by ytdlSavedMsg
+		return saveYTDLCmd(track.Path, saveDir)
+	}
+
+	// Only save local temp files (yt-dlp downloads), not streams or user's own files.
+	if track.Stream || !strings.HasPrefix(track.Path, os.TempDir()) {
+		m.saveMsg = "Only downloaded tracks can be saved"
+		m.saveMsgTTL = 40
+		return nil
 	}
 
 	ext := filepath.Ext(track.Path)
@@ -363,11 +405,12 @@ func (m *Model) saveTrack() {
 	if err := copyFile(track.Path, dest); err != nil {
 		m.saveMsg = fmt.Sprintf("Save failed: %s", err)
 		m.saveMsgTTL = 40
-		return
+		return nil
 	}
 
 	m.saveMsg = fmt.Sprintf("Saved to ~/Music/cliamp/%s", name+ext)
 	m.saveMsgTTL = 60 // ~3s
+	return nil
 }
 
 func copyFile(src, dst string) error {
@@ -391,6 +434,65 @@ func copyFile(src, dst string) error {
 	if closeErr != nil {
 		os.Remove(dst)
 		return closeErr
+	}
+	return nil
+}
+
+func (m *Model) resetJumpInput() {
+	m.jumpInput = ""
+}
+
+func (m *Model) openJumpMode() {
+	m.jumping = true
+	m.resetJumpInput()
+}
+
+func (m *Model) closeJumpMode() {
+	m.jumping = false
+	m.resetJumpInput()
+}
+
+// handleJumpKey processes key presses while in jump-time mode.
+func (m *Model) handleJumpKey(msg tea.KeyMsg) tea.Cmd {
+	switch msg.String() {
+	case "ctrl+c":
+		m.closeJumpMode()
+		m.player.Close()
+		m.quitting = true
+		return tea.Quit
+	}
+
+	switch msg.Type {
+	case tea.KeyEscape:
+		m.closeJumpMode()
+		return nil
+	case tea.KeyEnter:
+		target, err := parseJumpTarget(m.jumpInput)
+		if err != nil {
+			m.resetJumpInput()
+			return nil
+		}
+		if dur := m.player.Duration(); dur > 0 && target > dur {
+			m.resetJumpInput()
+			return nil
+		}
+		m.player.Seek(target - m.player.Position())
+		m.notifyMPRIS()
+		if m.mpris != nil {
+			m.mpris.EmitSeeked(m.player.Position().Microseconds())
+		}
+		m.closeJumpMode()
+		return nil
+	case tea.KeyBackspace:
+		if len(m.jumpInput) > 0 {
+			_, size := utf8.DecodeLastRuneInString(m.jumpInput)
+			m.jumpInput = m.jumpInput[:len(m.jumpInput)-size]
+		}
+		return nil
+	}
+
+	if msg.Type == tea.KeyRunes {
+		m.jumpInput += string(msg.Runes)
 	}
 	return nil
 }
@@ -481,9 +583,13 @@ func (m *Model) handleNetSearchKey(msg tea.KeyMsg) tea.Cmd {
 		m.netSearching = false
 		m.focus = m.prevFocus
 		if strings.TrimSpace(m.netSearchQuery) != "" {
+			prefix := "ytsearch1:"
+			if m.netSearchSC {
+				prefix = "scsearch1:"
+			}
 			m.saveMsg = "Queuing search..."
 			m.saveMsgTTL = 40
-			cmd = fetchNetSearchCmd("ytsearch1:" + strings.TrimSpace(m.netSearchQuery))
+			cmd = fetchNetSearchCmd(prefix + strings.TrimSpace(m.netSearchQuery))
 		}
 		return cmd
 
@@ -775,6 +881,7 @@ var keymapEntries = []keymapEntry{
 	{"> .", "Next track"},
 	{"< ,", "Previous track"},
 	{"← →", "Seek ±5s"},
+	{"Shift+← →", "Seek ±large step"},
 	{"+ -", "Volume up/down"},
 	{"m", "Toggle mono"},
 	{"e", "Cycle EQ preset"},
@@ -788,14 +895,16 @@ var keymapEntries = []keymapEntry{
 	{"A", "Queue manager"},
 	{"o", "Open file browser"},
 	{"N", "Navidrome browser"},
+	{"J", "Jump to time"},
 	{"p", "Playlist manager"},
 	{"i", "Track info / metadata"},
-	{"S", "Save track to ~/Music"},
+	{"S", "Save/download track to ~/Music"},
 	{"r", "Cycle repeat"},
 	{"z", "Toggle shuffle"},
 	{"x", "Expand/collapse playlist"},
 	{"/", "Search playlist"},
-	{"f", "Find online (queue play next)"},
+	{"f", "Find on YouTube (queue play next)"},
+	{"F", "Find on SoundCloud (queue play next)"},
 	{"Tab", "Toggle focus"},
 	{"Esc", "Back to provider"},
 	{"Ctrl+K", "This keymap"},
