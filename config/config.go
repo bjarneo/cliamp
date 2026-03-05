@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // configPath returns the path to the config file.
@@ -24,15 +25,22 @@ func configPath() (string, error) {
 // NavidromeConfig holds credentials for a Navidrome/Subsonic server.
 // All three fields must be non-empty for a client to be constructed.
 type NavidromeConfig struct {
-	URL        string // e.g. "https://music.example.com"
-	User       string
-	Password   string
-	BrowseSort string // album browse sort order, e.g. "alphabeticalByName"
+	URL              string // e.g. "https://music.example.com"
+	User             string
+	Password         string
+	BrowseSort       string // album browse sort order, e.g. "alphabeticalByName"
+	ScrobbleDisabled bool   // true only when "scrobble = false" is explicitly set
 }
 
 // IsSet reports whether all three Navidrome credentials are present.
 func (n NavidromeConfig) IsSet() bool {
 	return n.URL != "" && n.User != "" && n.Password != ""
+}
+
+// ScrobbleEnabled reports whether scrobbling is active.
+// Scrobbling is opt-out: it is enabled unless "scrobble = false" is explicitly set.
+func (n NavidromeConfig) ScrobbleEnabled() bool {
+	return !n.ScrobbleDisabled
 }
 
 // Config holds user preferences loaded from the config file.
@@ -43,6 +51,7 @@ type Config struct {
 	Repeat          string      // "off", "all", or "one"
 	Shuffle         bool
 	Mono            bool
+	SeekStepLarge   int             // seconds for Shift+Left/Right seek jumps
 	Theme           string          // theme name, or "" for ANSI default
 	Visualizer      string          // visualizer mode name, or "" for default (Bars)
 	SampleRate      int             // output sample rate: 22050, 44100, 48000, 96000, 192000
@@ -56,6 +65,7 @@ type Config struct {
 func Default() Config {
 	return Config{
 		Repeat:          "off",
+		SeekStepLarge:   30,
 		SampleRate:      44100,
 		BufferMs:        100,
 		ResampleQuality: 4,
@@ -114,6 +124,9 @@ func Load() (Config, error) {
 				cfg.Navidrome.Password = strings.Trim(val, `"'`)
 			case "browse_sort":
 				cfg.Navidrome.BrowseSort = strings.Trim(val, `"'`)
+			case "scrobble":
+				// Opt-out: only mark disabled when the value is explicitly "false".
+				cfg.Navidrome.ScrobbleDisabled = strings.ToLower(val) == "false"
 			}
 		default:
 			switch key {
@@ -131,6 +144,10 @@ func Load() (Config, error) {
 				cfg.Shuffle = val == "true"
 			case "mono":
 				cfg.Mono = val == "true"
+			case "seek_large_step_sec":
+				if v, err := strconv.Atoi(val); err == nil {
+					cfg.SeekStepLarge = v
+				}
 			case "eq":
 				cfg.EQ = parseEQ(val)
 			case "eq_preset":
@@ -339,9 +356,15 @@ func (c Config) ApplyPlaylist(pl PlaylistConfig) {
 	}
 }
 
+// SeekStepLargeDuration returns the configured Shift+Left/Right seek jump.
+func (c Config) SeekStepLargeDuration() time.Duration {
+	return time.Duration(c.SeekStepLarge) * time.Second
+}
+
 // clamp constrains all Config fields to their valid ranges.
 func (c *Config) clamp() {
 	c.Volume = max(min(c.Volume, 6), -30)
+	c.SeekStepLarge = max(min(c.SeekStepLarge, 600), 6)
 	c.SampleRate = clampSampleRate(c.SampleRate)
 	c.BufferMs = max(min(c.BufferMs, 500), 50)
 	c.ResampleQuality = max(min(c.ResampleQuality, 4), 1)

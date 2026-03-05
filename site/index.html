@@ -585,7 +585,7 @@
     </div>
 
     <div class="radio-player" id="radio-player">
-      <audio id="radio-audio" preload="none" src="https://cliamp.stream/listen/iamdothash/lofi.mp3"></audio>
+      <audio id="radio-audio" preload="none" src="https://radio.cliamp.stream/lofi/stream"></audio>
       <div class="rp-led"></div>
       <span class="rp-label">CLIAMP RADIO</span>
       <button class="rp-play" onclick="toggleRadio()" aria-label="Play / Stop radio">
@@ -596,7 +596,7 @@
       <input type="range" class="rp-vol" min="0" max="100" value="70" oninput="setRadioVol(this.value)" aria-label="Volume">
     </div>
     <div class="radio-hint">
-      <code><span class="p">$ </span>cliamp https://cliamp.stream/public/iamdothash/playlist.pls</code>
+      <code><span class="p">$ </span>cliamp https://radio.cliamp.stream/lofi/stream.pls</code>
     </div>
   </div>
 </section>
@@ -685,7 +685,7 @@
       <div class="feature">
         <div class="feature-icon">&#9654;</div>
         <div class="feature-name">yt-dlp Integration</div>
-        <p>YouTube, SoundCloud, and Bandcamp playback via yt-dlp</p>
+        <p>YouTube, SoundCloud, and Bandcamp playback via yt-dlp. Search YouTube with <code>cliamp search "query"</code> or SoundCloud with <code>cliamp search-sc "query"</code>. Press <kbd>f</kbd> / <kbd>F</kbd> to search in-player</p>
       </div>
       <div class="feature">
         <div class="feature-icon">&#9688;</div>
@@ -994,6 +994,7 @@
         <div class="key-row"><kbd>> .</kbd><span>Next track</span></div>
         <div class="key-row"><kbd>&lt; ,</kbd><span>Previous track</span></div>
         <div class="key-row"><kbd>&larr; &rarr;</kbd><span>Seek &minus;/+5s</span></div>
+        <div class="key-row"><kbd>Shift+&larr; Shift+&rarr;</kbd><span>Seek &minus;/+large step (default 30s)</span></div>
         <div class="key-row"><kbd>+ / &minus;</kbd><span>Volume up / down</span></div>
         <div class="key-row"><kbd>m</kbd><span>Toggle mono</span></div>
         <div class="key-row"><kbd>Tab</kbd><span>Focus: Playlist / EQ</span></div>
@@ -1005,6 +1006,9 @@
         <div class="key-row"><kbd>v</kbd><span>Cycle visualizer</span></div>
         <div class="key-row"><kbd>V</kbd><span>Full-screen visualizer</span></div>
         <div class="key-row"><kbd>/</kbd><span>Search playlist</span></div>
+        <div class="key-row"><kbd>f</kbd><span>Find on YouTube (queue)</span></div>
+        <div class="key-row"><kbd>F</kbd><span>Find on SoundCloud (queue)</span></div>
+        <div class="key-row"><kbd>J</kbd><span>Jump to time</span></div>
         <div class="key-row"><kbd>x</kbd><span>Expand playlist</span></div>
         <div class="key-row"><kbd>o</kbd><span>Open file browser</span></div>
         <div class="key-row"><kbd>a</kbd><span>Queue (play next)</span></div>
@@ -1072,7 +1076,7 @@ function toggleRadio(){
   }
   p.classList.add('loading');
   p.classList.remove('playing');
-  a.src='https://cliamp.stream/listen/iamdothash/lofi.mp3';
+  a.src='https://radio.cliamp.stream/lofi/stream';
   a.volume=document.querySelector('.rp-vol').value/100;
   a.play().then(function(){
     p.classList.remove('loading');
