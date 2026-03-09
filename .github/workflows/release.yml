@@ -25,6 +25,9 @@ jobs:
           - goos: darwin
             goarch: arm64
             runner: macos-latest
+          - goos: windows
+            goarch: amd64
+            runner: windows-latest
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
@@ -107,6 +110,18 @@ jobs:
           go build -trimpath \
             -ldflags="-s -w -X main.version=${VERSION} -extldflags '-lvorbisenc -lvorbis -lFLAC -logg -lm'" \
             -o "$BINARY" .
+
+      - name: Build (Windows)
+        if: matrix.goos == 'windows'
+        env:
+          GOOS: windows
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        shell: bash
+        run: |
+          BINARY="cliamp-windows-${GOARCH}.exe"
+          VERSION="${GITHUB_REF#refs/tags/}"
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "$BINARY" .
 
       - name: Build (macOS)
         if: matrix.goos == 'darwin'
