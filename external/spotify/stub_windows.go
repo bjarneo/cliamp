@@ -6,6 +6,7 @@
 package spotify
 
 import (
+	"errors"
 	"time"
 
 	"github.com/gopxl/beep/v2"
@@ -13,13 +14,17 @@ import (
 	"cliamp/playlist"
 )
 
+var errSpotifyUnavailable = errors.New("spotify: unavailable on Windows (go-librespot requires CGO)")
+
 // Session is a no-op on Windows.
 type Session struct{}
 
 // SpotifyProvider is a no-op on Windows.
 type SpotifyProvider struct{}
 
-// New returns a no-op provider stub.
+// New returns nil — Spotify is disabled on Windows because
+// go-librespot requires CGO (FLAC, Vorbis, ALSA) which cannot
+// cross-compile. Callers must nil-check the return value.
 func New(_ *Session, _ string) *SpotifyProvider { return nil }
 
 // Close is a no-op.
@@ -37,7 +42,7 @@ func (p *SpotifyProvider) Tracks(_ string) ([]playlist.Track, error) { return ni
 // Authenticate is a no-op.
 func (p *SpotifyProvider) Authenticate() error { return nil }
 
-// NewStreamer is a no-op.
+// NewStreamer returns an error — Spotify streaming is unavailable on Windows.
 func (p *SpotifyProvider) NewStreamer(_ string) (beep.StreamSeekCloser, beep.Format, time.Duration, error) {
-	return nil, beep.Format{}, 0, nil
+	return nil, beep.Format{}, 0, errSpotifyUnavailable
 }
