@@ -16,8 +16,13 @@ import (
 
 type tracksLoadedMsg []playlist.Track
 
-// feedsLoadedMsg carries tracks resolved from remote feed/M3U URLs.
-type feedsLoadedMsg []playlist.Track
+// feedsLoadedMsg carries tracks resolved from remote feed/M3U URLs,
+// along with the original source URLs so downstream handlers can identify
+// the source (e.g. YouTube Radio) without re-scanning external state.
+type feedsLoadedMsg struct {
+	tracks []playlist.Track
+	urls   []string // original source URLs that produced these tracks
+}
 
 // lyricsLoadedMsg carries parsed LRC output.
 type lyricsLoadedMsg struct {
@@ -39,6 +44,15 @@ type ytdlResolvedMsg struct {
 	index int
 	track playlist.Track
 	err   error
+}
+
+// ytdlBatchMsg carries an incrementally loaded batch of yt-dlp tracks.
+// The gen field ties the response to a specific batch session so stale
+// responses from a previous or reloaded playlist are discarded.
+type ytdlBatchMsg struct {
+	gen    uint64 // batch session generation
+	tracks []playlist.Track
+	err    error
 }
 
 // ytdlSavedMsg signals that an async yt-dlp download-to-disk completed.
@@ -84,13 +98,20 @@ func fetchPlaylistsCmd(prov playlist.Provider) tea.Cmd {
 	}
 }
 
+func fetchYTDLBatchCmd(gen uint64, pageURL string, start, count int) tea.Cmd {
+	return func() tea.Msg {
+		tracks, err := resolve.ResolveYTDLBatch(pageURL, start, count)
+		return ytdlBatchMsg{gen: gen, tracks: tracks, err: err}
+	}
+}
+
 func resolveRemoteCmd(urls []string) tea.Cmd {
 	return func() tea.Msg {
 		tracks, err := resolve.Remote(urls)
 		if err != nil {
 			return err
 		}
-		return feedsLoadedMsg(tracks)
+		return feedsLoadedMsg{tracks: tracks, urls: urls}
 	}
 }
 
