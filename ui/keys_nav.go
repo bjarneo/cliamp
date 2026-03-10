@@ -337,6 +337,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyMsg) tea.Cmd {
 		if len(tracks) > 0 {
 			m.player.Stop()
 			m.player.ClearPreload()
+			m.resetYTDLBatch()
 			m.playlist.Replace(tracks)
 			m.plCursor = 0
 			m.plScroll = 0
