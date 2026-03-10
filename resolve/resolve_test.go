@@ -31,7 +31,9 @@ func TestRemoteResolvesXiaoyuzhouEpisodeHTML(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/episode/69a13b07a22480add648dd03" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			http.Error(w, "unexpected path", http.StatusInternalServerError)
+			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte(`<!DOCTYPE html>
@@ -85,6 +87,28 @@ func TestRemoteResolvesXiaoyuzhouEpisodeHTML(t *testing.T) {
 	}
 	if track.DurationSecs != 106*60 {
 		t.Fatalf("track.DurationSecs = %d, want %d", track.DurationSecs, 106*60)
+	}
+}
+
+func TestParseXiaoyuzhouOgAudioTakesPrecedence(t *testing.T) {
+	const audioURL = "https://media.xyzcdn.net/audio.m4a"
+	const title = "Test Episode"
+
+	doc := `<!DOCTYPE html>
+<html><head>
+<meta property="og:audio" content="` + audioURL + `">
+<meta property="og:title" content="` + title + `">
+</head><body></body></html>`
+
+	track, err := parseXiaoyuzhouEpisodeHTML("https://www.xiaoyuzhoufm.com/episode/abc", doc)
+	if err != nil {
+		t.Fatalf("parseXiaoyuzhouEpisodeHTML returned error: %v", err)
+	}
+	if track.Path != audioURL {
+		t.Fatalf("track.Path = %q, want %q", track.Path, audioURL)
+	}
+	if track.Title != title {
+		t.Fatalf("track.Title = %q, want %q", track.Title, title)
 	}
 }
 

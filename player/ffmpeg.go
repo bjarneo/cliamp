@@ -191,17 +191,20 @@ type ffmpegPipeStreamer struct {
 	buf    [pcmFrameSize32]byte // large enough for both 16-bit and 32-bit frames
 	f32    bool                 // true = f32le, false = s16le
 	err    error
+	pos    int // current sample frame position
 }
 
 func (f *ffmpegPipeStreamer) Stream(samples [][2]float64) (int, bool) {
-	return streamFromReader(f.reader, samples, f.buf[:], f.f32, &f.err)
+	n, ok := streamFromReader(f.reader, samples, f.buf[:], f.f32, &f.err)
+	f.pos += n
+	return n, ok
 }
 
 func (f *ffmpegPipeStreamer) Err() error { return f.err }
 
 func (f *ffmpegPipeStreamer) Len() int { return 0 }
 
-func (f *ffmpegPipeStreamer) Position() int { return 0 }
+func (f *ffmpegPipeStreamer) Position() int { return f.pos }
 
 func (f *ffmpegPipeStreamer) Seek(int) error { return nil }
 

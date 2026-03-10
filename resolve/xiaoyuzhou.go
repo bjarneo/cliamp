@@ -16,6 +16,8 @@ import (
 var (
 	xiaoyuzhouSchemaScriptRe = regexp.MustCompile(`(?s)<script[^>]+name="schema:podcast-show"[^>]*>(.*?)</script>`)
 	isoDurationRe            = regexp.MustCompile(`^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$`)
+	metaTagRe = regexp.MustCompile(`<meta\s[^>]*>`)
+	metaAttrRe = regexp.MustCompile(`(\w+)="([^"]+)"`)
 )
 
 func resolveXiaoyuzhouEpisode(pageURL string) ([]playlist.Track, error) {
@@ -29,7 +31,7 @@ func resolveXiaoyuzhouEpisode(pageURL string) ([]playlist.Track, error) {
 		return nil, fmt.Errorf("http status %s", resp.Status)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20)) // 2 MB cap
 	if err != nil {
 		return nil, fmt.Errorf("reading page: %w", err)
 	}
@@ -56,7 +58,9 @@ func parseXiaoyuzhouEpisodeHTML(pageURL, doc string) (playlist.Track, error) {
 		} `json:"partOfSeries"`
 	}
 	if raw := extractXiaoyuzhouSchemaJSON(doc); raw != "" {
-		_ = json.Unmarshal([]byte(raw), &schema)
+		if err := json.Unmarshal([]byte(raw), &schema); err != nil && audioURL == "" {
+			return playlist.Track{}, fmt.Errorf("parsing schema.org JSON-LD: %w", err)
+		}
 	}
 
 	if audioURL == "" {
@@ -90,15 +94,15 @@ func extractXiaoyuzhouSchemaJSON(doc string) string {
 }
 
 func extractMetaContent(doc, attr, value string) string {
-	qv := regexp.QuoteMeta(value)
-	// Match both <meta property="og:x" content="..."> and <meta content="..." property="og:x">
-	patterns := []string{
-		fmt.Sprintf(`<meta[^>]+%s="%s"[^>]+content="([^"]+)"`, attr, qv),
-		fmt.Sprintf(`<meta[^>]+content="([^"]+)"[^>]+%s="%s"`, attr, qv),
-	}
-	for _, p := range patterns {
-		if m := regexp.MustCompile(p).FindStringSubmatch(doc); len(m) >= 2 {
-			return html.UnescapeString(m[1])
+	for _, tag := range metaTagRe.FindAllString(doc, -1) {
+		attrs := make(map[string]string)
+		for _, m := range metaAttrRe.FindAllStringSubmatch(tag, -1) {
+			attrs[m[1]] = m[2]
+		}
+		if attrs[attr] == value {
+			if c := attrs["content"]; c != "" {
+				return html.UnescapeString(c)
+			}
 		}
 	}
 	return ""

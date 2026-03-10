@@ -153,6 +153,7 @@ func IsXiaoyuzhouEpisode(path string) bool {
 	}
 	host := strings.ToLower(u.Hostname())
 	host = strings.TrimPrefix(host, "www.")
+	host = strings.TrimPrefix(host, "m.")
 	if host != "xiaoyuzhoufm.com" {
 		return false
 	}
