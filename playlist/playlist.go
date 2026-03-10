@@ -132,7 +132,8 @@ func IsYTDL(path string) bool {
 	host = strings.TrimPrefix(host, "m.")
 	switch host {
 	case "soundcloud.com",
-		"bandcamp.com":
+		"bandcamp.com",
+		"music.163.com":
 		return true
 	}
 	// Bandcamp artist subdomains (e.g. artist.bandcamp.com)
