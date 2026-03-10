@@ -142,6 +142,23 @@ func IsYTDL(path string) bool {
 	return false
 }
 
+// IsXiaoyuzhouEpisode reports whether the URL points to a Xiaoyuzhou episode page.
+func IsXiaoyuzhouEpisode(path string) bool {
+	if !IsURL(path) {
+		return false
+	}
+	u, err := url.Parse(path)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	host = strings.TrimPrefix(host, "www.")
+	if host != "xiaoyuzhoufm.com" {
+		return false
+	}
+	return strings.HasPrefix(strings.ToLower(u.Path), "/episode/")
+}
+
 // IsFeed reports whether the URL points to a podcast RSS/XML feed.
 func IsFeed(path string) bool {
 	if !IsURL(path) {

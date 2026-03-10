@@ -56,7 +56,7 @@ func Args(args []string) (Result, error) {
 
 	for _, arg := range args {
 		if playlist.IsURL(arg) {
-			if playlist.IsFeed(arg) || playlist.IsM3U(arg) || playlist.IsPLS(arg) || playlist.IsYouTubeURL(arg) || playlist.IsYTDL(arg) || sniffFeedURL(arg) {
+			if playlist.IsFeed(arg) || playlist.IsM3U(arg) || playlist.IsPLS(arg) || playlist.IsYouTubeURL(arg) || playlist.IsYTDL(arg) || playlist.IsXiaoyuzhouEpisode(arg) || sniffFeedURL(arg) {
 				r.Pending = append(r.Pending, arg)
 			} else {
 				files = append(files, arg)
@@ -101,6 +101,12 @@ func Remote(urls []string) ([]playlist.Track, error) {
 	var tracks []playlist.Track
 	for _, u := range urls {
 		switch {
+		case playlist.IsXiaoyuzhouEpisode(u):
+			t, err := resolveXiaoyuzhouEpisode(u)
+			if err != nil {
+				return nil, fmt.Errorf("resolving xiaoyuzhou episode %s: %w", u, err)
+			}
+			tracks = append(tracks, t...)
 		case playlist.IsYouTubeURL(u):
 			t, err := resolveYouTube(u)
 			if err != nil {
