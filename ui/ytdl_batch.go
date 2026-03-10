@@ -11,7 +11,7 @@ import (
 
 const ytdlBatchSize = 100 // items per background batch
 
-// resetYTDLBatch cancels any in-progress batch loading session.
+// resetYTDLBatch invalidates any in-progress batch loading session.
 // Incrementing the generation ensures that stale in-flight responses
 // are discarded by the handler, even if the same URL is reloaded.
 func (m *Model) resetYTDLBatch() {

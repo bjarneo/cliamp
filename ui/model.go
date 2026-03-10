@@ -902,12 +902,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ytdlBatchMsg:
-		m.ytdlBatchLoading = false
 		// Discard stale responses from a previous batch session.
 		if msg.gen != m.ytdlBatchGen {
 			return m, nil
 		}
-		if msg.err != nil || len(msg.tracks) == 0 {
+		m.ytdlBatchLoading = false
+		if msg.err != nil {
+			m.ytdlBatchDone = true
+			m.saveMsg = fmt.Sprintf("Radio batch load failed: %v", msg.err)
+			m.saveMsgTTL = 90
+			return m, nil
+		}
+		if len(msg.tracks) == 0 {
 			m.ytdlBatchDone = true
 			return m, nil
 		}
