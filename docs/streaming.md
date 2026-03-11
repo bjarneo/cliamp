@@ -32,6 +32,14 @@ cliamp https://example.com/podcast/feed.xml
 
 Episode titles and the podcast name are extracted from the feed and shown in the playlist.
 
+### Xiaoyuzhou (小宇宙)
+
+Play individual episodes from [Xiaoyuzhou](https://www.xiaoyuzhoufm.com) by passing the episode URL:
+
+```sh
+cliamp https://www.xiaoyuzhoufm.com/episode/xxxx
+```
+
 ## Load URL at Runtime
 
 Press `u` while playing to load a new stream or playlist URL without restarting. Supports the same URL types as CLI arguments: direct audio URLs, M3U/PLS playlists, RSS podcast feeds, and yt-dlp compatible links.
