@@ -132,7 +132,13 @@ func IsYTDL(path string) bool {
 	host = strings.TrimPrefix(host, "m.")
 	switch host {
 	case "soundcloud.com",
-		"bandcamp.com":
+		"bandcamp.com",
+		"bilibili.com",
+		"b23.tv":
+		return true
+	}
+	// Bilibili subdomains (e.g. space.bilibili.com)
+	if strings.HasSuffix(host, ".bilibili.com") {
 		return true
 	}
 	// Bandcamp artist subdomains (e.g. artist.bandcamp.com)
