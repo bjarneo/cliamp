@@ -186,6 +186,13 @@ type Model struct {
 	// Track info overlay (metadata details)
 	showInfo bool
 
+	// Incremental yt-dlp playlist loading (e.g. YouTube Radio).
+	ytdlBatchURL     string // source URL for incremental loading
+	ytdlBatchGen     uint64 // session generation; incremented on each init/reset
+	ytdlBatchOffset  int    // tracks already loaded
+	ytdlBatchDone    bool   // true when all tracks have been loaded
+	ytdlBatchLoading bool   // true while a batch fetch is in-flight
+
 	// yt-dlp seek debounce: accumulate into a target position and fire once.
 	seekActive    bool          // true from first keypress until seek completes
 	seekTargetPos time.Duration // absolute target position
@@ -844,6 +851,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.player.Stop()
 			m.player.ClearPreload()
 		}
+		m.resetYTDLBatch()
 		m.playlist.Replace(msg)
 		m.plCursor = 0
 		m.plScroll = 0
@@ -893,16 +901,52 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.navScreen = navBrowseScreenTracks
 		return m, nil
 
+	case ytdlBatchMsg:
+		// Discard stale responses from a previous batch session.
+		if msg.gen != m.ytdlBatchGen {
+			return m, nil
+		}
+		m.ytdlBatchLoading = false
+		if msg.err != nil {
+			m.ytdlBatchDone = true
+			m.saveMsg = fmt.Sprintf("Radio batch load failed: %v", msg.err)
+			m.saveMsgTTL = 90
+			return m, nil
+		}
+		if len(msg.tracks) == 0 {
+			m.ytdlBatchDone = true
+			return m, nil
+		}
+		m.playlist.Add(msg.tracks...)
+		m.ytdlBatchOffset += len(msg.tracks)
+		if len(msg.tracks) < ytdlBatchSize {
+			m.ytdlBatchDone = true
+			return m, nil
+		}
+		// Immediately fetch the next batch.
+		m.ytdlBatchLoading = true
+		return m, fetchYTDLBatchCmd(m.ytdlBatchGen, m.ytdlBatchURL, m.ytdlBatchOffset, ytdlBatchSize)
+
 	case feedsLoadedMsg:
 		m.feedLoading = false
-		if len(msg) > 0 {
-			m.playlist.Add(msg...)
-			m.saveMsg = fmt.Sprintf("Loaded %d track(s)", len(msg))
+		if len(msg.tracks) > 0 {
+			m.playlist.Add(msg.tracks...)
+			m.saveMsg = fmt.Sprintf("Loaded %d track(s)", len(msg.tracks))
 			m.saveMsgTTL = 60
+			// Set up incremental loading for YouTube Radio playlists.
+			// The source URLs are carried in the message so we don't
+			// need to re-scan pendingURLs (which misses interactive loads).
+			batchCmd := m.initYTDLBatch(msg.urls)
 			if m.playlist.Len() > 0 && !m.player.IsPlaying() {
-				cmd := m.playCurrentTrack()
+				playCmd := m.playCurrentTrack()
 				m.notifyMPRIS()
-				return m, cmd
+				if batchCmd != nil {
+					return m, tea.Batch(playCmd, batchCmd)
+				}
+				return m, playCmd
+			}
+			if batchCmd != nil {
+				return m, batchCmd
 			}
 		} else {
 			m.saveMsg = "No tracks found at URL."
@@ -949,6 +993,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.replace {
 			m.player.Stop()
 			m.player.ClearPreload()
+			m.resetYTDLBatch()
 			m.playlist.Replace(msg.tracks)
 			m.plCursor = 0
 			m.plScroll = 0

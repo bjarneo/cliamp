@@ -86,7 +86,8 @@ func IsLocalPLS(path string) bool {
 	return !IsURL(path) && IsPLS(path)
 }
 
-// IsYouTubeURL reports whether the URL points to YouTube or YouTube Music.
+// IsYouTubeURL reports whether the URL points to YouTube (youtube.com or youtu.be).
+// YouTube Music (music.youtube.com) is excluded — use IsYouTubeMusicURL for that.
 func IsYouTubeURL(path string) bool {
 	if !IsURL(path) {
 		return false
@@ -103,10 +104,26 @@ func IsYouTubeURL(path string) bool {
 	host = strings.TrimPrefix(host, "www.")
 	host = strings.TrimPrefix(host, "m.")
 	switch host {
-	case "youtube.com", "youtu.be", "music.youtube.com":
+	case "youtube.com", "youtu.be":
 		return true
 	}
 	return false
+}
+
+// IsYouTubeMusicURL reports whether the URL points to YouTube Music (music.youtube.com).
+// These URLs require yt-dlp rather than the native YouTube API client.
+func IsYouTubeMusicURL(path string) bool {
+	if !IsURL(path) {
+		return false
+	}
+	u, err := url.Parse(path)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	host = strings.TrimPrefix(host, "www.")
+	host = strings.TrimPrefix(host, "m.")
+	return host == "music.youtube.com"
 }
 
 // IsYTDL reports whether the URL points to a site supported by yt-dlp
@@ -115,8 +132,8 @@ func IsYTDL(path string) bool {
 	if !IsURL(path) {
 		return false
 	}
-	// YouTube URLs are also handled by yt-dlp for playback.
-	if IsYouTubeURL(path) {
+	// YouTube and YouTube Music URLs are handled by yt-dlp for playback.
+	if IsYouTubeURL(path) || IsYouTubeMusicURL(path) {
 		return true
 	}
 	if strings.HasPrefix(path, "ytsearch:") || strings.HasPrefix(path, "ytsearch1:") ||
@@ -132,7 +149,14 @@ func IsYTDL(path string) bool {
 	host = strings.TrimPrefix(host, "m.")
 	switch host {
 	case "soundcloud.com",
-		"bandcamp.com":
+		"bandcamp.com",
+		"music.163.com":
+		"bilibili.com",
+		"b23.tv":
+		return true
+	}
+	// Bilibili subdomains (e.g. space.bilibili.com)
+	if strings.HasSuffix(host, ".bilibili.com") {
 		return true
 	}
 	// Bandcamp artist subdomains (e.g. artist.bandcamp.com)

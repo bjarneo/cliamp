@@ -883,6 +883,7 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyMsg) tea.Cmd {
 		if len(m.plMgrTracks) > 0 {
 			m.player.Stop()
 			m.player.ClearPreload()
+			m.resetYTDLBatch()
 			m.playlist.Replace(m.plMgrTracks)
 			m.plCursor = 0
 			m.playlist.SetIndex(0)

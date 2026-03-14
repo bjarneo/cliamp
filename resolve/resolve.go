@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -105,6 +106,12 @@ func Remote(urls []string) ([]playlist.Track, error) {
 			t, err := resolveXiaoyuzhouEpisode(u)
 			if err != nil {
 				return nil, fmt.Errorf("resolving xiaoyuzhou episode %s: %w", u, err)
+		case playlist.IsYouTubeMusicURL(u):
+			// YouTube Music requires yt-dlp; the native YouTube API client
+			// does not support music.youtube.com playlists.
+			t, err := resolveYTDL(u)
+			if err != nil {
+				return nil, fmt.Errorf("resolving youtube music %s: %w", u, err)
 			}
 			tracks = append(tracks, t...)
 		case playlist.IsYouTubeURL(u):
@@ -343,6 +350,11 @@ func CleanupYTDL() {
 	ytdlTempDirs = nil
 }
 
+// YTDLRadioInitialItems is the number of tracks fetched in the first pass
+// for YouTube Radio/Mix playlists. The UI uses this as the batch offset
+// when starting incremental loading.
+const YTDLRadioInitialItems = 20
+
 // resolveYouTube uses the kkdai/youtube library to resolve YouTube URLs.
 // For playlist URLs it enumerates all entries natively; for single video URLs
 // it returns a single track with metadata from the YouTube API.
@@ -353,6 +365,18 @@ func resolveYouTube(pageURL string) ([]playlist.Track, error) {
 	// avoiding a wasted API call for single-video URLs (the common case).
 	u, _ := url.Parse(pageURL)
 	isList := u != nil && u.Query().Get("list") != ""
+
+	// YouTube Radio/Mix playlists (list=RD...) are dynamically generated and
+	// unsupported by the native library. Route them directly to yt-dlp.
+	listID := ""
+	if u != nil {
+		listID = u.Query().Get("list")
+	}
+	if isList && strings.HasPrefix(listID, "RD") {
+		if tracks, err := resolveYTDL(pageURL, YTDLRadioInitialItems); err == nil && len(tracks) > 0 {
+			return tracks, nil
+		}
+	}
 
 	if isList {
 		pl, err := client.GetPlaylist(pageURL)
@@ -367,6 +391,11 @@ func resolveYouTube(pageURL string) ([]playlist.Track, error) {
 					DurationSecs: int(entry.Duration.Seconds()),
 				})
 			}
+			return tracks, nil
+		}
+		// Native library failed (e.g. YouTube Radio/Mix playlists are dynamic
+		// and unsupported). Fall back to yt-dlp which handles them.
+		if tracks, err := resolveYTDL(pageURL); err == nil && len(tracks) > 0 {
 			return tracks, nil
 		}
 	}
@@ -386,15 +415,43 @@ func resolveYouTube(pageURL string) ([]playlist.Track, error) {
 	}}, nil
 }
 
+// ResolveYTDLBatch is like resolveYTDL but fetches a specific range
+// [start, start+count) from the playlist. Exported for UI incremental loading.
+// ResolveYTDLBatch fetches tracks starting at offset `start`.
+// If count > 0, fetches at most `count` items; if count == 0, fetches all remaining.
+func ResolveYTDLBatch(pageURL string, start, count int) ([]playlist.Track, error) {
+	end := 0
+	if count > 0 {
+		end = start + count
+	}
+	return resolveYTDLRange(pageURL, start, end)
+}
+
 // resolveYTDL uses yt-dlp --flat-playlist to quickly enumerate tracks.
 // Tracks are returned with their page URLs as Path (not direct audio URLs).
-// Use ResolveYTDLTrack to lazily resolve individual tracks before playback.
-func resolveYTDL(pageURL string) ([]playlist.Track, error) {
+// If maxItems > 0, only the first maxItems tracks are fetched.
+func resolveYTDL(pageURL string, maxItems ...int) ([]playlist.Track, error) {
+	end := 0
+	if len(maxItems) > 0 {
+		end = maxItems[0]
+	}
+	return resolveYTDLRange(pageURL, 0, end)
+}
+
+func resolveYTDLRange(pageURL string, start, end int) ([]playlist.Track, error) {
 	if _, err := exec.LookPath("yt-dlp"); err != nil {
 		return nil, fmt.Errorf("yt-dlp not found in PATH — see https://github.com/yt-dlp/yt-dlp#installation")
 	}
 
-	cmd := exec.Command("yt-dlp", "--flat-playlist", "-j", pageURL)
+	args := []string{"--flat-playlist", "-j"}
+	if start > 0 {
+		args = append(args, "--playlist-start", strconv.Itoa(start+1)) // yt-dlp is 1-based
+	}
+	if end > 0 {
+		args = append(args, "--playlist-end", strconv.Itoa(end))
+	}
+	args = append(args, pageURL)
+	cmd := exec.Command("yt-dlp", args...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	stdout, err := cmd.Output()
