@@ -103,9 +103,19 @@ func (p *Player) Play(path string, knownDuration time.Duration) error {
 // PlayYTDL starts playing a yt-dlp page URL via a piped yt-dlp | ffmpeg chain.
 // Playback starts as soon as the first PCM samples arrive (~1-3s). Not seekable.
 func (p *Player) PlayYTDL(pageURL string, knownDuration time.Duration) error {
+	// Probe duration concurrently with pipeline setup so it doesn't delay playback.
+	probeCh := make(chan time.Duration, 1)
+	if knownDuration == 0 {
+		go func() { probeCh <- probeYTDLDuration(pageURL) }()
+	}
 	tp, err := p.buildYTDLPipeline(pageURL, 0)
 	if err != nil {
 		return err
+	}
+	if knownDuration == 0 {
+		if d := <-probeCh; d > 0 {
+			knownDuration = d
+		}
 	}
 	tp.knownDuration = knownDuration
 	return p.playPipeline(tp)

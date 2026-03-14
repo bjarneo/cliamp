@@ -174,6 +174,9 @@ func (m *Model) handleNavArtistListKey(msg tea.KeyMsg, navClient *navidrome.Navi
 		}
 		// By Artist: fetch all albums first, then all tracks via a two-step command.
 		// We use a dedicated command that fetches albums then tracks in one shot.
+		// Clear any active artist-list search filter before transitioning so that
+		// stale navSearchIdx entries are not misapplied to the incoming track list.
+		m.navClearSearch()
 		return m.fetchNavArtistAllTracksCmd(navClient, artist.ID)
 	case "esc", "h", "left", "backspace":
 		// Back to menu.
@@ -337,6 +340,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyMsg) tea.Cmd {
 		if len(tracks) > 0 {
 			m.player.Stop()
 			m.player.ClearPreload()
+			m.resetYTDLBatch()
 			m.playlist.Replace(tracks)
 			m.plCursor = 0
 			m.plScroll = 0

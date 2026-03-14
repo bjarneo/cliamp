@@ -1,11 +1,13 @@
-# YouTube, SoundCloud and Bandcamp
+# YouTube, SoundCloud, Bandcamp and Bilibili
 
-Play from YouTube, SoundCloud, and Bandcamp URLs if [yt-dlp](https://github.com/yt-dlp/yt-dlp) is installed:
+Play from YouTube, SoundCloud, Bandcamp, and Bilibili URLs if [yt-dlp](https://github.com/yt-dlp/yt-dlp) is installed:
 
 ```sh
 cliamp https://www.youtube.com/watch?v=dQw4w9WgXcQ
 cliamp https://soundcloud.com/artist/track
 cliamp https://artist.bandcamp.com/album/name
+cliamp https://www.bilibili.com/video/BV1xxxxxxxxx
+cliamp https://space.bilibili.com/uid/lists/id  # season/series playlists
 ```
 
 Playlists and albums are supported. Press `S` to save a downloaded track to `~/Music/cliamp/`.

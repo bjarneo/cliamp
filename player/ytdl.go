@@ -3,12 +3,14 @@ package player
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +31,28 @@ func SetYTDLCookiesFrom(browser string) {
 func YTDLPAvailable() bool {
 	_, err := exec.LookPath("yt-dlp")
 	return err == nil
+}
+
+// probeYTDLDuration runs a quick yt-dlp --print duration to obtain
+// the track duration when --flat-playlist didn't provide it.
+func probeYTDLDuration(pageURL string) time.Duration {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	args := []string{"--skip-download", "--no-playlist", "--print", "duration"}
+	if ytdlCookiesFrom != "" {
+		args = append(args, "--cookies-from-browser", ytdlCookiesFrom)
+	}
+	args = append(args, pageURL)
+	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+	secs, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	if err != nil || secs <= 0 {
+		return 0
+	}
+	return time.Duration(secs * float64(time.Second))
 }
 
 // FFmpegAvailable reports whether ffmpeg is installed and on PATH.
