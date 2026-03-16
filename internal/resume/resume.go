@@ -24,9 +24,13 @@ func stateFile() (string, error) {
 	return filepath.Join(dir, "resume.json"), nil
 }
 
-// Save writes the resume state to disk. Errors are silently ignored so a
-// failed write never disrupts normal exit.
+// Save writes the resume state to disk. No-ops for empty path or zero/negative
+// position to avoid overwriting a valid resume file with useless data.
+// Errors are silently ignored so a failed write never disrupts normal exit.
 func Save(path string, positionSec int) {
+	if path == "" || positionSec <= 0 {
+		return
+	}
 	f, err := stateFile()
 	if err != nil {
 		return
@@ -36,7 +40,7 @@ func Save(path string, positionSec int) {
 		return
 	}
 	_ = os.MkdirAll(filepath.Dir(f), 0o755)
-	_ = os.WriteFile(f, data, 0o644)
+	_ = os.WriteFile(f, data, 0o600)
 }
 
 // Load reads the resume state from disk. Returns a zero State if the file

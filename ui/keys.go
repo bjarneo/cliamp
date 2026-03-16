@@ -22,9 +22,12 @@ func (m *Model) quit() tea.Cmd {
 	// - HTTP streams with known duration (podcast MP3s, seek-by-reconnect)
 	// Exclude YTDL (position unreliable) and live streams (no duration).
 	if track, _ := m.playlist.Current(); track.Path != "" &&
-		!playlist.IsYTDL(track.Path) && !track.IsLive() {
-		m.exitResume.path = track.Path
-		m.exitResume.secs = int(m.player.Position().Seconds())
+		!playlist.IsYTDL(track.Path) && !track.IsLive() &&
+		m.player.IsPlaying() {
+		if secs := int(m.player.Position().Seconds()); secs > 0 {
+			m.exitResume.path = track.Path
+			m.exitResume.secs = secs
+		}
 	}
 
 	m.player.Close()
