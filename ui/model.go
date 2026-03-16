@@ -748,11 +748,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Use fast ticks only when the visualizer is rendering; otherwise
-		// slow ticks are enough for time/seek updates and save significant
-		// GPU repaints in terminal emulators.
+		// Use fast ticks only when audio is actively playing with a live
+		// visualizer. Paused/stopped playback has no new audio samples, so
+		// slow ticks are sufficient and save CPU/GPU repaints.
 		interval := tickSlow
-		if m.vis.Mode != VisNone && !m.isOverlayActive() {
+		if m.vis.Mode != VisNone && !m.isOverlayActive() &&
+			m.player.IsPlaying() && !m.player.IsPaused() {
 			interval = tickFast
 		}
 		cmds = append(cmds, tickCmdAt(interval))
