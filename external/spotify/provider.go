@@ -26,6 +26,31 @@ import (
 // maxResponseBody limits JSON API responses to 10 MB.
 const maxResponseBody = 10 << 20
 
+// spotifyPlaylistItem is the raw playlist object returned by /v1/me/playlists.
+type spotifyPlaylistItem struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	SnapshotID    string `json:"snapshot_id"`
+	Collaborative bool   `json:"collaborative"`
+	Owner         struct {
+		ID string `json:"id"`
+	} `json:"owner"`
+	Items *struct {
+		Total int `json:"total"`
+	} `json:"items"`
+}
+
+// playlistAccessible reports whether the playlist should be shown to the user.
+// Playlists saved from other users (not owned, not collaborative) are excluded
+// because the Spotify API returns 403 when listing their tracks.
+// When userID is empty (fetch failed), all playlists are included as a fallback.
+func playlistAccessible(item spotifyPlaylistItem, userID string) bool {
+	if userID == "" {
+		return true
+	}
+	return item.Owner.ID == userID || item.Collaborative
+}
+
 // SpotifyProvider implements playlist.Provider using the Spotify Web API
 // for playlist/track metadata and go-librespot for audio streaming.
 // playlistCache holds a snapshot_id and the fetched tracks for a playlist,
@@ -167,19 +192,8 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 		}
 
 		var result struct {
-			Items []struct {
-				ID            string `json:"id"`
-				Name          string `json:"name"`
-				SnapshotID    string `json:"snapshot_id"`
-				Collaborative bool   `json:"collaborative"`
-				Owner         struct {
-					ID string `json:"id"`
-				} `json:"owner"`
-				Items *struct {
-					Total int `json:"total"`
-				} `json:"items"`
-			} `json:"items"`
-			Total int `json:"total"`
+			Items []spotifyPlaylistItem `json:"items"`
+			Total int                  `json:"total"`
 		}
 		if err := decodeBody(resp, &result); err != nil {
 			return nil, fmt.Errorf("spotify: parse playlists: %w", err)
@@ -187,10 +201,7 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 
 		p.mu.Lock()
 		for _, item := range result.Items {
-			// Skip playlists saved from other users: they appear in the library
-			// but the Spotify API returns 403 when listing their tracks.
-			// Only include playlists we own or collaborate on.
-			if userID != "" && item.Owner.ID != userID && !item.Collaborative {
+			if !playlistAccessible(item, userID) {
 				continue
 			}
 			count := 0
