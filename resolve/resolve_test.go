@@ -112,6 +112,46 @@ func TestParseXiaoyuzhouOgAudioTakesPrecedence(t *testing.T) {
 	}
 }
 
+func TestParseItunesDuration(t *testing.T) {
+	tests := []struct {
+		input string
+		want  int
+	}{
+		// Plain seconds
+		{"3600", 3600},
+		{"90", 90},
+		{"0", 0},
+		// Fractional seconds
+		{"3661.5", 3661},
+		{"90.9", 90},
+		// MM:SS
+		{"1:30", 90},
+		{"87:05", 5225},
+		// HH:MM:SS
+		{"1:27:05", 5225},
+		{"0:01:30", 90},
+		// Whitespace
+		{" 3600 ", 3600},
+		// Empty
+		{"", 0},
+		// Invalid — return 0
+		{"abc", 0},
+		{"12:xx", 0},
+		{"1:2:xx", 0},
+		// Negative — clamp to 0
+		{"-1", 0},
+		{"0:-10", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := parseItunesDuration(tt.input)
+			if got != tt.want {
+				t.Errorf("parseItunesDuration(%q) = %d, want %d", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 type rewriteHostTransport struct {
 	target *url.URL
 	rt     http.RoundTripper
