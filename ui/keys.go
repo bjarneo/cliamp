@@ -17,6 +17,16 @@ import (
 
 // quit shuts down the player and signals the TUI to exit.
 func (m *Model) quit() tea.Cmd {
+	// Only save resume for seekable tracks:
+	// - local files (not stream)
+	// - HTTP streams with known duration (podcast MP3s, seek-by-reconnect)
+	// Exclude YTDL (position unreliable) and live streams (no duration).
+	if track, _ := m.playlist.Current(); track.Path != "" &&
+		!playlist.IsYTDL(track.Path) && !track.IsLive() {
+		m.exitResume.path = track.Path
+		m.exitResume.secs = int(m.player.Position().Seconds())
+	}
+
 	m.player.Close()
 	m.quitting = true
 	return tea.Quit

@@ -151,6 +151,20 @@ type Model struct {
 	// Async stream buffering (true while HTTP connect is in progress)
 	buffering bool
 
+	// resume holds the path and position to seek to when the matching track
+	// starts playing. Cleared after the seek is performed.
+	resume struct {
+		path string
+		secs int
+	}
+
+	// exitResume holds the playback state captured just before player.Close()
+	// so ResumeState() can read it after the player is shut down.
+	exitResume struct {
+		path string
+		secs int
+	}
+
 	// preloading is true while a preloadStreamCmd goroutine is in-flight.
 	preloading bool
 
@@ -263,6 +277,18 @@ func (m *Model) SetVisualizer(name string) bool {
 // VisualizerName returns the current visualizer mode's display name.
 func (m *Model) VisualizerName() string {
 	return m.vis.ModeName()
+}
+
+// SetResume registers a path+position to seek to when that track first plays.
+func (m *Model) SetResume(path string, secs int) {
+	m.resume.path = path
+	m.resume.secs = secs
+}
+
+// ResumeState returns the track path and playback position captured at exit.
+// Called after prog.Run() returns (player already closed).
+func (m Model) ResumeState() (path string, secs int) {
+	return m.exitResume.path, m.exitResume.secs
 }
 
 // ThemeName returns the current theme name.
@@ -938,6 +964,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = nil
 			m.reconnect.attempts = 0
 			m.reconnect.at = time.Time{}
+			m.applyResume()
 		}
 		m.notifyMPRIS()
 		return m, m.preloadNext()
@@ -1138,12 +1165,36 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		m.err = err
 	} else {
 		m.err = nil
+		m.applyResume()
 	}
 
 	if fetchCmd != nil {
 		return tea.Batch(m.preloadNext(), fetchCmd)
 	}
 	return m.preloadNext()
+}
+
+// applyResume seeks to the saved resume position if the current track matches.
+// It clears the resume state after a successful seek so it only fires once.
+func (m *Model) applyResume() {
+	// secs == 0 is indistinguishable from "never played"; skip resume.
+	if m.resume.path == "" || m.resume.secs <= 0 {
+		return
+	}
+	track, _ := m.playlist.Current()
+	if track.Path != m.resume.path {
+		return
+	}
+	// Only seek if the player reports the stream is seekable; otherwise the
+	// seek is a no-op that returns nil, which we must not mistake for success.
+	if !m.player.Seekable() {
+		return
+	}
+	target := time.Duration(m.resume.secs) * time.Second
+	if err := m.player.Seek(target - m.player.Position()); err == nil {
+		m.resume.path = ""
+		m.resume.secs = 0
+	}
 }
 
 // preloadNext looks ahead in the playlist and preloads the next track for

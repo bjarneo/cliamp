@@ -14,6 +14,7 @@ import (
 	"cliamp/external/radio"
 	"cliamp/external/spotify"
 	"cliamp/external/ytmusic"
+	"cliamp/internal/resume"
 	"cliamp/mpris"
 	"cliamp/player"
 	"cliamp/playlist"
@@ -195,6 +196,11 @@ func run(overrides config.Overrides, positional []string) error {
 		m.SetAutoPlay(true)
 	}
 
+	// PositionSec == 0 is indistinguishable from "never played"; skip resume.
+	if rs := resume.Load(); rs.Path != "" && rs.PositionSec > 0 {
+		m.SetResume(rs.Path, rs.PositionSec)
+	}
+
 	prog := tea.NewProgram(m, tea.WithAltScreen())
 
 	if svc, err := mpris.New(func(msg interface{}) { prog.Send(msg) }); err == nil && svc != nil {
@@ -207,13 +213,17 @@ func run(overrides config.Overrides, positional []string) error {
 		return err
 	}
 
-	// Persist theme selection across restarts.
+	// Persist theme selection and resume state across restarts.
 	if fm, ok := finalModel.(ui.Model); ok {
 		themeName := fm.ThemeName()
 		if themeName == theme.DefaultName {
 			themeName = ""
 		}
 		_ = config.Save("theme", fmt.Sprintf("%q", themeName))
+
+		if path, secs := fm.ResumeState(); path != "" {
+			resume.Save(path, secs)
+		}
 	}
 
 	return nil
