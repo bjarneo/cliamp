@@ -98,6 +98,7 @@ func (p *SpotifyProvider) ensureSession() error {
 	}
 	p.mu.Lock()
 	p.session = sess
+	p.userID = ""
 	p.mu.Unlock()
 	return nil
 }
@@ -121,6 +122,7 @@ func (p *SpotifyProvider) Authenticate() error {
 	}
 	p.mu.Lock()
 	p.session = sess
+	p.userID = ""
 	p.mu.Unlock()
 	return nil
 }
@@ -132,6 +134,7 @@ func (p *SpotifyProvider) Close() {
 	if p.session != nil {
 		p.session.Close()
 		p.session = nil
+		p.userID = ""
 	}
 }
 
@@ -268,6 +271,9 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 		path := fmt.Sprintf("/v1/playlists/%s/items", playlistID)
 		resp, err := p.webAPI(ctx, "GET", path, query)
 		if err != nil {
+			if strings.Contains(err.Error(), "403") {
+				return nil, fmt.Errorf("spotify: playlist not accessible: only playlists you own or collaborate on can be loaded")
+			}
 			return nil, fmt.Errorf("spotify: list tracks: %w", err)
 		}
 
@@ -429,10 +435,6 @@ func (p *SpotifyProvider) webAPI(ctx context.Context, method, path string, query
 			case <-time.After(wait):
 				continue
 			}
-		}
-		if resp.StatusCode == http.StatusForbidden {
-			resp.Body.Close()
-			return nil, fmt.Errorf("playlist not accessible (403): only playlists you own or collaborate on can be loaded. Playlists saved from other users are not supported by the Spotify API")
 		}
 		if resp.StatusCode != http.StatusOK {
 			body, readErr := io.ReadAll(io.LimitReader(resp.Body, 512))
