@@ -254,6 +254,7 @@ func resolveFeed(feedURL string) ([]playlist.Track, error) {
 			Title string `xml:"title"`
 			Items []struct {
 				Title     string `xml:"title"`
+				Duration  string `xml:"http://www.itunes.com/dtds/podcast-1.0.dtd duration"`
 				Enclosure struct {
 					URL  string `xml:"url,attr"`
 					Type string `xml:"type,attr"`
@@ -271,10 +272,11 @@ func resolveFeed(feedURL string) ([]playlist.Track, error) {
 			continue
 		}
 		tracks = append(tracks, playlist.Track{
-			Path:   item.Enclosure.URL,
-			Title:  item.Title,
-			Artist: rss.Channel.Title,
-			Stream: true,
+			Path:         item.Enclosure.URL,
+			Title:        item.Title,
+			Artist:       rss.Channel.Title,
+			Stream:       true,
+			DurationSecs: parseItunesDuration(item.Duration),
 		})
 	}
 	return tracks, nil
@@ -611,6 +613,31 @@ func findFirstFile(dir string) string {
 		}
 	}
 	return ""
+}
+
+// parseItunesDuration parses an <itunes:duration> value into seconds.
+// Accepts "HH:MM:SS", "MM:SS", or a plain integer seconds string.
+func parseItunesDuration(s string) int {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	parts := strings.Split(s, ":")
+	switch len(parts) {
+	case 1:
+		n, _ := strconv.Atoi(parts[0])
+		return n
+	case 2:
+		m, _ := strconv.Atoi(parts[0])
+		sec, _ := strconv.Atoi(parts[1])
+		return m*60 + sec
+	case 3:
+		h, _ := strconv.Atoi(parts[0])
+		m, _ := strconv.Atoi(parts[1])
+		sec, _ := strconv.Atoi(parts[2])
+		return h*3600 + m*60 + sec
+	}
+	return 0
 }
 
 // humanizeBasename converts a URL basename like "clr-podcast-467" into "clr podcast 467".
