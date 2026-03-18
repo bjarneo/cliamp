@@ -20,7 +20,7 @@ func (m *Model) quit() tea.Cmd {
 	// Only save resume for seekable tracks:
 	// - local files (not stream)
 	// - HTTP streams with known duration (podcast MP3s, seek-by-reconnect)
-	// Exclude YTDL (position unreliable) and live streams (no duration).
+	// Exclude YTDL (position unreliable) and real-time live streams.
 	if track, _ := m.playlist.Current(); track.Path != "" &&
 		!playlist.IsYTDL(track.Path) && !track.IsLive() &&
 		m.player.IsPlaying() {
@@ -528,8 +528,6 @@ func (m *Model) saveTrack() tea.Cmd {
 	return nil
 }
 
-
-
 func (m *Model) resetJumpInput() {
 	m.jumpInput = ""
 }
@@ -1018,4 +1016,3 @@ func (m *Model) handleQueueKey(msg tea.KeyMsg) tea.Cmd {
 	}
 	return nil
 }
-

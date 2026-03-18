@@ -201,6 +201,9 @@ func resolveWrapperURLs(tracks []playlist.Track) []playlist.Track {
 					if resolved[i].Artist == "" {
 						resolved[i].Artist = t.Artist
 					}
+					if t.Realtime {
+						resolved[i].Realtime = true
+					}
 				}
 				out = append(out, resolved...)
 				continue

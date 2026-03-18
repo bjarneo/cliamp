@@ -83,14 +83,26 @@ func parseM3U(r io.Reader, baseDir string) ([]m3uEntry, error) {
 
 // m3uEntryToTrack converts a parsed M3U entry to a playlist.Track.
 func m3uEntryToTrack(e m3uEntry) playlist.Track {
+	isURL := playlist.IsURL(e.Path)
+	duration := 0
+	if e.Duration > 0 {
+		duration = e.Duration
+	}
+	realtime := isURL && e.Duration < 0
+
 	if e.Title != "" {
 		return playlist.Track{
-			Path:   e.Path,
-			Title:  e.Title,
-			Stream: playlist.IsURL(e.Path),
+			Path:         e.Path,
+			Title:        e.Title,
+			Stream:       isURL,
+			Realtime:     realtime,
+			DurationSecs: duration,
 		}
 	}
-	return playlist.TrackFromPath(e.Path)
+	t := playlist.TrackFromPath(e.Path)
+	t.Realtime = realtime
+	t.DurationSecs = duration
+	return t
 }
 
 // entriesToTracks converts parsed M3U entries to playlist tracks.

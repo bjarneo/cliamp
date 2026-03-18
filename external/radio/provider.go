@@ -72,9 +72,10 @@ func (p *Provider) Tracks(id string) ([]playlist.Track, error) {
 	}
 	s := p.stations[idx]
 	return []playlist.Track{{
-		Path:   s.url,
-		Title:  s.name,
-		Stream: true,
+		Path:     s.url,
+		Title:    s.name,
+		Stream:   true,
+		Realtime: true,
 	}}, nil
 }
 
@@ -127,4 +128,3 @@ func loadStations(path string) ([]station, error) {
 	}
 	return stations, nil
 }
-

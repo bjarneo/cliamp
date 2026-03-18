@@ -39,6 +39,7 @@ type Track struct {
 	Year         int
 	TrackNumber  int
 	Stream       bool   // true for HTTP/HTTPS URLs
+	Realtime     bool   // true for real-time/live streams (e.g. radio)
 	DurationSecs int    // known duration in seconds (0 = unknown)
 	NavidromeID  string // Subsonic song ID; empty for non-Navidrome tracks
 }
@@ -235,7 +236,7 @@ func trackFromURL(rawURL string) Track {
 
 // IsLive reports whether the track is a live stream (e.g. Icecast radio)
 func (t Track) IsLive() bool {
-	return t.Stream && t.DurationSecs == 0
+	return t.Realtime
 }
 
 // DisplayName returns a formatted display string for the track.

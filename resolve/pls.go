@@ -97,9 +97,10 @@ func plsEntriesToTracks(entries []plsEntry) []playlist.Track {
 			return []playlist.Track{playlist.TrackFromPath(e.File)}
 		}
 		return []playlist.Track{{
-			Path:   e.File,
-			Title:  title,
-			Stream: true,
+			Path:     e.File,
+			Title:    title,
+			Stream:   true,
+			Realtime: true,
 		}}
 	}
 

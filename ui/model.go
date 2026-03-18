@@ -22,7 +22,7 @@ import (
 type focusArea int
 
 const (
-	focusPlaylist      focusArea = iota
+	focusPlaylist focusArea = iota
 	focusEQ
 	focusProvPill
 	focusSearch
@@ -117,7 +117,7 @@ type Model struct {
 
 	// Provider state
 	provider      playlist.Provider
-	localProvider *local.Provider         // direct ref for write operations (add-to-playlist)
+	localProvider *local.Provider // direct ref for write operations (add-to-playlist)
 	providerLists []playlist.PlaylistInfo
 	provCursor    int
 	provLoading   bool
@@ -156,8 +156,8 @@ type Model struct {
 	feedLoading bool
 
 	// Async stream buffering (true while HTTP connect is in progress)
-	buffering    bool
-	bufferingAt  time.Time // when buffering started, for elapsed display
+	buffering   bool
+	bufferingAt time.Time // when buffering started, for elapsed display
 
 	// resume holds the path and position to seek to when the matching track
 	// starts playing. Cleared after the seek is performed.
@@ -1392,13 +1392,19 @@ func (m *Model) togglePlayPause() tea.Cmd {
 	}
 	if m.player.IsPaused() {
 		track, idx := m.playlist.Current()
-		if idx >= 0 && track.IsLive() {
+		if shouldReconnectOnUnpause(track, idx) {
 			m.player.Stop()
 			return m.playTrack(track)
 		}
 	}
 	m.player.TogglePause()
 	return nil
+}
+
+// shouldReconnectOnUnpause reports whether unpausing should reconnect and
+// restart instead of resuming buffered audio.
+func shouldReconnectOnUnpause(track playlist.Track, idx int) bool {
+	return idx >= 0 && track.IsLive()
 }
 
 // lyricsArtistTitle resolves the best artist and title for a lyrics lookup.
