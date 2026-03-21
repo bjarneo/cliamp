@@ -111,7 +111,7 @@ func newSessionFromStored(ctx context.Context, clientID string, creds *storedCre
 			sess.Close()
 			return nil, fmt.Errorf("silent token refresh failed, interactive auth required")
 		}
-		token, err := doWebAPIAuth(clientID)
+		token, err := doWebAPIAuth(ctx, clientID)
 		if err != nil {
 			sess.Close()
 			return nil, fmt.Errorf("stored session needs fresh Web API token: %w", err)
@@ -201,11 +201,12 @@ const oauthCallbackHTML = `<!DOCTYPE html>
 
 // performOAuth2PKCE runs an OAuth2 PKCE flow: opens a browser for user consent,
 // waits for the callback, and exchanges the code for a token.
-func performOAuth2PKCE(clientID string) (*oauth2.Token, error) {
+func performOAuth2PKCE(ctx context.Context, clientID string) (*oauth2.Token, error) {
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", CallbackPort))
 	if err != nil {
 		return nil, fmt.Errorf("listen on port %d: %w", CallbackPort, err)
 	}
+	defer lis.Close() // always release the port
 
 	oauthConf := spotifyOAuthConfig(clientID)
 
@@ -228,10 +229,14 @@ func performOAuth2PKCE(clientID string) (*oauth2.Token, error) {
 
 	_ = browser.Open(authURL) // best-effort — user can open the URL manually if this fails
 
-	code := <-codeCh
-	_ = lis.Close() // server is done; ignore close error
+	var code string
+	select {
+	case code = <-codeCh:
+	case <-ctx.Done():
+		return nil, fmt.Errorf("authentication cancelled: %w", ctx.Err())
+	}
 
-	token, err := oauthConf.Exchange(context.Background(), code, oauth2.VerifierOption(verifier))
+	token, err := oauthConf.Exchange(ctx, code, oauth2.VerifierOption(verifier))
 	if err != nil {
 		return nil, fmt.Errorf("token exchange: %w", err)
 	}
@@ -241,8 +246,8 @@ func performOAuth2PKCE(clientID string) (*oauth2.Token, error) {
 
 // doWebAPIAuth performs an OAuth2 PKCE flow to get a fresh Web API access token.
 // Opens a browser for user consent, returns the full token (including refresh token).
-func doWebAPIAuth(clientID string) (*oauth2.Token, error) {
-	token, err := performOAuth2PKCE(clientID)
+func doWebAPIAuth(ctx context.Context, clientID string) (*oauth2.Token, error) {
+	token, err := performOAuth2PKCE(ctx, clientID)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +258,7 @@ func doWebAPIAuth(clientID string) (*oauth2.Token, error) {
 func newInteractiveSession(ctx context.Context, clientID string) (*Session, error) {
 	devID := generateDeviceID()
 
-	token, err := performOAuth2PKCE(clientID)
+	token, err := performOAuth2PKCE(ctx, clientID)
 	if err != nil {
 		return nil, fmt.Errorf("spotify: %w", err)
 	}

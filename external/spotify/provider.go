@@ -76,6 +76,7 @@ type SpotifyProvider struct {
 	userID     string // Spotify user ID, fetched lazily on first Playlists() call
 	mu         sync.Mutex
 	trackCache map[string]*playlistCache // playlist ID → cache entry
+	authCancel context.CancelFunc        // cancels any in-progress OAuth flow
 }
 
 // New creates a SpotifyProvider. If session is nil, authentication is
@@ -114,11 +115,16 @@ func (p *SpotifyProvider) ensureSession() error {
 }
 
 // Authenticate runs the interactive sign-in flow (opens browser, waits for callback).
+// Any previous in-progress OAuth flow is cancelled first to free the callback port.
 func (p *SpotifyProvider) Authenticate() error {
 	p.mu.Lock()
 	if p.session != nil {
 		p.mu.Unlock()
 		return nil
+	}
+	if p.authCancel != nil {
+		p.authCancel()
+		p.authCancel = nil
 	}
 	clientID := p.clientID
 	p.mu.Unlock()
@@ -126,7 +132,19 @@ func (p *SpotifyProvider) Authenticate() error {
 	if clientID == "" {
 		return fmt.Errorf("spotify: no client ID available")
 	}
-	sess, err := NewSession(context.Background(), clientID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	p.mu.Lock()
+	p.authCancel = cancel
+	p.mu.Unlock()
+
+	sess, err := NewSession(ctx, clientID)
+
+	p.mu.Lock()
+	p.authCancel = nil
+	p.mu.Unlock()
+	cancel()
+
 	if err != nil {
 		return err
 	}
@@ -141,6 +159,10 @@ func (p *SpotifyProvider) Authenticate() error {
 func (p *SpotifyProvider) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.authCancel != nil {
+		p.authCancel()
+		p.authCancel = nil
+	}
 	if p.session != nil {
 		p.session.Close()
 		p.session = nil

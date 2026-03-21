@@ -120,7 +120,7 @@ func silentTokenRefresh(clientID, clientSecret, refreshToken string) (*oauth2.To
 
 // newInteractiveSession performs an OAuth2 flow to authenticate.
 func newInteractiveSession(ctx context.Context, clientID, clientSecret string) (*Session, error) {
-	token, err := doOAuth(clientID, clientSecret)
+	token, err := doOAuth(ctx, clientID, clientSecret)
 	if err != nil {
 		return nil, err
 	}
@@ -147,12 +147,15 @@ func newInteractiveSession(ctx context.Context, clientID, clientSecret string) (
 }
 
 // doOAuth performs an OAuth2 flow: starts localhost server, opens browser,
-// exchanges code for token.
-func doOAuth(clientID, clientSecret string) (*oauth2.Token, error) {
+// exchanges code for token. The context controls cancellation — if ctx is
+// cancelled (e.g. the user retries auth), the listener is closed and the
+// function returns promptly, freeing the callback port.
+func doOAuth(ctx context.Context, clientID, clientSecret string) (*oauth2.Token, error) {
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", CallbackPort))
 	if err != nil {
 		return nil, fmt.Errorf("ytmusic: listen on port %d (is another instance running?): %w", CallbackPort, err)
 	}
+	defer lis.Close() // always release the port
 
 	oauthConf := googleOAuthConfig(clientID, clientSecret)
 
@@ -182,10 +185,14 @@ func doOAuth(clientID, clientSecret string) (*oauth2.Token, error) {
 
 	_ = browser.Open(authURL) // best-effort — user can open the URL manually if this fails
 
-	code := <-codeCh
-	_ = lis.Close() // server is done; ignore close error
+	var code string
+	select {
+	case code = <-codeCh:
+	case <-ctx.Done():
+		return nil, fmt.Errorf("ytmusic: authentication cancelled: %w", ctx.Err())
+	}
 
-	token, err := oauthConf.Exchange(context.Background(), code, oauth2.VerifierOption(verifier))
+	token, err := oauthConf.Exchange(ctx, code, oauth2.VerifierOption(verifier))
 	if err != nil {
 		return nil, fmt.Errorf("ytmusic: token exchange: %w", err)
 	}
