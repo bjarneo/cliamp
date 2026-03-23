@@ -124,7 +124,8 @@ type Model struct {
 	plCursor  int       // selected playlist item
 	plScroll  int       // scroll offset for playlist view
 	plVisible int       // max visible playlist items
-	titleOff  int       // scroll offset for long track titles
+	titleOff        int       // scroll offset for long track titles
+	titleLastScroll time.Time // last time the title scrolled
 	err       error
 	quitting  bool
 	width     int
@@ -824,7 +825,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notifyMPRIS()
 		}
 		if m.player.IsPlaying() && !m.player.IsPaused() {
-			m.titleOff++
+			if time.Since(m.titleLastScroll) >= 200*time.Millisecond {
+				m.titleOff++
+				m.titleLastScroll = time.Now()
+			}
 		}
 		// Retry deferred stream preload: preloadNext() returns nil (defers) when
 		// the current stream has >streamPreloadLeadTime remaining. Poll every tick
