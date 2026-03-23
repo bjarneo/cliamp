@@ -213,6 +213,32 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 	offset := 0
 	limit := spotifyPlaylistPageSize
 
+	// List of Playlists only includes created playlists by the User.
+	// This doesn't include the 'Liked Songs' playlist.
+	resp, err := p.webAPI(ctx, "GET", "/v1/me/tracks", nil)
+	if err != nil {
+		return nil, fmt.Errorf("spotify: your music: %w", err)
+	}
+
+	var result struct {
+		Total int `json:"total"`
+	}
+	if err := decodeBody(resp, &result); err != nil {
+		return nil, fmt.Errorf("spotify: parse playlists: %w", err)
+	}
+
+	// Unfortunately, the Spotify API doesn't expose the localized display name.
+	// i.e. 'Liked Songs' or 'Lieblingssongs' etc.
+	// For the moment, "Your Music" must sufficice without adding a localization
+	// map.
+	p.mu.Lock()
+	all = append(all, playlist.PlaylistInfo{
+		ID:         "YOUR MUSIC",
+		Name:       "Your Music",
+		TrackCount: result.Total,
+	})
+	p.mu.Unlock()
+
 	for {
 		query := url.Values{
 			"limit":  {fmt.Sprintf("%d", limit)},
@@ -228,7 +254,7 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 
 		var result struct {
 			Items []spotifyPlaylistItem `json:"items"`
-			Total int                  `json:"total"`
+			Total int                   `json:"total"`
 		}
 		if err := decodeBody(resp, &result); err != nil {
 			return nil, fmt.Errorf("spotify: parse playlists: %w", err)
@@ -289,19 +315,46 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
+	type trackObj struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Artists []struct {
+			Name string `json:"name"`
+		} `json:"artists"`
+		Album struct {
+			Name        string `json:"name"`
+			ReleaseDate string `json:"release_date"`
+		} `json:"album"`
+		DurationMs  int `json:"duration_ms"`
+		TrackNumber int `json:"track_number"`
+	}
+
 	var all []playlist.Track
 	offset := 0
 	limit := spotifyTrackPageSize
 
 	for {
-		query := url.Values{
-			"limit":  {fmt.Sprintf("%d", limit)},
-			"offset": {fmt.Sprintf("%d", offset)},
-			"fields": {"items(item(id,name,artists(name),album(name,release_date),duration_ms,track_number)),total"},
+		var (
+			resp *http.Response
+			err  error
+		)
+
+		if playlistID == "YOUR MUSIC" {
+			query := url.Values{
+				"limit":  {fmt.Sprintf("%d", min(50, limit))},
+				"offset": {fmt.Sprintf("%d", offset)},
+			}
+			resp, err = p.webAPI(ctx, "GET", "/v1/me/tracks", query)
+		} else {
+			query := url.Values{
+				"limit":  {fmt.Sprintf("%d", limit)},
+				"offset": {fmt.Sprintf("%d", offset)},
+				"fields": {"items(item(id,name,artists(name),album(name,release_date),duration_ms,track_number)),total"},
+			}
+			path := fmt.Sprintf("/v1/playlists/%s/items", playlistID)
+			resp, err = p.webAPI(ctx, "GET", path, query)
 		}
 
-		path := fmt.Sprintf("/v1/playlists/%s/items", playlistID)
-		resp, err := p.webAPI(ctx, "GET", path, query)
 		if err != nil {
 			if strings.Contains(err.Error(), "403") {
 				return nil, fmt.Errorf("spotify: playlist not accessible: only playlists you own or collaborate on can be loaded")
@@ -309,22 +362,10 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 			return nil, fmt.Errorf("spotify: list tracks: %w", err)
 		}
 
-		type trackObj struct {
-			ID      string `json:"id"`
-			Name    string `json:"name"`
-			Artists []struct {
-				Name string `json:"name"`
-			} `json:"artists"`
-			Album struct {
-				Name        string `json:"name"`
-				ReleaseDate string `json:"release_date"`
-			} `json:"album"`
-			DurationMs  int `json:"duration_ms"`
-			TrackNumber int `json:"track_number"`
-		}
 		var result struct {
 			Items []struct {
-				Item *trackObj `json:"item"`
+				Item  *trackObj `json:"item"`
+				Track *trackObj `json:"track"`
 			} `json:"items"`
 			Total int `json:"total"`
 		}
@@ -334,6 +375,9 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 
 		for _, item := range result.Items {
 			t := item.Item
+			if t == nil {
+				t = item.Track
+			}
 			if t == nil || t.ID == "" {
 				continue // skip local/unavailable tracks
 			}
