@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"io/fs"
 	"mime"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -58,8 +60,10 @@ func Args(args []string) (Result, error) {
 
 	for _, arg := range args {
 		if playlist.IsURL(arg) {
-			if playlist.IsFeed(arg) || playlist.IsM3U(arg) || playlist.IsPLS(arg) || playlist.IsYouTubeURL(arg) || playlist.IsYTDL(arg) || playlist.IsXiaoyuzhouEpisode(arg) || sniffFeedURL(arg) {
+			if playlist.IsFeed(arg) || playlist.IsM3U(arg) || playlist.IsPLS(arg) || playlist.IsYouTubeURL(arg) || playlist.IsYTDL(arg) || playlist.IsXiaoyuzhouEpisode(arg) {
 				r.Pending = append(r.Pending, arg)
+			} else if feedURL := sniffFeedURL(arg); feedURL != "" {
+				r.Pending = append(r.Pending, feedURL)
 			} else {
 				files = append(files, arg)
 			}
@@ -159,22 +163,24 @@ func Remote(urls []string) ([]playlist.Track, error) {
 	return tracks, nil
 }
 
-// sniffFeedURL does a HEAD request and returns true if the Content-Type
-// indicates an RSS/Atom feed. Used as a fallback when the URL has no
-// recognizable file extension (e.g. https://feeds.megaphone.fm/GLT1412515089).
-func sniffFeedURL(rawURL string) bool {
+// sniffFeedURL does a HEAD request and returns the feed URL if the
+// Content-Type indicates an RSS/Atom feed. For HTML pages, it performs
+// RSS auto-discovery by looking for <link rel="alternate"> tags.
+// Returns the feed URL (which may differ from rawURL for HTML pages)
+// or an empty string if no feed is found.
+func sniffFeedURL(rawURL string) string {
 	// URLs with a known audio extension are never feeds — skip the
 	// network round-trip to avoid misclassification when CDNs return
 	// unexpected Content-Types for HEAD requests.
 	if u, err := url.Parse(rawURL); err == nil {
 		if player.SupportedExts[strings.ToLower(filepath.Ext(u.Path))] {
-			return false
+			return ""
 		}
 	}
 
 	resp, err := httpClient.Head(rawURL)
 	if err != nil {
-		return false
+		return ""
 	}
 	resp.Body.Close()
 	ct := resp.Header.Get("Content-Type")
@@ -182,9 +188,84 @@ func sniffFeedURL(rawURL string) bool {
 	switch mediaType {
 	case "application/rss+xml", "application/atom+xml",
 		"application/xml", "text/xml":
-		return true
+		return rawURL
+	case "text/html", "application/xhtml+xml":
+		return discoverFeedInHTML(rawURL)
+	}
+	return ""
+}
+
+// discoverFeedInHTML fetches an HTML page and looks for an RSS/Atom
+// <link rel="alternate"> tag, returning the feed URL if found.
+func discoverFeedInHTML(pageURL string) string {
+	resp, err := httpClient.Get(pageURL)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	// <link> tags live in <head>, 64KB is more than enough.
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	html := string(body)
+
+	// Find all <link ...> tags, then check attributes individually.
+	for _, tag := range linkTagRe.FindAllString(html, -1) {
+		rel := strings.ToLower(extractAttr(tag, "rel"))
+		if !containsToken(rel, "alternate") {
+			continue
+		}
+		ct, _, _ := mime.ParseMediaType(extractAttr(tag, "type"))
+		if ct != "application/rss+xml" && ct != "application/atom+xml" {
+			continue
+		}
+		href := extractAttr(tag, "href")
+		if href == "" {
+			continue
+		}
+		base, err := url.Parse(pageURL)
+		if err != nil {
+			return href
+		}
+		ref, err := url.Parse(href)
+		if err != nil {
+			return href
+		}
+		return base.ResolveReference(ref).String()
+	}
+	return ""
+}
+
+var linkTagRe = regexp.MustCompile(`(?i)<link\b[^>]*>`)
+
+// containsToken reports whether s contains token as a space-separated word.
+func containsToken(s, token string) bool {
+	for _, f := range strings.Fields(s) {
+		if f == token {
+			return true
+		}
 	}
 	return false
+}
+
+// extractAttr returns the value of an HTML attribute from a tag string.
+func extractAttr(tag, name string) string {
+	lower := strings.ToLower(tag)
+	for _, q := range []byte{'"', '\''} {
+		prefix := name + "=" + string(q)
+		i := strings.Index(lower, prefix)
+		if i < 0 {
+			continue
+		}
+		start := i + len(prefix)
+		end := strings.IndexByte(tag[start:], q)
+		if end >= 0 {
+			return tag[start : start+end]
+		}
+	}
+	return ""
 }
 
 // collectAudioFiles returns audio file paths for the given argument.
