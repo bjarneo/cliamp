@@ -77,6 +77,29 @@ These appear alongside the built-in cliamp radio in the Radio provider.
 
 See [audio-quality.md](audio-quality.md) for sample rate, buffer, bit depth, and resample quality settings.
 
+## WSL2 (Windows Subsystem for Linux)
+
+cliamp uses ALSA for audio on Linux. WSL2 doesn't expose ALSA hardware directly, but WSLg provides a PulseAudio server that ALSA can route through.
+
+If you see errors like `ALSA lib pcm.c: Unknown PCM default`, fix it with two steps:
+
+**1. Install the ALSA PulseAudio plugin:**
+
+```sh
+sudo apt install libasound2-plugins
+```
+
+**2. Create `~/.asoundrc` to route ALSA through PulseAudio:**
+
+```sh
+cat > ~/.asoundrc << 'EOF'
+pcm.default pulse
+ctl.default pulse
+EOF
+```
+
+WSLg must be active (`echo $PULSE_SERVER` should print a path). If it's empty, ensure you're on Windows 11 with WSLg enabled and run `wsl --shutdown` then reopen your terminal.
+
 ## ffmpeg (optional)
 
 AAC, ALAC (`.m4a`), Opus, and WMA playback requires [ffmpeg](https://ffmpeg.org/):
