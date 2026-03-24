@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"cliamp/playlist"
 	"cliamp/theme"
 )
 
@@ -23,6 +24,16 @@ var (
 	volBarStyle   = lipgloss.NewStyle().Foreground(colorVolume)
 	activeToggle  = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
 )
+
+// playlistLabel formats a playlist entry, omitting the track count when it is
+// unknown (zero). This avoids showing "(0 tracks)" for providers such as Plex
+// that do not return a track count in their album list responses.
+func playlistLabel(prefix string, p playlist.PlaylistInfo) string {
+	if p.TrackCount > 0 {
+		return fmt.Sprintf("%s%s (%d tracks)", prefix, p.Name, p.TrackCount)
+	}
+	return prefix + p.Name
+}
 
 // View renders the full TUI frame.
 func (m Model) View() string {
@@ -427,7 +438,7 @@ func (m Model) renderProviderList() string {
 					style = playlistSelectedStyle
 					prefix = "> "
 				}
-				lines = append(lines, style.Render(fmt.Sprintf("%s%s (%d tracks)", prefix, p.Name, p.TrackCount)))
+				lines = append(lines, style.Render(playlistLabel(prefix, p)))
 			}
 			lines = append(lines, dimStyle.Render(fmt.Sprintf("  %d/%d playlists", len(m.provSearch.results), len(m.providerLists))))
 		}
@@ -444,7 +455,7 @@ func (m Model) renderProviderList() string {
 			style = playlistSelectedStyle
 			prefix = "> "
 		}
-		lines = append(lines, style.Render(fmt.Sprintf("%s%s (%d tracks)", prefix, p.Name, p.TrackCount)))
+		lines = append(lines, style.Render(playlistLabel(prefix, p)))
 	}
 	return strings.Join(lines, "\n")
 }

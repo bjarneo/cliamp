@@ -115,7 +115,7 @@ func (m Model) renderPlMgrList() []string {
 		var label string
 		if i < len(m.plManager.playlists) {
 			pl := m.plManager.playlists[i]
-			label = fmt.Sprintf("%s (%d tracks)", pl.Name, pl.TrackCount)
+			label = playlistLabel("", pl)
 		} else {
 			label = "+ New Playlist..."
 		}
