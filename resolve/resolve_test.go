@@ -152,6 +152,69 @@ func TestParseItunesDuration(t *testing.T) {
 	}
 }
 
+func TestSniffFeedURLDiscoversFeedFromHTML(t *testing.T) {
+	const feedPath = "/podcast/feed.xml"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<!DOCTYPE html>
+<html><head>
+<link rel="alternate" type="application/rss+xml" href="` + feedPath + `">
+</head><body></body></html>`))
+	}))
+	defer srv.Close()
+
+	target, _ := url.Parse(srv.URL)
+	oldClient := httpClient
+	httpClient = &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: rewriteHostTransport{target: target, rt: http.DefaultTransport},
+	}
+	defer func() { httpClient = oldClient }()
+
+	got := sniffFeedURL("https://example.com/podcast/79/")
+	want := "https://example.com" + feedPath
+	if got != want {
+		t.Fatalf("sniffFeedURL() = %q, want %q", got, want)
+	}
+}
+
+func TestSniffFeedURLReturnsEmptyOnNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	target, _ := url.Parse(srv.URL)
+	oldClient := httpClient
+	httpClient = &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: rewriteHostTransport{target: target, rt: http.DefaultTransport},
+	}
+	defer func() { httpClient = oldClient }()
+
+	got := sniffFeedURL("https://example.com/nope")
+	if got != "" {
+		t.Fatalf("sniffFeedURL() = %q, want empty", got)
+	}
+}
+
+func TestDiscoverFeedInHTMLRelativeHref(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<html><head>
+<link type="application/atom+xml" rel="alternate" href="../feed.atom">
+</head></html>`))
+	}))
+	defer srv.Close()
+
+	got := discoverFeedInHTML(srv.URL + "/blog/post/1")
+	want := srv.URL + "/blog/feed.atom"
+	if got != want {
+		t.Fatalf("discoverFeedInHTML() = %q, want %q", got, want)
+	}
+}
+
 type rewriteHostTransport struct {
 	target *url.URL
 	rt     http.RoundTripper

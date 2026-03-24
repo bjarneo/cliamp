@@ -183,6 +183,9 @@ func sniffFeedURL(rawURL string) string {
 		return ""
 	}
 	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
 	ct := resp.Header.Get("Content-Type")
 	mediaType, _, _ := mime.ParseMediaType(ct)
 	switch mediaType {
@@ -254,7 +257,7 @@ func containsToken(s, token string) bool {
 func extractAttr(tag, name string) string {
 	lower := strings.ToLower(tag)
 	for _, q := range []byte{'"', '\''} {
-		prefix := name + "=" + string(q)
+		prefix := " " + name + "=" + string(q)
 		i := strings.Index(lower, prefix)
 		if i < 0 {
 			continue
