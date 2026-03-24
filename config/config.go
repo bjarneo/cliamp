@@ -99,6 +99,18 @@ func (y YouTubeMusicConfig) ResolveCredentials(fallbackFn func() (string, string
 	return "", ""
 }
 
+// PlexConfig holds credentials for a Plex Media Server.
+// Both URL and Token must be non-empty for a client to be constructed.
+type PlexConfig struct {
+	URL   string // e.g. "http://192.168.1.10:32400"
+	Token string // X-Plex-Token
+}
+
+// IsSet reports whether both Plex credentials are present.
+func (p PlexConfig) IsSet() bool {
+	return p.URL != "" && p.Token != ""
+}
+
 // Config holds user preferences loaded from the config file.
 type Config struct {
 	Volume            float64            // dB, range [-30, +6]
@@ -119,6 +131,7 @@ type Config struct {
 	Navidrome         NavidromeConfig    // optional Navidrome/Subsonic server credentials
 	Spotify           SpotifyConfig      // optional Spotify provider (requires Premium)
 	YouTubeMusic      YouTubeMusicConfig // optional YouTube Music provider
+	Plex              PlexConfig         // optional Plex Media Server credentials
 }
 
 // Default returns a Config with sensible defaults.
@@ -163,7 +176,7 @@ func Load() (Config, error) {
 			continue
 		}
 
-		// Section header: [navidrome]
+		// Section header: [navidrome], [plex], etc.
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
 			section = strings.ToLower(line[1 : len(line)-1])
 			// Mark providers as enabled when their section exists.
@@ -215,6 +228,13 @@ func Load() (Config, error) {
 				cfg.YouTubeMusic.ClientSecret = strings.Trim(val, `"'`)
 			case "cookies_from":
 				cfg.YouTubeMusic.CookiesFrom = strings.Trim(val, `"'`)
+			}
+		case "plex":
+			switch key {
+			case "url":
+				cfg.Plex.URL = strings.Trim(val, `"'`)
+			case "token":
+				cfg.Plex.Token = strings.Trim(val, `"'`)
 			}
 		default:
 			switch key {

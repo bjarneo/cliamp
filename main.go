@@ -11,6 +11,7 @@ import (
 	"cliamp/config"
 	"cliamp/external/local"
 	"cliamp/external/navidrome"
+	"cliamp/external/plex"
 	"cliamp/external/radio"
 	"cliamp/external/spotify"
 	"cliamp/external/ytmusic"
@@ -47,6 +48,10 @@ func run(overrides config.Overrides, positional []string) error {
 	}
 	if navClient != nil {
 		providers = append(providers, ui.ProviderEntry{Key: "navidrome", Name: "Navidrome", Provider: navClient})
+	}
+
+	if plexProv := plex.NewFromConfig(cfg.Plex); plexProv != nil {
+		providers = append(providers, ui.ProviderEntry{Key: "plex", Name: "Plex", Provider: plexProv})
 	}
 
 	var spotifyProv *spotify.SpotifyProvider
@@ -248,7 +253,7 @@ Audio engine:
   --bit-depth <n>         PCM bit depth: 16 (default) or 32 (lossless)
 
 Provider:
-  --provider <name>       Default provider: radio, navidrome, spotify, yt, youtube, ytmusic (default: radio)
+  --provider <name>       Default provider: radio, navidrome, plex, spotify, yt, youtube, ytmusic (default: radio)
 
 Appearance:
   --compact               Compact mode (cap width at 80 columns)
