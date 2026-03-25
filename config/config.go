@@ -129,7 +129,8 @@ type Config struct {
 	ResampleQuality   int                // beep resample quality factor (1–4)
 	BitDepth          int                // PCM bit depth for FFmpeg output: 16 or 32
 	Compact           bool               // compact mode: cap frame width at 80 columns
-	Padding           int                // horizontal padding for the UI frame (default 3)
+	PaddingH          int                // horizontal padding for the UI frame (default 3)
+	PaddingV          int                // vertical padding for the UI frame (default 1)
 	Navidrome         NavidromeConfig    // optional Navidrome/Subsonic server credentials
 	Spotify           SpotifyConfig      // optional Spotify provider (requires Premium)
 	YouTubeMusic      YouTubeMusicConfig // optional YouTube Music provider
@@ -149,7 +150,8 @@ func defaultConfig() Config {
 		BufferMs:        100,
 		ResampleQuality: 4,
 		BitDepth:        16,
-		Padding:         3,
+		PaddingH:        3,
+		PaddingV:        1,
 	}
 }
 
@@ -290,9 +292,13 @@ func Load() (Config, error) {
 				}
 			case "compact":
 				cfg.Compact = val == "true"
-			case "padding":
+			case "padding_horizontal":
 				if v, err := strconv.Atoi(val); err == nil {
-					cfg.Padding = v
+					cfg.PaddingH = v
+				}
+			case "padding_vertical":
+				if v, err := strconv.Atoi(val); err == nil {
+					cfg.PaddingV = v
 				}
 			}
 		}
@@ -491,7 +497,8 @@ func (c *Config) clamp() {
 	c.BufferMs = max(min(c.BufferMs, 500), 50)
 	c.ResampleQuality = max(min(c.ResampleQuality, 4), 1)
 	c.BitDepth = clampBitDepth(c.BitDepth)
-	c.Padding = max(min(c.Padding, 10), 0)
+	c.PaddingH = max(min(c.PaddingH, 10), 0)
+	c.PaddingV = max(min(c.PaddingV, 5), 0)
 }
 
 // clampSampleRate returns the nearest valid sample rate from the allowed set.
@@ -542,3 +549,5 @@ func parseEQ(val string) [10]float64 {
 	}
 	return bands
 }
+
+

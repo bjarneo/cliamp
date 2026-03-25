@@ -652,7 +652,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			frameW = min(frameW, 80)
 		}
 		frameStyle = frameStyle.Width(frameW)
-		panelWidth = max(0, frameW-(2*padding))
+		panelWidth = max(0, frameW-2*paddingH)
 		if m.fullVis {
 			m.vis.Rows = max(defaultVisRows, (m.height-10)*4/5)
 		}
@@ -660,7 +660,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// total height, then give the remaining space to the playlist.
 		// This avoids fragile manual line counting.
 		m.plVisible = 3 // temporary minimal value for measurement
-		probe := strings.Join([]string{
+		sections := []string{
 			m.renderTitle(),
 			m.renderTrackInfo(),
 			m.renderTimeStatus(),
@@ -669,13 +669,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.renderSeekBar(),
 			"",
 			m.renderControls(),
+			m.renderProviderPill(),
 			"",
 			m.renderPlaylistHeader(),
 			"x", // placeholder for playlist (1 line)
 			"",
 			m.renderHelp(),
 			m.renderStreamStatus(),
-		}, "\n")
+		}
+		// Clean up empty trailing sections to match View() logic
+		for len(sections) > 0 && sections[len(sections)-1] == "" {
+			sections = sections[:len(sections)-1]
+		}
+		probe := strings.Join(sections, "\n")
 		probeFrame := frameStyle.Render(probe)
 		fixedLines := lipgloss.Height(probeFrame) - 1 // subtract the 1-line placeholder
 		m.plVisible = max(3, min(maxPlVisible, m.height-fixedLines))

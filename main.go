@@ -177,7 +177,7 @@ func run(overrides config.Overrides, positional []string) error {
 
 	cfg.ApplyPlayer(p)
 	cfg.ApplyPlaylist(pl)
-	ui.SetPadding(cfg.Padding)
+	ui.SetPadding(cfg.PaddingH, cfg.PaddingV)
 
 	themes := theme.LoadAll()
 

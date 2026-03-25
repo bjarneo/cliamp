@@ -127,6 +127,11 @@ func (m Model) View() string {
 		sections = append(sections, statusStyle.Render(m.status.text))
 	}
 
+	// Remove trailing empty strings to avoid extra bottom padding inside the frame.
+	for len(sections) > 0 && sections[len(sections)-1] == "" {
+		sections = sections[:len(sections)-1]
+	}
+
 	content := strings.Join(sections, "\n")
 	frame := frameStyle.Render(content)
 
