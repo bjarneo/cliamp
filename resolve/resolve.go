@@ -56,7 +56,8 @@ func Args(args []string) (Result, error) {
 	var r Result
 	var files []string
 
-	for _, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		if playlist.IsURL(arg) {
 			if playlist.IsFeed(arg) || playlist.IsM3U(arg) || playlist.IsPLS(arg) || playlist.IsYouTubeURL(arg) || playlist.IsYTDL(arg) || playlist.IsXiaoyuzhouEpisode(arg) || sniffFeedURL(arg) {
 				r.Pending = append(r.Pending, arg)
@@ -91,12 +92,9 @@ func Args(args []string) (Result, error) {
 				if err != nil {
 					return r, fmt.Errorf("loading url list %s: %w", path, err)
 				}
-				resolved, err := Args(entries)
-				if err != nil {
-					return r, err
-				}
-				r.Tracks = append(r.Tracks, resolved.Tracks...)
-				r.Pending = append(r.Pending, resolved.Pending...)
+				// Expand entries inline (no recursion — nested .txt files
+				// are treated as regular file args to avoid cycles).
+				args = append(args, entries...)
 				continue
 			}
 			resolved, err := collectAudioFiles(path)
@@ -120,6 +118,7 @@ func readArgListFile(path string) ([]string, error) {
 
 	var out []string
 	s := bufio.NewScanner(f)
+	s.Buffer(make([]byte, 0, scannerInitBufSize), scannerMaxLineSize)
 	for s.Scan() {
 		line := strings.TrimSpace(s.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
