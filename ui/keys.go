@@ -317,13 +317,13 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 			}
 		}
 
-	case "pgup":
+	case "pgup", "ctrl+u":
 		if m.focus == focusPlaylist && m.plCursor > 0 {
 			m.plCursor -= min(m.plCursor, m.plVisible)
 			m.adjustScroll()
 		}
 
-	case "pgdown":
+	case "pgdown", "ctrl+d":
 		if m.focus == focusPlaylist && m.plCursor < m.playlist.Len()-1 {
 			m.plCursor = min(m.playlist.Len()-1, m.plCursor + m.plVisible)
 			m.adjustScroll()

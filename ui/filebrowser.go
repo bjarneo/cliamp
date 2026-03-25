@@ -116,12 +116,12 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 			m.fileBrowser.cursor = 0
 		}
 
-	case "pgup":
+	case "pgup", "ctrl+u":
 		if m.fileBrowser.cursor > 0 {
 			m.fileBrowser.cursor -= min(m.fileBrowser.cursor, 12)
 		}
 
-	case "pgdown":
+	case "pgdown", "ctrl+d":
 		if m.fileBrowser.cursor < len(m.fileBrowser.entries)-1 {
 			m.fileBrowser.cursor = min(len(m.fileBrowser.entries)-1, m.fileBrowser.cursor + 12)
 		}

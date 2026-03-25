@@ -21,7 +21,9 @@ Press `Ctrl+K` in the player to see all keybindings.
 | Key | Action |
 |---|---|
 | `Tab` | Toggle focus (Playlist / EQ) |
-| `j` `k` / `Up` `Down` | Playlist scroll / EQ band adjust |
+| `j` `k` / `Up` `Down` | Playlist scroll / EQ band adjust (wraps around) |
+| `PageUp` `PageDown` / `Ctrl+U` `Ctrl+D` | Scroll playlist/file browser by page |
+| `Home` `End` / `g` `G` | Go to top/end of playlist/file browser |
 | `Shift+Up` `Shift+Down` | Move track up/down in playlist/queue |
 | `h` `l` | EQ cursor left/right |
 | `Enter` | Play selected track |
