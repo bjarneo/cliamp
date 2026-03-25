@@ -86,6 +86,19 @@ func Args(args []string) (Result, error) {
 				r.Tracks = append(r.Tracks, tracks...)
 				continue
 			}
+			if strings.EqualFold(filepath.Ext(path), ".txt") {
+				entries, err := readArgListFile(path)
+				if err != nil {
+					return r, fmt.Errorf("loading url list %s: %w", path, err)
+				}
+				resolved, err := Args(entries)
+				if err != nil {
+					return r, err
+				}
+				r.Tracks = append(r.Tracks, resolved.Tracks...)
+				r.Pending = append(r.Pending, resolved.Pending...)
+				continue
+			}
 			resolved, err := collectAudioFiles(path)
 			if err != nil {
 				return r, fmt.Errorf("scanning %s: %w", path, err)
@@ -96,6 +109,28 @@ func Args(args []string) (Result, error) {
 
 	r.Tracks = append(r.Tracks, scanTracks(files)...)
 	return r, nil
+}
+
+func readArgListFile(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var out []string
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		line := strings.TrimSpace(s.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out = append(out, line)
+	}
+	if err := s.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // Remote fetches feed and M3U URLs and returns the resolved tracks.

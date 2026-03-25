@@ -4,9 +4,35 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestArgsLoadsURLListTxt(t *testing.T) {
+	dir := t.TempDir()
+	listPath := filepath.Join(dir, "list.txt")
+
+	streamURL := "https://example.com/stream.mp3"
+	ytURL := "https://www.youtube.com/playlist?list=PL1234567890abcdef"
+
+	contents := "\n# comment\n  \n" + streamURL + "\n" + ytURL + "\n"
+	if err := os.WriteFile(listPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := Args([]string{listPath})
+	if err != nil {
+		t.Fatalf("Args returned error: %v", err)
+	}
+	if len(got.Tracks) != 1 || got.Tracks[0].Path != streamURL {
+		t.Fatalf("Args tracks = %#v, want [%q]", got.Tracks, streamURL)
+	}
+	if len(got.Pending) != 1 || got.Pending[0] != ytURL {
+		t.Fatalf("Args pending = %#v, want [%q]", got.Pending, ytURL)
+	}
+}
 
 func TestArgsTreatsXiaoyuzhouEpisodeAsPending(t *testing.T) {
 	url := "https://www.xiaoyuzhoufm.com/episode/69a13b07a22480add648dd03?s=eyJ1IjogIjYxODEzNmZiZTBmNWU3MjNiYjk2MmE5MiJ9"
