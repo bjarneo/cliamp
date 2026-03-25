@@ -743,6 +743,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Poll ICY stream title for live radio display.
 		if title := m.player.StreamTitle(); title != "" && title != m.streamTitle {
 			m.streamTitle = title
+			m.notifyMPRIS()
 			// Auto-fetch lyrics when the stream song changes and lyrics overlay is open.
 			if m.lyrics.visible && !m.lyrics.loading {
 				if artist, song, ok := strings.Cut(title, " - "); ok {
@@ -761,6 +762,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update network throughput every ~1 second (20 ticks at 50ms).
 		m.network.lastTick++
 		if m.network.lastTick >= 20 {
+			m.notifyMPRIS()
 			downloaded, _ := m.player.StreamBytes()
 			delta := downloaded - m.network.lastBytes
 			if delta > 0 {
@@ -1115,6 +1117,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case mpris.InitMsg:
 		m.mpris = msg.Svc
+		m.notifyMPRIS()
 		return m, nil
 
 	case mpris.PlayPauseMsg:
