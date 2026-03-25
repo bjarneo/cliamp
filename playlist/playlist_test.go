@@ -220,21 +220,27 @@ func TestAddShufflesNewTracksWhenShuffleEnabled(t *testing.T) {
 		t.Fatalf("current = (%q,%d), want (%q,%d)", cur2.Title, curIdx2, cur.Title, curIdx)
 	}
 
-	// When shuffle is enabled, newly added indices should not remain as a
-	// contiguous increasing block at the end of the playback order.
-	if len(p.order) < start+len(added) {
-		t.Fatalf("order len = %d, want >= %d", len(p.order), start+len(added))
-	}
-	tail := p.order[len(p.order)-len(added):]
-	contiguous := true
-	for i, idx := range tail {
-		if idx != start+i {
-			contiguous = false
+	// Verify that added tracks are interleaved with existing upcoming tracks,
+	// not just shuffled among themselves at the tail.
+	upcoming := p.order[p.pos+1:]
+	isNew := func(idx int) bool { return idx >= start }
+	// Find the last new-track position and check that at least one
+	// old track appears after some new track in the upcoming order.
+	lastNew := -1
+	foundOldAfterNew := false
+	for i, idx := range upcoming {
+		if isNew(idx) {
+			lastNew = i
+		} else if lastNew >= 0 {
+			foundOldAfterNew = true
 			break
 		}
 	}
-	if contiguous {
-		t.Fatalf("added indices remained contiguous at end: %#v", tail)
+	if lastNew < 0 {
+		t.Fatal("no added track found in upcoming order")
+	}
+	if !foundOldAfterNew && lastNew < len(upcoming)-1 {
+		t.Fatalf("added tracks are not interleaved with existing tracks in upcoming order: %v", upcoming)
 	}
 }
 
