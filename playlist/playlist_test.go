@@ -202,6 +202,65 @@ func TestMoveShuffle(t *testing.T) {
 	}
 }
 
+func TestAddShufflesNewTracksWhenShuffleEnabled(t *testing.T) {
+	p := makePlaylist(10, true)
+	p.SetIndex(p.order[0]) // ensure pos is valid and stable
+	cur, curIdx := p.Current()
+
+	start := p.Len()
+	var added []Track
+	for i := 0; i < 30; i++ {
+		added = append(added, Track{Title: string(rune('K' + i))})
+	}
+	p.Add(added...)
+
+	// Current track should be unchanged.
+	cur2, curIdx2 := p.Current()
+	if cur2.Title != cur.Title || curIdx2 != curIdx {
+		t.Fatalf("current = (%q,%d), want (%q,%d)", cur2.Title, curIdx2, cur.Title, curIdx)
+	}
+
+	// When shuffle is enabled, newly added indices should not remain as a
+	// contiguous increasing block at the end of the playback order.
+	if len(p.order) < start+len(added) {
+		t.Fatalf("order len = %d, want >= %d", len(p.order), start+len(added))
+	}
+	tail := p.order[len(p.order)-len(added):]
+	contiguous := true
+	for i, idx := range tail {
+		if idx != start+i {
+			contiguous = false
+			break
+		}
+	}
+	if contiguous {
+		t.Fatalf("added indices remained contiguous at end: %#v", tail)
+	}
+}
+
+func TestAddDoesNotShuffleWhenShuffleDisabled(t *testing.T) {
+	p := makePlaylist(5, false)
+	p.SetIndex(2)
+	cur, curIdx := p.Current()
+
+	p.Add(Track{Title: "F"}, Track{Title: "G"})
+
+	cur2, curIdx2 := p.Current()
+	if cur2.Title != cur.Title || curIdx2 != curIdx {
+		t.Fatalf("current = (%q,%d), want (%q,%d)", cur2.Title, curIdx2, cur.Title, curIdx)
+	}
+
+	wantOrder := []int{0, 1, 2, 3, 4, 5, 6}
+	if len(p.order) != len(wantOrder) {
+		t.Fatalf("order len = %d, want %d", len(p.order), len(wantOrder))
+	}
+	for i := range wantOrder {
+		if p.order[i] != wantOrder[i] {
+			t.Fatalf("order[%d] = %d, want %d (order=%v)", i, p.order[i], wantOrder[i], p.order)
+		}
+	}
+}
+
 func TestMoveQueue(t *testing.T) {
 	p := makePlaylist(5, false) // A B C D E
 	p.Queue(3)                  // D

@@ -286,6 +286,31 @@ func (p *Playlist) Add(tracks ...Track) {
 	for i := start; i < len(p.tracks); i++ {
 		p.order = append(p.order, i)
 	}
+	if !p.shuffle || len(tracks) == 0 {
+		return
+	}
+	// Shuffle mode: mix newly added tracks into the upcoming playback order
+	// without disturbing already-played items or the current position.
+	if start == 0 {
+		p.pos = 0
+		p.doShuffle()
+		return
+	}
+	if p.pos < 0 {
+		p.pos = 0
+	}
+	if p.pos >= len(p.order) {
+		// Inconsistent internal state; recover by re-shuffling so newly added
+		// tracks don't end up in sequential order.
+		p.pos = 0
+		p.doShuffle()
+		return
+	}
+	tail := p.order[p.pos+1:]
+	for i := len(tail) - 1; i > 0; i-- {
+		j := rand.Intn(i + 1)
+		tail[i], tail[j] = tail[j], tail[i]
+	}
 }
 
 // Len returns the number of tracks.
