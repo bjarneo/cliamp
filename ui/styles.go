@@ -24,15 +24,24 @@ var (
 	spectrumHigh lipgloss.TerminalColor = lipgloss.ANSIColor(9)  // bright red
 )
 
+// padding is the horizontal padding inside the frame.
+var padding = 3
+
 // panelWidth is the usable inner width of the frame.
 // Updated dynamically in WindowSizeMsg based on terminal width.
-// Default: 74 (80 frame - 6 padding).
-var panelWidth = 74
+var panelWidth = 80 - 2*padding
+
+// SetPadding updates the horizontal padding and derived styles.
+func SetPadding(p int) {
+	padding = p
+	panelWidth = 80 - 2*padding
+	frameStyle = frameStyle.Padding(1, padding)
+}
 
 // Lip Gloss styles
 var (
 	frameStyle = lipgloss.NewStyle().
-			Padding(1, 3).
+			Padding(1, padding).
 			Width(80)
 
 	titleStyle = lipgloss.NewStyle().

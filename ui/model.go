@@ -652,7 +652,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			frameW = min(frameW, 80)
 		}
 		frameStyle = frameStyle.Width(frameW)
-		panelWidth = max(0, frameW-6) // subtract horizontal padding (3 left + 3 right)
+		panelWidth = max(0, frameW-(2*padding))
 		if m.fullVis {
 			m.vis.Rows = max(defaultVisRows, (m.height-10)*4/5)
 		}
