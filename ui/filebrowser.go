@@ -105,11 +105,25 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 	case "up", "k":
 		if m.fileBrowser.cursor > 0 {
 			m.fileBrowser.cursor--
+		} else if len(m.fileBrowser.entries) > 0 {
+			m.fileBrowser.cursor = len(m.fileBrowser.entries)-1
 		}
 
 	case "down", "j":
 		if m.fileBrowser.cursor < len(m.fileBrowser.entries)-1 {
 			m.fileBrowser.cursor++
+		} else if len(m.fileBrowser.entries) > 0 {
+			m.fileBrowser.cursor = 0
+		}
+
+	case "pgup":
+		if m.fileBrowser.cursor > 0 {
+			m.fileBrowser.cursor -= min(m.fileBrowser.cursor, 12)
+		}
+
+	case "pgdown":
+		if m.fileBrowser.cursor < len(m.fileBrowser.entries)-1 {
+			m.fileBrowser.cursor = min(len(m.fileBrowser.entries)-1, m.fileBrowser.cursor + 12)
 		}
 
 	case "enter", "l", "right":
@@ -162,10 +176,10 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 			}
 		}
 
-	case "g":
+	case "g", "home":
 		m.fileBrowser.cursor = 0
 
-	case "G":
+	case "G", "end":
 		if len(m.fileBrowser.entries) > 0 {
 			m.fileBrowser.cursor = len(m.fileBrowser.entries) - 1
 		}

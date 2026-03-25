@@ -141,12 +141,16 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		case "up", "k":
 			if m.provCursor > 0 {
 				m.provCursor--
+			} else if len(m.providerLists) > 0 {
+				m.provCursor = len(m.providerLists)-1
 			}
 		case " ":
 			return m.togglePlayPause()
 		case "down", "j":
 			if m.provCursor < len(m.providerLists)-1 {
 				m.provCursor++
+			} else if len(m.providerLists) > 0 {
+				m.provCursor = 0
 			}
 		case "enter":
 			if m.provSignIn {
@@ -273,6 +277,14 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 			}
 		}
 
+	case "shift+down":
+		if m.focus == focusPlaylist && m.plCursor < m.playlist.Len()-1 {
+			if m.playlist.Move(m.plCursor, m.plCursor+1) {
+				m.plCursor++
+				m.adjustScroll()
+			}
+		}
+
 	case "up", "k":
 		if m.focus == focusEQ {
 			bands := m.player.EQBands()
@@ -282,6 +294,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		} else {
 			if m.plCursor > 0 {
 				m.plCursor--
+				m.adjustScroll()
+			} else if m.playlist.Len() > 0 {
+				m.plCursor = m.playlist.Len()-1
 				m.adjustScroll()
 			}
 		}
@@ -296,7 +311,34 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 			if m.plCursor < m.playlist.Len()-1 {
 				m.plCursor++
 				m.adjustScroll()
+			} else if m.playlist.Len() > 0 {
+				m.plCursor = 0
+				m.adjustScroll()
 			}
+		}
+
+	case "pgup":
+		if m.focus == focusPlaylist && m.plCursor > 0 {
+			m.plCursor -= min(m.plCursor, m.plVisible)
+			m.adjustScroll()
+		}
+
+	case "pgdown":
+		if m.focus == focusPlaylist && m.plCursor < m.playlist.Len()-1 {
+			m.plCursor = min(m.playlist.Len()-1, m.plCursor + m.plVisible)
+			m.adjustScroll()
+		}
+
+	case "g", "home":
+		if m.focus == focusPlaylist && m.plCursor != 0 {
+			m.plCursor = 0
+			m.adjustScroll()
+		}
+
+	case "G", "end":
+		if m.focus == focusPlaylist && m.playlist.Len() > 0 && m.plCursor != m.playlist.Len()-1 {
+			m.plCursor = m.playlist.Len()-1
+			m.adjustScroll()
 		}
 
 	case "enter":
@@ -403,14 +445,6 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		m.netSearch.soundcloud = msg.String() == "F"
 		m.prevFocus = m.focus
 		m.focus = focusNetSearch
-
-	case "shift+down":
-		if m.focus == focusPlaylist && m.plCursor < m.playlist.Len()-1 {
-			if m.playlist.Move(m.plCursor, m.plCursor+1) {
-				m.plCursor++
-				m.adjustScroll()
-			}
-		}
 
 	case "J":
 		m.openJumpMode()
@@ -845,10 +879,14 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyMsg) tea.Cmd {
 	case "up", "k":
 		if m.plManager.cursor > 0 {
 			m.plManager.cursor--
+		} else if count > 0 {
+			m.plManager.cursor = count-1
 		}
 	case "down", "j":
 		if m.plManager.cursor < count-1 {
 			m.plManager.cursor++
+		} else if count > 0 {
+			m.plManager.cursor = 0
 		}
 	case "enter", "l", "right":
 		if m.plManager.cursor < len(m.plManager.playlists) {
@@ -883,10 +921,14 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyMsg) tea.Cmd {
 	case "up", "k":
 		if m.plManager.cursor > 0 {
 			m.plManager.cursor--
+		} else if len(m.plManager.tracks) > 0 {
+			m.plManager.cursor = len(m.plManager.tracks)-1
 		}
 	case "down", "j":
 		if m.plManager.cursor < len(m.plManager.tracks)-1 {
 			m.plManager.cursor++
+		} else if len(m.plManager.tracks) > 0 {
+			m.plManager.cursor = 0
 		}
 	case "enter":
 		// Replace playlist and start playback.
@@ -1002,10 +1044,16 @@ func (m *Model) handleThemeKey(msg tea.KeyMsg) tea.Cmd {
 		if m.themePicker.cursor > 0 {
 			m.themePicker.cursor--
 			m.themePickerApply() // live preview
+		} else {
+			m.themePicker.cursor = count-1
+			m.themePickerApply() // live preview
 		}
 	case "down", "j":
 		if m.themePicker.cursor < count-1 {
 			m.themePicker.cursor++
+			m.themePickerApply() // live preview
+		} else {
+			m.themePicker.cursor = 0
 			m.themePickerApply() // live preview
 		}
 	case "enter":
@@ -1029,10 +1077,14 @@ func (m *Model) handleQueueKey(msg tea.KeyMsg) tea.Cmd {
 	case "up", "k":
 		if m.queue.cursor > 0 {
 			m.queue.cursor--
+		} else if qLen > 0 {
+			m.queue.cursor = qLen-1
 		}
 	case "down", "j":
 		if m.queue.cursor < qLen-1 {
 			m.queue.cursor++
+		} else if qLen > 0 {
+			m.queue.cursor = 0
 		}
 	case "shift+up":
 		if m.queue.cursor > 0 {

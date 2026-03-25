@@ -61,6 +61,14 @@ func (m *Model) handleKeymapKey(msg tea.KeyMsg) tea.Cmd {
 	case tea.KeyUp:
 		if m.keymap.cursor > 0 {
 			m.keymap.cursor--
+		} else {
+			count := len(keymapEntries)
+			if m.keymap.search != "" {
+				count = len(m.keymap.filtered)
+			}
+			if count > 0 {
+				m.keymap.cursor = count-1
+			}
 		}
 	case tea.KeyDown:
 		count := len(keymapEntries)
@@ -69,6 +77,8 @@ func (m *Model) handleKeymapKey(msg tea.KeyMsg) tea.Cmd {
 		}
 		if m.keymap.cursor < count-1 {
 			m.keymap.cursor++
+		} else if count > 0 {
+			m.keymap.cursor = 0
 		}
 	case tea.KeyBackspace:
 		if m.keymap.search != "" {
