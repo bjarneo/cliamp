@@ -13,6 +13,9 @@ import (
 	"cliamp/resolve"
 )
 
+// fbMaxVisible is a number of visible entries in file browser.
+const fbMaxVisible = 12
+
 // fbEntry is a single item in the file browser listing.
 type fbEntry struct {
 	name     string
@@ -140,12 +143,12 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "pgup", "ctrl+u":
 		if m.fileBrowser.cursor > 0 {
-			m.fileBrowser.cursor -= min(m.fileBrowser.cursor, 12)
+			m.fileBrowser.cursor -= min(m.fileBrowser.cursor, fbMaxVisible)
 		}
 
 	case "pgdown", "ctrl+d":
 		if m.fileBrowser.cursor < len(m.fileBrowser.entries)-1 {
-			m.fileBrowser.cursor = min(len(m.fileBrowser.entries)-1, m.fileBrowser.cursor + 12)
+			m.fileBrowser.cursor = min(len(m.fileBrowser.entries)-1, m.fileBrowser.cursor + fbMaxVisible)
 		}
 
 	case "enter", "l", "right":
@@ -235,7 +238,7 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 // fbConfirm collects selected paths, closes the overlay, and returns an async
 // command that resolves the paths into tracks.
 func (m *Model) fbConfirm(replace bool) tea.Cmd {
-	var paths []string
+	var paths = make([]string, 0, len(m.fileBrowser.selected))
 	for p := range m.fileBrowser.selected {
 		paths = append(paths, p)
 	}
@@ -252,17 +255,16 @@ func (m *Model) fbConfirm(replace bool) tea.Cmd {
 
 // renderFileBrowser renders the file browser overlay.
 func (m Model) renderFileBrowser() string {
-	lines := []string{
+	lines := append(make([]string, 0, 3 + fbMaxVisible + 4),
 		titleStyle.Render("O P E N  F I L E S"),
 		dimStyle.Render("  " + m.fileBrowser.dir),
 		"",
-	}
+	)
 
 	if m.fileBrowser.err != "" {
 		lines = append(lines, errorStyle.Render("  "+m.fileBrowser.err))
 	}
 
-	maxVisible := 12
 	rendered := 0
 
 	if len(m.fileBrowser.entries) == 0 {
@@ -270,11 +272,11 @@ func (m Model) renderFileBrowser() string {
 		rendered = 1
 	} else {
 		scroll := 0
-		if m.fileBrowser.cursor >= maxVisible {
-			scroll = m.fileBrowser.cursor - maxVisible + 1
+		if m.fileBrowser.cursor >= fbMaxVisible {
+			scroll = m.fileBrowser.cursor - fbMaxVisible + 1
 		}
 
-		for i := scroll; i < len(m.fileBrowser.entries) && i < scroll+maxVisible; i++ {
+		for i := scroll; i < len(m.fileBrowser.entries) && i < scroll+fbMaxVisible; i++ {
 			e := m.fileBrowser.entries[i]
 
 			// Selection check mark.
@@ -312,7 +314,7 @@ func (m Model) renderFileBrowser() string {
 	}
 
 	// Pad to fixed height.
-	for range maxVisible - rendered {
+	for range fbMaxVisible - rendered {
 		lines = append(lines, "")
 	}
 
@@ -321,6 +323,10 @@ func (m Model) renderFileBrowser() string {
 		lines = append(lines, "", statusStyle.Render(fmt.Sprintf("  %d selected", len(m.fileBrowser.selected))))
 	} else {
 		lines = append(lines, "")
+		// Pad to fixed height.
+		if m.fileBrowser.err == "" {
+			lines = append(lines, "")
+		}
 	}
 
 	help := helpKey("↑↓", "Scroll ") + helpKey("Enter", "Open ") + 
