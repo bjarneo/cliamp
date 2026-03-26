@@ -246,6 +246,15 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 		}
 	}
 
+	// Change drive letter on Windows by pressing alt+[c..z]
+	if os.PathSeparator == '\\' {
+		if cd = msg.String(); len(cd) == 5 && strings.HasPrefix(cd, "alt+") && 'c' <= cd[4] && cd[4] <= 'z' {
+			cd = strings.ToUpper(cd[4:]) + ":\\"
+			m.fileBrowser.dir = cd
+			m.loadFBDir()
+		}
+	}
+
 	return nil
 }
 
@@ -346,6 +355,9 @@ func (m Model) renderFileBrowser() string {
 	help := helpKey("↑↓", "Scroll ") + helpKey("Enter", "Open ") + 
 		helpKey("Spc", "Select ") + helpKey("a", "All ") +
 		helpKey("←", "Back ") + helpKey("~.", "Home/Cwd ")
+	if os.PathSeparator == '\\' {
+		help += helpKey("AltCZ", "Drive ")
+	}
 	if len(m.fileBrowser.selected) > 0 {
 		help += helpKey("R", "Replace ")
 	}
