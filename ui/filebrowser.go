@@ -50,6 +50,7 @@ func (m *Model) openFileBrowser() {
 func (m *Model) loadFBDir() {
 	m.fileBrowser.err = ""
 	m.fileBrowser.cursor = 0
+	clear(m.fileBrowser.selected)
 
 	// Reuse internal memory buffer of m.fileBrowser.entries.
 	m.fileBrowser.entries = m.fileBrowser.entries[:0]
@@ -201,21 +202,17 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "a":
 		// Toggle select all audio files in current view.
-		allSelected := true
+		var selectAll bool
 		for _, e := range m.fileBrowser.entries {
-			if e.isAudio && !m.fileBrowser.selected[e.path] {
-				allSelected = false
-				break
+			// If we found at least one unselected file then all files should be selected:
+			// set selectAll flag and skip checking selection of remaining files.
+			if e.isAudio && (selectAll || !m.fileBrowser.selected[e.path]) {
+				selectAll, m.fileBrowser.selected[e.path] = true, true
 			}
 		}
-		for _, e := range m.fileBrowser.entries {
-			if e.isAudio {
-				if allSelected {
-					delete(m.fileBrowser.selected, e.path)
-				} else {
-					m.fileBrowser.selected[e.path] = true
-				}
-			}
+		if !selectAll {
+			// All files selected (no unselected files found): clear selection for all
+			clear(m.fileBrowser.selected)
 		}
 
 	case "g", "home":
