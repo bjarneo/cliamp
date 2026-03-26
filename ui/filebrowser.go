@@ -120,6 +120,7 @@ func (m *Model) loadFBDir() {
 
 // handleFileBrowserKey processes key presses while the file browser is open.
 func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
+	var cd string
 	switch msg.String() {
 	case "ctrl+c":
 		m.fileBrowser.visible = false
@@ -159,8 +160,18 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 		if m.fileBrowser.cursor < len(m.fileBrowser.entries) {
 			e := m.fileBrowser.entries[m.fileBrowser.cursor]
 			if e.isDir {
+				cd = m.fileBrowser.dir
 				m.fileBrowser.dir = e.path
 				m.loadFBDir()
+				if e.name == ".." {
+					// cd .. and reveal previous directory name in list
+					for i := range m.fileBrowser.entries {
+						if m.fileBrowser.entries[i].path == cd {
+							m.fileBrowser.cursor = i
+							break
+						}
+					}
+				}
 			} else if e.isAudio {
 				m.fileBrowser.selected[e.path] = true
 				return m.fbConfirm(false)
@@ -168,19 +179,25 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 		}
 
 	case "backspace", "h", "left":
+		cd = m.fileBrowser.dir
 		m.fileBrowser.dir = filepath.Dir(m.fileBrowser.dir)
 		m.loadFBDir()
+		// Reveal previous directory name in list
+		for i := range m.fileBrowser.entries {
+			if m.fileBrowser.entries[i].path == cd {
+				m.fileBrowser.cursor = i
+				break
+			}
+		}
 
 	case "~":
-		cd, _ := os.UserHomeDir()
-		if cd != "" && m.fileBrowser.dir != cd {
+		if cd, _ = os.UserHomeDir(); cd != "" && m.fileBrowser.dir != cd {
 			m.fileBrowser.dir = cd
 			m.loadFBDir()
 		}
 
 	case ".":
-		cd, _ := os.Getwd()
-		if cd != "" && m.fileBrowser.dir != cd {
+		if cd, _ = os.Getwd(); cd != "" && m.fileBrowser.dir != cd {
 			m.fileBrowser.dir = cd
 			m.loadFBDir()
 		}
