@@ -78,12 +78,12 @@ type autoPlayMsg struct{}
 
 // Tick intervals: fast for visualizer animation, slow for time/seek display.
 const (
-	tickFast = 50 * time.Millisecond  // 20 FPS — visualizer active
+	tickFast = 40 * time.Millisecond  // 25 FPS — visualizer active
 	tickSlow = 200 * time.Millisecond // 5 FPS — visualizer off or overlay
 )
 
 // statusTTL* constants define how many ticks a status message persists.
-// At tickFast (50ms), 20 ticks ≈ 1 second.
+// At tickFast (40ms), 25 ticks ≈ 1 second.
 const (
 	statusTTLShort    = 40  // ~2s — brief confirmations
 	statusTTLDefault  = 60  // ~3s — standard status messages
@@ -119,18 +119,18 @@ type Model struct {
 	seekStepLarge time.Duration
 
 	// UI navigation
-	focus     focusArea
-	prevFocus focusArea // focus to restore on cancel (search, net search)
-	eqCursor  int       // selected EQ band (0-9)
-	plCursor  int       // selected playlist item
-	plScroll  int       // scroll offset for playlist view
-	plVisible int       // max visible playlist items
+	focus           focusArea
+	prevFocus       focusArea // focus to restore on cancel (search, net search)
+	eqCursor        int       // selected EQ band (0-9)
+	plCursor        int       // selected playlist item
+	plScroll        int       // scroll offset for playlist view
+	plVisible       int       // max visible playlist items
 	titleOff        int       // scroll offset for long track titles
 	titleLastScroll time.Time // last time the title scrolled
-	err       error
-	quitting  bool
-	width     int
-	height    int
+	err             error
+	quitting        bool
+	width           int
+	height          int
 
 	// Provider state
 	provider      playlist.Provider
@@ -144,22 +144,24 @@ type Model struct {
 	eqPresetIdx   int             // -1 = custom, 0+ = index into eqPresets
 
 	// Overlay / feature state (see state.go for struct definitions)
-	search      searchState
-	netSearch   netSearchState
-	provSearch  provSearchState
-	seek        seekState
-	themePicker themePickerState
-	lyrics      lyricsState
-	keymap      keymapOverlay
-	queue       queueOverlay
-	plManager   plManagerState
-	fileBrowser fileBrowserState
-	navBrowser    navBrowserState
-	radioCatalog  radioCatalogState
-	ytdlBatch     ytdlBatchState
-	reconnect   reconnectState
-	status      statusMsg
-	network     networkStats
+	search            searchState
+	netSearch         netSearchState
+	provSearch        provSearchState
+	seek              seekState
+	themePicker       themePickerState
+	lyrics            lyricsState
+	keymap            keymapOverlay
+	queue             queueOverlay
+	plManager         plManagerState
+	fileBrowser       fileBrowserState
+	navBrowser        navBrowserState
+	radioCatalog      radioCatalogState
+	ytdlBatch         ytdlBatchState
+	reconnect         reconnectState
+	status            statusMsg
+	network           networkStats
+	termTitle         terminalTitleState
+	termTitleRenderer terminalTitleRenderer
 
 	// Jump to time mode
 	jumping   bool
@@ -229,7 +231,7 @@ type Model struct {
 // navCfg is the Navidrome config used to seed the initial browse sort preference.
 // nav is the raw NavidromeClient (may be nil); stored directly so the browser
 // key handler doesn't have to unwrap a provider.
-func NewModel(p *player.Player, pl *playlist.Playlist, providers []ProviderEntry, defaultProvider string, localProv *local.Provider, themes []theme.Theme, navCfg config.NavidromeConfig, nav *navidrome.NavidromeClient) Model {
+func NewModel(p *player.Player, pl *playlist.Playlist, providers []ProviderEntry, defaultProvider string, localProv *local.Provider, themes []theme.Theme, navCfg config.NavidromeConfig, nav *navidrome.NavidromeClient, titleCfg TerminalTitleConfig) Model {
 	sortType := navCfg.BrowseSort
 	if sortType == "" {
 		sortType = navidrome.SortAlphabeticalByName
@@ -249,6 +251,8 @@ func NewModel(p *player.Player, pl *playlist.Playlist, providers []ProviderEntry
 		navClient:          nav,
 		navScrobbleEnabled: navCfg.ScrobbleEnabled(),
 	}
+	m.termTitleRenderer = newTerminalTitleRenderer(titleCfg)
+	m.termTitle = initialTerminalTitleState(m.termTitleRenderer)
 	// Select the default provider pill.
 	for i, pe := range providers {
 		if pe.Key == defaultProvider {
@@ -336,7 +340,7 @@ func (m Model) ThemeName() string {
 // isOverlayActive reports whether a full-screen overlay is shown instead of
 // the main player view. When true, the visualizer is not visible and we can
 // use the slower tick rate.
-func (m *Model) isOverlayActive() bool {
+func (m Model) isOverlayActive() bool {
 	return m.keymap.visible || m.themePicker.visible ||
 		m.fileBrowser.visible || m.navBrowser.visible || m.radioCatalog.visible ||
 		m.plManager.visible ||
@@ -603,6 +607,9 @@ func (m *Model) openRadioCatalog() tea.Cmd {
 // Init starts the tick timer and requests the terminal size.
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{tickCmd(), tea.WindowSize()}
+	if cmd := m.terminalTitleCmd(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	if m.provider != nil {
 		cmds = append(cmds, fetchPlaylistsCmd(m.provider))
 	}
@@ -685,6 +692,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		probeFrame := frameStyle.Render(probe)
 		fixedLines := lipgloss.Height(probeFrame) - 1 // subtract the 1-line placeholder
 		m.plVisible = max(3, min(maxPlVisible, m.height-fixedLines))
+		return m, m.terminalTitleCmd()
 
 	case seekTickMsg:
 		// Async yt-dlp seek completed.
@@ -765,15 +773,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		// Update network throughput every ~1 second (20 ticks at 50ms).
+		// Update network throughput every ~1 second (25 ticks at 40ms).
 		m.network.lastTick++
-		if m.network.lastTick >= 20 {
+		if m.network.lastTick >= 25 {
 			m.notifyMPRIS()
 			downloaded, _ := m.player.StreamBytes()
 			delta := downloaded - m.network.lastBytes
 			if delta > 0 {
 				// Exponential moving average for smooth display.
-				instant := float64(delta) / (float64(m.network.lastTick) * 0.05) // bytes/sec
+				instant := float64(delta) / (float64(m.network.lastTick) * 0.04) // bytes/sec
 				if m.network.speed == 0 {
 					m.network.speed = instant
 				} else {
@@ -862,15 +870,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Use fast ticks only when audio is actively playing with a live
-		// visualizer. Paused/stopped playback has no new audio samples, so
-		// slow ticks are sufficient and save CPU/GPU repaints.
-		interval := tickSlow
-		if m.vis.Mode != VisNone && !m.isOverlayActive() &&
-			m.player.IsPlaying() && !m.player.IsPaused() {
-			interval = tickFast
+		m.advanceTerminalTitle()
+		if cmd := m.terminalTitleCmd(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
-		cmds = append(cmds, tickCmdAt(interval))
+		cmds = append(cmds, tickCmdAt(m.tickInterval()))
 		return m, tea.Batch(cmds...)
 
 	case []playlist.PlaylistInfo:

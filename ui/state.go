@@ -158,3 +158,10 @@ type networkStats struct {
 	lastBytes int64
 	lastTick  int // tick counter for sampling interval
 }
+
+type terminalTitleState struct {
+	introActive bool
+	introOffset int
+	introTick   int
+	last        string
+}

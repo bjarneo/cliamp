@@ -32,9 +32,10 @@ func TestTickIntervalStoppedUsesSlow(t *testing.T) {
 		t.Skip("audio hardware unavailable")
 	}
 	m := Model{
-		player:   sharedPlayer,
-		vis:      NewVisualizer(float64(sharedPlayer.SampleRate())),
-		playlist: playlist.New(),
+		player:    sharedPlayer,
+		vis:       NewVisualizer(float64(sharedPlayer.SampleRate())),
+		playlist:  playlist.New(),
+		termTitle: terminalTitleState{last: baseTerminalTitle},
 	}
 
 	// Player is stopped by default (IsPlaying=false).

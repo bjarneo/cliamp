@@ -44,6 +44,17 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Visualizer mode: Bars, Bricks, Columns, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, or None
 # visualizer = "Bars"
 
+# Terminal title format. Tokens use MPD-style %name% placeholders.
+# Track-related tokens are populated while playing or paused.
+# Optional groups [ ... ] render only when every token inside is non-empty.
+# Available tokens: %app%, %state%, %state_icon%, %metadata%, %title%,
+#                   %artist%, %album%, %path%, %stream_title%
+# terminal_title_format = "[%state_icon% ][%metadata% | ]%app%"
+
+# Startup terminal-title intro text. Set to "" to disable the intro and use
+# terminal_title_format immediately.
+# terminal_title_intro = "It really whips the terminal's ass."
+
 # ---
 # Spotify (optional)
 # A Spotify Premium account and a registered app at
