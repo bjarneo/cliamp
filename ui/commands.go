@@ -1,12 +1,14 @@
 package ui
 
 import (
+	"context"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"cliamp/external/navidrome"
 	"cliamp/external/radio"
+	"cliamp/external/spotify"
 	"cliamp/lyrics"
 	"cliamp/player"
 	"cliamp/playlist"
@@ -284,6 +286,66 @@ func fetchRadioBatchCmd(offset, limit int) tea.Cmd {
 	return func() tea.Msg {
 		stations, err := radio.TopStationsOffset(offset, limit)
 		return radioBatchMsg{stations: stations, err: err}
+	}
+}
+
+// — Spotify search + add-to-playlist messages —
+
+type spotSearchResultsMsg struct {
+	tracks []playlist.Track
+	err    error
+}
+
+type spotPlaylistsMsg struct {
+	playlists []playlist.PlaylistInfo
+	err       error
+}
+
+type spotAddedMsg struct {
+	name string
+	err  error
+}
+
+type spotCreatedMsg struct {
+	name string
+	err  error
+}
+
+func fetchSpotSearchCmd(prov *spotify.SpotifyProvider, query string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		tracks, err := prov.SearchTracks(ctx, query, 20)
+		return spotSearchResultsMsg{tracks: tracks, err: err}
+	}
+}
+
+func fetchSpotPlaylistsCmd(prov *spotify.SpotifyProvider) tea.Cmd {
+	return func() tea.Msg {
+		playlists, err := prov.Playlists()
+		return spotPlaylistsMsg{playlists: playlists, err: err}
+	}
+}
+
+func addToSpotPlaylistCmd(prov *spotify.SpotifyProvider, playlistID, trackURI, name string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		err := prov.AddTrackToPlaylist(ctx, playlistID, trackURI)
+		return spotAddedMsg{name: name, err: err}
+	}
+}
+
+func createSpotPlaylistCmd(prov *spotify.SpotifyProvider, name, trackURI string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		id, err := prov.CreatePlaylist(ctx, name)
+		if err != nil {
+			return spotCreatedMsg{name: name, err: err}
+		}
+		err = prov.AddTrackToPlaylist(ctx, id, trackURI)
+		return spotCreatedMsg{name: name, err: err}
 	}
 }
 

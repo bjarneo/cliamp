@@ -49,6 +49,7 @@ Press `Ctrl+K` in the player to see all keybindings.
 |---|---|
 | `f` | Find on YouTube (queue play next) |
 | `Ctrl+F` | Find on SoundCloud (queue play next) |
+| `F` | Spotify search + add to playlist |
 | `u` | Load URL (stream/playlist) |
 | `y` | Show lyrics |
 | `Ctrl+S` | Save track to ~/Music |

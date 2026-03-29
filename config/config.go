@@ -119,23 +119,24 @@ type Config struct {
 	Repeat          string      // "off", "all", or "one"
 	Shuffle         bool
 	Mono            bool
-	Speed           float64            // playback speed ratio: 0.25–2.0 (default 1.0)
-	AutoPlay        bool               // start playback automatically on launch (radio streams, CLI tracks)
-	SeekStepLarge   int                // seconds for Shift+Left/Right seek jumps
-	Provider        string             // default provider: "radio", "navidrome", "spotify", "ytmusic" (default "radio")
-	Theme           string             // theme name, or "" for ANSI default
-	Visualizer      string             // visualizer mode name, or "" for default (Bars)
-	SampleRate      int                // output sample rate: 22050, 44100, 48000, 96000, 192000
-	BufferMs        int                // speaker buffer in milliseconds (50–500)
-	ResampleQuality int                // beep resample quality factor (1–4)
-	BitDepth        int                // PCM bit depth for FFmpeg output: 16 or 32
-	Compact         bool               // compact mode: cap frame width at 80 columns
-	PaddingH        int                // horizontal padding for the UI frame (default 3)
-	PaddingV        int                // vertical padding for the UI frame (default 1)
-	Navidrome       NavidromeConfig    // optional Navidrome/Subsonic server credentials
-	Spotify         SpotifyConfig      // optional Spotify provider (requires Premium)
-	YouTubeMusic    YouTubeMusicConfig // optional YouTube Music provider
-	Plex            PlexConfig         // optional Plex Media Server credentials
+	Speed           float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
+	AutoPlay        bool                         // start playback automatically on launch (radio streams, CLI tracks)
+	SeekStepLarge   int                          // seconds for Shift+Left/Right seek jumps
+	Provider        string                       // default provider: "radio", "navidrome", "spotify", "ytmusic" (default "radio")
+	Theme           string                       // theme name, or "" for ANSI default
+	Visualizer      string                       // visualizer mode name, or "" for default (Bars)
+	SampleRate      int                          // output sample rate: 22050, 44100, 48000, 96000, 192000
+	BufferMs        int                          // speaker buffer in milliseconds (50–500)
+	ResampleQuality int                          // beep resample quality factor (1–4)
+	BitDepth        int                          // PCM bit depth for FFmpeg output: 16 or 32
+	Compact         bool                         // compact mode: cap frame width at 80 columns
+	PaddingH        int                          // horizontal padding for the UI frame (default 3)
+	PaddingV        int                          // vertical padding for the UI frame (default 1)
+	Navidrome       NavidromeConfig              // optional Navidrome/Subsonic server credentials
+	Spotify         SpotifyConfig                // optional Spotify provider (requires Premium)
+	YouTubeMusic    YouTubeMusicConfig           // optional YouTube Music provider
+	Plex            PlexConfig                   // optional Plex Media Server credentials
+	Plugins         map[string]map[string]string // per-plugin config from [plugins.*] sections
 }
 
 // defaultConfig returns a Config with sensible defaults.
@@ -184,7 +185,7 @@ func Load() (Config, error) {
 			continue
 		}
 
-		// Section header: [navidrome], [plex], etc.
+		// Section header: [navidrome], [plex], [plugins.lastfm], etc.
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
 			section = strings.ToLower(line[1 : len(line)-1])
 			// Mark providers as enabled when their section exists.
@@ -193,6 +194,19 @@ func Load() (Config, error) {
 			case "yt", "youtube", "ytmusic":
 				cfg.YouTubeMusic.Enabled = true
 				section = "ytmusic" // normalize for key parsing below
+			}
+			// Initialize plugin sub-maps for [plugins] and [plugins.*] sections.
+			if section == "plugins" || strings.HasPrefix(section, "plugins.") {
+				if cfg.Plugins == nil {
+					cfg.Plugins = make(map[string]map[string]string)
+				}
+				pluginName := strings.TrimPrefix(section, "plugins.")
+				if pluginName == "plugins" {
+					pluginName = "" // top-level [plugins] section
+				}
+				if _, ok := cfg.Plugins[pluginName]; !ok {
+					cfg.Plugins[pluginName] = make(map[string]string)
+				}
 			}
 			continue
 		}
@@ -245,6 +259,19 @@ func Load() (Config, error) {
 				cfg.Plex.Token = strings.Trim(val, `"'`)
 			}
 		default:
+			// Handle [plugins] and [plugins.*] sections.
+			if section == "plugins" || strings.HasPrefix(section, "plugins.") {
+				pluginName := strings.TrimPrefix(section, "plugins.")
+				if pluginName == "plugins" {
+					pluginName = "" // top-level [plugins] section
+				}
+				if cfg.Plugins != nil {
+					if m, ok := cfg.Plugins[pluginName]; ok {
+						m[key] = strings.Trim(val, `"'`)
+					}
+				}
+				continue
+			}
 			switch key {
 			case "volume":
 				if v, err := strconv.ParseFloat(val, 64); err == nil {

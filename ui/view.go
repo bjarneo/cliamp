@@ -58,6 +58,10 @@ func (m Model) View() string {
 		return m.renderNavBrowser()
 	}
 
+	if m.spotSearch.visible {
+		return m.renderSpotSearch()
+	}
+
 	if m.plManager.visible {
 		return m.renderPlaylistManager()
 	}

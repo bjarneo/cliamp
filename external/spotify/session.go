@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -333,10 +334,8 @@ func (s *Session) NewStream(ctx context.Context, spotID librespot.SpotifyId, bit
 	return s.player.NewStream(ctx, http.DefaultClient, spotID, bitrate, 0)
 }
 
-// webApi calls the Spotify Web API using the OAuth2 access token.
-// This is the standard Web API token (not go-librespot's internal spclient token),
-// which has proper rate limits for api.spotify.com endpoints.
-func (s *Session) webApi(ctx context.Context, method, path string, query url.Values) (*http.Response, error) {
+// webApiWithBody calls the Spotify Web API using the OAuth2 access token.
+func (s *Session) webApiWithBody(ctx context.Context, method, path string, query url.Values, body io.Reader, contentType string) (*http.Response, error) {
 	s.mu.Lock()
 	ts := s.tokenSource
 	s.mu.Unlock()
@@ -365,12 +364,15 @@ func (s *Session) webApi(ctx context.Context, method, path string, query url.Val
 		u.RawQuery = query.Encode()
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
 
 	return http.DefaultClient.Do(req)
 }

@@ -126,6 +126,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return m.handleNetSearchKey(msg)
 	}
 
+	if m.spotSearch.visible {
+		return m.handleSpotSearchKey(msg)
+	}
+
 	if m.provSearch.active {
 		return m.handleProvSearchKey(msg)
 	}
@@ -495,6 +499,14 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		m.netSearch.soundcloud = msg.String() == "ctrl+f"
 		m.prevFocus = m.focus
 		m.focus = focusNetSearch
+
+	case "F":
+		if m.spotifyProvider != nil {
+			m.spotSearch = spotSearchState{
+				visible: true,
+				screen:  spotSearchInput,
+			}
+		}
 
 	case "J":
 		m.openJumpMode()

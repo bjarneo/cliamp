@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -16,7 +17,9 @@ import (
 	"cliamp/external/spotify"
 	"cliamp/external/ytmusic"
 	"cliamp/internal/resume"
+	"cliamp/luaplugin"
 	"cliamp/mpris"
+	"cliamp/pluginmgr"
 	"cliamp/player"
 	"cliamp/playlist"
 	"cliamp/resolve"
@@ -181,7 +184,57 @@ func run(overrides config.Overrides, positional []string) error {
 
 	themes := theme.LoadAll()
 
-	m := ui.NewModel(p, pl, providers, defaultProvider, localProv, themes, cfg.Navidrome, navClient)
+	luaMgr, luaErr := luaplugin.New(cfg.Plugins)
+	if luaErr != nil {
+		fmt.Fprintf(os.Stderr, "lua plugins: %v\n", luaErr)
+	}
+	if luaMgr != nil {
+		defer luaMgr.Close()
+	}
+
+	m := ui.NewModel(p, pl, providers, defaultProvider, localProv, spotifyProv, themes, cfg.Navidrome, navClient, luaMgr)
+
+	// Wire Lua plugin state provider with read-only access to player/playlist.
+	if luaMgr != nil {
+		luaMgr.SetStateProvider(luaplugin.StateProvider{
+			PlayerState: func() string {
+				if !p.IsPlaying() {
+					return "stopped"
+				}
+				if p.IsPaused() {
+					return "paused"
+				}
+				return "playing"
+			},
+			Position:    func() float64 { return p.Position().Seconds() },
+			Duration:    func() float64 { return p.Duration().Seconds() },
+			Volume:      func() float64 { return p.Volume() },
+			Speed:       func() float64 { return p.Speed() },
+			Mono:        func() bool { return p.Mono() },
+			RepeatMode:  func() string { return pl.Repeat().String() },
+			Shuffle:     func() bool { return pl.Shuffled() },
+			EQBands:     func() [10]float64 { return p.EQBands() },
+			TrackTitle:  func() string { t, _ := pl.Current(); return t.Title },
+			TrackArtist: func() string { t, _ := pl.Current(); return t.Artist },
+			TrackAlbum:  func() string { t, _ := pl.Current(); return t.Album },
+			TrackGenre:  func() string { t, _ := pl.Current(); return t.Genre },
+			TrackYear:   func() int { t, _ := pl.Current(); return t.Year },
+			TrackNumber: func() int { t, _ := pl.Current(); return t.TrackNumber },
+			TrackPath:   func() string { t, _ := pl.Current(); return t.Path },
+			TrackIsStream: func() bool { t, _ := pl.Current(); return t.Stream },
+			TrackDuration: func() int { t, _ := pl.Current(); return t.DurationSecs },
+			PlaylistCount: func() int { return pl.Len() },
+			CurrentIndex:  func() int { return pl.Index() },
+		})
+	}
+
+	// Register Lua visualizers into the visualizer cycle.
+	if luaMgr != nil {
+		if names := luaMgr.Visualizers(); len(names) > 0 {
+			m.RegisterLuaVisualizers(names, luaMgr.RenderVis)
+		}
+	}
+
 	m.SetSeekStepLarge(cfg.SeekStepLargeDuration())
 	m.SetPendingURLs(resolved.Pending)
 	if len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 {
@@ -210,6 +263,23 @@ func run(overrides config.Overrides, positional []string) error {
 
 	prog := tea.NewProgram(m, tea.WithAltScreen())
 	prog.SetWindowTitle(ui.InitialTerminalTitle())
+
+	// Wire Lua plugin control provider (needs prog.Send for next/prev).
+	if luaMgr != nil {
+		luaMgr.SetControlProvider(luaplugin.ControlProvider{
+			SetVolume:   func(db float64) { p.SetVolume(db) },
+			SetSpeed:    func(ratio float64) { p.SetSpeed(ratio) },
+			SetEQBand:   func(band int, db float64) { p.SetEQBand(band, db) },
+			ToggleMono:  func() { p.ToggleMono() },
+			TogglePause: func() { p.TogglePause() },
+			Stop:        func() { p.Stop() },
+			Seek: func(secs float64) {
+				_ = p.Seek(time.Duration(secs * float64(time.Second)))
+			},
+			Next: func() { prog.Send(mpris.NextMsg{}) },
+			Prev: func() { prog.Send(mpris.PrevMsg{}) },
+		})
+	}
 
 	if svc, err := mpris.New(func(msg interface{}) { prog.Send(msg) }); err == nil && svc != nil {
 		defer svc.Close()
@@ -263,6 +333,11 @@ Appearance:
   --visualizer <mode>     Visualizer mode (Bars, Bricks, Columns, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, None)
   --eq-preset <name>      EQ preset name (e.g. "Bass Boost")
 
+Plugins:
+  cliamp plugins list                List installed plugins
+  cliamp plugins install <source>    Install a plugin (URL, user/repo, gitlab:user/repo, codeberg:user/repo)
+  cliamp plugins remove <name>       Remove a plugin
+
 General:
   -h, --help              Show this help message
   -v, --version           Show the current version
@@ -290,6 +365,31 @@ Playlists: ~/.config/cliamp/playlists/*.toml
 Formats:   mp3, wav, flac, ogg, m4a, aac, opus, wma (aac/opus/wma need ffmpeg)
 SoundCloud/YouTube/Bandcamp require yt-dlp`
 
+const pluginsHelpText = `cliamp plugins — manage Lua plugins
+
+Usage: cliamp plugins <command> [args]
+
+Commands:
+  list                    List installed plugins
+  install <source>        Install a plugin
+  remove <name>           Remove a plugin
+
+Install sources (repos must be named cliamp-plugin-<name>):
+  user/cliamp-plugin-foo            GitHub repository
+  user/cliamp-plugin-foo@v1.0       GitHub repository at a specific tag
+  gitlab:user/repo        GitLab repository
+  codeberg:user/repo      Codeberg repository
+  https://example.com/p.lua   Direct URL
+
+Examples:
+  cliamp plugins list
+  cliamp plugins install bjarneo/cliamp-plugin-lastfm
+  cliamp plugins install bjarneo/cliamp-plugin-lastfm@v1.0
+  cliamp plugins install gitlab:user/my-visualizer
+  cliamp plugins install codeberg:user/my-plugin
+  cliamp plugins install https://example.com/my-plugin.lua
+  cliamp plugins remove lastfm`
+
 func main() {
 	action, overrides, positional, err := config.ParseFlags(os.Args[1:])
 	if err != nil {
@@ -310,6 +410,35 @@ func main() {
 		return
 	case "upgrade":
 		if err := upgrade.Run(version); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	case "plugins":
+		fmt.Println(pluginsHelpText)
+		return
+	case "plugins-list":
+		if err := pluginmgr.List(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	case "plugins-install":
+		if len(positional) == 0 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp plugins install <source>")
+			os.Exit(1)
+		}
+		if err := pluginmgr.Install(positional[0]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	case "plugins-remove":
+		if len(positional) == 0 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp plugins remove <name>")
+			os.Exit(1)
+		}
+		if err := pluginmgr.Remove(positional[0]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
