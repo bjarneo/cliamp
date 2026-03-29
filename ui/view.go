@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"cliamp/external/radio"
 	"cliamp/playlist"
 	"cliamp/theme"
 )
@@ -55,10 +56,10 @@ func (m Model) View() string {
 		return m.renderFileBrowser()
 	case screenNavBrowser:
 		return m.renderNavBrowser()
-	case screenRadioCatalog:
-		return m.renderRadioCatalog()
 	case screenPlaylistManager:
 		return m.renderPlaylistManager()
+	case screenSpotSearch:
+		return m.renderSpotSearch()
 	case screenQueue:
 		return m.renderQueueOverlay()
 	case screenInfo:
@@ -124,7 +125,7 @@ func (m Model) mainSections(playlist string, includeTransient bool) []string {
 		"",
 		// Help
 		m.renderHelp(),
-		m.renderStreamStatus(),
+		m.renderBottomStatus(),
 	)
 
 	if includeTransient {
@@ -454,38 +455,69 @@ func (m Model) renderProviderList() string {
 		return dimStyle.Render("  No playlists found.\n  Add playlists to ~/.config/cliamp/playlists/")
 	}
 
+	_, isRadio := m.provider.(*radio.Provider)
+
 	var lines []string
 
 	if m.provSearch.active {
 		lines = append(lines, playlistSelectedStyle.Render("  / "+m.provSearch.query+"_"))
 
-		if m.provSearch.query == "" {
-			lines = append(lines, dimStyle.Render("  Type to filter…"))
-		} else if len(m.provSearch.results) == 0 {
-			lines = append(lines, dimStyle.Render("  No matches"))
-		} else {
-			visible := max(0, min(visibleBudget-1, len(m.provSearch.results)))
-			scroll := max(0, m.provSearch.cursor-visible+1)
-			for j := scroll; j < scroll+visible && j < len(m.provSearch.results); j++ {
-				idx := m.provSearch.results[j]
-				p := m.providerLists[idx]
-				prefix, style := "  ", playlistItemStyle
-				if j == m.provSearch.cursor {
-					style = playlistSelectedStyle
-					prefix = "> "
-				}
-				lines = append(lines, style.Render(playlistLabel(prefix, p)))
+		if isRadio {
+			if m.provSearch.query == "" {
+				lines = append(lines, dimStyle.Render("  Type a station name, Enter to search…"))
+			} else {
+				lines = append(lines, dimStyle.Render("  Press Enter to search"))
 			}
-			lines = append(lines, dimStyle.Render(fmt.Sprintf("  %d/%d playlists", len(m.provSearch.results), len(m.providerLists))))
+		} else {
+			if m.provSearch.query == "" {
+				lines = append(lines, dimStyle.Render("  Type to filter…"))
+			} else if len(m.provSearch.results) == 0 {
+				lines = append(lines, dimStyle.Render("  No matches"))
+			} else {
+				visible := max(0, min(visibleBudget-1, len(m.provSearch.results)))
+				scroll := max(0, m.provSearch.cursor-visible+1)
+				for j := scroll; j < scroll+visible && j < len(m.provSearch.results); j++ {
+					idx := m.provSearch.results[j]
+					p := m.providerLists[idx]
+					prefix, style := "  ", playlistItemStyle
+					if j == m.provSearch.cursor {
+						style = playlistSelectedStyle
+						prefix = "> "
+					}
+					lines = append(lines, style.Render(playlistLabel(prefix, p)))
+				}
+				lines = append(lines, dimStyle.Render(fmt.Sprintf("  %d/%d playlists", len(m.provSearch.results), len(m.providerLists))))
+			}
 		}
 		return strings.Join(lines, "\n")
 	}
 
 	visible := min(visibleBudget, len(m.providerLists))
 	scroll := max(0, m.provCursor-visible+1)
+	prevPrefix := ""
 
 	for j := scroll; j < scroll+visible && j < len(m.providerLists); j++ {
 		p := m.providerLists[j]
+
+		// Insert section headers on prefix transitions for the radio provider.
+		if isRadio {
+			pfx := radio.IDPrefix(p.ID)
+			if pfx != prevPrefix {
+				switch pfx {
+				case "f":
+					lines = append(lines, dimStyle.Render("  ── favorites ──"))
+					visible++
+				case "c":
+					lines = append(lines, dimStyle.Render("  ── catalog ──"))
+					visible++
+				case "s":
+					lines = append(lines, dimStyle.Render("  ── search results ──"))
+					visible++
+				}
+				prevPrefix = pfx
+			}
+		}
+
 		prefix, style := "  ", playlistItemStyle
 		if j == m.provCursor {
 			style = playlistSelectedStyle
@@ -493,6 +525,12 @@ func (m Model) renderProviderList() string {
 		}
 		lines = append(lines, style.Render(playlistLabel(prefix, p)))
 	}
+
+	// Loading indicator for catalog batch.
+	if isRadio && m.radioBatch.loading {
+		lines = append(lines, dimStyle.Render("  Loading more stations..."))
+	}
+
 	return strings.Join(lines, "\n")
 }
 
@@ -587,7 +625,11 @@ func (m Model) renderJumpOverlay() string {
 
 func (m Model) renderHelp() string {
 	if m.focus == focusProvider {
-		return helpKey("↑↓", "Navigate ") + helpKey("Enter", "Load ") + helpKey("Tab", "Focus ") + helpKey("Ctrl+K", "Keys")
+		help := helpKey("↑↓", "Navigate ") + helpKey("Enter", "Load ") + helpKey("/", "Search ")
+		if _, ok := m.provider.(*radio.Provider); ok {
+			help += helpKey("f", "Fav ")
+		}
+		return help + helpKey("Tab", "Focus ") + helpKey("Ctrl+K", "Keys")
 	}
 	if m.focus == focusProvPill {
 		return helpKey("←→", "Select ") + helpKey("Enter", "Open ") + helpKey("Esc", "Back ") + helpKey("Tab", "Focus ") + helpKey("Ctrl+K", "Keys")
@@ -596,7 +638,15 @@ func (m Model) renderHelp() string {
 	// Show only the 4-5 most relevant keys per mode; Ctrl+K always anchored for full list.
 	var hints []helpHint
 
-	if m.focus == focusEQ {
+	if m.focus == focusSpeed {
+		hints = append(hints,
+			helpHint{helpKey("←→", "Speed "), 100},
+			helpHint{helpKey("[]", "Speed "), 90},
+			helpHint{helpKey("Spc", "⏯ "), 80},
+			helpHint{helpKey("Tab", "Focus "), 70},
+			helpHint{helpKey("Ctrl+K", "Keys"), 100},
+		)
+	} else if m.focus == focusEQ {
 		hints = append(hints,
 			helpHint{helpKey("←→", "Band "), 100},
 			helpHint{helpKey("↑↓", "Gain "), 100},
@@ -669,38 +719,56 @@ func fitHints(hints []helpHint, maxWidth int) string {
 	return sb.String()
 }
 
-// renderStreamStatus shows a network stats line for HTTP streams:
-// bytes downloaded, total size (if known), and throughput.
-func (m Model) renderStreamStatus() string {
-	downloaded, total := m.player.StreamBytes()
-	if downloaded == 0 && total <= 0 {
-		return ""
+// renderBottomStatus renders the bottom status line: speed (left) and
+// network stats (right) on the same row.
+func (m Model) renderBottomStatus() string {
+	// Left: speed indicator.
+	speed := m.player.Speed()
+	if speed == 0 {
+		speed = 1.0
 	}
+	speedVal := fmt.Sprintf("%.2gx", speed)
 
-	mb := float64(downloaded) / (1024 * 1024)
-
-	var status string
-	if total > 0 {
-		totalMB := float64(total) / (1024 * 1024)
-		pct := float64(downloaded) / float64(total) * 100
-		status = fmt.Sprintf("↓ %.1f / %.1f MB (%.0f%%)", mb, totalMB, pct)
+	var left string
+	speedLabel := labelStyle.Render("SPD ")
+	if m.focus == focusSpeed {
+		speedLabel = activeToggle.Render("SPD ▸ ")
+		left = speedLabel + activeToggle.Render("["+speedVal+"]")
+	} else if speed != 1.0 {
+		left = speedLabel + activeToggle.Render("["+speedVal+"]")
 	} else {
-		status = fmt.Sprintf("↓ %.1f MB", mb)
+		left = speedLabel + dimStyle.Render("[") + trackStyle.Render(speedVal) + dimStyle.Render("]")
 	}
 
-	if m.network.speed > 0 {
-		kbs := m.network.speed / 1024
-		if kbs >= 1024 {
-			status += fmt.Sprintf("  %.1f MB/s", kbs/1024)
+	// Right: network stream stats (empty for local files).
+	var right string
+	downloaded, total := m.player.StreamBytes()
+	if downloaded > 0 || total > 0 {
+		mb := float64(downloaded) / (1024 * 1024)
+		if total > 0 {
+			totalMB := float64(total) / (1024 * 1024)
+			pct := float64(downloaded) / float64(total) * 100
+			right = fmt.Sprintf("↓ %.1f / %.1f MB (%.0f%%)", mb, totalMB, pct)
 		} else {
-			status += fmt.Sprintf("  %.0f KB/s", kbs)
+			right = fmt.Sprintf("↓ %.1f MB", mb)
 		}
+		if m.network.speed > 0 {
+			kbs := m.network.speed / 1024
+			if kbs >= 1024 {
+				right += fmt.Sprintf("  %.1f MB/s", kbs/1024)
+			} else {
+				right += fmt.Sprintf("  %.0f KB/s", kbs)
+			}
+		}
+		right = dimStyle.Render(right)
 	}
 
-	w := lipgloss.Width(status)
-	pad := panelWidth - w
-	if pad > 0 {
-		status = strings.Repeat(" ", pad) + status
+	leftW := lipgloss.Width(left)
+	rightW := lipgloss.Width(right)
+	gap := max(1, panelWidth-leftW-rightW)
+
+	if right == "" {
+		return left
 	}
-	return dimStyle.Render(status)
+	return left + strings.Repeat(" ", gap) + right
 }

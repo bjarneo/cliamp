@@ -77,6 +77,14 @@ func (o Overrides) Apply(cfg *Config) {
 //
 // Returned action is one of "help", "version", "upgrade", or "" (run).
 func ParseFlags(args []string) (action string, ov Overrides, positional []string, err error) {
+	// Subcommand: cliamp plugins [list|install|remove] [args...]
+	if len(args) > 0 && args[0] == "plugins" {
+		if len(args) == 1 {
+			return "plugins", ov, nil, nil
+		}
+		return "plugins-" + args[1], ov, args[2:], nil
+	}
+
 	i := 0
 	for i < len(args) {
 		arg := args[i]

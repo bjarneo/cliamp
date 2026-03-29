@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"cliamp/external/navidrome"
-	"cliamp/external/radio"
 	"cliamp/lyrics"
 	"cliamp/playlist"
 )
@@ -120,18 +119,35 @@ type navBrowserState struct {
 	searchIdx    []int
 }
 
-// radioCatalogState holds state for the radio catalog browser overlay.
-type radioCatalogState struct {
-	visible       bool
-	query         string
-	searching     bool // true while the search input is focused
-	stations      []radio.CatalogStation
-	cursor        int
-	scroll        int
-	loading       bool
-	err           string
-	favorites     *radio.Favorites
-	showFavorites bool // true = showing favorites list instead of search results
+// spotSearchScreenType identifies which screen of the Spotify search overlay is active.
+type spotSearchScreenType int
+
+const (
+	spotSearchInput    spotSearchScreenType = iota // typing search query
+	spotSearchResults                              // browsing search results
+	spotSearchPlaylist                             // picking a playlist to add to
+	spotSearchNewName                              // typing new playlist name
+)
+
+// spotSearchState holds state for the Spotify song search + add-to-playlist overlay.
+type spotSearchState struct {
+	visible   bool
+	screen    spotSearchScreenType
+	query     string
+	results   []playlist.Track
+	cursor    int
+	loading   bool
+	playlists []playlist.PlaylistInfo // user's Spotify playlists for picker
+	selTrack  playlist.Track         // track selected to add
+	newName   string                 // new playlist name input
+	err       string
+}
+
+// radioBatchState holds state for lazy-loading catalog stations from the Radio Browser API.
+type radioBatchState struct {
+	offset  int  // next offset to fetch
+	loading bool // true while a fetch is in flight
+	done    bool // true when all stations have been loaded
 }
 
 // ytdlBatchState holds state for incremental yt-dlp playlist loading.

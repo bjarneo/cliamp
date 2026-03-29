@@ -321,7 +321,13 @@ type Visualizer struct {
 	activeMode     VisMode
 	activeModeSet  bool
 	refreshPending bool
+	luaVisNames    []string
+	luaRender      luaVisRenderer
+	luaDriverCache map[int]visModeDriver
 }
+
+// luaVisRenderer is the callback type for rendering a Lua visualizer frame.
+type luaVisRenderer func(name string, bands [defaultSpectrumBands]float64, rows, cols int, frame uint64) string
 
 // NewVisualizer creates a Visualizer for the given sample rate.
 func NewVisualizer(sampleRate float64) *Visualizer {
@@ -334,13 +340,15 @@ func NewVisualizer(sampleRate float64) *Visualizer {
 		edgeCache:      make(map[int][]float64),
 		fftBufCache:    make(map[int][]float64),
 		windowCache:    make(map[int][]float64),
+		luaDriverCache: make(map[int]visModeDriver),
 		refreshPending: true,
 	}
 }
 
-// CycleMode advances to the next visualizer mode.
+// CycleMode advances to the next visualizer mode, including Lua visualizers.
 func (v *Visualizer) CycleMode() {
-	v.Mode = (v.Mode + 1) % visCount
+	total := visCount + VisMode(len(v.luaVisNames))
+	v.Mode = (v.Mode + 1) % total
 }
 
 // visModes is the single source of truth for all visualizer modes.
@@ -383,7 +391,14 @@ func init() {
 
 // ModeName returns the display name of the current mode.
 func (v *Visualizer) ModeName() string {
-	return visModes[v.Mode].name
+	if v.Mode < visCount {
+		return visModes[v.Mode].name
+	}
+	luaIdx := int(v.Mode - visCount)
+	if luaIdx < len(v.luaVisNames) {
+		return v.luaVisNames[luaIdx]
+	}
+	return "Unknown"
 }
 
 // StringToVisMode converts a visualizer mode name (case-insensitive) to VisMode.
@@ -479,6 +494,18 @@ func (v *Visualizer) ensureSampleBuf(size int) []float64 {
 		v.sampleBuf = v.sampleBuf[:size]
 	}
 	return v.sampleBuf
+}
+
+// RegisterLuaVisualizers adds Lua visualizer names so they can be cycled
+// through with the v key. renderer is called when a Lua visualizer is active.
+func (v *Visualizer) RegisterLuaVisualizers(names []string, renderer luaVisRenderer) {
+	v.luaVisNames = names
+	v.luaRender = renderer
+	clear(v.luaDriverCache)
+	// Add to name map for StringToVisMode lookups.
+	for i, name := range names {
+		visNameMap[strings.ToLower(name)] = visCount + VisMode(i)
+	}
 }
 
 // Analyze runs FFT on raw audio samples and returns normalized band levels (0-1).
@@ -601,8 +628,20 @@ func (v *Visualizer) Tick(ctx visTickContext) {
 }
 
 func (v *Visualizer) driverFor(mode VisMode) visModeDriver {
-	if v == nil || mode < 0 || mode >= visCount {
+	if v == nil || mode < 0 {
 		return nil
+	}
+	if mode >= visCount {
+		idx := int(mode - visCount)
+		if idx < 0 || idx >= len(v.luaVisNames) {
+			return nil
+		}
+		if driver, ok := v.luaDriverCache[idx]; ok {
+			return driver
+		}
+		driver := &luaModeDriver{index: idx}
+		v.luaDriverCache[idx] = driver
+		return driver
 	}
 	if v.drivers[mode] == nil {
 		newDriver := visModes[mode].newDriver
@@ -612,6 +651,39 @@ func (v *Visualizer) driverFor(mode VisMode) visModeDriver {
 		v.drivers[mode] = newDriver()
 	}
 	return v.drivers[mode]
+}
+
+type luaModeDriver struct {
+	index int
+}
+
+func (*luaModeDriver) AnalysisSpec(*Visualizer) visAnalysisSpec {
+	return spectrumAnalysisSpec(defaultSpectrumBands)
+}
+
+func (d *luaModeDriver) Render(v *Visualizer) string {
+	if v == nil || d.index < 0 || d.index >= len(v.luaVisNames) || v.luaRender == nil {
+		return ""
+	}
+	return v.luaRender(v.luaVisNames[d.index], luaBands(v.bands), v.Rows, panelWidth, v.frame)
+}
+
+func (d *luaModeDriver) Tick(v *Visualizer, ctx visTickContext) {
+	defaultDriverTick(v, ctx, d.AnalysisSpec(v))
+}
+
+func (*luaModeDriver) TickInterval(_ *Visualizer, ctx visTickContext) time.Duration {
+	return defaultDriverTickInterval(ctx)
+}
+
+func (*luaModeDriver) OnEnter(*Visualizer) {}
+
+func (*luaModeDriver) OnLeave(*Visualizer) {}
+
+func luaBands(src []float64) [defaultSpectrumBands]float64 {
+	var bands [defaultSpectrumBands]float64
+	copy(bands[:], src)
+	return bands
 }
 
 func (v *Visualizer) syncDriverMode() visModeDriver {

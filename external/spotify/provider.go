@@ -3,6 +3,7 @@
 package spotify
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -489,15 +490,36 @@ func (p *SpotifyProvider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.F
 
 // webAPI calls the Spotify Web API via the session with retry on 429.
 func (p *SpotifyProvider) webAPI(ctx context.Context, method, path string, query url.Values) (*http.Response, error) {
+	return p.webAPIWithBody(ctx, method, path, query, nil, "", http.StatusOK)
+}
+
+// webAPIWithBody is like webAPI but accepts an optional request body, content type,
+// and a set of acceptable HTTP status codes (e.g. 200, 201).
+func (p *SpotifyProvider) webAPIWithBody(ctx context.Context, method, path string, query url.Values, body io.Reader, contentType string, acceptStatus ...int) (*http.Response, error) {
 	const maxRetries = 8
+
+	// Buffer the body so it can be replayed on retry.
+	var bodyBytes []byte
+	if body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(body)
+		if err != nil {
+			return nil, fmt.Errorf("read request body: %w", err)
+		}
+	}
+
 	for attempt := range maxRetries {
-		resp, err := p.session.webApi(ctx, method, path, query)
+		var reqBody io.Reader
+		if bodyBytes != nil {
+			reqBody = bytes.NewReader(bodyBytes)
+		}
+
+		resp, err := p.session.webApiWithBody(ctx, method, path, query, reqBody, contentType)
 		if err != nil {
 			return nil, err
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
 			resp.Body.Close()
-			// Parse Retry-After header (seconds), default to exponential backoff.
 			wait := time.Duration(1<<uint(attempt)) * time.Second
 			if ra := resp.Header.Get("Retry-After"); ra != "" {
 				if secs, err := strconv.Atoi(ra); err == nil && secs > 0 {
@@ -512,17 +534,140 @@ func (p *SpotifyProvider) webAPI(ctx context.Context, method, path string, query
 				continue
 			}
 		}
-		if resp.StatusCode != http.StatusOK {
-			body, readErr := io.ReadAll(io.LimitReader(resp.Body, 512))
+
+		ok := false
+		for _, code := range acceptStatus {
+			if resp.StatusCode == code {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 512))
 			resp.Body.Close()
 			if readErr != nil {
 				return nil, fmt.Errorf("http status %s (failed to read body: %v)", resp.Status, readErr)
 			}
-			return nil, fmt.Errorf("http status %s: %s", resp.Status, string(body))
+			return nil, fmt.Errorf("http status %s: %s", resp.Status, string(respBody))
 		}
 		return resp, nil
 	}
 	return nil, fmt.Errorf("http status 429 after %d retries", maxRetries)
+}
+
+// SearchTracks searches for tracks on Spotify and returns up to limit results.
+func (p *SpotifyProvider) SearchTracks(ctx context.Context, query string, limit int) ([]playlist.Track, error) {
+	if err := p.ensureSession(); err != nil {
+		return nil, err
+	}
+
+	q := url.Values{
+		"q":     {query},
+		"type":  {"track"},
+		"limit": {fmt.Sprintf("%d", limit)},
+	}
+
+	resp, err := p.webAPI(ctx, "GET", "/v1/search", q)
+	if err != nil {
+		return nil, fmt.Errorf("spotify: search: %w", err)
+	}
+
+	var result struct {
+		Tracks struct {
+			Items []struct {
+				ID      string `json:"id"`
+				Name    string `json:"name"`
+				Artists []struct {
+					Name string `json:"name"`
+				} `json:"artists"`
+				Album struct {
+					Name        string `json:"name"`
+					ReleaseDate string `json:"release_date"`
+				} `json:"album"`
+				DurationMs int `json:"duration_ms"`
+			} `json:"items"`
+		} `json:"tracks"`
+	}
+	if err := decodeBody(resp, &result); err != nil {
+		return nil, fmt.Errorf("spotify: parse search: %w", err)
+	}
+
+	var tracks []playlist.Track
+	for _, t := range result.Tracks.Items {
+		if t.ID == "" {
+			continue
+		}
+		artists := make([]string, len(t.Artists))
+		for i, a := range t.Artists {
+			artists[i] = a.Name
+		}
+		var year int
+		if len(t.Album.ReleaseDate) >= 4 {
+			if y, err := strconv.Atoi(t.Album.ReleaseDate[:4]); err == nil {
+				year = y
+			}
+		}
+		tracks = append(tracks, playlist.Track{
+			Path:         fmt.Sprintf("spotify:track:%s", t.ID),
+			Title:        t.Name,
+			Artist:       strings.Join(artists, ", "),
+			Album:        t.Album.Name,
+			Year:         year,
+			DurationSecs: t.DurationMs / 1000,
+		})
+	}
+	return tracks, nil
+}
+
+// AddTrackToPlaylist adds a track to an existing Spotify playlist.
+func (p *SpotifyProvider) AddTrackToPlaylist(ctx context.Context, playlistID, trackURI string) error {
+	if err := p.ensureSession(); err != nil {
+		return err
+	}
+
+	body, _ := json.Marshal(map[string]any{"uris": []string{trackURI}})
+	path := fmt.Sprintf("/v1/playlists/%s/tracks", playlistID)
+
+	resp, err := p.webAPIWithBody(ctx, "POST", path, nil, bytes.NewReader(body), "application/json", http.StatusOK, http.StatusCreated)
+	if err != nil {
+		return fmt.Errorf("spotify: add track: %w", err)
+	}
+	resp.Body.Close()
+
+	// Invalidate cache for this playlist.
+	p.mu.Lock()
+	delete(p.trackCache, playlistID)
+	p.mu.Unlock()
+
+	return nil
+}
+
+// CreatePlaylist creates a new private Spotify playlist and returns its ID.
+func (p *SpotifyProvider) CreatePlaylist(ctx context.Context, name string) (string, error) {
+	if err := p.ensureSession(); err != nil {
+		return "", err
+	}
+
+	userID := p.currentUserID(ctx)
+	if userID == "" {
+		return "", fmt.Errorf("spotify: could not determine user ID")
+	}
+
+	body, _ := json.Marshal(map[string]any{"name": name, "public": false})
+	path := fmt.Sprintf("/v1/users/%s/playlists", userID)
+
+	resp, err := p.webAPIWithBody(ctx, "POST", path, nil, bytes.NewReader(body), "application/json", http.StatusOK, http.StatusCreated)
+	if err != nil {
+		return "", fmt.Errorf("spotify: create playlist: %w", err)
+	}
+
+	var result struct {
+		ID string `json:"id"`
+	}
+	if err := decodeBody(resp, &result); err != nil {
+		return "", fmt.Errorf("spotify: parse created playlist: %w", err)
+	}
+	return result.ID, nil
 }
 
 // decodeBody reads and decodes a JSON response body, then closes it.
