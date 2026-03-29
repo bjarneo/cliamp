@@ -13,6 +13,9 @@ import (
 	"cliamp/resolve"
 )
 
+// fbMaxVisible is a number of visible entries in file browser.
+const fbMaxVisible = 12
+
 // fbEntry is a single item in the file browser listing.
 type fbEntry struct {
 	name     string
@@ -47,6 +50,7 @@ func (m *Model) openFileBrowser() {
 func (m *Model) loadFBDir() {
 	m.fileBrowser.err = ""
 	m.fileBrowser.cursor = 0
+	clear(m.fileBrowser.selected)
 
 	// Reuse internal memory buffer of m.fileBrowser.entries.
 	m.fileBrowser.entries = m.fileBrowser.entries[:0]
@@ -116,6 +120,7 @@ func (m *Model) loadFBDir() {
 
 // handleFileBrowserKey processes key presses while the file browser is open.
 func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
+	var cd string
 	switch msg.String() {
 	case "ctrl+c":
 		m.fileBrowser.visible = false
@@ -140,12 +145,12 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "pgup", "ctrl+u":
 		if m.fileBrowser.cursor > 0 {
-			m.fileBrowser.cursor -= min(m.fileBrowser.cursor, 12)
+			m.fileBrowser.cursor -= min(m.fileBrowser.cursor, fbMaxVisible)
 		}
 
 	case "pgdown", "ctrl+d":
 		if m.fileBrowser.cursor < len(m.fileBrowser.entries)-1 {
-			m.fileBrowser.cursor = min(len(m.fileBrowser.entries)-1, m.fileBrowser.cursor + 12)
+			m.fileBrowser.cursor = min(len(m.fileBrowser.entries)-1, m.fileBrowser.cursor + fbMaxVisible)
 		}
 
 	case "enter", "l", "right":
@@ -155,8 +160,18 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 		if m.fileBrowser.cursor < len(m.fileBrowser.entries) {
 			e := m.fileBrowser.entries[m.fileBrowser.cursor]
 			if e.isDir {
+				cd = m.fileBrowser.dir
 				m.fileBrowser.dir = e.path
 				m.loadFBDir()
+				if e.name == ".." {
+					// cd .. and reveal previous directory name in list
+					for i := range m.fileBrowser.entries {
+						if m.fileBrowser.entries[i].path == cd {
+							m.fileBrowser.cursor = i
+							break
+						}
+					}
+				}
 			} else if e.isAudio {
 				m.fileBrowser.selected[e.path] = true
 				return m.fbConfirm(false)
@@ -164,19 +179,25 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 		}
 
 	case "backspace", "h", "left":
+		cd = m.fileBrowser.dir
 		m.fileBrowser.dir = filepath.Dir(m.fileBrowser.dir)
 		m.loadFBDir()
+		// Reveal previous directory name in list
+		for i := range m.fileBrowser.entries {
+			if m.fileBrowser.entries[i].path == cd {
+				m.fileBrowser.cursor = i
+				break
+			}
+		}
 
 	case "~":
-		cd, _ := os.UserHomeDir()
-		if cd != "" && m.fileBrowser.dir != cd {
+		if cd, _ = os.UserHomeDir(); cd != "" && m.fileBrowser.dir != cd {
 			m.fileBrowser.dir = cd
 			m.loadFBDir()
 		}
 
 	case ".":
-		cd, _ := os.Getwd()
-		if cd != "" && m.fileBrowser.dir != cd {
+		if cd, _ = os.Getwd(); cd != "" && m.fileBrowser.dir != cd {
 			m.fileBrowser.dir = cd
 			m.loadFBDir()
 		}
@@ -198,21 +219,17 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "a":
 		// Toggle select all audio files in current view.
-		allSelected := true
+		var selectAll bool
 		for _, e := range m.fileBrowser.entries {
-			if e.isAudio && !m.fileBrowser.selected[e.path] {
-				allSelected = false
-				break
+			// If we found at least one unselected file then all files should be selected:
+			// set selectAll flag and skip checking selection of remaining files.
+			if e.isAudio && (selectAll || !m.fileBrowser.selected[e.path]) {
+				selectAll, m.fileBrowser.selected[e.path] = true, true
 			}
 		}
-		for _, e := range m.fileBrowser.entries {
-			if e.isAudio {
-				if allSelected {
-					delete(m.fileBrowser.selected, e.path)
-				} else {
-					m.fileBrowser.selected[e.path] = true
-				}
-			}
+		if !selectAll {
+			// All files selected (no unselected files found): clear selection for all
+			clear(m.fileBrowser.selected)
 		}
 
 	case "g", "home":
@@ -229,13 +246,22 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 		}
 	}
 
+	// Change drive letter on Windows by pressing alt+[c..z]
+	if os.PathSeparator == '\\' {
+		if cd = msg.String(); len(cd) == 5 && strings.HasPrefix(cd, "alt+") && 'c' <= cd[4] && cd[4] <= 'z' {
+			cd = strings.ToUpper(cd[4:]) + ":\\"
+			m.fileBrowser.dir = cd
+			m.loadFBDir()
+		}
+	}
+
 	return nil
 }
 
 // fbConfirm collects selected paths, closes the overlay, and returns an async
 // command that resolves the paths into tracks.
 func (m *Model) fbConfirm(replace bool) tea.Cmd {
-	var paths []string
+	var paths = make([]string, 0, len(m.fileBrowser.selected))
 	for p := range m.fileBrowser.selected {
 		paths = append(paths, p)
 	}
@@ -252,17 +278,16 @@ func (m *Model) fbConfirm(replace bool) tea.Cmd {
 
 // renderFileBrowser renders the file browser overlay.
 func (m Model) renderFileBrowser() string {
-	lines := []string{
+	lines := append(make([]string, 0, 3 + fbMaxVisible + 4),
 		titleStyle.Render("O P E N  F I L E S"),
 		dimStyle.Render("  " + m.fileBrowser.dir),
 		"",
-	}
+	)
 
 	if m.fileBrowser.err != "" {
 		lines = append(lines, errorStyle.Render("  "+m.fileBrowser.err))
 	}
 
-	maxVisible := 12
 	rendered := 0
 
 	if len(m.fileBrowser.entries) == 0 {
@@ -270,11 +295,11 @@ func (m Model) renderFileBrowser() string {
 		rendered = 1
 	} else {
 		scroll := 0
-		if m.fileBrowser.cursor >= maxVisible {
-			scroll = m.fileBrowser.cursor - maxVisible + 1
+		if m.fileBrowser.cursor >= fbMaxVisible {
+			scroll = m.fileBrowser.cursor - fbMaxVisible + 1
 		}
 
-		for i := scroll; i < len(m.fileBrowser.entries) && i < scroll+maxVisible; i++ {
+		for i := scroll; i < len(m.fileBrowser.entries) && i < scroll+fbMaxVisible; i++ {
 			e := m.fileBrowser.entries[i]
 
 			// Selection check mark.
@@ -312,7 +337,7 @@ func (m Model) renderFileBrowser() string {
 	}
 
 	// Pad to fixed height.
-	for range maxVisible - rendered {
+	for range fbMaxVisible - rendered {
 		lines = append(lines, "")
 	}
 
@@ -321,11 +346,18 @@ func (m Model) renderFileBrowser() string {
 		lines = append(lines, "", statusStyle.Render(fmt.Sprintf("  %d selected", len(m.fileBrowser.selected))))
 	} else {
 		lines = append(lines, "")
+		// Pad to fixed height.
+		if m.fileBrowser.err == "" {
+			lines = append(lines, "")
+		}
 	}
 
 	help := helpKey("↑↓", "Scroll ") + helpKey("Enter", "Open ") + 
 		helpKey("Spc", "Select ") + helpKey("a", "All ") +
 		helpKey("←", "Back ") + helpKey("~.", "Home/Cwd ")
+	if os.PathSeparator == '\\' {
+		help += helpKey("AltCZ", "Drive ")
+	}
 	if len(m.fileBrowser.selected) > 0 {
 		help += helpKey("R", "Replace ")
 	}

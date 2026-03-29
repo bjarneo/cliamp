@@ -5,169 +5,67 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"cliamp/playlist"
+	"cliamp/external/radio"
 )
 
-// handleRadioCatalogKey processes key presses while the radio catalog is open.
-func (m *Model) handleRadioCatalogKey(msg tea.KeyMsg) tea.Cmd {
-	if m.radioCatalog.searching {
-		return m.handleRadioSearchInput(msg)
+// maybeLoadRadioBatch triggers a catalog batch fetch when the cursor is near the
+// bottom of the provider list and more stations are available.
+func (m *Model) maybeLoadRadioBatch() tea.Cmd {
+	rp, ok := m.provider.(*radio.Provider)
+	if !ok {
+		return nil
 	}
-
-	switch msg.String() {
-	case "ctrl+c":
-		m.radioCatalog.visible = false
-		return m.quit()
-	case "up", "k":
-		if m.radioCatalog.cursor > 0 {
-			m.radioCatalog.cursor--
-			m.radioMaybeAdjustScroll()
-		}
-	case "down", "j":
-		if m.radioCatalog.cursor < len(m.radioCatalog.stations)-1 {
-			m.radioCatalog.cursor++
-			m.radioMaybeAdjustScroll()
-		}
-	case "enter":
-		if len(m.radioCatalog.stations) == 0 || m.radioCatalog.loading {
-			return nil
-		}
-		s := m.radioCatalog.stations[m.radioCatalog.cursor]
-		track := playlist.Track{
-			Path:     s.URL,
-			Title:    s.Name,
-			Stream:   true,
-			Realtime: true,
-		}
-		m.player.Stop()
-		m.player.ClearPreload()
-		m.playlist.Add(track)
-		newIdx := m.playlist.Len() - 1
-		m.playlist.SetIndex(newIdx)
-		m.plCursor = newIdx
-		m.adjustScroll()
-		m.radioCatalog.visible = false
-		m.focus = focusPlaylist
-		m.status.text = fmt.Sprintf("Playing: %s", s.Name)
-		m.status.ttl = statusTTLMedium
-		cmd := m.playCurrentTrack()
-		m.notifyMPRIS()
-		return cmd
-	case "a":
-		// Append station to playlist without closing the catalog.
-		if len(m.radioCatalog.stations) == 0 || m.radioCatalog.loading {
-			return nil
-		}
-		s := m.radioCatalog.stations[m.radioCatalog.cursor]
-		track := playlist.Track{
-			Path:     s.URL,
-			Title:    s.Name,
-			Stream:   true,
-			Realtime: true,
-		}
-		wasEmpty := m.playlist.Len() == 0
-		m.playlist.Add(track)
-		m.status.text = fmt.Sprintf("Added: %s", s.Name)
-		m.status.ttl = statusTTLMedium
-		if wasEmpty || !m.player.IsPlaying() {
-			m.playlist.SetIndex(0)
-			cmd := m.playCurrentTrack()
-			m.notifyMPRIS()
-			return cmd
-		}
-	case "f":
-		// Toggle favorite on the current station.
-		if len(m.radioCatalog.stations) == 0 || m.radioCatalog.loading {
-			return nil
-		}
-		s := m.radioCatalog.stations[m.radioCatalog.cursor]
-		if m.radioCatalog.favorites == nil {
-			return nil
-		}
-		if m.radioCatalog.favorites.Contains(s.URL) {
-			_ = m.radioCatalog.favorites.Remove(s.URL)
-			m.status.text = fmt.Sprintf("Removed: %s", s.Name)
-			// If viewing favorites, refresh the visible list.
-			if m.radioCatalog.showFavorites {
-				m.radioCatalog.stations = m.radioCatalog.favorites.Stations()
-				if m.radioCatalog.cursor >= len(m.radioCatalog.stations) {
-					m.radioCatalog.cursor = max(0, len(m.radioCatalog.stations)-1)
-				}
-				m.radioMaybeAdjustScroll()
-			}
-		} else {
-			_ = m.radioCatalog.favorites.Add(s)
-			m.status.text = fmt.Sprintf("Favorited: %s", s.Name)
-		}
-		m.status.ttl = statusTTLMedium
-	case "F":
-		// Toggle between favorites view and catalog view.
-		m.radioCatalog.showFavorites = !m.radioCatalog.showFavorites
-		m.radioCatalog.cursor = 0
-		m.radioCatalog.scroll = 0
-		if m.radioCatalog.showFavorites && m.radioCatalog.favorites != nil {
-			m.radioCatalog.stations = m.radioCatalog.favorites.Stations()
-		} else {
-			// Switching back to catalog: re-fetch.
-			m.radioCatalog.loading = true
-			m.radioCatalog.stations = nil
-			if m.radioCatalog.query != "" {
-				return fetchRadioSearchCmd(m.radioCatalog.query)
-			}
-			return fetchRadioTopCmd()
-		}
-	case "/":
-		if m.radioCatalog.showFavorites {
-			return nil // no search in favorites view
-		}
-		m.radioCatalog.searching = true
-		m.radioCatalog.query = ""
-	case "esc", "R":
-		m.radioCatalog.visible = false
+	if m.radioBatch.loading || m.radioBatch.done {
+		return nil
+	}
+	// Don't load more while search results are shown.
+	if rp.IsSearching() {
+		return nil
+	}
+	// Load next page when within 10 items of the end.
+	if m.provCursor >= len(m.providerLists)-10 {
+		m.radioBatch.loading = true
+		return fetchRadioBatchCmd(m.radioBatch.offset, radioBatchSize)
 	}
 	return nil
 }
 
-// handleRadioSearchInput processes key presses in the radio catalog search bar.
-func (m *Model) handleRadioSearchInput(msg tea.KeyMsg) tea.Cmd {
-	switch msg.Type {
-	case tea.KeyEnter:
-		m.radioCatalog.searching = false
-		if m.radioCatalog.query == "" {
-			m.radioCatalog.loading = true
-			return fetchRadioTopCmd()
+// toggleProviderFavorite toggles favorite status for the current entry in the
+// provider list (only works for catalog, search, and favorite entries).
+func (m *Model) toggleProviderFavorite() tea.Cmd {
+	rp, ok := m.provider.(*radio.Provider)
+	if !ok || len(m.providerLists) == 0 {
+		return nil
+	}
+	id := m.providerLists[m.provCursor].ID
+	if !radio.IsCatalogOrFavID(id) {
+		return nil
+	}
+	added, name, err := rp.ToggleFavorite(id)
+	if err != nil {
+		return nil
+	}
+	if added {
+		m.status.text = fmt.Sprintf("Favorited: %s", name)
+	} else {
+		m.status.text = fmt.Sprintf("Removed: %s", name)
+	}
+	m.status.ttl = statusTTLMedium
+
+	// Refresh the provider list and try to keep the cursor on the same station.
+	prevID := id
+	if lists, err := rp.Playlists(); err == nil {
+		m.providerLists = lists
+		// Find the entry with the same ID or clamp.
+		for i, p := range m.providerLists {
+			if p.ID == prevID {
+				m.provCursor = i
+				return nil
+			}
 		}
-		m.radioCatalog.loading = true
-		m.radioCatalog.stations = nil
-		m.radioCatalog.cursor = 0
-		m.radioCatalog.scroll = 0
-		return fetchRadioSearchCmd(m.radioCatalog.query)
-	case tea.KeyEscape:
-		m.radioCatalog.searching = false
-	case tea.KeyBackspace, tea.KeyDelete:
-		if m.radioCatalog.query != "" {
-			m.radioCatalog.query = removeLastRune(m.radioCatalog.query)
-		}
-	case tea.KeySpace:
-		m.radioCatalog.query += " "
-	default:
-		if msg.Type == tea.KeyRunes {
-			m.radioCatalog.query += string(msg.Runes)
+		if m.provCursor >= len(m.providerLists) {
+			m.provCursor = max(0, len(m.providerLists)-1)
 		}
 	}
 	return nil
-}
-
-// radioMaybeAdjustScroll keeps the cursor visible within the rendered list window.
-func (m *Model) radioMaybeAdjustScroll() {
-	visible := m.plVisible
-	if visible < 5 {
-		visible = 5
-	}
-	if m.radioCatalog.cursor < m.radioCatalog.scroll {
-		m.radioCatalog.scroll = m.radioCatalog.cursor
-	}
-	if m.radioCatalog.cursor >= m.radioCatalog.scroll+visible {
-		m.radioCatalog.scroll = m.radioCatalog.cursor - visible + 1
-	}
 }

@@ -39,6 +39,7 @@ type Player struct {
 	started         bool           // true after first speaker.Play()
 	ctrl            *beep.Ctrl
 	volume          atomic.Uint64     // dB stored as Float64bits, range [-30, +6]
+	speed           atomic.Uint64     // playback speed ratio as Float64bits; 1.0 = normal
 	eqBands         [10]atomic.Uint64 // dB stored as math.Float64bits
 	tap             *tap
 	playing         atomic.Bool
@@ -69,6 +70,7 @@ func New(q Quality) (*Player, error) {
 		bitDepth = 16
 	}
 	p := &Player{sr: sr, resampleQuality: q.ResampleQuality, bitDepth: bitDepth}
+	p.speed.Store(math.Float64bits(1.0))
 	p.gapless = &gaplessStreamer{}
 	p.gapless.onSwap = func() {
 		// Called from audio thread (goroutine) when gapless transition occurs.
@@ -162,6 +164,7 @@ func (p *Player) playPipeline(tp *trackPipeline) error {
 
 		// Build the long-lived pipeline once
 		var s beep.Streamer = p.gapless
+		s = newSpeedStreamer(s, &p.speed)
 
 		for i := range 10 {
 			s = newBiquad(s, eqFreqs[i], 1.4, &p.eqBands[i], float64(p.sr))
@@ -516,6 +519,17 @@ func (p *Player) SetVolume(db float64) {
 // Volume returns the current volume in dB.
 func (p *Player) Volume() float64 {
 	return math.Float64frombits(p.volume.Load())
+}
+
+// SetSpeed sets the playback speed ratio, clamped to [0.25, 2.0].
+// 1.0 is normal speed, 2.0 is double speed, etc.
+func (p *Player) SetSpeed(ratio float64) {
+	p.speed.Store(math.Float64bits(max(min(ratio, 2.0), 0.25)))
+}
+
+// Speed returns the current playback speed ratio.
+func (p *Player) Speed() float64 {
+	return math.Float64frombits(p.speed.Load())
 }
 
 // ToggleMono switches between stereo and mono (L+R downmix) output.

@@ -63,14 +63,6 @@ type ytdlSavedMsg struct {
 	err  error
 }
 
-// — Radio catalog message types —
-
-// radioCatalogLoadedMsg carries stations fetched from the Radio Browser API.
-type radioCatalogLoadedMsg struct {
-	stations []radio.CatalogStation
-	err      error
-}
-
 // — Navidrome browser message types —
 
 // navArtistsLoadedMsg carries the full artist list from getArtists.
@@ -264,19 +256,34 @@ func fetchNavAlbumTracksCmd(c *navidrome.NavidromeClient, albumID string) tea.Cm
 	}
 }
 
-// — Radio catalog commands —
+// radioProvSearchMsg carries API search results for the provider view.
+type radioProvSearchMsg struct {
+	stations []radio.CatalogStation
+	err      error
+}
 
-func fetchRadioTopCmd() tea.Cmd {
+func fetchRadioProvSearchCmd(query string) tea.Cmd {
 	return func() tea.Msg {
-		stations, err := radio.TopStations(50)
-		return radioCatalogLoadedMsg{stations: stations, err: err}
+		stations, err := radio.SearchStations(query, 200)
+		return radioProvSearchMsg{stations: stations, err: err}
 	}
 }
 
-func fetchRadioSearchCmd(query string) tea.Cmd {
+// — Radio batch loading for provider integration —
+
+// radioBatchSize is the number of catalog stations to fetch per page.
+const radioBatchSize = 100
+
+// radioBatchMsg carries a page of catalog stations from the Radio Browser API.
+type radioBatchMsg struct {
+	stations []radio.CatalogStation
+	err      error
+}
+
+func fetchRadioBatchCmd(offset, limit int) tea.Cmd {
 	return func() tea.Msg {
-		stations, err := radio.SearchStations(query, 50)
-		return radioCatalogLoadedMsg{stations: stations, err: err}
+		stations, err := radio.TopStationsOffset(offset, limit)
+		return radioBatchMsg{stations: stations, err: err}
 	}
 }
 
