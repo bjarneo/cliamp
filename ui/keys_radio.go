@@ -1,8 +1,6 @@
 package ui
 
 import (
-	"fmt"
-
 	tea "github.com/charmbracelet/bubbletea"
 
 	"cliamp/playlist"
@@ -48,8 +46,7 @@ func (m *Model) handleRadioCatalogKey(msg tea.KeyMsg) tea.Cmd {
 		m.adjustScroll()
 		m.radioCatalog.visible = false
 		m.focus = focusPlaylist
-		m.status.text = fmt.Sprintf("Playing: %s", s.Name)
-		m.status.ttl = statusTTLMedium
+		m.status.Showf(statusTTLMedium, "Playing: %s", s.Name)
 		cmd := m.playCurrentTrack()
 		m.notifyMPRIS()
 		return cmd
@@ -67,8 +64,7 @@ func (m *Model) handleRadioCatalogKey(msg tea.KeyMsg) tea.Cmd {
 		}
 		wasEmpty := m.playlist.Len() == 0
 		m.playlist.Add(track)
-		m.status.text = fmt.Sprintf("Added: %s", s.Name)
-		m.status.ttl = statusTTLMedium
+		m.status.Showf(statusTTLMedium, "Added: %s", s.Name)
 		if wasEmpty || !m.player.IsPlaying() {
 			m.playlist.SetIndex(0)
 			cmd := m.playCurrentTrack()
@@ -86,7 +82,7 @@ func (m *Model) handleRadioCatalogKey(msg tea.KeyMsg) tea.Cmd {
 		}
 		if m.radioCatalog.favorites.Contains(s.URL) {
 			_ = m.radioCatalog.favorites.Remove(s.URL)
-			m.status.text = fmt.Sprintf("Removed: %s", s.Name)
+			m.status.Showf(statusTTLMedium, "Removed: %s", s.Name)
 			// If viewing favorites, refresh the visible list.
 			if m.radioCatalog.showFavorites {
 				m.radioCatalog.stations = m.radioCatalog.favorites.Stations()
@@ -97,9 +93,8 @@ func (m *Model) handleRadioCatalogKey(msg tea.KeyMsg) tea.Cmd {
 			}
 		} else {
 			_ = m.radioCatalog.favorites.Add(s)
-			m.status.text = fmt.Sprintf("Favorited: %s", s.Name)
+			m.status.Showf(statusTTLMedium, "Favorited: %s", s.Name)
 		}
-		m.status.ttl = statusTTLMedium
 	case "F":
 		// Toggle between favorites view and catalog view.
 		m.radioCatalog.showFavorites = !m.radioCatalog.showFavorites

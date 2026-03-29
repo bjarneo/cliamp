@@ -4,45 +4,32 @@ import "strings"
 
 // renderColumns draws many thin single-character-wide columns, interpolating
 // between bands so adjacent columns vary slightly for a dense, organic look.
-func (v *Visualizer) renderColumns(bands [numBands]float64) string {
+func (v *Visualizer) renderColumns(bands []float64) string {
 	height := v.Rows
+	bandCount := len(bands)
 
-	// Compute per-band column counts and flat-array offsets.
-	var bandCols [numBands]int
-	var offsets [numBands]int
-	totalCols := 0
-	for b := range numBands {
-		offsets[b] = totalCols
-		bandCols[b] = visBandWidth(b)
-		totalCols += bandCols[b]
+	// Compute per-band column counts; cols below is a flat level per display column.
+	bandCols := make([]int, bandCount)
+	for b := range bandCount {
+		bandCols[b] = visBandWidth(bandCount, b)
 	}
 
-	// Build per-column levels by interpolating between neighboring bands.
-	cols := make([]float64, totalCols)
-	for b, level := range bands {
-		nextLevel := level
-		if b+1 < numBands {
-			nextLevel = bands[b+1]
-		}
-		for c := range bandCols[b] {
-			t := float64(c) / float64(bandCols[b])
-			cols[offsets[b]+c] = level*(1-t) + nextLevel*t
-		}
-	}
-
+	cols := interpolateBandColumns(bands, bandCols)
 	lines := make([]string, height)
 
 	for row := range height {
 		var content strings.Builder
 		rowBottom := float64(height-1-row) / float64(height)
 		rowTop := float64(height-row) / float64(height)
+		offset := 0
 
-		for b := range numBands {
+		for b := range bandCount {
 			for c := range bandCols[b] {
-				level := cols[offsets[b]+c]
+				level := cols[offset+c]
 				content.WriteString(fracBlock(level, rowBottom, rowTop))
 			}
-			if b < numBands-1 {
+			offset += bandCols[b]
+			if b < bandCount-1 {
 				content.WriteByte(' ')
 			}
 		}

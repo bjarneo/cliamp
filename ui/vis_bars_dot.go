@@ -5,18 +5,19 @@ import "strings"
 // renderBarsDot draws bars using Braille dot patterns instead of solid blocks.
 // Each terminal cell maps to a 4x2 Braille grid, so dots are filled from the
 // bottom up proportionally to the band level, giving a stippled texture.
-func (v *Visualizer) renderBarsDot(bands [numBands]float64) string {
+func (v *Visualizer) renderBarsDot(bands []float64) string {
 	height := v.Rows
 	dotRows := height * 4
 	lines := make([]string, height)
+	bandCount := len(bands)
 
 	for row := range height {
 		var run strings.Builder
 		var sb strings.Builder
 		curTag := -1
 
-		for b := range numBands {
-			charsPerBand := visBandWidth(b)
+		for b := range bandCount {
+			charsPerBand := visBandWidth(bandCount, b)
 			for c := range charsPerBand {
 				var braille rune = '\u2800'
 
@@ -43,7 +44,7 @@ func (v *Visualizer) renderBarsDot(bands [numBands]float64) string {
 				_ = c
 			}
 
-			if b < numBands-1 {
+			if b < bandCount-1 {
 				// Gap character inherits current style run.
 				run.WriteByte(' ')
 			}

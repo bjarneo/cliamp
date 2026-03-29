@@ -4,9 +4,10 @@ import "strings"
 
 // renderBarsOutline draws only the top edge of each bar as a horizontal line,
 // with empty space below — a minimal line-graph style visualizer.
-func (v *Visualizer) renderBarsOutline(bands [numBands]float64) string {
+func (v *Visualizer) renderBarsOutline(bands []float64) string {
 	height := v.Rows
 	lines := make([]string, height)
+	bandCount := len(bands)
 
 	for row := range height {
 		var content strings.Builder
@@ -14,7 +15,7 @@ func (v *Visualizer) renderBarsOutline(bands [numBands]float64) string {
 		rowTop := float64(height-row) / float64(height)
 
 		for i, level := range bands {
-			bw := visBandWidth(i)
+			bw := visBandWidth(bandCount, i)
 			if level >= rowTop {
 				// Fully below the peak — empty inside.
 				for range bw {
@@ -31,7 +32,7 @@ func (v *Visualizer) renderBarsOutline(bands [numBands]float64) string {
 					content.WriteByte(' ')
 				}
 			}
-			if i < numBands-1 {
+			if i < bandCount-1 {
 				content.WriteByte(' ')
 			}
 		}

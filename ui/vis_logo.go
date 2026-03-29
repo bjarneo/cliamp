@@ -20,7 +20,7 @@ const (
 	logoLetterW    = 5 // pixel columns per glyph
 	logoLetterH    = 7 // pixel rows per glyph
 	logoNumLetters = 6
-	logoGap        = 2 // pixel gap between letters
+	logoGap        = 2                                                       // pixel gap between letters
 	logoTotalW     = logoNumLetters*logoLetterW + (logoNumLetters-1)*logoGap // 40
 )
 
@@ -28,7 +28,7 @@ const (
 // within each letter appear and disappear based on the associated frequency
 // band's energy — loud passages fill the text solid, silence dissolves it
 // into scattered pixels. A gentle bounce and wave keep things alive.
-func (v *Visualizer) renderLogo(bands [numBands]float64) string {
+func (v *Visualizer) renderLogo(bands []float64) string {
 	height := v.Rows
 	dotRows := height * 4
 	dotCols := panelWidth * 2

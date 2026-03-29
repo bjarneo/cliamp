@@ -26,7 +26,7 @@ var sakuraShapes = [][][2]int{
 // Each petal is a small Braille silhouette with its own fall speed and gentle
 // lateral sway. Energy controls how many petals are on screen — quiet passages
 // show a sparse, contemplative drift while louder music fills the air.
-func (v *Visualizer) renderSakura(bands [numBands]float64) string {
+func (v *Visualizer) renderSakura(bands []float64) string {
 	height := v.Rows
 	dotRows := height * 4
 	dotCols := panelWidth * 2
@@ -37,7 +37,7 @@ func (v *Visualizer) renderSakura(bands [numBands]float64) string {
 	for _, e := range bands {
 		totalEnergy += e
 	}
-	avgEnergy := totalEnergy / float64(numBands)
+	avgEnergy := totalEnergy / float64(len(bands))
 
 	// 12 petals at silence, up to 28 when loud.
 	numPetals := 12 + int(avgEnergy*16)
@@ -61,7 +61,7 @@ func (v *Visualizer) renderSakura(bands [numBands]float64) string {
 		// Y: slow scroll with off-screen buffer for smooth entry/exit.
 		wrapH := dotRows + 10
 		baseY := int((seed * 3037) % uint64(wrapH))
-		y := (baseY + int(v.frame)*fallSpeed/8) % wrapH - 5
+		y := (baseY+int(v.frame)*fallSpeed/8)%wrapH - 5
 
 		// Gentle lateral sway — each petal has its own phase.
 		swayPhase := float64(seed%1000) / 1000.0 * 2 * math.Pi

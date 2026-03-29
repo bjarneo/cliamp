@@ -13,16 +13,17 @@ var matrixChars = []rune{
 // renderMatrix draws falling character streams reminiscent of the Matrix
 // digital rain. Each column has a fixed fall speed derived from its position.
 // Band energy controls how many columns are active (rain density).
-func (v *Visualizer) renderMatrix(bands [numBands]float64) string {
+func (v *Visualizer) renderMatrix(bands []float64) string {
 	height := v.Rows
 	lines := make([]string, height)
+	bandCount := len(bands)
 
 	for row := range height {
 		var sb, run strings.Builder
 		tag := -1
 		col := 0
-		for b := range numBands {
-			w := visBandWidth(b)
+		for b := range bandCount {
+			w := visBandWidth(bandCount, b)
 			for range w {
 				energy := bands[b]
 				seed := uint64(col)*7919 + 104729
@@ -79,7 +80,7 @@ func (v *Visualizer) renderMatrix(bands [numBands]float64) string {
 				}
 				col++
 			}
-			if b < numBands-1 {
+			if b < bandCount-1 {
 				if -1 != tag {
 					flushStyleRun(&sb, &run, tag)
 					tag = -1

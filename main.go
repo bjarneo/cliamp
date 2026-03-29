@@ -259,7 +259,7 @@ Provider:
 Appearance:
   --compact               Compact mode (cap width at 80 columns)
   --theme <name>          UI theme name
-  --visualizer <mode>     Visualizer mode (Bars, Bricks, Columns, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, None)
+  --visualizer <mode>     Visualizer mode (Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Logo, Terrain, Glitch, Scope, Heartbeat, Butterfly, Lightning, None)
   --eq-preset <name>      EQ preset name (e.g. "Bass Boost")
 
 General:

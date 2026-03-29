@@ -37,6 +37,7 @@ func (m *Model) doSeek(d time.Duration) tea.Cmd {
 
 	// Reset debounce timer.
 	m.seek.timer = seekDebounceTicks
+	m.seek.timerFor = 0
 
 	// Cancel any in-flight seek so it won't swap stale audio.
 	m.player.CancelSeekYTDL()
@@ -63,14 +64,14 @@ func (m *Model) clampPosition(pos time.Duration) time.Duration {
 	return pos
 }
 
-// tickSeek is called from the main tick loop. Decrements the debounce timer
-// and fires the seek when it reaches zero.
-func (m *Model) tickSeek() tea.Cmd {
+// tickSeek is called from the main tick loop. It advances the debounce timer with elapsed
+// time and runs the yt-dlp seek when the countdown reaches zero.
+func (m *Model) tickSeek(dt time.Duration) tea.Cmd {
 	if !m.seek.active || m.seek.timer <= 0 {
+		m.seek.timerFor = 0
 		return nil
 	}
-	m.seek.timer--
-	if m.seek.timer > 0 {
+	if advanceTickUnits(&m.seek.timer, &m.seek.timerFor, dt, tickFast) == 0 || m.seek.timer > 0 {
 		return nil
 	}
 

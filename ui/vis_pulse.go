@@ -11,10 +11,11 @@ import (
 // deforming per frequency. A clean shockwave ring radiates outward on
 // transients. The interior is solid-filled with an anti-aliased edge and a
 // green→yellow→red radial color gradient.
-func (v *Visualizer) renderPulse(bands [numBands]float64) string {
+func (v *Visualizer) renderPulse(bands []float64) string {
 	height := v.Rows
 	dotRows := height * 4
 	dotCols := panelWidth * 2
+	bandCount := len(bands)
 
 	centerX := float64(dotCols) / 2.0
 	centerY := float64(dotRows) / 2.0
@@ -27,7 +28,7 @@ func (v *Visualizer) renderPulse(bands [numBands]float64) string {
 	for _, e := range bands {
 		totalEnergy += e
 	}
-	avgEnergy := totalEnergy / float64(numBands)
+	avgEnergy := totalEnergy / float64(bandCount)
 
 	// Shockwave: expanding ring that fades as it grows.
 	shockPhase := math.Mod(float64(v.frame)*0.10, 1.0)
@@ -66,9 +67,9 @@ func (v *Visualizer) renderPulse(bands [numBands]float64) string {
 					rotAngle -= math.Floor(rotAngle/(2*math.Pi)) * 2 * math.Pi
 
 					// Cosine-interpolated band mapping.
-					bandPos := rotAngle / (2 * math.Pi) * float64(numBands)
-					bandIdx := int(bandPos) % numBands
-					nextBand := (bandIdx + 1) % numBands
+					bandPos := rotAngle / (2 * math.Pi) * float64(bandCount)
+					bandIdx := int(bandPos) % bandCount
+					nextBand := (bandIdx + 1) % bandCount
 					frac := bandPos - math.Floor(bandPos)
 					t := (1 - math.Cos(frac*math.Pi)) / 2
 					energy := bands[bandIdx]*(1-t) + bands[nextBand]*t

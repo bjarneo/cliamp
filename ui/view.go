@@ -41,62 +41,65 @@ func (m Model) View() string {
 		return ""
 	}
 
-	if m.keymap.visible {
+	screen := m.activeScreen()
+	if !screen.hidesVisualizer() {
+		m.refreshVisualizerIfPending()
+	}
+
+	switch screen {
+	case screenKeymap:
 		return m.renderKeymapOverlay()
-	}
-
-	if m.themePicker.visible {
+	case screenThemePicker:
 		return m.renderThemePicker()
-	}
-
-	if m.fileBrowser.visible {
+	case screenFileBrowser:
 		return m.renderFileBrowser()
-	}
-
-	if m.navBrowser.visible {
+	case screenNavBrowser:
 		return m.renderNavBrowser()
-	}
-
-	if m.radioCatalog.visible {
+	case screenRadioCatalog:
 		return m.renderRadioCatalog()
-	}
-
-	if m.plManager.visible {
+	case screenPlaylistManager:
 		return m.renderPlaylistManager()
-	}
-
-	if m.queue.visible {
+	case screenQueue:
 		return m.renderQueueOverlay()
-	}
-
-	if m.showInfo {
+	case screenInfo:
 		return m.renderInfoOverlay()
-	}
-
-	if m.search.active {
+	case screenSearch:
 		return m.renderSearchOverlay()
-	}
-
-	if m.netSearch.active {
+	case screenNetSearch:
 		return m.renderNetSearchOverlay()
-	}
-
-	if m.urlInputting {
+	case screenURLInput:
 		return m.renderURLInputOverlay()
-	}
-
-	if m.lyrics.visible {
+	case screenLyrics:
 		return m.renderLyricsOverlay()
-	}
-
-	if m.jumping {
+	case screenJump:
 		return m.renderJumpOverlay()
-	}
-
-	if m.fullVis {
+	case screenFullVisualizer:
 		return m.renderFullVisualizer()
 	}
 
+	content := strings.Join(m.mainSections(m.renderPlaylist(), true), "\n")
+	frame := frameStyle.Render(content)
+
+	return m.centerFrame(frame)
+}
+
+func trimTrailingEmpty(sections []string) []string {
+	for len(sections) > 0 && sections[len(sections)-1] == "" {
+		sections = sections[:len(sections)-1]
+	}
+	return sections
+}
+
+func appendFooter(lines, footer []string) []string {
+	if len(footer) == 0 {
+		return lines
+	}
+	lines = append(lines, "")
+	lines = append(lines, footer...)
+	return lines
+}
+
+func (m Model) mainSections(playlist string, includeTransient bool) []string {
 	sections := []string{
 		// Now playing
 		m.renderTitle(),
@@ -113,29 +116,40 @@ func (m Model) View() string {
 		"",
 		// Playlist
 		m.renderPlaylistHeader(),
-		m.renderPlaylist(),
+	}
+	if playlist != "" {
+		sections = append(sections, playlist)
+	}
+	sections = append(sections,
 		"",
 		// Help
 		m.renderHelp(),
 		m.renderStreamStatus(),
+	)
+
+	if includeTransient {
+		if m.err != nil {
+			sections = append(sections, errorStyle.Render(fmt.Sprintf("ERR: %s", m.err)))
+		}
+		sections = append(sections, m.footerMessages()...)
 	}
 
-	if m.err != nil {
-		sections = append(sections, errorStyle.Render(fmt.Sprintf("ERR: %s", m.err)))
+	return trimTrailingEmpty(sections)
+}
+
+func (m Model) footerMessages() []string {
+	var lines []string
+	if text := m.save.activityText(); text != "" {
+		lines = append(lines, statusStyle.Render(text))
 	}
 	if m.status.text != "" {
-		sections = append(sections, statusStyle.Render(m.status.text))
+		lines = append(lines, statusStyle.Render(m.status.text))
 	}
+	return lines
+}
 
-	// Remove trailing empty strings to avoid extra bottom padding inside the frame.
-	for len(sections) > 0 && sections[len(sections)-1] == "" {
-		sections = sections[:len(sections)-1]
-	}
-
-	content := strings.Join(sections, "\n")
-	frame := frameStyle.Render(content)
-
-	return m.centerFrame(frame)
+func (m Model) appendFooterMessages(lines []string) []string {
+	return appendFooter(lines, m.footerMessages())
 }
 
 // centerFrame centers a pre-rendered frame in the terminal using plain string
@@ -254,9 +268,7 @@ func (m Model) renderSpectrum() string {
 	if m.vis.Mode == VisNone {
 		return ""
 	}
-	n := m.player.SamplesInto(m.vis.sampleBuf)
-	bands := m.vis.Analyze(m.vis.sampleBuf[:n])
-	return m.vis.Render(bands)
+	return m.vis.Render()
 }
 
 // renderFullVisualizer renders a full-screen view showing only the visualizer
@@ -373,7 +385,7 @@ func (m Model) renderProviderPill() string {
 		if m.focus == focusProvPill && i == m.provPillIdx {
 			pills = append(pills, activeToggle.Render("["+name+"]"))
 		} else if i == m.provPillIdx {
-			pills = append(pills, dimStyle.Render("[") + trackStyle.Render(name) + dimStyle.Render("]"))
+			pills = append(pills, dimStyle.Render("[")+trackStyle.Render(name)+dimStyle.Render("]"))
 		} else {
 			pills = append(pills, dimStyle.Render("["+name+"]"))
 		}
@@ -428,6 +440,10 @@ func (m Model) renderPlaylistHeader() string {
 }
 
 func (m Model) renderProviderList() string {
+	visibleBudget := m.effectivePlaylistVisible()
+	if visibleBudget <= 0 {
+		return ""
+	}
 	if m.provSignIn {
 		return dimStyle.Render(fmt.Sprintf("  Sign in to %s. Press Enter to continue.", m.provider.Name()))
 	}
@@ -448,7 +464,7 @@ func (m Model) renderProviderList() string {
 		} else if len(m.provSearch.results) == 0 {
 			lines = append(lines, dimStyle.Render("  No matches"))
 		} else {
-			visible := min(m.plVisible-1, len(m.provSearch.results))
+			visible := max(0, min(visibleBudget-1, len(m.provSearch.results)))
 			scroll := max(0, m.provSearch.cursor-visible+1)
 			for j := scroll; j < scroll+visible && j < len(m.provSearch.results); j++ {
 				idx := m.provSearch.results[j]
@@ -465,7 +481,7 @@ func (m Model) renderProviderList() string {
 		return strings.Join(lines, "\n")
 	}
 
-	visible := min(m.plVisible, len(m.providerLists))
+	visible := min(visibleBudget, len(m.providerLists))
 	scroll := max(0, m.provCursor-visible+1)
 
 	for j := scroll; j < scroll+visible && j < len(m.providerLists); j++ {
@@ -481,6 +497,11 @@ func (m Model) renderProviderList() string {
 }
 
 func (m Model) renderPlaylist() string {
+	budget := m.effectivePlaylistVisible()
+	if budget <= 0 {
+		return ""
+	}
+
 	if m.focus == focusProvider {
 		return m.renderProviderList()
 	}
@@ -500,11 +521,9 @@ func (m Model) renderPlaylist() string {
 		scroll = max(0, len(tracks)-1)
 	}
 
-	// plVisible is the number of rendered lines available for tracks.
+	// budget is the number of rendered lines available for tracks.
 	// The loop below counts every appended line against this budget
 	// so the playlist never overflows its area.
-	budget := m.plVisible
-
 	lines := make([]string, 0, budget) // tracks
 	for i := scroll; i < len(tracks) && len(lines) < budget; i++ {
 		prefix := "  "

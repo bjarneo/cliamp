@@ -9,7 +9,7 @@ import (
 // from the bottom with a rising trail, then explodes into a sphere of particles
 // that drift downward with gravity and fade. Audio energy drives the number of
 // simultaneous bursts and the size of each explosion.
-func (v *Visualizer) renderFirework(bands [numBands]float64) string {
+func (v *Visualizer) renderFirework(bands []float64) string {
 	height := v.Rows
 	dotRows := height * 4
 	dotCols := panelWidth * 2
@@ -20,7 +20,7 @@ func (v *Visualizer) renderFirework(bands [numBands]float64) string {
 	for _, e := range bands {
 		totalEnergy += e
 	}
-	avgEnergy := totalEnergy / float64(numBands)
+	avgEnergy := totalEnergy / float64(len(bands))
 
 	// Number of simultaneous firework bursts: 5 quiet, up to 14 loud.
 	numBursts := 5 + int(avgEnergy*9)
@@ -41,7 +41,7 @@ func (v *Visualizer) renderFirework(bands [numBands]float64) string {
 		cy := int((seed*4391)%uint64(dotRows/2)) + dotRows/8
 
 		// Associated band for energy-driven sizing.
-		bandIdx := int(seed % uint64(numBands))
+		bandIdx := int(seed % uint64(len(bands)))
 		energy := bands[bandIdx]
 
 		if localFrame < launchLen {

@@ -8,11 +8,12 @@ import (
 // renderRetro draws a retro 80s synthwave scene: a striped setting sun above
 // the horizon, a smooth audio-reactive wave, and a perspective grid floor that
 // scrolls toward the viewer. Uses Braille characters for sub-cell resolution.
-func (v *Visualizer) renderRetro(bands [numBands]float64) string {
+func (v *Visualizer) renderRetro(bands []float64) string {
 	height := v.Rows
 	charCols := panelWidth
 	dotRows := height * 4
 	dotCols := charCols * 2
+	bandCount := len(bands)
 
 	// Horizon at 40% from top — gives room for wave and sun above.
 	horizonDot := dotRows * 2 / 5
@@ -94,7 +95,7 @@ func (v *Visualizer) renderRetro(bands [numBands]float64) string {
 	waveY := make([]int, dotCols)
 	maxWave := float64(horizonDot) * 0.85
 	for dx := range dotCols {
-		bandF := float64(dx) / float64(max(1, dotCols-1)) * float64(numBands-1)
+		bandF := float64(dx) / float64(max(1, dotCols-1)) * float64(bandCount-1)
 		bi := int(bandF)
 		frac := bandF - float64(bi)
 
@@ -102,8 +103,8 @@ func (v *Visualizer) renderRetro(bands [numBands]float64) string {
 		t := (1 - math.Cos(frac*math.Pi)) / 2
 
 		var level float64
-		if bi >= numBands-1 {
-			level = bands[numBands-1]
+		if bi >= bandCount-1 {
+			level = bands[bandCount-1]
 		} else {
 			level = bands[bi]*(1-t) + bands[bi+1]*t
 		}

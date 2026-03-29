@@ -4,6 +4,7 @@
 package ui
 
 import (
+	"fmt"
 	"time"
 
 	"cliamp/external/navidrome"
@@ -41,6 +42,8 @@ type seekState struct {
 	targetPos time.Duration // absolute target position
 	timer     int           // tick countdown for debounce (0 = idle)
 	grace     int           // ticks to suppress reconnect after seek completes
+	timerFor  time.Duration
+	graceFor  time.Duration
 }
 
 // themePickerState holds state for the theme picker overlay.
@@ -146,15 +149,68 @@ type reconnectState struct {
 	at       time.Time
 }
 
+type saveState struct {
+	pendingDownloads int
+}
+
+func (s saveState) activityText() string {
+	switch s.pendingDownloads {
+	case 0:
+		return ""
+	case 1:
+		return "Downloading..."
+	default:
+		return fmt.Sprintf("Downloading... (%d)", s.pendingDownloads)
+	}
+}
+
+func (s *saveState) startDownload() {
+	s.pendingDownloads++
+}
+
+func (s *saveState) finishDownload() {
+	if s.pendingDownloads > 0 {
+		s.pendingDownloads--
+	}
+}
+
+// statusTTL is how long a status line stays visible.
+type statusTTL time.Duration
+
+func (t statusTTL) expiresAt(now time.Time) time.Time {
+	return now.Add(time.Duration(t))
+}
+
 // statusMsg holds a temporary status message shown at the bottom of the UI.
 type statusMsg struct {
-	text string
-	ttl  int // ticks remaining before clearing
+	text      string
+	expiresAt time.Time // zero = no active message
+}
+
+func (s statusMsg) Expired(now time.Time) bool {
+	return !s.expiresAt.IsZero() && !now.Before(s.expiresAt)
+}
+
+func (s *statusMsg) Show(text string, ttl statusTTL) {
+	s.ShowAt(time.Now(), text, ttl)
+}
+
+func (s *statusMsg) Showf(ttl statusTTL, format string, args ...any) {
+	s.Show(fmt.Sprintf(format, args...), ttl)
+}
+
+func (s *statusMsg) ShowAt(now time.Time, text string, ttl statusTTL) {
+	s.text = text
+	s.expiresAt = ttl.expiresAt(now)
+}
+
+func (s *statusMsg) Clear() {
+	*s = statusMsg{}
 }
 
 // networkStats tracks network throughput for the stream status bar.
 type networkStats struct {
 	speed     float64 // bytes per second (smoothed)
 	lastBytes int64
-	lastTick  int // tick counter for sampling interval
+	sampleFor time.Duration
 }
