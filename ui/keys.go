@@ -205,19 +205,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		case "J":
 			m.openJumpMode()
 		case "x":
-			defVis := m.defaultPlVisible()
-			if m.plVisible <= defVis {
-				probe := strings.Join([]string{
-					m.renderTitle(), m.renderTrackInfo(), m.renderTimeStatus(), "",
-					m.renderSpectrum(), m.renderSeekBar(), "",
-					m.renderControls(), "", m.renderPlaylistHeader(),
-					"x", "", m.renderHelp(), m.renderBottomStatus(),
-				}, "\n")
-				fixedLines := lipgloss.Height(frameStyle.Render(probe)) - 1
-				m.plVisible = max(minPlVisible, min(maxPlExpandVisible, m.height-fixedLines))
-			} else {
-				m.plVisible = defVis
-			}
+			m.toggleExpandPlaylist()
 		}
 		return nil
 	}
@@ -573,21 +561,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "x":
 		if m.focus == focusPlaylist {
-			defVis := m.defaultPlVisible()
-			if m.plVisible <= defVis {
-				// Expand: recalculate dynamic max from terminal height.
-				probe := strings.Join([]string{
-					m.renderTitle(), m.renderTrackInfo(), m.renderTimeStatus(), "",
-					m.renderSpectrum(), m.renderSeekBar(), "",
-					m.renderControls(), "", m.renderPlaylistHeader(),
-					"x", "", m.renderHelp(), m.renderBottomStatus(),
-				}, "\n")
-				fixedLines := lipgloss.Height(frameStyle.Render(probe)) - 1
-				m.plVisible = max(minPlVisible, min(maxPlExpandVisible, m.height-fixedLines))
-			} else {
-				m.plVisible = defVis
-			}
-			m.adjustScroll()
+			m.toggleExpandPlaylist()
 		}
 
 	case "]":
@@ -821,6 +795,24 @@ func (m *Model) updateProvSearch() {
 			m.provSearch.results = append(m.provSearch.results, i)
 		}
 	}
+}
+
+// toggleExpandPlaylist toggles the playlist panel between default and expanded height.
+func (m *Model) toggleExpandPlaylist() {
+	defVis := m.defaultPlVisible()
+	if m.plVisible <= defVis {
+		probe := strings.Join([]string{
+			m.renderTitle(), m.renderTrackInfo(), m.renderTimeStatus(), "",
+			m.renderSpectrum(), m.renderSeekBar(), "",
+			m.renderControls(), "", m.renderPlaylistHeader(),
+			"x", "", m.renderHelp(), m.renderBottomStatus(),
+		}, "\n")
+		fixedLines := lipgloss.Height(frameStyle.Render(probe)) - 1
+		m.plVisible = max(minPlVisible, min(maxPlExpandVisible, m.height-fixedLines))
+	} else {
+		m.plVisible = defVis
+	}
+	m.adjustScroll()
 }
 
 func (m *Model) handleSearchKey(msg tea.KeyMsg) tea.Cmd {
