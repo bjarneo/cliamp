@@ -64,3 +64,29 @@ func TestTickIntervalStoppedUsesSlow(t *testing.T) {
 	}
 	t.Logf("tick interval when stopped: %v (want ~%v tickSlow)", elapsed.Round(time.Millisecond), tickSlow)
 }
+
+func TestTickIntervalForState(t *testing.T) {
+	tests := []struct {
+		name        string
+		introActive bool
+		visualizer  bool
+		playing     bool
+		paused      bool
+		want        time.Duration
+	}{
+		{name: "intro", introActive: true, want: tickFast},
+		{name: "playing with visualizer", visualizer: true, playing: true, want: tickFast},
+		{name: "playing without visualizer", playing: true, want: tickSlow},
+		{name: "paused", playing: true, paused: true, want: tickSlow},
+		{name: "stopped", want: tickSlow},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tickIntervalForState(tt.introActive, tt.visualizer, tt.playing, tt.paused); got != tt.want {
+				t.Fatalf("tickIntervalForState(%v, %v, %v, %v) = %v, want %v",
+					tt.introActive, tt.visualizer, tt.playing, tt.paused, got, tt.want)
+			}
+		})
+	}
+}

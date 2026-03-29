@@ -45,57 +45,7 @@ compact = false
 # UI theme name (see available themes in ~/.config/cliamp/themes/)
 theme = "Tokyo Night"
 
-# Terminal title format. Optional groups [ ... ] render only when every
-# token inside is non-empty.
-terminal_title_format = "[%state_icon% ][%metadata% | ]%app%"
-
-# Startup intro for the terminal title. Set to "" to disable the intro.
-terminal_title_intro = "It really whips the terminal's ass."
-
 ```
-
-## Terminal Title Format
-
-`terminal_title_format` uses MPD-style `%name%` placeholders.
-
-Available tokens:
-
-- `%app%`
-- `%state%`
-- `%state_icon%`
-- `%metadata%`
-- `%title%`
-- `%artist%`
-- `%album%`
-- `%path%`
-- `%stream_title%`
-
-Conditional groups use square brackets:
-
-```toml
-terminal_title_format = "[%state_icon% ][%metadata% | ]%app%"
-```
-
-That renders like:
-
-- `▶ Song - Artist | cliamp`
-- `⏸ Song - Artist | cliamp`
-- `cliamp`
-
-Examples:
-
-```toml
-terminal_title_format = "[%state%] %app%"
-terminal_title_format = "[%artist% - ]%title%[%album% | ]%app%"
-terminal_title_format = "[%stream_title% | ]%app%"
-```
-
-Notes:
-
-- Track-related tokens are populated only while playing or paused.
-- For radio streams, `%title%` and `%artist%` are derived from ICY metadata when it matches `Artist - Song`.
-- `%stream_title%` is always the raw ICY string.
-- Unknown tokens and malformed syntax are rendered literally.
 
 ## Default Provider
 

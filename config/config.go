@@ -113,37 +113,30 @@ func (p PlexConfig) IsSet() bool {
 
 // Config holds user preferences loaded from the config file.
 type Config struct {
-	Volume              float64     // dB, range [-30, +6]
-	EQ                  [10]float64 // per-band gain in dB, range [-12, +12]
-	EQPreset            string      // preset name, or "" for custom
-	Repeat              string      // "off", "all", or "one"
-	Shuffle             bool
-	Mono                bool
-	Speed               float64            // playback speed ratio: 0.25–2.0 (default 1.0)
-	AutoPlay            bool               // start playback automatically on launch (radio streams, CLI tracks)
-	SeekStepLarge       int                // seconds for Shift+Left/Right seek jumps
-	Provider            string             // default provider: "radio", "navidrome", "spotify", "ytmusic" (default "radio")
-	Theme               string             // theme name, or "" for ANSI default
-	Visualizer          string             // visualizer mode name, or "" for default (Bars)
-	TerminalTitleFormat string             // window title format string
-	TerminalTitleIntro  string             // startup window title intro text; empty disables intro
-	SampleRate          int                // output sample rate: 22050, 44100, 48000, 96000, 192000
-	BufferMs            int                // speaker buffer in milliseconds (50–500)
-	ResampleQuality     int                // beep resample quality factor (1–4)
-	BitDepth            int                // PCM bit depth for FFmpeg output: 16 or 32
-	Compact             bool               // compact mode: cap frame width at 80 columns
-	PaddingH            int                // horizontal padding for the UI frame (default 3)
-	PaddingV            int                // vertical padding for the UI frame (default 1)
-	Navidrome           NavidromeConfig    // optional Navidrome/Subsonic server credentials
-	Spotify             SpotifyConfig      // optional Spotify provider (requires Premium)
-	YouTubeMusic        YouTubeMusicConfig // optional YouTube Music provider
-	Plex                PlexConfig         // optional Plex Media Server credentials
+	Volume          float64     // dB, range [-30, +6]
+	EQ              [10]float64 // per-band gain in dB, range [-12, +12]
+	EQPreset        string      // preset name, or "" for custom
+	Repeat          string      // "off", "all", or "one"
+	Shuffle         bool
+	Mono            bool
+	Speed           float64            // playback speed ratio: 0.25–2.0 (default 1.0)
+	AutoPlay        bool               // start playback automatically on launch (radio streams, CLI tracks)
+	SeekStepLarge   int                // seconds for Shift+Left/Right seek jumps
+	Provider        string             // default provider: "radio", "navidrome", "spotify", "ytmusic" (default "radio")
+	Theme           string             // theme name, or "" for ANSI default
+	Visualizer      string             // visualizer mode name, or "" for default (Bars)
+	SampleRate      int                // output sample rate: 22050, 44100, 48000, 96000, 192000
+	BufferMs        int                // speaker buffer in milliseconds (50–500)
+	ResampleQuality int                // beep resample quality factor (1–4)
+	BitDepth        int                // PCM bit depth for FFmpeg output: 16 or 32
+	Compact         bool               // compact mode: cap frame width at 80 columns
+	PaddingH        int                // horizontal padding for the UI frame (default 3)
+	PaddingV        int                // vertical padding for the UI frame (default 1)
+	Navidrome       NavidromeConfig    // optional Navidrome/Subsonic server credentials
+	Spotify         SpotifyConfig      // optional Spotify provider (requires Premium)
+	YouTubeMusic    YouTubeMusicConfig // optional YouTube Music provider
+	Plex            PlexConfig         // optional Plex Media Server credentials
 }
-
-const (
-	DefaultTerminalTitleFormat = "[%state_icon% ][%metadata% | ]%app%"
-	DefaultTerminalTitleIntro  = "It really whips the terminal's ass."
-)
 
 // defaultConfig returns a Config with sensible defaults.
 // SampleRate defaults to 0, which means "auto-detect from the system's default
@@ -151,18 +144,16 @@ const (
 // that require a specific rate (commonly 48 kHz) work out of the box.
 func defaultConfig() Config {
 	return Config{
-		Repeat:              "off",
-		AutoPlay:            false,
-		Speed:               1.0,
-		SeekStepLarge:       30,
-		TerminalTitleFormat: DefaultTerminalTitleFormat,
-		TerminalTitleIntro:  DefaultTerminalTitleIntro,
-		SampleRate:          0,
-		BufferMs:            100,
-		ResampleQuality:     4,
-		BitDepth:            16,
-		PaddingH:            3,
-		PaddingV:            1,
+		Repeat:          "off",
+		AutoPlay:        false,
+		Speed:           1.0,
+		SeekStepLarge:   30,
+		SampleRate:      0,
+		BufferMs:        100,
+		ResampleQuality: 4,
+		BitDepth:        16,
+		PaddingH:        3,
+		PaddingV:        1,
 	}
 }
 
@@ -285,10 +276,6 @@ func Load() (Config, error) {
 				cfg.Provider = strings.ToLower(strings.Trim(val, `"'`))
 			case "visualizer":
 				cfg.Visualizer = strings.Trim(val, `"'`)
-			case "terminal_title_format":
-				cfg.TerminalTitleFormat = strings.Trim(val, `"'`)
-			case "terminal_title_intro":
-				cfg.TerminalTitleIntro = strings.Trim(val, `"'`)
 			case "sample_rate":
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.SampleRate = v

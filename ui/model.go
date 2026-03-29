@@ -79,12 +79,12 @@ type autoPlayMsg struct{}
 
 // Tick intervals: fast for visualizer animation, slow for time/seek display.
 const (
-	tickFast = 40 * time.Millisecond  // 25 FPS — visualizer active
+	tickFast = 50 * time.Millisecond  // 20 FPS — visualizer active
 	tickSlow = 200 * time.Millisecond // 5 FPS — visualizer off or overlay
 )
 
 // statusTTL* constants define how many ticks a status message persists.
-// At tickFast (40ms), 25 ticks ≈ 1 second.
+// At tickFast (50ms), 20 ticks ≈ 1 second.
 const (
 	statusTTLShort    = 40  // ~2s — brief confirmations
 	statusTTLDefault  = 60  // ~3s — standard status messages
@@ -145,25 +145,24 @@ type Model struct {
 	eqPresetIdx   int             // -1 = custom, 0+ = index into eqPresets
 
 	// Overlay / feature state (see state.go for struct definitions)
-	search            searchState
-	netSearch         netSearchState
-	provSearch        provSearchState
-	seek              seekState
-	themePicker       themePickerState
-	lyrics            lyricsState
-	keymap            keymapOverlay
-	queue             queueOverlay
-	plManager         plManagerState
-	fileBrowser       fileBrowserState
-	navBrowser        navBrowserState
-	radioBatch        radioBatchState
-	ytdlBatch         ytdlBatchState
-	reconnect         reconnectState
-	status            statusMsg
-	network           networkStats
-	speedDirty        int // tick countdown for debounced speed config save
-	termTitle         terminalTitleState
-	termTitleRenderer terminalTitleRenderer
+	search      searchState
+	netSearch   netSearchState
+	provSearch  provSearchState
+	seek        seekState
+	themePicker themePickerState
+	lyrics      lyricsState
+	keymap      keymapOverlay
+	queue       queueOverlay
+	plManager   plManagerState
+	fileBrowser fileBrowserState
+	navBrowser  navBrowserState
+	radioBatch  radioBatchState
+	ytdlBatch   ytdlBatchState
+	reconnect   reconnectState
+	status      statusMsg
+	network     networkStats
+	speedDirty  int // tick countdown for debounced speed config save
+	termTitle   terminalTitleState
 
 	// Jump to time mode
 	jumping   bool
@@ -233,7 +232,7 @@ type Model struct {
 // navCfg is the Navidrome config used to seed the initial browse sort preference.
 // nav is the raw NavidromeClient (may be nil); stored directly so the browser
 // key handler doesn't have to unwrap a provider.
-func NewModel(p *player.Player, pl *playlist.Playlist, providers []ProviderEntry, defaultProvider string, localProv *local.Provider, themes []theme.Theme, navCfg config.NavidromeConfig, nav *navidrome.NavidromeClient, titleCfg TerminalTitleConfig) Model {
+func NewModel(p *player.Player, pl *playlist.Playlist, providers []ProviderEntry, defaultProvider string, localProv *local.Provider, themes []theme.Theme, navCfg config.NavidromeConfig, nav *navidrome.NavidromeClient) Model {
 	sortType := navCfg.BrowseSort
 	if sortType == "" {
 		sortType = navidrome.SortAlphabeticalByName
@@ -253,8 +252,7 @@ func NewModel(p *player.Player, pl *playlist.Playlist, providers []ProviderEntry
 		navClient:          nav,
 		navScrobbleEnabled: navCfg.ScrobbleEnabled(),
 	}
-	m.termTitleRenderer = newTerminalTitleRenderer(titleCfg)
-	m.termTitle = initialTerminalTitleState(m.termTitleRenderer)
+	m.termTitle = initialTerminalTitleState()
 	// Select the default provider pill.
 	for i, pe := range providers {
 		if pe.Key == defaultProvider {
@@ -348,6 +346,29 @@ func (m Model) isOverlayActive() bool {
 		m.plManager.visible ||
 		m.queue.visible || m.showInfo || m.search.active || m.netSearch.active ||
 		m.jumping || m.urlInputting
+}
+
+func tickIntervalForState(introActive, visualizerVisible, playing, paused bool) time.Duration {
+	if introActive || (visualizerVisible && playing && !paused) {
+		return tickFast
+	}
+	return tickSlow
+}
+
+func (m Model) tickInterval() time.Duration {
+	return tickIntervalForState(m.termTitle.introActive, m.visualizerVisible(), m.isPlaying(), m.isPaused())
+}
+
+func (m Model) isPlaying() bool {
+	return m.player != nil && m.player.IsPlaying()
+}
+
+func (m Model) isPaused() bool {
+	return m.player != nil && m.player.IsPaused()
+}
+
+func (m Model) visualizerVisible() bool {
+	return m.vis != nil && m.vis.Mode != VisNone && !m.isOverlayActive()
 }
 
 // openThemePicker re-loads themes from disk (picking up new user files)
@@ -793,15 +814,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		// Update network throughput every ~1 second (25 ticks at 40ms).
+		// Update network throughput every ~1 second (20 ticks at 50ms).
 		m.network.lastTick++
-		if m.network.lastTick >= 25 {
+		if m.network.lastTick >= 20 {
 			m.notifyMPRIS()
 			downloaded, _ := m.player.StreamBytes()
 			delta := downloaded - m.network.lastBytes
 			if delta > 0 {
 				// Exponential moving average for smooth display.
-				instant := float64(delta) / (float64(m.network.lastTick) * 0.04) // bytes/sec
+				instant := float64(delta) / (float64(m.network.lastTick) * 0.05) // bytes/sec
 				if m.network.speed == 0 {
 					m.network.speed = instant
 				} else {

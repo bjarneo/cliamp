@@ -180,12 +180,8 @@ func run(overrides config.Overrides, positional []string) error {
 	ui.SetPadding(cfg.PaddingH, cfg.PaddingV)
 
 	themes := theme.LoadAll()
-	titleCfg := ui.TerminalTitleConfig{
-		Format: cfg.TerminalTitleFormat,
-		Intro:  cfg.TerminalTitleIntro,
-	}
 
-	m := ui.NewModel(p, pl, providers, defaultProvider, localProv, themes, cfg.Navidrome, navClient, titleCfg)
+	m := ui.NewModel(p, pl, providers, defaultProvider, localProv, themes, cfg.Navidrome, navClient)
 	m.SetSeekStepLarge(cfg.SeekStepLargeDuration())
 	m.SetPendingURLs(resolved.Pending)
 	if len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 {
@@ -213,7 +209,7 @@ func run(overrides config.Overrides, positional []string) error {
 	}
 
 	prog := tea.NewProgram(m, tea.WithAltScreen())
-	prog.SetWindowTitle(ui.InitialTerminalTitle(titleCfg))
+	prog.SetWindowTitle(ui.InitialTerminalTitle())
 
 	if svc, err := mpris.New(func(msg interface{}) { prog.Send(msg) }); err == nil && svc != nil {
 		defer svc.Close()

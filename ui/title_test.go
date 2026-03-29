@@ -3,7 +3,6 @@ package ui
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"cliamp/playlist"
 )
@@ -64,15 +63,11 @@ func TestTerminalTitleValuesForTrack(t *testing.T) {
 	})
 }
 
-func TestTerminalTitleFormatRender(t *testing.T) {
-	renderer := newTerminalTitleRenderer(TerminalTitleConfig{
-		Format: defaultTerminalTitleFormat,
-		Intro:  "",
-	})
+func TestRenderTerminalTitle(t *testing.T) {
 	track := playlist.Track{Title: "Angel", Artist: "Massive Attack"}
 
 	t.Run("playing", func(t *testing.T) {
-		got := renderer.render(terminalTitleValuesForTrack(track, "", true, false))
+		got := renderTerminalTitle(terminalTitleValuesForTrack(track, "", true, false))
 		want := "▶ Angel - Massive Attack | cliamp"
 		if got != want {
 			t.Fatalf("render(playing) = %q, want %q", got, want)
@@ -80,7 +75,7 @@ func TestTerminalTitleFormatRender(t *testing.T) {
 	})
 
 	t.Run("paused", func(t *testing.T) {
-		got := renderer.render(terminalTitleValuesForTrack(track, "", true, true))
+		got := renderTerminalTitle(terminalTitleValuesForTrack(track, "", true, true))
 		want := "⏸ Angel - Massive Attack | cliamp"
 		if got != want {
 			t.Fatalf("render(paused) = %q, want %q", got, want)
@@ -88,68 +83,20 @@ func TestTerminalTitleFormatRender(t *testing.T) {
 	})
 
 	t.Run("stopped", func(t *testing.T) {
-		got := renderer.render(terminalTitleValuesForTrack(track, "", false, false))
+		got := renderTerminalTitle(terminalTitleValuesForTrack(track, "", false, false))
 		if got != baseTerminalTitle {
 			t.Fatalf("render(stopped) = %q, want %q", got, baseTerminalTitle)
 		}
 	})
 }
 
-func TestTerminalTitleFormatOptionalGroups(t *testing.T) {
-	renderer := newTerminalTitleRenderer(TerminalTitleConfig{
-		Format: "[%artist% - ]%title%",
-		Intro:  "",
-	})
-
-	withArtist := renderer.render(terminalTitleValues{
-		title:  "Angel",
-		artist: "Massive Attack",
-	})
-	if withArtist != "Massive Attack - Angel" {
-		t.Fatalf("render(withArtist) = %q", withArtist)
-	}
-
-	withoutArtist := renderer.render(terminalTitleValues{title: "Angel"})
-	if withoutArtist != "Angel" {
-		t.Fatalf("render(withoutArtist) = %q, want %q", withoutArtist, "Angel")
-	}
-}
-
-func TestTerminalTitleFormatUnknownAndMalformedAreLiteral(t *testing.T) {
-	t.Run("unknown token stays literal", func(t *testing.T) {
-		renderer := newTerminalTitleRenderer(TerminalTitleConfig{
-			Format: "[%bogus% ]%app%",
-			Intro:  "",
-		})
-		got := renderer.render(terminalTitleStateValues(false, false))
-		if got != "%bogus% cliamp" {
-			t.Fatalf("render(unknown) = %q, want %q", got, "%bogus% cliamp")
-		}
-	})
-
-	t.Run("malformed syntax stays literal", func(t *testing.T) {
-		renderer := newTerminalTitleRenderer(TerminalTitleConfig{
-			Format: "[broken %app%",
-			Intro:  "",
-		})
-		got := renderer.render(terminalTitleStateValues(false, false))
-		if got != "[broken %app%" {
-			t.Fatalf("render(malformed) = %q, want %q", got, "[broken %app%")
-		}
-	})
-}
-
 func TestTerminalTitleIntroSequence(t *testing.T) {
-	renderer := newTerminalTitleRenderer(TerminalTitleConfig{
-		Format: defaultTerminalTitleFormat,
-		Intro:  defaultTerminalTitleIntro,
-	})
-	state := initialTerminalTitleState(renderer)
-	frames := []string{currentTerminalTitle(state, renderer, 0, terminalTitleStateValues(false, false))}
+	state := initialTerminalTitleState()
+	frames := []string{currentTerminalTitle(state, 0, terminalTitleStateValues(false, false))}
 
 	for state.introActive {
-		advanceTerminalTitleState(&state, renderer, 0)
-		title := currentTerminalTitle(state, renderer, 0, terminalTitleStateValues(false, false))
+		advanceTerminalTitleState(&state, 0)
+		title := currentTerminalTitle(state, 0, terminalTitleStateValues(false, false))
 		if title != frames[len(frames)-1] {
 			frames = append(frames, title)
 		}
@@ -170,43 +117,22 @@ func TestTerminalTitleIntroSequence(t *testing.T) {
 }
 
 func TestInitialTerminalTitle(t *testing.T) {
-	t.Run("configured intro", func(t *testing.T) {
-		got := InitialTerminalTitle(TerminalTitleConfig{
-			Format: defaultTerminalTitleFormat,
-			Intro:  defaultTerminalTitleIntro,
-		})
-		want := strings.Repeat(" ", titleIntroViewportDefault-4) + "It r"
-		if got != want {
-			t.Fatalf("InitialTerminalTitle() = %q, want %q", got, want)
-		}
-	})
-
-	t.Run("empty intro uses steady state title", func(t *testing.T) {
-		got := InitialTerminalTitle(TerminalTitleConfig{
-			Format: "%app%",
-			Intro:  "",
-		})
-		if got != "cliamp" {
-			t.Fatalf("InitialTerminalTitle(empty intro) = %q, want %q", got, "cliamp")
-		}
-	})
+	got := InitialTerminalTitle()
+	want := strings.Repeat(" ", titleIntroViewportDefault-4) + "It r"
+	if got != want {
+		t.Fatalf("InitialTerminalTitle() = %q, want %q", got, want)
+	}
 }
 
 func TestCurrentTerminalTitleSanitizesRenderedTitle(t *testing.T) {
 	tests := []struct {
 		name   string
-		cfg    TerminalTitleConfig
 		values terminalTitleValues
 		want   string
 	}{
 		{
 			name: "drops control bytes",
-			cfg: TerminalTitleConfig{
-				Format: defaultTerminalTitleFormat,
-				Intro:  "",
-			},
 			values: terminalTitleValues{
-				app:       baseTerminalTitle,
 				state:     "playing",
 				stateIcon: "▶",
 				metadata:  "Song\a\x1b[31m - Artist\r\nName",
@@ -215,35 +141,19 @@ func TestCurrentTerminalTitleSanitizesRenderedTitle(t *testing.T) {
 		},
 		{
 			name: "collapses control whitespace",
-			cfg: TerminalTitleConfig{
-				Format: "%metadata%",
-				Intro:  "",
-			},
 			values: terminalTitleValues{
 				metadata: "Song\r\n\tArtist",
 			},
-			want: "Song Artist",
+			want: "Song Artist | cliamp",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			renderer := newTerminalTitleRenderer(tt.cfg)
-			if got := currentTerminalTitle(terminalTitleState{}, renderer, 0, tt.values); got != tt.want {
+			if got := currentTerminalTitle(terminalTitleState{}, 0, tt.values); got != tt.want {
 				t.Fatalf("currentTerminalTitle() = %q, want %q", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestInitialTerminalTitleSanitizesConfiguredIntro(t *testing.T) {
-	got := InitialTerminalTitle(TerminalTitleConfig{
-		Format: defaultTerminalTitleFormat,
-		Intro:  "\aHi\tThere",
-	})
-	want := strings.Repeat(" ", titleIntroViewportDefault-4) + "Hi "
-	if got != want {
-		t.Fatalf("InitialTerminalTitle() = %q, want %q", got, want)
 	}
 }
 
@@ -253,41 +163,15 @@ func TestTitleIntroViewportForWidth(t *testing.T) {
 		introLen int
 		want     int
 	}{
-		{width: 0, introLen: len([]rune(defaultTerminalTitleIntro)), want: titleIntroViewportDefault},
-		{width: 40, introLen: len([]rune(defaultTerminalTitleIntro)), want: titleIntroViewportMin},
-		{width: 80, introLen: len([]rune(defaultTerminalTitleIntro)), want: 26},
-		{width: 160, introLen: len([]rune(defaultTerminalTitleIntro)), want: len([]rune(defaultTerminalTitleIntro))},
+		{width: 0, introLen: len(defaultTerminalTitleIntroRunes), want: titleIntroViewportDefault},
+		{width: 40, introLen: len(defaultTerminalTitleIntroRunes), want: titleIntroViewportMin},
+		{width: 80, introLen: len(defaultTerminalTitleIntroRunes), want: 26},
+		{width: 160, introLen: len(defaultTerminalTitleIntroRunes), want: len(defaultTerminalTitleIntroRunes)},
 	}
 
 	for _, tt := range tests {
 		if got := titleIntroViewportForWidth(tt.width, tt.introLen); got != tt.want {
 			t.Fatalf("titleIntroViewportForWidth(%d, %d) = %d, want %d", tt.width, tt.introLen, got, tt.want)
 		}
-	}
-}
-
-func TestTerminalTickInterval(t *testing.T) {
-	tests := []struct {
-		name        string
-		introActive bool
-		visualizer  bool
-		playing     bool
-		paused      bool
-		want        int
-	}{
-		{name: "intro", introActive: true, want: int(tickFast)},
-		{name: "playing with visualizer", visualizer: true, playing: true, want: int(tickFast)},
-		{name: "playing without visualizer", playing: true, want: int(tickSlow)},
-		{name: "paused", playing: true, paused: true, want: int(tickSlow)},
-		{name: "stopped", want: int(tickSlow)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := terminalTickInterval(tt.introActive, tt.visualizer, tt.playing, tt.paused); got != time.Duration(tt.want) {
-				t.Fatalf("terminalTickInterval(%v, %v, %v, %v) = %v, want %v",
-					tt.introActive, tt.visualizer, tt.playing, tt.paused, got, time.Duration(tt.want))
-			}
-		})
 	}
 }

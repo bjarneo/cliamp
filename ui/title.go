@@ -2,26 +2,40 @@ package ui
 
 import (
 	"strings"
-	"time"
 	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"cliamp/playlist"
 )
 
 const (
+	baseTerminalTitle         = "cliamp"
+	defaultTerminalTitleIntro = "It really whips the terminal's ass."
 	titleIntroViewportMin     = 18
 	titleIntroViewportDefault = 24
 	titleIntroStep            = 2
 	titleIntroTickDivisor     = 2
 )
 
-func InitialTerminalTitle(cfg TerminalTitleConfig) string {
-	return sanitizeTerminalTitle(newTerminalTitleRenderer(cfg).initialTitle())
+type terminalTitleValues struct {
+	state       string
+	stateIcon   string
+	metadata    string
+	title       string
+	artist      string
+	path        string
+	streamTitle string
 }
 
-func initialTerminalTitleState(renderer terminalTitleRenderer) terminalTitleState {
-	renderer = renderer.withDefaults()
-	if !renderer.introEnabled() {
+var defaultTerminalTitleIntroRunes = []rune(defaultTerminalTitleIntro)
+
+func InitialTerminalTitle() string {
+	return sanitizeTerminalTitle(titleIntroFrame(titleIntroInitialOffset(titleIntroViewportDefault), titleIntroViewportDefault, defaultTerminalTitleIntroRunes))
+}
+
+func initialTerminalTitleState() terminalTitleState {
+	if len(defaultTerminalTitleIntroRunes) == 0 {
 		return terminalTitleState{}
 	}
 	return terminalTitleState{
@@ -61,17 +75,28 @@ func titleIntroFrame(offset, viewport int, introRunes []rune) string {
 	return string(padded[offset : offset+viewport])
 }
 
-func currentTerminalTitle(state terminalTitleState, renderer terminalTitleRenderer, width int, values terminalTitleValues) string {
-	renderer = renderer.withDefaults()
-	if state.introActive && renderer.introEnabled() {
-		return sanitizeTerminalTitle(titleIntroFrame(state.introOffset, titleIntroViewportForWidth(width, len(renderer.introRunes)), renderer.introRunes))
+func renderTerminalTitle(values terminalTitleValues) string {
+	switch {
+	case values.stateIcon != "" && values.metadata != "":
+		return values.stateIcon + " " + values.metadata + " | " + baseTerminalTitle
+	case values.stateIcon != "":
+		return values.stateIcon + " " + baseTerminalTitle
+	case values.metadata != "":
+		return values.metadata + " | " + baseTerminalTitle
+	default:
+		return baseTerminalTitle
 	}
-	return sanitizeTerminalTitle(renderer.render(values))
 }
 
-func advanceTerminalTitleState(state *terminalTitleState, renderer terminalTitleRenderer, width int) {
-	renderer = renderer.withDefaults()
-	if !state.introActive || !renderer.introEnabled() {
+func currentTerminalTitle(state terminalTitleState, width int, values terminalTitleValues) string {
+	if state.introActive && len(defaultTerminalTitleIntroRunes) > 0 {
+		return sanitizeTerminalTitle(titleIntroFrame(state.introOffset, titleIntroViewportForWidth(width, len(defaultTerminalTitleIntroRunes)), defaultTerminalTitleIntroRunes))
+	}
+	return sanitizeTerminalTitle(renderTerminalTitle(values))
+}
+
+func advanceTerminalTitleState(state *terminalTitleState, width int) {
+	if !state.introActive || len(defaultTerminalTitleIntroRunes) == 0 {
 		return
 	}
 
@@ -81,7 +106,7 @@ func advanceTerminalTitleState(state *terminalTitleState, renderer terminalTitle
 	}
 
 	state.introTick = 0
-	maxOffset := titleIntroMaxOffset(titleIntroViewportForWidth(width, len(renderer.introRunes)), len(renderer.introRunes))
+	maxOffset := titleIntroMaxOffset(titleIntroViewportForWidth(width, len(defaultTerminalTitleIntroRunes)), len(defaultTerminalTitleIntroRunes))
 	if state.introOffset >= maxOffset {
 		state.introActive = false
 		state.introOffset = maxOffset
@@ -117,15 +142,8 @@ func sanitizeTerminalTitle(title string) string {
 	return b.String()
 }
 
-func terminalTickInterval(introActive, visualizerVisible, playing, paused bool) time.Duration {
-	if introActive || (visualizerVisible && playing && !paused) {
-		return tickFast
-	}
-	return tickSlow
-}
-
 func (m *Model) terminalTitleCmd() tea.Cmd {
-	title := currentTerminalTitle(m.termTitle, m.terminalTitleRenderer(), m.width, m.terminalTitleValues())
+	title := currentTerminalTitle(m.termTitle, m.width, m.terminalTitleValues())
 	if title == m.termTitle.last {
 		return nil
 	}
@@ -134,27 +152,7 @@ func (m *Model) terminalTitleCmd() tea.Cmd {
 }
 
 func (m *Model) advanceTerminalTitle() {
-	advanceTerminalTitleState(&m.termTitle, m.terminalTitleRenderer(), m.width)
-}
-
-func (m Model) tickInterval() time.Duration {
-	return terminalTickInterval(m.termTitle.introActive, m.visualizerVisible(), m.isPlaying(), m.isPaused())
-}
-
-func (m Model) isPlaying() bool {
-	return m.player != nil && m.player.IsPlaying()
-}
-
-func (m Model) isPaused() bool {
-	return m.player != nil && m.player.IsPaused()
-}
-
-func (m Model) visualizerVisible() bool {
-	return m.vis != nil && m.vis.Mode != VisNone && !m.isOverlayActive()
-}
-
-func (m Model) terminalTitleRenderer() terminalTitleRenderer {
-	return m.termTitleRenderer.withDefaults()
+	advanceTerminalTitleState(&m.termTitle, m.width)
 }
 
 func (m Model) terminalTitleValues() terminalTitleValues {
@@ -166,4 +164,60 @@ func (m Model) terminalTitleValues() terminalTitleValues {
 		return terminalTitleStateValues(m.isPlaying(), m.isPaused())
 	}
 	return terminalTitleValuesForTrack(track, m.streamTitle, m.isPlaying(), m.isPaused())
+}
+
+func terminalTitleStateValues(playing, paused bool) terminalTitleValues {
+	values := terminalTitleValues{}
+	switch {
+	case playing && !paused:
+		values.state = "playing"
+		values.stateIcon = "▶"
+	case paused:
+		values.state = "paused"
+		values.stateIcon = "⏸"
+	default:
+		values.state = "stopped"
+	}
+	return values
+}
+
+func terminalTitleMetadata(title, artist, path string) string {
+	switch {
+	case title != "" && artist != "":
+		return title + " - " + artist
+	case title != "":
+		return title
+	case artist != "":
+		return artist
+	case path != "":
+		return path
+	default:
+		return ""
+	}
+}
+
+func terminalTitleValuesForTrack(track playlist.Track, streamTitle string, playing, paused bool) terminalTitleValues {
+	values := terminalTitleStateValues(playing, paused)
+	if !playing && !paused {
+		return values
+	}
+
+	values.path = track.Path
+
+	switch {
+	case track.Stream && streamTitle != "":
+		values.streamTitle = streamTitle
+		if artist, title, ok := strings.Cut(streamTitle, " - "); ok && artist != "" && title != "" {
+			values.artist = artist
+			values.title = title
+		} else {
+			values.title = streamTitle
+		}
+	default:
+		values.title = track.Title
+		values.artist = track.Artist
+	}
+
+	values.metadata = terminalTitleMetadata(values.title, values.artist, values.path)
+	return values
 }
