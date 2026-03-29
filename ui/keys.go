@@ -31,6 +31,7 @@ func (m *Model) quit() tea.Cmd {
 		}
 	}
 
+	m.flushPendingSpeedSave()
 	m.player.Close()
 	m.quitting = true
 	return tea.Quit
@@ -41,6 +42,28 @@ func (m *Model) scrobbleCurrent() {
 	if track, _ := m.playlist.Current(); track.NavidromeID != "" {
 		m.maybeScrobble(track, m.player.Position(), m.player.Duration())
 	}
+}
+
+func (m *Model) handleSpeedKey(msg tea.KeyMsg) tea.Cmd {
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m.quit()
+	case "]", "right", "l", "up", "k":
+		m.changeSpeed(0.25)
+	case "[", "left", "h", "down", "j":
+		m.changeSpeed(-0.25)
+	case "tab":
+		if len(m.providers) > 1 {
+			m.focus = focusProvPill
+		} else {
+			m.focus = focusPlaylist
+		}
+	case "esc", "backspace":
+		m.focus = focusEQ
+	case " ":
+		return m.togglePlayPause()
+	}
+	return nil
 }
 
 // handleKey processes a single key press and returns an optional command.
@@ -212,6 +235,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 			m.toggleExpandPlaylist()
 		}
 		return nil
+	}
+
+	if m.focus == focusSpeed {
+		return m.handleSpeedKey(msg)
 	}
 
 	if m.focus == focusProvPill {
@@ -552,12 +579,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		}
 
 	case "]":
-		m.player.SetSpeed(m.player.Speed() + 0.25)
-		m.speedDirty = 20
+		m.changeSpeed(0.25)
 
 	case "[":
-		m.player.SetSpeed(m.player.Speed() - 0.25)
-		m.speedDirty = 20
+		m.changeSpeed(-0.25)
 
 	case "ctrl+k":
 		m.keymap.visible = true

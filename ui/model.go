@@ -107,6 +107,8 @@ type autoPlayMsg struct{}
 const (
 	tickFast = 50 * time.Millisecond  // 20 FPS — visualizer active
 	tickSlow = 200 * time.Millisecond // 5 FPS — visualizer off or overlay
+
+	speedSaveDebounce = time.Second
 )
 
 // statusTTL* constants define how long a status message is shown.
@@ -169,25 +171,25 @@ type Model struct {
 	provPillIdx     int             // selected pill index
 	eqPresetIdx     int             // -1 = custom, 0+ = index into eqPresets
 
-	search      searchState
-	netSearch   netSearchState
-	provSearch  provSearchState
-	seek        seekState
-	themePicker themePickerState
-	lyrics      lyricsState
-	keymap      keymapOverlay
-	queue       queueOverlay
-	plManager   plManagerState
-	spotSearch  spotSearchState
-	fileBrowser fileBrowserState
-	navBrowser  navBrowserState
-	radioBatch  radioBatchState
-	ytdlBatch   ytdlBatchState
-	reconnect   reconnectState
-	save        saveState
-	status      statusMsg
-	network     networkStats
-	speedDirty  int // tick countdown for debounced speed config save
+	search         searchState
+	netSearch      netSearchState
+	provSearch     provSearchState
+	seek           seekState
+	themePicker    themePickerState
+	lyrics         lyricsState
+	keymap         keymapOverlay
+	queue          queueOverlay
+	plManager      plManagerState
+	spotSearch     spotSearchState
+	fileBrowser    fileBrowserState
+	navBrowser     navBrowserState
+	radioBatch     radioBatchState
+	ytdlBatch      ytdlBatchState
+	reconnect      reconnectState
+	save           saveState
+	status         statusMsg
+	network        networkStats
+	speedSaveAfter time.Duration
 
 	// Jump to time mode
 	jumping   bool
@@ -592,6 +594,31 @@ func (m *Model) saveSpeed() {
 	}
 }
 
+func (m *Model) changeSpeed(delta float64) {
+	m.player.SetSpeed(m.player.Speed() + delta)
+	m.speedSaveAfter = speedSaveDebounce
+}
+
+func (m *Model) tickPendingSpeedSave(dt time.Duration) {
+	if m.speedSaveAfter <= 0 {
+		return
+	}
+	m.speedSaveAfter -= dt
+	if m.speedSaveAfter > 0 {
+		return
+	}
+	m.speedSaveAfter = 0
+	m.saveSpeed()
+}
+
+func (m *Model) flushPendingSpeedSave() {
+	if m.speedSaveAfter <= 0 {
+		return
+	}
+	m.speedSaveAfter = 0
+	m.saveSpeed()
+}
+
 // fetchNavArtistAllTracksCmd first fetches the artist's album list, then fetches
 // all tracks across every album. This is used by the "By Artist" browse mode.
 func (m *Model) fetchNavArtistAllTracksCmd(navClient *navidrome.NavidromeClient, artistID string) tea.Cmd {
@@ -940,13 +967,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.status.expiresAt.IsZero() && !now.Before(m.status.expiresAt) {
 			m.status.Clear()
 		}
-		// Debounced speed config save: write once after keypresses settle.
-		if m.speedDirty > 0 {
-			m.speedDirty--
-			if m.speedDirty == 0 {
-				m.saveSpeed()
-			}
-		}
+		m.tickPendingSpeedSave(dt)
 		// Decrement seek grace period.
 		advanceTickUnits(&m.seek.grace, &m.seek.graceFor, dt, tickFast)
 		// Surface stream errors (e.g., connection drops) and auto-reconnect streams.
@@ -1459,6 +1480,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case mpris.QuitMsg:
+		m.flushPendingSpeedSave()
 		m.player.Close()
 		m.quitting = true
 		return m, tea.Quit
@@ -1691,20 +1713,23 @@ func (m *Model) adjustScroll() {
 	if visible <= 0 {
 		return
 	}
-	// Scrolling up: cursor above the scroll window.
-	if m.plCursor < m.plScroll {
-		m.plScroll = m.plCursor
-		return
+	m.plScroll = m.playlistScroll(visible)
+}
+
+func (m Model) playlistScroll(visible int) int {
+	tracks := m.playlist.Tracks()
+	scroll := max(0, m.plScroll)
+	if scroll >= len(tracks) {
+		scroll = max(0, len(tracks)-1)
 	}
-	// Scrolling down: check if cursor is still within the visible area.
-	// Count rendered lines from plScroll up to and including plCursor.
-	lines := renderedLineCount(tracks, m.plScroll, m.plCursor+1)
+	if m.plCursor < scroll {
+		return m.plCursor
+	}
+	lines := renderedLineCount(tracks, scroll, m.plCursor+1)
 	if lines <= visible {
-		return // cursor is visible, nothing to do
+		return scroll
 	}
-	// Cursor has scrolled past the visible area. Walk backward from
-	// plCursor to find the scroll offset that fits it on screen.
-	m.plScroll = m.plCursor
+	scroll = m.plCursor
 	lines = 1 // the cursor track itself
 	for i := m.plCursor - 1; i >= 0; i-- {
 		add := 1 // track line
@@ -1715,15 +1740,14 @@ func (m *Model) adjustScroll() {
 			break
 		}
 		lines += add
-		m.plScroll = i
+		scroll = i
 	}
-	// Account for separator at the top of the window.
-	if m.plScroll > 0 && tracks[m.plScroll].Album != "" && tracks[m.plScroll].Album != tracks[m.plScroll-1].Album {
-		// There's a separator above plScroll — if it would overflow, bump scroll down.
+	if scroll > 0 && tracks[scroll].Album != "" && tracks[scroll].Album != tracks[scroll-1].Album {
 		if lines+1 > visible {
-			m.plScroll++
+			scroll++
 		}
 	}
+	return scroll
 }
 
 // notifyAll sends the current playback state to both MPRIS and Lua plugins.

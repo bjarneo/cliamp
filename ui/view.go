@@ -553,11 +553,7 @@ func (m Model) renderPlaylist() string {
 	}
 
 	currentIdx := m.playlist.Index()
-
-	scroll := max(0, m.plScroll)
-	if scroll >= len(tracks) {
-		scroll = max(0, len(tracks)-1)
-	}
+	scroll := m.playlistScroll(budget)
 
 	// budget is the number of rendered lines available for tracks.
 	// The loop below counts every appended line against this budget
