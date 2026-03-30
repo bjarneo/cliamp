@@ -9,22 +9,23 @@ import (
 // dots. The spectrum bands are mirrored horizontally from the center, and
 // organic variation is added via sine wobble and scatterHash to create
 // ink-blot-like shapes that pulse with the music.
-func (v *Visualizer) renderButterfly(bands [numBands]float64) string {
+func (v *Visualizer) renderButterfly(bands []float64) string {
 	height := v.Rows
 	dotRows := height * 4
 	dotCols := panelWidth * 2
 	centerX := dotCols / 2
+	bandCount := len(bands)
 
 	grid := make([]bool, dotRows*dotCols)
 
 	for dy := range dotRows {
 		// Map vertical position to a band index.
-		bandF := float64(dy) / float64(max(1, dotRows-1)) * float64(numBands-1)
+		bandF := float64(dy) / float64(max(1, dotRows-1)) * float64(bandCount-1)
 		bi := int(bandF)
 		frac := bandF - float64(bi)
 		var energy float64
-		if bi >= numBands-1 {
-			energy = bands[numBands-1]
+		if bi >= bandCount-1 {
+			energy = bands[bandCount-1]
 		} else {
 			energy = bands[bi]*(1-frac) + bands[bi+1]*frac
 		}

@@ -5,17 +5,18 @@ import "strings"
 // renderRain draws bar-shaped columns filled with falling rain streaks.
 // The bar height follows band level, but the interior is animated falling drops
 // with head/body/tail coloring. Higher energy makes taller, denser rainfall.
-func (v *Visualizer) renderRain(bands [numBands]float64) string {
+func (v *Visualizer) renderRain(bands []float64) string {
 	height := v.Rows
 	lines := make([]string, height)
+	bandCount := len(bands)
 
 	for row := range height {
 		var sb, run strings.Builder
 		curTag := -1
 		col := 0
 
-		for b := range numBands {
-			bw := visBandWidth(b)
+		for b := range bandCount {
+			bw := visBandWidth(bandCount, b)
 			level := bands[b]
 			rowNorm := float64(height-1-row) / float64(height)
 
@@ -94,7 +95,7 @@ func (v *Visualizer) renderRain(bands [numBands]float64) string {
 				}
 				col++
 			}
-			if b < numBands-1 {
+			if b < bandCount-1 {
 				if curTag != -1 {
 					flushStyleRun(&sb, &run, curTag)
 					curTag = -1

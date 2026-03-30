@@ -389,34 +389,35 @@ func (s *Session) Close() {
 	}
 }
 
-// Reconnect tears down the current session, clears stored credentials, and
-// re-authenticates interactively. This is called automatically when playback
-// encounters an auth-related error (e.g. AES key retrieval failure) so the
-// user doesn't get stuck in an error loop.
-//
-// The new session is established before tearing down the old one to avoid a
-// window where s.sess/s.player are nil (which would crash concurrent callers
-// like NewStream or webApi).
+// Reconnect rebuilds the session from stored credentials (no browser).
+// Returns an error if stored credentials are missing or the refresh fails.
 func (s *Session) Reconnect(ctx context.Context) error {
-	// Capture clientID without holding the lock during the (potentially long)
-	// interactive OAuth2 flow.
+	return s.reconnect(ctx, NewSessionSilent)
+}
+
+// ReconnectInteractive clears stored credentials and forces a fresh
+// browser-based OAuth2 flow.
+func (s *Session) ReconnectInteractive(ctx context.Context) error {
+	if err := deleteCreds(); err != nil {
+		return fmt.Errorf("spotify: clear stored credentials: %w", err)
+	}
+	return s.reconnect(ctx, newInteractiveSession)
+}
+
+// reconnect replaces the live session using the provided builder function.
+// The new session is established before tearing down the old one to avoid a
+// window where s.sess/s.player are nil (which would crash concurrent callers).
+func (s *Session) reconnect(ctx context.Context, build func(context.Context, string) (*Session, error)) error {
 	s.mu.Lock()
 	clientID := s.clientID
 	s.mu.Unlock()
 
-	// Clear stored credentials so we don't reuse stale ones.
-	if err := deleteCreds(); err != nil {
-		fmt.Fprintf(os.Stderr, "spotify: failed to clear stored credentials: %v\n", err)
-	}
-
-	// Create the new session outside the lock — this may open a browser and
-	// block for user interaction.
-	newSess, err := NewSession(ctx, clientID)
+	newSess, err := build(ctx, clientID)
 	if err != nil {
 		return fmt.Errorf("spotify: reconnect: %w", err)
 	}
 
-	// Now acquire the lock and atomically swap internals.
+	// Atomically swap internals.
 	s.mu.Lock()
 	oldPlayer := s.player
 	oldSess := s.sess
@@ -426,7 +427,6 @@ func (s *Session) Reconnect(ctx context.Context) error {
 	s.tokenSource = newSess.tokenSource
 	s.mu.Unlock()
 
-	// Tear down old session/player after the swap so there's no nil window.
 	if oldPlayer != nil {
 		oldPlayer.Close()
 	}

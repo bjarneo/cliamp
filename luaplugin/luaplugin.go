@@ -63,9 +63,10 @@ type ControlProvider struct {
 	ToggleMono  func()
 	TogglePause func()
 	Stop        func()
-	Seek        func(secs float64)
-	Next        func() // injected via prog.Send
-	Prev        func() // injected via prog.Send
+	Seek         func(secs float64)
+	SetEQPreset  func(name string, bands *[10]float64) // injected via prog.Send
+	Next         func()            // injected via prog.Send
+	Prev         func()            // injected via prog.Send
 }
 
 // Manager owns all loaded plugins and dispatches events to them.

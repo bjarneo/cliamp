@@ -41,7 +41,7 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # UI theme name (check ~/.config/cliamp/themes/ for available themes)
 # theme = "Tokyo Night"
 
-# Visualizer mode: Bars, Bricks, Columns, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, or None
+# Visualizer mode: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Logo, Terrain, Glitch, Scope, Heartbeat, Butterfly, Lightning, or None
 # visualizer = "Bars"
 
 # ---

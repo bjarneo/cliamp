@@ -1,8 +1,6 @@
 package ui
 
 import (
-	"fmt"
-
 	tea "github.com/charmbracelet/bubbletea"
 
 	"cliamp/external/radio"
@@ -18,11 +16,9 @@ func (m *Model) maybeLoadRadioBatch() tea.Cmd {
 	if m.radioBatch.loading || m.radioBatch.done {
 		return nil
 	}
-	// Don't load more while search results are shown.
 	if rp.IsSearching() {
 		return nil
 	}
-	// Load next page when within 10 items of the end.
 	if m.provCursor >= len(m.providerLists)-10 {
 		m.radioBatch.loading = true
 		return fetchRadioBatchCmd(m.radioBatch.offset, radioBatchSize)
@@ -46,17 +42,14 @@ func (m *Model) toggleProviderFavorite() tea.Cmd {
 		return nil
 	}
 	if added {
-		m.status.text = fmt.Sprintf("Favorited: %s", name)
+		m.status.Showf(statusTTLMedium, "Favorited: %s", name)
 	} else {
-		m.status.text = fmt.Sprintf("Removed: %s", name)
+		m.status.Showf(statusTTLMedium, "Removed: %s", name)
 	}
-	m.status.ttl = statusTTLMedium
 
-	// Refresh the provider list and try to keep the cursor on the same station.
 	prevID := id
 	if lists, err := rp.Playlists(); err == nil {
 		m.providerLists = lists
-		// Find the entry with the same ID or clamp.
 		for i, p := range m.providerLists {
 			if p.ID == prevID {
 				m.provCursor = i

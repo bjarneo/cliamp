@@ -53,7 +53,6 @@ func (m Model) renderKeymapOverlay() string {
 	return m.centerOverlay(strings.Join(lines, "\n"))
 }
 
-
 func (m Model) renderThemePicker() string {
 	lines := []string{
 		titleStyle.Render("T H E M E S"),
@@ -93,12 +92,7 @@ func (m Model) renderPlaylistManager() string {
 	case plMgrScreenNewName:
 		lines = m.renderPlMgrNewName()
 	}
-
-	if m.status.text != "" {
-		lines = append(lines, "", statusStyle.Render(m.status.text))
-	}
-
-	return m.centerOverlay(strings.Join(lines, "\n"))
+	return m.centerOverlay(strings.Join(m.appendFooterMessages(lines), "\n"))
 }
 
 func (m Model) renderPlMgrList() []string {

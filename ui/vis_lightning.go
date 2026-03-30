@@ -8,26 +8,28 @@ import (
 // renderLightning draws jagged lightning bolts using Braille dots. Treble
 // energy triggers bolt strikes from the top; each bolt forks and fades over
 // a short lifecycle. Multiple bolts can be active simultaneously.
-func (v *Visualizer) renderLightning(bands [numBands]float64) string {
+func (v *Visualizer) renderLightning(bands []float64) string {
 	height := v.Rows
 	dotRows := height * 4
 	dotCols := panelWidth * 2
+	bandCount := len(bands)
 
 	grid := make([]bool, dotRows*dotCols)
 
 	// Treble energy drives bolt intensity.
+	trebleStart := bandCount * 3 / 5
 	var trebleEnergy float64
-	for b := 6; b < numBands; b++ {
+	for b := trebleStart; b < bandCount; b++ {
 		trebleEnergy += bands[b]
 	}
-	trebleEnergy /= 4.0
+	trebleEnergy /= float64(max(1, bandCount-trebleStart))
 
 	// Total energy for number of bolts.
 	var totalEnergy float64
 	for _, e := range bands {
 		totalEnergy += e
 	}
-	avgEnergy := totalEnergy / float64(numBands)
+	avgEnergy := totalEnergy / float64(bandCount)
 
 	numBolts := 2 + int(avgEnergy*8)
 	cycleLen := uint64(20)

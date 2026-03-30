@@ -1,8 +1,6 @@
 package ui
 
 import (
-	"fmt"
-
 	tea "github.com/charmbracelet/bubbletea"
 
 	"cliamp/config"
@@ -243,8 +241,7 @@ func (m *Model) handleNavAlbumListKey(msg tea.KeyMsg, navClient *navidrome.Navid
 		m.navClearSearch()
 		// Persist the new sort preference.
 		if err := config.SaveNavidromeSort(m.navBrowser.sortType); err != nil {
-			m.status.text = fmt.Sprintf("Sort save failed: %s", err)
-			m.status.ttl = statusTTLDefault
+			m.status.Showf(statusTTLDefault, "Sort save failed: %s", err)
 		}
 		return fetchNavAlbumListCmd(navClient, m.navBrowser.sortType, 0)
 	case "esc", "h", "left", "backspace":
@@ -317,11 +314,10 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyMsg) tea.Cmd {
 			m.plCursor = newIdx
 			m.adjustScroll()
 			if len(toAdd) > 1 {
-				m.status.text = fmt.Sprintf("Playing: %s (+%d queued)", toAdd[0].DisplayName(), len(toAdd)-1)
+				m.status.Showf(statusTTLMedium, "Playing: %s (+%d queued)", toAdd[0].DisplayName(), len(toAdd)-1)
 			} else {
-				m.status.text = fmt.Sprintf("Playing: %s", toAdd[0].DisplayName())
+				m.status.Showf(statusTTLMedium, "Playing: %s", toAdd[0].DisplayName())
 			}
-			m.status.ttl = statusTTLMedium
 			cmd := m.playCurrentTrack()
 			m.notifyMPRIS()
 			return cmd
@@ -364,8 +360,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyMsg) tea.Cmd {
 		if len(tracks) > 0 {
 			wasEmpty := m.playlist.Len() == 0
 			m.playlist.Add(tracks...)
-			m.status.text = fmt.Sprintf("Added %d tracks", len(tracks))
-			m.status.ttl = statusTTLMedium
+			m.status.Showf(statusTTLMedium, "Added %d tracks", len(tracks))
 			if wasEmpty || !m.player.IsPlaying() {
 				m.playlist.SetIndex(0)
 				cmd := m.playCurrentTrack()
@@ -387,8 +382,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyMsg) tea.Cmd {
 			m.playlist.Add(t)
 			newIdx := m.playlist.Len() - 1
 			m.playlist.Queue(newIdx)
-			m.status.text = fmt.Sprintf("Queued: %s", t.DisplayName())
-			m.status.ttl = statusTTLMedium
+			m.status.Showf(statusTTLMedium, "Queued: %s", t.DisplayName())
 			if !m.player.IsPlaying() {
 				m.playlist.Next()
 				cmd := m.playCurrentTrack()

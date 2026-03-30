@@ -10,37 +10,40 @@ import (
 // — Navidrome browser renderers —
 
 func (m Model) renderNavBrowser() string {
+	var lines []string
 	switch m.navBrowser.mode {
 	case navBrowseModeMenu:
-		return m.renderNavMenu()
+		lines = m.renderNavMenu()
 	case navBrowseModeByAlbum:
 		switch m.navBrowser.screen {
 		case navBrowseScreenTracks:
-			return m.renderNavTrackList()
+			lines = m.renderNavTrackList()
 		default:
-			return m.renderNavAlbumList(false)
+			lines = m.renderNavAlbumList(false)
 		}
 	case navBrowseModeByArtist:
 		switch m.navBrowser.screen {
 		case navBrowseScreenTracks:
-			return m.renderNavTrackList()
+			lines = m.renderNavTrackList()
 		default:
-			return m.renderNavArtistList()
+			lines = m.renderNavArtistList()
 		}
 	case navBrowseModeByArtistAlbum:
 		switch m.navBrowser.screen {
 		case navBrowseScreenAlbums:
-			return m.renderNavAlbumList(true)
+			lines = m.renderNavAlbumList(true)
 		case navBrowseScreenTracks:
-			return m.renderNavTrackList()
+			lines = m.renderNavTrackList()
 		default:
-			return m.renderNavArtistList()
+			lines = m.renderNavArtistList()
 		}
+	default:
+		lines = m.renderNavMenu()
 	}
-	return m.renderNavMenu()
+	return m.centerOverlay(strings.Join(m.appendFooterMessages(lines), "\n"))
 }
 
-func (m Model) renderNavMenu() string {
+func (m Model) renderNavMenu() []string {
 	lines := []string{
 		titleStyle.Render("N A V I D R O M E"),
 		"",
@@ -54,20 +57,20 @@ func (m Model) renderNavMenu() string {
 	lines = append(lines, "",
 		helpKey("↑↓", "Navigate ")+helpKey("Enter", "Select ")+helpKey("Esc", "Close"))
 
-	return m.centerOverlay(strings.Join(lines, "\n"))
+	return lines
 }
 
-func (m Model) renderNavArtistList() string {
+func (m Model) renderNavArtistList() []string {
 	lines := []string{titleStyle.Render("A R T I S T S"), ""}
 
 	if m.navBrowser.loading && len(m.navBrowser.artists) == 0 {
 		lines = append(lines, dimStyle.Render("  Loading artists..."), "", helpKey("Esc", "Back"))
-		return m.centerOverlay(strings.Join(lines, "\n"))
+		return lines
 	}
 
 	if len(m.navBrowser.artists) == 0 {
 		lines = append(lines, dimStyle.Render("  No artists found."), "", helpKey("Esc", "Back"))
-		return m.centerOverlay(strings.Join(lines, "\n"))
+		return lines
 	}
 
 	items := m.navScrollItems(len(m.navBrowser.artists), func(i int) string {
@@ -80,10 +83,10 @@ func (m Model) renderNavArtistList() string {
 	lines = append(lines, m.navSearchBar(
 		helpKey("←↑↓→", "Navigate ")+helpKey("Enter", "Open ")+helpKey("/", "Search"))...)
 
-	return m.centerOverlay(strings.Join(lines, "\n"))
+	return lines
 }
 
-func (m Model) renderNavAlbumList(artistAlbums bool) string {
+func (m Model) renderNavAlbumList(artistAlbums bool) []string {
 	var titleStr string
 	if artistAlbums {
 		titleStr = titleStyle.Render("A L B U M S : " + m.navBrowser.selArtist.Name)
@@ -105,7 +108,7 @@ func (m Model) renderNavAlbumList(artistAlbums bool) string {
 			help = helpKey("s", "Sort ") + help
 		}
 		lines = append(lines, "", help)
-		return m.centerOverlay(strings.Join(lines, "\n"))
+		return lines
 	}
 
 	if len(m.navBrowser.albums) == 0 {
@@ -115,7 +118,7 @@ func (m Model) renderNavAlbumList(artistAlbums bool) string {
 			help = helpKey("s", "Sort ") + help
 		}
 		lines = append(lines, "", help)
-		return m.centerOverlay(strings.Join(lines, "\n"))
+		return lines
 	}
 
 	items := m.navScrollItems(len(m.navBrowser.albums), func(i int) string {
@@ -143,10 +146,10 @@ func (m Model) renderNavAlbumList(artistAlbums bool) string {
 	defaultHelp += helpKey("/", "Search")
 	lines = append(lines, m.navSearchBar(defaultHelp)...)
 
-	return m.centerOverlay(strings.Join(lines, "\n"))
+	return lines
 }
 
-func (m Model) renderNavTrackList() string {
+func (m Model) renderNavTrackList() []string {
 	var breadcrumb string
 	switch m.navBrowser.mode {
 	case navBrowseModeByArtist:
@@ -161,12 +164,12 @@ func (m Model) renderNavTrackList() string {
 
 	if m.navBrowser.loading && len(m.navBrowser.tracks) == 0 {
 		lines = append(lines, dimStyle.Render("  Loading tracks..."), "", helpKey("Esc", "Back"))
-		return m.centerOverlay(strings.Join(lines, "\n"))
+		return lines
 	}
 
 	if len(m.navBrowser.tracks) == 0 {
 		lines = append(lines, dimStyle.Render("  No tracks found."), "", helpKey("Esc", "Back"))
-		return m.centerOverlay(strings.Join(lines, "\n"))
+		return lines
 	}
 
 	maxVisible := m.plVisible
@@ -216,10 +219,5 @@ func (m Model) renderNavTrackList() string {
 			helpKey("R", "Replace ")+
 			helpKey("a", "Append ")+
 			helpKey("/", "Search"))...)
-
-	if m.status.text != "" {
-		lines = append(lines, "", statusStyle.Render(m.status.text))
-	}
-
-	return m.centerOverlay(strings.Join(lines, "\n"))
+	return lines
 }

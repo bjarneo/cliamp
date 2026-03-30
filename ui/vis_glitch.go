@@ -12,17 +12,18 @@ var glitchChars = []rune{
 // renderGlitch draws random block corruption that intensifies with audio energy.
 // Quiet passages show mostly empty space with occasional flickers; loud passages
 // fill the display with dense, rapidly-changing block characters.
-func (v *Visualizer) renderGlitch(bands [numBands]float64) string {
+func (v *Visualizer) renderGlitch(bands []float64) string {
 	height := v.Rows
 	lines := make([]string, height)
+	bandCount := len(bands)
 
 	for row := range height {
 		var sb, run strings.Builder
 		tag := -1
 		col := 0
 
-		for b := range numBands {
-			w := visBandWidth(b)
+		for b := range bandCount {
+			w := visBandWidth(bandCount, b)
 			for range w {
 				energy := bands[b]
 				h := scatterHash(b, row, col, v.frame)
@@ -52,7 +53,7 @@ func (v *Visualizer) renderGlitch(bands [numBands]float64) string {
 				}
 				col++
 			}
-			if b < numBands-1 {
+			if b < bandCount-1 {
 				if tag != -1 {
 					flushStyleRun(&sb, &run, tag)
 					tag = -1

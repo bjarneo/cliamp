@@ -36,7 +36,7 @@ eq_preset = "Flat"
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
 # Visualizer mode (leave empty for default Bars)
-# Options: Bars, Bricks, Columns, Wave, Scatter, Flame, Retro, None
+# Options: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Logo, Terrain, Glitch, Scope, Heartbeat, Butterfly, Lightning, None
 visualizer = "Bars"
 
 # Compact mode: cap UI width at 80 columns (default: fluid/full-width)

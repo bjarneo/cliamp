@@ -31,6 +31,7 @@ func (m *Model) quit() tea.Cmd {
 		}
 	}
 
+	m.flushPendingSpeedSave()
 	m.player.Close()
 	m.quitting = true
 	return tea.Quit
@@ -41,6 +42,28 @@ func (m *Model) scrobbleCurrent() {
 	if track, _ := m.playlist.Current(); track.NavidromeID != "" {
 		m.maybeScrobble(track, m.player.Position(), m.player.Duration())
 	}
+}
+
+func (m *Model) handleSpeedKey(msg tea.KeyMsg) tea.Cmd {
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m.quit()
+	case "]", "right", "l", "up", "k":
+		m.changeSpeed(0.25)
+	case "[", "left", "h", "down", "j":
+		m.changeSpeed(-0.25)
+	case "tab":
+		if len(m.providers) > 1 {
+			m.focus = focusProvPill
+		} else {
+			m.focus = focusPlaylist
+		}
+	case "esc", "backspace":
+		m.focus = focusEQ
+	case " ":
+		return m.togglePlayPause()
+	}
+	return nil
 }
 
 // handleKey processes a single key press and returns an optional command.
@@ -142,7 +165,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 			if m.provCursor > 0 {
 				m.provCursor--
 			} else if len(m.providerLists) > 0 {
-				m.provCursor = len(m.providerLists)-1
+				m.provCursor = len(m.providerLists) - 1
 			}
 		case " ":
 			return m.togglePlayPause()
@@ -215,27 +238,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	}
 
 	if m.focus == focusSpeed {
-		switch msg.String() {
-		case "q", "ctrl+c":
-			return m.quit()
-		case "]", "right", "l", "up", "k":
-			m.player.SetSpeed(m.player.Speed() + 0.25)
-			m.speedDirty = 20 // debounce: save after ~1s of inactivity
-		case "[", "left", "h", "down", "j":
-			m.player.SetSpeed(m.player.Speed() - 0.25)
-			m.speedDirty = 20
-		case "tab":
-			if len(m.providers) > 1 {
-				m.focus = focusProvPill
-			} else {
-				m.focus = focusPlaylist
-			}
-		case "esc", "backspace":
-			m.focus = focusEQ
-		case " ":
-			return m.togglePlayPause()
-		}
-		return nil
+		return m.handleSpeedKey(msg)
 	}
 
 	if m.focus == focusProvPill {
@@ -309,7 +312,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "right":
 		if m.focus == focusEQ {
-			if m.eqCursor < numBands-1 {
+			if m.eqCursor < eqBandCount-1 {
 				m.eqCursor++
 			}
 		} else {
@@ -339,14 +342,15 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		if m.focus == focusEQ {
 			bands := m.player.EQBands()
 			m.player.SetEQBand(m.eqCursor, bands[m.eqCursor]+1)
-			m.eqPresetIdx = -1 // manual tweak → custom
+			m.eqPresetIdx = -1  // manual tweak → custom
+			m.eqCustomLabel = ""
 			m.saveEQ()
 		} else {
 			if m.plCursor > 0 {
 				m.plCursor--
 				m.adjustScroll()
 			} else if m.playlist.Len() > 0 {
-				m.plCursor = m.playlist.Len()-1
+				m.plCursor = m.playlist.Len() - 1
 				m.adjustScroll()
 			}
 		}
@@ -355,7 +359,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		if m.focus == focusEQ {
 			bands := m.player.EQBands()
 			m.player.SetEQBand(m.eqCursor, bands[m.eqCursor]-1)
-			m.eqPresetIdx = -1 // manual tweak → custom
+			m.eqPresetIdx = -1  // manual tweak → custom
+			m.eqCustomLabel = ""
 			m.saveEQ()
 		} else {
 			if m.plCursor < m.playlist.Len()-1 {
@@ -369,13 +374,15 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "pgup", "ctrl+u":
 		if m.focus == focusPlaylist && m.plCursor > 0 {
-			m.plCursor -= min(m.plCursor, m.plVisible)
+			visible := max(1, m.effectivePlaylistVisible())
+			m.plCursor -= min(m.plCursor, visible)
 			m.adjustScroll()
 		}
 
 	case "pgdown", "ctrl+d":
 		if m.focus == focusPlaylist && m.plCursor < m.playlist.Len()-1 {
-			m.plCursor = min(m.playlist.Len()-1, m.plCursor + m.plVisible)
+			visible := max(1, m.effectivePlaylistVisible())
+			m.plCursor = min(m.playlist.Len()-1, m.plCursor+visible)
 			m.adjustScroll()
 		}
 
@@ -387,7 +394,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "G", "end":
 		if m.focus == focusPlaylist && m.playlist.Len() > 0 && m.plCursor != m.playlist.Len()-1 {
-			m.plCursor = m.playlist.Len()-1
+			m.plCursor = m.playlist.Len() - 1
 			m.adjustScroll()
 		}
 
@@ -415,8 +422,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	case "r":
 		m.playlist.CycleRepeat()
 		if err := config.Save("repeat", fmt.Sprintf("%q", m.playlist.Repeat().String())); err != nil {
-			m.status.text = fmt.Sprintf("Config save failed: %s", err)
-			m.status.ttl = statusTTLDefault
+			m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
 		}
 		m.player.ClearPreload()
 		return m.preloadNext()
@@ -424,8 +430,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	case "z":
 		m.playlist.ToggleShuffle()
 		if err := config.Save("shuffle", fmt.Sprintf("%v", m.playlist.Shuffled())); err != nil {
-			m.status.text = fmt.Sprintf("Config save failed: %s", err)
-			m.status.ttl = statusTTLDefault
+			m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
 		}
 		m.player.ClearPreload()
 		return m.preloadNext()
@@ -452,7 +457,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		}
 
 	case "l":
-		if m.focus == focusEQ && m.eqCursor < numBands-1 {
+		if m.focus == focusEQ && m.eqCursor < eqBandCount-1 {
 			m.eqCursor++
 		}
 
@@ -559,8 +564,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	case "v":
 		m.vis.CycleMode()
 		if err := config.Save("visualizer", fmt.Sprintf("%q", m.vis.ModeName())); err != nil {
-			m.status.text = fmt.Sprintf("Config save failed: %s", err)
-			m.status.ttl = statusTTLDefault
+			m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
 		}
 
 	case "V":
@@ -577,12 +581,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		}
 
 	case "]":
-		m.player.SetSpeed(m.player.Speed() + 0.25)
-		m.speedDirty = 20
+		m.changeSpeed(0.25)
 
 	case "[":
-		m.player.SetSpeed(m.player.Speed() - 0.25)
-		m.speedDirty = 20
+		m.changeSpeed(-0.25)
 
 	case "ctrl+k":
 		m.keymap.visible = true
@@ -597,36 +599,32 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 func (m *Model) saveTrack() tea.Cmd {
 	track, idx := m.playlist.Current()
 	if idx < 0 {
-		m.status.text = "Nothing to save"
-		m.status.ttl = statusTTLShort
+		m.status.Show("Nothing to save", statusTTLShort)
 		return nil
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		m.status.text = fmt.Sprintf("Save failed: %s", err)
-		m.status.ttl = statusTTLShort
+		m.status.Showf(statusTTLShort, "Save failed: %s", err)
 		return nil
 	}
 
 	saveDir := filepath.Join(home, "Music", "cliamp")
 	if err := os.MkdirAll(saveDir, 0o755); err != nil {
-		m.status.text = fmt.Sprintf("Save failed: %s", err)
-		m.status.ttl = statusTTLShort
+		m.status.Showf(statusTTLShort, "Save failed: %s", err)
 		return nil
 	}
 
 	// YouTube/yt-dlp tracks: async download directly to ~/Music/cliamp/.
 	if playlist.IsYouTubeURL(track.Path) || playlist.IsYTDL(track.Path) {
-		m.status.text = "Downloading..."
-		m.status.ttl = statusTTLDownload // cleared by ytdlSavedMsg
+		m.status.Clear()
+		m.save.startDownload()
 		return saveYTDLCmd(track.Path, saveDir)
 	}
 
 	// Only save local temp files (yt-dlp downloads), not streams or user's own files.
 	if track.Stream || !strings.HasPrefix(track.Path, os.TempDir()) {
-		m.status.text = "Only downloaded tracks can be saved"
-		m.status.ttl = statusTTLShort
+		m.status.Show("Only downloaded tracks can be saved", statusTTLShort)
 		return nil
 	}
 
@@ -646,13 +644,11 @@ func (m *Model) saveTrack() tea.Cmd {
 	dest := filepath.Join(saveDir, name+ext)
 
 	if err := fileutil.CopyFile(track.Path, dest); err != nil {
-		m.status.text = fmt.Sprintf("Save failed: %s", err)
-		m.status.ttl = statusTTLShort
+		m.status.Showf(statusTTLShort, "Save failed: %s", err)
 		return nil
 	}
 
-	m.status.text = fmt.Sprintf("Saved to ~/Music/cliamp/%s", name+ext)
-	m.status.ttl = statusTTLDefault
+	m.status.Showf(statusTTLDefault, "Saved to ~/Music/cliamp/%s", name+ext)
 	return nil
 }
 
@@ -915,8 +911,7 @@ func (m *Model) handleNetSearchKey(msg tea.KeyMsg) tea.Cmd {
 			if m.netSearch.soundcloud {
 				prefix = "scsearch1:"
 			}
-			m.status.text = "Queuing search..."
-			m.status.ttl = statusTTLShort
+			m.status.Show("Queuing search...", statusTTLShort)
 			cmd = fetchNetSearchCmd(prefix + strings.TrimSpace(m.netSearch.query))
 		}
 		return cmd
@@ -946,8 +941,7 @@ func (m *Model) handleURLInputKey(msg tea.KeyMsg) tea.Cmd {
 		input := strings.TrimSpace(m.urlInput)
 		if input != "" {
 			m.feedLoading = true
-			m.status.text = "Loading URL..."
-			m.status.ttl = statusTTLLong
+			m.status.Show("Loading URL...", statusTTLLong)
 			return resolveRemoteCmd([]string{input}, true)
 		}
 	case tea.KeyBackspace:
@@ -982,11 +976,9 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyMsg) tea.Cmd {
 			if m.plManager.cursor < len(m.plManager.playlists) {
 				name := m.plManager.playlists[m.plManager.cursor].Name
 				if err := m.localProvider.DeletePlaylist(name); err != nil {
-					m.status.text = fmt.Sprintf("Delete failed: %s", err)
-					m.status.ttl = statusTTLDefault
+					m.status.Showf(statusTTLDefault, "Delete failed: %s", err)
 				} else {
-					m.status.text = fmt.Sprintf("Deleted \"%s\"", name)
-					m.status.ttl = statusTTLDefault
+					m.status.Showf(statusTTLDefault, "Deleted %q", name)
 				}
 				m.plMgrRefreshList()
 			}
@@ -1006,7 +998,7 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyMsg) tea.Cmd {
 		if m.plManager.cursor > 0 {
 			m.plManager.cursor--
 		} else if count > 0 {
-			m.plManager.cursor = count-1
+			m.plManager.cursor = count - 1
 		}
 	case "down", "j":
 		if m.plManager.cursor < count-1 {
@@ -1048,7 +1040,7 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyMsg) tea.Cmd {
 		if m.plManager.cursor > 0 {
 			m.plManager.cursor--
 		} else if len(m.plManager.tracks) > 0 {
-			m.plManager.cursor = len(m.plManager.tracks)-1
+			m.plManager.cursor = len(m.plManager.tracks) - 1
 		}
 	case "down", "j":
 		if m.plManager.cursor < len(m.plManager.tracks)-1 {
@@ -1082,11 +1074,9 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyMsg) tea.Cmd {
 		if len(m.plManager.tracks) > 0 && m.plManager.cursor < len(m.plManager.tracks) {
 			err := m.localProvider.RemoveTrack(m.plManager.selPlaylist, m.plManager.cursor)
 			if err != nil {
-				m.status.text = fmt.Sprintf("Remove failed: %s", err)
-				m.status.ttl = statusTTLDefault
+				m.status.Showf(statusTTLDefault, "Remove failed: %s", err)
 			} else {
-				m.status.text = "Track removed"
-				m.status.ttl = statusTTLDefault
+				m.status.Show("Track removed", statusTTLDefault)
 			}
 			// Reload tracks (or go back if playlist was deleted).
 			tracks, err := m.localProvider.Tracks(m.plManager.selPlaylist)
@@ -1146,17 +1136,14 @@ func (m *Model) handlePlMgrNewNameKey(msg tea.KeyMsg) tea.Cmd {
 func (m *Model) addToPlaylist(name string) {
 	track, idx := m.playlist.Current()
 	if idx < 0 {
-		m.status.text = "No track to add"
-		m.status.ttl = statusTTLShort
+		m.status.Show("No track to add", statusTTLShort)
 		return
 	}
 	if err := m.localProvider.AddTrack(name, track); err != nil {
-		m.status.text = fmt.Sprintf("Failed: %s", err)
-		m.status.ttl = statusTTLDefault
-		return
+		m.status.Showf(statusTTLDefault, "Failed: %s", err)
+	} else {
+		m.status.Showf(statusTTLDefault, "Added to %q", name)
 	}
-	m.status.text = fmt.Sprintf("Added to \"%s\"", name)
-	m.status.ttl = statusTTLDefault
 }
 
 // handleThemeKey processes key presses while the theme picker is open.
@@ -1171,7 +1158,7 @@ func (m *Model) handleThemeKey(msg tea.KeyMsg) tea.Cmd {
 			m.themePicker.cursor--
 			m.themePickerApply() // live preview
 		} else {
-			m.themePicker.cursor = count-1
+			m.themePicker.cursor = count - 1
 			m.themePickerApply() // live preview
 		}
 	case "down", "j":
@@ -1204,7 +1191,7 @@ func (m *Model) handleQueueKey(msg tea.KeyMsg) tea.Cmd {
 		if m.queue.cursor > 0 {
 			m.queue.cursor--
 		} else if qLen > 0 {
-			m.queue.cursor = qLen-1
+			m.queue.cursor = qLen - 1
 		}
 	case "down", "j":
 		if m.queue.cursor < qLen-1 {

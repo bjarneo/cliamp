@@ -5,16 +5,17 @@ import "strings"
 // renderScatter draws a twinkling particle field using Braille dots.
 // Dot density per band is proportional to the squared energy level, with a
 // gravity bias that makes particles denser near the bottom.
-func (v *Visualizer) renderScatter(bands [numBands]float64) string {
+func (v *Visualizer) renderScatter(bands []float64) string {
 	height := v.Rows
 	dotRows := height * 4
 	lines := make([]string, height)
+	bandCount := len(bands)
 
 	for row := range height {
 		var content strings.Builder
 
-		for b := range numBands {
-			charsPerBand := visBandWidth(b)
+		for b := range bandCount {
+			charsPerBand := visBandWidth(bandCount, b)
 			for c := range charsPerBand {
 				var braille rune = '\u2800'
 
@@ -37,7 +38,7 @@ func (v *Visualizer) renderScatter(bands [numBands]float64) string {
 
 				content.WriteRune(braille)
 			}
-			if b < numBands-1 {
+			if b < bandCount-1 {
 				content.WriteByte(' ')
 			}
 		}
