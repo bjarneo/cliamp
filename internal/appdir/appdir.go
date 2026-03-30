@@ -13,3 +13,12 @@ func Dir() (string, error) {
 	}
 	return filepath.Join(home, ".config", "cliamp"), nil
 }
+
+// PluginDir returns the cliamp plugin directory (~/.config/cliamp/plugins).
+func PluginDir() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "plugins"), nil
+}

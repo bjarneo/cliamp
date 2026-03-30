@@ -94,10 +94,10 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 	// Clear stream title on each new pipeline build.
 	p.streamTitle.Store("")
 
-	// Custom URI schemes (e.g., spotify:track:xxx) are handled by the
+	// Custom URI schemes (e.g., spotify:track:xxx) are handled by a
 	// registered StreamerFactory, bypassing normal file/HTTP decoding.
-	if p.customFactory != nil && isCustomURI(path) {
-		decoder, format, dur, err := p.customFactory(path)
+	if factory := p.matchCustomURI(path); factory != nil {
+		decoder, format, dur, err := factory(path)
 		if err != nil {
 			return nil, fmt.Errorf("custom streamer: %w", err)
 		}
@@ -120,12 +120,13 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		onMeta = p.setStreamTitle
 	}
 
-	// Navidrome/Subsonic tracks: buffer-while-playing via navBuffer + ffmpeg pipe.
-	// The navBuffer downloads in the background; ffmpeg reads from it via stdin
-	// and starts producing PCM as soon as the first frames arrive — no waiting
-	// for the full download. seekable=true routes Seek() through navFFmpegStreamer
-	// which repositions the navBuffer and restarts ffmpeg without HTTP reconnect.
-	if isURL(path) && isNavidromeURL(path) && byteOffset == 0 {
+	// Buffered HTTP tracks (e.g. Subsonic streams): buffer-while-playing via
+	// navBuffer + ffmpeg pipe. The navBuffer downloads in the background; ffmpeg
+	// reads from it via stdin and starts producing PCM as soon as the first
+	// frames arrive — no waiting for the full download. seekable=true routes
+	// Seek() through navFFmpegStreamer which repositions the navBuffer and
+	// restarts ffmpeg without HTTP reconnect.
+	if isURL(path) && p.isBufferedURL(path) && byteOffset == 0 {
 		nb, contentLen, err := newNavBuffer(path)
 		if err != nil {
 			return nil, fmt.Errorf("navidrome buffer: %w", err)

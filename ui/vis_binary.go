@@ -5,16 +5,17 @@ import "strings"
 // renderBinary draws streaming columns of 0s and 1s that scroll at speeds
 // proportional to each band's energy. Higher energy produces more 1s (active
 // data) and brighter coloring, creating a raw data-stream aesthetic.
-func (v *Visualizer) renderBinary(bands [numBands]float64) string {
+func (v *Visualizer) renderBinary(bands []float64) string {
 	height := v.Rows
 	lines := make([]string, height)
+	bandCount := len(bands)
 
 	for row := range height {
 		var sb, run strings.Builder
 		tag := -1
 		col := 0
-		for b := range numBands {
-			w := visBandWidth(b)
+		for b := range bandCount {
+			w := visBandWidth(bandCount, b)
 			for range w {
 				energy := bands[b]
 
@@ -49,7 +50,7 @@ func (v *Visualizer) renderBinary(bands [numBands]float64) string {
 				run.WriteByte(ch)
 				col++
 			}
-			if b < numBands-1 {
+			if b < bandCount-1 {
 				if -1 != tag {
 					flushStyleRun(&sb, &run, tag)
 					tag = -1

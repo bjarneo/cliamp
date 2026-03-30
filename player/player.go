@@ -39,8 +39,9 @@ type Player struct {
 	started         bool           // true after first speaker.Play()
 	ctrl            *beep.Ctrl
 	volume          atomic.Uint64     // dB stored as Float64bits, range [-30, +6]
+	speed           atomic.Uint64     // playback speed ratio as Float64bits; 1.0 = normal
 	eqBands         [10]atomic.Uint64 // dB stored as math.Float64bits
-	tap             *Tap
+	tap             *tap
 	playing         atomic.Bool
 	paused          atomic.Bool
 	mono            atomic.Bool
@@ -50,8 +51,9 @@ type Player struct {
 	gaplessAdvance atomic.Bool // set when gapless transition fires
 	seekGen        atomic.Int64    // generation counter for yt-dlp seeks; incremented to cancel stale seeks
 
-	streamTitle    atomic.Value    // stores string, set by ICY reader callback
-	customFactory  StreamerFactory // optional factory for custom URI schemes (e.g., spotify:)
+	streamTitle       atomic.Value    // stores string, set by ICY reader callback
+	customFactories   map[string]StreamerFactory // URI scheme prefix -> factory (e.g. "spotify:" -> fn)
+	bufferedURLMatch  func(string) bool          // optional: returns true for URLs needing navBuffer pipeline
 }
 
 // New creates a Player and initializes the speaker with the given quality settings.
@@ -69,6 +71,7 @@ func New(q Quality) (*Player, error) {
 		bitDepth = 16
 	}
 	p := &Player{sr: sr, resampleQuality: q.ResampleQuality, bitDepth: bitDepth}
+	p.speed.Store(math.Float64bits(1.0))
 	p.gapless = &gaplessStreamer{}
 	p.gapless.onSwap = func() {
 		// Called from audio thread (goroutine) when gapless transition occurs.
@@ -162,13 +165,14 @@ func (p *Player) playPipeline(tp *trackPipeline) error {
 
 		// Build the long-lived pipeline once
 		var s beep.Streamer = p.gapless
+		s = newSpeedStreamer(s, &p.speed)
 
 		for i := range 10 {
-			s = newBiquad(s, EQFreqs[i], 1.4, &p.eqBands[i], float64(p.sr))
+			s = newBiquad(s, eqFreqs[i], 1.4, &p.eqBands[i], float64(p.sr))
 		}
 
 		s = &volumeStreamer{s: s, vol: &p.volume, mono: &p.mono, cachedDB: math.NaN()}
-		p.tap = NewTap(s, 4096)
+		p.tap = newTap(s, 4096)
 		p.ctrl = &beep.Ctrl{Streamer: p.tap}
 		p.started = true
 		p.playing.Store(true)
@@ -518,6 +522,17 @@ func (p *Player) Volume() float64 {
 	return math.Float64frombits(p.volume.Load())
 }
 
+// SetSpeed sets the playback speed ratio, clamped to [0.25, 2.0].
+// 1.0 is normal speed, 2.0 is double speed, etc.
+func (p *Player) SetSpeed(ratio float64) {
+	p.speed.Store(math.Float64bits(max(min(ratio, 2.0), 0.25)))
+}
+
+// Speed returns the current playback speed ratio.
+func (p *Player) Speed() float64 {
+	return math.Float64frombits(p.speed.Load())
+}
+
 // ToggleMono switches between stereo and mono (L+R downmix) output.
 func (p *Player) ToggleMono() {
 	p.mono.Store(!p.mono.Load())
@@ -603,17 +618,6 @@ func (p *Player) StreamErr() error {
 	return cur.decoder.Err()
 }
 
-// Samples returns the latest audio samples from the tap for FFT analysis.
-func (p *Player) Samples() []float64 {
-	p.mu.Lock()
-	tap := p.tap
-	p.mu.Unlock()
-	if tap == nil {
-		return nil
-	}
-	return tap.Samples(2048)
-}
-
 // SamplesInto copies the latest audio samples into dst, avoiding allocation.
 // Returns the number of samples written.
 func (p *Player) SamplesInto(dst []float64) int {
@@ -629,11 +633,6 @@ func (p *Player) SamplesInto(dst []float64) int {
 // SampleRate returns the output sample rate in Hz.
 func (p *Player) SampleRate() int {
 	return int(p.sr)
-}
-
-// ResampleQuality returns the configured resample quality factor.
-func (p *Player) ResampleQuality() int {
-	return p.resampleQuality
 }
 
 // StreamBytes returns the bytes downloaded and total content length for the
@@ -652,13 +651,26 @@ func (p *Player) StreamBytes() (downloaded, total int64) {
 	return downloaded, total
 }
 
-// SetStreamerFactory registers a factory function for custom URI schemes.
-// When buildPipeline encounters a URI that isn't a local file or HTTP URL,
-// it calls this factory to create the decoder.
-func (p *Player) SetStreamerFactory(f StreamerFactory) {
+// RegisterStreamerFactory registers a factory for a custom URI scheme prefix
+// (e.g., "spotify:"). When buildPipeline encounters a path starting with this
+// prefix, it calls the factory to create the decoder instead of the normal
+// file/HTTP pipeline.
+func (p *Player) RegisterStreamerFactory(scheme string, f StreamerFactory) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.customFactory = f
+	if p.customFactories == nil {
+		p.customFactories = make(map[string]StreamerFactory)
+	}
+	p.customFactories[scheme] = f
+}
+
+// RegisterBufferedURLMatcher registers a function that identifies HTTP URLs
+// requiring the buffered download + ffmpeg pipeline (e.g. Subsonic stream
+// endpoints). This replaces hardcoded URL pattern checks.
+func (p *Player) RegisterBufferedURLMatcher(match func(string) bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.bufferedURLMatch = match
 }
 
 // Close fully stops the speaker and cleans up all resources.

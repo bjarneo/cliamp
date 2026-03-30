@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -111,7 +112,7 @@ func newSessionFromStored(ctx context.Context, clientID string, creds *storedCre
 			sess.Close()
 			return nil, fmt.Errorf("silent token refresh failed, interactive auth required")
 		}
-		token, err := doWebAPIAuth(clientID)
+		token, err := doWebAPIAuth(ctx, clientID)
 		if err != nil {
 			sess.Close()
 			return nil, fmt.Errorf("stored session needs fresh Web API token: %w", err)
@@ -201,11 +202,12 @@ const oauthCallbackHTML = `<!DOCTYPE html>
 
 // performOAuth2PKCE runs an OAuth2 PKCE flow: opens a browser for user consent,
 // waits for the callback, and exchanges the code for a token.
-func performOAuth2PKCE(clientID string) (*oauth2.Token, error) {
+func performOAuth2PKCE(ctx context.Context, clientID string) (*oauth2.Token, error) {
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", CallbackPort))
 	if err != nil {
 		return nil, fmt.Errorf("listen on port %d: %w", CallbackPort, err)
 	}
+	defer lis.Close() // always release the port
 
 	oauthConf := spotifyOAuthConfig(clientID)
 
@@ -226,12 +228,16 @@ func performOAuth2PKCE(clientID string) (*oauth2.Token, error) {
 		}
 	}()
 
-	_ = browser.Open(authURL)
+	_ = browser.Open(authURL) // best-effort — user can open the URL manually if this fails
 
-	code := <-codeCh
-	_ = lis.Close()
+	var code string
+	select {
+	case code = <-codeCh:
+	case <-ctx.Done():
+		return nil, fmt.Errorf("authentication cancelled: %w", ctx.Err())
+	}
 
-	token, err := oauthConf.Exchange(context.Background(), code, oauth2.VerifierOption(verifier))
+	token, err := oauthConf.Exchange(ctx, code, oauth2.VerifierOption(verifier))
 	if err != nil {
 		return nil, fmt.Errorf("token exchange: %w", err)
 	}
@@ -241,8 +247,8 @@ func performOAuth2PKCE(clientID string) (*oauth2.Token, error) {
 
 // doWebAPIAuth performs an OAuth2 PKCE flow to get a fresh Web API access token.
 // Opens a browser for user consent, returns the full token (including refresh token).
-func doWebAPIAuth(clientID string) (*oauth2.Token, error) {
-	token, err := performOAuth2PKCE(clientID)
+func doWebAPIAuth(ctx context.Context, clientID string) (*oauth2.Token, error) {
+	token, err := performOAuth2PKCE(ctx, clientID)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +259,7 @@ func doWebAPIAuth(clientID string) (*oauth2.Token, error) {
 func newInteractiveSession(ctx context.Context, clientID string) (*Session, error) {
 	devID := generateDeviceID()
 
-	token, err := performOAuth2PKCE(clientID)
+	token, err := performOAuth2PKCE(ctx, clientID)
 	if err != nil {
 		return nil, fmt.Errorf("spotify: %w", err)
 	}
@@ -328,10 +334,8 @@ func (s *Session) NewStream(ctx context.Context, spotID librespot.SpotifyId, bit
 	return s.player.NewStream(ctx, http.DefaultClient, spotID, bitrate, 0)
 }
 
-// WebApi calls the Spotify Web API using the OAuth2 access token.
-// This is the standard Web API token (not go-librespot's internal spclient token),
-// which has proper rate limits for api.spotify.com endpoints.
-func (s *Session) WebApi(ctx context.Context, method, path string, query url.Values) (*http.Response, error) {
+// webApiWithBody calls the Spotify Web API using the OAuth2 access token.
+func (s *Session) webApiWithBody(ctx context.Context, method, path string, query url.Values, body io.Reader, contentType string) (*http.Response, error) {
 	s.mu.Lock()
 	ts := s.tokenSource
 	s.mu.Unlock()
@@ -360,12 +364,15 @@ func (s *Session) WebApi(ctx context.Context, method, path string, query url.Val
 		u.RawQuery = query.Encode()
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
 
 	return http.DefaultClient.Do(req)
 }
@@ -382,34 +389,35 @@ func (s *Session) Close() {
 	}
 }
 
-// Reconnect tears down the current session, clears stored credentials, and
-// re-authenticates interactively. This is called automatically when playback
-// encounters an auth-related error (e.g. AES key retrieval failure) so the
-// user doesn't get stuck in an error loop.
-//
-// The new session is established before tearing down the old one to avoid a
-// window where s.sess/s.player are nil (which would crash concurrent callers
-// like NewStream or WebApi).
+// Reconnect rebuilds the session from stored credentials (no browser).
+// Returns an error if stored credentials are missing or the refresh fails.
 func (s *Session) Reconnect(ctx context.Context) error {
-	// Capture clientID without holding the lock during the (potentially long)
-	// interactive OAuth2 flow.
+	return s.reconnect(ctx, NewSessionSilent)
+}
+
+// ReconnectInteractive clears stored credentials and forces a fresh
+// browser-based OAuth2 flow.
+func (s *Session) ReconnectInteractive(ctx context.Context) error {
+	if err := deleteCreds(); err != nil {
+		return fmt.Errorf("spotify: clear stored credentials: %w", err)
+	}
+	return s.reconnect(ctx, newInteractiveSession)
+}
+
+// reconnect replaces the live session using the provided builder function.
+// The new session is established before tearing down the old one to avoid a
+// window where s.sess/s.player are nil (which would crash concurrent callers).
+func (s *Session) reconnect(ctx context.Context, build func(context.Context, string) (*Session, error)) error {
 	s.mu.Lock()
 	clientID := s.clientID
 	s.mu.Unlock()
 
-	// Clear stored credentials so we don't reuse stale ones.
-	if err := deleteCreds(); err != nil {
-		fmt.Fprintf(os.Stderr, "spotify: failed to clear stored credentials: %v\n", err)
-	}
-
-	// Create the new session outside the lock — this may open a browser and
-	// block for user interaction.
-	newSess, err := NewSession(ctx, clientID)
+	newSess, err := build(ctx, clientID)
 	if err != nil {
 		return fmt.Errorf("spotify: reconnect: %w", err)
 	}
 
-	// Now acquire the lock and atomically swap internals.
+	// Atomically swap internals.
 	s.mu.Lock()
 	oldPlayer := s.player
 	oldSess := s.sess
@@ -419,7 +427,6 @@ func (s *Session) Reconnect(ctx context.Context) error {
 	s.tokenSource = newSess.tokenSource
 	s.mu.Unlock()
 
-	// Tear down old session/player after the swap so there's no nil window.
 	if oldPlayer != nil {
 		oldPlayer.Close()
 	}

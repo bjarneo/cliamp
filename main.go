@@ -5,23 +5,28 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"cliamp/config"
+	"cliamp/external/jellyfin"
 	"cliamp/external/local"
 	"cliamp/external/navidrome"
+	"cliamp/external/plex"
 	"cliamp/external/radio"
 	"cliamp/external/spotify"
 	"cliamp/external/ytmusic"
 	"cliamp/internal/resume"
+	"cliamp/luaplugin"
 	"cliamp/mpris"
 	"cliamp/player"
 	"cliamp/playlist"
+	"cliamp/pluginmgr"
 	"cliamp/resolve"
-	"cliamp/telemetry"
 	"cliamp/theme"
 	"cliamp/ui"
+	"cliamp/ui/model"
 	"cliamp/upgrade"
 )
 
@@ -37,8 +42,8 @@ func run(overrides config.Overrides, positional []string) error {
 
 	// Build provider list: Radio is always available, Navidrome and Spotify if configured.
 	radioProv := radio.New()
-	var providers []ui.ProviderEntry
-	providers = append(providers, ui.ProviderEntry{Key: "radio", Name: "Radio", Provider: radioProv})
+	var providers []model.ProviderEntry
+	providers = append(providers, model.ProviderEntry{Key: "radio", Name: "Radio", Provider: radioProv})
 
 	var navClient *navidrome.NavidromeClient
 	if c := navidrome.NewFromConfig(cfg.Navidrome); c != nil {
@@ -47,13 +52,21 @@ func run(overrides config.Overrides, positional []string) error {
 		navClient = c
 	}
 	if navClient != nil {
-		providers = append(providers, ui.ProviderEntry{Key: "navidrome", Name: "Navidrome", Provider: navClient})
+		providers = append(providers, model.ProviderEntry{Key: "navidrome", Name: "Navidrome", Provider: navClient})
+	}
+
+	if plexProv := plex.NewFromConfig(cfg.Plex); plexProv != nil {
+		providers = append(providers, model.ProviderEntry{Key: "plex", Name: "Plex", Provider: plexProv})
+	}
+
+	if jellyProv := jellyfin.NewFromConfig(cfg.Jellyfin); jellyProv != nil {
+		providers = append(providers, model.ProviderEntry{Key: "jellyfin", Name: "Jellyfin", Provider: jellyProv})
 	}
 
 	var spotifyProv *spotify.SpotifyProvider
 	if cfg.Spotify.IsSet() {
 		spotifyProv = spotify.New(nil, cfg.Spotify.ClientID)
-		providers = append(providers, ui.ProviderEntry{Key: "spotify", Name: "Spotify", Provider: spotifyProv})
+		providers = append(providers, model.ProviderEntry{Key: "spotify", Name: "Spotify", Provider: spotifyProv})
 	}
 
 	var ytProviders ytmusic.Providers
@@ -94,9 +107,9 @@ func run(overrides config.Overrides, positional []string) error {
 			if player.YTDLPAvailable() {
 				ytProviders = ytmusic.New(nil, ytClientID, ytClientSecret, cfg.YouTubeMusic.CookiesFrom != "")
 				providers = append(providers,
-					ui.ProviderEntry{Key: "yt", Name: "YouTube (All)", Provider: ytProviders.All},
-					ui.ProviderEntry{Key: "youtube", Name: "YouTube", Provider: ytProviders.Video},
-					ui.ProviderEntry{Key: "ytmusic", Name: "YouTube Music", Provider: ytProviders.Music},
+					model.ProviderEntry{Key: "yt", Name: "YouTube (All)", Provider: ytProviders.All},
+					model.ProviderEntry{Key: "youtube", Name: "YouTube", Provider: ytProviders.Video},
+					model.ProviderEntry{Key: "ytmusic", Name: "YouTube Music", Provider: ytProviders.Music},
 				)
 			}
 		}
@@ -104,7 +117,6 @@ func run(overrides config.Overrides, positional []string) error {
 
 	localProv := local.New()
 
-	defer resolve.CleanupYTDL()
 	if spotifyProv != nil {
 		defer spotifyProv.Close()
 	}
@@ -175,22 +187,79 @@ func run(overrides config.Overrides, positional []string) error {
 	// Register Spotify streamer factory so spotify: URIs are decoded
 	// through go-librespot instead of the normal file/HTTP pipeline.
 	if spotifyProv != nil {
-		p.SetStreamerFactory(spotifyProv.NewStreamer)
+		p.RegisterStreamerFactory("spotify:", spotifyProv.NewStreamer)
 	}
+
+	// Register URL matchers so media-server streams use the buffered
+	// download + ffmpeg pipeline for gapless, seekable playback.
+	p.RegisterBufferedURLMatcher(func(u string) bool {
+		return navidrome.IsSubsonicStreamURL(u) || jellyfin.IsStreamURL(u)
+	})
 
 	cfg.ApplyPlayer(p)
 	cfg.ApplyPlaylist(pl)
+	ui.SetPadding(cfg.PaddingH, cfg.PaddingV)
 
 	themes := theme.LoadAll()
 
-	m := ui.NewModel(p, pl, providers, defaultProvider, localProv, themes, cfg.Navidrome, navClient)
+	luaMgr, luaErr := luaplugin.New(cfg.Plugins)
+	if luaErr != nil {
+		fmt.Fprintf(os.Stderr, "lua plugins: %v\n", luaErr)
+	}
+	if luaMgr != nil {
+		defer luaMgr.Close()
+	}
+
+	m := model.New(p, pl, providers, defaultProvider, localProv, themes, luaMgr)
+
+	// Wire Lua plugin state provider with read-only access to player/playlist.
+	if luaMgr != nil {
+		luaMgr.SetStateProvider(luaplugin.StateProvider{
+			PlayerState: func() string {
+				if !p.IsPlaying() {
+					return "stopped"
+				}
+				if p.IsPaused() {
+					return "paused"
+				}
+				return "playing"
+			},
+			Position:      func() float64 { return p.Position().Seconds() },
+			Duration:      func() float64 { return p.Duration().Seconds() },
+			Volume:        func() float64 { return p.Volume() },
+			Speed:         func() float64 { return p.Speed() },
+			Mono:          func() bool { return p.Mono() },
+			RepeatMode:    func() string { return pl.Repeat().String() },
+			Shuffle:       func() bool { return pl.Shuffled() },
+			EQBands:       func() [10]float64 { return p.EQBands() },
+			TrackTitle:    func() string { t, _ := pl.Current(); return t.Title },
+			TrackArtist:   func() string { t, _ := pl.Current(); return t.Artist },
+			TrackAlbum:    func() string { t, _ := pl.Current(); return t.Album },
+			TrackGenre:    func() string { t, _ := pl.Current(); return t.Genre },
+			TrackYear:     func() int { t, _ := pl.Current(); return t.Year },
+			TrackNumber:   func() int { t, _ := pl.Current(); return t.TrackNumber },
+			TrackPath:     func() string { t, _ := pl.Current(); return t.Path },
+			TrackIsStream: func() bool { t, _ := pl.Current(); return t.Stream },
+			TrackDuration: func() int { t, _ := pl.Current(); return t.DurationSecs },
+			PlaylistCount: func() int { return pl.Len() },
+			CurrentIndex:  func() int { return pl.Index() },
+		})
+	}
+
+	// Register Lua visualizers into the visualizer cycle.
+	if luaMgr != nil {
+		if names := luaMgr.Visualizers(); len(names) > 0 {
+			m.RegisterLuaVisualizers(names, luaMgr.RenderVis)
+		}
+	}
+
 	m.SetSeekStepLarge(cfg.SeekStepLargeDuration())
 	m.SetPendingURLs(resolved.Pending)
 	if len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 {
 		m.StartInProvider()
 	}
 	if cfg.EQPreset != "" && cfg.EQPreset != "Custom" {
-		m.SetEQPreset(cfg.EQPreset)
+		m.SetEQPreset(cfg.EQPreset, nil)
 	}
 	if cfg.Theme != "" {
 		m.SetTheme(cfg.Theme)
@@ -198,7 +267,7 @@ func run(overrides config.Overrides, positional []string) error {
 	if cfg.Visualizer != "" {
 		m.SetVisualizer(cfg.Visualizer)
 	}
-	if overrides.Play != nil && *overrides.Play {
+	if cfg.AutoPlay {
 		m.SetAutoPlay(true)
 	}
 	if cfg.Compact {
@@ -211,6 +280,27 @@ func run(overrides config.Overrides, positional []string) error {
 	}
 
 	prog := tea.NewProgram(m, tea.WithAltScreen())
+	prog.SetWindowTitle(model.InitialTerminalTitle())
+
+	// Wire Lua plugin control provider (needs prog.Send for next/prev).
+	if luaMgr != nil {
+		luaMgr.SetControlProvider(luaplugin.ControlProvider{
+			SetVolume:   func(db float64) { p.SetVolume(db) },
+			SetSpeed:    func(ratio float64) { p.SetSpeed(ratio) },
+			SetEQBand:   func(band int, db float64) { p.SetEQBand(band, db) },
+			ToggleMono:  func() { p.ToggleMono() },
+			TogglePause: func() { p.TogglePause() },
+			Stop:        func() { p.Stop() },
+			Seek: func(secs float64) {
+				_ = p.Seek(time.Duration(secs * float64(time.Second)))
+			},
+			SetEQPreset: func(name string, bands *[10]float64) {
+				prog.Send(model.SetEQPresetMsg{Name: name, Bands: bands})
+			},
+			Next: func() { prog.Send(mpris.NextMsg{}) },
+			Prev: func() { prog.Send(mpris.PrevMsg{}) },
+		})
+	}
 
 	if svc, err := mpris.New(func(msg interface{}) { prog.Send(msg) }); err == nil && svc != nil {
 		defer svc.Close()
@@ -223,12 +313,12 @@ func run(overrides config.Overrides, positional []string) error {
 	}
 
 	// Persist theme selection and resume state across restarts.
-	if fm, ok := finalModel.(ui.Model); ok {
+	if fm, ok := finalModel.(model.Model); ok {
 		themeName := fm.ThemeName()
 		if themeName == theme.DefaultName {
 			themeName = ""
 		}
-		_ = config.Save("theme", fmt.Sprintf("%q", themeName))
+		_ = config.Save("theme", fmt.Sprintf("%q", themeName)) // best-effort — non-critical persistence
 
 		if path, secs := fm.ResumeState(); path != "" && secs > 0 {
 			resume.Save(path, secs)
@@ -257,13 +347,18 @@ Audio engine:
   --audio-device <name>   Audio output device (use --audio-device=list to show available devices)
 
 Provider:
-  --provider <name>       Default provider: radio, navidrome, spotify, yt, youtube, ytmusic (default: radio)
+  --provider <name>       Default provider: radio, navidrome, plex, jellyfin, spotify, yt, youtube, ytmusic (default: radio)
 
 Appearance:
   --compact               Compact mode (cap width at 80 columns)
   --theme <name>          UI theme name
-  --visualizer <mode>     Visualizer mode (Bars, Bricks, Columns, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, None)
+  --visualizer <mode>     Visualizer mode (Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Logo, Terrain, Glitch, Scope, Heartbeat, Butterfly, Lightning, None)
   --eq-preset <name>      EQ preset name (e.g. "Bass Boost")
+
+Plugins:
+  cliamp plugins list                List installed plugins
+  cliamp plugins install <source>    Install a plugin (URL, user/repo, gitlab:user/repo, codeberg:user/repo)
+  cliamp plugins remove <name>       Remove a plugin
 
 General:
   -h, --help              Show this help message
@@ -291,6 +386,31 @@ Radios:    ~/.config/cliamp/radios.toml
 Playlists: ~/.config/cliamp/playlists/*.toml
 Formats:   mp3, wav, flac, ogg, m4a, aac, opus, wma (aac/opus/wma need ffmpeg)
 SoundCloud/YouTube/Bandcamp require yt-dlp`
+
+const pluginsHelpText = `cliamp plugins — manage Lua plugins
+
+Usage: cliamp plugins <command> [args]
+
+Commands:
+  list                    List installed plugins
+  install <source>        Install a plugin
+  remove <name>           Remove a plugin
+
+Install sources (repos must be named cliamp-plugin-<name>):
+  user/cliamp-plugin-foo            GitHub repository
+  user/cliamp-plugin-foo@v1.0       GitHub repository at a specific tag
+  gitlab:user/repo        GitLab repository
+  codeberg:user/repo      Codeberg repository
+  https://example.com/p.lua   Direct URL
+
+Examples:
+  cliamp plugins list
+  cliamp plugins install bjarneo/cliamp-plugin-lastfm
+  cliamp plugins install bjarneo/cliamp-plugin-lastfm@v1.0
+  cliamp plugins install gitlab:user/my-visualizer
+  cliamp plugins install codeberg:user/my-plugin
+  cliamp plugins install https://example.com/my-plugin.lua
+  cliamp plugins remove lastfm`
 
 func main() {
 	action, overrides, positional, err := config.ParseFlags(os.Args[1:])
@@ -334,9 +454,36 @@ func main() {
 			}
 		}
 		return
+	case "plugins":
+		fmt.Println(pluginsHelpText)
+		return
+	case "plugins-list":
+		if err := pluginmgr.List(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	case "plugins-install":
+		if len(positional) == 0 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp plugins install <source>")
+			os.Exit(1)
+		}
+		if err := pluginmgr.Install(positional[0]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	case "plugins-remove":
+		if len(positional) == 0 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp plugins remove <name>")
+			os.Exit(1)
+		}
+		if err := pluginmgr.Remove(positional[0]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
 	}
-
-	telemetry.Ping(version)
 
 	if err := run(overrides, positional); err != nil {
 		fmt.Fprintln(os.Stderr, err)

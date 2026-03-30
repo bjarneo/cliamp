@@ -3,9 +3,10 @@ package ui
 import "strings"
 
 // renderBars is the default smooth spectrum with fractional Unicode blocks.
-func (v *Visualizer) renderBars(bands [numBands]float64) string {
+func (v *Visualizer) renderBars(bands []float64) string {
 	height := v.Rows
 	lines := make([]string, height)
+	bandCount := len(bands)
 
 	for row := range height {
 		var content strings.Builder
@@ -13,12 +14,12 @@ func (v *Visualizer) renderBars(bands [numBands]float64) string {
 		rowTop := float64(height-row) / float64(height)
 
 		for i, level := range bands {
-			bw := visBandWidth(i)
+			bw := visBandWidth(bandCount, i)
 			block := fracBlock(level, rowBottom, rowTop)
 			for range bw {
 				content.WriteString(block)
 			}
-			if i < numBands-1 {
+			if i < bandCount-1 {
 				content.WriteByte(' ')
 			}
 		}

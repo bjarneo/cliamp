@@ -17,10 +17,10 @@ const (
 	spotifyChannels   = 2
 )
 
-// SpotifyStreamer bridges a go-librespot AudioSource to beep.StreamSeekCloser.
+// spotifyStreamer bridges a go-librespot AudioSource to beep.StreamSeekCloser.
 // go-librespot outputs interleaved stereo float32 at 44100Hz; this converts
 // to Beep's [][2]float64 sample format.
-type SpotifyStreamer struct {
+type spotifyStreamer struct {
 	source     librespot.AudioSource
 	stream     *librespotPlayer.Stream
 	buf        []float32
@@ -28,13 +28,13 @@ type SpotifyStreamer struct {
 	err        error
 }
 
-// NewSpotifyStreamer wraps a go-librespot Stream as a beep.StreamSeekCloser.
-func NewSpotifyStreamer(stream *librespotPlayer.Stream) *SpotifyStreamer {
+// newSpotifyStreamer wraps a go-librespot Stream as a beep.StreamSeekCloser.
+func newSpotifyStreamer(stream *librespotPlayer.Stream) *spotifyStreamer {
 	var dur int64
 	if stream.Media != nil {
 		dur = int64(stream.Media.Duration())
 	}
-	return &SpotifyStreamer{
+	return &spotifyStreamer{
 		source:     stream.Source,
 		stream:     stream,
 		durationMs: dur,
@@ -43,7 +43,7 @@ func NewSpotifyStreamer(stream *librespotPlayer.Stream) *SpotifyStreamer {
 
 // Stream reads interleaved float32 from the AudioSource and converts to
 // [][2]float64 stereo pairs for Beep's audio pipeline.
-func (s *SpotifyStreamer) Stream(samples [][2]float64) (n int, ok bool) {
+func (s *spotifyStreamer) Stream(samples [][2]float64) (n int, ok bool) {
 	// Each stereo sample pair needs 2 float32 values (L, R).
 	needed := len(samples) * spotifyChannels
 	if len(s.buf) < needed {
@@ -72,20 +72,20 @@ func (s *SpotifyStreamer) Stream(samples [][2]float64) (n int, ok bool) {
 	return pairs, true
 }
 
-func (s *SpotifyStreamer) Err() error { return s.err }
+func (s *spotifyStreamer) Err() error { return s.err }
 
 // Len returns the total number of sample pairs (at 44100Hz stereo).
-func (s *SpotifyStreamer) Len() int {
+func (s *spotifyStreamer) Len() int {
 	return int(s.durationMs * spotifySampleRate / 1000)
 }
 
 // Position returns the current playback position in sample pairs.
-func (s *SpotifyStreamer) Position() int {
+func (s *spotifyStreamer) Position() int {
 	return int(s.source.PositionMs() * spotifySampleRate / 1000)
 }
 
 // Seek moves to sample position p (in sample pairs at 44100Hz).
-func (s *SpotifyStreamer) Seek(p int) error {
+func (s *spotifyStreamer) Seek(p int) error {
 	ms := int64(p) * 1000 / spotifySampleRate
 	return s.source.SetPositionMs(ms)
 }
@@ -96,12 +96,12 @@ func (s *SpotifyStreamer) Seek(p int) error {
 // reader and decryption pipeline will be released when the object is GC'd.
 // This is a known limitation for skipped tracks until go-librespot exposes
 // Close() on the AudioSource interface.
-func (s *SpotifyStreamer) Close() error {
+func (s *spotifyStreamer) Close() error {
 	return nil
 }
 
 // Format returns the Beep audio format for Spotify streams.
-func (s *SpotifyStreamer) Format() beep.Format {
+func (s *spotifyStreamer) Format() beep.Format {
 	return beep.Format{
 		SampleRate:  beep.SampleRate(spotifySampleRate),
 		NumChannels: spotifyChannels,
@@ -110,6 +110,6 @@ func (s *SpotifyStreamer) Format() beep.Format {
 }
 
 // Duration returns the track duration.
-func (s *SpotifyStreamer) Duration() time.Duration {
+func (s *spotifyStreamer) Duration() time.Duration {
 	return time.Duration(s.durationMs) * time.Millisecond
 }

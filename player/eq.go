@@ -7,8 +7,8 @@ import (
 	"github.com/gopxl/beep/v2"
 )
 
-// EQFreqs are the center frequencies for the 10-band parametric equalizer.
-var EQFreqs = [10]float64{70, 180, 320, 600, 1000, 3000, 6000, 12000, 14000, 16000}
+// eqFreqs are the center frequencies for the 10-band parametric equalizer.
+var eqFreqs = [10]float64{70, 180, 320, 600, 1000, 3000, 6000, 12000, 14000, 16000}
 
 // biquad implements a second-order IIR peaking equalizer per the Audio EQ Cookbook.
 // Each filter reads its gain from a shared pointer, so EQ changes take

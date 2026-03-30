@@ -6,6 +6,7 @@
 package spotify
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -42,7 +43,25 @@ func (p *SpotifyProvider) Tracks(_ string) ([]playlist.Track, error) { return ni
 // Authenticate is a no-op.
 func (p *SpotifyProvider) Authenticate() error { return nil }
 
+// URISchemes returns the URI prefixes handled by this provider.
+func (p *SpotifyProvider) URISchemes() []string { return []string{"spotify:"} }
+
 // NewStreamer returns an error — Spotify streaming is unavailable on Windows.
 func (p *SpotifyProvider) NewStreamer(_ string) (beep.StreamSeekCloser, beep.Format, time.Duration, error) {
 	return nil, beep.Format{}, 0, errSpotifyUnavailable
+}
+
+// SearchTracks is a no-op on Windows.
+func (p *SpotifyProvider) SearchTracks(_ context.Context, _ string, _ int) ([]playlist.Track, error) {
+	return nil, nil
+}
+
+// AddTrackToPlaylist is a no-op on Windows.
+func (p *SpotifyProvider) AddTrackToPlaylist(_ context.Context, _ string, _ playlist.Track) error {
+	return nil
+}
+
+// CreatePlaylist is a no-op on Windows.
+func (p *SpotifyProvider) CreatePlaylist(_ context.Context, _ string) (string, error) {
+	return "", nil
 }

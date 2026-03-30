@@ -13,15 +13,19 @@ Press `Ctrl+K` in the player to see all keybindings.
 | `Left` `Right` | Seek -/+5s |
 | `Shift+Left` `Shift+Right` | Seek -/+30s (configurable) |
 | `+` `-` | Volume up/down |
+| `]` `[` | Speed up/down (±0.25x) |
 | `m` | Toggle mono |
-| `J` | Jump to time |
+| `Ctrl+J` | Jump to time |
 
 ## Navigation
 
 | Key | Action |
 |---|---|
 | `Tab` | Toggle focus (Playlist / EQ) |
-| `j` `k` / `Up` `Down` | Playlist scroll / EQ band adjust |
+| `j` `k` / `Up` `Down` | Playlist scroll / EQ band adjust (wraps around) |
+| `PageUp` `PageDown` / `Ctrl+U` `Ctrl+D` | Scroll playlist/file browser by page |
+| `Home` `End` / `g` `G` | Go to top/end of playlist/file browser |
+| `Shift+Up` `Shift+Down` | Move track up/down in playlist/queue |
 | `h` `l` | EQ cursor left/right |
 | `Enter` | Play selected track |
 | `/` | Search playlist |
@@ -44,11 +48,17 @@ Press `Ctrl+K` in the player to see all keybindings.
 | Key | Action |
 |---|---|
 | `f` | Find on YouTube (queue play next) |
-| `F` | Find on SoundCloud (queue play next) |
+| `Ctrl+F` | Find on SoundCloud (queue play next) |
+| `F` | Spotify search + add to playlist |
 | `u` | Load URL (stream/playlist) |
 | `y` | Show lyrics |
-| `S` | Save track to ~/Music |
+| `Ctrl+S` | Save track to ~/Music |
 | `N` | Navidrome browser |
+| `R` | Open radio provider |
+| `S` | Open Spotify provider |
+| `P` | Open Plex provider |
+| `J` | Open Jellyfin provider |
+| `Y` | Open YouTube provider |
 
 ## Playlist and Queue
 

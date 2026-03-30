@@ -97,9 +97,10 @@ func plsEntriesToTracks(entries []plsEntry) []playlist.Track {
 			return []playlist.Track{playlist.TrackFromPath(e.File)}
 		}
 		return []playlist.Track{{
-			Path:   e.File,
-			Title:  title,
-			Stream: true,
+			Path:     e.File,
+			Title:    title,
+			Stream:   true,
+			Realtime: true,
 		}}
 	}
 
@@ -138,9 +139,9 @@ func stripMirrorSuffix(s string) string {
 	return s
 }
 
-// ResolveLocalPLS opens a local .pls file, parses it, and returns the
+// resolveLocalPLS opens a local .pls file, parses it, and returns the
 // resulting tracks.
-func ResolveLocalPLS(path string) ([]playlist.Track, error) {
+func resolveLocalPLS(path string) ([]playlist.Track, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err

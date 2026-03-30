@@ -3,6 +3,7 @@
 package spotify
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,10 +22,30 @@ import (
 	"github.com/gopxl/beep/v2"
 
 	"cliamp/playlist"
+	"cliamp/provider"
+)
+
+// Compile-time interface checks.
+var (
+	_ provider.Searcher       = (*SpotifyProvider)(nil)
+	_ provider.PlaylistWriter = (*SpotifyProvider)(nil)
+	_ provider.PlaylistCreator = (*SpotifyProvider)(nil)
+	_ provider.CustomStreamer  = (*SpotifyProvider)(nil)
+	_ provider.Closer          = (*SpotifyProvider)(nil)
 )
 
 // maxResponseBody limits JSON API responses to 10 MB.
 const maxResponseBody = 10 << 20
+
+// Pagination limits for the Spotify Web API.
+const (
+	spotifyPlaylistPageSize = 50
+	spotifyTrackPageSize    = 100
+)
+
+// spotifyBitrate is the audio quality for Spotify streams (kbps).
+// TODO: make bitrate configurable via config.toml
+const spotifyBitrate = 320
 
 // spotifyPlaylistItem is the raw playlist object returned by /v1/me/playlists.
 type spotifyPlaylistItem struct {
@@ -66,6 +87,7 @@ type SpotifyProvider struct {
 	userID     string // Spotify user ID, fetched lazily on first Playlists() call
 	mu         sync.Mutex
 	trackCache map[string]*playlistCache // playlist ID → cache entry
+	authCancel context.CancelFunc        // cancels any in-progress OAuth flow
 }
 
 // New creates a SpotifyProvider. If session is nil, authentication is
@@ -104,11 +126,16 @@ func (p *SpotifyProvider) ensureSession() error {
 }
 
 // Authenticate runs the interactive sign-in flow (opens browser, waits for callback).
+// Any previous in-progress OAuth flow is cancelled first to free the callback port.
 func (p *SpotifyProvider) Authenticate() error {
 	p.mu.Lock()
 	if p.session != nil {
 		p.mu.Unlock()
 		return nil
+	}
+	if p.authCancel != nil {
+		p.authCancel()
+		p.authCancel = nil
 	}
 	clientID := p.clientID
 	p.mu.Unlock()
@@ -116,7 +143,19 @@ func (p *SpotifyProvider) Authenticate() error {
 	if clientID == "" {
 		return fmt.Errorf("spotify: no client ID available")
 	}
-	sess, err := NewSession(context.Background(), clientID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	p.mu.Lock()
+	p.authCancel = cancel
+	p.mu.Unlock()
+
+	sess, err := NewSession(ctx, clientID)
+
+	p.mu.Lock()
+	p.authCancel = nil
+	p.mu.Unlock()
+	cancel()
+
 	if err != nil {
 		return err
 	}
@@ -131,6 +170,10 @@ func (p *SpotifyProvider) Authenticate() error {
 func (p *SpotifyProvider) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.authCancel != nil {
+		p.authCancel()
+		p.authCancel = nil
+	}
 	if p.session != nil {
 		p.session.Close()
 		p.session = nil
@@ -179,7 +222,33 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 
 	var all []playlist.PlaylistInfo
 	offset := 0
-	limit := 50
+	limit := spotifyPlaylistPageSize
+
+	// List of Playlists only includes created playlists by the User.
+	// This doesn't include the 'Liked Songs' playlist.
+	resp, err := p.webAPI(ctx, "GET", "/v1/me/tracks", nil)
+	if err != nil {
+		return nil, fmt.Errorf("spotify: your music: %w", err)
+	}
+
+	var result struct {
+		Total int `json:"total"`
+	}
+	if err := decodeBody(resp, &result); err != nil {
+		return nil, fmt.Errorf("spotify: parse playlists: %w", err)
+	}
+
+	// Unfortunately, the Spotify API doesn't expose the localized display name.
+	// i.e. 'Liked Songs' or 'Lieblingssongs' etc.
+	// For the moment, "Your Music" must sufficice without adding a localization
+	// map.
+	p.mu.Lock()
+	all = append(all, playlist.PlaylistInfo{
+		ID:         "YOUR MUSIC",
+		Name:       "Your Music",
+		TrackCount: result.Total,
+	})
+	p.mu.Unlock()
 
 	for {
 		query := url.Values{
@@ -196,7 +265,7 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 
 		var result struct {
 			Items []spotifyPlaylistItem `json:"items"`
-			Total int                  `json:"total"`
+			Total int                   `json:"total"`
 		}
 		if err := decodeBody(resp, &result); err != nil {
 			return nil, fmt.Errorf("spotify: parse playlists: %w", err)
@@ -257,19 +326,46 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
+	type trackObj struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Artists []struct {
+			Name string `json:"name"`
+		} `json:"artists"`
+		Album struct {
+			Name        string `json:"name"`
+			ReleaseDate string `json:"release_date"`
+		} `json:"album"`
+		DurationMs  int `json:"duration_ms"`
+		TrackNumber int `json:"track_number"`
+	}
+
 	var all []playlist.Track
 	offset := 0
-	limit := 100
+	limit := spotifyTrackPageSize
 
 	for {
-		query := url.Values{
-			"limit":  {fmt.Sprintf("%d", limit)},
-			"offset": {fmt.Sprintf("%d", offset)},
-			"fields": {"items(item(id,name,artists(name),album(name,release_date),duration_ms,track_number)),total"},
+		var (
+			resp *http.Response
+			err  error
+		)
+
+		if playlistID == "YOUR MUSIC" {
+			query := url.Values{
+				"limit":  {fmt.Sprintf("%d", min(50, limit))},
+				"offset": {fmt.Sprintf("%d", offset)},
+			}
+			resp, err = p.webAPI(ctx, "GET", "/v1/me/tracks", query)
+		} else {
+			query := url.Values{
+				"limit":  {fmt.Sprintf("%d", limit)},
+				"offset": {fmt.Sprintf("%d", offset)},
+				"fields": {"items(item(id,name,artists(name),album(name,release_date),duration_ms,track_number)),total"},
+			}
+			path := fmt.Sprintf("/v1/playlists/%s/items", playlistID)
+			resp, err = p.webAPI(ctx, "GET", path, query)
 		}
 
-		path := fmt.Sprintf("/v1/playlists/%s/items", playlistID)
-		resp, err := p.webAPI(ctx, "GET", path, query)
 		if err != nil {
 			if strings.Contains(err.Error(), "403") {
 				return nil, fmt.Errorf("spotify: playlist not accessible: only playlists you own or collaborate on can be loaded")
@@ -277,22 +373,10 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 			return nil, fmt.Errorf("spotify: list tracks: %w", err)
 		}
 
-		type trackObj struct {
-			ID      string `json:"id"`
-			Name    string `json:"name"`
-			Artists []struct {
-				Name string `json:"name"`
-			} `json:"artists"`
-			Album struct {
-				Name        string `json:"name"`
-				ReleaseDate string `json:"release_date"`
-			} `json:"album"`
-			DurationMs  int `json:"duration_ms"`
-			TrackNumber int `json:"track_number"`
-		}
 		var result struct {
 			Items []struct {
-				Item *trackObj `json:"item"`
+				Item  *trackObj `json:"item"`
+				Track *trackObj `json:"track"`
 			} `json:"items"`
 			Total int `json:"total"`
 		}
@@ -302,6 +386,9 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 
 		for _, item := range result.Items {
 			t := item.Item
+			if t == nil {
+				t = item.Track
+			}
 			if t == nil || t.ID == "" {
 				continue // skip local/unavailable tracks
 			}
@@ -362,13 +449,16 @@ func isAuthError(err error) bool {
 	return false
 }
 
+// URISchemes returns the URI prefixes handled by this provider.
+// Implements provider.CustomStreamer.
+func (p *SpotifyProvider) URISchemes() []string { return []string{"spotify:"} }
+
 // NewStreamer creates a SpotifyStreamer for the given spotify:track:xxx URI.
-// Called by the player's StreamerFactory when it encounters a Spotify URI.
-//
 // If the stream fails due to an auth error (e.g. expired session, AES key
-// rejection), the session is torn down, credentials are cleared, and a fresh
-// interactive OAuth2 flow is triggered automatically. The stream is then
-// retried once with the new session.
+// rejection), the player first tries a silent reconnect from cached credentials.
+// If that fails or the retry still hits an auth error, it falls back to an
+// interactive OAuth2 flow and retries once more.
+// Implements provider.CustomStreamer.
 func (p *SpotifyProvider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error) {
 	if err := p.ensureSession(); err != nil {
 		return nil, beep.Format{}, 0, err
@@ -378,50 +468,91 @@ func (p *SpotifyProvider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.F
 		return nil, beep.Format{}, 0, fmt.Errorf("spotify: invalid URI %q: %w", uri, err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	stream, err := p.session.NewStream(ctx, *spotID, 320) // TODO: make bitrate configurable via config.toml
-	if err != nil {
-		if !isAuthError(err) {
-			return nil, beep.Format{}, 0, fmt.Errorf("spotify: new stream: %w", err)
-		}
-
-		// Auth error — attempt re-authentication and retry once.
-		fmt.Fprintf(os.Stderr, "spotify: stream auth error (%v), attempting re-auth...\n", err)
-
-		reconnCtx, reconnCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer reconnCancel()
-
-		if reconnErr := p.session.Reconnect(reconnCtx); reconnErr != nil {
-			return nil, beep.Format{}, 0, fmt.Errorf("spotify: re-auth failed: %w (original: %v)", reconnErr, err)
-		}
-
-		// Retry with the fresh session.
-		retryCtx, retryCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer retryCancel()
-
-		stream, err = p.session.NewStream(retryCtx, *spotID, 320)
+	tryStream := func() (*spotifyStreamer, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		stream, err := p.session.NewStream(ctx, *spotID, spotifyBitrate)
 		if err != nil {
-			return nil, beep.Format{}, 0, fmt.Errorf("spotify: new stream after re-auth: %w", err)
+			return nil, err
 		}
+		return newSpotifyStreamer(stream), nil
 	}
 
-	streamer := NewSpotifyStreamer(stream)
-	return streamer, streamer.Format(), streamer.Duration(), nil
+	s, err := tryStream()
+	if err == nil {
+		return s, s.Format(), s.Duration(), nil
+	}
+	if !isAuthError(err) {
+		return nil, beep.Format{}, 0, fmt.Errorf("spotify: new stream: %w", err)
+	}
+
+	// Auth error — try silent reconnect first.
+	fmt.Fprintf(os.Stderr, "spotify: stream auth error (%v), attempting silent reconnect...\n", err)
+
+	reconnCtx, reconnCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	reconnErr := p.session.Reconnect(reconnCtx)
+	reconnCancel()
+
+	if reconnErr == nil {
+		s, err = tryStream()
+		if err == nil {
+			return s, s.Format(), s.Duration(), nil
+		}
+		if !isAuthError(err) {
+			return nil, beep.Format{}, 0, fmt.Errorf("spotify: new stream after silent reconnect: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "spotify: stream still failing after silent reconnect (%v), falling back to interactive...\n", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "spotify: silent reconnect failed (%v), falling back to interactive...\n", reconnErr)
+	}
+
+	interactiveCtx, interactiveCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	interactiveErr := p.session.ReconnectInteractive(interactiveCtx)
+	interactiveCancel()
+
+	if interactiveErr != nil {
+		return nil, beep.Format{}, 0, fmt.Errorf("spotify: interactive reconnect failed: %w (original: %v)", interactiveErr, err)
+	}
+
+	s, err = tryStream()
+	if err != nil {
+		return nil, beep.Format{}, 0, fmt.Errorf("spotify: new stream after interactive reconnect: %w", err)
+	}
+	return s, s.Format(), s.Duration(), nil
 }
 
 // webAPI calls the Spotify Web API via the session with retry on 429.
 func (p *SpotifyProvider) webAPI(ctx context.Context, method, path string, query url.Values) (*http.Response, error) {
+	return p.webAPIWithBody(ctx, method, path, query, nil, "", http.StatusOK)
+}
+
+// webAPIWithBody is like webAPI but accepts an optional request body, content type,
+// and a set of acceptable HTTP status codes (e.g. 200, 201).
+func (p *SpotifyProvider) webAPIWithBody(ctx context.Context, method, path string, query url.Values, body io.Reader, contentType string, acceptStatus ...int) (*http.Response, error) {
 	const maxRetries = 8
+
+	// Buffer the body so it can be replayed on retry.
+	var bodyBytes []byte
+	if body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(body)
+		if err != nil {
+			return nil, fmt.Errorf("read request body: %w", err)
+		}
+	}
+
 	for attempt := range maxRetries {
-		resp, err := p.session.WebApi(ctx, method, path, query)
+		var reqBody io.Reader
+		if bodyBytes != nil {
+			reqBody = bytes.NewReader(bodyBytes)
+		}
+
+		resp, err := p.session.webApiWithBody(ctx, method, path, query, reqBody, contentType)
 		if err != nil {
 			return nil, err
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
 			resp.Body.Close()
-			// Parse Retry-After header (seconds), default to exponential backoff.
 			wait := time.Duration(1<<uint(attempt)) * time.Second
 			if ra := resp.Header.Get("Retry-After"); ra != "" {
 				if secs, err := strconv.Atoi(ra); err == nil && secs > 0 {
@@ -436,17 +567,143 @@ func (p *SpotifyProvider) webAPI(ctx context.Context, method, path string, query
 				continue
 			}
 		}
-		if resp.StatusCode != http.StatusOK {
-			body, readErr := io.ReadAll(io.LimitReader(resp.Body, 512))
+
+		ok := false
+		for _, code := range acceptStatus {
+			if resp.StatusCode == code {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 512))
 			resp.Body.Close()
 			if readErr != nil {
 				return nil, fmt.Errorf("http status %s (failed to read body: %v)", resp.Status, readErr)
 			}
-			return nil, fmt.Errorf("http status %s: %s", resp.Status, string(body))
+			return nil, fmt.Errorf("http status %s: %s", resp.Status, string(respBody))
 		}
 		return resp, nil
 	}
 	return nil, fmt.Errorf("http status 429 after %d retries", maxRetries)
+}
+
+// SearchTracks searches for tracks on Spotify and returns up to limit results.
+func (p *SpotifyProvider) SearchTracks(ctx context.Context, query string, limit int) ([]playlist.Track, error) {
+	if err := p.ensureSession(); err != nil {
+		return nil, err
+	}
+
+	q := url.Values{
+		"q":     {query},
+		"type":  {"track"},
+		"limit": {fmt.Sprintf("%d", limit)},
+	}
+
+	resp, err := p.webAPI(ctx, "GET", "/v1/search", q)
+	if err != nil {
+		return nil, fmt.Errorf("spotify: search: %w", err)
+	}
+
+	var result struct {
+		Tracks struct {
+			Items []struct {
+				ID      string `json:"id"`
+				Name    string `json:"name"`
+				Artists []struct {
+					Name string `json:"name"`
+				} `json:"artists"`
+				Album struct {
+					Name        string `json:"name"`
+					ReleaseDate string `json:"release_date"`
+				} `json:"album"`
+				DurationMs int `json:"duration_ms"`
+			} `json:"items"`
+		} `json:"tracks"`
+	}
+	if err := decodeBody(resp, &result); err != nil {
+		return nil, fmt.Errorf("spotify: parse search: %w", err)
+	}
+
+	var tracks []playlist.Track
+	for _, t := range result.Tracks.Items {
+		if t.ID == "" {
+			continue
+		}
+		artists := make([]string, len(t.Artists))
+		for i, a := range t.Artists {
+			artists[i] = a.Name
+		}
+		var year int
+		if len(t.Album.ReleaseDate) >= 4 {
+			if y, err := strconv.Atoi(t.Album.ReleaseDate[:4]); err == nil {
+				year = y
+			}
+		}
+		tracks = append(tracks, playlist.Track{
+			Path:         fmt.Sprintf("spotify:track:%s", t.ID),
+			Title:        t.Name,
+			Artist:       strings.Join(artists, ", "),
+			Album:        t.Album.Name,
+			Year:         year,
+			DurationSecs: t.DurationMs / 1000,
+		})
+	}
+	return tracks, nil
+}
+
+// AddTrackToPlaylist adds a track to an existing Spotify playlist.
+// The track's Path is used as the Spotify URI (e.g. "spotify:track:xxx").
+// Implements provider.PlaylistWriter.
+func (p *SpotifyProvider) AddTrackToPlaylist(ctx context.Context, playlistID string, track playlist.Track) error {
+	trackURI := track.Path
+	if err := p.ensureSession(); err != nil {
+		return err
+	}
+
+	body, _ := json.Marshal(map[string]any{"uris": []string{trackURI}})
+	path := fmt.Sprintf("/v1/playlists/%s/tracks", playlistID)
+
+	resp, err := p.webAPIWithBody(ctx, "POST", path, nil, bytes.NewReader(body), "application/json", http.StatusOK, http.StatusCreated)
+	if err != nil {
+		return fmt.Errorf("spotify: add track: %w", err)
+	}
+	resp.Body.Close()
+
+	// Invalidate cache for this playlist.
+	p.mu.Lock()
+	delete(p.trackCache, playlistID)
+	p.mu.Unlock()
+
+	return nil
+}
+
+// CreatePlaylist creates a new private Spotify playlist and returns its ID.
+func (p *SpotifyProvider) CreatePlaylist(ctx context.Context, name string) (string, error) {
+	if err := p.ensureSession(); err != nil {
+		return "", err
+	}
+
+	userID := p.currentUserID(ctx)
+	if userID == "" {
+		return "", fmt.Errorf("spotify: could not determine user ID")
+	}
+
+	body, _ := json.Marshal(map[string]any{"name": name, "public": false})
+	path := fmt.Sprintf("/v1/users/%s/playlists", userID)
+
+	resp, err := p.webAPIWithBody(ctx, "POST", path, nil, bytes.NewReader(body), "application/json", http.StatusOK, http.StatusCreated)
+	if err != nil {
+		return "", fmt.Errorf("spotify: create playlist: %w", err)
+	}
+
+	var result struct {
+		ID string `json:"id"`
+	}
+	if err := decodeBody(resp, &result); err != nil {
+		return "", fmt.Errorf("spotify: parse created playlist: %w", err)
+	}
+	return result.ID, nil
 }
 
 // decodeBody reads and decodes a JSON response body, then closes it.

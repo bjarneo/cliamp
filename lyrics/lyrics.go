@@ -132,7 +132,7 @@ func fetchLRCLIB(query string) ([]Line, error) {
 	// Prefer synced lyrics.
 	for _, r := range results {
 		if r.SyncedLyrics != "" {
-			return ParseLRC(r.SyncedLyrics), nil
+			return parseLRC(r.SyncedLyrics), nil
 		}
 	}
 
@@ -198,11 +198,11 @@ func fetchNetEase(query string) ([]Line, error) {
 		return nil, ErrNotFound
 	}
 
-	return ParseLRC(lyricRes.Lrc.Lyric), nil
+	return parseLRC(lyricRes.Lrc.Lyric), nil
 }
 
-// ParseLRC converts standard LRC string blocks into a slice of timestamped Lines.
-func ParseLRC(data string) []Line {
+// parseLRC converts standard LRC string blocks into a slice of timestamped Lines.
+func parseLRC(data string) []Line {
 	var lines []Line
 	for _, raw := range strings.Split(data, "\n") {
 		matches := lrcRegex.FindStringSubmatch(raw)

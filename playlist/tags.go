@@ -8,10 +8,10 @@ import (
 	"github.com/dhowden/tag"
 )
 
-// ReadTags reads embedded metadata (ID3v2, Vorbis comments, MP4 atoms) from
+// readTags reads embedded metadata (ID3v2, Vorbis comments, MP4 atoms) from
 // a local audio file and returns a Track. Falls back to filename parsing if
 // tag reading fails or the tags contain no title.
-func ReadTags(path string) Track {
+func readTags(path string) Track {
 	f, err := os.Open(path)
 	if err != nil {
 		return trackFromFilename(path)

@@ -66,6 +66,9 @@ func (o Overrides) Apply(cfg *Config) {
 	if o.Compact != nil {
 		cfg.Compact = *o.Compact
 	}
+	if o.Play != nil {
+		cfg.AutoPlay = *o.Play
+	}
 	if o.AudioDevice != nil {
 		cfg.AudioDevice = *o.AudioDevice
 	}
@@ -88,6 +91,14 @@ func ParseFlags(rawArgs []string) (action string, ov Overrides, positional []str
 			}
 		}
 		args = append(args, a)
+	}
+
+	// Subcommand: cliamp plugins [list|install|remove] [args...]
+	if len(args) > 0 && args[0] == "plugins" {
+		if len(args) == 1 {
+			return "plugins", ov, nil, nil
+		}
+		return "plugins-" + args[1], ov, args[2:], nil
 	}
 
 	i := 0
@@ -121,7 +132,6 @@ func ParseFlags(rawArgs []string) (action string, ov Overrides, positional []str
 			ov.Play = ptrBool(true)
 		case "--compact":
 			ov.Compact = ptrBool(true)
-
 		// Key-value flags.
 		case "--provider":
 			v, e := requireNextString(args, &i, arg)
@@ -130,9 +140,9 @@ func ParseFlags(rawArgs []string) (action string, ov Overrides, positional []str
 			}
 			v = strings.ToLower(v)
 			switch v {
-			case "radio", "navidrome", "spotify", "yt", "youtube", "ytmusic":
+			case "radio", "navidrome", "spotify", "plex", "jellyfin", "yt", "youtube", "ytmusic":
 			default:
-				return "", ov, nil, fmt.Errorf("flag --provider value must be radio, navidrome, spotify, yt, youtube, or ytmusic (got %q)", v)
+				return "", ov, nil, fmt.Errorf("flag --provider value must be radio, navidrome, spotify, plex, jellyfin, yt, youtube, or ytmusic (got %q)", v)
 			}
 			ov.Provider = &v
 		case "--volume":

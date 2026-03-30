@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CLIAMP — Terminal Music Player</title>
-<meta name="description" content="A retro terminal music player inspired by Winamp 2.x. Plays MP3, WAV, FLAC, OGG, AAC, ALAC, Opus, and WMA with a spectrum visualizer and EQ.">
+<meta name="description" content="A retro terminal music player inspired by Winamp 2.x. Play local files, YouTube, Spotify, Plex, Jellyfin, Navidrome, SoundCloud, and 30,000+ radio stations with a spectrum visualizer and 10-band EQ.">
 <style>
   /* ═══ RESET ═══════════════════════════════ */
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -454,6 +454,71 @@
     color:#5a6a90;letter-spacing:1px;
   }
 
+  /* ═══ PLUGINS ══════════════════════════════ */
+  .plugins-intro{
+    color:#9098b0;font-size:13px;
+    margin-bottom:28px;line-height:1.7;
+  }
+  .plugins-intro code{color:#5bf870;font-size:12px;text-shadow:0 0 6px rgba(91,248,112,.1)}
+  .plugins-intro .path{color:#7a82a0}
+  .plugin-example{
+    background:#0c0e17;
+    border:1px solid #1e2233;
+    border-radius:0;
+    margin-bottom:20px;
+    overflow:hidden;
+  }
+  .plugin-example-title{
+    padding:10px 16px;
+    background:#0a0c14;
+    border-bottom:1px solid #1e2233;
+    color:#5a6a90;font-size:10px;letter-spacing:1.5px;
+    text-transform:uppercase;
+  }
+  .plugin-example pre{
+    padding:16px 20px;
+    margin:0;
+    color:#b0b8c8;font-size:12px;line-height:1.7;
+    overflow-x:auto;
+  }
+  .plugin-example pre .kw{color:#c3a6ff}
+  .plugin-example pre .fn{color:#73d0ff}
+  .plugin-example pre .str{color:#d5ff80}
+  .plugin-example pre .cm{color:#5a6a90}
+  .plugin-example pre .op{color:#f29e74}
+  .plugin-api-grid{
+    display:grid;
+    grid-template-columns:repeat(2,1fr);
+    gap:8px;
+    margin-top:28px;
+  }
+  .plugin-api{
+    background:#0c0e17;
+    border:1px solid #141828;
+    border-left:2px solid #1e2233;
+    padding:16px 18px;
+    transition:all .3s;
+  }
+  .plugin-api:hover{
+    background:#0e1019;
+    border-left-color:#c3a6ff;
+  }
+  .plugin-api-name{
+    color:#c3a6ff;font-size:12px;font-weight:600;
+    margin-bottom:4px;font-family:inherit;
+  }
+  .plugin-api-name::before{content:"cliamp.";color:#5a6a90;font-weight:400}
+  .plugin-api p{font-size:11px;color:#7a82a0;line-height:1.5}
+  .plugin-api p code{color:#5bf870;font-size:11px}
+  .plugin-events{
+    margin-top:28px;
+  }
+  .plugin-events-title{
+    color:#b0b8c8;font-size:13px;font-weight:600;
+    margin-bottom:12px;
+  }
+  .plugin-events-title::before{content:"# ";color:#3a4060;font-weight:400}
+
   /* ═══ TABLES (Keys / CLI) ═════════════════ */
   .table-intro{
     color:#9098b0;font-size:13px;
@@ -487,12 +552,12 @@
   /* ═══ RADIO STATS ═════════════════════════ */
   .radio-stats{position:relative;z-index:1}
   .radio-header{
-    display:flex;align-items:center;gap:16px;
-    margin-bottom:32px;flex-wrap:wrap;
+    display:flex;align-items:center;justify-content:space-between;
+    margin-bottom:32px;flex-wrap:wrap;gap:16px;
   }
   .radio-live{
     display:inline-flex;align-items:center;gap:8px;
-    font-size:12px;color:#5bf870;letter-spacing:1px;
+    font-size:11px;color:#5bf870;letter-spacing:1.5px;
   }
   .radio-live-dot{
     width:8px;height:8px;border-radius:50%;
@@ -504,102 +569,7 @@
     0%,100%{opacity:1;box-shadow:0 0 8px rgba(91,248,112,.6)}
     50%{opacity:.5;box-shadow:0 0 16px rgba(91,248,112,.3)}
   }
-  .radio-listeners{
-    font-size:12px;color:#8a92b0;
-    letter-spacing:0.5px;
-  }
-  .radio-listeners strong{color:#b0b8c8}
-  .radio-grid{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:20px;
-    margin-bottom:24px;
-  }
-  .radio-card{
-    background:#0c0e17;
-    border:1px solid #1e2233;
-    border-radius:0;
-    padding:20px;
-    transition:border-color .3s;
-  }
-  .radio-card:hover{border-color:#2a3050}
-  .radio-card-title{
-    font-size:11px;color:#8a92b0;
-    letter-spacing:1.5px;text-transform:uppercase;
-    margin-bottom:16px;
-  }
-  .radio-big-number{
-    font-size:36px;color:#ffcc66;
-    text-shadow:0 0 20px rgba(255,204,102,.15);
-    line-height:1;margin-bottom:4px;
-  }
-  .radio-big-label{font-size:11px;color:#7a82a0;letter-spacing:0.5px}
-  .radio-chart{
-    height:140px;display:flex;
-    align-items:flex-end;gap:3px;
-    padding-top:20px;position:relative;
-  }
-  .radio-chart-bar{
-    flex:1;min-width:0;
-    border-radius:2px 2px 0 0;
-    position:relative;
-    transition:height .6s ease,background .3s;
-    cursor:default;
-  }
-  .radio-chart-bar:hover{filter:brightness(1.3)}
-  .radio-chart-bar .tooltip{
-    display:none;position:absolute;
-    bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);
-    background:#1a1e2e;border:1px solid #2a3050;
-    border-radius:0;padding:6px 10px;
-    font-size:10px;color:#b0b8c8;white-space:nowrap;
-    z-index:10;pointer-events:none;
-  }
-  .radio-chart-bar:hover .tooltip{display:block}
-  .radio-chart-labels{
-    display:flex;justify-content:space-between;
-    font-size:9px;color:#5a6a90;
-    margin-top:6px;letter-spacing:0.5px;
-  }
-  .radio-globe-wrap{
-    display:flex;align-items:center;gap:24px;
-    flex-wrap:wrap;
-  }
-  .radio-globe-canvas{
-    width:320px;aspect-ratio:1;max-width:100%;
-    cursor:grab;
-    opacity:0;transition:opacity .8s ease;
-  }
-  .radio-globe-canvas.loaded{opacity:1}
-  .radio-countries{
-    display:flex;flex-wrap:wrap;gap:8px;
-    flex:1;min-width:200px;
-    align-content:flex-start;
-  }
-  .radio-country{
-    display:inline-flex;align-items:center;gap:6px;
-    background:#0f1119;border:1px solid #1e2233;
-    border-radius:0;padding:6px 10px;
-    font-size:11px;color:#9098b0;
-    transition:border-color .3s,color .3s;
-  }
-  .radio-country:hover{border-color:#2a3050;color:#b0b8c8}
-  .radio-country-flag{font-size:14px;line-height:1}
-  .radio-country-sessions{
-    color:#ffcc66;font-size:10px;
-    margin-left:2px;opacity:.7;
-  }
-  @media(max-width:720px){
-    .radio-globe-wrap{justify-content:center}
-    .radio-globe-canvas{width:260px}
-    .radio-big-number{font-size:28px}
-  }
-  .radio-error{
-    color:#8a92b0;font-size:12px;
-    font-style:italic;padding:20px 0;
-  }
-  .radio-card--wide{grid-column:1 / -1}
-  .radio-tabs{display:flex;gap:0;margin-bottom:20px;border:1px solid #1e2233;border-radius:0;overflow:hidden;width:fit-content}
+  .radio-tabs{display:flex;gap:0;border:1px solid #1e2233;overflow:hidden;width:fit-content}
   .radio-tab{
     background:transparent;border:none;color:#5a6280;font-size:11px;letter-spacing:1px;
     text-transform:uppercase;padding:8px 20px;cursor:pointer;transition:all .25s;
@@ -608,9 +578,103 @@
   .radio-tab:hover{color:#8a92b0}
   .radio-tab.active{background:#151830;color:#5bf870}
   .radio-tab+.radio-tab{border-left:1px solid #1e2233}
+  .radio-stats-row{
+    display:grid;grid-template-columns:repeat(3,1fr);
+    gap:16px;margin-bottom:16px;
+  }
+  .radio-stat{
+    background:#0c0e17;border:1px solid #1e2233;
+    padding:24px 20px;text-align:center;
+    transition:border-color .3s;
+  }
+  .radio-stat:hover{border-color:#2a3050}
+  .radio-stat-value{
+    font-size:32px;color:#ffcc66;
+    text-shadow:0 0 20px rgba(255,204,102,.12);
+    line-height:1;margin-bottom:8px;
+  }
+  .radio-stat:first-child .radio-stat-value{
+    color:#5bf870;text-shadow:0 0 20px rgba(91,248,112,.12);
+  }
+  .radio-stat-label{
+    font-size:10px;color:#5a6a90;
+    letter-spacing:1.5px;text-transform:uppercase;
+  }
+  .radio-stat-dot{
+    display:inline-block;width:6px;height:6px;border-radius:50%;
+    background:#5bf870;box-shadow:0 0 6px rgba(91,248,112,.5);
+    margin-right:8px;vertical-align:middle;
+    animation:pulse-dot 2s ease-in-out infinite;
+  }
+  .radio-card{
+    background:#0c0e17;border:1px solid #1e2233;
+    padding:20px;transition:border-color .3s;
+  }
+  .radio-card:hover{border-color:#2a3050}
+  .radio-card+.radio-card{margin-top:16px}
+  .radio-card-title{
+    font-size:11px;color:#8a92b0;
+    letter-spacing:1.5px;text-transform:uppercase;
+    margin-bottom:16px;
+  }
+  .radio-chart{
+    height:140px;display:flex;
+    align-items:flex-end;gap:3px;
+    padding-top:20px;position:relative;
+  }
+  .radio-chart-bar{
+    flex:1;min-width:0;border-radius:2px 2px 0 0;
+    position:relative;transition:height .6s ease,background .3s;
+    cursor:default;
+  }
+  .radio-chart-bar:hover{filter:brightness(1.3)}
+  .radio-chart-bar .tooltip{
+    display:none;position:absolute;
+    bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);
+    background:#1a1e2e;border:1px solid #2a3050;
+    padding:6px 10px;font-size:10px;color:#b0b8c8;
+    white-space:nowrap;z-index:10;pointer-events:none;
+  }
+  .radio-chart-bar:hover .tooltip{display:block}
+  .radio-chart-labels{
+    display:flex;justify-content:space-between;
+    font-size:9px;color:#5a6a90;
+    margin-top:6px;letter-spacing:0.5px;
+  }
+  .radio-globe-wrap{
+    display:flex;align-items:center;gap:24px;flex-wrap:wrap;
+  }
+  .radio-globe-canvas{
+    width:320px;aspect-ratio:1;max-width:100%;
+    cursor:grab;opacity:0;transition:opacity .8s ease;
+  }
+  .radio-globe-canvas.loaded{opacity:1}
+  .radio-countries{
+    display:flex;flex-wrap:wrap;gap:8px;
+    flex:1;min-width:200px;align-content:flex-start;
+  }
+  .radio-country{
+    display:inline-flex;align-items:center;gap:6px;
+    background:#0f1119;border:1px solid #1e2233;
+    padding:6px 10px;font-size:11px;color:#9098b0;
+    transition:border-color .3s,color .3s;
+  }
+  .radio-country:hover{border-color:#2a3050;color:#b0b8c8}
+  .radio-country-flag{font-size:14px;line-height:1}
+  .radio-country-sessions{
+    color:#ffcc66;font-size:10px;margin-left:2px;opacity:.7;
+  }
+  .radio-error{
+    color:#8a92b0;font-size:12px;
+    font-style:italic;padding:20px 0;
+  }
   @media(max-width:720px){
-    .radio-grid{grid-template-columns:1fr}
-    .radio-card--wide{grid-column:auto}
+    .radio-stats-row{grid-template-columns:1fr}
+    .radio-stat-value{font-size:28px}
+    .radio-globe-wrap{justify-content:center}
+    .radio-globe-canvas{width:260px}
+    .radio-tabs{width:100%}
+    .radio-tab{flex:1;padding:8px 12px;font-size:10px}
   }
 
   /* ═══ FOOTER ══════════════════════════════ */
@@ -704,6 +768,7 @@
     .hero-title{letter-spacing:.3em}
     .hero-desc{text-align:left}
     .features-grid{grid-template-columns:1fr}
+    .plugin-api-grid{grid-template-columns:1fr}
     .themes-grid{grid-template-columns:repeat(2,1fr)}
     .keys-grid{grid-template-columns:1fr}
     .bar{flex:0 0 4px}
@@ -721,9 +786,7 @@
     .themes-grid{grid-template-columns:1fr}
     .nav-links a:nth-child(n+4){display:none}
     .radio-globe-canvas{width:100%}
-    .radio-big-number{font-size:24px}
-    .radio-tabs{width:100%}
-    .radio-tab{flex:1;padding:8px 12px;font-size:10px}
+    .radio-stat-value{font-size:24px}
     .terminal-title{display:none}
   }
 </style>
@@ -751,6 +814,7 @@
       <a href="#features">Features</a>
       <a href="#themes">Themes</a>
       <a href="#keys">Keys</a>
+      <a href="#plugins">Plugins</a>
       <a href="#radio">Radio</a>
       <a href="https://github.com/bjarneo/cliamp">GitHub</a>
     </div>
@@ -889,7 +953,7 @@
       <div class="feature">
         <div class="feature-icon">&#9654;</div>
         <div class="feature-name">yt-dlp Integration</div>
-        <p>YouTube, SoundCloud, and Bandcamp playback via yt-dlp. Search YouTube with <code>cliamp search "query"</code> or SoundCloud with <code>cliamp search-sc "query"</code>. Press <kbd>f</kbd> / <kbd>F</kbd> to search in-player</p>
+        <p>YouTube, SoundCloud, Bandcamp, and Bilibili playback via yt-dlp. Search YouTube with <code>cliamp search "query"</code> or SoundCloud with <code>cliamp search-sc "query"</code>. Press <kbd>f</kbd> / <kbd>F</kbd> to search in-player</p>
       </div>
       <div class="feature">
         <div class="feature-icon">&#9688;</div>
@@ -940,6 +1004,26 @@
         <div class="feature-icon">&#8593;</div>
         <div class="feature-name">Self-Update</div>
         <p>Run <code>--upgrade</code> to update to the latest release directly from your terminal</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#9835;</div>
+        <div class="feature-name">Spotify</div>
+        <p>Stream your Spotify Premium library &mdash; playlists, EQ, visualizer, and all effects apply. OAuth login with cached credentials</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#9654;</div>
+        <div class="feature-name">YouTube Music</div>
+        <p>Browse and play your YouTube Music playlists via OAuth. Automatic music/non-music classification with cached login</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#9654;</div>
+        <div class="feature-name">Plex</div>
+        <p>Stream music from your Plex Media Server. Browse albums and play directly &mdash; no extra software required</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#9654;</div>
+        <div class="feature-name">Jellyfin</div>
+        <p>Stream music from your Jellyfin server. Browse artists, albums, and tracks with buffered gapless playback</p>
       </div>
     </div>
   </div>
@@ -1185,6 +1269,10 @@
         <div class="key-row"><kbd>--sample-rate &lt;Hz&gt;</kbd><span>Output sample rate</span></div>
         <div class="key-row"><kbd>--buffer-ms &lt;ms&gt;</kbd><span>Speaker buffer (50&ndash;500)</span></div>
         <div class="key-row"><kbd>--resample-quality &lt;n&gt;</kbd><span>Resample quality (1&ndash;4)</span></div>
+        <div class="key-row"><kbd>--compact</kbd><span>Cap width at 80 columns</span></div>
+        <div class="key-row"><kbd>--bit-depth &lt;n&gt;</kbd><span>PCM bit depth: 16 or 32</span></div>
+        <div class="key-row"><kbd>--provider &lt;name&gt;</kbd><span>Default provider (radio, navidrome, plex, jellyfin, spotify, ytmusic)</span></div>
+        <div class="key-row"><kbd>--visualizer &lt;mode&gt;</kbd><span>Visualizer mode (Bars, Wave, Matrix, Retro, etc.)</span></div>
         <div class="key-row"><kbd>--upgrade</kbd><span>Update to latest release</span></div>
         <div class="key-row"><kbd>--help / --version</kbd><span>Help &amp; version info</span></div>
       </div>
@@ -1205,9 +1293,12 @@
         <div class="key-row"><kbd>&larr; &rarr;</kbd><span>Seek &minus;/+5s</span></div>
         <div class="key-row"><kbd>Shift+&larr; Shift+&rarr;</kbd><span>Seek &minus;/+large step (default 30s)</span></div>
         <div class="key-row"><kbd>+ / &minus;</kbd><span>Volume up / down</span></div>
+        <div class="key-row"><kbd>] [</kbd><span>Speed up / down (&plusmn;0.25x)</span></div>
         <div class="key-row"><kbd>m</kbd><span>Toggle mono</span></div>
         <div class="key-row"><kbd>Tab</kbd><span>Focus: Playlist / EQ</span></div>
-        <div class="key-row"><kbd>j k</kbd><span>Scroll / adjust EQ</span></div>
+        <div class="key-row"><kbd>j k</kbd><span>Scroll / adjust EQ (wraps around)</span></div>
+        <div class="key-row"><kbd>PgUp PgDn / Ctrl+U Ctrl+D</kbd><span>Scroll playlist/browser by page</span></div>
+        <div class="key-row"><kbd>Home End / g G</kbd><span>Go to top/end of playlist/browser</span></div>
         <div class="key-row"><kbd>h l</kbd><span>EQ band left / right</span></div>
         <div class="key-row"><kbd>Enter</kbd><span>Play selected</span></div>
         <div class="key-row"><kbd>e</kbd><span>Cycle EQ preset</span></div>
@@ -1216,7 +1307,8 @@
         <div class="key-row"><kbd>V</kbd><span>Full-screen visualizer</span></div>
         <div class="key-row"><kbd>/</kbd><span>Search playlist</span></div>
         <div class="key-row"><kbd>f</kbd><span>Find on YouTube (queue)</span></div>
-        <div class="key-row"><kbd>F</kbd><span>Find on SoundCloud (queue)</span></div>
+        <div class="key-row"><kbd>Ctrl+F</kbd><span>Find on SoundCloud (queue)</span></div>
+        <div class="key-row"><kbd>F</kbd><span>Spotify search + add to playlist</span></div>
         <div class="key-row"><kbd>u</kbd><span>Load URL (stream/playlist)</span></div>
         <div class="key-row"><kbd>y</kbd><span>Show lyrics</span></div>
         <div class="key-row"><kbd>J</kbd><span>Jump to time</span></div>
@@ -1228,10 +1320,145 @@
         <div class="key-row"><kbd>i</kbd><span>Track info / metadata</span></div>
         <div class="key-row"><kbd>r</kbd><span>Repeat: Off / All / One</span></div>
         <div class="key-row"><kbd>z</kbd><span>Toggle shuffle</span></div>
-        <div class="key-row"><kbd>S</kbd><span>Save to ~/Music</span></div>
+        <div class="key-row"><kbd>N</kbd><span>Navidrome browser</span></div>
+        <div class="key-row"><kbd>R</kbd><span>Open radio provider</span></div>
+        <div class="key-row"><kbd>S</kbd><span>Open Spotify provider</span></div>
+        <div class="key-row"><kbd>P</kbd><span>Open Plex provider</span></div>
+        <div class="key-row"><kbd>J</kbd><span>Open Jellyfin provider</span></div>
+        <div class="key-row"><kbd>Y</kbd><span>Open YouTube provider</span></div>
+        <div class="key-row"><kbd>Ctrl+S</kbd><span>Save to ~/Music</span></div>
+        <div class="key-row"><kbd>Shift+&uarr; Shift+&darr;</kbd><span>Move track up / down</span></div>
         <div class="key-row"><kbd>Esc / b</kbd><span>Back to provider</span></div>
         <div class="key-row"><kbd>Ctrl+K</kbd><span>Show keymap</span></div>
         <div class="key-row"><kbd>q</kbd><span>Quit</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ PLUGINS ═══ -->
+<section id="plugins">
+  <div class="wrap">
+    <div class="section-label"><span class="label-text">plugins.lua</span></div>
+    <p class="plugins-intro">
+      Lua 5.1 plugin system. Hook into playback events, add custom visualizers, or push data to external services.
+      Each plugin runs in an isolated sandbox &mdash; a crash in one cannot affect others or the player.
+      Drop a <code>.lua</code> file in <span class="path">~/.config/cliamp/plugins/</span> and restart.
+    </p>
+
+    <div class="plugin-example">
+      <div class="plugin-example-title">Now Playing (status bar)</div>
+      <pre><span class="cm">-- ~/.config/cliamp/plugins/now-playing.lua</span>
+<span class="kw">local</span> p = plugin.<span class="fn">register</span>({
+    name = <span class="str">"now-playing"</span>,
+    type = <span class="str">"hook"</span>,
+})
+
+p:<span class="fn">on</span>(<span class="str">"track.change"</span>, <span class="kw">function</span>(track)
+    cliamp.fs.<span class="fn">write</span>(<span class="str">"/tmp/cliamp-now-playing"</span>,
+        track.artist <span class="op">..</span> <span class="str">" - "</span> <span class="op">..</span> track.title)
+<span class="kw">end</span>)
+
+p:<span class="fn">on</span>(<span class="str">"app.quit"</span>, <span class="kw">function</span>()
+    cliamp.fs.<span class="fn">remove</span>(<span class="str">"/tmp/cliamp-now-playing"</span>)
+<span class="kw">end</span>)</pre>
+    </div>
+
+    <div class="plugin-example">
+      <div class="plugin-example-title">Webhook</div>
+      <pre><span class="cm">-- ~/.config/cliamp/plugins/webhook.lua</span>
+<span class="kw">local</span> p = plugin.<span class="fn">register</span>({
+    name = <span class="str">"webhook"</span>,
+    type = <span class="str">"hook"</span>,
+})
+
+<span class="kw">local</span> url = p:<span class="fn">config</span>(<span class="str">"url"</span>)
+
+p:<span class="fn">on</span>(<span class="str">"track.change"</span>, <span class="kw">function</span>(track)
+    <span class="kw">if not</span> url <span class="kw">then return end</span>
+    cliamp.http.<span class="fn">post</span>(url, {
+        json = { title = track.title, artist = track.artist }
+    })
+<span class="kw">end</span>)</pre>
+    </div>
+
+    <div class="plugin-example">
+      <div class="plugin-example-title">Custom Visualizer</div>
+      <pre><span class="cm">-- ~/.config/cliamp/plugins/simple-bars.lua</span>
+<span class="kw">local</span> p = plugin.<span class="fn">register</span>({
+    name = <span class="str">"simple-bars"</span>,
+    type = <span class="str">"visualizer"</span>,
+})
+
+<span class="cm">-- Called ~20 FPS. bands: 10 values (0.0-1.0)</span>
+<span class="kw">function</span> p:<span class="fn">render</span>(bands, frame)
+    <span class="kw">local</span> lines = {}
+    <span class="kw">for</span> row = 5, 1, -1 <span class="kw">do</span>
+        <span class="kw">local</span> line = <span class="str">""</span>
+        <span class="kw">for</span> i = 1, 10 <span class="kw">do</span>
+            <span class="kw">if</span> bands[i] <span class="op">></span> (row - 1) / 5 <span class="kw">then</span>
+                line = line <span class="op">..</span> <span class="str">"██████ "</span>
+            <span class="kw">else</span>
+                line = line <span class="op">..</span> <span class="str">"       "</span>
+            <span class="kw">end</span>
+        <span class="kw">end</span>
+        table.<span class="fn">insert</span>(lines, line)
+    <span class="kw">end</span>
+    <span class="kw">return</span> table.<span class="fn">concat</span>(lines, <span class="str">"\n"</span>)
+<span class="kw">end</span></pre>
+    </div>
+
+    <div class="plugin-events-title">Events</div>
+    <div class="keys-wrap">
+      <div class="keys-grid">
+        <div class="key-row"><kbd>track.change</kbd><span>New track starts playing</span></div>
+        <div class="key-row"><kbd>track.scrobble</kbd><span>Track played &ge;50% or &ge;4 min</span></div>
+        <div class="key-row"><kbd>playback.state</kbd><span>Play, pause, stop, seek, volume change</span></div>
+        <div class="key-row"><kbd>app.start</kbd><span>After all plugins loaded</span></div>
+        <div class="key-row"><kbd>app.quit</kbd><span>Before shutdown</span></div>
+      </div>
+    </div>
+
+    <div class="plugin-api-grid">
+      <div class="plugin-api">
+        <div class="plugin-api-name">player</div>
+        <p>Read-only playback state: <code>state()</code>, <code>position()</code>, <code>volume()</code>, <code>shuffle()</code>, <code>eq_bands()</code>, and more</p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">track</div>
+        <p>Current track metadata: <code>title()</code>, <code>artist()</code>, <code>album()</code>, <code>genre()</code>, <code>duration_secs()</code></p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">http</div>
+        <p>HTTP client with <code>get()</code> and <code>post()</code> &mdash; JSON, form body, custom headers. 5s timeout</p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">fs</div>
+        <p>Sandboxed file I/O: <code>write()</code>, <code>read()</code>, <code>append()</code>, <code>remove()</code>, <code>exists()</code></p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">json</div>
+        <p><code>encode()</code> and <code>decode()</code> for JSON serialization</p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">crypto</div>
+        <p><code>md5()</code>, <code>sha256()</code>, <code>hmac_sha256()</code> for hashing and signing</p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">notify</div>
+        <p>Desktop notifications via <code>notify-send</code>. Works with mako, dunst, etc.</p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">timer</div>
+        <p>Schedule callbacks: <code>after()</code>, <code>every()</code>, <code>cancel()</code></p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">log</div>
+        <p><code>info()</code>, <code>warn()</code>, <code>error()</code>, <code>debug()</code> &rarr; <span class="path">~/.config/cliamp/plugins.log</span></p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">config</div>
+        <p>Read per-plugin values from <code>[plugins.name]</code> in config.toml via <code>p:config(key)</code></p>
       </div>
     </div>
   </div>
@@ -1242,41 +1469,44 @@
   <div class="wrap">
     <div class="section-label"><span class="label-text">radio.stats</span></div>
     <div class="radio-header">
+      <div class="radio-tabs" id="radio-stat-tabs">
+        <button class="radio-tab active" data-station="total" onclick="switchStatTab('total')">Total</button>
+        <button class="radio-tab" data-station="edm" onclick="switchStatTab('edm')">EDM</button>
+        <button class="radio-tab" data-station="lofi" onclick="switchStatTab('lofi')">Lofi</button>
+        <button class="radio-tab" data-station="synthwave" onclick="switchStatTab('synthwave')">Synthwave</button>
+      </div>
       <div class="radio-live"><span class="radio-live-dot"></span> LIVE</div>
-      <div class="radio-listeners" id="radio-listeners"></div>
     </div>
-    <div class="radio-tabs" id="radio-stat-tabs">
-      <button class="radio-tab" data-station="edm" onclick="switchStatTab('edm')">EDM</button>
-      <button class="radio-tab active" data-station="lofi" onclick="switchStatTab('lofi')">Lofi</button>
-      <button class="radio-tab" data-station="synthwave" onclick="switchStatTab('synthwave')">Synthwave</button>
+    <div id="radio-error"></div>
+    <div class="radio-stats-row">
+      <div class="radio-stat">
+        <div class="radio-stat-value"><span class="radio-stat-dot"></span><span id="radio-now">&mdash;</span></div>
+        <div class="radio-stat-label">listening now</div>
+      </div>
+      <div class="radio-stat">
+        <div class="radio-stat-value" id="radio-sessions">&mdash;</div>
+        <div class="radio-stat-label">total sessions</div>
+      </div>
+      <div class="radio-stat">
+        <div class="radio-stat-value" id="radio-hours">&mdash;</div>
+        <div class="radio-stat-label">listen hours</div>
+      </div>
     </div>
-    <div class="install-box" id="radio-cmd-box" onclick="copyCmd(this,'cliamp https://radio.cliamp.stream/lofi/stream.pls')" style="margin-bottom:28px">
+    <div class="radio-card">
+      <div class="radio-card-title">Daily Activity</div>
+      <div class="radio-chart" id="radio-chart"></div>
+      <div class="radio-chart-labels" id="radio-chart-labels"></div>
+    </div>
+    <div class="radio-card">
+      <div class="radio-card-title">Listeners Around the World</div>
+      <div class="radio-globe-wrap">
+        <canvas class="radio-globe-canvas" id="radio-globe"></canvas>
+        <div class="radio-countries" id="radio-countries"></div>
+      </div>
+    </div>
+    <div class="install-box" id="radio-cmd-box" onclick="copyCmd(this,'cliamp https://radio.cliamp.stream/lofi/stream.pls')" style="margin-top:28px;display:none">
       <span class="copied-msg">COPIED</span>
       <code><span class="prompt">$ </span><span id="radio-cmd-text">cliamp https://radio.cliamp.stream/lofi/stream.pls</span></code>
-    </div>
-    <div class="radio-grid">
-      <div class="radio-card">
-        <div class="radio-card-title">Total Sessions</div>
-        <div class="radio-big-number" id="radio-sessions">&mdash;</div>
-        <div class="radio-big-label">all time</div>
-      </div>
-      <div class="radio-card">
-        <div class="radio-card-title">Listen Hours</div>
-        <div class="radio-big-number" id="radio-hours">&mdash;</div>
-        <div class="radio-big-label">all time</div>
-      </div>
-      <div class="radio-card radio-card--wide">
-        <div class="radio-card-title">Daily Activity</div>
-        <div class="radio-chart" id="radio-chart"></div>
-        <div class="radio-chart-labels" id="radio-chart-labels"></div>
-      </div>
-      <div class="radio-card radio-card--wide">
-        <div class="radio-card-title">Listeners Around the World</div>
-        <div class="radio-globe-wrap">
-          <canvas class="radio-globe-canvas" id="radio-globe"></canvas>
-          <div class="radio-countries" id="radio-countries"></div>
-        </div>
-      </div>
     </div>
   </div>
 </section>
@@ -1370,16 +1600,21 @@ function setRadioVol(v){
 }
 
 /* ── Radio Statistics ── */
-var currentStatTab='lofi';
+var currentStatTab='total';
 var radioStatsData=null;
 
 function switchStatTab(ch){
   currentStatTab=ch;
   document.querySelectorAll('.radio-tab').forEach(function(b){b.classList.toggle('active',b.dataset.station===ch)});
-  var cmd='cliamp '+radioPls[ch];
   var box=document.getElementById('radio-cmd-box');
-  box.setAttribute('onclick',"copyCmd(this,'"+cmd+"')");
-  document.getElementById('radio-cmd-text').textContent=cmd;
+  if(ch==='total'){
+    box.style.display='none';
+  }else{
+    var cmd='cliamp '+radioPls[ch];
+    box.style.display='';
+    box.setAttribute('onclick',"copyCmd(this,'"+cmd+"')");
+    document.getElementById('radio-cmd-text').textContent=cmd;
+  }
   if(radioStatsData)renderStationStats(radioStatsData,ch);
 }
 
@@ -1401,10 +1636,36 @@ function formatDate(iso){
 }
 
 function renderStationStats(data,stationKey){
-  var station=data.stations&&data.stations[stationKey];
-  if(!station) station={total_sessions:0,total_listen_hours:0,active_listeners:0,top_countries:[],daily:[]};
+  var station;
+  if(stationKey==='total'){
+    station={total_sessions:0,total_listen_hours:0,active_listeners:0,top_countries:[],daily:[]};
+    var allStations=data.stations||{};
+    var dailyMap={};
+    var countryMap={};
+    Object.keys(allStations).forEach(function(k){
+      var s=allStations[k];
+      station.total_sessions+=s.total_sessions||0;
+      station.total_listen_hours+=s.total_listen_hours||0;
+      station.active_listeners+=s.active_listeners||0;
+      (s.daily||[]).forEach(function(d){
+        if(!dailyMap[d.date])dailyMap[d.date]={date:d.date,sessions:0,listen_hours:0};
+        dailyMap[d.date].sessions+=d.sessions;
+        dailyMap[d.date].listen_hours+=d.listen_hours;
+      });
+      (s.top_countries||[]).forEach(function(c){
+        if(!countryMap[c.country_code])countryMap[c.country_code]={country:c.country,country_code:c.country_code,sessions:0};
+        countryMap[c.country_code].sessions+=c.sessions;
+      });
+    });
+    station.daily=Object.keys(dailyMap).sort().map(function(k){return dailyMap[k]});
+    station.top_countries=Object.keys(countryMap).map(function(k){return countryMap[k]}).sort(function(a,b){return b.sessions-a.sessions});
+  }else{
+    station=data.stations&&data.stations[stationKey];
+    if(!station) station={total_sessions:0,total_listen_hours:0,active_listeners:0,top_countries:[],daily:[]};
+  }
 
-  /* big numbers — per station */
+  /* big numbers */
+  document.getElementById("radio-now").textContent=station.active_listeners;
   document.getElementById("radio-sessions").textContent=station.total_sessions.toLocaleString();
   document.getElementById("radio-hours").textContent=station.total_listen_hours.toFixed(1);
 
@@ -1415,7 +1676,7 @@ function renderStationStats(data,stationKey){
   chart.textContent="";
   labels.textContent="";
 
-  var barColors={edm:"linear-gradient(to top,#66ccff,rgba(102,204,255,.4))",lofi:"linear-gradient(to top,#ffcc66,rgba(255,204,102,.4))",synthwave:"linear-gradient(to top,#ff66cc,rgba(255,102,204,.4))"};
+  var barColors={total:"linear-gradient(to top,#b0b8c8,rgba(176,184,200,.4))",edm:"linear-gradient(to top,#66ccff,rgba(102,204,255,.4))",lofi:"linear-gradient(to top,#ffcc66,rgba(255,204,102,.4))",synthwave:"linear-gradient(to top,#ff66cc,rgba(255,102,204,.4))"};
 
   if(daily.length>0){
     var maxSessions=Math.max.apply(null,daily.map(function(d){return d.sessions}))||1;
@@ -1472,29 +1733,11 @@ function renderRadioStats(){
     .then(function(r){return r.json()})
     .then(function(data){
       radioStatsData=data;
-
-      /* listeners — aggregate across all stations */
-      var totalListeners=0;
-      var stations=data.stations||{};
-      Object.keys(stations).forEach(function(k){
-        totalListeners+=(stations[k].active_listeners||0);
-      });
-
-      var el=document.getElementById("radio-listeners");
-      el.textContent="";
-      var s1=document.createElement("strong");
-      s1.textContent=totalListeners;
-      var s2=document.createElement("strong");
-      s2.textContent=data.total_sessions;
-      el.appendChild(s1);
-      el.appendChild(document.createTextNode(" listening now \u00B7 "));
-      el.appendChild(s2);
-      el.appendChild(document.createTextNode(" total sessions"));
-
+      document.getElementById("radio-error").textContent="";
       renderStationStats(data,currentStatTab);
     })
     .catch(function(){
-      var el=document.getElementById("radio-listeners");
+      var el=document.getElementById("radio-error");
       el.textContent="";
       var err=document.createElement("span");
       err.className="radio-error";

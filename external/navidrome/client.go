@@ -10,11 +10,22 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"cliamp/config"
 	"cliamp/playlist"
+	"cliamp/provider"
+)
+
+// Compile-time interface checks.
+var (
+	_ provider.ArtistBrowser    = (*NavidromeClient)(nil)
+	_ provider.AlbumBrowser     = (*NavidromeClient)(nil)
+	_ provider.AlbumTrackLoader = (*NavidromeClient)(nil)
+	_ provider.AlbumSortSaver   = (*NavidromeClient)(nil)
+	_ provider.PlaybackReporter = (*NavidromeClient)(nil)
 )
 
 // httpClient is used for all Navidrome API calls with a finite timeout.
@@ -35,73 +46,58 @@ const (
 	SortByGenre              = "byGenre"
 )
 
-// SortTypes is the ordered list of sort modes used for cycling.
-var SortTypes = []string{
-	SortAlphabeticalByName,
-	SortAlphabeticalByArtist,
-	SortNewest,
-	SortRecent,
-	SortFrequent,
-	SortStarred,
-	SortByYear,
-	SortByGenre,
-}
-
-// SortTypeLabel returns a human-readable label for a sort type constant.
-func SortTypeLabel(s string) string {
-	switch s {
-	case SortAlphabeticalByName:
-		return "Alphabetical by Name"
-	case SortAlphabeticalByArtist:
-		return "Alphabetical by Artist"
-	case SortNewest:
-		return "Newest"
-	case SortRecent:
-		return "Recently Played"
-	case SortFrequent:
-		return "Most Played"
-	case SortStarred:
-		return "Starred"
-	case SortByYear:
-		return "By Year"
-	case SortByGenre:
-		return "By Genre"
-	default:
-		return s
+// IsSubsonicStreamURL reports whether path is a Subsonic stream or download
+// endpoint. Used by the player to select the buffered download pipeline.
+func IsSubsonicStreamURL(path string) bool {
+	u, err := url.Parse(path)
+	if err != nil {
+		return false
 	}
+	p := strings.ToLower(u.Path)
+	return strings.HasSuffix(p, "/rest/stream") ||
+		strings.HasSuffix(p, "/rest/stream.view") ||
+		strings.HasSuffix(p, "/rest/download") ||
+		strings.HasSuffix(p, "/rest/download.view")
 }
 
-// Artist represents a Navidrome/Subsonic artist entry.
-type Artist struct {
-	ID         string
-	Name       string
-	AlbumCount int
-}
+// Artist is a Navidrome/Subsonic artist — aliased to the provider type.
+type Artist = provider.ArtistInfo
 
-// Album represents a Navidrome/Subsonic album entry.
-type Album struct {
-	ID        string
-	Name      string
-	Artist    string
-	ArtistID  string
-	Year      int
-	SongCount int
-	Genre     string
+// Album is a Navidrome/Subsonic album — aliased to the provider type.
+type Album = provider.AlbumInfo
+
+// albumSortTypes is the static list of sort options for album browsing.
+var albumSortTypes = []provider.SortType{
+	{ID: SortAlphabeticalByName, Label: "Alphabetical by Name"},
+	{ID: SortAlphabeticalByArtist, Label: "Alphabetical by Artist"},
+	{ID: SortNewest, Label: "Newest"},
+	{ID: SortRecent, Label: "Recently Played"},
+	{ID: SortFrequent, Label: "Most Played"},
+	{ID: SortStarred, Label: "Starred"},
+	{ID: SortByYear, Label: "By Year"},
+	{ID: SortByGenre, Label: "By Genre"},
 }
 
 // NavidromeClient implements playlist.Provider for a Navidrome/Subsonic server.
 type NavidromeClient struct {
-	url      string
-	user     string
-	password string
-	mu            sync.Mutex
-	playlistCache []playlist.PlaylistInfo
-	trackCache    map[string][]playlist.Track
+	url              string
+	user             string
+	password         string
+	browseSort       string
+	scrobbleDisabled bool
+	mu               sync.Mutex
+	playlistCache    []playlist.PlaylistInfo
+	trackCache       map[string][]playlist.Track
 }
 
 // New creates a NavidromeClient with the given server credentials.
 func New(serverURL, user, password string) *NavidromeClient {
-	return &NavidromeClient{url: serverURL, user: user, password: password}
+	return &NavidromeClient{
+		url:        serverURL,
+		user:       user,
+		password:   password,
+		browseSort: SortAlphabeticalByName,
+	}
 }
 
 // NewFromEnv creates a NavidromeClient from NAVIDROME_URL, NAVIDROME_USER,
@@ -122,11 +118,35 @@ func NewFromConfig(cfg config.NavidromeConfig) *NavidromeClient {
 	if !cfg.IsSet() {
 		return nil
 	}
-	return New(cfg.URL, cfg.User, cfg.Password)
+	client := New(cfg.URL, cfg.User, cfg.Password)
+	if cfg.BrowseSort != "" {
+		client.browseSort = cfg.BrowseSort
+	}
+	client.scrobbleDisabled = cfg.ScrobbleDisabled
+	return client
 }
 
 func (c *NavidromeClient) Name() string {
 	return "Navidrome"
+}
+
+func (c *NavidromeClient) AlbumSortTypes() []provider.SortType {
+	return albumSortTypes
+}
+
+func (c *NavidromeClient) DefaultAlbumSort() string {
+	if c.browseSort != "" {
+		return c.browseSort
+	}
+	return SortAlphabeticalByName
+}
+
+func (c *NavidromeClient) SaveAlbumSort(sortType string) error {
+	if sortType == "" {
+		sortType = SortAlphabeticalByName
+	}
+	c.browseSort = sortType
+	return config.SaveNavidromeSort(sortType)
 }
 
 // subsonicError represents an application-level error from the Subsonic API.
@@ -397,7 +417,6 @@ type subsonicSong struct {
 func (c *NavidromeClient) songToTrack(s subsonicSong) playlist.Track {
 	return playlist.Track{
 		Path:         c.streamURL(s.ID),
-		NavidromeID:  s.ID,
 		Title:        s.Title,
 		Artist:       s.Artist,
 		Album:        s.Album,
@@ -406,6 +425,7 @@ func (c *NavidromeClient) songToTrack(s subsonicSong) playlist.Track {
 		Genre:        s.Genre,
 		Stream:       true,
 		DurationSecs: s.Duration,
+		ProviderMeta: map[string]string{provider.MetaNavidromeID: s.ID},
 	}
 }
 
@@ -423,13 +443,13 @@ type subsonicAlbum struct {
 
 func albumFromSubsonic(a subsonicAlbum) Album {
 	return Album{
-		ID:        a.ID,
-		Name:      a.Name,
-		Artist:    a.Artist,
-		ArtistID:  a.ArtistID,
-		Year:      a.Year,
-		SongCount: a.SongCount,
-		Genre:     a.Genre,
+		ID:         a.ID,
+		Name:       a.Name,
+		Artist:     a.Artist,
+		ArtistID:   a.ArtistID,
+		Year:       a.Year,
+		TrackCount: a.SongCount,
+		Genre:      a.Genre,
 	}
 }
 
@@ -441,11 +461,26 @@ func (c *NavidromeClient) streamURL(id string) string {
 	return c.buildURL("stream", url.Values{"id": {id}, "format": {"raw"}})
 }
 
-// Scrobble reports playback of a track to the Subsonic server.
+func (c *NavidromeClient) CanReportPlayback(track playlist.Track) bool {
+	return !c.scrobbleDisabled && track.Meta(provider.MetaNavidromeID) != ""
+}
+
+func (c *NavidromeClient) ReportNowPlaying(track playlist.Track, _ time.Duration, _ bool) {
+	c.scrobble(track.Meta(provider.MetaNavidromeID), false)
+}
+
+func (c *NavidromeClient) ReportScrobble(track playlist.Track, _, _ time.Duration, _ bool) {
+	c.scrobble(track.Meta(provider.MetaNavidromeID), true)
+}
+
+// scrobble reports playback of a track to the Subsonic server.
 // If submission is false, it registers a "now playing" notification only.
 // If submission is true, it records a full play (updates play count, last.fm, etc.).
 // The call is best-effort: errors are silently discarded.
-func (c *NavidromeClient) Scrobble(id string, submission bool) {
+func (c *NavidromeClient) scrobble(id string, submission bool) {
+	if id == "" {
+		return
+	}
 	params := url.Values{
 		"id":         {id},
 		"submission": {fmt.Sprintf("%t", submission)},

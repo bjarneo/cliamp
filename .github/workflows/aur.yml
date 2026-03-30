@@ -41,6 +41,8 @@ jobs:
           url='https://github.com/bjarneo/cliamp'
           license=('MIT')
           depends=('alsa-lib' 'flac' 'libvorbis' 'libogg' 'ffmpeg' 'yt-dlp')
+          optdepends=('pipewire-alsa: audio output on PipeWire systems'
+                      'pulseaudio-alsa: audio output on PulseAudio systems')
           makedepends=('go')
           source=("${pkgname}-${pkgver}.tar.gz::https://github.com/bjarneo/cliamp/archive/refs/tags/v${pkgver}.tar.gz")
           sha256sums=('SHA256_PLACEHOLDER')

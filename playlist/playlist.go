@@ -38,9 +38,21 @@ type Track struct {
 	Genre        string
 	Year         int
 	TrackNumber  int
-	Stream       bool   // true for HTTP/HTTPS URLs
-	DurationSecs int    // known duration in seconds (0 = unknown)
-	NavidromeID  string // Subsonic song ID; empty for non-Navidrome tracks
+	Stream       bool // true for HTTP/HTTPS URLs
+	Realtime     bool // true for real-time/live streams (e.g. radio)
+	DurationSecs int  // known duration in seconds (0 = unknown)
+
+	// ProviderMeta holds provider-specific key-value pairs.
+	// Keys are namespaced by provider, e.g. "navidrome.id", "jellyfin.id".
+	ProviderMeta map[string]string
+}
+
+// Meta returns the value for a provider-specific metadata key, or "" if unset.
+func (t Track) Meta(key string) string {
+	if t.ProviderMeta == nil {
+		return ""
+	}
+	return t.ProviderMeta[key]
 }
 
 // IsURL reports whether path is an HTTP or HTTPS URL, or a yt-dlp search protocol string.
@@ -204,7 +216,7 @@ func TrackFromPath(path string) Track {
 	if IsURL(path) {
 		return trackFromURL(path)
 	}
-	return ReadTags(path)
+	return readTags(path)
 }
 
 // trackFromURL creates a Track from an HTTP/HTTPS URL, extracting a clean
@@ -235,7 +247,7 @@ func trackFromURL(rawURL string) Track {
 
 // IsLive reports whether the track is a live stream (e.g. Icecast radio)
 func (t Track) IsLive() bool {
-	return t.Stream && t.DurationSecs == 0
+	return t.Realtime
 }
 
 // DisplayName returns a formatted display string for the track.
@@ -284,6 +296,33 @@ func (p *Playlist) Add(tracks ...Track) {
 	p.tracks = append(p.tracks, tracks...)
 	for i := start; i < len(p.tracks); i++ {
 		p.order = append(p.order, i)
+	}
+	if !p.shuffle || len(tracks) == 0 {
+		return
+	}
+	// Shuffle mode: mix newly added tracks into the upcoming playback order
+	// without disturbing already-played items or the current position.
+	if start == 0 {
+		p.pos = 0
+		p.doShuffle()
+		return
+	}
+	if p.pos < 0 {
+		p.pos = 0
+	}
+	if p.pos >= len(p.order) {
+		// Inconsistent internal state; recover by re-shuffling so newly added
+		// tracks don't end up in sequential order.
+		p.pos = 0
+		p.doShuffle()
+		return
+	}
+	// tail is an alias into p.order's backing array; shuffling it
+	// directly reorders the upcoming entries in p.order in-place.
+	tail := p.order[p.pos+1:]
+	for i := len(tail) - 1; i > 0; i-- {
+		j := rand.Intn(i + 1)
+		tail[i], tail[j] = tail[j], tail[i]
 	}
 }
 
@@ -449,6 +488,62 @@ func (p *Playlist) RemoveQueueAt(pos int) {
 	if pos >= 0 && pos < len(p.queue) {
 		p.queue = slices.Delete(p.queue, pos, pos+1)
 	}
+}
+
+// MoveQueue swaps two adjacent entries in the play-next queue by position.
+func (p *Playlist) MoveQueue(from, to int) bool {
+	if from < 0 || from >= len(p.queue) || to < 0 || to >= len(p.queue) || from == to {
+		return false
+	}
+	p.queue[from], p.queue[to] = p.queue[to], p.queue[from]
+	return true
+}
+
+// Move swaps the track at position from with the track at position to,
+// updating order, queue, and position references so playback is unaffected.
+// When shuffle is off, the visual order becomes the new playback order.
+func (p *Playlist) Move(from, to int) bool {
+	if from < 0 || from >= len(p.tracks) || to < 0 || to >= len(p.tracks) || from == to {
+		return false
+	}
+
+	// Swap in the tracks array (visual order).
+	p.tracks[from], p.tracks[to] = p.tracks[to], p.tracks[from]
+
+	// Update order: swap all references so they point at the moved tracks.
+	for i, idx := range p.order {
+		if idx == from {
+			p.order[i] = to
+		} else if idx == to {
+			p.order[i] = from
+		}
+	}
+
+	// Queue also references track indices.
+	for i, idx := range p.queue {
+		if idx == from {
+			p.queue[i] = to
+		} else if idx == to {
+			p.queue[i] = from
+		}
+	}
+	if p.queuedIdx == from {
+		p.queuedIdx = to
+	} else if p.queuedIdx == to {
+		p.queuedIdx = from
+	}
+
+	// When shuffle is off, reset order to [0,1,...,n] so playback follows
+	// the new visual order rather than preserving the old sequence.
+	if !p.shuffle {
+		cur := p.order[p.pos]
+		for i := range p.order {
+			p.order[i] = i
+		}
+		p.pos = cur
+	}
+
+	return true
 }
 
 // SetTrack replaces the track at index i.

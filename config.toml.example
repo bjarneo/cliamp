@@ -32,7 +32,7 @@ eq_preset = "Flat"
 # Only used when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-# Default provider on startup: "radio", "navidrome", or "spotify"
+# Default provider on startup: "radio", "navidrome", "spotify", "plex", "jellyfin", or a YouTube provider
 # provider = "radio"
 
 # Compact mode: cap UI width at 80 columns (default: fluid/full-width)
@@ -41,7 +41,7 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # UI theme name (check ~/.config/cliamp/themes/ for available themes)
 # theme = "Tokyo Night"
 
-# Visualizer mode: Bars, Bricks, Columns, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, or None
+# Visualizer mode: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Logo, Terrain, Glitch, Scope, Heartbeat, Butterfly, Lightning, or None
 # visualizer = "Bars"
 
 # ---
@@ -68,3 +68,14 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 #               frequent, starred, byYear, byGenre
 # This is updated automatically when you press [s] inside the browser.
 # browse_sort = alphabeticalByName
+
+# ---
+# Jellyfin server (optional)
+# Authenticate either with a long-lived API token or with your username/password.
+# user_id is optional and is discovered automatically when omitted.
+# [jellyfin]
+# url = "https://jellyfin.example.com"
+# user = "alice"
+# password = "secret"
+# token = "optional-api-token"
+# user_id = "optional-user-id"

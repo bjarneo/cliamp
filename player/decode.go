@@ -43,10 +43,15 @@ func isURL(path string) bool {
 	return strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://")
 }
 
-// isCustomURI reports whether path is a custom URI scheme (e.g., spotify:track:xxx)
-// that should be handled by the StreamerFactory rather than normal file/HTTP decoding.
-func isCustomURI(path string) bool {
-	return strings.HasPrefix(path, "spotify:")
+// matchCustomURI returns the StreamerFactory for the given path if it matches
+// a registered custom URI scheme prefix, or nil if no scheme matches.
+func (p *Player) matchCustomURI(path string) StreamerFactory {
+	for scheme, factory := range p.customFactories {
+		if strings.HasPrefix(path, scheme) {
+			return factory
+		}
+	}
+	return nil
 }
 
 // sourceResult holds the opened stream and optional HTTP metadata.
@@ -159,18 +164,13 @@ func needsFFmpeg(ext string) bool {
 	return false
 }
 
-// isNavidromeURL reports whether path is a Subsonic stream or download endpoint.
-// Used to select the navBuffer pipeline path in buildPipelineAt.
-func isNavidromeURL(path string) bool {
-	u, err := url.Parse(path)
-	if err != nil {
+// isBufferedURL reports whether the given URL requires the buffered download
+// + ffmpeg pipeline. Returns true if a registered matcher matches the URL.
+func (p *Player) isBufferedURL(path string) bool {
+	if p.bufferedURLMatch == nil {
 		return false
 	}
-	p := strings.ToLower(u.Path)
-	return strings.HasSuffix(p, "/rest/stream") ||
-		strings.HasSuffix(p, "/rest/stream.view") ||
-		strings.HasSuffix(p, "/rest/download") ||
-		strings.HasSuffix(p, "/rest/download.view")
+	return p.bufferedURLMatch(path)
 }
 
 // decodeWithExt selects the decoder using an explicit extension.

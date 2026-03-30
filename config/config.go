@@ -39,8 +39,7 @@ func (n NavidromeConfig) IsSet() bool {
 	return n.URL != "" && n.User != "" && n.Password != ""
 }
 
-// ScrobbleEnabled reports whether scrobbling is active.
-// Scrobbling is opt-out: it is enabled unless "scrobble = false" is explicitly set.
+// ScrobbleEnabled reports whether scrobbling is enabled for this config.
 func (n NavidromeConfig) ScrobbleEnabled() bool {
 	return !n.ScrobbleDisabled
 }
@@ -68,13 +67,6 @@ type YouTubeMusicConfig struct {
 	ClientID     string // Google Cloud OAuth2 client ID (overrides built-in fallback)
 	ClientSecret string // Google Cloud OAuth2 client secret (overrides built-in fallback)
 	CookiesFrom  string // browser name for yt-dlp --cookies-from-browser (e.g. "chrome", "firefox")
-}
-
-// IsSet reports whether the YouTube providers should be shown.
-// Returns true when any of [yt], [youtube], or [ytmusic] config sections exist,
-// or when the --provider flag selects a YouTube provider (even without config).
-func (y YouTubeMusicConfig) IsSet() bool {
-	return !y.Disabled && y.Enabled
 }
 
 // IsSetOrFallback returns true when YouTube providers should be enabled,
@@ -106,48 +98,87 @@ func (y YouTubeMusicConfig) ResolveCredentials(fallbackFn func() (string, string
 	return "", ""
 }
 
-// Config holds user preferences loaded from the config file.
-type Config struct {
-	Volume          float64            // dB, range [-30, +6]
-	EQ              [10]float64        // per-band gain in dB, range [-12, +12]
-	EQPreset        string             // preset name, or "" for custom
-	Repeat          string             // "off", "all", or "one"
-	Shuffle         bool
-	Mono            bool
-	SeekStepLarge   int                // seconds for Shift+Left/Right seek jumps
-	Provider        string             // default provider: "radio", "navidrome", "spotify", "ytmusic" (default "radio")
-	Theme           string             // theme name, or "" for ANSI default
-	Visualizer      string             // visualizer mode name, or "" for default (Bars)
-	SampleRate      int                // output sample rate: 22050, 44100, 48000, 96000, 192000
-	BufferMs        int                // speaker buffer in milliseconds (50–500)
-	ResampleQuality int                // beep resample quality factor (1–4)
-	BitDepth        int                // PCM bit depth for FFmpeg output: 16 or 32
-	Compact         bool               // compact mode: cap frame width at 80 columns
-	AudioDevice     string             // preferred audio output device name (empty = system default)
-	Navidrome       NavidromeConfig    // optional Navidrome/Subsonic server credentials
-	Spotify         SpotifyConfig      // optional Spotify provider (requires Premium)
-	YouTubeMusic    YouTubeMusicConfig // optional YouTube Music provider
+// PlexConfig holds credentials for a Plex Media Server.
+// Both URL and Token must be non-empty for a client to be constructed.
+type PlexConfig struct {
+	URL   string // e.g. "http://192.168.1.10:32400"
+	Token string // X-Plex-Token
 }
 
-// Default returns a Config with sensible defaults.
+// IsSet reports whether both Plex credentials are present.
+func (p PlexConfig) IsSet() bool {
+	return p.URL != "" && p.Token != ""
+}
+
+// JellyfinConfig holds credentials for a Jellyfin server.
+// URL is required. Authenticate either with Token, or with User+Password.
+// UserID is optional and can be discovered lazily.
+type JellyfinConfig struct {
+	URL      string // e.g. "https://jellyfin.example.com"
+	Token    string // API access token
+	User     string // optional username for password-based login
+	Password string // optional password for password-based login
+	UserID   string // optional user id to skip discovery via /Users/Me
+}
+
+// IsSet reports whether the Jellyfin provider is configured.
+func (j JellyfinConfig) IsSet() bool {
+	return j.URL != "" && (j.Token != "" || (j.User != "" && j.Password != ""))
+}
+
+// Config holds user preferences loaded from the config file.
+type Config struct {
+	Volume          float64     // dB, range [-30, +6]
+	EQ              [10]float64 // per-band gain in dB, range [-12, +12]
+	EQPreset        string      // preset name, or "" for custom
+	Repeat          string      // "off", "all", or "one"
+	Shuffle         bool
+	Mono            bool
+	Speed           float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
+	AutoPlay        bool                         // start playback automatically on launch (radio streams, CLI tracks)
+	SeekStepLarge   int                          // seconds for Shift+Left/Right seek jumps
+	Provider        string                       // default provider: "radio", "navidrome", "spotify", "plex", "jellyfin", "ytmusic" (default "radio")
+	Theme           string                       // theme name, or "" for ANSI default
+	Visualizer      string                       // visualizer mode name, or "" for default (Bars)
+	SampleRate      int                          // output sample rate: 22050, 44100, 48000, 96000, 192000
+	BufferMs        int                          // speaker buffer in milliseconds (50–500)
+	ResampleQuality int                          // beep resample quality factor (1–4)
+	BitDepth        int                          // PCM bit depth for FFmpeg output: 16 or 32
+	Compact         bool                         // compact mode: cap frame width at 80 columns
+	PaddingH        int                          // horizontal padding for the UI frame (default 3)
+	PaddingV        int                          // vertical padding for the UI frame (default 1)
+	AudioDevice     string                       // preferred audio output device name (empty = system default)
+	Navidrome       NavidromeConfig              // optional Navidrome/Subsonic server credentials
+	Spotify         SpotifyConfig                // optional Spotify provider (requires Premium)
+	YouTubeMusic    YouTubeMusicConfig           // optional YouTube Music provider
+	Plex            PlexConfig                   // optional Plex Media Server credentials
+	Jellyfin        JellyfinConfig               // optional Jellyfin server credentials
+	Plugins         map[string]map[string]string // per-plugin config from [plugins.*] sections
+}
+
+// defaultConfig returns a Config with sensible defaults.
 // SampleRate defaults to 0, which means "auto-detect from the system's default
 // output device" (see player.DeviceSampleRate). This ensures USB audio devices
 // that require a specific rate (commonly 48 kHz) work out of the box.
-func Default() Config {
+func defaultConfig() Config {
 	return Config{
 		Repeat:          "off",
+		AutoPlay:        false,
+		Speed:           1.0,
 		SeekStepLarge:   30,
 		SampleRate:      0,
 		BufferMs:        100,
 		ResampleQuality: 4,
 		BitDepth:        16,
+		PaddingH:        3,
+		PaddingV:        1,
 	}
 }
 
 // Load reads the config file from ~/.config/cliamp/config.toml.
 // Returns defaults if the file does not exist.
 func Load() (Config, error) {
-	cfg := Default()
+	cfg := defaultConfig()
 
 	path, err := configPath()
 	if err != nil {
@@ -171,7 +202,7 @@ func Load() (Config, error) {
 			continue
 		}
 
-		// Section header: [navidrome]
+		// Section header: [navidrome], [plex], [plugins.lastfm], etc.
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
 			section = strings.ToLower(line[1 : len(line)-1])
 			// Mark providers as enabled when their section exists.
@@ -180,6 +211,19 @@ func Load() (Config, error) {
 			case "yt", "youtube", "ytmusic":
 				cfg.YouTubeMusic.Enabled = true
 				section = "ytmusic" // normalize for key parsing below
+			}
+			// Initialize plugin sub-maps for [plugins] and [plugins.*] sections.
+			if section == "plugins" || strings.HasPrefix(section, "plugins.") {
+				if cfg.Plugins == nil {
+					cfg.Plugins = make(map[string]map[string]string)
+				}
+				pluginName := strings.TrimPrefix(section, "plugins.")
+				if pluginName == "plugins" {
+					pluginName = "" // top-level [plugins] section
+				}
+				if _, ok := cfg.Plugins[pluginName]; !ok {
+					cfg.Plugins[pluginName] = make(map[string]string)
+				}
 			}
 			continue
 		}
@@ -224,7 +268,40 @@ func Load() (Config, error) {
 			case "cookies_from":
 				cfg.YouTubeMusic.CookiesFrom = strings.Trim(val, `"'`)
 			}
+		case "plex":
+			switch key {
+			case "url":
+				cfg.Plex.URL = strings.Trim(val, `"'`)
+			case "token":
+				cfg.Plex.Token = strings.Trim(val, `"'`)
+			}
+		case "jellyfin":
+			switch key {
+			case "url":
+				cfg.Jellyfin.URL = strings.Trim(val, `"'`)
+			case "token":
+				cfg.Jellyfin.Token = strings.Trim(val, `"'`)
+			case "user":
+				cfg.Jellyfin.User = strings.Trim(val, `"'`)
+			case "password":
+				cfg.Jellyfin.Password = strings.Trim(val, `"'`)
+			case "user_id":
+				cfg.Jellyfin.UserID = strings.Trim(val, `"'`)
+			}
 		default:
+			// Handle [plugins] and [plugins.*] sections.
+			if section == "plugins" || strings.HasPrefix(section, "plugins.") {
+				pluginName := strings.TrimPrefix(section, "plugins.")
+				if pluginName == "plugins" {
+					pluginName = "" // top-level [plugins] section
+				}
+				if cfg.Plugins != nil {
+					if m, ok := cfg.Plugins[pluginName]; ok {
+						m[key] = strings.Trim(val, `"'`)
+					}
+				}
+				continue
+			}
 			switch key {
 			case "volume":
 				if v, err := strconv.ParseFloat(val, 64); err == nil {
@@ -240,6 +317,8 @@ func Load() (Config, error) {
 				cfg.Shuffle = val == "true"
 			case "mono":
 				cfg.Mono = val == "true"
+			case "auto_play":
+				cfg.AutoPlay = val == "true"
 			case "seek_large_step_sec":
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.SeekStepLarge = v
@@ -270,10 +349,22 @@ func Load() (Config, error) {
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.BitDepth = v
 				}
+			case "speed":
+				if v, err := strconv.ParseFloat(val, 64); err == nil {
+					cfg.Speed = v
+				}
 			case "compact":
 				cfg.Compact = val == "true"
 			case "audio_device":
 				cfg.AudioDevice = strings.Trim(val, `"'`)
+			case "padding_horizontal":
+				if v, err := strconv.Atoi(val); err == nil {
+					cfg.PaddingH = v
+				}
+			case "padding_vertical":
+				if v, err := strconv.Atoi(val); err == nil {
+					cfg.PaddingV = v
+				}
 			}
 		}
 	}
@@ -421,6 +512,7 @@ func SaveNavidromeSort(sortType string) error {
 // PlayerConfig is the subset of player controls needed to apply config.
 type PlayerConfig interface {
 	SetVolume(db float64)
+	SetSpeed(ratio float64)
 	SetEQBand(band int, dB float64)
 	ToggleMono()
 }
@@ -434,6 +526,9 @@ type PlaylistConfig interface {
 // ApplyPlayer applies audio-engine settings from the config.
 func (c Config) ApplyPlayer(p PlayerConfig) {
 	p.SetVolume(c.Volume)
+	if c.Speed != 0 && c.Speed != 1.0 {
+		p.SetSpeed(c.Speed)
+	}
 	if c.EQPreset == "" || c.EQPreset == "Custom" {
 		for i, gain := range c.EQ {
 			p.SetEQBand(i, gain)
@@ -466,11 +561,16 @@ func (c Config) SeekStepLargeDuration() time.Duration {
 // clamp constrains all Config fields to their valid ranges.
 func (c *Config) clamp() {
 	c.Volume = max(min(c.Volume, 6), -30)
+	if c.Speed < 0.25 || c.Speed > 2.0 {
+		c.Speed = 1.0
+	}
 	c.SeekStepLarge = max(min(c.SeekStepLarge, 600), 6)
 	c.SampleRate = clampSampleRate(c.SampleRate)
 	c.BufferMs = max(min(c.BufferMs, 500), 50)
 	c.ResampleQuality = max(min(c.ResampleQuality, 4), 1)
 	c.BitDepth = clampBitDepth(c.BitDepth)
+	c.PaddingH = max(min(c.PaddingH, 10), 0)
+	c.PaddingV = max(min(c.PaddingV, 5), 0)
 }
 
 // clampSampleRate returns the nearest valid sample rate from the allowed set.

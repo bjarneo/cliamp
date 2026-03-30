@@ -180,11 +180,13 @@ func decodeFFmpegStream(path string, sr beep.SampleRate, bitDepth int) (*ffmpegP
 		Precision:   precision,
 	}
 
-	return &ffmpegPipeStreamer{cmd: cmd, reader: bufio.NewReaderSize(pipe, 64*1024), pipe: pipe, f32: bitDepth == 32}, format, nil
+	return &ffmpegPipeStreamer{ffmpegPipe: ffmpegPipe{cmd: cmd, reader: bufio.NewReaderSize(pipe, pipeBufSize), pipe: pipe, f32: bitDepth == 32}}, format, nil
 }
 
-// ffmpegPipeStreamer reads PCM data incrementally from a running ffmpeg process.
-type ffmpegPipeStreamer struct {
+// ffmpegPipe holds the common state and methods shared by all pipe-based
+// ffmpeg streamers. Each concrete streamer embeds this and adds its own
+// Seek (and optionally start) implementation.
+type ffmpegPipe struct {
 	cmd    *exec.Cmd
 	reader *bufio.Reader
 	pipe   io.ReadCloser
@@ -192,30 +194,49 @@ type ffmpegPipeStreamer struct {
 	f32    bool                 // true = f32le, false = s16le
 	err    error
 	pos    int // current sample frame position
+	total  int // total frames (0 if unknown/unbounded)
 }
 
-func (f *ffmpegPipeStreamer) Stream(samples [][2]float64) (int, bool) {
+func (f *ffmpegPipe) Stream(samples [][2]float64) (int, bool) {
 	n, ok := streamFromReader(f.reader, samples, f.buf[:], f.f32, &f.err)
 	f.pos += n
 	return n, ok
 }
 
-func (f *ffmpegPipeStreamer) Err() error { return f.err }
+func (f *ffmpegPipe) Err() error    { return f.err }
+func (f *ffmpegPipe) Len() int      { return f.total }
+func (f *ffmpegPipe) Position() int { return f.pos }
 
-func (f *ffmpegPipeStreamer) Len() int { return 0 }
-
-func (f *ffmpegPipeStreamer) Position() int { return f.pos }
-
-func (f *ffmpegPipeStreamer) Seek(int) error { return nil }
-
-func (f *ffmpegPipeStreamer) Close() error {
-	f.pipe.Close()
-	if f.cmd.Process != nil {
-		f.cmd.Process.Kill()
+// stop kills the running ffmpeg process and cleans up.
+func (f *ffmpegPipe) stop() {
+	if f.pipe != nil {
+		f.pipe.Close()
 	}
-	f.cmd.Wait() // ignore error — process was intentionally killed
+	if f.cmd != nil && f.cmd.Process != nil {
+		f.cmd.Process.Kill()
+		f.cmd.Wait()
+	}
+}
+
+func (f *ffmpegPipe) Close() error {
+	f.stop()
 	return nil
 }
+
+func (f *ffmpegPipe) bitDepth() int {
+	if f.f32 {
+		return 32
+	}
+	return 16
+}
+
+// ffmpegPipeStreamer reads PCM data incrementally from a running ffmpeg process.
+// Used for live/infinite streams where seeking is not supported.
+type ffmpegPipeStreamer struct {
+	ffmpegPipe
+}
+
+func (f *ffmpegPipeStreamer) Seek(int) error { return nil }
 
 // decodeFFmpegLocal starts ffmpeg as a streaming pipe for local files, giving
 // instant playback start instead of buffering the entire file to memory.
@@ -230,7 +251,7 @@ func decodeFFmpegLocal(path string, sr beep.SampleRate, bitDepth int) (*localFFm
 	_, _, precision := ffmpegPCMArgs(bitDepth)
 	total := probeFrames(path, sr)
 
-	s := &localFFmpegStreamer{path: path, sr: sr, total: total, f32: bitDepth == 32}
+	s := &localFFmpegStreamer{ffmpegPipe: ffmpegPipe{total: total, f32: bitDepth == 32}, path: path, sr: sr}
 	if err := s.start(0); err != nil {
 		return nil, beep.Format{}, err
 	}
@@ -248,16 +269,9 @@ func decodeFFmpegLocal(path string, sr beep.SampleRate, bitDepth int) (*localFFm
 // starts as soon as ffmpeg begins producing output. Seeking kills the current
 // process and restarts with -ss (demuxer-level fast seek).
 type localFFmpegStreamer struct {
-	path   string
-	sr     beep.SampleRate
-	cmd    *exec.Cmd
-	reader *bufio.Reader
-	pipe   io.ReadCloser
-	buf    [pcmFrameSize32]byte // large enough for both 16-bit and 32-bit frames
-	f32    bool                 // true = f32le, false = s16le
-	err    error
-	pos    int // current sample frame
-	total  int // total frames (0 if unknown)
+	ffmpegPipe
+	path string
+	sr   beep.SampleRate
 }
 
 // start launches ffmpeg, optionally seeking to seekPos sample frames.
@@ -289,39 +303,11 @@ func (s *localFFmpegStreamer) start(seekPos int) error {
 
 	s.cmd = cmd
 	s.pipe = pipe
-	s.reader = bufio.NewReaderSize(pipe, 64*1024)
+	s.reader = bufio.NewReaderSize(pipe, pipeBufSize)
 	s.pos = seekPos
 	s.err = nil
 	return nil
 }
-
-// stop kills the running ffmpeg process and cleans up.
-func (s *localFFmpegStreamer) stop() {
-	if s.pipe != nil {
-		s.pipe.Close()
-	}
-	if s.cmd != nil && s.cmd.Process != nil {
-		s.cmd.Process.Kill()
-		s.cmd.Wait()
-	}
-}
-
-func (s *localFFmpegStreamer) bitDepth() int {
-	if s.f32 {
-		return 32
-	}
-	return 16
-}
-
-func (s *localFFmpegStreamer) Stream(samples [][2]float64) (int, bool) {
-	n, ok := streamFromReader(s.reader, samples, s.buf[:], s.f32, &s.err)
-	s.pos += n
-	return n, ok
-}
-
-func (s *localFFmpegStreamer) Err() error    { return s.err }
-func (s *localFFmpegStreamer) Len() int      { return s.total }
-func (s *localFFmpegStreamer) Position() int { return s.pos }
 
 func (s *localFFmpegStreamer) Seek(pos int) error {
 	if pos < 0 {
@@ -334,11 +320,6 @@ func (s *localFFmpegStreamer) Seek(pos int) error {
 	return s.start(pos)
 }
 
-func (s *localFFmpegStreamer) Close() error {
-	s.stop()
-	return nil
-}
-
 // decodeNavFFmpeg starts ffmpeg with the navBuffer as stdin, returning a
 // navFFmpegStreamer that begins producing PCM immediately as bytes arrive.
 // Seeking kills ffmpeg, repositions the navBuffer, and restarts ffmpeg from
@@ -348,7 +329,7 @@ func decodeNavFFmpeg(nb *navBuffer, sr beep.SampleRate, bitDepth int, totalFrame
 		return nil, beep.Format{}, fmt.Errorf("ffmpeg is required to decode this format — install it with your package manager")
 	}
 	_, _, precision := ffmpegPCMArgs(bitDepth)
-	s := &navFFmpegStreamer{nb: nb, sr: sr, total: totalFrames, f32: bitDepth == 32}
+	s := &navFFmpegStreamer{ffmpegPipe: ffmpegPipe{total: totalFrames, f32: bitDepth == 32}, nb: nb, sr: sr}
 	if err := s.start(0); err != nil {
 		return nil, beep.Format{}, err
 	}
@@ -366,16 +347,9 @@ func decodeNavFFmpeg(nb *navBuffer, sr beep.SampleRate, bitDepth int, totalFrame
 // ffmpeg process, repositions the navBuffer to the target byte offset, and
 // restarts ffmpeg so it reads from that position onwards.
 type navFFmpegStreamer struct {
-	nb     *navBuffer
-	sr     beep.SampleRate
-	cmd    *exec.Cmd
-	reader *bufio.Reader
-	pipe   io.ReadCloser
-	buf    [pcmFrameSize32]byte
-	f32    bool
-	err    error
-	pos    int // current sample frame
-	total  int // total frames (from track metadata; 0 if unknown)
+	ffmpegPipe
+	nb *navBuffer
+	sr beep.SampleRate
 }
 
 // start launches ffmpeg reading from nb at nb's current position.
@@ -402,39 +376,11 @@ func (s *navFFmpegStreamer) start(seekPos int) error {
 
 	s.cmd = cmd
 	s.pipe = pipe
-	s.reader = bufio.NewReaderSize(pipe, 64*1024)
+	s.reader = bufio.NewReaderSize(pipe, pipeBufSize)
 	s.pos = seekPos
 	s.err = nil
 	return nil
 }
-
-// stop kills the running ffmpeg process and cleans up.
-func (s *navFFmpegStreamer) stop() {
-	if s.pipe != nil {
-		s.pipe.Close()
-	}
-	if s.cmd != nil && s.cmd.Process != nil {
-		s.cmd.Process.Kill()
-		s.cmd.Wait()
-	}
-}
-
-func (s *navFFmpegStreamer) bitDepth() int {
-	if s.f32 {
-		return 32
-	}
-	return 16
-}
-
-func (s *navFFmpegStreamer) Stream(samples [][2]float64) (int, bool) {
-	n, ok := streamFromReader(s.reader, samples, s.buf[:], s.f32, &s.err)
-	s.pos += n
-	return n, ok
-}
-
-func (s *navFFmpegStreamer) Err() error    { return s.err }
-func (s *navFFmpegStreamer) Len() int      { return s.total }
-func (s *navFFmpegStreamer) Position() int { return s.pos }
 
 // Seek repositions playback to the given sample frame. Kills the current
 // ffmpeg process, seeks the navBuffer to the proportional byte offset, and
@@ -463,11 +409,6 @@ func (s *navFFmpegStreamer) Seek(targetFrame int) error {
 	}
 
 	return s.start(targetFrame)
-}
-
-func (s *navFFmpegStreamer) Close() error {
-	s.stop()
-	return nil
 }
 
 // ffmpegPCMArgs returns the ffmpeg format flag, codec name, and beep precision

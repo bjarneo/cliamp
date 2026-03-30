@@ -36,7 +36,7 @@ eq_preset = "Flat"
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
 # Visualizer mode (leave empty for default Bars)
-# Options: Bars, Bricks, Columns, Wave, Scatter, Flame, Retro, None
+# Options: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Logo, Terrain, Glitch, Scope, Heartbeat, Butterfly, Lightning, None
 visualizer = "Bars"
 
 # Compact mode: cap UI width at 80 columns (default: fluid/full-width)
@@ -44,6 +44,7 @@ compact = false
 
 # UI theme name (see available themes in ~/.config/cliamp/themes/)
 theme = "Tokyo Night"
+
 ```
 
 ## Default Provider
@@ -54,9 +55,9 @@ Set which provider to start with:
 provider = "radio"
 ```
 
-Valid values: `radio` (default), `navidrome`, `spotify`.
+Valid values: `radio` (default), `navidrome`, `spotify`, `plex`, `jellyfin`, `yt`, `youtube`, `ytmusic`.
 
-You can also override from the CLI: `cliamp --provider navidrome`.
+You can also override from the CLI: `cliamp --provider jellyfin`.
 
 ## Custom Radio Stations
 
@@ -75,6 +76,29 @@ url = "https://ambient.example.com/stream.m3u"
 These appear alongside the built-in cliamp radio in the Radio provider.
 
 See [audio-quality.md](audio-quality.md) for sample rate, buffer, bit depth, and resample quality settings.
+
+## WSL2 (Windows Subsystem for Linux)
+
+cliamp uses ALSA for audio on Linux. WSL2 doesn't expose ALSA hardware directly, but WSLg provides a PulseAudio server that ALSA can route through.
+
+If you see errors like `ALSA lib pcm.c: Unknown PCM default`, fix it with two steps:
+
+**1. Install the ALSA PulseAudio plugin:**
+
+```sh
+sudo apt install libasound2-plugins
+```
+
+**2. Create `~/.asoundrc` to route ALSA through PulseAudio:**
+
+```sh
+cat > ~/.asoundrc << 'EOF'
+pcm.default pulse
+ctl.default pulse
+EOF
+```
+
+WSLg must be active (`echo $PULSE_SERVER` should print a path). If it's empty, ensure you're on Windows 11 with WSLg enabled and run `wsl --shutdown` then reopen your terminal.
 
 ## ffmpeg (optional)
 

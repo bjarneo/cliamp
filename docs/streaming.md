@@ -40,6 +40,10 @@ Play individual episodes from [Xiaoyuzhou](https://www.xiaoyuzhoufm.com) by pass
 cliamp https://www.xiaoyuzhoufm.com/episode/xxxx
 ```
 
+## Radio Catalog
+
+Press `R` in the player to browse and search 30,000+ online radio stations from the [Radio Browser](https://www.radio-browser.info/) directory. Use `/` to search by name, `Enter` to play, and `a` to append a station to the playlist.
+
 ## Load URL at Runtime
 
 Press `u` while playing to load a new stream or playlist URL without restarting. Supports the same URL types as CLI arguments: direct audio URLs, M3U/PLS playlists, RSS podcast feeds, and yt-dlp compatible links.

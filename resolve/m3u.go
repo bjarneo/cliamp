@@ -22,9 +22,16 @@ type m3uEntry struct {
 // Relative paths are resolved against baseDir (empty for remote M3U).
 // Handles UTF-8 BOM, \r\n line endings, missing #EXTM3U header, and bare
 // entries without EXTINF lines.
+// scannerInitBufSize and scannerMaxLineSize configure bufio.Scanners
+// for parsing M3U playlists and yt-dlp JSON output.
+const (
+	scannerInitBufSize = 64 * 1024   // initial scanner buffer
+	scannerMaxLineSize = 1024 * 1024 // max line length — handles large EXTINF/JSON metadata
+)
+
 func parseM3U(r io.Reader, baseDir string) ([]m3uEntry, error) {
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // 1 MB max line — handles large EXTINF metadata
+	scanner.Buffer(make([]byte, 0, scannerInitBufSize), scannerMaxLineSize)
 	var entries []m3uEntry
 	var pending *m3uEntry // EXTINF parsed, waiting for path line
 
@@ -83,14 +90,26 @@ func parseM3U(r io.Reader, baseDir string) ([]m3uEntry, error) {
 
 // m3uEntryToTrack converts a parsed M3U entry to a playlist.Track.
 func m3uEntryToTrack(e m3uEntry) playlist.Track {
+	isURL := playlist.IsURL(e.Path)
+	duration := 0
+	if e.Duration > 0 {
+		duration = e.Duration
+	}
+	realtime := isURL && e.Duration < 0
+
 	if e.Title != "" {
 		return playlist.Track{
-			Path:   e.Path,
-			Title:  e.Title,
-			Stream: playlist.IsURL(e.Path),
+			Path:         e.Path,
+			Title:        e.Title,
+			Stream:       isURL,
+			Realtime:     realtime,
+			DurationSecs: duration,
 		}
 	}
-	return playlist.TrackFromPath(e.Path)
+	t := playlist.TrackFromPath(e.Path)
+	t.Realtime = realtime
+	t.DurationSecs = duration
+	return t
 }
 
 // entriesToTracks converts parsed M3U entries to playlist tracks.
@@ -102,10 +121,10 @@ func entriesToTracks(entries []m3uEntry) []playlist.Track {
 	return tracks
 }
 
-// ResolveLocalM3U opens a local .m3u/.m3u8 file, parses it with EXTINF
+// resolveLocalM3U opens a local .m3u/.m3u8 file, parses it with EXTINF
 // metadata, and returns the resulting tracks. Relative paths in the M3U
 // are resolved against the directory containing the M3U file.
-func ResolveLocalM3U(path string) ([]playlist.Track, error) {
+func resolveLocalM3U(path string) ([]playlist.Track, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err

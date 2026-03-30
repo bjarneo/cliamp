@@ -8,7 +8,7 @@ import (
 	"github.com/gopxl/beep/v2"
 )
 
-// Tap is a streamer wrapper that copies samples into a ring buffer
+// tap is a streamer wrapper that copies samples into a ring buffer
 // for real-time FFT visualization. It sits in the audio pipeline
 // between the volume control and the speaker controller.
 //
@@ -16,16 +16,16 @@ import (
 // (sole writer) and the UI thread (infrequent reader at 50ms intervals)
 // to operate without mutex contention. Minor sample tearing at the
 // read boundary is invisible in FFT-based spectrum visualization.
-type Tap struct {
+type tap struct {
 	s    beep.Streamer
 	buf  []float64
 	pos  atomic.Int64
 	size int
 }
 
-// NewTap wraps a streamer with a ring buffer of the given size.
-func NewTap(s beep.Streamer, bufSize int) *Tap {
-	return &Tap{
+// newTap wraps a streamer with a ring buffer of the given size.
+func newTap(s beep.Streamer, bufSize int) *tap {
+	return &tap{
 		s:    s,
 		buf:  make([]float64, bufSize),
 		size: bufSize,
@@ -33,7 +33,7 @@ func NewTap(s beep.Streamer, bufSize int) *Tap {
 }
 
 // Stream passes audio through while capturing a mono mix into the ring buffer.
-func (t *Tap) Stream(samples [][2]float64) (int, bool) {
+func (t *tap) Stream(samples [][2]float64) (int, bool) {
 	n, ok := t.s.Stream(samples)
 	p := int(t.pos.Load())
 	for i := range n {
@@ -45,27 +45,13 @@ func (t *Tap) Stream(samples [][2]float64) (int, bool) {
 }
 
 // Err returns the underlying streamer's error.
-func (t *Tap) Err() error {
+func (t *tap) Err() error {
 	return t.s.Err()
-}
-
-// Samples returns the last n samples from the ring buffer in chronological order.
-func (t *Tap) Samples(n int) []float64 {
-	if n > t.size {
-		n = t.size
-	}
-	out := make([]float64, n)
-	p := int(t.pos.Load())
-	start := (p - n + t.size) % t.size
-	for i := range n {
-		out[i] = t.buf[(start+i)%t.size]
-	}
-	return out
 }
 
 // SamplesInto copies the last len(dst) samples into dst, avoiding allocation.
 // Returns the number of samples written.
-func (t *Tap) SamplesInto(dst []float64) int {
+func (t *tap) SamplesInto(dst []float64) int {
 	n := len(dst)
 	if n > t.size {
 		n = t.size

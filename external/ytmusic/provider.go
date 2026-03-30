@@ -21,6 +21,9 @@ type itemInfo struct {
 	channel string
 }
 
+// youtubeAPIBatchSize is the maximum number of items per YouTube Data API request.
+const youtubeAPIBatchSize = 50
+
 // baseProvider holds shared state for YouTube and YouTube Music providers.
 // Both providers share the same OAuth session and track cache.
 type baseProvider struct {
@@ -33,6 +36,7 @@ type baseProvider struct {
 	allPlaylists []playlistEntry             // cached raw playlist list
 	classified   map[string]bool             // playlist ID -> is music (from classify.go)
 	disk         *ytCache                    // lazy-loaded disk cache
+	authCancel   context.CancelFunc          // cancels any in-progress OAuth flow
 }
 
 func newBase(session *Session, clientID, clientSecret string, hasCookies bool) *baseProvider {
@@ -55,12 +59,19 @@ func (b *baseProvider) ensureDiskCache() *ytCache {
 
 // initSession creates a session if one doesn't exist yet. If interactive is
 // false, only stored credentials are tried (returning ErrNeedsAuth on failure).
-// If interactive is true, a browser-based OAuth flow is started.
+// If interactive is true, a browser-based OAuth flow is started. Any previous
+// in-progress OAuth flow is cancelled first to free the callback port.
 func (b *baseProvider) initSession(interactive bool) error {
 	b.mu.Lock()
 	if b.session != nil {
 		b.mu.Unlock()
 		return nil
+	}
+	// Cancel any previous in-progress auth attempt so the old listener
+	// on CallbackPort is released before we try to bind again.
+	if b.authCancel != nil {
+		b.authCancel()
+		b.authCancel = nil
 	}
 	clientID := b.clientID
 	clientSecret := b.clientSecret
@@ -73,7 +84,17 @@ func (b *baseProvider) initSession(interactive bool) error {
 	var sess *Session
 	var err error
 	if interactive {
-		sess, err = NewSession(context.Background(), clientID, clientSecret)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		b.mu.Lock()
+		b.authCancel = cancel
+		b.mu.Unlock()
+
+		sess, err = NewSession(ctx, clientID, clientSecret)
+
+		b.mu.Lock()
+		b.authCancel = nil
+		b.mu.Unlock()
+		cancel()
 	} else {
 		sess, err = NewSessionSilent(context.Background(), clientID, clientSecret)
 	}
@@ -98,6 +119,10 @@ func (b *baseProvider) authenticate() error   { return b.initSession(true) }
 func (b *baseProvider) close() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.authCancel != nil {
+		b.authCancel()
+		b.authCancel = nil
+	}
 	if b.session != nil {
 		b.session.Close()
 		b.session = nil
@@ -344,8 +369,8 @@ func (b *baseProvider) fetchDurations(ctx context.Context, svc *youtube.Service,
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 5) // limit concurrent API calls
 
-	for i := 0; i < len(items); i += 50 {
-		end := i + 50
+	for i := 0; i < len(items); i += youtubeAPIBatchSize {
+		end := i + youtubeAPIBatchSize
 		if end > len(items) {
 			end = len(items)
 		}
