@@ -190,6 +190,37 @@ type Model struct {
 	status         statusMsg
 	network        networkStats
 	speedSaveAfter time.Duration
+	provider      playlist.Provider
+	localProvider   *local.Provider           // direct ref for write operations (add-to-playlist)
+	spotifyProvider *spotify.SpotifyProvider  // direct ref for search/playlist write operations
+	providerLists []playlist.PlaylistInfo
+	provCursor    int
+	provLoading   bool
+	provSignIn    bool            // true when provider needs interactive sign-in
+	providers     []ProviderEntry // all available providers
+	provPillIdx   int             // selected pill index
+	eqPresetIdx   int             // -1 = custom, 0+ = index into eqPresets
+	eqCustomLabel string          // non-empty = plugin-defined preset label (shown instead of "Custom")
+
+	// Overlay / feature state (see state.go for struct definitions)
+	search      searchState
+	netSearch   netSearchState
+	provSearch  provSearchState
+	seek        seekState
+	themePicker themePickerState
+	lyrics      lyricsState
+	keymap      keymapOverlay
+	queue       queueOverlay
+	plManager   plManagerState
+	spotSearch  spotSearchState
+	fileBrowser fileBrowserState
+	navBrowser    navBrowserState
+	radioBatch    radioBatchState
+	ytdlBatch     ytdlBatchState
+	reconnect   reconnectState
+	status      statusMsg
+	network     networkStats
+	speedDirty  int // tick countdown for debounced speed config save
 
 	// Jump to time mode
 	jumping   bool
@@ -538,24 +569,46 @@ func (m *Model) SetPendingURLs(urls []string) {
 	m.feedLoading = len(urls) > 0
 }
 
-// SetEQPreset sets the preset index by name. Returns true if found.
-func (m *Model) SetEQPreset(name string) bool {
+// SetEQPreset sets the preset by name. If it matches a built-in preset,
+// those bands are applied. Otherwise the name is used as a custom label.
+// If bands is non-nil, they are applied regardless of whether the name matches.
+func (m *Model) SetEQPreset(name string, bands *[10]float64) {
+	m.eqCustomLabel = ""
+
+	// Check built-in presets first.
 	for i, p := range eqPresets {
 		if strings.EqualFold(p.Name, name) {
 			m.eqPresetIdx = i
-			m.applyEQPreset()
-			return true
+			if bands != nil {
+				for j, gain := range bands {
+					m.player.SetEQBand(j, gain)
+				}
+			} else {
+				m.applyEQPreset()
+			}
+			return
 		}
 	}
-	return false
+
+	// Custom label — set bands if provided, otherwise keep current.
+	m.eqPresetIdx = -1
+	m.eqCustomLabel = name
+	if bands != nil {
+		for i, gain := range bands {
+			m.player.SetEQBand(i, gain)
+		}
+	}
 }
 
 // EQPresetName returns the current preset name, or "Custom".
 func (m Model) EQPresetName() string {
-	if m.eqPresetIdx < 0 || m.eqPresetIdx >= len(eqPresets) {
-		return "Custom"
+	if m.eqPresetIdx >= 0 && m.eqPresetIdx < len(eqPresets) {
+		return eqPresets[m.eqPresetIdx].Name
 	}
-	return eqPresets[m.eqPresetIdx].Name
+	if m.eqCustomLabel != "" {
+		return m.eqCustomLabel
+	}
+	return "Custom"
 }
 
 // applyEQPreset writes the current preset's bands to the player.
@@ -1484,6 +1537,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.player.Close()
 		m.quitting = true
 		return m, tea.Quit
+
+	case SetEQPresetMsg:
+		m.SetEQPreset(msg.Name, msg.Bands)
+		return m, nil
 	}
 
 	return m, nil

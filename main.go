@@ -241,7 +241,7 @@ func run(overrides config.Overrides, positional []string) error {
 		m.StartInProvider()
 	}
 	if cfg.EQPreset != "" && cfg.EQPreset != "Custom" {
-		m.SetEQPreset(cfg.EQPreset)
+		m.SetEQPreset(cfg.EQPreset, nil)
 	}
 	if cfg.Theme != "" {
 		m.SetTheme(cfg.Theme)
@@ -275,8 +275,11 @@ func run(overrides config.Overrides, positional []string) error {
 			Seek: func(secs float64) {
 				_ = p.Seek(time.Duration(secs * float64(time.Second)))
 			},
-			Next: func() { prog.Send(mpris.NextMsg{}) },
-			Prev: func() { prog.Send(mpris.PrevMsg{}) },
+			SetEQPreset: func(name string, bands *[10]float64) {
+				prog.Send(ui.SetEQPresetMsg{Name: name, Bands: bands})
+			},
+			Next:         func() { prog.Send(mpris.NextMsg{}) },
+			Prev:         func() { prog.Send(mpris.PrevMsg{}) },
 		})
 	}
 
