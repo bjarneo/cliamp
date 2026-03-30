@@ -51,8 +51,9 @@ type Player struct {
 	gaplessAdvance atomic.Bool // set when gapless transition fires
 	seekGen        atomic.Int64    // generation counter for yt-dlp seeks; incremented to cancel stale seeks
 
-	streamTitle    atomic.Value    // stores string, set by ICY reader callback
-	customFactory  StreamerFactory // optional factory for custom URI schemes (e.g., spotify:)
+	streamTitle       atomic.Value    // stores string, set by ICY reader callback
+	customFactories   map[string]StreamerFactory // URI scheme prefix -> factory (e.g. "spotify:" -> fn)
+	bufferedURLMatch  func(string) bool          // optional: returns true for URLs needing navBuffer pipeline
 }
 
 // New creates a Player and initializes the speaker with the given quality settings.
@@ -650,13 +651,26 @@ func (p *Player) StreamBytes() (downloaded, total int64) {
 	return downloaded, total
 }
 
-// SetStreamerFactory registers a factory function for custom URI schemes.
-// When buildPipeline encounters a URI that isn't a local file or HTTP URL,
-// it calls this factory to create the decoder.
-func (p *Player) SetStreamerFactory(f StreamerFactory) {
+// RegisterStreamerFactory registers a factory for a custom URI scheme prefix
+// (e.g., "spotify:"). When buildPipeline encounters a path starting with this
+// prefix, it calls the factory to create the decoder instead of the normal
+// file/HTTP pipeline.
+func (p *Player) RegisterStreamerFactory(scheme string, f StreamerFactory) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.customFactory = f
+	if p.customFactories == nil {
+		p.customFactories = make(map[string]StreamerFactory)
+	}
+	p.customFactories[scheme] = f
+}
+
+// RegisterBufferedURLMatcher registers a function that identifies HTTP URLs
+// requiring the buffered download + ffmpeg pipeline (e.g. Subsonic stream
+// endpoints). This replaces hardcoded URL pattern checks.
+func (p *Player) RegisterBufferedURLMatcher(match func(string) bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.bufferedURLMatch = match
 }
 
 // Close fully stops the speaker and cleans up all resources.

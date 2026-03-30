@@ -14,6 +14,7 @@ import (
 	"cliamp/external/radio"
 	"cliamp/internal/fileutil"
 	"cliamp/playlist"
+	"cliamp/provider"
 )
 
 // quit shuts down the player and signals the TUI to exit.
@@ -39,7 +40,7 @@ func (m *Model) quit() tea.Cmd {
 
 // scrobbleCurrent fires a scrobble for the currently playing track if applicable.
 func (m *Model) scrobbleCurrent() {
-	if track, _ := m.playlist.Current(); track.NavidromeID != "" {
+	if track, _ := m.playlist.Current(); track.Meta("navidrome.id") != "" {
 		m.maybeScrobble(track, m.player.Position(), m.player.Duration())
 	}
 }
@@ -210,8 +211,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		case "o":
 			m.openFileBrowser()
 		case "N":
-			if m.navClient != nil {
-				m.openNavBrowser()
+			if prov := m.findBrowseProvider(); prov != nil {
+				m.openNavBrowserWith(prov)
 			}
 		case "pgup", "ctrl+u":
 			if m.provCursor > 0 {
@@ -506,8 +507,12 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		m.focus = focusNetSearch
 
 	case "F":
-		if m.spotifyProvider != nil {
+		if prov := m.findProviderWith(func(p playlist.Provider) bool {
+			_, ok := p.(provider.Searcher)
+			return ok
+		}); prov != nil {
 			m.spotSearch = spotSearchState{
+				prov:    prov,
 				visible: true,
 				screen:  spotSearchInput,
 			}
@@ -550,8 +555,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		m.urlInput = ""
 
 	case "N":
-		if m.navClient != nil {
-			m.openNavBrowser()
+		if prov := m.findBrowseProvider(); prov != nil {
+			m.openNavBrowserWith(prov)
 		}
 
 	case "R":

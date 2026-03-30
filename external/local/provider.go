@@ -3,6 +3,7 @@
 package local
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,13 @@ import (
 	"cliamp/internal/appdir"
 	"cliamp/internal/tomlutil"
 	"cliamp/playlist"
+	"cliamp/provider"
+)
+
+// Compile-time interface checks.
+var (
+	_ provider.PlaylistWriter  = (*Provider)(nil)
+	_ provider.PlaylistDeleter = (*Provider)(nil)
 )
 
 // Provider reads and writes TOML-based playlists stored on disk.
@@ -136,6 +144,12 @@ func (p *Provider) savePlaylist(name string, tracks []playlist.Track) error {
 		writeTrack(f, t)
 	}
 	return nil
+}
+
+// AddTrackToPlaylist appends a track to the named playlist.
+// Implements provider.PlaylistWriter.
+func (p *Provider) AddTrackToPlaylist(_ context.Context, playlistID string, track playlist.Track) error {
+	return p.AddTrack(playlistID, track)
 }
 
 // DeletePlaylist removes the TOML file for the named playlist.

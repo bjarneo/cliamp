@@ -17,7 +17,11 @@ import (
 	"cliamp/internal/appdir"
 	"cliamp/internal/tomlutil"
 	"cliamp/playlist"
+	"cliamp/provider"
 )
+
+// Compile-time interface check.
+var _ provider.FavoriteToggler = (*Provider)(nil)
 
 const builtinName = "cliamp radio"
 const builtinURL = "https://radio.cliamp.stream/streams.m3u"

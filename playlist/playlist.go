@@ -41,7 +41,18 @@ type Track struct {
 	Stream       bool   // true for HTTP/HTTPS URLs
 	Realtime     bool   // true for real-time/live streams (e.g. radio)
 	DurationSecs int    // known duration in seconds (0 = unknown)
-	NavidromeID  string // Subsonic song ID; empty for non-Navidrome tracks
+
+	// ProviderMeta holds provider-specific key-value pairs.
+	// Keys are namespaced by provider, e.g. "navidrome.id", "spotify.uri".
+	ProviderMeta map[string]string
+}
+
+// Meta returns the value for a provider-specific metadata key, or "" if unset.
+func (t Track) Meta(key string) string {
+	if t.ProviderMeta == nil {
+		return ""
+	}
+	return t.ProviderMeta[key]
 }
 
 // IsURL reports whether path is an HTTP or HTTPS URL, or a yt-dlp search protocol string.

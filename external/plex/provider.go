@@ -1,11 +1,19 @@
 package plex
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
 	"cliamp/config"
 	"cliamp/playlist"
+	"cliamp/provider"
+)
+
+// Compile-time interface checks.
+var (
+	_ provider.Searcher         = (*Provider)(nil)
+	_ provider.AlbumTrackLoader = (*Provider)(nil)
 )
 
 // Provider implements playlist.Provider for a Plex Media Server.
@@ -124,4 +132,39 @@ func (p *Provider) Tracks(albumRatingKey string) ([]playlist.Track, error) {
 	p.mu.Unlock()
 
 	return tracks, nil
+}
+
+// SearchTracks searches the Plex music library for tracks matching query.
+// Implements provider.Searcher.
+func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]playlist.Track, error) {
+	plexTracks, err := p.client.Search(query)
+	if err != nil {
+		return nil, err
+	}
+	tracks := make([]playlist.Track, 0, len(plexTracks))
+	for _, t := range plexTracks {
+		if t.PartKey == "" {
+			continue
+		}
+		tracks = append(tracks, playlist.Track{
+			Path:         p.client.StreamURL(t.PartKey),
+			Title:        t.Title,
+			Artist:       t.ArtistName,
+			Album:        t.AlbumName,
+			Year:         t.Year,
+			TrackNumber:  t.TrackNumber,
+			DurationSecs: t.Duration / 1000,
+			Stream:       true,
+		})
+		if limit > 0 && len(tracks) >= limit {
+			break
+		}
+	}
+	return tracks, nil
+}
+
+// AlbumTracks returns the tracks for the given album (ratingKey).
+// Implements provider.AlbumTrackLoader.
+func (p *Provider) AlbumTracks(albumID string) ([]playlist.Track, error) {
+	return p.Tracks(albumID)
 }

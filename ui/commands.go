@@ -6,12 +6,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"cliamp/external/navidrome"
 	"cliamp/external/radio"
-	"cliamp/external/spotify"
 	"cliamp/lyrics"
 	"cliamp/player"
 	"cliamp/playlist"
+	"cliamp/provider"
 	"cliamp/resolve"
 )
 
@@ -74,17 +73,17 @@ type ytdlSavedMsg struct {
 
 // — Navidrome browser message types —
 
-// navArtistsLoadedMsg carries the full artist list from getArtists.
-type navArtistsLoadedMsg []navidrome.Artist
+// navArtistsLoadedMsg carries the full artist list from a provider.ArtistBrowser.
+type navArtistsLoadedMsg []provider.ArtistInfo
 
 // navAlbumsLoadedMsg carries one page of albums and the fetch offset.
 type navAlbumsLoadedMsg struct {
-	albums []navidrome.Album
+	albums []provider.AlbumInfo
 	offset int  // the offset this page was requested at
 	isLast bool // true when the server returned fewer than the requested page size
 }
 
-// navTracksLoadedMsg carries the track list for the selected album/artist.
+// navTracksLoadedMsg carries the track list from a provider.AlbumTrackLoader.
 type navTracksLoadedMsg []playlist.Track
 
 // provAuthDoneMsg signals that interactive provider authentication completed.
@@ -220,9 +219,9 @@ func resolveWrapperURLs(tracks []playlist.Track) []playlist.Track {
 
 const navAlbumPageSize = 100
 
-func fetchNavArtistsCmd(c *navidrome.NavidromeClient) tea.Cmd {
+func fetchNavArtistsCmd(b provider.ArtistBrowser) tea.Cmd {
 	return func() tea.Msg {
-		artists, err := c.Artists()
+		artists, err := b.Artists()
 		if err != nil {
 			return err
 		}
@@ -230,9 +229,9 @@ func fetchNavArtistsCmd(c *navidrome.NavidromeClient) tea.Cmd {
 	}
 }
 
-func fetchNavArtistAlbumsCmd(c *navidrome.NavidromeClient, artistID string) tea.Cmd {
+func fetchNavArtistAlbumsCmd(b provider.ArtistBrowser, artistID string) tea.Cmd {
 	return func() tea.Msg {
-		albums, err := c.ArtistAlbums(artistID)
+		albums, err := b.ArtistAlbums(artistID)
 		if err != nil {
 			return err
 		}
@@ -241,9 +240,9 @@ func fetchNavArtistAlbumsCmd(c *navidrome.NavidromeClient, artistID string) tea.
 	}
 }
 
-func fetchNavAlbumListCmd(c *navidrome.NavidromeClient, sortType string, offset int) tea.Cmd {
+func fetchNavAlbumListCmd(b provider.AlbumBrowser, sortType string, offset int) tea.Cmd {
 	return func() tea.Msg {
-		albums, err := c.AlbumList(sortType, offset, navAlbumPageSize)
+		albums, err := b.AlbumList(sortType, offset, navAlbumPageSize)
 		if err != nil {
 			return err
 		}
@@ -255,9 +254,9 @@ func fetchNavAlbumListCmd(c *navidrome.NavidromeClient, sortType string, offset 
 	}
 }
 
-func fetchNavAlbumTracksCmd(c *navidrome.NavidromeClient, albumID string) tea.Cmd {
+func fetchNavAlbumTracksCmd(l provider.AlbumTrackLoader, albumID string) tea.Cmd {
 	return func() tea.Msg {
-		tracks, err := c.AlbumTracks(albumID)
+		tracks, err := l.AlbumTracks(albumID)
 		if err != nil {
 			return err
 		}
@@ -318,40 +317,40 @@ type spotCreatedMsg struct {
 	err  error
 }
 
-func fetchSpotSearchCmd(prov *spotify.SpotifyProvider, query string) tea.Cmd {
+func fetchSpotSearchCmd(s provider.Searcher, query string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		tracks, err := prov.SearchTracks(ctx, query, 20)
+		tracks, err := s.SearchTracks(ctx, query, 20)
 		return spotSearchResultsMsg{tracks: tracks, err: err}
 	}
 }
 
-func fetchSpotPlaylistsCmd(prov *spotify.SpotifyProvider) tea.Cmd {
+func fetchSpotPlaylistsCmd(prov playlist.Provider) tea.Cmd {
 	return func() tea.Msg {
 		playlists, err := prov.Playlists()
 		return spotPlaylistsMsg{playlists: playlists, err: err}
 	}
 }
 
-func addToSpotPlaylistCmd(prov *spotify.SpotifyProvider, playlistID, trackURI, name string) tea.Cmd {
+func addToSpotPlaylistCmd(w provider.PlaylistWriter, playlistID string, track playlist.Track, name string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		err := prov.AddTrackToPlaylist(ctx, playlistID, trackURI)
+		err := w.AddTrackToPlaylist(ctx, playlistID, track)
 		return spotAddedMsg{name: name, err: err}
 	}
 }
 
-func createSpotPlaylistCmd(prov *spotify.SpotifyProvider, name, trackURI string) tea.Cmd {
+func createSpotPlaylistCmd(c provider.PlaylistCreator, w provider.PlaylistWriter, name string, track playlist.Track) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		id, err := prov.CreatePlaylist(ctx, name)
+		id, err := c.CreatePlaylist(ctx, name)
 		if err != nil {
 			return spotCreatedMsg{name: name, err: err}
 		}
-		err = prov.AddTrackToPlaylist(ctx, id, trackURI)
+		err = w.AddTrackToPlaylist(ctx, id, track)
 		return spotCreatedMsg{name: name, err: err}
 	}
 }

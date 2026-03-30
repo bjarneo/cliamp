@@ -4,18 +4,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"cliamp/config"
-	"cliamp/external/navidrome"
 	"cliamp/playlist"
+	"cliamp/provider"
 )
 
-// handleNavBrowserKey processes key presses while the Navidrome browser is open.
+// handleNavBrowserKey processes key presses while the provider browser is open.
+// Works with any provider implementing ArtistBrowser, AlbumBrowser, and/or AlbumTrackLoader.
 func (m *Model) handleNavBrowserKey(msg tea.KeyMsg) tea.Cmd {
-	navClient := m.navClient
-	if navClient == nil {
-		m.navBrowser.visible = false
-		return nil
-	}
-
 	// Search bar: active on any list/track screen (not the mode menu).
 	if m.navBrowser.mode != navBrowseModeMenu {
 		if m.navBrowser.searching {
@@ -34,18 +29,18 @@ func (m *Model) handleNavBrowserKey(msg tea.KeyMsg) tea.Cmd {
 
 	switch m.navBrowser.mode {
 	case navBrowseModeMenu:
-		return m.handleNavMenuKey(msg, navClient)
+		return m.handleNavMenuKey(msg)
 	case navBrowseModeByAlbum:
-		return m.handleNavByAlbumKey(msg, navClient)
+		return m.handleNavByAlbumKey(msg)
 	case navBrowseModeByArtist:
-		return m.handleNavByArtistKey(msg, navClient)
+		return m.handleNavByArtistKey(msg)
 	case navBrowseModeByArtistAlbum:
-		return m.handleNavByArtistAlbumKey(msg, navClient)
+		return m.handleNavByArtistAlbumKey(msg)
 	}
 	return nil
 }
 
-func (m *Model) handleNavMenuKey(msg tea.KeyMsg, navClient *navidrome.NavidromeClient) tea.Cmd {
+func (m *Model) handleNavMenuKey(msg tea.KeyMsg) tea.Cmd {
 	const menuItems = 3
 	switch msg.String() {
 	case "ctrl+c":
@@ -62,6 +57,10 @@ func (m *Model) handleNavMenuKey(msg tea.KeyMsg, navClient *navidrome.NavidromeC
 	case "enter", "l", "right":
 		switch m.navBrowser.cursor {
 		case 0: // By Album
+			ab, ok := m.navBrowser.prov.(provider.AlbumBrowser)
+			if !ok {
+				return nil
+			}
 			m.navBrowser.mode = navBrowseModeByAlbum
 			m.navBrowser.screen = navBrowseScreenList
 			m.navBrowser.cursor = 0
@@ -70,23 +69,31 @@ func (m *Model) handleNavMenuKey(msg tea.KeyMsg, navClient *navidrome.NavidromeC
 			m.navBrowser.albumLoading = true
 			m.navBrowser.albumDone = false
 			m.navBrowser.loading = false
-			return fetchNavAlbumListCmd(navClient, m.navBrowser.sortType, 0)
+			return fetchNavAlbumListCmd(ab, m.navBrowser.sortType, 0)
 		case 1: // By Artist
+			ab, ok := m.navBrowser.prov.(provider.ArtistBrowser)
+			if !ok {
+				return nil
+			}
 			m.navBrowser.mode = navBrowseModeByArtist
 			m.navBrowser.screen = navBrowseScreenList
 			m.navBrowser.cursor = 0
 			m.navBrowser.scroll = 0
 			m.navBrowser.artists = nil
 			m.navBrowser.loading = true
-			return fetchNavArtistsCmd(navClient)
+			return fetchNavArtistsCmd(ab)
 		case 2: // By Artist / Album
+			ab, ok := m.navBrowser.prov.(provider.ArtistBrowser)
+			if !ok {
+				return nil
+			}
 			m.navBrowser.mode = navBrowseModeByArtistAlbum
 			m.navBrowser.screen = navBrowseScreenList
 			m.navBrowser.cursor = 0
 			m.navBrowser.scroll = 0
 			m.navBrowser.artists = nil
 			m.navBrowser.loading = true
-			return fetchNavArtistsCmd(navClient)
+			return fetchNavArtistsCmd(ab)
 		}
 	case "esc", "N", "backspace", "b":
 		m.navBrowser.visible = false
@@ -94,32 +101,32 @@ func (m *Model) handleNavMenuKey(msg tea.KeyMsg, navClient *navidrome.NavidromeC
 	return nil
 }
 
-func (m *Model) handleNavByAlbumKey(msg tea.KeyMsg, navClient *navidrome.NavidromeClient) tea.Cmd {
+func (m *Model) handleNavByAlbumKey(msg tea.KeyMsg) tea.Cmd {
 	switch m.navBrowser.screen {
 	case navBrowseScreenList:
-		return m.handleNavAlbumListKey(msg, navClient, false)
+		return m.handleNavAlbumListKey(msg, false)
 	case navBrowseScreenTracks:
 		return m.handleNavTrackListKey(msg)
 	}
 	return nil
 }
 
-func (m *Model) handleNavByArtistKey(msg tea.KeyMsg, navClient *navidrome.NavidromeClient) tea.Cmd {
+func (m *Model) handleNavByArtistKey(msg tea.KeyMsg) tea.Cmd {
 	switch m.navBrowser.screen {
 	case navBrowseScreenList:
-		return m.handleNavArtistListKey(msg, navClient)
+		return m.handleNavArtistListKey(msg)
 	case navBrowseScreenTracks:
 		return m.handleNavTrackListKey(msg)
 	}
 	return nil
 }
 
-func (m *Model) handleNavByArtistAlbumKey(msg tea.KeyMsg, navClient *navidrome.NavidromeClient) tea.Cmd {
+func (m *Model) handleNavByArtistAlbumKey(msg tea.KeyMsg) tea.Cmd {
 	switch m.navBrowser.screen {
 	case navBrowseScreenList:
-		return m.handleNavArtistListKey(msg, navClient)
+		return m.handleNavArtistListKey(msg)
 	case navBrowseScreenAlbums:
-		return m.handleNavAlbumListKey(msg, navClient, true)
+		return m.handleNavAlbumListKey(msg, true)
 	case navBrowseScreenTracks:
 		return m.handleNavTrackListKey(msg)
 	}
@@ -127,7 +134,7 @@ func (m *Model) handleNavByArtistAlbumKey(msg tea.KeyMsg, navClient *navidrome.N
 }
 
 // handleNavArtistListKey handles the artist list screen (used by both By Artist and By Artist/Album modes).
-func (m *Model) handleNavArtistListKey(msg tea.KeyMsg, navClient *navidrome.NavidromeClient) tea.Cmd {
+func (m *Model) handleNavArtistListKey(msg tea.KeyMsg) tea.Cmd {
 	// Determine effective list length (filtered or full).
 	listLen := len(m.navBrowser.artists)
 	if len(m.navBrowser.searchIdx) > 0 {
@@ -152,6 +159,10 @@ func (m *Model) handleNavArtistListKey(msg tea.KeyMsg, navClient *navidrome.Navi
 		if m.navBrowser.loading || len(m.navBrowser.artists) == 0 {
 			return nil
 		}
+		ab, ok := m.navBrowser.prov.(provider.ArtistBrowser)
+		if !ok {
+			return nil
+		}
 		// Resolve raw index (filtered or direct).
 		rawIdx := m.navBrowser.cursor
 		if len(m.navBrowser.searchIdx) > 0 && m.navBrowser.cursor < len(m.navBrowser.searchIdx) {
@@ -168,14 +179,11 @@ func (m *Model) handleNavArtistListKey(msg tea.KeyMsg, navClient *navidrome.Navi
 			m.navBrowser.cursor = 0
 			m.navBrowser.scroll = 0
 			m.navClearSearch()
-			return fetchNavArtistAlbumsCmd(navClient, artist.ID)
+			return fetchNavArtistAlbumsCmd(ab, artist.ID)
 		}
 		// By Artist: fetch all albums first, then all tracks via a two-step command.
-		// We use a dedicated command that fetches albums then tracks in one shot.
-		// Clear any active artist-list search filter before transitioning so that
-		// stale navSearchIdx entries are not misapplied to the incoming track list.
 		m.navClearSearch()
-		return m.fetchNavArtistAllTracksCmd(navClient, artist.ID)
+		return m.fetchNavArtistAllTracksCmd(ab, artist.ID)
 	case "esc", "h", "left", "backspace":
 		// Back to menu.
 		m.navClearSearch()
@@ -187,7 +195,7 @@ func (m *Model) handleNavArtistListKey(msg tea.KeyMsg, navClient *navidrome.Navi
 
 // handleNavAlbumListKey handles the album list screen.
 // artistAlbums=true means this is the artist's album sub-screen (ArtistAlbum mode), not the global list.
-func (m *Model) handleNavAlbumListKey(msg tea.KeyMsg, navClient *navidrome.NavidromeClient, artistAlbums bool) tea.Cmd {
+func (m *Model) handleNavAlbumListKey(msg tea.KeyMsg, artistAlbums bool) tea.Cmd {
 	// Determine effective list length (filtered or full).
 	listLen := len(m.navBrowser.albums)
 	if len(m.navBrowser.searchIdx) > 0 {
@@ -209,8 +217,10 @@ func (m *Model) handleNavAlbumListKey(msg tea.KeyMsg, navClient *navidrome.Navid
 			m.navMaybeAdjustScroll()
 			// Lazy-load next page: only trigger on the raw (unfiltered) list.
 			if !artistAlbums && len(m.navBrowser.searchIdx) == 0 && !m.navBrowser.albumLoading && !m.navBrowser.albumDone && m.navBrowser.cursor >= len(m.navBrowser.albums)-10 {
-				m.navBrowser.albumLoading = true
-				return fetchNavAlbumListCmd(navClient, m.navBrowser.sortType, len(m.navBrowser.albums))
+				if ab, ok := m.navBrowser.prov.(provider.AlbumBrowser); ok {
+					m.navBrowser.albumLoading = true
+					return fetchNavAlbumListCmd(ab, m.navBrowser.sortType, len(m.navBrowser.albums))
+				}
 			}
 		}
 	case "enter", "l", "right":
@@ -226,13 +236,20 @@ func (m *Model) handleNavAlbumListKey(msg tea.KeyMsg, navClient *navidrome.Navid
 		m.navBrowser.selAlbum = album
 		m.navBrowser.loading = true
 		m.navClearSearch()
-		return fetchNavAlbumTracksCmd(navClient, album.ID)
+		if l, ok := m.navBrowser.prov.(provider.AlbumTrackLoader); ok {
+			return fetchNavAlbumTracksCmd(l, album.ID)
+		}
+		return nil
 	case "s":
 		if artistAlbums {
 			return nil // Sort only applies to global album list.
 		}
+		ab, ok := m.navBrowser.prov.(provider.AlbumBrowser)
+		if !ok {
+			return nil
+		}
 		// Cycle to the next sort type.
-		m.navBrowser.sortType = navNextSort(m.navBrowser.sortType)
+		m.navBrowser.sortType = navNextSort(m.navBrowser.sortType, ab.AlbumSortTypes())
 		m.navBrowser.albums = nil
 		m.navBrowser.cursor = 0
 		m.navBrowser.scroll = 0
@@ -243,7 +260,7 @@ func (m *Model) handleNavAlbumListKey(msg tea.KeyMsg, navClient *navidrome.Navid
 		if err := config.SaveNavidromeSort(m.navBrowser.sortType); err != nil {
 			m.status.Showf(statusTTLDefault, "Sort save failed: %s", err)
 		}
-		return fetchNavAlbumListCmd(navClient, m.navBrowser.sortType, 0)
+		return fetchNavAlbumListCmd(ab, m.navBrowser.sortType, 0)
 	case "esc", "h", "left", "backspace":
 		m.navClearSearch()
 		if artistAlbums {
@@ -436,14 +453,17 @@ func (m *Model) handleNavSearchKey(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// navNextSort returns the sort type that follows s in SortTypes, wrapping around.
-func navNextSort(s string) string {
-	for i, t := range navidrome.SortTypes {
-		if t == s {
-			return navidrome.SortTypes[(i+1)%len(navidrome.SortTypes)]
+// navNextSort returns the sort type that follows s in the given sort types, wrapping around.
+func navNextSort(s string, types []provider.SortType) string {
+	for i, t := range types {
+		if t.ID == s {
+			return types[(i+1)%len(types)].ID
 		}
 	}
-	return navidrome.SortTypes[0]
+	if len(types) > 0 {
+		return types[0].ID
+	}
+	return s
 }
 
 // navMaybeAdjustScroll keeps navCursor visible within the rendered list window.

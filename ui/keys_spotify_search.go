@@ -1,8 +1,12 @@
 package ui
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	tea "github.com/charmbracelet/bubbletea"
 
-// handleSpotSearchKey dispatches key presses to the active Spotify search screen.
+	"cliamp/provider"
+)
+
+// handleSpotSearchKey dispatches key presses to the active provider search screen.
 func (m *Model) handleSpotSearchKey(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
 	case "ctrl+c":
@@ -30,9 +34,13 @@ func (m *Model) handleSpotSearchInputKey(msg tea.KeyMsg) tea.Cmd {
 		m.spotSearch.visible = false
 	case tea.KeyEnter:
 		if m.spotSearch.query != "" && !m.spotSearch.loading {
+			s, ok := m.spotSearch.prov.(provider.Searcher)
+			if !ok {
+				return nil
+			}
 			m.spotSearch.loading = true
 			m.spotSearch.err = ""
-			return fetchSpotSearchCmd(m.spotifyProvider, m.spotSearch.query)
+			return fetchSpotSearchCmd(s, m.spotSearch.query)
 		}
 	case tea.KeyBackspace:
 		if m.spotSearch.query != "" {
@@ -70,7 +78,7 @@ func (m *Model) handleSpotSearchResultsKey(msg tea.KeyMsg) tea.Cmd {
 			m.spotSearch.selTrack = m.spotSearch.results[m.spotSearch.cursor]
 			m.spotSearch.loading = true
 			m.spotSearch.err = ""
-			return fetchSpotPlaylistsCmd(m.spotifyProvider)
+			return fetchSpotPlaylistsCmd(m.spotSearch.prov)
 		}
 	case "esc", "backspace":
 		m.spotSearch.screen = spotSearchInput
@@ -79,7 +87,7 @@ func (m *Model) handleSpotSearchResultsKey(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// handleSpotSearchPlaylistKey handles picking a Spotify playlist to add to.
+// handleSpotSearchPlaylistKey handles picking a playlist to add to.
 func (m *Model) handleSpotSearchPlaylistKey(msg tea.KeyMsg) tea.Cmd {
 	count := len(m.spotSearch.playlists) + 1 // +1 for "+ New Playlist..."
 
@@ -100,6 +108,10 @@ func (m *Model) handleSpotSearchPlaylistKey(msg tea.KeyMsg) tea.Cmd {
 		if m.spotSearch.loading {
 			return nil
 		}
+		w, ok := m.spotSearch.prov.(provider.PlaylistWriter)
+		if !ok {
+			return nil
+		}
 		if m.spotSearch.cursor < len(m.spotSearch.playlists) {
 			// Add to existing playlist.
 			pl := m.spotSearch.playlists[m.spotSearch.cursor]
@@ -109,7 +121,7 @@ func (m *Model) handleSpotSearchPlaylistKey(msg tea.KeyMsg) tea.Cmd {
 			}
 			m.spotSearch.loading = true
 			m.spotSearch.err = ""
-			return addToSpotPlaylistCmd(m.spotifyProvider, pl.ID, m.spotSearch.selTrack.Path, pl.Name)
+			return addToSpotPlaylistCmd(w, pl.ID, m.spotSearch.selTrack, pl.Name)
 		}
 		// "+ New Playlist..." selected.
 		m.spotSearch.screen = spotSearchNewName
@@ -131,9 +143,14 @@ func (m *Model) handleSpotSearchNewNameKey(msg tea.KeyMsg) tea.Cmd {
 		m.spotSearch.cursor = len(m.spotSearch.playlists) // back on "+ New Playlist..."
 	case tea.KeyEnter:
 		if m.spotSearch.newName != "" && !m.spotSearch.loading {
+			c, cOk := m.spotSearch.prov.(provider.PlaylistCreator)
+			w, wOk := m.spotSearch.prov.(provider.PlaylistWriter)
+			if !cOk || !wOk {
+				return nil
+			}
 			m.spotSearch.loading = true
 			m.spotSearch.err = ""
-			return createSpotPlaylistCmd(m.spotifyProvider, m.spotSearch.newName, m.spotSearch.selTrack.Path)
+			return createSpotPlaylistCmd(c, w, m.spotSearch.newName, m.spotSearch.selTrack)
 		}
 	case tea.KeyBackspace:
 		if m.spotSearch.newName != "" {

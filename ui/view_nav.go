@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"cliamp/external/navidrome"
+	"cliamp/provider"
 )
 
 // — Navidrome browser renderers —
@@ -97,7 +97,7 @@ func (m Model) renderNavAlbumList(artistAlbums bool) []string {
 	lines := []string{titleStr, ""}
 
 	if !artistAlbums {
-		sortLabel := navidrome.SortTypeLabel(m.navBrowser.sortType)
+		sortLabel := m.navSortLabel(m.navBrowser.sortType)
 		lines = append(lines, dimStyle.Render("  Sort: ")+activeToggle.Render(sortLabel), "")
 	}
 
@@ -220,4 +220,17 @@ func (m Model) renderNavTrackList() []string {
 			helpKey("a", "Append ")+
 			helpKey("/", "Search"))...)
 	return lines
+}
+
+// navSortLabel returns the human-readable label for the current sort type
+// by querying the provider's AlbumSortTypes. Falls back to the raw ID.
+func (m Model) navSortLabel(sortID string) string {
+	if ab, ok := m.navBrowser.prov.(provider.AlbumBrowser); ok {
+		for _, st := range ab.AlbumSortTypes() {
+			if st.ID == sortID {
+				return st.Label
+			}
+		}
+	}
+	return sortID
 }

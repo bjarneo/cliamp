@@ -22,6 +22,16 @@ import (
 	"github.com/gopxl/beep/v2"
 
 	"cliamp/playlist"
+	"cliamp/provider"
+)
+
+// Compile-time interface checks.
+var (
+	_ provider.Searcher       = (*SpotifyProvider)(nil)
+	_ provider.PlaylistWriter = (*SpotifyProvider)(nil)
+	_ provider.PlaylistCreator = (*SpotifyProvider)(nil)
+	_ provider.CustomStreamer  = (*SpotifyProvider)(nil)
+	_ provider.Closer          = (*SpotifyProvider)(nil)
 )
 
 // maxResponseBody limits JSON API responses to 10 MB.
@@ -442,10 +452,16 @@ func isAuthError(err error) bool {
 // NewStreamer creates a SpotifyStreamer for the given spotify:track:xxx URI.
 // Called by the player's StreamerFactory when it encounters a Spotify URI.
 //
+// URISchemes returns the URI prefixes handled by this provider.
+// Implements provider.CustomStreamer.
+func (p *SpotifyProvider) URISchemes() []string { return []string{"spotify:"} }
+
+// NewStreamer creates a SpotifyStreamer for the given spotify:track:xxx URI.
 // If the stream fails due to an auth error (e.g. expired session, AES key
 // rejection), the player first tries a silent reconnect from cached credentials.
 // If that fails or the retry still hits an auth error, it falls back to an
 // interactive OAuth2 flow and retries once more.
+// Implements provider.CustomStreamer.
 func (p *SpotifyProvider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error) {
 	if err := p.ensureSession(); err != nil {
 		return nil, beep.Format{}, 0, err
@@ -640,7 +656,10 @@ func (p *SpotifyProvider) SearchTracks(ctx context.Context, query string, limit 
 }
 
 // AddTrackToPlaylist adds a track to an existing Spotify playlist.
-func (p *SpotifyProvider) AddTrackToPlaylist(ctx context.Context, playlistID, trackURI string) error {
+// The track's Path is used as the Spotify URI (e.g. "spotify:track:xxx").
+// Implements provider.PlaylistWriter.
+func (p *SpotifyProvider) AddTrackToPlaylist(ctx context.Context, playlistID string, track playlist.Track) error {
+	trackURI := track.Path
 	if err := p.ensureSession(); err != nil {
 		return err
 	}

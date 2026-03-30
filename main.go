@@ -175,7 +175,13 @@ func run(overrides config.Overrides, positional []string) error {
 	// Register Spotify streamer factory so spotify: URIs are decoded
 	// through go-librespot instead of the normal file/HTTP pipeline.
 	if spotifyProv != nil {
-		p.SetStreamerFactory(spotifyProv.NewStreamer)
+		p.RegisterStreamerFactory("spotify:", spotifyProv.NewStreamer)
+	}
+
+	// Register Navidrome/Subsonic URL matcher so those streams use the
+	// buffered download + ffmpeg pipeline for gapless, seekable playback.
+	if navClient != nil {
+		p.RegisterBufferedURLMatcher(navidrome.IsSubsonicStreamURL)
 	}
 
 	cfg.ApplyPlayer(p)
@@ -192,7 +198,7 @@ func run(overrides config.Overrides, positional []string) error {
 		defer luaMgr.Close()
 	}
 
-	m := ui.NewModel(p, pl, providers, defaultProvider, localProv, spotifyProv, themes, cfg.Navidrome, navClient, luaMgr)
+	m := ui.NewModel(p, pl, providers, defaultProvider, localProv, themes, cfg.Navidrome, navClient, luaMgr)
 
 	// Wire Lua plugin state provider with read-only access to player/playlist.
 	if luaMgr != nil {
