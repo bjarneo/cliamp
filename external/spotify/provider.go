@@ -477,8 +477,6 @@ func (p *SpotifyProvider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.F
 			return nil, beep.Format{}, 0, fmt.Errorf("spotify: new stream: %w", err)
 		}
 
-		fmt.Fprintf(os.Stderr, "spotify: stream auth error (%v), attempting reconnect...\n", err)
-
 		interactiveTried := false
 		reconnCtx, reconnCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer reconnCancel()

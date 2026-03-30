@@ -447,7 +447,6 @@ func (s *Session) reconnect(ctx context.Context, build func(context.Context, str
 	newSess.player = nil
 	newSess.mu.Unlock()
 
-	fmt.Fprintf(os.Stderr, "spotify: session reconnected successfully\n")
 	return nil
 }
 
