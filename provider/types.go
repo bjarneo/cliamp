@@ -28,3 +28,8 @@ type SortType struct {
 	ID    string // e.g. "alphabeticalByName"
 	Label string // e.g. "By Name"
 }
+
+// ProviderMeta key constants used across providers and the UI.
+const (
+	MetaNavidromeID = "navidrome.id"
+)

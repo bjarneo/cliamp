@@ -107,22 +107,7 @@ func (p *Provider) Tracks(albumRatingKey string) ([]playlist.Track, error) {
 		return nil, err
 	}
 
-	tracks := make([]playlist.Track, 0, len(plexTracks))
-	for _, t := range plexTracks {
-		if t.PartKey == "" {
-			continue // no streamable file attached; skip silently
-		}
-		tracks = append(tracks, playlist.Track{
-			Path:         p.client.StreamURL(t.PartKey),
-			Title:        t.Title,
-			Artist:       t.ArtistName,
-			Album:        t.AlbumName,
-			Year:         t.Year,
-			TrackNumber:  t.TrackNumber,
-			DurationSecs: t.Duration / 1000,
-			Stream:       true,
-		})
-	}
+	tracks := p.convertTracks(plexTracks, 0)
 
 	p.mu.Lock()
 	if p.trackCache == nil {
@@ -141,6 +126,12 @@ func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]p
 	if err != nil {
 		return nil, err
 	}
+	return p.convertTracks(plexTracks, limit), nil
+}
+
+// convertTracks converts Plex tracks to playlist tracks, skipping entries
+// without a streamable part. If limit > 0, at most limit tracks are returned.
+func (p *Provider) convertTracks(plexTracks []Track, limit int) []playlist.Track {
 	tracks := make([]playlist.Track, 0, len(plexTracks))
 	for _, t := range plexTracks {
 		if t.PartKey == "" {
@@ -160,7 +151,7 @@ func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]p
 			break
 		}
 	}
-	return tracks, nil
+	return tracks
 }
 
 // AlbumTracks returns the tracks for the given album (ratingKey).

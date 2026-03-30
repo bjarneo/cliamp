@@ -449,9 +449,6 @@ func isAuthError(err error) bool {
 	return false
 }
 
-// NewStreamer creates a SpotifyStreamer for the given spotify:track:xxx URI.
-// Called by the player's StreamerFactory when it encounters a Spotify URI.
-//
 // URISchemes returns the URI prefixes handled by this provider.
 // Implements provider.CustomStreamer.
 func (p *SpotifyProvider) URISchemes() []string { return []string{"spotify:"} }

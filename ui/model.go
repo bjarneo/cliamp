@@ -489,7 +489,7 @@ func (m *Model) openPlaylistManager() {
 
 // plMgrEnterTrackList loads the tracks for a playlist and switches to screen 1.
 func (m *Model) plMgrEnterTrackList(name string) {
-	tracks, err := m.localProvider.Tracks(name) // localProvider is always available for playlist management
+	tracks, err := m.localProvider.Tracks(name)
 	if err != nil {
 		m.status.Showf(statusTTLDefault, "Load failed: %s", err)
 		return
@@ -1976,7 +1976,7 @@ func (m *Model) lyricsSyncable() bool {
 	}
 	// ICY radio streams: position counts from stream connect, not song start.
 	// Navidrome streams have provider metadata set — those track position correctly.
-	if track.Stream && track.Meta("navidrome.id") == "" {
+	if track.Stream && track.Meta(provider.MetaNavidromeID) == "" {
 		return false
 	}
 	return true
@@ -2033,7 +2033,7 @@ func (m *Model) maybeScrobble(track playlist.Track, elapsed, duration time.Durat
 	if m.navClient == nil || !m.navScrobbleEnabled {
 		return
 	}
-	if track.Meta("navidrome.id") == "" {
+	if track.Meta(provider.MetaNavidromeID) == "" {
 		return
 	}
 	if duration <= 0 {
@@ -2055,7 +2055,7 @@ func (m *Model) nowPlaying(track playlist.Track) {
 		m.luaMgr.Emit(luaplugin.EventTrackChange, trackToMap(track))
 	}
 
-	if m.navClient == nil || !m.navScrobbleEnabled || track.Meta("navidrome.id") == "" {
+	if m.navClient == nil || !m.navScrobbleEnabled || track.Meta(provider.MetaNavidromeID) == "" {
 		return
 	}
 	go m.navClient.Scrobble(track, false)

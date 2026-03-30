@@ -40,7 +40,7 @@ func (m *Model) quit() tea.Cmd {
 
 // scrobbleCurrent fires a scrobble for the currently playing track if applicable.
 func (m *Model) scrobbleCurrent() {
-	if track, _ := m.playlist.Current(); track.Meta("navidrome.id") != "" {
+	if track, _ := m.playlist.Current(); track.Meta(provider.MetaNavidromeID) != "" {
 		m.maybeScrobble(track, m.player.Position(), m.player.Duration())
 	}
 }
