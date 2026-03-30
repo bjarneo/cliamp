@@ -9,8 +9,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"cliamp/external/radio"
 	"cliamp/playlist"
+	"cliamp/provider"
 	"cliamp/theme"
 )
 
@@ -455,7 +455,7 @@ func (m Model) renderProviderList() string {
 		return dimStyle.Render("  No playlists found.\n  Add playlists to ~/.config/cliamp/playlists/")
 	}
 
-	_, isRadio := m.provider.(*radio.Provider)
+	sl, isRadio := m.provider.(provider.SectionedList)
 
 	var lines []string
 
@@ -501,7 +501,7 @@ func (m Model) renderProviderList() string {
 
 		// Insert section headers on prefix transitions for the radio provider.
 		if isRadio {
-			pfx := radio.IDPrefix(p.ID)
+			pfx := sl.IDPrefix(p.ID)
 			if pfx != prevPrefix {
 				switch pfx {
 				case "f":
@@ -622,7 +622,7 @@ func (m Model) renderJumpOverlay() string {
 func (m Model) renderHelp() string {
 	if m.focus == focusProvider {
 		help := helpKey("↑↓", "Navigate ") + helpKey("Enter", "Load ") + helpKey("/", "Search ")
-		if _, ok := m.provider.(*radio.Provider); ok {
+		if _, ok := m.provider.(provider.FavoriteToggler); ok {
 			help += helpKey("f", "Fav ")
 		}
 		return help + helpKey("Tab", "Focus ") + helpKey("Ctrl+K", "Keys")

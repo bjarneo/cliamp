@@ -20,8 +20,13 @@ import (
 	"cliamp/provider"
 )
 
-// Compile-time interface check.
-var _ provider.FavoriteToggler = (*Provider)(nil)
+// Compile-time interface checks.
+var (
+	_ provider.FavoriteToggler = (*Provider)(nil)
+	_ provider.CatalogLoader   = (*Provider)(nil)
+	_ provider.CatalogSearcher = (*Provider)(nil)
+	_ provider.SectionedList   = (*Provider)(nil)
+)
 
 const builtinName = "cliamp radio"
 const builtinURL = "https://radio.cliamp.stream/streams.m3u"
@@ -229,13 +234,48 @@ func (p *Provider) IsSearching() bool {
 	return p.searchResults != nil
 }
 
+// LoadCatalogPage fetches the next page of catalog entries from the Radio
+// Browser API and appends them to the provider's catalog.
+// Implements provider.CatalogLoader.
+func (p *Provider) LoadCatalogPage(offset, limit int) (int, error) {
+	stations, err := TopStationsOffset(offset, limit)
+	if err != nil {
+		return 0, err
+	}
+	p.AppendCatalog(stations)
+	return len(stations), nil
+}
+
+// SearchCatalog performs a server-side station search via the Radio Browser API.
+// Results are reflected in subsequent Playlists() calls.
+// Implements provider.CatalogSearcher.
+func (p *Provider) SearchCatalog(query string) (int, error) {
+	stations, err := SearchStations(query, 200)
+	if err != nil {
+		return 0, err
+	}
+	p.SetSearchResults(stations)
+	return len(stations), nil
+}
+
+// IsFavoritableID reports whether the given ID can be favorited.
+// Implements provider.SectionedList.
+func (p *Provider) IsFavoritableID(id string) bool {
+	return IsCatalogOrFavID(id)
+}
+
 // IsCatalogOrFavID returns true if the ID belongs to a catalog, search, or favorite entry.
 func IsCatalogOrFavID(id string) bool {
 	return strings.HasPrefix(id, "c:") || strings.HasPrefix(id, "f:") || strings.HasPrefix(id, "s:")
 }
 
 // IDPrefix returns the type prefix of a provider list ID ("l", "f", "c", or "").
-func IDPrefix(id string) string {
+// Also implements provider.SectionedList when called as a method.
+func (p *Provider) IDPrefix(id string) string {
+	return idPrefix(id)
+}
+
+func idPrefix(id string) string {
 	prefix, _, ok := strings.Cut(id, ":")
 	if !ok {
 		return ""

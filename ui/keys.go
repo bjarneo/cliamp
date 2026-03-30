@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,7 +12,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"cliamp/config"
-	"cliamp/external/radio"
 	"cliamp/internal/fileutil"
 	"cliamp/playlist"
 	"cliamp/provider"
@@ -40,7 +40,7 @@ func (m *Model) quit() tea.Cmd {
 
 // scrobbleCurrent fires a scrobble for the currently playing track if applicable.
 func (m *Model) scrobbleCurrent() {
-	if track, _ := m.playlist.Current(); track.Meta(provider.MetaNavidromeID) != "" {
+	if track, idx := m.playlist.Current(); idx >= 0 {
 		m.maybeScrobble(track, m.player.Position(), m.player.Duration())
 	}
 }
@@ -177,7 +177,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 				m.provCursor = 0
 			}
 			// Auto-load next catalog page when scrolling near the bottom.
-			return m.maybeLoadRadioBatch()
+			return m.maybeLoadCatalogBatch()
 		case "enter":
 			if m.provSignIn {
 				if auth, ok := m.provider.(playlist.Authenticator); ok {
@@ -193,9 +193,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		case "tab":
 			m.focus = focusEQ
 		case "esc", "backspace", "b":
-			// If viewing radio search results, clear them first.
-			if rp, ok := m.provider.(*radio.Provider); ok && rp.IsSearching() {
-				m.restoreRadioCatalog(rp)
+			// If viewing catalog search results, clear them first.
+			if cs, ok := m.provider.(provider.CatalogSearcher); ok && cs.IsSearching() {
+				m.restoreCatalog(cs)
 				return nil
 			}
 			if m.playlist.Len() > 0 {
@@ -222,14 +222,14 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 			if m.provCursor < len(m.providerLists)-1 {
 				m.provCursor = min(len(m.providerLists)-1, m.provCursor+m.plVisible)
 			}
-			return m.maybeLoadRadioBatch()
+			return m.maybeLoadCatalogBatch()
 		case "g", "home":
 			m.provCursor = 0
 		case "G", "end":
 			if len(m.providerLists) > 0 {
 				m.provCursor = len(m.providerLists) - 1
 			}
-			return m.maybeLoadRadioBatch()
+			return m.maybeLoadCatalogBatch()
 		case "J":
 			m.openJumpMode()
 		case "x":
@@ -715,9 +715,9 @@ func (m *Model) handleJumpKey(msg tea.KeyMsg) tea.Cmd {
 // For the radio provider, Enter fires an API search; for others, Enter loads the
 // selected result. Esc cancels and restores the normal catalog view.
 func (m *Model) handleProvSearchKey(msg tea.KeyMsg) tea.Cmd {
-	// Radio provider: API-based search (no live client-side filtering).
-	if rp, ok := m.provider.(*radio.Provider); ok {
-		return m.handleRadioProvSearchKey(msg, rp)
+	// Catalog search: API-based search (no live client-side filtering).
+	if cs, ok := m.provider.(provider.CatalogSearcher); ok {
+		return m.handleCatalogSearchKey(msg, cs)
 	}
 	switch msg.Type {
 	case tea.KeyEscape:
@@ -755,21 +755,21 @@ func (m *Model) handleProvSearchKey(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// handleRadioProvSearchKey handles search input for the radio provider.
+// handleCatalogSearchKey handles search input for providers with catalog search.
 // Types a query, Enter fires API search, Esc cancels/clears.
-func (m *Model) handleRadioProvSearchKey(msg tea.KeyMsg, rp *radio.Provider) tea.Cmd {
+func (m *Model) handleCatalogSearchKey(msg tea.KeyMsg, cs provider.CatalogSearcher) tea.Cmd {
 	switch msg.Type {
 	case tea.KeyEscape:
 		m.provSearch.active = false
-		m.restoreRadioCatalog(rp)
+		m.restoreCatalog(cs)
 	case tea.KeyEnter:
 		m.provSearch.active = false
 		if m.provSearch.query == "" {
-			m.restoreRadioCatalog(rp)
+			m.restoreCatalog(cs)
 			return nil
 		}
 		m.provLoading = true
-		return fetchRadioProvSearchCmd(m.provSearch.query)
+		return fetchCatalogSearchCmd(cs, m.provSearch.query)
 	case tea.KeyBackspace, tea.KeyDelete:
 		if m.provSearch.query != "" {
 			m.provSearch.query = removeLastRune(m.provSearch.query)
@@ -784,13 +784,13 @@ func (m *Model) handleRadioProvSearchKey(msg tea.KeyMsg, rp *radio.Provider) tea
 	return nil
 }
 
-// restoreRadioCatalog clears API search results and restores the normal catalog view.
-func (m *Model) restoreRadioCatalog(rp *radio.Provider) {
-	if !rp.IsSearching() {
+// restoreCatalog clears search results and restores the normal catalog view.
+func (m *Model) restoreCatalog(cs provider.CatalogSearcher) {
+	if !cs.IsSearching() {
 		return
 	}
-	rp.ClearSearch()
-	if lists, err := rp.Playlists(); err == nil {
+	cs.ClearSearch()
+	if lists, err := m.provider.Playlists(); err == nil {
 		m.providerLists = lists
 	}
 	m.provCursor = 0
@@ -980,10 +980,12 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyMsg) tea.Cmd {
 		case "y", "Y":
 			if m.plManager.cursor < len(m.plManager.playlists) {
 				name := m.plManager.playlists[m.plManager.cursor].Name
-				if err := m.localProvider.DeletePlaylist(name); err != nil {
-					m.status.Showf(statusTTLDefault, "Delete failed: %s", err)
-				} else {
-					m.status.Showf(statusTTLDefault, "Deleted %q", name)
+				if d, ok := m.localProvider.(provider.PlaylistDeleter); ok {
+					if err := d.DeletePlaylist(name); err != nil {
+						m.status.Showf(statusTTLDefault, "Delete failed: %s", err)
+					} else {
+						m.status.Showf(statusTTLDefault, "Deleted %q", name)
+					}
 				}
 				m.plMgrRefreshList()
 			}
@@ -1077,7 +1079,7 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyMsg) tea.Cmd {
 	case "d":
 		// Remove highlighted track.
 		if len(m.plManager.tracks) > 0 && m.plManager.cursor < len(m.plManager.tracks) {
-			err := m.localProvider.RemoveTrack(m.plManager.selPlaylist, m.plManager.cursor)
+			err := m.localDeleter().RemoveTrack(m.plManager.selPlaylist, m.plManager.cursor)
 			if err != nil {
 				m.status.Showf(statusTTLDefault, "Remove failed: %s", err)
 			} else {
@@ -1137,6 +1139,12 @@ func (m *Model) handlePlMgrNewNameKey(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
+// localDeleter returns the PlaylistDeleter from the local provider.
+func (m *Model) localDeleter() provider.PlaylistDeleter {
+	d, _ := m.localProvider.(provider.PlaylistDeleter)
+	return d
+}
+
 // addToPlaylist appends the current track to a local playlist and shows a status message.
 func (m *Model) addToPlaylist(name string) {
 	track, idx := m.playlist.Current()
@@ -1144,10 +1152,12 @@ func (m *Model) addToPlaylist(name string) {
 		m.status.Show("No track to add", statusTTLShort)
 		return
 	}
-	if err := m.localProvider.AddTrack(name, track); err != nil {
-		m.status.Showf(statusTTLDefault, "Failed: %s", err)
-	} else {
-		m.status.Showf(statusTTLDefault, "Added to %q", name)
+	if w, ok := m.localProvider.(provider.PlaylistWriter); ok {
+		if err := w.AddTrackToPlaylist(context.Background(), name, track); err != nil {
+			m.status.Showf(statusTTLDefault, "Failed: %s", err)
+		} else {
+			m.status.Showf(statusTTLDefault, "Added to %q", name)
+		}
 	}
 }
 

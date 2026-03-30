@@ -6,7 +6,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"cliamp/external/radio"
 	"cliamp/lyrics"
 	"cliamp/player"
 	"cliamp/playlist"
@@ -264,34 +263,34 @@ func fetchNavAlbumTracksCmd(l provider.AlbumTrackLoader, albumID string) tea.Cmd
 	}
 }
 
-// radioProvSearchMsg carries API search results for the provider view.
-type radioProvSearchMsg struct {
-	stations []radio.CatalogStation
-	err      error
+// catalogSearchMsg carries the result of a provider.CatalogSearcher.SearchCatalog call.
+type catalogSearchMsg struct {
+	count int
+	err   error
 }
 
-func fetchRadioProvSearchCmd(query string) tea.Cmd {
+func fetchCatalogSearchCmd(s provider.CatalogSearcher, query string) tea.Cmd {
 	return func() tea.Msg {
-		stations, err := radio.SearchStations(query, 200)
-		return radioProvSearchMsg{stations: stations, err: err}
+		count, err := s.SearchCatalog(query)
+		return catalogSearchMsg{count: count, err: err}
 	}
 }
 
-// — Radio batch loading for provider integration —
+// — Catalog batch loading for providers with lazy catalogs —
 
-// radioBatchSize is the number of catalog stations to fetch per page.
-const radioBatchSize = 100
+// catalogBatchSize is the number of catalog entries to fetch per page.
+const catalogBatchSize = 100
 
-// radioBatchMsg carries a page of catalog stations from the Radio Browser API.
-type radioBatchMsg struct {
-	stations []radio.CatalogStation
-	err      error
+// catalogBatchMsg carries the result of a provider.CatalogLoader.LoadCatalogPage call.
+type catalogBatchMsg struct {
+	added int
+	err   error
 }
 
-func fetchRadioBatchCmd(offset, limit int) tea.Cmd {
+func fetchCatalogBatchCmd(loader provider.CatalogLoader, offset, limit int) tea.Cmd {
 	return func() tea.Msg {
-		stations, err := radio.TopStationsOffset(offset, limit)
-		return radioBatchMsg{stations: stations, err: err}
+		added, err := loader.LoadCatalogPage(offset, limit)
+		return catalogBatchMsg{added: added, err: err}
 	}
 }
 
