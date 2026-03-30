@@ -39,12 +39,6 @@ func (n NavidromeConfig) IsSet() bool {
 	return n.URL != "" && n.User != "" && n.Password != ""
 }
 
-// ScrobbleEnabled reports whether scrobbling is active.
-// Scrobbling is opt-out: it is enabled unless "scrobble = false" is explicitly set.
-func (n NavidromeConfig) ScrobbleEnabled() bool {
-	return !n.ScrobbleDisabled
-}
-
 // SpotifyConfig holds settings for the Spotify provider.
 // Requires a Spotify Premium account and a client_id from
 // developer.spotify.com/dashboard.

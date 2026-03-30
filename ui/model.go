@@ -923,14 +923,6 @@ func (m Model) mainFrameFixedLines(includeTransient bool) int {
 	return lipgloss.Height(frameStyle.Render(content))
 }
 
-func (m Model) playlistVisibleLimit(limit int) int {
-	available := m.height - m.mainFrameFixedLines(false)
-	if available < minPlVisible {
-		return minPlVisible
-	}
-	return min(limit, available)
-}
-
 func (m Model) effectivePlaylistVisible() int {
 	available := m.height - m.mainFrameFixedLines(true)
 	if available <= 0 {
