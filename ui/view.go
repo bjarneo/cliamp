@@ -527,7 +527,7 @@ func (m Model) renderProviderList() string {
 	}
 
 	// Loading indicator for catalog batch.
-	if isRadio && m.radioBatch.loading {
+	if isRadio && m.catalogBatch.loading {
 		lines = append(lines, dimStyle.Render("  Loading more stations..."))
 	}
 

@@ -13,15 +13,15 @@ func (m *Model) maybeLoadCatalogBatch() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	if m.radioBatch.loading || m.radioBatch.done {
+	if m.catalogBatch.loading || m.catalogBatch.done {
 		return nil
 	}
 	if cs, ok := m.provider.(provider.CatalogSearcher); ok && cs.IsSearching() {
 		return nil
 	}
 	if m.provCursor >= len(m.providerLists)-10 {
-		m.radioBatch.loading = true
-		return fetchCatalogBatchCmd(loader, m.radioBatch.offset, catalogBatchSize)
+		m.catalogBatch.loading = true
+		return fetchCatalogBatchCmd(loader, m.catalogBatch.offset, catalogBatchSize)
 	}
 	return nil
 }

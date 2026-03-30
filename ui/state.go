@@ -147,8 +147,8 @@ type spotSearchState struct {
 	err       string
 }
 
-// radioBatchState holds state for lazy-loading catalog stations from the Radio Browser API.
-type radioBatchState struct {
+// catalogBatchState holds state for lazy-loading catalog entries from a provider.CatalogLoader.
+type catalogBatchState struct {
 	offset  int  // next offset to fetch
 	loading bool // true while a fetch is in flight
 	done    bool // true when all stations have been loaded

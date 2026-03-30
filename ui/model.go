@@ -181,7 +181,7 @@ type Model struct {
 	spotSearch     spotSearchState
 	fileBrowser    fileBrowserState
 	navBrowser     navBrowserState
-	radioBatch     radioBatchState
+	catalogBatch     catalogBatchState
 	ytdlBatch      ytdlBatchState
 	reconnect      reconnectState
 	save           saveState
@@ -531,7 +531,7 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	m.provLoading = true
 	m.provSignIn = false
 	m.provSearch.active = false
-	m.radioBatch = radioBatchState{} // reset catalog batch for new provider
+	m.catalogBatch = catalogBatchState{} // reset catalog batch for new provider
 	m.focus = focusProvider
 	return fetchPlaylistsCmd(m.provider)
 }
@@ -1178,9 +1178,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.providerLists = msg
 		m.provLoading = false
 		// Start loading catalog when the provider supports lazy catalog loading.
-		if loader, ok := m.provider.(provider.CatalogLoader); ok && !m.radioBatch.loading && !m.radioBatch.done {
-			m.radioBatch.loading = true
-			return m, fetchCatalogBatchCmd(loader, m.radioBatch.offset, catalogBatchSize)
+		if loader, ok := m.provider.(provider.CatalogLoader); ok && !m.catalogBatch.loading && !m.catalogBatch.done {
+			m.catalogBatch.loading = true
+			return m, fetchCatalogBatchCmd(loader, m.catalogBatch.offset, catalogBatchSize)
 		}
 		return m, nil
 
@@ -1241,22 +1241,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case catalogBatchMsg:
-		m.radioBatch.loading = false
+		m.catalogBatch.loading = false
 		if msg.err != nil {
-			m.radioBatch.done = true
+			m.catalogBatch.done = true
 			m.status.Show("Catalog load failed", statusTTLDefault)
 			return m, nil
 		}
 		if msg.added == 0 {
-			m.radioBatch.done = true
+			m.catalogBatch.done = true
 			return m, nil
 		}
 		if lists, err := m.provider.Playlists(); err == nil {
 			m.providerLists = lists
 		}
-		m.radioBatch.offset += msg.added
+		m.catalogBatch.offset += msg.added
 		if msg.added < catalogBatchSize {
-			m.radioBatch.done = true
+			m.catalogBatch.done = true
 		}
 		return m, nil
 
@@ -2037,7 +2037,7 @@ func (m *Model) nowPlaying(track playlist.Track) {
 	}
 
 	if scrobbler := m.findScrobbler(); scrobbler != nil {
-		go scrobbler.Scrobble(track, true)
+		go scrobbler.Scrobble(track, false)
 	}
 }
 
