@@ -424,3 +424,117 @@ func (m Model) renderLyricsOverlay() string {
 	}
 	return m.centerOverlay(strings.Join(lines, "\n"))
 }
+
+func (m Model) renderSpotSearch() string {
+	var lines []string
+	switch m.spotSearch.screen {
+	case spotSearchInput:
+		lines = m.renderSpotSearchInput()
+	case spotSearchResults:
+		lines = m.renderSpotSearchResults()
+	case spotSearchPlaylist:
+		lines = m.renderSpotSearchPlaylist()
+	case spotSearchNewName:
+		lines = m.renderSpotSearchNewName()
+	}
+
+	if m.spotSearch.err != "" {
+		lines = append(lines, "", helpStyle.Render("  "+m.spotSearch.err))
+	}
+
+	return m.centerOverlay(strings.Join(lines, "\n"))
+}
+
+func (m Model) renderSpotSearchInput() []string {
+	lines := []string{
+		titleStyle.Render("S P O T I F Y  S E A R C H"),
+		"",
+	}
+
+	if m.spotSearch.loading {
+		lines = append(lines, dimStyle.Render("  Searching..."))
+	} else {
+		lines = append(lines, playlistSelectedStyle.Render("  Search: "+m.spotSearch.query+"_"))
+	}
+
+	lines = append(lines, "", helpKey("Enter", "Search ")+helpKey("Esc", "Cancel"))
+	return lines
+}
+
+func (m Model) renderSpotSearchResults() []string {
+	lines := []string{
+		titleStyle.Render("S E A R C H  R E S U L T S"),
+		"",
+	}
+
+	maxVisible := 12
+	rendered := 0
+
+	if len(m.spotSearch.results) == 0 {
+		lines = append(lines, dimStyle.Render("  No results"))
+		rendered = 1
+	} else {
+		scroll := scrollStart(m.spotSearch.cursor, maxVisible)
+		for i := scroll; i < len(m.spotSearch.results) && i < scroll+maxVisible; i++ {
+			t := m.spotSearch.results[i]
+			label := truncate(fmt.Sprintf("%s - %s", t.Artist, t.Title), panelWidth-8)
+			lines = append(lines, cursorLine(label, i == m.spotSearch.cursor))
+			rendered++
+		}
+	}
+
+	lines = padLines(lines, maxVisible, rendered)
+	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d results", len(m.spotSearch.results))))
+	lines = append(lines, "", helpKey("↑↓", "Navigate ")+helpKey("Enter", "Add to playlist ")+helpKey("Esc", "Back"))
+	return lines
+}
+
+func (m Model) renderSpotSearchPlaylist() []string {
+	lines := []string{
+		titleStyle.Render("A D D  T O  P L A Y L I S T"),
+		"",
+	}
+
+	if m.spotSearch.loading {
+		lines = append(lines, dimStyle.Render("  Loading playlists..."))
+		return lines
+	}
+
+	track := m.spotSearch.selTrack
+	lines = append(lines, dimStyle.Render("  "+truncate(fmt.Sprintf("%s - %s", track.Artist, track.Title), panelWidth-8)), "")
+
+	count := len(m.spotSearch.playlists) + 1 // +1 for "+ New Playlist..."
+	maxVisible := 12
+	scroll := scrollStart(m.spotSearch.cursor, maxVisible)
+
+	for i := scroll; i < count && i < scroll+maxVisible; i++ {
+		var label string
+		if i < len(m.spotSearch.playlists) {
+			pl := m.spotSearch.playlists[i]
+			label = pl.Name
+		} else {
+			label = "+ New Playlist..."
+		}
+
+		lines = append(lines, cursorLine(label, i == m.spotSearch.cursor))
+	}
+
+	if count > maxVisible {
+		lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d playlists", m.spotSearch.cursor+1, count)))
+	}
+
+	lines = append(lines, "", helpKey("↑↓", "Navigate ")+helpKey("Enter", "Add ")+helpKey("Esc", "Back"))
+	return lines
+}
+
+func (m Model) renderSpotSearchNewName() []string {
+	lines := []string{
+		titleStyle.Render("N E W  P L A Y L I S T"),
+		"",
+		dimStyle.Render("  Playlist name:"),
+		playlistSelectedStyle.Render("  " + m.spotSearch.newName + "_"),
+		"",
+		helpKey("Enter", "Create & add ") + helpKey("Esc", "Cancel"),
+	}
+	return lines
+}

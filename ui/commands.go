@@ -1,12 +1,14 @@
 package ui
 
 import (
+	"context"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"cliamp/external/navidrome"
 	"cliamp/external/radio"
+	"cliamp/external/spotify"
 	"cliamp/lyrics"
 	"cliamp/player"
 	"cliamp/playlist"
@@ -14,6 +16,9 @@ import (
 )
 
 // — Message types used by tea.Cmd constructors —
+
+// SetEQPresetMsg is sent by Lua plugins to change the EQ preset by name.
+type SetEQPresetMsg struct{ Name string }
 
 type tracksLoadedMsg []playlist.Track
 
@@ -61,14 +66,6 @@ type ytdlBatchMsg struct {
 type ytdlSavedMsg struct {
 	path string
 	err  error
-}
-
-// — Radio catalog message types —
-
-// radioCatalogLoadedMsg carries stations fetched from the Radio Browser API.
-type radioCatalogLoadedMsg struct {
-	stations []radio.CatalogStation
-	err      error
 }
 
 // — Navidrome browser message types —
@@ -264,19 +261,94 @@ func fetchNavAlbumTracksCmd(c *navidrome.NavidromeClient, albumID string) tea.Cm
 	}
 }
 
-// — Radio catalog commands —
+// radioProvSearchMsg carries API search results for the provider view.
+type radioProvSearchMsg struct {
+	stations []radio.CatalogStation
+	err      error
+}
 
-func fetchRadioTopCmd() tea.Cmd {
+func fetchRadioProvSearchCmd(query string) tea.Cmd {
 	return func() tea.Msg {
-		stations, err := radio.TopStations(50)
-		return radioCatalogLoadedMsg{stations: stations, err: err}
+		stations, err := radio.SearchStations(query, 200)
+		return radioProvSearchMsg{stations: stations, err: err}
 	}
 }
 
-func fetchRadioSearchCmd(query string) tea.Cmd {
+// — Radio batch loading for provider integration —
+
+// radioBatchSize is the number of catalog stations to fetch per page.
+const radioBatchSize = 100
+
+// radioBatchMsg carries a page of catalog stations from the Radio Browser API.
+type radioBatchMsg struct {
+	stations []radio.CatalogStation
+	err      error
+}
+
+func fetchRadioBatchCmd(offset, limit int) tea.Cmd {
 	return func() tea.Msg {
-		stations, err := radio.SearchStations(query, 50)
-		return radioCatalogLoadedMsg{stations: stations, err: err}
+		stations, err := radio.TopStationsOffset(offset, limit)
+		return radioBatchMsg{stations: stations, err: err}
+	}
+}
+
+// — Spotify search + add-to-playlist messages —
+
+type spotSearchResultsMsg struct {
+	tracks []playlist.Track
+	err    error
+}
+
+type spotPlaylistsMsg struct {
+	playlists []playlist.PlaylistInfo
+	err       error
+}
+
+type spotAddedMsg struct {
+	name string
+	err  error
+}
+
+type spotCreatedMsg struct {
+	name string
+	err  error
+}
+
+func fetchSpotSearchCmd(prov *spotify.SpotifyProvider, query string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		tracks, err := prov.SearchTracks(ctx, query, 20)
+		return spotSearchResultsMsg{tracks: tracks, err: err}
+	}
+}
+
+func fetchSpotPlaylistsCmd(prov *spotify.SpotifyProvider) tea.Cmd {
+	return func() tea.Msg {
+		playlists, err := prov.Playlists()
+		return spotPlaylistsMsg{playlists: playlists, err: err}
+	}
+}
+
+func addToSpotPlaylistCmd(prov *spotify.SpotifyProvider, playlistID, trackURI, name string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		err := prov.AddTrackToPlaylist(ctx, playlistID, trackURI)
+		return spotAddedMsg{name: name, err: err}
+	}
+}
+
+func createSpotPlaylistCmd(prov *spotify.SpotifyProvider, name, trackURI string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		id, err := prov.CreatePlaylist(ctx, name)
+		if err != nil {
+			return spotCreatedMsg{name: name, err: err}
+		}
+		err = prov.AddTrackToPlaylist(ctx, id, trackURI)
+		return spotCreatedMsg{name: name, err: err}
 	}
 }
 

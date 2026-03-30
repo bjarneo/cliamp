@@ -454,6 +454,71 @@
     color:#5a6a90;letter-spacing:1px;
   }
 
+  /* ═══ PLUGINS ══════════════════════════════ */
+  .plugins-intro{
+    color:#9098b0;font-size:13px;
+    margin-bottom:28px;line-height:1.7;
+  }
+  .plugins-intro code{color:#5bf870;font-size:12px;text-shadow:0 0 6px rgba(91,248,112,.1)}
+  .plugins-intro .path{color:#7a82a0}
+  .plugin-example{
+    background:#0c0e17;
+    border:1px solid #1e2233;
+    border-radius:0;
+    margin-bottom:20px;
+    overflow:hidden;
+  }
+  .plugin-example-title{
+    padding:10px 16px;
+    background:#0a0c14;
+    border-bottom:1px solid #1e2233;
+    color:#5a6a90;font-size:10px;letter-spacing:1.5px;
+    text-transform:uppercase;
+  }
+  .plugin-example pre{
+    padding:16px 20px;
+    margin:0;
+    color:#b0b8c8;font-size:12px;line-height:1.7;
+    overflow-x:auto;
+  }
+  .plugin-example pre .kw{color:#c3a6ff}
+  .plugin-example pre .fn{color:#73d0ff}
+  .plugin-example pre .str{color:#d5ff80}
+  .plugin-example pre .cm{color:#5a6a90}
+  .plugin-example pre .op{color:#f29e74}
+  .plugin-api-grid{
+    display:grid;
+    grid-template-columns:repeat(2,1fr);
+    gap:8px;
+    margin-top:28px;
+  }
+  .plugin-api{
+    background:#0c0e17;
+    border:1px solid #141828;
+    border-left:2px solid #1e2233;
+    padding:16px 18px;
+    transition:all .3s;
+  }
+  .plugin-api:hover{
+    background:#0e1019;
+    border-left-color:#c3a6ff;
+  }
+  .plugin-api-name{
+    color:#c3a6ff;font-size:12px;font-weight:600;
+    margin-bottom:4px;font-family:inherit;
+  }
+  .plugin-api-name::before{content:"cliamp.";color:#5a6a90;font-weight:400}
+  .plugin-api p{font-size:11px;color:#7a82a0;line-height:1.5}
+  .plugin-api p code{color:#5bf870;font-size:11px}
+  .plugin-events{
+    margin-top:28px;
+  }
+  .plugin-events-title{
+    color:#b0b8c8;font-size:13px;font-weight:600;
+    margin-bottom:12px;
+  }
+  .plugin-events-title::before{content:"# ";color:#3a4060;font-weight:400}
+
   /* ═══ TABLES (Keys / CLI) ═════════════════ */
   .table-intro{
     color:#9098b0;font-size:13px;
@@ -703,6 +768,7 @@
     .hero-title{letter-spacing:.3em}
     .hero-desc{text-align:left}
     .features-grid{grid-template-columns:1fr}
+    .plugin-api-grid{grid-template-columns:1fr}
     .themes-grid{grid-template-columns:repeat(2,1fr)}
     .keys-grid{grid-template-columns:1fr}
     .bar{flex:0 0 4px}
@@ -748,6 +814,7 @@
       <a href="#features">Features</a>
       <a href="#themes">Themes</a>
       <a href="#keys">Keys</a>
+      <a href="#plugins">Plugins</a>
       <a href="#radio">Radio</a>
       <a href="https://github.com/bjarneo/cliamp">GitHub</a>
     </div>
@@ -1221,6 +1288,7 @@
         <div class="key-row"><kbd>&larr; &rarr;</kbd><span>Seek &minus;/+5s</span></div>
         <div class="key-row"><kbd>Shift+&larr; Shift+&rarr;</kbd><span>Seek &minus;/+large step (default 30s)</span></div>
         <div class="key-row"><kbd>+ / &minus;</kbd><span>Volume up / down</span></div>
+        <div class="key-row"><kbd>] [</kbd><span>Speed up / down (&plusmn;0.25x)</span></div>
         <div class="key-row"><kbd>m</kbd><span>Toggle mono</span></div>
         <div class="key-row"><kbd>Tab</kbd><span>Focus: Playlist / EQ</span></div>
         <div class="key-row"><kbd>j k</kbd><span>Scroll / adjust EQ (wraps around)</span></div>
@@ -1234,7 +1302,8 @@
         <div class="key-row"><kbd>V</kbd><span>Full-screen visualizer</span></div>
         <div class="key-row"><kbd>/</kbd><span>Search playlist</span></div>
         <div class="key-row"><kbd>f</kbd><span>Find on YouTube (queue)</span></div>
-        <div class="key-row"><kbd>F</kbd><span>Find on SoundCloud (queue)</span></div>
+        <div class="key-row"><kbd>Ctrl+F</kbd><span>Find on SoundCloud (queue)</span></div>
+        <div class="key-row"><kbd>F</kbd><span>Spotify search + add to playlist</span></div>
         <div class="key-row"><kbd>u</kbd><span>Load URL (stream/playlist)</span></div>
         <div class="key-row"><kbd>y</kbd><span>Show lyrics</span></div>
         <div class="key-row"><kbd>J</kbd><span>Jump to time</span></div>
@@ -1247,12 +1316,143 @@
         <div class="key-row"><kbd>r</kbd><span>Repeat: Off / All / One</span></div>
         <div class="key-row"><kbd>z</kbd><span>Toggle shuffle</span></div>
         <div class="key-row"><kbd>N</kbd><span>Navidrome browser</span></div>
-        <div class="key-row"><kbd>R</kbd><span>Radio catalog</span></div>
-        <div class="key-row"><kbd>S</kbd><span>Save to ~/Music</span></div>
+        <div class="key-row"><kbd>R</kbd><span>Open radio provider</span></div>
+        <div class="key-row"><kbd>S</kbd><span>Open Spotify provider</span></div>
+        <div class="key-row"><kbd>P</kbd><span>Open Plex provider</span></div>
+        <div class="key-row"><kbd>Y</kbd><span>Open YouTube provider</span></div>
+        <div class="key-row"><kbd>Ctrl+S</kbd><span>Save to ~/Music</span></div>
         <div class="key-row"><kbd>Shift+&uarr; Shift+&darr;</kbd><span>Move track up / down</span></div>
         <div class="key-row"><kbd>Esc / b</kbd><span>Back to provider</span></div>
         <div class="key-row"><kbd>Ctrl+K</kbd><span>Show keymap</span></div>
         <div class="key-row"><kbd>q</kbd><span>Quit</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ PLUGINS ═══ -->
+<section id="plugins">
+  <div class="wrap">
+    <div class="section-label"><span class="label-text">plugins.lua</span></div>
+    <p class="plugins-intro">
+      Lua 5.1 plugin system. Hook into playback events, add custom visualizers, or push data to external services.
+      Each plugin runs in an isolated sandbox &mdash; a crash in one cannot affect others or the player.
+      Drop a <code>.lua</code> file in <span class="path">~/.config/cliamp/plugins/</span> and restart.
+    </p>
+
+    <div class="plugin-example">
+      <div class="plugin-example-title">Now Playing (status bar)</div>
+      <pre><span class="cm">-- ~/.config/cliamp/plugins/now-playing.lua</span>
+<span class="kw">local</span> p = plugin.<span class="fn">register</span>({
+    name = <span class="str">"now-playing"</span>,
+    type = <span class="str">"hook"</span>,
+})
+
+p:<span class="fn">on</span>(<span class="str">"track.change"</span>, <span class="kw">function</span>(track)
+    cliamp.fs.<span class="fn">write</span>(<span class="str">"/tmp/cliamp-now-playing"</span>,
+        track.artist <span class="op">..</span> <span class="str">" - "</span> <span class="op">..</span> track.title)
+<span class="kw">end</span>)
+
+p:<span class="fn">on</span>(<span class="str">"app.quit"</span>, <span class="kw">function</span>()
+    cliamp.fs.<span class="fn">remove</span>(<span class="str">"/tmp/cliamp-now-playing"</span>)
+<span class="kw">end</span>)</pre>
+    </div>
+
+    <div class="plugin-example">
+      <div class="plugin-example-title">Webhook</div>
+      <pre><span class="cm">-- ~/.config/cliamp/plugins/webhook.lua</span>
+<span class="kw">local</span> p = plugin.<span class="fn">register</span>({
+    name = <span class="str">"webhook"</span>,
+    type = <span class="str">"hook"</span>,
+})
+
+<span class="kw">local</span> url = p:<span class="fn">config</span>(<span class="str">"url"</span>)
+
+p:<span class="fn">on</span>(<span class="str">"track.change"</span>, <span class="kw">function</span>(track)
+    <span class="kw">if not</span> url <span class="kw">then return end</span>
+    cliamp.http.<span class="fn">post</span>(url, {
+        json = { title = track.title, artist = track.artist }
+    })
+<span class="kw">end</span>)</pre>
+    </div>
+
+    <div class="plugin-example">
+      <div class="plugin-example-title">Custom Visualizer</div>
+      <pre><span class="cm">-- ~/.config/cliamp/plugins/simple-bars.lua</span>
+<span class="kw">local</span> p = plugin.<span class="fn">register</span>({
+    name = <span class="str">"simple-bars"</span>,
+    type = <span class="str">"visualizer"</span>,
+})
+
+<span class="cm">-- Called ~20 FPS. bands: 10 values (0.0-1.0)</span>
+<span class="kw">function</span> p:<span class="fn">render</span>(bands, frame)
+    <span class="kw">local</span> lines = {}
+    <span class="kw">for</span> row = 5, 1, -1 <span class="kw">do</span>
+        <span class="kw">local</span> line = <span class="str">""</span>
+        <span class="kw">for</span> i = 1, 10 <span class="kw">do</span>
+            <span class="kw">if</span> bands[i] <span class="op">></span> (row - 1) / 5 <span class="kw">then</span>
+                line = line <span class="op">..</span> <span class="str">"██████ "</span>
+            <span class="kw">else</span>
+                line = line <span class="op">..</span> <span class="str">"       "</span>
+            <span class="kw">end</span>
+        <span class="kw">end</span>
+        table.<span class="fn">insert</span>(lines, line)
+    <span class="kw">end</span>
+    <span class="kw">return</span> table.<span class="fn">concat</span>(lines, <span class="str">"\n"</span>)
+<span class="kw">end</span></pre>
+    </div>
+
+    <div class="plugin-events-title">Events</div>
+    <div class="keys-wrap">
+      <div class="keys-grid">
+        <div class="key-row"><kbd>track.change</kbd><span>New track starts playing</span></div>
+        <div class="key-row"><kbd>track.scrobble</kbd><span>Track played &ge;50% or &ge;4 min</span></div>
+        <div class="key-row"><kbd>playback.state</kbd><span>Play, pause, stop, seek, volume change</span></div>
+        <div class="key-row"><kbd>app.start</kbd><span>After all plugins loaded</span></div>
+        <div class="key-row"><kbd>app.quit</kbd><span>Before shutdown</span></div>
+      </div>
+    </div>
+
+    <div class="plugin-api-grid">
+      <div class="plugin-api">
+        <div class="plugin-api-name">player</div>
+        <p>Read-only playback state: <code>state()</code>, <code>position()</code>, <code>volume()</code>, <code>shuffle()</code>, <code>eq_bands()</code>, and more</p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">track</div>
+        <p>Current track metadata: <code>title()</code>, <code>artist()</code>, <code>album()</code>, <code>genre()</code>, <code>duration_secs()</code></p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">http</div>
+        <p>HTTP client with <code>get()</code> and <code>post()</code> &mdash; JSON, form body, custom headers. 5s timeout</p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">fs</div>
+        <p>Sandboxed file I/O: <code>write()</code>, <code>read()</code>, <code>append()</code>, <code>remove()</code>, <code>exists()</code></p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">json</div>
+        <p><code>encode()</code> and <code>decode()</code> for JSON serialization</p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">crypto</div>
+        <p><code>md5()</code>, <code>sha256()</code>, <code>hmac_sha256()</code> for hashing and signing</p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">notify</div>
+        <p>Desktop notifications via <code>notify-send</code>. Works with mako, dunst, etc.</p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">timer</div>
+        <p>Schedule callbacks: <code>after()</code>, <code>every()</code>, <code>cancel()</code></p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">log</div>
+        <p><code>info()</code>, <code>warn()</code>, <code>error()</code>, <code>debug()</code> &rarr; <span class="path">~/.config/cliamp/plugins.log</span></p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">config</div>
+        <p>Read per-plugin values from <code>[plugins.name]</code> in config.toml via <code>p:config(key)</code></p>
       </div>
     </div>
   </div>

@@ -94,7 +94,14 @@ type Visualizer struct {
 	frame      uint64    // frame counter for scatter animation
 	sampleBuf  []float64 // reusable buffer for reading audio tap samples
 	terrainBuf []float64 // height history for terrain scrolling mode
+
+	// Lua plugin visualizers (modes numbered visCount, visCount+1, ...)
+	luaVisNames []string    // Lua visualizer names in order
+	luaRender   luaVisRenderer // callback for Lua visualizer rendering
 }
+
+// luaVisRenderer is the callback type for rendering a Lua visualizer frame.
+type luaVisRenderer func(name string, bands [10]float64, rows, cols int, frame uint64) string
 
 // NewVisualizer creates a Visualizer for the given sample rate.
 func NewVisualizer(sampleRate float64) *Visualizer {
@@ -106,9 +113,10 @@ func NewVisualizer(sampleRate float64) *Visualizer {
 	}
 }
 
-// CycleMode advances to the next visualizer mode.
+// CycleMode advances to the next visualizer mode, including Lua visualizers.
 func (v *Visualizer) CycleMode() {
-	v.Mode = (v.Mode + 1) % visCount
+	total := visCount + VisMode(len(v.luaVisNames))
+	v.Mode = (v.Mode + 1) % total
 }
 
 // visEntry pairs a display name with a render function for a visualizer mode.
@@ -159,7 +167,14 @@ func init() {
 
 // ModeName returns the display name of the current mode.
 func (v *Visualizer) ModeName() string {
-	return visModes[v.Mode].name
+	if v.Mode < visCount {
+		return visModes[v.Mode].name
+	}
+	luaIdx := int(v.Mode - visCount)
+	if luaIdx < len(v.luaVisNames) {
+		return v.luaVisNames[luaIdx]
+	}
+	return "Unknown"
 }
 
 // StringToVisMode converts a visualizer mode name (case-insensitive) to VisMode.
@@ -169,6 +184,17 @@ func StringToVisMode(name string) VisMode {
 		return mode
 	}
 	return VisBars
+}
+
+// RegisterLuaVisualizers adds Lua visualizer names so they can be cycled
+// through with the v key. renderer is called when a Lua visualizer is active.
+func (v *Visualizer) RegisterLuaVisualizers(names []string, renderer luaVisRenderer) {
+	v.luaVisNames = names
+	v.luaRender = renderer
+	// Add to name map for StringToVisMode lookups.
+	for i, name := range names {
+		visNameMap[strings.ToLower(name)] = visCount + VisMode(i)
+	}
 }
 
 // Analyze runs FFT on raw audio samples and returns 10 normalized band levels (0-1).
@@ -253,8 +279,16 @@ func (v *Visualizer) Analyze(samples []float64) [numBands]float64 {
 
 // Render dispatches to the active visualizer mode.
 func (v *Visualizer) Render(bands [numBands]float64) string {
-	if render := visModes[v.Mode].render; render != nil {
-		return render(v, bands)
+	if v.Mode < visCount {
+		if render := visModes[v.Mode].render; render != nil {
+			return render(v, bands)
+		}
+		return ""
+	}
+	// Lua visualizer mode.
+	luaIdx := int(v.Mode - visCount)
+	if luaIdx < len(v.luaVisNames) && v.luaRender != nil {
+		return v.luaRender(v.luaVisNames[luaIdx], bands, v.Rows, panelWidth, v.frame)
 	}
 	return ""
 }

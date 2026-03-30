@@ -119,6 +119,7 @@ type Config struct {
 	Repeat            string             // "off", "all", or "one"
 	Shuffle           bool
 	Mono              bool
+	Speed             float64            // playback speed ratio: 0.25–2.0 (default 1.0)
 	AutoPlay          bool               // start playback automatically on launch (radio streams, CLI tracks)
 	SeekStepLarge     int                // seconds for Shift+Left/Right seek jumps
 	Provider          string             // default provider: "radio", "navidrome", "spotify", "ytmusic" (default "radio")
@@ -134,7 +135,8 @@ type Config struct {
 	Navidrome         NavidromeConfig    // optional Navidrome/Subsonic server credentials
 	Spotify           SpotifyConfig      // optional Spotify provider (requires Premium)
 	YouTubeMusic      YouTubeMusicConfig // optional YouTube Music provider
-	Plex              PlexConfig         // optional Plex Media Server credentials
+	Plex              PlexConfig                    // optional Plex Media Server credentials
+	Plugins           map[string]map[string]string  // per-plugin config from [plugins.*] sections
 }
 
 // defaultConfig returns a Config with sensible defaults.
@@ -145,6 +147,7 @@ func defaultConfig() Config {
 	return Config{
 		Repeat:          "off",
 		AutoPlay:        false,
+		Speed:           1.0,
 		SeekStepLarge:   30,
 		SampleRate:      0,
 		BufferMs:        100,
@@ -182,7 +185,7 @@ func Load() (Config, error) {
 			continue
 		}
 
-		// Section header: [navidrome], [plex], etc.
+		// Section header: [navidrome], [plex], [plugins.lastfm], etc.
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
 			section = strings.ToLower(line[1 : len(line)-1])
 			// Mark providers as enabled when their section exists.
@@ -191,6 +194,19 @@ func Load() (Config, error) {
 			case "yt", "youtube", "ytmusic":
 				cfg.YouTubeMusic.Enabled = true
 				section = "ytmusic" // normalize for key parsing below
+			}
+			// Initialize plugin sub-maps for [plugins] and [plugins.*] sections.
+			if section == "plugins" || strings.HasPrefix(section, "plugins.") {
+				if cfg.Plugins == nil {
+					cfg.Plugins = make(map[string]map[string]string)
+				}
+				pluginName := strings.TrimPrefix(section, "plugins.")
+				if pluginName == "plugins" {
+					pluginName = "" // top-level [plugins] section
+				}
+				if _, ok := cfg.Plugins[pluginName]; !ok {
+					cfg.Plugins[pluginName] = make(map[string]string)
+				}
 			}
 			continue
 		}
@@ -243,6 +259,19 @@ func Load() (Config, error) {
 				cfg.Plex.Token = strings.Trim(val, `"'`)
 			}
 		default:
+			// Handle [plugins] and [plugins.*] sections.
+			if section == "plugins" || strings.HasPrefix(section, "plugins.") {
+				pluginName := strings.TrimPrefix(section, "plugins.")
+				if pluginName == "plugins" {
+					pluginName = "" // top-level [plugins] section
+				}
+				if cfg.Plugins != nil {
+					if m, ok := cfg.Plugins[pluginName]; ok {
+						m[key] = strings.Trim(val, `"'`)
+					}
+				}
+				continue
+			}
 			switch key {
 			case "volume":
 				if v, err := strconv.ParseFloat(val, 64); err == nil {
@@ -289,6 +318,10 @@ func Load() (Config, error) {
 			case "bit_depth":
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.BitDepth = v
+				}
+			case "speed":
+				if v, err := strconv.ParseFloat(val, 64); err == nil {
+					cfg.Speed = v
 				}
 			case "compact":
 				cfg.Compact = val == "true"
@@ -447,6 +480,7 @@ func SaveNavidromeSort(sortType string) error {
 // PlayerConfig is the subset of player controls needed to apply config.
 type PlayerConfig interface {
 	SetVolume(db float64)
+	SetSpeed(ratio float64)
 	SetEQBand(band int, dB float64)
 	ToggleMono()
 }
@@ -460,6 +494,9 @@ type PlaylistConfig interface {
 // ApplyPlayer applies audio-engine settings from the config.
 func (c Config) ApplyPlayer(p PlayerConfig) {
 	p.SetVolume(c.Volume)
+	if c.Speed != 0 && c.Speed != 1.0 {
+		p.SetSpeed(c.Speed)
+	}
 	if c.EQPreset == "" || c.EQPreset == "Custom" {
 		for i, gain := range c.EQ {
 			p.SetEQBand(i, gain)
@@ -492,6 +529,9 @@ func (c Config) SeekStepLargeDuration() time.Duration {
 // clamp constrains all Config fields to their valid ranges.
 func (c *Config) clamp() {
 	c.Volume = max(min(c.Volume, 6), -30)
+	if c.Speed < 0.25 || c.Speed > 2.0 {
+		c.Speed = 1.0
+	}
 	c.SeekStepLarge = max(min(c.SeekStepLarge, 600), 6)
 	c.SampleRate = clampSampleRate(c.SampleRate)
 	c.BufferMs = max(min(c.BufferMs, 500), 50)
