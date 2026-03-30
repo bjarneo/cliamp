@@ -21,8 +21,8 @@ import (
 
 	librespot "github.com/devgianlu/go-librespot"
 	librespotPlayer "github.com/devgianlu/go-librespot/player"
-	"github.com/devgianlu/go-librespot/session"
 	devicespb "github.com/devgianlu/go-librespot/proto/spotify/connectstate/devices"
+	"github.com/devgianlu/go-librespot/session"
 	"golang.org/x/oauth2"
 	spotifyoauth2 "golang.org/x/oauth2/spotify"
 )
@@ -45,9 +45,15 @@ type Session struct {
 	sess        *session.Session
 	player      *librespotPlayer.Player
 	devID       string
-	clientID    string         // Spotify Developer app client ID
+	clientID    string             // Spotify Developer app client ID
 	tokenSource oauth2.TokenSource // auto-refreshing OAuth2 token source
 }
+
+var (
+	newSilentSession        = NewSessionSilent
+	newInteractiveSessionFn = newInteractiveSession
+	deleteStoredCreds       = deleteCreds
+)
 
 // NewSession creates a go-librespot session, using stored credentials if
 // available, otherwise starting an interactive OAuth2 flow.
@@ -144,7 +150,6 @@ func newSessionFromStored(ctx context.Context, clientID string, creds *storedCre
 
 // oauthScopes are the Spotify Web API scopes needed for cliamp.
 // See: https://developer.spotify.com/documentation/web-api/concepts/scopes
-//
 var oauthScopes = []string{
 	// Playlist browsing
 	"playlist-read-collaborative",
@@ -387,29 +392,31 @@ func (s *Session) Close() {
 	}
 }
 
-// Reconnect tears down the current session, clears stored credentials, and
-// re-authenticates interactively. This is called automatically when playback
-// encounters an auth-related error (e.g. AES key retrieval failure) so the
-// user doesn't get stuck in an error loop.
+// Reconnect replaces the current session after an auth-related playback error
+// using cached credentials only.
 //
 // The new session is established before tearing down the old one to avoid a
 // window where s.sess/s.player are nil (which would crash concurrent callers
 // like NewStream or webApi).
 func (s *Session) Reconnect(ctx context.Context) error {
-	// Capture clientID without holding the lock during the (potentially long)
-	// interactive OAuth2 flow.
+	return s.reconnect(ctx, newSilentSession)
+}
+
+// ReconnectInteractive forces a fresh interactive OAuth2 flow after discarding
+// cached credentials.
+func (s *Session) ReconnectInteractive(ctx context.Context) error {
+	if err := deleteStoredCreds(); err != nil {
+		return fmt.Errorf("spotify: clear stored credentials: %w", err)
+	}
+	return s.reconnect(ctx, newInteractiveSessionFn)
+}
+
+func (s *Session) reconnect(ctx context.Context, build func(context.Context, string) (*Session, error)) error {
 	s.mu.Lock()
 	clientID := s.clientID
 	s.mu.Unlock()
 
-	// Clear stored credentials so we don't reuse stale ones.
-	if err := deleteCreds(); err != nil {
-		fmt.Fprintf(os.Stderr, "spotify: failed to clear stored credentials: %v\n", err)
-	}
-
-	// Create the new session outside the lock — this may open a browser and
-	// block for user interaction.
-	newSess, err := NewSession(ctx, clientID)
+	newSess, err := build(ctx, clientID)
 	if err != nil {
 		return fmt.Errorf("spotify: reconnect: %w", err)
 	}
@@ -438,19 +445,7 @@ func (s *Session) Reconnect(ctx context.Context) error {
 	newSess.player = nil
 	newSess.mu.Unlock()
 
-	fmt.Fprintf(os.Stderr, "spotify: re-authenticated successfully\n")
-	return nil
-}
-
-// deleteCreds removes the stored credentials file.
-func deleteCreds() error {
-	path, err := credsPath()
-	if err != nil {
-		return err
-	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return err
-	}
+	fmt.Fprintf(os.Stderr, "spotify: session reconnected successfully\n")
 	return nil
 }
 
@@ -484,6 +479,17 @@ func loadCreds() (*storedCreds, error) {
 	return &creds, nil
 }
 
+func deleteCreds() error {
+	path, err := credsPath()
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 func saveCreds(creds *storedCreds) error {
 	path, err := credsPath()
 	if err != nil {
@@ -498,4 +504,3 @@ func saveCreds(creds *storedCreds) error {
 	}
 	return os.WriteFile(path, data, 0o600)
 }
-
