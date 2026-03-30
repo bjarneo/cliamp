@@ -1267,10 +1267,14 @@ func (m *Model) handleDeviceKey(msg tea.KeyMsg) tea.Cmd {
 	case "up", "k":
 		if m.devicePicker.cursor > 0 {
 			m.devicePicker.cursor--
+		} else if len(m.devicePicker.devices) > 0 {
+			m.devicePicker.cursor = len(m.devicePicker.devices) - 1
 		}
 	case "down", "j":
 		if m.devicePicker.cursor < len(m.devicePicker.devices)-1 {
 			m.devicePicker.cursor++
+		} else {
+			m.devicePicker.cursor = 0
 		}
 	case "enter":
 		if len(m.devicePicker.devices) > 0 && m.devicePicker.cursor < len(m.devicePicker.devices) {

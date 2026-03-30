@@ -30,6 +30,7 @@ func (m Model) renderDeviceOverlay() string {
 
 	maxVisible := 12
 	scroll := scrollStart(m.devicePicker.cursor, maxVisible)
+	rendered := 0
 
 	for i := scroll; i < len(m.devicePicker.devices) && i < scroll+maxVisible; i++ {
 		d := m.devicePicker.devices[i]
@@ -46,7 +47,10 @@ func (m Model) renderDeviceOverlay() string {
 		} else {
 			lines = append(lines, dimStyle.Render("  "+label)+suffix)
 		}
+		rendered++
 	}
+
+	lines = padLines(lines, maxVisible, rendered)
 
 	if len(m.devicePicker.devices) > maxVisible {
 		lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d devices", m.devicePicker.cursor+1, len(m.devicePicker.devices))))
