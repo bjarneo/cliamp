@@ -33,19 +33,6 @@ type fbTracksResolvedMsg struct {
 	replace bool
 }
 
-// fbExpanded reports whether the shared playlist/file-browser height is currently expanded.
-func (m *Model) fbExpanded() bool {
-	return m.heightExpanded
-}
-
-// fbVisibleCap returns the max list height cap based on expanded mode.
-func (m *Model) fbVisibleCap() int {
-	if m.fbExpanded() {
-		return m.height
-	}
-	return fbMaxVisible
-}
-
 func (m Model) fbHeaderLines() []string {
 	return []string{
 		titleStyle.Render("O P E N  F I L E S"),
@@ -93,7 +80,10 @@ func (m *Model) fbVisible() int {
 	probeFrame := ui.FrameStyle.Render(strings.Join(probeSections, "\n"))
 	fixedHeight := lipgloss.Height(probeFrame) - 1
 
-	limit := m.fbVisibleCap()
+	limit := fbMaxVisible
+	if m.heightExpanded {
+		limit = m.height
+	}
 	return max(3, min(limit, m.height-fixedHeight))
 }
 
