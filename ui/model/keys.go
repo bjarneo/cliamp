@@ -9,7 +9,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"cliamp/internal/fileutil"
 	"cliamp/playlist"
@@ -66,6 +65,118 @@ func (m *Model) handleSpeedKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.togglePlayPause()
 	}
 	return nil
+}
+
+func (m *Model) providerScrollStep() int {
+	return max(1, m.effectivePlaylistVisible())
+}
+
+func (m *Model) providerMaybeAdjustScroll() {
+	visible := m.providerScrollStep()
+	total := len(m.providerLists)
+	if total == 0 {
+		m.provScroll = 0
+		return
+	}
+
+	if m.provCursor < m.provScroll {
+		m.provScroll = m.provCursor
+	}
+
+	// Sectioned providers (e.g. radio) render extra header rows, so
+	// cursor visibility must be computed in rendered rows, not item count.
+	if sl, ok := m.provider.(provider.SectionedList); ok {
+		if m.provScroll >= total {
+			m.provScroll = max(0, total-1)
+		}
+
+		// Only push down when needed to keep the cursor visible.
+		// Do not "pull up" aggressively, which can make paging feel jumpy
+		// and keep the cursor stuck near the bottom of the viewport.
+		for m.provScroll < total && m.providerRowsFromScroll(sl, m.provScroll, m.provCursor) > visible {
+			m.provScroll++
+		}
+		return
+	}
+
+	// Non-sectioned providers: regular item-count based scrolling.
+	if m.provCursor >= m.provScroll+visible {
+		m.provScroll = m.provCursor - visible + 1
+	}
+	if m.provScroll+visible > total {
+		m.provScroll = max(0, total-visible)
+	}
+}
+
+func (m *Model) providerRowsFromScroll(sl provider.SectionedList, scroll, cursor int) int {
+	total := len(m.providerLists)
+	if total == 0 || cursor < scroll || scroll < 0 || cursor >= total {
+		return 0
+	}
+
+	rows := 0
+	prevPrefix := ""
+	if scroll > 0 {
+		prevPrefix = sl.IDPrefix(m.providerLists[scroll-1].ID)
+	}
+
+	for i := scroll; i <= cursor && i < total; i++ {
+		pfx := sl.IDPrefix(m.providerLists[i].ID)
+		if pfx != prevPrefix {
+			rows++ // section header row
+		}
+		rows++ // item row
+		prevPrefix = pfx
+	}
+	return rows
+}
+
+func (m *Model) providerMoveUp() {
+	if m.provCursor > 0 {
+		m.provCursor--
+	} else if len(m.providerLists) > 0 {
+		m.provCursor = len(m.providerLists) - 1
+	}
+	m.providerMaybeAdjustScroll()
+}
+
+func (m *Model) providerMoveDown() {
+	if m.provCursor < len(m.providerLists)-1 {
+		m.provCursor++
+	} else if len(m.providerLists) > 0 {
+		m.provCursor = 0
+	}
+	m.providerMaybeAdjustScroll()
+}
+
+func (m *Model) providerPageUp() {
+	if m.provCursor > 0 {
+		m.provCursor -= min(m.provCursor, m.providerScrollStep())
+	}
+	// Top-anchor behavior: place cursor at top of viewport when paging up.
+	m.provScroll = m.provCursor
+	m.providerMaybeAdjustScroll()
+}
+
+func (m *Model) providerPageDown() {
+	if m.provCursor < len(m.providerLists)-1 {
+		m.provCursor = min(len(m.providerLists)-1, m.provCursor+m.providerScrollStep())
+	}
+	// Bottom-anchor behavior: bias viewport so cursor lands near bottom when paging down.
+	m.provScroll = max(0, m.provCursor-m.providerScrollStep()+1)
+	m.providerMaybeAdjustScroll()
+}
+
+func (m *Model) providerToTop() {
+	m.provCursor = 0
+	m.providerMaybeAdjustScroll()
+}
+
+func (m *Model) providerToBottom() {
+	if len(m.providerLists) > 0 {
+		m.provCursor = len(m.providerLists) - 1
+	}
+	m.providerMaybeAdjustScroll()
 }
 
 // handleKey processes a single key press and returns an optional command.
@@ -169,19 +280,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		case "q", "ctrl+c":
 			return m.quit()
 		case "up", "k":
-			if m.provCursor > 0 {
-				m.provCursor--
-			} else if len(m.providerLists) > 0 {
-				m.provCursor = len(m.providerLists) - 1
-			}
-		case "space":
+			m.providerMoveUp()
+		case " ":
 			return m.togglePlayPause()
 		case "down", "j":
-			if m.provCursor < len(m.providerLists)-1 {
-				m.provCursor++
-			} else if len(m.providerLists) > 0 {
-				m.provCursor = 0
-			}
+			m.providerMoveDown()
 			// Auto-load next catalog page when scrolling near the bottom.
 			return m.maybeLoadCatalogBatch()
 		case "enter":
@@ -221,20 +324,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 				m.openNavBrowserWith(prov)
 			}
 		case "pgup", "ctrl+u":
-			if m.provCursor > 0 {
-				m.provCursor -= min(m.provCursor, m.plVisible)
-			}
+			m.providerPageUp()
 		case "pgdown", "ctrl+d":
-			if m.provCursor < len(m.providerLists)-1 {
-				m.provCursor = min(len(m.providerLists)-1, m.provCursor+m.plVisible)
-			}
+			m.providerPageDown()
 			return m.maybeLoadCatalogBatch()
 		case "g", "home":
-			m.provCursor = 0
+			m.providerToTop()
 		case "G", "end":
-			if len(m.providerLists) > 0 {
-				m.provCursor = len(m.providerLists) - 1
-			}
+			m.providerToBottom()
 			return m.maybeLoadCatalogBatch()
 		case "ctrl+j":
 			m.openJumpMode()
@@ -283,7 +380,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.vis.Rows = ui.DefaultVisRows
 			m.restorePanelWidth()
 		} else if m.focus == focusPlaylist {
-			m.plVisible = m.defaultPlVisible()
+			// Keep current expanded/collapsed height mode when switching focus.
 			m.focus = focusProvider
 		}
 
@@ -600,6 +697,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "v":
 		m.vis.CycleMode()
+		if m.heightExpanded {
+			m.plVisible = m.expandedPlVisible()
+		} else {
+			m.plVisible = m.collapsedPlVisible()
+		}
+		m.adjustScroll()
 		if err := m.configSaver.Save("visualizer", fmt.Sprintf("%q", m.vis.ModeName())); err != nil {
 			m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
 		}
@@ -768,6 +871,7 @@ func (m *Model) handleProvSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 		if len(m.provSearch.results) > 0 && !m.provLoading {
 			idx := m.provSearch.results[m.provSearch.cursor]
 			m.provCursor = idx
+			m.providerMaybeAdjustScroll()
 			m.provLoading = true
 			m.provSearch.active = false
 			return fetchTracksCmd(m.provider, m.providerLists[idx].ID)
@@ -836,6 +940,7 @@ func (m *Model) restoreCatalog(cs provider.CatalogSearcher) {
 		m.providerLists = lists
 	}
 	m.provCursor = 0
+	m.provScroll = 0
 }
 
 func (m *Model) updateProvSearch() {
@@ -854,18 +959,14 @@ func (m *Model) updateProvSearch() {
 
 // toggleExpandPlaylist toggles the playlist panel between default and expanded height.
 func (m *Model) toggleExpandPlaylist() {
-	defVis := m.defaultPlVisible()
-	if m.plVisible <= defVis {
-		probe := strings.Join([]string{
-			m.renderTitle(), m.renderTrackInfo(), m.renderTimeStatus(), "",
-			m.renderSpectrum(), m.renderSeekBar(), "",
-			m.renderControls(), "", m.renderPlaylistHeader(),
-			"x", "", m.renderHelp(), m.renderBottomStatus(),
-		}, "\n")
-		fixedLines := lipgloss.Height(ui.FrameStyle.Render(probe)) - 1
-		m.plVisible = max(minPlVisible, min(maxPlExpandVisible, m.height-fixedLines))
+	collapsed := m.collapsedPlVisible()
+	expanded := m.expandedPlVisible()
+
+	m.heightExpanded = !m.heightExpanded
+	if m.heightExpanded {
+		m.plVisible = expanded
 	} else {
-		m.plVisible = defVis
+		m.plVisible = collapsed
 	}
 	m.adjustScroll()
 }

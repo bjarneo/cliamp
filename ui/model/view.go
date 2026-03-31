@@ -489,7 +489,6 @@ func (m Model) renderProviderList() string {
 	}
 
 	sl, isRadio := m.provider.(provider.SectionedList)
-
 	var lines []string
 
 	if m.provSearch.active {
@@ -522,46 +521,93 @@ func (m Model) renderProviderList() string {
 				lines = append(lines, dimStyle.Render(fmt.Sprintf("  %d/%d playlists", len(m.provSearch.results), len(m.providerLists))))
 			}
 		}
-		return strings.Join(lines, "\n")
-	}
+	} else {
+		scroll := max(0, m.provScroll)
+		if scroll >= len(m.providerLists) {
+			scroll = max(0, len(m.providerLists)-1)
+		}
+		if m.provCursor < scroll {
+			scroll = m.provCursor
+		}
 
-	visible := min(visibleBudget, len(m.providerLists))
-	scroll := max(0, m.provCursor-visible+1)
-	prevPrefix := ""
-
-	for j := scroll; j < scroll+visible && j < len(m.providerLists); j++ {
-		p := m.providerLists[j]
-
-		// Insert section separators.
 		if isRadio {
-			pfx := sl.IDPrefix(p.ID)
-			if pfx != prevPrefix {
-				switch pfx {
-				case "f":
-					lines = append(lines, dimStyle.Render("  ── favorites ──"))
-					visible++
-				case "c":
-					lines = append(lines, dimStyle.Render("  ── catalog ──"))
-					visible++
-				case "s":
-					lines = append(lines, dimStyle.Render("  ── search results ──"))
-					visible++
+			rowsFrom := func(start, cursor int) int {
+				if start < 0 || cursor < start || cursor >= len(m.providerLists) {
+					return 0
 				}
-				prevPrefix = pfx
+				rows := 0
+				prevPrefix := ""
+				if start > 0 {
+					prevPrefix = sl.IDPrefix(m.providerLists[start-1].ID)
+				}
+				for i := start; i <= cursor; i++ {
+					pfx := sl.IDPrefix(m.providerLists[i].ID)
+					if pfx != prevPrefix {
+						rows++
+					}
+					rows++
+					prevPrefix = pfx
+				}
+				return rows
 			}
+			for scroll < len(m.providerLists)-1 && rowsFrom(scroll, m.provCursor) > visibleBudget {
+				scroll++
+			}
+		} else if m.provCursor >= scroll+visibleBudget {
+			scroll = m.provCursor - visibleBudget + 1
 		}
 
-		prefix, style := "  ", playlistItemStyle
-		if j == m.provCursor {
-			style = playlistSelectedStyle
-			prefix = "> "
+		prevPrefix := ""
+		if isRadio && scroll > 0 {
+			prevPrefix = sl.IDPrefix(m.providerLists[scroll-1].ID)
 		}
-		lines = append(lines, style.Render(playlistLabel(prefix, p)))
+
+		for j := scroll; j < len(m.providerLists) && len(lines) < visibleBudget; j++ {
+			p := m.providerLists[j]
+
+			if isRadio {
+				pfx := sl.IDPrefix(p.ID)
+				if pfx != prevPrefix {
+					var header string
+					switch pfx {
+					case "f":
+						header = "  ── favorites ──"
+					case "c":
+						header = "  ── catalog ──"
+					case "s":
+						header = "  ── search results ──"
+					}
+					if header != "" && len(lines) < visibleBudget {
+						lines = append(lines, dimStyle.Render(header))
+					}
+					prevPrefix = pfx
+				}
+			}
+
+			if len(lines) >= visibleBudget {
+				break
+			}
+
+			prefix, style := "  ", playlistItemStyle
+			if j == m.provCursor {
+				style = playlistSelectedStyle
+				prefix = "> "
+			}
+			lines = append(lines, style.Render(playlistLabel(prefix, p)))
+		}
 	}
 
-	// Loading indicator for catalog batch.
-	if isRadio && m.catalogBatch.loading {
+	// Loading indicator for catalog batch (never displace selected row if full).
+	if isRadio && m.catalogBatch.loading && len(lines) < visibleBudget {
 		lines = append(lines, dimStyle.Render("  Loading more stations..."))
+	}
+
+	// Clamp exactly to visible budget so footer/help remain visible.
+	if len(lines) > visibleBudget {
+		lines = lines[:visibleBudget]
+	}
+	for len(lines) < visibleBudget {
+		lines = append(lines, "")
 	}
 
 	return strings.Join(lines, "\n")
@@ -645,6 +691,9 @@ func (m Model) renderPlaylist() string {
 		lines = append(lines, line)
 	}
 
+	for len(lines) < budget {
+		lines = append(lines, "")
+	}
 	return strings.Join(lines, "\n")
 }
 

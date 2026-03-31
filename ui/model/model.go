@@ -136,6 +136,7 @@ type Model struct {
 	localProvider playlist.Provider // local playlist provider for file-based playlist management (always available)
 	providerLists []playlist.PlaylistInfo
 	provCursor    int
+	provScroll    int
 	provLoading   bool
 	provSignIn    bool            // true when provider needs interactive sign-in
 	providers     []ProviderEntry // all available providers
@@ -223,8 +224,9 @@ type Model struct {
 	// Full-screen visualizer mode (Shift+V)
 	fullVis bool
 
-	autoPlay bool // start playing immediately on launch
-	compact  bool // compact mode: cap frame width at 80 columns
+	autoPlay       bool // start playing immediately on launch
+	compact        bool // compact mode: cap frame width at 80 columns
+	heightExpanded bool // tracks whether manual 'x' expansion is active
 
 	// Cached per-tick to avoid repeated speaker.Lock() calls in View().
 	cachedPos  time.Duration
