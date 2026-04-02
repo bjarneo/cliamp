@@ -36,6 +36,7 @@ var keymapEntries = []keymapEntry{
 	{"A", "Queue manager"},
 	{"o", "Open file browser"},
 	{"N", "Navidrome browser"},
+	{"L", "Browse local playlists"},
 	{"R", "Open radio provider"},
 	{"S", "Open Spotify provider"},
 	{"P", "Open Plex provider"},

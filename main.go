@@ -42,8 +42,13 @@ func run(overrides config.Overrides, positional []string) error {
 
 	// Build provider list: Radio is always available, Navidrome and Spotify if configured.
 	radioProv := radio.New()
+	localProv := local.New()
+
 	var providers []model.ProviderEntry
 	providers = append(providers, model.ProviderEntry{Key: "radio", Name: "Radio", Provider: radioProv})
+	if localProv != nil {
+		providers = append(providers, model.ProviderEntry{Key: "local", Name: "Local", Provider: localProv})
+	}
 
 	var navClient *navidrome.NavidromeClient
 	if c := navidrome.NewFromConfig(cfg.Navidrome); c != nil {
@@ -109,8 +114,6 @@ func run(overrides config.Overrides, positional []string) error {
 		}
 	}
 
-	localProv := local.New()
-
 	if spotifyProv != nil {
 		defer spotifyProv.Close()
 	}
@@ -140,11 +143,16 @@ func run(overrides config.Overrides, positional []string) error {
 		defaultProvider = "radio"
 	}
 
-	if len(positional) == 0 && defaultProvider == "radio" {
-		resolved.Pending = append(resolved.Pending, "https://radio.cliamp.stream/streams.m3u")
-	}
+	defaultRadio := len(positional) == 0 && defaultProvider == "radio"
 
 	pl := playlist.New()
+	if defaultRadio {
+		pl.Add(
+			playlist.Track{Path: "http://radio.cliamp.stream/lofi/stream", Title: "Lofi Stream", Stream: true},
+			playlist.Track{Path: "http://radio.cliamp.stream/synthwave/stream", Title: "Synthwave Stream", Stream: true},
+			playlist.Track{Path: "http://radio.cliamp.stream/edm/stream", Title: "EDM Stream", Stream: true},
+		)
+	}
 	pl.Add(resolved.Tracks...)
 
 	if cfg.AudioDevice != "" {
@@ -237,7 +245,7 @@ func run(overrides config.Overrides, positional []string) error {
 
 	m.SetSeekStepLarge(cfg.SeekStepLargeDuration())
 	m.SetPendingURLs(resolved.Pending)
-	if len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 {
+	if len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 && pl.Len() == 0 {
 		m.StartInProvider()
 	}
 	if cfg.EQPreset != "" && cfg.EQPreset != "Custom" {
@@ -256,12 +264,9 @@ func run(overrides config.Overrides, positional []string) error {
 		m.SetCompact(true)
 	}
 
-	if rs := resume.Load(); rs.Path != "" && rs.PositionSec > 0 {
-		m.SetResume(rs.Path, rs.PositionSec)
-		if rs.Playlist != "" && localProv != nil {
-			if tracks, err := localProv.Tracks(rs.Playlist); err == nil && len(tracks) > 0 {
-				m.ResumePlaylist(rs.Playlist, tracks)
-			}
+	if !defaultRadio && len(positional) > 0 {
+		if rs := resume.Load(); rs.Path != "" && rs.PositionSec > 0 {
+			m.SetResume(rs.Path, rs.PositionSec)
 		}
 	}
 

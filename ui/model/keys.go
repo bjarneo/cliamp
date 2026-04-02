@@ -589,6 +589,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 			m.openNavBrowserWith(prov)
 		}
 
+	case "L":
+		return m.switchToProvider("local")
 	case "R":
 		return m.switchToProvider("radio")
 	case "P":

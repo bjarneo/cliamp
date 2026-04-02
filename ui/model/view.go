@@ -512,7 +512,7 @@ func (m Model) renderProviderList() string {
 	for j := scroll; j < scroll+visible && j < len(m.providerLists); j++ {
 		p := m.providerLists[j]
 
-		// Insert section headers on prefix transitions for the radio provider.
+		// Insert section separators.
 		if isRadio {
 			pfx := sl.IDPrefix(p.ID)
 			if pfx != prevPrefix {
