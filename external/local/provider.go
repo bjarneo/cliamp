@@ -131,11 +131,13 @@ func (p *Provider) savePlaylist(name string, tracks []playlist.Track) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.Create(path)
+
+	// Atomic write: write to temp file, then rename.
+	tmp := path + ".tmp"
+	f, err := os.Create(tmp)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
 	for i, t := range tracks {
 		if i > 0 {
@@ -143,7 +145,11 @@ func (p *Provider) savePlaylist(name string, tracks []playlist.Track) error {
 		}
 		writeTrack(f, t)
 	}
-	return nil
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // SetFavorite toggles the favorite flag on a track and rewrites the playlist.

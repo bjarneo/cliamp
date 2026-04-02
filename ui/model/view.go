@@ -598,9 +598,10 @@ func (m Model) renderPlaylist() string {
 		}
 
 		name := tracks[i].DisplayName()
-		favPrefix := ""
-		if tracks[i].Favorite {
-			favPrefix = "★ "
+		isFav := tracks[i].Favorite
+		favBudget := 0
+		if isFav {
+			favBudget = 2 // "★ "
 		}
 		queueSuffix := ""
 		if qp := m.playlist.QueuePosition(i); qp > 0 {
@@ -610,12 +611,15 @@ func (m Model) renderPlaylist() string {
 		if album := tracks[i].Album; album != "" {
 			albumSuffix = " · " + album
 		}
-		favPrefixLen := utf8.RuneCountInString(favPrefix)
 		suffixLen := utf8.RuneCountInString(queueSuffix) + utf8.RuneCountInString(albumSuffix)
-		name = truncate(name, ui.PanelWidth-6-suffixLen-favPrefixLen)
+		name = truncate(name, ui.PanelWidth-6-suffixLen-favBudget)
 
-		line := fmt.Sprintf("%s%d. %s%s", prefix, i+1, favPrefix, name)
-		line = style.Render(line)
+		numStr := fmt.Sprintf("%s%d. ", prefix, i+1)
+		line := style.Render(numStr)
+		if isFav {
+			line += activeToggle.Render("★ ")
+		}
+		line += style.Render(name)
 		if albumSuffix != "" {
 			line += dimStyle.Render(albumSuffix)
 		}
@@ -693,7 +697,7 @@ func (m Model) renderHelp() string {
 			hints = append(hints, helpHint{helpKey("←→", "Seek "), 80})
 		}
 		hints = append(hints,
-			helpHint{helpKey("*", "Fav "), 80},
+			helpHint{helpKey("*", "Fav "), 75},
 			helpHint{helpKey("Tab", "Focus "), 70},
 			helpHint{helpKey("Ctrl+K", "Keys"), 100},
 		)

@@ -586,9 +586,15 @@ func main() {
 			os.Exit(1)
 		}
 		idx := -1
-		for i, arg := range positional[1:] {
-			if arg == "--index" && i+2 < len(positional) {
-				fmt.Sscanf(positional[i+2], "%d", &idx)
+		for i := 1; i < len(positional)-1; i++ {
+			if positional[i] == "--index" {
+				n, parseErr := strconv.Atoi(positional[i+1])
+				if parseErr != nil {
+					fmt.Fprintf(os.Stderr, "invalid --index value %q: %v\n", positional[i+1], parseErr)
+					os.Exit(1)
+				}
+				idx = n
+				break
 			}
 		}
 		if idx < 0 {
@@ -622,9 +628,15 @@ func main() {
 			os.Exit(1)
 		}
 		idx := -1
-		for i, arg := range positional[1:] {
-			if arg == "--index" && i+2 < len(positional) {
-				fmt.Sscanf(positional[i+2], "%d", &idx)
+		for i := 1; i < len(positional)-1; i++ {
+			if positional[i] == "--index" {
+				n, parseErr := strconv.Atoi(positional[i+1])
+				if parseErr != nil {
+					fmt.Fprintf(os.Stderr, "invalid --index value %q: %v\n", positional[i+1], parseErr)
+					os.Exit(1)
+				}
+				idx = n
+				break
 			}
 		}
 		if idx < 0 {

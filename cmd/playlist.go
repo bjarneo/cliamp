@@ -290,6 +290,9 @@ func PlaylistFavorite(name string, index int) error {
 	if err != nil {
 		return err
 	}
+	if index-1 < 0 || index-1 >= len(tracks) {
+		return fmt.Errorf("track %d no longer exists in playlist (now has %d tracks)", index, len(tracks))
+	}
 	t := tracks[index-1]
 	if t.Favorite {
 		fmt.Printf("★ %s\n", t.DisplayName())
