@@ -45,8 +45,8 @@ Providers implement `playlist.Provider` (Name, Playlists, Tracks). Extended inte
 `player/decode.go:openSourceAt()` opens audio from three source types: local files (`os.Open`), HTTP URLs, and SSH paths (`ssh host cat /path`). Returns `io.ReadCloser` for the decoder.
 
 ## Fork Additions (tdimino/cliamp)
-- `cmd/playlist.go` — `cliamp playlist {list,create,add,show,remove,delete,favorite}` with `--ssh HOST` and `--json`
-- `ipc/` — JSON-over-Unix-socket remote control (`cliamp play/pause/next/status/load/...`)
+- `cmd/playlist.go` — `cliamp playlist {list,create,add,show,remove,delete,favorite,favorites,enrich}` with `--ssh HOST` and `--json`
+- `ipc/` — JSON-over-Unix-socket remote control (`cliamp play/pause/next/status/load/theme/...`)
 - `player/decode.go` — SSH streaming via `ssh://host/path` URL scheme, shell-quoted remote paths, `ConnectTimeout=5`
 - `ui/model/view.go` — `↗` glyph for SSH tracks, `★` for favorites, album group separators, `[67/123]` position counter
 - `ui/model/update.go` — IPC message handlers, SSH duration metadata fallback

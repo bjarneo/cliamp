@@ -733,13 +733,10 @@ func main() {
 		return
 	case "theme":
 		if len(positional) < 1 {
-			// No args: show current theme via IPC status.
-			resp := ipcSend(ipc.Request{Cmd: "status"})
-			fmt.Println(resp.State) // status includes theme in a future iteration
-			fmt.Fprintln(os.Stderr, "usage: cliamp theme <name>  or  cliamp theme list")
-			os.Exit(1)
+			fmt.Println("Usage: cliamp theme <name>  or  cliamp theme list")
+			return
 		}
-		if positional[0] == "list" {
+		if strings.EqualFold(positional[0], "list") {
 			// List available themes — no TUI needed.
 			themes := theme.LoadAll()
 			for _, t := range themes {
@@ -748,8 +745,7 @@ func main() {
 			return
 		}
 		// Set theme via IPC.
-		resp := ipcSend(ipc.Request{Cmd: "theme", Name: positional[0]})
-		_ = resp
+		ipcSend(ipc.Request{Cmd: "theme", Name: positional[0]})
 		fmt.Printf("Theme: %s\n", positional[0])
 		return
 	}

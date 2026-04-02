@@ -734,8 +734,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case ipc.ThemeMsg:
 		// Reload themes from disk to pick up new custom themes.
+		// Same pattern as openThemePicker() — LoadAll is fast (<1ms for local TOML files).
 		m.themes = theme.LoadAll()
 		if m.SetTheme(msg.Name) {
+			// Persist immediately so the setting survives ungraceful exits.
+			themeName := msg.Name
+			if strings.EqualFold(themeName, "default") {
+				themeName = ""
+			}
+			_ = config.Save("theme", fmt.Sprintf("%q", themeName))
 			msg.Reply <- ipc.Response{OK: true}
 		} else {
 			msg.Reply <- ipc.Response{OK: false, Error: fmt.Sprintf("theme %q not found", msg.Name)}
