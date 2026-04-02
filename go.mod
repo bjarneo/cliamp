@@ -12,6 +12,8 @@ require (
 	github.com/jfreymuth/oggvorbis v1.0.5
 	github.com/kkdai/youtube/v2 v2.10.5
 	github.com/madelynnblue/go-dsp v1.0.0
+	github.com/urfave/cli/v3 v3.8.0
+	github.com/yuin/gopher-lua v1.1.1
 	golang.org/x/oauth2 v0.35.0
 	golang.org/x/text v0.34.0
 	google.golang.org/api v0.269.0
@@ -67,7 +69,6 @@ require (
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/xlab/vorbis-go v0.0.0-20210911202351-b5b85f1ec645 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
-	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.61.0 // indirect
 	go.opentelemetry.io/otel v1.39.0 // indirect

@@ -19,10 +19,6 @@ import (
 // pre-allocated to avoid per-frame conversion.
 var titleScrollSep = []rune("   ♫   ")
 
-// enhanceLabels cycles during buffering in neon-blade-runner mode,
-// mimicking the Esper machine's "ENHANCE" voice commands.
-var enhanceLabels = [3]string{"▐▌ ENHANCE ▐▌", "▐▌ SCANNING ▐▌", "▐▌ PROCESSING ▐▌"}
-
 // Pre-built styles for elements created per-render to avoid repeated allocation.
 var (
 	seekFillStyle = lipgloss.NewStyle().Foreground(ui.ColorSeekBar)
@@ -226,19 +222,6 @@ func (m Model) renderTrackInfo() string {
 		display[i] = padded[(off+i)%total]
 	}
 
-	// Neon Blade Runner: ~2% chance per frame of a 2-3 character glitch cluster.
-	// Clusters read as "CRT interference"; singles read as rendering bugs.
-	if isNeonBladeRunner(m) && ui.ScatterHashExported(0, 0, 0, m.vis.Frame()) < 0.02 && len(display) > 2 {
-		glitchChars := []rune{'▓', '█', '░', '▒'}
-		startIdx := int(ui.ScatterHashExported(1, 0, 0, m.vis.Frame()) * float64(len(display)-2))
-		glitchLen := 2 + int(ui.ScatterHashExported(3, 0, 0, m.vis.Frame()))%2 // 2 or 3 chars
-		for g := range glitchLen {
-			if startIdx+g < len(display) {
-				display[startIdx+g] = glitchChars[int(ui.ScatterHashExported(2, g, 0, m.vis.Frame()*3))%len(glitchChars)]
-			}
-		}
-	}
-
 	return trackStyle.Render("♫ " + string(display))
 }
 
@@ -252,13 +235,7 @@ func (m Model) renderTimeStatus() string {
 	durMin := int(dur.Minutes())
 	durSec := int(dur.Seconds()) % 60
 
-	neonBR := isNeonBladeRunner(m)
-	var timeStr string
-	if neonBR {
-		timeStr = fmt.Sprintf("T+%02d:%02d / %02d:%02d", posMin, posSec, durMin, durSec)
-	} else {
-		timeStr = fmt.Sprintf("%02d:%02d / %02d:%02d", posMin, posSec, durMin, durSec)
-	}
+	timeStr := fmt.Sprintf("%02d:%02d / %02d:%02d", posMin, posSec, durMin, durSec)
 
 	track, _ := m.playlist.Current()
 
@@ -267,9 +244,7 @@ func (m Model) renderTimeStatus() string {
 	case m.seek.active:
 		status = statusStyle.Render("⟳ Seeking...")
 	case m.buffering:
-		if neonBR {
-			status = statusStyle.Render(enhanceLabels[m.vis.Frame()/10%3])
-		} else if elapsed := int(time.Since(m.bufferingAt).Seconds()); elapsed > 0 {
+		if elapsed := int(time.Since(m.bufferingAt).Seconds()); elapsed > 0 {
 			status = statusStyle.Render(fmt.Sprintf("◌ Buffering... (%ds)", elapsed))
 		} else {
 			status = statusStyle.Render("◌ Buffering...")
@@ -297,27 +272,7 @@ func (m Model) renderSpectrum() string {
 	if m.vis.Mode == ui.VisNone {
 		return ""
 	}
-	// Neon Blade Runner: flash static burst on track transitions.
-	if m.transitionBurst > 0 && isNeonBladeRunner(m) {
-		return renderStaticBurst(m.vis.Frame(), m.vis.Rows)
-	}
 	return m.vis.Render()
-}
-
-// renderStaticBurst generates a frame of random ░▒▓█ noise for CRT-style
-// track transition effects. Pure function — no state needed.
-func renderStaticBurst(frame uint64, rows int) string {
-	staticChars := []rune{'░', '▒', '▓', '█'}
-	lines := make([]string, rows)
-	for r := range rows {
-		var sb strings.Builder
-		for c := range ui.PanelWidth {
-			h := ui.ScatterHashExported(r, c, 0, frame)
-			sb.WriteRune(staticChars[int(h*float64(len(staticChars)))%len(staticChars)])
-		}
-		lines[r] = errorStyle.Render(sb.String())
-	}
-	return strings.Join(lines, "\n")
 }
 
 // renderFullVisualizer renders a full-screen view showing only the visualizer
@@ -367,11 +322,6 @@ func (m Model) renderSeekBar() string {
 
 	filled := int(progress * float64(max(1, ui.PanelWidth-1)))
 
-	if isNeonBladeRunner(m) {
-		return seekFillStyle.Render(strings.Repeat("▰", filled)) +
-			seekFillStyle.Render("◆") +
-			seekDimStyle.Render(strings.Repeat("▱", max(0, ui.PanelWidth-filled-1)))
-	}
 	return seekFillStyle.Render(strings.Repeat("━", filled)) +
 		seekFillStyle.Render("●") +
 		seekDimStyle.Render(strings.Repeat("━", max(0, ui.PanelWidth-filled-1)))
@@ -491,11 +441,7 @@ func (m Model) renderPlaylistHeader() string {
 
 	var posStr string
 	if total := m.playlist.Len(); total > 0 {
-		if isNeonBladeRunner(m) {
-			posStr = " " + dimStyle.Render(fmt.Sprintf("[SUBJ %03d/%03d]", m.playlist.Index()+1, total))
-		} else {
-			posStr = " " + dimStyle.Render(fmt.Sprintf("[%d/%d]", m.playlist.Index()+1, total))
-		}
+		posStr = " " + dimStyle.Render(fmt.Sprintf("[%d/%d]", m.playlist.Index()+1, total))
 	}
 
 	headerStyle := dimStyle
@@ -644,11 +590,7 @@ func (m Model) renderPlaylist() string {
 			prefix = "▶ "
 			style = playlistActiveStyle
 		} else if strings.HasPrefix(tracks[i].Path, "ssh://") {
-			if isNeonBladeRunner(m) {
-				prefix = "◉ "
-			} else {
-				prefix = "↗ "
-			}
+			prefix = "↗ "
 		}
 
 		if m.focus == focusPlaylist && i == m.plCursor {

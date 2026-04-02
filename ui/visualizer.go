@@ -59,8 +59,6 @@ const (
 	VisHeartbeat                  // ECG pulse monitor trace
 	VisButterfly                  // mirrored Rorschach spectrum
 	VisLightning                  // electric bolts from treble energy
-	VisEsper                      // Blade Runner Esper grid scan with phosphor persistence
-	VisVoightKampff               // Blade Runner Voight-Kampff iris rings
 	VisNone                       // hidden — no visualizer
 	VisCount                      // sentinel for cycling
 )
@@ -381,8 +379,6 @@ var visModes = [VisCount]visEntry{
 	VisHeartbeat:   {"Heartbeat", newRenderOnlyDriver(spectrumAnalysisSpec(0), func(v *Visualizer, _ []float64) string { return v.renderHeartbeat() })},
 	VisButterfly:   {"Butterfly", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderButterfly)},
 	VisLightning:    {"Lightning", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderLightning)},
-	VisEsper:        {"Esper", newEsperDriver},
-	VisVoightKampff: {"VoightKampff", newVKDriver},
 	VisNone:         {"None", newNoOpDriver},
 }
 
@@ -794,11 +790,6 @@ func specStyle(rowBottom float64) lipgloss.Style {
 	default:
 		return specLowStyle
 	}
-}
-
-// ScatterHashExported is the exported version of scatterHash for use by the model package.
-func ScatterHashExported(band, row, col int, frame uint64) float64 {
-	return scatterHash(band, row, col, frame)
 }
 
 // scatterHash returns a pseudo-random value in [0, 1) for a given dot position

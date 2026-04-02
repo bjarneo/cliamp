@@ -3,10 +3,12 @@ package ipc
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"cliamp/internal/appdir"
@@ -24,12 +26,11 @@ func DefaultSocketPath() string {
 // Send connects to the IPC socket, sends a request, and returns the response.
 // The connection is closed after a single request/response exchange.
 func Send(sockPath string, req Request) (Response, error) {
-	if _, err := os.Stat(sockPath); os.IsNotExist(err) {
-		return Response{}, fmt.Errorf("cliamp is not running (no socket at %s)", sockPath)
-	}
-
 	conn, err := net.DialTimeout("unix", sockPath, 3*time.Second)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
+			return Response{}, fmt.Errorf("cliamp is not running (no socket at %s)", sockPath)
+		}
 		return Response{}, fmt.Errorf("connect: %w", err)
 	}
 	defer conn.Close()

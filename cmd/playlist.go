@@ -10,30 +10,17 @@ import (
 	"strings"
 
 	"cliamp/external/local"
+	"cliamp/internal/sshurl"
+	"cliamp/player"
 	"cliamp/playlist"
+	"cliamp/resolve"
 )
-
-// audioExtensions lists file extensions recognized as audio files.
-var audioExtensions = map[string]bool{
-	".mp3":  true,
-	".flac": true,
-	".m4a":  true,
-	".ogg":  true,
-	".opus": true,
-	".wav":  true,
-	".wma":  true,
-}
-
-// isAudioFile reports whether the path has a recognized audio extension.
-func isAudioFile(path string) bool {
-	return audioExtensions[strings.ToLower(filepath.Ext(path))]
-}
 
 // PlaylistList prints all playlists with their track counts.
 func PlaylistList() error {
-	prov := local.New()
-	if prov == nil {
-		return fmt.Errorf("failed to initialize local playlist provider")
+	prov, err := newProvider()
+	if err != nil {
+		return err
 	}
 
 	lists, err := prov.Playlists()
@@ -45,14 +32,12 @@ func PlaylistList() error {
 		return nil
 	}
 
-	// Find the longest name for alignment.
 	maxName := 0
 	for _, pl := range lists {
 		if len(pl.Name) > maxName {
 			maxName = len(pl.Name)
 		}
 	}
-
 	for _, pl := range lists {
 		fmt.Printf("  %-*s  %d tracks\n", maxName, pl.Name, pl.TrackCount)
 	}
@@ -62,67 +47,46 @@ func PlaylistList() error {
 // PlaylistCreate creates a new playlist from the given file and directory paths.
 // If sshHost is non-empty, remote paths are walked via SSH.
 func PlaylistCreate(name string, paths []string, sshHost string) error {
-	prov := local.New()
-	if prov == nil {
-		return fmt.Errorf("failed to initialize local playlist provider")
+	prov, err := newProvider()
+	if err != nil {
+		return err
 	}
 
-	// Check if playlist already exists.
-	existing, err := prov.Playlists()
-	if err != nil {
-		return fmt.Errorf("checking existing playlists: %w", err)
-	}
-	for _, pl := range existing {
-		if pl.Name == name {
-			return fmt.Errorf("playlist %q already exists (use `add` to append)", name)
-		}
+	if prov.Exists(name) {
+		return fmt.Errorf("playlist %q already exists (use `add` to append)", name)
 	}
 
 	var audioPaths []string
-
 	if sshHost != "" {
-		// Remote directory walking via SSH.
 		remotePaths, err := sshFindAudio(sshHost, paths)
 		if err != nil {
 			return err
 		}
 		audioPaths = remotePaths
 	} else {
-		// Local directory walking.
-		for _, p := range paths {
-			info, err := os.Stat(p)
-			if err != nil {
-				return fmt.Errorf("stat %q: %w", p, err)
-			}
-			if info.IsDir() {
-				found, err := walkDir(p)
-				if err != nil {
-					return fmt.Errorf("walking %q: %w", p, err)
-				}
-				audioPaths = append(audioPaths, found...)
-			} else if isAudioFile(p) {
-				audioPaths = append(audioPaths, p)
-			}
+		collected, err := collectLocalAudio(paths)
+		if err != nil {
+			return err
 		}
+		audioPaths = collected
 	}
 
 	if len(audioPaths) == 0 {
-		dirs := strings.Join(paths, ", ")
-		return fmt.Errorf("no audio files found in %s", dirs)
+		return fmt.Errorf("no audio files found in %s", strings.Join(paths, ", "))
 	}
 
-	for _, ap := range audioPaths {
-		var t playlist.Track
+	tracks := make([]playlist.Track, len(audioPaths))
+	for i, ap := range audioPaths {
 		if sshHost != "" {
-			// For SSH paths, derive title from filename (no tag reading over SSH).
-			t = trackFromFilename(ap)
-			t.Path = "ssh://" + sshHost + ap
+			tracks[i] = playlist.TrackFromFilename(ap)
+			tracks[i].Path = "ssh://" + sshHost + ap
 		} else {
-			t = playlist.TrackFromPath(ap)
+			tracks[i] = playlist.TrackFromPath(ap)
 		}
-		if err := prov.AddTrack(name, t); err != nil {
-			return fmt.Errorf("adding track %q: %w", ap, err)
-		}
+	}
+
+	if err := prov.AddTracks(name, tracks); err != nil {
+		return fmt.Errorf("writing playlist: %w", err)
 	}
 
 	fmt.Printf("Created playlist %q with %d tracks.\n", name, len(audioPaths))
@@ -131,47 +95,30 @@ func PlaylistCreate(name string, paths []string, sshHost string) error {
 
 // PlaylistAdd appends tracks from the given paths to an existing playlist.
 func PlaylistAdd(name string, paths []string) error {
-	prov := local.New()
-	if prov == nil {
-		return fmt.Errorf("failed to initialize local playlist provider")
-	}
-
-	// Verify playlist exists.
-	exists, err := playlistExists(prov, name)
+	prov, err := newProvider()
 	if err != nil {
 		return err
 	}
-	if !exists {
+
+	if !prov.Exists(name) {
 		return fmt.Errorf("playlist %q not found", name)
 	}
 
-	var audioPaths []string
-	for _, p := range paths {
-		info, err := os.Stat(p)
-		if err != nil {
-			return fmt.Errorf("stat %q: %w", p, err)
-		}
-		if info.IsDir() {
-			found, err := walkDir(p)
-			if err != nil {
-				return fmt.Errorf("walking %q: %w", p, err)
-			}
-			audioPaths = append(audioPaths, found...)
-		} else if isAudioFile(p) {
-			audioPaths = append(audioPaths, p)
-		}
+	audioPaths, err := collectLocalAudio(paths)
+	if err != nil {
+		return err
 	}
-
 	if len(audioPaths) == 0 {
-		dirs := strings.Join(paths, ", ")
-		return fmt.Errorf("no audio files found in %s", dirs)
+		return fmt.Errorf("no audio files found in %s", strings.Join(paths, ", "))
 	}
 
-	for _, ap := range audioPaths {
-		t := playlist.TrackFromPath(ap)
-		if err := prov.AddTrack(name, t); err != nil {
-			return fmt.Errorf("adding track %q: %w", ap, err)
-		}
+	tracks := make([]playlist.Track, len(audioPaths))
+	for i, ap := range audioPaths {
+		tracks[i] = playlist.TrackFromPath(ap)
+	}
+
+	if err := prov.AddTracks(name, tracks); err != nil {
+		return fmt.Errorf("adding tracks: %w", err)
 	}
 
 	fmt.Printf("Added %d tracks to %q.\n", len(audioPaths), name)
@@ -181,9 +128,9 @@ func PlaylistAdd(name string, paths []string) error {
 // PlaylistShow displays the tracks in a playlist. If jsonOutput is true,
 // the track list is printed as a JSON array to stdout.
 func PlaylistShow(name string, jsonOutput bool) error {
-	prov := local.New()
-	if prov == nil {
-		return fmt.Errorf("failed to initialize local playlist provider")
+	prov, err := newProvider()
+	if err != nil {
+		return err
 	}
 
 	tracks, err := prov.Tracks(name)
@@ -244,14 +191,12 @@ func PlaylistShow(name string, jsonOutput bool) error {
 // PlaylistRemove removes a track by index from the named playlist.
 // The index is 1-based for the user, converted to 0-based internally.
 func PlaylistRemove(name string, index int) error {
-	prov := local.New()
-	if prov == nil {
-		return fmt.Errorf("failed to initialize local playlist provider")
+	prov, err := newProvider()
+	if err != nil {
+		return err
 	}
 
-	// Convert 1-based user index to 0-based.
-	zeroIndex := index - 1
-	if err := prov.RemoveTrack(name, zeroIndex); err != nil {
+	if err := prov.RemoveTrack(name, index-1); err != nil {
 		return fmt.Errorf("removing track %d from %q: %w", index, name, err)
 	}
 
@@ -261,9 +206,9 @@ func PlaylistRemove(name string, index int) error {
 
 // PlaylistDelete deletes an entire playlist.
 func PlaylistDelete(name string) error {
-	prov := local.New()
-	if prov == nil {
-		return fmt.Errorf("failed to initialize local playlist provider")
+	prov, err := newProvider()
+	if err != nil {
+		return err
 	}
 
 	if err := prov.DeletePlaylist(name); err != nil {
@@ -276,16 +221,15 @@ func PlaylistDelete(name string) error {
 
 // PlaylistFavorite toggles the favorite flag on a track by index.
 func PlaylistFavorite(name string, index int) error {
-	prov := local.New()
-	if prov == nil {
-		return fmt.Errorf("failed to initialize local playlist provider")
+	prov, err := newProvider()
+	if err != nil {
+		return err
 	}
 
-	if err := prov.SetFavorite(name, index-1); err != nil { // 1-based to 0-based
+	if err := prov.SetFavorite(name, index-1); err != nil {
 		return fmt.Errorf("toggling favorite: %w", err)
 	}
 
-	// Re-read to show the result.
 	tracks, err := prov.Tracks(name)
 	if err != nil {
 		return err
@@ -304,9 +248,9 @@ func PlaylistFavorite(name string, index int) error {
 
 // PlaylistFavorites lists all favorited tracks across all playlists.
 func PlaylistFavorites() error {
-	prov := local.New()
-	if prov == nil {
-		return fmt.Errorf("failed to initialize local playlist provider")
+	prov, err := newProvider()
+	if err != nil {
+		return err
 	}
 
 	lists, err := prov.Playlists()
@@ -336,13 +280,11 @@ func PlaylistFavorites() error {
 	return nil
 }
 
-// PlaylistEnrich probes duration and derives album metadata for SSH tracks in a playlist.
-// Uses afinfo (macOS) on the remote host to probe duration, and derives album from
-// the parent directory name.
+// PlaylistEnrich probes duration and derives album metadata for SSH tracks.
 func PlaylistEnrich(name string) error {
-	prov := local.New()
-	if prov == nil {
-		return fmt.Errorf("failed to initialize local playlist provider")
+	prov, err := newProvider()
+	if err != nil {
+		return err
 	}
 
 	tracks, err := prov.Tracks(name)
@@ -356,18 +298,15 @@ func PlaylistEnrich(name string) error {
 			continue
 		}
 
-		// Parse ssh://host/path
-		rest := strings.TrimPrefix(t.Path, "ssh://")
-		slashIdx := strings.IndexByte(rest, '/')
-		if slashIdx < 0 {
+		parsed, err := sshurl.Parse(t.Path)
+		if err != nil {
 			continue
 		}
-		host := rest[:slashIdx]
-		remotePath := rest[slashIdx:]
+		host := parsed.Host
+		remotePath := parsed.Path
 
 		changed := false
 
-		// Probe duration if missing.
 		if t.DurationSecs == 0 {
 			dur := probeRemoteDuration(host, remotePath)
 			if dur > 0 {
@@ -377,7 +316,6 @@ func PlaylistEnrich(name string) error {
 			}
 		}
 
-		// Derive album from parent directory if missing.
 		if t.Album == "" {
 			dir := filepath.Base(filepath.Dir(remotePath))
 			if dir != "" && dir != "." {
@@ -404,12 +342,14 @@ func PlaylistEnrich(name string) error {
 	return nil
 }
 
-// probeRemoteDuration uses afinfo on the remote host to get track duration in seconds.
 func probeRemoteDuration(host, remotePath string) int {
+	// Use ffprobe over SSH for cross-platform compatibility (works on Linux and macOS remotes).
+	probeCmd := fmt.Sprintf("ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 %s 2>/dev/null", shellQuote(remotePath))
 	cmd := exec.Command("ssh",
 		"-o", "BatchMode=yes",
+		"-o", "StrictHostKeyChecking=yes",
 		"-o", "ConnectTimeout=5",
-		host, fmt.Sprintf("afinfo %s 2>/dev/null | grep 'estimated duration' | awk '{print int($3)}'", shellQuote(remotePath)),
+		host, probeCmd,
 	)
 	out, err := cmd.Output()
 	if err != nil {
@@ -419,32 +359,33 @@ func probeRemoteDuration(host, remotePath string) int {
 	if s == "" {
 		return 0
 	}
-	var dur int
-	fmt.Sscanf(s, "%d", &dur)
-	return dur
+	var dur float64
+	fmt.Sscanf(s, "%f", &dur)
+	return int(dur)
 }
 
-// walkDir recursively finds audio files in a directory, returning sorted paths.
-func walkDir(root string) ([]string, error) {
-	var files []string
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+// collectLocalAudio resolves file/directory paths into audio file paths
+// using the canonical supported extensions from the player package.
+func collectLocalAudio(paths []string) ([]string, error) {
+	var all []string
+	for _, p := range paths {
+		files, err := resolve.CollectAudioFiles(p)
 		if err != nil {
-			return err
+			return nil, fmt.Errorf("scanning %q: %w", p, err)
 		}
-		if !info.IsDir() && isAudioFile(path) {
-			files = append(files, path)
-		}
-		return nil
-	})
-	return files, err
+		all = append(all, files...)
+	}
+	return all, nil
 }
 
-// sshFindAudio uses SSH to find audio files on a remote host.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 func sshFindAudio(host string, paths []string) ([]string, error) {
-	// Build the find command with all audio extensions.
 	var nameArgs []string
 	first := true
-	for ext := range audioExtensions {
+	for ext := range player.SupportedExts {
 		if !first {
 			nameArgs = append(nameArgs, "-o")
 		}
@@ -457,7 +398,8 @@ func sshFindAudio(host string, paths []string) ([]string, error) {
 		findCmd := fmt.Sprintf("find %s -type f \\( %s \\) | sort",
 			shellQuote(p), strings.Join(nameArgs, " "))
 
-		cmd := exec.Command("ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=5", host, findCmd)
+		sshArgs := []string{"-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=5", host, findCmd}
+		cmd := exec.Command("ssh", sshArgs...)
 		out, err := cmd.Output()
 		if err != nil {
 			return nil, fmt.Errorf("ssh find on %s:%s: %w", host, p, err)
@@ -475,37 +417,10 @@ func sshFindAudio(host string, paths []string) ([]string, error) {
 	return allFiles, nil
 }
 
-// shellQuote wraps a string in single quotes for shell safety.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
-}
-
-// trackFromFilename creates a Track by parsing "Artist - Title" from the
-// filename, or using the bare filename as the title.
-func trackFromFilename(path string) playlist.Track {
-	base := filepath.Base(path)
-	name := strings.TrimSuffix(base, filepath.Ext(base))
-	parts := strings.SplitN(name, " - ", 2)
-	if len(parts) == 2 {
-		return playlist.Track{
-			Path:   path,
-			Artist: strings.TrimSpace(parts[0]),
-			Title:  strings.TrimSpace(parts[1]),
-		}
+func newProvider() (*local.Provider, error) {
+	p := local.New()
+	if p == nil {
+		return nil, fmt.Errorf("failed to initialize local playlist provider")
 	}
-	return playlist.Track{Path: path, Title: name}
-}
-
-// playlistExists checks whether a playlist with the given name exists.
-func playlistExists(prov *local.Provider, name string) (bool, error) {
-	lists, err := prov.Playlists()
-	if err != nil {
-		return false, fmt.Errorf("checking playlists: %w", err)
-	}
-	for _, pl := range lists {
-		if pl.Name == name {
-			return true, nil
-		}
-	}
-	return false, nil
+	return p, nil
 }

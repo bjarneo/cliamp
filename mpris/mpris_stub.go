@@ -4,14 +4,22 @@
 // where D-Bus is not available.
 package mpris
 
-import "math"
+import (
+	"math"
 
-// Message types (must match the Linux implementation).
+	"cliamp/internal/control"
+)
+
+// Shared message types (aliases so existing code using mpris.NextMsg still works).
 type (
-	PlayPauseMsg   struct{}
-	NextMsg        struct{}
-	PrevMsg        struct{}
-	StopMsg        struct{}
+	PlayPauseMsg = control.ToggleMsg
+	NextMsg      = control.NextMsg
+	PrevMsg      = control.PrevMsg
+	StopMsg      = control.StopMsg
+)
+
+// MPRIS-specific message types.
+type (
 	QuitMsg        struct{}
 	SeekMsg        struct{ Offset int64 }   // microseconds (relative)
 	SetPositionMsg struct{ Position int64 } // microseconds (absolute)

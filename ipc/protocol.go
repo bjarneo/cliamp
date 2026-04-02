@@ -42,28 +42,17 @@ type DispatcherFunc func(msg interface{})
 // Send implements Dispatcher.
 func (f DispatcherFunc) Send(msg interface{}) { f(msg) }
 
-// Messages sent to the TUI via prog.Send().
+// IPC-specific messages sent to the TUI via prog.Send().
+// For shared types (NextMsg, PrevMsg, StopMsg, ToggleMsg), see internal/control.
 
-// PlayMsg requests playback to start (unpause).
+// PlayMsg requests playback to start (unpause only, not toggle).
 type PlayMsg struct{}
 
-// PauseMsg requests playback to pause.
+// PauseMsg requests playback to pause (pause only, not toggle).
 type PauseMsg struct{}
-
-// ToggleMsg requests play/pause toggle.
-type ToggleMsg struct{}
-
-// StopMsg requests playback to stop.
-type StopMsg struct{}
 
 // VolumeMsg requests a relative volume change in dB.
 type VolumeMsg struct{ DB float64 }
-
-// NextMsg requests advancing to the next track.
-type NextMsg struct{}
-
-// PrevMsg requests going to the previous track.
-type PrevMsg struct{}
 
 // SeekMsg requests a relative seek in seconds.
 type SeekMsg struct{ Secs float64 }

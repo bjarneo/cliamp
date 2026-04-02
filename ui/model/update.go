@@ -203,7 +203,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.plCursor = m.playlist.Index()
 			m.adjustScroll()
 			m.titleOff = 0
-			m.transitionBurst = 4
 			// The preload that just fired is consumed — clear the in-flight flag
 			// so the next track can be preloaded.
 			m.preloading = false
@@ -234,7 +233,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// This clears the gapless streamer so the finished track cannot
 			// replay while waiting for a yt-dlp pipe chain to spin up.
 			m.player.Stop()
-			m.transitionBurst = 4
 			cmds = append(cmds, m.nextTrack())
 			m.notifyAll()
 		}
@@ -243,9 +241,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.titleOff++
 				m.titleLastScroll = now
 			}
-		}
-		if m.transitionBurst > 0 {
-			m.transitionBurst--
 		}
 		// Retry deferred stream preload: preloadNext() returns nil (defers) when
 		// the current stream has >streamPreloadLeadTime remaining. Poll every tick
@@ -675,7 +670,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.SetEQPreset(msg.Name, msg.Bands)
 		return m, nil
 
-	// IPC remote control messages — see ipc/protocol.go.
+	// IPC-specific messages (PlayMsg, PauseMsg have different semantics from toggle).
+	// Shared types (NextMsg, PrevMsg, StopMsg, ToggleMsg) are handled above via
+	// mpris.* which are now aliases for control.* types.
 	case ipc.PlayMsg:
 		if m.player.IsPaused() {
 			cmd := m.togglePlayPause()
@@ -689,24 +686,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notifyAll()
 			return m, cmd
 		}
-		return m, nil
-	case ipc.ToggleMsg:
-		cmd := m.togglePlayPause()
-		m.notifyAll()
-		return m, cmd
-	case ipc.NextMsg:
-		m.scrobbleCurrent()
-		cmd := m.nextTrack()
-		m.notifyAll()
-		return m, cmd
-	case ipc.PrevMsg:
-		m.scrobbleCurrent()
-		cmd := m.prevTrack()
-		m.notifyAll()
-		return m, cmd
-	case ipc.StopMsg:
-		m.player.Stop()
-		m.notifyAll()
 		return m, nil
 	case ipc.VolumeMsg:
 		m.player.SetVolume(msg.DB)
@@ -748,9 +727,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				themeName = ""
 			}
 			_ = config.Save("theme", fmt.Sprintf("%q", themeName))
-			msg.Reply <- ipc.Response{OK: true}
+			if msg.Reply != nil {
+				msg.Reply <- ipc.Response{OK: true}
+			}
 		} else {
-			msg.Reply <- ipc.Response{OK: false, Error: fmt.Sprintf("theme %q not found", msg.Name)}
+			if msg.Reply != nil {
+				msg.Reply <- ipc.Response{OK: false, Error: fmt.Sprintf("theme %q not found", msg.Name)}
+			}
 		}
 		return m, nil
 	case ipc.VisMsg:
@@ -797,7 +780,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		resp.Index = m.playlist.Index()
 		resp.Total = m.playlist.Len()
 		resp.Visualizer = m.vis.ModeName()
-		msg.Reply <- resp
+		if msg.Reply != nil {
+			msg.Reply <- resp
+		}
 		return m, nil
 	}
 

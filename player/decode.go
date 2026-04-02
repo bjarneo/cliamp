@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 
+	"cliamp/internal/sshurl"
+
 	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/flac"
 	"github.com/gopxl/beep/v2/mp3"
@@ -86,25 +88,15 @@ func shellQuoteSSH(s string) string {
 // and returning the stdout pipe as an io.ReadCloser.
 // Path format: ssh://hostname/absolute/path/to/file
 func openSSHSource(path string) (sourceResult, error) {
-	// Strip the "ssh://" prefix.
-	rest := strings.TrimPrefix(path, "ssh://")
-	// Split into host and remote path at the first '/'.
-	slashIdx := strings.IndexByte(rest, '/')
-	if slashIdx < 0 {
-		return sourceResult{}, fmt.Errorf("ssh path missing remote file: %s", path)
+	parsed, err := sshurl.Parse(path)
+	if err != nil {
+		return sourceResult{}, err
 	}
-	host := rest[:slashIdx]
-	remotePath := rest[slashIdx:] // keeps the leading '/'
 
-	// Pass as a single shell command with proper quoting so paths with
-	// spaces, quotes, or shell metacharacters work correctly on the remote.
-	catCmd := "cat -- " + shellQuoteSSH(remotePath)
-	cmd := exec.Command("ssh",
-		"-o", "BatchMode=yes",
-		"-o", "StrictHostKeyChecking=yes",
-		"-o", "ConnectTimeout=5",
-		host, catCmd,
-	)
+	catCmd := "cat -- " + shellQuoteSSH(parsed.Path)
+	args := parsed.SSHArgs()
+	args = append(args, catCmd)
+	cmd := exec.Command("ssh", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return sourceResult{}, fmt.Errorf("ssh stdout pipe: %w", err)

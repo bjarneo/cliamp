@@ -121,6 +121,46 @@ func (p *Provider) AddTrack(playlistName string, track playlist.Track) error {
 	return nil
 }
 
+// AddTracks appends multiple tracks in a single file open/close cycle.
+func (p *Provider) AddTracks(playlistName string, tracks []playlist.Track) error {
+	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+		return err
+	}
+	path, err := p.safePath(playlistName)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	nonEmpty := info.Size() > 0
+	for _, t := range tracks {
+		if nonEmpty {
+			fmt.Fprintln(f)
+		}
+		writeTrack(f, t)
+		nonEmpty = true
+	}
+	return nil
+}
+
+// Exists reports whether a playlist with the given name exists on disk.
+func (p *Provider) Exists(name string) bool {
+	path, err := p.safePath(name)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(path)
+	return err == nil
+}
+
 // savePlaylist overwrites the named playlist with the given tracks.
 func (p *Provider) savePlaylist(name string, tracks []playlist.Track) error {
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {

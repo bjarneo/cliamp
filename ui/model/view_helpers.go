@@ -5,7 +5,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"cliamp/theme"
 	"cliamp/ui"
 )
 
@@ -57,14 +56,9 @@ func helpKey(key, label string) string {
 }
 
 // albumSeparator builds a full-width album divider line.
-// In neon-blade-runner mode, uses diamond glyphs mimicking LAPD terminal data headers.
 func (m Model) albumSeparator(album string, year int) string {
 	prefix := "── "
 	suffix := " "
-	if isNeonBladeRunner(m) {
-		prefix = "── ◈ "
-		suffix = " ◈ "
-	}
 	label := prefix + album
 	if year != 0 {
 		label += fmt.Sprintf(" (%d)", year)
@@ -74,14 +68,6 @@ func (m Model) albumSeparator(album string, year int) string {
 		label += strings.Repeat("─", ui.PanelWidth-labelLen)
 	}
 	return dimStyle.Render(label)
-}
-
-// isNeonBladeRunner reports whether the active theme is either Blade Runner variant.
-func isNeonBladeRunner(m Model) bool {
-	name := m.ThemeName()
-	return name != theme.DefaultName &&
-		(strings.EqualFold(name, "neon-blade-runner") ||
-			strings.EqualFold(name, "neon-blade-runner-amber"))
 }
 
 // navScrollItems renders a filtered or unfiltered scrolled list for nav browsers.

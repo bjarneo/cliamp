@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"cliamp/internal/control"
 )
 
 // Dispatcher is how the server sends commands to the TUI.
@@ -113,8 +114,6 @@ func (s *Server) handleConn(conn net.Conn) {
 	conn.SetDeadline(time.Now().Add(30 * time.Second))
 
 	scanner := bufio.NewScanner(conn)
-	// Allow up to 64KB per line (generous for JSON commands).
-	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024)
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -145,19 +144,19 @@ func (s *Server) dispatch(req Request) Response {
 		return Response{OK: true}
 
 	case "toggle":
-		s.disp.Send(ToggleMsg{})
+		s.disp.Send(control.ToggleMsg{})
 		return Response{OK: true}
 
 	case "stop":
-		s.disp.Send(StopMsg{})
+		s.disp.Send(control.StopMsg{})
 		return Response{OK: true}
 
 	case "next":
-		s.disp.Send(NextMsg{})
+		s.disp.Send(control.NextMsg{})
 		return Response{OK: true}
 
 	case "prev":
-		s.disp.Send(PrevMsg{})
+		s.disp.Send(control.PrevMsg{})
 		return Response{OK: true}
 
 	case "volume":
