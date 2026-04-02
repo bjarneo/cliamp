@@ -569,6 +569,8 @@ func (m Model) renderPlaylist() string {
 		if i == currentIdx && m.player.IsPlaying() {
 			prefix = "▶ "
 			style = playlistActiveStyle
+		} else if strings.HasPrefix(tracks[i].Path, "ssh://") {
+			prefix = "↗ "
 		}
 
 		if m.focus == focusPlaylist && i == m.plCursor {

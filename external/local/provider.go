@@ -201,6 +201,9 @@ func writeTrack(w io.Writer, t playlist.Track) {
 	if t.TrackNumber != 0 {
 		fmt.Fprintf(w, "track_number = %d\n", t.TrackNumber)
 	}
+	if t.DurationSecs != 0 {
+		fmt.Fprintf(w, "duration_secs = %d\n", t.DurationSecs)
+	}
 }
 
 // loadTOML parses a minimal TOML file with [[track]] sections.
@@ -265,6 +268,10 @@ func (p *Provider) loadTOML(path string) ([]playlist.Track, error) {
 		case "track_number":
 			if n, err := strconv.Atoi(val); err == nil {
 				current.TrackNumber = n
+			}
+		case "duration_secs":
+			if n, err := strconv.Atoi(val); err == nil {
+				current.DurationSecs = n
 			}
 		}
 	}

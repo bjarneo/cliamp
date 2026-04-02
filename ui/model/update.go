@@ -92,6 +92,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cachedDur = m.player.Duration()
 			} else {
 				m.cachedPos, m.cachedDur = m.player.PositionAndDuration()
+				// Piped SSH streams report 0 duration — use metadata fallback.
+				if m.cachedDur == 0 {
+					if track, _ := m.playlist.Current(); track.DurationSecs > 0 && strings.HasPrefix(track.Path, "ssh://") {
+						m.cachedDur = time.Duration(track.DurationSecs) * time.Second
+					}
+				}
 			}
 		} else {
 			track, _ := m.playlist.Current()
