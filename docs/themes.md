@@ -1,6 +1,6 @@
 # Themes
 
-cliamp ships with 17 built-in color themes and supports custom themes via simple TOML files.
+cliamp ships with 20 built-in color themes and supports custom themes via simple TOML files.
 
 Press `t` during playback to open the theme picker. Navigate with `↑`/`↓`, preview live as you move, confirm with `Enter`, or cancel with `Esc`.
 
@@ -8,7 +8,7 @@ Your selection is saved automatically and restored on next launch.
 
 ## Built-in themes
 
-ayu-mirage-dark, catppuccin, catppuccin-latte, ethereal, everforest, flexoki-light, gruvbox, hackerman, kanagawa, matte-black, miasma, nord, osaka-jade, ristretto, rose-pine, tokyo-night, vantablack
+ayu-mirage-dark, catppuccin, catppuccin-latte, dracula, ember, ethereal, everforest, flexoki-light, gruvbox, hackerman, kanagawa, matte-black, miasma, neon-blade-runner, nord, osaka-jade, ristretto, rose-pine, tokyo-night, vantablack
 
 ## Creating a custom theme
 
@@ -20,15 +20,15 @@ mkdir -p ~/.config/cliamp/themes
 
 Each file needs 6 hex color values. The filename (minus `.toml`) becomes the theme name.
 
-### Example: `~/.config/cliamp/themes/dracula.toml`
+### Example: `~/.config/cliamp/themes/solarized.toml`
 
 ```toml
-accent = "#bd93f9"
-bright_fg = "#f8f8f2"
-fg = "#6272a4"
-green = "#50fa7b"
-yellow = "#f1fa8c"
-red = "#ff5555"
+accent = "#268bd2"
+bright_fg = "#eee8d5"
+fg = "#839496"
+green = "#859900"
+yellow = "#b58900"
+red = "#dc322f"
 ```
 
 That's it. Press `t` and your theme appears in the list immediately.
