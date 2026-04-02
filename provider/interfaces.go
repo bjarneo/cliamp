@@ -67,6 +67,12 @@ type PlaylistDeleter interface {
 	RemoveTrack(name string, index int) error
 }
 
+// FavoriteSetter is implemented by providers that support toggling
+// track favorites and persisting them.
+type FavoriteSetter interface {
+	SetFavorite(playlistName string, idx int) error
+}
+
 // CustomStreamer is implemented by providers that need a custom audio
 // decode path for non-standard URI schemes (e.g. spotify:track:xxx).
 type CustomStreamer interface {

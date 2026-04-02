@@ -600,6 +600,12 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	case "playlist-favorites":
+		if err := cmd.PlaylistFavorites(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
 	case "playlist-enrich":
 		if len(positional) < 1 {
 			fmt.Fprintln(os.Stderr, "usage: cliamp playlist enrich \"Name\"")

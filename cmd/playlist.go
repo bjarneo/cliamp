@@ -201,24 +201,28 @@ func PlaylistShow(name string, jsonOutput bool) error {
 
 	if jsonOutput {
 		type jsonTrack struct {
-			Path        string `json:"path"`
-			Title       string `json:"title"`
-			Artist      string `json:"artist,omitempty"`
-			Album       string `json:"album,omitempty"`
-			Genre       string `json:"genre,omitempty"`
-			Year        int    `json:"year,omitempty"`
-			TrackNumber int    `json:"track_number,omitempty"`
+			Path         string `json:"path"`
+			Title        string `json:"title"`
+			Artist       string `json:"artist,omitempty"`
+			Album        string `json:"album,omitempty"`
+			Genre        string `json:"genre,omitempty"`
+			Year         int    `json:"year,omitempty"`
+			TrackNumber  int    `json:"track_number,omitempty"`
+			DurationSecs int    `json:"duration_secs,omitempty"`
+			Favorite     bool   `json:"favorite,omitempty"`
 		}
 		out := make([]jsonTrack, len(tracks))
 		for i, t := range tracks {
 			out[i] = jsonTrack{
-				Path:        t.Path,
-				Title:       t.Title,
-				Artist:      t.Artist,
-				Album:       t.Album,
-				Genre:       t.Genre,
-				Year:        t.Year,
-				TrackNumber: t.TrackNumber,
+				Path:         t.Path,
+				Title:        t.Title,
+				Artist:       t.Artist,
+				Album:        t.Album,
+				Genre:        t.Genre,
+				Year:         t.Year,
+				TrackNumber:  t.TrackNumber,
+				DurationSecs: t.DurationSecs,
+				Favorite:     t.Favorite,
 			}
 		}
 		enc := json.NewEncoder(os.Stdout)
@@ -291,6 +295,40 @@ func PlaylistFavorite(name string, index int) error {
 		fmt.Printf("★ %s\n", t.DisplayName())
 	} else {
 		fmt.Printf("☆ %s\n", t.DisplayName())
+	}
+	return nil
+}
+
+// PlaylistFavorites lists all favorited tracks across all playlists.
+func PlaylistFavorites() error {
+	prov := local.New()
+	if prov == nil {
+		return fmt.Errorf("failed to initialize local playlist provider")
+	}
+
+	lists, err := prov.Playlists()
+	if err != nil {
+		return fmt.Errorf("listing playlists: %w", err)
+	}
+
+	total := 0
+	for _, pl := range lists {
+		tracks, err := prov.Tracks(pl.Name)
+		if err != nil {
+			continue
+		}
+		for i, t := range tracks {
+			if t.Favorite {
+				fmt.Printf("  ★ [%s] %d. %s\n", pl.Name, i+1, t.DisplayName())
+				total++
+			}
+		}
+	}
+
+	if total == 0 {
+		fmt.Println("No favorites yet. Press * on a track to favorite it.")
+	} else {
+		fmt.Printf("\n  %d favorites across %d playlists.\n", total, len(lists))
 	}
 	return nil
 }

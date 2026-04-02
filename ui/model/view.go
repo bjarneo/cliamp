@@ -610,8 +610,9 @@ func (m Model) renderPlaylist() string {
 		if album := tracks[i].Album; album != "" {
 			albumSuffix = " · " + album
 		}
+		favPrefixLen := utf8.RuneCountInString(favPrefix)
 		suffixLen := utf8.RuneCountInString(queueSuffix) + utf8.RuneCountInString(albumSuffix)
-		name = truncate(name, ui.PanelWidth-6-suffixLen)
+		name = truncate(name, ui.PanelWidth-6-suffixLen-favPrefixLen)
 
 		line := fmt.Sprintf("%s%d. %s%s", prefix, i+1, favPrefix, name)
 		line = style.Render(line)
@@ -692,7 +693,7 @@ func (m Model) renderHelp() string {
 			hints = append(hints, helpHint{helpKey("←→", "Seek "), 80})
 		}
 		hints = append(hints,
-			helpHint{helpKey("*", "★Fav "), 80},
+			helpHint{helpKey("*", "Fav "), 80},
 			helpHint{helpKey("Tab", "Focus "), 70},
 			helpHint{helpKey("Ctrl+K", "Keys"), 100},
 		)
