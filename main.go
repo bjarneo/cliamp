@@ -2,13 +2,16 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"cliamp/cmd"
 	"cliamp/config"
 	"cliamp/external/jellyfin"
 	"cliamp/external/local"
@@ -19,6 +22,7 @@ import (
 	"cliamp/external/ytmusic"
 	"cliamp/internal/appmeta"
 	"cliamp/internal/resume"
+	"cliamp/ipc"
 	"cliamp/luaplugin"
 	"cliamp/mpris"
 	"cliamp/player"
@@ -308,6 +312,14 @@ func run(overrides config.Overrides, positional []string) error {
 		go prog.Send(mpris.InitMsg{Svc: svc})
 	}
 
+	// Start IPC server for remote control via Unix socket.
+	ipcSrv, ipcErr := ipc.NewServer(ipc.DefaultSocketPath(), ipc.DispatcherFunc(func(msg interface{}) { prog.Send(msg) }))
+	if ipcErr != nil {
+		fmt.Fprintf(os.Stderr, "ipc: %v\n", ipcErr)
+	} else {
+		defer ipcSrv.Close()
+	}
+
 	finalModel, err := prog.Run()
 	if err != nil {
 		return err
@@ -413,6 +425,21 @@ Examples:
   cliamp plugins install https://example.com/my-plugin.lua
   cliamp plugins remove lastfm`
 
+// ipcSend sends a request to the running cliamp instance via Unix socket.
+// Exits with code 1 on connection or command error.
+func ipcSend(req ipc.Request) ipc.Response {
+	resp, err := ipc.Send(ipc.DefaultSocketPath(), req)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if !resp.OK {
+		fmt.Fprintln(os.Stderr, resp.Error)
+		os.Exit(1)
+	}
+	return resp
+}
+
 func main() {
 	action, overrides, positional, err := config.ParseFlags(os.Args[1:])
 	if err != nil {
@@ -484,6 +511,172 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+		return
+
+	// Playlist subcommands — operate on TOML files, no TUI needed.
+	case "playlist":
+		fmt.Println("Usage: cliamp playlist <list|create|add|show|remove|delete>")
+		return
+	case "playlist-list":
+		if err := cmd.PlaylistList(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	case "playlist-create":
+		if len(positional) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp playlist create \"Name\" file1 [dir/ ...] [--ssh HOST]")
+			os.Exit(1)
+		}
+		name := positional[0]
+		// Parse --ssh flag from remaining positional args.
+		var sshHost string
+		var paths []string
+		for i := 1; i < len(positional); i++ {
+			if positional[i] == "--ssh" && i+1 < len(positional) {
+				sshHost = positional[i+1]
+				i++ // skip the host value
+			} else {
+				paths = append(paths, positional[i])
+			}
+		}
+		if len(paths) == 0 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp playlist create \"Name\" file1 [dir/ ...] [--ssh HOST]")
+			os.Exit(1)
+		}
+		if err := cmd.PlaylistCreate(name, paths, sshHost); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	case "playlist-add":
+		if len(positional) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp playlist add \"Name\" file1 [file2 ...]")
+			os.Exit(1)
+		}
+		if err := cmd.PlaylistAdd(positional[0], positional[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	case "playlist-show":
+		if len(positional) < 1 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp playlist show \"Name\" [--json]")
+			os.Exit(1)
+		}
+		jsonOutput := false
+		for _, arg := range positional[1:] {
+			if arg == "--json" {
+				jsonOutput = true
+			}
+		}
+		if err := cmd.PlaylistShow(positional[0], jsonOutput); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	case "playlist-remove":
+		if len(positional) < 1 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp playlist remove \"Name\" --index N")
+			os.Exit(1)
+		}
+		idx := -1
+		for i, arg := range positional[1:] {
+			if arg == "--index" && i+2 < len(positional) {
+				fmt.Sscanf(positional[i+2], "%d", &idx)
+			}
+		}
+		if idx < 0 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp playlist remove \"Name\" --index N")
+			os.Exit(1)
+		}
+		if err := cmd.PlaylistRemove(positional[0], idx); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	case "playlist-delete":
+		if len(positional) < 1 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp playlist delete \"Name\"")
+			os.Exit(1)
+		}
+		if err := cmd.PlaylistDelete(positional[0]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+
+	// IPC playback control — send commands to running TUI via Unix socket.
+	case "play", "pause", "toggle", "next", "prev", "stop":
+		ipcSend(ipc.Request{Cmd: action})
+		return
+	case "status":
+		resp := ipcSend(ipc.Request{Cmd: "status"})
+		jsonOutput := false
+		for _, arg := range positional {
+			if arg == "--json" {
+				jsonOutput = true
+			}
+		}
+		if jsonOutput {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			enc.Encode(resp)
+		} else {
+			state := resp.State
+			if state == "" {
+				state = "stopped"
+			}
+			fmt.Printf("State: %s\n", state)
+			if resp.Track != nil {
+				fmt.Printf("Track: %s\n", resp.Track.Title)
+				if resp.Track.Artist != "" {
+					fmt.Printf("Artist: %s\n", resp.Track.Artist)
+				}
+			}
+			if resp.Duration > 0 {
+				fmt.Printf("Position: %.0f / %.0f sec\n", resp.Position, resp.Duration)
+			}
+			fmt.Printf("Volume: %.0f dB\n", resp.Volume)
+		}
+		return
+	case "volume":
+		if len(positional) < 1 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp volume <dB>")
+			os.Exit(1)
+		}
+		db, parseErr := strconv.ParseFloat(positional[0], 64)
+		if parseErr != nil {
+			fmt.Fprintf(os.Stderr, "invalid volume value %q: %v\n", positional[0], parseErr)
+			os.Exit(1)
+		}
+		ipcSend(ipc.Request{Cmd: "volume", Value: db})
+		return
+	case "seek":
+		if len(positional) < 1 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp seek <seconds>")
+			os.Exit(1)
+		}
+		secs, parseErr := strconv.ParseFloat(positional[0], 64)
+		if parseErr != nil {
+			fmt.Fprintf(os.Stderr, "invalid seek value %q: %v\n", positional[0], parseErr)
+			os.Exit(1)
+		}
+		ipcSend(ipc.Request{Cmd: "seek", Value: secs})
+		return
+	case "load":
+		if len(positional) < 1 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp load \"Playlist Name\"")
+			os.Exit(1)
+		}
+		ipcSend(ipc.Request{Cmd: "load", Playlist: positional[0]})
+		return
+	case "queue":
+		if len(positional) < 1 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp queue /path/to/file.mp3")
+			os.Exit(1)
+		}
+		ipcSend(ipc.Request{Cmd: "queue", Path: positional[0]})
 		return
 	}
 

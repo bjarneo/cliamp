@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"cliamp/config"
+	"cliamp/ipc"
 	"cliamp/mpris"
 	"cliamp/playlist"
 	"cliamp/provider"
@@ -660,6 +661,92 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case SetEQPresetMsg:
 		m.SetEQPreset(msg.Name, msg.Bands)
+		return m, nil
+
+	// IPC remote control messages — see ipc/protocol.go.
+	case ipc.PlayMsg:
+		if m.player.IsPaused() {
+			cmd := m.togglePlayPause()
+			m.notifyAll()
+			return m, cmd
+		}
+		return m, nil
+	case ipc.PauseMsg:
+		if m.player.IsPlaying() && !m.player.IsPaused() {
+			cmd := m.togglePlayPause()
+			m.notifyAll()
+			return m, cmd
+		}
+		return m, nil
+	case ipc.ToggleMsg:
+		cmd := m.togglePlayPause()
+		m.notifyAll()
+		return m, cmd
+	case ipc.NextMsg:
+		m.scrobbleCurrent()
+		cmd := m.nextTrack()
+		m.notifyAll()
+		return m, cmd
+	case ipc.PrevMsg:
+		m.scrobbleCurrent()
+		cmd := m.prevTrack()
+		m.notifyAll()
+		return m, cmd
+	case ipc.StopMsg:
+		m.player.Stop()
+		m.notifyAll()
+		return m, nil
+	case ipc.VolumeMsg:
+		m.player.SetVolume(msg.DB)
+		m.notifyAll()
+		return m, nil
+	case ipc.SeekMsg:
+		_ = m.player.Seek(time.Duration(msg.Secs * float64(time.Second)))
+		m.notifyAll()
+		return m, nil
+	case ipc.LoadMsg:
+		tracks, err := m.localProvider.Tracks(msg.Playlist)
+		if err != nil {
+			if msg.Reply != nil {
+				msg.Reply <- ipc.Response{OK: false, Error: fmt.Sprintf("playlist %q: %v", msg.Playlist, err)}
+			}
+			return m, nil
+		}
+		m.playlist.Replace(tracks)
+		cmd := m.playCurrentTrack()
+		m.notifyAll()
+		if msg.Reply != nil {
+			msg.Reply <- ipc.Response{OK: true, Playlist: msg.Playlist, Total: len(tracks)}
+		}
+		return m, cmd
+	case ipc.QueueMsg:
+		t := playlist.Track{Path: msg.Path, Title: msg.Path}
+		m.playlist.Add(t)
+		m.notifyAll()
+		return m, nil
+	case ipc.StatusRequestMsg:
+		resp := ipc.Response{OK: true}
+		switch {
+		case m.player.IsPlaying() && !m.player.IsPaused():
+			resp.State = "playing"
+		case m.player.IsPaused():
+			resp.State = "paused"
+		default:
+			resp.State = "stopped"
+		}
+		if cur, _ := m.playlist.Current(); cur.Path != "" {
+			resp.Track = &ipc.TrackInfo{
+				Title:  cur.Title,
+				Artist: cur.Artist,
+				Path:   cur.Path,
+			}
+		}
+		resp.Position = m.player.Position().Seconds()
+		resp.Duration = m.player.Duration().Seconds()
+		resp.Volume = m.player.Volume()
+		resp.Index = m.playlist.Index()
+		resp.Total = m.playlist.Len()
+		msg.Reply <- resp
 		return m, nil
 	}
 

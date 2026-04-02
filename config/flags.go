@@ -101,6 +101,25 @@ func ParseFlags(rawArgs []string) (action string, ov Overrides, positional []str
 		return "plugins-" + args[1], ov, args[2:], nil
 	}
 
+	// Subcommand: cliamp playlist [list|create|add|show|remove|delete] [args...]
+	if len(args) > 0 && args[0] == "playlist" {
+		if len(args) == 1 {
+			return "playlist", ov, nil, nil
+		}
+		return "playlist-" + args[1], ov, args[2:], nil
+	}
+
+	// IPC control subcommands — send to running TUI via Unix socket.
+	ipcCmds := map[string]bool{
+		"play": true, "pause": true, "toggle": true,
+		"next": true, "prev": true, "stop": true,
+		"status": true, "volume": true, "seek": true,
+		"load": true, "queue": true,
+	}
+	if len(args) > 0 && ipcCmds[args[0]] {
+		return args[0], ov, args[1:], nil
+	}
+
 	i := 0
 	for i < len(args) {
 		arg := args[i]
