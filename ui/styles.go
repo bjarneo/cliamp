@@ -1,27 +1,29 @@
 package ui
 
 import (
-	"cliamp/theme"
+	"image/color"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
+
+	"cliamp/theme"
 )
 
 // CLIAMP color palette using standard ANSI terminal colors (0-15).
 // These adapt to the user's terminal theme for consistent appearance.
 var (
-	ColorTitle   lipgloss.TerminalColor = lipgloss.ANSIColor(10) // bright green
-	ColorText    lipgloss.TerminalColor = lipgloss.ANSIColor(15) // bright white
-	ColorDim     lipgloss.TerminalColor = lipgloss.ANSIColor(7)  // white (light gray)
-	ColorAccent  lipgloss.TerminalColor = lipgloss.ANSIColor(11) // bright yellow
-	ColorPlaying lipgloss.TerminalColor = lipgloss.ANSIColor(10) // bright green
-	ColorSeekBar lipgloss.TerminalColor = lipgloss.ANSIColor(11) // bright yellow
-	ColorVolume  lipgloss.TerminalColor = lipgloss.ANSIColor(2)  // green
-	ColorError   lipgloss.TerminalColor = lipgloss.ANSIColor(9)  // bright red
+	ColorTitle   color.Color = lipgloss.ANSIColor(10) // bright green
+	ColorText    color.Color = lipgloss.ANSIColor(15) // bright white
+	ColorDim     color.Color = lipgloss.ANSIColor(7)  // white (light gray)
+	ColorAccent  color.Color = lipgloss.ANSIColor(11) // bright yellow
+	ColorPlaying color.Color = lipgloss.ANSIColor(10) // bright green
+	ColorSeekBar color.Color = lipgloss.ANSIColor(11) // bright yellow
+	ColorVolume  color.Color = lipgloss.ANSIColor(2)  // green
+	ColorError   color.Color = lipgloss.ANSIColor(9)  // bright red
 
 	// Spectrum gradient: green -> yellow -> red
-	SpectrumLow  lipgloss.TerminalColor = lipgloss.ANSIColor(10) // bright green
-	SpectrumMid  lipgloss.TerminalColor = lipgloss.ANSIColor(11) // bright yellow
-	SpectrumHigh lipgloss.TerminalColor = lipgloss.ANSIColor(9)  // bright red
+	SpectrumLow  color.Color = lipgloss.ANSIColor(10) // bright green
+	SpectrumMid  color.Color = lipgloss.ANSIColor(11) // bright yellow
+	SpectrumHigh color.Color = lipgloss.ANSIColor(9)  // bright red
 )
 
 // PaddingH is the horizontal padding inside the frame.
@@ -51,7 +53,6 @@ var FrameStyle = lipgloss.NewStyle().
 // If the theme is the default (empty hex values), ANSI fallback colors are restored.
 func ApplyThemeColors(t theme.Theme) {
 	if t.IsDefault() {
-		// Restore ANSI defaults.
 		ColorTitle = lipgloss.ANSIColor(10)
 		ColorText = lipgloss.ANSIColor(15)
 		ColorDim = lipgloss.ANSIColor(7)

@@ -1,7 +1,7 @@
 package model
 
 import (
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 
 	"cliamp/ui"
 )
@@ -34,7 +34,7 @@ var (
 			Bold(true)
 
 	eqInactiveStyle = lipgloss.NewStyle().
-				Foreground(ui.ColorDim)
+			Foreground(ui.ColorDim)
 
 	playlistActiveStyle = lipgloss.NewStyle().
 				Foreground(ui.ColorPlaying).

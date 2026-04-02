@@ -9,7 +9,7 @@ import (
 	"cliamp/playlist"
 	"cliamp/ui"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 var sharedPlayer *player.Player
@@ -38,7 +38,7 @@ func TestTickIntervalStoppedUsesSlow(t *testing.T) {
 		player:    sharedPlayer,
 		vis:       ui.NewVisualizer(float64(sharedPlayer.SampleRate())),
 		playlist:  playlist.New(),
-		termTitle: terminalTitleState{last: baseTerminalTitle},
+		termTitle: terminalTitleState{},
 	}
 
 	// Player is stopped by default (IsPlaying=false).
@@ -153,7 +153,7 @@ func TestUpdateRequestsVisualizerRefreshWhenOverlayCloses(t *testing.T) {
 		},
 	}
 
-	nextModel, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	nextModel, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if cmd != nil {
 		t.Fatalf("Update() cmd = %v, want nil", cmd)
 	}
@@ -178,7 +178,7 @@ func TestUpdateRequestsVisualizerRefreshWhenLyricsClose(t *testing.T) {
 		},
 	}
 
-	nextModel, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	nextModel, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if cmd != nil {
 		t.Fatalf("Update() cmd = %v, want nil", cmd)
 	}

@@ -1,14 +1,13 @@
 package model
 
 import (
-
 	"cliamp/ui"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestHandleSpeedKeyUsesArrowKeysWhenSpeedFocused(t *testing.T) {
@@ -28,7 +27,7 @@ func TestHandleSpeedKeyUsesArrowKeysWhenSpeedFocused(t *testing.T) {
 		focus:  focusSpeed,
 	}
 
-	if cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRight}); cmd != nil {
+	if cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight}); cmd != nil {
 		t.Fatalf("handleKey(right) cmd = %v, want nil", cmd)
 	}
 	if got := sharedPlayer.Speed(); got != 1.25 {
@@ -38,7 +37,7 @@ func TestHandleSpeedKeyUsesArrowKeysWhenSpeedFocused(t *testing.T) {
 		t.Fatalf("speedSaveAfter after right = %v, want %v", got, speedSaveDebounce)
 	}
 
-	if cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyLeft}); cmd != nil {
+	if cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft}); cmd != nil {
 		t.Fatalf("handleKey(left) cmd = %v, want nil", cmd)
 	}
 	if got := sharedPlayer.Speed(); got != 1.0 {

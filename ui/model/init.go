@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"cliamp/luaplugin"
 	"cliamp/player"
@@ -150,10 +150,7 @@ func (m Model) Init() tea.Cmd {
 	if m.luaMgr != nil {
 		m.luaMgr.Emit(luaplugin.EventAppStart, nil)
 	}
-	cmds := []tea.Cmd{tickCmd(), tea.WindowSize()}
-	if cmd := m.terminalTitleCmd(); cmd != nil {
-		cmds = append(cmds, cmd)
-	}
+	cmds := []tea.Cmd{tickCmd(), func() tea.Msg { return tea.RequestWindowSize() }}
 	if m.provider != nil {
 		cmds = append(cmds, fetchPlaylistsCmd(m.provider))
 	}

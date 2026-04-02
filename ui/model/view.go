@@ -7,12 +7,13 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"cliamp/playlist"
-	"cliamp/ui"
 	"cliamp/provider"
 	"cliamp/theme"
+	"cliamp/ui"
 )
 
 // titleScrollSep is the separator runes for cyclic title scrolling,
@@ -38,9 +39,9 @@ func playlistLabel(prefix string, p playlist.PlaylistInfo) string {
 }
 
 // View renders the full TUI frame.
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	if m.quitting {
-		return ""
+		return tea.NewView("")
 	}
 
 	screen := m.activeScreen()
@@ -48,43 +49,51 @@ func (m Model) View() string {
 		m.refreshVisualizerIfPending()
 	}
 
+	var content string
 	switch screen {
 	case screenKeymap:
-		return m.renderKeymapOverlay()
+		content = m.renderKeymapOverlay()
 	case screenThemePicker:
-		return m.renderThemePicker()
+		content = m.renderThemePicker()
 	case screenDevicePicker:
-		return m.renderDeviceOverlay()
+		content = m.renderDeviceOverlay()
 	case screenFileBrowser:
-		return m.renderFileBrowser()
+		content = m.renderFileBrowser()
 	case screenNavBrowser:
-		return m.renderNavBrowser()
+		content = m.renderNavBrowser()
 	case screenPlaylistManager:
-		return m.renderPlaylistManager()
+		content = m.renderPlaylistManager()
 	case screenSpotSearch:
-		return m.renderSpotSearch()
+		content = m.renderSpotSearch()
 	case screenQueue:
-		return m.renderQueueOverlay()
+		content = m.renderQueueOverlay()
 	case screenInfo:
-		return m.renderInfoOverlay()
+		content = m.renderInfoOverlay()
 	case screenSearch:
-		return m.renderSearchOverlay()
+		content = m.renderSearchOverlay()
 	case screenNetSearch:
-		return m.renderNetSearchOverlay()
+		content = m.renderNetSearchOverlay()
 	case screenURLInput:
-		return m.renderURLInputOverlay()
+		content = m.renderURLInputOverlay()
 	case screenLyrics:
-		return m.renderLyricsOverlay()
+		content = m.renderLyricsOverlay()
 	case screenJump:
-		return m.renderJumpOverlay()
+		content = m.renderJumpOverlay()
 	case screenFullVisualizer:
-		return m.renderFullVisualizer()
+		content = m.renderFullVisualizer()
+	default:
+		content = strings.Join(m.mainSections(m.renderPlaylist(), true), "\n")
 	}
 
-	content := strings.Join(m.mainSections(m.renderPlaylist(), true), "\n")
-	frame := ui.FrameStyle.Render(content)
+	rendered := content
+	if screen == screenMain || screen == screenFullVisualizer {
+		rendered = m.centerFrame(ui.FrameStyle.Render(content))
+	}
 
-	return m.centerFrame(frame)
+	view := tea.NewView(rendered)
+	view.AltScreen = true
+	view.WindowTitle = currentTerminalTitle(m.termTitle, m.width, m.terminalTitleValues())
+	return view
 }
 
 func trimTrailingEmpty(sections []string) []string {
@@ -288,7 +297,7 @@ func (m Model) renderFullVisualizer() string {
 		helpKey("V", "Exit ") + helpKey("v", "Mode:"+m.vis.ModeName()+" ") + helpKey("Spc", "⏯ ") + helpKey("<>", "Trk ") + helpKey("+-", "Vol"),
 	}
 
-	return m.centerOverlay(strings.Join(sections, "\n"))
+	return strings.Join(sections, "\n")
 }
 
 func (m Model) renderSeekBar() string {

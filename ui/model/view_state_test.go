@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"cliamp/playlist"
 	"cliamp/ui"
-	"github.com/charmbracelet/lipgloss"
 )
 
 func withFrameWidth(t *testing.T, width int) {
@@ -51,7 +51,7 @@ func TestMainViewShrinksPlaylistForFooterMessages(t *testing.T) {
 	if got := m.effectivePlaylistVisible(); got != 1 {
 		t.Fatalf("effectivePlaylistVisible() = %d, want 1 with one row left after footer lines", got)
 	}
-	if got := lipgloss.Height(m.View()); got > m.height {
+	if got := lipgloss.Height(m.View().Content); got > m.height {
 		t.Fatalf("View() height = %d, want <= %d after footer lines shrink playlist", got, m.height)
 	}
 }
@@ -140,5 +140,48 @@ func TestRenderNavBrowserIncludesFooterMessages(t *testing.T) {
 
 	if out := m.renderNavBrowser(); !strings.Contains(out, "Downloading...") {
 		t.Fatalf("renderNavBrowser() missing download footer: %q", out)
+	}
+}
+
+func TestViewKeepsOverlayLayoutUnchanged(t *testing.T) {
+	withFrameWidth(t, 80)
+
+	m := Model{
+		width:  80,
+		height: 22,
+		keymap: keymapOverlay{
+			visible: true,
+		},
+	}
+
+	want := m.renderKeymapOverlay()
+	if got := lipgloss.Height(want); got > m.height {
+		t.Fatalf("renderKeymapOverlay() height = %d, want <= %d for test setup", got, m.height)
+	}
+	if got := m.View().Content; got != want {
+		t.Fatalf("View() changed overlay layout")
+	}
+}
+
+func TestFullVisualizerViewFitsTerminalWidth(t *testing.T) {
+	if sharedPlayer == nil {
+		t.Skip("audio hardware unavailable")
+	}
+	withFrameWidth(t, 80)
+
+	sharedPlayer.Stop()
+
+	m := Model{
+		player:   sharedPlayer,
+		playlist: playlist.New(),
+		vis:      ui.NewVisualizer(float64(sharedPlayer.SampleRate())),
+		width:    80,
+		height:   24,
+		fullVis:  true,
+	}
+	m.vis.Mode = ui.VisNone
+
+	if got := lipgloss.Width(m.View().Content); got > m.width {
+		t.Fatalf("View() width = %d, want <= %d in full visualizer mode", got, m.width)
 	}
 }

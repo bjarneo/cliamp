@@ -3,7 +3,7 @@ package model
 import (
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 
 	"cliamp/playlist"
 	"cliamp/ui"

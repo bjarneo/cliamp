@@ -3,7 +3,7 @@ package model
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // keymapEntry is a key-action pair for the keymap overlay.
@@ -60,8 +60,8 @@ var keymapEntries = []keymapEntry{
 }
 
 // handleKeymapKey processes key presses while the keymap overlay is open.
-func (m *Model) handleKeymapKey(msg tea.KeyMsg) tea.Cmd {
-	switch msg.Type {
+func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.Code {
 	case tea.KeyEscape:
 		m.keymap.visible = false
 		m.keymap.search = ""
@@ -76,7 +76,7 @@ func (m *Model) handleKeymapKey(msg tea.KeyMsg) tea.Cmd {
 				count = len(m.keymap.filtered)
 			}
 			if count > 0 {
-				m.keymap.cursor = count-1
+				m.keymap.cursor = count - 1
 			}
 		}
 	case tea.KeyDown:
@@ -103,8 +103,8 @@ func (m *Model) handleKeymapKey(msg tea.KeyMsg) tea.Cmd {
 			m.keymap.visible = false
 			return m.quit()
 		default:
-			if msg.Type == tea.KeyRunes {
-				m.keymap.search += string(msg.Runes)
+			if len(msg.Text) > 0 {
+				m.keymap.search += msg.Text
 				m.updateKeymapFilter()
 			}
 		}

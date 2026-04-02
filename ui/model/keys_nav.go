@@ -1,14 +1,14 @@
 package model
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"cliamp/playlist"
 	"cliamp/provider"
 )
 
 // handleNavBrowserKey processes key presses while the provider browser is open.
-func (m *Model) handleNavBrowserKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleNavBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 	if m.navBrowser.prov == nil {
 		m.navBrowser.visible = false
 		return nil
@@ -43,7 +43,7 @@ func (m *Model) handleNavBrowserKey(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-func (m *Model) handleNavMenuKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleNavMenuKey(msg tea.KeyPressMsg) tea.Cmd {
 	const menuItems = 3
 	switch msg.String() {
 	case "ctrl+c":
@@ -104,7 +104,7 @@ func (m *Model) handleNavMenuKey(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-func (m *Model) handleNavByAlbumKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleNavByAlbumKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch m.navBrowser.screen {
 	case navBrowseScreenList:
 		return m.handleNavAlbumListKey(msg, false)
@@ -114,7 +114,7 @@ func (m *Model) handleNavByAlbumKey(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-func (m *Model) handleNavByArtistKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleNavByArtistKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch m.navBrowser.screen {
 	case navBrowseScreenList:
 		return m.handleNavArtistListKey(msg)
@@ -124,7 +124,7 @@ func (m *Model) handleNavByArtistKey(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-func (m *Model) handleNavByArtistAlbumKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleNavByArtistAlbumKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch m.navBrowser.screen {
 	case navBrowseScreenList:
 		return m.handleNavArtistListKey(msg)
@@ -137,7 +137,7 @@ func (m *Model) handleNavByArtistAlbumKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 // handleNavArtistListKey handles the artist list screen.
-func (m *Model) handleNavArtistListKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleNavArtistListKey(msg tea.KeyPressMsg) tea.Cmd {
 	// Determine effective list length (filtered or full).
 	listLen := len(m.navBrowser.artists)
 	if len(m.navBrowser.searchIdx) > 0 {
@@ -197,7 +197,7 @@ func (m *Model) handleNavArtistListKey(msg tea.KeyMsg) tea.Cmd {
 
 // handleNavAlbumListKey handles the album list screen.
 // artistAlbums=true means this is the artist's album sub-screen (ArtistAlbum mode), not the global list.
-func (m *Model) handleNavAlbumListKey(msg tea.KeyMsg, artistAlbums bool) tea.Cmd {
+func (m *Model) handleNavAlbumListKey(msg tea.KeyPressMsg, artistAlbums bool) tea.Cmd {
 	// Determine effective list length (filtered or full).
 	listLen := len(m.navBrowser.albums)
 	if len(m.navBrowser.searchIdx) > 0 {
@@ -278,7 +278,7 @@ func (m *Model) handleNavAlbumListKey(msg tea.KeyMsg, artistAlbums bool) tea.Cmd
 }
 
 // handleNavTrackListKey handles the final track-list screen (used by all modes).
-func (m *Model) handleNavTrackListKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 	// Determine effective list length (filtered or full).
 	listLen := len(m.navBrowser.tracks)
 	if len(m.navBrowser.searchIdx) > 0 {
@@ -427,10 +427,9 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 // handleNavSearchKey handles key input while the nav search bar is open.
-func (m *Model) handleNavSearchKey(msg tea.KeyMsg) tea.Cmd {
-	switch msg.Type {
+func (m *Model) handleNavSearchKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.Code {
 	case tea.KeyEscape:
-		// Close the search bar; keep the filter active so the user can act on results.
 		m.navBrowser.searching = false
 		return nil
 	case tea.KeyEnter:
@@ -445,9 +444,8 @@ func (m *Model) handleNavSearchKey(msg tea.KeyMsg) tea.Cmd {
 		}
 		return nil
 	}
-	// Printable character — append to query.
-	if msg.Type == tea.KeyRunes {
-		m.navBrowser.search += string(msg.Runes)
+	if len(msg.Text) > 0 {
+		m.navBrowser.search += msg.Text
 		m.navBrowser.cursor = 0
 		m.navBrowser.scroll = 0
 		m.navUpdateSearch()

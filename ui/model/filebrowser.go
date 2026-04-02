@@ -6,12 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"cliamp/player"
-	"cliamp/ui"
 	"cliamp/playlist"
 	"cliamp/resolve"
+	"cliamp/ui"
 )
 
 // fbMaxVisible is a number of visible entries in file browser.
@@ -120,7 +120,7 @@ func (m *Model) loadFBDir() {
 }
 
 // handleFileBrowserKey processes key presses while the file browser is open.
-func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 	var cd string
 	switch msg.String() {
 	case "ctrl+c":
@@ -134,7 +134,7 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 		if m.fileBrowser.cursor > 0 {
 			m.fileBrowser.cursor--
 		} else if len(m.fileBrowser.entries) > 0 {
-			m.fileBrowser.cursor = len(m.fileBrowser.entries)-1
+			m.fileBrowser.cursor = len(m.fileBrowser.entries) - 1
 		}
 
 	case "down", "j":
@@ -151,7 +151,7 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "pgdown", "ctrl+d":
 		if m.fileBrowser.cursor < len(m.fileBrowser.entries)-1 {
-			m.fileBrowser.cursor = min(len(m.fileBrowser.entries)-1, m.fileBrowser.cursor + fbMaxVisible)
+			m.fileBrowser.cursor = min(len(m.fileBrowser.entries)-1, m.fileBrowser.cursor+fbMaxVisible)
 		}
 
 	case "enter", "l", "right":
@@ -203,7 +203,7 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 			m.loadFBDir()
 		}
 
-	case " ":
+	case "space":
 		if m.fileBrowser.cursor < len(m.fileBrowser.entries) {
 			e := m.fileBrowser.entries[m.fileBrowser.cursor]
 			if !e.isParent && (e.isAudio || e.isDir) {
@@ -279,9 +279,9 @@ func (m *Model) fbConfirm(replace bool) tea.Cmd {
 
 // renderFileBrowser renders the file browser overlay.
 func (m Model) renderFileBrowser() string {
-	lines := append(make([]string, 0, 3 + fbMaxVisible + 4),
+	lines := append(make([]string, 0, 3+fbMaxVisible+4),
 		titleStyle.Render("O P E N  F I L E S"),
-		dimStyle.Render("  " + m.fileBrowser.dir),
+		dimStyle.Render("  "+m.fileBrowser.dir),
 		"",
 	)
 
@@ -353,7 +353,7 @@ func (m Model) renderFileBrowser() string {
 		}
 	}
 
-	help := helpKey("↑↓", "Scroll ") + helpKey("Enter", "Open ") + 
+	help := helpKey("↑↓", "Scroll ") + helpKey("Enter", "Open ") +
 		helpKey("Spc", "Select ") + helpKey("a", "All ") +
 		helpKey("←", "Back ") + helpKey("~.", "Home/Cwd ")
 	if os.PathSeparator == '\\' {

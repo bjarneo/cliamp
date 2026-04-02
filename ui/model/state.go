@@ -246,5 +246,4 @@ type terminalTitleState struct {
 	introActive bool
 	introOffset int
 	introTick   int
-	last        string
 }
