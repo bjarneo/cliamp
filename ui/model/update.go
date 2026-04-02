@@ -9,9 +9,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"cliamp/config"
+	"cliamp/ipc"
 	"cliamp/mpris"
 	"cliamp/playlist"
 	"cliamp/provider"
+	"cliamp/theme"
 	"cliamp/ui"
 )
 
@@ -92,6 +94,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cachedDur = m.player.Duration()
 			} else {
 				m.cachedPos, m.cachedDur = m.player.PositionAndDuration()
+				// Piped SSH streams report 0 duration — use metadata fallback.
+				if m.cachedDur == 0 {
+					if track, _ := m.playlist.Current(); track.DurationSecs > 0 && strings.HasPrefix(track.Path, "ssh://") {
+						m.cachedDur = time.Duration(track.DurationSecs) * time.Second
+					}
+				}
 			}
 		} else {
 			track, _ := m.playlist.Current()
@@ -658,6 +666,121 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case SetEQPresetMsg:
 		m.SetEQPreset(msg.Name, msg.Bands)
+		return m, nil
+
+	// IPC-specific messages (PlayMsg, PauseMsg have different semantics from toggle).
+	// Shared types (NextMsg, PrevMsg, StopMsg, ToggleMsg) are handled above via
+	// mpris.* which are now aliases for control.* types.
+	case ipc.PlayMsg:
+		if m.player.IsPaused() {
+			cmd := m.togglePlayPause()
+			m.notifyAll()
+			return m, cmd
+		}
+		return m, nil
+	case ipc.PauseMsg:
+		if m.player.IsPlaying() && !m.player.IsPaused() {
+			cmd := m.togglePlayPause()
+			m.notifyAll()
+			return m, cmd
+		}
+		return m, nil
+	case ipc.VolumeMsg:
+		m.player.SetVolume(msg.DB)
+		m.notifyAll()
+		return m, nil
+	case ipc.SeekMsg:
+		_ = m.player.Seek(time.Duration(msg.Secs * float64(time.Second)))
+		m.notifyAll()
+		return m, nil
+	case ipc.LoadMsg:
+		tracks, err := m.localProvider.Tracks(msg.Playlist)
+		if err != nil {
+			if msg.Reply != nil {
+				msg.Reply <- ipc.Response{OK: false, Error: fmt.Sprintf("playlist %q: %v", msg.Playlist, err)}
+			}
+			return m, nil
+		}
+		m.playlist.Replace(tracks)
+		m.loadedPlaylist = msg.Playlist
+		cmd := m.playCurrentTrack()
+		m.notifyAll()
+		if msg.Reply != nil {
+			msg.Reply <- ipc.Response{OK: true, Playlist: msg.Playlist, Total: len(tracks)}
+		}
+		return m, cmd
+	case ipc.QueueMsg:
+		t := playlist.Track{Path: msg.Path, Title: msg.Path}
+		m.playlist.Add(t)
+		m.notifyAll()
+		return m, nil
+	case ipc.ThemeMsg:
+		// Reload themes from disk to pick up new custom themes.
+		// Same pattern as openThemePicker() — LoadAll is fast (<1ms for local TOML files).
+		m.themes = theme.LoadAll()
+		if m.SetTheme(msg.Name) {
+			// Persist immediately so the setting survives ungraceful exits.
+			themeName := msg.Name
+			if strings.EqualFold(themeName, "default") {
+				themeName = ""
+			}
+			_ = config.Save("theme", fmt.Sprintf("%q", themeName))
+			if msg.Reply != nil {
+				msg.Reply <- ipc.Response{OK: true}
+			}
+		} else {
+			if msg.Reply != nil {
+				msg.Reply <- ipc.Response{OK: false, Error: fmt.Sprintf("theme %q not found", msg.Name)}
+			}
+		}
+		return m, nil
+	case ipc.VisMsg:
+		if m.vis == nil {
+			if msg.Reply != nil {
+				msg.Reply <- ipc.Response{OK: false, Error: "visualizer not available"}
+			}
+			return m, nil
+		}
+		var resp ipc.Response
+		if strings.EqualFold(msg.Name, "next") {
+			m.vis.CycleMode()
+			m.vis.RequestRefresh()
+			resp = ipc.Response{OK: true, Visualizer: m.vis.ModeName()}
+		} else if m.SetVisualizer(msg.Name) {
+			resp = ipc.Response{OK: true, Visualizer: m.vis.ModeName()}
+		} else {
+			resp = ipc.Response{OK: false, Error: fmt.Sprintf("visualizer %q not found", msg.Name)}
+		}
+		if msg.Reply != nil {
+			msg.Reply <- resp
+		}
+		return m, nil
+	case ipc.StatusRequestMsg:
+		resp := ipc.Response{OK: true}
+		switch {
+		case m.player.IsPlaying() && !m.player.IsPaused():
+			resp.State = "playing"
+		case m.player.IsPaused():
+			resp.State = "paused"
+		default:
+			resp.State = "stopped"
+		}
+		if cur, _ := m.playlist.Current(); cur.Path != "" {
+			resp.Track = &ipc.TrackInfo{
+				Title:  cur.Title,
+				Artist: cur.Artist,
+				Path:   cur.Path,
+			}
+		}
+		resp.Position = m.player.Position().Seconds()
+		resp.Duration = m.player.Duration().Seconds()
+		resp.Volume = m.player.Volume()
+		resp.Index = m.playlist.Index()
+		resp.Total = m.playlist.Len()
+		resp.Visualizer = m.vis.ModeName()
+		if msg.Reply != nil {
+			msg.Reply <- resp
+		}
 		return m, nil
 	}
 

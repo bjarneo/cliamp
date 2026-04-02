@@ -30,6 +30,7 @@ func (m *Model) quit() tea.Cmd {
 		if secs := int(m.player.Position().Seconds()); secs > 0 {
 			m.exitResume.path = track.Path
 			m.exitResume.secs = secs
+			m.exitResume.playlist = m.loadedPlaylist
 		}
 	}
 
@@ -331,6 +332,25 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "shift+right":
 		m.doSeek(m.seekStepLarge)
 
+	case "*":
+		if m.focus == focusPlaylist && m.plCursor >= 0 && m.plCursor < m.playlist.Len() {
+			m.playlist.ToggleFavorite(m.plCursor)
+			t := m.playlist.Tracks()[m.plCursor]
+			// Persist to TOML if we have a loaded local playlist.
+			if m.loadedPlaylist != "" {
+				if fs, ok := m.localProvider.(provider.FavoriteSetter); ok {
+					if err := fs.SetFavorite(m.loadedPlaylist, m.plCursor); err != nil {
+						m.status.Showf(statusTTLDefault, "Save failed: %s", err)
+					}
+				}
+			}
+			if t.Favorite {
+				m.status.Showf(statusTTLDefault, "★ %s", t.DisplayName())
+			} else {
+				m.status.Showf(statusTTLDefault, "☆ %s", t.DisplayName())
+			}
+		}
+
 	case "shift+up":
 		if m.focus == focusPlaylist && m.plCursor > 0 {
 			if m.playlist.Move(m.plCursor, m.plCursor-1) {
@@ -569,6 +589,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.openNavBrowserWith(prov)
 		}
 
+	case "L":
+		return m.switchToProvider("local")
 	case "R":
 		return m.switchToProvider("radio")
 	case "P":
@@ -1082,6 +1104,7 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.player.ClearPreload()
 			m.resetYTDLBatch()
 			m.playlist.Replace(m.plManager.tracks)
+			m.loadedPlaylist = m.plManager.selPlaylist
 			m.plCursor = 0
 			m.playlist.SetIndex(0)
 			m.adjustScroll()

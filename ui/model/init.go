@@ -107,12 +107,16 @@ func (m *Model) SetTheme(name string) bool {
 }
 
 // SetVisualizer sets the visualizer mode by name (case-insensitive).
-// Returns true if a valid mode name was recognized.
+// Returns true if a valid mode name was recognized. Does not modify state
+// if the name is not found, matching the SetTheme guard pattern.
 func (m *Model) SetVisualizer(name string) bool {
-	mode := ui.StringToVisMode(name)
+	mode, ok := ui.StringToVisModeExact(name)
+	if !ok {
+		return false
+	}
 	m.vis.Mode = mode
 	m.vis.RequestRefresh()
-	return name == "" || strings.EqualFold(name, m.vis.ModeName())
+	return true
 }
 
 // VisualizerName returns the current visualizer mode's display name.
@@ -131,10 +135,16 @@ func (m *Model) SetResume(path string, secs int) {
 	m.resume.secs = secs
 }
 
-// ResumeState returns the track path and playback position captured at exit.
+// ResumePlaylist loads a playlist into the model for session resume.
+func (m *Model) ResumePlaylist(name string, tracks []playlist.Track) {
+	m.playlist.Replace(tracks)
+	m.loadedPlaylist = name
+}
+
+// ResumeState returns the track path, playback position, and playlist name captured at exit.
 // Called after prog.Run() returns (player already closed).
-func (m Model) ResumeState() (path string, secs int) {
-	return m.exitResume.path, m.exitResume.secs
+func (m Model) ResumeState() (path string, secs int, playlist string) {
+	return m.exitResume.path, m.exitResume.secs, m.exitResume.playlist
 }
 
 // ThemeName returns the current theme name.

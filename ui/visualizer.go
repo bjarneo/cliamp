@@ -378,8 +378,8 @@ var visModes = [VisCount]visEntry{
 	VisScope:       {"Scope", newRenderOnlyDriver(spectrumAnalysisSpec(0), func(v *Visualizer, _ []float64) string { return v.renderScope() })},
 	VisHeartbeat:   {"Heartbeat", newRenderOnlyDriver(spectrumAnalysisSpec(0), func(v *Visualizer, _ []float64) string { return v.renderHeartbeat() })},
 	VisButterfly:   {"Butterfly", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderButterfly)},
-	VisLightning:   {"Lightning", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderLightning)},
-	VisNone:        {"None", newNoOpDriver},
+	VisLightning:    {"Lightning", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderLightning)},
+	VisNone:         {"None", newNoOpDriver},
 }
 
 var visNameMap map[string]VisMode
@@ -410,6 +410,21 @@ func StringToVisMode(name string) VisMode {
 		return mode
 	}
 	return VisBars
+}
+
+// StringToVisModeExact converts a name to VisMode, returning false if not found.
+func StringToVisModeExact(name string) (VisMode, bool) {
+	mode, ok := visNameMap[strings.ToLower(name)]
+	return mode, ok
+}
+
+// VisModeNames returns the display names of all built-in visualizer modes.
+func VisModeNames() []string {
+	names := make([]string, VisCount)
+	for i := range VisCount {
+		names[i] = visModes[i].name
+	}
+	return names
 }
 
 func buildSpectrumEdges(count int) []float64 {

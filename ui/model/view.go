@@ -230,6 +230,7 @@ func (m Model) renderTrackInfo() string {
 	for i := range maxW {
 		display[i] = padded[(off+i)%total]
 	}
+
 	return trackStyle.Render("♫ " + string(display))
 }
 
@@ -252,8 +253,7 @@ func (m Model) renderTimeStatus() string {
 	case m.seek.active:
 		status = statusStyle.Render("⟳ Seeking...")
 	case m.buffering:
-		elapsed := int(time.Since(m.bufferingAt).Seconds())
-		if elapsed > 0 {
+		if elapsed := int(time.Since(m.bufferingAt).Seconds()); elapsed > 0 {
 			status = statusStyle.Render(fmt.Sprintf("◌ Buffering... (%ds)", elapsed))
 		} else {
 			status = statusStyle.Render("◌ Buffering...")
@@ -438,9 +438,19 @@ func (m Model) renderPlaylistHeader() string {
 		queueStr = " " + activeToggle.Render(fmt.Sprintf("[Queue: %d]", qLen))
 	}
 
+	var favStr string
+	if favCount := m.playlist.FavoriteCount(); favCount > 0 {
+		favStr = " " + activeToggle.Render(fmt.Sprintf("[★ %d]", favCount))
+	}
+
 	var themeStr string
 	if name := m.ThemeName(); name != theme.DefaultName {
 		themeStr = " " + activeToggle.Render("[Theme: "+name+"]")
+	}
+
+	var posStr string
+	if total := m.playlist.Len(); total > 0 {
+		posStr = " " + dimStyle.Render(fmt.Sprintf("[%d/%d]", m.playlist.Index()+1, total))
 	}
 
 	headerStyle := dimStyle
@@ -449,7 +459,7 @@ func (m Model) renderPlaylistHeader() string {
 		headerStyle = activeToggle
 		headerLabel = "▸─ Playlist ── "
 	}
-	return headerStyle.Render(headerLabel) + shuffle + queueStr + themeStr + " " + dimStyle.Render("──")
+	return headerStyle.Render(headerLabel) + shuffle + queueStr + favStr + posStr + themeStr + " " + dimStyle.Render("──")
 }
 
 func (m Model) renderProviderList() string {
@@ -511,7 +521,7 @@ func (m Model) renderProviderList() string {
 	for j := scroll; j < scroll+visible && j < len(m.providerLists); j++ {
 		p := m.providerLists[j]
 
-		// Insert section headers on prefix transitions for the radio provider.
+		// Insert section separators.
 		if isRadio {
 			pfx := sl.IDPrefix(p.ID)
 			if pfx != prevPrefix {
@@ -571,13 +581,25 @@ func (m Model) renderPlaylist() string {
 	// The loop below counts every appended line against this budget
 	// so the playlist never overflows its area.
 	lines := make([]string, 0, budget) // tracks
+	prevAlbum := ""
+	if scroll > 0 {
+		prevAlbum = tracks[scroll-1].Album
+	}
 	for i := scroll; i < len(tracks) && len(lines) < budget; i++ {
+		// Insert album separator when album changes between consecutive tracks.
+		if album := tracks[i].Album; album != "" && album != prevAlbum && len(lines) < budget-1 {
+			lines = append(lines, m.albumSeparator(album, tracks[i].Year))
+		}
+		prevAlbum = tracks[i].Album
+
 		prefix := "  "
 		style := playlistItemStyle
 
 		if i == currentIdx && m.player.IsPlaying() {
 			prefix = "▶ "
 			style = playlistActiveStyle
+		} else if strings.HasPrefix(tracks[i].Path, "ssh://") {
+			prefix = "↗ "
 		}
 
 		if m.focus == focusPlaylist && i == m.plCursor {
@@ -585,6 +607,11 @@ func (m Model) renderPlaylist() string {
 		}
 
 		name := tracks[i].DisplayName()
+		isFav := tracks[i].Favorite
+		favBudget := 0
+		if isFav {
+			favBudget = 2 // "★ "
+		}
 		queueSuffix := ""
 		if qp := m.playlist.QueuePosition(i); qp > 0 {
 			queueSuffix = fmt.Sprintf(" [Q%d]", qp)
@@ -594,10 +621,14 @@ func (m Model) renderPlaylist() string {
 			albumSuffix = " · " + album
 		}
 		suffixLen := utf8.RuneCountInString(queueSuffix) + utf8.RuneCountInString(albumSuffix)
-		name = truncate(name, ui.PanelWidth-6-suffixLen)
+		name = truncate(name, ui.PanelWidth-6-suffixLen-favBudget)
 
-		line := fmt.Sprintf("%s%d. %s", prefix, i+1, name)
-		line = style.Render(line)
+		numStr := fmt.Sprintf("%s%d. ", prefix, i+1)
+		line := style.Render(numStr)
+		if isFav {
+			line += activeToggle.Render("★ ")
+		}
+		line += style.Render(name)
 		if albumSuffix != "" {
 			line += dimStyle.Render(albumSuffix)
 		}
@@ -675,6 +706,7 @@ func (m Model) renderHelp() string {
 			hints = append(hints, helpHint{helpKey("←→", "Seek "), 80})
 		}
 		hints = append(hints,
+			helpHint{helpKey("*", "Fav "), 75},
 			helpHint{helpKey("Tab", "Focus "), 70},
 			helpHint{helpKey("Ctrl+K", "Keys"), 100},
 		)

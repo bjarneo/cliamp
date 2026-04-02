@@ -12,6 +12,7 @@ require (
 	github.com/jfreymuth/oggvorbis v1.0.5
 	github.com/kkdai/youtube/v2 v2.10.5
 	github.com/madelynnblue/go-dsp v1.0.0
+	github.com/urfave/cli/v3 v3.8.0
 	github.com/yuin/gopher-lua v1.1.1
 	golang.org/x/oauth2 v0.35.0
 	golang.org/x/text v0.34.0

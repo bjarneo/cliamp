@@ -201,7 +201,7 @@ func (m Model) renderNavTrackList() []string {
 			t := m.navBrowser.tracks[i]
 
 			if album := t.Album; album != "" && album != prevAlbum {
-				lines = append(lines, albumSeparator(album, t.Year))
+				lines = append(lines, m.albumSeparator(album, t.Year))
 				if rendered >= maxVisible {
 					break
 				}

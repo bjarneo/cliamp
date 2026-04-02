@@ -14,6 +14,7 @@ import (
 type State struct {
 	Path        string `json:"path"`
 	PositionSec int    `json:"position_sec"`
+	Playlist    string `json:"playlist,omitempty"`
 }
 
 func stateFile() (string, error) {
@@ -27,7 +28,7 @@ func stateFile() (string, error) {
 // Save writes the resume state to disk. No-ops for empty path or zero/negative
 // position to avoid overwriting a valid resume file with useless data.
 // Errors are silently ignored so a failed write never disrupts normal exit.
-func Save(path string, positionSec int) {
+func Save(path string, positionSec int, playlist string) {
 	if path == "" || positionSec <= 0 {
 		return
 	}
@@ -35,7 +36,7 @@ func Save(path string, positionSec int) {
 	if err != nil {
 		return
 	}
-	data, err := json.Marshal(State{Path: path, PositionSec: positionSec})
+	data, err := json.Marshal(State{Path: path, PositionSec: positionSec, Playlist: playlist})
 	if err != nil {
 		return
 	}

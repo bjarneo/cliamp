@@ -121,6 +121,46 @@ func (p *Provider) AddTrack(playlistName string, track playlist.Track) error {
 	return nil
 }
 
+// AddTracks appends multiple tracks in a single file open/close cycle.
+func (p *Provider) AddTracks(playlistName string, tracks []playlist.Track) error {
+	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+		return err
+	}
+	path, err := p.safePath(playlistName)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	nonEmpty := info.Size() > 0
+	for _, t := range tracks {
+		if nonEmpty {
+			fmt.Fprintln(f)
+		}
+		writeTrack(f, t)
+		nonEmpty = true
+	}
+	return nil
+}
+
+// Exists reports whether a playlist with the given name exists on disk.
+func (p *Provider) Exists(name string) bool {
+	path, err := p.safePath(name)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(path)
+	return err == nil
+}
+
 // savePlaylist overwrites the named playlist with the given tracks.
 func (p *Provider) savePlaylist(name string, tracks []playlist.Track) error {
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
@@ -131,11 +171,13 @@ func (p *Provider) savePlaylist(name string, tracks []playlist.Track) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.Create(path)
+
+	// Atomic write: write to temp file, then rename.
+	tmp := path + ".tmp"
+	f, err := os.Create(tmp)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
 	for i, t := range tracks {
 		if i > 0 {
@@ -143,7 +185,38 @@ func (p *Provider) savePlaylist(name string, tracks []playlist.Track) error {
 		}
 		writeTrack(f, t)
 	}
-	return nil
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// SetFavorite toggles the favorite flag on a track and rewrites the playlist.
+func (p *Provider) SetFavorite(playlistName string, idx int) error {
+	tracks, err := p.loadTOMLByName(playlistName)
+	if err != nil {
+		return err
+	}
+	if idx < 0 || idx >= len(tracks) {
+		return fmt.Errorf("index %d out of range (playlist has %d tracks)", idx, len(tracks))
+	}
+	tracks[idx].Favorite = !tracks[idx].Favorite
+	return p.savePlaylist(playlistName, tracks)
+}
+
+// loadTOMLByName loads tracks for a named playlist.
+func (p *Provider) loadTOMLByName(name string) ([]playlist.Track, error) {
+	path, err := p.safePath(name)
+	if err != nil {
+		return nil, err
+	}
+	return p.loadTOML(path)
+}
+
+// SavePlaylist overwrites a playlist with the given tracks.
+func (p *Provider) SavePlaylist(name string, tracks []playlist.Track) error {
+	return p.savePlaylist(name, tracks)
 }
 
 // AddTrackToPlaylist appends a track to the named playlist.
@@ -200,6 +273,12 @@ func writeTrack(w io.Writer, t playlist.Track) {
 	}
 	if t.TrackNumber != 0 {
 		fmt.Fprintf(w, "track_number = %d\n", t.TrackNumber)
+	}
+	if t.DurationSecs != 0 {
+		fmt.Fprintf(w, "duration_secs = %d\n", t.DurationSecs)
+	}
+	if t.Favorite {
+		fmt.Fprintln(w, "favorite = true")
 	}
 }
 
@@ -266,6 +345,12 @@ func (p *Provider) loadTOML(path string) ([]playlist.Track, error) {
 			if n, err := strconv.Atoi(val); err == nil {
 				current.TrackNumber = n
 			}
+		case "duration_secs":
+			if n, err := strconv.Atoi(val); err == nil {
+				current.DurationSecs = n
+			}
+		case "favorite":
+			current.Favorite = val == "true"
 		}
 	}
 	if current != nil {

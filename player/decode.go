@@ -6,9 +6,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"cliamp/internal/sshurl"
 
 	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/flac"
@@ -43,6 +46,68 @@ func isURL(path string) bool {
 	return strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://")
 }
 
+// isSSH reports whether path is an SSH remote path (ssh://host/path).
+func isSSH(path string) bool {
+	return strings.HasPrefix(path, "ssh://")
+}
+
+// sshReadCloser wraps an SSH subprocess stdout pipe as an io.ReadCloser.
+// Closing it kills the SSH process and reaps the child.
+type sshReadCloser struct {
+	pipe io.ReadCloser // cmd.StdoutPipe()
+	cmd  *exec.Cmd
+}
+
+func (s *sshReadCloser) Read(p []byte) (int, error) {
+	return s.pipe.Read(p)
+}
+
+func (s *sshReadCloser) Close() error {
+	// Kill the SSH process if still running.
+	if s.cmd.Process != nil {
+		_ = s.cmd.Process.Kill()
+	}
+	_ = s.pipe.Close()
+	waitErr := s.cmd.Wait() // reap zombie
+	// Process.Kill causes Wait to return "signal: killed" — that's expected.
+	if waitErr != nil {
+		if exitErr, ok := waitErr.(*exec.ExitError); ok && exitErr.ExitCode() != -1 {
+			return fmt.Errorf("ssh: %w", waitErr)
+		}
+	}
+	return nil
+}
+
+// shellQuoteSSH wraps a string in single quotes for safe use in a remote shell command.
+// Single quotes inside the string are escaped as '\'' (end quote, escaped quote, start quote).
+func shellQuoteSSH(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+// openSSHSource opens a remote file via SSH by running "ssh host cat remotePath"
+// and returning the stdout pipe as an io.ReadCloser.
+// Path format: ssh://hostname/absolute/path/to/file
+func openSSHSource(path string) (sourceResult, error) {
+	parsed, err := sshurl.Parse(path)
+	if err != nil {
+		return sourceResult{}, err
+	}
+
+	catCmd := "cat -- " + shellQuoteSSH(parsed.Path)
+	args := parsed.SSHArgs()
+	args = append(args, catCmd)
+	cmd := exec.Command("ssh", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return sourceResult{}, fmt.Errorf("ssh stdout pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return sourceResult{}, fmt.Errorf("ssh start: %w", err)
+	}
+	rc := &sshReadCloser{pipe: stdout, cmd: cmd}
+	return sourceResult{body: rc, contentLength: -1}, nil
+}
+
 // matchCustomURI returns the StreamerFactory for the given path if it matches
 // a registered custom URI scheme prefix, or nil if no scheme matches.
 func (p *Player) matchCustomURI(path string) StreamerFactory {
@@ -66,6 +131,9 @@ type sourceResult struct {
 // offset using an HTTP Range request (Range: bytes=offset-). For local files
 // the offset is ignored (use decoder.Seek for local files).
 func openSourceAt(path string, byteOffset int64, onMeta func(string)) (sourceResult, error) {
+	if isSSH(path) {
+		return openSSHSource(path)
+	}
 	if !isURL(path) {
 		f, err := os.Open(path)
 		return sourceResult{body: f, contentLength: -1}, err

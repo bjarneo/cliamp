@@ -54,6 +54,7 @@ Press `Ctrl+K` in the player to see all keybindings.
 | `y` | Show lyrics |
 | `Ctrl+S` | Save track to ~/Music |
 | `N` | Navidrome browser |
+| `L` | Browse local playlists (with cliamp radio) |
 | `R` | Open radio provider |
 | `S` | Open Spotify provider |
 | `P` | Open Plex provider |

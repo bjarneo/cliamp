@@ -75,3 +75,37 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--bit-depth` | int | 16 | 16, 32 |
 
 CLI flags override config file values for the current session only. They are not persisted.
+
+## Playlist Management
+
+Manage local TOML playlists from the command line without opening the TUI.
+
+```sh
+cliamp playlist list                          # list playlists with track counts
+cliamp playlist create "Name" file1 dir/ ...  # create from files/folders (recursive)
+cliamp playlist create "Name" --ssh HOST dir/ # create from remote machine via SSH
+cliamp playlist add "Name" file1 ...          # append tracks to existing playlist
+cliamp playlist show "Name"                   # display tracks
+cliamp playlist show "Name" --json            # machine-readable output
+cliamp playlist remove "Name" --index 3       # remove track by index
+cliamp playlist delete "Name"                 # delete entire playlist
+```
+
+See [playlists.md](playlists.md) for the TOML format and [ssh-streaming.md](ssh-streaming.md) for remote playback.
+
+## Remote Control (IPC)
+
+Control a running cliamp instance from another terminal:
+
+```sh
+cliamp play / pause / toggle / stop    # playback control
+cliamp next / prev                     # track navigation
+cliamp status                          # current state
+cliamp status --json                   # machine-readable state
+cliamp volume -5                       # adjust volume (dB)
+cliamp seek 30                         # seek to position (seconds)
+cliamp load "Playlist Name"            # load a playlist
+cliamp queue /path/to/file.mp3         # queue a track
+```
+
+See [remote-control.md](remote-control.md) for the full protocol specification.

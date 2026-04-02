@@ -56,12 +56,14 @@ func helpKey(key, label string) string {
 }
 
 // albumSeparator builds a full-width album divider line.
-func albumSeparator(album string, year int) string {
-	label := "── " + album
+func (m Model) albumSeparator(album string, year int) string {
+	prefix := "── "
+	suffix := " "
+	label := prefix + album
 	if year != 0 {
 		label += fmt.Sprintf(" (%d)", year)
 	}
-	label += " "
+	label += suffix
 	if labelLen := utf8.RuneCountInString(label); labelLen < ui.PanelWidth {
 		label += strings.Repeat("─", ui.PanelWidth-labelLen)
 	}
