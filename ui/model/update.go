@@ -13,6 +13,7 @@ import (
 	"cliamp/mpris"
 	"cliamp/playlist"
 	"cliamp/provider"
+	"cliamp/theme"
 	"cliamp/ui"
 )
 
@@ -730,6 +731,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t := playlist.Track{Path: msg.Path, Title: msg.Path}
 		m.playlist.Add(t)
 		m.notifyAll()
+		return m, nil
+	case ipc.ThemeMsg:
+		// Reload themes from disk to pick up new custom themes.
+		m.themes = theme.LoadAll()
+		if m.SetTheme(msg.Name) {
+			msg.Reply <- ipc.Response{OK: true}
+		} else {
+			msg.Reply <- ipc.Response{OK: false, Error: fmt.Sprintf("theme %q not found", msg.Name)}
+		}
 		return m, nil
 	case ipc.StatusRequestMsg:
 		resp := ipc.Response{OK: true}

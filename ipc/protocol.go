@@ -11,6 +11,7 @@ type Request struct {
 	Value    float64 `json:"value,omitempty"`
 	Playlist string  `json:"playlist,omitempty"`
 	Path     string  `json:"path,omitempty"`
+	Name     string  `json:"name,omitempty"`
 }
 
 // Response is the JSON response sent by the server.
@@ -75,6 +76,13 @@ type LoadMsg struct {
 
 // QueueMsg requests queuing a file path for playback.
 type QueueMsg struct{ Path string }
+
+// ThemeMsg requests changing the TUI theme by name.
+// Reply receives confirmation or error if theme not found.
+type ThemeMsg struct {
+	Name  string
+	Reply chan Response
+}
 
 // StatusRequestMsg asks the TUI for current state.
 // The TUI writes the response to Reply and closes the channel.

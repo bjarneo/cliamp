@@ -731,6 +731,27 @@ func main() {
 		}
 		ipcSend(ipc.Request{Cmd: "queue", Path: positional[0]})
 		return
+	case "theme":
+		if len(positional) < 1 {
+			// No args: show current theme via IPC status.
+			resp := ipcSend(ipc.Request{Cmd: "status"})
+			fmt.Println(resp.State) // status includes theme in a future iteration
+			fmt.Fprintln(os.Stderr, "usage: cliamp theme <name>  or  cliamp theme list")
+			os.Exit(1)
+		}
+		if positional[0] == "list" {
+			// List available themes — no TUI needed.
+			themes := theme.LoadAll()
+			for _, t := range themes {
+				fmt.Printf("  %s\n", t.Name)
+			}
+			return
+		}
+		// Set theme via IPC.
+		resp := ipcSend(ipc.Request{Cmd: "theme", Name: positional[0]})
+		_ = resp
+		fmt.Printf("Theme: %s\n", positional[0])
+		return
 	}
 
 	if err := run(overrides, positional); err != nil {

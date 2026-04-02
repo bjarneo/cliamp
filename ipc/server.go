@@ -190,6 +190,21 @@ func (s *Server) dispatch(req Request) Response {
 		s.disp.Send(QueueMsg{Path: req.Path})
 		return Response{OK: true}
 
+	case "theme":
+		if req.Name == "" {
+			return Response{OK: false, Error: "theme requires a name"}
+		}
+		reply := make(chan Response, 1)
+		s.disp.Send(ThemeMsg{Name: req.Name, Reply: reply})
+		select {
+		case resp := <-reply:
+			return resp
+		case <-time.After(3 * time.Second):
+			return Response{OK: false, Error: "theme timeout"}
+		case <-s.done:
+			return Response{OK: false, Error: "server shutting down"}
+		}
+
 	case "status":
 		return s.handleStatus()
 

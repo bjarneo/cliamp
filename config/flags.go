@@ -114,7 +114,7 @@ func ParseFlags(rawArgs []string) (action string, ov Overrides, positional []str
 		"play": true, "pause": true, "toggle": true,
 		"next": true, "prev": true, "stop": true,
 		"status": true, "volume": true, "seek": true,
-		"load": true, "queue": true,
+		"load": true, "queue": true, "theme": true,
 	}
 	if len(args) > 0 && ipcCmds[args[0]] {
 		return args[0], ov, args[1:], nil
