@@ -719,6 +719,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.playlist.Replace(tracks)
+		m.loadedPlaylist = msg.Playlist
 		cmd := m.playCurrentTrack()
 		m.notifyAll()
 		if msg.Reply != nil {

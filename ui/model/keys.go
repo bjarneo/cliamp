@@ -30,6 +30,7 @@ func (m *Model) quit() tea.Cmd {
 		if secs := int(m.player.Position().Seconds()); secs > 0 {
 			m.exitResume.path = track.Path
 			m.exitResume.secs = secs
+			m.exitResume.playlist = m.loadedPlaylist
 		}
 	}
 
@@ -330,6 +331,17 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "shift+right":
 		m.doSeek(m.seekStepLarge)
+
+	case "*":
+		if m.focus == focusPlaylist && m.plCursor >= 0 && m.plCursor < m.playlist.Len() {
+			m.playlist.ToggleFavorite(m.plCursor)
+			t := m.playlist.Tracks()[m.plCursor]
+			if t.Favorite {
+				m.status.Showf(statusTTLDefault, "★ %s", t.DisplayName())
+			} else {
+				m.status.Showf(statusTTLDefault, "☆ %s", t.DisplayName())
+			}
+		}
 
 	case "shift+up":
 		if m.focus == focusPlaylist && m.plCursor > 0 {
@@ -1080,6 +1092,7 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyMsg) tea.Cmd {
 			m.player.ClearPreload()
 			m.resetYTDLBatch()
 			m.playlist.Replace(m.plManager.tracks)
+			m.loadedPlaylist = m.plManager.selPlaylist
 			m.plCursor = 0
 			m.playlist.SetIndex(0)
 			m.adjustScroll()

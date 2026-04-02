@@ -102,6 +102,7 @@ func openSSHSource(path string) (sourceResult, error) {
 	cmd := exec.Command("ssh",
 		"-o", "BatchMode=yes",
 		"-o", "StrictHostKeyChecking=yes",
+		"-o", "ConnectTimeout=5",
 		host, catCmd,
 	)
 	stdout, err := cmd.StdoutPipe()

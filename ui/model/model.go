@@ -181,11 +181,14 @@ type Model struct {
 		secs int
 	}
 
+	loadedPlaylist string // name of the currently loaded local playlist (for resume)
+
 	// exitResume holds the playback state captured just before player.Close()
 	// so ResumeState() can read it after the player is shut down.
 	exitResume struct {
-		path string
-		secs int
+		path     string
+		secs     int
+		playlist string
 	}
 
 	// preloading is true while a preloadStreamCmd goroutine is in-flight.

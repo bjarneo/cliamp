@@ -42,6 +42,7 @@ var keymapEntries = []keymapEntry{
 	{"Y", "Open YouTube provider"},
 	{"J", "Open Jellyfin provider"},
 	{"Ctrl+J", "Jump to time"},
+	{"*", "Toggle favorite ★"},
 	{"p", "Playlist manager"},
 	{"i", "Track info / metadata"},
 	{"Ctrl+S", "Save/download track to ~/Music"},

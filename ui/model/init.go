@@ -131,10 +131,16 @@ func (m *Model) SetResume(path string, secs int) {
 	m.resume.secs = secs
 }
 
-// ResumeState returns the track path and playback position captured at exit.
+// ResumePlaylist loads a playlist into the model for session resume.
+func (m *Model) ResumePlaylist(name string, tracks []playlist.Track) {
+	m.playlist.Replace(tracks)
+	m.loadedPlaylist = name
+}
+
+// ResumeState returns the track path, playback position, and playlist name captured at exit.
 // Called after prog.Run() returns (player already closed).
-func (m Model) ResumeState() (path string, secs int) {
-	return m.exitResume.path, m.exitResume.secs
+func (m Model) ResumeState() (path string, secs int, playlist string) {
+	return m.exitResume.path, m.exitResume.secs, m.exitResume.playlist
 }
 
 // ThemeName returns the current theme name.

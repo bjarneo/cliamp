@@ -45,13 +45,29 @@ Providers implement `playlist.Provider` (Name, Playlists, Tracks). Extended inte
 `player/decode.go:openSourceAt()` opens audio from three source types: local files (`os.Open`), HTTP URLs, and SSH paths (`ssh host cat /path`). Returns `io.ReadCloser` for the decoder.
 
 ## Fork Additions (tdimino/cliamp)
-- `cmd/playlist.go` — `cliamp playlist {list,create,add,show,remove,delete}` with `--ssh HOST` and `--json`
+- `cmd/playlist.go` — `cliamp playlist {list,create,add,show,remove,delete,favorite}` with `--ssh HOST` and `--json`
 - `ipc/` — JSON-over-Unix-socket remote control (`cliamp play/pause/next/status/load/...`)
-- `player/decode.go` — SSH streaming via `ssh://host/path` URL scheme
-- `config/flags.go` — subcommand routing for playlist + IPC commands
+- `player/decode.go` — SSH streaming via `ssh://host/path` URL scheme, shell-quoted remote paths, `ConnectTimeout=5`
+- `ui/model/view.go` — `↗` glyph for SSH tracks, `★` for favorites, album group separators, `[67/123]` position counter
+- `ui/model/update.go` — IPC message handlers, SSH duration metadata fallback
+- `playlist/playlist.go` — `ToggleFavorite()`, `FavoriteCount()` methods
+- `external/local/provider.go` — `duration_secs` + `favorite` TOML read/write, `SetFavorite()` method
+
+## TOML Track Fields
+```toml
+[[track]]
+path = "ssh://host/path/to/file.mp3"   # required (local, HTTP, or ssh://)
+title = "Track Name"                    # required
+artist = "Artist"                       # optional
+album = "Album"                         # optional (triggers album separators in TUI)
+duration_secs = 233                     # optional (fallback when player can't probe)
+favorite = true                         # optional (★ in TUI, toggle with * key)
+```
 
 ## Conventions
 - Zero new Go dependencies for fork features — stdlib only (net, encoding/json, os/exec)
 - Errors to stderr, JSON to stdout. `--json` flag for machine-readable output
 - Follow existing patterns: subcommand dispatch mirrors `plugins`, IPC mirrors MPRIS
 - Socket at `~/.config/cliamp/cliamp.sock` with PID file for stale detection
+- SSH commands use `BatchMode=yes`, `StrictHostKeyChecking=yes`, `ConnectTimeout=5` — never hang
+- Compile-time interface checks: `var _ Dispatcher = DispatcherFunc(nil)`

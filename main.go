@@ -279,9 +279,14 @@ func run(overrides config.Overrides, positional []string) error {
 		m.SetCompact(true)
 	}
 
-	// PositionSec == 0 is indistinguishable from "never played"; skip resume.
+	// Resume previous session: reload playlist and seek to last position.
 	if rs := resume.Load(); rs.Path != "" && rs.PositionSec > 0 {
 		m.SetResume(rs.Path, rs.PositionSec)
+		if rs.Playlist != "" && localProv != nil {
+			if tracks, err := localProv.Tracks(rs.Playlist); err == nil && len(tracks) > 0 {
+				m.ResumePlaylist(rs.Playlist, tracks)
+			}
+		}
 	}
 
 	prog := tea.NewProgram(m, tea.WithAltScreen())
@@ -333,8 +338,8 @@ func run(overrides config.Overrides, positional []string) error {
 		}
 		_ = config.Save("theme", fmt.Sprintf("%q", themeName)) // best-effort — non-critical persistence
 
-		if path, secs := fm.ResumeState(); path != "" && secs > 0 {
-			resume.Save(path, secs)
+		if path, secs, pl := fm.ResumeState(); path != "" && secs > 0 {
+			resume.Save(path, secs, pl)
 		}
 	}
 
@@ -591,6 +596,36 @@ func main() {
 			os.Exit(1)
 		}
 		if err := cmd.PlaylistRemove(positional[0], idx); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	case "playlist-enrich":
+		if len(positional) < 1 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp playlist enrich \"Name\"")
+			os.Exit(1)
+		}
+		if err := cmd.PlaylistEnrich(positional[0]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	case "playlist-favorite":
+		if len(positional) < 1 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp playlist favorite \"Name\" --index N")
+			os.Exit(1)
+		}
+		idx := -1
+		for i, arg := range positional[1:] {
+			if arg == "--index" && i+2 < len(positional) {
+				fmt.Sscanf(positional[i+2], "%d", &idx)
+			}
+		}
+		if idx < 0 {
+			fmt.Fprintln(os.Stderr, "usage: cliamp playlist favorite \"Name\" --index N")
+			os.Exit(1)
+		}
+		if err := cmd.PlaylistFavorite(positional[0], idx); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

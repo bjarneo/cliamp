@@ -270,6 +270,119 @@ func PlaylistDelete(name string) error {
 	return nil
 }
 
+// PlaylistFavorite toggles the favorite flag on a track by index.
+func PlaylistFavorite(name string, index int) error {
+	prov := local.New()
+	if prov == nil {
+		return fmt.Errorf("failed to initialize local playlist provider")
+	}
+
+	if err := prov.SetFavorite(name, index-1); err != nil { // 1-based to 0-based
+		return fmt.Errorf("toggling favorite: %w", err)
+	}
+
+	// Re-read to show the result.
+	tracks, err := prov.Tracks(name)
+	if err != nil {
+		return err
+	}
+	t := tracks[index-1]
+	if t.Favorite {
+		fmt.Printf("★ %s\n", t.DisplayName())
+	} else {
+		fmt.Printf("☆ %s\n", t.DisplayName())
+	}
+	return nil
+}
+
+// PlaylistEnrich probes duration and derives album metadata for SSH tracks in a playlist.
+// Uses afinfo (macOS) on the remote host to probe duration, and derives album from
+// the parent directory name.
+func PlaylistEnrich(name string) error {
+	prov := local.New()
+	if prov == nil {
+		return fmt.Errorf("failed to initialize local playlist provider")
+	}
+
+	tracks, err := prov.Tracks(name)
+	if err != nil {
+		return fmt.Errorf("loading playlist %q: %w", name, err)
+	}
+
+	updated := 0
+	for i, t := range tracks {
+		if !strings.HasPrefix(t.Path, "ssh://") {
+			continue
+		}
+
+		// Parse ssh://host/path
+		rest := strings.TrimPrefix(t.Path, "ssh://")
+		slashIdx := strings.IndexByte(rest, '/')
+		if slashIdx < 0 {
+			continue
+		}
+		host := rest[:slashIdx]
+		remotePath := rest[slashIdx:]
+
+		changed := false
+
+		// Probe duration if missing.
+		if t.DurationSecs == 0 {
+			dur := probeRemoteDuration(host, remotePath)
+			if dur > 0 {
+				tracks[i].DurationSecs = dur
+				changed = true
+				fmt.Fprintf(os.Stderr, "  %s: %ds\n", t.DisplayName(), dur)
+			}
+		}
+
+		// Derive album from parent directory if missing.
+		if t.Album == "" {
+			dir := filepath.Base(filepath.Dir(remotePath))
+			if dir != "" && dir != "." {
+				tracks[i].Album = dir
+				changed = true
+			}
+		}
+
+		if changed {
+			updated++
+		}
+	}
+
+	if updated == 0 {
+		fmt.Println("All tracks already enriched.")
+		return nil
+	}
+
+	if err := prov.SavePlaylist(name, tracks); err != nil {
+		return fmt.Errorf("saving playlist %q: %w", name, err)
+	}
+
+	fmt.Printf("Enriched %d tracks in %q.\n", updated, name)
+	return nil
+}
+
+// probeRemoteDuration uses afinfo on the remote host to get track duration in seconds.
+func probeRemoteDuration(host, remotePath string) int {
+	cmd := exec.Command("ssh",
+		"-o", "BatchMode=yes",
+		"-o", "ConnectTimeout=5",
+		host, fmt.Sprintf("afinfo %s 2>/dev/null | grep 'estimated duration' | awk '{print int($3)}'", shellQuote(remotePath)),
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+	s := strings.TrimSpace(string(out))
+	if s == "" {
+		return 0
+	}
+	var dur int
+	fmt.Sscanf(s, "%d", &dur)
+	return dur
+}
+
 // walkDir recursively finds audio files in a directory, returning sorted paths.
 func walkDir(root string) ([]string, error) {
 	var files []string
@@ -303,7 +416,7 @@ func sshFindAudio(host string, paths []string) ([]string, error) {
 		findCmd := fmt.Sprintf("find %s -type f \\( %s \\) | sort",
 			shellQuote(p), strings.Join(nameArgs, " "))
 
-		cmd := exec.Command("ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", host, findCmd)
+		cmd := exec.Command("ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=5", host, findCmd)
 		out, err := cmd.Output()
 		if err != nil {
 			return nil, fmt.Errorf("ssh find on %s:%s: %w", host, p, err)
