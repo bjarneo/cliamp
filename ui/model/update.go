@@ -203,6 +203,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.plCursor = m.playlist.Index()
 			m.adjustScroll()
 			m.titleOff = 0
+			m.transitionBurst = 4
 			// The preload that just fired is consumed — clear the in-flight flag
 			// so the next track can be preloaded.
 			m.preloading = false
@@ -233,6 +234,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// This clears the gapless streamer so the finished track cannot
 			// replay while waiting for a yt-dlp pipe chain to spin up.
 			m.player.Stop()
+			m.transitionBurst = 4
 			cmds = append(cmds, m.nextTrack())
 			m.notifyAll()
 		}
@@ -241,6 +243,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.titleOff++
 				m.titleLastScroll = now
 			}
+		}
+		if m.transitionBurst > 0 {
+			m.transitionBurst--
 		}
 		// Retry deferred stream preload: preloadNext() returns nil (defers) when
 		// the current stream has >streamPreloadLeadTime remaining. Poll every tick
@@ -748,6 +753,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			msg.Reply <- ipc.Response{OK: false, Error: fmt.Sprintf("theme %q not found", msg.Name)}
 		}
 		return m, nil
+	case ipc.VisMsg:
+		if m.vis == nil {
+			if msg.Reply != nil {
+				msg.Reply <- ipc.Response{OK: false, Error: "visualizer not available"}
+			}
+			return m, nil
+		}
+		var resp ipc.Response
+		if strings.EqualFold(msg.Name, "next") {
+			m.vis.CycleMode()
+			m.vis.RequestRefresh()
+			resp = ipc.Response{OK: true, Visualizer: m.vis.ModeName()}
+		} else if m.SetVisualizer(msg.Name) {
+			resp = ipc.Response{OK: true, Visualizer: m.vis.ModeName()}
+		} else {
+			resp = ipc.Response{OK: false, Error: fmt.Sprintf("visualizer %q not found", msg.Name)}
+		}
+		if msg.Reply != nil {
+			msg.Reply <- resp
+		}
+		return m, nil
 	case ipc.StatusRequestMsg:
 		resp := ipc.Response{OK: true}
 		switch {
@@ -770,6 +796,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		resp.Volume = m.player.Volume()
 		resp.Index = m.playlist.Index()
 		resp.Total = m.playlist.Len()
+		resp.Visualizer = m.vis.ModeName()
 		msg.Reply <- resp
 		return m, nil
 	}

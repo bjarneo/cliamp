@@ -16,16 +16,17 @@ type Request struct {
 
 // Response is the JSON response sent by the server.
 type Response struct {
-	OK       bool       `json:"ok"`
-	Error    string     `json:"error,omitempty"`
-	State    string     `json:"state,omitempty"`
-	Track    *TrackInfo `json:"track,omitempty"`
-	Position float64    `json:"position,omitempty"`
-	Duration float64    `json:"duration,omitempty"`
-	Volume   float64    `json:"volume,omitempty"`
-	Playlist string     `json:"playlist,omitempty"`
-	Index    int        `json:"index,omitempty"`
-	Total    int        `json:"total,omitempty"`
+	OK         bool       `json:"ok"`
+	Error      string     `json:"error,omitempty"`
+	State      string     `json:"state,omitempty"`
+	Track      *TrackInfo `json:"track,omitempty"`
+	Position   float64    `json:"position,omitempty"`
+	Duration   float64    `json:"duration,omitempty"`
+	Volume     float64    `json:"volume,omitempty"`
+	Playlist   string     `json:"playlist,omitempty"`
+	Index      int        `json:"index,omitempty"`
+	Total      int        `json:"total,omitempty"`
+	Visualizer string     `json:"visualizer,omitempty"`
 }
 
 // TrackInfo is the track metadata in a status response.
@@ -80,6 +81,14 @@ type QueueMsg struct{ Path string }
 // ThemeMsg requests changing the TUI theme by name.
 // Reply receives confirmation or error if theme not found.
 type ThemeMsg struct {
+	Name  string
+	Reply chan Response
+}
+
+// VisMsg requests changing the active visualizer by name.
+// If Name is "next", the visualizer cycles to the next mode.
+// Reply receives confirmation or error if mode not found.
+type VisMsg struct {
 	Name  string
 	Reply chan Response
 }

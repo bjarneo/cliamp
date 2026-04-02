@@ -59,6 +59,8 @@ const (
 	VisHeartbeat                  // ECG pulse monitor trace
 	VisButterfly                  // mirrored Rorschach spectrum
 	VisLightning                  // electric bolts from treble energy
+	VisEsper                      // Blade Runner Esper grid scan with phosphor persistence
+	VisVoightKampff               // Blade Runner Voight-Kampff iris rings
 	VisNone                       // hidden — no visualizer
 	VisCount                      // sentinel for cycling
 )
@@ -378,8 +380,10 @@ var visModes = [VisCount]visEntry{
 	VisScope:       {"Scope", newRenderOnlyDriver(spectrumAnalysisSpec(0), func(v *Visualizer, _ []float64) string { return v.renderScope() })},
 	VisHeartbeat:   {"Heartbeat", newRenderOnlyDriver(spectrumAnalysisSpec(0), func(v *Visualizer, _ []float64) string { return v.renderHeartbeat() })},
 	VisButterfly:   {"Butterfly", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderButterfly)},
-	VisLightning:   {"Lightning", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderLightning)},
-	VisNone:        {"None", newNoOpDriver},
+	VisLightning:    {"Lightning", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderLightning)},
+	VisEsper:        {"Esper", newEsperDriver},
+	VisVoightKampff: {"VoightKampff", newVKDriver},
+	VisNone:         {"None", newNoOpDriver},
 }
 
 var visNameMap map[string]VisMode
@@ -410,6 +414,21 @@ func StringToVisMode(name string) VisMode {
 		return mode
 	}
 	return VisBars
+}
+
+// StringToVisModeExact converts a name to VisMode, returning false if not found.
+func StringToVisModeExact(name string) (VisMode, bool) {
+	mode, ok := visNameMap[strings.ToLower(name)]
+	return mode, ok
+}
+
+// VisModeNames returns the display names of all built-in visualizer modes.
+func VisModeNames() []string {
+	names := make([]string, VisCount)
+	for i := range VisCount {
+		names[i] = visModes[i].name
+	}
+	return names
 }
 
 func buildSpectrumEdges(count int) []float64 {
@@ -775,6 +794,11 @@ func specStyle(rowBottom float64) lipgloss.Style {
 	default:
 		return specLowStyle
 	}
+}
+
+// ScatterHashExported is the exported version of scatterHash for use by the model package.
+func ScatterHashExported(band, row, col int, frame uint64) float64 {
+	return scatterHash(band, row, col, frame)
 }
 
 // scatterHash returns a pseudo-random value in [0, 1) for a given dot position

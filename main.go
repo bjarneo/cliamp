@@ -748,6 +748,32 @@ func main() {
 		ipcSend(ipc.Request{Cmd: "theme", Name: positional[0]})
 		fmt.Printf("Theme: %s\n", positional[0])
 		return
+	case "vis":
+		if len(positional) < 1 {
+			fmt.Println("Usage: cliamp vis <name|next|list>")
+			return
+		}
+		if strings.EqualFold(positional[0], "list") {
+			// List modes. Query status for active marker.
+			var active string
+			sockPath := ipc.DefaultSocketPath()
+			if resp, err := ipc.Send(sockPath, ipc.Request{Cmd: "status"}); err == nil {
+				active = resp.Visualizer
+			} else {
+				fmt.Fprintln(os.Stderr, "(cliamp not running — active marker unavailable)")
+			}
+			for _, name := range ui.VisModeNames() {
+				marker := "  "
+				if strings.EqualFold(name, active) {
+					marker = "* "
+				}
+				fmt.Printf("%s%s\n", marker, name)
+			}
+			return
+		}
+		resp := ipcSend(ipc.Request{Cmd: "vis", Name: positional[0]})
+		fmt.Printf("Visualizer: %s\n", resp.Visualizer)
+		return
 	}
 
 	if err := run(overrides, positional); err != nil {

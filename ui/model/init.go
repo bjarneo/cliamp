@@ -107,12 +107,16 @@ func (m *Model) SetTheme(name string) bool {
 }
 
 // SetVisualizer sets the visualizer mode by name (case-insensitive).
-// Returns true if a valid mode name was recognized.
+// Returns true if a valid mode name was recognized. Does not modify state
+// if the name is not found, matching the SetTheme guard pattern.
 func (m *Model) SetVisualizer(name string) bool {
-	mode := ui.StringToVisMode(name)
+	mode, ok := ui.StringToVisModeExact(name)
+	if !ok {
+		return false
+	}
 	m.vis.Mode = mode
 	m.vis.RequestRefresh()
-	return name == "" || strings.EqualFold(name, m.vis.ModeName())
+	return true
 }
 
 // VisualizerName returns the current visualizer mode's display name.

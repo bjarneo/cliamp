@@ -205,6 +205,21 @@ func (s *Server) dispatch(req Request) Response {
 			return Response{OK: false, Error: "server shutting down"}
 		}
 
+	case "vis":
+		if req.Name == "" {
+			return Response{OK: false, Error: "vis requires a mode name"}
+		}
+		reply := make(chan Response, 1)
+		s.disp.Send(VisMsg{Name: req.Name, Reply: reply})
+		select {
+		case resp := <-reply:
+			return resp
+		case <-time.After(3 * time.Second):
+			return Response{OK: false, Error: "vis timeout"}
+		case <-s.done:
+			return Response{OK: false, Error: "server shutting down"}
+		}
+
 	case "status":
 		return s.handleStatus()
 

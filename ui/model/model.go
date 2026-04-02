@@ -197,6 +197,10 @@ type Model struct {
 	// Live stream title from ICY metadata (e.g., "Artist - Song")
 	streamTitle string
 
+	// transitionBurst counts down frames of static noise overlay on track change
+	// (neon-blade-runner theme only). Set to 2 on gapless advance or drain.
+	transitionBurst int
+
 	// MPRIS D-Bus service (nil on non-Linux or if D-Bus unavailable)
 	mpris *mpris.Service
 
