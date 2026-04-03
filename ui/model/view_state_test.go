@@ -2,10 +2,12 @@ package model
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
 	"charm.land/lipgloss/v2"
+
 	"cliamp/playlist"
 	"cliamp/ui"
 )
@@ -183,5 +185,60 @@ func TestFullVisualizerViewFitsTerminalWidth(t *testing.T) {
 
 	if got := lipgloss.Width(m.View().Content); got > m.width {
 		t.Fatalf("View() width = %d, want <= %d in full visualizer mode", got, m.width)
+	}
+}
+
+var ansi = regexp.MustCompile(`\x1b\[[0-9;]*[mK]`)
+
+func stripAnsi(str string) string {
+	return ansi.ReplaceAllString(str, "")
+}
+
+func TestRenderPlaylistAddsPaddingToTrackNumber(t *testing.T) {
+	if sharedPlayer == nil {
+		t.Skip("audio hardware unavailable")
+	}
+	withFrameWidth(t, 80)
+
+	sharedPlayer.Stop()
+
+	pl := playlist.New()
+	for i := 0; i < 120; i++ {
+		pl.Add(playlist.Track{
+			Path:  fmt.Sprintf("/tmp/track-%d.mp3", i),
+			Title: fmt.Sprintf("Track %d", i+1),
+		})
+	}
+
+	m := Model{
+		player:    sharedPlayer,
+		playlist:  pl,
+		vis:       ui.NewVisualizer(float64(sharedPlayer.SampleRate())),
+		width:     80,
+		plVisible: 120,
+	}
+	m.vis.Mode = ui.VisNone
+	m.height = m.mainFrameFixedLines(false) + 120
+
+	out := m.renderPlaylist()
+	lines := strings.Split(out, "\n")
+
+	if len(lines) < 120 {
+		t.Fatalf("renderPlaylist() returned %d lines, want 120", len(lines))
+	}
+
+	line9 := stripAnsi(lines[8])
+	line99 := stripAnsi(lines[98])
+	line119 := stripAnsi(lines[118])
+
+	ninthLineTrackIndex := strings.Index(line9, "Track")
+	ninetyNinthLineTrackIndex := strings.Index(line99, "Track")
+	oneHundredNineteenthLineTrackIndex := strings.Index(line119, "Track")
+
+	if ninthLineTrackIndex != ninetyNinthLineTrackIndex || ninthLineTrackIndex != oneHundredNineteenthLineTrackIndex {
+		t.Errorf(`Track name alignment is off for 3-digit numbers.
+Line 9: %q (index %d)
+Line 99: %q (index %d)
+Line 119: %q (index %d)`, line9, ninthLineTrackIndex, line99, ninetyNinthLineTrackIndex, line119, oneHundredNineteenthLineTrackIndex)
 	}
 }

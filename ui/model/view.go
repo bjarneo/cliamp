@@ -605,6 +605,7 @@ func (m Model) renderPlaylist() string {
 	// The loop below counts every appended line against this budget
 	// so the playlist never overflows its area.
 	lines := make([]string, 0, budget) // tracks
+	numWidth := len(fmt.Sprintf("%d", len(tracks)))
 	for i := scroll; i < len(tracks) && len(lines) < budget; i++ {
 		prefix := "  "
 		style := playlistItemStyle
@@ -631,19 +632,22 @@ func (m Model) renderPlaylist() string {
 			queueSuffix = fmt.Sprintf(" [Q%d]", qp)
 		}
 		queueLen := utf8.RuneCountInString(queueSuffix)
+
+		linePrefixWidth := utf8.RuneCountInString(prefix) + numWidth + 2 // 2 for ". "
+
 		// Truncate the track name only against queue/fav overhead, never album.
-		name = truncate(name, ui.PanelWidth-6-queueLen-favBudget)
+		name = truncate(name, ui.PanelWidth-linePrefixWidth-queueLen-favBudget)
 		// Truncate the album to fit whatever space remains after the track name.
 		albumSuffix := ""
 		if album := tracks[i].Album; album != "" {
 			nameLen := utf8.RuneCountInString(name)
-			remaining := ui.PanelWidth - 6 - favBudget - nameLen - queueLen - 3 // 3 = " · "
+			remaining := ui.PanelWidth - linePrefixWidth - favBudget - nameLen - queueLen - 3 // 3 = " · "
 			if remaining >= 4 {
 				albumSuffix = " · " + truncate(album, remaining)
 			}
 		}
 
-		numStr := fmt.Sprintf("%s%d. ", prefix, i+1)
+		numStr := fmt.Sprintf("%s%*d. ", prefix, numWidth, i+1)
 		line := style.Render(numStr)
 		if isFav {
 			line += activeToggle.Render("★ ")
