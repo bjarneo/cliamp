@@ -150,8 +150,9 @@ func (m *Model) providerMoveDown() {
 }
 
 func (m *Model) providerPageUp() {
+	step := m.providerScrollStep()
 	if m.provCursor > 0 {
-		m.provCursor -= min(m.provCursor, m.providerScrollStep())
+		m.provCursor -= min(m.provCursor, step)
 	}
 	// Top-anchor behavior: place cursor at top of viewport when paging up.
 	m.provScroll = m.provCursor
@@ -159,11 +160,12 @@ func (m *Model) providerPageUp() {
 }
 
 func (m *Model) providerPageDown() {
+	step := m.providerScrollStep()
 	if m.provCursor < len(m.providerLists)-1 {
-		m.provCursor = min(len(m.providerLists)-1, m.provCursor+m.providerScrollStep())
+		m.provCursor = min(len(m.providerLists)-1, m.provCursor+step)
 	}
 	// Bottom-anchor behavior: bias viewport so cursor lands near bottom when paging down.
-	m.provScroll = max(0, m.provCursor-m.providerScrollStep()+1)
+	m.provScroll = max(0, m.provCursor-step+1)
 	m.providerMaybeAdjustScroll()
 }
 
@@ -281,7 +283,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.quit()
 		case "up", "k":
 			m.providerMoveUp()
-		case " ":
+		case "space":
 			return m.togglePlayPause()
 		case "down", "j":
 			m.providerMoveDown()
@@ -697,11 +699,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "v":
 		m.vis.CycleMode()
-		if m.heightExpanded {
-			m.plVisible = m.expandedPlVisible()
-		} else {
-			m.plVisible = m.collapsedPlVisible()
-		}
+		m.applyHeightMode()
 		m.adjustScroll()
 		if err := m.configSaver.Save("visualizer", fmt.Sprintf("%q", m.vis.ModeName())); err != nil {
 			m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
@@ -959,15 +957,8 @@ func (m *Model) updateProvSearch() {
 
 // toggleExpandPlaylist toggles the playlist panel between default and expanded height.
 func (m *Model) toggleExpandPlaylist() {
-	collapsed := m.collapsedPlVisible()
-	expanded := m.expandedPlVisible()
-
 	m.heightExpanded = !m.heightExpanded
-	if m.heightExpanded {
-		m.plVisible = expanded
-	} else {
-		m.plVisible = collapsed
-	}
+	m.applyHeightMode()
 	m.adjustScroll()
 }
 

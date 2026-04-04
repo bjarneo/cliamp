@@ -232,16 +232,16 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "pgup", "ctrl+u":
 		if m.fileBrowser.cursor > 0 {
-			jump := m.fbVisible()
-			m.fileBrowser.cursor -= min(m.fileBrowser.cursor, jump)
-			m.fbMaybeAdjustScroll(m.fbVisible())
+			visible := m.fbVisible()
+			m.fileBrowser.cursor -= min(m.fileBrowser.cursor, visible)
+			m.fbMaybeAdjustScroll(visible)
 		}
 
 	case "pgdown", "ctrl+d":
 		if m.fileBrowser.cursor < len(m.fileBrowser.entries)-1 {
-			jump := m.fbVisible()
-			m.fileBrowser.cursor = min(len(m.fileBrowser.entries)-1, m.fileBrowser.cursor+jump)
-			m.fbMaybeAdjustScroll(m.fbVisible())
+			visible := m.fbVisible()
+			m.fileBrowser.cursor = min(len(m.fileBrowser.entries)-1, m.fileBrowser.cursor+visible)
+			m.fbMaybeAdjustScroll(visible)
 		}
 
 	case "enter", "l", "right":

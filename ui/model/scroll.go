@@ -5,27 +5,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"cliamp/playlist"
 	"cliamp/ui"
 )
-
-// renderedLineCount returns how many rendered lines tracks[from..to) would
-// take, including album separator lines between different albums.
-func renderedLineCount(tracks []playlist.Track, from, to int) int {
-	lines := 0
-	prevAlbum := ""
-	if from > 0 {
-		prevAlbum = tracks[from-1].Album
-	}
-	for i := from; i < to && i < len(tracks); i++ {
-		if album := tracks[i].Album; album != "" && album != prevAlbum {
-			lines++ // album separator
-		}
-		prevAlbum = tracks[i].Album
-		lines++ // track line
-	}
-	return lines
-}
 
 // measurePlVisible calculates playlist lines available for a given upper limit.
 func (m *Model) measurePlVisible(limit int) int {
@@ -52,10 +33,13 @@ func (m *Model) expandedPlVisible() int {
 	return m.measurePlVisible(m.height)
 }
 
-// defaultPlVisible returns the collapsed baseline height.
-// Keep this stable so toggle logic can reliably compare/collapse.
-func (m *Model) defaultPlVisible() int {
-	return m.collapsedPlVisible()
+// applyHeightMode sets plVisible based on the current heightExpanded state.
+func (m *Model) applyHeightMode() {
+	if m.heightExpanded {
+		m.plVisible = m.expandedPlVisible()
+	} else {
+		m.plVisible = m.collapsedPlVisible()
+	}
 }
 
 // adjustScroll ensures plCursor is visible in the playlist view.

@@ -531,26 +531,7 @@ func (m Model) renderProviderList() string {
 		}
 
 		if isRadio {
-			rowsFrom := func(start, cursor int) int {
-				if start < 0 || cursor < start || cursor >= len(m.providerLists) {
-					return 0
-				}
-				rows := 0
-				prevPrefix := ""
-				if start > 0 {
-					prevPrefix = sl.IDPrefix(m.providerLists[start-1].ID)
-				}
-				for i := start; i <= cursor; i++ {
-					pfx := sl.IDPrefix(m.providerLists[i].ID)
-					if pfx != prevPrefix {
-						rows++
-					}
-					rows++
-					prevPrefix = pfx
-				}
-				return rows
-			}
-			for scroll < len(m.providerLists)-1 && rowsFrom(scroll, m.provCursor) > visibleBudget {
+			for scroll < len(m.providerLists)-1 && m.providerRowsFromScroll(sl, scroll, m.provCursor) > visibleBudget {
 				scroll++
 			}
 		} else if m.provCursor >= scroll+visibleBudget {

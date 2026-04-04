@@ -64,11 +64,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.vis.Rows = max(ui.DefaultVisRows, (m.height-10)*4/5)
 			ui.PanelWidth = max(0, m.width-2*ui.PaddingH)
 		}
-		if m.heightExpanded {
-			m.plVisible = m.expandedPlVisible()
-		} else {
-			m.plVisible = m.collapsedPlVisible()
-		}
+		m.applyHeightMode()
 		m.adjustScroll()
 		if m.focus == focusProvider {
 			m.providerMaybeAdjustScroll()

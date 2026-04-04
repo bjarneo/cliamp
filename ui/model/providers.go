@@ -9,18 +9,23 @@ import (
 	"cliamp/provider"
 )
 
+// resetProviderNav resets provider navigation and search state to the top.
+func (m *Model) resetProviderNav() {
+	m.provCursor = 0
+	m.provScroll = 0
+	m.provLoading = true
+	m.provSearch.active = false
+	m.provSearch.query = ""
+	m.provSearch.results = nil
+	m.provSearch.cursor = 0
+}
+
 // StartInProvider configures the model to begin in the provider browse view.
 // Call this from main when no CLI tracks or pending URLs were given.
 func (m *Model) StartInProvider() {
 	if m.provider != nil {
 		m.focus = focusProvider
-		m.provCursor = 0
-		m.provScroll = 0
-		m.provLoading = true
-		m.provSearch.active = false
-		m.provSearch.query = ""
-		m.provSearch.results = nil
-		m.provSearch.cursor = 0
+		m.resetProviderNav()
 	}
 }
 
@@ -31,23 +36,10 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	}
 	m.provPillIdx = idx
 	m.provider = m.providers[idx].Provider
-
-	// Reset provider list state so navigation always starts from the top.
 	m.providerLists = nil
-	m.provCursor = 0
-	m.provScroll = 0
-	m.provLoading = true
 	m.provSignIn = false
-
-	// Reset provider search state to avoid stale filtered positions.
-	m.provSearch.active = false
-	m.provSearch.query = ""
-	m.provSearch.results = nil
-	m.provSearch.cursor = 0
-
-	// Reset catalog batching state for lazy-loaded providers.
 	m.catalogBatch = catalogBatchState{}
-
+	m.resetProviderNav()
 	m.focus = focusProvider
 	return fetchPlaylistsCmd(m.provider)
 }
