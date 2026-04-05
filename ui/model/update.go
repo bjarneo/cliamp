@@ -73,7 +73,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fbMaybeAdjustScroll(m.fbVisible())
 		}
 		if m.keymap.visible {
-			m.keymapMaybeAdjustScroll(m.keymapVisibleRows())
+			m.keymapMaybeAdjustScroll(m.keymapVisible())
 		}
 		return m, nil
 

@@ -67,7 +67,7 @@ func (m Model) keymapHelpLine() string {
 		helpKey("Home/End", "Jump ") + helpKey("Type", "Filter ") + helpKey("Esc", "Close")
 }
 
-func (m Model) keymapVisibleRows() int {
+func (m Model) keymapVisible() int {
 	probeSearch := dimStyle.Render("  Type to filter…")
 	if m.keymap.search != "" {
 		probeSearch = playlistSelectedStyle.Render("  / " + m.keymap.search + "_")
@@ -117,7 +117,7 @@ func (m Model) renderKeymapOverlay() string {
 		visible = entries
 	}
 
-	maxVisible := m.keymapVisibleRows()
+	maxVisible := m.keymapVisible()
 	rendered := 0
 
 	if len(visible) == 0 {
