@@ -77,6 +77,26 @@ func TestNextWithQueue(t *testing.T) {
 	}
 }
 
+func TestNextRepeatOneResumesOrderAfterQueuedTrack(t *testing.T) {
+	p := makePlaylist(2, false) // A B
+	p.SetRepeat(RepeatOne)
+	p.Queue(1)
+
+	track, ok := p.Next()
+	if !ok || track.Title != "B" {
+		t.Fatalf("Next() from queue = (%q, %v), want (B, true)", track.Title, ok)
+	}
+
+	track, ok = p.Next()
+	if !ok || track.Title != "A" {
+		t.Fatalf("Next() after queued repeat-one = (%q, %v), want (A, true)", track.Title, ok)
+	}
+
+	if current, idx := p.Current(); current.Title != "A" || idx != 0 {
+		t.Fatalf("Current() = (%q, %d), want (A, 0)", current.Title, idx)
+	}
+}
+
 func TestPrevBasic(t *testing.T) {
 	p := makePlaylist(3, false)
 	p.SetIndex(2) // C
@@ -164,6 +184,21 @@ func TestPeekNextWithQueue(t *testing.T) {
 	track, ok := p.PeekNext()
 	if !ok || track.Title != "C" {
 		t.Fatalf("PeekNext() with queue = (%q, %v), want (C, true)", track.Title, ok)
+	}
+}
+
+func TestPeekNextRepeatOneUsesOrderAfterQueuedTrack(t *testing.T) {
+	p := makePlaylist(2, false) // A B
+	p.SetRepeat(RepeatOne)
+	p.Queue(1)
+
+	if track, ok := p.Next(); !ok || track.Title != "B" {
+		t.Fatalf("Next() from queue = (%q, %v), want (B, true)", track.Title, ok)
+	}
+
+	track, ok := p.PeekNext()
+	if !ok || track.Title != "A" {
+		t.Fatalf("PeekNext() after queued repeat-one = (%q, %v), want (A, true)", track.Title, ok)
 	}
 }
 

@@ -340,6 +340,13 @@ func (p *Playlist) currentTrackIndex() int {
 	if p.queuedIdx >= 0 {
 		return p.queuedIdx
 	}
+	return p.currentOrderTrackIndex()
+}
+
+func (p *Playlist) currentOrderTrackIndex() int {
+	if len(p.order) == 0 {
+		return -1
+	}
 	return p.order[p.pos]
 }
 
@@ -373,7 +380,7 @@ func (p *Playlist) lastPlayableOrderSlot(from int) (orderPos int, trackIdx int, 
 func (p *Playlist) nextPlayableQueued() (trackIdx int, remaining []int, ok bool) {
 	for i, idx := range p.queue {
 		if p.isPlayable(idx) {
-			return idx, slices.Clone(p.queue[i+1:]), true
+			return idx, p.queue[i+1:], true
 		}
 	}
 	return -1, nil, false
@@ -437,6 +444,10 @@ func (p *Playlist) Index() int {
 	return p.currentTrackIndex()
 }
 
+func (p *Playlist) CurrentIsQueued() bool {
+	return p.queuedIdx >= 0
+}
+
 func (p *Playlist) atShuffleWrap() bool {
 	return p.repeat == RepeatAll && p.shuffle && len(p.queue) == 0 && p.queuedIdx == -1 && p.pos+1 >= len(p.order)
 }
@@ -485,8 +496,9 @@ func (p *Playlist) Next() (Track, bool) {
 		p.queue = nil
 	}
 	if p.repeat == RepeatOne {
-		idx := p.currentTrackIndex()
+		idx := p.currentOrderTrackIndex()
 		if p.isPlayable(idx) {
+			p.queuedIdx = -1
 			return p.tracks[idx], true
 		}
 		p.pos = origPos
@@ -494,13 +506,13 @@ func (p *Playlist) Next() (Track, bool) {
 		return Track{}, false
 	}
 
-	p.queuedIdx = -1
 	orderPos, idx, ok := p.advanceFromOrder()
 	if !ok {
 		p.pos = origPos
 		p.queuedIdx = origQueuedIdx
 		return Track{}, false
 	}
+	p.queuedIdx = -1
 	p.pos = orderPos
 	return p.tracks[idx], true
 }
@@ -515,7 +527,7 @@ func (p *Playlist) PeekNext() (Track, bool) {
 		return p.tracks[idx], true
 	}
 	if p.repeat == RepeatOne {
-		idx := p.currentTrackIndex()
+		idx := p.currentOrderTrackIndex()
 		if p.isPlayable(idx) {
 			return p.tracks[idx], true
 		}

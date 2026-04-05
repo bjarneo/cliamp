@@ -45,6 +45,19 @@ func (m *Model) prevTrack() tea.Cmd {
 	return m.playTrack(track)
 }
 
+// playCurrentLogicalTrack starts playback from the playlist's active logical
+// track, preserving queued playback state.
+func (m *Model) playCurrentLogicalTrack() tea.Cmd {
+	track, idx := m.playlist.Current()
+	if idx < 0 {
+		return nil
+	}
+	m.titleOff = 0
+	m.plCursor = idx
+	m.adjustScroll()
+	return m.playTrack(track)
+}
+
 // playCurrentTrack starts playing the selected track, skipping forward in
 // playlist order if the selection is unplayable.
 func (m *Model) playCurrentTrack() tea.Cmd {
@@ -135,6 +148,9 @@ func (m *Model) togglePlayPause() tea.Cmd {
 		return nil
 	}
 	if !m.player.IsPlaying() {
+		if m.playlist.CurrentIsQueued() {
+			return m.playCurrentLogicalTrack()
+		}
 		return m.playCurrentTrack()
 	}
 	if m.player.IsPaused() {
