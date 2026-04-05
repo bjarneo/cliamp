@@ -29,7 +29,7 @@ Press `Ctrl+K` in the player to see all keybindings.
 | `h` `l` | EQ cursor left/right |
 | `Enter` | Play selected track |
 | `/` | Search playlist |
-| `x` | Expand/collapse playlist |
+| `Ctrl+X` | Expand/collapse playlist |
 | `o` | Open file browser |
 | `b` `Esc` | Back to provider |
 
