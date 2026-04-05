@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/madelynnblue/go-dsp/fft"
 )
 
@@ -54,11 +54,10 @@ const (
 	VisFirework                   // exploding firework bursts
 	VisLogo                       // CLIAMP pixel text
 	VisTerrain                    // scrolling side-view mountain range
-	VisGlitch                     // random block corruption driven by energy
 	VisScope                      // Lissajous XY oscilloscope
 	VisHeartbeat                  // ECG pulse monitor trace
 	VisButterfly                  // mirrored Rorschach spectrum
-	VisLightning                  // electric bolts from treble energy
+	VisAscii                      // dense shade-block columns (website style)
 	VisNone                       // hidden — no visualizer
 	VisCount                      // sentinel for cycling
 )
@@ -374,11 +373,10 @@ var visModes = [VisCount]visEntry{
 	VisFirework:    {"Firework", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderFirework)},
 	VisLogo:        {"Logo", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderLogo)},
 	VisTerrain:     {"Terrain", newTerrainDriver},
-	VisGlitch:      {"Glitch", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderGlitch)},
 	VisScope:       {"Scope", newRenderOnlyDriver(spectrumAnalysisSpec(0), func(v *Visualizer, _ []float64) string { return v.renderScope() })},
 	VisHeartbeat:   {"Heartbeat", newRenderOnlyDriver(spectrumAnalysisSpec(0), func(v *Visualizer, _ []float64) string { return v.renderHeartbeat() })},
 	VisButterfly:   {"Butterfly", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderButterfly)},
-	VisLightning:   {"Lightning", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderLightning)},
+	VisAscii:       {"Ascii", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderAscii)},
 	VisNone:        {"None", newNoOpDriver},
 }
 
@@ -410,6 +408,21 @@ func StringToVisMode(name string) VisMode {
 		return mode
 	}
 	return VisBars
+}
+
+// StringToVisModeExact converts a name to VisMode, returning false if not found.
+func StringToVisModeExact(name string) (VisMode, bool) {
+	mode, ok := visNameMap[strings.ToLower(name)]
+	return mode, ok
+}
+
+// VisModeNames returns the display names of all built-in visualizer modes.
+func VisModeNames() []string {
+	names := make([]string, VisCount)
+	for i := range VisCount {
+		names[i] = visModes[i].name
+	}
+	return names
 }
 
 func buildSpectrumEdges(count int) []float64 {

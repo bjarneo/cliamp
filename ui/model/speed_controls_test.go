@@ -1,14 +1,14 @@
 package model
 
 import (
-
+	"cliamp/config"
 	"cliamp/ui"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestHandleSpeedKeyUsesArrowKeysWhenSpeedFocused(t *testing.T) {
@@ -24,11 +24,12 @@ func TestHandleSpeedKeyUsesArrowKeysWhenSpeedFocused(t *testing.T) {
 	})
 
 	m := Model{
-		player: sharedPlayer,
-		focus:  focusSpeed,
+		player:      sharedPlayer,
+		configSaver: config.SaveFunc{},
+		focus:       focusSpeed,
 	}
 
-	if cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRight}); cmd != nil {
+	if cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight}); cmd != nil {
 		t.Fatalf("handleKey(right) cmd = %v, want nil", cmd)
 	}
 	if got := sharedPlayer.Speed(); got != 1.25 {
@@ -38,7 +39,7 @@ func TestHandleSpeedKeyUsesArrowKeysWhenSpeedFocused(t *testing.T) {
 		t.Fatalf("speedSaveAfter after right = %v, want %v", got, speedSaveDebounce)
 	}
 
-	if cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyLeft}); cmd != nil {
+	if cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft}); cmd != nil {
 		t.Fatalf("handleKey(left) cmd = %v, want nil", cmd)
 	}
 	if got := sharedPlayer.Speed(); got != 1.0 {
@@ -64,7 +65,7 @@ func TestTickPendingSpeedSaveUsesElapsedTime(t *testing.T) {
 		sharedPlayer.SetSpeed(origSpeed)
 	})
 
-	m := Model{player: sharedPlayer}
+	m := Model{player: sharedPlayer, configSaver: config.SaveFunc{}}
 	m.changeSpeed(0.5)
 
 	configPath := filepath.Join(home, ".config", "cliamp", "config.toml")
@@ -104,7 +105,7 @@ func TestFlushPendingSpeedSavePersistsImmediately(t *testing.T) {
 		sharedPlayer.SetSpeed(origSpeed)
 	})
 
-	m := Model{player: sharedPlayer}
+	m := Model{player: sharedPlayer, configSaver: config.SaveFunc{}}
 	m.changeSpeed(0.25)
 	m.flushPendingSpeedSave()
 

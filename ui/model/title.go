@@ -4,8 +4,6 @@ import (
 	"strings"
 	"unicode"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"cliamp/playlist"
 )
 
@@ -28,10 +26,6 @@ type terminalTitleValues struct {
 }
 
 var defaultTerminalTitleIntroRunes = []rune(defaultTerminalTitleIntro)
-
-func InitialTerminalTitle() string {
-	return sanitizeTerminalTitle(titleIntroFrame(titleIntroInitialOffset(titleIntroViewportDefault), titleIntroViewportDefault, defaultTerminalTitleIntroRunes))
-}
 
 func initialTerminalTitleState() terminalTitleState {
 	if len(defaultTerminalTitleIntroRunes) == 0 {
@@ -139,15 +133,6 @@ func sanitizeTerminalTitle(title string) string {
 	}
 
 	return b.String()
-}
-
-func (m *Model) terminalTitleCmd() tea.Cmd {
-	title := currentTerminalTitle(m.termTitle, m.width, m.terminalTitleValues())
-	if title == m.termTitle.last {
-		return nil
-	}
-	m.termTitle.last = title
-	return tea.SetWindowTitle(title)
 }
 
 func (m *Model) advanceTerminalTitle() {

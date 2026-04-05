@@ -1,6 +1,6 @@
 # Plex Media Server
 
-cliamp can stream music directly from your Plex Media Server, giving you access to your full Plex music library — including any library served by PlexAmp. Streaming uses the same Plex HTTP API that official Plex clients use; no extra software is required.
+cliamp can stream music directly from your Plex Media Server, giving you access to your full Plex music library, including any library served by PlexAmp. Streaming uses the same Plex HTTP API that official Plex clients use; no extra software is required.
 
 ## Prerequisites
 
@@ -41,7 +41,7 @@ Once configured, **Plex** appears as a provider in the cliamp TUI alongside Radi
 The provider exposes your music library as a flat list of albums, labelled:
 
 ```
-Artist — Album Title (Year)
+Artist - Album Title (Year)
 ```
 
 Select an album to load its tracks, then play as normal.
@@ -66,12 +66,12 @@ cliamp calls the Plex HTTP API to enumerate your music libraries and albums. Whe
 http://<server>:32400/library/parts/<partID>/<timestamp>/file.<ext>?X-Plex-Token=<token>
 ```
 
-These are direct file-serve URLs — Plex serves the original file without transcoding, and cliamp's existing HTTP streaming pipeline handles playback. All formats supported by cliamp (MP3, FLAC, AAC, OGG, OPUS, WAV, etc.) work as long as the original file format is one of them.
+These are direct file-serve URLs. Plex serves the original file without transcoding, and cliamp's existing HTTP streaming pipeline handles playback. All formats supported by cliamp (MP3, FLAC, AAC, OGG, OPUS, WAV, etc.) work as long as the original file format is one of them.
 
 ## Known limitations
 
-- **No scrobbling** — play counts are not reported back to Plex
-- **No playlist write-back** — cliamp cannot create or modify Plex playlists
-- **Token is long-lived** — store it carefully; it grants full access to your Plex account
-- **Album list is flat** — no artist drill-down; search by scrolling or using cliamp's search
-- **No Plex playlists** — only library albums are exposed (Plex user-created playlists are not yet surfaced)
+- **No scrobbling**: play counts are not reported back to Plex
+- **No playlist write-back**: cliamp cannot create or modify Plex playlists
+- **Token is long-lived**: store it carefully; it grants full access to your Plex account
+- **Album list is flat**: no artist drill-down; search by scrolling or using cliamp's search
+- **No Plex playlists**: only library albums are exposed (Plex user-created playlists are not yet surfaced)

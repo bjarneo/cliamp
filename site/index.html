@@ -3,531 +3,491 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CLIAMP — Terminal Music Player</title>
+<title>CLIAMP - Terminal Music Player</title>
 <meta name="description" content="A retro terminal music player inspired by Winamp 2.x. Play local files, YouTube, Spotify, Plex, Jellyfin, Navidrome, SoundCloud, and 30,000+ radio stations with a spectrum visualizer and 10-band EQ.">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="CLIAMP - Terminal Music Player">
+<meta property="og:description" content="A retro terminal music player inspired by Winamp 2.x. Play YouTube, Spotify, Plex, Jellyfin, SoundCloud, and 30,000+ radio stations from your terminal with a spectrum visualizer and 10-band EQ.">
+<meta property="og:image" content="https://cliamp.stream/og-image.png">
+<meta property="og:url" content="https://cliamp.stream">
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="CLIAMP - Terminal Music Player">
+<meta name="twitter:description" content="A retro terminal music player inspired by Winamp 2.x. Play YouTube, Spotify, Plex, Jellyfin, SoundCloud, and 30,000+ radio stations from your terminal with a spectrum visualizer and 10-band EQ.">
+<meta name="twitter:image" content="https://cliamp.stream/og-image.png">
+
 <style>
-  /* ═══ RESET ═══════════════════════════════ */
+  /* ═══ RESET ═══════════════════════════════════ */
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:auto}
 
-  /* ═══ BASE ════════════════════════════════ */
+  /* ═══ BASE ════════════════════════════════════ */
+  :root{
+    --green:#00ff41;
+    --green-dim:rgba(0,255,65,.15);
+    --amber:#ffaa00;
+    --amber-dim:rgba(255,170,0,.12);
+    --cyan:#00ccff;
+    --purple:#c3a6ff;
+    --red:#ff4444;
+    --fg:#b0b0b0;
+    --fg-bright:#d0d0d0;
+    --dim:#555;
+    --dim2:#333;
+    --border:#1c1c1c;
+    --surface:#0d0d0d;
+    --bg:#060608;
+  }
   body{
-    background:#050608;
-    color:#b0b8c8;
+    background:var(--bg);
+    color:var(--fg);
     font-family:"SF Mono","Cascadia Code","Fira Code","JetBrains Mono","IBM Plex Mono","Consolas","Liberation Mono",monospace;
     font-size:14px;
     line-height:1.7;
     overflow-x:hidden;
-    padding:20px 0;
   }
-  ::selection{background:#2a3a5e;color:#73d0ff}
+  ::selection{background:rgba(0,255,65,.2);color:#fff}
 
-  /* ═══ CRT EFFECTS ═════════════════════════ */
-  /* Dot grid + scanlines + vignette */
-  .crt{
-    position:fixed;inset:0;pointer-events:none;z-index:9999;
-    background:
-      repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.035) 2px,rgba(0,0,0,.035) 4px),
-      radial-gradient(ellipse at 50% 50%,transparent 55%,rgba(0,0,0,.55) 100%);
-  }
-  /* Dot grid on body */
-  body::before{
+  /* ═══ SCANLINES (subtle) ══════════════════════ */
+  body::after{
     content:"";position:fixed;inset:0;
-    background-image:radial-gradient(rgba(255,255,255,.025) 1px,transparent 1px);
-    background-size:20px 20px;
-    pointer-events:none;z-index:0;
+    background:repeating-linear-gradient(
+      0deg,
+      transparent,transparent 2px,
+      rgba(0,0,0,.03) 2px,rgba(0,0,0,.03) 4px
+    );
+    pointer-events:none;z-index:9999;
   }
 
-  /* ═══ LAYOUT ══════════════════════════════ */
-  .wrap{max-width:840px;margin:0 auto;padding:0 28px;position:relative;z-index:1}
-  section{padding:60px 0;border-bottom:1px solid #0f1119}
+  /* ═══ LAYOUT ══════════════════════════════════ */
+  .wrap{max-width:860px;margin:0 auto;padding:0 24px;position:relative;z-index:1}
+  section{padding:48px 0}
 
-  /* ═══ TERMINAL WINDOW ═════════════════════ */
-  .terminal-window{
-    max-width:900px;margin:0 auto;
-    border:1px solid #1e2233;
-    background:#08090f;
-    position:relative;z-index:1;
-  }
-  .terminal-titlebar{
-    display:flex;align-items:center;gap:8px;
-    padding:10px 16px;
-    background:#0c0e17;
-    border-bottom:1px solid #1e2233;
-    user-select:none;
-  }
-  .terminal-dot{
-    width:10px;height:10px;border-radius:50%;
-    border:1px solid #2a3050;background:transparent;
-  }
-  .terminal-dot:nth-child(1){border-color:#ff5f56;background:rgba(255,95,86,.15)}
-  .terminal-dot:nth-child(2){border-color:#ffbd2e;background:rgba(255,189,46,.15)}
-  .terminal-dot:nth-child(3){border-color:#27c93f;background:rgba(39,201,63,.15)}
-  .terminal-title{
-    flex:1;text-align:center;
-    color:#5a6a90;font-size:11px;letter-spacing:2px;
-    margin-right:44px;
-  }
+  /* ═══ LINKS ═══════════════════════════════════ */
+  a{color:var(--cyan);text-decoration:none;transition:color .2s}
+  a:hover{color:var(--amber)}
 
-  /* ═══ NAV ══════════════════════════════════ */
-  .nav{
-    position:sticky;top:0;z-index:100;
-    background:rgba(12,14,23,.95);
-    backdrop-filter:blur(12px);
-    -webkit-backdrop-filter:blur(12px);
-    border-bottom:1px solid #1e2233;
-  }
-  .nav-inner{
-    max-width:900px;margin:0 auto;padding:0 28px;
-    display:flex;align-items:center;justify-content:space-between;
-    height:40px;
-  }
-  .nav-brand{
-    color:#5bf870;font-size:12px;font-weight:700;
-    letter-spacing:2px;text-decoration:none;
-    transition:text-shadow .3s;
-  }
-  .nav-brand::before{content:"~/";color:#5a6a90}
-  .nav-brand:hover{text-shadow:0 0 12px rgba(91,248,112,.3);color:#5bf870}
-  .nav-links{display:flex;gap:6px}
-  .nav-links a{
-    color:#5a6a90;font-size:11px;letter-spacing:1px;
-    text-decoration:none;
-    transition:color .25s;
-    padding:4px 8px;
-  }
-  .nav-links a::before{content:"[";color:#3a4060;margin-right:2px}
-  .nav-links a::after{content:"]";color:#3a4060;margin-left:2px}
-  .nav-links a:hover{color:#ffcc66}
-
-  /* ═══ SECTION HEADERS ═════════════════════ */
-  .section-label{
-    font-size:12px;font-weight:400;
-    letter-spacing:1px;
-    margin-bottom:36px;
-    display:flex;align-items:center;gap:0;
-    color:#5a6a90;
-  }
-  .section-label .label-text{
-    color:#5bf870;
+  /* ═══ ASCII DIVIDER ═══════════════════════════ */
+  .ascii-div{
+    color:var(--dim2);font-size:13px;
+    text-align:center;padding:0;
+    user-select:none;overflow:hidden;
     white-space:nowrap;
   }
-  .section-label::before{content:"$ cat ";color:#8a92b0;font-weight:400}
-  .section-label::after{
-    content:"█";color:#5bf870;
-    animation:blink-cursor 1s step-end infinite;
-    margin-left:2px;font-size:12px;
-  }
-  @keyframes blink-cursor{0%,100%{opacity:1}50%{opacity:0}}
 
-  /* ═══ SECTION DIVIDER ═════════════════════ */
-  .divider{
-    text-align:center;color:#2a3050;font-size:13px;
-    letter-spacing:0;padding:0;
-    user-select:none;
+  /* ═══ NAV ══════════════════════════════════════ */
+  .nav{
+    position:sticky;top:0;z-index:100;
+    background:rgba(6,6,8,.95);
+    border-bottom:1px solid var(--border);
+  }
+  .nav-inner{
+    max-width:860px;margin:0 auto;padding:0 24px;
+    display:flex;align-items:center;justify-content:space-between;
+    height:42px;
+  }
+  .nav-brand{
+    color:var(--green);font-size:12px;font-weight:700;
+    letter-spacing:1px;text-decoration:none;
+    transition:text-shadow .3s;
+  }
+  .nav-brand::before{content:"~/";color:var(--dim)}
+  .nav-brand:hover{text-shadow:0 0 10px rgba(0,255,65,.3);color:var(--green)}
+  .nav-links{display:flex;gap:2px}
+  .nav-links a{
+    color:var(--dim);font-size:11px;letter-spacing:1px;
+    text-decoration:none;padding:4px 8px;
+    transition:color .2s;
+  }
+  .nav-links a::before{content:"[";color:var(--dim2);margin-right:1px}
+  .nav-links a::after{content:"]";color:var(--dim2);margin-left:1px}
+  .nav-links a:hover{color:var(--green)}
+  .nav-toggle{
+    display:none;background:none;border:1px solid var(--dim2);
+    color:var(--dim);width:30px;height:30px;cursor:pointer;
+    font-family:inherit;font-size:14px;
+    transition:color .2s,border-color .2s;
+  }
+  .nav-toggle:hover{color:var(--green);border-color:var(--green)}
+
+  /* ═══ SECTION HEADERS ═════════════════════════ */
+  .sh{
+    font-size:12px;color:var(--dim);
+    margin-bottom:28px;
+    display:flex;align-items:center;gap:0;
+    letter-spacing:0.5px;
+  }
+  .sh::before{content:"┌── ";color:var(--dim2);white-space:pre}
+  .sh .sh-name{color:var(--green);white-space:nowrap}
+  .sh::after{
+    content:" ───────────────────────────────────────────────────";
+    color:var(--dim2);
     overflow:hidden;
-  }
-  .divider span{color:#2a3050}
-
-  /* ═══ LINKS ═══════════════════════════════ */
-  a{color:#73d0ff;text-decoration:none;transition:all .25s}
-  a:hover{color:#ffcc66;text-shadow:0 0 8px rgba(255,204,102,.15)}
-
-  /* ═══ HERO ════════════════════════════════ */
-  .hero{
-    text-align:center;
-    padding:100px 0 40px;
-    position:relative;
-  }
-  .hero::before{
-    content:"";position:absolute;
-    top:30%;left:50%;width:800px;height:500px;
-    transform:translate(-50%,-50%);
-    background:radial-gradient(ellipse,rgba(91,248,112,.025) 0%,transparent 65%);
-    pointer-events:none;
+    flex:1;
   }
 
-  .hero-title{
-    font-size:clamp(44px,10vw,72px);
-    color:#5bf870;
-    letter-spacing:0.45em;
-    padding-left:0.45em;
-    font-weight:700;
-    line-height:1;
-    text-shadow:
-      0 0 30px rgba(91,248,112,.3),
-      0 0 80px rgba(91,248,112,.1),
-      0 0 120px rgba(91,248,112,.05);
-    animation:phosphor-pulse 6s ease-in-out infinite;
-  }
-  .hero-cursor{
+  /* ═══ HERO ════════════════════════════════════ */
+  .hero{text-align:center;padding:60px 0 32px}
+  .hero-ascii{
+    color:var(--green);
+    font-size:clamp(6px,1.6vw,14px);
+    line-height:1.15;
+    white-space:pre;
     display:inline-block;
-    width:0.5em;height:0.08em;
-    background:#5bf870;
-    vertical-align:0.15em;
-    animation:blink-cursor 1s step-end infinite;
-    box-shadow:0 0 10px rgba(91,248,112,.4);
+    text-align:left;
+    text-shadow:0 0 20px rgba(0,255,65,.25),0 0 60px rgba(0,255,65,.08);
+    animation:glow-pulse 4s ease-in-out infinite;
+    letter-spacing:0;
+  }
+  @keyframes glow-pulse{
+    0%,100%{text-shadow:0 0 20px rgba(0,255,65,.25),0 0 60px rgba(0,255,65,.08)}
+    50%{text-shadow:0 0 30px rgba(0,255,65,.35),0 0 80px rgba(0,255,65,.12)}
   }
   .hero-sub{
-    color:#5a6a90;font-size:11px;margin-top:14px;
+    color:var(--dim);font-size:11px;margin-top:12px;
     letter-spacing:3px;
   }
-  .hero-sub::before{content:"# ";color:#3a4060}
+  .hero-sub::before{content:"# ";color:var(--dim2)}
   .hero-desc{
-    color:#8a92b0;font-size:13px;margin-top:24px;
-    max-width:460px;margin-left:auto;margin-right:auto;
-    line-height:1.8;
-    text-align:left;
-    border-left:2px solid #1e2233;
+    color:var(--fg);font-size:13px;margin-top:20px;
+    max-width:480px;margin-left:auto;margin-right:auto;
+    line-height:1.8;text-align:left;
+    border-left:1px solid var(--dim2);
     padding-left:16px;
   }
-  .hero-desc em{color:#ffcc66;font-style:normal}
+  .hero-desc em{color:var(--amber);font-style:normal}
 
-  /* ── Spectrum Visualizer ── */
-  .visualizer{
-    display:flex;align-items:flex-end;justify-content:center;
-    gap:2px;height:52px;
-    margin:36px auto 0;
-    filter:drop-shadow(0 0 6px rgba(186,230,126,.1));
+  /* ── ASCII Visualizer ── */
+  .ascii-viz-wrap{
+    margin:28px auto 0;
+    display:flex;justify-content:center;
   }
-  .bar{
-    flex:0 0 5px;border-radius:1px 1px 0 0;
-    background:linear-gradient(to top,#5bf870 0%,#bae67e 30%,#ffcc66 65%,#ff6b4a 100%);
-    animation:eq 1.4s ease-in-out infinite alternate;
-    opacity:.85;
+  #ascii-viz{
+    color:var(--green);
+    font-size:clamp(8px,1.3vw,13px);
+    line-height:1.0;
+    letter-spacing:1px;
+    text-shadow:0 0 8px rgba(0,255,65,.2);
+    user-select:none;
   }
-  .bar:nth-child(even){opacity:.7}
 
   /* ── Radio Player ── */
   .radio-player{
-    margin:28px auto 0;
+    margin:24px auto 0;
     display:inline-flex;align-items:center;gap:10px;
-    background:#0c0e17;
-    border:1px solid #1e2233;
-    border-radius:0;
+    background:var(--surface);
+    border:1px solid var(--border);
     padding:10px 16px;
-    transition:border-color .3s,box-shadow .3s;
-    animation:fade-up .6s ease-out .25s both;
+    transition:border-color .3s;
+    flex-wrap:wrap;justify-content:center;
   }
-  .radio-player:hover{border-color:#2a3050;box-shadow:0 0 16px rgba(0,0,0,.3)}
+  .radio-player:hover{border-color:var(--dim2)}
   .rp-led{
     width:5px;height:5px;border-radius:50%;
-    background:#2a3050;transition:all .4s;flex-shrink:0;
+    background:var(--dim2);transition:all .4s;flex-shrink:0;
   }
-  .radio-player.playing .rp-led{background:#5bf870;box-shadow:0 0 6px rgba(91,248,112,.5)}
-  .radio-player.loading .rp-led{background:#ffcc66;animation:led-blink 1s ease-in-out infinite}
+  .radio-player.playing .rp-led{background:var(--green);box-shadow:0 0 6px rgba(0,255,65,.6)}
+  .radio-player.loading .rp-led{background:var(--amber);animation:led-blink 1s ease-in-out infinite}
   @keyframes led-blink{0%,100%{opacity:1}50%{opacity:.3}}
   .rp-label{
-    color:#7a82a0;font-size:10px;letter-spacing:2px;
-    text-transform:uppercase;transition:color .3s,text-shadow .3s;
+    color:var(--dim);font-size:10px;letter-spacing:2px;
+    text-transform:uppercase;transition:color .3s;
   }
-  .radio-player.playing .rp-label{color:#5bf870;text-shadow:0 0 8px rgba(91,248,112,.15)}
+  .radio-player.playing .rp-label{color:var(--green)}
   .rp-play{
-    width:26px;height:26px;border-radius:0;
-    background:transparent;border:1px solid #2a3050;
+    width:26px;height:26px;
+    background:transparent;border:1px solid var(--dim2);
     cursor:pointer;display:flex;align-items:center;justify-content:center;
-    color:#8a92b0;transition:all .25s;flex-shrink:0;padding:0;
+    color:var(--fg);transition:all .2s;flex-shrink:0;padding:0;
   }
-  .rp-play:hover{border-color:#ffcc66;color:#ffcc66;box-shadow:0 0 10px rgba(255,204,102,.12)}
+  .rp-play:hover{border-color:var(--green);color:var(--green)}
   .rp-play:active{transform:scale(.92)}
-  .radio-player.playing .rp-play{border-color:#5bf870;color:#5bf870;box-shadow:0 0 8px rgba(91,248,112,.1)}
+  .radio-player.playing .rp-play{border-color:var(--green);color:var(--green)}
   .rp-play svg{width:10px;height:10px;fill:currentColor}
   .rp-play .rp-icon-stop{display:none}
   .radio-player.playing .rp-play .rp-icon-play{display:none}
   .radio-player.playing .rp-play .rp-icon-stop{display:block}
-  .rp-sep{width:1px;height:16px;background:#1a1e2e;flex-shrink:0}
+  .rp-sep{width:1px;height:16px;background:var(--border);flex-shrink:0}
   .rp-vol{
     -webkit-appearance:none;appearance:none;
-    width:60px;height:3px;background:#1a1e2e;
-    border-radius:2px;outline:none;cursor:pointer;
+    width:60px;height:2px;background:var(--border);
+    outline:none;cursor:pointer;
   }
   .rp-vol::-webkit-slider-thumb{
-    -webkit-appearance:none;width:8px;height:8px;border-radius:50%;
-    background:#3a4060;border:none;transition:all .2s;
-    margin-top:-2.5px;
+    -webkit-appearance:none;width:8px;height:8px;
+    background:var(--dim);border:none;transition:all .2s;
+    margin-top:-3px;
   }
   .rp-vol::-moz-range-thumb{
-    width:8px;height:8px;border-radius:50%;
-    background:#3a4060;border:none;transition:all .2s;
+    width:8px;height:8px;
+    background:var(--dim);border:none;transition:all .2s;
   }
-  .rp-vol::-webkit-slider-thumb:hover{background:#ffcc66;box-shadow:0 0 6px rgba(255,204,102,.3)}
-  .rp-vol::-moz-range-thumb:hover{background:#ffcc66;box-shadow:0 0 6px rgba(255,204,102,.3)}
-  .rp-vol::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:#1a1e2e}
-  .rp-vol::-moz-range-track{height:3px;border-radius:2px;background:#1a1e2e}
-  .rp-channel{
-    display:flex;gap:0;border:1px solid #1a1e2e;border-radius:0;overflow:hidden;flex-shrink:0;
-  }
+  .rp-vol::-webkit-slider-thumb:hover{background:var(--green)}
+  .rp-vol::-moz-range-thumb:hover{background:var(--green)}
+  .rp-vol::-webkit-slider-runnable-track{height:2px;background:var(--border)}
+  .rp-vol::-moz-range-track{height:2px;background:var(--border)}
+  .rp-channel{display:flex;gap:0;border:1px solid var(--border);overflow:hidden;flex-shrink:0}
   .rp-ch{
-    background:transparent;border:none;color:#5a6280;font-size:9px;letter-spacing:1px;
-    text-transform:uppercase;padding:4px 10px;cursor:pointer;transition:all .25s;
+    background:transparent;border:none;color:var(--dim);font-size:9px;letter-spacing:1px;
+    text-transform:uppercase;padding:4px 10px;cursor:pointer;transition:all .2s;
     font-family:inherit;
   }
-  .rp-ch:hover{color:#8a92b0}
-  .rp-ch.active{background:#1a1e2e;color:#ffcc66}
-  .rp-ch+.rp-ch{border-left:1px solid #1a1e2e}
-  .radio-hint{margin-top:16px;text-align:center}
-  .radio-hint code{color:#5a6280;font-size:10px;transition:color .3s}
-  .radio-hint code:hover{color:#7a82a0}
-  .radio-hint code .p{color:#4a5270;user-select:none}
+  .rp-ch:hover{color:var(--fg)}
+  .rp-ch.active{background:var(--border);color:var(--amber)}
+  .rp-ch+.rp-ch{border-left:1px solid var(--border)}
+  .radio-hint{margin-top:14px;text-align:center}
+  .radio-hint code{color:var(--dim);font-size:10px;transition:color .3s}
+  .radio-hint code:hover{color:var(--fg)}
+  .radio-hint code .p{color:var(--dim2);user-select:none}
 
   /* ── CTA Buttons ── */
   .hero-cta{
-    margin-top:32px;
-    display:flex;gap:14px;
+    margin-top:28px;
+    display:flex;gap:12px;
     justify-content:center;flex-wrap:wrap;
   }
   .btn{
     display:inline-flex;align-items:center;gap:8px;
     font-family:inherit;font-size:12px;letter-spacing:2px;
-    padding:10px 24px;border-radius:0;
+    padding:8px 20px;
     border:1px solid;cursor:pointer;
-    transition:all .25s;text-decoration:none;
+    transition:all .2s;text-decoration:none;
     text-transform:uppercase;
   }
   .btn-primary{
     background:transparent;
-    color:#5bf870;border-color:#5bf870;
+    color:var(--green);border-color:var(--green);
     font-weight:700;
-    box-shadow:0 0 12px rgba(91,248,112,.1);
   }
   .btn-primary:hover{
-    background:#5bf870;
-    color:#08090f;text-shadow:none;
-    box-shadow:0 0 24px rgba(91,248,112,.3);
+    background:var(--green);
+    color:var(--bg);text-shadow:none;
   }
   .btn-ghost{
-    background:transparent;color:#5a6a90;border-color:#2a3050;
+    background:transparent;color:var(--dim);border-color:var(--dim2);
   }
   .btn-ghost:hover{
-    color:#ffcc66;border-color:#ffcc66;
-    box-shadow:0 0 12px rgba(255,204,102,.1);
+    color:var(--amber);border-color:var(--amber);
   }
 
-  /* ═══ DEMO ════════════════════════════════ */
+  /* ═══ DEMO ════════════════════════════════════ */
   .demo-wrap{position:relative}
   .demo-video{
     display:block;width:100%;height:auto;
-    border-radius:0;
-    border:1px solid #1e2233;
-    box-shadow:0 4px 20px rgba(0,0,0,.4);
+    border:1px solid var(--border);
   }
   .sound-toggle{
-    position:absolute;bottom:14px;right:14px;
-    width:36px;height:36px;border-radius:0;
-    background:rgba(8,9,15,.85);
-    backdrop-filter:blur(6px);
-    -webkit-backdrop-filter:blur(6px);
-    border:1px solid #1e2233;
+    position:absolute;bottom:12px;right:12px;
+    width:32px;height:32px;
+    background:rgba(6,6,8,.9);
+    border:1px solid var(--border);
     cursor:pointer;
     display:flex;align-items:center;justify-content:center;
-    color:#8a92b0;
-    transition:all .3s;
+    color:var(--dim);transition:all .2s;
   }
-  .sound-toggle:hover{border-color:#ffcc66;color:#ffcc66;box-shadow:0 0 12px rgba(255,204,102,.12)}
-  .sound-toggle.unmuted{border-color:#5bf870;color:#5bf870;box-shadow:0 0 12px rgba(91,248,112,.1)}
-  .sound-toggle svg{width:16px;height:16px;fill:currentColor}
+  .sound-toggle:hover{border-color:var(--green);color:var(--green)}
+  .sound-toggle.unmuted{border-color:var(--green);color:var(--green)}
+  .sound-toggle svg{width:14px;height:14px;fill:currentColor}
   .sound-toggle .icon-unmuted{display:none}
   .sound-toggle.unmuted .icon-muted{display:none}
   .sound-toggle.unmuted .icon-unmuted{display:block}
 
-  /* ═══ INSTALL ═════════════════════════════ */
-  .install-group{margin-top:24px}
+  /* ═══ INSTALL ═════════════════════════════════ */
+  .install-group{margin-top:20px}
   .install-group:first-of-type{margin-top:0}
   .install-platform{
-    color:#5a6a90;font-size:10px;letter-spacing:1px;
-    margin-bottom:10px;
-    padding-left:2px;
+    color:var(--dim);font-size:10px;letter-spacing:1px;
+    margin-bottom:8px;padding-left:2px;
   }
-  .install-platform::before{content:"# ";color:#3a4060}
+  .install-platform::before{content:"# ";color:var(--dim2)}
   .install-box{
-    background:#0c0e17;
-    border:1px solid #1e2233;
-    border-radius:0;
-    padding:18px 22px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    padding:14px 18px;
     position:relative;overflow:visible;
-    transition:border-color .3s,box-shadow .3s;
+    transition:border-color .2s;
     cursor:pointer;
   }
-  .install-box:hover{
-    border-color:#5bf870;
-    box-shadow:0 0 12px rgba(91,248,112,.06);
-  }
+  .install-box:hover{border-color:var(--green)}
   .install-box code{
-    color:#5bf870;font-size:13px;white-space:nowrap;
-    text-shadow:0 0 8px rgba(91,248,112,.1);
+    color:var(--green);font-size:13px;white-space:nowrap;
+    text-shadow:0 0 6px rgba(0,255,65,.1);
   }
-  .install-box .prompt{color:#5a6a90;user-select:none}
+  .install-box .prompt{color:var(--dim);user-select:none}
   .install-box .copied-msg{
-    position:absolute;top:-26px;left:50%;
+    position:absolute;top:-24px;left:50%;
     transform:translateX(-50%);
-    color:#5bf870;font-size:10px;letter-spacing:1px;
-    text-shadow:0 0 6px rgba(91,248,112,.3);
+    color:var(--green);font-size:10px;letter-spacing:1px;
     opacity:0;transition:opacity .25s;
   }
   .install-box .copied-msg.show{opacity:1}
   .install-note{
-    margin-top:16px;font-size:11px;
-    color:#7a82a0;letter-spacing:0.5px;
+    margin-top:14px;font-size:11px;
+    color:var(--dim);letter-spacing:0.5px;
   }
-  .install-note a{color:#7a82a0}
-  .install-note a:hover{color:#73d0ff}
+  .install-note a{color:var(--dim)}
+  .install-note a:hover{color:var(--cyan)}
 
-  /* ═══ FEATURES ════════════════════════════ */
+  /* ═══ FEATURES ════════════════════════════════ */
   .features-grid{
     display:grid;
     grid-template-columns:repeat(2,1fr);
-    gap:8px;
+    gap:6px;
   }
   .feature{
-    background:#0c0e17;
-    border:1px solid #141828;
-    border-left:2px solid #1e2233;
-    padding:18px 20px;
-    border-radius:0;
-    transition:all .3s;
-    position:relative;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-left:2px solid var(--dim2);
+    padding:16px 18px;
+    transition:border-left-color .2s;
   }
-  .feature:hover{
-    background:#0e1019;
-    border-left-color:#5bf870;
-  }
+  .feature:hover{border-left-color:var(--green)}
   .feature-icon{
-    font-size:14px;color:#3a4060;
-    margin-bottom:8px;
-    transition:color .3s;
+    font-size:13px;color:var(--dim2);
+    margin-bottom:6px;
+    transition:color .2s;
   }
-  .feature:hover .feature-icon{
-    color:#5bf870;
-  }
+  .feature:hover .feature-icon{color:var(--green)}
   .feature-name{
-    color:#b0b8c8;font-size:13px;
-    font-weight:600;margin-bottom:5px;
+    color:var(--fg-bright);font-size:13px;
+    font-weight:600;margin-bottom:4px;
   }
-  .feature-name::before{content:"> ";color:#3a4060;font-weight:400}
-  .feature p{font-size:12px;color:#7a82a0;line-height:1.6}
-  .feature p code{color:#5bf870;font-size:11px}
+  .feature-name::before{content:"> ";color:var(--dim2);font-weight:400}
+  .feature p{font-size:12px;color:var(--dim);line-height:1.6}
+  .feature p code{color:var(--green);font-size:11px}
 
-  /* ═══ THEMES ══════════════════════════════ */
+  /* ═══ THEMES ══════════════════════════════════ */
   .themes-intro{
-    color:#9098b0;font-size:13px;
-    margin-bottom:28px;line-height:1.7;
+    color:var(--fg);font-size:13px;
+    margin-bottom:24px;line-height:1.7;
   }
-  .themes-intro kbd{color:#ffcc66;font-family:inherit;text-shadow:0 0 6px rgba(255,204,102,.15)}
-  .themes-intro code{color:#5bf870;font-size:12px;text-shadow:0 0 6px rgba(91,248,112,.1)}
-  .themes-intro .path{color:#7a82a0}
-
+  .themes-intro kbd{color:var(--amber);font-family:inherit}
+  .themes-intro code{color:var(--green);font-size:12px}
+  .themes-intro .path{color:var(--dim)}
   .themes-grid{
     display:grid;
     grid-template-columns:repeat(3,1fr);
-    gap:8px;
+    gap:6px;
   }
   .theme-card{
-    background:#0c0e17;
-    border:1px solid #141828;
-    border-radius:0;
-    padding:14px 16px;
-    transition:all .3s;
+    background:var(--surface);
+    border:1px solid var(--border);
+    padding:12px 14px;
+    transition:border-color .2s;
     cursor:default;
   }
-  .theme-card:hover{
-    border-color:#2a3050;
-    background:#0e1019;
-  }
+  .theme-card:hover{border-color:var(--dim2)}
   .theme-card-name{
-    color:#9098b0;font-size:11px;font-weight:600;
-    margin-bottom:10px;
+    color:var(--dim);font-size:11px;font-weight:600;
+    margin-bottom:8px;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
     letter-spacing:0.5px;
   }
-  .theme-card:hover .theme-card-name{color:#b0b8c8}
-  .theme-bars{display:flex;gap:3px;height:24px}
-  .theme-bars span{
-    flex:1;border-radius:2px;
-    transition:transform .25s,box-shadow .25s;
+  .theme-card:hover .theme-card-name{color:var(--fg)}
+  .theme-bars{
+    font-size:14px;letter-spacing:2px;
+    line-height:1;
   }
-  .theme-card:hover .theme-bars span{
-    transform:scaleY(1.2);
-    box-shadow:0 0 8px currentColor;
-  }
+  .theme-bars span{transition:text-shadow .2s}
+  .theme-card:hover .theme-bars span{text-shadow:0 0 6px currentColor}
   .themes-note{
-    margin-top:14px;font-size:10px;
-    color:#5a6a90;letter-spacing:1px;
+    margin-top:12px;font-size:10px;
+    color:var(--dim);letter-spacing:1px;
   }
 
-  /* ═══ PLUGINS ══════════════════════════════ */
+  /* ═══ PLUGINS ═════════════════════════════════ */
   .plugins-intro{
-    color:#9098b0;font-size:13px;
-    margin-bottom:28px;line-height:1.7;
+    color:var(--fg);font-size:13px;
+    margin-bottom:24px;line-height:1.7;
   }
-  .plugins-intro code{color:#5bf870;font-size:12px;text-shadow:0 0 6px rgba(91,248,112,.1)}
-  .plugins-intro .path{color:#7a82a0}
+  .plugins-intro code{color:var(--green);font-size:12px}
+  .plugins-intro .path{color:var(--dim)}
   .plugin-example{
-    background:#0c0e17;
-    border:1px solid #1e2233;
-    border-radius:0;
-    margin-bottom:20px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    margin-bottom:16px;
     overflow:hidden;
   }
   .plugin-example-title{
-    padding:10px 16px;
-    background:#0a0c14;
-    border-bottom:1px solid #1e2233;
-    color:#5a6a90;font-size:10px;letter-spacing:1.5px;
+    padding:8px 14px;
+    background:var(--bg);
+    border-bottom:1px solid var(--border);
+    color:var(--dim);font-size:10px;letter-spacing:1.5px;
     text-transform:uppercase;
   }
   .plugin-example pre{
-    padding:16px 20px;
-    margin:0;
-    color:#b0b8c8;font-size:12px;line-height:1.7;
+    padding:14px 18px;margin:0;
+    color:var(--fg);font-size:12px;line-height:1.7;
     overflow-x:auto;
   }
-  .plugin-example pre .kw{color:#c3a6ff}
-  .plugin-example pre .fn{color:#73d0ff}
-  .plugin-example pre .str{color:#d5ff80}
-  .plugin-example pre .cm{color:#5a6a90}
-  .plugin-example pre .op{color:#f29e74}
+  .plugin-example pre .kw{color:var(--purple)}
+  .plugin-example pre .fn{color:var(--cyan)}
+  .plugin-example pre .str{color:var(--green)}
+  .plugin-example pre .cm{color:var(--dim)}
+  .plugin-example pre .op{color:var(--amber)}
   .plugin-api-grid{
     display:grid;
     grid-template-columns:repeat(2,1fr);
-    gap:8px;
-    margin-top:28px;
+    gap:6px;margin-top:24px;
   }
   .plugin-api{
-    background:#0c0e17;
-    border:1px solid #141828;
-    border-left:2px solid #1e2233;
-    padding:16px 18px;
-    transition:all .3s;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-left:2px solid var(--dim2);
+    padding:14px 16px;
+    transition:border-left-color .2s;
   }
-  .plugin-api:hover{
-    background:#0e1019;
-    border-left-color:#c3a6ff;
-  }
+  .plugin-api:hover{border-left-color:var(--purple)}
   .plugin-api-name{
-    color:#c3a6ff;font-size:12px;font-weight:600;
+    color:var(--purple);font-size:12px;font-weight:600;
     margin-bottom:4px;font-family:inherit;
   }
-  .plugin-api-name::before{content:"cliamp.";color:#5a6a90;font-weight:400}
-  .plugin-api p{font-size:11px;color:#7a82a0;line-height:1.5}
-  .plugin-api p code{color:#5bf870;font-size:11px}
-  .plugin-events{
-    margin-top:28px;
-  }
+  .plugin-api-name::before{content:"cliamp.";color:var(--dim);font-weight:400}
+  .plugin-api p{font-size:11px;color:var(--dim);line-height:1.5}
+  .plugin-api p code{color:var(--green);font-size:11px}
   .plugin-events-title{
-    color:#b0b8c8;font-size:13px;font-weight:600;
-    margin-bottom:12px;
+    color:var(--fg-bright);font-size:13px;font-weight:600;
+    margin-bottom:12px;margin-top:24px;
   }
-  .plugin-events-title::before{content:"# ";color:#3a4060;font-weight:400}
+  .plugin-events-title::before{content:"# ";color:var(--dim2);font-weight:400}
+  .community-plugins-title{
+    color:var(--fg-bright);font-size:13px;font-weight:600;
+    margin-bottom:12px;margin-top:32px;
+  }
+  .community-plugins-title::before{content:"# ";color:var(--dim2);font-weight:400}
+  .community-plugin{
+    display:flex;align-items:center;gap:12px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-left:2px solid var(--dim2);
+    padding:14px 16px;
+    transition:border-left-color .2s;
+    margin-bottom:6px;
+  }
+  .community-plugin:hover{border-left-color:var(--green)}
+  .community-plugin-name{
+    color:var(--green);font-size:12px;font-weight:600;
+    font-family:inherit;
+  }
+  .community-plugin-name a{color:inherit;text-decoration:none}
+  .community-plugin-name a:hover{text-decoration:underline}
+  .community-plugin-desc{font-size:11px;color:var(--dim);flex:1}
+  .community-plugin-author{font-size:10px;color:var(--dim2)}
+  .community-plugin-author a{color:var(--dim);text-decoration:none}
+  .community-plugin-author a:hover{color:var(--cyan)}
 
-  /* ═══ TABLES (Keys / CLI) ═════════════════ */
+  /* ═══ TABLES (Keys / CLI / Remote) ════════════ */
   .table-intro{
-    color:#9098b0;font-size:13px;
-    margin-bottom:24px;line-height:1.7;
+    color:var(--fg);font-size:13px;
+    margin-bottom:20px;line-height:1.7;
   }
   .keys-wrap{
-    background:#0c0e17;
-    border:1px solid #1e2233;
-    border-radius:0;
+    background:var(--surface);
+    border:1px solid var(--border);
     overflow:hidden;
   }
   .keys-grid{
@@ -536,287 +496,248 @@
   }
   .key-row{
     display:flex;gap:12px;
-    padding:9px 20px;
-    border-bottom:1px solid #0f1119;
+    padding:8px 18px;
+    border-bottom:1px solid var(--border);
     transition:background .2s;
     align-items:baseline;
   }
-  .key-row:hover{background:rgba(255,204,102,.02)}
+  .key-row:hover{background:var(--green-dim)}
   .key-row kbd{
-    color:#ffcc66;font-family:inherit;font-size:12px;
+    color:var(--amber);font-family:inherit;font-size:12px;
     min-width:90px;flex-shrink:0;
-    text-shadow:0 0 6px rgba(255,204,102,.1);
   }
-  .key-row span{color:#7a82a0;font-size:12px}
+  .key-row span{color:var(--dim);font-size:12px}
 
-  /* ═══ RADIO STATS ═════════════════════════ */
+  /* ═══ RADIO STATS ═════════════════════════════ */
   .radio-stats{position:relative;z-index:1}
   .radio-header{
     display:flex;align-items:center;justify-content:space-between;
-    margin-bottom:32px;flex-wrap:wrap;gap:16px;
+    margin-bottom:28px;flex-wrap:wrap;gap:16px;
   }
   .radio-live{
     display:inline-flex;align-items:center;gap:8px;
-    font-size:11px;color:#5bf870;letter-spacing:1.5px;
+    font-size:11px;color:var(--green);letter-spacing:1.5px;
   }
   .radio-live-dot{
-    width:8px;height:8px;border-radius:50%;
-    background:#5bf870;
-    box-shadow:0 0 8px rgba(91,248,112,.6);
+    width:6px;height:6px;border-radius:50%;
+    background:var(--green);
+    box-shadow:0 0 6px rgba(0,255,65,.6);
     animation:pulse-dot 2s ease-in-out infinite;
   }
   @keyframes pulse-dot{
-    0%,100%{opacity:1;box-shadow:0 0 8px rgba(91,248,112,.6)}
-    50%{opacity:.5;box-shadow:0 0 16px rgba(91,248,112,.3)}
+    0%,100%{opacity:1}
+    50%{opacity:.4}
   }
-  .radio-tabs{display:flex;gap:0;border:1px solid #1e2233;overflow:hidden;width:fit-content}
+  .radio-tabs{display:flex;gap:0;border:1px solid var(--border);overflow:hidden;width:fit-content}
   .radio-tab{
-    background:transparent;border:none;color:#5a6280;font-size:11px;letter-spacing:1px;
-    text-transform:uppercase;padding:8px 20px;cursor:pointer;transition:all .25s;
+    background:transparent;border:none;color:var(--dim);font-size:11px;letter-spacing:1px;
+    text-transform:uppercase;padding:8px 18px;cursor:pointer;transition:all .2s;
     font-family:inherit;
   }
-  .radio-tab:hover{color:#8a92b0}
-  .radio-tab.active{background:#151830;color:#5bf870}
-  .radio-tab+.radio-tab{border-left:1px solid #1e2233}
+  .radio-tab:hover{color:var(--fg)}
+  .radio-tab.active{background:var(--border);color:var(--green)}
+  .radio-tab+.radio-tab{border-left:1px solid var(--border)}
   .radio-stats-row{
     display:grid;grid-template-columns:repeat(3,1fr);
-    gap:16px;margin-bottom:16px;
+    gap:12px;margin-bottom:12px;
   }
   .radio-stat{
-    background:#0c0e17;border:1px solid #1e2233;
-    padding:24px 20px;text-align:center;
-    transition:border-color .3s;
+    background:var(--surface);border:1px solid var(--border);
+    padding:20px 16px;text-align:center;
+    transition:border-color .2s;
   }
-  .radio-stat:hover{border-color:#2a3050}
+  .radio-stat:hover{border-color:var(--dim2)}
   .radio-stat-value{
-    font-size:32px;color:#ffcc66;
-    text-shadow:0 0 20px rgba(255,204,102,.12);
+    font-size:28px;color:var(--amber);
     line-height:1;margin-bottom:8px;
   }
-  .radio-stat:first-child .radio-stat-value{
-    color:#5bf870;text-shadow:0 0 20px rgba(91,248,112,.12);
-  }
+  .radio-stat:first-child .radio-stat-value{color:var(--green)}
   .radio-stat-label{
-    font-size:10px;color:#5a6a90;
+    font-size:10px;color:var(--dim);
     letter-spacing:1.5px;text-transform:uppercase;
   }
   .radio-stat-dot{
-    display:inline-block;width:6px;height:6px;border-radius:50%;
-    background:#5bf870;box-shadow:0 0 6px rgba(91,248,112,.5);
-    margin-right:8px;vertical-align:middle;
+    display:inline-block;width:5px;height:5px;border-radius:50%;
+    background:var(--green);box-shadow:0 0 4px rgba(0,255,65,.5);
+    margin-right:6px;vertical-align:middle;
     animation:pulse-dot 2s ease-in-out infinite;
   }
   .radio-card{
-    background:#0c0e17;border:1px solid #1e2233;
-    padding:20px;transition:border-color .3s;
+    background:var(--surface);border:1px solid var(--border);
+    padding:18px;transition:border-color .2s;
   }
-  .radio-card:hover{border-color:#2a3050}
-  .radio-card+.radio-card{margin-top:16px}
+  .radio-card:hover{border-color:var(--dim2)}
+  .radio-card+.radio-card{margin-top:12px}
   .radio-card-title{
-    font-size:11px;color:#8a92b0;
+    font-size:11px;color:var(--dim);
     letter-spacing:1.5px;text-transform:uppercase;
-    margin-bottom:16px;
+    margin-bottom:14px;
   }
   .radio-chart{
-    height:140px;display:flex;
-    align-items:flex-end;gap:3px;
-    padding-top:20px;position:relative;
+    height:120px;display:flex;
+    align-items:flex-end;gap:2px;
+    padding-top:16px;position:relative;
   }
   .radio-chart-bar{
-    flex:1;min-width:0;border-radius:2px 2px 0 0;
-    position:relative;transition:height .6s ease,background .3s;
+    flex:1;min-width:0;
+    position:relative;transition:height .6s ease;
     cursor:default;
   }
   .radio-chart-bar:hover{filter:brightness(1.3)}
   .radio-chart-bar .tooltip{
     display:none;position:absolute;
-    bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);
-    background:#1a1e2e;border:1px solid #2a3050;
-    padding:6px 10px;font-size:10px;color:#b0b8c8;
+    bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);
+    background:var(--surface);border:1px solid var(--dim2);
+    padding:4px 8px;font-size:10px;color:var(--fg);
     white-space:nowrap;z-index:10;pointer-events:none;
   }
   .radio-chart-bar:hover .tooltip{display:block}
   .radio-chart-labels{
     display:flex;justify-content:space-between;
-    font-size:9px;color:#5a6a90;
+    font-size:9px;color:var(--dim);
     margin-top:6px;letter-spacing:0.5px;
   }
   .radio-globe-wrap{
-    display:flex;align-items:center;gap:24px;flex-wrap:wrap;
+    display:flex;align-items:center;gap:20px;flex-wrap:wrap;
   }
   .radio-globe-canvas{
-    width:320px;aspect-ratio:1;max-width:100%;
+    width:300px;aspect-ratio:1;max-width:100%;
     cursor:grab;opacity:0;transition:opacity .8s ease;
   }
   .radio-globe-canvas.loaded{opacity:1}
   .radio-countries{
-    display:flex;flex-wrap:wrap;gap:8px;
+    display:flex;flex-wrap:wrap;gap:6px;
     flex:1;min-width:200px;align-content:flex-start;
   }
   .radio-country{
-    display:inline-flex;align-items:center;gap:6px;
-    background:#0f1119;border:1px solid #1e2233;
-    padding:6px 10px;font-size:11px;color:#9098b0;
-    transition:border-color .3s,color .3s;
+    display:inline-flex;align-items:center;gap:5px;
+    background:var(--surface);border:1px solid var(--border);
+    padding:5px 9px;font-size:11px;color:var(--dim);
+    transition:border-color .2s,color .2s;
   }
-  .radio-country:hover{border-color:#2a3050;color:#b0b8c8}
+  .radio-country:hover{border-color:var(--dim2);color:var(--fg)}
   .radio-country-flag{font-size:14px;line-height:1}
   .radio-country-sessions{
-    color:#ffcc66;font-size:10px;margin-left:2px;opacity:.7;
+    color:var(--amber);font-size:10px;margin-left:2px;opacity:.7;
   }
   .radio-error{
-    color:#8a92b0;font-size:12px;
-    font-style:italic;padding:20px 0;
-  }
-  @media(max-width:720px){
-    .radio-stats-row{grid-template-columns:1fr}
-    .radio-stat-value{font-size:28px}
-    .radio-globe-wrap{justify-content:center}
-    .radio-globe-canvas{width:260px}
-    .radio-tabs{width:100%}
-    .radio-tab{flex:1;padding:8px 12px;font-size:10px}
+    color:var(--dim);font-size:12px;
+    font-style:italic;padding:16px 0;
   }
 
-  /* ═══ FOOTER ══════════════════════════════ */
+  /* ═══ FOOTER ══════════════════════════════════ */
   footer{
     text-align:center;
-    padding:40px 28px 50px;
+    padding:32px 24px 40px;
     position:relative;z-index:1;
   }
-  .footer-viz{
-    display:flex;justify-content:center;
-    gap:2px;margin-bottom:20px;opacity:.2;
+  .footer-ascii{
+    color:var(--dim2);font-size:11px;
+    margin-bottom:16px;
+    user-select:none;
+    letter-spacing:2px;
   }
-  .footer-viz span{
-    display:block;width:3px;height:8px;
-    background:#ffcc66;border-radius:1px;
-  }
-  .footer-viz span:nth-child(odd){height:14px}
-  .footer-viz span:nth-child(3n){height:5px}
-  .footer-viz span:nth-child(5n){height:18px}
   .footer-links{
-    display:flex;align-items:center;justify-content:center;gap:20px;
+    display:flex;align-items:center;justify-content:center;gap:16px;
   }
-  .footer-sep{color:#4a5270;font-size:14px}
+  .footer-sep{color:var(--dim2);font-size:14px}
   .footer-link{
-    font-size:12px;color:#7a82a0;
-    display:inline-flex;align-items:center;gap:6px;
-    transition:color .25s;letter-spacing:0.5px;
+    font-size:12px;color:var(--dim);
+    display:inline-flex;align-items:center;gap:5px;
+    transition:color .2s;letter-spacing:0.5px;
   }
-  .footer-link:hover{color:#73d0ff}
-  .footer-link svg{width:14px;height:14px;fill:currentColor;transition:fill .25s}
+  .footer-link:hover{color:var(--cyan)}
+  .footer-link svg{width:14px;height:14px;fill:currentColor;transition:fill .2s}
   .footer-note{
-    margin-top:16px;font-size:10px;
-    color:#5a6a90;letter-spacing:1px;
+    margin-top:14px;font-size:10px;
+    color:var(--dim2);letter-spacing:2px;
   }
-  .footer-note::before{content:"// ";color:#3a4060}
 
-  /* ═══ ANIMATIONS ══════════════════════════ */
-  @keyframes eq{
-    0%{height:3px;opacity:.3}
-    50%{opacity:.7}
-    100%{height:48px;opacity:1}
-  }
-  @keyframes phosphor-pulse{
-    0%,100%{text-shadow:0 0 30px rgba(91,248,112,.3),0 0 80px rgba(91,248,112,.1),0 0 120px rgba(91,248,112,.05)}
-    50%{text-shadow:0 0 40px rgba(91,248,112,.35),0 0 90px rgba(91,248,112,.12),0 0 130px rgba(91,248,112,.06)}
-  }
+  /* ═══ ANIMATIONS ══════════════════════════════ */
   @keyframes fade-up{
-    from{opacity:0;transform:translateY(16px)}
+    from{opacity:0;transform:translateY(12px)}
     to{opacity:1;transform:translateY(0)}
   }
-  .hero-title{animation:fade-up .6s ease-out both}
-  .hero-cta{animation:fade-up .6s ease-out .15s both}
+  .hero-ascii{animation:fade-up .5s ease-out both}
+  .hero-cta{animation:fade-up .5s ease-out .1s both}
 
-  /* Staggered bar animations */
-  .bar:nth-child(1) {animation-duration:1.1s;animation-delay:0s}
-  .bar:nth-child(2) {animation-duration:1.3s;animation-delay:.05s}
-  .bar:nth-child(3) {animation-duration:0.9s;animation-delay:.12s}
-  .bar:nth-child(4) {animation-duration:1.5s;animation-delay:.18s}
-  .bar:nth-child(5) {animation-duration:1.0s;animation-delay:.25s}
-  .bar:nth-child(6) {animation-duration:1.4s;animation-delay:.15s}
-  .bar:nth-child(7) {animation-duration:1.2s;animation-delay:.32s}
-  .bar:nth-child(8) {animation-duration:0.85s;animation-delay:.08s}
-  .bar:nth-child(9) {animation-duration:1.3s;animation-delay:.38s}
-  .bar:nth-child(10){animation-duration:1.1s;animation-delay:.22s}
-  .bar:nth-child(11){animation-duration:1.5s;animation-delay:.42s}
-  .bar:nth-child(12){animation-duration:0.95s;animation-delay:.28s}
-  .bar:nth-child(13){animation-duration:1.2s;animation-delay:.48s}
-  .bar:nth-child(14){animation-duration:1.4s;animation-delay:.35s}
-  .bar:nth-child(15){animation-duration:1.0s;animation-delay:.18s}
-  .bar:nth-child(16){animation-duration:1.3s;animation-delay:.52s}
-  .bar:nth-child(17){animation-duration:0.88s;animation-delay:.1s}
-  .bar:nth-child(18){animation-duration:1.5s;animation-delay:.4s}
-  .bar:nth-child(19){animation-duration:1.1s;animation-delay:.2s}
-  .bar:nth-child(20){animation-duration:1.35s;animation-delay:.45s}
-  .bar:nth-child(21){animation-duration:0.92s;animation-delay:.3s}
-  .bar:nth-child(22){animation-duration:1.25s;animation-delay:.55s}
-  .bar:nth-child(23){animation-duration:1.4s;animation-delay:.15s}
-  .bar:nth-child(24){animation-duration:1.05s;animation-delay:.38s}
-  .bar:nth-child(25){animation-duration:1.2s;animation-delay:.1s}
-  .bar:nth-child(26){animation-duration:0.9s;animation-delay:.48s}
-  .bar:nth-child(27){animation-duration:1.35s;animation-delay:.25s}
-  .bar:nth-child(28){animation-duration:1.15s;animation-delay:.35s}
-
-  /* ═══ RESPONSIVE ══════════════════════════ */
+  /* ═══ RESPONSIVE ══════════════════════════════ */
   @media(max-width:720px){
-    .hero{padding:50px 0 30px}
-    section{padding:44px 0}
-
-    body{padding:0}
-    .terminal-window{margin:0;border-left:none;border-right:none;border-top:none}
-    .hero-title{letter-spacing:.3em}
-    .hero-desc{text-align:left}
+    .hero{padding:36px 0 24px}
+    section{padding:36px 0}
+    .wrap{padding:0 16px}
+    .hero-ascii{font-size:clamp(5px,1.4vw,12px)}
     .features-grid{grid-template-columns:1fr}
     .plugin-api-grid{grid-template-columns:1fr}
     .themes-grid{grid-template-columns:repeat(2,1fr)}
     .keys-grid{grid-template-columns:1fr}
-    .bar{flex:0 0 4px}
     .hero-cta{flex-direction:column;align-items:center}
-    .btn{width:100%;max-width:260px;justify-content:center}
-    .key-row{padding:8px 16px}
-    .key-row kbd{min-width:70px}
-    .install-box code{white-space:pre-wrap;word-break:break-all}
-    .nav-links{gap:4px}
-    .nav-links a{font-size:10px;letter-spacing:0.5px;padding:4px 5px}
-    .radio-player{max-width:100%}
-    .radio-hint code{font-size:9px}
+    .btn{width:100%;max-width:240px;justify-content:center;padding:10px 20px}
+    .key-row{padding:8px 14px}
+    .key-row kbd{min-width:auto;margin-right:8px}
+    .install-box{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    .install-box code{white-space:nowrap}
+    .nav-toggle{display:flex;align-items:center;justify-content:center}
+    .nav-links{
+      display:none;
+      position:absolute;top:42px;left:0;right:0;
+      flex-direction:column;gap:0;
+      background:rgba(6,6,8,.98);
+      border-bottom:1px solid var(--border);
+      padding:6px 0;
+    }
+    .nav-links.open{display:flex}
+    .nav-links a{
+      padding:10px 24px;font-size:12px;
+      border-bottom:1px solid var(--border);
+    }
+    .nav-links a:last-child{border-bottom:none}
+    .nav-inner{position:relative}
+    .radio-player{max-width:100%;padding:10px;gap:8px}
+    .rp-vol{width:50px}
+    .rp-ch{padding:4px 8px;font-size:8px}
+    .radio-hint code{font-size:9px;word-break:break-all;white-space:normal}
+    .radio-stats-row{grid-template-columns:1fr}
+    .radio-stat-value{font-size:24px}
+    .radio-globe-wrap{justify-content:center}
+    .radio-globe-canvas{width:240px}
+    .plugin-example pre{font-size:11px;padding:12px 14px}
+    .feature{padding:14px 16px}
   }
   @media(max-width:480px){
+    .hero-ascii{font-size:clamp(4.5px,2.4vw,10px)}
+    .hero-sub{font-size:10px;letter-spacing:2px}
     .themes-grid{grid-template-columns:1fr}
-    .nav-links a:nth-child(n+4){display:none}
     .radio-globe-canvas{width:100%}
-    .radio-stat-value{font-size:24px}
-    .terminal-title{display:none}
+    .radio-stat-value{font-size:22px}
+    .radio-stats-row{grid-template-columns:1fr}
+    .radio-tabs{width:100%}
+    .radio-tab{flex:1;padding:8px 6px;font-size:10px}
+    .sh{font-size:11px}
+    .rp-sep{display:none}
+    .rp-vol{width:100%;margin-top:4px}
+    .radio-player{gap:6px}
+    .footer-links{flex-direction:column;gap:10px}
+    .wrap{padding:0 12px}
   }
 </style>
 </head>
 <body>
 
-<!-- CRT overlay -->
-<div class="crt"></div>
-
-<!-- ═══ TERMINAL WINDOW ═══ -->
-<div class="terminal-window">
-<div class="terminal-titlebar">
-  <span class="terminal-dot"></span>
-  <span class="terminal-dot"></span>
-  <span class="terminal-dot"></span>
-  <span class="terminal-title">cliamp &mdash; bash</span>
-</div>
-
 <!-- ═══ NAV ═══ -->
 <nav class="nav">
   <div class="nav-inner">
     <a href="#" class="nav-brand">CLIAMP</a>
-    <div class="nav-links">
-      <a href="#install">Install</a>
-      <a href="#features">Features</a>
-      <a href="#themes">Themes</a>
-      <a href="#keys">Keys</a>
-      <a href="#plugins">Plugins</a>
-      <a href="#radio">Radio</a>
-      <a href="https://github.com/bjarneo/cliamp">GitHub</a>
+    <button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open');this.textContent=this.textContent==='≡' ? '×' : '≡'" aria-label="Menu">≡</button>
+    <div class="nav-links" onclick="this.classList.remove('open');document.querySelector('.nav-toggle').textContent='≡'">
+      <a href="#install">install</a>
+      <a href="#features">features</a>
+      <a href="#themes">themes</a>
+      <a href="#keys">keys</a>
+      <a href="#remote">remote</a>
+      <a href="#plugins">plugins</a>
+      <a href="#radio">radio</a>
+      <a href="https://github.com/bjarneo/cliamp">github</a>
     </div>
   </div>
 </nav>
@@ -824,23 +745,18 @@
 <!-- ═══ HERO ═══ -->
 <section class="hero">
   <div class="wrap">
-    <div class="hero-title">CLIAMP<span class="hero-cursor"></span></div>
-    <div class="hero-sub">terminal music player</div>
+    <pre class="hero-ascii"> ██████ ██      ██  █████  ███    ███ ██████ 
+██      ██      ██ ██   ██ ████  ████ ██   ██
+██      ██      ██ ███████ ██ ████ ██ ██████ 
+██      ██      ██ ██   ██ ██  ██  ██ ██     
+ ██████ ███████ ██ ██   ██ ██      ██ ██     </pre>
+    <div class="hero-sub">TERMINAL MUSIC PLAYER</div>
     <div class="hero-desc">
-      A retro music player inspired by <em>Winamp</em> &mdash; built for the terminal.<br>
+      A retro music player inspired by <em>Winamp</em>, built for the terminal.<br>
       Spectrum visualizer, 10-band EQ, playlists, streaming, and more.
     </div>
-    <div class="visualizer">
-      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
-      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
-      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
-      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
-      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
-      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
-      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
-      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
-      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
-      <div class="bar"></div>
+    <div class="ascii-viz-wrap">
+      <pre id="ascii-viz"></pre>
     </div>
 
     <div class="hero-cta">
@@ -869,10 +785,12 @@
   </div>
 </section>
 
+<div class="ascii-div">════════════════════════════════════════════════════════════════</div>
+
 <!-- ═══ DEMO ═══ -->
 <section>
   <div class="wrap">
-    <div class="section-label"><span class="label-text">demo.mp4</span></div>
+    <div class="sh"><span class="sh-name">demo.mp4</span></div>
     <div class="demo-wrap">
       <video id="demo-vid" class="demo-video" autoplay loop muted playsinline>
         <source src="https://github.com/user-attachments/assets/fbc33d20-e3ac-4a62-a991-8a2f0243c8ea" type="video/mp4">
@@ -885,16 +803,18 @@
   </div>
 </section>
 
+<div class="ascii-div">════════════════════════════════════════════════════════════════</div>
+
 <!-- ═══ INSTALL ═══ -->
 <section id="install">
   <div class="wrap">
-    <div class="section-label"><span class="label-text">install.sh</span></div>
+    <div class="sh"><span class="sh-name">install.sh</span></div>
 
     <div class="install-group">
       <div class="install-platform">Direct</div>
       <div class="install-box" onclick="copyCmd(this,'curl -fsSL https://raw.githubusercontent.com/bjarneo/cliamp/HEAD/install.sh | sh')">
         <code><span class="prompt">$ </span>curl -fsSL https://raw.githubusercontent.com/bjarneo/cliamp/HEAD/install.sh | sh</code>
-        <span class="copied-msg">Copied!</span>
+        <span class="copied-msg">COPIED</span>
       </div>
     </div>
 
@@ -902,7 +822,7 @@
       <div class="install-platform">Homebrew (macOS / Linux)</div>
       <div class="install-box" onclick="copyCmd(this,'brew install bjarneo/cliamp/cliamp')">
         <code><span class="prompt">$ </span>brew install bjarneo/cliamp/cliamp</code>
-        <span class="copied-msg">Copied!</span>
+        <span class="copied-msg">COPIED</span>
       </div>
     </div>
 
@@ -910,7 +830,7 @@
       <div class="install-platform">Arch Linux (AUR)</div>
       <div class="install-box" onclick="copyCmd(this,'yay -S cliamp')">
         <code><span class="prompt">$ </span>yay -S cliamp</code>
-        <span class="copied-msg">Copied!</span>
+        <span class="copied-msg">COPIED</span>
       </div>
     </div>
 
@@ -920,108 +840,110 @@
   </div>
 </section>
 
+<div class="ascii-div">════════════════════════════════════════════════════════════════</div>
+
 <!-- ═══ FEATURES ═══ -->
 <section id="features">
   <div class="wrap">
-    <div class="section-label"><span class="label-text">features.txt</span></div>
+    <div class="sh"><span class="sh-name">features.txt</span></div>
     <div class="features-grid">
       <div class="feature">
-        <div class="feature-icon">&#9835;</div>
+        <div class="feature-icon">♫</div>
         <div class="feature-name">Audio Formats</div>
         <p>MP3, WAV, FLAC, OGG, AAC, ALAC, Opus, and WMA</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#9776;</div>
+        <div class="feature-icon">≡</div>
         <div class="feature-name">10-Band Equalizer</div>
         <p>Parametric EQ with presets: Rock, Jazz, Pop, Classical, and more</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#9672;</div>
+        <div class="feature-icon">◈</div>
         <div class="feature-name">Themes &amp; Visualizers</div>
         <p>Multiple color themes and visualizer modes to match your vibe</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#9776;</div>
+        <div class="feature-icon">☰</div>
         <div class="feature-name">Playlists</div>
         <p>TOML playlists, M3U/M3U8/PLS support, built-in playlist manager</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#8594;</div>
+        <div class="feature-icon">→</div>
         <div class="feature-name">HTTP Streaming</div>
         <p>Play from URLs, internet radio stations, and remote M3U playlists</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#9654;</div>
+        <div class="feature-icon">▶</div>
         <div class="feature-name">yt-dlp Integration</div>
         <p>YouTube, SoundCloud, Bandcamp, and Bilibili playback via yt-dlp. Search YouTube with <code>cliamp search "query"</code> or SoundCloud with <code>cliamp search-sc "query"</code>. Press <kbd>f</kbd> / <kbd>F</kbd> to search in-player</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#9688;</div>
+        <div class="feature-icon">◉</div>
         <div class="feature-name">Podcasts</div>
         <p>Pass an RSS feed URL and listen to any podcast in your terminal</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#9729;</div>
+        <div class="feature-icon">☁</div>
         <div class="feature-name">Navidrome</div>
         <p>Browse and stream your self-hosted Navidrome music library</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#9834;</div>
+        <div class="feature-icon">♪</div>
         <div class="feature-name">Lyrics</div>
         <p>Synced lyrics with auto-scroll for local &amp; Navidrome tracks, manual scroll for streams. Press <kbd>y</kbd> to view</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#8644;</div>
+        <div class="feature-icon">⇄</div>
         <div class="feature-name">Gapless Playback</div>
         <p>Seamless track transitions with preloaded next-track buffering</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#9836;</div>
+        <div class="feature-icon">♬</div>
         <div class="feature-name">MPRIS / Media Keys</div>
-        <p>Linux desktop integration &mdash; control playback with hardware media keys and playerctl</p>
+        <p>Linux desktop integration. Control playback with hardware media keys and playerctl</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#9881;</div>
+        <div class="feature-icon">⚙</div>
         <div class="feature-name">Audio Quality</div>
         <p>Configurable sample rate (22kHz&ndash;192kHz), buffer size, and resample quality</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#9000;</div>
+        <div class="feature-icon">⌀</div>
         <div class="feature-name">Live Radio Metadata</div>
-        <p>ICY/Shoutcast metadata &mdash; see the current song title on internet radio streams</p>
+        <p>ICY/Shoutcast metadata. See the current song title on internet radio streams</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#9998;</div>
+        <div class="feature-icon">✎</div>
         <div class="feature-name">Embedded Tag Reading</div>
-        <p>ID3v2, Vorbis comments, and MP4 atoms &mdash; reads artist, album, genre, year, and track number</p>
+        <p>ID3v2, Vorbis comments, and MP4 atoms. Reads artist, album, genre, year, and track number</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#9654;</div>
+        <div class="feature-icon">▶</div>
         <div class="feature-name">CLI Flags</div>
         <p>Override volume, shuffle, repeat, mono, theme, EQ, sample rate, and more per-session</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#8593;</div>
+        <div class="feature-icon">↑</div>
         <div class="feature-name">Self-Update</div>
         <p>Run <code>--upgrade</code> to update to the latest release directly from your terminal</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#9835;</div>
+        <div class="feature-icon">♫</div>
         <div class="feature-name">Spotify</div>
-        <p>Stream your Spotify Premium library &mdash; playlists, EQ, visualizer, and all effects apply. OAuth login with cached credentials</p>
+        <p>Stream your Spotify Premium library. Playlists, EQ, visualizer, and all effects apply. OAuth login with cached credentials</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#9654;</div>
+        <div class="feature-icon">▶</div>
         <div class="feature-name">YouTube Music</div>
         <p>Browse and play your YouTube Music playlists via OAuth. Automatic music/non-music classification with cached login</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#9654;</div>
+        <div class="feature-icon">▶</div>
         <div class="feature-name">Plex</div>
-        <p>Stream music from your Plex Media Server. Browse albums and play directly &mdash; no extra software required</p>
+        <p>Stream music from your Plex Media Server. Browse albums and play directly. No extra software required</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&#9654;</div>
+        <div class="feature-icon">▶</div>
         <div class="feature-name">Jellyfin</div>
         <p>Stream music from your Jellyfin server. Browse artists, albums, and tracks with buffered gapless playback</p>
       </div>
@@ -1029,10 +951,12 @@
   </div>
 </section>
 
+<div class="ascii-div">════════════════════════════════════════════════════════════════</div>
+
 <!-- ═══ THEMES ═══ -->
 <section id="themes">
   <div class="wrap">
-    <div class="section-label"><span class="label-text">themes.toml</span></div>
+    <div class="sh"><span class="sh-name">themes.toml</span></div>
     <p class="themes-intro">
       17 built-in themes. Press <kbd>t</kbd> to switch, or use <code>--theme "name"</code> from the CLI.
       Drop a <code>.toml</code> file in <span class="path">~/.config/cliamp/themes/</span> to add your own.
@@ -1042,218 +966,220 @@
       <div class="theme-card">
         <div class="theme-card-name">Ayu Mirage Dark</div>
         <div class="theme-bars">
-          <span style="background:#73d0ff;color:#73d0ff"></span>
-          <span style="background:#f3f4f5;color:#f3f4f5"></span>
-          <span style="background:#cccac2;color:#cccac2"></span>
-          <span style="background:#d5ff80;color:#d5ff80"></span>
-          <span style="background:#ffad66;color:#ffad66"></span>
-          <span style="background:#f28779;color:#f28779"></span>
+          <span style="color:#73d0ff">██</span>
+          <span style="color:#f3f4f5">██</span>
+          <span style="color:#cccac2">██</span>
+          <span style="color:#d5ff80">██</span>
+          <span style="color:#ffad66">██</span>
+          <span style="color:#f28779">██</span>
         </div>
       </div>
 
       <div class="theme-card">
         <div class="theme-card-name">Catppuccin</div>
         <div class="theme-bars">
-          <span style="background:#89b4fa;color:#89b4fa"></span>
-          <span style="background:#cdd6f4;color:#cdd6f4"></span>
-          <span style="background:#9399b2;color:#9399b2"></span>
-          <span style="background:#a6e3a1;color:#a6e3a1"></span>
-          <span style="background:#f9e2af;color:#f9e2af"></span>
-          <span style="background:#f38ba8;color:#f38ba8"></span>
+          <span style="color:#89b4fa">██</span>
+          <span style="color:#cdd6f4">██</span>
+          <span style="color:#9399b2">██</span>
+          <span style="color:#a6e3a1">██</span>
+          <span style="color:#f9e2af">██</span>
+          <span style="color:#f38ba8">██</span>
         </div>
       </div>
 
       <div class="theme-card">
         <div class="theme-card-name">Catppuccin Latte</div>
         <div class="theme-bars">
-          <span style="background:#1e66f5;color:#1e66f5"></span>
-          <span style="background:#4c4f69;color:#4c4f69"></span>
-          <span style="background:#8c8fa1;color:#8c8fa1"></span>
-          <span style="background:#40a02b;color:#40a02b"></span>
-          <span style="background:#df8e1d;color:#df8e1d"></span>
-          <span style="background:#d20f39;color:#d20f39"></span>
+          <span style="color:#1e66f5">██</span>
+          <span style="color:#4c4f69">██</span>
+          <span style="color:#8c8fa1">██</span>
+          <span style="color:#40a02b">██</span>
+          <span style="color:#df8e1d">██</span>
+          <span style="color:#d20f39">██</span>
         </div>
       </div>
 
       <div class="theme-card">
         <div class="theme-card-name">Ethereal</div>
         <div class="theme-bars">
-          <span style="background:#7d82d9;color:#7d82d9"></span>
-          <span style="background:#ffcead;color:#ffcead"></span>
-          <span style="background:#9a96a8;color:#9a96a8"></span>
-          <span style="background:#92a593;color:#92a593"></span>
-          <span style="background:#E9BB4F;color:#E9BB4F"></span>
-          <span style="background:#ED5B5A;color:#ED5B5A"></span>
+          <span style="color:#7d82d9">██</span>
+          <span style="color:#ffcead">██</span>
+          <span style="color:#9a96a8">██</span>
+          <span style="color:#92a593">██</span>
+          <span style="color:#E9BB4F">██</span>
+          <span style="color:#ED5B5A">██</span>
         </div>
       </div>
 
       <div class="theme-card">
         <div class="theme-card-name">Everforest</div>
         <div class="theme-bars">
-          <span style="background:#7fbbb3;color:#7fbbb3"></span>
-          <span style="background:#d3c6aa;color:#d3c6aa"></span>
-          <span style="background:#7a8478;color:#7a8478"></span>
-          <span style="background:#a7c080;color:#a7c080"></span>
-          <span style="background:#dbbc7f;color:#dbbc7f"></span>
-          <span style="background:#e67e80;color:#e67e80"></span>
+          <span style="color:#7fbbb3">██</span>
+          <span style="color:#d3c6aa">██</span>
+          <span style="color:#7a8478">██</span>
+          <span style="color:#a7c080">██</span>
+          <span style="color:#dbbc7f">██</span>
+          <span style="color:#e67e80">██</span>
         </div>
       </div>
 
       <div class="theme-card">
         <div class="theme-card-name">Flexoki Light</div>
         <div class="theme-bars">
-          <span style="background:#205EA6;color:#205EA6"></span>
-          <span style="background:#100F0F;color:#100F0F"></span>
-          <span style="background:#6F6E69;color:#6F6E69"></span>
-          <span style="background:#879A39;color:#879A39"></span>
-          <span style="background:#D0A215;color:#D0A215"></span>
-          <span style="background:#D14D41;color:#D14D41"></span>
+          <span style="color:#205EA6">██</span>
+          <span style="color:#100F0F">██</span>
+          <span style="color:#6F6E69">██</span>
+          <span style="color:#879A39">██</span>
+          <span style="color:#D0A215">██</span>
+          <span style="color:#D14D41">██</span>
         </div>
       </div>
 
       <div class="theme-card">
         <div class="theme-card-name">Gruvbox</div>
         <div class="theme-bars">
-          <span style="background:#7daea3;color:#7daea3"></span>
-          <span style="background:#d4be98;color:#d4be98"></span>
-          <span style="background:#a89984;color:#a89984"></span>
-          <span style="background:#a9b665;color:#a9b665"></span>
-          <span style="background:#d8a657;color:#d8a657"></span>
-          <span style="background:#ea6962;color:#ea6962"></span>
+          <span style="color:#7daea3">██</span>
+          <span style="color:#d4be98">██</span>
+          <span style="color:#a89984">██</span>
+          <span style="color:#a9b665">██</span>
+          <span style="color:#d8a657">██</span>
+          <span style="color:#ea6962">██</span>
         </div>
       </div>
 
       <div class="theme-card">
         <div class="theme-card-name">Hackerman</div>
         <div class="theme-bars">
-          <span style="background:#82FB9C;color:#82FB9C"></span>
-          <span style="background:#ddf7ff;color:#ddf7ff"></span>
-          <span style="background:#8e95b8;color:#8e95b8"></span>
-          <span style="background:#4fe88f;color:#4fe88f"></span>
-          <span style="background:#50f7d4;color:#50f7d4"></span>
-          <span style="background:#50f872;color:#50f872"></span>
+          <span style="color:#82FB9C">██</span>
+          <span style="color:#ddf7ff">██</span>
+          <span style="color:#8e95b8">██</span>
+          <span style="color:#4fe88f">██</span>
+          <span style="color:#50f7d4">██</span>
+          <span style="color:#50f872">██</span>
         </div>
       </div>
 
       <div class="theme-card">
         <div class="theme-card-name">Kanagawa</div>
         <div class="theme-bars">
-          <span style="background:#7e9cd8;color:#7e9cd8"></span>
-          <span style="background:#dcd7ba;color:#dcd7ba"></span>
-          <span style="background:#938aa9;color:#938aa9"></span>
-          <span style="background:#76946a;color:#76946a"></span>
-          <span style="background:#c0a36e;color:#c0a36e"></span>
-          <span style="background:#c34043;color:#c34043"></span>
+          <span style="color:#7e9cd8">██</span>
+          <span style="color:#dcd7ba">██</span>
+          <span style="color:#938aa9">██</span>
+          <span style="color:#76946a">██</span>
+          <span style="color:#c0a36e">██</span>
+          <span style="color:#c34043">██</span>
         </div>
       </div>
 
       <div class="theme-card">
         <div class="theme-card-name">Matte Black</div>
         <div class="theme-bars">
-          <span style="background:#e68e0d;color:#e68e0d"></span>
-          <span style="background:#bebebe;color:#bebebe"></span>
-          <span style="background:#777777;color:#777777"></span>
-          <span style="background:#FFC107;color:#FFC107"></span>
-          <span style="background:#b91c1c;color:#b91c1c"></span>
-          <span style="background:#D35F5F;color:#D35F5F"></span>
+          <span style="color:#e68e0d">██</span>
+          <span style="color:#bebebe">██</span>
+          <span style="color:#777777">██</span>
+          <span style="color:#FFC107">██</span>
+          <span style="color:#b91c1c">██</span>
+          <span style="color:#D35F5F">██</span>
         </div>
       </div>
 
       <div class="theme-card">
         <div class="theme-card-name">Miasma</div>
         <div class="theme-bars">
-          <span style="background:#78824b;color:#78824b"></span>
-          <span style="background:#c2c2b0;color:#c2c2b0"></span>
-          <span style="background:#666666;color:#666666"></span>
-          <span style="background:#5f875f;color:#5f875f"></span>
-          <span style="background:#b36d43;color:#b36d43"></span>
-          <span style="background:#685742;color:#685742"></span>
+          <span style="color:#78824b">██</span>
+          <span style="color:#c2c2b0">██</span>
+          <span style="color:#666666">██</span>
+          <span style="color:#5f875f">██</span>
+          <span style="color:#b36d43">██</span>
+          <span style="color:#685742">██</span>
         </div>
       </div>
 
       <div class="theme-card">
         <div class="theme-card-name">Nord</div>
         <div class="theme-bars">
-          <span style="background:#81a1c1;color:#81a1c1"></span>
-          <span style="background:#d8dee9;color:#d8dee9"></span>
-          <span style="background:#8690a0;color:#8690a0"></span>
-          <span style="background:#a3be8c;color:#a3be8c"></span>
-          <span style="background:#ebcb8b;color:#ebcb8b"></span>
-          <span style="background:#bf616a;color:#bf616a"></span>
+          <span style="color:#81a1c1">██</span>
+          <span style="color:#d8dee9">██</span>
+          <span style="color:#8690a0">██</span>
+          <span style="color:#a3be8c">██</span>
+          <span style="color:#ebcb8b">██</span>
+          <span style="color:#bf616a">██</span>
         </div>
       </div>
 
       <div class="theme-card">
         <div class="theme-card-name">Osaka Jade</div>
         <div class="theme-bars">
-          <span style="background:#509475;color:#509475"></span>
-          <span style="background:#F7E8B2;color:#F7E8B2"></span>
-          <span style="background:#C1C497;color:#C1C497"></span>
-          <span style="background:#549e6a;color:#549e6a"></span>
-          <span style="background:#459451;color:#459451"></span>
-          <span style="background:#FF5345;color:#FF5345"></span>
+          <span style="color:#509475">██</span>
+          <span style="color:#F7E8B2">██</span>
+          <span style="color:#C1C497">██</span>
+          <span style="color:#549e6a">██</span>
+          <span style="color:#459451">██</span>
+          <span style="color:#FF5345">██</span>
         </div>
       </div>
 
       <div class="theme-card">
         <div class="theme-card-name">Ristretto</div>
         <div class="theme-bars">
-          <span style="background:#f38d70;color:#f38d70"></span>
-          <span style="background:#e6d9db;color:#e6d9db"></span>
-          <span style="background:#948a8b;color:#948a8b"></span>
-          <span style="background:#adda78;color:#adda78"></span>
-          <span style="background:#f9cc6c;color:#f9cc6c"></span>
-          <span style="background:#fd6883;color:#fd6883"></span>
+          <span style="color:#f38d70">██</span>
+          <span style="color:#e6d9db">██</span>
+          <span style="color:#948a8b">██</span>
+          <span style="color:#adda78">██</span>
+          <span style="color:#f9cc6c">██</span>
+          <span style="color:#fd6883">██</span>
         </div>
       </div>
 
       <div class="theme-card">
         <div class="theme-card-name">Ros&eacute; Pine</div>
         <div class="theme-bars">
-          <span style="background:#56949f;color:#56949f"></span>
-          <span style="background:#575279;color:#575279"></span>
-          <span style="background:#908caa;color:#908caa"></span>
-          <span style="background:#286983;color:#286983"></span>
-          <span style="background:#ea9d34;color:#ea9d34"></span>
-          <span style="background:#b4637a;color:#b4637a"></span>
+          <span style="color:#56949f">██</span>
+          <span style="color:#575279">██</span>
+          <span style="color:#908caa">██</span>
+          <span style="color:#286983">██</span>
+          <span style="color:#ea9d34">██</span>
+          <span style="color:#b4637a">██</span>
         </div>
       </div>
 
       <div class="theme-card">
         <div class="theme-card-name">Tokyo Night</div>
         <div class="theme-bars">
-          <span style="background:#7aa2f7;color:#7aa2f7"></span>
-          <span style="background:#cfc9c2;color:#cfc9c2"></span>
-          <span style="background:#737aa2;color:#737aa2"></span>
-          <span style="background:#9ece6a;color:#9ece6a"></span>
-          <span style="background:#e0af68;color:#e0af68"></span>
-          <span style="background:#f7768e;color:#f7768e"></span>
+          <span style="color:#7aa2f7">██</span>
+          <span style="color:#cfc9c2">██</span>
+          <span style="color:#737aa2">██</span>
+          <span style="color:#9ece6a">██</span>
+          <span style="color:#e0af68">██</span>
+          <span style="color:#f7768e">██</span>
         </div>
       </div>
 
       <div class="theme-card">
         <div class="theme-card-name">Vantablack</div>
         <div class="theme-bars">
-          <span style="background:#8d8d8d;color:#8d8d8d"></span>
-          <span style="background:#ffffff;color:#ffffff"></span>
-          <span style="background:#8d8d8d;color:#8d8d8d"></span>
-          <span style="background:#b6b6b6;color:#b6b6b6"></span>
-          <span style="background:#cecece;color:#cecece"></span>
-          <span style="background:#a4a4a4;color:#a4a4a4"></span>
+          <span style="color:#8d8d8d">██</span>
+          <span style="color:#ffffff">██</span>
+          <span style="color:#8d8d8d">██</span>
+          <span style="color:#b6b6b6">██</span>
+          <span style="color:#cecece">██</span>
+          <span style="color:#a4a4a4">██</span>
         </div>
       </div>
 
     </div>
     <div class="themes-note">
-      Each bar represents: accent, bright foreground, foreground, green, yellow, red
+      Each pair represents: accent, bright foreground, foreground, green, yellow, red
     </div>
   </div>
 </section>
 
+<div class="ascii-div">════════════════════════════════════════════════════════════════</div>
+
 <!-- ═══ CLI FLAGS ═══ -->
 <section id="cli">
   <div class="wrap">
-    <div class="section-label"><span class="label-text">--help</span></div>
+    <div class="sh"><span class="sh-name">--help</span></div>
     <p class="table-intro">
       Override any config option for a single session. Flags can appear before, after, or between file arguments.
     </p>
@@ -1271,6 +1197,7 @@
         <div class="key-row"><kbd>--resample-quality &lt;n&gt;</kbd><span>Resample quality (1&ndash;4)</span></div>
         <div class="key-row"><kbd>--compact</kbd><span>Cap width at 80 columns</span></div>
         <div class="key-row"><kbd>--bit-depth &lt;n&gt;</kbd><span>PCM bit depth: 16 or 32</span></div>
+        <div class="key-row"><kbd>--playlist &lt;name&gt;</kbd><span>Load a local TOML playlist and start playing</span></div>
         <div class="key-row"><kbd>--provider &lt;name&gt;</kbd><span>Default provider (radio, navidrome, plex, jellyfin, spotify, ytmusic)</span></div>
         <div class="key-row"><kbd>--visualizer &lt;mode&gt;</kbd><span>Visualizer mode (Bars, Wave, Matrix, Retro, etc.)</span></div>
         <div class="key-row"><kbd>--upgrade</kbd><span>Update to latest release</span></div>
@@ -1280,10 +1207,46 @@
   </div>
 </section>
 
+<div class="ascii-div">════════════════════════════════════════════════════════════════</div>
+
+<!-- ═══ REMOTE CONTROL ═══ -->
+<section id="remote">
+  <div class="wrap">
+    <div class="sh"><span class="sh-name">remote-control</span></div>
+    <p class="table-intro">
+      Control a running cliamp instance from another terminal via Unix socket IPC.
+    </p>
+    <div class="keys-wrap">
+      <div class="keys-grid">
+        <div class="key-row"><kbd>cliamp play / pause / toggle</kbd><span>Playback control</span></div>
+        <div class="key-row"><kbd>cliamp stop</kbd><span>Stop playback</span></div>
+        <div class="key-row"><kbd>cliamp next / prev</kbd><span>Track navigation</span></div>
+        <div class="key-row"><kbd>cliamp status [--json]</kbd><span>Current state</span></div>
+        <div class="key-row"><kbd>cliamp volume &lt;dB&gt;</kbd><span>Set volume in dB</span></div>
+        <div class="key-row"><kbd>cliamp seek &lt;seconds&gt;</kbd><span>Relative seek (positive or negative)</span></div>
+        <div class="key-row"><kbd>cliamp load &quot;Name&quot;</kbd><span>Load a playlist</span></div>
+        <div class="key-row"><kbd>cliamp queue /path/to/file</kbd><span>Queue a track</span></div>
+        <div class="key-row"><kbd>cliamp shuffle [on|off|toggle]</kbd><span>Toggle or set shuffle</span></div>
+        <div class="key-row"><kbd>cliamp repeat [off|all|one|cycle]</kbd><span>Set or cycle repeat mode</span></div>
+        <div class="key-row"><kbd>cliamp mono [on|off|toggle]</kbd><span>Toggle or set mono output</span></div>
+        <div class="key-row"><kbd>cliamp speed &lt;ratio&gt;</kbd><span>Playback speed (0.25&ndash;2.0)</span></div>
+        <div class="key-row"><kbd>cliamp eq &lt;preset&gt;</kbd><span>Set EQ preset (Flat, Rock, Pop, Jazz, &hellip;)</span></div>
+        <div class="key-row"><kbd>cliamp eq --band &lt;0-9&gt; &lt;dB&gt;</kbd><span>Set individual EQ band</span></div>
+        <div class="key-row"><kbd>cliamp device list</kbd><span>List audio output devices</span></div>
+        <div class="key-row"><kbd>cliamp device &lt;name&gt;</kbd><span>Switch audio output device</span></div>
+        <div class="key-row"><kbd>cliamp theme &lt;name|list&gt;</kbd><span>Set or list themes</span></div>
+        <div class="key-row"><kbd>cliamp vis &lt;name|next|list&gt;</kbd><span>Set or cycle visualizer</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="ascii-div">════════════════════════════════════════════════════════════════</div>
+
 <!-- ═══ KEYBINDINGS ═══ -->
 <section id="keys">
   <div class="wrap">
-    <div class="section-label"><span class="label-text">keybindings.conf</span></div>
+    <div class="sh"><span class="sh-name">keybindings.conf</span></div>
     <div class="keys-wrap">
       <div class="keys-grid">
         <div class="key-row"><kbd>Space</kbd><span>Play / Pause</span></div>
@@ -1311,8 +1274,8 @@
         <div class="key-row"><kbd>F</kbd><span>Spotify search + add to playlist</span></div>
         <div class="key-row"><kbd>u</kbd><span>Load URL (stream/playlist)</span></div>
         <div class="key-row"><kbd>y</kbd><span>Show lyrics</span></div>
-        <div class="key-row"><kbd>J</kbd><span>Jump to time</span></div>
-        <div class="key-row"><kbd>x</kbd><span>Expand playlist</span></div>
+        <div class="key-row"><kbd>Ctrl+J</kbd><span>Jump to time</span></div>
+        <div class="key-row"><kbd>Ctrl+X</kbd><span>Expand playlist</span></div>
         <div class="key-row"><kbd>o</kbd><span>Open file browser</span></div>
         <div class="key-row"><kbd>a</kbd><span>Queue (play next)</span></div>
         <div class="key-row"><kbd>A</kbd><span>Queue manager</span></div>
@@ -1321,6 +1284,7 @@
         <div class="key-row"><kbd>r</kbd><span>Repeat: Off / All / One</span></div>
         <div class="key-row"><kbd>z</kbd><span>Toggle shuffle</span></div>
         <div class="key-row"><kbd>N</kbd><span>Navidrome browser</span></div>
+        <div class="key-row"><kbd>L</kbd><span>Browse local playlists</span></div>
         <div class="key-row"><kbd>R</kbd><span>Open radio provider</span></div>
         <div class="key-row"><kbd>S</kbd><span>Open Spotify provider</span></div>
         <div class="key-row"><kbd>P</kbd><span>Open Plex provider</span></div>
@@ -1336,13 +1300,15 @@
   </div>
 </section>
 
+<div class="ascii-div">════════════════════════════════════════════════════════════════</div>
+
 <!-- ═══ PLUGINS ═══ -->
 <section id="plugins">
   <div class="wrap">
-    <div class="section-label"><span class="label-text">plugins.lua</span></div>
+    <div class="sh"><span class="sh-name">plugins.lua</span></div>
     <p class="plugins-intro">
       Lua 5.1 plugin system. Hook into playback events, add custom visualizers, or push data to external services.
-      Each plugin runs in an isolated sandbox &mdash; a crash in one cannot affect others or the player.
+      Each plugin runs in an isolated sandbox. A crash in one cannot affect others or the player.
       Drop a <code>.lua</code> file in <span class="path">~/.config/cliamp/plugins/</span> and restart.
     </p>
 
@@ -1430,7 +1396,7 @@ p:<span class="fn">on</span>(<span class="str">"track.change"</span>, <span clas
       </div>
       <div class="plugin-api">
         <div class="plugin-api-name">http</div>
-        <p>HTTP client with <code>get()</code> and <code>post()</code> &mdash; JSON, form body, custom headers. 5s timeout</p>
+        <p>HTTP client with <code>get()</code> and <code>post()</code>. JSON, form body, custom headers. 5s timeout</p>
       </div>
       <div class="plugin-api">
         <div class="plugin-api-name">fs</div>
@@ -1461,13 +1427,22 @@ p:<span class="fn">on</span>(<span class="str">"track.change"</span>, <span clas
         <p>Read per-plugin values from <code>[plugins.name]</code> in config.toml via <code>p:config(key)</code></p>
       </div>
     </div>
+
+    <div class="community-plugins-title">Community Plugins</div>
+    <div class="community-plugin">
+      <div class="community-plugin-name"><a href="https://github.com/tetsuo76/cliamp-lastfm">cliamp-lastfm</a></div>
+      <div class="community-plugin-desc">Last.fm scrobbling</div>
+      <div class="community-plugin-author"><a href="https://github.com/tetsuo76">@tetsuo76</a></div>
+    </div>
   </div>
 </section>
+
+<div class="ascii-div">════════════════════════════════════════════════════════════════</div>
 
 <!-- ═══ RADIO STATS ═══ -->
 <section id="radio" class="radio-stats">
   <div class="wrap">
-    <div class="section-label"><span class="label-text">radio.stats</span></div>
+    <div class="sh"><span class="sh-name">radio.stats</span></div>
     <div class="radio-header">
       <div class="radio-tabs" id="radio-stat-tabs">
         <button class="radio-tab active" data-station="total" onclick="switchStatTab('total')">Total</button>
@@ -1480,15 +1455,15 @@ p:<span class="fn">on</span>(<span class="str">"track.change"</span>, <span clas
     <div id="radio-error"></div>
     <div class="radio-stats-row">
       <div class="radio-stat">
-        <div class="radio-stat-value"><span class="radio-stat-dot"></span><span id="radio-now">&mdash;</span></div>
+        <div class="radio-stat-value"><span class="radio-stat-dot"></span><span id="radio-now">-</span></div>
         <div class="radio-stat-label">listening now</div>
       </div>
       <div class="radio-stat">
-        <div class="radio-stat-value" id="radio-sessions">&mdash;</div>
+        <div class="radio-stat-value" id="radio-sessions">-</div>
         <div class="radio-stat-label">total sessions</div>
       </div>
       <div class="radio-stat">
-        <div class="radio-stat-value" id="radio-hours">&mdash;</div>
+        <div class="radio-stat-value" id="radio-hours">-</div>
         <div class="radio-stat-label">listen hours</div>
       </div>
     </div>
@@ -1508,27 +1483,24 @@ p:<span class="fn">on</span>(<span class="str">"track.change"</span>, <span clas
       <div class="radio-card-title">Top Countries</div>
       <div class="radio-countries" id="radio-total-countries"></div>
     </div>
-    <div class="install-box" id="radio-cmd-box" onclick="copyCmd(this,'cliamp https://radio.cliamp.stream/lofi/stream.pls')" style="margin-top:28px;display:none">
+    <div class="install-box" id="radio-cmd-box" onclick="copyCmd(this,'cliamp https://radio.cliamp.stream/lofi/stream.pls')" style="margin-top:24px;display:none">
       <span class="copied-msg">COPIED</span>
       <code><span class="prompt">$ </span><span id="radio-cmd-text">cliamp https://radio.cliamp.stream/lofi/stream.pls</span></code>
     </div>
   </div>
 </section>
 
+<div class="ascii-div">════════════════════════════════════════════════════════════════</div>
+
 <!-- ═══ FOOTER ═══ -->
 <footer>
-  <div class="footer-viz">
-    <span></span><span></span><span></span><span></span><span></span>
-    <span></span><span></span><span></span><span></span><span></span>
-    <span></span><span></span><span></span><span></span><span></span>
-    <span></span><span></span><span></span><span></span><span></span>
-  </div>
+  <div class="footer-ascii">░▒▓█▓▒░ ░▒▓█▓▒░ ░▒▓█▓▒░ ░▒▓█▓▒░ ░▒▓█▓▒░</div>
   <div class="footer-links">
     <a href="https://github.com/bjarneo/cliamp" class="footer-link">
       <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
       GitHub
     </a>
-    <span class="footer-sep">&middot;</span>
+    <span class="footer-sep">|</span>
     <a href="https://x.com/iamdothash" class="footer-link">
       <svg viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
       @iamdothash
@@ -1537,9 +1509,8 @@ p:<span class="fn">on</span>(<span class="str">"track.change"</span>, <span clas
   <div class="footer-note">BUILT FOR THE TERMINAL</div>
 </footer>
 
-</div><!-- /.terminal-window -->
-
 <script>
+/* ── Copy to clipboard ── */
 function copyCmd(el,cmd){
   navigator.clipboard.writeText(cmd).then(function(){
     var m=el.querySelector('.copied-msg');
@@ -1553,6 +1524,46 @@ function toggleSound(btn){
   vid.muted=!vid.muted;
   btn.classList.toggle('unmuted',!vid.muted);
 }
+
+/* ── ASCII Visualizer ── */
+(function(){
+  var viz=document.getElementById('ascii-viz');
+  if(!viz)return;
+  var cols=36;
+  var rows=5;
+  var heights=[];
+  var targets=[];
+  var speeds=[];
+  for(var i=0;i<cols;i++){
+    heights.push(Math.random()*rows);
+    targets.push(Math.random()*rows);
+    speeds.push(0.03+Math.random()*0.06);
+  }
+  function tick(){
+    for(var i=0;i<cols;i++){
+      heights[i]+=(targets[i]-heights[i])*speeds[i];
+      if(Math.abs(heights[i]-targets[i])<0.15){
+        targets[i]=Math.random()*rows;
+      }
+    }
+    var lines=[];
+    for(var r=rows;r>=1;r--){
+      var line='';
+      for(var c=0;c<cols;c++){
+        var h=heights[c];
+        if(h>=r) line+='\u2588';
+        else if(h>=r-0.25) line+='\u2593';
+        else if(h>=r-0.5) line+='\u2592';
+        else if(h>=r-0.75) line+='\u2591';
+        else line+=' ';
+      }
+      lines.push(line);
+    }
+    viz.textContent=lines.join('\n');
+    requestAnimationFrame(tick);
+  }
+  tick();
+})();
 
 /* ── Radio Player ── */
 var currentChannel='lofi';
@@ -1623,14 +1634,14 @@ function switchStatTab(ch){
 }
 
 var countryFlags={
-  AF:"🇦🇫",AL:"🇦🇱",DZ:"🇩🇿",AR:"🇦🇷",AU:"🇦🇺",AT:"🇦🇹",BE:"🇧🇪",BR:"🇧🇷",
-  BG:"🇧🇬",CA:"🇨🇦",CL:"🇨🇱",CN:"🇨🇳",CO:"🇨🇴",HR:"🇭🇷",CZ:"🇨🇿",DK:"🇩🇰",
-  EG:"🇪🇬",EE:"🇪🇪",FI:"🇫🇮",FR:"🇫🇷",DE:"🇩🇪",GR:"🇬🇷",HK:"🇭🇰",HU:"🇭🇺",
-  IN:"🇮🇳",ID:"🇮🇩",IE:"🇮🇪",IL:"🇮🇱",IT:"🇮🇹",JP:"🇯🇵",KR:"🇰🇷",LV:"🇱🇻",
-  LT:"🇱🇹",MY:"🇲🇾",MX:"🇲🇽",NL:"🇳🇱",NZ:"🇳🇿",NO:"🇳🇴",PK:"🇵🇰",PE:"🇵🇪",
-  PH:"🇵🇭",PL:"🇵🇱",PT:"🇵🇹",RO:"🇷🇴",RU:"🇷🇺",SA:"🇸🇦",RS:"🇷🇸",SG:"🇸🇬",
-  SK:"🇸🇰",SI:"🇸🇮",ZA:"🇿🇦",ES:"🇪🇸",SE:"🇸🇪",CH:"🇨🇭",TW:"🇹🇼",TH:"🇹🇭",
-  TR:"🇹🇷",UA:"🇺🇦",AE:"🇦🇪",GB:"🇬🇧",US:"🇺🇸",VN:"🇻🇳",BD:"🇧🇩",NG:"🇳🇬"
+  AF:"\uD83C\uDDE6\uD83C\uDDEB",AL:"\uD83C\uDDE6\uD83C\uDDF1",DZ:"\uD83C\uDDE9\uD83C\uDDFF",AR:"\uD83C\uDDE6\uD83C\uDDF7",AU:"\uD83C\uDDE6\uD83C\uDDFA",AT:"\uD83C\uDDE6\uD83C\uDDF9",BE:"\uD83C\uDDE7\uD83C\uDDEA",BR:"\uD83C\uDDE7\uD83C\uDDF7",
+  BG:"\uD83C\uDDE7\uD83C\uDDEC",CA:"\uD83C\uDDE8\uD83C\uDDE6",CL:"\uD83C\uDDE8\uD83C\uDDF1",CN:"\uD83C\uDDE8\uD83C\uDDF3",CO:"\uD83C\uDDE8\uD83C\uDDF4",HR:"\uD83C\uDDED\uD83C\uDDF7",CZ:"\uD83C\uDDE8\uD83C\uDDFF",DK:"\uD83C\uDDE9\uD83C\uDDF0",
+  EG:"\uD83C\uDDEA\uD83C\uDDEC",EE:"\uD83C\uDDEA\uD83C\uDDEA",FI:"\uD83C\uDDEB\uD83C\uDDEE",FR:"\uD83C\uDDEB\uD83C\uDDF7",DE:"\uD83C\uDDE9\uD83C\uDDEA",GR:"\uD83C\uDDEC\uD83C\uDDF7",HK:"\uD83C\uDDED\uD83C\uDDF0",HU:"\uD83C\uDDED\uD83C\uDDFA",
+  IN:"\uD83C\uDDEE\uD83C\uDDF3",ID:"\uD83C\uDDEE\uD83C\uDDE9",IE:"\uD83C\uDDEE\uD83C\uDDEA",IL:"\uD83C\uDDEE\uD83C\uDDF1",IT:"\uD83C\uDDEE\uD83C\uDDF9",JP:"\uD83C\uDDEF\uD83C\uDDF5",KR:"\uD83C\uDDF0\uD83C\uDDF7",LV:"\uD83C\uDDF1\uD83C\uDDFB",
+  LT:"\uD83C\uDDF1\uD83C\uDDF9",MY:"\uD83C\uDDF2\uD83C\uDDFE",MX:"\uD83C\uDDF2\uD83C\uDDFD",NL:"\uD83C\uDDF3\uD83C\uDDF1",NZ:"\uD83C\uDDF3\uD83C\uDDFF",NO:"\uD83C\uDDF3\uD83C\uDDF4",PK:"\uD83C\uDDF5\uD83C\uDDF0",PE:"\uD83C\uDDF5\uD83C\uDDEA",
+  PH:"\uD83C\uDDF5\uD83C\uDDED",PL:"\uD83C\uDDF5\uD83C\uDDF1",PT:"\uD83C\uDDF5\uD83C\uDDF9",RO:"\uD83C\uDDF7\uD83C\uDDF4",RU:"\uD83C\uDDF7\uD83C\uDDFA",SA:"\uD83C\uDDF8\uD83C\uDDE6",RS:"\uD83C\uDDF7\uD83C\uDDF8",SG:"\uD83C\uDDF8\uD83C\uDDEC",
+  SK:"\uD83C\uDDF8\uD83C\uDDF0",SI:"\uD83C\uDDF8\uD83C\uDDEE",ZA:"\uD83C\uDDFF\uD83C\uDDE6",ES:"\uD83C\uDDEA\uD83C\uDDF8",SE:"\uD83C\uDDF8\uD83C\uDDEA",CH:"\uD83C\uDDE8\uD83C\uDDED",TW:"\uD83C\uDDF9\uD83C\uDDFC",TH:"\uD83C\uDDF9\uD83C\uDDED",
+  TR:"\uD83C\uDDF9\uD83C\uDDF7",UA:"\uD83C\uDDFA\uD83C\uDDE6",AE:"\uD83C\uDDE6\uD83C\uDDEA",GB:"\uD83C\uDDEC\uD83C\uDDE7",US:"\uD83C\uDDFA\uD83C\uDDF8",VN:"\uD83C\uDDFB\uD83C\uDDF3",BD:"\uD83C\uDDE7\uD83C\uDDE9",NG:"\uD83C\uDDF3\uD83C\uDDEC"
 };
 
 function formatDate(iso){
@@ -1674,31 +1685,30 @@ function renderStationStats(data,stationKey){
     if(!station) station={total_sessions:0,total_listen_hours:0,active_listeners:0,top_countries:[],active_listener_countries:[],daily:[]};
   }
 
-  /* big numbers */
   document.getElementById("radio-now").textContent=station.active_listeners;
   document.getElementById("radio-sessions").textContent=station.total_sessions.toLocaleString();
   document.getElementById("radio-hours").textContent=station.total_listen_hours.toFixed(1);
 
-  /* daily chart */
   var daily=station.daily||[];
   var chart=document.getElementById("radio-chart");
   var labels=document.getElementById("radio-chart-labels");
   chart.textContent="";
   labels.textContent="";
 
-  var barColors={total:"linear-gradient(to top,#b0b8c8,rgba(176,184,200,.4))",edm:"linear-gradient(to top,#66ccff,rgba(102,204,255,.4))",lofi:"linear-gradient(to top,#ffcc66,rgba(255,204,102,.4))",synthwave:"linear-gradient(to top,#ff66cc,rgba(255,102,204,.4))"};
+  var barColors={total:"var(--fg)",edm:"var(--cyan)",lofi:"var(--amber)",synthwave:"#ff66cc"};
 
   if(daily.length>0){
-    var maxSessions=Math.max.apply(null,daily.map(function(d){return d.sessions}))||1;
+    var maxHours=Math.max.apply(null,daily.map(function(d){return d.listen_hours}))||1;
     daily.forEach(function(d){
-      var pct=Math.max((d.sessions/maxSessions)*100,4);
+      var pct=Math.max((d.listen_hours/maxHours)*100,3);
       var bar=document.createElement("div");
       bar.className="radio-chart-bar";
       bar.style.height=pct+"%";
       bar.style.background=barColors[stationKey]||barColors.lofi;
+      bar.style.opacity="0.7";
       var tip=document.createElement("div");
       tip.className="tooltip";
-      tip.textContent=d.date+" \u2014 "+d.sessions+" sessions \u00B7 "+d.listen_hours.toFixed(1)+"h";
+      tip.textContent=d.date+" - "+d.listen_hours.toFixed(1)+"h, "+d.sessions+" sessions";
       bar.appendChild(tip);
       chart.appendChild(bar);
     });
@@ -1710,7 +1720,6 @@ function renderStationStats(data,stationKey){
     labels.appendChild(lEnd);
   }
 
-  /* active listener countries */
   var activeCountries=station.active_listener_countries||[];
   var cEl=document.getElementById("radio-countries");
   cEl.textContent="";
@@ -1730,7 +1739,6 @@ function renderStationStats(data,stationKey){
     cEl.appendChild(div);
   });
 
-  /* total sessions per country */
   var totalCountries=station.top_countries||[];
   var tEl=document.getElementById("radio-total-countries");
   tEl.textContent="";
@@ -1750,7 +1758,6 @@ function renderStationStats(data,stationKey){
     tEl.appendChild(div);
   });
 
-  /* globe — only init once */
   if(!window._globeInitialized){
     window._radioCountries=activeCountries;
     initGlobe(activeCountries);
@@ -1776,7 +1783,7 @@ function renderRadioStats(){
     });
 }
 
-/* ── Country → lat/lng for globe markers ── */
+/* ── Country coords for globe ── */
 var countryCoords={
   US:[37.09,-95.71],BR:[-14.24,-51.93],GB:[55.38,-3.44],DE:[51.17,10.45],
   NO:[60.47,8.47],FR:[46.23,2.21],CZ:[49.82,15.47],MX:[23.63,-102.55],
@@ -1795,18 +1802,16 @@ var countryCoords={
   HK:[22.40,114.11],NZ:[-40.90,174.89],PK:[30.38,69.35],BD:[23.68,90.36]
 };
 
-/* ── Pure Canvas 2D globe with country outlines ── */
+/* ── Canvas globe with land outlines ── */
 var _globeAnim=null;
 var _globeResizeTimer=null;
 var _landPolygons=null;
 
-/* Minimal TopoJSON decoder — extracts rings from a topology object */
 function topoToPolygons(topo,objectName){
   var obj=topo.objects[objectName];
   var arcs=topo.arcs;
   var tf=topo.transform;
   var polys=[];
-
   function decodeArc(arcIdx){
     var reverse=arcIdx<0;
     var idx=reverse?~arcIdx:arcIdx;
@@ -1814,22 +1819,20 @@ function topoToPolygons(topo,objectName){
     var coords=[];
     var x=0,y=0;
     for(var i=0;i<arc.length;i++){
-      x+=arc[i][0]; y+=arc[i][1];
-      coords.push([tf.scale[0]*x+tf.translate[0], tf.scale[1]*y+tf.translate[1]]);
+      x+=arc[i][0];y+=arc[i][1];
+      coords.push([tf.scale[0]*x+tf.translate[0],tf.scale[1]*y+tf.translate[1]]);
     }
     if(reverse)coords.reverse();
     return coords;
   }
-
   function ringFromArcs(arcRefs){
     var pts=[];
     for(var i=0;i<arcRefs.length;i++){
       var c=decodeArc(arcRefs[i]);
-      for(var j=(i>0?1:0);j<c.length;j++) pts.push(c[j]);
+      for(var j=(i>0?1:0);j<c.length;j++)pts.push(c[j]);
     }
     return pts;
   }
-
   function extract(geom){
     if(geom.type==="GeometryCollection"){
       geom.geometries.forEach(extract);
@@ -1845,7 +1848,6 @@ function topoToPolygons(topo,objectName){
   return polys;
 }
 
-/* Load land polygons once */
 function loadLand(cb){
   if(_landPolygons)return cb(_landPolygons);
   fetch("https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json")
@@ -1862,10 +1864,9 @@ function initGlobe(countries){
   if(!canvas)return;
   var ctx=canvas.getContext("2d");
   if(!ctx)return;
-
   if(_globeAnim){cancelAnimationFrame(_globeAnim);_globeAnim=null;}
 
-  var size=canvas.offsetWidth||320;
+  var size=canvas.offsetWidth||300;
   if(size<10)return;
   var dpr=Math.min(window.devicePixelRatio||1,2);
   if(size<200)dpr=1;
@@ -1874,7 +1875,7 @@ function initGlobe(countries){
   canvas.height=buf;
 
   var R=buf*0.42;
-  var cx=buf/2, cy=buf/2;
+  var cx=buf/2,cy=buf/2;
   var tilt=0.15;
 
   var maxSessions=Math.max.apply(null,countries.map(function(c){return c.sessions}))||1;
@@ -1895,15 +1896,14 @@ function initGlobe(countries){
     var x=Math.cos(lat)*Math.sin(lng);
     var y=Math.sin(lat)*Math.cos(tilt)-Math.cos(lat)*Math.cos(lng)*Math.sin(tilt);
     var z=Math.sin(lat)*Math.sin(tilt)+Math.cos(lat)*Math.cos(lng)*Math.cos(tilt);
-    return {x:cx+x*R, y:cy-y*R, z:z};
+    return{x:cx+x*R,y:cy-y*R,z:z};
   }
-
   function projectRad(lat,lng){
     var l=lng+rotation;
     var x=Math.cos(lat)*Math.sin(l);
     var y=Math.sin(lat)*Math.cos(tilt)-Math.cos(lat)*Math.cos(l)*Math.sin(tilt);
     var z=Math.sin(lat)*Math.sin(tilt)+Math.cos(lat)*Math.cos(l)*Math.cos(tilt);
-    return {x:cx+x*R, y:cy-y*R, z:z};
+    return{x:cx+x*R,y:cy-y*R,z:z};
   }
 
   loadLand(function(land){
@@ -1911,8 +1911,8 @@ function initGlobe(countries){
       ctx.clearRect(0,0,buf,buf);
 
       /* Glow */
-      var glow=ctx.createRadialGradient(cx,cy,R*0.8,cx,cy,R*1.3);
-      glow.addColorStop(0,"rgba(30,50,100,0.15)");
+      var glow=ctx.createRadialGradient(cx,cy,R*0.8,cx,cy,R*1.2);
+      glow.addColorStop(0,"rgba(0,255,65,0.04)");
       glow.addColorStop(1,"rgba(0,0,0,0)");
       ctx.fillStyle=glow;
       ctx.fillRect(0,0,buf,buf);
@@ -1920,19 +1920,18 @@ function initGlobe(countries){
       /* Ocean */
       ctx.beginPath();
       ctx.arc(cx,cy,R,0,Math.PI*2);
-      ctx.fillStyle="rgba(8,10,25,0.9)";
+      ctx.fillStyle="rgba(6,6,8,0.95)";
       ctx.fill();
-      ctx.strokeStyle="rgba(40,55,100,0.3)";
+      ctx.strokeStyle="rgba(0,255,65,0.15)";
       ctx.lineWidth=1*dpr;
       ctx.stroke();
 
-      /* Clip to globe circle */
       ctx.save();
       ctx.beginPath();
       ctx.arc(cx,cy,R,0,Math.PI*2);
       ctx.clip();
 
-      /* Draw land polygons */
+      /* Land */
       for(var i=0;i<land.length;i++){
         var ring=land[i];
         var visible=false;
@@ -1945,44 +1944,41 @@ function initGlobe(countries){
         }
         ctx.closePath();
         if(visible){
-          ctx.fillStyle="rgba(30,45,80,0.7)";
+          ctx.fillStyle="rgba(0,255,65,0.08)";
           ctx.fill();
-          ctx.strokeStyle="rgba(60,80,130,0.4)";
+          ctx.strokeStyle="rgba(0,255,65,0.2)";
           ctx.lineWidth=0.5*dpr;
           ctx.stroke();
         }
       }
-
       ctx.restore();
 
-      /* Country markers */
+      /* Markers */
       for(var j=0;j<markers.length;j++){
         var m=markers[j];
         var p=projectRad(m.lat,m.lng);
         if(p.z<0)continue;
-        var alpha=0.4+0.6*p.z;
+        var alpha=0.3+0.7*p.z;
 
         ctx.beginPath();
         ctx.arc(p.x,p.y,m.size*2,0,Math.PI*2);
-        ctx.fillStyle="rgba(100,200,255,"+alpha*0.15+")";
+        ctx.fillStyle="rgba(0,255,65,"+alpha*0.12+")";
         ctx.fill();
 
         ctx.beginPath();
         ctx.arc(p.x,p.y,m.size,0,Math.PI*2);
-        ctx.fillStyle="rgba(115,210,255,"+alpha+")";
+        ctx.fillStyle="rgba(0,255,65,"+alpha+")";
         ctx.fill();
       }
 
       rotation+=0.003;
       _globeAnim=requestAnimationFrame(draw);
     }
-
     draw();
     canvas.classList.add("loaded");
   });
 }
 
-/* Re-create globe on resize */
 window.addEventListener("resize",function(){
   clearTimeout(_globeResizeTimer);
   _globeResizeTimer=setTimeout(function(){
@@ -1991,7 +1987,7 @@ window.addEventListener("resize",function(){
 });
 
 renderRadioStats();
-setInterval(renderRadioStats, 10000);
+setInterval(renderRadioStats,10000);
 </script>
 
 </body>

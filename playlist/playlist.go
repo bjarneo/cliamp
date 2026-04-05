@@ -42,6 +42,7 @@ type Track struct {
 	Realtime     bool // true for real-time/live streams (e.g. radio)
 	Feed         bool // true for RSS/podcast feed URLs (resolved before playback)
 	DurationSecs int  // known duration in seconds (0 = unknown)
+	Favorite     bool // user-favorited track
 
 	// ProviderMeta holds provider-specific key-value pairs.
 	// Keys are namespaced by provider, e.g. "navidrome.id", "jellyfin.id".
@@ -557,6 +558,24 @@ func (p *Playlist) SetTrack(i int, t Track) {
 // Tracks returns all tracks in the playlist.
 func (p *Playlist) Tracks() []Track { return p.tracks }
 
+// ToggleFavorite flips the Favorite flag on the track at the given index.
+func (p *Playlist) ToggleFavorite(idx int) {
+	if idx >= 0 && idx < len(p.tracks) {
+		p.tracks[idx].Favorite = !p.tracks[idx].Favorite
+	}
+}
+
+// FavoriteCount returns the number of favorited tracks.
+func (p *Playlist) FavoriteCount() int {
+	n := 0
+	for _, t := range p.tracks {
+		if t.Favorite {
+			n++
+		}
+	}
+	return n
+}
+
 // ToggleShuffle enables or disables shuffle mode.
 // Uses Fisher-Yates shuffle, preserving the current track at position 0.
 func (p *Playlist) ToggleShuffle() {
@@ -597,6 +616,11 @@ func (p *Playlist) doShuffle() {
 // CycleRepeat cycles through Off -> All -> One.
 func (p *Playlist) CycleRepeat() {
 	p.repeat = (p.repeat + 1) % 3
+}
+
+// SetRepeat sets the repeat mode directly.
+func (p *Playlist) SetRepeat(mode RepeatMode) {
+	p.repeat = mode
 }
 
 // Shuffled returns whether shuffle is enabled.

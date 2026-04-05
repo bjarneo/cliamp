@@ -170,21 +170,37 @@ jobs:
       - name: Generate changelog
         env:
           REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
 
           PREV_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
 
+          CHANGELOG=""
+
           if [ -z "$PREV_TAG" ]; then
-            COMMITS=$(git log --pretty=format:"- %s (%h)" "$TAG")
+            RANGE="$TAG"
           else
-            COMMITS=$(git log --pretty=format:"- %s (%h)" "${PREV_TAG}..${TAG}")
+            RANGE="${PREV_TAG}..${TAG}"
           fi
+
+          while IFS='|' read -r hash title author || [ -n "$hash" ]; do
+            short_hash="${hash:0:7}"
+            username=$(gh api "repos/${REPO}/commits/$hash" --jq '.author.login' 2>/dev/null || echo "")
+
+            if [ -n "$username" ]; then
+              author_info="$author ([@$username](https://github.com/$username))"
+            else
+              author_info="$author"
+            fi
+
+            CHANGELOG="${CHANGELOG}- $title by $author_info ([\`$short_hash\`](https://github.com/${REPO}/commit/$hash))"$'\n'
+          done < <(git log "$RANGE" --pretty=format:"%H|%s|%an")
 
           {
             echo "## What's Changed"
             echo ""
-            echo "$COMMITS"
+            echo "$CHANGELOG"
             echo ""
             echo "## Checksums (SHA256)"
             echo ""

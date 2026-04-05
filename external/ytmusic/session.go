@@ -249,4 +249,3 @@ func saveCreds(creds *storedCreds) error {
 	}
 	return os.WriteFile(path, data, 0o600)
 }
-

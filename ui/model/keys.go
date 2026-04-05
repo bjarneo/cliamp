@@ -8,10 +8,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
 
-	"cliamp/config"
 	"cliamp/internal/fileutil"
 	"cliamp/playlist"
 	"cliamp/provider"
@@ -30,6 +28,7 @@ func (m *Model) quit() tea.Cmd {
 		if secs := int(m.player.Position().Seconds()); secs > 0 {
 			m.exitResume.path = track.Path
 			m.exitResume.secs = secs
+			m.exitResume.playlist = m.loadedPlaylist
 		}
 	}
 
@@ -46,7 +45,7 @@ func (m *Model) scrobbleCurrent() {
 	}
 }
 
-func (m *Model) handleSpeedKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleSpeedKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m.quit()
@@ -55,21 +54,135 @@ func (m *Model) handleSpeedKey(msg tea.KeyMsg) tea.Cmd {
 	case "[", "left", "h", "down", "j":
 		m.changeSpeed(-0.25)
 	case "tab":
+		m.focus = focusPlaylist
+	case "esc", "backspace":
 		if len(m.providers) > 1 {
 			m.focus = focusProvPill
 		} else {
-			m.focus = focusPlaylist
+			m.focus = focusEQ
 		}
-	case "esc", "backspace":
-		m.focus = focusEQ
-	case " ":
+	case "space":
 		return m.togglePlayPause()
 	}
 	return nil
 }
 
+func (m *Model) providerScrollStep() int {
+	return max(1, m.effectivePlaylistVisible())
+}
+
+func (m *Model) providerMaybeAdjustScroll() {
+	visible := m.providerScrollStep()
+	total := len(m.providerLists)
+	if total == 0 {
+		m.provScroll = 0
+		return
+	}
+
+	if m.provCursor < m.provScroll {
+		m.provScroll = m.provCursor
+	}
+
+	// Sectioned providers (e.g. radio) render extra header rows, so
+	// cursor visibility must be computed in rendered rows, not item count.
+	if sl, ok := m.provider.(provider.SectionedList); ok {
+		if m.provScroll >= total {
+			m.provScroll = max(0, total-1)
+		}
+
+		// Only push down when needed to keep the cursor visible.
+		// Do not "pull up" aggressively, which can make paging feel jumpy
+		// and keep the cursor stuck near the bottom of the viewport.
+		for m.provScroll < total && m.providerRowsFromScroll(sl, m.provScroll, m.provCursor) > visible {
+			m.provScroll++
+		}
+		return
+	}
+
+	// Non-sectioned providers: regular item-count based scrolling.
+	if m.provCursor >= m.provScroll+visible {
+		m.provScroll = m.provCursor - visible + 1
+	}
+	if m.provScroll+visible > total {
+		m.provScroll = max(0, total-visible)
+	}
+}
+
+func (m *Model) providerRowsFromScroll(sl provider.SectionedList, scroll, cursor int) int {
+	total := len(m.providerLists)
+	if total == 0 || cursor < scroll || scroll < 0 || cursor >= total {
+		return 0
+	}
+
+	rows := 0
+	prevPrefix := ""
+	if scroll > 0 {
+		prevPrefix = sl.IDPrefix(m.providerLists[scroll-1].ID)
+	}
+
+	for i := scroll; i <= cursor && i < total; i++ {
+		pfx := sl.IDPrefix(m.providerLists[i].ID)
+		if pfx != prevPrefix {
+			rows++ // section header row
+		}
+		rows++ // item row
+		prevPrefix = pfx
+	}
+	return rows
+}
+
+func (m *Model) providerMoveUp() {
+	if m.provCursor > 0 {
+		m.provCursor--
+	} else if len(m.providerLists) > 0 {
+		m.provCursor = len(m.providerLists) - 1
+	}
+	m.providerMaybeAdjustScroll()
+}
+
+func (m *Model) providerMoveDown() {
+	if m.provCursor < len(m.providerLists)-1 {
+		m.provCursor++
+	} else if len(m.providerLists) > 0 {
+		m.provCursor = 0
+	}
+	m.providerMaybeAdjustScroll()
+}
+
+func (m *Model) providerPageUp() {
+	step := m.providerScrollStep()
+	if m.provCursor > 0 {
+		m.provCursor -= min(m.provCursor, step)
+	}
+	// Top-anchor behavior: place cursor at top of viewport when paging up.
+	m.provScroll = m.provCursor
+	m.providerMaybeAdjustScroll()
+}
+
+func (m *Model) providerPageDown() {
+	step := m.providerScrollStep()
+	if m.provCursor < len(m.providerLists)-1 {
+		m.provCursor = min(len(m.providerLists)-1, m.provCursor+step)
+	}
+	// Bottom-anchor behavior: bias viewport so cursor lands near bottom when paging down.
+	m.provScroll = max(0, m.provCursor-step+1)
+	m.providerMaybeAdjustScroll()
+}
+
+func (m *Model) providerToTop() {
+	m.provCursor = 0
+	m.providerMaybeAdjustScroll()
+}
+
+func (m *Model) providerToBottom() {
+	if len(m.providerLists) > 0 {
+		m.provCursor = len(m.providerLists) - 1
+	}
+	m.providerMaybeAdjustScroll()
+}
+
 // handleKey processes a single key press and returns an optional command.
-func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	if m.keymap.visible {
 		return m.handleKeymapKey(msg)
 	}
@@ -169,19 +282,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		case "q", "ctrl+c":
 			return m.quit()
 		case "up", "k":
-			if m.provCursor > 0 {
-				m.provCursor--
-			} else if len(m.providerLists) > 0 {
-				m.provCursor = len(m.providerLists) - 1
-			}
-		case " ":
+			m.providerMoveUp()
+		case "space":
 			return m.togglePlayPause()
 		case "down", "j":
-			if m.provCursor < len(m.providerLists)-1 {
-				m.provCursor++
-			} else if len(m.providerLists) > 0 {
-				m.provCursor = 0
-			}
+			m.providerMoveDown()
 			// Auto-load next catalog page when scrolling near the bottom.
 			return m.maybeLoadCatalogBatch()
 		case "enter":
@@ -221,26 +326,20 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 				m.openNavBrowserWith(prov)
 			}
 		case "pgup", "ctrl+u":
-			if m.provCursor > 0 {
-				m.provCursor -= min(m.provCursor, m.plVisible)
-			}
+			m.providerPageUp()
 		case "pgdown", "ctrl+d":
-			if m.provCursor < len(m.providerLists)-1 {
-				m.provCursor = min(len(m.providerLists)-1, m.provCursor+m.plVisible)
-			}
+			m.providerPageDown()
 			return m.maybeLoadCatalogBatch()
 		case "g", "home":
-			m.provCursor = 0
+			m.providerToTop()
 		case "G", "end":
-			if len(m.providerLists) > 0 {
-				m.provCursor = len(m.providerLists) - 1
-			}
+			m.providerToBottom()
 			return m.maybeLoadCatalogBatch()
 		case "ctrl+j":
 			m.openJumpMode()
 		case "J":
 			return m.switchToProvider("jellyfin")
-		case "x":
+		case "ctrl+x":
 			m.toggleExpandPlaylist()
 		}
 		return nil
@@ -265,10 +364,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		case "enter":
 			return m.switchProvider(m.provPillIdx)
 		case "tab":
-			m.focus = focusPlaylist
-		case "esc", "backspace":
 			m.focus = focusSpeed
-		case " ":
+		case "esc", "backspace":
+			m.focus = focusEQ
+		case "space":
 			return m.togglePlayPause()
 		}
 		return nil
@@ -281,12 +380,13 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		if m.fullVis {
 			m.fullVis = false
 			m.vis.Rows = ui.DefaultVisRows
+			m.restorePanelWidth()
 		} else if m.focus == focusPlaylist {
-			m.plVisible = m.defaultPlVisible()
+			// Keep current expanded/collapsed height mode when switching focus.
 			m.focus = focusProvider
 		}
 
-	case " ":
+	case "space":
 		cmd := m.togglePlayPause()
 		m.notifyPlayback()
 		return cmd
@@ -313,11 +413,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 				m.eqCursor--
 			}
 		} else {
-			m.doSeek(-5 * time.Second)
+			return m.doSeek(-5 * time.Second)
 		}
 
 	case "shift+left":
-		m.doSeek(-m.seekStepLarge)
+		return m.doSeek(-m.seekStepLarge)
 
 	case "right":
 		if m.focus == focusEQ {
@@ -325,11 +425,27 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 				m.eqCursor++
 			}
 		} else {
-			m.doSeek(5 * time.Second)
+			return m.doSeek(5 * time.Second)
 		}
 
 	case "shift+right":
-		m.doSeek(m.seekStepLarge)
+		return m.doSeek(m.seekStepLarge)
+
+	case "*":
+		if m.focus == focusPlaylist && m.plCursor >= 0 && m.plCursor < m.playlist.Len() && m.loadedPlaylist != "" {
+			if fs, ok := m.localProvider.(provider.FavoriteSetter); ok {
+				m.playlist.ToggleFavorite(m.plCursor)
+				if err := fs.SetFavorite(m.loadedPlaylist, m.plCursor); err != nil {
+					m.status.Showf(statusTTLDefault, "Save failed: %s", err)
+				}
+				t := m.playlist.Tracks()[m.plCursor]
+				if t.Favorite {
+					m.status.Showf(statusTTLDefault, "★ %s", t.DisplayName())
+				} else {
+					m.status.Showf(statusTTLDefault, "☆ %s", t.DisplayName())
+				}
+			}
+		}
 
 	case "shift+up":
 		if m.focus == focusPlaylist && m.plCursor > 0 {
@@ -430,7 +546,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "r":
 		m.playlist.CycleRepeat()
-		if err := config.Save("repeat", fmt.Sprintf("%q", m.playlist.Repeat().String())); err != nil {
+		if err := m.configSaver.Save("repeat", fmt.Sprintf("%q", m.playlist.Repeat().String())); err != nil {
 			m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
 		}
 		m.player.ClearPreload()
@@ -438,7 +554,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "z":
 		m.playlist.ToggleShuffle()
-		if err := config.Save("shuffle", fmt.Sprintf("%v", m.playlist.Shuffled())); err != nil {
+		if err := m.configSaver.Save("shuffle", fmt.Sprintf("%v", m.playlist.Shuffled())); err != nil {
 			m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
 		}
 		m.player.ClearPreload()
@@ -449,13 +565,15 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		case focusPlaylist:
 			m.focus = focusEQ
 		case focusEQ:
-			m.focus = focusSpeed
-		case focusSpeed:
 			if len(m.providers) > 1 {
 				m.focus = focusProvPill
 			} else {
-				m.focus = focusPlaylist
+				m.focus = focusSpeed
 			}
+		case focusProvPill:
+			m.focus = focusSpeed
+		case focusSpeed:
+			m.focus = focusPlaylist
 		default:
 			m.focus = focusPlaylist
 		}
@@ -569,6 +687,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 			m.openNavBrowserWith(prov)
 		}
 
+	case "L":
+		return m.switchToProvider("local")
 	case "R":
 		return m.switchToProvider("radio")
 	case "P":
@@ -578,7 +698,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "v":
 		m.vis.CycleMode()
-		if err := config.Save("visualizer", fmt.Sprintf("%q", m.vis.ModeName())); err != nil {
+		m.applyHeightMode()
+		m.adjustScroll()
+		if err := m.configSaver.Save("visualizer", fmt.Sprintf("%q", m.vis.ModeName())); err != nil {
 			m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
 		}
 
@@ -586,11 +708,13 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		m.fullVis = !m.fullVis
 		if m.fullVis {
 			m.vis.Rows = max(ui.DefaultVisRows, (m.height-10)*4/5)
+			ui.PanelWidth = max(0, m.width-2*ui.PaddingH)
 		} else {
 			m.vis.Rows = ui.DefaultVisRows
+			m.restorePanelWidth()
 		}
 
-	case "x":
+	case "ctrl+x":
 		if m.focus == focusPlaylist {
 			m.toggleExpandPlaylist()
 		}
@@ -690,14 +814,14 @@ func (m *Model) closeJumpMode() {
 }
 
 // handleJumpKey processes key presses while in jump-time mode.
-func (m *Model) handleJumpKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleJumpKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "ctrl+c":
 		m.closeJumpMode()
 		return m.quit()
 	}
 
-	switch msg.Type {
+	switch msg.Code {
 	case tea.KeyEscape:
 		m.closeJumpMode()
 		return nil
@@ -723,8 +847,8 @@ func (m *Model) handleJumpKey(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
-	if msg.Type == tea.KeyRunes {
-		m.jumpInput += string(msg.Runes)
+	if len(msg.Text) > 0 {
+		m.jumpInput += msg.Text
 	}
 	return nil
 }
@@ -732,18 +856,19 @@ func (m *Model) handleJumpKey(msg tea.KeyMsg) tea.Cmd {
 // handleProvSearchKey processes key presses while filtering the provider playlist list.
 // For the radio provider, Enter fires an API search; for others, Enter loads the
 // selected result. Esc cancels and restores the normal catalog view.
-func (m *Model) handleProvSearchKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleProvSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 	// Catalog search: API-based search (no live client-side filtering).
 	if cs, ok := m.provider.(provider.CatalogSearcher); ok {
 		return m.handleCatalogSearchKey(msg, cs)
 	}
-	switch msg.Type {
+	switch msg.Code {
 	case tea.KeyEscape:
 		m.provSearch.active = false
 	case tea.KeyEnter:
 		if len(m.provSearch.results) > 0 && !m.provLoading {
 			idx := m.provSearch.results[m.provSearch.cursor]
 			m.provCursor = idx
+			m.providerMaybeAdjustScroll()
 			m.provLoading = true
 			m.provSearch.active = false
 			return fetchTracksCmd(m.provider, m.providerLists[idx].ID)
@@ -765,8 +890,8 @@ func (m *Model) handleProvSearchKey(msg tea.KeyMsg) tea.Cmd {
 		m.provSearch.query += " "
 		m.updateProvSearch()
 	default:
-		if msg.Type == tea.KeyRunes {
-			m.provSearch.query += string(msg.Runes)
+		if len(msg.Text) > 0 {
+			m.provSearch.query += msg.Text
 			m.updateProvSearch()
 		}
 	}
@@ -775,8 +900,8 @@ func (m *Model) handleProvSearchKey(msg tea.KeyMsg) tea.Cmd {
 
 // handleCatalogSearchKey handles search input for providers with catalog search.
 // Types a query, Enter fires API search, Esc cancels/clears.
-func (m *Model) handleCatalogSearchKey(msg tea.KeyMsg, cs provider.CatalogSearcher) tea.Cmd {
-	switch msg.Type {
+func (m *Model) handleCatalogSearchKey(msg tea.KeyPressMsg, cs provider.CatalogSearcher) tea.Cmd {
+	switch msg.Code {
 	case tea.KeyEscape:
 		m.provSearch.active = false
 		m.restoreCatalog(cs)
@@ -795,8 +920,8 @@ func (m *Model) handleCatalogSearchKey(msg tea.KeyMsg, cs provider.CatalogSearch
 	case tea.KeySpace:
 		m.provSearch.query += " "
 	default:
-		if msg.Type == tea.KeyRunes {
-			m.provSearch.query += string(msg.Runes)
+		if len(msg.Text) > 0 {
+			m.provSearch.query += msg.Text
 		}
 	}
 	return nil
@@ -812,6 +937,7 @@ func (m *Model) restoreCatalog(cs provider.CatalogSearcher) {
 		m.providerLists = lists
 	}
 	m.provCursor = 0
+	m.provScroll = 0
 }
 
 func (m *Model) updateProvSearch() {
@@ -830,23 +956,12 @@ func (m *Model) updateProvSearch() {
 
 // toggleExpandPlaylist toggles the playlist panel between default and expanded height.
 func (m *Model) toggleExpandPlaylist() {
-	defVis := m.defaultPlVisible()
-	if m.plVisible <= defVis {
-		probe := strings.Join([]string{
-			m.renderTitle(), m.renderTrackInfo(), m.renderTimeStatus(), "",
-			m.renderSpectrum(), m.renderSeekBar(), "",
-			m.renderControls(), "", m.renderPlaylistHeader(),
-			"x", "", m.renderHelp(), m.renderBottomStatus(),
-		}, "\n")
-		fixedLines := lipgloss.Height(ui.FrameStyle.Render(probe)) - 1
-		m.plVisible = max(minPlVisible, min(maxPlExpandVisible, m.height-fixedLines))
-	} else {
-		m.plVisible = defVis
-	}
+	m.heightExpanded = !m.heightExpanded
+	m.applyHeightMode()
 	m.adjustScroll()
 }
 
-func (m *Model) handleSearchKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 	// Allow opening overlays during search (ctrl combos don't conflict with text input).
 	switch msg.String() {
 	case "ctrl+k":
@@ -854,7 +969,7 @@ func (m *Model) handleSearchKey(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
-	switch msg.Type {
+	switch msg.Code {
 	case tea.KeyEscape:
 		m.search.active = false
 		m.focus = m.prevFocus
@@ -903,8 +1018,8 @@ func (m *Model) handleSearchKey(msg tea.KeyMsg) tea.Cmd {
 		m.updateSearch()
 
 	default:
-		if msg.Type == tea.KeyRunes {
-			m.search.query += string(msg.Runes)
+		if len(msg.Text) > 0 {
+			m.search.query += msg.Text
 			m.updateSearch()
 		}
 	}
@@ -913,14 +1028,14 @@ func (m *Model) handleSearchKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 // handleNetSearchKey processes key presses while in net search mode.
-func (m *Model) handleNetSearchKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleNetSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "ctrl+k":
 		m.keymap.visible = true
 		return nil
 	}
 
-	switch msg.Type {
+	switch msg.Code {
 	case tea.KeyEscape:
 		m.netSearch.active = false
 		m.focus = m.prevFocus
@@ -946,8 +1061,8 @@ func (m *Model) handleNetSearchKey(msg tea.KeyMsg) tea.Cmd {
 		m.netSearch.query += " "
 
 	default:
-		if msg.Type == tea.KeyRunes {
-			m.netSearch.query += string(msg.Runes)
+		if len(msg.Text) > 0 {
+			m.netSearch.query += msg.Text
 		}
 	}
 
@@ -955,8 +1070,8 @@ func (m *Model) handleNetSearchKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 // handleURLInputKey processes key presses while in URL input mode.
-func (m *Model) handleURLInputKey(msg tea.KeyMsg) tea.Cmd {
-	switch msg.Type {
+func (m *Model) handleURLInputKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.Code {
 	case tea.KeyEscape:
 		m.urlInputting = false
 	case tea.KeyEnter:
@@ -970,15 +1085,15 @@ func (m *Model) handleURLInputKey(msg tea.KeyMsg) tea.Cmd {
 	case tea.KeyBackspace:
 		m.urlInput = removeLastRune(m.urlInput)
 	default:
-		if msg.Type == tea.KeyRunes {
-			m.urlInput += string(msg.Runes)
+		if len(msg.Text) > 0 {
+			m.urlInput += msg.Text
 		}
 	}
 	return nil
 }
 
 // handlePlaylistManagerKey dispatches keys to the active manager screen.
-func (m *Model) handlePlaylistManagerKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handlePlaylistManagerKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch m.plManager.screen {
 	case plMgrScreenList:
 		return m.handlePlMgrListKey(msg)
@@ -991,7 +1106,7 @@ func (m *Model) handlePlaylistManagerKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 // handlePlMgrListKey handles keys on screen 0 (playlist list).
-func (m *Model) handlePlMgrListKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 	// If waiting for delete confirmation, only accept y/n.
 	if m.plManager.confirmDel {
 		switch msg.String() {
@@ -1056,7 +1171,7 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 // handlePlMgrTracksKey handles keys on screen 1 (track list inside a playlist).
-func (m *Model) handlePlMgrTracksKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "ctrl+c":
 		m.plManager.visible = false
@@ -1080,6 +1195,7 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyMsg) tea.Cmd {
 			m.player.ClearPreload()
 			m.resetYTDLBatch()
 			m.playlist.Replace(m.plManager.tracks)
+			m.loadedPlaylist = m.plManager.selPlaylist
 			m.plCursor = 0
 			m.playlist.SetIndex(0)
 			m.adjustScroll()
@@ -1134,8 +1250,8 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 // handlePlMgrNewNameKey handles keys on screen 2 (new playlist name input).
-func (m *Model) handlePlMgrNewNameKey(msg tea.KeyMsg) tea.Cmd {
-	switch msg.Type {
+func (m *Model) handlePlMgrNewNameKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.Code {
 	case tea.KeyEscape:
 		m.plManager.screen = plMgrScreenList
 	case tea.KeyEnter:
@@ -1150,8 +1266,8 @@ func (m *Model) handlePlMgrNewNameKey(msg tea.KeyMsg) tea.Cmd {
 	case tea.KeySpace:
 		m.plManager.newName += " "
 	default:
-		if msg.Type == tea.KeyRunes {
-			m.plManager.newName += string(msg.Runes)
+		if len(msg.Text) > 0 {
+			m.plManager.newName += msg.Text
 		}
 	}
 	return nil
@@ -1180,7 +1296,7 @@ func (m *Model) addToPlaylist(name string) {
 }
 
 // handleThemeKey processes key presses while the theme picker is open.
-func (m *Model) handleThemeKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleThemeKey(msg tea.KeyPressMsg) tea.Cmd {
 	count := len(m.themes) + 1 // +1 for Default
 	switch msg.String() {
 	case "ctrl+c":
@@ -1211,7 +1327,7 @@ func (m *Model) handleThemeKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 // handleQueueKey processes key presses while the queue manager overlay is open.
-func (m *Model) handleQueueKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 	qLen := m.playlist.QueueLen()
 
 	switch msg.String() {
@@ -1261,7 +1377,7 @@ func (m *Model) handleQueueKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 // handleDeviceKey processes key presses while the audio device picker is open.
-func (m *Model) handleDeviceKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleDeviceKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "ctrl+c":
 		m.devicePicker.visible = false

@@ -48,12 +48,12 @@ type Player struct {
 	resampleQuality int
 	bitDepth        int // 16 or 32
 
-	gaplessAdvance atomic.Bool // set when gapless transition fires
-	seekGen        atomic.Int64    // generation counter for yt-dlp seeks; incremented to cancel stale seeks
+	gaplessAdvance atomic.Bool  // set when gapless transition fires
+	seekGen        atomic.Int64 // generation counter for yt-dlp seeks; incremented to cancel stale seeks
 
-	streamTitle       atomic.Value    // stores string, set by ICY reader callback
-	customFactories   map[string]StreamerFactory // URI scheme prefix -> factory (e.g. "spotify:" -> fn)
-	bufferedURLMatch  func(string) bool          // optional: returns true for URLs needing navBuffer pipeline
+	streamTitle      atomic.Value               // stores string, set by ICY reader callback
+	customFactories  map[string]StreamerFactory // URI scheme prefix -> factory (e.g. "spotify:" -> fn)
+	bufferedURLMatch func(string) bool          // optional: returns true for URLs needing navBuffer pipeline
 }
 
 // New creates a Player and initializes the speaker with the given quality settings.
@@ -318,6 +318,8 @@ func (p *Player) Seek(d time.Duration) error {
 	}
 
 	// seekableStream: HTTP stream with Content-Length — reconnect at byte offset.
+	// Release the speaker lock before the slow HTTP reconnect so the audio
+	// thread and UI tick handler aren't blocked during the request.
 	if cur.seekableStream && cur.knownDuration > 0 && cur.contentLength > 0 {
 		// Compute new absolute position.
 		curPos := cur.format.SampleRate.D(cur.decoder.Position()) + cur.streamOffset
@@ -333,18 +335,44 @@ func (p *Player) Seek(d time.Duration) error {
 		ratio := float64(newPos) / float64(cur.knownDuration)
 		byteOffset := int64(ratio * float64(cur.contentLength))
 
+		// Snapshot values and mute audio while reconnecting — prevents the
+		// old stream from playing at the pre-seek position during the rebuild.
+		path := cur.path
+		knownDuration := cur.knownDuration
+		contentLength := cur.contentLength
+		p.gapless.Replace(nil)
+		speaker.Unlock()
+
 		// Build a new pipeline starting at the computed byte offset.
-		// Speaker is already locked, so we can safely swap gapless.
-		tp, err := p.buildPipelineAt(cur.path, byteOffset, newPos)
+		// Speaker lock is NOT held — HTTP I/O can take seconds on slow networks.
+		tp, err := p.buildPipelineAt(path, byteOffset, newPos)
+
+		speaker.Lock() // re-acquire for defer
 		if err != nil {
+			// Restore the old stream on failure if the pipeline hasn't changed.
+			p.mu.Lock()
+			if p.current == cur {
+				p.gapless.Replace(cur.stream)
+			}
+			p.mu.Unlock()
 			return fmt.Errorf("seek reconnect: %w", err)
 		}
-		tp.knownDuration = cur.knownDuration
+		tp.knownDuration = knownDuration
 		// seekableStream / contentLength / path are set by buildPipelineAt when
 		// contentLength > 0, but byteOffset shifts the origin, so we keep the
 		// original full-file contentLength and mark seekableStream explicitly.
 		tp.seekableStream = true
-		tp.contentLength = cur.contentLength
+		tp.contentLength = contentLength
+
+		// Verify the current pipeline hasn't changed while we were unlocked
+		// (e.g. track skip or another seek). If it changed, discard our work.
+		p.mu.Lock()
+		if p.current != cur {
+			p.mu.Unlock()
+			go closePipelines(tp)
+			return nil
+		}
+		p.mu.Unlock()
 
 		p.gapless.Replace(tp.stream)
 
@@ -356,7 +384,7 @@ func (p *Player) Seek(d time.Duration) error {
 		p.current = tp
 		p.nextPipeline = nil
 		p.mu.Unlock()
-		closePipelines(old, oldNext)
+		go closePipelines(old, oldNext)
 		return nil
 	}
 
@@ -476,6 +504,16 @@ func (p *Player) IsYTDLSeek() bool {
 	cur := p.current
 	p.mu.Unlock()
 	return cur != nil && cur.ytdlSeek
+}
+
+// IsStreamSeek reports whether the current track uses HTTP seek-by-reconnect.
+// When true, Seek() releases the speaker lock during the HTTP request, so
+// callers should dispatch seeks asynchronously to avoid blocking the UI.
+func (p *Player) IsStreamSeek() bool {
+	p.mu.Lock()
+	cur := p.current
+	p.mu.Unlock()
+	return cur != nil && cur.seekableStream && cur.knownDuration > 0 && cur.contentLength > 0
 }
 
 // Position returns the current playback position.

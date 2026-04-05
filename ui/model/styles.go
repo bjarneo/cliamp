@@ -1,7 +1,7 @@
 package model
 
 import (
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 
 	"cliamp/ui"
 )
@@ -34,7 +34,7 @@ var (
 			Bold(true)
 
 	eqInactiveStyle = lipgloss.NewStyle().
-				Foreground(ui.ColorDim)
+			Foreground(ui.ColorDim)
 
 	playlistActiveStyle = lipgloss.NewStyle().
 				Foreground(ui.ColorPlaying).
@@ -49,6 +49,11 @@ var (
 
 	helpStyle = lipgloss.NewStyle().
 			Foreground(ui.ColorDim)
+
+	helpKeyStyle = lipgloss.NewStyle().
+				Foreground(ui.ColorKeyFG).
+				Background(ui.ColorKeyBG).
+				Bold(true)
 
 	errorStyle = lipgloss.NewStyle().
 			Foreground(ui.ColorError)
@@ -68,6 +73,7 @@ func rebuildModelStyles() {
 	playlistItemStyle = lipgloss.NewStyle().Foreground(ui.ColorText)
 	playlistSelectedStyle = lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true)
 	helpStyle = lipgloss.NewStyle().Foreground(ui.ColorDim)
+	helpKeyStyle = lipgloss.NewStyle().Foreground(ui.ColorKeyFG).Background(ui.ColorKeyBG).Bold(true)
 	errorStyle = lipgloss.NewStyle().Foreground(ui.ColorError)
 
 	seekFillStyle = lipgloss.NewStyle().Foreground(ui.ColorSeekBar)

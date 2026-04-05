@@ -1,13 +1,13 @@
 package model
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"cliamp/provider"
 )
 
 // handleSpotSearchKey dispatches key presses to the active provider search screen.
-func (m *Model) handleSpotSearchKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleSpotSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "ctrl+c":
 		m.spotSearch.visible = false
@@ -28,8 +28,8 @@ func (m *Model) handleSpotSearchKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 // handleSpotSearchInputKey handles text input for the search query.
-func (m *Model) handleSpotSearchInputKey(msg tea.KeyMsg) tea.Cmd {
-	switch msg.Type {
+func (m *Model) handleSpotSearchInputKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.Code {
 	case tea.KeyEscape:
 		m.spotSearch.visible = false
 	case tea.KeyEnter:
@@ -49,15 +49,15 @@ func (m *Model) handleSpotSearchInputKey(msg tea.KeyMsg) tea.Cmd {
 	case tea.KeySpace:
 		m.spotSearch.query += " "
 	default:
-		if msg.Type == tea.KeyRunes {
-			m.spotSearch.query += string(msg.Runes)
+		if len(msg.Text) > 0 {
+			m.spotSearch.query += msg.Text
 		}
 	}
 	return nil
 }
 
 // handleSpotSearchResultsKey handles navigation through search results.
-func (m *Model) handleSpotSearchResultsKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleSpotSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 	count := len(m.spotSearch.results)
 
 	switch msg.String() {
@@ -88,7 +88,7 @@ func (m *Model) handleSpotSearchResultsKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 // handleSpotSearchPlaylistKey handles picking a playlist to add to.
-func (m *Model) handleSpotSearchPlaylistKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleSpotSearchPlaylistKey(msg tea.KeyPressMsg) tea.Cmd {
 	count := len(m.spotSearch.playlists) + 1 // +1 for "+ New Playlist..."
 
 	switch msg.String() {
@@ -136,11 +136,11 @@ func (m *Model) handleSpotSearchPlaylistKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 // handleSpotSearchNewNameKey handles text input for new playlist name.
-func (m *Model) handleSpotSearchNewNameKey(msg tea.KeyMsg) tea.Cmd {
-	switch msg.Type {
+func (m *Model) handleSpotSearchNewNameKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.Code {
 	case tea.KeyEscape:
 		m.spotSearch.screen = spotSearchPlaylist
-		m.spotSearch.cursor = len(m.spotSearch.playlists) // back on "+ New Playlist..."
+		m.spotSearch.cursor = len(m.spotSearch.playlists)
 	case tea.KeyEnter:
 		if m.spotSearch.newName != "" && !m.spotSearch.loading {
 			c, cOk := m.spotSearch.prov.(provider.PlaylistCreator)
@@ -159,8 +159,8 @@ func (m *Model) handleSpotSearchNewNameKey(msg tea.KeyMsg) tea.Cmd {
 	case tea.KeySpace:
 		m.spotSearch.newName += " "
 	default:
-		if msg.Type == tea.KeyRunes {
-			m.spotSearch.newName += string(msg.Runes)
+		if len(msg.Text) > 0 {
+			m.spotSearch.newName += msg.Text
 		}
 	}
 	return nil

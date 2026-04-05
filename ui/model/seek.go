@@ -3,7 +3,7 @@ package model
 import (
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"cliamp/ui"
 )
@@ -16,12 +16,21 @@ const seekDebounceTicks = 8 // ~800ms at 100ms tick interval
 type seekTickMsg struct{}
 
 // doSeek handles a seek keypress. For yt-dlp streams, accumulates into a
-// single target position and debounces. For local files, seeks immediately.
+// single target position and debounces. For HTTP seekable streams, dispatches
+// the seek asynchronously to avoid blocking the UI. For local files, seeks
+// immediately.
 func (m *Model) doSeek(d time.Duration) tea.Cmd {
 	return m.seekRelative(d, seekDebounceTicks)
 }
 
 func (m *Model) seekRelative(d time.Duration, debounceTicks int) tea.Cmd {
+	if m.player.IsStreamSeek() {
+		p := m.player
+		return func() tea.Msg {
+			p.Seek(d)
+			return seekTickMsg{}
+		}
+	}
 	if !m.player.IsYTDLSeek() {
 		m.player.Seek(d)
 		m.finishSeek()
@@ -78,14 +87,6 @@ func (m *Model) commitPendingYTDLSeek() tea.Cmd {
 		p.SeekYTDL(d)
 		return seekTickMsg{}
 	}
-}
-
-// displayPosition returns the position to show in the UI.
-func (m *Model) displayPosition() time.Duration {
-	if m.seek.active {
-		return m.seek.targetPos
-	}
-	return m.player.Position()
 }
 
 func (m *Model) clampPosition(pos time.Duration) time.Duration {

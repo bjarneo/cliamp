@@ -14,13 +14,13 @@ import (
 func readTags(path string) Track {
 	f, err := os.Open(path)
 	if err != nil {
-		return trackFromFilename(path)
+		return TrackFromFilename(path)
 	}
 	defer f.Close()
 
 	m, err := tag.ReadFrom(f)
 	if err != nil || m == nil || strings.TrimSpace(m.Title()) == "" {
-		return trackFromFilename(path)
+		return TrackFromFilename(path)
 	}
 
 	t := Track{
@@ -36,9 +36,9 @@ func readTags(path string) Track {
 	return t
 }
 
-// trackFromFilename creates a Track by parsing "Artist - Title" from the
+// TrackFromFilename creates a Track by parsing "Artist - Title" from the
 // filename, or using the bare filename as the title.
-func trackFromFilename(path string) Track {
+func TrackFromFilename(path string) Track {
 	base := filepath.Base(path)
 	name := sanitizeTag(strings.TrimSuffix(base, filepath.Ext(base)))
 	parts := strings.SplitN(name, " - ", 2)

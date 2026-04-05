@@ -3,18 +3,29 @@ package model
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"cliamp/playlist"
 	"cliamp/provider"
 )
+
+// resetProviderNav resets provider navigation and search state to the top.
+func (m *Model) resetProviderNav() {
+	m.provCursor = 0
+	m.provScroll = 0
+	m.provLoading = true
+	m.provSearch.active = false
+	m.provSearch.query = ""
+	m.provSearch.results = nil
+	m.provSearch.cursor = 0
+}
 
 // StartInProvider configures the model to begin in the provider browse view.
 // Call this from main when no CLI tracks or pending URLs were given.
 func (m *Model) StartInProvider() {
 	if m.provider != nil {
 		m.focus = focusProvider
-		m.provLoading = true
+		m.resetProviderNav()
 	}
 }
 
@@ -26,11 +37,9 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	m.provPillIdx = idx
 	m.provider = m.providers[idx].Provider
 	m.providerLists = nil
-	m.provCursor = 0
-	m.provLoading = true
 	m.provSignIn = false
-	m.provSearch.active = false
-	m.catalogBatch = catalogBatchState{} // reset catalog batch for new provider
+	m.catalogBatch = catalogBatchState{}
+	m.resetProviderNav()
 	m.focus = focusProvider
 	return fetchPlaylistsCmd(m.provider)
 }

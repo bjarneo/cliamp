@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"cliamp/config"
 )
 
 const speedSaveDebounce = time.Second
@@ -67,7 +66,7 @@ func (m *Model) applyEQPreset() {
 // saveEQ persists the current EQ state (preset name and band values) to config.
 func (m *Model) saveEQ() {
 	name := m.EQPresetName()
-	if err := config.Save("eq_preset", fmt.Sprintf("%q", name)); err != nil {
+	if err := m.configSaver.Save("eq_preset", fmt.Sprintf("%q", name)); err != nil {
 		m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
 	}
 	bands := m.player.EQBands()
@@ -76,7 +75,7 @@ func (m *Model) saveEQ() {
 		parts[i] = strconv.FormatFloat(g, 'f', -1, 64)
 	}
 	eqVal := "[" + strings.Join(parts, ", ") + "]"
-	if err := config.Save("eq", eqVal); err != nil {
+	if err := m.configSaver.Save("eq", eqVal); err != nil {
 		m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
 	}
 }
@@ -84,7 +83,7 @@ func (m *Model) saveEQ() {
 // saveSpeed persists the current playback speed to the config file.
 func (m *Model) saveSpeed() {
 	speed := m.player.Speed()
-	if err := config.Save("speed", fmt.Sprintf("%.2f", speed)); err != nil {
+	if err := m.configSaver.Save("speed", fmt.Sprintf("%.2f", speed)); err != nil {
 		m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
 	}
 }

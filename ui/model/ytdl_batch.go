@@ -6,7 +6,7 @@ import (
 
 	"cliamp/resolve"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 const ytdlBatchSize = 100 // items per background batch

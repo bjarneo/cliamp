@@ -165,9 +165,6 @@ func TestMoveShuffle(t *testing.T) {
 
 	// Record the current shuffle playback order
 	p.SetIndex(p.order[0])
-	var before []string
-	track, _ := p.Current()
-	before = append(before, track.Title)
 	// Snapshot the order
 	orderBefore := make([]int, len(p.order))
 	copy(orderBefore, p.order)

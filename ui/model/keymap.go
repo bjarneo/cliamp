@@ -3,7 +3,7 @@ package model
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // keymapEntry is a key-action pair for the keymap overlay.
@@ -36,16 +36,18 @@ var keymapEntries = []keymapEntry{
 	{"A", "Queue manager"},
 	{"o", "Open file browser"},
 	{"N", "Navidrome browser"},
+	{"L", "Browse local playlists"},
 	{"R", "Open radio provider"},
 	{"S", "Open Spotify provider"},
 	{"P", "Open Plex provider"},
 	{"Y", "Open YouTube provider"},
 	{"J", "Open Jellyfin provider"},
 	{"Ctrl+J", "Jump to time"},
+	{"*", "Toggle favorite ★"},
 	{"p", "Playlist manager"},
 	{"i", "Track info / metadata"},
 	{"Ctrl+S", "Save/download track to ~/Music"},
-	{"x", "Expand/collapse playlist"},
+	{"Ctrl+X", "Expand/collapse playlist"},
 	{"/", "Search playlist"},
 	{"f", "Find on YouTube (queue play next)"},
 	{"Ctrl+F", "Find on SoundCloud (queue play next)"},
@@ -59,56 +61,86 @@ var keymapEntries = []keymapEntry{
 	{"q", "Quit"},
 }
 
+func (m Model) keymapCount() int {
+	if m.keymap.search != "" {
+		return len(m.keymap.filtered)
+	}
+	return len(keymapEntries)
+}
+
 // handleKeymapKey processes key presses while the keymap overlay is open.
-func (m *Model) handleKeymapKey(msg tea.KeyMsg) tea.Cmd {
-	switch msg.Type {
-	case tea.KeyEscape:
+func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
+	key := msg.String()
+
+	switch {
+	case key == "ctrl+c":
+		m.keymap.visible = false
+		return m.quit()
+
+	case msg.Code == tea.KeyEscape:
 		m.keymap.visible = false
 		m.keymap.search = ""
 		m.keymap.filtered = nil
 		m.keymap.cursor = 0
-	case tea.KeyUp:
+
+	case msg.Code == tea.KeyUp:
+		count := m.keymapCount()
 		if m.keymap.cursor > 0 {
 			m.keymap.cursor--
-		} else {
-			count := len(keymapEntries)
-			if m.keymap.search != "" {
-				count = len(m.keymap.filtered)
-			}
-			if count > 0 {
-				m.keymap.cursor = count-1
-			}
+		} else if count > 0 {
+			m.keymap.cursor = count - 1
 		}
-	case tea.KeyDown:
-		count := len(keymapEntries)
-		if m.keymap.search != "" {
-			count = len(m.keymap.filtered)
-		}
+
+	case msg.Code == tea.KeyDown:
+		count := m.keymapCount()
 		if m.keymap.cursor < count-1 {
 			m.keymap.cursor++
 		} else if count > 0 {
 			m.keymap.cursor = 0
 		}
-	case tea.KeyBackspace:
+
+	case key == "ctrl+x":
+		m.toggleExpandPlaylist()
+
+	case key == "pgup" || key == "ctrl+u":
+		if m.keymap.cursor > 0 {
+			step := max(1, m.keymapVisibleRows())
+			m.keymap.cursor -= min(m.keymap.cursor, step)
+		}
+
+	case key == "pgdown" || key == "ctrl+d":
+		count := m.keymapCount()
+		if m.keymap.cursor < count-1 {
+			step := max(1, m.keymapVisibleRows())
+			m.keymap.cursor = min(count-1, m.keymap.cursor+step)
+		}
+
+	case msg.Code == tea.KeyHome:
+		m.keymap.cursor = 0
+
+	case msg.Code == tea.KeyEnd:
+		count := m.keymapCount()
+		if count > 0 {
+			m.keymap.cursor = count - 1
+		}
+
+	case msg.Code == tea.KeyBackspace:
 		if m.keymap.search != "" {
 			m.keymap.search = removeLastRune(m.keymap.search)
 			m.updateKeymapFilter()
 		}
-	case tea.KeySpace:
+
+	case msg.Code == tea.KeySpace:
 		m.keymap.search += " "
 		m.updateKeymapFilter()
+
 	default:
-		switch msg.String() {
-		case "ctrl+c":
-			m.keymap.visible = false
-			return m.quit()
-		default:
-			if msg.Type == tea.KeyRunes {
-				m.keymap.search += string(msg.Runes)
-				m.updateKeymapFilter()
-			}
+		if len(msg.Text) > 0 {
+			m.keymap.search += msg.Text
+			m.updateKeymapFilter()
 		}
 	}
+
 	return nil
 }
 

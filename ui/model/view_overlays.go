@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	"cliamp/lyrics"
-	"cliamp/ui"
 	"cliamp/theme"
+	"cliamp/ui"
 )
 
 func (m Model) renderDeviceOverlay() string {
@@ -60,6 +62,39 @@ func (m Model) renderDeviceOverlay() string {
 	return m.centerOverlay(strings.Join(lines, "\n"))
 }
 
+func (m Model) keymapHelpLine() string {
+	return helpKey("↑↓", "Navigate ") + helpKey("PgUp/Dn", "Page ") +
+		helpKey("Home/End", "Jump ") + helpKey("Type", "Filter ") + helpKey("Esc", "Close")
+}
+
+func (m Model) keymapVisibleRows() int {
+	probeSearch := dimStyle.Render("  Type to filter…")
+	if m.keymap.search != "" {
+		probeSearch = playlistSelectedStyle.Render("  / " + m.keymap.search + "_")
+	}
+
+	probeSections := []string{
+		titleStyle.Render("K E Y M A P"),
+		"",
+		probeSearch,
+		"",
+		"x", // list placeholder (1 row)
+		"",
+		dimStyle.Render("  0/0 keys"),
+		"",
+		m.keymapHelpLine(),
+	}
+
+	probeFrame := ui.FrameStyle.Render(strings.Join(probeSections, "\n"))
+	fixedHeight := lipgloss.Height(probeFrame) - 1
+
+	limit := maxPlVisible
+	if m.heightExpanded {
+		limit = m.height
+	}
+	return max(3, min(limit, m.height-fixedHeight))
+}
+
 func (m Model) renderKeymapOverlay() string {
 	lines := []string{
 		titleStyle.Render("K E Y M A P"),
@@ -82,7 +117,7 @@ func (m Model) renderKeymapOverlay() string {
 		visible = entries
 	}
 
-	maxVisible := 12
+	maxVisible := m.keymapVisibleRows()
 	rendered := 0
 
 	if len(visible) == 0 {
@@ -99,7 +134,7 @@ func (m Model) renderKeymapOverlay() string {
 
 	lines = padLines(lines, maxVisible, rendered)
 	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d keys", len(visible), len(entries))))
-	lines = append(lines, "", helpKey("↑↓", "Navigate ")+helpKey("Type", "Filter ")+helpKey("Esc", "Close"))
+	lines = append(lines, "", m.keymapHelpLine())
 
 	return m.centerOverlay(strings.Join(lines, "\n"))
 }

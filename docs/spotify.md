@@ -1,6 +1,6 @@
 # Spotify Integration
 
-Cliamp can stream your [Spotify](https://www.spotify.com/) library directly through its audio pipeline — EQ, visualizer, and all effects apply. Requires a [Spotify Premium](https://www.spotify.com/premium/) account.
+Cliamp can stream your [Spotify](https://www.spotify.com/) library directly through its audio pipeline. EQ, visualizer, and all effects apply. Requires a [Spotify Premium](https://www.spotify.com/premium/) account.
 
 ## Setup
 
@@ -23,7 +23,7 @@ Add your client ID to `~/.config/cliamp/config.toml`:
 client_id = "your_client_id_here"
 ```
 
-Run `cliamp`, select Spotify as a provider, and press Enter to sign in. Credentials are cached at `~/.config/cliamp/spotify_credentials.json` — subsequent launches refresh silently.
+Run `cliamp`, select Spotify as a provider, and press Enter to sign in. Credentials are cached at `~/.config/cliamp/spotify_credentials.json`. Subsequent launches refresh silently.
 
 ## Usage
 
@@ -46,14 +46,14 @@ After loading a playlist you return to the standard playlist view with all the u
 
 ## Playlists
 
-Only playlists in your Spotify library are shown — this includes playlists you've created and playlists you've saved (followed). If a public playlist doesn't appear, open Spotify and click **Save** on it first. There's no need to copy tracks to a new playlist.
+Only playlists in your Spotify library are shown. This includes playlists you've created and playlists you've saved (followed). If a public playlist doesn't appear, open Spotify and click **Save** on it first. There's no need to copy tracks to a new playlist.
 
 ## Troubleshooting
 
-- **"OAuth failed"** — Make sure your redirect URI is exactly `http://127.0.0.1:19872/login` in the Spotify dashboard (no trailing slash).
-- **Playlist not showing** — You must save/follow the playlist in Spotify for it to appear. Only your library playlists are listed.
-- **Playback issues** — Spotify integration requires a Premium account. Free accounts cannot stream.
-- **Re-authenticate** — Delete `~/.config/cliamp/spotify_credentials.json` and restart cliamp to trigger a fresh login.
+- **"OAuth failed"**: Make sure your redirect URI is exactly `http://127.0.0.1:19872/login` in the Spotify dashboard (no trailing slash).
+- **Playlist not showing**: You must save/follow the playlist in Spotify for it to appear. Only your library playlists are listed.
+- **Playback issues**: Spotify integration requires a Premium account. Free accounts cannot stream.
+- **Re-authenticate**: Delete `~/.config/cliamp/spotify_credentials.json` and restart cliamp to trigger a fresh login.
 
 ## Requirements
 

@@ -40,8 +40,8 @@ type StateProvider struct {
 	Mono          func() bool
 	RepeatMode    func() string // "off", "all", "one"
 	Shuffle       func() bool
-	EQBands     func() [10]float64
-	TrackTitle  func() string
+	EQBands       func() [10]float64
+	TrackTitle    func() string
 	TrackArtist   func() string
 	TrackAlbum    func() string
 	TrackGenre    func() string
@@ -63,18 +63,18 @@ type ControlProvider struct {
 	ToggleMono  func()
 	TogglePause func()
 	Stop        func()
-	Seek         func(secs float64)
-	SetEQPreset  func(name string, bands *[10]float64) // injected via prog.Send
-	Next         func()            // injected via prog.Send
-	Prev         func()            // injected via prog.Send
+	Seek        func(secs float64)
+	SetEQPreset func(name string, bands *[10]float64) // injected via prog.Send
+	Next        func()                                // injected via prog.Send
+	Prev        func()                                // injected via prog.Send
 }
 
 // Manager owns all loaded plugins and dispatches events to them.
 type Manager struct {
 	plugins  []*Plugin
 	hooks    map[string][]*luaHook // event name -> handlers
-	visPlugs []*luaVis            // Lua visualizers in registration order
-	visMap   map[string]*luaVis   // name -> Lua visualizer
+	visPlugs []*luaVis             // Lua visualizers in registration order
+	visMap   map[string]*luaVis    // name -> Lua visualizer
 	state    StateProvider
 	control  ControlProvider
 	timers   *timerManager

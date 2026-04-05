@@ -16,8 +16,8 @@ import (
 var (
 	xiaoyuzhouSchemaScriptRe = regexp.MustCompile(`(?s)<script[^>]+name="schema:podcast-show"[^>]*>(.*?)</script>`)
 	isoDurationRe            = regexp.MustCompile(`^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$`)
-	metaTagRe = regexp.MustCompile(`<meta\s[^>]*>`)
-	metaAttrRe = regexp.MustCompile(`(\w+)="([^"]+)"`)
+	metaTagRe                = regexp.MustCompile(`<meta\s[^>]*>`)
+	metaAttrRe               = regexp.MustCompile(`(\w+)="([^"]+)"`)
 )
 
 func resolveXiaoyuzhouEpisode(pageURL string) ([]playlist.Track, error) {

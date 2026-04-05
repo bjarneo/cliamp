@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,14 +20,15 @@ import (
 	"github.com/devgianlu/go-librespot/audio"
 	"github.com/gopxl/beep/v2"
 
+	"cliamp/applog"
 	"cliamp/playlist"
 	"cliamp/provider"
 )
 
 // Compile-time interface checks.
 var (
-	_ provider.Searcher       = (*SpotifyProvider)(nil)
-	_ provider.PlaylistWriter = (*SpotifyProvider)(nil)
+	_ provider.Searcher        = (*SpotifyProvider)(nil)
+	_ provider.PlaylistWriter  = (*SpotifyProvider)(nil)
 	_ provider.PlaylistCreator = (*SpotifyProvider)(nil)
 	_ provider.CustomStreamer  = (*SpotifyProvider)(nil)
 	_ provider.Closer          = (*SpotifyProvider)(nil)
@@ -88,7 +88,13 @@ type SpotifyProvider struct {
 	mu         sync.Mutex
 	trackCache map[string]*playlistCache // playlist ID → cache entry
 	authCancel context.CancelFunc        // cancels any in-progress OAuth flow
+
+	// Playlist list cache to avoid redundant API calls on provider switch.
+	listCache   []playlist.PlaylistInfo
+	listCacheAt time.Time
 }
+
+const playlistListCacheTTL = 5 * time.Minute
 
 // New creates a SpotifyProvider. If session is nil, authentication is
 // deferred until the user first selects the Spotify provider.
@@ -215,6 +221,15 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 	if err := p.ensureSession(); err != nil {
 		return nil, err
 	}
+
+	p.mu.Lock()
+	if p.listCache != nil && time.Since(p.listCacheAt) < playlistListCacheTTL {
+		cached := p.listCache
+		p.mu.Unlock()
+		return cached, nil
+	}
+	p.mu.Unlock()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -303,6 +318,11 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 		}
 		offset += limit
 	}
+
+	p.mu.Lock()
+	p.listCache = all
+	p.listCacheAt = time.Now()
+	p.mu.Unlock()
 
 	return all, nil
 }
@@ -487,7 +507,7 @@ func (p *SpotifyProvider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.F
 	}
 
 	// Auth error — try silent reconnect first.
-	fmt.Fprintf(os.Stderr, "spotify: stream auth error (%v), attempting silent reconnect...\n", err)
+	applog.Printf("spotify: stream auth error (%v), attempting silent reconnect...\n", err)
 
 	reconnCtx, reconnCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	reconnErr := p.session.Reconnect(reconnCtx)
@@ -501,9 +521,9 @@ func (p *SpotifyProvider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.F
 		if !isAuthError(err) {
 			return nil, beep.Format{}, 0, fmt.Errorf("spotify: new stream after silent reconnect: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "spotify: stream still failing after silent reconnect (%v), falling back to interactive...\n", err)
+		applog.Printf("spotify: stream still failing after silent reconnect (%v), falling back to interactive...\n", err)
 	} else {
-		fmt.Fprintf(os.Stderr, "spotify: silent reconnect failed (%v), falling back to interactive...\n", reconnErr)
+		applog.Printf("spotify: silent reconnect failed (%v), falling back to interactive...\n", reconnErr)
 	}
 
 	interactiveCtx, interactiveCancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -559,7 +579,7 @@ func (p *SpotifyProvider) webAPIWithBody(ctx context.Context, method, path strin
 					wait = time.Duration(secs) * time.Second
 				}
 			}
-			fmt.Fprintf(os.Stderr, "spotify: rate limited on %s, retrying in %v (attempt %d/%d)\n", path, wait, attempt+1, maxRetries)
+			applog.Printf("spotify: rate limited on %s, retrying in %v (attempt %d/%d)\n", path, wait, attempt+1, maxRetries)
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -670,9 +690,10 @@ func (p *SpotifyProvider) AddTrackToPlaylist(ctx context.Context, playlistID str
 	}
 	resp.Body.Close()
 
-	// Invalidate cache for this playlist.
+	// Invalidate caches for this playlist.
 	p.mu.Lock()
 	delete(p.trackCache, playlistID)
+	p.listCache = nil
 	p.mu.Unlock()
 
 	return nil
@@ -703,6 +724,12 @@ func (p *SpotifyProvider) CreatePlaylist(ctx context.Context, name string) (stri
 	if err := decodeBody(resp, &result); err != nil {
 		return "", fmt.Errorf("spotify: parse created playlist: %w", err)
 	}
+
+	// Invalidate playlist list cache.
+	p.mu.Lock()
+	p.listCache = nil
+	p.mu.Unlock()
+
 	return result.ID, nil
 }
 

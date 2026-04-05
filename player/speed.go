@@ -11,10 +11,10 @@ import (
 // SoundTouch's proven defaults. The long sequence length means crossfade
 // events are infrequent (~12/sec), and most output is a direct source copy.
 const (
-	tsSeq    = 3584             // sequence: ~81ms @44.1kHz — time between crossfades
-	tsOvlp   = 512              // overlap: ~12ms — crossfade region
-	tsWin    = tsSeq + tsOvlp   // source window per frame (4096)
-	tsSearch = 1024             // search: ±~23ms — covers multiple pitch periods
+	tsSeq    = 3584           // sequence: ~81ms @44.1kHz — time between crossfades
+	tsOvlp   = 512            // overlap: ~12ms — crossfade region
+	tsWin    = tsSeq + tsOvlp // source window per frame (4096)
+	tsSearch = 1024           // search: ±~23ms — covers multiple pitch periods
 )
 
 // Pre-computed linear crossfade table: alpha[i] = i / tsOvlp.

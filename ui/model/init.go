@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"cliamp/internal/playback"
 	"cliamp/luaplugin"
@@ -24,10 +24,11 @@ func applyThemeAll(t theme.Theme) {
 // providers is the ordered list of available providers (Radio, Navidrome, Spotify, Jellyfin, etc.).
 // defaultProvider is the config key of the provider to select initially.
 // localProv is an optional direct reference to the local provider for write ops.
-func New(p *player.Player, pl *playlist.Playlist, providers []ProviderEntry, defaultProvider string, localProv playlist.Provider, notifier playback.Notifier, themes []theme.Theme, luaMgr *luaplugin.Manager) Model {
+func New(p player.Engine, pl *playlist.Playlist, providers []ProviderEntry, defaultProvider string, localProv playlist.Provider, notifier playback.Notifier, themes []theme.Theme, luaMgr *luaplugin.Manager, cs ConfigSaver) Model {
 	m := Model{
 		player:        p,
 		playlist:      pl,
+		configSaver:   cs,
 		vis:           ui.NewVisualizer(float64(p.SampleRate())),
 		seekStepLarge: 30 * time.Second,
 		plVisible:     5,
@@ -109,12 +110,16 @@ func (m *Model) SetTheme(name string) bool {
 }
 
 // SetVisualizer sets the visualizer mode by name (case-insensitive).
-// Returns true if a valid mode name was recognized.
+// Returns true if a valid mode name was recognized. Does not modify state
+// if the name is not found, matching the SetTheme guard pattern.
 func (m *Model) SetVisualizer(name string) bool {
-	mode := ui.StringToVisMode(name)
+	mode, ok := ui.StringToVisModeExact(name)
+	if !ok {
+		return false
+	}
 	m.vis.Mode = mode
 	m.vis.RequestRefresh()
-	return name == "" || strings.EqualFold(name, m.vis.ModeName())
+	return true
 }
 
 // VisualizerName returns the current visualizer mode's display name.
@@ -133,10 +138,16 @@ func (m *Model) SetResume(path string, secs int) {
 	m.resume.secs = secs
 }
 
-// ResumeState returns the track path and playback position captured at exit.
+// ResumePlaylist loads a playlist into the model for session resume.
+func (m *Model) ResumePlaylist(name string, tracks []playlist.Track) {
+	m.playlist.Replace(tracks)
+	m.loadedPlaylist = name
+}
+
+// ResumeState returns the track path, playback position, and playlist name captured at exit.
 // Called after prog.Run() returns (player already closed).
-func (m Model) ResumeState() (path string, secs int) {
-	return m.exitResume.path, m.exitResume.secs
+func (m Model) ResumeState() (path string, secs int, playlist string) {
+	return m.exitResume.path, m.exitResume.secs, m.exitResume.playlist
 }
 
 // ThemeName returns the current theme name.
@@ -152,10 +163,7 @@ func (m Model) Init() tea.Cmd {
 	if m.luaMgr != nil {
 		m.luaMgr.Emit(luaplugin.EventAppStart, nil)
 	}
-	cmds := []tea.Cmd{tickCmd(), tea.WindowSize()}
-	if cmd := m.terminalTitleCmd(); cmd != nil {
-		cmds = append(cmds, cmd)
-	}
+	cmds := []tea.Cmd{tickCmd(), func() tea.Msg { return tea.RequestWindowSize() }}
 	if m.provider != nil {
 		cmds = append(cmds, fetchPlaylistsCmd(m.provider))
 	}

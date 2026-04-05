@@ -12,6 +12,12 @@ import (
 	"cliamp/ui"
 )
 
+// ConfigSaver persists individual config key-value pairs.
+// Satisfied by config.SaveFunc (the default) or a test stub.
+type ConfigSaver interface {
+	Save(key, value string) error
+}
+
 type focusArea int
 
 const (
@@ -23,6 +29,27 @@ const (
 	focusProvider
 	focusNetSearch
 )
+
+func (f focusArea) label() string {
+	switch f {
+	case focusPlaylist:
+		return "Playlist"
+	case focusEQ:
+		return "Equalizer"
+	case focusSpeed:
+		return "Speed"
+	case focusProvPill:
+		return "Source"
+	case focusProvider:
+		return "Provider"
+	case focusSearch:
+		return "Search"
+	case focusNetSearch:
+		return "Online Search"
+	default:
+		return ""
+	}
+}
 
 type topLevelScreen int
 
@@ -105,8 +132,9 @@ const minPlVisible = 5
 // Model is the Bubbletea model for the CLIAMP TUI.
 type Model struct {
 	// Core playback
-	player        *player.Player
+	player        player.Engine
 	playlist      *playlist.Playlist
+	configSaver   ConfigSaver
 	vis           *ui.Visualizer
 	seekStepLarge time.Duration
 
@@ -129,6 +157,7 @@ type Model struct {
 	localProvider playlist.Provider // local playlist provider for file-based playlist management (always available)
 	providerLists []playlist.PlaylistInfo
 	provCursor    int
+	provScroll    int
 	provLoading   bool
 	provSignIn    bool            // true when provider needs interactive sign-in
 	providers     []ProviderEntry // all available providers
@@ -154,6 +183,7 @@ type Model struct {
 	reconnect      reconnectState
 	save           saveState
 	status         statusMsg
+	logLines       []logLine
 	network        networkStats
 	speedSaveAfter time.Duration
 	termTitle      terminalTitleState
@@ -181,11 +211,14 @@ type Model struct {
 		secs int
 	}
 
+	loadedPlaylist string // name of the currently loaded local playlist (for resume)
+
 	// exitResume holds the playback state captured just before player.Close()
 	// so ResumeState() can read it after the player is shut down.
 	exitResume struct {
-		path string
-		secs int
+		path     string
+		secs     int
+		playlist string
 	}
 
 	// preloading is true while a preloadStreamCmd goroutine is in-flight.
@@ -212,8 +245,9 @@ type Model struct {
 	// Full-screen visualizer mode (Shift+V)
 	fullVis bool
 
-	autoPlay bool // start playing immediately on launch
-	compact  bool // compact mode: cap frame width at 80 columns
+	autoPlay       bool // start playing immediately on launch
+	compact        bool // compact mode: cap frame width at 80 columns
+	heightExpanded bool // tracks whether manual 'x' expansion is active
 
 	// Cached per-tick to avoid repeated speaker.Lock() calls in View().
 	cachedPos  time.Duration

@@ -3,33 +3,13 @@ package model
 import (
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 
-	"cliamp/playlist"
 	"cliamp/ui"
 )
 
-// renderedLineCount returns how many rendered lines tracks[from..to) would
-// take, including album separator lines between different albums.
-func renderedLineCount(tracks []playlist.Track, from, to int) int {
-	lines := 0
-	prevAlbum := ""
-	if from > 0 {
-		prevAlbum = tracks[from-1].Album
-	}
-	for i := from; i < to && i < len(tracks); i++ {
-		if album := tracks[i].Album; album != "" && album != prevAlbum {
-			lines++ // album separator
-		}
-		prevAlbum = tracks[i].Album
-		lines++ // track line
-	}
-	return lines
-}
-
-// defaultPlVisible recalculates the natural plVisible for the current terminal
-// height (same logic as the window-resize handler, capped at maxPlVisible).
-func (m *Model) defaultPlVisible() int {
+// measurePlVisible calculates playlist lines available for a given upper limit.
+func (m *Model) measurePlVisible(limit int) int {
 	saved := m.plVisible
 	m.plVisible = 3 // temporary minimal value for measurement
 	defer func() { m.plVisible = saved }()
@@ -40,7 +20,26 @@ func (m *Model) defaultPlVisible() int {
 		"x", "", m.renderHelp(), m.renderBottomStatus(),
 	}, "\n")
 	fixedLines := lipgloss.Height(ui.FrameStyle.Render(probe)) - 1
-	return max(3, min(maxPlVisible, m.height-fixedLines))
+	return max(3, min(limit, m.height-fixedLines))
+}
+
+// collapsedPlVisible returns the natural (non-expanded) playlist height.
+func (m *Model) collapsedPlVisible() int {
+	return m.measurePlVisible(maxPlVisible)
+}
+
+// expandedPlVisible returns the expanded playlist height with no cap.
+func (m *Model) expandedPlVisible() int {
+	return m.measurePlVisible(m.height)
+}
+
+// applyHeightMode sets plVisible based on the current heightExpanded state.
+func (m *Model) applyHeightMode() {
+	if m.heightExpanded {
+		m.plVisible = m.expandedPlVisible()
+	} else {
+		m.plVisible = m.collapsedPlVisible()
+	}
 }
 
 // adjustScroll ensures plCursor is visible in the playlist view.
@@ -67,29 +66,10 @@ func (m Model) playlistScroll(visible int) int {
 	if m.plCursor < scroll {
 		return m.plCursor
 	}
-	lines := renderedLineCount(tracks, scroll, m.plCursor+1)
-	if lines <= visible {
+	if m.plCursor-scroll+1 <= visible {
 		return scroll
 	}
-	scroll = m.plCursor
-	lines = 1 // the cursor track itself
-	for i := m.plCursor - 1; i >= 0; i-- {
-		add := 1 // track line
-		if tracks[i+1].Album != "" && tracks[i+1].Album != tracks[i].Album {
-			add++ // separator above track i+1
-		}
-		if lines+add > visible {
-			break
-		}
-		lines += add
-		scroll = i
-	}
-	if scroll > 0 && tracks[scroll].Album != "" && tracks[scroll].Album != tracks[scroll-1].Album {
-		if lines+1 > visible {
-			scroll++
-		}
-	}
-	return scroll
+	return m.plCursor - visible + 1
 }
 
 func (m Model) mainFrameFixedLines(includeTransient bool) int {

@@ -1,6 +1,6 @@
 # Lua Plugins
 
-cliamp has a Lua 5.1 plugin system. Plugins can hook into playback events (scrobbling, notifications, status bar output) and add custom visualizers. Each plugin runs in an isolated VM — a crash in one plugin cannot affect others or the player.
+cliamp has a Lua 5.1 plugin system. Plugins can hook into playback events (scrobbling, notifications, status bar output) and add custom visualizers. Each plugin runs in an isolated VM. A crash in one plugin cannot affect others or the player.
 
 Plugins live in `~/.config/cliamp/plugins/`. Create the directory:
 
@@ -409,17 +409,38 @@ Render has a 10 ms budget per frame. If it exceeds this, the previous frame is r
 
 ## Sandbox
 
-For security, plugins run with restricted access:
+For security, plugins run with restricted access. The sandbox removes dangerous standard library functions and restricts file system access.
+
+### Removed functions
 
 | Removed | Replacement |
 |---------|-------------|
-| `os.execute`, `os.remove`, `os.rename`, `os.exit` | Use `cliamp.http` or `cliamp.fs` |
+| `os.execute`, `os.remove`, `os.rename`, `os.exit`, `os.setlocale`, `os.tmpname` | Use `cliamp.http` or `cliamp.fs` |
 | `io` module (all of it) | Use `cliamp.fs` |
 | `dofile`, `loadfile` | Not available |
 
-Safe functions kept: `os.time()`, `os.date()`, `os.clock()`, `os.getenv()`.
+### Kept functions
 
-Each plugin runs in its own Lua VM. Plugins cannot access each other's state.
+`os.time()`, `os.date()`, `os.clock()`, `os.getenv()` are available.
+
+### File system restrictions
+
+**Reads:** Allowed from any path (max 1 MB per read).
+
+**Writes/removes** are restricted to these directories only:
+
+- `/tmp/` (and the system temp directory)
+- `~/.config/cliamp/`
+- `~/.local/share/cliamp/`
+
+Attempts to write outside these directories will raise a Lua error. Directory traversal (`..`) is blocked.
+
+### Isolation
+
+- Each plugin runs in its own Lua VM. Plugins cannot access each other's state or variables.
+- A crash in one plugin does not affect other plugins or the player.
+- Network access is available via `cliamp.http` (no raw socket access).
+- There is no process spawning — `os.execute` is removed. For shell commands, write to a file that a watcher picks up, or use `cliamp.http.post` to a local webhook.
 
 ## Debugging
 

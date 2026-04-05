@@ -7,7 +7,14 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 )
+
+// readStallTimeout is how long Read/Seek wait for new data before returning
+// an error. The deadline resets whenever the download goroutine delivers new
+// bytes, so slow-but-progressing downloads are not affected. Only a true
+// stall (no new data for this duration) triggers the timeout.
+const readStallTimeout = 5 * time.Second
 
 // navBuffer is an io.ReadSeekCloser backed by a background HTTP download.
 // Bytes are appended to data as they arrive. Read and Seek block via cond
@@ -99,14 +106,28 @@ func (b *navBuffer) download(body io.ReadCloser) {
 
 // Read implements io.Reader.
 // Blocks until at least one byte at pos is available or the download ends.
+// Returns an error if the download stalls (no new data for readStallTimeout).
 func (b *navBuffer) Read(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	lastLen := int64(len(b.data))
+	deadline := time.Now().Add(readStallTimeout)
 	for int64(len(b.data)) <= b.pos && !b.done {
 		if b.err != nil {
 			return 0, b.err
 		}
+		// Reset deadline when new data arrives (download is progressing).
+		if curLen := int64(len(b.data)); curLen > lastLen {
+			lastLen = curLen
+			deadline = time.Now().Add(readStallTimeout)
+		} else if time.Now().After(deadline) {
+			return 0, fmt.Errorf("nav buffer: read stalled waiting for data")
+		}
+		// sync.Cond has no timeout support. Schedule a broadcast so this
+		// goroutine wakes periodically to check the deadline.
+		t := time.AfterFunc(250*time.Millisecond, func() { b.cond.Broadcast() })
 		b.cond.Wait()
+		t.Stop()
 	}
 	if b.err != nil && int64(len(b.data)) <= b.pos {
 		return 0, b.err
@@ -121,7 +142,7 @@ func (b *navBuffer) Read(p []byte) (int, error) {
 
 // Seek implements io.Seeker.
 // If the target position is beyond what has been downloaded, blocks until
-// the download reaches it. Returns io.EOF if the target exceeds total size.
+// the download reaches it. Returns an error if the download stalls.
 func (b *navBuffer) Seek(offset int64, whence int) (int64, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -141,11 +162,21 @@ func (b *navBuffer) Seek(offset int64, whence int) (int64, error) {
 			target = b.total + offset
 		} else {
 			// Content-Length unknown (chunked): must wait for the full download.
+			lastLen := int64(len(b.data))
+			deadline := time.Now().Add(readStallTimeout)
 			for !b.done {
 				if b.err != nil {
 					return 0, b.err
 				}
+				if curLen := int64(len(b.data)); curLen > lastLen {
+					lastLen = curLen
+					deadline = time.Now().Add(readStallTimeout)
+				} else if time.Now().After(deadline) {
+					return 0, fmt.Errorf("nav buffer: seek stalled waiting for download")
+				}
+				t := time.AfterFunc(250*time.Millisecond, func() { b.cond.Broadcast() })
 				b.cond.Wait()
+				t.Stop()
 			}
 			target = int64(len(b.data)) + offset
 		}
@@ -158,11 +189,21 @@ func (b *navBuffer) Seek(offset int64, whence int) (int64, error) {
 	}
 
 	// Block until the buffer reaches the target position.
+	lastLen := int64(len(b.data))
+	deadline := time.Now().Add(readStallTimeout)
 	for int64(len(b.data)) < target && !b.done {
 		if b.err != nil {
 			return 0, b.err
 		}
+		if curLen := int64(len(b.data)); curLen > lastLen {
+			lastLen = curLen
+			deadline = time.Now().Add(readStallTimeout)
+		} else if time.Now().After(deadline) {
+			return 0, fmt.Errorf("nav buffer: seek stalled waiting for data at offset %d", target)
+		}
+		t := time.AfterFunc(250*time.Millisecond, func() { b.cond.Broadcast() })
 		b.cond.Wait()
+		t.Stop()
 	}
 
 	if target > int64(len(b.data)) {

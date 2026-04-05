@@ -1,10 +1,10 @@
 # YouTube & YouTube Music Integration
 
-Cliamp can browse your [YouTube](https://youtube.com/) and [YouTube Music](https://music.youtube.com/) playlists and play tracks through its audio pipeline — EQ, visualizer, and all effects apply. Playback uses yt-dlp, which must be installed.
+Cliamp can browse your [YouTube](https://youtube.com/) and [YouTube Music](https://music.youtube.com/) playlists and play tracks through its audio pipeline. EQ, visualizer, and all effects apply. Playback uses yt-dlp, which must be installed.
 
 Your playlists are automatically classified into two providers:
-- **YouTube Music** — playlists containing music content
-- **YouTube** — playlists containing non-music content (podcasts, vlogs, tutorials, etc.)
+- **YouTube Music**: playlists containing music content
+- **YouTube**: playlists containing non-music content (podcasts, vlogs, tutorials, etc.)
 
 ## Setup
 
@@ -47,7 +47,7 @@ cookies_from = "chrome"
 
 Supported browsers: `chrome`, `firefox`, `brave`, `edge`, `opera`, `safari`, `chromium`.
 
-Run `cliamp` (or `cliamp --provider ytmusic` / `cliamp --provider youtube`), select a provider, and press Enter to sign in. Credentials are cached at `~/.config/cliamp/ytmusic_credentials.json` — subsequent launches refresh silently.
+Run `cliamp` (or `cliamp --provider ytmusic` / `cliamp --provider youtube`), select a provider, and press Enter to sign in. Credentials are cached at `~/.config/cliamp/ytmusic_credentials.json`. Subsequent launches refresh silently.
 
 ## Usage
 
@@ -79,21 +79,21 @@ Playlists are automatically split between the two providers:
 - Playlists containing music content (auto-classified by video category)
 
 **YouTube** shows:
-- **Liked Videos** — your liked videos (YouTube's special `LL` playlist)
+- **Liked Videos**: your liked videos (YouTube's special `LL` playlist)
 - Playlists containing non-music content
 
 Classification is determined by sampling a video from each playlist and checking its YouTube category. Results are cached at `~/.config/cliamp/ytmusic_classification.json`. Delete this file to reclassify.
 
 ## Troubleshooting
 
-- **"OAuth failed"** — Make sure your Google Cloud project has YouTube Data API v3 enabled and your OAuth client type is "Desktop app".
-- **"Access blocked"** — While your app is in "Testing" status, only test users you've added can sign in. Add your Google account as a test user in the OAuth consent screen settings.
-- **Playlist not showing** — Only playlists in your library are listed. Save/follow a playlist in YouTube Music for it to appear.
-- **Re-authenticate** — Delete `~/.config/cliamp/ytmusic_credentials.json` and restart cliamp to trigger a fresh login.
-- **Private/deleted videos** — These are automatically skipped when loading a playlist.
+- **"OAuth failed"**: Make sure your Google Cloud project has YouTube Data API v3 enabled and your OAuth client type is "Desktop app".
+- **"Access blocked"**: While your app is in "Testing" status, only test users you've added can sign in. Add your Google account as a test user in the OAuth consent screen settings.
+- **Playlist not showing**: Only playlists in your library are listed. Save/follow a playlist in YouTube Music for it to appear.
+- **Re-authenticate**: Delete `~/.config/cliamp/ytmusic_credentials.json` and restart cliamp to trigger a fresh login.
+- **Private/deleted videos**: These are automatically skipped when loading a playlist.
 
 ## Requirements
 
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) installed and on your PATH (for audio playback)
 - A Google Cloud project with YouTube Data API v3 enabled
-- No Spotify Premium or other paid subscription required — YouTube Music free tier works
+- No Spotify Premium or other paid subscription required. YouTube Music free tier works

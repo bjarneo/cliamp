@@ -6,12 +6,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"cliamp/player"
-	"cliamp/ui"
 	"cliamp/playlist"
 	"cliamp/resolve"
+	"cliamp/ui"
 )
 
 // fbMaxVisible is a number of visible entries in file browser.
@@ -32,6 +33,83 @@ type fbTracksResolvedMsg struct {
 	replace bool
 }
 
+func (m Model) fbHeaderLines() []string {
+	return []string{
+		titleStyle.Render("O P E N  F I L E S"),
+		dimStyle.Render("  " + m.fileBrowser.dir),
+		"",
+	}
+}
+
+func (m Model) fbHelpLine() string {
+	help := helpKey("↑↓", "Scroll ") + helpKey("Enter", "Open ") +
+		helpKey("Spc", "Select ") + helpKey("a", "All ") +
+		helpKey("←", "Back ") + helpKey("~.", "Home/Cwd ")
+	if os.PathSeparator == '\\' {
+		help += helpKey("AltCZ", "Drive ")
+	}
+	if len(m.fileBrowser.selected) > 0 {
+		help += helpKey("R", "Replace ")
+	}
+	help += helpKey("Esc", "Close")
+	return help
+}
+
+// fbVisible returns the current file-browser list height accounting for
+// frame padding and all fixed (non-list) sections.
+func (m *Model) fbVisible() int {
+	probeSections := append([]string{}, m.fbHeaderLines()...)
+	if m.fileBrowser.err != "" {
+		probeSections = append(probeSections, errorStyle.Render("  "+m.fileBrowser.err))
+	}
+
+	// 1-line list placeholder.
+	probeSections = append(probeSections, "x")
+
+	// Footer area must mirror renderFileBrowser().
+	if len(m.fileBrowser.selected) > 0 {
+		probeSections = append(probeSections, "", statusStyle.Render("  1 selected"))
+	} else {
+		probeSections = append(probeSections, "")
+		if m.fileBrowser.err == "" {
+			probeSections = append(probeSections, "")
+		}
+	}
+	probeSections = append(probeSections, "", m.fbHelpLine())
+
+	probeFrame := ui.FrameStyle.Render(strings.Join(probeSections, "\n"))
+	fixedHeight := lipgloss.Height(probeFrame) - 1
+
+	limit := fbMaxVisible
+	if m.heightExpanded {
+		limit = m.height
+	}
+	return max(3, min(limit, m.height-fixedHeight))
+}
+
+// fbMaybeAdjustScroll keeps the cursor visible in the current file-browser window.
+func (m *Model) fbMaybeAdjustScroll(visible int) {
+	if visible <= 0 {
+		return
+	}
+	if m.fileBrowser.cursor < 0 {
+		m.fileBrowser.cursor = 0
+	}
+	if m.fileBrowser.cursor >= len(m.fileBrowser.entries) && len(m.fileBrowser.entries) > 0 {
+		m.fileBrowser.cursor = len(m.fileBrowser.entries) - 1
+	}
+
+	if m.fileBrowser.cursor < m.fileBrowser.scroll {
+		m.fileBrowser.scroll = m.fileBrowser.cursor
+	} else if m.fileBrowser.cursor >= m.fileBrowser.scroll+visible {
+		m.fileBrowser.scroll = m.fileBrowser.cursor - visible + 1
+	}
+
+	if m.fileBrowser.scroll+visible > len(m.fileBrowser.entries) {
+		m.fileBrowser.scroll = max(0, len(m.fileBrowser.entries)-visible)
+	}
+}
+
 // openFileBrowser initialises and shows the file browser overlay.
 func (m *Model) openFileBrowser() {
 	if m.fileBrowser.dir == "" {
@@ -41,6 +119,7 @@ func (m *Model) openFileBrowser() {
 		}
 	}
 	m.fileBrowser.cursor = 0
+	m.fileBrowser.scroll = 0
 	m.fileBrowser.selected = make(map[string]bool)
 	m.fileBrowser.err = ""
 	m.loadFBDir()
@@ -51,6 +130,7 @@ func (m *Model) openFileBrowser() {
 func (m *Model) loadFBDir() {
 	m.fileBrowser.err = ""
 	m.fileBrowser.cursor = 0
+	m.fileBrowser.scroll = 0
 	clear(m.fileBrowser.selected)
 
 	// Reuse internal memory buffer of m.fileBrowser.entries.
@@ -120,7 +200,7 @@ func (m *Model) loadFBDir() {
 }
 
 // handleFileBrowserKey processes key presses while the file browser is open.
-func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 	var cd string
 	switch msg.String() {
 	case "ctrl+c":
@@ -130,12 +210,17 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 	case "esc", "o", "q":
 		m.fileBrowser.visible = false
 
+	case "ctrl+x":
+		m.toggleExpandPlaylist()
+		m.fbMaybeAdjustScroll(m.fbVisible())
+
 	case "up", "k":
 		if m.fileBrowser.cursor > 0 {
 			m.fileBrowser.cursor--
 		} else if len(m.fileBrowser.entries) > 0 {
-			m.fileBrowser.cursor = len(m.fileBrowser.entries)-1
+			m.fileBrowser.cursor = len(m.fileBrowser.entries) - 1
 		}
+		m.fbMaybeAdjustScroll(m.fbVisible())
 
 	case "down", "j":
 		if m.fileBrowser.cursor < len(m.fileBrowser.entries)-1 {
@@ -143,15 +228,20 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 		} else if len(m.fileBrowser.entries) > 0 {
 			m.fileBrowser.cursor = 0
 		}
+		m.fbMaybeAdjustScroll(m.fbVisible())
 
 	case "pgup", "ctrl+u":
 		if m.fileBrowser.cursor > 0 {
-			m.fileBrowser.cursor -= min(m.fileBrowser.cursor, fbMaxVisible)
+			visible := m.fbVisible()
+			m.fileBrowser.cursor -= min(m.fileBrowser.cursor, visible)
+			m.fbMaybeAdjustScroll(visible)
 		}
 
 	case "pgdown", "ctrl+d":
 		if m.fileBrowser.cursor < len(m.fileBrowser.entries)-1 {
-			m.fileBrowser.cursor = min(len(m.fileBrowser.entries)-1, m.fileBrowser.cursor + fbMaxVisible)
+			visible := m.fbVisible()
+			m.fileBrowser.cursor = min(len(m.fileBrowser.entries)-1, m.fileBrowser.cursor+visible)
+			m.fbMaybeAdjustScroll(visible)
 		}
 
 	case "enter", "l", "right":
@@ -172,6 +262,7 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 							break
 						}
 					}
+					m.fbMaybeAdjustScroll(m.fbVisible())
 				}
 			} else if e.isAudio {
 				m.fileBrowser.selected[e.path] = true
@@ -190,6 +281,7 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 				break
 			}
 		}
+		m.fbMaybeAdjustScroll(m.fbVisible())
 
 	case "~":
 		if cd, _ = os.UserHomeDir(); cd != "" && m.fileBrowser.dir != cd {
@@ -203,7 +295,7 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 			m.loadFBDir()
 		}
 
-	case " ":
+	case "space":
 		if m.fileBrowser.cursor < len(m.fileBrowser.entries) {
 			e := m.fileBrowser.entries[m.fileBrowser.cursor]
 			if !e.isParent && (e.isAudio || e.isDir) {
@@ -217,6 +309,7 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 				m.fileBrowser.cursor++
 			}
 		}
+		m.fbMaybeAdjustScroll(m.fbVisible())
 
 	case "a":
 		// Toggle select all audio files in current view.
@@ -235,11 +328,13 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "g", "home":
 		m.fileBrowser.cursor = 0
+		m.fbMaybeAdjustScroll(m.fbVisible())
 
 	case "G", "end":
 		if len(m.fileBrowser.entries) > 0 {
 			m.fileBrowser.cursor = len(m.fileBrowser.entries) - 1
 		}
+		m.fbMaybeAdjustScroll(m.fbVisible())
 
 	case "R":
 		if len(m.fileBrowser.selected) > 0 {
@@ -262,7 +357,7 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyMsg) tea.Cmd {
 // fbConfirm collects selected paths, closes the overlay, and returns an async
 // command that resolves the paths into tracks.
 func (m *Model) fbConfirm(replace bool) tea.Cmd {
-	var paths = make([]string, 0, len(m.fileBrowser.selected))
+	paths := make([]string, 0, len(m.fileBrowser.selected))
 	for p := range m.fileBrowser.selected {
 		paths = append(paths, p)
 	}
@@ -279,11 +374,8 @@ func (m *Model) fbConfirm(replace bool) tea.Cmd {
 
 // renderFileBrowser renders the file browser overlay.
 func (m Model) renderFileBrowser() string {
-	lines := append(make([]string, 0, 3 + fbMaxVisible + 4),
-		titleStyle.Render("O P E N  F I L E S"),
-		dimStyle.Render("  " + m.fileBrowser.dir),
-		"",
-	)
+	maxVisible := m.fbVisible()
+	lines := append(make([]string, 0, 3+maxVisible+4), m.fbHeaderLines()...)
 
 	if m.fileBrowser.err != "" {
 		lines = append(lines, errorStyle.Render("  "+m.fileBrowser.err))
@@ -295,12 +387,15 @@ func (m Model) renderFileBrowser() string {
 		lines = append(lines, dimStyle.Render("  (empty)"))
 		rendered = 1
 	} else {
-		scroll := 0
-		if m.fileBrowser.cursor >= fbMaxVisible {
-			scroll = m.fileBrowser.cursor - fbMaxVisible + 1
+		scroll := m.fileBrowser.scroll
+		if scroll < 0 {
+			scroll = 0
+		}
+		if scroll > len(m.fileBrowser.entries)-1 {
+			scroll = max(0, len(m.fileBrowser.entries)-1)
 		}
 
-		for i := scroll; i < len(m.fileBrowser.entries) && i < scroll+fbMaxVisible; i++ {
+		for i := scroll; i < len(m.fileBrowser.entries) && i < scroll+maxVisible; i++ {
 			e := m.fileBrowser.entries[i]
 
 			// Selection check mark.
@@ -318,7 +413,7 @@ func (m Model) renderFileBrowser() string {
 			label := check + e.name + suffix
 
 			// Truncate long names.
-			maxW := ui.PanelWidth - 4
+			maxW := max(1, ui.PanelWidth-2)
 			labelRunes := []rune(label)
 			if len(labelRunes) > maxW {
 				label = string(labelRunes[:maxW-1]) + "…"
@@ -338,7 +433,7 @@ func (m Model) renderFileBrowser() string {
 	}
 
 	// Pad to fixed height.
-	for range fbMaxVisible - rendered {
+	for i := 0; i < maxVisible-rendered; i++ {
 		lines = append(lines, "")
 	}
 
@@ -347,23 +442,13 @@ func (m Model) renderFileBrowser() string {
 		lines = append(lines, "", statusStyle.Render(fmt.Sprintf("  %d selected", len(m.fileBrowser.selected))))
 	} else {
 		lines = append(lines, "")
-		// Pad to fixed height.
+		// Keep footer alignment consistent when no error/status line is present.
 		if m.fileBrowser.err == "" {
 			lines = append(lines, "")
 		}
 	}
 
-	help := helpKey("↑↓", "Scroll ") + helpKey("Enter", "Open ") + 
-		helpKey("Spc", "Select ") + helpKey("a", "All ") +
-		helpKey("←", "Back ") + helpKey("~.", "Home/Cwd ")
-	if os.PathSeparator == '\\' {
-		help += helpKey("AltCZ", "Drive ")
-	}
-	if len(m.fileBrowser.selected) > 0 {
-		help += helpKey("R", "Replace ")
-	}
-	help += helpKey("Esc", "Close")
-	lines = append(lines, "", help)
+	lines = append(lines, "", m.fbHelpLine())
 
 	return m.centerOverlay(strings.Join(lines, "\n"))
 }

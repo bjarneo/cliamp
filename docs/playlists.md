@@ -24,7 +24,7 @@ http://station-1.com/stream
 http://station-2.com/stream/hd
 ```
 
-Entries without `#EXTINF` still work — the filename or URL is used as the title instead.
+Entries without `#EXTINF` still work. The filename or URL is used as the title instead.
 
 ### Relative Paths
 
@@ -87,7 +87,7 @@ HTTP/HTTPS paths are automatically treated as streams.
 
 ### Podcast / RSS Feed Playlists
 
-You can save podcast RSS feed URLs in a playlist. Add `feed = true` to mark a track as a feed — when played, the feed is resolved into individual episodes instead of being streamed directly.
+You can save podcast RSS feed URLs in a playlist. Add `feed = true` to mark a track as a feed. When played, the feed is resolved into individual episodes instead of being streamed directly.
 
 ```toml
 # ~/.config/cliamp/playlists/podcasts.toml
@@ -133,13 +133,13 @@ cliamp song.mp3                    # starts playing, Esc opens browser
 
 Press `p` from any view to open the playlist manager:
 
-1. **Browse** — see all playlists with track counts
-2. **Open** — press `Enter` or `→` to view tracks inside a playlist
-3. **Add track** — press `a` to add the currently playing track
-4. **Delete playlist** — press `d` then `y` to confirm deletion
-5. **Remove track** — open a playlist, highlight a track, press `d` to remove it
-6. **Play all** — press `Enter` on the track list to load all tracks into the player
-7. **New playlist** — select "+ New Playlist...", type a name, and press Enter
+1. **Browse**: see all playlists with track counts
+2. **Open**: press `Enter` or `→` to view tracks inside a playlist
+3. **Add track**: press `a` to add the currently playing track
+4. **Delete playlist**: press `d` then `y` to confirm deletion
+5. **Remove track**: open a playlist, highlight a track, press `d` to remove it
+6. **Play all**: press `Enter` on the track list to load all tracks into the player
+7. **New playlist**: select "+ New Playlist...", type a name, and press Enter
 
 The directory `~/.config/cliamp/playlists/` is created automatically on first use. Removing the last track from a playlist auto-deletes the file.
 

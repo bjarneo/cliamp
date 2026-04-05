@@ -116,14 +116,6 @@ func TestTerminalTitleIntroSequence(t *testing.T) {
 	}
 }
 
-func TestInitialTerminalTitle(t *testing.T) {
-	got := InitialTerminalTitle()
-	want := strings.Repeat(" ", titleIntroViewportDefault-4) + "It r"
-	if got != want {
-		t.Fatalf("InitialTerminalTitle() = %q, want %q", got, want)
-	}
-}
-
 func TestCurrentTerminalTitleSanitizesRenderedTitle(t *testing.T) {
 	tests := []struct {
 		name   string
