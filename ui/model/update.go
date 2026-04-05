@@ -75,7 +75,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case seekTickMsg:
-		// Async yt-dlp seek completed.
+		// Async seek completed.
 		// Only clear seekActive if no new seek keypresses arrived during loading.
 		if m.seek.timer <= 0 {
 			m.seek.active = false
@@ -700,7 +700,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.notifyAll()
 		return m, nil
 	case ipc.SeekMsg:
-		_ = m.player.Seek(time.Duration(msg.Secs * float64(time.Second)))
+		_ = m.player.Seek(msg.Offset)
 		m.notifyAll()
 		return m, nil
 	case ipc.LoadMsg:

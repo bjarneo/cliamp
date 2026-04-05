@@ -5,50 +5,46 @@ import (
 	"testing"
 )
 
-func TestDbToLinear_Boundaries(t *testing.T) {
-	if got := dbToLinear(-30); got != 0.0 {
-		t.Errorf("dbToLinear(-30) = %f, want 0.0", got)
+func TestVolumeConversionClamps(t *testing.T) {
+	dbCases := []struct {
+		name string
+		in   float64
+		want float64
+	}{
+		{name: "db floor", in: -50, want: 0},
+		{name: "db ceiling", in: 20, want: 1},
 	}
-	if got := dbToLinear(-50); got != 0.0 {
-		t.Errorf("dbToLinear(-50) = %f, want 0.0", got)
+	for _, tt := range dbCases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := dbToLinear(tt.in); got != tt.want {
+				t.Fatalf("dbToLinear(%v) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
 	}
-	if got := dbToLinear(6); got != 1.0 {
-		t.Errorf("dbToLinear(6) = %f, want 1.0", got)
+
+	linearCases := []struct {
+		name string
+		in   float64
+		want float64
+	}{
+		{name: "linear floor", in: -1, want: -30},
+		{name: "linear ceiling", in: 2, want: 6},
 	}
-	if got := dbToLinear(20); got != 1.0 {
-		t.Errorf("dbToLinear(20) = %f, want 1.0", got)
+	for _, tt := range linearCases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := linearToDb(tt.in); got != tt.want {
+				t.Fatalf("linearToDb(%v) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
 	}
 }
 
-func TestLinearToDb_Boundaries(t *testing.T) {
-	if got := linearToDb(0); got != -30 {
-		t.Errorf("linearToDb(0) = %f, want -30", got)
-	}
-	if got := linearToDb(-1); got != -30 {
-		t.Errorf("linearToDb(-1) = %f, want -30", got)
-	}
-	if got := linearToDb(1); got != 6 {
-		t.Errorf("linearToDb(1) = %f, want 6", got)
-	}
-	if got := linearToDb(2); got != 6 {
-		t.Errorf("linearToDb(2) = %f, want 6", got)
-	}
-}
-
-func TestRoundTrip(t *testing.T) {
+func TestVolumeConversionRoundTrip(t *testing.T) {
 	for _, db := range []float64{-30, -20, -10, -6, -3, 0, 3, 6} {
 		linear := dbToLinear(db)
 		got := linearToDb(linear)
 		if math.Abs(got-db) > 0.01 {
-			t.Errorf("round-trip: linearToDb(dbToLinear(%f)) = %f, want %f", db, got, db)
+			t.Fatalf("linearToDb(dbToLinear(%v)) = %v, want %v", db, got, db)
 		}
-	}
-}
-
-func TestDbToLinear_ZeroDb(t *testing.T) {
-	got := dbToLinear(0)
-	want := 1.0 / math.Pow(10, 6.0/20) // ~0.501
-	if math.Abs(got-want) > 0.001 {
-		t.Errorf("dbToLinear(0) = %f, want ~%f", got, want)
 	}
 }

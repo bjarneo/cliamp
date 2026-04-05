@@ -199,7 +199,7 @@ func Run(prog *tea.Program, svc *Service) (tea.Model, error) {
 type updateReq struct {
 	title, artist, album      string
 	durationSecs, elapsedSecs float64
-	playbackState             int
+	status                    playback.Status
 	canSeek                   bool
 }
 
@@ -504,7 +504,17 @@ func applyUpdate(req updateReq) {
 		canSeek = 1
 	}
 	C.updateNowPlaying(cTitle, cArtist, cAlbum,
-		C.double(req.durationSecs), C.double(req.elapsedSecs), C.int(req.playbackState), canSeek)
+		C.double(req.durationSecs), C.double(req.elapsedSecs), nowPlayingState(req.status), canSeek)
+}
+
+func nowPlayingState(status playback.Status) C.int {
+	switch status {
+	case playback.StatusPlaying:
+		return 1
+	case playback.StatusPaused:
+		return 2
+	}
+	return 0
 }
 
 func (s *Service) Update(state playback.State) {
@@ -512,22 +522,14 @@ func (s *Service) Update(state playback.State) {
 		return
 	}
 
-	playbackState := 0
-	switch state.Status {
-	case playback.StatusPlaying:
-		playbackState = 1
-	case playback.StatusPaused:
-		playbackState = 2
-	}
-
 	req := updateReq{
-		title:         state.Track.Title,
-		artist:        state.Track.Artist,
-		album:         state.Track.Album,
-		durationSecs:  state.Track.Duration.Seconds(),
-		elapsedSecs:   state.Position.Seconds(),
-		playbackState: playbackState,
-		canSeek:       state.Seekable,
+		title:        state.Track.Title,
+		artist:       state.Track.Artist,
+		album:        state.Track.Album,
+		durationSecs: state.Track.Duration.Seconds(),
+		elapsedSecs:  state.Position.Seconds(),
+		status:       state.Status,
+		canSeek:      state.Seekable,
 	}
 
 	select {

@@ -23,13 +23,25 @@ func (m *Model) doSeek(d time.Duration) tea.Cmd {
 	return m.seekRelative(d, seekDebounceTicks)
 }
 
+func (m *Model) streamSeekRelative(delta time.Duration) tea.Cmd {
+	p := m.player
+	return func() tea.Msg {
+		p.Seek(delta)
+		return seekTickMsg{}
+	}
+}
+
+func (m *Model) streamSeekAbsolute(target time.Duration) tea.Cmd {
+	p := m.player
+	return func() tea.Msg {
+		p.Seek(target - p.Position())
+		return seekTickMsg{}
+	}
+}
+
 func (m *Model) seekRelative(d time.Duration, debounceTicks int) tea.Cmd {
 	if m.player.IsStreamSeek() {
-		p := m.player
-		return func() tea.Msg {
-			p.Seek(d)
-			return seekTickMsg{}
-		}
+		return m.streamSeekRelative(d)
 	}
 	if !m.player.IsYTDLSeek() {
 		m.player.Seek(d)
@@ -45,6 +57,9 @@ func (m *Model) seekRelative(d time.Duration, debounceTicks int) tea.Cmd {
 }
 
 func (m *Model) seekAbsolute(target time.Duration) tea.Cmd {
+	if m.player.IsStreamSeek() {
+		return m.streamSeekAbsolute(target)
+	}
 	if !m.player.IsYTDLSeek() {
 		m.player.Seek(target - m.player.Position())
 		m.finishSeek()

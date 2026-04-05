@@ -164,7 +164,7 @@ func (s *Server) dispatch(req Request) Response {
 		return Response{OK: true}
 
 	case "seek":
-		s.disp.Send(SeekMsg{Secs: req.Value})
+		s.disp.Send(SeekMsg{Offset: time.Duration(req.Value * float64(time.Second))})
 		return Response{OK: true}
 
 	case "load":

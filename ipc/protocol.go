@@ -2,6 +2,8 @@
 // The protocol is newline-delimited JSON over a Unix domain socket.
 package ipc
 
+import "time"
+
 // Compile-time interface check.
 var _ Dispatcher = DispatcherFunc(nil)
 
@@ -61,8 +63,8 @@ type PauseMsg struct{}
 // VolumeMsg requests a relative volume change in dB.
 type VolumeMsg struct{ DB float64 }
 
-// SeekMsg requests a relative seek in seconds.
-type SeekMsg struct{ Secs float64 }
+// SeekMsg requests a relative seek.
+type SeekMsg struct{ Offset time.Duration }
 
 // LoadMsg requests loading a playlist by name.
 // Reply receives the result so the client can report errors.

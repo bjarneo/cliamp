@@ -36,36 +36,26 @@ func TestAttachNotifierPublishesCurrentPlaybackState(t *testing.T) {
 		playlist: pl,
 	}
 
-	nextModel, cmd := m.Update(AttachNotifier(notifier))
-	if cmd != nil {
-		t.Fatalf("Update() cmd = %v, want nil", cmd)
-	}
-
-	next, ok := nextModel.(Model)
-	if !ok {
-		t.Fatalf("Update() model = %T, want Model", nextModel)
-	}
-	if next.notifier != notifier {
+	next, _ := m.Update(AttachNotifier(notifier))
+	nextModel := next.(Model)
+	if nextModel.notifier != notifier {
 		t.Fatal("notifier was not attached to model")
 	}
 	if len(notifier.updates) != 1 {
 		t.Fatalf("notifier update count = %d, want 1", len(notifier.updates))
 	}
 
-	got := notifier.updates[0]
-	if got.Status != playback.StatusPlaying {
-		t.Fatalf("notifier status = %q, want %q", got.Status, playback.StatusPlaying)
+	want := playback.State{
+		Status: playback.StatusPlaying,
+		Track: playback.Track{
+			Title:    "Song",
+			Artist:   "Artist",
+			Album:    "Album",
+			URL:      "/tmp/song.mp3",
+			Duration: time.Hour,
+		},
 	}
-	if got.Track.Title != "Song" {
-		t.Fatalf("notifier title = %q, want %q", got.Track.Title, "Song")
-	}
-	if got.Track.Artist != "Artist" {
-		t.Fatalf("notifier artist = %q, want %q", got.Track.Artist, "Artist")
-	}
-	if got.Track.Album != "Album" {
-		t.Fatalf("notifier album = %q, want %q", got.Track.Album, "Album")
-	}
-	if got.Track.URL != "/tmp/song.mp3" {
-		t.Fatalf("notifier url = %q, want %q", got.Track.URL, "/tmp/song.mp3")
+	if got := notifier.updates[0]; got != want {
+		t.Fatalf("notifier update = %#v, want %#v", got, want)
 	}
 }

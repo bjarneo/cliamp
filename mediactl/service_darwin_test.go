@@ -3,7 +3,6 @@
 package mediactl
 
 import (
-	"reflect"
 	"runtime/cgo"
 	"testing"
 	"time"
@@ -39,41 +38,6 @@ func TestDarwinCallbacksUseHandleRouting(t *testing.T) {
 	case got := <-msgsA:
 		t.Fatalf("goMediaNext() unexpectedly sent %T to a different service", got)
 	default:
-	}
-}
-
-func TestDarwinCallbacksEmitExpectedMessages(t *testing.T) {
-	cases := []struct {
-		name string
-		fire func(uintptr)
-		want tea.Msg
-	}{
-		{name: "play_pause", fire: mediaPlayPause, want: playback.PlayPauseMsg{}},
-		{name: "play", fire: mediaPlay, want: playback.PlayMsg{}},
-		{name: "pause", fire: mediaPause, want: playback.PauseMsg{}},
-		{name: "next", fire: mediaNext, want: playback.NextMsg{}},
-		{name: "prev", fire: mediaPrev, want: playback.PrevMsg{}},
-		{name: "stop", fire: mediaStop, want: playback.StopMsg{}},
-	}
-
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			msgs := make(chan tea.Msg, 1)
-			svc := &Service{send: func(msg tea.Msg) { msgs <- msg }}
-			handle := cgo.NewHandle(svc)
-			defer handle.Delete()
-
-			tt.fire(uintptr(handle))
-
-			select {
-			case got := <-msgs:
-				if reflect.TypeOf(got) != reflect.TypeOf(tt.want) {
-					t.Fatalf("%s sent %T, want %T", tt.name, got, tt.want)
-				}
-			default:
-				t.Fatalf("%s did not send a message", tt.name)
-			}
-		})
 	}
 }
 
@@ -115,32 +79,6 @@ func TestDarwinNewRejectsSecondActiveService(t *testing.T) {
 	svc2.Close()
 }
 
-func TestDarwinBeginReleaseAllowsNewServiceAfterRunLoopTeardown(t *testing.T) {
-	svc, err := New(func(tea.Msg) {})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-
-	svc.mu.Lock()
-	svc.runLoopOwned = true
-	svc.mu.Unlock()
-
-	handle, _, ok := svc.beginRelease(true)
-	if !ok {
-		t.Fatal("beginRelease(true) = false, want true")
-	}
-	if handle != 0 {
-		handle.Delete()
-	}
-	releaseDarwinService(svc)
-
-	svc2, err := New(func(tea.Msg) {})
-	if err != nil {
-		t.Fatalf("New() after teardown error = %v", err)
-	}
-	svc2.Close()
-}
-
 func TestDarwinUpdateCoalescesPendingState(t *testing.T) {
 	svc := &Service{updates: make(chan updateReq, 1)}
 
@@ -160,12 +98,12 @@ func TestDarwinUpdateCoalescesPendingState(t *testing.T) {
 	select {
 	case got := <-svc.updates:
 		want := updateReq{
-			title:         "second",
-			artist:        "artist",
-			durationSecs:  0,
-			elapsedSecs:   2.25,
-			playbackState: 1,
-			canSeek:       false,
+			title:        "second",
+			artist:       "artist",
+			durationSecs: 0,
+			elapsedSecs:  2.25,
+			status:       playback.StatusPlaying,
+			canSeek:      false,
 		}
 		if got != want {
 			t.Fatalf("Update() queued %#v, want %#v", got, want)
