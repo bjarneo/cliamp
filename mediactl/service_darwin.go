@@ -161,7 +161,6 @@ import "C"
 
 import (
 	"fmt"
-	"runtime"
 	"runtime/cgo"
 	"sync"
 	"time"
@@ -176,8 +175,6 @@ func Run(prog *tea.Program, svc *Service) (tea.Model, error) {
 	if svc == nil {
 		return prog.Run()
 	}
-
-	runtime.LockOSThread()
 
 	type result struct {
 		model tea.Model
