@@ -210,19 +210,7 @@ func run(overrides config.Overrides, positional []string) error {
 		defer luaMgr.Close()
 	}
 
-	var send func(tea.Msg)
-	svc, svcErr := mediactl.New(func(msg tea.Msg) {
-		if send != nil {
-			send(msg)
-		}
-	})
-	var notifier playback.Notifier
-	if svcErr == nil && svc != nil {
-		defer svc.Close()
-		notifier = svc
-	}
-
-	m := model.New(p, pl, providers, defaultProvider, localProv, notifier, themes, luaMgr, config.SaveFunc{})
+	m := model.New(p, pl, providers, defaultProvider, localProv, themes, luaMgr, config.SaveFunc{})
 
 	if luaMgr != nil {
 		luaMgr.SetStateProvider(luaplugin.StateProvider{
@@ -291,7 +279,11 @@ func run(overrides config.Overrides, positional []string) error {
 	}
 
 	prog := tea.NewProgram(m)
-	send = prog.Send
+
+	svc, svcErr := wireMediaCtl(prog)
+	if svcErr == nil && svc != nil {
+		defer svc.Close()
+	}
 
 	if luaMgr != nil {
 		luaMgr.SetControlProvider(luaplugin.ControlProvider{
@@ -337,6 +329,15 @@ func run(overrides config.Overrides, positional []string) error {
 	}
 
 	return nil
+}
+
+func wireMediaCtl(prog *tea.Program) (*mediactl.Service, error) {
+	svc, err := mediactl.New(prog.Send)
+	if err != nil || svc == nil {
+		return svc, err
+	}
+	go prog.Send(model.AttachNotifier(svc))
+	return svc, nil
 }
 
 func ipcSend(req ipc.Request) (ipc.Response, error) {

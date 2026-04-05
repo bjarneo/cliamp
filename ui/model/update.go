@@ -616,6 +616,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.devicePicker.devices = nil
 		return m, nil
 
+	case attachNotifierMsg:
+		m.attachNotifier(msg.notifier)
+		return m, nil
+
 	case playback.PlayPauseMsg:
 		cmd := m.togglePlayPause()
 		m.notifyAll()

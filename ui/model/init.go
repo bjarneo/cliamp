@@ -6,7 +6,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"cliamp/internal/playback"
 	"cliamp/luaplugin"
 	"cliamp/player"
 	"cliamp/playlist"
@@ -24,7 +23,7 @@ func applyThemeAll(t theme.Theme) {
 // providers is the ordered list of available providers (Radio, Navidrome, Spotify, Jellyfin, etc.).
 // defaultProvider is the config key of the provider to select initially.
 // localProv is an optional direct reference to the local provider for write ops.
-func New(p player.Engine, pl *playlist.Playlist, providers []ProviderEntry, defaultProvider string, localProv playlist.Provider, notifier playback.Notifier, themes []theme.Theme, luaMgr *luaplugin.Manager, cs ConfigSaver) Model {
+func New(p player.Engine, pl *playlist.Playlist, providers []ProviderEntry, defaultProvider string, localProv playlist.Provider, themes []theme.Theme, luaMgr *luaplugin.Manager, cs ConfigSaver) Model {
 	m := Model{
 		player:        p,
 		playlist:      pl,
@@ -38,7 +37,6 @@ func New(p player.Engine, pl *playlist.Playlist, providers []ProviderEntry, defa
 		localProvider: localProv,
 		providers:     providers,
 		navBrowser:    navBrowserState{},
-		notifier:      notifier,
 		luaMgr:        luaMgr,
 	}
 	m.termTitle = initialTerminalTitleState()

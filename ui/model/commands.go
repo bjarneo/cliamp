@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"cliamp/internal/playback"
 	"cliamp/lyrics"
 	"cliamp/player"
 	"cliamp/playlist"
@@ -65,6 +66,8 @@ type streamPlayedMsg struct{ err error }
 // streamPreloadedMsg signals that async stream Preload() completed.
 type streamPreloadedMsg struct{}
 
+type attachNotifierMsg struct{ notifier playback.Notifier }
+
 // ytdlResolvedMsg carries a lazily resolved yt-dlp track (direct audio URL).
 type ytdlResolvedMsg struct {
 	index int
@@ -106,6 +109,10 @@ type navTracksLoadedMsg []playlist.Track
 type provAuthDoneMsg struct{ err error }
 
 // — Command constructors —
+
+func AttachNotifier(notifier playback.Notifier) tea.Msg {
+	return attachNotifierMsg{notifier: notifier}
+}
 
 func listDevicesCmd() tea.Cmd {
 	return func() tea.Msg {

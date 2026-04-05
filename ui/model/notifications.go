@@ -16,6 +16,11 @@ func (m *Model) notifyAll() {
 	m.notifyPlugins()
 }
 
+func (m *Model) attachNotifier(notifier playback.Notifier) {
+	m.notifier = notifier
+	m.notifyAll()
+}
+
 // notifyPlugins emits a playback state event to Lua plugins.
 func (m *Model) notifyPlugins() {
 	if m.luaMgr == nil || !m.luaMgr.HasHooks() {
