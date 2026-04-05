@@ -69,6 +69,7 @@ type lyricsState struct {
 type keymapOverlay struct {
 	visible  bool
 	cursor   int
+	scroll   int
 	search   string
 	filtered []int // indices into keymapEntries
 }

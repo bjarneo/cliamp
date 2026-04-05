@@ -72,6 +72,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.fileBrowser.visible {
 			m.fbMaybeAdjustScroll(m.fbVisible())
 		}
+		if m.keymap.visible {
+			m.keymapMaybeAdjustScroll(m.keymapVisibleRows())
+		}
 		return m, nil
 
 	case seekTickMsg:

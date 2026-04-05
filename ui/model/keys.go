@@ -735,6 +735,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "ctrl+k":
 		m.keymap.visible = true
+		m.keymap.cursor = 0
+		m.keymap.scroll = 0
+		m.keymap.search = ""
+		m.keymap.filtered = nil
 	}
 
 	return nil

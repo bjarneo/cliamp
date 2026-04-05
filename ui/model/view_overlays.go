@@ -124,7 +124,7 @@ func (m Model) renderKeymapOverlay() string {
 		lines = append(lines, dimStyle.Render("  No matches"))
 		rendered = 1
 	} else {
-		scroll := scrollStart(m.keymap.cursor, maxVisible)
+		scroll := m.keymap.scroll
 		for i := scroll; i < len(visible) && i < scroll+maxVisible; i++ {
 			line := fmt.Sprintf("%-10s %s", visible[i].key, visible[i].action)
 			lines = append(lines, cursorLine(line, i == m.keymap.cursor))

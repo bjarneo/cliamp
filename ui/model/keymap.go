@@ -68,6 +68,30 @@ func (m Model) keymapCount() int {
 	return len(keymapEntries)
 }
 
+// keymapMaybeAdjustScroll keeps the cursor visible in the current keymap window.
+func (m *Model) keymapMaybeAdjustScroll(visible int) {
+	if visible <= 0 {
+		return
+	}
+	count := m.keymapCount()
+	if m.keymap.cursor < 0 {
+		m.keymap.cursor = 0
+	}
+	if m.keymap.cursor >= count && count > 0 {
+		m.keymap.cursor = count - 1
+	}
+
+	if m.keymap.cursor < m.keymap.scroll {
+		m.keymap.scroll = m.keymap.cursor
+	} else if m.keymap.cursor >= m.keymap.scroll+visible {
+		m.keymap.scroll = m.keymap.cursor - visible + 1
+	}
+
+	if m.keymap.scroll+visible > count {
+		m.keymap.scroll = max(0, count-visible)
+	}
+}
+
 // handleKeymapKey processes key presses while the keymap overlay is open.
 func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
 	key := msg.String()
@@ -82,6 +106,7 @@ func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.keymap.search = ""
 		m.keymap.filtered = nil
 		m.keymap.cursor = 0
+		m.keymap.scroll = 0
 
 	case msg.Code == tea.KeyUp:
 		count := m.keymapCount()
@@ -90,6 +115,7 @@ func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
 		} else if count > 0 {
 			m.keymap.cursor = count - 1
 		}
+		m.keymapMaybeAdjustScroll(m.keymapVisibleRows())
 
 	case msg.Code == tea.KeyDown:
 		count := m.keymapCount()
@@ -98,31 +124,37 @@ func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
 		} else if count > 0 {
 			m.keymap.cursor = 0
 		}
+		m.keymapMaybeAdjustScroll(m.keymapVisibleRows())
 
 	case key == "ctrl+x":
 		m.toggleExpandPlaylist()
+		m.keymapMaybeAdjustScroll(m.keymapVisibleRows())
 
 	case key == "pgup" || key == "ctrl+u":
 		if m.keymap.cursor > 0 {
-			step := max(1, m.keymapVisibleRows())
-			m.keymap.cursor -= min(m.keymap.cursor, step)
+			visible := m.keymapVisibleRows()
+			m.keymap.cursor -= min(m.keymap.cursor, visible)
+			m.keymapMaybeAdjustScroll(visible)
 		}
 
 	case key == "pgdown" || key == "ctrl+d":
 		count := m.keymapCount()
 		if m.keymap.cursor < count-1 {
-			step := max(1, m.keymapVisibleRows())
-			m.keymap.cursor = min(count-1, m.keymap.cursor+step)
+			visible := m.keymapVisibleRows()
+			m.keymap.cursor = min(count-1, m.keymap.cursor+visible)
+			m.keymapMaybeAdjustScroll(visible)
 		}
 
 	case msg.Code == tea.KeyHome:
 		m.keymap.cursor = 0
+		m.keymapMaybeAdjustScroll(m.keymapVisibleRows())
 
 	case msg.Code == tea.KeyEnd:
 		count := m.keymapCount()
 		if count > 0 {
 			m.keymap.cursor = count - 1
 		}
+		m.keymapMaybeAdjustScroll(m.keymapVisibleRows())
 
 	case msg.Code == tea.KeyBackspace:
 		if m.keymap.search != "" {
@@ -148,6 +180,7 @@ func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
 func (m *Model) updateKeymapFilter() {
 	m.keymap.filtered = nil
 	m.keymap.cursor = 0
+	m.keymap.scroll = 0
 	if m.keymap.search == "" {
 		return
 	}
