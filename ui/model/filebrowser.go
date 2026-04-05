@@ -92,11 +92,12 @@ func (m *Model) fbMaybeAdjustScroll(visible int) {
 	if visible <= 0 {
 		return
 	}
+	count := len(m.fileBrowser.entries)
 	if m.fileBrowser.cursor < 0 {
 		m.fileBrowser.cursor = 0
 	}
-	if m.fileBrowser.cursor >= len(m.fileBrowser.entries) && len(m.fileBrowser.entries) > 0 {
-		m.fileBrowser.cursor = len(m.fileBrowser.entries) - 1
+	if m.fileBrowser.cursor >= count && count > 0 {
+		m.fileBrowser.cursor = count - 1
 	}
 
 	if m.fileBrowser.cursor < m.fileBrowser.scroll {
@@ -105,8 +106,8 @@ func (m *Model) fbMaybeAdjustScroll(visible int) {
 		m.fileBrowser.scroll = m.fileBrowser.cursor - visible + 1
 	}
 
-	if m.fileBrowser.scroll+visible > len(m.fileBrowser.entries) {
-		m.fileBrowser.scroll = max(0, len(m.fileBrowser.entries)-visible)
+	if m.fileBrowser.scroll+visible > count {
+		m.fileBrowser.scroll = max(0, count-visible)
 	}
 }
 
