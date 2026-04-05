@@ -207,6 +207,13 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		}, nil
 	}
 
+	// SSH streams with ffmpeg-required formats cannot be decoded: ffmpeg
+	// expects a local file path or HTTP URL, not ssh:// pipes.
+	if isSSH(path) && needsFFmpeg(ext) {
+		rc.Close()
+		return nil, fmt.Errorf("SSH streaming does not support %s format (requires ffmpeg)", ext)
+	}
+
 	// For local files that need ffmpeg (e.g. webm, m4a, opus), stream from
 	// a pipe so playback starts instantly instead of buffering the entire
 	// file to memory. Seeking is supported via ffmpeg -ss restart.

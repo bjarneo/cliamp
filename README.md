@@ -1,12 +1,6 @@
-```
- ██████ ██      ██  █████  ███    ███ ██████
-██      ██      ██ ██   ██ ████  ████ ██   ██
-██      ██      ██ ███████ ██ ████ ██ ██████
-██      ██      ██ ██   ██ ██  ██  ██ ██
- ██████ ███████ ██ ██   ██ ██      ██ ██
-```
-
 A retro terminal music player inspired by Winamp. Play local files, streams, podcasts, YouTube, YouTube Music, SoundCloud, Bilibili, Spotify, Xiaoyuzhou (小宇宙), Navidrome, Plex, and Jellyfin with a spectrum visualizer, parametric EQ, and playlist management.
+
+**[cliamp.stream](https://cliamp.stream)**
 
 Built with [Bubbletea](https://github.com/charmbracelet/bubbletea), [Lip Gloss](https://github.com/charmbracelet/lipgloss), [Beep](https://github.com/gopxl/beep), and [go-librespot](https://github.com/devgianlu/go-librespot).
 
@@ -98,8 +92,12 @@ sudo pacman -S alsa-lib
 ```sh
 git clone https://github.com/bjarneo/cliamp.git
 cd cliamp
-go build -o cliamp .
+make && make install
 ```
+
+Or without Make: `go build -o cliamp .`
+
+`make install` places the binary in `~/.local/bin/`.
 
 **Optional runtime dependencies:**
 
@@ -121,9 +119,12 @@ go build -o cliamp .
 - [Plex](docs/plex.md)
 - [Jellyfin](docs/jellyfin.md)
 - [Themes](docs/themes.md)
+- [SSH Streaming](docs/ssh-streaming.md)
+- [Remote Control (IPC)](docs/remote-control.md)
 - [Audio Quality](docs/audio-quality.md)
 - [MPRIS](docs/mpris.md)
 - [Lua Plugins](docs/plugins.md)
+  - [Community Plugins](docs/community-plugins.md)
   - [Soap Bubbles Visualizer](https://github.com/bjarneo/cliamp-plugin-soap-bubbles)
 
 ## Troubleshooting

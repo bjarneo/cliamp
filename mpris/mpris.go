@@ -13,14 +13,20 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
 	"github.com/godbus/dbus/v5/prop"
+
+	"cliamp/internal/control"
 )
 
-// Message types injected into the Bubbletea event loop.
+// Shared message types (aliases so existing code using mpris.NextMsg still works).
 type (
-	PlayPauseMsg   struct{}
-	NextMsg        struct{}
-	PrevMsg        struct{}
-	StopMsg        struct{}
+	PlayPauseMsg = control.ToggleMsg
+	NextMsg      = control.NextMsg
+	PrevMsg      = control.PrevMsg
+	StopMsg      = control.StopMsg
+)
+
+// MPRIS-specific message types.
+type (
 	QuitMsg        struct{}
 	SeekMsg        struct{ Offset int64 }   // microseconds (relative)
 	SetPositionMsg struct{ Position int64 } // microseconds (absolute)

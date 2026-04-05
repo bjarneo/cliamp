@@ -148,6 +148,7 @@ type Config struct {
 	PaddingH        int                          // horizontal padding for the UI frame (default 3)
 	PaddingV        int                          // vertical padding for the UI frame (default 1)
 	AudioDevice     string                       // preferred audio output device name (empty = system default)
+	Playlist        string                       // local TOML playlist name to load on startup
 	Navidrome       NavidromeConfig              // optional Navidrome/Subsonic server credentials
 	Spotify         SpotifyConfig                // optional Spotify provider (requires Premium)
 	YouTubeMusic    YouTubeMusicConfig           // optional YouTube Music provider

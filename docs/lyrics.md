@@ -4,8 +4,8 @@ Press `y` to show lyrics for the current track. Lyrics are fetched from LRCLIB a
 
 ## Modes
 
-- **Synced lyrics** — for local files and Navidrome tracks, lyrics auto scroll and highlight the active line in time with playback.
-- **Scroll mode** — for streams and plain lyrics without timestamps, use `j`/`k` or arrow keys to scroll manually.
+- **Synced lyrics**: for local files and Navidrome tracks, lyrics auto scroll and highlight the active line in time with playback.
+- **Scroll mode**: for streams and plain lyrics without timestamps, use `j`/`k` or arrow keys to scroll manually.
 
 ## Streams
 

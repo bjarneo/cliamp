@@ -8,7 +8,7 @@ import (
 
 	"cliamp/playlist"
 	"cliamp/ui"
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 type wavHeader struct {
@@ -93,7 +93,7 @@ func TestNavTrackListQueueStartsQueuedTrackWhenStopped(t *testing.T) {
 		},
 	}
 
-	cmd := m.handleNavTrackListKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	cmd := m.handleNavTrackListKey(tea.KeyPressMsg{Text: "q"})
 	if cmd == nil {
 		t.Fatal("handleNavTrackListKey(q) = nil, want command")
 	}

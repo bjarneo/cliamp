@@ -7,7 +7,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"cliamp/playlist"
 	"cliamp/provider"
@@ -38,9 +39,9 @@ func playlistLabel(prefix string, p playlist.PlaylistInfo) string {
 }
 
 // View renders the full TUI frame.
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	if m.quitting {
-		return ""
+		return tea.NewView("")
 	}
 
 	screen := m.activeScreen()
@@ -48,43 +49,51 @@ func (m Model) View() string {
 		m.refreshVisualizerIfPending()
 	}
 
+	var content string
 	switch screen {
 	case screenKeymap:
-		return m.renderKeymapOverlay()
+		content = m.renderKeymapOverlay()
 	case screenThemePicker:
-		return m.renderThemePicker()
+		content = m.renderThemePicker()
 	case screenDevicePicker:
-		return m.renderDeviceOverlay()
+		content = m.renderDeviceOverlay()
 	case screenFileBrowser:
-		return m.renderFileBrowser()
+		content = m.renderFileBrowser()
 	case screenNavBrowser:
-		return m.renderNavBrowser()
+		content = m.renderNavBrowser()
 	case screenPlaylistManager:
-		return m.renderPlaylistManager()
+		content = m.renderPlaylistManager()
 	case screenSpotSearch:
-		return m.renderSpotSearch()
+		content = m.renderSpotSearch()
 	case screenQueue:
-		return m.renderQueueOverlay()
+		content = m.renderQueueOverlay()
 	case screenInfo:
-		return m.renderInfoOverlay()
+		content = m.renderInfoOverlay()
 	case screenSearch:
-		return m.renderSearchOverlay()
+		content = m.renderSearchOverlay()
 	case screenNetSearch:
-		return m.renderNetSearchOverlay()
+		content = m.renderNetSearchOverlay()
 	case screenURLInput:
-		return m.renderURLInputOverlay()
+		content = m.renderURLInputOverlay()
 	case screenLyrics:
-		return m.renderLyricsOverlay()
+		content = m.renderLyricsOverlay()
 	case screenJump:
-		return m.renderJumpOverlay()
+		content = m.renderJumpOverlay()
 	case screenFullVisualizer:
-		return m.renderFullVisualizer()
+		content = m.renderFullVisualizer()
+	default:
+		content = strings.Join(m.mainSections(m.renderPlaylist(), true), "\n")
 	}
 
-	content := strings.Join(m.mainSections(m.renderPlaylist(), true), "\n")
-	frame := ui.FrameStyle.Render(content)
+	rendered := content
+	if screen == screenMain || screen == screenFullVisualizer {
+		rendered = m.centerFrame(ui.FrameStyle.Render(content))
+	}
 
-	return m.centerFrame(frame)
+	view := tea.NewView(rendered)
+	view.AltScreen = true
+	view.WindowTitle = currentTerminalTitle(m.termTitle, m.width, m.terminalTitleValues())
+	return view
 }
 
 func trimTrailingEmpty(sections []string) []string {
@@ -149,6 +158,9 @@ func (m Model) footerMessages() []string {
 	if m.status.text != "" {
 		lines = append(lines, statusStyle.Render(m.status.text))
 	}
+	for _, l := range m.logLines {
+		lines = append(lines, dimStyle.Render(l.text))
+	}
 	return lines
 }
 
@@ -182,7 +194,17 @@ func (m Model) centerOverlay(content string) string {
 }
 
 func (m Model) renderTitle() string {
-	return titleStyle.Render("C L I A M P")
+	title := titleStyle.Render("C L I A M P")
+	label := m.focus.label()
+	if label == "" {
+		return title
+	}
+	indicator := dimStyle.Render("[" + label + "]")
+	gap := ui.PanelWidth - lipgloss.Width(title) - lipgloss.Width(indicator)
+	if gap < 1 {
+		gap = 1
+	}
+	return title + strings.Repeat(" ", gap) + indicator
 }
 
 func (m Model) renderTrackInfo() string {
@@ -196,23 +218,35 @@ func (m Model) renderTrackInfo() string {
 		name = m.streamTitle
 	}
 
-	// Append album to the display name when available.
+	// Append album to the title line to save vertical space.
+	// The album is truncated (never scrolled) so artist/song stays readable.
 	album := track.Album
 	if m.streamTitle != "" && track.Stream {
 		album = ""
 	}
-	if album != "" {
-		name += " · " + album
-	}
 
 	maxW := ui.PanelWidth - 4
+	nameRunes := []rune(name)
+
+	if album != "" {
+		sep := " · "
+		sepLen := len([]rune(sep))
+		remaining := maxW - len(nameRunes) - sepLen
+		if remaining >= 4 { // enough room for at least a few album chars
+			name += sep + truncate(album, remaining)
+		} else if remaining >= 0 { // very tight — skip album entirely
+			// name stays as-is
+		} else {
+			// name itself is longer than maxW, album won't help
+		}
+	}
+
 	runes := []rune(name)
 
 	if len(runes) <= maxW {
 		return trackStyle.Render("♫ " + name)
 	}
-
-	// Cyclic scrolling for long titles
+	// Cyclic scrolling for long titles (only artist/song, album already handled)
 	padded := append(runes, titleScrollSep...)
 	total := len(padded)
 	off := m.titleOff % total
@@ -243,8 +277,7 @@ func (m Model) renderTimeStatus() string {
 	case m.seek.active:
 		status = statusStyle.Render("⟳ Seeking...")
 	case m.buffering:
-		elapsed := int(time.Since(m.bufferingAt).Seconds())
-		if elapsed > 0 {
+		if elapsed := int(time.Since(m.bufferingAt).Seconds()); elapsed > 0 {
 			status = statusStyle.Render(fmt.Sprintf("◌ Buffering... (%ds)", elapsed))
 		} else {
 			status = statusStyle.Render("◌ Buffering...")
@@ -285,10 +318,10 @@ func (m Model) renderFullVisualizer() string {
 		m.renderSpectrum(),
 		m.renderSeekBar(),
 		"",
-		helpKey("V", "Exit ") + helpKey("v", "Mode:"+m.vis.ModeName()+" ") + helpKey("Spc", "⏯ ") + helpKey("<>", "Trk ") + helpKey("+-", "Vol"),
+		helpKey("V", "Exit ") + helpKey("v", "Mode:"+m.vis.ModeName()+" ") + helpKey("Spc", "▶❚❚ ") + helpKey("<>", "Trk ") + helpKey("+-", "Vol"),
 	}
 
-	return m.centerOverlay(strings.Join(sections, "\n"))
+	return strings.Join(sections, "\n")
 }
 
 func (m Model) renderSeekBar() string {
@@ -429,9 +462,19 @@ func (m Model) renderPlaylistHeader() string {
 		queueStr = " " + activeToggle.Render(fmt.Sprintf("[Queue: %d]", qLen))
 	}
 
+	var favStr string
+	if favCount := m.playlist.FavoriteCount(); favCount > 0 {
+		favStr = " " + activeToggle.Render(fmt.Sprintf("[★ %d]", favCount))
+	}
+
 	var themeStr string
 	if name := m.ThemeName(); name != theme.DefaultName {
 		themeStr = " " + activeToggle.Render("[Theme: "+name+"]")
+	}
+
+	var posStr string
+	if total := m.playlist.Len(); total > 0 {
+		posStr = " " + dimStyle.Render(fmt.Sprintf("[%d/%d]", m.playlist.Index()+1, total))
 	}
 
 	headerStyle := dimStyle
@@ -440,7 +483,7 @@ func (m Model) renderPlaylistHeader() string {
 		headerStyle = activeToggle
 		headerLabel = "▸─ Playlist ── "
 	}
-	return headerStyle.Render(headerLabel) + shuffle + queueStr + themeStr + " " + dimStyle.Render("──")
+	return headerStyle.Render(headerLabel) + shuffle + queueStr + favStr + posStr + themeStr + " " + dimStyle.Render("──")
 }
 
 func (m Model) renderProviderList() string {
@@ -459,7 +502,6 @@ func (m Model) renderProviderList() string {
 	}
 
 	sl, isRadio := m.provider.(provider.SectionedList)
-
 	var lines []string
 
 	if m.provSearch.active {
@@ -492,46 +534,74 @@ func (m Model) renderProviderList() string {
 				lines = append(lines, dimStyle.Render(fmt.Sprintf("  %d/%d playlists", len(m.provSearch.results), len(m.providerLists))))
 			}
 		}
-		return strings.Join(lines, "\n")
-	}
+	} else {
+		scroll := max(0, m.provScroll)
+		if scroll >= len(m.providerLists) {
+			scroll = max(0, len(m.providerLists)-1)
+		}
+		if m.provCursor < scroll {
+			scroll = m.provCursor
+		}
 
-	visible := min(visibleBudget, len(m.providerLists))
-	scroll := max(0, m.provCursor-visible+1)
-	prevPrefix := ""
-
-	for j := scroll; j < scroll+visible && j < len(m.providerLists); j++ {
-		p := m.providerLists[j]
-
-		// Insert section headers on prefix transitions for the radio provider.
 		if isRadio {
-			pfx := sl.IDPrefix(p.ID)
-			if pfx != prevPrefix {
-				switch pfx {
-				case "f":
-					lines = append(lines, dimStyle.Render("  ── favorites ──"))
-					visible++
-				case "c":
-					lines = append(lines, dimStyle.Render("  ── catalog ──"))
-					visible++
-				case "s":
-					lines = append(lines, dimStyle.Render("  ── search results ──"))
-					visible++
-				}
-				prevPrefix = pfx
+			for scroll < len(m.providerLists)-1 && m.providerRowsFromScroll(sl, scroll, m.provCursor) > visibleBudget {
+				scroll++
 			}
+		} else if m.provCursor >= scroll+visibleBudget {
+			scroll = m.provCursor - visibleBudget + 1
 		}
 
-		prefix, style := "  ", playlistItemStyle
-		if j == m.provCursor {
-			style = playlistSelectedStyle
-			prefix = "> "
+		prevPrefix := ""
+		if isRadio && scroll > 0 {
+			prevPrefix = sl.IDPrefix(m.providerLists[scroll-1].ID)
 		}
-		lines = append(lines, style.Render(playlistLabel(prefix, p)))
+
+		for j := scroll; j < len(m.providerLists) && len(lines) < visibleBudget; j++ {
+			p := m.providerLists[j]
+
+			if isRadio {
+				pfx := sl.IDPrefix(p.ID)
+				if pfx != prevPrefix {
+					var header string
+					switch pfx {
+					case "f":
+						header = "  ── favorites ──"
+					case "c":
+						header = "  ── catalog ──"
+					case "s":
+						header = "  ── search results ──"
+					}
+					if header != "" && len(lines) < visibleBudget {
+						lines = append(lines, dimStyle.Render(header))
+					}
+					prevPrefix = pfx
+				}
+			}
+
+			if len(lines) >= visibleBudget {
+				break
+			}
+
+			prefix, style := "  ", playlistItemStyle
+			if j == m.provCursor {
+				style = playlistSelectedStyle
+				prefix = "> "
+			}
+			lines = append(lines, style.Render(playlistLabel(prefix, p)))
+		}
 	}
 
-	// Loading indicator for catalog batch.
-	if isRadio && m.catalogBatch.loading {
+	// Loading indicator for catalog batch (never displace selected row if full).
+	if isRadio && m.catalogBatch.loading && len(lines) < visibleBudget {
 		lines = append(lines, dimStyle.Render("  Loading more stations..."))
+	}
+
+	// Clamp exactly to visible budget so footer/help remain visible.
+	if len(lines) > visibleBudget {
+		lines = lines[:visibleBudget]
+	}
+	for len(lines) < visibleBudget {
+		lines = append(lines, "")
 	}
 
 	return strings.Join(lines, "\n")
@@ -562,6 +632,7 @@ func (m Model) renderPlaylist() string {
 	// The loop below counts every appended line against this budget
 	// so the playlist never overflows its area.
 	lines := make([]string, 0, budget) // tracks
+	numWidth := len(fmt.Sprintf("%d", len(tracks)))
 	for i := scroll; i < len(tracks) && len(lines) < budget; i++ {
 		prefix := "  "
 		style := playlistItemStyle
@@ -569,6 +640,8 @@ func (m Model) renderPlaylist() string {
 		if i == currentIdx && m.player.IsPlaying() {
 			prefix = "▶ "
 			style = playlistActiveStyle
+		} else if strings.HasPrefix(tracks[i].Path, "ssh://") {
+			prefix = "↗ "
 		}
 
 		if m.focus == focusPlaylist && i == m.plCursor {
@@ -584,21 +657,42 @@ func (m Model) renderPlaylist() string {
 		}
 
 		name := tracks[i].DisplayName()
+		isFav := tracks[i].Favorite
+		favBudget := 0
+		if isFav {
+			favBudget = 2 // "★ "
+		}
 		queueSuffix := ""
 		if qp := m.playlist.QueuePosition(i); qp > 0 {
 			queueSuffix = fmt.Sprintf(" [Q%d]", qp)
 		}
-		albumSuffix := ""
-		if tracks[i].Unplayable {
-			albumSuffix = " (unavailable)"
-		} else if album := tracks[i].Album; album != "" {
-			albumSuffix = " · " + album
-		}
-		suffixLen := utf8.RuneCountInString(queueSuffix) + utf8.RuneCountInString(albumSuffix)
-		name = truncate(name, ui.PanelWidth-6-suffixLen)
+		queueLen := utf8.RuneCountInString(queueSuffix)
 
-		line := fmt.Sprintf("%s%d. %s", prefix, i+1, name)
-		line = style.Render(line)
+		linePrefixWidth := utf8.RuneCountInString(prefix) + numWidth + 2 // 2 for ". "
+
+		// Truncate the track name only against queue/fav overhead, never album.
+		name = truncate(name, ui.PanelWidth-linePrefixWidth-queueLen-favBudget)
+		// Truncate the album to fit whatever space remains after the track name.
+		albumSuffix := ""
+		nameLen := utf8.RuneCountInString(name)
+		if tracks[i].Unplayable {
+			remaining := ui.PanelWidth - linePrefixWidth - favBudget - nameLen - queueLen
+			if remaining >= 4 {
+				albumSuffix = truncate(" (unavailable)", remaining)
+			}
+		} else if album := tracks[i].Album; album != "" {
+			remaining := ui.PanelWidth - linePrefixWidth - favBudget - nameLen - queueLen - 3 // 3 = " · "
+			if remaining >= 4 {
+				albumSuffix = " · " + truncate(album, remaining)
+			}
+		}
+
+		numStr := fmt.Sprintf("%s%*d. ", prefix, numWidth, i+1)
+		line := style.Render(numStr)
+		if isFav {
+			line += activeToggle.Render("★ ")
+		}
+		line += style.Render(name)
 		if albumSuffix != "" {
 			line += dimStyle.Render(albumSuffix)
 		}
@@ -608,6 +702,9 @@ func (m Model) renderPlaylist() string {
 		lines = append(lines, line)
 	}
 
+	for len(lines) < budget {
+		lines = append(lines, "")
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -651,7 +748,7 @@ func (m Model) renderHelp() string {
 		hints = append(hints,
 			helpHint{helpKey("←→", "Speed "), 100},
 			helpHint{helpKey("[]", "Speed "), 90},
-			helpHint{helpKey("Spc", "⏯ "), 80},
+			helpHint{helpKey("Spc", "▶❚❚ "), 80},
 			helpHint{helpKey("Tab", "Focus "), 70},
 			helpHint{helpKey("Ctrl+K", "Keys"), 100},
 		)
@@ -660,7 +757,7 @@ func (m Model) renderHelp() string {
 			helpHint{helpKey("←→", "Band "), 100},
 			helpHint{helpKey("↑↓", "Gain "), 100},
 			helpHint{helpKey("e", "Preset "), 90},
-			helpHint{helpKey("Spc", "⏯ "), 80},
+			helpHint{helpKey("Spc", "▶❚❚ "), 80},
 			helpHint{helpKey("Tab", "Focus "), 70},
 			helpHint{helpKey("Ctrl+K", "Keys"), 100},
 		)
@@ -669,13 +766,14 @@ func (m Model) renderHelp() string {
 		hints = append(hints,
 			helpHint{helpKey("↑↓", "Scroll "), 100},
 			helpHint{helpKey("Enter", "Play "), 100},
-			helpHint{helpKey("Spc", "⏯ "), 90},
+			helpHint{helpKey("Spc", "▶❚❚ "), 90},
 		)
 		track, _ := m.playlist.Current()
 		if !track.Stream || m.player.Seekable() {
 			hints = append(hints, helpHint{helpKey("←→", "Seek "), 80})
 		}
 		hints = append(hints,
+			helpHint{helpKey("*", "Fav "), 75},
 			helpHint{helpKey("Tab", "Focus "), 70},
 			helpHint{helpKey("Ctrl+K", "Keys"), 100},
 		)

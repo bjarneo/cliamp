@@ -49,7 +49,7 @@ provider = "jellyfin"
 The provider currently exposes a flat list of albums:
 
 ```text
-Artist — Album Title (Year)
+Artist - Album Title (Year)
 ```
 
 Select an album to load its tracks, then play as normal.
@@ -60,6 +60,6 @@ cliamp authenticates with either a configured token or the supplied username/pas
 
 ## Known limitations
 
-- **Album list is flat** — no artist drill-down yet
-- **No scrobbling/write-back** — plays are not reported back to Jellyfin yet
-- **Token-based access** — store the API token carefully
+- **Album list is flat**: no artist drill-down yet
+- **No scrobbling/write-back**: plays are not reported back to Jellyfin yet
+- **Token-based access**: store the API token carefully

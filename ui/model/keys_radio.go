@@ -1,7 +1,7 @@
 package model
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"cliamp/provider"
 )

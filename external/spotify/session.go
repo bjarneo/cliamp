@@ -17,13 +17,14 @@ import (
 	"path/filepath"
 	"sync"
 
+	"cliamp/applog"
 	"cliamp/internal/appdir"
 	"cliamp/internal/browser"
 
 	librespot "github.com/devgianlu/go-librespot"
 	librespotPlayer "github.com/devgianlu/go-librespot/player"
-	"github.com/devgianlu/go-librespot/session"
 	devicespb "github.com/devgianlu/go-librespot/proto/spotify/connectstate/devices"
+	"github.com/devgianlu/go-librespot/session"
 	"golang.org/x/oauth2"
 	spotifyoauth2 "golang.org/x/oauth2/spotify"
 )
@@ -46,7 +47,7 @@ type Session struct {
 	sess        *session.Session
 	player      *librespotPlayer.Player
 	devID       string
-	clientID    string         // Spotify Developer app client ID
+	clientID    string             // Spotify Developer app client ID
 	tokenSource oauth2.TokenSource // auto-refreshing OAuth2 token source
 }
 
@@ -109,8 +110,23 @@ func newSessionFromStored(ctx context.Context, clientID string, creds *storedCre
 	}
 	if oauthToken == nil {
 		if silentOnly {
-			sess.Close()
-			return nil, fmt.Errorf("silent token refresh failed, interactive auth required")
+			// Web API token refresh failed, but the spclient session is valid.
+			// Continue without a token source — webApiWithBody falls back to spclient token.
+			applog.Printf("spotify: silent token refresh failed, continuing with spclient token\n")
+			s := &Session{sess: sess, devID: devID, clientID: clientID}
+			if err := saveCreds(&storedCreds{
+				Username:     sess.Username(),
+				Data:         sess.StoredCredentials(),
+				DeviceID:     devID,
+				RefreshToken: creds.RefreshToken, // preserve for next attempt
+			}); err != nil {
+				applog.Printf("spotify: failed to save credentials: %v\n", err)
+			}
+			if err := s.initPlayer(); err != nil {
+				sess.Close()
+				return nil, err
+			}
+			return s, nil
 		}
 		token, err := doWebAPIAuth(ctx, clientID)
 		if err != nil {
@@ -133,7 +149,7 @@ func newSessionFromStored(ctx context.Context, clientID string, creds *storedCre
 		DeviceID:     devID,
 		RefreshToken: oauthToken.RefreshToken,
 	}); err != nil {
-		fmt.Fprintf(os.Stderr, "spotify: failed to save credentials: %v\n", err)
+		applog.Printf("spotify: failed to save credentials: %v\n", err)
 	}
 
 	if err := s.initPlayer(); err != nil {
@@ -145,7 +161,6 @@ func newSessionFromStored(ctx context.Context, clientID string, creds *storedCre
 
 // oauthScopes are the Spotify Web API scopes needed for cliamp.
 // See: https://developer.spotify.com/documentation/web-api/concepts/scopes
-//
 var oauthScopes = []string{
 	// Playlist browsing
 	"playlist-read-collaborative",
@@ -224,7 +239,7 @@ func performOAuth2PKCE(ctx context.Context, clientID string) (*oauth2.Token, err
 			w.Header().Set("Content-Type", "text/html")
 			_, _ = w.Write([]byte(oauthCallbackHTML))
 		})); err != nil && !errors.Is(err, net.ErrClosed) {
-			fmt.Fprintf(os.Stderr, "spotify: auth callback server error: %v\n", err)
+			applog.Printf("spotify: auth callback server error: %v\n", err)
 		}
 	}()
 
@@ -288,7 +303,7 @@ func newInteractiveSession(ctx context.Context, clientID string) (*Session, erro
 		DeviceID:     devID,
 		RefreshToken: token.RefreshToken,
 	}); err != nil {
-		fmt.Fprintf(os.Stderr, "spotify: failed to save credentials: %v\n", err)
+		applog.Printf("spotify: failed to save credentials: %v\n", err)
 	}
 
 	// Create an auto-refreshing token source for Web API calls.
@@ -395,12 +410,10 @@ func (s *Session) Reconnect(ctx context.Context) error {
 	return s.reconnect(ctx, NewSessionSilent)
 }
 
-// ReconnectInteractive clears stored credentials and forces a fresh
-// browser-based OAuth2 flow.
+// ReconnectInteractive forces a fresh browser-based OAuth2 flow.
+// Stored credentials are preserved until the new session succeeds —
+// newInteractiveSession overwrites them via saveCreds on success.
 func (s *Session) ReconnectInteractive(ctx context.Context) error {
-	if err := deleteCreds(); err != nil {
-		return fmt.Errorf("spotify: clear stored credentials: %w", err)
-	}
 	return s.reconnect(ctx, newInteractiveSession)
 }
 
@@ -440,19 +453,7 @@ func (s *Session) reconnect(ctx context.Context, build func(context.Context, str
 	newSess.player = nil
 	newSess.mu.Unlock()
 
-	fmt.Fprintf(os.Stderr, "spotify: re-authenticated successfully\n")
-	return nil
-}
-
-// deleteCreds removes the stored credentials file.
-func deleteCreds() error {
-	path, err := credsPath()
-	if err != nil {
-		return err
-	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return err
-	}
+	applog.Printf("spotify: re-authenticated successfully\n")
 	return nil
 }
 
@@ -500,4 +501,3 @@ func saveCreds(creds *storedCreds) error {
 	}
 	return os.WriteFile(path, data, 0o600)
 }
-

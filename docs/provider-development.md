@@ -7,11 +7,11 @@ discovers capabilities at runtime via type assertions and enables features
 accordingly.
 
 See the existing providers for reference:
-- `external/navidrome/` — Subsonic API, browsing, scrobbling
-- `external/plex/` — Plex Media Server, search, album tracks
-- `external/spotify/` — Spotify, search, playlist management, custom streaming
-- `external/radio/` — internet radio, favorites
-- `external/local/` — local TOML playlist files
+- `external/navidrome/`: Subsonic API, browsing, scrobbling
+- `external/plex/`: Plex Media Server, search, album tracks
+- `external/spotify/`: Spotify, search, playlist management, custom streaming
+- `external/radio/`: internet radio, favorites
+- `external/local/`: local TOML playlist files
 
 ## Base Interface (required)
 
@@ -105,11 +105,11 @@ func (p *Provider) AlbumTracks(albumID string) ([]playlist.Track, error) {
 
 When building `playlist.Track` values:
 
-- **`Path`** — the playable URL or file path. For HTTP streams, use a full URL.
+- **`Path`**: the playable URL or file path. For HTTP streams, use a full URL.
   For custom URI schemes (e.g. `spotify:track:xxx`), implement `CustomStreamer`.
-- **`Stream: true`** — set this for HTTP URLs so the player uses the streaming
+- **`Stream: true`**: set this for HTTP URLs so the player uses the streaming
   pipeline.
-- **`ProviderMeta`** — attach provider-specific metadata as a string map with
+- **`ProviderMeta`**: attach provider-specific metadata as a string map with
   namespaced keys. This is used for features like scrobbling:
 
 ```go
@@ -190,4 +190,4 @@ implements, the UI will automatically:
 - Call `Close()` on shutdown if `Closer` is implemented
 
 The "N" and "F" shortcuts work regardless of which provider is currently active
-— they find the first registered provider with the needed capability.
+They find the first registered provider with the needed capability.

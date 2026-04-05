@@ -3,7 +3,7 @@ package model
 import (
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"cliamp/ui"
 )
@@ -56,14 +56,6 @@ func (m *Model) doSeek(d time.Duration) tea.Cmd {
 	m.player.CancelSeekYTDL()
 
 	return nil
-}
-
-// displayPosition returns the position to show in the UI.
-func (m *Model) displayPosition() time.Duration {
-	if m.seek.active {
-		return m.seek.targetPos
-	}
-	return m.player.Position()
 }
 
 func (m *Model) clampPosition(pos time.Duration) time.Duration {

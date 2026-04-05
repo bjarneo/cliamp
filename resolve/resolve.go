@@ -86,7 +86,7 @@ func Args(args []string) (Result, error) {
 				r.Tracks = append(r.Tracks, tracks...)
 				continue
 			}
-			resolved, err := collectAudioFiles(path)
+			resolved, err := CollectAudioFiles(path)
 			if err != nil {
 				return r, fmt.Errorf("scanning %s: %w", path, err)
 			}
@@ -187,10 +187,10 @@ func sniffFeedURL(rawURL string) bool {
 	return false
 }
 
-// collectAudioFiles returns audio file paths for the given argument.
+// CollectAudioFiles returns audio file paths for the given argument.
 // If path is a directory, it walks it recursively collecting supported files.
 // If path is a file with a supported extension, it returns it directly.
-func collectAudioFiles(path string) ([]string, error) {
+func CollectAudioFiles(path string) ([]string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err

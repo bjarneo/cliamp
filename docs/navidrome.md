@@ -47,9 +47,9 @@ After loading a playlist you return to the standard playlist view with all the u
 
 Press `N` at any time (or from the provider panel) to open the full-screen Navidrome browser. It lets you explore your library in three modes:
 
-- **By Album** — browse a paginated list of all albums, then open any album to see its tracks.
-- **By Artist** — browse all artists; selecting one loads every track across all their albums, grouped by album with separator headers.
-- **By Artist / Album** — three-level drill-down: artist → album list → track list.
+- **By Album**: browse a paginated list of all albums, then open any album to see its tracks.
+- **By Artist**: browse all artists; selecting one loads every track across all their albums, grouped by album with separator headers.
+- **By Artist / Album**: three-level drill-down: artist → album list → track list.
 
 ### Browser controls
 

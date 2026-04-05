@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"cliamp/lyrics"
 	"cliamp/player"
@@ -182,33 +182,33 @@ func fetchNetSearchCmd(query string) tea.Cmd {
 	}
 }
 
-func playStreamCmd(p *player.Player, path string, knownDuration time.Duration) tea.Cmd {
+func playStreamCmd(p player.Engine, path string, knownDuration time.Duration) tea.Cmd {
 	return func() tea.Msg {
 		return streamPlayedMsg{err: p.Play(path, knownDuration)}
 	}
 }
 
-func preloadStreamCmd(p *player.Player, path string, knownDuration time.Duration) tea.Cmd {
+func preloadStreamCmd(p player.Engine, path string, knownDuration time.Duration) tea.Cmd {
 	return func() tea.Msg {
 		p.Preload(path, knownDuration) // errors silently ignored
 		return streamPreloadedMsg{}
 	}
 }
 
-func preloadLocalCmd(p *player.Player, path string, knownDuration time.Duration) tea.Cmd {
+func preloadLocalCmd(p player.Engine, path string, knownDuration time.Duration) tea.Cmd {
 	return func() tea.Msg {
 		p.Preload(path, knownDuration)
 		return streamPreloadedMsg{}
 	}
 }
 
-func playYTDLStreamCmd(p *player.Player, pageURL string, knownDuration time.Duration) tea.Cmd {
+func playYTDLStreamCmd(p player.Engine, pageURL string, knownDuration time.Duration) tea.Cmd {
 	return func() tea.Msg {
 		return streamPlayedMsg{err: p.PlayYTDL(pageURL, knownDuration)}
 	}
 }
 
-func preloadYTDLStreamCmd(p *player.Player, pageURL string, knownDuration time.Duration) tea.Cmd {
+func preloadYTDLStreamCmd(p player.Engine, pageURL string, knownDuration time.Duration) tea.Cmd {
 	return func() tea.Msg {
 		p.PreloadYTDL(pageURL, knownDuration) // errors silently ignored
 		return streamPreloadedMsg{}

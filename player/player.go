@@ -48,12 +48,12 @@ type Player struct {
 	resampleQuality int
 	bitDepth        int // 16 or 32
 
-	gaplessAdvance atomic.Bool // set when gapless transition fires
-	seekGen        atomic.Int64    // generation counter for yt-dlp seeks; incremented to cancel stale seeks
+	gaplessAdvance atomic.Bool  // set when gapless transition fires
+	seekGen        atomic.Int64 // generation counter for yt-dlp seeks; incremented to cancel stale seeks
 
-	streamTitle       atomic.Value    // stores string, set by ICY reader callback
-	customFactories   map[string]StreamerFactory // URI scheme prefix -> factory (e.g. "spotify:" -> fn)
-	bufferedURLMatch  func(string) bool          // optional: returns true for URLs needing navBuffer pipeline
+	streamTitle      atomic.Value               // stores string, set by ICY reader callback
+	customFactories  map[string]StreamerFactory // URI scheme prefix -> factory (e.g. "spotify:" -> fn)
+	bufferedURLMatch func(string) bool          // optional: returns true for URLs needing navBuffer pipeline
 }
 
 // New creates a Player and initializes the speaker with the given quality settings.

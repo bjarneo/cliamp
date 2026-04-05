@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a0c"/>
+      <stop offset="100%" stop-color="#060608"/>
+    </linearGradient>
+    <filter id="greenGlow">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="subtleGlow">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="1" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#glow)"/>
+
+  <!-- Scanlines -->
+  <pattern id="scanlines" width="4" height="4" patternUnits="userSpaceOnUse">
+    <rect width="4" height="2" fill="transparent"/>
+    <rect y="2" width="4" height="2" fill="rgba(0,0,0,0.06)"/>
+  </pattern>
+  <rect width="1200" height="630" fill="url(#scanlines)"/>
+
+  <!-- Terminal window frame -->
+  <rect x="80" y="40" width="1040" height="550" rx="8" fill="#0d0d0d" stroke="#1c1c1c" stroke-width="1"/>
+
+  <!-- Title bar -->
+  <rect x="80" y="40" width="1040" height="32" rx="8" fill="#111"/>
+  <rect x="80" y="56" width="1040" height="16" fill="#111"/>
+  <circle cx="104" cy="56" r="5" fill="#ff4444" opacity="0.8"/>
+  <circle cx="122" cy="56" r="5" fill="#ffaa00" opacity="0.8"/>
+  <circle cx="140" cy="56" r="5" fill="#00ff41" opacity="0.8"/>
+  <text x="600" y="60" text-anchor="middle" fill="#555" font-family="monospace" font-size="11">cliamp</text>
+
+  <!-- ASCII art CLIAMP logo -->
+  <text filter="url(#greenGlow)" fill="#00ff41" font-family="monospace" font-size="20" xml:space="preserve">
+    <tspan x="310" y="130"> ██████ ██      ██  █████  ███    ███ ██████</tspan>
+    <tspan x="310" y="152">██      ██      ██ ██   ██ ████  ████ ██   ██</tspan>
+    <tspan x="310" y="174">██      ██      ██ ███████ ██ ████ ██ ██████</tspan>
+    <tspan x="310" y="196">██      ██      ██ ██   ██ ██  ██  ██ ██</tspan>
+    <tspan x="310" y="218"> ██████ ███████ ██ ██   ██ ██      ██ ██</tspan>
+  </text>
+
+  <!-- Subtitle -->
+  <text x="600" y="260" text-anchor="middle" fill="#555" font-family="monospace" font-size="14" letter-spacing="4">TERMINAL MUSIC PLAYER</text>
+
+  <!-- Spectrum visualizer bars (bottom at y=430, max height 130) -->
+  <g filter="url(#subtleGlow)" opacity="0.9">
+    <rect x="280" y="390" width="16" height="40" rx="2" fill="#00ff41" opacity="0.7"/>
+    <rect x="304" y="378" width="16" height="52" rx="2" fill="#00ff41" opacity="0.8"/>
+    <rect x="328" y="360" width="16" height="70" rx="2" fill="#00ff41" opacity="0.85"/>
+    <rect x="352" y="370" width="16" height="60" rx="2" fill="#00ff41" opacity="0.8"/>
+    <rect x="376" y="345" width="16" height="85" rx="2" fill="#00ff41" opacity="0.9"/>
+    <rect x="400" y="332" width="16" height="98" rx="2" fill="#00ff41" opacity="0.95"/>
+    <rect x="424" y="350" width="16" height="80" rx="2" fill="#00ff41" opacity="0.85"/>
+    <rect x="448" y="320" width="16" height="110" rx="2" fill="#00ff41" opacity="0.95"/>
+    <rect x="472" y="335" width="16" height="95" rx="2" fill="#00ff41" opacity="0.9"/>
+    <rect x="496" y="310" width="16" height="120" rx="2" fill="#00ff41"/>
+    <rect x="520" y="325" width="16" height="105" rx="2" fill="#00ff41" opacity="0.9"/>
+    <rect x="544" y="300" width="16" height="130" rx="2" fill="#00cc55"/>
+    <rect x="568" y="318" width="16" height="112" rx="2" fill="#00ff41" opacity="0.95"/>
+    <rect x="592" y="300" width="16" height="130" rx="2" fill="#00cc55"/>
+    <rect x="616" y="315" width="16" height="115" rx="2" fill="#00ff41" opacity="0.95"/>
+    <rect x="640" y="305" width="16" height="125" rx="2" fill="#00cc55"/>
+    <rect x="664" y="325" width="16" height="105" rx="2" fill="#00ff41" opacity="0.9"/>
+    <rect x="688" y="310" width="16" height="120" rx="2" fill="#00ff41"/>
+    <rect x="712" y="335" width="16" height="95" rx="2" fill="#00ff41" opacity="0.9"/>
+    <rect x="736" y="320" width="16" height="110" rx="2" fill="#00ff41" opacity="0.95"/>
+    <rect x="760" y="350" width="16" height="80" rx="2" fill="#00ff41" opacity="0.85"/>
+    <rect x="784" y="332" width="16" height="98" rx="2" fill="#00ff41" opacity="0.95"/>
+    <rect x="808" y="345" width="16" height="85" rx="2" fill="#00ff41" opacity="0.9"/>
+    <rect x="832" y="370" width="16" height="60" rx="2" fill="#00ff41" opacity="0.8"/>
+    <rect x="856" y="360" width="16" height="70" rx="2" fill="#00ff41" opacity="0.85"/>
+    <rect x="880" y="378" width="16" height="52" rx="2" fill="#00ff41" opacity="0.8"/>
+    <rect x="904" y="390" width="16" height="40" rx="2" fill="#00ff41" opacity="0.7"/>
+  </g>
+
+  <!-- Bottom info line -->
+  <text x="600" y="480" text-anchor="middle" fill="#b0b0b0" font-family="monospace" font-size="15">
+    YouTube  ·  Spotify  ·  Radio  ·  Plex  ·  Jellyfin  ·  SoundCloud  ·  Local Files
+  </text>
+
+  <!-- Command prompt -->
+  <text x="600" y="520" text-anchor="middle" font-family="monospace" font-size="13">
+    <tspan fill="#333">$ </tspan>
+    <tspan fill="#00ccff">cliamp</tspan>
+    <tspan fill="#555"> ~/music/playlist.m3u</tspan>
+  </text>
+
+  <!-- URL -->
+  <text x="600" y="560" text-anchor="middle" fill="#333" font-family="monospace" font-size="12">cliamp.stream</text>
+</svg>

@@ -157,7 +157,7 @@ func (c *Client) Albums(sectionKey string) ([]Album, error) {
 	var albums []Album
 	for offset := 0; ; offset += pageSize {
 		params := url.Values{
-			"type": {"9"}, // 9 = album
+			"type":                   {"9"}, // 9 = album
 			"X-Plex-Container-Start": {fmt.Sprintf("%d", offset)},
 			"X-Plex-Container-Size":  {fmt.Sprintf("%d", pageSize)},
 		}
@@ -240,7 +240,7 @@ type trackJSON struct {
 	GrandparentTitle string `json:"grandparentTitle"` // artist
 	ParentTitle      string `json:"parentTitle"`      // album
 	Year             int    `json:"year"`
-	Index            int    `json:"index"` // track number within album
+	Index            int    `json:"index"`    // track number within album
 	Duration         int    `json:"duration"` // milliseconds
 	Media            []struct {
 		Part []struct {
