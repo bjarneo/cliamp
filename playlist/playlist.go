@@ -43,6 +43,8 @@ type Track struct {
 	Feed         bool // true for RSS/podcast feed URLs (resolved before playback)
 	DurationSecs int  // known duration in seconds (0 = unknown)
 
+	Unplayable bool // true when the track is known not playable in the current playback context
+
 	// ProviderMeta holds provider-specific key-value pairs.
 	// Keys are namespaced by provider, e.g. "navidrome.id", "jellyfin.id".
 	ProviderMeta map[string]string
@@ -330,20 +332,7 @@ func (p *Playlist) Add(tracks ...Track) {
 // Len returns the number of tracks.
 func (p *Playlist) Len() int { return len(p.tracks) }
 
-// Current returns the currently selected track and its index.
-func (p *Playlist) Current() (Track, int) {
-	if len(p.tracks) == 0 {
-		return Track{}, -1
-	}
-	if p.queuedIdx >= 0 {
-		return p.tracks[p.queuedIdx], p.queuedIdx
-	}
-	idx := p.order[p.pos]
-	return p.tracks[idx], idx
-}
-
-// Index returns the track index of the current position.
-func (p *Playlist) Index() int {
+func (p *Playlist) currentTrackIndex() int {
 	if len(p.order) == 0 {
 		return -1
 	}
@@ -353,35 +342,166 @@ func (p *Playlist) Index() int {
 	return p.order[p.pos]
 }
 
-// Next advances to the next track. Returns false if at end with repeat off.
-// Queued tracks are played first before resuming normal order.
+func (p *Playlist) isPlayable(idx int) bool {
+	return idx >= 0 && idx < len(p.tracks) && !p.tracks[idx].Unplayable
+}
+
+func (p *Playlist) firstPlayableOrderSlot(from, to int) (orderPos int, trackIdx int, ok bool) {
+	for i := from; i < to && i < len(p.order); i++ {
+		idx := p.order[i]
+		if p.isPlayable(idx) {
+			return i, idx, true
+		}
+	}
+	return -1, -1, false
+}
+
+func (p *Playlist) lastPlayableOrderSlot(from int) (orderPos int, trackIdx int, ok bool) {
+	if from >= len(p.order) {
+		from = len(p.order) - 1
+	}
+	for i := from; i >= 0; i-- {
+		idx := p.order[i]
+		if p.isPlayable(idx) {
+			return i, idx, true
+		}
+	}
+	return -1, -1, false
+}
+
+func (p *Playlist) nextPlayableQueued() (trackIdx int, remaining []int, ok bool) {
+	for i, idx := range p.queue {
+		if p.isPlayable(idx) {
+			return idx, slices.Clone(p.queue[i+1:]), true
+		}
+	}
+	return -1, nil, false
+}
+
+func (p *Playlist) nextShuffleWrap() (orderPos int, trackIdx int, ok bool) {
+	origOrder := slices.Clone(p.order)
+	origPos := p.pos
+	p.doShuffle()
+	if orderPos, trackIdx, ok = p.firstPlayableOrderSlot(1, len(p.order)); ok {
+		return orderPos, trackIdx, true
+	}
+	if orderPos, trackIdx, ok = p.firstPlayableOrderSlot(0, 1); ok {
+		return orderPos, trackIdx, true
+	}
+	p.order = origOrder
+	p.pos = origPos
+	return -1, -1, false
+}
+
+func (p *Playlist) advanceFromOrder() (orderPos int, trackIdx int, ok bool) {
+	if orderPos, trackIdx, ok = p.firstPlayableOrderSlot(p.pos+1, len(p.order)); ok {
+		return orderPos, trackIdx, true
+	}
+	if p.repeat != RepeatAll {
+		return -1, -1, false
+	}
+	if p.shuffle && p.atShuffleWrap() {
+		return p.nextShuffleWrap()
+	}
+	return p.firstPlayableOrderSlot(0, len(p.order))
+}
+
+func (p *Playlist) resolveSelectedPlayablePos() (orderPos int, trackIdx int, ok bool) {
+	if len(p.order) == 0 {
+		return -1, -1, false
+	}
+	if idx := p.order[p.pos]; p.isPlayable(idx) {
+		return p.pos, idx, true
+	}
+	if orderPos, trackIdx, ok = p.firstPlayableOrderSlot(p.pos+1, len(p.order)); ok {
+		return orderPos, trackIdx, true
+	}
+	if p.repeat == RepeatAll {
+		return p.firstPlayableOrderSlot(0, p.pos)
+	}
+	return -1, -1, false
+}
+
+// Current returns the currently selected track and its index.
+func (p *Playlist) Current() (Track, int) {
+	if len(p.tracks) == 0 {
+		return Track{}, -1
+	}
+	idx := p.currentTrackIndex()
+	return p.tracks[idx], idx
+}
+
+// Index returns the track index of the current position.
+func (p *Playlist) Index() int {
+	return p.currentTrackIndex()
+}
+
+func (p *Playlist) atShuffleWrap() bool {
+	return p.repeat == RepeatAll && p.shuffle && len(p.queue) == 0 && p.queuedIdx == -1 && p.pos+1 >= len(p.order)
+}
+
+// SelectionActivation describes the playable track activated from the selected row.
+type SelectionActivation struct {
+	Track   Track
+	Index   int
+	Skipped bool
+}
+
+// ActivateSelected promotes the selected row to the active playable track.
+// Queue state is ignored for candidate selection and left unchanged. If no
+// playable track can be activated, playlist state is unchanged.
+func (p *Playlist) ActivateSelected() (SelectionActivation, bool) {
+	selectedPos := p.pos
+	orderPos, idx, ok := p.resolveSelectedPlayablePos()
+	if !ok {
+		return SelectionActivation{}, false
+	}
+	p.pos = orderPos
+	p.queuedIdx = -1
+	return SelectionActivation{
+		Track:   p.tracks[idx],
+		Index:   idx,
+		Skipped: orderPos != selectedPos,
+	}, true
+}
+
+// Next advances to the next track according to queue, repeat, and shuffle.
+// Unplayable queued entries are pruned as playback advances. RepeatOne still
+// limits playback to the current track.
 func (p *Playlist) Next() (Track, bool) {
 	if len(p.tracks) == 0 {
 		return Track{}, false
 	}
-	// Play from queue first
-	if len(p.queue) > 0 {
-		idx := p.queue[0]
-		p.queue = p.queue[1:]
+	origPos := p.pos
+	origQueuedIdx := p.queuedIdx
+
+	if idx, remaining, ok := p.nextPlayableQueued(); ok {
+		p.queue = remaining
 		p.queuedIdx = idx
 		return p.tracks[idx], true
 	}
-	p.queuedIdx = -1
+	if len(p.queue) > 0 {
+		p.queue = nil
+	}
 	if p.repeat == RepeatOne {
-		return p.tracks[p.order[p.pos]], true
-	}
-	if p.pos+1 < len(p.order) {
-		p.pos++
-		return p.tracks[p.order[p.pos]], true
-	}
-	if p.repeat == RepeatAll {
-		p.pos = 0
-		if p.shuffle {
-			p.doShuffle()
+		idx := p.currentTrackIndex()
+		if p.isPlayable(idx) {
+			return p.tracks[idx], true
 		}
-		return p.tracks[p.order[p.pos]], true
+		p.pos = origPos
+		p.queuedIdx = origQueuedIdx
+		return Track{}, false
 	}
-	return Track{}, false
+
+	p.queuedIdx = -1
+	orderPos, idx, ok := p.advanceFromOrder()
+	if !ok {
+		p.pos = origPos
+		p.queuedIdx = origQueuedIdx
+		return Track{}, false
+	}
+	p.pos = orderPos
+	return p.tracks[idx], true
 }
 
 // PeekNext returns the next track without advancing the playlist position.
@@ -390,42 +510,51 @@ func (p *Playlist) PeekNext() (Track, bool) {
 	if len(p.tracks) == 0 {
 		return Track{}, false
 	}
-	// Queued tracks take priority
-	if len(p.queue) > 0 {
-		return p.tracks[p.queue[0]], true
-	}
-	if p.repeat == RepeatOne {
-		idx := p.order[p.pos]
-		if p.queuedIdx >= 0 {
-			idx = p.queuedIdx
-		}
+	if idx, _, ok := p.nextPlayableQueued(); ok {
 		return p.tracks[idx], true
 	}
-	if p.pos+1 < len(p.order) {
-		return p.tracks[p.order[p.pos+1]], true
+	if p.repeat == RepeatOne {
+		idx := p.currentTrackIndex()
+		if p.isPlayable(idx) {
+			return p.tracks[idx], true
+		}
+		return Track{}, false
 	}
-	if p.repeat == RepeatAll && !p.shuffle {
-		return p.tracks[p.order[0]], true
+	if p.atShuffleWrap() {
+		return Track{}, false
 	}
-	// RepeatAll+shuffle: can't predict after re-shuffle; RepeatOff at end
-	return Track{}, false
+	_, idx, ok := p.advanceFromOrder()
+	if !ok {
+		return Track{}, false
+	}
+	return p.tracks[idx], true
 }
 
-// Prev moves to the previous track. Wraps around with RepeatAll.
+// Prev moves to the previous track, skipping unavailable tracks.
+// Wraps around with RepeatAll.
 func (p *Playlist) Prev() (Track, bool) {
-	p.queuedIdx = -1
 	if len(p.tracks) == 0 {
 		return Track{}, false
 	}
-	if p.pos > 0 {
-		p.pos--
-		return p.tracks[p.order[p.pos]], true
+	origPos := p.pos
+	origQueuedIdx := p.queuedIdx
+	p.queuedIdx = -1
+
+	if orderPos, idx, ok := p.lastPlayableOrderSlot(p.pos - 1); ok {
+		p.pos = orderPos
+		return p.tracks[idx], true
 	}
 	if p.repeat == RepeatAll {
-		p.pos = len(p.order) - 1
-		return p.tracks[p.order[p.pos]], true
+		if orderPos, idx, ok := p.lastPlayableOrderSlot(len(p.order) - 1); ok {
+			p.pos = orderPos
+			return p.tracks[idx], true
+		}
 	}
-	// At the beginning with RepeatOff — return false for consistency with Next().
+	p.pos = origPos
+	p.queuedIdx = origQueuedIdx
+	if origQueuedIdx >= 0 {
+		return p.tracks[origQueuedIdx], false
+	}
 	return p.tracks[p.order[p.pos]], false
 }
 

@@ -10,9 +10,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"cliamp/playlist"
-	"cliamp/ui"
 	"cliamp/provider"
 	"cliamp/theme"
+	"cliamp/ui"
 )
 
 // titleScrollSep is the separator runes for cyclic title scrolling,
@@ -575,13 +575,23 @@ func (m Model) renderPlaylist() string {
 			style = playlistSelectedStyle
 		}
 
+		if tracks[i].Unplayable {
+			if m.focus == focusPlaylist && i == m.plCursor {
+				style = dimStyle
+			} else {
+				style = playlistUnavailableStyle
+			}
+		}
+
 		name := tracks[i].DisplayName()
 		queueSuffix := ""
 		if qp := m.playlist.QueuePosition(i); qp > 0 {
 			queueSuffix = fmt.Sprintf(" [Q%d]", qp)
 		}
 		albumSuffix := ""
-		if album := tracks[i].Album; album != "" {
+		if tracks[i].Unplayable {
+			albumSuffix = " (unavailable)"
+		} else if album := tracks[i].Album; album != "" {
 			albumSuffix = " · " + album
 		}
 		suffixLen := utf8.RuneCountInString(queueSuffix) + utf8.RuneCountInString(albumSuffix)

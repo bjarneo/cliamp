@@ -403,8 +403,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyMsg) tea.Cmd {
 			m.playlist.Queue(newIdx)
 			m.status.Showf(statusTTLMedium, "Queued: %s", t.DisplayName())
 			if !m.player.IsPlaying() {
-				m.playlist.Next()
-				cmd := m.playCurrentTrack()
+				cmd := m.nextTrack()
 				m.notifyMPRIS()
 				return cmd
 			}

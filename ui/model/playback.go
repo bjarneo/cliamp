@@ -9,7 +9,7 @@ import (
 )
 
 // nextTrack advances to the next playlist track and starts playing it.
-// Returns a tea.Cmd for async stream playback.
+// Unplayable tracks are skipped automatically.
 func (m *Model) nextTrack() tea.Cmd {
 	track, ok := m.playlist.Next()
 	if !ok {
@@ -22,14 +22,14 @@ func (m *Model) nextTrack() tea.Cmd {
 }
 
 // prevTrack goes to the previous track, or restarts if >3s into the current one.
+// Unplayable tracks are skipped automatically.
 func (m *Model) prevTrack() tea.Cmd {
 	if m.player.Position() > 3*time.Second {
 		if m.player.Seekable() {
-			// Local file or seekable stream: jump back to the beginning.
+			// Seekable media rewinds in place; non-seekable streams must be restarted.
 			m.player.Seek(-m.player.Position())
 			return nil
 		}
-		// Non-seekable stream (e.g. Icecast radio): restart by replaying the URL.
 		track, idx := m.playlist.Current()
 		if idx >= 0 {
 			return m.playTrack(track)
@@ -45,14 +45,25 @@ func (m *Model) prevTrack() tea.Cmd {
 	return m.playTrack(track)
 }
 
-// playCurrentTrack starts playing whatever track the playlist cursor points to.
+// playCurrentTrack starts playing the selected track, skipping forward in
+// playlist order if the selection is unplayable.
 func (m *Model) playCurrentTrack() tea.Cmd {
-	track, idx := m.playlist.Current()
-	if idx < 0 {
+	m.titleOff = 0
+	if m.playlist.Len() == 0 {
 		return nil
 	}
-	m.titleOff = 0
-	return m.playTrack(track)
+	activation, ok := m.playlist.ActivateSelected()
+	if !ok {
+		m.player.Stop()
+		m.status.Show("No available tracks", statusTTLDefault)
+		return nil
+	}
+	if activation.Skipped {
+		m.status.Show("Track unavailable, skipping...", statusTTLDefault)
+	}
+	m.plCursor = activation.Index
+	m.adjustScroll()
+	return m.playTrack(activation.Track)
 }
 
 // playTrack plays a track, using async HTTP for streams and sync I/O for local files.
