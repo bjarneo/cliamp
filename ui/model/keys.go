@@ -413,11 +413,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 				m.eqCursor--
 			}
 		} else {
-			m.doSeek(-5 * time.Second)
+			return m.doSeek(-5 * time.Second)
 		}
 
 	case "shift+left":
-		m.doSeek(-m.seekStepLarge)
+		return m.doSeek(-m.seekStepLarge)
 
 	case "right":
 		if m.focus == focusEQ {
@@ -425,11 +425,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 				m.eqCursor++
 			}
 		} else {
-			m.doSeek(5 * time.Second)
+			return m.doSeek(5 * time.Second)
 		}
 
 	case "shift+right":
-		m.doSeek(m.seekStepLarge)
+		return m.doSeek(m.seekStepLarge)
 
 	case "*":
 		if m.focus == focusPlaylist && m.plCursor >= 0 && m.plCursor < m.playlist.Len() && m.loadedPlaylist != "" {
