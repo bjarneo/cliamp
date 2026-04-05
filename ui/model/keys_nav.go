@@ -338,7 +338,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyMsg) tea.Cmd {
 				m.status.Showf(statusTTLMedium, "Playing: %s", toAdd[0].DisplayName())
 			}
 			cmd := m.playCurrentTrack()
-			m.notifyMPRIS()
+			m.notifyPlayback()
 			return cmd
 		}
 	case "R":
@@ -363,7 +363,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyMsg) tea.Cmd {
 			m.focus = focusPlaylist
 			m.navBrowser.visible = false
 			cmd := m.playCurrentTrack()
-			m.notifyMPRIS()
+			m.notifyPlayback()
 			return cmd
 		}
 	case "a":
@@ -383,7 +383,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyMsg) tea.Cmd {
 			if wasEmpty || !m.player.IsPlaying() {
 				m.playlist.SetIndex(0)
 				cmd := m.playCurrentTrack()
-				m.notifyMPRIS()
+				m.notifyPlayback()
 				return cmd
 			}
 		}
@@ -405,7 +405,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyMsg) tea.Cmd {
 			if !m.player.IsPlaying() {
 				m.playlist.Next()
 				cmd := m.playCurrentTrack()
-				m.notifyMPRIS()
+				m.notifyPlayback()
 				return cmd
 			}
 		}

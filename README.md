@@ -122,7 +122,7 @@ go build -o cliamp .
 - [Jellyfin](docs/jellyfin.md)
 - [Themes](docs/themes.md)
 - [Audio Quality](docs/audio-quality.md)
-- [MPRIS](docs/mpris.md)
+- [Media Controls](docs/mediactl.md)
 - [Lua Plugins](docs/plugins.md)
   - [Soap Bubbles Visualizer](https://github.com/bjarneo/cliamp-plugin-soap-bubbles)
 

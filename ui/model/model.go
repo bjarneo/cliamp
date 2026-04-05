@@ -4,8 +4,8 @@ package model
 import (
 	"time"
 
+	"cliamp/internal/playback"
 	"cliamp/luaplugin"
-	"cliamp/mpris"
 	"cliamp/player"
 	"cliamp/playlist"
 	"cliamp/theme"
@@ -127,14 +127,14 @@ type Model struct {
 	// Provider state
 	provider      playlist.Provider
 	localProvider playlist.Provider // local playlist provider for file-based playlist management (always available)
-	providerLists   []playlist.PlaylistInfo
-	provCursor      int
-	provLoading     bool
-	provSignIn      bool            // true when provider needs interactive sign-in
-	providers       []ProviderEntry // all available providers
-	provPillIdx     int             // selected pill index
-	eqPresetIdx     int             // -1 = custom, 0+ = index into eqPresets
-	eqCustomLabel   string          // non-empty = plugin-defined preset label (shown instead of "Custom")
+	providerLists []playlist.PlaylistInfo
+	provCursor    int
+	provLoading   bool
+	provSignIn    bool            // true when provider needs interactive sign-in
+	providers     []ProviderEntry // all available providers
+	provPillIdx   int             // selected pill index
+	eqPresetIdx   int             // -1 = custom, 0+ = index into eqPresets
+	eqCustomLabel string          // non-empty = plugin-defined preset label (shown instead of "Custom")
 
 	// Overlay / feature state (see state.go for struct definitions)
 	search         searchState
@@ -149,7 +149,7 @@ type Model struct {
 	spotSearch     spotSearchState
 	fileBrowser    fileBrowserState
 	navBrowser     navBrowserState
-	catalogBatch     catalogBatchState
+	catalogBatch   catalogBatchState
 	ytdlBatch      ytdlBatchState
 	reconnect      reconnectState
 	save           saveState
@@ -194,8 +194,7 @@ type Model struct {
 	// Live stream title from ICY metadata (e.g., "Artist - Song")
 	streamTitle string
 
-	// MPRIS D-Bus service (nil on non-Linux or if D-Bus unavailable)
-	mpris *mpris.Service
+	notifier playback.Notifier
 
 	// Lua plugin manager (nil if no plugins loaded)
 	luaMgr *luaplugin.Manager

@@ -1,6 +1,6 @@
 // player/device_other.go — stub for non-macOS platforms.
 
-//go:build !darwin || ios
+//go:build !darwin || ios || !cgo
 
 package player
 

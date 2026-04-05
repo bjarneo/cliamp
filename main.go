@@ -18,9 +18,10 @@ import (
 	"cliamp/external/spotify"
 	"cliamp/external/ytmusic"
 	"cliamp/internal/appmeta"
+	"cliamp/internal/playback"
 	"cliamp/internal/resume"
 	"cliamp/luaplugin"
-	"cliamp/mpris"
+	"cliamp/mediactl"
 	"cliamp/player"
 	"cliamp/playlist"
 	"cliamp/pluginmgr"
@@ -211,7 +212,22 @@ func run(overrides config.Overrides, positional []string) error {
 		defer luaMgr.Close()
 	}
 
-	m := model.New(p, pl, providers, defaultProvider, localProv, themes, luaMgr)
+	var send func(tea.Msg)
+	svc, svcErr := mediactl.New(func(msg tea.Msg) {
+		if send != nil {
+			send(msg)
+		}
+	})
+	var notifier playback.Notifier
+	if svcErr == nil && svc != nil {
+		defer svc.Close()
+		notifier = svc
+	}
+
+	m := model.New(p, pl, providers, defaultProvider, localProv, notifier, themes, luaMgr)
+	prog := tea.NewProgram(m, tea.WithAltScreen())
+	prog.SetWindowTitle(model.InitialTerminalTitle())
+	send = prog.Send
 
 	// Wire Lua plugin state provider with read-only access to player/playlist.
 	if luaMgr != nil {
@@ -280,10 +296,6 @@ func run(overrides config.Overrides, positional []string) error {
 		m.SetResume(rs.Path, rs.PositionSec)
 	}
 
-	prog := tea.NewProgram(m, tea.WithAltScreen())
-	prog.SetWindowTitle(model.InitialTerminalTitle())
-
-	// Wire Lua plugin control provider (needs prog.Send for next/prev).
 	if luaMgr != nil {
 		luaMgr.SetControlProvider(luaplugin.ControlProvider{
 			SetVolume:   func(db float64) { p.SetVolume(db) },
@@ -298,17 +310,12 @@ func run(overrides config.Overrides, positional []string) error {
 			SetEQPreset: func(name string, bands *[10]float64) {
 				prog.Send(model.SetEQPresetMsg{Name: name, Bands: bands})
 			},
-			Next: func() { prog.Send(mpris.NextMsg{}) },
-			Prev: func() { prog.Send(mpris.PrevMsg{}) },
+			Next: func() { prog.Send(playback.NextMsg{}) },
+			Prev: func() { prog.Send(playback.PrevMsg{}) },
 		})
 	}
 
-	if svc, err := mpris.New(func(msg interface{}) { prog.Send(msg) }); err == nil && svc != nil {
-		defer svc.Close()
-		go prog.Send(mpris.InitMsg{Svc: svc})
-	}
-
-	finalModel, err := prog.Run()
+	finalModel, err := mediactl.Run(prog, svc)
 	if err != nil {
 		return err
 	}

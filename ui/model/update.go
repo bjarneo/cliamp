@@ -9,7 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"cliamp/config"
-	"cliamp/mpris"
+	"cliamp/internal/playback"
 	"cliamp/playlist"
 	"cliamp/provider"
 	"cliamp/ui"
@@ -73,9 +73,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Grace period: suppress reconnect for a few ticks after seek completes.
 		m.seek.grace = 10
 		m.seek.graceFor = 0
-		if m.mpris != nil {
-			m.mpris.EmitSeeked(m.player.Position().Microseconds())
-		}
+		m.finishSeek()
 		return m, nil
 
 	case tickMsg:
@@ -602,57 +600,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.devicePicker.devices = nil
 		return m, nil
 
-	case mpris.InitMsg:
-		m.mpris = msg.Svc
-		m.notifyAll()
-		return m, nil
-
-	case mpris.PlayPauseMsg:
+	case playback.PlayPauseMsg:
 		cmd := m.togglePlayPause()
 		m.notifyAll()
 		return m, cmd
 
-	case mpris.NextMsg:
+	case playback.PlayMsg:
+		if !m.player.IsPlaying() || m.player.IsPaused() {
+			cmd := m.togglePlayPause()
+			m.notifyAll()
+			return m, cmd
+		}
+		return m, nil
+
+	case playback.PauseMsg:
+		if m.player.IsPlaying() && !m.player.IsPaused() {
+			m.player.TogglePause()
+			m.notifyAll()
+		}
+		return m, nil
+
+	case playback.NextMsg:
 		m.scrobbleCurrent()
 		cmd := m.nextTrack()
 		m.notifyAll()
 		return m, cmd
 
-	case mpris.PrevMsg:
+	case playback.PrevMsg:
 		m.scrobbleCurrent()
 		cmd := m.prevTrack()
 		m.notifyAll()
 		return m, cmd
 
-	case mpris.SeekMsg:
-		offset := time.Duration(msg.Offset) * time.Microsecond
-		m.player.Seek(offset)
-		m.notifyAll()
-		if m.mpris != nil {
-			m.mpris.EmitSeeked(m.player.Position().Microseconds())
-		}
-		return m, nil
+	case playback.SeekMsg:
+		return m, m.seekRelative(msg.Offset, 0)
 
-	case mpris.SetPositionMsg:
-		pos := time.Duration(msg.Position) * time.Microsecond
-		m.player.Seek(pos - m.player.Position())
-		m.notifyAll()
-		if m.mpris != nil {
-			m.mpris.EmitSeeked(m.player.Position().Microseconds())
-		}
-		return m, nil
+	case playback.SetPositionMsg:
+		return m, m.seekAbsolute(msg.Position)
 
-	case mpris.SetVolumeMsg:
-		m.player.SetVolume(mpris.LinearToDb(msg.Volume))
+	case playback.SetVolumeMsg:
+		m.player.SetVolume(msg.VolumeDB)
 		m.notifyAll()
 		return m, nil
 
-	case mpris.StopMsg:
+	case playback.StopMsg:
 		m.player.Stop()
 		m.notifyAll()
 		return m, nil
 
-	case mpris.QuitMsg:
+	case playback.QuitMsg:
 		m.flushPendingSpeedSave()
 		m.player.Close()
 		m.quitting = true
