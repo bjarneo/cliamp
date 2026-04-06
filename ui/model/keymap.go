@@ -148,9 +148,7 @@ func (m *Model) openKeymap() {
 
 // handleKeymapKey processes key presses while the keymap overlay is open.
 func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
-	key := msg.String()
-
-	switch key {
+	switch msg.String() {
 	case "ctrl+c":
 		m.keymap.visible = false
 		return m.quit()
