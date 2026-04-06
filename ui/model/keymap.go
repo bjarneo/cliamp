@@ -156,7 +156,7 @@ func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "esc", "ctrl+k":
 		m.keymap.visible = false
 
-	case "up", "k":
+	case "up":
 		count := m.keymapCount()
 		if m.keymap.cursor > 0 {
 			m.keymap.cursor--
@@ -165,7 +165,7 @@ func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		m.keymapMaybeAdjustScroll(m.keymapVisible())
 
-	case "down", "j":
+	case "down":
 		count := m.keymapCount()
 		if m.keymap.cursor < count-1 {
 			m.keymap.cursor++
@@ -193,11 +193,11 @@ func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.keymapMaybeAdjustScroll(visible)
 		}
 
-	case "home", "g":
+	case "home":
 		m.keymap.cursor = 0
 		m.keymapMaybeAdjustScroll(m.keymapVisible())
 
-	case "end", "G":
+	case "end":
 		count := m.keymapCount()
 		if count > 0 {
 			m.keymap.cursor = count - 1
