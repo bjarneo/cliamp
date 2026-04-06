@@ -734,11 +734,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.changeSpeed(-0.25)
 
 	case "ctrl+k":
-		m.keymap.visible = true
-		m.keymap.cursor = 0
-		m.keymap.scroll = 0
-		m.keymap.search = ""
-		m.keymap.filtered = nil
+		m.openKeymap()
 	}
 
 	return nil
@@ -969,7 +965,7 @@ func (m *Model) handleSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 	// Allow opening overlays during search (ctrl combos don't conflict with text input).
 	switch msg.String() {
 	case "ctrl+k":
-		m.keymap.visible = true
+		m.openKeymap()
 		return nil
 	}
 
@@ -1035,7 +1031,7 @@ func (m *Model) handleSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 func (m *Model) handleNetSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "ctrl+k":
-		m.keymap.visible = true
+		m.openKeymap()
 		return nil
 	}
 
@@ -1339,7 +1335,7 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.queue.visible = false
 		return m.quit()
 	case "ctrl+k":
-		m.keymap.visible = true
+		m.openKeymap()
 	case "up", "k":
 		if m.queue.cursor > 0 {
 			m.queue.cursor--
