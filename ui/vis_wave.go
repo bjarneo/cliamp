@@ -14,7 +14,12 @@ func (v *Visualizer) renderWave() string {
 	n := len(samples)
 
 	// Downsample audio to one y-position per horizontal dot column.
-	ypos := make([]int, dotCols)
+	if cap(v.waveYBuf) >= dotCols {
+		v.waveYBuf = v.waveYBuf[:dotCols]
+	} else {
+		v.waveYBuf = make([]int, dotCols)
+	}
+	ypos := v.waveYBuf
 	for x := range dotCols {
 		var sample float64
 		if n > 0 {

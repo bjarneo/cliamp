@@ -20,42 +20,88 @@ type seekTickMsg struct{}
 // the seek asynchronously to avoid blocking the UI. For local files, seeks
 // immediately.
 func (m *Model) doSeek(d time.Duration) tea.Cmd {
+	return m.seekRelative(d, seekDebounceTicks)
+}
+
+func (m *Model) streamSeekRelative(delta time.Duration) tea.Cmd {
+	p := m.player
+	return func() tea.Msg {
+		p.Seek(delta)
+		return seekTickMsg{}
+	}
+}
+
+func (m *Model) streamSeekAbsolute(target time.Duration) tea.Cmd {
+	p := m.player
+	return func() tea.Msg {
+		p.Seek(target - p.Position())
+		return seekTickMsg{}
+	}
+}
+
+func (m *Model) seekRelative(d time.Duration, debounceTicks int) tea.Cmd {
 	if m.player.IsStreamSeek() {
-		// HTTP seek-by-reconnect: dispatch async so the Bubbletea event
-		// loop keeps running while the HTTP reconnect completes.
-		p := m.player
-		return func() tea.Msg {
-			p.Seek(d)
-			return seekTickMsg{}
-		}
+		return m.streamSeekRelative(d)
 	}
 	if !m.player.IsYTDLSeek() {
-		// Local file seek: immediate.
 		m.player.Seek(d)
-		if m.mpris != nil {
-			m.mpris.EmitSeeked(m.player.Position().Microseconds())
-		}
+		m.finishSeek()
 		return nil
 	}
 
-	// First press in a new seek sequence: snapshot the starting position.
-	if !m.seek.active {
-		m.seek.active = true
-		m.seek.targetPos = m.player.Position()
+	target := m.player.Position()
+	if m.seek.active && debounceTicks > 0 {
+		target = m.seek.targetPos
 	}
+	return m.queueYTDLSeekTarget(target+d, debounceTicks)
+}
 
-	// Accumulate into absolute target position.
-	m.seek.targetPos += d
-	m.seek.targetPos = m.clampPosition(m.seek.targetPos)
+func (m *Model) seekAbsolute(target time.Duration) tea.Cmd {
+	if m.player.IsStreamSeek() {
+		return m.streamSeekAbsolute(target)
+	}
+	if !m.player.IsYTDLSeek() {
+		m.player.Seek(target - m.player.Position())
+		m.finishSeek()
+		return nil
+	}
+	return m.queueYTDLSeekTarget(target, 0)
+}
 
-	// Reset debounce timer.
-	m.seek.timer = seekDebounceTicks
-	m.seek.timerFor = 0
+func (m *Model) queueYTDLSeekTarget(target time.Duration, debounceTicks int) tea.Cmd {
+	m.seek.active = true
+	m.seek.targetPos = m.clampPosition(target)
 
-	// Cancel any in-flight seek so it won't swap stale audio.
 	m.player.CancelSeekYTDL()
 
-	return nil
+	if debounceTicks > 0 {
+		m.seek.timer = debounceTicks
+		m.seek.timerFor = 0
+		return nil
+	}
+
+	m.seek.timer = 0
+	m.seek.timerFor = 0
+	return m.commitPendingYTDLSeek()
+}
+
+func (m *Model) finishSeek() {
+	m.notifyAll()
+	if m.notifier != nil {
+		m.notifier.Seeked(m.player.Position())
+	}
+}
+
+func (m *Model) commitPendingYTDLSeek() tea.Cmd {
+	target := m.seek.targetPos
+	curPos := m.player.Position()
+	d := target - curPos
+
+	p := m.player
+	return func() tea.Msg {
+		p.SeekYTDL(d)
+		return seekTickMsg{}
+	}
 }
 
 func (m *Model) clampPosition(pos time.Duration) time.Duration {
@@ -81,17 +127,5 @@ func (m *Model) tickSeek(dt time.Duration) tea.Cmd {
 	}
 
 	// Timer expired — fire the seek to the target position.
-	// Compute delta from current actual position.
-	target := m.seek.targetPos
-	curPos := m.player.Position()
-	d := target - curPos
-
-	// Cancel any previous in-flight seek.
-	p := m.player
-	p.CancelSeekYTDL()
-
-	return func() tea.Msg {
-		p.SeekYTDL(d)
-		return seekTickMsg{}
-	}
+	return m.commitPendingYTDLSeek()
 }

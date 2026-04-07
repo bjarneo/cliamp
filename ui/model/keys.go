@@ -388,23 +388,23 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "space":
 		cmd := m.togglePlayPause()
-		m.notifyMPRIS()
+		m.notifyPlayback()
 		return cmd
 
 	case "s":
 		m.player.Stop()
-		m.notifyMPRIS()
+		m.notifyPlayback()
 
 	case ">", ".":
 		m.scrobbleCurrent()
 		cmd := m.nextTrack()
-		m.notifyMPRIS()
+		m.notifyPlayback()
 		return cmd
 
 	case "<", ",":
 		m.scrobbleCurrent()
 		cmd := m.prevTrack()
-		m.notifyMPRIS()
+		m.notifyPlayback()
 		return cmd
 
 	case "left":
@@ -532,17 +532,17 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.scrobbleCurrent()
 			m.playlist.SetIndex(m.plCursor)
 			cmd := m.playCurrentTrack()
-			m.notifyMPRIS()
+			m.notifyPlayback()
 			return cmd
 		}
 
 	case "+", "=":
 		m.player.SetVolume(m.player.Volume() + 1)
-		m.notifyMPRIS()
+		m.notifyPlayback()
 
 	case "-":
 		m.player.SetVolume(m.player.Volume() - 1)
-		m.notifyMPRIS()
+		m.notifyPlayback()
 
 	case "r":
 		m.playlist.CycleRepeat()
@@ -836,9 +836,9 @@ func (m *Model) handleJumpKey(msg tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 		m.player.Seek(target - m.player.Position())
-		m.notifyMPRIS()
-		if m.mpris != nil {
-			m.mpris.EmitSeeked(m.player.Position().Microseconds())
+		m.notifyPlayback()
+		if m.notifier != nil {
+			m.notifier.Seeked(m.player.Position())
 		}
 		m.closeJumpMode()
 		return nil
@@ -982,7 +982,7 @@ func (m *Model) handleSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.plCursor = idx
 			m.adjustScroll()
 			cmd = m.playCurrentTrack()
-			m.notifyMPRIS()
+			m.notifyPlayback()
 		}
 		m.search.active = false
 		m.focus = focusPlaylist
@@ -1202,7 +1202,7 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.plManager.visible = false
 			m.focus = focusPlaylist
 			cmd := m.playCurrentTrack()
-			m.notifyMPRIS()
+			m.notifyPlayback()
 			return cmd
 		}
 	case "a":

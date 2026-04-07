@@ -18,10 +18,11 @@ import (
 	"cliamp/external/spotify"
 	"cliamp/external/ytmusic"
 	"cliamp/internal/appmeta"
+	"cliamp/internal/playback"
 	"cliamp/internal/resume"
 	"cliamp/ipc"
 	"cliamp/luaplugin"
-	"cliamp/mpris"
+	"cliamp/mediactl"
 	"cliamp/player"
 	"cliamp/playlist"
 	"cliamp/resolve"
@@ -279,6 +280,11 @@ func run(overrides config.Overrides, positional []string) error {
 
 	prog := tea.NewProgram(m)
 
+	svc, svcErr := wireMediaCtl(prog)
+	if svcErr == nil && svc != nil {
+		defer svc.Close()
+	}
+
 	if luaMgr != nil {
 		luaMgr.SetControlProvider(luaplugin.ControlProvider{
 			SetVolume:   func(db float64) { p.SetVolume(db) },
@@ -293,14 +299,9 @@ func run(overrides config.Overrides, positional []string) error {
 			SetEQPreset: func(name string, bands *[10]float64) {
 				prog.Send(model.SetEQPresetMsg{Name: name, Bands: bands})
 			},
-			Next: func() { prog.Send(mpris.NextMsg{}) },
-			Prev: func() { prog.Send(mpris.PrevMsg{}) },
+			Next: func() { prog.Send(playback.NextMsg{}) },
+			Prev: func() { prog.Send(playback.PrevMsg{}) },
 		})
-	}
-
-	if svc, err := mpris.New(func(msg interface{}) { prog.Send(msg) }); err == nil && svc != nil {
-		defer svc.Close()
-		go prog.Send(mpris.InitMsg{Svc: svc})
 	}
 
 	ipcSrv, ipcErr := ipc.NewServer(ipc.DefaultSocketPath(), ipc.DispatcherFunc(func(msg interface{}) { prog.Send(msg) }))
@@ -310,7 +311,7 @@ func run(overrides config.Overrides, positional []string) error {
 		defer ipcSrv.Close()
 	}
 
-	finalModel, err := prog.Run()
+	finalModel, err := mediactl.Run(prog, svc)
 	if err != nil {
 		return err
 	}
@@ -328,6 +329,15 @@ func run(overrides config.Overrides, positional []string) error {
 	}
 
 	return nil
+}
+
+func wireMediaCtl(prog *tea.Program) (*mediactl.Service, error) {
+	svc, err := mediactl.New(prog.Send)
+	if err != nil || svc == nil {
+		return svc, err
+	}
+	go prog.Send(model.AttachNotifier(svc))
+	return svc, nil
 }
 
 func ipcSend(req ipc.Request) (ipc.Response, error) {

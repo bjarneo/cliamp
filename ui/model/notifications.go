@@ -4,16 +4,21 @@ import (
 	"strings"
 	"time"
 
+	"cliamp/internal/playback"
 	"cliamp/luaplugin"
-	"cliamp/mpris"
 	"cliamp/playlist"
 	"cliamp/provider"
 )
 
-// notifyAll sends the current playback state to both MPRIS and Lua plugins.
+// notifyAll sends the current playback state to both OS media controls and Lua plugins.
 func (m *Model) notifyAll() {
-	m.notifyMPRIS()
+	m.notifyPlayback()
 	m.notifyPlugins()
+}
+
+func (m *Model) attachNotifier(notifier playback.Notifier) {
+	m.notifier = notifier
+	m.notifyAll()
 }
 
 // notifyPlugins emits a playback state event to Lua plugins.
@@ -67,33 +72,35 @@ func trackToMap(track playlist.Track) map[string]any {
 	}
 }
 
-// notifyMPRIS sends the current playback state to the MPRIS service
-// so desktop widgets and playerctl stay in sync.
-func (m *Model) notifyMPRIS() {
-	if m.mpris == nil {
+func (m *Model) notifyPlayback() {
+	if m.notifier == nil {
 		return
 	}
-	status := "Stopped"
+	status := playback.StatusStopped
 	if m.player.IsPlaying() {
 		if m.player.IsPaused() {
-			status = "Paused"
+			status = playback.StatusPaused
 		} else {
-			status = "Playing"
+			status = playback.StatusPlaying
 		}
 	}
 	track, _ := m.playlist.Current()
 	artist, title := m.resolveTrackDisplay(track)
-	info := mpris.TrackInfo{
-		Title:       title,
-		Artist:      artist,
-		Album:       track.Album,
-		Genre:       track.Genre,
-		TrackNumber: track.TrackNumber,
-		URL:         track.Path,
-		Length:      m.player.Duration().Microseconds(),
-	}
-	m.mpris.Update(status, info, m.player.Volume(),
-		m.player.Position().Microseconds(), m.player.Seekable())
+	m.notifier.Update(playback.State{
+		Status: status,
+		Track: playback.Track{
+			Title:       title,
+			Artist:      artist,
+			Album:       track.Album,
+			Genre:       track.Genre,
+			TrackNumber: track.TrackNumber,
+			URL:         track.Path,
+			Duration:    m.player.Duration(),
+		},
+		VolumeDB: m.player.Volume(),
+		Position: m.player.Position(),
+		Seekable: m.player.Seekable(),
+	})
 }
 
 // nowPlaying fires a now-playing notification for the given track if configured.

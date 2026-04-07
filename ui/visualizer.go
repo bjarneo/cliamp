@@ -231,8 +231,9 @@ type visEntry struct {
 }
 
 type renderOnlyDriver struct {
-	spec   VisAnalysisSpec
-	render func(*Visualizer, []float64) string
+	spec         VisAnalysisSpec
+	render       func(*Visualizer, []float64) string
+	tickDuration time.Duration // 0 = use defaultDriverTickInterval
 }
 
 func (d *renderOnlyDriver) AnalysisSpec(*Visualizer) VisAnalysisSpec {
@@ -247,7 +248,10 @@ func (d *renderOnlyDriver) Tick(v *Visualizer, ctx VisTickContext) {
 	defaultDriverTick(v, ctx, d.spec)
 }
 
-func (*renderOnlyDriver) TickInterval(_ *Visualizer, ctx VisTickContext) time.Duration {
+func (d *renderOnlyDriver) TickInterval(_ *Visualizer, ctx VisTickContext) time.Duration {
+	if d.tickDuration > 0 && ctx.Playing && !ctx.OverlayActive {
+		return d.tickDuration
+	}
 	return defaultDriverTickInterval(ctx)
 }
 
@@ -272,6 +276,12 @@ func (*noOpDriver) OnLeave(*Visualizer) {}
 func newRenderOnlyDriver(spec VisAnalysisSpec, render func(*Visualizer, []float64) string) func() visModeDriver {
 	return func() visModeDriver {
 		return &renderOnlyDriver{spec: NormalizeAnalysisSpec(spec), render: render}
+	}
+}
+
+func newFastRenderOnlyDriver(spec VisAnalysisSpec, tick time.Duration, render func(*Visualizer, []float64) string) func() visModeDriver {
+	return func() visModeDriver {
+		return &renderOnlyDriver{spec: NormalizeAnalysisSpec(spec), render: render, tickDuration: tick}
 	}
 }
 
@@ -315,6 +325,7 @@ type Visualizer struct {
 	Mode           VisMode
 	Rows           int       // display height in terminal rows (default 5)
 	waveBuf        []float64 // raw samples for wave mode
+	waveYBuf       []int     // reusable y-position buffer for wave rendering
 	frame          uint64    // tick-driven animation clock
 	sampleBuf      []float64 // reusable buffer for reading audio tap samples
 	drivers        [VisCount]visModeDriver
@@ -362,7 +373,7 @@ var visModes = [VisCount]visEntry{
 	VisBricks:      {"Bricks", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderBricks)},
 	VisColumns:     {"Columns", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderColumns)},
 	VisClassicPeak: {"ClassicPeak", newClassicPeakDriver},
-	VisWave:        {"Wave", newRenderOnlyDriver(spectrumAnalysisSpec(0), func(v *Visualizer, _ []float64) string { return v.renderWave() })},
+	VisWave:        {"Wave", newFastRenderOnlyDriver(spectrumAnalysisSpec(0), TickWave, func(v *Visualizer, _ []float64) string { return v.renderWave() })},
 	VisScatter:     {"Scatter", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderScatter)},
 	VisFlame:       {"Flame", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderFlame)},
 	VisRetro:       {"Retro", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderRetro)},
@@ -373,8 +384,8 @@ var visModes = [VisCount]visEntry{
 	VisFirework:    {"Firework", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderFirework)},
 	VisLogo:        {"Logo", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderLogo)},
 	VisTerrain:     {"Terrain", newTerrainDriver},
-	VisScope:       {"Scope", newRenderOnlyDriver(spectrumAnalysisSpec(0), func(v *Visualizer, _ []float64) string { return v.renderScope() })},
-	VisHeartbeat:   {"Heartbeat", newRenderOnlyDriver(spectrumAnalysisSpec(0), func(v *Visualizer, _ []float64) string { return v.renderHeartbeat() })},
+	VisScope:       {"Scope", newFastRenderOnlyDriver(spectrumAnalysisSpec(0), TickWave, func(v *Visualizer, _ []float64) string { return v.renderScope() })},
+	VisHeartbeat:   {"Heartbeat", newFastRenderOnlyDriver(spectrumAnalysisSpec(0), TickWave, func(v *Visualizer, _ []float64) string { return v.renderHeartbeat() })},
 	VisButterfly:   {"Butterfly", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderButterfly)},
 	VisAscii:       {"Ascii", newRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), (*Visualizer).renderAscii)},
 	VisNone:        {"None", newNoOpDriver},

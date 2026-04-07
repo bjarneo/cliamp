@@ -8,8 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"cliamp/internal/playback"
 	"cliamp/ipc"
-	"cliamp/mpris"
 	"cliamp/player"
 	"cliamp/playlist"
 	"cliamp/provider"
@@ -75,7 +75,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case seekTickMsg:
-		// Async yt-dlp seek completed.
+		// Async seek completed.
 		// Only clear seekActive if no new seek keypresses arrived during loading.
 		if m.seek.timer <= 0 {
 			m.seek.active = false
@@ -83,9 +83,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Grace period: suppress reconnect for a few ticks after seek completes.
 		m.seek.grace = 10
 		m.seek.graceFor = 0
-		if m.mpris != nil {
-			m.mpris.EmitSeeked(m.player.Position().Microseconds())
-		}
+		m.finishSeek()
 		return m, nil
 
 	case tickMsg:
@@ -620,57 +618,59 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.devicePicker.devices = nil
 		return m, nil
 
-	case mpris.InitMsg:
-		m.mpris = msg.Svc
-		m.notifyAll()
+	case attachNotifierMsg:
+		m.attachNotifier(msg.notifier)
 		return m, nil
 
-	case mpris.PlayPauseMsg:
+	case playback.PlayPauseMsg:
 		cmd := m.togglePlayPause()
 		m.notifyAll()
 		return m, cmd
 
-	case mpris.NextMsg:
+	case playback.PlayMsg:
+		if !m.player.IsPlaying() || m.player.IsPaused() {
+			cmd := m.togglePlayPause()
+			m.notifyAll()
+			return m, cmd
+		}
+		return m, nil
+
+	case playback.PauseMsg:
+		if m.player.IsPlaying() && !m.player.IsPaused() {
+			m.player.TogglePause()
+			m.notifyAll()
+		}
+		return m, nil
+
+	case playback.NextMsg:
 		m.scrobbleCurrent()
 		cmd := m.nextTrack()
 		m.notifyAll()
 		return m, cmd
 
-	case mpris.PrevMsg:
+	case playback.PrevMsg:
 		m.scrobbleCurrent()
 		cmd := m.prevTrack()
 		m.notifyAll()
 		return m, cmd
 
-	case mpris.SeekMsg:
-		offset := time.Duration(msg.Offset) * time.Microsecond
-		m.player.Seek(offset)
-		m.notifyAll()
-		if m.mpris != nil {
-			m.mpris.EmitSeeked(m.player.Position().Microseconds())
-		}
-		return m, nil
+	case playback.SeekMsg:
+		return m, m.seekRelative(msg.Offset, 0)
 
-	case mpris.SetPositionMsg:
-		pos := time.Duration(msg.Position) * time.Microsecond
-		m.player.Seek(pos - m.player.Position())
-		m.notifyAll()
-		if m.mpris != nil {
-			m.mpris.EmitSeeked(m.player.Position().Microseconds())
-		}
-		return m, nil
+	case playback.SetPositionMsg:
+		return m, m.seekAbsolute(msg.Position)
 
-	case mpris.SetVolumeMsg:
-		m.player.SetVolume(mpris.LinearToDb(msg.Volume))
+	case playback.SetVolumeMsg:
+		m.player.SetVolume(msg.VolumeDB)
 		m.notifyAll()
 		return m, nil
 
-	case mpris.StopMsg:
+	case playback.StopMsg:
 		m.player.Stop()
 		m.notifyAll()
 		return m, nil
 
-	case mpris.QuitMsg:
+	case playback.QuitMsg:
 		m.flushPendingSpeedSave()
 		m.player.Close()
 		m.quitting = true
@@ -681,8 +681,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	// IPC-specific messages (PlayMsg, PauseMsg have different semantics from toggle).
-	// Shared types (NextMsg, PrevMsg, StopMsg, ToggleMsg) are handled above via
-	// mpris.* which are now aliases for control.* types.
+	// Shared types (NextMsg, PrevMsg, StopMsg, PlayPauseMsg) are handled above via
+	// playback.* types.
 	case ipc.PlayMsg:
 		if m.player.IsPaused() {
 			cmd := m.togglePlayPause()
@@ -702,7 +702,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.notifyAll()
 		return m, nil
 	case ipc.SeekMsg:
-		_ = m.player.Seek(time.Duration(msg.Secs * float64(time.Second)))
+		_ = m.player.Seek(msg.Offset)
 		m.notifyAll()
 		return m, nil
 	case ipc.LoadMsg:

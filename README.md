@@ -122,7 +122,7 @@ Or without Make: `go build -o cliamp .`
 - [SSH Streaming](docs/ssh-streaming.md)
 - [Remote Control (IPC)](docs/remote-control.md)
 - [Audio Quality](docs/audio-quality.md)
-- [MPRIS](docs/mpris.md)
+- [Media Controls](docs/mediactl.md)
 - [Lua Plugins](docs/plugins.md)
   - [Community Plugins](docs/community-plugins.md)
   - [Soap Bubbles Visualizer](https://github.com/bjarneo/cliamp-plugin-soap-bubbles)

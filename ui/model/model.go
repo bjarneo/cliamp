@@ -4,8 +4,8 @@ package model
 import (
 	"time"
 
+	"cliamp/internal/playback"
 	"cliamp/luaplugin"
-	"cliamp/mpris"
 	"cliamp/player"
 	"cliamp/playlist"
 	"cliamp/theme"
@@ -227,8 +227,7 @@ type Model struct {
 	// Live stream title from ICY metadata (e.g., "Artist - Song")
 	streamTitle string
 
-	// MPRIS D-Bus service (nil on non-Linux or if D-Bus unavailable)
-	mpris *mpris.Service
+	notifier playback.Notifier
 
 	// Lua plugin manager (nil if no plugins loaded)
 	luaMgr *luaplugin.Manager

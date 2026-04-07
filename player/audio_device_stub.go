@@ -1,6 +1,6 @@
 // player/audio_device_stub.go — fallback for platforms without device selection support.
 
-//go:build !linux && (!darwin || ios) && !windows
+//go:build !linux && (!darwin || ios || !cgo) && !windows
 
 package player
 

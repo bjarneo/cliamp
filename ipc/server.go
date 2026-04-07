@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"cliamp/internal/control"
+	"cliamp/internal/playback"
 )
 
 // Dispatcher is how the server sends commands to the TUI.
@@ -144,19 +144,19 @@ func (s *Server) dispatch(req Request) Response {
 		return Response{OK: true}
 
 	case "toggle":
-		s.disp.Send(control.ToggleMsg{})
+		s.disp.Send(playback.PlayPauseMsg{})
 		return Response{OK: true}
 
 	case "stop":
-		s.disp.Send(control.StopMsg{})
+		s.disp.Send(playback.StopMsg{})
 		return Response{OK: true}
 
 	case "next":
-		s.disp.Send(control.NextMsg{})
+		s.disp.Send(playback.NextMsg{})
 		return Response{OK: true}
 
 	case "prev":
-		s.disp.Send(control.PrevMsg{})
+		s.disp.Send(playback.PrevMsg{})
 		return Response{OK: true}
 
 	case "volume":
@@ -164,7 +164,7 @@ func (s *Server) dispatch(req Request) Response {
 		return Response{OK: true}
 
 	case "seek":
-		s.disp.Send(SeekMsg{Secs: req.Value})
+		s.disp.Send(SeekMsg{Offset: time.Duration(req.Value * float64(time.Second))})
 		return Response{OK: true}
 
 	case "load":
