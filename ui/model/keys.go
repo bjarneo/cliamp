@@ -961,6 +961,77 @@ func (m *Model) toggleExpandPlaylist() {
 	m.adjustScroll()
 }
 
+// handlePaste routes pasted text to the active text input field.
+// The priority order mirrors handleKey so the correct input receives the content.
+func (m *Model) handlePaste(content string) tea.Cmd {
+	if content == "" {
+		return nil
+	}
+
+	// Keymap overlay search
+	if m.keymap.visible {
+		m.keymap.search += content
+		m.updateKeymapFilter()
+		return nil
+	}
+
+	// Nav browser search
+	if m.navBrowser.visible && m.navBrowser.mode != navBrowseModeMenu && m.navBrowser.searching {
+		m.navBrowser.search += content
+		m.navBrowser.cursor = 0
+		m.navBrowser.scroll = 0
+		m.navUpdateSearch()
+		return nil
+	}
+
+	// Playlist manager new-name input
+	if m.plManager.visible && m.plManager.screen == plMgrScreenNewName {
+		m.plManager.newName += content
+		return nil
+	}
+
+	if m.jumping {
+		m.jumpInput += content
+		return nil
+	}
+
+	if m.urlInputting {
+		m.urlInput += content
+		return nil
+	}
+
+	if m.search.active {
+		m.search.query += content
+		m.updateSearch()
+		return nil
+	}
+
+	if m.netSearch.active {
+		m.netSearch.query += content
+		return nil
+	}
+
+	if m.spotSearch.visible {
+		switch m.spotSearch.screen {
+		case spotSearchInput:
+			m.spotSearch.query += content
+		case spotSearchNewName:
+			m.spotSearch.newName += content
+		}
+		return nil
+	}
+
+	if m.provSearch.active {
+		m.provSearch.query += content
+		if _, ok := m.provider.(provider.CatalogSearcher); !ok {
+			m.updateProvSearch()
+		}
+		return nil
+	}
+
+	return nil
+}
+
 func (m *Model) handleSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 	// Allow opening overlays during search (ctrl combos don't conflict with text input).
 	switch msg.String() {

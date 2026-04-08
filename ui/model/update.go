@@ -35,6 +35,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}()
 
 	switch msg := msg.(type) {
+	case tea.PasteMsg:
+		cmd := m.handlePaste(msg.Content)
+		return m, cmd
+
 	case tea.KeyPressMsg:
 		cmd := m.handleKey(msg)
 		if m.quitting {
