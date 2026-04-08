@@ -1,6 +1,11 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strconv"
+	"testing"
+)
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := defaultConfig()
@@ -31,6 +36,9 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.PaddingV != 1 {
 		t.Errorf("PaddingV = %d, want 1", cfg.PaddingV)
+	}
+	if cfg.Spotify.Bitrate != 320 {
+		t.Errorf("Spotify.Bitrate = %d, want 320", cfg.Spotify.Bitrate)
 	}
 	if cfg.AutoPlay {
 		t.Error("AutoPlay should be false by default")
@@ -130,6 +138,27 @@ func TestClampBitDepth(t *testing.T) {
 		got := clampBitDepth(tt.input)
 		if got != tt.want {
 			t.Errorf("clampBitDepth(%d) = %d, want %d", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestClampSpotifyBitrate(t *testing.T) {
+	tests := []struct {
+		input int
+		want  int
+	}{
+		{0, 320},
+		{96, 96},
+		{160, 160},
+		{320, 320},
+		{120, 96},
+		{200, 160},
+		{500, 320},
+	}
+	for _, tt := range tests {
+		got := clampSpotifyBitrate(tt.input)
+		if got != tt.want {
+			t.Errorf("clampSpotifyBitrate(%d) = %d, want %d", tt.input, got, tt.want)
 		}
 	}
 }
@@ -318,6 +347,39 @@ func TestSpotifyIsSet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.cfg.IsSet(); got != tt.want {
 				t.Errorf("IsSet() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadSpotifyBitrate(t *testing.T) {
+	tests := []struct {
+		name    string
+		bitrate int
+		want    int
+	}{
+		{"exact supported value", 160, 160},
+		{"rounded to nearest supported value", 200, 160},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+
+			path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			data := []byte("[spotify]\nbitrate = " + strconv.Itoa(tt.bitrate) + "\n")
+			if err := os.WriteFile(path, data, 0o644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.Spotify.Bitrate != tt.want {
+				t.Fatalf("Spotify.Bitrate = %d, want %d", cfg.Spotify.Bitrate, tt.want)
 			}
 		})
 	}

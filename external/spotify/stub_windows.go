@@ -26,7 +26,7 @@ type SpotifyProvider struct{}
 // New returns nil — Spotify is disabled on Windows because
 // go-librespot requires CGO (FLAC, Vorbis, ALSA) which cannot
 // cross-compile. Callers must nil-check the return value.
-func New(_ *Session, _ string) *SpotifyProvider { return nil }
+func New(_ *Session, _ string, _ int) *SpotifyProvider { return nil }
 
 // Close is a no-op.
 func (p *SpotifyProvider) Close() {}

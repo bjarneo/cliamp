@@ -43,10 +43,6 @@ const (
 	spotifyTrackPageSize    = 100
 )
 
-// spotifyBitrate is the audio quality for Spotify streams (kbps).
-// TODO: make bitrate configurable via config.toml
-const spotifyBitrate = 320
-
 // spotifyPlaylistItem is the raw playlist object returned by /v1/me/playlists.
 type spotifyPlaylistItem struct {
 	ID            string `json:"id"`
@@ -84,6 +80,7 @@ type playlistCache struct {
 type SpotifyProvider struct {
 	session    *Session
 	clientID   string
+	bitrate    int
 	userID     string // Spotify user ID, fetched lazily on first Playlists() call
 	mu         sync.Mutex
 	trackCache map[string]*playlistCache // playlist ID → cache entry
@@ -98,10 +95,11 @@ const playlistListCacheTTL = 5 * time.Minute
 
 // New creates a SpotifyProvider. If session is nil, authentication is
 // deferred until the user first selects the Spotify provider.
-func New(session *Session, clientID string) *SpotifyProvider {
+func New(session *Session, clientID string, bitrate int) *SpotifyProvider {
 	return &SpotifyProvider{
 		session:    session,
 		clientID:   clientID,
+		bitrate:    bitrate,
 		trackCache: make(map[string]*playlistCache),
 	}
 }
@@ -491,7 +489,7 @@ func (p *SpotifyProvider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.F
 	tryStream := func() (*spotifyStreamer, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		stream, err := p.session.NewStream(ctx, *spotID, spotifyBitrate)
+		stream, err := p.session.NewStream(ctx, *spotID, p.bitrate)
 		if err != nil {
 			return nil, err
 		}

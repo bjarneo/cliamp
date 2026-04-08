@@ -50,6 +50,7 @@ func (n NavidromeConfig) ScrobbleEnabled() bool {
 type SpotifyConfig struct {
 	Disabled bool   // true only when user explicitly sets enabled = false
 	ClientID string // Spotify Developer app client ID (required)
+	Bitrate  int    // preferred Spotify stream bitrate in kbps
 }
 
 // IsSet reports whether the Spotify provider should be shown.
@@ -173,6 +174,7 @@ func defaultConfig() Config {
 		BitDepth:        16,
 		PaddingH:        3,
 		PaddingV:        1,
+		Spotify:         SpotifyConfig{Bitrate: 320},
 	}
 }
 
@@ -257,6 +259,10 @@ func Load() (Config, error) {
 				cfg.Spotify.Disabled = strings.ToLower(val) == "false"
 			case "client_id":
 				cfg.Spotify.ClientID = strings.Trim(val, `"'`)
+			case "bitrate":
+				if v, err := strconv.Atoi(val); err == nil {
+					cfg.Spotify.Bitrate = v
+				}
 			}
 		case "ytmusic":
 			switch key {
@@ -570,6 +576,7 @@ func (c *Config) clamp() {
 	c.BufferMs = max(min(c.BufferMs, 500), 50)
 	c.ResampleQuality = max(min(c.ResampleQuality, 4), 1)
 	c.BitDepth = clampBitDepth(c.BitDepth)
+	c.Spotify.Bitrate = clampSpotifyBitrate(c.Spotify.Bitrate)
 	c.PaddingH = max(min(c.PaddingH, 10), 0)
 	c.PaddingV = max(min(c.PaddingV, 5), 0)
 }
@@ -598,6 +605,22 @@ func clampBitDepth(v int) int {
 		return 32
 	}
 	return 16
+}
+
+func clampSpotifyBitrate(v int) int {
+	if v <= 0 {
+		return 320
+	}
+	allowed := []int{96, 160, 320}
+	best := allowed[0]
+	bestDist := abs(v - best)
+	for _, a := range allowed[1:] {
+		if d := abs(v - a); d < bestDist {
+			best = a
+			bestDist = d
+		}
+	}
+	return best
 }
 
 func abs(x int) int {

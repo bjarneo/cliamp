@@ -51,6 +51,7 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Add redirect URI: http://127.0.0.1:19872/login
 # [spotify]
 # client_id = "your-spotify-app-client-id"
+# bitrate = 320
 
 # ---
 # Navidrome / Subsonic server (optional)
