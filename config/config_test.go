@@ -153,7 +153,9 @@ func TestClampSpotifyBitrate(t *testing.T) {
 		{160, 160},
 		{320, 320},
 		{120, 96},
+		{128, 96},
 		{200, 160},
+		{240, 160},
 		{500, 320},
 	}
 	for _, tt := range tests {
@@ -361,6 +363,7 @@ func TestLoadSpotifyBitrate(t *testing.T) {
 	}{
 		{"exact supported value", 160, 160},
 		{"rounded to nearest supported value", 200, 160},
+		{"non-positive value", 0, 320},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
