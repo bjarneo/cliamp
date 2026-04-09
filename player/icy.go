@@ -39,9 +39,7 @@ func (ir *icyReader) Read(p []byte) (int, error) {
 	}
 
 	// Clamp the read so we never cross into a metadata block.
-	if len(p) > ir.remaining {
-		p = p[:ir.remaining]
-	}
+	p = p[:min(len(p), ir.remaining)]
 	n, err := ir.r.Read(p)
 	ir.remaining -= n
 	return n, err
@@ -85,14 +83,13 @@ func parseStreamTitle(meta string) string {
 	if !ok {
 		return ""
 	}
-	rest := after
-	j := strings.Index(rest, "';")
+	j := strings.Index(after, "';")
 	if j < 0 {
 		// Tolerate missing semicolon at end of block.
-		j = strings.LastIndex(rest, "'")
+		j = strings.LastIndex(after, "'")
 		if j < 0 {
 			return ""
 		}
 	}
-	return rest[:j]
+	return after[:j]
 }

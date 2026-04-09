@@ -87,26 +87,24 @@ func classifyPlaylists(ctx context.Context, svc *youtube.Service, playlists []pl
 	var wg sync.WaitGroup
 
 	for _, pl := range toClassify {
-		wg.Add(1)
-		go func(plID string) {
-			defer wg.Done()
+		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
 			resp, err := svc.PlaylistItems.List([]string{"contentDetails"}).
-				PlaylistId(plID).
+				PlaylistId(pl.ID).
 				MaxResults(1).
 				Context(ctx).
 				Do()
 			if err != nil || len(resp.Items) == 0 {
-				sampleCh <- sampleResult{playlistID: plID}
+				sampleCh <- sampleResult{playlistID: pl.ID}
 				return
 			}
 			sampleCh <- sampleResult{
-				playlistID: plID,
+				playlistID: pl.ID,
 				videoID:    resp.Items[0].ContentDetails.VideoId,
 			}
-		}(pl.ID)
+		})
 	}
 
 	wg.Wait()

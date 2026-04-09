@@ -115,9 +115,7 @@ func registerFSAPI(L *lua.LState, cliamp *lua.LTable) {
 			return 2
 		}
 		const maxSize = 1 << 20 // 1MB
-		if len(data) > maxSize {
-			data = data[:maxSize]
-		}
+		data = data[:min(len(data), maxSize)]
 		L.Push(lua.LString(string(data)))
 		return 1
 	}))

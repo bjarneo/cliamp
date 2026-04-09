@@ -591,9 +591,7 @@ func (m Model) renderProviderList() string {
 	}
 
 	// Clamp exactly to visible budget so footer/help remain visible.
-	if len(lines) > visibleBudget {
-		lines = lines[:visibleBudget]
-	}
+	lines = lines[:min(len(lines), visibleBudget)]
 	for len(lines) < visibleBudget {
 		lines = append(lines, "")
 	}
