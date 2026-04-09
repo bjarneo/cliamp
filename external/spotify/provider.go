@@ -95,6 +95,7 @@ const playlistListCacheTTL = 5 * time.Minute
 
 // New creates a SpotifyProvider. If session is nil, authentication is
 // deferred until the user first selects the Spotify provider.
+// bitrate sets the preferred Spotify stream quality in kbps (96, 160, or 320).
 func New(session *Session, clientID string, bitrate int) *SpotifyProvider {
 	return &SpotifyProvider{
 		session:    session,

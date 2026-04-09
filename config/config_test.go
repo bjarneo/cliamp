@@ -147,6 +147,7 @@ func TestClampSpotifyBitrate(t *testing.T) {
 		input int
 		want  int
 	}{
+		{-1, 320},
 		{0, 320},
 		{96, 96},
 		{160, 160},
