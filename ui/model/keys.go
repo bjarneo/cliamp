@@ -241,10 +241,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			}
 		case "down", "j":
 			if !(m.lyricsSyncable() && m.lyricsHaveTimestamps()) {
-				maxScroll := len(m.lyrics.lines) - 1
-				if maxScroll < 0 {
-					maxScroll = 0
-				}
+				maxScroll := max(len(m.lyrics.lines)-1, 0)
 				if m.lyrics.scroll < maxScroll {
 					m.lyrics.scroll++
 				}

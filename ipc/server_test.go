@@ -8,7 +8,7 @@ import (
 func TestDispatchSeekSendsIPCSeekMsgWithDuration(t *testing.T) {
 	var sent any
 	s := &Server{
-		disp: DispatcherFunc(func(msg interface{}) {
+		disp: DispatcherFunc(func(msg any) {
 			sent = msg
 		}),
 	}

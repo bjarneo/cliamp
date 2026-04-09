@@ -35,7 +35,6 @@ func (m *Manager) Emit(event string, data map[string]any) {
 	m.mu.RUnlock()
 
 	for _, h := range hooks {
-		h := h
 		go func() {
 			h.plugin.mu.Lock()
 			defer h.plugin.mu.Unlock()

@@ -54,7 +54,6 @@ func (l *pluginLogger) close() {
 func registerLogAPI(L *lua.LState, cliamp *lua.LTable, logger *pluginLogger, pluginName string) {
 	tbl := L.NewTable()
 	for _, level := range []string{"info", "warn", "error", "debug"} {
-		level := level
 		L.SetField(tbl, level, L.NewFunction(func(L *lua.LState) int {
 			msg := L.CheckString(1)
 			logger.log(pluginName, level, "%s", msg)

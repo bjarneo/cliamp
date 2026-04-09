@@ -16,10 +16,7 @@ func (v *Visualizer) renderRetro(bands []float64) string {
 	bandCount := len(bands)
 
 	// Horizon at 40% from top — gives room for wave and sun above.
-	horizonDot := dotRows * 2 / 5
-	if horizonDot < 2 {
-		horizonDot = 2
-	}
+	horizonDot := max(dotRows*2/5, 2)
 	floorRows := dotRows - horizonDot
 	centerX := float64(dotCols-1) / 2.0
 

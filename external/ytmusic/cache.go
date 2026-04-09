@@ -18,7 +18,7 @@ const cacheTTL = 24 * time.Hour
 // Path: ~/.config/cliamp/ytmusic_cache.json
 type ytCache struct {
 	Playlists   []playlistEntry            `json:"playlists,omitempty"`
-	PlaylistsAt time.Time                  `json:"playlists_at,omitempty"`
+	PlaylistsAt time.Time                  `json:"playlists_at"`
 	Tracks      map[string]cachedTrackList `json:"tracks,omitempty"`
 }
 

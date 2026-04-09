@@ -174,7 +174,7 @@ func (c *NavidromeClient) buildURL(endpoint string, params url.Values) string {
 	saltBytes := make([]byte, 8)
 	if _, err := io.ReadFull(rand.Reader, saltBytes); err != nil {
 		// Fallback to timestamp if crypto/rand fails (should never happen).
-		saltBytes = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
+		saltBytes = fmt.Appendf(nil, "%d", time.Now().UnixNano())
 	}
 	salt := hex.EncodeToString(saltBytes)
 	hash := md5.Sum([]byte(c.password + salt))

@@ -35,7 +35,7 @@ func (v *Visualizer) renderButterfly(bands []float64) string {
 		wobble := math.Sin(t) * 0.15
 		wingWidth := int(float64(centerX) * (energy + wobble) * 0.9)
 
-		for dx := 0; dx < wingWidth; dx++ {
+		for dx := range wingWidth {
 			// Distance from center normalized to wing width.
 			norm := float64(dx) / float64(max(1, wingWidth))
 

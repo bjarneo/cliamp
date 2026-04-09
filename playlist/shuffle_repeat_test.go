@@ -39,7 +39,7 @@ func TestToggleShuffleOff(t *testing.T) {
 	}
 
 	// Playback should follow sequential order from current track onward
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		next, ok := p.Next()
 		if !ok {
 			t.Fatalf("Next() returned false at step %d", i)
@@ -103,7 +103,7 @@ func TestShufflePreservesAllTracks(t *testing.T) {
 	cur, _ := p.Current()
 	seen[cur.Title] = true
 
-	for i := 0; i < 9; i++ {
+	for i := range 9 {
 		next, ok := p.Next()
 		if !ok {
 			t.Fatalf("Next() returned false at step %d", i)

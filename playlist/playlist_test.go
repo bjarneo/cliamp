@@ -131,7 +131,7 @@ func TestMovePreservesPlaybackOrder_NoShuffle(t *testing.T) {
 	track, _ := p.Current()
 	playback = append(playback, track.Title) // A
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		track, ok := p.Next()
 		if !ok {
 			t.Fatalf("Next() returned false at step %d", i)
@@ -206,7 +206,7 @@ func TestAddShufflesNewTracksWhenShuffleEnabled(t *testing.T) {
 
 	start := p.Len()
 	var added []Track
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		added = append(added, Track{Title: string(rune('K' + i))})
 	}
 	p.Add(added...)

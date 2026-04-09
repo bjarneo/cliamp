@@ -535,7 +535,7 @@ func TestClassicPeakRenderFillsEvenWidthPanels(t *testing.T) {
 	v.bands = uniformBands(0.6)
 
 	out := v.Render()
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if got := lipgloss.Width(line); got != PanelWidth {
 			t.Fatalf("Render() line width = %d, want %d for even panel width: %q", got, PanelWidth, line)
 		}

@@ -133,7 +133,7 @@ func loadFavoriteStations(path string) ([]CatalogStation, error) {
 	var stations []CatalogStation
 	var current *CatalogStation
 
-	for _, rawLine := range strings.Split(string(data), "\n") {
+	for rawLine := range strings.SplitSeq(string(data), "\n") {
 		line := strings.TrimSpace(rawLine)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue

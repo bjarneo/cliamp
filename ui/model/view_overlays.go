@@ -444,22 +444,13 @@ func (m Model) renderLyricsOverlay() string {
 			}
 		}
 
-		visible := m.height - 8
-		if visible < 5 {
-			visible = 5
-		}
+		visible := max(m.height-8, 5)
 		half := visible / 2
-		startIdx := activeIdx - half
-		if startIdx < 0 {
-			startIdx = 0
-		}
+		startIdx := max(activeIdx-half, 0)
 		endIdx := startIdx + visible
 		if endIdx > len(m.lyrics.lines) {
 			endIdx = len(m.lyrics.lines)
-			startIdx = endIdx - visible
-			if startIdx < 0 {
-				startIdx = 0
-			}
+			startIdx = max(endIdx-visible, 0)
 		}
 
 		for i := startIdx; i < endIdx; i++ {
@@ -475,14 +466,8 @@ func (m Model) renderLyricsOverlay() string {
 		}
 	} else {
 		// Scroll mode: manual navigation with j/k or arrow keys.
-		visible := m.height - 8
-		if visible < 5 {
-			visible = 5
-		}
-		endIdx := m.lyrics.scroll + visible
-		if endIdx > len(m.lyrics.lines) {
-			endIdx = len(m.lyrics.lines)
-		}
+		visible := max(m.height-8, 5)
+		endIdx := min(m.lyrics.scroll+visible, len(m.lyrics.lines))
 
 		for i := m.lyrics.scroll; i < endIdx; i++ {
 			text := m.lyrics.lines[i].Text

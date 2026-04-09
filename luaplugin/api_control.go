@@ -94,7 +94,7 @@ func registerControlAPI(L *lua.LState, cliamp *lua.LTable, ctrl *ControlProvider
 		var bands *[10]float64
 		if tbl := L.OptTable(2, nil); tbl != nil {
 			b := [10]float64{}
-			for i := 0; i < 10; i++ {
+			for i := range 10 {
 				if v := tbl.RawGetInt(i + 1); v != lua.LNil {
 					b[i] = max(min(float64(lua.LVAsNumber(v)), 12), -12)
 				}

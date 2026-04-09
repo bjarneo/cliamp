@@ -139,7 +139,7 @@ func fetchLRCLIB(query string) ([]Line, error) {
 	// Fallback to plain lyrics (all lines at timestamp 0).
 	if results[0].PlainLyrics != "" {
 		var lines []Line
-		for _, raw := range strings.Split(results[0].PlainLyrics, "\n") {
+		for raw := range strings.SplitSeq(results[0].PlainLyrics, "\n") {
 			lines = append(lines, Line{Start: 0, Text: strings.TrimSpace(raw)})
 		}
 		return lines, nil
@@ -204,7 +204,7 @@ func fetchNetEase(query string) ([]Line, error) {
 // parseLRC converts standard LRC string blocks into a slice of timestamped Lines.
 func parseLRC(data string) []Line {
 	var lines []Line
-	for _, raw := range strings.Split(data, "\n") {
+	for raw := range strings.SplitSeq(data, "\n") {
 		matches := lrcRegex.FindStringSubmatch(raw)
 		if len(matches) == 5 {
 			mins, _ := strconv.Atoi(matches[1])

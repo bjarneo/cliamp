@@ -69,7 +69,7 @@ func TestTickPendingSpeedSaveUsesElapsedTime(t *testing.T) {
 	m.changeSpeed(0.5)
 
 	configPath := filepath.Join(home, ".config", "cliamp", "config.toml")
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		m.tickPendingSpeedSave(ui.TickSlow)
 		if _, err := os.Stat(configPath); !os.IsNotExist(err) {
 			t.Fatalf("config created after %d slow ticks, want no save before %v", i+1, speedSaveDebounce)

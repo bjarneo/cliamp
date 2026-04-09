@@ -51,15 +51,15 @@ func parseM3U(r io.Reader, baseDir string) ([]m3uEntry, error) {
 		}
 
 		// Parse #EXTINF:duration,title
-		if strings.HasPrefix(line, "#EXTINF:") {
-			info := strings.TrimPrefix(line, "#EXTINF:")
+		if after, ok := strings.CutPrefix(line, "#EXTINF:"); ok {
+			info := after
 			dur := -1
 			title := ""
-			if comma := strings.IndexByte(info, ','); comma >= 0 {
-				if d, err := strconv.Atoi(strings.TrimSpace(info[:comma])); err == nil {
+			if before, after, ok := strings.Cut(info, ","); ok {
+				if d, err := strconv.Atoi(strings.TrimSpace(before)); err == nil {
 					dur = d
 				}
-				title = strings.TrimSpace(info[comma+1:])
+				title = strings.TrimSpace(after)
 			}
 			pending = &m3uEntry{Duration: dur, Title: title}
 			continue
@@ -91,10 +91,7 @@ func parseM3U(r io.Reader, baseDir string) ([]m3uEntry, error) {
 // m3uEntryToTrack converts a parsed M3U entry to a playlist.Track.
 func m3uEntryToTrack(e m3uEntry) playlist.Track {
 	isURL := playlist.IsURL(e.Path)
-	duration := 0
-	if e.Duration > 0 {
-		duration = e.Duration
-	}
+	duration := max(e.Duration, 0)
 	realtime := isURL && e.Duration < 0
 
 	if e.Title != "" {

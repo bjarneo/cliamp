@@ -44,7 +44,7 @@ func TestRequestOmitsEmptyFields(t *testing.T) {
 		t.Fatalf("Marshal error: %v", err)
 	}
 
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
@@ -117,8 +117,8 @@ func TestResponseError(t *testing.T) {
 }
 
 func TestDispatcherFunc(t *testing.T) {
-	var received interface{}
-	fn := DispatcherFunc(func(msg interface{}) {
+	var received any
+	fn := DispatcherFunc(func(msg any) {
 		received = msg
 	})
 

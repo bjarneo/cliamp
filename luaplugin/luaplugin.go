@@ -121,9 +121,9 @@ func New(pluginCfg map[string]map[string]string) (*Manager, error) {
 			if _, err := os.Stat(init); err == nil {
 				files = append(files, pluginFile{name: e.Name(), path: init})
 			}
-		} else if strings.HasSuffix(e.Name(), ".lua") {
+		} else if before, ok := strings.CutSuffix(e.Name(), ".lua"); ok {
 			files = append(files, pluginFile{
-				name: strings.TrimSuffix(e.Name(), ".lua"),
+				name: before,
 				path: filepath.Join(dir, e.Name()),
 			})
 		}
@@ -135,7 +135,7 @@ func New(pluginCfg map[string]map[string]string) (*Manager, error) {
 	if pluginCfg != nil {
 		if topLevel, ok := pluginCfg[""]; ok {
 			if list, ok := topLevel["disabled"]; ok {
-				for _, name := range strings.Split(list, ",") {
+				for name := range strings.SplitSeq(list, ",") {
 					disabled[strings.TrimSpace(name)] = true
 				}
 			}

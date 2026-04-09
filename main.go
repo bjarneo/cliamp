@@ -304,7 +304,7 @@ func run(overrides config.Overrides, positional []string) error {
 		})
 	}
 
-	ipcSrv, ipcErr := ipc.NewServer(ipc.DefaultSocketPath(), ipc.DispatcherFunc(func(msg interface{}) { prog.Send(msg) }))
+	ipcSrv, ipcErr := ipc.NewServer(ipc.DefaultSocketPath(), ipc.DispatcherFunc(func(msg any) { prog.Send(msg) }))
 	if ipcErr != nil {
 		fmt.Fprintf(os.Stderr, "ipc: %v\n", ipcErr)
 	} else {

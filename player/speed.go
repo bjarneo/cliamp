@@ -131,10 +131,7 @@ func (ss *speedStreamer) fillSource(need int) bool {
 		ss.inPos -= float64(drop)
 	}
 	for ss.inN < need {
-		toRead := need - ss.inN
-		if toRead < 4096 {
-			toRead = 4096
-		}
+		toRead := max(need-ss.inN, 4096)
 		if ss.inN+toRead > cap(ss.in) {
 			newIn := make([][2]float64, ss.inN+toRead)
 			copy(newIn[:ss.inN], ss.in[:ss.inN])
@@ -188,7 +185,7 @@ func (ss *speedStreamer) wsolaFrame(speed float64) bool {
 		copy(ss.out[ss.outWr:ss.outWr+tsSeq], ss.in[srcOff:srcOff+tsSeq])
 	} else {
 		// Crossfade the overlap region using pre-computed alpha table.
-		for i := 0; i < tsOvlp; i++ {
+		for i := range tsOvlp {
 			a := tsAlpha[i]
 			b := 1 - a
 			ss.out[ss.outWr+i] = [2]float64{
@@ -215,23 +212,14 @@ func (ss *speedStreamer) wsolaFrame(speed float64) bool {
 // (all correlations negative or silent), falls back to the expected offset.
 func (ss *speedStreamer) searchBestOffset(expected int) int {
 	lo := max(0, expected-tsSearch)
-	hi := min(ss.inN-tsWin, expected+tsSearch)
-	if hi < lo {
-		hi = lo
-	}
+	hi := max(min(ss.inN-tsWin, expected+tsSearch), lo)
 
-	bestOff := expected
-	if bestOff < lo {
-		bestOff = lo
-	}
-	if bestOff > hi {
-		bestOff = hi
-	}
+	bestOff := min(max(expected, lo), hi)
 	var bestScore float64
 
 	for off := lo; off <= hi; off++ {
 		var corr, norm float64
-		for i := 0; i < tsOvlp; i++ {
+		for i := range tsOvlp {
 			corr += ss.tail[i][0]*ss.in[off+i][0] + ss.tail[i][1]*ss.in[off+i][1]
 			norm += ss.in[off+i][0]*ss.in[off+i][0] + ss.in[off+i][1]*ss.in[off+i][1]
 		}

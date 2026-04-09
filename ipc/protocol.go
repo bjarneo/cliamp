@@ -46,10 +46,10 @@ type TrackInfo struct {
 }
 
 // DispatcherFunc adapts a plain function to the Dispatcher interface.
-type DispatcherFunc func(msg interface{})
+type DispatcherFunc func(msg any)
 
 // Send implements Dispatcher.
-func (f DispatcherFunc) Send(msg interface{}) { f(msg) }
+func (f DispatcherFunc) Send(msg any) { f(msg) }
 
 // IPC-specific messages sent to the TUI via prog.Send().
 // For shared types (NextMsg, PrevMsg, StopMsg, PlayPauseMsg), see internal/playback.

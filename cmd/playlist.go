@@ -405,8 +405,8 @@ func sshFindAudio(host string, paths []string) ([]string, error) {
 			return nil, fmt.Errorf("ssh find on %s:%s: %w", host, p, err)
 		}
 
-		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-		for _, line := range lines {
+		lines := strings.SplitSeq(strings.TrimSpace(string(out)), "\n")
+		for line := range lines {
 			line = strings.TrimSpace(line)
 			if line != "" {
 				allFiles = append(allFiles, line)

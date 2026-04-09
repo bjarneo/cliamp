@@ -63,10 +63,7 @@ func newChainedOggStreamer(rc io.ReadCloser, targetSR beep.SampleRate, resampleQ
 func (cs *chainedOggStreamer) initDecoder(reader *oggvorbis.Reader) {
 	cs.reader = reader
 
-	channels := reader.Channels()
-	if channels > 2 {
-		channels = 2
-	}
+	channels := min(reader.Channels(), 2)
 	cs.format = beep.Format{
 		SampleRate:  beep.SampleRate(reader.SampleRate()),
 		NumChannels: channels,

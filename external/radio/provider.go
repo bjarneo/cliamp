@@ -324,7 +324,7 @@ func loadStations(path string) ([]station, error) {
 	var stations []station
 	var current *station
 
-	for _, rawLine := range strings.Split(string(data), "\n") {
+	for rawLine := range strings.SplitSeq(string(data), "\n") {
 		line := strings.TrimSpace(rawLine)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue

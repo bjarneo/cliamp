@@ -89,10 +89,7 @@ func advanceTickUnits(counter *int, elapsed *time.Duration, dt, quantum time.Dur
 	if *elapsed < quantum {
 		return 0
 	}
-	steps := int(*elapsed / quantum)
-	if steps > *counter {
-		steps = *counter
-	}
+	steps := min(int(*elapsed/quantum), *counter)
 	*counter -= steps
 	if *counter == 0 {
 		*elapsed = 0

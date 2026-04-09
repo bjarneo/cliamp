@@ -72,10 +72,7 @@ func (m Model) albumSeparator(album string, year int) string {
 
 // navScrollItems renders a filtered or unfiltered scrolled list for nav browsers.
 func (m Model) navScrollItems(total int, labelFn func(int) string) []string {
-	maxVisible := m.plVisible
-	if maxVisible < 5 {
-		maxVisible = 5
-	}
+	maxVisible := max(m.plVisible, 5)
 
 	useFilter := len(m.navBrowser.searchIdx) > 0 || m.navBrowser.search != ""
 	scroll := m.navBrowser.scroll

@@ -323,10 +323,7 @@ func (p *Player) Seek(d time.Duration) error {
 	if cur.seekableStream && cur.knownDuration > 0 && cur.contentLength > 0 {
 		// Compute new absolute position.
 		curPos := cur.format.SampleRate.D(cur.decoder.Position()) + cur.streamOffset
-		newPos := curPos + d
-		if newPos < 0 {
-			newPos = 0
-		}
+		newPos := max(curPos+d, 0)
 		if newPos >= cur.knownDuration {
 			newPos = cur.knownDuration - time.Second
 		}
@@ -403,10 +400,7 @@ func (p *Player) Seek(d time.Duration) error {
 	}
 	curSample := cur.decoder.Position()
 	curDur := cur.format.SampleRate.D(curSample)
-	newSample := cur.format.SampleRate.N(curDur + d)
-	if newSample < 0 {
-		newSample = 0
-	}
+	newSample := max(cur.format.SampleRate.N(curDur+d), 0)
 	if newSample >= cur.decoder.Len() {
 		newSample = cur.decoder.Len() - 1
 	}
@@ -457,10 +451,7 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 	p.gapless.Replace(nil)
 	speaker.Unlock()
 
-	newPos := curPos + d
-	if newPos < 0 {
-		newPos = 0
-	}
+	newPos := max(curPos+d, 0)
 	if cur.knownDuration > 0 && newPos >= cur.knownDuration {
 		newPos = cur.knownDuration - time.Second
 	}

@@ -530,12 +530,10 @@ func TestConcurrentEmitSafety(t *testing.T) {
 	`)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 20 {
+		wg.Go(func() {
 			m.Emit("inc", nil)
-		}()
+		})
 	}
 	wg.Wait()
 	time.Sleep(200 * time.Millisecond)

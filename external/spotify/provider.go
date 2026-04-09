@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -588,13 +589,7 @@ func (p *SpotifyProvider) webAPIWithBody(ctx context.Context, method, path strin
 			}
 		}
 
-		ok := false
-		for _, code := range acceptStatus {
-			if resp.StatusCode == code {
-				ok = true
-				break
-			}
-		}
+		ok := slices.Contains(acceptStatus, resp.StatusCode)
 		if !ok {
 			respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 512))
 			resp.Body.Close()

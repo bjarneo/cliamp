@@ -127,10 +127,7 @@ func classifyPlaylists(ctx context.Context, svc *youtube.Service, playlists []pl
 
 	// Batch fetch video categories.
 	for i := 0; i < len(videoIDs); i += youtubeAPIBatchSize {
-		end := i + youtubeAPIBatchSize
-		if end > len(videoIDs) {
-			end = len(videoIDs)
-		}
+		end := min(i+youtubeAPIBatchSize, len(videoIDs))
 		batch := videoIDs[i:end]
 
 		vResp, err := svc.Videos.List([]string{"snippet"}).

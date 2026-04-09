@@ -81,11 +81,11 @@ func (ir *icyReader) consumeMeta() error {
 // Format: "StreamTitle='Artist - Title';StreamUrl='...';..."
 func parseStreamTitle(meta string) string {
 	const prefix = "StreamTitle='"
-	i := strings.Index(meta, prefix)
-	if i < 0 {
+	_, after, ok := strings.Cut(meta, prefix)
+	if !ok {
 		return ""
 	}
-	rest := meta[i+len(prefix):]
+	rest := after
 	j := strings.Index(rest, "';")
 	if j < 0 {
 		// Tolerate missing semicolon at end of block.

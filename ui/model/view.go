@@ -200,10 +200,7 @@ func (m Model) renderTitle() string {
 		return title
 	}
 	indicator := dimStyle.Render("[" + label + "]")
-	gap := ui.PanelWidth - lipgloss.Width(title) - lipgloss.Width(indicator)
-	if gap < 1 {
-		gap = 1
-	}
+	gap := max(ui.PanelWidth-lipgloss.Width(title)-lipgloss.Width(indicator), 1)
 	return title + strings.Repeat(" ", gap) + indicator
 }
 
@@ -293,10 +290,7 @@ func (m Model) renderTimeStatus() string {
 	}
 
 	left := timeStyle.Render(timeStr)
-	gap := ui.PanelWidth - lipgloss.Width(left) - lipgloss.Width(status)
-	if gap < 1 {
-		gap = 1
-	}
+	gap := max(ui.PanelWidth-lipgloss.Width(left)-lipgloss.Width(status), 1)
 
 	return left + strings.Repeat(" ", gap) + status
 }

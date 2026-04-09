@@ -203,7 +203,7 @@ func TestRenderPlaylistAddsPaddingToTrackNumber(t *testing.T) {
 	sharedPlayer.Stop()
 
 	pl := playlist.New()
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		pl.Add(playlist.Track{
 			Path:  fmt.Sprintf("/tmp/track-%d.mp3", i),
 			Title: fmt.Sprintf("Track %d", i+1),

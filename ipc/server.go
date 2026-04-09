@@ -19,7 +19,7 @@ import (
 // Dispatcher is how the server sends commands to the TUI.
 // In main.go, this is wired to prog.Send().
 type Dispatcher interface {
-	Send(msg interface{})
+	Send(msg any)
 }
 
 // Server listens on a Unix socket and dispatches IPC commands.

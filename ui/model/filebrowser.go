@@ -387,10 +387,7 @@ func (m Model) renderFileBrowser() string {
 		lines = append(lines, dimStyle.Render("  (empty)"))
 		rendered = 1
 	} else {
-		scroll := m.fileBrowser.scroll
-		if scroll < 0 {
-			scroll = 0
-		}
+		scroll := max(m.fileBrowser.scroll, 0)
 		if scroll > len(m.fileBrowser.entries)-1 {
 			scroll = max(0, len(m.fileBrowser.entries)-1)
 		}
