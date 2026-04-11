@@ -194,31 +194,55 @@ func (m *Manager) loadPlugin(path, name string, cfg map[string]string) (*Plugin,
 	// Register all cliamp.* API tables.
 	m.registerCliampAPI(L, p)
 
-	if err := L.DoFile(path); err != nil {
+	p.mu.Lock()
+	err := L.DoFile(path)
+	if err != nil {
+		m.cleanupPlugin(p)
+		p.mu.Unlock()
 		L.Close()
 		return nil, err
 	}
 
 	// If plugin.register() was never called, skip this file.
-	// Remove any hooks that may have been registered during DoFile
-	// before closing the LState to prevent dangling references.
 	if p.Type == "" {
-		m.mu.Lock()
-		for event, hooks := range m.hooks {
-			filtered := hooks[:0]
-			for _, h := range hooks {
-				if h.plugin != p {
-					filtered = append(filtered, h)
-				}
-			}
-			m.hooks[event] = filtered
-		}
-		m.mu.Unlock()
+		m.cleanupPlugin(p)
+		p.mu.Unlock()
 		L.Close()
 		return nil, nil
 	}
+	p.mu.Unlock()
 
 	return p, nil
+}
+
+func (m *Manager) cleanupPlugin(p *Plugin) {
+	m.mu.Lock()
+	for event, hooks := range m.hooks {
+		filtered := hooks[:0]
+		for _, h := range hooks {
+			if h.plugin != p {
+				filtered = append(filtered, h)
+			}
+		}
+		m.hooks[event] = filtered
+	}
+
+	filteredVis := m.visPlugs[:0]
+	for _, vis := range m.visPlugs {
+		if vis.plugin != p {
+			filteredVis = append(filteredVis, vis)
+		}
+	}
+	m.visPlugs = filteredVis
+
+	for name, vis := range m.visMap {
+		if vis.plugin == p {
+			delete(m.visMap, name)
+		}
+	}
+	m.mu.Unlock()
+
+	m.timers.stopPlugin(p)
 }
 
 // registerPluginAPI sets up the global "plugin" table with register() and

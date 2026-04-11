@@ -1,6 +1,7 @@
 package luaplugin
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -40,6 +41,18 @@ func loadTestPluginWithConfig(t *testing.T, m *Manager, name, code string, cfg m
 		m.plugins = append(m.plugins, p)
 	}
 	return p
+}
+
+func loadTestPluginExpectError(t *testing.T, m *Manager, name, code string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, name+".lua")
+	if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.loadPlugin(path, name, nil); err == nil {
+		t.Fatalf("expected error for %s", name)
+	}
 }
 
 func TestLoadPluginRegistersHookPlugin(t *testing.T) {
@@ -89,6 +102,85 @@ func TestLoadPluginSyntaxError(t *testing.T) {
 	_, err := m.loadPlugin(path, "bad", nil)
 	if err == nil {
 		t.Fatal("expected error for invalid Lua syntax")
+	}
+}
+
+func TestLoadPluginCleanupStopsPendingTimers(t *testing.T) {
+	cases := []struct {
+		name      string
+		expectErr bool
+		code      string
+	}{
+		{
+			name: "without register",
+			code: `
+				cliamp.timer.after(0.01, function()
+					cliamp.fs.write(%q, "fired")
+				end)
+				cliamp.sleep(0.05)
+			`,
+		},
+		{
+			name:      "on load error",
+			expectErr: true,
+			code: `
+				local p = plugin.register({name = "bad", type = "hook"})
+				cliamp.timer.after(0.01, function()
+					cliamp.fs.write(%q, "fired")
+				end)
+				cliamp.sleep(0.05)
+				error("boom")
+			`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestManager()
+			path := filepath.Join(t.TempDir(), "fired")
+			code := fmt.Sprintf(tc.code, path)
+
+			if tc.expectErr {
+				loadTestPluginExpectError(t, m, "bad", code)
+			} else {
+				p := loadTestPlugin(t, m, "no-register-expired-timer", code)
+				if p != nil {
+					t.Fatalf("expected nil plugin for script without register, got %+v", p)
+				}
+			}
+
+			time.Sleep(50 * time.Millisecond)
+
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("timer callback wrote %q after cleanup, err=%v", path, err)
+			}
+		})
+	}
+}
+
+func TestLoadPluginErrorRemovesHooks(t *testing.T) {
+	m := newTestManager()
+	loadTestPluginExpectError(t, m, "bad", `
+		local p = plugin.register({name = "bad", type = "hook"})
+		p:on("track.change", function() end)
+		error("boom")
+	`)
+	if len(m.hooks["track.change"]) != 0 {
+		t.Fatalf("hooks[track.change] = %d, want 0", len(m.hooks["track.change"]))
+	}
+}
+
+func TestLoadVisualizerErrorRemovesVisualizer(t *testing.T) {
+	m := newTestManager()
+	loadTestPluginExpectError(t, m, "bad", `
+		plugin.register({name = "bad", type = "visualizer"})
+		error("boom")
+	`)
+	if len(m.visPlugs) != 0 {
+		t.Fatalf("visualizer count = %d, want 0", len(m.visPlugs))
+	}
+	if _, ok := m.visMap["bad"]; ok {
+		t.Fatal("expected visualizer to be removed from visMap")
 	}
 }
 

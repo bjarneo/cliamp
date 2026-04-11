@@ -65,6 +65,41 @@ func (tm *timerManager) stopAll() {
 	tm.mu.Unlock()
 }
 
+func (tm *timerManager) stopPlugin(p *Plugin) {
+	tm.mu.Lock()
+	for id, e := range tm.timers {
+		if e.plugin != p {
+			continue
+		}
+		close(e.done)
+		if e.ticker != nil {
+			e.ticker.Stop()
+		}
+		if e.timer != nil {
+			e.timer.Stop()
+		}
+		delete(tm.timers, id)
+	}
+	tm.mu.Unlock()
+}
+
+func (tm *timerManager) take(id int64) bool {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	if _, ok := tm.timers[id]; !ok {
+		return false
+	}
+	delete(tm.timers, id)
+	return true
+}
+
+func (tm *timerManager) active(id int64) bool {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	_, ok := tm.timers[id]
+	return ok
+}
+
 // registerTimerAPI adds cliamp.timer.{after,every,cancel} to the cliamp table.
 // p is the owning plugin whose mutex protects all LState calls.
 func registerTimerAPI(L *lua.LState, cliamp *lua.LTable, tm *timerManager, p *Plugin) {
@@ -84,15 +119,16 @@ func registerTimerAPI(L *lua.LState, cliamp *lua.LTable, tm *timerManager, p *Pl
 			select {
 			case <-t.C:
 				p.mu.Lock()
+				if !tm.take(id) {
+					p.mu.Unlock()
+					return
+				}
 				_ = L.CallByParam(lua.P{
 					Fn:      fn,
 					NRet:    0,
 					Protect: true,
 				})
 				p.mu.Unlock()
-				tm.mu.Lock()
-				delete(tm.timers, id)
-				tm.mu.Unlock()
 			case <-e.done:
 			}
 		}()
@@ -116,6 +152,10 @@ func registerTimerAPI(L *lua.LState, cliamp *lua.LTable, tm *timerManager, p *Pl
 				select {
 				case <-ticker.C:
 					p.mu.Lock()
+					if !tm.active(id) {
+						p.mu.Unlock()
+						return
+					}
 					_ = L.CallByParam(lua.P{
 						Fn:      fn,
 						NRet:    0,
