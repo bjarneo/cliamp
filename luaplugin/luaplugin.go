@@ -224,6 +224,9 @@ func (m *Manager) cleanupPlugin(p *Plugin) {
 				filtered = append(filtered, h)
 			}
 		}
+		for i := len(filtered); i < len(hooks); i++ {
+			hooks[i] = nil
+		}
 		m.hooks[event] = filtered
 	}
 
@@ -232,6 +235,9 @@ func (m *Manager) cleanupPlugin(p *Plugin) {
 		if vis.plugin != p {
 			filteredVis = append(filteredVis, vis)
 		}
+	}
+	for i := len(filteredVis); i < len(m.visPlugs); i++ {
+		m.visPlugs[i] = nil
 	}
 	m.visPlugs = filteredVis
 

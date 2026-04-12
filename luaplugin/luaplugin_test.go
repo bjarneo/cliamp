@@ -121,6 +121,15 @@ func TestLoadPluginCleanupStopsPendingTimers(t *testing.T) {
 			`,
 		},
 		{
+			name: "every",
+			code: `
+				cliamp.timer.every(0.01, function()
+					cliamp.fs.write(%q, "fired")
+				end)
+				cliamp.sleep(0.05)
+			`,
+		},
+		{
 			name:      "on load error",
 			expectErr: true,
 			code: `
