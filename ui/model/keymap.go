@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -51,8 +52,8 @@ var keymapEntries = []keymapEntry{
 	{"p", "Playlist manager"},
 	{"i", "Track info / metadata"},
 	{"Ctrl+S", "Save/download track to ~/Music"},
-	{"Ctrl+X", "Expand/collapse playlist"},
-	{"/", "Search playlist"},
+	{"Ctrl+X", "Expand/collapse view"},
+	{"/", "Filter/search list"},
 	{"f", "Find on YouTube (queue play next)"},
 	{"Ctrl+F", "Find on SoundCloud (queue play next)"},
 	{"F", "Spotify search + add to playlist"},
@@ -73,8 +74,11 @@ func (m *Model) keymapCount() int {
 }
 
 func (m *Model) keymapHelpLine() string {
+	if m.keymap.searching {
+		return helpKey("Enter", "Confirm ") + helpKey("Esc", "Cancel ") + helpKey("Type", "Filter")
+	}
 	return helpKey("↑↓", "Navigate ") + helpKey("PgUp/Dn", "Page ") +
-		helpKey("Home/End", "Jump ") + helpKey("Type", "Filter ") + helpKey("Esc", "Close")
+		helpKey("Home/End", "Jump ") + helpKey("/", "Filter ") + helpKey("Esc", "Close")
 }
 
 func (m *Model) keymapHeaderLines() []string {
@@ -82,10 +86,14 @@ func (m *Model) keymapHeaderLines() []string {
 		titleStyle.Render("K E Y M A P"),
 		"",
 	}
-	if m.keymap.search != "" {
-		header = append(header, playlistSelectedStyle.Render("  / "+m.keymap.search+"_"), "")
-	} else {
-		header = append(header, dimStyle.Render("  Type to filter…"), "")
+	if m.keymap.searching {
+		cursor := "_"
+		if (time.Now().UnixNano()/500000000)%2 != 0 {
+			cursor = " "
+		}
+		header = append(header, playlistSelectedStyle.Render("  / "+m.keymap.search+cursor), "")
+	} else if m.keymap.search != "" {
+		header = append(header, dimStyle.Render("  / "+m.keymap.search), "")
 	}
 	return header
 }
@@ -132,13 +140,14 @@ func (m *Model) keymapMaybeAdjustScroll(visible int) {
 		m.keymap.scroll = m.keymap.cursor - visible + 1
 	}
 
-	if m.keymap.scroll+visible > count {
+	if m.keymap.scroll+visible > count && count > 0 {
 		m.keymap.scroll = max(0, count-visible)
 	}
 }
 
 // openKeymap resets the keymap state and shows it.
 func (m *Model) openKeymap() {
+	m.keymap.searching = false
 	m.keymap.search = ""
 	m.keymap.filtered = nil
 	m.keymap.cursor = 0
@@ -146,17 +155,75 @@ func (m *Model) openKeymap() {
 	m.keymap.visible = true
 }
 
+func (m *Model) handleKeymapSearchKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.String() {
+	case "ctrl+c":
+		m.keymap.visible = false
+		return m.quit()
+	case "esc":
+		m.keymap.searching = false
+		m.keymap.search = ""
+		m.keymap.filtered = nil
+		return nil
+	case "enter":
+		m.keymap.searching = false
+		return nil
+	case "down":
+		m.keymap.searching = false
+		if m.keymapCount() > 0 {
+			m.keymap.cursor = 0
+			m.keymapMaybeAdjustScroll(m.keymapVisible())
+		}
+		return nil
+	case "backspace":
+		if m.keymap.search != "" {
+			m.keymap.search = removeLastRune(m.keymap.search)
+			m.updateKeymapFilter()
+		} else {
+			m.keymap.searching = false
+		}
+		return nil
+	case "space":
+		m.keymap.search += " "
+		m.updateKeymapFilter()
+		return nil
+	}
+
+	if len(msg.Text) > 0 {
+		m.keymap.search += msg.Text
+		m.updateKeymapFilter()
+	}
+	return nil
+}
+
 // handleKeymapKey processes key presses while the keymap overlay is open.
 func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
+	if m.keymap.searching {
+		return m.handleKeymapSearchKey(msg)
+	}
+
 	switch msg.String() {
 	case "ctrl+c":
 		m.keymap.visible = false
 		return m.quit()
 
-	case "esc", "ctrl+k":
+	case "esc", "ctrl+k", "q":
 		m.keymap.visible = false
+		m.keymap.searching = false
+		m.keymap.search = ""
+		m.keymap.filtered = nil
 
-	case "up":
+	case "/":
+		m.keymap.searching = true
+		m.keymap.search = ""
+		m.updateKeymapFilter()
+		return nil
+
+	case "up", "k":
+		if m.keymap.search != "" && m.keymap.cursor == 0 {
+			m.keymap.searching = true
+			return nil
+		}
 		count := m.keymapCount()
 		if m.keymap.cursor > 0 {
 			m.keymap.cursor--
@@ -165,7 +232,7 @@ func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		m.keymapMaybeAdjustScroll(m.keymapVisible())
 
-	case "down":
+	case "down", "j":
 		count := m.keymapCount()
 		if m.keymap.cursor < count-1 {
 			m.keymap.cursor++
@@ -193,32 +260,27 @@ func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.keymapMaybeAdjustScroll(visible)
 		}
 
-	case "home":
+	case "home", "g":
 		m.keymap.cursor = 0
 		m.keymapMaybeAdjustScroll(m.keymapVisible())
 
-	case "end":
+	case "end", "G":
 		count := m.keymapCount()
 		if count > 0 {
 			m.keymap.cursor = count - 1
 		}
 		m.keymapMaybeAdjustScroll(m.keymapVisible())
 
-	case "backspace":
+	case "backspace", "h":
 		if m.keymap.search != "" {
-			m.keymap.search = removeLastRune(m.keymap.search)
+			m.keymap.search = ""
 			m.updateKeymapFilter()
+		} else {
+			m.keymap.visible = false
 		}
 
-	case "space":
-		m.keymap.search += " "
-		m.updateKeymapFilter()
-
-	default:
-		if len(msg.Text) > 0 {
-			m.keymap.search += msg.Text
-			m.updateKeymapFilter()
-		}
+	case "enter", "l":
+		m.keymap.visible = false
 	}
 
 	return nil
@@ -259,13 +321,21 @@ func (m Model) renderKeymapOverlay() string {
 	rendered := 0
 
 	if len(visible) == 0 {
-		lines = append(lines, dimStyle.Render("  No matches"))
+		if m.keymap.search != "" {
+			lines = append(lines, dimStyle.Render("  No matches"))
+		} else {
+			lines = append(lines, dimStyle.Render("  (empty)"))
+		}
 		rendered = 1
 	} else {
 		scroll := m.keymap.scroll
 		for i := scroll; i < len(visible) && i < scroll+maxVisible; i++ {
 			line := fmt.Sprintf("%-10s %s", visible[i].key, visible[i].action)
-			lines = append(lines, cursorLine(line, i == m.keymap.cursor))
+			if m.keymap.searching {
+				lines = append(lines, dimStyle.Render("  "+line))
+			} else {
+				lines = append(lines, cursorLine(line, i == m.keymap.cursor))
+			}
 			rendered++
 		}
 	}
