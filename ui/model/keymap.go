@@ -164,6 +164,8 @@ func (m *Model) handleKeymapSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.keymap.searching = false
 		m.keymap.search = ""
 		m.keymap.filtered = nil
+		m.keymap.cursor = m.keymap.savedCursor
+		m.keymap.scroll = m.keymap.savedScroll
 		return nil
 	case "enter":
 		m.keymap.searching = false
@@ -181,6 +183,8 @@ func (m *Model) handleKeymapSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.updateKeymapFilter()
 		} else {
 			m.keymap.searching = false
+			m.keymap.cursor = m.keymap.savedCursor
+			m.keymap.scroll = m.keymap.savedScroll
 		}
 		return nil
 	case "space":
@@ -214,6 +218,8 @@ func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.keymap.filtered = nil
 
 	case "/":
+		m.keymap.savedCursor = m.keymap.cursor
+		m.keymap.savedScroll = m.keymap.scroll
 		m.keymap.searching = true
 		m.keymap.search = ""
 		m.updateKeymapFilter()

@@ -68,9 +68,11 @@ type lyricsState struct {
 // keymapOverlay holds state for the keybindings overlay.
 type keymapOverlay struct {
 	visible   bool
-	cursor    int
-	scroll    int
-	searching bool
+	cursor      int
+	scroll      int
+	savedCursor int
+	savedScroll int
+	searching   bool
 	search    string
 	filtered  []int // indices into keymapEntries
 }
