@@ -260,6 +260,8 @@ func (m *Model) handleFileBrowserSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.fileBrowser.searching = false
 		m.fileBrowser.search = ""
 		m.fileBrowser.filtered = nil
+		m.fileBrowser.cursor = m.fileBrowser.savedCursor
+		m.fileBrowser.scroll = m.fileBrowser.savedScroll
 		return nil
 	case "enter":
 		m.fileBrowser.searching = false
@@ -277,6 +279,8 @@ func (m *Model) handleFileBrowserSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.fbUpdateFilter()
 		} else {
 			m.fileBrowser.searching = false
+			m.fileBrowser.cursor = m.fileBrowser.savedCursor
+			m.fileBrowser.scroll = m.fileBrowser.savedScroll
 		}
 		return nil
 	case "space":
@@ -315,6 +319,8 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.fbMaybeAdjustScroll(m.fbVisible())
 
 	case "/":
+		m.fileBrowser.savedCursor = m.fileBrowser.cursor
+		m.fileBrowser.savedScroll = m.fileBrowser.scroll
 		m.fileBrowser.searching = true
 		m.fileBrowser.search = ""
 		m.fbUpdateFilter()

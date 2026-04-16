@@ -97,10 +97,12 @@ type plManagerState struct {
 type fileBrowserState struct {
 	visible   bool
 	dir       string
-	entries   []fbEntry
-	cursor    int
-	scroll    int
-	selected  map[string]bool
+	entries     []fbEntry
+	cursor      int
+	scroll      int
+	savedCursor int
+	savedScroll int
+	selected    map[string]bool
 	err       string
 	searching bool
 	search    string
