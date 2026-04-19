@@ -370,9 +370,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 
-	// Shift+0-9: percentage seeking. Matches the shifted symbol produced by
-	// Shift+digit on any keyboard layout (US, Nordic, etc.) since terminals
-	// translate the key before Bubbletea sees it.
+	// Shift+0-9: percentage seeking.
 	shiftedDigits := map[string]int{
 		")": 0, "!": 1, "@": 2, "#": 3, "$": 4,
 		"%": 5, "^": 6, "&": 7, "*": 8, "(": 9,
