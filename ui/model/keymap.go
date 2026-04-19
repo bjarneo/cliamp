@@ -22,6 +22,7 @@ var keymapEntries = []keymapEntry{
 	{"< ,", "Previous track"},
 	{"← →", "Seek ±5s"},
 	{"Shift+← →", "Seek ±large step"},
+	{"Shift+0-9", "Seek to % of track (0%=start)"},
 	{"+ -", "Volume up/down"},
 	{"] [", "Speed up/down (±0.25x)"},
 	{"z", "Toggle shuffle"},
