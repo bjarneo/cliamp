@@ -141,6 +141,8 @@ Press `p` from any view to open the playlist manager:
 6. **Play all**: press `Enter` on the track list to load all tracks into the player
 7. **New playlist**: select "+ New Playlist...", type a name, and press Enter
 
+Tracks with an `album` field are grouped by album with visual separator headers in both the playlist manager and the main player view.
+
 The directory `~/.config/cliamp/playlists/` is created automatically on first use. Removing the last track from a playlist auto-deletes the file.
 
 ### Creating Playlists Manually

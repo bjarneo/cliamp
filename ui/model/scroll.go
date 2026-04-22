@@ -66,10 +66,30 @@ func (m Model) playlistScroll(visible int) int {
 	if m.plCursor < scroll {
 		return m.plCursor
 	}
-	if m.plCursor-scroll+1 <= visible {
-		return scroll
+	for scroll < m.plCursor && m.playlistRowsFromScroll(scroll, m.plCursor) > visible {
+		scroll++
 	}
-	return m.plCursor - visible + 1
+	return scroll
+}
+
+func (m Model) playlistRowsFromScroll(scroll, cursor int) int {
+	tracks := m.playlist.Tracks()
+	if len(tracks) == 0 || cursor < scroll || scroll < 0 || cursor >= len(tracks) {
+		return 0
+	}
+	rows := 0
+	prevAlbum := ""
+	if scroll > 0 {
+		prevAlbum = tracks[scroll-1].Album
+	}
+	for i := scroll; i <= cursor && i < len(tracks); i++ {
+		if album := tracks[i].Album; album != "" && album != prevAlbum {
+			rows++
+		}
+		prevAlbum = tracks[i].Album
+		rows++
+	}
+	return rows
 }
 
 func (m Model) mainFrameFixedLines(includeTransient bool) int {

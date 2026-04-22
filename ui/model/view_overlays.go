@@ -155,12 +155,49 @@ func (m Model) renderPlMgrTracks() []string {
 	}
 
 	maxVisible := 12
+	tracks := m.plManager.tracks
 	scroll := scrollStart(m.plManager.cursor, maxVisible)
+	for scroll < m.plManager.cursor {
+		rows := 0
+		pa := ""
+		if scroll > 0 {
+			pa = tracks[scroll-1].Album
+		}
+		for j := scroll; j <= m.plManager.cursor && j < len(tracks); j++ {
+			if a := tracks[j].Album; a != "" && a != pa {
+				rows++
+			}
+			pa = tracks[j].Album
+			rows++
+		}
+		if rows <= maxVisible {
+			break
+		}
+		scroll++
+	}
 
-	for i := scroll; i < len(m.plManager.tracks) && i < scroll+maxVisible; i++ {
-		name := truncate(m.plManager.tracks[i].DisplayName(), ui.PanelWidth-8)
+	rendered := 0
+	prevAlbum := ""
+	if scroll > 0 {
+		prevAlbum = tracks[scroll-1].Album
+	}
+
+	for i := scroll; i < len(tracks) && rendered < maxVisible; i++ {
+		if album := tracks[i].Album; album != "" && album != prevAlbum {
+			if rendered+1 >= maxVisible {
+				break
+			}
+			lines = append(lines, m.albumSeparator(album, tracks[i].Year))
+			rendered++
+		}
+		prevAlbum = tracks[i].Album
+		if rendered >= maxVisible {
+			break
+		}
+		name := truncate(tracks[i].DisplayName(), ui.PanelWidth-8)
 		label := fmt.Sprintf("%d. %s", i+1, name)
 		lines = append(lines, cursorLine(label, i == m.plManager.cursor))
+		rendered++
 	}
 
 	if len(m.plManager.tracks) > maxVisible {
