@@ -183,7 +183,7 @@ func (m Model) renderPlMgrTracks() []string {
 	}
 
 	for i := scroll; i < len(tracks) && rendered < maxVisible; i++ {
-		if album := tracks[i].Album; album != "" && album != prevAlbum {
+		if album := tracks[i].Album; album != "" && album != prevAlbum && !isStreamingPlaylistTrack(tracks[i].Path) {
 			if rendered+1 >= maxVisible {
 				break
 			}

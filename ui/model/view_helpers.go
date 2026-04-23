@@ -55,6 +55,10 @@ func helpKey(key, label string) string {
 	return helpKeyStyle.Render(" "+key+" ") + helpStyle.Render(" "+label)
 }
 
+func isStreamingPlaylistTrack(path string) bool {
+	return strings.HasPrefix(path, "spotify:track:")
+}
+
 // albumSeparator builds a full-width album divider line.
 func (m Model) albumSeparator(album string, year int) string {
 	prefix := "── "

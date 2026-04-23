@@ -83,7 +83,7 @@ func (m Model) playlistRowsFromScroll(scroll, cursor int) int {
 		prevAlbum = tracks[scroll-1].Album
 	}
 	for i := scroll; i <= cursor && i < len(tracks); i++ {
-		if album := tracks[i].Album; album != "" && album != prevAlbum {
+		if album := tracks[i].Album; album != "" && album != prevAlbum && !isStreamingPlaylistTrack(tracks[i].Path) {
 			rows++
 		}
 		prevAlbum = tracks[i].Album

@@ -197,7 +197,7 @@ func (m Model) renderNavTrackList() []string {
 		for i := scroll; i < len(m.navBrowser.tracks) && rendered < maxVisible; i++ {
 			t := m.navBrowser.tracks[i]
 
-			if album := t.Album; album != "" && album != prevAlbum {
+			if album := t.Album; album != "" && album != prevAlbum && !isStreamingPlaylistTrack(t.Path) {
 				lines = append(lines, m.albumSeparator(album, t.Year))
 				if rendered >= maxVisible {
 					break

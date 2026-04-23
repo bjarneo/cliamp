@@ -627,7 +627,7 @@ func (m Model) renderPlaylist() string {
 		prevAlbum = tracks[scroll-1].Album
 	}
 	for i := scroll; i < len(tracks) && len(lines) < budget; i++ {
-		if album := tracks[i].Album; album != "" && album != prevAlbum {
+		if album := tracks[i].Album; album != "" && album != prevAlbum && !isStreamingPlaylistTrack(tracks[i].Path) {
 			if len(lines)+1 >= budget {
 				break
 			}
