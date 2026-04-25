@@ -453,8 +453,9 @@ func (s *Session) reconnect(ctx context.Context, build func(context.Context, str
 	newSess.player = nil
 	newSess.mu.Unlock()
 
-	applog.Info("spotify: re-authenticated successfully")
-	applog.Status("spotify: re-authenticated successfully")
+	const reauthMsg = "spotify: re-authenticated successfully"
+	applog.Info(reauthMsg)
+	applog.Status(reauthMsg)
 	return nil
 }
 

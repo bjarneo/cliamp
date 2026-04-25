@@ -44,13 +44,13 @@ func run(overrides config.Overrides, positional []string) error {
 	}
 	overrides.Apply(&cfg)
 
-	closeLog, logErr := initLogging(cfg.LogLevel)
+	closeLog, appliedLevel, logErr := initLogging(cfg.LogLevel)
 	defer closeLog()
 	if logErr != nil {
 		fmt.Fprintf(os.Stderr, "logging: %v (continuing without file log)\n", logErr)
 		applog.Status("logging: %v", logErr)
 	} else {
-		applog.Info("cliamp starting (version=%s level=%s)", appmeta.Version(), cfg.LogLevel)
+		applog.Info("cliamp starting (version=%s level=%s)", appmeta.Version(), appliedLevel)
 	}
 
 	// Build provider list: Radio is always available, Navidrome and Spotify if configured.
@@ -353,23 +353,24 @@ func run(overrides config.Overrides, positional []string) error {
 }
 
 // initLogging always returns a non-nil close func so the caller can defer
-// it unconditionally. Errors come back as the second return value and the
-// close func is a no-op in that case.
-func initLogging(levelStr string) (func() error, error) {
+// it unconditionally, plus the applied level as a string for diagnostics.
+// Errors come back as the third return value; the close func is a no-op
+// and the level string is empty in that case.
+func initLogging(levelStr string) (func() error, string, error) {
 	noop := func() error { return nil }
 	level, err := applog.ParseLevel(levelStr)
 	if err != nil {
-		return noop, err
+		return noop, "", err
 	}
 	dir, err := appdir.Dir()
 	if err != nil {
-		return noop, fmt.Errorf("resolve config dir: %w", err)
+		return noop, "", fmt.Errorf("resolve config dir: %w", err)
 	}
 	closeFn, err := applog.Init(filepath.Join(dir, "cliamp.log"), level)
 	if err != nil {
-		return noop, err
+		return noop, "", err
 	}
-	return closeFn, nil
+	return closeFn, level.String(), nil
 }
 
 func wireMediaCtl(prog *tea.Program) (*mediactl.Service, error) {

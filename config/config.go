@@ -370,7 +370,11 @@ func Load() (Config, error) {
 					cfg.PaddingV = v
 				}
 			case "log_level":
-				cfg.LogLevel = strings.ToLower(strings.Trim(val, `"'`))
+				lvl := strings.ToLower(strings.Trim(val, `"'`))
+				switch lvl {
+				case "debug", "info", "warn", "warning", "error":
+					cfg.LogLevel = lvl
+				}
 			}
 		}
 	}
