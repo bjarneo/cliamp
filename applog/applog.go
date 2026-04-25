@@ -130,26 +130,18 @@ func Status(format string, args ...any) {
 }
 
 // UserWarn logs at warn level and pushes the same message into the footer.
+// The Sprintf cost is paid unconditionally because the footer needs the
+// formatted string, so no Enabled gate here.
 func UserWarn(format string, args ...any) {
-	lg := logger.Load()
-	if !lg.Enabled(context.Background(), slog.LevelWarn) {
-		pushFooter(fmt.Sprintf(format, args...))
-		return
-	}
 	msg := fmt.Sprintf(format, args...)
-	lg.Warn(msg)
+	logger.Load().Warn(msg)
 	pushFooter(msg)
 }
 
 // UserError logs at error level and pushes the same message into the footer.
 func UserError(format string, args ...any) {
-	lg := logger.Load()
-	if !lg.Enabled(context.Background(), slog.LevelError) {
-		pushFooter(fmt.Sprintf(format, args...))
-		return
-	}
 	msg := fmt.Sprintf(format, args...)
-	lg.Error(msg)
+	logger.Load().Error(msg)
 	pushFooter(msg)
 }
 
