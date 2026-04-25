@@ -151,6 +151,7 @@ type Config struct {
 	Plex            PlexConfig                   // optional Plex Media Server credentials
 	Jellyfin        JellyfinConfig               // optional Jellyfin server credentials
 	Plugins         map[string]map[string]string // per-plugin config from [plugins.*] sections
+	LogLevel        string                       // log level: debug, info, warn, error (default "info")
 }
 
 // defaultConfig returns a Config with sensible defaults.
@@ -170,6 +171,7 @@ func defaultConfig() Config {
 		PaddingH:        3,
 		PaddingV:        1,
 		Spotify:         SpotifyConfig{Bitrate: 320},
+		LogLevel:        "info",
 	}
 }
 
@@ -367,6 +369,8 @@ func Load() (Config, error) {
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.PaddingV = v
 				}
+			case "log_level":
+				cfg.LogLevel = strings.ToLower(strings.Trim(val, `"'`))
 			}
 		}
 	}

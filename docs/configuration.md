@@ -45,6 +45,10 @@ compact = false
 # UI theme name (see available themes in ~/.config/cliamp/themes/)
 theme = "Tokyo Night"
 
+# Log level: "debug", "info", "warn", or "error" (default "info")
+# Logs are written to ~/.config/cliamp/cliamp.log
+log_level = "info"
+
 ```
 
 ## Default Provider

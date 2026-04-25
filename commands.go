@@ -11,6 +11,7 @@ import (
 
 	cli "github.com/urfave/cli/v3"
 
+	"cliamp/applog"
 	"cliamp/cmd"
 	"cliamp/config"
 	"cliamp/ipc"
@@ -40,6 +41,7 @@ func buildApp() *cli.Command {
 		&cli.IntFlag{Name: "bit-depth", Usage: "PCM bit depth: 16 or 32", HideDefault: true},
 		&cli.StringFlag{Name: "audio-device", Usage: "audio output device (use 'list' to show)"},
 		&cli.StringFlag{Name: "playlist", Usage: "load a local TOML playlist by name and start playing"},
+		&cli.StringFlag{Name: "log-level", Usage: "log level: debug, info, warn, error"},
 	}
 
 	return &cli.Command{
@@ -182,6 +184,13 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 	if c.IsSet("playlist") {
 		v := c.String("playlist")
 		ov.Playlist = &v
+	}
+	if c.IsSet("log-level") {
+		v := c.String("log-level")
+		if _, err := applog.ParseLevel(v); err != nil {
+			return ov, fmt.Errorf("--log-level: %w", err)
+		}
+		ov.LogLevel = &v
 	}
 	return ov, nil
 }

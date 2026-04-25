@@ -112,7 +112,7 @@ func newSessionFromStored(ctx context.Context, clientID string, creds *storedCre
 		if silentOnly {
 			// Web API token refresh failed, but the spclient session is valid.
 			// Continue without a token source — webApiWithBody falls back to spclient token.
-			applog.Printf("spotify: silent token refresh failed, continuing with spclient token\n")
+			applog.UserWarn("spotify: silent token refresh failed, continuing with spclient token")
 			s := &Session{sess: sess, devID: devID, clientID: clientID}
 			if err := saveCreds(&storedCreds{
 				Username:     sess.Username(),
@@ -120,7 +120,7 @@ func newSessionFromStored(ctx context.Context, clientID string, creds *storedCre
 				DeviceID:     devID,
 				RefreshToken: creds.RefreshToken, // preserve for next attempt
 			}); err != nil {
-				applog.Printf("spotify: failed to save credentials: %v\n", err)
+				applog.UserError("spotify: failed to save credentials: %v", err)
 			}
 			if err := s.initPlayer(); err != nil {
 				sess.Close()
@@ -149,7 +149,7 @@ func newSessionFromStored(ctx context.Context, clientID string, creds *storedCre
 		DeviceID:     devID,
 		RefreshToken: oauthToken.RefreshToken,
 	}); err != nil {
-		applog.Printf("spotify: failed to save credentials: %v\n", err)
+		applog.UserError("spotify: failed to save credentials: %v", err)
 	}
 
 	if err := s.initPlayer(); err != nil {
@@ -239,7 +239,7 @@ func performOAuth2PKCE(ctx context.Context, clientID string) (*oauth2.Token, err
 			w.Header().Set("Content-Type", "text/html")
 			_, _ = w.Write([]byte(oauthCallbackHTML))
 		})); err != nil && !errors.Is(err, net.ErrClosed) {
-			applog.Printf("spotify: auth callback server error: %v\n", err)
+			applog.UserError("spotify: auth callback server error: %v", err)
 		}
 	}()
 
@@ -303,7 +303,7 @@ func newInteractiveSession(ctx context.Context, clientID string) (*Session, erro
 		DeviceID:     devID,
 		RefreshToken: token.RefreshToken,
 	}); err != nil {
-		applog.Printf("spotify: failed to save credentials: %v\n", err)
+		applog.UserError("spotify: failed to save credentials: %v", err)
 	}
 
 	// Create an auto-refreshing token source for Web API calls.
@@ -453,7 +453,8 @@ func (s *Session) reconnect(ctx context.Context, build func(context.Context, str
 	newSess.player = nil
 	newSess.mu.Unlock()
 
-	applog.Printf("spotify: re-authenticated successfully\n")
+	applog.Info("spotify: re-authenticated successfully")
+	applog.Status("spotify: re-authenticated successfully")
 	return nil
 }
 

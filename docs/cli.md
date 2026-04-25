@@ -30,6 +30,14 @@ cliamp --compact ~/Music                     # cap width at 80 columns
 cliamp --eq-preset "Bass Boost" ~/Music
 ```
 
+## Diagnostics
+
+```sh
+cliamp --log-level debug                     # raise log verbosity for one session
+```
+
+Logs are written to `~/.config/cliamp/cliamp.log`. Levels: `debug`, `info` (default), `warn`, `error`.
+
 ## Search
 
 Search and play a track directly from the command line (requires [yt-dlp](https://github.com/yt-dlp/yt-dlp)):
@@ -75,6 +83,7 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--resample-quality` | int | 4 | 1–4 |
 | `--bit-depth` | int | 16 | 16, 32 |
 | `--playlist` | string | | local TOML playlist name |
+| `--log-level` | string | info | debug, info, warn, error |
 
 CLI flags override config file values for the current session only. They are not persisted.
 
