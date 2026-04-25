@@ -157,22 +157,7 @@ func (m Model) renderPlMgrTracks() []string {
 	maxVisible := 12
 	tracks := m.plManager.tracks
 	scroll := scrollStart(m.plManager.cursor, maxVisible)
-	for scroll < m.plManager.cursor {
-		rows := 0
-		pa := ""
-		if scroll > 0 {
-			pa = tracks[scroll-1].Album
-		}
-		for j := scroll; j <= m.plManager.cursor && j < len(tracks); j++ {
-			if a := tracks[j].Album; a != "" && a != pa {
-				rows++
-			}
-			pa = tracks[j].Album
-			rows++
-		}
-		if rows <= maxVisible {
-			break
-		}
+	for scroll < m.plManager.cursor && albumSeparatorRows(tracks, scroll, m.plManager.cursor) > maxVisible {
 		scroll++
 	}
 
@@ -200,8 +185,8 @@ func (m Model) renderPlMgrTracks() []string {
 		rendered++
 	}
 
-	if len(m.plManager.tracks) > maxVisible {
-		lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d tracks", m.plManager.cursor+1, len(m.plManager.tracks))))
+	if len(tracks) > maxVisible {
+		lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d tracks", m.plManager.cursor+1, len(tracks))))
 	}
 
 	lines = append(lines, "", helpKey("↑↓", "Navigate ")+helpKey("Enter", "Play all ")+helpKey("a", "Add track ")+helpKey("d", "Remove ")+helpKey("Esc", "Back"))

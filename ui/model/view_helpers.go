@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"cliamp/playlist"
 	"cliamp/ui"
 )
 
@@ -55,8 +56,34 @@ func helpKey(key, label string) string {
 	return helpKeyStyle.Render(" "+key+" ") + helpStyle.Render(" "+label)
 }
 
+// isStreamingPlaylistTrack reports whether path is a streaming-provider URI
+// whose Album metadata may not represent a real album grouping (so separators
+// would be misleading).
 func isStreamingPlaylistTrack(path string) bool {
 	return strings.HasPrefix(path, "spotify:track:")
+}
+
+// albumSeparatorRows counts rendered rows between scroll and cursor (inclusive)
+// in a playlist view that emits an album-separator row whenever the album
+// changes. Streaming tracks are treated as not contributing a separator,
+// matching the renderer.
+func albumSeparatorRows(tracks []playlist.Track, scroll, cursor int) int {
+	if len(tracks) == 0 || scroll < 0 || cursor < scroll || cursor >= len(tracks) {
+		return 0
+	}
+	rows := 0
+	prevAlbum := ""
+	if scroll > 0 {
+		prevAlbum = tracks[scroll-1].Album
+	}
+	for i := scroll; i <= cursor; i++ {
+		if album := tracks[i].Album; album != "" && album != prevAlbum && !isStreamingPlaylistTrack(tracks[i].Path) {
+			rows++
+		}
+		prevAlbum = tracks[i].Album
+		rows++
+	}
+	return rows
 }
 
 // albumSeparator builds a full-width album divider line.
