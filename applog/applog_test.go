@@ -148,7 +148,7 @@ func TestStatusFootersOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	defer closeFn()
+	t.Cleanup(func() { _ = closeFn() })
 
 	Status("nothing-on-disk")
 
@@ -168,7 +168,7 @@ func TestDiagnosticLogsSkipFooter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	defer closeFn()
+	t.Cleanup(func() { _ = closeFn() })
 
 	Debug("dbg-msg")
 	Info("info-msg")
@@ -296,7 +296,7 @@ func TestInitMissingDirCreatesIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	defer closeFn()
+	t.Cleanup(func() { _ = closeFn() })
 	if _, err := os.Stat(nested); err != nil {
 		t.Errorf("log file not created: %v", err)
 	}
