@@ -178,7 +178,7 @@ sudo apt install pipewire-alsa
 Add this keybind to launch cliamp with `Super+Shift+M`:
 
 ```
-bindd = SUPER SHIFT, M, Music, exec, omarchy-launch-or-forcus-tui cliamp
+bindd = SUPER SHIFT, M, Music, exec, omarchy-launch-or-focus-tui cliamp
 ```
 
 ## Author
