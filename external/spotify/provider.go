@@ -379,7 +379,7 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 
 		if playlistID == "YOUR MUSIC" {
 			query := url.Values{
-				"limit":  {fmt.Sprintf("%d", min(50, limit))},
+				"limit":  {fmt.Sprintf("%d", limit)},
 				"offset": {fmt.Sprintf("%d", offset)},
 			}
 			resp, err = p.webAPI(ctx, "GET", "/v1/me/tracks", query)

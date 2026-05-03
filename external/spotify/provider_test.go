@@ -2,11 +2,9 @@ package spotify
 
 import "testing"
 
-// TestSpotifyTrackPageSizeRespectsAPILimit guards against re-introducing the
-// [1/904]-instead-of-[1/1804] bug. The /v1/playlists/{id}/items endpoint
-// silently caps `limit` at 50; if this constant exceeds that, the Tracks()
-// loop advances offset by the requested limit while the server returned only
-// 50, causing every other 50-item window to be skipped.
+// Asserts spotifyTrackPageSize stays within the Spotify Web API's silent
+// 50-item cap; see the constant's comment in provider.go for why exceeding
+// it silently drops tracks.
 func TestSpotifyTrackPageSizeRespectsAPILimit(t *testing.T) {
 	const spotifyAPIPlaylistItemsMaxLimit = 50
 	if spotifyTrackPageSize > spotifyAPIPlaylistItemsMaxLimit {
