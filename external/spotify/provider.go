@@ -41,7 +41,10 @@ const maxResponseBody = 10 << 20
 // Pagination limits for the Spotify Web API.
 const (
 	spotifyPlaylistPageSize = 50
-	spotifyTrackPageSize    = 100
+	// spotifyTrackPageSize is capped at 50 because /v1/playlists/{id}/items
+	// silently truncates larger limits; requesting more would cause the loop
+	// to skip items when offset advances by the requested limit.
+	spotifyTrackPageSize = 50
 )
 
 // spotifyPlaylistItem is the raw playlist object returned by /v1/me/playlists.
