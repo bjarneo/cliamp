@@ -2,9 +2,9 @@ package spotify
 
 import "testing"
 
-// Asserts spotifyTrackPageSize stays within the Spotify Web API's silent
-// 50-item cap; see the constant's comment in provider.go for why exceeding
-// it silently drops tracks.
+// TestSpotifyTrackPageSizeRespectsAPILimit asserts spotifyTrackPageSize stays
+// within the Spotify Web API's silent 50-item cap; see the constant's comment
+// in provider.go for why exceeding it silently drops tracks.
 func TestSpotifyTrackPageSizeRespectsAPILimit(t *testing.T) {
 	const spotifyAPIPlaylistItemsMaxLimit = 50
 	if spotifyTrackPageSize > spotifyAPIPlaylistItemsMaxLimit {
@@ -13,6 +13,8 @@ func TestSpotifyTrackPageSizeRespectsAPILimit(t *testing.T) {
 	}
 }
 
+// TestPlaylistAccessible verifies the visibility filter that hides playlists
+// the current Spotify user can't list tracks for (would otherwise return 403).
 func TestPlaylistAccessible(t *testing.T) {
 	const me = "user123"
 
