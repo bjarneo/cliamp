@@ -37,7 +37,7 @@ var providerEmptyStateHint = map[string]string{
 	"spotify":         "Sign in via Spotify, or check SPOTIFY_REFRESH_TOKEN.",
 	"navidrome":       "Verify [navidrome] url/username/password in config.toml.",
 	"jellyfin":        "Verify [jellyfin] url and token in config.toml.",
-	"emby":            "Verify [emby] url and token or username/password in config.toml.",
+	"emby":            "Verify [emby] url and username/token in config.toml.",
 	"plex":            "Verify [plex] server URL and token in config.toml.",
 	"youtube music":   "Run `cliamp ytmusic-login` to authorize, then refresh.",
 	"ytmusic":         "Run `cliamp ytmusic-login` to authorize, then refresh.",
