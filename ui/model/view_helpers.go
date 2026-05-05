@@ -174,6 +174,9 @@ func albumSeparatorRows(tracks []playlist.Track, scroll, cursor int) int {
 	prevAlbum := ""
 	if scroll > 0 {
 		prevAlbum = tracks[scroll-1].Album
+		if album := tracks[scroll].Album; album != "" && album == prevAlbum && !isStreamingPlaylistTrack(tracks[scroll].Path) {
+			rows++
+		}
 	}
 	for i := scroll; i <= cursor; i++ {
 		if album := tracks[i].Album; album != "" && album != prevAlbum && !isStreamingPlaylistTrack(tracks[i].Path) {

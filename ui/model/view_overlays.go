@@ -242,6 +242,14 @@ func (m Model) renderPlMgrTracks() []string {
 	prevAlbum := ""
 	if useAlbumSep && scroll > 0 {
 		prevAlbum = m.plManager.tracks[scroll-1].Album
+		// Sticky header: if we're scrolled into the middle of an album, show its header at the top.
+		if scroll < visibleN {
+			t := m.plManager.tracks[scroll]
+			if album := t.Album; album != "" && album == prevAlbum && !isStreamingPlaylistTrack(t.Path) {
+				lines = append(lines, m.albumSeparator(album, t.Year))
+				rendered++
+			}
+		}
 	}
 
 	for i := scroll; i < visibleN && rendered < maxVisible; i++ {

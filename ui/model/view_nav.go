@@ -199,16 +199,21 @@ func (m Model) renderNavTrackList() []string {
 		prevAlbum := ""
 		if scroll > 0 {
 			prevAlbum = m.navBrowser.tracks[scroll-1].Album
+			if album := m.navBrowser.tracks[scroll].Album; album != "" && album == prevAlbum && !isStreamingPlaylistTrack(m.navBrowser.tracks[scroll].Path) {
+				lines = append(lines, m.albumSeparator(album, m.navBrowser.tracks[scroll].Year))
+				rendered++
+			}
 		}
 
 		for i := scroll; i < len(m.navBrowser.tracks) && rendered < maxVisible; i++ {
 			t := m.navBrowser.tracks[i]
 
 			if album := t.Album; album != "" && album != prevAlbum && !isStreamingPlaylistTrack(t.Path) {
-				lines = append(lines, m.albumSeparator(album, t.Year))
-				if rendered >= maxVisible {
+				if rendered+1 >= maxVisible {
 					break
 				}
+				lines = append(lines, m.albumSeparator(album, t.Year))
+				rendered++
 			}
 			prevAlbum = t.Album
 
