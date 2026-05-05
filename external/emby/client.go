@@ -527,7 +527,7 @@ func (c *Client) get(p string, params url.Values, out any) error {
 
 func (c *Client) postJSON(p string, payload any) error {
 	if err := c.ensureAuth(); err != nil {
-		return err
+		return fmt.Errorf("emby: %s: %w", p, err)
 	}
 
 	body, err := json.Marshal(payload)
@@ -537,7 +537,7 @@ func (c *Client) postJSON(p string, payload any) error {
 
 	req, err := c.newRequestWithBody(http.MethodPost, p, nil, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return fmt.Errorf("emby: %s: %w", p, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -567,12 +567,12 @@ func (c *Client) ensureAuth() error {
 		"Pw":       c.password,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("emby: auth: %w", err)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/Users/AuthenticateByName", bytes.NewReader(body))
 	if err != nil {
-		return err
+		return fmt.Errorf("emby: auth: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -619,7 +619,7 @@ func (c *Client) newRequestWithBody(method, p string, params url.Values, body io
 
 	req, err := http.NewRequest(method, u, body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("emby: %s: %w", p, err)
 	}
 	req.Header.Set("Accept", "application/json")
 	if c.token != "" {
