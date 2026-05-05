@@ -705,32 +705,16 @@ func (m Model) renderPlaylist() string {
 
 	lines := make([]string, 0, budget)
 	numWidth := len(fmt.Sprintf("%d", len(tracks)))
-	prevAlbum := ""
-	if m.showAlbumHeaders && scroll > 0 {
-		if !isStreamingPlaylistTrack(tracks[scroll-1].Path) {
-			prevAlbum = tracks[scroll-1].Album
-		}
-		if album := tracks[scroll].Album; album != "" && album == prevAlbum && !isStreamingPlaylistTrack(tracks[scroll].Path) {
-			lines = append(lines, m.albumSeparator(album, tracks[scroll].Year))
-		}
-	}
-	for i := scroll; i < len(tracks) && len(lines) < budget; i++ {
-		album := tracks[i].Album
-		isStreaming := isStreamingPlaylistTrack(tracks[i].Path)
-		if m.showAlbumHeaders && album != prevAlbum && !isStreaming && (album != "" || len(lines) > 0) {
-			if len(lines)+1 >= budget {
-				break
-			}
-			lines = append(lines, m.albumSeparator(album, tracks[i].Year))
-		}
 
-		if isStreaming {
-			prevAlbum = ""
-		} else {
-			prevAlbum = album
+	m.walkTracksWithHeaders(tracks, scroll, m.showAlbumHeaders, func(album string, year int) bool {
+		if len(lines)+1 >= budget {
+			return false
 		}
+		lines = append(lines, m.albumSeparator(album, year))
+		return true
+	}, func(i int, t playlist.Track) bool {
 		if len(lines) >= budget {
-			break
+			return false
 		}
 
 		prefix := "  "
@@ -799,7 +783,8 @@ func (m Model) renderPlaylist() string {
 			line += activeToggle.Render(queueSuffix)
 		}
 		lines = append(lines, line)
-	}
+		return true
+	})
 
 	for len(lines) < budget {
 		lines = append(lines, "")

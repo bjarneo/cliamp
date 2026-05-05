@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"cliamp/playlist"
 	"cliamp/provider"
 	"cliamp/ui"
 )
@@ -200,34 +201,17 @@ func (m Model) renderNavTrackList() []string {
 	} else {
 		scroll := m.navBrowser.scroll
 		rendered := 0
-		prevAlbum := ""
-		if m.showAlbumHeaders && scroll > 0 {
-			if !isStreamingPlaylistTrack(m.navBrowser.tracks[scroll-1].Path) {
-				prevAlbum = m.navBrowser.tracks[scroll-1].Album
-			}
-			if album := m.navBrowser.tracks[scroll].Album; album != "" && album == prevAlbum && !isStreamingPlaylistTrack(m.navBrowser.tracks[scroll].Path) {
-				lines = append(lines, m.albumSeparator(album, m.navBrowser.tracks[scroll].Year))
-				rendered++
-			}
-		}
 
-		for i := scroll; i < len(m.navBrowser.tracks) && rendered < maxVisible; i++ {
-			t := m.navBrowser.tracks[i]
-			album := t.Album
-			isStreaming := isStreamingPlaylistTrack(t.Path)
-
-			if m.showAlbumHeaders && album != prevAlbum && !isStreaming && (album != "" || rendered > 0) {
-				if rendered+1 >= maxVisible {
-					break
-				}
-				lines = append(lines, m.albumSeparator(album, t.Year))
-				rendered++
+		m.walkTracksWithHeaders(m.navBrowser.tracks, scroll, m.showAlbumHeaders, func(album string, year int) bool {
+			if rendered+1 >= maxVisible {
+				return false
 			}
-
-			if isStreaming {
-				prevAlbum = ""
-			} else {
-				prevAlbum = album
+			lines = append(lines, m.albumSeparator(album, year))
+			rendered++
+			return true
+		}, func(i int, t playlist.Track) bool {
+			if rendered >= maxVisible {
+				return false
 			}
 
 			name := t.DisplayName()
@@ -237,7 +221,8 @@ func (m Model) renderNavTrackList() []string {
 			label := formatTrackRow(i+1, name, t.DurationSecs)
 			lines = append(lines, cursorLine(label, i == m.navBrowser.cursor))
 			rendered++
-		}
+			return true
+		})
 
 		lines = padLines(lines, maxVisible, rendered)
 	}

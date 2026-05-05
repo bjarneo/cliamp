@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"cliamp/lyrics"
+	"cliamp/playlist"
 	"cliamp/theme"
 	"cliamp/ui"
 )
@@ -232,59 +233,47 @@ func (m Model) renderPlMgrTracks() []string {
 	useAlbumSep := m.plManager.filter == "" && m.showAlbumHeaders
 
 	scroll := scrollStart(m.plManager.cursor, maxVisible)
-	if useAlbumSep {
-		for scroll < m.plManager.cursor && albumSeparatorRows(m.plManager.tracks, scroll, m.plManager.cursor, true) > maxVisible {
-			scroll++
-		}
-	}
-
 	rendered := 0
-	prevAlbum := ""
-	if useAlbumSep && scroll > 0 {
-		if !isStreamingPlaylistTrack(m.plManager.tracks[scroll-1].Path) {
-			prevAlbum = m.plManager.tracks[scroll-1].Album
-		}
-		// Sticky header: if we're scrolled into the middle of an album, show its header at the top.
-		if scroll < visibleN {
-			t := m.plManager.tracks[scroll]
-			if album := t.Album; album != "" && album == prevAlbum && !isStreamingPlaylistTrack(t.Path) {
-				lines = append(lines, m.albumSeparator(album, t.Year))
-				rendered++
+
+	if m.plManager.filter != "" {
+		for i := scroll; i < visibleN && rendered < maxVisible; i++ {
+			realIdx := m.plMgrTrackRealIndex(i)
+			t := m.plManager.tracks[realIdx]
+			name := t.DisplayName()
+			if !m.showAlbumHeaders && t.Album != "" {
+				name += " · " + t.Album
 			}
+			label := formatTrackRow(realIdx+1, name, t.DurationSecs)
+			lines = append(lines, cursorLine(label, i == m.plManager.cursor))
+			rendered++
 		}
-	}
-
-	for i := scroll; i < visibleN && rendered < maxVisible; i++ {
-		realIdx := m.plMgrTrackRealIndex(i)
-		t := m.plManager.tracks[realIdx]
-
+	} else {
 		if useAlbumSep {
-			album := t.Album
-			isStreaming := isStreamingPlaylistTrack(t.Path)
-			if album != prevAlbum && !isStreaming && (album != "" || rendered > 0) {
-				if rendered+1 >= maxVisible {
-					break
-				}
-				lines = append(lines, m.albumSeparator(album, t.Year))
-				rendered++
-			}
-			if isStreaming {
-				prevAlbum = ""
-			} else {
-				prevAlbum = album
-			}
-			if rendered >= maxVisible {
-				break
+			for scroll < m.plManager.cursor && albumSeparatorRows(m.plManager.tracks, scroll, m.plManager.cursor, true) > maxVisible {
+				scroll++
 			}
 		}
 
-		name := t.DisplayName()
-		if !m.showAlbumHeaders && t.Album != "" {
-			name += " · " + t.Album
-		}
-		label := formatTrackRow(realIdx+1, name, t.DurationSecs)
-		lines = append(lines, cursorLine(label, i == m.plManager.cursor))
-		rendered++
+		m.walkTracksWithHeaders(m.plManager.tracks, scroll, useAlbumSep, func(album string, year int) bool {
+			if rendered+1 >= maxVisible {
+				return false
+			}
+			lines = append(lines, m.albumSeparator(album, year))
+			rendered++
+			return true
+		}, func(i int, t playlist.Track) bool {
+			if rendered >= maxVisible {
+				return false
+			}
+			name := t.DisplayName()
+			if !m.showAlbumHeaders && t.Album != "" {
+				name += " · " + t.Album
+			}
+			label := formatTrackRow(i+1, name, t.DurationSecs)
+			lines = append(lines, cursorLine(label, i == m.plManager.cursor))
+			rendered++
+			return true
+		})
 	}
 
 	if visibleN > maxVisible {
