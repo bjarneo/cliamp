@@ -199,6 +199,8 @@ func providers() []providerSpec {
 				{key: "url", label: "Server URL", help: "e.g. https://emby.example.com", required: true},
 				{key: "token", label: "API key", required: true, secret: true,
 					onlyIf: func(v map[string]string) bool { return v[keyEmbyAuth] == "token" }},
+				{key: "user", label: "Username (optional)", help: "multi-user servers: picks your account from /Users",
+					onlyIf: func(v map[string]string) bool { return v[keyEmbyAuth] == "token" }},
 				{key: "user", label: "Username", required: true,
 					onlyIf: func(v map[string]string) bool { return v[keyEmbyAuth] == "password" }},
 				{key: "password", label: "Password", required: true, secret: true,
@@ -214,6 +216,9 @@ func providers() []providerSpec {
 				lines := []string{fmt.Sprintf("url      = %q", v["url"])}
 				if v[keyEmbyAuth] == "token" {
 					lines = append(lines, fmt.Sprintf("token    = %q", v["token"]))
+					if v["user"] != "" {
+						lines = append(lines, fmt.Sprintf("user     = %q", v["user"]))
+					}
 				} else {
 					lines = append(lines,
 						fmt.Sprintf("user     = %q", v["user"]),

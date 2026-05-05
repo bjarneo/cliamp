@@ -119,7 +119,7 @@ func TestEmbyPickerSelectionFiltersFields(t *testing.T) {
 		wantVisible  []string
 		wantHidden   []string
 	}{
-		{"API key", 0, []string{"url", "token"}, []string{"user", "password"}},
+		{"API key", 0, []string{"url", "token", "user"}, []string{"password"}},
 		{"password", 1, []string{"url", "user", "password"}, []string{"token"}},
 	}
 
