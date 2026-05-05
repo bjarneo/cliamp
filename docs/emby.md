@@ -51,7 +51,7 @@ provider = "emby"
 The provider exposes a flat list of albums:
 
 ```text
-Artist - Album Title (Year)
+Artist — Album Title (Year)
 ```
 
 Select an album to load its tracks, then play as normal. Press `E` anywhere in the UI to switch to Emby quickly.

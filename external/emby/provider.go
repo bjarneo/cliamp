@@ -129,7 +129,9 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	p.playlistCache = out
 	p.mu.Unlock()
 
-	return out, nil
+	cp := make([]playlist.PlaylistInfo, len(out))
+	copy(cp, out)
+	return cp, nil
 }
 
 // SearchTracks searches the Emby music library for tracks matching query.
@@ -149,7 +151,7 @@ func (p *Provider) Tracks(albumID string) ([]playlist.Track, error) {
 	if p.trackCache != nil {
 		if cached, ok := p.trackCache[albumID]; ok {
 			p.mu.Unlock()
-			return cached, nil
+			return copyTracks(cached), nil
 		}
 	}
 	p.mu.Unlock()
@@ -168,7 +170,22 @@ func (p *Provider) Tracks(albumID string) ([]playlist.Track, error) {
 	p.trackCache[albumID] = out
 	p.mu.Unlock()
 
-	return out, nil
+	return copyTracks(out), nil
+}
+
+func copyTracks(src []playlist.Track) []playlist.Track {
+	out := make([]playlist.Track, len(src))
+	for i, t := range src {
+		out[i] = t
+		if t.ProviderMeta != nil {
+			m := make(map[string]string, len(t.ProviderMeta))
+			for k, v := range t.ProviderMeta {
+				m[k] = v
+			}
+			out[i].ProviderMeta = m
+		}
+	}
+	return out
 }
 
 // toPlaylistTracks converts Emby Tracks to playlist.Tracks, attaching the
