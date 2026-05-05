@@ -716,6 +716,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "Y":
 		return m.switchToProvider("yt")
 
+	case "H":
+		m.showAlbumHeaders = !m.showAlbumHeaders
+		m.adjustScroll()
+
 	case "v":
 		m.vis.CycleMode()
 		m.applyHeightMode()

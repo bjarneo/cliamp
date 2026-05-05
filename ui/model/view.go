@@ -706,7 +706,7 @@ func (m Model) renderPlaylist() string {
 	lines := make([]string, 0, budget)
 	numWidth := len(fmt.Sprintf("%d", len(tracks)))
 	prevAlbum := ""
-	if scroll > 0 {
+	if m.showAlbumHeaders && scroll > 0 {
 		if !isStreamingPlaylistTrack(tracks[scroll-1].Path) {
 			prevAlbum = tracks[scroll-1].Album
 		}
@@ -717,7 +717,7 @@ func (m Model) renderPlaylist() string {
 	for i := scroll; i < len(tracks) && len(lines) < budget; i++ {
 		album := tracks[i].Album
 		isStreaming := isStreamingPlaylistTrack(tracks[i].Path)
-		if album != prevAlbum && !isStreaming && (album != "" || len(lines) > 0) {
+		if m.showAlbumHeaders && album != prevAlbum && !isStreaming && (album != "" || len(lines) > 0) {
 			if len(lines)+1 >= budget {
 				break
 			}
@@ -779,7 +779,7 @@ func (m Model) renderPlaylist() string {
 			if remaining >= 4 {
 				albumSuffix = truncate(" (unavailable)", remaining)
 			}
-		} else if album := tracks[i].Album; album != "" && isStreamingPlaylistTrack(tracks[i].Path) {
+		} else if album := tracks[i].Album; album != "" && (isStreamingPlaylistTrack(tracks[i].Path) || !m.showAlbumHeaders) {
 			remaining := ui.PanelWidth - linePrefixWidth - bookmarkBudget - nameLen - queueLen - 3 // 3 = " · "
 			if remaining >= 4 {
 				albumSuffix = " · " + truncate(album, remaining)

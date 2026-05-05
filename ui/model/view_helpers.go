@@ -166,9 +166,12 @@ func isStreamingPlaylistTrack(path string) bool {
 // in a playlist view that emits an album-separator row whenever the album
 // changes. Streaming tracks are treated as not contributing a separator,
 // matching the renderer.
-func albumSeparatorRows(tracks []playlist.Track, scroll, cursor int) int {
+func albumSeparatorRows(tracks []playlist.Track, scroll, cursor int, showHeaders bool) int {
 	if len(tracks) == 0 || scroll < 0 || cursor < scroll || cursor >= len(tracks) {
 		return 0
+	}
+	if !showHeaders {
+		return cursor - scroll + 1
 	}
 	rows := 0
 	prevAlbum := ""

@@ -245,6 +245,8 @@ type Model struct {
 	// Track info overlay (metadata details)
 	showInfo bool
 
+	showAlbumHeaders bool
+
 	// Audio device picker overlay
 	devicePicker devicePickerState
 

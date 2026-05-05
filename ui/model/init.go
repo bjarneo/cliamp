@@ -25,19 +25,20 @@ func applyThemeAll(t theme.Theme) {
 // localProv is an optional direct reference to the local provider for write ops.
 func New(p player.Engine, pl *playlist.Playlist, providers []ProviderEntry, defaultProvider string, localProv playlist.Provider, themes []theme.Theme, luaMgr *luaplugin.Manager, cs ConfigSaver) Model {
 	m := Model{
-		player:        p,
-		playlist:      pl,
-		configSaver:   cs,
-		vis:           ui.NewVisualizer(float64(p.SampleRate())),
-		seekStepLarge: 30 * time.Second,
-		plVisible:     5,
-		eqPresetIdx:   -1, // custom until a preset is selected
-		themes:        themes,
-		themeIdx:      -1, // Default (ANSI)
-		localProvider: localProv,
-		providers:     providers,
-		navBrowser:    navBrowserState{},
-		luaMgr:        luaMgr,
+		player:           p,
+		playlist:         pl,
+		configSaver:      cs,
+		vis:              ui.NewVisualizer(float64(p.SampleRate())),
+		seekStepLarge:    30 * time.Second,
+		plVisible:        5,
+		eqPresetIdx:      -1, // custom until a preset is selected
+		themes:           themes,
+		themeIdx:         -1, // Default (ANSI)
+		localProvider:    localProv,
+		providers:        providers,
+		navBrowser:       navBrowserState{},
+		luaMgr:           luaMgr,
+		showAlbumHeaders: true,
 	}
 	m.termTitle = initialTerminalTitleState()
 	// Select the default provider pill.

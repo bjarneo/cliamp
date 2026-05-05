@@ -229,11 +229,11 @@ func (m Model) renderPlMgrTracks() []string {
 	}
 
 	maxVisible := 12
-	useAlbumSep := m.plManager.filter == ""
+	useAlbumSep := m.plManager.filter == "" && m.showAlbumHeaders
 
 	scroll := scrollStart(m.plManager.cursor, maxVisible)
 	if useAlbumSep {
-		for scroll < m.plManager.cursor && albumSeparatorRows(m.plManager.tracks, scroll, m.plManager.cursor) > maxVisible {
+		for scroll < m.plManager.cursor && albumSeparatorRows(m.plManager.tracks, scroll, m.plManager.cursor, true) > maxVisible {
 			scroll++
 		}
 	}
@@ -278,7 +278,11 @@ func (m Model) renderPlMgrTracks() []string {
 			}
 		}
 
-		label := formatTrackRow(realIdx+1, t.DisplayName(), t.DurationSecs)
+		name := t.DisplayName()
+		if !m.showAlbumHeaders && t.Album != "" {
+			name += " · " + t.Album
+		}
+		label := formatTrackRow(realIdx+1, name, t.DurationSecs)
 		lines = append(lines, cursorLine(label, i == m.plManager.cursor))
 		rendered++
 	}
