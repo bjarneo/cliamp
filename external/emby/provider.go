@@ -47,7 +47,7 @@ func (p *Provider) Name() string { return "Emby" }
 func (p *Provider) Artists() ([]provider.ArtistInfo, error) {
 	artists, err := p.client.Artists()
 	if err != nil {
-		return nil, fmt.Errorf("emby: artists: %w", err)
+		return nil, fmt.Errorf("artists: %w", err)
 	}
 	return artists, nil
 }
@@ -55,7 +55,7 @@ func (p *Provider) Artists() ([]provider.ArtistInfo, error) {
 func (p *Provider) ArtistAlbums(artistID string) ([]provider.AlbumInfo, error) {
 	albums, err := p.client.ArtistAlbums(artistID)
 	if err != nil {
-		return nil, fmt.Errorf("emby: artist albums: %w", err)
+		return nil, fmt.Errorf("artist albums: %w", err)
 	}
 	return albums, nil
 }
@@ -63,7 +63,7 @@ func (p *Provider) ArtistAlbums(artistID string) ([]provider.AlbumInfo, error) {
 func (p *Provider) AlbumList(sortType string, offset, size int) ([]provider.AlbumInfo, error) {
 	albums, err := p.client.AlbumList(sortType, offset, size)
 	if err != nil {
-		return nil, fmt.Errorf("emby: album list: %w", err)
+		return nil, fmt.Errorf("album list: %w", err)
 	}
 	return albums, nil
 }
@@ -97,16 +97,15 @@ func (p *Provider) ReportScrobble(track playlist.Track, elapsed, _ time.Duration
 func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	p.mu.Lock()
 	if p.playlistCache != nil {
-		out := make([]playlist.PlaylistInfo, len(p.playlistCache))
-		copy(out, p.playlistCache)
+		cached := p.playlistCache
 		p.mu.Unlock()
-		return out, nil
+		return cached, nil
 	}
 	p.mu.Unlock()
 
 	albums, err := p.client.Albums()
 	if err != nil {
-		return nil, fmt.Errorf("emby: playlists: %w", err)
+		return nil, fmt.Errorf("playlists: %w", err)
 	}
 
 	out := make([]playlist.PlaylistInfo, 0, len(albums))
@@ -129,9 +128,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	p.playlistCache = out
 	p.mu.Unlock()
 
-	cp := make([]playlist.PlaylistInfo, len(out))
-	copy(cp, out)
-	return cp, nil
+	return out, nil
 }
 
 // SearchTracks searches the Emby music library for tracks matching query.
@@ -139,7 +136,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]playlist.Track, error) {
 	embyTracks, err := p.client.Search(query, limit)
 	if err != nil {
-		return nil, fmt.Errorf("emby: search: %w", err)
+		return nil, fmt.Errorf("search: %w", err)
 	}
 	return p.toPlaylistTracks(embyTracks), nil
 }
@@ -151,14 +148,14 @@ func (p *Provider) Tracks(albumID string) ([]playlist.Track, error) {
 	if p.trackCache != nil {
 		if cached, ok := p.trackCache[albumID]; ok {
 			p.mu.Unlock()
-			return copyTracks(cached), nil
+			return cached, nil
 		}
 	}
 	p.mu.Unlock()
 
 	embyTracks, err := p.client.Tracks(albumID)
 	if err != nil {
-		return nil, fmt.Errorf("emby: tracks: %w", err)
+		return nil, fmt.Errorf("tracks: %w", err)
 	}
 
 	out := p.toPlaylistTracks(embyTracks)
@@ -170,22 +167,7 @@ func (p *Provider) Tracks(albumID string) ([]playlist.Track, error) {
 	p.trackCache[albumID] = out
 	p.mu.Unlock()
 
-	return copyTracks(out), nil
-}
-
-func copyTracks(src []playlist.Track) []playlist.Track {
-	out := make([]playlist.Track, len(src))
-	for i, t := range src {
-		out[i] = t
-		if t.ProviderMeta != nil {
-			m := make(map[string]string, len(t.ProviderMeta))
-			for k, v := range t.ProviderMeta {
-				m[k] = v
-			}
-			out[i].ProviderMeta = m
-		}
-	}
-	return out
+	return out, nil
 }
 
 // toPlaylistTracks converts Emby Tracks to playlist.Tracks, attaching the
