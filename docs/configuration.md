@@ -59,6 +59,36 @@ log_level = "info"
 
 ```
 
+## Secrets from Environment Variables
+
+Any string value in `config.toml` can be read from an environment variable by setting the value to `$VAR_NAME` or `${VAR_NAME}`. This keeps passwords, tokens, and client secrets out of the file itself.
+
+```toml
+[navidrome]
+url = "https://music.example.com"
+user = "alice"
+password = "${NAVIDROME_PASSWORD}"
+
+[plex]
+url = "http://plex.local:32400"
+token = "$PLEX_TOKEN"
+
+[jellyfin]
+url = "https://jelly.example.com"
+token = "${JELLYFIN_TOKEN}"
+
+[ytmusic]
+client_id = "${YTMUSIC_CLIENT_ID}"
+client_secret = "${YTMUSIC_CLIENT_SECRET}"
+```
+
+Rules:
+
+- Interpolation only happens when the **entire** value is `$NAME` or `${NAME}`. Mixed values like `"p@$$word"` are kept literally — no escaping needed.
+- Variable names match `[A-Za-z_][A-Za-z0-9_]*`.
+- If the variable is unset, the value is empty (the same as if you had left it blank).
+- Works for any string field, including plugin config under `[plugins.<name>]`.
+
 ## Default Provider
 
 Set which provider to start with:

@@ -24,6 +24,45 @@ func configPath() (string, error) {
 	return filepath.Join(dir, "config.toml"), nil
 }
 
+// parseString trims surrounding quotes from a TOML string value and, if the
+// result is exactly $NAME or ${NAME}, replaces it with the value of that
+// environment variable (or "" when unset). Mixed values containing other
+// characters are left untouched, so literal '$' in passwords is preserved.
+func parseString(s string) string {
+	s = strings.Trim(s, `"'`)
+	if len(s) < 2 || s[0] != '$' {
+		return s
+	}
+	name := s[1:]
+	if name[0] == '{' {
+		if name[len(name)-1] != '}' {
+			return s
+		}
+		name = name[1 : len(name)-1]
+	}
+	if !isEnvName(name) {
+		return s
+	}
+	return os.Getenv(name)
+}
+
+func isEnvName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r == '_':
+		case r >= 'A' && r <= 'Z':
+		case r >= 'a' && r <= 'z':
+		case i > 0 && r >= '0' && r <= '9':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // NavidromeConfig holds credentials for a Navidrome/Subsonic server.
 // All three fields must be non-empty for a client to be constructed.
 type NavidromeConfig struct {
@@ -239,13 +278,13 @@ func Load() (Config, error) {
 		case "navidrome":
 			switch key {
 			case "url":
-				cfg.Navidrome.URL = strings.Trim(val, `"'`)
+				cfg.Navidrome.URL = parseString(val)
 			case "user":
-				cfg.Navidrome.User = strings.Trim(val, `"'`)
+				cfg.Navidrome.User = parseString(val)
 			case "password":
-				cfg.Navidrome.Password = strings.Trim(val, `"'`)
+				cfg.Navidrome.Password = parseString(val)
 			case "browse_sort":
-				cfg.Navidrome.BrowseSort = strings.Trim(val, `"'`)
+				cfg.Navidrome.BrowseSort = parseString(val)
 			case "scrobble":
 				// Opt-out: only mark disabled when the value is explicitly "false".
 				cfg.Navidrome.ScrobbleDisabled = strings.ToLower(val) == "false"
@@ -255,7 +294,7 @@ func Load() (Config, error) {
 			case "enabled":
 				cfg.Spotify.Disabled = strings.ToLower(val) == "false"
 			case "client_id":
-				cfg.Spotify.ClientID = strings.Trim(val, `"'`)
+				cfg.Spotify.ClientID = parseString(val)
 			case "bitrate":
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.Spotify.Bitrate = v
@@ -266,31 +305,31 @@ func Load() (Config, error) {
 			case "enabled":
 				cfg.YouTubeMusic.Disabled = strings.ToLower(val) == "false"
 			case "client_id":
-				cfg.YouTubeMusic.ClientID = strings.Trim(val, `"'`)
+				cfg.YouTubeMusic.ClientID = parseString(val)
 			case "client_secret":
-				cfg.YouTubeMusic.ClientSecret = strings.Trim(val, `"'`)
+				cfg.YouTubeMusic.ClientSecret = parseString(val)
 			case "cookies_from":
-				cfg.YouTubeMusic.CookiesFrom = strings.Trim(val, `"'`)
+				cfg.YouTubeMusic.CookiesFrom = parseString(val)
 			}
 		case "plex":
 			switch key {
 			case "url":
-				cfg.Plex.URL = strings.Trim(val, `"'`)
+				cfg.Plex.URL = parseString(val)
 			case "token":
-				cfg.Plex.Token = strings.Trim(val, `"'`)
+				cfg.Plex.Token = parseString(val)
 			}
 		case "jellyfin":
 			switch key {
 			case "url":
-				cfg.Jellyfin.URL = strings.Trim(val, `"'`)
+				cfg.Jellyfin.URL = parseString(val)
 			case "token":
-				cfg.Jellyfin.Token = strings.Trim(val, `"'`)
+				cfg.Jellyfin.Token = parseString(val)
 			case "user":
-				cfg.Jellyfin.User = strings.Trim(val, `"'`)
+				cfg.Jellyfin.User = parseString(val)
 			case "password":
-				cfg.Jellyfin.Password = strings.Trim(val, `"'`)
+				cfg.Jellyfin.Password = parseString(val)
 			case "user_id":
-				cfg.Jellyfin.UserID = strings.Trim(val, `"'`)
+				cfg.Jellyfin.UserID = parseString(val)
 			}
 		default:
 			// Handle [plugins] and [plugins.*] sections.
@@ -301,7 +340,7 @@ func Load() (Config, error) {
 				}
 				if cfg.Plugins != nil {
 					if m, ok := cfg.Plugins[pluginName]; ok {
-						m[key] = strings.Trim(val, `"'`)
+						m[key] = parseString(val)
 					}
 				}
 				continue
@@ -312,7 +351,7 @@ func Load() (Config, error) {
 					cfg.Volume = v
 				}
 			case "repeat":
-				val = strings.Trim(val, `"'`)
+				val = parseString(val)
 				switch strings.ToLower(val) {
 				case "all", "one", "off":
 					cfg.Repeat = strings.ToLower(val)
@@ -330,13 +369,13 @@ func Load() (Config, error) {
 			case "eq":
 				cfg.EQ = parseEQ(val)
 			case "eq_preset":
-				cfg.EQPreset = strings.Trim(val, `"'`)
+				cfg.EQPreset = parseString(val)
 			case "theme":
-				cfg.Theme = strings.Trim(val, `"'`)
+				cfg.Theme = parseString(val)
 			case "provider":
-				cfg.Provider = strings.ToLower(strings.Trim(val, `"'`))
+				cfg.Provider = strings.ToLower(parseString(val))
 			case "visualizer":
-				cfg.Visualizer = strings.Trim(val, `"'`)
+				cfg.Visualizer = parseString(val)
 			case "sample_rate":
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.SampleRate = v
@@ -360,7 +399,7 @@ func Load() (Config, error) {
 			case "compact":
 				cfg.Compact = val == "true"
 			case "audio_device":
-				cfg.AudioDevice = strings.Trim(val, `"'`)
+				cfg.AudioDevice = parseString(val)
 			case "padding_horizontal":
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.PaddingH = v
@@ -370,7 +409,7 @@ func Load() (Config, error) {
 					cfg.PaddingV = v
 				}
 			case "log_level":
-				lvl := strings.ToLower(strings.Trim(val, `"'`))
+				lvl := strings.ToLower(parseString(val))
 				switch lvl {
 				case "debug", "info", "warn", "warning", "error":
 					cfg.LogLevel = lvl
