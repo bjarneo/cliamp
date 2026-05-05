@@ -198,7 +198,9 @@ func (m Model) renderNavTrackList() []string {
 		rendered := 0
 		prevAlbum := ""
 		if scroll > 0 {
-			prevAlbum = m.navBrowser.tracks[scroll-1].Album
+			if !isStreamingPlaylistTrack(m.navBrowser.tracks[scroll-1].Path) {
+				prevAlbum = m.navBrowser.tracks[scroll-1].Album
+			}
 			if album := m.navBrowser.tracks[scroll].Album; album != "" && album == prevAlbum && !isStreamingPlaylistTrack(m.navBrowser.tracks[scroll].Path) {
 				lines = append(lines, m.albumSeparator(album, m.navBrowser.tracks[scroll].Year))
 				rendered++
@@ -207,15 +209,22 @@ func (m Model) renderNavTrackList() []string {
 
 		for i := scroll; i < len(m.navBrowser.tracks) && rendered < maxVisible; i++ {
 			t := m.navBrowser.tracks[i]
+			album := t.Album
+			isStreaming := isStreamingPlaylistTrack(t.Path)
 
-			if album := t.Album; album != "" && album != prevAlbum && !isStreamingPlaylistTrack(t.Path) {
+			if album != prevAlbum && !isStreaming && (album != "" || rendered > 0) {
 				if rendered+1 >= maxVisible {
 					break
 				}
 				lines = append(lines, m.albumSeparator(album, t.Year))
 				rendered++
 			}
-			prevAlbum = t.Album
+
+			if isStreaming {
+				prevAlbum = ""
+			} else {
+				prevAlbum = album
+			}
 
 			label := formatTrackRow(i+1, t.DisplayName(), t.DurationSecs)
 			lines = append(lines, cursorLine(label, i == m.navBrowser.cursor))

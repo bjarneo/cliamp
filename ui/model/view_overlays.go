@@ -241,7 +241,9 @@ func (m Model) renderPlMgrTracks() []string {
 	rendered := 0
 	prevAlbum := ""
 	if useAlbumSep && scroll > 0 {
-		prevAlbum = m.plManager.tracks[scroll-1].Album
+		if !isStreamingPlaylistTrack(m.plManager.tracks[scroll-1].Path) {
+			prevAlbum = m.plManager.tracks[scroll-1].Album
+		}
 		// Sticky header: if we're scrolled into the middle of an album, show its header at the top.
 		if scroll < visibleN {
 			t := m.plManager.tracks[scroll]
@@ -257,14 +259,20 @@ func (m Model) renderPlMgrTracks() []string {
 		t := m.plManager.tracks[realIdx]
 
 		if useAlbumSep {
-			if album := t.Album; album != "" && album != prevAlbum && !isStreamingPlaylistTrack(t.Path) {
+			album := t.Album
+			isStreaming := isStreamingPlaylistTrack(t.Path)
+			if album != prevAlbum && !isStreaming && (album != "" || rendered > 0) {
 				if rendered+1 >= maxVisible {
 					break
 				}
 				lines = append(lines, m.albumSeparator(album, t.Year))
 				rendered++
 			}
-			prevAlbum = t.Album
+			if isStreaming {
+				prevAlbum = ""
+			} else {
+				prevAlbum = album
+			}
 			if rendered >= maxVisible {
 				break
 			}

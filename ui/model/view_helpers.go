@@ -173,16 +173,24 @@ func albumSeparatorRows(tracks []playlist.Track, scroll, cursor int) int {
 	rows := 0
 	prevAlbum := ""
 	if scroll > 0 {
-		prevAlbum = tracks[scroll-1].Album
+		if !isStreamingPlaylistTrack(tracks[scroll-1].Path) {
+			prevAlbum = tracks[scroll-1].Album
+		}
 		if album := tracks[scroll].Album; album != "" && album == prevAlbum && !isStreamingPlaylistTrack(tracks[scroll].Path) {
 			rows++
 		}
 	}
 	for i := scroll; i <= cursor; i++ {
-		if album := tracks[i].Album; album != "" && album != prevAlbum && !isStreamingPlaylistTrack(tracks[i].Path) {
+		album := tracks[i].Album
+		isStreaming := isStreamingPlaylistTrack(tracks[i].Path)
+		if album != prevAlbum && !isStreaming && (album != "" || rows > 0) {
 			rows++
 		}
-		prevAlbum = tracks[i].Album
+		if isStreaming {
+			prevAlbum = ""
+		} else {
+			prevAlbum = album
+		}
 		rows++
 	}
 	return rows
@@ -190,6 +198,9 @@ func albumSeparatorRows(tracks []playlist.Track, scroll, cursor int) int {
 
 // albumSeparator builds a full-width album divider line.
 func (m Model) albumSeparator(album string, year int) string {
+	if album == "" {
+		return dimStyle.Render(strings.Repeat("─", ui.PanelWidth))
+	}
 	prefix := "── "
 	suffix := " "
 	label := prefix + album

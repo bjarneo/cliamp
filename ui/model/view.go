@@ -715,13 +715,20 @@ func (m Model) renderPlaylist() string {
 		}
 	}
 	for i := scroll; i < len(tracks) && len(lines) < budget; i++ {
-		if album := tracks[i].Album; album != "" && album != prevAlbum && !isStreamingPlaylistTrack(tracks[i].Path) {
+		album := tracks[i].Album
+		isStreaming := isStreamingPlaylistTrack(tracks[i].Path)
+		if album != prevAlbum && !isStreaming && (album != "" || len(lines) > 0) {
 			if len(lines)+1 >= budget {
 				break
 			}
 			lines = append(lines, m.albumSeparator(album, tracks[i].Year))
 		}
-		prevAlbum = tracks[i].Album
+
+		if isStreaming {
+			prevAlbum = ""
+		} else {
+			prevAlbum = album
+		}
 		if len(lines) >= budget {
 			break
 		}
