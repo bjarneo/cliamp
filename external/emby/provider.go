@@ -45,15 +45,27 @@ func NewFromConfig(cfg config.EmbyConfig) *Provider {
 func (p *Provider) Name() string { return "Emby" }
 
 func (p *Provider) Artists() ([]provider.ArtistInfo, error) {
-	return p.client.Artists()
+	artists, err := p.client.Artists()
+	if err != nil {
+		return nil, fmt.Errorf("emby: artists: %w", err)
+	}
+	return artists, nil
 }
 
 func (p *Provider) ArtistAlbums(artistID string) ([]provider.AlbumInfo, error) {
-	return p.client.ArtistAlbums(artistID)
+	albums, err := p.client.ArtistAlbums(artistID)
+	if err != nil {
+		return nil, fmt.Errorf("emby: artist albums: %w", err)
+	}
+	return albums, nil
 }
 
 func (p *Provider) AlbumList(sortType string, offset, size int) ([]provider.AlbumInfo, error) {
-	return p.client.AlbumList(sortType, offset, size)
+	albums, err := p.client.AlbumList(sortType, offset, size)
+	if err != nil {
+		return nil, fmt.Errorf("emby: album list: %w", err)
+	}
+	return albums, nil
 }
 
 func (p *Provider) AlbumSortTypes() []provider.SortType {
@@ -94,7 +106,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 
 	albums, err := p.client.Albums()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("emby: playlists: %w", err)
 	}
 
 	out := make([]playlist.PlaylistInfo, 0, len(albums))
@@ -125,7 +137,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]playlist.Track, error) {
 	embyTracks, err := p.client.Search(query, limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("emby: search: %w", err)
 	}
 	return p.toPlaylistTracks(embyTracks), nil
 }
@@ -144,7 +156,7 @@ func (p *Provider) Tracks(albumID string) ([]playlist.Track, error) {
 
 	embyTracks, err := p.client.Tracks(albumID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("emby: tracks: %w", err)
 	}
 
 	out := p.toPlaylistTracks(embyTracks)
