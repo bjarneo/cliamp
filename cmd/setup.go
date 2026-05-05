@@ -205,7 +205,10 @@ func providers() []providerSpec {
 					onlyIf: func(v map[string]string) bool { return v[keyEmbyAuth] == "password" }},
 			},
 			validate: func(v map[string]string) error {
-				return emby.NewClient(v["url"], v["token"], "", v["user"], v["password"]).Ping()
+				if err := emby.NewClient(v["url"], v["token"], "", v["user"], v["password"]).Ping(); err != nil {
+					return fmt.Errorf("emby: validation: %w", err)
+				}
+				return nil
 			},
 			body: func(v map[string]string) string {
 				lines := []string{fmt.Sprintf("url      = %q", v["url"])}

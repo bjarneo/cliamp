@@ -85,9 +85,10 @@ func (p *Provider) ReportScrobble(track playlist.Track, elapsed, _ time.Duration
 func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	p.mu.Lock()
 	if p.playlistCache != nil {
-		cached := p.playlistCache
+		out := make([]playlist.PlaylistInfo, len(p.playlistCache))
+		copy(out, p.playlistCache)
 		p.mu.Unlock()
-		return cached, nil
+		return out, nil
 	}
 	p.mu.Unlock()
 

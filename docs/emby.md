@@ -2,7 +2,7 @@
 
 cliamp can stream music directly from an Emby server using Emby's authenticated HTTP API. The integration exposes your music libraries as a flat album list in the normal provider pane, following the same shape as the Jellyfin and Plex providers.
 
-> **Quick start:** run `cliamp setup` for a guided TUI that lets you pick API-key or username+password auth, validates against `/Users/Me`, and writes the `[emby]` block for you. Manual setup steps are below.
+> **Quick start:** run `cliamp setup` for a guided TUI that lets you pick API-key or username+password auth, validates against `/System/Info`, and writes the `[emby]` block for you. Manual setup steps are below.
 
 ## Prerequisites
 

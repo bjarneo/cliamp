@@ -181,10 +181,13 @@ func (c *Client) UserID() (string, error) {
 	}
 	// Prefer user matching the configured username; otherwise take first entry.
 	for _, u := range users {
-		if c.user != "" && strings.EqualFold(u.Name, c.user) {
+		if strings.EqualFold(u.Name, c.user) {
 			c.userID = u.ID
 			return c.userID, nil
 		}
+	}
+	if c.user != "" {
+		return "", fmt.Errorf("emby: user %q not found — check the user name in config", c.user)
 	}
 	if len(users) > 0 && users[0].ID != "" {
 		c.userID = users[0].ID
@@ -323,6 +326,9 @@ func (c *Client) AlbumList(sortType string, offset, size int) ([]provider.AlbumI
 	}
 
 	sortAlbums(out, sortType)
+	if offset < 0 {
+		offset = 0
+	}
 	if offset >= len(out) {
 		return nil, nil
 	}
@@ -526,7 +532,7 @@ func (c *Client) postJSON(p string, payload any) error {
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return fmt.Errorf("emby: %s: %w", p, err)
 	}
 
 	req, err := c.newRequestWithBody(http.MethodPost, p, nil, bytes.NewReader(body))
