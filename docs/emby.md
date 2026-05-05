@@ -27,9 +27,9 @@ password = "your_password_here"
 | Key | Description |
 |-----|-------------|
 | `url` | Base URL of your Emby server |
-| `user` | Emby username for password-based login |
+| `user` | Emby username — used for password login, and to select the matching account when using an API key |
 | `password` | Emby password for password-based login |
-| `token` | Optional Emby API key instead of username/password |
+| `token` | Emby API key — alternative to username/password |
 | `user_id` | Optional Emby user id to skip discovery |
 
 ## Usage
