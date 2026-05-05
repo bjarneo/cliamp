@@ -85,11 +85,20 @@ func TestProviderTracks(t *testing.T) {
 
 func TestProviderCanReportPlayback(t *testing.T) {
 	p := newProvider(NewClient("https://emby.example.com", "tok", "user-1", "", ""))
-	if !p.CanReportPlayback(trackWithMeta(provider.MetaEmbyID, "track-1")) {
-		t.Fatal("CanReportPlayback() = false, want true")
+	tests := []struct {
+		name  string
+		track playlist.Track
+		want  bool
+	}{
+		{"emby track", trackWithMeta(provider.MetaEmbyID, "track-1"), true},
+		{"non-emby track", trackWithMeta(provider.MetaNavidromeID, "nav-1"), false},
 	}
-	if p.CanReportPlayback(trackWithMeta(provider.MetaNavidromeID, "nav-1")) {
-		t.Fatal("CanReportPlayback() = true for non-Emby track")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := p.CanReportPlayback(tc.track); got != tc.want {
+				t.Fatalf("CanReportPlayback() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

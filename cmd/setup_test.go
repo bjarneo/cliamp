@@ -113,42 +113,45 @@ func TestEmbyPickerSelectionFiltersFields(t *testing.T) {
 		t.Fatal("emby spec missing")
 	}
 
-	m.menuCursor = embyIdx
-	m.handleKey(keyPress(tea.KeyEnter, "")) // open picker
-	if m.stage != stagePicker {
-		t.Fatalf("stage = %v, want stagePicker", m.stage)
+	tests := []struct {
+		name         string
+		pickerCursor int
+		wantVisible  []string
+		wantHidden   []string
+	}{
+		{"API key", 0, []string{"url", "token"}, []string{"user", "password"}},
+		{"password", 1, []string{"url", "user", "password"}, []string{"token"}},
 	}
 
-	// Pick "API key" (option 0).
-	m.handleKey(keyPress(tea.KeyEnter, ""))
-	if m.stage != stageForm {
-		t.Fatalf("stage = %v, want stageForm", m.stage)
-	}
-	visibleKeys := map[string]bool{}
-	for _, idx := range m.visible {
-		visibleKeys[m.provs[embyIdx].fields[idx].key] = true
-	}
-	if !visibleKeys["url"] || !visibleKeys["token"] {
-		t.Fatalf("token mode missing url/token; got %v", visibleKeys)
-	}
-	if visibleKeys["user"] || visibleKeys["password"] {
-		t.Fatalf("token mode should hide user/password; got %v", visibleKeys)
-	}
-
-	// Switch back, pick password mode, verify the inverse.
-	m.stage = stagePicker
-	m.values = map[string]string{}
-	m.pickerCursor = 1
-	m.handleKey(keyPress(tea.KeyEnter, ""))
-	visibleKeys = map[string]bool{}
-	for _, idx := range m.visible {
-		visibleKeys[m.provs[embyIdx].fields[idx].key] = true
-	}
-	if !visibleKeys["user"] || !visibleKeys["password"] {
-		t.Fatalf("password mode missing user/password; got %v", visibleKeys)
-	}
-	if visibleKeys["token"] {
-		t.Fatalf("password mode should hide token; got %v", visibleKeys)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m.menuCursor = embyIdx
+			m.stage = stageMenu
+			m.values = map[string]string{}
+			m.handleKey(keyPress(tea.KeyEnter, "")) // open picker
+			if m.stage != stagePicker {
+				t.Fatalf("stage = %v, want stagePicker", m.stage)
+			}
+			m.pickerCursor = tc.pickerCursor
+			m.handleKey(keyPress(tea.KeyEnter, "")) // select picker option
+			if m.stage != stageForm {
+				t.Fatalf("stage = %v, want stageForm", m.stage)
+			}
+			visible := map[string]bool{}
+			for _, idx := range m.visible {
+				visible[m.provs[embyIdx].fields[idx].key] = true
+			}
+			for _, k := range tc.wantVisible {
+				if !visible[k] {
+					t.Errorf("field %q not visible; got %v", k, visible)
+				}
+			}
+			for _, k := range tc.wantHidden {
+				if visible[k] {
+					t.Errorf("field %q should be hidden; got %v", k, visible)
+				}
+			}
+		})
 	}
 }
 

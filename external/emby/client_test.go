@@ -212,12 +212,23 @@ func TestClientTracks(t *testing.T) {
 
 func TestClientStreamURL(t *testing.T) {
 	c := NewClient("https://emby.example.com", "tok", "user-1", "", "")
-	u := c.StreamURL("track-1")
-	if !strings.HasPrefix(u, "https://emby.example.com/Items/track-1/Download?") {
-		t.Fatalf("unexpected stream URL prefix: %q", u)
+	tests := []struct {
+		itemID     string
+		wantPrefix string
+	}{
+		{"track-1", "https://emby.example.com/Items/track-1/Download?"},
+		{"album-99", "https://emby.example.com/Items/album-99/Download?"},
 	}
-	if !strings.Contains(u, "api_key=tok") {
-		t.Fatalf("stream URL missing api_key: %q", u)
+	for _, tc := range tests {
+		t.Run(tc.itemID, func(t *testing.T) {
+			u := c.StreamURL(tc.itemID)
+			if !strings.HasPrefix(u, tc.wantPrefix) {
+				t.Fatalf("URL = %q, want prefix %q", u, tc.wantPrefix)
+			}
+			if !strings.Contains(u, "api_key=tok") {
+				t.Fatalf("URL missing api_key: %q", u)
+			}
+		})
 	}
 }
 
