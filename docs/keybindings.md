@@ -43,6 +43,7 @@ Press `Ctrl+K` in the player to see all keybindings.
 | `t` | Choose theme |
 | `v` | Cycle visualizer |
 | `V` | Full screen visualizer |
+| `Ctrl+H` | Toggle album headers |
 
 ## Features
 

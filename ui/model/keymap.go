@@ -54,7 +54,7 @@ var keymapEntries = []keymapEntry{
 	{key: "J", action: "Open Jellyfin provider"},
 	{key: "Ctrl+J", action: "Jump to time"},
 	{key: "p", action: "Playlist manager"},
-	{key: "H", action: "Toggle album headers"},
+	{key: "Ctrl+H", action: "Toggle album headers"},
 	{key: "i", action: "Track info / metadata"},
 	{key: "Ctrl+S", action: "Save/download track to ~/Music"},
 	{key: "Ctrl+X", action: "Expand/collapse view"},
@@ -99,7 +99,7 @@ var coreReservedKeys = []string{
 	"enter", "tab", "h", "l",
 
 	// Features.
-	"r", "z", "m", "e", "a", "A", "H",
+	"r", "z", "m", "e", "a", "A", "ctrl+h",
 	"ctrl+s", "S", "/", "ctrl+f",
 	"ctrl+j", "J", "p", "t", "i", "y", "o", "u",
 	"N", "L", "R", "P", "Y",
