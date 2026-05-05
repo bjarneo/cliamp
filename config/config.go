@@ -133,6 +133,20 @@ func (y YouTubeMusicConfig) ResolveCredentials(fallbackFn func() (string, string
 	return "", ""
 }
 
+// SoundCloudConfig holds settings for the SoundCloud provider.
+// SoundCloud is enabled by default — search works without any configuration.
+// Setting User exposes that profile's Tracks/Likes/Reposts in the browse view.
+// Setting CookiesFrom (browser name) lets yt-dlp use the user's signed-in
+// session for subscriber-gated tracks.
+type SoundCloudConfig struct {
+	Disabled    bool   // true only when user explicitly sets enabled = false
+	User        string // SoundCloud username for browse (optional)
+	CookiesFrom string // browser name for yt-dlp --cookies-from-browser (optional)
+}
+
+// IsSet reports whether the SoundCloud provider should be shown.
+func (s SoundCloudConfig) IsSet() bool { return !s.Disabled }
+
 // PlexConfig holds credentials for a Plex Media Server.
 // Both URL and Token must be non-empty for a client to be constructed.
 type PlexConfig struct {
@@ -206,6 +220,7 @@ type Config struct {
 	Plex            PlexConfig                   // optional Plex Media Server credentials
 	Jellyfin        JellyfinConfig               // optional Jellyfin server credentials
 	Emby            EmbyConfig                   // optional Emby server credentials
+	SoundCloud      SoundCloudConfig             // SoundCloud provider (search always available; user enables browse)
 	Plugins         map[string]map[string]string // per-plugin config from [plugins.*] sections
 	LogLevel        string                       // log level: debug, info, warn, error (default "info")
 }
@@ -334,6 +349,15 @@ func Load() (Config, error) {
 				cfg.Plex.URL = parseString(val)
 			case "token":
 				cfg.Plex.Token = parseString(val)
+			}
+		case "soundcloud":
+			switch key {
+			case "enabled":
+				cfg.SoundCloud.Disabled = strings.ToLower(val) == "false"
+			case "user":
+				cfg.SoundCloud.User = parseString(val)
+			case "cookies_from":
+				cfg.SoundCloud.CookiesFrom = parseString(val)
 			}
 		case "jellyfin":
 			switch key {

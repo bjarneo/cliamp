@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"cliamp/player"
@@ -26,6 +27,23 @@ import (
 
 	"github.com/kkdai/youtube/v2"
 )
+
+// ytdlCookiesFromVal stores the browser name passed to yt-dlp's
+// --cookies-from-browser flag. atomic.Value allows lock-free reads on the
+// resolve hot path while permitting late binding from main.go.
+var ytdlCookiesFromVal atomic.Value
+
+// SetYTDLCookiesFrom configures yt-dlp to use cookies from the given browser
+// (e.g. "firefox", "chrome", "brave") for any --flat-playlist resolution.
+// Pass an empty string to disable.
+func SetYTDLCookiesFrom(browser string) {
+	ytdlCookiesFromVal.Store(browser)
+}
+
+func ytdlCookiesFrom() string {
+	v, _ := ytdlCookiesFromVal.Load().(string)
+	return v
+}
 
 // httpClient is used for feed and M3U resolution. It has a generous but
 // finite timeout to prevent hanging on unresponsive servers.
@@ -445,6 +463,9 @@ func resolveYTDLRange(pageURL string, start, end int) ([]playlist.Track, error) 
 	defer cancel()
 
 	args := []string{"--flat-playlist", "-j", "--socket-timeout", "15"}
+	if browser := ytdlCookiesFrom(); browser != "" {
+		args = append(args, "--cookies-from-browser", browser)
+	}
 	if start > 0 {
 		args = append(args, "--playlist-start", strconv.Itoa(start+1)) // yt-dlp is 1-based
 	}

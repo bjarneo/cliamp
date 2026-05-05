@@ -41,6 +41,7 @@ var providerEmptyStateHint = map[string]string{
 	"plex":            "Verify [plex] server URL and token in config.toml.",
 	"youtube music":   "Run `cliamp ytmusic-login` to authorize, then refresh.",
 	"ytmusic":         "Run `cliamp ytmusic-login` to authorize, then refresh.",
+	"soundcloud":      "Set [soundcloud] user in config.toml to browse a profile.",
 }
 
 // renderProviderEmptyState explains why the playlists pane is empty for the
@@ -54,7 +55,10 @@ func (m Model) renderProviderEmptyState(budget int) string {
 	lines := []string{
 		dimStyle.Render(fmt.Sprintf("  No playlists in %s.", name)),
 		"",
-		dimStyle.Render("  Press ") + helpKeyStyle.Render(" Ctrl+R ") + dimStyle.Render(" to refresh."),
+	}
+	if _, searchable := m.provider.(provider.Searcher); searchable {
+		lines = append(lines,
+			dimStyle.Render("  Press ")+helpKeyStyle.Render(" Ctrl+F ")+dimStyle.Render(" to search."))
 	}
 	if m.provider != nil {
 		if hint, ok := providerEmptyStateHint[strings.ToLower(m.provider.Name())]; ok {

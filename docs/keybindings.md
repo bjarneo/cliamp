@@ -61,6 +61,7 @@ Press `Ctrl+K` in the player to see all keybindings.
 | `J` | Open Jellyfin provider |
 | `E` | Open Emby provider |
 | `Y` | Open YouTube provider |
+| `C` | Open SoundCloud provider |
 
 ## Playlist and Queue
 

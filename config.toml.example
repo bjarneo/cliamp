@@ -32,7 +32,7 @@ eq_preset = "Flat"
 # Only used when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-# Default provider on startup: "radio", "navidrome", "spotify", "plex", "jellyfin", "emby", or a YouTube provider
+# Default provider on startup: "radio", "navidrome", "spotify", "plex", "jellyfin", "emby", "soundcloud", or a YouTube provider
 # provider = "radio"
 
 # Compact mode: cap UI width at 80 columns (default: fluid/full-width)
@@ -73,6 +73,17 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 #               frequent, starred, byYear, byGenre
 # This is updated automatically when you press [s] inside the browser.
 # browse_sort = alphabeticalByName
+
+# ---
+# SoundCloud (optional)
+# Search, URL playback, and a curated browse list work out of the box
+# (requires yt-dlp). Set `user` to expose your profile's Tracks, Likes,
+# and Reposts. Set `cookies_from` to use your browser's signed-in session
+# for Go+ / subscriber-gated tracks and private content.
+# [soundcloud]
+# user = "yourname"
+# cookies_from = "firefox"   # chrome, brave, edge, opera, safari, vivaldi…
+# enabled = false   # set explicitly to hide the provider entirely
 
 # ---
 # Jellyfin server (optional)

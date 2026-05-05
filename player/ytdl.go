@@ -232,6 +232,7 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 	ytdlArgs := []string{
 		"-f", "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio[protocol!=m3u8_native][protocol!=m3u8]/bestaudio",
 		"--no-playlist",
+		"--quiet",
 		"--no-warnings",
 		"--socket-timeout", "15",
 		"-o", "-",
@@ -347,7 +348,18 @@ func (p *Player) buildYTDLPipeline(pageURL string, startSec int) (*trackPipeline
 	select {
 	case err := <-peekErr:
 		if err != nil {
-			decoder.Close()
+			// Prefer yt-dlp's exit error (e.g. "HTTP Error 404", DRM, region
+			// block) over the bare EOF from the ffmpeg pipe — the pipe only
+			// tells us the upstream process closed, not why.
+			select {
+			case ytErr := <-decoder.ytdlErr:
+				decoder.Close()
+				if ytErr != nil {
+					return nil, ytErr
+				}
+			case <-time.After(500 * time.Millisecond):
+				decoder.Close()
+			}
 			return nil, fmt.Errorf("waiting for audio data: %w", err)
 		}
 	case <-time.After(ytdlPipeTimeout):

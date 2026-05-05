@@ -18,6 +18,7 @@ import (
 	"cliamp/external/navidrome"
 	"cliamp/external/plex"
 	"cliamp/external/radio"
+	"cliamp/external/soundcloud"
 	"cliamp/external/spotify"
 	"cliamp/external/ytmusic"
 	"cliamp/internal/appdir"
@@ -90,6 +91,20 @@ func run(overrides config.Overrides, positional []string) error {
 	if cfg.Spotify.IsSet() {
 		spotifyProv = spotify.New(nil, cfg.Spotify.ClientID, cfg.Spotify.Bitrate)
 		providers = append(providers, model.ProviderEntry{Key: "spotify", Name: "Spotify", Provider: spotifyProv})
+	}
+
+	if scProv := soundcloud.NewFromConfig(soundcloud.Config{
+		Disabled:    cfg.SoundCloud.Disabled,
+		User:        cfg.SoundCloud.User,
+		CookiesFrom: cfg.SoundCloud.CookiesFrom,
+	}); scProv != nil {
+		// Mirror the cookies_from setting onto the player so streaming yt-dlp
+		// invocations use the same browser session as resolve. Last write wins
+		// if [ytmusic] cookies_from also set this earlier in run().
+		if cfg.SoundCloud.CookiesFrom != "" {
+			player.SetYTDLCookiesFrom(cfg.SoundCloud.CookiesFrom)
+		}
+		providers = append(providers, model.ProviderEntry{Key: "soundcloud", Name: "SoundCloud", Provider: scProv})
 	}
 
 	var ytProviders ytmusic.Providers

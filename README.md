@@ -139,6 +139,7 @@ Or without Make: `go build -o cliamp .`
 - [Playlists](docs/playlists.md)
 - [YouTube, SoundCloud, Bandcamp and Bilibili](docs/yt-dlp.md)
 - [YouTube Music](docs/youtube-music.md)
+- [SoundCloud](docs/soundcloud.md)
 - [Lyrics](docs/lyrics.md)
 - [Spotify](docs/spotify.md)
 - [Navidrome](docs/navidrome.md)

@@ -101,9 +101,47 @@ Set which provider to start with:
 provider = "radio"
 ```
 
-Valid values: `radio` (default), `navidrome`, `spotify`, `plex`, `jellyfin`, `emby`, `yt`, `youtube`, `ytmusic`.
+Valid values: `radio` (default), `navidrome`, `spotify`, `plex`, `jellyfin`, `emby`, `soundcloud`, `yt`, `youtube`, `ytmusic`.
 
 You can also override from the CLI: `cliamp --provider jellyfin`.
+
+## SoundCloud
+
+SoundCloud is enabled by default. Search works without any configuration via `Ctrl+F`, pasted SoundCloud URLs play through yt-dlp, and the empty browse view is seeded with a curated set of search-backed genre playlists (**Trending**, **Hip-Hop**, **Electronic**, **House**, **Lo-Fi**, **Indie**, **Pop**) so there's something to explore on first launch.
+
+> SoundCloud's official charts/discover endpoints all 404 through yt-dlp at present, so cliamp can't surface real chart data anonymously. The genre playlists are search-backed (results vary in quality but reflect current uploads).
+
+### Browse a profile
+
+Set a username to expose that profile's tracks, likes, and reposts in the browse view:
+
+```toml
+[soundcloud]
+user = "yourname"
+```
+
+Three playlists appear: **Tracks**, **Likes**, and **Reposts** for `soundcloud.com/yourname`. Works for any public profile.
+
+### Sign in via browser cookies
+
+SoundCloud closed its OAuth program in 2014, so the bring-your-own-client_id pattern Spotify uses isn't available. Instead, point yt-dlp at your existing browser session — it picks up your SoundCloud login from the browser cookie jar:
+
+```toml
+[soundcloud]
+user = "yourname"
+cookies_from = "firefox"   # or chrome, chromium, brave, edge, opera, safari, vivaloi
+```
+
+With cookies set, yt-dlp can stream subscriber-gated tracks (SoundCloud Go+) and access private likes/playlists your account is authorized for. The same cookies also apply to the player's yt-dlp invocations, so playback uses your signed-in session.
+
+### Disable
+
+```toml
+[soundcloud]
+enabled = false
+```
+
+Requires `yt-dlp` on `PATH`.
 
 ## Custom Radio Stations
 

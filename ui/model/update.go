@@ -496,6 +496,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.buffering = false
 		if msg.err != nil {
 			m.err = msg.err
+			if track, idx := m.playlist.Current(); idx >= 0 {
+				m.status.Showf(statusTTLLong, "Couldn't play %s — track is gated, restricted, or unavailable.", track.DisplayName())
+			}
 		} else {
 			m.err = nil
 			m.reconnect.attempts = 0

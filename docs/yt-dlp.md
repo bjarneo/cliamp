@@ -21,7 +21,7 @@ cliamp search "never gonna give you up"       # search YouTube
 cliamp search-sc "lofi beats"                  # search SoundCloud
 ```
 
-You can also search YouTube interactively while playing by pressing `Ctrl+F`. For SoundCloud, paste a URL with `u` or run `cliamp search-sc` from the shell.
+Inside the TUI, press `Ctrl+F` to search the active provider — YouTube when you're on YouTube/YT-Music, SoundCloud when you're on SoundCloud. SoundCloud also has dedicated provider docs covering profile browse and signed-in playback: [SoundCloud](soundcloud.md).
 
 ## Disclaimer
 
