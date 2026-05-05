@@ -43,7 +43,7 @@ const CallbackPort = 19872
 
 // Session manages a go-librespot session and player for Spotify integration.
 type Session struct {
-	mu          sync.Mutex
+	mu          sync.RWMutex
 	sess        *session.Session
 	player      *librespotPlayer.Player
 	devID       string
@@ -367,9 +367,19 @@ func (s *Session) initPlayer() error {
 }
 
 // NewStream creates a decoded audio stream for the given Spotify track ID.
+//
+// Holds s.mu.RLock() across the librespot network call. Multiple concurrent
+// NewStream / webApi callers can run in parallel (RLock is shared), so rapid
+// track skipping does not serialize. reconnect() and Close() take the full
+// Lock and will wait for in-flight callers to finish before tearing down the
+// player — without this, the swap could call oldPlayer.Close() while we are
+// still reading from it.
 func (s *Session) NewStream(ctx context.Context, spotID librespot.SpotifyId, bitrate int) (*librespotPlayer.Stream, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.player == nil {
+		return nil, fmt.Errorf("spotify: session closed")
+	}
 	return s.player.NewStream(ctx, http.DefaultClient, spotID, bitrate, 0)
 }
 
@@ -381,9 +391,9 @@ func (s *Session) NewStream(ctx context.Context, spotID librespot.SpotifyId, bit
 // So if there is no OAuth2 token source, fail loudly with ErrNeedsAuth
 // rather than attempting the call with the wrong token.
 func (s *Session) webApiWithBody(ctx context.Context, method, path string, query url.Values, body io.Reader, contentType string) (*http.Response, error) {
-	s.mu.Lock()
+	s.mu.RLock()
 	ts := s.tokenSource
-	s.mu.Unlock()
+	s.mu.RUnlock()
 
 	if ts == nil {
 		return nil, fmt.Errorf("spotify: web api token unavailable, run 'cliamp spotify reset' and sign in again: %w", playlist.ErrNeedsAuth)
@@ -441,17 +451,24 @@ func (s *Session) ReconnectInteractive(ctx context.Context) error {
 // reconnect replaces the live session using the provided builder function.
 // The new session is established before tearing down the old one to avoid a
 // window where s.sess/s.player are nil (which would crash concurrent callers).
+//
+// The swap-and-teardown phase is done under s.mu (full Lock), which waits for
+// any in-flight NewStream / webApi RLockers to drain. This guarantees that
+// oldPlayer.Close() is never called while a NewStream is still using the
+// old player pointer.
 func (s *Session) reconnect(ctx context.Context, build func(context.Context, string) (*Session, error)) error {
-	s.mu.Lock()
+	s.mu.RLock()
 	clientID := s.clientID
-	s.mu.Unlock()
+	s.mu.RUnlock()
 
 	newSess, err := build(ctx, clientID)
 	if err != nil {
 		return fmt.Errorf("spotify: reconnect: %w", err)
 	}
 
-	// Atomically swap internals.
+	// Swap and tear down the old session under a single write lock so
+	// in-flight NewStream / webApi calls finish before oldPlayer.Close()
+	// runs. The expensive build() above happened lock-free.
 	s.mu.Lock()
 	oldPlayer := s.player
 	oldSess := s.sess
@@ -459,14 +476,13 @@ func (s *Session) reconnect(ctx context.Context, build func(context.Context, str
 	s.player = newSess.player
 	s.devID = newSess.devID
 	s.tokenSource = newSess.tokenSource
-	s.mu.Unlock()
-
 	if oldPlayer != nil {
 		oldPlayer.Close()
 	}
 	if oldSess != nil {
 		oldSess.Close()
 	}
+	s.mu.Unlock()
 
 	// Prevent newSess.Close() from tearing down the resources we just adopted.
 	newSess.mu.Lock()

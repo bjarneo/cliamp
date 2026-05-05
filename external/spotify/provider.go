@@ -484,12 +484,19 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 // isAuthError returns true if the error is an authentication/session-related
 // failure that can be resolved by re-authenticating.
 func isAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// context.DeadlineExceeded and context.Canceled are NOT auth errors.
+	// They commonly fire during rapid track skipping when a previous NewStream's
+	// network fetch is interrupted, and previously caused spurious re-auth
+	// attempts (which then escalated to opening a browser tab mid-skip).
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return false
+	}
 	var keyErr *audio.KeyProviderError
 	if errors.As(err, &keyErr) {
-		return true
-	}
-	// Catch wrapped context errors from a dead session.
-	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
 	return false
@@ -501,9 +508,13 @@ func (p *SpotifyProvider) URISchemes() []string { return []string{"spotify:"} }
 
 // NewStreamer creates a SpotifyStreamer for the given spotify:track:xxx URI.
 // If the stream fails due to an auth error (e.g. expired session, AES key
-// rejection), the player first tries a silent reconnect from cached credentials.
-// If that fails or the retry still hits an auth error, it falls back to an
-// interactive OAuth2 flow and retries once more.
+// rejection), the player tries a silent reconnect from cached credentials.
+// If that fails — or the retry still hits an auth error — the streamer
+// surfaces playlist.ErrNeedsAuth so the UI can prompt the user to sign in.
+// We deliberately do NOT auto-launch a browser-based OAuth flow from this
+// path: rapid track skipping can produce transient stream errors and a
+// browser tab popping up mid-skip.
+//
 // Implements provider.CustomStreamer.
 func (p *SpotifyProvider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error) {
 	if err := p.ensureSession(); err != nil {
@@ -532,39 +543,30 @@ func (p *SpotifyProvider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.F
 		return nil, beep.Format{}, 0, fmt.Errorf("spotify: new stream: %w", err)
 	}
 
-	// Auth error — try silent reconnect first.
+	// Auth error — try a silent reconnect from cached credentials.
 	applog.UserWarn("spotify: stream auth error (%v), attempting silent reconnect...", err)
 
-	reconnCtx, reconnCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	reconnCtx, reconnCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	reconnErr := p.session.Reconnect(reconnCtx)
 	reconnCancel()
 
-	if reconnErr == nil {
-		s, err = tryStream()
-		if err == nil {
-			return s, s.Format(), s.Duration(), nil
-		}
-		if !isAuthError(err) {
-			return nil, beep.Format{}, 0, fmt.Errorf("spotify: new stream after silent reconnect: %w", err)
-		}
-		applog.UserWarn("spotify: stream still failing after silent reconnect (%v), falling back to interactive...", err)
-	} else {
-		applog.UserWarn("spotify: silent reconnect failed (%v), falling back to interactive...", reconnErr)
-	}
-
-	interactiveCtx, interactiveCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	interactiveErr := p.session.ReconnectInteractive(interactiveCtx)
-	interactiveCancel()
-
-	if interactiveErr != nil {
-		return nil, beep.Format{}, 0, fmt.Errorf("spotify: interactive reconnect failed: %w (original: %v)", interactiveErr, err)
+	if reconnErr != nil {
+		applog.UserWarn("spotify: silent reconnect failed (%v); sign-in required", reconnErr)
+		return nil, beep.Format{}, 0, fmt.Errorf("spotify: stream auth error, silent reconnect failed: %w", playlist.ErrNeedsAuth)
 	}
 
 	s, err = tryStream()
-	if err != nil {
-		return nil, beep.Format{}, 0, fmt.Errorf("spotify: new stream after interactive reconnect: %w", err)
+	if err == nil {
+		return s, s.Format(), s.Duration(), nil
 	}
-	return s, s.Format(), s.Duration(), nil
+	if !isAuthError(err) {
+		return nil, beep.Format{}, 0, fmt.Errorf("spotify: new stream after silent reconnect: %w", err)
+	}
+
+	// Still failing after a silent reconnect — surface ErrNeedsAuth so the
+	// UI can prompt the user to sign in. Do NOT open a browser from here.
+	applog.UserWarn("spotify: stream still failing after silent reconnect (%v); sign-in required", err)
+	return nil, beep.Format{}, 0, fmt.Errorf("spotify: stream auth error after silent reconnect: %w", playlist.ErrNeedsAuth)
 }
 
 // webAPI calls the Spotify Web API via the session with retry on 429.

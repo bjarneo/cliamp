@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -188,7 +189,15 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		return tea.Batch(playStreamCmd(m.player, track.Path, dur), fetchCmd)
 	}
 	if err := m.player.Play(track.Path, dur); err != nil {
-		m.err = err
+		// Provider session went stale (e.g. Spotify auth expired and
+		// silent reconnect failed). Surface the standard sign-in
+		// overlay rather than the raw stream error.
+		if errors.Is(err, playlist.ErrNeedsAuth) {
+			m.provSignIn = true
+			m.err = nil
+		} else {
+			m.err = err
+		}
 	} else {
 		m.err = nil
 		m.applyResume()
