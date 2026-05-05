@@ -52,6 +52,7 @@ var keymapEntries = []keymapEntry{
 	{key: "P", action: "Open Plex provider"},
 	{key: "Y", action: "Open YouTube provider"},
 	{key: "J", action: "Open Jellyfin provider"},
+	{key: "E", action: "Open Emby provider"},
 	{key: "Ctrl+J", action: "Jump to time"},
 	{key: "p", action: "Playlist manager"},
 	{key: "i", action: "Track info / metadata"},
@@ -100,7 +101,7 @@ var coreReservedKeys = []string{
 	// Features.
 	"r", "z", "m", "e", "a", "A",
 	"ctrl+s", "S", "/", "ctrl+f",
-	"ctrl+j", "J", "p", "t", "i", "y", "o", "u",
+	"ctrl+j", "J", "E", "p", "t", "i", "y", "o", "u",
 	"N", "L", "R", "P", "Y",
 	"v", "V", "ctrl+x", "d", "ctrl+k",
 	"ctrl+r",

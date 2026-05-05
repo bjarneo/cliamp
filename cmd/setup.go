@@ -24,6 +24,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"cliamp/external/emby"
 	"cliamp/external/jellyfin"
 	"cliamp/external/navidrome"
 	"cliamp/external/plex"
@@ -85,6 +86,7 @@ type pickerOption struct {
 // leading underscore distinguishes them from TOML field names.
 const (
 	keyJellyfinAuth = "_auth"
+	keyEmbyAuth     = "_emby_auth"
 	keyYTMusicMode  = "_mode"
 )
 
@@ -167,6 +169,47 @@ func providers() []providerSpec {
 			body: func(v map[string]string) string {
 				lines := []string{fmt.Sprintf("url      = %q", v["url"])}
 				if v[keyJellyfinAuth] == "token" {
+					lines = append(lines, fmt.Sprintf("token    = %q", v["token"]))
+				} else {
+					lines = append(lines,
+						fmt.Sprintf("user     = %q", v["user"]),
+						fmt.Sprintf("password = %q", v["password"]),
+					)
+				}
+				return strings.Join(lines, "\n")
+			},
+		},
+		{
+			key:     "emby",
+			name:    "Emby",
+			section: "emby",
+			intro: []string{
+				"Authenticate with an API key (Dashboard → API Keys)",
+				"or with your username and password.",
+			},
+			picker: &pickerSpec{
+				key:   keyEmbyAuth,
+				label: "Authentication",
+				options: []pickerOption{
+					{value: "token", label: "API key"},
+					{value: "password", label: "Username + password"},
+				},
+			},
+			fields: []fieldSpec{
+				{key: "url", label: "Server URL", help: "e.g. https://emby.example.com", required: true},
+				{key: "token", label: "API key", required: true, secret: true,
+					onlyIf: func(v map[string]string) bool { return v[keyEmbyAuth] == "token" }},
+				{key: "user", label: "Username", required: true,
+					onlyIf: func(v map[string]string) bool { return v[keyEmbyAuth] == "password" }},
+				{key: "password", label: "Password", required: true, secret: true,
+					onlyIf: func(v map[string]string) bool { return v[keyEmbyAuth] == "password" }},
+			},
+			validate: func(v map[string]string) error {
+				return emby.NewClient(v["url"], v["token"], "", v["user"], v["password"]).Ping()
+			},
+			body: func(v map[string]string) string {
+				lines := []string{fmt.Sprintf("url      = %q", v["url"])}
+				if v[keyEmbyAuth] == "token" {
 					lines = append(lines, fmt.Sprintf("token    = %q", v["token"]))
 				} else {
 					lines = append(lines,

@@ -49,7 +49,7 @@ Press `Ctrl+K` in the player to see all keybindings.
 | Key | Action |
 |---|---|
 | `f` | Toggle bookmark ★ on selected track (or favorite radio station in radio browser) |
-| `Ctrl+F` | Search — active provider's native search (Spotify, Navidrome, Jellyfin, Plex, Local) or YouTube fallback. Available from playlist and provider-browser views. |
+| `Ctrl+F` | Search — active provider's native search (Spotify, Navidrome, Jellyfin, Emby, Plex, Local) or YouTube fallback. Available from playlist and provider-browser views. |
 | `u` | Load URL (stream/playlist) |
 | `y` | Show lyrics |
 | `Ctrl+S` | Save track to ~/Music |
@@ -59,6 +59,7 @@ Press `Ctrl+K` in the player to see all keybindings.
 | `S` | Open Spotify provider |
 | `P` | Open Plex provider |
 | `J` | Open Jellyfin provider |
+| `E` | Open Emby provider |
 | `Y` | Open YouTube provider |
 
 ## Playlist and Queue
@@ -86,7 +87,7 @@ Press `Ctrl+K` in the player to see all keybindings.
 
 ## Provider browser (`N` key)
 
-When you press `N` to drill into a provider (Navidrome, Plex, Jellyfin, Spotify, YouTube Music), the album/artist/track screens use:
+When you press `N` to drill into a provider (Navidrome, Plex, Jellyfin, Emby, Spotify, YouTube Music), the album/artist/track screens use:
 
 | Key | Action |
 |---|---|
@@ -98,7 +99,7 @@ When you press `N` to drill into a provider (Navidrome, Plex, Jellyfin, Spotify,
 | `a` | Append all visible tracks to the queue |
 | `q` | Queue the highlighted track to play next |
 | `s` | Cycle album sort (album list only) |
-| `S` `N` `P` `J` `Y` `L` `R` | Quick-switch to that provider without going back through the main pane |
+| `S` `N` `P` `J` `E` `Y` `L` `R` | Quick-switch to that provider without going back through the main pane |
 | `Esc` `b` | Walk back one level / close the browser |
 
 The track screen shows a `N tracks · 47:22` subtitle and right-aligned per-track durations when the provider returns them.
@@ -114,7 +115,7 @@ The playlists pane (visible when focus is on a provider — Spotify, Navidrome, 
 | `/` | Filter the playlist list |
 | `Ctrl+F` | Online/server search (Spotify/Navidrome/etc.'s own search) |
 | `Ctrl+R` | Refresh — re-pull the playlist list from the provider |
-| `S` `N` `P` `J` `Y` `L` `R` | Switch to that provider |
+| `S` `N` `P` `J` `E` `Y` `L` `R` | Switch to that provider |
 | `Tab` | Switch focus to EQ |
 | `Esc` `b` | Back to the playlist pane |
 

@@ -161,6 +161,22 @@ func (j JellyfinConfig) IsSet() bool {
 	return j.URL != "" && (j.Token != "" || (j.User != "" && j.Password != ""))
 }
 
+// EmbyConfig holds credentials for an Emby server.
+// URL is required. Authenticate either with Token, or with User+Password.
+// UserID is optional and can be discovered lazily.
+type EmbyConfig struct {
+	URL      string // e.g. "https://emby.example.com"
+	Token    string // API access token
+	User     string // optional username for password-based login
+	Password string // optional password for password-based login
+	UserID   string // optional user id to skip discovery via /Users/Me
+}
+
+// IsSet reports whether the Emby provider is configured.
+func (e EmbyConfig) IsSet() bool {
+	return e.URL != "" && (e.Token != "" || (e.User != "" && e.Password != ""))
+}
+
 // Config holds user preferences loaded from the config file.
 type Config struct {
 	Volume          float64     // dB, range [-30, +6]
@@ -172,7 +188,7 @@ type Config struct {
 	Speed           float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
 	AutoPlay        bool                         // start playback automatically on launch (radio streams, CLI tracks)
 	SeekStepLarge   int                          // seconds for Shift+Left/Right seek jumps
-	Provider        string                       // default provider: "radio", "navidrome", "spotify", "plex", "jellyfin", "ytmusic" (default "radio")
+	Provider        string                       // default provider: "radio", "navidrome", "spotify", "plex", "jellyfin", "emby", "ytmusic" (default "radio")
 	Theme           string                       // theme name, or "" for ANSI default
 	Visualizer      string                       // visualizer mode name, or "" for default (Bars)
 	SampleRate      int                          // output sample rate: 22050, 44100, 48000, 96000, 192000
@@ -189,6 +205,7 @@ type Config struct {
 	YouTubeMusic    YouTubeMusicConfig           // optional YouTube Music provider
 	Plex            PlexConfig                   // optional Plex Media Server credentials
 	Jellyfin        JellyfinConfig               // optional Jellyfin server credentials
+	Emby            EmbyConfig                   // optional Emby server credentials
 	Plugins         map[string]map[string]string // per-plugin config from [plugins.*] sections
 	LogLevel        string                       // log level: debug, info, warn, error (default "info")
 }
@@ -330,6 +347,19 @@ func Load() (Config, error) {
 				cfg.Jellyfin.Password = parseString(val)
 			case "user_id":
 				cfg.Jellyfin.UserID = parseString(val)
+			}
+		case "emby":
+			switch key {
+			case "url":
+				cfg.Emby.URL = parseString(val)
+			case "token":
+				cfg.Emby.Token = parseString(val)
+			case "user":
+				cfg.Emby.User = parseString(val)
+			case "password":
+				cfg.Emby.Password = parseString(val)
+			case "user_id":
+				cfg.Emby.UserID = parseString(val)
 			}
 		default:
 			// Handle [plugins] and [plugins.*] sections.

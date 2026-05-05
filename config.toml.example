@@ -32,7 +32,7 @@ eq_preset = "Flat"
 # Only used when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-# Default provider on startup: "radio", "navidrome", "spotify", "plex", "jellyfin", or a YouTube provider
+# Default provider on startup: "radio", "navidrome", "spotify", "plex", "jellyfin", "emby", or a YouTube provider
 # provider = "radio"
 
 # Compact mode: cap UI width at 80 columns (default: fluid/full-width)
@@ -83,4 +83,15 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # user = "alice"
 # password = "secret"
 # token = "optional-api-token"
+# user_id = "optional-user-id"
+
+# ---
+# Emby server (optional)
+# Authenticate either with an API key or with your username/password.
+# user_id is optional and is discovered automatically when omitted.
+# [emby]
+# url = "https://emby.example.com"
+# user = "alice"
+# password = "secret"
+# token = "optional-api-key"
 # user_id = "optional-user-id"

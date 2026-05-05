@@ -73,6 +73,8 @@ func providerKeyForShortcut(key string) string {
 		return "plex"
 	case "J":
 		return "jellyfin"
+	case "E":
+		return "emby"
 	case "Y":
 		return "yt"
 	case "L":

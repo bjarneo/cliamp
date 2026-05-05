@@ -97,6 +97,61 @@ func TestPickerSelectionFiltersFields(t *testing.T) {
 	}
 }
 
+// TestEmbyPickerSelectionFiltersFields mirrors TestPickerSelectionFiltersFields
+// for the Emby provider, which uses the same token/password picker shape.
+func TestEmbyPickerSelectionFiltersFields(t *testing.T) {
+	m := newSetupModel()
+
+	embyIdx := -1
+	for i, p := range m.provs {
+		if p.section == "emby" {
+			embyIdx = i
+			break
+		}
+	}
+	if embyIdx < 0 {
+		t.Fatal("emby spec missing")
+	}
+
+	m.menuCursor = embyIdx
+	m.handleKey(keyPress(tea.KeyEnter, "")) // open picker
+	if m.stage != stagePicker {
+		t.Fatalf("stage = %v, want stagePicker", m.stage)
+	}
+
+	// Pick "API key" (option 0).
+	m.handleKey(keyPress(tea.KeyEnter, ""))
+	if m.stage != stageForm {
+		t.Fatalf("stage = %v, want stageForm", m.stage)
+	}
+	visibleKeys := map[string]bool{}
+	for _, idx := range m.visible {
+		visibleKeys[m.provs[embyIdx].fields[idx].key] = true
+	}
+	if !visibleKeys["url"] || !visibleKeys["token"] {
+		t.Fatalf("token mode missing url/token; got %v", visibleKeys)
+	}
+	if visibleKeys["user"] || visibleKeys["password"] {
+		t.Fatalf("token mode should hide user/password; got %v", visibleKeys)
+	}
+
+	// Switch back, pick password mode, verify the inverse.
+	m.stage = stagePicker
+	m.values = map[string]string{}
+	m.pickerCursor = 1
+	m.handleKey(keyPress(tea.KeyEnter, ""))
+	visibleKeys = map[string]bool{}
+	for _, idx := range m.visible {
+		visibleKeys[m.provs[embyIdx].fields[idx].key] = true
+	}
+	if !visibleKeys["user"] || !visibleKeys["password"] {
+		t.Fatalf("password mode missing user/password; got %v", visibleKeys)
+	}
+	if visibleKeys["token"] {
+		t.Fatalf("password mode should hide token; got %v", visibleKeys)
+	}
+}
+
 // TestRequiredFieldBlocksSubmit ensures pressing Enter on the last field
 // without filling required values produces an error result rather than
 // silently saving.

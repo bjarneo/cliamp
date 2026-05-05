@@ -12,6 +12,7 @@ import (
 
 	"cliamp/applog"
 	"cliamp/config"
+	"cliamp/external/emby"
 	"cliamp/external/jellyfin"
 	"cliamp/external/local"
 	"cliamp/external/navidrome"
@@ -79,6 +80,10 @@ func run(overrides config.Overrides, positional []string) error {
 
 	if jellyProv := jellyfin.NewFromConfig(cfg.Jellyfin); jellyProv != nil {
 		providers = append(providers, model.ProviderEntry{Key: "jellyfin", Name: "Jellyfin", Provider: jellyProv})
+	}
+
+	if embyProv := emby.NewFromConfig(cfg.Emby); embyProv != nil {
+		providers = append(providers, model.ProviderEntry{Key: "emby", Name: "Emby", Provider: embyProv})
 	}
 
 	var spotifyProv *spotify.SpotifyProvider
@@ -205,7 +210,7 @@ func run(overrides config.Overrides, positional []string) error {
 	}
 
 	p.RegisterBufferedURLMatcher(func(u string) bool {
-		return navidrome.IsSubsonicStreamURL(u) || jellyfin.IsStreamURL(u)
+		return navidrome.IsSubsonicStreamURL(u) || jellyfin.IsStreamURL(u) || emby.IsStreamURL(u)
 	})
 
 	cfg.ApplyPlayer(p)

@@ -4,20 +4,20 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CLIAMP — Terminal Music Player</title>
-<meta name="description" content="A retro terminal music player inspired by Winamp 2.x. Play local files, YouTube, Spotify, Plex, Jellyfin, Navidrome, SoundCloud, and 30,000+ radio stations with a spectrum visualizer and 10-band EQ.">
+<meta name="description" content="A retro terminal music player inspired by Winamp 2.x. Play local files, YouTube, Spotify, Plex, Jellyfin, Emby, Navidrome, SoundCloud, and 30,000+ radio stations with a spectrum visualizer and 10-band EQ.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 
 <!-- Open Graph -->
 <meta property="og:type" content="website">
 <meta property="og:title" content="CLIAMP — Terminal Music Player">
-<meta property="og:description" content="A retro terminal music player inspired by Winamp 2.x. Play YouTube, Spotify, Plex, Jellyfin, SoundCloud, and 30,000+ radio stations from your terminal with a spectrum visualizer and 10-band EQ.">
+<meta property="og:description" content="A retro terminal music player inspired by Winamp 2.x. Play YouTube, Spotify, Plex, Jellyfin, Emby, SoundCloud, and 30,000+ radio stations from your terminal with a spectrum visualizer and 10-band EQ.">
 <meta property="og:image" content="https://cliamp.stream/og-image.png">
 <meta property="og:url" content="https://cliamp.stream">
 
 <!-- Twitter Card -->
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="CLIAMP — Terminal Music Player">
-<meta name="twitter:description" content="A retro terminal music player inspired by Winamp 2.x. Play YouTube, Spotify, Plex, Jellyfin, SoundCloud, and 30,000+ radio stations from your terminal with a spectrum visualizer and 10-band EQ.">
+<meta name="twitter:description" content="A retro terminal music player inspired by Winamp 2.x. Play YouTube, Spotify, Plex, Jellyfin, Emby, SoundCloud, and 30,000+ radio stations from your terminal with a spectrum visualizer and 10-band EQ.">
 <meta name="twitter:image" content="https://cliamp.stream/og-image.png">
 
 <style>
@@ -1230,7 +1230,7 @@
     <div class="hero-tagline">Terminal Music Player · <em>Winamp</em> for your shell</div>
     <p class="hero-desc">
       Playlists, EQ, visualizers, lyrics, remote control, and a Lua plugin system.
-      Streams from <em>Spotify</em>, YouTube Music, Plex, Jellyfin, Navidrome, and 30,000+ radio stations.
+      Streams from <em>Spotify</em>, YouTube Music, Plex, Jellyfin, Emby, Navidrome, and 30,000+ radio stations.
     </p>
 
     <!-- Terminal (cliamp TUI simulation) -->
@@ -1299,6 +1299,7 @@
           <span class="t-pill-static">[Navidrome]</span>
           <span class="t-pill-static">[Plex]</span>
           <span class="t-pill-static">[Jellyfin]</span>
+          <span class="t-pill-static">[Emby]</span>
           <span class="t-pill-static">[Spotify]</span>
           <span class="t-pill-static">[YouTube]</span>
           <span class="t-pill-static">[YT&nbsp;Music]</span>
@@ -1363,6 +1364,7 @@
     <span class="marquee-item"><strong>YouTube</strong></span>
     <span class="marquee-item"><strong>Plex</strong></span>
     <span class="marquee-item"><strong>Jellyfin</strong></span>
+    <span class="marquee-item"><strong>Emby</strong></span>
     <span class="marquee-item"><strong>Navidrome</strong></span>
     <span class="marquee-item"><strong>SoundCloud</strong></span>
     <span class="marquee-item"><strong>Bandcamp</strong></span>
@@ -1384,6 +1386,7 @@
     <span class="marquee-item"><strong>YouTube</strong></span>
     <span class="marquee-item"><strong>Plex</strong></span>
     <span class="marquee-item"><strong>Jellyfin</strong></span>
+    <span class="marquee-item"><strong>Emby</strong></span>
     <span class="marquee-item"><strong>Navidrome</strong></span>
     <span class="marquee-item"><strong>SoundCloud</strong></span>
     <span class="marquee-item"><strong>Bandcamp</strong></span>
@@ -1448,7 +1451,7 @@
     <div class="next-step">
       <div class="next-step-label">Next step · configure providers</div>
       <h3>Run the setup wizard</h3>
-      <p>An interactive TUI walks you through Navidrome, Plex, Jellyfin, Spotify, and YouTube Music. It links to each provider's credential page, validates the connection, and writes the right block to your config file.</p>
+      <p>An interactive TUI walks you through Navidrome, Plex, Jellyfin, Emby, Spotify, and YouTube Music. It links to each provider's credential page, validates the connection, and writes the right block to your config file.</p>
       <div class="install-box" onclick="copyCmd(this,'cliamp setup')">
         <div class="install-platform">Setup</div>
         <code><span class="prompt">$ </span>cliamp setup</code>
@@ -1467,7 +1470,7 @@
       <span class="sh-line"></span>
     </div>
     <p class="sources-intro">
-      Stream from everywhere. Every provider runs through the same <em>playlist, EQ, visualizer, and lyrics pipeline</em> — your config follows you across services. Run <code>cliamp setup</code> for an interactive wizard that walks you through Navidrome, Plex, Jellyfin, Spotify, and YouTube Music.
+      Stream from everywhere. Every provider runs through the same <em>playlist, EQ, visualizer, and lyrics pipeline</em> — your config follows you across services. Run <code>cliamp setup</code> for an interactive wizard that walks you through Navidrome, Plex, Jellyfin, Emby, Spotify, and YouTube Music.
     </p>
     <div class="sources-grid">
       <div class="source" style="--src-color:#1db954">
@@ -1494,6 +1497,11 @@
         <div class="source-badge">Media server</div>
         <div class="source-name">Jellyfin</div>
         <div class="source-desc">Artists, albums, tracks — buffered gapless playback.</div>
+      </div>
+      <div class="source" style="--src-color:#52b54b">
+        <div class="source-badge">Media server</div>
+        <div class="source-name">Emby</div>
+        <div class="source-desc">Browse your Emby music library with API key or username/password auth.</div>
       </div>
       <div class="source" style="--src-color:#2ecc71">
         <div class="source-badge">Subsonic API</div>
@@ -1904,7 +1912,7 @@
         <div class="keys-group-title">Search &amp; Browse</div>
         <div class="keys-group-body">
           <div class="key-row"><kbd>/</kbd><span>Search playlist</span></div>
-          <div class="key-row"><kbd>Ctrl+F</kbd><span>Search active provider (Spotify, Navidrome, Jellyfin, Plex, Local) or YouTube fallback</span></div>
+          <div class="key-row"><kbd>Ctrl+F</kbd><span>Search active provider (Spotify, Navidrome, Jellyfin, Emby, Plex, Local) or YouTube fallback</span></div>
           <div class="key-row"><kbd>f</kbd><span>Toggle bookmark &#9733; / radio favorite</span></div>
           <div class="key-row"><kbd>u</kbd><span>Load URL (stream / playlist)</span></div>
           <div class="key-row"><kbd>o</kbd><span>Open file browser</span></div>
@@ -1935,7 +1943,7 @@
           <div class="key-row"><kbd>/</kbd><span>Filter the visible playlists</span></div>
           <div class="key-row"><kbd>Ctrl+F</kbd><span>Online / server search via the provider's own search</span></div>
           <div class="key-row"><kbd>Ctrl+R</kbd><span>Refresh — re-pull playlists from the provider</span></div>
-          <div class="key-row"><kbd>S</kbd> <kbd>N</kbd> <kbd>P</kbd> <kbd>J</kbd> <kbd>Y</kbd> <kbd>L</kbd> <kbd>R</kbd><span>Switch to Spotify / Navidrome / Plex / Jellyfin / YouTube / Local / Radio</span></div>
+          <div class="key-row"><kbd>S</kbd> <kbd>N</kbd> <kbd>P</kbd> <kbd>J</kbd> <kbd>E</kbd> <kbd>Y</kbd> <kbd>L</kbd> <kbd>R</kbd><span>Switch to Spotify / Navidrome / Plex / Jellyfin / Emby / YouTube / Local / Radio</span></div>
           <div class="key-row"><kbd>▶</kbd><span>Marker on the row whose tracks are currently loaded</span></div>
         </div>
       </div>
@@ -1974,6 +1982,7 @@
           <div class="key-row"><kbd>S</kbd><span>Spotify</span></div>
           <div class="key-row"><kbd>P</kbd><span>Plex</span></div>
           <div class="key-row"><kbd>J</kbd><span>Jellyfin</span></div>
+          <div class="key-row"><kbd>E</kbd><span>Emby</span></div>
           <div class="key-row"><kbd>Y</kbd><span>YouTube</span></div>
           <div class="key-row"><kbd>R</kbd><span>Radio</span></div>
           <div class="key-row"><kbd>e / t / v</kbd><span>EQ preset / Theme / Visualizer</span></div>
