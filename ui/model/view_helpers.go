@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"iter"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -162,58 +163,64 @@ func isStreamingPlaylistTrack(path string) bool {
 	return strings.HasPrefix(path, "spotify:track:")
 }
 
-// walkTracksWithHeaders iterates through tracks starting at scroll and invokes
-// callbacks for each album separator and track according to grouping and
-// sticky-header rules.
-func (m Model) walkTracksWithHeaders(
-	tracks []playlist.Track,
-	scroll int,
-	showHeaders bool,
-	onSep func(album string, year int) bool,
-	onTrack func(i int, t playlist.Track) bool,
-) {
-	if len(tracks) == 0 || scroll < 0 || scroll >= len(tracks) {
-		return
-	}
+// playlistRow represents a single line in a track list, which can be either
+// an album separator header or an actual track.
+type playlistRow struct {
+	Index int            // index into the original track list; -1 for headers
+	Track playlist.Track // only populated if Index >= 0
+	Album string         // only populated for headers (Index == -1)
+	Year  int            // only populated for headers (Index == -1)
+}
 
-	rows := 0
-	prevAlbum := ""
-	if scroll > 0 {
-		if !isStreamingPlaylistTrack(tracks[scroll-1].Path) {
-			prevAlbum = tracks[scroll-1].Album
-		}
-		if showHeaders {
-			t := tracks[scroll]
-			if album := t.Album; album != "" && album == prevAlbum && !isStreamingPlaylistTrack(t.Path) {
-				if !onSep(album, t.Year) {
-					return
-				}
-				rows++
-			}
-		}
-	}
-
-	for i := scroll; i < len(tracks); i++ {
-		t := tracks[i]
-		album := t.Album
-		isStreaming := isStreamingPlaylistTrack(t.Path)
-
-		if showHeaders && album != prevAlbum && !isStreaming && (album != "" || rows > 0) {
-			if !onSep(album, t.Year) {
-				return
-			}
-			rows++
-		}
-
-		if !onTrack(i, t) {
+// playlistRows returns an iterator over tracks and their injected album headers,
+// starting from the given scroll position. It accounts for "sticky" headers
+// (showing the header for an album even if we scrolled into the middle of it).
+func (m Model) playlistRows(tracks []playlist.Track, scroll int, showHeaders bool) iter.Seq[playlistRow] {
+	return func(yield func(playlistRow) bool) {
+		if len(tracks) == 0 || scroll < 0 || scroll >= len(tracks) {
 			return
 		}
-		rows++
 
-		if isStreaming {
-			prevAlbum = ""
-		} else {
-			prevAlbum = album
+		// Initialize the album context from the track just above the scroll window.
+		prevAlbum := ""
+		if scroll > 0 && !isStreamingPlaylistTrack(tracks[scroll-1].Path) {
+			prevAlbum = tracks[scroll-1].Album
+		}
+
+		for i := scroll; i < len(tracks); i++ {
+			t := tracks[i]
+			isStreaming := isStreamingPlaylistTrack(t.Path)
+
+			if showHeaders && !isStreaming {
+				// Sticky Header: we scrolled into the middle of a named album.
+				if i == scroll && t.Album != "" && t.Album == prevAlbum {
+					if !yield(playlistRow{Index: -1, Album: t.Album, Year: t.Year}) {
+						return
+					}
+				}
+
+				// Transition Header: the album changed.
+				if t.Album != prevAlbum {
+					// Suppress blank headers (separators) if they would be the first row of the view.
+					// Named headers are always allowed.
+					if t.Album != "" || i > scroll {
+						if !yield(playlistRow{Index: -1, Album: t.Album, Year: t.Year}) {
+							return
+						}
+					}
+				}
+			}
+
+			// The Track itself.
+			if !yield(playlistRow{Index: i, Track: t}) {
+				return
+			}
+
+			// Update context for the next iteration.
+			prevAlbum = t.Album
+			if isStreaming {
+				prevAlbum = ""
+			}
 		}
 	}
 }
@@ -222,7 +229,7 @@ func (m Model) walkTracksWithHeaders(
 // in a playlist view that emits an album-separator row whenever the album
 // changes. Streaming tracks are treated as not contributing a separator,
 // matching the renderer.
-func albumSeparatorRows(tracks []playlist.Track, scroll, cursor int, showHeaders bool) int {
+func (m Model) albumSeparatorRows(tracks []playlist.Track, scroll, cursor int, showHeaders bool) int {
 	if len(tracks) == 0 || scroll < 0 || cursor < scroll || cursor >= len(tracks) {
 		return 0
 	}
@@ -231,13 +238,12 @@ func albumSeparatorRows(tracks []playlist.Track, scroll, cursor int, showHeaders
 	}
 
 	rows := 0
-	Model{}.walkTracksWithHeaders(tracks, scroll, showHeaders, func(string, int) bool {
+	for row := range m.playlistRows(tracks, scroll, showHeaders) {
 		rows++
-		return true
-	}, func(i int, t playlist.Track) bool {
-		rows++
-		return i < cursor
-	})
+		if row.Index == cursor {
+			break
+		}
+	}
 	return rows
 }
 

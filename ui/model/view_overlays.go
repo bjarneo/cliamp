@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"cliamp/lyrics"
-	"cliamp/playlist"
 	"cliamp/theme"
 	"cliamp/ui"
 )
@@ -249,22 +248,26 @@ func (m Model) renderPlMgrTracks() []string {
 		}
 	} else {
 		if useAlbumSep {
-			for scroll < m.plManager.cursor && albumSeparatorRows(m.plManager.tracks, scroll, m.plManager.cursor, true) > maxVisible {
+			for scroll < m.plManager.cursor && m.albumSeparatorRows(m.plManager.tracks, scroll, m.plManager.cursor, true) > maxVisible {
 				scroll++
 			}
 		}
 
-		m.walkTracksWithHeaders(m.plManager.tracks, scroll, useAlbumSep, func(album string, year int) bool {
-			if rendered+1 >= maxVisible {
-				return false
+		for row := range m.playlistRows(m.plManager.tracks, scroll, useAlbumSep) {
+			if row.Index < 0 {
+				if rendered+1 >= maxVisible {
+					break
+				}
+				lines = append(lines, m.albumSeparator(row.Album, row.Year))
+				rendered++
+				continue
 			}
-			lines = append(lines, m.albumSeparator(album, year))
-			rendered++
-			return true
-		}, func(i int, t playlist.Track) bool {
+
 			if rendered >= maxVisible {
-				return false
+				break
 			}
+
+			i, t := row.Index, row.Track
 			name := t.DisplayName()
 			if !m.showAlbumHeaders && t.Album != "" {
 				name += " · " + t.Album
@@ -272,8 +275,7 @@ func (m Model) renderPlMgrTracks() []string {
 			label := formatTrackRow(i+1, name, t.DurationSecs)
 			lines = append(lines, cursorLine(label, i == m.plManager.cursor))
 			rendered++
-			return true
-		})
+		}
 	}
 
 	if visibleN > maxVisible {

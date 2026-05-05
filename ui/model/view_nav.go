@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"cliamp/playlist"
 	"cliamp/provider"
 	"cliamp/ui"
 )
@@ -202,18 +201,21 @@ func (m Model) renderNavTrackList() []string {
 		scroll := m.navBrowser.scroll
 		rendered := 0
 
-		m.walkTracksWithHeaders(m.navBrowser.tracks, scroll, m.showAlbumHeaders, func(album string, year int) bool {
-			if rendered+1 >= maxVisible {
-				return false
-			}
-			lines = append(lines, m.albumSeparator(album, year))
-			rendered++
-			return true
-		}, func(i int, t playlist.Track) bool {
-			if rendered >= maxVisible {
-				return false
+		for row := range m.playlistRows(m.navBrowser.tracks, scroll, m.showAlbumHeaders) {
+			if row.Index < 0 {
+				if rendered+1 >= maxVisible {
+					break
+				}
+				lines = append(lines, m.albumSeparator(row.Album, row.Year))
+				rendered++
+				continue
 			}
 
+			if rendered >= maxVisible {
+				break
+			}
+
+			i, t := row.Index, row.Track
 			name := t.DisplayName()
 			if !m.showAlbumHeaders && t.Album != "" {
 				name += " · " + t.Album
@@ -221,8 +223,7 @@ func (m Model) renderNavTrackList() []string {
 			label := formatTrackRow(i+1, name, t.DurationSecs)
 			lines = append(lines, cursorLine(label, i == m.navBrowser.cursor))
 			rendered++
-			return true
-		})
+		}
 
 		lines = padLines(lines, maxVisible, rendered)
 	}

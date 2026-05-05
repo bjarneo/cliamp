@@ -706,24 +706,27 @@ func (m Model) renderPlaylist() string {
 	lines := make([]string, 0, budget)
 	numWidth := len(fmt.Sprintf("%d", len(tracks)))
 
-	m.walkTracksWithHeaders(tracks, scroll, m.showAlbumHeaders, func(album string, year int) bool {
-		if len(lines)+1 >= budget {
-			return false
-		}
-		lines = append(lines, m.albumSeparator(album, year))
-		return true
-	}, func(i int, t playlist.Track) bool {
-		if len(lines) >= budget {
-			return false
+	for row := range m.playlistRows(tracks, scroll, m.showAlbumHeaders) {
+		if row.Index < 0 {
+			if len(lines)+1 >= budget {
+				break
+			}
+			lines = append(lines, m.albumSeparator(row.Album, row.Year))
+			continue
 		}
 
+		if len(lines) >= budget {
+			break
+		}
+
+		i, t := row.Index, row.Track
 		prefix := "  "
 		style := playlistItemStyle
 
 		if i == currentIdx && m.player.IsPlaying() {
 			prefix = "▶ "
 			style = playlistActiveStyle
-		} else if strings.HasPrefix(tracks[i].Path, "ssh://") {
+		} else if strings.HasPrefix(t.Path, "ssh://") {
 			prefix = "↗ "
 		}
 
@@ -731,7 +734,7 @@ func (m Model) renderPlaylist() string {
 			style = playlistSelectedStyle
 		}
 
-		if tracks[i].Unplayable {
+		if t.Unplayable {
 			if m.focus == focusPlaylist && i == m.plCursor {
 				style = dimStyle
 			} else {
@@ -739,8 +742,8 @@ func (m Model) renderPlaylist() string {
 			}
 		}
 
-		name := tracks[i].DisplayName()
-		isBookmark := tracks[i].Bookmark
+		name := t.DisplayName()
+		isBookmark := t.Bookmark
 		bookmarkBudget := 0
 		if isBookmark {
 			bookmarkBudget = 2 // "★ "
@@ -758,12 +761,12 @@ func (m Model) renderPlaylist() string {
 		// Truncate the album to fit whatever space remains after the track name.
 		albumSuffix := ""
 		nameLen := utf8.RuneCountInString(name)
-		if tracks[i].Unplayable {
+		if t.Unplayable {
 			remaining := ui.PanelWidth - linePrefixWidth - bookmarkBudget - nameLen - queueLen
 			if remaining >= 4 {
 				albumSuffix = truncate(" (unavailable)", remaining)
 			}
-		} else if album := tracks[i].Album; album != "" && (isStreamingPlaylistTrack(tracks[i].Path) || !m.showAlbumHeaders) {
+		} else if album := t.Album; album != "" && (isStreamingPlaylistTrack(t.Path) || !m.showAlbumHeaders) {
 			remaining := ui.PanelWidth - linePrefixWidth - bookmarkBudget - nameLen - queueLen - 3 // 3 = " · "
 			if remaining >= 4 {
 				albumSuffix = " · " + truncate(album, remaining)
@@ -783,8 +786,7 @@ func (m Model) renderPlaylist() string {
 			line += activeToggle.Render(queueSuffix)
 		}
 		lines = append(lines, line)
-		return true
-	})
+	}
 
 	for len(lines) < budget {
 		lines = append(lines, "")
