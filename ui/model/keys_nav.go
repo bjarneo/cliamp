@@ -314,6 +314,10 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 	}
 
 	switch msg.String() {
+	case "ctrl+h":
+		m.showAlbumHeaders = !m.showAlbumHeaders
+		m.navMaybeAdjustScroll()
+		return nil
 	case "ctrl+c":
 		m.navBrowser.visible = false
 		return m.quit()

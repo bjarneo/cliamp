@@ -1443,6 +1443,9 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	count := m.plMgrTracksViewCount()
 	switch msg.String() {
+	case "ctrl+h":
+		m.showAlbumHeaders = !m.showAlbumHeaders
+		return nil
 	case "ctrl+c":
 		m.plManager.visible = false
 		return m.quit()
