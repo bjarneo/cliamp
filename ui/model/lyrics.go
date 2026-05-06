@@ -54,3 +54,13 @@ func (m *Model) lyricsHaveTimestamps() bool {
 	}
 	return false
 }
+
+// lyricsVisibleHeight returns the number of lyrics lines to show.
+func (m Model) lyricsVisibleHeight() int {
+	limit := maxPlVisible
+	if m.heightExpanded {
+		limit = m.height
+	}
+	// Fixed overhead: header (2) + spacing/footer (2) = 4.
+	return max(3, min(limit, m.height-4))
+}

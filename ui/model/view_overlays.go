@@ -496,6 +496,7 @@ func (m Model) renderURLInputOverlay() string {
 }
 
 func (m Model) renderLyricsOverlay() string {
+	visible := m.lyricsVisibleHeight()
 	lines := []string{
 		titleStyle.Render("L Y R I C S"),
 		"",
@@ -532,7 +533,6 @@ func (m Model) renderLyricsOverlay() string {
 			}
 		}
 
-		visible := max(m.height-8, 5)
 		half := visible / 2
 		startIdx := max(activeIdx-half, 0)
 		endIdx := startIdx + visible
@@ -554,7 +554,6 @@ func (m Model) renderLyricsOverlay() string {
 		}
 	} else {
 		// Scroll mode: manual navigation with j/k or arrow keys.
-		visible := max(m.height-8, 5)
 		endIdx := min(m.lyrics.scroll+visible, len(m.lyrics.lines))
 
 		for i := m.lyrics.scroll; i < endIdx; i++ {
@@ -566,9 +565,8 @@ func (m Model) renderLyricsOverlay() string {
 		}
 	}
 
-	for len(lines) < 14 {
-		lines = append(lines, "")
-	}
+	rendered := len(lines) - 2 // -2 for header and spacing
+	lines = padLines(lines, visible, rendered)
 
 	if m.lyricsSyncable() && m.lyricsHaveTimestamps() {
 		lines = append(lines, "", helpKey("Esc", "Close"))

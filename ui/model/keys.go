@@ -252,6 +252,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 					m.lyrics.scroll++
 				}
 			}
+		case "ctrl+x":
+			m.toggleExpandPlaylist()
 		}
 		return nil
 	}
