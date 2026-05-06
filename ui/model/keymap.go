@@ -333,7 +333,7 @@ func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.keymapMaybeAdjustScroll(m.keymapVisible())
 
 	case "ctrl+x":
-		m.toggleExpandPlaylist()
+		m.toggleExpandedView()
 		m.keymapMaybeAdjustScroll(m.keymapVisible())
 
 	case "pgup", "ctrl+u":

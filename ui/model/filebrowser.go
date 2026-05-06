@@ -322,7 +322,7 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.fileBrowser.filtered = nil
 
 	case "ctrl+x":
-		m.toggleExpandPlaylist()
+		m.toggleExpandedView()
 		m.fbMaybeAdjustScroll(m.fbVisible())
 
 	case "/":

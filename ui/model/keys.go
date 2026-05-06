@@ -253,7 +253,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 				}
 			}
 		case "ctrl+x":
-			m.toggleExpandPlaylist()
+			m.toggleExpandedView()
 		}
 		return nil
 	}
@@ -360,7 +360,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		case "R":
 			return m.switchToProvider("radio")
 		case "ctrl+x":
-			m.toggleExpandPlaylist()
+			m.toggleExpandedView()
 		case "ctrl+f":
 			m.openProviderSearch()
 		}
@@ -750,7 +750,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "ctrl+x":
 		if m.focus == focusPlaylist {
-			m.toggleExpandPlaylist()
+			m.toggleExpandedView()
 		}
 
 	case "x":
@@ -1025,8 +1025,8 @@ func (m *Model) updateProvSearch() {
 	}
 }
 
-// toggleExpandPlaylist toggles the playlist panel between default and expanded height.
-func (m *Model) toggleExpandPlaylist() {
+// toggleExpandedView toggles the UI between default and expanded height.
+func (m *Model) toggleExpandedView() {
 	m.heightExpanded = !m.heightExpanded
 	m.applyHeightMode()
 	m.adjustScroll()
@@ -1654,7 +1654,7 @@ func (m *Model) handleThemeKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.themePickerMaybeAdjustScroll(m.themePickerVisible())
 
 	case "ctrl+x":
-		m.toggleExpandPlaylist()
+		m.toggleExpandedView()
 		m.themePickerMaybeAdjustScroll(m.themePickerVisible())
 
 	case "pgup", "ctrl+u":
