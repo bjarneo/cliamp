@@ -67,8 +67,9 @@ func (m Model) renderThemePicker() string {
 	}
 
 	count := len(m.themes) + 1
-	maxVisible := 15
-	scroll := scrollStart(m.themePicker.cursor, maxVisible)
+	maxVisible := m.themePickerVisible()
+	scroll := m.themePicker.scroll
+	rendered := 0
 
 	for i := scroll; i < count && i < scroll+maxVisible; i++ {
 		var name string
@@ -78,13 +79,12 @@ func (m Model) renderThemePicker() string {
 			name = m.themes[i-1].Name
 		}
 		lines = append(lines, cursorLine(name, i == m.themePicker.cursor))
+		rendered++
 	}
 
-	if count > maxVisible {
-		lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d themes", m.themePicker.cursor+1, count)))
-	}
-
-	lines = append(lines, "", helpKey("↓↑", "Scroll ")+helpKey("Enter", "Select ")+helpKey("Esc", "Cancel"))
+	lines = padLines(lines, maxVisible, rendered)
+	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d themes", m.themePicker.cursor+1, count)))
+	lines = append(lines, "", m.themePickerHelpLine())
 
 	return m.centerOverlay(strings.Join(lines, "\n"))
 }

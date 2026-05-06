@@ -3,7 +3,10 @@ package model
 import (
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	"cliamp/theme"
+	"cliamp/ui"
 )
 
 // openThemePicker re-loads themes from disk (picking up new user files)
@@ -15,6 +18,8 @@ func (m *Model) openThemePicker() {
 	// Position cursor on the currently active theme.
 	// Picker list: 0 = Default, 1..N = themes[0..N-1]
 	m.themePicker.cursor = m.themeIdx + 1
+	m.themePicker.scroll = 0
+	m.themePickerMaybeAdjustScroll(m.themePickerVisible())
 }
 
 // themePickerApply applies the theme under the cursor for live preview.
@@ -43,6 +48,54 @@ func (m *Model) themePickerCancel() {
 		applyThemeAll(m.themes[m.themeIdx])
 	}
 	m.themePicker.visible = false
+}
+
+func (m *Model) themePickerHelpLine() string {
+	return helpKey("↓↑", "Scroll ") + helpKey("Enter", "Select ") + helpKey("Esc", "Close")
+}
+
+func (m *Model) themePickerVisible() int {
+	probeSections := []string{
+		titleStyle.Render("T H E M E S"),
+		"",
+		"x", // 1-line list placeholder
+		"",
+		dimStyle.Render("  0/0 themes"),
+		"",
+		m.themePickerHelpLine(),
+	}
+
+	probeFrame := ui.FrameStyle.Render(strings.Join(probeSections, "\n"))
+	fixedHeight := lipgloss.Height(probeFrame) - 1
+
+	limit := maxPlVisible
+	if m.heightExpanded {
+		limit = m.height
+	}
+	return max(3, min(limit, m.height-fixedHeight))
+}
+
+func (m *Model) themePickerMaybeAdjustScroll(visible int) {
+	if visible <= 0 {
+		return
+	}
+	count := len(m.themes) + 1
+	if m.themePicker.cursor < 0 {
+		m.themePicker.cursor = 0
+	}
+	if m.themePicker.cursor >= count && count > 0 {
+		m.themePicker.cursor = count - 1
+	}
+
+	if m.themePicker.cursor < m.themePicker.scroll {
+		m.themePicker.scroll = m.themePicker.cursor
+	} else if m.themePicker.cursor >= m.themePicker.scroll+visible {
+		m.themePicker.scroll = m.themePicker.cursor - visible + 1
+	}
+
+	if m.themePicker.scroll+visible > count && count > 0 {
+		m.themePicker.scroll = max(0, count-visible)
+	}
 }
 
 // openPlaylistManager loads playlist metadata and opens the manager overlay.

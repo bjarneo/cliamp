@@ -1632,24 +1632,60 @@ func (m *Model) handleThemeKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "ctrl+c":
 		m.themePickerCancel()
 		return m.quit()
+
 	case "up", "k":
 		if m.themePicker.cursor > 0 {
 			m.themePicker.cursor--
-			m.themePickerApply() // live preview
-		} else {
+		} else if count > 0 {
 			m.themePicker.cursor = count - 1
-			m.themePickerApply() // live preview
 		}
+		m.themePickerApply()
+		m.themePickerMaybeAdjustScroll(m.themePickerVisible())
+
 	case "down", "j":
 		if m.themePicker.cursor < count-1 {
 			m.themePicker.cursor++
-			m.themePickerApply() // live preview
-		} else {
+		} else if count > 0 {
 			m.themePicker.cursor = 0
-			m.themePickerApply() // live preview
 		}
+		m.themePickerApply()
+		m.themePickerMaybeAdjustScroll(m.themePickerVisible())
+
+	case "ctrl+x":
+		m.toggleExpandPlaylist()
+		m.themePickerMaybeAdjustScroll(m.themePickerVisible())
+
+	case "pgup", "ctrl+u":
+		if m.themePicker.cursor > 0 {
+			visible := m.themePickerVisible()
+			m.themePicker.cursor -= min(m.themePicker.cursor, visible)
+			m.themePickerApply()
+			m.themePickerMaybeAdjustScroll(visible)
+		}
+
+	case "pgdown", "ctrl+d":
+		if m.themePicker.cursor < count-1 {
+			visible := m.themePickerVisible()
+			m.themePicker.cursor = min(count-1, m.themePicker.cursor+visible)
+			m.themePickerApply()
+			m.themePickerMaybeAdjustScroll(visible)
+		}
+
+	case "home", "g":
+		m.themePicker.cursor = 0
+		m.themePickerApply()
+		m.themePickerMaybeAdjustScroll(m.themePickerVisible())
+
+	case "end", "G":
+		if count > 0 {
+			m.themePicker.cursor = count - 1
+		}
+		m.themePickerApply()
+		m.themePickerMaybeAdjustScroll(m.themePickerVisible())
+
 	case "enter":
 		m.themePickerSelect()
+
 	case "esc", "q", "t":
 		m.themePickerCancel()
 	}

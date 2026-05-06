@@ -65,6 +65,7 @@ type seekState struct {
 type themePickerState struct {
 	visible  bool
 	cursor   int
+	scroll   int
 	savedIdx int // themeIdx before opening picker, for cancel/restore
 }
 
