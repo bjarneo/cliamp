@@ -156,11 +156,34 @@ func helpKey(key, label string) string {
 	return helpKeyStyle.Render(" "+key+" ") + helpStyle.Render(" "+label)
 }
 
-// isStreamingPlaylistTrack reports whether path is a streaming-provider URI
-// whose Album metadata may not represent a real album grouping (so separators
-// would be misleading).
-func isStreamingPlaylistTrack(path string) bool {
-	return strings.HasPrefix(path, "spotify:track:")
+// isListCohesive returns true if the track list appears to be organized into
+// distinct albums (e.g. an artist's discography or a full album) rather than
+// a fragmented mixtape. It uses a threshold of average tracks per album.
+func isListCohesive(tracks []playlist.Track) bool {
+	headers := 0
+	prev := ""
+	first := true
+	for _, t := range tracks {
+		if first || t.Album != prev {
+			headers++
+			prev = t.Album
+			first = false
+		}
+	}
+
+	if headers == 0 {
+		return false
+	}
+
+	// If average tracks per album is < 3.0, the list is considered fragmented.
+	ratio := float64(len(tracks)) / float64(headers)
+	return ratio >= 3.0
+}
+
+// setInitialHeaderState evaluates the track list's cohesion to decide whether
+// to show album headers by default.
+func (m *Model) setInitialHeaderState(tracks []playlist.Track) {
+	m.showAlbumHeaders = isListCohesive(tracks)
 }
 
 // playlistRow represents a single line in a track list, which can be either
@@ -183,15 +206,14 @@ func (m Model) playlistRows(tracks []playlist.Track, scroll int, showHeaders boo
 
 		// Initialize the album context from the track just above the scroll window.
 		prevAlbum := ""
-		if scroll > 0 && !isStreamingPlaylistTrack(tracks[scroll-1].Path) {
+		if scroll > 0 {
 			prevAlbum = tracks[scroll-1].Album
 		}
 
 		for i := scroll; i < len(tracks); i++ {
 			t := tracks[i]
-			isStreaming := isStreamingPlaylistTrack(t.Path)
 
-			if showHeaders && !isStreaming {
+			if showHeaders {
 				// Sticky Header: we scrolled into the middle of a named album.
 				if i == scroll && t.Album != "" && t.Album == prevAlbum {
 					if !yield(playlistRow{Index: -1, Album: t.Album, Year: t.Year}) {
@@ -218,9 +240,6 @@ func (m Model) playlistRows(tracks []playlist.Track, scroll int, showHeaders boo
 
 			// Update context for the next iteration.
 			prevAlbum = t.Album
-			if isStreaming {
-				prevAlbum = ""
-			}
 		}
 	}
 }

@@ -766,7 +766,7 @@ func (m Model) renderPlaylist() string {
 			if remaining >= 4 {
 				albumSuffix = truncate(" (unavailable)", remaining)
 			}
-		} else if album := t.Album; album != "" && (isStreamingPlaylistTrack(t.Path) || !m.showAlbumHeaders) {
+		} else if album := t.Album; album != "" && !m.showAlbumHeaders {
 			remaining := ui.PanelWidth - linePrefixWidth - bookmarkBudget - nameLen - queueLen - 3 // 3 = " · "
 			if remaining >= 4 {
 				albumSuffix = " · " + truncate(album, remaining)
