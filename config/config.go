@@ -194,36 +194,37 @@ func (e EmbyConfig) IsSet() bool {
 
 // Config holds user preferences loaded from the config file.
 type Config struct {
-	Volume          float64     // dB, range [-30, +6]
-	EQ              [10]float64 // per-band gain in dB, range [-12, +12]
-	EQPreset        string      // preset name, or "" for custom
-	Repeat          string      // "off", "all", or "one"
-	Shuffle         bool
-	Mono            bool
-	Speed           float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
-	AutoPlay        bool                         // start playback automatically on launch (radio streams, CLI tracks)
-	SeekStepLarge   int                          // seconds for Shift+Left/Right seek jumps
-	Provider        string                       // default provider: "radio", "navidrome", "spotify", "plex", "jellyfin", "emby", "ytmusic" (default "radio")
-	Theme           string                       // theme name, or "" for ANSI default
-	Visualizer      string                       // visualizer mode name, or "" for default (Bars)
-	SampleRate      int                          // output sample rate: 22050, 44100, 48000, 96000, 192000
-	BufferMs        int                          // speaker buffer in milliseconds (50–500)
-	ResampleQuality int                          // beep resample quality factor (1–4)
-	BitDepth        int                          // PCM bit depth for FFmpeg output: 16 or 32
-	Compact         bool                         // compact mode: cap frame width at 80 columns
-	PaddingH        int                          // horizontal padding for the UI frame (default 3)
-	PaddingV        int                          // vertical padding for the UI frame (default 1)
-	AudioDevice     string                       // preferred audio output device name (empty = system default)
-	Playlist        string                       // local TOML playlist name to load on startup
-	Navidrome       NavidromeConfig              // optional Navidrome/Subsonic server credentials
-	Spotify         SpotifyConfig                // optional Spotify provider (requires Premium)
-	YouTubeMusic    YouTubeMusicConfig           // optional YouTube Music provider
-	Plex            PlexConfig                   // optional Plex Media Server credentials
-	Jellyfin        JellyfinConfig               // optional Jellyfin server credentials
-	Emby            EmbyConfig                   // optional Emby server credentials
-	SoundCloud      SoundCloudConfig             // SoundCloud provider (opt-in via enabled = true)
-	Plugins         map[string]map[string]string // per-plugin config from [plugins.*] sections
-	LogLevel        string                       // log level: debug, info, warn, error (default "info")
+	Volume           float64     // dB, range [-30, +6]
+	EQ               [10]float64 // per-band gain in dB, range [-12, +12]
+	EQPreset         string      // preset name, or "" for custom
+	Repeat           string      // "off", "all", or "one"
+	Shuffle          bool
+	Mono             bool
+	Speed            float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
+	AutoPlay         bool                         // start playback automatically on launch (radio streams, CLI tracks)
+	SeekStepLarge    int                          // seconds for Shift+Left/Right seek jumps
+	Provider         string                       // default provider: "radio", "navidrome", "spotify", "plex", "jellyfin", "emby", "ytmusic" (default "radio")
+	Theme            string                       // theme name, or "" for ANSI default
+	Visualizer       string                       // visualizer mode name, or "" for default (Bars)
+	SampleRate       int                          // output sample rate: 22050, 44100, 48000, 96000, 192000
+	BufferMs         int                          // speaker buffer in milliseconds (50–500)
+	ResampleQuality  int                          // beep resample quality factor (1–4)
+	BitDepth         int                          // PCM bit depth for FFmpeg output: 16 or 32
+	Compact          bool                         // compact mode: cap frame width at 80 columns
+	PaddingH         int                          // horizontal padding for the UI frame (default 3)
+	PaddingV         int                          // vertical padding for the UI frame (default 1)
+	AudioDevice      string                       // preferred audio output device name (empty = system default)
+	Playlist         string                       // local TOML playlist name to load on startup
+	InitialDirectory string                       // initial directory for the file browser
+	Navidrome        NavidromeConfig              // optional Navidrome/Subsonic server credentials
+	Spotify          SpotifyConfig                // optional Spotify provider (requires Premium)
+	YouTubeMusic     YouTubeMusicConfig           // optional YouTube Music provider
+	Plex             PlexConfig                   // optional Plex Media Server credentials
+	Jellyfin         JellyfinConfig               // optional Jellyfin server credentials
+	Emby             EmbyConfig                   // optional Emby server credentials
+	SoundCloud       SoundCloudConfig             // SoundCloud provider (opt-in via enabled = true)
+	Plugins          map[string]map[string]string // per-plugin config from [plugins.*] sections
+	LogLevel         string                       // log level: debug, info, warn, error (default "info")
 }
 
 // defaultConfig returns a Config with sensible defaults.
@@ -457,6 +458,8 @@ func Load() (Config, error) {
 				cfg.Compact = val == "true"
 			case "audio_device":
 				cfg.AudioDevice = parseString(val)
+			case "initial_directory":
+				cfg.InitialDirectory = parseString(val)
 			case "padding_horizontal":
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.PaddingH = v

@@ -289,6 +289,7 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 	}
 
 	m.SetSeekStepLarge(cfg.SeekStepLargeDuration())
+	m.SetInitialDirectory(cfg.InitialDirectory)
 	m.SetPendingURLs(resolved.Pending)
 	if len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 && pl.Len() == 0 {
 		m.StartInProvider()

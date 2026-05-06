@@ -144,9 +144,22 @@ func (m *Model) fbMaybeAdjustScroll(visible int) {
 // openFileBrowser initialises and shows the file browser overlay.
 func (m *Model) openFileBrowser() {
 	if m.fileBrowser.dir == "" {
-		m.fileBrowser.dir, _ = os.UserHomeDir()
+		m.fileBrowser.dir = m.initialDir
+		if strings.HasPrefix(m.fileBrowser.dir, "~") {
+			if home, _ := os.UserHomeDir(); home != "" {
+				m.fileBrowser.dir = filepath.Join(home, m.fileBrowser.dir[1:])
+			}
+		}
+		if m.fileBrowser.dir != "" {
+			if info, err := os.Stat(m.fileBrowser.dir); err != nil || !info.IsDir() {
+				m.fileBrowser.dir = ""
+			}
+		}
 		if m.fileBrowser.dir == "" {
-			m.fileBrowser.dir = "/"
+			m.fileBrowser.dir, _ = os.UserHomeDir()
+			if m.fileBrowser.dir == "" {
+				m.fileBrowser.dir = "/"
+			}
 		}
 	}
 	m.fileBrowser.cursor = 0

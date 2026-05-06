@@ -13,6 +13,10 @@ shuffle = false
 # Start with mono output (L+R downmix)
 mono = false
 
+# Initial directory for the file browser ('o' key). 
+# Supports environment variables ($HOME) and tilde expansion (~/Music).
+# initial_directory = "~/Music"
+
 # Shift+Left/Right seek jump in seconds (6-600)
 seek_large_step_sec = 30
 

@@ -30,6 +30,9 @@ shuffle = false
 # Start with mono output (L+R downmix)
 mono = false
 
+# Initial directory for the file browser ('o' key)
+initial_directory = "~/Music"
+
 # Shift+Left/Right seek jump in seconds
 seek_large_step_sec = 30
 

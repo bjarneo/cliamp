@@ -81,6 +81,9 @@ func (m *Model) SetAutoPlay(v bool) { m.autoPlay = v }
 // SetCompact enables compact mode which caps the frame width at 80 columns.
 func (m *Model) SetCompact(v bool) { m.compact = v }
 
+// SetInitialDirectory sets the initial directory for the file browser.
+func (m *Model) SetInitialDirectory(dir string) { m.initialDir = dir }
+
 // SetSeekStepLarge configures the Shift+Left/Right seek jump amount.
 func (m *Model) SetSeekStepLarge(d time.Duration) {
 	switch {

@@ -242,6 +242,9 @@ type Model struct {
 	// History recorder (nil if config dir unavailable; safe to call when nil)
 	historyStore *history.Store
 
+	// initialDir is the starting path for the file browser ('o' key).
+	initialDir string
+
 	// Theme state: -1 = Default (ANSI), 0+ = index into themes
 	themes   []theme.Theme
 	themeIdx int
