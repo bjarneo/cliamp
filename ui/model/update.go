@@ -125,11 +125,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			seekCmd = cmd
 		}
 		// Expire temporary status messages.
+		wasStatus := m.status.text != ""
 		if !m.status.expiresAt.IsZero() && !now.Before(m.status.expiresAt) {
 			m.status.Clear()
 		}
 		// Drain app log buffer and expire old entries.
+		wasLogs := len(m.logLines)
 		m.tickLogLines(now)
+		if (wasStatus && m.status.text == "") || len(m.logLines) != wasLogs {
+			m.applyHeightMode()
+			m.adjustScroll()
+		}
 		m.tickPendingSpeedSave(dt)
 		// Decrement seek grace period.
 		advanceTickUnits(&m.seek.grace, &m.seek.graceFor, dt, ui.TickFast)
@@ -156,6 +162,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Poll ICY stream title for live radio display.
 		if title := m.player.StreamTitle(); title != "" && title != m.streamTitle {
 			m.streamTitle = title
+			m.applyHeightMode()
+			m.adjustScroll()
 			m.notifyAll()
 			// Auto-fetch lyrics when the stream song changes and lyrics overlay is open.
 			if m.lyrics.visible && !m.lyrics.loading {
@@ -296,6 +304,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.plCursor = 0
 		m.plScroll = 0
 		m.focus = focusPlaylist
+		m.applyHeightMode()
+		m.adjustScroll()
 		m.provLoading = false
 		if m.playlist.Len() > 0 && !wasPlaying {
 			cmd := m.playCurrentTrack()
@@ -413,6 +423,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setInitialHeaderState(msg.tracks)
 		m.plCursor = 0
 		m.plScroll = 0
+		m.applyHeightMode()
+		m.adjustScroll()
 		m.status.Showf(statusTTLDefault, "Loaded %d episode(s)", len(msg.tracks))
 		playCmd := m.playCurrentTrack()
 		m.notifyAll()
@@ -485,6 +497,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.playlist.Add(msg.tracks...)
 		}
 		m.focus = focusPlaylist
+		m.applyHeightMode()
+		m.adjustScroll()
 		m.status.Showf(statusTTLDefault, "Added %d track(s)", len(msg.tracks))
 		if !m.player.IsPlaying() && m.playlist.Len() > 0 {
 			if msg.replace {

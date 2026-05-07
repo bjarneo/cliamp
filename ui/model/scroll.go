@@ -16,8 +16,9 @@ func (m *Model) measurePlVisible(limit int) int {
 	probe := strings.Join([]string{
 		m.renderTitle(), m.renderTrackInfo(), m.renderTimeStatus(), "",
 		m.renderSpectrum(), m.renderSeekBar(), "",
-		m.renderControls(), "", m.renderPlaylistHeader(),
-		"x", "", m.renderHelp(), m.renderBottomStatus(),
+		m.renderControls(), m.renderProviderPill(), "",
+		m.renderPlaylistHeader(), "x", "",
+		m.renderHelp(), m.renderBottomStatus(),
 	}, "\n")
 	fixedLines := lipgloss.Height(ui.FrameStyle.Render(probe)) - 1
 	return max(3, min(limit, m.height-fixedLines))

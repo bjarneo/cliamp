@@ -65,6 +65,7 @@ func (m Model) renderProviderEmptyState(budget int) string {
 			lines = append(lines, dimStyle.Render("  "+hint))
 		}
 	}
+	lines = lines[:min(len(lines), budget)]
 	for len(lines) < budget {
 		lines = append(lines, "")
 	}
@@ -696,10 +697,17 @@ func (m Model) renderPlaylist() string {
 
 	tracks := m.playlist.Tracks()
 	if len(tracks) == 0 {
+		var lines []string
 		if m.feedLoading {
-			return loadingLine("Loading feed…")
+			lines = append(lines, loadingLine("Loading feed…"))
+		} else {
+			lines = append(lines, dimStyle.Render("  No tracks loaded"))
 		}
-		return dimStyle.Render("  No tracks loaded")
+		lines = lines[:min(len(lines), budget)]
+		for len(lines) < budget {
+			lines = append(lines, "")
+		}
+		return strings.Join(lines, "\n")
 	}
 
 	currentIdx := m.playlist.Index()
