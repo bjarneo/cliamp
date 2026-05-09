@@ -99,9 +99,9 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 		User:        cfg.SoundCloud.User,
 		CookiesFrom: cfg.SoundCloud.CookiesFrom,
 	}); scProv != nil {
-		// Mirror the cookies_from setting onto the player so streaming yt-dlp
-		// invocations use the same browser session as resolve. Last write wins
-		// when multiple yt-dlp-backed providers set cookies_from.
+		// Provider constructors configure resolve-side yt-dlp cookies. Mirror
+		// cookies_from onto the player so streaming yt-dlp invocations use the
+		// same browser session. Last write wins when multiple providers set it.
 		if cfg.SoundCloud.CookiesFrom != "" {
 			player.SetYTDLCookiesFrom(cfg.SoundCloud.CookiesFrom)
 		}
@@ -114,7 +114,6 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 		UserID:      cfg.NetEase.UserID,
 	}); neProv != nil {
 		if cfg.NetEase.CookiesFrom != "" {
-			resolve.SetYTDLCookiesFrom(cfg.NetEase.CookiesFrom)
 			player.SetYTDLCookiesFrom(cfg.NetEase.CookiesFrom)
 		}
 		providers = append(providers, model.ProviderEntry{Key: "netease", Name: "NetEase", Provider: neProv})

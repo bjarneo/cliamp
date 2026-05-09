@@ -245,9 +245,9 @@ func TestNetEaseSetupBody(t *testing.T) {
 }
 
 func TestNetEasePickerSelectionFiltersFields(t *testing.T) {
-	m := newSetupModel()
+	base := newSetupModel()
 	neteaseIdx := -1
-	for i, p := range m.provs {
+	for i, p := range base.provs {
 		if p.section == "netease" {
 			neteaseIdx = i
 			break
@@ -257,21 +257,31 @@ func TestNetEasePickerSelectionFiltersFields(t *testing.T) {
 		t.Fatal("netease spec missing")
 	}
 
-	m.pidx = neteaseIdx
-	m.values = map[string]string{keyNetEaseBrowser: "chrome"}
-	m.refreshVisibleFields()
-	if len(m.visible) != 0 {
-		t.Fatalf("chrome mode visible fields = %d, want 0", len(m.visible))
+	tests := []struct {
+		name        string
+		browser     string
+		wantVisible int
+		wantKey     string
+	}{
+		{"chrome hides cookies_from", "chrome", 0, ""},
+		{"custom shows cookies_from", "custom", 1, "cookies_from"},
 	}
-
-	m.values = map[string]string{keyNetEaseBrowser: "custom"}
-	m.refreshVisibleFields()
-	if len(m.visible) != 1 {
-		t.Fatalf("custom mode visible fields = %d, want 1", len(m.visible))
-	}
-	field := m.provs[neteaseIdx].fields[m.visible[0]]
-	if field.key != "cookies_from" {
-		t.Fatalf("custom field = %q, want cookies_from", field.key)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newSetupModel()
+			m.pidx = neteaseIdx
+			m.values = map[string]string{keyNetEaseBrowser: tc.browser}
+			m.refreshVisibleFields()
+			if len(m.visible) != tc.wantVisible {
+				t.Fatalf("visible fields = %d, want %d", len(m.visible), tc.wantVisible)
+			}
+			if tc.wantVisible == 1 {
+				field := m.provs[neteaseIdx].fields[m.visible[0]]
+				if field.key != tc.wantKey {
+					t.Fatalf("field = %q, want %q", field.key, tc.wantKey)
+				}
+			}
+		})
 	}
 }
 

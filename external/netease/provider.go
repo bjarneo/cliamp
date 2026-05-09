@@ -19,6 +19,7 @@ import (
 
 	"cliamp/playlist"
 	"cliamp/provider"
+	"cliamp/resolve"
 )
 
 var (
@@ -79,9 +80,15 @@ type Provider struct {
 }
 
 // NewFromConfig returns a provider, or nil when NetEase is not enabled.
+// Sets resolve's yt-dlp cookies as a side effect when CookiesFrom is non-empty
+// so URL resolution uses the same signed-in browser session.
 func NewFromConfig(cfg Config) *Provider {
 	if !cfg.Enabled {
 		return nil
+	}
+	cfg.CookiesFrom = strings.TrimSpace(cfg.CookiesFrom)
+	if cfg.CookiesFrom != "" {
+		resolve.SetYTDLCookiesFrom(cfg.CookiesFrom)
 	}
 	return New(cfg)
 }
@@ -166,13 +173,13 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 		p.mu.Unlock()
 		return out, nil
 	}
+	userID := p.userID
 	p.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 	defer cancel()
 
 	var infos []playlist.PlaylistInfo
-	userID := p.userID
 	if userID == "" && p.cookiesFrom != "" {
 		acc, err := p.Account(ctx)
 		if err != nil {
@@ -453,7 +460,7 @@ func extractBrowserCookieHeader(ctx context.Context, browser string) (string, er
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
-			return "", fmt.Errorf("netease: load browser cookies: %s", msg)
+			return "", fmt.Errorf("netease: load browser cookies: %s: %w", msg, err)
 		}
 		return "", fmt.Errorf("netease: load browser cookies: %w", err)
 	}

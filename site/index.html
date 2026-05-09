@@ -670,6 +670,39 @@
     color:var(--dim-bright);font-size:11px;
     line-height:1.55;
   }
+  .source-config{
+    margin-top:12px;
+    padding:16px 18px;
+    border:1px solid var(--dim-2);
+    border-left:3px solid #d33a31;
+    background:rgba(211,58,49,0.04);
+  }
+  .source-config h3{
+    font-size:15px;color:var(--bright);
+    margin:0 0 6px 0;font-weight:700;
+  }
+  .source-config p{
+    font-size:12px;color:var(--fg);
+    margin:0 0 12px 0;line-height:1.6;
+  }
+  .source-config p:last-child{margin-bottom:0}
+  .source-config code{color:var(--green);font-size:11px}
+  .source-config kbd{
+    color:var(--amber);font-family:inherit;
+    padding:1px 6px;border:1px solid var(--border-hi);
+    background:var(--surface);font-size:10px;
+  }
+  .source-config pre{
+    margin:0 0 12px 0;
+    padding:12px 14px;
+    background:var(--bg);
+    border:1px solid var(--border);
+    color:var(--green);
+    font-family:var(--font-mono);
+    font-size:11px;
+    line-height:1.5;
+    overflow:auto;
+  }
 
   /* ═══════════ FEATURES ═══════════ */
   .features-grid{
@@ -1545,6 +1578,16 @@
         <div class="source-name">Files</div>
         <div class="source-desc">MP3, FLAC, OGG, Opus, WAV, AAC, ALAC, WMA. ID3 tags read.</div>
       </div>
+    </div>
+    <div class="source-config" id="netease-config">
+      <div class="next-step-label">NetEase Cloud Music</div>
+      <h3>Browser-session setup</h3>
+      <p>Sign in at <code>music.163.com</code>, then run <code>cliamp setup</code>. Choose NetEase Cloud Music, pick the browser you used, and the wizard validates the session before writing config.</p>
+      <pre><code>[netease]
+enabled = true
+cookies_from = "chrome"
+user_id = "your-account-user-id"</code></pre>
+      <p>After setup, press <kbd>M</kbd> to open NetEase and <kbd>Ctrl+F</kbd> to search. Playback uses <code>yt-dlp</code> with the same browser cookie source.</p>
     </div>
   </div>
 </section>

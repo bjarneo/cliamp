@@ -302,7 +302,7 @@ func providers() []providerSpec {
 				defer cancel()
 				acc, err := netease.CheckLogin(ctx, browser)
 				if err != nil {
-					return err
+					return fmt.Errorf("netease: validation: %w", err)
 				}
 				v["user_id"] = acc.UserID
 				return nil
