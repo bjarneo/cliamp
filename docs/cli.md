@@ -65,7 +65,7 @@ cliamp search "never gonna give you up"       # search YouTube
 cliamp search-sc "lofi beats"                  # search SoundCloud
 ```
 
-Press `Ctrl+F` in the player for context-aware search: it runs the active provider's native search (Spotify) or searches YouTube.
+Press `Ctrl+F` in the player for context-aware search: it runs the active provider's native search when available or falls back to YouTube search.
 
 ## General
 
@@ -109,7 +109,7 @@ CLI flags override config file values for the current session only. They are not
 
 ## Setup wizard
 
-Configure remote providers (Navidrome, Plex, Jellyfin, Emby, Spotify, YouTube Music) through a small TUI. Each provider page links to where to find the required credentials, validates the connection live, and writes the resulting `[provider]` block to `~/.config/cliamp/config.toml` without disturbing the rest of the file.
+Configure remote providers (Navidrome, Plex, Jellyfin, Emby, Spotify, NetEase, YouTube Music) through a small TUI. Each provider page links to where to find the required credentials, validates the connection live, and writes the resulting `[provider]` block to `~/.config/cliamp/config.toml` without disturbing the rest of the file.
 
 ```sh
 cliamp setup

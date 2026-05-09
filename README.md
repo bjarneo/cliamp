@@ -1,4 +1,4 @@
-A retro terminal music player inspired by Winamp. Play local files, streams, podcasts, YouTube, YouTube Music, SoundCloud, Bilibili, Spotify, Xiaoyuzhou (小宇宙), Navidrome, Plex, and Jellyfin with a spectrum visualizer, parametric EQ, and playlist management.
+A retro terminal music player inspired by Winamp. Play local files, streams, podcasts, YouTube, YouTube Music, SoundCloud, Bilibili, Spotify, NetEase Cloud Music, Xiaoyuzhou (小宇宙), Navidrome, Plex, and Jellyfin with a spectrum visualizer, parametric EQ, and playlist management.
 
 **[cliamp.stream](https://cliamp.stream)**
 
@@ -50,7 +50,7 @@ Download from [GitHub Releases](https://github.com/bjarneo/cliamp/releases/lates
 **Optional runtime dependencies** (all platforms, all install methods):
 
 - [ffmpeg](https://ffmpeg.org/) — for AAC, ALAC, Opus, and WMA playback
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — for YouTube, YouTube Music, SoundCloud, Bandcamp, and Bilibili
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — for YouTube, YouTube Music, SoundCloud, Bandcamp, Bilibili, and NetEase Cloud Music
 
 On macOS: `brew install ffmpeg yt-dlp`. On Linux, use your distribution's package manager.
 
@@ -70,7 +70,7 @@ cliamp https://example.com/stream  # play a URL
 
 Press `Ctrl+K` to see all keybindings.
 
-**Configure remote providers** (Navidrome, Plex, Jellyfin, Spotify, YouTube Music) with the interactive wizard:
+**Configure remote providers** (Navidrome, Plex, Jellyfin, Spotify, YouTube Music, NetEase Cloud Music) with the interactive wizard:
 
 ```sh
 cliamp setup
@@ -128,7 +128,7 @@ Or without Make: `go build -o cliamp .`
 **Optional runtime dependencies:**
 
 - [ffmpeg](https://ffmpeg.org/) — for AAC, ALAC, Opus, and WMA playback
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — for YouTube, SoundCloud, Bandcamp, and Bilibili
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — for YouTube, SoundCloud, Bandcamp, Bilibili, and NetEase Cloud Music
 
 ## Docs
 
@@ -139,6 +139,7 @@ Or without Make: `go build -o cliamp .`
 - [Playlists](docs/playlists.md)
 - [YouTube, SoundCloud, Bandcamp and Bilibili](docs/yt-dlp.md)
 - [YouTube Music](docs/youtube-music.md)
+- [NetEase Cloud Music](docs/netease.md)
 - [SoundCloud](docs/soundcloud.md)
 - [Lyrics](docs/lyrics.md)
 - [Spotify](docs/spotify.md)

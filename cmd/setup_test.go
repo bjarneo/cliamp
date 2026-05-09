@@ -218,6 +218,63 @@ func TestPasteIntoActiveField(t *testing.T) {
 	}
 }
 
+func TestNetEaseSetupBody(t *testing.T) {
+	spec := providerSpec{}
+	for _, p := range providers() {
+		if p.section == "netease" {
+			spec = p
+			break
+		}
+	}
+	if spec.section == "" {
+		t.Fatal("netease spec missing")
+	}
+	body := spec.body(map[string]string{
+		keyNetEaseBrowser: "chrome",
+		"user_id":         "42",
+	})
+	for _, want := range []string{
+		"enabled      = true",
+		`cookies_from = "chrome"`,
+		`user_id      = "42"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q: %q", want, body)
+		}
+	}
+}
+
+func TestNetEasePickerSelectionFiltersFields(t *testing.T) {
+	m := newSetupModel()
+	neteaseIdx := -1
+	for i, p := range m.provs {
+		if p.section == "netease" {
+			neteaseIdx = i
+			break
+		}
+	}
+	if neteaseIdx < 0 {
+		t.Fatal("netease spec missing")
+	}
+
+	m.pidx = neteaseIdx
+	m.values = map[string]string{keyNetEaseBrowser: "chrome"}
+	m.refreshVisibleFields()
+	if len(m.visible) != 0 {
+		t.Fatalf("chrome mode visible fields = %d, want 0", len(m.visible))
+	}
+
+	m.values = map[string]string{keyNetEaseBrowser: "custom"}
+	m.refreshVisibleFields()
+	if len(m.visible) != 1 {
+		t.Fatalf("custom mode visible fields = %d, want 1", len(m.visible))
+	}
+	field := m.provs[neteaseIdx].fields[m.visible[0]]
+	if field.key != "cookies_from" {
+		t.Fatalf("custom field = %q, want cookies_from", field.key)
+	}
+}
+
 // TestSaveSection covers the three write paths: new file, append, replace.
 func TestSaveSection(t *testing.T) {
 	dir := t.TempDir()

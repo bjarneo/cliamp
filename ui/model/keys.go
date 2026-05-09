@@ -358,6 +358,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.switchToProvider("spotify")
 		case "C":
 			return m.switchToProvider("soundcloud")
+		case "M":
+			return m.switchToProvider("netease")
 		case "L":
 			return m.switchToProvider("local")
 		case "R":
@@ -728,6 +730,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.switchToProvider("yt")
 	case "C":
 		return m.switchToProvider("soundcloud")
+	case "M":
+		return m.switchToProvider("netease")
 
 	case "ctrl+h":
 		m.showAlbumHeaders = !m.showAlbumHeaders

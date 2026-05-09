@@ -34,4 +34,5 @@ const (
 	MetaNavidromeID = "navidrome.id"
 	MetaJellyfinID  = "jellyfin.id"
 	MetaEmbyID      = "emby.id"
+	MetaNetEaseID   = "netease.id"
 )

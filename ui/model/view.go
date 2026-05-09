@@ -32,16 +32,17 @@ var (
 // providerEmptyStateHint, keyed by lowercase provider Name(), returns the
 // remediation hint shown under the generic "No playlists in X" message.
 var providerEmptyStateHint = map[string]string{
-	"local playlists": "Add .toml playlists to ~/.config/cliamp/playlists/.",
-	"local":           "Add .toml playlists to ~/.config/cliamp/playlists/.",
-	"spotify":         "Sign in via Spotify, or check SPOTIFY_REFRESH_TOKEN.",
-	"navidrome":       "Verify [navidrome] url/username/password in config.toml.",
-	"jellyfin":        "Verify [jellyfin] url and token in config.toml.",
-	"emby":            "Verify [emby] url and token or username/password in config.toml.",
-	"plex":            "Verify [plex] server URL and token or library filter in config.toml.",
-	"youtube music":   "Run `cliamp ytmusic-login` to authorize, then refresh.",
-	"ytmusic":         "Run `cliamp ytmusic-login` to authorize, then refresh.",
-	"soundcloud":      "Set [soundcloud] user in config.toml to browse a profile.",
+	"local playlists":     "Add .toml playlists to ~/.config/cliamp/playlists/.",
+	"local":               "Add .toml playlists to ~/.config/cliamp/playlists/.",
+	"spotify":             "Sign in via Spotify, or check SPOTIFY_REFRESH_TOKEN.",
+	"navidrome":           "Verify [navidrome] url/username/password in config.toml.",
+	"jellyfin":            "Verify [jellyfin] url and token in config.toml.",
+	"emby":                "Verify [emby] url and token or username/password in config.toml.",
+	"plex":                "Verify [plex] server URL and token or library filter in config.toml.",
+	"youtube music":       "Run `cliamp ytmusic-login` to authorize, then refresh.",
+	"ytmusic":             "Run `cliamp ytmusic-login` to authorize, then refresh.",
+	"soundcloud":          "Set [soundcloud] user in config.toml to browse a profile.",
+	"netease cloud music": "Run `cliamp setup` and configure NetEase browser cookies.",
 }
 
 // renderProviderEmptyState explains why the playlists pane is empty for the

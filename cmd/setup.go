@@ -1,7 +1,7 @@
 // Package cmd implements interactive subcommands invoked from the CLI.
 // setup.go contains the provider onboarding wizard reachable via
 // `cliamp setup`. It walks the user through configuring each remote
-// provider (Navidrome, Plex, Jellyfin, Spotify, YouTube Music),
+// provider (Navidrome, Plex, Jellyfin, Spotify, NetEase, YouTube Music),
 // validates the connection where possible, and writes the resulting
 // TOML section to ~/.config/cliamp/config.toml.
 //
@@ -10,6 +10,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -27,6 +28,7 @@ import (
 	"cliamp/external/emby"
 	"cliamp/external/jellyfin"
 	"cliamp/external/navidrome"
+	"cliamp/external/netease"
 	"cliamp/external/plex"
 	"cliamp/internal/appdir"
 )
@@ -85,9 +87,10 @@ type pickerOption struct {
 // Picker keys are stored in the values map alongside real field keys; the
 // leading underscore distinguishes them from TOML field names.
 const (
-	keyJellyfinAuth = "_auth"
-	keyEmbyAuth     = "_emby_auth"
-	keyYTMusicMode  = "_mode"
+	keyJellyfinAuth   = "_auth"
+	keyEmbyAuth       = "_emby_auth"
+	keyNetEaseBrowser = "_netease_browser"
+	keyYTMusicMode    = "_mode"
 )
 
 func providers() []providerSpec {
@@ -264,6 +267,59 @@ func providers() []providerSpec {
 			},
 		},
 		{
+			key:     "netease",
+			name:    "NetEase Cloud Music",
+			section: "netease",
+			intro: []string{
+				"Reuses your browser session through yt-dlp cookies.",
+				"Sign in at music.163.com first, then pick that browser here.",
+			},
+			picker: &pickerSpec{
+				key:   keyNetEaseBrowser,
+				label: "Browser session",
+				options: []pickerOption{
+					{value: "chrome", label: "Chrome"},
+					{value: "safari", label: "Safari"},
+					{value: "firefox", label: "Firefox"},
+					{value: "brave", label: "Brave"},
+					{value: "edge", label: "Edge"},
+					{value: "chromium", label: "Chromium"},
+					{value: "vivaldi", label: "Vivaldi"},
+					{value: "custom", label: "Custom browser/profile"},
+				},
+			},
+			fields: []fieldSpec{
+				{key: "cookies_from", label: "Custom browser/profile", help: "e.g. chrome:Profile 1, firefox:default-release", required: true,
+					onlyIf: func(v map[string]string) bool { return v[keyNetEaseBrowser] == "custom" }},
+			},
+			validate: func(v map[string]string) error {
+				browser := netEaseCookiesFrom(v)
+				if browser == "" {
+					return fmt.Errorf("browser is required")
+				}
+				v["cookies_from"] = browser
+				ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+				defer cancel()
+				acc, err := netease.CheckLogin(ctx, browser)
+				if err != nil {
+					return err
+				}
+				v["user_id"] = acc.UserID
+				return nil
+			},
+			body: func(v map[string]string) string {
+				browser := netEaseCookiesFrom(v)
+				lines := []string{
+					"enabled      = true",
+					fmt.Sprintf("cookies_from = %q", browser),
+				}
+				if v["user_id"] != "" {
+					lines = append(lines, fmt.Sprintf("user_id      = %q", v["user_id"]))
+				}
+				return strings.Join(lines, "\n")
+			},
+		},
+		{
 			key:     "ytmusic",
 			name:    "YouTube Music",
 			section: "ytmusic",
@@ -311,6 +367,14 @@ func providers() []providerSpec {
 			},
 		},
 	}
+}
+
+func netEaseCookiesFrom(v map[string]string) string {
+	picked := strings.TrimSpace(v[keyNetEaseBrowser])
+	if picked == "" || picked == "custom" {
+		return strings.TrimSpace(v["cookies_from"])
+	}
+	return picked
 }
 
 // ----- Bubbletea model ----------------------------------------------------

@@ -36,7 +36,7 @@ eq_preset = "Flat"
 # Only used when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-# Default provider on startup: "radio", "navidrome", "spotify", "plex", "jellyfin", "emby", "soundcloud", or a YouTube provider
+# Default provider on startup: "radio", "navidrome", "spotify", "plex", "jellyfin", "emby", "soundcloud", "netease", or a YouTube provider
 # provider = "radio"
 
 # Compact mode: cap UI width at 80 columns (default: fluid/full-width)
@@ -88,6 +88,16 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # enabled = true
 # user = "yourname"
 # cookies_from = "firefox"   # chrome, brave, edge, opera, safari, vivaldi…
+
+# ---
+# NetEase Cloud Music (optional, opt-in)
+# Sign in to music.163.com in your browser, then run `cliamp setup` or set
+# cookies_from manually. The provider lists your account playlists, saved
+# playlists, liked songs, and public charts. Playback uses yt-dlp.
+# [netease]
+# enabled = true
+# cookies_from = "chrome"
+# user_id = "optional-account-user-id"
 
 # ---
 # Plex Media Server (optional)

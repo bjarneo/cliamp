@@ -147,6 +147,18 @@ type SoundCloudConfig struct {
 // IsSet reports whether the SoundCloud provider should be shown.
 func (s SoundCloudConfig) IsSet() bool { return s.Enabled }
 
+// NetEaseConfig holds settings for the NetEase Cloud Music provider.
+// The provider is opt-in and can reuse an existing browser session through
+// yt-dlp's --cookies-from-browser support.
+type NetEaseConfig struct {
+	Enabled     bool   // true only when user explicitly sets enabled = true
+	CookiesFrom string // browser name for account APIs and playback (e.g. "chrome")
+	UserID      string // optional account user id; setup can discover this from cookies
+}
+
+// IsSet reports whether the NetEase provider should be shown.
+func (n NetEaseConfig) IsSet() bool { return n.Enabled }
+
 // PlexConfig holds credentials for a Plex Media Server.
 // Both URL and Token must be non-empty for a client to be constructed.
 type PlexConfig struct {
@@ -203,7 +215,7 @@ type Config struct {
 	Speed            float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
 	AutoPlay         bool                         // start playback automatically on launch (radio streams, CLI tracks)
 	SeekStepLarge    int                          // seconds for Shift+Left/Right seek jumps
-	Provider         string                       // default provider: "radio", "navidrome", "spotify", "plex", "jellyfin", "emby", "ytmusic" (default "radio")
+	Provider         string                       // default provider: "radio", "navidrome", "spotify", "plex", "jellyfin", "emby", "soundcloud", "netease", "ytmusic" (default "radio")
 	Theme            string                       // theme name, or "" for ANSI default
 	Visualizer       string                       // visualizer mode name, or "" for default (Bars)
 	SampleRate       int                          // output sample rate: 22050, 44100, 48000, 96000, 192000
@@ -223,6 +235,7 @@ type Config struct {
 	Jellyfin         JellyfinConfig               // optional Jellyfin server credentials
 	Emby             EmbyConfig                   // optional Emby server credentials
 	SoundCloud       SoundCloudConfig             // SoundCloud provider (opt-in via enabled = true)
+	NetEase          NetEaseConfig                // NetEase Cloud Music provider (opt-in via enabled = true)
 	Plugins          map[string]map[string]string // per-plugin config from [plugins.*] sections
 	LogLevel         string                       // log level: debug, info, warn, error (default "info")
 }
@@ -362,6 +375,15 @@ func Load() (Config, error) {
 				cfg.SoundCloud.User = parseString(val)
 			case "cookies_from":
 				cfg.SoundCloud.CookiesFrom = parseString(val)
+			}
+		case "netease":
+			switch key {
+			case "enabled":
+				cfg.NetEase.Enabled = strings.ToLower(val) == "true"
+			case "cookies_from":
+				cfg.NetEase.CookiesFrom = parseString(val)
+			case "user_id":
+				cfg.NetEase.UserID = parseString(val)
 			}
 		case "jellyfin":
 			switch key {

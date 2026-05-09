@@ -1,6 +1,6 @@
 # Configuration
 
-For remote providers (Navidrome, Plex, Jellyfin, Emby, Spotify, YouTube Music), the fastest path is the interactive wizard:
+For remote providers (Navidrome, Plex, Jellyfin, Emby, Spotify, NetEase, YouTube Music), the fastest path is the interactive wizard:
 
 ```sh
 cliamp setup
@@ -104,7 +104,7 @@ Set which provider to start with:
 provider = "radio"
 ```
 
-Valid values: `radio` (default), `navidrome`, `spotify`, `plex`, `jellyfin`, `emby`, `soundcloud`, `yt`, `youtube`, `ytmusic`.
+Valid values: `radio` (default), `navidrome`, `spotify`, `plex`, `jellyfin`, `emby`, `soundcloud`, `netease`, `yt`, `youtube`, `ytmusic`.
 
 You can also override from the CLI: `cliamp --provider jellyfin`.
 
@@ -147,6 +147,25 @@ cookies_from = "firefox"   # or chrome, chromium, brave, edge, opera, safari, vi
 With cookies set, yt-dlp can stream subscriber-gated tracks (SoundCloud Go+) and access private likes/playlists your account is authorized for. The same cookies also apply to the player's yt-dlp invocations, so playback uses your signed-in session.
 
 Requires `yt-dlp` on `PATH`.
+
+## NetEase Cloud Music
+
+NetEase is opt-in and uses your existing browser session. Sign in at `music.163.com`, then run:
+
+```sh
+cliamp setup
+```
+
+Pick **NetEase Cloud Music** and choose the browser you used to sign in. Common browsers are shown as menu choices; select the custom option only for profile-specific values. The setup wizard validates the session and writes:
+
+```toml
+[netease]
+enabled = true
+cookies_from = "chrome"
+user_id = "your-account-user-id"
+```
+
+Once enabled, the provider shows your liked songs, created playlists, saved playlists, and public charts. Search works with `Ctrl+F`, and playback uses `yt-dlp` with the same browser cookie source.
 
 ## Custom Radio Stations
 

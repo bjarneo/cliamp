@@ -47,7 +47,7 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 
 // quickSwitchProvider closes any browser overlays and jumps to the provider
 // matched by key. Use the same Shift+letter shortcuts that switch providers
-// from the main pane (S, N, P, J, Y, R, L). Returns nil when the key doesn't
+// from the main pane (S, N, P, J, E, Y, M, R, L). Returns nil when the key doesn't
 // match a known provider.
 func (m *Model) quickSwitchProvider(key string) tea.Cmd {
 	provKey := providerKeyForShortcut(key)
@@ -77,6 +77,8 @@ func providerKeyForShortcut(key string) string {
 		return "emby"
 	case "Y":
 		return "yt"
+	case "M":
+		return "netease"
 	case "L":
 		return "local"
 	case "R":
