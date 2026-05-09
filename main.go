@@ -90,7 +90,8 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 
 	var spotifyProv *spotify.SpotifyProvider
 	if cfg.Spotify.IsSet() {
-		spotifyProv = spotify.New(nil, cfg.Spotify.ClientID, cfg.Spotify.Bitrate)
+		clientID := cfg.Spotify.ResolveClientID(spotify.DefaultClientID)
+		spotifyProv = spotify.New(nil, clientID, cfg.Spotify.Bitrate)
 		providers = append(providers, model.ProviderEntry{Key: "spotify", Name: "Spotify", Provider: spotifyProv})
 	}
 

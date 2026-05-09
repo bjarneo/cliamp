@@ -323,14 +323,34 @@ func TestSpotifyIsSet(t *testing.T) {
 		cfg  SpotifyConfig
 		want bool
 	}{
-		{"set", SpotifyConfig{ClientID: "abc"}, true},
-		{"no id", SpotifyConfig{}, false},
-		{"disabled", SpotifyConfig{Disabled: true, ClientID: "abc"}, false},
+		{"section + custom id", SpotifyConfig{Enabled: true, ClientID: "abc"}, true},
+		{"section only (uses fallback)", SpotifyConfig{Enabled: true}, true},
+		{"no section", SpotifyConfig{}, false},
+		{"disabled", SpotifyConfig{Disabled: true, Enabled: true, ClientID: "abc"}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.cfg.IsSet(); got != tt.want {
 				t.Errorf("IsSet() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSpotifyResolveClientID(t *testing.T) {
+	const fallback = "FALLBACK"
+	tests := []struct {
+		name string
+		cfg  SpotifyConfig
+		want string
+	}{
+		{"user id wins", SpotifyConfig{ClientID: "user-id"}, "user-id"},
+		{"empty falls back", SpotifyConfig{}, fallback},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.ResolveClientID(fallback); got != tt.want {
+				t.Errorf("ResolveClientID() = %q, want %q", got, tt.want)
 			}
 		})
 	}

@@ -83,15 +83,14 @@ type playlistCache struct {
 }
 
 type SpotifyProvider struct {
-	session     *Session
-	clientID    string
-	bitrate     int
-	userID      string // Spotify user ID, fetched lazily on first Playlists() call
-	userCountry string // ISO 3166-1 alpha-2 country from /v1/me, used as search market
-	meFetched   bool   // /v1/me has been attempted this session; suppresses retry on failure
-	mu          sync.Mutex
-	trackCache  map[string]*playlistCache // playlist ID → cache entry
-	authCancel  context.CancelFunc        // cancels any in-progress OAuth flow
+	session    *Session
+	clientID   string
+	bitrate    int
+	userID     string // Spotify user ID, fetched lazily on first Playlists() call
+	meFetched  bool   // /v1/me has been attempted this session; suppresses retry on failure
+	mu         sync.Mutex
+	trackCache map[string]*playlistCache // playlist ID → cache entry
+	authCancel context.CancelFunc        // cancels any in-progress OAuth flow
 
 	// Playlist list cache to avoid redundant API calls on provider switch.
 	listCache   []playlist.PlaylistInfo
@@ -132,9 +131,7 @@ func (p *SpotifyProvider) ensureSession() error {
 	}
 	p.mu.Lock()
 	p.session = sess
-	p.userID = ""
-	p.userCountry = ""
-	p.meFetched = false
+	p.resetSessionScopedStateLocked()
 	p.mu.Unlock()
 	return nil
 }
@@ -175,9 +172,7 @@ func (p *SpotifyProvider) Authenticate() error {
 	}
 	p.mu.Lock()
 	p.session = sess
-	p.userID = ""
-	p.userCountry = ""
-	p.meFetched = false
+	p.resetSessionScopedStateLocked()
 	p.mu.Unlock()
 	return nil
 }
@@ -193,52 +188,45 @@ func (p *SpotifyProvider) Close() {
 	if p.session != nil {
 		p.session.Close()
 		p.session = nil
-		p.userID = ""
-		p.userCountry = ""
-		p.meFetched = false
+		p.resetSessionScopedStateLocked()
 	}
+}
+
+// resetSessionScopedStateLocked clears /v1/me-derived caches when the session
+// changes. p.mu must be held.
+func (p *SpotifyProvider) resetSessionScopedStateLocked() {
+	p.userID = ""
+	p.meFetched = false
 }
 
 func (p *SpotifyProvider) Name() string { return "Spotify" }
 
-// fetchMe populates userID and userCountry from /v1/me at most once per session.
-// Failures are remembered too — callers should treat empty fields as "unknown"
-// rather than re-issuing the request on every search keystroke.
-func (p *SpotifyProvider) fetchMe(ctx context.Context) {
+// currentUserID returns the authenticated user's Spotify ID, fetched from
+// /v1/me at most once per session. Failures are remembered so a network blip
+// during the first call doesn't trigger a request on every later use.
+// userID is used by playlistAccessible to filter playlists the user doesn't
+// own (which 403 on Tracks() for dev-mode apps).
+func (p *SpotifyProvider) currentUserID(ctx context.Context) string {
 	p.mu.Lock()
 	if p.meFetched {
+		id := p.userID
 		p.mu.Unlock()
-		return
+		return id
 	}
 	p.mu.Unlock()
 
 	var me struct {
-		ID      string `json:"id"`
-		Country string `json:"country"`
+		ID string `json:"id"`
 	}
 	if resp, err := p.webAPI(ctx, "GET", "/v1/me", nil); err == nil {
 		_ = decodeBody(resp, &me)
 	}
 
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.userID = me.ID
-	p.userCountry = me.Country
 	p.meFetched = true
-	p.mu.Unlock()
-}
-
-func (p *SpotifyProvider) currentUserID(ctx context.Context) string {
-	p.fetchMe(ctx)
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	return p.userID
-}
-
-func (p *SpotifyProvider) currentUserCountry(ctx context.Context) string {
-	p.fetchMe(ctx)
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.userCountry
 }
 
 // Playlists returns the authenticated user's Spotify playlists.
@@ -655,6 +643,22 @@ func (p *SpotifyProvider) webAPIWithBody(ctx context.Context, method, path strin
 	return nil, fmt.Errorf("spotify: web api rate-limited on %s after %d retries (try re-authenticating)", path, maxRetries)
 }
 
+// friendlySearchError rewrites Spotify's misleading 400 "Invalid limit" reply
+// from /v1/search into something a user can act on. Since Nov 27, 2024 Spotify
+// returns this error for developer apps registered in Development Mode — the
+// rest of the API (playback, playlists, library) keeps working, but the
+// catalog endpoints (/v1/search etc.) are blocked. The limit value is fine.
+func friendlySearchError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "400") && strings.Contains(msg, "Invalid limit") {
+		return fmt.Errorf("spotify: search blocked — your client_id is too new. Spotify's Nov 27 2024 change blocks /v1/search for apps in Development Mode (the rest of cliamp still works on your app). Remove client_id from [spotify] in config.toml to use the built-in fallback for search, or apply for Extended Quota Mode")
+	}
+	return fmt.Errorf("spotify: search: %w", err)
+}
+
 // SearchTracks searches for tracks on Spotify and returns up to limit results.
 // limit is clamped to Spotify's accepted range of 1..50.
 func (p *SpotifyProvider) SearchTracks(ctx context.Context, query string, limit int) ([]playlist.Track, error) {
@@ -668,22 +672,17 @@ func (p *SpotifyProvider) SearchTracks(ctx context.Context, query string, limit 
 		limit = 50
 	}
 
-	// /v1/search refuses to run without an explicit ISO 3166-1 alpha-2 market
-	// for accounts in some regions and returns a misleading 400 "Invalid limit"
-	// otherwise. The legacy "from_token" magic value is no longer accepted, so
-	// resolve the user's country from /v1/me (cached) and pass it as market.
+	// No market parameter: when the request carries a user OAuth token, Spotify
+	// implicitly scopes results to the account's country.
 	q := url.Values{
 		"q":     {query},
 		"type":  {"track"},
 		"limit": {fmt.Sprintf("%d", limit)},
 	}
-	if country := p.currentUserCountry(ctx); country != "" {
-		q.Set("market", country)
-	}
 
 	resp, err := p.webAPI(ctx, "GET", "/v1/search", q)
 	if err != nil {
-		return nil, fmt.Errorf("spotify: search: %w", err)
+		return nil, friendlySearchError(err)
 	}
 
 	var result struct {

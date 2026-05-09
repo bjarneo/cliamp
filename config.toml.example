@@ -54,12 +54,24 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
 # ---
 # Spotify (optional)
-# A Spotify Premium account and a registered app at
-# developer.spotify.com/dashboard are required.
-# Add redirect URI: http://127.0.0.1:19872/login
+# Requires a Spotify Premium account.
+#
+# Recommended: register your own Spotify Developer app at
+# developer.spotify.com/dashboard with redirect URI
+# http://127.0.0.1:19872/login, then uncomment the section below with
+# your client_id. You get a private rate-limit quota and your app works
+# for playback, library, and playlists.
 # [spotify]
 # client_id = "your-spotify-app-client-id"
 # bitrate = 320
+#
+# Note: apps registered after Nov 27, 2024 in Development Mode can't use
+# /v1/search (Spotify returns "Invalid limit"). Everything else works.
+#
+# Alternative: drop client_id to use cliamp's built-in fallback (the
+# librespot keymaster client_id). It still has search access, but the
+# rate-limit quota is shared with every librespot-based client and you
+# may see occasional 429s.
 
 # ---
 # Navidrome / Subsonic server (optional)

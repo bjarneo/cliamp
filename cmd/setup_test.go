@@ -193,9 +193,13 @@ func TestPasteIntoActiveField(t *testing.T) {
 			break
 		}
 	}
-	m.handleKey(keyPress(tea.KeyEnter, "")) // open form (no picker)
+	m.handleKey(keyPress(tea.KeyEnter, "")) // opens picker (custom is first, default cursor)
+	if m.stage != stagePicker {
+		t.Fatalf("stage = %v, want stagePicker", m.stage)
+	}
+	m.handleKey(keyPress(tea.KeyEnter, "")) // confirm "custom" → opens form
 	if m.stage != stageForm {
-		t.Fatalf("stage = %v, want stageForm", m.stage)
+		t.Fatalf("stage = %v, want stageForm after picker", m.stage)
 	}
 
 	m.handlePaste("abc123def\n")

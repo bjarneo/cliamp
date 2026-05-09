@@ -41,6 +41,13 @@ type storedCreds struct {
 // Must match the redirect URI registered in the Spotify Developer app.
 const CallbackPort = 19872
 
+// DefaultClientID is the librespot keymaster client_id, shared by spotify-player
+// and other librespot-based players. Used when the user hasn't configured their
+// own client_id — Spotify's loopback exception lets it work with any 127.0.0.1
+// port, and it predates the Nov 27, 2024 dev-mode quota restriction so /v1/search
+// and other catalog endpoints stay accessible.
+const DefaultClientID = "65b708073fc0480ea92a077233ca87bd"
+
 // Session manages a go-librespot session and player for Spotify integration.
 type Session struct {
 	mu          sync.RWMutex

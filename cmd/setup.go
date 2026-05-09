@@ -87,10 +87,11 @@ type pickerOption struct {
 // Picker keys are stored in the values map alongside real field keys; the
 // leading underscore distinguishes them from TOML field names.
 const (
-	keyJellyfinAuth   = "_auth"
-	keyEmbyAuth       = "_emby_auth"
-	keyNetEaseBrowser = "_netease_browser"
-	keyYTMusicMode    = "_mode"
+	keyJellyfinAuth = "_auth"
+	keyEmbyAuth     = "_emby_auth"
+  keyNetEaseBrowser = "_netease_browser"
+	keyYTMusicMode  = "_mode"
+	keySpotifyMode  = "_spotify_mode"
 )
 
 func providers() []providerSpec {
@@ -236,14 +237,32 @@ func providers() []providerSpec {
 			name:    "Spotify (Premium)",
 			section: "spotify",
 			intro: []string{
-				"Requires Spotify Premium and a developer app.",
-				"1. Open https://developer.spotify.com/dashboard",
-				"2. Create app → Redirect URI: http://127.0.0.1:19872/login",
-				"3. Enable Web API. Copy the Client ID from app Settings.",
-				"OAuth runs the first time you pick Spotify in cliamp.",
+				"Requires a Spotify Premium account.",
+				"",
+				"Recommended: register your own Spotify Developer app at",
+				"developer.spotify.com/dashboard (redirect URI",
+				"http://127.0.0.1:19872/login). Your own client_id gives you a",
+				"private rate-limit quota and works for playback, library, and",
+				"playlists. Apps registered after Nov 27, 2024 can't use",
+				"/v1/search though — that's a Spotify dev-mode restriction.",
+				"",
+				"Alternative: cliamp ships a built-in client_id (the librespot",
+				"keymaster) that bypasses the search restriction. It's shared",
+				"with every librespot- and spotify-player-based client, so you",
+				"may see occasional 429 errors when the pool is busy.",
+			},
+			picker: &pickerSpec{
+				key:   keySpotifyMode,
+				label: "Client ID",
+				options: []pickerOption{
+					{value: "custom", label: "Use my own Spotify Developer app client_id"},
+					{value: "default", label: "Use built-in shared client_id"},
+				},
 			},
 			fields: []fieldSpec{
-				{key: "client_id", label: "Client ID", required: true},
+				{key: "client_id", label: "Client ID", required: true,
+					help:   "from developer.spotify.com/dashboard; redirect URI http://127.0.0.1:19872/login",
+					onlyIf: func(v map[string]string) bool { return v[keySpotifyMode] == "custom" }},
 				{key: "bitrate", label: "Bitrate", help: "96, 160, or 320 kbps", defaultV: "320"},
 			},
 			extraValidate: func(v map[string]string) error {
@@ -260,10 +279,12 @@ func providers() []providerSpec {
 				if br == "" {
 					br = "320"
 				}
-				return strings.Join([]string{
-					fmt.Sprintf("client_id = %q", v["client_id"]),
-					fmt.Sprintf("bitrate   = %s", br),
-				}, "\n")
+				lines := []string{}
+				if v[keySpotifyMode] == "custom" && v["client_id"] != "" {
+					lines = append(lines, fmt.Sprintf("client_id = %q", v["client_id"]))
+				}
+				lines = append(lines, fmt.Sprintf("bitrate   = %s", br))
+				return strings.Join(lines, "\n")
 			},
 		},
 		{

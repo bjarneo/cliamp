@@ -78,19 +78,31 @@ func (n NavidromeConfig) IsSet() bool {
 	return n.URL != "" && n.User != "" && n.Password != ""
 }
 
-// SpotifyConfig holds settings for the Spotify provider.
-// Requires a Spotify Premium account and a client_id from
-// developer.spotify.com/dashboard.
+// SpotifyConfig holds settings for the Spotify provider. Requires a Spotify
+// Premium account. If client_id is empty, a built-in fallback (the librespot
+// keymaster ID) is used so search and catalog endpoints work even for users
+// who never registered their own developer app — see Spotify's Nov 27, 2024
+// dev-mode quota restriction.
 type SpotifyConfig struct {
 	Disabled bool   // true only when user explicitly sets enabled = false
-	ClientID string // Spotify Developer app client ID (required)
+	Enabled  bool   // true when [spotify] section exists (even without client_id)
+	ClientID string // Spotify Developer app client ID (overrides built-in fallback)
 	Bitrate  int    // preferred Spotify stream bitrate in kbps
 }
 
-// IsSet reports whether the Spotify provider should be shown.
-// Requires a client_id and must not be explicitly disabled.
+// IsSet reports whether the Spotify provider should be shown. Section presence
+// is enough — a built-in fallback client_id is used when none is configured.
 func (s SpotifyConfig) IsSet() bool {
-	return !s.Disabled && s.ClientID != ""
+	return !s.Disabled && s.Enabled
+}
+
+// ResolveClientID returns the user's configured client_id, or fallbackID when
+// none is set.
+func (s SpotifyConfig) ResolveClientID(fallbackID string) string {
+	if s.ClientID != "" {
+		return s.ClientID
+	}
+	return fallbackID
 }
 
 // YouTubeMusicConfig holds settings for the YouTube Music provider.
@@ -297,6 +309,8 @@ func Load() (Config, error) {
 			case "yt", "youtube", "ytmusic":
 				cfg.YouTubeMusic.Enabled = true
 				section = "ytmusic" // normalize for key parsing below
+			case "spotify":
+				cfg.Spotify.Enabled = true
 			}
 			// Initialize plugin sub-maps for [plugins] and [plugins.*] sections.
 			if section == "plugins" || strings.HasPrefix(section, "plugins.") {
