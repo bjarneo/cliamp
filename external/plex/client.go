@@ -253,6 +253,17 @@ func (c *Client) StreamURL(partKey string) string {
 	return c.baseURL + partKey + "?X-Plex-Token=" + url.QueryEscape(c.token)
 }
 
+// IsStreamURL reports whether the given URL looks like a Plex library part
+// endpoint. Used by the player to route these URLs through the buffered
+// navBuffer + ffmpeg pipeline instead of native HTTP streaming.
+func IsStreamURL(path string) bool {
+	u, err := url.Parse(path)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(u.Path), "/library/parts/")
+}
+
 // trackJSON is the shared JSON structure for track responses (children and search).
 type trackJSON struct {
 	RatingKey        string `json:"ratingKey"`

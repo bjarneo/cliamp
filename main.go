@@ -225,7 +225,7 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 	}
 
 	p.RegisterBufferedURLMatcher(func(u string) bool {
-		return navidrome.IsSubsonicStreamURL(u) || jellyfin.IsStreamURL(u) || emby.IsStreamURL(u)
+		return navidrome.IsSubsonicStreamURL(u) || jellyfin.IsStreamURL(u) || emby.IsStreamURL(u) || plex.IsStreamURL(u)
 	})
 
 	cfg.ApplyPlayer(p)
