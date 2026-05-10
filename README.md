@@ -102,7 +102,7 @@ sudo apt install libasound2-dev
 **Linux (Fedora):**
 
 ```sh
-sudo dnf install alsa-lib-devel
+sudo dnf install alsa-lib-devel libvorbis-devel flac-devel
 ```
 
 **Linux (Arch):**
