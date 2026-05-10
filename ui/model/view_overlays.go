@@ -99,7 +99,7 @@ func (m Model) renderPlaylistManager() string {
 	case plMgrScreenNewName:
 		lines = m.renderPlMgrNewName()
 	}
-	return m.centerOverlay(strings.Join(m.appendFooterMessages(lines), "\n"))
+	return m.centerOverlay(strings.Join(lines, "\n"))
 }
 
 func (m Model) renderPlMgrList() []string {
@@ -141,8 +141,9 @@ func (m Model) renderPlMgrList() []string {
 		return lines
 	}
 
-	maxVisible := 12
-	scroll := scrollStart(m.plManager.cursor, maxVisible)
+	maxVisible := m.plMgrListVisible()
+	scroll := m.plManager.scroll
+	rendered := 0
 
 	for i := scroll; i < count && i < scroll+maxVisible; i++ {
 		var label string
@@ -166,11 +167,11 @@ func (m Model) renderPlMgrList() []string {
 		} else {
 			lines = append(lines, dimStyle.Render("  "+label))
 		}
+		rendered++
 	}
 
-	if count > maxVisible {
-		lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d playlists", m.plManager.cursor+1, count)))
-	}
+	lines = padLines(lines, maxVisible, rendered)
+	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d playlists", visibleN, len(m.plManager.playlists))))
 
 	lines = append(lines, "", m.plMgrListFooter())
 	return lines
@@ -225,10 +226,10 @@ func (m Model) renderPlMgrTracks() []string {
 		}
 	}
 
-	maxVisible := 12
+	maxVisible := m.plMgrTracksVisible()
 	useAlbumSep := m.plManager.filter == "" && m.showAlbumHeaders
 
-	scroll := scrollStart(m.plManager.cursor, maxVisible)
+	scroll := m.plManager.scroll
 	rendered := 0
 
 	if m.plManager.filter != "" {
@@ -240,12 +241,6 @@ func (m Model) renderPlMgrTracks() []string {
 			rendered++
 		}
 	} else {
-		if useAlbumSep {
-			for scroll < m.plManager.cursor && m.albumSeparatorRows(m.plManager.tracks, scroll, m.plManager.cursor, true) > maxVisible {
-				scroll++
-			}
-		}
-
 		for row := range m.playlistRows(m.plManager.tracks, scroll, useAlbumSep) {
 			if row.Index < 0 {
 				if rendered+1 >= maxVisible {
@@ -267,9 +262,8 @@ func (m Model) renderPlMgrTracks() []string {
 		}
 	}
 
-	if visibleN > maxVisible {
-		lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d tracks", m.plManager.cursor+1, visibleN)))
-	}
+	lines = padLines(lines, maxVisible, rendered)
+	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d tracks", visibleN, len(m.plManager.tracks))))
 
 	lines = append(lines, "", footer)
 	return lines

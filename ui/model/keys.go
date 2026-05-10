@@ -1357,9 +1357,11 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "/":
 		m.plManager.filtering = true
 		m.plManager.savedCursor = m.plManager.cursor
+		m.plManager.savedScroll = m.plManager.scroll
 		m.plManager.filter = ""
 		m.plManager.filtered = nil
 		m.plManager.cursor = 0
+		m.plManager.scroll = 0
 		return nil
 	case "up", "k":
 		if m.plManager.cursor > 0 {
@@ -1367,12 +1369,37 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 		} else if count > 0 {
 			m.plManager.cursor = count - 1
 		}
+		m.plMgrListMaybeAdjustScroll(m.plMgrListVisible())
 	case "down", "j":
 		if m.plManager.cursor < count-1 {
 			m.plManager.cursor++
 		} else if count > 0 {
 			m.plManager.cursor = 0
 		}
+		m.plMgrListMaybeAdjustScroll(m.plMgrListVisible())
+	case "ctrl+x":
+		m.toggleExpandedView()
+		m.plMgrListMaybeAdjustScroll(m.plMgrListVisible())
+	case "pgup", "ctrl+u":
+		if m.plManager.cursor > 0 {
+			visible := m.plMgrListVisible()
+			m.plManager.cursor -= min(m.plManager.cursor, visible)
+			m.plMgrListMaybeAdjustScroll(visible)
+		}
+	case "pgdown", "ctrl+d":
+		if m.plManager.cursor < count-1 {
+			visible := m.plMgrListVisible()
+			m.plManager.cursor = min(count-1, m.plManager.cursor+visible)
+			m.plMgrListMaybeAdjustScroll(visible)
+		}
+	case "home", "g":
+		m.plManager.cursor = 0
+		m.plMgrListMaybeAdjustScroll(m.plMgrListVisible())
+	case "end", "G":
+		if count > 0 {
+			m.plManager.cursor = count - 1
+		}
+		m.plMgrListMaybeAdjustScroll(m.plMgrListVisible())
 	case "enter", "l", "right":
 		realIdx := m.plMgrPlaylistRealIndex(m.plManager.cursor)
 		if realIdx >= 0 {
@@ -1416,6 +1443,7 @@ func (m *Model) handlePlMgrFilterKey(msg tea.KeyPressMsg) tea.Cmd {
 		// Cancel filter, restore cursor.
 		m.plMgrResetFilter()
 		m.plManager.cursor = m.plManager.savedCursor
+		m.plManager.scroll = m.plManager.savedScroll
 		clampCount := m.plMgrListViewCount()
 		if m.plManager.screen == plMgrScreenTracks {
 			clampCount = m.plMgrTracksViewCount()
@@ -1427,10 +1455,26 @@ func (m *Model) handlePlMgrFilterKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "enter":
 		// Commit filter; leave query in place but stop intercepting keys.
 		m.plManager.filtering = false
+		if m.plManager.filter == "" {
+			m.plManager.cursor = m.plManager.savedCursor
+			m.plManager.scroll = m.plManager.savedScroll
+		}
 		return nil
 	case "down":
 		// Drop into result navigation immediately.
 		m.plManager.filtering = false
+		count := m.plMgrListViewCount()
+		if m.plManager.screen == plMgrScreenTracks {
+			count = m.plMgrTracksViewCount()
+		}
+		if count > 0 {
+			m.plManager.cursor = 0
+			if m.plManager.screen == plMgrScreenList {
+				m.plMgrListMaybeAdjustScroll(m.plMgrListVisible())
+			} else {
+				m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
+			}
+		}
 		return nil
 	case "backspace":
 		if m.plManager.filter != "" {
@@ -1440,6 +1484,7 @@ func (m *Model) handlePlMgrFilterKey(msg tea.KeyPressMsg) tea.Cmd {
 		} else {
 			m.plManager.filtering = false
 			m.plManager.cursor = m.plManager.savedCursor
+			m.plManager.scroll = m.plManager.savedScroll
 		}
 		return nil
 	case "space":
@@ -1467,6 +1512,7 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "ctrl+h":
 		m.showAlbumHeaders = !m.showAlbumHeaders
+		m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
 		return nil
 	case "ctrl+c":
 		m.plManager.visible = false
@@ -1474,9 +1520,11 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "/":
 		m.plManager.filtering = true
 		m.plManager.savedCursor = m.plManager.cursor
+		m.plManager.savedScroll = m.plManager.scroll
 		m.plManager.filter = ""
 		m.plManager.filtered = nil
 		m.plManager.cursor = 0
+		m.plManager.scroll = 0
 		return nil
 	case "up", "k":
 		if m.plManager.cursor > 0 {
@@ -1484,12 +1532,37 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 		} else if count > 0 {
 			m.plManager.cursor = count - 1
 		}
+		m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
 	case "down", "j":
 		if m.plManager.cursor < count-1 {
 			m.plManager.cursor++
 		} else if count > 0 {
 			m.plManager.cursor = 0
 		}
+		m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
+	case "ctrl+x":
+		m.toggleExpandedView()
+		m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
+	case "pgup", "ctrl+u":
+		if m.plManager.cursor > 0 {
+			visible := m.plMgrTracksVisible()
+			m.plManager.cursor -= min(m.plManager.cursor, visible)
+			m.plMgrTracksMaybeAdjustScroll(visible)
+		}
+	case "pgdown", "ctrl+d":
+		if m.plManager.cursor < count-1 {
+			visible := m.plMgrTracksVisible()
+			m.plManager.cursor = min(count-1, m.plManager.cursor+visible)
+			m.plMgrTracksMaybeAdjustScroll(visible)
+		}
+	case "home", "g":
+		m.plManager.cursor = 0
+		m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
+	case "end", "G":
+		if count > 0 {
+			m.plManager.cursor = count - 1
+		}
+		m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
 	case "enter":
 		// Play the highlighted track; the rest of the playlist follows.
 		if len(m.plManager.tracks) > 0 {

@@ -67,13 +67,70 @@ func (m *Model) themePickerMaybeAdjustScroll(visible int) {
 	clampScroll(&m.themePicker.cursor, &m.themePicker.scroll, len(m.themes)+1, visible)
 }
 
+func (m *Model) plMgrListVisible() int {
+	probe := []string{
+		titleStyle.Render("P L A Y L I S T S"),
+		"",
+	}
+	probe = append(probe, filterHeader(m.plManager.filtering, m.plManager.filter, "")...)
+	probe = append(probe,
+		"x", "",
+		dimStyle.Render("  0/0 playlists"),
+		"",
+		m.plMgrListFooter(),
+	)
+	return m.measureOverlayVisible(probe, maxPlVisible)
+}
+
+func (m *Model) plMgrListMaybeAdjustScroll(visible int) {
+	clampScroll(&m.plManager.cursor, &m.plManager.scroll, m.plMgrListViewCount(), visible)
+}
+
+func (m *Model) plMgrTracksVisible() int {
+	probe := []string{
+		titleStyle.Render("P L A Y L I S T : x"),
+		"",
+	}
+	if subtitle := tracksSubtitle(m.plManager.tracks); subtitle != "" {
+		probe = append(probe, dimStyle.Render("  "+subtitle), "")
+	}
+	probe = append(probe, filterHeader(m.plManager.filtering, m.plManager.filter, "")...)
+	probe = append(probe,
+		"x", "",
+		dimStyle.Render("  0/0 tracks"),
+		"",
+		m.plMgrTracksFooter(),
+	)
+	return m.measureOverlayVisible(probe, maxPlVisible)
+}
+
+func (m *Model) plMgrTracksMaybeAdjustScroll(visible int) {
+	if m.plManager.filter != "" || !m.showAlbumHeaders {
+		clampScroll(&m.plManager.cursor, &m.plManager.scroll, m.plMgrTracksViewCount(), visible)
+		return
+	}
+	tracks := m.plManager.tracks
+	if len(tracks) == 0 {
+		return
+	}
+	if m.plManager.cursor < m.plManager.scroll {
+		m.plManager.scroll = m.plManager.cursor
+	}
+	for m.plManager.scroll < m.plManager.cursor && m.albumSeparatorRows(tracks, m.plManager.scroll, m.plManager.cursor, true) > visible {
+		m.plManager.scroll++
+	}
+}
+
 // openPlaylistManager loads playlist metadata and opens the manager overlay.
 func (m *Model) openPlaylistManager() {
 	m.plMgrResetFilter()
 	m.plMgrRefreshList()
 	m.plManager.screen = plMgrScreenList
+	m.plManager.cursor = 0
+	m.plManager.scroll = 0
 	m.plManager.confirmDel = false
 	m.plManager.visible = true
+	m.plMgrListMaybeAdjustScroll(m.plMgrListVisible())
 }
 
 // plMgrEnterTrackList loads the tracks for a playlist and switches to screen 1.
@@ -88,8 +145,10 @@ func (m *Model) plMgrEnterTrackList(name string) {
 	m.setInitialHeaderState(tracks)
 	m.plManager.screen = plMgrScreenTracks
 	m.plManager.cursor = 0
+	m.plManager.scroll = 0
 	m.plManager.confirmDel = false
 	m.plMgrResetFilter()
+	m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
 }
 
 // plMgrResetFilter clears any active `/` filter on the playlist manager.
@@ -97,7 +156,10 @@ func (m *Model) plMgrResetFilter() {
 	m.plManager.filtering = false
 	m.plManager.filter = ""
 	m.plManager.filtered = nil
+	m.plManager.cursor = 0
+	m.plManager.scroll = 0
 	m.plManager.savedCursor = 0
+	m.plManager.savedScroll = 0
 }
 
 // plMgrRecomputeFilter rebuilds the filter index for the active screen.
@@ -125,6 +187,12 @@ func (m *Model) plMgrRecomputeFilter() {
 	}
 	if m.plManager.cursor < 0 {
 		m.plManager.cursor = 0
+	}
+	m.plManager.scroll = 0
+	if m.plManager.screen == plMgrScreenList {
+		m.plMgrListMaybeAdjustScroll(m.plMgrListVisible())
+	} else if m.plManager.screen == plMgrScreenTracks {
+		m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
 	}
 }
 
@@ -173,6 +241,7 @@ func (m *Model) plMgrRefreshList() {
 	if m.plManager.cursor < 0 {
 		m.plManager.cursor = 0
 	}
+	m.plMgrListMaybeAdjustScroll(m.plMgrListVisible())
 }
 
 // plMgrListViewCount returns the visible row count on the list screen
