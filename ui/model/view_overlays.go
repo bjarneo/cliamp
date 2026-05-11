@@ -184,12 +184,12 @@ func (m Model) plMgrListFooter() string {
 	if track, idx := m.playlist.Current(); idx >= 0 && track.Path != "" {
 		addLabel = "Add: " + truncate(track.DisplayName(), 32)
 	}
-	return helpKey("↓↑", "Scroll ") +
-		helpKey("Enter/→", "Open ") +
-		helpKey("/", "Filter ") +
+	return helpKey("←↓↑→", "Navigate ") +
+		helpKey("Enter", "Open ") +
 		helpKey("a", addLabel+" ") +
 		helpKey("d", "Delete ") +
-		helpKey("Esc/p", "Close")
+		helpKey("/", "Filter ") +
+		helpKey("Esc", "Close")
 }
 
 func (m Model) renderPlMgrTracks() []string {
@@ -272,12 +272,16 @@ func (m Model) renderPlMgrTracks() []string {
 // plMgrTracksFooter renders the help footer for the track list, showing the
 // distinct verbs for "play this" vs "play all from top".
 func (m Model) plMgrTracksFooter() string {
-	return helpKey("↓↑", "Scroll ") +
+  addLabel := "Add (nothing playing)"
+	if track, idx := m.playlist.Current(); idx >= 0 && track.Path != "" {
+		addLabel = "Add: " + truncate(track.DisplayName(), 32)
+	}
+	return helpKey("←↓↑", "Navigate ") +
 		helpKey("Enter", "Play this ") +
 		helpKey("P", "Play all ") +
-		helpKey("/", "Filter ") +
-		helpKey("a", "Add now-playing ") +
+		helpKey("a", addLabel+" ") +
 		helpKey("d", "Remove ") +
+		helpKey("/", "Filter ") +
 		helpKey("Esc", "Back")
 }
 
