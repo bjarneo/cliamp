@@ -100,7 +100,7 @@ func (m Model) renderPlaylistManager() string {
 	case plMgrScreenNewName:
 		lines = m.renderPlMgrNewName()
 	}
-	return m.centerOverlay(strings.Join(lines, "\n"))
+	return m.centerOverlay(strings.Join(m.appendFooterMessages(lines), "\n"))
 }
 
 func (m Model) renderPlMgrList() []string {

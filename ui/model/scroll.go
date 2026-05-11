@@ -52,13 +52,9 @@ func (m *Model) measurePlVisible(limit int) int {
 	saved := m.plVisible
 	m.plVisible = 3 // temporary minimal value for measurement
 	defer func() { m.plVisible = saved }()
-	probe := strings.Join([]string{
-		m.renderTitle(), m.renderTrackInfo(), m.renderTimeStatus(), "",
-		m.renderSpectrum(), m.renderSeekBar(), "",
-		m.renderControls(), m.renderProviderPill(), "",
-		m.renderPlaylistHeader(), "x", "",
-		m.renderHelp(), m.renderBottomStatus(),
-	}, "\n")
+
+	// Use mainSections to get all fixed chrome plus any active transient messages.
+	probe := strings.Join(m.mainSections("x", true), "\n")
 	fixedLines := lipgloss.Height(ui.FrameStyle.Render(probe)) - 1
 	return max(3, min(limit, m.height-fixedLines))
 }
@@ -75,6 +71,9 @@ func (m *Model) expandedPlVisible() int {
 
 // applyHeightMode sets plVisible based on the current heightExpanded state.
 func (m *Model) applyHeightMode() {
+	if m.playlist == nil {
+		return
+	}
 	if m.heightExpanded {
 		m.plVisible = m.expandedPlVisible()
 	} else {
@@ -86,6 +85,9 @@ func (m *Model) applyHeightMode() {
 // It accounts for album separator lines that reduce the number of
 // tracks that fit in the visible window.
 func (m *Model) adjustScroll() {
+	if m.playlist == nil {
+		return
+	}
 	tracks := m.playlist.Tracks()
 	if len(tracks) == 0 {
 		return

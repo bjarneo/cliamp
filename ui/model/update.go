@@ -44,6 +44,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.quitting {
 			return m, tea.Quit
 		}
+		m.applyHeightMode()
+		m.adjustScroll()
 		return m, cmd
 
 	case autoPlayMsg:

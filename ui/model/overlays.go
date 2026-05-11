@@ -73,12 +73,8 @@ func (m *Model) plMgrListVisible() int {
 		"",
 	}
 	probe = append(probe, filterHeader(m.plManager.filtering, m.plManager.filter, "")...)
-	probe = append(probe,
-		"x", "",
-		dimStyle.Render("  0/0 playlists"),
-		"",
-		m.plMgrListFooter(),
-	)
+	probe = append(probe, "x", "", dimStyle.Render("  0/0 playlists"), "", m.plMgrListFooter())
+	probe = m.appendFooterMessages(probe)
 	return m.measureOverlayVisible(probe, maxPlVisible)
 }
 
@@ -95,12 +91,8 @@ func (m *Model) plMgrTracksVisible() int {
 		probe = append(probe, dimStyle.Render("  "+subtitle), "")
 	}
 	probe = append(probe, filterHeader(m.plManager.filtering, m.plManager.filter, "")...)
-	probe = append(probe,
-		"x", "",
-		dimStyle.Render("  0/0 tracks"),
-		"",
-		m.plMgrTracksFooter(),
-	)
+	probe = append(probe, "x", "", dimStyle.Render("  0/0 tracks"), "", m.plMgrTracksFooter())
+	probe = m.appendFooterMessages(probe)
 	return m.measureOverlayVisible(probe, maxPlVisible)
 }
 
