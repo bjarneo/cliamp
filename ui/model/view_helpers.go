@@ -325,12 +325,6 @@ func (m Model) navScrollItems(total int, labelFn func(int) string) []string {
 }
 
 // navCountLine renders an "X/Y noun (filtered)" footer.
-func (m Model) navCountLine(noun string, total int) string {
-	if len(m.navBrowser.searchIdx) > 0 || m.navBrowser.search != "" {
-		return dimStyle.Render(fmt.Sprintf("  %d/%d %s (filtered)", len(m.navBrowser.searchIdx), total, noun))
-	}
-	return dimStyle.Render(fmt.Sprintf("  %d/%d %s", m.navBrowser.cursor+1, total, noun))
-}
 
 // filterHeader renders the `/` filter input line under a list title. While
 // the user is typing it shows an editable bar with a trailing cursor; once

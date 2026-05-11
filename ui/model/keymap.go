@@ -408,7 +408,12 @@ func (m Model) renderKeymapOverlay() string {
 	}
 
 	lines = padLines(lines, maxVisible, rendered)
-	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d keys", len(visible), len(entries))))
+
+	footerCount := fmt.Sprintf("%d/%d", rendered, len(entries))
+	if m.keymap.search != "" {
+		footerCount = fmt.Sprintf("%d/%d", len(visible), len(entries))
+	}
+	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %s keys", footerCount)))
 	lines = append(lines, "", m.keymapHelpLine())
 
 	return m.centerOverlay(strings.Join(lines, "\n"))

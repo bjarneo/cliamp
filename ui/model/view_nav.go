@@ -85,7 +85,15 @@ func (m Model) renderNavArtistList() []string {
 	})
 	lines = append(lines, items...)
 
-	lines = append(lines, "", m.navCountLine("artists", len(m.navBrowser.artists)),
+	rendered := min(len(m.navBrowser.artists)-m.navBrowser.scroll, max(m.plVisible, 5))
+	if rendered < 0 {
+		rendered = 0
+	}
+	footerCount := fmt.Sprintf("%d/%d", rendered, len(m.navBrowser.artists))
+	if m.navBrowser.searching && m.navBrowser.search != "" {
+		footerCount = fmt.Sprintf("%d/%d", len(m.navBrowser.artists), len(m.navBrowser.artists))
+	}
+	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %s artists", footerCount)),
 		"", helpKey("←↓↑→", "Navigate ")+helpKey("Enter", "Open ")+helpKey("/", "Search"))
 
 	return lines
@@ -142,7 +150,15 @@ func (m Model) renderNavAlbumList(artistAlbums bool) []string {
 	if m.navBrowser.albumLoading {
 		lines = append(lines, loadingLine("Loading more…"))
 	} else {
-		lines = append(lines, m.navCountLine("albums", len(m.navBrowser.albums)))
+		rendered := min(len(m.navBrowser.albums)-m.navBrowser.scroll, max(m.plVisible, 5))
+		if rendered < 0 {
+			rendered = 0
+		}
+		footerCount := fmt.Sprintf("%d/%d", rendered, len(m.navBrowser.albums))
+		if m.navBrowser.searching && m.navBrowser.search != "" {
+			footerCount = fmt.Sprintf("%d/%d", len(m.navBrowser.albums), len(m.navBrowser.albums))
+		}
+		lines = append(lines, dimStyle.Render(fmt.Sprintf("  %s albums", footerCount)))
 	}
 
 	help := helpKey("←↓↑→", "Navigate ") + helpKey("Enter", "Open ")
@@ -187,15 +203,19 @@ func (m Model) renderNavTrackList() []string {
 
 	useFilter := len(m.navBrowser.searchIdx) > 0 || m.navBrowser.search != ""
 
+	rendered := 0
 	if useFilter {
 		items := m.navScrollItems(len(m.navBrowser.tracks), func(i int) string {
 			t := m.navBrowser.tracks[i]
 			return formatTrackRow(i+1, t.DisplayName()+trackAlbumSuffix(t, m.showAlbumHeaders), t.DurationSecs)
 		})
 		lines = append(lines, items...)
+		rendered = min(len(m.navBrowser.tracks)-m.navBrowser.scroll, max(m.plVisible, 5))
+		if rendered < 0 {
+			rendered = 0
+		}
 	} else {
 		scroll := m.navBrowser.scroll
-		rendered := 0
 
 		for row := range m.playlistRows(m.navBrowser.tracks, scroll, m.showAlbumHeaders) {
 			if row.Index < 0 {
@@ -220,7 +240,11 @@ func (m Model) renderNavTrackList() []string {
 		lines = padLines(lines, maxVisible, rendered)
 	}
 
-	lines = append(lines, "", m.navCountLine("tracks", len(m.navBrowser.tracks)),
+	footerCount := fmt.Sprintf("%d/%d", rendered, len(m.navBrowser.tracks))
+	if m.navBrowser.searching && m.navBrowser.search != "" {
+		footerCount = fmt.Sprintf("%d/%d", len(m.navBrowser.tracks), len(m.navBrowser.tracks))
+	}
+	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %s tracks", footerCount)),
 		"", helpKey("←↓↑→", "Navigate ")+
 			helpKey("Enter", "Play from here ")+
 			helpKey("q", "Queue this ")+

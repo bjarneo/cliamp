@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"cliamp/history"
 	"cliamp/lyrics"
 	"cliamp/theme"
 	"cliamp/ui"
@@ -171,7 +172,40 @@ func (m Model) renderPlMgrList() []string {
 	}
 
 	lines = padLines(lines, maxVisible, rendered)
-	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d playlists", visibleN, len(m.plManager.playlists))))
+
+	totalUser := 0
+	for _, p := range m.plManager.playlists {
+		if p.Name != history.PlaylistName {
+			totalUser++
+		}
+	}
+
+	visibleUser := 0
+	if m.plManager.filter != "" {
+		for _, idx := range m.plManager.filtered {
+			if m.plManager.playlists[idx].Name != history.PlaylistName {
+				visibleUser++
+			}
+		}
+	} else {
+		visibleUser = totalUser
+	}
+
+	renderedUser := 0
+	for i := scroll; i < count && i < scroll+maxVisible; i++ {
+		if i < visibleN {
+			realIdx := m.plMgrPlaylistRealIndex(i)
+			if realIdx >= 0 && m.plManager.playlists[realIdx].Name != history.PlaylistName {
+				renderedUser++
+			}
+		}
+	}
+
+	footerCount := fmt.Sprintf("%d/%d", renderedUser, totalUser)
+	if m.plManager.filter != "" {
+		footerCount = fmt.Sprintf("%d/%d", visibleUser, totalUser)
+	}
+	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %s playlists", footerCount)))
 
 	lines = append(lines, "", m.plMgrListFooter())
 	return lines
@@ -263,7 +297,12 @@ func (m Model) renderPlMgrTracks() []string {
 	}
 
 	lines = padLines(lines, maxVisible, rendered)
-	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d tracks", visibleN, len(m.plManager.tracks))))
+
+	footerCount := fmt.Sprintf("%d/%d", rendered, len(m.plManager.tracks))
+	if m.plManager.filter != "" {
+		footerCount = fmt.Sprintf("%d/%d", visibleN, len(m.plManager.tracks))
+	}
+	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %s tracks", footerCount)))
 
 	lines = append(lines, "", footer)
 	return lines
@@ -272,7 +311,7 @@ func (m Model) renderPlMgrTracks() []string {
 // plMgrTracksFooter renders the help footer for the track list, showing the
 // distinct verbs for "play this" vs "play all from top".
 func (m Model) plMgrTracksFooter() string {
-  addLabel := "Add (nothing playing)"
+	addLabel := "Add (nothing playing)"
 	if track, idx := m.playlist.Current(); idx >= 0 && track.Path != "" {
 		addLabel = "Add: " + truncate(track.DisplayName(), 32)
 	}
