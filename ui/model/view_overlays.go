@@ -266,7 +266,7 @@ func (m Model) plMgrListFooter() string {
 	if track, idx := m.playlist.Current(); idx >= 0 && track.Path != "" {
 		addLabel = "Add: " + truncate(track.DisplayName(), 32)
 	}
-	return helpKey("←↓↑→", "Navigate ") +
+	return helpKey("↓↑→", "Navigate ") +
 		helpKey("Enter", "Open ") +
 		helpKey("a", addLabel+" ") +
 		helpKey("d", "Delete ") +
