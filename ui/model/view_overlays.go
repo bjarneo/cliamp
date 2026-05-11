@@ -127,7 +127,6 @@ func (m Model) renderPlMgrList() []string {
 	if m.plManager.filter != "" {
 		visibleN = len(m.plManager.filtered)
 	}
-	count := visibleN + 1 // +1 for "+ New Playlist..."
 
 	// Empty state: no playlists at all.
 	if len(m.plManager.playlists) == 0 {
@@ -138,76 +137,93 @@ func (m Model) renderPlMgrList() []string {
 			"",
 			playlistSelectedStyle.Render("> + New Playlist..."),
 		)
-		lines = append(lines, "", m.plMgrListFooter())
+		lines = append(lines, after...)
 		return lines
 	}
 
-	// Filtered with no matches: still allow "+ New Playlist..." (will pre-fill name from filter).
+	// Filtered with no matches: still allow "+ New Playlist..."
 	if m.plManager.filter != "" && visibleN == 0 {
 		lines = append(lines, dimStyle.Render(fmt.Sprintf("  No playlists match %q", m.plManager.filter)))
 		newLabel := "+ New Playlist \"" + m.plManager.filter + "\"..."
-		if m.plManager.cursor == 0 {
-			lines = append(lines, playlistSelectedStyle.Render("> "+newLabel))
-		} else {
-			lines = append(lines, dimStyle.Render("  "+newLabel))
-		}
-		lines = append(lines, "", m.plMgrListFooter())
+		lines = append(lines, cursorLine(newLabel, m.plManager.cursor == 0))
+		lines = append(lines, after...)
 		return lines
 	}
 
+	type plRow struct {
+		label   string
+		realIdx int // -1 for "New" or spacer
+		viewIdx int // logical index for cursor comparison
+		spacer  bool
+	}
+
+	var rows []plRow
+	foundUser := false
+	for i := 0; i < visibleN; i++ {
+		idx := m.plMgrPlaylistRealIndex(i)
+		p := m.plManager.playlists[idx]
+
+		if p.Name != history.PlaylistName {
+			// Spacer above the first user item?
+			if !foundUser && i > 0 {
+				rows = append(rows, plRow{spacer: true, viewIdx: -1})
+			}
+			foundUser = true
+		}
+
+		rows = append(rows, plRow{
+			label:   playlistLabel("", p),
+			realIdx: idx,
+			viewIdx: i,
+		})
+	}
+
+	// Spacer before "+ New Playlist"?
+	if visibleN > 0 {
+		rows = append(rows, plRow{spacer: true, viewIdx: -1})
+	}
+
+	// New Playlist pseudo-item.
+	newLabel := "+ New Playlist..."
+	if m.plManager.filter != "" {
+		newLabel = "+ New Playlist \"" + m.plManager.filter + "\"..."
+	}
+	rows = append(rows, plRow{label: newLabel, realIdx: -1, viewIdx: visibleN})
+
+	// 2. Map logical scroll position to our row index.
+	startIndex := 0
+	for i, r := range rows {
+		if r.viewIdx == m.plManager.scroll {
+			startIndex = i
+			break
+		}
+	}
+
 	maxVisible := m.plMgrListVisible()
-	scroll := m.plManager.scroll
 	rendered := 0
 	renderedUser := 0
 
-	for i := scroll; i < count && rendered < maxVisible; i++ {
-		// Space above user playlists (after Recently Played).
-		if i > 0 && i < visibleN {
-			prevIdx := m.plMgrPlaylistRealIndex(i - 1)
-			currIdx := m.plMgrPlaylistRealIndex(i)
-			if prevIdx >= 0 && currIdx >= 0 &&
-				m.plManager.playlists[prevIdx].Name == history.PlaylistName &&
-				m.plManager.playlists[currIdx].Name != history.PlaylistName {
-				lines = append(lines, "")
-				rendered++
-				if rendered >= maxVisible {
-					break
-				}
-			}
-		}
-
-		// Space below user playlists (before New Playlist).
-		if i == visibleN && i > 0 {
+	// 3. Render the rows within the viewport budget.
+	for i := startIndex; i < len(rows) && rendered < maxVisible; i++ {
+		r := rows[i]
+		if r.spacer {
 			lines = append(lines, "")
 			rendered++
-			if rendered >= maxVisible {
-				break
-			}
+			continue
 		}
 
-		var label string
-		realIdx := -1
-		if i < visibleN {
-			realIdx = m.plMgrPlaylistRealIndex(i)
-			label = playlistLabel("", m.plManager.playlists[realIdx])
-			if m.plManager.playlists[realIdx].Name != history.PlaylistName {
-				renderedUser++
-			}
-		} else {
-			label = "+ New Playlist..."
-			if m.plManager.filter != "" {
-				label = "+ New Playlist \"" + m.plManager.filter + "\"..."
-			}
+		if r.viewIdx < visibleN && m.plManager.playlists[r.realIdx].Name != history.PlaylistName {
+			renderedUser++
 		}
 
-		if i == m.plManager.cursor {
-			if m.plManager.confirmDel && realIdx >= 0 {
-				lines = append(lines, playlistSelectedStyle.Render("> Delete \""+m.plManager.playlists[realIdx].Name+"\"? [y/n]"))
+		if r.viewIdx == m.plManager.cursor {
+			if m.plManager.confirmDel && r.realIdx >= 0 {
+				lines = append(lines, playlistSelectedStyle.Render("> Delete \""+m.plManager.playlists[r.realIdx].Name+"\"? [y/n]"))
 			} else {
-				lines = append(lines, playlistSelectedStyle.Render("> "+label))
+				lines = append(lines, playlistSelectedStyle.Render("> "+r.label))
 			}
 		} else {
-			lines = append(lines, dimStyle.Render("  "+label))
+			lines = append(lines, dimStyle.Render("  "+r.label))
 		}
 		rendered++
 	}
