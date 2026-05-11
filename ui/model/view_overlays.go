@@ -145,13 +145,41 @@ func (m Model) renderPlMgrList() []string {
 	maxVisible := m.plMgrListVisible()
 	scroll := m.plManager.scroll
 	rendered := 0
+	renderedUser := 0
 
-	for i := scroll; i < count && i < scroll+maxVisible; i++ {
+	for i := scroll; i < count && rendered < maxVisible; i++ {
+		// Space above user playlists (after Recently Played).
+		if i > 0 && i < visibleN {
+			prevIdx := m.plMgrPlaylistRealIndex(i - 1)
+			currIdx := m.plMgrPlaylistRealIndex(i)
+			if prevIdx >= 0 && currIdx >= 0 &&
+				m.plManager.playlists[prevIdx].Name == history.PlaylistName &&
+				m.plManager.playlists[currIdx].Name != history.PlaylistName {
+				lines = append(lines, "")
+				rendered++
+				if rendered >= maxVisible {
+					break
+				}
+			}
+		}
+
+		// Space below user playlists (before New Playlist).
+		if i == visibleN && i > 0 {
+			lines = append(lines, "")
+			rendered++
+			if rendered >= maxVisible {
+				break
+			}
+		}
+
 		var label string
 		realIdx := -1
 		if i < visibleN {
 			realIdx = m.plMgrPlaylistRealIndex(i)
 			label = playlistLabel("", m.plManager.playlists[realIdx])
+			if m.plManager.playlists[realIdx].Name != history.PlaylistName {
+				renderedUser++
+			}
 		} else {
 			label = "+ New Playlist..."
 			if m.plManager.filter != "" {
@@ -189,16 +217,6 @@ func (m Model) renderPlMgrList() []string {
 		}
 	} else {
 		visibleUser = totalUser
-	}
-
-	renderedUser := 0
-	for i := scroll; i < count && i < scroll+maxVisible; i++ {
-		if i < visibleN {
-			realIdx := m.plMgrPlaylistRealIndex(i)
-			if realIdx >= 0 && m.plManager.playlists[realIdx].Name != history.PlaylistName {
-				renderedUser++
-			}
-		}
 	}
 
 	footerCount := fmt.Sprintf("%d/%d", renderedUser, totalUser)
