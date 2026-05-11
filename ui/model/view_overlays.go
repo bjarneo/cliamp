@@ -383,15 +383,19 @@ func (m Model) plMgrTracksFooter() string {
 }
 
 func (m Model) renderPlMgrNewName() []string {
-	lines := []string{
+	createAndAddLabel := "Create & add (nothing playing)"
+	if track, idx := m.playlist.Current(); idx >= 0 && track.Path != "" {
+		createAndAddLabel = "Create & add: " + truncate(track.DisplayName(), 32)
+	}
+	return []string{
 		titleStyle.Render("N E W  P L A Y L I S T"),
 		"",
 		dimStyle.Render("  Playlist name:"),
 		playlistSelectedStyle.Render("  " + m.plManager.newName + "_"),
 		"",
-		helpKey("Enter", "Create & add track ") + helpKey("Esc", "Cancel"),
+		helpKey("Enter", createAndAddLabel + " ") +
+		helpKey("Esc", "Cancel"),
 	}
-	return lines
 }
 
 func (m Model) renderQueueOverlay() string {
