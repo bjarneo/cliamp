@@ -68,12 +68,9 @@ func (m *Model) themePickerMaybeAdjustScroll(visible int) {
 }
 
 func (m *Model) plMgrListVisible() int {
-	probe := []string{
-		titleStyle.Render("P L A Y L I S T S"),
-		"",
-	}
-	probe = append(probe, filterHeader(m.plManager.filtering, m.plManager.filter, "")...)
-	probe = append(probe, "x", "", dimStyle.Render("  0/0 playlists"), "", m.plMgrListFooter())
+	before, after := m.plMgrListShell()
+	probe := append(before, "x")
+	probe = append(probe, after...)
 	probe = m.appendFooterMessages(probe)
 	return m.measureOverlayVisible(probe, maxPlVisible)
 }
@@ -83,15 +80,9 @@ func (m *Model) plMgrListMaybeAdjustScroll(visible int) {
 }
 
 func (m *Model) plMgrTracksVisible() int {
-	probe := []string{
-		titleStyle.Render("P L A Y L I S T : x"),
-		"",
-	}
-	if subtitle := tracksSubtitle(m.plManager.tracks); subtitle != "" {
-		probe = append(probe, dimStyle.Render("  "+subtitle), "")
-	}
-	probe = append(probe, filterHeader(m.plManager.filtering, m.plManager.filter, "")...)
-	probe = append(probe, "x", "", dimStyle.Render("  0/0 tracks"), "", m.plMgrTracksFooter())
+	before, after := m.plMgrTracksShell()
+	probe := append(before, "x")
+	probe = append(probe, after...)
 	probe = m.appendFooterMessages(probe)
 	return m.measureOverlayVisible(probe, maxPlVisible)
 }

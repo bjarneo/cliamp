@@ -103,12 +103,25 @@ func (m Model) renderPlaylistManager() string {
 	return m.centerOverlay(strings.Join(m.appendFooterMessages(lines), "\n"))
 }
 
-func (m Model) renderPlMgrList() []string {
-	lines := []string{
+func (m Model) plMgrListShell() (before, after []string) {
+	before = []string{
 		titleStyle.Render("P L A Y L I S T S"),
 		"",
 	}
-	lines = append(lines, filterHeader(m.plManager.filtering, m.plManager.filter, "")...)
+	before = append(before, filterHeader(m.plManager.filtering, m.plManager.filter, "")...)
+
+	after = []string{
+		"",
+		dimStyle.Render("  0/0 playlists"),
+		"",
+		m.plMgrListFooter(),
+	}
+	return before, after
+}
+
+func (m Model) renderPlMgrList() []string {
+	before, after := m.plMgrListShell()
+	lines := append([]string{}, before...)
 
 	visibleN := len(m.plManager.playlists)
 	if m.plManager.filter != "" {
@@ -223,9 +236,10 @@ func (m Model) renderPlMgrList() []string {
 	if m.plManager.filter != "" {
 		footerCount = fmt.Sprintf("%d/%d", visibleUser, totalUser)
 	}
-	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %s playlists", footerCount)))
+	// Use the shell's footer but update the counter line.
+	after[1] = dimStyle.Render(fmt.Sprintf("  %s playlists", footerCount))
+	lines = append(lines, after...)
 
-	lines = append(lines, "", m.plMgrListFooter())
 	return lines
 }
 
@@ -244,27 +258,36 @@ func (m Model) plMgrListFooter() string {
 		helpKey("Esc", "Close")
 }
 
-func (m Model) renderPlMgrTracks() []string {
+func (m Model) plMgrTracksShell() (before, after []string) {
 	title := fmt.Sprintf("P L A Y L I S T : %s", m.plManager.selPlaylist)
-	lines := []string{
+	before = []string{
 		titleStyle.Render(title),
 		"",
 	}
-
 	if subtitle := tracksSubtitle(m.plManager.tracks); subtitle != "" {
-		lines = append(lines, dimStyle.Render("  "+subtitle), "")
+		before = append(before, dimStyle.Render("  "+subtitle), "")
 	}
+	before = append(before, filterHeader(m.plManager.filtering, m.plManager.filter, "")...)
 
-	lines = append(lines, filterHeader(m.plManager.filtering, m.plManager.filter, "")...)
+	after = []string{
+		"",
+		dimStyle.Render("  0/0 tracks"),
+		"",
+		m.plMgrTracksFooter(),
+	}
+	return before, after
+}
 
-	footer := m.plMgrTracksFooter()
+func (m Model) renderPlMgrTracks() []string {
+	before, after := m.plMgrTracksShell()
+	lines := append([]string{}, before...)
 
 	if len(m.plManager.tracks) == 0 {
 		lines = append(lines,
 			dimStyle.Render("  This playlist is empty."),
 			dimStyle.Render("  Press `a` to add the now-playing track."),
 		)
-		lines = append(lines, "", footer)
+		lines = append(lines, after...)
 		return lines
 	}
 
@@ -273,7 +296,7 @@ func (m Model) renderPlMgrTracks() []string {
 		visibleN = len(m.plManager.filtered)
 		if visibleN == 0 {
 			lines = append(lines, dimStyle.Render(fmt.Sprintf("  No tracks match %q", m.plManager.filter)))
-			lines = append(lines, "", footer)
+			lines = append(lines, after...)
 			return lines
 		}
 	}
@@ -320,9 +343,10 @@ func (m Model) renderPlMgrTracks() []string {
 	if m.plManager.filter != "" {
 		footerCount = fmt.Sprintf("%d/%d", visibleN, len(m.plManager.tracks))
 	}
-	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %s tracks", footerCount)))
+	// Use the shell's footer but update the counter line.
+	after[1] = dimStyle.Render(fmt.Sprintf("  %s tracks", footerCount))
+	lines = append(lines, after...)
 
-	lines = append(lines, "", footer)
 	return lines
 }
 
