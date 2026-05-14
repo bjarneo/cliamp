@@ -6,6 +6,14 @@ import (
 	"cliamp/theme"
 )
 
+func (m *Model) measureChrome(before, after []string) int {
+	probe := append([]string{}, before...)
+	probe = append(probe, "x")
+	probe = append(probe, after...)
+	probe = m.appendFooterMessages(probe)
+	return m.measureOverlayVisible(probe, maxPlVisible)
+}
+
 // openThemePicker re-loads themes from disk (picking up new user files)
 // and opens the theme selector overlay.
 func (m *Model) openThemePicker() {
@@ -52,11 +60,7 @@ func (m *Model) themePickerHelpLine() string {
 }
 
 func (m *Model) themePickerVisible() int {
-	before, after := m.themePickerChrome()
-	probe := append(before, "x")
-	probe = append(probe, after...)
-	probe = m.appendFooterMessages(probe)
-	return m.measureOverlayVisible(probe, maxPlVisible)
+	return m.measureChrome(m.themePickerChrome())
 }
 
 func (m *Model) themePickerMaybeAdjustScroll(visible int) {
@@ -68,11 +72,7 @@ func (m *Model) devicePickerHelpLine() string {
 }
 
 func (m *Model) devicePickerVisible() int {
-	before, after := m.devicePickerChrome()
-	probe := append(before, "x")
-	probe = append(probe, after...)
-	probe = m.appendFooterMessages(probe)
-	return m.measureOverlayVisible(probe, maxPlVisible)
+	return m.measureChrome(m.devicePickerChrome())
 }
 
 func (m *Model) queueHelpLine() string {
@@ -84,11 +84,7 @@ func (m *Model) queueHelpLine() string {
 }
 
 func (m *Model) queueVisible() int {
-	before, after := m.queueChrome()
-	probe := append(before, "x")
-	probe = append(probe, after...)
-	probe = m.appendFooterMessages(probe)
-	return m.measureOverlayVisible(probe, maxPlVisible)
+	return m.measureChrome(m.queueChrome())
 }
 
 func (m *Model) searchHelpLine() string {
@@ -100,11 +96,7 @@ func (m *Model) searchHelpLine() string {
 }
 
 func (m *Model) searchVisible() int {
-	before, after := m.searchChrome()
-	probe := append(before, "x")
-	probe = append(probe, after...)
-	probe = m.appendFooterMessages(probe)
-	return m.measureOverlayVisible(probe, maxPlVisible)
+	return m.measureChrome(m.searchChrome())
 }
 
 func (m *Model) netSearchResultsHelpLine() string {
@@ -116,11 +108,7 @@ func (m *Model) netSearchResultsHelpLine() string {
 }
 
 func (m *Model) netSearchResultsVisible() int {
-	before, after := m.netSearchResultsChrome()
-	probe := append(before, "x")
-	probe = append(probe, after...)
-	probe = m.appendFooterMessages(probe)
-	return m.measureOverlayVisible(probe, maxPlVisible)
+	return m.measureChrome(m.netSearchResultsChrome())
 }
 
 func (m *Model) spotSearchResultsHelpLine() string {
@@ -133,11 +121,7 @@ func (m *Model) spotSearchResultsHelpLine() string {
 }
 
 func (m *Model) spotSearchResultsVisible() int {
-	before, after := m.spotSearchResultsChrome()
-	probe := append(before, "x")
-	probe = append(probe, after...)
-	probe = m.appendFooterMessages(probe)
-	return m.measureOverlayVisible(probe, maxPlVisible)
+	return m.measureChrome(m.spotSearchResultsChrome())
 }
 
 func (m *Model) spotSearchPlaylistHelpLine() string {
@@ -145,11 +129,7 @@ func (m *Model) spotSearchPlaylistHelpLine() string {
 }
 
 func (m *Model) spotSearchPlaylistVisible() int {
-	before, after := m.spotSearchPlaylistChrome()
-	probe := append(before, "x")
-	probe = append(probe, after...)
-	probe = m.appendFooterMessages(probe)
-	return m.measureOverlayVisible(probe, maxPlVisible)
+	return m.measureChrome(m.spotSearchPlaylistChrome())
 }
 
 func (m *Model) plMgrListHelpLine() string {
@@ -166,11 +146,7 @@ func (m *Model) plMgrListHelpLine() string {
 }
 
 func (m *Model) plMgrListVisible() int {
-	before, after := m.plMgrListChrome()
-	probe := append(before, "x")
-	probe = append(probe, after...)
-	probe = m.appendFooterMessages(probe)
-	return m.measureOverlayVisible(probe, maxPlVisible)
+	return m.measureChrome(m.plMgrListChrome())
 }
 
 func (m *Model) plMgrListMaybeAdjustScroll(visible int) {
@@ -192,11 +168,7 @@ func (m *Model) plMgrTracksHelpLine() string {
 }
 
 func (m *Model) plMgrTracksVisible() int {
-	before, after := m.plMgrTracksChrome()
-	probe := append(before, "x")
-	probe = append(probe, after...)
-	probe = m.appendFooterMessages(probe)
-	return m.measureOverlayVisible(probe, maxPlVisible)
+	return m.measureChrome(m.plMgrTracksChrome())
 }
 
 func (m *Model) plMgrTracksMaybeAdjustScroll(visible int) {
