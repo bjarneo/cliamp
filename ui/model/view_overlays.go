@@ -11,61 +11,79 @@ import (
 	"cliamp/ui"
 )
 
-func (m Model) renderDeviceOverlay() string {
-	lines := []string{
+func (m Model) devicePickerChrome() (before, after []string) {
+	before = []string{
 		titleStyle.Render("A U D I O  D E V I C E S"),
 		"",
 	}
+	after = []string{
+		"",
+		dimStyle.Render("  0/0 devices"),
+		"",
+		m.devicePickerHelpLine(),
+	}
+	return before, after
+}
+
+func (m Model) renderDeviceOverlay() string {
+	before, after := m.devicePickerChrome()
+	lines := append([]string{}, before...)
 
 	if m.devicePicker.loading {
-		lines = append(lines, loadingLine("Loading devices…"))
-		lines = append(lines, "", helpKey("Esc", "Cancel"))
-		return m.centerOverlay(strings.Join(lines, "\n"))
-	}
+		lines = append(lines, loadingLine("Loading devices…"), "", helpKey("Esc", "Cancel"))
+	} else if len(m.devicePicker.devices) == 0 {
+		lines = append(lines, dimStyle.Render("  No audio output devices found."), "", helpKey("Esc", "Close"))
+	} else {
+		maxVisible := m.devicePickerVisible()
+		scroll := scrollStart(m.devicePicker.cursor, maxVisible)
+		rendered := 0
 
-	if len(m.devicePicker.devices) == 0 {
-		lines = append(lines, dimStyle.Render("  No audio output devices found."))
-		lines = append(lines, "", helpKey("Esc", "Close"))
-		return m.centerOverlay(strings.Join(lines, "\n"))
-	}
-
-	maxVisible := 12
-	scroll := scrollStart(m.devicePicker.cursor, maxVisible)
-	rendered := 0
-
-	for i := scroll; i < len(m.devicePicker.devices) && i < scroll+maxVisible; i++ {
-		d := m.devicePicker.devices[i]
-		label := d.Description
-		if label == "" {
-			label = d.Name
+		for i := scroll; i < len(m.devicePicker.devices) && rendered < maxVisible; i++ {
+			d := m.devicePicker.devices[i]
+			label := d.Description
+			if label == "" {
+				label = d.Name
+			}
+			suffix := ""
+			if d.Active {
+				suffix = " " + activeToggle.Render("●")
+			}
+			if i == m.devicePicker.cursor {
+				lines = append(lines, playlistSelectedStyle.Render("> "+label)+suffix)
+			} else {
+				lines = append(lines, dimStyle.Render("  "+label)+suffix)
+			}
+			rendered++
 		}
-		suffix := ""
-		if d.Active {
-			suffix = " " + activeToggle.Render("●")
+
+		lines = padLines(lines, maxVisible, rendered)
+
+		if len(m.devicePicker.devices) > 0 {
+			after[1] = dimStyle.Render(fmt.Sprintf("  %d/%d devices", m.devicePicker.cursor+1, len(m.devicePicker.devices)))
 		}
-		if i == m.devicePicker.cursor {
-			lines = append(lines, playlistSelectedStyle.Render("> "+label)+suffix)
-		} else {
-			lines = append(lines, dimStyle.Render("  "+label)+suffix)
-		}
-		rendered++
+		lines = append(lines, after...)
 	}
 
-	lines = padLines(lines, maxVisible, rendered)
-
-	if len(m.devicePicker.devices) > maxVisible {
-		lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d devices", m.devicePicker.cursor+1, len(m.devicePicker.devices))))
-	}
-
-	lines = append(lines, "", helpKey("↓↑", "Scroll ")+helpKey("Enter", "Select ")+helpKey("Esc", "Cancel"))
 	return m.centerOverlay(strings.Join(lines, "\n"))
 }
 
-func (m Model) renderThemePicker() string {
-	lines := []string{
+func (m Model) themePickerChrome() (before, after []string) {
+	before = []string{
 		titleStyle.Render("T H E M E S"),
 		"",
 	}
+	after = []string{
+		"",
+		dimStyle.Render("  0/0 themes"),
+		"",
+		m.themePickerHelpLine(),
+	}
+	return before, after
+}
+
+func (m Model) renderThemePicker() string {
+	before, after := m.themePickerChrome()
+	lines := append([]string{}, before...)
 
 	count := len(m.themes) + 1
 	maxVisible := m.themePickerVisible()
@@ -84,8 +102,8 @@ func (m Model) renderThemePicker() string {
 	}
 
 	lines = padLines(lines, maxVisible, rendered)
-	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d themes", m.themePicker.cursor+1, count)))
-	lines = append(lines, "", m.themePickerHelpLine())
+	after[1] = dimStyle.Render(fmt.Sprintf("  %d/%d themes", m.themePicker.cursor+1, count))
+	lines = append(lines, after...)
 
 	return m.centerOverlay(strings.Join(lines, "\n"))
 }
@@ -103,7 +121,7 @@ func (m Model) renderPlaylistManager() string {
 	return m.centerOverlay(strings.Join(m.appendFooterMessages(lines), "\n"))
 }
 
-func (m Model) plMgrListShell() (before, after []string) {
+func (m Model) plMgrListChrome() (before, after []string) {
 	before = []string{
 		titleStyle.Render("P L A Y L I S T S"),
 		"",
@@ -120,7 +138,7 @@ func (m Model) plMgrListShell() (before, after []string) {
 }
 
 func (m Model) renderPlMgrList() []string {
-	before, after := m.plMgrListShell()
+	before, after := m.plMgrListChrome()
 	lines := append([]string{}, before...)
 
 	visibleN := len(m.plManager.playlists)
@@ -252,7 +270,7 @@ func (m Model) renderPlMgrList() []string {
 	if m.plManager.filter != "" {
 		footerCount = fmt.Sprintf("%d/%d", visibleUser, totalUser)
 	}
-	// Use the shell's footer but update the counter line.
+	// Use the chrome's footer but update the counter line.
 	after[1] = dimStyle.Render(fmt.Sprintf("  %s playlists", footerCount))
 	lines = append(lines, after...)
 
@@ -274,7 +292,7 @@ func (m Model) plMgrListFooter() string {
 		helpKey("Esc", "Close")
 }
 
-func (m Model) plMgrTracksShell() (before, after []string) {
+func (m Model) plMgrTracksChrome() (before, after []string) {
 	title := fmt.Sprintf("P L A Y L I S T : %s", m.plManager.selPlaylist)
 	before = []string{
 		titleStyle.Render(title),
@@ -295,7 +313,7 @@ func (m Model) plMgrTracksShell() (before, after []string) {
 }
 
 func (m Model) renderPlMgrTracks() []string {
-	before, after := m.plMgrTracksShell()
+	before, after := m.plMgrTracksChrome()
 	lines := append([]string{}, before...)
 
 	if len(m.plManager.tracks) == 0 {
@@ -359,7 +377,7 @@ func (m Model) renderPlMgrTracks() []string {
 	if m.plManager.filter != "" {
 		footerCount = fmt.Sprintf("%d/%d", visibleN, len(m.plManager.tracks))
 	}
-	// Use the shell's footer but update the counter line.
+	// Use the chrome's footer but update the counter line.
 	after[1] = dimStyle.Render(fmt.Sprintf("  %s tracks", footerCount))
 	lines = append(lines, after...)
 
@@ -393,19 +411,31 @@ func (m Model) renderPlMgrNewName() []string {
 		dimStyle.Render("  Playlist name:"),
 		playlistSelectedStyle.Render("  " + m.plManager.newName + "_"),
 		"",
-		helpKey("Enter", createAndAddLabel + " ") +
-		helpKey("Esc", "Cancel"),
+		helpKey("Enter", createAndAddLabel+" ") +
+			helpKey("Esc", "Cancel"),
 	}
 }
 
-func (m Model) renderQueueOverlay() string {
-	lines := []string{
+func (m Model) queueChrome() (before, after []string) {
+	before = []string{
 		titleStyle.Render("Q U E U E"),
 		"",
 	}
+	after = []string{
+		"",
+		dimStyle.Render("  0 queued"),
+		"",
+		m.queueHelpLine(),
+	}
+	return before, after
+}
+
+func (m Model) renderQueueOverlay() string {
+	before, after := m.queueChrome()
+	lines := append([]string{}, before...)
 
 	tracks := m.playlist.QueueTracks()
-	maxVisible := 12
+	maxVisible := m.queueVisible()
 	rendered := 0
 
 	if len(tracks) == 0 {
@@ -413,7 +443,7 @@ func (m Model) renderQueueOverlay() string {
 		rendered = 1
 	} else {
 		scroll := scrollStart(m.queue.cursor, maxVisible)
-		for i := scroll; i < len(tracks) && i < scroll+maxVisible; i++ {
+		for i := scroll; i < len(tracks) && rendered < maxVisible; i++ {
 			name := truncate(tracks[i].DisplayName(), ui.PanelWidth-8)
 			label := fmt.Sprintf("%d. %s", i+1, name)
 			lines = append(lines, cursorLine(label, i == m.queue.cursor))
@@ -422,8 +452,8 @@ func (m Model) renderQueueOverlay() string {
 	}
 
 	lines = padLines(lines, maxVisible, rendered)
-	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d queued", len(tracks))))
-	lines = append(lines, "", helpKey("↓↑", "Scroll ")+helpKey("Shift+↓↑", "Reorder ")+helpKey("d", "Remove ")+helpKey("c", "Clear ")+helpKey("Esc", "Close"))
+	after[1] = dimStyle.Render(fmt.Sprintf("  %d queued", len(tracks)))
+	lines = append(lines, after...)
 
 	return m.centerOverlay(strings.Join(lines, "\n"))
 }
@@ -459,16 +489,28 @@ func (m Model) renderInfoOverlay() string {
 	return m.centerOverlay(strings.Join(lines, "\n"))
 }
 
-func (m Model) renderSearchOverlay() string {
-	lines := []string{
+func (m Model) searchChrome() (before, after []string) {
+	before = []string{
 		titleStyle.Render("S E A R C H"),
 		"",
 		playlistSelectedStyle.Render("  / " + m.search.query + "_"),
 		"",
 	}
+	after = []string{
+		"",
+		dimStyle.Render("  0 found"),
+		"",
+		m.searchHelpLine(),
+	}
+	return before, after
+}
+
+func (m Model) renderSearchOverlay() string {
+	before, after := m.searchChrome()
+	lines := append([]string{}, before...)
 
 	tracks := m.playlist.Tracks()
-	maxVisible := 12
+	maxVisible := m.searchVisible()
 	rendered := 0
 
 	if len(m.search.results) == 0 {
@@ -514,8 +556,8 @@ func (m Model) renderSearchOverlay() string {
 	}
 
 	lines = padLines(lines, maxVisible, rendered)
-	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d found", len(m.search.results))))
-	lines = append(lines, "", helpKey("↓↑", "Scroll ")+helpKey("Enter", "Play ")+helpKey("Tab", "Queue ")+helpKey("Ctrl+K", "Keymap ")+helpKey("Esc", "Close"))
+	after[1] = dimStyle.Render(fmt.Sprintf("  %d found", len(m.search.results)))
+	lines = append(lines, after...)
 
 	return m.centerOverlay(strings.Join(lines, "\n"))
 }
@@ -554,13 +596,25 @@ func (m Model) renderNetSearchInput() []string {
 	return lines
 }
 
-func (m Model) renderNetSearchResults() []string {
-	lines := []string{
+func (m Model) netSearchResultsChrome() (before, after []string) {
+	before = []string{
 		titleStyle.Render("S E A R C H  R E S U L T S"),
 		"",
 	}
+	after = []string{
+		"",
+		dimStyle.Render("  0 results"),
+		"",
+		m.netSearchResultsHelpLine(),
+	}
+	return before, after
+}
 
-	maxVisible := 12
+func (m Model) renderNetSearchResults() []string {
+	before, after := m.netSearchResultsChrome()
+	lines := append([]string{}, before...)
+
+	maxVisible := m.netSearchResultsVisible()
 	rendered := 0
 
 	if len(m.netSearch.results) == 0 {
@@ -568,7 +622,7 @@ func (m Model) renderNetSearchResults() []string {
 		rendered = 1
 	} else {
 		scroll := scrollStart(m.netSearch.cursor, maxVisible)
-		for i := scroll; i < len(m.netSearch.results) && i < scroll+maxVisible; i++ {
+		for i := scroll; i < len(m.netSearch.results) && rendered < maxVisible; i++ {
 			t := m.netSearch.results[i]
 			label := t.DisplayName()
 			label = truncate(label, ui.PanelWidth-8)
@@ -578,8 +632,9 @@ func (m Model) renderNetSearchResults() []string {
 	}
 
 	lines = padLines(lines, maxVisible, rendered)
-	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d results", len(m.netSearch.results))))
-	lines = append(lines, "", helpKey("↓↑", "Scroll ")+helpKey("Enter", "Play ")+helpKey("a", "Append ")+helpKey("q", "Queue next ")+helpKey("Esc", "Back"))
+	after[1] = dimStyle.Render(fmt.Sprintf("  %d results", len(m.netSearch.results)))
+	lines = append(lines, after...)
+
 	return lines
 }
 
@@ -711,13 +766,25 @@ func (m Model) renderSpotSearchInput() []string {
 	return lines
 }
 
-func (m Model) renderSpotSearchResults() []string {
-	lines := []string{
+func (m Model) spotSearchResultsChrome() (before, after []string) {
+	before = []string{
 		titleStyle.Render("S E A R C H  R E S U L T S"),
 		"",
 	}
+	after = []string{
+		"",
+		dimStyle.Render("  0 results"),
+		"",
+		m.spotSearchResultsHelpLine(),
+	}
+	return before, after
+}
 
-	maxVisible := 12
+func (m Model) renderSpotSearchResults() []string {
+	before, after := m.spotSearchResultsChrome()
+	lines := append([]string{}, before...)
+
+	maxVisible := m.spotSearchResultsVisible()
 	rendered := 0
 
 	if len(m.spotSearch.results) == 0 {
@@ -725,7 +792,7 @@ func (m Model) renderSpotSearchResults() []string {
 		rendered = 1
 	} else {
 		scroll := scrollStart(m.spotSearch.cursor, maxVisible)
-		for i := scroll; i < len(m.spotSearch.results) && i < scroll+maxVisible; i++ {
+		for i := scroll; i < len(m.spotSearch.results) && rendered < maxVisible; i++ {
 			t := m.spotSearch.results[i]
 			label := truncate(fmt.Sprintf("%s - %s", t.Artist, t.Title), ui.PanelWidth-8)
 			lines = append(lines, cursorLine(label, i == m.spotSearch.cursor))
@@ -734,16 +801,29 @@ func (m Model) renderSpotSearchResults() []string {
 	}
 
 	lines = padLines(lines, maxVisible, rendered)
-	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d results", len(m.spotSearch.results))))
-	lines = append(lines, "", helpKey("↓↑", "Scroll ")+helpKey("Enter", "Play ")+helpKey("a", "Append ")+helpKey("q", "Queue next ")+helpKey("p", "Add to playlist ")+helpKey("Esc", "Back"))
+	after[1] = dimStyle.Render(fmt.Sprintf("  %d results", len(m.spotSearch.results)))
+	lines = append(lines, after...)
+
 	return lines
 }
 
-func (m Model) renderSpotSearchPlaylist() []string {
-	lines := []string{
+func (m Model) spotSearchPlaylistChrome() (before, after []string) {
+	before = []string{
 		titleStyle.Render("A D D  T O  P L A Y L I S T"),
 		"",
 	}
+	after = []string{
+		"",
+		dimStyle.Render("  0 playlists"),
+		"",
+		m.spotSearchPlaylistHelpLine(),
+	}
+	return before, after
+}
+
+func (m Model) renderSpotSearchPlaylist() []string {
+	before, after := m.spotSearchPlaylistChrome()
+	lines := append([]string{}, before...)
 
 	if m.spotSearch.loading {
 		lines = append(lines, loadingLine("Loading playlists…"))
@@ -754,26 +834,26 @@ func (m Model) renderSpotSearchPlaylist() []string {
 	lines = append(lines, dimStyle.Render("  "+truncate(fmt.Sprintf("%s - %s", track.Artist, track.Title), ui.PanelWidth-8)), "")
 
 	count := len(m.spotSearch.playlists) + 1 // +1 for "+ New Playlist..."
-	maxVisible := 12
+	maxVisible := m.spotSearchPlaylistVisible()
 	scroll := scrollStart(m.spotSearch.cursor, maxVisible)
+	rendered := 0
 
-	for i := scroll; i < count && i < scroll+maxVisible; i++ {
+	for i := scroll; i < count && rendered < maxVisible; i++ {
 		var label string
 		if i < len(m.spotSearch.playlists) {
-			pl := m.spotSearch.playlists[i]
-			label = pl.Name
+			label = m.spotSearch.playlists[i].Name
 		} else {
 			label = "+ New Playlist..."
 		}
 
 		lines = append(lines, cursorLine(label, i == m.spotSearch.cursor))
+		rendered++
 	}
 
-	if count > maxVisible {
-		lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %d/%d playlists", m.spotSearch.cursor+1, count)))
-	}
+	lines = padLines(lines, maxVisible, rendered)
+	after[1] = dimStyle.Render(fmt.Sprintf("  %d/%d playlists", m.spotSearch.cursor+1, count))
+	lines = append(lines, after...)
 
-	lines = append(lines, "", helpKey("↓↑", "Scroll ")+helpKey("Enter", "Add ")+helpKey("Esc", "Back"))
 	return lines
 }
 

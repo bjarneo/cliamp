@@ -52,23 +52,108 @@ func (m *Model) themePickerHelpLine() string {
 }
 
 func (m *Model) themePickerVisible() int {
-	return m.measureOverlayVisible([]string{
-		titleStyle.Render("T H E M E S"),
-		"",
-		"x",
-		"",
-		dimStyle.Render("  0/0 themes"),
-		"",
-		m.themePickerHelpLine(),
-	}, maxPlVisible)
+	before, after := m.themePickerChrome()
+	probe := append(before, "x")
+	probe = append(probe, after...)
+	probe = m.appendFooterMessages(probe)
+	return m.measureOverlayVisible(probe, maxPlVisible)
 }
 
 func (m *Model) themePickerMaybeAdjustScroll(visible int) {
 	clampScroll(&m.themePicker.cursor, &m.themePicker.scroll, len(m.themes)+1, visible)
 }
 
+func (m *Model) devicePickerHelpLine() string {
+	return helpKey("↓↑", "Scroll ") + helpKey("Enter", "Select ") + helpKey("Esc", "Cancel")
+}
+
+func (m *Model) devicePickerVisible() int {
+	before, after := m.devicePickerChrome()
+	probe := append(before, "x")
+	probe = append(probe, after...)
+	probe = m.appendFooterMessages(probe)
+	return m.measureOverlayVisible(probe, maxPlVisible)
+}
+
+func (m *Model) queueHelpLine() string {
+	return helpKey("↓↑", "Scroll ") +
+		helpKey("Shift+↓↑", "Reorder ") +
+		helpKey("d", "Remove ") +
+		helpKey("c", "Clear ") +
+		helpKey("Esc", "Close")
+}
+
+func (m *Model) queueVisible() int {
+	before, after := m.queueChrome()
+	probe := append(before, "x")
+	probe = append(probe, after...)
+	probe = m.appendFooterMessages(probe)
+	return m.measureOverlayVisible(probe, maxPlVisible)
+}
+
+func (m *Model) searchHelpLine() string {
+	return helpKey("↓↑", "Scroll ") +
+		helpKey("Enter", "Play ") +
+		helpKey("Tab", "Queue ") +
+		helpKey("Ctrl+K", "Keymap ") +
+		helpKey("Esc", "Close")
+}
+
+func (m *Model) searchVisible() int {
+	before, after := m.searchChrome()
+	probe := append(before, "x")
+	probe = append(probe, after...)
+	probe = m.appendFooterMessages(probe)
+	return m.measureOverlayVisible(probe, maxPlVisible)
+}
+
+func (m *Model) netSearchResultsHelpLine() string {
+	return helpKey("↓↑", "Scroll ") +
+		helpKey("Enter", "Play ") +
+		helpKey("a", "Append ") +
+		helpKey("q", "Queue next ") +
+		helpKey("Esc", "Back")
+}
+
+func (m *Model) netSearchResultsVisible() int {
+	before, after := m.netSearchResultsChrome()
+	probe := append(before, "x")
+	probe = append(probe, after...)
+	probe = m.appendFooterMessages(probe)
+	return m.measureOverlayVisible(probe, maxPlVisible)
+}
+
+func (m *Model) spotSearchResultsHelpLine() string {
+	return helpKey("↓↑", "Scroll ") +
+		helpKey("Enter", "Play ") +
+		helpKey("a", "Append ") +
+		helpKey("q", "Queue next ") +
+		helpKey("p", "Add to playlist ") +
+		helpKey("Esc", "Back")
+}
+
+func (m *Model) spotSearchResultsVisible() int {
+	before, after := m.spotSearchResultsChrome()
+	probe := append(before, "x")
+	probe = append(probe, after...)
+	probe = m.appendFooterMessages(probe)
+	return m.measureOverlayVisible(probe, maxPlVisible)
+}
+
+func (m *Model) spotSearchPlaylistHelpLine() string {
+	return helpKey("↓↑", "Scroll ") + helpKey("Enter", "Select ") + helpKey("Esc", "Close")
+}
+
+func (m *Model) spotSearchPlaylistVisible() int {
+	before, after := m.spotSearchPlaylistChrome()
+	probe := append(before, "x")
+	probe = append(probe, after...)
+	probe = m.appendFooterMessages(probe)
+	return m.measureOverlayVisible(probe, maxPlVisible)
+}
+
 func (m *Model) plMgrListVisible() int {
-	before, after := m.plMgrListShell()
+	before, after := m.plMgrListChrome()
 	probe := append(before, "x")
 	probe = append(probe, after...)
 	probe = m.appendFooterMessages(probe)
@@ -80,7 +165,7 @@ func (m *Model) plMgrListMaybeAdjustScroll(visible int) {
 }
 
 func (m *Model) plMgrTracksVisible() int {
-	before, after := m.plMgrTracksShell()
+	before, after := m.plMgrTracksChrome()
 	probe := append(before, "x")
 	probe = append(probe, after...)
 	probe = m.appendFooterMessages(probe)
