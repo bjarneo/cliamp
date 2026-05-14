@@ -132,7 +132,7 @@ func (m Model) plMgrListChrome() (before, after []string) {
 		"",
 		dimStyle.Render("  0/0 playlists"),
 		"",
-		m.plMgrListFooter(),
+		m.plMgrListHelpLine(),
 	}
 	return before, after
 }
@@ -277,21 +277,6 @@ func (m Model) renderPlMgrList() []string {
 	return lines
 }
 
-// plMgrListFooter assembles the help footer for the list screen, showing the
-// resolved now-playing track when known so `a` is no longer a guess.
-func (m Model) plMgrListFooter() string {
-	addLabel := "Add (nothing playing)"
-	if track, idx := m.playlist.Current(); idx >= 0 && track.Path != "" {
-		addLabel = "Add: " + truncate(track.DisplayName(), 32)
-	}
-	return helpKey("↓↑→", "Navigate ") +
-		helpKey("Enter", "Open ") +
-		helpKey("a", addLabel+" ") +
-		helpKey("d", "Delete ") +
-		helpKey("/", "Filter ") +
-		helpKey("Esc", "Close")
-}
-
 func (m Model) plMgrTracksChrome() (before, after []string) {
 	title := fmt.Sprintf("P L A Y L I S T : %s", m.plManager.selPlaylist)
 	before = []string{
@@ -307,7 +292,7 @@ func (m Model) plMgrTracksChrome() (before, after []string) {
 		"",
 		dimStyle.Render("  0/0 tracks"),
 		"",
-		m.plMgrTracksFooter(),
+		m.plMgrTracksHelpLine(),
 	}
 	return before, after
 }
@@ -382,22 +367,6 @@ func (m Model) renderPlMgrTracks() []string {
 	lines = append(lines, after...)
 
 	return lines
-}
-
-// plMgrTracksFooter renders the help footer for the track list, showing the
-// distinct verbs for "play this" vs "play all from top".
-func (m Model) plMgrTracksFooter() string {
-	addLabel := "Add (nothing playing)"
-	if track, idx := m.playlist.Current(); idx >= 0 && track.Path != "" {
-		addLabel = "Add: " + truncate(track.DisplayName(), 32)
-	}
-	return helpKey("←↓↑", "Navigate ") +
-		helpKey("Enter", "Play this ") +
-		helpKey("P", "Play all ") +
-		helpKey("a", addLabel+" ") +
-		helpKey("d", "Remove ") +
-		helpKey("/", "Filter ") +
-		helpKey("Esc", "Back")
 }
 
 func (m Model) renderPlMgrNewName() []string {

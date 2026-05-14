@@ -152,6 +152,19 @@ func (m *Model) spotSearchPlaylistVisible() int {
 	return m.measureOverlayVisible(probe, maxPlVisible)
 }
 
+func (m *Model) plMgrListHelpLine() string {
+	addLabel := "Add (nothing playing)"
+	if track, idx := m.playlist.Current(); idx >= 0 && track.Path != "" {
+		addLabel = "Add: " + truncate(track.DisplayName(), 32)
+	}
+	return helpKey("↓↑→", "Navigate ") +
+		helpKey("Enter", "Open ") +
+		helpKey("a", addLabel+" ") +
+		helpKey("d", "Delete ") +
+		helpKey("/", "Filter ") +
+		helpKey("Esc", "Close")
+}
+
 func (m *Model) plMgrListVisible() int {
 	before, after := m.plMgrListChrome()
 	probe := append(before, "x")
@@ -162,6 +175,20 @@ func (m *Model) plMgrListVisible() int {
 
 func (m *Model) plMgrListMaybeAdjustScroll(visible int) {
 	clampScroll(&m.plManager.cursor, &m.plManager.scroll, m.plMgrListViewCount(), visible)
+}
+
+func (m *Model) plMgrTracksHelpLine() string {
+	addLabel := "Add (nothing playing)"
+	if track, idx := m.playlist.Current(); idx >= 0 && track.Path != "" {
+		addLabel = "Add: " + truncate(track.DisplayName(), 32)
+	}
+	return helpKey("←↓↑", "Navigate ") +
+		helpKey("Enter", "Play this ") +
+		helpKey("P", "Play all ") +
+		helpKey("a", addLabel+" ") +
+		helpKey("d", "Remove ") +
+		helpKey("/", "Filter ") +
+		helpKey("Esc", "Back")
 }
 
 func (m *Model) plMgrTracksVisible() int {
