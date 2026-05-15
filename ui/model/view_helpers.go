@@ -11,6 +11,15 @@ import (
 	"cliamp/ui"
 )
 
+// formatListCount returns a human-readable "current/total" counter string.
+// If the total is 0, it returns "0/0" to avoid off-by-one errors in empty states.
+func (m Model) formatListCount(index, total int) string {
+	if total <= 0 {
+		return "0/0"
+	}
+	return fmt.Sprintf("%d/%d", index+1, total)
+}
+
 // formatTrackTime formats a duration in seconds as M:SS or H:MM:SS for tracks.
 // Returns "" when secs is non-positive so callers can skip rendering entirely.
 func formatTrackTime(secs int) string {

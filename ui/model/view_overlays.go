@@ -81,7 +81,7 @@ func (m Model) renderDeviceOverlay() string {
 		m.devicePicker.cursor,
 		scrollStart(m.devicePicker.cursor, visible),
 		visible,
-		fmt.Sprintf("%d/%d devices", m.devicePicker.cursor+1, len(m.devicePicker.devices)),
+		fmt.Sprintf("%s devices", m.formatListCount(m.devicePicker.cursor, len(m.devicePicker.devices))),
 		"No audio output devices found.",
 	)
 
@@ -117,7 +117,7 @@ func (m Model) renderThemePicker() string {
 		m.themePicker.cursor,
 		m.themePicker.scroll,
 		m.themePickerVisible(),
-		fmt.Sprintf("%d/%d themes", m.themePicker.cursor+1, count),
+		fmt.Sprintf("%s themes", m.formatListCount(m.themePicker.cursor, count)),
 		"",
 	)
 
@@ -810,7 +810,7 @@ func (m Model) renderSpotSearchPlaylist() []string {
 		m.spotSearch.cursor,
 		scrollStart(m.spotSearch.cursor, visible),
 		visible,
-		fmt.Sprintf("%d/%d playlists", m.spotSearch.cursor+1, count),
+		fmt.Sprintf("%s playlists", m.formatListCount(m.spotSearch.cursor, count)),
 		"",
 	)
 }
