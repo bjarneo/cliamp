@@ -74,12 +74,13 @@ func (m Model) renderDeviceOverlay() string {
 		items[i] = label
 	}
 
+	visible := m.devicePickerVisible()
 	lines := m.renderSimpleList(
 		before, after,
 		items,
 		m.devicePicker.cursor,
-		scrollStart(m.devicePicker.cursor, m.devicePickerVisible()),
-		m.devicePickerVisible(),
+		scrollStart(m.devicePicker.cursor, visible),
+		visible,
 		fmt.Sprintf("%d/%d devices", m.devicePicker.cursor+1, len(m.devicePicker.devices)),
 		"No audio output devices found.",
 	)
@@ -423,12 +424,13 @@ func (m Model) renderQueueOverlay() string {
 	}
 
 	before, after := m.queueChrome()
+	visible := m.queueVisible()
 	lines := m.renderSimpleList(
 		before, after,
 		items,
 		m.queue.cursor,
-		scrollStart(m.queue.cursor, m.queueVisible()),
-		m.queueVisible(),
+		scrollStart(m.queue.cursor, visible),
+		visible,
 		fmt.Sprintf("%d queued", len(tracks)),
 		"(empty)",
 	)
@@ -521,12 +523,13 @@ func (m Model) renderSearchOverlay() string {
 	}
 
 	before, after := m.searchChrome()
+	visible := m.searchVisible()
 	lines := m.renderSimpleList(
 		before, after,
 		items,
 		m.search.cursor,
-		scrollStart(m.search.cursor, m.searchVisible()),
-		m.searchVisible(),
+		scrollStart(m.search.cursor, visible),
+		visible,
 		fmt.Sprintf("%d found", len(m.search.results)),
 		emptyMsg,
 	)
@@ -590,12 +593,13 @@ func (m Model) renderNetSearchResults() []string {
 	}
 
 	before, after := m.netSearchResultsChrome()
+	visible := m.netSearchResultsVisible()
 	return m.renderSimpleList(
 		before, after,
 		items,
 		m.netSearch.cursor,
-		scrollStart(m.netSearch.cursor, m.netSearchResultsVisible()),
-		m.netSearchResultsVisible(),
+		scrollStart(m.netSearch.cursor, visible),
+		visible,
 		fmt.Sprintf("%d results", len(m.netSearch.results)),
 		"No results",
 	)
@@ -750,12 +754,13 @@ func (m Model) renderSpotSearchResults() []string {
 	}
 
 	before, after := m.spotSearchResultsChrome()
+	visible := m.spotSearchResultsVisible()
 	return m.renderSimpleList(
 		before, after,
 		items,
 		m.spotSearch.cursor,
-		scrollStart(m.spotSearch.cursor, m.spotSearchResultsVisible()),
-		m.spotSearchResultsVisible(),
+		scrollStart(m.spotSearch.cursor, visible),
+		visible,
 		fmt.Sprintf("%d results", len(m.spotSearch.results)),
 		"No results",
 	)
@@ -798,12 +803,13 @@ func (m Model) renderSpotSearchPlaylist() []string {
 		}
 	}
 
+	visible := m.spotSearchPlaylistVisible()
 	return m.renderSimpleList(
 		before, after,
 		items,
 		m.spotSearch.cursor,
-		scrollStart(m.spotSearch.cursor, m.spotSearchPlaylistVisible()),
-		m.spotSearchPlaylistVisible(),
+		scrollStart(m.spotSearch.cursor, visible),
+		visible,
 		fmt.Sprintf("%d/%d playlists", m.spotSearch.cursor+1, count),
 		"",
 	)
