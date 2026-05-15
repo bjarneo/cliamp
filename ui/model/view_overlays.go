@@ -290,15 +290,14 @@ func (m Model) renderPlMgrList() []string {
 		visibleUser = totalUser
 	}
 
-	scroll := m.plManager.scroll
-	visibleCount := renderedUser
-	if m.plManager.filter != "" {
-		visibleCount = visibleUser
-		scroll = 0
-	}
-	footerCount := m.formatListRangeCount(scroll, visibleCount, totalUser)
-	if m.plManager.filter != "" {
-		footerCount = m.formatListMatchCount(visibleUser, totalUser)
+	var footerCount string
+	if m.plManager.filter == "" {
+		scroll := m.plManager.scroll
+		visibleCount := renderedUser
+		footerCount = m.formatListRangeCount(scroll, visibleCount, totalUser)
+	} else {
+		visibleCount := visibleUser
+		footerCount = m.formatListMatchCount(visibleCount, totalUser)
 	}
 	// Use the chrome's footer but update the counter line.
 	footer := append([]string(nil), after...)
