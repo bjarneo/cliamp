@@ -356,6 +356,7 @@ func (m Model) renderPlMgrTracks() []string {
 
 	scroll := m.plManager.scroll
 	rendered := 0
+	renderedTrackCount := 0
 
 	if m.plManager.filter != "" {
 		for i := scroll; i < visibleN && rendered < maxVisible; i++ {
@@ -364,6 +365,7 @@ func (m Model) renderPlMgrTracks() []string {
 			label := formatTrackRow(realIdx+1, t.DisplayName()+trackAlbumSuffix(t, m.showAlbumHeaders), t.DurationSecs)
 			lines = append(lines, cursorLine(label, i == m.plManager.cursor))
 			rendered++
+			renderedTrackCount++
 		}
 	} else {
 		for row := range m.playlistRows(m.plManager.tracks, scroll, useAlbumSep) {
@@ -384,12 +386,13 @@ func (m Model) renderPlMgrTracks() []string {
 			label := formatTrackRow(i+1, t.DisplayName()+trackAlbumSuffix(t, m.showAlbumHeaders), t.DurationSecs)
 			lines = append(lines, cursorLine(label, i == m.plManager.cursor))
 			rendered++
+			renderedTrackCount++
 		}
 	}
 
 	lines = padLines(lines, maxVisible, rendered)
 
-	footerCount := m.formatListRangeCount(m.plManager.scroll, rendered, len(m.plManager.tracks))
+	footerCount := m.formatListRangeCount(m.plManager.scroll, renderedTrackCount, len(m.plManager.tracks))
 	if m.plManager.filter != "" {
 		footerCount = m.formatListMatchCount(visibleN, len(m.plManager.tracks))
 	}
