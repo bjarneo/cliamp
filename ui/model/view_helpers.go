@@ -18,6 +18,9 @@ func (m Model) formatListRangeCount(startIndex, visibleCount, total int) string 
 	if total <= 0 || visibleCount <= 0 {
 		return "0"
 	}
+	if startIndex >= total {
+		startIndex = max(0, total-1)
+	}
 	start := startIndex + 1
 	if start < 1 {
 		start = 1
