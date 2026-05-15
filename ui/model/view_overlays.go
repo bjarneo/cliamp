@@ -819,7 +819,8 @@ func (m Model) renderSpotSearchPlaylist() []string {
 	// Add the track header to the 'before' lines.
 	before = append(before, dimStyle.Render("  "+truncate(fmt.Sprintf("%s - %s", track.Artist, track.Title), ui.PanelWidth-8)), "")
 
-	count := len(m.spotSearch.playlists) + 1 // +1 for "+ New Playlist..."
+	playlistCount := len(m.spotSearch.playlists)
+	count := playlistCount + 1 // +1 for "+ New Playlist..."
 	items := make([]string, count)
 	for i := 0; i < count; i++ {
 		if i < len(m.spotSearch.playlists) {
@@ -831,14 +832,14 @@ func (m Model) renderSpotSearchPlaylist() []string {
 
 	visible := m.spotSearchPlaylistVisible()
 	scroll := scrollStart(m.spotSearch.cursor, visible)
-	visibleCount := max(0, min(visible, len(items)-scroll))
+	visibleCount := max(0, min(visible, playlistCount-scroll))
 	return m.renderSimpleList(
 		before, after,
 		items,
 		m.spotSearch.cursor,
 		scroll,
 		visible,
-		fmt.Sprintf("%s playlists", m.formatListRangeCount(scroll, visibleCount, len(items))),
+		fmt.Sprintf("%s playlists", m.formatListRangeCount(scroll, visibleCount, playlistCount)),
 		"",
 	)
 }
