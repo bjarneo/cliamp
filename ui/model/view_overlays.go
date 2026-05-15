@@ -78,13 +78,15 @@ func (m Model) renderDeviceOverlay() string {
 	}
 
 	visible := m.devicePickerVisible()
+	scroll := scrollStart(m.devicePicker.cursor, visible)
+	visibleCount := max(0, min(visible, len(items)-scroll))
 	lines := m.renderSimpleList(
 		before, after,
 		items,
 		m.devicePicker.cursor,
-		scrollStart(m.devicePicker.cursor, visible),
+		scroll,
 		visible,
-		fmt.Sprintf("%s devices", m.formatListCount(m.devicePicker.cursor, len(m.devicePicker.devices))),
+		fmt.Sprintf("%s devices", m.formatListRangeCount(scroll, visibleCount, len(items))),
 		"No audio output devices found.",
 	)
 
@@ -114,13 +116,16 @@ func (m Model) renderThemePicker() string {
 	}
 
 	before, after := m.themePickerChrome()
+	visible := m.themePickerVisible()
+	scroll := m.themePicker.scroll
+	visibleCount := max(0, min(visible, len(items)-scroll))
 	lines := m.renderSimpleList(
 		before, after,
 		items,
 		m.themePicker.cursor,
-		m.themePicker.scroll,
-		m.themePickerVisible(),
-		fmt.Sprintf("%s themes", m.formatListCount(m.themePicker.cursor, count)),
+		scroll,
+		visible,
+		fmt.Sprintf("%s themes", m.formatListRangeCount(scroll, visibleCount, len(items))),
 		"",
 	)
 
@@ -285,13 +290,20 @@ func (m Model) renderPlMgrList() []string {
 		visibleUser = totalUser
 	}
 
-	footerCount := fmt.Sprintf("%d/%d", renderedUser, totalUser)
+	scroll := m.plManager.scroll
+	visibleCount := renderedUser
 	if m.plManager.filter != "" {
-		footerCount = fmt.Sprintf("%d/%d", visibleUser, totalUser)
+		visibleCount = visibleUser
+		scroll = 0
+	}
+	footerCount := m.formatListRangeCount(scroll, visibleCount, totalUser)
+	if m.plManager.filter != "" {
+		footerCount = m.formatListMatchCount(visibleUser, totalUser)
 	}
 	// Use the chrome's footer but update the counter line.
-	after[1] = dimStyle.Render(fmt.Sprintf("  %s playlists", footerCount))
-	lines = append(lines, after...)
+	footer := append([]string(nil), after...)
+	footer[1] = dimStyle.Render(fmt.Sprintf("  %s playlists", footerCount))
+	lines = append(lines, footer...)
 
 	return lines
 }
@@ -377,13 +389,14 @@ func (m Model) renderPlMgrTracks() []string {
 
 	lines = padLines(lines, maxVisible, rendered)
 
-	footerCount := fmt.Sprintf("%d/%d", rendered, len(m.plManager.tracks))
+	footerCount := m.formatListRangeCount(m.plManager.scroll, rendered, len(m.plManager.tracks))
 	if m.plManager.filter != "" {
-		footerCount = fmt.Sprintf("%d/%d", visibleN, len(m.plManager.tracks))
+		footerCount = m.formatListMatchCount(visibleN, len(m.plManager.tracks))
 	}
 	// Use the chrome's footer but update the counter line.
-	after[1] = dimStyle.Render(fmt.Sprintf("  %s tracks", footerCount))
-	lines = append(lines, after...)
+	footer := append([]string(nil), after...)
+	footer[1] = dimStyle.Render(fmt.Sprintf("  %s tracks", footerCount))
+	lines = append(lines, footer...)
 
 	return lines
 }
@@ -428,13 +441,15 @@ func (m Model) renderQueueOverlay() string {
 
 	before, after := m.queueChrome()
 	visible := m.queueVisible()
+	scroll := scrollStart(m.queue.cursor, visible)
+	visibleCount := max(0, min(visible, len(items)-scroll))
 	lines := m.renderSimpleList(
 		before, after,
 		items,
 		m.queue.cursor,
-		scrollStart(m.queue.cursor, visible),
+		scroll,
 		visible,
-		fmt.Sprintf("%d queued", len(tracks)),
+		fmt.Sprintf("%s queued", m.formatListRangeCount(scroll, visibleCount, len(items))),
 		"(empty)",
 	)
 
@@ -527,13 +542,14 @@ func (m Model) renderSearchOverlay() string {
 
 	before, after := m.searchChrome()
 	visible := m.searchVisible()
+	scroll := scrollStart(m.search.cursor, visible)
 	lines := m.renderSimpleList(
 		before, after,
 		items,
 		m.search.cursor,
-		scrollStart(m.search.cursor, visible),
+		scroll,
 		visible,
-		fmt.Sprintf("%d found", len(m.search.results)),
+		m.formatListMatchCount(len(m.search.results), len(tracks)),
 		emptyMsg,
 	)
 
@@ -597,13 +613,15 @@ func (m Model) renderNetSearchResults() []string {
 
 	before, after := m.netSearchResultsChrome()
 	visible := m.netSearchResultsVisible()
+	scroll := scrollStart(m.netSearch.cursor, visible)
+	visibleCount := max(0, min(visible, len(items)-scroll))
 	return m.renderSimpleList(
 		before, after,
 		items,
 		m.netSearch.cursor,
-		scrollStart(m.netSearch.cursor, visible),
+		scroll,
 		visible,
-		fmt.Sprintf("%d results", len(m.netSearch.results)),
+		fmt.Sprintf("%s results", m.formatListRangeCount(scroll, visibleCount, len(items))),
 		"No results",
 	)
 }
@@ -758,13 +776,15 @@ func (m Model) renderSpotSearchResults() []string {
 
 	before, after := m.spotSearchResultsChrome()
 	visible := m.spotSearchResultsVisible()
+	scroll := scrollStart(m.spotSearch.cursor, visible)
+	visibleCount := max(0, min(visible, len(items)-scroll))
 	return m.renderSimpleList(
 		before, after,
 		items,
 		m.spotSearch.cursor,
-		scrollStart(m.spotSearch.cursor, visible),
+		scroll,
 		visible,
-		fmt.Sprintf("%d results", len(m.spotSearch.results)),
+		fmt.Sprintf("%s results", m.formatListRangeCount(scroll, visibleCount, len(items))),
 		"No results",
 	)
 }
@@ -807,13 +827,15 @@ func (m Model) renderSpotSearchPlaylist() []string {
 	}
 
 	visible := m.spotSearchPlaylistVisible()
+	scroll := scrollStart(m.spotSearch.cursor, visible)
+	visibleCount := max(0, min(visible, len(items)-scroll))
 	return m.renderSimpleList(
 		before, after,
 		items,
 		m.spotSearch.cursor,
-		scrollStart(m.spotSearch.cursor, visible),
+		scroll,
 		visible,
-		fmt.Sprintf("%s playlists", m.formatListCount(m.spotSearch.cursor, count)),
+		fmt.Sprintf("%s playlists", m.formatListRangeCount(scroll, visibleCount, len(items))),
 		"",
 	)
 }
