@@ -32,9 +32,12 @@ func (m Model) renderSimpleList(
 
 	lines = padLines(lines, maxVisible, rendered)
 	if len(after) > 1 {
-		after[1] = dimStyle.Render(fmt.Sprintf("  %s", counterValue))
+		footer := append([]string(nil), after...)
+		footer[1] = dimStyle.Render(fmt.Sprintf("  %s", counterValue))
+		lines = append(lines, footer...)
+	} else {
+		lines = append(lines, after...)
 	}
-	lines = append(lines, after...)
 
 	return lines
 }
