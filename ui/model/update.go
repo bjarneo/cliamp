@@ -354,7 +354,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case navTracksLoadedMsg:
 		m.navBrowser.tracks = []playlist.Track(msg)
-		m.refreshHeaderState()
+		m.setHeaderStateFromTracks(m.navBrowser.tracks)
 		m.navBrowser.loading = false
 		m.navBrowser.cursor = 0
 		m.navBrowser.scroll = 0

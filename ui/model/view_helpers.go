@@ -199,9 +199,8 @@ func helpKey(key, label string) string {
 // the list looks like a fragmented mixtape and headers add noise.
 const minTracksPerAlbum = 3.0
 
-// refreshHeaderState picks a sensible header default for the current playlist.
-func (m *Model) refreshHeaderState() {
-	tracks := m.playlist.Tracks()
+// setHeaderStateFromTracks picks a sensible header default for the given slice.
+func (m *Model) setHeaderStateFromTracks(tracks []playlist.Track) {
 	if len(tracks) == 0 {
 		m.showAlbumHeaders = false
 		return
@@ -219,6 +218,11 @@ func (m *Model) refreshHeaderState() {
 	}
 
 	m.showAlbumHeaders = float64(len(tracks))/float64(headers) >= minTracksPerAlbum
+}
+
+// refreshHeaderState picks a sensible header default for the current playlist.
+func (m *Model) refreshHeaderState() {
+	m.setHeaderStateFromTracks(m.playlist.Tracks())
 }
 
 // trackAlbumSuffix returns the " · Album" suffix shown after track names when
