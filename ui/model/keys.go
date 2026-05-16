@@ -1864,12 +1864,14 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 				m.queue.cursor--
 			}
 		}
+		m.queueMaybeAdjustScroll(m.queueVisible())
 	case "shift+down":
 		if m.queue.cursor < qLen-1 {
 			if m.playlist.MoveQueue(m.queue.cursor, m.queue.cursor+1) {
 				m.queue.cursor++
 			}
 		}
+		m.queueMaybeAdjustScroll(m.queueVisible())
 	case "d":
 		if qLen > 0 {
 			m.playlist.RemoveQueueAt(m.queue.cursor)
@@ -1877,6 +1879,7 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 				m.queue.cursor--
 			}
 		}
+		m.queueMaybeAdjustScroll(m.queueVisible())
 	case "c":
 		m.playlist.ClearQueue()
 		m.queue.visible = false
