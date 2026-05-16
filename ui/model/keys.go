@@ -947,15 +947,15 @@ func (m *Model) provSearchMaybeAdjustScroll() {
 // For the radio provider, Enter fires an API search; for others, Enter loads the
 // selected result. Esc cancels and restores the normal catalog view.
 func (m *Model) handleProvSearchKey(msg tea.KeyPressMsg) tea.Cmd {
-	// Catalog search: API-based search (no live client-side filtering).
-	if cs, ok := m.provider.(provider.CatalogSearcher); ok {
-		return m.handleCatalogSearchKey(msg, cs)
-	}
-
 	if msg.String() == "ctrl+x" {
 		m.toggleExpandedView()
 		m.provSearchMaybeAdjustScroll()
 		return nil
+	}
+
+	// Catalog search: API-based search (no live client-side filtering).
+	if cs, ok := m.provider.(provider.CatalogSearcher); ok {
+		return m.handleCatalogSearchKey(msg, cs)
 	}
 
 	switch msg.Code {
