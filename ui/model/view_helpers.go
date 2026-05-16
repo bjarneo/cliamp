@@ -156,15 +156,6 @@ func cursorLine(label string, active bool) string {
 	return dimStyle.Render("  " + label)
 }
 
-// scrollStart returns the scroll offset so that cursor remains visible
-// within a window of maxVisible items.
-func scrollStart(cursor, maxVisible int) int {
-	if cursor >= maxVisible {
-		return cursor - maxVisible + 1
-	}
-	return 0
-}
-
 // spinnerFrames is the braille-dot animation used to indicate loading. The
 // view re-renders on the model tick so the spinner advances on its own.
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
