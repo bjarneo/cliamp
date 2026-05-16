@@ -152,7 +152,7 @@ func (m *Model) SetResume(path string, secs int) {
 // ResumePlaylist loads a playlist into the model for session resume.
 func (m *Model) ResumePlaylist(name string, tracks []playlist.Track) {
 	m.playlist.Replace(tracks)
-	m.refreshHeaderState()
+	m.setHeaderStateFromTracks(tracks)
 	m.loadedPlaylist = name
 }
 

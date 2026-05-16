@@ -309,7 +309,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.resetYTDLBatch()
 		m.playlist.Replace(msg)
-		m.refreshHeaderState()
+		m.setHeaderStateFromTracks(msg)
 		m.plCursor = 0
 		m.plScroll = 0
 		m.focus = focusPlaylist
@@ -430,7 +430,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.playlist.Replace(msg.tracks)
-		m.refreshHeaderState()
+		m.setHeaderStateFromTracks(msg.tracks)
 		m.plCursor = 0
 		m.plScroll = 0
 		m.applyHeightMode()
@@ -503,7 +503,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.player.ClearPreload()
 			m.resetYTDLBatch()
 			m.playlist.Replace(msg.tracks)
-			m.refreshHeaderState()
+			m.setHeaderStateFromTracks(msg.tracks)
 			m.plCursor = 0
 			m.plScroll = 0
 		} else {
@@ -769,7 +769,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.playlist.Replace(tracks)
-		m.refreshHeaderState()
+		m.setHeaderStateFromTracks(tracks)
 		m.loadedPlaylist = msg.Playlist
 		cmd := m.playCurrentTrack()
 		m.notifyAll()

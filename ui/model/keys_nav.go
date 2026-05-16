@@ -326,6 +326,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "ctrl+h":
 		m.showAlbumHeaders = !m.showAlbumHeaders
+		m.headerManual = true
 		m.navMaybeAdjustScroll()
 		return nil
 	case "ctrl+c":
@@ -401,7 +402,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.player.ClearPreload()
 			m.resetYTDLBatch()
 			m.playlist.Replace(tracks)
-			m.refreshHeaderState()
+			m.setHeaderStateFromTracks(tracks)
 			m.plCursor = 0
 			m.plScroll = 0
 			m.playlist.SetIndex(0)

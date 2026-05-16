@@ -257,6 +257,7 @@ type Model struct {
 	showInfo bool
 
 	showAlbumHeaders bool
+	headerManual     bool
 
 	// Audio device picker overlay
 	devicePicker devicePickerState

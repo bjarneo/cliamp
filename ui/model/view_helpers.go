@@ -200,7 +200,22 @@ func helpKey(key, label string) string {
 const minTracksPerAlbum = 3.0
 
 // setHeaderStateFromTracks picks a sensible header default for the given slice.
+// This resets the manual override flag as a new context is being loaded.
 func (m *Model) setHeaderStateFromTracks(tracks []playlist.Track) {
+	m.headerManual = false
+	m.computeHeaderState(tracks)
+}
+
+// refreshHeaderState picks a sensible header default for the current playlist.
+// If the user has manually toggled headers (headerManual), the heuristic is skipped.
+func (m *Model) refreshHeaderState() {
+	if m.headerManual {
+		return
+	}
+	m.computeHeaderState(m.playlist.Tracks())
+}
+
+func (m *Model) computeHeaderState(tracks []playlist.Track) {
 	if len(tracks) == 0 {
 		m.showAlbumHeaders = false
 		return
@@ -218,11 +233,6 @@ func (m *Model) setHeaderStateFromTracks(tracks []playlist.Track) {
 	}
 
 	m.showAlbumHeaders = float64(len(tracks))/float64(headers) >= minTracksPerAlbum
-}
-
-// refreshHeaderState picks a sensible header default for the current playlist.
-func (m *Model) refreshHeaderState() {
-	m.setHeaderStateFromTracks(m.playlist.Tracks())
 }
 
 // trackAlbumSuffix returns the " · Album" suffix shown after track names when
