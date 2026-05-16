@@ -1713,7 +1713,7 @@ func (m *Model) plMgrLoadAndPlay(startIdx int) tea.Cmd {
 	m.player.ClearPreload()
 	m.resetYTDLBatch()
 	m.playlist.Replace(m.plManager.tracks)
-	m.setInitialHeaderState(m.plManager.tracks)
+	m.refreshHeaderState()
 	m.loadedPlaylist = m.plManager.selPlaylist
 	if startIdx < 0 || startIdx >= m.playlist.Len() {
 		startIdx = 0

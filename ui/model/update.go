@@ -309,7 +309,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.resetYTDLBatch()
 		m.playlist.Replace(msg)
-		m.setInitialHeaderState(msg)
+		m.refreshHeaderState()
 		m.plCursor = 0
 		m.plScroll = 0
 		m.focus = focusPlaylist
@@ -354,7 +354,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case navTracksLoadedMsg:
 		m.navBrowser.tracks = []playlist.Track(msg)
-		m.setInitialHeaderState(m.navBrowser.tracks)
+		m.refreshHeaderState()
 		m.navBrowser.loading = false
 		m.navBrowser.cursor = 0
 		m.navBrowser.scroll = 0
@@ -413,6 +413,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.playlist.Add(msg.tracks...)
+		m.refreshHeaderState()
 		m.ytdlBatch.offset += len(msg.tracks)
 		if len(msg.tracks) < ytdlBatchSize {
 			m.ytdlBatch.done = true
@@ -429,7 +430,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.playlist.Replace(msg.tracks)
-		m.setInitialHeaderState(msg.tracks)
+		m.refreshHeaderState()
 		m.plCursor = 0
 		m.plScroll = 0
 		m.applyHeightMode()
@@ -443,6 +444,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.feedLoading = false
 		if len(msg.tracks) > 0 {
 			m.playlist.Add(msg.tracks...)
+			m.refreshHeaderState()
 			m.status.Showf(statusTTLDefault, "Loaded %d track(s)", len(msg.tracks))
 		} else {
 			m.status.Show("No tracks found at URL.", statusTTLDefault)
@@ -501,11 +503,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.player.ClearPreload()
 			m.resetYTDLBatch()
 			m.playlist.Replace(msg.tracks)
-			m.setInitialHeaderState(msg.tracks)
+			m.refreshHeaderState()
 			m.plCursor = 0
 			m.plScroll = 0
 		} else {
 			m.playlist.Add(msg.tracks...)
+			m.refreshHeaderState()
 		}
 		m.focus = focusPlaylist
 		m.applyHeightMode()
@@ -766,7 +769,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.playlist.Replace(tracks)
-		m.setInitialHeaderState(tracks)
+		m.refreshHeaderState()
 		m.loadedPlaylist = msg.Playlist
 		cmd := m.playCurrentTrack()
 		m.notifyAll()
@@ -777,6 +780,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ipc.QueueMsg:
 		t := playlist.Track{Path: msg.Path, Title: msg.Path}
 		m.playlist.Add(t)
+		m.refreshHeaderState()
 		m.notifyAll()
 		return m, nil
 	case ipc.ThemeMsg:

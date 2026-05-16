@@ -220,12 +220,9 @@ func isListCohesive(tracks []playlist.Track) bool {
 	return float64(len(tracks))/float64(headers) >= minTracksPerAlbum
 }
 
-// setInitialHeaderState picks a sensible header default for a freshly loaded
-// list. Only call this when the playlist is replaced or first populated —
-// calling it after every Add re-runs the heuristic over the whole list (O(N²)
-// during incremental loads) and silently overrides the user's Ctrl+H toggle.
-func (m *Model) setInitialHeaderState(tracks []playlist.Track) {
-	m.showAlbumHeaders = isListCohesive(tracks)
+// refreshHeaderState picks a sensible header default for the current playlist.
+func (m *Model) refreshHeaderState() {
+	m.showAlbumHeaders = isListCohesive(m.playlist.Tracks())
 }
 
 // trackAlbumSuffix returns the " · Album" suffix shown after track names when

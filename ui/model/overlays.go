@@ -211,7 +211,7 @@ func (m *Model) plMgrEnterTrackList(name string) {
 	}
 	m.plManager.selPlaylist = name
 	m.plManager.tracks = tracks
-	m.setInitialHeaderState(tracks)
+	m.refreshHeaderState()
 	m.plManager.screen = plMgrScreenTracks
 	m.plManager.cursor = 0
 	m.plManager.scroll = 0

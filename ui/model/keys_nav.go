@@ -372,6 +372,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 			}
 
 			m.playlist.Add(toAdd...)
+			m.refreshHeaderState()
 			newIdx := m.playlist.Len() - len(toAdd)
 			m.playlist.SetIndex(newIdx)
 			m.plCursor = newIdx
@@ -400,7 +401,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.player.ClearPreload()
 			m.resetYTDLBatch()
 			m.playlist.Replace(tracks)
-			m.setInitialHeaderState(tracks)
+			m.refreshHeaderState()
 			m.plCursor = 0
 			m.plScroll = 0
 			m.playlist.SetIndex(0)
@@ -423,6 +424,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 		if len(tracks) > 0 {
 			wasEmpty := m.playlist.Len() == 0
 			m.playlist.Add(tracks...)
+			m.refreshHeaderState()
 			m.status.Showf(statusTTLMedium, "Added %d tracks", len(tracks))
 			if wasEmpty || !m.player.IsPlaying() {
 				m.playlist.SetIndex(0)
@@ -443,6 +445,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 		if rawIdx < len(m.navBrowser.tracks) {
 			t := m.navBrowser.tracks[rawIdx]
 			m.playlist.Add(t)
+			m.refreshHeaderState()
 			newIdx := m.playlist.Len() - 1
 			m.playlist.Queue(newIdx)
 			m.status.Showf(statusTTLMedium, "Queued: %s", t.DisplayName())
