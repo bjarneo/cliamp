@@ -951,6 +951,13 @@ func (m *Model) handleProvSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 	if cs, ok := m.provider.(provider.CatalogSearcher); ok {
 		return m.handleCatalogSearchKey(msg, cs)
 	}
+
+	if msg.String() == "ctrl+x" {
+		m.toggleExpandedView()
+		m.provSearchMaybeAdjustScroll()
+		return nil
+	}
+
 	switch msg.Code {
 	case tea.KeyEscape:
 		m.provSearch.active = false
@@ -1151,6 +1158,10 @@ func (m *Model) handleSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "ctrl+k":
 		m.openKeymap()
 		return nil
+	case "ctrl+x":
+		m.toggleExpandedView()
+		m.searchMaybeAdjustScroll(m.searchVisible())
+		return nil
 	}
 
 	switch msg.Code {
@@ -1272,6 +1283,9 @@ func (m *Model) handleNetSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 	count := len(m.netSearch.results)
 
 	switch msg.String() {
+	case "ctrl+x":
+		m.toggleExpandedView()
+		m.netSearchResultsMaybeAdjustScroll(m.netSearchResultsVisible())
 	case "up", "k":
 		if m.netSearch.cursor > 0 {
 			m.netSearch.cursor--
@@ -1826,6 +1840,9 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.quit()
 	case "ctrl+k", "?":
 		m.openKeymap()
+	case "ctrl+x":
+		m.toggleExpandedView()
+		m.queueMaybeAdjustScroll(m.queueVisible())
 	case "up", "k":
 		if m.queue.cursor > 0 {
 			m.queue.cursor--
@@ -1879,6 +1896,9 @@ func (m *Model) handleDeviceKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "ctrl+c":
 		m.devicePicker.visible = false
 		return m.quit()
+	case "ctrl+x":
+		m.toggleExpandedView()
+		m.deviceMaybeAdjustScroll(m.devicePickerVisible())
 	case "up", "k":
 		if m.devicePicker.cursor > 0 {
 			m.devicePicker.cursor--

@@ -65,6 +65,9 @@ func (m *Model) handleSpotSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 	count := len(m.spotSearch.results)
 
 	switch msg.String() {
+	case "ctrl+x":
+		m.toggleExpandedView()
+		m.spotSearchResultsMaybeAdjustScroll(m.spotSearchResultsVisible())
 	case "up", "k":
 		if m.spotSearch.cursor > 0 {
 			m.spotSearch.cursor--
@@ -121,6 +124,9 @@ func (m *Model) handleSpotSearchPlaylistKey(msg tea.KeyPressMsg) tea.Cmd {
 	count := len(m.spotSearch.playlists) + 1 // +1 for "+ New Playlist..."
 
 	switch msg.String() {
+	case "ctrl+x":
+		m.toggleExpandedView()
+		m.spotSearchPlaylistMaybeAdjustScroll(m.spotSearchPlaylistVisible())
 	case "up", "k":
 		if m.spotSearch.cursor > 0 {
 			m.spotSearch.cursor--

@@ -34,6 +34,13 @@ func (m *Model) handleNavBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.navBrowser.searching {
 			return m.handleNavSearchKey(msg)
 		}
+
+		if key == "ctrl+x" {
+			m.toggleExpandedView()
+			m.navMaybeAdjustScroll()
+			return nil
+		}
+
 		if key == "/" {
 			// Toggle: if already filtered, clear; otherwise open.
 			if m.navBrowser.search != "" {
@@ -61,6 +68,9 @@ func (m *Model) handleNavBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 func (m *Model) handleNavMenuKey(msg tea.KeyPressMsg) tea.Cmd {
 	const menuItems = 3
 	switch msg.String() {
+	case "ctrl+x":
+		m.toggleExpandedView()
+		return nil
 	case "ctrl+c":
 		m.navBrowser.visible = false
 		return m.quit()
