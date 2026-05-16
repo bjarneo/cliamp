@@ -199,10 +199,14 @@ func helpKey(key, label string) string {
 // the list looks like a fragmented mixtape and headers add noise.
 const minTracksPerAlbum = 3.0
 
-// isListCohesive returns true if the track list appears to be organized into
-// distinct albums (e.g. an artist's discography or a full album) rather than
-// a fragmented mixtape.
-func isListCohesive(tracks []playlist.Track) bool {
+// refreshHeaderState picks a sensible header default for the current playlist.
+func (m *Model) refreshHeaderState() {
+	tracks := m.playlist.Tracks()
+	if len(tracks) == 0 {
+		m.showAlbumHeaders = false
+		return
+	}
+
 	headers := 0
 	prev := ""
 	first := true
@@ -214,15 +218,7 @@ func isListCohesive(tracks []playlist.Track) bool {
 		}
 	}
 
-	if headers == 0 {
-		return false
-	}
-	return float64(len(tracks))/float64(headers) >= minTracksPerAlbum
-}
-
-// refreshHeaderState picks a sensible header default for the current playlist.
-func (m *Model) refreshHeaderState() {
-	m.showAlbumHeaders = isListCohesive(m.playlist.Tracks())
+	m.showAlbumHeaders = float64(len(tracks))/float64(headers) >= minTracksPerAlbum
 }
 
 // trackAlbumSuffix returns the " · Album" suffix shown after track names when
