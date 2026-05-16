@@ -78,7 +78,7 @@ func (m Model) renderDeviceOverlay() string {
 	}
 
 	visible := m.devicePickerVisible()
-	scroll := scrollStart(m.devicePicker.cursor, visible)
+	scroll := m.devicePicker.scroll
 	visibleCount := max(0, min(visible, len(items)-scroll))
 	lines := m.renderSimpleList(
 		before, after,
@@ -443,7 +443,7 @@ func (m Model) renderQueueOverlay() string {
 
 	before, after := m.queueChrome()
 	visible := m.queueVisible()
-	scroll := scrollStart(m.queue.cursor, visible)
+	scroll := m.queue.scroll
 	visibleCount := max(0, min(visible, len(items)-scroll))
 	lines := m.renderSimpleList(
 		before, after,
@@ -544,7 +544,7 @@ func (m Model) renderSearchOverlay() string {
 
 	before, after := m.searchChrome()
 	visible := m.searchVisible()
-	scroll := scrollStart(m.search.cursor, visible)
+	scroll := m.search.scroll
 	lines := m.renderSimpleList(
 		before, after,
 		items,
@@ -615,7 +615,7 @@ func (m Model) renderNetSearchResults() []string {
 
 	before, after := m.netSearchResultsChrome()
 	visible := m.netSearchResultsVisible()
-	scroll := scrollStart(m.netSearch.cursor, visible)
+	scroll := m.netSearch.scroll
 	visibleCount := max(0, min(visible, len(items)-scroll))
 	return m.renderSimpleList(
 		before, after,
@@ -778,7 +778,7 @@ func (m Model) renderSpotSearchResults() []string {
 
 	before, after := m.spotSearchResultsChrome()
 	visible := m.spotSearchResultsVisible()
-	scroll := scrollStart(m.spotSearch.cursor, visible)
+	scroll := m.spotSearch.scroll
 	visibleCount := max(0, min(visible, len(items)-scroll))
 	return m.renderSimpleList(
 		before, after,
@@ -830,8 +830,8 @@ func (m Model) renderSpotSearchPlaylist() []string {
 	}
 
 	visible := m.spotSearchPlaylistVisible()
-	scroll := scrollStart(m.spotSearch.cursor, visible)
-	visibleCount := max(0, min(visible, playlistCount-scroll))
+	scroll := m.spotSearch.scroll
+	visibleCount := max(0, min(visible, count-scroll))
 	return m.renderSimpleList(
 		before, after,
 		items,

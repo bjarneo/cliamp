@@ -18,6 +18,7 @@ func (m *Model) resetProviderNav() {
 	m.provSearch.query = ""
 	m.provSearch.results = nil
 	m.provSearch.cursor = 0
+	m.provSearch.scroll = 0
 }
 
 // StartInProvider configures the model to begin in the provider browse view.

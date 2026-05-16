@@ -8,6 +8,7 @@ import (
 func (m *Model) updateSearch() {
 	m.search.results = nil
 	m.search.cursor = 0
+	m.search.scroll = 0
 	if m.search.query == "" {
 		return
 	}

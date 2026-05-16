@@ -319,6 +319,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.provSearch.query = ""
 			m.provSearch.results = nil
 			m.provSearch.cursor = 0
+			m.provSearch.scroll = 0
 		case "ctrl+r":
 			if m.provider != nil && !m.provLoading {
 				if r, ok := m.provider.(playlist.Refresher); ok {
@@ -654,6 +655,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.focus == focusPlaylist {
 			m.queue.visible = true
 			m.queue.cursor = 0
+			m.queue.scroll = 0
 		}
 
 	case "ctrl+s":
@@ -669,6 +671,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.search.query = ""
 		m.search.results = nil
 		m.search.cursor = 0
+		m.search.scroll = 0
 		m.prevFocus = m.focus
 		m.focus = focusSearch
 
@@ -768,6 +771,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "d":
 		m.devicePicker.visible = true
 		m.devicePicker.cursor = 0
+		m.devicePicker.scroll = 0
 		if len(m.devicePicker.devices) == 0 {
 			m.devicePicker.loading = true
 			return listDevicesCmd()
@@ -930,6 +934,15 @@ func (m *Model) handleJumpKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
+func (m *Model) provSearchMaybeAdjustScroll() {
+	visible := m.providerScrollStep() - 1 // -1 for query line
+	if visible < 1 {
+		visible = 1
+	}
+	count := len(m.provSearch.results)
+	clampScroll(&m.provSearch.cursor, &m.provSearch.scroll, count, visible)
+}
+
 // handleProvSearchKey processes key presses while filtering the provider playlist list.
 // For the radio provider, Enter fires an API search; for others, Enter loads the
 // selected result. Esc cancels and restores the normal catalog view.
@@ -954,11 +967,18 @@ func (m *Model) handleProvSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 	case tea.KeyUp:
 		if m.provSearch.cursor > 0 {
 			m.provSearch.cursor--
+		} else if len(m.provSearch.results) > 0 {
+			m.provSearch.cursor = len(m.provSearch.results) - 1
 		}
+		m.provSearchMaybeAdjustScroll()
+
 	case tea.KeyDown:
 		if m.provSearch.cursor < len(m.provSearch.results)-1 {
 			m.provSearch.cursor++
+		} else if len(m.provSearch.results) > 0 {
+			m.provSearch.cursor = 0
 		}
+		m.provSearchMaybeAdjustScroll()
 	case tea.KeyBackspace:
 		if m.provSearch.query != "" {
 			m.provSearch.query = removeLastRune(m.provSearch.query)
@@ -1021,6 +1041,7 @@ func (m *Model) restoreCatalog(cs provider.CatalogSearcher) {
 func (m *Model) updateProvSearch() {
 	m.provSearch.results = nil
 	m.provSearch.cursor = 0
+	m.provSearch.scroll = 0
 	if m.provSearch.query == "" {
 		return
 	}
@@ -1120,6 +1141,10 @@ func (m *Model) handlePaste(content string) tea.Cmd {
 	return nil
 }
 
+func (m *Model) searchMaybeAdjustScroll(visible int) {
+	clampScroll(&m.search.cursor, &m.search.scroll, len(m.search.results), visible)
+}
+
 func (m *Model) handleSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 	// Allow opening overlays during search (ctrl combos don't conflict with text input).
 	switch msg.String() {
@@ -1159,12 +1184,18 @@ func (m *Model) handleSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 	case tea.KeyUp:
 		if m.search.cursor > 0 {
 			m.search.cursor--
+		} else if len(m.search.results) > 0 {
+			m.search.cursor = len(m.search.results) - 1
 		}
+		m.searchMaybeAdjustScroll(m.searchVisible())
 
 	case tea.KeyDown:
 		if m.search.cursor < len(m.search.results)-1 {
 			m.search.cursor++
+		} else if len(m.search.results) > 0 {
+			m.search.cursor = 0
 		}
+		m.searchMaybeAdjustScroll(m.searchVisible())
 
 	case tea.KeyBackspace:
 		if m.search.query != "" {
@@ -1232,6 +1263,10 @@ func (m *Model) handleNetSearchInputKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
+func (m *Model) netSearchResultsMaybeAdjustScroll(visible int) {
+	clampScroll(&m.netSearch.cursor, &m.netSearch.scroll, len(m.netSearch.results), visible)
+}
+
 // handleNetSearchResultsKey handles navigation through net search results.
 func (m *Model) handleNetSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 	count := len(m.netSearch.results)
@@ -1243,12 +1278,14 @@ func (m *Model) handleNetSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 		} else if count > 0 {
 			m.netSearch.cursor = count - 1
 		}
+		m.netSearchResultsMaybeAdjustScroll(m.netSearchResultsVisible())
 	case "down", "j":
 		if m.netSearch.cursor < count-1 {
 			m.netSearch.cursor++
 		} else if count > 0 {
 			m.netSearch.cursor = 0
 		}
+		m.netSearchResultsMaybeAdjustScroll(m.netSearchResultsVisible())
 	case "enter":
 		if count > 0 && !m.netSearch.loading {
 			track := m.netSearch.results[m.netSearch.cursor]
@@ -1271,6 +1308,7 @@ func (m *Model) handleNetSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.netSearch.screen = netSearchInput
 		m.netSearch.results = nil
 		m.netSearch.cursor = 0
+		m.netSearch.scroll = 0
 		m.netSearch.err = ""
 	}
 	return nil
@@ -1775,6 +1813,10 @@ func (m *Model) handleThemeKey(msg tea.KeyPressMsg) tea.Cmd {
 }
 
 // handleQueueKey processes key presses while the queue manager overlay is open.
+func (m *Model) queueMaybeAdjustScroll(visible int) {
+	clampScroll(&m.queue.cursor, &m.queue.scroll, m.playlist.QueueLen(), visible)
+}
+
 func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 	qLen := m.playlist.QueueLen()
 
@@ -1790,12 +1832,15 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 		} else if qLen > 0 {
 			m.queue.cursor = qLen - 1
 		}
+		m.queueMaybeAdjustScroll(m.queueVisible())
+
 	case "down", "j":
 		if m.queue.cursor < qLen-1 {
 			m.queue.cursor++
 		} else if qLen > 0 {
 			m.queue.cursor = 0
 		}
+		m.queueMaybeAdjustScroll(m.queueVisible())
 	case "shift+up":
 		if m.queue.cursor > 0 {
 			if m.playlist.MoveQueue(m.queue.cursor, m.queue.cursor-1) {
@@ -1824,6 +1869,10 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
+func (m *Model) deviceMaybeAdjustScroll(visible int) {
+	clampScroll(&m.devicePicker.cursor, &m.devicePicker.scroll, len(m.devicePicker.devices), visible)
+}
+
 // handleDeviceKey processes key presses while the audio device picker is open.
 func (m *Model) handleDeviceKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
@@ -1836,12 +1885,14 @@ func (m *Model) handleDeviceKey(msg tea.KeyPressMsg) tea.Cmd {
 		} else if len(m.devicePicker.devices) > 0 {
 			m.devicePicker.cursor = len(m.devicePicker.devices) - 1
 		}
+		m.deviceMaybeAdjustScroll(m.devicePickerVisible())
 	case "down", "j":
 		if m.devicePicker.cursor < len(m.devicePicker.devices)-1 {
 			m.devicePicker.cursor++
 		} else {
 			m.devicePicker.cursor = 0
 		}
+		m.deviceMaybeAdjustScroll(m.devicePickerVisible())
 	case "enter":
 		if len(m.devicePicker.devices) > 0 && m.devicePicker.cursor < len(m.devicePicker.devices) {
 			dev := m.devicePicker.devices[m.devicePicker.cursor]

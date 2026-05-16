@@ -610,7 +610,7 @@ func (m Model) renderProviderList() string {
 				lines = append(lines, dimStyle.Render("  No matches"))
 			} else {
 				visible := max(0, min(visibleBudget-1, len(m.provSearch.results)))
-				scroll := max(0, m.provSearch.cursor-visible+1)
+				scroll := m.provSearch.scroll
 				for j := scroll; j < scroll+visible && j < len(m.provSearch.results); j++ {
 					idx := m.provSearch.results[j]
 					p := m.providerLists[idx]

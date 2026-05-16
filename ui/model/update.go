@@ -468,6 +468,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case netSearchResultsMsg:
 		m.netSearch.loading = false
+		m.netSearch.cursor = 0
+		m.netSearch.scroll = 0
 		if msg.err != nil {
 			m.netSearch.err = msg.err.Error()
 			return m, nil
@@ -576,6 +578,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case spotSearchResultsMsg:
 		m.spotSearch.loading = false
+		m.spotSearch.cursor = 0
+		m.spotSearch.scroll = 0
 		if msg.err != nil {
 			m.spotSearch.err = msg.err.Error()
 			return m, nil
@@ -590,6 +594,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case spotPlaylistsMsg:
 		m.spotSearch.loading = false
+		m.spotSearch.cursor = 0
+		m.spotSearch.scroll = 0
 		if msg.err != nil {
 			m.spotSearch.err = msg.err.Error()
 			return m, nil
