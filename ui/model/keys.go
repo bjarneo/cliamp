@@ -1912,7 +1912,7 @@ func (m *Model) handleDeviceKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "down", "j":
 		if m.devicePicker.cursor < len(m.devicePicker.devices)-1 {
 			m.devicePicker.cursor++
-		} else {
+		} else if len(m.devicePicker.devices) > 0 {
 			m.devicePicker.cursor = 0
 		}
 		m.deviceMaybeAdjustScroll(m.devicePickerVisible())
