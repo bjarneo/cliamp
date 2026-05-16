@@ -91,7 +91,6 @@ func (m *Model) searchHelpLine() string {
 	return helpKey("↓↑", "Scroll ") +
 		helpKey("Enter", "Play ") +
 		helpKey("Tab", "Queue ") +
-		helpKey("Ctrl+K", "Keymap ") +
 		helpKey("Esc", "Close")
 }
 
