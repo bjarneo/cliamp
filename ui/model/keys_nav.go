@@ -325,8 +325,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	switch msg.String() {
 	case "ctrl+h":
-		m.showAlbumHeaders = !m.showAlbumHeaders
-		m.headerManual = true
+		m.toggleAlbumHeadersManual()
 		m.navMaybeAdjustScroll()
 		return nil
 	case "ctrl+c":

@@ -738,8 +738,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.switchToProvider("netease")
 
 	case "ctrl+h":
-		m.showAlbumHeaders = !m.showAlbumHeaders
-		m.headerManual = true
+		m.toggleAlbumHeadersManual()
 		m.adjustScroll()
 
 	case "v":
@@ -1580,8 +1579,7 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 	count := m.plMgrTracksViewCount()
 	switch msg.String() {
 	case "ctrl+h":
-		m.showAlbumHeaders = !m.showAlbumHeaders
-		m.headerManual = true
+		m.toggleAlbumHeadersManual()
 		m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
 		return nil
 	case "ctrl+c":

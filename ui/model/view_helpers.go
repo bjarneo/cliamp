@@ -235,6 +235,13 @@ func (m *Model) computeHeaderState(tracks []playlist.Track) {
 	m.showAlbumHeaders = float64(len(tracks))/float64(headers) >= minTracksPerAlbum
 }
 
+// toggleAlbumHeadersManual flips the header visibility and sets the manual
+// override flag so the heuristic stops second-guessing the user.
+func (m *Model) toggleAlbumHeadersManual() {
+	m.showAlbumHeaders = !m.showAlbumHeaders
+	m.headerManual = true
+}
+
 // trackAlbumSuffix returns the " · Album" suffix shown after track names when
 // album headers are hidden. Empty when headers are on or the track has no album.
 func trackAlbumSuffix(t playlist.Track, showHeaders bool) string {
