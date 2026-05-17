@@ -194,10 +194,12 @@ func helpKey(key, label string) string {
 	return helpKeyStyle.Render(" "+key+" ") + helpStyle.Render(" "+label)
 }
 
-// minTracksPerAlbum is the threshold at which a list is considered cohesive
-// enough to default to showing album headers; below this average tracks/album,
-// the list looks like a fragmented mixtape and headers add noise.
-const minTracksPerAlbum = 3.0
+// toggleAlbumHeadersManual flips the header visibility and sets the manual
+// override flag so the heuristic stops second-guessing the user.
+func (m *Model) toggleAlbumHeadersManual() {
+	m.showAlbumHeaders = !m.showAlbumHeaders
+	m.headerManual = true
+}
 
 // setHeaderStateFromTracks picks a sensible header default for the given slice.
 // This resets the manual override flag as a new context is being loaded.
@@ -215,6 +217,13 @@ func (m *Model) refreshHeaderState() {
 	m.computeHeaderState(m.playlist.Tracks())
 }
 
+// minTracksPerAlbum is the threshold at which a list is considered cohesive
+// enough to default to showing album headers; below this average tracks/album,
+// the list looks like a fragmented mixtape and headers add noise.
+const minTracksPerAlbum = 3.0
+
+// computeHeaderState runs the cohesion heuristic to decide if album headers
+// should be shown for the given tracks. Note: It does not observe manual flag.
 func (m *Model) computeHeaderState(tracks []playlist.Track) {
 	if len(tracks) == 0 {
 		m.showAlbumHeaders = false
@@ -233,13 +242,6 @@ func (m *Model) computeHeaderState(tracks []playlist.Track) {
 	}
 
 	m.showAlbumHeaders = float64(len(tracks))/float64(headers) >= minTracksPerAlbum
-}
-
-// toggleAlbumHeadersManual flips the header visibility and sets the manual
-// override flag so the heuristic stops second-guessing the user.
-func (m *Model) toggleAlbumHeadersManual() {
-	m.showAlbumHeaders = !m.showAlbumHeaders
-	m.headerManual = true
 }
 
 // trackAlbumSuffix returns the " · Album" suffix shown after track names when
