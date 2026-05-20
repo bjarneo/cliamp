@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"cliamp/history"
 	"cliamp/internal/fileutil"
 	"cliamp/playlist"
 	"cliamp/provider"
@@ -1475,6 +1476,10 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 		realIdx := m.plMgrPlaylistRealIndex(m.plManager.cursor)
 		if realIdx >= 0 {
 			name := m.plManager.playlists[realIdx].Name
+			if name == history.PlaylistName {
+				m.status.Show("Recently Played cannot be renamed", statusTTLDefault)
+				return nil
+			}
 			m.plManager.renameOldName = name
 			m.plManager.renameName = name
 			m.plManager.screen = plMgrScreenRename
@@ -1760,6 +1765,9 @@ func (m *Model) handlePlMgrRenameKey(msg tea.KeyPressMsg) tea.Cmd {
 					m.status.Showf(statusTTLDefault, "Rename failed: %s", err)
 				} else {
 					m.status.Showf(statusTTLDefault, "Renamed %q to %q", m.plManager.renameOldName, newName)
+					if m.loadedPlaylist == m.plManager.renameOldName {
+						m.loadedPlaylist = newName
+					}
 					m.plMgrRefreshList()
 				}
 			}

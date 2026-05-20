@@ -362,8 +362,13 @@ func (p *Provider) RenamePlaylist(oldName, newName string) error {
 	}
 	if _, err := os.Stat(newPath); err == nil {
 		return fmt.Errorf("playlist %q already exists", newName)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat destination playlist %q: %w", newName, err)
 	}
-	return os.Rename(oldPath, newPath)
+	if err := os.Rename(oldPath, newPath); err != nil {
+		return fmt.Errorf("rename playlist %q to %q: %w", oldName, newName, err)
+	}
+	return nil
 }
 
 // DeletePlaylist removes the TOML file for the named playlist.
