@@ -85,6 +85,7 @@ Press `?` or `Ctrl+K` in the player to see all keybindings.
 | `Enter` / `→` | List screen: open the highlighted playlist · Tracks screen: play the **highlighted** track |
 | `P` | Tracks screen: play all from the top |
 | `a` | Add the now-playing track (footer shows which track) |
+| `r` | List: rename the playlist |
 | `d` | List: delete playlist (confirms) · Tracks: remove the highlighted track |
 | `←` `Backspace` `h` | Tracks screen: go back to the list |
 | `p` `Esc` | Close the playlist manager |

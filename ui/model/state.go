@@ -111,8 +111,10 @@ type plManagerState struct {
 	playlists   []playlist.PlaylistInfo
 	selPlaylist string           // playlist name open in screen 1
 	tracks      []playlist.Track // tracks in the selected playlist
-	newName     string
-	confirmDel  bool
+	newName       string
+	confirmDel    bool
+	renameOldName string
+	renameName    string
 
 	// Filter (`/`) state. Reset on screen change. `filtered` indexes into
 	// `playlists` (list screen) or `tracks` (tracks screen).

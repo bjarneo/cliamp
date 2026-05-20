@@ -90,6 +90,7 @@ const (
 	plMgrScreenList plMgrScreenType = iota
 	plMgrScreenTracks
 	plMgrScreenNewName
+	plMgrScreenRename
 )
 
 // navBrowseModeType identifies which Navidrome browse mode is active.

@@ -139,6 +139,7 @@ func (m *Model) plMgrListHelpLine() string {
 	return helpKey("↓↑→", "Navigate ") +
 		helpKey("Enter", "Open ") +
 		helpKey("a", addLabel+" ") +
+		helpKey("r", "Rename ") +
 		helpKey("d", "Delete ") +
 		helpKey("/", "Filter ") +
 		helpKey("Esc", "Close")
@@ -195,6 +196,8 @@ func (m *Model) openPlaylistManager() {
 	m.plManager.cursor = 0
 	m.plManager.scroll = 0
 	m.plManager.confirmDel = false
+	m.plManager.renameOldName = ""
+	m.plManager.renameName = ""
 	m.plManager.visible = true
 	m.plMgrListMaybeAdjustScroll(m.plMgrListVisible())
 }

@@ -1355,7 +1355,7 @@ func (m *Model) handleURLInputKey(msg tea.KeyPressMsg) tea.Cmd {
 func (m *Model) handlePlaylistManagerKey(msg tea.KeyPressMsg) tea.Cmd {
 	// Quick-switch (Shift+letter) jumps to another provider. Only honored when
 	// the manager isn't currently capturing text input (filter, new-name).
-	if m.plManager.screen != plMgrScreenNewName && !m.plManager.filtering {
+	if m.plManager.screen != plMgrScreenNewName && m.plManager.screen != plMgrScreenRename && !m.plManager.filtering {
 		if cmd := m.quickSwitchProvider(msg.String()); cmd != nil {
 			return cmd
 		}
@@ -1367,6 +1367,8 @@ func (m *Model) handlePlaylistManagerKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handlePlMgrTracksKey(msg)
 	case plMgrScreenNewName:
 		return m.handlePlMgrNewNameKey(msg)
+	case plMgrScreenRename:
+		return m.handlePlMgrRenameKey(msg)
 	}
 	return nil
 }
@@ -1468,6 +1470,14 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 		if realIdx >= 0 {
 			m.addToPlaylist(m.plManager.playlists[realIdx].Name)
 			m.plMgrRefreshList()
+		}
+	case "r":
+		realIdx := m.plMgrPlaylistRealIndex(m.plManager.cursor)
+		if realIdx >= 0 {
+			name := m.plManager.playlists[realIdx].Name
+			m.plManager.renameOldName = name
+			m.plManager.renameName = name
+			m.plManager.screen = plMgrScreenRename
 		}
 	case "d":
 		if m.plMgrPlaylistRealIndex(m.plManager.cursor) >= 0 {
@@ -1732,6 +1742,36 @@ func (m *Model) handlePlMgrNewNameKey(msg tea.KeyPressMsg) tea.Cmd {
 	default:
 		if len(msg.Text) > 0 {
 			m.plManager.newName += msg.Text
+		}
+	}
+	return nil
+}
+
+// handlePlMgrRenameKey handles keys on screen 3 (rename playlist input).
+func (m *Model) handlePlMgrRenameKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.Code {
+	case tea.KeyEscape:
+		m.plManager.screen = plMgrScreenList
+	case tea.KeyEnter:
+		newName := strings.TrimSpace(m.plManager.renameName)
+		if newName != "" && newName != m.plManager.renameOldName {
+			if r, ok := m.localProvider.(provider.PlaylistRenamer); ok {
+				if err := r.RenamePlaylist(m.plManager.renameOldName, newName); err != nil {
+					m.status.Showf(statusTTLDefault, "Rename failed: %s", err)
+				} else {
+					m.status.Showf(statusTTLDefault, "Renamed %q to %q", m.plManager.renameOldName, newName)
+					m.plMgrRefreshList()
+				}
+			}
+		}
+		m.plManager.screen = plMgrScreenList
+	case tea.KeyBackspace:
+		m.plManager.renameName = removeLastRune(m.plManager.renameName)
+	case tea.KeySpace:
+		m.plManager.renameName += " "
+	default:
+		if len(msg.Text) > 0 {
+			m.plManager.renameName += msg.Text
 		}
 	}
 	return nil

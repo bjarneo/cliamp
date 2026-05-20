@@ -141,6 +141,8 @@ func (m Model) renderPlaylistManager() string {
 		lines = m.renderPlMgrTracks()
 	case plMgrScreenNewName:
 		lines = m.renderPlMgrNewName()
+	case plMgrScreenRename:
+		lines = m.renderPlMgrRename()
 	}
 	return m.centerOverlay(strings.Join(m.appendFooterMessages(lines), "\n"))
 }
@@ -401,6 +403,19 @@ func (m Model) renderPlMgrTracks() []string {
 	lines = append(lines, footer...)
 
 	return lines
+}
+
+func (m Model) renderPlMgrRename() []string {
+	return []string{
+		titleStyle.Render("R E N A M E  P L A Y L I S T"),
+		"",
+		dimStyle.Render("  Current name: " + m.plManager.renameOldName),
+		"",
+		dimStyle.Render("  New name:"),
+		playlistSelectedStyle.Render("  " + m.plManager.renameName + "_"),
+		"",
+		helpKey("Enter", "Rename ") + helpKey("Esc", "Cancel"),
+	}
 }
 
 func (m Model) renderPlMgrNewName() []string {

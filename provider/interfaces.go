@@ -67,6 +67,11 @@ type PlaylistDeleter interface {
 	RemoveTrack(name string, index int) error
 }
 
+// PlaylistRenamer is implemented by providers that support renaming playlists.
+type PlaylistRenamer interface {
+	RenamePlaylist(oldName, newName string) error
+}
+
 // BookmarkSetter is implemented by providers that support toggling
 // track bookmarks and persisting them.
 type BookmarkSetter interface {
