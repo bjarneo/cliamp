@@ -40,9 +40,8 @@ func New(p player.Engine, pl *playlist.Playlist, providers []ProviderEntry, defa
 		navBrowser:       navBrowserState{},
 		luaMgr:           luaMgr,
 		historyStore:     history.New(),
-		showAlbumHeaders: true,
+		showAlbumHeaders: false,
 	}
-	m.refreshHeaderState()
 	m.termTitle = initialTerminalTitleState()
 	// Select the default provider pill.
 	for i, pe := range providers {

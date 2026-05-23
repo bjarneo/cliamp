@@ -413,7 +413,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.playlist.Add(msg.tracks...)
-		m.refreshHeaderState()
+		m.addToHeaderState(msg.tracks)
 		m.ytdlBatch.offset += len(msg.tracks)
 		if len(msg.tracks) < ytdlBatchSize {
 			m.ytdlBatch.done = true
@@ -444,7 +444,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.feedLoading = false
 		if len(msg.tracks) > 0 {
 			m.playlist.Add(msg.tracks...)
-			m.refreshHeaderState()
+			m.addToHeaderState(msg.tracks)
 			m.status.Showf(statusTTLDefault, "Loaded %d track(s)", len(msg.tracks))
 		} else {
 			m.status.Show("No tracks found at URL.", statusTTLDefault)
@@ -508,7 +508,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.plScroll = 0
 		} else {
 			m.playlist.Add(msg.tracks...)
-			m.refreshHeaderState()
+			m.addToHeaderState(msg.tracks)
 		}
 		m.focus = focusPlaylist
 		m.applyHeightMode()
@@ -780,7 +780,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ipc.QueueMsg:
 		t := playlist.Track{Path: msg.Path, Title: msg.Path}
 		m.playlist.Add(t)
-		m.refreshHeaderState()
+		m.addToHeaderState([]playlist.Track{t})
 		m.notifyAll()
 		return m, nil
 	case ipc.ThemeMsg:

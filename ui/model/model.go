@@ -258,6 +258,11 @@ type Model struct {
 
 	showAlbumHeaders bool
 	headerManual     bool
+	// Running counters for the cohesion heuristic so Add can update header
+	// visibility in O(k) instead of walking the whole playlist on each call.
+	headerLastAlbum string
+	headerSegments  int
+	headerTracks    int
 
 	// Audio device picker overlay
 	devicePicker devicePickerState

@@ -111,6 +111,119 @@ func TestFormatTrackRow(t *testing.T) {
 	}
 }
 
+func TestHeaderStateIncremental(t *testing.T) {
+	mk := func(album string) playlist.Track { return playlist.Track{Album: album} }
+
+	tests := []struct {
+		name        string
+		batches     [][]playlist.Track
+		wantHeaders bool
+		wantTracks  int
+		wantSegs    int
+	}{
+		{
+			name:        "empty",
+			batches:     nil,
+			wantHeaders: false,
+		},
+		{
+			name: "single track is below cohesion threshold",
+			batches: [][]playlist.Track{
+				{mk("Aja")},
+			},
+			wantHeaders: false,
+			wantTracks:  1,
+			wantSegs:    1,
+		},
+		{
+			name: "full album in one shot is cohesive",
+			batches: [][]playlist.Track{
+				{mk("Aja"), mk("Aja"), mk("Aja"), mk("Aja")},
+			},
+			wantHeaders: true,
+			wantTracks:  4,
+			wantSegs:    1,
+		},
+		{
+			name: "full album split across batches stays cohesive",
+			batches: [][]playlist.Track{
+				{mk("Aja"), mk("Aja")},
+				{mk("Aja"), mk("Aja")},
+			},
+			wantHeaders: true,
+			wantTracks:  4,
+			wantSegs:    1,
+		},
+		{
+			name: "mixtape across batches is not cohesive",
+			batches: [][]playlist.Track{
+				{mk("A"), mk("B")},
+				{mk("C"), mk("D")},
+			},
+			wantHeaders: false,
+			wantTracks:  4,
+			wantSegs:    4,
+		},
+		{
+			name: "two albums of 3 tracks each meet threshold",
+			batches: [][]playlist.Track{
+				{mk("X"), mk("X"), mk("X")},
+				{mk("Y"), mk("Y"), mk("Y")},
+			},
+			wantHeaders: true,
+			wantTracks:  6,
+			wantSegs:    2,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{}
+			m.setHeaderStateFromTracks(nil) // reset counters
+			for _, batch := range tt.batches {
+				m.addToHeaderState(batch)
+			}
+			if m.showAlbumHeaders != tt.wantHeaders {
+				t.Errorf("showAlbumHeaders = %v, want %v", m.showAlbumHeaders, tt.wantHeaders)
+			}
+			if m.headerTracks != tt.wantTracks {
+				t.Errorf("headerTracks = %d, want %d", m.headerTracks, tt.wantTracks)
+			}
+			if m.headerSegments != tt.wantSegs {
+				t.Errorf("headerSegments = %d, want %d", m.headerSegments, tt.wantSegs)
+			}
+		})
+	}
+}
+
+func TestHeaderStateManualOverride(t *testing.T) {
+	mk := func(album string) playlist.Track { return playlist.Track{Album: album} }
+
+	m := &Model{}
+	// Start with a cohesive album so the heuristic would prefer headers.
+	m.setHeaderStateFromTracks([]playlist.Track{mk("A"), mk("A"), mk("A"), mk("A")})
+	if !m.showAlbumHeaders {
+		t.Fatalf("baseline cohesive album should default to showing headers")
+	}
+
+	// User manually toggles off.
+	m.toggleAlbumHeadersManual()
+	if m.showAlbumHeaders {
+		t.Fatalf("after manual toggle showAlbumHeaders should be false")
+	}
+
+	// Adding more cohesive tracks must NOT flip back on.
+	m.addToHeaderState([]playlist.Track{mk("A"), mk("A"), mk("A")})
+	if m.showAlbumHeaders {
+		t.Fatalf("manual override should suppress heuristic after Add")
+	}
+
+	// A fresh load via setHeaderStateFromTracks clears the manual flag.
+	m.setHeaderStateFromTracks([]playlist.Track{mk("B"), mk("B"), mk("B"), mk("B")})
+	if !m.showAlbumHeaders {
+		t.Fatalf("setHeaderStateFromTracks should clear manual flag and re-run heuristic")
+	}
+}
+
 func TestProviderKeyForShortcut(t *testing.T) {
 	tests := map[string]string{
 		"S": "spotify",
