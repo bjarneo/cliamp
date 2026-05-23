@@ -104,13 +104,13 @@ type queueOverlay struct {
 
 // plManagerState holds state for the playlist manager overlay.
 type plManagerState struct {
-	visible     bool
-	screen      plMgrScreenType
-	cursor      int // view-index: offset into filtered when filter != "", else direct index
-	scroll      int
-	playlists   []playlist.PlaylistInfo
-	selPlaylist string           // playlist name open in screen 1
-	tracks      []playlist.Track // tracks in the selected playlist
+	visible       bool
+	screen        plMgrScreenType
+	cursor        int // view-index: offset into filtered when filter != "", else direct index
+	scroll        int
+	playlists     []playlist.PlaylistInfo
+	selPlaylist   string           // playlist name open in screen 1
+	tracks        []playlist.Track // tracks in the selected playlist
 	newName       string
 	confirmDel    bool
 	renameOldName string

@@ -1474,16 +1474,17 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	case "r":
 		realIdx := m.plMgrPlaylistRealIndex(m.plManager.cursor)
-		if realIdx >= 0 {
-			name := m.plManager.playlists[realIdx].Name
-			if name == history.PlaylistName {
-				m.status.Show("Recently Played cannot be renamed", statusTTLDefault)
-				return nil
-			}
-			m.plManager.renameOldName = name
-			m.plManager.renameName = name
-			m.plManager.screen = plMgrScreenRename
+		if realIdx < 0 {
+			return nil
 		}
+		name := m.plManager.playlists[realIdx].Name
+		if name == history.PlaylistName {
+			m.status.Show("Recently Played cannot be renamed", statusTTLDefault)
+			return nil
+		}
+		m.plManager.renameOldName = name
+		m.plManager.renameName = name
+		m.plManager.screen = plMgrScreenRename
 	case "d":
 		if m.plMgrPlaylistRealIndex(m.plManager.cursor) >= 0 {
 			m.plManager.confirmDel = true
@@ -1758,20 +1759,7 @@ func (m *Model) handlePlMgrRenameKey(msg tea.KeyPressMsg) tea.Cmd {
 	case tea.KeyEscape:
 		m.plManager.screen = plMgrScreenList
 	case tea.KeyEnter:
-		newName := strings.TrimSpace(m.plManager.renameName)
-		if newName != "" && newName != m.plManager.renameOldName {
-			if r, ok := m.localProvider.(provider.PlaylistRenamer); ok {
-				if err := r.RenamePlaylist(m.plManager.renameOldName, newName); err != nil {
-					m.status.Showf(statusTTLDefault, "Rename failed: %s", err)
-				} else {
-					m.status.Showf(statusTTLDefault, "Renamed %q to %q", m.plManager.renameOldName, newName)
-					if m.loadedPlaylist == m.plManager.renameOldName {
-						m.loadedPlaylist = newName
-					}
-					m.plMgrRefreshList()
-				}
-			}
-		}
+		m.plMgrCommitRename()
 		m.plManager.screen = plMgrScreenList
 	case tea.KeyBackspace:
 		m.plManager.renameName = removeLastRune(m.plManager.renameName)
@@ -1783,6 +1771,29 @@ func (m *Model) handlePlMgrRenameKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// plMgrCommitRename applies the pending rename. No-op when the name is
+// empty, unchanged, or the local provider doesn't support renaming.
+func (m *Model) plMgrCommitRename() {
+	newName := strings.TrimSpace(m.plManager.renameName)
+	oldName := m.plManager.renameOldName
+	if newName == "" || newName == oldName {
+		return
+	}
+	r, ok := m.localProvider.(provider.PlaylistRenamer)
+	if !ok {
+		return
+	}
+	if err := r.RenamePlaylist(oldName, newName); err != nil {
+		m.status.Showf(statusTTLDefault, "Rename failed: %s", err)
+		return
+	}
+	m.status.Showf(statusTTLDefault, "Renamed %q to %q", oldName, newName)
+	if m.loadedPlaylist == oldName {
+		m.loadedPlaylist = newName
+	}
+	m.plMgrRefreshList()
 }
 
 // localDeleter returns the PlaylistDeleter from the local provider.
