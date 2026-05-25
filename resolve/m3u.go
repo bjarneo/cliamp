@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"io"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -72,8 +73,8 @@ func parseM3U(r io.Reader, baseDir string) ([]m3uEntry, error) {
 
 		// This is a path/URL line.
 		path := line
-		if baseDir != "" && !playlist.IsURL(path) && !filepath.IsAbs(path) {
-			path = filepath.Join(baseDir, path)
+		if baseDir != "" && !playlist.IsURL(path) {
+			path = resolveM3UPath(baseDir, path)
 		}
 
 		if pending != nil {
@@ -133,4 +134,43 @@ func resolveLocalM3U(path string) ([]playlist.Track, error) {
 		return nil, err
 	}
 	return entriesToTracks(entries), nil
+}
+
+func resolveM3UPath(baseDir, entry string) string {
+	if entry == "" || playlist.IsURL(entry) {
+		return entry
+	}
+	if isWindowsAbsolutePath(entry) {
+		return filepath.Clean(entry)
+	}
+	if isPOSIXAbsolutePath(entry) {
+		return pathpkg.Clean(entry)
+	}
+	if filepath.IsAbs(entry) {
+		return filepath.Clean(entry)
+	}
+	if usesWindowsPathSemantics(baseDir) {
+		return filepath.Join(baseDir, filepath.FromSlash(entry))
+	}
+	return pathpkg.Join(baseDir, entry)
+}
+
+func usesWindowsPathSemantics(base string) bool {
+	return strings.Contains(base, `\`) || hasWindowsDrivePrefix(base)
+}
+
+func isPOSIXAbsolutePath(path string) bool {
+	return strings.HasPrefix(path, "/")
+}
+
+func isWindowsAbsolutePath(path string) bool {
+	return strings.HasPrefix(path, `\\`) || hasWindowsDrivePrefix(path)
+}
+
+func hasWindowsDrivePrefix(path string) bool {
+	if len(path) < 2 || path[1] != ':' {
+		return false
+	}
+	c := path[0]
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }

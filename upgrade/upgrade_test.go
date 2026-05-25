@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -120,8 +121,8 @@ func TestDownloadAndReplace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat: %v", err)
 	}
-	// Verify executable bit is set (0o755).
-	if info.Mode().Perm()&0o111 == 0 {
+	// Verify executable bit is set where the platform models one.
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
 		t.Errorf("target mode = %o, want executable", info.Mode().Perm())
 	}
 }

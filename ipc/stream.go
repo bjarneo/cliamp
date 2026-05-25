@@ -4,12 +4,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"net"
-	"os"
-	"syscall"
 	"time"
 )
 
@@ -21,9 +17,9 @@ func StreamBands(ctx context.Context, sockPath string, interval time.Duration, o
 		interval = 33 * time.Millisecond
 	}
 
-	conn, err := net.DialTimeout("unix", sockPath, 3*time.Second)
+	conn, err := dialSocket(sockPath, 3*time.Second)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
+		if isSocketUnavailable(err) {
 			return fmt.Errorf("cliamp is not running (no socket at %s)", sockPath)
 		}
 		return fmt.Errorf("connect: %w", err)

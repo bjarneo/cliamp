@@ -411,6 +411,7 @@ func TestControlClampsBounds(t *testing.T) {
 func TestControlWithoutPermissionIsNoop(t *testing.T) {
 	m := newTestManager()
 	m.logger = newPluginLogger(filepath.Join(t.TempDir(), "test.log"))
+	t.Cleanup(m.Close)
 	called := false
 	m.SetControlProvider(ControlProvider{
 		SetVolume: func(db float64) { called = true },

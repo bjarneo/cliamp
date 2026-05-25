@@ -243,7 +243,7 @@ func registerExecAPI(L *lua.LState, cliamp *lua.LTable, em *execManager, p *Plug
 		}
 		// Empty env by default — plugins should not inherit secrets like
 		// AWS_*, SSH_*, etc. yt-dlp and ffmpeg both run fine with a minimal env.
-		cmd.Env = []string{"PATH=/usr/local/bin:/usr/bin:/bin", "HOME=" + homeEnv(), "LANG=C.UTF-8"}
+		cmd.Env = minimalExecEnv()
 
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -312,18 +312,21 @@ func registerExecAPI(L *lua.LState, cliamp *lua.LTable, em *execManager, p *Plug
 		go func() {
 			wg.Wait()
 			waitErr := cmd.Wait()
+			ctxErr := ctx.Err()
 			cancel()
 			em.remove(entry)
 
 			code := 0
 			if waitErr != nil {
-				var exitErr *exec.ExitError
-				if errors.As(waitErr, &exitErr) {
-					code = exitErr.ExitCode()
-				} else if ctx.Err() != nil {
+				if ctxErr != nil {
 					code = -1 // cancelled or timed out
 				} else {
+					var exitErr *exec.ExitError
+					if errors.As(waitErr, &exitErr) {
+						code = exitErr.ExitCode()
+					} else {
 					code = -2 // other error
+					}
 				}
 			}
 
@@ -366,8 +369,11 @@ func registerExecAPI(L *lua.LState, cliamp *lua.LTable, em *execManager, p *Plug
 // homeEnv returns the user's home directory for subprocess HOME, or "/" if
 // unset. yt-dlp and ffmpeg both read HOME (~/.cache, ~/.config).
 func homeEnv() string {
+	if home, ok := os.LookupEnv("HOME"); ok && home != "" {
+		return home
+	}
 	if h, err := os.UserHomeDir(); err == nil {
 		return h
 	}
-	return "/"
+	return os.TempDir()
 }

@@ -4,6 +4,7 @@ package playlist
 import (
 	"math/rand"
 	"net/url"
+	pathpkg "path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -107,7 +108,7 @@ func IsM3U(path string) bool {
 		if err != nil {
 			return false
 		}
-		ext := strings.ToLower(filepath.Ext(u.Path))
+		ext := strings.ToLower(pathpkg.Ext(u.Path))
 		return ext == ".m3u" || ext == ".m3u8"
 	}
 	ext := strings.ToLower(filepath.Ext(path))
@@ -126,7 +127,7 @@ func IsPLS(path string) bool {
 		if err != nil {
 			return false
 		}
-		return strings.ToLower(filepath.Ext(u.Path)) == ".pls"
+		return strings.ToLower(pathpkg.Ext(u.Path)) == ".pls"
 	}
 	return strings.ToLower(filepath.Ext(path)) == ".pls"
 }
@@ -242,7 +243,7 @@ func IsFeed(path string) bool {
 	if err != nil {
 		return false
 	}
-	ext := strings.ToLower(filepath.Ext(u.Path))
+	ext := strings.ToLower(pathpkg.Ext(u.Path))
 	return ext == ".xml" || ext == ".rss" || ext == ".atom"
 }
 
@@ -267,10 +268,11 @@ func trackFromURL(rawURL string) Track {
 		return t
 	}
 
-	// Extract filename from URL path
-	base := filepath.Base(u.Path)
+	// Extract filename from URL path using slash semantics, not OS-specific
+	// filepath rules. URL paths always use '/'.
+	base := pathpkg.Base(u.Path)
 	if base != "" && base != "." && base != "/" {
-		name := strings.TrimSuffix(base, filepath.Ext(base))
+		name := strings.TrimSuffix(base, pathpkg.Ext(base))
 		if name != "" && name != "stream" && name != "rest" {
 			t.Title = name
 			return t

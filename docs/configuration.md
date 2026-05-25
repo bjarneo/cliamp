@@ -8,6 +8,17 @@ cliamp setup
 
 It validates your credentials live and writes the right TOML block without touching the rest of your config. See [cli.md](cli.md#setup-wizard) for details.
 
+## Config directory
+
+cliamp resolves its config directory in this order:
+
+- `CLIAMP_CONFIG_DIR`
+- `XDG_CONFIG_HOME/cliamp`
+- `HOME/.config/cliamp`
+- on Windows, `%APPDATA%\cliamp` when `HOME` is not set
+
+The examples below use `~/.config/cliamp` for brevity. On Windows without `HOME`, replace that path with `%APPDATA%\cliamp`.
+
 For everything else, copy the example config and edit by hand:
 
 ```sh

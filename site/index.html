@@ -1479,7 +1479,7 @@
       </div>
     </div>
     <div class="install-note">
-      Or build from source — <a href="https://github.com/bjarneo/cliamp">see the README</a>.
+      Or build from source — <a href="https://github.com/bjarneo/cliamp">see the README</a>. Windows builds are available from Releases; when <code>HOME</code> is unset, config lives under <code>%APPDATA%\cliamp</code>.
     </div>
 
     <div class="next-step">
@@ -1510,7 +1510,7 @@
       <div class="source" style="--src-color:#1db954">
         <div class="source-badge">OAuth · cached</div>
         <div class="source-name">Spotify</div>
-        <div class="source-desc">Stream your Premium library. Bring your own developer <code>client_id</code> for a private quota, or use the built-in shared one. Search &amp; add tracks with <kbd>F</kbd>.</div>
+        <div class="source-desc">Stream your Premium library. Bring your own developer <code>client_id</code> for a private quota, or use the built-in shared one. Search &amp; add tracks with <kbd>F</kbd>. Currently unavailable on Windows builds.</div>
       </div>
       <div class="source" style="--src-color:#ff0000">
         <div class="source-badge">yt-dlp</div>
@@ -1683,7 +1683,7 @@ user_id = "your-account-user-id"</code></pre>
       <div class="feature">
         <div class="feature-icon">⌁</div>
         <div class="feature-name">Remote Control</div>
-        <p>Control a running instance from another terminal via Unix-socket IPC. Run with <code>--daemon</code> for headless playback driven entirely by scripts or Waybar.</p>
+        <p>Control a running instance from another terminal via local-socket IPC. Run with <code>--daemon</code> for headless playback driven entirely by scripts or Waybar.</p>
       </div>
       <div class="feature">
         <div class="feature-icon">⎔</div>
@@ -2070,7 +2070,7 @@ user_id = "your-account-user-id"</code></pre>
     </div>
     <p class="cli-remote-intro">
       CLI flags override any config option for a single session.
-      Remote commands control a running instance over Unix-socket IPC — open another terminal and talk to <code>cliamp</code> directly.
+      Remote commands control a running instance over local-socket IPC — open another terminal and talk to <code>cliamp</code> directly.
     </p>
     <div class="cli-remote-grid">
 

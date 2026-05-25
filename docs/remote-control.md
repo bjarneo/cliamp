@@ -2,7 +2,7 @@
 
 Control a running cliamp instance from another terminal, a shell script, or an AI coding assistant.
 
-When cliamp starts, it listens on a Unix domain socket at `~/.config/cliamp/cliamp.sock`. CLI subcommands connect to this socket to send playback commands and receive status.
+When cliamp starts, it listens on a local IPC socket at `~/.config/cliamp/cliamp.sock` (or `%APPDATA%\cliamp\cliamp.sock` on Windows when `HOME` is unset). CLI subcommands connect to this socket to send playback commands and receive status. On Windows 10/11, this uses the same local socket transport via Go's AF_UNIX support.
 
 ## Playback Commands
 
@@ -96,7 +96,7 @@ Response:
 
 ## Protocol
 
-The IPC protocol is newline-delimited JSON over a Unix domain socket. Each request is a single JSON object followed by a newline. The server responds with a single JSON object followed by a newline.
+The IPC protocol is newline-delimited JSON over a local stream socket. Each request is a single JSON object followed by a newline. The server responds with a single JSON object followed by a newline.
 
 Request format:
 
@@ -118,7 +118,7 @@ Response format:
 
 ## Socket Details
 
-- **Path**: `~/.config/cliamp/cliamp.sock` (created on TUI start, removed on shutdown)
+- **Path**: `~/.config/cliamp/cliamp.sock` (or `%APPDATA%\cliamp\cliamp.sock` on Windows when `HOME` is unset; created on TUI start, removed on shutdown)
 - **Permissions**: `0600` (owner only)
 - **Stale detection**: A PID file (`cliamp.sock.pid`) tracks the owning process. If cliamp crashes, the next instance detects the stale socket and cleans it up.
 

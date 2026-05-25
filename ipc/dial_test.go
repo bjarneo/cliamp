@@ -9,5 +9,5 @@ import (
 // package can send arbitrary bytes instead of going through Send (which
 // wraps a Request as JSON).
 func dialWithTimeout(sockPath string, d time.Duration) (net.Conn, error) {
-	return net.DialTimeout("unix", sockPath, d)
+	return dialSocket(sockPath, d)
 }

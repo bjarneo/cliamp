@@ -1,7 +1,10 @@
 package luaplugin
 
 import (
+	"fmt"
 	"os"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -11,7 +14,8 @@ import (
 )
 
 // newExecTestState builds a minimal plugin + manager wired up for exec tests.
-// The binary allowlist is scoped to basic POSIX tools so tests don't need yt-dlp.
+// The binary allowlist is scoped to a few harmless OS-native tools so tests
+// don't need yt-dlp or ffmpeg.
 func newExecTestState(t *testing.T, perms []string) (*lua.LState, *Plugin, *execManager, func()) {
 	t.Helper()
 	L := lua.NewState()
@@ -24,12 +28,61 @@ func newExecTestState(t *testing.T, perms []string) (*lua.LState, *Plugin, *exec
 		}
 	}
 
-	em := newExecManager([]string{"echo", "false", "sleep", "sh", "cat"})
+	em := newExecManager(execTestAllowedBinaries())
 	cliamp := L.NewTable()
 	registerExecAPI(L, cliamp, em, p, newPluginLogger(""))
 	L.SetGlobal("cliamp", cliamp)
 
 	return L, p, em, func() { em.stopAll(); L.Close() }
+}
+
+func execTestAllowedBinaries() []string {
+	if runtime.GOOS == "windows" {
+		return []string{"cmd", "powershell"}
+	}
+	return []string{"echo", "false", "sleep", "sh", "cat"}
+}
+
+func execOutputCommand() (binary string, args []string, wantLine string) {
+	if runtime.GOOS == "windows" {
+		return "powershell", []string{"-NoProfile", "-Command", "Write-Output 'hello world'"}, "hello world"
+	}
+	return "echo", []string{"hello", "world"}, "hello world"
+}
+
+func execFailureCommand() (binary string, args []string) {
+	if runtime.GOOS == "windows" {
+		return "powershell", []string{"-NoProfile", "-Command", "exit 1"}
+	}
+	return "false", nil
+}
+
+func execSleepCommand(seconds int) (binary string, args []string) {
+	if runtime.GOOS == "windows" {
+		return "powershell", []string{"-NoProfile", "-Command", fmt.Sprintf("Start-Sleep -Seconds %d", seconds)}
+	}
+	return "sleep", []string{strconv.Itoa(seconds)}
+}
+
+func execDisallowedCWD() string {
+	if runtime.GOOS == "windows" {
+		if root := os.Getenv("WINDIR"); root != "" {
+			return root
+		}
+		return `C:\Windows`
+	}
+	return "/etc"
+}
+
+func luaStringList(items []string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		parts = append(parts, fmt.Sprintf("%q", item))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // waitExec polls for a Lua global to be set. The plugin mutex must be held
@@ -53,20 +106,21 @@ func waitExec(t *testing.T, p *Plugin, L *lua.LState, name string, timeout time.
 func TestExecRunsAllowedBinary(t *testing.T) {
 	L, p, _, cleanup := newExecTestState(t, []string{"exec"})
 	defer cleanup()
+	binary, args, wantLine := execOutputCommand()
 
 	// Drive callbacks into globals so the test can assert state, but acquire
 	// the plugin mutex first — the exec goroutines also take it before calling
 	// Lua, so without locking here we'd race on LState itself.
 	p.mu.Lock()
-	err := L.DoString(`
+	err := L.DoString(fmt.Sprintf(`
 		_G.lines = {}
 		_G.exit_code = nil
-		local h, err = cliamp.exec.run("echo", {"hello", "world"}, {
+		local h, err = cliamp.exec.run(%q, {%s}, {
 			on_stdout = function(line) table.insert(_G.lines, line) end,
 			on_exit = function(code) _G.exit_code = code end,
 		})
 		assert(h, tostring(err))
-	`)
+	`, binary, luaStringList(args)))
 	p.mu.Unlock()
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +134,14 @@ func TestExecRunsAllowedBinary(t *testing.T) {
 		t.Fatalf("exit_code = %v, want 0", code)
 	}
 	lines := L.GetGlobal("lines").(*lua.LTable)
-	if lines.Len() != 1 || lines.RawGetInt(1).String() != "hello world" {
+	matched := false
+	for i := 1; i <= lines.Len(); i++ {
+		if strings.TrimSpace(lines.RawGetInt(i).String()) == wantLine {
+			matched = true
+			break
+		}
+	}
+	if !matched {
 		t.Fatalf("unexpected stdout: %v", lines)
 	}
 }
@@ -128,14 +189,15 @@ func TestExecRequiresPermission(t *testing.T) {
 func TestExecPropagatesExitCode(t *testing.T) {
 	L, p, _, cleanup := newExecTestState(t, []string{"exec"})
 	defer cleanup()
+	binary, args := execFailureCommand()
 
 	p.mu.Lock()
-	err := L.DoString(`
+	err := L.DoString(fmt.Sprintf(`
 		_G.exit_code = nil
-		cliamp.exec.run("false", {}, {
+		cliamp.exec.run(%q, {%s}, {
 			on_exit = function(code) _G.exit_code = code end,
 		})
-	`)
+	`, binary, luaStringList(args)))
 	p.mu.Unlock()
 	if err != nil {
 		t.Fatal(err)
@@ -152,14 +214,15 @@ func TestExecPropagatesExitCode(t *testing.T) {
 func TestExecCancel(t *testing.T) {
 	L, p, _, cleanup := newExecTestState(t, []string{"exec"})
 	defer cleanup()
+	binary, args := execSleepCommand(10)
 
 	p.mu.Lock()
-	err := L.DoString(`
+	err := L.DoString(fmt.Sprintf(`
 		_G.exit_code = nil
-		_G.handle = cliamp.exec.run("sleep", {"10"}, {
+		_G.handle = cliamp.exec.run(%q, {%s}, {
 			on_exit = function(code) _G.exit_code = code end,
 		})
-	`)
+	`, binary, luaStringList(args)))
 	p.mu.Unlock()
 	if err != nil {
 		t.Fatal(err)
@@ -184,20 +247,21 @@ func TestExecCancel(t *testing.T) {
 func TestExecConcurrencyCap(t *testing.T) {
 	L, p, _, cleanup := newExecTestState(t, []string{"exec"})
 	defer cleanup()
+	binary, args := execSleepCommand(2)
 
 	p.mu.Lock()
-	err := L.DoString(`
+	err := L.DoString(fmt.Sprintf(`
 		_G.errs = {}
 		_G.handles = {}
 		for i = 1, 6 do
-			local h, err = cliamp.exec.run("sleep", {"2"}, {})
+			local h, err = cliamp.exec.run(%q, {%s}, {})
 			if h then
 				table.insert(_G.handles, h)
 			else
 				table.insert(_G.errs, err or "?")
 			end
 		end
-	`)
+	`, binary, luaStringList(args)))
 	p.mu.Unlock()
 	if err != nil {
 		t.Fatal(err)
@@ -228,6 +292,7 @@ func TestExecConcurrencyCap(t *testing.T) {
 func TestExecStopPluginKillsChildren(t *testing.T) {
 	L, p, em, cleanup := newExecTestState(t, []string{"exec"})
 	defer cleanup()
+	binary, args := execSleepCommand(10)
 
 	var exits sync.WaitGroup
 	exits.Add(1)
@@ -237,11 +302,11 @@ func TestExecStopPluginKillsChildren(t *testing.T) {
 		exits.Done()
 		return 0
 	}))
-	err := L.DoString(`
-		cliamp.exec.run("sleep", {"10"}, {
+	err := L.DoString(fmt.Sprintf(`
+		cliamp.exec.run(%q, {%s}, {
 			on_exit = function() notify() end,
 		})
-	`)
+	`, binary, luaStringList(args)))
 	p.mu.Unlock()
 	if err != nil {
 		t.Fatal(err)
@@ -290,13 +355,15 @@ func TestResolveAllowedBinaries(t *testing.T) {
 func TestExecCwdMustBeAllowed(t *testing.T) {
 	L, p, _, cleanup := newExecTestState(t, []string{"exec"})
 	defer cleanup()
+	binary, args, _ := execOutputCommand()
+	cwd := execDisallowedCWD()
 
 	p.mu.Lock()
-	err := L.DoString(`
-		local h, err = cliamp.exec.run("echo", {"hi"}, {cwd = "/etc"})
+	err := L.DoString(fmt.Sprintf(`
+		local h, err = cliamp.exec.run(%q, {%s}, {cwd = %q})
 		_G.handle = h
 		_G.err = err
-	`)
+	`, binary, luaStringList(args), cwd))
 	p.mu.Unlock()
 	if err != nil {
 		t.Fatal(err)
@@ -311,10 +378,6 @@ func TestExecCwdMustBeAllowed(t *testing.T) {
 
 // Guard against a regression where a missing binary silently returns a handle.
 func TestExecBinaryNotOnPath(t *testing.T) {
-	if _, err := os.Stat("/bin/echo"); err != nil {
-		t.Skip("/bin/echo missing, can't run exec tests on this host")
-	}
-
 	L := lua.NewState()
 	defer L.Close()
 	p := &Plugin{Name: "test", L: L, perms: map[string]bool{"exec": true}}

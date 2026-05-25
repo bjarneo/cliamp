@@ -46,6 +46,10 @@ Download from [GitHub Releases](https://github.com/bjarneo/cliamp/releases/lates
 > **Linux:** the pre-built binaries statically link FLAC, Vorbis, and Ogg, so no
 > extra codec packages are required. You may still need an ALSA bridge for your
 > sound server — see [Troubleshooting](#troubleshooting).
+>
+> **Windows:** download `cliamp-windows-amd64.exe` from Releases. If `HOME` is not
+> set, cliamp stores its config under `%APPDATA%\cliamp`. The Spotify provider is
+> currently unavailable on Windows builds.
 
 **Optional runtime dependencies** (all platforms, all install methods):
 
@@ -53,6 +57,8 @@ Download from [GitHub Releases](https://github.com/bjarneo/cliamp/releases/lates
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — for YouTube, YouTube Music, SoundCloud, Bandcamp, Bilibili, and NetEase Cloud Music
 
 On macOS: `brew install ffmpeg yt-dlp`. On Linux, use your distribution's package manager.
+
+On Windows, install `ffmpeg` and `yt-dlp` with your preferred package manager and keep both on `PATH`.
 
 **Build from source**
 
@@ -76,13 +82,13 @@ Press `Ctrl+K` to see all keybindings.
 cliamp setup
 ```
 
-It walks you through each provider, validates the connection, and writes the right block to `~/.config/cliamp/config.toml`. See [docs/cli.md](docs/cli.md#setup-wizard) for details.
+It walks you through each provider, validates the connection, and writes the right block to your config file (`~/.config/cliamp/config.toml`, or `%APPDATA%\cliamp\config.toml` on Windows when `HOME` is unset). See [docs/cli.md](docs/cli.md#setup-wizard) for details.
 
 ## Radio
 
 Press `R` in the player to browse and search 30,000+ online radio stations from the [Radio Browser](https://www.radio-browser.info/) directory.
 
-Add your own stations to `~/.config/cliamp/radios.toml`. See [docs/configuration.md](docs/configuration.md#custom-radio-stations).
+Add your own stations to `~/.config/cliamp/radios.toml` (or `%APPDATA%\cliamp\radios.toml` on Windows when `HOME` is unset). See [docs/configuration.md](docs/configuration.md#custom-radio-stations).
 
 Want to host your own radio? Check out [cliamp-server](https://github.com/bjarneo/cliamp-server).
 
@@ -112,6 +118,8 @@ sudo pacman -S alsa-lib
 ```
 
 **macOS:** No extra dependencies — CoreAudio is used.
+
+**Windows:** No extra SDKs required for the core player. `ffmpeg.exe` and `yt-dlp.exe` remain optional runtime dependencies for the same formats/providers as on other platforms. Spotify is not available on Windows builds.
 
 **Clone and build:**
 

@@ -277,7 +277,7 @@ cliamp.fs.mkdir(path)             -- create directory (recursive)
 cliamp.fs.listdir(path)           --> {names}, err
 ```
 
-Writes are restricted to `/tmp/`, `~/.config/cliamp/`, `~/.local/share/cliamp/`, and `~/Music/cliamp/`. Reads are allowed from anywhere.
+Writes are restricted to the system temp directory (`/tmp/` on Unix), `~/.config/cliamp/`, `~/.local/share/cliamp/`, and `~/Music/cliamp/`. Reads are allowed from anywhere. On Windows, if `HOME` is unset, the config directory portion resolves to `%APPDATA%\cliamp`.
 
 ### cliamp.json
 

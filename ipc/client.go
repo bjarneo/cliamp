@@ -3,12 +3,9 @@ package ipc
 import (
 	"bufio"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"cliamp/internal/appdir"
@@ -33,9 +30,9 @@ func Send(sockPath string, req Request) (Response, error) {
 // deadline. Plugin commands can legitimately run for minutes (downloads), so
 // the generic 5s cap is too short for them.
 func SendWithDeadline(sockPath string, req Request, deadline time.Duration) (Response, error) {
-	conn, err := net.DialTimeout("unix", sockPath, 3*time.Second)
+	conn, err := dialSocket(sockPath, 3*time.Second)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
+		if isSocketUnavailable(err) {
 			return Response{}, fmt.Errorf("cliamp is not running (no socket at %s)", sockPath)
 		}
 		return Response{}, fmt.Errorf("connect: %w", err)

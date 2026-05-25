@@ -92,7 +92,11 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 	if cfg.Spotify.IsSet() {
 		clientID := cfg.Spotify.ResolveClientID(spotify.DefaultClientID)
 		spotifyProv = spotify.New(nil, clientID, cfg.Spotify.Bitrate)
-		providers = append(providers, model.ProviderEntry{Key: "spotify", Name: "Spotify", Provider: spotifyProv})
+		if spotifyProv != nil {
+			providers = append(providers, model.ProviderEntry{Key: "spotify", Name: "Spotify", Provider: spotifyProv})
+		} else {
+			fmt.Fprintln(os.Stderr, "Spotify is unavailable in this Windows build.")
+		}
 	}
 
 	if scProv := soundcloud.NewFromConfig(soundcloud.Config{

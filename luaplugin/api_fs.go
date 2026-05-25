@@ -3,51 +3,63 @@ package luaplugin
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
-	"sync"
 
 	lua "github.com/yuin/gopher-lua"
 
 	"cliamp/internal/appdir"
 )
 
-var (
-	allowDirsOnce sync.Once
-	allowDirs     []string
-)
-
 // writeAllowDirs returns the directories where plugins can write files.
-// The result is cached since these paths never change at runtime.
 func writeAllowDirs() []string {
-	allowDirsOnce.Do(func() {
-		allowDirs = []string{"/tmp/", os.TempDir() + "/"}
-		if configDir, err := appdir.Dir(); err == nil {
-			allowDirs = append(allowDirs, configDir+"/")
-		}
-		if home, err := os.UserHomeDir(); err == nil {
-			allowDirs = append(allowDirs, filepath.Join(home, ".local", "share", "cliamp")+"/")
-			allowDirs = append(allowDirs, filepath.Join(home, "Music", "cliamp")+"/")
-		}
-	})
-	return allowDirs
+	dirs := []string{os.TempDir()}
+	if configDir, err := appdir.Dir(); err == nil {
+		dirs = append(dirs, configDir)
+	}
+	home := ""
+	if v, ok := os.LookupEnv("HOME"); ok && v != "" {
+		home = v
+	} else if v, err := os.UserHomeDir(); err == nil {
+		home = v
+	}
+	if home != "" {
+		dirs = append(dirs,
+			filepath.Join(home, ".local", "share", "cliamp"),
+			filepath.Join(home, "Music", "cliamp"),
+		)
+	}
+	return dirs
 }
 
 // isWriteAllowed checks if a path is within one of the allowed write directories.
 func isWriteAllowed(path string) bool {
-	abs, err := filepath.Abs(path)
+	abs, err := normalizeWritePath(path)
 	if err != nil {
 		return false
 	}
-	// Block directory traversal.
-	if strings.Contains(abs, "..") {
-		return false
-	}
 	for _, dir := range writeAllowDirs() {
-		if strings.HasPrefix(abs, dir) {
+		allowed, err := normalizeWritePath(dir)
+		if err != nil {
+			continue
+		}
+		if abs == allowed || strings.HasPrefix(abs, allowed+string(os.PathSeparator)) {
 			return true
 		}
 	}
 	return false
+}
+
+func normalizeWritePath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	abs = filepath.Clean(abs)
+	if runtime.GOOS == "windows" {
+		abs = strings.ToLower(abs)
+	}
+	return abs, nil
 }
 
 // registerFSAPI adds cliamp.fs.{write,append,read,remove,exists} to the cliamp table.
