@@ -252,6 +252,7 @@ type Config struct {
 	NetEase          NetEaseConfig                // NetEase Cloud Music provider (opt-in via enabled = true)
 	Plugins          map[string]map[string]string // per-plugin config from [plugins.*] sections
 	LogLevel         string                       // log level: debug, info, warn, error (default "info")
+	LowPower         bool                         // runtime-only: set by --low-power, not loaded from config
 }
 
 // defaultConfig returns a Config with sensible defaults.

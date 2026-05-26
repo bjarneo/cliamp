@@ -75,6 +75,35 @@ func TestTickIntervalPendingStatusUsesSlow(t *testing.T) {
 	}
 }
 
+func TestTickIntervalPlayingUsesFastCadence(t *testing.T) {
+	p := &playbackFakeEngine{playing: true}
+	m := Model{
+		player:   p,
+		vis:      ui.NewVisualizer(float64(p.SampleRate())),
+		playlist: playlist.New(),
+	}
+	m.SetVisualizer("none")
+
+	if got := m.tickInterval(); got != ui.TickFast {
+		t.Fatalf("tickInterval() = %v, want %v", got, ui.TickFast)
+	}
+}
+
+func TestTickIntervalLowPowerPlayingUsesLowPowerCadence(t *testing.T) {
+	p := &playbackFakeEngine{playing: true}
+	m := Model{
+		player:   p,
+		vis:      ui.NewVisualizer(float64(p.SampleRate())),
+		playlist: playlist.New(),
+	}
+	m.SetVisualizer("none")
+	m.SetLowPower(true)
+
+	if got := m.tickInterval(); got != ui.TickLowPowerPlaying {
+		t.Fatalf("tickInterval() = %v, want %v", got, ui.TickLowPowerPlaying)
+	}
+}
+
 func TestInitialTickUsesFastCadence(t *testing.T) {
 	prev := teaTick
 	t.Cleanup(func() {

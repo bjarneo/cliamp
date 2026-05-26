@@ -84,6 +84,9 @@ func (m *Model) findProviderWith(check func(playlist.Provider) bool) playlist.Pr
 // SetAutoPlay makes the player start playback immediately on Init.
 func (m *Model) SetAutoPlay(v bool) { m.autoPlay = v }
 
+// SetLowPower lowers UI cadences for --low-power without affecting normal mode.
+func (m *Model) SetLowPower(v bool) { m.lowPower = v }
+
 // SetCompact enables compact mode which caps the frame width at 80 columns.
 func (m *Model) SetCompact(v bool) {
 	m.compact = v

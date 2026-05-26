@@ -40,6 +40,11 @@ import (
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z".
 var version string
 
+const (
+	defaultUIFPS  = 20
+	lowPowerUIFPS = 5
+)
+
 func run(overrides config.Overrides, positional []string, daemon bool) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -331,6 +336,9 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 	if cfg.AutoPlay {
 		m.SetAutoPlay(true)
 	}
+	if cfg.LowPower {
+		m.SetLowPower(true)
+	}
 	if cfg.Compact {
 		m.SetCompact(true)
 	}
@@ -341,7 +349,11 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 		}
 	}
 
-	prog := tea.NewProgram(m)
+	progOpts := []tea.ProgramOption{tea.WithFPS(defaultUIFPS)}
+	if cfg.LowPower {
+		progOpts[0] = tea.WithFPS(lowPowerUIFPS)
+	}
+	prog := tea.NewProgram(m, progOpts...)
 
 	if spotifyProv != nil {
 		spotify.SetAuthURLObserver(func(u string) {

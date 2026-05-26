@@ -76,9 +76,9 @@ func (o Overrides) Apply(cfg *Config) {
 		cfg.LogLevel = *o.LogLevel
 	}
 	if o.LowPower != nil && *o.LowPower {
+		cfg.LowPower = true
 		// Low-power mode disables the visualizer entirely. With Mode = None,
-		// the tick loop falls back to TickSlow (5 FPS) for time/seek display
-		// only — the dominant CPU sink for the TUI.
+		// the model also uses lower UI cadences to reduce idle wakeups.
 		cfg.Visualizer = "none"
 	}
 	cfg.clamp()
