@@ -154,7 +154,7 @@ func (m *Model) isFullyIdle() bool {
 }
 
 func (m *Model) tickVisualizer(now time.Time) {
-	if m.vis == nil {
+	if m.vis == nil || m.vis.Mode == ui.VisNone {
 		return
 	}
 	m.vis.Tick(m.visualizerTickContext(now))

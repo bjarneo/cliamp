@@ -115,6 +115,17 @@ func (m Model) playlistScroll(visible int) int {
 }
 
 func (m Model) mainFrameFixedLines(includeTransient bool) int {
+	if m.chromeOK {
+		if !includeTransient {
+			return m.chromeHeight
+		}
+		transientLines := len(m.footerMessages())
+		if m.err != nil {
+			transientLines++
+		}
+		return m.chromeHeight + transientLines
+	}
+	// Fallback: render and measure (only needed until first WindowSizeMsg)
 	content := strings.Join(m.mainSections("", includeTransient), "\n")
 	return lipgloss.Height(ui.FrameStyle.Render(content))
 }
@@ -128,4 +139,26 @@ func (m Model) effectivePlaylistVisible() int {
 		return 0
 	}
 	return min(m.plVisible, available)
+}
+
+// recomputeChrome renders the fixed chrome (without playlist or transients)
+// and caches its height. Called when terminal width or compact mode changes.
+func (m *Model) recomputeChrome() {
+	content := strings.Join(m.mainSections("", false), "\n")
+	m.chromeHeight = lipgloss.Height(ui.FrameStyle.Render(content))
+	m.chromeOK = true
+}
+
+// invalidateChrome marks the chrome height dirty. Until the next recompute,
+// mainFrameFixedLines falls back to direct measurement.
+func (m *Model) invalidateChrome() {
+	m.chromeOK = false
+}
+
+func (m *Model) refreshChrome() {
+	if m.width > 0 {
+		m.recomputeChrome()
+		return
+	}
+	m.invalidateChrome()
 }

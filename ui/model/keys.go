@@ -430,6 +430,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.fullVis = false
 			m.vis.Rows = ui.DefaultVisRows
 			m.restorePanelWidth()
+			m.refreshChrome()
 		} else if m.focus == focusPlaylist {
 			// Keep current expanded/collapsed height mode when switching focus.
 			m.focus = focusProvider
@@ -743,6 +744,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "v":
 		m.vis.CycleMode()
+		m.vis.RequestRefresh()
+		m.refreshChrome()
 		m.applyHeightMode()
 		m.adjustScroll()
 		if err := m.configSaver.Save("visualizer", fmt.Sprintf("%q", m.vis.ModeName())); err != nil {
@@ -758,6 +761,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.vis.Rows = ui.DefaultVisRows
 			m.restorePanelWidth()
 		}
+		m.refreshChrome()
 
 	case "ctrl+x":
 		if m.focus == focusPlaylist {

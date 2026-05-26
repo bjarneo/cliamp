@@ -70,6 +70,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.vis.Rows = max(ui.DefaultVisRows, (m.height-10)*4/5)
 			ui.PanelWidth = max(0, m.width-2*ui.PaddingH)
 		}
+		m.recomputeChrome()
 		m.applyHeightMode()
 		m.adjustScroll()
 		if m.focus == focusProvider {
@@ -191,8 +192,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.network.sampleFor += dt
 		if m.network.sampleFor >= time.Second {
-			m.notifyAll()
 			downloaded, _ := m.player.StreamBytes()
+			if downloaded > 0 || m.player.IsPlaying() {
+				m.notifyAll()
+			}
 			delta := downloaded - m.network.lastBytes
 			if delta > 0 {
 				// Exponential moving average for smooth display.
@@ -809,6 +812,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if strings.EqualFold(msg.Name, "next") {
 			m.vis.CycleMode()
 			m.vis.RequestRefresh()
+			m.refreshChrome()
 			resp = ipc.Response{OK: true, Visualizer: m.vis.ModeName()}
 		} else if m.SetVisualizer(msg.Name) {
 			resp = ipc.Response{OK: true, Visualizer: m.vis.ModeName()}

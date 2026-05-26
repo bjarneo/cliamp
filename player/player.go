@@ -37,6 +37,8 @@ type Player struct {
 	current         *trackPipeline // active track's resources
 	nextPipeline    *trackPipeline // preloaded track's resources
 	started         bool           // true after first speaker.Play()
+	suspendMu       sync.Mutex     // guards suspended and speaker suspend/resume calls
+	suspended       bool           // true when speaker.Suspend() has been called
 	ctrl            *beep.Ctrl
 	volMin          atomic.Uint64     // dB floor stored as Float64bits, range [-90, 0]
 	volume          atomic.Uint64     // dB stored as Float64bits, range [volMin, +6]
@@ -75,6 +77,10 @@ func New(q Quality) (*Player, error) {
 	p.volMin.Store(math.Float64bits(-50))
 	p.speed.Store(math.Float64bits(1.0))
 	p.gapless = &gaplessStreamer{}
+	// Suspend the speaker immediately; the ALSA audio callback goroutine
+	// burns ~2% CPU even on silence. Resume is called on every Play().
+	_ = speaker.Suspend()
+	p.suspended = true
 	p.gapless.onSwap = func() {
 		// Called from audio thread (goroutine) when gapless transition occurs.
 		// Swap current ← nextPipeline and close the old one.
@@ -141,6 +147,8 @@ func (p *Player) PlayYTDL(pageURL string, knownDuration time.Duration) error {
 // On the first call it builds the long-lived EQ → volume → tap → ctrl chain.
 // Subsequent calls swap only the track source via the gapless streamer.
 func (p *Player) playPipeline(tp *trackPipeline) error {
+	p.resumeSpeaker()
+
 	// Collect old pipelines to close after releasing locks.
 	var oldCurrent, oldNext *trackPipeline
 
@@ -260,6 +268,8 @@ func (p *Player) GaplessAdvanced() bool {
 }
 
 // TogglePause toggles between paused and playing states.
+// When pausing, the speaker is suspended to save CPU; when unpausing
+// it is resumed so the audio callback drains the queued samples.
 func (p *Player) TogglePause() {
 	speaker.Lock()
 	if p.ctrl != nil {
@@ -267,14 +277,19 @@ func (p *Player) TogglePause() {
 		paused := p.ctrl.Paused
 		speaker.Unlock()
 		p.paused.Store(paused)
+		if paused {
+			p.suspendSpeaker()
+		} else {
+			p.resumeSpeaker()
+		}
 	} else {
 		speaker.Unlock()
 	}
 }
 
-// Stop halts playback and releases resources. The speaker continues running
-// (outputting silence via the gapless streamer) so it can be restarted without
-// rebuilding the pipeline.
+// Stop halts playback and releases resources. The speaker is suspended so
+// the ALSA audio callback goroutine blocks (zero CPU) instead of streaming
+// silence. Resume is called automatically on the next Play().
 func (p *Player) Stop() {
 	// Lock speaker to ensure the goroutine finishes any in-progress Stream()
 	// call, then clear the source and pause. After unlock, the speaker will
@@ -297,6 +312,8 @@ func (p *Player) Stop() {
 	p.mu.Unlock()
 
 	closePipelines(oldCurrent, oldNext)
+
+	p.suspendSpeaker()
 }
 
 // Seek moves the playback position by the given duration (positive or negative).
@@ -746,6 +763,40 @@ func (p *Player) RegisterBufferedURLMatcher(match func(string) bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.bufferedURLMatch = match
+}
+
+// suspendSpeaker suspends the ALSA audio callback goroutine so it blocks
+// on a condition variable instead of busy-looping. Safe to call multiple
+// times; subsequent calls are no-ops.
+func (p *Player) suspendSpeaker() {
+	p.suspendMu.Lock()
+	defer p.suspendMu.Unlock()
+
+	if p.suspended {
+		return
+	}
+	if err := speaker.Suspend(); err != nil {
+		// Non-fatal: the ALSA driver may return an error if the context
+		// has already hit a terminal error. Continue without tracking
+		// the suspended state so we don't try to resume a dead context.
+		return
+	}
+	p.suspended = true
+}
+
+// resumeSpeaker resumes the ALSA audio callback goroutine. Safe to call
+// multiple times; subsequent calls are no-ops.
+func (p *Player) resumeSpeaker() {
+	p.suspendMu.Lock()
+	defer p.suspendMu.Unlock()
+
+	if !p.suspended {
+		return
+	}
+	if err := speaker.Resume(); err != nil {
+		return
+	}
+	p.suspended = false
 }
 
 // Close fully stops the speaker and cleans up all resources.
