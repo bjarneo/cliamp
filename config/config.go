@@ -252,7 +252,7 @@ type Config struct {
 	NetEase          NetEaseConfig                // NetEase Cloud Music provider (opt-in via enabled = true)
 	Plugins          map[string]map[string]string // per-plugin config from [plugins.*] sections
 	LogLevel         string                       // log level: debug, info, warn, error (default "info")
-	LowPower         bool                         // runtime-only: set by --low-power, not loaded from config
+	LowPower         bool                         // reduce CPU by lowering UI cadence and disabling visualization
 }
 
 // defaultConfig returns a Config with sensible defaults.
@@ -523,6 +523,8 @@ func Load() (Config, error) {
 				case "debug", "info", "warn", "warning", "error":
 					cfg.LogLevel = lvl
 				}
+			case "low_power":
+				cfg.LowPower = strings.ToLower(val) == "true"
 			}
 		}
 	}
@@ -733,6 +735,9 @@ func (c *Config) clamp() {
 	c.Spotify.Bitrate = clampSpotifyBitrate(c.Spotify.Bitrate)
 	c.PaddingH = max(min(c.PaddingH, 10), 0)
 	c.PaddingV = max(min(c.PaddingV, 5), 0)
+	if c.LowPower {
+		c.Visualizer = "none"
+	}
 }
 
 // nearestAllowed returns the value in allowed closest to v.

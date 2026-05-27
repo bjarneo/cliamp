@@ -41,10 +41,16 @@ Logs are written to `~/.config/cliamp/cliamp.log`. Levels: `debug`, `info` (defa
 ## Low-power mode
 
 ```sh
-cliamp --low-power track.mp3                 # minimize CPU: visualizer off
+cliamp --low-power track.mp3                 # reduce CPU load for this session
 ```
 
-Forces the visualizer to `none` so the TUI ticks at 5 FPS for the time/seek display only. Useful on battery, slow terminals, or SSH sessions. Press `v` in the player to cycle visualizers back on at any time.
+Reduces CPU load by lowering UI/render cadence and forcing the visualizer to `none`. Useful on battery, slow terminals, or SSH sessions. Press `v` in the player to cycle visualizers back on at any time.
+
+To make this persistent, set it in `~/.config/cliamp/config.toml`:
+
+```toml
+low_power = true
+```
 
 ## Headless daemon mode
 
@@ -102,7 +108,7 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--bit-depth` | int | 16 | 16, 32 |
 | `--playlist` | string | | local TOML playlist name |
 | `--log-level` | string | info | debug, info, warn, error |
-| `--low-power` | bool | false | disables visualizer; cuts redraw + FFT cost |
+| `--low-power` | bool | false | lowers UI cadence; disables visualization |
 | `--daemon` / `-d` | bool | false | run headless; IPC only, no TUI |
 
 CLI flags override config file values for the current session only. They are not persisted.

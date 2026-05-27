@@ -60,6 +60,10 @@ visualizer = "Bars"
 # even at very low volume levels.
 vis_volume_linked = true
 
+# Reduce CPU usage by lowering UI cadence and disabling visualization.
+# This has the same effect as starting with --low-power.
+low_power = false
+
 # Compact mode: cap UI width at 80 columns (default: fluid/full-width)
 compact = false
 

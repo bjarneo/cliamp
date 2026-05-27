@@ -271,7 +271,7 @@ type Model struct {
 	fullVis bool
 
 	autoPlay       bool // start playing immediately on launch
-	lowPower       bool // lower UI/render cadences; set only by --low-power
+	lowPower       bool // lower UI/render cadences in low-power mode
 	compact        bool // compact mode: cap frame width at 80 columns
 	heightExpanded bool // tracks whether manual 'x' expansion is active
 

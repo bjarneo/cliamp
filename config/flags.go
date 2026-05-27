@@ -77,9 +77,6 @@ func (o Overrides) Apply(cfg *Config) {
 	}
 	if o.LowPower != nil && *o.LowPower {
 		cfg.LowPower = true
-		// Low-power mode disables the visualizer entirely. With Mode = None,
-		// the model also uses lower UI cadences to reduce idle wakeups.
-		cfg.Visualizer = "none"
 	}
 	cfg.clamp()
 }

@@ -610,6 +610,21 @@ func TestOverridesApplyClamps(t *testing.T) {
 	}
 }
 
+func TestOverridesApplyLowPower(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Visualizer = "Bars"
+	lowPower := true
+
+	Overrides{LowPower: &lowPower}.Apply(&cfg)
+
+	if !cfg.LowPower {
+		t.Fatal("LowPower = false, want true")
+	}
+	if cfg.Visualizer != "none" {
+		t.Fatalf("Visualizer = %q, want none", cfg.Visualizer)
+	}
+}
+
 // Mock player for ApplyPlayer tests
 type mockPlayer struct {
 	volumeMin float64
