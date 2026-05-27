@@ -660,11 +660,11 @@ func (m Model) renderProviderList() string {
 					var header string
 					switch pfx {
 					case "f":
-						header = labeledSeparator("  ", "favorites")
+						header = labeledSeparator("  ", "Favorites")
 					case "c":
-						header = labeledSeparator("  ", "catalog")
+						header = labeledSeparator("  ", "Catalog")
 					case "s":
-						header = labeledSeparator("  ", "search results")
+						header = labeledSeparator("  ", "Search Results")
 					}
 					if header != "" && len(lines) < visibleBudget {
 						lines = append(lines, dimStyle.Render(header))
@@ -672,7 +672,7 @@ func (m Model) renderProviderList() string {
 					prevPrefix = pfx
 				}
 			} else if hasSections && p.Section != prevSection {
-				header := labeledSeparator("  ", strings.ToLower(p.Section))
+				header := labeledSeparator("  ", p.Section)
 				if len(lines) < visibleBudget {
 					lines = append(lines, dimStyle.Render(header))
 				}
