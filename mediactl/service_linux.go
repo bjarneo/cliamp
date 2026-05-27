@@ -54,7 +54,7 @@ const introspectXML = `
     <method name="SetPosition"><arg direction="in" type="o"/><arg direction="in" type="x"/></method>
     <signal name="Seeked"><arg type="x"/></signal>
     <property name="PlaybackStatus" type="s" access="read"/>
-    <property name="Rate" type="d" access="readwrite"/>
+    <property name="Rate" type="d" access="read"/>
     <property name="Metadata" type="a{sv}" access="read"/>
     <property name="Volume" type="d" access="readwrite"/>
     <property name="Position" type="x" access="read"/>
