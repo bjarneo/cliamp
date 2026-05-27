@@ -36,6 +36,12 @@ const introspectXML = `
   <interface name="org.mpris.MediaPlayer2">
     <method name="Raise"/>
     <method name="Quit"/>
+    <property name="Identity" type="s" access="read"/>
+    <property name="CanQuit" type="b" access="read"/>
+    <property name="CanRaise" type="b" access="read"/>
+    <property name="HasTrackList" type="b" access="read"/>
+    <property name="SupportedUriSchemes" type="as" access="read"/>
+    <property name="SupportedMimeTypes" type="as" access="read"/>
   </interface>
   <interface name="org.mpris.MediaPlayer2.Player">
     <method name="Next"/>
@@ -47,6 +53,19 @@ const introspectXML = `
     <method name="Seek"><arg direction="in" type="x"/></method>
     <method name="SetPosition"><arg direction="in" type="o"/><arg direction="in" type="x"/></method>
     <signal name="Seeked"><arg type="x"/></signal>
+    <property name="PlaybackStatus" type="s" access="read"/>
+    <property name="Rate" type="d" access="readwrite"/>
+    <property name="Metadata" type="a{sv}" access="read"/>
+    <property name="Volume" type="d" access="readwrite"/>
+    <property name="Position" type="x" access="read"/>
+    <property name="MinimumRate" type="d" access="read"/>
+    <property name="MaximumRate" type="d" access="read"/>
+    <property name="CanGoNext" type="b" access="read"/>
+    <property name="CanGoPrevious" type="b" access="read"/>
+    <property name="CanPlay" type="b" access="read"/>
+    <property name="CanPause" type="b" access="read"/>
+    <property name="CanSeek" type="b" access="read"/>
+    <property name="CanControl" type="b" access="read"/>
   </interface>
 ` + introspect.IntrospectDataString + `</node>`
 
@@ -138,10 +157,12 @@ func New(send func(tea.Msg)) (*Service, error) {
 
 	propsSpec := map[string]map[string]*prop.Prop{
 		"org.mpris.MediaPlayer2": {
-			"Identity":     {Value: "Cliamp", Writable: false, Emit: prop.EmitTrue},
-			"CanQuit":      {Value: true, Writable: false, Emit: prop.EmitTrue},
-			"CanRaise":     {Value: false, Writable: false, Emit: prop.EmitTrue},
-			"HasTrackList": {Value: false, Writable: false, Emit: prop.EmitTrue},
+			"Identity":            {Value: "Cliamp", Writable: false, Emit: prop.EmitTrue},
+			"CanQuit":             {Value: true, Writable: false, Emit: prop.EmitTrue},
+			"CanRaise":            {Value: false, Writable: false, Emit: prop.EmitTrue},
+			"HasTrackList":        {Value: false, Writable: false, Emit: prop.EmitTrue},
+			"SupportedUriSchemes": {Value: []string{}, Writable: false, Emit: prop.EmitTrue},
+			"SupportedMimeTypes":  {Value: []string{}, Writable: false, Emit: prop.EmitTrue},
 		},
 		"org.mpris.MediaPlayer2.Player": {
 			"PlaybackStatus": {Value: string(playback.StatusStopped), Writable: false, Emit: prop.EmitTrue},
