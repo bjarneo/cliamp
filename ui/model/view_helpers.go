@@ -7,6 +7,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"charm.land/lipgloss/v2"
+
 	"cliamp/playlist"
 	"cliamp/ui"
 )
@@ -318,22 +320,35 @@ func (m Model) albumSeparatorRows(tracks []playlist.Track, scroll, cursor int, s
 	return rows
 }
 
-// albumSeparator builds a full-width album divider line.
+// separatorLine pads or truncates an unstyled separator to exactly fill the playlist pane width.
+func separatorLine(line string) string {
+	if ui.PanelWidth <= 0 {
+		return ""
+	}
+	if w := lipgloss.Width(line); w < ui.PanelWidth {
+		return line + strings.Repeat("─", ui.PanelWidth-w)
+	}
+	if lipgloss.Width(line) > ui.PanelWidth {
+		return truncate(line, ui.PanelWidth)
+	}
+	return line
+}
+
+// labeledSeparator builds a labeled separator line.
+func labeledSeparator(indent, label string) string {
+	return separatorLine(indent + "── " + label + " ")
+}
+
+// albumSeparator builds an album separator line.
 func (m Model) albumSeparator(album string, year int) string {
 	if album == "" {
 		return dimStyle.Render(strings.Repeat("─", ui.PanelWidth))
 	}
-	prefix := "── "
-	suffix := " "
-	label := prefix + album
+	label := album
 	if year != 0 {
 		label += fmt.Sprintf(" (%d)", year)
 	}
-	label += suffix
-	if labelLen := utf8.RuneCountInString(label); labelLen < ui.PanelWidth {
-		label += strings.Repeat("─", ui.PanelWidth-labelLen)
-	}
-	return dimStyle.Render(label)
+	return dimStyle.Render(labeledSeparator("", label))
 }
 
 // navScrollItems renders a filtered or unfiltered scrolled list for nav browsers.
