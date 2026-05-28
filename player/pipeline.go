@@ -181,10 +181,20 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 
 	// For OGG HTTP streams, use the chained decoder so Icecast radio
 	// continues across song boundaries instead of stopping at EOS.
+	// If Vorbis init fails (e.g. OggFLAC or OggOpus), fall back to ffmpeg.
 	if isURL(path) && ext == ".ogg" {
 		tp, err := p.buildChainedOggPipeline(rc, onMeta)
 		if err != nil {
-			return nil, err
+			rc.Close()
+			decoder, fmt2, err2 := decodeFFmpegStream(path, p.sr, p.bitDepth)
+			if err2 != nil {
+				return nil, fmt.Errorf("decode: %w", err2)
+			}
+			return &trackPipeline{
+				decoder: decoder,
+				stream:  decoder,
+				format:  fmt2,
+			}, nil
 		}
 		tp.bytesRead = byteCounter
 		tp.contentLength = src.contentLength
