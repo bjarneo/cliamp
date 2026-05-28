@@ -188,10 +188,10 @@ func TestFullVisualizerViewFitsTerminalWidth(t *testing.T) {
 	}
 }
 
-var ansi = regexp.MustCompile(`\x1b\[[0-9;]*[mK]`)
+var stripAnsiRegExp = regexp.MustCompile(`\x1b\[[0-9;]*[mK]`)
 
 func stripAnsi(str string) string {
-	return ansi.ReplaceAllString(str, "")
+	return stripAnsiRegExp.ReplaceAllString(str, "")
 }
 
 func TestRenderPlaylistAddsPaddingToTrackNumber(t *testing.T) {

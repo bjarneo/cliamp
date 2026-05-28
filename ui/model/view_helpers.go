@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"cliamp/playlist"
 	"cliamp/ui"
@@ -329,7 +330,7 @@ func separatorLine(line string) string {
 		return line + strings.Repeat("─", ui.PanelWidth-w)
 	}
 	if lipgloss.Width(line) > ui.PanelWidth {
-		return truncate(line, ui.PanelWidth)
+		return ansi.Truncate(line, ui.PanelWidth, "")
 	}
 	return line
 }
