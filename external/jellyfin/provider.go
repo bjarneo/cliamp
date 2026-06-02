@@ -44,6 +44,16 @@ func NewFromConfig(cfg config.JellyfinConfig) *Provider {
 // Name returns the display name used in the provider selector.
 func (p *Provider) Name() string { return "Jellyfin" }
 
+// Refresh clears cached playlist, track, and album data so the next call
+// re-fetches from the server. Implements playlist.Refresher.
+func (p *Provider) Refresh() {
+	p.mu.Lock()
+	p.playlistCache = nil
+	p.trackCache = nil
+	p.mu.Unlock()
+	p.client.ClearCache()
+}
+
 func (p *Provider) Artists() ([]provider.ArtistInfo, error) {
 	return p.client.Artists()
 }

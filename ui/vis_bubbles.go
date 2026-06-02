@@ -15,6 +15,9 @@ func (v *Visualizer) renderBubbles(bands []float64) string {
 	height := v.Rows
 	dotRows := height * 4
 	dotCols := PanelWidth * 2
+	if dotRows < 4 || dotCols < 4 {
+		return strings.Repeat("\n", max(0, height-1))
+	}
 
 	grid := make([]bool, dotRows*dotCols)
 

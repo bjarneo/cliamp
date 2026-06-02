@@ -1520,7 +1520,7 @@
       <div class="source" style="--src-color:#ff0000">
         <div class="source-badge">OAuth · cached</div>
         <div class="source-name">YT Music</div>
-        <div class="source-desc">Browse your playlists with auto music/non-music classification.</div>
+        <div class="source-desc">Browse your playlists with auto music/non-music classification. Set <code>cookies_from</code> to play through your browser session and avoid YouTube bot blocks (keep <code>yt-dlp</code> current).</div>
       </div>
       <div class="source" style="--src-color:#e5a00d">
         <div class="source-badge">Media server</div>
@@ -1653,7 +1653,7 @@ user_id = "your-account-user-id"</code></pre>
       <div class="feature">
         <div class="feature-icon">⌀</div>
         <div class="feature-name">Live Radio Metadata</div>
-        <p>ICY/Shoutcast metadata — current song on internet radio streams.</p>
+        <p>ICY/Shoutcast metadata for the current song on internet radio, plus API-based now-playing for FIP and NTS.</p>
       </div>
       <div class="feature">
         <div class="feature-icon">✎</div>
@@ -1970,8 +1970,8 @@ user_id = "your-account-user-id"</code></pre>
       <div class="keys-group">
         <div class="keys-group-title">Search &amp; Browse</div>
         <div class="keys-group-body">
-          <div class="key-row"><kbd>/</kbd><span>Search playlist</span></div>
-          <div class="key-row"><kbd>Ctrl+F</kbd><span>Search active provider (Spotify, Navidrome, Jellyfin, Emby, Plex, NetEase, Local) or YouTube fallback</span></div>
+          <div class="key-row"><kbd>/</kbd><span>Search playlist (fuzzy, ranked by relevance)</span></div>
+          <div class="key-row"><kbd>Ctrl+F</kbd><span>Search active provider (Spotify, Navidrome, Jellyfin, Emby, Plex, NetEase, Local) or YouTube fallback; Local search is fuzzy</span></div>
           <div class="key-row"><kbd>f</kbd><span>Toggle bookmark &#9733; / radio favorite</span></div>
           <div class="key-row"><kbd>u</kbd><span>Load URL (stream / playlist)</span></div>
           <div class="key-row"><kbd>o</kbd><span>Open file browser</span></div>
@@ -2047,6 +2047,7 @@ user_id = "your-account-user-id"</code></pre>
           <div class="key-row"><kbd>Y</kbd><span>YouTube</span></div>
           <div class="key-row"><kbd>R</kbd><span>Radio</span></div>
           <div class="key-row"><kbd>e / t / v</kbd><span>EQ preset / Theme / Visualizer</span></div>
+          <div class="key-row"><kbd>Ctrl+V</kbd><span>Pick visualizer (live preview list)</span></div>
           <div class="key-row"><kbd>V</kbd><span>Full-screen visualizer</span></div>
           <div class="key-row"><kbd>y / i</kbd><span>Lyrics / Track info</span></div>
           <div class="key-row"><kbd>Ctrl+H</kbd><span>Toggle album headers</span></div>
@@ -2090,7 +2091,7 @@ user_id = "your-account-user-id"</code></pre>
           <div class="key-row"><kbd>--resample-quality &lt;n&gt;</kbd><span>1–4</span></div>
           <div class="key-row"><kbd>--bit-depth &lt;n&gt;</kbd><span>PCM: 16 or 32</span></div>
           <div class="key-row"><kbd>--compact</kbd><span>Cap width at 80 cols</span></div>
-          <div class="key-row"><kbd>--low-power</kbd><span>Disable visualizer to save CPU</span></div>
+          <div class="key-row"><kbd>--low-power</kbd><span>Lower UI cadence and disable visualization</span></div>
           <div class="key-row"><kbd>--daemon / -d</kbd><span>Run headless (IPC only, no TUI)</span></div>
           <div class="key-row"><kbd>--playlist &lt;name&gt;</kbd><span>Load TOML playlist</span></div>
           <div class="key-row"><kbd>--provider &lt;name&gt;</kbd><span>Default provider</span></div>
@@ -2213,6 +2214,11 @@ p:<span class="fn">on</span>(<span class="str">"track.change"</span>, <span clas
         <div class="key-row"><kbd>track.change</kbd><span>New track starts playing</span></div>
         <div class="key-row"><kbd>track.scrobble</kbd><span>Track played &ge;50% or &ge;4 min</span></div>
         <div class="key-row"><kbd>playback.state</kbd><span>Play, pause, stop, seek, volume change</span></div>
+        <div class="key-row"><kbd>player.seek</kbd><span>A seek completes (position, duration)</span></div>
+        <div class="key-row"><kbd>player.volume</kbd><span>Volume changes (db)</span></div>
+        <div class="key-row"><kbd>player.eq</kbd><span>EQ band or preset changes</span></div>
+        <div class="key-row"><kbd>player.mode</kbd><span>Shuffle toggled or repeat cycled</span></div>
+        <div class="key-row"><kbd>queue.change</kbd><span>Playlist or play-next queue changes</span></div>
         <div class="key-row"><kbd>app.start</kbd><span>After all plugins loaded</span></div>
         <div class="key-row"><kbd>app.quit</kbd><span>Before shutdown</span></div>
       </div>
@@ -2227,6 +2233,14 @@ p:<span class="fn">on</span>(<span class="str">"track.change"</span>, <span clas
       <div class="plugin-api">
         <div class="plugin-api-name">track</div>
         <p>Current metadata: <code>title()</code>, <code>artist()</code>, <code>album()</code>, <code>genre()</code>, <code>duration_secs()</code></p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">queue</div>
+        <p>Read the playlist: <code>list()</code>, <code>count()</code>, <code>current()</code>. Mutate it with <code>add()</code>, <code>jump()</code>, <code>remove()</code>, <code>move()</code> (requires <code>permissions = {"control"}</code>).</p>
+      </div>
+      <div class="plugin-api">
+        <div class="plugin-api-name">store</div>
+        <p>Persistent per-plugin KV: <code>set()</code>, <code>get()</code>, <code>delete()</code>, <code>keys()</code>, <code>clear()</code>. Survives restarts; scoped to your plugin.</p>
       </div>
       <div class="plugin-api">
         <div class="plugin-api-name">http</div>
@@ -2284,7 +2298,21 @@ p:<span class="fn">on</span>(<span class="str">"track.change"</span>, <span clas
       <div class="community-plugin-desc">Last.fm scrobbling</div>
       <div class="community-plugin-author"><a href="https://github.com/tetsuo76">@tetsuo76</a></div>
     </div>
-  </div>
+    <div class="community-plugin">
+      <div class="community-plugin-name"><a href="https://github.com/AlexZeitler/cliamp-plugin-led-burst">cliamp-plugin-led-burst</a></div>
+      <div class="community-plugin-desc">Stereo LED matrix visualizer</div>
+      <div class="community-plugin-author"><a href="https://github.com/AlexZeitler">@AlexZeitler</a></div>
+    </div>
+  <div class="community-plugin">
+      <div class="community-plugin-name"><a href="https://github.com/HANCORE-linux/cliamp-plugin-nightrider">cliamp-plugin-nightrider</a></div>
+      <div class="community-plugin-desc">Nightrider visualizer</div>
+      <div class="community-plugin-author"><a href="https://github.com/HANCORE-linux">@HANCORE-linux</a></div>
+    </div>
+    <div class="community-plugin">
+      <div class="community-plugin-name"><a href="https://github.com/8bit64k/cliamp-plugin-tubeamp">cliamp-plugin-tubeamp</a></div>
+      <div class="community-plugin-desc">Vacuum-tube amplifier visualizer</div>
+      <div class="community-plugin-author"><a href="https://github.com/8bit64k">@8bit64k</a></div>
+    </div>
 </section>
 
 <!-- ═══ RADIO STATS ═══ -->

@@ -209,6 +209,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handleThemeKey(msg)
 	}
 
+	// Visualizer picker overlay — interactive navigation
+	if m.visPicker.visible {
+		return m.handleVisPickerKey(msg)
+	}
+
 	// Playlist manager overlay (browse, add, remove, delete)
 	if m.plManager.visible {
 		return m.handlePlaylistManagerKey(msg)
@@ -430,6 +435,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.fullVis = false
 			m.vis.Rows = ui.DefaultVisRows
 			m.restorePanelWidth()
+			m.refreshChrome()
 		} else if m.focus == focusPlaylist {
 			// Keep current expanded/collapsed height mode when switching focus.
 			m.focus = focusProvider
@@ -675,6 +681,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.search.scroll = 0
 		m.prevFocus = m.focus
 		m.focus = focusSearch
+		// Search now renders in the playlist region; recompute chrome so the
+		// search header/help are reflected in the visible-row budget.
+		m.refreshChrome()
+		m.applyHeightMode()
 
 	case "ctrl+f":
 		m.openProviderSearch()
@@ -743,11 +753,16 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "v":
 		m.vis.CycleMode()
+		m.vis.RequestRefresh()
+		m.refreshChrome()
 		m.applyHeightMode()
 		m.adjustScroll()
 		if err := m.configSaver.Save("visualizer", fmt.Sprintf("%q", m.vis.ModeName())); err != nil {
 			m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
 		}
+
+	case "ctrl+v":
+		m.openVisPicker()
 
 	case "V":
 		m.fullVis = !m.fullVis
@@ -758,6 +773,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.vis.Rows = ui.DefaultVisRows
 			m.restorePanelWidth()
 		}
+		m.refreshChrome()
 
 	case "ctrl+x":
 		if m.focus == focusPlaylist {
@@ -918,10 +934,9 @@ func (m *Model) handleJumpKey(msg tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 		m.player.Seek(target - m.player.Position())
-		m.notifyPlayback()
-		if m.notifier != nil {
-			m.notifier.Seeked(m.player.Position())
-		}
+		// finishSeek notifies plugins as well as MPRIS, matching every other
+		// completed seek; the previous manual block skipped Lua plugins.
+		m.finishSeek()
 		m.closeJumpMode()
 		return nil
 	case tea.KeyBackspace:
@@ -1169,6 +1184,7 @@ func (m *Model) handleSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 	case tea.KeyEscape:
 		m.search.active = false
 		m.focus = m.prevFocus
+		m.closeSearchLayout()
 
 	case tea.KeyEnter:
 		var cmd tea.Cmd
@@ -1176,12 +1192,12 @@ func (m *Model) handleSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 			idx := m.search.results[m.search.cursor]
 			m.playlist.SetIndex(idx)
 			m.plCursor = idx
-			m.adjustScroll()
 			cmd = m.playCurrentTrack()
 			m.notifyPlayback()
 		}
 		m.search.active = false
 		m.focus = focusPlaylist
+		m.closeSearchLayout()
 		return cmd
 
 	case tea.KeyTab:
@@ -1881,6 +1897,73 @@ func (m *Model) handleThemeKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "esc", "q", "t":
 		m.themePickerCancel()
+	}
+	return nil
+}
+
+// handleVisPickerKey processes key presses while the visualizer picker is open.
+func (m *Model) handleVisPickerKey(msg tea.KeyPressMsg) tea.Cmd {
+	count := len(m.visPicker.modes)
+	switch msg.String() {
+	case "ctrl+c":
+		m.visPickerCancel()
+		return m.quit()
+
+	case "up", "k":
+		if m.visPicker.cursor > 0 {
+			m.visPicker.cursor--
+		} else if count > 0 {
+			m.visPicker.cursor = count - 1
+		}
+		m.visPickerApply()
+		m.visPickerMaybeAdjustScroll(m.visPickerVisible())
+
+	case "down", "j":
+		if m.visPicker.cursor < count-1 {
+			m.visPicker.cursor++
+		} else if count > 0 {
+			m.visPicker.cursor = 0
+		}
+		m.visPickerApply()
+		m.visPickerMaybeAdjustScroll(m.visPickerVisible())
+
+	case "ctrl+x":
+		m.toggleExpandedView()
+		m.visPickerMaybeAdjustScroll(m.visPickerVisible())
+
+	case "pgup", "ctrl+u":
+		if m.visPicker.cursor > 0 {
+			visible := m.visPickerVisible()
+			m.visPicker.cursor -= min(m.visPicker.cursor, visible)
+			m.visPickerApply()
+			m.visPickerMaybeAdjustScroll(visible)
+		}
+
+	case "pgdown", "ctrl+d":
+		if m.visPicker.cursor < count-1 {
+			visible := m.visPickerVisible()
+			m.visPicker.cursor = min(count-1, m.visPicker.cursor+visible)
+			m.visPickerApply()
+			m.visPickerMaybeAdjustScroll(visible)
+		}
+
+	case "home", "g":
+		m.visPicker.cursor = 0
+		m.visPickerApply()
+		m.visPickerMaybeAdjustScroll(m.visPickerVisible())
+
+	case "end", "G":
+		if count > 0 {
+			m.visPicker.cursor = count - 1
+		}
+		m.visPickerApply()
+		m.visPickerMaybeAdjustScroll(m.visPickerVisible())
+
+	case "enter":
+		m.visPickerSelect()
+
+	case "esc", "q", "ctrl+v":
+		m.visPickerCancel()
 	}
 	return nil
 }

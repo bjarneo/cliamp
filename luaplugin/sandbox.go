@@ -2,6 +2,11 @@ package luaplugin
 
 import lua "github.com/yuin/gopher-lua"
 
+// Sandbox applies the plugin sandbox to L. It is exported for tools that load
+// plugin files outside the runtime (e.g. pluginmgr metadata extraction) and
+// must apply the same stdlib restrictions before executing untrusted code.
+func Sandbox(L *lua.LState) { sandbox(L) }
+
 // sandbox removes dangerous Lua standard library functions from the VM,
 // leaving only safe operations available to plugins. It also adds
 // compatibility helpers missing from Lua 5.1 (e.g. utf8.char).

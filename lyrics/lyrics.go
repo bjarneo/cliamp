@@ -51,7 +51,18 @@ var lrcRegex = regexp.MustCompile(`\[(\d{2,}):(\d{2})\.(\d{2,3})\](.*)`)
 
 // cleanQuery strips noise from a search query: bracketed text like "[Official Video]",
 // parenthesized text like "(Lyric Video)", and common video/audio label suffixes.
-var noiseRegex = regexp.MustCompile(`(?i)(?:\[.*?\]|\(.*?\)|-?\s*(?:official|lyric|audio|video).*)`)
+//
+// The label words are only stripped when they form a genuine trailing label
+// (after a dash, or as an "official video/audio" / "lyric(s) video" phrase),
+// never as a bare substring. Otherwise legitimate titles like "Videotape",
+// "Audioslave", or "Video Games" would be erased.
+var noiseRegex = regexp.MustCompile(`(?i)(?:` +
+	`\[.*?\]` + // [Official Video]
+	`|\(.*?\)` + // (Lyric Video)
+	`|\s*-\s*(?:official|lyric|audio|video).*` + // - Official Video
+	`|\s+official(?:\s+music)?\s+(?:video|audio).*` + // Official Music Video
+	`|\s+lyrics?\s+video.*` + // Lyric Video / Lyrics Video
+	`)`)
 
 func cleanQuery(str string) string {
 	s := noiseRegex.ReplaceAllString(str, "")

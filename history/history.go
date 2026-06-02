@@ -91,7 +91,12 @@ func (s *Store) Record(track playlist.Track, playedAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	entries, _ := s.loadLocked()
+	entries, err := s.loadLocked()
+	if err != nil {
+		// Don't clobber existing on-disk history on a transient read failure:
+		// proceeding would rewrite the file with only the new entry.
+		return fmt.Errorf("load history: %w", err)
+	}
 	if n := len(entries); n > 0 {
 		top := entries[0]
 		if top.Track.Path == track.Path && playedAt.Sub(top.PlayedAt) < dedupWindow {
@@ -169,19 +174,18 @@ func (s *Store) saveLocked(entries []Entry) error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return err
 	}
-	tmp := s.path + ".tmp"
-	f, err := os.Create(tmp)
-	if err != nil {
-		return err
-	}
+	// Build the full content in memory (writes to a Builder can't fail), then
+	// write a temp file and rename so a partial/failed write can never truncate
+	// the existing history file.
+	var b strings.Builder
 	for i, e := range entries {
 		if i > 0 {
-			fmt.Fprintln(f)
+			fmt.Fprintln(&b)
 		}
-		writeEntry(f, e)
+		writeEntry(&b, e)
 	}
-	if err := f.Close(); err != nil {
-		os.Remove(tmp)
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
 		return err
 	}
 	return os.Rename(tmp, s.path)
@@ -216,7 +220,7 @@ func mergeTrackMeta(prev, cur playlist.Track) playlist.Track {
 }
 
 func writeEntry(w io.Writer, e Entry) {
-	fmt.Fprintln(w, "[[entry]]")
+	fmt.Fprintf(w, "[[entry]]\n")
 	fmt.Fprintf(w, "played_at = %q\n", e.PlayedAt.UTC().Format(time.RFC3339))
 	fmt.Fprintf(w, "path = %q\n", e.Track.Path)
 	fmt.Fprintf(w, "title = %q\n", e.Track.Title)

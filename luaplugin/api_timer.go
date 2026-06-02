@@ -123,11 +123,7 @@ func registerTimerAPI(L *lua.LState, cliamp *lua.LTable, tm *timerManager, p *Pl
 					p.mu.Unlock()
 					return
 				}
-				_ = L.CallByParam(lua.P{
-					Fn:      fn,
-					NRet:    0,
-					Protect: true,
-				})
+				_ = p.callBounded(0, fn)
 				p.mu.Unlock()
 			case <-e.done:
 			}
@@ -156,11 +152,7 @@ func registerTimerAPI(L *lua.LState, cliamp *lua.LTable, tm *timerManager, p *Pl
 						p.mu.Unlock()
 						return
 					}
-					_ = L.CallByParam(lua.P{
-						Fn:      fn,
-						NRet:    0,
-						Protect: true,
-					})
+					_ = p.callBounded(0, fn)
 					p.mu.Unlock()
 				case <-e.done:
 					return

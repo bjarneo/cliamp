@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"io/fs"
 	"mime"
 	"net/http"
@@ -49,6 +50,15 @@ func ytdlCookiesFrom() string {
 // finite timeout to prevent hanging on unresponsive servers.
 var httpClient = &http.Client{
 	Timeout:   30 * time.Second,
+	Transport: &uaTransport{rt: http.DefaultTransport},
+}
+
+// sniffClient probes content types during Args classification, which runs on
+// the startup path before the TUI launches. It uses a short timeout so a slow
+// or unresponsive server can stall startup by at most a few seconds rather
+// than the 30s the feed/M3U client allows.
+var sniffClient = &http.Client{
+	Timeout:   5 * time.Second,
 	Transport: &uaTransport{rt: http.DefaultTransport},
 }
 
@@ -190,7 +200,7 @@ func sniffFeedURL(rawURL string) bool {
 		}
 	}
 
-	resp, err := httpClient.Head(rawURL)
+	resp, err := sniffClient.Head(rawURL)
 	if err != nil {
 		return false
 	}
@@ -290,7 +300,9 @@ func resolveFeed(feedURL string) ([]playlist.Track, error) {
 			} `xml:"item"`
 		} `xml:"channel"`
 	}
-	if err := xml.NewDecoder(resp.Body).Decode(&rss); err != nil {
+	// Bound the read so a huge or malicious feed can't exhaust memory.
+	const maxFeedBody = 32 << 20 // 32 MB
+	if err := xml.NewDecoder(io.LimitReader(resp.Body, maxFeedBody)).Decode(&rss); err != nil {
 		return nil, fmt.Errorf("parsing feed: %w", err)
 	}
 
@@ -614,6 +626,11 @@ func parseItunesDuration(s string) int {
 }
 
 // humanizeBasename converts a URL basename like "clr-podcast-467" into "clr podcast 467".
+// A trailing known audio extension (e.g. "track.mp3") is dropped so it doesn't
+// leak into the title; non-media suffixes (e.g. "3.5-remix") are left intact.
 func humanizeBasename(s string) string {
+	if ext := filepath.Ext(s); ext != "" && player.SupportedExts[strings.ToLower(ext)] {
+		s = strings.TrimSuffix(s, ext)
+	}
 	return strings.ReplaceAll(s, "-", " ")
 }

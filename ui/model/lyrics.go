@@ -54,14 +54,3 @@ func (m *Model) lyricsHaveTimestamps() bool {
 	}
 	return false
 }
-
-// lyricsVisibleHeight returns the number of lyrics lines to show.
-func (m *Model) lyricsVisibleHeight() int {
-	return m.measureOverlayVisible([]string{
-		titleStyle.Render("L Y R I C S"),
-		"",
-		"x",
-		"",
-		helpKey("Esc", "Close"),
-	}, maxPlVisible)
-}

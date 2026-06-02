@@ -23,6 +23,12 @@ const pipeBufSize = 64 * 1024
 // ytdlPipeTimeout limits how long we wait for yt-dlp to produce initial audio.
 const ytdlPipeTimeout = 30 * time.Second
 
+// ytdlCauseGrace bounds how long buildYTDLPipeline waits, after the audio pipe
+// closes with no data, for yt-dlp or ffmpeg to report why. yt-dlp typically
+// exits quickly with a stderr message (bot wall, 404, DRM); this only matters
+// when the process is slow to flush and exit.
+const ytdlCauseGrace = 3 * time.Second
+
 // ytdlCookiesFrom is the browser name for --cookies-from-browser (e.g. "chrome").
 // Set via SetYTDLCookiesFrom at startup.
 var ytdlCookiesFrom string
@@ -157,7 +163,8 @@ type ytdlPipeStreamer struct {
 	ffmpegCmd *exec.Cmd
 	pipe      io.ReadCloser // ffmpeg stdout (PCM output)
 	reader    *bufio.Reader // buffered reader over pipe
-	ytdlErr   chan error    // yt-dlp exit error from monitoring goroutine
+	ytdlErr   <-chan error  // yt-dlp exit error from monitoring goroutine
+	ffmpegErr <-chan error  // ffmpeg exit error from monitoring goroutine
 	buf       [pcmFrameSize32]byte
 	f32       bool // true = f32le, false = s16le
 	pos       int  // samples consumed so far
@@ -168,17 +175,55 @@ type ytdlPipeStreamer struct {
 func (y *ytdlPipeStreamer) Stream(samples [][2]float64) (int, bool) {
 	n, ok := streamFromReader(y.reader, samples, y.buf[:], y.f32, &y.err)
 	y.pos += n
-	// On EOF with no frames read, check if yt-dlp failed (e.g. invalid URL).
-	if n == 0 {
-		select {
-		case ytErr := <-y.ytdlErr:
-			if ytErr != nil {
-				y.err = ytErr
-			}
-		default:
+	// On EOF with no frames read, surface why the pipe closed (yt-dlp bot
+	// wall, 404, DRM, or undecodable ffmpeg input) instead of a bare EOF.
+	if n == 0 && y.err == nil {
+		if cause := y.waitCause(0); cause != nil {
+			y.err = cause
 		}
 	}
 	return n, ok
+}
+
+// waitCause reports why the audio pipe closed without producing audio,
+// preferring yt-dlp's reason (bot wall, 404, DRM, region block) over ffmpeg's
+// (undecodable input). With d <= 0 it polls without blocking; otherwise it
+// waits up to d for a process to report. Returns nil if neither reported an
+// error, leaving the caller to surface the bare EOF.
+func (y *ytdlPipeStreamer) waitCause(d time.Duration) error {
+	if d <= 0 {
+		select {
+		case e := <-y.ytdlErr:
+			if e != nil {
+				return e
+			}
+		default:
+		}
+		select {
+		case e := <-y.ffmpegErr:
+			return e
+		default:
+			return nil
+		}
+	}
+	deadline := time.After(d)
+	ytdlDone, ffmpegDone := false, false
+	var ffErr error
+	for !ytdlDone || !ffmpegDone {
+		select {
+		case e := <-y.ytdlErr:
+			ytdlDone = true
+			if e != nil {
+				return e
+			}
+		case e := <-y.ffmpegErr:
+			ffmpegDone = true
+			ffErr = e
+		case <-deadline:
+			return ffErr
+		}
+	}
+	return ffErr
 }
 
 func (y *ytdlPipeStreamer) Err() error     { return y.err }
@@ -196,17 +241,32 @@ func (y *ytdlPipeStreamer) Close() error {
 			y.ffmpegCmd.Process.Kill()
 		}
 		y.pipe.Close()
-		// Wait in background to prevent blocking quit/seek.
-		go func() {
-			y.ffmpegCmd.Wait()
-			// Drain error channel so monitor goroutine can exit.
-			select {
-			case <-y.ytdlErr:
-			default:
-			}
-		}()
+		// The yt-dlp and ffmpeg monitor goroutines own Wait() on their
+		// processes; killing the processes above makes those Waits return.
+		// Both error channels are buffered, so the monitors send and exit
+		// without a receiver — no draining needed here.
 	})
 	return nil
+}
+
+// monitorExit waits for cmd to exit and reports the result on a buffered
+// channel: a wrapped error preferring captured stderr over the bare exit code
+// on failure, or nil on clean exit. The channel is buffered so the goroutine
+// always completes even with no receiver (e.g. after Close kills the process).
+func monitorExit(cmd *exec.Cmd, stderr *bytes.Buffer, name string) <-chan error {
+	ch := make(chan error, 1)
+	go func() {
+		err := cmd.Wait()
+		switch trimmed := bytes.TrimSpace(stderr.Bytes()); {
+		case err == nil:
+			ch <- nil
+		case len(trimmed) > 0:
+			ch <- fmt.Errorf("%s: %s", name, trimmed)
+		default:
+			ch <- fmt.Errorf("%s: %w", name, err)
+		}
+	}()
+	return ch
 }
 
 // decodeYTDLPipe starts a yt-dlp | ffmpeg pipe chain for the given page URL
@@ -293,21 +353,11 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 	pw.Close()
 	pr.Close()
 
-	// Monitor yt-dlp exit in a goroutine.
-	ytdlErrCh := make(chan error, 1)
-	go func() {
-		err := ytdlCmd.Wait()
-		if err != nil {
-			stderr := bytes.TrimSpace(ytdlStderr.Bytes())
-			if len(stderr) > 0 {
-				ytdlErrCh <- fmt.Errorf("yt-dlp: %s", stderr)
-			} else {
-				ytdlErrCh <- fmt.Errorf("yt-dlp: %w", err)
-			}
-		} else {
-			ytdlErrCh <- nil
-		}
-	}()
+	// Monitor each process's exit so we can surface why the pipe closed. A
+	// process's stderr is only safe to read after Wait() returns, so the
+	// capture happens inside monitorExit.
+	ytdlErrCh := monitorExit(ytdlCmd, &ytdlStderr, "yt-dlp")
+	ffmpegErrCh := monitorExit(ffmpegCmd, &ffmpegStderr, "ffmpeg")
 
 	format := beep.Format{
 		SampleRate:  sr,
@@ -321,6 +371,7 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 		pipe:      ffmpegPipe,
 		reader:    bufio.NewReaderSize(ffmpegPipe, pipeBufSize),
 		ytdlErr:   ytdlErrCh,
+		ffmpegErr: ffmpegErrCh,
 		f32:       bitDepth == 32,
 	}, format, nil
 }
@@ -348,17 +399,14 @@ func (p *Player) buildYTDLPipeline(pageURL string, startSec int) (*trackPipeline
 	select {
 	case err := <-peekErr:
 		if err != nil {
-			// Prefer yt-dlp's exit error (e.g. "HTTP Error 404", DRM, region
-			// block) over the bare EOF from the ffmpeg pipe — the pipe only
-			// tells us the upstream process closed, not why.
-			select {
-			case ytErr := <-decoder.ytdlErr:
-				decoder.Close()
-				if ytErr != nil {
-					return nil, ytErr
-				}
-			case <-time.After(500 * time.Millisecond):
-				decoder.Close()
+			// The audio pipe closed before producing a byte. Prefer the real
+			// cause from yt-dlp (e.g. "Sign in to confirm you're not a bot",
+			// "HTTP Error 404", DRM, region block) or ffmpeg over the opaque
+			// EOF — the pipe only tells us the upstream closed, not why.
+			cause := decoder.waitCause(ytdlCauseGrace)
+			decoder.Close()
+			if cause != nil {
+				return nil, cause
 			}
 			return nil, fmt.Errorf("waiting for audio data: %w", err)
 		}

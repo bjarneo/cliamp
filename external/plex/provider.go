@@ -3,6 +3,7 @@ package plex
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"cliamp/config"
@@ -48,7 +49,7 @@ func (p *Provider) Name() string { return "Plex" }
 func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	p.mu.Lock()
 	if p.playlistCache != nil {
-		cached := p.playlistCache
+		cached := slices.Clone(p.playlistCache)
 		p.mu.Unlock()
 		return cached, nil
 	}
@@ -85,7 +86,16 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	p.playlistCache = lists
 	p.mu.Unlock()
 
-	return lists, nil
+	return slices.Clone(lists), nil
+}
+
+// Refresh clears cached playlist and track data so the next call re-fetches
+// from the server. Implements playlist.Refresher.
+func (p *Provider) Refresh() {
+	p.mu.Lock()
+	p.playlistCache = nil
+	p.trackCache = nil
+	p.mu.Unlock()
 }
 
 // Tracks returns the tracks for the album identified by albumRatingKey.
@@ -97,7 +107,7 @@ func (p *Provider) Tracks(albumRatingKey string) ([]playlist.Track, error) {
 	if p.trackCache != nil {
 		if cached, ok := p.trackCache[albumRatingKey]; ok {
 			p.mu.Unlock()
-			return cached, nil
+			return slices.Clone(cached), nil
 		}
 	}
 	p.mu.Unlock()
@@ -116,7 +126,7 @@ func (p *Provider) Tracks(albumRatingKey string) ([]playlist.Track, error) {
 	p.trackCache[albumRatingKey] = tracks
 	p.mu.Unlock()
 
-	return tracks, nil
+	return slices.Clone(tracks), nil
 }
 
 // SearchTracks searches the Plex music library for tracks matching query.

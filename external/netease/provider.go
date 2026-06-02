@@ -31,6 +31,10 @@ const (
 	defaultAPIBase = "https://music.163.com"
 	probeURL       = "https://music.163.com/#/playlist?id=3778678"
 	apiTimeout     = 15 * time.Second
+	// neteaseCodeOK is the application-level success code in NetEase API
+	// responses. It happens to share the value of HTTP 200 but is a distinct
+	// field, so it gets its own constant rather than comparing to http.StatusOK.
+	neteaseCodeOK = 200
 )
 
 // ErrNotAuthenticated is returned when browser cookies do not contain a
@@ -140,7 +144,7 @@ func (p *Provider) Account(ctx context.Context) (Account, error) {
 	if err := p.apiGet(ctx, "/api/nuser/account/get", nil, &resp); err != nil {
 		return Account{}, err
 	}
-	if resp.Code != http.StatusOK {
+	if resp.Code != neteaseCodeOK {
 		return Account{}, fmt.Errorf("netease: account request failed with code %d", resp.Code)
 	}
 	uid := resp.Account.ID
@@ -216,7 +220,7 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	if err := p.apiGet(ctx, "/api/playlist/detail", params, &resp); err != nil {
 		return nil, err
 	}
-	if resp.Code != http.StatusOK {
+	if resp.Code != neteaseCodeOK {
 		return nil, fmt.Errorf("netease: playlist detail failed with code %d", resp.Code)
 	}
 	return songsToTracks(resp.Result.Tracks), nil
@@ -241,7 +245,7 @@ func (p *Provider) SearchTracks(ctx context.Context, query string, limit int) ([
 	if err := p.apiGet(ctx, "/api/search/get/web", params, &resp); err != nil {
 		return nil, err
 	}
-	if resp.Code != http.StatusOK {
+	if resp.Code != neteaseCodeOK {
 		return nil, fmt.Errorf("netease: search failed with code %d", resp.Code)
 	}
 	return songsToTracks(resp.Result.Songs), nil
@@ -264,7 +268,7 @@ func (p *Provider) userPlaylists(ctx context.Context, userID string) ([]playlist
 		if err := p.apiGet(ctx, "/api/user/playlist", params, &resp); err != nil {
 			return nil, err
 		}
-		if resp.Code != http.StatusOK {
+		if resp.Code != neteaseCodeOK {
 			return nil, fmt.Errorf("netease: playlist request failed with code %d", resp.Code)
 		}
 		for _, item := range resp.Playlist {

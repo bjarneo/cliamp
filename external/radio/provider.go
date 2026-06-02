@@ -205,11 +205,9 @@ func (p *Provider) ToggleFavorite(id string) (added bool, name string, err error
 	}
 
 	if p.favorites.Contains(s.URL) {
-		_ = p.favorites.Remove(s.URL)
-		return false, s.Name, nil
+		return false, s.Name, p.favorites.Remove(s.URL)
 	}
-	_ = p.favorites.Add(s)
-	return true, s.Name, nil
+	return true, s.Name, p.favorites.Add(s)
 }
 
 // SetSearchResults activates search mode with the given results.
@@ -322,41 +320,11 @@ func loadStations(path string) ([]station, error) {
 	}
 
 	var stations []station
-	var current *station
-
-	for rawLine := range strings.SplitSeq(string(data), "\n") {
-		line := strings.TrimSpace(rawLine)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+	tomlutil.ParseSections(data, "station", func(f map[string]string) {
+		s := station{name: f["name"], url: f["url"]}
+		if s.name != "" && s.url != "" {
+			stations = append(stations, s)
 		}
-		if line == "[[station]]" {
-			if current != nil && current.name != "" && current.url != "" {
-				stations = append(stations, *current)
-			}
-			current = &station{}
-			continue
-		}
-		if current == nil {
-			continue
-		}
-
-		key, val, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		key = strings.TrimSpace(key)
-		val = strings.TrimSpace(val)
-		val = tomlutil.Unquote(val)
-
-		switch key {
-		case "name":
-			current.name = val
-		case "url":
-			current.url = val
-		}
-	}
-	if current != nil && current.name != "" && current.url != "" {
-		stations = append(stations, *current)
-	}
+	})
 	return stations, nil
 }

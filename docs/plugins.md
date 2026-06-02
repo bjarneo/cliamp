@@ -162,10 +162,17 @@ Plugins subscribe to events with `p:on(event, callback)`. Callbacks run asynchro
 | `track.change` | `{title, artist, album, genre, year, path, duration, stream}` | New track starts |
 | `track.scrobble` | Same + `{played_secs}` | Track played >= 50% or >= 4 min |
 | `playback.state` | `{status, title, artist, album, path, duration, stream, position}` | Any playback state change (play, pause, stop, seek, volume, track transition) |
+| `player.seek` | `{position, duration}` (seconds) | A seek completes |
+| `player.volume` | `{db}` | Volume changes |
+| `player.eq` | `{bands, preset}` | An EQ band or preset changes |
+| `player.mode` | `{shuffle, repeat}` | Shuffle toggled or repeat mode cycled |
+| `queue.change` | `{count, index, queued}` | Playlist or play-next queue changes |
 | `app.start` | `{}` | After all plugins loaded |
 | `app.quit` | `{}` | Before shutdown |
 
-The `status` field in `playback.state` is one of: `"playing"`, `"paused"`, `"stopped"`.
+The `status` field in `playback.state` is one of: `"playing"`, `"paused"`, `"stopped"`. The `repeat` field in `player.mode` is one of: `"Off"`, `"All"`, `"One"` (matching `cliamp.player.repeat_mode()`). In `player.eq`, `bands` is an array of 10 dB values.
+
+The `player.*` and `queue.change` events are fired by diffing state after each UI update, so they cover every change regardless of source (keypress, IPC, MPRIS, or another plugin).
 
 ## Plugin object methods
 
@@ -224,9 +231,6 @@ cliamp.player.mono()          --> boolean
 cliamp.player.repeat_mode()   --> "Off" | "All" | "One"
 cliamp.player.shuffle()       --> boolean
 cliamp.player.eq_bands()      --> table of 10 dB values
-cliamp.player.eq_preset()     --> string
-cliamp.player.visualizer()    --> string
-cliamp.player.theme()         --> string
 ```
 
 ### cliamp.track (read-only)
@@ -242,6 +246,28 @@ cliamp.track.path()           --> string
 cliamp.track.is_stream()      --> boolean
 cliamp.track.duration_secs()  --> number
 ```
+
+### cliamp.queue
+
+Read the playlist freely; mutating it requires `permissions = {"control"}`. All
+indices are 0-based, matching `cliamp.queue.current()`.
+
+```lua
+-- read (no permission)
+cliamp.queue.list()        --> array of {title, artist, album, path, index, queued}
+cliamp.queue.count()       --> number of tracks
+cliamp.queue.current()     --> 0-based index of the current track
+
+-- mutate (requires "control")
+cliamp.queue.add(path)         -- resolve a file/dir/URL and append
+cliamp.queue.jump(index)       -- make index current and play it
+cliamp.queue.remove(index)     -- remove the track at index
+cliamp.queue.move(from, to)    -- reorder a track
+```
+
+`add` accepts anything the CLI accepts: a local file or directory, an HTTP
+stream, an M3U/PLS URL, or a YouTube/yt-dlp URL. Resolution happens off the UI
+thread, so a slow URL never blocks playback.
 
 ### cliamp.http
 
@@ -284,6 +310,30 @@ Writes are restricted to the system temp directory (`/tmp/` on Unix), `~/.config
 ```lua
 local tbl = cliamp.json.decode('{"key": "value"}')
 local str = cliamp.json.encode({ key = "value" })
+```
+
+### cliamp.store
+
+A persistent per-plugin key/value store. Values (strings, numbers, booleans,
+and tables) survive restarts. No permission required: each plugin sees only its
+own namespace, so one plugin can never read another's keys.
+
+```lua
+cliamp.store.set(key, value)   -- value: string|number|boolean|table
+cliamp.store.get(key)          --> value or nil
+cliamp.store.delete(key)
+cliamp.store.keys()            --> sorted array of keys
+cliamp.store.clear()
+```
+
+Backed by `~/.local/share/cliamp/plugins/<name>/store.json`, written owner-only
+(0600). Use it for play counts, offline scrobble queues, resume positions, or
+remembered settings, not for large data.
+
+```lua
+local counts = cliamp.store.get("counts") or {}
+counts[cliamp.track.path()] = (counts[cliamp.track.path()] or 0) + 1
+cliamp.store.set("counts", counts)
 ```
 
 ### cliamp.crypto

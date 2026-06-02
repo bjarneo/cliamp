@@ -76,6 +76,10 @@ After loading a playlist you return to the standard playlist view with all the u
 
 Only playlists in your Spotify library are shown. This includes playlists you've created and playlists you've saved (followed). If a public playlist doesn't appear, open Spotify and click **Save** on it first. There's no need to copy tracks to a new playlist.
 
+## Podcasts
+
+Podcast episodes work like tracks. Press `Ctrl+F` to search Spotify and matching episodes (for example "Joe Rogan") appear alongside songs; press `Enter` to play. Playlists that mix songs and episodes load and play both.
+
 ## Troubleshooting
 
 - **"OAuth failed"**: Make sure your redirect URI is exactly `http://127.0.0.1:19872/login` in the Spotify dashboard (no trailing slash).

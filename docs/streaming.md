@@ -44,6 +44,19 @@ cliamp https://www.xiaoyuzhoufm.com/episode/xxxx
 
 Press `R` in the player to browse and search 30,000+ online radio stations from the [Radio Browser](https://www.radio-browser.info/) directory. Use `/` to search by name, `Enter` to play, and `a` to append a station to the playlist.
 
+## Track Info
+
+For live radio, cliamp shows the current track from the stream's inline ICY metadata (`StreamTitle`). This works for most stations, in any codec (MP3, AAC, Opus, ...).
+
+Some broadcasters send no inline metadata and publish now-playing through a separate API instead. cliamp pulls those automatically:
+
+| Station | Source | Shown |
+| --- | --- | --- |
+| FIP (and FIP Jazz, Rock, Groove, Reggae, Electro, Metal, Monde, Nouveautes) | Radio France livemeta API | Artist - Title |
+| NTS 1 / NTS 2 | NTS live API | Current show |
+
+NTS is live DJ radio with no per-track tagging, so it shows the show/host name rather than a song.
+
 ## Load URL at Runtime
 
 Press `u` while playing to load a new stream or playlist URL without restarting. Supports the same URL types as CLI arguments: direct audio URLs, M3U/PLS playlists, RSS podcast feeds, and yt-dlp compatible links.

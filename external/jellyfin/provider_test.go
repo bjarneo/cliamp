@@ -1,12 +1,33 @@
 package jellyfin
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"testing"
 
 	"cliamp/playlist"
 	"cliamp/provider"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+func jsonResponse(body string) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Status:     "200 OK",
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewBufferString(body)),
+	}
+}
+
+func mockProvider(userID string, fn roundTripFunc) *Provider {
+	c := NewClient("https://jf.example.com", "tok", userID, "", "")
+	c.SetHTTPClient(&http.Client{Transport: fn})
+	return newProvider(c)
+}
 
 func TestProviderName(t *testing.T) {
 	p := newProvider(NewClient("https://jf.example.com", "tok", "user-1", "", ""))
@@ -16,8 +37,7 @@ func TestProviderName(t *testing.T) {
 }
 
 func TestProviderPlaylists(t *testing.T) {
-	p := newProvider(NewClient("https://jf.example.com", "tok", "", "", ""))
-	useTestClient(t, func(req *http.Request) (*http.Response, error) {
+	p := mockProvider("", func(req *http.Request) (*http.Response, error) {
 		switch req.URL.Path {
 		case "/Users/Me":
 			return jsonResponse(`{"Id":"user-1","Name":"Nomad"}`), nil
@@ -47,8 +67,7 @@ func TestProviderPlaylists(t *testing.T) {
 }
 
 func TestProviderTracks(t *testing.T) {
-	p := newProvider(NewClient("https://jf.example.com", "tok", "user-1", "", ""))
-	useTestClient(t, func(req *http.Request) (*http.Response, error) {
+	p := mockProvider("user-1", func(req *http.Request) (*http.Response, error) {
 		if req.URL.Path != "/Items" {
 			t.Fatalf("unexpected path %s", req.URL.Path)
 		}

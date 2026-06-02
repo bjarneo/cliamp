@@ -514,7 +514,7 @@ func navNextSort(s string, types []provider.SortType) string {
 
 // navMaybeAdjustScroll keeps navCursor visible within the rendered list window.
 func (m *Model) navMaybeAdjustScroll() {
-	visible := max(m.plVisible, 5)
+	visible := m.navVisible()
 	if m.navBrowser.cursor < m.navBrowser.scroll {
 		m.navBrowser.scroll = m.navBrowser.cursor
 	}

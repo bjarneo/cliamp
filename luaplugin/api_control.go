@@ -95,9 +95,14 @@ func registerControlAPI(L *lua.LState, cliamp *lua.LTable, ctrl *ControlProvider
 		if tbl := L.OptTable(2, nil); tbl != nil {
 			b := [10]float64{}
 			for i := range 10 {
-				if v := tbl.RawGetInt(i + 1); v != lua.LNil {
-					b[i] = max(min(float64(lua.LVAsNumber(v)), 12), -12)
+				v := tbl.RawGetInt(i + 1)
+				if v == lua.LNil {
+					// A partial table would silently zero the unset bands;
+					// require all 10 so the caller's intent is explicit.
+					L.ArgError(2, "eq bands table must contain all 10 values")
+					return 0
 				}
+				b[i] = max(min(float64(lua.LVAsNumber(v)), 12), -12)
 			}
 			bands = &b
 		}

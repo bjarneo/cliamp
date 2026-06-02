@@ -32,6 +32,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	defer func() {
 		m.maybeRequestVisualizerRefresh(msg, wasScreen, wasMode, wasPlaying, wasPaused)
+		m.emitPluginEvents()
 	}()
 
 	switch msg := msg.(type) {
@@ -70,6 +71,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.vis.Rows = max(ui.DefaultVisRows, (m.height-10)*4/5)
 			ui.PanelWidth = max(0, m.width-2*ui.PaddingH)
 		}
+		m.recomputeChrome()
 		m.applyHeightMode()
 		m.adjustScroll()
 		if m.focus == focusProvider {
@@ -191,8 +193,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.network.sampleFor += dt
 		if m.network.sampleFor >= time.Second {
-			m.notifyAll()
 			downloaded, _ := m.player.StreamBytes()
+			if downloaded > 0 || m.player.IsPlaying() {
+				m.notifyAll()
+			}
 			delta := downloaded - m.network.lastBytes
 			if delta > 0 {
 				// Exponential moving average for smooth display.
@@ -213,7 +217,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.reconnect.at = time.Time{}
 			m.player.Stop()
 			if track, idx := m.playlist.Current(); idx >= 0 {
-				return m, tea.Batch(m.playTrack(track), tickCmdAt(ui.TickFast))
+				// Preserve any seek/lyric commands already queued this tick
+				// rather than dropping them on the early return.
+				batch := []tea.Cmd{m.playTrack(track), tickCmdAt(ui.TickFast)}
+				if seekCmd != nil {
+					batch = append(batch, seekCmd)
+				}
+				if lyricCmd != nil {
+					batch = append(batch, lyricCmd)
+				}
+				return m, tea.Batch(batch...)
 			}
 		}
 		var cmds []tea.Cmd
@@ -722,6 +735,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.SetEQPreset(msg.Name, msg.Bands)
 		return m, nil
 
+	case PluginQueueMsg:
+		return m, m.handlePluginQueue(msg)
+
+	case pluginQueueAddedMsg:
+		if len(msg.tracks) > 0 {
+			m.playlist.Add(msg.tracks...)
+			m.notifyPlayback()
+		}
+		return m, nil
+
 	case ShowStatusMsg:
 		ttl := statusTTLDefault
 		if msg.Duration > 0 {
@@ -809,6 +832,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if strings.EqualFold(msg.Name, "next") {
 			m.vis.CycleMode()
 			m.vis.RequestRefresh()
+			m.refreshChrome()
 			resp = ipc.Response{OK: true, Visualizer: m.vis.ModeName()}
 		} else if m.SetVisualizer(msg.Name) {
 			resp = ipc.Response{OK: true, Visualizer: m.vis.ModeName()}

@@ -124,44 +124,19 @@ func (m Model) View() tea.View {
 
 	var content string
 	switch screen {
-	case screenKeymap:
-		content = m.renderKeymapOverlay()
-	case screenThemePicker:
-		content = m.renderThemePicker()
-	case screenDevicePicker:
-		content = m.renderDeviceOverlay()
-	case screenFileBrowser:
-		content = m.renderFileBrowser()
-	case screenNavBrowser:
-		content = m.renderNavBrowser()
-	case screenPlaylistManager:
-		content = m.renderPlaylistManager()
-	case screenSpotSearch:
-		content = m.renderSpotSearch()
-	case screenQueue:
-		content = m.renderQueueOverlay()
-	case screenInfo:
-		content = m.renderInfoOverlay()
-	case screenSearch:
-		content = m.renderSearchOverlay()
-	case screenNetSearch:
-		content = m.renderNetSearchOverlay()
-	case screenURLInput:
-		content = m.renderURLInputOverlay()
-	case screenLyrics:
-		content = m.renderLyricsOverlay()
-	case screenJump:
-		content = m.renderJumpOverlay()
 	case screenFullVisualizer:
 		content = m.renderFullVisualizer()
 	default:
-		content = strings.Join(m.mainSections(m.renderPlaylist(), true), "\n")
+		// Every overlay renders inline in the playlist region (renderMainBody),
+		// with its header/help supplied by renderPlaylistHeader / renderHelp, so
+		// the now-playing + visualizer chrome stays live above and the layout
+		// height never shifts when an overlay opens.
+		content = strings.Join(m.mainSections(m.renderMainBody(), true), "\n")
 	}
 
-	rendered := content
-	if screen == screenMain || screen == screenFullVisualizer {
-		rendered = m.centerFrame(ui.FrameStyle.Render(content))
-	}
+	// Every screen now renders within the main frame, so frame and center
+	// uniformly.
+	rendered := m.centerFrame(ui.FrameStyle.Render(content))
 
 	view := tea.NewView(rendered)
 	view.AltScreen = true
@@ -174,15 +149,6 @@ func trimTrailingEmpty(sections []string) []string {
 		sections = sections[:len(sections)-1]
 	}
 	return sections
-}
-
-func appendFooter(lines, footer []string) []string {
-	if len(footer) == 0 {
-		return lines
-	}
-	lines = append(lines, "")
-	lines = append(lines, footer...)
-	return lines
 }
 
 func (m Model) mainSections(playlist string, includeTransient bool) []string {
@@ -237,10 +203,6 @@ func (m Model) footerMessages() []string {
 	return lines
 }
 
-func (m Model) appendFooterMessages(lines []string) []string {
-	return appendFooter(lines, m.footerMessages())
-}
-
 // centerFrame centers a pre-rendered frame in the terminal using plain string
 // padding instead of allocating a new lipgloss.Style every render.
 func (m Model) centerFrame(frame string) string {
@@ -259,11 +221,6 @@ func (m Model) centerFrame(frame string) string {
 		lines[i] = prefix + l
 	}
 	return strings.Repeat("\n", padTop) + strings.Join(lines, "\n")
-}
-
-// centerOverlay wraps content in a frame and centers it in the terminal.
-func (m Model) centerOverlay(content string) string {
-	return m.centerFrame(ui.FrameStyle.Render(content))
 }
 
 func (m Model) renderTitle() string {
@@ -516,8 +473,11 @@ func (m Model) renderProviderPill() string {
 }
 
 func (m Model) renderPlaylistHeader() string {
+	if ov, ok := m.activeOverlay(); ok {
+		return ov.header(&m)
+	}
 	if m.focus == focusProvider {
-		return dimStyle.Render(fmt.Sprintf("── %s Playlists ──", m.provider.Name()))
+		return dimStyle.Render(labeledSeparator("", fmt.Sprintf("%s Playlists", m.provider.Name())))
 	}
 
 	var shuffle string
@@ -660,11 +620,11 @@ func (m Model) renderProviderList() string {
 					var header string
 					switch pfx {
 					case "f":
-						header = "  ── favorites ──"
+						header = labeledSeparator("  ", "Favorites")
 					case "c":
-						header = "  ── catalog ──"
+						header = labeledSeparator("  ", "Catalog")
 					case "s":
-						header = "  ── search results ──"
+						header = labeledSeparator("  ", "Search Results")
 					}
 					if header != "" && len(lines) < visibleBudget {
 						lines = append(lines, dimStyle.Render(header))
@@ -672,7 +632,7 @@ func (m Model) renderProviderList() string {
 					prevPrefix = pfx
 				}
 			} else if hasSections && p.Section != prevSection {
-				header := "  ── " + strings.ToLower(p.Section) + " ──"
+				header := labeledSeparator("  ", p.Section)
 				if len(lines) < visibleBudget {
 					lines = append(lines, dimStyle.Render(header))
 				}
@@ -808,28 +768,10 @@ func (m Model) renderPlaylist() string {
 	return strings.Join(padLines(lines, budget, len(lines)), "\n")
 }
 
-func (m Model) renderJumpOverlay() string {
-	pos := m.player.Position()
-	dur := m.player.Duration()
-	timeLine := fmt.Sprintf("%s / %s", formatJumpClock(pos), formatJumpClock(dur))
-	inputLine := dimStyle.Faint(true).Render("  " + formatJumpPlaceholder(dur))
-	if m.jumpInput != "" {
-		inputLine = playlistSelectedStyle.Render("  " + m.jumpInput + "_")
-	}
-
-	lines := []string{
-		titleStyle.Render("J U M P  T O  T I M E"),
-		"",
-		dimStyle.Render("  " + timeLine),
-		"",
-		inputLine,
-	}
-
-	lines = append(lines, "", helpKey("Enter", "Jump ")+helpKey("Esc", "Cancel"))
-	return m.centerOverlay(strings.Join(lines, "\n"))
-}
-
 func (m Model) renderHelp() string {
+	if ov, ok := m.activeOverlay(); ok {
+		return fitHelpLine(ov.help(&m))
+	}
 	if m.focus == focusProvider {
 		help := helpKey("↓↑", "Scroll ") + helpKey("Enter", "Load ") + helpKey("/", "Search ")
 		if _, ok := m.provider.(provider.FavoriteToggler); ok {

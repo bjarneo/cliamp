@@ -238,9 +238,5 @@ func (ss *speedStreamer) searchBestOffset(expected int) int {
 
 // Err forwards to the wrapped streamer's error method.
 func (ss *speedStreamer) Err() error {
-	type errorer interface{ Err() error }
-	if e, ok := ss.s.(errorer); ok {
-		return e.Err()
-	}
-	return nil
+	return ss.s.Err()
 }

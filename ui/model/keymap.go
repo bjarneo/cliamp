@@ -3,7 +3,6 @@ package model
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -32,6 +31,7 @@ var keymapEntries = []keymapEntry{
 	{key: "e", action: "Cycle EQ preset"},
 	{key: "t", action: "Choose theme"},
 	{key: "v", action: "Cycle visualizer"},
+	{key: "Ctrl+V", action: "Choose visualizer"},
 	{key: "V", action: "Full-screen visualizer"},
 	{key: "↑ ↓", action: "Playlist scroll / EQ adjust (wraps around)"},
 	{key: "PgUp PgDn / Ctrl+U D", action: "Scroll playlist/browser by page"},
@@ -104,7 +104,7 @@ var coreReservedKeys = []string{
 	"ctrl+s", "S", "/", "ctrl+f",
 	"ctrl+j", "J", "E", "p", "t", "i", "y", "o", "u",
 	"N", "L", "R", "P", "Y", "C", "M",
-	"v", "V", "ctrl+x", "x", "d", "ctrl+k", "?",
+	"v", "V", "ctrl+v", "ctrl+x", "x", "d", "ctrl+k", "?",
 	"ctrl+r",
 }
 
@@ -158,28 +158,18 @@ func (m *Model) keymapHelpLine() string {
 		helpKey("Home/End", "Jump ") + helpKey("/", "Filter ") + helpKey("Esc", "Close")
 }
 
-func (m *Model) keymapHeaderLines() []string {
-	header := []string{
-		titleStyle.Render("K E Y M A P"),
-		"",
+// keymapHeaderLine renders the keymap's single-line header for the playlist
+// region: the filter prompt while searching/filtered, otherwise a labeled
+// separator with the match count.
+func (m Model) keymapHeaderLine() string {
+	if m.keymap.searching || m.keymap.search != "" {
+		return filterCountHeader(m.keymap.search, fmt.Sprintf("%d/%d", m.keymapCount(), len(m.keymap.entries)))
 	}
-	if m.keymap.searching {
-		cursor := "_"
-		if (time.Now().UnixNano()/500000000)%2 != 0 {
-			cursor = " "
-		}
-		header = append(header, playlistSelectedStyle.Render("  / "+m.keymap.search+cursor), "")
-	} else if m.keymap.search != "" {
-		header = append(header, dimStyle.Render("  / "+m.keymap.search), "")
-	}
-	return header
+	return sepHeaderN("Keymap", m.keymap.cursor+1, len(m.keymap.entries))
 }
 
 func (m *Model) keymapVisible() int {
-	probe := append([]string{}, m.keymapHeaderLines()...)
-	probe = append(probe, "x", "", dimStyle.Render("  0/0 keys"), "", m.keymapHelpLine())
-	probe = m.appendFooterMessages(probe)
-	return m.measureOverlayVisible(probe, maxPlVisible)
+	return m.effectivePlaylistVisible()
 }
 
 // keymapMaybeAdjustScroll keeps the cursor visible in the current keymap window.
@@ -197,6 +187,23 @@ func (m *Model) openKeymap() {
 	m.keymap.scroll = 0
 	m.keymap.entries = m.buildKeymapEntries()
 	m.keymap.visible = true
+	// The keymap now renders in the playlist region; recompute chrome so its
+	// header/help are reflected in the visible-row budget, then fit the cursor.
+	m.refreshChrome()
+	m.applyHeightMode()
+	m.keymapMaybeAdjustScroll(m.keymapVisible())
+}
+
+// closeKeymap hides the keymap, clears its filter state, and restores playlist
+// sizing after the inline header and help line are dismissed.
+func (m *Model) closeKeymap() {
+	m.keymap.visible = false
+	m.keymap.searching = false
+	m.keymap.search = ""
+	m.keymap.filtered = nil
+	m.refreshChrome()
+	m.applyHeightMode()
+	m.adjustScroll()
 }
 
 func (m *Model) handleKeymapSearchKey(msg tea.KeyPressMsg) tea.Cmd {
@@ -260,10 +267,7 @@ func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.quit()
 
 	case "esc", "ctrl+k", "?", "q":
-		m.keymap.visible = false
-		m.keymap.searching = false
-		m.keymap.search = ""
-		m.keymap.filtered = nil
+		m.closeKeymap()
 
 	case "/":
 		m.keymap.savedCursor = m.keymap.cursor
@@ -330,11 +334,11 @@ func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.keymap.search = ""
 			m.updateKeymapFilter()
 		} else {
-			m.keymap.visible = false
+			m.closeKeymap()
 		}
 
 	case "enter", "l":
-		m.keymap.visible = false
+		m.closeKeymap()
 	}
 
 	return nil
@@ -360,9 +364,14 @@ func (m *Model) updateKeymapFilter() {
 	}
 }
 
-// renderKeymapOverlay renders the keymap overlay.
-func (m Model) renderKeymapOverlay() string {
-	lines := append(make([]string, 0, 16), m.keymapHeaderLines()...)
+// renderKeymapList renders the keymap entries for the playlist region while the
+// keymap is open. The header and help line are supplied by the main layout
+// (renderPlaylistHeader / renderHelp), mirroring renderVisPickerList.
+func (m Model) renderKeymapList() string {
+	budget := m.effectivePlaylistVisible()
+	if budget <= 0 {
+		return ""
+	}
 
 	entries := m.keymap.entries
 	var visible []keymapEntry
@@ -374,43 +383,27 @@ func (m Model) renderKeymapOverlay() string {
 		visible = entries
 	}
 
-	maxVisible := m.keymapVisible()
-	rendered := 0
-
 	if len(visible) == 0 {
+		msg := "(empty)"
 		if m.keymap.search != "" {
-			lines = append(lines, dimStyle.Render("  No matches"))
+			msg = "No matches"
+		}
+		return strings.Join(fitLines([]string{dimStyle.Render("  " + msg)}, budget), "\n")
+	}
+
+	lines := make([]string, 0, budget)
+	for i := m.keymap.scroll; i < len(visible) && len(lines) < budget; i++ {
+		entry := visible[i]
+		if entry.divider {
+			lines = append(lines, dimStyle.Render("  "+entry.action))
+			continue
+		}
+		line := fmt.Sprintf("%-10s %s", entry.key, entry.action)
+		if m.keymap.searching {
+			lines = append(lines, dimStyle.Render("  "+line))
 		} else {
-			lines = append(lines, dimStyle.Render("  (empty)"))
-		}
-		rendered = 1
-	} else {
-		scroll := m.keymap.scroll
-		for i := scroll; i < len(visible) && i < scroll+maxVisible; i++ {
-			entry := visible[i]
-			if entry.divider {
-				lines = append(lines, dimStyle.Render("  "+entry.action))
-				rendered++
-				continue
-			}
-			line := fmt.Sprintf("%-10s %s", entry.key, entry.action)
-			if m.keymap.searching {
-				lines = append(lines, dimStyle.Render("  "+line))
-			} else {
-				lines = append(lines, cursorLine(line, i == m.keymap.cursor))
-			}
-			rendered++
+			lines = append(lines, cursorLine(line, i == m.keymap.cursor))
 		}
 	}
-
-	lines = padLines(lines, maxVisible, rendered)
-
-	footerCount := fmt.Sprintf("%d/%d", rendered, len(entries))
-	if m.keymap.search != "" {
-		footerCount = fmt.Sprintf("%d/%d", len(visible), len(entries))
-	}
-	lines = append(lines, "", dimStyle.Render(fmt.Sprintf("  %s keys", footerCount)))
-	lines = append(lines, "", m.keymapHelpLine())
-
-	return m.centerOverlay(strings.Join(m.appendFooterMessages(lines), "\n"))
+	return strings.Join(lines, "\n")
 }

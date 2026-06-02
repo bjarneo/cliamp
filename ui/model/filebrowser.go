@@ -1,27 +1,22 @@
 package model
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"cliamp/internal/fuzzy"
 	"cliamp/player"
 	"cliamp/playlist"
 	"cliamp/resolve"
-	"cliamp/ui"
 )
-
-// fbMaxVisible is a number of visible entries in file browser.
-const fbMaxVisible = 12
 
 // fbEntry is a single item in the file browser listing.
 type fbEntry struct {
 	name     string
-	nameLow  string // pre-computed strings.ToLower(name) for search filtering
 	path     string
 	isDir    bool
 	isAudio  bool
@@ -48,25 +43,6 @@ func (m *Model) fbEntry(idx int) fbEntry {
 	return m.fileBrowser.entries[idx]
 }
 
-func (m Model) fbHeaderLines() []string {
-	header := []string{
-		titleStyle.Render("O P E N  F I L E S"),
-		dimStyle.Render("  " + m.fileBrowser.dir),
-		"",
-	}
-
-	if m.fileBrowser.searching {
-		cursor := "_"
-		if (time.Now().UnixNano()/500000000)%2 != 0 {
-			cursor = " "
-		}
-		header = append(header, playlistSelectedStyle.Render("  / "+m.fileBrowser.search+cursor), "")
-	} else if m.fileBrowser.search != "" {
-		header = append(header, dimStyle.Render("  / "+m.fileBrowser.search), "")
-	}
-	return header
-}
-
 func (m Model) fbHelpLine() string {
 	if m.fileBrowser.searching {
 		return helpKey("Enter", "Confirm ") + helpKey("Esc", "Cancel ") + helpKey("Type", "Filter")
@@ -84,24 +60,10 @@ func (m Model) fbHelpLine() string {
 	return help
 }
 
-// fbVisible returns the current file-browser list height accounting for
-// frame padding and all fixed (non-list) sections.
+// fbVisible returns the file-browser list height. The browser renders inline in
+// the playlist region, so it shares the playlist's row budget.
 func (m *Model) fbVisible() int {
-	probe := append([]string{}, m.fbHeaderLines()...)
-	if m.fileBrowser.err != "" {
-		probe = append(probe, errorStyle.Render("  "+m.fileBrowser.err))
-	}
-	probe = append(probe, "x")
-	if len(m.fileBrowser.selected) > 0 {
-		probe = append(probe, "", statusStyle.Render("  1 selected"))
-	} else {
-		probe = append(probe, "")
-		if m.fileBrowser.err == "" {
-			probe = append(probe, "")
-		}
-	}
-	probe = append(probe, "", m.fbHelpLine())
-	return m.measureOverlayVisible(probe, fbMaxVisible)
+	return m.effectivePlaylistVisible()
 }
 
 // fbMaybeAdjustScroll keeps the cursor visible in the current file-browser window.
@@ -160,7 +122,6 @@ func (m *Model) loadFBDir() {
 
 	m.fileBrowser.entries = append(m.fileBrowser.entries, fbEntry{
 		name:     "..",
-		nameLow:  "..",
 		path:     filepath.Dir(m.fileBrowser.dir),
 		isDir:    true,
 		isParent: true,
@@ -200,10 +161,9 @@ func (m *Model) loadFBDir() {
 		if dirType != "" {
 			full := name + dirType
 			m.fileBrowser.entries = append(m.fileBrowser.entries, fbEntry{
-				name:    full,
-				nameLow: strings.ToLower(full),
-				path:    filepath.Join(m.fileBrowser.dir, name),
-				isDir:   true,
+				name:  full,
+				path:  filepath.Join(m.fileBrowser.dir, name),
+				isDir: true,
 			})
 		} else {
 			if files == nil {
@@ -211,7 +171,6 @@ func (m *Model) loadFBDir() {
 			}
 			files = append(files, fbEntry{
 				name:    name,
-				nameLow: strings.ToLower(name),
 				path:    filepath.Join(m.fileBrowser.dir, name),
 				isAudio: player.SupportedExts[strings.ToLower(filepath.Ext(name))],
 			})
@@ -220,18 +179,37 @@ func (m *Model) loadFBDir() {
 	m.fileBrowser.entries = append(m.fileBrowser.entries, files...)
 }
 
+// fbUpdateFilter rebuilds the filtered view from the current search query.
+// With no query, entries keep their natural directory order; otherwise matches
+// are ranked by fuzzy relevance (best match first). The parent ("..") entry is
+// never shown while filtering.
 func (m *Model) fbUpdateFilter() {
 	m.fileBrowser.filtered = nil
 	m.fileBrowser.cursor = 0
 	m.fileBrowser.scroll = 0
-	query := strings.ToLower(m.fileBrowser.search)
+	if m.fileBrowser.search == "" {
+		for i, e := range m.fileBrowser.entries {
+			if !e.isParent {
+				m.fileBrowser.filtered = append(m.fileBrowser.filtered, i)
+			}
+		}
+		return
+	}
+	type match struct{ idx, score int }
+	matches := make([]match, 0, len(m.fileBrowser.entries))
 	for i, e := range m.fileBrowser.entries {
 		if e.isParent {
 			continue
 		}
-		if query == "" || strings.Contains(e.nameLow, query) {
-			m.fileBrowser.filtered = append(m.fileBrowser.filtered, i)
+		if score, ok := fuzzy.Match(m.fileBrowser.search, e.name); ok {
+			matches = append(matches, match{i, score})
 		}
+	}
+	sort.SliceStable(matches, func(a, b int) bool {
+		return matches[a].score > matches[b].score
+	})
+	for _, mt := range matches {
+		m.fileBrowser.filtered = append(m.fileBrowser.filtered, mt.idx)
 	}
 }
 
@@ -490,84 +468,4 @@ func (m *Model) fbConfirm(replace bool) tea.Cmd {
 		}
 		return fbTracksResolvedMsg{tracks: r.Tracks, replace: replace}
 	}
-}
-
-// renderFileBrowser renders the file browser overlay.
-func (m Model) renderFileBrowser() string {
-	maxVisible := m.fbVisible()
-	lines := append(make([]string, 0, 3+maxVisible+4), m.fbHeaderLines()...)
-
-	if m.fileBrowser.err != "" {
-		lines = append(lines, errorStyle.Render("  "+m.fileBrowser.err))
-	}
-
-	rendered := 0
-
-	count := m.fbCount()
-
-	if count == 0 {
-		if m.fileBrowser.search != "" {
-			lines = append(lines, dimStyle.Render("  No matches"))
-		} else {
-			lines = append(lines, dimStyle.Render("  (empty)"))
-		}
-		rendered = 1
-	} else {
-		scroll := max(m.fileBrowser.scroll, 0)
-		if scroll > count-1 {
-			scroll = max(0, count-1)
-		}
-
-		for i := scroll; i < count && i < scroll+maxVisible; i++ {
-			e := m.fbEntry(i)
-
-			// Selection check mark.
-			check := "  "
-			if m.fileBrowser.selected[e.path] {
-				check = "✓ "
-			}
-
-			// Type indicator suffix.
-			suffix := ""
-			if e.isAudio {
-				suffix = " ♫"
-			}
-
-			label := check + e.name + suffix
-			label = truncate(label, max(1, ui.PanelWidth-2))
-
-			if m.fileBrowser.searching {
-				lines = append(lines, dimStyle.Render("  "+label))
-			} else if i == m.fileBrowser.cursor {
-				lines = append(lines, playlistSelectedStyle.Render("> "+label))
-			} else if e.isDir {
-				lines = append(lines, trackStyle.Render("  "+label))
-			} else if e.isAudio {
-				lines = append(lines, playlistItemStyle.Render("  "+label))
-			} else {
-				lines = append(lines, dimStyle.Render("  "+label))
-			}
-			rendered++
-		}
-	}
-
-	// Pad to fixed height.
-	for i := 0; i < maxVisible-rendered; i++ {
-		lines = append(lines, "")
-	}
-
-	// Selection count.
-	if len(m.fileBrowser.selected) > 0 {
-		lines = append(lines, "", statusStyle.Render(fmt.Sprintf("  %d selected", len(m.fileBrowser.selected))))
-	} else {
-		lines = append(lines, "")
-		// Keep footer alignment consistent when no error/status line is present.
-		if m.fileBrowser.err == "" {
-			lines = append(lines, "")
-		}
-	}
-
-	lines = append(lines, "", m.fbHelpLine())
-
-	return m.centerOverlay(strings.Join(lines, "\n"))
 }

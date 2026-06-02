@@ -8,20 +8,6 @@ import (
 	"cliamp/ui"
 )
 
-// measureOverlayVisible returns the number of list rows that fit below an
-// overlay's fixed chrome (header + footer). probeSections must include a
-// 1-line list placeholder so the frame measurement reflects real content.
-// defaultLimit caps the result in collapsed mode; expanded mode caps at m.height.
-func (m *Model) measureOverlayVisible(probeSections []string, defaultLimit int) int {
-	probeFrame := ui.FrameStyle.Render(strings.Join(probeSections, "\n"))
-	fixedHeight := lipgloss.Height(probeFrame) - 1
-	limit := defaultLimit
-	if m.heightExpanded {
-		limit = m.height
-	}
-	return max(3, min(limit, m.height-fixedHeight))
-}
-
 // clampScroll keeps cursor inside [0, count) and adjusts scroll so that
 // the cursor sits within the visible window of `visible` rows.
 func clampScroll(cursor, scroll *int, count, visible int) {
@@ -115,6 +101,17 @@ func (m Model) playlistScroll(visible int) int {
 }
 
 func (m Model) mainFrameFixedLines(includeTransient bool) int {
+	if m.chromeOK {
+		if !includeTransient {
+			return m.chromeHeight
+		}
+		transientLines := len(m.footerMessages())
+		if m.err != nil {
+			transientLines++
+		}
+		return m.chromeHeight + transientLines
+	}
+	// Fallback: render and measure (only needed until first WindowSizeMsg)
 	content := strings.Join(m.mainSections("", includeTransient), "\n")
 	return lipgloss.Height(ui.FrameStyle.Render(content))
 }
@@ -128,4 +125,26 @@ func (m Model) effectivePlaylistVisible() int {
 		return 0
 	}
 	return min(m.plVisible, available)
+}
+
+// recomputeChrome renders the fixed chrome (without playlist or transients)
+// and caches its height. Called when terminal width or compact mode changes.
+func (m *Model) recomputeChrome() {
+	content := strings.Join(m.mainSections("", false), "\n")
+	m.chromeHeight = lipgloss.Height(ui.FrameStyle.Render(content))
+	m.chromeOK = true
+}
+
+// invalidateChrome marks the chrome height dirty. Until the next recompute,
+// mainFrameFixedLines falls back to direct measurement.
+func (m *Model) invalidateChrome() {
+	m.chromeOK = false
+}
+
+func (m *Model) refreshChrome() {
+	if m.width > 0 {
+		m.recomputeChrome()
+		return
+	}
+	m.invalidateChrome()
 }

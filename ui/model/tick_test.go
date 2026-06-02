@@ -75,6 +75,35 @@ func TestTickIntervalPendingStatusUsesSlow(t *testing.T) {
 	}
 }
 
+func TestTickIntervalPlayingUsesFastCadence(t *testing.T) {
+	p := &playbackFakeEngine{playing: true}
+	m := Model{
+		player:   p,
+		vis:      ui.NewVisualizer(float64(p.SampleRate())),
+		playlist: playlist.New(),
+	}
+	m.SetVisualizer("none")
+
+	if got := m.tickInterval(); got != ui.TickFast {
+		t.Fatalf("tickInterval() = %v, want %v", got, ui.TickFast)
+	}
+}
+
+func TestTickIntervalLowPowerPlayingUsesLowPowerCadence(t *testing.T) {
+	p := &playbackFakeEngine{playing: true}
+	m := Model{
+		player:   p,
+		vis:      ui.NewVisualizer(float64(p.SampleRate())),
+		playlist: playlist.New(),
+	}
+	m.SetVisualizer("none")
+	m.SetLowPower(true)
+
+	if got := m.tickInterval(); got != ui.TickLowPowerPlaying {
+		t.Fatalf("tickInterval() = %v, want %v", got, ui.TickLowPowerPlaying)
+	}
+}
+
 func TestInitialTickUsesFastCadence(t *testing.T) {
 	prev := teaTick
 	t.Cleanup(func() {
@@ -123,7 +152,7 @@ func TestRefreshVisualizerIfPendingConsumesOneShotRequest(t *testing.T) {
 	}
 }
 
-func TestLyricsScreenHidesVisualizerTicks(t *testing.T) {
+func TestLyricsScreenKeepsVisualizerLive(t *testing.T) {
 	m := Model{
 		vis: ui.NewVisualizer(44100),
 		lyrics: lyricsState{
@@ -134,21 +163,23 @@ func TestLyricsScreenHidesVisualizerTicks(t *testing.T) {
 	if got := m.activeScreen(); got != screenLyrics {
 		t.Fatalf("activeScreen() = %v, want %v", got, screenLyrics)
 	}
-	if !m.isOverlayActive() {
-		t.Fatal("isOverlayActive() = false, want true while lyrics screen is visible")
+	// Overlays now render inline over the live main view, so the visualizer is
+	// never treated as hidden.
+	if m.isOverlayActive() {
+		t.Fatal("isOverlayActive() = true, want false: overlays render inline")
 	}
-	if !m.visualizerTickContext(time.Now()).OverlayActive {
-		t.Fatal("visualizerTickContext(...).OverlayActive = false, want true for lyrics screen")
+	if m.visualizerTickContext(time.Now()).OverlayActive {
+		t.Fatal("visualizerTickContext(...).OverlayActive = true, want false for inline lyrics")
 	}
 
 	m.vis.RequestRefresh()
 	m.refreshVisualizerIfPending()
 
-	if !m.vis.RefreshPending() {
-		t.Fatal("refreshPending = false after lyrics-screen refresh attempt, want true")
+	if m.vis.RefreshPending() {
+		t.Fatal("refreshPending = true after refresh, want false: visualizer stays live under lyrics")
 	}
-	if m.vis.Frame() != 0 {
-		t.Fatalf("frame after lyrics-screen refresh attempt = %d, want 0", m.vis.Frame())
+	if m.vis.Frame() != 1 {
+		t.Fatalf("frame after refresh = %d, want 1 while lyrics open", m.vis.Frame())
 	}
 }
 

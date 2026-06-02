@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"cliamp/luaplugin"
 	"cliamp/ui"
 )
 
@@ -90,6 +91,10 @@ func (m *Model) finishSeek() {
 	if m.notifier != nil {
 		m.notifier.Seeked(m.player.Position())
 	}
+	m.emitPlugin(luaplugin.EventPlayerSeek, map[string]any{
+		"position": m.player.Position().Seconds(),
+		"duration": m.player.Duration().Seconds(),
+	})
 }
 
 func (m *Model) commitPendingYTDLSeek() tea.Cmd {

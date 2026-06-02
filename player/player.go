@@ -1,6 +1,7 @@
 package player
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sync"
@@ -37,6 +38,8 @@ type Player struct {
 	current         *trackPipeline // active track's resources
 	nextPipeline    *trackPipeline // preloaded track's resources
 	started         bool           // true after first speaker.Play()
+	suspendMu       sync.Mutex     // guards suspended and speaker suspend/resume calls
+	suspended       bool           // true when speaker.Suspend() has been called
 	ctrl            *beep.Ctrl
 	volMin          atomic.Uint64     // dB floor stored as Float64bits, range [-90, 0]
 	volume          atomic.Uint64     // dB stored as Float64bits, range [volMin, +6]
@@ -55,7 +58,16 @@ type Player struct {
 	streamTitle      atomic.Value               // stores string, set by ICY reader callback
 	customFactories  map[string]StreamerFactory // URI scheme prefix -> factory (e.g. "spotify:" -> fn)
 	bufferedURLMatch func(string) bool          // optional: returns true for URLs needing navBuffer pipeline
+
+	streamMetaResolver StreamMetadataResolver // optional: API-based now-playing for streams without ICY
+	metaCancel         context.CancelFunc     // cancels the active metadata poller; guarded by mu
 }
+
+// StreamMetadataResolver matches a stream URL to a now-playing fetcher for
+// broadcasters that carry no inline ICY metadata (e.g. NTS, FIP) and instead
+// publish the current track via a separate JSON API. It returns a fetch
+// function, the poll interval, and ok=false when the URL is not recognized.
+type StreamMetadataResolver func(streamURL string) (fetch func(ctx context.Context) (string, error), interval time.Duration, ok bool)
 
 // New creates a Player and initializes the speaker with the given quality settings.
 func New(q Quality) (*Player, error) {
@@ -75,9 +87,16 @@ func New(q Quality) (*Player, error) {
 	p.volMin.Store(math.Float64bits(-50))
 	p.speed.Store(math.Float64bits(1.0))
 	p.gapless = &gaplessStreamer{}
+	// Suspend the speaker immediately; the ALSA audio callback goroutine
+	// burns ~2% CPU even on silence. Resume is called on every Play().
+	_ = speaker.Suspend()
+	p.suspended = true
 	p.gapless.onSwap = func() {
 		// Called from audio thread (goroutine) when gapless transition occurs.
-		// Swap current ← nextPipeline and close the old one.
+		// Swap current ← nextPipeline and close the old one. The API metadata
+		// poller is intentionally not restarted here: gapless advance is for
+		// finite tracks, while resolver-backed streams (NTS, FIP) are infinite
+		// live radio that is never preloaded as a gapless next track.
 		p.mu.Lock()
 		old := p.current
 		p.current = p.nextPipeline
@@ -141,6 +160,8 @@ func (p *Player) PlayYTDL(pageURL string, knownDuration time.Duration) error {
 // On the first call it builds the long-lived EQ → volume → tap → ctrl chain.
 // Subsequent calls swap only the track source via the gapless streamer.
 func (p *Player) playPipeline(tp *trackPipeline) error {
+	p.resumeSpeaker()
+
 	// Collect old pipelines to close after releasing locks.
 	var oldCurrent, oldNext *trackPipeline
 
@@ -162,7 +183,8 @@ func (p *Player) playPipeline(tp *trackPipeline) error {
 	p.current = tp
 	p.nextPipeline = nil
 
-	if !p.started {
+	firstPlay := !p.started
+	if firstPlay {
 		p.gapless.Replace(tp.stream)
 
 		// Build the long-lived pipeline once
@@ -177,19 +199,18 @@ func (p *Player) playPipeline(tp *trackPipeline) error {
 		s = &volumeStreamer{s: p.tap, vol: &p.volume, mono: &p.mono, cachedDB: math.NaN()}
 		p.ctrl = &beep.Ctrl{Streamer: s}
 		p.started = true
-		p.playing.Store(true)
-		p.paused.Store(false)
-		p.mu.Unlock()
-
-		speaker.Play(p.ctrl)
-		go closePipelines(oldCurrent, oldNext)
-		return nil
 	}
-
 	p.playing.Store(true)
 	p.paused.Store(false)
 	p.mu.Unlock()
 
+	if firstPlay {
+		speaker.Play(p.ctrl)
+	}
+	// Start API-based now-playing polling for streams without ICY metadata
+	// (no-op otherwise). Done here, not in buildPipelineAt, so preloaded
+	// pipelines that may never play don't spawn pollers.
+	p.startStreamMetadata(tp.path)
 	// Close old resources asynchronously to avoid blocking the caller
 	// (UI thread) on slow Close() operations (ffmpeg wait, HTTP teardown).
 	go closePipelines(oldCurrent, oldNext)
@@ -260,6 +281,8 @@ func (p *Player) GaplessAdvanced() bool {
 }
 
 // TogglePause toggles between paused and playing states.
+// When pausing, the speaker is suspended to save CPU; when unpausing
+// it is resumed so the audio callback drains the queued samples.
 func (p *Player) TogglePause() {
 	speaker.Lock()
 	if p.ctrl != nil {
@@ -267,14 +290,19 @@ func (p *Player) TogglePause() {
 		paused := p.ctrl.Paused
 		speaker.Unlock()
 		p.paused.Store(paused)
+		if paused {
+			p.suspendSpeaker()
+		} else {
+			p.resumeSpeaker()
+		}
 	} else {
 		speaker.Unlock()
 	}
 }
 
-// Stop halts playback and releases resources. The speaker continues running
-// (outputting silence via the gapless streamer) so it can be restarted without
-// rebuilding the pipeline.
+// Stop halts playback and releases resources. The speaker is suspended so
+// the ALSA audio callback goroutine blocks (zero CPU) instead of streaming
+// silence. Resume is called automatically on the next Play().
 func (p *Player) Stop() {
 	// Lock speaker to ensure the goroutine finishes any in-progress Stream()
 	// call, then clear the source and pause. After unlock, the speaker will
@@ -296,7 +324,10 @@ func (p *Player) Stop() {
 	p.paused.Store(false)
 	p.mu.Unlock()
 
+	p.stopStreamMetadata()
 	closePipelines(oldCurrent, oldNext)
+
+	p.suspendSpeaker()
 }
 
 // Seek moves the playback position by the given duration (positive or negative).
@@ -669,6 +700,77 @@ func (p *Player) setStreamTitle(title string) {
 	p.streamTitle.Store(title)
 }
 
+// RegisterStreamMetadataResolver installs a resolver used to pull now-playing
+// metadata for streams that lack inline ICY metadata. Pass nil to disable.
+func (p *Player) RegisterStreamMetadataResolver(r StreamMetadataResolver) {
+	p.mu.Lock()
+	p.streamMetaResolver = r
+	p.mu.Unlock()
+}
+
+// startStreamMetadata (re)starts background now-playing polling for streamURL,
+// cancelling any previous poller. It is a no-op unless a registered resolver
+// recognizes the URL, so streams that carry ICY metadata (or local files) are
+// unaffected. The poller feeds titles through the same path as ICY metadata.
+func (p *Player) startStreamMetadata(streamURL string) {
+	p.stopStreamMetadata()
+
+	p.mu.Lock()
+	resolver := p.streamMetaResolver
+	p.mu.Unlock()
+	if resolver == nil || streamURL == "" || !isURL(streamURL) {
+		return
+	}
+	fetch, interval, ok := resolver(streamURL)
+	if !ok || fetch == nil {
+		return
+	}
+	if interval <= 0 {
+		interval = 15 * time.Second
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	p.mu.Lock()
+	p.metaCancel = cancel
+	p.mu.Unlock()
+
+	go p.pollStreamMetadata(ctx, fetch, interval)
+}
+
+// stopStreamMetadata cancels the active metadata poller, if any.
+func (p *Player) stopStreamMetadata() {
+	p.mu.Lock()
+	cancel := p.metaCancel
+	p.metaCancel = nil
+	p.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// pollStreamMetadata fetches the current title immediately and then on each
+// interval tick until ctx is cancelled, publishing non-empty titles via
+// setStreamTitle. A title fetched after cancellation is discarded so a stale
+// poller cannot clobber the next stream's metadata.
+func (p *Player) pollStreamMetadata(ctx context.Context, fetch func(context.Context) (string, error), interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		title, err := fetch(ctx)
+		if ctx.Err() != nil {
+			return
+		}
+		if err == nil && title != "" {
+			p.setStreamTitle(title)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
 // Seekable reports whether the current track supports seeking.
 // Returns true for local files (decoder-native seek) and for HTTP streams
 // with a known Content-Length and duration (seek-by-reconnect).
@@ -746,6 +848,40 @@ func (p *Player) RegisterBufferedURLMatcher(match func(string) bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.bufferedURLMatch = match
+}
+
+// suspendSpeaker suspends the ALSA audio callback goroutine so it blocks
+// on a condition variable instead of busy-looping. Safe to call multiple
+// times; subsequent calls are no-ops.
+func (p *Player) suspendSpeaker() {
+	p.suspendMu.Lock()
+	defer p.suspendMu.Unlock()
+
+	if p.suspended {
+		return
+	}
+	if err := speaker.Suspend(); err != nil {
+		// Non-fatal: the ALSA driver may return an error if the context
+		// has already hit a terminal error. Continue without tracking
+		// the suspended state so we don't try to resume a dead context.
+		return
+	}
+	p.suspended = true
+}
+
+// resumeSpeaker resumes the ALSA audio callback goroutine. Safe to call
+// multiple times; subsequent calls are no-ops.
+func (p *Player) resumeSpeaker() {
+	p.suspendMu.Lock()
+	defer p.suspendMu.Unlock()
+
+	if !p.suspended {
+		return
+	}
+	if err := speaker.Resume(); err != nil {
+		return
+	}
+	p.suspended = false
 }
 
 // Close fully stops the speaker and cleans up all resources.

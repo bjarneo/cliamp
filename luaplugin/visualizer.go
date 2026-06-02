@@ -69,11 +69,7 @@ func (m *Manager) InitVis(name string, rows, cols int) {
 	vis.plugin.mu.Lock()
 	defer vis.plugin.mu.Unlock()
 
-	_ = vis.plugin.L.CallByParam(lua.P{
-		Fn:      vis.init,
-		NRet:    0,
-		Protect: true,
-	}, vis.obj, lua.LNumber(rows), lua.LNumber(cols))
+	_ = vis.plugin.callBounded(0, vis.init, vis.obj, lua.LNumber(rows), lua.LNumber(cols))
 }
 
 // DestroyVis calls a Lua visualizer's destroy() if it exists.
@@ -88,11 +84,7 @@ func (m *Manager) DestroyVis(name string) {
 	vis.plugin.mu.Lock()
 	defer vis.plugin.mu.Unlock()
 
-	_ = vis.plugin.L.CallByParam(lua.P{
-		Fn:      vis.destroy,
-		NRet:    0,
-		Protect: true,
-	}, vis.obj)
+	_ = vis.plugin.callBounded(0, vis.destroy, vis.obj)
 }
 
 // RenderVis calls a Lua visualizer's render(bands, frame) and returns
@@ -116,11 +108,7 @@ func (m *Manager) RenderVis(name string, bands [10]float64, rows, cols int, fram
 		tbl.RawSetInt(i+1, lua.LNumber(b))
 	}
 
-	err := L.CallByParam(lua.P{
-		Fn:      vis.render,
-		NRet:    1,
-		Protect: true,
-	}, vis.obj, tbl, lua.LNumber(frame), lua.LNumber(rows), lua.LNumber(cols))
+	err := vis.plugin.callBounded(1, vis.render, vis.obj, tbl, lua.LNumber(frame), lua.LNumber(rows), lua.LNumber(cols))
 	if err != nil {
 		return vis.last
 	}

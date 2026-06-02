@@ -126,6 +126,9 @@ func (m *Model) tickInterval() time.Duration {
 	// cadence to save CPU.
 	if !m.isOverlayActive() && !m.buffering && m.player != nil &&
 		m.player.IsPlaying() && !m.player.IsPaused() && d > ui.TickFast {
+		if m.lowPower {
+			return ui.TickLowPowerPlaying
+		}
 		d = ui.TickFast
 	}
 	return d
@@ -154,7 +157,7 @@ func (m *Model) isFullyIdle() bool {
 }
 
 func (m *Model) tickVisualizer(now time.Time) {
-	if m.vis == nil {
+	if m.vis == nil || m.vis.Mode == ui.VisNone {
 		return
 	}
 	m.vis.Tick(m.visualizerTickContext(now))

@@ -47,15 +47,24 @@ func (m *Manager) KeyBindings() []KeyBinding {
 // dispatcher for keys the core doesn't handle.
 func (m *Manager) EmitKey(key string) bool {
 	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.closing {
+		return false
+	}
 	hooks := m.keyBinds[key]
-	m.mu.RUnlock()
 	if len(hooks) == 0 {
 		return false
 	}
 
 	label := "keybind " + key
 	for _, h := range hooks {
-		go m.invokeHook(h, label, lua.LString(key))
+		// Tracked in wg and gated on closing (same as Emit) so a keypress
+		// during shutdown can't call into a closed LState.
+		m.wg.Add(1)
+		go func(h *luaHook) {
+			defer m.wg.Done()
+			m.invokeHook(h, label, lua.LString(key))
+		}(h)
 	}
 	return true
 }

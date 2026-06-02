@@ -1,18 +1,12 @@
 package model
 
 import (
+	"fmt"
 	"strings"
 
 	"cliamp/theme"
+	"cliamp/ui"
 )
-
-func (m *Model) measureChrome(before, after []string) int {
-	probe := append([]string{}, before...)
-	probe = append(probe, "x")
-	probe = append(probe, after...)
-	probe = m.appendFooterMessages(probe)
-	return m.measureOverlayVisible(probe, maxPlVisible)
-}
 
 // openThemePicker re-loads themes from disk (picking up new user files)
 // and opens the theme selector overlay.
@@ -60,11 +54,78 @@ func (m *Model) themePickerHelpLine() string {
 }
 
 func (m *Model) themePickerVisible() int {
-	return m.measureChrome(m.themePickerChrome())
+	return m.effectivePlaylistVisible()
 }
 
 func (m *Model) themePickerMaybeAdjustScroll(visible int) {
 	clampScroll(&m.themePicker.cursor, &m.themePicker.scroll, len(m.themes)+1, visible)
+}
+
+// openVisPicker opens the visualizer picker, which renders the mode list in the
+// playlist region while keeping the visualizer live above it for preview. The
+// cursor starts on the currently active mode.
+func (m *Model) openVisPicker() {
+	m.visPicker.visible = true
+	m.visPicker.savedMode = int(m.vis.Mode)
+	m.visPicker.cursor = int(m.vis.Mode)
+	m.visPicker.scroll = 0
+	// Capture the mode list once; it is stable while the picker is open (Lua
+	// visualizers are registered at startup), so callers avoid re-allocating it.
+	m.visPicker.modes = m.vis.AllModeNames()
+	// Recompute chrome/height for the picker layout (its header + help differ
+	// from the playlist), then fit the cursor into the visible window.
+	m.refreshChrome()
+	m.applyHeightMode()
+	m.visPickerMaybeAdjustScroll(m.visPickerVisible())
+}
+
+// visPickerApply switches to the visualizer mode under the cursor. Run on every
+// cursor move so the live preview updates as the user scrolls. Only recompute
+// the layout when crossing the VisNone boundary, since that is the sole mode
+// change that adds/removes the spectrum block (all other modes share a height).
+func (m *Model) visPickerApply() {
+	wasNone := m.vis.Mode == ui.VisNone
+	m.vis.SetMode(ui.VisMode(m.visPicker.cursor))
+	if wasNone != (m.vis.Mode == ui.VisNone) {
+		m.refreshChrome()
+		m.applyHeightMode()
+	}
+}
+
+// visPickerClose restores playlist sizing after the picker layout is dismissed.
+func (m *Model) visPickerClose() {
+	m.visPicker.visible = false
+	m.visPicker.modes = nil
+	m.refreshChrome()
+	m.applyHeightMode()
+	m.adjustScroll()
+}
+
+// visPickerSelect confirms the current selection, persists it, and closes.
+func (m *Model) visPickerSelect() {
+	m.visPickerApply()
+	if err := m.configSaver.Save("visualizer", fmt.Sprintf("%q", m.vis.ModeName())); err != nil {
+		m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
+	}
+	m.visPickerClose()
+}
+
+// visPickerCancel restores the mode from before the picker was opened.
+func (m *Model) visPickerCancel() {
+	m.vis.SetMode(ui.VisMode(m.visPicker.savedMode))
+	m.visPickerClose()
+}
+
+func (m *Model) visPickerHelpLine() string {
+	return helpKey("↓↑", "Preview ") + helpKey("Enter", "Select ") + helpKey("Esc", "Cancel ") + helpKey("Ctrl+K", "Keys")
+}
+
+func (m *Model) visPickerVisible() int {
+	return m.effectivePlaylistVisible()
+}
+
+func (m *Model) visPickerMaybeAdjustScroll(visible int) {
+	clampScroll(&m.visPicker.cursor, &m.visPicker.scroll, len(m.visPicker.modes), visible)
 }
 
 func (m *Model) devicePickerHelpLine() string {
@@ -72,7 +133,7 @@ func (m *Model) devicePickerHelpLine() string {
 }
 
 func (m *Model) devicePickerVisible() int {
-	return m.measureChrome(m.devicePickerChrome())
+	return m.effectivePlaylistVisible()
 }
 
 func (m *Model) queueHelpLine() string {
@@ -84,7 +145,7 @@ func (m *Model) queueHelpLine() string {
 }
 
 func (m *Model) queueVisible() int {
-	return m.measureChrome(m.queueChrome())
+	return m.effectivePlaylistVisible()
 }
 
 func (m *Model) searchHelpLine() string {
@@ -95,7 +156,15 @@ func (m *Model) searchHelpLine() string {
 }
 
 func (m *Model) searchVisible() int {
-	return m.measureChrome(m.searchChrome())
+	return m.effectivePlaylistVisible()
+}
+
+// closeSearchLayout restores playlist sizing after the inline search header and
+// help line are dismissed, then refits the playlist cursor into view.
+func (m *Model) closeSearchLayout() {
+	m.refreshChrome()
+	m.applyHeightMode()
+	m.adjustScroll()
 }
 
 func (m *Model) netSearchResultsHelpLine() string {
@@ -107,7 +176,7 @@ func (m *Model) netSearchResultsHelpLine() string {
 }
 
 func (m *Model) netSearchResultsVisible() int {
-	return m.measureChrome(m.netSearchResultsChrome())
+	return m.effectivePlaylistVisible()
 }
 
 func (m *Model) spotSearchResultsHelpLine() string {
@@ -120,7 +189,7 @@ func (m *Model) spotSearchResultsHelpLine() string {
 }
 
 func (m *Model) spotSearchResultsVisible() int {
-	return m.measureChrome(m.spotSearchResultsChrome())
+	return m.effectivePlaylistVisible()
 }
 
 func (m *Model) spotSearchPlaylistHelpLine() string {
@@ -128,7 +197,13 @@ func (m *Model) spotSearchPlaylistHelpLine() string {
 }
 
 func (m *Model) spotSearchPlaylistVisible() int {
-	return m.measureChrome(m.spotSearchPlaylistChrome())
+	return m.effectivePlaylistVisible()
+}
+
+// navVisible returns the nav-browser list height. The nav browser renders
+// inline in the playlist region, so it shares the playlist's row budget.
+func (m *Model) navVisible() int {
+	return m.effectivePlaylistVisible()
 }
 
 func (m *Model) plMgrListHelpLine() string {
@@ -146,7 +221,7 @@ func (m *Model) plMgrListHelpLine() string {
 }
 
 func (m *Model) plMgrListVisible() int {
-	return m.measureChrome(m.plMgrListChrome())
+	return m.effectivePlaylistVisible()
 }
 
 func (m *Model) plMgrListMaybeAdjustScroll(visible int) {
@@ -168,7 +243,7 @@ func (m *Model) plMgrTracksHelpLine() string {
 }
 
 func (m *Model) plMgrTracksVisible() int {
-	return m.measureChrome(m.plMgrTracksChrome())
+	return m.effectivePlaylistVisible()
 }
 
 func (m *Model) plMgrTracksMaybeAdjustScroll(visible int) {

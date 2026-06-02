@@ -11,11 +11,13 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
 	"cliamp/history"
 	"cliamp/internal/appdir"
+	"cliamp/internal/fuzzy"
 	"cliamp/internal/tomlutil"
 	"cliamp/playlist"
 	"cliamp/provider"
@@ -47,7 +49,7 @@ func New() *Provider {
 	}
 }
 
-func (p *Provider) Name() string { return "Local Playlists" }
+func (p *Provider) Name() string { return "Local" }
 
 // safePath validates a playlist name and returns the absolute path to its TOML
 // file, ensuring the result stays within p.dir. This prevents path traversal
@@ -289,11 +291,12 @@ func (p *Provider) AddTrackToPlaylist(_ context.Context, playlistID string, trac
 	return p.AddTrack(playlistID, track)
 }
 
-// SearchTracks does a case-insensitive substring search across every saved
-// playlist for tracks whose title, artist, or album match query. Returns up to
-// limit results (limit <= 0 means no cap). Implements provider.Searcher.
+// SearchTracks does a case-insensitive fuzzy search across every saved playlist
+// for tracks whose title, artist, or album match query, ranked by relevance
+// (best match first). Returns up to limit results (limit <= 0 means no cap).
+// Implements provider.Searcher.
 func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]playlist.Track, error) {
-	q := strings.ToLower(strings.TrimSpace(query))
+	q := strings.TrimSpace(query)
 	if q == "" {
 		return nil, nil
 	}
@@ -306,7 +309,11 @@ func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]p
 		return nil, err
 	}
 
-	var out []playlist.Track
+	type scored struct {
+		track playlist.Track
+		score int
+	}
+	var matches []scored
 	seen := make(map[string]struct{})
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".toml") {
@@ -320,30 +327,42 @@ func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]p
 			if _, dup := seen[t.Path]; dup {
 				continue
 			}
-			if !trackMatches(t, q) {
+			score, ok := trackMatchScore(t, q)
+			if !ok {
 				continue
 			}
 			seen[t.Path] = struct{}{}
-			out = append(out, t)
-			if limit > 0 && len(out) >= limit {
-				return out, nil
-			}
+			matches = append(matches, scored{t, score})
 		}
+	}
+
+	sort.SliceStable(matches, func(a, b int) bool {
+		return matches[a].score > matches[b].score
+	})
+	if limit > 0 && len(matches) > limit {
+		matches = matches[:limit]
+	}
+
+	out := make([]playlist.Track, len(matches))
+	for i, m := range matches {
+		out[i] = m.track
 	}
 	return out, nil
 }
 
-func trackMatches(t playlist.Track, lowerQuery string) bool {
-	if strings.Contains(strings.ToLower(t.Title), lowerQuery) {
-		return true
+// trackMatchScore returns the best fuzzy score for query across the track's
+// title, artist, and album, and whether any of them matched.
+func trackMatchScore(t playlist.Track, query string) (int, bool) {
+	best, ok := 0, false
+	for _, field := range [...]string{t.Title, t.Artist, t.Album} {
+		if field == "" {
+			continue
+		}
+		if s, matched := fuzzy.Match(query, field); matched && (!ok || s > best) {
+			best, ok = s, true
+		}
 	}
-	if strings.Contains(strings.ToLower(t.Artist), lowerQuery) {
-		return true
-	}
-	if strings.Contains(strings.ToLower(t.Album), lowerQuery) {
-		return true
-	}
-	return false
+	return best, ok
 }
 
 // RenamePlaylist renames a playlist by renaming its TOML file.
@@ -453,71 +472,32 @@ func (p *Provider) loadTOML(path string) ([]playlist.Track, error) {
 	}
 
 	var tracks []playlist.Track
-	var current *playlist.Track
-
-	for rawLine := range strings.SplitSeq(string(data), "\n") {
-		line := strings.TrimSpace(rawLine)
-
-		// Skip comments and blank lines.
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+	tomlutil.ParseSections(data, "track", func(f map[string]string) {
+		t := playlist.Track{
+			Path:   f["path"],
+			Title:  f["title"],
+			Artist: f["artist"],
+			Album:  f["album"],
+			Genre:  f["genre"],
+			Feed:   f["feed"] == "true",
 		}
-
-		// New track section.
-		if line == "[[track]]" {
-			if current != nil {
-				tracks = append(tracks, *current)
-			}
-			current = &playlist.Track{}
-			continue
-		}
-
-		if current == nil {
-			continue
-		}
-
-		// Parse key = "value" lines.
-		key, val, ok := strings.Cut(line, "=")
+		t.Stream = playlist.IsURL(t.Path)
+		// "favorite" is the pre-rename alias for "bookmark"; prefer bookmark.
+		bookmark, ok := f["bookmark"]
 		if !ok {
-			continue
+			bookmark = f["favorite"]
 		}
-		key = strings.TrimSpace(key)
-		val = strings.TrimSpace(val)
-		val = tomlutil.Unquote(val)
-
-		switch key {
-		case "path":
-			current.Path = val
-			current.Stream = playlist.IsURL(val)
-		case "feed":
-			current.Feed = val == "true"
-		case "title":
-			current.Title = val
-		case "artist":
-			current.Artist = val
-		case "album":
-			current.Album = val
-		case "genre":
-			current.Genre = val
-		case "year":
-			if n, err := strconv.Atoi(val); err == nil {
-				current.Year = n
-			}
-		case "track_number":
-			if n, err := strconv.Atoi(val); err == nil {
-				current.TrackNumber = n
-			}
-		case "duration_secs":
-			if n, err := strconv.Atoi(val); err == nil {
-				current.DurationSecs = n
-			}
-		case "bookmark", "favorite":
-			// "favorite" accepted for backward compatibility with playlists saved before the rename.
-			current.Bookmark = val == "true"
+		t.Bookmark = bookmark == "true"
+		if n, err := strconv.Atoi(f["year"]); err == nil {
+			t.Year = n
 		}
-	}
-	if current != nil {
-		tracks = append(tracks, *current)
-	}
+		if n, err := strconv.Atoi(f["track_number"]); err == nil {
+			t.TrackNumber = n
+		}
+		if n, err := strconv.Atoi(f["duration_secs"]); err == nil {
+			t.DurationSecs = n
+		}
+		tracks = append(tracks, t)
+	})
 	return tracks, nil
 }

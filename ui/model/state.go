@@ -72,6 +72,15 @@ type themePickerState struct {
 	savedIdx int // themeIdx before opening picker, for cancel/restore
 }
 
+// visPickerState holds state for the visualizer picker overlay.
+type visPickerState struct {
+	visible   bool
+	cursor    int
+	scroll    int
+	savedMode int      // vis.Mode before opening, for cancel/restore
+	modes     []string // mode names captured at open (stable while open)
+}
+
 // lyricsState holds state for the lyrics display overlay.
 type lyricsState struct {
 	visible bool

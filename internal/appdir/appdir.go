@@ -44,3 +44,13 @@ func PluginDir() (string, error) {
 	}
 	return filepath.Join(dir, "plugins"), nil
 }
+
+// DataDir returns the cliamp data directory (~/.local/share/cliamp), used for
+// state that is not user-edited config: plugin stores, downloaded assets, etc.
+func DataDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".local", "share", "cliamp"), nil
+}

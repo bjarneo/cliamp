@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"math"
 	"strings"
 	"time"
 )
@@ -170,7 +169,7 @@ func (d *flameDriver) Render(v *Visualizer) string {
 					//   tips    → red, stippled above
 					var t int
 					switch {
-					case h >= math.Min(0.65, 0.55):
+					case h >= 0.55:
 						t = 1 // yellow core
 					default:
 						t = 2 // red body / tips

@@ -21,7 +21,7 @@ func TestMakeMetadataMapsPlaybackTrackToMPRISFields(t *testing.T) {
 		Duration:    3*time.Minute + 15*time.Second,
 	}
 
-	got := makeMetadata(track)
+	got := makeMetadata(track, trackPath(1))
 
 	want := map[string]dbus.Variant{
 		"mpris:trackid":     dbus.MakeVariant(dbus.ObjectPath("/org/mpris/MediaPlayer2/Track/1")),
@@ -49,7 +49,7 @@ func TestMakeMetadataMapsPlaybackTrackToMPRISFields(t *testing.T) {
 }
 
 func TestMakeMetadataOmitsEmptyOptionalFields(t *testing.T) {
-	got := makeMetadata(playback.Track{})
+	got := makeMetadata(playback.Track{}, trackPath(1))
 
 	if len(got) != 1 {
 		t.Fatalf("metadata field count = %d, want 1", len(got))

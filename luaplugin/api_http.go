@@ -2,16 +2,45 @@ package luaplugin
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
+	"syscall"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
 )
 
+// ssrfGuard rejects connections to non-public addresses. It runs as the
+// dialer's Control hook, so it sees the resolved IP for every connection
+// attempt, including ones reached via HTTP redirects or DNS rebinding.
+func ssrfGuard(network, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return fmt.Errorf("cannot resolve dial address %q", address)
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return fmt.Errorf("blocked request to non-public address %s", ip)
+	}
+	return nil
+}
+
 var httpClient = &http.Client{
 	Timeout: 5 * time.Second,
+	Transport: &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout: 5 * time.Second,
+			Control: ssrfGuard,
+		}).DialContext,
+	},
 }
 
 // registerHTTPAPI adds cliamp.http.{get,post} to the cliamp table.
@@ -34,7 +63,12 @@ func registerHTTPAPI(L *lua.LState, cliamp *lua.LTable) {
 const maxResponseBody = 1 << 20 // 1MB
 
 func doHTTP(L *lua.LState, method string) int {
-	url := L.CheckString(1)
+	rawURL := L.CheckString(1)
+	if u, err := url.Parse(rawURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("only http and https URLs are allowed"))
+		return 2
+	}
 	opts := L.OptTable(2, nil)
 
 	var bodyReader io.Reader
@@ -57,7 +91,7 @@ func doHTTP(L *lua.LState, method string) int {
 		}
 	}
 
-	req, err := http.NewRequest(method, url, bodyReader)
+	req, err := http.NewRequest(method, rawURL, bodyReader)
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))

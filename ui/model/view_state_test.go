@@ -127,41 +127,63 @@ func TestViewConsumesInitialVisualizerRefresh(t *testing.T) {
 	}
 }
 
-func TestRenderNavBrowserIncludesFooterMessages(t *testing.T) {
-	withFrameWidth(t, 80)
-
-	m := Model{
-		width:  80,
-		height: 24,
-		navBrowser: navBrowserState{
-			visible: true,
-			mode:    navBrowseModeMenu,
-		},
+func TestOverlayViewIncludesFooterMessages(t *testing.T) {
+	if sharedPlayer == nil {
+		t.Skip("audio hardware unavailable")
 	}
+	withFrameWidth(t, 80)
+	sharedPlayer.Stop()
+
+	// Footer/transient messages are now rendered by the inline overlay layout
+	// (mainSectionsOverlay) rather than by each overlay renderer.
+	m := Model{
+		player:    sharedPlayer,
+		playlist:  playlist.New(),
+		vis:       ui.NewVisualizer(float64(sharedPlayer.SampleRate())),
+		width:     80,
+		height:    24,
+		plVisible: 5,
+	}
+	m.vis.Mode = ui.VisNone
+	m.refreshChrome()
+	m.applyHeightMode()
 	m.save.startDownload()
 
-	if out := m.renderNavBrowser(); !strings.Contains(out, "Downloading...") {
-		t.Fatalf("renderNavBrowser() missing download footer: %q", out)
+	out := m.View().Content
+	if !strings.Contains(out, "Downloading...") {
+		t.Fatalf("overlay view missing download footer: %q", out)
 	}
 }
 
-func TestViewKeepsOverlayLayoutUnchanged(t *testing.T) {
+func TestKeymapRendersInline(t *testing.T) {
+	if sharedPlayer == nil {
+		t.Skip("audio hardware unavailable")
+	}
 	withFrameWidth(t, 80)
+	sharedPlayer.Stop()
 
 	m := Model{
-		width:  80,
-		height: 22,
+		player:    sharedPlayer,
+		playlist:  playlist.New(),
+		vis:       ui.NewVisualizer(float64(sharedPlayer.SampleRate())),
+		width:     80,
+		height:    24,
+		plVisible: 5,
 		keymap: keymapOverlay{
 			visible: true,
+			entries: []keymapEntry{{key: "Space", action: "Play/Pause"}},
 		},
 	}
+	m.vis.Mode = ui.VisNone
 
-	want := m.renderKeymapOverlay()
-	if got := lipgloss.Height(want); got > m.height {
-		t.Fatalf("renderKeymapOverlay() height = %d, want <= %d for test setup", got, m.height)
+	out := m.View().Content
+	if got := lipgloss.Height(out); got > m.height {
+		t.Fatalf("View() height = %d, want <= %d for inline keymap", got, m.height)
 	}
-	if got := m.View().Content; got != want {
-		t.Fatalf("View() changed overlay layout")
+	// The keymap renders in the playlist region, so its entries appear inline
+	// rather than as a standalone centered overlay.
+	if !strings.Contains(out, "Play/Pause") {
+		t.Fatalf("View() missing inline keymap entry: %q", out)
 	}
 }
 
@@ -188,10 +210,10 @@ func TestFullVisualizerViewFitsTerminalWidth(t *testing.T) {
 	}
 }
 
-var ansi = regexp.MustCompile(`\x1b\[[0-9;]*[mK]`)
+var stripAnsiRegExp = regexp.MustCompile(`\x1b\[[0-9;]*[mK]`)
 
 func stripAnsi(str string) string {
-	return ansi.ReplaceAllString(str, "")
+	return stripAnsiRegExp.ReplaceAllString(str, "")
 }
 
 func TestRenderPlaylistAddsPaddingToTrackNumber(t *testing.T) {

@@ -87,7 +87,13 @@ func TestCleanQuery(t *testing.T) {
 		{"Artist - Song (Official Video)", "Artist - Song"},
 		{"Song [Lyric Video]", "Song"},
 		{"Song - Official Audio", "Song"},
+		{"Song Official Music Video", "Song"},
 		{"Clean Title", "Clean Title"},
+		// Label words inside a real title must survive (regression cases).
+		{"Videotape", "Videotape"},
+		{"Audioslave", "Audioslave"},
+		{"Video Games", "Video Games"},
+		{"No Lyric", "No Lyric"},
 		{"", ""},
 	}
 	for _, tt := range tests {

@@ -49,6 +49,13 @@ cookies_from = "chrome"
 
 Supported browsers: `chrome`, `firefox`, `brave`, `edge`, `opera`, `safari`, `chromium`.
 
+You can also point at a specific profile or path using yt-dlp's `browser:path` syntax. For example, Zen browser (a Firefox fork) stores its profile outside the default location:
+
+```toml
+[ytmusic]
+cookies_from = "firefox:~/.config/zen"
+```
+
 Run `cliamp` (or `cliamp --provider ytmusic` / `cliamp --provider youtube`), select a provider, and press Enter to sign in. Credentials are cached at `~/.config/cliamp/ytmusic_credentials.json`. Subsequent launches refresh silently.
 
 ## Usage
@@ -89,6 +96,10 @@ Classification is determined by sampling a video from each playlist and checking
 
 ## Troubleshooting
 
+- **"ERR: waiting for audio data: EOF" / playback stops immediately**: yt-dlp couldn't produce a stream. cliamp now surfaces yt-dlp's real message (e.g. "Sign in to confirm you're not a bot") instead of the bare EOF, so read the full error. The common causes:
+  - **Outdated yt-dlp**: update it (`yt-dlp -U`, or reinstall from the [official repo](https://github.com/yt-dlp/yt-dlp)). Distro and winget builds are frequently stale and break when YouTube changes.
+  - **Bot detection**: YouTube blocks anonymous requests. Set `cookies_from` (see above) so yt-dlp reuses your logged-in browser session. For Zen browser use `cookies_from = "firefox:~/.config/zen"`.
+  - **Wrong `cookies_from` value**: the browser must be installed and logged in to YouTube, and the profile path must be correct.
 - **"OAuth failed"**: Make sure your Google Cloud project has YouTube Data API v3 enabled and your OAuth client type is "Desktop app".
 - **"Access blocked"**: While your app is in "Testing" status, only test users you've added can sign in. Add your Google account as a test user in the OAuth consent screen settings.
 - **Playlist not showing**: Only playlists in your library are listed. Save/follow a playlist in YouTube Music for it to appear.

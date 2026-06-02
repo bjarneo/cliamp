@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -237,7 +238,7 @@ func (c *NavidromeClient) subsonicGet(endpoint string, params url.Values, result
 func (c *NavidromeClient) Playlists() ([]playlist.PlaylistInfo, error) {
 	c.mu.Lock()
 	if c.playlistCache != nil {
-		cached := c.playlistCache
+		cached := slices.Clone(c.playlistCache)
 		c.mu.Unlock()
 		return cached, nil
 	}
@@ -271,7 +272,7 @@ func (c *NavidromeClient) Playlists() ([]playlist.PlaylistInfo, error) {
 	c.playlistCache = lists
 	c.mu.Unlock()
 
-	return lists, nil
+	return slices.Clone(lists), nil
 }
 
 func (c *NavidromeClient) Tracks(id string) ([]playlist.Track, error) {
@@ -279,7 +280,7 @@ func (c *NavidromeClient) Tracks(id string) ([]playlist.Track, error) {
 	if c.trackCache != nil {
 		if cached, ok := c.trackCache[id]; ok {
 			c.mu.Unlock()
-			return cached, nil
+			return slices.Clone(cached), nil
 		}
 	}
 	c.mu.Unlock()
@@ -307,7 +308,16 @@ func (c *NavidromeClient) Tracks(id string) ([]playlist.Track, error) {
 	c.trackCache[id] = tracks
 	c.mu.Unlock()
 
-	return tracks, nil
+	return slices.Clone(tracks), nil
+}
+
+// Refresh clears cached playlist and track data so the next Playlists/Tracks
+// call re-fetches from the server. Implements playlist.Refresher.
+func (c *NavidromeClient) Refresh() {
+	c.mu.Lock()
+	c.playlistCache = nil
+	c.trackCache = nil
+	c.mu.Unlock()
 }
 
 // Artists returns all artists from the server, flattening the index structure.

@@ -42,6 +42,7 @@ Press `?` or `Ctrl+K` in the player to see all keybindings.
 | `e` | Cycle EQ preset |
 | `t` | Choose theme |
 | `v` | Cycle visualizer |
+| `Ctrl+V` | Pick visualizer from a list (live preview) |
 | `V` | Full screen visualizer |
 | `Ctrl+H` | Toggle album headers |
 
@@ -138,6 +139,18 @@ When `Ctrl+F` opens provider search or YouTube/SoundCloud net search and you're 
 | `q` | Queue the selected track to play next |
 | `p` | (Spotify only) Save the selected track to a Spotify playlist |
 | `Esc` `Backspace` | Back to the search input |
+
+## Fuzzy search
+
+The local search boxes match fuzzily: your query characters only need to appear in order, not contiguously, and results are ranked by relevance (best match first). For example, `skr` or `saku` both find a track titled "Sakura".
+
+This applies to:
+
+- `/` playlist search
+- `/` file browser filter
+- `Ctrl+F` when the active provider is Local (your saved playlists)
+
+Other `Ctrl+F` providers (Spotify, Navidrome, Jellyfin, Emby, Plex, NetEase, YouTube) send your query to their own search API, so matching there follows each service's rules.
 
 ## General
 

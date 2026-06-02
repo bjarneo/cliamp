@@ -27,6 +27,9 @@ func resolveSource(source string) (urls []string, name string, err error) {
 		}
 		base := path.Base(u.Path)
 		name = strings.TrimSuffix(base, ".lua")
+		if name == "" || name == "." || name == "/" {
+			return nil, "", fmt.Errorf("cannot derive a plugin name from URL %q; it should end in <name>.lua", source)
+		}
 		return []string{source}, name, nil
 	}
 

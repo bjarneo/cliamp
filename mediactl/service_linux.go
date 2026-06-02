@@ -29,6 +29,8 @@ type Service struct {
 	lastTrack   playback.Track
 	lastVol     float64
 	lastCanSeek bool
+	trackSeq    int64           // bumped on each track change
+	trackID     dbus.ObjectPath // current track's MPRIS object path
 }
 
 const introspectXML = `
@@ -36,6 +38,12 @@ const introspectXML = `
   <interface name="org.mpris.MediaPlayer2">
     <method name="Raise"/>
     <method name="Quit"/>
+    <property name="Identity" type="s" access="read"/>
+    <property name="CanQuit" type="b" access="read"/>
+    <property name="CanRaise" type="b" access="read"/>
+    <property name="HasTrackList" type="b" access="read"/>
+    <property name="SupportedUriSchemes" type="as" access="read"/>
+    <property name="SupportedMimeTypes" type="as" access="read"/>
   </interface>
   <interface name="org.mpris.MediaPlayer2.Player">
     <method name="Next"/>
@@ -47,6 +55,19 @@ const introspectXML = `
     <method name="Seek"><arg direction="in" type="x"/></method>
     <method name="SetPosition"><arg direction="in" type="o"/><arg direction="in" type="x"/></method>
     <signal name="Seeked"><arg type="x"/></signal>
+    <property name="PlaybackStatus" type="s" access="read"/>
+    <property name="Rate" type="d" access="read"/>
+    <property name="Metadata" type="a{sv}" access="read"/>
+    <property name="Volume" type="d" access="readwrite"/>
+    <property name="Position" type="x" access="read"/>
+    <property name="MinimumRate" type="d" access="read"/>
+    <property name="MaximumRate" type="d" access="read"/>
+    <property name="CanGoNext" type="b" access="read"/>
+    <property name="CanGoPrevious" type="b" access="read"/>
+    <property name="CanPlay" type="b" access="read"/>
+    <property name="CanPause" type="b" access="read"/>
+    <property name="CanSeek" type="b" access="read"/>
+    <property name="CanControl" type="b" access="read"/>
   </interface>
 ` + introspect.IntrospectDataString + `</node>`
 
@@ -96,6 +117,14 @@ func (p playerIface) DoSeek(offset int64) *dbus.Error {
 }
 
 func (p playerIface) SetPosition(trackID dbus.ObjectPath, position int64) *dbus.Error {
+	// Ignore a seek aimed at a track that is no longer current (the MPRIS
+	// spec treats a mismatched TrackId as stale).
+	p.svc.mu.Lock()
+	cur := p.svc.trackID
+	p.svc.mu.Unlock()
+	if trackID != cur {
+		return nil
+	}
 	p.svc.send(playback.SetPositionMsg{Position: time.Duration(position) * time.Microsecond})
 	return nil
 }
@@ -117,7 +146,7 @@ func New(send func(tea.Msg)) (*Service, error) {
 		return nil, fmt.Errorf("mpris: name already taken")
 	}
 
-	svc := &Service{conn: conn, send: send}
+	svc := &Service{conn: conn, send: send, trackSeq: 1, trackID: trackPath(1)}
 	path := dbus.ObjectPath("/org/mpris/MediaPlayer2")
 
 	if err := conn.Export(root{svc}, path, "org.mpris.MediaPlayer2"); err != nil {
@@ -138,14 +167,16 @@ func New(send func(tea.Msg)) (*Service, error) {
 
 	propsSpec := map[string]map[string]*prop.Prop{
 		"org.mpris.MediaPlayer2": {
-			"Identity":     {Value: "Cliamp", Writable: false, Emit: prop.EmitTrue},
-			"CanQuit":      {Value: true, Writable: false, Emit: prop.EmitTrue},
-			"CanRaise":     {Value: false, Writable: false, Emit: prop.EmitTrue},
-			"HasTrackList": {Value: false, Writable: false, Emit: prop.EmitTrue},
+			"Identity":            {Value: "Cliamp", Writable: false, Emit: prop.EmitTrue},
+			"CanQuit":             {Value: true, Writable: false, Emit: prop.EmitTrue},
+			"CanRaise":            {Value: false, Writable: false, Emit: prop.EmitTrue},
+			"HasTrackList":        {Value: false, Writable: false, Emit: prop.EmitTrue},
+			"SupportedUriSchemes": {Value: []string{}, Writable: false, Emit: prop.EmitTrue},
+			"SupportedMimeTypes":  {Value: []string{}, Writable: false, Emit: prop.EmitTrue},
 		},
 		"org.mpris.MediaPlayer2.Player": {
 			"PlaybackStatus": {Value: string(playback.StatusStopped), Writable: false, Emit: prop.EmitTrue},
-			"Metadata":       {Value: makeMetadata(playback.Track{}), Writable: false, Emit: prop.EmitTrue},
+			"Metadata":       {Value: makeMetadata(playback.Track{}, svc.trackID), Writable: false, Emit: prop.EmitTrue},
 			"Volume": {Value: 1.0, Writable: true, Emit: prop.EmitTrue, Callback: func(c *prop.Change) *dbus.Error {
 				v, ok := c.Value.(float64)
 				if !ok {
@@ -157,7 +188,10 @@ func New(send func(tea.Msg)) (*Service, error) {
 				if v > 1 {
 					v = 1
 				}
-				go svc.send(playback.SetVolumeMsg{VolumeDB: linearToDb(v)})
+				// Send synchronously: an extra goroutine per change lets rapid
+				// volume updates apply out of order. send (prog.Send) is already
+				// goroutine-safe and non-blocking.
+				svc.send(playback.SetVolumeMsg{VolumeDB: linearToDb(v)})
 				return nil
 			}},
 			"Position":      {Value: int64(0), Writable: false, Emit: prop.EmitFalse},
@@ -201,7 +235,9 @@ func (s *Service) Update(state playback.State) {
 	}
 
 	if state.Track != s.lastTrack {
-		s.props.SetMust(iface, "Metadata", makeMetadata(state.Track))
+		s.trackSeq++
+		s.trackID = trackPath(s.trackSeq)
+		s.props.SetMust(iface, "Metadata", makeMetadata(state.Track, s.trackID))
 		s.lastTrack = state.Track
 	}
 

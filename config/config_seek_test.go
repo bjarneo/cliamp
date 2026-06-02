@@ -69,3 +69,27 @@ func TestSeekStepLargeDuration(t *testing.T) {
 		t.Fatalf("SeekStepLargeDuration = %v, want %v", got, want)
 	}
 }
+
+func TestLoadLowPower(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	data := []byte("visualizer = \"Bars\"\nlow_power = true\n")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.LowPower {
+		t.Fatal("LowPower = false, want true")
+	}
+	if cfg.Visualizer != "none" {
+		t.Fatalf("Visualizer = %q, want none", cfg.Visualizer)
+	}
+}

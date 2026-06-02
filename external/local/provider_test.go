@@ -2,6 +2,7 @@ package local
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,8 +54,8 @@ func TestSafePathRejectsSlash(t *testing.T) {
 
 func TestProviderName(t *testing.T) {
 	p := newTestProvider(t)
-	if got := p.Name(); got != "Local Playlists" {
-		t.Fatalf("Name() = %q, want %q", got, "Local Playlists")
+	if got := p.Name(); got != "Local" {
+		t.Fatalf("Name() = %q, want %q", got, "Local")
 	}
 }
 
@@ -503,5 +504,85 @@ func TestClearHistoryRemovesEntries(t *testing.T) {
 	}
 	if got, _ := p.history.Recent(0); len(got) != 0 {
 		t.Errorf("history not cleared: %d entries remain", len(got))
+	}
+}
+
+// --- SearchTracks (fuzzy) ---
+
+func TestTrackMatchScore(t *testing.T) {
+	tests := []struct {
+		name  string
+		track playlist.Track
+		query string
+		want  bool
+	}{
+		{"title subsequence", playlist.Track{Title: "Sakura"}, "skr", true},
+		{"artist subsequence", playlist.Track{Artist: "Radiohead"}, "rdhd", true},
+		{"album substring", playlist.Track{Album: "In Rainbows"}, "rainbow", true},
+		{"no match", playlist.Track{Title: "Sakura"}, "zzz", false},
+		{"all fields empty", playlist.Track{}, "x", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, ok := trackMatchScore(tt.track, tt.query); ok != tt.want {
+				t.Fatalf("trackMatchScore(%+v, %q) ok = %v, want %v", tt.track, tt.query, ok, tt.want)
+			}
+		})
+	}
+}
+
+func TestSearchTracksFuzzyRanksAndMatchesSubsequence(t *testing.T) {
+	p := newTestProvider(t)
+	if err := p.savePlaylist("lib", []playlist.Track{
+		{Path: "/1.mp3", Title: "Cherry Blossom (Sakura Mix)"},
+		{Path: "/2.mp3", Title: "Sakura"},
+		{Path: "/3.mp3", Title: "Thunderstruck"},
+	}); err != nil {
+		t.Fatalf("savePlaylist: %v", err)
+	}
+
+	// "skr" is a non-contiguous subsequence a substring search would miss.
+	got, err := p.SearchTracks(context.Background(), "skr", 0)
+	if err != nil {
+		t.Fatalf("SearchTracks: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d results, want 2: %+v", len(got), got)
+	}
+	// "Sakura" (prefix match) outranks "Cherry Blossom (Sakura Mix)".
+	if got[0].Title != "Sakura" {
+		t.Fatalf("top result = %q, want %q", got[0].Title, "Sakura")
+	}
+}
+
+func TestSearchTracksEmptyQuery(t *testing.T) {
+	p := newTestProvider(t)
+	if err := p.savePlaylist("lib", []playlist.Track{{Path: "/1.mp3", Title: "Sakura"}}); err != nil {
+		t.Fatalf("savePlaylist: %v", err)
+	}
+	got, err := p.SearchTracks(context.Background(), "   ", 0)
+	if err != nil {
+		t.Fatalf("SearchTracks: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("blank query should return nil, got %+v", got)
+	}
+}
+
+func TestSearchTracksLimit(t *testing.T) {
+	p := newTestProvider(t)
+	if err := p.savePlaylist("lib", []playlist.Track{
+		{Path: "/1.mp3", Title: "Sakura One"},
+		{Path: "/2.mp3", Title: "Sakura Two"},
+		{Path: "/3.mp3", Title: "Sakura Three"},
+	}); err != nil {
+		t.Fatalf("savePlaylist: %v", err)
+	}
+	got, err := p.SearchTracks(context.Background(), "sakura", 2)
+	if err != nil {
+		t.Fatalf("SearchTracks: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d results, want 2 (limit)", len(got))
 	}
 }

@@ -52,7 +52,20 @@ type StateProvider struct {
 	TrackIsStream func() bool
 	TrackDuration func() int // seconds
 	PlaylistCount func() int
-	CurrentIndex  func() int // 0-based
+	CurrentIndex  func() int          // 0-based
+	QueueList     func() []QueueEntry // full playlist in play order
+}
+
+// QueueEntry is one track in the playlist as exposed to plugins via
+// cliamp.queue.list(). Index is 0-based and matches CurrentIndex; Queued is
+// true when the track sits in the explicit play-next queue.
+type QueueEntry struct {
+	Title  string
+	Artist string
+	Album  string
+	Path   string
+	Index  int
+	Queued bool
 }
 
 // ControlProvider supplies write access to player controls.
@@ -68,6 +81,12 @@ type ControlProvider struct {
 	SetEQPreset func(name string, bands *[10]float64) // injected via prog.Send
 	Next        func()                                // injected via prog.Send
 	Prev        func()                                // injected via prog.Send
+	// Queue mutators, all injected via prog.Send so the model's Update loop
+	// applies them and keeps derived state (cursor, current index) consistent.
+	QueueAdd    func(path string)  // resolve path/URL and append
+	QueueJump   func(index int)    // make index current and play it
+	QueueRemove func(index int)    // remove track at index
+	QueueMove   func(from, to int) // reorder
 }
 
 // UIProvider supplies callbacks that surface plugin output in the TUI.
@@ -93,6 +112,8 @@ type Manager struct {
 	execs        *execManager
 	logger       *pluginLogger
 	mu           sync.RWMutex
+	closing      bool           // set under mu.Lock during Close; blocks new async dispatch
+	wg           sync.WaitGroup // tracks in-flight async Emit goroutines
 }
 
 // New scans the plugin directory and loads all .lua files.
@@ -355,12 +376,14 @@ func (m *Manager) registerCliampAPI(L *lua.LState, p *Plugin) {
 	cliamp := L.NewTable()
 	registerLogAPI(L, cliamp, m.logger, p.Name)
 	registerJSONAPI(L, cliamp)
+	registerStoreAPI(L, cliamp, p.Name)
 	registerCryptoAPI(L, cliamp)
 	registerFSAPI(L, cliamp)
 	registerHTTPAPI(L, cliamp)
 	registerPlayerAPI(L, cliamp, &m.state)
 	registerTrackAPI(L, cliamp, &m.state)
 	registerTimerAPI(L, cliamp, m.timers, p)
+	registerQueueAPI(L, cliamp, &m.state, &m.control, p, m.logger)
 	registerNotifyAPI(L, cliamp, m.logger, p.Name)
 	registerControlAPI(L, cliamp, &m.control, p, m.logger)
 	registerMessageAPI(L, cliamp, &m.ui)
@@ -422,9 +445,17 @@ func (m *Manager) SetUIProvider(up UIProvider) {
 
 // Close fires the "app.quit" event synchronously and shuts down all Lua VMs.
 func (m *Manager) Close() {
+	// Block new async dispatch before tearing anything down.
+	m.mu.Lock()
+	m.closing = true
+	m.mu.Unlock()
+
 	m.EmitSync(EventAppQuit, nil)
 	m.timers.stopAll()
 	m.execs.stopAll()
+	// Wait for any in-flight async hook goroutines to finish before closing
+	// the LStates they call into.
+	m.wg.Wait()
 	if m.logger != nil {
 		m.logger.close()
 	}
@@ -448,4 +479,13 @@ func (m *Manager) HasHooks() bool {
 		}
 	}
 	return false
+}
+
+// HasHook reports whether any plugin registered for a specific event. Callers
+// use this to skip building event payloads (and any locks they require) when no
+// plugin is listening for that particular event.
+func (m *Manager) HasHook(event string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.hooks[event]) > 0
 }
