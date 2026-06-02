@@ -381,7 +381,11 @@ func cleanStaleSocket(sockPath string) error {
 		return nil
 	}
 
-	if !processAlive(pid) {
+	alive, err := processAlive(pid)
+	if err != nil {
+		return err
+	}
+	if !alive {
 		// Process is dead — clean up stale files.
 		os.Remove(pidPath)
 		os.Remove(sockPath)

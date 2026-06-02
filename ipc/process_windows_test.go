@@ -22,7 +22,11 @@ func TestProcessAlive(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := processAlive(tt.pid); got != tt.want {
+			got, err := processAlive(tt.pid)
+			if err != nil {
+				t.Fatalf("processAlive(%d) unexpected error: %v", tt.pid, err)
+			}
+			if got != tt.want {
 				t.Fatalf("processAlive(%d) = %v, want %v", tt.pid, got, tt.want)
 			}
 		})
