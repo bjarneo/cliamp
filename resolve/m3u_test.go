@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -186,3 +187,47 @@ func TestM3UEntryToTrackFile(t *testing.T) {
 		t.Errorf("DurationSecs = %d, want 180", tr.DurationSecs)
 	}
 }
+
+func TestResolveM3UPathWindows(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseDir string
+		entry   string
+		want    string
+	}{
+		{
+			name:    "relative backslash",
+			baseDir: `C:\Music`,
+			entry:   `artist\song.mp3`,
+			want:    filepath.Clean(filepath.Join(`C:\Music`, filepath.FromSlash(`artist\song.mp3`))),
+		},
+		{
+			name:    "relative forward slash",
+			baseDir: `C:\Music`,
+			entry:   `artist/song.mp3`,
+			want:    filepath.Clean(filepath.Join(`C:\Music`, filepath.FromSlash(`artist/song.mp3`))),
+		},
+		{
+			name:    "absolute drive-letter",
+			baseDir: `C:\Music`,
+			entry:   `D:\Other\track.mp3`,
+			want:    filepath.Clean(`D:\Other\track.mp3`),
+		},
+		{
+			name:    "absolute UNC path",
+			baseDir: `\\server\share`,
+			entry:   `sub\file.mp3`,
+			want:    filepath.Clean(filepath.Join(`\\server\share`, filepath.FromSlash(`sub\file.mp3`))),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveM3UPath(tt.baseDir, tt.entry)
+			if got != tt.want {
+				t.Fatalf("resolveM3UPath(%q, %q) = %q, want %q", tt.baseDir, tt.entry, got, tt.want)
+			}
+		})
+	}
+}
+

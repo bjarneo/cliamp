@@ -2248,7 +2248,7 @@ p:<span class="fn">on</span>(<span class="str">"track.change"</span>, <span clas
       </div>
       <div class="plugin-api">
         <div class="plugin-api-name">fs</div>
-        <p>Sandboxed I/O: <code>write()</code>, <code>read()</code>, <code>append()</code>, <code>remove()</code>, <code>exists()</code>, <code>mkdir()</code>, <code>listdir()</code></p>
+        <p>Sandboxed I/O: <code>write()</code>, <code>read()</code>, <code>append()</code>, <code>remove()</code>, <code>exists()</code>, <code>mkdir()</code>, <code>listdir()</code>. Writes are restricted to the system temp directory (<code>/tmp/</code> on Unix), <code>~/.config/cliamp/</code>, <code>~/.local/share/cliamp/</code>, and <code>~/Music/cliamp/</code> (on Windows, if <code>HOME</code> is unset, the config directory resolves to <code>%APPDATA%\cliamp</code>).</p>
       </div>
       <div class="plugin-api">
         <div class="plugin-api-name">exec</div>

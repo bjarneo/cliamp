@@ -90,40 +90,61 @@ func TestLatestVersionBadJSON(t *testing.T) {
 }
 
 func TestDownloadAndReplace(t *testing.T) {
-	dir := t.TempDir()
-	target := filepath.Join(dir, "cliamp")
-	// Pre-create target with old contents.
-	if err := os.WriteFile(target, []byte("OLD"), 0o755); err != nil {
-		t.Fatalf("WriteFile: %v", err)
+	tests := []struct {
+		name               string
+		preExistingContent string
+		urlPath            string
+		newContent         string
+		wantContent        string
+		wantExecutable     bool
+	}{
+		{
+			name:               "successful download and replace",
+			preExistingContent: "OLD",
+			urlPath:            "/cliamp-linux-amd64",
+			newContent:         "NEW BINARY BYTES",
+			wantContent:        "NEW BINARY BYTES",
+			wantExecutable:     runtime.GOOS != "windows",
+		},
 	}
 
-	newContent := []byte("NEW BINARY BYTES")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/octet-stream")
-		_, _ = w.Write(newContent)
-	}))
-	defer srv.Close()
-	installTestClient(t, srv.URL)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			target := filepath.Join(dir, "cliamp")
+			// Pre-create target with old contents.
+			if err := os.WriteFile(target, []byte(tt.preExistingContent), 0o755); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
 
-	if err := downloadAndReplace(srv.URL+"/cliamp-linux-amd64", target); err != nil {
-		t.Fatalf("downloadAndReplace: %v", err)
-	}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/octet-stream")
+				_, _ = w.Write([]byte(tt.newContent))
+			}))
+			defer srv.Close()
+			installTestClient(t, srv.URL)
 
-	got, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(got) != string(newContent) {
-		t.Errorf("target content = %q, want %q", got, newContent)
-	}
+			if err := downloadAndReplace(srv.URL+tt.urlPath, target); err != nil {
+				t.Fatalf("downloadAndReplace: %v", err)
+			}
 
-	info, err := os.Stat(target)
-	if err != nil {
-		t.Fatalf("Stat: %v", err)
-	}
-	// Verify executable bit is set where the platform models one.
-	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
-		t.Errorf("target mode = %o, want executable", info.Mode().Perm())
+			got, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatalf("ReadFile: %v", err)
+			}
+			if string(got) != tt.wantContent {
+				t.Errorf("target content = %q, want %q", got, tt.wantContent)
+			}
+
+			info, err := os.Stat(target)
+			if err != nil {
+				t.Fatalf("Stat: %v", err)
+			}
+			// Verify executable bit is set where the platform models one.
+			if tt.wantExecutable && info.Mode().Perm()&0o111 == 0 {
+				t.Errorf("target mode = %o, want executable", info.Mode().Perm())
+			}
+		})
 	}
 }
 

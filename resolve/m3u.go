@@ -136,6 +136,13 @@ func resolveLocalM3U(path string) ([]playlist.Track, error) {
 	return entriesToTracks(entries), nil
 }
 
+// resolveM3UPath resolves an M3U entry path against a base directory.
+// It returns the entry unchanged for URLs or empty paths.
+// It checks for explicit Windows or POSIX absolute paths via
+// isWindowsAbsolutePath and isPOSIXAbsolutePath, falling back to filepath.IsAbs.
+// If usesWindowsPathSemantics(baseDir) is true, it resolves the path with Windows
+// filepath semantics (filepath.Join and filepath.FromSlash); otherwise, it uses
+// POSIX semantics via pathpkg.Join.
 func resolveM3UPath(baseDir, entry string) string {
 	if entry == "" || playlist.IsURL(entry) {
 		return entry
