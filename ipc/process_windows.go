@@ -24,5 +24,5 @@ func processAlive(pid int) bool {
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(out), fmt.Sprintf(`,"%d",`, pid)) || strings.Contains(string(out), fmt.Sprintf(`,"%d"\r\n`, pid))
+	return strings.Contains(string(out), fmt.Sprintf(`,"%d",`, pid))
 }

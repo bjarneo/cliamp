@@ -1,6 +1,7 @@
 package luaplugin
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -194,7 +195,7 @@ func TestFSMkdirRejectsOutsideAllowlist(t *testing.T) {
 	registerFSAPI(L, cliamp)
 	L.SetGlobal("cliamp", cliamp)
 
-	err := L.DoString("cliamp.fs.mkdir(" + lua.LString(fsDisallowedPath()).String() + ")")
+	err := L.DoString(fmt.Sprintf("cliamp.fs.mkdir(%q)", fsDisallowedPath()))
 	if err == nil {
 		t.Fatal("expected error for path outside allowlist")
 	}

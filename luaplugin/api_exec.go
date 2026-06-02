@@ -366,8 +366,9 @@ func registerExecAPI(L *lua.LState, cliamp *lua.LTable, em *execManager, p *Plug
 	L.SetField(cliamp, "exec", tbl)
 }
 
-// homeEnv returns the user's home directory for subprocess HOME, or "/" if
-// unset. yt-dlp and ffmpeg both read HOME (~/.cache, ~/.config).
+// homeEnv returns the user's home directory for subprocess HOME, preferring
+// $HOME, then os.UserHomeDir(), falling back to os.TempDir() when unset.
+// yt-dlp and ffmpeg both read HOME (~/.cache, ~/.config).
 func homeEnv() string {
 	if home, ok := os.LookupEnv("HOME"); ok && home != "" {
 		return home

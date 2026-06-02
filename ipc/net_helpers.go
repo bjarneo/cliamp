@@ -24,10 +24,15 @@ func isSocketUnavailable(err error) bool {
 	if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
 		return true
 	}
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		if errno == syscall.ECONNREFUSED || errno == syscall.Errno(10061) {
+			return true
+		}
+	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "refused") ||
 		strings.Contains(msg, "dead network") ||
 		strings.Contains(msg, "no such file") ||
-		strings.Contains(msg, "cannot find the file") ||
-		strings.Contains(msg, "actively refused")
+		strings.Contains(msg, "cannot find the file")
 }

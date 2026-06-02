@@ -2,6 +2,9 @@ package ipc
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"syscall"
 	"testing"
 )
 
@@ -26,12 +29,37 @@ func TestIsSocketUnavailable(t *testing.T) {
 			err:  errors.New("connect: some other error"),
 			want: false,
 		},
+		{
+			name: "nil error",
+			err:  nil,
+			want: false,
+		},
+		{
+			name: "wrapped not-exist",
+			err:  fmt.Errorf("dial: %w", os.ErrNotExist),
+			want: true,
+		},
+		{
+			name: "wrapped ECONNREFUSED",
+			err:  fmt.Errorf("dial: %w", syscall.ECONNREFUSED),
+			want: true,
+		},
+		{
+			name: "WSAECONNREFUSED error",
+			err:  syscall.Errno(10061),
+			want: true,
+		},
+		{
+			name: "wrapped WSAECONNREFUSED error",
+			err:  fmt.Errorf("dial: %w", syscall.Errno(10061)),
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := isSocketUnavailable(tt.err); got != tt.want {
-				t.Fatalf("isSocketUnavailable(%q) = %v, want %v", tt.err, got, tt.want)
+				t.Fatalf("isSocketUnavailable(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
 	}
