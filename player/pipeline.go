@@ -158,6 +158,23 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		}, nil
 	}
 
+	// HLS playlists must be opened by ffmpeg directly from the URL so it can
+	// resolve relative chunklist/segment URIs and follow the live segment
+	// window. Feeding the playlist bytes via stdin (the needsFFmpeg path below)
+	// would strip the base URL and break relative segment resolution.
+	if isURL(path) && isHLS(formatExt(path)) {
+		decoder, format, err := decodeFFmpegStream(path, p.sr, p.bitDepth)
+		if err != nil {
+			return nil, fmt.Errorf("open hls: %w", err)
+		}
+		return &trackPipeline{
+			decoder: decoder,
+			stream:  decoder,
+			format:  format,
+			path:    path,
+		}, nil
+	}
+
 	src, err := openSourceAt(path, byteOffset, onMeta)
 	if err != nil {
 		return nil, fmt.Errorf("open source: %w", err)

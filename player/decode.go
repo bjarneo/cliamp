@@ -232,6 +232,10 @@ func needsFFmpeg(ext string) bool {
 	return false
 }
 
+// isHLS reports whether the extension denotes an HLS playlist that ffmpeg must
+// open by URL (so it can fetch and demux the segments itself).
+func isHLS(ext string) bool { return ext == ".m3u8" }
+
 // isBufferedURL reports whether the given URL requires the buffered download
 // + ffmpeg pipeline. Returns true if a registered matcher matches the URL.
 func (p *Player) isBufferedURL(path string) bool {

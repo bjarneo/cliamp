@@ -4,6 +4,7 @@ package resolve
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/xml"
@@ -322,7 +323,14 @@ func resolveFeed(feedURL string) ([]playlist.Track, error) {
 	return tracks, nil
 }
 
-// resolveM3U fetches an M3U playlist URL and returns tracks with EXTINF metadata.
+// maxM3UBody caps how much of a remote playlist we read before classifying it.
+// HLS/M3U playlists are tiny (a few KB); 1 MB is a generous safety bound.
+const maxM3UBody = 1 << 20
+
+// resolveM3U fetches an M3U/M3U8 URL. HLS playlists (master or media) are a
+// single live/VOD stream — not a track list — so the original URL is handed to
+// the player, where ffmpeg resolves the relative chunklist/segment URIs and
+// follows the live segment window. Plain M3U files are parsed as track lists.
 func resolveM3U(m3uURL string) ([]playlist.Track, error) {
 	resp, err := httpClient.Get(m3uURL)
 	if err != nil {
@@ -334,7 +342,21 @@ func resolveM3U(m3uURL string) ([]playlist.Track, error) {
 		return nil, fmt.Errorf("http status %s", resp.Status)
 	}
 
-	entries, err := parseM3U(resp.Body, "")
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxM3UBody))
+	if err != nil {
+		return nil, err
+	}
+
+	if isHLSPlaylist(body) {
+		// Parsing an HLS playlist as a track list would extract the relative
+		// "chunklist_*.m3u8" URI as a bogus local-file track and fail with
+		// "open source: ... no such file or directory".
+		t := playlist.TrackFromPath(m3uURL) // Stream=true; title derived from URL
+		t.Realtime = !bytes.Contains(body, []byte("#EXT-X-ENDLIST"))
+		return []playlist.Track{t}, nil
+	}
+
+	entries, err := parseM3U(bytes.NewReader(body), "")
 	if err != nil {
 		return nil, err
 	}
@@ -358,6 +380,14 @@ func resolvePLS(plsURL string) ([]playlist.Track, error) {
 		return nil, err
 	}
 	return plsEntriesToTracks(entries), nil
+}
+
+// isHLSPlaylist reports whether an M3U body is an HLS playlist (master or media)
+// rather than a plain list of media URLs. HLS is identified by its #EXT-X-* tags.
+func isHLSPlaylist(body []byte) bool {
+	return bytes.Contains(body, []byte("#EXT-X-STREAM-INF")) || // master
+		bytes.Contains(body, []byte("#EXT-X-TARGETDURATION")) || // media
+		bytes.Contains(body, []byte("#EXT-X-MEDIA-SEQUENCE")) // media
 }
 
 // ytdlFlatEntry holds JSON fields from yt-dlp --flat-playlist output.

@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -163,4 +164,63 @@ func (t rewriteHostTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	clone.URL.Host = t.target.Host
 	clone.Host = t.target.Host
 	return t.rt.RoundTrip(clone)
+}
+
+func TestIsHLSPlaylist(t *testing.T) {
+	master := "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000\nchunklist_abc.m3u8\n"
+	media := "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:6\n#EXT-X-MEDIA-SEQUENCE:42\n#EXTINF:6.0,\nmedia_42.ts\n"
+	simple := "#EXTM3U\n#EXTINF:-1,Radio\nhttp://radio.example.com/stream\n"
+
+	if !isHLSPlaylist([]byte(master)) {
+		t.Error("master playlist should be detected as HLS")
+	}
+	if !isHLSPlaylist([]byte(media)) {
+		t.Error("media playlist should be detected as HLS")
+	}
+	if isHLSPlaylist([]byte(simple)) {
+		t.Error("plain radio M3U must NOT be detected as HLS")
+	}
+}
+
+func TestResolveM3U_HLS_ReturnsSingleStream(t *testing.T) {
+	const master = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000\nchunklist_abc.m3u8\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		_, _ = io.WriteString(w, master)
+	}))
+	defer srv.Close()
+
+	u := srv.URL + "/primary/gaucha_rbs.sdp/playlist.m3u8"
+	tracks, err := resolveM3U(u)
+	if err != nil {
+		t.Fatalf("resolveM3U: %v", err)
+	}
+	if len(tracks) != 1 {
+		t.Fatalf("got %d tracks, want 1 (HLS = single stream)", len(tracks))
+	}
+	if tracks[0].Path != u {
+		t.Errorf("Path = %q, want original URL %q", tracks[0].Path, u)
+	}
+	if !tracks[0].Stream {
+		t.Error("Stream should be true")
+	}
+	if !tracks[0].Realtime {
+		t.Error("Realtime should be true (no #EXT-X-ENDLIST)")
+	}
+}
+
+func TestResolveM3U_PlainPlaylist_StillParsesTracks(t *testing.T) {
+	const pl = "#EXTM3U\n#EXTINF:-1,A\nhttp://x/a.mp3\n#EXTINF:-1,B\nhttp://x/b.mp3\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, pl)
+	}))
+	defer srv.Close()
+
+	tracks, err := resolveM3U(srv.URL + "/list.m3u")
+	if err != nil {
+		t.Fatalf("resolveM3U: %v", err)
+	}
+	if len(tracks) != 2 {
+		t.Fatalf("got %d tracks, want 2 (regression guard)", len(tracks))
+	}
 }
