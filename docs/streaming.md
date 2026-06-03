@@ -22,6 +22,18 @@ PLS playlist files are supported alongside M3U:
 cliamp https://radio.cliamp.stream/lofi/stream.pls
 ```
 
+## HLS Streams
+
+HLS playlists (`.m3u8`, master or media) are supported — common for large broadcasters such as Brazilian RBS/Wowza stations:
+
+```sh
+cliamp "https://example.com/live/playlist.m3u8"
+```
+
+cliamp hands the URL to ffmpeg, which resolves the relative chunklist/segment URIs and follows the live segment window. Requires `ffmpeg` (already needed for AAC/Opus).
+
+Live HLS carries timed metadata rather than inline ICY, so the now-playing track title isn't updated for HLS streams.
+
 ## Podcasts
 
 Play any podcast by passing its RSS feed URL:
