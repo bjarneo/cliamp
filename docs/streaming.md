@@ -24,7 +24,7 @@ cliamp https://radio.cliamp.stream/lofi/stream.pls
 
 ## HLS Streams
 
-HLS playlists (`.m3u8`, master or media) are supported — common for large broadcasters such as Brazilian RBS/Wowza stations:
+HLS playlists (`.m3u8`, master or media) are supported, as used by large broadcasters such as Brazilian RBS/Wowza stations:
 
 ```sh
 cliamp "https://example.com/live/playlist.m3u8"

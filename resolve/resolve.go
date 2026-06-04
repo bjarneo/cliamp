@@ -352,6 +352,8 @@ func resolveM3U(m3uURL string) ([]playlist.Track, error) {
 		// "chunklist_*.m3u8" URI as a bogus local-file track and fail with
 		// "open source: ... no such file or directory".
 		t := playlist.TrackFromPath(m3uURL) // Stream=true; title derived from URL
+		// #EXT-X-ENDLIST only appears in media playlists, so VOD behind a
+		// master playlist is conservatively treated as live.
 		t.Realtime = !bytes.Contains(body, []byte("#EXT-X-ENDLIST"))
 		return []playlist.Track{t}, nil
 	}
