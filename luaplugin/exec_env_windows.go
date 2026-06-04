@@ -5,34 +5,18 @@ package luaplugin
 import "os"
 
 func minimalExecEnv() []string {
+	home := homeEnv()
 	env := []string{
 		"PATH=" + os.Getenv("PATH"),
-		"HOME=" + homeEnv(),
-		"USERPROFILE=" + homeEnv(),
+		"HOME=" + home,
+		"USERPROFILE=" + home,
 	}
-	if v := os.Getenv("APPDATA"); v != "" {
-		env = append(env, "APPDATA="+v)
-	}
-	if v := os.Getenv("LOCALAPPDATA"); v != "" {
-		env = append(env, "LOCALAPPDATA="+v)
-	}
-	if v := os.Getenv("ComSpec"); v != "" {
-		env = append(env, "ComSpec="+v)
-	}
-	if v := os.Getenv("PATHEXT"); v != "" {
-		env = append(env, "PATHEXT="+v)
-	}
-	if v := os.Getenv("SystemRoot"); v != "" {
-		env = append(env, "SystemRoot="+v)
-	}
-	if v := os.Getenv("WINDIR"); v != "" {
-		env = append(env, "WINDIR="+v)
-	}
-	if v := os.Getenv("TEMP"); v != "" {
-		env = append(env, "TEMP="+v)
-	}
-	if v := os.Getenv("TMP"); v != "" {
-		env = append(env, "TMP="+v)
+	// Pass through the Windows variables subprocesses commonly need; skip
+	// any that are unset.
+	for _, key := range []string{"APPDATA", "LOCALAPPDATA", "ComSpec", "PATHEXT", "SystemRoot", "WINDIR", "TEMP", "TMP"} {
+		if v := os.Getenv(key); v != "" {
+			env = append(env, key+"="+v)
+		}
 	}
 	return env
 }

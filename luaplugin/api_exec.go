@@ -325,7 +325,7 @@ func registerExecAPI(L *lua.LState, cliamp *lua.LTable, em *execManager, p *Plug
 					if errors.As(waitErr, &exitErr) {
 						code = exitErr.ExitCode()
 					} else {
-					code = -2 // other error
+						code = -2 // other error
 					}
 				}
 			}

@@ -20,8 +20,9 @@ var (
 
 // writeAllowDirs returns the directories where plugins can write files, with
 // symlinks resolved so the prefix check in isWriteAllowed cannot be bypassed
-// by a symlinked allow dir (e.g. /tmp -> /private/tmp on macOS). The result is
-// cached since these paths never change at runtime.
+// by a symlinked allow dir (e.g. /tmp -> /private/tmp on macOS). Entries are
+// normalized via normalizeWritePath so isWriteAllowed can compare directly.
+// The result is cached since these paths never change at runtime.
 func writeAllowDirs() []string {
 	allowDirsOnce.Do(func() {
 		raw := []string{"/tmp", os.TempDir()}
@@ -32,7 +33,6 @@ func writeAllowDirs() []string {
 			raw = append(raw, filepath.Join(home, ".local", "share", "cliamp"))
 			raw = append(raw, filepath.Join(home, "Music", "cliamp"))
 		}
-		sep := string(os.PathSeparator)
 		for _, d := range raw {
 			abs, err := filepath.Abs(d)
 			if err != nil {
@@ -41,7 +41,7 @@ func writeAllowDirs() []string {
 			if resolved, err := filepath.EvalSymlinks(abs); err == nil {
 				abs = resolved
 			}
-			allowDirs = append(allowDirs, abs+sep)
+			allowDirs = append(allowDirs, normalizeWritePath(abs))
 		}
 	})
 	return allowDirs
@@ -81,32 +81,23 @@ func isWriteAllowed(path string) bool {
 	if !ok {
 		return false
 	}
-	absNormalized, err := normalizeWritePath(abs)
-	if err != nil {
-		return false
-	}
+	abs = normalizeWritePath(abs)
 	for _, dir := range writeAllowDirs() {
-		allowed, err := normalizeWritePath(dir)
-		if err != nil {
-			continue
-		}
-		if absNormalized == allowed || strings.HasPrefix(absNormalized, allowed+string(os.PathSeparator)) {
+		if abs == dir || strings.HasPrefix(abs, dir+string(os.PathSeparator)) {
 			return true
 		}
 	}
 	return false
 }
 
-func normalizeWritePath(path string) (string, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	abs = filepath.Clean(abs)
+// normalizeWritePath canonicalizes an absolute path for prefix comparison:
+// cleaned and, on Windows, case-folded (Windows paths are case-insensitive).
+func normalizeWritePath(path string) string {
+	path = filepath.Clean(path)
 	if runtime.GOOS == "windows" {
-		abs = strings.ToLower(abs)
+		path = strings.ToLower(path)
 	}
-	return abs, nil
+	return path
 }
 
 // registerFSAPI adds cliamp.fs.{write,append,read,remove,exists} to the cliamp table.

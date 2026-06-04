@@ -17,19 +17,19 @@ func listenSocket(sockPath string) (net.Listener, error) {
 	return net.Listen("unix", sockPath)
 }
 
+// wsaeConnRefused is Windows' WSAECONNREFUSED, returned when dialing an
+// AF_UNIX socket nobody is listening on.
+const wsaeConnRefused = syscall.Errno(10061)
+
 func isSocketUnavailable(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, wsaeConnRefused) {
 		return true
 	}
-	var errno syscall.Errno
-	if errors.As(err, &errno) {
-		if errno == syscall.ECONNREFUSED || errno == syscall.Errno(10061) {
-			return true
-		}
-	}
+	// Last resort for platform errors that arrive untyped (Windows AF_UNIX
+	// messages vary by version).
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "refused") ||
 		strings.Contains(msg, "dead network") ||

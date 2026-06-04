@@ -58,7 +58,6 @@ func TestDir(t *testing.T) {
 	}
 }
 
-
 func TestPluginDir(t *testing.T) {
 	t.Setenv("CLIAMP_CONFIG_DIR", "")
 	t.Setenv("XDG_CONFIG_HOME", "")

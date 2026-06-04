@@ -230,4 +230,3 @@ func TestResolveM3UPathWindows(t *testing.T) {
 		})
 	}
 }
-

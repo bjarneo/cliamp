@@ -14,10 +14,6 @@ func fsAllowedPath(name string) string {
 	return filepath.Join(os.TempDir(), name)
 }
 
-func fsMissingPath(name string) string {
-	return filepath.Join(os.TempDir(), name)
-}
-
 func fsDisallowedPath() string {
 	if runtime.GOOS == "windows" {
 		if root := os.Getenv("WINDIR"); root != "" {
@@ -94,7 +90,7 @@ func TestFSExists(t *testing.T) {
 	defer os.Remove(tmp)
 
 	L.SetGlobal("path", lua.LString(tmp))
-	L.SetGlobal("fake", lua.LString(fsMissingPath("cliamp-definitely-not-here")))
+	L.SetGlobal("fake", lua.LString(fsAllowedPath("cliamp-definitely-not-here")))
 	err := L.DoString(`
 		_G.exists = cliamp.fs.exists(path)
 		_G.not_exists = cliamp.fs.exists(fake)

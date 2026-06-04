@@ -322,7 +322,6 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 	return slices.Clone(all), nil
 }
 
-
 // Tracks returns all tracks for the given Spotify playlist ID.
 // Track.Path is set to the canonical spotify: URI for the player to resolve.
 // Results are cached by snapshot_id; unchanged playlists skip the API call.
