@@ -68,14 +68,14 @@ func (m *Model) handleSpotSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "ctrl+x":
 		m.toggleExpandedView()
 		m.spotSearchResultsMaybeAdjustScroll(m.spotSearchResultsVisible())
-	case "up", "k":
+	case "up", "k", "ctrl+p":
 		if m.spotSearch.cursor > 0 {
 			m.spotSearch.cursor--
 		} else if count > 0 {
 			m.spotSearch.cursor = count - 1
 		}
 		m.spotSearchResultsMaybeAdjustScroll(m.spotSearchResultsVisible())
-	case "down", "j":
+	case "down", "j", "ctrl+n":
 		if m.spotSearch.cursor < count-1 {
 			m.spotSearch.cursor++
 		} else if count > 0 {
@@ -110,6 +110,27 @@ func (m *Model) handleSpotSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "esc", "backspace":
 		m.spotSearch.screen = spotSearchInput
 		m.spotSearch.err = ""
+	case "ctrl+u":
+		step := m.spotSearchResultsVisible()
+		if step < 1 {
+			step = 1
+		}
+		if m.spotSearch.cursor >= step {
+			m.spotSearch.cursor -= step
+		} else {
+			m.spotSearch.cursor = 0
+		}
+		m.spotSearchResultsMaybeAdjustScroll(m.spotSearchResultsVisible())
+	case "ctrl+d":
+		step := m.spotSearchResultsVisible()
+		if step < 1 {
+			step = 1
+		}
+		m.spotSearch.cursor += step
+		if m.spotSearch.cursor >= count {
+			m.spotSearch.cursor = max(0, count-1)
+		}
+		m.spotSearchResultsMaybeAdjustScroll(m.spotSearchResultsVisible())
 	}
 	return nil
 }

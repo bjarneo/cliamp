@@ -963,8 +963,48 @@ func (m *Model) provSearchMaybeAdjustScroll() {
 // For the radio provider, Enter fires an API search; for others, Enter loads the
 // selected result. Esc cancels and restores the normal catalog view.
 func (m *Model) handleProvSearchKey(msg tea.KeyPressMsg) tea.Cmd {
-	if msg.String() == "ctrl+x" {
+	switch msg.String() {
+	case "ctrl+x":
 		m.toggleExpandedView()
+		m.provSearchMaybeAdjustScroll()
+		return nil
+	case "ctrl+n":
+		if m.provSearch.cursor < len(m.provSearch.results)-1 {
+			m.provSearch.cursor++
+		} else if len(m.provSearch.results) > 0 {
+			m.provSearch.cursor = 0
+		}
+		m.provSearchMaybeAdjustScroll()
+		return nil
+	case "ctrl+p":
+		if m.provSearch.cursor > 0 {
+			m.provSearch.cursor--
+		} else if len(m.provSearch.results) > 0 {
+			m.provSearch.cursor = len(m.provSearch.results) - 1
+		}
+		m.provSearchMaybeAdjustScroll()
+		return nil
+	case "ctrl+u":
+		step := m.providerScrollStep() - 1
+		if step < 1 {
+			step = 1
+		}
+		if m.provSearch.cursor >= step {
+			m.provSearch.cursor -= step
+		} else {
+			m.provSearch.cursor = 0
+		}
+		m.provSearchMaybeAdjustScroll()
+		return nil
+	case "ctrl+d":
+		step := m.providerScrollStep() - 1
+		if step < 1 {
+			step = 1
+		}
+		m.provSearch.cursor += step
+		if m.provSearch.cursor >= len(m.provSearch.results) {
+			m.provSearch.cursor = max(0, len(m.provSearch.results)-1)
+		}
 		m.provSearchMaybeAdjustScroll()
 		return nil
 	}
@@ -1178,6 +1218,45 @@ func (m *Model) handleSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.toggleExpandedView()
 		m.searchMaybeAdjustScroll(m.searchVisible())
 		return nil
+	case "ctrl+n":
+		if m.search.cursor < len(m.search.results)-1 {
+			m.search.cursor++
+		} else if len(m.search.results) > 0 {
+			m.search.cursor = 0
+		}
+		m.searchMaybeAdjustScroll(m.searchVisible())
+		return nil
+	case "ctrl+p":
+		if m.search.cursor > 0 {
+			m.search.cursor--
+		} else if len(m.search.results) > 0 {
+			m.search.cursor = len(m.search.results) - 1
+		}
+		m.searchMaybeAdjustScroll(m.searchVisible())
+		return nil
+	case "ctrl+u":
+		step := m.searchVisible()
+		if step < 1 {
+			step = 1
+		}
+		if m.search.cursor >= step {
+			m.search.cursor -= step
+		} else {
+			m.search.cursor = 0
+		}
+		m.searchMaybeAdjustScroll(m.searchVisible())
+		return nil
+	case "ctrl+d":
+		step := m.searchVisible()
+		if step < 1 {
+			step = 1
+		}
+		m.search.cursor += step
+		if m.search.cursor >= len(m.search.results) {
+			m.search.cursor = max(0, len(m.search.results)-1)
+		}
+		m.searchMaybeAdjustScroll(m.searchVisible())
+		return nil
 	}
 
 	switch msg.Code {
@@ -1303,14 +1382,14 @@ func (m *Model) handleNetSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "ctrl+x":
 		m.toggleExpandedView()
 		m.netSearchResultsMaybeAdjustScroll(m.netSearchResultsVisible())
-	case "up", "k":
+	case "up", "k", "ctrl+p":
 		if m.netSearch.cursor > 0 {
 			m.netSearch.cursor--
 		} else if count > 0 {
 			m.netSearch.cursor = count - 1
 		}
 		m.netSearchResultsMaybeAdjustScroll(m.netSearchResultsVisible())
-	case "down", "j":
+	case "down", "j", "ctrl+n":
 		if m.netSearch.cursor < count-1 {
 			m.netSearch.cursor++
 		} else if count > 0 {
@@ -1341,6 +1420,27 @@ func (m *Model) handleNetSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.netSearch.cursor = 0
 		m.netSearch.scroll = 0
 		m.netSearch.err = ""
+	case "ctrl+u":
+		step := m.netSearchResultsVisible()
+		if step < 1 {
+			step = 1
+		}
+		if m.netSearch.cursor >= step {
+			m.netSearch.cursor -= step
+		} else {
+			m.netSearch.cursor = 0
+		}
+		m.netSearchResultsMaybeAdjustScroll(m.netSearchResultsVisible())
+	case "ctrl+d":
+		step := m.netSearchResultsVisible()
+		if step < 1 {
+			step = 1
+		}
+		m.netSearch.cursor += step
+		if m.netSearch.cursor >= count {
+			m.netSearch.cursor = max(0, count-1)
+		}
+		m.netSearchResultsMaybeAdjustScroll(m.netSearchResultsVisible())
 	}
 	return nil
 }

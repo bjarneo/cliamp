@@ -93,7 +93,7 @@ var coreReservedKeys = []string{
 	"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "j",
 
 	// Navigation and focus.
-	"up", "k", "down",
+	"up", "k", "down", "ctrl+n", "ctrl+p",
 	"shift+up", "shift+down",
 	"pgup", "pgdown", "ctrl+u", "ctrl+d",
 	"g", "G", "home", "end",
