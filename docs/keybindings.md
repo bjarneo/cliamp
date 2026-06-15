@@ -29,7 +29,7 @@ Press `?` or `Ctrl+K` in the player to see all keybindings.
 | `Shift+Up` `Shift+Down` | Move track up/down in playlist/queue |
 | `h` `l` | EQ cursor left/right |
 | `Enter` | Play selected track |
-| `/` | Search playlist (navigate results with `↑` `↓` / `j` `k` / `Ctrl+N` `Ctrl+P`; page scroll with `Ctrl+U` `Ctrl+D`) |
+| `/` | Search playlist (navigate results with `↑` `↓` / `Ctrl+N` `Ctrl+P`; page scroll with `Ctrl+U` `Ctrl+D`) |
 | `Ctrl+X` | Expand/collapse playlist |
 | `o` | Open file browser |
 | `b` `Esc` | Back to provider |
@@ -116,7 +116,8 @@ The playlists pane (visible when focus is on a provider — Spotify, Navidrome, 
 
 | Key | Action |
 |---|---|
-| `↑` `↓` / `j` `k` / `Ctrl+U` `Ctrl+D` | Move cursor (wraps) |
+| `↑` `↓` / `j` `k` | Move cursor (wraps) |
+| `Ctrl+U` `Ctrl+D` | Scroll by page |
 | `Enter` | Load the highlighted playlist's tracks into the queue |
 | `/` | Filter the playlist list |
 | `Ctrl+F` | Online/server search (Spotify/Navidrome/NetEase/etc.'s own search) |
