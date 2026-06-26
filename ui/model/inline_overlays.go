@@ -67,7 +67,7 @@ func windowList(items []string, cursor, scroll, budget int) string {
 	for i := scroll; i < len(items) && len(lines) < budget; i++ {
 		lines = append(lines, cursorLine(items[i], i == cursor))
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(padLines(lines, budget, len(lines)), "\n")
 }
 
 // bodyLines fits pre-built lines into the budget (truncate + pad to budget).

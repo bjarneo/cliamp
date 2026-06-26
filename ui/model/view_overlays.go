@@ -23,7 +23,7 @@ func (m Model) renderVisPickerList() string {
 	for i := scroll; i < len(items) && len(lines) < budget; i++ {
 		lines = append(lines, cursorLine(items[i], i == m.visPicker.cursor))
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(padLines(lines, budget, len(lines)), "\n")
 }
 
 // — playlist manager (inline) —
@@ -259,5 +259,5 @@ func (m Model) renderSearchList() string {
 		// cursorLine adds the "> "/"  " prefix and selected styling.
 		lines = append(lines, cursorLine(item, j == m.search.cursor))
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(padLines(lines, budget, len(lines)), "\n")
 }

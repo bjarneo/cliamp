@@ -405,5 +405,5 @@ func (m Model) renderKeymapList() string {
 			lines = append(lines, cursorLine(line, i == m.keymap.cursor))
 		}
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(padLines(lines, budget, len(lines)), "\n")
 }
