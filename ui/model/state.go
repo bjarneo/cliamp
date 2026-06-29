@@ -120,6 +120,8 @@ type plManagerState struct {
 	playlists     []playlist.PlaylistInfo
 	selPlaylist   string           // playlist name open in screen 1
 	tracks        []playlist.Track // tracks in the selected playlist
+	addMode       bool             // true when manager is acting as a playlist picker
+	addTracks     []playlist.Track // pending file-browser tracks to add to a playlist
 	newName       string
 	confirmDel    bool
 	renameOldName string

@@ -421,6 +421,17 @@ func playlistCommand() *cli.Command {
 				},
 			},
 			{
+				Name:      "dedupe",
+				Usage:     "remove duplicate tracks by path",
+				ArgsUsage: "\"Name\"",
+				Action: func(ctx context.Context, c *cli.Command) error {
+					if c.Args().Len() == 0 {
+						return fmt.Errorf("usage: cliamp playlist dedupe \"Name\"")
+					}
+					return cmd.PlaylistDedupe(c.Args().First())
+				},
+			},
+			{
 				Name:      "bookmark",
 				Usage:     "toggle bookmark on a track by index",
 				ArgsUsage: "\"Name\"",

@@ -221,6 +221,33 @@ func TestPlaylistRemoveOutOfRange(t *testing.T) {
 	}
 }
 
+func TestPlaylistDedupe(t *testing.T) {
+	home := setupTestEnv(t)
+	a := filepath.Join(home, "a.mp3")
+	b := filepath.Join(home, "b.mp3")
+	writeAudioFile(t, a)
+	writeAudioFile(t, b)
+
+	if err := PlaylistCreate("mix", []string{a, b}, ""); err != nil {
+		t.Fatalf("PlaylistCreate: %v", err)
+	}
+	if err := PlaylistAdd("mix", []string{a}); err != nil {
+		t.Fatalf("PlaylistAdd: %v", err)
+	}
+
+	out, err := captureStdout(t, func() error { return PlaylistDedupe("mix") })
+	if err != nil {
+		t.Fatalf("PlaylistDedupe: %v", err)
+	}
+	if !strings.Contains(out, "Removed 1 duplicate") {
+		t.Errorf("output = %q, want duplicate count", out)
+	}
+	out, _ = captureStdout(t, func() error { return PlaylistShow("mix", false) })
+	if !strings.Contains(out, "2 tracks") {
+		t.Errorf("output = %q, want 2 tracks after dedupe", out)
+	}
+}
+
 func TestPlaylistDelete(t *testing.T) {
 	home := setupTestEnv(t)
 	audio := filepath.Join(home, "a.mp3")

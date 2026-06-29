@@ -29,6 +29,12 @@ type fbTracksResolvedMsg struct {
 	replace bool
 }
 
+// fbPlaylistTracksResolvedMsg carries tracks selected in the file browser that
+// should be added to an existing local TOML playlist.
+type fbPlaylistTracksResolvedMsg struct {
+	tracks []playlist.Track
+}
+
 func (m *Model) fbCount() int {
 	if m.fileBrowser.searching || m.fileBrowser.search != "" {
 		return len(m.fileBrowser.filtered)
@@ -49,6 +55,7 @@ func (m Model) fbHelpLine() string {
 	}
 	help := helpKey("←↓↑→", "Navigate ") + helpKey("Enter", "Open ") + helpKey("/", "Filter ") +
 		helpKey("Spc", "Select ") + helpKey("a", "All ") +
+		helpKey("p", "Playlist ") +
 		helpKey("←", "Back ") + helpKey("~.", "Home/Cwd ")
 	if os.PathSeparator == '\\' {
 		help += helpKey("AltCZ", "Drive ")
@@ -434,6 +441,9 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 		if len(m.fileBrowser.selected) > 0 {
 			return m.fbConfirm(true)
 		}
+
+	case "p":
+		return m.fbConfirmToPlaylist()
 	}
 
 	// Change drive letter on Windows by pressing alt+[c..z]
@@ -453,11 +463,9 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 // directory listing's natural (alphabetical) order so albums play in track
 // order rather than the random map iteration order.
 func (m *Model) fbConfirm(replace bool) tea.Cmd {
-	paths := make([]string, 0, len(m.fileBrowser.selected))
-	for _, e := range m.fileBrowser.entries {
-		if m.fileBrowser.selected[e.path] {
-			paths = append(paths, e.path)
-		}
+	paths := m.fbSelectedPaths(false)
+	if len(paths) == 0 {
+		return nil
 	}
 	m.fileBrowser.visible = false
 
@@ -468,4 +476,47 @@ func (m *Model) fbConfirm(replace bool) tea.Cmd {
 		}
 		return fbTracksResolvedMsg{tracks: r.Tracks, replace: replace}
 	}
+}
+
+// fbConfirmToPlaylist resolves the current file-browser selection and opens
+// the local playlist picker so the tracks can be appended to an existing TOML
+// playlist.
+func (m *Model) fbConfirmToPlaylist() tea.Cmd {
+	if m.localProvider == nil {
+		m.status.Show("Local playlists unavailable", statusTTLDefault)
+		return nil
+	}
+	paths := m.fbSelectedPaths(true)
+	if len(paths) == 0 {
+		m.status.Show("No audio files selected", statusTTLShort)
+		return nil
+	}
+	m.fileBrowser.visible = false
+
+	return func() tea.Msg {
+		r, err := resolve.Args(paths)
+		if err != nil {
+			return err
+		}
+		return fbPlaylistTracksResolvedMsg{tracks: r.Tracks}
+	}
+}
+
+// fbSelectedPaths returns selected paths in directory-listing order. If
+// includeCursorAudio is true and no explicit selection exists, the highlighted
+// audio file is returned as a one-item selection.
+func (m *Model) fbSelectedPaths(includeCursorAudio bool) []string {
+	paths := make([]string, 0, len(m.fileBrowser.selected))
+	for _, e := range m.fileBrowser.entries {
+		if m.fileBrowser.selected[e.path] {
+			paths = append(paths, e.path)
+		}
+	}
+	if len(paths) == 0 && includeCursorAudio && m.fileBrowser.cursor < m.fbCount() {
+		e := m.fbEntry(m.fileBrowser.cursor)
+		if e.isAudio {
+			paths = append(paths, e.path)
+		}
+	}
+	return paths
 }

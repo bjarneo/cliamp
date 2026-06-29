@@ -77,6 +77,19 @@ Press `?` or `Ctrl+K` in the player to see all keybindings.
 | `r` | Cycle repeat (Off / All / One) |
 | `z` | Toggle shuffle |
 
+### Inside the file browser
+
+| Key | Action |
+|---|---|
+| `↑` `↓` / `j` `k` | Move cursor |
+| `Space` | Select file or directory |
+| `a` | Toggle all audio files in the current view |
+| `Enter` | Open directory or add selected audio to the current playlist |
+| `R` | Replace the current playlist with selected audio |
+| `p` | Add selected audio to an existing local TOML playlist |
+| `/` | Filter files |
+| `Esc` | Close the file browser |
+
 ### Inside the playlist manager
 
 | Key | Action |
@@ -87,6 +100,7 @@ Press `?` or `Ctrl+K` in the player to see all keybindings.
 | `P` | Tracks screen: play all from the top |
 | `a` | Add the now-playing track (footer shows which track) |
 | `r` | List: rename the playlist |
+| `D` | Remove duplicate track paths from the highlighted/open playlist |
 | `d` | List: delete playlist (confirms) · Tracks: remove the highlighted track |
 | `←` `Backspace` `h` | Tracks screen: go back to the list |
 | `p` `Esc` | Close the playlist manager |

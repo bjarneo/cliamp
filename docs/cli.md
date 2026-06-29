@@ -136,6 +136,7 @@ cliamp playlist show "Name"                   # display tracks
 cliamp playlist show "Name" --json            # machine-readable output
 cliamp playlist remove "Name" --index 3       # remove track by index
 cliamp playlist delete "Name"                 # delete entire playlist
+cliamp playlist dedupe "Name"                 # remove duplicate track paths
 ```
 
 See [playlists.md](playlists.md) for the TOML format and [ssh-streaming.md](ssh-streaming.md) for remote playback.

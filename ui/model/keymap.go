@@ -55,6 +55,7 @@ var keymapEntries = []keymapEntry{
 	{key: "E", action: "Open Emby provider"},
 	{key: "Ctrl+J", action: "Jump to time"},
 	{key: "p", action: "Playlist manager"},
+	{key: "D", action: "Playlist manager: dedupe local playlist"},
 	{key: "Ctrl+H", action: "Toggle album headers"},
 	{key: "i", action: "Track info / metadata"},
 	{key: "Ctrl+S", action: "Save/download track to ~/Music"},
@@ -101,7 +102,7 @@ var coreReservedKeys = []string{
 
 	// Features.
 	"r", "z", "m", "e", "a", "A", "ctrl+h",
-	"ctrl+s", "S", "/", "ctrl+f",
+	"ctrl+s", "S", "D", "/", "ctrl+f",
 	"ctrl+j", "J", "E", "p", "t", "i", "y", "o", "u",
 	"N", "L", "R", "P", "Y", "C", "M",
 	"v", "V", "ctrl+v", "ctrl+x", "x", "d", "ctrl+k", "?",

@@ -204,6 +204,25 @@ func PlaylistRemove(name string, index int) error {
 	return nil
 }
 
+// PlaylistDedupe removes duplicate track paths from the named playlist.
+func PlaylistDedupe(name string) error {
+	prov, err := newProvider()
+	if err != nil {
+		return err
+	}
+
+	removed, err := prov.RemoveDuplicateTracks(name)
+	if err != nil {
+		return fmt.Errorf("deduplicating playlist %q: %w", name, err)
+	}
+	if removed == 0 {
+		fmt.Printf("No duplicates found in %q.\n", name)
+		return nil
+	}
+	fmt.Printf("Removed %d duplicate track(s) from %q.\n", removed, name)
+	return nil
+}
+
 // PlaylistDelete deletes an entire playlist.
 func PlaylistDelete(name string) error {
 	prov, err := newProvider()

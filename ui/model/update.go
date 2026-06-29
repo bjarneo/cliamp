@@ -549,6 +549,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case fbPlaylistTracksResolvedMsg:
+		if len(msg.tracks) == 0 {
+			m.status.Show("No audio files found", statusTTLDefault)
+			return m, nil
+		}
+		m.openPlaylistManagerForTracks(msg.tracks)
+		m.status.Showf(statusTTLDefault, "Select playlist for %d track(s)", len(msg.tracks))
+		return m, nil
+
 	case streamPlayedMsg:
 		m.buffering = false
 		if msg.err != nil {

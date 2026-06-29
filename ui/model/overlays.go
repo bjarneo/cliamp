@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"cliamp/history"
+	"cliamp/playlist"
 	"cliamp/theme"
 	"cliamp/ui"
 )
@@ -200,6 +202,10 @@ func (m *Model) spotSearchPlaylistVisible() int {
 	return m.effectivePlaylistVisible()
 }
 
+func (m Model) plMgrAddMode() bool {
+	return m.plManager.addMode
+}
+
 // navVisible returns the nav-browser list height. The nav browser renders
 // inline in the playlist region, so it shares the playlist's row budget.
 func (m *Model) navVisible() int {
@@ -207,6 +213,12 @@ func (m *Model) navVisible() int {
 }
 
 func (m *Model) plMgrListHelpLine() string {
+	if m.plMgrAddMode() {
+		return helpKey("↓↑→", "Navigate ") +
+			helpKey("Enter", "Add here ") +
+			helpKey("/", "Filter ") +
+			helpKey("Esc", "Cancel")
+	}
 	addLabel := "Add (nothing playing)"
 	if track, idx := m.currentPlaybackTrack(); idx >= 0 && track.Path != "" {
 		addLabel = "Add: " + truncate(track.DisplayName(), 32)
@@ -215,6 +227,7 @@ func (m *Model) plMgrListHelpLine() string {
 		helpKey("Enter", "Open ") +
 		helpKey("a", addLabel+" ") +
 		helpKey("r", "Rename ") +
+		helpKey("D", "Dedupe ") +
 		helpKey("d", "Delete ") +
 		helpKey("/", "Filter ") +
 		helpKey("Esc", "Close")
@@ -237,6 +250,7 @@ func (m *Model) plMgrTracksHelpLine() string {
 		helpKey("Enter", "Play this ") +
 		helpKey("P", "Play all ") +
 		helpKey("a", addLabel+" ") +
+		helpKey("D", "Dedupe ") +
 		helpKey("d", "Remove ") +
 		helpKey("/", "Filter ") +
 		helpKey("Esc", "Back")
@@ -266,6 +280,8 @@ func (m *Model) plMgrTracksMaybeAdjustScroll(visible int) {
 // openPlaylistManager loads playlist metadata and opens the manager overlay.
 func (m *Model) openPlaylistManager() {
 	m.plMgrResetFilter()
+	m.plManager.addMode = false
+	m.plManager.addTracks = nil
 	m.plMgrRefreshList()
 	m.plManager.screen = plMgrScreenList
 	m.plManager.cursor = 0
@@ -275,6 +291,34 @@ func (m *Model) openPlaylistManager() {
 	m.plManager.renameName = ""
 	m.plManager.visible = true
 	m.plMgrListMaybeAdjustScroll(m.plMgrListVisible())
+}
+
+// openPlaylistManagerForTracks opens the manager as a picker for appending
+// file-browser selections to an existing local TOML playlist.
+func (m *Model) openPlaylistManagerForTracks(tracks []playlist.Track) {
+	m.plMgrResetFilter()
+	m.plManager.addMode = true
+	m.plManager.addTracks = tracks
+	m.plMgrRefreshList()
+	m.plManager.playlists = writableLocalPlaylists(m.plManager.playlists)
+	m.plManager.screen = plMgrScreenList
+	m.plManager.cursor = 0
+	m.plManager.scroll = 0
+	m.plManager.confirmDel = false
+	m.plManager.renameOldName = ""
+	m.plManager.renameName = ""
+	m.plManager.visible = true
+	m.plMgrListMaybeAdjustScroll(m.plMgrListVisible())
+}
+
+func writableLocalPlaylists(playlists []playlist.PlaylistInfo) []playlist.PlaylistInfo {
+	out := make([]playlist.PlaylistInfo, 0, len(playlists))
+	for _, pl := range playlists {
+		if pl.Name != history.PlaylistName {
+			out = append(out, pl)
+		}
+	}
+	return out
 }
 
 // plMgrEnterTrackList loads the tracks for a playlist and switches to screen 1.
@@ -392,7 +436,13 @@ func (m *Model) plMgrRefreshList() {
 // (filtered playlists + "+ New Playlist..." entry).
 func (m Model) plMgrListViewCount() int {
 	if m.plManager.filter != "" {
+		if m.plMgrAddMode() {
+			return len(m.plManager.filtered)
+		}
 		return len(m.plManager.filtered) + 1
+	}
+	if m.plMgrAddMode() {
+		return len(m.plManager.playlists)
 	}
 	return len(m.plManager.playlists) + 1
 }

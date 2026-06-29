@@ -142,6 +142,9 @@ Press `p` from any view to open the playlist manager:
 7. **Play this**: press `Enter` on the track list to start playback at the highlighted track. The rest of the playlist follows.
 8. **Play all**: press `P` (capital) to start from the top, regardless of cursor position
 9. **New playlist**: select "+ New Playlist...", type a name, and press Enter. If you create a playlist while a `/` filter is active, the filter text is pre-filled as the new playlist name.
+10. **Remove duplicates**: press `D` on a playlist or inside its track list to remove duplicate track paths, keeping the first occurrence.
+
+From the file browser (`o`), select audio files with `Space` and press `p` to choose an existing local TOML playlist to append them to. If no files are selected, `p` adds the highlighted audio file.
 
 Tracks with an `album` field are grouped by album with visual separator headers in the playlist manager (album grouping is hidden while a filter is active) and the main player view.
 
@@ -190,5 +193,5 @@ title = "My Radio"
 | `P` | Play all tracks from the top (tracks screen) |
 | `a` | Add currently playing track |
 | `d` | Delete playlist (confirms) / Remove track |
+| `D` | Remove duplicate track paths |
 | `←` / `Backspace` | Go back from tracks screen to list |
-

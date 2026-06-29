@@ -1474,7 +1474,7 @@ func (m *Model) handleURLInputKey(msg tea.KeyPressMsg) tea.Cmd {
 func (m *Model) handlePlaylistManagerKey(msg tea.KeyPressMsg) tea.Cmd {
 	// Quick-switch (Shift+letter) jumps to another provider. Only honored when
 	// the manager isn't currently capturing text input (filter, new-name).
-	if m.plManager.screen != plMgrScreenNewName && m.plManager.screen != plMgrScreenRename && !m.plManager.filtering {
+	if !m.plMgrAddMode() && m.plManager.screen != plMgrScreenNewName && m.plManager.screen != plMgrScreenRename && !m.plManager.filtering {
 		if cmd := m.quickSwitchProvider(msg.String()); cmd != nil {
 			return cmd
 		}
@@ -1526,9 +1526,10 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "ctrl+c":
 		m.plManager.visible = false
+		m.plManager.addMode = false
+		m.plManager.addTracks = nil
 		return m.quit()
 	case "/":
-		m.plManager.filtering = true
 		m.plManager.savedCursor = m.plManager.cursor
 		m.plManager.savedScroll = m.plManager.scroll
 		m.plManager.filter = ""
@@ -1575,6 +1576,16 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.plMgrListMaybeAdjustScroll(m.plMgrListVisible())
 	case "enter", "l", "right":
 		realIdx := m.plMgrPlaylistRealIndex(m.plManager.cursor)
+		if m.plMgrAddMode() {
+			if realIdx >= 0 {
+				name := m.plManager.playlists[realIdx].Name
+				m.addTracksToPlaylist(name, m.plManager.addTracks)
+				m.plManager.addMode = false
+				m.plManager.addTracks = nil
+				m.plManager.visible = false
+			}
+			return nil
+		}
 		if realIdx >= 0 {
 			m.plMgrEnterTrackList(m.plManager.playlists[realIdx].Name)
 		} else {
@@ -1584,6 +1595,9 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.plManager.newName = m.plManager.filter
 		}
 	case "a":
+		if m.plMgrAddMode() {
+			return nil
+		}
 		// Quick-add current track to the highlighted playlist.
 		realIdx := m.plMgrPlaylistRealIndex(m.plManager.cursor)
 		if realIdx >= 0 {
@@ -1591,6 +1605,9 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.plMgrRefreshList()
 		}
 	case "r":
+		if m.plMgrAddMode() {
+			return nil
+		}
 		realIdx := m.plMgrPlaylistRealIndex(m.plManager.cursor)
 		if realIdx < 0 {
 			return nil
@@ -1603,7 +1620,20 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.plManager.renameOldName = name
 		m.plManager.renameName = name
 		m.plManager.screen = plMgrScreenRename
+	case "D":
+		if m.plMgrAddMode() {
+			return nil
+		}
+		realIdx := m.plMgrPlaylistRealIndex(m.plManager.cursor)
+		if realIdx >= 0 {
+			name := m.plManager.playlists[realIdx].Name
+			m.dedupePlaylist(name)
+			m.plMgrRefreshList()
+		}
 	case "d":
+		if m.plMgrAddMode() {
+			return nil
+		}
 		if m.plMgrPlaylistRealIndex(m.plManager.cursor) >= 0 {
 			m.plManager.confirmDel = true
 		}
@@ -1614,6 +1644,8 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 		m.plManager.visible = false
+		m.plManager.addMode = false
+		m.plManager.addTracks = nil
 	}
 	return nil
 }
@@ -1624,6 +1656,8 @@ func (m *Model) handlePlMgrFilterKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "ctrl+c":
 		m.plManager.visible = false
+		m.plManager.addMode = false
+		m.plManager.addTracks = nil
 		return m.quit()
 	case "esc":
 		// Cancel filter, restore cursor.
@@ -1765,6 +1799,14 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	case "a":
 		m.addToPlaylist(m.plManager.selPlaylist)
+		if tracks, err := m.localProvider.Tracks(m.plManager.selPlaylist); err == nil {
+			m.plManager.tracks = tracks
+			if m.plManager.filter != "" {
+				m.plMgrRecomputeFilter()
+			}
+		}
+	case "D":
+		m.dedupePlaylist(m.plManager.selPlaylist)
 		if tracks, err := m.localProvider.Tracks(m.plManager.selPlaylist); err == nil {
 			m.plManager.tracks = tracks
 			if m.plManager.filter != "" {
@@ -1934,6 +1976,41 @@ func (m *Model) addToPlaylist(name string) {
 			m.status.Showf(statusTTLDefault, "Added to %q", name)
 		}
 	}
+}
+
+func (m *Model) addTracksToPlaylist(name string, tracks []playlist.Track) {
+	if len(tracks) == 0 {
+		m.status.Show("No tracks to add", statusTTLShort)
+		return
+	}
+	w, ok := m.localProvider.(provider.PlaylistTracksWriter)
+	if !ok {
+		m.status.Show("Local playlists are read-only", statusTTLDefault)
+		return
+	}
+	if err := w.AddTracks(name, tracks); err != nil {
+		m.status.Showf(statusTTLDefault, "Failed: %s", err)
+		return
+	}
+	m.status.Showf(statusTTLDefault, "Added %d track(s) to %q", len(tracks), name)
+}
+
+func (m *Model) dedupePlaylist(name string) {
+	d, ok := m.localProvider.(provider.PlaylistDeduper)
+	if !ok {
+		m.status.Show("Dedupe unavailable", statusTTLDefault)
+		return
+	}
+	removed, err := d.RemoveDuplicateTracks(name)
+	if err != nil {
+		m.status.Showf(statusTTLDefault, "Dedupe failed: %s", err)
+		return
+	}
+	if removed == 0 {
+		m.status.Showf(statusTTLDefault, "No duplicates in %q", name)
+		return
+	}
+	m.status.Showf(statusTTLDefault, "Removed %d duplicate track(s)", removed)
 }
 
 // handleThemeKey processes key presses while the theme picker is open.

@@ -25,10 +25,12 @@ import (
 
 // Compile-time interface checks.
 var (
-	_ provider.PlaylistWriter  = (*Provider)(nil)
-	_ provider.PlaylistDeleter = (*Provider)(nil)
-	_ provider.PlaylistRenamer = (*Provider)(nil)
-	_ provider.Searcher        = (*Provider)(nil)
+	_ provider.PlaylistWriter       = (*Provider)(nil)
+	_ provider.PlaylistDeleter      = (*Provider)(nil)
+	_ provider.PlaylistDeduper      = (*Provider)(nil)
+	_ provider.PlaylistTracksWriter = (*Provider)(nil)
+	_ provider.PlaylistRenamer      = (*Provider)(nil)
+	_ provider.Searcher             = (*Provider)(nil)
 )
 
 // Provider reads and writes TOML-based playlists stored on disk.
@@ -430,6 +432,34 @@ func (p *Provider) RemoveTrack(name string, index int) error {
 		return p.DeletePlaylist(name)
 	}
 	return p.savePlaylist(name, tracks)
+}
+
+// RemoveDuplicateTracks removes duplicate track paths from a playlist,
+// preserving the first occurrence and its metadata.
+func (p *Provider) RemoveDuplicateTracks(name string) (int, error) {
+	if isHistoryName(name) {
+		return 0, errReservedHistoryName
+	}
+	tracks, err := p.Tracks(name)
+	if err != nil {
+		return 0, err
+	}
+
+	seen := make(map[string]struct{}, len(tracks))
+	unique := tracks[:0]
+	removed := 0
+	for _, t := range tracks {
+		if _, ok := seen[t.Path]; ok {
+			removed++
+			continue
+		}
+		seen[t.Path] = struct{}{}
+		unique = append(unique, t)
+	}
+	if removed == 0 {
+		return 0, nil
+	}
+	return removed, p.savePlaylist(name, unique)
 }
 
 // writeTrack writes a single [[track]] TOML section to w.

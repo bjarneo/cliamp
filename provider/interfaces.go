@@ -67,6 +67,18 @@ type PlaylistDeleter interface {
 	RemoveTrack(name string, index int) error
 }
 
+// PlaylistDeduper is implemented by providers that can remove duplicate
+// tracks from a playlist while preserving the first occurrence.
+type PlaylistDeduper interface {
+	RemoveDuplicateTracks(name string) (int, error)
+}
+
+// PlaylistTracksWriter is implemented by providers that support adding
+// multiple tracks to a playlist in a single call.
+type PlaylistTracksWriter interface {
+	AddTracks(playlistName string, tracks []playlist.Track) error
+}
+
 // PlaylistRenamer is implemented by providers that support renaming playlists.
 type PlaylistRenamer interface {
 	RenamePlaylist(oldName, newName string) error

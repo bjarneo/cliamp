@@ -40,6 +40,13 @@ func (m Model) plMgrHeaderLine() string {
 	case plMgrScreenRename:
 		return promptHeader("Rename "+m.plManager.renameOldName, m.plManager.renameName)
 	default:
+		if m.plMgrAddMode() {
+			total := len(m.plManager.playlists)
+			if m.plManager.filter != "" {
+				total = len(m.plManager.filtered)
+			}
+			return sepHeaderN(fmt.Sprintf("Add %d track(s) to Playlist", len(m.plManager.addTracks)), m.plManager.cursor+1, total)
+		}
 		total := len(m.plManager.playlists)
 		if m.plManager.filter != "" {
 			total = len(m.plManager.filtered)
@@ -94,6 +101,12 @@ func (m Model) renderPlMgrListBody() string {
 
 	// Empty state: no playlists at all.
 	if len(m.plManager.playlists) == 0 {
+		if m.plMgrAddMode() {
+			return bodyLines([]string{
+				dimStyle.Render("  No local playlists yet."),
+				dimStyle.Render("  Create one in the playlist manager first."),
+			}, budget)
+		}
 		return bodyLines([]string{
 			dimStyle.Render("  No playlists yet."),
 			dimStyle.Render("  Press Enter on \"+ New Playlist…\" below,"),
@@ -103,8 +116,12 @@ func (m Model) renderPlMgrListBody() string {
 		}, budget)
 	}
 
-	// Filtered with no matches: still allow "+ New Playlist..."
+	// Filtered with no matches: still allow "+ New Playlist..." unless this
+	// is the existing-playlist picker for file-browser additions.
 	if m.plManager.filter != "" && visibleN == 0 {
+		if m.plMgrAddMode() {
+			return bodyMessage(fmt.Sprintf("No playlists match %q", m.plManager.filter), budget)
+		}
 		newLabel := "+ New Playlist \"" + m.plManager.filter + "\"..."
 		return bodyLines([]string{
 			dimStyle.Render(fmt.Sprintf("  No playlists match %q", m.plManager.filter)),
@@ -139,15 +156,17 @@ func (m Model) renderPlMgrListBody() string {
 		})
 	}
 
-	if visibleN > 0 {
+	if visibleN > 0 && !m.plMgrAddMode() {
 		rows = append(rows, plRow{spacer: true, viewIdx: -1})
 	}
 
-	newLabel := "+ New Playlist..."
-	if m.plManager.filter != "" {
-		newLabel = "+ New Playlist \"" + m.plManager.filter + "\"..."
+	if !m.plMgrAddMode() {
+		newLabel := "+ New Playlist..."
+		if m.plManager.filter != "" {
+			newLabel = "+ New Playlist \"" + m.plManager.filter + "\"..."
+		}
+		rows = append(rows, plRow{label: newLabel, realIdx: -1, viewIdx: visibleN})
 	}
-	rows = append(rows, plRow{label: newLabel, realIdx: -1, viewIdx: visibleN})
 
 	// Map the logical scroll position to our row index.
 	startIndex := 0

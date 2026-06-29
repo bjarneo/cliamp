@@ -341,6 +341,51 @@ func TestRemoveTrackDeletesEmptyPlaylist(t *testing.T) {
 	}
 }
 
+func TestRemoveDuplicateTracks(t *testing.T) {
+	p := newTestProvider(t)
+	p.AddTracks("dupes", []playlist.Track{
+		{Path: "/a.mp3", Title: "A"},
+		{Path: "/b.mp3", Title: "B"},
+		{Path: "/a.mp3", Title: "A second copy"},
+		{Path: "/c.mp3", Title: "C"},
+		{Path: "/b.mp3", Title: "B second copy"},
+	})
+
+	removed, err := p.RemoveDuplicateTracks("dupes")
+	if err != nil {
+		t.Fatalf("RemoveDuplicateTracks: %v", err)
+	}
+	if removed != 2 {
+		t.Fatalf("removed %d tracks, want 2", removed)
+	}
+	tracks, err := p.Tracks("dupes")
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	if len(tracks) != 3 {
+		t.Fatalf("got %d tracks, want 3", len(tracks))
+	}
+	if tracks[0].Title != "A" || tracks[1].Title != "B" || tracks[2].Title != "C" {
+		t.Fatalf("unexpected order/metadata after dedupe: %+v", tracks)
+	}
+}
+
+func TestRemoveDuplicateTracksNoop(t *testing.T) {
+	p := newTestProvider(t)
+	p.AddTracks("clean", []playlist.Track{
+		{Path: "/a.mp3", Title: "A"},
+		{Path: "/b.mp3", Title: "B"},
+	})
+
+	removed, err := p.RemoveDuplicateTracks("clean")
+	if err != nil {
+		t.Fatalf("RemoveDuplicateTracks: %v", err)
+	}
+	if removed != 0 {
+		t.Fatalf("removed %d tracks, want 0", removed)
+	}
+}
+
 // --- DeletePlaylist ---
 
 func TestDeletePlaylist(t *testing.T) {
@@ -473,6 +518,7 @@ func TestWritesRejectedForHistoryName(t *testing.T) {
 		{"SavePlaylist", func() error { return p.SavePlaylist(history.PlaylistName, []playlist.Track{track}) }},
 		{"DeletePlaylist", func() error { return p.DeletePlaylist(history.PlaylistName) }},
 		{"RemoveTrack", func() error { return p.RemoveTrack(history.PlaylistName, 0) }},
+		{"RemoveDuplicateTracks", func() error { _, err := p.RemoveDuplicateTracks(history.PlaylistName); return err }},
 		{"SetBookmark", func() error { return p.SetBookmark(history.PlaylistName, 0) }},
 	}
 
