@@ -4,6 +4,7 @@ package httpclient
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net"
 	"net/http"
 	"time"
@@ -29,7 +30,7 @@ func newStreamingTransport() *http.Transport {
 	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("dial %s: %w", addr, err)
 		}
 		return newICYConn(conn), nil
 	}
@@ -41,7 +42,7 @@ func newStreamingTransport() *http.Transport {
 		if config.ServerName == "" {
 			host, _, err := net.SplitHostPort(addr)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("split TLS address %q: %w", addr, err)
 			}
 			config.ServerName = host
 		}
@@ -50,7 +51,7 @@ func newStreamingTransport() *http.Transport {
 
 		conn, err := (&tls.Dialer{Config: config}).DialContext(ctx, network, addr)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("dial TLS %s: %w", addr, err)
 		}
 		return newICYConn(conn), nil
 	}
