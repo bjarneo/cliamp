@@ -2,7 +2,9 @@
 package httpclient
 
 import (
+	"context"
 	"crypto/tls"
+	"net"
 	"net/http"
 	"time"
 )
@@ -16,10 +18,41 @@ import (
 // Proxy is read from the environment (HTTP_PROXY, HTTPS_PROXY, NO_PROXY)
 // so users behind corporate or local proxies aren't bypassed; the rest of
 // the codebase uses http.DefaultTransport, which already honors these vars.
-var Streaming = &http.Client{
-	Transport: &http.Transport{
+var Streaming = &http.Client{Transport: newStreamingTransport()}
+
+func newStreamingTransport() *http.Transport {
+	tr := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		ResponseHeaderTimeout: 30 * time.Second,
 		TLSNextProto:          make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
-	},
+	}
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		return newICYConn(conn), nil
+	}
+	tr.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		config := &tls.Config{}
+		if tr.TLSClientConfig != nil {
+			config = tr.TLSClientConfig.Clone()
+		}
+		if config.ServerName == "" {
+			host, _, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			config.ServerName = host
+		}
+		// Icecast and SHOUTcast servers only support HTTP/1.x.
+		config.NextProtos = nil
+
+		conn, err := (&tls.Dialer{Config: config}).DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		return newICYConn(conn), nil
+	}
+	return tr
 }
