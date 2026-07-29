@@ -81,6 +81,19 @@ Press `Ctrl+F` in the player for context-aware search: it runs the active provid
 | `--version` | `-v` | Print version and exit |
 | `--upgrade` | | Update to the latest release |
 
+## Shell completion
+
+Generate shell completion scripts for supported shells.
+
+```sh
+cliamp completion bash
+cliamp completion zsh
+cliamp completion fish
+cliamp completion pwsh
+```
+
+The generated script can be sourced directly or installed according to your shell's documentation.
+
 ## Mixing flags and files
 
 Flags can appear before, after, or between positional arguments:
