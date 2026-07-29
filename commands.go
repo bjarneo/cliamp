@@ -54,6 +54,7 @@ func buildApp() *cli.Command {
 		Name:    "cliamp",
 		Usage:   "retro terminal music player",
 		Version: version,
+		EnableShellCompletion: true,
 		Flags:   rootFlags,
 		Action: func(ctx context.Context, c *cli.Command) error {
 			if strings.EqualFold(c.String("audio-device"), "list") {
