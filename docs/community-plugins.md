@@ -12,3 +12,4 @@ Plugins built by the community. If you've built a plugin, open a PR to add it he
 | [cliamp-plugin-tubeamp](https://github.com/8bit64k/cliamp-plugin-tubeamp) | Vacuum-tube amplifier visualizer | [@8bit64k](https://github.com/8bit64k) |
 | [cliamp-plugin-nova](https://github.com/8bit64k/cliamp-plugin-nova) | Concentric-ring spectrum visualizer | [@8bit64k](https://github.com/8bit64k) |
 | [cliamp-plugin-mandelbrot](https://github.com/mikkel-bergmann/cliamp-plugin-mandelbrot) | Zooming psychedelic Mandelbrot set visualizer with braille rendering and bass reactivity | [@mikkel-bergmann](https://github.com/mikkel-bergmann) |
+| [cliamp-plugin-gpodder-sync](https://github.com/sollymay/cliamp-plugin-gpodder-sync) | gpodder.net subscription, progress and download sync | [@sollymay](https://github.com/sollymay) |
