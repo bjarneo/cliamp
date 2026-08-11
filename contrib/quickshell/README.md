@@ -1,6 +1,6 @@
 # cliamp quickshell widget
 
-A compact "now playing" card for [Quickshell](https://quickshell.org) (300 x 72), centered along the bottom of every screen and driven by cliamp's MPRIS service (`org.mpris.MediaPlayer2.cliamp`). Two-row layout: title + time on top, artist + transport on the second row, a 10-band Winamp 2-style spectrum below, and a thin click-to-seek line at the bottom. Colors are picked up from the active Omarchy theme (`~/.config/omarchy/current/theme/colors.toml`) and update live when the theme changes. Hides itself when cliamp is not running. Click the card and press Esc or Q to quit the widget.
+A compact "now playing" card for [Quickshell](https://quickshell.org) (300 x 72), centered along the bottom of every screen and driven by cliamp's MPRIS service (`org.mpris.MediaPlayer2.cliamp`). Two-row layout: title + time on top, artist + transport on the second row, a 10-band Winamp 2-style spectrum below, and a thin click-to-seek line at the bottom. Colors are picked up from the active Omarchy theme (`~/.config/omarchy/current/theme/colors.toml`) and update live when the theme changes. Hides itself when cliamp is not running. The card accepts mouse input for playback controls and seeking, but never takes keyboard focus from the active application.
 
 Linux only. Requires Quickshell 0.2+ and cliamp running with its default MPRIS service enabled (it is by default on Linux).
 

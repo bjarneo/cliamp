@@ -40,9 +40,9 @@ Scope {
 
             exclusionMode: ExclusionMode.Ignore
 
-            // Take keyboard focus on demand so the user can press Esc/Q to
-            // dismiss the widget. Focus is acquired when the card is clicked.
-            WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+            // A now-playing overlay must not steal keyboard focus from the
+            // active application when it appears or is clicked.
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
             implicitHeight: 72
             color: "transparent"
@@ -54,10 +54,6 @@ Scope {
                 height: parent.height
                 anchors.horizontalCenter: parent.horizontalCenter
                 player: root.cliampPlayer
-                focus: true
-                Keys.onPressed: (e) => {
-                    if (e.key === Qt.Key_Escape || e.key === Qt.Key_Q) Qt.quit();
-                }
             }
         }
     }
