@@ -176,6 +176,9 @@ func (d *daemon) Send(msg any) {
 	case ipc.SeekMsg:
 		_ = d.player.Seek(m.Offset)
 
+	case ipc.SetPositionMsg:
+		_ = d.player.Seek(m.Position - d.player.Position())
+
 	case playback.SeekMsg:
 		_ = d.player.Seek(m.Offset)
 

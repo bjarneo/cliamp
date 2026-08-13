@@ -57,7 +57,7 @@ The `theme` block carries the active cliamp theme's resolved hex colors. Empty h
 
 ```sh
 cliamp volume -5             # adjust volume in dB
-cliamp seek 30               # seek to position in seconds
+cliamp seek 30               # seek to absolute position in seconds
 ```
 
 ## Playlist Loading
@@ -104,6 +104,7 @@ Request format:
 {"cmd": "status"}
 {"cmd": "next"}
 {"cmd": "volume", "value": -5}
+{"cmd": "seek.set", "value": 30}
 {"cmd": "load", "playlist": "Star Wars OT"}
 {"cmd": "queue", "path": "/path/to/file.mp3"}
 ```
@@ -115,6 +116,8 @@ Response format:
 {"ok": true, "state": "playing", "track": {...}, ...}
 {"ok": false, "error": "cliamp is not running"}
 ```
+
+`seek` remains the relative IPC command. Use `seek.set` to seek to an absolute position.
 
 ## Socket Details
 

@@ -311,12 +311,15 @@ ApplicationWindow {
                     color: Theme.fg
                 }
                 MouseArea {
+                    id: seekMouse
                     anchors.fill: parent
                     cursorShape: controller.duration > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
                     enabled: controller.duration > 0
-                    function seek(x) { controller.seekTo(Math.max(0, Math.min(1, x / width)) * controller.duration) }
-                    onPressed: mouse => seek(mouse.x)
-                    onPositionChanged: mouse => { if (pressed) seek(mouse.x) }
+                    property real target: controller.position
+                    function setTarget(x) { target = Math.max(0, Math.min(1, x / width)) * controller.duration }
+                    onPressed: mouse => setTarget(mouse.x)
+                    onPositionChanged: mouse => { if (pressed) setTarget(mouse.x) }
+                    onReleased: controller.seekTo(target)
                 }
             }
             Text {

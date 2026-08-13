@@ -724,7 +724,7 @@ func seekCommand() *cli.Command {
 			if err != nil {
 				return fmt.Errorf("invalid seek value %q", c.Args().First())
 			}
-			_, err = ipcSend(ipc.Request{Cmd: "seek", Value: secs})
+			_, err = ipcSend(ipc.Request{Cmd: "seek.set", Value: secs})
 			return err
 		},
 	}

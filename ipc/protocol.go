@@ -181,6 +181,11 @@ type VolumeMsg struct{ DB float64 }
 // SeekMsg requests a relative seek.
 type SeekMsg struct{ Offset time.Duration }
 
+// SetPositionMsg requests an absolute playback position.
+type SetPositionMsg struct {
+	Position time.Duration
+}
+
 // LoadMsg requests loading a playlist by name.
 // Reply receives the result so the client can report errors.
 type LoadMsg struct {

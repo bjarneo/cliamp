@@ -918,6 +918,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_ = m.player.Seek(msg.Offset)
 		m.notifyAll()
 		return m, nil
+	case ipc.SetPositionMsg:
+		return m, m.seekAbsolute(msg.Position)
 	case ipc.LoadMsg:
 		tracks, err := m.localProvider.Tracks(msg.Playlist)
 		if err != nil {

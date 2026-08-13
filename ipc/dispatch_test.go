@@ -152,6 +152,30 @@ func TestDispatchSeek(t *testing.T) {
 	}
 }
 
+func TestDispatchSetPosition(t *testing.T) {
+	disp := &captureDispatcher{}
+	s := newTestServer(disp)
+	resp := s.dispatch(Request{Cmd: "seek.set", Value: 1.5})
+	if !resp.OK {
+		t.Fatalf("OK = false, err=%q", resp.Error)
+	}
+	got, ok := disp.last.(SetPositionMsg)
+	if !ok {
+		t.Fatalf("got %T, want SetPositionMsg", disp.last)
+	}
+	if got.Position != 1500*time.Millisecond {
+		t.Errorf("Position = %v, want 1.5s", got.Position)
+	}
+}
+
+func TestDispatchSetPositionRejectsNegative(t *testing.T) {
+	s := newTestServer(&captureDispatcher{})
+	resp := s.dispatch(Request{Cmd: "seek.set", Value: -1})
+	if resp.OK {
+		t.Fatal("seek.set with a negative position should return !OK")
+	}
+}
+
 func TestDispatchLoadMissingPlaylist(t *testing.T) {
 	s := newTestServer(&captureDispatcher{})
 	resp := s.dispatch(Request{Cmd: "load"})

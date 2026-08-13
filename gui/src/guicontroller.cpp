@@ -1,6 +1,5 @@
 #include "guicontroller.h"
 
-#include <QCoreApplication>
 #include <QDir>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -23,6 +22,18 @@ QString defaultSocketPath()
     if (!xdgConfig.isEmpty()) {
         return QDir(xdgConfig).filePath("cliamp/cliamp.sock");
     }
+
+    const QString home = qEnvironmentVariable("HOME");
+    if (!home.isEmpty()) {
+        return QDir(home).filePath(".config/cliamp/cliamp.sock");
+    }
+
+#ifdef Q_OS_WIN
+    const QString appData = qEnvironmentVariable("APPDATA");
+    if (!appData.isEmpty()) {
+        return QDir(appData).filePath("cliamp/cliamp.sock");
+    }
+#endif
 
     return QDir(QDir::homePath()).filePath(".config/cliamp/cliamp.sock");
 }
@@ -92,7 +103,6 @@ GuiController::GuiController(QObject *parent)
     requestStatus();
     requestQueue();
     loadProviders();
-    loadRadio();
 }
 
 GuiController::~GuiController()
@@ -166,11 +176,10 @@ void GuiController::seekTo(double seconds)
     } else {
         seconds = std::max(0.0, seconds);
     }
-    const double offset = seconds - position_;
-    if (std::abs(offset) < 0.01) {
+    if (std::abs(seconds - position_) < 0.01) {
         return;
     }
-    request({{"cmd", "seek"}, {"value", offset}}, 3000, [this, seconds](const QJsonObject &response) {
+    request({{"cmd", "seek.set"}, {"value", seconds}}, 3000, [this, seconds](const QJsonObject &response) {
         if (responseOK(response)) {
             position_ = seconds;
             emit positionChanged();
@@ -181,13 +190,10 @@ void GuiController::seekTo(double seconds)
 
 void GuiController::setVolume(double db)
 {
-    request({{"cmd", "volume"}, {"value", std::clamp(db, -90.0, 6.0)}}, 3000,
-            [this, db](const QJsonObject &response) {
-                if (responseOK(response)) {
-                    volume_ = std::clamp(db, -90.0, 6.0);
-                    emit volumeChanged();
-                }
-            });
+    volume_ = std::clamp(db, -90.0, 6.0);
+    pendingVolume_ = volume_;
+    emit volumeChanged();
+    flushVolume();
 }
 
 void GuiController::setShuffle(bool enabled)
@@ -216,26 +222,18 @@ void GuiController::setEqBand(int band, double gain)
         return;
     }
     gain = std::clamp(gain, -12.0, 12.0);
-    request({{"cmd", "eq"}, {"band", band}, {"value", gain}}, 3000,
-            [this, band, gain](const QJsonObject &response) {
-                if (responseOK(response)) {
-                    eqBands_[band] = gain;
-                    eqPreset_ = response.value("eq_preset").toString("Custom");
-                    emit equalizerChanged();
-                }
-            });
+    eqBands_[band] = gain;
+    eqPreset_ = QStringLiteral("Custom");
+    pendingEqBands_[band] = gain;
+    emit equalizerChanged();
+    flushEqualizer();
 }
 
 void GuiController::setEqPreset(const QString &preset)
 {
-    request({{"cmd", "eq"}, {"name", preset}}, 3000, [this, preset](const QJsonObject &response) {
-        if (!responseOK(response)) {
-            return;
-        }
-        eqPreset_ = response.value("eq_preset").toString(preset);
-        emit equalizerChanged();
-        requestStatus();
-    });
+    pendingEqPreset_ = preset;
+    pendingEqBands_.fill(std::nullopt);
+    flushEqualizer();
 }
 
 void GuiController::playQueue(int index)
@@ -274,8 +272,10 @@ void GuiController::selectProvider(const QString &key)
     emit selectedProviderChanged();
     emit selectedPlaylistChanged();
 
-    request({{"cmd", "provider.playlists"}, {"provider", key}}, 30000, [this, key](const QJsonObject &response) {
-        if (!responseOK(response)) {
+    const quint64 requestGeneration = ++libraryRequestGeneration_;
+    request({{"cmd", "provider.playlists"}, {"provider", key}}, 30000,
+            [this, key, requestGeneration](const QJsonObject &response) {
+        if (!responseOK(response) || requestGeneration != libraryRequestGeneration_ || selectedProvider_ != key) {
             return;
         }
         providerPlaylists_.setItems(response.value("playlists").toArray());
@@ -292,9 +292,12 @@ void GuiController::browseProviderPlaylist(const QString &playlist)
     }
     selectedPlaylist_ = playlist;
     emit selectedPlaylistChanged();
-    request({{"cmd", "provider.tracks"}, {"provider", selectedProvider_}, {"playlist", playlist}}, 30000,
-            [this](const QJsonObject &response) {
-                if (responseOK(response)) {
+    const QString provider = selectedProvider_;
+    const quint64 requestGeneration = ++libraryRequestGeneration_;
+    request({{"cmd", "provider.tracks"}, {"provider", provider}, {"playlist", playlist}}, 30000,
+            [this, provider, playlist, requestGeneration](const QJsonObject &response) {
+                if (responseOK(response) && requestGeneration == libraryRequestGeneration_ &&
+                    selectedProvider_ == provider && selectedPlaylist_ == playlist) {
                     libraryTracks_.setItems(response.value("tracks").toArray());
                 }
             });
@@ -332,9 +335,11 @@ void GuiController::searchProvider(const QString &query)
     if (selectedProvider_.isEmpty() || query.trimmed().isEmpty()) {
         return;
     }
-    request({{"cmd", "provider.search"}, {"provider", selectedProvider_}, {"query", query}, {"limit", 50}}, 30000,
-            [this](const QJsonObject &response) {
-                if (responseOK(response)) {
+    const QString provider = selectedProvider_;
+    const quint64 requestGeneration = ++libraryRequestGeneration_;
+    request({{"cmd", "provider.search"}, {"provider", provider}, {"query", query}, {"limit", 50}}, 30000,
+            [this, provider, requestGeneration](const QJsonObject &response) {
+                if (responseOK(response) && requestGeneration == libraryRequestGeneration_ && selectedProvider_ == provider) {
                     libraryTracks_.setItems(response.value("tracks").toArray());
                 }
             });
@@ -390,10 +395,14 @@ void GuiController::requestStatus()
             setConnected(false, response.value("error").toString(tr("cliamp daemon is not running")));
             return;
         }
+        const bool wasConnected = connected_;
         setConnected(true);
         applyStatus(response);
         if (providers_.rowCount() == 0) {
             loadProviders();
+        }
+        if (!wasConnected && radio_.rowCount() == 0) {
+            loadRadio();
         }
     });
 }
@@ -472,8 +481,10 @@ void GuiController::applyStatus(const QJsonObject &response)
     duration_ = response.value("duration").toDouble();
     emit positionChanged();
 
-    volume_ = response.value("volume").toDouble(volume_);
-    emit volumeChanged();
+    if (!volumeRequestPending_ && !pendingVolume_) {
+        volume_ = response.value("volume").toDouble(volume_);
+        emit volumeChanged();
+    }
 
     shuffle_ = response.value("shuffle").toBool();
     repeat_ = response.value("repeat").toString("off");
@@ -481,15 +492,17 @@ void GuiController::applyStatus(const QJsonObject &response)
     speed_ = response.value("speed").toDouble(1.0);
     emit playbackModesChanged();
 
-    eqPreset_ = response.value("eq_preset").toString("Custom");
-    QVariantList bands;
-    for (const QJsonValue &value : response.value("eq_bands").toArray()) {
-        bands.append(value.toDouble());
+    if (!equalizerPending()) {
+        eqPreset_ = response.value("eq_preset").toString("Custom");
+        QVariantList bands;
+        for (const QJsonValue &value : response.value("eq_bands").toArray()) {
+            bands.append(value.toDouble());
+        }
+        if (bands.size() == 10) {
+            eqBands_ = bands;
+        }
+        emit equalizerChanged();
     }
-    if (bands.size() == 10) {
-        eqBands_ = bands;
-    }
-    emit equalizerChanged();
 }
 
 void GuiController::setConnected(bool connected, const QString &message)
@@ -512,4 +525,74 @@ void GuiController::afterPlaybackCommand()
 {
     requestStatus();
     requestQueue();
+}
+
+void GuiController::flushVolume()
+{
+    if (volumeRequestPending_ || !pendingVolume_) {
+        return;
+    }
+
+    const double volume = *pendingVolume_;
+    pendingVolume_.reset();
+    volumeRequestPending_ = true;
+    request({{"cmd", "volume"}, {"value", volume}}, 3000, [this](const QJsonObject &response) {
+        volumeRequestPending_ = false;
+        if (!responseOK(response) && !pendingVolume_) {
+            requestStatus();
+        }
+        flushVolume();
+    });
+}
+
+void GuiController::flushEqualizer()
+{
+    if (equalizerRequestPending_) {
+        return;
+    }
+
+    if (pendingEqPreset_) {
+        const QString preset = *pendingEqPreset_;
+        pendingEqPreset_.reset();
+        equalizerRequestPending_ = true;
+        request({{"cmd", "eq"}, {"name", preset}}, 3000, [this, preset](const QJsonObject &response) {
+            equalizerRequestPending_ = false;
+            if (responseOK(response)) {
+                eqPreset_ = response.value("eq_preset").toString(preset);
+                emit equalizerChanged();
+            } else if (!equalizerPending()) {
+                requestStatus();
+            }
+            flushEqualizer();
+        });
+        return;
+    }
+
+    for (int band = 0; band < static_cast<int>(pendingEqBands_.size()); ++band) {
+        if (!pendingEqBands_[band]) {
+            continue;
+        }
+        const double gain = *pendingEqBands_[band];
+        pendingEqBands_[band].reset();
+        equalizerRequestPending_ = true;
+        request({{"cmd", "eq"}, {"band", band}, {"value", gain}}, 3000,
+                [this](const QJsonObject &response) {
+                    equalizerRequestPending_ = false;
+                    if (!responseOK(response) && !equalizerPending()) {
+                        requestStatus();
+                    }
+                    flushEqualizer();
+                });
+        return;
+    }
+}
+
+bool GuiController::equalizerPending() const
+{
+    if (equalizerRequestPending_ || pendingEqPreset_) {
+        return true;
+    }
+    return std::any_of(pendingEqBands_.cbegin(), pendingEqBands_.cend(), [](const auto &gain) {
+        return gain.has_value();
+    });
 }

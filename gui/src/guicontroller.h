@@ -7,6 +7,9 @@
 #include <QTimer>
 #include <QtQmlIntegration/qqmlintegration.h>
 
+#include <array>
+#include <optional>
+
 class GuiController : public QObject
 {
     Q_OBJECT
@@ -115,6 +118,9 @@ private:
     void setConnected(bool connected, const QString &message = {});
     void runCommand(const QString &command);
     void afterPlaybackCommand();
+    void flushVolume();
+    void flushEqualizer();
+    [[nodiscard]] bool equalizerPending() const;
 
     QString socketPath_;
     IpcClient ipc_;
@@ -148,8 +154,14 @@ private:
     QString connectionMessage_;
     QString selectedProvider_;
     QString selectedPlaylist_;
+    quint64 libraryRequestGeneration_ = 0;
     bool statusPending_ = false;
     bool queuePending_ = false;
     bool bandsPending_ = false;
+    bool volumeRequestPending_ = false;
+    std::optional<double> pendingVolume_;
+    bool equalizerRequestPending_ = false;
+    std::optional<QString> pendingEqPreset_;
+    std::array<std::optional<double>, 10> pendingEqBands_;
     bool ownsDaemon_ = false;
 };

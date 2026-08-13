@@ -229,6 +229,13 @@ func (s *Server) dispatch(req Request) Response {
 		s.disp.Send(SeekMsg{Offset: time.Duration(req.Value * float64(time.Second))})
 		return Response{OK: true}
 
+	case "seek.set":
+		if req.Value < 0 {
+			return Response{OK: false, Error: "seek.set position must not be negative"}
+		}
+		s.disp.Send(SetPositionMsg{Position: time.Duration(req.Value * float64(time.Second))})
+		return Response{OK: true}
+
 	case "load":
 		if req.Playlist == "" {
 			return Response{OK: false, Error: "load requires a playlist name"}
