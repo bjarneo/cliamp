@@ -146,6 +146,15 @@ Or without Make: `go build -o cliamp .`
 
 `make install` places the binary in `~/.local/bin/`.
 
+**Qt desktop GUI (Linux):** Build the optional IPC client with Qt 6.8+:
+
+```sh
+make gui-build
+./gui/build/cliamp-gui
+```
+
+The GUI starts or attaches to `cliamp --daemon`. See [docs/gui.md](docs/gui.md).
+
 **Optional runtime dependencies:**
 
 - [ffmpeg](https://ffmpeg.org/) — for AAC, ALAC, Opus, and WMA playback

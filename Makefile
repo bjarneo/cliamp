@@ -2,10 +2,14 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 BINARY  ?= cliamp
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
-.PHONY: build test vet lint staticcheck fmt fmt-check coverage security ci check clean install
+.PHONY: build gui-build test vet lint staticcheck fmt fmt-check coverage security ci check clean install
 
 build:
 	go build -trimpath -ldflags="$(LDFLAGS)" -o $(BINARY) .
+
+gui-build:
+	cmake -S gui -B gui/build -DCMAKE_BUILD_TYPE=Release
+	cmake --build gui/build --parallel
 
 test:
 	go test ./...
