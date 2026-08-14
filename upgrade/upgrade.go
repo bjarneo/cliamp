@@ -223,7 +223,7 @@ func replaceExecutableOnWindows(sourcePath, destPath string) error {
 
 	if err := os.Rename(sourcePath, destPath); err != nil {
 		if rollbackErr := os.Rename(backupPath, destPath); rollbackErr != nil {
-			return fmt.Errorf("installing new binary: %w; restoring current binary: %v", err, rollbackErr)
+			return fmt.Errorf("installing new binary: %w; restoring current binary: %w", err, rollbackErr)
 		}
 		return fmt.Errorf("installing new binary: %w", err)
 	}

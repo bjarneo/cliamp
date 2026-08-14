@@ -215,6 +215,9 @@ func TestReplaceExecutableOnWindows(t *testing.T) {
 	if _, err := os.Stat(download); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("download still exists or stat failed: %v", err)
 	}
+	if _, err := os.Stat(backup); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("backup still exists or stat failed: %v", err)
+	}
 }
 
 func TestReplaceExecutableOnWindowsRollsBack(t *testing.T) {
