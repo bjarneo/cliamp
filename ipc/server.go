@@ -23,6 +23,8 @@ type Dispatcher interface {
 	Send(msg any)
 }
 
+const ipcRequestReadTimeout = 60 * time.Second
+
 // Server listens on a Unix socket and dispatches IPC commands.
 type Server struct {
 	listener net.Listener
@@ -183,7 +185,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		// Per-request deadline so long-lived streaming clients (e.g. vis bands
 		// polling) aren't killed at a fixed wall clock, but idle clients still
 		// time out.
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.SetReadDeadline(time.Now().Add(ipcRequestReadTimeout))
 		if !scanner.Scan() {
 			return
 		}
@@ -210,6 +212,14 @@ func (s *Server) handleConn(conn net.Conn) {
 }
 
 func (s *Server) streamSubscription(conn net.Conn, topics []string) {
+	// handleConn sets a per-request read deadline. Subscriptions are idle,
+	// server-to-client streams after the initial request, so they must not
+	// inherit that deadline or they will be closed every request timeout.
+	if err := conn.SetReadDeadline(time.Time{}); err != nil {
+		writeResponse(conn, Response{OK: false, Error: "clear subscription deadline: " + err.Error()})
+		return
+	}
+
 	sub, err := s.broker.Subscribe(topics)
 	if err != nil {
 		writeResponse(conn, Response{OK: false, Error: err.Error()})
