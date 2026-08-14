@@ -4,6 +4,7 @@
 package luaplugin
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,6 +29,7 @@ type Plugin struct {
 	mu          sync.Mutex        // serializes all LState access (LState is not thread-safe)
 	config      map[string]string // per-plugin config from config.toml
 	perms       map[string]bool   // declared permissions (e.g. "control")
+	namespace   string            // immutable installed name used for event topic isolation
 }
 
 // StateProvider supplies read-only access to player/playlist state.
@@ -96,6 +98,12 @@ type UIProvider struct {
 	ShowMessage func(text string, duration time.Duration) // injected via prog.Send
 }
 
+// EventPublisher accepts namespaced JSON events emitted by Lua plugins.
+type EventPublisher interface {
+	Publish(topic string, data json.RawMessage, retain bool) error
+	ClearPrefix(prefix string)
+}
+
 // Manager owns all loaded plugins and dispatches events to them.
 type Manager struct {
 	plugins      []*Plugin
@@ -109,6 +117,7 @@ type Manager struct {
 	state        StateProvider
 	control      ControlProvider
 	ui           UIProvider
+	publisher    EventPublisher
 	timers       *timerManager
 	execs        *execManager
 	logger       *pluginLogger
@@ -230,9 +239,10 @@ func (m *Manager) loadPlugin(path, name string, cfg map[string]string) (*Plugin,
 	sandbox(L)
 
 	p := &Plugin{
-		Name:   name,
-		L:      L,
-		config: cfg,
+		Name:      name,
+		namespace: name,
+		L:         L,
+		config:    cfg,
 	}
 
 	// Register the plugin.register() global.
@@ -373,6 +383,36 @@ func (m *Manager) registerPluginAPI(L *lua.LState, p *Plugin) {
 			return 1
 		}))
 
+		// p:publish(topic, payload, {retain=true}) publishes only inside the
+		// immutable namespace derived from the installed plugin filename.
+		L.SetField(obj, "publish", L.NewFunction(func(L *lua.LState) int {
+			topic := L.CheckString(2)
+			payload := luaToGo(L.Get(3))
+			retain := false
+			if options, ok := L.Get(4).(*lua.LTable); ok {
+				retain = lua.LVAsBool(options.RawGetString("retain"))
+			}
+			data, err := json.Marshal(payload)
+			if err == nil {
+				m.mu.RLock()
+				publisher := m.publisher
+				m.mu.RUnlock()
+				if publisher == nil {
+					err = fmt.Errorf("plugin event publisher is unavailable")
+				} else {
+					fullTopic := "plugin." + p.namespace + "." + topic
+					err = publisher.Publish(fullTopic, data, retain)
+				}
+			}
+			if err != nil {
+				L.Push(lua.LNil)
+				L.Push(lua.LString(err.Error()))
+				return 2
+			}
+			L.Push(lua.LTrue)
+			return 1
+		}))
+
 		m.registerKeymapAPI(L, obj, p)
 		m.registerCommandAPI(L, obj, p)
 
@@ -443,6 +483,13 @@ func resolveAllowedBinaries(pluginCfg map[string]map[string]string) []string {
 	return out
 }
 
+// SetEventPublisher connects p:publish() to the local IPC event broker.
+func (m *Manager) SetEventPublisher(publisher EventPublisher) {
+	m.mu.Lock()
+	m.publisher = publisher
+	m.mu.Unlock()
+}
+
 // SetStateProvider sets the function pointers used by the Lua API to
 // query live player/playlist state.
 func (m *Manager) SetStateProvider(sp StateProvider) {
@@ -468,6 +515,14 @@ func (m *Manager) Close() {
 	m.mu.Unlock()
 
 	m.EmitSync(EventAppQuit, nil)
+	m.mu.RLock()
+	publisher := m.publisher
+	m.mu.RUnlock()
+	if publisher != nil {
+		for _, p := range m.plugins {
+			publisher.ClearPrefix("plugin." + p.namespace + ".")
+		}
+	}
 	m.timers.stopAll()
 	m.execs.stopAll()
 	// Wait for any in-flight async hook goroutines to finish before closing
