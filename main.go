@@ -307,9 +307,12 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 	if luaErr != nil {
 		fmt.Fprintf(os.Stderr, "lua plugins: %v\n", luaErr)
 	}
+	pluginBroker := ipc.NewBroker()
+	defer pluginBroker.Close()
 	if luaMgr != nil {
-		defer luaMgr.Close()
 		luaMgr.SetReservedKeys(model.ReservedKeys())
+		luaMgr.SetEventPublisher(pluginBroker)
+		defer luaMgr.Close()
 	}
 
 	m := model.New(p, pl, providers, defaultProvider, localProv, themes, luaMgr, config.SaveFunc{})
@@ -465,7 +468,7 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 		})
 	}
 
-	ipcSrv, ipcErr := ipc.NewServer(ipc.DefaultSocketPath(), ipc.DispatcherFunc(func(msg any) { prog.Send(msg) }))
+	ipcSrv, ipcErr := ipc.NewServerWithBroker(ipc.DefaultSocketPath(), ipc.DispatcherFunc(func(msg any) { prog.Send(msg) }), pluginBroker)
 	if ipcErr != nil {
 		fmt.Fprintf(os.Stderr, "ipc: %v\n", ipcErr)
 	} else {
