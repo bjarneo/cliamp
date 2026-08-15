@@ -9,6 +9,10 @@ import (
 	"time"
 )
 
+// ErrNotRunning reports that no cliamp instance is listening on the socket.
+// Callers can branch on it with errors.Is instead of matching message text.
+var ErrNotRunning = errors.New("cliamp is not running")
+
 func dialSocket(sockPath string, timeout time.Duration) (net.Conn, error) {
 	return net.DialTimeout("unix", sockPath, timeout)
 }

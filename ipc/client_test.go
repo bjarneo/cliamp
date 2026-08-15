@@ -1,6 +1,9 @@
 package ipc
 
 import (
+	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -60,6 +63,22 @@ func TestSendNoServer(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not running") {
 		t.Errorf("error = %q, want to mention 'not running'", err.Error())
+	}
+}
+
+// Every entry point reports a missing server through the same sentinel so
+// callers can branch without matching message text.
+func TestEntryPointsReportErrNotRunning(t *testing.T) {
+	sock := filepath.Join(shortTempDir(t), "missing.sock")
+
+	if _, err := Send(sock, Request{Cmd: "status"}); !errors.Is(err, ErrNotRunning) {
+		t.Errorf("Send error = %v, want ErrNotRunning", err)
+	}
+	if _, err := Subscribe(sock, []string{"plugin.test.playback"}); !errors.Is(err, ErrNotRunning) {
+		t.Errorf("Subscribe error = %v, want ErrNotRunning", err)
+	}
+	if err := StreamBands(context.Background(), sock, time.Millisecond, io.Discard); !errors.Is(err, ErrNotRunning) {
+		t.Errorf("StreamBands error = %v, want ErrNotRunning", err)
 	}
 }
 
