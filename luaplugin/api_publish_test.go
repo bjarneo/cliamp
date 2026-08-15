@@ -85,6 +85,37 @@ func TestPluginPublishReportsUnavailablePublisher(t *testing.T) {
 	}
 }
 
+// A dotted install name must not be able to produce the same topic as another
+// plugin publishing a dotted topic.
+func TestPluginPublishNamespaceAvoidsDottedNameCollision(t *testing.T) {
+	manager := newTestManager()
+	publisher := &capturePublisher{}
+	manager.SetEventPublisher(publisher)
+
+	loadTestPlugin(t, manager, "foo.bar", `
+		local p = plugin.register({name = "foo.bar", type = "hook"})
+		p:publish("playback", {})
+	`)
+	loadTestPlugin(t, manager, "foo", `
+		local p = plugin.register({name = "foo", type = "hook"})
+		p:publish("bar.playback", {})
+	`)
+
+	events, _ := publisher.captured()
+	if len(events) != 2 {
+		t.Fatalf("published events = %d, want 2", len(events))
+	}
+	if events[0].topic != "plugin.foo_bar.playback" {
+		t.Errorf("dotted plugin topic = %q, want plugin.foo_bar.playback", events[0].topic)
+	}
+	if events[1].topic != "plugin.foo.bar.playback" {
+		t.Errorf("dotted topic = %q, want plugin.foo.bar.playback", events[1].topic)
+	}
+	if events[0].topic == events[1].topic {
+		t.Fatalf("namespaces collided on %q", events[0].topic)
+	}
+}
+
 func TestManagerCloseClearsRetainedAfterPublishersStop(t *testing.T) {
 	manager := newTestManager()
 	publisher := &capturePublisher{}

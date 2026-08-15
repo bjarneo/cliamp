@@ -160,7 +160,10 @@ The returned object `p` provides two methods:
 Plugins can publish JSON-compatible values to external programs connected to
 Cliamp's owner-only IPC socket. Topics are automatically isolated beneath the
 installed plugin name; a plugin installed as `myplugin.lua` publishing
-`"playback"` produces `plugin.myplugin.playback`.
+`"playback"` produces `plugin.myplugin.playback`. The name contributes exactly
+one topic segment: any character outside letters, digits, `_`, and `-` becomes
+`_`, so `my.plugin.lua` publishes under `plugin.my_plugin.` and can never
+collide with topics from a plugin named `my`.
 
 ```lua
 p:publish("playback", {

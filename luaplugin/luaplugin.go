@@ -29,7 +29,7 @@ type Plugin struct {
 	mu          sync.Mutex        // serializes all LState access (LState is not thread-safe)
 	config      map[string]string // per-plugin config from config.toml
 	perms       map[string]bool   // declared permissions (e.g. "control")
-	namespace   string            // immutable installed name used for event topic isolation
+	namespace   string            // installed name reduced to one event topic segment
 }
 
 // StateProvider supplies read-only access to player/playlist state.
@@ -243,7 +243,7 @@ func (m *Manager) loadPlugin(path, name string, cfg map[string]string) (*Plugin,
 
 	p := &Plugin{
 		Name:      name,
-		namespace: name,
+		namespace: eventNamespace(name),
 		L:         L,
 		config:    cfg,
 	}
@@ -484,6 +484,26 @@ func resolveAllowedBinaries(pluginCfg map[string]map[string]string) []string {
 		out = append(out, name)
 	}
 	return out
+}
+
+// eventNamespace reduces an installed plugin name to a single event topic
+// segment. Without this, a dot in the name makes topics ambiguous: a plugin
+// installed as "foo.bar" publishing "playback" and one installed as "foo"
+// publishing "bar.playback" would both produce plugin.foo.bar.playback.
+// Characters that IPC topics reject are folded the same way so every installed
+// plugin can publish, whatever its filename.
+func eventNamespace(name string) string {
+	var b strings.Builder
+	b.Grow(len(name))
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
 }
 
 // SetEventPublisher replaces the publisher backing p:publish(). New installs
