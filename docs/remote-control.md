@@ -126,9 +126,10 @@ A subscriber sends one request:
 ```
 
 After the `{"ok":true}` acknowledgment, that connection is a streaming-only
-NDJSON event feed. Retained events are replayed immediately and exist only in
-Cliamp memory. See [Lua Plugins](plugins.md#plugin-event-pubsub) for the
-`p:publish()` API and event envelope.
+NDJSON event feed; sending anything else on it closes the subscription.
+Retained events are replayed immediately and exist only in Cliamp memory. See
+[Lua Plugins](plugins.md#plugin-event-pubsub) for the `p:publish()` API and
+event envelope.
 
 ## Socket Details
 

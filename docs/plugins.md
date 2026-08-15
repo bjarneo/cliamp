@@ -187,10 +187,13 @@ After `{"ok":true}`, the connection becomes a server-to-client event stream:
 ```
 
 Subscriptions use exact topic matches, accept at most 32 topics, and are
-streaming-only; use another IPC connection for ordinary commands. Payloads are
-limited to 64 KiB. Topic segments may contain letters, digits, `.`, `_`, and
-`-`. `p:publish()` requires no permission because IPC remains local to the
-same user and the existing `status` command already exposes playback metadata.
+streaming-only; use another IPC connection for ordinary commands. Sending any
+further bytes on a subscription closes it. Payloads are limited to 64 KiB and
+are converted with the same nesting and cycle rules as
+[`cliamp.json`](#cliampjson). Topic segments may contain letters, digits, `.`,
+`_`, and `-`. `p:publish()` requires no permission because IPC remains local to
+the same user and the existing `status` command already exposes playback
+metadata.
 
 ## Events
 
@@ -352,6 +355,10 @@ Writes are restricted to the system temp directory (`/tmp/` on Unix), `~/.config
 local tbl = cliamp.json.decode('{"key": "value"}')
 local str = cliamp.json.encode({ key = "value" })
 ```
+
+Tables are encoded up to 64 levels deep; anything deeper, and any cyclic
+reference, becomes `null` instead of failing. The same conversion is used by
+`p:publish()` and `cliamp.store`.
 
 ### cliamp.store
 
