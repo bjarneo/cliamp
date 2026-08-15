@@ -21,15 +21,16 @@ import (
 
 // Plugin represents a single loaded Lua plugin.
 type Plugin struct {
-	Name        string
-	Version     string
-	Description string
-	Type        string // "hook" or "visualizer"
-	L           *lua.LState
-	mu          sync.Mutex        // serializes all LState access (LState is not thread-safe)
-	config      map[string]string // per-plugin config from config.toml
-	perms       map[string]bool   // declared permissions (e.g. "control")
-	namespace   string            // installed name reduced to one event topic segment
+	Name         string
+	Version      string
+	Description  string
+	Type         string // "hook" or "visualizer"
+	L            *lua.LState
+	mu           sync.Mutex        // serializes all LState access (LState is not thread-safe)
+	config       map[string]string // per-plugin config from config.toml
+	perms        map[string]bool   // declared permissions (e.g. "control")
+	namespace    string            // installed name reduced to one event topic segment
+	namespaceErr error             // set when another plugin claimed that namespace first
 }
 
 // StateProvider supplies read-only access to player/playlist state.
@@ -114,6 +115,7 @@ type Manager struct {
 	commands     map[string]map[string]*luaHook // plugin name -> command name -> handler
 	visPlugs     []*luaVis                      // Lua visualizers in registration order
 	visMap       map[string]*luaVis             // name -> Lua visualizer
+	namespaces   map[string]string              // event namespace -> owning plugin name
 	state        StateProvider
 	control      ControlProvider
 	ui           UIProvider
@@ -138,6 +140,7 @@ func New(pluginCfg map[string]map[string]string, publisher EventPublisher) (*Man
 		keyBindDescs: make(map[string]KeyBinding),
 		commands:     make(map[string]map[string]*luaHook),
 		visMap:       make(map[string]*luaVis),
+		namespaces:   make(map[string]string),
 		timers:       newTimerManager(),
 		execs:        newExecManager(resolveAllowedBinaries(pluginCfg)),
 		publisher:    publisher,
@@ -247,6 +250,7 @@ func (m *Manager) loadPlugin(path, name string, cfg map[string]string) (*Plugin,
 		L:         L,
 		config:    cfg,
 	}
+	m.claimNamespace(p)
 
 	// Register the plugin.register() global.
 	m.registerPluginAPI(L, p)
@@ -277,6 +281,9 @@ func (m *Manager) loadPlugin(path, name string, cfg map[string]string) (*Plugin,
 
 func (m *Manager) cleanupPlugin(p *Plugin) {
 	m.mu.Lock()
+	if owner, ok := m.namespaces[p.namespace]; ok && owner == p.Name && p.namespaceErr == nil {
+		delete(m.namespaces, p.namespace)
+	}
 	for event, hooks := range m.hooks {
 		m.hooks[event] = filterOutPlugin(hooks, p)
 	}
@@ -402,6 +409,8 @@ func (m *Manager) registerPluginAPI(L *lua.LState, p *Plugin) {
 				m.mu.RUnlock()
 				if publisher == nil {
 					err = fmt.Errorf("plugin event publisher is unavailable")
+				} else if p.namespaceErr != nil {
+					err = p.namespaceErr
 				} else {
 					fullTopic := "plugin." + p.namespace + "." + topic
 					err = publisher.Publish(fullTopic, data, retain)
@@ -492,6 +501,10 @@ func resolveAllowedBinaries(pluginCfg map[string]map[string]string) []string {
 // publishing "bar.playback" would both produce plugin.foo.bar.playback.
 // Characters that IPC topics reject are folded the same way so every installed
 // plugin can publish, whatever its filename.
+//
+// Folding is lossy: "foo.bar" and "foo_bar" both yield "foo_bar". loadPlugin
+// therefore lets only the first plugin claim a namespace and disables
+// publishing for later ones, so two plugins can never share a topic.
 func eventNamespace(name string) string {
 	var b strings.Builder
 	b.Grow(len(name))
@@ -504,6 +517,25 @@ func eventNamespace(name string) string {
 		}
 	}
 	return b.String()
+}
+
+// claimNamespace records p as the owner of its event namespace, or marks p as
+// unable to publish when another plugin already owns that namespace. Load order
+// is sorted by installed name, so the winner is deterministic.
+func (m *Manager) claimNamespace(p *Plugin) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.namespaces == nil {
+		m.namespaces = make(map[string]string)
+	}
+	if owner, taken := m.namespaces[p.namespace]; taken && owner != p.Name {
+		p.namespaceErr = fmt.Errorf("event namespace %q is already used by plugin %q; rename this plugin to publish events", p.namespace, owner)
+		if m.logger != nil {
+			m.logger.log(p.Name, "warn", "%v", p.namespaceErr)
+		}
+		return
+	}
+	m.namespaces[p.namespace] = p.Name
 }
 
 // SetEventPublisher replaces the publisher backing p:publish(). New installs
@@ -551,6 +583,9 @@ func (m *Manager) Close() {
 	m.mu.RUnlock()
 	if publisher != nil {
 		for _, p := range m.plugins {
+			if p.namespaceErr != nil {
+				continue // never owned the namespace, so nothing of its own is retained
+			}
 			publisher.ClearPrefix("plugin." + p.namespace + ".")
 		}
 	}

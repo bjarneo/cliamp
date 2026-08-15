@@ -2,6 +2,7 @@ package luaplugin
 
 import (
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -113,6 +114,57 @@ func TestPluginPublishNamespaceAvoidsDottedNameCollision(t *testing.T) {
 	}
 	if events[0].topic == events[1].topic {
 		t.Fatalf("namespaces collided on %q", events[0].topic)
+	}
+}
+
+// Folding "." to "_" is lossy, so two names that fold alike must not end up
+// sharing a namespace: the first loaded keeps it, the second cannot publish.
+func TestPluginPublishRejectsFoldedNamespaceClash(t *testing.T) {
+	manager := newTestManager()
+	publisher := &capturePublisher{}
+	manager.SetEventPublisher(publisher)
+
+	loadTestPlugin(t, manager, "my.plugin", `
+		local p = plugin.register({name = "my.plugin", type = "hook"})
+		local ok, err = p:publish("playback", {})
+		if not ok then error(err) end
+	`)
+	late := loadTestPlugin(t, manager, "my_plugin", `
+		local p = plugin.register({name = "my_plugin", type = "hook"})
+		_G.ok, _G.err = p:publish("playback", {})
+	`)
+
+	if late.L.GetGlobal("ok") != lua.LNil {
+		t.Fatal("second plugin published into a namespace it does not own")
+	}
+	if got := late.L.GetGlobal("err").String(); !strings.Contains(got, `already used by plugin "my.plugin"`) {
+		t.Errorf("error = %q, want the owning plugin named", got)
+	}
+	events, _ := publisher.captured()
+	if len(events) != 1 {
+		t.Fatalf("published events = %d, want 1", len(events))
+	}
+	if events[0].topic != "plugin.my_plugin.playback" {
+		t.Errorf("topic = %q, want plugin.my_plugin.playback", events[0].topic)
+	}
+}
+
+// A file that never registers must release its namespace for the next plugin.
+func TestNamespaceReleasedWhenPluginFailsToLoad(t *testing.T) {
+	manager := newTestManager()
+	publisher := &capturePublisher{}
+	manager.SetEventPublisher(publisher)
+
+	loadTestPluginExpectError(t, manager, "my.plugin", `error("boom")`)
+	loadTestPlugin(t, manager, "my_plugin", `
+		local p = plugin.register({name = "my_plugin", type = "hook"})
+		local ok, err = p:publish("playback", {})
+		if not ok then error(err) end
+	`)
+
+	events, _ := publisher.captured()
+	if len(events) != 1 || events[0].topic != "plugin.my_plugin.playback" {
+		t.Fatalf("events = %#v, want one plugin.my_plugin.playback", events)
 	}
 }
 

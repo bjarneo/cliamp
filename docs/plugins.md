@@ -163,7 +163,11 @@ installed plugin name; a plugin installed as `myplugin.lua` publishing
 `"playback"` produces `plugin.myplugin.playback`. The name contributes exactly
 one topic segment: any character outside letters, digits, `_`, and `-` becomes
 `_`, so `my.plugin.lua` publishes under `plugin.my_plugin.` and can never
-collide with topics from a plugin named `my`.
+collide with topics from a plugin named `my`. Because that folding is lossy,
+namespaces are unique per session: if `my.plugin.lua` and `my_plugin.lua` are
+both installed, the first one loaded (plugins load in name order) owns
+`plugin.my_plugin.` and `p:publish()` in the other returns `nil, err` naming the
+owner. Rename one of them to publish from both.
 
 ```lua
 p:publish("playback", {
