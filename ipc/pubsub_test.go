@@ -3,6 +3,7 @@ package ipc
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -140,5 +141,35 @@ func TestBrokerDisconnectsSlowSubscriber(t *testing.T) {
 		}
 	}
 	for range sub.Events() {
+	}
+}
+
+func TestBrokerRejectedRetainDoesNotConsumeSequence(t *testing.T) {
+	broker := NewBroker()
+	for i := range maxRetainedTopics {
+		topic := fmt.Sprintf("plugin.filler.topic%d", i)
+		if err := broker.Publish(topic, json.RawMessage(`{}`), true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := broker.Publish("plugin.filler.overflow", json.RawMessage(`{}`), true); !errors.Is(err, ErrTooManyRetained) {
+		t.Fatalf("retained overflow error = %v, want ErrTooManyRetained", err)
+	}
+
+	sub, err := broker.Subscribe([]string{"plugin.seq.check"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	if err := broker.Publish("plugin.seq.check", json.RawMessage(`{}`), false); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-sub.Events():
+		if event.Sequence != uint64(maxRetainedTopics)+1 {
+			t.Fatalf("sequence = %d, want %d", event.Sequence, maxRetainedTopics+1)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for event")
 	}
 }

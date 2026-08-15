@@ -94,6 +94,12 @@ func (b *Broker) Publish(topic string, data json.RawMessage, retain bool) error 
 	if b.closed {
 		return errors.New("event broker is closed")
 	}
+	// Reject before consuming a sequence number so numbering stays gap-free.
+	if retain {
+		if _, exists := b.retained[topic]; !exists && len(b.retained) >= maxRetainedTopics {
+			return ErrTooManyRetained
+		}
+	}
 	b.nextEvent++
 	event := Event{
 		Event:    topic,
@@ -101,11 +107,7 @@ func (b *Broker) Publish(topic string, data json.RawMessage, retain bool) error 
 		Time:     time.Now().Unix(),
 		Data:     append(json.RawMessage(nil), data...),
 	}
-
 	if retain {
-		if _, exists := b.retained[topic]; !exists && len(b.retained) >= maxRetainedTopics {
-			return ErrTooManyRetained
-		}
 		b.retained[topic] = event
 	}
 	for id, sub := range b.subscribers {
