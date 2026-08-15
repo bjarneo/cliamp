@@ -159,8 +159,9 @@ cliamp playlist export "Name" --format pls     # export as PLS to stdout
 cliamp playlist import mix.m3u --name "Name"   # import local M3U/M3U8/PLS
 cliamp playlist bookmark "Name" --index 3      # toggle bookmark flag
 cliamp playlist bookmarks                       # list bookmarked tracks
-cliamp playlist enrich "Name"                  # probe duration/album metadata
-cliamp playlist delete "Name"                 # delete entire playlist
+cliamp playlist enrich "Name"                   # probe duration/album 
+cliamp playlist enrich "Name" --from metadata   # probe duration/album (forces to read metadata)
+cliamp playlist delete "Name"                   # delete entire playlist
 ```
 
 Sort keys: `track`, `title`, `artist`, `album`, `artist+album`, `path`.

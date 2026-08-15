@@ -491,7 +491,7 @@ func PlaylistBookmarks() error {
 }
 
 // PlaylistEnrich probes duration and derives album metadata for SSH tracks.
-func PlaylistEnrich(name string) error {
+func PlaylistEnrich(name string, source string) error {
 	prov, err := newProvider()
 	if err != nil {
 		return err
@@ -516,9 +516,11 @@ func PlaylistEnrich(name string) error {
 		}
 
 		if t.Album == "" {
-			if dir := albumFromPath(t.Path); dir != "" {
+			if dir := albumFromPath(t.Path); dir != "" && source == "path" {
 				tracks[i].Album = dir
 				changed = true
+			} else if album := probeAlbum(t.Path); album != "" && source == "metadata" {
+				tracks[i].Album = album
 			}
 		}
 
@@ -586,6 +588,11 @@ func parseProbeDuration(out []byte) int {
 		return 0
 	}
 	return int(dur)
+}
+
+func probeAlbum(path string) string {
+	t := playlist.TrackFromPath(path)
+	return t.Album
 }
 
 func albumFromPath(path string) string {

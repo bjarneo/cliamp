@@ -583,11 +583,14 @@ func playlistCommand() *cli.Command {
 				Name:      "enrich",
 				Usage:     "probe duration and album metadata for SSH tracks",
 				ArgsUsage: "\"Name\"",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "source", Usage: "source: metadata, path", Value: "path"},
+				},
 				Action: func(ctx context.Context, c *cli.Command) error {
 					if c.Args().Len() == 0 {
-						return fmt.Errorf("usage: cliamp playlist enrich \"Name\"")
+						return fmt.Errorf("usage: cliamp playlist enrich \"Name\" --source metadata")
 					}
-					return cmd.PlaylistEnrich(c.Args().First())
+					return cmd.PlaylistEnrich(c.Args().First(), c.String("source"))
 				},
 			},
 		},
