@@ -303,15 +303,15 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 
 	themes := theme.LoadAll()
 
-	luaMgr, luaErr := luaplugin.New(cfg.Plugins)
+	pluginBroker := ipc.NewBroker()
+	defer pluginBroker.Close()
+
+	luaMgr, luaErr := luaplugin.New(cfg.Plugins, pluginBroker)
 	if luaErr != nil {
 		fmt.Fprintf(os.Stderr, "lua plugins: %v\n", luaErr)
 	}
-	pluginBroker := ipc.NewBroker()
-	defer pluginBroker.Close()
 	if luaMgr != nil {
 		luaMgr.SetReservedKeys(model.ReservedKeys())
-		luaMgr.SetEventPublisher(pluginBroker)
 		defer luaMgr.Close()
 	}
 

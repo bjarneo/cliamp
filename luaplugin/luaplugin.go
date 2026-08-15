@@ -128,8 +128,10 @@ type Manager struct {
 
 // New scans the plugin directory and loads all .lua files.
 // pluginCfg maps plugin names to their [plugins.<name>] config keys.
+// publisher backs p:publish() and may be nil; it is installed before any plugin
+// runs so a plugin can publish from its top-level chunk.
 // Returns a Manager (possibly with 0 plugins) and any non-fatal load error.
-func New(pluginCfg map[string]map[string]string) (*Manager, error) {
+func New(pluginCfg map[string]map[string]string, publisher EventPublisher) (*Manager, error) {
 	m := &Manager{
 		hooks:        make(map[string][]*luaHook),
 		keyBinds:     make(map[string][]*luaHook),
@@ -138,6 +140,7 @@ func New(pluginCfg map[string]map[string]string) (*Manager, error) {
 		visMap:       make(map[string]*luaVis),
 		timers:       newTimerManager(),
 		execs:        newExecManager(resolveAllowedBinaries(pluginCfg)),
+		publisher:    publisher,
 	}
 
 	dir, err := appdir.PluginDir()
@@ -483,7 +486,8 @@ func resolveAllowedBinaries(pluginCfg map[string]map[string]string) []string {
 	return out
 }
 
-// SetEventPublisher connects p:publish() to the local IPC event broker.
+// SetEventPublisher replaces the publisher backing p:publish(). New installs
+// the publisher before plugins run; this is for callers that wire it later.
 func (m *Manager) SetEventPublisher(publisher EventPublisher) {
 	m.mu.Lock()
 	m.publisher = publisher
