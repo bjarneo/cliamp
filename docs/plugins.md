@@ -160,14 +160,16 @@ The returned object `p` provides two methods:
 Plugins can publish JSON-compatible values to external programs connected to
 Cliamp's owner-only IPC socket. Topics are automatically isolated beneath the
 installed plugin name; a plugin installed as `myplugin.lua` publishing
-`"playback"` produces `plugin.myplugin.playback`. The name contributes exactly
-one topic segment: any character outside letters, digits, `_`, and `-` becomes
-`_`, so `my.plugin.lua` publishes under `plugin.my_plugin.` and can never
+`"playback"` produces the topic `plugin.myplugin.playback`. The name contributes
+exactly one topic segment: any character outside letters, digits, `_`, and `-`
+becomes `_`, so `my.plugin.lua` publishes under the prefix `plugin.my_plugin.*`
+(publishing `"playback"` from it gives `plugin.my_plugin.playback`) and can never
 collide with topics from a plugin named `my`. Because that folding is lossy,
 namespaces are unique per session: if `my.plugin.lua` and `my_plugin.lua` are
-both installed, the first one loaded (plugins load in name order) owns
-`plugin.my_plugin.` and `p:publish()` in the other returns `nil, err` naming the
-owner. Rename one of them to publish from both.
+both installed, the first one loaded (plugins load in name order) owns the
+`plugin.my_plugin.*` prefix and `p:publish()` in the other returns `nil, err`
+naming the owner. Rename one of them to publish from both. Subscribers must name
+complete topics, not prefixes.
 
 ```lua
 p:publish("playback", {
