@@ -519,6 +519,13 @@ func (m *Manager) Close() {
 	m.mu.Unlock()
 
 	m.EmitSync(EventAppQuit, nil)
+	m.timers.stopAll()
+	m.execs.stopAll()
+	// Wait for any in-flight async hook goroutines to finish before closing
+	// the LStates they call into.
+	m.wg.Wait()
+	// Drop retained events only once every publisher has stopped, so a late
+	// async handler cannot leave a retained value behind.
 	m.mu.RLock()
 	publisher := m.publisher
 	m.mu.RUnlock()
@@ -527,11 +534,6 @@ func (m *Manager) Close() {
 			publisher.ClearPrefix("plugin." + p.namespace + ".")
 		}
 	}
-	m.timers.stopAll()
-	m.execs.stopAll()
-	// Wait for any in-flight async hook goroutines to finish before closing
-	// the LStates they call into.
-	m.wg.Wait()
 	if m.logger != nil {
 		m.logger.close()
 	}

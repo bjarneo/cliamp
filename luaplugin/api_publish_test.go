@@ -2,7 +2,9 @@ package luaplugin
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
+	"time"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -13,14 +15,33 @@ type capturedEvent struct {
 	retain bool
 }
 
-type capturePublisher struct{ events []capturedEvent }
+// capturePublisher records calls in order and is safe for concurrent use, since
+// async hooks publish from their own goroutines.
+type capturePublisher struct {
+	mu     sync.Mutex
+	events []capturedEvent
+	calls  []string
+}
 
 func (p *capturePublisher) Publish(topic string, data json.RawMessage, retain bool) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.events = append(p.events, capturedEvent{topic: topic, data: append(json.RawMessage(nil), data...), retain: retain})
+	p.calls = append(p.calls, "publish "+topic)
 	return nil
 }
 
-func (p *capturePublisher) ClearPrefix(string) {}
+func (p *capturePublisher) ClearPrefix(prefix string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls = append(p.calls, "clear "+prefix)
+}
+
+func (p *capturePublisher) captured() ([]capturedEvent, []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.events, p.calls
+}
 
 func TestPluginPublishUsesInstalledNamespaceAndRetention(t *testing.T) {
 	manager := newTestManager()
@@ -33,10 +54,11 @@ func TestPluginPublishUsesInstalledNamespaceAndRetention(t *testing.T) {
 		if not ok then error(err) end
 	`)
 
-	if len(publisher.events) != 1 {
-		t.Fatalf("published events = %d, want 1", len(publisher.events))
+	events, _ := publisher.captured()
+	if len(events) != 1 {
+		t.Fatalf("published events = %d, want 1", len(events))
 	}
-	event := publisher.events[0]
+	event := events[0]
 	if event.topic != "plugin.installed-name.playback" || !event.retain {
 		t.Fatalf("event = %#v", event)
 	}
@@ -60,5 +82,35 @@ func TestPluginPublishReportsUnavailablePublisher(t *testing.T) {
 	}
 	if plugin.L.GetGlobal("err").String() != "plugin event publisher is unavailable" {
 		t.Fatalf("error = %q", plugin.L.GetGlobal("err").String())
+	}
+}
+
+func TestManagerCloseClearsRetainedAfterPublishersStop(t *testing.T) {
+	manager := newTestManager()
+	publisher := &capturePublisher{}
+	manager.SetEventPublisher(publisher)
+	loadTestPlugin(t, manager, "late", `plugin.register({name = "late", type = "hook"})`)
+
+	// Stand in for an async hook goroutine that is still running when Close
+	// starts and publishes a retained event just before it finishes. Close must
+	// wait for it, then clear the namespace — not the other way around.
+	manager.wg.Add(1)
+	go func() {
+		defer manager.wg.Done()
+		time.Sleep(20 * time.Millisecond)
+		_ = publisher.Publish("plugin.late.playback", json.RawMessage(`{}`), true)
+	}()
+
+	manager.Close()
+
+	_, calls := publisher.captured()
+	want := []string{"publish plugin.late.playback", "clear plugin.late."}
+	if len(calls) != len(want) {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+	for i, call := range calls {
+		if call != want[i] {
+			t.Fatalf("calls = %v, want %v", calls, want)
+		}
 	}
 }
