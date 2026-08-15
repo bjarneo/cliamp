@@ -149,7 +149,8 @@ func TestPluginPublishRejectsFoldedNamespaceClash(t *testing.T) {
 	}
 }
 
-// A file that never registers must release its namespace for the next plugin.
+// A file that never registers must release its namespace for the next plugin,
+// including when plugin.register() renamed it before the chunk failed.
 func TestNamespaceReleasedWhenPluginFailsToLoad(t *testing.T) {
 	manager := newTestManager()
 	publisher := &capturePublisher{}
@@ -162,6 +163,34 @@ func TestNamespaceReleasedWhenPluginFailsToLoad(t *testing.T) {
 		if not ok then error(err) end
 	`)
 
+	events, _ := publisher.captured()
+	if len(events) != 1 || events[0].topic != "plugin.my_plugin.playback" {
+		t.Fatalf("events = %#v, want one plugin.my_plugin.playback", events)
+	}
+}
+
+// plugin.register() renames Plugin.Name, so namespace release must key off the
+// installed filename instead.
+func TestNamespaceReleasedAfterRegisterRenamesPlugin(t *testing.T) {
+	manager := newTestManager()
+	publisher := &capturePublisher{}
+	manager.SetEventPublisher(publisher)
+
+	loadTestPluginExpectError(t, manager, "my.plugin", `
+		plugin.register({name = "renamed-after-claim", type = "hook"})
+		error("boom")
+	`)
+	if owner, taken := manager.namespaces["my_plugin"]; taken {
+		t.Fatalf("namespace still claimed by %q after failed load", owner)
+	}
+
+	late := loadTestPlugin(t, manager, "my_plugin", `
+		local p = plugin.register({name = "my_plugin", type = "hook"})
+		_G.ok, _G.err = p:publish("playback", {})
+	`)
+	if late.L.GetGlobal("ok") == lua.LNil {
+		t.Fatalf("publish failed: %s", late.L.GetGlobal("err").String())
+	}
 	events, _ := publisher.captured()
 	if len(events) != 1 || events[0].topic != "plugin.my_plugin.playback" {
 		t.Fatalf("events = %#v, want one plugin.my_plugin.playback", events)

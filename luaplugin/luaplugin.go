@@ -21,16 +21,17 @@ import (
 
 // Plugin represents a single loaded Lua plugin.
 type Plugin struct {
-	Name         string
-	Version      string
-	Description  string
-	Type         string // "hook" or "visualizer"
-	L            *lua.LState
-	mu           sync.Mutex        // serializes all LState access (LState is not thread-safe)
-	config       map[string]string // per-plugin config from config.toml
-	perms        map[string]bool   // declared permissions (e.g. "control")
-	namespace    string            // installed name reduced to one event topic segment
-	namespaceErr error             // set when another plugin claimed that namespace first
+	Name           string
+	Version        string
+	Description    string
+	Type           string // "hook" or "visualizer"
+	L              *lua.LState
+	mu             sync.Mutex        // serializes all LState access (LState is not thread-safe)
+	config         map[string]string // per-plugin config from config.toml
+	perms          map[string]bool   // declared permissions (e.g. "control")
+	namespaceOwner string            // installed filename; plugin.register() cannot change it
+	namespace      string            // namespaceOwner reduced to one event topic segment
+	namespaceErr   error             // set when another plugin claimed that namespace first
 }
 
 // StateProvider supplies read-only access to player/playlist state.
@@ -245,10 +246,11 @@ func (m *Manager) loadPlugin(path, name string, cfg map[string]string) (*Plugin,
 	sandbox(L)
 
 	p := &Plugin{
-		Name:      name,
-		namespace: eventNamespace(name),
-		L:         L,
-		config:    cfg,
+		Name:           name,
+		namespaceOwner: name,
+		namespace:      eventNamespace(name),
+		L:              L,
+		config:         cfg,
 	}
 	m.claimNamespace(p)
 
@@ -281,7 +283,11 @@ func (m *Manager) loadPlugin(path, name string, cfg map[string]string) (*Plugin,
 
 func (m *Manager) cleanupPlugin(p *Plugin) {
 	m.mu.Lock()
-	if owner, ok := m.namespaces[p.namespace]; ok && owner == p.Name && p.namespaceErr == nil {
+	// Release the event namespace only if this plugin owns it. Compare against
+	// namespaceOwner, not Name: plugin.register() can rename Name after the
+	// claim, and a renamed plugin that then fails to load must not keep the
+	// namespace locked away from a later colliding plugin.
+	if owner, ok := m.namespaces[p.namespace]; ok && owner == p.namespaceOwner {
 		delete(m.namespaces, p.namespace)
 	}
 	for event, hooks := range m.hooks {
@@ -521,21 +527,22 @@ func eventNamespace(name string) string {
 
 // claimNamespace records p as the owner of its event namespace, or marks p as
 // unable to publish when another plugin already owns that namespace. Load order
-// is sorted by installed name, so the winner is deterministic.
+// is sorted by installed name, so the winner is deterministic. Ownership is
+// tracked by installed filename because plugin.register() can rename p.Name.
 func (m *Manager) claimNamespace(p *Plugin) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.namespaces == nil {
 		m.namespaces = make(map[string]string)
 	}
-	if owner, taken := m.namespaces[p.namespace]; taken && owner != p.Name {
+	if owner, taken := m.namespaces[p.namespace]; taken && owner != p.namespaceOwner {
 		p.namespaceErr = fmt.Errorf("event namespace %q is already used by plugin %q; rename this plugin to publish events", p.namespace, owner)
 		if m.logger != nil {
-			m.logger.log(p.Name, "warn", "%v", p.namespaceErr)
+			m.logger.log(p.namespaceOwner, "warn", "%v", p.namespaceErr)
 		}
 		return
 	}
-	m.namespaces[p.namespace] = p.Name
+	m.namespaces[p.namespace] = p.namespaceOwner
 }
 
 // SetEventPublisher replaces the publisher backing p:publish(). New installs
