@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -528,10 +529,19 @@ func wireMediaCtl(prog *tea.Program) (*mediactl.Service, error) {
 	return svc, nil
 }
 
+// userIPCError renders ipc.ErrNotRunning as the wording users see. The ipc
+// package returns a bare sentinel, so all CLI copy stays in the command layer.
+func userIPCError(err error) error {
+	if errors.Is(err, ipc.ErrNotRunning) {
+		return fmt.Errorf("cliamp is not running (no socket at %s)", ipc.DefaultSocketPath())
+	}
+	return err
+}
+
 func ipcSend(req ipc.Request) (ipc.Response, error) {
 	resp, err := ipc.Send(ipc.DefaultSocketPath(), req)
 	if err != nil {
-		return resp, err
+		return resp, userIPCError(err)
 	}
 	if !resp.OK {
 		return resp, fmt.Errorf("%s", resp.Error)
@@ -544,7 +554,7 @@ func ipcSend(req ipc.Request) (ipc.Response, error) {
 func ipcSendLong(req ipc.Request, deadline time.Duration) (ipc.Response, error) {
 	resp, err := ipc.SendWithDeadline(ipc.DefaultSocketPath(), req, deadline)
 	if err != nil {
-		return resp, err
+		return resp, userIPCError(err)
 	}
 	if !resp.OK {
 		return resp, fmt.Errorf("%s", resp.Error)

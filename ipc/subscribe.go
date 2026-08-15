@@ -20,7 +20,7 @@ func Subscribe(sockPath string, topics []string) (*EventStream, error) {
 	conn, err := dialSocket(sockPath, 3*time.Second)
 	if err != nil {
 		if isSocketUnavailable(err) {
-			return nil, fmt.Errorf("%w (no socket at %s)", ErrNotRunning, sockPath)
+			return nil, fmt.Errorf("no socket at %s: %w", sockPath, ErrNotRunning)
 		}
 		return nil, fmt.Errorf("connect: %w", err)
 	}

@@ -61,8 +61,11 @@ func TestSendNoServer(t *testing.T) {
 	if err == nil {
 		t.Fatal("Send to missing socket should error")
 	}
-	if !strings.Contains(err.Error(), "not running") {
-		t.Errorf("error = %q, want to mention 'not running'", err.Error())
+	if !errors.Is(err, ErrNotRunning) {
+		t.Errorf("error = %v, want ErrNotRunning", err)
+	}
+	if !strings.Contains(err.Error(), sock) {
+		t.Errorf("error = %q, want the socket path", err.Error())
 	}
 }
 

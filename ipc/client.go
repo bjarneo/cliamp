@@ -33,7 +33,7 @@ func SendWithDeadline(sockPath string, req Request, deadline time.Duration) (Res
 	conn, err := dialSocket(sockPath, 3*time.Second)
 	if err != nil {
 		if isSocketUnavailable(err) {
-			return Response{}, fmt.Errorf("%w (no socket at %s)", ErrNotRunning, sockPath)
+			return Response{}, fmt.Errorf("no socket at %s: %w", sockPath, ErrNotRunning)
 		}
 		return Response{}, fmt.Errorf("connect: %w", err)
 	}

@@ -801,7 +801,7 @@ func visStreamCommand() *cli.Command {
 			if fps > 60 {
 				fps = 60
 			}
-			return ipc.StreamBands(ctx, ipc.DefaultSocketPath(), time.Second/time.Duration(fps), os.Stdout)
+			return userIPCError(ipc.StreamBands(ctx, ipc.DefaultSocketPath(), time.Second/time.Duration(fps), os.Stdout))
 		},
 	}
 }
