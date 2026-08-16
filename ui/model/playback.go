@@ -191,6 +191,10 @@ func (m *Model) removeSelectedFromPlaylist() {
 	}
 	snapshot := m.playlist.Snapshot()
 	track := m.playlist.Tracks()[idx]
+	if track.DirSourced {
+		m.status.Showf(statusTTLDefault, "Can't remove %q: it's supplied by the playlist's directory source", track.DisplayName())
+		return
+	}
 	loaded := m.loadedPlaylist
 	var saved []playlist.Track
 	persisted := false
