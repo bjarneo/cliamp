@@ -384,7 +384,7 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 func (p *Player) buildYTDLPipeline(pageURL string, startSec int) (*trackPipeline, error) {
 	p.streamTitle.Store("")
 
-	decoder, format, err := decodeYTDLPipe(pageURL, p.sr, p.bitDepth, startSec)
+	decoder, format, err := decodeYTDLPipe(pageURL, p.outRate(), p.bitDepth, startSec)
 	if err != nil {
 		return nil, err
 	}

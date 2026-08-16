@@ -31,6 +31,12 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.BitDepth != 16 {
 		t.Errorf("BitDepth = %d, want 16", cfg.BitDepth)
 	}
+	if cfg.BitPerfect {
+		t.Error("BitPerfect should be false by default")
+	}
+	if cfg.BitPerfectDevice != "" {
+		t.Errorf("BitPerfectDevice = %q, want empty", cfg.BitPerfectDevice)
+	}
 	if cfg.PaddingH != 3 {
 		t.Errorf("PaddingH = %d, want 3", cfg.PaddingH)
 	}
@@ -441,6 +447,30 @@ func TestLoadSpotifyBitrate(t *testing.T) {
 	}
 }
 
+func TestLoadBitPerfect(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	data := []byte("bitperfect = true\nbitperfect_device = \"hw:0,0\"\n")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.BitPerfect {
+		t.Error("BitPerfect = false, want true")
+	}
+	if cfg.BitPerfectDevice != "hw:0,0" {
+		t.Errorf("BitPerfectDevice = %q, want hw:0,0", cfg.BitPerfectDevice)
+	}
+}
+
 func TestQobuzIsSet(t *testing.T) {
 	tests := []struct {
 		name string
@@ -598,16 +628,20 @@ func TestOverridesApply(t *testing.T) {
 	compact := true
 	sr := 48000
 	play := true
+	bitPerfect := true
+	bitPerfectDevice := "hw:0,0"
 
 	overrides := Overrides{
-		Volume:     &vol,
-		Shuffle:    &shuffle,
-		Repeat:     &repeat,
-		Mono:       &mono,
-		Theme:      &theme,
-		Compact:    &compact,
-		SampleRate: &sr,
-		Play:       &play,
+		Volume:           &vol,
+		Shuffle:          &shuffle,
+		Repeat:           &repeat,
+		Mono:             &mono,
+		Theme:            &theme,
+		Compact:          &compact,
+		SampleRate:       &sr,
+		Play:             &play,
+		BitPerfect:       &bitPerfect,
+		BitPerfectDevice: &bitPerfectDevice,
 	}
 
 	overrides.Apply(&cfg)
@@ -635,6 +669,12 @@ func TestOverridesApply(t *testing.T) {
 	}
 	if !cfg.AutoPlay {
 		t.Error("AutoPlay should be true")
+	}
+	if !cfg.BitPerfect {
+		t.Error("BitPerfect should be true")
+	}
+	if cfg.BitPerfectDevice != "hw:0,0" {
+		t.Errorf("BitPerfectDevice = %q, want hw:0,0", cfg.BitPerfectDevice)
 	}
 }
 

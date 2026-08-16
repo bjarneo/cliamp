@@ -188,7 +188,8 @@ func TestIsPlayingDefaultsFalse(t *testing.T) {
 }
 
 func TestSampleRate(t *testing.T) {
-	p := &Player{sr: 44100}
+	p := &Player{}
+	p.rate.Store(44100)
 	if p.SampleRate() != 44100 {
 		t.Errorf("SampleRate() = %d, want 44100", p.SampleRate())
 	}

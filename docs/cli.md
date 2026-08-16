@@ -21,6 +21,9 @@ cliamp --sample-rate 48000 track.mp3      # output sample rate (22050, 44100, 48
 cliamp --buffer-ms 2000 track.mp3         # speaker buffer in ms (50-5000; useful for unstable radio)
 cliamp --resample-quality 1 track.mp3     # resample quality factor (1–4)
 cliamp --bit-depth 32 track.m4a           # PCM bit depth: 16 (default) or 32 (lossless)
+cliamp --bitperfect track.flac                       # no resampling; device retuned to the track's rate (Linux/ALSA)
+cliamp --bitperfect --bitperfect-device hw:0,0 track.flac  # pin bit-perfect output to a specific ALSA device
+cliamp --no-bitperfect track.flac                    # override bitperfect=true from config.toml
 ```
 
 ## Appearance
@@ -119,6 +122,8 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--buffer-ms` | int | 250 | 50-5000 |
 | `--resample-quality` | int | 4 | 1–4 |
 | `--bit-depth` | int | 16 | 16, 32 |
+| `--bitperfect` / `--no-bitperfect` | bool | false | Linux/ALSA only |
+| `--bitperfect-device` | string | | ALSA device, e.g. hw:0,0 |
 | `--playlist` | string | | local TOML playlist name |
 | `--log-level` | string | info | debug, info, warn, error |
 | `--low-power` | bool | false | lowers UI cadence; disables visualization |

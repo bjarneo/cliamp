@@ -435,6 +435,14 @@ func NewVisualizer(sampleRate float64) *Visualizer {
 	}
 }
 
+// SetSampleRate updates the rate used to map FFT bins to frequencies
+// (binHz in Analyze). Call this whenever the output device's rate may have
+// changed — e.g. bit-perfect mode retuning the device to each track's native
+// rate — so the spectrum's frequency axis doesn't go stale.
+func (v *Visualizer) SetSampleRate(sampleRate float64) {
+	v.sr = sampleRate
+}
+
 // CycleMode advances to the next visualizer mode, including Lua visualizers.
 func (v *Visualizer) CycleMode() {
 	total := VisCount + VisMode(len(v.luaVisNames))

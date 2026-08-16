@@ -6,12 +6,18 @@ import (
 	"testing"
 )
 
+func newTestSR(hz int64) *atomic.Int64 {
+	var sr atomic.Int64
+	sr.Store(hz)
+	return &sr
+}
+
 func TestBiquadPassthroughAtZeroDB(t *testing.T) {
 	src := &fakeStreamer{val: [2]float64{0.7, -0.3}, count: 4}
 	var gain atomic.Uint64
 	gain.Store(math.Float64bits(0.0))
 
-	b := newBiquad(src, 1000, 0.707, &gain, 44100)
+	b := newBiquad(src, 1000, 0.707, &gain, newTestSR(44100))
 
 	samples := make([][2]float64, 4)
 	n, _ := b.Stream(samples)
@@ -35,7 +41,7 @@ func TestBiquadNonZeroGainModifiesSamples(t *testing.T) {
 	var gain atomic.Uint64
 	gain.Store(math.Float64bits(12.0)) // +12 dB boost
 
-	b := newBiquad(src, freq, 0.707, &gain, sr)
+	b := newBiquad(src, freq, 0.707, &gain, newTestSR(sr))
 
 	samples := make([][2]float64, nSamples)
 	n, _ := b.Stream(samples)
@@ -55,25 +61,30 @@ func TestBiquadCoeffCaching(t *testing.T) {
 	var gain atomic.Uint64
 	gain.Store(math.Float64bits(3.0))
 
-	b := newBiquad(&fakeStreamer{count: 0}, 1000, 0.707, &gain, 44100)
+	b := newBiquad(&fakeStreamer{count: 0}, 1000, 0.707, &gain, newTestSR(44100))
 
-	b.calcCoeffs(3.0)
+	b.calcCoeffs(3.0, 44100)
 	b0First := b.b0
 	if !b.inited {
 		t.Fatal("inited should be true after calcCoeffs")
 	}
 
-	b.calcCoeffs(3.0)
+	b.calcCoeffs(3.0, 44100)
 	if b.b0 != b0First {
 		t.Error("coefficients should be cached for same gain")
 	}
 
-	b.calcCoeffs(6.0)
+	b.calcCoeffs(6.0, 44100)
 	if b.b0 == b0First {
 		t.Error("coefficients should be recomputed for different gain")
 	}
 	if b.lastGain != 6.0 {
 		t.Errorf("lastGain = %f, want 6.0", b.lastGain)
+	}
+
+	b.calcCoeffs(6.0, 48000)
+	if b.lastSR != 48000 {
+		t.Error("coefficients should be recomputed when the sample rate changes")
 	}
 }
 
@@ -81,7 +92,7 @@ func TestBiquadErr(t *testing.T) {
 	src := &fakeStreamer{}
 	var gain atomic.Uint64
 
-	b := newBiquad(src, 1000, 0.707, &gain, 44100)
+	b := newBiquad(src, 1000, 0.707, &gain, newTestSR(44100))
 
 	if err := b.Err(); err != nil {
 		t.Errorf("Err() = %v, want nil", err)

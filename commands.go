@@ -41,6 +41,9 @@ func buildApp() *cli.Command {
 		&cli.IntFlag{Name: "buffer-ms", Usage: "speaker buffer in milliseconds (50-5000)", HideDefault: true},
 		&cli.IntFlag{Name: "resample-quality", Usage: "resample quality factor (1-4)", HideDefault: true},
 		&cli.IntFlag{Name: "bit-depth", Usage: "PCM bit depth: 16 or 32", HideDefault: true},
+		&cli.BoolFlag{Name: "bitperfect", Usage: "bit-perfect output: no resampling, device retuned to each track's native rate (Linux/ALSA only)"},
+		&cli.BoolFlag{Name: "no-bitperfect", Usage: "disable bit-perfect output"},
+		&cli.StringFlag{Name: "bitperfect-device", Usage: "ALSA device for bit-perfect output, e.g. hw:0,0 (default: system default)"},
 		&cli.StringFlag{Name: "audio-device", Usage: "audio output device (use 'list' to show)"},
 		&cli.StringFlag{Name: "playlist", Usage: "load a local TOML playlist by name and start playing"},
 		&cli.StringFlag{Name: "log-level", Usage: "log level: debug, info, warn, error"},
@@ -188,6 +191,18 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 	if c.IsSet("bit-depth") {
 		v := int(c.Int("bit-depth"))
 		ov.BitDepth = &v
+	}
+	if c.IsSet("bitperfect") {
+		v := true
+		ov.BitPerfect = &v
+	}
+	if c.IsSet("no-bitperfect") {
+		v := false
+		ov.BitPerfect = &v
+	}
+	if c.IsSet("bitperfect-device") {
+		v := c.String("bitperfect-device")
+		ov.BitPerfectDevice = &v
 	}
 	if c.IsSet("audio-device") {
 		v := c.String("audio-device")

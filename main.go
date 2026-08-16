@@ -269,6 +269,8 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 		BufferMs:        cfg.BufferMs,
 		ResampleQuality: cfg.ResampleQuality,
 		BitDepth:        cfg.BitDepth,
+		BitPerfect:      cfg.BitPerfect,
+		Device:          cfg.BitPerfectDevice,
 	})
 	if err != nil {
 		return fmt.Errorf("player: %w", err)

@@ -515,20 +515,63 @@ func ffmpegPCMArgs(bitDepth int) (format, codec string, precision int) {
 	return "s16le", "pcm_s16le", 2
 }
 
-// probeFrames uses ffprobe to quickly read file duration from metadata and
-// converts it to sample frames. This only reads the container header, so it
-// returns almost instantly even for very large files.
-func probeFrames(path string, sr beep.SampleRate) int {
+// ffprobeField runs ffprobe against path requesting a single show_entries
+// value (e.g. "stream=sample_rate" or "format=duration") and returns its
+// trimmed output. ok is false if ffprobe is missing, the file has no audio
+// stream, or the field wasn't present. Shared by probeNativeRate and
+// probeFrames, which only differ in which field they read and how they parse it.
+func ffprobeField(path, showEntries string) (string, bool) {
 	out, err := exec.Command("ffprobe",
 		"-v", "error",
-		"-show_entries", "format=duration",
+		"-select_streams", "a:0",
+		"-show_entries", showEntries,
 		"-of", "default=noprint_wrappers=1:nokey=1",
 		path,
 	).Output()
 	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(out)), true
+}
+
+// probeNativeRate uses ffprobe to read a source's own sample rate, so
+// bit-perfect mode can ask ffmpeg to decode without resampling. path may be a
+// local file or an HTTP(S) URL — ffprobe handles both — and only reads the
+// container header, not the whole file, so it returns quickly either way.
+// Returns 0 if the source can't be probed (ffprobe missing, no audio stream,
+// unreachable URL, unexpected output).
+func probeNativeRate(path string) int {
+	v, ok := ffprobeField(path, "stream=sample_rate")
+	if !ok {
 		return 0
 	}
-	secs, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	rate, err := strconv.Atoi(v)
+	if err != nil || rate <= 0 {
+		return 0
+	}
+	return rate
+}
+
+// probeNativeRateAsync starts probeNativeRate in the background and returns a
+// channel that receives its result. Used where the probe must run alongside
+// opening a connection rather than block it — see the buffered-URL pipeline
+// in pipeline.go, where blocking on ffprobe would delay stream start exactly
+// where navBuffer exists to avoid that.
+func probeNativeRateAsync(path string) <-chan int {
+	ch := make(chan int, 1)
+	go func() { ch <- probeNativeRate(path) }()
+	return ch
+}
+
+// probeFrames uses ffprobe to quickly read file duration from metadata and
+// converts it to sample frames. This only reads the container header, so it
+// returns almost instantly even for very large files.
+func probeFrames(path string, sr beep.SampleRate) int {
+	v, ok := ffprobeField(path, "format=duration")
+	if !ok {
+		return 0
+	}
+	secs, err := strconv.ParseFloat(v, 64)
 	if err != nil {
 		return 0
 	}

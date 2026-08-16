@@ -254,6 +254,8 @@ type Config struct {
 	BufferMs         int                          // speaker buffer in milliseconds (50-5000)
 	ResampleQuality  int                          // beep resample quality factor (1–4)
 	BitDepth         int                          // PCM bit depth for FFmpeg output: 16 or 32
+	BitPerfect       bool                         // disable resampling and retune the device to each track's native rate (Linux/ALSA only)
+	BitPerfectDevice string                       // ALSA device for bit-perfect output, e.g. "hw:0,0" (empty = system default)
 	Compact          bool                         // compact mode: cap frame width at 80 columns
 	PaddingH         int                          // horizontal padding for the UI frame (default 3)
 	PaddingV         int                          // vertical padding for the UI frame (default 1)
@@ -533,6 +535,10 @@ func Load() (Config, error) {
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.BitDepth = v
 				}
+			case "bitperfect":
+				cfg.BitPerfect = val == "true"
+			case "bitperfect_device":
+				cfg.BitPerfectDevice = parseString(val)
 			case "speed":
 				if v, err := strconv.ParseFloat(val, 64); err == nil {
 					cfg.Speed = v

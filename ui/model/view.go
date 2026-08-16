@@ -411,11 +411,25 @@ func (m Model) renderTimeStatus() string {
 	default:
 		status = dimStyle.Render("■ Stopped")
 	}
+	if badge := m.renderBitPerfectBadge(); badge != "" {
+		status = badge + " " + status
+	}
 
 	left := timeStyle.Render(timeStr)
 	gap := max(ui.PanelWidth-lipgloss.Width(left)-lipgloss.Width(status), 1)
 
 	return left + strings.Repeat(" ", gap) + status
+}
+
+// renderBitPerfectBadge returns the "BIT PERFECT" indicator when the output
+// path is currently bit-exact (see player.BitPerfectStatus), or "" otherwise.
+// It only ever lights up — there is no "blocked" variant — so it never
+// competes with the playback status for attention.
+func (m Model) renderBitPerfectBadge() string {
+	if !m.cachedBitPerfect {
+		return ""
+	}
+	return bitPerfectStyle.Render("◆ BIT PERFECT")
 }
 
 func (m Model) renderSpectrum() string {

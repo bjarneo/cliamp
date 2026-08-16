@@ -33,6 +33,12 @@ seek_large_step_sec = 30
 # resample_quality = 4     # 1-4, where 4 is best
 # bit_depth = 16           # 16 or 32 (for FFmpeg-decoded formats)
 
+# Bit-perfect output: no resampling, device retuned to each track's native
+# rate (Linux/ALSA only; falls back to normal output elsewhere). See
+# docs/audio-quality.md.
+# bitperfect = false
+# bitperfect_device = "hw:0,0"   # ALSA device; empty = system default
+
 # EQ preset: "Flat", "Rock", "Pop", "Jazz", "Classical",
 #             "Bass Boost", "Treble Boost", "Vocal", "Electronic", "Acoustic"
 # Leave empty or "Custom" to use manual eq values below

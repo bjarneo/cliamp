@@ -399,9 +399,10 @@ type Model struct {
 	heightExpanded bool // tracks whether manual 'x' expansion is active
 
 	// Cached per-tick to avoid repeated speaker.Lock() calls in View().
-	cachedPos  time.Duration
-	cachedDur  time.Duration
-	lastTickAt time.Time // wall time of previous tickMsg; used for tick delta
+	cachedPos        time.Duration
+	cachedDur        time.Duration
+	cachedBitPerfect bool      // player.BitPerfect().Active, refreshed once per tick
+	lastTickAt       time.Time // wall time of previous tickMsg; used for tick delta
 
 }
 

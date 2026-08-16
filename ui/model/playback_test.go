@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/ui"
 )
@@ -73,6 +74,7 @@ func (f *playbackFakeEngine) ToggleMono()                            {}
 func (f *playbackFakeEngine) Mono() bool                             { return false }
 func (f *playbackFakeEngine) SetEQBand(int, float64)                 {}
 func (f *playbackFakeEngine) EQBands() [10]float64                   { return [10]float64{} }
+func (f *playbackFakeEngine) BitPerfect() player.BitPerfectStatus    { return player.BitPerfectStatus{} }
 func (f *playbackFakeEngine) StreamErr() error                       { return nil }
 func (f *playbackFakeEngine) StreamTitle() string                    { return "" }
 func (f *playbackFakeEngine) StreamBytes() (downloaded, total int64) { return 0, 0 }

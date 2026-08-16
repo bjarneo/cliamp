@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/gopxl/beep/v2"
-	"github.com/gopxl/beep/v2/speaker"
 )
 
 // Quality holds configurable audio output parameters.
@@ -18,6 +17,16 @@ type Quality struct {
 	BufferMs        int // speaker buffer in milliseconds
 	ResampleQuality int // beep resample quality factor (1–4)
 	BitDepth        int // PCM bit depth for FFmpeg output: 16 or 32 (32 = lossless)
+
+	// BitPerfect requests the bit-perfect output path: no resampling anywhere
+	// in cliamp, and the output device reopened at each track's native rate.
+	// SampleRate is then only the initial (and fallback) device rate. When the
+	// platform has no bit-perfect backend the player falls back to the standard
+	// path instead of failing.
+	BitPerfect bool
+	// Device is the output device for the bit-perfect backend (an ALSA device
+	// name on Linux). Empty means the system default.
+	Device string
 }
 
 // StreamerFactory creates a beep.StreamSeekCloser for a custom URI scheme
@@ -32,25 +41,36 @@ type StreamerFactory func(uri string) (beep.StreamSeekCloser, beep.Format, time.
 //	     ├─ current: [Decode A] → [Resample A]
 //	     └─ next:    [Decode B] → [Resample B]  (preloaded)
 type Player struct {
-	mu              sync.Mutex
-	sr              beep.SampleRate
-	gapless         *gaplessStreamer
-	current         *trackPipeline // active track's resources
-	nextPipeline    *trackPipeline // preloaded track's resources
-	started         bool           // true after first speaker.Play()
-	suspendMu       sync.Mutex     // guards suspended and speaker suspend/resume calls
-	suspended       bool           // true when speaker.Suspend() has been called
-	ctrl            *beep.Ctrl
-	volMin          atomic.Uint64     // dB floor stored as Float64bits, range [-90, 0]
-	volume          atomic.Uint64     // dB stored as Float64bits, range [volMin, +6]
-	speed           atomic.Uint64     // playback speed ratio as Float64bits; 1.0 = normal
-	eqBands         [10]atomic.Uint64 // dB stored as math.Float64bits
-	tap             *tap
-	playing         atomic.Bool
-	paused          atomic.Bool
-	mono            atomic.Bool
-	resampleQuality int
-	bitDepth        int // 16 or 32
+	mu sync.Mutex
+	// out is the audio output backend. rate mirrors the rate it is currently
+	// running at; it is atomic because the EQ filters read it from the audio
+	// thread while a track change may be switching the device rate.
+	out          sink
+	rate         atomic.Int64
+	bitPerfect   bool         // bit-perfect backend active (see Quality.BitPerfect)
+	rateNote     atomic.Value // stores string: why the device rate request was not honoured
+	gapless      *gaplessStreamer
+	current      *trackPipeline // active track's resources
+	nextPipeline *trackPipeline // preloaded track's resources
+	// preloadDeferredPath/Cur remember a preload dropped by preloadPipeline for
+	// a bit-perfect rate mismatch, so Preload's fast path (preloadStillDeferred)
+	// can skip rebuilding it every tick until the current track changes.
+	preloadDeferredPath string
+	preloadDeferredCur  *trackPipeline
+	started             bool       // true after the root streamer was handed to out
+	suspendMu           sync.Mutex // guards suspended and the sink's suspend/resume calls
+	suspended           bool       // true when the sink has been suspended
+	ctrl                *beep.Ctrl
+	volMin              atomic.Uint64     // dB floor stored as Float64bits, range [-90, 0]
+	volume              atomic.Uint64     // dB stored as Float64bits, range [volMin, +6]
+	speed               atomic.Uint64     // playback speed ratio as Float64bits; 1.0 = normal
+	eqBands             [10]atomic.Uint64 // dB stored as math.Float64bits
+	tap                 *tap
+	playing             atomic.Bool
+	paused              atomic.Bool
+	mono                atomic.Bool
+	resampleQuality     int
+	bitDepth            int // 16 or 32
 
 	gaplessAdvance atomic.Bool  // set when gapless transition fires
 	seekGen        atomic.Int64 // generation counter for yt-dlp seeks; incremented to cancel stale seeks
@@ -69,27 +89,49 @@ type Player struct {
 // function, the poll interval, and ok=false when the URL is not recognized.
 type StreamMetadataResolver func(streamURL string) (fetch func(ctx context.Context) (string, error), interval time.Duration, ok bool)
 
-// New creates a Player and initializes the speaker with the given quality settings.
+// New creates a Player and initializes the audio output with the given quality
+// settings. When q.BitPerfect is set it tries the bit-perfect backend first and
+// falls back to the standard speaker if the platform or device cannot provide
+// it; the reason is then reported through BitPerfect().
 func New(q Quality) (*Player, error) {
 	if q.SampleRate <= 0 || q.BufferMs <= 0 || q.ResampleQuality <= 0 {
 		return nil, fmt.Errorf("invalid quality settings: SampleRate=%d, BufferMs=%d, ResampleQuality=%d",
 			q.SampleRate, q.BufferMs, q.ResampleQuality)
 	}
-	sr := beep.SampleRate(q.SampleRate)
-	if err := speaker.Init(sr, sr.N(time.Duration(q.BufferMs)*time.Millisecond)); err != nil {
-		return nil, fmt.Errorf("speaker init: %w", err)
-	}
 	bitDepth := q.BitDepth
 	if bitDepth != 32 {
 		bitDepth = 16
 	}
-	p := &Player{sr: sr, resampleQuality: q.ResampleQuality, bitDepth: bitDepth}
+
+	p := &Player{resampleQuality: q.ResampleQuality}
+	if q.BitPerfect {
+		out, err := newBitPerfectSink(q.Device, q.SampleRate, q.BufferMs)
+		if err != nil {
+			p.rateNote.Store(fmt.Sprintf("bit-perfect output unavailable: %v", err))
+		} else {
+			p.out = out
+			p.bitPerfect = true
+			// FFmpeg decodes to float PCM in bit-perfect mode: a 16-bit
+			// intermediate would truncate 24-bit sources before they ever
+			// reach the device.
+			bitDepth = 32
+		}
+	}
+	if p.out == nil {
+		out, err := newBeepSink(q.SampleRate, q.BufferMs)
+		if err != nil {
+			return nil, err
+		}
+		p.out = out
+	}
+	p.bitDepth = bitDepth
+	p.rate.Store(int64(p.out.SampleRate()))
 	p.volMin.Store(math.Float64bits(-50))
 	p.speed.Store(math.Float64bits(1.0))
 	p.gapless = &gaplessStreamer{}
-	// Suspend the speaker immediately; the ALSA audio callback goroutine
-	// burns ~2% CPU even on silence. Resume is called on every Play().
-	_ = speaker.Suspend()
+	// Suspend the output immediately; the audio callback goroutine burns
+	// ~2% CPU even on silence. Resume is called on every Play().
+	_ = p.out.Suspend()
 	p.suspended = true
 	p.gapless.onSwap = func() {
 		// Called from audio thread (goroutine) when gapless transition occurs.
@@ -160,6 +202,10 @@ func (p *Player) PlayYTDL(pageURL string, knownDuration time.Duration) error {
 // On the first call it builds the long-lived EQ → volume → tap → ctrl chain.
 // Subsequent calls swap only the track source via the gapless streamer.
 func (p *Player) playPipeline(tp *trackPipeline) error {
+	// Retune the device to the track before anything reads tp.stream: in
+	// bit-perfect mode this may reopen the device, and it decides whether the
+	// stream needs a resampler after all.
+	p.alignOutput(tp)
 	p.resumeSpeaker()
 
 	// Collect old pipelines to close after releasing locks.
@@ -170,10 +216,10 @@ func (p *Player) playPipeline(tp *trackPipeline) error {
 		// call before we swap the source and unpause. The ctrl.Paused write
 		// must happen under the speaker lock because the audio thread reads it
 		// on every Stream() call.
-		speaker.Lock()
+		p.out.Lock()
 		p.gapless.Replace(tp.stream)
 		p.ctrl.Paused = false
-		speaker.Unlock()
+		p.out.Unlock()
 	}
 
 	p.mu.Lock()
@@ -192,7 +238,7 @@ func (p *Player) playPipeline(tp *trackPipeline) error {
 		s = newSpeedStreamer(s, &p.speed)
 
 		for i := range 10 {
-			s = newBiquad(s, eqFreqs[i], 1.4, &p.eqBands[i], float64(p.sr))
+			s = newBiquad(s, eqFreqs[i], 1.4, &p.eqBands[i], &p.rate)
 		}
 
 		p.tap = newTap(s, 4096)
@@ -205,7 +251,7 @@ func (p *Player) playPipeline(tp *trackPipeline) error {
 	p.mu.Unlock()
 
 	if firstPlay {
-		speaker.Play(p.ctrl)
+		p.out.Play(p.ctrl)
 	}
 	// Start API-based now-playing polling for streams without ICY metadata
 	// (no-op otherwise). Done here, not in buildPipelineAt, so preloaded
@@ -220,12 +266,28 @@ func (p *Player) playPipeline(tp *trackPipeline) error {
 // Preload builds a pipeline for the next track and queues it for gapless transition.
 // knownDuration is the metadata duration (use 0 if unknown).
 func (p *Player) Preload(path string, knownDuration time.Duration) error {
+	if p.preloadStillDeferred(path) {
+		// Already tried and dropped for a bit-perfect rate mismatch under the
+		// current track (see preloadPipeline); the UI retries preloading on
+		// every tick until HasPreload() is true, so without this the same
+		// ffprobe/ffmpeg spawn would repeat every tick until the track ends.
+		return nil
+	}
 	tp, err := p.buildPipeline(path)
 	if err != nil {
 		return err
 	}
 	tp.setKnownDuration(knownDuration)
 	return p.preloadPipeline(tp)
+}
+
+// preloadStillDeferred reports whether path was already dropped by
+// preloadPipeline for a bit-perfect rate mismatch and the current track
+// hasn't changed since — i.e. retrying would just repeat the same result.
+func (p *Player) preloadStillDeferred(path string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.preloadDeferredPath != "" && p.preloadDeferredPath == path && p.preloadDeferredCur == p.current
 }
 
 // PreloadYTDL builds a yt-dlp pipe pipeline and queues it for gapless transition.
@@ -240,11 +302,31 @@ func (p *Player) PreloadYTDL(pageURL string, knownDuration time.Duration) error 
 
 // preloadPipeline queues a ready trackPipeline for gapless transition.
 func (p *Player) preloadPipeline(tp *trackPipeline) error {
+	// A gapless transition happens inside a single device buffer, so it cannot
+	// change the device's sample rate. In bit-perfect mode a next track at a
+	// different rate is therefore dropped here and opened normally (reopening
+	// the device) once the current one drains. Remember the deferral (when the
+	// pipeline has a path to key on) so Preload's fast path can skip rebuilding
+	// it every tick until the current track changes.
+	if p.bitPerfect && tp.format.SampleRate > 0 && int(tp.format.SampleRate) != p.out.SampleRate() {
+		if tp.path != "" {
+			p.mu.Lock()
+			p.preloadDeferredPath = tp.path
+			p.preloadDeferredCur = p.current
+			p.mu.Unlock()
+		}
+		go closePipelines(tp)
+		return nil
+	}
+	p.mu.Lock()
+	p.preloadDeferredPath = ""
+	p.mu.Unlock()
+
 	// Lock speaker to atomically swap the gapless next stream, ensuring no
 	// in-flight transition reads from the old pipeline we're about to close.
-	speaker.Lock()
+	p.out.Lock()
 	p.gapless.SetNext(tp.stream)
-	speaker.Unlock()
+	p.out.Unlock()
 
 	p.mu.Lock()
 	old := p.nextPipeline
@@ -261,9 +343,9 @@ func (p *Player) preloadPipeline(tp *trackPipeline) error {
 // Speaker is locked to ensure no in-flight gapless transition can reference the
 // pipeline we're about to close.
 func (p *Player) ClearPreload() {
-	speaker.Lock()
+	p.out.Lock()
 	p.gapless.SetNext(nil)
-	speaker.Unlock()
+	p.out.Unlock()
 
 	p.mu.Lock()
 	old := p.nextPipeline
@@ -284,11 +366,11 @@ func (p *Player) GaplessAdvanced() bool {
 // When pausing, the speaker is suspended to save CPU; when unpausing
 // it is resumed so the audio callback drains the queued samples.
 func (p *Player) TogglePause() {
-	speaker.Lock()
+	p.out.Lock()
 	if p.ctrl != nil {
 		p.ctrl.Paused = !p.ctrl.Paused
 		paused := p.ctrl.Paused
-		speaker.Unlock()
+		p.out.Unlock()
 		p.paused.Store(paused)
 		if paused {
 			p.suspendSpeaker()
@@ -296,7 +378,7 @@ func (p *Player) TogglePause() {
 			p.resumeSpeaker()
 		}
 	} else {
-		speaker.Unlock()
+		p.out.Unlock()
 	}
 }
 
@@ -307,12 +389,12 @@ func (p *Player) Stop() {
 	// Lock speaker to ensure the goroutine finishes any in-progress Stream()
 	// call, then clear the source and pause. After unlock, the speaker will
 	// only see silence from the gapless streamer (paused ctrl).
-	speaker.Lock()
+	p.out.Lock()
 	p.gapless.Clear()
 	if p.ctrl != nil {
 		p.ctrl.Paused = true
 	}
-	speaker.Unlock()
+	p.out.Unlock()
 
 	// Now safe to close decoder resources — speaker can't be reading them.
 	p.mu.Lock()
@@ -341,8 +423,8 @@ func (p *Player) Stop() {
 // the current pipeline, ensuring consistent lock ordering with the audio thread.
 // Clears the preloaded next pipeline to prevent a stale gapless transition.
 func (p *Player) Seek(d time.Duration) error {
-	speaker.Lock()
-	defer speaker.Unlock()
+	p.out.Lock()
+	defer p.out.Unlock()
 	p.mu.Lock()
 	cur := p.current
 	p.mu.Unlock()
@@ -371,13 +453,13 @@ func (p *Player) Seek(d time.Duration) error {
 		knownDuration := cur.knownDuration
 		contentLength := cur.contentLength
 		p.gapless.Replace(nil)
-		speaker.Unlock()
+		p.out.Unlock()
 
 		// Build a new pipeline starting at the computed byte offset.
 		// Speaker lock is NOT held — HTTP I/O can take seconds on slow networks.
 		tp, err := p.buildPipelineAt(path, byteOffset, newPos)
 
-		speaker.Lock() // re-acquire for defer
+		p.out.Lock() // re-acquire for defer
 		if err != nil {
 			// Restore the old stream on failure if the pipeline hasn't changed.
 			p.mu.Lock()
@@ -421,9 +503,9 @@ func (p *Player) Seek(d time.Duration) error {
 	// yt-dlp seek-by-restart: handled outside the speaker lock via SeekYTDL.
 	if cur.ytdlSeek {
 		// Release speaker lock, then do the slow seek.
-		speaker.Unlock()
+		p.out.Unlock()
 		err := p.SeekYTDL(d)
-		speaker.Lock() // re-acquire so defer Unlock works
+		p.out.Lock() // re-acquire so defer Unlock works
 		return err
 	}
 
@@ -479,10 +561,10 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 	// silence while the new pipeline is being built (which blocks on Peek
 	// waiting for yt-dlp data). Without this, the old audio keeps playing
 	// at the pre-seek position during the rebuild.
-	speaker.Lock()
+	p.out.Lock()
 	curPos := cur.format.SampleRate.D(cur.decoder.Position()) + cur.streamOffset
 	p.gapless.Replace(nil)
-	speaker.Unlock()
+	p.out.Unlock()
 
 	newPos := max(curPos+d, 0)
 	if cur.knownDuration > 0 && newPos >= cur.knownDuration {
@@ -506,10 +588,10 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 	}
 
 	// Now acquire speaker lock to swap streams.
-	speaker.Lock()
+	p.out.Lock()
 	p.gapless.Replace(tp.stream)
 	p.gapless.SetNext(nil)
-	speaker.Unlock()
+	p.out.Unlock()
 
 	p.mu.Lock()
 	old := p.current
@@ -545,8 +627,8 @@ func (p *Player) IsStreamSeek() bool {
 // decoder's sample-based position so the reported time is absolute within
 // the track, not relative to the reconnect point.
 func (p *Player) Position() time.Duration {
-	speaker.Lock()
-	defer speaker.Unlock()
+	p.out.Lock()
+	defer p.out.Unlock()
 	p.mu.Lock()
 	cur := p.current
 	p.mu.Unlock()
@@ -561,8 +643,8 @@ func (p *Player) Position() time.Duration {
 // For HTTP streams where the decoder reports Len()==0, the metadata hint
 // stored at pipeline build time (knownDuration) is returned instead.
 func (p *Player) Duration() time.Duration {
-	speaker.Lock()
-	defer speaker.Unlock()
+	p.out.Lock()
+	defer p.out.Unlock()
 	p.mu.Lock()
 	cur := p.current
 	p.mu.Unlock()
@@ -578,8 +660,8 @@ func (p *Player) Duration() time.Duration {
 // PositionAndDuration returns both position and duration under a single
 // speaker lock, avoiding two separate lock acquisitions per tick.
 func (p *Player) PositionAndDuration() (time.Duration, time.Duration) {
-	speaker.Lock()
-	defer speaker.Unlock()
+	p.out.Lock()
+	defer p.out.Unlock()
 	p.mu.Lock()
 	cur := p.current
 	p.mu.Unlock()
@@ -819,9 +901,68 @@ func (p *Player) StereoSamplesInto(dst [][2]float64) int {
 	return tap.StereoSamplesInto(dst)
 }
 
-// SampleRate returns the output sample rate in Hz.
+// SampleRate returns the output sample rate in Hz. In bit-perfect mode this
+// follows the current track's native rate.
 func (p *Player) SampleRate() int {
-	return int(p.sr)
+	return int(p.rate.Load())
+}
+
+// outRate returns the rate new pipelines should decode to: the rate the output
+// device is currently running at.
+func (p *Player) outRate() beep.SampleRate {
+	return beep.SampleRate(p.rate.Load())
+}
+
+// alignOutput points the output device at tp's native sample rate. When the
+// device cannot run at that rate the stream is resampled after all, so
+// playback still works — just not bit-perfectly. It is a no-op outside
+// bit-perfect mode, where pipelines are already built at the device rate.
+func (p *Player) alignOutput(tp *trackPipeline) {
+	if !p.bitPerfect || tp == nil || tp.format.SampleRate <= 0 {
+		return
+	}
+	native := int(tp.format.SampleRate)
+	actual, err := p.out.SetSampleRate(native)
+	switch {
+	case err != nil && actual == 0:
+		// The device is gone; leave the pipeline alone and let the stream
+		// error surface through the normal playback path.
+		p.rateNote.Store(fmt.Sprintf("output device unavailable: %v", err))
+		return
+	case err != nil:
+		p.rateNote.Store(fmt.Sprintf("device refused %d Hz: %v", native, err))
+	default:
+		p.rateNote.Store("")
+	}
+
+	p.rate.Store(int64(actual))
+	tp.stream = p.wrapResample(tp.format.SampleRate, beep.SampleRate(actual), tp.stream)
+}
+
+// BitPerfect reports whether audio currently reaches the output device
+// unaltered, and what stands in the way when it does not.
+func (p *Player) BitPerfect() BitPerfectStatus {
+	p.mu.Lock()
+	cur := p.current
+	p.mu.Unlock()
+
+	in := bitPerfectInputs{
+		enabled:    p.bitPerfect,
+		playing:    p.playing.Load(),
+		deviceRate: p.out.SampleRate(),
+		rateExact:  p.out.RateExact(),
+		encoding:   p.out.Encoding(),
+		volumeDB:   p.Volume(),
+		eq:         p.EQBands(),
+		mono:       p.mono.Load(),
+		speed:      p.Speed(),
+	}
+	in.note, _ = p.rateNote.Load().(string)
+	if cur != nil {
+		in.sourceRate = int(cur.format.SampleRate)
+		in.sourceBytes = cur.format.Precision
+	}
+	return in.eval()
 }
 
 // StreamBytes returns the bytes downloaded and total content length for the
@@ -872,7 +1013,7 @@ func (p *Player) suspendSpeaker() {
 	if p.suspended {
 		return
 	}
-	if err := speaker.Suspend(); err != nil {
+	if err := p.out.Suspend(); err != nil {
 		// Non-fatal: the ALSA driver may return an error if the context
 		// has already hit a terminal error. Continue without tracking
 		// the suspended state so we don't try to resume a dead context.
@@ -890,7 +1031,7 @@ func (p *Player) resumeSpeaker() {
 	if !p.suspended {
 		return
 	}
-	if err := speaker.Resume(); err != nil {
+	if err := p.out.Resume(); err != nil {
 		return
 	}
 	p.suspended = false
@@ -899,5 +1040,5 @@ func (p *Player) resumeSpeaker() {
 // Close fully stops the speaker and cleans up all resources.
 func (p *Player) Close() {
 	p.Stop()
-	speaker.Clear()
+	p.out.Close()
 }

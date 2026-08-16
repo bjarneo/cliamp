@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"time"
 )
 
 // TestFFmpegPipeLiveEOF verifies that an unexpected EOF on an infinite radio
@@ -39,5 +40,29 @@ func TestFFmpegPipeLiveEOF(t *testing.T) {
 				t.Fatalf("Err()=%v, want io.ErrUnexpectedEOF", f.Err())
 			}
 		})
+	}
+}
+
+// TestProbeNativeRateUnreadable verifies probeNativeRate fails closed (0, not
+// a panic or hang) for a path ffprobe can't read — the same outcome the
+// buffered-URL pipeline relies on to fall back to the device's current rate.
+func TestProbeNativeRateUnreadable(t *testing.T) {
+	if got := probeNativeRate("/nonexistent/path/does-not-exist.flac"); got != 0 {
+		t.Errorf("probeNativeRate(nonexistent) = %d, want 0", got)
+	}
+}
+
+// TestProbeNativeRateAsyncDeliversOnce verifies the async wrapper used by the
+// buffered-URL pipeline sends exactly one value and doesn't hang, so the
+// pipeline's select-with-timeout around it is safe to rely on.
+func TestProbeNativeRateAsyncDeliversOnce(t *testing.T) {
+	ch := probeNativeRateAsync("/nonexistent/path/does-not-exist.flac")
+	select {
+	case got := <-ch:
+		if got != 0 {
+			t.Errorf("probeNativeRateAsync result = %d, want 0", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("probeNativeRateAsync did not deliver a result in time")
 	}
 }

@@ -53,6 +53,11 @@ type Engine interface {
 	SetEQBand(band int, dB float64)
 	EQBands() [10]float64
 
+	// BitPerfect reports whether the output path is currently bit-exact
+	// (bit-perfect mode enabled, no resampling, source rate, 0 dB, flat EQ,
+	// stereo, normal speed) and what blocks it otherwise.
+	BitPerfect() BitPerfectStatus
+
 	// Stream info
 	StreamErr() error
 	StreamTitle() string

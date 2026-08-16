@@ -72,6 +72,10 @@ var (
 
 	errorStyle = lipgloss.NewStyle().
 			Foreground(ui.ColorError)
+
+	bitPerfectStyle = lipgloss.NewStyle().
+			Foreground(ui.ColorPlaying).
+			Bold(true)
 )
 
 // rebuildModelStyles reconstructs all model-specific lipgloss styles from current color variables.
@@ -94,6 +98,7 @@ func rebuildModelStyles() {
 	helpStyle = lipgloss.NewStyle().Foreground(ui.ColorDim)
 	helpKeyStyle = lipgloss.NewStyle().Foreground(ui.ColorKeyFG).Background(ui.ColorKeyBG).Bold(true)
 	errorStyle = lipgloss.NewStyle().Foreground(ui.ColorError)
+	bitPerfectStyle = lipgloss.NewStyle().Foreground(ui.ColorPlaying).Bold(true)
 
 	seekFillStyle = lipgloss.NewStyle().Foreground(ui.ColorSeekBar)
 	seekDimStyle = lipgloss.NewStyle().Foreground(ui.ColorDim)

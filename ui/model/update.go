@@ -118,6 +118,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cachedDur = time.Duration(track.DurationSecs) * time.Second
 			m.cachedPos = 0
 		}
+		m.cachedBitPerfect = m.player.BitPerfect().Active
+		// The output rate can change track-to-track in bit-perfect mode; keep
+		// the visualizer's FFT bin-to-frequency mapping in sync so the
+		// spectrum's frequency axis doesn't go stale after a retune.
+		if m.vis != nil {
+			m.vis.SetSampleRate(float64(m.player.SampleRate()))
+		}
 		m.tickVisualizer(now)
 		// Process debounced yt-dlp seek.
 		var seekCmd tea.Cmd

@@ -87,8 +87,44 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	return p.buildPipelineAt(path, 0, 0)
 }
 
+// decodeRateFor picks the sample rate a local-file ffmpeg decode should
+// target. In bit-perfect mode it probes the file's own rate via ffprobe so
+// ffmpeg performs no resampling; otherwise (or if probing fails) it is the
+// device's current output rate.
+func (p *Player) decodeRateFor(path string) beep.SampleRate {
+	if p.bitPerfect {
+		if native := probeNativeRate(path); native > 0 {
+			return beep.SampleRate(native)
+		}
+	}
+	return p.outRate()
+}
+
+// resampleTarget returns the rate a stream already decoded at native should be
+// resampled to. In bit-perfect mode this is native itself — a no-op — so
+// cliamp never resamples a locally-decoded stream; otherwise it is the
+// device's current output rate.
+func (p *Player) resampleTarget(native beep.SampleRate) beep.SampleRate {
+	if p.bitPerfect {
+		return native
+	}
+	return p.outRate()
+}
+
+// wrapResample wraps s in beep.Resample when native and target differ. Shared
+// by decode-time pipelines (which resample to resampleTarget) and alignOutput
+// (which resamples to whatever rate the device actually ended up at) — the
+// two callers pick different targets for different reasons, but the wrapping
+// itself is identical.
+func (p *Player) wrapResample(native, target beep.SampleRate, s beep.Streamer) beep.Streamer {
+	if native == target {
+		return s
+	}
+	return beep.Resample(p.resampleQuality, native, target, s)
+}
+
 func (p *Player) decodeFFmpegURLStream(path string) (*ffmpegPipeStreamer, beep.Format, error) {
-	decoder, format, err := decodeFFmpegStream(path, p.sr, p.bitDepth)
+	decoder, format, err := decodeFFmpegStream(path, p.outRate(), p.bitDepth)
 	if err != nil {
 		return nil, beep.Format{}, err
 	}
@@ -112,17 +148,14 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		if err != nil {
 			return nil, fmt.Errorf("custom streamer: %w", err)
 		}
-		var s beep.Streamer = decoder
-		if format.SampleRate != p.sr {
-			s = beep.Resample(p.resampleQuality, format.SampleRate, p.sr, s)
-		}
-		return &trackPipeline{
+		tp := &trackPipeline{
 			decoder:       decoder,
-			stream:        s,
 			format:        format,
 			seekable:      true, // StreamerFactory returns beep.StreamSeekCloser — Seek() is supported
 			knownDuration: dur,
-		}, nil
+		}
+		tp.stream = p.wrapResample(format.SampleRate, p.resampleTarget(format.SampleRate), decoder)
+		return tp, nil
 	}
 
 	// For HTTP URLs, pass the ICY metadata callback; for local files, nil.
@@ -138,6 +171,16 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 	// Seek() through navFFmpegStreamer which repositions the navBuffer and
 	// restarts ffmpeg without HTTP reconnect.
 	if isURL(path) && p.isBufferedURL(path) && byteOffset == 0 {
+		// Bit-perfect mode: ffprobe can read a container's sample rate
+		// straight off an HTTP URL, same as it does for local files. Kick it
+		// off in parallel with opening the buffer instead of blocking on it —
+		// a slow/unresponsive server would otherwise delay stream start,
+		// which is exactly what navBuffer exists to avoid.
+		var nativeRateCh <-chan int
+		if p.bitPerfect {
+			nativeRateCh = probeNativeRateAsync(path)
+		}
+
 		nb, contentLen, err := newNavBuffer(path)
 		if err != nil {
 			return nil, fmt.Errorf("navidrome buffer: %w", err)
@@ -147,11 +190,25 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		// seek bar and Len() work correctly. knownDuration is set by the caller
 		// (Play/Preload) onto the returned pipeline after buildPipeline returns,
 		// so we compute it here from timeOffset which is always 0 on first open.
-		// We use p.sr so the frame count matches the output sample rate.
 		totalFrames := 0
 		_ = timeOffset // unused for navBuffer path (byteOffset == 0 guard above)
 
-		decoder, format, err := decodeNavFFmpeg(nb, p.sr, p.bitDepth, totalFrames)
+		// The probe usually resolves well before newNavBuffer returns (it only
+		// needs the container header, not the file), but cap the wait so a
+		// hung probe can't stall playback — falling back to the device's
+		// current rate (transcoded, not bit-perfect) rather than blocking.
+		decodeRate := p.outRate()
+		if nativeRateCh != nil {
+			select {
+			case native := <-nativeRateCh:
+				if native > 0 {
+					decodeRate = beep.SampleRate(native)
+				}
+			case <-time.After(2 * time.Second):
+			}
+		}
+
+		decoder, format, err := decodeNavFFmpeg(nb, decodeRate, p.bitDepth, totalFrames)
 		if err != nil {
 			nb.Close()
 			return nil, fmt.Errorf("decode navidrome: %w", err)
@@ -237,7 +294,7 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 	// ICY metadata reader attached so live radio StreamTitle parsing works for
 	// ffmpeg-only codecs (AAC, AAC+, Opus, ...).
 	if isURL(path) && needsFFmpeg(ext) {
-		decoder, format, err := decodeFFmpegPipeStream(rc, p.sr, p.bitDepth)
+		decoder, format, err := decodeFFmpegPipeStream(rc, p.outRate(), p.bitDepth)
 		if err != nil {
 			rc.Close()
 			return nil, fmt.Errorf("decode: %w", err)
@@ -267,7 +324,7 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 	// file to memory. Seeking is supported via ffmpeg -ss restart.
 	if !isURL(path) && needsFFmpeg(ext) {
 		rc.Close()
-		decoder, format, err := decodeFFmpegLocal(path, p.sr, p.bitDepth)
+		decoder, format, err := decodeFFmpegLocal(path, p.decodeRateFor(path), p.bitDepth)
 		if err != nil {
 			return nil, fmt.Errorf("decode: %w", err)
 		}
@@ -280,7 +337,7 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		}, nil
 	}
 
-	decoder, format, err := decodeWithExt(rc, ext, path, p.sr, p.bitDepth)
+	decoder, format, err := decodeWithExt(rc, ext, path, p.outRate(), p.bitDepth)
 	if err != nil {
 		rc.Close()
 		// If the format already required ffmpeg (e.g., .m4a), decodeWithExt already
@@ -302,7 +359,7 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		}
 		// Native local decoder failed (e.g., IEEE float WAV). Fall back to
 		// buffered ffmpeg decode, which handles more formats.
-		decoder, format, err = decodeFFmpeg(path, p.sr, p.bitDepth)
+		decoder, format, err = decodeFFmpeg(path, p.decodeRateFor(path), p.bitDepth)
 		if err != nil {
 			return nil, fmt.Errorf("decode: %w", err)
 		}
@@ -330,14 +387,8 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		pipelineRC = nil
 	}
 
-	var s beep.Streamer = decoder
-	if format.SampleRate != p.sr {
-		s = beep.Resample(p.resampleQuality, format.SampleRate, p.sr, s)
-	}
-
 	tp := &trackPipeline{
 		decoder:      decoder,
-		stream:       s,
 		format:       format,
 		seekable:     seekable,
 		rc:           pipelineRC,
@@ -345,6 +396,7 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		streamOffset: timeOffset,
 		bytesRead:    byteCounter,
 	}
+	tp.stream = p.wrapResample(format.SampleRate, p.resampleTarget(format.SampleRate), decoder)
 
 	// Mark HTTP streams with a known Content-Length as seek-by-reconnect capable.
 	// We need contentLength > 0 to compute byte offsets; knownDuration is checked
@@ -361,7 +413,7 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 // Icecast OGG/Vorbis radio streams that re-initializes the decoder at each
 // logical bitstream boundary.
 func (p *Player) buildChainedOggPipeline(rc io.ReadCloser, onMeta func(string)) (*trackPipeline, error) {
-	cs, format, err := newChainedOggStreamer(rc, p.sr, p.resampleQuality, onMeta)
+	cs, format, err := newChainedOggStreamer(rc, p.outRate(), p.resampleQuality, onMeta)
 	if err != nil {
 		rc.Close()
 		return nil, fmt.Errorf("decode chained ogg: %w", err)
