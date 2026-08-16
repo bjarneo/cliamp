@@ -146,6 +146,72 @@ cliamp playlist dirs "Music"               # list referenced directories
 (CLI or TUI) is refused, since the file is owned by the directory source;
 delete the file from the directory or edit the `[[dir]]` section instead.
 
+### Adding Files and Directories
+
+A playlist file can hold any number of `[[track]]` and `[[dir]]` sections,
+mixed freely. This single `mix.toml` combines two directory sources, two
+absolute file paths, and a stream URL:
+
+```toml
+# ~/.config/cliamp/playlists/mix.toml
+
+[[dir]]
+path = "~/Music"
+
+[[track]]
+path = "/home/user/Downloads/live-set.mp3"
+title = "Live Set"
+
+[[dir]]
+path = "~/Downloads/podcasts"
+recursive = false
+
+[[track]]
+path = "https://radio.example.com/stream"
+title = "My Radio"
+```
+
+Or spread the tracks and directories across many files — every file in the
+`playlists/` folder becomes its own playlist:
+
+```toml
+# ~/.config/cliamp/playlists/gym.toml
+
+[[dir]]
+path = "~/Music/gym"
+
+[[track]]
+path = "/home/user/Documents/warmup.mp3"
+title = "Warmup"
+```
+
+```toml
+# ~/.config/cliamp/playlists/chill.toml
+
+[[track]]
+path = "/home/user/Downloads/chill-lofi.mp3"
+title = "Lofi"
+```
+
+The same playlists can be built from the command line without editing files.
+Positional paths are expanded into `[[track]]` entries; `--dir` keeps a live
+directory reference that re-scans on every load:
+
+```sh
+cliamp playlist create "mix" ~/Downloads/live-set.mp3 --dir ~/Music --dir ~/Downloads/podcasts
+cliamp playlist create "gym" ~/Documents/warmup.mp3 --dir ~/Music/gym
+cliamp playlist create "chill" ~/Downloads/chill-lofi.mp3
+```
+
+Append more files and directories to an existing playlist at any time:
+
+```sh
+cliamp playlist add "mix" another-track.mp3 --dir ~/Downloads/live
+```
+
+Note that `recursive = false` has no CLI flag — set it by editing the
+playlist file's `[[dir]]` section.
+
 ### Podcast / RSS Feed Playlists
 
 You can save podcast RSS feed URLs in a playlist. Add `feed = true` to mark a track as a feed. When played, the feed is resolved into individual episodes instead of being streamed directly.
