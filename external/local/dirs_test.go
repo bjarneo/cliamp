@@ -693,27 +693,30 @@ func TestSavePlaylistMultiMaterializedKeepsDirPositions(t *testing.T) {
 	checkOrder(t, tracks, []string{"a.mp3", "x.mp3", "b.mp3"})
 }
 
-func TestDirSuppliesFileExtensionFilter(t *testing.T) {
+func TestDirSuppliesFile(t *testing.T) {
 	dir := t.TempDir()
 	rec := DirSource{Path: dir, Recursive: true}
-	if !dirSuppliesFile(rec, filepath.Join(dir, "song.mp3")) {
-		t.Fatal("audio file under dir should be supplied")
-	}
-	if dirSuppliesFile(rec, filepath.Join(dir, "cover.jpg")) {
-		t.Fatal("non-audio file under dir must not be treated as dir-supplied")
-	}
-	if dirSuppliesFile(rec, filepath.Join(dir, "cover.JPG")) {
-		t.Fatal("non-audio file with uppercase extension must not be dir-supplied")
-	}
-	if dirSuppliesFile(rec, filepath.Join(dir, "noextension")) {
-		t.Fatal("extension-less file must not be treated as dir-supplied")
-	}
 	nonRec := DirSource{Path: dir, Recursive: false}
-	if dirSuppliesFile(nonRec, filepath.Join(dir, "sub", "song.mp3")) {
-		t.Fatal("subdir file must not be supplied by a non-recursive source")
+	tests := []struct {
+		name string
+		src  DirSource
+		file string
+		want bool
+	}{
+		{name: "audio under recursive dir", src: rec, file: filepath.Join(dir, "song.mp3"), want: true},
+		{name: "audio at non-recursive top level", src: nonRec, file: filepath.Join(dir, "song.mp3"), want: true},
+		{name: "non-audio under recursive dir", src: rec, file: filepath.Join(dir, "cover.jpg"), want: false},
+		{name: "non-audio uppercase extension", src: rec, file: filepath.Join(dir, "cover.JPG"), want: false},
+		{name: "extension-less file", src: rec, file: filepath.Join(dir, "noextension"), want: false},
+		{name: "audio in subdir of non-recursive dir", src: nonRec, file: filepath.Join(dir, "sub", "song.mp3"), want: false},
+		{name: "audio outside dir", src: rec, file: filepath.Join(dir, "..", "outside.mp3"), want: false},
 	}
-	if !dirSuppliesFile(nonRec, filepath.Join(dir, "song.mp3")) {
-		t.Fatal("top-level audio file should be supplied by a non-recursive source")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := dirSuppliesFile(tt.src, tt.file); got != tt.want {
+				t.Fatalf("dirSuppliesFile(%+v, %q) = %v, want %v", tt.src, tt.file, got, tt.want)
+			}
+		})
 	}
 }
 
