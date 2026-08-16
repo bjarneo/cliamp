@@ -494,11 +494,11 @@ func PlaylistBookmarks() error {
 func PlaylistEnrich(name string, source string) error {
 	src := normalizeSortKey(source)
 	switch src {
-		case "path", "metadata":
-		default:
-			return fmt.Errorf("unsupported source key %q (use path or metadata)", source)
+	case "path", "metadata":
+	default:
+		return fmt.Errorf("unsupported source key %q (use path or metadata)", source)
 	}
-	
+
 	prov, err := newProvider()
 	if err != nil {
 		return err
@@ -533,6 +533,13 @@ func PlaylistEnrich(name string, source string) error {
 					tracks[i].Album = album
 					changed = true
 				}
+			}
+		}
+		if t.Year == 0 {
+			if year := probeYear(t.Path); year != 0 {
+				tracks[i].Year = year
+				changed = true
+				fmt.Fprintf(os.Stderr, "  %s: %d\n", t.DisplayName(), year)
 			}
 		}
 
@@ -600,6 +607,11 @@ func parseProbeDuration(out []byte) int {
 		return 0
 	}
 	return int(dur)
+}
+
+func probeYear(path string) int {
+	t := playlist.TrackFromPath(path)
+	return t.Year
 }
 
 func probeAlbum(path string) string {
