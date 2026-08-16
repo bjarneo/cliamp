@@ -1,6 +1,7 @@
 package local
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -445,6 +446,45 @@ func TestAddTracksSkipsDirSourcedPaths(t *testing.T) {
 	}
 	if added != 0 || skipped != 1 {
 		t.Fatalf("added=%d skipped=%d, want 0/1", added, skipped)
+	}
+}
+
+func TestAddTracksPersistsCrossPlaylistDirTrack(t *testing.T) {
+	p := newTestProvider(t)
+	audio := t.TempDir()
+	writeAudioFile(t, filepath.Join(audio, "a.mp3"))
+	if err := p.CreateDirPlaylist("src", []string{audio}); err != nil {
+		t.Fatalf("CreateDirPlaylist: %v", err)
+	}
+	srcTracks, err := p.Tracks("src")
+	if err != nil || len(srcTracks) != 1 || !srcTracks[0].DirSourced {
+		t.Fatalf("src tracks = %+v err=%v, want one dir-sourced track", srcTracks, err)
+	}
+	if _, err := p.CreatePlaylist(context.Background(), "dst"); err != nil {
+		t.Fatalf("CreatePlaylist: %v", err)
+	}
+	// Adding a dir-sourced track to another playlist must persist it as an
+	// explicit [[track]] entry instead of counting it as added and dropping it.
+	added, skipped, err := p.AddTracks("dst", srcTracks)
+	if err != nil {
+		t.Fatalf("AddTracks: %v", err)
+	}
+	if added != 1 || skipped != 0 {
+		t.Fatalf("added=%d skipped=%d, want 1/0", added, skipped)
+	}
+	dstTracks, err := p.Tracks("dst")
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	if len(dstTracks) != 1 || dstTracks[0].Path != srcTracks[0].Path {
+		t.Fatalf("dst tracks = %+v, want the transferred track", dstTracks)
+	}
+	if dstTracks[0].DirSourced {
+		t.Fatal("transferred track must be persisted as an explicit [[track]]")
+	}
+	data, _ := os.ReadFile(filepath.Join(p.dir, "dst.toml"))
+	if strings.Count(string(data), "[[track]]") != 1 {
+		t.Fatalf("transferred track not written as [[track]]:\n%s", data)
 	}
 }
 

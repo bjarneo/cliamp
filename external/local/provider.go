@@ -105,7 +105,10 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 		if err != nil {
 			continue
 		}
-		// Count without tag reads so the playlist browser stays fast.
+		// Count without tag reads so the playlist browser stays fast; durations
+		// stay unknown (0) for directory-backed playlists, which the browser
+		// omits from display. Directory sources are still walked to count the
+		// files they supply.
 		tracks := doc.expand(false)
 		lists = append(lists, playlist.PlaylistInfo{
 			ID:           name,
@@ -214,6 +217,11 @@ func (p *Provider) AddTracks(playlistName string, tracks []playlist.Track) (adde
 			skipped++
 			continue
 		}
+		// Incoming tracks may carry the DirSourced flag from a directory-backed
+		// playlist. Added to a different playlist here, they must persist as
+		// explicit [[track]] entries; the save would otherwise drop them since
+		// this document has no owning [[dir]] section for them.
+		t.DirSourced = false
 		seen[t.Path] = struct{}{}
 		existing = append(existing, t)
 		added++
