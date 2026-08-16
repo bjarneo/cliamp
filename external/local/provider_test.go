@@ -192,9 +192,9 @@ title = "A"
 	path := filepath.Join(p.dir, "commented.toml")
 	os.WriteFile(path, []byte(content), 0o644)
 
-	tracks, err := p.loadTOML(path)
+	tracks, err := p.Tracks("commented")
 	if err != nil {
-		t.Fatalf("loadTOML: %v", err)
+		t.Fatalf("Tracks: %v", err)
 	}
 	if len(tracks) != 1 {
 		t.Fatalf("got %d tracks, want 1", len(tracks))
@@ -536,9 +536,9 @@ title = "Live Radio"
 	path := filepath.Join(p.dir, "radio.toml")
 	os.WriteFile(path, []byte(content), 0o644)
 
-	tracks, err := p.loadTOML(path)
+	tracks, err := p.Tracks("radio")
 	if err != nil {
-		t.Fatalf("loadTOML: %v", err)
+		t.Fatalf("Tracks: %v", err)
 	}
 	if !tracks[0].Stream {
 		t.Fatal("URL path should set Stream=true")

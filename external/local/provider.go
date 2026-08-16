@@ -10,7 +10,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,9 +17,9 @@ import (
 	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/internal/appdir"
 	"github.com/bjarneo/cliamp/internal/fuzzy"
-	"github.com/bjarneo/cliamp/internal/tomlutil"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
+	"github.com/bjarneo/cliamp/resolve"
 )
 
 // Compile-time interface checks.
@@ -102,10 +101,12 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 			continue
 		}
 		name := strings.TrimSuffix(e.Name(), filepath.Ext(e.Name()))
-		tracks, err := p.loadTOML(filepath.Join(p.dir, e.Name()))
+		doc, err := p.loadDoc(filepath.Join(p.dir, e.Name()))
 		if err != nil {
 			continue
 		}
+		// Count without tag reads so the playlist browser stays fast.
+		tracks := doc.expand(false)
 		lists = append(lists, playlist.PlaylistInfo{
 			ID:           name,
 			Name:         name,
@@ -134,8 +135,9 @@ func (p *Provider) historyInfo() (playlist.PlaylistInfo, bool) {
 	}, true
 }
 
-// Tracks parses the TOML file for the given playlist name and returns its tracks.
-// The reserved "Recently Played" name is served from the history store.
+// Tracks returns the full track list for the named playlist: explicit
+// [[track]] entries plus tracks scanned from any [[dir]] sources, in document
+// order. The reserved "Recently Played" name is served from the history store.
 func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	if isHistoryName(playlistID) {
 		if p.history == nil {
@@ -143,11 +145,20 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 		}
 		return p.history.Tracks(0)
 	}
-	path, err := p.safePath(playlistID)
+	doc, err := p.loadDocByName(playlistID)
 	if err != nil {
 		return nil, err
 	}
-	return p.loadTOML(path)
+	return doc.expand(true), nil
+}
+
+// expandedTracks loads a named playlist and expands its directory sources.
+func (p *Provider) expandedTracks(name string) ([]playlist.Track, error) {
+	doc, err := p.loadDocByName(name)
+	if err != nil {
+		return nil, err
+	}
+	return doc.expand(true), nil
 }
 
 // AddTrack appends a track to the named playlist, creating the directory and
@@ -157,8 +168,9 @@ func (p *Provider) AddTrack(playlistName string, track playlist.Track) error {
 	return err
 }
 
-// AddTracks appends multiple tracks, skipping exact path duplicates already in
-// the playlist or repeated in the input. It creates the playlist file if needed.
+// AddTracks appends multiple tracks, skipping exact path duplicates already
+// provided by the playlist (explicit [[track]] entries or [[dir]] sources) or
+// repeated in the input. It creates the playlist file if needed.
 func (p *Provider) AddTracks(playlistName string, tracks []playlist.Track) (added, skipped int, err error) {
 	if isHistoryName(playlistName) {
 		return 0, 0, errReservedHistoryName
@@ -171,7 +183,7 @@ func (p *Provider) AddTracks(playlistName string, tracks []playlist.Track) (adde
 		return 0, 0, err
 	}
 
-	existing, err := p.loadTOML(path)
+	doc, err := p.loadDoc(path)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
 			return 0, 0, err
@@ -179,13 +191,24 @@ func (p *Provider) AddTracks(playlistName string, tracks []playlist.Track) (adde
 		if err := validateNewName(playlistName); err != nil {
 			return 0, 0, err
 		}
-		existing = nil
+		doc = &playlistDoc{}
 	}
 
-	seen := make(map[string]struct{}, len(existing)+len(tracks))
-	for _, t := range existing {
+	seen := make(map[string]struct{}, len(doc.tracks)+len(tracks))
+	for _, t := range doc.tracks {
 		seen[t.Path] = struct{}{}
 	}
+	for _, src := range doc.dirs {
+		files, err := resolve.AudioFiles(ExpandPath(src.Path), src.Recursive)
+		if err != nil {
+			continue
+		}
+		for _, f := range files {
+			seen[f] = struct{}{}
+		}
+	}
+
+	existing := doc.tracks
 	for _, t := range tracks {
 		if _, ok := seen[t.Path]; ok {
 			skipped++
@@ -235,6 +258,142 @@ func (p *Provider) CreatePlaylist(_ context.Context, name string) (string, error
 	return name, nil
 }
 
+// CreateDirPlaylist creates a new playlist that references the given
+// directories via [[dir]] sections instead of expanding their files. Fails
+// when the playlist already exists or a directory does not exist.
+func (p *Provider) CreateDirPlaylist(name string, dirs []string) error {
+	if isHistoryName(name) {
+		return errReservedHistoryName
+	}
+	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+		return err
+	}
+	if err := validateNewName(name); err != nil {
+		return err
+	}
+	for _, dir := range dirs {
+		if err := validateDirSource(dir); err != nil {
+			return err
+		}
+	}
+	path, err := p.safePath(name)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("playlist %q already exists", name)
+		}
+		return err
+	}
+	for i, dir := range dirs {
+		if i > 0 {
+			fmt.Fprintln(f)
+		}
+		writeDir(f, DirSource{Path: dir, Recursive: true})
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// AddDirSource appends a [[dir]] section referencing dir to the named
+// playlist, creating the playlist if needed. Returns false when the playlist
+// already references the same directory. The directory must exist.
+func (p *Provider) AddDirSource(name, dir string) (bool, error) {
+	if isHistoryName(name) {
+		return false, errReservedHistoryName
+	}
+	if err := validateDirSource(dir); err != nil {
+		return false, err
+	}
+	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+		return false, err
+	}
+	path, err := p.safePath(name)
+	if err != nil {
+		return false, err
+	}
+	doc, err := p.loadDoc(path)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return false, err
+		}
+		if err := validateNewName(name); err != nil {
+			return false, err
+		}
+		doc = &playlistDoc{}
+	}
+
+	target := ExpandPath(dir)
+	for _, src := range doc.dirs {
+		if ExpandPath(src.Path) == target {
+			return false, nil
+		}
+	}
+	doc.dirs = append(doc.dirs, DirSource{Path: dir, Recursive: true})
+	doc.order = append(doc.order, itemDir)
+	return true, p.saveDoc(name, doc)
+}
+
+// DirSources returns the directory sources referenced by a playlist.
+func (p *Provider) DirSources(name string) ([]DirSource, error) {
+	if isHistoryName(name) {
+		return nil, errReservedHistoryName
+	}
+	doc, err := p.loadDocByName(name)
+	if err != nil {
+		return nil, err
+	}
+	return doc.dirs, nil
+}
+
+// saveDoc writes a parsed document back to disk, preserving section order.
+func (p *Provider) saveDoc(name string, doc *playlistDoc) error {
+	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+		return err
+	}
+	path, err := p.safePath(name)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		if err := validateNewName(name); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+
+	tmp := path + ".tmp"
+	f, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	ti, di := 0, 0
+	sections := 0
+	for _, kind := range doc.order {
+		if sections > 0 {
+			fmt.Fprintln(f)
+		}
+		if kind == itemTrack {
+			writeTrack(f, doc.tracks[ti])
+			ti++
+		} else {
+			writeDir(f, doc.dirs[di])
+			di++
+		}
+		sections++
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
 // Exists reports whether a playlist with the given name exists on disk, or
 // whether it refers to the virtual "Recently Played" history with at least
 // one entry recorded.
@@ -251,7 +410,10 @@ func (p *Provider) Exists(name string) bool {
 	return err == nil
 }
 
-// savePlaylist overwrites the named playlist with the given tracks.
+// savePlaylist overwrites the named playlist with the given tracks,
+// preserving any [[dir]] sections already present in the file.
+// Tracks marked DirSourced are not persisted; they are re-derived from the
+// directory sources on the next load.
 func (p *Provider) savePlaylist(name string, tracks []playlist.Track) error {
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
 		return err
@@ -276,11 +438,28 @@ func (p *Provider) savePlaylist(name string, tracks []playlist.Track) error {
 		return err
 	}
 
-	for i, t := range tracks {
-		if i > 0 {
+	// Preserve [[dir]] sections from the existing file so directory-sourced
+	// playlists stay dynamic across rewrites. Tracks marked DirSourced are
+	// skipped: they are re-derived from the directories on load, and
+	// persisting them would shadow the [[dir]] reference.
+	dirs := p.existingDirs(path)
+	sections := 0
+	for _, src := range dirs {
+		if sections > 0 {
+			fmt.Fprintln(f)
+		}
+		writeDir(f, src)
+		sections++
+	}
+	for _, t := range tracks {
+		if t.DirSourced {
+			continue
+		}
+		if sections > 0 {
 			fmt.Fprintln(f)
 		}
 		writeTrack(f, t)
+		sections++
 	}
 	if err := f.Close(); err != nil {
 		os.Remove(tmp)
@@ -289,16 +468,30 @@ func (p *Provider) savePlaylist(name string, tracks []playlist.Track) error {
 	return os.Rename(tmp, path)
 }
 
+// existingDirs parses path and returns its [[dir]] sections. Missing files
+// yield no directories.
+func (p *Provider) existingDirs(path string) []DirSource {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	return parsePlaylistDoc(data).dirs
+}
+
 // errReservedHistoryName is returned when a caller tries to write to or
 // otherwise mutate the synthetic history playlist.
 var errReservedHistoryName = errors.New(`"Recently Played" is a virtual history playlist and cannot be modified`)
 
 // SetBookmark toggles the bookmark flag on a track and rewrites the playlist.
+// The index refers to the expanded track list (explicit entries plus
+// directory-scanned ones). Bookmarking a directory-scanned track materializes
+// it as an explicit [[track]] entry so the bookmark persists; it then loads
+// after the directory-sourced tracks.
 func (p *Provider) SetBookmark(playlistName string, idx int) error {
 	if isHistoryName(playlistName) {
 		return errReservedHistoryName
 	}
-	tracks, err := p.loadTOMLByName(playlistName)
+	tracks, err := p.expandedTracks(playlistName)
 	if err != nil {
 		return err
 	}
@@ -306,36 +499,40 @@ func (p *Provider) SetBookmark(playlistName string, idx int) error {
 		return fmt.Errorf("index %d out of range (playlist has %d tracks)", idx, len(tracks))
 	}
 	tracks[idx].Bookmark = !tracks[idx].Bookmark
+	tracks[idx].DirSourced = false // materialize so the change persists
 	return p.savePlaylist(playlistName, tracks)
 }
 
 // SetBookmarkByPath toggles the bookmark flag on the first track with path and
 // rewrites the playlist. This avoids corrupting saved playlists when the live
 // queue has been filtered, reordered, or otherwise diverged from file order.
+// Directory-scanned tracks are materialized as explicit entries so the
+// bookmark persists.
 func (p *Provider) SetBookmarkByPath(playlistName string, path string) error {
 	if isHistoryName(playlistName) {
 		return errReservedHistoryName
 	}
-	tracks, err := p.loadTOMLByName(playlistName)
+	tracks, err := p.expandedTracks(playlistName)
 	if err != nil {
 		return err
 	}
 	for i := range tracks {
 		if tracks[i].Path == path {
 			tracks[i].Bookmark = !tracks[i].Bookmark
+			tracks[i].DirSourced = false // materialize so the change persists
 			return p.savePlaylist(playlistName, tracks)
 		}
 	}
 	return fmt.Errorf("track path %q not found in playlist %q", path, playlistName)
 }
 
-// loadTOMLByName loads tracks for a named playlist.
-func (p *Provider) loadTOMLByName(name string) ([]playlist.Track, error) {
+// loadDocByName loads a named playlist's parsed document.
+func (p *Provider) loadDocByName(name string) (*playlistDoc, error) {
 	path, err := p.safePath(name)
 	if err != nil {
 		return nil, err
 	}
-	return p.loadTOML(path)
+	return p.loadDoc(path)
 }
 
 // SavePlaylist overwrites a playlist with the given tracks.
@@ -386,11 +583,11 @@ func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]p
 		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".toml") {
 			continue
 		}
-		tracks, err := p.loadTOML(filepath.Join(p.dir, e.Name()))
+		doc, err := p.loadDoc(filepath.Join(p.dir, e.Name()))
 		if err != nil {
 			continue
 		}
-		for _, t := range tracks {
+		for _, t := range doc.expand(true) {
 			if _, dup := seen[t.Path]; dup {
 				continue
 			}
@@ -483,20 +680,40 @@ func (p *Provider) ClearHistory() error {
 }
 
 // RemoveTrack removes a track by index from the named playlist.
-// Empty playlists are kept on disk; deleting a playlist remains explicit.
+// The index refers to the expanded track list. Directory-scanned tracks
+// cannot be removed: they are re-derived from the [[dir]] source on every
+// load. Empty playlists are kept on disk; deleting a playlist remains explicit.
 func (p *Provider) RemoveTrack(name string, index int) error {
 	if isHistoryName(name) {
 		return errReservedHistoryName
 	}
-	tracks, err := p.Tracks(name)
+	tracks, err := p.expandedTracks(name)
 	if err != nil {
 		return err
 	}
 	if index < 0 || index >= len(tracks) {
 		return fmt.Errorf("track index %d out of range", index)
 	}
-	tracks = slices.Delete(tracks, index, index+1)
-	return p.savePlaylist(name, tracks)
+	if tracks[index].DirSourced {
+		return fmt.Errorf("track %d (%s) is supplied by a directory source; remove the file from the directory or edit the playlist's [[dir]] section", index+1, tracks[index].Path)
+	}
+
+	kept := tracks[:0]
+	removed := false
+	for i, t := range tracks {
+		if t.DirSourced {
+			continue
+		}
+		if i == index {
+			removed = true
+			continue
+		}
+		kept = append(kept, t)
+	}
+	if !removed {
+		return fmt.Errorf("track index %d out of range", index)
+	}
+	return p.savePlaylist(name, kept)
 }
 
 // writeTrack writes a single [[track]] TOML section to w.
@@ -536,43 +753,43 @@ func writeTrack(w io.Writer, t playlist.Track) {
 	}
 }
 
-// loadTOML parses a minimal TOML file with [[track]] sections.
-// Each section supports path, title, and artist keys.
-func (p *Provider) loadTOML(path string) ([]playlist.Track, error) {
+// parseTrackFields converts a parsed [[track]] section into a Track.
+func parseTrackFields(f map[string]string) playlist.Track {
+	t := playlist.Track{
+		Path:   f["path"],
+		Title:  f["title"],
+		Artist: f["artist"],
+		Album:  f["album"],
+		Genre:  f["genre"],
+		Feed:   f["feed"] == "true",
+	}
+	t.EmbeddedLyrics = f["embedded_lyrics"]
+	t.AlbumArtURL = f["album_art_url"]
+	t.Stream = playlist.IsURL(t.Path)
+	// "favorite" is the pre-rename alias for "bookmark"; prefer bookmark.
+	bookmark, ok := f["bookmark"]
+	if !ok {
+		bookmark = f["favorite"]
+	}
+	t.Bookmark = bookmark == "true"
+	if n, err := strconv.Atoi(f["year"]); err == nil {
+		t.Year = n
+	}
+	if n, err := strconv.Atoi(f["track_number"]); err == nil {
+		t.TrackNumber = n
+	}
+	if n, err := strconv.Atoi(f["duration_secs"]); err == nil {
+		t.DurationSecs = n
+	}
+	return t
+}
+
+// loadDoc reads and parses a playlist file into explicit tracks and
+// directory sources, without scanning any directories.
+func (p *Provider) loadDoc(path string) (*playlistDoc, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-
-	var tracks []playlist.Track
-	tomlutil.ParseSections(data, "track", func(f map[string]string) {
-		t := playlist.Track{
-			Path:   f["path"],
-			Title:  f["title"],
-			Artist: f["artist"],
-			Album:  f["album"],
-			Genre:  f["genre"],
-			Feed:   f["feed"] == "true",
-		}
-		t.EmbeddedLyrics = f["embedded_lyrics"]
-		t.AlbumArtURL = f["album_art_url"]
-		t.Stream = playlist.IsURL(t.Path)
-		// "favorite" is the pre-rename alias for "bookmark"; prefer bookmark.
-		bookmark, ok := f["bookmark"]
-		if !ok {
-			bookmark = f["favorite"]
-		}
-		t.Bookmark = bookmark == "true"
-		if n, err := strconv.Atoi(f["year"]); err == nil {
-			t.Year = n
-		}
-		if n, err := strconv.Atoi(f["track_number"]); err == nil {
-			t.TrackNumber = n
-		}
-		if n, err := strconv.Atoi(f["duration_secs"]); err == nil {
-			t.DurationSecs = n
-		}
-		tracks = append(tracks, t)
-	})
-	return tracks, nil
+	return parsePlaylistDoc(data), nil
 }
