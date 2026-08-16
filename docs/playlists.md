@@ -52,11 +52,20 @@ If `radio.m3u` is in `~/playlists/`, then `../Music/song.mp3` resolves to `~/Mus
 
 ## Local TOML Playlists
 
-Create and manage your own playlists stored as `.toml` files in `~/.config/cliamp/playlists/`.
+Create and manage your own playlists stored as `.toml` files in `~/.config/cliamp/playlists/`. (The folder follows cliamp's config-dir resolution: `CLIAMP_CONFIG_DIR`, then `XDG_CONFIG_HOME/cliamp`, then `HOME/.config/cliamp`.)
 
 ### File Format
 
-Each playlist is a separate `.toml` file. The filename (minus extension) becomes the playlist name. Empty playlists are kept on disk so they remain visible in the TUI and CLI.
+Each playlist is a separate `.toml` file, and every file in the `playlists/` folder is picked up automatically — whether created by the CLI or written by hand. The filename (minus extension) becomes the playlist name:
+
+```
+~/.config/cliamp/playlists/
+├── radio-stations.toml   → playlist "radio-stations"
+├── music.toml            → playlist "music"
+└── gym.toml              → playlist "gym"
+```
+
+Keep one file per collection; mix hand-written and CLI-created files freely. Empty playlists are kept on disk so they remain visible in the TUI and CLI.
 
 ```toml
 # ~/.config/cliamp/playlists/radio-stations.toml
