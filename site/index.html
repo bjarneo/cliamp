@@ -448,7 +448,8 @@ kbd{color:var(--ink);background:var(--fg-hi);padding:1px 6px;border-radius:3px;
 .radio-live-dot{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 10px rgba(255,93,108,.6);animation:blink 1.4s infinite}
 .radio-error{color:var(--red);font-size:12px}
 
-.radio-stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px}
+.radio-stats-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:20px}
+@media (max-width:860px){.radio-stats-row{grid-template-columns:repeat(2,1fr)}}
 @media (max-width:640px){.radio-stats-row{grid-template-columns:1fr}}
 .radio-stat{padding:22px;border-radius:10px;text-align:center;
   background:radial-gradient(120% 120% at 50% 0%,var(--green-dim),transparent 60%),linear-gradient(to bottom,var(--panel-2),var(--panel));
@@ -458,6 +459,9 @@ kbd{color:var(--ink);background:var(--fg-hi);padding:1px 6px;border-radius:3px;
   display:flex;align-items:center;justify-content:center;gap:8px}
 .radio-stat-dot{width:11px;height:11px;border-radius:50%;background:var(--green);box-shadow:0 0 12px var(--green-glow);animation:blink 2s infinite}
 .radio-stat-label{margin-top:10px;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--mute);font-weight:700}
+.radio-stat-peak{background:radial-gradient(120% 120% at 50% 0%,var(--amber-dim),transparent 60%),linear-gradient(to bottom,var(--panel-2),var(--panel))}
+.radio-stat-peak .radio-stat-value{color:var(--amber-hi);text-shadow:0 0 24px var(--amber-glow)}
+.radio-stat-peak .radio-stat-label{color:var(--amber)}
 
 .radio-card{padding:22px 24px;border-radius:10px;margin-bottom:16px;
   background:linear-gradient(to bottom,var(--panel-2),var(--panel));border:1px solid var(--line);box-shadow:var(--engrave)}
@@ -824,6 +828,10 @@ user_id = "your-account-user-id"</code></pre>
         <div class="radio-stat-value"><span class="radio-stat-dot"></span><span id="radio-now">-</span></div>
         <div class="radio-stat-label">listening now</div>
       </div>
+      <div class="radio-stat radio-stat-peak" title="Highest number of listeners online at once">
+        <div class="radio-stat-value" id="radio-peak">-</div>
+        <div class="radio-stat-label">all-time high</div>
+      </div>
       <div class="radio-stat">
         <div class="radio-stat-value" id="radio-sessions">-</div>
         <div class="radio-stat-label">total sessions</div>
@@ -1037,7 +1045,7 @@ function formatDate(iso){
 function renderStationStats(data,stationKey){
   var station;
   if(stationKey==='total'){
-    station={total_sessions:0,total_listen_hours:0,active_listeners:0,top_countries:[],active_listener_countries:[],daily:[]};
+    station={total_sessions:0,total_listen_hours:0,peak_listeners:data.peak_listeners||0,active_listeners:0,top_countries:[],active_listener_countries:[],daily:[]};
     var allStations=data.stations||{};
     var dailyMap={};
     var activeCountryMap={};
@@ -1066,10 +1074,11 @@ function renderStationStats(data,stationKey){
     station.top_countries=Object.keys(totalCountryMap).map(function(k){return totalCountryMap[k]}).sort(function(a,b){return b.sessions-a.sessions});
   }else{
     station=data.stations&&data.stations[stationKey];
-    if(!station) station={total_sessions:0,total_listen_hours:0,active_listeners:0,top_countries:[],active_listener_countries:[],daily:[]};
+    if(!station) station={total_sessions:0,total_listen_hours:0,peak_listeners:0,active_listeners:0,top_countries:[],active_listener_countries:[],daily:[]};
   }
 
   document.getElementById("radio-now").textContent=station.active_listeners;
+  document.getElementById("radio-peak").textContent=(station.peak_listeners||0).toLocaleString();
   document.getElementById("radio-sessions").textContent=station.total_sessions.toLocaleString();
   document.getElementById("radio-hours").textContent=station.total_listen_hours.toFixed(1);
 
