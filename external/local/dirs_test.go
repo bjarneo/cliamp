@@ -81,7 +81,7 @@ func TestParsePlaylistDocSkipsEmptyDirPath(t *testing.T) {
 func TestExpandPathEnvAndTilde(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLIAMP_TEST_DIR", dir)
-	if got := ExpandPath("$CLIAMP_TEST_DIR/sub"); got != filepath.Join(dir, "sub") {
+	if got := filepath.Clean(ExpandPath("$CLIAMP_TEST_DIR/sub")); got != filepath.Join(dir, "sub") {
 		t.Fatalf("env expand = %q", got)
 	}
 	home, err := os.UserHomeDir()
@@ -254,16 +254,14 @@ func TestSavePlaylistPreservesDirsAndSkipsDirTracks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	content := string(data)
-	if !strings.Contains(content, "[[dir]]") || !strings.Contains(content, quote(audio)) {
-		t.Fatalf("[[dir]] section lost:\n%s", content)
+	// Assert on the parsed document rather than raw text: the writer escapes
+	// backslashes (%q), so a substring match would break on Windows paths.
+	doc := parsePlaylistDoc(data)
+	if len(doc.dirs) != 1 || doc.dirs[0].Path != audio {
+		t.Fatalf("[[dir]] section lost or wrong: %+v", doc.dirs)
 	}
-	if !strings.Contains(content, "[[track]]") || !strings.Contains(content, quote(explicit)) {
-		t.Fatalf("explicit track lost:\n%s", content)
-	}
-	// The dir-sourced a.mp3 must appear only inside the [[dir]] section.
-	if n := strings.Count(content, quote(audio)); n != 1 {
-		t.Fatalf("dir-sourced track persisted (path appears %d times):\n%s", n, content)
+	if len(doc.tracks) != 1 || doc.tracks[0].Path != explicit {
+		t.Fatalf("explicit track lost or wrong: %+v", doc.tracks)
 	}
 }
 
