@@ -413,10 +413,11 @@ func playlistCommand() *cli.Command {
 			},
 			{
 				Name:      "create",
-				Usage:     "create a new playlist, optionally from files/directories",
+				Usage:     "create a new playlist, optionally from files/directories or directory sources",
 				ArgsUsage: "\"Name\" [file|dir ...]",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "ssh", Usage: "SSH host for remote directory walking"},
+					&cli.StringSliceFlag{Name: "dir", Usage: "reference a directory as a [[dir]] source (repeatable)"},
 				},
 				Action: func(ctx context.Context, c *cli.Command) error {
 					if c.Args().Len() == 0 {
@@ -424,7 +425,7 @@ func playlistCommand() *cli.Command {
 					}
 					name := c.Args().First()
 					paths := c.Args().Slice()[1:]
-					return cmd.PlaylistCreate(name, paths, c.String("ssh"))
+					return cmd.PlaylistCreate(name, paths, c.String("ssh"), c.StringSlice("dir"))
 				},
 			},
 			{
@@ -441,13 +442,29 @@ func playlistCommand() *cli.Command {
 			},
 			{
 				Name:      "add",
-				Usage:     "append tracks to an existing playlist",
-				ArgsUsage: "\"Name\" <file|dir> [...]",
+				Usage:     "append tracks or directory sources to an existing playlist",
+				ArgsUsage: "\"Name\" [file|dir ...]",
+				Flags: []cli.Flag{
+					&cli.StringSliceFlag{Name: "dir", Usage: "add a directory as a [[dir]] source (repeatable)"},
+				},
 				Action: func(ctx context.Context, c *cli.Command) error {
-					if c.Args().Len() < 2 {
-						return fmt.Errorf("usage: cliamp playlist add \"Name\" file1 [file2 ...]")
+					if c.Args().Len() == 0 {
+						return fmt.Errorf("usage: cliamp playlist add \"Name\" file1 [file2 ...] [--dir dir]")
 					}
-					return cmd.PlaylistAdd(c.Args().First(), c.Args().Slice()[1:])
+					name := c.Args().First()
+					paths := c.Args().Slice()[1:]
+					return cmd.PlaylistAdd(name, paths, c.StringSlice("dir"))
+				},
+			},
+			{
+				Name:      "dirs",
+				Usage:     "list directory sources referenced by a playlist",
+				ArgsUsage: "\"Name\"",
+				Action: func(ctx context.Context, c *cli.Command) error {
+					if c.Args().Len() == 0 {
+						return fmt.Errorf("usage: cliamp playlist dirs \"Name\"")
+					}
+					return cmd.PlaylistDirs(c.Args().First())
 				},
 			},
 			{
