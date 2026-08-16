@@ -634,7 +634,9 @@ func collectLocalAudio(paths []string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("scanning %q: %w", p, err)
 		}
-		all = append(all, files...)
+		for _, f := range files {
+			all = append(all, strings.ReplaceAll(f, "\\", "/"))
+		}
 	}
 	return all, nil
 }
