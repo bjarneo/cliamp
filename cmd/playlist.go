@@ -129,16 +129,16 @@ func PlaylistCreate(name string, paths []string, sshHost string, dirs []string) 
 
 	if len(dirs) > 0 {
 		if skipped > 0 {
-			fmt.Printf("Created playlist %q with %d directories and %d explicit tracks (%d duplicate skipped).\n", name, len(dirs), added, skipped)
+			fmt.Printf("Created playlist %q with %d director%s and %d explicit track%s (%d duplicate skipped).\n", name, len(dirs), plural(len(dirs)), added, pluralS(added), skipped)
 		} else {
-			fmt.Printf("Created playlist %q with %d directories and %d explicit tracks.\n", name, len(dirs), added)
+			fmt.Printf("Created playlist %q with %d director%s and %d explicit track%s.\n", name, len(dirs), plural(len(dirs)), added, pluralS(added))
 		}
 		return nil
 	}
 	if skipped > 0 {
-		fmt.Printf("Created playlist %q with %d tracks (%d duplicate skipped).\n", name, added, skipped)
+		fmt.Printf("Created playlist %q with %d track%s (%d duplicate skipped).\n", name, added, pluralS(added), skipped)
 	} else {
-		fmt.Printf("Created playlist %q with %d tracks.\n", name, added)
+		fmt.Printf("Created playlist %q with %d track%s.\n", name, added, pluralS(added))
 	}
 	return nil
 }
@@ -239,6 +239,13 @@ func plural(n int) string {
 		return "y"
 	}
 	return "ies"
+}
+
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // PlaylistShow displays the tracks in a playlist. If jsonOutput is true,
@@ -534,7 +541,7 @@ func PlaylistBookmark(name string, index int) error {
 
 	tracks, err := prov.Tracks(name)
 	if err != nil {
-		return err
+		return fmt.Errorf("loading playlist %q: %w", name, err)
 	}
 	if index-1 < 0 || index-1 >= len(tracks) {
 		return fmt.Errorf("track index %d out of range (playlist has %d tracks)", index, len(tracks))
@@ -550,7 +557,7 @@ func PlaylistBookmark(name string, index int) error {
 	// match by path rather than by index.
 	tracks, err = prov.Tracks(name)
 	if err != nil {
-		return err
+		return fmt.Errorf("reloading playlist %q: %w", name, err)
 	}
 	for _, t := range tracks {
 		if t.Path == original.Path {

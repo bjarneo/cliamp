@@ -309,7 +309,7 @@ func CollectAudioFiles(path string) ([]string, error) {
 func AudioFiles(dir string, recursive bool) ([]string, error) {
 	info, err := os.Stat(dir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("stat audio path %q: %w", dir, err)
 	}
 	if !info.IsDir() {
 		if player.SupportedExts[strings.ToLower(filepath.Ext(dir))] {
@@ -335,7 +335,7 @@ func AudioFiles(dir string, recursive bool) ([]string, error) {
 			return nil
 		})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("walk audio directory %q: %w", dir, err)
 		}
 
 		slices.Sort(files)
@@ -344,7 +344,7 @@ func AudioFiles(dir string, recursive bool) ([]string, error) {
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read audio directory %q: %w", dir, err)
 	}
 	var files []string
 	for _, e := range entries {

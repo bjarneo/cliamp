@@ -335,6 +335,35 @@ func TestSetBookmarkMaterializesDirTrack(t *testing.T) {
 	}
 }
 
+func TestSavePlaylistReadErrorAbortsRewrite(t *testing.T) {
+	p := newTestProvider(t)
+	audio := t.TempDir()
+	writeAudioFile(t, filepath.Join(audio, "a.mp3"))
+	if err := p.CreateDirPlaylist("music", []string{audio}); err != nil {
+		t.Fatalf("CreateDirPlaylist: %v", err)
+	}
+	// Replace the playlist file with a directory so ReadFile fails (EISDIR).
+	path := filepath.Join(p.dir, "music.toml")
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	// A failed read must abort the rewrite instead of replacing the playlist
+	// with a copy missing its [[dir]] sections.
+	if err := p.SetBookmark("music", 0); err == nil {
+		t.Fatal("SetBookmark should fail when the playlist cannot be read")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("playlist path removed: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatal("playlist was rewritten despite read failure")
+	}
+}
+
 func TestSetBookmarkByPathMaterializesDirTrack(t *testing.T) {
 	p := newTestProvider(t)
 	audio := t.TempDir()

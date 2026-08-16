@@ -72,7 +72,7 @@ func TestPlaylistCreateDirPlusExplicitTracks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlaylistCreate mixed: %v", err)
 	}
-	if !strings.Contains(out, "1 directories and 1 explicit tracks") {
+	if !strings.Contains(out, "1 directory and 1 explicit track") {
 		t.Errorf("output = %q, want mixed count", out)
 	}
 	if out, err := captureStdout(t, func() error { return PlaylistShow("mix", false) }); err != nil {

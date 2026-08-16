@@ -56,9 +56,9 @@ Create and manage your own playlists stored as `.toml` files in `~/.config/cliam
 
 ### File Format
 
-Each playlist is a separate `.toml` file, and every file in the `playlists/` folder is picked up automatically — whether created by the CLI or written by hand. The filename (minus extension) becomes the playlist name:
+Each playlist is a separate `.toml` file, and every file in the `playlists/` folder with a `.toml` extension (case-insensitive) is picked up automatically — whether created by the CLI or written by hand. Files that fail to parse are skipped. The filename (minus extension) becomes the playlist name:
 
-```
+```text
 ~/.config/cliamp/playlists/
 ├── radio-stations.toml   → playlist "radio-stations"
 ├── music.toml            → playlist "music"
@@ -171,8 +171,8 @@ path = "https://radio.example.com/stream"
 title = "My Radio"
 ```
 
-Or spread the tracks and directories across many files — every file in the
-`playlists/` folder becomes its own playlist:
+Or spread the tracks and directories across many files — every `.toml` file in
+the `playlists/` folder becomes its own playlist:
 
 ```toml
 # ~/.config/cliamp/playlists/gym.toml

@@ -40,6 +40,14 @@ func ParseNamedSections(data []byte, sections []string, emit func(section string
 			cur = name
 			continue
 		}
+		if strings.HasPrefix(line, "[[") && strings.HasSuffix(line, "]]") {
+			// Unrecognized array-table header: flush the section we were in so
+			// its fields cannot leak into the next recognized section.
+			flush()
+			fields = nil
+			cur = ""
+			continue
+		}
 		if fields == nil {
 			continue
 		}

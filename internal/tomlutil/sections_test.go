@@ -104,3 +104,27 @@ path = "/a.mp3"
 		t.Fatalf("emit count = %d, want 1", count)
 	}
 }
+
+func TestParseNamedSectionsUnknownHeaderDoesNotLeakFields(t *testing.T) {
+	data := []byte(`[[track]]
+path = "/a.mp3"
+
+[[unknown]]
+title = "leaked"
+
+[[track]]
+path = "/b.mp3"
+title = "B"
+`)
+	var got []string
+	ParseNamedSections(data, []string{"track"}, func(section string, f map[string]string) {
+		got = append(got, section+":"+f["path"]+":"+f["title"])
+	})
+	want := []string{
+		"track:/a.mp3:",
+		"track:/b.mp3:B",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ParseNamedSections = %v, want %v (unknown section fields leaked)", got, want)
+	}
+}

@@ -470,7 +470,10 @@ func (p *Provider) savePlaylist(name string, tracks []playlist.Track) error {
 	} else if err != nil {
 		return fmt.Errorf("stat playlist %q: %w", name, err)
 	} else {
-		existing = p.existingDoc(path)
+		existing, err = p.existingDoc(path)
+		if err != nil {
+			return err
+		}
 	}
 
 	var explicit []playlist.Track
@@ -484,14 +487,18 @@ func (p *Provider) savePlaylist(name string, tracks []playlist.Track) error {
 	return p.saveDoc(name, &playlistDoc{tracks: tracks, dirs: dirs, order: order})
 }
 
-// existingDoc parses path into a document, or returns an empty document when
-// the file cannot be read or parsed.
-func (p *Provider) existingDoc(path string) *playlistDoc {
+// existingDoc parses path into a document, returning an empty document only
+// when the file does not exist. Read failures are wrapped and propagated so a
+// broken playlist is never silently rewritten without its [[dir]] sections.
+func (p *Provider) existingDoc(path string) (*playlistDoc, error) {
 	data, err := os.ReadFile(path)
-	if err != nil {
-		return &playlistDoc{}
+	if errors.Is(err, fs.ErrNotExist) {
+		return &playlistDoc{}, nil
 	}
-	return parsePlaylistDoc(data)
+	if err != nil {
+		return nil, fmt.Errorf("read playlist %q: %w", path, err)
+	}
+	return parsePlaylistDoc(data), nil
 }
 
 // errReservedHistoryName is returned when a caller tries to write to or
