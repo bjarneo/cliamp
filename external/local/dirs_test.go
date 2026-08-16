@@ -620,6 +620,39 @@ func TestSavePlaylistReorderKeepsDirSlots(t *testing.T) {
 	checkOrder(t, tracks, []string{"y.mp3", "a.mp3", "x.mp3", "b.mp3", "c.ogg"})
 }
 
+func TestSavePlaylistMultiMaterializedKeepsDirPositions(t *testing.T) {
+	p := newTestProvider(t)
+	dirA := t.TempDir()
+	writeAudioFile(t, filepath.Join(dirA, "a.mp3"))
+	dirB := t.TempDir()
+	writeAudioFile(t, filepath.Join(dirB, "b.mp3"))
+	x := filepath.Join(t.TempDir(), "x.mp3")
+	writeAudioFile(t, x)
+	// Document: [[dir A]], [[track x]], [[dir B]].
+	doc := "[[dir]]\npath = " + quote(dirA) + "\n\n" +
+		"[[track]]\npath = " + quote(x) + "\n\n" +
+		"[[dir]]\npath = " + quote(dirB) + "\n"
+	if err := os.WriteFile(filepath.Join(p.dir, "mix.toml"), []byte(doc), 0o644); err != nil {
+		t.Fatalf("writing mix.toml: %v", err)
+	}
+	// Both dir tracks are materialized bookmarks handed back out of document
+	// order, as a TUI reorder after bookmarking would. The first leftover
+	// (dirA) is inserted last in reverse order and shifts the dirB section, so
+	// the dirB leftover must not land before x.
+	if err := p.SavePlaylist("mix", []playlist.Track{
+		{Path: x, Title: "X"},
+		{Path: filepath.Join(dirB, "b.mp3"), Title: "B", Bookmark: true},
+		{Path: filepath.Join(dirA, "a.mp3"), Title: "A", Bookmark: true},
+	}); err != nil {
+		t.Fatalf("SavePlaylist: %v", err)
+	}
+	tracks, err := p.Tracks("mix")
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	checkOrder(t, tracks, []string{"a.mp3", "x.mp3", "b.mp3"})
+}
+
 func TestAddDirSourcesAtomic(t *testing.T) {
 	p := newTestProvider(t)
 	audio := t.TempDir()

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -228,6 +229,9 @@ func TestResolveM3U_PlainPlaylist_StillParsesTracks(t *testing.T) {
 }
 
 func TestAudioFilesSkipsUnreadableSubdir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.Chmod does not map to Unix directory permissions on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("permission checks do not apply to root")
 	}

@@ -205,8 +205,9 @@ func rebuildDoc(existing *playlistDoc, explicit []playlist.Track) (tracks []play
 		}
 	}
 	if len(leftovers) > 0 {
-		// Map each dir to its section position, and each file to the first
-		// directory (in document order) that supplies it.
+		// Map each dir to its section position. dirPos tracks where the next
+		// leftover for that directory must be inserted: directly before the
+		// directory section.
 		dirPos := make(map[int]int, len(existing.dirs))
 		di := 0
 		for si, sec := range sections {
@@ -215,33 +216,38 @@ func rebuildDoc(existing *playlistDoc, explicit []playlist.Track) (tracks []play
 				di++
 			}
 		}
-		supplier := make(map[string]int)
-		di = 0
-		for _, src := range existing.dirs {
-			files, err := resolve.AudioFiles(ExpandPath(src.Path), src.Recursive)
-			if err == nil {
-				for _, f := range files {
-					if _, ok := supplier[f]; !ok {
-						supplier[f] = di
-					}
+		// supplierOf returns the first directory (in document order) that would
+		// supply file in a scan. It is a pure path check, so saves never
+		// re-walk the filesystem that the load already scanned.
+		supplierOf := func(file string) (int, bool) {
+			for di, src := range existing.dirs {
+				if dirSuppliesFile(src, file) {
+					return di, true
 				}
 			}
-			di++
+			return 0, false
 		}
 		// Insert before-dir leftovers in reverse so several targeting the same
 		// directory keep their caller order.
 		for i := len(leftovers) - 1; i >= 0; i-- {
 			t := leftovers[i]
-			if d, ok := supplier[t.Path]; ok {
+			if d, ok := supplierOf(t.Path); ok {
 				pos := dirPos[d]
 				sections = append(sections, playlistSection{})
 				copy(sections[pos+1:], sections[pos:])
 				sections[pos] = playlistSection{kind: itemTrack, track: t}
+				// The insertion shifted every later section by one; re-align
+				// the map so the next leftover lands in the right slot.
+				for dd, p := range dirPos {
+					if dd != d && p >= pos {
+						dirPos[dd] = p + 1
+					}
+				}
 			}
 		}
 		// Leftovers no directory supplies are appended in caller order.
 		for _, t := range leftovers {
-			if _, ok := supplier[t.Path]; !ok {
+			if _, ok := supplierOf(t.Path); !ok {
 				sections = append(sections, playlistSection{kind: itemTrack, track: t})
 			}
 		}
@@ -284,4 +290,23 @@ func validateDirSource(dir string) error {
 		return fmt.Errorf("%q is not a directory", dir)
 	}
 	return nil
+}
+
+// dirSuppliesFile reports whether a scan of dir would include file: the path
+// lives under the expanded directory and, for non-recursive sources, not below
+// an immediate subdirectory. The check is path-only so save-time rewrites do
+// not repeat the filesystem walk done at load.
+func dirSuppliesFile(dir DirSource, file string) bool {
+	root := ExpandPath(dir.Path)
+	rel, err := filepath.Rel(root, file)
+	if err != nil {
+		return false
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	if !dir.Recursive && strings.ContainsRune(rel, filepath.Separator) {
+		return false
+	}
+	return true
 }
