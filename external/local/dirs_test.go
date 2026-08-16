@@ -439,3 +439,215 @@ func TestWriteDirRoundTrip(t *testing.T) {
 func quote(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
 }
+
+// writeInterleavedDoc writes a hand-authored mix.toml with the order
+// [[track]] x, [[dir]] dirA, [[track]] y, [[dir]] dirB so rewrites must not
+// flatten the interleaving.
+func writeInterleavedDoc(t *testing.T, p *Provider, x, dirA, y, dirB string) {
+	t.Helper()
+	doc := "[[track]]\npath = " + quote(x) + "\n\n" +
+		"[[dir]]\npath = " + quote(dirA) + "\n\n" +
+		"[[track]]\npath = " + quote(y) + "\n\n" +
+		"[[dir]]\npath = " + quote(dirB) + "\n"
+	if err := os.WriteFile(filepath.Join(p.dir, "mix.toml"), []byte(doc), 0o644); err != nil {
+		t.Fatalf("writing mix.toml: %v", err)
+	}
+}
+
+func checkOrder(t *testing.T, tracks []playlist.Track, want []string) {
+	t.Helper()
+	if len(tracks) != len(want) {
+		got := make([]string, len(tracks))
+		for i, tr := range tracks {
+			got[i] = filepath.Base(tr.Path)
+		}
+		t.Fatalf("tracks = %v, want %v", got, want)
+	}
+	for i, w := range want {
+		if filepath.Base(tracks[i].Path) != w {
+			got := make([]string, len(tracks))
+			for j, tr := range tracks {
+				got[j] = filepath.Base(tr.Path)
+			}
+			t.Fatalf("tracks = %v, want %v (index %d)", got, want, i)
+		}
+	}
+}
+
+func TestSavePlaylistPreservesSectionOrder(t *testing.T) {
+	p := newTestProvider(t)
+	dirA := t.TempDir()
+	writeAudioFile(t, filepath.Join(dirA, "a.mp3"))
+	dirB := t.TempDir()
+	writeAudioFile(t, filepath.Join(dirB, "b.mp3"))
+	writeAudioFile(t, filepath.Join(dirB, "c.ogg"))
+	x := filepath.Join(t.TempDir(), "x.mp3")
+	y := filepath.Join(t.TempDir(), "y.mp3")
+	writeAudioFile(t, x)
+	writeAudioFile(t, y)
+	writeInterleavedDoc(t, p, x, dirA, y, dirB)
+
+	// Expanded order follows the document interleaving.
+	tracks, err := p.Tracks("mix")
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	checkOrder(t, tracks, []string{"x.mp3", "a.mp3", "y.mp3", "b.mp3", "c.ogg"})
+
+	// Removing x must drop only its slot: y stays anchored before dirB.
+	if err := p.RemoveTrack("mix", 0); err != nil {
+		t.Fatalf("RemoveTrack: %v", err)
+	}
+	tracks, err = p.Tracks("mix")
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	checkOrder(t, tracks, []string{"a.mp3", "y.mp3", "b.mp3", "c.ogg"})
+
+	// A metadata update (enrich-style) keeps y in place.
+	var yt *playlist.Track
+	for i := range tracks {
+		if tracks[i].Path == y {
+			yt = &tracks[i]
+		}
+	}
+	if yt == nil {
+		t.Fatal("y missing after removal")
+	}
+	yt.Album = "Studio"
+	if err := p.SavePlaylist("mix", tracks); err != nil {
+		t.Fatalf("SavePlaylist: %v", err)
+	}
+	tracks, err = p.Tracks("mix")
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	checkOrder(t, tracks, []string{"a.mp3", "y.mp3", "b.mp3", "c.ogg"})
+	for _, tr := range tracks {
+		if tr.Path == y && tr.Album != "Studio" {
+			t.Fatalf("metadata update lost: %+v", tr)
+		}
+	}
+}
+
+func TestSetBookmarkKeepsDirPosition(t *testing.T) {
+	p := newTestProvider(t)
+	dirA := t.TempDir()
+	writeAudioFile(t, filepath.Join(dirA, "a.mp3"))
+	dirB := t.TempDir()
+	writeAudioFile(t, filepath.Join(dirB, "b.mp3"))
+	writeAudioFile(t, filepath.Join(dirB, "c.ogg"))
+	x := filepath.Join(t.TempDir(), "x.mp3")
+	y := filepath.Join(t.TempDir(), "y.mp3")
+	writeAudioFile(t, x)
+	writeAudioFile(t, y)
+	writeInterleavedDoc(t, p, x, dirA, y, dirB)
+
+	// Expanded: x, a, y, b, c. Bookmark b (index 3).
+	if err := p.SetBookmark("mix", 3); err != nil {
+		t.Fatalf("SetBookmark: %v", err)
+	}
+	tracks, err := p.Tracks("mix")
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	// The materialized track stays at b's position instead of jumping around.
+	checkOrder(t, tracks, []string{"x.mp3", "a.mp3", "y.mp3", "b.mp3", "c.ogg"})
+	for _, tr := range tracks {
+		if tr.Path == filepath.Join(dirB, "b.mp3") {
+			if !tr.Bookmark || tr.DirSourced {
+				t.Fatalf("materialized bookmark wrong: %+v", tr)
+			}
+		}
+	}
+}
+
+func TestSavePlaylistReorderKeepsDirSlots(t *testing.T) {
+	p := newTestProvider(t)
+	dirA := t.TempDir()
+	writeAudioFile(t, filepath.Join(dirA, "a.mp3"))
+	dirB := t.TempDir()
+	writeAudioFile(t, filepath.Join(dirB, "b.mp3"))
+	writeAudioFile(t, filepath.Join(dirB, "c.ogg"))
+	x := filepath.Join(t.TempDir(), "x.mp3")
+	y := filepath.Join(t.TempDir(), "y.mp3")
+	writeAudioFile(t, x)
+	writeAudioFile(t, y)
+	writeInterleavedDoc(t, p, x, dirA, y, dirB)
+
+	tracks, err := p.Tracks("mix")
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	// Reorder so y leads: [y, x, a, b, c].
+	reordered := []playlist.Track{tracks[2], tracks[0], tracks[1], tracks[3], tracks[4]}
+	if err := p.SavePlaylist("mix", reordered); err != nil {
+		t.Fatalf("SavePlaylist: %v", err)
+	}
+	tracks, err = p.Tracks("mix")
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	checkOrder(t, tracks, []string{"y.mp3", "a.mp3", "x.mp3", "b.mp3", "c.ogg"})
+}
+
+func TestAddDirSourcesAtomic(t *testing.T) {
+	p := newTestProvider(t)
+	audio := t.TempDir()
+	writeAudioFile(t, filepath.Join(audio, "a.mp3"))
+	if err := p.CreateDirPlaylist("mix", []string{audio}); err != nil {
+		t.Fatalf("CreateDirPlaylist: %v", err)
+	}
+
+	// A batch with one missing directory must fail without persisting the
+	// valid one.
+	valid := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "missing")
+	if _, err := p.AddDirSources("mix", []string{valid, missing}); err == nil {
+		t.Fatal("batch with missing dir should fail")
+	}
+	dirs, err := p.DirSources("mix")
+	if err != nil {
+		t.Fatalf("DirSources: %v", err)
+	}
+	if len(dirs) != 1 {
+		t.Fatalf("partial batch persisted: dirs = %+v", dirs)
+	}
+
+	// A failing batch on a new playlist must not create the file.
+	if _, err := p.AddDirSources("ghost", []string{missing}); err == nil {
+		t.Fatal("batch with missing dir should fail")
+	}
+	if p.Exists("ghost") {
+		t.Fatal("failed batch created a playlist")
+	}
+
+	// Dedupe: batch of already-present + new adds only the new one.
+	added, err := p.AddDirSources("mix", []string{audio, valid})
+	if err != nil {
+		t.Fatalf("AddDirSources: %v", err)
+	}
+	if len(added) != 1 || added[0] != valid {
+		t.Fatalf("added = %v, want [%s]", added, valid)
+	}
+	dirs, _ = p.DirSources("mix")
+	if len(dirs) != 2 {
+		t.Fatalf("dirs = %+v, want 2", dirs)
+	}
+}
+
+func TestCreateDirPlaylistNoFileOnInvalidDir(t *testing.T) {
+	p := newTestProvider(t)
+	valid := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "missing")
+	if err := p.CreateDirPlaylist("mix", []string{valid, missing}); err == nil {
+		t.Fatal("create with missing dir should fail")
+	}
+	entries, err := os.ReadDir(p.dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("partial playlist created: %v", entries)
+	}
+}

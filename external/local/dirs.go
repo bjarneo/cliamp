@@ -130,6 +130,150 @@ func writeDir(w io.Writer, src DirSource) {
 	}
 }
 
+// playlistSection is one [[track]] or [[dir]] section in a rewritten document.
+type playlistSection struct {
+	kind  uint8 // itemTrack or itemDir
+	track playlist.Track
+	dir   DirSource
+}
+
+// rebuildDoc merges the caller's explicit tracks back into an existing parsed
+// document, preserving the interleaving of [[track]] and [[dir]] sections.
+//
+// Directory sections keep their slots. Explicit tracks are matched back onto
+// their original slots by path, so removals drop the slot (without shifting
+// siblings) and metadata updates (e.g. enrichment) stay in place. When the
+// caller reordered the explicit tracks, the caller's order wins for the track
+// slots while directories stay anchored. Explicit tracks without an original
+// slot — additions and bookmark materializations — are inserted directly
+// before the directory section that would otherwise supply them, so a
+// materialized track keeps its position among the directory's tracks; tracks
+// no directory provides are appended at the end.
+func rebuildDoc(existing *playlistDoc, explicit []playlist.Track) (tracks []playlist.Track, dirs []DirSource, order []uint8) {
+	origPaths := make([]string, len(existing.tracks))
+	for i, t := range existing.tracks {
+		origPaths[i] = t.Path
+	}
+	origSet := make(map[string]struct{}, len(origPaths))
+	for _, p := range origPaths {
+		origSet[p] = struct{}{}
+	}
+	var callerSubseq []string
+	for _, t := range explicit {
+		if _, ok := origSet[t.Path]; ok {
+			callerSubseq = append(callerSubseq, t.Path)
+		}
+	}
+	reordered := !isSubsequence(origPaths, callerSubseq)
+
+	byPath := make(map[string]playlist.Track, len(explicit))
+	placed := make(map[string]struct{}, len(explicit))
+	for _, t := range explicit {
+		byPath[t.Path] = t
+	}
+
+	ti, di, used := 0, 0, 0
+	var sections []playlistSection
+	for _, kind := range existing.order {
+		if kind == itemDir {
+			sections = append(sections, playlistSection{kind: itemDir, dir: existing.dirs[di]})
+			di++
+			continue
+		}
+		orig := existing.tracks[ti]
+		ti++
+		if reordered {
+			if used < len(explicit) {
+				t := explicit[used]
+				sections = append(sections, playlistSection{kind: itemTrack, track: t})
+				placed[t.Path] = struct{}{}
+				used++
+			}
+			continue
+		}
+		if t, ok := byPath[orig.Path]; ok {
+			sections = append(sections, playlistSection{kind: itemTrack, track: t})
+			placed[orig.Path] = struct{}{}
+			delete(byPath, orig.Path)
+		}
+	}
+
+	var leftovers []playlist.Track
+	for _, t := range explicit {
+		if _, ok := placed[t.Path]; !ok {
+			leftovers = append(leftovers, t)
+		}
+	}
+	if len(leftovers) > 0 {
+		// Map each dir to its section position, and each file to the first
+		// directory (in document order) that supplies it.
+		dirPos := make(map[int]int, len(existing.dirs))
+		di := 0
+		for si, sec := range sections {
+			if sec.kind == itemDir {
+				dirPos[di] = si
+				di++
+			}
+		}
+		supplier := make(map[string]int)
+		di = 0
+		for _, src := range existing.dirs {
+			files, err := resolve.AudioFiles(ExpandPath(src.Path), src.Recursive)
+			if err == nil {
+				for _, f := range files {
+					if _, ok := supplier[f]; !ok {
+						supplier[f] = di
+					}
+				}
+			}
+			di++
+		}
+		// Insert before-dir leftovers in reverse so several targeting the same
+		// directory keep their caller order.
+		for i := len(leftovers) - 1; i >= 0; i-- {
+			t := leftovers[i]
+			if d, ok := supplier[t.Path]; ok {
+				pos := dirPos[d]
+				sections = append(sections, playlistSection{})
+				copy(sections[pos+1:], sections[pos:])
+				sections[pos] = playlistSection{kind: itemTrack, track: t}
+			}
+		}
+		// Leftovers no directory supplies are appended in caller order.
+		for _, t := range leftovers {
+			if _, ok := supplier[t.Path]; !ok {
+				sections = append(sections, playlistSection{kind: itemTrack, track: t})
+			}
+		}
+	}
+
+	for _, sec := range sections {
+		if sec.kind == itemDir {
+			dirs = append(dirs, sec.dir)
+			order = append(order, itemDir)
+		} else {
+			tracks = append(tracks, sec.track)
+			order = append(order, itemTrack)
+		}
+	}
+	return tracks, dirs, order
+}
+
+// isSubsequence reports whether sub appears in orig in the same relative order.
+func isSubsequence(orig, sub []string) bool {
+	i := 0
+	for _, p := range sub {
+		for i < len(orig) && orig[i] != p {
+			i++
+		}
+		if i == len(orig) {
+			return false
+		}
+		i++
+	}
+	return true
+}
+
 // validateDirSource expands dir and verifies it exists and is a directory.
 func validateDirSource(dir string) error {
 	info, err := os.Stat(ExpandPath(dir))

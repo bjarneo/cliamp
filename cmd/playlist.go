@@ -72,20 +72,21 @@ func PlaylistCreate(name string, paths []string, sshHost string, dirs []string) 
 		return nil
 	}
 
-	if len(dirs) > 0 {
+	// Directories-only creation needs no audio collection.
+	if len(paths) == 0 && sshHost == "" {
 		if err := prov.CreateDirPlaylist(name, dirs); err != nil {
 			return fmt.Errorf("creating playlist: %w", err)
 		}
-		if len(paths) == 0 {
-			if len(dirs) == 1 {
-				fmt.Printf("Created playlist %q referencing directory %s.\n", name, dirs[0])
-			} else {
-				fmt.Printf("Created playlist %q referencing %d directories.\n", name, len(dirs))
-			}
-			return nil
+		if len(dirs) == 1 {
+			fmt.Printf("Created playlist %q referencing directory %s.\n", name, dirs[0])
+		} else {
+			fmt.Printf("Created playlist %q referencing %d directories.\n", name, len(dirs))
 		}
+		return nil
 	}
 
+	// Collect explicit audio paths before any mutation, so a failure (no audio
+	// found, invalid directory) leaves no partially-created playlist behind.
 	var audioPaths []string
 	if sshHost != "" {
 		remotePaths, err := sshFindAudio(sshHost, paths)
@@ -116,6 +117,11 @@ func PlaylistCreate(name string, paths []string, sshHost string, dirs []string) 
 	}
 
 	albumAwareSort(tracks)
+	if len(dirs) > 0 {
+		if err := prov.CreateDirPlaylist(name, dirs); err != nil {
+			return fmt.Errorf("creating playlist: %w", err)
+		}
+	}
 	added, skipped, err := prov.AddTracks(name, tracks)
 	if err != nil {
 		return fmt.Errorf("writing playlist: %w", err)
@@ -152,34 +158,34 @@ func PlaylistAdd(name string, paths []string, dirs []string) error {
 		return fmt.Errorf("no files or directories given")
 	}
 
-	addedDirs := 0
-	for _, dir := range dirs {
-		ok, err := prov.AddDirSource(name, dir)
+	// Resolve explicit audio paths before mutating anything.
+	var audioPaths []string
+	if len(paths) > 0 {
+		var err error
+		audioPaths, err = collectLocalAudio(paths)
 		if err != nil {
-			return fmt.Errorf("adding directory %q: %w", dir, err)
+			return err
 		}
-		if ok {
-			addedDirs++
+		if len(audioPaths) == 0 {
+			return fmt.Errorf("no audio files found in %s", strings.Join(paths, ", "))
 		}
 	}
 
-	if len(paths) == 0 {
-		if addedDirs == 0 {
+	// Validate and persist all directory sources in one atomic step.
+	addedDirs, err := prov.AddDirSources(name, dirs)
+	if err != nil {
+		return fmt.Errorf("adding directory sources: %w", err)
+	}
+
+	if len(audioPaths) == 0 {
+		if len(addedDirs) == 0 {
 			fmt.Printf("No new directories added to %q (already present).\n", name)
-		} else if addedDirs == 1 {
-			fmt.Printf("Added directory %q to %q.\n", dirs[0], name)
+		} else if len(addedDirs) == 1 {
+			fmt.Printf("Added directory %q to %q.\n", addedDirs[0], name)
 		} else {
-			fmt.Printf("Added %d directories to %q.\n", addedDirs, name)
+			fmt.Printf("Added %d directories to %q.\n", len(addedDirs), name)
 		}
 		return nil
-	}
-
-	audioPaths, err := collectLocalAudio(paths)
-	if err != nil {
-		return err
-	}
-	if len(audioPaths) == 0 {
-		return fmt.Errorf("no audio files found in %s", strings.Join(paths, ", "))
 	}
 
 	tracks := make([]playlist.Track, len(audioPaths))
@@ -193,8 +199,8 @@ func PlaylistAdd(name string, paths []string, dirs []string) error {
 		return fmt.Errorf("adding tracks: %w", err)
 	}
 
-	if addedDirs > 0 {
-		fmt.Printf("Added %d director%s and %d tracks to %q.\n", addedDirs, plural(addedDirs), added, name)
+	if len(addedDirs) > 0 {
+		fmt.Printf("Added %d director%s and %d tracks to %q.\n", len(addedDirs), plural(len(addedDirs)), added, name)
 	} else if skipped > 0 {
 		fmt.Printf("Added %d tracks to %q (%d duplicate skipped).\n", added, name, skipped)
 	} else {

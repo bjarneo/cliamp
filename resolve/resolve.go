@@ -307,22 +307,27 @@ func CollectAudioFiles(path string) ([]string, error) {
 // false only the directory's immediate children are considered. A file path
 // with a supported extension is returned directly.
 func AudioFiles(dir string, recursive bool) ([]string, error) {
-	if recursive {
-		info, err := os.Stat(dir)
-		if err != nil {
-			return nil, err
+	info, err := os.Stat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		if player.SupportedExts[strings.ToLower(filepath.Ext(dir))] {
+			return []string{dir}, nil
 		}
-		if !info.IsDir() {
-			if player.SupportedExts[strings.ToLower(filepath.Ext(dir))] {
-				return []string{dir}, nil
-			}
-			return nil, nil
-		}
+		return nil, nil
+	}
 
+	if recursive {
 		var files []string
-		err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
-				return err
+				// Skip entries we cannot read instead of aborting the scan, so
+				// one unreadable subdirectory cannot empty the whole result.
+				if d != nil && d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
 			}
 			if !d.IsDir() && player.SupportedExts[strings.ToLower(filepath.Ext(p))] {
 				files = append(files, p)
@@ -337,16 +342,6 @@ func AudioFiles(dir string, recursive bool) ([]string, error) {
 		return files, nil
 	}
 
-	info, err := os.Stat(dir)
-	if err != nil {
-		return nil, err
-	}
-	if !info.IsDir() {
-		if player.SupportedExts[strings.ToLower(filepath.Ext(dir))] {
-			return []string{dir}, nil
-		}
-		return nil, nil
-	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err

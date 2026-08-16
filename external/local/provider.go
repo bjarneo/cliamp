@@ -260,13 +260,14 @@ func (p *Provider) CreatePlaylist(_ context.Context, name string) (string, error
 
 // CreateDirPlaylist creates a new playlist that references the given
 // directories via [[dir]] sections instead of expanding their files. Fails
-// when the playlist already exists or a directory does not exist.
+// when the playlist already exists or a directory does not exist, leaving no
+// file behind.
 func (p *Provider) CreateDirPlaylist(name string, dirs []string) error {
 	if isHistoryName(name) {
 		return errReservedHistoryName
 	}
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
-		return err
+		return fmt.Errorf("creating playlist dir: %w", err)
 	}
 	if err := validateNewName(name); err != nil {
 		return err
@@ -278,64 +279,99 @@ func (p *Provider) CreateDirPlaylist(name string, dirs []string) error {
 	}
 	path, err := p.safePath(name)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolving playlist path: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("playlist %q already exists", name)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("stat playlist %q: %w", name, err)
+	}
+
+	var b strings.Builder
+	for i, dir := range dirs {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		writeDir(&b, DirSource{Path: dir, Recursive: true})
+	}
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
+		return fmt.Errorf("writing playlist %q: %w", name, err)
+	}
+	// Link is atomic and fails when the final path already exists, preserving
+	// the create-only semantics without a partial-write window.
+	if err := os.Link(tmp, path); err != nil {
+		os.Remove(tmp)
 		if errors.Is(err, fs.ErrExist) {
 			return fmt.Errorf("playlist %q already exists", name)
 		}
-		return err
+		return fmt.Errorf("creating playlist %q: %w", name, err)
 	}
-	for i, dir := range dirs {
-		if i > 0 {
-			fmt.Fprintln(f)
+	return os.Remove(tmp)
+}
+
+// AddDirSources appends [[dir]] sections for every directory in dirs that the
+// named playlist does not already reference, creating the playlist if needed.
+// All directories are validated before anything is persisted, so a failing
+// input leaves the playlist untouched. Returns the directories that were added.
+func (p *Provider) AddDirSources(name string, dirs []string) ([]string, error) {
+	if isHistoryName(name) {
+		return nil, errReservedHistoryName
+	}
+	for _, dir := range dirs {
+		if err := validateDirSource(dir); err != nil {
+			return nil, err
 		}
-		writeDir(f, DirSource{Path: dir, Recursive: true})
 	}
-	if err := f.Close(); err != nil {
-		return err
+	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+		return nil, fmt.Errorf("creating playlist dir: %w", err)
 	}
-	return nil
+	path, err := p.safePath(name)
+	if err != nil {
+		return nil, fmt.Errorf("resolving playlist path: %w", err)
+	}
+	doc, err := p.loadDoc(path)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+		if err := validateNewName(name); err != nil {
+			return nil, err
+		}
+		doc = &playlistDoc{}
+	}
+
+	known := make(map[string]struct{}, len(doc.dirs))
+	for _, src := range doc.dirs {
+		known[ExpandPath(src.Path)] = struct{}{}
+	}
+	var added []string
+	for _, dir := range dirs {
+		target := ExpandPath(dir)
+		if _, ok := known[target]; ok {
+			continue
+		}
+		known[target] = struct{}{}
+		added = append(added, dir)
+		doc.dirs = append(doc.dirs, DirSource{Path: dir, Recursive: true})
+		doc.order = append(doc.order, itemDir)
+	}
+	if len(added) == 0 {
+		return nil, nil
+	}
+	return added, p.saveDoc(name, doc)
 }
 
 // AddDirSource appends a [[dir]] section referencing dir to the named
 // playlist, creating the playlist if needed. Returns false when the playlist
 // already references the same directory. The directory must exist.
 func (p *Provider) AddDirSource(name, dir string) (bool, error) {
-	if isHistoryName(name) {
-		return false, errReservedHistoryName
-	}
-	if err := validateDirSource(dir); err != nil {
-		return false, err
-	}
-	if err := os.MkdirAll(p.dir, 0o755); err != nil {
-		return false, err
-	}
-	path, err := p.safePath(name)
+	added, err := p.AddDirSources(name, []string{dir})
 	if err != nil {
 		return false, err
 	}
-	doc, err := p.loadDoc(path)
-	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			return false, err
-		}
-		if err := validateNewName(name); err != nil {
-			return false, err
-		}
-		doc = &playlistDoc{}
-	}
-
-	target := ExpandPath(dir)
-	for _, src := range doc.dirs {
-		if ExpandPath(src.Path) == target {
-			return false, nil
-		}
-	}
-	doc.dirs = append(doc.dirs, DirSource{Path: dir, Recursive: true})
-	doc.order = append(doc.order, itemDir)
-	return true, p.saveDoc(name, doc)
+	return len(added) == 1, nil
 }
 
 // DirSources returns the directory sources referenced by a playlist.
@@ -351,47 +387,49 @@ func (p *Provider) DirSources(name string) ([]DirSource, error) {
 }
 
 // saveDoc writes a parsed document back to disk, preserving section order.
+// The full document is rendered in memory before the atomic rename so a
+// partial write can never clobber the existing playlist.
 func (p *Provider) saveDoc(name string, doc *playlistDoc) error {
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
-		return err
+		return fmt.Errorf("creating playlist dir: %w", err)
 	}
 	path, err := p.safePath(name)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolving playlist path: %w", err)
 	}
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		if err := validateNewName(name); err != nil {
 			return err
 		}
 	} else if err != nil {
-		return err
+		return fmt.Errorf("stat playlist %q: %w", name, err)
 	}
 
-	tmp := path + ".tmp"
-	f, err := os.Create(tmp)
-	if err != nil {
-		return err
-	}
-	ti, di := 0, 0
-	sections := 0
+	var b strings.Builder
+	ti, di, sections := 0, 0, 0
 	for _, kind := range doc.order {
 		if sections > 0 {
-			fmt.Fprintln(f)
+			b.WriteByte('\n')
 		}
 		if kind == itemTrack {
-			writeTrack(f, doc.tracks[ti])
+			writeTrack(&b, doc.tracks[ti])
 			ti++
 		} else {
-			writeDir(f, doc.dirs[di])
+			writeDir(&b, doc.dirs[di])
 			di++
 		}
 		sections++
 	}
-	if err := f.Close(); err != nil {
-		os.Remove(tmp)
-		return err
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
+		return fmt.Errorf("writing playlist %q: %w", name, err)
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("saving playlist %q: %w", name, err)
+	}
+	return nil
 }
 
 // Exists reports whether a playlist with the given name exists on disk, or
@@ -410,72 +448,50 @@ func (p *Provider) Exists(name string) bool {
 	return err == nil
 }
 
-// savePlaylist overwrites the named playlist with the given tracks,
-// preserving any [[dir]] sections already present in the file.
+// savePlaylist overwrites the named playlist with the given tracks, preserving
+// [[dir]] sections and their interleaving with explicit [[track]] sections.
 // Tracks marked DirSourced are not persisted; they are re-derived from the
 // directory sources on the next load.
 func (p *Provider) savePlaylist(name string, tracks []playlist.Track) error {
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
-		return err
+		return fmt.Errorf("creating playlist dir: %w", err)
 	}
 
 	path, err := p.safePath(name)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolving playlist path: %w", err)
 	}
+	var existing *playlistDoc
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		if err := validateNewName(name); err != nil {
 			return err
 		}
+		existing = &playlistDoc{}
 	} else if err != nil {
-		return err
+		return fmt.Errorf("stat playlist %q: %w", name, err)
+	} else {
+		existing = p.existingDoc(path)
 	}
 
-	// Atomic write: write to temp file, then rename.
-	tmp := path + ".tmp"
-	f, err := os.Create(tmp)
-	if err != nil {
-		return err
-	}
-
-	// Preserve [[dir]] sections from the existing file so directory-sourced
-	// playlists stay dynamic across rewrites. Tracks marked DirSourced are
-	// skipped: they are re-derived from the directories on load, and
-	// persisting them would shadow the [[dir]] reference.
-	dirs := p.existingDirs(path)
-	sections := 0
-	for _, src := range dirs {
-		if sections > 0 {
-			fmt.Fprintln(f)
-		}
-		writeDir(f, src)
-		sections++
-	}
+	var explicit []playlist.Track
 	for _, t := range tracks {
 		if t.DirSourced {
 			continue
 		}
-		if sections > 0 {
-			fmt.Fprintln(f)
-		}
-		writeTrack(f, t)
-		sections++
+		explicit = append(explicit, t)
 	}
-	if err := f.Close(); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return os.Rename(tmp, path)
+	tracks, dirs, order := rebuildDoc(existing, explicit)
+	return p.saveDoc(name, &playlistDoc{tracks: tracks, dirs: dirs, order: order})
 }
 
-// existingDirs parses path and returns its [[dir]] sections. Missing files
-// yield no directories.
-func (p *Provider) existingDirs(path string) []DirSource {
+// existingDoc parses path into a document, or returns an empty document when
+// the file cannot be read or parsed.
+func (p *Provider) existingDoc(path string) *playlistDoc {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil
+		return &playlistDoc{}
 	}
-	return parsePlaylistDoc(data).dirs
+	return parsePlaylistDoc(data)
 }
 
 // errReservedHistoryName is returned when a caller tries to write to or

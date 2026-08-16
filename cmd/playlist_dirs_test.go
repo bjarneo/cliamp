@@ -166,3 +166,67 @@ func TestPlaylistBookmarkMaterializesDirTrack(t *testing.T) {
 		t.Errorf("PlaylistBookmarks = %q, want 1 bookmark", out)
 	}
 }
+
+func TestPlaylistCreateNoPartialWhenNoAudio(t *testing.T) {
+	setupTestEnv(t)
+	audio := t.TempDir()
+	writeAudioFile(t, audio+"/a.mp3")
+	empty := t.TempDir()
+
+	// Audio collection fails before the playlist is created, so a dirs+paths
+	// create with no audio must leave nothing behind.
+	if err := PlaylistCreate("mix", []string{empty}, "", []string{audio}); err == nil {
+		t.Fatal("create with no audio should fail")
+	}
+	p, err := newProvider()
+	if err != nil {
+		t.Fatalf("newProvider: %v", err)
+	}
+	if p.Exists("mix") {
+		t.Fatal("failed create left a playlist behind")
+	}
+}
+
+func TestPlaylistAddDirNoPartialWhenAudioFails(t *testing.T) {
+	setupTestEnv(t)
+	audio := t.TempDir()
+	writeAudioFile(t, audio+"/a.mp3")
+	if err := PlaylistCreate("mix", nil, "", nil); err != nil {
+		t.Fatalf("PlaylistCreate: %v", err)
+	}
+
+	// The bad path fails audio collection before any directory is added.
+	bad := t.TempDir()
+	if err := PlaylistAdd("mix", []string{bad}, []string{audio}); err == nil {
+		t.Fatal("add with no audio should fail")
+	}
+	out, err := captureStdout(t, func() error { return PlaylistDirs("mix") })
+	if err != nil {
+		t.Fatalf("PlaylistDirs: %v", err)
+	}
+	if !strings.Contains(out, "no directory sources") {
+		t.Fatalf("directory source persisted despite failed add: %q", out)
+	}
+}
+
+func TestPlaylistAddDirBatchAtomic(t *testing.T) {
+	setupTestEnv(t)
+	audio := t.TempDir()
+	writeAudioFile(t, audio+"/a.mp3")
+	if err := PlaylistCreate("mix", nil, "", nil); err != nil {
+		t.Fatalf("PlaylistCreate: %v", err)
+	}
+
+	valid := t.TempDir()
+	missing := t.TempDir() + "/missing"
+	if err := PlaylistAdd("mix", nil, []string{valid, missing}); err == nil {
+		t.Fatal("add with missing dir should fail")
+	}
+	out, err := captureStdout(t, func() error { return PlaylistDirs("mix") })
+	if err != nil {
+		t.Fatalf("PlaylistDirs: %v", err)
+	}
+	if !strings.Contains(out, "no directory sources") {
+		t.Fatalf("valid dir persisted despite failing batch: %q", out)
+	}
+}
