@@ -693,6 +693,55 @@ func TestSavePlaylistMultiMaterializedKeepsDirPositions(t *testing.T) {
 	checkOrder(t, tracks, []string{"a.mp3", "x.mp3", "b.mp3"})
 }
 
+func TestDirSuppliesFileExtensionFilter(t *testing.T) {
+	dir := t.TempDir()
+	rec := DirSource{Path: dir, Recursive: true}
+	if !dirSuppliesFile(rec, filepath.Join(dir, "song.mp3")) {
+		t.Fatal("audio file under dir should be supplied")
+	}
+	if dirSuppliesFile(rec, filepath.Join(dir, "cover.jpg")) {
+		t.Fatal("non-audio file under dir must not be treated as dir-supplied")
+	}
+	if dirSuppliesFile(rec, filepath.Join(dir, "cover.JPG")) {
+		t.Fatal("non-audio file with uppercase extension must not be dir-supplied")
+	}
+	if dirSuppliesFile(rec, filepath.Join(dir, "noextension")) {
+		t.Fatal("extension-less file must not be treated as dir-supplied")
+	}
+	nonRec := DirSource{Path: dir, Recursive: false}
+	if dirSuppliesFile(nonRec, filepath.Join(dir, "sub", "song.mp3")) {
+		t.Fatal("subdir file must not be supplied by a non-recursive source")
+	}
+	if !dirSuppliesFile(nonRec, filepath.Join(dir, "song.mp3")) {
+		t.Fatal("top-level audio file should be supplied by a non-recursive source")
+	}
+}
+
+func TestSavePlaylistNonAudioTrackAppendedNotPlacedBeforeDir(t *testing.T) {
+	p := newTestProvider(t)
+	dirA := t.TempDir()
+	writeAudioFile(t, filepath.Join(dirA, "a.mp3"))
+	cover := filepath.Join(dirA, "cover.jpg")
+	if err := p.CreateDirPlaylist("mix", []string{dirA}); err != nil {
+		t.Fatalf("CreateDirPlaylist: %v", err)
+	}
+	// A new explicit track for a non-audio file that lives under the directory
+	// must not be treated as dir-supplied; it belongs at the end.
+	added, skipped, err := p.AddTracks("mix", []playlist.Track{{Path: cover, Title: "Cover"}})
+	if err != nil {
+		t.Fatalf("AddTracks: %v", err)
+	}
+	if added != 1 || skipped != 0 {
+		t.Fatalf("added=%d skipped=%d, want 1/0", added, skipped)
+	}
+	tracks, err := p.Tracks("mix")
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	// Expanded order: a.mp3 (dir), then cover.jpg (explicit, appended at end).
+	checkOrder(t, tracks, []string{"a.mp3", "cover.jpg"})
+}
+
 func TestAddDirSourcesAtomic(t *testing.T) {
 	p := newTestProvider(t)
 	audio := t.TempDir()

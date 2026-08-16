@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/bjarneo/cliamp/internal/tomlutil"
+	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/resolve"
 )
@@ -293,10 +294,14 @@ func validateDirSource(dir string) error {
 }
 
 // dirSuppliesFile reports whether a scan of dir would include file: the path
-// lives under the expanded directory and, for non-recursive sources, not below
-// an immediate subdirectory. The check is path-only so save-time rewrites do
-// not repeat the filesystem walk done at load.
+// has a supported audio extension, lives under the expanded directory and, for
+// non-recursive sources, not below an immediate subdirectory. The check is
+// path-only so save-time rewrites do not repeat the filesystem walk done at
+// load.
 func dirSuppliesFile(dir DirSource, file string) bool {
+	if !player.SupportedExts[strings.ToLower(filepath.Ext(file))] {
+		return false
+	}
 	root := ExpandPath(dir.Path)
 	rel, err := filepath.Rel(root, file)
 	if err != nil {
