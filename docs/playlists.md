@@ -94,6 +94,49 @@ Each `[[track]]` section supports:
 
 HTTP/HTTPS paths are automatically treated as streams.
 
+### Directory Sources (`[[dir]]`)
+
+Instead of listing every file, a playlist can reference a directory that is
+scanned for audio files every time the playlist loads. The directory is read
+at load time, so new files show up automatically and removed files disappear:
+
+```toml
+# ~/.config/cliamp/playlists/music.toml
+
+[[dir]]
+path = "~/Music"
+
+[[track]]
+path = "https://radio.example.com/stream"
+title = "My Radio"
+```
+
+Each `[[dir]]` section supports:
+
+| Key | Required | Description |
+|-----|----------|-------------|
+| `path` | Yes | Directory path; `~` and environment variables are expanded |
+| `recursive` | No | Scan subdirectories too (default `true`) |
+
+Directory-sourced tracks are returned in document order, sorted by path within
+each directory. An explicit `[[track]]` with the same path always wins over a
+directory scan, so you can pin a bookmark or custom metadata onto a specific
+file. Bookmarking a directory-sourced track (TUI `f` or
+`cliamp playlist bookmark`) materializes it as an explicit `[[track]]` entry so
+the bookmark survives. Unreadable or missing directories contribute no tracks.
+
+Use `--dir` to create or extend such playlists from the CLI:
+
+```sh
+cliamp playlist create "Music" --dir ~/Music
+cliamp playlist add "Music" --dir ~/Downloads/live
+cliamp playlist dirs "Music"               # list referenced directories
+```
+
+`--dir` cannot be combined with `--ssh`. Removing a directory-sourced track
+(CLI or TUI) is refused, since the file is owned by the directory source;
+delete the file from the directory or edit the `[[dir]]` section instead.
+
 ### Podcast / RSS Feed Playlists
 
 You can save podcast RSS feed URLs in a playlist. Add `feed = true` to mark a track as a feed. When played, the feed is resolved into individual episodes instead of being streamed directly.
@@ -176,7 +219,10 @@ Manage local TOML playlists without opening the TUI:
 cliamp playlist list
 cliamp playlist create "Name"                    # create an empty playlist
 cliamp playlist create "Name" file1 dir/ ...     # create from files/folders
+cliamp playlist create "Name" --dir ~/Music      # reference a directory dynamically
 cliamp playlist add "Name" file1 dir/ ...        # append, skipping duplicate paths
+cliamp playlist add "Name" --dir ~/Music         # add another directory source
+cliamp playlist dirs "Name"                      # list directory sources
 cliamp playlist rename "Old" "New"
 cliamp playlist dedupe "Name"
 cliamp playlist sort "Name" --by artist+album
