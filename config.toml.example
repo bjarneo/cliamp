@@ -34,10 +34,11 @@ seek_large_step_sec = 30
 # bit_depth = 16           # 16 or 32 (for FFmpeg-decoded formats)
 
 # Bit-perfect output: no resampling, device retuned to each track's native
-# rate (Linux/ALSA only; falls back to normal output elsewhere). See
-# docs/audio-quality.md.
+# rate (Linux/ALSA only; falls back to normal output elsewhere). Requires
+# bitperfect_device set to a real hw:/plughw: device — leaving it unset
+# (system default) does not give bit-perfect output. See docs/audio-quality.md.
 # bitperfect = false
-# bitperfect_device = "hw:0,0"   # ALSA device; empty = system default
+# bitperfect_device = "hw:0,0"   # required for bitperfect; find with `aplay -l`
 
 # EQ preset: "Flat", "Rock", "Pop", "Jazz", "Classical",
 #             "Bass Boost", "Treble Boost", "Vocal", "Electronic", "Acoustic"

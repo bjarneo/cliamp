@@ -99,6 +99,16 @@ func (m *Model) SetCompact(v bool) {
 // SetInitialDirectory sets the initial directory for the file browser.
 func (m *Model) SetInitialDirectory(dir string) { m.initialDir = dir }
 
+// SetBitPerfectDeviceWarning shows a one-time startup warning when bit-perfect
+// mode is on but configured without a hardware device that can actually
+// deliver (and verify) it. A no-op when msg is empty.
+func (m *Model) SetBitPerfectDeviceWarning(msg string) {
+	if msg == "" {
+		return
+	}
+	m.status.Warning(msg, statusTTLLong)
+}
+
 // SetSeekStepLarge configures the Shift+Left/Right seek jump amount.
 func (m *Model) SetSeekStepLarge(d time.Duration) {
 	switch {

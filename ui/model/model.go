@@ -401,8 +401,8 @@ type Model struct {
 	// Cached per-tick to avoid repeated speaker.Lock() calls in View().
 	cachedPos        time.Duration
 	cachedDur        time.Duration
-	cachedBitPerfect bool      // player.BitPerfect().Active, refreshed once per tick
-	lastTickAt       time.Time // wall time of previous tickMsg; used for tick delta
+	cachedBitPerfect player.BitPerfectStatus // player.BitPerfect(), refreshed once per tick
+	lastTickAt       time.Time               // wall time of previous tickMsg; used for tick delta
 
 }
 

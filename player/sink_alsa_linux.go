@@ -41,6 +41,8 @@ import (
 	"unsafe"
 
 	"github.com/gopxl/beep/v2"
+
+	"github.com/bjarneo/cliamp/applog"
 )
 
 // defaultALSADevice is used when no device is configured. It routes through
@@ -78,6 +80,13 @@ type alsaSink struct {
 	stateMu   sync.Mutex
 	stateCond *sync.Cond
 	suspended bool
+
+	// reservation holds a temporary D-Bus device reservation acquired for a
+	// real hardware device (see reserve_linux.go), so a sound server yields
+	// it for the sink's lifetime and reclaims it automatically on Close. Nil
+	// when the device is virtual or the reservation attempt failed — either
+	// way playback proceeds via the ordinary snd_pcm_open attempt.
+	reservation *deviceReservation
 }
 
 // alsaDevice is one open incarnation of the device. Reopening at a new rate
@@ -86,12 +95,19 @@ type alsaSink struct {
 // handle would crash the process.
 type alsaDevice struct {
 	handle *C.snd_pcm_t
-	rate   int
+	rate   int // the app-facing negotiated rate; what the PCM handle itself expects, and what pipeline/reopen decisions must use
 	enc    pcmEncoding
 	period int  // frames per write
 	exact  bool // device accepted the requested rate with conversion disabled
-	stop   chan struct{}
-	done   chan struct{}
+	// verifiedRate is the kernel-confirmed rate of the underlying hardware
+	// substream (see hwparams_linux.go), which can differ from rate when a
+	// conversion layer (plughw:, a sound server) silently resampled. Zero
+	// when it couldn't be independently confirmed. Only ever used for
+	// reporting (BitPerfectStatus) — never for pipeline/reopen decisions,
+	// which must keep targeting what the PCM handle itself expects.
+	verifiedRate int
+	stop         chan struct{}
+	done         chan struct{}
 }
 
 // newBitPerfectSink opens a bit-perfect capable sink at the given rate.
@@ -103,9 +119,27 @@ func newBitPerfectSink(device string, rate, bufferMs int) (sink, error) {
 	s := &alsaSink{device: device, bufferMs: bufferMs, suspended: true}
 	s.stateCond = sync.NewCond(&s.stateMu)
 
+	var reserveErr error
+	if !isVirtualALSADevice(device) {
+		if idx, ok := alsaCardIndex(device); ok {
+			if res, err := acquireDeviceReservation(idx); err == nil {
+				s.reservation = res
+				applog.Debug("reserve: acquired %s for %s", reserveBusName(idx), device)
+			} else {
+				reserveErr = err
+				applog.Debug("reserve: %v", err)
+			}
+		}
+	}
+
 	s.devMu.Lock()
 	defer s.devMu.Unlock()
 	if err := s.openLocked(rate); err != nil {
+		s.reservation.release()
+		s.reservation = nil
+		if reserveErr != nil {
+			return nil, fmt.Errorf("%w (device reservation also unavailable: %v)", err, reserveErr)
+		}
 		return nil, err
 	}
 	return s, nil
@@ -149,6 +183,8 @@ func (s *alsaSink) Close() {
 	defer s.devMu.Unlock()
 	s.shut = true
 	s.closeLocked()
+	s.reservation.release()
+	s.reservation = nil
 }
 
 func (s *alsaSink) SampleRate() int {
@@ -173,6 +209,18 @@ func (s *alsaSink) RateExact() bool {
 	s.devMu.Lock()
 	defer s.devMu.Unlock()
 	return s.dev != nil && s.dev.exact
+}
+
+// RealRate returns the kernel-confirmed rate of the underlying hardware
+// substream, or 0 when it couldn't be independently confirmed (see
+// alsaDevice.verifiedRate). Reporting-only — see that field's doc comment.
+func (s *alsaSink) RealRate() int {
+	s.devMu.Lock()
+	defer s.devMu.Unlock()
+	if s.dev == nil {
+		return 0
+	}
+	return s.dev.verifiedRate
 }
 
 // SetSampleRate reopens the device at rate. When the device rejects it, the
@@ -314,6 +362,18 @@ func isVirtualALSADevice(device string) bool {
 	return !strings.HasPrefix(device, "hw:") && !strings.HasPrefix(device, "plughw:")
 }
 
+// isRawHardwareDevice reports whether device is ALSA's "hw:" plugin
+// specifically — the one PCM type with no conversion capability at all: a
+// request either matches the hardware exactly or the open fails outright.
+// "plughw:" shares the "hw:" prefix check above (it does talk to real
+// hardware) but wraps it in alsa-lib's automatic format/channel/rate
+// conversion layer, entirely in userspace — a request can succeed there via
+// silent conversion the same way a sound server's virtual device can, so it
+// must not be trusted for rate-exactness any more than one is.
+func isRawHardwareDevice(device string) bool {
+	return strings.HasPrefix(device, "hw:")
+}
+
 // openALSADevice opens device and negotiates the best configuration for rate.
 // Exact-rate configurations are preferred over wider sample formats: a rate
 // mismatch means the driver resamples, which bit-perfect mode exists to avoid.
@@ -352,7 +412,13 @@ func tryOpenALSA(device string, rate, bufferMs int, enc pcmEncoding, allowResamp
 		return nil, fmt.Errorf("open: %s", alsaStrError(err))
 	}
 
-	dev, err := configureALSA(handle, rate, bufferMs, enc, allowResample)
+	cardIdx, hasCard := 0, false
+	if !isVirtualALSADevice(device) {
+		cardIdx, hasCard = alsaCardIndex(device)
+	}
+	devIdx := alsaDeviceIndex(device)
+
+	dev, err := configureALSA(handle, rate, bufferMs, enc, allowResample, isRawHardwareDevice(device), cardIdx, devIdx, hasCard)
 	if err != nil {
 		C.snd_pcm_close(handle)
 		return nil, err
@@ -361,8 +427,12 @@ func tryOpenALSA(device string, rate, bufferMs int, enc pcmEncoding, allowResamp
 }
 
 // configureALSA applies the hardware parameters and reports the resulting
-// device state. It never resamples unless allowResample is set.
-func configureALSA(handle *C.snd_pcm_t, rate, bufferMs int, enc pcmEncoding, allowResample bool) (*alsaDevice, error) {
+// device state. It never resamples unless allowResample is set. rawHardware
+// indicates the device is ALSA's non-converting "hw:" plugin; cardIdx/devIdx
+// (valid only when hasCard) identify the underlying card for the
+// /proc-based real-rate check — see the exact field below for why both
+// matter.
+func configureALSA(handle *C.snd_pcm_t, rate, bufferMs int, enc pcmEncoding, allowResample bool, rawHardware bool, cardIdx, devIdx int, hasCard bool) (*alsaDevice, error) {
 	var params *C.snd_pcm_hw_params_t
 	if err := C.snd_pcm_hw_params_malloc(&params); err < 0 {
 		return nil, fmt.Errorf("hw_params_malloc: %s", alsaStrError(err))
@@ -433,19 +503,36 @@ func configureALSA(handle *C.snd_pcm_t, rate, bufferMs int, enc pcmEncoding, all
 		return nil, fmt.Errorf("device reported a zero period size")
 	}
 
+	// The rate the app-facing handle reports (finalRate) is only trustworthy
+	// on a raw "hw:" device: anything else (plughw:, a sound server) can
+	// silently convert a request it can't honor and still report success.
+	// Prefer the kernel's own view of the underlying hardware substream —
+	// which a conversion layer sits in front of, not inside — so a match is
+	// verified against reality rather than assumed from the device string.
+	var verifiedRate int
+	exact := false
+	if hasCard {
+		if real, ok := realALSARateSettled(cardIdx, devIdx); ok {
+			verifiedRate = real
+			exact = real == rate
+		}
+	}
+	if !exact && rawHardware {
+		// /proc lookup unavailable (non-standard environment, multiple
+		// subdevices, ...): fall back to the app-level report, safe only
+		// because "hw:" has no conversion layer to hide a mismatch behind.
+		exact = int(finalRate) == rate && dir == 0
+	}
+
 	return &alsaDevice{
-		handle: handle,
-		rate:   int(finalRate),
-		enc:    enc,
-		period: int(periodFrames),
-		// dir == 0 means ALSA reports this as an exact match, not a rounded
-		// one — true regardless of which pass (resample allowed or not)
-		// negotiated it. For a sound-server device the resample-allowed pass
-		// landing here means the graph actually retuned to match, not that
-		// it's silently converting internally.
-		exact: int(finalRate) == rate && dir == 0,
-		stop:  make(chan struct{}),
-		done:  make(chan struct{}),
+		handle:       handle,
+		rate:         int(finalRate),
+		enc:          enc,
+		period:       int(periodFrames),
+		exact:        exact,
+		verifiedRate: verifiedRate,
+		stop:         make(chan struct{}),
+		done:         make(chan struct{}),
 	}, nil
 }
 

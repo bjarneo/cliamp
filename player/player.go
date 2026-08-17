@@ -946,10 +946,18 @@ func (p *Player) BitPerfect() BitPerfectStatus {
 	cur := p.current
 	p.mu.Unlock()
 
+	// Prefer an independently confirmed hardware rate for reporting (e.g.
+	// past a plughw: conversion layer, which can silently resample without
+	// this) — never for the app-facing SampleRate() that pipeline decisions
+	// use elsewhere, only for what's shown/compared here.
+	deviceRate := p.out.SampleRate()
+	if real := p.out.RealRate(); real > 0 {
+		deviceRate = real
+	}
 	in := bitPerfectInputs{
 		enabled:    p.bitPerfect,
 		playing:    p.playing.Load(),
-		deviceRate: p.out.SampleRate(),
+		deviceRate: deviceRate,
 		rateExact:  p.out.RateExact(),
 		encoding:   p.out.Encoding(),
 		volumeDB:   p.Volume(),

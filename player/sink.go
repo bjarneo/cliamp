@@ -47,6 +47,10 @@ type sink interface {
 	// RateExact reports whether the device runs at exactly the requested rate
 	// with no driver-side rate conversion in the path.
 	RateExact() bool
+	// RealRate returns an independently confirmed hardware rate when one is
+	// available (see alsaDevice.verifiedRate), or 0 when it isn't — in which
+	// case callers should fall back to SampleRate(). Reporting-only.
+	RealRate() int
 }
 
 // beepSink plays through gopxl/beep's package-level speaker. beep's speaker can
@@ -73,6 +77,7 @@ func (b *beepSink) Close()                { speaker.Clear() }
 func (b *beepSink) SampleRate() int       { return b.rate }
 func (b *beepSink) Encoding() pcmEncoding { return pcmS16LE }
 func (b *beepSink) RateExact() bool       { return false }
+func (b *beepSink) RealRate() int         { return 0 }
 
 func (b *beepSink) SetSampleRate(rate int) (int, error) {
 	if rate == b.rate {

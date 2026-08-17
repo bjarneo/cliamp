@@ -118,7 +118,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cachedDur = time.Duration(track.DurationSecs) * time.Second
 			m.cachedPos = 0
 		}
-		m.cachedBitPerfect = m.player.BitPerfect().Active
+		m.cachedBitPerfect = m.player.BitPerfect()
 		// The output rate can change track-to-track in bit-perfect mode; keep
 		// the visualizer's FFT bin-to-frequency mapping in sync so the
 		// spectrum's frequency axis doesn't go stale after a retune.

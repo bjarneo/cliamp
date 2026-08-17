@@ -23,3 +23,24 @@ func TestIsVirtualALSADevice(t *testing.T) {
 		}
 	}
 }
+
+func TestIsRawHardwareDevice(t *testing.T) {
+	tests := []struct {
+		device string
+		want   bool
+	}{
+		{"hw:0,0", true},
+		{"hw:CARD=PCH,DEV=0", true},
+		{"plughw:0,0", false},
+		{"plughw:CARD=PCH,DEV=0", false},
+		{"default", false},
+		{"pipewire", false},
+		{"pulse", false},
+		{"sysdefault:CARD=PCH", false},
+	}
+	for _, tt := range tests {
+		if got := isRawHardwareDevice(tt.device); got != tt.want {
+			t.Errorf("isRawHardwareDevice(%q) = %v, want %v", tt.device, got, tt.want)
+		}
+	}
+}

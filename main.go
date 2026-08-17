@@ -316,6 +316,12 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 
 	m := model.New(p, pl, providers, defaultProvider, localProv, themes, luaMgr, config.SaveFunc{})
 	m.SetVisVolumeLinked(cfg.VisVolumeLinked)
+	if cfg.BitPerfect {
+		dev := strings.TrimSpace(cfg.BitPerfectDevice)
+		if dev == "" || (!strings.HasPrefix(dev, "hw:") && !strings.HasPrefix(dev, "plughw:")) {
+			m.SetBitPerfectDeviceWarning("bit-perfect is on but bitperfect_device isn't a hw:/plughw: device — playback isn't verifiably bit-perfect this way (see docs/audio-quality.md)")
+		}
+	}
 
 	if luaMgr != nil {
 		luaMgr.SetStateProvider(luaplugin.StateProvider{

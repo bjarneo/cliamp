@@ -412,7 +412,12 @@ func (m Model) renderTimeStatus() string {
 		status = dimStyle.Render("■ Stopped")
 	}
 	if badge := m.renderBitPerfectBadge(); badge != "" {
+		if rate := m.renderBitPerfectRate(); rate != "" {
+			badge += " " + rate
+		}
 		status = badge + " " + status
+	} else if rate := m.renderBitPerfectRate(); rate != "" {
+		status = rate + " " + status
 	}
 
 	left := timeStyle.Render(timeStr)
@@ -426,10 +431,41 @@ func (m Model) renderTimeStatus() string {
 // It only ever lights up — there is no "blocked" variant — so it never
 // competes with the playback status for attention.
 func (m Model) renderBitPerfectBadge() string {
-	if !m.cachedBitPerfect {
+	if !m.cachedBitPerfect.Active {
 		return ""
 	}
 	return bitPerfectStyle.Render("◆ BIT PERFECT")
+}
+
+// renderBitPerfectRate returns a compact device sample-rate readout, shown
+// whenever bit-perfect mode is enabled and a rate is known — including when
+// the badge itself is dark, which is often the only case that matters: a
+// device that can silently convert (e.g. ALSA's "plughw:", or any sound
+// server) never earns the badge, since cliamp cannot verify what it actually
+// does past that layer, but the requested/negotiated rate is still worth
+// seeing at a glance instead of reaching for an external tool.
+func (m Model) renderBitPerfectRate() string {
+	st := m.cachedBitPerfect
+	if !st.Enabled || st.DeviceRate <= 0 {
+		return ""
+	}
+	if st.Active {
+		return bitPerfectStyle.Render(formatKHz(st.DeviceRate))
+	}
+	if st.SourceRate > 0 && st.SourceRate != st.DeviceRate {
+		return dimStyle.Render(formatKHz(st.SourceRate) + "→" + formatKHz(st.DeviceRate))
+	}
+	return dimStyle.Render(formatKHz(st.DeviceRate))
+}
+
+// formatKHz renders a Hz value compactly, e.g. 44100 -> "44.1kHz",
+// 96000 -> "96kHz".
+func formatKHz(hz int) string {
+	khz := float64(hz) / 1000
+	if khz == float64(int(khz)) {
+		return fmt.Sprintf("%dkHz", int(khz))
+	}
+	return fmt.Sprintf("%.1fkHz", khz)
 }
 
 func (m Model) renderSpectrum() string {
