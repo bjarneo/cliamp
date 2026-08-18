@@ -28,6 +28,7 @@ type Request struct {
 	Limit    int        `json:"limit,omitempty"`
 	NewName  string     `json:"new_name,omitempty"`
 	Track    *TrackInfo `json:"track,omitempty"`
+	Topics   []string   `json:"topics,omitempty"`
 }
 
 // Response is the JSON response sent by the server.

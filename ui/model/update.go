@@ -119,6 +119,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cachedPos = 0
 		}
 		m.tickVisualizer(now)
+		m.tickProgressReport(now)
 		// Process debounced yt-dlp seek.
 		var seekCmd tea.Cmd
 		if cmd := m.tickSeek(dt); cmd != nil {
@@ -369,6 +370,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.plCursor = 0
 		m.plScroll = 0
+		m.applyTracksResume(msg)
 		m.focus = focusPlaylist
 		m.applyHeightMode()
 		m.adjustScroll()

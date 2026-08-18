@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+// ErrNotRunning reports that nothing is listening on the IPC socket. It carries
+// no CLI wording on purpose: command-layer callers match it with errors.Is and
+// render the user-facing message themselves.
+var ErrNotRunning = errors.New("no listener on socket")
+
 func dialSocket(sockPath string, timeout time.Duration) (net.Conn, error) {
 	return net.DialTimeout("unix", sockPath, timeout)
 }

@@ -4,6 +4,7 @@
 package luaplugin
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,14 +21,17 @@ import (
 
 // Plugin represents a single loaded Lua plugin.
 type Plugin struct {
-	Name        string
-	Version     string
-	Description string
-	Type        string // "hook" or "visualizer"
-	L           *lua.LState
-	mu          sync.Mutex        // serializes all LState access (LState is not thread-safe)
-	config      map[string]string // per-plugin config from config.toml
-	perms       map[string]bool   // declared permissions (e.g. "control")
+	Name           string
+	Version        string
+	Description    string
+	Type           string // "hook" or "visualizer"
+	L              *lua.LState
+	mu             sync.Mutex        // serializes all LState access (LState is not thread-safe)
+	config         map[string]string // per-plugin config from config.toml
+	perms          map[string]bool   // declared permissions (e.g. "control")
+	namespaceOwner string            // installed filename; plugin.register() cannot change it
+	namespace      string            // namespaceOwner reduced to one event topic segment
+	namespaceErr   error             // set when another plugin claimed that namespace first
 }
 
 // StateProvider supplies read-only access to player/playlist state.
@@ -96,6 +100,12 @@ type UIProvider struct {
 	ShowMessage func(text string, duration time.Duration) // injected via prog.Send
 }
 
+// EventPublisher accepts namespaced JSON events emitted by Lua plugins.
+type EventPublisher interface {
+	Publish(topic string, data json.RawMessage, retain bool) error
+	ClearPrefix(prefix string)
+}
+
 // Manager owns all loaded plugins and dispatches events to them.
 type Manager struct {
 	plugins      []*Plugin
@@ -106,9 +116,11 @@ type Manager struct {
 	commands     map[string]map[string]*luaHook // plugin name -> command name -> handler
 	visPlugs     []*luaVis                      // Lua visualizers in registration order
 	visMap       map[string]*luaVis             // name -> Lua visualizer
+	namespaces   map[string]string              // event namespace -> owning plugin name
 	state        StateProvider
 	control      ControlProvider
 	ui           UIProvider
+	publisher    EventPublisher
 	timers       *timerManager
 	execs        *execManager
 	logger       *pluginLogger
@@ -119,16 +131,20 @@ type Manager struct {
 
 // New scans the plugin directory and loads all .lua files.
 // pluginCfg maps plugin names to their [plugins.<name>] config keys.
+// publisher backs p:publish() and may be nil; it is installed before any plugin
+// runs so a plugin can publish from its top-level chunk.
 // Returns a Manager (possibly with 0 plugins) and any non-fatal load error.
-func New(pluginCfg map[string]map[string]string) (*Manager, error) {
+func New(pluginCfg map[string]map[string]string, publisher EventPublisher) (*Manager, error) {
 	m := &Manager{
 		hooks:        make(map[string][]*luaHook),
 		keyBinds:     make(map[string][]*luaHook),
 		keyBindDescs: make(map[string]KeyBinding),
 		commands:     make(map[string]map[string]*luaHook),
 		visMap:       make(map[string]*luaVis),
+		namespaces:   make(map[string]string),
 		timers:       newTimerManager(),
 		execs:        newExecManager(resolveAllowedBinaries(pluginCfg)),
+		publisher:    publisher,
 	}
 
 	dir, err := appdir.PluginDir()
@@ -230,10 +246,13 @@ func (m *Manager) loadPlugin(path, name string, cfg map[string]string) (*Plugin,
 	sandbox(L)
 
 	p := &Plugin{
-		Name:   name,
-		L:      L,
-		config: cfg,
+		Name:           name,
+		namespaceOwner: name,
+		namespace:      eventNamespace(name),
+		L:              L,
+		config:         cfg,
 	}
+	m.claimNamespace(p)
 
 	// Register the plugin.register() global.
 	m.registerPluginAPI(L, p)
@@ -264,6 +283,13 @@ func (m *Manager) loadPlugin(path, name string, cfg map[string]string) (*Plugin,
 
 func (m *Manager) cleanupPlugin(p *Plugin) {
 	m.mu.Lock()
+	// Release the event namespace only if this plugin owns it. Compare against
+	// namespaceOwner, not Name: plugin.register() can rename Name after the
+	// claim, and a renamed plugin that then fails to load must not keep the
+	// namespace locked away from a later colliding plugin.
+	if owner, ok := m.namespaces[p.namespace]; ok && owner == p.namespaceOwner {
+		delete(m.namespaces, p.namespace)
+	}
 	for event, hooks := range m.hooks {
 		m.hooks[event] = filterOutPlugin(hooks, p)
 	}
@@ -373,6 +399,38 @@ func (m *Manager) registerPluginAPI(L *lua.LState, p *Plugin) {
 			return 1
 		}))
 
+		// p:publish(topic, payload, {retain=true}) publishes only inside the
+		// immutable namespace derived from the installed plugin filename.
+		L.SetField(obj, "publish", L.NewFunction(func(L *lua.LState) int {
+			topic := L.CheckString(2)
+			payload := luaToGo(L.Get(3))
+			retain := false
+			if options, ok := L.Get(4).(*lua.LTable); ok {
+				retain = lua.LVAsBool(options.RawGetString("retain"))
+			}
+			data, err := json.Marshal(payload)
+			if err == nil {
+				m.mu.RLock()
+				publisher := m.publisher
+				m.mu.RUnlock()
+				if publisher == nil {
+					err = fmt.Errorf("plugin event publisher is unavailable")
+				} else if p.namespaceErr != nil {
+					err = p.namespaceErr
+				} else {
+					fullTopic := "plugin." + p.namespace + "." + topic
+					err = publisher.Publish(fullTopic, data, retain)
+				}
+			}
+			if err != nil {
+				L.Push(lua.LNil)
+				L.Push(lua.LString(err.Error()))
+				return 2
+			}
+			L.Push(lua.LTrue)
+			return 1
+		}))
+
 		m.registerKeymapAPI(L, obj, p)
 		m.registerCommandAPI(L, obj, p)
 
@@ -443,6 +501,58 @@ func resolveAllowedBinaries(pluginCfg map[string]map[string]string) []string {
 	return out
 }
 
+// eventNamespace reduces an installed plugin name to a single event topic
+// segment. Without this, a dot in the name makes topics ambiguous: a plugin
+// installed as "foo.bar" publishing "playback" and one installed as "foo"
+// publishing "bar.playback" would both produce plugin.foo.bar.playback.
+// Characters that IPC topics reject are folded the same way so every installed
+// plugin can publish, whatever its filename.
+//
+// Folding is lossy: "foo.bar" and "foo_bar" both yield "foo_bar". loadPlugin
+// therefore lets only the first plugin claim a namespace and disables
+// publishing for later ones, so two plugins can never share a topic.
+func eventNamespace(name string) string {
+	var b strings.Builder
+	b.Grow(len(name))
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
+}
+
+// claimNamespace records p as the owner of its event namespace, or marks p as
+// unable to publish when another plugin already owns that namespace. Load order
+// is sorted by installed name, so the winner is deterministic. Ownership is
+// tracked by installed filename because plugin.register() can rename p.Name.
+func (m *Manager) claimNamespace(p *Plugin) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.namespaces == nil {
+		m.namespaces = make(map[string]string)
+	}
+	if owner, taken := m.namespaces[p.namespace]; taken && owner != p.namespaceOwner {
+		p.namespaceErr = fmt.Errorf("event namespace %q is already used by plugin %q; rename this plugin to publish events", p.namespace, owner)
+		if m.logger != nil {
+			m.logger.log(p.namespaceOwner, "warn", "%v", p.namespaceErr)
+		}
+		return
+	}
+	m.namespaces[p.namespace] = p.namespaceOwner
+}
+
+// SetEventPublisher replaces the publisher backing p:publish(). New installs
+// the publisher before plugins run; this is for callers that wire it later.
+func (m *Manager) SetEventPublisher(publisher EventPublisher) {
+	m.mu.Lock()
+	m.publisher = publisher
+	m.mu.Unlock()
+}
+
 // SetStateProvider sets the function pointers used by the Lua API to
 // query live player/playlist state.
 func (m *Manager) SetStateProvider(sp StateProvider) {
@@ -473,6 +583,19 @@ func (m *Manager) Close() {
 	// Wait for any in-flight async hook goroutines to finish before closing
 	// the LStates they call into.
 	m.wg.Wait()
+	// Drop retained events only once every publisher has stopped, so a late
+	// async handler cannot leave a retained value behind.
+	m.mu.RLock()
+	publisher := m.publisher
+	m.mu.RUnlock()
+	if publisher != nil {
+		for _, p := range m.plugins {
+			if p.namespaceErr != nil {
+				continue // never owned the namespace, so nothing of its own is retained
+			}
+			publisher.ClearPrefix("plugin." + p.namespace + ".")
+		}
+	}
 	if m.logger != nil {
 		m.logger.close()
 	}

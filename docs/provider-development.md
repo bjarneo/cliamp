@@ -12,6 +12,7 @@ See the existing providers for reference:
 - `external/spotify/`: Spotify, search, playlist management, custom streaming
 - `external/radio/`: internet radio, favorites
 - `external/local/`: local TOML playlist files
+- `external/audiobookshelf/`: Audiobookshelf, sectioned playlists, resume
 
 ## Base Interface (required)
 
@@ -39,7 +40,7 @@ interfaces are defined in `provider/interfaces.go`.
 | `ArtistBrowser` | Hierarchical artist browsing | `Artists()`, `ArtistAlbums(id)` |
 | `AlbumBrowser` | Paginated album browsing with sort | `AlbumList(sort, offset, size)`, `AlbumSortTypes()` |
 | `AlbumTrackLoader` | Album track listing | `AlbumTracks(albumID)` |
-| `Scrobbler` | Playback reporting | `Scrobble(track, submission)` |
+| `PlaybackReporter` | Playback reporting at track start and finish | `CanReportPlayback(track)`, `ReportNowPlaying(track, position, canSeek) error`, `ReportScrobble(track, elapsed, duration, canSeek) error` |
 | `PlaylistWriter` | Add track to playlist | `AddTrackToPlaylist(ctx, playlistID, track)` |
 | `PlaylistCreator` | Create new playlist | `CreatePlaylist(ctx, name)` |
 | `PlaylistDeleter` | Remove playlists/tracks | `DeletePlaylist(name)`, `RemoveTrack(name, index)` |
@@ -47,6 +48,9 @@ interfaces are defined in `provider/interfaces.go`.
 | `FavoriteToggler` | Favorite toggling | `ToggleFavorite(id)` |
 | `Closer` | Cleanup on shutdown | `Close()` |
 | `Authenticator` | Interactive sign-in flow | `Authenticate() error` (in `playlist` package) |
+| `ResumeTarget` | Server-side resume position | `ResumeTarget(playlistID, tracks)` |
+| `ProgressReporter` | Interim position updates while playing, in addition to `PlaybackReporter`'s start/finish reports | `ReportProgress(track, position) error` |
+| `BrowseLabeler` | Relabel the browse overlay's two levels (e.g. Authors/Books instead of Artists/Albums) | `BrowseLabels()` |
 
 ## Steps
 
@@ -186,8 +190,11 @@ implements, the UI will automatically:
 - Show the browse overlay ("N") if any registered provider implements `ArtistBrowser` or `AlbumBrowser`
 - Show the search overlay ("F") if any registered provider implements `Searcher`
 - Enable add-to-playlist in search results if the searched provider implements `PlaylistWriter`
-- Scrobble playback if `Scrobbler` is implemented
+- Report playback at track start and finish if `PlaybackReporter` is implemented, logging any failure the provider returns
 - Run interactive auth on first use if `Authenticator` is implemented
+- Place the cursor on the in-progress track and start it at the stored position if `ResumeTarget` is implemented
+- Push an interim listening position every 15 seconds while a track plays if `ProgressReporter` is implemented
+- Label the browse overlay's two levels with your own nouns if `BrowseLabeler` is implemented
 - Call `Close()` on shutdown if `Closer` is implemented
 
 The "N" and "F" shortcuts work regardless of which provider is currently active

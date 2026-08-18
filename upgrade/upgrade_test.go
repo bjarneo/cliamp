@@ -3,6 +3,7 @@ package upgrade
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -181,6 +182,63 @@ func TestDownloadAndReplace(t *testing.T) {
 	// Verify executable bit is set where the platform models one.
 	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
 		t.Errorf("target mode = %o, want executable", info.Mode().Perm())
+	}
+}
+
+func TestReplaceExecutableOnWindows(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "cliamp.exe")
+	download := filepath.Join(dir, "cliamp-upgrade.exe")
+	backup := filepath.Join(dir, ".cliamp.exe.old")
+
+	if err := os.WriteFile(target, []byte("OLD"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(download, []byte("NEW"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backup, []byte("STALE"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := replaceExecutableOnWindows(download, target); err != nil {
+		t.Fatalf("replaceExecutableOnWindows: %v", err)
+	}
+
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "NEW" {
+		t.Fatalf("target content = %q, want NEW", got)
+	}
+	if _, err := os.Stat(download); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("download still exists or stat failed: %v", err)
+	}
+	if _, err := os.Stat(backup); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("backup still exists or stat failed: %v", err)
+	}
+}
+
+func TestReplaceExecutableOnWindowsRollsBack(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "cliamp.exe")
+	missingDownload := filepath.Join(dir, "missing.exe")
+
+	if err := os.WriteFile(target, []byte("OLD"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := replaceExecutableOnWindows(missingDownload, target)
+	if err == nil {
+		t.Fatal("replaceExecutableOnWindows should fail for a missing download")
+	}
+	got, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatalf("reading restored target: %v", readErr)
+	}
+	if string(got) != "OLD" {
+		t.Fatalf("restored target content = %q, want OLD", got)
 	}
 }
 

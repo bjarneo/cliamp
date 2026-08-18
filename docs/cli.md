@@ -128,7 +128,7 @@ CLI flags override config file values for the current session only. They are not
 
 ## Setup wizard
 
-Configure remote providers (Navidrome, Plex, Jellyfin, Emby, Spotify, Qobuz, NetEase, YouTube Music) through a small TUI. Each provider page links to where to find the required credentials, validates the connection live, and writes the resulting `[provider]` block to `~/.config/cliamp/config.toml` without disturbing the rest of the file.
+Configure remote providers (Navidrome, Plex, Jellyfin, Emby, Spotify, Qobuz, NetEase, Audiobookshelf, YouTube Music) through a small TUI. Each provider page links to where to find the required credentials, validates the connection live, and writes the resulting `[provider]` block to `~/.config/cliamp/config.toml` without disturbing the rest of the file.
 
 ```sh
 cliamp setup
@@ -145,7 +145,10 @@ cliamp playlist list                          # list playlists with track counts
 cliamp playlist create "Name"                 # create an empty playlist
 cliamp playlist create "Name" file1 dir/ ...  # create from files/folders (recursive, skips duplicate paths)
 cliamp playlist create "Name" --ssh HOST dir/ # create from remote machine via SSH
+cliamp playlist create "Name" --dir ~/Music   # reference a directory as a [[dir]] source (scanned at load)
 cliamp playlist add "Name" file1 ...          # append tracks to existing playlist, skipping duplicates
+cliamp playlist add "Name" --dir ~/Music      # add another directory source
+cliamp playlist dirs "Name"                   # list directory sources
 cliamp playlist rename "Old" "New"            # rename a playlist
 cliamp playlist show "Name"                   # display tracks
 cliamp playlist show "Name" --json            # machine-readable output

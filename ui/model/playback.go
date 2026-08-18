@@ -191,6 +191,10 @@ func (m *Model) removeSelectedFromPlaylist() {
 	}
 	snapshot := m.playlist.Snapshot()
 	track := m.playlist.Tracks()[idx]
+	if track.DirSourced {
+		m.status.Showf(statusTTLDefault, "Can't remove %q: it's supplied by the playlist's directory source", track.DisplayName())
+		return
+	}
 	loaded := m.loadedPlaylist
 	var saved []playlist.Track
 	persisted := false
@@ -202,12 +206,22 @@ func (m *Model) removeSelectedFromPlaylist() {
 				m.status.Showf(statusTTLDefault, "Remove failed: %s", err)
 				return
 			}
-			if idx >= len(saved) {
-				m.status.Showf(statusTTLDefault, "Remove failed: selected track is not in %q", loaded)
+			// saved rescans directory sources, so a new file could have shifted
+			// indexes since the queue was loaded. Match the persisted explicit
+			// track by path so the wrong track is never removed.
+			savedIdx := -1
+			for i, candidate := range saved {
+				if !candidate.DirSourced && candidate.Path == track.Path {
+					savedIdx = i
+					break
+				}
+			}
+			if savedIdx < 0 {
+				m.status.Showf(statusTTLDefault, "Remove failed: selected track is no longer in %q", loaded)
 				return
 			}
 			original := cloneTracks(saved)
-			saved = append(saved[:idx:idx], saved[idx+1:]...)
+			saved = append(saved[:savedIdx:savedIdx], saved[savedIdx+1:]...)
 			if err := saver.SavePlaylist(loaded, saved); err != nil {
 				m.status.Showf(statusTTLDefault, "Remove failed: %s", err)
 				return

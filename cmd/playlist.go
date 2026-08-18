@@ -48,9 +48,11 @@ func PlaylistList() error {
 	return nil
 }
 
-// PlaylistCreate creates a new playlist from the given file and directory paths.
-// If sshHost is non-empty, remote paths are walked via SSH.
-func PlaylistCreate(name string, paths []string, sshHost string) error {
+// PlaylistCreate creates a new playlist. dirs are referenced as [[dir]] sources
+// (scanned at load time) instead of expanding their files; paths are expanded
+// into explicit [[track]] entries. If sshHost is non-empty, paths are walked
+// remotely via SSH and cannot be combined with dirs.
+func PlaylistCreate(name string, paths []string, sshHost string, dirs []string) error {
 	prov, err := newProvider()
 	if err != nil {
 		return err
@@ -59,7 +61,10 @@ func PlaylistCreate(name string, paths []string, sshHost string) error {
 	if prov.Exists(name) {
 		return fmt.Errorf("playlist %q already exists (use `add` to append)", name)
 	}
-	if len(paths) == 0 && sshHost == "" {
+	if sshHost != "" && len(dirs) > 0 {
+		return fmt.Errorf("--dir cannot be combined with --ssh (SSH playlists do not support directory sources)")
+	}
+	if len(paths) == 0 && sshHost == "" && len(dirs) == 0 {
 		if _, err := prov.CreatePlaylist(context.Background(), name); err != nil {
 			return fmt.Errorf("creating playlist: %w", err)
 		}
@@ -67,6 +72,21 @@ func PlaylistCreate(name string, paths []string, sshHost string) error {
 		return nil
 	}
 
+	// Directories-only creation needs no audio collection.
+	if len(paths) == 0 && sshHost == "" {
+		if err := prov.CreateDirPlaylist(name, dirs); err != nil {
+			return fmt.Errorf("creating playlist: %w", err)
+		}
+		if len(dirs) == 1 {
+			fmt.Printf("Created playlist %q referencing directory %s.\n", name, dirs[0])
+		} else {
+			fmt.Printf("Created playlist %q referencing %d directories.\n", name, len(dirs))
+		}
+		return nil
+	}
+
+	// Collect explicit audio paths before any mutation, so a failure (no audio
+	// found, invalid directory) leaves no partially-created playlist behind.
 	var audioPaths []string
 	if sshHost != "" {
 		remotePaths, err := sshFindAudio(sshHost, paths)
@@ -97,21 +117,35 @@ func PlaylistCreate(name string, paths []string, sshHost string) error {
 	}
 
 	albumAwareSort(tracks)
+	if len(dirs) > 0 {
+		if err := prov.CreateDirPlaylist(name, dirs); err != nil {
+			return fmt.Errorf("creating playlist: %w", err)
+		}
+	}
 	added, skipped, err := prov.AddTracks(name, tracks)
 	if err != nil {
 		return fmt.Errorf("writing playlist: %w", err)
 	}
 
+	if len(dirs) > 0 {
+		if skipped > 0 {
+			fmt.Printf("Created playlist %q with %d director%s and %d explicit track%s (%d duplicate skipped).\n", name, len(dirs), plural(len(dirs)), added, pluralS(added), skipped)
+		} else {
+			fmt.Printf("Created playlist %q with %d director%s and %d explicit track%s.\n", name, len(dirs), plural(len(dirs)), added, pluralS(added))
+		}
+		return nil
+	}
 	if skipped > 0 {
-		fmt.Printf("Created playlist %q with %d tracks (%d duplicate skipped).\n", name, added, skipped)
+		fmt.Printf("Created playlist %q with %d track%s (%d duplicate skipped).\n", name, added, pluralS(added), skipped)
 	} else {
-		fmt.Printf("Created playlist %q with %d tracks.\n", name, added)
+		fmt.Printf("Created playlist %q with %d track%s.\n", name, added, pluralS(added))
 	}
 	return nil
 }
 
-// PlaylistAdd appends tracks from the given paths to an existing playlist.
-func PlaylistAdd(name string, paths []string) error {
+// PlaylistAdd appends tracks from the given paths and/or directory sources to
+// an existing playlist.
+func PlaylistAdd(name string, paths []string, dirs []string) error {
 	prov, err := newProvider()
 	if err != nil {
 		return err
@@ -120,13 +154,38 @@ func PlaylistAdd(name string, paths []string) error {
 	if !prov.Exists(name) {
 		return fmt.Errorf("playlist %q not found", name)
 	}
-
-	audioPaths, err := collectLocalAudio(paths)
-	if err != nil {
-		return err
+	if len(paths) == 0 && len(dirs) == 0 {
+		return fmt.Errorf("no files or directories given")
 	}
+
+	// Resolve explicit audio paths before mutating anything.
+	var audioPaths []string
+	if len(paths) > 0 {
+		var err error
+		audioPaths, err = collectLocalAudio(paths)
+		if err != nil {
+			return err
+		}
+		if len(audioPaths) == 0 {
+			return fmt.Errorf("no audio files found in %s", strings.Join(paths, ", "))
+		}
+	}
+
+	// Validate and persist all directory sources in one atomic step.
+	addedDirs, err := prov.AddDirSources(name, dirs)
+	if err != nil {
+		return fmt.Errorf("adding directory sources: %w", err)
+	}
+
 	if len(audioPaths) == 0 {
-		return fmt.Errorf("no audio files found in %s", strings.Join(paths, ", "))
+		if len(addedDirs) == 0 {
+			fmt.Printf("No new directories added to %q (already present).\n", name)
+		} else if len(addedDirs) == 1 {
+			fmt.Printf("Added directory %q to %q.\n", addedDirs[0], name)
+		} else {
+			fmt.Printf("Added %d directories to %q.\n", len(addedDirs), name)
+		}
+		return nil
 	}
 
 	tracks := make([]playlist.Track, len(audioPaths))
@@ -140,12 +199,53 @@ func PlaylistAdd(name string, paths []string) error {
 		return fmt.Errorf("adding tracks: %w", err)
 	}
 
-	if skipped > 0 {
+	if len(addedDirs) > 0 {
+		fmt.Printf("Added %d director%s and %d tracks to %q.\n", len(addedDirs), plural(len(addedDirs)), added, name)
+	} else if skipped > 0 {
 		fmt.Printf("Added %d tracks to %q (%d duplicate skipped).\n", added, name, skipped)
 	} else {
 		fmt.Printf("Added %d tracks to %q.\n", added, name)
 	}
 	return nil
+}
+
+// PlaylistDirs lists the directory sources referenced by a playlist.
+func PlaylistDirs(name string) error {
+	prov, err := newProvider()
+	if err != nil {
+		return err
+	}
+	dirs, err := prov.DirSources(name)
+	if err != nil {
+		return fmt.Errorf("loading playlist %q: %w", name, err)
+	}
+	if len(dirs) == 0 {
+		fmt.Printf("Playlist %q has no directory sources.\n", name)
+		return nil
+	}
+	fmt.Printf("Directory sources for %q:\n", name)
+	for i, src := range dirs {
+		mode := "recursive"
+		if !src.Recursive {
+			mode = "non-recursive"
+		}
+		fmt.Printf("  %d. %s (%s)\n", i+1, src.Path, mode)
+	}
+	return nil
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
+}
+
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // PlaylistShow displays the tracks in a playlist. If jsonOutput is true,
@@ -307,6 +407,9 @@ func PlaylistSort(name, by string) error {
 		return fmt.Errorf("saving playlist %q: %w", name, err)
 	}
 	fmt.Printf("Sorted %q by %s.\n", name, normalizeSortKey(by))
+	if dirs, _ := prov.DirSources(name); len(dirs) > 0 {
+		fmt.Println("Note: directory-sourced tracks reload in directory scan order on the next load.")
+	}
 	return nil
 }
 
@@ -436,24 +539,37 @@ func PlaylistBookmark(name string, index int) error {
 		return err
 	}
 
+	tracks, err := prov.Tracks(name)
+	if err != nil {
+		return fmt.Errorf("loading playlist %q: %w", name, err)
+	}
+	if index-1 < 0 || index-1 >= len(tracks) {
+		return fmt.Errorf("track index %d out of range (playlist has %d tracks)", index, len(tracks))
+	}
+	original := tracks[index-1]
+
 	if err := prov.SetBookmark(name, index-1); err != nil {
 		return fmt.Errorf("toggling bookmark: %w", err)
 	}
 
-	tracks, err := prov.Tracks(name)
+	// Reload and report the toggled track. Bookmarking a directory-sourced
+	// track materializes it, which can move it within the expanded list, so
+	// match by path rather than by index.
+	tracks, err = prov.Tracks(name)
 	if err != nil {
-		return err
+		return fmt.Errorf("reloading playlist %q: %w", name, err)
 	}
-	if index-1 < 0 || index-1 >= len(tracks) {
-		return fmt.Errorf("track %d no longer exists in playlist (now has %d tracks)", index, len(tracks))
+	for _, t := range tracks {
+		if t.Path == original.Path {
+			if t.Bookmark {
+				fmt.Printf("★ %s\n", t.DisplayName())
+			} else {
+				fmt.Printf("☆ %s\n", t.DisplayName())
+			}
+			return nil
+		}
 	}
-	t := tracks[index-1]
-	if t.Bookmark {
-		fmt.Printf("★ %s\n", t.DisplayName())
-	} else {
-		fmt.Printf("☆ %s\n", t.DisplayName())
-	}
-	return nil
+	return fmt.Errorf("track %d no longer exists in playlist (now has %d tracks)", index, len(tracks))
 }
 
 // PlaylistBookmarks lists all bookmarked tracks across all playlists.
@@ -510,7 +626,12 @@ func PlaylistEnrich(name string, source string) error {
 	}
 
 	updated := 0
+	dirSourced := 0
 	for i, t := range tracks {
+		if t.DirSourced {
+			dirSourced++
+			continue
+		}
 		changed := false
 
 		if t.DurationSecs == 0 {
@@ -542,7 +663,11 @@ func PlaylistEnrich(name string, source string) error {
 	}
 
 	if updated == 0 {
-		fmt.Println("All tracks already enriched.")
+		if dirSourced > 0 {
+			fmt.Println("All explicit tracks already enriched; directory-sourced tracks are read from their files at load time.")
+		} else {
+			fmt.Println("All tracks already enriched.")
+		}
 		return nil
 	}
 
@@ -550,6 +675,10 @@ func PlaylistEnrich(name string, source string) error {
 		return fmt.Errorf("saving playlist %q: %w", name, err)
 	}
 
+	if dirSourced > 0 {
+		fmt.Printf("Enriched %d tracks in %q (%d directory-sourced tracks left to their files).\n", updated, name, dirSourced)
+		return nil
+	}
 	fmt.Printf("Enriched %d tracks in %q.\n", updated, name)
 	return nil
 }

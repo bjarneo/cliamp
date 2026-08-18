@@ -193,10 +193,43 @@ func downloadAndReplace(url, destPath, expectedHash string) error {
 		return fmt.Errorf("setting permissions: %w", err)
 	}
 
-	if err := os.Rename(tmpPath, destPath); err != nil {
+	if err := replaceExecutable(tmpPath, destPath); err != nil {
 		os.Remove(tmpPath)
-		return fmt.Errorf("replacing binary: %w (try running with sudo)", err)
+		if runtime.GOOS != "windows" {
+			return fmt.Errorf("replacing binary: %w (try running with sudo)", err)
+		}
+		return fmt.Errorf("replacing binary: %w", err)
 	}
 
+	return nil
+}
+
+func replaceExecutable(sourcePath, destPath string) error {
+	if runtime.GOOS == "windows" {
+		return replaceExecutableOnWindows(sourcePath, destPath)
+	}
+	return os.Rename(sourcePath, destPath)
+}
+
+func replaceExecutableOnWindows(sourcePath, destPath string) error {
+	backupPath := filepath.Join(filepath.Dir(destPath), "."+filepath.Base(destPath)+".old")
+	if err := os.Remove(backupPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("removing previous binary backup: %w", err)
+	}
+
+	if err := os.Rename(destPath, backupPath); err != nil {
+		return fmt.Errorf("moving current binary aside: %w", err)
+	}
+
+	if err := os.Rename(sourcePath, destPath); err != nil {
+		if rollbackErr := os.Rename(backupPath, destPath); rollbackErr != nil {
+			return fmt.Errorf("installing new binary: %w; restoring current binary: %w", err, rollbackErr)
+		}
+		return fmt.Errorf("installing new binary: %w", err)
+	}
+
+	// Windows keeps the running executable locked. A leftover backup is
+	// harmless and will be removed before the next upgrade.
+	_ = os.Remove(backupPath)
 	return nil
 }

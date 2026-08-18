@@ -49,6 +49,8 @@ type tracksLoadedMsg struct {
 	providerName  string
 	playlistExact bool
 	gen           uint64
+	resumeIdx     int
+	resumeOffset  time.Duration
 	err           error
 }
 
@@ -301,7 +303,13 @@ func fetchTracksCmd(prov playlist.Provider, playlistID string, gen uint64) tea.C
 		// Resolve PLS/M3U wrapper URLs to actual stream URLs so the
 		// player receives a direct audio stream instead of a playlist file.
 		tracks, expanded := resolveWrapperURLs(tracks)
-		return tracksLoadedMsg{tracks: tracks, playlistID: playlistID, providerName: prov.Name(), playlistExact: !expanded, gen: gen}
+		msg := tracksLoadedMsg{tracks: tracks, playlistID: playlistID, providerName: prov.Name(), playlistExact: !expanded, gen: gen}
+		if rt, ok := prov.(provider.ResumeTarget); ok {
+			if idx, offset := rt.ResumeTarget(playlistID, tracks); offset > 0 && idx >= 0 && idx < len(tracks) {
+				msg.resumeIdx, msg.resumeOffset = idx, offset
+			}
+		}
+		return msg
 	}
 }
 

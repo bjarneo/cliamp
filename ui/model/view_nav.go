@@ -29,15 +29,16 @@ func (m Model) navSourceName() string {
 // navBreadcrumb keeps source, location, and scope visible while drilling into
 // a provider catalog. The separator header clips the completed path safely.
 func (m Model) navBreadcrumb() string {
+	labels := m.navLabels()
 	parts := []string{m.navSourceName()}
 	switch m.navView() {
 	case navViewArtists:
-		parts = append(parts, "Artists")
+		parts = append(parts, labels.artistsTitle())
 	case navViewAlbums:
 		if m.navBrowser.mode == navBrowseModeByArtistAlbum && m.navBrowser.selArtist.Name != "" {
 			parts = append(parts, m.navBrowser.selArtist.Name)
 		}
-		parts = append(parts, "Albums")
+		parts = append(parts, labels.albumsTitle())
 		if m.navBrowser.mode == navBrowseModeByAlbum {
 			if sort := m.navSortLabel(m.navBrowser.sortType); sort != "" {
 				parts = append(parts, "Sort: "+sort)

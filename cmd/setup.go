@@ -25,6 +25,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/bjarneo/cliamp/external/audiobookshelf"
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
 	"github.com/bjarneo/cliamp/external/navidrome"
@@ -89,6 +90,7 @@ type pickerOption struct {
 const (
 	keyJellyfinAuth   = "_auth"
 	keyEmbyAuth       = "_emby_auth"
+	keyABSAuth        = "_abs_auth"
 	keyNetEaseBrowser = "_netease_browser"
 	keyYTMusicMode    = "_mode"
 	keySpotifyMode    = "_spotify_mode"
@@ -224,6 +226,51 @@ func providers() []providerSpec {
 					if v["user"] != "" {
 						lines = append(lines, fmt.Sprintf("user     = %q", v["user"]))
 					}
+				} else {
+					lines = append(lines,
+						fmt.Sprintf("user     = %q", v["user"]),
+						fmt.Sprintf("password = %q", v["password"]),
+					)
+				}
+				return strings.Join(lines, "\n")
+			},
+		},
+		{
+			key:     "audiobookshelf",
+			name:    "Audiobookshelf",
+			section: "audiobookshelf",
+			intro: []string{
+				"Audiobooks and podcasts from your own Audiobookshelf server.",
+				"Authenticate with an API key (Settings → Users → API Keys)",
+				"or with your username and password.",
+			},
+			picker: &pickerSpec{
+				key:   keyABSAuth,
+				label: "Authentication",
+				options: []pickerOption{
+					{value: "token", label: "API key"},
+					{value: "password", label: "Username + password"},
+				},
+			},
+			fields: []fieldSpec{
+				{key: "url", label: "Server URL", help: "e.g. https://abs.example.com", required: true},
+				{key: "token", label: "API key", required: true, secret: true,
+					onlyIf: func(v map[string]string) bool { return v[keyABSAuth] == "token" }},
+				{key: "user", label: "Username", required: true,
+					onlyIf: func(v map[string]string) bool { return v[keyABSAuth] == "password" }},
+				{key: "password", label: "Password", required: true, secret: true,
+					onlyIf: func(v map[string]string) bool { return v[keyABSAuth] == "password" }},
+			},
+			validate: func(v map[string]string) error {
+				if err := audiobookshelf.NewClient(v["url"], v["token"], v["user"], v["password"], nil).Ping(); err != nil {
+					return fmt.Errorf("audiobookshelf: validation: %w", err)
+				}
+				return nil
+			},
+			body: func(v map[string]string) string {
+				lines := []string{fmt.Sprintf("url      = %q", v["url"])}
+				if v[keyABSAuth] == "token" {
+					lines = append(lines, fmt.Sprintf("token    = %q", v["token"]))
 				} else {
 					lines = append(lines,
 						fmt.Sprintf("user     = %q", v["user"]),

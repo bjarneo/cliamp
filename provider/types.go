@@ -36,4 +36,9 @@ const (
 	MetaEmbyID      = "emby.id"
 	MetaNetEaseID   = "netease.id"
 	MetaQobuzID     = "qobuz.id"
+
+	MetaAudiobookshelfID      = "audiobookshelf.id"
+	MetaAudiobookshelfEpisode = "audiobookshelf.episode"
+	MetaAudiobookshelfOffset  = "audiobookshelf.offset"
+	MetaAudiobookshelfTotal   = "audiobookshelf.total"
 )

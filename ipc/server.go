@@ -23,12 +23,15 @@ type Dispatcher interface {
 	Send(msg any)
 }
 
+const ipcRequestReadTimeout = 60 * time.Second
+
 // Server listens on a Unix socket and dispatches IPC commands.
 type Server struct {
 	listener net.Listener
 	sockPath string
 	disp     Dispatcher
 	plugins  PluginDispatcher
+	broker   *Broker
 	done     chan struct{}
 	wg       sync.WaitGroup
 
@@ -72,9 +75,17 @@ func (s *Server) SetPluginDispatcher(p PluginDispatcher) {
 	s.plugins = p
 }
 
-// NewServer creates and starts the IPC server. It cleans up stale sockets
-// before binding. The socket is created with 0600 permissions (owner only).
+// NewServer creates and starts the IPC server with a new event broker.
 func NewServer(sockPath string, disp Dispatcher) (*Server, error) {
+	return NewServerWithBroker(sockPath, disp, nil)
+}
+
+// NewServerWithBroker creates and starts the IPC server using broker. A new
+// broker is allocated when broker is nil.
+func NewServerWithBroker(sockPath string, disp Dispatcher, broker *Broker) (*Server, error) {
+	if broker == nil {
+		broker = NewBroker()
+	}
 	if err := cleanStaleSocket(sockPath); err != nil {
 		return nil, err
 	}
@@ -108,6 +119,7 @@ func NewServer(sockPath string, disp Dispatcher) (*Server, error) {
 		listener: ln,
 		sockPath: sockPath,
 		disp:     disp,
+		broker:   broker,
 		done:     make(chan struct{}),
 		conns:    make(map[net.Conn]struct{}),
 	}
@@ -173,7 +185,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		// Per-request deadline so long-lived streaming clients (e.g. vis bands
 		// polling) aren't killed at a fixed wall clock, but idle clients still
 		// time out.
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.SetReadDeadline(time.Now().Add(ipcRequestReadTimeout))
 		if !scanner.Scan() {
 			return
 		}
@@ -188,9 +200,61 @@ func (s *Server) handleConn(conn net.Conn) {
 			continue
 		}
 
+		if strings.EqualFold(req.Cmd, "subscribe") {
+			s.streamSubscription(conn, req.Topics)
+			return
+		}
+
 		resp := s.dispatch(req)
 		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		writeResponse(conn, resp)
+	}
+}
+
+func (s *Server) streamSubscription(conn net.Conn, topics []string) {
+	// handleConn sets a per-request read deadline. Subscriptions are idle,
+	// server-to-client streams after the initial request, so they must not
+	// inherit that deadline or they will be closed every request timeout.
+	if err := conn.SetReadDeadline(time.Time{}); err != nil {
+		writeResponse(conn, Response{OK: false, Error: "clear subscription deadline: " + err.Error()})
+		return
+	}
+
+	sub, err := s.broker.Subscribe(topics)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: err.Error()})
+		return
+	}
+	defer sub.Close()
+	conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if !writeJSONLine(conn, Response{OK: true}) {
+		return
+	}
+
+	// A subscription is server-to-client after its acknowledgment. Keep a read
+	// pending solely to detect client disconnects even when no events publish.
+	peerClosed := make(chan struct{})
+	go func() {
+		var one [1]byte
+		_, _ = conn.Read(one[:])
+		close(peerClosed)
+	}()
+
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-peerClosed:
+			return
+		case event, ok := <-sub.Events():
+			if !ok {
+				return
+			}
+			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if !writeJSONLine(conn, event) {
+				return
+			}
+		}
 	}
 }
 
@@ -392,14 +456,20 @@ func (s *Server) handleStatus() Response {
 
 // writeResponse marshals a Response as JSON and writes it followed by a newline.
 func writeResponse(conn net.Conn, resp Response) {
-	data, err := json.Marshal(resp)
+	_ = writeJSONLine(conn, resp)
+}
+
+func writeJSONLine(conn net.Conn, value any) bool {
+	data, err := json.Marshal(value)
 	if err != nil {
-		return
+		return false
 	}
 	data = append(data, '\n')
 	if _, err := conn.Write(data); err != nil {
 		applog.Warn("ipc: write response: %v", err)
+		return false
 	}
+	return true
 }
 
 // cleanStaleSocket removes a leftover socket and PID file from a dead process.

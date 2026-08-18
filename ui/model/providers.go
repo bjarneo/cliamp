@@ -64,6 +64,31 @@ func (m *Model) fetchProviderTracks(playlistID string) tea.Cmd {
 	return fetchTracksCmd(m.provider, playlistID, nextRequest(&m.requests.tracks))
 }
 
+// applyTracksResume positions the cursor on the in-progress track and arms the
+// seek when the provider reported a stored listening position.
+func (m *Model) applyTracksResume(msg tracksLoadedMsg) {
+	if msg.resumeOffset <= 0 || msg.resumeIdx < 0 || msg.resumeIdx >= len(msg.tracks) {
+		if m.resume.path != "" && !tracksContainPath(msg.tracks, m.resume.path) {
+			m.resume.path = ""
+			m.resume.secs = 0
+		}
+		return
+	}
+	m.plCursor = msg.resumeIdx
+	m.resume.path = msg.tracks[msg.resumeIdx].Path
+	m.resume.secs = int(msg.resumeOffset.Seconds())
+}
+
+// tracksContainPath reports whether any track in tracks has the given path.
+func tracksContainPath(tracks []playlist.Track, path string) bool {
+	for _, t := range tracks {
+		if t.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
 func (m Model) isActiveProvider(name string) bool {
 	return m.provider != nil && m.provider.Name() == name
 }
@@ -128,6 +153,8 @@ func providerKeyForShortcut(key string) string {
 		return "jellyfin"
 	case "E":
 		return "emby"
+	case "B":
+		return "audiobookshelf"
 	case "Y":
 		return "yt"
 	case "C":
