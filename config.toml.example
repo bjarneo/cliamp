@@ -162,16 +162,17 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # user_id = "optional-user-id"
 
 # ---
-# YouTube Music (optional)
-# Built-in fallback credentials work for most users — no config needed.
-# Set your own Google Cloud OAuth client to avoid shared rate limits:
+# YouTube & YouTube Music (optional)
+# Zero OAuth setup: set `cookies_from` to browse your Liked Music, Liked Videos,
+# and account playlists using your browser session without Google Cloud setup.
+# Alternatively, supply your own Google Cloud OAuth client credentials.
 #
 # [ytmusic]
+# cookies_from = "chrome"   # chrome, firefox, brave, edge, safari, opera…
+#
+# Custom OAuth client (optional, overrides cookie-only mode):
 # client_id = "your-google-oauth-client-id"
 # client_secret = "your-google-oauth-client-secret"
-#
-# Browser cookies for age-restricted / private content:
-# cookies_from = "chrome"
 #
 # Resolve full playlists from list= URLs (default true).
 # When false, only the single video is resolved and playlist links are stripped.

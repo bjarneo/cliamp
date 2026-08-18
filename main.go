@@ -152,12 +152,17 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 		}
 	}
 	if ytWanted {
-		ytClientID, ytClientSecret := cfg.YouTubeMusic.ResolveCredentials(ytmusic.FallbackCredentials)
-		if cfg.YouTubeMusic.CookiesFrom != "" {
+		explicitOAuth := strings.TrimSpace(cfg.YouTubeMusic.ClientID) != "" && strings.TrimSpace(cfg.YouTubeMusic.ClientSecret) != ""
+		hasCookies := strings.TrimSpace(cfg.YouTubeMusic.CookiesFrom) != ""
+		if hasCookies {
 			player.SetYTDLCookiesFrom(cfg.YouTubeMusic.CookiesFrom)
 		}
-		if ytClientID == "" || ytClientSecret == "" {
-			fmt.Fprintf(os.Stderr, "YouTube: no credentials available (configure client_id/client_secret in config.toml)\n")
+
+		ytClientID, ytClientSecret := cfg.YouTubeMusic.ResolveCredentials(ytmusic.FallbackCredentials)
+		hasFallbackOAuth := !explicitOAuth && ytClientID != "" && ytClientSecret != ""
+
+		if !explicitOAuth && !hasCookies && !hasFallbackOAuth {
+			fmt.Fprintf(os.Stderr, "YouTube: no credentials available (configure client_id/client_secret or cookies_from in config.toml)\n")
 		} else {
 			if !player.YTDLPAvailable() {
 				fmt.Fprintf(os.Stderr, "\nYouTube requires yt-dlp for audio playback.\n")
@@ -173,12 +178,24 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 				}
 			}
 			if player.YTDLPAvailable() {
-				ytProviders = ytmusic.New(nil, ytClientID, ytClientSecret, cfg.YouTubeMusic.CookiesFrom != "")
-				providers = append(providers,
-					model.ProviderEntry{Key: "yt", Name: "YouTube (All)", Provider: ytProviders.All},
-					model.ProviderEntry{Key: "youtube", Name: "YouTube", Provider: ytProviders.Video},
-					model.ProviderEntry{Key: "ytmusic", Name: "YouTube Music", Provider: ytProviders.Music},
-				)
+				var all, video, music playlist.Provider
+				if explicitOAuth {
+					ytProviders = ytmusic.New(nil, ytClientID, ytClientSecret, hasCookies)
+					all, video, music = ytProviders.All, ytProviders.Video, ytProviders.Music
+				} else if hasCookies {
+					cookieProviders := ytmusic.NewCookieProviders(cfg.YouTubeMusic.CookiesFrom)
+					all, video, music = cookieProviders.All, cookieProviders.Video, cookieProviders.Music
+				} else if hasFallbackOAuth {
+					ytProviders = ytmusic.New(nil, ytClientID, ytClientSecret, false)
+					all, video, music = ytProviders.All, ytProviders.Video, ytProviders.Music
+				}
+				if all != nil {
+					providers = append(providers,
+						model.ProviderEntry{Key: "yt", Name: "YouTube (All)", Provider: all},
+						model.ProviderEntry{Key: "youtube", Name: "YouTube", Provider: video},
+						model.ProviderEntry{Key: "ytmusic", Name: "YouTube Music", Provider: music},
+					)
+				}
 			}
 		}
 	}

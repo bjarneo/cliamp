@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -265,5 +266,48 @@ func TestAudioFilesSkipsUnreadableSubdir(t *testing.T) {
 	// Non-recursive mode must behave the same way (no abort either).
 	if files, err := AudioFiles(dir, false); err != nil || len(files) != 1 {
 		t.Fatalf("non-recursive AudioFiles = %v err=%v, want only a.mp3", files, err)
+	}
+}
+
+func TestResolveYTDLBatchCookieSelection(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping Unix shell script test on Windows")
+	}
+	t.Cleanup(func() { SetYTDLCookiesFrom("") })
+
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "ytdlp_args.log")
+	fakeYTDL := filepath.Join(tmpDir, "yt-dlp")
+
+	script := "#!/bin/sh\necho \"$@\" > \"" + logFile + "\"\n"
+	if err := os.WriteFile(fakeYTDL, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	// 1. Fallback to global cookies when explicit browser is empty
+	SetYTDLCookiesFrom("firefox")
+	_, _ = ResolveYTDLBatch("https://example.com/playlist", 0, 0)
+
+	logged, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logged), "--cookies-from-browser firefox") {
+		t.Errorf("expected global cookies 'firefox' in args, got: %s", string(logged))
+	}
+
+	// 2. Explicit browser overrides global cookies
+	_, _ = ResolveYTDLBatch("https://example.com/playlist", 0, 0, "chrome")
+	logged, err = os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logged), "--cookies-from-browser chrome") {
+		t.Errorf("expected explicit browser 'chrome' in args, got: %s", string(logged))
+	}
+	if strings.Contains(string(logged), "--cookies-from-browser firefox") {
+		t.Errorf("did not expect fallback cookies 'firefox' in args, got: %s", string(logged))
 	}
 }

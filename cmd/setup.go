@@ -427,25 +427,24 @@ func providers() []providerSpec {
 			name:    "YouTube Music",
 			section: "ytmusic",
 			intro: []string{
-				"Works out of the box with built-in fallback credentials.",
-				"Provide your own OAuth client to skip the shared pool, and/or",
-				"a browser name for cookie-based age-gated playback.",
+				"Browse playlists and liked music with browser cookies (zero OAuth setup),",
+				"or provide your own Google Cloud OAuth client credentials.",
 			},
 			picker: &pickerSpec{
 				key:   keyYTMusicMode,
 				label: "Mode",
 				options: []pickerOption{
-					{value: "default", label: "Use built-in credentials (recommended)"},
-					{value: "custom", label: "Provide my own OAuth credentials / cookies"},
+					{value: "cookies", label: "Browser cookies (recommended — zero OAuth setup)"},
+					{value: "custom", label: "Provide my own OAuth credentials"},
 					{value: "off", label: "Disable YouTube Music"},
 				},
 			},
 			fields: []fieldSpec{
-				{key: "client_id", label: "OAuth Client ID",
+				{key: "cookies_from", label: "Browser for cookies", help: "e.g. chrome, firefox, brave, chromium; blank for chrome",
+					onlyIf: func(v map[string]string) bool { return v[keyYTMusicMode] == "cookies" || v[keyYTMusicMode] == "" }},
+				{key: "client_id", label: "OAuth Client ID", required: true,
 					onlyIf: func(v map[string]string) bool { return v[keyYTMusicMode] == "custom" }},
-				{key: "client_secret", label: "OAuth Client Secret", secret: true,
-					onlyIf: func(v map[string]string) bool { return v[keyYTMusicMode] == "custom" }},
-				{key: "cookies_from", label: "Cookies from browser", help: "e.g. chrome, firefox; blank to skip",
+				{key: "client_secret", label: "OAuth Client Secret", secret: true, required: true,
 					onlyIf: func(v map[string]string) bool { return v[keyYTMusicMode] == "custom" }},
 			},
 			body: func(v map[string]string) string {
@@ -465,7 +464,11 @@ func providers() []providerSpec {
 					}
 					return strings.Join(lines, "\n")
 				default:
-					return "enabled = true"
+					browser := strings.TrimSpace(v["cookies_from"])
+					if browser == "" {
+						browser = "chrome"
+					}
+					return fmt.Sprintf("enabled      = true\ncookies_from = %q", browser)
 				}
 			},
 		},

@@ -140,13 +140,13 @@ func (y YouTubeMusicConfig) IsSetOrFallback(fallbackFn func() (string, string)) 
 	if y.Disabled {
 		return false
 	}
-	if y.Enabled {
+	if y.Enabled || strings.TrimSpace(y.CookiesFrom) != "" {
 		return true
 	}
 	// Even without a config section, enable if fallback credentials exist.
 	if fallbackFn != nil {
 		id, secret := fallbackFn()
-		return id != "" && secret != ""
+		return strings.TrimSpace(id) != "" && strings.TrimSpace(secret) != ""
 	}
 	return false
 }
@@ -154,11 +154,14 @@ func (y YouTubeMusicConfig) IsSetOrFallback(fallbackFn func() (string, string)) 
 // ResolveCredentials returns the user's configured credentials, or falls back
 // to the built-in pool. Returns empty strings only when the pool is also empty.
 func (y YouTubeMusicConfig) ResolveCredentials(fallbackFn func() (string, string)) (clientID, clientSecret string) {
-	if y.ClientID != "" && y.ClientSecret != "" {
-		return y.ClientID, y.ClientSecret
+	id := strings.TrimSpace(y.ClientID)
+	secret := strings.TrimSpace(y.ClientSecret)
+	if id != "" && secret != "" {
+		return id, secret
 	}
 	if fallbackFn != nil {
-		return fallbackFn()
+		fbID, fbSecret := fallbackFn()
+		return strings.TrimSpace(fbID), strings.TrimSpace(fbSecret)
 	}
 	return "", ""
 }
@@ -422,7 +425,7 @@ func Load() (Config, error) {
 			case "client_secret":
 				cfg.YouTubeMusic.ClientSecret = parseString(val)
 			case "cookies_from":
-				cfg.YouTubeMusic.CookiesFrom = parseString(val)
+				cfg.YouTubeMusic.CookiesFrom = strings.TrimSpace(parseString(val))
 			case "expand_playlist":
 				v := strings.ToLower(val) != "false"
 				cfg.YouTubeMusic.ExpandPlaylist = &v
@@ -443,14 +446,14 @@ func Load() (Config, error) {
 			case "user":
 				cfg.SoundCloud.User = parseString(val)
 			case "cookies_from":
-				cfg.SoundCloud.CookiesFrom = parseString(val)
+				cfg.SoundCloud.CookiesFrom = strings.TrimSpace(parseString(val))
 			}
 		case "netease":
 			switch key {
 			case "enabled":
 				cfg.NetEase.Enabled = strings.ToLower(val) == "true"
 			case "cookies_from":
-				cfg.NetEase.CookiesFrom = parseString(val)
+				cfg.NetEase.CookiesFrom = strings.TrimSpace(parseString(val))
 			case "user_id":
 				cfg.NetEase.UserID = parseString(val)
 			}

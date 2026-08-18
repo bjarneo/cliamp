@@ -608,12 +608,14 @@ func resolveYouTube(pageURL string) ([]playlist.Track, error) {
 // [start, start+count) from the playlist. Exported for UI incremental loading.
 // ResolveYTDLBatch fetches tracks starting at offset `start`.
 // If count > 0, fetches at most `count` items; if count == 0, fetches all remaining.
-func ResolveYTDLBatch(pageURL string, start, count int) ([]playlist.Track, error) {
+// If an optional browser is provided, cookies from that browser are used;
+// otherwise, the globally configured yt-dlp cookies browser is used.
+func ResolveYTDLBatch(pageURL string, start, count int, browser ...string) ([]playlist.Track, error) {
 	end := 0
 	if count > 0 {
 		end = start + count
 	}
-	return resolveYTDLRange(pageURL, start, end)
+	return resolveYTDLRange(pageURL, start, end, browser...)
 }
 
 // resolveYTDL uses yt-dlp --flat-playlist to quickly enumerate tracks.
@@ -627,7 +629,7 @@ func resolveYTDL(pageURL string, maxItems ...int) ([]playlist.Track, error) {
 	return resolveYTDLRange(pageURL, 0, end)
 }
 
-func resolveYTDLRange(pageURL string, start, end int) ([]playlist.Track, error) {
+func resolveYTDLRange(pageURL string, start, end int, browser ...string) ([]playlist.Track, error) {
 	if _, err := exec.LookPath("yt-dlp"); err != nil {
 		return nil, fmt.Errorf("yt-dlp not found in PATH — see https://github.com/yt-dlp/yt-dlp#installation")
 	}
@@ -636,8 +638,15 @@ func resolveYTDLRange(pageURL string, start, end int) ([]playlist.Track, error) 
 	defer cancel()
 
 	args := []string{"--flat-playlist", "-j", "--socket-timeout", "15"}
-	if browser := ytdlCookiesFrom(); browser != "" {
-		args = append(args, "--cookies-from-browser", browser)
+	b := ""
+	if len(browser) > 0 {
+		b = strings.TrimSpace(browser[0])
+	}
+	if b == "" {
+		b = ytdlCookiesFrom()
+	}
+	if b != "" {
+		args = append(args, "--cookies-from-browser", b)
 	}
 	if start > 0 {
 		args = append(args, "--playlist-start", strconv.Itoa(start+1)) // yt-dlp is 1-based
@@ -662,7 +671,7 @@ func resolveYTDLRange(pageURL string, start, end int) ([]playlist.Track, error) 
 	}
 
 	var tracks []playlist.Track
-	scanner := bufio.NewScanner(strings.NewReader(string(stdout)))
+	scanner := bufio.NewScanner(bytes.NewReader(stdout))
 	// yt-dlp JSON can exceed bufio.Scanner's default 64KB token limit
 	// (e.g. videos with very long descriptions).
 	scanner.Buffer(make([]byte, 0, scannerInitBufSize), scannerMaxLineSize)
