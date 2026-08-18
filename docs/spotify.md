@@ -32,17 +32,17 @@ To register one:
 
 Run `cliamp`, select Spotify as a provider, and press Enter to sign in. When using your own `client_id`, the browser completes two authorization steps in the same tab: one for Web API access and one for playback. The built-in client path needs one step. Credentials are cached at `~/.config/cliamp/spotify_credentials.json`; subsequent launches refresh silently.
 
-### Newer apps and the search caveat
+### Newer apps and the search page size
 
-Apps registered in Development Mode (the default for anything created on developer.spotify.com after Nov 27, 2024) still work for your library, your playlists, save/follow actions, and OAuth itself. Playback uses its separate authorization. The one specific thing newer apps cannot do is hit Spotify's **catalog endpoints**: `/v1/search` and a handful of related endpoints.
+Apps registered in Development Mode (the default for anything created on developer.spotify.com after Nov 27, 2024) work for your library, your playlists, save/follow actions, OAuth, and search. Playback uses its separate authorization.
 
-You'll see the catalog restriction as `400 "Invalid limit"` whenever you press <kbd>Ctrl+F</kbd> to search Spotify — Spotify [introduced this restriction on Nov 27, 2024](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api) and rarely grants Extended Quota Mode to personal/non-commercial apps. Cliamp surfaces a friendlier error explaining what's actually wrong instead of the raw "Invalid limit" message.
+Search does come with one limit: `/v1/search` accepts at most **10 results per request** for a Development Mode app. Asking for more returns `400 "Invalid limit"`, which is exactly what it says and not a sign that search is blocked. Cliamp handles this for you by paging through results 10 at a time with `offset`, so <kbd>Ctrl+F</kbd> returns the full set either way.
 
-If you don't use Spotify search often, your own `client_id` is the better choice — keep it.
+Some other endpoints genuinely are restricted for these apps (`/v1/browse/new-releases` answers `403`, and followed playlists are affected as described in the [Nov 27, 2024 announcement](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api)), but `/v1/search` is not among them and Extended Quota Mode is not needed for it.
 
 ### Alternative: built-in shared client ID
 
-If Spotify search is essential to you and your own app hits the dev-mode restriction above, drop the `client_id` line:
+If you would rather not register an app at all, drop the `client_id` line:
 
 ```toml
 [spotify]
@@ -89,7 +89,7 @@ Podcast episodes work like tracks. Press `Ctrl+F` to search Spotify and matching
 - **Re-authenticate**: Run `cliamp spotify reset` to clear stored credentials, then relaunch cliamp and select Spotify to sign in again. (Equivalent to deleting `~/.config/cliamp/spotify_credentials.json` manually.)
 - **Persistent "rate-limited" errors on `/v1/me`**: Your stored auth has expired or been revoked. Cliamp will detect this on most launches and prompt you to sign in again, but if it does not, run `cliamp spotify reset` and re-authenticate. This is *not* a real Spotify rate limit — waiting will not resolve it.
 - **`429 Too Many Requests` on search or playlist loading (using the built-in fallback)**: The built-in `client_id` is shared with every librespot- and spotify-player-based client; when the global pool is busy, Spotify caps requests for everyone using it. Cliamp retries with exponential backoff, but if the errors keep returning the simplest fix is to register your own developer app and set `client_id` in `[spotify]` — your personal app gets its own quota.
-- **"search blocked — your client_id is too new" on <kbd>Ctrl+F</kbd>**: Your registered Spotify Developer app is in Development Mode and can't hit `/v1/search` (Spotify's Nov 27, 2024 change). Everything else on your app — playback, library, playlists, save/follow — still works fine. Either remove `client_id` from `[spotify]` to use the built-in fallback for search, or just don't use Spotify search and keep your own app.
+- **`400 "Invalid limit"` on <kbd>Ctrl+F</kbd>**: Development Mode apps cap `/v1/search` at 10 results per request. Cliamp pages around that automatically, so seeing this error means the cap moved below 10; please open an issue.
 
 ## Requirements
 

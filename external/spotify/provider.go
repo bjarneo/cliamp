@@ -555,26 +555,104 @@ func (p *SpotifyProvider) webAPIWithBody(ctx context.Context, method, path strin
 	return nil, fmt.Errorf("spotify: web api rate-limited on %s after %d retries (try re-authenticating)", path, maxRetries)
 }
 
-// friendlySearchError rewrites Spotify's misleading 400 "Invalid limit" reply
-// from /v1/search into something a user can act on. Since Nov 27, 2024 Spotify
-// returns this error for developer apps registered in Development Mode — the
-// rest of the API (playback, playlists, library) keeps working, but the
-// catalog endpoints (/v1/search etc.) are blocked. The limit value is fine.
+// devModeSearchLimit is the largest per-request limit /v1/search accepts for an
+// app still in Spotify's Development Mode. Anything above it comes back as
+// 400 "Invalid limit", which reads like a bug in the value we picked but is
+// simply the cap. Measured against a Development Mode app: 10 succeeds, 11 does
+// not, and offset paging past the cap works fine.
+const devModeSearchLimit = 10
+
+// isInvalidLimit reports whether err is Spotify's 400 "Invalid limit" reply,
+// i.e. the app is capped at devModeSearchLimit results per search request.
+func isInvalidLimit(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "400") && strings.Contains(msg, "Invalid limit")
+}
+
+// friendlySearchError turns a failed /v1/search into something actionable.
+// A surviving "Invalid limit" means the cap moved below devModeSearchLimit,
+// since SearchTracks already retries in pages of that size.
 func friendlySearchError(err error) error {
 	if err == nil {
 		return nil
 	}
-	msg := err.Error()
-	if strings.Contains(msg, "400") && strings.Contains(msg, "Invalid limit") {
-		return fmt.Errorf("spotify: search blocked — your client_id is too new. Spotify's Nov 27 2024 change blocks /v1/search for apps in Development Mode (the rest of cliamp still works on your app). Remove client_id from [spotify] in config.toml to use the built-in fallback for search, or apply for Extended Quota Mode")
+	if isInvalidLimit(err) {
+		return fmt.Errorf("spotify: search rejected even a limit of %d; Spotify's cap for Development Mode apps appears to have changed (%w)", devModeSearchLimit, err)
 	}
 	return fmt.Errorf("spotify: search: %w", err)
+}
+
+// spotifySearchPage is one page of /v1/search results.
+type spotifySearchPage struct {
+	Tracks struct {
+		Items []*spotifyItem `json:"items"`
+	} `json:"tracks"`
+	Episodes struct {
+		Items []*spotifyItem `json:"items"`
+	} `json:"episodes"`
+}
+
+// searchPage runs a single /v1/search request.
+//
+// No market parameter: when the request carries a user OAuth token, Spotify
+// implicitly scopes results to the account's country.
+func (p *SpotifyProvider) searchPage(ctx context.Context, query string, limit, offset int) (*spotifySearchPage, error) {
+	q := url.Values{
+		"q":     {query},
+		"type":  {"track,episode"},
+		"limit": {strconv.Itoa(limit)},
+	}
+	if offset > 0 {
+		q.Set("offset", strconv.Itoa(offset))
+	}
+
+	resp, err := p.webAPI(ctx, "GET", "/v1/search", q)
+	if err != nil {
+		return nil, err
+	}
+
+	var page spotifySearchPage
+	if err := decodeBody(resp, &page); err != nil {
+		return nil, fmt.Errorf("spotify: parse search: %w", err)
+	}
+	return &page, nil
+}
+
+// searchPaged collects up to limit results in pages of devModeSearchLimit, for
+// apps that cannot ask for more in one go. A page that fails after the first
+// one keeps whatever was already collected rather than losing the whole search.
+func (p *SpotifyProvider) searchPaged(ctx context.Context, query string, limit int) (*spotifySearchPage, error) {
+	combined := &spotifySearchPage{}
+	for offset := 0; offset < limit; offset += devModeSearchLimit {
+		size := min(devModeSearchLimit, limit-offset)
+		page, err := p.searchPage(ctx, query, size, offset)
+		if err != nil {
+			if offset == 0 {
+				return nil, err
+			}
+			break
+		}
+		combined.Tracks.Items = append(combined.Tracks.Items, page.Tracks.Items...)
+		combined.Episodes.Items = append(combined.Episodes.Items, page.Episodes.Items...)
+		// Both result kinds exhausted, so further pages are empty.
+		if len(page.Tracks.Items) < size && len(page.Episodes.Items) < size {
+			break
+		}
+	}
+	return combined, nil
 }
 
 // SearchTracks searches Spotify for tracks and podcast episodes, returning up
 // to limit results of each. Episodes (e.g. podcasts) are routed through their
 // spotify:episode: URI so they play correctly.
 // limit is clamped to Spotify's accepted range of 1..50.
+//
+// Apps in Development Mode cap /v1/search at devModeSearchLimit results per
+// request, so a rejected limit is retried as several smaller pages instead of
+// being reported as a blocked search.
 func (p *SpotifyProvider) SearchTracks(ctx context.Context, query string, limit int) ([]playlist.Track, error) {
 	if err := p.ensureSession(); err != nil {
 		return nil, err
@@ -586,29 +664,14 @@ func (p *SpotifyProvider) SearchTracks(ctx context.Context, query string, limit 
 		limit = 50
 	}
 
-	// No market parameter: when the request carries a user OAuth token, Spotify
-	// implicitly scopes results to the account's country.
-	q := url.Values{
-		"q":     {query},
-		"type":  {"track,episode"},
-		"limit": {fmt.Sprintf("%d", limit)},
+	// Try the whole thing in one request first: an app with Extended Quota Mode
+	// takes any limit up to 50 and needs no paging.
+	result, err := p.searchPage(ctx, query, limit, 0)
+	if err != nil && isInvalidLimit(err) && limit > devModeSearchLimit {
+		result, err = p.searchPaged(ctx, query, limit)
 	}
-
-	resp, err := p.webAPI(ctx, "GET", "/v1/search", q)
 	if err != nil {
 		return nil, friendlySearchError(err)
-	}
-
-	var result struct {
-		Tracks struct {
-			Items []*spotifyItem `json:"items"`
-		} `json:"tracks"`
-		Episodes struct {
-			Items []*spotifyItem `json:"items"`
-		} `json:"episodes"`
-	}
-	if err := decodeBody(resp, &result); err != nil {
-		return nil, fmt.Errorf("spotify: parse search: %w", err)
 	}
 
 	var tracks []playlist.Track
