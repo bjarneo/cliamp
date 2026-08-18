@@ -234,6 +234,21 @@ func (e EmbyConfig) IsSet() bool {
 	return e.URL != "" && (e.Token != "" || (e.User != "" && e.Password != ""))
 }
 
+// AudiobookshelfConfig holds credentials for an Audiobookshelf server.
+// URL is required. Authenticate either with Token, or with User+Password.
+type AudiobookshelfConfig struct {
+	URL       string   // e.g. "https://abs.example.com"
+	Token     string   // API key or login token
+	User      string   // optional username for password-based login
+	Password  string   // optional password for password-based login
+	Libraries []string // optional: restrict to these library names
+}
+
+// IsSet reports whether the Audiobookshelf provider is configured.
+func (a AudiobookshelfConfig) IsSet() bool {
+	return a.URL != "" && (a.Token != "" || (a.User != "" && a.Password != ""))
+}
+
 // Config holds user preferences loaded from the config file.
 type Config struct {
 	Volume           float64     // dB, clamped at runtime to [VolumeMin, +6]
@@ -247,7 +262,7 @@ type Config struct {
 	Speed            float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
 	AutoPlay         bool                         // start playback automatically on launch (radio streams, CLI tracks)
 	SeekStepLarge    int                          // seconds for Shift+Left/Right seek jumps
-	Provider         string                       // default provider: "radio", "navidrome", "spotify", "qobuz", "plex", "jellyfin", "emby", "soundcloud", "netease", "ytmusic" (default "radio")
+	Provider         string                       // default provider: "radio", "navidrome", "spotify", "qobuz", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "netease", "ytmusic" (default "radio")
 	Theme            string                       // theme name, or "" for ANSI default
 	Visualizer       string                       // visualizer mode name, or "" for default (Bars)
 	SampleRate       int                          // output sample rate: 22050, 44100, 48000, 96000, 192000
@@ -267,6 +282,7 @@ type Config struct {
 	Plex             PlexConfig                   // optional Plex Media Server credentials
 	Jellyfin         JellyfinConfig               // optional Jellyfin server credentials
 	Emby             EmbyConfig                   // optional Emby server credentials
+	Audiobookshelf   AudiobookshelfConfig         // optional Audiobookshelf server credentials
 	SoundCloud       SoundCloudConfig             // SoundCloud provider (opt-in via enabled = true)
 	NetEase          NetEaseConfig                // NetEase Cloud Music provider (opt-in via enabled = true)
 	Plugins          map[string]map[string]string // per-plugin config from [plugins.*] sections
@@ -463,6 +479,19 @@ func Load() (Config, error) {
 				cfg.Emby.Password = parseString(val)
 			case "user_id":
 				cfg.Emby.UserID = parseString(val)
+			}
+		case "audiobookshelf":
+			switch key {
+			case "url":
+				cfg.Audiobookshelf.URL = parseString(val)
+			case "token":
+				cfg.Audiobookshelf.Token = parseString(val)
+			case "user":
+				cfg.Audiobookshelf.User = parseString(val)
+			case "password":
+				cfg.Audiobookshelf.Password = parseString(val)
+			case "libraries":
+				cfg.Audiobookshelf.Libraries = parseStringSlice(val)
 			}
 		default:
 			// Handle [plugins] and [plugins.*] sections.

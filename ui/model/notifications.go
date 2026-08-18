@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/luaplugin"
 	"github.com/bjarneo/cliamp/playlist"
@@ -115,7 +116,12 @@ func (m *Model) nowPlaying(track playlist.Track) {
 		return
 	}
 	canSeek := m.player.Seekable()
-	go reporter.ReportNowPlaying(track, m.player.Position(), canSeek)
+	position := m.player.Position()
+	go func() {
+		if err := reporter.ReportNowPlaying(track, position, canSeek); err != nil {
+			applog.Warn("now-playing report failed for %q: %v", track.Title, err)
+		}
+	}()
 }
 
 // maybeScrobble fires a playback-complete report for the given track if all
@@ -163,7 +169,11 @@ func (m *Model) maybeScrobble(track playlist.Track, elapsed, duration time.Durat
 		return // less than 50% played
 	}
 	canSeek := m.player.Seekable()
-	go reporter.ReportScrobble(track, elapsed, duration, canSeek)
+	go func() {
+		if err := reporter.ReportScrobble(track, elapsed, duration, canSeek); err != nil {
+			applog.Warn("scrobble failed for %q: %v", track.Title, err)
+		}
+	}()
 }
 
 // findPlaybackReporter returns the first registered provider that can report
@@ -189,4 +199,34 @@ func (m *Model) findPlaybackReporter(track playlist.Track) provider.PlaybackRepo
 		}
 	}
 	return nil
+}
+
+// progressReportInterval bounds how often interim listening positions are
+// pushed to providers that accept them.
+const progressReportInterval = 15 * time.Second
+
+// tickProgressReport pushes an interim position update for the playing track to
+// providers that accept them, at most once per progressReportInterval.
+func (m *Model) tickProgressReport(now time.Time) {
+	if m.player == nil || !m.player.IsPlaying() || m.player.IsPaused() {
+		return
+	}
+	if !m.lastProgressReport.IsZero() && now.Sub(m.lastProgressReport) < progressReportInterval {
+		return
+	}
+	track, idx := m.currentPlaybackTrack()
+	if idx < 0 {
+		return
+	}
+	reporter, ok := m.findPlaybackReporter(track).(provider.ProgressReporter)
+	if !ok {
+		return
+	}
+	m.lastProgressReport = now
+	position := m.player.Position()
+	go func() {
+		if err := reporter.ReportProgress(track, position); err != nil {
+			applog.Warn("progress report failed for %q: %v", track.Title, err)
+		}
+	}()
 }

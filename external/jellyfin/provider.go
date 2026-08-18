@@ -82,12 +82,12 @@ func (p *Provider) CanReportPlayback(track playlist.Track) bool {
 	return track.Meta(provider.MetaJellyfinID) != ""
 }
 
-func (p *Provider) ReportNowPlaying(track playlist.Track, position time.Duration, canSeek bool) {
-	_ = p.client.ReportNowPlaying(track, position, canSeek)
+func (p *Provider) ReportNowPlaying(track playlist.Track, position time.Duration, canSeek bool) error {
+	return p.client.ReportNowPlaying(track, position, canSeek)
 }
 
-func (p *Provider) ReportScrobble(track playlist.Track, elapsed, _ time.Duration, canSeek bool) {
-	_ = p.client.ReportScrobble(track, elapsed, canSeek)
+func (p *Provider) ReportScrobble(track playlist.Track, elapsed, _ time.Duration, canSeek bool) error {
+	return p.client.ReportScrobble(track, elapsed, canSeek)
 }
 
 // Playlists returns all albums across all Jellyfin music views.

@@ -1,6 +1,6 @@
 # Configuration
 
-For remote providers (Navidrome, Plex, Jellyfin, Emby, Spotify, Qobuz, NetEase, YouTube Music), the fastest path is the interactive wizard:
+For remote providers (Navidrome, Plex, Jellyfin, Emby, Spotify, Qobuz, NetEase, Audiobookshelf, YouTube Music), the fastest path is the interactive wizard:
 
 ```sh
 cliamp setup
@@ -131,6 +131,10 @@ token = "${JELLYFIN_TOKEN}"
 url = "https://emby.example.com"
 token = "${EMBY_TOKEN}"
 
+[audiobookshelf]
+url = "https://abs.example.com"
+token = "${AUDIOBOOKSHELF_TOKEN}"
+
 [ytmusic]
 client_id = "${YTMUSIC_CLIENT_ID}"
 client_secret = "${YTMUSIC_CLIENT_SECRET}"
@@ -153,7 +157,7 @@ Set which provider to start with:
 provider = "radio"
 ```
 
-Valid values: `radio` (default), `navidrome`, `spotify`, `plex`, `jellyfin`, `emby`, `qobuz`, `soundcloud`, `netease`, `yt`, `youtube`, `ytmusic`.
+Valid values: `radio` (default), `navidrome`, `spotify`, `plex`, `jellyfin`, `emby`, `qobuz`, `soundcloud`, `netease`, `audiobookshelf`, `yt`, `youtube`, `ytmusic`.
 
 You can also override from the CLI: `cliamp --provider jellyfin`.
 

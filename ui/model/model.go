@@ -327,6 +327,8 @@ type Model struct {
 		secs int
 	}
 
+	lastProgressReport time.Time // last interim provider progress report
+
 	loadedPlaylist string // name of the currently loaded local playlist (for resume)
 
 	// activeProviderPlaylistID is the ID of the most recently loaded playlist

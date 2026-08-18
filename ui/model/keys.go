@@ -394,6 +394,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.switchToProvider("jellyfin")
 		case "E":
 			return m.switchToProvider("emby")
+		case "B":
+			return m.switchToProvider("audiobookshelf")
 		case "S":
 			return m.switchToProvider("spotify")
 		case "P":
@@ -731,6 +733,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.switchToProvider("jellyfin")
 	case "E":
 		return m.switchToProvider("emby")
+	case "B":
+		return m.switchToProvider("audiobookshelf")
 	case "p":
 		if m.localProvider != nil {
 			m.openPlaylistManager()
@@ -2139,6 +2143,12 @@ func (m *Model) plMgrRemoveSelectedTracks() {
 	if len(indices) == 0 {
 		return
 	}
+	for _, i := range indices {
+		if m.plManager.tracks[i].DirSourced {
+			m.status.Showf(statusTTLDefault, "Can't remove %q: it's supplied by the playlist's directory source", m.plManager.tracks[i].DisplayName())
+			return
+		}
+	}
 	m.plMgrSetTrackUndo()
 	for i := len(indices) - 1; i >= 0; i-- {
 		idx := indices[i]
@@ -2241,8 +2251,19 @@ func (m *Model) persistLoadedPlaylistOrder() {
 	if !ok {
 		return
 	}
+	hasDirTracks := false
+	for _, t := range m.playlist.Tracks() {
+		if t.DirSourced {
+			hasDirTracks = true
+			break
+		}
+	}
 	if err := saver.SavePlaylist(m.loadedPlaylist, m.playlist.Tracks()); err != nil {
 		m.status.Showf(statusTTLDefault, "Save failed: %s", err)
+		return
+	}
+	if hasDirTracks {
+		m.status.Showf(statusTTLDefault, "Reordered %q (directory-sourced tracks keep scan order)", m.loadedPlaylist)
 		return
 	}
 	m.status.Showf(statusTTLDefault, "Reordered %q", m.loadedPlaylist)

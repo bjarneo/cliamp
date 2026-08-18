@@ -109,6 +109,7 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"M"}, KeyLabel: "M", Label: "Open NetEase provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"J"}, KeyLabel: "J", Label: "Open Jellyfin provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"E"}, KeyLabel: "E", Label: "Open Emby provider", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"B"}, KeyLabel: "B", Label: "Open Audiobookshelf provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"Q"}, KeyLabel: "Q", Label: "Open Qobuz provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+j"}, KeyLabel: "Ctrl+J", Label: "Jump to time", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"p"}, KeyLabel: "p", Label: "Playlist manager", Keymap: true},

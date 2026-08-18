@@ -514,21 +514,21 @@ func (c *NavidromeClient) CanReportPlayback(track playlist.Track) bool {
 	return !c.scrobbleDisabled && track.Meta(provider.MetaNavidromeID) != ""
 }
 
-func (c *NavidromeClient) ReportNowPlaying(track playlist.Track, _ time.Duration, _ bool) {
-	c.scrobble(track.Meta(provider.MetaNavidromeID), false)
+func (c *NavidromeClient) ReportNowPlaying(track playlist.Track, _ time.Duration, _ bool) error {
+	return c.scrobble(track.Meta(provider.MetaNavidromeID), false)
 }
 
-func (c *NavidromeClient) ReportScrobble(track playlist.Track, _, _ time.Duration, _ bool) {
-	c.scrobble(track.Meta(provider.MetaNavidromeID), true)
+func (c *NavidromeClient) ReportScrobble(track playlist.Track, _, _ time.Duration, _ bool) error {
+	return c.scrobble(track.Meta(provider.MetaNavidromeID), true)
 }
 
 // scrobble reports playback of a track to the Subsonic server.
 // If submission is false, it registers a "now playing" notification only.
 // If submission is true, it records a full play (updates play count, last.fm, etc.).
-// The call is best-effort: errors are silently discarded.
-func (c *NavidromeClient) scrobble(id string, submission bool) {
+// The call is best-effort: the error is returned for logging, never acted on.
+func (c *NavidromeClient) scrobble(id string, submission bool) error {
 	if id == "" {
-		return
+		return nil
 	}
 	params := url.Values{
 		"id":         {id},
@@ -541,7 +541,8 @@ func (c *NavidromeClient) scrobble(id string, submission bool) {
 	}
 	resp, err := httpClient.Get(c.buildURL("scrobble", params))
 	if err != nil {
-		return // fire-and-forget; ignore network errors
+		return fmt.Errorf("navidrome: scrobble: %w", err)
 	}
 	resp.Body.Close()
+	return nil
 }

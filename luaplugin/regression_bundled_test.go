@@ -54,7 +54,7 @@ func TestBundledPluginsLoad(t *testing.T) {
 		}
 	}
 
-	mgr, err := New(nil)
+	mgr, err := New(nil, nil)
 	if err != nil {
 		t.Fatalf("bundled plugins failed to load (API compatibility broken): %v", err)
 	}

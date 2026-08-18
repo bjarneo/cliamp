@@ -1,6 +1,6 @@
 [![Docs on contextowl.co](https://contextowl.co/uploads/_brand/badge-docs.svg)](https://contextowl.co)
 
-A retro terminal music player inspired by Winamp. Play local files, streams, podcasts, YouTube, YouTube Music, SoundCloud, Bilibili, Spotify, NetEase Cloud Music, Xiaoyuzhou (小宇宙), Navidrome, Plex, and Jellyfin with a spectrum visualizer, parametric EQ, and playlist management.
+A retro terminal music player inspired by Winamp. Play local files, streams, podcasts, YouTube, YouTube Music, SoundCloud, Bilibili, Spotify, NetEase Cloud Music, Xiaoyuzhou (小宇宙), Navidrome, Plex, Jellyfin, and Audiobookshelf with a spectrum visualizer, parametric EQ, and playlist management.
 
 **[cliamp.stream](https://cliamp.stream)** · **[docs](https://whiterose.org.contextowl.co/docs/cliamp)**
 
@@ -89,7 +89,7 @@ cliamp https://example.com/stream  # play a URL
 
 Press `Ctrl+K` to see all keybindings.
 
-**Configure remote providers** (Navidrome, Plex, Jellyfin, Spotify, YouTube Music, NetEase Cloud Music) with the interactive wizard:
+**Configure remote providers** (Navidrome, Plex, Jellyfin, Audiobookshelf, Spotify, YouTube Music, NetEase Cloud Music) with the interactive wizard:
 
 ```sh
 cliamp setup

@@ -43,7 +43,7 @@ eq_preset = "Flat"
 # Only used when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-# Default provider on startup: "radio", "navidrome", "spotify", "qobuz", "plex", "jellyfin", "emby", "soundcloud", "netease", or a YouTube provider
+# Default provider on startup: "radio", "navidrome", "spotify", "qobuz", "plex", "jellyfin", "emby", "soundcloud", "netease", "audiobookshelf", or a YouTube provider
 # provider = "radio"
 
 # Compact mode: cap UI width at 80 columns (default: fluid/full-width)
@@ -187,3 +187,17 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # password = "secret"
 # token = "optional-api-key"
 # user_id = "optional-user-id"
+
+# ---
+# Audiobookshelf server (optional)
+# Audiobooks and podcasts from your own Audiobookshelf server. Authenticate
+# either with an API key (Settings -> Users -> API Keys) or with your
+# username/password.
+# [audiobookshelf]
+# url = "https://abs.example.com"
+# token = "your-api-key"
+# user = "listener"
+# password = "secret"
+#
+# Restrict to specific libraries (default: all).
+# libraries = ["Audiobooks", "Podcasts"]
