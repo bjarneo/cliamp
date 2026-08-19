@@ -106,9 +106,20 @@ type alsaSink struct {
 type alsaDevice struct {
 	handle *C.snd_pcm_t
 	rate   int // the app-facing negotiated rate; what the PCM handle itself expects, and what pipeline/reopen decisions must use
-	enc    pcmEncoding
-	period int  // frames per write
-	exact  bool // device accepted the requested rate with conversion disabled
+	// requestedRate is the rate this device was actually asked to open at —
+	// as opposed to rate, what it settled on. A request the hardware can't
+	// honor (e.g. 192kHz on a 96kHz-capped DAC) can settle on a lower rate
+	// via the resample-allowed negotiation path (see the file-level
+	// comment) without erroring, so requestedRate can differ from rate.
+	// SetSampleRate's fast path must compare against this, not rate: a
+	// later, unrelated request that happens to want the same rate this
+	// device settled on is not the same thing as a request for that rate —
+	// exact was computed against requestedRate, and skipping the reopen
+	// would carry that verdict over incorrectly (see SetSampleRate).
+	requestedRate int
+	enc           pcmEncoding
+	period        int  // frames per write
+	exact         bool // device accepted the requested rate with conversion disabled
 	// channels is the negotiated frame width in channels, and left/right the
 	// indices within it that carry cliamp's stereo signal — always valid,
 	// concrete values (2/0/1 for the common, unconfigured case) regardless of
@@ -260,8 +271,13 @@ func (s *alsaSink) SetSampleRate(rate int) (int, error) {
 	if s.shut {
 		return 0, fmt.Errorf("alsa sink is closed")
 	}
-	if s.dev != nil && s.dev.rate == rate {
-		return rate, nil
+	// Comparing against requestedRate, not rate (the settled value): a
+	// device that settled at rate for a *different* original request (a
+	// hardware-refused rate that fell back to this one) was never verified
+	// exact against a request for this rate specifically, so it must not
+	// be reused without reopening — see alsaDevice.requestedRate.
+	if s.dev != nil && s.dev.requestedRate == rate {
+		return s.dev.rate, nil
 	}
 
 	prev := 0
@@ -796,17 +812,18 @@ func configureALSA(handle *C.snd_pcm_t, rate, bufferMs int, enc pcmEncoding, all
 	}
 
 	return &alsaDevice{
-		handle:       handle,
-		rate:         int(finalRate),
-		enc:          enc,
-		period:       int(periodFrames),
-		exact:        exact,
-		verifiedRate: verifiedRate,
-		channels:     channels,
-		left:         left,
-		right:        right,
-		stop:         make(chan struct{}),
-		done:         make(chan struct{}),
+		handle:        handle,
+		rate:          int(finalRate),
+		requestedRate: rate,
+		enc:           enc,
+		period:        int(periodFrames),
+		exact:         exact,
+		verifiedRate:  verifiedRate,
+		channels:      channels,
+		left:          left,
+		right:         right,
+		stop:          make(chan struct{}),
+		done:          make(chan struct{}),
 	}, nil
 }
 
