@@ -43,5 +43,32 @@ jobs:
       - name: Install codec libs (macOS)
         if: matrix.goos == 'darwin'
         run: brew install flac libvorbis libogg pkg-config
-      - run: go test -count=1 ./...
-      - run: go build -trimpath ./...
+      - name: Set up MinGW toolchain (Windows)
+        if: matrix.goos == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-libogg
+            mingw-w64-x86_64-libvorbis
+            mingw-w64-x86_64-flac
+            mingw-w64-x86_64-mpg123
+      - name: Test and build (Windows)
+        if: matrix.goos == 'windows'
+        env:
+          CGO_ENABLED: "1"
+          # Some MSYS2 libogg builds ship a libogg-0.dll whose export table is
+          # missing ogg_stream_iovecin, even though it's present in the static
+          # libogg.a. Force just that library to link statically.
+          CGO_LDFLAGS: "-Wl,-Bstatic -logg -Wl,-Bdynamic"
+        run: |
+          go test -count=1 ./...
+          go build -trimpath ./...
+      - name: Test and build (non-Windows)
+        if: matrix.goos != 'windows'
+        run: |
+          go test -count=1 ./...
+          go build -trimpath ./...

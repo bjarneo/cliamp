@@ -43,8 +43,8 @@ github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSs
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/devgianlu/go-librespot v0.7.1 h1:d/t1OrUHXLIcxJw3zrQ6W2STrg2Jg+uneVwp36qAeAs=
-github.com/devgianlu/go-librespot v0.7.1/go.mod h1:tcLnLzCmW9xbPe2Uo0wMiu08d1wzNI2b2zuWlFYEx00=
+github.com/devgianlu/go-librespot v0.9.0 h1:XMXVDUdmry3bEVfHnWfgDtgvvCefzikrkon8aqh43sc=
+github.com/devgianlu/go-librespot v0.9.0/go.mod h1:tcLnLzCmW9xbPe2Uo0wMiu08d1wzNI2b2zuWlFYEx00=
 github.com/devgianlu/shannon v0.0.0-20230613115856-82ec90b7fa7e h1:OoETp+L//8ZDtd5BWKaogHQjgA104yF4a2yqjfaG3mE=
 github.com/devgianlu/shannon v0.0.0-20230613115856-82ec90b7fa7e/go.mod h1:m5DMFz6BcaKJwxxPaSh9MxwPzK2GPSt1KRFC8Imf0ik=
 github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8 h1:OtSeLS5y0Uy01jaKK4mA/WVIYtpzVm63vLVAPzJXigg=

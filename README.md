@@ -61,8 +61,7 @@ Download from [GitHub Releases](https://github.com/bjarneo/cliamp/releases/lates
 > sound server — see [Troubleshooting](#troubleshooting).
 >
 > **Windows:** download `cliamp-windows-amd64.exe` from Releases. If `HOME` is not
-> set, cliamp stores its config under `%APPDATA%\cliamp`. The Spotify provider is
-> currently unavailable on Windows builds.
+> set, cliamp stores its config under `%APPDATA%\cliamp`.
 
 **Optional runtime dependencies** (all platforms, all install methods):
 
@@ -132,7 +131,26 @@ sudo pacman -S alsa-lib
 
 **macOS:** No extra dependencies — CoreAudio is used.
 
-**Windows:** No extra SDKs required for the core player. `ffmpeg.exe` and `yt-dlp.exe` remain optional runtime dependencies for the same formats/providers as on other platforms. Spotify is not available on Windows builds.
+**Windows:** No extra SDKs required for the core player — it uses pure-Go audio decoding. `ffmpeg.exe` and `yt-dlp.exe` remain optional runtime dependencies for the same formats/providers as on other platforms.
+
+Spotify support uses `go-librespot`, which needs CGO and a MinGW toolchain:
+
+1. Install [MSYS2](https://www.msys2.org/).
+2. Open the **MSYS2 MinGW64** terminal (not the plain MSYS2 terminal) and install the toolchain and codec libraries:
+   ```sh
+   pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-pkg-config \
+     mingw-w64-x86_64-libogg mingw-w64-x86_64-libvorbis \
+     mingw-w64-x86_64-flac mingw-w64-x86_64-mpg123
+   ```
+3. From that same MinGW64 terminal (so `gcc`/`pkg-config` are on `PATH`), build with CGO enabled:
+   ```sh
+   CGO_ENABLED=1 go build -o cliamp.exe .
+   ```
+   Some MSYS2 `libogg` builds ship a `libogg-0.dll` whose export table is missing `ogg_stream_iovecin`, even though it's present in the static `libogg.a`. If the link fails with `undefined reference to 'ogg_stream_iovecin'`, force static linking of just that library:
+   ```sh
+   CGO_LDFLAGS="-Wl,-Bstatic -logg -Wl,-Bdynamic" CGO_ENABLED=1 go build -o cliamp.exe .
+   ```
+4. `cliamp.exe` dynamically links `libvorbis`, `libvorbisenc`, `libvorbisfile`, `libFLAC`, and `libmpg123` from MSYS2. Either keep `C:\msys64\mingw64\bin` on `PATH` at runtime, or copy `libvorbis-0.dll`, `libvorbisenc-2.dll`, `libvorbisfile-3.dll`, `libFLAC.dll`, and `libmpg123-0.dll` next to `cliamp.exe`.
 
 **Clone and build:**
 
