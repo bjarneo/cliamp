@@ -123,7 +123,7 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--resample-quality` | int | 4 | 1–4 |
 | `--bit-depth` | int | 16 | 16, 32 |
 | `--bitperfect` / `--no-bitperfect` | bool | false | Linux/ALSA only; requires `--bitperfect-device` to actually be bit-perfect |
-| `--bitperfect-device` | string | | Required for `--bitperfect`: a hw:/plughw: device, e.g. hw:0,0 |
+| `--bitperfect-device` | string | | Required for *verified* bit-perfect output (`--bitperfect` alone still runs, unverified): a hw:/plughw: device, e.g. hw:0,0 |
 | `--bitperfect-channels` | string | | Output channel pair for a multichannel device, e.g. 0,1; requires a raw hw: device, see docs/audio-quality.md |
 | `--playlist` | string | | local TOML playlist name |
 | `--log-level` | string | info | debug, info, warn, error |
