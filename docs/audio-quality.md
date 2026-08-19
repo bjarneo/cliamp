@@ -103,7 +103,7 @@ A **◆ BIT PERFECT** indicator appears next to the playback status when the ful
 
 - bit-perfect mode enabled, `bitperfect_device` set to a `hw:...`/`plughw:...` device, and the device confirmed locked to the track's exact native rate, sample format, and channel count (no resampling, no driver-side conversion of any of the three)
 - volume at exactly +0 dB
-- EQ flat (all ten bands at 0 dB)
+- EQ flat (all ten bands within ±0.1 dB of 0 — the biquad filters skip processing entirely inside that window, so a band nudged slightly off zero still counts as flat)
 - mono downmix off
 - playback speed at 1.0x
 
