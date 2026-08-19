@@ -1,6 +1,9 @@
 package player
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // baseInputs returns a snapshot that satisfies every bit-perfect rule, so each
 // test case can flip exactly one field and see exactly one blocker.
@@ -31,18 +34,22 @@ func TestBitPerfectEvalBlockers(t *testing.T) {
 	tests := []struct {
 		name   string
 		modify func(*bitPerfectInputs)
+		want   string // expected substring of Blocker — not just non-empty, so
+		// a precedence regression in eval()'s ordered switch (e.g. the
+		// sourceBytes case moving above the rate-mismatch case) still fails
+		// this test instead of silently passing with the wrong reason.
 	}{
-		{"disabled", func(in *bitPerfectInputs) { in.enabled = false }},
-		{"backend note", func(in *bitPerfectInputs) { in.note = "device refused 96000 Hz" }},
-		{"not playing", func(in *bitPerfectInputs) { in.playing = false }},
-		{"unknown source rate", func(in *bitPerfectInputs) { in.sourceRate = 0 }},
-		{"rate mismatch", func(in *bitPerfectInputs) { in.deviceRate = 48000 }},
-		{"device not exact", func(in *bitPerfectInputs) { in.rateExact = false }},
-		{"depth reduced", func(in *bitPerfectInputs) { in.sourceBytes = 8 }},
-		{"volume not 0dB", func(in *bitPerfectInputs) { in.volumeDB = -3 }},
-		{"eq not flat", func(in *bitPerfectInputs) { in.eq[3] = 2 }},
-		{"mono on", func(in *bitPerfectInputs) { in.mono = true }},
-		{"speed changed", func(in *bitPerfectInputs) { in.speed = 1.25 }},
+		{"disabled", func(in *bitPerfectInputs) { in.enabled = false }, "mode is off"},
+		{"backend note", func(in *bitPerfectInputs) { in.note = "device refused 96000 Hz" }, "device refused 96000 Hz"},
+		{"not playing", func(in *bitPerfectInputs) { in.playing = false }, "nothing playing"},
+		{"unknown source rate", func(in *bitPerfectInputs) { in.sourceRate = 0 }, "source sample rate unknown"},
+		{"rate mismatch", func(in *bitPerfectInputs) { in.deviceRate = 48000 }, "resampling 44100 Hz to 48000 Hz"},
+		{"device not exact", func(in *bitPerfectInputs) { in.rateExact = false }, "not locked to the source rate"},
+		{"depth reduced", func(in *bitPerfectInputs) { in.sourceBytes = 8 }, "64-bit source reduced to"},
+		{"volume not 0dB", func(in *bitPerfectInputs) { in.volumeDB = -3 }, "volume at -3.0 dB"},
+		{"eq not flat", func(in *bitPerfectInputs) { in.eq[3] = 2 }, "EQ is not flat"},
+		{"mono on", func(in *bitPerfectInputs) { in.mono = true }, "mono downmix is on"},
+		{"speed changed", func(in *bitPerfectInputs) { in.speed = 1.25 }, "playback speed at 1.25x"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -52,8 +59,8 @@ func TestBitPerfectEvalBlockers(t *testing.T) {
 			if st.Active {
 				t.Fatalf("Active = true, want false for modification %q", tt.name)
 			}
-			if st.Blocker == "" {
-				t.Errorf("Blocker is empty, want a reason for %q", tt.name)
+			if !strings.Contains(st.Blocker, tt.want) {
+				t.Errorf("Blocker = %q, want it to contain %q", st.Blocker, tt.want)
 			}
 		})
 	}
