@@ -493,6 +493,47 @@ func TestLoadBitPerfect(t *testing.T) {
 	}
 }
 
+func TestLoadBitPerfectAcceptsBoolVariants(t *testing.T) {
+	tests := []struct {
+		rawValue string
+		want     bool
+	}{
+		{"true", true},
+		{"True", true},
+		{"TRUE", true},
+		{`"true"`, true},
+		{"false", false},
+		{"nonsense", false}, // unparseable: leaves the zero value, same as val == "true" did
+	}
+	for _, tt := range tests {
+		t.Run(tt.rawValue, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("XDG_CONFIG_HOME", "")
+			t.Setenv("CLIAMP_CONFIG_DIR", "")
+
+			path, err := configPath()
+			if err != nil {
+				t.Fatalf("configPath() error = %v", err)
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			data := []byte("bitperfect = " + tt.rawValue + "\n")
+			if err := os.WriteFile(path, data, 0o644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.BitPerfect != tt.want {
+				t.Errorf("bitperfect = %s: BitPerfect = %v, want %v", tt.rawValue, cfg.BitPerfect, tt.want)
+			}
+		})
+	}
+}
+
 func TestQobuzIsSet(t *testing.T) {
 	tests := []struct {
 		name string

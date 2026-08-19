@@ -537,7 +537,13 @@ func Load() (Config, error) {
 					cfg.BitDepth = v
 				}
 			case "bitperfect":
-				cfg.BitPerfect = val == "true"
+				// Unlike val == "true", this also accepts True/TRUE/1 and a
+				// quoted "true" — a typo here otherwise silently produces
+				// false with no warning anywhere (SetBitPerfectDeviceWarning
+				// only ever fires when BitPerfect ends up true).
+				if v, err := strconv.ParseBool(parseString(val)); err == nil {
+					cfg.BitPerfect = v
+				}
 			case "bitperfect_device":
 				cfg.BitPerfectDevice = parseString(val)
 			case "bitperfect_channels":
