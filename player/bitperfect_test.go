@@ -110,21 +110,35 @@ func TestBitPerfectStatusReportsRatesAndEncoding(t *testing.T) {
 
 func TestBitPerfectStatusReportsSourceBits(t *testing.T) {
 	tests := []struct {
-		name        string
-		sourceBytes int
-		want        int
+		name               string
+		verifiedSourceBits int
+		want               int
 	}{
-		{"16-bit source", 2, 16},
-		{"24-bit source", 3, 24},
-		{"unknown", 0, 0},
+		{"16-bit source", 16, 16},
+		{"24-bit source", 24, 24},
+		{"unverified", 0, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			in := baseInputs()
-			in.sourceBytes = tt.sourceBytes
+			in.verifiedSourceBits = tt.verifiedSourceBits
 			if got := in.eval().SourceBits; got != tt.want {
 				t.Errorf("SourceBits = %d, want %d", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestBitPerfectStatusDoesNotLeakDecodeWidthAsSourceBits guards the exact
+// regression a real 24-bit ALAC/M4A file hit: bit-perfect mode always
+// decodes FFmpeg sources through 32-bit float (sourceBytes=4) regardless of
+// the source's real depth, and SourceBits must not echo that back as if it
+// were a verified claim about the source.
+func TestBitPerfectStatusDoesNotLeakDecodeWidthAsSourceBits(t *testing.T) {
+	in := baseInputs()
+	in.sourceBytes = 4 // the 32-bit float FFmpeg always decodes to in bit-perfect mode
+	in.verifiedSourceBits = 0
+	if got := in.eval().SourceBits; got != 0 {
+		t.Errorf("SourceBits = %d, want 0 (unverified) even though sourceBytes=4", got)
 	}
 }

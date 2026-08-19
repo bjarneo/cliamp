@@ -12,7 +12,7 @@ type BitPerfectStatus struct {
 	Enabled    bool   // bit-perfect mode is on and the backend supports it
 	Active     bool   // the signal path is currently bit-exact
 	SourceRate int    // the track's native sample rate in Hz (0 when unknown)
-	SourceBits int    // the source's own bit depth, e.g. 16 or 24 (0 when unknown)
+	SourceBits int    // the source's own, independently confirmed bit depth, e.g. 16 or 24 (0 when unverified)
 	DeviceRate int    // the rate the output device is running at, in Hz
 	Encoding   string // PCM format handed to the device, e.g. "S32_LE"
 	Blocker    string // what prevents Active; empty when Active
@@ -28,12 +28,22 @@ type bitPerfectInputs struct {
 	deviceRate  int
 	rateExact   bool
 	encoding    pcmEncoding
-	sourceBytes int // beep.Format.Precision: bytes per source sample (0 = unknown)
-	volumeDB    float64
-	eq          [10]float64
-	mono        bool
-	speed       float64
-	note        string // backend-reported problem, e.g. a refused rate
+	sourceBytes int // beep.Format.Precision: bytes per sample as delivered by the decoder (0 = unknown) — see verifiedSourceBits below for why this isn't the same claim as "the source's own bit depth"
+	// verifiedSourceBits is the source's own bit depth, independently
+	// confirmed rather than assumed — the display-only counterpart to
+	// sourceBytes above, and for the same reason verifiedSourceRate exists
+	// alongside format.SampleRate on trackPipeline: an FFmpeg-decoded
+	// source (ALAC, M4A, AAC, Opus, WMA, WebM) always decodes to 32-bit
+	// float in bit-perfect mode regardless of what the source actually is,
+	// so sourceBytes there reflects the decode target, not the source —
+	// reporting it as a bit-depth claim would show 32-bit for a 24-bit
+	// ALAC file. Zero means unverified. See trackPipeline.verifiedSourceBits.
+	verifiedSourceBits int
+	volumeDB           float64
+	eq                 [10]float64
+	mono               bool
+	speed              float64
+	note               string // backend-reported problem, e.g. a refused rate
 }
 
 // eval applies the bit-perfect rules and returns the resulting status. Blockers
@@ -43,7 +53,7 @@ func (in bitPerfectInputs) eval() BitPerfectStatus {
 	st := BitPerfectStatus{
 		Enabled:    in.enabled,
 		SourceRate: in.sourceRate,
-		SourceBits: in.sourceBytes * 8,
+		SourceBits: in.verifiedSourceBits,
 		DeviceRate: in.deviceRate,
 		Encoding:   in.encoding.String(),
 	}

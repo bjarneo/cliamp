@@ -45,6 +45,19 @@ type trackPipeline struct {
 	// source. Zero means unverified. Only ever used for reporting
 	// (BitPerfectStatus), never for pipeline/decode decisions.
 	verifiedSourceRate int
+
+	// verifiedSourceBits is the source's own bit depth in bits (e.g. 16, 24),
+	// independently confirmed rather than assumed — the same distinction as
+	// verifiedSourceRate above, but for bit depth: format.Precision is
+	// always 4 bytes (32-bit float) for an FFmpeg-decoded source in
+	// bit-perfect mode (ALAC, M4A, AAC, Opus, WMA, WebM), regardless of the
+	// source's real depth, since that's the intermediate bit-perfect mode
+	// decodes everything through to avoid truncating a 24-bit source — so
+	// reporting it as-is would claim a 16-bit AAC or 24-bit ALAC file is
+	// 32-bit. Zero means unverified. Only a native decoder (wav/flac/ogg/mp3
+	// — decodeWithExt's non-FFmpeg branches, and chained OGG) reports its
+	// own container's real precision, no FFmpeg intermediary involved.
+	verifiedSourceBits int
 }
 
 // countingReader wraps an io.ReadCloser and atomically counts bytes read.
@@ -124,6 +137,17 @@ func verifiedRate(verified bool, sr beep.SampleRate) int {
 		return 0
 	}
 	return int(sr)
+}
+
+// verifiedBits is trackPipeline.verifiedSourceBits's value for a decode
+// whose precisionBytes (beep.Format.Precision) is a genuine, decoder-intrinsic
+// property of the source's own container — never an FFmpeg decode's target
+// width — 0 (unverified) otherwise. See verifiedSourceBits's doc comment.
+func verifiedBits(verified bool, precisionBytes int) int {
+	if !verified {
+		return 0
+	}
+	return precisionBytes * 8
 }
 
 // resampleTarget returns the rate a stream already decoded at native should be
@@ -430,13 +454,15 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		bytesRead:    byteCounter,
 	}
 	tp.stream = p.wrapResample(format.SampleRate, p.resampleTarget(format.SampleRate), decoder)
-	// decodeWithExt's native branches (wav/flac/vorbis/mp3) read the rate
-	// straight out of the container header — no transcoding, so no guess
-	// involved. needsFFmpeg(ext) is always false by construction here (the
-	// two branches above already handle every ffmpeg-needing extension, for
-	// both URL and local paths), but the guard costs nothing and keeps this
-	// correct even if that ever changes.
-	tp.verifiedSourceRate = verifiedRate(!needsFFmpeg(ext), format.SampleRate)
+	// decodeWithExt's native branches (wav/flac/vorbis/mp3) read the rate and
+	// bit depth straight out of the container header — no transcoding, so no
+	// guess involved. needsFFmpeg(ext) is always false by construction here
+	// (the two branches above already handle every ffmpeg-needing extension,
+	// for both URL and local paths), but the guard costs nothing and keeps
+	// this correct even if that ever changes.
+	verifiedNative := !needsFFmpeg(ext)
+	tp.verifiedSourceRate = verifiedRate(verifiedNative, format.SampleRate)
+	tp.verifiedSourceBits = verifiedBits(verifiedNative, format.Precision)
 
 	// Mark HTTP streams with a known Content-Length as seek-by-reconnect capable.
 	// We need contentLength > 0 to compute byte offsets; knownDuration is checked
@@ -465,8 +491,13 @@ func (p *Player) buildChainedOggPipeline(rc io.ReadCloser, onMeta func(string)) 
 		format:  format,
 		// The oggvorbis reader reports the current segment's own header
 		// rate directly, no transcoding involved — genuinely verified, same
-		// as decodeWithExt's native branches.
+		// as decodeWithExt's native branches. Precision is a fixed decode
+		// convention (Vorbis, like MP3, is lossy and has no real bit-depth
+		// field), but it's decoder-intrinsic and never varies with an
+		// unrelated config value the way an FFmpeg decode's target width
+		// does, so it's trustworthy for display the same way.
 		verifiedSourceRate: int(format.SampleRate),
+		verifiedSourceBits: format.Precision * 8,
 		seekable:           false,
 		rc:                 nil, // chainedOggStreamer owns the lifecycle
 	}, nil

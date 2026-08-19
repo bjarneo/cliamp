@@ -1038,6 +1038,7 @@ func (p *Player) BitPerfect() BitPerfectStatus {
 		// doc comment.
 		in.sourceRate = cur.verifiedSourceRate
 		in.sourceBytes = cur.format.Precision
+		in.verifiedSourceBits = cur.verifiedSourceBits
 	}
 	return in.eval()
 }
