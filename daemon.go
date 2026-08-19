@@ -944,6 +944,26 @@ func (d *daemon) handleBands(m ipc.BandsRequestMsg) {
 	reply(m.Reply, ipc.Response{OK: true, Visualizer: d.vis.ModeName(), Bands: bands})
 }
 
+// applyStreamTitle folds a stream's live ICY metadata into info, mirroring the
+// TUI's resolveTrackDisplay: split "Artist - Title", fall back to the raw value,
+// and keep the entry's own title when the tag carries no song.
+func applyStreamTitle(info *ipc.TrackInfo, cur playlist.Track, streamTitle string) {
+	if !cur.Stream || streamTitle == "" {
+		return
+	}
+	info.StreamTitle = streamTitle
+	if a, t, ok := strings.Cut(streamTitle, " - "); ok {
+		if t != "" {
+			info.Artist, info.Title = a, t
+		}
+	} else {
+		info.Title = streamTitle
+	}
+	if info.Title != cur.Title {
+		info.Station = cur.Title
+	}
+}
+
 func (d *daemon) statusResponse() ipc.Response {
 	resp := ipc.Response{OK: true}
 	switch {
@@ -956,6 +976,9 @@ func (d *daemon) statusResponse() ipc.Response {
 	}
 	if cur, _ := d.playlist.Current(); cur.Path != "" {
 		info := trackInfo(cur, d.playlist.Index(), d.playlist.QueuePosition(d.playlist.Index()))
+		if cur.Stream {
+			applyStreamTitle(&info, cur, d.player.StreamTitle())
+		}
 		resp.Track = &info
 	}
 	pos, dur := d.player.PositionAndDuration()

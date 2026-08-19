@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -181,6 +182,42 @@ func TestContentFirstLayoutPrioritizesLists(t *testing.T) {
 	}
 	if preview.layout.visualizerRows == 0 {
 		t.Fatal("visualizer picker must retain visualizer rows")
+	}
+}
+
+func TestResizeHidesMinimalVisualizerAndRestoresCanvas(t *testing.T) {
+	m := newLayoutTestModel(80, 24)
+	p := m.player.(*playbackFakeEngine)
+	p.playing = true
+	m.vis.Mode = ui.VisScope
+	t0 := time.Unix(1, 0)
+	m.tickVisualizer(t0)
+	before := m.vis.Frame()
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 10})
+	m = updated.(Model)
+	if m.visualizerVisible() {
+		t.Fatal("visualizerVisible() = true in minimal layout, want false")
+	}
+	if m.vis.Rows != 0 {
+		t.Fatalf("minimal visualizer rows = %d, want 0", m.vis.Rows)
+	}
+	m.tickVisualizer(t0.Add(time.Second))
+	if got := m.vis.Frame(); got != before {
+		t.Fatalf("hidden visualizer frame = %d, want %d", got, before)
+	}
+
+	updated, _ = m.Update(tea.WindowSizeMsg{Width: 56, Height: 16})
+	m = updated.(Model)
+	if !m.visualizerVisible() {
+		t.Fatal("visualizerVisible() = false after compact resize, want true")
+	}
+	if m.vis.Rows != 3 {
+		t.Fatalf("restored visualizer rows = %d, want 3", m.vis.Rows)
+	}
+	m.tickVisualizer(t0.Add(2 * time.Second))
+	if got := m.vis.Frame(); got != before+1 {
+		t.Fatalf("restored visualizer frame = %d, want %d without hidden-time catch-up", got, before+1)
 	}
 }
 

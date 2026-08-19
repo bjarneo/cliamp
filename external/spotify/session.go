@@ -74,6 +74,46 @@ type Session struct {
 	tokenSource oauth2.TokenSource // auto-refreshing OAuth2 token source
 }
 
+type streamContextTransport struct {
+	ctx  context.Context
+	base http.RoundTripper
+}
+
+// RoundTrip attaches the stream lifetime to librespot's context-free chunk requests.
+func (t streamContextTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return t.base.RoundTrip(req.Clone(t.ctx))
+}
+
+func newSpotifyStreamHTTPClient(ctx context.Context, transport http.RoundTripper) *http.Client {
+	return &http.Client{Transport: streamContextTransport{ctx: ctx, base: transport}}
+}
+
+func awaitSpotifyStream(ctx context.Context, cancel context.CancelFunc, open func() (*librespotPlayer.Stream, error)) (*librespotPlayer.Stream, context.CancelFunc, error) {
+	type result struct {
+		stream *librespotPlayer.Stream
+		err    error
+	}
+
+	// The worker must be able to release Session's read lock after a timeout.
+	results := make(chan result, 1)
+	go func() {
+		stream, err := open()
+		results <- result{stream: stream, err: err}
+	}()
+
+	select {
+	case res := <-results:
+		if res.err != nil {
+			cancel()
+			return nil, nil, res.err
+		}
+		return res.stream, cancel, nil
+	case <-ctx.Done():
+		cancel()
+		return nil, nil, ctx.Err()
+	}
+}
+
 // NewSession creates a go-librespot session, using stored credentials if
 // available, otherwise starting an interactive OAuth2 flow.
 // clientID is the Spotify Developer app client ID for Web API access.
@@ -545,7 +585,9 @@ func (s *Session) initPlayer() error {
 	return nil
 }
 
-// NewStream creates a decoded audio stream for the given Spotify track ID.
+// NewStream creates a decoded audio stream for the given Spotify track ID. The
+// caller must retain and invoke the returned cancel function for the lifetime
+// of a successful stream. ctx bounds setup independently of that lifetime.
 //
 // Holds s.mu.RLock() across the librespot network call. Multiple concurrent
 // NewStream / webApi callers can run in parallel (RLock is shared), so rapid
@@ -553,13 +595,21 @@ func (s *Session) initPlayer() error {
 // Lock and will wait for in-flight callers to finish before tearing down the
 // player — without this, the swap could call oldPlayer.Close() while we are
 // still reading from it.
-func (s *Session) NewStream(ctx context.Context, spotID librespot.SpotifyId, bitrate int) (*librespotPlayer.Stream, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.player == nil {
-		return nil, fmt.Errorf("spotify: session closed")
-	}
-	return s.player.NewStream(ctx, http.DefaultClient, spotID, bitrate, 0)
+func (s *Session) NewStream(ctx context.Context, spotID librespot.SpotifyId, bitrate int) (*librespotPlayer.Stream, context.CancelFunc, error) {
+	streamCtx, cancel := context.WithCancel(context.Background())
+	client := newSpotifyStreamHTTPClient(streamCtx, http.DefaultTransport)
+
+	return awaitSpotifyStream(ctx, cancel, func() (*librespotPlayer.Stream, error) {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if s.player == nil {
+			return nil, fmt.Errorf("spotify: session closed")
+		}
+		return s.player.NewStream(ctx, client, spotID, bitrate, 0)
+	})
 }
 
 // webApiWithBody calls the Spotify Web API using the OAuth2 access token.

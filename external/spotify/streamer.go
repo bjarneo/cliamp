@@ -5,6 +5,9 @@ package spotify
 
 import (
 	"io"
+	"net"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	librespot "github.com/devgianlu/go-librespot"
@@ -21,29 +24,45 @@ const (
 // go-librespot outputs interleaved stereo float32 at 44100Hz; this converts
 // to Beep's [][2]float64 sample format.
 type spotifyStreamer struct {
+	mu         sync.Mutex
 	source     librespot.AudioSource
-	stream     *librespotPlayer.Stream
 	buf        []float32
 	durationMs int64
 	err        error
+	cancel     func()
+	closing    atomic.Bool
+	closed     bool
 }
 
 // newSpotifyStreamer wraps a go-librespot Stream as a beep.StreamSeekCloser.
-func newSpotifyStreamer(stream *librespotPlayer.Stream) *spotifyStreamer {
+func newSpotifyStreamer(stream *librespotPlayer.Stream, cancel func()) *spotifyStreamer {
 	var dur int64
 	if stream.Media != nil {
 		dur = int64(stream.Media.Duration())
 	}
+	if cancel == nil {
+		cancel = func() {}
+	}
 	return &spotifyStreamer{
 		source:     stream.Source,
-		stream:     stream,
 		durationMs: dur,
+		cancel:     cancel,
 	}
 }
 
 // Stream reads interleaved float32 from the AudioSource and converts to
 // [][2]float64 stereo pairs for Beep's audio pipeline.
 func (s *spotifyStreamer) Stream(samples [][2]float64) (n int, ok bool) {
+	if s.closing.Load() {
+		return 0, false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closing.Load() || s.source == nil {
+		return 0, false
+	}
+
 	// Each stereo sample pair needs 2 float32 values (L, R).
 	needed := len(samples) * spotifyChannels
 	if len(s.buf) < needed {
@@ -52,7 +71,9 @@ func (s *spotifyStreamer) Stream(samples [][2]float64) (n int, ok bool) {
 
 	nRead, err := s.source.Read(s.buf[:needed])
 	if err != nil && err != io.EOF {
-		s.err = err
+		if !s.closing.Load() {
+			s.err = err
+		}
 		return 0, false
 	}
 
@@ -72,7 +93,11 @@ func (s *spotifyStreamer) Stream(samples [][2]float64) (n int, ok bool) {
 	return pairs, true
 }
 
-func (s *spotifyStreamer) Err() error { return s.err }
+func (s *spotifyStreamer) Err() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.err
+}
 
 // Len returns the total number of sample pairs (at 44100Hz stereo).
 func (s *spotifyStreamer) Len() int {
@@ -81,22 +106,52 @@ func (s *spotifyStreamer) Len() int {
 
 // Position returns the current playback position in sample pairs.
 func (s *spotifyStreamer) Position() int {
+	if s.closing.Load() {
+		return 0
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closing.Load() || s.source == nil {
+		return 0
+	}
 	return int(s.source.PositionMs() * spotifySampleRate / 1000)
 }
 
 // Seek moves to sample position p (in sample pairs at 44100Hz).
 func (s *spotifyStreamer) Seek(p int) error {
+	if s.closing.Load() {
+		return net.ErrClosed
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closing.Load() || s.source == nil {
+		return net.ErrClosed
+	}
 	ms := int64(p) * 1000 / spotifySampleRate
 	return s.source.SetPositionMs(ms)
 }
 
-// Close releases the stream resources.
-// The underlying AudioSource (vorbis.Decoder or flac.Decoder) has a Close()
-// method but the AudioSource interface does not expose it. The chunked HTTP
-// reader and decryption pipeline will be released when the object is GC'd.
-// This is a known limitation for skipped tracks until go-librespot exposes
-// Close() on the AudioSource interface.
+// Close cancels stream I/O and releases cliamp's references. AudioSource does
+// not expose Close intentionally; calling the concrete C-backed decoder Close
+// methods during a track handoff can crash go-librespot.
 func (s *spotifyStreamer) Close() error {
+	if s.closing.CompareAndSwap(false, true) {
+		// A decoder read may be waiting on a chunk request while holding mu.
+		// Cancel it before waiting to close the decoder.
+		s.cancel()
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+
+	s.source = nil
+	s.buf = nil
 	return nil
 }
 

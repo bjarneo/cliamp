@@ -89,6 +89,25 @@ click-left = cliamp toggle
 click-right = cliamp next
 ```
 
+#### Radio stream metadata
+
+A radio station's playlist entry only knows the station name. While a stream is
+playing, `.track` instead reports the now-playing metadata the station itself
+broadcasts inline — the ICY metadata of the SHOUTcast/Icecast protocol:
+
+| Field | Description |
+|-------|-------------|
+| `title` | Current song, from the ICY tag (the station name before any arrives) |
+| `artist` | Current artist, when the ICY tag uses `"Artist - Title"` |
+| `station` | The station's own name, present only once a song replaces `title` |
+| `stream_title` | The raw, unsplit ICY value |
+
+So a status bar can show the station and the song together:
+
+```sh
+cliamp status --json | jq -r '(.track // {}) | if .station then (if .artist then "\(.station): \(.artist) - \(.title)" else "\(.station): \(.title)" end) else (.title // "") end'
+```
+
 ### Hotkeys (window manager / sxhkd / Hyprland)
 
 Bind your media keys directly to IPC subcommands.

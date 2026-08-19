@@ -51,7 +51,9 @@ func (m *Model) resolveTrackDisplay(track playlist.Track) (artist, title string)
 	artist, title = track.Artist, track.Title
 	if m.streamTitle != "" && track.Stream {
 		if a, t, ok := strings.Cut(m.streamTitle, " - "); ok {
-			artist, title = a, t
+			if t != "" {
+				artist, title = a, t
+			}
 		} else {
 			title = m.streamTitle
 		}

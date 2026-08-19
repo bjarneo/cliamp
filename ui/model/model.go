@@ -130,13 +130,6 @@ const (
 	screenFullVisualizer
 )
 
-func (s topLevelScreen) hidesVisualizer() bool {
-	// Every overlay now renders inline in the playlist region while the
-	// now-playing, visualizer, and controls chrome stays visible above it, so
-	// the visualizer is never fully hidden.
-	return false
-}
-
 func (s topLevelScreen) label() string {
 	switch s {
 	case screenKeymap:
@@ -457,8 +450,8 @@ func (m Model) activeScreen() topLevelScreen {
 }
 
 // isOverlayActive reports whether an overlay suppresses the live main view.
-// Overlays now render inline over the live view (see hidesVisualizer), so this
-// is always false; it is kept as the single seam the tick loop gates on.
+// Overlays now render inline, so this is always false; it is kept as the single
+// seam the tick loop gates on.
 func (m Model) isOverlayActive() bool {
 	return false
 }

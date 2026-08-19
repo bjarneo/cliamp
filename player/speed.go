@@ -15,6 +15,8 @@ const (
 	tsOvlp   = 512            // overlap: ~12ms — crossfade region
 	tsWin    = tsSeq + tsOvlp // source window per frame (4096)
 	tsSearch = 1024           // search: ±~23ms — covers multiple pitch periods
+	tsCoarse = 8              // sample stride for the low-cost correlation pass
+	tsTop    = 8              // coarse candidates retained for full refinement
 )
 
 // Pre-computed linear crossfade table: alpha[i] = i / tsOvlp.
@@ -43,9 +45,8 @@ type speedStreamer struct {
 	outRd int
 	outWr int
 
-	tail [tsOvlp][2]float64 // previous frame's trailing samples for crossfade
-	// No tail data exists until the first frame writes to it;
-	// outWr == 0 && outRd == 0 signals this initial state.
+	tail      [tsOvlp][2]float64 // previous frame's trailing samples for crossfade
+	tailValid bool
 }
 
 func newSpeedStreamer(s beep.Streamer, speed *atomic.Uint64) *speedStreamer {
@@ -95,6 +96,7 @@ func (ss *speedStreamer) passthrough(samples [][2]float64) (int, bool) {
 	ss.outWr = 0
 	ss.inN = 0
 	ss.inPos = 0
+	ss.tailValid = false
 	n, ok := ss.s.Stream(samples[d:])
 	total := d + n
 	return total, ok || total > 0
@@ -121,6 +123,7 @@ func (ss *speedStreamer) drainOut(dst [][2]float64) int {
 
 func (ss *speedStreamer) fillSource(need int) bool {
 	if drop := int(ss.inPos) - tsSearch; drop > 0 {
+		drop = min(drop, ss.inN)
 		keep := ss.inN - drop
 		if keep > 0 {
 			copy(ss.in[:keep], ss.in[drop:ss.inN])
@@ -129,6 +132,7 @@ func (ss *speedStreamer) fillSource(need int) bool {
 		}
 		ss.inN = keep
 		ss.inPos -= float64(drop)
+		need = max(0, need-drop)
 	}
 	for ss.inN < need {
 		toRead := max(need-ss.inN, 4096)
@@ -156,11 +160,13 @@ func (ss *speedStreamer) fillSource(need int) bool {
 func (ss *speedStreamer) wsolaFrame(speed float64) bool {
 	expected := int(math.Round(ss.inPos))
 	needed := expected + tsWin + tsSearch + 1
-	if !ss.fillSource(needed) && expected+tsSeq > ss.inN {
+	filled := ss.fillSource(needed)
+	expected = int(math.Round(ss.inPos))
+	if !filled && expected+tsSeq > ss.inN {
 		return false
 	}
 
-	first := ss.outWr == 0 && ss.outRd == 0
+	first := !ss.tailValid
 
 	srcOff := expected
 	if !first {
@@ -201,6 +207,7 @@ func (ss *speedStreamer) wsolaFrame(speed float64) bool {
 
 	// Save tail for next frame's crossfade.
 	copy(ss.tail[:], ss.in[srcOff+tsSeq:srcOff+tsWin])
+	ss.tailValid = true
 
 	ss.inPos += float64(tsSeq) * speed
 	return true
@@ -211,29 +218,76 @@ func (ss *speedStreamer) wsolaFrame(speed float64) bool {
 // Normalizing prevents bias toward loud sections. If no good match is found
 // (all correlations negative or silent), falls back to the expected offset.
 func (ss *speedStreamer) searchBestOffset(expected int) int {
-	lo := max(0, expected-tsSearch)
-	hi := max(min(ss.inN-tsWin, expected+tsSearch), lo)
+	maxOff := max(0, ss.inN-tsWin)
+	lo := min(max(0, expected-tsSearch), maxOff)
+	hi := max(min(maxOff, expected+tsSearch), lo)
 
 	bestOff := min(max(expected, lo), hi)
-	var bestScore float64
+	bestScore := ss.offsetScore(bestOff, 1)
 
+	// Score every offset using a strided subset of the overlap. Retaining a few
+	// candidates avoids assuming correlation is smooth between adjacent offsets,
+	// while still doing far less work than a full-resolution exhaustive pass.
+	type candidate struct {
+		off   int
+		score float64
+	}
+	var top [tsTop]candidate
+	topN := 0
 	for off := lo; off <= hi; off++ {
-		var corr, norm float64
-		for i := range tsOvlp {
-			corr += ss.tail[i][0]*ss.in[off+i][0] + ss.tail[i][1]*ss.in[off+i][1]
-			norm += ss.in[off+i][0]*ss.in[off+i][0] + ss.in[off+i][1]*ss.in[off+i][1]
-		}
-		if norm < 1e-9 || corr <= 0 {
+		score := ss.offsetScore(off, tsCoarse)
+		if score <= 0 {
 			continue
 		}
-		// corr^2/norm avoids sqrt; equivalent ranking to corr/sqrt(norm).
-		score := corr * corr / norm
-		if score > bestScore {
-			bestScore = score
-			bestOff = off
+		at := topN
+		for i := range topN {
+			if score > top[i].score || (score == top[i].score && off < top[i].off) {
+				at = i
+				break
+			}
+		}
+		if at >= tsTop {
+			continue
+		}
+		if topN < tsTop {
+			topN++
+		}
+		copy(top[at+1:topN], top[at:topN-1])
+		top[at] = candidate{off: off, score: score}
+	}
+
+	for _, candidate := range top[:topN] {
+		refineLo := max(lo, candidate.off-tsCoarse+1)
+		refineHi := min(hi, candidate.off+tsCoarse-1)
+		for off := refineLo; off <= refineHi; off++ {
+			score := ss.offsetScore(off, 1)
+			if score > bestScore || (score == bestScore && score > 0 && off < bestOff) {
+				bestOff, bestScore = off, score
+			}
+		}
+	}
+	if topN == 0 {
+		for off := lo; off <= hi; off++ {
+			score := ss.offsetScore(off, 1)
+			if score > bestScore || (score == bestScore && score > 0 && off < bestOff) {
+				bestOff, bestScore = off, score
+			}
 		}
 	}
 	return bestOff
+}
+
+func (ss *speedStreamer) offsetScore(off, stride int) float64 {
+	var corr, norm float64
+	for i := 0; i < tsOvlp; i += stride {
+		corr += ss.tail[i][0]*ss.in[off+i][0] + ss.tail[i][1]*ss.in[off+i][1]
+		norm += ss.in[off+i][0]*ss.in[off+i][0] + ss.in[off+i][1]*ss.in[off+i][1]
+	}
+	if norm < 1e-9 || corr <= 0 {
+		return 0
+	}
+	// corr^2/norm avoids sqrt; equivalent ranking to corr/sqrt(norm).
+	return corr * corr / norm
 }
 
 // Err forwards to the wrapped streamer's error method.

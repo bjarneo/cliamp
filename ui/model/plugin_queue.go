@@ -63,6 +63,7 @@ func (m *Model) removeIndex(idx int) {
 	if !m.playlist.Remove(idx) {
 		return
 	}
+	m.normalizeQueueOverlay()
 	if wasActive {
 		m.player.Stop()
 		m.player.ClearPreload()

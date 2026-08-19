@@ -15,16 +15,11 @@ type trackPipeline struct {
 	stream        beep.Streamer         // decoder + optional resample (fed to gapless)
 	format        beep.Format
 	seekable      bool
-	rc            io.ReadCloser // source file/HTTP body
 	knownDuration time.Duration // metadata duration hint (0 = unknown); used when decoder.Len()==0
 
-	// HTTP stream seek-by-reconnect fields.
-	// seekableStream is true when the server returned a Content-Length and we
-	// know the total duration, so we can reconnect with a Range header.
-	seekableStream bool
-	contentLength  int64         // Content-Length from the initial HTTP response
-	path           string        // original URL (needed to reconnect for seek)
-	streamOffset   time.Duration // playback time offset of the current ranged connection
+	contentLength int64         // Content-Length from the initial HTTP response
+	path          string        // original local path or URL
+	streamOffset  time.Duration // playback origin for yt-dlp seek-by-restart
 
 	// yt-dlp seek-by-restart: when true, seeking restarts yt-dlp with --download-sections.
 	ytdlSeek bool
@@ -32,6 +27,11 @@ type trackPipeline struct {
 	// Network byte counter — incremented by countingReader for HTTP streams.
 	// nil for local files.
 	bytesRead *atomic.Int64
+
+	// gaplessToken identifies this pipeline while it is registered as the
+	// pending gapless stream. Delayed transition callbacks use it to avoid
+	// clobbering a newer manual selection.
+	gaplessToken uint64
 
 	// verifiedSourceRate is the track's own native sample rate, independently
 	// confirmed rather than assumed — the source-side analogue of
@@ -81,18 +81,31 @@ func (tp *trackPipeline) close() {
 	if tp.decoder != nil {
 		tp.decoder.Close()
 	}
-	if tp.rc != nil {
-		tp.rc.Close()
+}
+
+// interrupt unblocks a pipe decoder without waiting for its process. It is
+// safe to call before speaker.Lock; close reaps the interrupted process later.
+func (tp *trackPipeline) interrupt() {
+	if decoder, ok := tp.decoder.(interface{ interrupt() }); ok {
+		decoder.interrupt()
 	}
 }
 
-// setKnownDuration stores the metadata duration hint and, for navFFmpegStreamer
-// pipelines, converts it to sample frames so Len() and proportional seeking work.
+// setKnownDuration stores the metadata duration hint and fills missing frame
+// counts on streaming ffmpeg decoders so Len() and seeking keep working.
 func (tp *trackPipeline) setKnownDuration(d time.Duration) {
 	tp.knownDuration = d
-	if d > 0 {
-		if ns, ok := tp.decoder.(*navFFmpegStreamer); ok && ns.total == 0 {
-			ns.total = int(ns.sr.N(d))
+	if d <= 0 {
+		return
+	}
+	switch s := tp.decoder.(type) {
+	case *navFFmpegStreamer:
+		if s.total == 0 {
+			s.total = int(s.sr.N(d))
+		}
+	case *localFFmpegStreamer:
+		if s.total == 0 {
+			s.total = int(s.sr.N(d))
 		}
 	}
 }
@@ -104,13 +117,6 @@ func closePipelines(ps ...*trackPipeline) {
 			tp.close()
 		}
 	}
-}
-
-// buildPipeline opens and decodes a track, returning a ready-to-play pipeline.
-// knownDuration is passed in so seek-by-reconnect can be enabled for HTTP streams
-// that provide a Content-Length. Call buildPipelineAt to open a ranged stream.
-func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
-	return p.buildPipelineAt(path, 0, 0)
 }
 
 // decodeRateFor picks the sample rate a local-file ffmpeg decode should
@@ -188,10 +194,8 @@ func (p *Player) decodeFFmpegURLStream(path string) (*ffmpegPipeStreamer, beep.F
 	return decoder, format, nil
 }
 
-// buildPipelineAt is like buildPipeline but starts the HTTP stream at byteOffset
-// (using a Range: bytes=N- header) and records timeOffset as the playback origin.
-// For local files byteOffset is ignored; use decoder.Seek instead.
-func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.Duration) (*trackPipeline, error) {
+// buildPipeline opens and decodes a track, returning a ready-to-play pipeline.
+func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	// Clear stream title on each new pipeline build.
 	p.streamTitle.Store("")
 
@@ -222,9 +226,9 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 	// navBuffer + ffmpeg pipe. The navBuffer downloads in the background; ffmpeg
 	// reads from it via stdin and starts producing PCM as soon as the first
 	// frames arrive — no waiting for the full download. seekable=true routes
-	// Seek() through navFFmpegStreamer which repositions the navBuffer and
-	// restarts ffmpeg without HTTP reconnect.
-	if isURL(path) && p.isBufferedURL(path) && byteOffset == 0 {
+	// Seek() through navFFmpegStreamer, which restarts FFmpeg from the buffered
+	// header with a time offset and no HTTP reconnect.
+	if isURL(path) && p.isBufferedURL(path) {
 		// Bit-perfect mode: ffprobe can read a container's sample rate and bit
 		// depth straight off an HTTP URL, same as it does for local files —
 		// bits_per_raw_sample is only populated for a lossless codec (FLAC,
@@ -243,13 +247,6 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		if err != nil {
 			return nil, fmt.Errorf("navidrome buffer: %w", err)
 		}
-
-		// Derive total sample frames from the metadata duration hint so the
-		// seek bar and Len() work correctly. knownDuration is set by the caller
-		// (Play/Preload) onto the returned pipeline after buildPipeline returns,
-		// so we compute it here from timeOffset which is always 0 on first open.
-		totalFrames := 0
-		_ = timeOffset // unused for navBuffer path (byteOffset == 0 guard above)
 
 		// Both probes usually resolve well before newNavBuffer returns (they
 		// only need the container header, not the file), but cap the total
@@ -277,20 +274,18 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 			}
 		}
 
-		decoder, format, err := decodeNavFFmpeg(nb, decodeRate, p.bitDepth, totalFrames)
+		decoder, format, err := decodeNavFFmpeg(nb, decodeRate, p.bitDepth, 0)
 		if err != nil {
 			nb.Close()
 			return nil, fmt.Errorf("decode navidrome: %w", err)
 		}
-		var s beep.Streamer = decoder
 		return &trackPipeline{
 			decoder:            decoder,
-			stream:             s,
+			stream:             decoder,
 			format:             format,
 			verifiedSourceRate: verifiedRate(verifiedRateOK, format.SampleRate),
 			verifiedSourceBits: sourceBits,
 			seekable:           true, // navFFmpegStreamer.Seek() handles seeking without reconnect
-			rc:                 nb,   // trackPipeline.close() calls nb.Close()
 			path:               path,
 			bytesRead:          &nb.bytesIn,
 			contentLength:      contentLen,
@@ -316,7 +311,7 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		}, nil
 	}
 
-	src, err := openSourceAt(path, byteOffset, onMeta)
+	src, err := openSource(path, onMeta)
 	if err != nil {
 		return nil, fmt.Errorf("open source: %w", err)
 	}
@@ -431,47 +426,35 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 				path:    path,
 			}, nil
 		}
-		// Native local decoder failed (e.g., IEEE float WAV). Fall back to
-		// buffered ffmpeg decode, which handles more formats.
+		// Native local decoder failed (e.g., IEEE float WAV). Fall back to a
+		// streaming ffmpeg process, which handles more formats without buffering
+		// the whole decoded track in memory.
 		rate, verified, bits := p.decodeRateFor(path)
-		decoder, format, err = decodeFFmpeg(path, rate, p.bitDepth)
+		decoder, format, err = decodeFFmpegLocal(path, rate, p.bitDepth)
 		if err != nil {
 			return nil, fmt.Errorf("decode: %w", err)
 		}
-		// pcmStreamer is fully buffered in memory — always seekable, no rc to manage.
 		return &trackPipeline{
 			decoder:            decoder,
-			stream:             decoder, // decodeFFmpeg outputs at target sample rate
+			stream:             decoder, // decodeFFmpegLocal outputs at target sample rate
 			format:             format,
 			verifiedSourceRate: verifiedRate(verified, format.SampleRate),
 			verifiedSourceBits: bits,
 			seekable:           true,
+			path:               path,
 		}, nil
 	}
 
 	// HTTP streams decoded natively read from a non-seekable http.Response.Body.
-	// FFmpeg-decoded streams are fully buffered in memory and therefore seekable.
-	_, isPCM := decoder.(*pcmStreamer)
-	seekable := !isURL(path) || isPCM
-
-	// Native decoders (mp3, vorbis, flac, wav) wrap rc internally and their
-	// Close() already closes the underlying reader. Set rc to nil so
-	// trackPipeline.close() doesn't double-close the file descriptor.
-	// FFmpeg decoders (reached via needsFFmpeg) read via the path argument;
-	// rc is unused but still needs cleanup, so keep it set for that path.
-	pipelineRC := rc
-	if !isPCM {
-		pipelineRC = nil
-	}
+	seekable := !isURL(path)
 
 	tp := &trackPipeline{
-		decoder:      decoder,
-		format:       format,
-		seekable:     seekable,
-		rc:           pipelineRC,
-		path:         path,
-		streamOffset: timeOffset,
-		bytesRead:    byteCounter,
+		decoder:       decoder,
+		format:        format,
+		seekable:      seekable,
+		path:          path,
+		bytesRead:     byteCounter,
+		contentLength: src.contentLength,
 	}
 	tp.stream = p.wrapResample(format.SampleRate, p.resampleTarget(format.SampleRate), decoder)
 	// decodeWithExt's native branches (wav/flac/vorbis/mp3) read the rate and
@@ -483,14 +466,6 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 	verifiedNative := !needsFFmpeg(ext)
 	tp.verifiedSourceRate = verifiedRate(verifiedNative, format.SampleRate)
 	tp.verifiedSourceBits = verifiedBits(verifiedNative, format.Precision)
-
-	// Mark HTTP streams with a known Content-Length as seek-by-reconnect capable.
-	// We need contentLength > 0 to compute byte offsets; knownDuration is checked
-	// later in Seek() when it is set on the pipeline.
-	if isURL(path) && !seekable && src.contentLength > 0 {
-		tp.seekableStream = true
-		tp.contentLength = src.contentLength
-	}
 
 	return tp, nil
 }
@@ -519,6 +494,5 @@ func (p *Player) buildChainedOggPipeline(rc io.ReadCloser, onMeta func(string)) 
 		verifiedSourceRate: int(format.SampleRate),
 		verifiedSourceBits: format.Precision * 8,
 		seekable:           false,
-		rc:                 nil, // chainedOggStreamer owns the lifecycle
 	}, nil
 }

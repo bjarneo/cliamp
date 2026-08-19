@@ -38,8 +38,7 @@ func (m *Model) adjustScroll() {
 	if m.playlist == nil {
 		return
 	}
-	tracks := m.playlist.Tracks()
-	if len(tracks) == 0 {
+	if m.playlist.Len() == 0 {
 		return
 	}
 	visible := m.effectivePlaylistVisible()
@@ -50,18 +49,39 @@ func (m *Model) adjustScroll() {
 }
 
 func (m Model) playlistScroll(visible int) int {
-	tracks := m.playlist.Tracks()
+	count := m.playlist.Len()
+	if count == 0 {
+		return 0
+	}
 	scroll := max(0, m.plScroll)
-	if scroll >= len(tracks) {
-		scroll = max(0, len(tracks)-1)
+	if scroll >= count {
+		scroll = count - 1
 	}
-	if m.plCursor < scroll {
-		return m.plCursor
+	cursor := min(max(0, m.plCursor), count-1)
+	if cursor < scroll {
+		return cursor
 	}
-	for scroll < m.plCursor && m.albumSeparatorRows(tracks, scroll, m.plCursor, m.showAlbumHeaders) > visible {
-		scroll++
+	if visible <= 0 {
+		return cursor
 	}
-	return scroll
+	if !m.showAlbumHeaders {
+		if cursor-scroll >= visible {
+			return cursor - visible + 1
+		}
+		return scroll
+	}
+
+	// Every track consumes at least one row, so no earlier position can keep
+	// the cursor visible. Include one lookback track for sticky album headers.
+	scroll = max(scroll, cursor-visible+1)
+	start := max(0, scroll-1)
+	tracks := m.playlist.TrackWindow(start, cursor-start+1)
+	localScroll := scroll - start
+	localCursor := cursor - start
+	for localScroll < localCursor && m.albumSeparatorRows(tracks, localScroll, localCursor, m.showAlbumHeaders) > visible {
+		localScroll++
+	}
+	return start + localScroll
 }
 
 func (m Model) mainFrameFixedLines(includeTransient bool) int {
@@ -128,7 +148,7 @@ func (m *Model) clampActiveScrollState() {
 			m.spotSearchPlaylistMaybeAdjustScroll(m.spotSearchPlaylistVisible())
 		}
 	case screenQueue:
-		m.queueMaybeAdjustScroll(m.queueVisible())
+		m.normalizeQueueOverlay()
 	case screenInfo:
 		m.infoMaybeAdjustScroll()
 	case screenSearch:

@@ -49,3 +49,41 @@ func TestVisualizerFrameClipsPluginOutput(t *testing.T) {
 		}
 	}
 }
+
+func TestFitVisualizerFrame(t *testing.T) {
+	tests := []struct {
+		name       string
+		frame      string
+		cols, rows int
+		want       string
+	}{
+		{name: "empty", frame: "", cols: 3, rows: 2, want: "   \n   "},
+		{name: "pads rows", frame: "ab\nc", cols: 4, rows: 3, want: "ab  \nc   \n    "},
+		{name: "clips rows and columns", frame: "abcdef\nignored", cols: 3, rows: 1, want: "abc"},
+		{name: "wide characters", frame: "a界bc", cols: 3, rows: 1, want: "a界"},
+		{name: "wide overflow pads remaining cell", frame: "a界b", cols: 2, rows: 1, want: "a "},
+		{name: "combining grapheme", frame: "e\u0301x", cols: 1, rows: 1, want: "e\u0301"},
+		{name: "emoji grapheme", frame: "👩‍💻x", cols: 2, rows: 1, want: "👩‍💻"},
+		{name: "clipped ANSI style", frame: "\x1b[31mabcdef\x1b[0m", cols: 3, rows: 1, want: "\x1b[31mabc\x1b[0m"},
+		{name: "ANSI reset after wide overflow", frame: "\x1b[31ma界b\x1b[0m", cols: 2, rows: 1, want: "\x1b[31ma\x1b[0m "},
+		{name: "padded ANSI style", frame: "\x1b[31ma\x1b[0m", cols: 3, rows: 1, want: "\x1b[31ma\x1b[0m  "},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := fitVisualizerFrame(tt.frame, tt.cols, tt.rows)
+			if got != tt.want {
+				t.Fatalf("fitVisualizerFrame(%q, %d, %d) = %q, want %q", tt.frame, tt.cols, tt.rows, got, tt.want)
+			}
+			lines := strings.Split(got, "\n")
+			if len(lines) != tt.rows {
+				t.Fatalf("line count = %d, want %d", len(lines), tt.rows)
+			}
+			for _, line := range lines {
+				if width := lipgloss.Width(line); width != tt.cols {
+					t.Fatalf("line width = %d, want %d: %q", width, tt.cols, line)
+				}
+			}
+		})
+	}
+}

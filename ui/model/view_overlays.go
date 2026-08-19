@@ -2,11 +2,9 @@ package model
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/bjarneo/cliamp/history"
-	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/ui"
 )
 
@@ -259,18 +257,10 @@ func (m Model) plMgrTrackLabel(realIdx int) string {
 		mark = "* "
 	}
 	missing := ""
-	if missingLocalTrack(t) {
+	if realIdx < len(m.plManager.missingLocal) && m.plManager.missingLocal[realIdx] {
 		missing = "! "
 	}
 	return mark + missing + formatTrackRow(realIdx+1, t.DisplayName()+trackAlbumSuffix(t, m.showAlbumHeaders), t.DurationSecs)
-}
-
-func missingLocalTrack(t playlist.Track) bool {
-	if t.Path == "" || t.Stream || playlist.IsURL(t.Path) || strings.HasPrefix(t.Path, "ssh://") {
-		return false
-	}
-	_, err := os.Stat(t.Path)
-	return os.IsNotExist(err)
 }
 
 // renderSearchList renders the playlist-search results for the playlist region
@@ -290,7 +280,6 @@ func (m Model) renderSearchList() string {
 		return strings.Join(fitLines([]string{dimStyle.Render("  " + msg)}, budget), "\n")
 	}
 
-	tracks := m.playlist.Tracks()
 	currentIdx := m.playlist.Index()
 	isPlaying := m.player.IsPlaying()
 	scroll := m.search.scroll
@@ -298,6 +287,10 @@ func (m Model) renderSearchList() string {
 	lines := make([]string, 0, budget)
 	for j := scroll; j < len(m.search.results) && len(lines) < budget; j++ {
 		i := m.search.results[j]
+		track, ok := m.playlist.Track(i)
+		if !ok {
+			continue
+		}
 		prefix := "  "
 		style := dimStyle
 		if i == currentIdx && isPlaying {
@@ -305,7 +298,7 @@ func (m Model) renderSearchList() string {
 			style = playlistActiveStyle
 		}
 
-		name := tracks[i].DisplayName()
+		name := track.DisplayName()
 		queueSuffix := ""
 		if qp := m.playlist.QueuePosition(i); qp > 0 {
 			queueSuffix = fmt.Sprintf(" [Q%d]", qp)

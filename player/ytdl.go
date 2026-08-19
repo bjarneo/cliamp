@@ -2,7 +2,6 @@ package player
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -159,27 +158,28 @@ func ffmpegInstallHint() string {
 // yt-dlp downloads the best audio and writes raw data to stdout; ffmpeg reads
 // that via a pipe and converts it to PCM on its stdout, which we consume.
 type ytdlPipeStreamer struct {
-	ytdlCmd   *exec.Cmd
-	ffmpegCmd *exec.Cmd
-	pipe      io.ReadCloser // ffmpeg stdout (PCM output)
-	reader    *bufio.Reader // buffered reader over pipe
-	ytdlErr   <-chan error  // yt-dlp exit error from monitoring goroutine
-	ffmpegErr <-chan error  // ffmpeg exit error from monitoring goroutine
-	buf       [pcmFrameSize32]byte
-	f32       bool // true = f32le, false = s16le
-	pos       int  // samples consumed so far
-	closeOnce sync.Once
-	err       error
+	ytdlCmd    *exec.Cmd
+	ffmpegCmd  *exec.Cmd
+	pipe       io.ReadCloser // ffmpeg stdout (PCM output)
+	reader     *bufio.Reader // buffered reader over pipe
+	ytdlErr    <-chan error  // yt-dlp exit error from monitoring goroutine
+	ffmpegErr  <-chan error  // ffmpeg exit error from monitoring goroutine
+	ytdlDone   <-chan struct{}
+	ffmpegDone <-chan struct{}
+	pcmBuf     []byte
+	state      *pipeStreamState
+	f32        bool // true = f32le, false = s16le
+	closeOnce  sync.Once
 }
 
 func (y *ytdlPipeStreamer) Stream(samples [][2]float64) (int, bool) {
-	n, ok := streamFromReader(y.reader, samples, y.buf[:], y.f32, &y.err)
-	y.pos += n
+	n, ok := streamFromReader(y.reader, samples, &y.pcmBuf, y.f32, y.state)
+	y.state.pos.Add(int64(n))
 	// On EOF with no frames read, surface why the pipe closed (yt-dlp bot
 	// wall, 404, DRM, or undecodable ffmpeg input) instead of a bare EOF.
-	if n == 0 && y.err == nil {
+	if !ok && n == 0 && y.state.err.load() == nil {
 		if cause := y.waitCause(0); cause != nil {
-			y.err = cause
+			y.state.err.publish(cause)
 		}
 	}
 	return n, ok
@@ -226,9 +226,19 @@ func (y *ytdlPipeStreamer) waitCause(d time.Duration) error {
 	return ffErr
 }
 
-func (y *ytdlPipeStreamer) Err() error     { return y.err }
-func (y *ytdlPipeStreamer) Len() int       { return 0 }
-func (y *ytdlPipeStreamer) Position() int  { return y.pos }
+func (y *ytdlPipeStreamer) Err() error {
+	if y.state == nil {
+		return nil
+	}
+	return y.state.err.load()
+}
+func (y *ytdlPipeStreamer) Len() int { return 0 }
+func (y *ytdlPipeStreamer) Position() int {
+	if y.state == nil {
+		return 0
+	}
+	return int(y.state.pos.Load())
+}
 func (y *ytdlPipeStreamer) Seek(int) error { return nil }
 
 func (y *ytdlPipeStreamer) Close() error {
@@ -241,10 +251,14 @@ func (y *ytdlPipeStreamer) Close() error {
 			y.ffmpegCmd.Process.Kill()
 		}
 		y.pipe.Close()
-		// The yt-dlp and ffmpeg monitor goroutines own Wait() on their
-		// processes; killing the processes above makes those Waits return.
-		// Both error channels are buffered, so the monitors send and exit
-		// without a receiver — no draining needed here.
+		// The monitor goroutines own Wait. Killing both children and waiting
+		// for their done signals guarantees Close does not leave zombies.
+		if y.ytdlDone != nil {
+			<-y.ytdlDone
+		}
+		if y.ffmpegDone != nil {
+			<-y.ffmpegDone
+		}
 	})
 	return nil
 }
@@ -253,20 +267,22 @@ func (y *ytdlPipeStreamer) Close() error {
 // channel: a wrapped error preferring captured stderr over the bare exit code
 // on failure, or nil on clean exit. The channel is buffered so the goroutine
 // always completes even with no receiver (e.g. after Close kills the process).
-func monitorExit(cmd *exec.Cmd, stderr *bytes.Buffer, name string) <-chan error {
+func monitorExit(cmd *exec.Cmd, stderr *limitedBuffer, name string) (<-chan error, <-chan struct{}) {
 	ch := make(chan error, 1)
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		err := cmd.Wait()
-		switch trimmed := bytes.TrimSpace(stderr.Bytes()); {
+		switch trimmed := strings.TrimSpace(stderr.String()); {
 		case err == nil:
 			ch <- nil
-		case len(trimmed) > 0:
-			ch <- fmt.Errorf("%s: %s", name, trimmed)
+		case trimmed != "":
+			ch <- fmt.Errorf("%s: %w: %s", name, err, trimmed)
 		default:
 			ch <- fmt.Errorf("%s: %w", name, err)
 		}
 	}()
-	return ch
+	return ch, done
 }
 
 // decodeYTDLPipe starts a yt-dlp | ffmpeg pipe chain for the given page URL
@@ -306,7 +322,7 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 	ytdlArgs = append(ytdlArgs, pageURL)
 	ytdlCmd := exec.Command("yt-dlp", ytdlArgs...)
 	ytdlCmd.Stdout = pw
-	var ytdlStderr bytes.Buffer
+	var ytdlStderr limitedBuffer
 	ytdlCmd.Stderr = &ytdlStderr
 	if err := ytdlCmd.Start(); err != nil {
 		pr.Close()
@@ -332,7 +348,7 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 	)
 	ffmpegCmd := exec.Command("ffmpeg", ffmpegArgs...)
 	ffmpegCmd.Stdin = pr
-	var ffmpegStderr bytes.Buffer
+	var ffmpegStderr limitedBuffer
 	ffmpegCmd.Stderr = &ffmpegStderr
 	ffmpegPipe, err := ffmpegCmd.StdoutPipe()
 	if err != nil {
@@ -359,8 +375,8 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 	// Monitor each process's exit so we can surface why the pipe closed. A
 	// process's stderr is only safe to read after Wait() returns, so the
 	// capture happens inside monitorExit.
-	ytdlErrCh := monitorExit(ytdlCmd, &ytdlStderr, "yt-dlp")
-	ffmpegErrCh := monitorExit(ffmpegCmd, &ffmpegStderr, "ffmpeg")
+	ytdlErrCh, ytdlDone := monitorExit(ytdlCmd, &ytdlStderr, "yt-dlp")
+	ffmpegErrCh, ffmpegDone := monitorExit(ffmpegCmd, &ffmpegStderr, "ffmpeg")
 
 	format := beep.Format{
 		SampleRate:  sr,
@@ -369,13 +385,16 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 	}
 
 	return &ytdlPipeStreamer{
-		ytdlCmd:   ytdlCmd,
-		ffmpegCmd: ffmpegCmd,
-		pipe:      ffmpegPipe,
-		reader:    bufio.NewReaderSize(ffmpegPipe, pipeBufSize),
-		ytdlErr:   ytdlErrCh,
-		ffmpegErr: ffmpegErrCh,
-		f32:       bitDepth == 32,
+		ytdlCmd:    ytdlCmd,
+		ffmpegCmd:  ffmpegCmd,
+		pipe:       ffmpegPipe,
+		reader:     bufio.NewReaderSize(ffmpegPipe, pipeBufSize),
+		ytdlErr:    ytdlErrCh,
+		ffmpegErr:  ffmpegErrCh,
+		ytdlDone:   ytdlDone,
+		ffmpegDone: ffmpegDone,
+		state:      newPipeStreamState(0),
+		f32:        bitDepth == 32,
 	}, format, nil
 }
 

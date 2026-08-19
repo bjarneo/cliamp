@@ -444,6 +444,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.addToHeaderState([]playlist.Track{t})
 			newIdx := m.playlist.Len() - 1
 			m.playlist.Queue(newIdx)
+			m.normalizeQueueOverlay()
 			m.status.Showf(statusTTLMedium, "Queued: %s", t.DisplayName())
 			if !m.player.IsPlaying() {
 				cmd := m.nextTrack()
@@ -489,7 +490,7 @@ func (m *Model) replacePlaylistFromNav() tea.Cmd {
 	m.player.Stop()
 	m.player.ClearPreload()
 	m.resetYTDLBatch()
-	m.playlist.Replace(tracks)
+	m.replacePlaylist(tracks)
 	m.loadedPlaylist = ""
 	m.setHeaderStateFromTracks(tracks)
 	m.plCursor = 0

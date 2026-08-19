@@ -29,6 +29,30 @@ func (f *stereoFakeEngine) StereoSamplesInto(dst [][2]float64) int {
 func (f *stereoFakeEngine) Volume() float64 { return f.volume }
 func (f *stereoFakeEngine) Mono() bool      { return f.mono }
 
+type samplingFakeEngine struct {
+	*playbackFakeEngine
+	sampleCalls       int
+	stereoSampleCalls int
+}
+
+func (f *samplingFakeEngine) SamplesInto(dst []float64) int {
+	f.sampleCalls++
+	if len(dst) == 0 {
+		return 0
+	}
+	dst[0] = 1
+	return 1
+}
+
+func (f *samplingFakeEngine) StereoSamplesInto(dst [][2]float64) int {
+	f.stereoSampleCalls++
+	if len(dst) == 0 {
+		return 0
+	}
+	dst[0] = [2]float64{1, 1}
+	return 1
+}
+
 func TestMain(m *testing.M) {
 	os.Unsetenv("CLIAMP_CONFIG_DIR")
 	os.Unsetenv("XDG_CONFIG_HOME")
@@ -99,9 +123,31 @@ func TestTickIntervalPlayingUsesFastCadence(t *testing.T) {
 		player:   p,
 		vis:      ui.NewVisualizer(float64(p.SampleRate())),
 		playlist: playlist.New(),
+		width:    80,
+		height:   24,
 	}
+	m.recomputeLayout()
 	m.SetVisualizer("none")
 
+	if got := m.tickInterval(); got != ui.TickFast {
+		t.Fatalf("tickInterval() = %v, want %v", got, ui.TickFast)
+	}
+}
+
+func TestTickIntervalClampsFastVisualizerCadence(t *testing.T) {
+	p := &playbackFakeEngine{playing: true}
+	m := Model{
+		player:   p,
+		vis:      ui.NewVisualizer(float64(p.SampleRate())),
+		playlist: playlist.New(),
+		width:    80,
+		height:   24,
+	}
+	m.recomputeLayout()
+
+	if got := m.vis.TickInterval(m.visualizerTickContext(time.Time{})); got >= ui.TickFast {
+		t.Fatalf("visualizer tick interval = %v, want faster than %v for test setup", got, ui.TickFast)
+	}
 	if got := m.tickInterval(); got != ui.TickFast {
 		t.Fatalf("tickInterval() = %v, want %v", got, ui.TickFast)
 	}
@@ -114,11 +160,88 @@ func TestTickIntervalLowPowerPlayingUsesLowPowerCadence(t *testing.T) {
 		vis:      ui.NewVisualizer(float64(p.SampleRate())),
 		playlist: playlist.New(),
 	}
-	m.SetVisualizer("none")
 	m.SetLowPower(true)
 
 	if got := m.tickInterval(); got != ui.TickLowPowerPlaying {
 		t.Fatalf("tickInterval() = %v, want %v", got, ui.TickLowPowerPlaying)
+	}
+}
+
+func TestVisualizerVisibility(t *testing.T) {
+	tests := []struct {
+		name          string
+		width, height int
+		set           func(*Model)
+		zeroRows      bool
+		want          bool
+	}{
+		{name: "main", width: 80, height: 24, set: func(*Model) {}, want: true},
+		{name: "content first", width: 80, height: 24, set: func(m *Model) { m.keymap.visible = true }, want: false},
+		{name: "picker preview", width: 80, height: 24, set: func(m *Model) { m.visPicker.visible = true }, want: true},
+		{name: "full visualizer", width: 40, height: 10, set: func(m *Model) { m.fullVis = true }, want: true},
+		{name: "minimal", width: 40, height: 10, set: func(*Model) {}, want: false},
+		{name: "too small", width: 39, height: 9, set: func(*Model) {}, want: false},
+		{name: "disabled", width: 80, height: 24, set: func(m *Model) { m.vis.Mode = ui.VisNone }, want: false},
+		{name: "zero row canvas", width: 80, height: 24, set: func(*Model) {}, zeroRows: true, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{vis: ui.NewVisualizer(44100), width: tt.width, height: tt.height}
+			tt.set(&m)
+			m.recomputeLayout()
+			if tt.zeroRows {
+				m.vis.Rows = 0
+			}
+			if got := m.visualizerVisible(); got != tt.want {
+				t.Fatalf("visualizerVisible() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTickVisualizerSkipsContentFirstLayouts(t *testing.T) {
+	tests := []struct {
+		name            string
+		mode            ui.VisMode
+		wantSamples     int
+		wantStereoCalls int
+	}{
+		{name: "FFT", mode: ui.VisBars, wantSamples: 1},
+		{name: "stereo", mode: ui.VisStereo, wantStereoCalls: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &samplingFakeEngine{playbackFakeEngine: &playbackFakeEngine{playing: true}}
+			m := Model{
+				player: p,
+				vis:    ui.NewVisualizer(float64(p.SampleRate())),
+				keymap: keymapOverlay{visible: true},
+				width:  80,
+				height: 24,
+			}
+			m.vis.Mode = tt.mode
+			m.recomputeLayout()
+
+			m.tickVisualizer(time.Now())
+			if p.sampleCalls != 0 || p.stereoSampleCalls != 0 {
+				t.Fatalf("hidden visualizer sampled audio: mono=%d stereo=%d", p.sampleCalls, p.stereoSampleCalls)
+			}
+			if got := m.vis.Frame(); got != 0 {
+				t.Fatalf("hidden visualizer frame = %d, want 0", got)
+			}
+
+			m.keymap.visible = false
+			m.recomputeLayout()
+			m.tickVisualizer(time.Now())
+			if p.sampleCalls != tt.wantSamples || p.stereoSampleCalls != tt.wantStereoCalls {
+				t.Fatalf("visible visualizer samples: mono=%d stereo=%d, want mono=%d stereo=%d", p.sampleCalls, p.stereoSampleCalls, tt.wantSamples, tt.wantStereoCalls)
+			}
+			if got := m.vis.Frame(); got != 1 {
+				t.Fatalf("visible visualizer frame = %d, want 1", got)
+			}
+		})
 	}
 }
 
@@ -178,8 +301,11 @@ func TestVisualizerTickContextProcessesStereoOutput(t *testing.T) {
 
 func TestRefreshVisualizerIfPendingConsumesOneShotRequest(t *testing.T) {
 	m := Model{
-		vis: ui.NewVisualizer(44100),
+		vis:    ui.NewVisualizer(44100),
+		width:  80,
+		height: 24,
 	}
+	m.recomputeLayout()
 
 	m.vis.RequestRefresh()
 	m.refreshVisualizerIfPending()
@@ -199,11 +325,14 @@ func TestRefreshVisualizerIfPendingConsumesOneShotRequest(t *testing.T) {
 
 func TestLyricsScreenKeepsVisualizerLive(t *testing.T) {
 	m := Model{
-		vis: ui.NewVisualizer(44100),
+		vis:    ui.NewVisualizer(44100),
+		width:  80,
+		height: 24,
 		lyrics: lyricsState{
 			visible: true,
 		},
 	}
+	m.recomputeLayout()
 
 	if got := m.activeScreen(); got != screenLyrics {
 		t.Fatalf("activeScreen() = %v, want %v", got, screenLyrics)

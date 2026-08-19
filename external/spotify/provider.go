@@ -445,13 +445,13 @@ func (p *SpotifyProvider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.F
 	}
 
 	tryStream := func() (*spotifyStreamer, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		stream, err := p.session.NewStream(ctx, *spotID, p.bitrate)
+		ctx, setupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer setupCancel()
+		stream, streamCancel, err := p.session.NewStream(ctx, *spotID, p.bitrate)
 		if err != nil {
 			return nil, err
 		}
-		return newSpotifyStreamer(stream), nil
+		return newSpotifyStreamer(stream, streamCancel), nil
 	}
 
 	s, err := tryStream()

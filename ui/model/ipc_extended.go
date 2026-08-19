@@ -92,6 +92,7 @@ func (m *Model) handleIPCQueue(request ipc.QueueRequestMsg) tea.Cmd {
 			return nil
 		}
 		m.playlist.Queue(request.Index)
+		m.normalizeQueueOverlay()
 		request.Reply <- m.ipcQueueResponse()
 	case "queue.remove":
 		if request.Index == m.playlist.Index() {
@@ -102,16 +103,18 @@ func (m *Model) handleIPCQueue(request ipc.QueueRequestMsg) tea.Cmd {
 			request.Reply <- ipc.Response{OK: false, Error: "queue index out of range"}
 			return nil
 		}
+		m.normalizeQueueOverlay()
 		request.Reply <- m.ipcQueueResponse()
 	case "queue.move":
 		if !m.playlist.Move(request.Index, request.To) {
 			request.Reply <- ipc.Response{OK: false, Error: "invalid queue move"}
 			return nil
 		}
+		m.normalizeQueueOverlay()
 		request.Reply <- m.ipcQueueResponse()
 	case "queue.clear":
 		m.player.Stop()
-		m.playlist.Replace(nil)
+		m.replacePlaylist(nil)
 		m.clearPlaybackTrack()
 		m.loadedPlaylist = ""
 		request.Reply <- m.ipcQueueResponse()
@@ -438,7 +441,7 @@ func (m *Model) handleIPCProviderLoad(result ipcProviderLoadResult) tea.Cmd {
 		result.request.Reply <- ipc.Response{OK: false, Error: result.err.Error()}
 		return nil
 	}
-	m.playlist.Replace(result.tracks)
+	m.replacePlaylist(result.tracks)
 	m.loadedPlaylist = result.loaded
 	m.setHeaderStateFromTracks(result.tracks)
 	m.playlist.SetIndex(0)

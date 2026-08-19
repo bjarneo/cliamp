@@ -129,7 +129,7 @@ func (m Model) View() tea.View {
 
 	screen := m.activeScreen()
 	contentFirst := m.usesContentFirstLayout()
-	if !screen.hidesVisualizer() && !contentFirst {
+	if m.visualizerVisible() {
 		m.refreshVisualizerIfPending()
 	}
 
@@ -841,8 +841,8 @@ func (m Model) renderPlaylist() string {
 		return m.renderProviderList()
 	}
 
-	tracks := m.playlist.Tracks()
-	if len(tracks) == 0 {
+	trackCount := m.playlist.Len()
+	if trackCount == 0 {
 		var lines []string
 		if m.feedLoading {
 			lines = append(lines, loadingLine("Loading feed…"))
@@ -854,11 +854,14 @@ func (m Model) renderPlaylist() string {
 
 	currentIdx := m.playlist.Index()
 	scroll := m.playlistScroll(budget)
+	windowStart := max(0, scroll-1)
+	tracks := m.playlist.TrackWindow(windowStart, budget+1)
+	localScroll := scroll - windowStart
 
 	lines := make([]string, 0, budget)
-	numWidth := len(fmt.Sprintf("%d", len(tracks)))
+	numWidth := len(fmt.Sprintf("%d", trackCount))
 
-	for row := range m.playlistRows(tracks, scroll, m.showAlbumHeaders) {
+	for row := range m.playlistRows(tracks, localScroll, m.showAlbumHeaders) {
 		if row.Index < 0 {
 			if len(lines)+1 >= budget {
 				break
@@ -871,7 +874,7 @@ func (m Model) renderPlaylist() string {
 			break
 		}
 
-		i, t := row.Index, row.Track
+		i, t := windowStart+row.Index, row.Track
 		style := playlistItemStyle
 		selected := m.focus == focusPlaylist && i == m.plCursor
 		playing := !m.playbackDetached && i == currentIdx && m.player.IsPlaying()

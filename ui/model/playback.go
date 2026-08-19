@@ -14,6 +14,11 @@ import (
 
 const ytdlReconnectPauseThreshold = 45 * time.Second
 
+func (m *Model) replacePlaylist(tracks []playlist.Track) {
+	m.playlist.Replace(tracks)
+	m.normalizeQueueOverlay()
+}
+
 // nextTrack advances to the next playlist track and starts playing it.
 // Unplayable tracks are skipped automatically.
 func (m *Model) nextTrack() tea.Cmd {
@@ -27,6 +32,7 @@ func (m *Model) nextTrack() tea.Cmd {
 		return m.playCurrentTrack()
 	}
 	track, ok := m.playlist.Next()
+	m.normalizeQueueOverlay()
 	if !ok {
 		m.player.Stop()
 		m.clearPlaybackTrack()
@@ -172,6 +178,7 @@ func (m *Model) queueTrackNext(track playlist.Track) tea.Cmd {
 	m.addToHeaderState([]playlist.Track{track})
 	idx := m.playlist.Len() - 1
 	m.playlist.Queue(idx)
+	m.normalizeQueueOverlay()
 	m.status.Showf(statusTTLMedium, "Queued: %s", track.DisplayName())
 	if !m.player.IsPlaying() {
 		cmd := m.nextTrack()
@@ -190,7 +197,10 @@ func (m *Model) removeSelectedFromPlaylist() {
 		return
 	}
 	snapshot := m.playlist.Snapshot()
-	track := m.playlist.Tracks()[idx]
+	track, ok := m.playlist.Track(idx)
+	if !ok {
+		return
+	}
 	if track.DirSourced {
 		m.status.Warningf(statusTTLDefault, "Can't remove %q: it's supplied by the playlist's directory source", track.DisplayName())
 		return
@@ -234,6 +244,7 @@ func (m *Model) removeSelectedFromPlaylist() {
 	if !m.playlist.Remove(idx) {
 		return
 	}
+	m.normalizeQueueOverlay()
 	m.playlistUndo = playlistUndo{active: true, snapshot: snapshot, loaded: loaded, saved: saved, persisted: persisted}
 	if wasActive {
 		m.player.Stop()
@@ -272,6 +283,7 @@ func (m *Model) undoPlaylistMutation() {
 		}
 	}
 	m.playlist.Restore(undo.snapshot)
+	m.normalizeQueueOverlay()
 	m.playlistUndo = playlistUndo{}
 	if m.plCursor >= m.playlist.Len() {
 		m.plCursor = max(0, m.playlist.Len()-1)

@@ -1,7 +1,12 @@
 package player
 
 import (
+	"bufio"
+	"bytes"
 	"errors"
+	"io"
+	"os/exec"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -50,6 +55,17 @@ func TestWaitCause(t *testing.T) {
 	}
 }
 
+func TestYTDLPipeErrConcurrentWithStream(t *testing.T) {
+	readErr := errors.New("yt-dlp PCM read failed")
+	y := &ytdlPipeStreamer{
+		reader:    bufio.NewReader(&readResult{data: []byte{1}, err: readErr}),
+		ytdlErr:   make(chan error),
+		ffmpegErr: make(chan error),
+		state:     newPipeStreamState(0),
+	}
+	testPipeErrConcurrentWithStream(t, y, readErr)
+}
+
 // TestWaitCauseReturnsBeforeDeadline verifies that a present yt-dlp error is
 // returned promptly rather than blocking for the full grace period waiting on
 // a silent ffmpeg.
@@ -64,5 +80,51 @@ func TestWaitCauseReturnsBeforeDeadline(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
 		t.Fatalf("waitCause blocked %v waiting for ffmpeg; should return on yt-dlp error", elapsed)
+	}
+}
+
+func TestYTDLPipeCloseReapsBothProcesses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX process fixture")
+	}
+	ytdlCmd := exec.Command("sleep", "30")
+	ffmpegCmd := exec.Command("sleep", "30")
+	var ytdlStderr, ffmpegStderr limitedBuffer
+	if err := ytdlCmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ffmpegCmd.Start(); err != nil {
+		_ = ytdlCmd.Process.Kill()
+		_ = ytdlCmd.Wait()
+		t.Fatal(err)
+	}
+	ytdlErr, ytdlDone := monitorExit(ytdlCmd, &ytdlStderr, "yt-dlp")
+	ffmpegErr, ffmpegDone := monitorExit(ffmpegCmd, &ffmpegStderr, "ffmpeg")
+	y := &ytdlPipeStreamer{
+		ytdlCmd:    ytdlCmd,
+		ffmpegCmd:  ffmpegCmd,
+		pipe:       io.NopCloser(bytes.NewReader(nil)),
+		ytdlErr:    ytdlErr,
+		ffmpegErr:  ffmpegErr,
+		ytdlDone:   ytdlDone,
+		ffmpegDone: ffmpegDone,
+	}
+
+	start := time.Now()
+	if err := y.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("Close() took %v", elapsed)
+	}
+	select {
+	case <-ytdlDone:
+	default:
+		t.Fatal("yt-dlp process was not reaped")
+	}
+	select {
+	case <-ffmpegDone:
+	default:
+		t.Fatal("FFmpeg process was not reaped")
 	}
 }

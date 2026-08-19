@@ -98,8 +98,8 @@ func (m *Model) recomputeLayout() {
 		} else {
 			rows := layout.visualizerRows
 			if contentFirst {
-				// The frame omits the visualizer, but plugin renderers still need
-				// a valid canvas while their mode remains active in the background.
+				// Keep the normal canvas size cached while visualizer work is paused
+				// so modes resume with valid dimensions when the layout returns.
 				switch layout.tier {
 				case layoutFull:
 					rows = ui.DefaultVisRows

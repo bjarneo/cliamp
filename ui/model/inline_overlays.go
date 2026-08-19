@@ -255,15 +255,19 @@ func (m Model) renderDeviceBody() string {
 
 func (m Model) renderQueueBody() string {
 	budget := m.effectivePlaylistVisible()
-	tracks := m.playlist.QueueTracks()
-	if len(tracks) == 0 {
+	if budget <= 0 {
+		return ""
+	}
+	if m.playlist.QueueLen() == 0 {
 		return bodyMessage("(empty)", budget)
 	}
+	start := max(0, m.queue.scroll)
+	tracks := m.playlist.QueueWindow(start, budget)
 	items := make([]string, len(tracks))
 	for i, t := range tracks {
-		items[i] = fmt.Sprintf("%d. %s", i+1, truncate(t.DisplayName(), ui.PanelWidth-8))
+		items[i] = fmt.Sprintf("%d. %s", start+i+1, truncate(t.DisplayName(), ui.PanelWidth-8))
 	}
-	return windowList(items, m.queue.cursor, m.queue.scroll, budget)
+	return windowList(items, m.queue.cursor-start, 0, budget)
 }
 
 // — track info —

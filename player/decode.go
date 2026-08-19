@@ -166,11 +166,9 @@ func (s *stallReader) Close() error {
 	return s.rc.Close()
 }
 
-// openSourceAt opens a ReadCloser for the given path, handling both
-// local files and HTTP URLs.
-// offset using an HTTP Range request (Range: bytes=offset-). For local files
-// the offset is ignored (use decoder.Seek for local files).
-func openSourceAt(path string, byteOffset int64, onMeta func(string)) (sourceResult, error) {
+// openSource opens a ReadCloser for the given path, handling local files,
+// HTTP URLs, and SSH paths.
+func openSource(path string, onMeta func(string)) (sourceResult, error) {
 	if isSSH(path) {
 		return openSSHSource(path)
 	}
@@ -189,17 +187,12 @@ func openSourceAt(path string, byteOffset int64, onMeta func(string)) (sourceRes
 	req.Header.Set("User-Agent", "cliamp/1.0 (https://github.com/bjarneo/cliamp)")
 	// Request ICY metadata — servers that don't support it simply ignore this header.
 	req.Header.Set("Icy-MetaData", "1")
-	if byteOffset > 0 {
-		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", byteOffset))
-	}
-
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		cancel()
 		return sourceResult{}, fmt.Errorf("http get: %w", err)
 	}
-	// Accept 200 OK (full response) or 206 Partial Content (range response).
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
 		cancel()
 		return sourceResult{}, fmt.Errorf("http status %s", resp.Status)
@@ -297,7 +290,7 @@ func (p *Player) isBufferedURL(path string) bool {
 // decodeWithExt selects the decoder using an explicit extension.
 func decodeWithExt(rc io.ReadCloser, ext, path string, sr beep.SampleRate, bitDepth int) (beep.StreamSeekCloser, beep.Format, error) {
 	if needsFFmpeg(ext) {
-		return decodeFFmpeg(path, sr, bitDepth)
+		return decodeFFmpegLocal(path, sr, bitDepth)
 	}
 	switch ext {
 	case ".wav":

@@ -139,6 +139,7 @@ type plManagerState struct {
 	playlists     []playlist.PlaylistInfo
 	selPlaylist   string           // playlist name open in screen 1
 	tracks        []playlist.Track // tracks in the selected playlist
+	missingLocal  []bool           // cached missing-file state, indexed with tracks
 	newName       string
 	confirmDel    bool
 	renameOldName string
@@ -166,9 +167,10 @@ const (
 )
 
 type plManagerUndo struct {
-	kind   plManagerUndoKind
-	name   string
-	tracks []playlist.Track
+	kind         plManagerUndoKind
+	name         string
+	tracks       []playlist.Track
+	missingLocal []bool
 }
 
 type playlistPickerScreen int

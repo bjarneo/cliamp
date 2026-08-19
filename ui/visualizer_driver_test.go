@@ -97,6 +97,86 @@ func TestSmoothBarsDriverUsesAnimTick(t *testing.T) {
 	}
 }
 
+func TestFastFrameDriverTracksWallClockAtNormalUICadence(t *testing.T) {
+	v := NewVisualizer(44100)
+	v.Mode = VisScope
+	v.Cols = 80
+	t0 := time.Unix(1, 0)
+	v.Tick(VisTickContext{Now: t0, Playing: true})
+
+	const ticks = 20
+	for i := 1; i <= ticks; i++ {
+		v.Tick(VisTickContext{Now: t0.Add(time.Duration(i) * TickFast), Playing: true})
+	}
+
+	want := uint64(1 + time.Duration(ticks)*TickFast/TickAnim)
+	if got := v.Frame(); got != want {
+		t.Fatalf("Scope frame after %v = %d, want %d", time.Duration(ticks)*TickFast, got, want)
+	}
+}
+
+func TestNormalFrameDriverAdvancesOncePerTick(t *testing.T) {
+	v := NewVisualizer(44100)
+	v.Mode = VisPulse
+	v.Cols = 80
+	t0 := time.Unix(1, 0)
+
+	for i := range 5 {
+		v.Tick(VisTickContext{Now: t0.Add(time.Duration(i) * TickFast), Playing: true})
+		if got, want := v.Frame(), uint64(i+1); got != want {
+			t.Fatalf("Pulse frame after tick %d = %d, want %d", i+1, got, want)
+		}
+	}
+}
+
+func TestFastFrameDriverBoundsCatchUp(t *testing.T) {
+	v := NewVisualizer(44100)
+	v.Mode = VisScope
+	v.Cols = 80
+	t0 := time.Unix(1, 0)
+	v.Tick(VisTickContext{Now: t0, Playing: true})
+	v.Tick(VisTickContext{Now: t0.Add(time.Second), Playing: true})
+
+	want := uint64(1 + maxAnimationCatchUpSteps)
+	if got := v.Frame(); got != want {
+		t.Fatalf("Scope frame after stalled tick = %d, want bounded catch-up to %d", got, want)
+	}
+}
+
+func TestFastFrameDriverDoesNotCatchUpPausedOrHiddenTime(t *testing.T) {
+	tests := []struct {
+		name    string
+		suspend func(*Visualizer, time.Time)
+	}{
+		{
+			name: "paused",
+			suspend: func(v *Visualizer, now time.Time) {
+				v.Tick(VisTickContext{Now: now, Playing: true, Paused: true})
+			},
+		},
+		{name: "hidden", suspend: func(v *Visualizer, _ time.Time) { v.Suspend() }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := NewVisualizer(44100)
+			v.Mode = VisScope
+			v.Cols = 80
+			t0 := time.Unix(1, 0)
+			v.Tick(VisTickContext{Now: t0, Playing: true})
+			v.Tick(VisTickContext{Now: t0.Add(TickFast), Playing: true})
+			before := v.Frame()
+
+			tt.suspend(v, t0.Add(2*TickFast))
+			v.Tick(VisTickContext{Now: t0.Add(2 * time.Second), Playing: true})
+
+			if got := v.Frame(); got != before+1 {
+				t.Fatalf("Scope frame after resume = %d, want %d", got, before+1)
+			}
+		})
+	}
+}
+
 func TestAdvanceSmoothingEasesTowardBands(t *testing.T) {
 	v := NewVisualizer(44100)
 	v.bands = []float64{1.0, 0.0}

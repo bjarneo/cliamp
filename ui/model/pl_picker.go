@@ -270,7 +270,7 @@ func (m *Model) refreshPlaylistManagerAfterWrite(name string) {
 	m.plMgrRefreshList()
 	if m.plManager.screen == plMgrScreenTracks && m.plManager.selPlaylist == name {
 		if tracks, err := m.localProvider.Tracks(name); err == nil {
-			m.plManager.tracks = tracks
+			m.plMgrLoadTracks(tracks)
 			m.plMgrRecomputeFilter()
 			m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
 		}

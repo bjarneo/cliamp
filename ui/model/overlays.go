@@ -2,8 +2,10 @@ package model
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
+	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
 )
@@ -374,7 +376,7 @@ func (m *Model) plMgrEnterTrackList(name string) {
 		return
 	}
 	m.plManager.selPlaylist = name
-	m.plManager.tracks = tracks
+	m.plMgrLoadTracks(tracks)
 	m.plManager.marked = make(map[int]bool)
 	m.plManager.sortMode = 0
 	m.setHeaderStateFromTracks(tracks)
@@ -384,6 +386,43 @@ func (m *Model) plMgrEnterTrackList(name string) {
 	m.plManager.confirmDel = false
 	m.plMgrResetFilter()
 	m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
+}
+
+// plMgrLoadTracks refreshes missing-file state only at an explicit list load.
+// The synchronous stats stay out of render and in-memory edit paths.
+func (m *Model) plMgrLoadTracks(tracks []playlist.Track) {
+	m.plManager.tracks = tracks
+	m.plMgrRefreshMissingLocal()
+}
+
+func (m *Model) plMgrRestoreTracks(tracks []playlist.Track, missingLocal []bool) {
+	m.plManager.tracks = cloneTracks(tracks)
+	m.plManager.missingLocal = append([]bool(nil), missingLocal...)
+	m.plMgrEnsureMissingLocal()
+}
+
+func (m *Model) plMgrEnsureMissingLocal() {
+	if len(m.plManager.missingLocal) == len(m.plManager.tracks) {
+		return
+	}
+	missingLocal := make([]bool, len(m.plManager.tracks))
+	copy(missingLocal, m.plManager.missingLocal)
+	m.plManager.missingLocal = missingLocal
+}
+
+func (m *Model) plMgrRefreshMissingLocal() {
+	m.plManager.missingLocal = make([]bool, len(m.plManager.tracks))
+	for i, track := range m.plManager.tracks {
+		m.plManager.missingLocal[i] = missingLocalTrack(track)
+	}
+}
+
+func missingLocalTrack(track playlist.Track) bool {
+	if track.Path == "" || track.Stream || playlist.IsURL(track.Path) || strings.HasPrefix(track.Path, "ssh://") {
+		return false
+	}
+	_, err := os.Stat(track.Path)
+	return os.IsNotExist(err)
 }
 
 // plMgrResetFilter clears any active `/` filter on the playlist manager.

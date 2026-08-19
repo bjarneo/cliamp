@@ -3,6 +3,7 @@ package ui
 import (
 	"math"
 	"math/rand/v2"
+	"strings"
 	"testing"
 	"time"
 )
@@ -125,5 +126,29 @@ func BenchmarkTickPipeline(b *testing.B) {
 				_ = v.Render()
 			}
 		})
+	}
+}
+
+func BenchmarkFitVisualizerFrame(b *testing.B) {
+	line := "\x1b[38;2;255;128;0m" + strings.Repeat("界 visualizer ", 12) + "\x1b[0m"
+	frame := strings.Repeat(line+"\n", DefaultVisRows-1) + line
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = fitVisualizerFrame(frame, 76, DefaultVisRows)
+	}
+}
+
+func BenchmarkVisualizerFrameAccounting(b *testing.B) {
+	v := NewVisualizer(benchSampleRate)
+	v.Mode = VisScope
+	v.Cols = 80
+	now := time.Unix(1, 0)
+	ctx := VisTickContext{Now: now, Playing: true}
+	v.Tick(ctx)
+	b.ReportAllocs()
+	for b.Loop() {
+		now = now.Add(TickFast)
+		ctx.Now = now
+		v.Tick(ctx)
 	}
 }

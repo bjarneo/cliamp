@@ -3,6 +3,7 @@
 package spotify
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,14 +12,84 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"testing/synctest"
 	"time"
 
+	librespotPlayer "github.com/devgianlu/go-librespot/player"
 	"golang.org/x/oauth2"
 )
 
 type tokenSourceFunc func() (*oauth2.Token, error)
 
 func (f tokenSourceFunc) Token() (*oauth2.Token, error) { return f() }
+
+func TestAwaitSpotifyStreamTimeoutCancelsTransportAndReleasesReadLock(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const timeout = 10 * time.Millisecond
+		setupCtx, setupCancel := context.WithTimeout(t.Context(), timeout)
+		defer setupCancel()
+
+		streamCtx, streamCancel := context.WithCancel(context.Background())
+		requestStarted := make(chan struct{})
+		requestCanceled := make(chan error, 1)
+		client := newSpotifyStreamHTTPClient(streamCtx, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			close(requestStarted)
+			<-req.Context().Done()
+			requestCanceled <- req.Context().Err()
+			return nil, req.Context().Err()
+		}))
+
+		var session Session
+		openDone := make(chan struct{})
+		start := time.Now()
+		stream, cancel, err := awaitSpotifyStream(setupCtx, streamCancel, func() (*librespotPlayer.Stream, error) {
+			session.mu.RLock()
+			defer close(openDone)
+			defer session.mu.RUnlock()
+
+			req, err := http.NewRequest(http.MethodGet, "https://audio.example/initial", nil)
+			if err != nil {
+				return nil, err
+			}
+			_, err = client.Do(req)
+			return nil, err
+		})
+
+		if stream != nil || cancel != nil {
+			t.Fatalf("awaitSpotifyStream() = (%v, %v), want nil stream and cancel", stream, cancel)
+		}
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("awaitSpotifyStream() error = %v, want context.DeadlineExceeded", err)
+		}
+		if elapsed := time.Since(start); elapsed != timeout {
+			t.Errorf("awaitSpotifyStream() returned after %v, want %v", elapsed, timeout)
+		}
+
+		synctest.Wait()
+		select {
+		case <-requestStarted:
+		default:
+			t.Fatal("transport request did not start")
+		}
+		select {
+		case err := <-requestCanceled:
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("transport context error = %v, want context.Canceled", err)
+			}
+		default:
+			t.Fatal("transport request was not canceled")
+		}
+		select {
+		case <-openDone:
+		default:
+			t.Fatal("stream setup goroutine did not exit")
+		}
+		if !session.mu.TryLock() {
+			t.Fatal("stream setup retained the session read lock")
+		}
+		session.mu.Unlock()
+	})
+}
 
 func TestIsInvalidGrant(t *testing.T) {
 	tests := []struct {

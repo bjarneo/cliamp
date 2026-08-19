@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -528,14 +529,16 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "f":
 		if m.focus == focusPlaylist && m.plCursor >= 0 && m.plCursor < m.playlist.Len() && m.loadedPlaylist != "" {
 			if bs, ok := m.localProvider.(provider.BookmarkSetter); ok {
-				tracks := m.playlist.Tracks()
-				track := tracks[m.plCursor]
+				track, ok := m.playlist.Track(m.plCursor)
+				if !ok {
+					return nil
+				}
 				if err := bs.SetBookmarkByPath(m.loadedPlaylist, track.Path); err != nil {
 					m.status.Errorf(statusTTLDefault, "Save failed: %s", err)
 					return nil
 				}
 				m.playlist.ToggleBookmark(m.plCursor)
-				track = m.playlist.Tracks()[m.plCursor]
+				track, _ = m.playlist.Track(m.plCursor)
 				if track.Bookmark {
 					m.status.Showf(statusTTLDefault, "★ %s", track.DisplayName())
 				} else {
@@ -678,12 +681,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			if !m.playlist.Dequeue(m.plCursor) {
 				m.playlist.Queue(m.plCursor)
 			}
+			m.normalizeQueueOverlay()
 		}
 
 	case "w":
 		if m.focus == focusPlaylist && m.plCursor >= 0 && m.plCursor < m.playlist.Len() {
-			track := m.playlist.Tracks()[m.plCursor]
-			m.openPlaylistPicker([]playlist.Track{track}, "Track: "+track.DisplayName())
+			if track, ok := m.playlist.Track(m.plCursor); ok {
+				m.openPlaylistPicker([]playlist.Track{track}, "Track: "+track.DisplayName())
+			}
 		}
 
 	case "A":
@@ -1374,6 +1379,7 @@ func (m *Model) handleSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 			if !m.playlist.Dequeue(idx) {
 				m.playlist.Queue(idx)
 			}
+			m.normalizeQueueOverlay()
 		}
 
 	case tea.KeyUp:
@@ -1909,7 +1915,7 @@ func (m *Model) plMgrLoadAndPlay(startIdx int) tea.Cmd {
 	m.player.Stop()
 	m.player.ClearPreload()
 	m.resetYTDLBatch()
-	m.playlist.Replace(m.plManager.tracks)
+	m.replacePlaylist(m.plManager.tracks)
 	m.setHeaderStateFromTracks(m.plManager.tracks)
 	m.loadedPlaylist = m.plManager.selPlaylist
 	if startIdx < 0 || startIdx >= m.playlist.Len() {
@@ -2005,14 +2011,20 @@ func (m *Model) localSaver() provider.PlaylistSaver {
 }
 
 func cloneTracks(tracks []playlist.Track) []playlist.Track {
-	return append([]playlist.Track(nil), tracks...)
+	cloned := append([]playlist.Track(nil), tracks...)
+	for i := range cloned {
+		cloned[i].ProviderMeta = maps.Clone(cloned[i].ProviderMeta)
+	}
+	return cloned
 }
 
 func (m *Model) plMgrSetTrackUndo() {
+	m.plMgrEnsureMissingLocal()
 	m.plManager.undo = plManagerUndo{
-		kind:   plUndoTracks,
-		name:   m.plManager.selPlaylist,
-		tracks: cloneTracks(m.plManager.tracks),
+		kind:         plUndoTracks,
+		name:         m.plManager.selPlaylist,
+		tracks:       cloneTracks(m.plManager.tracks),
+		missingLocal: append([]bool(nil), m.plManager.missingLocal...),
 	}
 }
 
@@ -2034,7 +2046,7 @@ func (m *Model) plMgrUndoLast() {
 	m.plManager.undo = plManagerUndo{}
 	m.plMgrRefreshList()
 	if m.plManager.screen == plMgrScreenTracks && m.plManager.selPlaylist == undo.name {
-		m.plManager.tracks = cloneTracks(undo.tracks)
+		m.plMgrRestoreTracks(undo.tracks, undo.missingLocal)
 		m.plManager.marked = make(map[int]bool)
 		m.plMgrRecomputeFilter()
 		m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
@@ -2118,7 +2130,7 @@ func (m *Model) plMgrSaveTracks(status string) bool {
 		m.status.Warning("Playlist saving is not supported", statusTTLDefault)
 		return false
 	}
-	if err := saver.SavePlaylist(m.plManager.selPlaylist, m.plManager.tracks); err != nil {
+	if err := saver.SavePlaylist(m.plManager.selPlaylist, cloneTracks(m.plManager.tracks)); err != nil {
 		m.status.Errorf(statusTTLDefault, "Save failed: %s", err)
 		return false
 	}
@@ -2143,10 +2155,11 @@ func (m *Model) plMgrRemoveSelectedTracks() {
 	for i := len(indices) - 1; i >= 0; i-- {
 		idx := indices[i]
 		m.plManager.tracks = append(m.plManager.tracks[:idx], m.plManager.tracks[idx+1:]...)
+		m.plManager.missingLocal = append(m.plManager.missingLocal[:idx], m.plManager.missingLocal[idx+1:]...)
 	}
 	m.plManager.marked = make(map[int]bool)
 	if !m.plMgrSaveTracks(fmt.Sprintf("Removed %d track(s) from %q", len(indices), m.plManager.selPlaylist)) {
-		m.plManager.tracks = cloneTracks(m.plManager.undo.tracks)
+		m.plMgrRestoreTracks(m.plManager.undo.tracks, m.plManager.undo.missingLocal)
 		return
 	}
 	if m.plManager.filter != "" {
@@ -2174,12 +2187,13 @@ func (m *Model) plMgrMoveTrack(delta int) {
 	}
 	m.plMgrSetTrackUndo()
 	m.plManager.tracks[from], m.plManager.tracks[to] = m.plManager.tracks[to], m.plManager.tracks[from]
+	m.plManager.missingLocal[from], m.plManager.missingLocal[to] = m.plManager.missingLocal[to], m.plManager.missingLocal[from]
 	m.plManager.cursor = to
 	m.plManager.marked = make(map[int]bool)
 	if m.plMgrSaveTracks(fmt.Sprintf("Reordered %q", m.plManager.selPlaylist)) {
 		m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
 	} else {
-		m.plManager.tracks = cloneTracks(m.plManager.undo.tracks)
+		m.plMgrRestoreTracks(m.plManager.undo.tracks, m.plManager.undo.missingLocal)
 	}
 }
 
@@ -2192,16 +2206,28 @@ func (m *Model) plMgrSortTracks() {
 	m.plMgrSetTrackUndo()
 	mode := plMgrSortModes[m.plManager.sortMode%len(plMgrSortModes)]
 	m.plManager.sortMode++
-	sort.SliceStable(m.plManager.tracks, func(i, j int) bool {
-		return compareUITracks(m.plManager.tracks[i], m.plManager.tracks[j], mode) < 0
+	order := make([]int, len(m.plManager.tracks))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		return compareUITracks(m.plManager.tracks[order[i]], m.plManager.tracks[order[j]], mode) < 0
 	})
+	tracks := make([]playlist.Track, len(order))
+	missingLocal := make([]bool, len(order))
+	for i, idx := range order {
+		tracks[i] = m.plManager.tracks[idx]
+		missingLocal[i] = m.plManager.missingLocal[idx]
+	}
+	m.plManager.tracks = tracks
+	m.plManager.missingLocal = missingLocal
 	m.plManager.marked = make(map[int]bool)
 	if m.plMgrSaveTracks(fmt.Sprintf("Sorted %q by %s", m.plManager.selPlaylist, mode)) {
 		m.plManager.cursor = 0
 		m.plManager.scroll = 0
 		m.plMgrRecomputeFilter()
 	} else {
-		m.plManager.tracks = cloneTracks(m.plManager.undo.tracks)
+		m.plMgrRestoreTracks(m.plManager.undo.tracks, m.plManager.undo.missingLocal)
 	}
 }
 
@@ -2241,14 +2267,15 @@ func (m *Model) persistLoadedPlaylistOrder() {
 	if !ok {
 		return
 	}
+	tracks := m.playlist.Tracks()
 	hasDirTracks := false
-	for _, t := range m.playlist.Tracks() {
+	for _, t := range tracks {
 		if t.DirSourced {
 			hasDirTracks = true
 			break
 		}
 	}
-	if err := saver.SavePlaylist(m.loadedPlaylist, m.playlist.Tracks()); err != nil {
+	if err := saver.SavePlaylist(m.loadedPlaylist, tracks); err != nil {
 		m.status.Errorf(statusTTLDefault, "Save failed: %s", err)
 		return
 	}
@@ -2572,11 +2599,33 @@ func (m *Model) handleVisPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-// handleQueueKey processes key presses while the queue manager overlay is open.
-func (m *Model) queueMaybeAdjustScroll(visible int) {
-	clampScroll(&m.queue.cursor, &m.queue.scroll, m.playlist.QueueLen(), visible)
+// normalizeQueueOverlay keeps the selected queue row and scroll window valid
+// after queue mutations, including mutations made while the overlay is hidden.
+func (m *Model) normalizeQueueOverlay() {
+	if m.playlist == nil {
+		m.queue.cursor = 0
+		m.queue.scroll = 0
+		return
+	}
+	count := m.playlist.QueueLen()
+	if count == 0 {
+		m.queue.cursor = 0
+		m.queue.scroll = 0
+		return
+	}
+	m.queue.cursor = min(max(0, m.queue.cursor), count-1)
+	visible := m.queueVisible()
+	if visible <= 0 {
+		m.queue.scroll = min(max(0, m.queue.scroll), count-1)
+		if m.queue.cursor < m.queue.scroll {
+			m.queue.scroll = m.queue.cursor
+		}
+		return
+	}
+	clampScroll(&m.queue.cursor, &m.queue.scroll, count, visible)
 }
 
+// handleQueueKey processes key presses while the queue manager overlay is open.
 func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 	qLen := m.playlist.QueueLen()
 
@@ -2588,14 +2637,14 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.openKeymap()
 	case "ctrl+x":
 		m.toggleExpandedView()
-		m.queueMaybeAdjustScroll(m.queueVisible())
+		m.normalizeQueueOverlay()
 	case "up", "k":
 		if m.queue.cursor > 0 {
 			m.queue.cursor--
 		} else if qLen > 0 {
 			m.queue.cursor = qLen - 1
 		}
-		m.queueMaybeAdjustScroll(m.queueVisible())
+		m.normalizeQueueOverlay()
 
 	case "down", "j":
 		if m.queue.cursor < qLen-1 {
@@ -2603,35 +2652,33 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 		} else if qLen > 0 {
 			m.queue.cursor = 0
 		}
-		m.queueMaybeAdjustScroll(m.queueVisible())
+		m.normalizeQueueOverlay()
 	case "shift+up":
 		if m.queue.cursor > 0 {
 			if m.playlist.MoveQueue(m.queue.cursor, m.queue.cursor-1) {
 				m.queue.cursor--
 			}
 		}
-		m.queueMaybeAdjustScroll(m.queueVisible())
+		m.normalizeQueueOverlay()
 	case "shift+down":
 		if m.queue.cursor < qLen-1 {
 			if m.playlist.MoveQueue(m.queue.cursor, m.queue.cursor+1) {
 				m.queue.cursor++
 			}
 		}
-		m.queueMaybeAdjustScroll(m.queueVisible())
+		m.normalizeQueueOverlay()
 	case "d":
 		if qLen > 0 {
 			m.playlistUndo = playlistUndo{active: true, snapshot: m.playlist.Snapshot()}
 			m.playlist.RemoveQueueAt(m.queue.cursor)
-			if m.queue.cursor >= m.playlist.QueueLen() && m.queue.cursor > 0 {
-				m.queue.cursor--
-			}
 			m.status.Show("Removed queued track (Ctrl+Z to undo)", statusTTLDefault)
 		}
-		m.queueMaybeAdjustScroll(m.queueVisible())
+		m.normalizeQueueOverlay()
 	case "c":
 		if qLen > 0 {
 			m.playlistUndo = playlistUndo{active: true, snapshot: m.playlist.Snapshot()}
 			m.playlist.ClearQueue()
+			m.normalizeQueueOverlay()
 			m.status.Show("Cleared queue (Ctrl+Z to undo)", statusTTLDefault)
 		}
 		m.queue.visible = false

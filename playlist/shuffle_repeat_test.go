@@ -184,3 +184,50 @@ func TestBookmarkCount(t *testing.T) {
 		t.Fatalf("BookmarkCount() = %d, want 3", got)
 	}
 }
+
+func TestBookmarkCountStaysCoherentAcrossMutations(t *testing.T) {
+	p := New()
+	p.Replace([]Track{
+		{Title: "A", Bookmark: true},
+		{Title: "B"},
+		{Title: "C", Bookmark: true},
+	})
+	if got := p.BookmarkCount(); got != 2 {
+		t.Fatalf("BookmarkCount() after Replace = %d, want 2", got)
+	}
+
+	p.Add(Track{Title: "D", Bookmark: true}, Track{Title: "E"})
+	if got := p.BookmarkCount(); got != 3 {
+		t.Fatalf("BookmarkCount() after Add = %d, want 3", got)
+	}
+
+	p.SetTrack(0, Track{Title: "A"})
+	p.SetTrack(1, Track{Title: "B", Bookmark: true})
+	if got := p.BookmarkCount(); got != 3 {
+		t.Fatalf("BookmarkCount() after SetTrack = %d, want 3", got)
+	}
+
+	if !p.Move(1, 3) {
+		t.Fatal("Move(1, 3) = false, want true")
+	}
+	if got := p.BookmarkCount(); got != 3 {
+		t.Fatalf("BookmarkCount() after Move = %d, want 3", got)
+	}
+	snapshot := p.Snapshot()
+
+	if !p.Remove(2) {
+		t.Fatal("Remove(2) = false, want true")
+	}
+	if got := p.BookmarkCount(); got != 2 {
+		t.Fatalf("BookmarkCount() after removing bookmark = %d, want 2", got)
+	}
+
+	p.Replace(nil)
+	if got := p.BookmarkCount(); got != 0 {
+		t.Fatalf("BookmarkCount() after clearing Replace = %d, want 0", got)
+	}
+	p.Restore(snapshot)
+	if got := p.BookmarkCount(); got != 3 {
+		t.Fatalf("BookmarkCount() after Restore = %d, want 3", got)
+	}
+}
