@@ -175,8 +175,20 @@ func (m *Model) providerToBottom() {
 	m.providerMaybeAdjustScroll()
 }
 
+func normalizeShiftedLetter(msg tea.KeyPressMsg) tea.KeyPressMsg {
+	if msg.Text != "" || msg.Mod != tea.ModShift ||
+		msg.Code < 'a' || msg.Code > 'z' ||
+		msg.ShiftedCode < 'A' || msg.ShiftedCode > 'Z' {
+		return msg
+	}
+	msg.Text = string(msg.ShiftedCode)
+	return msg
+}
+
 // handleKey processes a single key press and returns an optional command.
 func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
+	msg = normalizeShiftedLetter(msg)
+
 	if msg.String() == "ctrl+c" {
 		return m.quit()
 	}
