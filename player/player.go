@@ -334,12 +334,23 @@ func (p *Player) PreloadYTDL(pageURL string, knownDuration time.Duration) error 
 // preloadPipeline queues a ready trackPipeline for gapless transition.
 func (p *Player) preloadPipeline(tp *trackPipeline) error {
 	// A gapless transition happens inside a single device buffer, so it cannot
-	// change the device's sample rate. In bit-perfect mode a next track at a
-	// different rate is therefore dropped here and opened normally (reopening
-	// the device) once the current one drains. Remember the deferral (when the
+	// change the device's sample rate — it never calls alignOutput/
+	// SetSampleRate at all. In bit-perfect mode a next track at a different
+	// rate is therefore dropped here and opened normally (reopening the
+	// device) once the current one drains. Remember the deferral (when the
 	// pipeline has a path to key on) so Preload's fast path can skip rebuilding
 	// it every tick until the current track changes.
-	if p.bitPerfect && tp.format.SampleRate > 0 && int(tp.format.SampleRate) != p.out.SampleRate() {
+	//
+	// !p.out.RateExact() also defers even when the rate already matches: the
+	// current device can be sitting at this exact number for an unrelated
+	// reason (a fallback from an earlier track's unsupported rate — see
+	// alsaDevice.requestedRate) without ever having been verified exact
+	// *for* it. Gapless reusing it as-is would silently carry that stale
+	// non-exact state into a track that would genuinely earn the bit-perfect
+	// badge if actually reopened — which deferring here achieves, by forcing
+	// the eventual non-gapless Play() through alignOutput's real
+	// verification instead.
+	if p.bitPerfect && tp.format.SampleRate > 0 && (!p.out.RateExact() || int(tp.format.SampleRate) != p.out.SampleRate()) {
 		if tp.path != "" {
 			p.deferPreload(tp.path)
 		}
