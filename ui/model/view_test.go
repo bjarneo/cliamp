@@ -20,3 +20,22 @@ func TestFormatKHz(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatBitsRate(t *testing.T) {
+	tests := []struct {
+		bits int
+		hz   int
+		want string
+	}{
+		{16, 44100, "16bit/44.1kHz"},
+		{24, 96000, "24bit/96kHz"},
+		{0, 48000, "48kHz"},  // unknown bit depth: rate alone, not "0bit/..."
+		{-1, 48000, "48kHz"}, // defensively treated the same as unknown
+	}
+
+	for _, tt := range tests {
+		if got := formatBitsRate(tt.bits, tt.hz); got != tt.want {
+			t.Errorf("formatBitsRate(%d, %d) = %q, want %q", tt.bits, tt.hz, got, tt.want)
+		}
+	}
+}

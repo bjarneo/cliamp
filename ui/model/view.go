@@ -450,12 +450,12 @@ func (m Model) renderBitPerfectRate() string {
 		return ""
 	}
 	if st.Active {
-		return bitPerfectStyle.Render(formatKHz(st.DeviceRate))
+		return bitPerfectStyle.Render(formatBitsRate(st.SourceBits, st.DeviceRate))
 	}
 	if st.SourceRate > 0 && st.SourceRate != st.DeviceRate {
-		return dimStyle.Render(formatKHz(st.SourceRate) + "→" + formatKHz(st.DeviceRate))
+		return dimStyle.Render(formatBitsRate(st.SourceBits, st.SourceRate) + "→" + formatKHz(st.DeviceRate))
 	}
-	return dimStyle.Render(formatKHz(st.DeviceRate))
+	return dimStyle.Render(formatBitsRate(st.SourceBits, st.DeviceRate))
 }
 
 // formatKHz renders a Hz value compactly, e.g. 44100 -> "44.1kHz",
@@ -466,6 +466,17 @@ func formatKHz(hz int) string {
 		return fmt.Sprintf("%dkHz", int(khz))
 	}
 	return fmt.Sprintf("%.1fkHz", khz)
+}
+
+// formatBitsRate formats a source spec the way audiophile players
+// conventionally do, e.g. "24bit/96kHz" — falling back to the rate alone
+// when bits is unknown (BitPerfectStatus.SourceBits is 0 before a track's
+// format has been probed), rather than showing a meaningless "0bit".
+func formatBitsRate(bits, hz int) string {
+	if bits <= 0 {
+		return formatKHz(hz)
+	}
+	return fmt.Sprintf("%dbit/%s", bits, formatKHz(hz))
 }
 
 func (m Model) renderSpectrum() string {

@@ -107,3 +107,24 @@ func TestBitPerfectStatusReportsRatesAndEncoding(t *testing.T) {
 		t.Errorf("Encoding = %q, want FLOAT_LE", st.Encoding)
 	}
 }
+
+func TestBitPerfectStatusReportsSourceBits(t *testing.T) {
+	tests := []struct {
+		name        string
+		sourceBytes int
+		want        int
+	}{
+		{"16-bit source", 2, 16},
+		{"24-bit source", 3, 24},
+		{"unknown", 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := baseInputs()
+			in.sourceBytes = tt.sourceBytes
+			if got := in.eval().SourceBits; got != tt.want {
+				t.Errorf("SourceBits = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}

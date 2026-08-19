@@ -12,6 +12,7 @@ type BitPerfectStatus struct {
 	Enabled    bool   // bit-perfect mode is on and the backend supports it
 	Active     bool   // the signal path is currently bit-exact
 	SourceRate int    // the track's native sample rate in Hz (0 when unknown)
+	SourceBits int    // the source's own bit depth, e.g. 16 or 24 (0 when unknown)
 	DeviceRate int    // the rate the output device is running at, in Hz
 	Encoding   string // PCM format handed to the device, e.g. "S32_LE"
 	Blocker    string // what prevents Active; empty when Active
@@ -42,6 +43,7 @@ func (in bitPerfectInputs) eval() BitPerfectStatus {
 	st := BitPerfectStatus{
 		Enabled:    in.enabled,
 		SourceRate: in.sourceRate,
+		SourceBits: in.sourceBytes * 8,
 		DeviceRate: in.deviceRate,
 		Encoding:   in.encoding.String(),
 	}
