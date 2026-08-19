@@ -330,8 +330,17 @@ func (s *alsaSink) closeLocked() {
 	s.dev = nil
 	close(dev.stop)
 	C.snd_pcm_drop(dev.handle)
-	// Wake the writer if it is parked on the suspend condition.
+	// Wake the writer if it is parked on the suspend condition. Taking
+	// stateMu here, matching waitRunning's own lock, isn't optional: without
+	// it, a writer that has just checked stopped(dev) (false) but hasn't yet
+	// reached stateCond.Wait() can have this Broadcast land in that exact
+	// gap — sync.Cond doesn't queue a broadcast for a goroutine that isn't
+	// parked yet, so the writer would then call Wait() and park forever,
+	// dev.done would never close, and this function's own <-dev.done below
+	// (holding devMu) would wedge every other sink method along with it.
+	s.stateMu.Lock()
 	s.stateCond.Broadcast()
+	s.stateMu.Unlock()
 	<-dev.done
 	C.snd_pcm_close(dev.handle)
 }
