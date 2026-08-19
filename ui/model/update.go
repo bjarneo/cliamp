@@ -1151,6 +1151,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if cur, _ := m.currentPlaybackTrack(); cur.Path != "" {
 			info := ipcTrackInfo(cur, m.playlist.Index(), m.playlist.QueuePosition(m.playlist.Index()))
+			if artist, title := m.resolveTrackDisplay(cur); title != "" {
+				if cur.Stream && title != cur.Title {
+					info.Station = cur.Title
+				}
+				info.Artist, info.Title = artist, title
+			}
+			if cur.Stream {
+				info.StreamTitle = m.streamTitle
+			}
 			resp.Track = &info
 		}
 		resp.Position = m.player.Position().Seconds()

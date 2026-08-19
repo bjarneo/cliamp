@@ -101,6 +101,8 @@ type TrackInfo struct {
 	Index         int    `json:"index,omitempty"`
 	QueuePosition int    `json:"queue_position,omitempty"`
 	Stream        bool   `json:"stream,omitempty"`
+	StreamTitle   string `json:"stream_title,omitempty"`
+	Station       string `json:"station,omitempty"`
 	Realtime      bool   `json:"realtime,omitempty"`
 	Bookmark      bool   `json:"bookmark,omitempty"`
 	Unplayable    bool   `json:"unplayable,omitempty"`

@@ -956,6 +956,19 @@ func (d *daemon) statusResponse() ipc.Response {
 	}
 	if cur, _ := d.playlist.Current(); cur.Path != "" {
 		info := trackInfo(cur, d.playlist.Index(), d.playlist.QueuePosition(d.playlist.Index()))
+		if cur.Stream {
+			if title := d.player.StreamTitle(); title != "" {
+				info.StreamTitle = title
+				if title != cur.Title {
+					info.Station = cur.Title
+				}
+				if a, t, ok := strings.Cut(title, " - "); ok {
+					info.Artist, info.Title = a, t
+				} else {
+					info.Title = title
+				}
+			}
+		}
 		resp.Track = &info
 	}
 	pos, dur := d.player.PositionAndDuration()
