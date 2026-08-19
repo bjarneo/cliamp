@@ -263,6 +263,65 @@ func (m Model) playlistRows(tracks []playlist.Track, scroll int, showHeaders boo
 	}
 }
 
+// spotSearchRow is one rendered row of the provider search results: a section
+// separator when Index is negative, otherwise the result at Index.
+type spotSearchRow struct {
+	Index   int
+	Track   playlist.Track
+	Section string
+}
+
+// spotSearchSection names the section a search result belongs to. Albums are
+// placeholders that expand into a record; everything else plays as-is.
+func spotSearchSection(t playlist.Track) string {
+	if t.IsAlbum() {
+		return "Albums"
+	}
+	return "Tracks"
+}
+
+// spotSearchRows walks the search results from scroll, emitting a separator
+// whenever the section changes. The provider returns albums first, so this
+// yields at most two headers, plus a sticky one at the top of the viewport so
+// the section stays named while scrolling through a long run of results.
+func spotSearchRows(results []playlist.Track, scroll int) iter.Seq[spotSearchRow] {
+	return func(yield func(spotSearchRow) bool) {
+		if len(results) == 0 || scroll < 0 || scroll >= len(results) {
+			return
+		}
+
+		prev := ""
+		for i := scroll; i < len(results); i++ {
+			section := spotSearchSection(results[i])
+			if section != prev {
+				if !yield(spotSearchRow{Index: -1, Section: section}) {
+					return
+				}
+			}
+			if !yield(spotSearchRow{Index: i, Track: results[i]}) {
+				return
+			}
+			prev = section
+		}
+	}
+}
+
+// spotSearchRowsToCursor counts rendered rows from scroll to cursor inclusive,
+// separators included, so scrolling can account for the space they take.
+func spotSearchRowsToCursor(results []playlist.Track, scroll, cursor int) int {
+	if len(results) == 0 || scroll < 0 || cursor < scroll || cursor >= len(results) {
+		return 0
+	}
+	rows := 0
+	for row := range spotSearchRows(results, scroll) {
+		rows++
+		if row.Index == cursor {
+			break
+		}
+	}
+	return rows
+}
+
 // albumSeparatorRows counts rendered rows between scroll and cursor (inclusive)
 // in a playlist view that emits an album-separator row whenever the album
 // changes. Streaming tracks are treated as not contributing a separator,
