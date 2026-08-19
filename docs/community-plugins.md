@@ -14,3 +14,4 @@ Plugins built by the community. If you've built a plugin, open a PR to add it he
 | [cliamp-plugin-mandelbrot](https://github.com/mikkel-bergmann/cliamp-plugin-mandelbrot) | Zooming psychedelic Mandelbrot set visualizer with braille rendering and bass reactivity | [@mikkel-bergmann](https://github.com/mikkel-bergmann) |
 | [cliamp-plugin-gpodder-sync](https://github.com/sollymay/cliamp-plugin-gpodder-sync) | gpodder.net subscription, progress and download sync | [@sollymay](https://github.com/sollymay) |
 | [cliamp-plugin-discord-rpc](https://github.com/fazaimron27/cliamp-plugin-discord-rpc) | Discord Rich Presence | [@fazaimron27](https://github.com/fazaimron27) |
+| [herdr-cliamp](https://github.com/coryshaw1/herdr-cliamp) | Floating cliamp for the [herdr](https://herdr.dev) multiplexer that keeps playing when hidden, with now-playing and transport keybinds | [@coryshaw1](https://github.com/coryshaw1) |
