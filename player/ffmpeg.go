@@ -563,6 +563,32 @@ func probeNativeRateAsync(path string) <-chan int {
 	return ch
 }
 
+// probeNativeBits is probeNativeRate's exact counterpart for bit depth:
+// ffprobe only populates bits_per_raw_sample for a lossless/uncompressed
+// codec (FLAC, ALAC, WAV) — a lossy codec (AAC, MP3, Opus, a transcoded
+// Navidrome/Subsonic stream, ...) has no such property and this correctly
+// returns 0 (unverified) for one, same as an unreachable URL or missing
+// ffprobe. path may be a local file or an HTTP(S) URL.
+func probeNativeBits(path string) int {
+	v, ok := ffprobeField(path, "stream=bits_per_raw_sample")
+	if !ok {
+		return 0
+	}
+	bits, err := strconv.Atoi(v)
+	if err != nil || bits <= 0 {
+		return 0
+	}
+	return bits
+}
+
+// probeNativeBitsAsync is probeNativeRateAsync's counterpart for bit depth —
+// see that function's doc comment.
+func probeNativeBitsAsync(path string) <-chan int {
+	ch := make(chan int, 1)
+	go func() { ch <- probeNativeBits(path) }()
+	return ch
+}
+
 // probeFrames uses ffprobe to quickly read file duration from metadata and
 // converts it to sample frames. This only reads the container header, so it
 // returns almost instantly even for very large files.

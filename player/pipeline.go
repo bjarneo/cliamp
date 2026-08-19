@@ -119,13 +119,17 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 // device's current output rate. verified reports whether the returned rate
 // is the file's confirmed native rate (a successful probe) as opposed to a
 // fallback guess — callers use it to set trackPipeline.verifiedSourceRate.
-func (p *Player) decodeRateFor(path string) (rate beep.SampleRate, verified bool) {
+// bits is the file's own bit depth if ffprobe could confirm one (only
+// populated for a lossless codec — ALAC, in practice, since FLAC/WAV/OGG/MP3
+// never reach here, see needsFFmpeg) — callers use it to set
+// trackPipeline.verifiedSourceBits directly (already in bits, not bytes).
+func (p *Player) decodeRateFor(path string) (rate beep.SampleRate, verified bool, bits int) {
 	if p.bitPerfect {
 		if native := probeNativeRate(path); native > 0 {
-			return beep.SampleRate(native), true
+			return beep.SampleRate(native), true, probeNativeBits(path)
 		}
 	}
-	return p.outRate(), false
+	return p.outRate(), false, 0
 }
 
 // verifiedRate is trackPipeline.verifiedSourceRate's value for a decode that
@@ -221,14 +225,18 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 	// Seek() through navFFmpegStreamer which repositions the navBuffer and
 	// restarts ffmpeg without HTTP reconnect.
 	if isURL(path) && p.isBufferedURL(path) && byteOffset == 0 {
-		// Bit-perfect mode: ffprobe can read a container's sample rate
-		// straight off an HTTP URL, same as it does for local files. Kick it
-		// off in parallel with opening the buffer instead of blocking on it —
-		// a slow/unresponsive server would otherwise delay stream start,
-		// which is exactly what navBuffer exists to avoid.
-		var nativeRateCh <-chan int
+		// Bit-perfect mode: ffprobe can read a container's sample rate and bit
+		// depth straight off an HTTP URL, same as it does for local files —
+		// bits_per_raw_sample is only populated for a lossless codec (FLAC,
+		// ALAC, WAV), so a transcoded/lossy Navidrome stream correctly probes
+		// as unverified rather than as whatever width ffmpeg decodes to below.
+		// Kick both off in parallel with opening the buffer instead of
+		// blocking on them — a slow/unresponsive server would otherwise delay
+		// stream start, which is exactly what navBuffer exists to avoid.
+		var nativeRateCh, nativeBitsCh <-chan int
 		if p.bitPerfect {
 			nativeRateCh = probeNativeRateAsync(path)
+			nativeBitsCh = probeNativeBitsAsync(path)
 		}
 
 		nb, contentLen, err := newNavBuffer(path)
@@ -243,20 +251,29 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		totalFrames := 0
 		_ = timeOffset // unused for navBuffer path (byteOffset == 0 guard above)
 
-		// The probe usually resolves well before newNavBuffer returns (it only
-		// needs the container header, not the file), but cap the wait so a
-		// hung probe can't stall playback — falling back to the device's
-		// current rate (transcoded, not bit-perfect) rather than blocking.
+		// Both probes usually resolve well before newNavBuffer returns (they
+		// only need the container header, not the file), but cap the total
+		// wait so a hung probe can't stall playback — sharing one deadline
+		// keeps that cap at ~2s combined rather than 2s per probe.
 		decodeRate := p.outRate()
-		verified := false
+		verifiedRateOK := false
+		sourceBits := 0
+		deadline := time.Now().Add(2 * time.Second)
 		if nativeRateCh != nil {
 			select {
 			case native := <-nativeRateCh:
 				if native > 0 {
 					decodeRate = beep.SampleRate(native)
-					verified = true
+					verifiedRateOK = true
 				}
-			case <-time.After(2 * time.Second):
+			case <-time.After(time.Until(deadline)):
+			}
+		}
+		if nativeBitsCh != nil {
+			select {
+			case bits := <-nativeBitsCh:
+				sourceBits = bits
+			case <-time.After(time.Until(deadline)):
 			}
 		}
 
@@ -270,7 +287,8 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 			decoder:            decoder,
 			stream:             s,
 			format:             format,
-			verifiedSourceRate: verifiedRate(verified, format.SampleRate),
+			verifiedSourceRate: verifiedRate(verifiedRateOK, format.SampleRate),
+			verifiedSourceBits: sourceBits,
 			seekable:           true, // navFFmpegStreamer.Seek() handles seeking without reconnect
 			rc:                 nb,   // trackPipeline.close() calls nb.Close()
 			path:               path,
@@ -377,7 +395,7 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 	// file to memory. Seeking is supported via ffmpeg -ss restart.
 	if !isURL(path) && needsFFmpeg(ext) {
 		rc.Close()
-		rate, verified := p.decodeRateFor(path)
+		rate, verified, bits := p.decodeRateFor(path)
 		decoder, format, err := decodeFFmpegLocal(path, rate, p.bitDepth)
 		if err != nil {
 			return nil, fmt.Errorf("decode: %w", err)
@@ -387,6 +405,7 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 			stream:             decoder, // outputs at target sample rate
 			format:             format,
 			verifiedSourceRate: verifiedRate(verified, format.SampleRate),
+			verifiedSourceBits: bits,
 			seekable:           true,
 			path:               path,
 		}, nil
@@ -414,7 +433,7 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		}
 		// Native local decoder failed (e.g., IEEE float WAV). Fall back to
 		// buffered ffmpeg decode, which handles more formats.
-		rate, verified := p.decodeRateFor(path)
+		rate, verified, bits := p.decodeRateFor(path)
 		decoder, format, err = decodeFFmpeg(path, rate, p.bitDepth)
 		if err != nil {
 			return nil, fmt.Errorf("decode: %w", err)
@@ -425,6 +444,7 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 			stream:             decoder, // decodeFFmpeg outputs at target sample rate
 			format:             format,
 			verifiedSourceRate: verifiedRate(verified, format.SampleRate),
+			verifiedSourceBits: bits,
 			seekable:           true,
 		}, nil
 	}
