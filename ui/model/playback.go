@@ -85,11 +85,11 @@ func (m *Model) playCurrentTrack() tea.Cmd {
 	if !ok {
 		m.player.Stop()
 		m.clearPlaybackTrack()
-		m.status.Show("No available tracks", statusTTLDefault)
+		m.status.Warning("No available tracks", statusTTLDefault)
 		return nil
 	}
 	if activation.Skipped {
-		m.status.Show("Track unavailable, skipping...", statusTTLDefault)
+		m.status.Warning("Track unavailable, skipping...", statusTTLDefault)
 	}
 	m.plCursor = activation.Index
 	m.adjustScroll()
@@ -191,6 +191,10 @@ func (m *Model) removeSelectedFromPlaylist() {
 	}
 	snapshot := m.playlist.Snapshot()
 	track := m.playlist.Tracks()[idx]
+	if track.DirSourced {
+		m.status.Warningf(statusTTLDefault, "Can't remove %q: it's supplied by the playlist's directory source", track.DisplayName())
+		return
+	}
 	loaded := m.loadedPlaylist
 	var saved []playlist.Track
 	persisted := false
@@ -199,17 +203,27 @@ func (m *Model) removeSelectedFromPlaylist() {
 			var err error
 			saved, err = m.localProvider.Tracks(loaded)
 			if err != nil {
-				m.status.Showf(statusTTLDefault, "Remove failed: %s", err)
+				m.status.Errorf(statusTTLDefault, "Remove failed: %s", err)
 				return
 			}
-			if idx >= len(saved) {
-				m.status.Showf(statusTTLDefault, "Remove failed: selected track is not in %q", loaded)
+			// saved rescans directory sources, so a new file could have shifted
+			// indexes since the queue was loaded. Match the persisted explicit
+			// track by path so the wrong track is never removed.
+			savedIdx := -1
+			for i, candidate := range saved {
+				if !candidate.DirSourced && candidate.Path == track.Path {
+					savedIdx = i
+					break
+				}
+			}
+			if savedIdx < 0 {
+				m.status.Errorf(statusTTLDefault, "Remove failed: selected track is no longer in %q", loaded)
 				return
 			}
 			original := cloneTracks(saved)
-			saved = append(saved[:idx:idx], saved[idx+1:]...)
+			saved = append(saved[:savedIdx:savedIdx], saved[savedIdx+1:]...)
 			if err := saver.SavePlaylist(loaded, saved); err != nil {
-				m.status.Showf(statusTTLDefault, "Remove failed: %s", err)
+				m.status.Errorf(statusTTLDefault, "Remove failed: %s", err)
 				return
 			}
 			saved = original
@@ -243,17 +257,17 @@ func (m *Model) removeSelectedFromPlaylist() {
 func (m *Model) undoPlaylistMutation() {
 	undo := m.playlistUndo
 	if !undo.active {
-		m.status.Show("Nothing to undo", statusTTLShort)
+		m.status.Warning("Nothing to undo", statusTTLShort)
 		return
 	}
 	if undo.persisted {
 		saver := m.localSaver()
 		if saver == nil {
-			m.status.Show("Undo unavailable", statusTTLDefault)
+			m.status.Warning("Undo unavailable", statusTTLDefault)
 			return
 		}
 		if err := saver.SavePlaylist(undo.loaded, cloneTracks(undo.saved)); err != nil {
-			m.status.Showf(statusTTLDefault, "Undo failed: %s", err)
+			m.status.Errorf(statusTTLDefault, "Undo failed: %s", err)
 			return
 		}
 	}
@@ -272,7 +286,7 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 	m.pausedAt = time.Time{}
 	if track.Feed || playlist.IsFeed(track.Path) {
 		m.feedLoading = true
-		m.status.Show("Loading feed...", statusTTLLong)
+		m.status.Activity("Loading feed...", statusTTLLong)
 		return resolveFeedTrackCmd(track.Path)
 	}
 	track, fetchCmd := m.beginPlaybackTrack(track)
@@ -443,7 +457,7 @@ func (m *Model) reconnectYTDLOnUnpause() tea.Cmd {
 	m.seek.grace = 0
 	m.seek.graceFor = 0
 	m.player.CancelSeekYTDL()
-	m.status.Show("Reconnecting stream...", statusTTLMedium)
+	m.status.Activity("Reconnecting stream...", statusTTLMedium)
 
 	p := m.player
 	return func() tea.Msg {

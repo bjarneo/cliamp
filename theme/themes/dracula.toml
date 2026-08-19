@@ -1,8 +1,9 @@
 # Dracula — gothic purple with vivid spectrum.
 # The most popular terminal theme. draculatheme.com
+bg = "#282a36"
 accent = "#bd93f9"
 bright_fg = "#f8f8f2"
-fg = "#6272a4"
+fg = "#8b9ac4"
 green = "#50fa7b"
 yellow = "#f1fa8c"
 red = "#ff5555"

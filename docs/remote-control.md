@@ -116,6 +116,21 @@ Response format:
 {"ok": false, "error": "cliamp is not running"}
 ```
 
+## Plugin Event Subscriptions
+
+Lua plugins can publish retained or transient events over the same IPC socket.
+A subscriber sends one request:
+
+```json
+{"cmd":"subscribe","topics":["plugin.myplugin.playback"]}
+```
+
+After the `{"ok":true}` acknowledgment, that connection is a streaming-only
+NDJSON event feed; sending anything else on it closes the subscription.
+Retained events are replayed immediately and exist only in Cliamp memory. See
+[Lua Plugins](plugins.md#plugin-event-pubsub) for the `p:publish()` API and
+event envelope.
+
 ## Socket Details
 
 - **Path**: `~/.config/cliamp/cliamp.sock` (or `%APPDATA%\cliamp\cliamp.sock` on Windows when `HOME` is unset; created on TUI start, removed on shutdown)

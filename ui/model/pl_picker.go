@@ -15,12 +15,12 @@ import (
 
 func (m *Model) openPlaylistPicker(tracks []playlist.Track, title string) {
 	if m.localProvider == nil {
-		m.status.Show("Local playlists are unavailable", statusTTLDefault)
+		m.status.Warning("Local playlists are unavailable", statusTTLDefault)
 		return
 	}
 	lists, err := m.localProvider.Playlists()
 	if err != nil {
-		m.status.Showf(statusTTLDefault, "Playlist list failed: %s", err)
+		m.status.Errorf(statusTTLDefault, "Playlist list failed: %s", err)
 		return
 	}
 	playlists := make([]playlist.PlaylistInfo, 0, len(lists))
@@ -231,13 +231,13 @@ func (m *Model) writePickerTracks(name string) bool {
 	}
 	switch {
 	case added > 0 && skipped > 0:
-		m.status.Showf(statusTTLBatch, "Added %d to %q, skipped %d duplicates", added, name, skipped)
+		m.status.Warningf(statusTTLBatch, "Added %d to %q, skipped %d duplicates", added, name, skipped)
 	case added > 0:
 		m.status.Showf(statusTTLDefault, "Added %d to %q", added, name)
 	case skipped > 0:
-		m.status.Showf(statusTTLDefault, "Skipped %d duplicates in %q", skipped, name)
+		m.status.Warningf(statusTTLDefault, "Skipped %d duplicates in %q", skipped, name)
 	default:
-		m.status.Showf(statusTTLDefault, "Nothing added to %q", name)
+		m.status.Warningf(statusTTLDefault, "Nothing added to %q", name)
 	}
 	m.refreshPlaylistManagerAfterWrite(name)
 	return true

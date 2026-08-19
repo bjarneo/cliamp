@@ -34,6 +34,13 @@ const ytdlPreloadLeadTime = 15 * time.Second
 // When position has not yet reached the threshold, this function returns nil
 // and the tick loop will retry on the next pass.
 func (m *Model) preloadNext() tea.Cmd {
+	// Live streams do not have a track boundary. Preloading another station
+	// would turn a transient EOF into a gapless switch instead of reconnecting
+	// the station the user selected.
+	if current, idx := m.currentPlaybackTrack(); idx >= 0 && current.IsLive() {
+		return nil
+	}
+
 	var next playlist.Track
 	var ok bool
 	if m.playbackDetached {

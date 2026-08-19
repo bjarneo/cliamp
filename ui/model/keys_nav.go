@@ -298,7 +298,7 @@ func (m *Model) handleNavAlbumListKey(msg tea.KeyPressMsg, artistAlbums bool) te
 		m.navClearSearch()
 		if saver, ok := m.navBrowser.prov.(provider.AlbumSortSaver); ok {
 			if err := saver.SaveAlbumSort(m.navBrowser.sortType); err != nil {
-				m.status.Showf(statusTTLDefault, "Sort save failed: %s", err)
+				m.status.Errorf(statusTTLDefault, "Sort save failed: %s", err)
 			}
 		}
 		return fetchNavAlbumListCmd(ab, m.navBrowser.sortType, 0, m.nextNavRequest())

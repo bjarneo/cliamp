@@ -367,7 +367,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 				}
 				m.provLoading = true
 				m.activeProviderPlaylistID = ""
-				m.status.Showf(statusTTLShort, "Refreshing %s…", m.provider.Name())
+				m.status.Activityf(statusTTLShort, "Refreshing %s…", m.provider.Name())
 				return m.fetchProviderPlaylists()
 			}
 		case "f":
@@ -394,6 +394,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.switchToProvider("jellyfin")
 		case "E":
 			return m.switchToProvider("emby")
+		case "B":
+			return m.switchToProvider("audiobookshelf")
 		case "S":
 			return m.switchToProvider("spotify")
 		case "P":
@@ -529,7 +531,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 				tracks := m.playlist.Tracks()
 				track := tracks[m.plCursor]
 				if err := bs.SetBookmarkByPath(m.loadedPlaylist, track.Path); err != nil {
-					m.status.Showf(statusTTLDefault, "Save failed: %s", err)
+					m.status.Errorf(statusTTLDefault, "Save failed: %s", err)
 					return nil
 				}
 				m.playlist.ToggleBookmark(m.plCursor)
@@ -563,10 +565,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "up", "k":
 		if m.focus == focusEQ {
 			bands := m.player.EQBands()
-			m.player.SetEQBand(m.eqCursor, bands[m.eqCursor]+1)
-			m.eqPresetIdx = -1 // manual tweak → custom
-			m.eqCustomLabel = ""
-			m.scheduleEQSave()
+			m.setCustomEQBand(m.eqCursor, bands[m.eqCursor]+1)
 		} else {
 			if m.plCursor > 0 {
 				m.plCursor--
@@ -580,10 +579,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "down", "j":
 		if m.focus == focusEQ {
 			bands := m.player.EQBands()
-			m.player.SetEQBand(m.eqCursor, bands[m.eqCursor]-1)
-			m.eqPresetIdx = -1 // manual tweak → custom
-			m.eqCustomLabel = ""
-			m.scheduleEQSave()
+			m.setCustomEQBand(m.eqCursor, bands[m.eqCursor]-1)
 		} else {
 			if m.plCursor < m.playlist.Len()-1 {
 				m.plCursor++
@@ -644,7 +640,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "r":
 		m.playlist.CycleRepeat()
 		if err := m.configSaver.Save("repeat", fmt.Sprintf("%q", m.playlist.Repeat().String())); err != nil {
-			m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
+			m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
 		}
 		m.player.ClearPreload()
 		return m.preloadNext()
@@ -652,7 +648,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "z":
 		m.playlist.ToggleShuffle()
 		if err := m.configSaver.Save("shuffle", fmt.Sprintf("%v", m.playlist.Shuffled())); err != nil {
-			m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
+			m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
 		}
 		m.player.ClearPreload()
 		return m.preloadNext()
@@ -674,11 +670,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.layout.tier == layoutMinimal {
 			break
 		}
-		m.eqPresetIdx++
-		if m.eqPresetIdx >= len(eqPresets) {
-			m.eqPresetIdx = 0
-		}
-		m.applyEQPreset()
+		m.cycleEQPreset()
 		m.scheduleEQSave()
 
 	case "a":
@@ -731,6 +723,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.switchToProvider("jellyfin")
 	case "E":
 		return m.switchToProvider("emby")
+	case "B":
+		return m.switchToProvider("audiobookshelf")
 	case "p":
 		if m.localProvider != nil {
 			m.openPlaylistManager()
@@ -788,7 +782,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.applyHeightMode()
 		m.adjustScroll()
 		if err := m.configSaver.Save("visualizer", fmt.Sprintf("%q", m.vis.ModeName())); err != nil {
-			m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
+			m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
 		}
 
 	case "ctrl+v":
@@ -891,19 +885,19 @@ func (m *Model) handleFullVisualizerKey(msg tea.KeyPressMsg) tea.Cmd {
 func (m *Model) saveTrack() tea.Cmd {
 	track, idx := m.currentPlaybackTrack()
 	if idx < 0 {
-		m.status.Show("Nothing to save", statusTTLShort)
+		m.status.Warning("Nothing to save", statusTTLShort)
 		return nil
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		m.status.Showf(statusTTLShort, "Save failed: %s", err)
+		m.status.Errorf(statusTTLShort, "Save failed: %s", err)
 		return nil
 	}
 
 	saveDir := filepath.Join(home, "Music", "cliamp")
 	if err := os.MkdirAll(saveDir, 0o755); err != nil {
-		m.status.Showf(statusTTLShort, "Save failed: %s", err)
+		m.status.Errorf(statusTTLShort, "Save failed: %s", err)
 		return nil
 	}
 
@@ -916,7 +910,7 @@ func (m *Model) saveTrack() tea.Cmd {
 
 	// Only save local temp files (yt-dlp downloads), not streams or user's own files.
 	if track.Stream || !strings.HasPrefix(track.Path, os.TempDir()) {
-		m.status.Show("Only downloaded tracks can be saved", statusTTLShort)
+		m.status.Warning("Only downloaded tracks can be saved", statusTTLShort)
 		return nil
 	}
 
@@ -936,7 +930,7 @@ func (m *Model) saveTrack() tea.Cmd {
 	dest := filepath.Join(saveDir, name+ext)
 
 	if err := fileutil.CopyFile(track.Path, dest); err != nil {
-		m.status.Showf(statusTTLShort, "Save failed: %s", err)
+		m.status.Errorf(statusTTLShort, "Save failed: %s", err)
 		return nil
 	}
 
@@ -1592,7 +1586,7 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 				}
 				if d, ok := m.localProvider.(provider.PlaylistDeleter); ok {
 					if err := d.DeletePlaylist(name); err != nil {
-						m.status.Showf(statusTTLDefault, "Delete failed: %s", err)
+						m.status.Errorf(statusTTLDefault, "Delete failed: %s", err)
 					} else {
 						m.status.Showf(statusTTLDefault, "Deleted %q (u to undo)", name)
 					}
@@ -1678,7 +1672,7 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "w":
 		tracks := m.playlist.Tracks()
 		if len(tracks) == 0 {
-			m.status.Show("Queue is empty", statusTTLShort)
+			m.status.Warning("Queue is empty", statusTTLShort)
 			return nil
 		}
 		m.openPlaylistPicker(tracks, fmt.Sprintf("Save %d queued tracks", len(tracks)))
@@ -1689,7 +1683,7 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		name := m.plManager.playlists[realIdx].Name
 		if name == history.PlaylistName {
-			m.status.Show("Recently Played cannot be renamed", statusTTLDefault)
+			m.status.Warning("Recently Played cannot be renamed", statusTTLDefault)
 			return nil
 		}
 		m.plManager.renameOldName = name
@@ -2025,16 +2019,16 @@ func (m *Model) plMgrSetTrackUndo() {
 func (m *Model) plMgrUndoLast() {
 	undo := m.plManager.undo
 	if undo.kind == plUndoNone || undo.name == "" {
-		m.status.Show("Nothing to undo", statusTTLShort)
+		m.status.Warning("Nothing to undo", statusTTLShort)
 		return
 	}
 	saver := m.localSaver()
 	if saver == nil {
-		m.status.Show("Undo unavailable", statusTTLDefault)
+		m.status.Warning("Undo unavailable", statusTTLDefault)
 		return
 	}
 	if err := saver.SavePlaylist(undo.name, cloneTracks(undo.tracks)); err != nil {
-		m.status.Showf(statusTTLDefault, "Undo failed: %s", err)
+		m.status.Errorf(statusTTLDefault, "Undo failed: %s", err)
 		return
 	}
 	m.plManager.undo = plManagerUndo{}
@@ -2121,11 +2115,11 @@ func (m *Model) plMgrToggleMarkAll() {
 func (m *Model) plMgrSaveTracks(status string) bool {
 	saver := m.localSaver()
 	if saver == nil {
-		m.status.Show("Playlist saving is not supported", statusTTLDefault)
+		m.status.Warning("Playlist saving is not supported", statusTTLDefault)
 		return false
 	}
 	if err := saver.SavePlaylist(m.plManager.selPlaylist, m.plManager.tracks); err != nil {
-		m.status.Showf(statusTTLDefault, "Save failed: %s", err)
+		m.status.Errorf(statusTTLDefault, "Save failed: %s", err)
 		return false
 	}
 	if status != "" {
@@ -2138,6 +2132,12 @@ func (m *Model) plMgrRemoveSelectedTracks() {
 	indices := m.plMgrSelectedTrackIndices()
 	if len(indices) == 0 {
 		return
+	}
+	for _, i := range indices {
+		if m.plManager.tracks[i].DirSourced {
+			m.status.Warningf(statusTTLDefault, "Can't remove %q: it's supplied by the playlist's directory source", m.plManager.tracks[i].DisplayName())
+			return
+		}
 	}
 	m.plMgrSetTrackUndo()
 	for i := len(indices) - 1; i >= 0; i-- {
@@ -2164,7 +2164,7 @@ func (m *Model) plMgrRemoveSelectedTracks() {
 
 func (m *Model) plMgrMoveTrack(delta int) {
 	if m.plManager.filter != "" {
-		m.status.Show("Clear filter before moving tracks", statusTTLDefault)
+		m.status.Warning("Clear filter before moving tracks", statusTTLDefault)
 		return
 	}
 	from := m.plManager.cursor
@@ -2241,8 +2241,19 @@ func (m *Model) persistLoadedPlaylistOrder() {
 	if !ok {
 		return
 	}
+	hasDirTracks := false
+	for _, t := range m.playlist.Tracks() {
+		if t.DirSourced {
+			hasDirTracks = true
+			break
+		}
+	}
 	if err := saver.SavePlaylist(m.loadedPlaylist, m.playlist.Tracks()); err != nil {
-		m.status.Showf(statusTTLDefault, "Save failed: %s", err)
+		m.status.Errorf(statusTTLDefault, "Save failed: %s", err)
+		return
+	}
+	if hasDirTracks {
+		m.status.Warningf(statusTTLDefault, "Reordered %q (directory-sourced tracks keep scan order)", m.loadedPlaylist)
 		return
 	}
 	m.status.Showf(statusTTLDefault, "Reordered %q", m.loadedPlaylist)
@@ -2252,28 +2263,28 @@ func (m *Model) persistLoadedPlaylistOrder() {
 func (m *Model) addToPlaylist(name string) {
 	track, idx := m.currentPlaybackTrack()
 	if idx < 0 {
-		m.status.Show("No track to add", statusTTLShort)
+		m.status.Warning("No track to add", statusTTLShort)
 		return
 	}
 	if bw, ok := m.localProvider.(provider.PlaylistBatchWriter); ok {
 		added, skipped, err := bw.AddTracksToPlaylist(context.Background(), name, []playlist.Track{track})
 		if err != nil {
-			m.status.Showf(statusTTLDefault, "Failed: %s", err)
+			m.status.Errorf(statusTTLDefault, "Failed: %s", err)
 			return
 		}
 		switch {
 		case added > 0:
 			m.status.Showf(statusTTLDefault, "Added to %q", name)
 		case skipped > 0:
-			m.status.Showf(statusTTLDefault, "Already in %q", name)
+			m.status.Warningf(statusTTLDefault, "Already in %q", name)
 		default:
-			m.status.Showf(statusTTLDefault, "Nothing added to %q", name)
+			m.status.Warningf(statusTTLDefault, "Nothing added to %q", name)
 		}
 		return
 	}
 	if w, ok := m.localProvider.(provider.PlaylistWriter); ok {
 		if err := w.AddTrackToPlaylist(context.Background(), name, track); err != nil {
-			m.status.Showf(statusTTLDefault, "Failed: %s", err)
+			m.status.Errorf(statusTTLDefault, "Failed: %s", err)
 		} else {
 			m.status.Showf(statusTTLDefault, "Added to %q", name)
 		}
@@ -2299,19 +2310,19 @@ func (m *Model) createPlaylistFromManager(name string) bool {
 	if bw, ok := m.localProvider.(provider.PlaylistBatchWriter); ok {
 		added, skipped, err := bw.AddTracksToPlaylist(context.Background(), id, []playlist.Track{track})
 		if err != nil {
-			m.status.Showf(statusTTLDefault, "Created %q, add failed: %s", name, err)
+			m.status.Errorf(statusTTLDefault, "Created %q, add failed: %s", name, err)
 			return true
 		}
 		if added > 0 {
 			m.status.Showf(statusTTLDefault, "Created %q & added track", name)
 		} else if skipped > 0 {
-			m.status.Showf(statusTTLDefault, "Created %q; track was duplicate", name)
+			m.status.Warningf(statusTTLDefault, "Created %q; track was duplicate", name)
 		}
 		return true
 	}
 	if w, ok := m.localProvider.(provider.PlaylistWriter); ok {
 		if err := w.AddTrackToPlaylist(context.Background(), id, track); err != nil {
-			m.status.Showf(statusTTLDefault, "Created %q, add failed: %s", name, err)
+			m.status.Errorf(statusTTLDefault, "Created %q, add failed: %s", name, err)
 			return true
 		}
 		m.status.Showf(statusTTLDefault, "Created %q & added track", name)

@@ -33,7 +33,7 @@ func buildApp() *cli.Command {
 		&cli.BoolFlag{Name: "no-mono", Usage: "disable mono output"},
 		&cli.BoolFlag{Name: "auto-play", Usage: "start playback immediately"},
 		&cli.BoolFlag{Name: "compact", Usage: "compact mode (80 columns)"},
-		&cli.StringFlag{Name: "provider", Usage: "default provider: radio, navidrome, plex, jellyfin, emby, spotify, qobuz, soundcloud, netease, yt, youtube, ytmusic"},
+		&cli.StringFlag{Name: "provider", Usage: "default provider: radio, navidrome, plex, jellyfin, emby, spotify, qobuz, soundcloud, netease, audiobookshelf, abs, yt, youtube, ytmusic"},
 		&cli.StringFlag{Name: "start-theme", Usage: "UI theme name"},
 		&cli.StringFlag{Name: "visualizer", Usage: "visualizer mode"},
 		&cli.StringFlag{Name: "eq-preset", Usage: "EQ preset name"},
@@ -158,11 +158,14 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 	}
 	if c.IsSet("provider") {
 		v := strings.ToLower(c.String("provider"))
+		if v == "abs" {
+			v = "audiobookshelf"
+		}
 		switch v {
-		case "radio", "navidrome", "spotify", "qobuz", "plex", "jellyfin", "emby", "soundcloud", "netease", "yt", "youtube", "ytmusic":
+		case "radio", "navidrome", "spotify", "qobuz", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "netease", "yt", "youtube", "ytmusic":
 			ov.Provider = &v
 		default:
-			return ov, fmt.Errorf("--provider must be radio, navidrome, spotify, qobuz, plex, jellyfin, emby, soundcloud, netease, yt, youtube, or ytmusic (got %q)", v)
+			return ov, fmt.Errorf("--provider must be radio, navidrome, spotify, qobuz, plex, jellyfin, emby, audiobookshelf, soundcloud, netease, yt, youtube, or ytmusic (got %q)", v)
 		}
 	}
 	if c.IsSet("start-theme") {
@@ -354,8 +357,8 @@ func setupCommand() *cli.Command {
 		Name:  "setup",
 		Usage: "interactive wizard to configure remote providers",
 		Description: "Walks through configuring Navidrome, Plex, Jellyfin, Spotify,\n" +
-			"Qobuz, NetEase, and YouTube Music. Validates connections and writes\n" +
-			"~/.config/cliamp/config.toml.",
+			"Qobuz, NetEase, Audiobookshelf, and YouTube Music. Validates connections\n" +
+			"and writes ~/.config/cliamp/config.toml.",
 		Action: func(ctx context.Context, c *cli.Command) error {
 			return cmd.Setup()
 		},
@@ -436,10 +439,11 @@ func playlistCommand() *cli.Command {
 			},
 			{
 				Name:      "create",
-				Usage:     "create a new playlist, optionally from files/directories",
+				Usage:     "create a new playlist, optionally from files/directories or directory sources",
 				ArgsUsage: "\"Name\" [file|dir ...]",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "ssh", Usage: "SSH host for remote directory walking"},
+					&cli.StringSliceFlag{Name: "dir", Usage: "reference a directory as a [[dir]] source (repeatable)"},
 				},
 				Action: func(ctx context.Context, c *cli.Command) error {
 					if c.Args().Len() == 0 {
@@ -447,7 +451,7 @@ func playlistCommand() *cli.Command {
 					}
 					name := c.Args().First()
 					paths := c.Args().Slice()[1:]
-					return cmd.PlaylistCreate(name, paths, c.String("ssh"))
+					return cmd.PlaylistCreate(name, paths, c.String("ssh"), c.StringSlice("dir"))
 				},
 			},
 			{
@@ -464,13 +468,29 @@ func playlistCommand() *cli.Command {
 			},
 			{
 				Name:      "add",
-				Usage:     "append tracks to an existing playlist",
-				ArgsUsage: "\"Name\" <file|dir> [...]",
+				Usage:     "append tracks or directory sources to an existing playlist",
+				ArgsUsage: "\"Name\" [file|dir ...]",
+				Flags: []cli.Flag{
+					&cli.StringSliceFlag{Name: "dir", Usage: "add a directory as a [[dir]] source (repeatable)"},
+				},
 				Action: func(ctx context.Context, c *cli.Command) error {
-					if c.Args().Len() < 2 {
-						return fmt.Errorf("usage: cliamp playlist add \"Name\" file1 [file2 ...]")
+					if c.Args().Len() == 0 {
+						return fmt.Errorf("usage: cliamp playlist add \"Name\" file1 [file2 ...] [--dir dir]")
 					}
-					return cmd.PlaylistAdd(c.Args().First(), c.Args().Slice()[1:])
+					name := c.Args().First()
+					paths := c.Args().Slice()[1:]
+					return cmd.PlaylistAdd(name, paths, c.StringSlice("dir"))
+				},
+			},
+			{
+				Name:      "dirs",
+				Usage:     "list directory sources referenced by a playlist",
+				ArgsUsage: "\"Name\"",
+				Action: func(ctx context.Context, c *cli.Command) error {
+					if c.Args().Len() == 0 {
+						return fmt.Errorf("usage: cliamp playlist dirs \"Name\"")
+					}
+					return cmd.PlaylistDirs(c.Args().First())
 				},
 			},
 			{
@@ -606,11 +626,14 @@ func playlistCommand() *cli.Command {
 				Name:      "enrich",
 				Usage:     "probe duration and album metadata for SSH tracks",
 				ArgsUsage: "\"Name\"",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "source", Usage: "source: metadata, path", Value: "path"},
+				},
 				Action: func(ctx context.Context, c *cli.Command) error {
 					if c.Args().Len() == 0 {
-						return fmt.Errorf("usage: cliamp playlist enrich \"Name\"")
+						return fmt.Errorf("usage: cliamp playlist enrich \"Name\" --source metadata")
 					}
-					return cmd.PlaylistEnrich(c.Args().First())
+					return cmd.PlaylistEnrich(c.Args().First(), c.String("source"))
 				},
 			},
 		},
@@ -824,7 +847,7 @@ func visStreamCommand() *cli.Command {
 			if fps > 60 {
 				fps = 60
 			}
-			return ipc.StreamBands(ctx, ipc.DefaultSocketPath(), time.Second/time.Duration(fps), os.Stdout)
+			return userIPCError(ipc.StreamBands(ctx, ipc.DefaultSocketPath(), time.Second/time.Duration(fps), os.Stdout))
 		},
 	}
 }

@@ -300,34 +300,70 @@ func sniffFeedURL(rawURL string) bool {
 // If path is a directory, it walks it recursively collecting supported files.
 // If path is a file with a supported extension, it returns it directly.
 func CollectAudioFiles(path string) ([]string, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
+	return AudioFiles(path, true)
+}
 
+// AudioFiles returns sorted audio file paths under dir. When recursive is
+// false only the directory's immediate children are considered. A file path
+// with a supported extension is returned directly.
+func AudioFiles(dir string, recursive bool) ([]string, error) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return nil, fmt.Errorf("stat audio path %q: %w", dir, err)
+	}
 	if !info.IsDir() {
-		if player.SupportedExts[strings.ToLower(filepath.Ext(path))] {
-			return []string{path}, nil
+		if player.SupportedExts[strings.ToLower(filepath.Ext(dir))] {
+			return []string{dir}, nil
 		}
 		return nil, nil
 	}
 
-	var files []string
-	err = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
+	if recursive {
+		var files []string
+		err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				// Skip entries we cannot read instead of aborting the scan, so
+				// one unreadable subdirectory cannot empty the whole result.
+				if d != nil && d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			if !d.IsDir() && player.SupportedExts[strings.ToLower(filepath.Ext(p))] {
+				files = append(files, p)
+			}
+			return nil
+		})
 		if err != nil {
-			return err
+			return nil, fmt.Errorf("walk audio directory %q: %w", dir, err)
 		}
-		if !d.IsDir() && player.SupportedExts[strings.ToLower(filepath.Ext(p))] {
-			files = append(files, p)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
+
+		slices.Sort(files)
+		return files, nil
 	}
 
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("read audio directory %q: %w", dir, err)
+	}
+	var files []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		if player.SupportedExts[strings.ToLower(filepath.Ext(p))] {
+			files = append(files, p)
+		}
+	}
 	slices.Sort(files)
 	return files, nil
+}
+
+// TracksFromPaths converts file paths to Tracks concurrently with tag
+// reading, preserving order.
+func TracksFromPaths(files []string) []playlist.Track {
+	return scanTracks(files)
 }
 
 // LocalPlaylist resolves a local M3U/M3U8 or PLS playlist file into tracks.

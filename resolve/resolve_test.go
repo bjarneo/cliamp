@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -222,5 +225,45 @@ func TestResolveM3U_PlainPlaylist_StillParsesTracks(t *testing.T) {
 	}
 	if len(tracks) != 2 {
 		t.Fatalf("got %d tracks, want 2 (regression guard)", len(tracks))
+	}
+}
+
+func TestAudioFilesSkipsUnreadableSubdir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.Chmod does not map to Unix directory permissions on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("permission checks do not apply to root")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.mp3"), []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	locked := filepath.Join(dir, "locked")
+	if err := os.MkdirAll(locked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(locked, "b.mp3"), []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(locked, "c.ogg"), []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+
+	files, err := AudioFiles(dir, true)
+	if err != nil {
+		t.Fatalf("AudioFiles: %v", err)
+	}
+	if len(files) != 1 || filepath.Base(files[0]) != "a.mp3" {
+		t.Fatalf("AudioFiles = %v, want only a.mp3 (unreadable subdir must be skipped)", files)
+	}
+
+	// Non-recursive mode must behave the same way (no abort either).
+	if files, err := AudioFiles(dir, false); err != nil || len(files) != 1 {
+		t.Fatalf("non-recursive AudioFiles = %v err=%v, want only a.mp3", files, err)
 	}
 }

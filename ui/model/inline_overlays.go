@@ -323,7 +323,7 @@ func (m Model) renderJumpBody() string {
 	budget := m.effectivePlaylistVisible()
 	pos := m.player.Position()
 	dur := m.player.Duration()
-	inputLine := dimStyle.Faint(true).Render("  " + formatJumpPlaceholder(dur))
+	inputLine := dimStyle.Render("  " + formatJumpPlaceholder(dur))
 	if m.jumpInput != "" {
 		inputLine = playlistSelectedStyle.Render("  " + m.textWithCursor("jump", m.jumpInput))
 	}
@@ -358,7 +358,7 @@ func (m Model) renderLyricsBody() string {
 		if errors.Is(m.lyrics.err, lyrics.ErrNotFound) {
 			lines = append(lines, dimStyle.Render("  No lyrics found for this track."))
 		} else {
-			lines = append(lines, helpStyle.Render("  Lyrics fetch failed: "+m.lyrics.err.Error()))
+			lines = append(lines, errorStyle.Render("  Lyrics fetch failed: "+m.lyrics.err.Error()))
 		}
 	case len(m.lyrics.lines) == 0:
 		artist, title := m.lyricsArtistTitle()
@@ -444,7 +444,7 @@ func (m Model) renderNetSearchBody() string {
 			lines = append(lines, dimStyle.Render("  Type a query and press Enter to search "+m.netSearchSource()+"."))
 		}
 		if m.netSearch.err != "" {
-			lines = append(lines, "", helpStyle.Render("  "+m.netSearch.err))
+			lines = append(lines, "", errorStyle.Render("  "+m.netSearch.err))
 		}
 		return bodyLines(lines, budget)
 	}
@@ -531,7 +531,7 @@ func (m Model) renderSpotSearchBody() string {
 		body = bodyLines(lines, budget)
 	}
 	if m.spotSearch.err != "" && m.spotSearch.screen != spotSearchPlaylist {
-		return strings.Join([]string{body, helpStyle.Render("  " + m.spotSearch.err)}, "\n")
+		return strings.Join([]string{body, errorStyle.Render("  " + m.spotSearch.err)}, "\n")
 	}
 	return body
 }

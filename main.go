@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/external/audiobookshelf"
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
 	"github.com/bjarneo/cliamp/external/local"
@@ -126,6 +128,10 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 
 	if embyProv := emby.NewFromConfig(cfg.Emby); embyProv != nil {
 		providers = append(providers, model.ProviderEntry{Key: "emby", Name: "Emby", Provider: embyProv})
+	}
+
+	if absProv := audiobookshelf.NewFromConfig(cfg.Audiobookshelf); absProv != nil {
+		providers = append(providers, model.ProviderEntry{Key: "audiobookshelf", Name: "Audiobookshelf", Provider: absProv})
 	}
 
 	var spotifyProv *spotify.SpotifyProvider
@@ -256,17 +262,17 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 		pl.Add(tracks...)
 	} else if defaultRadio {
 		pl.Add(
-			playlist.Track{Path: "http://radio.cliamp.stream/lofi/stream", Title: "Lofi Stream", Stream: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/synthwave/stream", Title: "Synthwave Stream", Stream: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/edm/stream", Title: "EDM Stream", Stream: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/ncs/stream", Title: "NCS Stream", Stream: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/ncs-house/stream", Title: "NCS House Stream", Stream: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/ncs-dubstep/stream", Title: "NCS Dubstep Stream", Stream: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/ncs-dnb/stream", Title: "NCS Drum & Bass Stream", Stream: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/ncs-trap/stream", Title: "NCS Trap Stream", Stream: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/ncs-phonk/stream", Title: "NCS Phonk Stream", Stream: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/ncs-pop/stream", Title: "NCS Pop Stream", Stream: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/ncs-chill/stream", Title: "NCS Chill Stream", Stream: true},
+			playlist.Track{Path: "http://radio.cliamp.stream/lofi/stream", Title: "Lofi Stream", Stream: true, Realtime: true},
+			playlist.Track{Path: "http://radio.cliamp.stream/synthwave/stream", Title: "Synthwave Stream", Stream: true, Realtime: true},
+			playlist.Track{Path: "http://radio.cliamp.stream/edm/stream", Title: "EDM Stream", Stream: true, Realtime: true},
+			playlist.Track{Path: "http://radio.cliamp.stream/ncs/stream", Title: "NCS Stream", Stream: true, Realtime: true},
+			playlist.Track{Path: "http://radio.cliamp.stream/ncs-house/stream", Title: "NCS House Stream", Stream: true, Realtime: true},
+			playlist.Track{Path: "http://radio.cliamp.stream/ncs-dubstep/stream", Title: "NCS Dubstep Stream", Stream: true, Realtime: true},
+			playlist.Track{Path: "http://radio.cliamp.stream/ncs-dnb/stream", Title: "NCS Drum & Bass Stream", Stream: true, Realtime: true},
+			playlist.Track{Path: "http://radio.cliamp.stream/ncs-trap/stream", Title: "NCS Trap Stream", Stream: true, Realtime: true},
+			playlist.Track{Path: "http://radio.cliamp.stream/ncs-phonk/stream", Title: "NCS Phonk Stream", Stream: true, Realtime: true},
+			playlist.Track{Path: "http://radio.cliamp.stream/ncs-pop/stream", Title: "NCS Pop Stream", Stream: true, Realtime: true},
+			playlist.Track{Path: "http://radio.cliamp.stream/ncs-chill/stream", Title: "NCS Chill Stream", Stream: true, Realtime: true},
 		)
 	}
 	pl.Add(resolved.Tracks...)
@@ -316,7 +322,7 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 	}
 
 	p.RegisterBufferedURLMatcher(func(u string) bool {
-		return navidrome.IsSubsonicStreamURL(u) || jellyfin.IsStreamURL(u) || emby.IsStreamURL(u) || plex.IsStreamURL(u) || qobuz.IsStreamURL(u)
+		return navidrome.IsSubsonicStreamURL(u) || jellyfin.IsStreamURL(u) || emby.IsStreamURL(u) || plex.IsStreamURL(u) || qobuz.IsStreamURL(u) || audiobookshelf.IsStreamURL(u)
 	})
 
 	// Pull now-playing for stations that carry no inline ICY metadata (NTS, FIP).
@@ -351,16 +357,20 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 
 	themes := theme.LoadAll()
 
-	luaMgr, luaErr := luaplugin.New(cfg.Plugins)
+	pluginBroker := ipc.NewBroker()
+	defer pluginBroker.Close()
+
+	luaMgr, luaErr := luaplugin.New(cfg.Plugins, pluginBroker)
 	if luaErr != nil {
 		fmt.Fprintf(os.Stderr, "lua plugins: %v\n", luaErr)
 	}
 	if luaMgr != nil {
-		defer luaMgr.Close()
 		luaMgr.SetReservedKeys(model.ReservedKeys())
+		defer luaMgr.Close()
 	}
 
 	m := model.New(p, pl, providers, defaultProvider, localProv, themes, luaMgr, config.SaveFunc{})
+	m.SetCustomEQBands(cfg.EQ)
 	m.SetVisVolumeLinked(cfg.VisVolumeLinked)
 	m.SetBitPerfectDeviceWarning(bitPerfectConfigWarning(cfg))
 
@@ -482,7 +492,7 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 		luaMgr.SetControlProvider(luaplugin.ControlProvider{
 			SetVolume:   func(db float64) { p.SetVolume(db) },
 			SetSpeed:    func(ratio float64) { p.SetSpeed(ratio) },
-			SetEQBand:   func(band int, db float64) { p.SetEQBand(band, db) },
+			SetEQBand:   func(band int, db float64) { prog.Send(model.SetEQBandMsg{Band: band, Gain: db}) },
 			ToggleMono:  func() { p.ToggleMono() },
 			TogglePause: func() { p.TogglePause() },
 			Stop:        func() { p.Stop() },
@@ -514,7 +524,7 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 		})
 	}
 
-	ipcSrv, ipcErr := ipc.NewServer(ipc.DefaultSocketPath(), ipc.DispatcherFunc(func(msg any) { prog.Send(msg) }))
+	ipcSrv, ipcErr := ipc.NewServerWithBroker(ipc.DefaultSocketPath(), ipc.DispatcherFunc(func(msg any) { prog.Send(msg) }), pluginBroker)
 	if ipcErr != nil {
 		fmt.Fprintf(os.Stderr, "ipc: %v\n", ipcErr)
 	} else {
@@ -574,10 +584,19 @@ func wireMediaCtl(prog *tea.Program) (*mediactl.Service, error) {
 	return svc, nil
 }
 
+// userIPCError renders ipc.ErrNotRunning as the wording users see. The ipc
+// package returns a bare sentinel, so all CLI copy stays in the command layer.
+func userIPCError(err error) error {
+	if errors.Is(err, ipc.ErrNotRunning) {
+		return fmt.Errorf("cliamp is not running (no socket at %s)", ipc.DefaultSocketPath())
+	}
+	return err
+}
+
 func ipcSend(req ipc.Request) (ipc.Response, error) {
 	resp, err := ipc.Send(ipc.DefaultSocketPath(), req)
 	if err != nil {
-		return resp, err
+		return resp, userIPCError(err)
 	}
 	if !resp.OK {
 		return resp, fmt.Errorf("%s", resp.Error)
@@ -590,7 +609,7 @@ func ipcSend(req ipc.Request) (ipc.Response, error) {
 func ipcSendLong(req ipc.Request, deadline time.Duration) (ipc.Response, error) {
 	resp, err := ipc.SendWithDeadline(ipc.DefaultSocketPath(), req, deadline)
 	if err != nil {
-		return resp, err
+		return resp, userIPCError(err)
 	}
 	if !resp.OK {
 		return resp, fmt.Errorf("%s", resp.Error)

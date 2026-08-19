@@ -74,7 +74,7 @@ func TestPlaylistCreateAndList(t *testing.T) {
 
 	// Create
 	out, err := captureStdout(t, func() error {
-		return PlaylistCreate("mymix", []string{audioDir}, "")
+		return PlaylistCreate("mymix", []string{audioDir}, "", nil)
 	})
 	if err != nil {
 		t.Fatalf("PlaylistCreate: %v", err)
@@ -103,7 +103,7 @@ func TestPlaylistCreateNoAudio(t *testing.T) {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 
-	err := PlaylistCreate("nothing", []string{emptyDir}, "")
+	err := PlaylistCreate("nothing", []string{emptyDir}, "", nil)
 	if err == nil {
 		t.Fatal("PlaylistCreate with no audio should error")
 	}
@@ -116,7 +116,7 @@ func TestPlaylistCreateEmpty(t *testing.T) {
 	setupTestEnv(t)
 
 	out, err := captureStdout(t, func() error {
-		return PlaylistCreate("empty", nil, "")
+		return PlaylistCreate("empty", nil, "", nil)
 	})
 	if err != nil {
 		t.Fatalf("PlaylistCreate empty: %v", err)
@@ -138,10 +138,10 @@ func TestPlaylistCreateDuplicate(t *testing.T) {
 	audio := filepath.Join(home, "a.mp3")
 	writeAudioFile(t, audio)
 
-	if err := PlaylistCreate("dup", []string{audio}, ""); err != nil {
+	if err := PlaylistCreate("dup", []string{audio}, "", nil); err != nil {
 		t.Fatalf("first PlaylistCreate: %v", err)
 	}
-	err := PlaylistCreate("dup", []string{audio}, "")
+	err := PlaylistCreate("dup", []string{audio}, "", nil)
 	if err == nil {
 		t.Error("duplicate create should error")
 	}
@@ -157,11 +157,11 @@ func TestPlaylistAddAppends(t *testing.T) {
 	writeAudioFile(t, a)
 	writeAudioFile(t, b)
 
-	if err := PlaylistCreate("mix", []string{a}, ""); err != nil {
+	if err := PlaylistCreate("mix", []string{a}, "", nil); err != nil {
 		t.Fatalf("PlaylistCreate: %v", err)
 	}
 
-	if err := PlaylistAdd("mix", []string{b}); err != nil {
+	if err := PlaylistAdd("mix", []string{b}, nil); err != nil {
 		t.Fatalf("PlaylistAdd: %v", err)
 	}
 
@@ -176,10 +176,10 @@ func TestPlaylistAddSkipsDuplicates(t *testing.T) {
 	a := filepath.Join(home, "a.mp3")
 	writeAudioFile(t, a)
 
-	if err := PlaylistCreate("mix", []string{a}, ""); err != nil {
+	if err := PlaylistCreate("mix", []string{a}, "", nil); err != nil {
 		t.Fatalf("PlaylistCreate: %v", err)
 	}
-	out, err := captureStdout(t, func() error { return PlaylistAdd("mix", []string{a}) })
+	out, err := captureStdout(t, func() error { return PlaylistAdd("mix", []string{a}, nil) })
 	if err != nil {
 		t.Fatalf("PlaylistAdd duplicate: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestPlaylistAddNonExistent(t *testing.T) {
 	a := filepath.Join(home, "a.mp3")
 	writeAudioFile(t, a)
 
-	err := PlaylistAdd("ghost", []string{a})
+	err := PlaylistAdd("ghost", []string{a}, nil)
 	if err == nil {
 		t.Error("PlaylistAdd on non-existent playlist should error")
 	}
@@ -211,7 +211,7 @@ func TestPlaylistShowJSON(t *testing.T) {
 	home := setupTestEnv(t)
 	audio := filepath.Join(home, "a.mp3")
 	writeAudioFile(t, audio)
-	if err := PlaylistCreate("mix", []string{audio}, ""); err != nil {
+	if err := PlaylistCreate("mix", []string{audio}, "", nil); err != nil {
 		t.Fatalf("PlaylistCreate: %v", err)
 	}
 
@@ -233,7 +233,7 @@ func TestPlaylistRemove(t *testing.T) {
 	b := filepath.Join(home, "b.mp3")
 	writeAudioFile(t, a)
 	writeAudioFile(t, b)
-	if err := PlaylistCreate("mix", []string{a, b}, ""); err != nil {
+	if err := PlaylistCreate("mix", []string{a, b}, "", nil); err != nil {
 		t.Fatalf("PlaylistCreate: %v", err)
 	}
 
@@ -251,7 +251,7 @@ func TestPlaylistRemoveOutOfRange(t *testing.T) {
 	home := setupTestEnv(t)
 	a := filepath.Join(home, "a.mp3")
 	writeAudioFile(t, a)
-	if err := PlaylistCreate("mix", []string{a}, ""); err != nil {
+	if err := PlaylistCreate("mix", []string{a}, "", nil); err != nil {
 		t.Fatalf("PlaylistCreate: %v", err)
 	}
 
@@ -265,7 +265,7 @@ func TestPlaylistDelete(t *testing.T) {
 	home := setupTestEnv(t)
 	audio := filepath.Join(home, "a.mp3")
 	writeAudioFile(t, audio)
-	if err := PlaylistCreate("todelete", []string{audio}, ""); err != nil {
+	if err := PlaylistCreate("todelete", []string{audio}, "", nil); err != nil {
 		t.Fatalf("PlaylistCreate: %v", err)
 	}
 
@@ -291,7 +291,7 @@ func TestPlaylistRename(t *testing.T) {
 	home := setupTestEnv(t)
 	a := filepath.Join(home, "a.mp3")
 	writeAudioFile(t, a)
-	if err := PlaylistCreate("old", []string{a}, ""); err != nil {
+	if err := PlaylistCreate("old", []string{a}, "", nil); err != nil {
 		t.Fatalf("PlaylistCreate: %v", err)
 	}
 	if err := PlaylistRename("old", "new"); err != nil {
@@ -311,7 +311,7 @@ func TestPlaylistDedupeAndSort(t *testing.T) {
 	b := filepath.Join(home, "b.mp3")
 	writeAudioFile(t, a)
 	writeAudioFile(t, b)
-	if err := PlaylistCreate("mix", nil, ""); err != nil {
+	if err := PlaylistCreate("mix", nil, "", nil); err != nil {
 		t.Fatalf("PlaylistCreate empty: %v", err)
 	}
 	p, err := newProvider()
@@ -341,7 +341,7 @@ func TestPlaylistDoctorFixPrunesMissing(t *testing.T) {
 	a := filepath.Join(home, "a.mp3")
 	missing := filepath.Join(home, "missing.mp3")
 	writeAudioFile(t, a)
-	if err := PlaylistCreate("mix", nil, ""); err != nil {
+	if err := PlaylistCreate("mix", nil, "", nil); err != nil {
 		t.Fatalf("PlaylistCreate empty: %v", err)
 	}
 	p, err := newProvider()
@@ -413,7 +413,7 @@ func TestPlaylistBookmarkToggle(t *testing.T) {
 	home := setupTestEnv(t)
 	audio := filepath.Join(home, "a.mp3")
 	writeAudioFile(t, audio)
-	if err := PlaylistCreate("mix", []string{audio}, ""); err != nil {
+	if err := PlaylistCreate("mix", []string{audio}, "", nil); err != nil {
 		t.Fatalf("PlaylistCreate: %v", err)
 	}
 
@@ -451,7 +451,7 @@ func TestPlaylistBookmarksShowsStars(t *testing.T) {
 	home := setupTestEnv(t)
 	audio := filepath.Join(home, "a.mp3")
 	writeAudioFile(t, audio)
-	if err := PlaylistCreate("mix", []string{audio}, ""); err != nil {
+	if err := PlaylistCreate("mix", []string{audio}, "", nil); err != nil {
 		t.Fatalf("PlaylistCreate: %v", err)
 	}
 	// Bookmark (captureStdout silences the toggle output).

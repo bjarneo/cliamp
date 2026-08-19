@@ -80,6 +80,7 @@ func (m Model) navHelpLine() string {
 }
 
 func (m Model) renderNavBody() string {
+	labels := m.navLabels()
 	budget := m.effectivePlaylistVisible()
 	if m.navBrowser.confirmReplace {
 		return bodyMessage("Displayed tracks will replace the current queue. Enter confirms; Esc cancels.", budget)
@@ -87,28 +88,28 @@ func (m Model) renderNavBody() string {
 	switch m.navView() {
 	case navViewArtists:
 		if m.navBrowser.loading && len(m.navBrowser.artists) == 0 {
-			return bodyLines([]string{loadingLine("Loading artists…")}, budget)
+			return bodyLines([]string{loadingLine("Loading " + labels.artistsLower() + "…")}, budget)
 		}
 		if m.navBrowser.search != "" && len(m.navBrowser.searchIdx) == 0 {
 			return bodyMessage("No matches.", budget)
 		}
 		if len(m.navBrowser.artists) == 0 {
-			return bodyMessage("No artists found.", budget)
+			return bodyMessage("No "+labels.artistsLower()+" found.", budget)
 		}
 		items := m.navScrollItems(len(m.navBrowser.artists), func(i int) string {
 			a := m.navBrowser.artists[i]
-			return truncate(fmt.Sprintf("%s (%d albums)", a.Name, a.AlbumCount), ui.PanelWidth-6)
+			return truncate(fmt.Sprintf("%s (%d %s)", a.Name, a.AlbumCount, labels.albumsLower()), ui.PanelWidth-6)
 		})
 		return strings.Join(items, "\n")
 	case navViewAlbums:
 		if (m.navBrowser.loading || m.navBrowser.albumLoading) && len(m.navBrowser.albums) == 0 {
-			return bodyLines([]string{loadingLine("Loading albums…")}, budget)
+			return bodyLines([]string{loadingLine("Loading " + labels.albumsLower() + "…")}, budget)
 		}
 		if m.navBrowser.search != "" && len(m.navBrowser.searchIdx) == 0 {
 			return bodyMessage("No matches.", budget)
 		}
 		if len(m.navBrowser.albums) == 0 {
-			return bodyMessage("No albums found.", budget)
+			return bodyMessage("No "+labels.albumsLower()+" found.", budget)
 		}
 		items := m.navScrollItems(len(m.navBrowser.albums), func(i int) string {
 			a := m.navBrowser.albums[i]
@@ -121,7 +122,7 @@ func (m Model) renderNavBody() string {
 	case navViewTracks:
 		return m.renderNavTrackBody(budget)
 	default:
-		items := []string{"By Album", "By Artist", "By Artist / Album"}
+		items := []string{"By " + labels.album, "By " + labels.artist, "By " + labels.artist + " / " + labels.album}
 		return windowList(items, m.navBrowser.cursor, 0, budget)
 	}
 }

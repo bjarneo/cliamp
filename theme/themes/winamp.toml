@@ -1,0 +1,9 @@
+# Winamp 2.91 base skin. Text colors come from PLEDIT.TXT and the
+# spectrum colors from VISCOLOR.TXT.
+bg = "#000000"
+accent = "#00FF00"
+bright_fg = "#FFFFFF"
+fg = "#969696"
+green = "#29CE10"
+yellow = "#D6B521"
+red = "#EF3110"

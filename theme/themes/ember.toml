@@ -1,8 +1,9 @@
 # Ember — deep warm hearth.
 # Campfire coals, darkroom safelight, analog warmth.
+bg = "#121212"
 accent = "#e07040"
 bright_fg = "#e8d0b8"
 fg = "#907868"
-green = "#a08858"
+green = "#9aaa68"
 yellow = "#d8a050"
-red = "#c04848"
+red = "#d15a5a"

@@ -25,6 +25,7 @@ const DefaultName = "Default - Terminal colors"
 // Theme holds a named color scheme with hex color values.
 type Theme struct {
 	Name     string
+	BG       string
 	Accent   string // hex
 	BrightFG string
 	FG       string
@@ -37,11 +38,11 @@ var hexColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
 // IsDefault returns true if this is the sentinel default theme (no hex values).
 func (t Theme) IsDefault() bool {
-	return t.Accent == "" && t.Green == "" && t.BrightFG == ""
+	return t.BG == "" && t.Accent == "" && t.Green == "" && t.BrightFG == ""
 }
 
-// Validate ensures a custom theme supplies the complete six-color palette in
-// CSS hex notation. The terminal-default sentinel intentionally has no colors.
+// Validate ensures a custom theme supplies the complete six-color foreground
+// palette in CSS hex notation. Background is optional for custom themes.
 func (t Theme) Validate() error {
 	if t.IsDefault() {
 		return nil
@@ -63,6 +64,9 @@ func (t Theme) Validate() error {
 		if !hexColor.MatchString(color.value) {
 			return fmt.Errorf("theme %q: %s must be #RRGGBB", t.Name, color.name)
 		}
+	}
+	if t.BG != "" && !hexColor.MatchString(t.BG) {
+		return fmt.Errorf("theme %q: bg must be #RRGGBB", t.Name)
 	}
 	return nil
 }
@@ -92,6 +96,8 @@ func Parse(name string, r io.Reader) (Theme, error) {
 		val = strings.Trim(val, `"'`)
 
 		switch key {
+		case "bg":
+			t.BG = val
 		case "accent":
 			t.Accent = val
 		case "bright_fg":

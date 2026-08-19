@@ -32,6 +32,30 @@ func TestLoadAllIncludesBuiltinThemes(t *testing.T) {
 	}
 }
 
+func TestLoadAllIncludesWinampPalette(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	want := Theme{
+		Name:     "winamp",
+		BG:       "#000000",
+		Accent:   "#00FF00",
+		BrightFG: "#FFFFFF",
+		FG:       "#969696",
+		Green:    "#29CE10",
+		Yellow:   "#D6B521",
+		Red:      "#EF3110",
+	}
+
+	for _, th := range LoadAll() {
+		if th.Name == want.Name {
+			if th != want {
+				t.Errorf("winamp theme = %+v, want %+v", th, want)
+			}
+			return
+		}
+	}
+	t.Fatal("built-in themes missing winamp")
+}
+
 func TestLoadAllSortedCaseInsensitive(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 

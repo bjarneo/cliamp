@@ -1,6 +1,6 @@
 # Configuration
 
-For remote providers (Navidrome, Plex, Jellyfin, Emby, Spotify, Qobuz, NetEase, YouTube Music), the fastest path is the interactive wizard:
+For remote providers (Navidrome, Plex, Jellyfin, Emby, Spotify, Qobuz, NetEase, Audiobookshelf, YouTube Music), the fastest path is the interactive wizard:
 
 ```sh
 cliamp setup
@@ -58,8 +58,11 @@ eq_preset = "Flat"
 
 # 10-band EQ gains in dB (range: -12 to 12)
 # Bands: 70Hz, 180Hz, 320Hz, 600Hz, 1kHz, 3kHz, 6kHz, 12kHz, 14kHz, 16kHz
-# Only used when eq_preset is "Custom" or empty
+# Saved Custom curve; applied when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+# Manual EQ changes update this curve automatically. Cycling presets with e
+# keeps it available, and both values are restored after restart.
 
 # Visualizer mode (leave empty for default Bars)
 # Options: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, None
@@ -131,6 +134,10 @@ token = "${JELLYFIN_TOKEN}"
 url = "https://emby.example.com"
 token = "${EMBY_TOKEN}"
 
+[audiobookshelf]
+url = "https://abs.example.com"
+token = "${AUDIOBOOKSHELF_TOKEN}"
+
 [ytmusic]
 client_id = "${YTMUSIC_CLIENT_ID}"
 client_secret = "${YTMUSIC_CLIENT_SECRET}"
@@ -153,7 +160,7 @@ Set which provider to start with:
 provider = "radio"
 ```
 
-Valid values: `radio` (default), `navidrome`, `spotify`, `plex`, `jellyfin`, `emby`, `qobuz`, `soundcloud`, `netease`, `yt`, `youtube`, `ytmusic`.
+Valid values: `radio` (default), `navidrome`, `spotify`, `plex`, `jellyfin`, `emby`, `qobuz`, `soundcloud`, `netease`, `audiobookshelf`, `yt`, `youtube`, `ytmusic`.
 
 You can also override from the CLI: `cliamp --provider jellyfin`.
 

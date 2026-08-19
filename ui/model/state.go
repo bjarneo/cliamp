@@ -388,6 +388,10 @@ func (s *statusMsg) Warningf(ttl statusTTL, format string, args ...any) {
 	s.Warning(fmt.Sprintf(format, args...), ttl)
 }
 
+func (s *statusMsg) Errorf(ttl statusTTL, format string, args ...any) {
+	s.Error(fmt.Sprintf(format, args...), ttl)
+}
+
 func (s *statusMsg) Activity(text string, ttl statusTTL) {
 	s.show(feedbackActivity, text, ttl)
 }
@@ -400,8 +404,8 @@ func (s *statusMsg) Warning(text string, ttl statusTTL) {
 	s.show(feedbackWarning, text, ttl)
 }
 
-func (s *statusMsg) Error(text string) {
-	s.show(feedbackError, text, 0)
+func (s *statusMsg) Error(text string, ttl statusTTL) {
+	s.show(feedbackError, text, ttl)
 }
 
 func (s *statusMsg) show(kind feedbackKind, text string, ttl statusTTL) {

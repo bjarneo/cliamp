@@ -28,6 +28,7 @@ type Request struct {
 	Limit    int        `json:"limit,omitempty"`
 	NewName  string     `json:"new_name,omitempty"`
 	Track    *TrackInfo `json:"track,omitempty"`
+	Topics   []string   `json:"topics,omitempty"`
 }
 
 // Response is the JSON response sent by the server.
@@ -69,6 +70,7 @@ type Response struct {
 // Empty hex fields mean the default (ANSI fallback) theme is active.
 type ThemeInfo struct {
 	Name     string `json:"name"`
+	BG       string `json:"bg,omitempty"`
 	Accent   string `json:"accent,omitempty"`
 	Fg       string `json:"fg,omitempty"`
 	BrightFg string `json:"bright_fg,omitempty"`

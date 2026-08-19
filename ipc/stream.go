@@ -20,7 +20,7 @@ func StreamBands(ctx context.Context, sockPath string, interval time.Duration, o
 	conn, err := dialSocket(sockPath, 3*time.Second)
 	if err != nil {
 		if isSocketUnavailable(err) {
-			return fmt.Errorf("cliamp is not running (no socket at %s)", sockPath)
+			return fmt.Errorf("no socket at %s: %w", sockPath, ErrNotRunning)
 		}
 		return fmt.Errorf("connect: %w", err)
 	}

@@ -1,6 +1,7 @@
+bg = "#2c2525"
 accent = "#f38d70"
 bright_fg = "#e6d9db"
-fg = "#948a8b"
+fg = "#9a9091"
 green = "#adda78"
 yellow = "#f9cc6c"
 red = "#fd6883"

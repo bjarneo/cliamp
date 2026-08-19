@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
 )
 
@@ -56,6 +57,45 @@ func TestMainViewShrinksPlaylistForFooterMessages(t *testing.T) {
 	}
 	if got := lipgloss.Height(m.View().Content); got > m.height {
 		t.Fatalf("View() height = %d, want <= %d after footer lines shrink playlist", got, m.height)
+	}
+}
+
+func TestViewAppliesThemeBackground(t *testing.T) {
+	applyThemeAll(theme.Theme{
+		Name:     "test",
+		BG:       "#112233",
+		Accent:   "#88aacc",
+		BrightFG: "#ffffff",
+		FG:       "#aabbcc",
+		Green:    "#88cc88",
+		Yellow:   "#ddcc77",
+		Red:      "#ee8888",
+	})
+	t.Cleanup(func() { applyThemeAll(theme.Default()) })
+
+	view := (Model{width: 20, height: 5}).View()
+	if view.BackgroundColor == nil {
+		t.Fatal("BackgroundColor is nil for a theme with bg")
+	}
+	if view.ForegroundColor == nil {
+		t.Fatal("ForegroundColor is nil for a theme with bg")
+	}
+	r, g, b, _ := view.BackgroundColor.RGBA()
+	if r>>8 != 0x11 || g>>8 != 0x22 || b>>8 != 0x33 {
+		t.Fatalf("BackgroundColor = #%02x%02x%02x, want #112233", r>>8, g>>8, b>>8)
+	}
+}
+
+func TestRenderTransientIncludesNonColorSeverityLabels(t *testing.T) {
+	m := Model{layout: frameLayout{panelWidth: 80}}
+	m.status.Warning("Unavailable", statusTTLShort)
+	if got := stripAnsi(m.renderTransient()); !strings.Contains(got, "WARN: Unavailable") {
+		t.Fatalf("warning feedback = %q, want WARN label", got)
+	}
+
+	m.status.Error("Load failed", statusTTLShort)
+	if got := stripAnsi(m.renderTransient()); !strings.Contains(got, "ERR: Load failed") {
+		t.Fatalf("error feedback = %q, want ERR label", got)
 	}
 }
 

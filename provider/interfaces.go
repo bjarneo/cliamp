@@ -44,8 +44,36 @@ type AlbumTrackLoader interface {
 // playback-completion reports for tracks they originated.
 type PlaybackReporter interface {
 	CanReportPlayback(track playlist.Track) bool
-	ReportNowPlaying(track playlist.Track, position time.Duration, canSeek bool)
-	ReportScrobble(track playlist.Track, elapsed, duration time.Duration, canSeek bool)
+	// ReportNowPlaying and ReportScrobble return the failure so the caller can
+	// record it; reporting is best-effort and never blocks playback.
+	ReportNowPlaying(track playlist.Track, position time.Duration, canSeek bool) error
+	ReportScrobble(track playlist.Track, elapsed, duration time.Duration, canSeek bool) error
+}
+
+// ProgressReporter is implemented by providers that track listening position
+// server-side and accept interim updates while a track plays, not only at its
+// start and end.
+type ProgressReporter interface {
+	PlaybackReporter
+	// ReportProgress sends an interim position update for a playing track.
+	ReportProgress(track playlist.Track, position time.Duration) error
+}
+
+// ResumeTarget is implemented by providers that track listening position
+// server-side and can point the UI at where to continue.
+type ResumeTarget interface {
+	// ResumeTarget returns the index within tracks to continue from and the
+	// offset into that track. It returns (0, 0) when there is no stored
+	// position.
+	ResumeTarget(playlistID string, tracks []playlist.Track) (index int, offset time.Duration)
+}
+
+// BrowseLabeler is implemented by providers whose catalog is not music, so the
+// browse overlay can use the right vocabulary.
+type BrowseLabeler interface {
+	// BrowseLabels returns the singular nouns for the artist and album levels,
+	// e.g. ("Author", "Book").
+	BrowseLabels() (artist, album string)
 }
 
 // PlaylistWriter is implemented by providers that support adding tracks

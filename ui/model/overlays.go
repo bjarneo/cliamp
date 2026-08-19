@@ -192,7 +192,7 @@ func (m *Model) visPickerSelect() {
 		return
 	}
 	if err := m.configSaver.Save("visualizer", fmt.Sprintf("%q", m.vis.ModeName())); err != nil {
-		m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
+		m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
 	}
 	m.visPickerClose()
 }
@@ -370,7 +370,7 @@ func (m *Model) openPlaylistManager() {
 func (m *Model) plMgrEnterTrackList(name string) {
 	tracks, err := m.localProvider.Tracks(name)
 	if err != nil {
-		m.status.Showf(statusTTLDefault, "Load failed: %s", err)
+		m.status.Errorf(statusTTLDefault, "Load failed: %s", err)
 		return
 	}
 	m.plManager.selPlaylist = name
@@ -463,7 +463,7 @@ func (m *Model) plMgrRefreshList() {
 	}
 	playlists, err := m.localProvider.Playlists()
 	if err != nil {
-		m.status.Showf(statusTTLDefault, "Load failed: %s", err)
+		m.status.Errorf(statusTTLDefault, "Load failed: %s", err)
 	}
 	m.plManager.playlists = playlists
 	if m.plManager.filter != "" {

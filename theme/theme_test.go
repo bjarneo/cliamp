@@ -23,6 +23,7 @@ func TestIsDefault(t *testing.T) {
 	}{
 		{"empty hex values", Theme{Name: "Default"}, true},
 		{"has accent", Theme{Name: "Custom", Accent: "#ff0000"}, false},
+		{"has background", Theme{Name: "Custom", BG: "#000000"}, false},
 		{"has green", Theme{Name: "Custom", Green: "#00ff00"}, false},
 		{"has bright fg", Theme{Name: "Custom", BrightFG: "#ffffff"}, false},
 	}
@@ -37,6 +38,7 @@ func TestIsDefault(t *testing.T) {
 
 func TestParse(t *testing.T) {
 	input := `# Solarized Dark theme
+bg = "#002b36"
 accent = "#268bd2"
 bright_fg = "#93a1a1"
 fg = "#839496"
@@ -51,6 +53,9 @@ red = "#dc322f"
 
 	if th.Name != "solarized-dark" {
 		t.Errorf("Name = %q, want solarized-dark", th.Name)
+	}
+	if th.BG != "#002b36" {
+		t.Errorf("BG = %q, want #002b36", th.BG)
 	}
 	if th.Accent != "#268bd2" {
 		t.Errorf("Accent = %q, want #268bd2", th.Accent)
@@ -143,5 +148,10 @@ func TestThemeValidate(t *testing.T) {
 	valid.Red = "red"
 	if err := valid.Validate(); err == nil {
 		t.Fatal("Validate() accepted invalid color")
+	}
+	valid.Red = "#667788"
+	valid.BG = "black"
+	if err := valid.Validate(); err == nil {
+		t.Fatal("Validate() accepted invalid background color")
 	}
 }

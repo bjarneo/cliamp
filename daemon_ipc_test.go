@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -231,5 +233,19 @@ func TestDaemonClearsHistory(t *testing.T) {
 	entries, err := store.Recent(0)
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("history after clear = %#v, err=%v", entries, err)
+	}
+}
+
+// The ipc package returns a bare sentinel; the CLI wording is added here.
+func TestUserIPCErrorRendersNotRunning(t *testing.T) {
+	rendered := userIPCError(fmt.Errorf("dial: %w", ipc.ErrNotRunning))
+	want := fmt.Sprintf("cliamp is not running (no socket at %s)", ipc.DefaultSocketPath())
+	if rendered.Error() != want {
+		t.Errorf("rendered = %q, want %q", rendered.Error(), want)
+	}
+
+	other := errors.New("connect: permission denied")
+	if got := userIPCError(other); got != other {
+		t.Errorf("unrelated error rewritten to %v", got)
 	}
 }

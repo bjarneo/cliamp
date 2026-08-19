@@ -33,6 +33,7 @@ func New(p player.Engine, pl *playlist.Playlist, providers []ProviderEntry, defa
 		seekStepLarge:    30 * time.Second,
 		plVisible:        5,
 		eqPresetIdx:      -1, // custom until a preset is selected
+		eqCustomBands:    p.EQBands(),
 		themes:           themes,
 		themeIdx:         -1, // Default (ANSI)
 		localProvider:    localProv,
@@ -60,6 +61,11 @@ func New(p player.Engine, pl *playlist.Playlist, providers []ProviderEntry, defa
 		m.provider = providers[0].Provider
 	}
 	return m
+}
+
+// SetCustomEQBands sets the persistent Custom curve without selecting it.
+func (m *Model) SetCustomEQBands(bands [10]float64) {
+	m.eqCustomBands = bands
 }
 
 // SetVisVolumeLinked controls whether the visualizer scales samples by the

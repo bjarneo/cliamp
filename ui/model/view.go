@@ -36,6 +36,7 @@ var providerEmptyStateHint = map[string]string{
 	"navidrome":           "Verify [navidrome] url/username/password in config.toml.",
 	"jellyfin":            "Verify [jellyfin] url and token in config.toml.",
 	"emby":                "Verify [emby] url and token or username/password in config.toml.",
+	"audiobookshelf":      "Verify [audiobookshelf] url and token or username/password in config.toml.",
 	"plex":                "Verify [plex] server URL and token or library filter in config.toml.",
 	"youtube music":       "Run `cliamp ytmusic-login` to authorize, then refresh.",
 	"ytmusic":             "Run `cliamp ytmusic-login` to authorize, then refresh.",
@@ -118,6 +119,10 @@ func (m Model) View() tea.View {
 	if m.layout.tooSmall() {
 		content := fmt.Sprintf("Terminal too small. Resize to at least 40x10 (current: %dx%d).", m.width, m.height)
 		view := tea.NewView(ui.FitRect(content, max(1, m.width), max(1, m.height)))
+		view.BackgroundColor = ui.ColorBackground
+		if ui.ColorBackground != nil {
+			view.ForegroundColor = ui.ColorText
+		}
 		view.AltScreen = true
 		return view
 	}
@@ -147,6 +152,10 @@ func (m Model) View() tea.View {
 	rendered = ui.FitRect(rendered, m.layout.frameWidth, max(1, m.height))
 
 	view := tea.NewView(rendered)
+	view.BackgroundColor = ui.ColorBackground
+	if ui.ColorBackground != nil {
+		view.ForegroundColor = ui.ColorText
+	}
 	view.AltScreen = true
 	view.WindowTitle = currentTerminalTitle(m.termTitle, m.width, m.terminalTitleValues())
 	return view
@@ -246,16 +255,19 @@ func (m Model) renderTransient() string {
 		return ui.FitRect(feedbackActivityStyle.Render(text), m.layout.panelWidth, 1)
 	}
 	if m.status.text != "" {
+		text := m.status.text
 		style := feedbackSuccessStyle
 		switch m.status.kind {
 		case feedbackActivity:
 			style = feedbackActivityStyle
 		case feedbackWarning:
 			style = feedbackWarningStyle
+			text = "WARN: " + text
 		case feedbackError:
 			style = errorStyle
+			text = "ERR: " + text
 		}
-		return ui.FitRect(style.Render(m.status.text), m.layout.panelWidth, 1)
+		return ui.FitRect(style.Render(text), m.layout.panelWidth, 1)
 	}
 	if n := len(m.logLines); n > 0 {
 		return ui.FitRect(dimStyle.Render(m.logLines[n-1].text), m.layout.panelWidth, 1)

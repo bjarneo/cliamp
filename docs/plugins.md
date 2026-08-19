@@ -153,6 +153,56 @@ The returned object `p` provides two methods:
 |--------|-------------|
 | `p:on(event, callback)` | Subscribe to a playback event |
 | `p:config(key)` | Read a config value from `[plugins.myplugin]` in config.toml |
+| `p:publish(topic, payload, options)` | Publish a namespaced event to local IPC subscribers |
+
+## Plugin event pub/sub
+
+Plugins can publish JSON-compatible values to external programs connected to
+Cliamp's owner-only IPC socket. Topics are automatically isolated beneath the
+installed plugin name; a plugin installed as `myplugin.lua` publishing
+`"playback"` produces the topic `plugin.myplugin.playback`. The name contributes
+exactly one topic segment: any character outside letters, digits, `_`, and `-`
+becomes `_`, so `my.plugin.lua` publishes under the prefix `plugin.my_plugin.*`
+(publishing `"playback"` from it gives `plugin.my_plugin.playback`) and can never
+collide with topics from a plugin named `my`. Because that folding is lossy,
+namespaces are unique per session: if `my.plugin.lua` and `my_plugin.lua` are
+both installed, the first one loaded (plugins load in name order) owns the
+`plugin.my_plugin.*` prefix and `p:publish()` in the other returns `nil, err`
+naming the owner. Rename one of them to publish from both. Subscribers must name
+complete topics, not prefixes.
+
+```lua
+p:publish("playback", {
+    status = cliamp.player.state(),
+    title = cliamp.track.title(),
+}, { retain = true })
+```
+
+With `retain = true`, Cliamp keeps the latest value in memory and sends it to
+new subscribers immediately. Retained values are discarded when Cliamp exits;
+no event data is persisted to disk. Publishing is non-blocking. A subscriber
+that cannot keep up is disconnected rather than blocking the player.
+
+Subscribe by opening `cliamp.sock` and sending one NDJSON request:
+
+```json
+{"cmd":"subscribe","topics":["plugin.myplugin.playback"]}
+```
+
+After `{"ok":true}`, the connection becomes a server-to-client event stream:
+
+```json
+{"event":"plugin.myplugin.playback","seq":42,"time":1786685741,"retained":true,"data":{"status":"playing","title":"Track"}}
+```
+
+Subscriptions use exact topic matches, accept at most 32 topics, and are
+streaming-only; use another IPC connection for ordinary commands. Sending any
+further bytes on a subscription closes it. Payloads are limited to 64 KiB and
+are converted with the same nesting and cycle rules as
+[`cliamp.json`](#cliampjson). Topic segments may contain letters, digits, `.`,
+`_`, and `-`. `p:publish()` requires no permission because IPC remains local to
+the same user and the existing `status` command already exposes playback
+metadata.
 
 ## Events
 
@@ -314,6 +364,10 @@ Writes are restricted to the system temp directory (`/tmp/` on Unix), `~/.config
 local tbl = cliamp.json.decode('{"key": "value"}')
 local str = cliamp.json.encode({ key = "value" })
 ```
+
+Tables are encoded up to 64 levels deep; anything deeper, and any cyclic
+reference, becomes `null` instead of failing. The same conversion is used by
+`p:publish()` and `cliamp.store`.
 
 ### cliamp.store
 

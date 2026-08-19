@@ -33,7 +33,13 @@ type deviceSwitchedMsg struct {
 // If Bands is non-nil, the bands are applied and the name becomes a custom label.
 type SetEQPresetMsg struct {
 	Name  string
-	Bands *[10]float64 // nil = use built-in preset bands or keep current
+	Bands *[10]float64 // nil = use built-in preset bands or keep current for a custom label
+}
+
+// SetEQBandMsg is sent by Lua plugins to adjust one band of the Custom curve.
+type SetEQBandMsg struct {
+	Band int
+	Gain float64
 }
 
 // ShowStatusMsg is sent by Lua plugins to display a message in the status bar.
@@ -49,6 +55,8 @@ type tracksLoadedMsg struct {
 	providerName  string
 	playlistExact bool
 	gen           uint64
+	resumeIdx     int
+	resumeOffset  time.Duration
 	err           error
 }
 
@@ -301,7 +309,13 @@ func fetchTracksCmd(prov playlist.Provider, playlistID string, gen uint64) tea.C
 		// Resolve PLS/M3U wrapper URLs to actual stream URLs so the
 		// player receives a direct audio stream instead of a playlist file.
 		tracks, expanded := resolveWrapperURLs(tracks)
-		return tracksLoadedMsg{tracks: tracks, playlistID: playlistID, providerName: prov.Name(), playlistExact: !expanded, gen: gen}
+		msg := tracksLoadedMsg{tracks: tracks, playlistID: playlistID, providerName: prov.Name(), playlistExact: !expanded, gen: gen}
+		if rt, ok := prov.(provider.ResumeTarget); ok {
+			if idx, offset := rt.ResumeTarget(playlistID, tracks); offset > 0 && idx >= 0 && idx < len(tracks) {
+				msg.resumeIdx, msg.resumeOffset = idx, offset
+			}
+		}
+		return msg
 	}
 }
 

@@ -48,6 +48,8 @@ type Track struct {
 
 	Unplayable bool // true when the track is known not playable in the current playback context
 
+	DirSourced bool // true when expanded from a [[dir]] playlist section; re-derived on load, never persisted
+
 	EmbeddedLyrics string // embedded lyrics from local file tags, when present
 	AlbumArtURL    string // file:// URL for cached embedded album art, when present
 

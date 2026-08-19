@@ -272,6 +272,7 @@ type Model struct {
 	provPillIdx   int             // selected pill index
 	eqPresetIdx   int             // -1 = custom, 0+ = index into eqPresets
 	eqCustomLabel string          // non-empty = plugin-defined preset label (shown instead of "Custom")
+	eqCustomBands [eqBandCount]float64
 
 	// Overlay / feature state (see state.go for struct definitions)
 	search         searchState
@@ -326,6 +327,8 @@ type Model struct {
 		path string
 		secs int
 	}
+
+	lastProgressReport time.Time // last interim provider progress report
 
 	loadedPlaylist string // name of the currently loaded local playlist (for resume)
 
