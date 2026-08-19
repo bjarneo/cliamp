@@ -300,7 +300,7 @@ func (p *Player) Preload(path string, knownDuration time.Duration) error {
 		return err
 	}
 	tp.setKnownDuration(knownDuration)
-	return p.preloadPipeline(tp)
+	return p.preloadPipeline(path, tp)
 }
 
 // preloadStillDeferred reports whether path was already dropped by
@@ -328,11 +328,18 @@ func (p *Player) PreloadYTDL(pageURL string, knownDuration time.Duration) error 
 		return err
 	}
 	tp.knownDuration = knownDuration
-	return p.preloadPipeline(tp)
+	return p.preloadPipeline(pageURL, tp)
 }
 
-// preloadPipeline queues a ready trackPipeline for gapless transition.
-func (p *Player) preloadPipeline(tp *trackPipeline) error {
+// preloadPipeline queues a ready trackPipeline for gapless transition. path
+// is the caller's own request (a local path, stream URL, or yt-dlp page
+// URL) — used as the deferral key instead of tp.path, which isn't set by
+// every trackPipeline construction site (a custom URI streamer factory, or
+// an ffmpeg-decode fallback after a native decoder failed, both leave it
+// empty). Preload's fast path matches on this same string, so a dropped
+// pathless pipeline would otherwise never be recorded as deferred and get
+// rebuilt from scratch on every tick until the current track changes.
+func (p *Player) preloadPipeline(path string, tp *trackPipeline) error {
 	// A gapless transition happens inside a single device buffer, so it cannot
 	// change the device's sample rate — it never calls alignOutput/
 	// SetSampleRate at all. In bit-perfect mode a next track at a different
@@ -351,8 +358,8 @@ func (p *Player) preloadPipeline(tp *trackPipeline) error {
 	// the eventual non-gapless Play() through alignOutput's real
 	// verification instead.
 	if p.bitPerfect && tp.format.SampleRate > 0 && (!p.out.RateExact() || int(tp.format.SampleRate) != p.out.SampleRate()) {
-		if tp.path != "" {
-			p.deferPreload(tp.path)
+		if path != "" {
+			p.deferPreload(path)
 		}
 		go closePipelines(tp)
 		return nil
