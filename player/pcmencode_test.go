@@ -103,6 +103,66 @@ func TestEncodePCMReturnsBytesWritten(t *testing.T) {
 	}
 }
 
+// TestEncodePCMChannelsMatchesPlainStereo verifies that channels==2,
+// left==0, right==1 — the common, unconfigured case — produces byte-identical
+// output to encodePCM, since writeLoop picks between the two based on that
+// exact condition and both must agree.
+func TestEncodePCMChannelsMatchesPlainStereo(t *testing.T) {
+	frames := [][2]float64{{0.5, -0.25}, {-1, 1}, {0, 0.1}}
+	for _, enc := range []pcmEncoding{pcmS32LE, pcmFloat32LE, pcmS16LE} {
+		want := make([]byte, len(frames)*enc.bytesPerFrame())
+		encodePCM(frames, want, enc)
+
+		got := make([]byte, len(frames)*enc.bytesPerFrame())
+		n := encodePCMChannels(frames, got, enc, 2, 0, 1)
+
+		if n != len(want) {
+			t.Errorf("%v: encodePCMChannels returned %d bytes, want %d", enc, n, len(want))
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("%v: byte %d = %#x, want %#x (encodePCMChannels diverged from encodePCM)", enc, i, got[i], want[i])
+			}
+		}
+	}
+}
+
+// TestEncodePCMChannelsPlacesStereoAndSilencesTheRest verifies a 6-channel
+// frame (the Komplete Audio 6 shape that motivated this) with left/right at
+// non-zero indices: the L/R samples land at the configured indices and every
+// other channel in the frame is silence.
+func TestEncodePCMChannelsPlacesStereoAndSilencesTheRest(t *testing.T) {
+	frames := [][2]float64{{1, -1}}
+	const channels, left, right = 6, 2, 3
+	buf := make([]byte, len(frames)*channels*pcmS32LE.bytesPerSample())
+
+	n := encodePCMChannels(frames, buf, pcmS32LE, channels, left, right)
+	if want := len(buf); n != want {
+		t.Fatalf("encodePCMChannels returned %d bytes, want %d", n, want)
+	}
+
+	bps := pcmS32LE.bytesPerSample()
+	for ch := range channels {
+		slot := buf[ch*bps : (ch+1)*bps]
+		var wantSample float64
+		switch ch {
+		case left:
+			wantSample = 1
+		case right:
+			wantSample = -1
+		default:
+			wantSample = 0
+		}
+		wantBuf := make([]byte, bps)
+		putSample(wantBuf, wantSample, pcmS32LE)
+		for i := range wantBuf {
+			if slot[i] != wantBuf[i] {
+				t.Errorf("channel %d byte %d = %#x, want %#x", ch, i, slot[i], wantBuf[i])
+			}
+		}
+	}
+}
+
 func TestScaleClampsOutOfRangeSamples(t *testing.T) {
 	if got := scaleInt16(2.0); got != math.MaxInt16 {
 		t.Errorf("scaleInt16(2.0) = %d, want %d", got, int16(math.MaxInt16))

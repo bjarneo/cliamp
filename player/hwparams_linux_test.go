@@ -63,3 +63,43 @@ func TestRealALSARate(t *testing.T) {
 		})
 	}
 }
+
+func TestRealALSAFormatAndChannels(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("open.txt", "access: MMAP_INTERLEAVED\nformat: S32_LE\nchannels: 6\nrate: 96000 (96000/1)\nperiod_size: 2400\n")
+	write("no_format.txt", "access: MMAP_INTERLEAVED\nchannels: 2\nrate: 96000 (96000/1)\n")
+	write("no_channels.txt", "access: MMAP_INTERLEAVED\nformat: S32_LE\nrate: 96000 (96000/1)\n")
+	write("closed.txt", "closed\n")
+	write("garbage.txt", "channels: not-a-number\nformat: S32_LE\n")
+	write("empty.txt", "")
+
+	tests := []struct {
+		name         string
+		file         string
+		wantFormat   string
+		wantChannels int
+		wantOK       bool
+	}{
+		{"open substream", "open.txt", "S32_LE", 6, true},
+		{"missing format line", "no_format.txt", "", 0, false},
+		{"missing channels line", "no_channels.txt", "", 0, false},
+		{"closed substream", "closed.txt", "", 0, false},
+		{"unparseable channels", "garbage.txt", "", 0, false},
+		{"empty file", "empty.txt", "", 0, false},
+		{"missing file", "does-not-exist.txt", "", 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotFormat, gotChannels, gotOK := realALSAFormatAndChannelsFile(filepath.Join(dir, tt.file))
+			if gotFormat != tt.wantFormat || gotChannels != tt.wantChannels || gotOK != tt.wantOK {
+				t.Errorf("realALSAFormatAndChannelsFile(%q) = (%q, %d, %v), want (%q, %d, %v)",
+					tt.file, gotFormat, gotChannels, gotOK, tt.wantFormat, tt.wantChannels, tt.wantOK)
+			}
+		})
+	}
+}

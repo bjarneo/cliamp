@@ -52,29 +52,50 @@ func (e pcmEncoding) String() string {
 }
 
 // encodePCM converts stereo float64 frames into interleaved little-endian PCM
-// and returns the number of bytes written. dst must hold at least
-// len(frames)*enc.bytesPerFrame() bytes.
+// for a plain 2-channel device and returns the number of bytes written. dst
+// must hold at least len(frames)*enc.bytesPerFrame() bytes. See
+// encodePCMChannels for a device whose channel count isn't 2.
 func encodePCM(frames [][2]float64, dst []byte, enc pcmEncoding) int {
 	bps := enc.bytesPerSample()
 	fs := enc.bytesPerFrame()
-	switch enc {
-	case pcmS32LE:
-		for i, f := range frames {
-			binary.LittleEndian.PutUint32(dst[i*fs:], uint32(scaleInt32(f[0])))
-			binary.LittleEndian.PutUint32(dst[i*fs+bps:], uint32(scaleInt32(f[1])))
-		}
-	case pcmFloat32LE:
-		for i, f := range frames {
-			binary.LittleEndian.PutUint32(dst[i*fs:], math.Float32bits(float32(clampUnit(f[0]))))
-			binary.LittleEndian.PutUint32(dst[i*fs+bps:], math.Float32bits(float32(clampUnit(f[1]))))
-		}
-	default:
-		for i, f := range frames {
-			binary.LittleEndian.PutUint16(dst[i*fs:], uint16(scaleInt16(f[0])))
-			binary.LittleEndian.PutUint16(dst[i*fs+bps:], uint16(scaleInt16(f[1])))
-		}
+	for i, f := range frames {
+		putSample(dst[i*fs:], f[0], enc)
+		putSample(dst[i*fs+bps:], f[1], enc)
 	}
 	return len(frames) * fs
+}
+
+// encodePCMChannels is encodePCM generalized to a device whose negotiated
+// channel count isn't 2 — a multichannel interface with no native stereo
+// mode (see bitperfect_channels in the config) still gets exactly the same
+// L/R samples, placed at channel indices left/right within each channels-wide
+// frame; every other channel in the frame is silence. channels==2, left==0,
+// right==1 produces byte-identical output to encodePCM, but costs an extra
+// zeroing pass, so callers on that common path should prefer encodePCM.
+// dst must hold at least len(frames)*channels*enc.bytesPerSample() bytes.
+func encodePCMChannels(frames [][2]float64, dst []byte, enc pcmEncoding, channels, left, right int) int {
+	bps := enc.bytesPerSample()
+	fs := channels * bps
+	clear(dst[:len(frames)*fs])
+	for i, f := range frames {
+		base := i * fs
+		putSample(dst[base+left*bps:], f[0], enc)
+		putSample(dst[base+right*bps:], f[1], enc)
+	}
+	return len(frames) * fs
+}
+
+// putSample writes one sample in enc's format, shared by encodePCM and
+// encodePCMChannels.
+func putSample(dst []byte, v float64, enc pcmEncoding) {
+	switch enc {
+	case pcmS32LE:
+		binary.LittleEndian.PutUint32(dst, uint32(scaleInt32(v)))
+	case pcmFloat32LE:
+		binary.LittleEndian.PutUint32(dst, math.Float32bits(float32(clampUnit(v))))
+	default:
+		binary.LittleEndian.PutUint16(dst, uint16(scaleInt16(v)))
+	}
 }
 
 // clampUnit constrains a sample to the [-1, 1] range the device expects.

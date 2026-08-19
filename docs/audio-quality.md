@@ -80,6 +80,19 @@ bitperfect_device = "hw:0,0"
 
 Both are also available as flags: `cliamp --bitperfect --bitperfect-device hw:0,0`, and `--no-bitperfect` to override a config file that enables it.
 
+### Multichannel interfaces
+
+Some audio interfaces have no native stereo mode at all — their one PCM substream only accepts a fixed, larger channel count (e.g. a 6-output interface used as a stereo DAC). `aplay -l` shows one subdevice either way; the tell is `speaker-test -D hw:N,0 -c 2 ...` failing with "Channels count (2) not available" while some larger count (found by trying `-c 1` through `-c 8`) succeeds. Point `bitperfect_channels` at whichever physical pair should carry left/right, as 0-based indices:
+
+```toml
+bitperfect_device = "hw:0,0"
+bitperfect_channels = "0,1"   # the first channel pair; "2,3" for the next, etc.
+```
+
+Or as a flag: `--bitperfect-channels 0,1`. cliamp widens its channel request to whatever the device needs to fit the pair you chose, and writes silence to every other channel.
+
+**This requires `bitperfect_device` to be a raw `hw:` device, not `plughw:`.** `plughw:`'s own channel-conversion layer will silently accept a plain 2-channel request too (that's its job) and remap it however its internal heuristic decides, without cliamp having any way to confirm where left/right actually landed — the same reason `plughw:` can't be fully trusted for rate exactness applies here. Through `hw:`, a request for fewer channels than the hardware needs simply fails, which is what lets cliamp force the negotiation wide enough and then verify the result (same `/proc/asound/.../hw_params` check described below, extended to also confirm channel count and sample format, not just rate). cliamp warns at startup if `bitperfect_channels` is set without a raw `hw:` device.
+
 When `bitperfect_device` points at real hardware (`hw:...`/`plughw:...`), cliamp asks the desktop's D-Bus device-reservation service for temporary exclusive access before opening it — the same protocol JACK has long used to borrow a card from PulseAudio/PipeWire, and what WirePlumber implements today. The device is handed back automatically as soon as cliamp closes it, so it's free for other apps the rest of the time; no permanent config or manual toggling needed. This is best-effort: without a session D-Bus bus, or with a sound server that doesn't support the protocol, cliamp behaves exactly as it did before and may still report the device as busy.
 
 When enabled, `sample_rate` still matters: it's the rate the device opens at before anything is playing, and the fallback rate if a track's native rate can't be probed or the device refuses it.
@@ -88,7 +101,7 @@ When enabled, `sample_rate` still matters: it's the rate the device opens at bef
 
 A **◆ BIT PERFECT** indicator appears next to the playback status when the full chain is bit-exact, with the device's sample rate shown right after it (e.g. `◆ BIT PERFECT 96kHz`). That requires all of:
 
-- bit-perfect mode enabled, `bitperfect_device` set to a `hw:...`/`plughw:...` device, and the device confirmed locked to the track's exact native rate (no resampling, no driver-side rate conversion)
+- bit-perfect mode enabled, `bitperfect_device` set to a `hw:...`/`plughw:...` device, and the device confirmed locked to the track's exact native rate, sample format, and channel count (no resampling, no driver-side conversion of any of the three)
 - volume at exactly +0 dB
 - EQ flat (all ten bands at 0 dB)
 - mono downmix off
@@ -96,7 +109,7 @@ A **◆ BIT PERFECT** indicator appears next to the playback status when the ful
 
 Any of the above breaks bit-exactness — the indicator simply disappears rather than explaining why, since at that point cliamp is intentionally modifying the signal (that's what volume, EQ, and speed controls are for). When it's dark, a dim sample-rate readout still shows next to the playback status whenever bit-perfect mode is on and a rate is known — either the device's current rate, or `source→device` (e.g. `192→96kHz`) when they don't match — so you can see what's actually happening without an external tool.
 
-`hw:...` and `plughw:...` are both eligible for the badge, but verified differently. `hw:` has no conversion capability at all: a request either matches the hardware exactly or fails outright, so its own report of an exact match is trustworthy on its own. `plughw:` wraps the same hardware in ALSA's automatic format/channel/rate conversion layer, entirely in userspace — it can silently resample or channel-map to satisfy a request it can't actually honor natively and still report success, so cliamp doesn't take its word for it: it separately confirms the rate against the kernel's own view of the underlying hardware substream (`/proc/asound/.../hw_params`, the same file described below), and only lights up the badge when that independently confirms an exact match. This means a device that only works through `plughw:` (e.g. it exposes more channels than cliamp requests, so a raw `hw:` open fails on channel count) can still earn the badge for the rates it genuinely supports natively — it just won't for a rate the hardware doesn't support, even though the `plughw:` open itself succeeds by silently resampling.
+`hw:...` and `plughw:...` are both eligible for the badge, but verified differently. `hw:` has no conversion capability at all: a request either matches the hardware exactly or fails outright, so its own report of an exact match is trustworthy on its own. `plughw:` wraps the same hardware in ALSA's automatic format/channel/rate conversion layer, entirely in userspace — it can silently resample, reformat, or channel-map to satisfy a request it can't actually honor natively and still report success, so cliamp doesn't take its word for it: it separately confirms the rate, sample format, and channel count against the kernel's own view of the underlying hardware substream (`/proc/asound/.../hw_params`, the same file described below), and only lights up the badge when that independently confirms an exact match on all three. This means a device that only works through `plughw:` (e.g. it exposes more channels than cliamp requests, so a raw `hw:` open fails on channel count) can still earn the badge for the rates it genuinely supports natively — it just won't for a rate the hardware doesn't support, even though the `plughw:` open itself succeeds by silently resampling. A device requiring `bitperfect_channels` to reach at all (see above) can only ever earn the badge through `hw:`, since `plughw:` will accept the narrower default channel request without ever forcing the widening cliamp needs to verify against.
 
 Notes and caveats:
 

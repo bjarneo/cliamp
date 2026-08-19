@@ -22,6 +22,7 @@ cliamp --buffer-ms 2000 track.mp3         # speaker buffer in ms (50-5000; usefu
 cliamp --resample-quality 1 track.mp3     # resample quality factor (1–4)
 cliamp --bit-depth 32 track.m4a           # PCM bit depth: 16 (default) or 32 (lossless)
 cliamp --bitperfect --bitperfect-device hw:0,0 track.flac  # no resampling; device retuned to the track's rate (Linux/ALSA). --bitperfect-device is required for this to actually be bit-perfect — see docs/audio-quality.md
+cliamp --bitperfect --bitperfect-device hw:0,0 --bitperfect-channels 2,3 track.flac  # use output channels 2,3 on a multichannel interface with no native stereo mode
 cliamp --no-bitperfect track.flac                    # override bitperfect=true from config.toml
 ```
 
@@ -123,6 +124,7 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--bit-depth` | int | 16 | 16, 32 |
 | `--bitperfect` / `--no-bitperfect` | bool | false | Linux/ALSA only; requires `--bitperfect-device` to actually be bit-perfect |
 | `--bitperfect-device` | string | | Required for `--bitperfect`: a hw:/plughw: device, e.g. hw:0,0 |
+| `--bitperfect-channels` | string | | Output channel pair for a multichannel device, e.g. 0,1; requires a raw hw: device, see docs/audio-quality.md |
 | `--playlist` | string | | local TOML playlist name |
 | `--log-level` | string | info | debug, info, warn, error |
 | `--low-power` | bool | false | lowers UI cadence; disables visualization |

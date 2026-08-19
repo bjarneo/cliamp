@@ -271,6 +271,7 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 		BitDepth:        cfg.BitDepth,
 		BitPerfect:      cfg.BitPerfect,
 		Device:          cfg.BitPerfectDevice,
+		Channels:        cfg.BitPerfectChannels,
 	})
 	if err != nil {
 		return fmt.Errorf("player: %w", err)
@@ -318,8 +319,16 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 	m.SetVisVolumeLinked(cfg.VisVolumeLinked)
 	if cfg.BitPerfect {
 		dev := strings.TrimSpace(cfg.BitPerfectDevice)
-		if dev == "" || (!strings.HasPrefix(dev, "hw:") && !strings.HasPrefix(dev, "plughw:")) {
+		switch {
+		case dev == "" || (!strings.HasPrefix(dev, "hw:") && !strings.HasPrefix(dev, "plughw:")):
 			m.SetBitPerfectDeviceWarning("bit-perfect is on but bitperfect_device isn't a hw:/plughw: device — playback isn't verifiably bit-perfect this way (see docs/audio-quality.md)")
+		case cfg.BitPerfectChannels != "" && !strings.HasPrefix(dev, "hw:"):
+			// plughw:'s own channel-conversion layer can silently accept a
+			// smaller channel request than the hardware actually needs and
+			// map it however it sees fit — the same reason plughw: can't be
+			// trusted for rate exactness applies here too, so a configured
+			// channel layout can only be verified through a raw hw: device.
+			m.SetBitPerfectDeviceWarning("bitperfect_channels is set but bitperfect_device is plughw:, not hw: — the channel layout can't be verified this way (see docs/audio-quality.md)")
 		}
 	}
 

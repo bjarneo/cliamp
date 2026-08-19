@@ -85,6 +85,32 @@ func (cs *chainedOggStreamer) initDecoder(reader *oggvorbis.Reader) {
 	cs.stream = s
 }
 
+// SetTargetRate changes the rate the current segment and all future chain
+// segments are resampled to.
+//
+// targetSR is only ever a guess at construction time: newChainedOggStreamer
+// is called from buildPipeline, before playPipeline's alignOutput has had a
+// chance to retune the device to this stream's own native rate (bit-perfect
+// mode reopens the device per track, but the streamer already exists by
+// then) — so it starts out set to whatever rate the device happened to be
+// running at before this stream started, which is not the same thing.
+// alignOutput calls this once it knows the rate the device actually settled
+// on, so both the segment already playing and every later chain() boundary
+// resample to what the device is actually running at instead of a stale
+// guess — the wrong-pitch/wrong-speed bug this exists to avoid affects every
+// chained-ogg stream in bit-perfect mode, not just a mid-chain rate change.
+func (cs *chainedOggStreamer) SetTargetRate(sr beep.SampleRate) {
+	if sr == cs.targetSR {
+		return
+	}
+	cs.targetSR = sr
+	var s beep.Streamer = cs.raw
+	if cs.format.SampleRate != cs.targetSR {
+		s = beep.Resample(cs.resampleQuality, cs.format.SampleRate, cs.targetSR, s)
+	}
+	cs.stream = s
+}
+
 // notifyMeta extracts ARTIST/TITLE from Vorbis comments and fires onMeta.
 func (cs *chainedOggStreamer) notifyMeta() {
 	if cs.onMeta == nil {

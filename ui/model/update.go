@@ -170,6 +170,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.reconnect.at = time.Time{}
 			}
 		}
+		// Surface an output-device failure once (e.g. a bit-perfect device was
+		// unplugged mid-track). Unlike StreamErr, player.OutputErr() persists
+		// for the sink's lifetime, so it is shown once rather than re-pinning
+		// m.err every tick and blotting out any later status.
+		if !m.outputErrShown {
+			if err := m.player.OutputErr(); err != nil {
+				m.err = err
+				m.outputErrShown = true
+			}
+		}
 		var lyricCmd tea.Cmd
 		// Poll ICY stream title for live radio display.
 		if title := m.player.StreamTitle(); title != "" && title != m.streamTitle {

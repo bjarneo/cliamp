@@ -27,6 +27,12 @@ type Quality struct {
 	// Device is the output device for the bit-perfect backend (an ALSA device
 	// name on Linux). Empty means the system default.
 	Device string
+	// Channels selects which physical output channels carry cliamp's stereo
+	// signal, as "left,right" 0-based indices (e.g. "2,3") — needed for a
+	// multichannel audio interface with no native stereo mode, whose one PCM
+	// substream only accepts a fixed, larger channel count. Empty (the
+	// default) is plain 2-channel negotiation, unaffected by this.
+	Channels string
 }
 
 // StreamerFactory creates a beep.StreamSeekCloser for a custom URI scheme
@@ -105,8 +111,10 @@ func New(q Quality) (*Player, error) {
 
 	p := &Player{resampleQuality: q.ResampleQuality}
 	if q.BitPerfect {
-		out, err := newBitPerfectSink(q.Device, q.SampleRate, q.BufferMs)
-		if err != nil {
+		channels, chErr := parseChannelLayout(q.Channels)
+		if chErr != nil {
+			p.rateNote.Store(fmt.Sprintf("bit-perfect output unavailable: %v", chErr))
+		} else if out, err := newBitPerfectSink(q.Device, q.SampleRate, q.BufferMs, channels); err != nil {
 			p.rateNote.Store(fmt.Sprintf("bit-perfect output unavailable: %v", err))
 		} else {
 			p.out = out
@@ -270,8 +278,22 @@ func (p *Player) Preload(path string, knownDuration time.Duration) error {
 		// Already tried and dropped for a bit-perfect rate mismatch under the
 		// current track (see preloadPipeline); the UI retries preloading on
 		// every tick until HasPreload() is true, so without this the same
-		// ffprobe/ffmpeg spawn would repeat every tick until the track ends.
+		// probe/build would repeat every tick until the track ends.
 		return nil
+	}
+	// A cheap ffprobe first, before the expensive build (ffmpeg process,
+	// network connection, provider request) that preloadPipeline's own
+	// mismatch check further down would otherwise immediately throw away for
+	// the exact same reason: a gapless transition can't retune the device, so
+	// a next track at a different native rate is always going to be deferred
+	// in bit-perfect mode. This only ever short-circuits — a failed or
+	// inconclusive probe (native == 0) falls through to the normal build,
+	// same as if this check weren't here.
+	if p.bitPerfect {
+		if native := probeNativeRate(path); native > 0 && native != p.out.SampleRate() {
+			p.deferPreload(path)
+			return nil
+		}
 	}
 	tp, err := p.buildPipeline(path)
 	if err != nil {
@@ -288,6 +310,15 @@ func (p *Player) preloadStillDeferred(path string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.preloadDeferredPath != "" && p.preloadDeferredPath == path && p.preloadDeferredCur == p.current
+}
+
+// deferPreload records path as dropped for a bit-perfect rate mismatch under
+// the current track, so preloadStillDeferred can skip retrying it every tick.
+func (p *Player) deferPreload(path string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.preloadDeferredPath = path
+	p.preloadDeferredCur = p.current
 }
 
 // PreloadYTDL builds a yt-dlp pipe pipeline and queues it for gapless transition.
@@ -310,10 +341,7 @@ func (p *Player) preloadPipeline(tp *trackPipeline) error {
 	// it every tick until the current track changes.
 	if p.bitPerfect && tp.format.SampleRate > 0 && int(tp.format.SampleRate) != p.out.SampleRate() {
 		if tp.path != "" {
-			p.mu.Lock()
-			p.preloadDeferredPath = tp.path
-			p.preloadDeferredCur = p.current
-			p.mu.Unlock()
+			p.deferPreload(tp.path)
 		}
 		go closePipelines(tp)
 		return nil
@@ -877,6 +905,17 @@ func (p *Player) StreamErr() error {
 	return cur.decoder.Err()
 }
 
+// OutputErr returns the reason the output device stopped working, if any.
+// Unlike StreamErr (an input-side failure that stops decoding), this is
+// output-side: on Linux the bit-perfect sink can hit a write failure it
+// can't recover from mid-track (e.g. the device was unplugged) and it does
+// not always mean playback has stopped — the sink may have already fallen
+// back to a working device on its own. Either way this is worth surfacing:
+// see alsaSink.handleFatal.
+func (p *Player) OutputErr() error {
+	return p.out.Err()
+}
+
 // SamplesInto copies the latest audio samples into dst, avoiding allocation.
 // Returns the number of samples written.
 func (p *Player) SamplesInto(dst []float64) int {
@@ -936,7 +975,26 @@ func (p *Player) alignOutput(tp *trackPipeline) {
 	}
 
 	p.rate.Store(int64(actual))
+	if rt, ok := tp.decoder.(rateRetargetable); ok {
+		// A decoder that resamples internally (chained OGG/Icecast radio
+		// resamples per chain segment, since a later segment's native rate
+		// can differ from an earlier one's — see chainedOggStreamer.chain)
+		// must be told the device's real rate directly: wrapping it in
+		// another outer resampler here, like the branch below does for an
+		// ordinary decoder, would double-resample whatever it's already
+		// producing internally.
+		rt.SetTargetRate(beep.SampleRate(actual))
+		return
+	}
 	tp.stream = p.wrapResample(tp.format.SampleRate, beep.SampleRate(actual), tp.stream)
+}
+
+// rateRetargetable is implemented by a decoder that resamples internally and
+// needs to be told when the device's actual rate changes, rather than being
+// wrapped in an outer resampler the way an ordinary decoder is — see
+// alignOutput. Currently only chainedOggStreamer implements it.
+type rateRetargetable interface {
+	SetTargetRate(beep.SampleRate)
 }
 
 // BitPerfect reports whether audio currently reaches the output device
@@ -966,8 +1024,19 @@ func (p *Player) BitPerfect() BitPerfectStatus {
 		speed:      p.Speed(),
 	}
 	in.note, _ = p.rateNote.Load().(string)
+	if outErr := p.out.Err(); outErr != nil {
+		in.note = outErr.Error()
+	}
 	if cur != nil {
-		in.sourceRate = int(cur.format.SampleRate)
+		// verifiedSourceRate, not format.SampleRate: the latter is the rate
+		// PCM frames actually arrive at from the decoder, which for an
+		// unprobed ffmpeg transcode (radio, HLS, yt-dlp, or a local file
+		// whose probe failed) is just whatever rate ffmpeg was asked to
+		// target — it says nothing about the source's real native rate, so
+		// treating it as one would let those cases earn the badge on a
+		// coincidental match instead of a verified one. See trackPipeline's
+		// doc comment.
+		in.sourceRate = cur.verifiedSourceRate
 		in.sourceBytes = cur.format.Precision
 	}
 	return in.eval()

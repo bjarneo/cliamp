@@ -32,6 +32,19 @@ type trackPipeline struct {
 	// Network byte counter — incremented by countingReader for HTTP streams.
 	// nil for local files.
 	bytesRead *atomic.Int64
+
+	// verifiedSourceRate is the track's own native sample rate, independently
+	// confirmed rather than assumed — the source-side analogue of
+	// alsaDevice.verifiedRate, and for the same reason: a decode path that
+	// transcodes through ffmpeg without probing the source first (radio,
+	// HLS, yt-dlp, or a local file whose probe failed) reports PCM at
+	// whatever rate ffmpeg was asked for, which says nothing about whether
+	// that matches what the source was actually encoded at — format.SampleRate
+	// stays correct for its own purpose (the rate frames actually arrive at
+	// from this decoder) but must not be trusted as a claim about the
+	// source. Zero means unverified. Only ever used for reporting
+	// (BitPerfectStatus), never for pipeline/decode decisions.
+	verifiedSourceRate int
 }
 
 // countingReader wraps an io.ReadCloser and atomically counts bytes read.
@@ -90,14 +103,27 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 // decodeRateFor picks the sample rate a local-file ffmpeg decode should
 // target. In bit-perfect mode it probes the file's own rate via ffprobe so
 // ffmpeg performs no resampling; otherwise (or if probing fails) it is the
-// device's current output rate.
-func (p *Player) decodeRateFor(path string) beep.SampleRate {
+// device's current output rate. verified reports whether the returned rate
+// is the file's confirmed native rate (a successful probe) as opposed to a
+// fallback guess — callers use it to set trackPipeline.verifiedSourceRate.
+func (p *Player) decodeRateFor(path string) (rate beep.SampleRate, verified bool) {
 	if p.bitPerfect {
 		if native := probeNativeRate(path); native > 0 {
-			return beep.SampleRate(native)
+			return beep.SampleRate(native), true
 		}
 	}
-	return p.outRate()
+	return p.outRate(), false
+}
+
+// verifiedRate is trackPipeline.verifiedSourceRate's value for a decode that
+// reported sr with verified confidence (a real probe or a native container
+// header) — 0 (unverified) otherwise. Collects the same "0 unless verified"
+// rule used at every trackPipeline construction site into one place.
+func verifiedRate(verified bool, sr beep.SampleRate) int {
+	if !verified {
+		return 0
+	}
+	return int(sr)
 }
 
 // resampleTarget returns the rate a stream already decoded at native should be
@@ -198,11 +224,13 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		// hung probe can't stall playback — falling back to the device's
 		// current rate (transcoded, not bit-perfect) rather than blocking.
 		decodeRate := p.outRate()
+		verified := false
 		if nativeRateCh != nil {
 			select {
 			case native := <-nativeRateCh:
 				if native > 0 {
 					decodeRate = beep.SampleRate(native)
+					verified = true
 				}
 			case <-time.After(2 * time.Second):
 			}
@@ -215,14 +243,15 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		}
 		var s beep.Streamer = decoder
 		return &trackPipeline{
-			decoder:       decoder,
-			stream:        s,
-			format:        format,
-			seekable:      true, // navFFmpegStreamer.Seek() handles seeking without reconnect
-			rc:            nb,   // trackPipeline.close() calls nb.Close()
-			path:          path,
-			bytesRead:     &nb.bytesIn,
-			contentLength: contentLen,
+			decoder:            decoder,
+			stream:             s,
+			format:             format,
+			verifiedSourceRate: verifiedRate(verified, format.SampleRate),
+			seekable:           true, // navFFmpegStreamer.Seek() handles seeking without reconnect
+			rc:                 nb,   // trackPipeline.close() calls nb.Close()
+			path:               path,
+			bytesRead:          &nb.bytesIn,
+			contentLength:      contentLen,
 		}, nil
 	}
 
@@ -324,16 +353,18 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 	// file to memory. Seeking is supported via ffmpeg -ss restart.
 	if !isURL(path) && needsFFmpeg(ext) {
 		rc.Close()
-		decoder, format, err := decodeFFmpegLocal(path, p.decodeRateFor(path), p.bitDepth)
+		rate, verified := p.decodeRateFor(path)
+		decoder, format, err := decodeFFmpegLocal(path, rate, p.bitDepth)
 		if err != nil {
 			return nil, fmt.Errorf("decode: %w", err)
 		}
 		return &trackPipeline{
-			decoder:  decoder,
-			stream:   decoder, // outputs at target sample rate
-			format:   format,
-			seekable: true,
-			path:     path,
+			decoder:            decoder,
+			stream:             decoder, // outputs at target sample rate
+			format:             format,
+			verifiedSourceRate: verifiedRate(verified, format.SampleRate),
+			seekable:           true,
+			path:               path,
 		}, nil
 	}
 
@@ -359,16 +390,18 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		}
 		// Native local decoder failed (e.g., IEEE float WAV). Fall back to
 		// buffered ffmpeg decode, which handles more formats.
-		decoder, format, err = decodeFFmpeg(path, p.decodeRateFor(path), p.bitDepth)
+		rate, verified := p.decodeRateFor(path)
+		decoder, format, err = decodeFFmpeg(path, rate, p.bitDepth)
 		if err != nil {
 			return nil, fmt.Errorf("decode: %w", err)
 		}
 		// pcmStreamer is fully buffered in memory — always seekable, no rc to manage.
 		return &trackPipeline{
-			decoder:  decoder,
-			stream:   decoder, // decodeFFmpeg outputs at target sample rate
-			format:   format,
-			seekable: true,
+			decoder:            decoder,
+			stream:             decoder, // decodeFFmpeg outputs at target sample rate
+			format:             format,
+			verifiedSourceRate: verifiedRate(verified, format.SampleRate),
+			seekable:           true,
 		}, nil
 	}
 
@@ -397,6 +430,13 @@ func (p *Player) buildPipelineAt(path string, byteOffset int64, timeOffset time.
 		bytesRead:    byteCounter,
 	}
 	tp.stream = p.wrapResample(format.SampleRate, p.resampleTarget(format.SampleRate), decoder)
+	// decodeWithExt's native branches (wav/flac/vorbis/mp3) read the rate
+	// straight out of the container header — no transcoding, so no guess
+	// involved. needsFFmpeg(ext) is always false by construction here (the
+	// two branches above already handle every ffmpeg-needing extension, for
+	// both URL and local paths), but the guard costs nothing and keeps this
+	// correct even if that ever changes.
+	tp.verifiedSourceRate = verifiedRate(!needsFFmpeg(ext), format.SampleRate)
 
 	// Mark HTTP streams with a known Content-Length as seek-by-reconnect capable.
 	// We need contentLength > 0 to compute byte offsets; knownDuration is checked
@@ -420,10 +460,14 @@ func (p *Player) buildChainedOggPipeline(rc io.ReadCloser, onMeta func(string)) 
 	}
 
 	return &trackPipeline{
-		decoder:  cs,
-		stream:   cs, // already resampled internally if needed
-		format:   format,
-		seekable: false,
-		rc:       nil, // chainedOggStreamer owns the lifecycle
+		decoder: cs,
+		stream:  cs, // already resampled internally if needed
+		format:  format,
+		// The oggvorbis reader reports the current segment's own header
+		// rate directly, no transcoding involved — genuinely verified, same
+		// as decodeWithExt's native branches.
+		verifiedSourceRate: int(format.SampleRate),
+		seekable:           false,
+		rc:                 nil, // chainedOggStreamer owns the lifecycle
 	}, nil
 }

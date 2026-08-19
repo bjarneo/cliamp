@@ -60,6 +60,7 @@ type Engine interface {
 
 	// Stream info
 	StreamErr() error
+	OutputErr() error
 	StreamTitle() string
 	StreamBytes() (downloaded, total int64)
 

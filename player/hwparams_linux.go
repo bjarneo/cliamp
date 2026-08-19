@@ -58,8 +58,14 @@ func alsaDeviceIndex(device string) int {
 // the line can't be parsed — callers must fall back gracefully, never treat
 // this as fatal.
 func realALSARate(cardIdx, devIdx int) (rate int, ok bool) {
-	path := fmt.Sprintf("/proc/asound/card%d/pcm%dp/sub0/hw_params", cardIdx, devIdx)
-	return realALSARateFile(path)
+	return realALSARateFile(hwParamsPath(cardIdx, devIdx))
+}
+
+// hwParamsPath is the /proc path for a playback substream's negotiated
+// kernel state, shared by realALSARate and realALSAFormatAndChannels — see
+// realALSARate's doc comment for the subdevice-0 assumption.
+func hwParamsPath(cardIdx, devIdx int) string {
+	return fmt.Sprintf("/proc/asound/card%d/pcm%dp/sub0/hw_params", cardIdx, devIdx)
 }
 
 // realALSARateFile parses the "rate:" line out of an ALSA hw_params file
@@ -90,6 +96,53 @@ func realALSARateFile(path string) (rate int, ok bool) {
 		return n, true
 	}
 	return 0, false
+}
+
+// realALSAFormatAndChannels reads the kernel's live negotiated sample format
+// and channel count for the same substream realALSARate reads the rate
+// from — part of the same hw_params commit, so once realALSARateSettled has
+// confirmed the rate, these are stable too and need no separate retry loop.
+// A conversion layer (plughw:, a sound server) can silently convert the
+// sample format or channel count exactly as it can the rate — accepting a
+// request the hardware can't actually honor and reporting success anyway —
+// so configureALSA's exactness check must confirm all three, not just the
+// rate this file was originally written to check.
+func realALSAFormatAndChannels(cardIdx, devIdx int) (format string, channels int, ok bool) {
+	return realALSAFormatAndChannelsFile(hwParamsPath(cardIdx, devIdx))
+}
+
+// realALSAFormatAndChannelsFile is realALSAFormatAndChannels split out for
+// testing, mirroring realALSARateFile/realALSARate.
+func realALSAFormatAndChannelsFile(path string) (format string, channels int, ok bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", 0, false
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if rest, found := strings.CutPrefix(line, "format:"); found {
+			format = strings.TrimSpace(rest)
+			continue
+		}
+		if rest, found := strings.CutPrefix(line, "channels:"); found {
+			fields := strings.Fields(rest)
+			if len(fields) == 0 {
+				continue
+			}
+			if n, err := strconv.Atoi(fields[0]); err == nil {
+				channels = n
+			}
+		}
+	}
+	// Neither field is ever legitimately empty/zero in a real hw_params
+	// file, so this doubles as "was the line present and parseable".
+	if format == "" || channels == 0 {
+		return "", 0, false
+	}
+	return format, channels, true
 }
 
 // realALSARateSettled retries realALSARate until two consecutive readings

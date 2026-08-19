@@ -109,17 +109,53 @@ type deviceReservation struct {
 	name string
 }
 
+// reserveHandler implements org.freedesktop.ReserveDevice1's RequestRelease
+// method so a higher-priority application (or the sound server acting on its
+// behalf) can ask cliamp to give the device back — the same thing
+// acquireDeviceReservation itself does to whatever held the name before it.
+// Without this exported, a reservation is a one-way lock for the rest of the
+// process's life instead of the temporary, preemptable hold the protocol
+// describes.
+type reserveHandler struct {
+	// onPreempt gives up the device and reports success. Only called for a
+	// request from a strictly higher priority than ours (see RequestRelease);
+	// cliamp's own reservePriority (10) is already "comfortably above
+	// WirePlumber's own (-20)", so declining a lower-or-equal request keeps a
+	// well-behaved competing client from bumping cliamp for no reason.
+	onPreempt func(requestPriority int32) bool
+}
+
+func (h *reserveHandler) RequestRelease(priority int32) (bool, *dbus.Error) {
+	if priority <= reservePriority {
+		return false, nil
+	}
+	return h.onPreempt(priority), nil
+}
+
 // acquireDeviceReservation asks whatever currently holds cardIdx's
-// reservation name to yield it, and returns a handle once acquired. It is
-// best-effort: any failure (no session bus, no cooperating holder, timeout)
-// is an ordinary, expected outcome and is returned as a plain error for the
-// caller to log and fall through, never as something fatal.
-func acquireDeviceReservation(cardIdx int) (*deviceReservation, error) {
+// reservation name to yield it, and returns a handle once acquired. onPreempt
+// is called later, on its own goroutine (godbus dispatches every incoming
+// method call via `go conn.handleCall(msg)`, so this never blocks the
+// connection's read loop), if a higher-priority application asks for the
+// device back the same way. It is best-effort throughout: any failure (no
+// session bus, no cooperating holder, timeout) is an ordinary, expected
+// outcome and is returned as a plain error for the caller to log and fall
+// through, never as something fatal.
+func acquireDeviceReservation(cardIdx int, onPreempt func(requestPriority int32) bool) (*deviceReservation, error) {
 	name := reserveBusName(cardIdx)
+	path := reserveObjectPath(cardIdx)
 
 	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
 		return nil, fmt.Errorf("reserve: session bus: %w", err)
+	}
+
+	// Exported before RequestName below so there is no window where cliamp
+	// holds the name but would fail to answer a RequestRelease sent the
+	// moment it does.
+	if err := conn.Export(&reserveHandler{onPreempt: onPreempt}, path, reserveInterface); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("reserve: export %s: %w", reserveInterface, err)
 	}
 
 	reply, err := conn.RequestName(name, dbus.NameFlagDoNotQueue)

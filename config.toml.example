@@ -40,6 +40,15 @@ seek_large_step_sec = 30
 # bitperfect = false
 # bitperfect_device = "hw:0,0"   # required for bitperfect; find with `aplay -l`
 
+# For a multichannel audio interface with no native stereo mode (its one PCM
+# substream only accepts a fixed, larger channel count — check with
+# `aplay -l` and `speaker-test -D hw:N,0 -c <n>` for the count it accepts),
+# pick which physical output pair carries left/right as 0-based indices.
+# Requires bitperfect_device to be a raw hw: device, not plughw: — plughw:'s
+# own channel-conversion layer can silently accept a smaller request and
+# remap it however it likes, which can't be verified as bit-perfect.
+# bitperfect_channels = "0,1"
+
 # EQ preset: "Flat", "Rock", "Pop", "Jazz", "Classical",
 #             "Bass Boost", "Treble Boost", "Vocal", "Electronic", "Acoustic"
 # Leave empty or "Custom" to use manual eq values below

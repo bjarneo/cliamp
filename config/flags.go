@@ -2,27 +2,28 @@ package config
 
 // Overrides holds CLI flag values. Nil pointers mean "not set".
 type Overrides struct {
-	Volume           *float64
-	Shuffle          *bool
-	Repeat           *string
-	Mono             *bool
-	Provider         *string
-	Theme            *string
-	Visualizer       *string
-	EQPreset         *string
-	SampleRate       *int
-	BufferMs         *int
-	ResampleQuality  *int
-	BitDepth         *int
-	BitPerfect       *bool
-	BitPerfectDevice *string
-	Play             *bool
-	Compact          *bool
-	AudioDevice      *string
-	Playlist         *string
-	LogLevel         *string
-	LowPower         *bool
-	ExpandPlaylist   *bool
+	Volume             *float64
+	Shuffle            *bool
+	Repeat             *string
+	Mono               *bool
+	Provider           *string
+	Theme              *string
+	Visualizer         *string
+	EQPreset           *string
+	SampleRate         *int
+	BufferMs           *int
+	ResampleQuality    *int
+	BitDepth           *int
+	BitPerfect         *bool
+	BitPerfectDevice   *string
+	BitPerfectChannels *string
+	Play               *bool
+	Compact            *bool
+	AudioDevice        *string
+	Playlist           *string
+	LogLevel           *string
+	LowPower           *bool
+	ExpandPlaylist     *bool
 }
 
 // Apply merges non-nil overrides into cfg and clamps the result.
@@ -68,6 +69,9 @@ func (o Overrides) Apply(cfg *Config) {
 	}
 	if o.BitPerfectDevice != nil {
 		cfg.BitPerfectDevice = *o.BitPerfectDevice
+	}
+	if o.BitPerfectChannels != nil {
+		cfg.BitPerfectChannels = *o.BitPerfectChannels
 	}
 	if o.Compact != nil {
 		cfg.Compact = *o.Compact

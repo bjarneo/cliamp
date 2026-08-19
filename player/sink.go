@@ -3,6 +3,8 @@ package player
 import (
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gopxl/beep/v2"
@@ -11,6 +13,65 @@ import (
 
 // errFixedRate is returned by a sink that cannot follow the source sample rate.
 var errFixedRate = errors.New("output device runs at a fixed sample rate")
+
+// channelLayout selects which physical output channels carry cliamp's
+// stereo signal. Most interfaces are natively 2-channel and never need this,
+// but some multichannel audio interfaces have no native stereo mode at all —
+// their one PCM substream only accepts a fixed, larger channel count — so
+// there is no way to reach them with plain 2-channel negotiation. The zero
+// value (Configured false) is that plain 2-channel case, unchanged from
+// before this type existed: a hard request for exactly 2 channels, which
+// either matches the device or fails outright. Configured true instead
+// widens the request to whatever the device needs to fit Left and Right
+// (see channelLayout.total and configureALSA in sink_alsa_linux.go), and
+// every other channel in each frame carries silence. Only alsaSink (Linux)
+// implements this; beepSink ignores it entirely — see bitperfect_channels
+// in the config.
+type channelLayout struct {
+	Configured  bool
+	Left, Right int // 0-based channel indices within the negotiated frame
+}
+
+// total is the minimum channel count a device must offer to fit both Left
+// and Right.
+func (c channelLayout) total() int {
+	return max(c.Left, c.Right) + 1
+}
+
+// parseChannelLayout parses a "left,right" pair of 0-based channel indices
+// (e.g. "0,1" for the first channel pair, "2,3" for the next) — the format
+// bitperfect_channels/--bitperfect-channels take. An empty string is the
+// zero value (Configured false, plain 2-channel negotiation), not an error.
+func parseChannelLayout(s string) (channelLayout, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return channelLayout{}, nil
+	}
+	l, r, ok := strings.Cut(s, ",")
+	if !ok {
+		return channelLayout{}, fmt.Errorf("bitperfect_channels %q: want \"left,right\", e.g. \"0,1\"", s)
+	}
+	left, err := strconv.Atoi(strings.TrimSpace(l))
+	if err != nil || left < 0 {
+		return channelLayout{}, fmt.Errorf("bitperfect_channels %q: left channel must be a non-negative integer", s)
+	}
+	right, err := strconv.Atoi(strings.TrimSpace(r))
+	if err != nil || right < 0 {
+		return channelLayout{}, fmt.Errorf("bitperfect_channels %q: right channel must be a non-negative integer", s)
+	}
+	if left == right {
+		return channelLayout{}, fmt.Errorf("bitperfect_channels %q: left and right must be different channels", s)
+	}
+	return channelLayout{Configured: true, Left: left, Right: right}, nil
+}
+
+// ValidateChannels reports whether s is a valid Quality.Channels value,
+// without needing a Player — for validating --bitperfect-channels/
+// bitperfect_channels early, at CLI-parse time, the same way --log-level is.
+func ValidateChannels(s string) error {
+	_, err := parseChannelLayout(s)
+	return err
+}
 
 // sink is the audio output backend the player writes to.
 //
@@ -51,6 +112,12 @@ type sink interface {
 	// available (see alsaDevice.verifiedRate), or 0 when it isn't — in which
 	// case callers should fall back to SampleRate(). Reporting-only.
 	RealRate() int
+	// Err returns the reason the configured output device stopped working, or
+	// nil when it hasn't. A non-nil Err does not necessarily mean playback has
+	// stopped — a backend may recover onto a fallback device on its own (see
+	// alsaSink.handleFatal) — only that the originally configured device is no
+	// longer the one in use. Reporting-only, like RealRate.
+	Err() error
 }
 
 // beepSink plays through gopxl/beep's package-level speaker. beep's speaker can
@@ -78,6 +145,7 @@ func (b *beepSink) SampleRate() int       { return b.rate }
 func (b *beepSink) Encoding() pcmEncoding { return pcmS16LE }
 func (b *beepSink) RateExact() bool       { return false }
 func (b *beepSink) RealRate() int         { return 0 }
+func (b *beepSink) Err() error            { return nil }
 
 func (b *beepSink) SetSampleRate(rate int) (int, error) {
 	if rate == b.rate {

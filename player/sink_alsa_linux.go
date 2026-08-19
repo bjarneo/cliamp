@@ -64,6 +64,7 @@ var alsaEncodings = []pcmEncoding{pcmS32LE, pcmFloat32LE, pcmS16LE}
 type alsaSink struct {
 	device   string
 	bufferMs int
+	channels channelLayout // fixed for the sink's lifetime; only the rate changes per track
 
 	// mu guards the streamer chain. It is held only while pulling samples,
 	// never while blocking on the device, and is what Lock/Unlock expose.
@@ -87,6 +88,15 @@ type alsaSink struct {
 	// when the device is virtual or the reservation attempt failed — either
 	// way playback proceeds via the ordinary snd_pcm_open attempt.
 	reservation *deviceReservation
+
+	// fatalErr records why the configured device stopped working when the
+	// write loop hit an error snd_pcm_recover couldn't fix (e.g. the device
+	// was unplugged or the card was removed) — as opposed to the device
+	// being retired intentionally via Close/SetSampleRate, which is not an
+	// error. Once set it persists for the sink's lifetime as a diagnostic
+	// even after handleFatal's fallback restores playback; see Err().
+	// Guarded by devMu.
+	fatalErr error
 }
 
 // alsaDevice is one open incarnation of the device. Reopening at a new rate
@@ -99,6 +109,13 @@ type alsaDevice struct {
 	enc    pcmEncoding
 	period int  // frames per write
 	exact  bool // device accepted the requested rate with conversion disabled
+	// channels is the negotiated frame width in channels, and left/right the
+	// indices within it that carry cliamp's stereo signal — always valid,
+	// concrete values (2/0/1 for the common, unconfigured case) regardless of
+	// whether channelLayout.Configured was set, so writeLoop never needs to
+	// special-case "was this configured".
+	channels    int
+	left, right int
 	// verifiedRate is the kernel-confirmed rate of the underlying hardware
 	// substream (see hwparams_linux.go), which can differ from rate when a
 	// conversion layer (plughw:, a sound server) silently resampled. Zero
@@ -112,17 +129,17 @@ type alsaDevice struct {
 
 // newBitPerfectSink opens a bit-perfect capable sink at the given rate.
 // It starts suspended, matching the player's idle-until-first-Play behaviour.
-func newBitPerfectSink(device string, rate, bufferMs int) (sink, error) {
+func newBitPerfectSink(device string, rate, bufferMs int, channels channelLayout) (sink, error) {
 	if device == "" {
 		device = defaultALSADevice
 	}
-	s := &alsaSink{device: device, bufferMs: bufferMs, suspended: true}
+	s := &alsaSink{device: device, bufferMs: bufferMs, channels: channels, suspended: true}
 	s.stateCond = sync.NewCond(&s.stateMu)
 
 	var reserveErr error
 	if !isVirtualALSADevice(device) {
 		if idx, ok := alsaCardIndex(device); ok {
-			if res, err := acquireDeviceReservation(idx); err == nil {
+			if res, err := acquireDeviceReservation(idx, s.onReservationPreempted); err == nil {
 				s.reservation = res
 				applog.Debug("reserve: acquired %s for %s", reserveBusName(idx), device)
 			} else {
@@ -223,6 +240,16 @@ func (s *alsaSink) RealRate() int {
 	return s.dev.verifiedRate
 }
 
+// Err reports why the configured device stopped working, or nil when it
+// hasn't. Set once by handleFatal and never cleared automatically — even
+// after a fallback device restores playback, the underlying cause is worth
+// keeping visible for the rest of the session. Reporting-only, like RealRate.
+func (s *alsaSink) Err() error {
+	s.devMu.Lock()
+	defer s.devMu.Unlock()
+	return s.fatalErr
+}
+
 // SetSampleRate reopens the device at rate. When the device rejects it, the
 // previous rate is restored so playback continues (resampled by the caller) and
 // the reason is returned.
@@ -259,7 +286,7 @@ func (s *alsaSink) SetSampleRate(rate int) (int, error) {
 // openLocked opens the device at rate and starts its writer goroutine.
 // devMu must be held.
 func (s *alsaSink) openLocked(rate int) error {
-	dev, err := openALSADevice(s.device, rate, s.bufferMs)
+	dev, err := openALSADevice(s.device, rate, s.bufferMs, s.channels)
 	if err != nil {
 		return err
 	}
@@ -270,6 +297,15 @@ func (s *alsaSink) openLocked(rate int) error {
 
 // closeLocked retires the current device, waiting for its writer goroutine to
 // leave snd_pcm_writei before closing the handle. devMu must be held.
+//
+// snd_pcm_drop forces any snd_pcm_writei call blocked on this handle —
+// in-flight right now, or one the writer is about to enter — to return an
+// error immediately instead of waiting on the device to drain, which can
+// otherwise take an arbitrarily long time (a full buffer at a slow rate) or
+// never return at all if the device has stopped responding. Without it,
+// <-dev.done below could block forever while devMu is held, wedging every
+// other sink method (SampleRate, RateExact, ...) that also needs devMu —
+// including the ones the UI tick loop calls every frame.
 func (s *alsaSink) closeLocked() {
 	dev := s.dev
 	if dev == nil {
@@ -277,6 +313,7 @@ func (s *alsaSink) closeLocked() {
 	}
 	s.dev = nil
 	close(dev.stop)
+	C.snd_pcm_drop(dev.handle)
 	// Wake the writer if it is parked on the suspend condition.
 	s.stateCond.Broadcast()
 	<-dev.done
@@ -284,12 +321,20 @@ func (s *alsaSink) closeLocked() {
 }
 
 // writeLoop pulls samples from the streamer chain and writes them to the
-// device until the device is retired or hits an unrecoverable error.
+// device until the device is retired or hits an unrecoverable error, in
+// which case it hands off to handleFatal to fall back to a working device
+// rather than leaving playback silently stalled.
 func (s *alsaSink) writeLoop(dev *alsaDevice) {
 	defer close(dev.done)
 
+	// Plain stereo (the overwhelming common case) uses encodePCM directly:
+	// same result as encodePCMChannels(..., 2, 0, 1) but without its zeroing
+	// pass, on this hot path.
+	plainStereo := dev.channels == 2 && dev.left == 0 && dev.right == 1
+	frameSize := dev.channels * dev.enc.bytesPerSample()
+
 	frames := make([][2]float64, dev.period)
-	buf := make([]byte, dev.period*dev.enc.bytesPerFrame())
+	buf := make([]byte, dev.period*frameSize)
 
 	for s.waitRunning(dev) {
 		s.mu.Lock()
@@ -304,7 +349,17 @@ func (s *alsaSink) writeLoop(dev *alsaDevice) {
 		// device underruns.
 		clear(frames[n:])
 
-		if !s.writeFrames(dev, buf[:encodePCM(frames, buf, dev.enc)]) {
+		var encoded int
+		if plainStereo {
+			encoded = encodePCM(frames, buf, dev.enc)
+		} else {
+			encoded = encodePCMChannels(frames, buf, dev.enc, dev.channels, dev.left, dev.right)
+		}
+		ok, fatalErr := s.writeFrames(dev, buf[:encoded])
+		if !ok {
+			if fatalErr != nil {
+				s.handleFatal(dev, fatalErr)
+			}
 			return
 		}
 	}
@@ -316,10 +371,8 @@ func (s *alsaSink) waitRunning(dev *alsaDevice) bool {
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
 	for {
-		select {
-		case <-dev.stop:
+		if stopped(dev) {
 			return false
-		default:
 		}
 		if !s.suspended {
 			return true
@@ -328,27 +381,166 @@ func (s *alsaSink) waitRunning(dev *alsaDevice) bool {
 	}
 }
 
-// writeFrames writes one encoded period, recovering from underruns. It returns
-// false when the device was retired or the error is unrecoverable.
-func (s *alsaSink) writeFrames(dev *alsaDevice, buf []byte) bool {
-	frameSize := dev.enc.bytesPerFrame()
+// writeFrames writes one encoded period, recovering from underruns. It
+// returns ok=false when the device was retired (fatalErr nil — closeLocked
+// closed dev.stop, which is not an error) or a write failed in a way
+// snd_pcm_recover could not fix (fatalErr set — a genuine device failure,
+// e.g. it was unplugged). A stop signal takes priority even when a write
+// happens to fail at the same moment (closeLocked's snd_pcm_drop causes
+// exactly that), so a routine close is never misreported as a fatal error.
+func (s *alsaSink) writeFrames(dev *alsaDevice, buf []byte) (ok bool, fatalErr error) {
+	frameSize := dev.channels * dev.enc.bytesPerSample()
 	for len(buf) > 0 {
-		select {
-		case <-dev.stop:
-			return false
-		default:
+		if stopped(dev) {
+			return false, nil
 		}
 		n := C.snd_pcm_writei(dev.handle, unsafe.Pointer(&buf[0]), C.snd_pcm_uframes_t(len(buf)/frameSize))
 		if n < 0 {
 			// Underruns are expected after a suspend/resume cycle: recover
 			// (which re-prepares the stream) and retry the same period.
-			if r := C.snd_pcm_recover(dev.handle, C.int(n), 1); r < 0 {
-				return false
+			// Checking dev.stop once here, after recover rather than before,
+			// still gives a stop priority over reporting the write as
+			// fatal — closeLocked's snd_pcm_drop is exactly the kind of
+			// write failure recover would otherwise see.
+			r := C.snd_pcm_recover(dev.handle, C.int(n), 1)
+			if stopped(dev) {
+				return false, nil
+			}
+			if r < 0 {
+				return false, fmt.Errorf("write: %s", alsaStrError(r))
 			}
 			continue
 		}
 		buf = buf[int(n)*frameSize:]
 	}
+	return true, nil
+}
+
+// stopped reports whether dev has been retired via closeLocked.
+func stopped(dev *alsaDevice) bool {
+	select {
+	case <-dev.stop:
+		return true
+	default:
+		return false
+	}
+}
+
+// handleFatal responds to a write failure snd_pcm_recover could not fix by
+// retiring the dead handle and trying to reopen a working device at the same
+// rate, so playback keeps going instead of falling silent.
+//
+// It first retries the same device once, before touching the reservation:
+// the failure may be transient (a momentary USB hiccup) rather than the
+// device actually being gone, and releasing the reservation first would let
+// the sound server reclaim the device out from under that retry. Only if the
+// retry also fails does it drop the reservation (it was for a device nothing
+// is using any more) and fall back to defaultALSADevice, which routes
+// through whatever sound server owns the card and is very likely to succeed
+// — at the cost of the bit-perfect guarantee, which RateExact's existing
+// honesty check already reports correctly once we're on it.
+func (s *alsaSink) handleFatal(dev *alsaDevice, cause error) {
+	s.devMu.Lock()
+	defer s.devMu.Unlock()
+
+	// dev may already have been retired (and possibly replaced) by a
+	// concurrent Close/SetSampleRate that won the race to devMu; either way
+	// there is nothing for this stale failure to act on.
+	if s.shut || s.dev != dev {
+		return
+	}
+	s.dev = nil
+	C.snd_pcm_close(dev.handle)
+	applog.Debug("alsa: %s failed: %v", s.device, cause)
+
+	if newDev, err := openALSADeviceExact(s.device, dev.rate, s.bufferMs, s.channels); err == nil {
+		s.dev = newDev
+		go s.writeLoop(newDev)
+		return
+	} else {
+		applog.Debug("alsa: retry %s failed: %v", s.device, err)
+	}
+
+	if s.device == defaultALSADevice {
+		if s.fatalErr == nil {
+			s.fatalErr = fmt.Errorf("output device %q failed (%w)", s.device, cause)
+		}
+		applog.Debug("alsa: no working device found after %s failed", cause)
+		return
+	}
+	if !s.fallbackToDefault(dev.rate, cause) {
+		applog.Debug("alsa: no working device found after %s failed", cause)
+	}
+}
+
+// onReservationPreempted is reserveHandler's onPreempt callback: a
+// higher-priority application has asked for the device back over D-Bus. It
+// gives up the hardware device and falls back to defaultALSADevice so
+// playback keeps going non-bit-perfectly rather than going silent — the same
+// trade handleFatal makes when a device fails outright. Runs on its own
+// per-call goroutine (see acquireDeviceReservation's doc comment), so it
+// takes devMu like any other device-lifecycle change.
+func (s *alsaSink) onReservationPreempted(requestPriority int32) bool {
+	s.devMu.Lock()
+	if s.shut {
+		s.devMu.Unlock()
+		return true
+	}
+	applog.Debug("reserve: yielding %s to a higher-priority client (priority %d)", s.device, requestPriority)
+
+	rate := 0
+	if s.dev != nil {
+		rate = s.dev.rate
+		s.closeLocked()
+	}
+	// Extracted (rather than left for fallbackToDefault's own handling) and
+	// released on its own goroutine only after devMu is released below:
+	// RequestRelease's reply still needs to go out over this same D-Bus
+	// connection, which happens in the export machinery right after this
+	// function returns — releasing synchronously here would race that reply.
+	res := s.reservation
+	s.reservation = nil
+
+	if s.device != defaultALSADevice && rate > 0 {
+		s.fallbackToDefault(rate, fmt.Errorf("reclaimed by a higher-priority application (priority %d)", requestPriority))
+	} else if s.fatalErr == nil {
+		s.fatalErr = fmt.Errorf("output device %q was reclaimed by a higher-priority application", s.device)
+	}
+	s.devMu.Unlock()
+
+	go res.release()
+	return true
+}
+
+// fallbackToDefault gives up on the configured device and tries to bring
+// playback back on defaultALSADevice at rate instead, recording cause as the
+// reason (once — fatalErr is never overwritten by a later call) so it stays
+// visible via Err() for the rest of the session. Shared by handleFatal and
+// onReservationPreempted, the two situations that can force this: a write
+// failure snd_pcm_recover couldn't fix, or a higher-priority application
+// reclaiming the device. devMu must be held by the caller. Reports whether a
+// working device is now installed.
+func (s *alsaSink) fallbackToDefault(rate int, cause error) bool {
+	if s.fatalErr == nil {
+		s.fatalErr = fmt.Errorf("output device %q unavailable (%w), switched to %q", s.device, cause, defaultALSADevice)
+	}
+	// Any reservation still held is for the device just given up; release it
+	// on its own goroutine rather than block devMu (which every other sink
+	// method also needs, including ones the UI tick loop calls every frame)
+	// across the D-Bus round trip.
+	if res := s.reservation; res != nil {
+		s.reservation = nil
+		go res.release()
+	}
+
+	newDev, err := openALSADeviceExact(defaultALSADevice, rate, s.bufferMs, s.channels)
+	if err != nil {
+		applog.Debug("alsa: fallback %s failed: %v", defaultALSADevice, err)
+		return false
+	}
+	s.device = defaultALSADevice
+	s.dev = newDev
+	go s.writeLoop(newDev)
 	return true
 }
 
@@ -374,12 +566,37 @@ func isRawHardwareDevice(device string) bool {
 	return strings.HasPrefix(device, "hw:")
 }
 
+// openALSADeviceExact is openALSADevice restricted to a device that settled
+// on exactly rate. Only handleFatal uses this: unlike the synchronous
+// SetSampleRate path, whose caller (Player.alignOutput) reads back whatever
+// rate was actually negotiated and rebuilds the pipeline's resample stage to
+// match, a device recovered from the async write-loop goroutine has no such
+// caller to report a mismatch to — accepting one here would leave the
+// current pipeline resampling to a rate the device is no longer running at,
+// which is an audible pitch/speed error, not just a lost bit-perfect
+// guarantee. Rejecting the mismatch and trying the next candidate (or giving
+// up, leaving the failure visible via Err()) is the safe default; only
+// SetSampleRate is allowed to accept a negotiated rate that differs from
+// what was asked for.
+func openALSADeviceExact(device string, rate, bufferMs int, channels channelLayout) (*alsaDevice, error) {
+	dev, err := openALSADevice(device, rate, bufferMs, channels)
+	if err != nil {
+		return nil, err
+	}
+	if dev.rate != rate {
+		got := dev.rate
+		C.snd_pcm_close(dev.handle)
+		return nil, fmt.Errorf("%s settled on %d Hz, not %d Hz", device, got, rate)
+	}
+	return dev, nil
+}
+
 // openALSADevice opens device and negotiates the best configuration for rate.
 // Exact-rate configurations are preferred over wider sample formats: a rate
 // mismatch means the driver resamples, which bit-perfect mode exists to avoid.
 // The order resampling is tried in depends on the device type — see the
 // file-level comment.
-func openALSADevice(device string, rate, bufferMs int) (*alsaDevice, error) {
+func openALSADevice(device string, rate, bufferMs int, channels channelLayout) (*alsaDevice, error) {
 	resampleOrder := [2]bool{false, true}
 	if isVirtualALSADevice(device) {
 		resampleOrder = [2]bool{true, false}
@@ -388,7 +605,7 @@ func openALSADevice(device string, rate, bufferMs int) (*alsaDevice, error) {
 	var firstErr error
 	for _, allowResample := range resampleOrder {
 		for _, enc := range alsaEncodings {
-			dev, err := tryOpenALSA(device, rate, bufferMs, enc, allowResample)
+			dev, err := tryOpenALSA(device, rate, bufferMs, enc, allowResample, channels)
 			if err == nil {
 				return dev, nil
 			}
@@ -403,7 +620,7 @@ func openALSADevice(device string, rate, bufferMs int) (*alsaDevice, error) {
 // tryOpenALSA opens and fully configures the device for one candidate
 // format/resampling combination. A fresh handle is used per attempt because a
 // rejected snd_pcm_hw_params leaves the previous one in an unusable state.
-func tryOpenALSA(device string, rate, bufferMs int, enc pcmEncoding, allowResample bool) (*alsaDevice, error) {
+func tryOpenALSA(device string, rate, bufferMs int, enc pcmEncoding, allowResample bool, channels channelLayout) (*alsaDevice, error) {
 	cname := C.CString(device)
 	defer C.free(unsafe.Pointer(cname))
 
@@ -418,7 +635,7 @@ func tryOpenALSA(device string, rate, bufferMs int, enc pcmEncoding, allowResamp
 	}
 	devIdx := alsaDeviceIndex(device)
 
-	dev, err := configureALSA(handle, rate, bufferMs, enc, allowResample, isRawHardwareDevice(device), cardIdx, devIdx, hasCard)
+	dev, err := configureALSA(handle, rate, bufferMs, enc, allowResample, isRawHardwareDevice(device), cardIdx, devIdx, hasCard, channels)
 	if err != nil {
 		C.snd_pcm_close(handle)
 		return nil, err
@@ -432,7 +649,7 @@ func tryOpenALSA(device string, rate, bufferMs int, enc pcmEncoding, allowResamp
 // (valid only when hasCard) identify the underlying card for the
 // /proc-based real-rate check — see the exact field below for why both
 // matter.
-func configureALSA(handle *C.snd_pcm_t, rate, bufferMs int, enc pcmEncoding, allowResample bool, rawHardware bool, cardIdx, devIdx int, hasCard bool) (*alsaDevice, error) {
+func configureALSA(handle *C.snd_pcm_t, rate, bufferMs int, enc pcmEncoding, allowResample bool, rawHardware bool, cardIdx, devIdx int, hasCard bool, layout channelLayout) (*alsaDevice, error) {
 	var params *C.snd_pcm_hw_params_t
 	if err := C.snd_pcm_hw_params_malloc(&params); err < 0 {
 		return nil, fmt.Errorf("hw_params_malloc: %s", alsaStrError(err))
@@ -448,7 +665,23 @@ func configureALSA(handle *C.snd_pcm_t, rate, bufferMs int, enc pcmEncoding, all
 	if err := C.snd_pcm_hw_params_set_format(handle, params, alsaFormat(enc)); err < 0 {
 		return nil, fmt.Errorf("set_format %s: %s", enc, alsaStrError(err))
 	}
-	if err := C.snd_pcm_hw_params_set_channels(handle, params, 2); err < 0 {
+
+	// Plain stereo (the default, and every device before channelLayout
+	// existed) requests exactly 2 channels, hard: it either matches the
+	// device or the open fails outright, same as always. A configured
+	// layout instead widens the request to whatever the device needs to fit
+	// Left/Right (set_channels_near lets ALSA pick the nearest count it
+	// actually supports — for a device with a single fixed channel count,
+	// like a 6-output interface with no stereo mode, that's the only value
+	// it can return) — the actual result is read back below via
+	// get_channels rather than assumed from what was requested, the same
+	// principle get_rate already follows for rate.
+	if layout.Configured {
+		want := C.uint(layout.total())
+		if err := C.snd_pcm_hw_params_set_channels_near(handle, params, &want); err < 0 {
+			return nil, fmt.Errorf("set_channels_near %d: %s", layout.total(), alsaStrError(err))
+		}
+	} else if err := C.snd_pcm_hw_params_set_channels(handle, params, 2); err < 0 {
 		return nil, fmt.Errorf("set_channels: %s", alsaStrError(err))
 	}
 
@@ -489,8 +722,9 @@ func configureALSA(handle *C.snd_pcm_t, rate, bufferMs int, enc pcmEncoding, all
 		return nil, fmt.Errorf("hw_params: %s", alsaStrError(err))
 	}
 
-	// Read back what the device actually settled on — the rate may have been
-	// rounded even when set_rate succeeded.
+	// Read back what the device actually settled on — the rate (and, for a
+	// configured layout, the channel count) may have been rounded even when
+	// the corresponding set_* call succeeded.
 	var finalRate C.uint
 	var dir C.int
 	if err := C.snd_pcm_hw_params_get_rate(params, &finalRate, &dir); err < 0 {
@@ -501,6 +735,20 @@ func configureALSA(handle *C.snd_pcm_t, rate, bufferMs int, enc pcmEncoding, all
 	}
 	if periodFrames <= 0 {
 		return nil, fmt.Errorf("device reported a zero period size")
+	}
+
+	channels := 2
+	left, right := 0, 1
+	if layout.Configured {
+		var chOut C.uint
+		if err := C.snd_pcm_hw_params_get_channels(params, &chOut); err < 0 {
+			return nil, fmt.Errorf("get_channels: %s", alsaStrError(err))
+		}
+		channels = int(chOut)
+		left, right = layout.Left, layout.Right
+		if left >= channels || right >= channels {
+			return nil, fmt.Errorf("device negotiated %d channels, not enough for configured channels %d,%d", channels, left, right)
+		}
 	}
 
 	// The rate the app-facing handle reports (finalRate) is only trustworthy
@@ -515,6 +763,19 @@ func configureALSA(handle *C.snd_pcm_t, rate, bufferMs int, enc pcmEncoding, all
 		if real, ok := realALSARateSettled(cardIdx, devIdx); ok {
 			verifiedRate = real
 			exact = real == rate
+			if exact {
+				// A conversion layer can silently convert the sample format
+				// or channel count exactly as it can the rate — matching on
+				// rate alone would still let a badge-earning device be
+				// quietly reformatting or up/downmixing the signal. If
+				// either can't be confirmed, don't assume the best: that
+				// would defeat the honesty this whole check exists for.
+				// Compared against channels (what was actually negotiated
+				// above), not a hardcoded 2, so a configured multichannel
+				// layout is held to the same standard.
+				format, realChannels, ok := realALSAFormatAndChannels(cardIdx, devIdx)
+				exact = ok && format == enc.String() && realChannels == channels
+			}
 		}
 	}
 	if !exact && rawHardware {
@@ -531,6 +792,9 @@ func configureALSA(handle *C.snd_pcm_t, rate, bufferMs int, enc pcmEncoding, all
 		period:       int(periodFrames),
 		exact:        exact,
 		verifiedRate: verifiedRate,
+		channels:     channels,
+		left:         left,
+		right:        right,
 		stop:         make(chan struct{}),
 		done:         make(chan struct{}),
 	}, nil

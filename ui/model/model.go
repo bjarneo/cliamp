@@ -404,6 +404,12 @@ type Model struct {
 	cachedBitPerfect player.BitPerfectStatus // player.BitPerfect(), refreshed once per tick
 	lastTickAt       time.Time               // wall time of previous tickMsg; used for tick delta
 
+	// outputErrShown avoids re-pinning m.err to the same output-device
+	// failure every tick — player.OutputErr() persists for the sink's
+	// lifetime (see alsaSink.fatalErr), unlike StreamErr which naturally
+	// clears on the next clean pipeline. Shown once, then left for the user
+	// to see other errors/status normally.
+	outputErrShown bool
 }
 
 func (m Model) activeScreen() topLevelScreen {
