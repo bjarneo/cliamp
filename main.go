@@ -47,6 +47,39 @@ const (
 	lowPowerUIFPS = 5
 )
 
+// bitPerfectConfigWarning reports why the configured bit-perfect setup
+// cannot be verified, or "" when it can (including when bit-perfect mode is
+// off, in which case there's nothing to warn about). Shared by the TUI path
+// (SetBitPerfectDeviceWarning) and daemon mode (which has no TUI to show
+// that in, so run logs it directly) so both paths agree on the same checks.
+//
+// The channel-validity check runs first: with the (common) default empty
+// bitperfect_device, checking the device shape first would always win and
+// mask an invalid bitperfect_channels behind a less specific message, even
+// though an invalid channel layout disables bit-perfect output entirely on
+// its own — a more fundamental problem than which device is configured.
+func bitPerfectConfigWarning(cfg config.Config) string {
+	if !cfg.BitPerfect {
+		return ""
+	}
+	if err := player.ValidateChannels(cfg.BitPerfectChannels); err != nil {
+		return fmt.Sprintf("bitperfect_channels is invalid (%v) — bit-perfect output is disabled (see docs/audio-quality.md)", err)
+	}
+	dev := strings.TrimSpace(cfg.BitPerfectDevice)
+	switch {
+	case dev == "" || (!strings.HasPrefix(dev, "hw:") && !strings.HasPrefix(dev, "plughw:")):
+		return "bit-perfect is on but bitperfect_device isn't a hw:/plughw: device — playback isn't verifiably bit-perfect this way (see docs/audio-quality.md)"
+	case cfg.BitPerfectChannels != "" && !strings.HasPrefix(dev, "hw:"):
+		// plughw:'s own channel-conversion layer can silently accept a
+		// smaller channel request than the hardware actually needs and map
+		// it however it sees fit — the same reason plughw: can't be trusted
+		// for rate exactness applies here too, so a configured channel
+		// layout can only be verified through a raw hw: device.
+		return "bitperfect_channels is set but bitperfect_device is plughw:, not hw: — the channel layout can't be verified this way (see docs/audio-quality.md)"
+	}
+	return ""
+}
+
 func run(overrides config.Overrides, positional []string, daemon bool) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -293,6 +326,18 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 	cfg.ApplyPlaylist(pl)
 	ui.SetPadding(cfg.PaddingH, cfg.PaddingV)
 
+	if warn := bitPerfectConfigWarning(cfg); warn != "" {
+		// Daemon mode has no TUI to show SetBitPerfectDeviceWarning's target
+		// later, and would otherwise leave a bad bitperfect_channels (which
+		// reaches player.New, fails there, and silently falls back to the
+		// beep speaker) completely invisible — this is the only place daemon
+		// mode's own path ever sees it.
+		applog.Warn("%s", warn)
+		if daemon {
+			fmt.Fprintf(os.Stderr, "cliamp: %s\n", warn)
+		}
+	}
+
 	if daemon {
 		if cfg.EQPreset != "" && cfg.EQPreset != "Custom" {
 			if preset, ok := model.EQPresetByName(cfg.EQPreset); ok {
@@ -317,27 +362,7 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 
 	m := model.New(p, pl, providers, defaultProvider, localProv, themes, luaMgr, config.SaveFunc{})
 	m.SetVisVolumeLinked(cfg.VisVolumeLinked)
-	if cfg.BitPerfect {
-		dev := strings.TrimSpace(cfg.BitPerfectDevice)
-		// Validated here too, not just at the --bitperfect-channels CLI
-		// flag: a bad bitperfect_channels in config.toml otherwise reaches
-		// player.New, fails silently there, and falls back to the beep
-		// speaker with nothing shown except the in-app bit-perfect readout.
-		chErr := player.ValidateChannels(cfg.BitPerfectChannels)
-		switch {
-		case dev == "" || (!strings.HasPrefix(dev, "hw:") && !strings.HasPrefix(dev, "plughw:")):
-			m.SetBitPerfectDeviceWarning("bit-perfect is on but bitperfect_device isn't a hw:/plughw: device — playback isn't verifiably bit-perfect this way (see docs/audio-quality.md)")
-		case chErr != nil:
-			m.SetBitPerfectDeviceWarning(fmt.Sprintf("bitperfect_channels is invalid (%v) — bit-perfect output is disabled (see docs/audio-quality.md)", chErr))
-		case cfg.BitPerfectChannels != "" && !strings.HasPrefix(dev, "hw:"):
-			// plughw:'s own channel-conversion layer can silently accept a
-			// smaller channel request than the hardware actually needs and
-			// map it however it sees fit — the same reason plughw: can't be
-			// trusted for rate exactness applies here too, so a configured
-			// channel layout can only be verified through a raw hw: device.
-			m.SetBitPerfectDeviceWarning("bitperfect_channels is set but bitperfect_device is plughw:, not hw: — the channel layout can't be verified this way (see docs/audio-quality.md)")
-		}
-	}
+	m.SetBitPerfectDeviceWarning(bitPerfectConfigWarning(cfg))
 
 	if luaMgr != nil {
 		luaMgr.SetStateProvider(luaplugin.StateProvider{
