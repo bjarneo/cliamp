@@ -731,6 +731,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clampActiveScrollState()
 		return m, nil
 
+	case spotAlbumTracksMsg:
+		if msg.gen != m.requests.spotAlbum {
+			return m, nil
+		}
+		m.spotSearch.albumLoading = false
+		if msg.err != nil {
+			m.spotSearch.err = msg.err.Error()
+			return m, nil
+		}
+		if len(msg.tracks) == 0 {
+			m.spotSearch.err = "That album has no tracks available here."
+			return m, nil
+		}
+		album := msg.album
+		tracks := msg.tracks
+		m.closeSpotSearch()
+		switch msg.action {
+		case spotAlbumAppend:
+			return m, m.appendAlbum(album, tracks)
+		case spotAlbumQueueNext:
+			return m, m.queueAlbumNext(album, tracks)
+		default:
+			return m, m.playAlbumImmediate(album, tracks)
+		}
+
 	case spotPlaylistsMsg:
 		if !m.isCurrentSpotListRequest(msg.gen, msg.providerName) {
 			return m, nil

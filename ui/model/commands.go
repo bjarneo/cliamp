@@ -432,6 +432,33 @@ type spotSearchResultsMsg struct {
 	gen          uint64
 }
 
+// spotAlbumAction is what to do with an album's tracks once they arrive.
+type spotAlbumAction int
+
+const (
+	spotAlbumPlay      spotAlbumAction = iota // start the album now
+	spotAlbumAppend                           // add to the end of the queue
+	spotAlbumQueueNext                        // play right after the current track
+)
+
+type spotAlbumTracksMsg struct {
+	tracks []playlist.Track
+	album  playlist.Track
+	action spotAlbumAction
+	err    error
+	gen    uint64
+}
+
+// fetchSpotAlbumTracksCmd expands an album placeholder from the search results
+// into its tracks. Album entries carry no streamable path of their own, so this
+// runs before the album can reach the player.
+func fetchSpotAlbumTracksCmd(loader provider.AlbumTrackLoader, album playlist.Track, action spotAlbumAction, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		tracks, err := loader.AlbumTracks(album.AlbumID())
+		return spotAlbumTracksMsg{tracks: tracks, album: album, action: action, err: err, gen: gen}
+	}
+}
+
 type spotPlaylistsMsg struct {
 	playlists    []playlist.PlaylistInfo
 	err          error
