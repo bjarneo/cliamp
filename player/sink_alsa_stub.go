@@ -1,4 +1,4 @@
-// player/sink_alsa_other.go — stub for platforms without a bit-perfect backend.
+// player/sink_alsa_stub.go — stub for platforms without a bit-perfect backend.
 
 //go:build !linux || !cgo
 
