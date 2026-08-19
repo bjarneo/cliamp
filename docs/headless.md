@@ -105,7 +105,7 @@ broadcasts inline — the ICY metadata of the SHOUTcast/Icecast protocol:
 So a status bar can show the station and the song together:
 
 ```sh
-cliamp status --json | jq -r '.track | if .station then "\(.station): \(.artist) - \(.title)" else .title end'
+cliamp status --json | jq -r '.track | if .station then (if .artist then "\(.station): \(.artist) - \(.title)" else "\(.station): \(.title)" end) else .title end'
 ```
 
 ### Hotkeys (window manager / sxhkd / Hyprland)

@@ -32,6 +32,14 @@ func TestResolveTrackDisplayStreamTitle(t *testing.T) {
 			wantTitle:   "Morning Session",
 		},
 		{
+			// "Artist - " cuts to an empty title; keep the stored one rather than
+			// blanking it. The daemon guards the same case.
+			name:        "icy value with an empty title keeps the station name",
+			streamTitle: "Tycho - ",
+			track:       playlist.Track{Title: "Lofi Stream", Stream: true},
+			wantTitle:   "Lofi Stream",
+		},
+		{
 			name:      "no icy metadata keeps the station name",
 			track:     playlist.Track{Title: "Lofi Stream", Stream: true},
 			wantTitle: "Lofi Stream",

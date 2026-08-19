@@ -959,13 +959,15 @@ func (d *daemon) statusResponse() ipc.Response {
 		if cur.Stream {
 			if title := d.player.StreamTitle(); title != "" {
 				info.StreamTitle = title
-				if title != cur.Title {
-					info.Station = cur.Title
-				}
 				if a, t, ok := strings.Cut(title, " - "); ok {
-					info.Artist, info.Title = a, t
+					if t != "" {
+						info.Artist, info.Title = a, t
+					}
 				} else {
 					info.Title = title
+				}
+				if info.Title != cur.Title {
+					info.Station = cur.Title
 				}
 			}
 		}
