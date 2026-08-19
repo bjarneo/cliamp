@@ -239,6 +239,84 @@ func TestAlbums_Paginates(t *testing.T) {
 	}
 }
 
+func TestPlaylists_FiltersAudio(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/playlists") {
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"MediaContainer": {
+				"Metadata": [
+					{"ratingKey":"1","title":"GOOD","smart":true,"playlistType":"audio","leafCount":3,"duration":600000},
+					{"ratingKey":"2","title":"drums","smart":false,"playlistType":"audio","leafCount":28,"duration":6000000},
+					{"ratingKey":"3","title":"Home Movies","smart":false,"playlistType":"video","leafCount":4,"duration":12000000}
+				]
+			}
+		}`))
+	}))
+	defer srv.Close()
+
+	playlists, err := newTestClient(srv).Playlists()
+	if err != nil {
+		t.Fatalf("Playlists() error: %v", err)
+	}
+	if len(playlists) != 2 {
+		t.Fatalf("expected 2 audio playlists, got %d", len(playlists))
+	}
+	a := playlists[0]
+	if a.RatingKey != "1" || a.Title != "GOOD" || !a.Smart || a.TrackCount != 3 || a.DurationSecs != 600 {
+		t.Errorf("unexpected playlist[0]: %+v", a)
+	}
+	b := playlists[1]
+	if b.RatingKey != "2" || b.Title != "drums" || b.Smart || b.TrackCount != 28 || b.DurationSecs != 6000 {
+		t.Errorf("unexpected playlist[1]: %+v", b)
+	}
+}
+
+func TestPlaylistTracks_Paginates(t *testing.T) {
+	seenStarts := map[string]bool{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/playlists/42/items") {
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+		start := r.URL.Query().Get("X-Plex-Container-Start")
+		size := r.URL.Query().Get("X-Plex-Container-Size")
+		if size != "1000" {
+			t.Errorf("expected size=1000, got %q", size)
+		}
+		seenStarts[start] = true
+		w.Header().Set("Content-Type", "application/json")
+		switch start {
+		case "0", "":
+			w.Write([]byte(`{"MediaContainer":{"totalSize":1001,"Metadata":[{"ratingKey":"1","title":"One","grandparentTitle":"A","parentTitle":"Al","index":1,"duration":1000,"Media":[{"Part":[{"key":"/library/parts/1/1/one.flac"}]}]}]}}`))
+		case "1000":
+			w.Write([]byte(`{"MediaContainer":{"totalSize":1001,"Metadata":[{"ratingKey":"2","title":"Two","grandparentTitle":"B","parentTitle":"Alb","index":2,"duration":2000,"Media":[{"Part":[{"key":"/library/parts/2/2/two.flac"}]}]}]}}`))
+		default:
+			t.Errorf("unexpected start %q", start)
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer srv.Close()
+
+	tracks, err := newTestClient(srv).PlaylistTracks("42")
+	if err != nil {
+		t.Fatalf("PlaylistTracks() error: %v", err)
+	}
+	if len(tracks) != 2 {
+		t.Fatalf("expected 2 tracks, got %d", len(tracks))
+	}
+	if tracks[0].Title != "One" || tracks[0].PartKey != "/library/parts/1/1/one.flac" {
+		t.Errorf("unexpected tracks[0]: %+v", tracks[0])
+	}
+	if tracks[1].Title != "Two" || tracks[1].ArtistName != "B" || tracks[1].Duration != 2000 {
+		t.Errorf("unexpected tracks[1]: %+v", tracks[1])
+	}
+	if !seenStarts["0"] || !seenStarts["1000"] {
+		t.Errorf("expected pagination to hit starts 0 and 1000, got %v", seenStarts)
+	}
+}
+
 func TestTracks_MapsAllFields(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/library/metadata/456/children") {

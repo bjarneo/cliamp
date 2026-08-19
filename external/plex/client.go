@@ -62,6 +62,15 @@ type Track struct {
 	PartKey     string // relative path, e.g. "/library/parts/67890/1234567890/file.flac"
 }
 
+// Playlist represents a Plex playlist (smart or user-created) of audio tracks.
+type Playlist struct {
+	RatingKey    string
+	Title        string
+	TrackCount   int // leafCount
+	DurationSecs int // duration, converted from milliseconds
+	Smart        bool
+}
+
 // get issues an authenticated GET request and decodes the JSON response into result.
 func (c *Client) get(path string, params url.Values, result any) error {
 	if params == nil {
@@ -202,6 +211,79 @@ func (c *Client) Albums(sectionKey string) ([]Album, error) {
 		}
 	}
 	return albums, nil
+}
+
+// Playlists returns all audio playlists on the server. Smart playlists and
+// user-created playlists are both included; non-audio playlists (video, photo)
+// are filtered out. The Plex JSON API returns playlist entries under
+// MediaContainer.Metadata, each carrying a "type" of "playlist".
+func (c *Client) Playlists() ([]Playlist, error) {
+	var result struct {
+		MediaContainer struct {
+			Metadata []struct {
+				RatingKey    string `json:"ratingKey"`
+				Title        string `json:"title"`
+				Smart        bool   `json:"smart"`
+				PlaylistType string `json:"playlistType"`
+				LeafCount    int    `json:"leafCount"`
+				Duration     int    `json:"duration"`
+			} `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	if err := c.get("/playlists", nil, &result); err != nil {
+		return nil, err
+	}
+
+	var playlists []Playlist
+	for _, m := range result.MediaContainer.Metadata {
+		if m.PlaylistType != "audio" {
+			continue
+		}
+		playlists = append(playlists, Playlist{
+			RatingKey:    m.RatingKey,
+			Title:        m.Title,
+			TrackCount:   m.LeafCount,
+			DurationSecs: m.Duration / 1000,
+			Smart:        m.Smart,
+		})
+	}
+	return playlists, nil
+}
+
+// playlistPageSize is the number of playlist items requested per API call.
+// Playlists can contain tens of thousands of tracks, so a larger page keeps
+// the request count low while staying well under the 10 MB response cap.
+const playlistPageSize = 1000
+
+// PlaylistTracks returns all tracks in the given playlist (identified by its
+// ratingKey). Playlist items share the track JSON shape, so trackFromJSON is
+// reused. Results are paginated with X-Plex-Container-Start / Size.
+func (c *Client) PlaylistTracks(playlistRatingKey string) ([]Track, error) {
+	type trackPage struct {
+		MediaContainer struct {
+			TotalSize int         `json:"totalSize"`
+			Metadata  []trackJSON `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+
+	var tracks []Track
+	for offset := 0; ; offset += playlistPageSize {
+		params := url.Values{
+			"X-Plex-Container-Start": {fmt.Sprintf("%d", offset)},
+			"X-Plex-Container-Size":  {fmt.Sprintf("%d", playlistPageSize)},
+		}
+		var page trackPage
+		if err := c.get("/playlists/"+playlistRatingKey+"/items", params, &page); err != nil {
+			return nil, err
+		}
+		for _, m := range page.MediaContainer.Metadata {
+			tracks = append(tracks, trackFromJSON(m))
+		}
+		if offset+playlistPageSize >= page.MediaContainer.TotalSize {
+			break
+		}
+	}
+	return tracks, nil
 }
 
 // Tracks returns all tracks in the given album (identified by its ratingKey).
