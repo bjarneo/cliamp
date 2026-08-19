@@ -72,7 +72,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 
 	serverPlaylists, err := p.client.Playlists()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("plex: list playlists: %w", err)
 	}
 	for _, pl := range serverPlaylists {
 		lists = append(lists, playlist.PlaylistInfo{
@@ -131,11 +131,14 @@ func (p *Provider) Refresh() {
 // playlistID. Playlist IDs (prefixed "pl:") load via the server playlists
 // endpoint; album IDs load via the album children endpoint. Each track's Path
 // is a complete authenticated HTTP URL ready for the player. Tracks with no
-// streamable part (missing Media/Part data) are silently skipped. Results are
-// cached per playlistID.
+// streamable part (missing Media/Part data) are silently skipped. Album tracks
+// are cached per album ID; playlist tracks are intentionally not cached so
+// smart playlists always reflect their current server contents.
 func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
+	isPlaylist := strings.HasPrefix(playlistID, prefixPlaylist)
+
 	p.mu.Lock()
-	if p.trackCache != nil {
+	if !isPlaylist && p.trackCache != nil {
 		if cached, ok := p.trackCache[playlistID]; ok {
 			p.mu.Unlock()
 			return slices.Clone(cached), nil
@@ -147,7 +150,7 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 		plexTracks []Track
 		err        error
 	)
-	if strings.HasPrefix(playlistID, prefixPlaylist) {
+	if isPlaylist {
 		plexTracks, err = p.client.PlaylistTracks(strings.TrimPrefix(playlistID, prefixPlaylist))
 	} else {
 		plexTracks, err = p.client.Tracks(playlistID)
@@ -158,12 +161,14 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 
 	tracks := p.convertTracks(plexTracks, 0)
 
-	p.mu.Lock()
-	if p.trackCache == nil {
-		p.trackCache = make(map[string][]playlist.Track)
+	if !isPlaylist {
+		p.mu.Lock()
+		if p.trackCache == nil {
+			p.trackCache = make(map[string][]playlist.Track)
+		}
+		p.trackCache[playlistID] = tracks
+		p.mu.Unlock()
 	}
-	p.trackCache[playlistID] = tracks
-	p.mu.Unlock()
 
 	return slices.Clone(tracks), nil
 }

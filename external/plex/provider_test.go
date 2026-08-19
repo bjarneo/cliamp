@@ -268,6 +268,33 @@ func TestProvider_Tracks_Playlist(t *testing.T) {
 	}
 }
 
+func TestProvider_Tracks_Playlist_NotCached(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/playlists/24872/items"):
+			callCount++
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"MediaContainer":{"totalSize":1,"Metadata":[{"ratingKey":"300","title":"Highway to Hell","grandparentTitle":"AC/DC","parentTitle":"Highway to Hell","index":1,"duration":208000,"Media":[{"Part":[{"key":"/library/parts/3/333/HighwayToHell.flac"}]}]}]}}`))
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	p := newProvider(NewClient(srv.URL, "tok"))
+	if _, err := p.Tracks("pl:24872"); err != nil {
+		t.Fatalf("first Tracks() error: %v", err)
+	}
+	if _, err := p.Tracks("pl:24872"); err != nil {
+		t.Fatalf("second Tracks() error: %v", err)
+	}
+	if callCount != 2 {
+		t.Errorf("expected playlist items endpoint called twice (smart playlists not cached), got %d", callCount)
+	}
+}
+
 func TestProvider_Tracks_SkipsMissingPart(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

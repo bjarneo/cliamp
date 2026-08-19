@@ -44,7 +44,7 @@ Once configured, **Plex** appears as a provider in the cliamp TUI alongside Radi
 
 The provider exposes your server's audio playlists and your music library, grouped under two headers:
 
-```
+```text
 ── Playlists ──
 GOOD
 All Music

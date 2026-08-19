@@ -231,7 +231,7 @@ func (c *Client) Playlists() ([]Playlist, error) {
 		} `json:"MediaContainer"`
 	}
 	if err := c.get("/playlists", nil, &result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("plex: list playlists: %w", err)
 	}
 
 	var playlists []Playlist
@@ -274,7 +274,7 @@ func (c *Client) PlaylistTracks(playlistRatingKey string) ([]Track, error) {
 		}
 		var page trackPage
 		if err := c.get("/playlists/"+playlistRatingKey+"/items", params, &page); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("plex: playlist %s items: %w", playlistRatingKey, err)
 		}
 		for _, m := range page.MediaContainer.Metadata {
 			tracks = append(tracks, trackFromJSON(m))
