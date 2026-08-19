@@ -128,7 +128,7 @@ func New(q Quality) (*Player, error) {
 	if p.out == nil {
 		out, err := newBeepSink(q.SampleRate, q.BufferMs)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("open audio output at %d Hz: %w", q.SampleRate, err)
 		}
 		p.out = out
 	}
