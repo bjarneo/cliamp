@@ -3,6 +3,7 @@ package player
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -520,8 +521,21 @@ func ffmpegPCMArgs(bitDepth int) (format, codec string, precision int) {
 // trimmed output. ok is false if ffprobe is missing, the file has no audio
 // stream, or the field wasn't present. Shared by probeNativeRate and
 // probeFrames, which only differ in which field they read and how they parse it.
+// ffprobeTimeout bounds a single ffprobe run. path can be an HTTP(S) URL (a
+// Navidrome/Subsonic stream, for instance) as well as a local file, and a
+// header read must not be allowed to hang indefinitely against an
+// unresponsive server. This matters even for a caller that only waits on an
+// async result with its own shorter deadline (see probeNativeRateAsync):
+// without a bound here, the ffprobe process itself keeps running past that
+// wait — and Player.Preload's synchronous probe (unlike decodeRateFor's,
+// which is local-file-only) can be called with a URL directly, with nothing
+// else bounding it at all.
+const ffprobeTimeout = 5 * time.Second
+
 func ffprobeField(path, showEntries string) (string, bool) {
-	out, err := exec.Command("ffprobe",
+	ctx, cancel := context.WithTimeout(context.Background(), ffprobeTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "ffprobe",
 		"-v", "error",
 		"-select_streams", "a:0",
 		"-show_entries", showEntries,
