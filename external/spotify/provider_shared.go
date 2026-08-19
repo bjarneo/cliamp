@@ -60,6 +60,55 @@ type spotifyItem struct {
 	} `json:"restrictions"`
 }
 
+// spotifyAlbumItem is a simplified album object from the Spotify Web API, as
+// returned by /v1/search?type=album and /v1/albums/{id}.
+type spotifyAlbumItem struct {
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	AlbumType   string          `json:"album_type"` // "album", "single" or "compilation"
+	URI         string          `json:"uri"`        // canonical spotify:album:...
+	TotalTracks int             `json:"total_tracks"`
+	ReleaseDate string          `json:"release_date"`
+	Artists     []spotifyArtist `json:"artists"`
+}
+
+// albumFromItem converts an album search hit into an album placeholder Track.
+//
+// The result is deliberately not playable: Path carries the spotify:album: URI
+// so the entry is identifiable, but go-librespot cannot stream an album URI.
+// Callers must expand it through SearchTracks' companion AlbumTracks before
+// queueing it, which playlist.Track.IsAlbum signals to the UI.
+func albumFromItem(a *spotifyAlbumItem) playlist.Track {
+	artists := make([]string, len(a.Artists))
+	for i, ar := range a.Artists {
+		artists[i] = ar.Name
+	}
+
+	var year int
+	if len(a.ReleaseDate) >= 4 {
+		if y, err := strconv.Atoi(a.ReleaseDate[:4]); err == nil {
+			year = y
+		}
+	}
+
+	uri := a.URI
+	if uri == "" {
+		uri = fmt.Sprintf("spotify:album:%s", a.ID)
+	}
+
+	return playlist.Track{
+		Path:   uri,
+		Title:  a.Name,
+		Artist: strings.Join(artists, ", "),
+		Album:  a.Name,
+		Year:   year,
+		ProviderMeta: map[string]string{
+			playlist.MetaKind:    playlist.MetaKindAlbum,
+			playlist.MetaAlbumID: a.ID,
+		},
+	}
+}
+
 // trackFromItem converts a Spotify playlist/library item into a playlist.Track,
 // handling both music tracks and podcast episodes. It uses the canonical uri
 // the API returns (spotify:track:... or spotify:episode:...) as the path, so

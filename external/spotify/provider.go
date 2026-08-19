@@ -587,6 +587,9 @@ func friendlySearchError(err error) error {
 
 // spotifySearchPage is one page of /v1/search results.
 type spotifySearchPage struct {
+	Albums struct {
+		Items []*spotifyAlbumItem `json:"items"`
+	} `json:"albums"`
 	Tracks struct {
 		Items []*spotifyItem `json:"items"`
 	} `json:"tracks"`
@@ -602,7 +605,7 @@ type spotifySearchPage struct {
 func (p *SpotifyProvider) searchPage(ctx context.Context, query string, limit, offset int) (*spotifySearchPage, error) {
 	q := url.Values{
 		"q":     {query},
-		"type":  {"track,episode"},
+		"type":  {"album,track,episode"},
 		"limit": {strconv.Itoa(limit)},
 	}
 	if offset > 0 {
@@ -632,20 +635,26 @@ func (p *SpotifyProvider) searchPaged(ctx context.Context, query string, limit i
 		if err != nil {
 			return nil, fmt.Errorf("page at offset %d: %w", offset, err)
 		}
+		combined.Albums.Items = append(combined.Albums.Items, page.Albums.Items...)
 		combined.Tracks.Items = append(combined.Tracks.Items, page.Tracks.Items...)
 		combined.Episodes.Items = append(combined.Episodes.Items, page.Episodes.Items...)
-		// Both result kinds exhausted, so further pages are empty.
-		if len(page.Tracks.Items) < size && len(page.Episodes.Items) < size {
+		// Every result kind exhausted, so further pages are empty.
+		if len(page.Albums.Items) < size && len(page.Tracks.Items) < size && len(page.Episodes.Items) < size {
 			break
 		}
 	}
 	return combined, nil
 }
 
-// SearchTracks searches Spotify for tracks and podcast episodes, returning up
-// to limit results of each. Episodes (e.g. podcasts) are routed through their
-// spotify:episode: URI so they play correctly.
+// SearchTracks searches Spotify for albums, tracks and podcast episodes,
+// returning up to limit results of each. Episodes (e.g. podcasts) are routed
+// through their spotify:episode: URI so they play correctly.
 // limit is clamped to Spotify's accepted range of 1..50.
+//
+// Album hits lead the results as album placeholders (playlist.Track.IsAlbum),
+// because a query is usually an artist or record name and the album is the
+// more useful answer than whichever of its tracks Spotify ranks highest. They
+// are not playable as-is: the caller expands the chosen one with AlbumTracks.
 //
 // Apps in Development Mode cap /v1/search at devModeSearchLimit results per
 // request, so a rejected limit is retried as several smaller pages instead of
@@ -672,6 +681,12 @@ func (p *SpotifyProvider) SearchTracks(ctx context.Context, query string, limit 
 	}
 
 	var tracks []playlist.Track
+	for _, a := range result.Albums.Items {
+		if a == nil || a.ID == "" {
+			continue // skip null/unavailable results
+		}
+		tracks = append(tracks, albumFromItem(a))
+	}
 	for _, items := range [][]*spotifyItem{result.Tracks.Items, result.Episodes.Items} {
 		for _, t := range items {
 			if t == nil || t.ID == "" {
@@ -681,6 +696,86 @@ func (p *SpotifyProvider) SearchTracks(ctx context.Context, query string, limit 
 		}
 	}
 	return tracks, nil
+}
+
+// AlbumTracks returns every track of a Spotify album, in disc and track order.
+// Implements provider.AlbumTrackLoader, so an album placeholder from
+// SearchTracks can be expanded into a playable list.
+//
+// /v1/albums/{id}/tracks returns simplified track objects that omit the album
+// they belong to, so the album's own name, artist and release year are fetched
+// once and filled in on every track for display.
+func (p *SpotifyProvider) AlbumTracks(albumID string) ([]playlist.Track, error) {
+	if err := p.ensureSession(); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	album, err := p.album(ctx, albumID)
+	if err != nil {
+		return nil, err
+	}
+	placeholder := albumFromItem(album)
+
+	var tracks []playlist.Track
+	for offset := 0; ; offset += spotifyTrackPageSize {
+		page, err := p.albumTracksPage(ctx, albumID, offset)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range page {
+			if item == nil || item.ID == "" {
+				continue // skip null/unavailable results
+			}
+			track := trackFromItem(item)
+			track.Album = placeholder.Album
+			track.Year = placeholder.Year
+			if track.Artist == "" {
+				track.Artist = placeholder.Artist
+			}
+			tracks = append(tracks, track)
+		}
+		if len(page) < spotifyTrackPageSize {
+			break
+		}
+	}
+	return tracks, nil
+}
+
+// album fetches an album's own metadata.
+func (p *SpotifyProvider) album(ctx context.Context, albumID string) (*spotifyAlbumItem, error) {
+	resp, err := p.webAPI(ctx, "GET", "/v1/albums/"+url.PathEscape(albumID), nil)
+	if err != nil {
+		return nil, fmt.Errorf("spotify: album %s: %w", albumID, err)
+	}
+	var album spotifyAlbumItem
+	if err := decodeBody(resp, &album); err != nil {
+		return nil, fmt.Errorf("spotify: parse album %s: %w", albumID, err)
+	}
+	return &album, nil
+}
+
+// albumTracksPage fetches one page of an album's track list.
+func (p *SpotifyProvider) albumTracksPage(ctx context.Context, albumID string, offset int) ([]*spotifyItem, error) {
+	q := url.Values{
+		"limit": {strconv.Itoa(spotifyTrackPageSize)},
+	}
+	if offset > 0 {
+		q.Set("offset", strconv.Itoa(offset))
+	}
+
+	resp, err := p.webAPI(ctx, "GET", "/v1/albums/"+url.PathEscape(albumID)+"/tracks", q)
+	if err != nil {
+		return nil, fmt.Errorf("spotify: album %s tracks: %w", albumID, err)
+	}
+	var page struct {
+		Items []*spotifyItem `json:"items"`
+	}
+	if err := decodeBody(resp, &page); err != nil {
+		return nil, fmt.Errorf("spotify: parse album %s tracks: %w", albumID, err)
+	}
+	return page.Items, nil
 }
 
 // AddTrackToPlaylist adds a track to an existing Spotify playlist.

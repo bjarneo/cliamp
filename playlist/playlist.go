@@ -303,6 +303,35 @@ func (t Track) DisplayName() string {
 	return t.Title
 }
 
+// ProviderMeta keys shared across providers. Unlike the provider-namespaced
+// keys (e.g. "navidrome.id"), these describe what a Track stands for, so the
+// UI can handle it without knowing which provider produced it.
+const (
+	// MetaKind marks a Track that is not a plain playable track.
+	MetaKind = "kind"
+	// MetaKindAlbum is the MetaKind value for an album placeholder: a search
+	// result standing for a whole album, expanded to its tracks when chosen.
+	MetaKindAlbum = "album"
+	// MetaAlbumID carries the provider-side album id of an album placeholder.
+	MetaAlbumID = "albumID"
+)
+
+// IsAlbum reports whether the track is an album placeholder rather than
+// something playable on its own. Callers must expand it with the provider's
+// AlbumTracks before handing it to the player.
+func (t Track) IsAlbum() bool {
+	return t.ProviderMeta[MetaKind] == MetaKindAlbum
+}
+
+// AlbumID returns the provider-side album id of an album placeholder, or ""
+// when the track is not one.
+func (t Track) AlbumID() string {
+	if !t.IsAlbum() {
+		return ""
+	}
+	return t.ProviderMeta[MetaAlbumID]
+}
+
 // Playlist manages an ordered list of tracks with shuffle and repeat support.
 // All exported methods are safe for concurrent use: the Bubbletea UI loop
 // mutates the playlist while Lua plugin goroutines read state through it.
