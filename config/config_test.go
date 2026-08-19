@@ -449,12 +449,23 @@ func TestLoadSpotifyBitrate(t *testing.T) {
 
 func TestLoadBitPerfect(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	// appdir.Dir() checks these before HOME — without clearing them, this
+	// test would silently read/write wherever the test runner's own
+	// environment already points instead of the temp HOME above.
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("CLIAMP_CONFIG_DIR", "")
 
-	path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+	// configPath() — the same resolver Load() itself uses — rather than
+	// hand-joining HOME/.config/cliamp, so this test can't drift from
+	// Load()'s actual path resolution.
+	path, err := configPath()
+	if err != nil {
+		t.Fatalf("configPath() error = %v", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	data := []byte("bitperfect = true\nbitperfect_device = \"hw:0,0\"\n")
+	data := []byte("bitperfect = true\nbitperfect_device = \"hw:0,0\"\nbitperfect_channels = \"2,3\"\n")
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -463,11 +474,22 @@ func TestLoadBitPerfect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if !cfg.BitPerfect {
-		t.Error("BitPerfect = false, want true")
+
+	tests := []struct {
+		name string
+		got  any
+		want any
+	}{
+		{"BitPerfect", cfg.BitPerfect, true},
+		{"BitPerfectDevice", cfg.BitPerfectDevice, "hw:0,0"},
+		{"BitPerfectChannels", cfg.BitPerfectChannels, "2,3"},
 	}
-	if cfg.BitPerfectDevice != "hw:0,0" {
-		t.Errorf("BitPerfectDevice = %q, want hw:0,0", cfg.BitPerfectDevice)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Errorf("%s = %v, want %v", tt.name, tt.got, tt.want)
+			}
+		})
 	}
 }
 
