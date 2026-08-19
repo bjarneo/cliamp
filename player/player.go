@@ -997,6 +997,17 @@ type rateRetargetable interface {
 	SetTargetRate(beep.SampleRate)
 }
 
+// liveSourceReporter is implemented by a decoder whose own source rate/bit
+// depth can change mid-stream (chained OGG re-initializes per logical
+// bitstream boundary — see chainedOggStreamer.chain) — BitPerfect() prefers
+// its live values over trackPipeline's verifiedSourceRate/verifiedSourceBits,
+// which are frozen at pipeline-build time and would otherwise go stale after
+// a chain boundary. Currently only chainedOggStreamer implements it.
+type liveSourceReporter interface {
+	CurrentSourceRate() int
+	CurrentSourceBits() int
+}
+
 // BitPerfect reports whether audio currently reaches the output device
 // unaltered, and what stands in the way when it does not.
 func (p *Player) BitPerfect() BitPerfectStatus {
@@ -1039,6 +1050,17 @@ func (p *Player) BitPerfect() BitPerfectStatus {
 		in.sourceRate = cur.verifiedSourceRate
 		in.sourceBytes = cur.format.Precision
 		in.verifiedSourceBits = cur.verifiedSourceBits
+		if live, ok := cur.decoder.(liveSourceReporter); ok {
+			// Chained OGG's source rate/bits can change mid-stream (see
+			// chain()); trackPipeline's verified* fields are frozen at
+			// pipeline-build time and would go stale after a chain
+			// boundary otherwise. Locking matches writeLoop's own access to
+			// the same streamer — see CurrentSourceRate's doc comment.
+			p.out.Lock()
+			in.sourceRate = live.CurrentSourceRate()
+			in.verifiedSourceBits = live.CurrentSourceBits()
+			p.out.Unlock()
+		}
 	}
 	return in.eval()
 }

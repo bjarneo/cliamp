@@ -53,9 +53,17 @@ func (in bitPerfectInputs) eval() BitPerfectStatus {
 	st := BitPerfectStatus{
 		Enabled:    in.enabled,
 		SourceRate: in.sourceRate,
-		SourceBits: in.verifiedSourceBits,
 		DeviceRate: in.deviceRate,
 		Encoding:   in.encoding.String(),
+	}
+	if in.sourceRate > 0 {
+		// Only ever paired with a known source rate: the two probes behind
+		// sourceRate and verifiedSourceBits (see trackPipeline's buffered-URL
+		// construction site) run independently and can disagree on success,
+		// and "Xbit/Ykhz" reads as one verified source spec — showing bits
+		// alone next to the device's rate would misrepresent the device's
+		// rate as the source's.
+		st.SourceBits = in.verifiedSourceBits
 	}
 
 	switch {

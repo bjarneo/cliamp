@@ -142,3 +142,18 @@ func TestBitPerfectStatusDoesNotLeakDecodeWidthAsSourceBits(t *testing.T) {
 		t.Errorf("SourceBits = %d, want 0 (unverified) even though sourceBytes=4", got)
 	}
 }
+
+// TestBitPerfectStatusNeverPairsBitsWithUnknownRate guards against a bits
+// probe succeeding while its independent rate probe fails/races out (the
+// buffered-URL pipeline runs both concurrently — see pipeline.go): "Xbit/YkHz"
+// reads as one verified source spec, so bits must never surface next to a
+// rate that isn't actually known to be the source's.
+func TestBitPerfectStatusNeverPairsBitsWithUnknownRate(t *testing.T) {
+	in := baseInputs()
+	in.sourceRate = 0          // rate probe failed/timed out
+	in.verifiedSourceBits = 24 // bits probe succeeded anyway
+	st := in.eval()
+	if st.SourceBits != 0 {
+		t.Errorf("SourceBits = %d, want 0 when SourceRate is unknown", st.SourceBits)
+	}
+}

@@ -319,9 +319,16 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 	m.SetVisVolumeLinked(cfg.VisVolumeLinked)
 	if cfg.BitPerfect {
 		dev := strings.TrimSpace(cfg.BitPerfectDevice)
+		// Validated here too, not just at the --bitperfect-channels CLI
+		// flag: a bad bitperfect_channels in config.toml otherwise reaches
+		// player.New, fails silently there, and falls back to the beep
+		// speaker with nothing shown except the in-app bit-perfect readout.
+		chErr := player.ValidateChannels(cfg.BitPerfectChannels)
 		switch {
 		case dev == "" || (!strings.HasPrefix(dev, "hw:") && !strings.HasPrefix(dev, "plughw:")):
 			m.SetBitPerfectDeviceWarning("bit-perfect is on but bitperfect_device isn't a hw:/plughw: device — playback isn't verifiably bit-perfect this way (see docs/audio-quality.md)")
+		case chErr != nil:
+			m.SetBitPerfectDeviceWarning(fmt.Sprintf("bitperfect_channels is invalid (%v) — bit-perfect output is disabled (see docs/audio-quality.md)", chErr))
 		case cfg.BitPerfectChannels != "" && !strings.HasPrefix(dev, "hw:"):
 			// plughw:'s own channel-conversion layer can silently accept a
 			// smaller channel request than the hardware actually needs and

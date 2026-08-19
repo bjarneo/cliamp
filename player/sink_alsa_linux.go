@@ -358,7 +358,17 @@ func (s *alsaSink) writeLoop(dev *alsaDevice) {
 		ok, fatalErr := s.writeFrames(dev, buf[:encoded])
 		if !ok {
 			if fatalErr != nil {
-				s.handleFatal(dev, fatalErr)
+				// Dispatched, not called directly: handleFatal takes devMu,
+				// and this goroutine's own deferred close(dev.done) hasn't
+				// run yet — a concurrent Close/SetSampleRate/
+				// onReservationPreempted that already holds devMu and is
+				// blocked in closeLocked waiting on <-dev.done would
+				// deadlock against it otherwise. Returning first lets that
+				// close(dev.done) fire immediately; handleFatal's own
+				// s.dev != dev check (it runs on its own timeline now)
+				// already handles finding the device stale by the time it
+				// acquires devMu.
+				go s.handleFatal(dev, fatalErr)
 			}
 			return
 		}

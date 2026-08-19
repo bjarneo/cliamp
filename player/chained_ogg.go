@@ -111,6 +111,30 @@ func (cs *chainedOggStreamer) SetTargetRate(sr beep.SampleRate) {
 	cs.stream = s
 }
 
+// CurrentSourceRate returns the current logical bitstream segment's own
+// native sample rate. Unlike trackPipeline.verifiedSourceRate — frozen at
+// pipeline-build time from whichever segment was playing when the track
+// started — this reflects whatever chain() last rebuilt cs.format to, so a
+// mid-stream chain boundary to a differently-rated segment doesn't leave
+// BitPerfect() reporting a stale rate that happens to still match the
+// device's (silently claiming bit-exactness on a segment that's actually
+// being resampled — see chain()'s doc comment).
+//
+// Caller must hold the sink's lock (alsaSink.Lock/beepSink.Lock, exposed as
+// Player.out.Lock): cs.format is mutated by chain(), which always runs
+// inside Stream() on the audio write loop, itself always called under that
+// same lock (see alsaSink.writeLoop) — reading cs.format without it races
+// that mutation.
+func (cs *chainedOggStreamer) CurrentSourceRate() int {
+	return int(cs.format.SampleRate)
+}
+
+// CurrentSourceBits is CurrentSourceRate's counterpart for bit depth — same
+// reasoning, same locking contract.
+func (cs *chainedOggStreamer) CurrentSourceBits() int {
+	return cs.format.Precision * 8
+}
+
 // notifyMeta extracts ARTIST/TITLE from Vorbis comments and fires onMeta.
 func (cs *chainedOggStreamer) notifyMeta() {
 	if cs.onMeta == nil {
