@@ -62,7 +62,7 @@ func TestPlaylistLabel(t *testing.T) {
 		want   string
 	}{
 		{
-			"name only when both unknown",
+			"name only when no tracks",
 			"  ",
 			playlist.PlaylistInfo{Name: "Mix"},
 			"  Mix",
@@ -74,16 +74,16 @@ func TestPlaylistLabel(t *testing.T) {
 			"> Mix · 12 tracks",
 		},
 		{
-			"duration only",
+			"duration ignored",
 			"  ",
 			playlist.PlaylistInfo{Name: "Mix", DurationSecs: 3660},
-			"  Mix · 1h 1m",
+			"  Mix",
 		},
 		{
-			"both",
+			"tracks and duration shows only tracks",
 			"  ",
 			playlist.PlaylistInfo{Name: "Mix", TrackCount: 12, DurationSecs: 2700},
-			"  Mix · 12 tracks · 45m",
+			"  Mix · 12 tracks",
 		},
 	}
 	for _, tt := range tests {
