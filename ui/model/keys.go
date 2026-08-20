@@ -1919,6 +1919,41 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.openFileBrowserForPlaylist(m.plManager.selPlaylist)
 	case "D":
 		m.plMgrOpenDirs()
+	case "f":
+		if bs, ok := m.localProvider.(provider.BookmarkSetter); ok {
+			realIdx := m.plMgrTrackRealIndex(m.plManager.cursor)
+			if realIdx >= 0 && realIdx < len(m.plManager.tracks) {
+				track := m.plManager.tracks[realIdx]
+				if err := bs.SetBookmarkByPath(m.plManager.selPlaylist, track.Path); err != nil {
+					m.status.Errorf(statusTTLDefault, "Save failed: %s", err)
+					return nil
+				}
+				m.plManager.tracks[realIdx].Bookmark = !m.plManager.tracks[realIdx].Bookmark
+				if m.plManager.tracks[realIdx].Bookmark {
+					m.status.Showf(statusTTLDefault, "★ %s", track.DisplayName())
+				} else {
+					m.status.Showf(statusTTLDefault, "☆ %s", track.DisplayName())
+				}
+			}
+		}
+	case "F":
+		if m.favMgr != nil {
+			realIdx := m.plMgrTrackRealIndex(m.plManager.cursor)
+			if realIdx >= 0 && realIdx < len(m.plManager.tracks) {
+				track := m.plManager.tracks[realIdx]
+				added, err := m.favMgr.ToggleFavorite(track)
+				if err != nil {
+					m.status.Errorf(statusTTLDefault, "Favorite failed: %s", err)
+					return nil
+				}
+				m.refreshFavSet()
+				if added {
+					m.status.Showf(statusTTLDefault, "♥ %s", track.DisplayName())
+				} else {
+					m.status.Showf(statusTTLDefault, "♡ %s", track.DisplayName())
+				}
+			}
+		}
 	case "d":
 		m.plMgrRemoveSelectedTracks()
 	case "u":

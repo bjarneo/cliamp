@@ -174,6 +174,12 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModePlaylistManager, Keys: []string{"D"}, KeyLabel: "D", Label: "Dir sources", ContextHelp: true, Enabled: func(m Model) bool {
 		return m.plManager.visible && m.plManager.screen == plMgrScreenTracks && m.plManager.selPlaylist != history.PlaylistName
 	}},
+	{Mode: commandModePlaylistManager, Keys: []string{"f"}, KeyLabel: "f", Label: "Bookmark ★", ContextHelp: true, Enabled: func(m Model) bool {
+		return m.plManager.visible && m.plManager.screen == plMgrScreenTracks && m.plManager.selPlaylist != history.PlaylistName
+	}},
+	{Mode: commandModePlaylistManager, Keys: []string{"F"}, KeyLabel: "F", Label: "Favorite ♥", ContextHelp: true, Enabled: func(m Model) bool {
+		return m.plManager.visible && m.plManager.screen == plMgrScreenTracks
+	}},
 	{Mode: commandModePlaylistManagerDirs, Keys: []string{"esc", "backspace", "h", "left"}, KeyLabel: "Esc", Label: "Back to tracks", ContextHelp: true, Cancel: true},
 	{Mode: commandModePlaylistManagerDirs, Keys: []string{"a"}, KeyLabel: "a", Label: "Add dir", ContextHelp: true, Primary: true},
 	{Mode: commandModePlaylistManagerDirs, Keys: []string{"d"}, KeyLabel: "d", Label: "Remove", Destructive: true, ContextHelp: true},
