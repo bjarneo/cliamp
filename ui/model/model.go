@@ -9,6 +9,7 @@ import (
 	"github.com/bjarneo/cliamp/luaplugin"
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
 )
@@ -364,6 +365,14 @@ type Model struct {
 
 	// History recorder (nil if config dir unavailable; safe to call when nil)
 	historyStore *history.Store
+
+	// Favorites manager (nil when local provider doesn't support it; safe to
+	// call when nil). Cached here to avoid a type assertion per rendered track.
+	favMgr provider.FavoritesManager
+
+	// favSet is a cached set of favorited paths for O(1) lookup during
+	// rendering. Refreshed on init and after every toggle.
+	favSet map[string]struct{}
 
 	// initialDir is the starting path for the file browser ('o' key).
 	initialDir string

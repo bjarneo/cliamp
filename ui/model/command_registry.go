@@ -123,7 +123,8 @@ var commandRegistry = []commandSpec{
 		return !m.heightExpanded && m.layout.bodyRows > m.plVisible
 	}},
 	{Mode: commandModeMain, Keys: []string{"/"}, KeyLabel: "/", Label: "Filter/search list", Keymap: true, ContextHelp: true},
-	{Mode: commandModeMain, Keys: []string{"f"}, KeyLabel: "f", Label: "Toggle bookmark/favorite", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"f"}, KeyLabel: "f", Label: "Toggle bookmark (per-playlist ★)", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"F"}, KeyLabel: "F", Label: "Toggle favorite (cross-playlist ♥)", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+f"}, KeyLabel: "Ctrl+F", Label: "Search active provider or YouTube", Keymap: true, ContextHelp: true},
 	{Mode: commandModeMain, Keys: []string{"u"}, KeyLabel: "u", Label: "Load URL (stream/playlist)", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"d"}, KeyLabel: "d", Label: "Audio device picker", Keymap: true},

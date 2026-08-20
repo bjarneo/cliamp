@@ -10,6 +10,7 @@ import (
 	"github.com/bjarneo/cliamp/luaplugin"
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
 )
@@ -42,6 +43,10 @@ func New(p player.Engine, pl *playlist.Playlist, providers []ProviderEntry, defa
 		luaMgr:           luaMgr,
 		historyStore:     history.New(),
 		showAlbumHeaders: false,
+	}
+	if fm, ok := any(localProv).(provider.FavoritesManager); ok {
+		m.favMgr = fm
+		m.refreshFavSet()
 	}
 	if luaMgr != nil {
 		m.pluginEmit = &pluginEmitState{}
@@ -210,4 +215,22 @@ func (m Model) Init() tea.Cmd {
 		cmds = append(cmds, func() tea.Msg { return autoPlayMsg{} })
 	}
 	return tea.Batch(cmds...)
+}
+
+// refreshFavSet rebuilds the in-memory set of favorited paths from the
+// favorites store. Call after every toggle and on init so the render path
+// never hits disk.
+func (m *Model) refreshFavSet() {
+	m.favSet = nil
+	if m.favMgr == nil {
+		return
+	}
+	tracks, err := m.localProvider.Tracks("Favorites")
+	if err != nil || len(tracks) == 0 {
+		return
+	}
+	m.favSet = make(map[string]struct{}, len(tracks))
+	for _, t := range tracks {
+		m.favSet[t.Path] = struct{}{}
+	}
 }

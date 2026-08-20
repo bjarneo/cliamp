@@ -16,11 +16,12 @@ import (
 // can be exercised without touching the filesystem.
 type dirSourceTestProvider struct {
 	commandsTestProvider
-	dirs    []playlist.DirSource
-	removed []string
-	setRec  []dirSetRecCall
-	added   []string
-	failOn  map[string]error // dirs that AddDirSource should fail on
+	dirs     []playlist.DirSource
+	removed  []string
+	setRec   []dirSetRecCall
+	added    []string
+	failOn   map[string]error // dirs that AddDirSource should fail on
+	favPaths map[string]struct{}
 }
 
 type dirSetRecCall struct {
@@ -67,11 +68,47 @@ func (p *dirSourceTestProvider) SetDirRecursive(_, dir string, recursive bool) e
 	return nil
 }
 
+func (p *dirSourceTestProvider) ToggleFavorite(track playlist.Track) (bool, error) {
+	if p.favPaths == nil {
+		p.favPaths = make(map[string]struct{})
+	}
+	if _, ok := p.favPaths[track.Path]; ok {
+		delete(p.favPaths, track.Path)
+		return false, nil
+	}
+	p.favPaths[track.Path] = struct{}{}
+	return true, nil
+}
+
+func (p *dirSourceTestProvider) IsFavorited(path string) bool {
+	if p.favPaths == nil {
+		return false
+	}
+	_, ok := p.favPaths[path]
+	return ok
+}
+
+func (p *dirSourceTestProvider) FavoritesCount() int {
+	return len(p.favPaths)
+}
+
+func (p *dirSourceTestProvider) Tracks(id string) ([]playlist.Track, error) {
+	if id == "Favorites" && p.favPaths != nil {
+		var out []playlist.Track
+		for path := range p.favPaths {
+			out = append(out, playlist.Track{Path: path, Title: path})
+		}
+		return out, nil
+	}
+	return nil, nil
+}
+
 func newDirsScreenTestModel(prov *dirSourceTestProvider) Model {
 	m := Model{
 		playlist:      playlist.New(),
 		localProvider: prov,
 		provider:      prov,
+		favMgr:        prov,
 		vis:           ui.NewVisualizer(48000),
 		plManager: plManagerState{
 			visible:     true,
@@ -238,5 +275,68 @@ func TestFileBrowserDPartialFailureStillRefreshes(t *testing.T) {
 	}
 	if !strings.Contains(m.status.text, "then failed") {
 		t.Fatalf("status = %q, want a partial-failure message", m.status.text)
+	}
+}
+
+func TestFKeyTogglesFavorite(t *testing.T) {
+	prov := &dirSourceTestProvider{
+		commandsTestProvider: commandsTestProvider{name: "Local"},
+	}
+	m := newDirsScreenTestModel(prov)
+	m.focus = focusPlaylist
+	m.loadedPlaylist = "music"
+	m.playlist = playlist.New()
+	m.playlist.Add(playlist.Track{Path: "/song.mp3", Title: "Song"})
+	m.plCursor = 0
+	m.plManager.visible = false
+	m.favSet = nil
+
+	// Toggle on.
+	m.handleKey(tea.KeyPressMsg{Text: "F"})
+	if !prov.IsFavorited("/song.mp3") {
+		t.Fatal("track should be favorited after F")
+	}
+	if m.favSet == nil {
+		t.Fatal("favSet should be populated after toggle")
+	}
+	if _, ok := m.favSet["/song.mp3"]; !ok {
+		t.Fatal("favSet should contain /song.mp3 after toggle")
+	}
+	if !strings.Contains(m.status.text, "♥") {
+		t.Fatalf("status = %q, want ♥ indicator", m.status.text)
+	}
+
+	// Toggle off.
+	m.handleKey(tea.KeyPressMsg{Text: "F"})
+	if prov.IsFavorited("/song.mp3") {
+		t.Fatal("track should be unfavorited after second F")
+	}
+	if m.favSet != nil {
+		if _, ok := m.favSet["/song.mp3"]; ok {
+			t.Fatal("favSet should not contain /song.mp3 after toggle off")
+		}
+	}
+	if !strings.Contains(m.status.text, "♡") {
+		t.Fatalf("status = %q, want ♡ indicator", m.status.text)
+	}
+}
+
+func TestFKeyNoopWithoutFavMgr(t *testing.T) {
+	plain := commandsTestProvider{name: "Local"}
+	m := newDirsScreenTestModel(&dirSourceTestProvider{})
+	m.localProvider = plain
+	m.provider = plain
+	m.favMgr = nil
+	m.focus = focusPlaylist
+	m.loadedPlaylist = "music"
+	m.playlist = playlist.New()
+	m.playlist.Add(playlist.Track{Path: "/song.mp3", Title: "Song"})
+	m.plCursor = 0
+
+	m.handleKey(tea.KeyPressMsg{Text: "F"})
+
+	// No crash, no status change.
+	if m.status.text != "" {
+		t.Fatalf("status = %q, want empty (no favMgr)", m.status.text)
 	}
 }

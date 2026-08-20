@@ -387,3 +387,20 @@ screen), press `D` to add the selected directory — or the directory you are
 currently browsing when nothing is selected — as a live `[[dir]]` source
 instead of expanding it into explicit tracks. Directories already referenced
 are skipped and reported.
+
+## Favorites
+
+Press `F` (Shift+F) on any track in the track list to toggle it as a
+favorite. Favorited tracks are collected into a virtual **"Favorites"**
+playlist that appears at the top of the playlist list — regardless of which
+playlist the track was favorited from.
+
+Favorites are cross-playlist: a track favorited while browsing "gym" shows up
+in "Favorites" and vice versa. The "Favorites" playlist is backed by
+`~/.config/cliamp/favorites.toml` and behaves like "Recently Played" — it is
+a virtual playlist that cannot be renamed, deleted, or modified via the
+playlist manager. Use `F` again to unfavorite a track.
+
+Favorited tracks display a `♥` marker in the track list. The bookmark
+system (`f` key, `★` marker) is separate — bookmarks are per-playlist,
+while favorites span all playlists.

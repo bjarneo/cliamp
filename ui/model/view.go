@@ -856,11 +856,17 @@ func (m Model) renderPlaylist() string {
 		if t.Bookmark {
 			bookmarkMarker = "★"
 		}
+		favMarker := " "
+		if m.favSet != nil {
+			if _, ok := m.favSet[t.Path]; ok {
+				favMarker = "♥"
+			}
+		}
 		unavailableMarker := " "
 		if t.Unplayable {
 			unavailableMarker = "!"
 		}
-		markers := cursorMarker + playingMarker + queueMarker + bookmarkMarker + unavailableMarker + " "
+		markers := cursorMarker + playingMarker + queueMarker + bookmarkMarker + favMarker + unavailableMarker + " "
 
 		name := t.DisplayName()
 		queueSuffix := ""
@@ -897,7 +903,7 @@ func (m Model) renderPlaylist() string {
 
 		numStr := fmt.Sprintf("%*d. ", numWidth, i+1)
 		line := dimStyle.Render(cursorMarker) + playlistActiveStyle.Render(playingMarker) +
-			activeToggle.Render(queueMarker+bookmarkMarker) + playlistUnavailableStyle.Render(unavailableMarker) +
+			activeToggle.Render(queueMarker+bookmarkMarker) + playlistUnavailableStyle.Render(favMarker+unavailableMarker) +
 			" " + style.Render(numStr)
 		line += style.Render(name)
 		if albumSuffix != "" {

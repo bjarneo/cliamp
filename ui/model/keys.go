@@ -559,6 +559,25 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			}
 		}
 
+	case "F":
+		if m.focus == focusPlaylist && m.plCursor >= 0 && m.plCursor < m.playlist.Len() && m.favMgr != nil {
+			track, ok := m.playlist.Track(m.plCursor)
+			if !ok {
+				return nil
+			}
+			added, err := m.favMgr.ToggleFavorite(track)
+			if err != nil {
+				m.status.Errorf(statusTTLDefault, "Favorite failed: %s", err)
+				return nil
+			}
+			m.refreshFavSet()
+			if added {
+				m.status.Showf(statusTTLDefault, "♥ %s", track.DisplayName())
+			} else {
+				m.status.Showf(statusTTLDefault, "♡ %s", track.DisplayName())
+			}
+		}
+
 	case "shift+up":
 		if m.focus == focusPlaylist && m.plCursor > 0 {
 			if m.playlist.Move(m.plCursor, m.plCursor-1) {

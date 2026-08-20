@@ -177,3 +177,16 @@ type SectionedList interface {
 type Closer interface {
 	Close()
 }
+
+// FavoritesManager is implemented by providers that support a cross-playlist
+// favorites virtual playlist. The UI uses this to toggle favorites from the
+// track list without going through the per-playlist write path.
+type FavoritesManager interface {
+	// ToggleFavorite toggles the given track in the favorites store.
+	// Returns true when the track is now favorited after the call.
+	ToggleFavorite(track playlist.Track) (bool, error)
+	// IsFavorited reports whether the given path is in the favorites store.
+	IsFavorited(path string) bool
+	// FavoritesCount returns the number of favorited tracks.
+	FavoritesCount() int
+}
