@@ -61,8 +61,9 @@ func TestPlaylistListEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlaylistList: %v", err)
 	}
-	if !strings.Contains(out, "No playlists") {
-		t.Errorf("output = %q, want 'No playlists...'", out)
+	// Favorites always appears as a virtual playlist even when empty.
+	if !strings.Contains(out, "Favorites") {
+		t.Errorf("output = %q, want Favorites virtual playlist to appear", out)
 	}
 }
 

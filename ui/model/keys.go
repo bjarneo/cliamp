@@ -559,7 +559,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			}
 		}
 
-	case "F":
+	case "n":
 		if m.focus == focusPlaylist && m.plCursor >= 0 && m.plCursor < m.playlist.Len() && m.favMgr != nil {
 			track, ok := m.playlist.Track(m.plCursor)
 			if !ok {
@@ -1936,7 +1936,7 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 				}
 			}
 		}
-	case "F":
+	case "n":
 		if m.favMgr != nil {
 			realIdx := m.plMgrTrackRealIndex(m.plManager.cursor)
 			if realIdx >= 0 && realIdx < len(m.plManager.tracks) {

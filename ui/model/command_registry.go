@@ -96,6 +96,7 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"shift+up", "shift+down"}, KeyLabel: "Shift+Up Down", Label: "Move track up/down", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"h", "l"}, KeyLabel: "h l", Label: "EQ cursor left/right", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Play selected track", Keymap: true, ContextHelp: true, Primary: true},
+	{Mode: commandModeMain, Keys: []string{"f", "n"}, KeyLabel: "f/n", Label: "★/♥", Keymap: true, ContextHelp: true},
 	{Mode: commandModeMain, Keys: []string{"a"}, KeyLabel: "a", Label: "Toggle queue (play next)", Keymap: true, ContextHelp: true},
 	{Mode: commandModeMain, Keys: []string{"A"}, KeyLabel: "A", Label: "Queue manager", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"x"}, KeyLabel: "x", Label: "Remove selected track from playlist", Destructive: true, Keymap: true},
@@ -123,8 +124,6 @@ var commandRegistry = []commandSpec{
 		return !m.heightExpanded && m.layout.bodyRows > m.plVisible
 	}},
 	{Mode: commandModeMain, Keys: []string{"/"}, KeyLabel: "/", Label: "Filter/search list", Keymap: true, ContextHelp: true},
-	{Mode: commandModeMain, Keys: []string{"f"}, KeyLabel: "f", Label: "Toggle bookmark (per-playlist ★)", Keymap: true},
-	{Mode: commandModeMain, Keys: []string{"F"}, KeyLabel: "F", Label: "Toggle favorite (cross-playlist ♥)", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+f"}, KeyLabel: "Ctrl+F", Label: "Search active provider or YouTube", Keymap: true, ContextHelp: true},
 	{Mode: commandModeMain, Keys: []string{"u"}, KeyLabel: "u", Label: "Load URL (stream/playlist)", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"d"}, KeyLabel: "d", Label: "Audio device picker", Keymap: true},
@@ -174,10 +173,10 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModePlaylistManager, Keys: []string{"D"}, KeyLabel: "D", Label: "Dir sources", ContextHelp: true, Enabled: func(m Model) bool {
 		return m.plManager.visible && m.plManager.screen == plMgrScreenTracks && m.plManager.selPlaylist != history.PlaylistName
 	}},
-	{Mode: commandModePlaylistManager, Keys: []string{"f"}, KeyLabel: "f", Label: "Bookmark ★", ContextHelp: true, Enabled: func(m Model) bool {
-		return m.plManager.visible && m.plManager.screen == plMgrScreenTracks && m.plManager.selPlaylist != history.PlaylistName
+	{Mode: commandModePlaylistManager, Keys: []string{"f", "n"}, KeyLabel: "f/n", Label: "★/♥", ContextHelp: true, Enabled: func(m Model) bool {
+		return m.plManager.visible && m.plManager.screen == plMgrScreenTracks
 	}},
-	{Mode: commandModePlaylistManager, Keys: []string{"F"}, KeyLabel: "F", Label: "Favorite ♥", ContextHelp: true, Enabled: func(m Model) bool {
+	{Mode: commandModePlaylistManager, Keys: []string{"[", "]"}, KeyLabel: "[ ]", Label: "Reorder", ContextHelp: true, Enabled: func(m Model) bool {
 		return m.plManager.visible && m.plManager.screen == plMgrScreenTracks
 	}},
 	{Mode: commandModePlaylistManagerDirs, Keys: []string{"esc", "backspace", "h", "left"}, KeyLabel: "Esc", Label: "Back to tracks", ContextHelp: true, Cancel: true},

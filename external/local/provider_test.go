@@ -754,14 +754,17 @@ func TestPlaylistsIncludesFavoritesWhenNonEmpty(t *testing.T) {
 	}
 }
 
-func TestPlaylistsOmitsFavoritesWhenEmpty(t *testing.T) {
+func TestPlaylistsIncludesFavoritesWhenEmpty(t *testing.T) {
 	p := newTestProviderWithFavorites(t)
 	lists, err := p.Playlists()
 	if err != nil {
 		t.Fatalf("Playlists: %v", err)
 	}
-	if len(lists) != 0 {
-		t.Fatalf("Playlists = %+v, want empty", lists)
+	if len(lists) != 1 || lists[0].ID != "Favorites" {
+		t.Fatalf("Playlists = %+v, want [Favorites] even when empty", lists)
+	}
+	if lists[0].TrackCount != 0 {
+		t.Errorf("TrackCount = %d, want 0", lists[0].TrackCount)
 	}
 }
 

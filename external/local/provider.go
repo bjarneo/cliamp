@@ -151,14 +151,15 @@ func (p *Provider) historyInfo() (playlist.PlaylistInfo, bool) {
 	}, true
 }
 
-// favoritesInfo returns the synthetic PlaylistInfo entry for "Favorites",
-// or ok=false when the favorites store is unavailable or empty.
+// favoritesInfo returns the synthetic PlaylistInfo entry for "Favorites".
+// The entry always appears when the favorites store is available, even when
+// empty, so users can discover the feature and see an empty placeholder.
 func (p *Provider) favoritesInfo() (playlist.PlaylistInfo, bool) {
 	if p.favorites == nil {
 		return playlist.PlaylistInfo{}, false
 	}
 	tracks, err := p.favorites.Tracks()
-	if err != nil || len(tracks) == 0 {
+	if err != nil {
 		return playlist.PlaylistInfo{}, false
 	}
 	return playlist.PlaylistInfo{
