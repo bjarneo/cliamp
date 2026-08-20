@@ -379,9 +379,9 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		m.buffering = true
 		m.bufferingAt = time.Now()
 		m.err = nil
-		return tea.Batch(playStreamCmd(m.player, track.Path, dur, m.requests.stream), fetchCmd)
+		return tea.Batch(playStreamCmd(m.player, track.Path, dur, m.startPosition(track), m.requests.stream), fetchCmd)
 	}
-	if err := m.player.PlayAt(track.Path, dur, m.takeResume(track)); err != nil {
+	if err := m.player.PlayAt(track.Path, dur, m.startPosition(track)()); err != nil {
 		// Provider session went stale (e.g. Spotify auth expired and
 		// silent reconnect failed). Surface the standard sign-in
 		// overlay rather than the raw stream error.
@@ -551,16 +551,24 @@ func shouldReconnectOnUnpause(track playlist.Track, idx int, pausedFor time.Dura
 	return pausedFor >= ytdlReconnectPauseThreshold && playlist.IsYTDL(track.Path)
 }
 
-// takeResume returns the saved position for track and clears it, so PlayAt can
-// start there instead of applyResume seeking once audio is already live.
-func (m *Model) takeResume(track playlist.Track) time.Duration {
-	if m.resume.path == "" || m.resume.secs <= 0 || track.Path != m.resume.path {
-		return 0
+// startPosition returns where track should begin. The returned func may make a
+// provider HTTP call, so callers run it on their own goroutine.
+func (m *Model) startPosition(track playlist.Track) func() time.Duration {
+	reporter := m.findPlaybackReporter(track)
+	hint := time.Duration(0)
+	if m.resume.path == track.Path && m.resume.secs > 0 {
+		hint = time.Duration(m.resume.secs) * time.Second
+		m.resume.path = ""
+		m.resume.secs = 0
 	}
-	offset := time.Duration(m.resume.secs) * time.Second
-	m.resume.path = ""
-	m.resume.secs = 0
-	return offset
+	return func() time.Duration {
+		if tp, ok := reporter.(provider.TrackPosition); ok {
+			if pos := tp.TrackPosition(track); pos > 0 {
+				return pos
+			}
+		}
+		return hint
+	}
 }
 
 // applyResume seeks to the saved resume position if the current track matches.

@@ -49,6 +49,7 @@ interfaces are defined in `provider/interfaces.go`.
 | `Closer` | Cleanup on shutdown | `Close()` |
 | `Authenticator` | Interactive sign-in flow | `Authenticate() error` (in `playlist` package) |
 | `ResumeTarget` | Server-side resume position | `ResumeTarget(playlistID, tracks)` |
+| `TrackPosition` | Server-side position for one track, read on every play | `TrackPosition(track)` |
 | `ProgressReporter` | Interim position updates while playing, in addition to `PlaybackReporter`'s start/finish reports | `ReportProgress(track, position) error` |
 | `BrowseLabeler` | Relabel the browse overlay's two levels (e.g. Authors/Books instead of Artists/Albums) | `BrowseLabels()` |
 

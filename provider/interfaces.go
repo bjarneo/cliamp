@@ -59,6 +59,13 @@ type ProgressReporter interface {
 	ReportProgress(track playlist.Track, position time.Duration) error
 }
 
+// TrackPosition is implemented by providers that can report where a single
+// track should resume from.
+type TrackPosition interface {
+	// TrackPosition returns the saved position for track, or 0 to start over.
+	TrackPosition(track playlist.Track) time.Duration
+}
+
 // ResumeTarget is implemented by providers that track listening position
 // server-side and can point the UI at where to continue.
 type ResumeTarget interface {

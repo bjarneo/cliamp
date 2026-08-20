@@ -7,7 +7,7 @@ import (
 	"github.com/bjarneo/cliamp/playlist"
 )
 
-func TestTakeResume(t *testing.T) {
+func TestStartPosition(t *testing.T) {
 	tests := []struct {
 		name       string
 		resumePath string
@@ -45,12 +45,12 @@ func TestTakeResume(t *testing.T) {
 			m := Model{}
 			m.resume.path = tc.resumePath
 			m.resume.secs = tc.resumeSecs
-			if got := m.takeResume(tc.track); got != tc.want {
-				t.Fatalf("takeResume() = %v, want %v", got, tc.want)
+			if got := m.startPosition(tc.track)(); got != tc.want {
+				t.Fatalf("startPosition() = %v, want %v", got, tc.want)
 			}
-			// Taking it clears it, so applyResume does not seek again.
-			if again := m.takeResume(tc.track); again != 0 {
-				t.Errorf("second takeResume() = %v, want 0", again)
+			// The startup hint is consumed, so applyResume does not seek again.
+			if again := m.startPosition(tc.track)(); again != 0 {
+				t.Errorf("second startPosition() = %v, want 0", again)
 			}
 		})
 	}
