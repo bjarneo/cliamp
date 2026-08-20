@@ -40,8 +40,11 @@ func (f *samplingFakeEngine) SamplesInto(dst []float64) int {
 	if len(dst) == 0 {
 		return 0
 	}
-	dst[0] = 1
-	return 1
+	n := min(512, len(dst))
+	for i := range n {
+		dst[i] = 0.8 * math.Sin(2*math.Pi*1000*float64(i)/float64(f.SampleRate()))
+	}
+	return n
 }
 
 func (f *samplingFakeEngine) StereoSamplesInto(dst [][2]float64) int {
@@ -164,6 +167,68 @@ func TestTickIntervalLowPowerPlayingUsesLowPowerCadence(t *testing.T) {
 
 	if got := m.tickInterval(); got != ui.TickLowPowerPlaying {
 		t.Fatalf("tickInterval() = %v, want %v", got, ui.TickLowPowerPlaying)
+	}
+}
+
+func chargedPausedModel(t *testing.T) (Model, *samplingFakeEngine) {
+	t.Helper()
+	p := &samplingFakeEngine{playbackFakeEngine: &playbackFakeEngine{playing: true}}
+	m := Model{
+		player:   p,
+		vis:      ui.NewVisualizer(float64(p.SampleRate())),
+		playlist: playlist.New(),
+		width:    80,
+		height:   24,
+	}
+	m.recomputeLayout()
+	m.vis.Mode = ui.VisBars
+
+	// Charge the bars through the normal tick path so v.bands is populated,
+	// then pause to leave non-empty spectrum content behind.
+	base := time.Unix(1, 0)
+	for i := range 3 {
+		m.tickVisualizer(base.Add(time.Duration(i+1) * ui.TickFast))
+	}
+	p.paused = true
+	return m, p
+}
+
+// TestTickIntervalPausedSettlingVisualizerUsesFast verifies that pausing with
+// non-empty spectrum content keeps a fast (non-idle) cadence so the bars ease
+// down smoothly instead of freezing or stepping at a few fps, then returns to
+// idle once they settle.
+func TestTickIntervalPausedSettlingVisualizerUsesFast(t *testing.T) {
+	m, _ := chargedPausedModel(t)
+
+	if !m.isOverlayActive() && !m.visualizerSettlingPaused() {
+		t.Fatal("visualizerSettlingPaused() = false with charged paused bars, want true")
+	}
+	if m.isFullyIdle() {
+		t.Fatal("isFullyIdle() = true while paused bars settle, want false")
+	}
+	if got := m.tickInterval(); got != ui.TickFast {
+		t.Fatalf("tickInterval() = %v, want %v while paused bars settle", got, ui.TickFast)
+	}
+}
+
+func TestTickIntervalPausedSettledVisualizerUsesIdle(t *testing.T) {
+	m, _ := chargedPausedModel(t)
+
+	base := time.Unix(1, 0)
+	for i := range 120 {
+		m.tickVisualizer(base.Add(time.Duration(i+1) * ui.TickSlow))
+		if !m.visualizerSettlingPaused() {
+			break
+		}
+	}
+	if m.visualizerSettlingPaused() {
+		t.Fatal("visualizer still settling after decay ticks")
+	}
+	if !m.isFullyIdle() {
+		t.Fatal("isFullyIdle() = false after paused bars settled, want true")
+	}
+	if got := m.tickInterval(); got != ui.TickIdle {
+		t.Fatalf("tickInterval() = %v, want %v after paused bars settle", got, ui.TickIdle)
 	}
 }
 

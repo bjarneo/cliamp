@@ -443,7 +443,7 @@ func TestClassicPeakRenderShowsAttachedCapWhileSettling(t *testing.T) {
 	}
 }
 
-func TestClassicPeakPauseFreezesStateAndClearsAnimationClock(t *testing.T) {
+func TestClassicPeakPausedDecaysBarsAndCapsToRest(t *testing.T) {
 	withPanelWidth(t, 8)
 
 	v := NewVisualizer(44100)
@@ -456,26 +456,41 @@ func TestClassicPeakPauseFreezesStateAndClearsAnimationClock(t *testing.T) {
 	driver.peakVel = repeatedClassicPeakSlice(PanelWidth, 1.1)
 	driver.peakHold = repeatedClassicPeakSlice(PanelWidth, classicPeakApexHold)
 
-	snapshotPeak := append([]float64(nil), driver.peakPos...)
-	snapshotVel := append([]float64(nil), driver.peakVel...)
-	snapshotHold := append([]float64(nil), driver.peakHold...)
+	snapshotBar := append([]float64(nil), driver.barPos...)
 
-	driver.lastTick = time.Now()
-	v.Tick(VisTickContext{Now: time.Now(), Paused: true})
-
-	for i := range driver.peakPos {
-		if driver.peakPos[i] != snapshotPeak[i] {
-			t.Fatalf("paused cap[%d] = %v, want frozen %v", i, driver.peakPos[i], snapshotPeak[i])
-		}
-		if driver.peakVel[i] != snapshotVel[i] {
-			t.Fatalf("paused velocity[%d] = %v, want frozen %v", i, driver.peakVel[i], snapshotVel[i])
-		}
-		if driver.peakHold[i] != snapshotHold[i] {
-			t.Fatalf("paused hold[%d] = %v, want frozen %v", i, driver.peakHold[i], snapshotHold[i])
+	t0 := time.Unix(1, 0)
+	driver.lastTick = t0
+	// Paused ticks empty the bars instead of freezing them at launch height.
+	for i := range 2 {
+		v.Tick(VisTickContext{Now: t0.Add(time.Duration(i+1) * TickSlow), Paused: true})
+	}
+	for i, got := range driver.barPos {
+		if got >= snapshotBar[i] {
+			t.Fatalf("paused bar[%d] = %v after decay, want below %v", i, got, snapshotBar[i])
 		}
 	}
-	if !driver.animating(v) {
-		t.Fatal("animating() = false, want true while caps still airborne")
+
+	// Keep ticking until the airborne caps have fallen and the driver settles.
+	settled := false
+	for i := 2; i < 240; i++ {
+		v.Tick(VisTickContext{Now: t0.Add(time.Duration(i+1) * TickSlow), Paused: true})
+		if !v.PausedDecayPending(VisTickContext{Paused: true}) {
+			settled = true
+			break
+		}
+	}
+	if !settled {
+		t.Fatal("classic peak never settled to rest while paused")
+	}
+	for i, got := range driver.barPos {
+		if got >= pausedDecayEpsilon {
+			t.Fatalf("settled bar[%d] = %v, want below %v", i, got, pausedDecayEpsilon)
+		}
+	}
+	for i, got := range driver.peakPos {
+		if got >= pausedDecayEpsilon {
+			t.Fatalf("settled cap[%d] = %v, want below %v", i, got, pausedDecayEpsilon)
+		}
 	}
 	if got := v.TickInterval(VisTickContext{Paused: true}); got != TickSlow {
 		t.Fatalf("TickInterval(paused) = %v, want %v", got, TickSlow)

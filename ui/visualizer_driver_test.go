@@ -218,6 +218,60 @@ func TestAdvanceSmoothingResizesOnBandCountChange(t *testing.T) {
 	}
 }
 
+func TestPausedBarsDecayToRestThenSuspend(t *testing.T) {
+	withPanelWidth(t, 16)
+
+	v := NewVisualizer(44100)
+	activateMode(t, v, VisBars)
+	v.bands = uniformBands(0.8)
+	v.smoothedBands = append([]float64(nil), v.bands...)
+
+	analyze := func(spec VisAnalysisSpec) []float64 {
+		return v.Analyze(nil, spec)
+	}
+	ctxAt := func(now time.Time) VisTickContext {
+		return VisTickContext{Now: now, Paused: true, Analyze: analyze}
+	}
+
+	prev := append([]float64(nil), v.SmoothedBands()...)
+	settled := false
+	now := time.Unix(1, 0)
+	for i := 0; i < 240; i++ {
+		v.Tick(ctxAt(now.Add(time.Duration(i+1) * TickSlow)))
+		cur := v.SmoothedBands()
+		for b := range len(cur) {
+			if cur[b] > prev[b]+1e-9 {
+				t.Fatalf("paused tick %d band %d rose %v -> %v, want monotonic decay", i, b, prev[b], cur[b])
+			}
+		}
+		prev = append(prev[:0], cur...)
+		if !v.PausedDecayPending(ctxAt(now.Add(time.Duration(i+2) * TickSlow))) {
+			settled = true
+			break
+		}
+	}
+	if !settled {
+		t.Fatal("paused bars never settled to rest")
+	}
+	for i, got := range prev {
+		if got >= pausedDecayEpsilon {
+			t.Fatalf("band %d = %v after decay, want below %v", i, got, pausedDecayEpsilon)
+		}
+	}
+
+	// Once settled, further paused ticks suspend and leave the frame alone.
+	frameBefore := v.Frame()
+	v.Tick(ctxAt(now.Add(10 * time.Second)))
+	if got := v.Frame(); got != frameBefore {
+		t.Fatalf("settled paused tick advanced frame %d -> %d", frameBefore, got)
+	}
+	for i, got := range v.SmoothedBands() {
+		if math.Abs(got-prev[i]) > 1e-9 {
+			t.Fatalf("settled paused tick changed band %d %v -> %v", i, prev[i], got)
+		}
+	}
+}
+
 func TestDefaultDriverTickGatesAnalyzeAtAnalyzeCadence(t *testing.T) {
 	v := NewVisualizer(44100)
 	activateMode(t, v, VisBars)

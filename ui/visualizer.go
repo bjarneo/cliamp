@@ -19,6 +19,9 @@ const (
 	// frame) step like ~1 frame instead of integrating over a huge interval.
 	maxSmoothDtFrames        = 10
 	maxAnimationCatchUpSteps = 4
+	// Band level below which paused spectrum content is treated as fully
+	// decayed to rest, letting the model drop the visualizer to the idle tick.
+	pausedDecayEpsilon = 0.01
 )
 
 var legacySpectrumEdges = [DefaultSpectrumBands + 1]float64{
@@ -876,7 +879,14 @@ func (v *Visualizer) Tick(ctx VisTickContext) {
 	}
 	v.refreshPending = false
 	if ctx.Paused {
-		v.Suspend()
+		// Keep easing the visual down to rest instead of freezing mid-frame.
+		// Drivers already know how to decay when not playing (silent band
+		// analysis, target-zero physics); we just keep ticking until settled.
+		if v.pausedSettled(driver, ctx) {
+			v.Suspend()
+		} else {
+			driver.Tick(v, ctx)
+		}
 		return
 	}
 	if ctx.OverlayActive {
@@ -904,6 +914,42 @@ func (v *Visualizer) resetFrameTiming() {
 	v.lastFrameTick = time.Time{}
 	v.frameElapsed = 0
 	v.frameInterval = 0
+}
+
+// pausedSettled reports whether a paused visualizer has no content left to
+// ease down, so it can freeze at rest. Band-driven modes must empty both the
+// raw and smoothed bands; drivers with their own physics (classic peak/LED,
+// stereo) stay active until their internal animation settles, which they
+// signal with a fast tick interval even when not playing.
+func (v *Visualizer) pausedSettled(driver visModeDriver, ctx VisTickContext) bool {
+	if v == nil || driver == nil {
+		return true
+	}
+	if spec := NormalizeAnalysisSpec(driver.AnalysisSpec(v)); spec.BandCount > 0 {
+		for _, b := range v.bands {
+			if b >= pausedDecayEpsilon {
+				return false
+			}
+		}
+		for _, b := range v.smoothedBands {
+			if b >= pausedDecayEpsilon {
+				return false
+			}
+		}
+	}
+	ctx.Playing = false
+	return driver.TickInterval(v, ctx) >= TickSlow
+}
+
+// PausedDecayPending reports whether a paused visualizer still needs ticks to
+// settle its content to rest. The model uses it to keep the slow tick cadence
+// instead of dropping to fully idle while bars ease down.
+func (v *Visualizer) PausedDecayPending(ctx VisTickContext) bool {
+	driver := v.syncDriverMode()
+	if driver == nil {
+		return false
+	}
+	return !v.pausedSettled(driver, ctx)
 }
 
 func (v *Visualizer) animationSteps(now time.Time, interval time.Duration) uint64 {
