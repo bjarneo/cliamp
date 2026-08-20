@@ -48,10 +48,43 @@ func TestStartPosition(t *testing.T) {
 			if got := m.startPosition(tc.track)(); got != tc.want {
 				t.Fatalf("startPosition() = %v, want %v", got, tc.want)
 			}
-			// The startup hint is consumed, so applyResume does not seek again.
-			if again := m.startPosition(tc.track)(); again != 0 {
-				t.Errorf("second startPosition() = %v, want 0", again)
+			// applyResume clears the hint once playback starts, so a failed
+			// PlayAt can still be retried at the same position.
+			if again := m.startPosition(tc.track)(); again != tc.want {
+				t.Errorf("second startPosition() = %v, want %v", again, tc.want)
 			}
 		})
+	}
+}
+
+type zeroPositionProv struct{ plainProv }
+
+func (p *zeroPositionProv) TrackPosition(playlist.Track) time.Duration { return 0 }
+
+// A provider's 0 means "start over", so it must win over a stale startup hint
+// rather than being read as "no answer".
+func TestStartPositionProviderZeroWins(t *testing.T) {
+	track := playlist.Track{Path: "http://example/item", Stream: true}
+	m := Model{provider: &zeroPositionProv{}}
+	m.resume.path = track.Path
+	m.resume.secs = 95
+
+	if got := m.startPosition(track)(); got != 0 {
+		t.Errorf("startPosition() = %v, want 0", got)
+	}
+}
+
+// Resolving a position must not spend the hint, so a failed PlayAt can be
+// retried at the same position; applyResume clears it once playback starts.
+func TestStartPositionKeepsHintUntilPlaybackStarts(t *testing.T) {
+	track := playlist.Track{Path: "http://example/item", Stream: true}
+	m := Model{provider: &zeroPositionProv{}}
+	m.resume.path = track.Path
+	m.resume.secs = 95
+
+	m.startPosition(track)()
+
+	if m.resume.secs != 95 {
+		t.Errorf("resume.secs = %d, want 95", m.resume.secs)
 	}
 }

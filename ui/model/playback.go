@@ -554,20 +554,27 @@ func shouldReconnectOnUnpause(track playlist.Track, idx int, pausedFor time.Dura
 // startPosition returns where track should begin. The returned func may make a
 // provider HTTP call, so callers run it on their own goroutine.
 func (m *Model) startPosition(track playlist.Track) func() time.Duration {
-	reporter := m.findPlaybackReporter(track)
+	// Only remote tracks have a server-side position, so a local file never
+	// reaches the provider and the synchronous caller cannot block on HTTP.
+	var positioner provider.TrackPosition
+	if track.Stream || playlist.IsURL(track.Path) {
+		positioner = m.findTrackPosition(track)
+	}
 	hint := time.Duration(0)
 	if m.resume.path == track.Path && m.resume.secs > 0 {
 		hint = time.Duration(m.resume.secs) * time.Second
+	}
+	if positioner == nil {
+		return func() time.Duration { return hint }
+	}
+	return func() time.Duration { return positioner.TrackPosition(track) }
+}
+
+// clearResume drops the startup hint for track.
+func (m *Model) clearResume(track playlist.Track) {
+	if m.resume.path == track.Path {
 		m.resume.path = ""
 		m.resume.secs = 0
-	}
-	return func() time.Duration {
-		if tp, ok := reporter.(provider.TrackPosition); ok {
-			if pos := tp.TrackPosition(track); pos > 0 {
-				return pos
-			}
-		}
-		return hint
 	}
 }
 
@@ -580,6 +587,12 @@ func (m *Model) applyResume() {
 	}
 	track, _ := m.currentPlaybackTrack()
 	if track.Path != m.resume.path {
+		return
+	}
+	// PlayAt already started at the provider's position, so spend the hint
+	// without seeking rather than overriding that with a stale value.
+	if m.findTrackPosition(track) != nil {
+		m.clearResume(track)
 		return
 	}
 	// Only seek if the player reports the stream is seekable; otherwise the

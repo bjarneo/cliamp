@@ -134,7 +134,7 @@ func (p *Player) Play(path string, knownDuration time.Duration) error {
 func (p *Player) PlayAt(path string, knownDuration, offset time.Duration) error {
 	tp, err := p.buildPipeline(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("play at %v: %w", offset, err)
 	}
 	tp.setKnownDuration(knownDuration)
 	if offset > 0 && tp.seekable && !tp.ytdlSeek {

@@ -178,6 +178,31 @@ func (m *Model) maybeScrobble(track playlist.Track, elapsed, duration time.Durat
 	}()
 }
 
+// findTrackPosition returns the provider that can report track's saved
+// position, independent of whether it also reports playback.
+func (m *Model) findTrackPosition(track playlist.Track) provider.TrackPosition {
+	match := func(p playlist.Provider) provider.TrackPosition {
+		tp, ok := p.(provider.TrackPosition)
+		if !ok {
+			return nil
+		}
+		return tp
+	}
+
+	if tp := match(m.provider); tp != nil {
+		return tp
+	}
+	for _, pe := range m.providers {
+		if pe.Provider == nil {
+			continue
+		}
+		if tp := match(pe.Provider); tp != nil {
+			return tp
+		}
+	}
+	return nil
+}
+
 // findPlaybackReporter returns the first registered provider that can report
 // playback for the given track.
 func (m *Model) findPlaybackReporter(track playlist.Track) provider.PlaybackReporter {
