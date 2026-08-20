@@ -629,6 +629,13 @@ func (m Model) renderPlaylistHeader() string {
 		bookmarkStr = " " + activeToggle.Render(fmt.Sprintf("[★ %d]", bookmarkCount))
 	}
 
+	var favStr string
+	if m.favMgr != nil {
+		if count := m.favMgr.FavoritesCount(); count > 0 {
+			favStr = " " + activeToggle.Render(fmt.Sprintf("[♥ %d]", count))
+		}
+	}
+
 	var themeStr string
 	if name := m.ThemeName(); name != theme.DefaultName {
 		themeStr = " " + activeToggle.Render("[Theme: "+name+"]")
@@ -645,7 +652,7 @@ func (m Model) renderPlaylistHeader() string {
 		headerStyle = activeToggle
 		headerLabel = "▸─ Playlist ── "
 	}
-	return headerStyle.Render(headerLabel) + shuffle + queueStr + bookmarkStr + posStr + themeStr + " " + dimStyle.Render("──")
+	return headerStyle.Render(headerLabel) + shuffle + queueStr + bookmarkStr + favStr + posStr + themeStr + " " + dimStyle.Render("──")
 }
 
 func (m Model) renderProviderList() string {
