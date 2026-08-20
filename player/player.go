@@ -126,11 +126,24 @@ func (p *Player) handleGaplessSwap(token uint64) {
 // knownDuration is the metadata duration (use 0 if unknown); it is used as a
 // fallback when the decoder cannot determine the length (e.g. HTTP streams).
 func (p *Player) Play(path string, knownDuration time.Duration) error {
+	return p.PlayAt(path, knownDuration, 0)
+}
+
+// PlayAt is Play, starting at offset. The decoder is positioned before the
+// pipeline reaches the speaker, so no audio plays from 0:00.
+func (p *Player) PlayAt(path string, knownDuration, offset time.Duration) error {
 	tp, err := p.buildPipeline(path)
 	if err != nil {
 		return err
 	}
 	tp.setKnownDuration(knownDuration)
+	if offset > 0 && tp.seekable && !tp.ytdlSeek {
+		if sample := relativeSeekSample(tp, offset); sample > 0 {
+			// Ignored deliberately: a failed seek should start the track from
+			// the beginning, not refuse to play it.
+			_ = tp.decoder.Seek(sample)
+		}
+	}
 	return p.playPipeline(tp)
 }
 

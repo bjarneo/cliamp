@@ -381,7 +381,7 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		m.err = nil
 		return tea.Batch(playStreamCmd(m.player, track.Path, dur, m.requests.stream), fetchCmd)
 	}
-	if err := m.player.Play(track.Path, dur); err != nil {
+	if err := m.player.PlayAt(track.Path, dur, m.takeResume(track)); err != nil {
 		// Provider session went stale (e.g. Spotify auth expired and
 		// silent reconnect failed). Surface the standard sign-in
 		// overlay rather than the raw stream error.
@@ -549,6 +549,18 @@ func shouldReconnectOnUnpause(track playlist.Track, idx int, pausedFor time.Dura
 		return true
 	}
 	return pausedFor >= ytdlReconnectPauseThreshold && playlist.IsYTDL(track.Path)
+}
+
+// takeResume returns the saved position for track and clears it, so PlayAt can
+// start there instead of applyResume seeking once audio is already live.
+func (m *Model) takeResume(track playlist.Track) time.Duration {
+	if m.resume.path == "" || m.resume.secs <= 0 || track.Path != m.resume.path {
+		return 0
+	}
+	offset := time.Duration(m.resume.secs) * time.Second
+	m.resume.path = ""
+	m.resume.secs = 0
+	return offset
 }
 
 // applyResume seeks to the saved resume position if the current track matches.
