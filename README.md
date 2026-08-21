@@ -33,6 +33,23 @@ The formula pulls in all required runtime libraries automatically.
 yay -S cliamp
 ```
 
+**Nix**
+
+```sh
+nix run github:bjarneo/cliamp
+```
+
+For a declarative NixOS configuration, add `github:bjarneo/cliamp` as a flake
+input and install its default package:
+
+```nix
+inputs.cliamp.url = "github:bjarneo/cliamp";
+
+environment.systemPackages = [
+  inputs.cliamp.packages.${pkgs.stdenv.hostPlatform.system}.default
+];
+```
+
 **Go**
 
 ```sh
