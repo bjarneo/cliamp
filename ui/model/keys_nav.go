@@ -451,6 +451,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 				m.notifyPlayback()
 				return cmd
 			}
+			return m.rearmPreload()
 		}
 	case "esc", "h", "left", "backspace":
 		// Navigate back one level depending on the mode and how we got here.

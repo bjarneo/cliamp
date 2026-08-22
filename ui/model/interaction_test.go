@@ -189,7 +189,12 @@ func TestUndoRestoresClearedQueue(t *testing.T) {
 	p.Add(playlist.Track{Title: "One"}, playlist.Track{Title: "Two"})
 	p.Queue(0)
 	p.Queue(1)
-	m := Model{playlist: p, plVisible: 1, queue: queueOverlay{visible: true, cursor: 1, scroll: 1}}
+	m := Model{
+		player:    &playbackFakeEngine{},
+		playlist:  p,
+		plVisible: 1,
+		queue:     queueOverlay{visible: true, cursor: 1, scroll: 1},
+	}
 
 	m.handleQueueKey(tea.KeyPressMsg{Text: "c"})
 	if got := p.QueueLen(); got != 0 {

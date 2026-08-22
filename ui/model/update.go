@@ -1050,8 +1050,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err := m.configSaver.Save("shuffle", fmt.Sprintf("%v", shuffled)); err != nil {
 			m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
 		}
-		m.player.ClearPreload()
-		cmd := m.preloadNext()
+		cmd := m.rearmPreload()
 		if msg.Reply != nil {
 			msg.Reply <- ipc.Response{OK: true, Shuffle: &shuffled}
 		}
@@ -1072,8 +1071,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err := m.configSaver.Save("repeat", fmt.Sprintf("%q", mode.String())); err != nil {
 			m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
 		}
-		m.player.ClearPreload()
-		cmd := m.preloadNext()
+		cmd := m.rearmPreload()
 		if msg.Reply != nil {
 			msg.Reply <- ipc.Response{OK: true, Repeat: mode.String()}
 		}

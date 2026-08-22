@@ -94,6 +94,7 @@ func (m *Model) handleIPCQueue(request ipc.QueueRequestMsg) tea.Cmd {
 		m.playlist.Queue(request.Index)
 		m.normalizeQueueOverlay()
 		request.Reply <- m.ipcQueueResponse()
+		return m.rearmPreload()
 	case "queue.remove":
 		if request.Index == m.playlist.Index() {
 			m.player.Stop()
@@ -105,6 +106,7 @@ func (m *Model) handleIPCQueue(request ipc.QueueRequestMsg) tea.Cmd {
 		}
 		m.normalizeQueueOverlay()
 		request.Reply <- m.ipcQueueResponse()
+		return m.rearmPreload()
 	case "queue.move":
 		if !m.playlist.Move(request.Index, request.To) {
 			request.Reply <- ipc.Response{OK: false, Error: "invalid queue move"}
@@ -112,6 +114,7 @@ func (m *Model) handleIPCQueue(request ipc.QueueRequestMsg) tea.Cmd {
 		}
 		m.normalizeQueueOverlay()
 		request.Reply <- m.ipcQueueResponse()
+		return m.rearmPreload()
 	case "queue.clear":
 		m.player.Stop()
 		m.replacePlaylist(nil)

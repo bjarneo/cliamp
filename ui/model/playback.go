@@ -194,7 +194,7 @@ func (m *Model) queueAlbumNext(album playlist.Track, tracks []playlist.Track) te
 		m.notifyPlayback()
 		return cmd
 	}
-	return nil
+	return m.rearmPreload()
 }
 
 // closeNetSearch fully resets the net search overlay and restores focus,
@@ -250,7 +250,7 @@ func (m *Model) queueTrackNext(track playlist.Track) tea.Cmd {
 		m.notifyPlayback()
 		return cmd
 	}
-	return nil
+	return m.rearmPreload()
 }
 
 // removeSelectedFromPlaylist removes the track at the current playlist cursor.
@@ -330,21 +330,21 @@ func (m *Model) removeSelectedFromPlaylist() {
 	m.notifyPlayback()
 }
 
-func (m *Model) undoPlaylistMutation() {
+func (m *Model) undoPlaylistMutation() tea.Cmd {
 	undo := m.playlistUndo
 	if !undo.active {
 		m.status.Warning("Nothing to undo", statusTTLShort)
-		return
+		return nil
 	}
 	if undo.persisted {
 		saver := m.localSaver()
 		if saver == nil {
 			m.status.Warning("Undo unavailable", statusTTLDefault)
-			return
+			return nil
 		}
 		if err := saver.SavePlaylist(undo.loaded, cloneTracks(undo.saved)); err != nil {
 			m.status.Errorf(statusTTLDefault, "Undo failed: %s", err)
-			return
+			return nil
 		}
 	}
 	m.playlist.Restore(undo.snapshot)
@@ -355,6 +355,7 @@ func (m *Model) undoPlaylistMutation() {
 	}
 	m.adjustScroll()
 	m.status.Show("Restored previous playlist state", statusTTLDefault)
+	return m.rearmPreload()
 }
 
 // playTrack plays a track, using async HTTP for streams and sync I/O for local files.
