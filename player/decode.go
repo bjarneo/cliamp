@@ -207,9 +207,12 @@ func openSource(path string, onMeta func(string)) (sourceResult, error) {
 	}
 
 	// Guard the body with a stall timeout so a stalled/half-open live stream
-	// cannot park a Read forever. Slow reads are moved off the speaker callback
-	// by livePrefetchStreamer; this timeout handles a connection that stops
-	// making progress entirely.
+	// can't park a Read forever. Close() cancels the request, so this also
+	// cleans up the context. Jitter in a live-but-slow connection (data
+	// arriving in small delayed bursts, well under streamStallTimeout) is
+	// handled further up the chain by livePrefetchStreamer, which decodes
+	// off the audio-callback goroutine so this Read never blocks the
+	// speaker's mutex — see its doc comment for the full rationale.
 	var body io.ReadCloser = &stallReader{rc: resp.Body, cancel: cancel, timeout: streamStallTimeout}
 
 	// Wrap in ICY reader if the server provides a metaint interval.

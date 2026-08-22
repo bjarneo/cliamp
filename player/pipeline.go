@@ -34,7 +34,10 @@ type trackPipeline struct {
 	// clobbering a newer manual selection.
 	gaplessToken uint64
 
-	live         bool
+	live bool
+
+	// livePrefetch is set when stream is wrapped in a livePrefetchStreamer
+	// (live/non-seekable HTTP sources). close() stops its fill goroutine.
 	livePrefetch *livePrefetchStreamer
 }
 
