@@ -537,6 +537,7 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 	// Build pipeline WITHOUT speaker lock (this is the slow part — spawns yt-dlp).
 	tp, err := p.buildYTDLPipeline(cur.path, startSec)
 	if err != nil {
+		p.restoreYTDLSeekSource(cur, gen)
 		return fmt.Errorf("yt-dlp seek: %w", err)
 	}
 	tp.knownDuration = cur.knownDuration
@@ -565,6 +566,24 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 	// Clean up old pipelines async to avoid blocking on process wait.
 	go closePipelines(old, oldNext)
 	return nil
+}
+
+// restoreYTDLSeekSource puts the original stream back after a replacement
+// pipeline fails to start. The generation and current-pipeline checks prevent
+// an obsolete seek from overwriting a newer seek or track change.
+func (p *Player) restoreYTDLSeekSource(cur *trackPipeline, gen int64) {
+	if cur == nil || p.seekGen.Load() != gen {
+		return
+	}
+	speaker.Lock()
+	p.mu.Lock()
+	stillCurrent := p.current == cur && p.seekGen.Load() == gen
+	if stillCurrent {
+		p.gapless.Replace(cur.stream)
+		p.gaplessAdvance.Store(false)
+	}
+	p.mu.Unlock()
+	speaker.Unlock()
 }
 
 // IsYTDLSeek reports whether the current track uses yt-dlp seek-by-restart.

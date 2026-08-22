@@ -400,8 +400,14 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		}
 	} else {
 		m.err = nil
+		// yt-dlp streams resume after streamPlayedMsg; local playback reaches
+		// this branch, where applyResume performs the seek synchronously.
 		m.applyResume()
 		m.backfillLoadedPlaylistDuration(track)
+		if fetchCmd != nil {
+			return tea.Batch(m.preloadNext(), fetchCmd)
+		}
+		return m.preloadNext()
 	}
 
 	if fetchCmd != nil {
@@ -559,24 +565,34 @@ func shouldReconnectOnUnpause(track playlist.Track, idx int, pausedFor time.Dura
 }
 
 // applyResume seeks to the saved resume position if the current track matches.
-// It clears the resume state after a successful seek so it only fires once.
-func (m *Model) applyResume() {
+// yt-dlp resume is asynchronous because it rebuilds the playback pipeline.
+func (m *Model) applyResume() tea.Cmd {
 	// secs == 0 is indistinguishable from "never played"; skip resume.
 	if m.resume.path == "" || m.resume.secs <= 0 {
-		return
+		return nil
 	}
 	track, _ := m.currentPlaybackTrack()
 	if track.Path != m.resume.path {
-		return
+		return nil
 	}
 	// Only seek if the player reports the stream is seekable; otherwise the
 	// seek is a no-op that returns nil, which we must not mistake for success.
 	if !m.player.Seekable() {
-		return
+		return nil
 	}
-	target := time.Duration(m.resume.secs) * time.Second
+	target := m.clampPosition(time.Duration(m.resume.secs) * time.Second)
+	if playlist.IsMixcloudURL(track.Path) && m.player.IsYTDLSeek() {
+		m.seek.active = true
+		m.seek.targetPos = target
+		m.seek.timer = 0
+		m.seek.timerFor = 0
+		m.player.CancelSeekYTDL()
+		m.status.Activityf(statusTTLLong, "Resuming at %s…", formatJumpClock(target))
+		return m.ytdlSeekCmd(target, true)
+	}
 	if err := m.player.Seek(target - m.player.Position()); err == nil {
 		m.resume.path = ""
 		m.resume.secs = 0
 	}
+	return nil
 }

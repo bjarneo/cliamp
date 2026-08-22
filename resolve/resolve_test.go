@@ -273,7 +273,7 @@ func TestResolveYTDLBatchCookieSelection(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping Unix shell script test on Windows")
 	}
-	t.Cleanup(func() { SetYTDLCookiesFrom("") })
+	t.Cleanup(func() { SetYTDLCookiesForHost("example.com", "") })
 
 	tmpDir := t.TempDir()
 	logFile := filepath.Join(tmpDir, "ytdlp_args.log")
@@ -286,8 +286,8 @@ func TestResolveYTDLBatchCookieSelection(t *testing.T) {
 
 	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	// 1. Fallback to global cookies when explicit browser is empty
-	SetYTDLCookiesFrom("firefox")
+	// 1. Fall back to cookies configured for the URL's host.
+	SetYTDLCookiesForHost("example.com", "firefox")
 	_, _ = ResolveYTDLBatch("https://example.com/playlist", 0, 0)
 
 	logged, err := os.ReadFile(logFile)
@@ -295,10 +295,10 @@ func TestResolveYTDLBatchCookieSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(logged), "--cookies-from-browser firefox") {
-		t.Errorf("expected global cookies 'firefox' in args, got: %s", string(logged))
+		t.Errorf("expected host cookies 'firefox' in args, got: %s", string(logged))
 	}
 
-	// 2. Explicit browser overrides global cookies
+	// 2. An explicit browser overrides the host cookie source.
 	_, _ = ResolveYTDLBatch("https://example.com/playlist", 0, 0, "chrome")
 	logged, err = os.ReadFile(logFile)
 	if err != nil {
@@ -308,7 +308,7 @@ func TestResolveYTDLBatchCookieSelection(t *testing.T) {
 		t.Errorf("expected explicit browser 'chrome' in args, got: %s", string(logged))
 	}
 	if strings.Contains(string(logged), "--cookies-from-browser firefox") {
-		t.Errorf("did not expect fallback cookies 'firefox' in args, got: %s", string(logged))
+		t.Errorf("did not expect host cookies 'firefox' in args, got: %s", string(logged))
 	}
 }
 

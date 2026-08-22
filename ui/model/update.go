@@ -87,8 +87,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Grace period: suppress reconnect for a few ticks after seek completes.
 		m.seek.grace = 10
 		m.seek.graceFor = 0
+		if msg.resume {
+			// A failed resume must not be retried every time the track is opened
+			// during this session. The original pipeline remains playable.
+			m.resume.path = ""
+			m.resume.secs = 0
+		}
+		if msg.err != nil {
+			if msg.resume {
+				m.status.Warningf(statusTTLLong, "Couldn't resume this show; playing from the previous position: %s", msg.err)
+			} else {
+				m.status.Warningf(statusTTLMedium, "Seek failed; playback continues from the previous position: %s", msg.err)
+			}
+			m.notifyAll()
+			return m, m.preloadNext()
+		}
+		if msg.resume {
+			m.status.Showf(statusTTLDefault, "Resumed at %s", formatJumpClock(msg.target))
+		}
 		m.finishSeek()
-		return m, nil
+		return m, m.preloadNext()
 
 	case ytdlUnpauseReconnectMsg:
 		m.seek.active = false
@@ -340,10 +358,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = nil
 				return m, nil
 			}
-			m.err = msg.err
-			return m, nil
+			if len(msg.playlists) == 0 {
+				m.err = msg.err
+				return m, nil
+			}
+			m.err = nil
+			m.status.Warningf(statusTTLLong, "%s", msg.err)
 		}
-		m.providerLists = msg.playlists
+		m.providerLists = providerListsWithBrowse(m.provider, msg.playlists)
 		// Start loading catalog when the provider supports lazy catalog loading.
 		if loader, ok := m.provider.(provider.CatalogLoader); ok && !m.catalogBatch.loading && !m.catalogBatch.done {
 			m.catalogBatch.loading = true
@@ -365,28 +387,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err
 			return m, nil
 		}
-		if m.player.IsPlaying() || m.buffering {
-			m.detachPlaybackTrack()
-			m.player.ClearPreload()
-			m.preloading = false
-		} else {
-			m.player.Stop()
-			m.player.ClearPreload()
-			m.clearPlaybackTrack()
-		}
-		m.resetYTDLBatch()
-		m.replacePlaylist(msg.tracks)
-		m.setHeaderStateFromTracks(msg.tracks)
+		m.replacePlayerPlaylist(msg.tracks)
 		if msg.playlistExact && m.localProvider != nil && msg.providerName == m.localProvider.Name() && msg.playlistID != history.PlaylistName {
 			m.loadedPlaylist = msg.playlistID
-		} else {
-			m.loadedPlaylist = ""
 		}
-		m.plCursor = 0
-		m.plScroll = 0
 		m.applyTracksResume(msg)
-		m.focus = focusPlaylist
-		m.applyHeightMode()
 		m.adjustScroll()
 		m.notifyAll()
 		return m, nil
@@ -434,6 +439,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// also clear the general loading flag.
 		return m, nil
 
+	case navGenresLoadedMsg:
+		if !m.isCurrentNavRequest(msg.gen) {
+			return m, nil
+		}
+		m.navBrowser.loading = false
+		if msg.err != nil {
+			m.status.Errorf(statusTTLDefault, "Genre load failed: %s", msg.err)
+			return m, nil
+		}
+		m.navBrowser.genres = msg.genres
+		m.navBrowser.cursor = 0
+		m.navBrowser.scroll = 0
+		return m, nil
+
 	case navTracksLoadedMsg:
 		if !m.isCurrentNavRequest(msg.gen) {
 			return m, nil
@@ -441,6 +460,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.navBrowser.loading = false
 		if msg.err != nil {
 			m.status.Errorf(statusTTLDefault, "Track load failed: %s", msg.err)
+			return m, nil
+		}
+		if m.navBrowser.openInPlaylist {
+			if len(msg.tracks) == 0 {
+				m.status.Warning("No tracks found", statusTTLDefault)
+				return m, nil
+			}
+			m.replacePlayerPlaylist(msg.tracks)
+			m.navBrowser.visible = false
+			m.status.Successf(statusTTLDefault, "Replaced queue with %d tracks", len(msg.tracks))
+			m.notifyAll()
 			return m, nil
 		}
 		m.navBrowser.tracks = msg.tracks
@@ -465,7 +495,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if lists, err := m.provider.Playlists(); err == nil {
-			m.providerLists = lists
+			m.providerLists = providerListsWithBrowse(m.provider, lists)
 		}
 		m.catalogBatch.offset += msg.added
 		if msg.added < catalogBatchSize {
@@ -482,7 +512,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status.Error("Search failed", statusTTLDefault)
 		} else {
 			if lists, err := m.provider.Playlists(); err == nil {
-				m.providerLists = lists
+				m.providerLists = providerListsWithBrowse(m.provider, lists)
 			}
 			m.provCursor = 0
 			m.provScroll = 0
@@ -672,6 +702,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.buffering = false
+		var resumeCmd tea.Cmd
 		if msg.err != nil {
 			m.err = msg.err
 			if track, idx := m.currentPlaybackTrack(); idx >= 0 {
@@ -681,10 +712,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = nil
 			m.reconnect.attempts = 0
 			m.reconnect.at = time.Time{}
-			m.applyResume()
+			resumeCmd = m.applyResume()
 		}
 		m.notifyAll()
-		return m, m.preloadNext()
+		return m, tea.Batch(resumeCmd, m.preloadNext())
 
 	case streamPreloadedMsg:
 		if msg.gen != m.requests.preload {

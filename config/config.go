@@ -199,6 +199,24 @@ type SoundCloudConfig struct {
 // IsSet reports whether the SoundCloud provider should be shown.
 func (s SoundCloudConfig) IsSet() bool { return s.Enabled }
 
+// MixcloudConfig holds settings for the Mixcloud provider. Public discovery
+// works with only enabled=true. Username adds public account views; an access
+// token adds /me and Listen Later; browser cookies are used only by yt-dlp for
+// playback that needs the listener's signed-in Mixcloud session.
+type MixcloudConfig struct {
+	Enabled        bool
+	Username       string
+	AccessToken    string
+	CookiesFrom    string
+	Styles         []string
+	StylesSet      bool // distinguishes omitted styles (defaults) from an explicit empty list
+	MaxItems       int
+	StreamCreators int
+}
+
+// IsSet reports whether the Mixcloud provider should be shown.
+func (m MixcloudConfig) IsSet() bool { return m.Enabled }
+
 // NetEaseConfig holds settings for the NetEase Cloud Music provider.
 // The provider is opt-in and can reuse an existing browser session through
 // yt-dlp's --cookies-from-browser support.
@@ -284,7 +302,7 @@ type Config struct {
 	Speed            float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
 	AutoPlay         bool                         // start playback automatically on launch (radio streams, CLI tracks)
 	SeekStepLarge    int                          // seconds for Shift+Left/Right seek jumps
-	Provider         string                       // default provider: "radio", "navidrome", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "netease", "ytmusic" (default "radio")
+	Provider         string                       // default provider: "radio", "navidrome", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "mixcloud", "netease", "ytmusic" (default "radio")
 	Theme            string                       // theme name, or "" for ANSI default
 	Visualizer       string                       // visualizer mode name, or "" for default (Bars)
 	SampleRate       int                          // output sample rate: 22050, 44100, 48000, 96000, 192000
@@ -307,6 +325,7 @@ type Config struct {
 	Emby             EmbyConfig                   // optional Emby server credentials
 	Audiobookshelf   AudiobookshelfConfig         // optional Audiobookshelf server credentials
 	SoundCloud       SoundCloudConfig             // SoundCloud provider (opt-in via enabled = true)
+	Mixcloud         MixcloudConfig               // Mixcloud provider (opt-in via enabled = true)
 	NetEase          NetEaseConfig                // NetEase Cloud Music provider (opt-in via enabled = true)
 	Plugins          map[string]map[string]string // per-plugin config from [plugins.*] sections
 	LogLevel         string                       // log level: debug, info, warn, error (default "info")
@@ -480,6 +499,28 @@ func Load() (Config, error) {
 				cfg.SoundCloud.User = parseString(val)
 			case "cookies_from":
 				cfg.SoundCloud.CookiesFrom = strings.TrimSpace(parseString(val))
+			}
+		case "mixcloud":
+			switch key {
+			case "enabled":
+				cfg.Mixcloud.Enabled = strings.ToLower(val) == "true"
+			case "username":
+				cfg.Mixcloud.Username = strings.TrimSpace(parseString(val))
+			case "access_token":
+				cfg.Mixcloud.AccessToken = strings.TrimSpace(parseString(val))
+			case "cookies_from":
+				cfg.Mixcloud.CookiesFrom = strings.TrimSpace(parseString(val))
+			case "styles":
+				cfg.Mixcloud.Styles = parseStringSlice(val)
+				cfg.Mixcloud.StylesSet = true
+			case "max_items":
+				if v, err := strconv.Atoi(val); err == nil {
+					cfg.Mixcloud.MaxItems = v
+				}
+			case "stream_creators":
+				if v, err := strconv.Atoi(val); err == nil {
+					cfg.Mixcloud.StreamCreators = v
+				}
 			}
 		case "netease":
 			switch key {
@@ -700,72 +741,93 @@ func Save(key, value string) error {
 // in-place, or appends it after the [navidrome] section if not present.
 // If no [navidrome] section exists, one is appended along with the key.
 func SaveNavidromeSort(sortType string) error {
+	return saveSectionValue("navidrome", "browse_sort", strconv.Quote(sortType))
+}
+
+// SaveMixcloudStyles persists the selected discovery styles in the [mixcloud]
+// section without disturbing other provider settings or comments.
+func SaveMixcloudStyles(styles []string) error {
+	quoted := make([]string, 0, len(styles))
+	for _, style := range styles {
+		quoted = append(quoted, strconv.Quote(style))
+	}
+	return saveSectionValue("mixcloud", "styles", "["+strings.Join(quoted, ", ")+"]")
+}
+
+func saveSectionValue(section, key, value string) error {
 	path, err := configPath()
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve config path: %w", err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
+		return fmt.Errorf("create config directory: %w", err)
 	}
 
-	line := fmt.Sprintf("browse_sort = %q", sortType)
+	line := fmt.Sprintf("%s = %s", key, value)
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
-			return err
+			return fmt.Errorf("read config: %w", err)
 		}
 		// No file: create with section + key.
-		return fileutil.WriteFileAtomic(path, []byte("[navidrome]\n"+line+"\n"), 0o600)
+		if err := fileutil.WriteFileAtomic(path, []byte("["+section+"]\n"+line+"\n"), 0o600); err != nil {
+			return fmt.Errorf("write config: %w", err)
+		}
+		return nil
 	}
 
 	lines := strings.Split(string(data), "\n")
 
-	// Try to replace an existing browse_sort inside [navidrome].
-	inNavidrome := false
+	// Try to replace the existing key inside the requested section.
+	inSection := false
 	for i, l := range lines {
 		trimmed := strings.TrimSpace(l)
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			inNavidrome = strings.ToLower(trimmed[1:len(trimmed)-1]) == "navidrome"
+			inSection = strings.EqualFold(trimmed[1:len(trimmed)-1], section)
 			continue
 		}
-		if inNavidrome {
+		if inSection {
 			k, _, ok := strings.Cut(trimmed, "=")
-			if ok && strings.TrimSpace(k) == "browse_sort" {
+			if ok && strings.TrimSpace(k) == key {
 				lines[i] = line
-				return fileutil.WriteFileAtomic(path, []byte(strings.Join(lines, "\n")), 0o600)
+				if err := fileutil.WriteFileAtomic(path, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+					return fmt.Errorf("write config: %w", err)
+				}
+				return nil
 			}
 		}
 	}
 
-	// Key not found: append after the last line in the [navidrome] section,
-	// or append a new [navidrome] section at the end.
-	inNavidrome = false
+	// Key not found: append after the last line in the requested section, or
+	// append a new section at the end.
+	inSection = false
 	insertAt := -1
 	for i, l := range lines {
 		trimmed := strings.TrimSpace(l)
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			if inNavidrome && insertAt >= 0 {
-				break // we've moved past [navidrome]
+			if inSection && insertAt >= 0 {
+				break
 			}
-			inNavidrome = strings.ToLower(trimmed[1:len(trimmed)-1]) == "navidrome"
+			inSection = strings.EqualFold(trimmed[1:len(trimmed)-1], section)
 		}
-		if inNavidrome {
+		if inSection {
 			insertAt = i
 		}
 	}
 
 	if insertAt >= 0 {
-		// Insert after the last line we saw inside [navidrome].
 		tail := append([]string{line}, lines[insertAt+1:]...)
 		lines = append(lines[:insertAt+1], tail...)
 	} else {
-		// No [navidrome] section found: append one.
-		lines = append(lines, "[navidrome]", line)
+		lines = append(lines, "["+section+"]", line)
 	}
 
-	return fileutil.WriteFileAtomic(path, []byte(strings.Join(lines, "\n")), 0o600)
+	if err := fileutil.WriteFileAtomic(path, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	return nil
 }
 
 // PlayerConfig is the subset of player controls needed to apply config.

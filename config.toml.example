@@ -43,7 +43,7 @@ eq_preset = "Flat"
 # Saved Custom curve; applied when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-# Default provider on startup: "radio", "navidrome", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "soundcloud", "netease", "audiobookshelf", or a YouTube provider
+# Default provider on startup: "radio", "navidrome", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "soundcloud", "mixcloud", "netease", "audiobookshelf", or a YouTube provider
 # provider = "radio"
 
 # Simplified mode: artist/title and time strip without a visualizer or playlist.
@@ -159,6 +159,24 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # enabled = true
 # user = "yourname"
 # cookies_from = "firefox"   # chrome, brave, edge, opera, safari, vivaldi…
+
+# ---
+# Mixcloud (optional, opt-in)
+# Public discovery, show search, the live genre catalogue, genre/tag search,
+# creator jumps, and Latest/Popular charts work with enabled=true. Set username
+# for your following stream, profile activity, uploads, read-only show favorites,
+# listening history, collections, and followed-creator browsing. A developer
+# OAuth access_token makes /me the account identity and adds Listen Later.
+# cookies_from is used by yt-dlp for signed-in playback only. styles is the
+# local genre-favorites list; toggle it with [f] in Mixcloud's Genres browser.
+# [mixcloud]
+# enabled = true
+# username = "yourname"
+# access_token = "${MIXCLOUD_ACCESS_TOKEN}"
+# cookies_from = "firefox"   # chrome, brave, edge, chromium, opera, safari, vivaldi, whale…
+# styles = ["ambient", "deep-house", "house", "jazz", "techno"]
+# max_items = 100
+# stream_creators = 20
 
 # ---
 # NetEase Cloud Music (optional, opt-in)

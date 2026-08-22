@@ -75,14 +75,14 @@ active when the picker opened. While typing a filter, `Enter` finishes it and
 | Key | Action |
 |---|---|
 | `f` | Toggle bookmark ★ on selected track (or favorite radio station in radio browser) |
-| `Ctrl+F` | Search — active provider's native search (Spotify, Qobuz, Tidal, Navidrome, Jellyfin, Emby, Plex, Audiobookshelf, NetEase, Local) or YouTube fallback. Available from playlist and provider-browser views. |
+| `Ctrl+F` | Search — active provider's native search (Spotify, Qobuz, Tidal, Navidrome, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, Local) or YouTube fallback. Available from playlist and provider-browser views. |
 | `u` | Load URL (stream/playlist) |
 | `y` | Show or close lyrics |
 | `r` | Retry lyrics lookup while lyrics are open |
 | `i` | Show track metadata (`↑`/`↓` scrolls) |
 | `Ctrl+S` | Save track to `~/Music/cliamp` |
 | `w` | Write the highlighted track to a local playlist |
-| `N` | Open the active provider browser when available |
+| `N` | Open the active provider browser; on a selected Mixcloud show, jump directly to that creator's Uploads/Favorites |
 | `L` | Browse local playlists (with cliamp radio) |
 | `R` | Open radio provider |
 | `S` | Open Spotify provider |
@@ -91,6 +91,7 @@ active when the picker opened. While typing a filter, `Enter` finishes it and
 | `E` | Open Emby provider |
 | `Y` | Open YouTube provider |
 | `C` | Open SoundCloud provider |
+| `X` | Open Mixcloud provider |
 | `M` | Open NetEase provider |
 | `Q` | Open Qobuz provider |
 | `T` | Open Tidal provider |
@@ -145,22 +146,27 @@ Shift-letter keys are reserved for provider switching, so playlist-manager track
 
 ## Provider browser (`N` key)
 
-When you press `N` to drill into a provider (Navidrome, Plex, Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz, Tidal, YouTube Music), the album/artist/track screens use:
+When you press `N` to drill into a provider (Navidrome, Plex, Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz, Tidal, Mixcloud, YouTube Music), the album/artist/track screens use:
 
 | Key | Action |
 |---|---|
 | `↑` `↓` / `j` `k` | Move cursor (wraps top↔bottom) |
 | `←` `→` / `h` `l` | Back / drill in |
-| `/` | Filter the visible list (search bar appears under the title) |
+| `/` | Filter the visible list; while filtering Mixcloud's Genres list, `Enter` searches the full server-side genre/tag catalogue |
+| `f` | In Mixcloud's Genres list, favorite/unfavorite the highlighted genre locally and update `[mixcloud].styles` |
 | `Enter` | Open (artists/albums) · play the highlighted track and queue the rest of the visible list |
 | `R` | Replace the queue with all visible tracks (start from the top, confirm when non-empty) |
 | `a` | Append all visible tracks to the queue |
 | `q` | Queue the highlighted track to play next |
 | `s` | Cycle album sort (album list only) |
-| `S` `N` `P` `J` `E` `Y` `C` `M` `Q` `T` `L` | Quick-switch to that provider without going back through the main pane. `R` replaces the queue on the track screen. |
+| `S` `N` `P` `J` `E` `Y` `C` `X` `M` `Q` `T` `L` | Quick-switch to that provider without going back through the main pane. `R` replaces the queue on the track screen. |
 | `Esc` `b` | Walk back one level / close the browser |
 
-The header shows a source breadcrumb such as `Navidrome / Miles Davis / Kind of Blue / Tracks`, so the current provider and drill-down location remain visible. Track rows show right-aligned durations when the provider returns them.
+Mixcloud's browser menu contains **By Show**, **By Creator**, **By Creator / Show**, and **Genres**. Genre favorites produce Latest/Popular rows in the provider pane and show-sort menu; they do not modify the Mixcloud website account. The header shows a source breadcrumb such as `Navidrome / Miles Davis / Kind of Blue / Tracks`, so the current provider and drill-down location remain visible. Track rows show right-aligned durations when the provider returns them.
+
+For Mixcloud, selecting a Show, a creator's Uploads/Favorites collection, or a
+genre's Latest/Popular view replaces the main playlist and closes the browser.
+An empty result leaves the current playlist and browser unchanged.
 
 ## Provider playlist list
 
@@ -173,12 +179,12 @@ The playlists pane (visible when focus is on a provider — Spotify, Navidrome, 
 | `Enter` | Load the highlighted playlist's tracks into the queue |
 | `/` | Filter the playlist list |
 | `Ctrl+F` | Online/server search (Spotify/Navidrome/NetEase/etc.'s own search) |
-| `Ctrl+R` | Refresh — re-pull the playlist list from the provider |
-| `S` `N` `P` `J` `E` `Y` `C` `M` `Q` `L` `R` | Switch to that provider |
+| `Ctrl+R` | Refresh — re-pull the playlist list from the provider; for Mixcloud, also clear the cached `/me/` identity |
+| `S` `N` `P` `J` `E` `Y` `C` `X` `M` `Q` `L` `R` | Switch to that provider |
 | `Tab` | Switch focus to EQ |
 | `Esc` `b` | Back to the playlist pane |
 
-Playlist rows show `Name · N tracks · 1h 23m` when the provider returns track counts and total duration. The header identifies the scope as `Provider / Playlists`. The currently loaded playlist is marked with a `▶` prefix. Spotify groups its playlists under section headers (`── library ──`, `── your playlists ──`, `── followed playlists ──`).
+Playlist rows show `Name · N tracks · 1h 23m` when the provider returns track counts and total duration. The header identifies the scope as `Provider / Playlists`. The currently loaded playlist is marked with a `▶` prefix. Spotify groups its playlists under section headers (`── library ──`, `── your playlists ──`, `── followed playlists ──`). For configured accounts, Mixcloud places Your Mixcloud first (Stream, then Favorites), followed by its Browse shortcuts, public collections, Discover charts, and each locally favorited genre's Latest/Popular pair under Music Styles. Backing out of a provider-pane Browse shortcut returns directly to the provider pane.
 
 ## Search results overlays
 
@@ -204,7 +210,7 @@ This applies to:
 - `/` file browser filter
 - `Ctrl+F` when the active provider is Local (your saved playlists)
 
-Other `Ctrl+F` providers (Spotify, Qobuz, Tidal, Navidrome, Jellyfin, Emby, Plex, Audiobookshelf, NetEase, YouTube) send your query to their own search API, so matching there follows each service's rules.
+Other `Ctrl+F` providers (Spotify, Qobuz, Tidal, Navidrome, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, YouTube) send your query to their own search API, so matching there follows each service's rules.
 
 ## General
 

@@ -198,3 +198,37 @@ func TestSaveFuncDelegates(t *testing.T) {
 		t.Errorf("config should contain 'test_key = 123':\n%s", got)
 	}
 }
+
+func TestSaveMixcloudStylesReplacesOnlyMixcloudStyles(t *testing.T) {
+	home := withHome(t)
+	dir := filepath.Join(home, ".config", "cliamp")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	initial := "# keep\n[mixcloud]\nenabled = true\nstyles = [\"ambient\"] # old\nusername = \"alice\"\n[other]\nstyles = [\"untouched\"]\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(initial), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if err := SaveMixcloudStyles([]string{"deep-house", "drum-bass"}); err != nil {
+		t.Fatalf("SaveMixcloudStyles: %v", err)
+	}
+	got := readConfig(t, home)
+	if !strings.Contains(got, `styles = ["deep-house", "drum-bass"]`) {
+		t.Fatalf("updated Mixcloud styles missing:\n%s", got)
+	}
+	if !strings.Contains(got, "[other]\nstyles = [\"untouched\"]") || !strings.Contains(got, "# keep") || !strings.Contains(got, `username = "alice"`) {
+		t.Fatalf("unrelated config changed:\n%s", got)
+	}
+}
+
+func TestSaveMixcloudStylesCreatesSection(t *testing.T) {
+	home := withHome(t)
+	if err := SaveMixcloudStyles([]string{"house"}); err != nil {
+		t.Fatalf("SaveMixcloudStyles: %v", err)
+	}
+	got := readConfig(t, home)
+	if !strings.Contains(got, "[mixcloud]") || !strings.Contains(got, `styles = ["house"]`) {
+		t.Fatalf("Mixcloud section missing:\n%s", got)
+	}
+}

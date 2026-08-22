@@ -1,12 +1,12 @@
 # Configuration
 
-For remote providers (Navidrome, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, NetEase, Audiobookshelf, YouTube Music), the fastest path is the interactive wizard:
+For remote providers (Navidrome, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, Mixcloud, NetEase, Audiobookshelf, YouTube Music), the fastest path is the interactive wizard:
 
 ```sh
 cliamp setup
 ```
 
-It writes the right TOML block without touching the rest of your config, and validates server credentials live where the provider supports it (Navidrome, Plex, Jellyfin, Emby). OAuth providers such as Spotify, Qobuz, and Tidal sign in later, interactively in the player — Tidal via a `link.tidal.com` device code. See [cli.md](cli.md#setup-wizard) for details.
+It writes the right TOML block without touching the rest of your config and validates server credentials live where the provider supports it (Navidrome, Plex, Jellyfin, Emby). OAuth providers such as Spotify, Qobuz, and Tidal sign in later in the player — Tidal via a `link.tidal.com` device code. Mixcloud's optional browser-session or OAuth credentials are checked when used. See [cli.md](cli.md#setup-wizard) for details.
 
 ## Config directory
 
@@ -147,6 +147,9 @@ client_id = "${YTMUSIC_CLIENT_ID}"
 client_secret = "${YTMUSIC_CLIENT_SECRET}"
 # Optional: resolve full playlists from list= URLs (default true). Set to false to strip playlist params.
 # expand_playlist = true
+
+[mixcloud]
+access_token = "${MIXCLOUD_ACCESS_TOKEN}"
 ```
 
 Rules:
@@ -164,7 +167,7 @@ Set which provider to start with:
 provider = "radio"
 ```
 
-Valid values: `radio` (default), `navidrome`, `spotify`, `plex`, `jellyfin`, `emby`, `qobuz`, `tidal`, `soundcloud`, `netease`, `audiobookshelf`, `yt`, `youtube`, `ytmusic`.
+Valid values: `radio` (default), `navidrome`, `spotify`, `plex`, `jellyfin`, `emby`, `qobuz`, `tidal`, `soundcloud`, `mixcloud`, `netease`, `audiobookshelf`, `yt`, `youtube`, `ytmusic`.
 
 You can also override from the CLI: `cliamp --provider jellyfin`.
 
@@ -207,6 +210,43 @@ cookies_from = "firefox"   # or chrome, chromium, brave, edge, opera, safari, vi
 With cookies set, yt-dlp can stream subscriber-gated tracks (SoundCloud Go+) and access private likes/playlists your account is authorized for. The same cookies also apply to the player's yt-dlp invocations, so playback uses your signed-in session.
 
 Requires `yt-dlp` on `PATH`.
+
+## Mixcloud
+
+Mixcloud is opt-in. Public recent releases, popular shows, global show browsing,
+the live category catalogue, Latest/Popular genre charts, genre/tag search,
+native show search, direct creator jumps, and playback need no account:
+
+```toml
+[mixcloud]
+enabled = true
+```
+
+Add `username` for your following stream, activity, uploads, read-only show
+favorites, listening history, collections, and followed-creator browsing. An
+optional developer `access_token` makes `/me/` the account identity and adds
+Listen Later; `cookies_from` gives yt-dlp your signed-in browser session for
+playback that requires it.
+
+```toml
+[mixcloud]
+enabled = true
+username = "yourname"
+access_token = "${MIXCLOUD_ACCESS_TOKEN}"
+cookies_from = "firefox"
+styles = ["ambient", "deep-house", "jazz", "techno"]
+max_items = 100
+stream_creators = 20
+```
+
+The `styles` list is also the provider's local genre-favorites list. In the
+**Genres** browser, `/` filters and searches the full tag catalogue, while `f`
+atomically adds or removes a style and refreshes its Latest/Popular provider
+rows. These favorites do not modify the Mixcloud website account.
+
+See [mixcloud.md](mixcloud.md) for the complete feature matrix, provider-pane
+inventory, navigation and keybindings, favorite terminology, OAuth-token setup,
+signed-in playback, resume/seeking, and upstream limitations.
 
 ## NetEase Cloud Music
 

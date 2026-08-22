@@ -18,6 +18,7 @@ import (
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
 	"github.com/bjarneo/cliamp/external/local"
+	"github.com/bjarneo/cliamp/external/mixcloud"
 	"github.com/bjarneo/cliamp/external/navidrome"
 	"github.com/bjarneo/cliamp/external/netease"
 	"github.com/bjarneo/cliamp/external/plex"
@@ -127,13 +128,21 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		User:        cfg.SoundCloud.User,
 		CookiesFrom: cfg.SoundCloud.CookiesFrom,
 	}); scProv != nil {
-		// Provider constructors configure resolve-side yt-dlp cookies. Mirror
-		// cookies_from onto the player so streaming yt-dlp invocations use the
-		// same browser session. Last write wins when multiple providers set it.
-		if cfg.SoundCloud.CookiesFrom != "" {
-			player.SetYTDLCookiesFrom(cfg.SoundCloud.CookiesFrom)
-		}
 		providers = append(providers, model.ProviderEntry{Key: "soundcloud", Name: "SoundCloud", Provider: scProv})
+	}
+
+	if mcProv := mixcloud.NewFromConfig(mixcloud.Config{
+		Enabled:        cfg.Mixcloud.Enabled,
+		Username:       cfg.Mixcloud.Username,
+		AccessToken:    cfg.Mixcloud.AccessToken,
+		CookiesFrom:    cfg.Mixcloud.CookiesFrom,
+		Styles:         cfg.Mixcloud.Styles,
+		StylesSet:      cfg.Mixcloud.StylesSet,
+		MaxItems:       cfg.Mixcloud.MaxItems,
+		StreamCreators: cfg.Mixcloud.StreamCreators,
+		SaveStyles:     config.SaveMixcloudStyles,
+	}); mcProv != nil {
+		providers = append(providers, model.ProviderEntry{Key: "mixcloud", Name: "Mixcloud", Provider: mcProv})
 	}
 
 	if neProv := netease.NewFromConfig(netease.Config{
@@ -141,9 +150,6 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		CookiesFrom: cfg.NetEase.CookiesFrom,
 		UserID:      cfg.NetEase.UserID,
 	}); neProv != nil {
-		if cfg.NetEase.CookiesFrom != "" {
-			player.SetYTDLCookiesFrom(cfg.NetEase.CookiesFrom)
-		}
 		providers = append(providers, model.ProviderEntry{Key: "netease", Name: "NetEase", Provider: neProv})
 	}
 
@@ -159,7 +165,9 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		explicitOAuth := strings.TrimSpace(cfg.YouTubeMusic.ClientID) != "" && strings.TrimSpace(cfg.YouTubeMusic.ClientSecret) != ""
 		hasCookies := strings.TrimSpace(cfg.YouTubeMusic.CookiesFrom) != ""
 		if hasCookies {
-			player.SetYTDLCookiesFrom(cfg.YouTubeMusic.CookiesFrom)
+			for _, host := range []string{"youtube.com", "youtu.be", "music.youtube.com"} {
+				resolve.SetYTDLCookiesForHost(host, cfg.YouTubeMusic.CookiesFrom)
+			}
 		}
 
 		ytClientID, ytClientSecret := cfg.YouTubeMusic.ResolveCredentials(ytmusic.FallbackCredentials)
@@ -445,8 +453,11 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		m.SetSimplified(true)
 	}
 
-	if !defaultRadio && len(positional) > 0 {
-		if rs := resume.Load(); rs.Path != "" && rs.PositionSec > 0 {
+	if rs := resume.Load(); rs.Path != "" && rs.PositionSec > 0 {
+		// Mixcloud is commonly opened from its provider browser rather than a
+		// positional URL. Arm only that provider's browser-started resume while
+		// preserving cliamp's existing positional-file behavior elsewhere.
+		if playlist.IsMixcloudURL(rs.Path) || (!defaultRadio && len(positional) > 0) {
 			m.SetResume(rs.Path, rs.PositionSec)
 		}
 	}

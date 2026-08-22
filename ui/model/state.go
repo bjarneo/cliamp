@@ -213,25 +213,33 @@ type fileBrowserState struct {
 
 // navBrowserState holds state for the provider browser overlay.
 type navBrowserState struct {
-	prov           playlist.Provider
-	visible        bool
-	mode           navBrowseModeType
-	screen         navBrowseScreenType
-	cursor         int
-	scroll         int
-	artists        []provider.ArtistInfo
-	albums         []provider.AlbumInfo
-	tracks         []playlist.Track
-	selArtist      provider.ArtistInfo
-	selAlbum       provider.AlbumInfo
-	sortType       string
-	albumLoading   bool
-	albumDone      bool
-	loading        bool
-	searching      bool
-	search         string
-	searchIdx      []int
-	confirmReplace bool
+	prov            playlist.Provider
+	visible         bool
+	mode            navBrowseModeType
+	screen          navBrowseScreenType
+	cursor          int
+	scroll          int
+	artists         []provider.ArtistInfo
+	albums          []provider.AlbumInfo
+	tracks          []playlist.Track
+	genres          []provider.GenreInfo
+	genreSorts      []provider.SortType
+	selArtist       provider.ArtistInfo
+	selAlbum        provider.AlbumInfo
+	selGenre        provider.GenreInfo
+	selGenreSort    provider.SortType
+	genreQuery      string
+	sortType        string
+	albumLoading    bool
+	albumDone       bool
+	loading         bool
+	searching       bool
+	search          string
+	searchIdx       []int
+	confirmReplace  bool
+	directTrackJump bool
+	fromProvList    bool
+	openInPlaylist  bool
 }
 
 // requestState tracks the latest request in each independently asynchronous UI

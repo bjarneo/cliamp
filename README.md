@@ -1,6 +1,6 @@
 [![Docs on contextowl.co](https://contextowl.co/uploads/_brand/badge-docs.svg)](https://contextowl.co)
 
-A retro terminal music player inspired by Winamp. Play local files, streams, podcasts, YouTube, YouTube Music, SoundCloud, Bilibili, Spotify, NetEase Cloud Music, Xiaoyuzhou (小宇宙), Navidrome, Plex, Jellyfin, and Audiobookshelf with a spectrum visualizer, parametric EQ, and playlist management.
+A retro terminal music player inspired by Winamp. Play local files, streams, podcasts, YouTube, YouTube Music, SoundCloud, Mixcloud, Bilibili, Spotify, NetEase Cloud Music, Xiaoyuzhou (小宇宙), Navidrome, Plex, Jellyfin, and Audiobookshelf with a spectrum visualizer, parametric EQ, and playlist management.
 
 **[cliamp.stream](https://cliamp.stream)** · **[docs](https://whiterose.org.contextowl.co/docs/cliamp)**
 
@@ -84,7 +84,7 @@ Download from [GitHub Releases](https://github.com/bjarneo/cliamp/releases/lates
 **Optional runtime dependencies** (all platforms, all install methods):
 
 - [ffmpeg](https://ffmpeg.org/) — for AAC, ALAC, Opus, and WMA playback
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — for YouTube, YouTube Music, SoundCloud, Bandcamp, Bilibili, and NetEase Cloud Music
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — for YouTube, YouTube Music, SoundCloud, Mixcloud, Bandcamp, Bilibili, and NetEase Cloud Music
 
 On macOS: `brew install ffmpeg yt-dlp`. On Linux, use your distribution's package manager.
 
@@ -106,13 +106,17 @@ cliamp https://example.com/stream  # play a URL
 
 Press `Ctrl+K` to see all keybindings.
 
-**Configure remote providers** (Navidrome, Plex, Jellyfin, Audiobookshelf, Spotify, YouTube Music, NetEase Cloud Music) with the interactive wizard:
+**Configure remote providers** (Navidrome, Plex, Jellyfin, Audiobookshelf, Spotify, Mixcloud, YouTube Music, NetEase Cloud Music) with the interactive wizard:
 
 ```sh
 cliamp setup
 ```
 
-It walks you through each provider, validates the connection, and writes the right block to your config file (`~/.config/cliamp/config.toml`, or `%APPDATA%\cliamp\config.toml` on Windows when `HOME` is unset). See [docs/cli.md](docs/cli.md#setup-wizard) for details.
+It walks you through each provider and writes the right block to your config file (`~/.config/cliamp/config.toml`, or `%APPDATA%\cliamp\config.toml` on Windows when `HOME` is unset). Supported server connections are validated during setup; Mixcloud's optional browser-session or OAuth credentials are checked later, when used. See [docs/cli.md](docs/cli.md#setup-wizard) for details.
+
+The [Mixcloud provider guide](docs/mixcloud.md) covers its complete discovery,
+account, creator/show, genre search and local genre-favorite features, along
+with authentication, signed-in playback, resume/seeking and limitations.
 
 ## Radio
 
@@ -185,7 +189,7 @@ Or without Make: `go build -o cliamp .`
 **Optional runtime dependencies:**
 
 - [ffmpeg](https://ffmpeg.org/) — for AAC, ALAC, Opus, and WMA playback
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — for YouTube, SoundCloud, Bandcamp, Bilibili, and NetEase Cloud Music
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — for YouTube, SoundCloud, Mixcloud, Bandcamp, Bilibili, and NetEase Cloud Music
 
 ## Docs
 

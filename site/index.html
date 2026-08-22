@@ -4,20 +4,20 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CLIAMP — Terminal Music Player</title>
-<meta name="description" content="A retro terminal music player inspired by Winamp 2.x. Play local files, YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, SoundCloud, NetEase, and 30,000+ radio stations with a spectrum visualizer and 10-band EQ.">
+<meta name="description" content="A retro terminal music player inspired by Winamp 2.x. Play local files, YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, SoundCloud, Mixcloud, NetEase, and 30,000+ radio stations with a spectrum visualizer and 10-band EQ.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 
 <!-- Open Graph -->
 <meta property="og:type" content="website">
 <meta property="og:title" content="CLIAMP — Terminal Music Player">
-<meta property="og:description" content="A retro terminal music player inspired by Winamp 2.x. Play YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, SoundCloud, NetEase, and 30,000+ radio stations from your terminal with a spectrum visualizer and 10-band EQ.">
+<meta property="og:description" content="A retro terminal music player inspired by Winamp 2.x. Play YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, SoundCloud, Mixcloud, NetEase, and 30,000+ radio stations from your terminal with a spectrum visualizer and 10-band EQ.">
 <meta property="og:image" content="https://cliamp.stream/og-image.png">
 <meta property="og:url" content="https://cliamp.stream">
 
 <!-- Twitter Card -->
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="CLIAMP — Terminal Music Player">
-<meta name="twitter:description" content="A retro terminal music player inspired by Winamp 2.x. Play YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, SoundCloud, NetEase, and 30,000+ radio stations from your terminal with a spectrum visualizer and 10-band EQ.">
+<meta name="twitter:description" content="A retro terminal music player inspired by Winamp 2.x. Play YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, SoundCloud, Mixcloud, NetEase, and 30,000+ radio stations from your terminal with a spectrum visualizer and 10-band EQ.">
 <meta name="twitter:image" content="https://cliamp.stream/og-image.png">
 
 <style>
@@ -634,7 +634,7 @@ footer{border-top:1px solid var(--line);background:var(--ink-2);padding:46px 0 5
 <!-- ═══ TICKER ═══ -->
 <div class="ticker" aria-hidden="true">
   <div class="ticker-track" id="ticker">
-    <span>MP3 · FLAC · OGG · OPUS · WAV · AAC · ALAC · Spotify · Qobuz · Tidal · YouTube · Plex · Jellyfin · Emby · Navidrome · SoundCloud · NetEase · Bandcamp · Bilibili · RSS / Podcasts · 30k+ Radio Stations · ICY metadata · MPRIS · Lua plugins</span>
+    <span>MP3 · FLAC · OGG · OPUS · WAV · AAC · ALAC · Spotify · Qobuz · Tidal · YouTube · Plex · Jellyfin · Emby · Navidrome · SoundCloud · Mixcloud · NetEase · Bandcamp · Bilibili · RSS / Podcasts · 30k+ Radio Stations · ICY metadata · MPRIS · Lua plugins</span>
   </div>
 </div>
 
@@ -699,7 +699,7 @@ footer{border-top:1px solid var(--line);background:var(--ink-2);padding:46px 0 5
     <div class="next-step reveal">
       <div class="next-step-label">Next step · configure providers</div>
       <h3>Run the setup wizard</h3>
-      <p>An interactive TUI walks you through Navidrome, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, NetEase, and YouTube Music. It links to each provider's credential page, validates the connection, and writes the right block to your config file.</p>
+      <p>An interactive TUI walks you through Navidrome, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, Mixcloud, NetEase, and YouTube Music. It links to each provider's credential page and writes the right block to your config file. Supported server connections are validated during setup; Mixcloud's optional browser-session or OAuth credentials are checked later, when used.</p>
       <div class="install-box" onclick="copyCmd(this,'cliamp setup')">
         <div class="install-platform">Setup</div>
         <code><span class="prompt">$ </span>cliamp setup</code>
@@ -717,7 +717,7 @@ footer{border-top:1px solid var(--line);background:var(--ink-2);padding:46px 0 5
       <span class="strip-meter"><i></i><i></i><i></i><i></i><i></i></span>
     </div>
     <p class="sources-intro reveal">
-      Stream from everywhere. Every provider runs through the same <em>playlist, EQ, visualizer, and lyrics pipeline</em> — your config follows you across services. Run <code>cliamp setup</code> for an interactive wizard that walks you through Navidrome, Plex, Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz, Tidal, NetEase, and YouTube Music.
+      Stream from everywhere. Every provider runs through the same <em>playlist, EQ, visualizer, and lyrics pipeline</em> — your config follows you across services. Run <code>cliamp setup</code> for an interactive wizard that walks you through Navidrome, Plex, Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz, Tidal, Mixcloud, NetEase, and YouTube Music.
     </p>
     <div class="sources-grid reveal">
       <div class="source" style="--src-color:#1db954"><div class="source-badge">OAuth · cached</div><div class="source-name">Spotify</div><div class="source-desc">Stream your Premium library. Bring your own developer <code>client_id</code> for a private Web API quota; playback is authorized separately. Search with <kbd>Ctrl+F</kbd>; Development Mode paging is automatic. Pre-built Windows releases include Spotify support.</div></div>
@@ -731,6 +731,7 @@ footer{border-top:1px solid var(--line);background:var(--ink-2);padding:46px 0 5
       <div class="source" style="--src-color:#2ecc71"><div class="source-badge">Subsonic API</div><div class="source-name">Navidrome</div><div class="source-desc">Browse your self-hosted library with synced lyrics.</div></div>
       <div class="source" style="--src-color:#3c873a"><div class="source-badge">Media server</div><div class="source-name">Audiobookshelf</div><div class="source-desc">Audiobooks and podcasts from your own server, with synced listening position and resume.</div></div>
       <div class="source" style="--src-color:#ff7700"><div class="source-badge">Provider · yt-dlp</div><div class="source-name">SoundCloud</div><div class="source-desc">Opt-in: set <code>[soundcloud] enabled = true</code>. Search with <kbd>Ctrl+F</kbd>, browse curated genre playlists, or add <code>user</code> for your profile. <code>cookies_from</code> unlocks Go+ tracks via your browser session.</div></div>
+      <div class="source" style="--src-color:#5000ff"><div class="source-badge">Public API · yt-dlp</div><div class="source-name">Mixcloud</div><div class="source-desc">Opt-in: set <code>[mixcloud] enabled = true</code>. Account-first Stream, Favorites and followed Creators, recent and popular shows, collections, creator Uploads/Favorites, native show search, live genre/tag discovery, locally favorited style charts, restricted-show warnings, and resume. Press <kbd>Shift+X</kbd> to open; browser cookies support signed-in playback.</div></div>
       <div class="source" style="--src-color:#d33a31"><div class="source-badge">Provider · yt-dlp</div><div class="source-name">NetEase</div><div class="source-desc">Opt-in: run <code>cliamp setup</code> after signing in at <code>music.163.com</code>, then choose your browser. Browse liked songs, account playlists, saved playlists, and charts with browser-cookie playback.</div></div>
       <div class="source" style="--src-color:#629aa9"><div class="source-badge">yt-dlp</div><div class="source-name">Bandcamp</div><div class="source-desc">Paste any Bandcamp URL and it just plays.</div></div>
       <div class="source" style="--src-color:#00a1d6"><div class="source-badge">yt-dlp</div><div class="source-name">Bilibili</div><div class="source-desc">Audio tracks from Bilibili videos via yt-dlp.</div></div>

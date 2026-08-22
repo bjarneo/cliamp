@@ -47,6 +47,37 @@ func TestSetVolumeClamps(t *testing.T) {
 	}
 }
 
+func TestRestoreYTDLSeekSource(t *testing.T) {
+	original := newPlaybackTestDecoder()
+	replacement := newPlaybackTestDecoder()
+	cur := &trackPipeline{decoder: original, stream: original, ytdlSeek: true}
+	p := &Player{gapless: &gaplessStreamer{}, current: cur}
+	p.gapless.Replace(nil) // SeekYTDL mutes playback while rebuilding.
+	p.gaplessAdvance.Store(true)
+
+	p.restoreYTDLSeekSource(cur, 0)
+
+	p.gapless.mu.Lock()
+	got := p.gapless.current
+	p.gapless.mu.Unlock()
+	if got != original {
+		t.Fatal("failed seek did not restore the original stream")
+	}
+	if p.GaplessAdvanced() {
+		t.Fatal("failed seek retained a stale gapless-advance notification")
+	}
+
+	p.gapless.Replace(replacement)
+	p.seekGen.Add(1)
+	p.restoreYTDLSeekSource(cur, 0)
+	p.gapless.mu.Lock()
+	got = p.gapless.current
+	p.gapless.mu.Unlock()
+	if got != replacement {
+		t.Fatal("stale failed seek overwrote a newer stream")
+	}
+}
+
 func TestSetVolumeMinClamps(t *testing.T) {
 	p := newTestPlayer()
 

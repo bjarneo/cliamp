@@ -1,7 +1,8 @@
 // Package cmd implements interactive subcommands invoked from the CLI.
 // setup.go contains the provider onboarding wizard reachable via
 // `cliamp setup`. It walks the user through configuring each remote
-// provider (Navidrome, Plex, Jellyfin, Spotify, Qobuz, Tidal, NetEase, YouTube Music),
+// provider (Navidrome, Plex, Jellyfin, Spotify, Qobuz, Tidal, Mixcloud,
+// NetEase, YouTube Music),
 // validates the connection where possible, and writes the resulting
 // TOML section to ~/.config/cliamp/config.toml.
 //
@@ -28,6 +29,7 @@ import (
 	"github.com/bjarneo/cliamp/external/audiobookshelf"
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
+	"github.com/bjarneo/cliamp/external/mixcloud"
 	"github.com/bjarneo/cliamp/external/navidrome"
 	"github.com/bjarneo/cliamp/external/netease"
 	"github.com/bjarneo/cliamp/external/plex"
@@ -88,14 +90,15 @@ type pickerOption struct {
 // Picker keys are stored in the values map alongside real field keys; the
 // leading underscore distinguishes them from TOML field names.
 const (
-	keyJellyfinAuth   = "_auth"
-	keyEmbyAuth       = "_emby_auth"
-	keyABSAuth        = "_abs_auth"
-	keyNetEaseBrowser = "_netease_browser"
-	keyYTMusicMode    = "_mode"
-	keySpotifyMode    = "_spotify_mode"
-	keyQobuzQuality   = "_qobuz_quality"
-	keyTidalQuality   = "_tidal_quality"
+	keyJellyfinAuth    = "_auth"
+	keyEmbyAuth        = "_emby_auth"
+	keyABSAuth         = "_abs_auth"
+	keyNetEaseBrowser  = "_netease_browser"
+	keyYTMusicMode     = "_mode"
+	keySpotifyMode     = "_spotify_mode"
+	keyQobuzQuality    = "_qobuz_quality"
+	keyTidalQuality    = "_tidal_quality"
+	keyMixcloudBrowser = "_mixcloud_browser"
 )
 
 func providers() []providerSpec {
@@ -457,6 +460,88 @@ func providers() []providerSpec {
 			},
 		},
 		{
+			key:     "mixcloud",
+			name:    "Mixcloud",
+			section: "mixcloud",
+			intro: []string{
+				"Browse and play Mixcloud shows through its public API and yt-dlp.",
+				"A username adds your public library, following stream, and creators.",
+				"An optional developer access token adds /me and Listen Later.",
+				"Choose browser cookies for subscriber-only or signed-in playback.",
+				"Docs: cliamp.stream → docs/mixcloud.md",
+			},
+			picker: &pickerSpec{
+				key:   keyMixcloudBrowser,
+				label: "Playback session",
+				options: []pickerOption{
+					{value: "none", label: "Public shows only (no browser cookies)"},
+					{value: "chrome", label: "Chrome"},
+					{value: "safari", label: "Safari"},
+					{value: "firefox", label: "Firefox"},
+					{value: "brave", label: "Brave"},
+					{value: "edge", label: "Edge"},
+					{value: "chromium", label: "Chromium"},
+					{value: "opera", label: "Opera"},
+					{value: "vivaldi", label: "Vivaldi"},
+					{value: "whale", label: "Whale"},
+					{value: "custom", label: "Custom browser/profile"},
+				},
+			},
+			fields: []fieldSpec{
+				{key: "username", label: "Mixcloud username (optional)", help: "adds account views and followed creators"},
+				{key: "access_token", label: "Developer API access token (optional)", help: "enables /me and Listen Later", secret: true},
+				{key: "cookies_from", label: "Custom browser/profile", help: "e.g. chrome:Profile 1, firefox:default-release", required: true,
+					onlyIf: func(v map[string]string) bool { return v[keyMixcloudBrowser] == "custom" }},
+				{key: "styles", label: "Music styles (optional)", help: "comma-separated; blank uses cliamp defaults"},
+				{key: "max_items", label: "Items per view", help: fmt.Sprintf("%d-%d", mixcloud.MinItems, mixcloud.MaxItemsLimit), defaultV: strconv.Itoa(mixcloud.DefaultMaxItems)},
+				{key: "stream_creators", label: "Creators in Stream", help: fmt.Sprintf("%d-%d", mixcloud.MinItems, mixcloud.MaxStreamCreators), defaultV: strconv.Itoa(mixcloud.DefaultStreamCreators)},
+			},
+			extraValidate: func(v map[string]string) error {
+				limits := []struct {
+					key, label string
+					max        int
+				}{
+					{key: "max_items", label: "items per view", max: mixcloud.MaxItemsLimit},
+					{key: "stream_creators", label: "stream creators", max: mixcloud.MaxStreamCreators},
+				}
+				for _, field := range limits {
+					n, err := strconv.Atoi(strings.TrimSpace(v[field.key]))
+					if err != nil {
+						return fmt.Errorf("%s must be a number", field.label)
+					}
+					if n < mixcloud.MinItems || n > field.max {
+						return fmt.Errorf("%s is outside its supported range", field.label)
+					}
+				}
+				return nil
+			},
+			body: func(v map[string]string) string {
+				lines := []string{"enabled = true"}
+				if username := strings.TrimSpace(v["username"]); username != "" {
+					lines = append(lines, fmt.Sprintf("username = %q", username))
+				}
+				if token := strings.TrimSpace(v["access_token"]); token != "" {
+					lines = append(lines, fmt.Sprintf("access_token = %q", token))
+				}
+				if browser := mixcloudCookiesFrom(v); browser != "" {
+					lines = append(lines, fmt.Sprintf("cookies_from = %q", browser))
+				}
+				if styles := setupStringList(v["styles"]); styles != "" {
+					lines = append(lines, "styles = "+styles)
+				}
+				maxItems := strings.TrimSpace(v["max_items"])
+				if maxItems == "" {
+					maxItems = strconv.Itoa(mixcloud.DefaultMaxItems)
+				}
+				streamCreators := strings.TrimSpace(v["stream_creators"])
+				if streamCreators == "" {
+					streamCreators = strconv.Itoa(mixcloud.DefaultStreamCreators)
+				}
+				lines = append(lines, "max_items = "+maxItems, "stream_creators = "+streamCreators)
+				return strings.Join(lines, "\n")
+			},
+		},
+		{
 			key:     "ytmusic",
 			name:    "YouTube Music",
 			section: "ytmusic",
@@ -515,6 +600,30 @@ func netEaseCookiesFrom(v map[string]string) string {
 		return strings.TrimSpace(v["cookies_from"])
 	}
 	return picked
+}
+
+func mixcloudCookiesFrom(v map[string]string) string {
+	picked := strings.TrimSpace(v[keyMixcloudBrowser])
+	if picked == "" || picked == "none" {
+		return ""
+	}
+	if picked == "custom" {
+		return strings.TrimSpace(v["cookies_from"])
+	}
+	return picked
+}
+
+func setupStringList(value string) string {
+	var quoted []string
+	for _, part := range strings.Split(value, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			quoted = append(quoted, strconv.Quote(part))
+		}
+	}
+	if len(quoted) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
 }
 
 // ----- Bubbletea model ----------------------------------------------------

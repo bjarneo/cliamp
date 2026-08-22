@@ -23,6 +23,18 @@ type AlbumInfo struct {
 	Year       int
 	TrackCount int
 	Genre      string
+	// Restricted is presentation metadata for provider items that may require
+	// account access. It must not be folded into Name or persisted metadata.
+	Restricted bool
+}
+
+// GenreInfo describes a provider category and whether it is pinned as a
+// favorite. Group is optional (for example "Music" or "Talk").
+type GenreInfo struct {
+	ID       string
+	Name     string
+	Group    string
+	Favorite bool
 }
 
 // SortType describes one sort option for album listing.
@@ -53,6 +65,13 @@ const (
 	MetaNetEaseID   = "netease.id"
 	MetaQobuzID     = "qobuz.id"
 	MetaTidalID     = "tidal.id"
+	MetaMixcloudKey = "mixcloud.key"
+	// MetaMixcloudCreator is the profile username that owns a Mixcloud show.
+	MetaMixcloudCreator = "mixcloud.creator"
+	// MetaMixcloudExclusive marks a show that Mixcloud may restrict to
+	// signed-in users or subscribers. The viewer's entitlement is resolved
+	// only during playback, so it is informational rather than Unplayable.
+	MetaMixcloudExclusive = "mixcloud.exclusive"
 
 	MetaAudiobookshelfID      = "audiobookshelf.id"
 	MetaAudiobookshelfEpisode = "audiobookshelf.episode"

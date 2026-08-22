@@ -196,6 +196,7 @@ const (
 	navBrowseModeByAlbum                                // paginated album list → track list
 	navBrowseModeByArtist                               // artist list → track list (album-separated)
 	navBrowseModeByArtistAlbum                          // artist list → album list → track list
+	navBrowseModeByGenre                                // genre list → latest/popular → track list
 )
 
 // navBrowseScreenType identifies which screen within the active browse mode is shown.

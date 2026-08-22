@@ -160,6 +160,13 @@ type navTracksLoadedMsg struct {
 	err    error
 }
 
+// navGenresLoadedMsg carries the category list from a provider genre browser.
+type navGenresLoadedMsg struct {
+	genres []provider.GenreInfo
+	gen    uint64
+	err    error
+}
+
 // provAuthDoneMsg signals that interactive provider authentication completed.
 type provAuthDoneMsg struct {
 	providerName string
@@ -384,6 +391,29 @@ func fetchNavAlbumTracksCmd(l provider.AlbumTrackLoader, albumID string, gen uin
 	return func() tea.Msg {
 		tracks, err := l.AlbumTracks(albumID)
 		return navTracksLoadedMsg{tracks: tracks, gen: gen, err: err}
+	}
+}
+
+func fetchNavGenresCmd(b provider.GenreBrowser, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		genres, err := b.Genres()
+		return navGenresLoadedMsg{genres: genres, gen: gen, err: err}
+	}
+}
+
+func fetchNavGenreTracksCmd(b provider.GenreBrowser, genreID, sortType string, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		tracks, err := b.GenreTracks(genreID, sortType)
+		return navTracksLoadedMsg{tracks: tracks, gen: gen, err: err}
+	}
+}
+
+func fetchNavGenreSearchCmd(s provider.GenreSearcher, query string, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		genres, err := s.SearchGenres(ctx, query, 100)
+		return navGenresLoadedMsg{genres: genres, gen: gen, err: err}
 	}
 }
 

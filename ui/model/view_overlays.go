@@ -103,7 +103,7 @@ func (m Model) renderPlMgrFormBody() string {
 	}
 	label := "Create the playlist (nothing playing to add)."
 	if track, idx := m.currentPlaybackTrack(); idx >= 0 && track.Path != "" {
-		label = "Create & add: " + truncate(track.DisplayName(), max(1, ui.PanelWidth-16))
+		label = "Create & add: " + truncate(trackViewName(track), max(1, ui.PanelWidth-16))
 	}
 	lines := []string{dimStyle.Render("  " + label)}
 	if m.plManager.inputErr != "" {
@@ -260,7 +260,7 @@ func (m Model) plMgrTrackLabel(realIdx int) string {
 	if realIdx < len(m.plManager.missingLocal) && m.plManager.missingLocal[realIdx] {
 		missing = "! "
 	}
-	return mark + missing + formatTrackRow(realIdx+1, t.DisplayName()+trackAlbumSuffix(t, m.showAlbumHeaders), t.DurationSecs)
+	return mark + missing + formatTrackRow(realIdx+1, trackViewName(t)+trackAlbumSuffix(t, m.showAlbumHeaders), t.DurationSecs)
 }
 
 // renderSearchList renders the playlist-search results for the playlist region
@@ -298,7 +298,7 @@ func (m Model) renderSearchList() string {
 			style = playlistActiveStyle
 		}
 
-		name := track.DisplayName()
+		name := trackViewName(track)
 		queueSuffix := ""
 		if qp := m.playlist.QueuePosition(i); qp > 0 {
 			queueSuffix = fmt.Sprintf(" [Q%d]", qp)
