@@ -4,7 +4,7 @@ Cliamp can stream your [Spotify](https://www.spotify.com/) library directly thro
 
 > **Windows:** Spotify support requires building cliamp with CGO enabled and a MinGW toolchain — see [Building from source](../README.md#building-from-source) in the README. Pre-built Windows binaries from Releases include Spotify support.
 >
-> **Quick start:** run `cliamp setup`, pick Spotify, and follow the prompts. The recommended path is to register your own Spotify Developer app and paste its `client_id` for a private Web API rate-limit quota. Cliamp authorizes playback separately with Spotify's built-in identity. A built-in shared `client_id` is also available for users who specifically need Spotify search.
+> **Quick start:** run `cliamp setup`, pick Spotify, and follow the prompts. The recommended path is to register your own Spotify Developer app and paste its `client_id` for a private Web API rate-limit quota, including search. Cliamp authorizes playback separately with Spotify's built-in identity. A built-in shared `client_id` is also available if you do not want to register an app.
 
 ## Setup
 

@@ -69,20 +69,19 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Recommended: register your own Spotify Developer app at
 # developer.spotify.com/dashboard with redirect URI
 # http://127.0.0.1:19872/login, then uncomment the section below with
-# your client_id. You get a private Web API rate-limit quota for library
-# and playlist requests. Playback is authorized separately with Spotify's
-# built-in identity, so the first sign-in completes two steps in one tab.
+# your client_id. You get a private Web API rate-limit quota for library,
+# playlist, and search requests. Playback is authorized separately with
+# Spotify's built-in identity, so first sign-in completes two steps in one tab.
 # [spotify]
 # client_id = "your-spotify-app-client-id"
 # bitrate = 320
 #
-# Note: apps registered after Nov 27, 2024 in Development Mode can't use
-# /v1/search (Spotify returns "Invalid limit"). Playback is unaffected.
+# Development Mode limits /v1/search to 10 results per request. cliamp pages
+# automatically with offset, so search works with your own client_id.
 #
 # Alternative: drop client_id to use cliamp's built-in fallback (the
-# librespot keymaster client_id). It still has search access, but the
-# rate-limit quota is shared with every librespot-based client and you
-# may see occasional 429s.
+# librespot keymaster client_id). Its rate-limit quota is shared with every
+# librespot-based client, so you may see occasional 429s.
 
 # ---
 # Qobuz (optional)
