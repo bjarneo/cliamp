@@ -115,6 +115,9 @@ func (m Model) View() tea.View {
 	if m.quitting {
 		return tea.NewView("")
 	}
+	if m.mouseHits != nil {
+		m.mouseHits.resetFrame()
+	}
 	m.recomputeLayout()
 	if m.layout.tooSmall() {
 		content := fmt.Sprintf("Terminal too small. Resize to at least 40x10 (current: %dx%d).", m.width, m.height)
@@ -158,6 +161,7 @@ func (m Model) View() tea.View {
 	}
 	view.AltScreen = true
 	view.WindowTitle = currentTerminalTitle(m.termTitle, m.width, m.terminalTitleValues())
+	view.MouseMode = tea.MouseModeCellMotion
 	return view
 }
 
@@ -168,69 +172,76 @@ func trimTrailingEmpty(sections []string) []string {
 	return sections
 }
 
+// mainSections assembles the vertical stack of frame sections. While joining,
+// it converts renderer-recorded scratch regions into frame coordinates by
+// tracking the running line offset of each section.
 func (m Model) mainSections(playlist string, includeTransient, contentFirst bool) []string {
 	var sections []string
+	line := 0
+	put := func(sec string, tag hitKind) {
+		switch tag {
+		case hitSeekBar:
+			m.mouseFlushSeekBar(line)
+		case hitVolumeBar:
+			m.mouseFlushVolume(line)
+		}
+		sections = append(sections, sec)
+		line += strings.Count(sec, "\n") + 1
+	}
 	if contentFirst {
 		if m.layout.tier == layoutMinimal {
-			sections = []string{
-				m.renderTrackInfo(),
-				m.renderTimeStatus(),
-				m.renderSeekBar(),
-				m.renderPlaylistHeader(),
-			}
+			put(m.renderTrackInfo(), hitNone)
+			put(m.renderTimeStatus(), hitNone)
+			put(m.renderSeekBar(), hitSeekBar)
+			put(m.renderPlaylistHeader(), hitNone)
 		} else {
-			sections = []string{
-				m.renderTitle(),
-				m.renderTrackInfo(),
-				m.renderTimeStatus(),
-				m.renderSeekBar(),
-				m.renderPlaylistHeader(),
-			}
+			put(m.renderTitle(), hitNone)
+			put(m.renderTrackInfo(), hitNone)
+			put(m.renderTimeStatus(), hitNone)
+			put(m.renderSeekBar(), hitSeekBar)
+			put(m.renderPlaylistHeader(), hitNone)
 		}
 	} else {
 		switch m.layout.tier {
 		case layoutCompact:
-			sections = []string{
-				m.renderTitle(),
-				m.renderTrackInfo(),
-				m.renderTimeStatus(),
-				m.renderSpectrum(),
-				m.renderSeekBar(),
-				m.renderCompactControls(),
-				m.renderCompactSource(),
-				m.renderPlaylistHeader(),
-			}
+			put(m.renderTitle(), hitNone)
+			put(m.renderTrackInfo(), hitNone)
+			put(m.renderTimeStatus(), hitNone)
+			put(m.renderSpectrum(), hitNone)
+			put(m.renderSeekBar(), hitSeekBar)
+			put(m.renderCompactControls(), hitNone)
+			put(m.renderCompactSource(), hitNone)
+			put(m.renderPlaylistHeader(), hitNone)
 		case layoutMinimal:
-			sections = []string{
-				m.renderTrackInfo(),
-				m.renderTimeStatus(),
-				m.renderSeekBar(),
-				m.renderPlaylistHeader(),
-			}
+			put(m.renderTrackInfo(), hitNone)
+			put(m.renderTimeStatus(), hitNone)
+			put(m.renderSeekBar(), hitSeekBar)
+			put(m.renderPlaylistHeader(), hitNone)
 		default:
-			sections = []string{
-				m.renderTitle(),
-				m.renderTrackInfo(),
-				m.renderTimeStatus(),
-				"",
-				m.renderSpectrum(),
-				m.renderSeekBar(),
-				m.renderControls(),
-			}
+			put(m.renderTitle(), hitNone)
+			put(m.renderTrackInfo(), hitNone)
+			put(m.renderTimeStatus(), hitNone)
+			put("", hitNone)
+			put(m.renderSpectrum(), hitNone)
+			put(m.renderSeekBar(), hitSeekBar)
+			put(m.renderControls(), hitVolumeBar)
 			if source := m.renderProviderPill(); source != "" {
-				sections = append(sections, source)
+				put(source, hitNone)
 			}
-			sections = append(sections, m.renderPlaylistHeader())
+			put(m.renderPlaylistHeader(), hitNone)
 		}
 	}
 	if playlist != "" {
-		sections = append(sections, playlist)
+		m.mouseFlushBody(line, strings.Count(playlist, "\n")+1)
+		put(playlist, hitNone)
 	}
-	sections = append(sections, "", m.renderTierHelp(), m.renderBottomStatus())
+	put("", hitNone)
+	put(m.renderTierHelp(), hitNone)
+	put(m.renderBottomStatus(), hitNone)
 
 	if includeTransient {
-		if line := m.renderTransient(); line != "" {
-			sections = append(sections, line)
+		if transient := m.renderTransient(); transient != "" {
+			put(transient, hitNone)
 		}
 	}
 
@@ -309,6 +320,11 @@ func (m Model) centerFrame(frame string) string {
 	frameH := lipgloss.Height(frame)
 	padLeft := max(0, (m.width-frameW)/2)
 	padTop := max(0, (m.height-frameH)/2)
+
+	if m.mouseHits != nil {
+		m.mouseHits.offX = padLeft + m.layout.paddingH
+		m.mouseHits.offY = padTop + m.layout.paddingV
+	}
 
 	if padLeft == 0 {
 		return strings.Repeat("\n", padTop) + frame
@@ -450,6 +466,14 @@ func (m Model) renderFullVisualizer() string {
 		helpKey("V", "Exit ") + helpKey("v", "Mode:"+m.vis.ModeName()+" ") + helpKey("Spc", "▶❚❚ ") + helpKey("<>", "Trk ") + helpKey("+-", "Vol ") + helpKey("?", "Keys"),
 	}
 
+	line := 0
+	for i, sec := range sections {
+		if i == 4 {
+			m.mouseFlushSeekBar(line)
+		}
+		line += strings.Count(sec, "\n") + 1
+	}
+
 	return strings.Join(sections, "\n")
 }
 
@@ -498,6 +522,7 @@ func (m Model) renderSeekBar() string {
 	} else {
 		b.WriteString(seekDimStyle.Render(strings.Repeat("━", w-fullCells)))
 	}
+	m.mouseTrackSeekBar(0, w)
 	return b.String()
 }
 
@@ -528,7 +553,7 @@ func (m Model) renderControls() string {
 
 	vol := m.player.Volume()
 	volMin := m.player.VolumeMin()
-	frac := max(0, min(1, (vol-volMin)/(6-volMin)))
+	frac := max(0, min(1, (vol-volMin)/(volumeMaxDB-volMin)))
 	dbStr := fmt.Sprintf(" %+.0fdB", vol)
 	monoStr := ""
 	if m.player.Mono() {
@@ -550,6 +575,7 @@ func (m Model) renderControls() string {
 	rightW := lipgloss.Width(right)
 	gap := max(1, ui.PanelWidth-leftW-rightW)
 
+	m.mouseTrackVolumeBar(leftW+gap+volLabelW, leftW+gap+volLabelW+barW)
 	return left + strings.Repeat(" ", gap) + right
 }
 
@@ -690,6 +716,7 @@ func (m Model) renderProviderList() string {
 					idx := m.provSearch.results[j]
 					p := m.providerLists[idx]
 					prefix, style := m.providerRowStyle(p, j == m.provSearch.cursor)
+					m.mouseTrackRow(len(lines), idx, hitProviderRow)
 					lines = append(lines, style.Render(playlistLabel(prefix, p)))
 				}
 				lines = append(lines, dimStyle.Render(fmt.Sprintf("  %d/%d playlists", len(m.provSearch.results), len(m.providerLists))))
@@ -758,6 +785,7 @@ func (m Model) renderProviderList() string {
 			}
 
 			prefix, style := m.providerRowStyle(p, j == m.provCursor)
+			m.mouseTrackRow(len(lines), j, hitProviderRow)
 			lines = append(lines, style.Render(playlistLabel(prefix, p)))
 		}
 	}
@@ -902,6 +930,7 @@ func (m Model) renderPlaylist() string {
 			padding := max(1, ui.PanelWidth-lipgloss.Width(line)-durationLen)
 			line += strings.Repeat(" ", padding) + dimStyle.Render(duration)
 		}
+		m.mouseTrackRow(len(lines), i, hitPlaylistRow)
 		lines = append(lines, line)
 	}
 

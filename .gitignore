@@ -12,3 +12,5 @@ docs/ideas.md
 config.backup.toml
 .env
 .github/workflows/contextowl-changelog.yml
+.cgo-deps/
+/zig-build/

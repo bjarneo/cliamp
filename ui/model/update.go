@@ -61,6 +61,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.adjustScroll()
 		return m, cmd
 
+	case tea.MouseClickMsg:
+		cmd := m.handleMouseClick(msg)
+		if m.quitting {
+			return m, tea.Quit
+		}
+		m.applyHeightMode()
+		m.adjustScroll()
+		return m, cmd
+
+	case tea.MouseWheelMsg:
+		cmd := m.handleMouseWheel(msg)
+		if m.quitting {
+			return m, tea.Quit
+		}
+		m.applyHeightMode()
+		m.adjustScroll()
+		return m, cmd
+
 	case autoPlayMsg:
 		if m.playlist.Len() > 0 && !m.player.IsPlaying() {
 			cmd := m.playCurrentTrack()

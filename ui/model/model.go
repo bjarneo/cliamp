@@ -365,6 +365,10 @@ type Model struct {
 	// snapshot survives Update's value-receiver copy.
 	pluginEmit *pluginEmitState
 
+	// mouseHits accumulates clickable regions while View renders the current
+	// frame. Held behind a pointer for the same reason as pluginEmit.
+	mouseHits *mouseHitState
+
 	// History recorder (nil if config dir unavailable; safe to call when nil)
 	historyStore *history.Store
 
