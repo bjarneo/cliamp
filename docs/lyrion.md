@@ -49,7 +49,9 @@ A configured `[lyrion]` block always takes precedence over these.
 
 Cliamp queries your library over the LMS JSON-RPC endpoint (`POST /jsonrpc.js`) and plays tracks from its HTTP file endpoint (`/music/<track_id>/download`). Playback runs in Cliamp's own audio engine, exactly as it does for every other provider.
 
-Browse playlists with the arrow keys and press Enter to load one. Artist, album, and search browsing work the same way as for other remote providers.
+Browse playlists with the arrow keys and press Enter to load one.
+
+**Press `N` to open the artist/album browser.** This matters more than it does for other providers: the provider pane lists only your server's *saved playlists*, and on many LMS installs those are dominated by playlists imported by streaming-service plugins — which are not playable (see below). Your actual music files are organised by artist and album, and the browser is how you reach them.
 
 ## Limitations
 

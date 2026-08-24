@@ -618,8 +618,9 @@ func TestPluginTracksAreMarkedUnplayable(t *testing.T) {
 		wantUnplayable bool
 	}{
 		{"local file", "file:///music/a.mp3", false},
-		{"spotify plugin", "spotify://track:4uLU6hMCjMI75M1A2tKUQC", true},
+		{"spotify plugin", "spotify:track:2ZNJrC7A08B2MvhLJ00G1V", true},
 		{"other plugin scheme", "qobuz://12345.flac", true},
+		{"scheme without slashes", "deezer:track:99", true},
 		{"remote stream", "http://example.com/live.mp3", true},
 		{"no url tag requested", "", false},
 	}
@@ -638,7 +639,7 @@ func TestPluginTracksAreStillReturned(t *testing.T) {
 	// flag makes the limitation visible instead.
 	c, _ := newServer(t, `{"result":{"titles_loop":[
 		{"id":1,"title":"Local","url":"file:///music/a.mp3"},
-		{"id":2,"title":"Plugin","url":"spotify://track:xyz"}]}}`)
+		{"id":2,"title":"Plugin","url":"spotify:track:xyz"}]}}`)
 	tracks, err := c.AlbumTracks("5")
 	if err != nil {
 		t.Fatalf("AlbumTracks() error = %v", err)
