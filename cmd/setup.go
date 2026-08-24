@@ -28,6 +28,7 @@ import (
 	"github.com/bjarneo/cliamp/external/audiobookshelf"
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
+	"github.com/bjarneo/cliamp/external/lyrion"
 	"github.com/bjarneo/cliamp/external/navidrome"
 	"github.com/bjarneo/cliamp/external/netease"
 	"github.com/bjarneo/cliamp/external/plex"
@@ -115,6 +116,31 @@ func providers() []providerSpec {
 			},
 			validate: func(v map[string]string) error {
 				return navidrome.New(v["url"], v["user"], v["password"]).Ping()
+			},
+			body: func(v map[string]string) string {
+				return strings.Join([]string{
+					fmt.Sprintf("url      = %q", v["url"]),
+					fmt.Sprintf("user     = %q", v["user"]),
+					fmt.Sprintf("password = %q", v["password"]),
+				}, "\n")
+			},
+		},
+		{
+			key:     "lyrion",
+			name:    "Lyrion Music Server",
+			section: "lyrion",
+			intro: []string{
+				"Self-hosted server for Squeezebox players, formerly Logitech Media Server.",
+				"Username and password are only needed if the server has password protection.",
+				"Docs: cliamp.stream → docs/lyrion.md",
+			},
+			fields: []fieldSpec{
+				{key: "url", label: "Server URL", help: "e.g. http://nas.local:9000", required: true},
+				{key: "user", label: "Username", help: "leave blank if the server is unprotected"},
+				{key: "password", label: "Password", secret: true},
+			},
+			validate: func(v map[string]string) error {
+				return lyrion.New(v["url"], v["user"], v["password"]).Ping()
 			},
 			body: func(v map[string]string) string {
 				return strings.Join([]string{

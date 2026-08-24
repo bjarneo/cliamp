@@ -53,6 +53,7 @@ const (
 	MetaNetEaseID   = "netease.id"
 	MetaQobuzID     = "qobuz.id"
 	MetaTidalID     = "tidal.id"
+	MetaLyrionID    = "lyrion.id"
 
 	MetaAudiobookshelfID      = "audiobookshelf.id"
 	MetaAudiobookshelfEpisode = "audiobookshelf.episode"

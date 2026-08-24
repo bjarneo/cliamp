@@ -79,6 +79,21 @@ func (n NavidromeConfig) IsSet() bool {
 	return n.URL != "" && n.User != "" && n.Password != ""
 }
 
+// LyrionConfig holds settings for a Lyrion Music Server (LMS) instance.
+// User and Password are optional — they are only needed when the server has
+// password protection enabled.
+type LyrionConfig struct {
+	URL      string // e.g. "http://nas.local:9000"
+	User     string
+	Password string
+}
+
+// IsSet reports whether a Lyrion server URL is configured. Credentials are
+// optional, so the URL alone is enough to construct a client.
+func (l LyrionConfig) IsSet() bool {
+	return l.URL != ""
+}
+
 // SpotifyConfig holds settings for the Spotify provider. Requires a Spotify
 // Premium account. If client_id is empty, a built-in fallback (the librespot
 // keymaster ID) is used so search and catalog endpoints work even for users
@@ -298,6 +313,7 @@ type Config struct {
 	Playlist         string                       // local TOML playlist name to load on startup
 	InitialDirectory string                       // initial directory for the file browser
 	Navidrome        NavidromeConfig              // optional Navidrome/Subsonic server credentials
+	Lyrion           LyrionConfig                 // optional Lyrion Music Server (LMS) instance
 	Spotify          SpotifyConfig                // optional Spotify provider (requires Premium)
 	Qobuz            QobuzConfig                  // optional Qobuz provider (requires subscription)
 	Tidal            TidalConfig                  // optional Tidal provider (requires subscription)
@@ -417,6 +433,15 @@ func Load() (Config, error) {
 			case "scrobble":
 				// Opt-out: only mark disabled when the value is explicitly "false".
 				cfg.Navidrome.ScrobbleDisabled = strings.ToLower(val) == "false"
+			}
+		case "lyrion":
+			switch key {
+			case "url":
+				cfg.Lyrion.URL = parseString(val)
+			case "user":
+				cfg.Lyrion.User = parseString(val)
+			case "password":
+				cfg.Lyrion.Password = parseString(val)
 			}
 		case "spotify":
 			switch key {

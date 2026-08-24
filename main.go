@@ -18,6 +18,7 @@ import (
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
 	"github.com/bjarneo/cliamp/external/local"
+	"github.com/bjarneo/cliamp/external/lyrion"
 	"github.com/bjarneo/cliamp/external/navidrome"
 	"github.com/bjarneo/cliamp/external/netease"
 	"github.com/bjarneo/cliamp/external/plex"
@@ -50,6 +51,21 @@ const (
 	defaultUIFPS  = 20
 	lowPowerUIFPS = 5
 )
+
+// isBufferedProviderURL reports whether u is a provider stream endpoint that
+// needs the buffered download pipeline rather than the live-stream one. These
+// are finite files with a known length, so buffering gives seeking and gapless
+// playback.
+func isBufferedProviderURL(u string) bool {
+	return navidrome.IsSubsonicStreamURL(u) ||
+		jellyfin.IsStreamURL(u) ||
+		emby.IsStreamURL(u) ||
+		plex.IsStreamURL(u) ||
+		qobuz.IsStreamURL(u) ||
+		tidal.IsStreamURL(u) ||
+		audiobookshelf.IsStreamURL(u) ||
+		lyrion.IsStreamURL(u)
+}
 
 func run(overrides config.Overrides, positional []string, daemon, visualizer60FPS bool) error {
 	cfg, err := config.Load()
@@ -85,6 +101,16 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	}
 	if navClient != nil {
 		providers = append(providers, model.ProviderEntry{Key: "navidrome", Name: "Navidrome", Provider: navClient})
+	}
+
+	var lyrionClient *lyrion.Client
+	if c := lyrion.NewFromConfig(cfg.Lyrion); c != nil {
+		lyrionClient = c
+	} else if c := lyrion.NewFromEnv(); c != nil {
+		lyrionClient = c
+	}
+	if lyrionClient != nil {
+		providers = append(providers, model.ProviderEntry{Key: "lyrion", Name: "Lyrion", Provider: lyrionClient})
 	}
 
 	if plexProv := plex.NewFromConfig(cfg.Plex); plexProv != nil {
@@ -321,9 +347,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		})
 	}
 
-	p.RegisterBufferedURLMatcher(func(u string) bool {
-		return navidrome.IsSubsonicStreamURL(u) || jellyfin.IsStreamURL(u) || emby.IsStreamURL(u) || plex.IsStreamURL(u) || qobuz.IsStreamURL(u) || tidal.IsStreamURL(u) || audiobookshelf.IsStreamURL(u)
-	})
+	p.RegisterBufferedURLMatcher(isBufferedProviderURL)
 
 	// Pull now-playing for stations that carry no inline ICY metadata (NTS, FIP).
 	p.RegisterStreamMetadataResolver(radiometa.Resolver)
