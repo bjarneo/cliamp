@@ -634,23 +634,93 @@ func TestPluginTracksAreMarkedUnplayable(t *testing.T) {
 	}
 }
 
-func TestPluginTracksAreStillReturned(t *testing.T) {
-	// They belong to the library, so hiding them would misrepresent it. The
-	// flag makes the limitation visible instead.
-	c, _ := newServer(t, `{"result":{"titles_loop":[
-		{"id":1,"title":"Local","url":"file:///music/a.mp3"},
-		{"id":2,"title":"Plugin","url":"spotify:track:xyz"}]}}`)
+const mixedTracks = `{"result":{"titles_loop":[
+	{"id":1,"title":"Local","url":"file:///music/a.mp3"},
+	{"id":2,"title":"Plugin","url":"spotify:track:xyz"}]}}`
+
+// By default a plugin track is a dead entry the server will never stream, so
+// it is omitted rather than listed.
+func TestPluginTracksHiddenByDefault(t *testing.T) {
+	c, _ := newServer(t, mixedTracks)
+	tracks, err := c.AlbumTracks("5")
+	if err != nil {
+		t.Fatalf("AlbumTracks() error = %v", err)
+	}
+	if len(tracks) != 1 {
+		t.Fatalf("got %d tracks, want only the file-backed one", len(tracks))
+	}
+	if tracks[0].Title != "Local" {
+		t.Errorf("kept %q, want the local track", tracks[0].Title)
+	}
+}
+
+func TestShowUnplayableRevealsPluginTracks(t *testing.T) {
+	c, _ := newServer(t, mixedTracks)
+	c.showUnplayable = true
 	tracks, err := c.AlbumTracks("5")
 	if err != nil {
 		t.Fatalf("AlbumTracks() error = %v", err)
 	}
 	if len(tracks) != 2 {
-		t.Fatalf("got %d tracks, want both returned", len(tracks))
+		t.Fatalf("got %d tracks, want both", len(tracks))
 	}
 	if tracks[0].Unplayable {
 		t.Error("local track marked unplayable")
 	}
 	if !tracks[1].Unplayable {
-		t.Error("plugin track not marked unplayable")
+		t.Error("plugin track not flagged when revealed")
+	}
+}
+
+const mixedPlaylists = `{"result":{"playlists_loop":[
+	{"id":1,"playlist":"Mine","url":"file:///music/mine.m3u"},
+	{"id":2,"playlist":"Spotify: Hits","url":"spotify:playlist:abc"}]}}`
+
+// A plugin-imported playlist holds only that plugin's tracks, so with those
+// hidden it would open empty. Hide the playlist itself instead.
+func TestPluginPlaylistsHiddenByDefault(t *testing.T) {
+	c, got := newServer(t, mixedPlaylists)
+	pls, err := c.Playlists()
+	if err != nil {
+		t.Fatalf("Playlists() error = %v", err)
+	}
+	if !strings.Contains(cmdString(got.Command), "tags:u") {
+		t.Errorf("command = %v, want the url tag requested for filtering", got.Command)
+	}
+	if len(pls) != 1 || pls[0].Name != "Mine" {
+		t.Fatalf("got %+v, want only the local playlist", pls)
+	}
+}
+
+func TestShowUnplayableRevealsPluginPlaylists(t *testing.T) {
+	c, _ := newServer(t, mixedPlaylists)
+	c.showUnplayable = true
+	pls, err := c.Playlists()
+	if err != nil {
+		t.Fatalf("Playlists() error = %v", err)
+	}
+	if len(pls) != 2 {
+		t.Fatalf("got %d playlists, want both", len(pls))
+	}
+}
+
+// A server that returns no url tag must not vanish behind the filter.
+func TestUntaggedResultsSurviveTheFilter(t *testing.T) {
+	c, _ := newServer(t, `{"result":{"titles_loop":[{"id":1,"title":"NoURL"}]}}`)
+	tracks, err := c.AlbumTracks("5")
+	if err != nil {
+		t.Fatalf("AlbumTracks() error = %v", err)
+	}
+	if len(tracks) != 1 {
+		t.Errorf("got %d tracks, want the untagged track kept", len(tracks))
+	}
+
+	c2, _ := newServer(t, `{"result":{"playlists_loop":[{"id":1,"playlist":"NoURL"}]}}`)
+	pls, err := c2.Playlists()
+	if err != nil {
+		t.Fatalf("Playlists() error = %v", err)
+	}
+	if len(pls) != 1 {
+		t.Errorf("got %d playlists, want the untagged playlist kept", len(pls))
 	}
 }

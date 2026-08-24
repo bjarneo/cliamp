@@ -51,7 +51,7 @@ Cliamp queries your library over the LMS JSON-RPC endpoint (`POST /jsonrpc.js`) 
 
 Browse playlists with the arrow keys and press Enter to load one.
 
-**Press `N` to open the artist/album browser.** This matters more than it does for other providers: the provider pane lists only your server's *saved playlists*, and on many LMS installs those are dominated by playlists imported by streaming-service plugins — which are not playable (see below). Your actual music files are organised by artist and album, and the browser is how you reach them.
+**Press `N` to open the artist/album browser.** The provider pane lists only your server's *saved playlists*; your music files are organised by artist and album, and the browser is how you reach them.
 
 ## Limitations
 
@@ -63,9 +63,23 @@ Cliamp is **not** a Squeezebox player. It reads your library from LMS and plays 
 
 ### Tracks added by server plugins
 
-LMS plugins that pull in streaming services (Spotty for Spotify, and similar) add their tracks to your library alongside your own files. Those tracks **appear** in Cliamp's browser but are marked unplayable and skipped during playback, because LMS only serves file-backed tracks over the endpoint Cliamp streams from — a download request for a plugin track is accepted but may never deliver any audio, leaving playback to hang.
+LMS plugins that pull in streaming services (Spotty for Spotify, and similar) add their tracks to your library alongside your own files. LMS only serves *file-backed* tracks over the endpoint Cliamp streams from — a download request for a plugin track is accepted but may never deliver any audio, leaving playback to hang.
 
-They are shown rather than hidden so your library does not look mysteriously incomplete. To play those services, use Cliamp's own Spotify, Qobuz, or Tidal providers, which speak each service's protocol directly.
+**By default Cliamp hides these**, along with any saved playlist imported by such a plugin, since a plugin playlist contains nothing but that plugin's tracks and would otherwise open empty. On a server with a large Spotty library this is the difference between a usable provider and a list of dead entries.
+
+To see them anyway — flagged as unplayable and skipped during playback rather than hidden:
+
+```toml
+[lyrion]
+url             = "http://nas.local:9000"
+show_unplayable = true
+```
+
+`LYRION_SHOW_UNPLAYABLE=true` does the same when configuring by environment.
+
+One rough edge remains: an *album* made up entirely of plugin tracks still appears in the browser and opens empty. Playlists are filtered because the server reports their origin in the same response, but albums would need one extra request each to classify, which is not worth the round trips.
+
+To actually play those services, use Cliamp's own Spotify, Qobuz, or Tidal providers, which speak each service's protocol directly.
 
 ## Security
 
@@ -80,3 +94,5 @@ When credentials are configured, Cliamp authenticates with HTTP Basic authentica
 **Connection refused or timed out.** Confirm the port — LMS serves both its web UI and this API on 9000 by default. Opening `http://your-server:9000` in a browser is the fastest check.
 
 **Tracks appear but will not play.** The format is probably one that Cliamp cannot decode. Install `ffmpeg` and try again.
+
+**A playlist or artist is missing.** If it came from a server plugin rather than your own files, it is hidden by default — set `show_unplayable = true` to confirm. Note that revealing it does not make it playable.

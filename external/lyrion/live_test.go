@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"testing"
+
+	"github.com/bjarneo/cliamp/playlist"
 )
 
 // liveClient returns a client for a real LMS instance, or skips.
@@ -71,12 +73,25 @@ func TestLiveBrowse(t *testing.T) {
 		t.Fatalf("ArtistAlbums: %v", err)
 	}
 
-	tracks, err := c.AlbumTracks(albums[0].ID)
+	// An album made entirely of plugin-contributed tracks is filtered to empty
+	// by default, so scan for one that actually has playable tracks.
+	var tracks []playlist.Track
+	page, err := c.AlbumList("", 0, 25)
 	if err != nil {
-		t.Fatalf("AlbumTracks: %v", err)
+		t.Fatalf("AlbumList for probe: %v", err)
+	}
+	for _, a := range page {
+		got, err := c.AlbumTracks(a.ID)
+		if err != nil {
+			t.Fatalf("AlbumTracks(%s): %v", a.ID, err)
+		}
+		if len(got) > 0 {
+			tracks = got
+			break
+		}
 	}
 	if len(tracks) == 0 {
-		t.Fatal("no tracks returned for a live album")
+		t.Fatal("no album in the first 25 had a playable track")
 	}
 	// Every tag letter must survive the round trip; LMS silently omits fields
 	// for tags it was not asked for, so a wrong tag set shows up as blanks.

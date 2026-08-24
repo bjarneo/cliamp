@@ -86,6 +86,9 @@ type LyrionConfig struct {
 	URL      string // e.g. "http://nas.local:9000"
 	User     string
 	Password string
+	// ShowUnplayable includes tracks and playlists contributed by LMS server
+	// plugins, which the server cannot stream to cliamp. Hidden by default.
+	ShowUnplayable bool
 }
 
 // IsSet reports whether a Lyrion server URL is configured. Credentials are
@@ -442,6 +445,8 @@ func Load() (Config, error) {
 				cfg.Lyrion.User = parseString(val)
 			case "password":
 				cfg.Lyrion.Password = parseString(val)
+			case "show_unplayable":
+				cfg.Lyrion.ShowUnplayable = strings.ToLower(val) == "true"
 			}
 		case "spotify":
 			switch key {

@@ -69,6 +69,10 @@ type Client struct {
 	url      string // normalised base URL, no trailing slash
 	user     string // empty unless the server is password protected
 	password string
+
+	// showUnplayable includes plugin-contributed tracks and playlists in
+	// results instead of filtering them out. See isLocal.
+	showUnplayable bool
 }
 
 // New creates a Client for the server at serverURL. user and password may be
@@ -87,7 +91,9 @@ func NewFromConfig(cfg config.LyrionConfig) *Client {
 	if !cfg.IsSet() {
 		return nil
 	}
-	return New(cfg.URL, cfg.User, cfg.Password)
+	c := New(cfg.URL, cfg.User, cfg.Password)
+	c.showUnplayable = cfg.ShowUnplayable
+	return c
 }
 
 // NewFromEnv creates a Client from LYRION_URL, LYRION_USER, and LYRION_PASS.
@@ -97,7 +103,9 @@ func NewFromEnv() *Client {
 	if u == "" {
 		return nil
 	}
-	return New(u, os.Getenv("LYRION_USER"), os.Getenv("LYRION_PASS"))
+	c := New(u, os.Getenv("LYRION_USER"), os.Getenv("LYRION_PASS"))
+	c.showUnplayable = strings.EqualFold(os.Getenv("LYRION_SHOW_UNPLAYABLE"), "true")
+	return c
 }
 
 func (c *Client) Name() string { return "lyrion" }
@@ -179,13 +187,20 @@ func (c *Client) Playlists() ([]playlist.PlaylistInfo, error) {
 		Loop []struct {
 			ID   flexString `json:"id"`
 			Name string     `json:"playlist"`
+			URL  string     `json:"url"`
 		} `json:"playlists_loop"`
 	}
-	if err := c.request(context.Background(), []any{"playlists", 0, pageSize}, &res); err != nil {
+	cmd := []any{"playlists", 0, pageSize, "tags:u"}
+	if err := c.request(context.Background(), cmd, &res); err != nil {
 		return nil, err
 	}
 	out := make([]playlist.PlaylistInfo, 0, len(res.Loop))
 	for _, p := range res.Loop {
+		// A plugin-imported playlist contains only that plugin's tracks, so
+		// hiding those tracks would leave it empty — hide the playlist too.
+		if !c.showUnplayable && !isLocal(p.URL) {
+			continue
+		}
 		out = append(out, playlist.PlaylistInfo{ID: p.ID.String(), Name: p.Name})
 	}
 	return out, nil
@@ -337,7 +352,14 @@ type song struct {
 func (c *Client) toTracks(songs []song) []playlist.Track {
 	out := make([]playlist.Track, 0, len(songs))
 	for _, s := range songs {
-		out = append(out, c.toTrack(s))
+		t := c.toTrack(s)
+		// Plugin-contributed tracks cannot be streamed to cliamp at all, so by
+		// default they are omitted rather than listed as dead entries. Setting
+		// show_unplayable surfaces them, flagged, for a complete view.
+		if t.Unplayable && !c.showUnplayable {
+			continue
+		}
+		out = append(out, t)
 	}
 	return out
 }

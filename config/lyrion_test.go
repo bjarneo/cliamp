@@ -69,6 +69,25 @@ password = "${CLIAMP_TEST_LYRION_PASS}"
 	}
 }
 
+func TestLoadLyrionShowUnplayable(t *testing.T) {
+	cfg := writeLyrionConfig(t, `
+[lyrion]
+url = "http://nas.local:9000"
+`)
+	if cfg.Lyrion.ShowUnplayable {
+		t.Error("ShowUnplayable should default to false")
+	}
+
+	cfg = writeLyrionConfig(t, `
+[lyrion]
+url = "http://nas.local:9000"
+show_unplayable = true
+`)
+	if !cfg.Lyrion.ShowUnplayable {
+		t.Error("show_unplayable = true was not read")
+	}
+}
+
 func TestLoadLyrionAbsent(t *testing.T) {
 	cfg := writeLyrionConfig(t, "theme = \"\"\n")
 	if cfg.Lyrion.IsSet() {

@@ -129,6 +129,7 @@ password = "${NAVIDROME_PASSWORD}"
 url = "http://nas.local:9000"
 user = "alice"
 password = "${LYRION_PASSWORD}"
+# show_unplayable = true  # include plugin-contributed tracks and playlists
 
 [plex]
 url = "http://plex.local:32400"
