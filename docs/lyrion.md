@@ -61,7 +61,7 @@ Cliamp is **not** a Squeezebox player. It reads your library from LMS and plays 
 
 ### Tracks added by server plugins
 
-LMS plugins that pull in streaming services (Spotty for Spotify, and similar) add their tracks to your library alongside your own files. Those tracks **appear** in Cliamp's browser but are marked unplayable and skipped during playback, because LMS only serves file-backed tracks over the endpoint Cliamp streams from — a download request for a plugin track is accepted and then never delivers any audio.
+LMS plugins that pull in streaming services (Spotty for Spotify, and similar) add their tracks to your library alongside your own files. Those tracks **appear** in Cliamp's browser but are marked unplayable and skipped during playback, because LMS only serves file-backed tracks over the endpoint Cliamp streams from — a download request for a plugin track is accepted but may never deliver any audio, leaving playback to hang.
 
 They are shown rather than hidden so your library does not look mysteriously incomplete. To play those services, use Cliamp's own Spotify, Qobuz, or Tidal providers, which speak each service's protocol directly.
 
@@ -77,4 +77,4 @@ When credentials are configured, Cliamp authenticates with HTTP Basic authentica
 
 **Connection refused or timed out.** Confirm the port — LMS serves both its web UI and this API on 9000 by default. Opening `http://your-server:9000` in a browser is the fastest check.
 
-**Tracks appear but will not play.** The format is probably one Cliamp cannot decode. Install `ffmpeg` and try again.
+**Tracks appear but will not play.** The format is probably one that Cliamp cannot decode. Install `ffmpeg` and try again.

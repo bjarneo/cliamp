@@ -347,6 +347,13 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		})
 	}
 
+	if lyrionClient != nil {
+		p.RegisterSourceResolver(lyrion.TrackURIPrefix, func(uri string) (player.ResolvedSource, error) {
+			u, segments, err := lyrionClient.ResolveSource(uri)
+			return player.ResolvedSource{URL: u, Segments: segments}, err
+		})
+	}
+
 	p.RegisterBufferedURLMatcher(isBufferedProviderURL)
 
 	// Pull now-playing for stations that carry no inline ICY metadata (NTS, FIP).

@@ -45,6 +45,13 @@ const (
 	downloadSuffix = "/download"
 )
 
+// TrackURIPrefix is the custom URI scheme for Lyrion tracks. Track paths carry
+// this rather than a direct HTTP URL so that no credential is ever written to
+// a track: cliamp persists Track.Path to resume state and to the play history,
+// and LMS authenticates with the user's actual password rather than a
+// revocable token. ResolveSource expands it at play time.
+const TrackURIPrefix = "lyrion://track/"
+
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 // Album sort orders. The IDs are passed to LMS as its `sort:` parameter.
@@ -338,7 +345,7 @@ func (c *Client) toTracks(songs []song) []playlist.Track {
 func (c *Client) toTrack(s song) playlist.Track {
 	id := s.ID.String()
 	return playlist.Track{
-		Path:         c.StreamURL(id),
+		Path:         TrackURIPrefix + id,
 		Title:        s.Title,
 		Artist:       s.Artist,
 		Album:        s.Album,
@@ -371,9 +378,11 @@ func isLocal(rawURL string) bool {
 // StreamURL returns the playable HTTP URL for an LMS track ID.
 //
 // When credentials are configured they are embedded as URL userinfo: Go's
-// net/http transport turns that into a Basic Authorization header, so both of
-// cliamp's playback paths authenticate without needing provider-specific
-// knowledge.
+// net/http transport turns that into a Basic Authorization header, so the
+// player authenticates without needing provider-specific knowledge.
+//
+// This URL is produced at play time by ResolveSource and never stored on a
+// track — see TrackURIPrefix for why.
 func (c *Client) StreamURL(trackID string) string {
 	base := c.url
 	if c.user != "" || c.password != "" {
@@ -383,6 +392,16 @@ func (c *Client) StreamURL(trackID string) string {
 		}
 	}
 	return base + musicPath + url.PathEscape(trackID) + downloadSuffix
+}
+
+// ResolveSource turns a lyrion://track/<id> URI into a playable URL when
+// playback starts, applying credentials only at that moment.
+func (c *Client) ResolveSource(uri string) (streamURL string, segments []string, err error) {
+	id := strings.TrimPrefix(uri, TrackURIPrefix)
+	if id == "" || id == uri {
+		return "", nil, fmt.Errorf("lyrion: not a track URI: %q", uri)
+	}
+	return c.StreamURL(id), nil, nil
 }
 
 // IsStreamURL reports whether path is an LMS file-endpoint URL. The player uses

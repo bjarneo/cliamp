@@ -370,8 +370,8 @@ func TestToTrackMapping(t *testing.T) {
 	if full.Meta(provider.MetaLyrionID) != "77" {
 		t.Errorf("provider meta = %q, want the LMS track id", full.Meta(provider.MetaLyrionID))
 	}
-	if full.Path != "http://nas:9000/music/77/download" {
-		t.Errorf("Path = %q", full.Path)
+	if full.Path != TrackURIPrefix+"77" {
+		t.Errorf("Path = %q, want the credential-free track URI", full.Path)
 	}
 
 	// Only the required fields present: everything optional stays zero.
@@ -450,6 +450,50 @@ func TestStreamURLRoundTripsThroughIsStreamURL(t *testing.T) {
 	for _, c := range []*Client{New("http://nas:9000", "", ""), New("http://nas:9000", "bob", "pw")} {
 		if u := c.StreamURL("77"); !IsStreamURL(u) {
 			t.Errorf("IsStreamURL(%q) = false for a URL this provider produced", u)
+		}
+	}
+}
+
+// --- credentials never reach a track ----------------------------------------
+
+// cliamp persists Track.Path to resume state and to the play history, and LMS
+// authenticates with the user's real password rather than a revocable token, so
+// a credential in Path would be written to disk in plaintext.
+func TestTrackPathCarriesNoCredentials(t *testing.T) {
+	c := New("http://nas:9000", "bob", "hunter2")
+	tr := c.toTrack(song{ID: "77", Title: "T", URL: "file:///music/a.mp3"})
+	if strings.Contains(tr.Path, "hunter2") || strings.Contains(tr.Path, "bob") {
+		t.Errorf("Path %q leaks credentials", tr.Path)
+	}
+	if strings.Contains(tr.Path, "nas:9000") {
+		t.Errorf("Path %q embeds the server host; it should be a bare track URI", tr.Path)
+	}
+	if tr.Path != TrackURIPrefix+"77" {
+		t.Errorf("Path = %q, want %q", tr.Path, TrackURIPrefix+"77")
+	}
+}
+
+func TestResolveSource(t *testing.T) {
+	c := New("http://nas:9000", "bob", "hunter2")
+
+	got, segments, err := c.ResolveSource(TrackURIPrefix + "77")
+	if err != nil {
+		t.Fatalf("ResolveSource: %v", err)
+	}
+	if segments != nil {
+		t.Errorf("segments = %v, want nil for a single progressive file", segments)
+	}
+	// Credentials appear only here, at play time, and are never persisted.
+	if got != "http://bob:hunter2@nas:9000/music/77/download" {
+		t.Errorf("resolved = %q", got)
+	}
+	if !IsStreamURL(got) {
+		t.Errorf("IsStreamURL(%q) = false for a resolved URL", got)
+	}
+
+	for _, bad := range []string{"", "tidal://track/77", "lyrion://track/", "nonsense"} {
+		if _, _, err := c.ResolveSource(bad); err == nil {
+			t.Errorf("ResolveSource(%q) = nil error, want a rejection", bad)
 		}
 	}
 }

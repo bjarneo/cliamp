@@ -93,8 +93,12 @@ func TestLiveBrowse(t *testing.T) {
 	if !tr.Stream {
 		t.Error("track not marked as a stream")
 	}
-	if !IsStreamURL(tr.Path) {
-		t.Errorf("IsStreamURL(%q) = false for a live track", tr.Path)
+	resolved, _, err := c.ResolveSource(tr.Path)
+	if err != nil {
+		t.Fatalf("ResolveSource(%q): %v", tr.Path, err)
+	}
+	if !IsStreamURL(resolved) {
+		t.Errorf("IsStreamURL(%q) = false for a live track", resolved)
 	}
 }
 
@@ -130,18 +134,25 @@ func TestLiveStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SearchTracks: %v", err)
 	}
-	var playable string
+	var uri string
 	for _, tr := range found {
 		if !tr.Unplayable {
-			playable = tr.Path
+			uri = tr.Path
 			break
 		}
 	}
-	if playable == "" {
+	if uri == "" {
 		t.Skip("no file-backed track found to stream")
 	}
 
-	resp, err := http.Get(playable)
+	// Track paths are credential-free URIs; the player resolves them at play
+	// time, so the test has to do the same.
+	playable, _, err := c.ResolveSource(uri)
+	if err != nil {
+		t.Fatalf("ResolveSource(%q): %v", uri, err)
+	}
+
+	resp, err := httpClient.Get(playable)
 	if err != nil {
 		t.Fatalf("stream GET: %v", err)
 	}

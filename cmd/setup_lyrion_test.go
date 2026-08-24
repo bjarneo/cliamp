@@ -38,6 +38,13 @@ func TestLyrionSetupRequiresOnlyURL(t *testing.T) {
 	for _, f := range p.fields {
 		required[f.key] = f.required
 	}
+	// Assert presence as well as optionality: a missing key also reads as
+	// "not required", which would let a dropped field pass silently.
+	for _, key := range []string{"url", "user", "password"} {
+		if _, ok := required[key]; !ok {
+			t.Errorf("no %q field in the Lyrion setup form", key)
+		}
+	}
 	if !required["url"] {
 		t.Error("url field should be required")
 	}
