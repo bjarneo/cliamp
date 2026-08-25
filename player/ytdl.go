@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/gopxl/beep/v2"
+
+	"github.com/bjarneo/cliamp/internal/ytdlcookies"
 )
 
 // pipeBufSize is the buffer size for audio pipe readers (yt-dlp, ffmpeg).
@@ -28,20 +30,17 @@ const ytdlPipeTimeout = 30 * time.Second
 // when the process is slow to flush and exit.
 const ytdlCauseGrace = 3 * time.Second
 
-// ytdlCookiesFrom is the browser name for --cookies-from-browser (e.g. "chrome").
-// Set via SetYTDLCookiesFrom at startup.
-var ytdlCookiesFrom string
-
-// SetYTDLCookiesFrom configures yt-dlp to use cookies from the given browser
-// for YouTube Music playback (e.g. "chrome", "firefox", "brave").
-func SetYTDLCookiesFrom(browser string) {
-	ytdlCookiesFrom = browser
-}
-
 // YTDLPAvailable reports whether yt-dlp is installed and on PATH.
 func YTDLPAvailable() bool {
 	_, err := exec.LookPath("yt-dlp")
 	return err == nil
+}
+
+func appendYTDLCookieArgs(args []string, pageURL string) []string {
+	if browser := ytdlcookies.ForURL(pageURL); browser != "" {
+		return append(args, "--cookies-from-browser", browser)
+	}
+	return args
 }
 
 // probeYTDLDuration runs a quick yt-dlp --print duration to obtain
@@ -50,9 +49,7 @@ func probeYTDLDuration(pageURL string) time.Duration {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	args := []string{"--skip-download", "--no-playlist", "--socket-timeout", "10", "--print", "duration"}
-	if ytdlCookiesFrom != "" {
-		args = append(args, "--cookies-from-browser", ytdlCookiesFrom)
-	}
+	args = appendYTDLCookieArgs(args, pageURL)
 	args = append(args, pageURL)
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 	// WaitDelay ensures cmd.Output() doesn't hang indefinitely if the
@@ -316,9 +313,7 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 		"--socket-timeout", "15",
 		"-o", "-",
 	}
-	if ytdlCookiesFrom != "" {
-		ytdlArgs = append(ytdlArgs, "--cookies-from-browser", ytdlCookiesFrom)
-	}
+	ytdlArgs = appendYTDLCookieArgs(ytdlArgs, pageURL)
 	ytdlArgs = append(ytdlArgs, pageURL)
 	ytdlCmd := exec.Command("yt-dlp", ytdlArgs...)
 	ytdlCmd.Stdout = pw

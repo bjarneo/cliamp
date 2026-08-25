@@ -1,7 +1,8 @@
 // Package cmd implements interactive subcommands invoked from the CLI.
 // setup.go contains the provider onboarding wizard reachable via
 // `cliamp setup`. It walks the user through configuring each remote
-// provider (Navidrome, Plex, Jellyfin, Spotify, Qobuz, NetEase, YouTube Music),
+// provider (Navidrome, Plex, Jellyfin, Spotify, Qobuz, Tidal, Mixcloud,
+// NetEase, YouTube Music),
 // validates the connection where possible, and writes the resulting
 // TOML section to ~/.config/cliamp/config.toml.
 //
@@ -28,6 +29,8 @@ import (
 	"github.com/bjarneo/cliamp/external/audiobookshelf"
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
+	"github.com/bjarneo/cliamp/external/lyrion"
+	"github.com/bjarneo/cliamp/external/mixcloud"
 	"github.com/bjarneo/cliamp/external/navidrome"
 	"github.com/bjarneo/cliamp/external/netease"
 	"github.com/bjarneo/cliamp/external/plex"
@@ -88,13 +91,15 @@ type pickerOption struct {
 // Picker keys are stored in the values map alongside real field keys; the
 // leading underscore distinguishes them from TOML field names.
 const (
-	keyJellyfinAuth   = "_auth"
-	keyEmbyAuth       = "_emby_auth"
-	keyABSAuth        = "_abs_auth"
-	keyNetEaseBrowser = "_netease_browser"
-	keyYTMusicMode    = "_mode"
-	keySpotifyMode    = "_spotify_mode"
-	keyQobuzQuality   = "_qobuz_quality"
+	keyJellyfinAuth    = "_auth"
+	keyEmbyAuth        = "_emby_auth"
+	keyABSAuth         = "_abs_auth"
+	keyNetEaseBrowser  = "_netease_browser"
+	keyYTMusicMode     = "_mode"
+	keySpotifyMode     = "_spotify_mode"
+	keyQobuzQuality    = "_qobuz_quality"
+	keyTidalQuality    = "_tidal_quality"
+	keyMixcloudBrowser = "_mixcloud_browser"
 )
 
 func providers() []providerSpec {
@@ -114,6 +119,31 @@ func providers() []providerSpec {
 			},
 			validate: func(v map[string]string) error {
 				return navidrome.New(v["url"], v["user"], v["password"]).Ping()
+			},
+			body: func(v map[string]string) string {
+				return strings.Join([]string{
+					fmt.Sprintf("url      = %q", v["url"]),
+					fmt.Sprintf("user     = %q", v["user"]),
+					fmt.Sprintf("password = %q", v["password"]),
+				}, "\n")
+			},
+		},
+		{
+			key:     "lyrion",
+			name:    "Lyrion Music Server",
+			section: "lyrion",
+			intro: []string{
+				"Self-hosted server for Squeezebox players, formerly Logitech Media Server.",
+				"Username and password are only needed if the server has password protection.",
+				"Docs: cliamp.stream → docs/lyrion.md",
+			},
+			fields: []fieldSpec{
+				{key: "url", label: "Server URL", help: "e.g. http://nas.local:9000", required: true},
+				{key: "user", label: "Username", help: "leave blank if the server is unprotected"},
+				{key: "password", label: "Password", secret: true},
+			},
+			validate: func(v map[string]string) error {
+				return lyrion.New(v["url"], v["user"], v["password"]).Ping()
 			},
 			body: func(v map[string]string) string {
 				return strings.Join([]string{
@@ -290,15 +320,15 @@ func providers() []providerSpec {
 				"Recommended: register your own Spotify Developer app at",
 				"developer.spotify.com/dashboard (redirect URI",
 				"http://127.0.0.1:19872/login). Your own client_id gives you a",
-				"private Web API rate-limit quota for library and playlists.",
+				"private Web API rate-limit quota for library, playlists, and search.",
 				"Playback is authorized separately, so first use completes two",
-				"steps in one browser tab. Apps registered after Nov 27, 2024",
-				"can't use /v1/search; that's a Spotify dev-mode restriction.",
+				"steps in one browser tab. Development Mode caps /v1/search at",
+				"10 results per request; cliamp pages automatically with offset.",
 				"",
 				"Alternative: cliamp ships a built-in client_id (the librespot",
-				"keymaster) that bypasses the search restriction. It's shared",
-				"with every librespot- and spotify-player-based client, so you",
-				"may see occasional 429 errors when the pool is busy.",
+				"keymaster) if you do not want to register an app. It's shared with",
+				"every librespot- and spotify-player-based client, so you may see",
+				"occasional 429 errors when the pool is busy.",
 			},
 			picker: &pickerSpec{
 				key:   keySpotifyMode,
@@ -370,6 +400,39 @@ func providers() []providerSpec {
 			},
 		},
 		{
+			key:     "tidal",
+			name:    "Tidal",
+			section: "tidal",
+			intro: []string{
+				"Lossless streaming. Requires a paid Tidal subscription",
+				"(every paid plan includes lossless FLAC).",
+				"",
+				"No API credentials needed - cliamp uses built-in ones.",
+				"After setup, launch cliamp, select Tidal, and press Enter to",
+				"sign in: approve the link.tidal.com device code in a browser.",
+			},
+			picker: &pickerSpec{
+				key:   keyTidalQuality,
+				label: "Stream quality",
+				options: []pickerOption{
+					{value: "lossless", label: "FLAC (hi-res masters; AAC 320 otherwise) - recommended"},
+					{value: "hires", label: "FLAC hi-res (same delivery as lossless)"},
+					{value: "high", label: "AAC 320kbps"},
+					{value: "low", label: "AAC 96kbps"},
+				},
+			},
+			body: func(v map[string]string) string {
+				q := v[keyTidalQuality]
+				if q == "" {
+					q = "lossless"
+				}
+				return strings.Join([]string{
+					"enabled = true",
+					fmt.Sprintf("quality = %q", q),
+				}, "\n")
+			},
+		},
+		{
 			key:     "netease",
 			name:    "NetEase Cloud Music",
 			section: "netease",
@@ -423,29 +486,110 @@ func providers() []providerSpec {
 			},
 		},
 		{
+			key:     "mixcloud",
+			name:    "Mixcloud",
+			section: "mixcloud",
+			intro: []string{
+				"Browse and play Mixcloud shows through its public API and yt-dlp.",
+				"A username adds your public library, following stream, and creators.",
+				"An optional developer access token adds /me and Listen Later.",
+				"Choose browser cookies for subscriber-only or signed-in playback.",
+				"Docs: cliamp.stream → docs/mixcloud.md",
+			},
+			picker: &pickerSpec{
+				key:   keyMixcloudBrowser,
+				label: "Playback session",
+				options: []pickerOption{
+					{value: "none", label: "Public shows only (no browser cookies)"},
+					{value: "chrome", label: "Chrome"},
+					{value: "safari", label: "Safari"},
+					{value: "firefox", label: "Firefox"},
+					{value: "brave", label: "Brave"},
+					{value: "edge", label: "Edge"},
+					{value: "chromium", label: "Chromium"},
+					{value: "opera", label: "Opera"},
+					{value: "vivaldi", label: "Vivaldi"},
+					{value: "whale", label: "Whale"},
+					{value: "custom", label: "Custom browser/profile"},
+				},
+			},
+			fields: []fieldSpec{
+				{key: "username", label: "Mixcloud username (optional)", help: "adds account views and followed creators"},
+				{key: "access_token", label: "Developer API access token (optional)", help: "enables /me and Listen Later", secret: true},
+				{key: "cookies_from", label: "Custom browser/profile", help: "e.g. chrome:Profile 1, firefox:default-release", required: true,
+					onlyIf: func(v map[string]string) bool { return v[keyMixcloudBrowser] == "custom" }},
+				{key: "styles", label: "Music styles (optional)", help: "comma-separated; blank uses cliamp defaults"},
+				{key: "max_items", label: "Items per view", help: fmt.Sprintf("%d-%d", mixcloud.MinItems, mixcloud.MaxItemsLimit), defaultV: strconv.Itoa(mixcloud.DefaultMaxItems)},
+				{key: "stream_creators", label: "Creators in Stream", help: fmt.Sprintf("%d-%d", mixcloud.MinItems, mixcloud.MaxStreamCreators), defaultV: strconv.Itoa(mixcloud.DefaultStreamCreators)},
+			},
+			extraValidate: func(v map[string]string) error {
+				limits := []struct {
+					key, label string
+					max        int
+				}{
+					{key: "max_items", label: "items per view", max: mixcloud.MaxItemsLimit},
+					{key: "stream_creators", label: "stream creators", max: mixcloud.MaxStreamCreators},
+				}
+				for _, field := range limits {
+					n, err := strconv.Atoi(strings.TrimSpace(v[field.key]))
+					if err != nil {
+						return fmt.Errorf("%s must be a number", field.label)
+					}
+					if n < mixcloud.MinItems || n > field.max {
+						return fmt.Errorf("%s is outside its supported range", field.label)
+					}
+				}
+				return nil
+			},
+			body: func(v map[string]string) string {
+				lines := []string{"enabled = true"}
+				if username := strings.TrimSpace(v["username"]); username != "" {
+					lines = append(lines, fmt.Sprintf("username = %q", username))
+				}
+				if token := strings.TrimSpace(v["access_token"]); token != "" {
+					lines = append(lines, fmt.Sprintf("access_token = %q", token))
+				}
+				if browser := mixcloudCookiesFrom(v); browser != "" {
+					lines = append(lines, fmt.Sprintf("cookies_from = %q", browser))
+				}
+				if styles := setupStringList(v["styles"]); styles != "" {
+					lines = append(lines, "styles = "+styles)
+				}
+				maxItems := strings.TrimSpace(v["max_items"])
+				if maxItems == "" {
+					maxItems = strconv.Itoa(mixcloud.DefaultMaxItems)
+				}
+				streamCreators := strings.TrimSpace(v["stream_creators"])
+				if streamCreators == "" {
+					streamCreators = strconv.Itoa(mixcloud.DefaultStreamCreators)
+				}
+				lines = append(lines, "max_items = "+maxItems, "stream_creators = "+streamCreators)
+				return strings.Join(lines, "\n")
+			},
+		},
+		{
 			key:     "ytmusic",
 			name:    "YouTube Music",
 			section: "ytmusic",
 			intro: []string{
-				"Works out of the box with built-in fallback credentials.",
-				"Provide your own OAuth client to skip the shared pool, and/or",
-				"a browser name for cookie-based age-gated playback.",
+				"Browse playlists and liked music with browser cookies (zero OAuth setup),",
+				"or provide your own Google Cloud OAuth client credentials.",
 			},
 			picker: &pickerSpec{
 				key:   keyYTMusicMode,
 				label: "Mode",
 				options: []pickerOption{
-					{value: "default", label: "Use built-in credentials (recommended)"},
-					{value: "custom", label: "Provide my own OAuth credentials / cookies"},
+					{value: "cookies", label: "Browser cookies (recommended — zero OAuth setup)"},
+					{value: "custom", label: "Provide my own OAuth credentials"},
 					{value: "off", label: "Disable YouTube Music"},
 				},
 			},
 			fields: []fieldSpec{
-				{key: "client_id", label: "OAuth Client ID",
+				{key: "cookies_from", label: "Browser for cookies (optional with OAuth)", help: "e.g. chrome, firefox, brave, chromium; blank uses Chrome in cookie mode",
+					onlyIf: func(v map[string]string) bool { return v[keyYTMusicMode] != "off" }},
+				{key: "client_id", label: "OAuth Client ID", required: true,
 					onlyIf: func(v map[string]string) bool { return v[keyYTMusicMode] == "custom" }},
-				{key: "client_secret", label: "OAuth Client Secret", secret: true,
-					onlyIf: func(v map[string]string) bool { return v[keyYTMusicMode] == "custom" }},
-				{key: "cookies_from", label: "Cookies from browser", help: "e.g. chrome, firefox; blank to skip",
+				{key: "client_secret", label: "OAuth Client Secret", secret: true, required: true,
 					onlyIf: func(v map[string]string) bool { return v[keyYTMusicMode] == "custom" }},
 			},
 			body: func(v map[string]string) string {
@@ -465,7 +609,11 @@ func providers() []providerSpec {
 					}
 					return strings.Join(lines, "\n")
 				default:
-					return "enabled = true"
+					browser := strings.TrimSpace(v["cookies_from"])
+					if browser == "" {
+						browser = "chrome"
+					}
+					return fmt.Sprintf("enabled      = true\ncookies_from = %q", browser)
 				}
 			},
 		},
@@ -478,6 +626,30 @@ func netEaseCookiesFrom(v map[string]string) string {
 		return strings.TrimSpace(v["cookies_from"])
 	}
 	return picked
+}
+
+func mixcloudCookiesFrom(v map[string]string) string {
+	picked := strings.TrimSpace(v[keyMixcloudBrowser])
+	if picked == "" || picked == "none" {
+		return ""
+	}
+	if picked == "custom" {
+		return strings.TrimSpace(v["cookies_from"])
+	}
+	return picked
+}
+
+func setupStringList(value string) string {
+	var quoted []string
+	for _, part := range strings.Split(value, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			quoted = append(quoted, strconv.Quote(part))
+		}
+	}
+	if len(quoted) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
 }
 
 // ----- Bubbletea model ----------------------------------------------------

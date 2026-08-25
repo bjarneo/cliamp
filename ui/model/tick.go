@@ -25,7 +25,7 @@ func tickCmdAt(d time.Duration) tea.Cmd {
 }
 
 func (m Model) visualizerVisible() bool {
-	if m.vis == nil || m.vis.Mode == ui.VisNone || m.vis.Rows <= 0 || m.vis.Cols <= 0 || m.layout.tooSmall() {
+	if m.simplified || m.vis == nil || m.vis.Mode == ui.VisNone || m.vis.Rows <= 0 || m.vis.Cols <= 0 || m.layout.tooSmall() {
 		return false
 	}
 	if m.fullVis {
@@ -42,6 +42,20 @@ func (m *Model) visualizerPlaying() bool {
 func (m *Model) visualizerPaused() bool {
 	return m.player != nil && m.visualizerVisible() &&
 		!m.isOverlayActive() && m.player.IsPlaying() && m.player.IsPaused()
+}
+
+// visualizerSettlingPaused reports whether playback is paused and the
+// visualizer still has spectrum content easing to zero. While true the tick
+// stays above the idle cadence so the bars fall; once settled the model can
+// return to the fully-idle cadence.
+func (m *Model) visualizerSettlingPaused() bool {
+	if m.player == nil || !m.player.IsPaused() || m.isOverlayActive() {
+		return false
+	}
+	if !m.visualizerVisible() {
+		return false
+	}
+	return m.vis.PausedDecayPending(m.visualizerTickContext(time.Time{}))
 }
 
 func (m *Model) visualizerTickContext(now time.Time) ui.VisTickContext {
@@ -83,9 +97,21 @@ func (m *Model) visualizerTickContext(now time.Time) ui.VisTickContext {
 			if bands, ok := cache[spec]; ok {
 				return bands
 			}
+			if m.player.IsPaused() {
+				// Paused playback yields no new samples; feed silence so
+				// spectrum content eases down to rest instead of freezing on
+				// the last played frame held in the audio tap.
+				bands := m.vis.Analyze(nil, spec)
+				cache[spec] = bands
+				return bands
+			}
 			buf := m.vis.EnsureSampleBuf(spec.FFTSize)
 			if !sampled || spec.FFTSize > sampledSize {
-				samplesRead = m.player.SamplesInto(buf)
+				if spec.BandCount == 0 {
+					samplesRead = m.player.WaveformSamplesInto(buf)
+				} else {
+					samplesRead = m.player.SamplesInto(buf)
+				}
 				if m.visVolumeLinked {
 					gain := math.Pow(10, m.player.Volume()/20)
 					for i := range samplesRead {
@@ -159,6 +185,18 @@ func (m *Model) tickInterval() time.Duration {
 		if m.lowPower {
 			return ui.TickLowPowerPlaying
 		}
+		if m.visualizerVisible() && (m.visualizer60FPS || m.vis.UsesRawSamples()) {
+			return ui.TickAnim
+		}
+		return ui.TickFast
+	}
+	// Paused visualizer content still easing to rest: run at the fast cadence
+	// so the bars fall smoothly instead of in ~5 fps steps, then drop to idle
+	// once the content has settled.
+	if m.visualizerSettlingPaused() {
+		if m.visualizer60FPS {
+			return ui.TickAnim
+		}
 		return ui.TickFast
 	}
 	return max(d, ui.TickFast)
@@ -172,6 +210,9 @@ func (m *Model) isFullyIdle() bool {
 		return false
 	}
 	if m.player.IsPlaying() && !m.player.IsPaused() {
+		return false
+	}
+	if m.visualizerSettlingPaused() {
 		return false
 	}
 	if m.isOverlayActive() || m.buffering || m.termTitle.introActive {

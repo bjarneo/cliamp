@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"slices"
-	"strconv"
 	"sync"
 	"time"
 
@@ -481,7 +480,7 @@ func (p *QobuzProvider) buildTrack(ctx context.Context, c *client, t apiTrack, a
 	if album != nil {
 		track.Album = album.Title
 		track.Genre = album.Genre.Name
-		track.Year = parseYear(album.ReleaseDateOriginal)
+		track.Year = provider.YearFromDate(album.ReleaseDateOriginal)
 	}
 
 	if !t.Streamable {
@@ -520,20 +519,8 @@ func albumInfo(a apiAlbum) provider.AlbumInfo {
 		Name:       a.Title,
 		Artist:     a.Artist.Name,
 		ArtistID:   a.Artist.ID.String(),
-		Year:       parseYear(a.ReleaseDateOriginal),
+		Year:       provider.YearFromDate(a.ReleaseDateOriginal),
 		TrackCount: a.TracksCount,
 		Genre:      a.Genre.Name,
 	}
-}
-
-// parseYear extracts the year from a Qobuz "YYYY-MM-DD" date string.
-func parseYear(date string) int {
-	if len(date) < 4 {
-		return 0
-	}
-	y, err := strconv.Atoi(date[:4])
-	if err != nil {
-		return 0
-	}
-	return y
 }

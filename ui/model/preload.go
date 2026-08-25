@@ -22,6 +22,16 @@ const streamPreloadLeadTime = 3 * time.Second
 // takes 3-10 seconds, so we start preloading much earlier.
 const ytdlPreloadLeadTime = 15 * time.Second
 
+// rearmPreload discards any armed gapless pipeline and re-arms from the
+// current playlist state. Call after any change that alters which track
+// plays next.
+func (m *Model) rearmPreload() tea.Cmd {
+	nextRequest(&m.requests.preload)
+	m.preloading = false
+	m.player.ClearPreload()
+	return m.preloadNext()
+}
+
 // preloadNext looks ahead in the playlist and preloads the next track for
 // gapless transition. Errors are silently ignored — playback falls back to
 // non-gapless if preloading fails.
@@ -37,7 +47,7 @@ func (m *Model) preloadNext() tea.Cmd {
 	// Live streams do not have a track boundary. Preloading another station
 	// would turn a transient EOF into a gapless switch instead of reconnecting
 	// the station the user selected.
-	if current, idx := m.currentPlaybackTrack(); idx >= 0 && current.IsLive() {
+	if current, idx := m.currentPlaybackTrack(); idx >= 0 && m.currentPlaybackIsLive(current) {
 		return nil
 	}
 
@@ -68,16 +78,17 @@ func (m *Model) preloadNext() tea.Cmd {
 	}
 	if next.Stream {
 		// For streams, only arm gapless if we're within the lead-time window.
-		// If we don't know the duration yet (0), preload immediately as before
-		// so that streams without duration metadata still get gapless behaviour.
+		// Without a known boundary, opening the next connection now can leave it
+		// stale for the entire track or pause and turn one EOF into several skips.
 		dur := m.player.Duration()
-		if dur > 0 {
-			pos := m.player.Position()
-			remaining := dur - pos
-			if remaining > streamPreloadLeadTime {
-				// Too early — caller should retry from the tick loop.
-				return nil
-			}
+		if dur <= 0 {
+			return nil
+		}
+		pos := m.player.Position()
+		remaining := dur - pos
+		if remaining > streamPreloadLeadTime {
+			// Too early — caller should retry from the tick loop.
+			return nil
 		}
 		nextDur := time.Duration(next.DurationSecs) * time.Second
 		// Mark in-flight so the tick loop doesn't dispatch a second concurrent

@@ -169,6 +169,17 @@ func TestM3UEntryToTrackStream(t *testing.T) {
 	}
 }
 
+func TestM3UEntryToTrackZeroDurationIsLive(t *testing.T) {
+	tr := m3uEntryToTrack(m3uEntry{
+		Path:     "http://radio.example.com/stream",
+		Title:    "Radio Station",
+		Duration: 0,
+	})
+	if !tr.Realtime {
+		t.Fatal("Realtime = false for a zero-duration HTTP stream")
+	}
+}
+
 func TestM3UEntryToTrackFile(t *testing.T) {
 	e := m3uEntry{
 		Path:     "/home/user/song.mp3",

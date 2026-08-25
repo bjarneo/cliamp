@@ -1,5 +1,3 @@
-//go:build !windows
-
 // Package spotify integrates Spotify playback into cliamp via go-librespot.
 package spotify
 

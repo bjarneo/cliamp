@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bjarneo/cliamp/internal/ytdlcookies"
 	"github.com/bjarneo/cliamp/resolve"
 )
 
@@ -133,14 +134,10 @@ func TestConfigIsSet(t *testing.T) {
 }
 
 func TestNewFromConfigPropagatesCookies(t *testing.T) {
-	t.Cleanup(func() { resolve.SetYTDLCookiesFrom("") })
-
-	resolve.SetYTDLCookiesFrom("") // baseline
+	t.Cleanup(func() { resolve.SetYTDLCookiesForHost("soundcloud.com", "") })
 
 	NewFromConfig(Config{Enabled: true, CookiesFrom: "firefox"})
-	// The exported getter is internal; we verify by side effect: a subsequent
-	// resolve call would emit --cookies-from-browser firefox. We can't easily
-	// invoke yt-dlp from a unit test, so the smoke test is that the setter
-	// accepts our value without panic and the constructor succeeds.
-	// (Full plumbing is exercised manually; resolve.ytdlCookiesFrom is private.)
+	if got := ytdlcookies.ForURL("https://soundcloud.com/user/tracks"); got != "firefox" {
+		t.Errorf("SoundCloud cookie source = %q, want firefox", got)
+	}
 }

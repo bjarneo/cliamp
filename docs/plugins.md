@@ -186,10 +186,11 @@ that cannot keep up is disconnected rather than blocking the player.
 Subscribe by opening `cliamp.sock` and sending one NDJSON request:
 
 ```json
-{"cmd":"subscribe","topics":["plugin.myplugin.playback"]}
+{"version":2,"id":"events","method":"subscribe","topics":["plugin.myplugin.playback"]}
 ```
 
-After `{"ok":true}`, the connection becomes a server-to-client event stream:
+After `{"version":2,"id":"events","ok":true}`, the connection becomes a
+server-to-client event stream:
 
 ```json
 {"event":"plugin.myplugin.playback","seq":42,"time":1786685741,"retained":true,"data":{"status":"playing","title":"Track"}}

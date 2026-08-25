@@ -755,6 +755,9 @@ func writeTrack(w io.Writer, t playlist.Track) {
 	if t.Feed {
 		fmt.Fprintln(w, "feed = true")
 	}
+	if t.Realtime {
+		fmt.Fprintln(w, "realtime = true")
+	}
 	if t.Artist != "" {
 		fmt.Fprintf(w, "artist = %q\n", t.Artist)
 	}
@@ -787,12 +790,13 @@ func writeTrack(w io.Writer, t playlist.Track) {
 // parseTrackFields converts a parsed [[track]] section into a Track.
 func parseTrackFields(f map[string]string) playlist.Track {
 	t := playlist.Track{
-		Path:   f["path"],
-		Title:  f["title"],
-		Artist: f["artist"],
-		Album:  f["album"],
-		Genre:  f["genre"],
-		Feed:   f["feed"] == "true",
+		Path:     f["path"],
+		Title:    f["title"],
+		Artist:   f["artist"],
+		Album:    f["album"],
+		Genre:    f["genre"],
+		Feed:     f["feed"] == "true",
+		Realtime: f["realtime"] == "true",
 	}
 	t.EmbeddedLyrics = f["embedded_lyrics"]
 	t.AlbumArtURL = f["album_art_url"]

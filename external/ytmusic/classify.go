@@ -18,6 +18,7 @@ const musicCategoryID = "10"
 
 // classificationCache maps playlist ID → true if the playlist is music.
 type classificationCache struct {
+	Scope string          `json:"scope"`
 	Music map[string]bool `json:"music"` // playlist ID → is music
 }
 
@@ -31,7 +32,7 @@ func classificationCachePath() string {
 }
 
 // loadClassification loads cached playlist classifications from disk.
-func loadClassification() map[string]bool {
+func loadClassification(scope string) map[string]bool {
 	data, err := os.ReadFile(classificationCachePath())
 	if err != nil {
 		return nil
@@ -40,12 +41,15 @@ func loadClassification() map[string]bool {
 	if err := json.Unmarshal(data, &cache); err != nil {
 		return nil
 	}
+	if cache.Scope != scope {
+		return nil
+	}
 	return cache.Music
 }
 
 // saveClassification writes playlist classifications to disk.
-func saveClassification(music map[string]bool) {
-	cache := classificationCache{Music: music}
+func saveClassification(scope string, music map[string]bool) {
+	cache := classificationCache{Scope: scope, Music: music}
 	data, _ := json.MarshalIndent(cache, "", "  ")
 	path := classificationCachePath()
 	os.MkdirAll(filepath.Dir(path), 0o700)
@@ -56,10 +60,10 @@ func saveClassification(music map[string]bool) {
 // sampling one video from each and checking its category.
 // Returns a map of playlist ID → true (music) / false (not music).
 // Results are cached to disk to avoid repeated API calls.
-func classifyPlaylists(ctx context.Context, svc *youtube.Service, playlists []playlistEntry, existing map[string]bool) map[string]bool {
+func classifyPlaylists(ctx context.Context, svc *youtube.Service, playlists []playlistEntry, existing map[string]bool, scope string) map[string]bool {
 	cached := existing
 	if cached == nil {
-		cached = loadClassification()
+		cached = loadClassification(scope)
 	}
 	if cached == nil {
 		cached = make(map[string]bool)
@@ -155,7 +159,7 @@ func classifyPlaylists(ctx context.Context, svc *youtube.Service, playlists []pl
 		}
 	}
 
-	saveClassification(cached)
+	saveClassification(scope, cached)
 	return cached
 }
 
@@ -167,8 +171,8 @@ type playlistEntry struct {
 }
 
 // classifyWithTimeout runs classification with a timeout.
-func classifyWithTimeout(svc *youtube.Service, playlists []playlistEntry, timeout time.Duration, existing map[string]bool) map[string]bool {
+func classifyWithTimeout(svc *youtube.Service, playlists []playlistEntry, timeout time.Duration, existing map[string]bool, scope string) map[string]bool {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	return classifyPlaylists(ctx, svc, playlists, existing)
+	return classifyPlaylists(ctx, svc, playlists, existing, scope)
 }

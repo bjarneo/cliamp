@@ -1,12 +1,12 @@
 # Configuration
 
-For remote providers (Navidrome, Plex, Jellyfin, Emby, Spotify, Qobuz, NetEase, Audiobookshelf, YouTube Music), the fastest path is the interactive wizard:
+For remote providers (Navidrome, Lyrion, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, Mixcloud, NetEase, Audiobookshelf, YouTube Music), the fastest path is the interactive wizard:
 
 ```sh
 cliamp setup
 ```
 
-It validates your credentials live and writes the right TOML block without touching the rest of your config. See [cli.md](cli.md#setup-wizard) for details.
+It writes the right TOML block without touching the rest of your config and validates server credentials live where the provider supports it (Navidrome, Lyrion, Plex, Jellyfin, Emby). OAuth providers such as Spotify, Qobuz, and Tidal sign in later in the player — Tidal via a `link.tidal.com` device code. Mixcloud's optional browser-session or OAuth credentials are checked when used. See [cli.md](cli.md#setup-wizard) for details.
 
 ## Config directory
 
@@ -65,7 +65,8 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # keeps it available, and both values are restored after restart.
 
 # Visualizer mode (leave empty for default Bars)
-# Options: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, None
+# Options: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, Mirror, None
+# Mirror draws tapered Braille bars around a persistent horizontal center axis.
 visualizer = "Bars"
 
 # Visualizer volume linking (default: true)
@@ -78,8 +79,9 @@ vis_volume_linked = true
 # This has the same effect as starting with --low-power.
 low_power = false
 
-# Compact mode: cap UI width at 80 columns (default: fluid/full-width)
-compact = false
+# Simplified mode: artist/title and time strip without a visualizer or playlist.
+# No visualizer or playback controls are shown.
+simplified = false
 
 # UI theme name (see available themes in ~/.config/cliamp/themes/)
 theme = "Tokyo Night"
@@ -103,8 +105,10 @@ cliamp adapts its playback screen to the available terminal rectangle:
 | At least `40x10` | Minimal playback, list, seek bar, and help layout |
 | Smaller than `40x10` | A resize message only |
 
-`compact = true` caps the frame at 80 columns on wide terminals. It does not
-change the minimum supported terminal size.
+`simplified = true` replaces the main playback view with the current track's
+artist/title and time and seek-progress strip. It hides the visualizer,
+playback controls, and playlist; provider browsing and overlays keep their
+normal list-focused layout. Start one session with `cliamp --simplified`.
 
 List-heavy views such as provider browsing, file selection, queues, playlists,
 search results, themes, and keybindings use a content-first layout. It replaces
@@ -121,6 +125,12 @@ Any string value in `config.toml` can be read from an environment variable by se
 url = "https://music.example.com"
 user = "alice"
 password = "${NAVIDROME_PASSWORD}"
+
+[lyrion]
+url = "http://nas.local:9000"
+user = "alice"
+password = "${LYRION_PASSWORD}"
+# show_unplayable = true  # include plugin-contributed tracks and playlists
 
 [plex]
 url = "http://plex.local:32400"
@@ -143,6 +153,9 @@ client_id = "${YTMUSIC_CLIENT_ID}"
 client_secret = "${YTMUSIC_CLIENT_SECRET}"
 # Optional: resolve full playlists from list= URLs (default true). Set to false to strip playlist params.
 # expand_playlist = true
+
+[mixcloud]
+access_token = "${MIXCLOUD_ACCESS_TOKEN}"
 ```
 
 Rules:
@@ -160,7 +173,7 @@ Set which provider to start with:
 provider = "radio"
 ```
 
-Valid values: `radio` (default), `navidrome`, `spotify`, `plex`, `jellyfin`, `emby`, `qobuz`, `soundcloud`, `netease`, `audiobookshelf`, `yt`, `youtube`, `ytmusic`.
+Valid values: `radio` (default), `navidrome`, `lyrion`, `spotify`, `plex`, `jellyfin`, `emby`, `qobuz`, `tidal`, `soundcloud`, `mixcloud`, `netease`, `audiobookshelf`, `yt`, `youtube`, `ytmusic`.
 
 You can also override from the CLI: `cliamp --provider jellyfin`.
 
@@ -203,6 +216,43 @@ cookies_from = "firefox"   # or chrome, chromium, brave, edge, opera, safari, vi
 With cookies set, yt-dlp can stream subscriber-gated tracks (SoundCloud Go+) and access private likes/playlists your account is authorized for. The same cookies also apply to the player's yt-dlp invocations, so playback uses your signed-in session.
 
 Requires `yt-dlp` on `PATH`.
+
+## Mixcloud
+
+Mixcloud is opt-in. Public recent releases, popular shows, global show browsing,
+the live category catalogue, Latest/Popular genre charts, genre/tag search,
+native show search, direct creator jumps, and playback need no account:
+
+```toml
+[mixcloud]
+enabled = true
+```
+
+Add `username` for your following stream, activity, uploads, read-only show
+favorites, listening history, collections, and followed-creator browsing. An
+optional developer `access_token` makes `/me/` the account identity and adds
+Listen Later; `cookies_from` gives yt-dlp your signed-in browser session for
+playback that requires it.
+
+```toml
+[mixcloud]
+enabled = true
+username = "yourname"
+access_token = "${MIXCLOUD_ACCESS_TOKEN}"
+cookies_from = "firefox"
+styles = ["ambient", "deep-house", "jazz", "techno"]
+max_items = 100
+stream_creators = 20
+```
+
+The `styles` list is also the provider's local genre-favorites list. In the
+**Genres** browser, `/` filters and searches the full tag catalogue, while `f`
+atomically adds or removes a style and refreshes its Latest/Popular provider
+rows. These favorites do not modify the Mixcloud website account.
+
+See [mixcloud.md](mixcloud.md) for the complete feature matrix, provider-pane
+inventory, navigation and keybindings, favorite terminology, OAuth-token setup,
+signed-in playback, resume/seeking, and upstream limitations.
 
 ## NetEase Cloud Music
 

@@ -78,6 +78,7 @@ type Player struct {
 	mono                atomic.Bool
 	resampleQuality     int
 	bitDepth            int // 16 or 32
+	tapBufferFrames     int
 
 	gaplessAdvance atomic.Bool  // set when gapless transition fires
 	seekGen        atomic.Int64 // generation counter for yt-dlp seeks; incremented to cancel stale seeks
@@ -85,6 +86,7 @@ type Player struct {
 	streamTitle      atomic.Value               // stores string, set by ICY reader callback
 	customFactories  map[string]StreamerFactory // URI scheme prefix -> factory (e.g. "spotify:" -> fn)
 	bufferedURLMatch func(string) bool          // optional: returns true for URLs needing navBuffer pipeline
+	sourceResolvers  map[string]SourceResolver  // URI scheme prefix -> play-time source resolver (e.g. "tidal://")
 
 	streamMetaResolver StreamMetadataResolver // optional: API-based now-playing for streams without ICY
 	metaCancel         context.CancelFunc     // cancels the active metadata poller; guarded by mu
@@ -135,6 +137,7 @@ func New(q Quality) (*Player, error) {
 	}
 	p.bitDepth = bitDepth
 	p.rate.Store(int64(p.out.SampleRate()))
+	p.tapBufferFrames = max(4096, beep.SampleRate(p.out.SampleRate()).N(time.Duration(q.BufferMs)*time.Millisecond))
 	p.volMin.Store(math.Float64bits(-50))
 	p.speed.Store(math.Float64bits(1.0))
 	p.gapless = &gaplessStreamer{}
@@ -165,7 +168,7 @@ func (p *Player) handleGaplessSwap(token uint64) {
 	p.nextPipeline = nil
 	p.mu.Unlock()
 	if old != nil {
-		old.close()
+		go old.close()
 	}
 	p.gaplessAdvance.Store(true)
 }
@@ -176,11 +179,24 @@ func (p *Player) handleGaplessSwap(token uint64) {
 // knownDuration is the metadata duration (use 0 if unknown); it is used as a
 // fallback when the decoder cannot determine the length (e.g. HTTP streams).
 func (p *Player) Play(path string, knownDuration time.Duration) error {
+	return p.PlayAt(path, knownDuration, 0)
+}
+
+// PlayAt is Play, starting at offset. The decoder is positioned before the
+// pipeline reaches the speaker, so no audio plays from 0:00.
+func (p *Player) PlayAt(path string, knownDuration, offset time.Duration) error {
 	tp, err := p.buildPipeline(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("play at %v: %w", offset, err)
 	}
 	tp.setKnownDuration(knownDuration)
+	if offset > 0 && tp.seekable && !tp.ytdlSeek {
+		if sample := relativeSeekSample(tp, offset); sample > 0 {
+			// Ignored deliberately: a failed seek should start the track from
+			// the beginning, not refuse to play it.
+			_ = tp.decoder.Seek(sample)
+		}
+	}
 	return p.playPipeline(tp)
 }
 
@@ -248,6 +264,7 @@ func (p *Player) playPipeline(tp *trackPipeline) error {
 		// on every Stream() call.
 		p.out.Lock()
 		p.gapless.Replace(tp.stream)
+		p.gaplessAdvance.Store(false)
 		p.ctrl.Paused = false
 		p.mu.Lock()
 		oldCurrent = p.current
@@ -261,6 +278,7 @@ func (p *Player) playPipeline(tp *trackPipeline) error {
 	} else {
 		p.mu.Lock()
 		p.gapless.Replace(tp.stream)
+		p.gaplessAdvance.Store(false)
 
 		// Build the long-lived pipeline once
 		var s beep.Streamer = p.gapless
@@ -270,7 +288,7 @@ func (p *Player) playPipeline(tp *trackPipeline) error {
 			s = newBiquad(s, eqFreqs[i], 1.4, &p.eqBands[i], &p.rate)
 		}
 
-		p.tap = newTap(s, 4096)
+		p.tap = newTap(s, p.tapBufferFrames, int(p.rate.Load()))
 		s = &volumeStreamer{s: p.tap, vol: &p.volume, mono: &p.mono, cachedDB: math.NaN()}
 		p.ctrl = &beep.Ctrl{Streamer: s}
 		p.started = true
@@ -471,6 +489,7 @@ func (p *Player) Stop() {
 	// only see silence from the gapless streamer (paused ctrl).
 	p.out.Lock()
 	p.gapless.Clear()
+	p.gaplessAdvance.Store(false)
 	if p.ctrl != nil {
 		p.ctrl.Paused = true
 	}
@@ -606,6 +625,7 @@ func (p *Player) commitPreparedSeek(cur *trackPipeline, seeker preparedFFmpegSee
 	p.nextPipeline = nil
 	p.mu.Unlock()
 	p.gapless.Replace(cur.stream)
+	p.gaplessAdvance.Store(false)
 	p.out.Unlock()
 	p.lifecycleMu.Unlock()
 
@@ -642,6 +662,7 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 	p.out.Lock()
 	curPos := cur.format.SampleRate.D(cur.decoder.Position()) + cur.streamOffset
 	p.gapless.Replace(nil)
+	p.gaplessAdvance.Store(false)
 	p.out.Unlock()
 
 	newPos := max(curPos+d, 0)
@@ -653,6 +674,7 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 	// Build pipeline WITHOUT speaker lock (this is the slow part — spawns yt-dlp).
 	tp, err := p.buildYTDLPipeline(cur.path, startSec)
 	if err != nil {
+		p.restoreYTDLSeekSource(cur, gen)
 		return fmt.Errorf("yt-dlp seek: %w", err)
 	}
 	tp.knownDuration = cur.knownDuration
@@ -669,6 +691,7 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 	p.out.Lock()
 	p.gapless.Replace(tp.stream)
 	p.gapless.SetNext(nil)
+	p.gaplessAdvance.Store(false)
 	p.out.Unlock()
 
 	p.mu.Lock()
@@ -680,6 +703,24 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 	// Clean up old pipelines async to avoid blocking on process wait.
 	go closePipelines(old, oldNext)
 	return nil
+}
+
+// restoreYTDLSeekSource puts the original stream back after a replacement
+// pipeline fails to start. The generation and current-pipeline checks prevent
+// an obsolete seek from overwriting a newer seek or track change.
+func (p *Player) restoreYTDLSeekSource(cur *trackPipeline, gen int64) {
+	if cur == nil || p.seekGen.Load() != gen {
+		return
+	}
+	p.out.Lock()
+	p.mu.Lock()
+	stillCurrent := p.current == cur && p.seekGen.Load() == gen
+	if stillCurrent {
+		p.gapless.Replace(cur.stream)
+		p.gaplessAdvance.Store(false)
+	}
+	p.mu.Unlock()
+	p.out.Unlock()
 }
 
 // IsYTDLSeek reports whether the current track uses yt-dlp seek-by-restart.
@@ -706,6 +747,9 @@ func (p *Player) Position() time.Duration {
 	if cur == nil {
 		return 0
 	}
+	if cur.livePrefetch != nil {
+		return cur.livePrefetch.Position() + cur.streamOffset
+	}
 	return cur.format.SampleRate.D(cur.decoder.Position()) + cur.streamOffset
 }
 
@@ -721,6 +765,12 @@ func (p *Player) Duration() time.Duration {
 	p.mu.Unlock()
 	if cur == nil {
 		return 0
+	}
+	if cur.livePrefetch != nil {
+		if cur.knownDuration > 0 {
+			return cur.knownDuration
+		}
+		return cur.decodedDuration
 	}
 	if n := cur.decoder.Len(); n > 0 {
 		return cur.format.SampleRate.D(n)
@@ -738,6 +788,13 @@ func (p *Player) PositionAndDuration() (time.Duration, time.Duration) {
 	p.mu.Unlock()
 	if cur == nil {
 		return 0, 0
+	}
+	if cur.livePrefetch != nil {
+		dur := cur.knownDuration
+		if dur <= 0 {
+			dur = cur.decodedDuration
+		}
+		return cur.livePrefetch.Position() + cur.streamOffset, dur
 	}
 	pos := cur.format.SampleRate.D(cur.decoder.Position()) + cur.streamOffset
 	var dur time.Duration
@@ -827,6 +884,14 @@ func (p *Player) IsPlaying() bool {
 // IsPaused returns true if playback is paused.
 func (p *Player) IsPaused() bool {
 	return p.paused.Load()
+}
+
+// IsLiveStream reports whether ICY headers identify the current response as
+// live radio. A known duration takes precedence over transport metadata.
+func (p *Player) IsLiveStream() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.current != nil && p.current.live && p.current.knownDuration <= 0 && p.current.decodedDuration <= 0
 }
 
 // Drained returns true if the current track ended with no preloaded next track.
@@ -945,6 +1010,9 @@ func (p *Player) StreamErr() error {
 	if cur == nil {
 		return nil
 	}
+	if cur.livePrefetch != nil {
+		return cur.livePrefetch.Err()
+	}
 	return cur.decoder.Err()
 }
 
@@ -969,6 +1037,18 @@ func (p *Player) SamplesInto(dst []float64) int {
 		return 0
 	}
 	return tap.SamplesInto(dst)
+}
+
+// WaveformSamplesInto copies audio samples at the current position within the
+// output buffer for smooth raw visualizer rendering.
+func (p *Player) WaveformSamplesInto(dst []float64) int {
+	p.mu.Lock()
+	tap := p.tap
+	p.mu.Unlock()
+	if tap == nil {
+		return 0
+	}
+	return tap.WaveformSamplesInto(dst)
 }
 
 // StereoSamplesInto copies the latest stereo audio frames into dst.
@@ -1144,6 +1224,32 @@ func (p *Player) RegisterBufferedURLMatcher(match func(string) bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.bufferedURLMatch = match
+}
+
+// ResolvedSource is a playable source produced by a SourceResolver at play
+// time: either a direct HTTP URL, or an ordered list of media segment URLs
+// whose concatenated bytes form one progressive stream (e.g. unencrypted
+// DASH fMP4 segments).
+type ResolvedSource struct {
+	URL      string
+	Segments []string
+}
+
+// SourceResolver turns a custom URI (e.g. "tidal://track/123") into a
+// ResolvedSource when playback starts. Resolving at play time keeps
+// short-lived signed URLs fresh no matter how long a track sat in the queue.
+type SourceResolver func(uri string) (ResolvedSource, error)
+
+// RegisterSourceResolver registers a resolver for a custom URI scheme prefix.
+// Unlike RegisterStreamerFactory, the provider only supplies bytes to fetch;
+// decoding stays in the player's buffered ffmpeg pipeline.
+func (p *Player) RegisterSourceResolver(scheme string, r SourceResolver) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.sourceResolvers == nil {
+		p.sourceResolvers = make(map[string]SourceResolver)
+	}
+	p.sourceResolvers[scheme] = r
 }
 
 // suspendSpeaker suspends the ALSA audio callback goroutine so it blocks

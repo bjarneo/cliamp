@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -37,6 +38,9 @@ func (m *Model) handleIPCURL(request ipc.URLRequestMsg) tea.Cmd {
 }
 
 func (m *Model) handleIPCURLResult(result ipcURLLoadResult) tea.Cmd {
+	if result.request.Context != nil && result.request.Context.Err() != nil {
+		return nil
+	}
 	if result.err != nil {
 		result.request.Reply <- ipc.Response{OK: false, Error: result.err.Error()}
 		return nil
@@ -94,6 +98,7 @@ func (m *Model) handleIPCQueue(request ipc.QueueRequestMsg) tea.Cmd {
 		m.playlist.Queue(request.Index)
 		m.normalizeQueueOverlay()
 		request.Reply <- m.ipcQueueResponse()
+		return m.rearmPreload()
 	case "queue.remove":
 		if request.Index == m.playlist.Index() {
 			m.player.Stop()
@@ -105,6 +110,7 @@ func (m *Model) handleIPCQueue(request ipc.QueueRequestMsg) tea.Cmd {
 		}
 		m.normalizeQueueOverlay()
 		request.Reply <- m.ipcQueueResponse()
+		return m.rearmPreload()
 	case "queue.move":
 		if !m.playlist.Move(request.Index, request.To) {
 			request.Reply <- ipc.Response{OK: false, Error: "invalid queue move"}
@@ -112,6 +118,7 @@ func (m *Model) handleIPCQueue(request ipc.QueueRequestMsg) tea.Cmd {
 		}
 		m.normalizeQueueOverlay()
 		request.Reply <- m.ipcQueueResponse()
+		return m.rearmPreload()
 	case "queue.clear":
 		m.player.Stop()
 		m.replacePlaylist(nil)
@@ -145,6 +152,9 @@ func (m *Model) ipcQueueResponse() ipc.Response {
 }
 
 func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
+	if request.Context != nil && request.Context.Err() != nil {
+		return nil
+	}
 	if request.Op == "provider.list" {
 		items := make([]ipc.ProviderInfo, 0, len(m.providers))
 		for _, entry := range m.providers {
@@ -175,7 +185,10 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 			return nil
 		}
 		return func() tea.Msg {
-			_, err := creator.CreatePlaylist(context.Background(), request.Playlist)
+			if request.Context != nil && request.Context.Err() != nil {
+				return nil
+			}
+			_, err := creator.CreatePlaylist(requestContext(request.Context), request.Playlist)
 			request.Reply <- ipcResponseError(err)
 			return nil
 		}
@@ -185,21 +198,21 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 			request.Reply <- ipc.Response{OK: false, Error: "provider does not support playlist renaming"}
 			return nil
 		}
-		return ipcMutationCmd(request.Reply, func() error { return renamer.RenamePlaylist(request.Playlist, request.NewName) })
+		return ipcMutationCmd(request.Context, request.Reply, func() error { return renamer.RenamePlaylist(request.Playlist, request.NewName) })
 	case "playlist.delete":
 		deleter, ok := entry.Provider.(provider.PlaylistDeleter)
 		if !ok {
 			request.Reply <- ipc.Response{OK: false, Error: "provider does not support playlist deletion"}
 			return nil
 		}
-		return ipcMutationCmd(request.Reply, func() error { return deleter.DeletePlaylist(request.Playlist) })
+		return ipcMutationCmd(request.Context, request.Reply, func() error { return deleter.DeletePlaylist(request.Playlist) })
 	case "playlist.remove":
 		deleter, ok := entry.Provider.(provider.PlaylistDeleter)
 		if !ok {
 			request.Reply <- ipc.Response{OK: false, Error: "provider does not support removing tracks"}
 			return nil
 		}
-		return ipcMutationCmd(request.Reply, func() error { return deleter.RemoveTrack(request.Playlist, request.Index) })
+		return ipcMutationCmd(request.Context, request.Reply, func() error { return deleter.RemoveTrack(request.Playlist, request.Index) })
 	case "playlist.add":
 		writer, ok := entry.Provider.(provider.PlaylistWriter)
 		if !ok || request.Track == nil {
@@ -207,14 +220,63 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 			return nil
 		}
 		track := ipcTrackFromInfo(*request.Track)
-		return ipcMutationCmd(request.Reply, func() error { return writer.AddTrackToPlaylist(context.Background(), request.Playlist, track) })
+		return ipcMutationCmd(request.Context, request.Reply, func() error {
+			return writer.AddTrackToPlaylist(requestContext(request.Context), request.Playlist, track)
+		})
+	case "playlist.add_many":
+		if len(request.Tracks) == 0 {
+			request.Reply <- ipc.Response{OK: false, Error: "tracks are required"}
+			return nil
+		}
+		tracks := make([]playlist.Track, len(request.Tracks))
+		for i, info := range request.Tracks {
+			tracks[i] = ipcTrackFromInfo(info)
+		}
+		if writer, ok := entry.Provider.(provider.PlaylistBatchWriter); ok {
+			return func() tea.Msg {
+				if request.Context != nil && request.Context.Err() != nil {
+					return nil
+				}
+				added, skipped, err := writer.AddTracksToPlaylist(requestContext(request.Context), request.Playlist, tracks)
+				if err != nil {
+					request.Reply <- ipcResponseError(err)
+				} else {
+					request.Reply <- ipc.Response{OK: true, Total: added, Items: []string{fmt.Sprintf("skipped:%d", skipped)}}
+				}
+				return nil
+			}
+		}
+		writer, ok := entry.Provider.(provider.PlaylistWriter)
+		if !ok {
+			request.Reply <- ipc.Response{OK: false, Error: "provider does not support adding tracks"}
+			return nil
+		}
+		return ipcMutationCmd(request.Context, request.Reply, func() error {
+			for _, track := range tracks {
+				if err := writer.AddTrackToPlaylist(requestContext(request.Context), request.Playlist, track); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	case "playlist.replace":
+		saver, ok := entry.Provider.(provider.PlaylistSaver)
+		if !ok {
+			request.Reply <- ipc.Response{OK: false, Error: "provider does not support replacing playlists"}
+			return nil
+		}
+		tracks := make([]playlist.Track, len(request.Tracks))
+		for i, info := range request.Tracks {
+			tracks[i] = ipcTrackFromInfo(info)
+		}
+		return ipcMutationCmd(request.Context, request.Reply, func() error { return saver.SavePlaylist(request.Playlist, tracks) })
 	case "playlist.bookmark":
 		bookmarks, ok := entry.Provider.(provider.BookmarkSetter)
 		if !ok || request.Track == nil {
 			request.Reply <- ipc.Response{OK: false, Error: "provider does not support bookmarks"}
 			return nil
 		}
-		return ipcMutationCmd(request.Reply, func() error { return bookmarks.SetBookmarkByPath(request.Playlist, request.Track.Path) })
+		return ipcMutationCmd(request.Context, request.Reply, func() error { return bookmarks.SetBookmarkByPath(request.Playlist, request.Track.Path) })
 	case "provider.playlists":
 		return func() tea.Msg {
 			items, err := ipcProviderPlaylistInfos(entry)
@@ -222,7 +284,8 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 				request.Reply <- ipc.Response{OK: false, Error: err.Error()}
 				return nil
 			}
-			request.Reply <- ipc.Response{OK: true, Playlists: items}
+			page, total := ipcPage(items, request.Offset, request.Limit, 200)
+			request.Reply <- ipc.Response{OK: true, Playlists: page, Total: total}
 			return nil
 		}
 	case "provider.catalog":
@@ -255,7 +318,8 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 			if err != nil {
 				request.Reply <- ipc.Response{OK: false, Error: err.Error()}
 			} else {
-				request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(tracks), Total: len(tracks)}
+				page, total := ipcPage(tracks, request.Offset, request.Limit, 200)
+				request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(page), Total: total}
 			}
 			return nil
 		}
@@ -270,11 +334,12 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 			if limit <= 0 || limit > 100 {
 				limit = 25
 			}
-			tracks, err := ipcSearchProvider(entry.Provider, request.Query, limit)
+			tracks, err := ipcSearchProvider(requestContext(request.Context), entry.Provider, request.Query, min(100, request.Offset+limit))
 			if err != nil {
 				request.Reply <- ipc.Response{OK: false, Error: err.Error()}
 			} else {
-				request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(tracks), Total: len(tracks)}
+				page, total := ipcPage(tracks, request.Offset, limit, 100)
+				request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(page), Total: total}
 			}
 			return nil
 		}
@@ -294,7 +359,8 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 			for i, artist := range artists {
 				items[i] = ipc.ArtistInfo{ID: artist.ID, Name: artist.Name, AlbumCount: artist.AlbumCount}
 			}
-			request.Reply <- ipc.Response{OK: true, Artists: items, Total: len(items)}
+			page, total := ipcPage(items, request.Offset, request.Limit, 200)
+			request.Reply <- ipc.Response{OK: true, Artists: page, Total: total}
 			return nil
 		}
 	case "provider.artist_albums":
@@ -308,7 +374,8 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 			if err != nil {
 				request.Reply <- ipcResponseError(err)
 			} else {
-				request.Reply <- ipc.Response{OK: true, Albums: ipcAlbumInfos(albums), Total: len(albums)}
+				page, total := ipcPage(albums, request.Offset, request.Limit, 200)
+				request.Reply <- ipc.Response{OK: true, Albums: ipcAlbumInfos(page), Total: total}
 			}
 			return nil
 		}
@@ -354,7 +421,8 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 			if err != nil {
 				request.Reply <- ipcResponseError(err)
 			} else {
-				request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(tracks), Total: len(tracks)}
+				page, total := ipcPage(tracks, request.Offset, request.Limit, 200)
+				request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(page), Total: total}
 			}
 			return nil
 		}
@@ -391,8 +459,11 @@ func ipcProviderPlaylistInfos(entry ProviderEntry) ([]ipc.PlaylistInfo, error) {
 	return items, nil
 }
 
-func ipcMutationCmd(reply chan ipc.Response, mutate func() error) tea.Cmd {
+func ipcMutationCmd(ctx context.Context, reply chan ipc.Response, mutate func() error) tea.Cmd {
 	return func() tea.Msg {
+		if ctx != nil && ctx.Err() != nil {
+			return nil
+		}
 		reply <- ipcResponseError(mutate())
 		return nil
 	}
@@ -405,9 +476,9 @@ func ipcResponseError(err error) ipc.Response {
 	return ipc.Response{OK: true}
 }
 
-func ipcSearchProvider(source playlist.Provider, query string, limit int) ([]playlist.Track, error) {
+func ipcSearchProvider(ctx context.Context, source playlist.Provider, query string, limit int) ([]playlist.Track, error) {
 	if searcher, ok := source.(provider.Searcher); ok {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(requestContext(ctx), 30*time.Second)
 		defer cancel()
 		return searcher.SearchTracks(ctx, query, limit)
 	}
@@ -437,6 +508,9 @@ func ipcSearchProvider(source playlist.Provider, query string, limit int) ([]pla
 }
 
 func (m *Model) handleIPCProviderLoad(result ipcProviderLoadResult) tea.Cmd {
+	if result.request.Context != nil && result.request.Context.Err() != nil {
+		return nil
+	}
 	if result.err != nil {
 		result.request.Reply <- ipc.Response{OK: false, Error: result.err.Error()}
 		return nil
@@ -446,8 +520,27 @@ func (m *Model) handleIPCProviderLoad(result ipcProviderLoadResult) tea.Cmd {
 	m.setHeaderStateFromTracks(result.tracks)
 	m.playlist.SetIndex(0)
 	m.plCursor = 0
-	result.request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(result.tracks), Total: len(result.tracks)}
+	result.request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(result.tracks), Playlist: result.request.Playlist, Total: len(result.tracks)}
 	return m.playCurrentTrack()
+}
+
+func requestContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
+func ipcPage[T any](items []T, offset, limit, max int) ([]T, int) {
+	total := len(items)
+	if offset < 0 || offset >= total {
+		return nil, total
+	}
+	if limit <= 0 || limit > max {
+		limit = max
+	}
+	end := min(total, offset+limit)
+	return items[offset:end], total
 }
 
 func (m *Model) handleIPCLyrics(request ipc.LyricsRequestMsg) tea.Cmd {
@@ -530,7 +623,8 @@ func ipcTrackInfo(track playlist.Track, index, queuePosition int) ipc.TrackInfo 
 		Path: track.Path, AlbumArtURL: track.AlbumArtURL, Year: track.Year,
 		TrackNumber: track.TrackNumber, DurationSecs: track.DurationSecs, Index: index,
 		QueuePosition: queuePosition, Stream: track.Stream, Realtime: track.Realtime,
-		Bookmark: track.Bookmark, Unplayable: track.Unplayable,
+		Feed: track.Feed, Bookmark: track.Bookmark, Unplayable: track.Unplayable,
+		DirSourced: track.DirSourced, ProviderMeta: maps.Clone(track.ProviderMeta),
 	}
 }
 
@@ -540,6 +634,7 @@ func ipcTrackFromInfo(info ipc.TrackInfo) playlist.Track {
 		Path: info.Path, AlbumArtURL: info.AlbumArtURL, Year: info.Year,
 		TrackNumber: info.TrackNumber, DurationSecs: info.DurationSecs,
 		Stream: info.Stream || playlist.IsURL(info.Path), Realtime: info.Realtime,
-		Bookmark: info.Bookmark, Unplayable: info.Unplayable,
+		Feed: info.Feed, Bookmark: info.Bookmark, Unplayable: info.Unplayable,
+		DirSourced: info.DirSourced, ProviderMeta: maps.Clone(info.ProviderMeta),
 	}
 }

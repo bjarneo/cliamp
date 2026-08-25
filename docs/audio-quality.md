@@ -58,6 +58,12 @@ buffer_ms = 2000
 
 This adds up to two seconds of playback latency, but gives the audio device more time to absorb short network interruptions.
 
+Live HTTP radio also uses an automatic decoded-audio jitter buffer. If the
+network runs dry, cliamp outputs silence without blocking the UI and waits for
+a short refill before resuming, which avoids rapid sputtering. A source that
+stays slower than its audio bitrate can still have silent gaps because the
+missing audio cannot be reconstructed.
+
 Changes take effect on next launch.
 
 ## Bit-perfect output (Linux/ALSA)

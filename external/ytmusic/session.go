@@ -36,6 +36,7 @@ type Session struct {
 	clientSecret string
 	service      *youtube.Service
 	tokenSource  oauth2.TokenSource
+	cacheScope   string
 }
 
 // oauthScopes are the YouTube API scopes needed for cliamp.
@@ -96,8 +97,10 @@ func newSessionFromStored(ctx context.Context, clientID, clientSecret string, cr
 	}
 
 	// Re-save credentials (refresh token may have been rotated).
+	refreshToken := creds.RefreshToken
 	if token.RefreshToken != "" {
-		if err := saveCreds(&storedCreds{RefreshToken: token.RefreshToken}); err != nil {
+		refreshToken = token.RefreshToken
+		if err := saveCreds(&storedCreds{RefreshToken: refreshToken}); err != nil {
 			fmt.Fprintf(os.Stderr, "ytmusic: failed to save credentials: %v\n", err)
 		}
 	}
@@ -107,6 +110,7 @@ func newSessionFromStored(ctx context.Context, clientID, clientSecret string, cr
 		clientSecret: clientSecret,
 		service:      svc,
 		tokenSource:  ts,
+		cacheScope:   oauthCacheScope(clientID, refreshToken),
 	}, nil
 }
 
@@ -137,12 +141,17 @@ func newInteractiveSession(ctx context.Context, clientID, clientSecret string) (
 	if err := saveCreds(&storedCreds{RefreshToken: token.RefreshToken}); err != nil {
 		fmt.Fprintf(os.Stderr, "ytmusic: failed to save credentials: %v\n", err)
 	}
+	cacheIdentity := token.RefreshToken
+	if cacheIdentity == "" {
+		cacheIdentity = token.AccessToken
+	}
 
 	return &Session{
 		clientID:     clientID,
 		clientSecret: clientSecret,
 		service:      svc,
 		tokenSource:  ts,
+		cacheScope:   oauthCacheScope(clientID, cacheIdentity),
 	}, nil
 }
 

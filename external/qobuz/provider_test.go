@@ -7,25 +7,6 @@ import (
 	"testing"
 )
 
-func TestParseYear(t *testing.T) {
-	tests := []struct {
-		in   string
-		want int
-	}{
-		{"2021-05-14", 2021},
-		{"1999", 1999},
-		{"", 0},
-		{"abc", 0},
-		{"20", 0},
-		{"19xy-01-01", 0},
-	}
-	for _, tt := range tests {
-		if got := parseYear(tt.in); got != tt.want {
-			t.Errorf("parseYear(%q) = %d, want %d", tt.in, got, tt.want)
-		}
-	}
-}
-
 func TestTrackArtist(t *testing.T) {
 	withPerformer := apiTrack{Performer: apiArtist{Name: "Performer"}}
 	if got := trackArtist(withPerformer, nil); got != "Performer" {

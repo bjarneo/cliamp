@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strings"
 )
 
 // Parsed holds the components of an ssh:// URL.
@@ -42,6 +43,12 @@ func Parse(raw string) (Parsed, error) {
 	host := u.Hostname()
 	if u.User != nil {
 		host = u.User.Username() + "@" + host
+	}
+
+	// Reject hostnames that start with - (ssh -o option prefix) or contain =
+	// (= would separate a key/value pair, neither a valid hostname pattern).
+	if strings.HasPrefix(host, "-") || strings.Contains(host, "=") {
+		return Parsed{}, fmt.Errorf("invalid ssh URL %q: host %q contains disallowed characters", raw, host)
 	}
 
 	port := u.Port()

@@ -24,16 +24,28 @@ func (h hostRewriter) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func installCatalogClient(t *testing.T, serverURL string) {
 	t.Helper()
+	old := catalogClient
+	catalogClient = testHTTPClient(t, serverURL)
+	t.Cleanup(func() { catalogClient = old })
+}
+
+func installStatsClient(t *testing.T, serverURL string) {
+	t.Helper()
+	old := statsClient
+	statsClient = testHTTPClient(t, serverURL)
+	t.Cleanup(func() { statsClient = old })
+}
+
+func testHTTPClient(t *testing.T, serverURL string) *http.Client {
+	t.Helper()
 	u, err := url.Parse(serverURL)
 	if err != nil {
 		t.Fatalf("parse server URL: %v", err)
 	}
-	old := catalogClient
-	catalogClient = &http.Client{
+	return &http.Client{
 		Timeout:   5 * time.Second,
 		Transport: hostRewriter{target: u, rt: http.DefaultTransport},
 	}
-	t.Cleanup(func() { catalogClient = old })
 }
 
 func TestSearchStationsSuccess(t *testing.T) {
@@ -65,6 +77,34 @@ func TestSearchStationsSuccess(t *testing.T) {
 	}
 	if stations[0].Bitrate != 128 {
 		t.Errorf("Bitrate = %d, want 128", stations[0].Bitrate)
+	}
+}
+
+func TestFetchStats(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/statistics" {
+			t.Errorf("path = %q, want /statistics", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"total_sessions":42,
+			"total_listen_hours":12.5,
+			"peak_listeners":7,
+			"stations":{"lofi":{"total_sessions":40,"active_listeners":3}}
+		}`))
+	}))
+	defer srv.Close()
+	installStatsClient(t, srv.URL)
+
+	stats, err := FetchStats()
+	if err != nil {
+		t.Fatalf("FetchStats: %v", err)
+	}
+	if stats.TotalSessions != 42 || stats.TotalListenHours != 12.5 || stats.PeakListeners != 7 {
+		t.Fatalf("stats = %+v, want aggregate values", stats)
+	}
+	if station := stats.Stations["lofi"]; station.TotalSessions != 40 || station.ActiveListeners != 3 {
+		t.Fatalf("lofi stats = %+v, want decoded station values", station)
 	}
 }
 

@@ -49,6 +49,16 @@ func TestParse(t *testing.T) {
 			input:   "ssh://myhost",
 			wantErr: true,
 		},
+		{
+			name:    "host with ssh option injection is rejected",
+			input:   "ssh://-oProxyCommand=command/path/to/music",
+			wantErr: true,
+		},
+		{
+			name:    "host containing equals is rejected",
+			input:   "ssh://ho=st/path/to/music",
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

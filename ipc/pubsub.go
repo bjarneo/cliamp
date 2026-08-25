@@ -14,6 +14,7 @@ const (
 	maxRetainedTopics        = 256
 	maxEventPayloadSize      = 64 << 10
 	subscriberBufferSize     = 32
+	overflowEventTopic       = "system.overflow"
 )
 
 var (
@@ -114,12 +115,23 @@ func (b *Broker) Publish(topic string, data json.RawMessage, retain bool) error 
 		if _, ok := sub.topics[topic]; !ok {
 			continue
 		}
-		select {
-		case sub.events <- event:
-		default:
+		// Preserve one slot for an explicit resync signal. A consumer can then
+		// refresh runtime.state before reconnecting instead of mistaking a clean
+		// close for an idle server.
+		if len(sub.events) >= cap(sub.events)-1 {
+			b.nextEvent++
+			overflow := Event{
+				Event:    overflowEventTopic,
+				Sequence: b.nextEvent,
+				Time:     time.Now().Unix(),
+				Data:     json.RawMessage(`{"resync_required":true}`),
+			}
+			sub.events <- overflow
 			delete(b.subscribers, id)
 			close(sub.events)
+			continue
 		}
+		sub.events <- event
 	}
 	return nil
 }
@@ -208,6 +220,9 @@ func (b *Broker) unsubscribe(id uint64) {
 }
 
 func validTopic(topic string) bool {
+	if topic == overflowEventTopic {
+		return false
+	}
 	if topic == "" || len(topic) > 256 || strings.HasPrefix(topic, ".") || strings.HasSuffix(topic, ".") || strings.Contains(topic, "..") {
 		return false
 	}

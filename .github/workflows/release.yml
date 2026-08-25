@@ -66,7 +66,7 @@ jobs:
 
       - name: Install deps (macOS arm64)
         if: matrix.goos == 'darwin' && matrix.goarch == 'arm64'
-        run: brew install flac libvorbis libogg pkg-config
+        run: brew install flac libvorbis libogg mpg123 pkg-config
 
       - name: Install deps (macOS amd64 cross)
         if: matrix.goos == 'darwin' && matrix.goarch == 'amd64'
@@ -74,7 +74,23 @@ jobs:
           # Install x86_64 Homebrew under /usr/local via Rosetta 2
           NONINTERACTIVE=1 arch -x86_64 /bin/bash -c \
             "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          arch -x86_64 /usr/local/bin/brew install flac libvorbis libogg pkg-config
+          arch -x86_64 /usr/local/bin/brew install flac libvorbis libogg mpg123 pkg-config
+
+      - name: Set up MinGW toolchain (Windows)
+        if: matrix.goos == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          path-type: inherit
+          update: true
+          install: >-
+            zip
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-libogg
+            mingw-w64-x86_64-libvorbis
+            mingw-w64-x86_64-flac
+            mingw-w64-x86_64-mpg123
 
       - name: Force static linking of codec libs (Linux)
         if: matrix.goos == 'linux'
@@ -94,6 +110,32 @@ jobs:
           sudo rm -f ${LIB_DIR}/libvorbisenc.so
           sudo rm -f ${LIB_DIR}/libogg.so
 
+      - name: Build static mpg123 (Linux)
+        if: matrix.goos == 'linux'
+        env:
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          VERSION=1.32.6
+          ARCHIVE="mpg123-${VERSION}.tar.bz2"
+          PREFIX="${RUNNER_TEMP}/mpg123-${GOARCH}"
+          curl -fsSL "https://www.mpg123.de/download/${ARCHIVE}" -o "${RUNNER_TEMP}/${ARCHIVE}"
+          echo "ccdd1d0abc31d73d8b435fc658c79049d0a905b30669b6a42a03ad169dc609e6  ${RUNNER_TEMP}/${ARCHIVE}" | sha256sum -c -
+          tar -xjf "${RUNNER_TEMP}/${ARCHIVE}" -C "${RUNNER_TEMP}"
+          cd "${RUNNER_TEMP}/mpg123-${VERSION}"
+          if [ "$GOARCH" = "arm64" ]; then
+            export CC=aarch64-linux-gnu-gcc
+            HOST_ARGS="--host=aarch64-linux-gnu"
+            CPU=aarch64
+          else
+            HOST_ARGS=""
+            CPU=x86-64
+          fi
+          ./configure $HOST_ARGS --with-cpu="$CPU" --disable-shared --enable-static \
+            --disable-components --enable-libmpg123 --disable-network --prefix="$PREFIX"
+          make -j2
+          make install
+          echo "MPG123_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+
       - name: Build (Linux)
         if: matrix.goos == 'linux'
         env:
@@ -103,25 +145,44 @@ jobs:
         run: |
           if [ "$GOARCH" = "arm64" ]; then
             export CC=aarch64-linux-gnu-gcc
-            export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+            export PKG_CONFIG_PATH="${MPG123_PREFIX}/lib/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig"
+          else
+            export PKG_CONFIG_PATH="${MPG123_PREFIX}/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig"
           fi
           BINARY="cliamp-${GOOS}-${GOARCH}"
           VERSION="${GITHUB_REF#refs/tags/}"
-          go build -trimpath \
-            -ldflags="-s -w -X main.version=${VERSION} -extldflags '-lvorbisenc -lvorbis -lFLAC -logg -lm'" \
+          go build -a -trimpath \
+            -ldflags="-s -w -X main.version=${VERSION} -extldflags '-lvorbisenc -lvorbis -lFLAC -logg -lmpg123 -lm'" \
             -o "$BINARY" .
+          if readelf -d "$BINARY" | grep -E 'Shared library:.*(FLAC|vorbis|ogg|mpg123)'; then
+            echo "codec libraries must be statically linked" >&2
+            exit 1
+          fi
 
       - name: Build (Windows)
         if: matrix.goos == 'windows'
         env:
           GOOS: windows
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "0"
-        shell: bash
+          CGO_ENABLED: "1"
+          CGO_LDFLAGS: "-Wl,-Bstatic -logg -Wl,-Bdynamic"
+        shell: msys2 {0}
         run: |
           BINARY="cliamp-windows-${GOARCH}.exe"
+          PACKAGE="cliamp-windows-${GOARCH}"
           VERSION="${GITHUB_REF#refs/tags/}"
           go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "$BINARY" .
+          mkdir "$PACKAGE"
+          cp "$BINARY" "$PACKAGE/cliamp.exe"
+          ldd "$PACKAGE/cliamp.exe" | while read -r _ _ path _; do
+            case "$path" in
+              /mingw64/bin/*.dll) cp "$path" "$PACKAGE/" ;;
+            esac
+          done
+          set -- "$PACKAGE"/*.dll
+          test -e "$1"
+          zip -r "$PACKAGE.zip" "$PACKAGE"
+          rm -rf "$PACKAGE"
 
       - name: Build (macOS)
         if: matrix.goos == 'darwin'
@@ -148,8 +209,18 @@ jobs:
 
   release:
     needs: build
+    outputs:
+      prerelease: ${{ steps.release-type.outputs.prerelease }}
     runs-on: ubuntu-latest
     steps:
+      - name: Classify release
+        id: release-type
+        run: |
+          case "${GITHUB_REF_NAME}" in
+            *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
       - name: Checkout
         uses: actions/checkout@v7.0.0
         with:
@@ -174,7 +245,18 @@ jobs:
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
 
-          PREV_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
+          if [[ "$TAG" == *-* ]]; then
+            PREV_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
+          else
+            # Include the full beta-tested change set in the final release notes.
+            PREV_TAG=""
+            while IFS= read -r candidate; do
+              case "$candidate" in
+                v*-*) ;;
+                v*) PREV_TAG="$candidate"; break ;;
+              esac
+            done < <(git tag --merged "${TAG}^" --sort=-version:refname)
+          fi
 
           CHANGELOG=""
 
@@ -217,6 +299,7 @@ jobs:
         uses: softprops/action-gh-release@v3.0.1
         with:
           body_path: release_notes.md
+          prerelease: ${{ steps.release-type.outputs.prerelease }}
           files: |
             artifacts/cliamp-*
             artifacts/checksums.txt
@@ -229,6 +312,7 @@ jobs:
 
   update-homebrew:
     needs: release
+    if: needs.release.outputs.prerelease != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Download checksums
@@ -271,14 +355,17 @@ jobs:
             desc "A retro terminal music player inspired by Winamp 2.x"
             homepage "https://github.com/bjarneo/cliamp"
 
-            head "https://github.com/bjarneo/cliamp.git", branch: "main"
+            head do
+              url "https://github.com/bjarneo/cliamp.git", branch: "main"
+              depends_on "go" => :build
+            end
 
             depends_on "flac"
             depends_on "libvorbis"
             depends_on "libogg"
+            depends_on "mpg123"
             depends_on "ffmpeg" => :recommended
             depends_on "yt-dlp" => :recommended
-            depends_on "go" => :build
           FORMULA
 
           cat >> Formula/cliamp.rb << EOF

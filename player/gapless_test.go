@@ -3,6 +3,7 @@ package player
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/gopxl/beep/v2"
 )
@@ -77,7 +78,7 @@ func TestPlayerIgnoresStaleGaplessCallback(t *testing.T) {
 	}
 	select {
 	case <-oldDecoder.closed:
-	default:
+	case <-time.After(time.Second):
 		t.Fatal("matching callback did not close the old pipeline")
 	}
 }

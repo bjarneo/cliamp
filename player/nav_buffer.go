@@ -60,31 +60,78 @@ type navBuffer struct {
 // does not send a Content-Length header (e.g. chunked transfer encoding).
 func newNavBuffer(rawURL string) (*navBuffer, int64, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
+	resp, err := navBufferGet(ctx, rawURL)
 	if err != nil {
 		cancel()
-		return nil, 0, fmt.Errorf("nav buffer request: %w", err)
+		return nil, 0, err
+	}
+
+	b, err := newNavBufferFor(resp, cancel)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	go b.download(resp.Body)
+
+	return b, resp.ContentLength, nil
+}
+
+// newNavBufferSegments is like newNavBuffer for an ordered list of segment
+// URLs whose concatenated bytes form one progressive stream (e.g. an fMP4
+// init segment followed by unencrypted media segments). The total length is
+// unknown up front, so the returned contentLength is always -1.
+func newNavBufferSegments(urls []string) (*navBuffer, int64, error) {
+	if len(urls) == 0 {
+		return nil, 0, fmt.Errorf("nav buffer: no segment urls")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	resp, err := navBufferGet(ctx, urls[0])
+	if err != nil {
+		cancel()
+		return nil, 0, err
+	}
+
+	b, err := newNavBufferFor(resp, cancel)
+	if err != nil {
+		return nil, 0, err
+	}
+	b.total = -1
+
+	go b.downloadSegments(ctx, resp.Body, urls[1:])
+
+	return b, -1, nil
+}
+
+// navBufferGet performs the HTTP GET for a navBuffer download source.
+func navBufferGet(ctx context.Context, rawURL string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("nav buffer request: %w", err)
 	}
 	req.Header.Set("User-Agent", "cliamp/1.0 (https://github.com/bjarneo/cliamp)")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		cancel()
-		return nil, 0, fmt.Errorf("nav buffer connect: %w", err)
+		return nil, fmt.Errorf("nav buffer connect: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		cancel()
-		return nil, 0, fmt.Errorf("nav buffer: http status %s", resp.Status)
+		return nil, fmt.Errorf("nav buffer: http status %s", resp.Status)
 	}
+	return resp, nil
+}
+
+// newNavBufferFor builds the file-backed buffer for an opened response.
+// On error the response body is closed and cancel invoked.
+func newNavBufferFor(resp *http.Response, cancel context.CancelFunc) (*navBuffer, error) {
 	file, err := os.CreateTemp("", "cliamp-nav-*")
 	if err != nil {
 		resp.Body.Close()
 		cancel()
-		return nil, 0, fmt.Errorf("nav buffer tempfile: %w", err)
+		return nil, fmt.Errorf("nav buffer tempfile: %w", err)
 	}
 
-	b := &navBuffer{
+	return &navBuffer{
 		total:        resp.ContentLength, // -1 if unknown
 		cancel:       cancel,
 		contentType:  resp.Header.Get("Content-Type"),
@@ -93,26 +140,52 @@ func newNavBuffer(rawURL string) (*navBuffer, int64, error) {
 		file:         file,
 		path:         file.Name(),
 		stallTimeout: readStallTimeout,
-	}
-
-	go b.download(resp.Body)
-
-	return b, resp.ContentLength, nil
+	}, nil
 }
 
 // download reads the HTTP response body in bounded chunks and appends them to
 // the temporary file. It signals blocked Read/Seek calls after each write.
 func (b *navBuffer) download(body io.ReadCloser) {
 	defer close(b.downloadDone)
+	if _, ok := b.copyBody(body, 0); ok {
+		b.finish(nil)
+	}
+}
+
+// downloadSegments appends the first segment's body, then fetches and appends
+// each remaining segment URL in order, so the file holds the segments'
+// concatenated bytes. Records the first error and stops on close.
+func (b *navBuffer) downloadSegments(ctx context.Context, first io.ReadCloser, rest []string) {
+	defer close(b.downloadDone)
+	offset, ok := b.copyBody(first, 0)
+	if !ok {
+		return
+	}
+	for _, u := range rest {
+		resp, err := navBufferGet(ctx, u)
+		if err != nil {
+			b.finish(err)
+			return
+		}
+		if offset, ok = b.copyBody(resp.Body, offset); !ok {
+			return
+		}
+	}
+	b.finish(nil)
+}
+
+// copyBody appends one response body to the temporary file starting at
+// offset. Returns the new offset and whether the caller should continue;
+// on failure the error has already been recorded via finish.
+func (b *navBuffer) copyBody(body io.ReadCloser, offset int64) (int64, bool) {
 	defer body.Close()
 	chunk := make([]byte, navBufferChunkSize)
-	var offset int64
 	for {
 		b.mu.Lock()
 		closed := b.closed
 		b.mu.Unlock()
 		if closed {
-			return
+			return offset, false
 		}
 
 		n, err := body.Read(chunk)
@@ -124,7 +197,7 @@ func (b *navBuffer) download(body io.ReadCloser) {
 				closed := b.closed
 				b.mu.Unlock()
 				if closed || file == nil {
-					return
+					return offset, false
 				}
 
 				wn, writeErr := file.WriteAt(chunk[written:n], offset)
@@ -135,21 +208,20 @@ func (b *navBuffer) download(body io.ReadCloser) {
 				}
 				if writeErr != nil {
 					b.finish(fmt.Errorf("nav buffer tempfile write: %w", writeErr))
-					return
+					return offset, false
 				}
 				if wn == 0 {
 					b.finish(fmt.Errorf("nav buffer tempfile write: %w", io.ErrShortWrite))
-					return
+					return offset, false
 				}
 			}
 		}
 		if err == io.EOF {
-			b.finish(nil)
-			return
+			return offset, true
 		}
 		if err != nil {
 			b.finish(err)
-			return
+			return offset, false
 		}
 	}
 }

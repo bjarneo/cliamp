@@ -30,16 +30,18 @@ case "$OS" in
 esac
 
 BINARY="cliamp-${OS}-${ARCH}"
+ASSET="$BINARY"
 if [ "$OS" = "windows" ]; then
-    BINARY="${BINARY}.exe"
+    ASSET="cliamp-windows-${ARCH}.zip"
 fi
 
-URL="https://github.com/${REPO}/releases/latest/download/${BINARY}"
+URL="https://github.com/${REPO}/releases/latest/download/${ASSET}"
 
-echo "Downloading ${BINARY}..."
+echo "Downloading ${ASSET}..."
 TMP=$(mktemp)
 CHECKSUMS=$(mktemp)
-trap 'rm -f "$TMP" "$CHECKSUMS"' EXIT HUP INT TERM
+TMP_DIR=""
+trap 'rm -f "$TMP" "$CHECKSUMS"; [ -z "$TMP_DIR" ] || rm -rf "$TMP_DIR"' EXIT HUP INT TERM
 if command -v curl > /dev/null; then
     curl -fSL -o "$TMP" "$URL"
 elif command -v wget > /dev/null; then
@@ -56,9 +58,9 @@ elif command -v wget > /dev/null; then
     wget -qO "$CHECKSUMS" "$CHECKSUM_URL"
 fi
 
-EXPECTED=$(awk -v file="$BINARY" '$2 == file || $2 == "*" file { print $1 }' "$CHECKSUMS")
+EXPECTED=$(awk -v file="$ASSET" '$2 == file || $2 == "*" file { print $1 }' "$CHECKSUMS")
 if [ -z "$EXPECTED" ]; then
-    echo "Error: release has no checksum for ${BINARY}" >&2
+    echo "Error: release has no checksum for ${ASSET}" >&2
     exit 1
 fi
 if command -v sha256sum > /dev/null; then
@@ -76,16 +78,38 @@ if [ "$ACTUAL" != "$EXPECTED" ]; then
     exit 1
 fi
 echo "Checksum verified."
-chmod +x "$TMP"
 
-if [ -w "$INSTALL_DIR" ]; then
-    mv "$TMP" "${INSTALL_DIR}/cliamp"
+if [ "$OS" = "windows" ]; then
+    if ! command -v unzip > /dev/null; then
+        echo "Error: unzip is required for Windows installation" >&2
+        exit 1
+    fi
+    TMP_DIR=$(mktemp -d)
+    unzip -q "$TMP" -d "$TMP_DIR"
+    PACKAGE_DIR="${TMP_DIR}/cliamp-windows-${ARCH}"
+    if [ ! -f "${PACKAGE_DIR}/cliamp.exe" ]; then
+        echo "Error: Windows release archive is missing cliamp.exe" >&2
+        exit 1
+    fi
+    chmod +x "${PACKAGE_DIR}/cliamp.exe"
+    if [ -w "$INSTALL_DIR" ]; then
+        cp "${PACKAGE_DIR}"/* "$INSTALL_DIR/"
+    else
+        sudo cp "${PACKAGE_DIR}"/* "$INSTALL_DIR/"
+    fi
+    INSTALLED="${INSTALL_DIR}/cliamp.exe"
 else
-    sudo mv "$TMP" "${INSTALL_DIR}/cliamp"
+    chmod +x "$TMP"
+    if [ -w "$INSTALL_DIR" ]; then
+        mv "$TMP" "${INSTALL_DIR}/cliamp"
+    else
+        sudo mv "$TMP" "${INSTALL_DIR}/cliamp"
+    fi
+    TMP=""
+    INSTALLED="${INSTALL_DIR}/cliamp"
 fi
-TMP=""
 
-echo "Installed cliamp to ${INSTALL_DIR}/cliamp"
+echo "Installed cliamp to ${INSTALLED}"
 
 # Install desktop entry + icon (Linux only).
 # Pick user-local share dir for ~/.local/bin installs, /usr/local/share otherwise.

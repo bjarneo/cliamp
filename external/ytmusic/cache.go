@@ -1,7 +1,9 @@
 package ytmusic
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -17,6 +19,7 @@ const cacheTTL = 24 * time.Hour
 // ytCache stores playlists and tracks on disk for fast startup.
 // Path: ~/.config/cliamp/ytmusic_cache.json
 type ytCache struct {
+	Scope       string                     `json:"scope"`
 	Playlists   []playlistEntry            `json:"playlists,omitempty"`
 	PlaylistsAt time.Time                  `json:"playlists_at"`
 	Tracks      map[string]cachedTrackList `json:"tracks,omitempty"`
@@ -35,18 +38,37 @@ func ytCachePath() string {
 	return filepath.Join(dir, "ytmusic_cache.json")
 }
 
-func newYTCache() *ytCache {
-	return &ytCache{Tracks: make(map[string]cachedTrackList)}
+func newYTCache(scope string) *ytCache {
+	return &ytCache{Scope: scope, Tracks: make(map[string]cachedTrackList)}
 }
 
-func loadYTCache() *ytCache {
+func storedOAuthCacheScope(clientID string) string {
+	identity := ""
+	if creds, err := loadCreds(); err == nil && creds.RefreshToken != "" {
+		identity = creds.RefreshToken
+	}
+	return oauthCacheScope(clientID, identity)
+}
+
+func oauthCacheScope(clientID, identity string) string {
+	if identity == "" {
+		identity = "unauthenticated"
+	}
+	sum := sha256.Sum256([]byte(clientID + "\x00" + identity))
+	return fmt.Sprintf("oauth:%x", sum)
+}
+
+func loadYTCache(scope string) *ytCache {
 	data, err := os.ReadFile(ytCachePath())
 	if err != nil {
-		return newYTCache()
+		return newYTCache(scope)
 	}
 	var c ytCache
 	if err := json.Unmarshal(data, &c); err != nil {
-		return newYTCache()
+		return newYTCache(scope)
+	}
+	if c.Scope != scope {
+		return newYTCache(scope)
 	}
 	if c.Tracks == nil {
 		c.Tracks = make(map[string]cachedTrackList)

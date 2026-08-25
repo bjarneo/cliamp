@@ -66,9 +66,10 @@ func (g *gaplessStreamer) Stream(samples [][2]float64) (int, bool) {
 				filled, _ := next.Stream(samples[n:])
 				n += filled
 			}
-			// Notify about the transition (non-blocking)
+			// Publish the transition before the UI can observe the new stream as
+			// drained. Resource cleanup is dispatched by the callback.
 			if swapFn != nil {
-				go swapFn(nextToken)
+				swapFn(nextToken)
 			}
 			g.drained.Store(false)
 		} else {

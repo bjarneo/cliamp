@@ -79,6 +79,24 @@ func (n NavidromeConfig) IsSet() bool {
 	return n.URL != "" && n.User != "" && n.Password != ""
 }
 
+// LyrionConfig holds settings for a Lyrion Music Server (LMS) instance.
+// User and Password are optional — they are only needed when the server has
+// password protection enabled.
+type LyrionConfig struct {
+	URL      string // e.g. "http://nas.local:9000"
+	User     string
+	Password string
+	// ShowUnplayable includes tracks and playlists contributed by LMS server
+	// plugins, which the server cannot stream to cliamp. Hidden by default.
+	ShowUnplayable bool
+}
+
+// IsSet reports whether a Lyrion server URL is configured. Credentials are
+// optional, so the URL alone is enough to construct a client.
+func (l LyrionConfig) IsSet() bool {
+	return l.URL != ""
+}
+
 // SpotifyConfig holds settings for the Spotify provider. Requires a Spotify
 // Premium account. If client_id is empty, a built-in fallback (the librespot
 // keymaster ID) is used so search and catalog endpoints work even for users
@@ -122,6 +140,25 @@ func (q QobuzConfig) IsSet() bool {
 	return !q.Disabled && q.Enabled
 }
 
+// TidalConfig holds settings for the Tidal provider. Requires a paid Tidal
+// subscription (all paid plans include lossless FLAC). Sign-in is an OAuth
+// device flow (link.tidal.com). Built-in fallback client credentials are used
+// when none are configured; Tidal revokes leaked client IDs periodically, so
+// client_id/client_secret can be overridden without waiting for a release.
+type TidalConfig struct {
+	Disabled     bool   // true only when user explicitly sets enabled = false
+	Enabled      bool   // true when [tidal] section exists
+	ClientID     string // OAuth client ID (overrides built-in fallback)
+	ClientSecret string // OAuth client secret (overrides built-in fallback)
+	Quality      string // preferred quality: "low", "high", "lossless", "hires"
+}
+
+// IsSet reports whether the Tidal provider should be shown. Section presence
+// is enough — built-in fallback client credentials are used when none are set.
+func (t TidalConfig) IsSet() bool {
+	return !t.Disabled && t.Enabled
+}
+
 // YouTubeMusicConfig holds settings for the YouTube Music provider.
 // If no client_id/client_secret are set, built-in fallback credentials are
 // used automatically (same pattern as Spotify).
@@ -140,13 +177,13 @@ func (y YouTubeMusicConfig) IsSetOrFallback(fallbackFn func() (string, string)) 
 	if y.Disabled {
 		return false
 	}
-	if y.Enabled {
+	if y.Enabled || strings.TrimSpace(y.CookiesFrom) != "" {
 		return true
 	}
 	// Even without a config section, enable if fallback credentials exist.
 	if fallbackFn != nil {
 		id, secret := fallbackFn()
-		return id != "" && secret != ""
+		return strings.TrimSpace(id) != "" && strings.TrimSpace(secret) != ""
 	}
 	return false
 }
@@ -154,11 +191,14 @@ func (y YouTubeMusicConfig) IsSetOrFallback(fallbackFn func() (string, string)) 
 // ResolveCredentials returns the user's configured credentials, or falls back
 // to the built-in pool. Returns empty strings only when the pool is also empty.
 func (y YouTubeMusicConfig) ResolveCredentials(fallbackFn func() (string, string)) (clientID, clientSecret string) {
-	if y.ClientID != "" && y.ClientSecret != "" {
-		return y.ClientID, y.ClientSecret
+	id := strings.TrimSpace(y.ClientID)
+	secret := strings.TrimSpace(y.ClientSecret)
+	if id != "" && secret != "" {
+		return id, secret
 	}
 	if fallbackFn != nil {
-		return fallbackFn()
+		fbID, fbSecret := fallbackFn()
+		return strings.TrimSpace(fbID), strings.TrimSpace(fbSecret)
 	}
 	return "", ""
 }
@@ -176,6 +216,24 @@ type SoundCloudConfig struct {
 
 // IsSet reports whether the SoundCloud provider should be shown.
 func (s SoundCloudConfig) IsSet() bool { return s.Enabled }
+
+// MixcloudConfig holds settings for the Mixcloud provider. Public discovery
+// works with only enabled=true. Username adds public account views; an access
+// token adds /me and Listen Later; browser cookies are used only by yt-dlp for
+// playback that needs the listener's signed-in Mixcloud session.
+type MixcloudConfig struct {
+	Enabled        bool
+	Username       string
+	AccessToken    string
+	CookiesFrom    string
+	Styles         []string
+	StylesSet      bool // distinguishes omitted styles (defaults) from an explicit empty list
+	MaxItems       int
+	StreamCreators int
+}
+
+// IsSet reports whether the Mixcloud provider should be shown.
+func (m MixcloudConfig) IsSet() bool { return m.Enabled }
 
 // NetEaseConfig holds settings for the NetEase Cloud Music provider.
 // The provider is opt-in and can reuse an existing browser session through
@@ -262,7 +320,7 @@ type Config struct {
 	Speed              float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
 	AutoPlay           bool                         // start playback automatically on launch (radio streams, CLI tracks)
 	SeekStepLarge      int                          // seconds for Shift+Left/Right seek jumps
-	Provider           string                       // default provider: "radio", "navidrome", "spotify", "qobuz", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "netease", "ytmusic" (default "radio")
+	Provider           string                       // default provider: "radio", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "mixcloud", "netease", "ytmusic" (default "radio")
 	Theme              string                       // theme name, or "" for ANSI default
 	Visualizer         string                       // visualizer mode name, or "" for default (Bars)
 	SampleRate         int                          // output sample rate: 22050, 44100, 48000, 96000, 192000
@@ -272,21 +330,24 @@ type Config struct {
 	BitPerfect         bool                         // disable resampling and retune the device to each track's native rate (Linux/ALSA only)
 	BitPerfectDevice   string                       // ALSA device for bit-perfect output, e.g. "hw:0,0" (empty = system default)
 	BitPerfectChannels string                       // "left,right" 0-based ALSA channel indices for a multichannel device, e.g. "0,1" (empty = plain 2-channel)
-	Compact            bool                         // compact mode: cap frame width at 80 columns
+	Simplified         bool                         // simplified playback view: track summary and time strip
 	PaddingH           int                          // horizontal padding for the UI frame (default 3)
 	PaddingV           int                          // vertical padding for the UI frame (default 1)
 	AudioDevice        string                       // preferred audio output device name (empty = system default)
 	Playlist           string                       // local TOML playlist name to load on startup
 	InitialDirectory   string                       // initial directory for the file browser
 	Navidrome          NavidromeConfig              // optional Navidrome/Subsonic server credentials
+	Lyrion             LyrionConfig                 // optional Lyrion Music Server (LMS) instance
 	Spotify            SpotifyConfig                // optional Spotify provider (requires Premium)
 	Qobuz              QobuzConfig                  // optional Qobuz provider (requires subscription)
+	Tidal              TidalConfig                  // optional Tidal provider (requires subscription)
 	YouTubeMusic       YouTubeMusicConfig           // optional YouTube Music provider
 	Plex               PlexConfig                   // optional Plex Media Server credentials
 	Jellyfin           JellyfinConfig               // optional Jellyfin server credentials
 	Emby               EmbyConfig                   // optional Emby server credentials
 	Audiobookshelf     AudiobookshelfConfig         // optional Audiobookshelf server credentials
 	SoundCloud         SoundCloudConfig             // SoundCloud provider (opt-in via enabled = true)
+	Mixcloud           MixcloudConfig               // Mixcloud provider (opt-in via enabled = true)
 	NetEase            NetEaseConfig                // NetEase Cloud Music provider (opt-in via enabled = true)
 	Plugins            map[string]map[string]string // per-plugin config from [plugins.*] sections
 	LogLevel           string                       // log level: debug, info, warn, error (default "info")
@@ -357,6 +418,8 @@ func Load() (Config, error) {
 				cfg.Spotify.Enabled = true
 			case "qobuz":
 				cfg.Qobuz.Enabled = true
+			case "tidal":
+				cfg.Tidal.Enabled = true
 			}
 			// Initialize plugin sub-maps for [plugins] and [plugins.*] sections.
 			if section == "plugins" || strings.HasPrefix(section, "plugins.") {
@@ -396,6 +459,17 @@ func Load() (Config, error) {
 				// Opt-out: only mark disabled when the value is explicitly "false".
 				cfg.Navidrome.ScrobbleDisabled = strings.ToLower(val) == "false"
 			}
+		case "lyrion":
+			switch key {
+			case "url":
+				cfg.Lyrion.URL = parseString(val)
+			case "user":
+				cfg.Lyrion.User = parseString(val)
+			case "password":
+				cfg.Lyrion.Password = parseString(val)
+			case "show_unplayable":
+				cfg.Lyrion.ShowUnplayable = strings.ToLower(val) == "true"
+			}
 		case "spotify":
 			switch key {
 			case "enabled":
@@ -416,6 +490,17 @@ func Load() (Config, error) {
 					cfg.Qobuz.Quality = v
 				}
 			}
+		case "tidal":
+			switch key {
+			case "enabled":
+				cfg.Tidal.Disabled = strings.ToLower(val) == "false"
+			case "client_id":
+				cfg.Tidal.ClientID = parseString(val)
+			case "client_secret":
+				cfg.Tidal.ClientSecret = parseString(val)
+			case "quality":
+				cfg.Tidal.Quality = parseString(val)
+			}
 		case "ytmusic":
 			switch key {
 			case "enabled":
@@ -425,7 +510,7 @@ func Load() (Config, error) {
 			case "client_secret":
 				cfg.YouTubeMusic.ClientSecret = parseString(val)
 			case "cookies_from":
-				cfg.YouTubeMusic.CookiesFrom = parseString(val)
+				cfg.YouTubeMusic.CookiesFrom = strings.TrimSpace(parseString(val))
 			case "expand_playlist":
 				v := strings.ToLower(val) != "false"
 				cfg.YouTubeMusic.ExpandPlaylist = &v
@@ -446,14 +531,36 @@ func Load() (Config, error) {
 			case "user":
 				cfg.SoundCloud.User = parseString(val)
 			case "cookies_from":
-				cfg.SoundCloud.CookiesFrom = parseString(val)
+				cfg.SoundCloud.CookiesFrom = strings.TrimSpace(parseString(val))
+			}
+		case "mixcloud":
+			switch key {
+			case "enabled":
+				cfg.Mixcloud.Enabled = strings.ToLower(val) == "true"
+			case "username":
+				cfg.Mixcloud.Username = strings.TrimSpace(parseString(val))
+			case "access_token":
+				cfg.Mixcloud.AccessToken = strings.TrimSpace(parseString(val))
+			case "cookies_from":
+				cfg.Mixcloud.CookiesFrom = strings.TrimSpace(parseString(val))
+			case "styles":
+				cfg.Mixcloud.Styles = parseStringSlice(val)
+				cfg.Mixcloud.StylesSet = true
+			case "max_items":
+				if v, err := strconv.Atoi(val); err == nil {
+					cfg.Mixcloud.MaxItems = v
+				}
+			case "stream_creators":
+				if v, err := strconv.Atoi(val); err == nil {
+					cfg.Mixcloud.StreamCreators = v
+				}
 			}
 		case "netease":
 			switch key {
 			case "enabled":
 				cfg.NetEase.Enabled = strings.ToLower(val) == "true"
 			case "cookies_from":
-				cfg.NetEase.CookiesFrom = parseString(val)
+				cfg.NetEase.CookiesFrom = strings.TrimSpace(parseString(val))
 			case "user_id":
 				cfg.NetEase.UserID = parseString(val)
 			}
@@ -581,8 +688,8 @@ func Load() (Config, error) {
 				if v, err := strconv.ParseFloat(val, 64); err == nil {
 					cfg.Speed = v
 				}
-			case "compact":
-				cfg.Compact = val == "true"
+			case "simplified":
+				cfg.Simplified = val == "true"
 			case "audio_device":
 				cfg.AudioDevice = parseString(val)
 			case "initial_directory":
@@ -679,72 +786,93 @@ func Save(key, value string) error {
 // in-place, or appends it after the [navidrome] section if not present.
 // If no [navidrome] section exists, one is appended along with the key.
 func SaveNavidromeSort(sortType string) error {
+	return saveSectionValue("navidrome", "browse_sort", strconv.Quote(sortType))
+}
+
+// SaveMixcloudStyles persists the selected discovery styles in the [mixcloud]
+// section without disturbing other provider settings or comments.
+func SaveMixcloudStyles(styles []string) error {
+	quoted := make([]string, 0, len(styles))
+	for _, style := range styles {
+		quoted = append(quoted, strconv.Quote(style))
+	}
+	return saveSectionValue("mixcloud", "styles", "["+strings.Join(quoted, ", ")+"]")
+}
+
+func saveSectionValue(section, key, value string) error {
 	path, err := configPath()
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve config path: %w", err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
+		return fmt.Errorf("create config directory: %w", err)
 	}
 
-	line := fmt.Sprintf("browse_sort = %q", sortType)
+	line := fmt.Sprintf("%s = %s", key, value)
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
-			return err
+			return fmt.Errorf("read config: %w", err)
 		}
 		// No file: create with section + key.
-		return fileutil.WriteFileAtomic(path, []byte("[navidrome]\n"+line+"\n"), 0o600)
+		if err := fileutil.WriteFileAtomic(path, []byte("["+section+"]\n"+line+"\n"), 0o600); err != nil {
+			return fmt.Errorf("write config: %w", err)
+		}
+		return nil
 	}
 
 	lines := strings.Split(string(data), "\n")
 
-	// Try to replace an existing browse_sort inside [navidrome].
-	inNavidrome := false
+	// Try to replace the existing key inside the requested section.
+	inSection := false
 	for i, l := range lines {
 		trimmed := strings.TrimSpace(l)
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			inNavidrome = strings.ToLower(trimmed[1:len(trimmed)-1]) == "navidrome"
+			inSection = strings.EqualFold(trimmed[1:len(trimmed)-1], section)
 			continue
 		}
-		if inNavidrome {
+		if inSection {
 			k, _, ok := strings.Cut(trimmed, "=")
-			if ok && strings.TrimSpace(k) == "browse_sort" {
+			if ok && strings.TrimSpace(k) == key {
 				lines[i] = line
-				return fileutil.WriteFileAtomic(path, []byte(strings.Join(lines, "\n")), 0o600)
+				if err := fileutil.WriteFileAtomic(path, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+					return fmt.Errorf("write config: %w", err)
+				}
+				return nil
 			}
 		}
 	}
 
-	// Key not found: append after the last line in the [navidrome] section,
-	// or append a new [navidrome] section at the end.
-	inNavidrome = false
+	// Key not found: append after the last line in the requested section, or
+	// append a new section at the end.
+	inSection = false
 	insertAt := -1
 	for i, l := range lines {
 		trimmed := strings.TrimSpace(l)
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			if inNavidrome && insertAt >= 0 {
-				break // we've moved past [navidrome]
+			if inSection && insertAt >= 0 {
+				break
 			}
-			inNavidrome = strings.ToLower(trimmed[1:len(trimmed)-1]) == "navidrome"
+			inSection = strings.EqualFold(trimmed[1:len(trimmed)-1], section)
 		}
-		if inNavidrome {
+		if inSection {
 			insertAt = i
 		}
 	}
 
 	if insertAt >= 0 {
-		// Insert after the last line we saw inside [navidrome].
 		tail := append([]string{line}, lines[insertAt+1:]...)
 		lines = append(lines[:insertAt+1], tail...)
 	} else {
-		// No [navidrome] section found: append one.
-		lines = append(lines, "[navidrome]", line)
+		lines = append(lines, "["+section+"]", line)
 	}
 
-	return fileutil.WriteFileAtomic(path, []byte(strings.Join(lines, "\n")), 0o600)
+	if err := fileutil.WriteFileAtomic(path, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	return nil
 }
 
 // PlayerConfig is the subset of player controls needed to apply config.

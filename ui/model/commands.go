@@ -160,6 +160,13 @@ type navTracksLoadedMsg struct {
 	err    error
 }
 
+// navGenresLoadedMsg carries the category list from a provider genre browser.
+type navGenresLoadedMsg struct {
+	genres []provider.GenreInfo
+	gen    uint64
+	err    error
+}
+
 // provAuthDoneMsg signals that interactive provider authentication completed.
 type provAuthDoneMsg struct {
 	providerName string
@@ -260,9 +267,9 @@ func fetchNetSearchCmd(query string, gen uint64) tea.Cmd {
 	}
 }
 
-func playStreamCmd(p player.Engine, path string, knownDuration time.Duration, gen uint64) tea.Cmd {
+func playStreamCmd(p player.Engine, path string, knownDuration time.Duration, startAt func() time.Duration, gen uint64) tea.Cmd {
 	return func() tea.Msg {
-		return streamPlayedMsg{path: path, gen: gen, err: p.Play(path, knownDuration)}
+		return streamPlayedMsg{path: path, gen: gen, err: p.PlayAt(path, knownDuration, startAt())}
 	}
 }
 
@@ -380,10 +387,50 @@ func fetchNavAlbumListCmd(b provider.AlbumBrowser, sortType string, offset int, 
 	}
 }
 
+func fetchNavRemainingAlbumsCmd(b provider.AlbumBrowser, sortType string, offset int, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		start := offset
+		var albums []provider.AlbumInfo
+		for {
+			page, err := b.AlbumList(sortType, offset+len(albums), navAlbumPageSize)
+			if err != nil {
+				return navAlbumsLoadedMsg{offset: start, gen: gen, err: err}
+			}
+			albums = append(albums, page...)
+			if len(page) < navAlbumPageSize {
+				return navAlbumsLoadedMsg{albums: albums, offset: start, isLast: true, gen: gen}
+			}
+		}
+	}
+}
+
 func fetchNavAlbumTracksCmd(l provider.AlbumTrackLoader, albumID string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		tracks, err := l.AlbumTracks(albumID)
 		return navTracksLoadedMsg{tracks: tracks, gen: gen, err: err}
+	}
+}
+
+func fetchNavGenresCmd(b provider.GenreBrowser, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		genres, err := b.Genres()
+		return navGenresLoadedMsg{genres: genres, gen: gen, err: err}
+	}
+}
+
+func fetchNavGenreTracksCmd(b provider.GenreBrowser, genreID, sortType string, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		tracks, err := b.GenreTracks(genreID, sortType)
+		return navTracksLoadedMsg{tracks: tracks, gen: gen, err: err}
+	}
+}
+
+func fetchNavGenreSearchCmd(s provider.GenreSearcher, query string, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		genres, err := s.SearchGenres(ctx, query, 100)
+		return navGenresLoadedMsg{genres: genres, gen: gen, err: err}
 	}
 }
 
@@ -393,6 +440,20 @@ type catalogSearchMsg struct {
 	providerName string
 	gen          uint64
 	err          error
+}
+
+// radioStatsLoadedMsg carries listener statistics from cliamp radio.
+type radioStatsLoadedMsg struct {
+	stats provider.RadioStats
+	gen   uint64
+	err   error
+}
+
+func fetchRadioStatsCmd(loader provider.RadioStatsLoader, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		stats, err := loader.RadioStats()
+		return radioStatsLoadedMsg{stats: stats, gen: gen, err: err}
+	}
 }
 
 func fetchCatalogSearchCmd(s provider.CatalogSearcher, providerName, query string, gen uint64) tea.Cmd {
@@ -430,6 +491,41 @@ type spotSearchResultsMsg struct {
 	providerName string
 	query        string
 	gen          uint64
+}
+
+// spotAlbumAction is what to do with an album's tracks once they arrive.
+type spotAlbumAction int
+
+const (
+	spotAlbumPlay      spotAlbumAction = iota // start the album now
+	spotAlbumAppend                           // add to the end of the queue
+	spotAlbumQueueNext                        // play right after the current track
+)
+
+type spotAlbumTracksMsg struct {
+	tracks []playlist.Track
+	album  playlist.Track
+	action spotAlbumAction
+	err    error
+	gen    uint64
+}
+
+// fetchSpotAlbumTracksCmd expands an album placeholder from the search results
+// into its tracks. Album entries carry no streamable path of their own, so this
+// runs before the album can reach the player.
+func fetchSpotAlbumTracksCmd(ctx context.Context, loader provider.AlbumTrackLoader, album playlist.Track, action spotAlbumAction, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		var tracks []playlist.Track
+		var err error
+		if contextual, ok := loader.(interface {
+			AlbumTracksContext(context.Context, string) ([]playlist.Track, error)
+		}); ok {
+			tracks, err = contextual.AlbumTracksContext(ctx, album.AlbumID())
+		} else {
+			tracks, err = loader.AlbumTracks(album.AlbumID())
+		}
+		return spotAlbumTracksMsg{tracks: tracks, album: album, action: action, err: err, gen: gen}
+	}
 }
 
 type spotPlaylistsMsg struct {

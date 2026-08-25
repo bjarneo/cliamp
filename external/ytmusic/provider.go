@@ -36,23 +36,29 @@ type baseProvider struct {
 	allPlaylists []playlistEntry             // cached raw playlist list
 	classified   map[string]bool             // playlist ID -> is music (from classify.go)
 	disk         *ytCache                    // lazy-loaded disk cache
+	cacheScope   string                      // immutable identity of the active OAuth account
 	authCancel   context.CancelFunc          // cancels any in-progress OAuth flow
 }
 
 func newBase(session *Session, clientID, clientSecret string, hasCookies bool) *baseProvider {
+	cacheScope := storedOAuthCacheScope(strings.TrimSpace(clientID))
+	if session != nil && session.cacheScope != "" {
+		cacheScope = session.cacheScope
+	}
 	return &baseProvider{
 		session:      session,
 		clientID:     clientID,
 		clientSecret: clientSecret,
 		hasCookies:   hasCookies,
 		trackCache:   make(map[string][]playlist.Track),
+		cacheScope:   cacheScope,
 	}
 }
 
 // ensureDiskCache lazily loads the disk cache. Must be called under mu.
 func (b *baseProvider) ensureDiskCache() *ytCache {
 	if b.disk == nil {
-		b.disk = loadYTCache()
+		b.disk = loadYTCache(b.cacheScope)
 	}
 	return b.disk
 }
@@ -107,7 +113,14 @@ func (b *baseProvider) initSession(interactive bool) error {
 
 	b.mu.Lock()
 	if b.session == nil {
+		if b.cacheScope != sess.cacheScope {
+			b.allPlaylists = nil
+			b.classified = nil
+			clear(b.trackCache)
+		}
 		b.session = sess
+		b.cacheScope = sess.cacheScope
+		b.disk = nil
 	}
 	b.mu.Unlock()
 	return nil
@@ -158,7 +171,7 @@ func (b *baseProvider) fetchAndClassify() error {
 	// Try disk cache first — no session/auth needed if data is fresh.
 	dc := b.ensureDiskCache()
 	if dc.playlistsFresh() {
-		classified := loadClassification()
+		classified := loadClassification(b.cacheScope)
 		if classified != nil {
 			allClassified := true
 			for _, pl := range dc.Playlists {
@@ -184,6 +197,7 @@ func (b *baseProvider) fetchAndClassify() error {
 
 	b.mu.Lock()
 	sess := b.session
+	cacheScope := b.cacheScope
 	b.mu.Unlock()
 	if sess == nil {
 		return fmt.Errorf("ytmusic: session unavailable")
@@ -232,7 +246,7 @@ func (b *baseProvider) fetchAndClassify() error {
 	// Classify playlists (parallel, with disk cache).
 	// Pass nil to let classifyPlaylists load from disk itself —
 	// the earlier loadClassification() was skipped because cache was stale.
-	classified := classifyWithTimeout(svc, all, 60*time.Second, nil)
+	classified := classifyWithTimeout(svc, all, 60*time.Second, nil, cacheScope)
 
 	b.mu.Lock()
 	if b.allPlaylists != nil {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +18,8 @@ import (
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
 	"github.com/bjarneo/cliamp/external/local"
+	"github.com/bjarneo/cliamp/external/lyrion"
+	"github.com/bjarneo/cliamp/external/mixcloud"
 	"github.com/bjarneo/cliamp/external/navidrome"
 	"github.com/bjarneo/cliamp/external/netease"
 	"github.com/bjarneo/cliamp/external/plex"
@@ -25,6 +28,7 @@ import (
 	"github.com/bjarneo/cliamp/external/radiometa"
 	"github.com/bjarneo/cliamp/external/soundcloud"
 	"github.com/bjarneo/cliamp/external/spotify"
+	"github.com/bjarneo/cliamp/external/tidal"
 	"github.com/bjarneo/cliamp/external/ytmusic"
 	"github.com/bjarneo/cliamp/internal/appdir"
 	"github.com/bjarneo/cliamp/internal/appmeta"
@@ -82,7 +86,22 @@ func bitPerfectConfigWarning(cfg config.Config) string {
 	return ""
 }
 
-func run(overrides config.Overrides, positional []string, daemon bool) error {
+// isBufferedProviderURL reports whether u is a provider stream endpoint that
+// needs the buffered download pipeline rather than the live-stream one. These
+// are finite files with a known length, so buffering gives seeking and gapless
+// playback.
+func isBufferedProviderURL(u string) bool {
+	return navidrome.IsSubsonicStreamURL(u) ||
+		jellyfin.IsStreamURL(u) ||
+		emby.IsStreamURL(u) ||
+		plex.IsStreamURL(u) ||
+		qobuz.IsStreamURL(u) ||
+		tidal.IsStreamURL(u) ||
+		audiobookshelf.IsStreamURL(u) ||
+		lyrion.IsStreamURL(u)
+}
+
+func run(overrides config.Overrides, positional []string, daemon, visualizer60FPS bool) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -118,6 +137,16 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 		providers = append(providers, model.ProviderEntry{Key: "navidrome", Name: "Navidrome", Provider: navClient})
 	}
 
+	var lyrionClient *lyrion.Client
+	if c := lyrion.NewFromConfig(cfg.Lyrion); c != nil {
+		lyrionClient = c
+	} else if c := lyrion.NewFromEnv(); c != nil {
+		lyrionClient = c
+	}
+	if lyrionClient != nil {
+		providers = append(providers, model.ProviderEntry{Key: "lyrion", Name: "Lyrion", Provider: lyrionClient})
+	}
+
 	if plexProv := plex.NewFromConfig(cfg.Plex); plexProv != nil {
 		providers = append(providers, model.ProviderEntry{Key: "plex", Name: "Plex", Provider: plexProv})
 	}
@@ -138,11 +167,7 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 	if cfg.Spotify.IsSet() {
 		clientID := cfg.Spotify.ResolveClientID(spotify.DefaultClientID)
 		spotifyProv = spotify.New(nil, clientID, cfg.Spotify.Bitrate)
-		if spotifyProv != nil {
-			providers = append(providers, model.ProviderEntry{Key: "spotify", Name: "Spotify", Provider: spotifyProv})
-		} else {
-			fmt.Fprintln(os.Stderr, "Spotify is unavailable in this Windows build.")
-		}
+		providers = append(providers, model.ProviderEntry{Key: "spotify", Name: "Spotify", Provider: spotifyProv})
 	}
 
 	var qobuzProv *qobuz.QobuzProvider
@@ -151,18 +176,32 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 		providers = append(providers, model.ProviderEntry{Key: "qobuz", Name: "Qobuz", Provider: qobuzProv})
 	}
 
+	var tidalProv *tidal.TidalProvider
+	if cfg.Tidal.IsSet() {
+		tidalProv = tidal.New(cfg.Tidal.Quality, cfg.Tidal.ClientID, cfg.Tidal.ClientSecret)
+		providers = append(providers, model.ProviderEntry{Key: "tidal", Name: "Tidal", Provider: tidalProv})
+	}
+
 	if scProv := soundcloud.NewFromConfig(soundcloud.Config{
 		Enabled:     cfg.SoundCloud.Enabled,
 		User:        cfg.SoundCloud.User,
 		CookiesFrom: cfg.SoundCloud.CookiesFrom,
 	}); scProv != nil {
-		// Provider constructors configure resolve-side yt-dlp cookies. Mirror
-		// cookies_from onto the player so streaming yt-dlp invocations use the
-		// same browser session. Last write wins when multiple providers set it.
-		if cfg.SoundCloud.CookiesFrom != "" {
-			player.SetYTDLCookiesFrom(cfg.SoundCloud.CookiesFrom)
-		}
 		providers = append(providers, model.ProviderEntry{Key: "soundcloud", Name: "SoundCloud", Provider: scProv})
+	}
+
+	if mcProv := mixcloud.NewFromConfig(mixcloud.Config{
+		Enabled:        cfg.Mixcloud.Enabled,
+		Username:       cfg.Mixcloud.Username,
+		AccessToken:    cfg.Mixcloud.AccessToken,
+		CookiesFrom:    cfg.Mixcloud.CookiesFrom,
+		Styles:         cfg.Mixcloud.Styles,
+		StylesSet:      cfg.Mixcloud.StylesSet,
+		MaxItems:       cfg.Mixcloud.MaxItems,
+		StreamCreators: cfg.Mixcloud.StreamCreators,
+		SaveStyles:     config.SaveMixcloudStyles,
+	}); mcProv != nil {
+		providers = append(providers, model.ProviderEntry{Key: "mixcloud", Name: "Mixcloud", Provider: mcProv})
 	}
 
 	if neProv := netease.NewFromConfig(netease.Config{
@@ -170,13 +209,10 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 		CookiesFrom: cfg.NetEase.CookiesFrom,
 		UserID:      cfg.NetEase.UserID,
 	}); neProv != nil {
-		if cfg.NetEase.CookiesFrom != "" {
-			player.SetYTDLCookiesFrom(cfg.NetEase.CookiesFrom)
-		}
 		providers = append(providers, model.ProviderEntry{Key: "netease", Name: "NetEase", Provider: neProv})
 	}
 
-	var ytProviders ytmusic.Providers
+	var closeYouTube func()
 	ytWanted := cfg.YouTubeMusic.IsSetOrFallback(ytmusic.FallbackCredentials)
 	if !ytWanted {
 		switch cfg.Provider {
@@ -185,12 +221,19 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 		}
 	}
 	if ytWanted {
-		ytClientID, ytClientSecret := cfg.YouTubeMusic.ResolveCredentials(ytmusic.FallbackCredentials)
-		if cfg.YouTubeMusic.CookiesFrom != "" {
-			player.SetYTDLCookiesFrom(cfg.YouTubeMusic.CookiesFrom)
+		explicitOAuth := strings.TrimSpace(cfg.YouTubeMusic.ClientID) != "" && strings.TrimSpace(cfg.YouTubeMusic.ClientSecret) != ""
+		hasCookies := strings.TrimSpace(cfg.YouTubeMusic.CookiesFrom) != ""
+		if hasCookies {
+			for _, host := range []string{"youtube.com", "youtu.be", "music.youtube.com"} {
+				resolve.SetYTDLCookiesForHost(host, cfg.YouTubeMusic.CookiesFrom)
+			}
 		}
-		if ytClientID == "" || ytClientSecret == "" {
-			fmt.Fprintf(os.Stderr, "YouTube: no credentials available (configure client_id/client_secret in config.toml)\n")
+
+		ytClientID, ytClientSecret := cfg.YouTubeMusic.ResolveCredentials(ytmusic.FallbackCredentials)
+		hasFallbackOAuth := !explicitOAuth && ytClientID != "" && ytClientSecret != ""
+
+		if !explicitOAuth && !hasCookies && !hasFallbackOAuth {
+			fmt.Fprintf(os.Stderr, "YouTube: no credentials available (configure client_id/client_secret or cookies_from in config.toml)\n")
 		} else {
 			if !player.YTDLPAvailable() {
 				fmt.Fprintf(os.Stderr, "\nYouTube requires yt-dlp for audio playback.\n")
@@ -206,12 +249,27 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 				}
 			}
 			if player.YTDLPAvailable() {
-				ytProviders = ytmusic.New(nil, ytClientID, ytClientSecret, cfg.YouTubeMusic.CookiesFrom != "")
-				providers = append(providers,
-					model.ProviderEntry{Key: "yt", Name: "YouTube (All)", Provider: ytProviders.All},
-					model.ProviderEntry{Key: "youtube", Name: "YouTube", Provider: ytProviders.Video},
-					model.ProviderEntry{Key: "ytmusic", Name: "YouTube Music", Provider: ytProviders.Music},
-				)
+				var all, video, music playlist.Provider
+				if explicitOAuth {
+					oauthProviders := ytmusic.New(nil, ytClientID, ytClientSecret, hasCookies)
+					all, video, music = oauthProviders.All, oauthProviders.Video, oauthProviders.Music
+					closeYouTube = oauthProviders.Music.Close
+				} else if hasCookies {
+					cookieProviders := ytmusic.NewCookieProviders(cfg.YouTubeMusic.CookiesFrom)
+					all, video, music = cookieProviders.All, cookieProviders.Video, cookieProviders.Music
+					closeYouTube = cookieProviders.Music.Close
+				} else if hasFallbackOAuth {
+					oauthProviders := ytmusic.New(nil, ytClientID, ytClientSecret, false)
+					all, video, music = oauthProviders.All, oauthProviders.Video, oauthProviders.Music
+					closeYouTube = oauthProviders.Music.Close
+				}
+				if all != nil {
+					providers = append(providers,
+						model.ProviderEntry{Key: "yt", Name: "YouTube (All)", Provider: all},
+						model.ProviderEntry{Key: "youtube", Name: "YouTube", Provider: video},
+						model.ProviderEntry{Key: "ytmusic", Name: "YouTube Music", Provider: music},
+					)
+				}
 			}
 		}
 	}
@@ -222,8 +280,11 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 	if qobuzProv != nil {
 		defer qobuzProv.Close()
 	}
-	if ytProviders.Music != nil {
-		defer ytProviders.Music.Close()
+	if tidalProv != nil {
+		defer tidalProv.Close()
+	}
+	if closeYouTube != nil {
+		defer closeYouTube()
 	}
 
 	if len(positional) > 0 && (positional[0] == "search" || positional[0] == "search-sc") {
@@ -321,9 +382,23 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 		p.RegisterStreamerFactory("spotify:", spotifyProv.NewStreamer)
 	}
 
-	p.RegisterBufferedURLMatcher(func(u string) bool {
-		return navidrome.IsSubsonicStreamURL(u) || jellyfin.IsStreamURL(u) || emby.IsStreamURL(u) || plex.IsStreamURL(u) || qobuz.IsStreamURL(u) || audiobookshelf.IsStreamURL(u)
-	})
+	if tidalProv != nil {
+		// Tidal tracks carry tidal:// URIs; the provider resolves them to a
+		// fresh signed URL or DASH segment list when playback starts.
+		p.RegisterSourceResolver(tidal.TrackURIPrefix, func(uri string) (player.ResolvedSource, error) {
+			u, segments, err := tidalProv.ResolveSource(uri)
+			return player.ResolvedSource{URL: u, Segments: segments}, err
+		})
+	}
+
+	if lyrionClient != nil {
+		p.RegisterSourceResolver(lyrion.TrackURIPrefix, func(uri string) (player.ResolvedSource, error) {
+			u, segments, err := lyrionClient.ResolveSource(uri)
+			return player.ResolvedSource{URL: u, Segments: segments}, err
+		})
+	}
+
+	p.RegisterBufferedURLMatcher(isBufferedProviderURL)
 
 	// Pull now-playing for stations that carry no inline ICY metadata (NTS, FIP).
 	p.RegisterStreamMetadataResolver(radiometa.Resolver)
@@ -370,9 +445,11 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 	}
 
 	m := model.New(p, pl, providers, defaultProvider, localProv, themes, luaMgr, config.SaveFunc{})
+	m.SetIPCBroker(pluginBroker)
 	m.SetCustomEQBands(cfg.EQ)
 	m.SetVisVolumeLinked(cfg.VisVolumeLinked)
 	m.SetBitPerfectDeviceWarning(bitPerfectConfigWarning(cfg))
+	m.SetVisualizer60FPS(visualizer60FPS)
 
 	if luaMgr != nil {
 		luaMgr.SetStateProvider(luaplugin.StateProvider{
@@ -452,12 +529,15 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 	if cfg.LowPower {
 		m.SetLowPower(true)
 	}
-	if cfg.Compact {
-		m.SetCompact(true)
+	if cfg.Simplified {
+		m.SetSimplified(true)
 	}
 
-	if !defaultRadio && len(positional) > 0 {
-		if rs := resume.Load(); rs.Path != "" && rs.PositionSec > 0 {
+	if rs := resume.Load(); rs.Path != "" && rs.PositionSec > 0 {
+		// Mixcloud is commonly opened from its provider browser rather than a
+		// positional URL. Arm only that provider's browser-started resume while
+		// preserving cliamp's existing positional-file behavior elsewhere.
+		if playlist.IsMixcloudURL(rs.Path) || (!defaultRadio && len(positional) > 0) {
 			m.SetResume(rs.Path, rs.PositionSec)
 		}
 	}
@@ -479,6 +559,12 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 			prog.Send(model.ProvAuthURLMsg{ProviderName: qobuzProv.Name(), URL: u})
 		})
 		defer qobuz.SetAuthURLObserver(nil)
+	}
+	if tidalProv != nil {
+		tidal.SetAuthURLObserver(func(u string) {
+			prog.Send(model.ProvAuthURLMsg{ProviderName: tidalProv.Name(), URL: u})
+		})
+		defer tidal.SetAuthURLObserver(nil)
 	}
 
 	svc, svcErr := wireMediaCtl(prog)
@@ -524,14 +610,18 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 		})
 	}
 
-	ipcSrv, ipcErr := ipc.NewServerWithBroker(ipc.DefaultSocketPath(), ipc.DispatcherFunc(func(msg any) { prog.Send(msg) }), pluginBroker)
+	ipcSrv, ipcErr := ipc.NewServerWithBroker(ipc.DefaultSocketPath(), pluginBroker)
 	if ipcErr != nil {
 		fmt.Fprintf(os.Stderr, "ipc: %v\n", ipcErr)
 	} else {
 		defer ipcSrv.Close()
-		if luaMgr != nil {
-			ipcSrv.SetPluginDispatcher(luaMgr)
+		ipcSrv.SetV2Dispatcher(newTUIV2Dispatcher(prog, ipcSrv.JobStore(), luaMgr))
+		if luaMgr == nil {
+			operations := ipc.DefaultOperationRegistry()
+			operations.Unregister("plugin.call", "plugin.commands")
+			ipcSrv.SetOperationRegistry(operations)
 		}
+		go publishV2JobEvents(ipcSrv.Done(), ipcSrv.JobStore(), pluginBroker)
 	}
 
 	finalModel, err := mediactl.Run(prog, svc)
@@ -552,6 +642,92 @@ func run(overrides config.Overrides, positional []string, daemon bool) error {
 	}
 
 	return nil
+}
+
+func newTUIV2Dispatcher(prog *tea.Program, jobs *ipc.JobStore, plugins *luaplugin.Manager) ipc.V2Dispatcher {
+	return ipc.V2DispatcherFunc(func(ctx context.Context, request ipc.V2Request) (ipc.V2Result, *ipc.V2Error) {
+		if request.Operation == "runtime.snapshot" || request.Operation == "runtime.status" {
+			request.Method = "state.get"
+			request.Operation = ""
+		}
+		switch request.Method {
+		case "state.get", "spectrum.get":
+			reply := make(chan model.V2RequestResult, 1)
+			go prog.Send(model.V2RequestMsg{Request: request, Reply: reply})
+			select {
+			case result := <-reply:
+				return result.Result, result.Error
+			case <-ctx.Done():
+				return ipc.V2Result{}, &ipc.V2Error{Code: ipc.V2ErrorCodeCanceled, Message: ipc.V2MessageCanceled}
+			case <-time.After(3 * time.Second):
+				return ipc.V2Result{}, &ipc.V2Error{Code: ipc.V2ErrorCodeUnavailable, Message: ipc.V2MessageUnavailable}
+			}
+		}
+
+		job, err := jobs.CreateWithContext(ctx, request.Operation)
+		if err != nil {
+			return ipc.V2Result{}, &ipc.V2Error{Code: ipc.V2ErrorCodeConflict, Message: ipc.V2MessageConflict}
+		}
+		if request.Operation == "plugin.call" || request.Operation == "plugin.commands" {
+			go runV2PluginJob(jobs, job.ID, request, plugins)
+			return ipc.V2Result{Job: &job}, nil
+		}
+		// Program.Send may wait for the TUI update loop. Job submission itself
+		// stays non-blocking so the IPC response can always acknowledge the job.
+		go prog.Send(model.V2RequestMsg{Request: request, Jobs: jobs, JobID: job.ID})
+		return ipc.V2Result{Job: &job}, nil
+	})
+}
+
+func runV2PluginJob(jobs *ipc.JobStore, jobID string, request ipc.V2Request, plugins *luaplugin.Manager) {
+	ctx, err := jobs.Start(jobID)
+	if err != nil || ctx.Err() != nil {
+		return
+	}
+	if plugins == nil {
+		_ = jobs.Fail(jobID, ipc.V2Error{Code: ipc.V2ErrorCodeUnavailable, Message: ipc.V2MessageUnavailable})
+		return
+	}
+	if request.Operation == "plugin.commands" {
+		data, err := json.Marshal(ipc.Response{OK: true, Items: plugins.CommandList()})
+		if err != nil {
+			_ = jobs.Fail(jobID, ipc.V2Error{Code: ipc.V2ErrorCodeInternal, Message: ipc.V2MessageInternal})
+			return
+		}
+		_ = jobs.Succeed(jobID, data)
+		return
+	}
+
+	var params ipc.Request
+	if err := json.Unmarshal(request.Params, &params); err != nil || params.Name == "" || params.Sub == "" {
+		_ = jobs.Fail(jobID, ipc.V2Error{Code: ipc.V2ErrorCodeInvalidParams, Message: ipc.V2MessageInvalidParams})
+		return
+	}
+	output, err := plugins.EmitCommand(params.Name, params.Sub, params.Args)
+	if err != nil {
+		_ = jobs.Fail(jobID, ipc.V2Error{Code: ipc.V2ErrorCodeInternal, Message: ipc.V2MessageInternal, Detail: err.Error()})
+		return
+	}
+	data, err := json.Marshal(ipc.Response{OK: true, Output: output})
+	if err != nil {
+		_ = jobs.Fail(jobID, ipc.V2Error{Code: ipc.V2ErrorCodeInternal, Message: ipc.V2MessageInternal})
+		return
+	}
+	_ = jobs.Succeed(jobID, data)
+}
+
+func publishV2JobEvents(done <-chan struct{}, jobs *ipc.JobStore, broker *ipc.Broker) {
+	for {
+		select {
+		case <-done:
+			return
+		case event := <-jobs.Events():
+			data, err := json.Marshal(event)
+			if err == nil {
+				_ = broker.Publish("runtime.job", data, false)
+			}
+		}
+	}
 }
 
 // initLogging always returns a non-nil close func so the caller can defer
@@ -593,28 +769,89 @@ func userIPCError(err error) error {
 	return err
 }
 
-func ipcSend(req ipc.Request) (ipc.Response, error) {
-	resp, err := ipc.Send(ipc.DefaultSocketPath(), req)
-	if err != nil {
-		return resp, userIPCError(err)
-	}
-	if !resp.OK {
-		return resp, fmt.Errorf("%s", resp.Error)
-	}
-	return resp, nil
+func ipcSend(operation string, params ipc.Request) (ipc.Response, error) {
+	return ipcSendWithContext(context.Background(), operation, params)
 }
 
-// ipcSendLong is like ipcSend with a caller-chosen deadline, for plugin
-// commands that can legitimately run for minutes (e.g. yt-dlp downloads).
-func ipcSendLong(req ipc.Request, deadline time.Duration) (ipc.Response, error) {
-	resp, err := ipc.SendWithDeadline(ipc.DefaultSocketPath(), req, deadline)
+// ipcSendLong waits for a V2 job under the supplied deadline. Plugin commands
+// can legitimately run for minutes (for example, yt-dlp downloads).
+func ipcSendLong(operation string, params ipc.Request, deadline time.Duration) (ipc.Response, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+	return ipcSendWithContext(ctx, operation, params)
+}
+
+func ipcSendWithContext(ctx context.Context, operation string, params ipc.Request) (ipc.Response, error) {
+	raw, err := json.Marshal(params)
 	if err != nil {
-		return resp, userIPCError(err)
+		return ipc.Response{}, fmt.Errorf("marshal %s parameters: %w", operation, err)
 	}
-	if !resp.OK {
-		return resp, fmt.Errorf("%s", resp.Error)
+	response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{
+		ID:        json.RawMessage(`"cliamp"`),
+		Method:    "operation.submit",
+		Operation: operation,
+		Params:    raw,
+	})
+	if err != nil {
+		return ipc.Response{}, userIPCError(err)
 	}
-	return resp, nil
+	if err := v2ResponseError(response); err != nil {
+		return ipc.Response{}, err
+	}
+	if response.Job == nil {
+		return ipc.Response{}, fmt.Errorf("%s returned no job", operation)
+	}
+	response, err = waitForV2Job(ctx, response.Job.ID)
+	if err != nil {
+		return ipc.Response{}, err
+	}
+	if response.Job == nil {
+		return ipc.Response{}, fmt.Errorf("%s completed without a job", operation)
+	}
+	var result ipc.Response
+	if err := json.Unmarshal(response.Job.Result, &result); err != nil {
+		return ipc.Response{}, fmt.Errorf("decode %s result: %w", operation, err)
+	}
+	if !result.OK {
+		return result, fmt.Errorf("%s", result.Error)
+	}
+	return result, nil
+}
+
+func ipcState() (ipc.RuntimeSnapshot, error) {
+	response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{ID: json.RawMessage(`"cliamp"`), Method: "state.get"})
+	if err != nil {
+		return ipc.RuntimeSnapshot{}, userIPCError(err)
+	}
+	if err := v2ResponseError(response); err != nil {
+		return ipc.RuntimeSnapshot{}, err
+	}
+	if response.Snapshot == nil {
+		return ipc.RuntimeSnapshot{}, fmt.Errorf("state response has no snapshot")
+	}
+	return *response.Snapshot, nil
+}
+
+func stateResult(snapshot ipc.RuntimeSnapshot) ipc.Response {
+	return ipc.Response{
+		OK:         true,
+		State:      snapshot.State,
+		Track:      snapshot.Track,
+		Position:   snapshot.Position,
+		Duration:   snapshot.Duration,
+		Volume:     snapshot.Volume,
+		Playlist:   snapshot.Playlist,
+		Index:      snapshot.Index,
+		Total:      snapshot.Total,
+		Visualizer: snapshot.Visualizer,
+		Shuffle:    snapshot.Shuffle,
+		Repeat:     snapshot.Repeat,
+		Mono:       snapshot.Mono,
+		Speed:      snapshot.Speed,
+		EQPreset:   snapshot.EQPreset,
+		Theme:      snapshot.Theme,
+		EQBands:    snapshot.EQBands,
+	}
 }
 
 func main() {

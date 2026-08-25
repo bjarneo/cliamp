@@ -256,6 +256,74 @@ func TestCompactEqualizerShowsActiveBand(t *testing.T) {
 	}
 }
 
+func TestSimplifiedLayoutShowsTrackSummaryAndTimeStrip(t *testing.T) {
+	m := newLayoutTestModel(80, 40)
+	track, ok := m.playlist.Track(0)
+	if !ok {
+		t.Fatal("playlist has no first track")
+	}
+	track.Artist = "Artist"
+	track.Title = "Title"
+	track.DurationSecs = 222
+	m.playlist.SetTrack(0, track)
+	m.cachedPos = 61 * time.Second
+	m.cachedDur = 222 * time.Second
+	m.SetSimplified(true)
+
+	if m.vis.Rows != 0 {
+		t.Fatalf("simplified visualizer rows = %d, want 0", m.vis.Rows)
+	}
+	if m.visualizerVisible() {
+		t.Fatal("visualizerVisible() = true in simplified mode, want false")
+	}
+	if m.plVisible != 0 {
+		t.Fatalf("simplified playlist rows = %d, want 0", m.plVisible)
+	}
+	if m.layout.fixedRows != 3 {
+		t.Fatalf("simplified fixed rows = %d, want track, time, and seek", m.layout.fixedRows)
+	}
+
+	plain := stripAnsi(m.View().Content)
+	assertViewFits(t, plain, 80, 40)
+	if !strings.Contains(plain, "Artist - Title") || !strings.Contains(plain, "01:01 / 03:42") {
+		t.Fatalf("simplified view = %q, want artist, title, and playback time", plain)
+	}
+	if strings.Contains(plain, "C L I A M P") || strings.Contains(plain, "EQ ") || strings.Contains(plain, "Playlist") {
+		t.Fatalf("simplified view = %q, contains full playback chrome", plain)
+	}
+}
+
+func TestSimplifiedLayoutDisablesHiddenPlaybackChrome(t *testing.T) {
+	m := newLayoutTestModel(80, 24)
+	m.focus = focusEQ
+	m.fullVis = true
+	m.SetSimplified(true)
+
+	if m.focus != focusPlaylist {
+		t.Fatalf("focus = %v, want playlist", m.focus)
+	}
+	if m.fullVis {
+		t.Fatal("SetSimplified did not close the full visualizer")
+	}
+	m.handleKey(tea.KeyPressMsg{Code: tea.KeyTab})
+	if m.focus != focusPlaylist {
+		t.Fatalf("focus after Tab = %v, want playlist", m.focus)
+	}
+	beforeMode := m.vis.Mode
+	m.handleKey(tea.KeyPressMsg{Text: "v"})
+	if m.vis.Mode != beforeMode {
+		t.Fatalf("visualizer mode = %v, want %v", m.vis.Mode, beforeMode)
+	}
+	m.handleKey(tea.KeyPressMsg{Text: "V"})
+	if m.fullVis {
+		t.Fatal("full visualizer opened in simplified mode")
+	}
+	m.handleKey(tea.KeyPressMsg{Mod: tea.ModCtrl, Code: 'x'})
+	if m.heightExpanded {
+		t.Fatal("playlist expanded in simplified mode")
+	}
+}
+
 func TestAsyncSearchResultLayoutUsesContentFirstRows(t *testing.T) {
 	m := newLayoutTestModel(80, 24)
 	m.netSearch.active = true
@@ -390,6 +458,7 @@ func TestInlineOverlaysFitResponsiveTerminal(t *testing.T) {
 		{name: "navigation", set: func(m *Model) { m.navBrowser.visible = true }},
 		{name: "playlist manager", set: func(m *Model) { m.plManager.visible = true }},
 		{name: "queue", set: func(m *Model) { m.queue.visible = true }},
+		{name: "radio stats", set: func(m *Model) { m.radioStats.visible = true }},
 		{name: "info", set: func(m *Model) { m.showInfo = true }},
 		{name: "lyrics", set: func(m *Model) { m.lyrics.visible = true }},
 		{name: "jump", set: func(m *Model) { m.jumping = true }},

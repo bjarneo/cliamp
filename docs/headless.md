@@ -1,6 +1,6 @@
 # Headless Daemon Mode
 
-Run cliamp without a TUI. The daemon listens on the same Unix socket as the interactive player, so every `cliamp <subcommand>` keeps working — but nothing renders to the terminal. This is useful when you want a music player you only ever talk to over IPC: from a status bar, a script, a hotkey daemon, or a cron job.
+Run cliamp without a TUI. The daemon listens on the same Unix socket as the interactive player, so playback, library, and V2 remote commands keep working, but nothing renders to the terminal. This is useful when you want a music player you only ever talk to over IPC: from a status bar, a script, a hotkey daemon, or a cron job.
 
 ```sh
 cliamp --daemon                              # no TUI, IPC only
@@ -13,7 +13,7 @@ Send `SIGINT` or `SIGTERM` to stop. Resume position is saved on graceful shutdow
 
 ## What works
 
-The daemon exposes the same IPC surface as the TUI. See [Remote Control](remote-control.md) for the full list:
+The daemon exposes the same runtime, library, job, and event IPC surface as the TUI. See [Remote Control](remote-control.md) for the full list:
 
 - Playback: `play`, `pause`, `toggle`, `stop`, `next`, `prev`
 - Position: `seek`, `volume`, `speed`
@@ -29,7 +29,7 @@ UI-only commands return an error in headless mode:
 - `theme` — no UI to apply a theme to
 - `vis` — no visualizer running
 
-There is also no MPRIS / macOS NowPlaying bridge in this mode. Wire your media keys to `cliamp` subcommands directly (see [Hyprland](#hyprland) below).
+The daemon still wires MPRIS on Linux and NowPlaying on macOS when the platform service is available. You can also wire media keys to `cliamp` subcommands directly (see [Hyprland](#hyprland) below).
 
 ## Use cases
 

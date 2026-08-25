@@ -96,10 +96,17 @@ func (m *Model) SetAutoPlay(v bool) { m.autoPlay = v }
 // SetLowPower lowers UI cadences without affecting normal mode.
 func (m *Model) SetLowPower(v bool) { m.lowPower = v }
 
-// SetCompact enables compact mode which caps the frame width at 80 columns.
-func (m *Model) SetCompact(v bool) {
-	m.compact = v
+// SetVisualizer60FPS enables the 60 FPS visualizer cadence while it is active.
+func (m *Model) SetVisualizer60FPS(v bool) { m.visualizer60FPS = v }
+
+// SetSimplified enables the sparse playback view without a visualizer.
+func (m *Model) SetSimplified(v bool) {
+	m.simplified = v
+	if v {
+		m.fullVis = false
+	}
 	m.refreshChrome()
+	m.normalizeMainFocus()
 }
 
 // SetInitialDirectory sets the initial directory for the file browser.

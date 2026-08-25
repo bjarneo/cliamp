@@ -22,12 +22,14 @@ const repo = "bjarneo/cliamp"
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 type release struct {
-	TagName string `json:"tag_name"`
+	TagName    string `json:"tag_name"`
+	Prerelease bool   `json:"prerelease"`
+	Draft      bool   `json:"draft"`
 }
 
 // Run checks for a newer release and replaces the current binary if one is found.
-func Run(currentVersion string) error {
-	latest, err := latestVersion()
+func Run(currentVersion string, prerelease bool) error {
+	latest, err := latestVersion(prerelease)
 	if err != nil {
 		return fmt.Errorf("checking latest version: %w", err)
 	}
@@ -38,7 +40,11 @@ func Run(currentVersion string) error {
 	}
 
 	if currentVersion == "" {
-		fmt.Printf("Latest release is %s, downloading...\n", latest)
+		releaseType := "release"
+		if prerelease {
+			releaseType = "prerelease"
+		}
+		fmt.Printf("Latest %s is %s, downloading...\n", releaseType, latest)
 	} else {
 		fmt.Printf("Upgrading %s → %s\n", currentVersion, latest)
 	}
@@ -75,8 +81,12 @@ func Run(currentVersion string) error {
 	return nil
 }
 
-func latestVersion() (string, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
+func latestVersion(prerelease bool) (string, error) {
+	endpoint := "releases/latest"
+	if prerelease {
+		endpoint = "releases?per_page=100"
+	}
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s", repo, endpoint)
 	resp, err := httpClient.Get(url)
 	if err != nil {
 		return "", err
@@ -87,15 +97,32 @@ func latestVersion() (string, error) {
 		return "", fmt.Errorf("GitHub API returned %s", resp.Status)
 	}
 
-	var r release
-	// Limit response body to 1 MB to prevent unbounded memory usage.
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&r); err != nil {
+	if !prerelease {
+		var r release
+		// Limit response body to 1 MB to prevent unbounded memory usage.
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&r); err != nil {
+			return "", fmt.Errorf("parsing response: %w", err)
+		}
+		return validTag(r.TagName)
+	}
+
+	var releases []release
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&releases); err != nil {
 		return "", fmt.Errorf("parsing response: %w", err)
 	}
-	if strings.TrimSpace(r.TagName) == "" || strings.ContainsAny(r.TagName, "/\\") {
+	for _, r := range releases {
+		if r.Prerelease && !r.Draft {
+			return validTag(r.TagName)
+		}
+	}
+	return "", errors.New("no prerelease releases found")
+}
+
+func validTag(tag string) (string, error) {
+	if strings.TrimSpace(tag) == "" || strings.ContainsAny(tag, "/\\") {
 		return "", errors.New("release response contains an invalid tag")
 	}
-	return r.TagName, nil
+	return tag, nil
 }
 
 func releaseChecksum(url, binaryName string) (string, error) {

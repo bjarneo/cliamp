@@ -5,7 +5,46 @@ import (
 	"testing"
 
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 )
+
+func TestRestrictedMarkersAreViewOnly(t *testing.T) {
+	track := playlist.Track{
+		Title:        "Members Only",
+		Artist:       "Creator",
+		ProviderMeta: map[string]string{provider.MetaMixcloudExclusive: "true"},
+	}
+	if got := trackViewName(track); got != "Creator - Members Only [E]" {
+		t.Fatalf("trackViewName = %q", got)
+	}
+	if track.Title != "Members Only" {
+		t.Fatalf("track title mutated to %q", track.Title)
+	}
+
+	album := provider.AlbumInfo{Name: "Members Only", Restricted: true}
+	if got := albumViewName(album); got != "Members Only [E]" {
+		t.Fatalf("albumViewName = %q", got)
+	}
+	if album.Name != "Members Only" {
+		t.Fatalf("album name mutated to %q", album.Name)
+	}
+
+	plain := playlist.Track{Title: "Open Show", Artist: "Creator"}
+	if got := trackViewName(plain); got != "Creator - Open Show" {
+		t.Fatalf("unrestricted trackViewName = %q", got)
+	}
+	notExclusive := playlist.Track{
+		Title:        "Open Show",
+		Artist:       "Creator",
+		ProviderMeta: map[string]string{provider.MetaMixcloudExclusive: "false"},
+	}
+	if got := trackViewName(notExclusive); got != "Creator - Open Show" {
+		t.Fatalf("non-exclusive trackViewName = %q", got)
+	}
+	if got := albumViewName(provider.AlbumInfo{Name: "Open Show"}); got != "Open Show" {
+		t.Fatalf("unrestricted albumViewName = %q", got)
+	}
+}
 
 func TestFormatTrackTime(t *testing.T) {
 	tests := []struct {
@@ -231,6 +270,7 @@ func TestProviderKeyForShortcut(t *testing.T) {
 		"P": "plex",
 		"J": "jellyfin",
 		"Y": "yt",
+		"X": "mixcloud",
 		"L": "local",
 		"R": "radio",
 		"x": "",

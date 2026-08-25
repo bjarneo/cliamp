@@ -359,3 +359,73 @@ func waitForNavBufferCursorLock(t *testing.T, b *navBuffer) {
 		runtime.Gosched()
 	}
 }
+
+func TestNavBufferSegmentsConcatenatesInOrder(t *testing.T) {
+	segments := map[string]string{
+		"/init.mp4": "INIT",
+		"/seg1.m4s": "AAAA",
+		"/seg2.m4s": "BBBBBB",
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, ok := segments[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "audio/mp4")
+		_, _ = io.WriteString(w, body)
+	}))
+	defer server.Close()
+
+	nb, contentLen, err := newNavBufferSegments([]string{
+		server.URL + "/init.mp4",
+		server.URL + "/seg1.m4s",
+		server.URL + "/seg2.m4s",
+	})
+	if err != nil {
+		t.Fatalf("newNavBufferSegments: %v", err)
+	}
+	defer nb.Close()
+
+	if contentLen != -1 {
+		t.Errorf("contentLength = %d, want -1 (unknown)", contentLen)
+	}
+	if got := nb.ContentType(); got != "audio/mp4" {
+		t.Errorf("ContentType = %q, want audio/mp4", got)
+	}
+
+	got, err := io.ReadAll(nb.newReader())
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if want := "INITAAAABBBBBB"; string(got) != want {
+		t.Errorf("concatenated bytes = %q, want %q", got, want)
+	}
+}
+
+func TestNavBufferSegmentsSurfacesMidStreamError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/init.mp4" {
+			_, _ = io.WriteString(w, "INIT")
+			return
+		}
+		http.Error(w, "expired", http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	nb, _, err := newNavBufferSegments([]string{server.URL + "/init.mp4", server.URL + "/gone.m4s"})
+	if err != nil {
+		t.Fatalf("newNavBufferSegments: %v", err)
+	}
+	defer nb.Close()
+
+	if _, err := io.ReadAll(nb.newReader()); err == nil {
+		t.Fatal("expected mid-stream segment error to surface on read")
+	}
+}
+
+func TestNavBufferSegmentsRejectsEmptyList(t *testing.T) {
+	if _, _, err := newNavBufferSegments(nil); err == nil {
+		t.Fatal("expected error for empty segment list")
+	}
+}

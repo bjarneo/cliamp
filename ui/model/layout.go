@@ -37,16 +37,12 @@ func (m *Model) recomputeLayout() {
 		height = 24
 	}
 
-	frameWidth := width
-	if m.compact {
-		frameWidth = min(frameWidth, 80)
-	}
-	paddingH := min(ui.PaddingH, max(0, (frameWidth-1)/2))
+	paddingH := min(ui.PaddingH, max(0, (width-1)/2))
 	paddingV := min(ui.VerticalPadding(), max(0, (height-1)/2))
 
 	layout := frameLayout{
-		frameWidth: frameWidth,
-		panelWidth: max(1, frameWidth-2*paddingH),
+		frameWidth: width,
+		panelWidth: max(1, width-2*paddingH),
 		paddingH:   paddingH,
 		paddingV:   paddingV,
 		footerRows: 1,
@@ -67,6 +63,7 @@ func (m *Model) recomputeLayout() {
 		layout.fixedRows = 7
 	}
 	contentFirst := m.usesContentFirstLayout()
+	simplified := m.usesSimplifiedLayout()
 	if contentFirst {
 		layout.visualizerRows = 0
 		if layout.tier == layoutMinimal {
@@ -74,26 +71,35 @@ func (m *Model) recomputeLayout() {
 		} else {
 			layout.fixedRows = 7
 		}
+	} else if simplified {
+		layout.visualizerRows = 0
+		layout.fixedRows = 3
 	}
 
 	layout.fullVisualizerRows = max(1, height-6-2*paddingV)
 	if !layout.tooSmall() {
 		layout.bodyRows = max(1, height-2*paddingV-layout.fixedRows-layout.footerRows)
-		limit := maxPlVisible
-		if m.heightExpanded {
-			limit = layout.bodyRows
-		} else if contentFirst {
-			limit = maxPlExpandVisible
+		if simplified {
+			m.plVisible = 0
+		} else {
+			limit := maxPlVisible
+			if m.heightExpanded {
+				limit = layout.bodyRows
+			} else if contentFirst {
+				limit = maxPlExpandVisible
+			}
+			m.plVisible = min(limit, layout.bodyRows)
 		}
-		m.plVisible = min(limit, layout.bodyRows)
 	}
 
 	m.layout = layout
-	ui.FrameStyle = ui.FrameStyle.Padding(paddingV, paddingH).Width(frameWidth)
+	ui.FrameStyle = ui.FrameStyle.Padding(paddingV, paddingH).Width(width)
 	ui.PanelWidth = layout.panelWidth
 	if m.vis != nil {
 		m.vis.Cols = layout.panelWidth
-		if m.fullVis {
+		if m.simplified {
+			m.vis.Rows = 0
+		} else if m.fullVis {
 			m.vis.Rows = layout.fullVisualizerRows
 		} else {
 			rows := layout.visualizerRows

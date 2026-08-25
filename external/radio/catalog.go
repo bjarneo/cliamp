@@ -8,9 +8,12 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/bjarneo/cliamp/provider"
 )
 
 const radioBrowserBase = "https://de1.api.radio-browser.info/json"
+const cliampRadioStatsURL = "https://radio.cliamp.stream/statistics"
 
 // CatalogStation represents a station from the Radio Browser API.
 type CatalogStation struct {
@@ -25,6 +28,36 @@ type CatalogStation struct {
 }
 
 var catalogClient = &http.Client{Timeout: 10 * time.Second}
+var statsClient = &http.Client{Timeout: 10 * time.Second}
+
+// RadioStats returns listener statistics for cliamp radio's built-in stations.
+func (*Provider) RadioStats() (provider.RadioStats, error) {
+	return FetchStats()
+}
+
+// FetchStats fetches listener statistics for cliamp radio's built-in stations.
+func FetchStats() (provider.RadioStats, error) {
+	req, err := http.NewRequest(http.MethodGet, cliampRadioStatsURL, nil)
+	if err != nil {
+		return provider.RadioStats{}, err
+	}
+	req.Header.Set("User-Agent", "cliamp/1.0")
+
+	resp, err := statsClient.Do(req)
+	if err != nil {
+		return provider.RadioStats{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return provider.RadioStats{}, fmt.Errorf("cliamp radio stats: HTTP %d", resp.StatusCode)
+	}
+
+	var stats provider.RadioStats
+	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+		return provider.RadioStats{}, err
+	}
+	return stats, nil
+}
 
 // SearchStations searches the Radio Browser API by station name.
 func SearchStations(query string, limit int) ([]CatalogStation, error) {

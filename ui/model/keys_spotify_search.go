@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
 
@@ -37,7 +38,7 @@ func (m *Model) handleSpotSearchInputKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.closeSpotSearch()
 	case tea.KeyEnter:
 		if m.spotSearch.query == "" {
-			m.spotSearch.err = "Enter a search query."
+			m.setSpotSearchError("Enter a search query.")
 			return nil
 		}
 		if !m.spotSearch.loading {
@@ -59,6 +60,12 @@ func (m *Model) handleSpotSearchInputKey(msg tea.KeyPressMsg) tea.Cmd {
 
 func (m *Model) spotSearchResultsMaybeAdjustScroll(visible int) {
 	clampScroll(&m.spotSearch.cursor, &m.spotSearch.scroll, len(m.spotSearch.results), visible)
+	// Section separators take rows of their own, so a window sized purely by
+	// result count can push the cursor off the bottom.
+	for m.spotSearch.scroll < m.spotSearch.cursor &&
+		spotSearchRowsToCursor(m.spotSearch.results, m.spotSearch.scroll, m.spotSearch.cursor) > visible {
+		m.spotSearch.scroll++
+	}
 }
 
 // handleSpotSearchResultsKey handles navigation through search results.
@@ -84,31 +91,50 @@ func (m *Model) handleSpotSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		m.spotSearchResultsMaybeAdjustScroll(m.spotSearchResultsVisible())
 	case "enter":
-		if count > 0 && !m.spotSearch.loading {
+		if count > 0 && !m.spotSearchBusy() {
 			track := m.spotSearch.results[m.spotSearch.cursor]
+			if track.IsAlbum() {
+				return m.expandSpotAlbum(track, spotAlbumPlay)
+			}
 			m.closeSpotSearch()
 			return m.playTrackImmediate(track)
 		}
 	case "a":
-		if count > 0 && !m.spotSearch.loading {
+		if count > 0 && !m.spotSearchBusy() {
 			track := m.spotSearch.results[m.spotSearch.cursor]
+			if track.IsAlbum() {
+				return m.expandSpotAlbum(track, spotAlbumAppend)
+			}
 			m.closeSpotSearch()
 			return m.appendTrack(track)
 		}
 	case "q":
-		if count > 0 && !m.spotSearch.loading {
+		if count > 0 && !m.spotSearchBusy() {
 			track := m.spotSearch.results[m.spotSearch.cursor]
+			if track.IsAlbum() {
+				return m.expandSpotAlbum(track, spotAlbumQueueNext)
+			}
 			m.closeSpotSearch()
 			return m.queueTrackNext(track)
 		}
 	case "p":
-		if count > 0 && !m.spotSearch.loading {
-			m.spotSearch.selTrack = m.spotSearch.results[m.spotSearch.cursor]
+		if count > 0 && !m.spotSearchBusy() {
+			track := m.spotSearch.results[m.spotSearch.cursor]
+			// The playlist picker adds one track; an album is many, and Spotify
+			// has no single call to add a whole record.
+			if track.IsAlbum() {
+				m.setSpotSearchError("Open the album with Enter, then add tracks from the queue.")
+				return nil
+			}
+			m.spotSearch.selTrack = track
 			m.spotSearch.loading = true
 			m.spotSearch.err = ""
 			return fetchSpotPlaylistsCmd(m.spotSearch.prov, nextRequest(&m.requests.spotLists))
 		}
 	case "esc", "backspace":
+		m.invalidateSpotAlbumRequest()
+		nextRequest(&m.requests.spotLists)
+		m.spotSearch.loading = false
 		m.spotSearch.screen = spotSearchInput
 		m.spotSearch.err = ""
 	case "ctrl+u":
@@ -134,6 +160,34 @@ func (m *Model) handleSpotSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.spotSearchResultsMaybeAdjustScroll(m.spotSearchResultsVisible())
 	}
 	return nil
+}
+
+// spotSearchBusy reports whether a request for the results screen is in flight,
+// covering both the playlist fetch and an album expansion.
+func (m *Model) spotSearchBusy() bool {
+	return m.spotSearch.loading || m.spotSearch.albumLoading
+}
+
+func (m *Model) setSpotSearchError(message string) {
+	m.spotSearch.err = message
+	if m.spotSearch.screen == spotSearchResults {
+		m.spotSearchResultsMaybeAdjustScroll(m.spotSearchResultsVisible())
+	}
+}
+
+// expandSpotAlbum fetches the tracks of the selected album placeholder. The
+// overlay stays open while it runs: closing it would bump the request
+// generation and drop the response.
+func (m *Model) expandSpotAlbum(album playlist.Track, action spotAlbumAction) tea.Cmd {
+	loader, ok := m.spotSearch.prov.(provider.AlbumTrackLoader)
+	if !ok {
+		m.setSpotSearchError("This provider cannot open albums.")
+		return nil
+	}
+	m.spotSearch.albumLoading = true
+	m.spotSearch.err = ""
+	ctx := m.newSpotRequestContext(30 * time.Second)
+	return fetchSpotAlbumTracksCmd(ctx, loader, album, action, nextRequest(&m.requests.spotAlbum))
 }
 
 func (m *Model) spotSearchPlaylistMaybeAdjustScroll(visible int) {
@@ -205,7 +259,7 @@ func (m *Model) handleSpotSearchNewNameKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.spotSearchPlaylistMaybeAdjustScroll(m.spotSearchPlaylistVisible())
 	case tea.KeyEnter:
 		if strings.TrimSpace(m.spotSearch.newName) == "" {
-			m.spotSearch.err = "Playlist name is required."
+			m.setSpotSearchError("Playlist name is required.")
 			return nil
 		}
 		if !m.spotSearch.loading {

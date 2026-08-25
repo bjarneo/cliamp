@@ -3,7 +3,7 @@ package ui
 import "strings"
 
 // brailleGrid is a 4×2 dot-per-cell rasteriser shared by visualizers that draw
-// to a fine subgrid (sand, speaker, lightning, crack, quake, geyser, strings).
+// to a fine subgrid (mirror, sand, speaker, lightning, crack, quake, geyser, strings).
 // Each cell stores a tier (1..3 = low/mid/high colour, 0 = empty) and the
 // renderer composes one Braille glyph per character cell.
 type brailleGrid struct {

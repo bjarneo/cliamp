@@ -96,6 +96,12 @@ func openSSHSource(path string) (sourceResult, error) {
 		return sourceResult{}, err
 	}
 
+	// Defense-in-depth: reject hosts that start with - or contain =, which would
+	// indicate ssh option injection (e.g. -oProxyCommand=...) injected via the URL host.
+	if strings.HasPrefix(parsed.Host, "-") || strings.Contains(parsed.Host, "=") {
+		return sourceResult{}, fmt.Errorf("invalid ssh URL %q: host %q contains disallowed characters", path, parsed.Host)
+	}
+
 	catCmd := "cat -- " + shellQuoteSSH(parsed.Path)
 	args := parsed.SSHArgs()
 	args = append(args, catCmd)
@@ -122,11 +128,24 @@ func (p *Player) matchCustomURI(path string) StreamerFactory {
 	return nil
 }
 
+// matchSourceResolver returns the SourceResolver for the given path if it
+// matches a registered scheme prefix, or nil if no scheme matches.
+func (p *Player) matchSourceResolver(path string) SourceResolver {
+	for scheme, r := range p.sourceResolvers {
+		if strings.HasPrefix(path, scheme) {
+			return r
+		}
+	}
+	return nil
+}
+
 // sourceResult holds the opened stream and optional HTTP metadata.
 type sourceResult struct {
 	body          io.ReadCloser
 	contentType   string // e.g. "audio/aacp"; empty for local files
 	contentLength int64  // -1 if unknown; from Content-Length header for HTTP
+	prefetch      bool   // true when network decoding must be kept off the speaker callback
+	live          bool   // true when ICY headers identify a live radio response
 }
 
 // streamStallTimeout bounds how long a single Read on a live HTTP stream may
@@ -199,8 +218,12 @@ func openSource(path string, onMeta func(string)) (sourceResult, error) {
 	}
 
 	// Guard the body with a stall timeout so a stalled/half-open live stream
-	// can't park the audio-callback goroutine in Read forever. Close() cancels
-	// the request, so this also cleans up the context.
+	// can't park a Read forever. Close() cancels the request, so this also
+	// cleans up the context. Jitter in a live-but-slow connection (data
+	// arriving in small delayed bursts, well under streamStallTimeout) is
+	// handled further up the chain by livePrefetchStreamer, which decodes
+	// off the audio-callback goroutine so this Read never blocks the
+	// speaker's mutex — see its doc comment for the full rationale.
 	var body io.ReadCloser = &stallReader{rc: resp.Body, cancel: cancel, timeout: streamStallTimeout}
 
 	// Wrap in ICY reader if the server provides a metaint interval.
@@ -210,10 +233,19 @@ func openSource(path string, onMeta func(string)) (sourceResult, error) {
 		}
 	}
 
+	live := false
+	for key := range resp.Header {
+		if strings.HasPrefix(strings.ToLower(key), "icy-") {
+			live = true
+			break
+		}
+	}
 	return sourceResult{
 		body:          body,
 		contentType:   resp.Header.Get("Content-Type"),
 		contentLength: resp.ContentLength,
+		prefetch:      live || resp.ContentLength < 0,
+		live:          live,
 	}, nil
 }
 

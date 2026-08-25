@@ -367,7 +367,7 @@ func (f *ffmpegPipe) waitForAudioBytes(n int, timeout time.Duration) error {
 }
 
 // ffmpegPipeStreamer reads PCM data incrementally from a running ffmpeg process.
-// Used for live/infinite streams where seeking is not supported.
+// Used for non-seekable HTTP streams, both finite and live.
 type ffmpegPipeStreamer struct {
 	ffmpegPipe
 }
@@ -378,9 +378,8 @@ func (f *ffmpegPipeStreamer) Seek(int) error { return nil }
 // instead of letting ffmpeg open the URL itself. Keeping the caller's reader
 // chain in the data path means the ICY metadata reader stays attached, so live
 // radio StreamTitle parsing keeps working for ffmpeg-only codecs (AAC, AAC+,
-// Opus, ...). src is closed when the stream stops. Used for live/infinite HTTP
-// streams; seeking is not supported.
-func decodeFFmpegPipeStream(src io.ReadCloser, sr beep.SampleRate, bitDepth int) (*ffmpegPipeStreamer, beep.Format, error) {
+// Opus, ...). src is closed when the stream stops; seeking is not supported.
+func decodeFFmpegPipeStream(src io.ReadCloser, sr beep.SampleRate, bitDepth int, live bool) (*ffmpegPipeStreamer, beep.Format, error) {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		return nil, beep.Format{}, fmt.Errorf("ffmpeg is required to play this stream — install it with your package manager")
 	}
@@ -388,7 +387,7 @@ func decodeFFmpegPipeStream(src io.ReadCloser, sr beep.SampleRate, bitDepth int)
 	if err != nil {
 		return nil, beep.Format{}, err
 	}
-	fp.live = true // infinite radio stream: a clean EOF means the upstream died
+	fp.live = live
 	return &ffmpegPipeStreamer{ffmpegPipe: fp}, format, nil
 }
 

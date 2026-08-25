@@ -93,3 +93,23 @@ func TestLoadLowPower(t *testing.T) {
 		t.Fatalf("Visualizer = %q, want none", cfg.Visualizer)
 	}
 }
+
+func TestLoadSimplified(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("simplified = true\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Simplified {
+		t.Fatal("Simplified = false, want true")
+	}
+}

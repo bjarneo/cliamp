@@ -76,3 +76,29 @@ func TestShouldReconnectOnUnpause(t *testing.T) {
 		})
 	}
 }
+
+func TestTogglePlayPauseRestartsRuntimeLiveStationInPlace(t *testing.T) {
+	player := &playbackFakeEngine{playing: true, paused: true, live: true}
+	p := playlist.New()
+	p.Add(
+		playlist.Track{Title: "One", Path: "https://radio.example.com/one", Stream: true},
+		playlist.Track{Title: "Two", Path: "https://radio.example.com/two", Stream: true},
+		playlist.Track{Title: "Three", Path: "https://radio.example.com/three", Stream: true},
+	)
+	p.SetIndex(1)
+	m := Model{player: player, playlist: p}
+
+	cmd := m.togglePlayPause()
+	if cmd == nil {
+		t.Fatal("togglePlayPause() returned nil, want current-station restart command")
+	}
+	if got := p.Index(); got != 1 {
+		t.Fatalf("playlist index = %d, want current station 1", got)
+	}
+	if player.stopCalls != 1 {
+		t.Fatalf("Stop calls = %d, want 1 before reconnect", player.stopCalls)
+	}
+	if !m.buffering || m.playingTrack.Path != "https://radio.example.com/two" {
+		t.Fatalf("restart state = buffering %v, track %q; want station two buffering", m.buffering, m.playingTrack.Path)
+	}
+}

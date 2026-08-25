@@ -7,9 +7,12 @@ discovers capabilities at runtime via type assertions and enables features
 accordingly.
 
 See the existing providers for reference:
+
 - `external/navidrome/`: Subsonic API, browsing, scrobbling
 - `external/plex/`: Plex Media Server, search, album tracks
 - `external/spotify/`: Spotify, search, playlist management, custom streaming
+- `external/mixcloud/`: public catalog, browse-entry shortcuts, creator jumps,
+  genre search and local genre favorites
 - `external/radio/`: internet radio, favorites
 - `external/local/`: local TOML playlist files
 - `external/audiobookshelf/`: Audiobookshelf, sectioned playlists, resume
@@ -38,6 +41,11 @@ interfaces are defined in `provider/interfaces.go`.
 |---|---|---|
 | `Searcher` | Track search overlay | `SearchTracks(ctx, query, limit)` |
 | `ArtistBrowser` | Hierarchical artist browsing | `Artists()`, `ArtistAlbums(id)` |
+| `TrackArtistResolver` | Jump from a highlighted provider track to its artist/creator with `N` | `ArtistForTrack(track)` |
+| `BrowseEntryProvider` | Add non-playable shortcuts into the provider playlist pane | `BrowseEntries()`; each entry can set `AfterID`, `AfterSection`, and `OpenInPlaylist` |
+| `GenreBrowser` | Hierarchical category browsing with provider-defined sort views | `Genres()`, `GenreSortTypes()`, `GenreTracks(genreID, sortType)` |
+| `GenreFavoriteToggler` | Favorite/unfavorite categories with `f` in the genre browser | `ToggleGenreFavorite(genreID)` |
+| `GenreSearcher` | Search beyond the initially loaded category catalogue | `SearchGenres(ctx, query, limit)` |
 | `AlbumBrowser` | Paginated album browsing with sort | `AlbumList(sort, offset, size)`, `AlbumSortTypes()` |
 | `AlbumTrackLoader` | Album track listing | `AlbumTracks(albumID)` |
 | `PlaybackReporter` | Playback reporting at track start and finish | `CanReportPlayback(track)`, `ReportNowPlaying(track, position, canSeek) error`, `ReportScrobble(track, elapsed, duration, canSeek) error` |
@@ -49,6 +57,7 @@ interfaces are defined in `provider/interfaces.go`.
 | `Closer` | Cleanup on shutdown | `Close()` |
 | `Authenticator` | Interactive sign-in flow | `Authenticate() error` (in `playlist` package) |
 | `ResumeTarget` | Server-side resume position | `ResumeTarget(playlistID, tracks)` |
+| `TrackPosition` | Server-side position for one track, read on every play | `TrackPosition(track)` |
 | `ProgressReporter` | Interim position updates while playing, in addition to `PlaybackReporter`'s start/finish reports | `ReportProgress(track, position) error` |
 | `BrowseLabeler` | Relabel the browse overlay's two levels (e.g. Authors/Books instead of Artists/Albums) | `BrowseLabels()` |
 
@@ -187,7 +196,18 @@ users can set it as their default.
 You don't need to touch the UI code. Based on which interfaces your provider
 implements, the UI will automatically:
 
-- Show the browse overlay ("N") if any registered provider implements `ArtistBrowser` or `AlbumBrowser`
+- Show the browse overlay (`N`) if any registered provider implements
+  `ArtistBrowser`, `AlbumBrowser`, or `GenreBrowser`
+- Add `BrowseEntryProvider` routes to the provider pane without exposing them
+  as playable playlists to IPC or other provider consumers. `AfterID` places a
+  route after one list item, with `AfterSection` as its section-level fallback.
+  A route extending a missing section is omitted. `OpenInPlaylist` makes its
+  non-empty final result replace the main playlist instead of opening the
+  browser's track screen
+- Jump from a highlighted track to its artist/creator when the originating
+  provider implements both `TrackArtistResolver` and `ArtistBrowser`
+- Add genre lists and sort views for `GenreBrowser`, the `f` action for
+  `GenreFavoriteToggler`, and provider-side category search for `GenreSearcher`
 - Show the search overlay ("F") if any registered provider implements `Searcher`
 - Enable add-to-playlist in search results if the searched provider implements `PlaylistWriter`
 - Report playback at track start and finish if `PlaybackReporter` is implemented, logging any failure the provider returns

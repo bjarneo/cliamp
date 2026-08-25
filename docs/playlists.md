@@ -73,6 +73,7 @@ Keep one file per collection; mix hand-written and CLI-created files freely. Emp
 [[track]]
 path = "http://station-1.com/stream"
 title = "Radio Station 1"
+realtime = true
 
 [[track]]
 path = "http://station-2.com/stream/hd"
@@ -97,11 +98,13 @@ Each `[[track]]` section supports:
 | `year` | No | Release year |
 | `track_number` | No | Track number |
 | `duration_secs` | No | Duration in seconds |
+| `realtime` | No | Treat an HTTP URL as live radio and reconnect it after pause or disconnect |
 | `embedded_lyrics` | No | Lyrics copied from local file tags |
 | `album_art_url` | No | Cached file URL for embedded album art |
 | `bookmark` | No | Bookmark flag |
 
-HTTP/HTTPS paths are automatically treated as streams.
+HTTP/HTTPS paths are automatically treated as streams. Set `realtime = true`
+for live radio. cliamp preserves this flag when it saves the playlist.
 
 ### Directory Sources (`[[dir]]`)
 

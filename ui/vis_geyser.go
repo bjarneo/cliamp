@@ -117,6 +117,7 @@ func (d *geyserDriver) spawn(x, y, spread int, vy float64, bass, mid, high *floa
 func (*geyserDriver) TickInterval(_ *Visualizer, ctx VisTickContext) time.Duration {
 	return defaultDriverTickInterval(ctx)
 }
+func (d *geyserDriver) pauseSettled() bool { return len(d.particles) == 0 }
 func (d *geyserDriver) OnEnter(*Visualizer) {
 	d.grid = brailleGrid{}
 	d.particles = nil

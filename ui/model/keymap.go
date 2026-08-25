@@ -34,12 +34,13 @@ func (m Model) buildKeymapEntries() []keymapEntry {
 	out := make([]keymapEntry, 0, len(commandRegistry)+6)
 	seen := make(map[string]bool)
 	add := func(command commandSpec) {
-		id := command.KeyLabel + "\x00" + command.Label
+		label := command.label(m)
+		id := command.KeyLabel + "\x00" + label
 		if seen[id] {
 			return
 		}
 		seen[id] = true
-		out = append(out, keymapEntry{key: command.KeyLabel, action: command.Label})
+		out = append(out, keymapEntry{key: command.KeyLabel, action: label})
 	}
 
 	mode, label := m.keymapContext()
@@ -115,6 +116,8 @@ func (m Model) keymapContext() (commandMode, string) {
 		return commandModeQueue, "Queue"
 	case screenInfo:
 		return commandModeInfo, "Track Info"
+	case screenRadioStats:
+		return commandModeRadioStats, "Radio Stats"
 	case screenSearch:
 		return commandModeSearch, "Playlist Filter"
 	case screenNetSearch:

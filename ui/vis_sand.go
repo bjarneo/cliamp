@@ -305,6 +305,10 @@ func (*sandDriver) TickInterval(_ *Visualizer, ctx VisTickContext) time.Duration
 	return defaultDriverTickInterval(ctx)
 }
 
+func (d *sandDriver) pauseSettled() bool {
+	return d.explosionTTL == 0 && len(d.particles) == 0
+}
+
 func (d *sandDriver) OnEnter(*Visualizer) {
 	d.grid = nil
 	d.dotRows = 0

@@ -110,6 +110,7 @@ func TestWriteTrackAllFields(t *testing.T) {
 		DurationSecs:   240,
 		Bookmark:       true,
 		Feed:           true,
+		Realtime:       true,
 		EmbeddedLyrics: "[00:01.00]Line",
 		AlbumArtURL:    "file:///tmp/cover.jpg",
 	})
@@ -128,6 +129,7 @@ func TestWriteTrackAllFields(t *testing.T) {
 		`album_art_url = "file:///tmp/cover.jpg"`,
 		"bookmark = true",
 		"feed = true",
+		"realtime = true",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in output:\n%s", want, got)
@@ -512,6 +514,27 @@ func TestSavePlaylistOverwrites(t *testing.T) {
 	tracks, _ := p.Tracks("over")
 	if len(tracks) != 1 || tracks[0].Title != "C" {
 		t.Fatalf("expected single track C, got: %+v", tracks)
+	}
+}
+
+func TestSavePlaylistPreservesRealtime(t *testing.T) {
+	p := newTestProvider(t)
+	want := playlist.Track{
+		Path:     "https://stream.example.com/live",
+		Title:    "Live Radio",
+		Stream:   true,
+		Realtime: true,
+	}
+	if err := p.SavePlaylist("radio", []playlist.Track{want}); err != nil {
+		t.Fatalf("SavePlaylist: %v", err)
+	}
+
+	tracks, err := p.Tracks("radio")
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	if len(tracks) != 1 || !tracks[0].Stream || !tracks[0].Realtime {
+		t.Fatalf("loaded tracks = %+v, want live stream metadata preserved", tracks)
 	}
 }
 

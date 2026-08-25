@@ -14,9 +14,11 @@ import (
 
 // plsEntry holds a single parsed PLS entry.
 type plsEntry struct {
-	Num   int
-	File  string
-	Title string
+	Num       int
+	File      string
+	Title     string
+	Length    int
+	HasLength bool
 }
 
 // parsePLS reads a PLS (INI-style) playlist and returns entries sorted by number.
@@ -32,6 +34,7 @@ type plsEntry struct {
 func parsePLS(r io.Reader) ([]plsEntry, error) {
 	files := map[int]string{}
 	titles := map[int]string{}
+	lengths := map[int]int{}
 
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
@@ -56,6 +59,12 @@ func parsePLS(r io.Reader) ([]plsEntry, error) {
 			if n, err := strconv.Atoi(key[5:]); err == nil {
 				titles[n] = val
 			}
+		case strings.HasPrefix(lower, "length"):
+			if n, err := strconv.Atoi(key[6:]); err == nil {
+				if length, err := strconv.Atoi(val); err == nil {
+					lengths[n] = length
+				}
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -74,27 +83,32 @@ func parsePLS(r io.Reader) ([]plsEntry, error) {
 
 	entries := make([]plsEntry, 0, len(nums))
 	for _, n := range nums {
+		length, hasLength := lengths[n]
 		entries = append(entries, plsEntry{
-			Num:   n,
-			File:  files[n],
-			Title: titles[n],
+			Num:       n,
+			File:      files[n],
+			Title:     titles[n],
+			Length:    length,
+			HasLength: hasLength,
 		})
 	}
 	return entries, nil
 }
 
 // plsEntriesToTracks converts parsed PLS entries to playlist tracks.
-// Radio PLS files list multiple mirror servers for the same stream;
-// when all entries are stream URLs we collapse them to a single track
-// using the first URL (matching VLC/Winamp behavior).
+// Radio PLS files list multiple mirror servers for the same stream. Explicit
+// negative lengths or matching "(#N)" titles identify mirrors that should be
+// collapsed to the first URL (matching VLC/Winamp behavior).
 func plsEntriesToTracks(entries []plsEntry) []playlist.Track {
-	if allStreams(entries) {
+	if radioMirrors(entries) {
 		e := entries[0]
 		title := e.Title
 		// Strip the mirror suffix like "(#1)" from radio station titles.
 		title = stripMirrorSuffix(title)
 		if title == "" {
-			return []playlist.Track{playlist.TrackFromPath(e.File)}
+			track := playlist.TrackFromPath(e.File)
+			track.Realtime = true
+			return []playlist.Track{track}
 		}
 		return []playlist.Track{{
 			Path:     e.File,
@@ -106,17 +120,52 @@ func plsEntriesToTracks(entries []plsEntry) []playlist.Track {
 
 	tracks := make([]playlist.Track, 0, len(entries))
 	for _, e := range entries {
+		realtime := playlist.IsURL(e.File) && e.HasLength && e.Length < 0
 		if e.Title != "" {
 			tracks = append(tracks, playlist.Track{
-				Path:   e.File,
-				Title:  e.Title,
-				Stream: playlist.IsURL(e.File),
+				Path:         e.File,
+				Title:        e.Title,
+				Stream:       playlist.IsURL(e.File),
+				Realtime:     realtime,
+				DurationSecs: max(e.Length, 0),
 			})
 		} else {
-			tracks = append(tracks, playlist.TrackFromPath(e.File))
+			track := playlist.TrackFromPath(e.File)
+			track.Realtime = realtime
+			track.DurationSecs = max(e.Length, 0)
+			tracks = append(tracks, track)
 		}
 	}
 	return tracks
+}
+
+func radioMirrors(entries []plsEntry) bool {
+	if !allStreams(entries) {
+		return false
+	}
+	allIndefinite := true
+	for _, entry := range entries {
+		if entry.HasLength && entry.Length >= 0 {
+			return false
+		}
+		allIndefinite = allIndefinite && entry.HasLength && entry.Length < 0
+	}
+	if allIndefinite {
+		return true
+	}
+	if len(entries) < 2 {
+		return false
+	}
+	name := stripMirrorSuffix(entries[0].Title)
+	if name == "" || name == entries[0].Title {
+		return false
+	}
+	for _, entry := range entries[1:] {
+		if stripMirrorSuffix(entry.Title) != name || stripMirrorSuffix(entry.Title) == entry.Title {
+			return false
+		}
+	}
+	return true
 }
 
 // allStreams reports whether every PLS entry is an HTTP stream URL.

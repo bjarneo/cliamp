@@ -12,6 +12,14 @@ func (m Model) currentPlaybackTrack() (playlist.Track, int) {
 	return m.playlist.Current()
 }
 
+func (m Model) currentPlaybackIsLive(track playlist.Track) bool {
+	if track.IsLive() {
+		return true
+	}
+	reporter, ok := m.player.(interface{ IsLiveStream() bool })
+	return ok && reporter.IsLiveStream()
+}
+
 func (m *Model) setPlaybackTrack(track playlist.Track) {
 	m.playingTrack = track
 	m.playingTrackActive = true

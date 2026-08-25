@@ -300,7 +300,11 @@ func (m *Model) spotSearchResultsHelpLine() string {
 }
 
 func (m *Model) spotSearchResultsVisible() int {
-	return m.effectivePlaylistVisible()
+	visible := m.effectivePlaylistVisible()
+	if m.spotSearch.err != "" {
+		visible--
+	}
+	return max(0, visible)
 }
 
 func (m *Model) spotSearchPlaylistHelpLine() string {

@@ -5,7 +5,7 @@ Override any config option for a single session without editing `~/.config/cliam
 ## Playback
 
 ```sh
-cliamp --volume -5 track.mp3          # volume in dB [-30, +6]
+cliamp --vol -5 track.mp3             # volume in dB [-30, +6]
 cliamp --shuffle ~/Music              # enable shuffle
 cliamp --repeat all ~/Music           # repeat mode: off, all, one
 cliamp --mono track.mp3               # downmix to mono
@@ -29,9 +29,12 @@ cliamp --no-bitperfect track.flac                    # override bitperfect=true 
 ## Appearance
 
 ```sh
-cliamp --compact ~/Music                     # cap width at 80 columns
+cliamp --simplified ~/Music                  # no visualizer or playlist
 cliamp --eq-preset "Bass Boost" ~/Music
+cliamp --visualizer-60fps ~/Music            # smoother visualizer animation (higher CPU use)
 ```
+
+`--visualizer-60fps` renders a visible visualizer at roughly 60 FPS while audio plays. `Wave`, `Scope`, and `Heartbeat` already use this cadence because they draw directly from audio samples. The flag does not affect overlays or low-power mode.
 
 ## Diagnostics
 
@@ -76,13 +79,23 @@ cliamp search-sc "lofi beats"                  # search SoundCloud
 
 Press `Ctrl+F` in the player for context-aware search: it runs the active provider's native search when available or falls back to YouTube search.
 
+## Updates
+
+```sh
+cliamp upgrade                # latest stable release
+cliamp upgrade --prerelease   # latest beta or release candidate
+```
+
+Prerelease updates are opt-in for each upgrade. Normal installs, package-manager updates, and `cliamp upgrade` continue to use stable releases only.
+
+Maintainers publish a prerelease by tagging the release commit with a SemVer prerelease tag such as `v1.5.0-beta.1` or `v1.5.0-rc.1`. The release workflow builds all platform binaries and creates a GitHub prerelease without updating Homebrew, AUR, or the public changelog.
+
 ## General
 
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--help` | `-h` | Show help and exit |
 | `--version` | `-v` | Print version and exit |
-| `--upgrade` | | Update to the latest release |
 
 ## Shell completion
 
@@ -110,13 +123,14 @@ cliamp track.mp3 --repeat all --mono ~/Music
 
 | Flag | Type | Default | Range / Values |
 |------|------|---------|----------------|
-| `--volume` | float | 0 | -30 to +6 dB |
+| `--vol` | float | 0 | -30 to +6 dB |
 | `--shuffle` | bool | false | |
 | `--repeat` | string | off | off, all, one |
 | `--mono` / `--no-mono` | bool | false | |
 | `--auto-play` | bool | false | |
-| `--compact` | bool | false | |
-| `--theme` | string | | theme name |
+| `--simplified` | bool | false | artist/title and time strip; no visualizer or playlist |
+| `--visualizer-60fps` | bool | false | render a visible visualizer at roughly 60 FPS |
+| `--start-theme` | string | | theme name |
 | `--eq-preset` | string | | preset name |
 | `--sample-rate` | int | 44100 | 22050, 44100, 48000, 96000, 192000 |
 | `--buffer-ms` | int | 250 | 50-5000 |
@@ -134,7 +148,7 @@ CLI flags override config file values for the current session only. They are not
 
 ## Setup wizard
 
-Configure remote providers (Navidrome, Plex, Jellyfin, Emby, Spotify, Qobuz, NetEase, Audiobookshelf, YouTube Music) through a small TUI. Each provider page links to where to find the required credentials, validates the connection live, and writes the resulting `[provider]` block to `~/.config/cliamp/config.toml` without disturbing the rest of the file.
+Configure remote providers (Navidrome, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, Mixcloud, NetEase, Audiobookshelf, YouTube Music) through a small TUI. Each provider page links to where to find the required credentials and writes the resulting `[provider]` block to `~/.config/cliamp/config.toml` without disturbing the rest of the file. Supported server connections are validated during setup. OAuth providers (Spotify, Qobuz, Tidal) authenticate later in the player; Mixcloud's optional browser-session or OAuth credentials are checked when used.
 
 ```sh
 cliamp setup
@@ -208,7 +222,7 @@ cliamp next / prev                     # track navigation
 cliamp status                          # current state
 cliamp status --json                   # machine-readable state
 cliamp volume -5                       # adjust volume (dB)
-cliamp seek 30                         # seek to position (seconds)
+cliamp seek 30                         # seek relative to current position (seconds)
 cliamp load "Playlist Name"            # load a playlist
 cliamp queue /path/to/file.mp3         # queue a track
 cliamp shuffle [on|off|toggle]         # toggle or set shuffle
@@ -219,6 +233,9 @@ cliamp eq Rock                         # set EQ preset by name
 cliamp eq --band 0 6.0                 # set EQ band 0 to +6 dB
 cliamp device list                     # list audio output devices
 cliamp device "My DAC"                 # switch audio output device
+cliamp remote state                     # v2 GUI-ready runtime snapshot
+cliamp remote capabilities              # v2 operation list
+cliamp remote events runtime.state      # v2 event stream
 ```
 
 See [remote-control.md](remote-control.md) for the full protocol specification.

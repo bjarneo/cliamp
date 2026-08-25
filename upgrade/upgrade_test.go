@@ -59,12 +59,53 @@ func TestLatestVersionSuccess(t *testing.T) {
 	defer srv.Close()
 	installTestClient(t, srv.URL)
 
-	tag, err := latestVersion()
+	tag, err := latestVersion(false)
 	if err != nil {
 		t.Fatalf("latestVersion: %v", err)
 	}
 	if tag != "v1.2.3" {
 		t.Errorf("tag = %q, want v1.2.3", tag)
+	}
+}
+
+func TestLatestPrereleaseVersionSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/repos/") || !strings.HasSuffix(r.URL.Path, "/releases") {
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("per_page"); got != "100" {
+			t.Errorf("per_page = %q, want 100", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"tag_name":"v1.3.0-beta.2","prerelease":true,"draft":true},
+			{"tag_name":"v1.2.3","prerelease":false},
+			{"tag_name":"v1.3.0-beta.1","prerelease":true}
+		]`))
+	}))
+	defer srv.Close()
+	installTestClient(t, srv.URL)
+
+	tag, err := latestVersion(true)
+	if err != nil {
+		t.Fatalf("latestVersion: %v", err)
+	}
+	if tag != "v1.3.0-beta.1" {
+		t.Errorf("tag = %q, want v1.3.0-beta.1", tag)
+	}
+}
+
+func TestLatestPrereleaseVersionMissing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"tag_name":"v1.2.3","prerelease":false}]`))
+	}))
+	defer srv.Close()
+	installTestClient(t, srv.URL)
+
+	_, err := latestVersion(true)
+	if err == nil || !strings.Contains(err.Error(), "no prerelease") {
+		t.Errorf("latestVersion error = %v, want missing prerelease error", err)
 	}
 }
 
@@ -75,7 +116,7 @@ func TestLatestVersionHTTPError(t *testing.T) {
 	defer srv.Close()
 	installTestClient(t, srv.URL)
 
-	_, err := latestVersion()
+	_, err := latestVersion(false)
 	if err == nil {
 		t.Error("latestVersion should error on 500")
 	}
@@ -91,7 +132,7 @@ func TestLatestVersionBadJSON(t *testing.T) {
 	defer srv.Close()
 	installTestClient(t, srv.URL)
 
-	_, err := latestVersion()
+	_, err := latestVersion(false)
 	if err == nil {
 		t.Error("latestVersion should error on invalid JSON")
 	}
@@ -302,7 +343,7 @@ func TestRunAlreadyUpToDate(t *testing.T) {
 	installTestClient(t, srv.URL)
 
 	// Same current version → no download attempted.
-	if err := Run("v2.0.0"); err != nil {
+	if err := Run("v2.0.0", false); err != nil {
 		t.Errorf("Run(current=latest) = %v, want nil", err)
 	}
 }
@@ -314,7 +355,7 @@ func TestRunFailsLatestVersion(t *testing.T) {
 	defer srv.Close()
 	installTestClient(t, srv.URL)
 
-	err := Run("v1.0.0")
+	err := Run("v1.0.0", false)
 	if err == nil {
 		t.Error("Run should propagate latest-version failure")
 	}

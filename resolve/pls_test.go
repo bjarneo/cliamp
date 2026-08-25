@@ -34,6 +34,12 @@ Version=2
 	if entries[0].Num != 1 {
 		t.Errorf("entry[0].Num = %d, want 1", entries[0].Num)
 	}
+	if entries[0].Length != -1 {
+		t.Errorf("entry[0].Length = %d, want -1", entries[0].Length)
+	}
+	if !entries[0].HasLength {
+		t.Error("entry[0].HasLength = false, want true")
+	}
 
 	if entries[1].File != "http://radio.example.com/stream2" {
 		t.Errorf("entry[1].File = %q", entries[1].File)
@@ -170,6 +176,46 @@ func TestPlsEntriesToTracksCollapsesMirrors(t *testing.T) {
 	}
 	if !tracks[0].Stream || !tracks[0].Realtime {
 		t.Error("collapsed stream should be Stream=true, Realtime=true")
+	}
+}
+
+func TestPlsEntriesToTracksTitlelessStreamIsLive(t *testing.T) {
+	tracks := plsEntriesToTracks([]plsEntry{{
+		Num:       1,
+		File:      "http://radio.example.com/stream",
+		Length:    -1,
+		HasLength: true,
+	}})
+	if len(tracks) != 1 || !tracks[0].Stream || !tracks[0].Realtime {
+		t.Fatalf("tracks = %+v, want one live stream", tracks)
+	}
+}
+
+func TestPlsEntriesToTracksFiniteHTTPEntry(t *testing.T) {
+	tracks := plsEntriesToTracks([]plsEntry{{
+		Num:       1,
+		File:      "http://media.example.com/episode.mp3",
+		Length:    180,
+		HasLength: true,
+	}})
+	if len(tracks) != 1 {
+		t.Fatalf("len(tracks) = %d, want 1", len(tracks))
+	}
+	if tracks[0].Realtime || tracks[0].DurationSecs != 180 {
+		t.Fatalf("track = %+v, want finite 180-second HTTP entry", tracks[0])
+	}
+}
+
+func TestPlsEntriesToTracksMissingLengthsAreNotAssumedLive(t *testing.T) {
+	tracks := plsEntriesToTracks([]plsEntry{
+		{Num: 1, File: "http://media.example.com/one.mp3", Title: "One"},
+		{Num: 2, File: "http://media.example.com/two.mp3", Title: "Two"},
+	})
+	if len(tracks) != 2 {
+		t.Fatalf("len(tracks) = %d, want 2 finite entries", len(tracks))
+	}
+	if tracks[0].Realtime || tracks[1].Realtime {
+		t.Fatalf("tracks = %+v, want missing lengths left unclassified", tracks)
 	}
 }
 

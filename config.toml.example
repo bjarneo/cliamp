@@ -59,16 +59,18 @@ eq_preset = "Flat"
 # Saved Custom curve; applied when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-# Default provider on startup: "radio", "navidrome", "spotify", "qobuz", "plex", "jellyfin", "emby", "soundcloud", "netease", "audiobookshelf", or a YouTube provider
+# Default provider on startup: "radio", "navidrome", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "soundcloud", "mixcloud", "netease", "audiobookshelf", or a YouTube provider
 # provider = "radio"
 
-# Compact mode: cap UI width at 80 columns (default: fluid/full-width)
-# compact = true
+# Simplified mode: artist/title and time strip without a visualizer or playlist.
+# No visualizer or playback controls are shown.
+# simplified = true
 
 # UI theme name (check ~/.config/cliamp/themes/ for available themes)
 # theme = "Tokyo Night"
 
-# Visualizer mode: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, or None
+# Visualizer mode: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, Mirror, or None
+# Mirror draws tapered Braille bars around a persistent horizontal center axis.
 # visualizer = "Bars"
 
 # Reduce CPU usage by lowering UI cadence and disabling visualization.
@@ -85,20 +87,19 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Recommended: register your own Spotify Developer app at
 # developer.spotify.com/dashboard with redirect URI
 # http://127.0.0.1:19872/login, then uncomment the section below with
-# your client_id. You get a private Web API rate-limit quota for library
-# and playlist requests. Playback is authorized separately with Spotify's
-# built-in identity, so the first sign-in completes two steps in one tab.
+# your client_id. You get a private Web API rate-limit quota for library,
+# playlist, and search requests. Playback is authorized separately with
+# Spotify's built-in identity, so first sign-in completes two steps in one tab.
 # [spotify]
 # client_id = "your-spotify-app-client-id"
 # bitrate = 320
 #
-# Note: apps registered after Nov 27, 2024 in Development Mode can't use
-# /v1/search (Spotify returns "Invalid limit"). Playback is unaffected.
+# Development Mode limits /v1/search to 10 results per request. cliamp pages
+# automatically with offset, so search works with your own client_id.
 #
 # Alternative: drop client_id to use cliamp's built-in fallback (the
-# librespot keymaster client_id). It still has search access, but the
-# rate-limit quota is shared with every librespot-based client and you
-# may see occasional 429s.
+# librespot keymaster client_id). Its rate-limit quota is shared with every
+# librespot-based client, so you may see occasional 429s.
 
 # ---
 # Qobuz (optional)
@@ -117,6 +118,34 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 #   7  = FLAC 24-bit up to 96kHz
 #   27 = FLAC 24-bit up to 192kHz (Hi-Res)
 # quality = 6
+
+# ---
+# Tidal (optional)
+# Requires a paid Tidal subscription (all paid plans include lossless FLAC).
+#
+# Enable the provider, then run cliamp, select Tidal, and press Enter to
+# sign in. A link.tidal.com URL with a short code is shown (and opened in a
+# browser); approve the device there. Credentials are cached at
+# ~/.config/cliamp/tidal_credentials.json and refreshed silently on later
+# launches. Run "cliamp tidal reset" to clear them.
+# [tidal]
+# enabled = true
+#
+# Stream quality. Default "lossless".
+#   "low"      = 96 kbps AAC
+#   "high"     = 320 kbps AAC
+#   "lossless" = FLAC up to 24-bit/192kHz where available (see note)
+#   "hires"    = same delivery as "lossless"
+# Note: Tidal serves FLAC to this client type only for tracks with a hi-res
+# ("Max") master; other tracks are downgraded to AAC 320 server-side. cliamp
+# shows a footer notice when that happens. See docs/tidal.md.
+# quality = "lossless"
+#
+# cliamp uses built-in fallback OAuth client credentials. Tidal revokes leaked
+# client IDs from time to time; if sign-in fails with a client error, set a
+# fresh pair here without waiting for a cliamp release.
+# client_id = ""
+# client_secret = ""
 
 # ---
 # Navidrome / Subsonic server (optional)
@@ -145,6 +174,24 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # enabled = true
 # user = "yourname"
 # cookies_from = "firefox"   # chrome, brave, edge, opera, safari, vivaldi…
+
+# ---
+# Mixcloud (optional, opt-in)
+# Public discovery, show search, the live genre catalogue, genre/tag search,
+# creator jumps, and Latest/Popular charts work with enabled=true. Set username
+# for your following stream, profile activity, uploads, read-only show favorites,
+# listening history, collections, and followed-creator browsing. A developer
+# OAuth access_token makes /me the account identity and adds Listen Later.
+# cookies_from is used by yt-dlp for signed-in playback only. styles is the
+# local genre-favorites list; toggle it with [f] in Mixcloud's Genres browser.
+# [mixcloud]
+# enabled = true
+# username = "yourname"
+# access_token = "${MIXCLOUD_ACCESS_TOKEN}"
+# cookies_from = "firefox"   # chrome, brave, edge, chromium, opera, safari, vivaldi, whale…
+# styles = ["ambient", "deep-house", "house", "jazz", "techno"]
+# max_items = 100
+# stream_creators = 20
 
 # ---
 # NetEase Cloud Music (optional, opt-in)
@@ -178,16 +225,17 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # user_id = "optional-user-id"
 
 # ---
-# YouTube Music (optional)
-# Built-in fallback credentials work for most users — no config needed.
-# Set your own Google Cloud OAuth client to avoid shared rate limits:
+# YouTube & YouTube Music (optional)
+# Zero OAuth setup: set `cookies_from` to browse your Liked Music, Liked Videos,
+# and account playlists using your browser session without Google Cloud setup.
+# Alternatively, supply your own Google Cloud OAuth client credentials.
 #
 # [ytmusic]
+# cookies_from = "chrome"   # chrome, firefox, brave, edge, safari, opera…
+#
+# Custom OAuth client (optional, overrides cookie-only mode):
 # client_id = "your-google-oauth-client-id"
 # client_secret = "your-google-oauth-client-secret"
-#
-# Browser cookies for age-restricted / private content:
-# cookies_from = "chrome"
 #
 # Resolve full playlists from list= URLs (default true).
 # When false, only the single video is resolved and playlist links are stripped.

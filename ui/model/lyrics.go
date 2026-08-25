@@ -59,17 +59,21 @@ func (m *Model) retryLyrics() tea.Cmd {
 }
 
 // lyricsSyncable reports whether synced lyrics can track the current playback
-// position. This is true for local files and Navidrome streams (which have
-// accurate position tracking), but false for live radio (ICY — position is
-// from stream start, not song start) and yt-dlp pipe streams (position is 0).
+// position. This is true for local files, Navidrome streams (which have
+// accurate position tracking), and yt-dlp tracks (whose ytdlPipeStreamer
+// reports position from decoded PCM frames). It is false for live radio (ICY —
+// position is from stream start, not song start) and for live streams with no
+// finite duration, where the position doesn't map to song time.
 func (m *Model) lyricsSyncable() bool {
 	track, idx := m.currentPlaybackTrack()
 	if idx < 0 {
 		return false
 	}
-	// YouTube/yt-dlp pipe streams report position 0.
-	if playlist.IsYouTubeURL(track.Path) || playlist.IsYTDL(track.Path) {
-		return false
+	// yt-dlp pipe streams track position from decoded frames, so synced lyrics
+	// can follow them. Exclude streams without a known duration (e.g. YouTube
+	// Live), where the position is not relative to the song.
+	if playlist.IsYTDL(track.Path) {
+		return track.DurationSecs > 0
 	}
 	// ICY radio streams: position counts from stream connect, not song start.
 	// Provider streams with metadata (e.g. Navidrome) track position correctly.

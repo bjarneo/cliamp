@@ -16,6 +16,7 @@ import (
 	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/external/qobuz"
 	"github.com/bjarneo/cliamp/external/spotify"
+	"github.com/bjarneo/cliamp/external/tidal"
 	"github.com/bjarneo/cliamp/ipc"
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/pluginmgr"
@@ -32,10 +33,11 @@ func buildApp() *cli.Command {
 		&cli.BoolFlag{Name: "mono", Usage: "mono output"},
 		&cli.BoolFlag{Name: "no-mono", Usage: "disable mono output"},
 		&cli.BoolFlag{Name: "auto-play", Usage: "start playback immediately"},
-		&cli.BoolFlag{Name: "compact", Usage: "compact mode (80 columns)"},
-		&cli.StringFlag{Name: "provider", Usage: "default provider: radio, navidrome, plex, jellyfin, emby, spotify, qobuz, soundcloud, netease, audiobookshelf, abs, yt, youtube, ytmusic"},
+		&cli.BoolFlag{Name: "simplified", Usage: "simplified playback view (no visualizer or playlist)"},
+		&cli.StringFlag{Name: "provider", Usage: "default provider: radio, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, soundcloud, mixcloud, netease, audiobookshelf, abs, yt, youtube, ytmusic"},
 		&cli.StringFlag{Name: "start-theme", Usage: "UI theme name"},
 		&cli.StringFlag{Name: "visualizer", Usage: "visualizer mode"},
+		&cli.BoolFlag{Name: "visualizer-60fps", Usage: "render visualizer at 60 FPS (higher CPU use)"},
 		&cli.StringFlag{Name: "eq-preset", Usage: "EQ preset name"},
 		&cli.IntFlag{Name: "sample-rate", Usage: "output sample rate in Hz (0=auto)", HideDefault: true},
 		&cli.IntFlag{Name: "buffer-ms", Usage: "speaker buffer in milliseconds (50-5000)", HideDefault: true},
@@ -68,7 +70,7 @@ func buildApp() *cli.Command {
 			if err != nil {
 				return err
 			}
-			return run(ov, c.Args().Slice(), c.Bool("daemon"))
+			return run(ov, c.Args().Slice(), c.Bool("daemon"), c.Bool("visualizer-60fps"))
 		},
 		Commands: []*cli.Command{
 			upgradeCommand(),
@@ -78,6 +80,7 @@ func buildApp() *cli.Command {
 			setupCommand(),
 			spotifyCommand(),
 			qobuzCommand(),
+			tidalCommand(),
 			ipcSimpleCommand("play", "resume playback"),
 			ipcSimpleCommand("pause", "pause playback"),
 			ipcSimpleCommand("toggle", "play/pause toggle"),
@@ -98,6 +101,7 @@ func buildApp() *cli.Command {
 			speedCommand(),
 			eqCommand(),
 			deviceCommand(),
+			remoteCommand(),
 		},
 	}
 }
@@ -152,9 +156,9 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 		v := true
 		ov.Play = &v
 	}
-	if c.IsSet("compact") {
+	if c.IsSet("simplified") {
 		v := true
-		ov.Compact = &v
+		ov.Simplified = &v
 	}
 	if c.IsSet("provider") {
 		v := strings.ToLower(c.String("provider"))
@@ -162,10 +166,10 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 			v = "audiobookshelf"
 		}
 		switch v {
-		case "radio", "navidrome", "spotify", "qobuz", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "netease", "yt", "youtube", "ytmusic":
+		case "radio", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "mixcloud", "netease", "yt", "youtube", "ytmusic":
 			ov.Provider = &v
 		default:
-			return ov, fmt.Errorf("--provider must be radio, navidrome, spotify, qobuz, plex, jellyfin, emby, audiobookshelf, soundcloud, netease, yt, youtube, or ytmusic (got %q)", v)
+			return ov, fmt.Errorf("--provider must be radio, navidrome, lyrion, spotify, qobuz, tidal, plex, jellyfin, emby, audiobookshelf, soundcloud, mixcloud, netease, yt, youtube, or ytmusic (got %q)", v)
 		}
 	}
 	if c.IsSet("start-theme") {
@@ -248,9 +252,12 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 func upgradeCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "upgrade",
-		Usage: "upgrade cliamp to the latest release",
+		Usage: "upgrade cliamp to the latest stable release",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "prerelease", Usage: "upgrade to the latest prerelease"},
+		},
 		Action: func(ctx context.Context, c *cli.Command) error {
-			return upgrade.Run(version)
+			return upgrade.Run(version, c.Bool("prerelease"))
 		},
 	}
 }
@@ -315,8 +322,7 @@ func pluginsCommand() *cli.Command {
 					if len(args) < 2 {
 						return fmt.Errorf("usage: cliamp plugins call <plugin> <command> [args...]")
 					}
-					resp, err := ipcSendLong(ipc.Request{
-						Cmd:  "plugin.call",
+					resp, err := ipcSendLong("plugin.call", ipc.Request{
 						Name: args[0],
 						Sub:  args[1],
 						Args: args[2:],
@@ -334,7 +340,7 @@ func pluginsCommand() *cli.Command {
 				Name:  "commands",
 				Usage: "list plugin commands registered in the running cliamp",
 				Action: func(ctx context.Context, c *cli.Command) error {
-					resp, err := ipcSend(ipc.Request{Cmd: "plugin.commands"})
+					resp, err := ipcSend("plugin.commands", ipc.Request{})
 					if err != nil {
 						return err
 					}
@@ -357,8 +363,9 @@ func setupCommand() *cli.Command {
 		Name:  "setup",
 		Usage: "interactive wizard to configure remote providers",
 		Description: "Walks through configuring Navidrome, Plex, Jellyfin, Spotify,\n" +
-			"Qobuz, NetEase, Audiobookshelf, and YouTube Music. Validates connections\n" +
-			"and writes ~/.config/cliamp/config.toml.",
+			"Qobuz, Tidal, NetEase, Audiobookshelf, and YouTube Music. Validates\n" +
+			"connections and writes ~/.config/cliamp/config.toml.",
+
 		Action: func(ctx context.Context, c *cli.Command) error {
 			return cmd.Setup()
 		},
@@ -366,58 +373,61 @@ func setupCommand() *cli.Command {
 }
 
 func spotifyCommand() *cli.Command {
-	return &cli.Command{
-		Name:  "spotify",
-		Usage: "manage Spotify integration",
-		Commands: []*cli.Command{
-			{
-				Name:  "reset",
-				Usage: "clear stored Spotify credentials and force re-authentication",
-				Action: func(ctx context.Context, c *cli.Command) error {
-					path, err := spotify.CredsPath()
-					if err != nil {
-						return fmt.Errorf("locate credentials: %w", err)
-					}
-					removed, err := spotify.DeleteCreds()
-					if err != nil {
-						return fmt.Errorf("remove credentials: %w", err)
-					}
-					if !removed {
-						fmt.Println("No stored Spotify credentials to remove.")
-						return nil
-					}
-					fmt.Printf("Removed %s\n", path)
-					fmt.Println("Restart cliamp and select Spotify to sign in again.")
-					return nil
-				},
-			},
-		},
-	}
+	return providerCredsCommand("spotify", "Spotify", spotify.CredsPath, spotify.DeleteCreds)
 }
 
 func qobuzCommand() *cli.Command {
+	return providerCredsCommand("qobuz", "Qobuz", qobuz.CredsPath, qobuz.DeleteCreds)
+}
+
+func tidalCommand() *cli.Command {
+	cmd := providerCredsCommand("tidal", "Tidal", tidal.CredsPath, tidal.DeleteCreds)
+	cmd.Commands = append(cmd.Commands, &cli.Command{
+		Name:      "probe",
+		Usage:     "print sanitized playback diagnostics for each quality tier (no tokens or signed URLs)",
+		ArgsUsage: "[search query]",
+		Action: func(ctx context.Context, c *cli.Command) error {
+			query := strings.Join(c.Args().Slice(), " ")
+			if query == "" {
+				query = "Random Access Memories Get Lucky"
+			}
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("config: %w", err)
+			}
+			probeCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+			defer cancel()
+			return tidal.Probe(probeCtx, os.Stdout, query, cfg.Tidal.ClientID, cfg.Tidal.ClientSecret)
+		},
+	})
+	return cmd
+}
+
+// providerCredsCommand builds the `cliamp <provider> reset` subcommand shared
+// by providers that cache OAuth credentials on disk.
+func providerCredsCommand(key, display string, credsPath func() (string, error), deleteCreds func() (bool, error)) *cli.Command {
 	return &cli.Command{
-		Name:  "qobuz",
-		Usage: "manage Qobuz integration",
+		Name:  key,
+		Usage: "manage " + display + " integration",
 		Commands: []*cli.Command{
 			{
 				Name:  "reset",
-				Usage: "clear stored Qobuz credentials and force re-authentication",
+				Usage: "clear stored " + display + " credentials and force re-authentication",
 				Action: func(ctx context.Context, c *cli.Command) error {
-					path, err := qobuz.CredsPath()
+					path, err := credsPath()
 					if err != nil {
 						return fmt.Errorf("locate credentials: %w", err)
 					}
-					removed, err := qobuz.DeleteCreds()
+					removed, err := deleteCreds()
 					if err != nil {
 						return fmt.Errorf("remove credentials: %w", err)
 					}
 					if !removed {
-						fmt.Println("No stored Qobuz credentials to remove.")
+						fmt.Printf("No stored %s credentials to remove.\n", display)
 						return nil
 					}
 					fmt.Printf("Removed %s\n", path)
-					fmt.Println("Restart cliamp and select Qobuz to sign in again.")
+					fmt.Printf("Restart cliamp and select %s to sign in again.\n", display)
 					return nil
 				},
 			},
@@ -672,7 +682,7 @@ func ipcSimpleCommand(name, usage string) *cli.Command {
 		Name:  name,
 		Usage: usage,
 		Action: func(ctx context.Context, c *cli.Command) error {
-			_, err := ipcSend(ipc.Request{Cmd: name})
+			_, err := ipcSend(name, ipc.Request{})
 			return err
 		},
 	}
@@ -686,10 +696,11 @@ func statusCommand() *cli.Command {
 			&cli.BoolFlag{Name: "json", Usage: "machine-readable JSON output"},
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
-			resp, err := ipcSend(ipc.Request{Cmd: "status"})
+			snapshot, err := ipcState()
 			if err != nil {
 				return err
 			}
+			resp := stateResult(snapshot)
 			if c.Bool("json") {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
@@ -751,7 +762,7 @@ func volumeCommand() *cli.Command {
 			if err != nil {
 				return fmt.Errorf("invalid volume value %q", c.Args().First())
 			}
-			_, err = ipcSend(ipc.Request{Cmd: "volume", Value: db})
+			_, err = ipcSend("volume", ipc.Request{Value: db})
 			return err
 		},
 	}
@@ -770,7 +781,7 @@ func seekCommand() *cli.Command {
 			if err != nil {
 				return fmt.Errorf("invalid seek value %q", c.Args().First())
 			}
-			_, err = ipcSend(ipc.Request{Cmd: "seek", Value: secs})
+			_, err = ipcSend("seek", ipc.Request{Value: secs})
 			return err
 		},
 	}
@@ -785,7 +796,7 @@ func loadCommand() *cli.Command {
 			if c.Args().Len() == 0 {
 				return fmt.Errorf("usage: cliamp load \"Playlist Name\"")
 			}
-			_, err := ipcSend(ipc.Request{Cmd: "load", Playlist: c.Args().First()})
+			_, err := ipcSend("load", ipc.Request{Playlist: c.Args().First()})
 			return err
 		},
 	}
@@ -800,7 +811,7 @@ func queueCommand() *cli.Command {
 			if c.Args().Len() == 0 {
 				return fmt.Errorf("usage: cliamp queue /path/to/file.mp3")
 			}
-			_, err := ipcSend(ipc.Request{Cmd: "queue", Path: c.Args().First()})
+			_, err := ipcSend("queue", ipc.Request{Path: c.Args().First()})
 			return err
 		},
 	}
@@ -822,7 +833,7 @@ func themeCommand() *cli.Command {
 				}
 				return nil
 			}
-			_, err := ipcSend(ipc.Request{Cmd: "theme", Name: c.Args().First()})
+			_, err := ipcSend("theme", ipc.Request{Name: c.Args().First()})
 			if err != nil {
 				return err
 			}
@@ -863,9 +874,8 @@ func visCommand() *cli.Command {
 			}
 			if strings.EqualFold(c.Args().First(), "list") {
 				var active string
-				sockPath := ipc.DefaultSocketPath()
-				if resp, err := ipc.Send(sockPath, ipc.Request{Cmd: "status"}); err == nil {
-					active = resp.Visualizer
+				if snapshot, err := ipcState(); err == nil {
+					active = snapshot.Visualizer
 				} else {
 					fmt.Fprintln(os.Stderr, "(cliamp not running — active marker unavailable)")
 				}
@@ -878,7 +888,7 @@ func visCommand() *cli.Command {
 				}
 				return nil
 			}
-			resp, err := ipcSend(ipc.Request{Cmd: "vis", Name: c.Args().First()})
+			resp, err := ipcSend("vis", ipc.Request{Name: c.Args().First()})
 			if err != nil {
 				return err
 			}
@@ -898,7 +908,7 @@ func shuffleCommand() *cli.Command {
 			if c.Args().Len() > 0 {
 				name = strings.ToLower(c.Args().First())
 			}
-			resp, err := ipcSend(ipc.Request{Cmd: "shuffle", Name: name})
+			resp, err := ipcSend("shuffle", ipc.Request{Name: name})
 			if err != nil {
 				return err
 			}
@@ -922,7 +932,7 @@ func repeatCommand() *cli.Command {
 			if c.Args().Len() > 0 {
 				name = strings.ToLower(c.Args().First())
 			}
-			resp, err := ipcSend(ipc.Request{Cmd: "repeat", Name: name})
+			resp, err := ipcSend("repeat", ipc.Request{Name: name})
 			if err != nil {
 				return err
 			}
@@ -942,7 +952,7 @@ func monoCommand() *cli.Command {
 			if c.Args().Len() > 0 {
 				name = strings.ToLower(c.Args().First())
 			}
-			resp, err := ipcSend(ipc.Request{Cmd: "mono", Name: name})
+			resp, err := ipcSend("mono", ipc.Request{Name: name})
 			if err != nil {
 				return err
 			}
@@ -969,7 +979,7 @@ func speedCommand() *cli.Command {
 			if err != nil {
 				return fmt.Errorf("invalid speed %q", c.Args().First())
 			}
-			resp, err := ipcSend(ipc.Request{Cmd: "speed", Value: ratio})
+			resp, err := ipcSend("speed", ipc.Request{Value: ratio})
 			if err != nil {
 				return err
 			}
@@ -998,7 +1008,7 @@ func eqCommand() *cli.Command {
 				if err != nil {
 					return fmt.Errorf("invalid dB value %q", c.Args().First())
 				}
-				resp, err := ipcSend(ipc.Request{Cmd: "eq", Band: band, Value: db})
+				resp, err := ipcSend("eq", ipc.Request{Band: band, Value: db})
 				if err != nil {
 					return err
 				}
@@ -1009,7 +1019,7 @@ func eqCommand() *cli.Command {
 			if c.Args().Len() == 0 {
 				return fmt.Errorf("usage: cliamp eq <preset>  (e.g. Flat, Rock, Pop, Jazz)")
 			}
-			resp, err := ipcSend(ipc.Request{Cmd: "eq", Name: c.Args().First()})
+			resp, err := ipcSend("eq", ipc.Request{Name: c.Args().First()})
 			if err != nil {
 				return err
 			}
@@ -1029,19 +1039,200 @@ func deviceCommand() *cli.Command {
 				return fmt.Errorf("usage: cliamp device <name|list>")
 			}
 			if strings.EqualFold(c.Args().First(), "list") {
-				resp, err := ipcSend(ipc.Request{Cmd: "device", Name: "list"})
+				resp, err := ipcSend("device", ipc.Request{Name: "list"})
 				if err != nil {
 					return err
 				}
 				fmt.Println(resp.Device)
 				return nil
 			}
-			resp, err := ipcSend(ipc.Request{Cmd: "device", Name: c.Args().First()})
+			resp, err := ipcSend("device", ipc.Request{Name: c.Args().First()})
 			if err != nil {
 				return err
 			}
 			fmt.Printf("Audio device: %s\n", resp.Device)
 			return nil
 		},
+	}
+}
+
+func remoteCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "remote",
+		Usage: "use the version 2 IPC API",
+		Commands: []*cli.Command{
+			{
+				Name:  "state",
+				Usage: "print the complete runtime snapshot as JSON",
+				Action: func(ctx context.Context, c *cli.Command) error {
+					response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{ID: json.RawMessage(`"cliamp"`), Method: "state.get"})
+					if err != nil {
+						return userIPCError(err)
+					}
+					return printV2Response(response)
+				},
+			},
+			{
+				Name:  "capabilities",
+				Usage: "print available v2 operations as JSON",
+				Action: func(ctx context.Context, c *cli.Command) error {
+					response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{ID: json.RawMessage(`"cliamp"`), Method: "capabilities"})
+					if err != nil {
+						return userIPCError(err)
+					}
+					return printV2Response(response)
+				},
+			},
+			{
+				Name:      "call",
+				Usage:     "submit a v2 operation",
+				ArgsUsage: "<operation>",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "params", Usage: "JSON object passed as operation parameters", Value: "{}"},
+					&cli.BoolFlag{Name: "wait", Usage: "wait for a submitted job to finish"},
+				},
+				Action: func(ctx context.Context, c *cli.Command) error {
+					if c.Args().Len() == 0 {
+						return fmt.Errorf("usage: cliamp remote call <operation> [--params '{}']")
+					}
+					params := json.RawMessage(c.String("params"))
+					if !json.Valid(params) {
+						return fmt.Errorf("--params must be a JSON value")
+					}
+					response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{
+						ID:        json.RawMessage(`"cliamp"`),
+						Method:    "operation.submit",
+						Operation: c.Args().First(),
+						Params:    params,
+					})
+					if err != nil {
+						return userIPCError(err)
+					}
+					if err := v2ResponseError(response); err != nil {
+						return err
+					}
+					if c.Bool("wait") && response.Job != nil {
+						response, err = waitForV2Job(ctx, response.Job.ID)
+						if err != nil {
+							return err
+						}
+					}
+					return printV2Response(response)
+				},
+			},
+			{
+				Name:      "job",
+				Usage:     "print a v2 job",
+				ArgsUsage: "<job-id>",
+				Action: func(ctx context.Context, c *cli.Command) error {
+					if c.Args().Len() == 0 {
+						return fmt.Errorf("usage: cliamp remote job <job-id>")
+					}
+					response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{ID: json.RawMessage(`"cliamp"`), Method: "job.get", JobID: c.Args().First()})
+					if err != nil {
+						return userIPCError(err)
+					}
+					return printV2Response(response)
+				},
+			},
+			{
+				Name:      "cancel",
+				Usage:     "cancel a v2 job",
+				ArgsUsage: "<job-id>",
+				Action: func(ctx context.Context, c *cli.Command) error {
+					if c.Args().Len() == 0 {
+						return fmt.Errorf("usage: cliamp remote cancel <job-id>")
+					}
+					response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{ID: json.RawMessage(`"cliamp"`), Method: "job.cancel", JobID: c.Args().First()})
+					if err != nil {
+						return userIPCError(err)
+					}
+					return printV2Response(response)
+				},
+			},
+			{
+				Name:      "events",
+				Usage:     "stream v2 runtime events as NDJSON",
+				ArgsUsage: "<topic> [topic...]",
+				Action: func(ctx context.Context, c *cli.Command) error {
+					if c.Args().Len() == 0 {
+						return fmt.Errorf("usage: cliamp remote events runtime.state [runtime.job]")
+					}
+					stream, err := ipc.SubscribeV2(ipc.DefaultSocketPath(), json.RawMessage(`"cliamp"`), c.Args().Slice())
+					if err != nil {
+						return userIPCError(err)
+					}
+					defer stream.Close()
+					encoder := json.NewEncoder(os.Stdout)
+					for {
+						select {
+						case <-ctx.Done():
+							return nil
+						default:
+						}
+						event, err := stream.Next()
+						if err != nil {
+							return err
+						}
+						if err := encoder.Encode(event); err != nil {
+							return err
+						}
+					}
+				},
+			},
+		},
+	}
+}
+
+func printV2Response(response ipc.V2Response) error {
+	if err := v2ResponseError(response); err != nil {
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode(response)
+}
+
+func v2ResponseError(response ipc.V2Response) error {
+	if response.OK {
+		return nil
+	}
+	if response.Error == nil {
+		return fmt.Errorf("remote operation failed")
+	}
+	if response.Error.Detail != "" {
+		return fmt.Errorf("remote operation failed (%s): %s (%s)", response.Error.Code, response.Error.Message, response.Error.Detail)
+	}
+	return fmt.Errorf("remote operation failed (%s): %s", response.Error.Code, response.Error.Message)
+}
+
+func waitForV2Job(ctx context.Context, jobID string) (ipc.V2Response, error) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{ID: json.RawMessage(`"cliamp"`), Method: "job.get", JobID: jobID})
+		if err != nil {
+			return ipc.V2Response{}, userIPCError(err)
+		}
+		if err := v2ResponseError(response); err != nil {
+			return ipc.V2Response{}, err
+		}
+		if response.Job != nil {
+			switch response.Job.State {
+			case ipc.JobSucceeded:
+				return response, nil
+			case ipc.JobFailed, ipc.JobCanceled:
+				if response.Job.Error != nil {
+					if response.Job.Error.Detail != "" {
+						return ipc.V2Response{}, fmt.Errorf("job %s (%s): %s (%s)", response.Job.State, response.Job.Error.Code, response.Job.Error.Message, response.Job.Error.Detail)
+					}
+					return ipc.V2Response{}, fmt.Errorf("job %s (%s): %s", response.Job.State, response.Job.Error.Code, response.Job.Error.Message)
+				}
+				return ipc.V2Response{}, fmt.Errorf("job %s", response.Job.State)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ipc.V2Response{}, ctx.Err()
+		case <-ticker.C:
+		}
 	}
 }

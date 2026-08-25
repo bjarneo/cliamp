@@ -18,7 +18,7 @@ type Overrides struct {
 	BitPerfectDevice   *string
 	BitPerfectChannels *string
 	Play               *bool
-	Compact            *bool
+	Simplified         *bool
 	AudioDevice        *string
 	Playlist           *string
 	LogLevel           *string
@@ -73,8 +73,8 @@ func (o Overrides) Apply(cfg *Config) {
 	if o.BitPerfectChannels != nil {
 		cfg.BitPerfectChannels = *o.BitPerfectChannels
 	}
-	if o.Compact != nil {
-		cfg.Compact = *o.Compact
+	if o.Simplified != nil {
+		cfg.Simplified = *o.Simplified
 	}
 	if o.Play != nil {
 		cfg.AutoPlay = *o.Play

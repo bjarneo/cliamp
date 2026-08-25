@@ -169,6 +169,20 @@ func trimTrailingEmpty(sections []string) []string {
 }
 
 func (m Model) mainSections(playlist string, includeTransient, contentFirst bool) []string {
+	if m.usesSimplifiedLayout() {
+		sections := []string{
+			m.renderSimplifiedTrackInfo(),
+			m.renderTimeStatus(),
+			m.renderSeekBar(),
+		}
+		if includeTransient {
+			if line := m.renderTransient(); line != "" {
+				sections = append(sections, line)
+			}
+		}
+		return sections
+	}
+
 	var sections []string
 	if contentFirst {
 		if m.layout.tier == layoutMinimal {
@@ -235,6 +249,32 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 	}
 
 	return trimTrailingEmpty(sections)
+}
+
+func (m Model) renderSimplifiedTrackInfo() string {
+	track, _ := m.currentPlaybackTrack()
+	name := track.DisplayName()
+	if name == "" {
+		name = "No track loaded"
+	}
+	if m.streamTitle != "" && track.Stream {
+		name = m.streamTitle
+	}
+
+	duration := formatTrackTime(int(m.cachedDur.Seconds()))
+	if duration == "" {
+		duration = formatTrackTime(track.DurationSecs)
+	}
+	if duration == "" {
+		duration = "LIVE"
+		if !track.Stream {
+			duration = "--:--"
+		}
+	}
+
+	name = truncate(name, max(1, ui.PanelWidth-lipgloss.Width(duration)-1))
+	gap := max(1, ui.PanelWidth-lipgloss.Width(name)-lipgloss.Width(duration))
+	return trackStyle.Render(name) + strings.Repeat(" ", gap) + dimStyle.Render(duration)
 }
 
 func (m Model) renderTierHelp() string {
@@ -338,7 +378,7 @@ func (m Model) renderTitle() string {
 
 func (m Model) renderTrackInfo() string {
 	track, _ := m.currentPlaybackTrack()
-	name := track.DisplayName()
+	name := trackViewName(track)
 	if name == "" {
 		name = "No track loaded"
 	}
@@ -915,7 +955,7 @@ func (m Model) renderPlaylist() string {
 		}
 		markers := cursorMarker + playingMarker + queueMarker + bookmarkMarker + unavailableMarker + " "
 
-		name := t.DisplayName()
+		name := trackViewName(t)
 		queueSuffix := ""
 		if queuePosition > 0 && ui.PanelWidth >= 64 {
 			queueSuffix = fmt.Sprintf(" [Q%d]", queuePosition)

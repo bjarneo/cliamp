@@ -589,6 +589,47 @@ func TestLoadQobuz(t *testing.T) {
 	}
 }
 
+func TestLoadTidal(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		wantIsSet bool
+		wantCfg   TidalConfig
+	}{
+		{"section enables", "[tidal]\n", true, TidalConfig{Enabled: true}},
+		{
+			"full config",
+			"[tidal]\nquality = \"hires\"\nclient_id = \"id\"\nclient_secret = \"sec\"\n",
+			true,
+			TidalConfig{Enabled: true, Quality: "hires", ClientID: "id", ClientSecret: "sec"},
+		},
+		{"disabled", "[tidal]\nenabled = false\n", false, TidalConfig{Enabled: true, Disabled: true}},
+		{"absent", "", false, TidalConfig{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			if err := os.WriteFile(path, []byte(tt.body), 0o644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if got := cfg.Tidal.IsSet(); got != tt.wantIsSet {
+				t.Errorf("Tidal.IsSet() = %v, want %v", got, tt.wantIsSet)
+			}
+			if cfg.Tidal != tt.wantCfg {
+				t.Errorf("Tidal = %+v, want %+v", cfg.Tidal, tt.wantCfg)
+			}
+		})
+	}
+}
+
 func TestPlexIsSet(t *testing.T) {
 	tests := []struct {
 		name string
@@ -642,6 +683,10 @@ func TestYouTubeMusicIsSetOrFallback(t *testing.T) {
 		want       bool
 	}{
 		{"enabled section", YouTubeMusicConfig{Enabled: true}, nil, true},
+		{"cookies_from set", YouTubeMusicConfig{CookiesFrom: "chrome"}, nil, true},
+		{"cookies_from whitespace only", YouTubeMusicConfig{CookiesFrom: "   "}, nil, false},
+		{"cookies_from whitespace only with fallback", YouTubeMusicConfig{CookiesFrom: "   \t\n"}, hasFallback, true},
+		{"cookies_from with disabled", YouTubeMusicConfig{Disabled: true, CookiesFrom: "chrome"}, nil, false},
 		{"disabled", YouTubeMusicConfig{Disabled: true}, hasFallback, false},
 		{"fallback available", YouTubeMusicConfig{}, hasFallback, true},
 		{"no fallback", YouTubeMusicConfig{}, noFallback, false},
@@ -667,6 +712,11 @@ func TestYouTubeMusicResolveCredentials(t *testing.T) {
 		wantSecret string
 	}{
 		{"user credentials take priority", YouTubeMusicConfig{ClientID: "my_id", ClientSecret: "my_secret"}, fallback, "my_id", "my_secret"},
+		{"whitespace credentials fall back", YouTubeMusicConfig{ClientID: "  ", ClientSecret: "\t"}, fallback, "fb_id", "fb_secret"},
+		{"valid configured credentials with whitespace are trimmed", YouTubeMusicConfig{ClientID: "  my_id  ", ClientSecret: "  my_secret \t"}, fallback, "my_id", "my_secret"},
+		{"incomplete client secret falls back", YouTubeMusicConfig{ClientID: "my_id", ClientSecret: "   "}, fallback, "fb_id", "fb_secret"},
+		{"incomplete client id falls back", YouTubeMusicConfig{ClientID: "   ", ClientSecret: "my_secret"}, fallback, "fb_id", "fb_secret"},
+		{"whitespace in fallback credentials is trimmed", YouTubeMusicConfig{}, func() (string, string) { return "  fb_id  ", " \tfb_secret\n" }, "fb_id", "fb_secret"},
 		{"falls back when empty", YouTubeMusicConfig{}, fallback, "fb_id", "fb_secret"},
 		{"nil fallback returns empty", YouTubeMusicConfig{}, nil, "", ""},
 	}
@@ -680,6 +730,31 @@ func TestYouTubeMusicResolveCredentials(t *testing.T) {
 	}
 }
 
+func TestLoadYouTubeMusicWhitespaceCookiesFrom(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	data := []byte(`
+[ytmusic]
+cookies_from = "   "
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.YouTubeMusic.CookiesFrom != "" {
+		t.Errorf("YouTubeMusic.CookiesFrom = %q, want empty string", cfg.YouTubeMusic.CookiesFrom)
+	}
+}
+
 func TestOverridesApply(t *testing.T) {
 	cfg := defaultConfig()
 
@@ -688,7 +763,7 @@ func TestOverridesApply(t *testing.T) {
 	repeat := "all"
 	mono := true
 	theme := "dark"
-	compact := true
+	simplified := true
 	sr := 48000
 	play := true
 	bitPerfect := true
@@ -700,7 +775,7 @@ func TestOverridesApply(t *testing.T) {
 		Repeat:           &repeat,
 		Mono:             &mono,
 		Theme:            &theme,
-		Compact:          &compact,
+		Simplified:       &simplified,
 		SampleRate:       &sr,
 		Play:             &play,
 		BitPerfect:       &bitPerfect,
@@ -724,8 +799,8 @@ func TestOverridesApply(t *testing.T) {
 	if cfg.Theme != "dark" {
 		t.Errorf("Theme = %q, want dark", cfg.Theme)
 	}
-	if !cfg.Compact {
-		t.Error("Compact should be true")
+	if !cfg.Simplified {
+		t.Error("Simplified should be true")
 	}
 	if cfg.SampleRate != 48000 {
 		t.Errorf("SampleRate = %d, want 48000", cfg.SampleRate)

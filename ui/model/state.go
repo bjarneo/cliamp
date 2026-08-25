@@ -213,25 +213,33 @@ type fileBrowserState struct {
 
 // navBrowserState holds state for the provider browser overlay.
 type navBrowserState struct {
-	prov           playlist.Provider
-	visible        bool
-	mode           navBrowseModeType
-	screen         navBrowseScreenType
-	cursor         int
-	scroll         int
-	artists        []provider.ArtistInfo
-	albums         []provider.AlbumInfo
-	tracks         []playlist.Track
-	selArtist      provider.ArtistInfo
-	selAlbum       provider.AlbumInfo
-	sortType       string
-	albumLoading   bool
-	albumDone      bool
-	loading        bool
-	searching      bool
-	search         string
-	searchIdx      []int
-	confirmReplace bool
+	prov            playlist.Provider
+	visible         bool
+	mode            navBrowseModeType
+	screen          navBrowseScreenType
+	cursor          int
+	scroll          int
+	artists         []provider.ArtistInfo
+	albums          []provider.AlbumInfo
+	tracks          []playlist.Track
+	genres          []provider.GenreInfo
+	genreSorts      []provider.SortType
+	selArtist       provider.ArtistInfo
+	selAlbum        provider.AlbumInfo
+	selGenre        provider.GenreInfo
+	selGenreSort    provider.SortType
+	genreQuery      string
+	sortType        string
+	albumLoading    bool
+	albumDone       bool
+	loading         bool
+	searching       bool
+	search          string
+	searchIdx       []int
+	confirmReplace  bool
+	directTrackJump bool
+	fromProvList    bool
+	openInPlaylist  bool
 }
 
 // requestState tracks the latest request in each independently asynchronous UI
@@ -244,10 +252,12 @@ type requestState struct {
 	lyrics       uint64
 	netSearch    uint64
 	spotSearch   uint64
+	spotAlbum    uint64
 	spotLists    uint64
 	spotMutation uint64
 	auth         uint64
 	catalog      uint64
+	radioStats   uint64
 	stream       uint64
 	preload      uint64
 }
@@ -269,19 +279,22 @@ const (
 
 // spotSearchState holds state for the provider search + add-to-playlist overlay.
 type spotSearchState struct {
-	prov      playlist.Provider // the provider being searched (may differ from active provider)
-	visible   bool
-	screen    spotSearchScreenType
-	query     string
-	results   []playlist.Track
-	cursor    int
-	scroll    int
-	loading   bool
-	playlists []playlist.PlaylistInfo // user's Spotify playlists for picker
-	selTrack  playlist.Track          // track selected to add
-	newName   string                  // new playlist name input
-	err       string
-	cancel    func()
+	prov    playlist.Provider // the provider being searched (may differ from active provider)
+	visible bool
+	screen  spotSearchScreenType
+	query   string
+	results []playlist.Track
+	cursor  int
+	scroll  int
+	loading bool
+	// albumLoading is separate from loading so the results screen can say an
+	// album is being expanded without claiming so during the playlist fetch.
+	albumLoading bool
+	playlists    []playlist.PlaylistInfo // user's Spotify playlists for picker
+	selTrack     playlist.Track          // track selected to add
+	newName      string                  // new playlist name input
+	err          string
+	cancel       func()
 }
 
 // catalogBatchState holds state for lazy-loading catalog entries from a provider.CatalogLoader.
@@ -289,6 +302,15 @@ type catalogBatchState struct {
 	offset  int  // next offset to fetch
 	loading bool // true while a fetch is in flight
 	done    bool // true when all stations have been loaded
+}
+
+// radioStatsState holds the hidden built-in radio statistics screen.
+type radioStatsState struct {
+	visible bool
+	loading bool
+	stats   provider.RadioStats
+	err     error
+	scroll  int
 }
 
 // ytdlBatchState holds state for incremental yt-dlp playlist loading.

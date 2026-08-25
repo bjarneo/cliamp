@@ -1,5 +1,3 @@
-//go:build !windows
-
 package spotify
 
 import (
@@ -10,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 	"testing/synctest"
@@ -292,8 +291,10 @@ func TestWebAPITokenSourcePersistsRotatedRefreshToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mode := info.Mode().Perm(); mode != 0o600 {
-		t.Errorf("credentials mode = %o, want 600", mode)
+	if runtime.GOOS != "windows" {
+		if mode := info.Mode().Perm(); mode != 0o600 {
+			t.Errorf("credentials mode = %o, want 600", mode)
+		}
 	}
 }
 

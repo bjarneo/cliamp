@@ -50,6 +50,7 @@ func TestCommandHelpKeepsEssentialHintsAtMinimumWidth(t *testing.T) {
 		{name: "visualizer picker", mode: commandModeVisPicker, keys: []string{"Esc", "Enter", "Ctrl+K"}},
 		{name: "device picker", mode: commandModeDevicePicker, keys: []string{"Esc", "Enter", "Ctrl+K"}},
 		{name: "track info", mode: commandModeInfo, keys: []string{"Esc", "Ctrl+K"}},
+		{name: "radio stats", mode: commandModeRadioStats, keys: []string{"Esc", "r", "Ctrl+K"}},
 	}
 
 	for _, tt := range tests {
@@ -75,5 +76,58 @@ func TestReservedKeysComeFromCommandRegistry(t *testing.T) {
 				t.Fatalf("reserved keys omit registry key %q", key)
 			}
 		}
+	}
+}
+
+func TestMixcloudShortcutRegistryEntry(t *testing.T) {
+	for _, command := range commandRegistry {
+		if len(command.Keys) == 1 && command.Keys[0] == "X" && command.Mode&commandModeMain != 0 {
+			if command.KeyLabel != "X" || command.Label != "Open Mixcloud provider" || !command.Keymap {
+				t.Fatalf("Mixcloud command = %+v", command)
+			}
+			return
+		}
+	}
+	t.Fatal("Mixcloud shortcut is missing from the command registry")
+}
+
+func TestContextHelpAdvertisesProviderBrowsing(t *testing.T) {
+	oldPanelWidth := ui.PanelWidth
+	ui.PanelWidth = 80
+	t.Cleanup(func() { ui.PanelWidth = oldPanelWidth })
+
+	browse := trackArtistBrowseProvider{interactionBrowseProvider{commandsTestProvider{name: "Mixcloud"}}}
+	m := keybindingTestModel()
+	m.provider = browse
+	m.providers = append(m.providers, ProviderEntry{Key: "mixcloud", Name: "Mixcloud", Provider: browse})
+	m.playlist.Add(playlist.Track{
+		Title: "A Show", Artist: "Creator",
+		ProviderMeta: map[string]string{"test.creator": "creator"},
+	})
+	m.focus = focusPlaylist
+	if help := m.commandHelp(commandModeMain); !strings.Contains(help, "N") || !strings.Contains(help, "Browse creator") {
+		t.Fatalf("playlist help does not advertise creator browse: %q", help)
+	}
+
+	m.focus = focusProvider
+	paneBrowse := providerPaneBrowseProvider{interactionBrowseProvider{commandsTestProvider{name: "Mixcloud"}}}
+	m.provider = paneBrowse
+	m.providerLists = providerListsWithBrowse(paneBrowse, nil)
+	if help := m.commandHelp(commandModeProvider); !strings.Contains(help, "N") || !strings.Contains(help, "Browse provider") || !strings.Contains(help, "Open") {
+		t.Fatalf("provider help does not advertise provider browse: %q", help)
+	}
+
+	// A browse-capable provider elsewhere in the registry must not advertise
+	// its browser while a provider without pane routes is being viewed.
+	m.provider = commandsTestProvider{name: "Spotify"}
+	if help := m.commandHelp(commandModeProvider); strings.Contains(help, "Browse provider") {
+		t.Fatalf("Spotify provider help advertises another provider's browser: %q", help)
+	}
+
+	// Outside the provider pane, a highlighted Mixcloud show may still expose
+	// its direct creator jump even if another provider is active.
+	m.focus = focusPlaylist
+	if help := m.commandHelp(commandModeMain); !strings.Contains(help, "Browse creator") {
+		t.Fatalf("selected Mixcloud show lost its creator browse action: %q", help)
 	}
 }

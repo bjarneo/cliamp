@@ -45,6 +45,11 @@ func TestIsSocketUnavailable(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "wrapped ENOTSOCK",
+			err:  fmt.Errorf("dial: %w", syscall.ENOTSOCK),
+			want: true,
+		},
+		{
 			name: "WSAECONNREFUSED error",
 			err:  syscall.Errno(10061),
 			want: true,

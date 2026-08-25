@@ -9,11 +9,34 @@ import (
 	"github.com/bjarneo/cliamp/config"
 )
 
-// sectionsHandler returns a handler that serves a single music section.
+// sectionsHandler returns a handler that serves a single music section
+// plus one audio playlist (and one video playlist that must be filtered out).
 func sectionsHandler(t *testing.T) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
+		case strings.HasSuffix(r.URL.Path, "/playlists/24872/items"):
+			w.Write([]byte(`{
+				"MediaContainer": {
+					"totalSize": 1,
+					"Metadata": [
+						{
+							"ratingKey":"300","title":"Highway to Hell","grandparentTitle":"AC/DC",
+							"parentTitle":"Highway to Hell","year":1979,"index":1,"duration":208000,
+							"Media":[{"Part":[{"key":"/library/parts/3/333/HighwayToHell.flac"}]}]
+						}
+					]
+				}
+			}`))
+		case strings.HasSuffix(r.URL.Path, "/playlists"):
+			w.Write([]byte(`{
+				"MediaContainer": {
+					"Metadata": [
+						{"ratingKey":"24872","title":"GOOD","smart":true,"playlistType":"audio","leafCount":3,"duration":600000},
+						{"ratingKey":"9001","title":"Movies","smart":false,"playlistType":"video","leafCount":5,"duration":9000000}
+					]
+				}
+			}`))
 		case strings.HasSuffix(r.URL.Path, "/library/sections"):
 			w.Write([]byte(`{"MediaContainer":{"Directory":[{"key":"3","type":"artist","title":"Music"}]}}`))
 		case strings.HasSuffix(r.URL.Path, "/library/sections/3/all"):
@@ -73,25 +96,45 @@ func TestProvider_Playlists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Playlists() error: %v", err)
 	}
-	if len(lists) != 2 {
-		t.Fatalf("expected 2 playlists, got %d", len(lists))
+	if len(lists) != 3 {
+		t.Fatalf("expected 3 entries (1 playlist + 2 albums), got %d", len(lists))
 	}
 
-	// Check first album entry
-	if lists[0].ID != "100" {
-		t.Errorf("lists[0].ID = %q, want %q", lists[0].ID, "100")
+	// First entry is the audio playlist, tagged with its section.
+	if lists[0].ID != "pl:24872" {
+		t.Errorf("lists[0].ID = %q, want %q", lists[0].ID, "pl:24872")
 	}
-	if !strings.Contains(lists[0].Name, "Miles Davis") {
-		t.Errorf("lists[0].Name %q missing artist", lists[0].Name)
+	if lists[0].Name != "GOOD" {
+		t.Errorf("lists[0].Name = %q, want %q", lists[0].Name, "GOOD")
 	}
-	if !strings.Contains(lists[0].Name, "Kind of Blue") {
-		t.Errorf("lists[0].Name %q missing album title", lists[0].Name)
+	if lists[0].TrackCount != 3 {
+		t.Errorf("lists[0].TrackCount = %d, want 3", lists[0].TrackCount)
 	}
-	if !strings.Contains(lists[0].Name, "1959") {
-		t.Errorf("lists[0].Name %q missing year", lists[0].Name)
+	if lists[0].DurationSecs != 600 {
+		t.Errorf("lists[0].DurationSecs = %d, want 600", lists[0].DurationSecs)
 	}
-	if lists[0].TrackCount != 5 {
-		t.Errorf("lists[0].TrackCount = %d, want 5", lists[0].TrackCount)
+	if lists[0].Section != "Playlists" {
+		t.Errorf("lists[0].Section = %q, want %q", lists[0].Section, "Playlists")
+	}
+
+	// Then the albums from the music library.
+	if lists[1].ID != "100" {
+		t.Errorf("lists[1].ID = %q, want %q", lists[1].ID, "100")
+	}
+	if !strings.Contains(lists[1].Name, "Miles Davis") {
+		t.Errorf("lists[1].Name %q missing artist", lists[1].Name)
+	}
+	if !strings.Contains(lists[1].Name, "Kind of Blue") {
+		t.Errorf("lists[1].Name %q missing album title", lists[1].Name)
+	}
+	if !strings.Contains(lists[1].Name, "1959") {
+		t.Errorf("lists[1].Name %q missing year", lists[1].Name)
+	}
+	if lists[1].TrackCount != 5 {
+		t.Errorf("lists[1].TrackCount = %d, want 5", lists[1].TrackCount)
+	}
+	if lists[1].Section != "Albums" {
+		t.Errorf("lists[1].Section = %q, want %q", lists[1].Section, "Albums")
 	}
 }
 
@@ -103,6 +146,8 @@ func TestProvider_Playlists_Cached(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		switch {
+		case strings.HasSuffix(r.URL.Path, "/playlists"):
+			w.Write([]byte(`{"MediaContainer":{"Metadata":[]}}`))
 		case strings.HasSuffix(r.URL.Path, "/library/sections"):
 			w.Write([]byte(`{"MediaContainer":{"Directory":[{"key":"3","type":"artist","title":"Music"}]}}`))
 		case strings.HasSuffix(r.URL.Path, "/library/sections/3/all"):
@@ -183,6 +228,70 @@ func TestProvider_Tracks(t *testing.T) {
 	}
 	if !strings.Contains(tr.Path, "/library/parts/1/111/SoWhat.flac") {
 		t.Errorf("Path %q missing part key", tr.Path)
+	}
+}
+
+func TestProvider_Tracks_Playlist(t *testing.T) {
+	srv := httptest.NewServer(sectionsHandler(t))
+	defer srv.Close()
+
+	p := newProvider(NewClient(srv.URL, "tok"))
+	tracks, err := p.Tracks("pl:24872")
+	if err != nil {
+		t.Fatalf("Tracks(pl:...) error: %v", err)
+	}
+	if len(tracks) != 1 {
+		t.Fatalf("expected 1 track, got %d", len(tracks))
+	}
+
+	tr := tracks[0]
+	if tr.Title != "Highway to Hell" {
+		t.Errorf("Title = %q, want %q", tr.Title, "Highway to Hell")
+	}
+	if tr.Artist != "AC/DC" {
+		t.Errorf("Artist = %q, want %q", tr.Artist, "AC/DC")
+	}
+	if tr.Album != "Highway to Hell" {
+		t.Errorf("Album = %q, want %q", tr.Album, "Highway to Hell")
+	}
+	if tr.DurationSecs != 208 {
+		t.Errorf("DurationSecs = %d, want 208", tr.DurationSecs)
+	}
+	if !tr.Stream {
+		t.Error("Stream = false, want true")
+	}
+	if !strings.Contains(tr.Path, "X-Plex-Token=tok") {
+		t.Errorf("Path %q missing X-Plex-Token", tr.Path)
+	}
+	if !strings.Contains(tr.Path, "/library/parts/3/333/HighwayToHell.flac") {
+		t.Errorf("Path %q missing part key", tr.Path)
+	}
+}
+
+func TestProvider_Tracks_Playlist_NotCached(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/playlists/24872/items"):
+			callCount++
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"MediaContainer":{"totalSize":1,"Metadata":[{"ratingKey":"300","title":"Highway to Hell","grandparentTitle":"AC/DC","parentTitle":"Highway to Hell","index":1,"duration":208000,"Media":[{"Part":[{"key":"/library/parts/3/333/HighwayToHell.flac"}]}]}]}}`))
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	p := newProvider(NewClient(srv.URL, "tok"))
+	if _, err := p.Tracks("pl:24872"); err != nil {
+		t.Fatalf("first Tracks() error: %v", err)
+	}
+	if _, err := p.Tracks("pl:24872"); err != nil {
+		t.Fatalf("second Tracks() error: %v", err)
+	}
+	if callCount != 2 {
+		t.Errorf("expected playlist items endpoint called twice (smart playlists not cached), got %d", callCount)
 	}
 }
 
@@ -290,6 +399,8 @@ func TestNewFromConfig_LibrariesWired(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				switch {
+				case strings.HasSuffix(r.URL.Path, "/playlists"):
+					w.Write([]byte(`{"MediaContainer":{"Metadata":[]}}`))
 				case strings.HasSuffix(r.URL.Path, "/library/sections"):
 					w.Write([]byte(`{"MediaContainer":{"Directory":[
 						{"key":"1","type":"artist","title":"Music"},

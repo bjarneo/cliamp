@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -17,11 +18,17 @@ type playbackFakeEngine struct {
 	drained           bool
 	paused            bool
 	ytdlSeek          bool
+	live              bool
+	seekable          bool
 	position          time.Duration
+	duration          time.Duration
+	seekYTDLErr       error
 	playCalls         []string
 	seekYTDLCalls     []time.Duration
+	playAtOffsets     []time.Duration
 	preloadCalls      []string
 	clearPreloadCalls int
+	stopCalls         int
 	eqBands           [eqBandCount]float64
 }
 
@@ -31,6 +38,10 @@ func (f *playbackFakeEngine) Play(path string, _ time.Duration) error {
 	f.playCalls = append(f.playCalls, path)
 	return nil
 }
+func (f *playbackFakeEngine) PlayAt(path string, dur, offset time.Duration) error {
+	f.playAtOffsets = append(f.playAtOffsets, offset)
+	return f.Play(path, dur)
+}
 func (f *playbackFakeEngine) PlayYTDL(string, time.Duration) error { return nil }
 func (f *playbackFakeEngine) Preload(path string, _ time.Duration) error {
 	f.preloadCalls = append(f.preloadCalls, path)
@@ -38,22 +49,26 @@ func (f *playbackFakeEngine) Preload(path string, _ time.Duration) error {
 }
 func (f *playbackFakeEngine) PreloadYTDL(string, time.Duration) error { return nil }
 func (f *playbackFakeEngine) ClearPreload()                           { f.clearPreloadCalls++ }
-func (f *playbackFakeEngine) Stop()                                   { f.playing, f.paused = false, false }
-func (f *playbackFakeEngine) Close()                                  {}
-func (f *playbackFakeEngine) TogglePause()                            { f.paused = !f.paused }
-func (f *playbackFakeEngine) Seek(time.Duration) error                { return nil }
+func (f *playbackFakeEngine) Stop() {
+	f.stopCalls++
+	f.playing, f.paused = false, false
+}
+func (f *playbackFakeEngine) Close()                   {}
+func (f *playbackFakeEngine) TogglePause()             { f.paused = !f.paused }
+func (f *playbackFakeEngine) Seek(time.Duration) error { return nil }
 func (f *playbackFakeEngine) SeekYTDL(d time.Duration) error {
 	f.seekYTDLCalls = append(f.seekYTDLCalls, d)
-	return nil
+	return f.seekYTDLErr
 }
 func (f *playbackFakeEngine) CancelSeekYTDL()    {}
 func (f *playbackFakeEngine) IsPlaying() bool    { return f.playing }
 func (f *playbackFakeEngine) IsPaused() bool     { return f.paused }
 func (f *playbackFakeEngine) Drained() bool      { return f.drained }
 func (f *playbackFakeEngine) HasPreload() bool   { return false }
-func (f *playbackFakeEngine) Seekable() bool     { return false }
+func (f *playbackFakeEngine) Seekable() bool     { return f.seekable }
 func (f *playbackFakeEngine) IsStreamSeek() bool { return false }
 func (f *playbackFakeEngine) IsYTDLSeek() bool   { return f.ytdlSeek }
+func (f *playbackFakeEngine) IsLiveStream() bool { return f.live }
 func (f *playbackFakeEngine) GaplessAdvanced() bool {
 	if !f.gaplessAdvanced {
 		return false
@@ -62,9 +77,9 @@ func (f *playbackFakeEngine) GaplessAdvanced() bool {
 	return true
 }
 func (f *playbackFakeEngine) Position() time.Duration { return f.position }
-func (f *playbackFakeEngine) Duration() time.Duration { return 0 }
+func (f *playbackFakeEngine) Duration() time.Duration { return f.duration }
 func (f *playbackFakeEngine) PositionAndDuration() (time.Duration, time.Duration) {
-	return 0, 0
+	return f.position, f.duration
 }
 func (f *playbackFakeEngine) SetVolumeMin(float64)                   {}
 func (f *playbackFakeEngine) VolumeMin() float64                     { return -50 }
@@ -82,8 +97,142 @@ func (f *playbackFakeEngine) OutputErr() error                       { return ni
 func (f *playbackFakeEngine) StreamTitle() string                    { return "" }
 func (f *playbackFakeEngine) StreamBytes() (downloaded, total int64) { return 0, 0 }
 func (f *playbackFakeEngine) SamplesInto([]float64) int              { return 0 }
+func (f *playbackFakeEngine) WaveformSamplesInto([]float64) int      { return 0 }
 func (f *playbackFakeEngine) StereoSamplesInto([][2]float64) int     { return 0 }
 func (f *playbackFakeEngine) SampleRate() int                        { return 44100 }
+
+func TestApplyResumeRestartsMixcloudAtSavedPosition(t *testing.T) {
+	track := playlist.Track{
+		Title:        "Saved show",
+		Path:         "https://www.mixcloud.com/creator/saved-show/",
+		Stream:       true,
+		DurationSecs: 3600,
+	}
+	player := &playbackFakeEngine{
+		playing:  true,
+		ytdlSeek: true,
+		seekable: true,
+		position: 5 * time.Second,
+		duration: time.Hour,
+	}
+	m := Model{player: player, playlist: playlist.New(), playingTrack: track, playingTrackActive: true}
+	m.SetResume(track.Path, 90)
+
+	cmd := m.applyResume()
+	if cmd == nil {
+		t.Fatal("applyResume() = nil, want asynchronous Mixcloud seek")
+	}
+	msg, ok := cmd().(seekTickMsg)
+	if !ok {
+		t.Fatalf("resume command message = %T, want seekTickMsg", msg)
+	}
+	if msg.err != nil || !msg.resume || msg.target != 90*time.Second {
+		t.Fatalf("resume message = %+v, want successful resume at 1m30s", msg)
+	}
+	if len(player.seekYTDLCalls) != 1 || player.seekYTDLCalls[0] != 85*time.Second {
+		t.Fatalf("SeekYTDL calls = %v, want [1m25s]", player.seekYTDLCalls)
+	}
+
+	updated, _ := m.Update(msg)
+	got := updated.(Model)
+	if got.resume.path != "" || got.resume.secs != 0 {
+		t.Fatalf("resume state was not cleared after success: %+v", got.resume)
+	}
+}
+
+func TestStreamPlayedNotifiesOnceWithoutResume(t *testing.T) {
+	track := playlist.Track{Title: "Show", Path: "https://www.mixcloud.com/creator/show/", Stream: true}
+	pl := playlist.New()
+	pl.Add(track)
+	notifier := &fakeNotifier{}
+	m := Model{
+		player:    &playbackFakeEngine{playing: true},
+		playlist:  pl,
+		notifier:  notifier,
+		buffering: true,
+	}
+	m.requests.stream = 1
+
+	updated, _ := m.Update(streamPlayedMsg{path: track.Path, gen: 1})
+	m = updated.(Model)
+	if len(notifier.updates) != 1 {
+		t.Fatalf("notifier updates = %d, want exactly 1", len(notifier.updates))
+	}
+}
+
+func TestStreamPlayedResumeKeepsNextTrackPreload(t *testing.T) {
+	current := playlist.Track{
+		Title: "Saved show", Path: "https://www.mixcloud.com/creator/saved-show/", Stream: true, DurationSecs: 3600,
+	}
+	next := playlist.Track{Title: "Next", Path: "/tmp/next.mp3", DurationSecs: 180}
+	pl := playlist.New()
+	pl.Add(current, next)
+	player := &playbackFakeEngine{playing: true, ytdlSeek: true, seekable: true, duration: time.Hour}
+	notifier := &fakeNotifier{}
+	m := Model{player: player, playlist: pl, notifier: notifier, buffering: true}
+	m.SetResume(current.Path, 90)
+	m.requests.stream = 1
+
+	updated, cmd := m.Update(streamPlayedMsg{path: current.Path, gen: 1})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("streamPlayedMsg command = nil, want resume and preload batch")
+	}
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok || len(batch) != 2 {
+		t.Fatalf("streamPlayedMsg command = %T len=%d, want two-command batch", batch, len(batch))
+	}
+	if !m.preloading {
+		t.Fatal("next track preload was not armed while resuming")
+	}
+	if len(notifier.updates) != 1 {
+		t.Fatalf("notifier updates = %d, want exactly 1", len(notifier.updates))
+	}
+}
+
+func TestApplyResumeFailureKeepsMixcloudPlayable(t *testing.T) {
+	track := playlist.Track{
+		Title:        "Saved show",
+		Path:         "https://www.mixcloud.com/creator/saved-show/",
+		Stream:       true,
+		DurationSecs: 3600,
+	}
+	player := &playbackFakeEngine{
+		playing:     true,
+		ytdlSeek:    true,
+		seekable:    true,
+		duration:    time.Hour,
+		seekYTDLErr: errors.New("seek not permitted"),
+	}
+	m := Model{player: player, playlist: playlist.New(), playingTrack: track, playingTrackActive: true}
+	m.SetResume(track.Path, 90)
+
+	msg := m.applyResume()().(seekTickMsg)
+	updated, _ := m.Update(msg)
+	got := updated.(Model)
+	if got.resume.path != "" || got.resume.secs != 0 {
+		t.Fatalf("failed resume remained armed: %+v", got.resume)
+	}
+	if !strings.Contains(got.status.text, "playing from the previous position") {
+		t.Fatalf("status = %q, want fallback explanation", got.status.text)
+	}
+}
+
+func TestQuitCapturesMixcloudResumePosition(t *testing.T) {
+	track := playlist.Track{
+		Title:        "Partly played show",
+		Path:         "https://www.mixcloud.com/creator/partly-played/",
+		Stream:       true,
+		DurationSecs: 3600,
+	}
+	player := &playbackFakeEngine{playing: true, position: 12*time.Minute + 34*time.Second}
+	m := Model{player: player, playingTrack: track, playingTrackActive: true}
+
+	m.quit()
+	if m.exitResume.path != track.Path || m.exitResume.secs != 754 {
+		t.Fatalf("exit resume = (%q, %d), want (%q, 754)", m.exitResume.path, m.exitResume.secs, track.Path)
+	}
+}
 
 func TestNavTrackListQueueStartsQueuedTrackWhenStopped(t *testing.T) {
 	player := &playbackFakeEngine{}
@@ -376,6 +525,36 @@ func TestPreloadNextSkipsLiveStream(t *testing.T) {
 	}
 }
 
+func TestPreloadNextSkipsRuntimeDetectedLiveStream(t *testing.T) {
+	player := &playbackFakeEngine{playing: true, live: true}
+	p := playlist.New()
+	p.Replace([]playlist.Track{
+		{Title: "Station 1", Path: "https://example.com/one", Stream: true},
+		{Title: "Station 2", Path: "https://example.com/two", Stream: true},
+	})
+	p.SetIndex(0)
+
+	m := Model{player: player, playlist: p}
+	if cmd := m.preloadNext(); cmd != nil {
+		t.Fatal("preloadNext() returned a command for a runtime-detected live stream")
+	}
+}
+
+func TestPreloadNextSkipsUnknownDurationStream(t *testing.T) {
+	player := &playbackFakeEngine{playing: true}
+	p := playlist.New()
+	p.Replace([]playlist.Track{
+		{Title: "Current", Path: "current.mp3"},
+		{Title: "Unknown", Path: "https://example.com/unknown", Stream: true},
+	})
+	p.SetIndex(0)
+
+	m := Model{player: player, playlist: p}
+	if cmd := m.preloadNext(); cmd != nil {
+		t.Fatal("preloadNext() returned a command without a known stream boundary")
+	}
+}
+
 func TestDrainedLiveStreamReconnectsCurrentStation(t *testing.T) {
 	player := &playbackFakeEngine{playing: true, drained: true}
 	p := playlist.New()
@@ -401,6 +580,30 @@ func TestDrainedLiveStreamReconnectsCurrentStation(t *testing.T) {
 	}
 	if m.reconnect.at.IsZero() || !m.reconnect.at.After(now) {
 		t.Fatalf("reconnect time = %v, want a future retry", m.reconnect.at)
+	}
+}
+
+func TestGaplessAdvanceDoesNotAlsoDrainNextTrack(t *testing.T) {
+	player := &playbackFakeEngine{playing: true, gaplessAdvanced: true, drained: true}
+	p := playlist.New()
+	p.Replace([]playlist.Track{
+		{Title: "One", Path: "one.mp3", DurationSecs: 180},
+		{Title: "Two", Path: "two.mp3", DurationSecs: 180},
+		{Title: "Three", Path: "three.mp3", DurationSecs: 180},
+	})
+	p.SetIndex(0)
+
+	m := Model{
+		player:   player,
+		playlist: p,
+		vis:      ui.NewVisualizer(float64(player.SampleRate())),
+	}
+	m.SetVisualizer("none")
+
+	updated, _ := m.Update(tickMsg(time.Now()))
+	m = updated.(Model)
+	if got := m.playlist.Index(); got != 1 {
+		t.Fatalf("playlist index = %d, want one gapless advance to index 1", got)
 	}
 }
 
@@ -467,5 +670,35 @@ func TestGaplessAdvanceRefreshesLyricsAndArtwork(t *testing.T) {
 	}
 	if !m2.lyrics.loading {
 		t.Fatal("lyrics.loading = false, want true for new track fetch")
+	}
+}
+
+func TestQueueToggleRearmsGaplessPreload(t *testing.T) {
+	player := &playbackFakeEngine{playing: true}
+	p := playlist.New()
+	p.Replace([]playlist.Track{
+		{Title: "Playing", Path: "a.mp3", DurationSecs: 180},
+		{Title: "Order next", Path: "b.mp3", DurationSecs: 180},
+		{Title: "Queued", Path: "c.mp3", DurationSecs: 180},
+	})
+	m := Model{
+		player:   player,
+		playlist: p,
+		plCursor: 2,
+	}
+
+	cmd := m.handleKey(tea.KeyPressMsg{Text: "a"})
+	if cmd == nil {
+		t.Fatal("handleKey(a) = nil, want preload command")
+	}
+	if got := p.QueueLen(); got != 1 {
+		t.Fatalf("QueueLen() = %d, want 1", got)
+	}
+	if player.clearPreloadCalls != 1 {
+		t.Fatalf("ClearPreload calls = %d, want 1", player.clearPreloadCalls)
+	}
+	cmd()
+	if len(player.preloadCalls) != 1 || player.preloadCalls[0] != "c.mp3" {
+		t.Fatalf("preloadCalls = %v, want [c.mp3] (queued track, not order-next b.mp3)", player.preloadCalls)
 	}
 }

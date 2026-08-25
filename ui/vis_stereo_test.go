@@ -94,3 +94,56 @@ func TestStereoDriverReadsAndRendersStereoSamples(t *testing.T) {
 		t.Errorf("R field labels = %d, want 1", got)
 	}
 }
+
+func TestStereoPausedDecaysMetersToRest(t *testing.T) {
+	v := NewVisualizer(44100)
+	v.Cols = 48
+	v.Rows = 5
+	activateMode(t, v, VisStereo)
+	driver := v.driverFor(VisStereo).(*stereoDriver)
+
+	// Charge the meters with loud audio first.
+	samples := [][2]float64{{0.9, 0.9}, {-0.9, -0.9}}
+	t0 := time.Unix(1, 0)
+	for i := range 5 {
+		v.Tick(VisTickContext{
+			Now:     t0.Add(time.Duration(i+1) * TickSlow),
+			Playing: true,
+			StereoSamplesInto: func(dst [][2]float64) int {
+				return copy(dst, samples)
+			},
+		})
+	}
+	for c := range 2 {
+		if driver.level[c] < 0.8 {
+			t.Fatalf("level[%d] = %v after charge, want >= 0.8", c, driver.level[c])
+		}
+	}
+
+	// Paused ticks empty both needles and peaks instead of freezing them.
+	settled := false
+	prevLevel := driver.level
+	prevPeak := driver.peak
+	for i := 0; i < 240; i++ {
+		v.Tick(VisTickContext{Now: t0.Add(time.Duration(i+1) * TickSlow), Paused: true})
+		for c := range 2 {
+			if driver.level[c] > prevLevel[c]+1e-9 || driver.peak[c] > prevPeak[c]+1e-9 {
+				t.Fatalf("paused tick %d channel %d level %v->%v or peak %v->%v, want monotonic decay",
+					i, c, prevLevel[c], driver.level[c], prevPeak[c], driver.peak[c])
+			}
+		}
+		prevLevel, prevPeak = driver.level, driver.peak
+		if !v.PausedDecayPending(VisTickContext{Paused: true}) {
+			settled = true
+			break
+		}
+	}
+	if !settled {
+		t.Fatal("stereo meters never settled to rest while paused")
+	}
+	for c := range 2 {
+		if driver.level[c] > stereoEpsilon || driver.peak[c] > stereoEpsilon {
+			t.Fatalf("settled channel %d level=%v peak=%v, want <= %v", c, driver.level[c], driver.peak[c], stereoEpsilon)
+		}
+	}
+}

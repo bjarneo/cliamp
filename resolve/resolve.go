@@ -21,9 +21,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
+	"github.com/bjarneo/cliamp/internal/ytdlcookies"
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 
@@ -35,21 +35,10 @@ import (
 // Default true preserves backward compatibility.
 var ExpandYTPlaylist = true
 
-// ytdlCookiesFromVal stores the browser name passed to yt-dlp's
-// --cookies-from-browser flag. atomic.Value allows lock-free reads on the
-// resolve hot path while permitting late binding from main.go.
-var ytdlCookiesFromVal atomic.Value
-
-// SetYTDLCookiesFrom configures yt-dlp to use cookies from the given browser
-// (e.g. "firefox", "chrome", "brave") for any --flat-playlist resolution.
-// Pass an empty string to disable.
-func SetYTDLCookiesFrom(browser string) {
-	ytdlCookiesFromVal.Store(browser)
-}
-
-func ytdlCookiesFrom() string {
-	v, _ := ytdlCookiesFromVal.Load().(string)
-	return v
+// SetYTDLCookiesForHost configures yt-dlp to use browser cookies when
+// resolving or playing URLs for host. Passing an empty browser disables it.
+func SetYTDLCookiesForHost(host, browser string) {
+	ytdlcookies.SetForHost(host, browser)
 }
 
 // httpClient is used for feed and M3U resolution. It has a generous but
@@ -452,9 +441,10 @@ func resolveFeed(feedURL string) ([]playlist.Track, error) {
 	return tracks, nil
 }
 
-// maxM3UBody caps how much of a remote playlist we read before classifying it.
-// HLS/M3U playlists are tiny (a few KB); 1 MB is a generous safety bound.
-const maxM3UBody = 1 << 20
+// maxPlaylistBody caps how much of a remote playlist we read before
+// classifying it. HLS/M3U and PLS playlists are tiny (a few KB); 1 MB is a
+// generous safety bound.
+const maxPlaylistBody = 1 << 20
 
 // resolveM3U fetches an M3U/M3U8 URL. HLS playlists (master or media) are a
 // single live/VOD stream — not a track list — so the original URL is handed to
@@ -471,7 +461,7 @@ func resolveM3U(m3uURL string) ([]playlist.Track, error) {
 		return nil, fmt.Errorf("http status %s", resp.Status)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxM3UBody))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPlaylistBody))
 	if err != nil {
 		return nil, err
 	}
@@ -506,7 +496,18 @@ func resolvePLS(plsURL string) ([]playlist.Track, error) {
 		return nil, fmt.Errorf("http status %s", resp.Status)
 	}
 
-	entries, err := parsePLS(resp.Body)
+	// Read one byte past the cap so an oversized playlist is reported rather
+	// than silently truncated: io.LimitReader alone would cut mid-line and
+	// hand parsePLS a partial "FileN=https:/", which becomes a bogus track.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPlaylistBody+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading pls playlist: %w", err)
+	}
+	if len(body) > maxPlaylistBody {
+		return nil, fmt.Errorf("pls playlist exceeds %d bytes", maxPlaylistBody)
+	}
+
+	entries, err := parsePLS(bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -608,12 +609,40 @@ func resolveYouTube(pageURL string) ([]playlist.Track, error) {
 // [start, start+count) from the playlist. Exported for UI incremental loading.
 // ResolveYTDLBatch fetches tracks starting at offset `start`.
 // If count > 0, fetches at most `count` items; if count == 0, fetches all remaining.
-func ResolveYTDLBatch(pageURL string, start, count int) ([]playlist.Track, error) {
+// If an optional browser is provided, cookies from that browser are used;
+// otherwise, the cookie source configured for pageURL's host is used.
+func ResolveYTDLBatch(pageURL string, start, count int, browser ...string) ([]playlist.Track, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return ResolveYTDLBatchContext(ctx, pageURL, start, count, browser...)
+}
+
+// ResolveYTDLBatchPage returns the valid tracks and number of source entries
+// emitted by yt-dlp for a playlist range.
+func ResolveYTDLBatchPage(pageURL string, start, count int, browser ...string) ([]playlist.Track, int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return ResolveYTDLBatchPageContext(ctx, pageURL, start, count, browser...)
+}
+
+// ResolveYTDLBatchPageContext is ResolveYTDLBatchPage with caller-controlled
+// cancellation and timeout.
+func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, count int, browser ...string) ([]playlist.Track, int, error) {
 	end := 0
 	if count > 0 {
 		end = start + count
 	}
-	return resolveYTDLRange(pageURL, start, end)
+	return resolveYTDLRangePageContext(ctx, pageURL, start, end, browser...)
+}
+
+// ResolveYTDLBatchContext is ResolveYTDLBatch with caller-controlled
+// cancellation and timeout.
+func ResolveYTDLBatchContext(ctx context.Context, pageURL string, start, count int, browser ...string) ([]playlist.Track, error) {
+	end := 0
+	if count > 0 {
+		end = start + count
+	}
+	return resolveYTDLRangeContext(ctx, pageURL, start, end, browser...)
 }
 
 // resolveYTDL uses yt-dlp --flat-playlist to quickly enumerate tracks.
@@ -627,17 +656,32 @@ func resolveYTDL(pageURL string, maxItems ...int) ([]playlist.Track, error) {
 	return resolveYTDLRange(pageURL, 0, end)
 }
 
-func resolveYTDLRange(pageURL string, start, end int) ([]playlist.Track, error) {
-	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		return nil, fmt.Errorf("yt-dlp not found in PATH — see https://github.com/yt-dlp/yt-dlp#installation")
-	}
-
+func resolveYTDLRange(pageURL string, start, end int, browser ...string) ([]playlist.Track, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	return resolveYTDLRangeContext(ctx, pageURL, start, end, browser...)
+}
+
+func resolveYTDLRangeContext(ctx context.Context, pageURL string, start, end int, browser ...string) ([]playlist.Track, error) {
+	tracks, _, err := resolveYTDLRangePageContext(ctx, pageURL, start, end, browser...)
+	return tracks, err
+}
+
+func resolveYTDLRangePageContext(ctx context.Context, pageURL string, start, end int, browser ...string) ([]playlist.Track, int, error) {
+	if _, err := exec.LookPath("yt-dlp"); err != nil {
+		return nil, 0, fmt.Errorf("yt-dlp not found in PATH — see https://github.com/yt-dlp/yt-dlp#installation")
+	}
 
 	args := []string{"--flat-playlist", "-j", "--socket-timeout", "15"}
-	if browser := ytdlCookiesFrom(); browser != "" {
-		args = append(args, "--cookies-from-browser", browser)
+	b := ""
+	if len(browser) > 0 {
+		b = strings.TrimSpace(browser[0])
+	}
+	if b == "" {
+		b = ytdlcookies.ForURL(pageURL)
+	}
+	if b != "" {
+		args = append(args, "--cookies-from-browser", b)
 	}
 	if start > 0 {
 		args = append(args, "--playlist-start", strconv.Itoa(start+1)) // yt-dlp is 1-based
@@ -647,22 +691,27 @@ func resolveYTDLRange(pageURL string, start, end int) ([]playlist.Track, error) 
 	}
 	args = append(args, pageURL)
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+	cmd.WaitDelay = 3 * time.Second
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	stdout, err := cmd.Output()
 	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("yt-dlp: timed out resolving %s (30s)", pageURL)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, 0, fmt.Errorf("yt-dlp: resolve %s: %w", pageURL, ctxErr)
 		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
-			return nil, fmt.Errorf("yt-dlp: %s", msg)
+			return nil, 0, fmt.Errorf("yt-dlp: %s", msg)
 		}
-		return nil, fmt.Errorf("yt-dlp: %w", err)
+		return nil, 0, fmt.Errorf("yt-dlp: %w", err)
 	}
+	return parseYTDLTracks(bytes.NewReader(stdout))
+}
 
+func parseYTDLTracks(r io.Reader) ([]playlist.Track, int, error) {
 	var tracks []playlist.Track
-	scanner := bufio.NewScanner(strings.NewReader(string(stdout)))
+	entries := 0
+	scanner := bufio.NewScanner(r)
 	// yt-dlp JSON can exceed bufio.Scanner's default 64KB token limit
 	// (e.g. videos with very long descriptions).
 	scanner.Buffer(make([]byte, 0, scannerInitBufSize), scannerMaxLineSize)
@@ -671,6 +720,7 @@ func resolveYTDLRange(pageURL string, start, end int) ([]playlist.Track, error) 
 		if line == "" {
 			continue
 		}
+		entries++
 		var e ytdlFlatEntry
 		if err := json.Unmarshal([]byte(line), &e); err != nil {
 			continue
@@ -701,7 +751,7 @@ func resolveYTDLRange(pageURL string, start, end int) ([]playlist.Track, error) 
 			DurationSecs: int(e.Duration),
 		})
 	}
-	return tracks, scanner.Err()
+	return tracks, entries, scanner.Err()
 }
 
 // DownloadYTDL downloads a single track via yt-dlp to the given directory
@@ -712,12 +762,17 @@ func DownloadYTDL(pageURL, saveDir string) (string, error) {
 	}
 
 	outTemplate := filepath.Join(saveDir, "%(artist,uploader)s - %(title)s.%(ext)s")
-	cmd := exec.Command("yt-dlp",
+	args := []string{
 		"-f", "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio",
 		"--no-playlist",
 		"--print-json",
 		"-o", outTemplate,
-		pageURL)
+	}
+	if browser := ytdlcookies.ForURL(pageURL); browser != "" {
+		args = append(args, "--cookies-from-browser", browser)
+	}
+	args = append(args, pageURL)
+	cmd := exec.Command("yt-dlp", args...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	stdout, err := cmd.Output()

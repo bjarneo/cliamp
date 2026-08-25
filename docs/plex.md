@@ -42,13 +42,19 @@ If you access Plex remotely via `app.plex.tv`, you can still use a direct server
 
 Once configured, **Plex** appears as a provider in the cliamp TUI alongside Radio, Navidrome, Spotify, etc.
 
-The provider exposes your music library as a flat list of albums, labelled:
+The provider exposes your server's audio playlists and your music library, grouped under two headers:
 
-```
+```text
+── Playlists ──
+GOOD
+All Music
+drums
+
+── Albums ──
 Artist - Album Title (Year)
 ```
 
-Select an album to load its tracks, then play as normal.
+Select a playlist or album to load its tracks, then play as normal. Smart playlists are included and resolve to their current contents, so they always reflect the server.
 
 To start cliamp with Plex as the default provider:
 
@@ -64,7 +70,7 @@ provider = "plex"
 
 ## How it works
 
-cliamp calls the Plex HTTP API to enumerate your music libraries and albums. When you select an album, it fetches the track list and constructs authenticated streaming URLs of the form:
+cliamp calls the Plex HTTP API to enumerate your server's audio playlists (`/playlists`) and music library albums. When you select an entry, it fetches the track list (from the playlists items endpoint or the album children endpoint) and constructs authenticated streaming URLs of the form:
 
 ```
 http://<server>:32400/library/parts/<partID>/<timestamp>/file.<ext>?X-Plex-Token=<token>
@@ -86,4 +92,3 @@ Fix: open **System Settings > Privacy & Security > Local Network** and enable ac
 - **No playlist write-back**: cliamp cannot create or modify Plex playlists
 - **Token is long-lived**: store it carefully; it grants full access to your Plex account
 - **Album list is flat**: no artist drill-down; search by scrolling or using cliamp's search
-- **No Plex playlists**: only library albums are exposed (Plex user-created playlists are not yet surfaced)

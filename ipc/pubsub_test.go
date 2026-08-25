@@ -144,6 +144,31 @@ func TestBrokerDisconnectsSlowSubscriber(t *testing.T) {
 	}
 }
 
+func TestBrokerSignalsOverflowBeforeClosingSlowSubscriber(t *testing.T) {
+	broker := NewBroker()
+	sub, err := broker.Subscribe([]string{"runtime.state"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+
+	for i := 0; i < subscriberBufferSize; i++ {
+		if err := broker.Publish("runtime.state", json.RawMessage(`{}`), false); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var overflow Event
+	for event := range sub.Events() {
+		if event.Event == overflowEventTopic {
+			overflow = event
+		}
+	}
+	if overflow.Event != overflowEventTopic || string(overflow.Data) != `{"resync_required":true}` {
+		t.Fatalf("overflow = %#v", overflow)
+	}
+}
+
 func TestBrokerRejectedRetainDoesNotConsumeSequence(t *testing.T) {
 	broker := NewBroker()
 	for i := range maxRetainedTopics {

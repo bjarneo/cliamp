@@ -72,6 +72,7 @@ var benchDriverModes = []VisMode{
 	VisFlame,
 	VisLogo,
 	VisPulse,
+	VisMirror,
 	VisWave,
 	VisScope,
 }

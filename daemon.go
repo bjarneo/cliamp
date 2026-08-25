@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"os/signal"
 	"strings"
@@ -29,6 +30,8 @@ import (
 	"github.com/bjarneo/cliamp/ui/model"
 )
 
+const daemonControlQueueCapacity = 64
+
 // runDaemon runs cliamp without a TUI: serves IPC against the shared
 // player+playlist, auto-advances tracks, exits on SIGINT/SIGTERM.
 func runDaemon(p *player.Player, pl *playlist.Playlist, localProv *local.Provider, providers []model.ProviderEntry, autoPlay bool, eqPreset string) error {
@@ -44,6 +47,9 @@ func runDaemon(p *player.Player, pl *playlist.Playlist, localProv *local.Provide
 		historyStore: history.New(),
 		eqPreset:     eqPreset,
 		quit:         make(chan struct{}, 1),
+		// All external control surfaces feed this bounded queue. The daemon loop
+		// is the sole owner of command ordering and playlist mutations.
+		control: make(chan any, daemonControlQueueCapacity),
 	}
 	if d.eqPreset == "" {
 		d.eqPreset = "Custom"
@@ -67,11 +73,18 @@ func runDaemon(p *player.Player, pl *playlist.Playlist, localProv *local.Provide
 		d.mu.Unlock()
 	}
 
-	srv, err := ipc.NewServer(ipc.DefaultSocketPath(), d)
+	srv, err := ipc.NewServer(ipc.DefaultSocketPath())
 	if err != nil {
 		return fmt.Errorf("ipc: %w", err)
 	}
 	defer srv.Close()
+	d.broker = srv.Broker()
+	srv.SetV2Dispatcher(newDaemonV2Dispatcher(d, srv.JobStore()))
+	operations := ipc.DefaultOperationRegistry()
+	operations.Unregister("theme", "vis", "plugin.call", "plugin.commands")
+	srv.SetOperationRegistry(operations)
+	go publishDaemonV2JobEvents(srv.Done(), srv.JobStore(), srv.Broker())
+	d.publishRuntimeState()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -89,6 +102,8 @@ func runDaemon(p *player.Player, pl *playlist.Playlist, localProv *local.Provide
 			applog.Info("daemon: quit requested via media control, shutting down")
 			d.saveResume()
 			return nil
+		case msg := <-d.control:
+			d.handleMessage(msg)
 		case <-ticker.C:
 			d.tick()
 		}
@@ -100,7 +115,7 @@ func runDaemon(p *player.Player, pl *playlist.Playlist, localProv *local.Provide
 // internally thread-safe so blocking I/O (Play, PlayYTDL) runs without it.
 type daemon struct {
 	mu              sync.Mutex
-	player          *player.Player
+	player          player.Engine
 	playlist        *playlist.Playlist
 	localProv       *local.Provider
 	providers       []model.ProviderEntry
@@ -112,9 +127,39 @@ type daemon struct {
 	eqPreset        string
 	notifier        playback.Notifier
 	quit            chan struct{}
+	control         chan any
+	broker          *ipc.Broker
+
+	playbackTrack    playlist.Track
+	hasPlaybackTrack bool
+	device           string
+	runtimeRevision  uint64
+	runtimeReady     bool
+	runtimeLast      daemonRuntimeFingerprint
 }
 
 func (d *daemon) Send(msg any) {
+	if d.control != nil {
+		d.control <- msg
+		return
+	}
+	d.handleMessage(msg)
+}
+
+// handleMessage runs only on the daemon control loop, except in focused tests
+// that construct a daemon without a control channel.
+func (d *daemon) handleMessage(msg any) {
+	switch m := msg.(type) {
+	case daemonV2ReadRequest:
+		d.handleV2ReadRequest(m)
+		return
+	case daemonV2JobRequest:
+		d.handleV2JobRequest(m)
+		return
+	}
+
+	defer d.publishRuntimeState()
+
 	switch m := msg.(type) {
 	case ipc.LibraryRequestMsg:
 		d.handleLibrary(m)
@@ -137,14 +182,14 @@ func (d *daemon) Send(msg any) {
 	defer d.mu.Unlock()
 
 	switch m := msg.(type) {
-	case ipc.PlayMsg, playback.PlayMsg:
+	case playback.PlayMsg:
 		if d.player.IsPaused() {
-			d.player.TogglePause()
+			d.resume()
 		} else if !d.player.IsPlaying() && d.playlist.Len() > 0 {
 			d.playCurrent()
 		}
 
-	case ipc.PauseMsg, playback.PauseMsg:
+	case playback.PauseMsg:
 		if d.player.IsPlaying() && !d.player.IsPaused() {
 			d.player.TogglePause()
 		}
@@ -154,6 +199,7 @@ func (d *daemon) Send(msg any) {
 
 	case playback.StopMsg:
 		d.player.Stop()
+		d.clearPlaybackTrack()
 
 	case playback.NextMsg:
 		d.nextTrack()
@@ -167,14 +213,8 @@ func (d *daemon) Send(msg any) {
 		default:
 		}
 
-	case ipc.VolumeMsg:
-		d.player.SetVolume(m.DB)
-
 	case playback.SetVolumeMsg:
 		d.player.SetVolume(m.VolumeDB)
-
-	case ipc.SeekMsg:
-		_ = d.player.Seek(m.Offset)
 
 	case playback.SeekMsg:
 		_ = d.player.Seek(m.Offset)
@@ -213,12 +253,6 @@ func (d *daemon) Send(msg any) {
 
 	case ipc.DeviceMsg:
 		d.handleDevice(m)
-
-	case ipc.StatusRequestMsg:
-		reply(m.Reply, d.statusResponse())
-
-	case ipc.BandsRequestMsg:
-		d.handleBands(m)
 
 	case ipc.QueueRequestMsg:
 		d.handleQueue(m)
@@ -268,10 +302,17 @@ func (d *daemon) handleSave(m ipc.SaveRequestMsg) {
 func (d *daemon) tick() {
 	d.mu.Lock()
 	if d.player.IsPlaying() && !d.player.IsPaused() && d.player.Drained() {
-		d.nextTrack()
+		track, idx := d.playlist.Current()
+		if idx >= 0 && d.playbackIsLive(track) {
+			d.player.Stop()
+			d.playTrack(track)
+		} else {
+			d.nextTrack()
+		}
 	}
 	d.recordHistory()
 	state := d.snapshotState()
+	d.publishRuntimeStateLocked()
 	d.mu.Unlock()
 	if d.notifier != nil {
 		d.notifier.Update(state)
@@ -315,23 +356,48 @@ func (d *daemon) playCurrent() {
 	d.playTrack(track)
 }
 
-// playTrack temporarily releases d.mu around the blocking Play call so
-// concurrent IPC requests (notably `cliamp status`) don't stall for the
-// 1-3s of HTTP/yt-dlp setup. The player itself serializes internally.
-// Caller must hold d.mu; the lock is held again on return.
+// playTrack runs while d.mu is held so playback decisions commit in request
+// order. Releasing it during setup lets a slow older request overwrite a newer
+// next/load request after that request has already updated the playlist.
 func (d *daemon) playTrack(track playlist.Track) {
 	dur := time.Duration(track.DurationSecs) * time.Second
-	d.mu.Unlock()
 	var err error
 	if playlist.IsYTDL(track.Path) {
 		err = d.player.PlayYTDL(track.Path, dur)
 	} else {
 		err = d.player.Play(track.Path, dur)
 	}
-	d.mu.Lock()
 	if err != nil {
 		applog.Warn("daemon: play %q: %v", track.Path, err)
+		d.player.Stop()
+		d.clearPlaybackTrack()
+		return
 	}
+	d.playbackTrack = track
+	d.hasPlaybackTrack = true
+}
+
+func (d *daemon) clearPlaybackTrack() {
+	d.playbackTrack = playlist.Track{}
+	d.hasPlaybackTrack = false
+}
+
+func (d *daemon) playbackIsLive(track playlist.Track) bool {
+	if track.IsLive() {
+		return true
+	}
+	reporter, ok := d.player.(interface{ IsLiveStream() bool })
+	return ok && reporter.IsLiveStream()
+}
+
+func (d *daemon) resume() {
+	track, idx := d.playlist.Current()
+	if idx >= 0 && d.playbackIsLive(track) {
+		d.player.Stop()
+		d.playTrack(track)
+		return
+	}
+	d.player.TogglePause()
 }
 
 func (d *daemon) toggle() {
@@ -341,6 +407,10 @@ func (d *daemon) toggle() {
 		}
 		return
 	}
+	if d.player.IsPaused() {
+		d.resume()
+		return
+	}
 	d.player.TogglePause()
 }
 
@@ -348,6 +418,7 @@ func (d *daemon) nextTrack() {
 	track, ok := d.playlist.Next()
 	if !ok {
 		d.player.Stop()
+		d.clearPlaybackTrack()
 		return
 	}
 	d.playTrack(track)
@@ -473,6 +544,7 @@ func (d *daemon) handleDevice(m ipc.DeviceMsg) {
 			marker := "  "
 			if dev.Active {
 				marker = "* "
+				d.device = dev.Name
 			}
 			lines = append(lines, fmt.Sprintf("%s%s", marker, dev.Name))
 			items = append(items, ipc.DeviceInfo{Name: dev.Name, Active: dev.Active})
@@ -484,6 +556,7 @@ func (d *daemon) handleDevice(m ipc.DeviceMsg) {
 		reply(m.Reply, ipc.Response{OK: false, Error: fmt.Sprintf("switch device: %v", err)})
 		return
 	}
+	d.device = m.Name
 	reply(m.Reply, ipc.Response{OK: true, Device: m.Name})
 }
 
@@ -509,6 +582,7 @@ func (d *daemon) handleQueue(m ipc.QueueRequestMsg) {
 	case "queue.remove":
 		if m.Index == d.playlist.Index() {
 			d.player.Stop()
+			d.clearPlaybackTrack()
 		}
 		if !d.playlist.Remove(m.Index) {
 			reply(m.Reply, ipc.Response{OK: false, Error: "queue index out of range"})
@@ -523,6 +597,7 @@ func (d *daemon) handleQueue(m ipc.QueueRequestMsg) {
 		reply(m.Reply, d.queueResponse())
 	case "queue.clear":
 		d.player.Stop()
+		d.clearPlaybackTrack()
 		d.playlist.Replace(nil)
 		d.loadedPlaylist = ""
 		reply(m.Reply, d.queueResponse())
@@ -620,6 +695,47 @@ func (d *daemon) handleLibrary(m ipc.LibraryRequestMsg) {
 			return
 		}
 		replyError(m.Reply, writer.AddTrackToPlaylist(context.Background(), m.Playlist, trackFromInfo(*m.Track)))
+	case "playlist.add_many":
+		if len(m.Tracks) == 0 {
+			reply(m.Reply, ipc.Response{OK: false, Error: "tracks are required"})
+			return
+		}
+		tracks := make([]playlist.Track, len(m.Tracks))
+		for i, info := range m.Tracks {
+			tracks[i] = trackFromInfo(info)
+		}
+		if writer, ok := entry.Provider.(providerapi.PlaylistBatchWriter); ok {
+			added, skipped, err := writer.AddTracksToPlaylist(context.Background(), m.Playlist, tracks)
+			if err != nil {
+				replyError(m.Reply, err)
+			} else {
+				reply(m.Reply, ipc.Response{OK: true, Total: added, Items: []string{fmt.Sprintf("skipped:%d", skipped)}})
+			}
+			return
+		}
+		writer, ok := entry.Provider.(providerapi.PlaylistWriter)
+		if !ok {
+			reply(m.Reply, ipc.Response{OK: false, Error: "provider does not support adding tracks"})
+			return
+		}
+		for _, track := range tracks {
+			if err := writer.AddTrackToPlaylist(context.Background(), m.Playlist, track); err != nil {
+				replyError(m.Reply, err)
+				return
+			}
+		}
+		reply(m.Reply, ipc.Response{OK: true, Total: len(tracks)})
+	case "playlist.replace":
+		saver, ok := entry.Provider.(providerapi.PlaylistSaver)
+		if !ok {
+			reply(m.Reply, ipc.Response{OK: false, Error: "provider does not support replacing playlists"})
+			return
+		}
+		tracks := make([]playlist.Track, len(m.Tracks))
+		for i, info := range m.Tracks {
+			tracks[i] = trackFromInfo(info)
+		}
+		replyError(m.Reply, saver.SavePlaylist(m.Playlist, tracks))
 	case "playlist.bookmark":
 		if m.Track == nil {
 			reply(m.Reply, ipc.Response{OK: false, Error: "track is required"})
@@ -637,7 +753,8 @@ func (d *daemon) handleLibrary(m ipc.LibraryRequestMsg) {
 			reply(m.Reply, ipc.Response{OK: false, Error: err.Error()})
 			return
 		}
-		reply(m.Reply, ipc.Response{OK: true, Playlists: items})
+		page, total := daemonPage(items, m.Offset, m.Limit, 200)
+		reply(m.Reply, ipc.Response{OK: true, Playlists: page, Total: total})
 	case "provider.catalog":
 		loader, ok := entry.Provider.(providerapi.CatalogLoader)
 		if !ok {
@@ -672,18 +789,25 @@ func (d *daemon) handleLibrary(m ipc.LibraryRequestMsg) {
 			d.playCurrent()
 			d.mu.Unlock()
 		}
+		if m.Op == "provider.tracks" {
+			page, total := daemonPage(tracks, m.Offset, m.Limit, 200)
+			reply(m.Reply, ipc.Response{OK: true, Tracks: trackInfos(page), Playlist: m.Playlist, Total: total})
+			return
+		}
 		reply(m.Reply, ipc.Response{OK: true, Tracks: trackInfos(tracks), Playlist: m.Playlist, Total: len(tracks)})
 	case "provider.search":
 		limit := m.Limit
 		if limit <= 0 || limit > 100 {
 			limit = 25
 		}
-		tracks, err := searchProvider(entry.Provider, m.Query, limit)
+		fetchLimit := min(100, m.Offset+limit)
+		tracks, err := searchProvider(entry.Provider, m.Query, fetchLimit)
 		if err != nil {
 			reply(m.Reply, ipc.Response{OK: false, Error: err.Error()})
 			return
 		}
-		reply(m.Reply, ipc.Response{OK: true, Tracks: trackInfos(tracks), Total: len(tracks)})
+		page, total := daemonPage(tracks, m.Offset, limit, 100)
+		reply(m.Reply, ipc.Response{OK: true, Tracks: trackInfos(page), Total: total})
 	case "provider.artists":
 		browser, ok := entry.Provider.(providerapi.ArtistBrowser)
 		if !ok {
@@ -699,7 +823,8 @@ func (d *daemon) handleLibrary(m ipc.LibraryRequestMsg) {
 		for i, artist := range artists {
 			items[i] = ipc.ArtistInfo{ID: artist.ID, Name: artist.Name, AlbumCount: artist.AlbumCount}
 		}
-		reply(m.Reply, ipc.Response{OK: true, Artists: items, Total: len(items)})
+		page, total := daemonPage(items, m.Offset, m.Limit, 200)
+		reply(m.Reply, ipc.Response{OK: true, Artists: page, Total: total})
 	case "provider.artist_albums":
 		browser, ok := entry.Provider.(providerapi.ArtistBrowser)
 		if !ok {
@@ -711,7 +836,9 @@ func (d *daemon) handleLibrary(m ipc.LibraryRequestMsg) {
 			replyError(m.Reply, err)
 			return
 		}
-		reply(m.Reply, ipc.Response{OK: true, Albums: ipcAlbumInfos(albums), Total: len(albums)})
+		items := ipcAlbumInfos(albums)
+		page, total := daemonPage(items, m.Offset, m.Limit, 200)
+		reply(m.Reply, ipc.Response{OK: true, Albums: page, Total: total})
 	case "provider.albums":
 		browser, ok := entry.Provider.(providerapi.AlbumBrowser)
 		if !ok {
@@ -755,6 +882,11 @@ func (d *daemon) handleLibrary(m ipc.LibraryRequestMsg) {
 			d.playCurrent()
 			d.mu.Unlock()
 		}
+		if m.Op == "provider.album_tracks" {
+			page, total := daemonPage(tracks, m.Offset, m.Limit, 200)
+			reply(m.Reply, ipc.Response{OK: true, Tracks: trackInfos(page), Total: total})
+			return
+		}
 		reply(m.Reply, ipc.Response{OK: true, Tracks: trackInfos(tracks), Total: len(tracks)})
 	case "provider.favorite":
 		favorites, ok := entry.Provider.(providerapi.FavoriteToggler)
@@ -767,6 +899,18 @@ func (d *daemon) handleLibrary(m ipc.LibraryRequestMsg) {
 	default:
 		reply(m.Reply, ipc.Response{OK: false, Error: "unknown provider operation"})
 	}
+}
+
+func daemonPage[T any](items []T, offset, limit, max int) ([]T, int) {
+	total := len(items)
+	if offset < 0 || offset >= total {
+		return nil, total
+	}
+	if limit <= 0 || limit > max {
+		limit = max
+	}
+	end := min(total, offset+limit)
+	return items[offset:end], total
 }
 
 func providerPlaylistInfos(entry model.ProviderEntry) ([]ipc.PlaylistInfo, error) {
@@ -913,7 +1057,8 @@ func trackInfo(track playlist.Track, index, queuePosition int) ipc.TrackInfo {
 		Path: track.Path, AlbumArtURL: track.AlbumArtURL, Year: track.Year,
 		TrackNumber: track.TrackNumber, DurationSecs: track.DurationSecs, Index: index,
 		QueuePosition: queuePosition, Stream: track.Stream, Realtime: track.Realtime,
-		Bookmark: track.Bookmark, Unplayable: track.Unplayable,
+		Feed: track.Feed, Bookmark: track.Bookmark, Unplayable: track.Unplayable,
+		DirSourced: track.DirSourced, ProviderMeta: maps.Clone(track.ProviderMeta),
 	}
 }
 
@@ -923,13 +1068,17 @@ func trackFromInfo(info ipc.TrackInfo) playlist.Track {
 		Path: info.Path, AlbumArtURL: info.AlbumArtURL, Year: info.Year,
 		TrackNumber: info.TrackNumber, DurationSecs: info.DurationSecs,
 		Stream: info.Stream || playlist.IsURL(info.Path), Realtime: info.Realtime,
-		Bookmark: info.Bookmark, Unplayable: info.Unplayable,
+		Feed: info.Feed, Bookmark: info.Bookmark, Unplayable: info.Unplayable,
+		DirSourced: info.DirSourced, ProviderMeta: maps.Clone(info.ProviderMeta),
 	}
 }
 
-// handleBands performs the same FFT analysis used by the interactive TUI so
-// external widgets can render a real spectrum while cliamp runs headless.
-func (d *daemon) handleBands(m ipc.BandsRequestMsg) {
+// bandsResponse performs the same FFT analysis used by the interactive TUI so
+// V2 clients can render a real spectrum while cliamp runs headless.
+func (d *daemon) bandsResponse() ipc.Response {
+	if d.vis == nil {
+		return ipc.Response{OK: false, Error: "visualizer not available in headless mode"}
+	}
 	d.vis.Tick(ui.VisTickContext{
 		Now:     time.Now(),
 		Playing: d.player.IsPlaying(),
@@ -941,7 +1090,7 @@ func (d *daemon) handleBands(m ipc.BandsRequestMsg) {
 		},
 	})
 	bands := append([]float64(nil), d.vis.SmoothedBands()...)
-	reply(m.Reply, ipc.Response{OK: true, Visualizer: d.vis.ModeName(), Bands: bands})
+	return ipc.Response{OK: true, Visualizer: d.vis.ModeName(), Bands: bands}
 }
 
 // applyStreamTitle folds a stream's live ICY metadata into info, mirroring the
@@ -962,42 +1111,6 @@ func applyStreamTitle(info *ipc.TrackInfo, cur playlist.Track, streamTitle strin
 	if info.Title != cur.Title {
 		info.Station = cur.Title
 	}
-}
-
-func (d *daemon) statusResponse() ipc.Response {
-	resp := ipc.Response{OK: true}
-	switch {
-	case d.player.IsPlaying() && !d.player.IsPaused():
-		resp.State = "playing"
-	case d.player.IsPaused():
-		resp.State = "paused"
-	default:
-		resp.State = "stopped"
-	}
-	if cur, _ := d.playlist.Current(); cur.Path != "" {
-		info := trackInfo(cur, d.playlist.Index(), d.playlist.QueuePosition(d.playlist.Index()))
-		if cur.Stream {
-			applyStreamTitle(&info, cur, d.player.StreamTitle())
-		}
-		resp.Track = &info
-	}
-	pos, dur := d.player.PositionAndDuration()
-	resp.Position = pos.Seconds()
-	resp.Duration = dur.Seconds()
-	resp.Volume = d.player.Volume()
-	resp.Index = d.playlist.Index()
-	resp.Total = d.playlist.Len()
-	resp.Playlist = d.loadedPlaylist
-	shuffled := d.playlist.Shuffled()
-	resp.Shuffle = &shuffled
-	resp.Repeat = d.playlist.Repeat().String()
-	mono := d.player.Mono()
-	resp.Mono = &mono
-	resp.Speed = d.player.Speed()
-	resp.EQPreset = d.eqPreset
-	bands := d.player.EQBands()
-	resp.EQBands = append([]float64(nil), bands[:]...)
-	return resp
 }
 
 func (d *daemon) saveResume() {
