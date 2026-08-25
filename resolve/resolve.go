@@ -512,7 +512,7 @@ func resolvePLS(plsURL string) ([]playlist.Track, error) {
 	// hand parsePLS a partial "FileN=https:/", which becomes a bogus track.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPlaylistBody+1))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading pls playlist: %w", err)
 	}
 	if len(body) > maxPlaylistBody {
 		return nil, fmt.Errorf("pls playlist exceeds %d bytes", maxPlaylistBody)
