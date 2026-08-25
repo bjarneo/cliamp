@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,8 +10,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/bjarneo/cliamp/playlist"
 )
 
 func TestArgsTreatsXiaoyuzhouEpisodeAsPending(t *testing.T) {
@@ -329,4 +333,100 @@ func TestParseYTDLTracksCountsMalformedEntries(t *testing.T) {
 	if len(tracks) != 1 || tracks[0].Title != "One" {
 		t.Fatalf("tracks = %+v, want one valid track", tracks)
 	}
+}
+
+// TestResolvePLSCapsBody pins that an oversized remote PLS is rejected rather
+// than silently truncated. io.LimitReader alone cuts mid-line, and parsePLS
+// would turn the partial "FileN=https:/" into a track with a non-URL path,
+// which the player then treats as a local file.
+func TestResolvePLSCapsBody(t *testing.T) {
+	oversized := buildPLS(40000) // 1,577,799 bytes, over maxPlaylistBody
+	if len(oversized) <= maxPlaylistBody {
+		t.Fatalf("fixture is %d bytes, needs to exceed maxPlaylistBody (%d)", len(oversized), maxPlaylistBody)
+	}
+
+	tests := []struct {
+		name    string
+		body    string
+		wantErr bool
+		want    int
+	}{
+		{name: "under the cap", body: buildPLS(10), want: 10},
+		{name: "over the cap", body: oversized, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "audio/x-scpls")
+				io.WriteString(w, tt.body)
+			}))
+			defer srv.Close()
+
+			tracks, err := resolvePLS(srv.URL + "/stations.pls")
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("resolvePLS accepted a %d-byte body and returned %d tracks, want an error",
+						len(tt.body), len(tracks))
+				}
+				if !strings.Contains(err.Error(), "exceeds") {
+					t.Fatalf("error = %v, want it to name the cap", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolvePLS returned error: %v", err)
+			}
+			if len(tracks) != tt.want {
+				t.Fatalf("got %d tracks, want %d", len(tracks), tt.want)
+			}
+			for i, tr := range tracks {
+				if !playlist.IsURL(tr.Path) {
+					t.Fatalf("tracks[%d].Path = %q, want a URL: a truncated entry must never reach the playlist", i, tr.Path)
+				}
+			}
+		})
+	}
+}
+
+// TestResolvePLSStopsReadingAtTheCap pins that the cap bounds the read itself,
+// not just the size check afterwards. Without the LimitReader the whole body is
+// pulled into memory before its length is ever examined, which is the condition
+// the cap exists to prevent.
+func TestResolvePLSStopsReadingAtTheCap(t *testing.T) {
+	const served = 32 << 20 // far more than maxPlaylistBody
+
+	var written atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "audio/x-scpls")
+		io.WriteString(w, "[playlist]\n")
+		chunk := []byte(strings.Repeat("File1=https://example.com/1.mp3\n", 2048))
+		for written.Load() < served {
+			n, err := w.Write(chunk)
+			written.Add(int64(n))
+			if err != nil {
+				return // client stopped reading, which is the point
+			}
+		}
+	}))
+	defer srv.Close()
+
+	if _, err := resolvePLS(srv.URL + "/endless.pls"); err == nil {
+		t.Fatal("resolvePLS accepted an oversized body, want an error")
+	}
+
+	// Allow generous slack for socket and proxy buffering; without the cap the
+	// server drains all 32 MB.
+	if got := written.Load(); got >= served/2 {
+		t.Fatalf("server wrote %d bytes before the client stopped, want well under %d", got, served)
+	}
+}
+
+func buildPLS(entries int) string {
+	var sb strings.Builder
+	sb.WriteString("[playlist]\n")
+	for i := 1; i <= entries; i++ {
+		fmt.Fprintf(&sb, "File%d=https://example.com/%d.mp3\n", i, i)
+	}
+	return sb.String()
 }

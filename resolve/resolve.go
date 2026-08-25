@@ -452,9 +452,10 @@ func resolveFeed(feedURL string) ([]playlist.Track, error) {
 	return tracks, nil
 }
 
-// maxM3UBody caps how much of a remote playlist we read before classifying it.
-// HLS/M3U playlists are tiny (a few KB); 1 MB is a generous safety bound.
-const maxM3UBody = 1 << 20
+// maxPlaylistBody caps how much of a remote playlist we read before
+// classifying it. HLS/M3U and PLS playlists are tiny (a few KB); 1 MB is a
+// generous safety bound.
+const maxPlaylistBody = 1 << 20
 
 // resolveM3U fetches an M3U/M3U8 URL. HLS playlists (master or media) are a
 // single live/VOD stream — not a track list — so the original URL is handed to
@@ -471,7 +472,7 @@ func resolveM3U(m3uURL string) ([]playlist.Track, error) {
 		return nil, fmt.Errorf("http status %s", resp.Status)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxM3UBody))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPlaylistBody))
 	if err != nil {
 		return nil, err
 	}
@@ -506,7 +507,18 @@ func resolvePLS(plsURL string) ([]playlist.Track, error) {
 		return nil, fmt.Errorf("http status %s", resp.Status)
 	}
 
-	entries, err := parsePLS(resp.Body)
+	// Read one byte past the cap so an oversized playlist is reported rather
+	// than silently truncated: io.LimitReader alone would cut mid-line and
+	// hand parsePLS a partial "FileN=https:/", which becomes a bogus track.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPlaylistBody+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxPlaylistBody {
+		return nil, fmt.Errorf("pls playlist exceeds %d bytes", maxPlaylistBody)
+	}
+
+	entries, err := parsePLS(bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
