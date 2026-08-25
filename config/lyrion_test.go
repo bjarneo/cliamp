@@ -70,21 +70,34 @@ password = "${CLIAMP_TEST_LYRION_PASS}"
 }
 
 func TestLoadLyrionShowUnplayable(t *testing.T) {
-	cfg := writeLyrionConfig(t, `
-[lyrion]
-url = "http://nas.local:9000"
-`)
-	if cfg.Lyrion.ShowUnplayable {
-		t.Error("ShowUnplayable should default to false")
+	tests := []struct {
+		name string
+		toml string
+		want bool
+	}{
+		{
+			name: "omitted defaults to hidden",
+			toml: "[lyrion]\nurl = \"http://nas.local:9000\"\n",
+			want: false,
+		},
+		{
+			name: "explicitly enabled",
+			toml: "[lyrion]\nurl = \"http://nas.local:9000\"\nshow_unplayable = true\n",
+			want: true,
+		},
+		{
+			name: "explicitly disabled",
+			toml: "[lyrion]\nurl = \"http://nas.local:9000\"\nshow_unplayable = false\n",
+			want: false,
+		},
 	}
-
-	cfg = writeLyrionConfig(t, `
-[lyrion]
-url = "http://nas.local:9000"
-show_unplayable = true
-`)
-	if !cfg.Lyrion.ShowUnplayable {
-		t.Error("show_unplayable = true was not read")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := writeLyrionConfig(t, tt.toml)
+			if cfg.Lyrion.ShowUnplayable != tt.want {
+				t.Errorf("ShowUnplayable = %v, want %v", cfg.Lyrion.ShowUnplayable, tt.want)
+			}
+		})
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
 
@@ -351,39 +352,57 @@ func TestAlbumTracksRequestsAlbumOrder(t *testing.T) {
 func TestToTrackMapping(t *testing.T) {
 	c := New("http://nas:9000", "", "")
 
-	full := c.toTrack(song{
-		ID: "77", Title: "Roads", Artist: "Portishead", Album: "Dummy",
-		Genre: "Trip Hop", Year: 1994, TrackNum: 5, Duration: 302.44,
-	})
-	if full.Title != "Roads" || full.Artist != "Portishead" || full.Album != "Dummy" {
-		t.Errorf("full track = %+v", full)
-	}
-	if full.Genre != "Trip Hop" || full.Year != 1994 || full.TrackNumber != 5 {
-		t.Errorf("full track = %+v", full)
-	}
-	if full.DurationSecs != 302 {
-		t.Errorf("DurationSecs = %d, want 302 (truncated from 302.44)", full.DurationSecs)
-	}
-	if !full.Stream || full.Realtime || full.Feed {
-		t.Errorf("stream flags = %+v, want Stream only", full)
-	}
-	if full.Meta(provider.MetaLyrionID) != "77" {
-		t.Errorf("provider meta = %q, want the LMS track id", full.Meta(provider.MetaLyrionID))
-	}
-	if full.Path != TrackURIPrefix+"77" {
-		t.Errorf("Path = %q, want the credential-free track URI", full.Path)
+	tests := []struct {
+		name string
+		in   song
+		want playlist.Track
+	}{
+		{
+			name: "fully tagged",
+			in: song{
+				ID: "77", Title: "Roads", Artist: "Portishead", Album: "Dummy",
+				Genre: "Trip Hop", Year: 1994, TrackNum: 5, Duration: 302.44,
+				URL: "file:///music/roads.flac",
+			},
+			want: playlist.Track{
+				Path: TrackURIPrefix + "77", Title: "Roads", Artist: "Portishead",
+				Album: "Dummy", Genre: "Trip Hop", Year: 1994, TrackNumber: 5,
+				// 302.44s truncates rather than rounds.
+				DurationSecs: 302, Stream: true,
+			},
+		},
+		{
+			name: "only required fields",
+			in:   song{ID: "78", Title: "Untitled"},
+			want: playlist.Track{
+				Path: TrackURIPrefix + "78", Title: "Untitled", Stream: true,
+			},
+		},
 	}
 
-	// Only the required fields present: everything optional stays zero.
-	bare := c.toTrack(song{ID: "78", Title: "Untitled"})
-	if bare.Title != "Untitled" {
-		t.Errorf("bare title = %q", bare.Title)
-	}
-	if bare.Year != 0 || bare.TrackNumber != 0 || bare.DurationSecs != 0 || bare.Genre != "" {
-		t.Errorf("bare track = %+v, want optional fields at zero", bare)
-	}
-	if bare.Meta(provider.MetaLyrionID) != "78" {
-		t.Error("bare track lost its id")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := c.toTrack(tt.in)
+
+			if got.Path != tt.want.Path {
+				t.Errorf("Path = %q, want %q", got.Path, tt.want.Path)
+			}
+			if got.Title != tt.want.Title || got.Artist != tt.want.Artist || got.Album != tt.want.Album {
+				t.Errorf("title/artist/album = %q/%q/%q", got.Title, got.Artist, got.Album)
+			}
+			if got.Genre != tt.want.Genre || got.Year != tt.want.Year || got.TrackNumber != tt.want.TrackNumber {
+				t.Errorf("genre/year/tracknum = %q/%d/%d", got.Genre, got.Year, got.TrackNumber)
+			}
+			if got.DurationSecs != tt.want.DurationSecs {
+				t.Errorf("DurationSecs = %d, want %d", got.DurationSecs, tt.want.DurationSecs)
+			}
+			if got.Stream != tt.want.Stream || got.Realtime || got.Feed {
+				t.Errorf("stream flags = stream:%v realtime:%v feed:%v", got.Stream, got.Realtime, got.Feed)
+			}
+			if got.Meta(provider.MetaLyrionID) != tt.in.ID.String() {
+				t.Errorf("provider meta = %q, want %q", got.Meta(provider.MetaLyrionID), tt.in.ID)
+			}
+		})
 	}
 }
 

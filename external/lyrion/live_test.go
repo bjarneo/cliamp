@@ -74,24 +74,31 @@ func TestLiveBrowse(t *testing.T) {
 	}
 
 	// An album made entirely of plugin-contributed tracks is filtered to empty
-	// by default, so scan for one that actually has playable tracks.
+	// by default, and those can cluster together in sort order, so page through
+	// the catalogue rather than giving up after the first page.
+	const probePage = 25
 	var tracks []playlist.Track
-	page, err := c.AlbumList("", 0, 25)
-	if err != nil {
-		t.Fatalf("AlbumList for probe: %v", err)
-	}
-	for _, a := range page {
-		got, err := c.AlbumTracks(a.ID)
+	for offset := 0; len(tracks) == 0; offset += probePage {
+		page, err := c.AlbumList("", offset, probePage)
 		if err != nil {
-			t.Fatalf("AlbumTracks(%s): %v", a.ID, err)
+			t.Fatalf("AlbumList(offset=%d) for probe: %v", offset, err)
 		}
-		if len(got) > 0 {
-			tracks = got
-			break
+		if len(page) == 0 {
+			break // catalogue exhausted
+		}
+		for _, a := range page {
+			got, err := c.AlbumTracks(a.ID)
+			if err != nil {
+				t.Fatalf("AlbumTracks(%s): %v", a.ID, err)
+			}
+			if len(got) > 0 {
+				tracks = got
+				break
+			}
 		}
 	}
 	if len(tracks) == 0 {
-		t.Fatal("no album in the first 25 had a playable track")
+		t.Fatal("no album in the catalogue had a playable track")
 	}
 	// Every tag letter must survive the round trip; LMS silently omits fields
 	// for tags it was not asked for, so a wrong tag set shows up as blanks.
