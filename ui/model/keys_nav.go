@@ -47,6 +47,13 @@ func (m *Model) handleNavBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 				m.navClearSearch()
 			} else {
 				m.navBrowser.searching = true
+				if m.navBrowser.mode == navBrowseModeByAlbum &&
+					m.navBrowser.screen == navBrowseScreenList && !m.navBrowser.albumDone {
+					if ab, ok := m.navBrowser.prov.(provider.AlbumBrowser); ok {
+						m.navBrowser.albumLoading = true
+						return fetchNavRemainingAlbumsCmd(ab, m.navBrowser.sortType, len(m.navBrowser.albums), m.nextNavRequest())
+					}
+				}
 			}
 			return nil
 		}

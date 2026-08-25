@@ -430,6 +430,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.navBrowser.cursor = 0
 			m.navBrowser.scroll = 0
 		}
+		if m.navBrowser.search != "" {
+			m.navUpdateSearch()
+		}
 		// If we just loaded the first page and it was a full menu → list transition,
 		// also clear the general loading flag.
 		return m, nil

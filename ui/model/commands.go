@@ -380,6 +380,23 @@ func fetchNavAlbumListCmd(b provider.AlbumBrowser, sortType string, offset int, 
 	}
 }
 
+func fetchNavRemainingAlbumsCmd(b provider.AlbumBrowser, sortType string, offset int, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		start := offset
+		var albums []provider.AlbumInfo
+		for {
+			page, err := b.AlbumList(sortType, offset+len(albums), navAlbumPageSize)
+			if err != nil {
+				return navAlbumsLoadedMsg{offset: start, gen: gen, err: err}
+			}
+			albums = append(albums, page...)
+			if len(page) < navAlbumPageSize {
+				return navAlbumsLoadedMsg{albums: albums, offset: start, isLast: true, gen: gen}
+			}
+		}
+	}
+}
+
 func fetchNavAlbumTracksCmd(l provider.AlbumTrackLoader, albumID string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		tracks, err := l.AlbumTracks(albumID)
