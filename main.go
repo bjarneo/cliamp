@@ -296,8 +296,6 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 			AudioReservation: cfg.AudioReservation,
 			BitPerfect:       cfg.BitPerfect,
 		})
-		cfg.Visualizer = "none"
-		applog.UserWarn("MPV backend: EQ, mono, visualizer, gapless preload, and native audio-quality controls are unavailable")
 	default:
 		if cfg.AudioDevice != "" {
 			cleanup := player.PrepareAudioDevice(cfg.AudioDevice)
@@ -320,6 +318,10 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	}
 	if err != nil {
 		return fmt.Errorf("player: %w", err)
+	}
+	if cfg.AudioBackend == "mpv" {
+		cfg.Visualizer = "none"
+		applog.UserWarn("MPV backend: EQ, mono, visualizer, gapless preload, and native audio-quality controls are unavailable")
 	}
 	defer p.Close()
 
@@ -474,7 +476,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		}
 	}
 
-	progOpts := []tea.ProgramOption{tea.WithFPS(defaultUIFPS)}
+	progOpts := []tea.ProgramOption{tea.WithFPS(defaultUIFPS), tea.WithoutSignalHandler()}
 	if cfg.LowPower {
 		progOpts[0] = tea.WithFPS(lowPowerUIFPS)
 	}

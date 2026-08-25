@@ -3,7 +3,9 @@
 package player
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,19 @@ import (
 func TestAudioReservationMissingHelper(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	if _, err := acquireAudioReservation("Audio2"); err == nil || !strings.Contains(err.Error(), "pw-reserve") {
+		t.Fatalf("acquireAudioReservation() = %v", err)
+	}
+}
+
+func TestAudioReservationSuccessfulEarlyExit(t *testing.T) {
+	dir := t.TempDir()
+	helper := filepath.Join(dir, "pw-reserve")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	_, err := acquireAudioReservation("Audio2")
+	if err == nil || !strings.Contains(err.Error(), "pw-reserve exited immediately") {
 		t.Fatalf("acquireAudioReservation() = %v", err)
 	}
 }

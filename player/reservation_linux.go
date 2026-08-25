@@ -45,6 +45,9 @@ func acquireAudioReservation(name string) (reservationHandle, error) {
 	select {
 	case err := <-r.done:
 		detail := strings.TrimSpace(stderr.String())
+		if err == nil {
+			err = errors.New("pw-reserve exited immediately")
+		}
 		if detail != "" {
 			return nil, fmt.Errorf("reserve audio device %s: %w: %s", name, err, detail)
 		}

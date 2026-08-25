@@ -24,6 +24,7 @@ type daemonV2Engine struct {
 	speed    float64
 	mono     bool
 	eq       [10]float64
+	backend  player.BackendStatus
 }
 
 func (e *daemonV2Engine) Play(string, time.Duration) error {
@@ -48,8 +49,11 @@ func (e *daemonV2Engine) Volume() float64         { return e.volume }
 func (e *daemonV2Engine) Speed() float64          { return e.speed }
 func (e *daemonV2Engine) Mono() bool              { return e.mono }
 func (e *daemonV2Engine) EQBands() [10]float64    { return e.eq }
-func (*daemonV2Engine) StreamTitle() string       { return "" }
-func (*daemonV2Engine) StreamErr() error          { return nil }
+func (e *daemonV2Engine) BackendStatus() player.BackendStatus {
+	return e.backend
+}
+func (*daemonV2Engine) StreamTitle() string { return "" }
+func (*daemonV2Engine) StreamErr() error    { return nil }
 func (e *daemonV2Engine) PositionAndDuration() (time.Duration, time.Duration) {
 	return e.position, e.duration
 }
@@ -82,6 +86,21 @@ func newDaemonV2TestDaemon() (*daemon, *daemonV2Engine) {
 	)
 	pl.Queue(1)
 	return &daemon{player: engine, playlist: pl, eqPreset: "Custom", runtimeRevision: 9}, engine
+}
+
+func TestDaemonRuntimeFingerprintIncludesBackendStatus(t *testing.T) {
+	d, engine := newDaemonV2TestDaemon()
+	engine.backend = player.BackendStatus{
+		Name:   "mpv",
+		Device: "alsa/hw:CARD=Generic,DEV=0",
+		Output: player.AudioParameters{Format: "s32", SampleRate: 48000, Channels: "stereo"},
+	}
+	before := d.runtimeFingerprintLocked()
+	engine.backend.Output.SampleRate = 96000
+	after := d.runtimeFingerprintLocked()
+	if before == after {
+		t.Fatal("backend status change did not change runtime fingerprint")
+	}
 }
 
 func TestDaemonV2StateSnapshot(t *testing.T) {

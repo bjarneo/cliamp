@@ -42,6 +42,9 @@ func TestMPVCommandArgsBitPerfect(t *testing.T) {
 			t.Errorf("args force %q: %v", forbidden, args)
 		}
 	}
+	if count := strings.Count(joined, "--volume-max="); count != 1 {
+		t.Errorf("volume-max argument count = %d, want 1: %v", count, args)
+	}
 }
 
 func TestMPVIPCMatchesResponsesByRequestID(t *testing.T) {

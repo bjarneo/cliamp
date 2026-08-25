@@ -54,6 +54,7 @@ type daemonRuntimeFingerprint struct {
 	eq               [10]float64
 	eqPreset         string
 	device           string
+	backend          player.BackendStatus
 	visualizer       string
 	streamTitle      string
 	streamError      string
@@ -676,6 +677,7 @@ func (d *daemon) runtimeFingerprintLocked() daemonRuntimeFingerprint {
 	fingerprint.mono = d.player.Mono()
 	fingerprint.speed = d.player.Speed()
 	fingerprint.eq = d.player.EQBands()
+	fingerprint.backend = player.EngineBackendStatus(d.player)
 	if d.vis != nil {
 		fingerprint.visualizer = d.vis.ModeName()
 	}

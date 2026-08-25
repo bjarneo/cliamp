@@ -5,9 +5,35 @@ import (
 	"testing"
 
 	"github.com/bjarneo/cliamp/ipc"
+	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/ui"
 )
+
+type backendStatusEngine struct {
+	*playbackFakeEngine
+	status player.BackendStatus
+}
+
+func (e *backendStatusEngine) BackendStatus() player.BackendStatus { return e.status }
+
+func TestRuntimeFingerprintIncludesBackendStatus(t *testing.T) {
+	engine := &backendStatusEngine{
+		playbackFakeEngine: &playbackFakeEngine{},
+		status: player.BackendStatus{
+			Name:   "mpv",
+			Device: "alsa/hw:CARD=Generic,DEV=0",
+			Output: player.AudioParameters{Format: "s32", SampleRate: 48000, Channels: "stereo"},
+		},
+	}
+	m := Model{player: engine, playlist: playlist.New()}
+	before := m.runtimeFingerprint()
+	engine.status.Output.SampleRate = 96000
+	after := m.runtimeFingerprint()
+	if before == after {
+		t.Fatal("backend status change did not change runtime fingerprint")
+	}
+}
 
 func TestV2StateRequestReturnsRetainedGUIState(t *testing.T) {
 	engine := &playbackFakeEngine{playing: true}

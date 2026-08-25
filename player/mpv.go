@@ -158,6 +158,10 @@ func NewMPVBackend(options MPVOptions) (*MPVBackend, error) {
 }
 
 func mpvCommandArgs(options MPVOptions, socketPath string) []string {
+	volumeMax := "200"
+	if options.BitPerfect {
+		volumeMax = "100"
+	}
 	args := []string{
 		"--idle=yes",
 		"--no-video",
@@ -167,7 +171,7 @@ func mpvCommandArgs(options MPVOptions, socketPath string) []string {
 		"--audio-fallback-to-null=no",
 		"--gapless-audio=no",
 		"--input-ipc-server=" + socketPath,
-		"--volume-max=200",
+		"--volume-max=" + volumeMax,
 	}
 	if options.AudioDevice != "" {
 		args = append(args, "--audio-device="+options.AudioDevice)
@@ -175,7 +179,6 @@ func mpvCommandArgs(options MPVOptions, socketPath string) []string {
 	if options.BitPerfect {
 		args = append(args,
 			"--volume=100",
-			"--volume-max=100",
 			"--speed=1.0",
 			"--af=",
 			"--replaygain=no",

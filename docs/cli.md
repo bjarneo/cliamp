@@ -24,6 +24,7 @@ cliamp --audio-backend mpv \
   --audio-device 'alsa/hw:CARD=Generic,DEV=0' \
   --bit-perfect track.flac                    # direct ALSA, unity gain, no DSP
 cliamp --audio-backend mpv \
+  --audio-device 'alsa/hw:CARD=Generic,DEV=0' \
   --audio-reservation Audio2 track.flac       # optional Linux PipeWire reservation
 cliamp --sample-rate 48000 track.mp3      # output sample rate (22050, 44100, 48000, 96000, 192000)
 cliamp --buffer-ms 2000 track.mp3         # speaker buffer in ms (50-5000; useful for unstable radio)

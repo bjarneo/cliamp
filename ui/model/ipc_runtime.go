@@ -51,6 +51,7 @@ type ipcRuntimeFingerprint struct {
 	speed            float64
 	eq               [10]float64
 	eqPreset         string
+	backend          player.BackendStatus
 	visualizer       string
 	theme            string
 	streamTitle      string
@@ -678,6 +679,7 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 	fingerprint.speed = m.player.Speed()
 	fingerprint.eq = m.player.EQBands()
 	fingerprint.eqPreset = m.EQPresetName()
+	fingerprint.backend = player.EngineBackendStatus(m.player)
 	fingerprint.detached = m.playbackDetached
 	fingerprint.streamTitle = m.streamTitle
 	if m.player.IsPlaying() && !m.player.IsPaused() {
