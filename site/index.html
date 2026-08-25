@@ -717,7 +717,7 @@ footer{border-top:1px solid var(--line);background:var(--ink-2);padding:46px 0 5
       <span class="strip-meter"><i></i><i></i><i></i><i></i><i></i></span>
     </div>
     <p class="sources-intro reveal">
-      Stream from everywhere. Every provider runs through the same <em>playlist, EQ, visualizer, and lyrics pipeline</em> — your config follows you across services. Run <code>cliamp setup</code> for an interactive wizard that walks you through Navidrome, Plex, Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz, Tidal, NetEase, and YouTube Music.
+      Stream from everywhere. The default native backend runs supported providers through the same <em>playlist, EQ, visualizer, and lyrics pipeline</em> — your config follows you across services. Run <code>cliamp setup</code> for an interactive wizard that walks you through Navidrome, Plex, Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz, Tidal, NetEase, and YouTube Music.
     </p>
     <div class="sources-grid reveal">
       <div class="source" style="--src-color:#1db954"><div class="source-badge">OAuth · cached</div><div class="source-name">Spotify</div><div class="source-desc">Stream your Premium library. Bring your own developer <code>client_id</code> for a private Web API quota; playback is authorized separately. Search with <kbd>Ctrl+F</kbd>; Development Mode paging is automatic. Pre-built Windows releases include Spotify support.</div></div>
@@ -769,6 +769,7 @@ user_id = "your-account-user-id"</code></pre>
       <div class="feature"><div class="feature-icon">♬</div><div class="feature-name">MPRIS / Media Keys</div><p>Desktop integration. Hardware media keys, <code>playerctl</code>, and embedded local cover art.</p></div>
       <div class="feature"><div class="feature-icon">▮</div><div class="feature-name">Quickshell Widget (Omarchy)</div><p>Drop-in <a href="https://quickshell.org">Quickshell</a> now-playing card with a Winamp 2-style spectrum, tracking your active Omarchy theme. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/quickshell.md">Setup</a>.</p></div>
       <div class="feature"><div class="feature-icon">⚙</div><div class="feature-name">Audio Quality</div><p>Configurable sample rate (22kHz-192kHz), up to 5 seconds of buffering, and resampling.</p></div>
+      <div class="feature"><div class="feature-icon">◉</div><div class="feature-name">MPV Direct ALSA</div><p>Optional persistent MPV JSON-IPC backend for exact Linux ALSA device selection and bit-perfect-capable no-DSP playback. The native backend remains the default. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/mpv.md">Setup</a>.</p></div>
       <div class="feature"><div class="feature-icon">⌀</div><div class="feature-name">Live Radio Metadata</div><p>ICY/Shoutcast metadata for the current song on internet radio, plus API-based now-playing for FIP and NTS.</p></div>
       <div class="feature"><div class="feature-icon">✎</div><div class="feature-name">Embedded Tag Reading</div><p>ID3v2, Vorbis comments, MP4 atoms - artist, album, genre, year, lyrics, cover art.</p></div>
       <div class="feature"><div class="feature-icon">▶</div><div class="feature-name">CLI Flags</div><p>Override volume, shuffle, repeat, theme, EQ, sample rate per-session.</p></div>

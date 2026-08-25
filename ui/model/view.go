@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/theme"
@@ -321,15 +322,21 @@ func (m Model) renderCompactControls() string {
 		mono = " [M]"
 	}
 	eqLabel := labelStyle.Render("EQ ")
-	eqValue := activeToggle.Render("[" + m.EQPresetName() + "]")
-	if m.focus == focusEQ {
+	eqValue := dimStyle.Render("[unavailable]")
+	if player.FeatureError(m.player, player.FeatureEQ) == nil {
+		eqValue = activeToggle.Render("[" + m.EQPresetName() + "]")
+	}
+	if m.focus == focusEQ && player.FeatureError(m.player, player.FeatureEQ) == nil {
 		eqLabel = activeToggle.Render("EQ ▸ ")
 		bands := m.player.EQBands()
 		labels := [10]string{"70", "180", "320", "600", "1k", "3k", "6k", "12k", "14k", "16k"}
 		eqValue += " " + eqActiveStyle.Render(fmt.Sprintf("%s %+.0fdB", labels[m.eqCursor], bands[m.eqCursor]))
 	}
-	return eqLabel + eqValue +
-		" " + labelStyle.Render("VOL ") + fmt.Sprintf("%+.0fdB", m.player.Volume()) + mono
+	volume := fmt.Sprintf("%+.0fdB", m.player.Volume())
+	if player.FeatureError(m.player, player.FeatureVolume) != nil {
+		volume = "[locked " + volume + "]"
+	}
+	return eqLabel + eqValue + " " + labelStyle.Render("VOL ") + volume + mono
 }
 
 func (m Model) renderCompactSource() string {
@@ -565,6 +572,9 @@ func (m Model) renderControls() string {
 		eqLabel = activeToggle.Render("EQ ▸ ")
 	}
 	left := eqLabel + dimStyle.Render("[") + activeToggle.Render(presetName) + dimStyle.Render("] ") + strings.Join(eqParts, " ")
+	if player.FeatureError(m.player, player.FeatureEQ) != nil {
+		left = labelStyle.Render("EQ ") + dimStyle.Render("[unavailable]")
+	}
 
 	vol := m.player.Volume()
 	volMin := m.player.VolumeMin()
@@ -587,6 +597,9 @@ func (m Model) renderControls() string {
 		dimStyle.Render(strings.Repeat("░", barW-filled))
 
 	right := volLabel + bar + volSuffix
+	if player.FeatureError(m.player, player.FeatureVolume) != nil {
+		right = volLabel + dimStyle.Render("[locked"+dbStr+"]") + monoStr
+	}
 	rightW := lipgloss.Width(right)
 	gap := max(1, ui.PanelWidth-leftW-rightW)
 
@@ -978,7 +991,9 @@ func (m Model) renderBottomStatus() string {
 
 	var left string
 	speedLabel := labelStyle.Render("SPD ")
-	if m.focus == focusSpeed {
+	if player.FeatureError(m.player, player.FeatureSpeed) != nil {
+		left = speedLabel + dimStyle.Render("[locked "+speedVal+"]")
+	} else if m.focus == focusSpeed {
 		speedLabel = activeToggle.Render("SPD ▸ ")
 		left = speedLabel + activeToggle.Render("["+speedVal+"]")
 	} else if speed != 1.0 {

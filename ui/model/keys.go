@@ -14,6 +14,7 @@ import (
 
 	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/internal/fileutil"
+	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
@@ -655,12 +656,16 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 
 	case "+", "=":
-		m.player.SetVolume(m.player.Volume() + 1)
-		m.notifyPlayback()
+		if m.requirePlayerFeature(player.FeatureVolume) {
+			m.player.SetVolume(m.player.Volume() + 1)
+			m.notifyPlayback()
+		}
 
 	case "-":
-		m.player.SetVolume(m.player.Volume() - 1)
-		m.notifyPlayback()
+		if m.requirePlayerFeature(player.FeatureVolume) {
+			m.player.SetVolume(m.player.Volume() - 1)
+			m.notifyPlayback()
+		}
 
 	case "r":
 		m.playlist.CycleRepeat()
@@ -695,8 +700,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.simplified || m.layout.tier == layoutMinimal {
 			break
 		}
-		m.cycleEQPreset()
-		m.scheduleEQSave()
+		if m.requirePlayerFeature(player.FeatureEQ) {
+			m.cycleEQPreset()
+			m.scheduleEQSave()
+		}
 
 	case "a":
 		if m.focus == focusPlaylist {
@@ -726,7 +733,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.switchToProvider("spotify")
 
 	case "m":
-		m.player.ToggleMono()
+		if m.requirePlayerFeature(player.FeatureMono) {
+			m.player.ToggleMono()
+		}
 
 	case "/":
 		m.search.active = true
@@ -808,6 +817,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.simplified {
 			break
 		}
+		if !m.requirePlayerFeature(player.FeatureVisualizer) {
+			break
+		}
 		m.vis.CycleMode()
 		m.vis.RequestRefresh()
 		m.refreshChrome()
@@ -821,10 +833,15 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.simplified {
 			break
 		}
-		m.openVisPicker()
+		if m.requirePlayerFeature(player.FeatureVisualizer) {
+			m.openVisPicker()
+		}
 
 	case "V":
 		if m.simplified {
+			break
+		}
+		if !m.requirePlayerFeature(player.FeatureVisualizer) {
 			break
 		}
 		m.fullVis = !m.fullVis
@@ -846,7 +863,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.devicePicker.scroll = 0
 		if len(m.devicePicker.devices) == 0 {
 			m.devicePicker.loading = true
-			return listDevicesCmd()
+			return listDevicesCmd(m.player)
 		}
 
 	case "]":
@@ -901,15 +918,21 @@ func (m *Model) handleFullVisualizerKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "shift+right":
 		return m.doSeek(m.seekStepLarge)
 	case "+", "=":
-		m.player.SetVolume(m.player.Volume() + 1)
-		m.notifyPlayback()
+		if m.requirePlayerFeature(player.FeatureVolume) {
+			m.player.SetVolume(m.player.Volume() + 1)
+			m.notifyPlayback()
+		}
 	case "-":
-		m.player.SetVolume(m.player.Volume() - 1)
-		m.notifyPlayback()
+		if m.requirePlayerFeature(player.FeatureVolume) {
+			m.player.SetVolume(m.player.Volume() - 1)
+			m.notifyPlayback()
+		}
 	case "v":
-		m.vis.CycleMode()
-		m.vis.RequestRefresh()
-		m.refreshChrome()
+		if m.requirePlayerFeature(player.FeatureVisualizer) {
+			m.vis.CycleMode()
+			m.vis.RequestRefresh()
+			m.refreshChrome()
+		}
 	case "ctrl+k", "?":
 		m.exitFullVisualizer()
 		m.openKeymap()
@@ -2752,7 +2775,7 @@ func (m *Model) handleDeviceKey(msg tea.KeyPressMsg) tea.Cmd {
 		if len(m.devicePicker.devices) > 0 && m.devicePicker.cursor < len(m.devicePicker.devices) {
 			dev := m.devicePicker.devices[m.devicePicker.cursor]
 			m.devicePicker.visible = false
-			return switchDeviceCmd(dev.Name)
+			return switchDeviceCmd(m.player, dev.Name)
 		}
 	case "esc", "d":
 		m.devicePicker.visible = false

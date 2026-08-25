@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -57,6 +59,9 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		return fmt.Errorf("config: %w", err)
 	}
 	overrides.Apply(&cfg)
+	if err := cfg.ValidateAudio(); err != nil {
+		return fmt.Errorf("audio configuration: %w", err)
+	}
 
 	closeLog, appliedLevel, logErr := initLogging(cfg.LogLevel)
 	defer closeLog()
@@ -283,57 +288,75 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		pl.Add(remote...)
 	}
 
-	if cfg.AudioDevice != "" {
-		cleanup := player.PrepareAudioDevice(cfg.AudioDevice)
-		defer cleanup()
-	}
-
-	sampleRate := cfg.SampleRate
-	if sampleRate == 0 {
-		if detected := player.DeviceSampleRate(); detected > 0 {
-			sampleRate = detected
-		} else {
-			sampleRate = 44100
+	var p player.Engine
+	switch cfg.AudioBackend {
+	case "mpv":
+		p, err = player.NewMPVBackend(player.MPVOptions{
+			AudioDevice:      cfg.AudioDevice,
+			AudioReservation: cfg.AudioReservation,
+			BitPerfect:       cfg.BitPerfect,
+		})
+		cfg.Visualizer = "none"
+		applog.UserWarn("MPV backend: EQ, mono, visualizer, gapless preload, and native audio-quality controls are unavailable")
+	default:
+		if cfg.AudioDevice != "" {
+			cleanup := player.PrepareAudioDevice(cfg.AudioDevice)
+			defer cleanup()
 		}
+		sampleRate := cfg.SampleRate
+		if sampleRate == 0 {
+			if detected := player.DeviceSampleRate(); detected > 0 {
+				sampleRate = detected
+			} else {
+				sampleRate = 44100
+			}
+		}
+		p, err = player.New(player.Quality{
+			SampleRate:      sampleRate,
+			BufferMs:        cfg.BufferMs,
+			ResampleQuality: cfg.ResampleQuality,
+			BitDepth:        cfg.BitDepth,
+		})
 	}
-
-	p, err := player.New(player.Quality{
-		SampleRate:      sampleRate,
-		BufferMs:        cfg.BufferMs,
-		ResampleQuality: cfg.ResampleQuality,
-		BitDepth:        cfg.BitDepth,
-	})
 	if err != nil {
 		return fmt.Errorf("player: %w", err)
 	}
 	defer p.Close()
 
 	if spotifyProv != nil {
-		p.RegisterStreamerFactory("spotify:", spotifyProv.NewStreamer)
+		if native, ok := p.(*player.Player); ok {
+			native.RegisterStreamerFactory("spotify:", spotifyProv.NewStreamer)
+		}
 	}
 
 	if tidalProv != nil {
 		// Tidal tracks carry tidal:// URIs; the provider resolves them to a
 		// fresh signed URL or DASH segment list when playback starts.
-		p.RegisterSourceResolver(tidal.TrackURIPrefix, func(uri string) (player.ResolvedSource, error) {
-			u, segments, err := tidalProv.ResolveSource(uri)
-			return player.ResolvedSource{URL: u, Segments: segments}, err
-		})
+		if registrar, ok := p.(interface {
+			RegisterSourceResolver(string, player.SourceResolver)
+		}); ok {
+			registrar.RegisterSourceResolver(tidal.TrackURIPrefix, func(uri string) (player.ResolvedSource, error) {
+				u, segments, err := tidalProv.ResolveSource(uri)
+				return player.ResolvedSource{URL: u, Segments: segments}, err
+			})
+		}
 	}
 
-	p.RegisterBufferedURLMatcher(func(u string) bool {
-		return navidrome.IsSubsonicStreamURL(u) || jellyfin.IsStreamURL(u) || emby.IsStreamURL(u) || plex.IsStreamURL(u) || qobuz.IsStreamURL(u) || tidal.IsStreamURL(u) || audiobookshelf.IsStreamURL(u)
-	})
+	if native, ok := p.(*player.Player); ok {
+		native.RegisterBufferedURLMatcher(func(u string) bool {
+			return navidrome.IsSubsonicStreamURL(u) || jellyfin.IsStreamURL(u) || emby.IsStreamURL(u) || plex.IsStreamURL(u) || qobuz.IsStreamURL(u) || tidal.IsStreamURL(u) || audiobookshelf.IsStreamURL(u)
+		})
 
-	// Pull now-playing for stations that carry no inline ICY metadata (NTS, FIP).
-	p.RegisterStreamMetadataResolver(radiometa.Resolver)
+		// Pull now-playing for stations that carry no inline ICY metadata (NTS, FIP).
+		native.RegisterStreamMetadataResolver(radiometa.Resolver)
+	}
 
 	cfg.ApplyPlayer(p)
 	cfg.ApplyPlaylist(pl)
 	ui.SetPadding(cfg.PaddingH, cfg.PaddingV)
 
 	if daemon {
-		if cfg.EQPreset != "" && cfg.EQPreset != "Custom" {
+		if player.FeatureError(p, player.FeatureEQ) == nil && cfg.EQPreset != "" && cfg.EQPreset != "Custom" {
 			if preset, ok := model.EQPresetByName(cfg.EQPreset); ok {
 				for i, gain := range preset.Bands {
 					p.SetEQBand(i, gain)
@@ -426,7 +449,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 && pl.Len() == 0 {
 		m.StartInProvider()
 	}
-	if cfg.EQPreset != "" && cfg.EQPreset != "Custom" {
+	if player.FeatureError(p, player.FeatureEQ) == nil && cfg.EQPreset != "" && cfg.EQPreset != "Custom" {
 		m.SetEQPreset(cfg.EQPreset, nil)
 	}
 	if cfg.Theme != "" {
@@ -456,6 +479,18 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		progOpts[0] = tea.WithFPS(lowPowerUIFPS)
 	}
 	prog := tea.NewProgram(m, progOpts...)
+	signalCh := make(chan os.Signal, 1)
+	signalDone := make(chan struct{})
+	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signalCh)
+	defer close(signalDone)
+	go func() {
+		select {
+		case <-signalCh:
+			prog.Send(playback.QuitMsg{})
+		case <-signalDone:
+		}
+	}()
 
 	if spotifyProv != nil {
 		spotify.SetAuthURLObserver(func(u string) {
@@ -485,10 +520,28 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 
 	if luaMgr != nil {
 		luaMgr.SetControlProvider(luaplugin.ControlProvider{
-			SetVolume:   func(db float64) { p.SetVolume(db) },
-			SetSpeed:    func(ratio float64) { p.SetSpeed(ratio) },
-			SetEQBand:   func(band int, db float64) { prog.Send(model.SetEQBandMsg{Band: band, Gain: db}) },
-			ToggleMono:  func() { p.ToggleMono() },
+			SetVolume: func(db float64) {
+				if err := player.FeatureError(p, player.FeatureVolume); err != nil {
+					applog.UserWarn("%v", err)
+					return
+				}
+				p.SetVolume(db)
+			},
+			SetSpeed: func(ratio float64) {
+				if err := player.FeatureError(p, player.FeatureSpeed); err != nil {
+					applog.UserWarn("%v", err)
+					return
+				}
+				p.SetSpeed(ratio)
+			},
+			SetEQBand: func(band int, db float64) { prog.Send(model.SetEQBandMsg{Band: band, Gain: db}) },
+			ToggleMono: func() {
+				if err := player.FeatureError(p, player.FeatureMono); err != nil {
+					applog.UserWarn("%v", err)
+					return
+				}
+				p.ToggleMono()
+			},
 			TogglePause: func() { p.TogglePause() },
 			Stop:        func() { p.Stop() },
 			Seek: func(secs float64) {
@@ -743,23 +796,30 @@ func ipcState() (ipc.RuntimeSnapshot, error) {
 
 func stateResult(snapshot ipc.RuntimeSnapshot) ipc.Response {
 	return ipc.Response{
-		OK:         true,
-		State:      snapshot.State,
-		Track:      snapshot.Track,
-		Position:   snapshot.Position,
-		Duration:   snapshot.Duration,
-		Volume:     snapshot.Volume,
-		Playlist:   snapshot.Playlist,
-		Index:      snapshot.Index,
-		Total:      snapshot.Total,
-		Visualizer: snapshot.Visualizer,
-		Shuffle:    snapshot.Shuffle,
-		Repeat:     snapshot.Repeat,
-		Mono:       snapshot.Mono,
-		Speed:      snapshot.Speed,
-		EQPreset:   snapshot.EQPreset,
-		Theme:      snapshot.Theme,
-		EQBands:    snapshot.EQBands,
+		OK:          true,
+		State:       snapshot.State,
+		Track:       snapshot.Track,
+		Position:    snapshot.Position,
+		Duration:    snapshot.Duration,
+		Volume:      snapshot.Volume,
+		Playlist:    snapshot.Playlist,
+		Index:       snapshot.Index,
+		Total:       snapshot.Total,
+		Visualizer:  snapshot.Visualizer,
+		Shuffle:     snapshot.Shuffle,
+		Repeat:      snapshot.Repeat,
+		Mono:        snapshot.Mono,
+		Speed:       snapshot.Speed,
+		EQPreset:    snapshot.EQPreset,
+		Theme:       snapshot.Theme,
+		EQBands:     snapshot.EQBands,
+		Device:      snapshot.Device,
+		Backend:     snapshot.Backend,
+		BitPerfect:  snapshot.BitPerfect,
+		DSPDisabled: snapshot.DSPDisabled,
+		DirectALSA:  snapshot.DirectALSA,
+		SourceAudio: snapshot.SourceAudio,
+		OutputAudio: snapshot.OutputAudio,
 	}
 }
 

@@ -2,6 +2,10 @@
 
 cliamp lets you tune the output sample rate, speaker buffer size, resample quality, and bit depth via `~/.config/cliamp/config.toml`. The active settings are shown in the `OUT` status line below the EQ.
 
+These controls apply to the default native backend. The optional
+[MPV backend](mpv.md) leaves format and sample-rate negotiation to MPV and the
+output device.
+
 ## Configuration
 
 Add any of these to your config file:

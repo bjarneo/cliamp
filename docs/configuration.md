@@ -29,6 +29,20 @@ cp config.toml.example ~/.config/cliamp/config.toml
 ## Options
 
 ```toml
+# Playback backend: "native" (default) or "mpv"
+audio_backend = "native"
+
+# Exact output-device name. MPV direct ALSA example:
+# audio_device = "alsa/hw:CARD=Generic,DEV=0"
+
+# Optional Linux ReserveDevice1 name. Requires MPV and pw-reserve.
+# audio_reservation = "Audio2"
+
+# MPV only. Requires a direct alsa/hw: device, volume=0, speed=1.0,
+# flat EQ, and stereo output. This enables a bit-perfect-capable path;
+# hardware and driver behavior must still be verified.
+bit_perfect = false
+
 # Default volume in dB (range: volume_min to 6)
 volume = 0
 
@@ -91,6 +105,9 @@ theme = "Tokyo Night"
 log_level = "info"
 
 ```
+
+MPV mode disables cliamp's EQ, mono conversion, visualizer, gapless preloading,
+and native resampler/bit-depth controls. See [MPV backend](mpv.md).
 
 `Stereo` shows true left/right horizontal LED meters with held peak markers.
 

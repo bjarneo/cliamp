@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bjarneo/cliamp/player"
 )
 
 const (
@@ -15,6 +17,9 @@ const (
 // SetEQPreset sets a built-in preset by name. Supplying bands selects the
 // persistent Custom slot and uses name as its optional label.
 func (m *Model) SetEQPreset(name string, bands *[10]float64) {
+	if !m.requirePlayerFeature(player.FeatureEQ) {
+		return
+	}
 	m.eqCustomLabel = ""
 	if bands != nil {
 		m.eqPresetIdx = -1
@@ -72,6 +77,9 @@ func (m *Model) applyEQBands(bands [eqBandCount]float64) {
 }
 
 func (m *Model) setCustomEQBand(band int, gain float64) {
+	if !m.requirePlayerFeature(player.FeatureEQ) {
+		return
+	}
 	m.player.SetEQBand(band, gain)
 	m.eqPresetIdx = -1
 	m.eqCustomLabel = ""
@@ -80,6 +88,9 @@ func (m *Model) setCustomEQBand(band int, gain float64) {
 }
 
 func (m *Model) cycleEQPreset() {
+	if !m.requirePlayerFeature(player.FeatureEQ) {
+		return
+	}
 	if m.eqPresetIdx >= len(eqPresets)-1 {
 		m.eqPresetIdx = -1
 		m.applyEQBands(m.eqCustomBands)
@@ -115,6 +126,9 @@ func (m *Model) saveSpeed() {
 }
 
 func (m *Model) changeSpeed(delta float64) {
+	if !m.requirePlayerFeature(player.FeatureSpeed) {
+		return
+	}
 	m.player.SetSpeed(m.player.Speed() + delta)
 	m.speedSaveAfter = speedSaveDebounce
 }

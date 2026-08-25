@@ -9,6 +9,7 @@ import (
 
 	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/ipc"
+	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 )
 
@@ -215,9 +216,15 @@ func (d *daemon) executeV2Operation(ctx context.Context, request ipc.V2Request) 
 	case "prev":
 		d.handleMessage(playback.PrevMsg{})
 	case "volume":
+		if err := player.FeatureError(d.player, player.FeatureVolume); err != nil {
+			return ipc.Response{OK: false, Error: err.Error()}, nil
+		}
 		d.handleMessage(playback.SetVolumeMsg{VolumeDB: params.Value})
 		return ipc.Response{OK: true, Volume: d.player.Volume()}, nil
 	case "volume.adjust":
+		if err := player.FeatureError(d.player, player.FeatureVolume); err != nil {
+			return ipc.Response{OK: false, Error: err.Error()}, nil
+		}
 		d.handleMessage(playback.SetVolumeMsg{VolumeDB: d.player.Volume() + params.Value})
 		return ipc.Response{OK: true, Volume: d.player.Volume()}, nil
 	case "seek":
@@ -564,10 +571,26 @@ func (d *daemon) runtimeSnapshotLocked() ipc.RuntimeSnapshot {
 	mono := d.player.Mono()
 	snapshot.Mono = &mono
 	snapshot.Speed = d.player.Speed()
-	snapshot.EQPreset = d.eqPreset
-	bands := d.player.EQBands()
-	snapshot.EQBands = append([]float64(nil), bands[:]...)
-	if d.vis != nil {
+	backend := player.EngineBackendStatus(d.player)
+	snapshot.Backend = backend.Name
+	if backend.Device != "" {
+		snapshot.Device = backend.Device
+	}
+	snapshot.BitPerfect = backend.BitPerfectMode
+	snapshot.DSPDisabled = backend.DSPDisabled
+	snapshot.DirectALSA = backend.DirectALSA
+	if backend.Source != (player.AudioParameters{}) {
+		snapshot.SourceAudio = &ipc.AudioInfo{Format: backend.Source.Format, SampleRate: backend.Source.SampleRate, Channels: backend.Source.Channels}
+	}
+	if backend.Output != (player.AudioParameters{}) {
+		snapshot.OutputAudio = &ipc.AudioInfo{Format: backend.Output.Format, SampleRate: backend.Output.SampleRate, Channels: backend.Output.Channels}
+	}
+	if player.FeatureError(d.player, player.FeatureEQ) == nil {
+		snapshot.EQPreset = d.eqPreset
+		bands := d.player.EQBands()
+		snapshot.EQBands = append([]float64(nil), bands[:]...)
+	}
+	if d.vis != nil && player.FeatureError(d.player, player.FeatureVisualizer) == nil {
 		snapshot.Visualizer = d.vis.ModeName()
 	}
 	if err := d.player.StreamErr(); err != nil {

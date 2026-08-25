@@ -68,7 +68,7 @@ playlist writes, remains asynchronous.
 
 `state.get` returns a snapshot containing the active audio track, logical
 playlist track, current playback state, position, duration, seekability, modes,
-EQ, visualizer, theme, stream error, and two revisions.
+backend/output diagnostics, EQ, visualizer, theme, stream error, and two revisions.
 
 ```json
 {

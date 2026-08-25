@@ -37,37 +37,50 @@ type Request struct {
 // Response is the operation-specific data embedded in a successful V2 job.
 // V2Response and Job carry protocol success and failure state.
 type Response struct {
-	OK         bool           `json:"ok"`
-	Error      string         `json:"error,omitempty"`
-	State      string         `json:"state,omitempty"`
-	Track      *TrackInfo     `json:"track,omitempty"`
-	Position   float64        `json:"position,omitempty"`
-	Duration   float64        `json:"duration,omitempty"`
-	Volume     float64        `json:"volume,omitempty"`
-	Playlist   string         `json:"playlist,omitempty"`
-	Index      int            `json:"index,omitempty"`
-	Total      int            `json:"total,omitempty"`
-	Visualizer string         `json:"visualizer,omitempty"`
-	Shuffle    *bool          `json:"shuffle,omitempty"`
-	Repeat     string         `json:"repeat,omitempty"`
-	Mono       *bool          `json:"mono,omitempty"`
-	Speed      float64        `json:"speed,omitempty"`
-	EQPreset   string         `json:"eq_preset,omitempty"`
-	Device     string         `json:"device,omitempty"`
-	Output     string         `json:"output,omitempty"`
-	Items      []string       `json:"items,omitempty"`
-	Theme      *ThemeInfo     `json:"theme,omitempty"`
-	Bands      []float64      `json:"bands,omitempty"`
-	EQBands    []float64      `json:"eq_bands,omitempty"`
-	Tracks     []TrackInfo    `json:"tracks,omitempty"`
-	Playlists  []PlaylistInfo `json:"playlists,omitempty"`
-	Providers  []ProviderInfo `json:"providers,omitempty"`
-	Artists    []ArtistInfo   `json:"artists,omitempty"`
-	Albums     []AlbumInfo    `json:"albums,omitempty"`
-	Sorts      []SortInfo     `json:"sorts,omitempty"`
-	Lyrics     []LyricLine    `json:"lyrics,omitempty"`
-	History    []HistoryInfo  `json:"history,omitempty"`
-	Devices    []DeviceInfo   `json:"devices,omitempty"`
+	OK          bool           `json:"ok"`
+	Error       string         `json:"error,omitempty"`
+	State       string         `json:"state,omitempty"`
+	Track       *TrackInfo     `json:"track,omitempty"`
+	Position    float64        `json:"position,omitempty"`
+	Duration    float64        `json:"duration,omitempty"`
+	Volume      float64        `json:"volume,omitempty"`
+	Playlist    string         `json:"playlist,omitempty"`
+	Index       int            `json:"index,omitempty"`
+	Total       int            `json:"total,omitempty"`
+	Visualizer  string         `json:"visualizer,omitempty"`
+	Shuffle     *bool          `json:"shuffle,omitempty"`
+	Repeat      string         `json:"repeat,omitempty"`
+	Mono        *bool          `json:"mono,omitempty"`
+	Speed       float64        `json:"speed,omitempty"`
+	EQPreset    string         `json:"eq_preset,omitempty"`
+	Device      string         `json:"device,omitempty"`
+	Backend     string         `json:"backend,omitempty"`
+	BitPerfect  bool           `json:"bit_perfect_mode,omitempty"`
+	DSPDisabled bool           `json:"dsp_disabled,omitempty"`
+	DirectALSA  bool           `json:"direct_alsa,omitempty"`
+	SourceAudio *AudioInfo     `json:"source_audio,omitempty"`
+	OutputAudio *AudioInfo     `json:"output_audio,omitempty"`
+	Output      string         `json:"output,omitempty"`
+	Items       []string       `json:"items,omitempty"`
+	Theme       *ThemeInfo     `json:"theme,omitempty"`
+	Bands       []float64      `json:"bands,omitempty"`
+	EQBands     []float64      `json:"eq_bands,omitempty"`
+	Tracks      []TrackInfo    `json:"tracks,omitempty"`
+	Playlists   []PlaylistInfo `json:"playlists,omitempty"`
+	Providers   []ProviderInfo `json:"providers,omitempty"`
+	Artists     []ArtistInfo   `json:"artists,omitempty"`
+	Albums      []AlbumInfo    `json:"albums,omitempty"`
+	Sorts       []SortInfo     `json:"sorts,omitempty"`
+	Lyrics      []LyricLine    `json:"lyrics,omitempty"`
+	History     []HistoryInfo  `json:"history,omitempty"`
+	Devices     []DeviceInfo   `json:"devices,omitempty"`
+}
+
+// AudioInfo describes source or audio-output parameters reported by a backend.
+type AudioInfo struct {
+	Format     string `json:"format,omitempty"`
+	SampleRate int    `json:"sample_rate,omitempty"`
+	Channels   string `json:"channels,omitempty"`
 }
 
 // ThemeInfo carries the active theme name and its resolved hex colors.

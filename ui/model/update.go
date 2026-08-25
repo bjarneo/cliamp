@@ -907,8 +907,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.seekAbsolute(msg.Position)
 
 	case playback.SetVolumeMsg:
-		m.player.SetVolume(msg.VolumeDB)
-		m.notifyAll()
+		if m.requirePlayerFeature(player.FeatureVolume) {
+			m.player.SetVolume(msg.VolumeDB)
+			m.notifyAll()
+		}
 		return m, nil
 
 	case playback.StopMsg:
@@ -926,8 +928,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case SetEQPresetMsg:
-		m.SetEQPreset(msg.Name, msg.Bands)
-		m.scheduleEQSave()
+		if m.requirePlayerFeature(player.FeatureEQ) {
+			m.SetEQPreset(msg.Name, msg.Bands)
+			m.scheduleEQSave()
+		}
 		return m, nil
 
 	case SetEQBandMsg:
@@ -1002,6 +1006,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case ipc.VisMsg:
+		if err := player.FeatureError(m.player, player.FeatureVisualizer); err != nil {
+			if msg.Reply != nil {
+				msg.Reply <- ipc.Response{OK: false, Error: err.Error()}
+			}
+			m.status.Warning(err.Error(), statusTTLDefault)
+			return m, nil
+		}
 		if m.vis == nil {
 			if msg.Reply != nil {
 				msg.Reply <- ipc.Response{OK: false, Error: "visualizer not available"}
@@ -1070,6 +1081,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case ipc.MonoMsg:
+		if err := player.FeatureError(m.player, player.FeatureMono); err != nil {
+			if msg.Reply != nil {
+				msg.Reply <- ipc.Response{OK: false, Error: err.Error()}
+			}
+			m.status.Warning(err.Error(), statusTTLDefault)
+			return m, nil
+		}
 		switch strings.ToLower(msg.Name) {
 		case "on":
 			if !m.player.Mono() {
@@ -1089,6 +1107,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ipc.SpeedMsg:
+		if err := player.FeatureError(m.player, player.FeatureSpeed); err != nil {
+			if msg.Reply != nil {
+				msg.Reply <- ipc.Response{OK: false, Error: err.Error()}
+			}
+			m.status.Warning(err.Error(), statusTTLDefault)
+			return m, nil
+		}
 		m.player.SetSpeed(msg.Speed)
 		m.saveSpeed()
 		if msg.Reply != nil {
@@ -1097,6 +1122,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ipc.EQMsg:
+		if err := player.FeatureError(m.player, player.FeatureEQ); err != nil {
+			if msg.Reply != nil {
+				msg.Reply <- ipc.Response{OK: false, Error: err.Error()}
+			}
+			m.status.Warning(err.Error(), statusTTLDefault)
+			return m, nil
+		}
 		if msg.Band > 0 || (msg.Band == 0 && msg.Name == "") {
 			// Set a specific band (0-9).
 			m.setCustomEQBand(msg.Band, msg.Value)
@@ -1119,7 +1151,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ipc.DeviceMsg:
 		if strings.EqualFold(msg.Name, "list") {
-			devices, err := player.ListAudioDevices()
+			devices, err := player.EngineAudioDevices(m.player)
 			if err != nil {
 				if msg.Reply != nil {
 					msg.Reply <- ipc.Response{OK: false, Error: fmt.Sprintf("list devices: %v", err)}
@@ -1142,7 +1174,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		err := player.SwitchAudioDevice(msg.Name)
+		err := player.SwitchEngineAudioDevice(m.player, msg.Name)
 		if err != nil {
 			if msg.Reply != nil {
 				msg.Reply <- ipc.Response{OK: false, Error: fmt.Sprintf("switch device: %v", err)}

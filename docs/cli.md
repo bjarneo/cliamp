@@ -17,11 +17,24 @@ cliamp --playlist "Blade Runner"      # load a local TOML playlist (add --auto-p
 ## Audio engine
 
 ```sh
+cliamp --audio-backend native ~/Music         # default native backend
+cliamp --audio-backend mpv track.flac         # persistent MPV JSON-IPC backend
+cliamp --audio-backend mpv --audio-device list # list MPV output devices
+cliamp --audio-backend mpv \
+  --audio-device 'alsa/hw:CARD=Generic,DEV=0' \
+  --bit-perfect track.flac                    # direct ALSA, unity gain, no DSP
+cliamp --audio-backend mpv \
+  --audio-reservation Audio2 track.flac       # optional Linux PipeWire reservation
 cliamp --sample-rate 48000 track.mp3      # output sample rate (22050, 44100, 48000, 96000, 192000)
 cliamp --buffer-ms 2000 track.mp3         # speaker buffer in ms (50-5000; useful for unstable radio)
 cliamp --resample-quality 1 track.mp3     # resample quality factor (1–4)
 cliamp --bit-depth 32 track.m4a           # PCM bit depth: 16 (default) or 32 (lossless)
 ```
+
+`--sample-rate`, `--buffer-ms`, `--resample-quality`, and `--bit-depth` are
+native-backend controls. MPV mode leaves format and sample-rate negotiation to
+MPV and the selected output device. See [MPV backend](mpv.md) for requirements,
+limitations, PipeWire reservation, and the Linux verification procedure.
 
 ## Appearance
 
@@ -129,6 +142,10 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--visualizer-60fps` | bool | false | render a visible visualizer at roughly 60 FPS |
 | `--start-theme` | string | | theme name |
 | `--eq-preset` | string | | preset name |
+| `--audio-backend` | string | native | native, mpv |
+| `--audio-device` | string | | native device name or exact MPV device string |
+| `--audio-reservation` | string | | Linux ReserveDevice1 name, for example Audio2 |
+| `--bit-perfect` / `--no-bit-perfect` | bool | false | MPV only; unity gain, 1.0x speed, no DSP |
 | `--sample-rate` | int | 44100 | 22050, 44100, 48000, 96000, 192000 |
 | `--buffer-ms` | int | 250 | 50-5000 |
 | `--resample-quality` | int | 4 | 1–4 |
