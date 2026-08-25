@@ -125,6 +125,12 @@ type RuntimeSnapshot struct {
 	EQPreset         string     `json:"eq_preset,omitempty"`
 	EQBands          []float64  `json:"eq_bands,omitempty"`
 	Device           string     `json:"device,omitempty"`
+	Backend          string     `json:"backend,omitempty"`
+	BitPerfect       bool       `json:"bit_perfect_mode,omitempty"`
+	DSPDisabled      bool       `json:"dsp_disabled,omitempty"`
+	DirectALSA       bool       `json:"direct_alsa,omitempty"`
+	SourceAudio      *AudioInfo `json:"source_audio,omitempty"`
+	OutputAudio      *AudioInfo `json:"output_audio,omitempty"`
 	Visualizer       string     `json:"visualizer,omitempty"`
 	Theme            *ThemeInfo `json:"theme,omitempty"`
 	StreamError      string     `json:"stream_error,omitempty"`
@@ -192,6 +198,14 @@ func cloneSnapshot(snapshot *RuntimeSnapshot) *RuntimeSnapshot {
 	if snapshot.Theme != nil {
 		theme := *snapshot.Theme
 		snapshotCopy.Theme = &theme
+	}
+	if snapshot.SourceAudio != nil {
+		source := *snapshot.SourceAudio
+		snapshotCopy.SourceAudio = &source
+	}
+	if snapshot.OutputAudio != nil {
+		output := *snapshot.OutputAudio
+		snapshotCopy.OutputAudio = &output
 	}
 	return &snapshotCopy
 }

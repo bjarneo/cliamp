@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/bjarneo/cliamp/lyrics"
+	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
@@ -327,10 +328,42 @@ func (m Model) infoLines() []string {
 		field("Track", fmt.Sprintf("%d", track.TrackNumber))
 	}
 	field("Path", track.Path)
+	backend := player.EngineBackendStatus(m.player)
+	field("Backend", strings.ToUpper(backend.Name))
+	field("Device", backend.Device)
+	if backend.BitPerfectMode {
+		field("Bit-perfect mode", "Enabled (not independently verified)")
+		if backend.DSPDisabled {
+			field("DSP", "Disabled")
+		}
+		if backend.DirectALSA {
+			field("Output path", "Direct ALSA")
+		}
+	}
+	if value := audioParametersText(backend.Source); value != "" {
+		field("Source audio", value)
+	}
+	if value := audioParametersText(backend.Output); value != "" {
+		field("Output audio", value)
+	}
 	if len(lines) == 0 {
 		lines = append(lines, dimStyle.Render("  No track metadata available."))
 	}
 	return lines
+}
+
+func audioParametersText(params player.AudioParameters) string {
+	parts := make([]string, 0, 3)
+	if params.Format != "" {
+		parts = append(parts, params.Format)
+	}
+	if params.SampleRate > 0 {
+		parts = append(parts, fmt.Sprintf("%.1f kHz", float64(params.SampleRate)/1000))
+	}
+	if params.Channels != "" {
+		parts = append(parts, params.Channels)
+	}
+	return strings.Join(parts, " / ")
 }
 
 func (m *Model) infoMaybeAdjustScroll() {

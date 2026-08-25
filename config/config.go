@@ -294,7 +294,10 @@ type Config struct {
 	Simplified       bool                         // simplified playback view: track summary and time strip
 	PaddingH         int                          // horizontal padding for the UI frame (default 3)
 	PaddingV         int                          // vertical padding for the UI frame (default 1)
+	AudioBackend     string                       // "native" (default) or "mpv"
 	AudioDevice      string                       // preferred audio output device name (empty = system default)
+	AudioReservation string                       // explicit ReserveDevice1 name (for example Audio2)
+	BitPerfect       bool                         // MPV direct-ALSA mode with DSP controls locked
 	Playlist         string                       // local TOML playlist name to load on startup
 	InitialDirectory string                       // initial directory for the file browser
 	Navidrome        NavidromeConfig              // optional Navidrome/Subsonic server credentials
@@ -331,6 +334,7 @@ func defaultConfig() Config {
 		BitDepth:        16,
 		PaddingH:        3,
 		PaddingV:        1,
+		AudioBackend:    "native",
 		Spotify:         SpotifyConfig{Bitrate: 320},
 		Qobuz:           QobuzConfig{Quality: 6},
 		LogLevel:        "info",
@@ -604,8 +608,14 @@ func Load() (Config, error) {
 				}
 			case "simplified":
 				cfg.Simplified = val == "true"
+			case "audio_backend":
+				cfg.AudioBackend = strings.ToLower(parseString(val))
 			case "audio_device":
 				cfg.AudioDevice = parseString(val)
+			case "audio_reservation":
+				cfg.AudioReservation = parseString(val)
+			case "bit_perfect":
+				cfg.BitPerfect = strings.ToLower(val) == "true"
 			case "initial_directory":
 				cfg.InitialDirectory = parseString(val)
 			case "padding_horizontal":
@@ -821,6 +831,10 @@ func (c Config) SeekStepLargeDuration() time.Duration {
 
 // clamp constrains all Config fields to their valid ranges.
 func (c *Config) clamp() {
+	c.AudioBackend = strings.ToLower(strings.TrimSpace(c.AudioBackend))
+	if c.AudioBackend == "" {
+		c.AudioBackend = "native"
+	}
 	c.VolumeMin = max(min(c.VolumeMin, 0), -90)
 	c.Volume = max(min(c.Volume, 6), c.VolumeMin)
 	if c.Speed < 0.25 || c.Speed > 2.0 {
@@ -836,6 +850,59 @@ func (c *Config) clamp() {
 	c.PaddingV = max(min(c.PaddingV, 5), 0)
 	if c.LowPower {
 		c.Visualizer = "none"
+	}
+}
+
+// ValidateAudio rejects backend/DSP combinations that cannot be honored.
+func (c Config) ValidateAudio() error {
+	switch c.AudioBackend {
+	case "native", "mpv":
+	default:
+		return fmt.Errorf("audio_backend must be native or mpv (got %q)", c.AudioBackend)
+	}
+	if c.AudioBackend != "mpv" {
+		if c.BitPerfect {
+			return errors.New("bit_perfect requires audio_backend = \"mpv\"")
+		}
+		if c.AudioReservation != "" {
+			return errors.New("audio_reservation requires audio_backend = \"mpv\"")
+		}
+		return nil
+	}
+	if c.Mono {
+		return errors.New("mono is unsupported with MPV backend")
+	}
+	if configUsesEQ(c) {
+		return errors.New("EQ is unsupported with MPV backend; use eq_preset = \"Flat\"")
+	}
+	if !c.BitPerfect {
+		return nil
+	}
+	if !strings.HasPrefix(c.AudioDevice, "alsa/hw:") {
+		return errors.New("bit_perfect requires a direct MPV ALSA device such as alsa/hw:CARD=Generic,DEV=0")
+	}
+	if c.Volume != 0 {
+		return fmt.Errorf("bit_perfect requires volume = 0 dB (got %.2f)", c.Volume)
+	}
+	if c.Speed != 1 {
+		return fmt.Errorf("bit_perfect requires speed = 1.0 (got %.2f)", c.Speed)
+	}
+	return nil
+}
+
+func configUsesEQ(c Config) bool {
+	switch strings.ToLower(strings.TrimSpace(c.EQPreset)) {
+	case "flat":
+		return false
+	case "", "custom":
+		for _, gain := range c.EQ {
+			if gain != 0 {
+				return true
+			}
+		}
+		return false
+	default:
+		return true
 	}
 }
 

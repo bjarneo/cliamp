@@ -34,16 +34,20 @@ const daemonControlQueueCapacity = 64
 
 // runDaemon runs cliamp without a TUI: serves IPC against the shared
 // player+playlist, auto-advances tracks, exits on SIGINT/SIGTERM.
-func runDaemon(p *player.Player, pl *playlist.Playlist, localProv *local.Provider, providers []model.ProviderEntry, autoPlay bool, eqPreset string) error {
+func runDaemon(p player.Engine, pl *playlist.Playlist, localProv *local.Provider, providers []model.ProviderEntry, autoPlay bool, eqPreset string) error {
 	fmt.Fprintf(os.Stderr, "cliamp: running headless (socket: %s)\n", ipc.DefaultSocketPath())
 	applog.Info("daemon: starting headless mode")
 
+	var vis *ui.Visualizer
+	if player.FeatureError(p, player.FeatureVisualizer) == nil {
+		vis = ui.NewVisualizer(float64(p.SampleRate()))
+	}
 	d := &daemon{
 		player:       p,
 		playlist:     pl,
 		localProv:    localProv,
 		providers:    providers,
-		vis:          ui.NewVisualizer(float64(p.SampleRate())),
+		vis:          vis,
 		historyStore: history.New(),
 		eqPreset:     eqPreset,
 		quit:         make(chan struct{}, 1),
@@ -214,7 +218,11 @@ func (d *daemon) handleMessage(msg any) {
 		}
 
 	case playback.SetVolumeMsg:
-		d.player.SetVolume(m.VolumeDB)
+		if err := player.FeatureError(d.player, player.FeatureVolume); err != nil {
+			applog.Warn("daemon: %v", err)
+		} else {
+			d.player.SetVolume(m.VolumeDB)
+		}
 
 	case playback.SeekMsg:
 		_ = d.player.Seek(m.Offset)
@@ -245,6 +253,10 @@ func (d *daemon) handleMessage(msg any) {
 		d.handleMono(m)
 
 	case ipc.SpeedMsg:
+		if err := player.FeatureError(d.player, player.FeatureSpeed); err != nil {
+			reply(m.Reply, ipc.Response{OK: false, Error: err.Error()})
+			break
+		}
 		d.player.SetSpeed(m.Speed)
 		reply(m.Reply, ipc.Response{OK: true, Speed: d.player.Speed()})
 
@@ -492,6 +504,10 @@ func (d *daemon) handleRepeat(m ipc.RepeatMsg) {
 }
 
 func (d *daemon) handleMono(m ipc.MonoMsg) {
+	if err := player.FeatureError(d.player, player.FeatureMono); err != nil {
+		reply(m.Reply, ipc.Response{OK: false, Error: err.Error()})
+		return
+	}
 	switch strings.ToLower(m.Name) {
 	case "on":
 		if !d.player.Mono() {
@@ -509,6 +525,10 @@ func (d *daemon) handleMono(m ipc.MonoMsg) {
 }
 
 func (d *daemon) handleEQ(m ipc.EQMsg) {
+	if err := player.FeatureError(d.player, player.FeatureEQ); err != nil {
+		reply(m.Reply, ipc.Response{OK: false, Error: err.Error()})
+		return
+	}
 	if m.Band > 0 || (m.Band == 0 && m.Name == "") {
 		d.player.SetEQBand(m.Band, m.Value)
 		d.eqPreset = "Custom"
@@ -533,7 +553,7 @@ func (d *daemon) handleEQ(m ipc.EQMsg) {
 
 func (d *daemon) handleDevice(m ipc.DeviceMsg) {
 	if strings.EqualFold(m.Name, "list") {
-		devices, err := player.ListAudioDevices()
+		devices, err := player.EngineAudioDevices(d.player)
 		if err != nil {
 			reply(m.Reply, ipc.Response{OK: false, Error: fmt.Sprintf("list devices: %v", err)})
 			return
@@ -552,7 +572,7 @@ func (d *daemon) handleDevice(m ipc.DeviceMsg) {
 		reply(m.Reply, ipc.Response{OK: true, Device: strings.Join(lines, "\n"), Devices: items})
 		return
 	}
-	if err := player.SwitchAudioDevice(m.Name); err != nil {
+	if err := player.SwitchEngineAudioDevice(d.player, m.Name); err != nil {
 		reply(m.Reply, ipc.Response{OK: false, Error: fmt.Sprintf("switch device: %v", err)})
 		return
 	}
@@ -1076,6 +1096,9 @@ func trackFromInfo(info ipc.TrackInfo) playlist.Track {
 // bandsResponse performs the same FFT analysis used by the interactive TUI so
 // V2 clients can render a real spectrum while cliamp runs headless.
 func (d *daemon) bandsResponse() ipc.Response {
+	if err := player.FeatureError(d.player, player.FeatureVisualizer); err != nil {
+		return ipc.Response{OK: false, Error: err.Error()}
+	}
 	if d.vis == nil {
 		return ipc.Response{OK: false, Error: "visualizer not available in headless mode"}
 	}

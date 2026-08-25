@@ -1,6 +1,15 @@
 # CLIAMP configuration
 # Copy to ~/.config/cliamp/config.toml
 
+# Playback backend: "native" (default) or "mpv"
+# audio_backend = "native"
+# Exact MPV direct ALSA device example:
+# audio_device = "alsa/hw:CARD=Generic,DEV=0"
+# Optional Linux ReserveDevice1 name; requires audio_backend = "mpv" and pw-reserve:
+# audio_reservation = "Audio2"
+# MPV-only unity-gain, 1.0x-speed, no-DSP mode. Requires an alsa/hw: device.
+# bit_perfect = false
+
 # Default volume in dB (range: volume_min to +6)
 volume = 0
 

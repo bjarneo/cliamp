@@ -51,6 +51,7 @@ type ipcRuntimeFingerprint struct {
 	speed            float64
 	eq               [10]float64
 	eqPreset         string
+	backend          player.BackendStatus
 	visualizer       string
 	theme            string
 	streamTitle      string
@@ -163,11 +164,19 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return cmd
 	case "volume":
+		if err := player.FeatureError(m.player, player.FeatureVolume); err != nil {
+			m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: false, Error: err.Error()})
+			return nil
+		}
 		m.player.SetVolume(request.Value)
 		m.notifyAll()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true, Volume: m.player.Volume()})
 		return nil
 	case "volume.adjust":
+		if err := player.FeatureError(m.player, player.FeatureVolume); err != nil {
+			m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: false, Error: err.Error()})
+			return nil
+		}
 		m.player.SetVolume(m.player.Volume() + request.Value)
 		m.notifyAll()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true, Volume: m.player.Volume()})
@@ -188,11 +197,19 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 			m.failV2Job(msg.Jobs, msg.JobID, v2InvalidParamsError())
 			return nil
 		}
+		if err := player.FeatureError(m.player, player.FeatureSpeed); err != nil {
+			m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: false, Error: err.Error()})
+			return nil
+		}
 		m.player.SetSpeed(request.Value)
 		m.saveSpeed()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true, Speed: m.player.Speed()})
 		return nil
 	case "speed.adjust":
+		if err := player.FeatureError(m.player, player.FeatureSpeed); err != nil {
+			m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: false, Error: err.Error()})
+			return nil
+		}
 		m.player.SetSpeed(m.player.Speed() + request.Value)
 		m.saveSpeed()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true, Speed: m.player.Speed()})
@@ -363,6 +380,10 @@ func (m *Model) handleV2Theme(jobs *ipc.JobStore, jobID string, request ipc.Requ
 }
 
 func (m *Model) handleV2Visualizer(jobs *ipc.JobStore, jobID string, request ipc.Request) tea.Cmd {
+	if err := player.FeatureError(m.player, player.FeatureVisualizer); err != nil {
+		m.completeV2Job(jobs, jobID, ipc.Response{OK: false, Error: err.Error()})
+		return nil
+	}
 	if strings.EqualFold(request.Name, "list") {
 		m.completeV2Job(jobs, jobID, ipc.Response{OK: true, Items: ui.VisModeNames()})
 		return nil
@@ -389,7 +410,7 @@ func (m *Model) handleV2Visualizer(jobs *ipc.JobStore, jobID string, request ipc
 func (m *Model) handleV2Device(jobs *ipc.JobStore, jobID string, request ipc.Request) tea.Cmd {
 	if strings.EqualFold(request.Name, "list") {
 		return func() tea.Msg {
-			devices, err := player.ListAudioDevices()
+			devices, err := player.EngineAudioDevices(m.player)
 			if err != nil {
 				return ipcV2ResponseMsg{Jobs: jobs, JobID: jobID, Operation: "device", Response: ipc.Response{OK: false, Error: err.Error()}}
 			}
@@ -401,7 +422,7 @@ func (m *Model) handleV2Device(jobs *ipc.JobStore, jobID string, request ipc.Req
 		}
 	}
 	return func() tea.Msg {
-		err := player.SwitchAudioDevice(request.Name)
+		err := player.SwitchEngineAudioDevice(m.player, request.Name)
 		response := ipc.Response{OK: true, Device: request.Name}
 		if err != nil {
 			response = ipc.Response{OK: false, Error: err.Error()}
@@ -411,6 +432,10 @@ func (m *Model) handleV2Device(jobs *ipc.JobStore, jobID string, request ipc.Req
 }
 
 func (m *Model) handleV2EQ(jobs *ipc.JobStore, jobID string, request ipc.Request) tea.Cmd {
+	if err := player.FeatureError(m.player, player.FeatureEQ); err != nil {
+		m.completeV2Job(jobs, jobID, ipc.Response{OK: false, Error: err.Error()})
+		return nil
+	}
 	if request.Band > 0 || (request.Band == 0 && request.Name == "") {
 		if request.Band >= eqBandCount {
 			m.failV2Job(jobs, jobID, v2InvalidParamsError())
@@ -454,6 +479,10 @@ func (m *Model) handleV2Mode(jobs *ipc.JobStore, jobID string, request ipc.Reque
 		m.player.ClearPreload()
 		m.completeV2Job(jobs, jobID, ipc.Response{OK: true, Repeat: m.playlist.Repeat().String()})
 	case "mono":
+		if err := player.FeatureError(m.player, player.FeatureMono); err != nil {
+			m.completeV2Job(jobs, jobID, ipc.Response{OK: false, Error: err.Error()})
+			return nil
+		}
 		if (name == "on" && !m.player.Mono()) || (name == "off" && m.player.Mono()) || (name != "on" && name != "off") {
 			m.player.ToggleMono()
 		}
@@ -582,10 +611,26 @@ func (m *Model) runtimeSnapshot() ipc.RuntimeSnapshot {
 	mono := m.player.Mono()
 	snapshot.Mono = &mono
 	snapshot.Speed = m.player.Speed()
-	snapshot.EQPreset = m.EQPresetName()
-	bands := m.player.EQBands()
-	snapshot.EQBands = append([]float64(nil), bands[:]...)
-	if m.vis != nil {
+	backend := player.EngineBackendStatus(m.player)
+	snapshot.Backend = backend.Name
+	if backend.Device != "" {
+		snapshot.Device = backend.Device
+	}
+	snapshot.BitPerfect = backend.BitPerfectMode
+	snapshot.DSPDisabled = backend.DSPDisabled
+	snapshot.DirectALSA = backend.DirectALSA
+	if backend.Source != (player.AudioParameters{}) {
+		snapshot.SourceAudio = &ipc.AudioInfo{Format: backend.Source.Format, SampleRate: backend.Source.SampleRate, Channels: backend.Source.Channels}
+	}
+	if backend.Output != (player.AudioParameters{}) {
+		snapshot.OutputAudio = &ipc.AudioInfo{Format: backend.Output.Format, SampleRate: backend.Output.SampleRate, Channels: backend.Output.Channels}
+	}
+	if player.FeatureError(m.player, player.FeatureEQ) == nil {
+		snapshot.EQPreset = m.EQPresetName()
+		bands := m.player.EQBands()
+		snapshot.EQBands = append([]float64(nil), bands[:]...)
+	}
+	if m.vis != nil && player.FeatureError(m.player, player.FeatureVisualizer) == nil {
 		snapshot.Visualizer = m.vis.ModeName()
 	}
 	if m.themeIdx >= 0 && m.themeIdx < len(m.themes) {
@@ -634,6 +679,7 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 	fingerprint.speed = m.player.Speed()
 	fingerprint.eq = m.player.EQBands()
 	fingerprint.eqPreset = m.EQPresetName()
+	fingerprint.backend = player.EngineBackendStatus(m.player)
 	fingerprint.detached = m.playbackDetached
 	fingerprint.streamTitle = m.streamTitle
 	if m.player.IsPlaying() && !m.player.IsPaused() {
@@ -660,6 +706,9 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 }
 
 func (m *Model) v2BandsResponse() ipc.Response {
+	if err := player.FeatureError(m.player, player.FeatureVisualizer); err != nil {
+		return ipc.Response{OK: false, Error: err.Error()}
+	}
 	response := ipc.Response{OK: true}
 	if m.vis != nil {
 		response.Visualizer = m.vis.ModeName()

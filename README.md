@@ -85,6 +85,7 @@ Download from [GitHub Releases](https://github.com/bjarneo/cliamp/releases/lates
 
 - [ffmpeg](https://ffmpeg.org/) — for AAC, ALAC, Opus, and WMA playback
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — for YouTube, YouTube Music, SoundCloud, Bandcamp, Bilibili, and NetEase Cloud Music
+- [mpv](https://mpv.io/) — optional playback backend for direct ALSA output and bit-perfect-capable Linux setups
 
 On macOS: `brew install ffmpeg yt-dlp`. On Linux, use your distribution's package manager.
 
@@ -102,6 +103,15 @@ git clone https://github.com/bjarneo/cliamp.git && cd cliamp && go build -o clia
 cliamp ~/Music                     # play a directory
 cliamp *.mp3 *.flac               # play files
 cliamp https://example.com/stream  # play a URL
+```
+
+The native audio backend remains the default. Linux users can select the optional
+[MPV backend](docs/mpv.md) for direct ALSA playback:
+
+```sh
+cliamp --audio-backend mpv \
+  --audio-device 'alsa/hw:CARD=Generic,DEV=0' \
+  --bit-perfect ~/Music
 ```
 
 Press `Ctrl+K` to see all keybindings.

@@ -60,11 +60,16 @@ func (m Model) mainFocusAreas() []focusArea {
 	if m.simplified || m.layout.tier == layoutMinimal || m.layout.tier == layoutTooSmall {
 		return areas
 	}
-	areas = append(areas, focusEQ)
+	if player.FeatureError(m.player, player.FeatureEQ) == nil {
+		areas = append(areas, focusEQ)
+	}
 	if len(m.providers) > 1 {
 		areas = append(areas, focusProvPill)
 	}
-	return append(areas, focusSpeed)
+	if player.FeatureError(m.player, player.FeatureSpeed) == nil {
+		areas = append(areas, focusSpeed)
+	}
+	return areas
 }
 
 func (m Model) mainFocusAllowed(focus focusArea) bool {

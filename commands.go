@@ -43,7 +43,11 @@ func buildApp() *cli.Command {
 		&cli.IntFlag{Name: "buffer-ms", Usage: "speaker buffer in milliseconds (50-5000)", HideDefault: true},
 		&cli.IntFlag{Name: "resample-quality", Usage: "resample quality factor (1-4)", HideDefault: true},
 		&cli.IntFlag{Name: "bit-depth", Usage: "PCM bit depth: 16 or 32", HideDefault: true},
+		&cli.StringFlag{Name: "audio-backend", Usage: "audio backend: native or mpv"},
 		&cli.StringFlag{Name: "audio-device", Usage: "audio output device (use 'list' to show)"},
+		&cli.StringFlag{Name: "audio-reservation", Usage: "Linux ReserveDevice1 name for MPV (for example Audio2)"},
+		&cli.BoolFlag{Name: "bit-perfect", Usage: "lock MPV to unity volume, 1.0x speed, and no DSP"},
+		&cli.BoolFlag{Name: "no-bit-perfect", Usage: "disable configured MPV bit-perfect mode"},
 		&cli.StringFlag{Name: "playlist", Usage: "load a local TOML playlist by name and start playing"},
 		&cli.StringFlag{Name: "log-level", Usage: "log level: debug, info, warn, error"},
 		&cli.BoolFlag{Name: "expand-playlist", Usage: "expand YouTube Music playlists from list= URLs"},
@@ -59,12 +63,12 @@ func buildApp() *cli.Command {
 		EnableShellCompletion: true,
 		Flags:                 rootFlags,
 		Action: func(ctx context.Context, c *cli.Command) error {
-			if strings.EqualFold(c.String("audio-device"), "list") {
-				return listAudioDevices()
-			}
 			ov, err := overridesFromFlags(c)
 			if err != nil {
 				return err
+			}
+			if strings.EqualFold(c.String("audio-device"), "list") {
+				return listAudioDevices(ov)
 			}
 			return run(ov, c.Args().Slice(), c.Bool("daemon"), c.Bool("visualizer-60fps"))
 		},
@@ -102,8 +106,26 @@ func buildApp() *cli.Command {
 	}
 }
 
-func listAudioDevices() error {
-	devices, err := player.ListAudioDevices()
+func listAudioDevices(overrides config.Overrides) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	overrides.Apply(&cfg)
+	var devices []player.AudioDevice
+	switch cfg.AudioBackend {
+	case "native":
+		devices, err = player.ListAudioDevices()
+	case "mpv":
+		backend, startErr := player.NewMPVBackend(player.MPVOptions{})
+		if startErr != nil {
+			return startErr
+		}
+		defer backend.Close()
+		devices, err = backend.ListAudioDevices()
+	default:
+		return fmt.Errorf("audio_backend must be native or mpv (got %q)", cfg.AudioBackend)
+	}
 	if err != nil {
 		return err
 	}
@@ -199,6 +221,27 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 	if c.IsSet("audio-device") {
 		v := c.String("audio-device")
 		ov.AudioDevice = &v
+	}
+	if c.IsSet("audio-backend") {
+		v := strings.ToLower(strings.TrimSpace(c.String("audio-backend")))
+		switch v {
+		case "native", "mpv":
+			ov.AudioBackend = &v
+		default:
+			return ov, fmt.Errorf("--audio-backend must be native or mpv (got %q)", v)
+		}
+	}
+	if c.IsSet("audio-reservation") {
+		v := strings.TrimSpace(c.String("audio-reservation"))
+		ov.AudioReservation = &v
+	}
+	if c.IsSet("bit-perfect") {
+		v := true
+		ov.BitPerfect = &v
+	}
+	if c.IsSet("no-bit-perfect") {
+		v := false
+		ov.BitPerfect = &v
 	}
 	if c.IsSet("playlist") {
 		v := c.String("playlist")
@@ -698,6 +741,27 @@ func statusCommand() *cli.Command {
 				fmt.Printf("Position: %.0f / %.0f sec\n", resp.Position, resp.Duration)
 			}
 			fmt.Printf("Volume: %.0f dB\n", resp.Volume)
+			if resp.Backend != "" {
+				fmt.Printf("Backend: %s\n", strings.ToUpper(resp.Backend))
+			}
+			if resp.Device != "" {
+				fmt.Printf("Device: %s\n", resp.Device)
+			}
+			if resp.BitPerfect {
+				fmt.Println("Bit-perfect mode: enabled (not independently verified)")
+				if resp.DSPDisabled {
+					fmt.Println("DSP: disabled")
+				}
+				if resp.DirectALSA {
+					fmt.Println("Output path: direct ALSA")
+				}
+			}
+			if resp.SourceAudio != nil {
+				fmt.Printf("Source audio: %s\n", formatAudioInfo(*resp.SourceAudio))
+			}
+			if resp.OutputAudio != nil {
+				fmt.Printf("Output audio: %s\n", formatAudioInfo(*resp.OutputAudio))
+			}
 			if resp.Shuffle != nil {
 				if *resp.Shuffle {
 					fmt.Println("Shuffle: on")
@@ -724,6 +788,20 @@ func statusCommand() *cli.Command {
 			return nil
 		},
 	}
+}
+
+func formatAudioInfo(info ipc.AudioInfo) string {
+	parts := make([]string, 0, 3)
+	if info.Format != "" {
+		parts = append(parts, info.Format)
+	}
+	if info.SampleRate > 0 {
+		parts = append(parts, fmt.Sprintf("%.1f kHz", float64(info.SampleRate)/1000))
+	}
+	if info.Channels != "" {
+		parts = append(parts, info.Channels)
+	}
+	return strings.Join(parts, " / ")
 }
 
 func volumeCommand() *cli.Command {
