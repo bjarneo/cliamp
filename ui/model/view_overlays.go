@@ -59,6 +59,9 @@ func (m Model) plMgrHeaderLine() string {
 			label += " · sort: " + mode
 		}
 		return sepHeaderN(label, m.plManager.cursor+1, len(m.plManager.tracks))
+	case plMgrScreenDirs:
+		label := "Directory sources: " + m.plManager.selPlaylist
+		return sepHeaderN(label, m.plManager.cursor+1, len(m.plManager.dirs))
 	case plMgrScreenNewName:
 		return m.promptHeader("playlist-manager-new-name", "New Playlist", m.plManager.newName)
 	case plMgrScreenRename:
@@ -76,6 +79,8 @@ func (m Model) plMgrHelpLine() string {
 	switch m.plManager.screen {
 	case plMgrScreenTracks:
 		return m.plMgrTracksHelpLine()
+	case plMgrScreenDirs:
+		return m.plMgrDirsHelpLine()
 	case plMgrScreenNewName:
 		return m.commandHelp(commandModePlaylistManagerInput)
 	case plMgrScreenRename:
@@ -89,6 +94,8 @@ func (m Model) renderPlMgrBody() string {
 	switch m.plManager.screen {
 	case plMgrScreenTracks:
 		return m.renderPlMgrTracksBody()
+	case plMgrScreenDirs:
+		return m.renderPlMgrDirsBody()
 	case plMgrScreenNewName, plMgrScreenRename:
 		return m.renderPlMgrFormBody()
 	default:
@@ -246,6 +253,36 @@ func (m Model) renderPlMgrTracksBody() string {
 			continue
 		}
 		lines = append(lines, cursorLine(m.plMgrTrackLabel(row.Index), row.Index == m.plManager.cursor))
+	}
+	return bodyLines(lines, budget)
+}
+
+// renderPlMgrDirsBody renders the [[dir]] directory sources for the open
+// playlist. Each row shows the source path and its scan mode (recursive or
+// flat). An empty list shows how to add a source.
+func (m Model) renderPlMgrDirsBody() string {
+	budget := m.effectivePlaylistVisible()
+
+	if len(m.plManager.dirs) == 0 {
+		return bodyLines([]string{
+			dimStyle.Render("  No directory sources."),
+			dimStyle.Render("  Press `a` to pick a directory to scan."),
+		}, budget)
+	}
+
+	scroll := m.plManager.scroll
+	lines := make([]string, 0, budget)
+	for i := scroll; i < len(m.plManager.dirs) && len(lines) < budget; i++ {
+		src := m.plManager.dirs[i]
+		mode := "recursive"
+		if !src.Recursive {
+			mode = "flat"
+		}
+		if m.plManager.confirmDel && i == m.plManager.cursor {
+			lines = append(lines, playlistSelectedStyle.Render("> Remove "+src.Path+"? [y/n]"))
+			continue
+		}
+		lines = append(lines, cursorLine(src.Path+" · "+mode, i == m.plManager.cursor))
 	}
 	return bodyLines(lines, budget)
 }

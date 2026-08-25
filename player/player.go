@@ -83,6 +83,8 @@ type Player struct {
 	gaplessAdvance atomic.Bool  // set when gapless transition fires
 	seekGen        atomic.Int64 // generation counter for yt-dlp seeks; incremented to cancel stale seeks
 
+	lastPlayedDuration time.Duration // real duration of the track finished by the last gapless swap
+
 	streamTitle      atomic.Value               // stores string, set by ICY reader callback
 	customFactories  map[string]StreamerFactory // URI scheme prefix -> factory (e.g. "spotify:" -> fn)
 	bufferedURLMatch func(string) bool          // optional: returns true for URLs needing navBuffer pipeline
@@ -166,11 +168,29 @@ func (p *Player) handleGaplessSwap(token uint64) {
 	old := p.current
 	p.current = next
 	p.nextPipeline = nil
+	if old != nil {
+		// Stash the finished track's real duration before closing its
+		// pipeline: once the swap lands, p.current reports the next track.
+		if n := old.decoder.Len(); n > 0 && old.format.SampleRate != 0 {
+			p.lastPlayedDuration = old.format.SampleRate.D(n)
+		} else {
+			p.lastPlayedDuration = old.knownDuration
+		}
+	}
 	p.mu.Unlock()
 	if old != nil {
 		go old.close()
 	}
 	p.gaplessAdvance.Store(true)
+}
+
+// LastPlayedDuration returns the real duration of the track finished by the
+// most recent gapless transition. Meaningful right after GaplessAdvanced
+// reports true; callers use it when playlist metadata lacks a duration.
+func (p *Player) LastPlayedDuration() time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.lastPlayedDuration
 }
 
 // Play opens and starts playing an audio file. On the first call it builds

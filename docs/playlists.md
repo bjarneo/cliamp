@@ -266,18 +266,19 @@ Press `p` from any view to open the playlist manager:
 1. **Browse**: see all playlists with track counts
 2. **Filter**: press `/` to incrementally filter the list (works on both the playlists screen and the track screen). `Esc` clears the filter.
 3. **Open**: press `Enter` or `→` to view tracks inside a playlist
-4. **Add now-playing**: press `a` to add the currently playing track (the footer shows the track name so you know what gets added)
-5. **Delete playlist**: press `d` then `y` to confirm deletion
-6. **Mark tracks**: open a playlist, press `Space` to mark a track and advance, or `a` to mark or unmark all visible tracks
-7. **Move tracks**: press `[` or `]`; the saved playlist is updated immediately
-8. **Sort tracks**: press `s` to cycle `track`, `title`, `artist`, `album`, `artist+album`, and `path` sorting
-9. **Remove tracks**: press `d` to remove the marked tracks, or the highlighted track when nothing is marked
-10. **Undo manager edits**: press `u` after delete, remove, move, or sort
-11. **Write tracks elsewhere**: press `w` to copy the marked or highlighted tracks to another playlist; duplicate paths are skipped
-12. **Add files**: press `o` from inside a playlist to browse files and add them to that playlist
-13. **Play this**: press `Enter` on the track list to start playback at the highlighted track. The rest of the playlist follows.
-14. **Play all**: press `p` to start from the top, regardless of cursor position
-15. **New playlist**: select "+ New Playlist...", type a name, and press Enter. If you create a playlist while a `/` filter is active, the filter text is pre-filled as the new playlist name.
+4. **Create playlist**: press `a`, type a name, press `Enter` — the file browser opens at `~` targeted at the new playlist: select folders and/or files with `Space` (folders become live `[[dir]]` sources), confirm with `Enter`, or finish with `Esc`
+5. **Rename playlist**: press `r` on the list screen
+6. **Delete playlist**: press `d` then `y` to confirm deletion
+7. **Mark tracks**: open a playlist, press `Space` to mark a track and advance, or `a` to mark or unmark all visible tracks
+8. **Move tracks**: press `[` or `]`; the saved playlist is updated immediately
+9. **Sort tracks**: press `s` to cycle `track`, `title`, `artist`, `album`, `artist+album`, and `path` sorting
+10. **Remove tracks**: press `d` to remove the marked tracks, or the highlighted track when nothing is marked
+11. **Undo manager edits**: press `u` after delete, remove, move, or sort
+12. **Write tracks elsewhere**: press `w` to copy the marked or highlighted tracks to another playlist; duplicate paths are skipped
+13. **Add files**: press `o` from inside a playlist to browse files and add them to that playlist
+14. **Play this**: press `Enter` on the track list to start playback at the highlighted track. The rest of the playlist follows.
+15. **Play all**: press `p` to start from the top, regardless of cursor position
+16. **New playlist**: select "+ New Playlist...", type a name, and press Enter — the file browser opens so you can fill the playlist right away. If you create a playlist while a `/` filter is active, the filter text is pre-filled as the new playlist name.
 
 Tracks with an `album` field are grouped by album with visual separator headers in the playlist manager (album grouping is hidden while a filter is active) and the main player view.
 
@@ -361,12 +362,51 @@ title = "My Radio"
 | `/` | Filter playlists or tracks; `Esc` clears |
 | `Enter` / `→` | Open playlist (list screen) / Play **highlighted** track (tracks screen) |
 | `p` | Play all tracks from the top (tracks screen) |
-| `a` | List: add currently playing track. Tracks: mark/unmark all visible tracks |
+| `a` | List: new playlist — after naming, the file browser opens at `~` so you can pick folders and/or files (`Space` selects, `Esc` finishes). Tracks: mark/unmark all visible tracks |
+| `r` | Rename the highlighted playlist (list screen; `Recently Played` cannot be renamed) |
 | `Space` | Mark/unmark track and advance (tracks screen) |
 | `s` | Sort tracks, cycling supported sort keys (tracks screen) |
 | `w` | Write marked/highlighted tracks, or the current queue from the list screen, to another playlist |
 | `o` | Add files to the open playlist (tracks screen) |
+| `D` | List: open the file browser to add `[[dir]]` sources to the highlighted playlist. Tracks: open the directory-sources screen for the open playlist |
 | `[` `]` | Move track up/down and save (tracks screen) |
-| `d` | Delete playlist (confirms) / Remove marked tracks, or highlighted track if none are marked |
+| `d` | Delete playlist (confirms; `Recently Played` cannot be deleted) / Remove marked tracks, or highlighted track if none are marked |
 | `u` | Undo the last playlist-manager edit |
 | `←` / `Backspace` | Go back from tracks screen to list |
+
+The playlist list flags playlists that reference `[[dir]]` sources with a
+`· N dir(s)` indicator next to the track count.
+
+**Directory sources screen (tracks screen → `D`):**
+
+| Key | Action |
+|-----|--------|
+| `Up` `Down` / `j` `k` | Navigate directory sources |
+| `a` | Open the file browser to add a directory as a `[[dir]]` source |
+| `d` then `y` | Remove the highlighted source (confirm with `y`, cancel with anything else) |
+| `r` | Toggle `recursive` on the highlighted source (re-scans immediately) |
+| `←` / `Backspace` / `Esc` | Back to the tracks screen |
+
+From the file browser (opened with `a` above, with `o` from the tracks
+screen, or with `D` from the list screen), press `D` to add all selected
+directories — or the highlighted directory, or the directory you are currently
+browsing when neither applies — as live `[[dir]]` sources instead of expanding
+them into explicit tracks. Directories already referenced are skipped and
+reported.
+
+## Favorites
+
+Press `n` on any track in the track list to toggle it as a
+favorite. Favorited tracks are collected into a virtual **"Favorites"**
+playlist that always appears at the top of the playlist list — regardless of
+which playlist the track was favorited from, and even when empty.
+
+Favorites are cross-playlist: a track favorited while browsing "gym" shows up
+in "Favorites" and vice versa. The "Favorites" playlist is backed by
+`~/.config/cliamp/favorites.toml` and behaves like "Recently Played" — it is
+a virtual playlist that cannot be renamed, deleted, or modified via the
+playlist manager. Use `n` again to unfavorite a track.
+
+Favorited tracks display a small red `♥` marker in the track list. The bookmark
+system (`f` key, `★` marker) is separate — bookmarks are per-playlist,
+while favorites span all playlists.

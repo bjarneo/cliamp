@@ -137,9 +137,10 @@ type plManagerState struct {
 	cursor        int // view-index: offset into filtered when filter != "", else direct index
 	scroll        int
 	playlists     []playlist.PlaylistInfo
-	selPlaylist   string           // playlist name open in screen 1
-	tracks        []playlist.Track // tracks in the selected playlist
-	missingLocal  []bool           // cached missing-file state, indexed with tracks
+	selPlaylist   string               // playlist name open in screen 1
+	tracks        []playlist.Track     // tracks in the selected playlist
+	missingLocal  []bool               // cached missing-file state, indexed with tracks
+	dirs          []playlist.DirSource // [[dir]] sources for the selected playlist (screen 2)
 	newName       string
 	confirmDel    bool
 	renameOldName string
@@ -171,6 +172,7 @@ type plManagerUndo struct {
 	name         string
 	tracks       []playlist.Track
 	missingLocal []bool
+	doc          []byte // raw TOML snapshot; when set, undo restores it verbatim
 }
 
 type playlistPickerScreen int

@@ -49,9 +49,13 @@ A configured `[lyrion]` block always takes precedence over these.
 
 Cliamp queries your library over the LMS JSON-RPC endpoint (`POST /jsonrpc.js`) and plays tracks from its HTTP file endpoint (`/music/<track_id>/download`). Playback runs in Cliamp's own audio engine, exactly as it does for every other provider.
 
+Lyrion has no dedicated shortcut key. Press `Esc` for the provider list and pick it there, or make it the startup provider with `cliamp --provider lyrion` or `provider = "lyrion"` in `config.toml`.
+
 Browse playlists with the arrow keys and press Enter to load one.
 
 **Press `N` to open the artist/album browser.** The provider pane lists only your server's *saved playlists*; your music files are organised by artist and album, and the browser is how you reach them.
+
+`Ctrl+F` searches your library through the server's own search, from either the playlist view or the browser.
 
 ## Limitations
 

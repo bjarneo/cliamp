@@ -30,6 +30,10 @@ const maxResponseBody = 20 << 20
 // caps most v1 list endpoints at 100 items per request.
 const pageSize = 100
 
+// playlistsPageSize is the cap for users/{id}/playlistsAndFavoritePlaylists,
+// which rejects limits above 50 with HTTP 400 (subStatus 1001).
+const playlistsPageSize = 50
+
 // tokenSlack is how long before the recorded expiry a token is refreshed, so
 // requests never race the actual expiry.
 const tokenSlack = time.Minute
@@ -255,14 +259,18 @@ func (c *client) user() string {
 }
 
 // fetchList follows limit/offset pagination for a list endpoint. maxItems
-// caps the total (0 = no cap). The offset advances by the number of items
+// caps the total (0 = no cap); perPage is the page size (0 = pageSize), for
+// endpoints with a lower cap. The offset advances by the number of items
 // actually returned, so a short page mid-stream does not skip entries.
-func fetchList[T any](ctx context.Context, c *client, path string, maxItems int) ([]T, error) {
+func fetchList[T any](ctx context.Context, c *client, path string, maxItems, perPage int) ([]T, error) {
+	if perPage <= 0 {
+		perPage = pageSize
+	}
 	var all []T
 	// The next offset is always the number of items fetched so far.
 	for offset := 0; ; offset = len(all) {
 		p := url.Values{
-			"limit":  {strconv.Itoa(pageSize)},
+			"limit":  {strconv.Itoa(perPage)},
 			"offset": {strconv.Itoa(offset)},
 		}
 
@@ -279,7 +287,7 @@ func fetchList[T any](ctx context.Context, c *client, path string, maxItems int)
 			return all, nil
 		case out.TotalNumberOfItems > 0 && len(all) >= out.TotalNumberOfItems:
 			return all, nil
-		case len(out.Items) < pageSize && out.TotalNumberOfItems <= 0:
+		case len(out.Items) < perPage && out.TotalNumberOfItems <= 0:
 			// Partial page with no reported total: assume the end.
 			return all, nil
 		}
@@ -298,7 +306,7 @@ func unwrapFavorites[T any](in []apiFavoriteItem[T]) []T {
 // userPlaylists returns the user's own playlists plus playlists they have
 // favorited ("subscribed to"), which the plain /playlists endpoint omits.
 func (c *client) userPlaylists(ctx context.Context) ([]apiPlaylist, error) {
-	items, err := fetchList[apiPlaylistItem](ctx, c, "users/"+c.user()+"/playlistsAndFavoritePlaylists", 0)
+	items, err := fetchList[apiPlaylistItem](ctx, c, "users/"+c.user()+"/playlistsAndFavoritePlaylists", 0, playlistsPageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -311,12 +319,12 @@ func (c *client) userPlaylists(ctx context.Context) ([]apiPlaylist, error) {
 
 // playlistTracks returns the tracks of a playlist, following pagination.
 func (c *client) playlistTracks(ctx context.Context, playlistUUID string) ([]apiTrack, error) {
-	return fetchList[apiTrack](ctx, c, "playlists/"+url.PathEscape(playlistUUID)+"/tracks", 0)
+	return fetchList[apiTrack](ctx, c, "playlists/"+url.PathEscape(playlistUUID)+"/tracks", 0, 0)
 }
 
 // favoriteTracks returns the user's favorite tracks, capped at maxItems.
 func (c *client) favoriteTracks(ctx context.Context, maxItems int) ([]apiTrack, error) {
-	items, err := fetchList[apiFavoriteItem[apiTrack]](ctx, c, "users/"+c.user()+"/favorites/tracks", maxItems)
+	items, err := fetchList[apiFavoriteItem[apiTrack]](ctx, c, "users/"+c.user()+"/favorites/tracks", maxItems, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +349,7 @@ func (c *client) favoriteAlbums(ctx context.Context, offset, limit int) ([]apiAl
 
 // favoriteArtists returns all of the user's favorite artists.
 func (c *client) favoriteArtists(ctx context.Context) ([]apiArtist, error) {
-	items, err := fetchList[apiFavoriteItem[apiArtist]](ctx, c, "users/"+c.user()+"/favorites/artists", 0)
+	items, err := fetchList[apiFavoriteItem[apiArtist]](ctx, c, "users/"+c.user()+"/favorites/artists", 0, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -350,7 +358,7 @@ func (c *client) favoriteArtists(ctx context.Context) ([]apiArtist, error) {
 
 // artistAlbums returns the albums of an artist, following pagination.
 func (c *client) artistAlbums(ctx context.Context, artistID string) ([]apiAlbum, error) {
-	return fetchList[apiAlbum](ctx, c, "artists/"+url.PathEscape(artistID)+"/albums", 0)
+	return fetchList[apiAlbum](ctx, c, "artists/"+url.PathEscape(artistID)+"/albums", 0, 0)
 }
 
 // albumGet returns an album's metadata.
@@ -364,7 +372,7 @@ func (c *client) albumGet(ctx context.Context, albumID string) (apiAlbum, error)
 
 // albumTracks returns the tracks of an album.
 func (c *client) albumTracks(ctx context.Context, albumID string) ([]apiTrack, error) {
-	return fetchList[apiTrack](ctx, c, "albums/"+url.PathEscape(albumID)+"/tracks", 0)
+	return fetchList[apiTrack](ctx, c, "albums/"+url.PathEscape(albumID)+"/tracks", 0, 0)
 }
 
 // searchTracks searches the Tidal catalog for tracks.

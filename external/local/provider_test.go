@@ -10,8 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 )
 
 func newTestProvider(t *testing.T) *Provider {
@@ -747,5 +749,154 @@ func TestSearchTracksLimit(t *testing.T) {
 	}
 	if len(got) != 2 {
 		t.Fatalf("got %d results, want 2 (limit)", len(got))
+	}
+}
+
+// --- Virtual "Favorites" playlist ---
+
+func newTestProviderWithFavorites(t *testing.T) *Provider {
+	t.Helper()
+	dir := t.TempDir()
+	favPath := filepath.Join(dir, "favorites.toml")
+	return &Provider{dir: filepath.Join(dir, "playlists"), favorites: favorites.NewAt(favPath)}
+}
+
+func TestPlaylistsIncludesFavoritesWhenNonEmpty(t *testing.T) {
+	p := newTestProviderWithFavorites(t)
+	p.favorites.Toggle(playlist.Track{Path: "/a.mp3", Title: "A"})
+
+	lists, err := p.Playlists()
+	if err != nil {
+		t.Fatalf("Playlists: %v", err)
+	}
+	if len(lists) != 1 || lists[0].ID != "Favorites" {
+		t.Fatalf("Playlists = %+v, want [Favorites]", lists)
+	}
+	if lists[0].Section != "Favorites" {
+		t.Errorf("Section = %q, want %q", lists[0].Section, "Favorites")
+	}
+}
+
+func TestPlaylistsIncludesFavoritesWhenEmpty(t *testing.T) {
+	p := newTestProviderWithFavorites(t)
+	lists, err := p.Playlists()
+	if err != nil {
+		t.Fatalf("Playlists: %v", err)
+	}
+	if len(lists) != 1 || lists[0].ID != "Favorites" {
+		t.Fatalf("Playlists = %+v, want [Favorites] even when empty", lists)
+	}
+	if lists[0].TrackCount != 0 {
+		t.Errorf("TrackCount = %d, want 0", lists[0].TrackCount)
+	}
+}
+
+func TestTracksReadsFromFavorites(t *testing.T) {
+	p := newTestProviderWithFavorites(t)
+	p.favorites.Toggle(playlist.Track{Path: "/a.mp3", Title: "A"})
+	p.favorites.Toggle(playlist.Track{Path: "/b.mp3", Title: "B"})
+
+	tracks, err := p.Tracks("Favorites")
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	if len(tracks) != 2 {
+		t.Fatalf("got %d tracks, want 2", len(tracks))
+	}
+	// Newest first (B was toggled after A).
+	if tracks[0].Title != "B" || tracks[1].Title != "A" {
+		t.Errorf("order = [%s, %s], want [B, A]", tracks[0].Title, tracks[1].Title)
+	}
+}
+
+func TestWritesRejectedForFavoritesName(t *testing.T) {
+	p := newTestProviderWithFavorites(t)
+	track := playlist.Track{Path: "/a.mp3", Title: "A"}
+
+	tests := []struct {
+		name string
+		fn   func() error
+	}{
+		{"AddTrack", func() error { return p.AddTrack("Favorites", track) }},
+		{"AddTracks", func() error { _, _, err := p.AddTracks("Favorites", []playlist.Track{track}); return err }},
+		{"SavePlaylist", func() error { return p.SavePlaylist("Favorites", nil) }},
+		{"DeletePlaylist", func() error { return p.DeletePlaylist("Favorites") }},
+		{"RemoveTrack", func() error { return p.RemoveTrack("Favorites", 0) }},
+		{"SetBookmark", func() error { return p.SetBookmark("Favorites", 0) }},
+		{"SetBookmarkByPath", func() error { return p.SetBookmarkByPath("Favorites", "/a.mp3") }},
+		{"RenamePlaylist", func() error { return p.RenamePlaylist("Favorites", "NewName") }},
+		{"CreatePlaylist", func() error { _, err := p.CreatePlaylist(context.Background(), "Favorites"); return err }},
+		{"AddDirSources", func() error { _, err := p.AddDirSources("Favorites", []string{"/some/dir"}); return err }},
+		{"RemoveDirSource", func() error { return p.RemoveDirSource("Favorites", "/some/dir") }},
+		{"SetDirRecursive", func() error { return p.SetDirRecursive("Favorites", "/some/dir", true) }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.fn()
+			if err == nil {
+				t.Fatalf("%s: expected error, got nil", tt.name)
+			}
+			if !strings.Contains(err.Error(), "Favorites") {
+				t.Fatalf("%s: error = %q, want message mentioning Favorites", tt.name, err)
+			}
+		})
+	}
+}
+
+func TestFavoritesManagerInterface(t *testing.T) {
+	p := newTestProviderWithFavorites(t)
+	fm, ok := any(p).(provider.FavoritesManager)
+	if !ok {
+		t.Fatal("Provider does not implement FavoritesManager")
+	}
+
+	// Initially empty.
+	if fm.FavoritesCount() != 0 {
+		t.Fatalf("Count = %d, want 0", fm.FavoritesCount())
+	}
+	if fm.IsFavorited("/a.mp3") {
+		t.Fatal("should not be favorited initially")
+	}
+
+	// Toggle on.
+	added, err := fm.ToggleFavorite(playlist.Track{Path: "/a.mp3", Title: "A"})
+	if err != nil {
+		t.Fatalf("ToggleFavorite: %v", err)
+	}
+	if !added {
+		t.Fatal("first toggle should return true")
+	}
+	if !fm.IsFavorited("/a.mp3") {
+		t.Fatal("should be favorited after toggle on")
+	}
+	if fm.FavoritesCount() != 1 {
+		t.Fatalf("Count = %d, want 1", fm.FavoritesCount())
+	}
+
+	// Toggle off.
+	added, err = fm.ToggleFavorite(playlist.Track{Path: "/a.mp3", Title: "A"})
+	if err != nil {
+		t.Fatalf("ToggleFavorite: %v", err)
+	}
+	if added {
+		t.Fatal("second toggle should return false")
+	}
+	if fm.IsFavorited("/a.mp3") {
+		t.Fatal("should not be favorited after toggle off")
+	}
+}
+
+func TestFavoritesTrackCount(t *testing.T) {
+	p := newTestProviderWithFavorites(t)
+	p.favorites.Toggle(playlist.Track{Path: "/a.mp3", Title: "A"})
+	p.favorites.Toggle(playlist.Track{Path: "/b.mp3", Title: "B"})
+
+	lists, err := p.Playlists()
+	if err != nil {
+		t.Fatalf("Playlists: %v", err)
+	}
+	if len(lists) != 1 || lists[0].TrackCount != 2 {
+		t.Fatalf("TrackCount = %d, want 2", lists[0].TrackCount)
 	}
 }

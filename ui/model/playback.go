@@ -462,6 +462,7 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	nextRequest(&m.requests.lyrics)
 	track = playlist.RefreshEmbeddedMetadata(track)
 	m.setPlaybackTrack(track)
+	historyCmd := m.recordListenedTrack(track)
 	m.reconnect.attempts = 0
 	m.reconnect.at = time.Time{}
 	m.streamTitle = ""
@@ -477,15 +478,14 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	if m.lyrics.visible {
 		q := lyricsLookupKey(track, track.Artist, track.Title)
 		if q == "" {
-			m.lyrics.loading = false
-			return track, nil
+			return track, historyCmd
 		}
 		m.lyrics.loading = true
 		m.lyrics.query = q
-		return track, m.fetchLyricsForTrack(track, track.Artist, track.Title)
+		return track, tea.Batch(historyCmd, m.fetchLyricsForTrack(track, track.Artist, track.Title))
 	}
 	m.lyrics.loading = false
-	return track, nil
+	return track, historyCmd
 }
 
 func (m *Model) fetchLyricsForTrack(track playlist.Track, artist, title string) tea.Cmd {

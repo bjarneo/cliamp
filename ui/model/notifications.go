@@ -4,7 +4,10 @@ import (
 	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/bjarneo/cliamp/applog"
+	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/luaplugin"
 	"github.com/bjarneo/cliamp/playlist"
@@ -126,20 +129,42 @@ func (m *Model) nowPlaying(track playlist.Track) {
 	}()
 }
 
-// maybeScrobble fires a playback-complete report for the given track if all
-// conditions are met:
-//   - a provider claims the track via provider metadata
-//   - the track reached at least 50% of its known duration
+// recordListenedTrack adds a starting track to local history and refreshes
+// any Recently Played surfaces. Called when playback of the track begins so
+// the list mirrors what is playing right now, not the previous song.
 //
-// The call is dispatched in a goroutine so it never blocks the UI. The same
-// 50% threshold gates a local history entry so skipped tracks never land in
-// "Recently Played".
-func (m *Model) maybeScrobble(track playlist.Track, elapsed, duration time.Duration) {
+// The write is synchronous so successive entries preserve their ordering on
+// disk; the file is small (~30 KB at the 200-entry cap) so latency is
+// sub-millisecond.
+func (m *Model) recordListenedTrack(track playlist.Track) tea.Cmd {
+	if m.historyStore == nil {
+		return nil
+	}
+	if err := m.historyStore.Record(track, time.Now()); err != nil {
+		applog.Warn("history record failed for %q: %v", track.Path, err)
+		return nil
+	}
+	if m.plManager.visible {
+		m.plMgrRefreshList()
+		if m.plManager.screen == plMgrScreenTracks && m.plManager.selPlaylist == history.PlaylistName {
+			m.plMgrReloadTracks(history.PlaylistName)
+		}
+	}
+	return m.fetchProviderPlaylists()
+}
+
+// maybeScrobble fires a playback-complete report for the given track when it
+// is left (skip, stop, natural end) and past 50% of its known duration,
+// matching Last.fm-style play-count conventions. Local history is recorded
+// separately at track start via recordListenedTrack.
+func (m *Model) maybeScrobble(track playlist.Track, elapsed, duration time.Duration) tea.Cmd {
 	dur := duration
 	if dur <= 0 {
 		dur = time.Duration(track.DurationSecs) * time.Second
 	}
 	pastThreshold := dur > 0 && elapsed >= dur/2
+
+	var refresh tea.Cmd
 
 	// Emit scrobble event to Lua plugins for all tracks (not just Navidrome).
 	if m.luaMgr != nil && m.luaMgr.HasHooks() && pastThreshold {
@@ -148,27 +173,19 @@ func (m *Model) maybeScrobble(track playlist.Track, elapsed, duration time.Durat
 		m.luaMgr.Emit(luaplugin.EventTrackScrobble, data)
 	}
 
-	// Record into local history regardless of provider. Live streams without
-	// duration are filtered by pastThreshold. The write is synchronous so
-	// successive scrobbles preserve their ordering on disk; the file is small
-	// (~30 KB at the 200-entry cap) so the latency is sub-millisecond.
-	if pastThreshold && m.historyStore != nil {
-		_ = m.historyStore.Record(track, time.Now())
-	}
-
 	reporter := m.findPlaybackReporter(track)
 	if reporter == nil {
-		return
+		return refresh
 	}
 	if duration <= 0 {
 		// Unknown duration: use DurationSecs metadata as fallback.
 		duration = time.Duration(track.DurationSecs) * time.Second
 	}
 	if duration <= 0 {
-		return // still unknown — skip
+		return refresh // still unknown — skip
 	}
 	if elapsed < duration/2 {
-		return // less than 50% played
+		return refresh // less than 50% played
 	}
 	canSeek := m.player.Seekable()
 	go func() {
@@ -176,6 +193,7 @@ func (m *Model) maybeScrobble(track playlist.Track, elapsed, duration time.Durat
 			applog.Warn("scrobble failed for %q: %v", track.Title, err)
 		}
 	}()
+	return refresh
 }
 
 // findTrackPosition returns the provider that can report track's saved

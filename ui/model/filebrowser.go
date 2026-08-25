@@ -292,6 +292,11 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.fileBrowser.searching = false
 		m.fileBrowser.search = ""
 		m.fileBrowser.filtered = nil
+		if m.fileBrowser.targetPlaylist != "" {
+			// Esc acts as "done": commit anything still selected, then
+			// refresh the provider pane so track/dir counts update.
+			return m.fbCommitAndRefresh()
+		}
 
 	case "ctrl+x":
 		m.toggleExpandedView()
@@ -342,31 +347,19 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.fbMaybeAdjustScroll(visible)
 		}
 
-	case "enter", "right", "l":
+	case "right", "l":
+		return m.fbDescend()
+
+	case "enter":
 		if len(m.fileBrowser.selected) > 0 {
+			if m.fileBrowser.targetPlaylist != "" {
+				// Adding to a playlist: refresh the list so track/dir
+				// counts update right away.
+				return m.fbCommitAndRefresh()
+			}
 			return m.fbConfirm(false)
 		}
-		if m.fileBrowser.cursor < m.fbCount() {
-			e := m.fbEntry(m.fileBrowser.cursor)
-			if e.isDir {
-				cd = m.fileBrowser.dir
-				m.fileBrowser.dir = e.path
-				m.loadFBDir()
-				if e.name == ".." {
-					// cd .. and reveal previous directory name in list
-					for i := range m.fileBrowser.entries {
-						if m.fileBrowser.entries[i].path == cd {
-							m.fileBrowser.cursor = i
-							break
-						}
-					}
-					m.fbMaybeAdjustScroll(m.fbVisible())
-				}
-			} else if e.isAudio {
-				m.fileBrowser.selected[e.path] = true
-				return m.fbConfirm(false)
-			}
-		}
+		return m.fbDescend()
 
 	case "backspace", "left", "h":
 		cd = m.fileBrowser.dir
@@ -463,6 +456,13 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 				return m.fbConfirmToPlaylist()
 			}
 		}
+
+	case "D":
+		// Add the selected directory (or the current directory) as a [[dir]]
+		// source on the target playlist instead of expanding it into tracks.
+		if m.fileBrowser.targetPlaylist != "" {
+			m.fbAddDirSource()
+		}
 	}
 
 	// Change drive letter on Windows by pressing alt+[c..z]
@@ -477,10 +477,58 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
+// fbCommitAndRefresh confirms the pending selection and re-pulls the provider
+// playlist list so dirs/tracks/duration counts reflect the write. Used when
+// the browser is targeted at a playlist (Enter confirm or Esc-as-done).
+func (m *Model) fbCommitAndRefresh() tea.Cmd {
+	cmd := m.fbConfirm(false)
+	if cmd == nil {
+		// Directory-only commit: the write landed synchronously, so pull
+		// playlist counts now. A resolver command refreshes from its
+		// fbTracksResolvedMsg handler instead — batching a fetch here
+		// would read Playlists() before the tracks are written.
+		return m.fetchProviderPlaylists()
+	}
+	return cmd
+}
+
+// fbDescend opens the directory under the cursor (or plays a highlighted
+// audio file immediately). Shared by l/→ and Enter. Returns the async
+// track-resolution command when the descend confirmed a selection.
+func (m *Model) fbDescend() tea.Cmd {
+	if m.fileBrowser.cursor >= m.fbCount() {
+		return nil
+	}
+	e := m.fbEntry(m.fileBrowser.cursor)
+	if e.isDir {
+		cd := m.fileBrowser.dir
+		m.fileBrowser.dir = e.path
+		m.loadFBDir()
+		if e.name == ".." {
+			// cd .. and reveal previous directory name in list
+			for i := range m.fileBrowser.entries {
+				if m.fileBrowser.entries[i].path == cd {
+					m.fileBrowser.cursor = i
+					break
+				}
+			}
+			m.fbMaybeAdjustScroll(m.fbVisible())
+		}
+	} else if e.isAudio {
+		m.fileBrowser.selected[e.path] = true
+		return m.fbConfirm(false)
+	}
+	return nil
+}
+
 // fbConfirm collects selected paths, closes the overlay, and returns an async
 // command that resolves the paths into tracks. Paths are emitted in the
 // directory listing's natural (alphabetical) order so albums play in track
 // order rather than the random map iteration order.
+//
+// When the browser targets a playlist, selected directories become [[dir]]
+// sources instead of being expanded into explicit tracks; only audio files
+// are resolved as tracks.
 func (m *Model) fbConfirm(replace bool) tea.Cmd {
 	paths := make([]string, 0, len(m.fileBrowser.selected))
 	for _, e := range m.fileBrowser.entries {
@@ -491,6 +539,13 @@ func (m *Model) fbConfirm(replace bool) tea.Cmd {
 	m.fileBrowser.visible = false
 
 	target := m.fileBrowser.targetPlaylist
+	if target != "" && plMgrVirtualPlaylistName(target) == "" {
+		paths = m.fbSplitDirSources(target, paths)
+		if len(paths) == 0 {
+			return nil
+		}
+	}
+
 	return func() tea.Msg {
 		r, err := resolve.Args(paths)
 		if err != nil {
@@ -498,6 +553,29 @@ func (m *Model) fbConfirm(replace bool) tea.Cmd {
 		}
 		return fbTracksResolvedMsg{tracks: r.Tracks, replace: replace, targetPlaylist: target}
 	}
+}
+
+// fbSplitDirSources adds every directory in paths to target as a [[dir]]
+// source and returns the remaining audio-file paths. Paths that are neither an
+// entry in the current listing nor directories (e.g. loose files already
+// gone from disk) stay untouched for resolution to report.
+func (m *Model) fbSplitDirSources(target string, paths []string) []string {
+	isDir := make(map[string]bool, len(m.fileBrowser.entries))
+	for _, e := range m.fileBrowser.entries {
+		isDir[e.path] = e.isDir && !e.isParent
+	}
+	var dirs, files []string
+	for _, p := range paths {
+		if isDir[p] {
+			dirs = append(dirs, p)
+		} else {
+			files = append(files, p)
+		}
+	}
+	if len(dirs) > 0 {
+		m.plMgrAddDirSources(target, dirs)
+	}
+	return files
 }
 
 func (m *Model) fbConfirmToPlaylist() tea.Cmd {

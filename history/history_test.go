@@ -56,34 +56,32 @@ func TestRecordOrdering(t *testing.T) {
 	}
 }
 
-func TestDedupConsecutiveReplay(t *testing.T) {
-	track := playlist.Track{Path: "/a.mp3", Title: "A"}
-	first := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+func TestReplayMovesEntryToTop(t *testing.T) {
+	a := playlist.Track{Path: "/a.mp3", Title: "A"}
+	b := playlist.Track{Path: "/b.mp3", Title: "B"}
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
-	tests := []struct {
-		name     string
-		gap      time.Duration
-		wantLen  int
-		wantTime time.Time // only checked when wantLen == 1
-	}{
-		{"inside window updates timestamp", 2 * time.Minute, 1, first.Add(2 * time.Minute)},
-		{"outside window is a new play", 10 * time.Minute, 2, time.Time{}},
+	s := newTestStore(t)
+	mustRecord(t, s, a, base)
+	mustRecord(t, s, b, base.Add(time.Minute))
+
+	// Re-listen to the older track: no duplicate, entry moves to top with a
+	// fresh timestamp.
+	replay := base.Add(2 * time.Minute)
+	mustRecord(t, s, a, replay)
+
+	got, err := s.Recent(0)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := newTestStore(t)
-			mustRecord(t, s, track, first)
-			mustRecord(t, s, track, first.Add(tt.gap))
-
-			got, _ := s.Recent(0)
-			if len(got) != tt.wantLen {
-				t.Fatalf("got %d entries, want %d", len(got), tt.wantLen)
-			}
-			if tt.wantLen == 1 && !got[0].PlayedAt.Equal(tt.wantTime) {
-				t.Fatalf("PlayedAt = %v, want %v", got[0].PlayedAt, tt.wantTime)
-			}
-		})
+	if len(got) != 2 {
+		t.Fatalf("got %d entries, want 2 (no duplicate for the replay)", len(got))
+	}
+	if got[0].Track.Path != "/a.mp3" || !got[0].PlayedAt.Equal(replay) {
+		t.Fatalf("top = %q at %v, want /a.mp3 at %v", got[0].Track.Path, got[0].PlayedAt, replay)
+	}
+	if got[1].Track.Path != "/b.mp3" {
+		t.Fatalf("second = %q, want /b.mp3", got[1].Track.Path)
 	}
 }
 
@@ -219,5 +217,52 @@ func TestNilStoreSafe(t *testing.T) {
 	}
 	if err := s.Clear(); err != nil {
 		t.Errorf("nil Clear returned err: %v", err)
+	}
+}
+
+func TestLoadHealsLegacyDuplicates(t *testing.T) {
+	s := newTestStore(t)
+	// A file written by an older version that appended repeats: /a.mp3 twice.
+	raw := `[[entry]]
+played_at = "2026-01-01T12:02:00Z"
+path = "/a.mp3"
+title = "A"
+
+[[entry]]
+played_at = "2026-01-01T12:01:00Z"
+path = "/b.mp3"
+title = "B"
+
+[[entry]]
+played_at = "2026-01-01T12:00:00Z"
+path = "/a.mp3"
+title = "A"
+`
+	if err := os.WriteFile(s.Path(), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.Recent(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("entries = %d, want 2 after healing duplicates", len(got))
+	}
+	if got[0].Track.Path != "/a.mp3" || !got[0].PlayedAt.Equal(time.Date(2026, 1, 1, 12, 2, 0, 0, time.UTC)) {
+		t.Fatalf("top = %q at %v, want the newest /a.mp3 play kept", got[0].Track.Path, got[0].PlayedAt)
+	}
+	if got[1].Track.Path != "/b.mp3" {
+		t.Fatalf("second = %q, want /b.mp3", got[1].Track.Path)
+	}
+
+	// A subsequent record rewrites the healed list, cleaning the file too.
+	mustRecord(t, s, playlist.Track{Path: "/c.mp3", Title: "C"}, time.Date(2026, 1, 1, 12, 3, 0, 0, time.UTC))
+	got, err = s.Recent(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("entries = %d, want 3 after a clean rewrite", len(got))
 	}
 }

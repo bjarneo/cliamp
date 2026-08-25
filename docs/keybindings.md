@@ -75,7 +75,8 @@ active when the picker opened. While typing a filter, `Enter` finishes it and
 | Key | Action |
 |---|---|
 | `f` | Toggle bookmark ★ on selected track (or favorite radio station in radio browser) |
-| `Ctrl+F` | Search — active provider's native search (Spotify, Qobuz, Tidal, Navidrome, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, Local) or YouTube fallback. Available from playlist and provider-browser views. |
+| `n` | Toggle favorite ♥ on selected track (cross-playlist; favorited tracks appear in the "Favorites" virtual playlist) |
+| `Ctrl+F` | Search — active provider's native search (Spotify, Qobuz, Tidal, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, Local) or YouTube fallback. Available from playlist and provider-browser views. |
 | `u` | Load URL (stream/playlist) |
 | `y` | Show or close lyrics |
 | `r` | Retry lyrics lookup while lyrics are open |
@@ -116,19 +117,30 @@ active when the picker opened. While typing a filter, `Enter` finishes it and
 | `/` | Filter (incremental); `Esc` clears |
 | `Enter` / `→` | List screen: open the highlighted playlist · Tracks screen: play the **highlighted** track |
 | `p` | Tracks screen: play all from the top |
-| `a` | List: add the now-playing track to the highlighted playlist. Tracks: mark/unmark all visible tracks. |
 | `w` | List: save the current queue through the playlist picker. Tracks: copy marked/highlighted tracks to another playlist. |
 | `Space` | Tracks: mark/unmark highlighted track and advance |
 | `[` `]` | Tracks: move highlighted track and save the playlist |
 | `s` | Tracks: sort and save, cycling `track`, `title`, `artist`, `album`, `artist+album`, `path` |
 | `o` | Tracks: open file browser to add files to this playlist |
-| `r` | List: rename the playlist |
-| `d` | List: delete playlist (confirms). Tracks: remove marked tracks, or highlighted track when none are marked |
+| `D` | List: open the file browser to add `[[dir]]` sources to the highlighted playlist. Tracks: open the directory-sources screen |
+| `a` | List: new playlist — after naming, the file browser opens at `~`: descend with `Enter`, select folders and/or files with `Space`, confirm with `Enter`, or finish with `Esc`. Tracks: mark/unmark all visible tracks. |
+| `r` | List: rename the playlist (`Recently Played` cannot be renamed) |
+| `d` | List: delete playlist (confirms; `Recently Played` cannot be deleted). Tracks: remove marked tracks, or highlighted track when none are marked |
 | `u` | Undo the last manager edit |
 | `←` `Backspace` `h` | Tracks screen: go back to the list |
 | `Esc` | Close the playlist manager or go back |
 
-Shift-letter keys are reserved for provider switching, so playlist-manager track actions use lowercase or punctuation keys.
+Shift-letter keys are reserved for provider switching, so playlist-manager track actions use lowercase or punctuation keys. `D` is the one exception: it opens the directory-sources screen.
+
+#### Directory sources screen (`D` from the tracks screen)
+
+| Key | Action |
+|---|---|
+| `↑` `↓` / `j` `k` | Navigate directory sources |
+| `a` | Open the file browser to add a directory as a `[[dir]]` source |
+| `d` then `y` | Remove the highlighted source (`y` confirms, anything else cancels) |
+| `r` | Toggle `recursive` on the highlighted source |
+| `←` `Backspace` `h` `Esc` | Back to the tracks screen |
 
 ## File browser
 
@@ -141,12 +153,20 @@ Shift-letter keys are reserved for provider switching, so playlist-manager track
 | `a` | Select/unselect all visible audio files |
 | `R` | Replace the current queue with selected files (confirm when it is non-empty) |
 | `w` | Write selected files to a local playlist |
+| `D` | Add all selected folders — or the highlighted folder, or the directory being browsed when neither applies — as a live `[[dir]]` source to the target playlist; the browser stays open so you can add more |
 | `~` `.` | Jump to home / current working directory |
 | `Esc` `o` | Close file browser |
 
+When the browser is adding to a playlist (opened with `D` from the manager's
+list screen, `o` from its tracks screen, or automatically after creating a
+playlist with `a`), selected folders become `[[dir]]` sources and selected
+audio files are written as explicit tracks.
+In this mode `Esc` acts as "done": any pending selection is committed before
+the browser closes.
+
 ## Provider browser (`N` key)
 
-When you press `N` to drill into a provider (Navidrome, Plex, Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz, Tidal, Mixcloud, YouTube Music), the album/artist/track screens use:
+When you press `N` to drill into a provider (Navidrome, Lyrion, Plex, Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz, Tidal, Mixcloud, YouTube Music), the album/artist/track screens use:
 
 | Key | Action |
 |---|---|
@@ -180,6 +200,7 @@ The playlists pane (visible when focus is on a provider — Spotify, Navidrome, 
 | `/` | Filter the playlist list |
 | `Ctrl+F` | Online/server search (Spotify/Navidrome/NetEase/etc.'s own search) |
 | `Ctrl+R` | Refresh — re-pull the playlist list from the provider; for Mixcloud, also clear the cached `/me/` identity |
+| `p` | Open the playlist manager (Local pane only; create, rename, delete, add dirs/tracks) |
 | `S` `N` `P` `J` `E` `Y` `C` `X` `M` `Q` `L` `R` | Switch to that provider |
 | `Tab` | Switch focus to EQ |
 | `Esc` `b` | Back to the playlist pane |

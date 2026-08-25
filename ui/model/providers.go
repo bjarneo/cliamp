@@ -57,6 +57,17 @@ func (m *Model) fetchProviderPlaylists() tea.Cmd {
 	return fetchPlaylistsCmd(m.provider, nextRequest(&m.requests.provider))
 }
 
+// refreshPaneAfterLocalWrite re-pulls Playlists() into the provider pane after
+// a local playlist mutation, but only when Local is the active provider: a
+// remote provider's pane must not receive an unrelated fetch (or surface an
+// unrelated fetch error) because of a local write.
+func (m *Model) refreshPaneAfterLocalWrite() tea.Cmd {
+	if !m.isActiveProvider("Local") {
+		return nil
+	}
+	return m.fetchProviderPlaylists()
+}
+
 func (m *Model) fetchProviderTracks(playlistID string) tea.Cmd {
 	if m.provider == nil {
 		return nil

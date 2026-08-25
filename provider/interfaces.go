@@ -184,11 +184,32 @@ type PlaylistRenamer interface {
 	RenamePlaylist(oldName, newName string) error
 }
 
+// PlaylistDocumenter is implemented by providers that can hand back a
+// playlist's raw TOML document and restore it verbatim. Callers use this to
+// snapshot a playlist before a destructive operation so sections the plain
+// track list cannot represent (e.g. [[dir]] directory sources) survive an
+// undo.
+type PlaylistDocumenter interface {
+	PlaylistDocument(name string) ([]byte, error)
+	RestorePlaylistDocument(name string, data []byte) error
+}
+
 // BookmarkSetter is implemented by providers that support toggling
 // track bookmarks and persisting them.
 type BookmarkSetter interface {
 	SetBookmark(playlistName string, idx int) error
 	SetBookmarkByPath(playlistName string, path string) error
+}
+
+// PlaylistDirSourceManager is implemented by providers whose playlists can
+// reference directory sources that are re-scanned on each load. The local
+// TOML provider implements this for its [[dir]] sections; other providers
+// leave it unimplemented and the UI hides directory-source controls.
+type PlaylistDirSourceManager interface {
+	DirSources(name string) ([]playlist.DirSource, error)
+	AddDirSource(name, dir string) (bool, error)
+	RemoveDirSource(name, dir string) error
+	SetDirRecursive(name, dir string, recursive bool) error
 }
 
 // CustomStreamer is implemented by providers that need a custom audio
@@ -259,4 +280,17 @@ type SectionedList interface {
 // connections) that should be released on shutdown.
 type Closer interface {
 	Close()
+}
+
+// FavoritesManager is implemented by providers that support a cross-playlist
+// favorites virtual playlist. The UI uses this to toggle favorites from the
+// track list without going through the per-playlist write path.
+type FavoritesManager interface {
+	// ToggleFavorite toggles the given track in the favorites store.
+	// Returns true when the track is now favorited after the call.
+	ToggleFavorite(track playlist.Track) (bool, error)
+	// IsFavorited reports whether the given path is in the favorites store.
+	IsFavorited(path string) bool
+	// FavoritesCount returns the number of favorited tracks.
+	FavoritesCount() int
 }

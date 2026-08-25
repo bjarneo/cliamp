@@ -30,6 +30,7 @@ type Engine interface {
 	IsStreamSeek() bool
 	IsYTDLSeek() bool
 	GaplessAdvanced() bool
+	LastPlayedDuration() time.Duration
 
 	// Position and duration
 	Position() time.Duration

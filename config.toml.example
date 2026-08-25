@@ -59,7 +59,7 @@ eq_preset = "Flat"
 # Saved Custom curve; applied when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-# Default provider on startup: "radio", "navidrome", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "soundcloud", "mixcloud", "netease", "audiobookshelf", or a YouTube provider
+# Default provider on startup: "radio", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "soundcloud", "mixcloud", "netease", "audiobookshelf", or a YouTube provider
 # provider = "radio"
 
 # Simplified mode: artist/title and time strip without a visualizer or playlist.
@@ -163,6 +163,24 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 #               frequent, starred, byYear, byGenre
 # This is updated automatically when you press [s] inside the browser.
 # browse_sort = alphabeticalByName
+
+# ---
+# Lyrion Music Server / LMS (optional)
+# Only `url` is required; add credentials if the server has password
+# protection enabled. Port 9000 is the LMS default — the same port as its web
+# interface, not the 9090 CLI port.
+# These values take precedence over the LYRION_URL / LYRION_USER /
+# LYRION_PASS environment variables when both are present.
+# [lyrion]
+# url      = "http://nas.local:9000"
+# user     = "alice"
+# password = "secret"
+#
+# Tracks and playlists contributed by LMS plugins (Spotty and similar) are not
+# file-backed, so cliamp cannot stream them and hides them by default. Set this
+# to show them anyway, flagged as unplayable and skipped during playback.
+# See docs/lyrion.md.
+# show_unplayable = true
 
 # ---
 # SoundCloud (optional, opt-in)

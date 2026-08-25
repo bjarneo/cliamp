@@ -36,6 +36,7 @@ func (f *fakeEngine) Seekable() bool                                      { retu
 func (f *fakeEngine) IsStreamSeek() bool                                  { return f.streamSeek }
 func (f *fakeEngine) IsYTDLSeek() bool                                    { return false }
 func (f *fakeEngine) GaplessAdvanced() bool                               { return false }
+func (f *fakeEngine) LastPlayedDuration() time.Duration                   { return 0 }
 func (f *fakeEngine) Position() time.Duration                             { return f.position }
 func (f *fakeEngine) Duration() time.Duration                             { return time.Hour }
 func (f *fakeEngine) PositionAndDuration() (time.Duration, time.Duration) { return 0, time.Hour }

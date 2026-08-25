@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
 )
@@ -337,6 +338,18 @@ func (m *Model) plMgrTracksHelpLine() string {
 	return m.commandHelp(commandModePlaylistManager)
 }
 
+func (m *Model) plMgrDirsHelpLine() string {
+	return m.commandHelp(commandModePlaylistManagerDirs)
+}
+
+func (m *Model) plMgrDirsVisible() int {
+	return m.effectivePlaylistVisible()
+}
+
+func (m *Model) plMgrDirsMaybeAdjustScroll(visible int) {
+	clampScroll(&m.plManager.cursor, &m.plManager.scroll, len(m.plManager.dirs), visible)
+}
+
 func (m *Model) plMgrTracksVisible() int {
 	return m.effectivePlaylistVisible()
 }
@@ -392,6 +405,38 @@ func (m *Model) plMgrEnterTrackList(name string) {
 	m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
 }
 
+// plMgrReloadTracks re-reads the open track list in place so store changes
+// (fresh history entries, favorite toggles) appear without leaving the
+// screen. The cursor is clamped rather than reset, stale row marks are
+// dropped, and any active filter is re-applied.
+func (m *Model) plMgrReloadTracks(name string) {
+	tracks, err := m.localProvider.Tracks(name)
+	if err != nil {
+		return
+	}
+	m.plMgrLoadTracks(tracks)
+	m.setHeaderStateFromTracks(tracks)
+	m.plManager.marked = make(map[int]bool)
+	if m.plManager.filter != "" {
+		m.plMgrRecomputeFilter()
+	}
+	newCount := m.plMgrTracksViewCount()
+	if newCount == 0 {
+		// An emptied list (e.g. the last favorite removed) can leave a
+		// stale scroll offset: the adjust helper returns early at zero.
+		m.plManager.cursor = 0
+		m.plManager.scroll = 0
+		return
+	}
+	if m.plManager.cursor >= newCount {
+		m.plManager.cursor = newCount - 1
+	}
+	if m.plManager.cursor < 0 {
+		m.plManager.cursor = 0
+	}
+	m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
+}
+
 // plMgrLoadTracks refreshes missing-file state only at an explicit list load.
 // The synchronous stats stay out of render and in-memory edit paths.
 func (m *Model) plMgrLoadTracks(tracks []playlist.Track) {
@@ -427,6 +472,153 @@ func missingLocalTrack(track playlist.Track) bool {
 	}
 	_, err := os.Stat(track.Path)
 	return os.IsNotExist(err)
+}
+
+// plMgrOpenDirs loads the [[dir]] sources for the open playlist and switches
+// to the directory-sources screen. Playlists whose provider does not implement
+// provider.PlaylistDirSourceManager show a notice instead of switching.
+func (m *Model) plMgrOpenDirs() {
+	if name := plMgrVirtualPlaylistName(m.plManager.selPlaylist); name != "" {
+		m.status.Showf(statusTTLDefault, "%q is a virtual playlist with no directory sources", name)
+		return
+	}
+	dm, ok := m.localProvider.(provider.PlaylistDirSourceManager)
+	if !ok {
+		m.status.Showf(statusTTLDefault, "%q does not support directory sources", m.plManager.selPlaylist)
+		return
+	}
+	dirs, err := dm.DirSources(m.plManager.selPlaylist)
+	if err != nil {
+		m.status.Errorf(statusTTLDefault, "Load dir sources: %s", err)
+		return
+	}
+	m.plManager.dirs = dirs
+	m.plManager.screen = plMgrScreenDirs
+	m.plManager.cursor = 0
+	m.plManager.scroll = 0
+	m.plManager.confirmDel = false
+	m.plMgrResetFilter()
+	m.plMgrDirsMaybeAdjustScroll(m.plMgrDirsVisible())
+}
+
+// plMgrReloadDirs re-reads the [[dir]] sources for the open playlist and
+// clamps the cursor so it stays valid after an add or remove.
+func (m *Model) plMgrReloadDirs() {
+	dm, ok := m.localProvider.(provider.PlaylistDirSourceManager)
+	if !ok {
+		return
+	}
+	dirs, err := dm.DirSources(m.plManager.selPlaylist)
+	if err != nil {
+		m.status.Errorf(statusTTLDefault, "Reload dir sources: %s", err)
+		return
+	}
+	m.plManager.dirs = dirs
+	if m.plManager.cursor >= len(dirs) {
+		m.plManager.cursor = len(dirs) - 1
+	}
+	if m.plManager.cursor < 0 {
+		m.plManager.cursor = 0
+	}
+	m.plMgrDirsMaybeAdjustScroll(m.plMgrDirsVisible())
+}
+
+// plMgrRefreshTracksForSel reloads the tracks of the open playlist so changes
+// to its [[dir]] sources (add/remove/toggle-recursive) are reflected in the
+// tracks screen immediately.
+func (m *Model) plMgrRefreshTracksForSel() {
+	tracks, err := m.localProvider.Tracks(m.plManager.selPlaylist)
+	if err != nil {
+		return
+	}
+	// plMgrLoadTracks keeps the missingLocal cache in sync with the new
+	// track slice; assigning tracks directly would leave stale per-track
+	// missing-file indicators mapped onto the wrong entries.
+	m.plMgrLoadTracks(tracks)
+	m.setHeaderStateFromTracks(tracks)
+}
+
+// fbAddDirSource adds directories as [[dir]] sources on the target playlist:
+// the selected folders when any are selected, otherwise the folder under the
+// cursor, otherwise the directory being browsed. The browser stays open so
+// several folders can be added in a row (Esc leaves). Invoked by the file
+// browser's D key when a target playlist is set.
+func (m *Model) fbAddDirSource() {
+	target := m.fileBrowser.targetPlaylist
+	if target == "" {
+		return
+	}
+	if name := plMgrVirtualPlaylistName(target); name != "" {
+		m.status.Showf(statusTTLDefault, "%q is a virtual playlist with no directory sources", name)
+		return
+	}
+	var dirs []string
+	for _, e := range m.fileBrowser.entries {
+		if m.fileBrowser.selected[e.path] && e.isDir && !e.isParent {
+			dirs = append(dirs, e.path)
+		}
+	}
+	if len(dirs) == 0 && m.fileBrowser.cursor < m.fbCount() {
+		if e := m.fbEntry(m.fileBrowser.cursor); e.isDir && !e.isParent {
+			dirs = []string{e.path}
+		}
+	}
+	if len(dirs) == 0 {
+		dirs = []string{m.fileBrowser.dir}
+	}
+	m.plMgrAddDirSources(target, dirs)
+}
+
+// plMgrAddDirSources adds dirs to the target playlist via the local provider,
+// refreshes an open manager screen for it, and reports the outcome in the
+// status bar. It returns how many sources were added and skipped as already
+// referenced.
+func (m *Model) plMgrAddDirSources(target string, dirs []string) (added, skipped int) {
+	dm, ok := m.localProvider.(provider.PlaylistDirSourceManager)
+	if !ok {
+		m.status.Showf(statusTTLDefault, "This provider does not support directory sources")
+		return 0, 0
+	}
+	added, skipped = 0, 0
+	var firstErr error
+	for _, d := range dirs {
+		a, err := dm.AddDirSource(target, d)
+		if err != nil {
+			firstErr = err
+			break
+		}
+		if a {
+			added++
+		} else {
+			skipped++
+		}
+	}
+	// Reflect any successful additions in an open manager screen for this
+	// playlist before reporting a partial failure, so the open screen never
+	// shows stale sources or counts after an AddDirSource error mid-loop.
+	if added > 0 && m.plManager.visible && m.plManager.selPlaylist == target {
+		switch m.plManager.screen {
+		case plMgrScreenDirs:
+			m.plMgrReloadDirs()
+			m.plMgrRefreshTracksForSel()
+		case plMgrScreenTracks:
+			m.plMgrRefreshTracksForSel()
+		}
+		m.plMgrRefreshList()
+	}
+	switch {
+	case firstErr != nil && added > 0:
+		m.status.Showf(statusTTLDefault, "Added %d dir source(s) to %q; then failed: %s", added, target, firstErr)
+	case firstErr != nil:
+		m.status.Errorf(statusTTLDefault, "Add dir source failed: %s", firstErr)
+	case added > 0 && skipped > 0:
+		m.status.Showf(statusTTLDefault, "Added %d dir source(s) to %q (%d already referenced)", added, target, skipped)
+	case added > 0:
+		m.status.Showf(statusTTLDefault, "Added %d dir source(s) to %q", added, target)
+	default:
+		m.status.Showf(statusTTLDefault, "%q already references that directory", target)
+	}
+	return added, skipped
 }
 
 // plMgrResetFilter clears any active `/` filter on the playlist manager.
@@ -512,14 +704,19 @@ func (m *Model) plMgrRefreshList() {
 	if m.plManager.filter != "" {
 		m.plMgrRecomputeFilter()
 	}
-	total := m.plMgrListViewCount()
-	if m.plManager.cursor >= total {
-		m.plManager.cursor = total - 1
+	// Cursor/scroll clamping is list-screen-specific: the tracks and
+	// directory-sources screens own their own cursor and re-adjust after
+	// refreshing. Only the list screen re-clamps here.
+	if m.plManager.screen == plMgrScreenList {
+		total := m.plMgrListViewCount()
+		if m.plManager.cursor >= total {
+			m.plManager.cursor = total - 1
+		}
+		if m.plManager.cursor < 0 {
+			m.plManager.cursor = 0
+		}
+		m.plMgrListMaybeAdjustScroll(m.plMgrListVisible())
 	}
-	if m.plManager.cursor < 0 {
-		m.plManager.cursor = 0
-	}
-	m.plMgrListMaybeAdjustScroll(m.plMgrListVisible())
 }
 
 // plMgrListViewCount returns the visible row count on the list screen
