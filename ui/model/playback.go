@@ -607,7 +607,7 @@ func (m *Model) applyResume() tea.Cmd {
 	// without seeking rather than overriding that with a stale value.
 	if m.findTrackPosition(track) != nil {
 		m.clearResume(track)
-		return
+		return nil
 	}
 	// Only seek if the player reports the stream is seekable; otherwise the
 	// seek is a no-op that returns nil, which we must not mistake for success.
