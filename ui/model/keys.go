@@ -23,9 +23,11 @@ func (m *Model) quit() tea.Cmd {
 	// Only save resume for seekable tracks:
 	// - local files (not stream)
 	// - HTTP streams with known duration (podcast MP3s, seek-by-reconnect)
-	// Exclude YTDL (position unreliable) and real-time live streams.
+	// - finite Mixcloud shows (yt-dlp tracks with a counted PCM position)
+	// Other yt-dlp sites and real-time live streams remain excluded.
 	if track, _ := m.currentPlaybackTrack(); track.Path != "" &&
-		!playlist.IsYTDL(track.Path) && !track.IsLive() &&
+		(!playlist.IsYTDL(track.Path) || playlist.IsMixcloudURL(track.Path)) &&
+		!track.IsLive() &&
 		m.player.IsPlaying() {
 		if secs := int(m.player.Position().Seconds()); secs > 0 {
 			m.exitResume.path = track.Path
@@ -193,8 +195,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.quit()
 	}
 	if msg.String() == "ctrl+z" {
-		m.undoPlaylistMutation()
-		return nil
+		return m.undoPlaylistMutation()
 	}
 	if msg.String() == "ctrl+k" && !m.keymap.visible {
 		if m.fullVis {
@@ -356,9 +357,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 				}
 			}
 			if len(m.providerLists) > 0 && !m.provLoading {
-				m.provLoading = true
-				m.activeProviderPlaylistID = m.providerLists[m.provCursor].ID
-				return m.fetchProviderTracks(m.providerLists[m.provCursor].ID)
+				return m.openProviderList(m.provCursor)
 			}
 		case "tab":
 			m.focus = m.nextMainFocus(focusPlaylist)
@@ -396,8 +395,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		case "o":
 			m.openFileBrowser()
 		case "N":
-			if prov := m.findBrowseProvider(); prov != nil {
-				m.openNavBrowserWith(prov)
+			// Provider-pane browsing must stay scoped to the provider being
+			// viewed. Falling back to another registered browser can otherwise
+			// send (for example) Spotify's pane into Mixcloud.
+			if providerSupportsBrowse(m.provider) {
+				m.openNavBrowserWith(m.provider)
 			}
 		case "pgup", "ctrl+u":
 			m.providerPageUp()
@@ -425,6 +427,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.switchToProvider("yt")
 		case "C":
 			return m.switchToProvider("soundcloud")
+		case "X":
+			return m.switchToProvider("mixcloud")
 		case "M":
 			return m.switchToProvider("netease")
 		case "Q":
@@ -667,16 +671,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		if err := m.configSaver.Save("repeat", fmt.Sprintf("%q", m.playlist.Repeat().String())); err != nil {
 			m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
 		}
-		m.player.ClearPreload()
-		return m.preloadNext()
+		return m.rearmPreload()
 
 	case "z":
 		m.playlist.ToggleShuffle()
 		if err := m.configSaver.Save("shuffle", fmt.Sprintf("%v", m.playlist.Shuffled())); err != nil {
 			m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
 		}
-		m.player.ClearPreload()
-		return m.preloadNext()
+		return m.rearmPreload()
 
 	case "tab":
 		m.focus = m.nextMainFocus(m.focus)
@@ -704,6 +706,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 				m.playlist.Queue(m.plCursor)
 			}
 			m.normalizeQueueOverlay()
+			return m.rearmPreload()
 		}
 
 	case "w":
@@ -779,8 +782,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.urlErr = ""
 
 	case "N":
-		if prov := m.findBrowseProvider(); prov != nil {
-			m.openNavBrowserWith(prov)
+		if cmd, ok := m.openSelectedTrackArtistBrowser(); ok {
+			return cmd
+		}
+		if providerSupportsBrowse(m.provider) {
+			m.openNavBrowserWith(m.provider)
 		}
 
 	case "L":
@@ -793,6 +799,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.switchToProvider("yt")
 	case "C":
 		return m.switchToProvider("soundcloud")
+	case "X":
+		return m.switchToProvider("mixcloud")
 	case "M":
 		return m.switchToProvider("netease")
 	case "Q":
@@ -1133,10 +1141,8 @@ func (m *Model) handleProvSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 			idx := m.provSearch.results[m.provSearch.cursor]
 			m.provCursor = idx
 			m.providerMaybeAdjustScroll()
-			m.provLoading = true
 			m.provSearch.active = false
-			m.activeProviderPlaylistID = m.providerLists[idx].ID
-			return m.fetchProviderTracks(m.providerLists[idx].ID)
+			return m.openProviderList(idx)
 		}
 	case tea.KeyUp:
 		if m.provSearch.cursor > 0 {
@@ -1196,7 +1202,7 @@ func (m *Model) restoreCatalog(cs provider.CatalogSearcher) {
 	}
 	cs.ClearSearch()
 	if lists, err := m.provider.Playlists(); err == nil {
-		m.providerLists = lists
+		m.providerLists = providerListsWithBrowse(m.provider, lists)
 	}
 	m.provCursor = 0
 	m.provScroll = 0
@@ -1413,6 +1419,7 @@ func (m *Model) handleSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 				m.playlist.Queue(idx)
 			}
 			m.normalizeQueueOverlay()
+			return m.rearmPreload()
 		}
 
 	case tea.KeyUp:
@@ -2687,34 +2694,54 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		m.normalizeQueueOverlay()
 	case "shift+up":
+		moved := false
 		if m.queue.cursor > 0 {
 			if m.playlist.MoveQueue(m.queue.cursor, m.queue.cursor-1) {
 				m.queue.cursor--
+				moved = true
 			}
 		}
 		m.normalizeQueueOverlay()
+		if moved {
+			return m.rearmPreload()
+		}
 	case "shift+down":
+		moved := false
 		if m.queue.cursor < qLen-1 {
 			if m.playlist.MoveQueue(m.queue.cursor, m.queue.cursor+1) {
 				m.queue.cursor++
+				moved = true
 			}
 		}
 		m.normalizeQueueOverlay()
+		if moved {
+			return m.rearmPreload()
+		}
 	case "d":
+		removed := false
 		if qLen > 0 {
 			m.playlistUndo = playlistUndo{active: true, snapshot: m.playlist.Snapshot()}
 			m.playlist.RemoveQueueAt(m.queue.cursor)
+			removed = true
 			m.status.Show("Removed queued track (Ctrl+Z to undo)", statusTTLDefault)
 		}
 		m.normalizeQueueOverlay()
+		if removed {
+			return m.rearmPreload()
+		}
 	case "c":
+		cleared := false
 		if qLen > 0 {
 			m.playlistUndo = playlistUndo{active: true, snapshot: m.playlist.Snapshot()}
 			m.playlist.ClearQueue()
+			cleared = true
 			m.normalizeQueueOverlay()
 			m.status.Show("Cleared queue (Ctrl+Z to undo)", statusTTLDefault)
 		}
 		m.queue.visible = false
+		if cleared {
+			return m.rearmPreload()
+		}
 	case "esc", "A":
 		m.queue.visible = false
 	}

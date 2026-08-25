@@ -133,11 +133,24 @@ func (p *Player) handleGaplessSwap(token uint64) {
 // knownDuration is the metadata duration (use 0 if unknown); it is used as a
 // fallback when the decoder cannot determine the length (e.g. HTTP streams).
 func (p *Player) Play(path string, knownDuration time.Duration) error {
+	return p.PlayAt(path, knownDuration, 0)
+}
+
+// PlayAt is Play, starting at offset. The decoder is positioned before the
+// pipeline reaches the speaker, so no audio plays from 0:00.
+func (p *Player) PlayAt(path string, knownDuration, offset time.Duration) error {
 	tp, err := p.buildPipeline(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("play at %v: %w", offset, err)
 	}
 	tp.setKnownDuration(knownDuration)
+	if offset > 0 && tp.seekable && !tp.ytdlSeek {
+		if sample := relativeSeekSample(tp, offset); sample > 0 {
+			// Ignored deliberately: a failed seek should start the track from
+			// the beginning, not refuse to play it.
+			_ = tp.decoder.Seek(sample)
+		}
+	}
 	return p.playPipeline(tp)
 }
 
@@ -537,6 +550,7 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 	// Build pipeline WITHOUT speaker lock (this is the slow part — spawns yt-dlp).
 	tp, err := p.buildYTDLPipeline(cur.path, startSec)
 	if err != nil {
+		p.restoreYTDLSeekSource(cur, gen)
 		return fmt.Errorf("yt-dlp seek: %w", err)
 	}
 	tp.knownDuration = cur.knownDuration
@@ -565,6 +579,24 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 	// Clean up old pipelines async to avoid blocking on process wait.
 	go closePipelines(old, oldNext)
 	return nil
+}
+
+// restoreYTDLSeekSource puts the original stream back after a replacement
+// pipeline fails to start. The generation and current-pipeline checks prevent
+// an obsolete seek from overwriting a newer seek or track change.
+func (p *Player) restoreYTDLSeekSource(cur *trackPipeline, gen int64) {
+	if cur == nil || p.seekGen.Load() != gen {
+		return
+	}
+	speaker.Lock()
+	p.mu.Lock()
+	stillCurrent := p.current == cur && p.seekGen.Load() == gen
+	if stillCurrent {
+		p.gapless.Replace(cur.stream)
+		p.gaplessAdvance.Store(false)
+	}
+	p.mu.Unlock()
+	speaker.Unlock()
 }
 
 // IsYTDLSeek reports whether the current track uses yt-dlp seek-by-restart.

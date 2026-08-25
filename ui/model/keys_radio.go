@@ -51,7 +51,7 @@ func (m *Model) toggleProviderFavorite() tea.Cmd {
 
 	prevID := id
 	if lists, err := m.provider.Playlists(); err == nil {
-		m.providerLists = lists
+		m.providerLists = providerListsWithBrowse(m.provider, lists)
 		for i, p := range m.providerLists {
 			if p.ID == prevID {
 				m.provCursor = i

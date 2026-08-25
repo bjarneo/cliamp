@@ -185,6 +185,21 @@ func IsYouTubeMusicURL(path string) bool {
 	return host == "music.youtube.com"
 }
 
+// IsMixcloudURL reports whether path is a Mixcloud website URL.
+func IsMixcloudURL(path string) bool {
+	if !IsURL(path) {
+		return false
+	}
+	u, err := url.Parse(path)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	host = strings.TrimPrefix(host, "www.")
+	host = strings.TrimPrefix(host, "m.")
+	return host == "mixcloud.com"
+}
+
 // IsYTDL reports whether the URL points to a site supported by yt-dlp
 // (YouTube, SoundCloud, Bandcamp, ytsearch: protocol, etc.).
 func IsYTDL(path string) bool {
@@ -207,6 +222,7 @@ func IsYTDL(path string) bool {
 	host = strings.TrimPrefix(host, "m.")
 	switch host {
 	case "soundcloud.com",
+		"mixcloud.com",
 		"bandcamp.com",
 		"music.163.com",
 		"bilibili.com",

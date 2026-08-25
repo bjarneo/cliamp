@@ -18,6 +18,8 @@ const (
 	navViewArtists
 	navViewAlbums
 	navViewTracks
+	navViewGenres
+	navViewGenreSorts
 )
 
 // navView collapses the nav browser's mode + screen into the list actually
@@ -43,6 +45,15 @@ func (m Model) navView() navViewKind {
 		default:
 			return navViewArtists
 		}
+	case navBrowseModeByGenre:
+		switch m.navBrowser.screen {
+		case navBrowseScreenAlbums:
+			return navViewGenreSorts
+		case navBrowseScreenTracks:
+			return navViewTracks
+		default:
+			return navViewGenres
+		}
 	default:
 		return navViewMenu
 	}
@@ -67,6 +78,10 @@ func (m Model) navHeaderLine() string {
 		return sepHeaderN(m.navBreadcrumb(), m.navBrowser.cursor+1, len(m.navBrowser.albums))
 	case navViewTracks:
 		return sepHeaderN(m.navBreadcrumb(), m.navBrowser.cursor+1, len(m.navBrowser.tracks))
+	case navViewGenres:
+		return sepHeaderN(m.navBreadcrumb(), m.navBrowser.cursor+1, len(m.navBrowser.genres))
+	case navViewGenreSorts:
+		return sepHeaderN(m.navBreadcrumb(), m.navBrowser.cursor+1, len(m.navBrowser.genreSorts))
 	default:
 		return sepHeader(m.navBreadcrumb())
 	}
@@ -98,7 +113,11 @@ func (m Model) renderNavBody() string {
 		}
 		items := m.navScrollItems(len(m.navBrowser.artists), func(i int) string {
 			a := m.navBrowser.artists[i]
-			return truncate(fmt.Sprintf("%s (%d %s)", a.Name, a.AlbumCount, labels.albumsLower()), ui.PanelWidth-6)
+			name := a.Name
+			if a.AlbumCount > 0 {
+				name = fmt.Sprintf("%s (%d %s)", name, a.AlbumCount, labels.albumsLower())
+			}
+			return truncate(name, ui.PanelWidth-6)
 		})
 		return strings.Join(items, "\n")
 	case navViewAlbums:
@@ -113,16 +132,52 @@ func (m Model) renderNavBody() string {
 		}
 		items := m.navScrollItems(len(m.navBrowser.albums), func(i int) string {
 			a := m.navBrowser.albums[i]
+			name := albumViewName(a)
 			if a.Year > 0 {
-				return truncate(fmt.Sprintf("%s — %s (%d)", a.Name, a.Artist, a.Year), ui.PanelWidth-6)
+				return truncate(fmt.Sprintf("%s — %s (%d)", name, a.Artist, a.Year), ui.PanelWidth-6)
 			}
-			return truncate(fmt.Sprintf("%s — %s", a.Name, a.Artist), ui.PanelWidth-6)
+			return truncate(fmt.Sprintf("%s — %s", name, a.Artist), ui.PanelWidth-6)
 		})
 		return strings.Join(items, "\n")
 	case navViewTracks:
 		return m.renderNavTrackBody(budget)
+	case navViewGenres:
+		if m.navBrowser.loading && len(m.navBrowser.genres) == 0 {
+			return bodyLines([]string{loadingLine("Loading genres…")}, budget)
+		}
+		if m.navBrowser.search != "" && len(m.navBrowser.searchIdx) == 0 {
+			return bodyMessage("No matches.", budget)
+		}
+		if len(m.navBrowser.genres) == 0 {
+			return bodyMessage("No genres found.", budget)
+		}
+		items := m.navScrollItems(len(m.navBrowser.genres), func(i int) string {
+			genre := m.navBrowser.genres[i]
+			mark := "☆ "
+			if genre.Favorite {
+				mark = "★ "
+			}
+			label := mark + genre.Name
+			if genre.Group != "" && !strings.EqualFold(genre.Group, "music") {
+				label += " — " + genre.Group
+			}
+			return truncate(label, ui.PanelWidth-6)
+		})
+		return strings.Join(items, "\n")
+	case navViewGenreSorts:
+		if len(m.navBrowser.genreSorts) == 0 {
+			return bodyMessage("No genre views found.", budget)
+		}
+		items := m.navScrollItems(len(m.navBrowser.genreSorts), func(i int) string {
+			return truncate(m.navBrowser.genreSorts[i].Label, ui.PanelWidth-6)
+		})
+		return strings.Join(items, "\n")
 	default:
-		items := []string{"By " + labels.album, "By " + labels.artist, "By " + labels.artist + " / " + labels.album}
+		menu := m.navMenuItems()
+		items := make([]string, len(menu))
+		for i := range menu {
+			items[i] = menu[i].label
+		}
 		return windowList(items, m.navBrowser.cursor, 0, budget)
 	}
 }
@@ -141,7 +196,7 @@ func (m Model) renderNavTrackBody(budget int) string {
 	if m.navBrowser.search != "" {
 		items := m.navScrollItems(len(m.navBrowser.tracks), func(i int) string {
 			t := m.navBrowser.tracks[i]
-			return formatTrackRow(i+1, t.DisplayName()+trackAlbumSuffix(t, m.showAlbumHeaders), t.DurationSecs)
+			return formatTrackRow(i+1, trackViewName(t)+trackAlbumSuffix(t, m.showAlbumHeaders), t.DurationSecs)
 		})
 		return strings.Join(items, "\n")
 	}

@@ -378,7 +378,7 @@ func (m Model) renderTitle() string {
 
 func (m Model) renderTrackInfo() string {
 	track, _ := m.currentPlaybackTrack()
-	name := track.DisplayName()
+	name := trackViewName(track)
 	if name == "" {
 		name = "No track loaded"
 	}
@@ -894,7 +894,7 @@ func (m Model) renderPlaylist() string {
 		}
 		markers := cursorMarker + playingMarker + queueMarker + bookmarkMarker + unavailableMarker + " "
 
-		name := t.DisplayName()
+		name := trackViewName(t)
 		queueSuffix := ""
 		if queuePosition > 0 && ui.PanelWidth >= 64 {
 			queueSuffix = fmt.Sprintf(" [Q%d]", queuePosition)

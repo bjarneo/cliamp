@@ -1,10 +1,11 @@
-# YouTube, SoundCloud, NetEase, Bandcamp and Bilibili
+# YouTube, SoundCloud, Mixcloud, NetEase, Bandcamp and Bilibili
 
-Play from YouTube, SoundCloud, NetEase, Bandcamp, and Bilibili URLs if [yt-dlp](https://github.com/yt-dlp/yt-dlp) is installed:
+Play from YouTube, SoundCloud, Mixcloud, NetEase, Bandcamp, and Bilibili URLs if [yt-dlp](https://github.com/yt-dlp/yt-dlp) is installed:
 
 ```sh
 cliamp https://www.youtube.com/watch?v=dQw4w9WgXcQ
 cliamp https://soundcloud.com/artist/track
+cliamp https://www.mixcloud.com/creator/show-name/
 cliamp 'https://music.163.com/#/song?id=1973665667'
 cliamp https://artist.bandcamp.com/album/name
 cliamp https://www.bilibili.com/video/BV1xxxxxxxxx
@@ -24,7 +25,7 @@ cliamp search "never gonna give you up"       # search YouTube
 cliamp search-sc "lofi beats"                  # search SoundCloud
 ```
 
-Inside the TUI, press `Ctrl+F` to search the active provider — YouTube when you're on YouTube/YT-Music, SoundCloud when you're on SoundCloud, and NetEase when you're on NetEase. SoundCloud and NetEase also have dedicated provider docs covering signed-in playback: [SoundCloud](soundcloud.md), [NetEase](netease.md).
+Inside the TUI, press `Ctrl+F` to search the active provider — YouTube when you're on YouTube/YT-Music, SoundCloud when you're on SoundCloud, Mixcloud when you're on Mixcloud, and NetEase when you're on NetEase. These providers have dedicated docs covering signed-in playback: [SoundCloud](soundcloud.md), [Mixcloud](mixcloud.md), [NetEase](netease.md).
 
 ## Disclaimer
 

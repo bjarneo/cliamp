@@ -1,7 +1,10 @@
 package tidal
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -114,6 +117,92 @@ func TestAlbumInfo(t *testing.T) {
 		got.ArtistID != "7" || got.Year != 2021 || got.TrackCount != 12 {
 		t.Errorf("albumInfo = %+v", got)
 	}
+}
+
+func TestAlbumPlaceholder(t *testing.T) {
+	a := apiAlbum{
+		ID:          json.Number("123"),
+		Title:       "Album",
+		ReleaseDate: "2021-01-02",
+		Artist:      apiArtist{ID: json.Number("7"), Name: "Artist"},
+	}
+	tr := albumPlaceholder(a)
+	if tr.Path != "tidal://album/123" {
+		t.Errorf("Path = %q", tr.Path)
+	}
+	if tr.Title != "Album" || tr.Album != "Album" || tr.Artist != "Artist" || tr.Year != 2021 {
+		t.Errorf("albumPlaceholder = %+v", tr)
+	}
+	if !tr.IsAlbum() {
+		t.Error("IsAlbum() = false, want true")
+	}
+	if tr.AlbumID() != "123" {
+		t.Errorf("AlbumID() = %q, want 123", tr.AlbumID())
+	}
+}
+
+func TestSearchTracksAlbumsFirst(t *testing.T) {
+	trackItems := `{"items": [{"id": 9, "title": "T", "allowStreaming": true, "streamReady": true, "artist": {"name": "X"}}]}`
+	albumItems := `{"items": [{"id": 1, "title": "A", "artist": {"id": 2, "name": "Artist"}}]}`
+
+	t.Run("albums lead the results", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/search/tracks":
+				_, _ = w.Write([]byte(trackItems))
+			case "/search/albums":
+				_, _ = w.Write([]byte(albumItems))
+			default:
+				t.Errorf("unexpected path %q", r.URL.Path)
+				http.NotFound(w, r)
+			}
+		}))
+		defer srv.Close()
+
+		p := New("lossless", "", "")
+		p.client = testClient(srv)
+		got, err := p.SearchTracks(context.Background(), "q", 10)
+		if err != nil {
+			t.Fatalf("SearchTracks: %v", err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("got %d results, want 2", len(got))
+		}
+		if !got[0].IsAlbum() || got[0].Title != "A" {
+			t.Errorf("result[0] = %+v, want album placeholder A", got[0])
+		}
+		if got[1].IsAlbum() || got[1].Title != "T" {
+			t.Errorf("result[1] = %+v, want track T", got[1])
+		}
+	})
+
+	t.Run("album search failure degrades to tracks only", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/search/tracks":
+				_, _ = w.Write([]byte(trackItems))
+			case "/search/albums":
+				http.Error(w, "boom", http.StatusInternalServerError)
+			default:
+				t.Errorf("unexpected path %q", r.URL.Path)
+				http.NotFound(w, r)
+			}
+		}))
+		defer srv.Close()
+
+		p := New("lossless", "", "")
+		p.client = testClient(srv)
+		got, err := p.SearchTracks(context.Background(), "q", 10)
+		if err != nil {
+			t.Fatalf("SearchTracks: %v", err)
+		}
+		if len(got) != 1 {
+			t.Fatalf("got %d results, want 1", len(got))
+		}
+		if got[0].IsAlbum() || got[0].Title != "T" {
+			t.Errorf("result[0] = %+v, want track T", got[0])
+		}
+	})
 }
 
 func TestTrackFromAPI(t *testing.T) {

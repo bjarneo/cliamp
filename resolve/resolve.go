@@ -21,9 +21,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
+	"github.com/bjarneo/cliamp/internal/ytdlcookies"
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 
@@ -35,21 +35,10 @@ import (
 // Default true preserves backward compatibility.
 var ExpandYTPlaylist = true
 
-// ytdlCookiesFromVal stores the browser name passed to yt-dlp's
-// --cookies-from-browser flag. atomic.Value allows lock-free reads on the
-// resolve hot path while permitting late binding from main.go.
-var ytdlCookiesFromVal atomic.Value
-
-// SetYTDLCookiesFrom configures yt-dlp to use cookies from the given browser
-// (e.g. "firefox", "chrome", "brave") for any --flat-playlist resolution.
-// Pass an empty string to disable.
-func SetYTDLCookiesFrom(browser string) {
-	ytdlCookiesFromVal.Store(browser)
-}
-
-func ytdlCookiesFrom() string {
-	v, _ := ytdlCookiesFromVal.Load().(string)
-	return v
+// SetYTDLCookiesForHost configures yt-dlp to use browser cookies when
+// resolving or playing URLs for host. Passing an empty browser disables it.
+func SetYTDLCookiesForHost(host, browser string) {
+	ytdlcookies.SetForHost(host, browser)
 }
 
 // httpClient is used for feed and M3U resolution. It has a generous but
@@ -452,9 +441,10 @@ func resolveFeed(feedURL string) ([]playlist.Track, error) {
 	return tracks, nil
 }
 
-// maxM3UBody caps how much of a remote playlist we read before classifying it.
-// HLS/M3U playlists are tiny (a few KB); 1 MB is a generous safety bound.
-const maxM3UBody = 1 << 20
+// maxPlaylistBody caps how much of a remote playlist we read before
+// classifying it. HLS/M3U and PLS playlists are tiny (a few KB); 1 MB is a
+// generous safety bound.
+const maxPlaylistBody = 1 << 20
 
 // resolveM3U fetches an M3U/M3U8 URL. HLS playlists (master or media) are a
 // single live/VOD stream — not a track list — so the original URL is handed to
@@ -471,7 +461,7 @@ func resolveM3U(m3uURL string) ([]playlist.Track, error) {
 		return nil, fmt.Errorf("http status %s", resp.Status)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxM3UBody))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPlaylistBody))
 	if err != nil {
 		return nil, err
 	}
@@ -506,7 +496,18 @@ func resolvePLS(plsURL string) ([]playlist.Track, error) {
 		return nil, fmt.Errorf("http status %s", resp.Status)
 	}
 
-	entries, err := parsePLS(resp.Body)
+	// Read one byte past the cap so an oversized playlist is reported rather
+	// than silently truncated: io.LimitReader alone would cut mid-line and
+	// hand parsePLS a partial "FileN=https:/", which becomes a bogus track.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPlaylistBody+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading pls playlist: %w", err)
+	}
+	if len(body) > maxPlaylistBody {
+		return nil, fmt.Errorf("pls playlist exceeds %d bytes", maxPlaylistBody)
+	}
+
+	entries, err := parsePLS(bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -609,7 +610,7 @@ func resolveYouTube(pageURL string) ([]playlist.Track, error) {
 // ResolveYTDLBatch fetches tracks starting at offset `start`.
 // If count > 0, fetches at most `count` items; if count == 0, fetches all remaining.
 // If an optional browser is provided, cookies from that browser are used;
-// otherwise, the globally configured yt-dlp cookies browser is used.
+// otherwise, the cookie source configured for pageURL's host is used.
 func ResolveYTDLBatch(pageURL string, start, count int, browser ...string) ([]playlist.Track, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -677,7 +678,7 @@ func resolveYTDLRangePageContext(ctx context.Context, pageURL string, start, end
 		b = strings.TrimSpace(browser[0])
 	}
 	if b == "" {
-		b = ytdlCookiesFrom()
+		b = ytdlcookies.ForURL(pageURL)
 	}
 	if b != "" {
 		args = append(args, "--cookies-from-browser", b)
@@ -761,12 +762,17 @@ func DownloadYTDL(pageURL, saveDir string) (string, error) {
 	}
 
 	outTemplate := filepath.Join(saveDir, "%(artist,uploader)s - %(title)s.%(ext)s")
-	cmd := exec.Command("yt-dlp",
+	args := []string{
 		"-f", "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio",
 		"--no-playlist",
 		"--print-json",
 		"-o", outTemplate,
-		pageURL)
+	}
+	if browser := ytdlcookies.ForURL(pageURL); browser != "" {
+		args = append(args, "--cookies-from-browser", browser)
+	}
+	args = append(args, pageURL)
+	cmd := exec.Command("yt-dlp", args...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	stdout, err := cmd.Output()

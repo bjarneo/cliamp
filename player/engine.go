@@ -7,6 +7,7 @@ import "time"
 type Engine interface {
 	// Playback control
 	Play(path string, knownDuration time.Duration) error
+	PlayAt(path string, knownDuration, offset time.Duration) error
 	PlayYTDL(pageURL string, knownDuration time.Duration) error
 	Preload(path string, knownDuration time.Duration) error
 	PreloadYTDL(pageURL string, knownDuration time.Duration) error

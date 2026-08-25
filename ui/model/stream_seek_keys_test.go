@@ -16,6 +16,7 @@ type fakeEngine struct {
 }
 
 func (f *fakeEngine) Play(string, time.Duration) error                    { return nil }
+func (f *fakeEngine) PlayAt(string, time.Duration, time.Duration) error   { return nil }
 func (f *fakeEngine) PlayYTDL(string, time.Duration) error                { return nil }
 func (f *fakeEngine) Preload(string, time.Duration) error                 { return nil }
 func (f *fakeEngine) PreloadYTDL(string, time.Duration) error             { return nil }

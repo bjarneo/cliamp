@@ -71,6 +71,7 @@ const (
 	VisGeyser                     // bass-driven particle fountain
 	VisClassicLED                 // Winamp 2.9 LED matrix with falling peak caps
 	VisStereo                     // stereo L/R horizontal LED peak meters
+	VisMirror                     // Braille spectrum bars mirrored about a horizontal axis
 	VisNone                       // hidden — no visualizer
 	VisCount                      // sentinel for cycling
 )
@@ -423,6 +424,7 @@ type Visualizer struct {
 	luaRender       LuaVisRenderer
 	luaDriverCache  map[int]visModeDriver
 	pulseCoordCache *pulseCoords
+	mirrorGrid      brailleGrid
 }
 
 // LuaVisRenderer is the callback type for rendering a Lua visualizer frame.
@@ -485,6 +487,7 @@ var visModes = [VisCount]visEntry{
 	VisGeyser:      {"Geyser", newGeyserDriver},
 	VisClassicLED:  {"ClassicLED", newClassicLEDDriver},
 	VisStereo:      {"Stereo", newStereoDriver},
+	VisMirror:      {"Mirror", newFastRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), TickAnim, (*Visualizer).renderMirror)},
 	VisNone:        {"None", newNoOpDriver},
 }
 

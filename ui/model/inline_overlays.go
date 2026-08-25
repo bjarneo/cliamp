@@ -99,7 +99,7 @@ func (m Model) renderSpotSearchResults(budget int) string {
 			lines = append(lines, dimStyle.Render(labeledSeparator("", row.Section)))
 			continue
 		}
-		label := truncate(fmt.Sprintf("%s - %s", row.Track.Artist, row.Track.Title), ui.PanelWidth-8)
+		label := truncate(trackViewName(row.Track), ui.PanelWidth-8)
 		lines = append(lines, cursorLine(label, row.Index == m.spotSearch.cursor))
 	}
 	return strings.Join(padLines(lines, budget, len(lines)), "\n")
@@ -119,7 +119,7 @@ func (m Model) renderTrackRowsBody(tracks []playlist.Track, cursor, scroll, budg
 			continue
 		}
 		i, t := row.Index, row.Track
-		label := formatTrackRow(i+1, t.DisplayName()+trackAlbumSuffix(t, m.showAlbumHeaders), t.DurationSecs)
+		label := formatTrackRow(i+1, trackViewName(t)+trackAlbumSuffix(t, m.showAlbumHeaders), t.DurationSecs)
 		lines = append(lines, cursorLine(label, i == cursor))
 	}
 	return bodyLines(lines, budget)
@@ -292,7 +292,7 @@ func (m Model) renderQueueBody() string {
 	tracks := m.playlist.QueueWindow(start, budget)
 	items := make([]string, len(tracks))
 	for i, t := range tracks {
-		items[i] = fmt.Sprintf("%d. %s", start+i+1, truncate(t.DisplayName(), ui.PanelWidth-8))
+		items[i] = fmt.Sprintf("%d. %s", start+i+1, truncate(trackViewName(t), ui.PanelWidth-8))
 	}
 	return windowList(items, m.queue.cursor-start, 0, budget)
 }
@@ -485,7 +485,7 @@ func (m Model) renderNetSearchBody() string {
 	}
 	items := make([]string, len(m.netSearch.results))
 	for i, t := range m.netSearch.results {
-		items[i] = truncate(t.DisplayName(), ui.PanelWidth-8)
+		items[i] = truncate(trackViewName(t), ui.PanelWidth-8)
 	}
 	return windowList(items, m.netSearch.cursor, m.netSearch.scroll, budget)
 }

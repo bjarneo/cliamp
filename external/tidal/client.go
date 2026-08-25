@@ -383,6 +383,22 @@ func (c *client) searchTracks(ctx context.Context, query string, limit int) ([]a
 	return out.Items, nil
 }
 
+// searchAlbums searches the Tidal catalog for albums.
+func (c *client) searchAlbums(ctx context.Context, query string, limit int) ([]apiAlbum, error) {
+	if limit <= 0 || limit > pageSize {
+		limit = pageSize
+	}
+	params := url.Values{
+		"query": {query},
+		"limit": {strconv.Itoa(limit)},
+	}
+	var out apiList[apiAlbum]
+	if err := c.doGet(ctx, "search/albums", params, &out); err != nil {
+		return nil, err
+	}
+	return out.Items, nil
+}
+
 // playbackInfo returns the playback manifest for a track at the given quality.
 func (c *client) playbackInfo(ctx context.Context, trackID, quality string) (apiPlaybackInfo, error) {
 	params := url.Values{

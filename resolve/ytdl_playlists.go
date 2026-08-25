@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bjarneo/cliamp/internal/ytdlcookies"
 	"github.com/bjarneo/cliamp/playlist"
 )
 
@@ -91,7 +92,7 @@ func parseYTDLPlaylistFeed(r io.Reader) ([]playlist.PlaylistInfo, error) {
 
 // FetchUserPlaylists invokes yt-dlp to scrape user playlists from
 // https://www.youtube.com/feed/playlists using the specified browser session.
-// If browser is empty, the globally configured yt-dlp cookies browser is used.
+// If browser is empty, the cookie source configured for YouTube is used.
 func FetchUserPlaylists(browser string) ([]playlist.PlaylistInfo, error) {
 	if _, err := exec.LookPath("yt-dlp"); err != nil {
 		return nil, fmt.Errorf("yt-dlp not found in PATH — see https://github.com/yt-dlp/yt-dlp#installation")
@@ -103,7 +104,7 @@ func FetchUserPlaylists(browser string) ([]playlist.PlaylistInfo, error) {
 	args := []string{"--flat-playlist", "-j", "--socket-timeout", "15"}
 	b := strings.TrimSpace(browser)
 	if b == "" {
-		b = ytdlCookiesFrom()
+		b = ytdlcookies.ForURL("https://www.youtube.com/feed/playlists")
 	}
 	if b != "" {
 		args = append(args, "--cookies-from-browser", b)

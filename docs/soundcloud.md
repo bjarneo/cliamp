@@ -50,7 +50,9 @@ cookies_from = "firefox"   # also: chrome, chromium, brave, edge, opera, safari,
 
 cliamp passes `--cookies-from-browser <name>` to every yt-dlp invocation — search, browse, and playback. As long as you're signed into SoundCloud in that browser (no need to keep it open), yt-dlp acts as logged-in-you and can access content your account is authorized for.
 
-This is the same mechanism `[ytmusic] cookies_from` uses. If you set both, the last one to initialize wins for the playback path; in practice users have one default browser they're signed into multiple sites with, so this is fine.
+This is the same mechanism `[ytmusic] cookies_from` uses. Cookie sources are
+selected by service, so SoundCloud and YouTube can use different browsers or
+profiles in the same cliamp process.
 
 ## CLI
 

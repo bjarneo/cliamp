@@ -310,6 +310,65 @@ func TestTidalSetupBody(t *testing.T) {
 	}
 }
 
+func TestMixcloudSetupBody(t *testing.T) {
+	var spec providerSpec
+	for _, p := range providers() {
+		if p.section == "mixcloud" {
+			spec = p
+			break
+		}
+	}
+	if spec.section == "" {
+		t.Fatal("mixcloud spec missing")
+	}
+	values := map[string]string{
+		keyMixcloudBrowser: "firefox",
+		"username":         "alice",
+		"access_token":     "token",
+		"styles":           "ambient, deep-house",
+		"max_items":        " 75 ",
+		"stream_creators":  "15",
+	}
+	if err := spec.extraValidate(values); err != nil {
+		t.Fatalf("extraValidate: %v", err)
+	}
+	body := spec.body(values)
+	for _, want := range []string{
+		"enabled = true", `username = "alice"`, `access_token = "token"`,
+		`cookies_from = "firefox"`, `styles = ["ambient", "deep-house"]`,
+		"max_items = 75", "stream_creators = 15",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q: %q", want, body)
+		}
+	}
+	publicOnly := spec.body(map[string]string{
+		keyMixcloudBrowser: "none",
+		"max_items":        "100",
+		"stream_creators":  "20",
+	})
+	if strings.Contains(publicOnly, "cookies_from") {
+		t.Fatalf("public-only session must not write cookies_from: %q", publicOnly)
+	}
+	custom := spec.body(map[string]string{
+		keyMixcloudBrowser: "custom",
+		"cookies_from":     "chrome:Profile 1",
+		"max_items":        "100",
+		"stream_creators":  "20",
+	})
+	if !strings.Contains(custom, `cookies_from = "chrome:Profile 1"`) {
+		t.Fatalf("custom browser/profile was not written: %q", custom)
+	}
+	if spec.validate != nil {
+		t.Fatal("mixcloud setup should not claim a live validation probe")
+	}
+
+	err := spec.extraValidate(map[string]string{"max_items": "bad", "stream_creators": "also bad"})
+	if err == nil || !strings.Contains(err.Error(), "items per view") {
+		t.Fatalf("validation order error = %v, want items per view first", err)
+	}
+}
+
 func TestNetEasePickerSelectionFiltersFields(t *testing.T) {
 	base := newSetupModel()
 	neteaseIdx := -1

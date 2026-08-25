@@ -65,7 +65,7 @@ The provider surfaces your Tidal library:
 - **Favorite albums**: browsable in the album view.
 - **Favorite artists**: browse an artist to see their albums.
 
-Press `Ctrl+F` while Tidal is active to search the Tidal catalog for tracks.
+Press `Ctrl+F` while Tidal is active to search the Tidal catalog for tracks and albums. Album results appear first and expand into their track list when selected (Enter plays, `a` appends, `q` queues next).
 
 ## Controls
 
@@ -75,7 +75,7 @@ When focused on the provider panel:
 |---|---|
 | `Up` `Down` / `j` `k` | Navigate |
 | `Enter` | Load the selected playlist/album or play the selected track |
-| `Ctrl+F` | Search Tidal tracks |
+| `Ctrl+F` | Search Tidal (tracks and albums) |
 | `Ctrl+R` | Refresh (re-resolves stream URLs) |
 | `Tab` | Switch between provider and playlist focus |
 | `Esc` / `b` | Open provider browser |

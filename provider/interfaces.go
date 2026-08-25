@@ -21,6 +21,71 @@ type ArtistBrowser interface {
 	ArtistAlbums(artistID string) ([]AlbumInfo, error)
 }
 
+// TrackArtistResolver lets the UI jump from a provider-originated track to
+// that track's artist in the hierarchical browser. It should return false for
+// tracks the provider does not recognize.
+type TrackArtistResolver interface {
+	ArtistForTrack(track playlist.Track) (ArtistInfo, bool)
+}
+
+// BrowseMode identifies a useful entry point into the hierarchical provider
+// browser. Providers can expose these routes alongside their playlist pane
+// through BrowseEntryProvider without representing them as playable lists.
+type BrowseMode uint8
+
+const (
+	BrowseAlbums BrowseMode = iota + 1
+	BrowseArtists
+	BrowseArtistAlbums
+	BrowseGenres
+)
+
+// BrowseEntry is a provider-pane shortcut into the hierarchical browser.
+type BrowseEntry struct {
+	ID      string
+	Name    string
+	Section string
+	Mode    BrowseMode
+	// AfterID places this entry group immediately after a provider list item.
+	// AfterSection is used as a fallback when the item is absent.
+	AfterID string
+	// AfterSection places this entry group after the last provider list in the
+	// named section. If that section is absent and Section == AfterSection, the
+	// entry is omitted rather than creating a section with no provider content.
+	// Other entries with a missing anchor remain at the top.
+	AfterSection string
+	// OpenInPlaylist makes the route's final track result replace the main
+	// playlist and close the browser instead of opening its track screen.
+	OpenInPlaylist bool
+}
+
+// BrowseEntryProvider is implemented by providers that want their principal
+// hierarchical browse routes advertised in the provider playlist pane.
+type BrowseEntryProvider interface {
+	BrowseEntries() []BrowseEntry
+}
+
+// GenreBrowser is implemented by providers that expose a category catalogue.
+type GenreBrowser interface {
+	Genres() ([]GenreInfo, error)
+	GenreSortTypes() []SortType
+	GenreTracks(genreID, sortType string) ([]playlist.Track, error)
+}
+
+// GenreFavoriteToggler is implemented by genre browsers that can persist
+// favorite state in provider-specific configuration or on the remote service.
+type GenreFavoriteToggler interface {
+	ToggleGenreFavorite(genreID string) (favorite bool, err error)
+}
+
+// GenreSearcher extends GenreBrowser with provider-side catalogue search.
+// It is useful when the browsable category list is only a curated subset of
+// the provider's full tag or genre catalogue.
+type GenreSearcher interface {
+	GenreBrowser
+	SearchGenres(ctx context.Context, query string, limit int) ([]GenreInfo, error)
+}
+
 // AlbumBrowser is implemented by providers that support paginated album
 // listing with configurable sort order.
 type AlbumBrowser interface {
@@ -57,6 +122,13 @@ type ProgressReporter interface {
 	PlaybackReporter
 	// ReportProgress sends an interim position update for a playing track.
 	ReportProgress(track playlist.Track, position time.Duration) error
+}
+
+// TrackPosition is implemented by providers that can report where a single
+// track should resume from.
+type TrackPosition interface {
+	// TrackPosition returns the saved position for track, or 0 to start over.
+	TrackPosition(track playlist.Track) time.Duration
 }
 
 // ResumeTarget is implemented by providers that track listening position

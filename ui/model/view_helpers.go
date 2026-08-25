@@ -10,8 +10,28 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/ui"
 )
+
+const restrictedViewSuffix = " [E]"
+
+// trackViewName decorates provider-specific presentation metadata without
+// mutating the title used by playlist export, IPC, or media-session metadata.
+func trackViewName(track playlist.Track) string {
+	name := track.DisplayName()
+	if track.Meta(provider.MetaMixcloudExclusive) == "true" {
+		return strings.TrimSpace(name) + restrictedViewSuffix
+	}
+	return name
+}
+
+func albumViewName(album provider.AlbumInfo) string {
+	if album.Restricted {
+		return strings.TrimSpace(album.Name) + restrictedViewSuffix
+	}
+	return album.Name
+}
 
 // formatListMatchCount returns a human-readable "matches of total" summary
 // for filtered lists.

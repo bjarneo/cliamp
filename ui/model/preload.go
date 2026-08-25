@@ -22,6 +22,16 @@ const streamPreloadLeadTime = 3 * time.Second
 // takes 3-10 seconds, so we start preloading much earlier.
 const ytdlPreloadLeadTime = 15 * time.Second
 
+// rearmPreload discards any armed gapless pipeline and re-arms from the
+// current playlist state. Call after any change that alters which track
+// plays next.
+func (m *Model) rearmPreload() tea.Cmd {
+	nextRequest(&m.requests.preload)
+	m.preloading = false
+	m.player.ClearPreload()
+	return m.preloadNext()
+}
+
 // preloadNext looks ahead in the playlist and preloads the next track for
 // gapless transition. Errors are silently ignored — playback falls back to
 // non-gapless if preloading fails.
