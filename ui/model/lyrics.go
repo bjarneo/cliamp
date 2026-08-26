@@ -1,12 +1,36 @@
 package model
 
 import (
+	"context"
+	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/lyrics"
 	"github.com/bjarneo/cliamp/playlist"
 )
+
+// spotifyLyricFetcher matches providers that can fetch synced lyrics for a
+// track by its Spotify ID (satisfied by *spotify.SpotifyProvider).
+type spotifyLyricFetcher interface {
+	TrackLyrics(ctx context.Context, trackID string) ([]lyrics.Line, error)
+}
+
+// spotifyLyricFetcher returns the configured Spotify provider, or nil when it
+// is not configured or does not implement lyric lookups.
+func (m *Model) spotifyLyricFetcher() spotifyLyricFetcher {
+	for _, entry := range m.providers {
+		if entry.Key != "spotify" || entry.Provider == nil {
+			continue
+		}
+		f, _ := entry.Provider.(spotifyLyricFetcher)
+		return f
+	}
+	return nil
+}
 
 // lyricsArtistTitle resolves the best artist and title for a lyrics lookup.
 // For streams with ICY metadata ("Artist - Song"), it parses the stream title.
@@ -88,4 +112,52 @@ func (m *Model) lyricsHaveTimestamps() bool {
 		}
 	}
 	return false
+}
+
+// maxLyricsOffset bounds the user-adjustable synced-lyrics drift correction.
+const maxLyricsOffset = 10 * time.Second
+
+// SetLyricsOffset loads a persisted lyric timestamp offset (ms) at startup.
+func (m *Model) SetLyricsOffset(ms int) {
+	d := time.Duration(ms) * time.Millisecond
+	if d > maxLyricsOffset {
+		d = maxLyricsOffset
+	}
+	if d < -maxLyricsOffset {
+		d = -maxLyricsOffset
+	}
+	m.lyrics.offset = d
+}
+
+// nudgeLyricsOffset shifts synced-lyrics timestamps by delta and persists the
+// result. Positive offsets delay highlighting (late timestamp correction);
+// negative offsets pull it earlier. Spotify/Musixmatch timestamps are often
+// offset from the master by a constant amount on a per-track basis.
+func (m *Model) nudgeLyricsOffset(delta time.Duration) tea.Cmd {
+	offset := m.lyrics.offset + delta
+	if offset > maxLyricsOffset {
+		offset = maxLyricsOffset
+	}
+	if offset < -maxLyricsOffset {
+		offset = -maxLyricsOffset
+	}
+	m.lyrics.offset = offset
+	if m.configSaver != nil {
+		if err := m.configSaver.Save("lyrics_offset_ms", strconv.Itoa(int(offset.Milliseconds()))); err != nil {
+			m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
+		}
+	}
+	m.status.Warningf(statusTTLDefault, "Lyrics offset: %s", formatLyricsOffset(offset))
+	return nil
+}
+
+// formatLyricsOffset renders a lyric offset with an explicit sign, e.g. "+0.5s".
+func formatLyricsOffset(d time.Duration) string {
+	ms := d.Milliseconds()
+	sign := "+"
+	if ms < 0 {
+		sign = "-"
+		ms = -ms
+	}
+	return fmt.Sprintf("%s%.1fs", sign, float64(ms)/1000)
 }
