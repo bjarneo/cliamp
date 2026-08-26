@@ -129,7 +129,7 @@ func TestInteractiveOAuthFlows(t *testing.T) {
 			name:     "built-in web api client authorizes playback through keymaster",
 			clientID: DefaultClientID,
 			want: []oauthFlow{
-				{name: "web api", clientID: DefaultClientID, scopes: oauthScopes},
+				{name: "web api", clientID: DefaultClientID, scopes: webAPIScopes(DefaultClientID)},
 				{name: "playback", clientID: PlaybackClientID, scopes: playbackOAuthScopes},
 			},
 		},
@@ -137,7 +137,7 @@ func TestInteractiveOAuthFlows(t *testing.T) {
 			name:     "custom client authorizes playback through keymaster",
 			clientID: "custom-client",
 			want: []oauthFlow{
-				{name: "web api", clientID: "custom-client", scopes: oauthScopes},
+				{name: "web api", clientID: "custom-client", scopes: webAPIScopes("custom-client")},
 				{name: "playback", clientID: PlaybackClientID, scopes: playbackOAuthScopes},
 			},
 		},
@@ -372,5 +372,28 @@ func TestBuiltInClientIDsAreDistinct(t *testing.T) {
 	}
 	if isExtendedQuotaClient("custom-client") {
 		t.Error("a user-supplied client ID must not be assumed to have extended quota")
+	}
+}
+
+func TestWebAPIScopesExcludeStreamingForNonKeymasterClients(t *testing.T) {
+	// login5 rejects playback credentials minted by anything but keymaster, so
+	// asking a separate Web API client for "streaming" buys nothing and shows
+	// the user a permission the client cannot use.
+	got := webAPIScopes(DefaultClientID)
+	if slices.Contains(got, "streaming") {
+		t.Error(`webAPIScopes(DefaultClientID) contains "streaming", want it dropped`)
+	}
+	if len(got) != len(oauthScopes)-1 {
+		t.Errorf("webAPIScopes(DefaultClientID) dropped %d scopes, want 1", len(oauthScopes)-len(got))
+	}
+	for _, scope := range oauthScopes {
+		if scope != "streaming" && !slices.Contains(got, scope) {
+			t.Errorf("webAPIScopes(DefaultClientID) is missing %q", scope)
+		}
+	}
+
+	// Keymaster authorizes playback in the same flow, so it keeps the full set.
+	if keymaster := webAPIScopes(PlaybackClientID); !slices.Equal(keymaster, oauthScopes) {
+		t.Errorf("webAPIScopes(PlaybackClientID) = %v, want the full scope set", keymaster)
 	}
 }

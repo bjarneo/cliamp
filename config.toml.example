@@ -85,8 +85,8 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # An app registered today starts in Development Mode, which cannot read
 # playlists you follow but do not own (they fail with 403 Forbidden) and
 # limits /v1/search to 10 results per request. cliamp pages search
-# automatically with offset; the playlist restriction has no workaround
-# short of using the built-in client_id.
+# automatically with offset. The playlist restriction lifts only for an app
+# in Extended Quota Mode, which the built-in client_id already is.
 
 # ---
 # Qobuz (optional)
