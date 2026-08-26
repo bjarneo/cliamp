@@ -32,7 +32,7 @@ To register an app:
 
 `bitrate` is optional. If omitted, cliamp uses `320`. Supported values are `96`, `160`, and `320`. Values less than or equal to zero use `320`. cliamp rounds other positive values to the nearest supported bitrate.
 
-Run `cliamp`, select Spotify, and press Enter to sign in. With your own `client_id`, the browser completes two authorization steps in one tab: one for Web API access and one for playback. The built-in client path needs one step. cliamp stores credentials in `~/.config/cliamp/spotify_credentials.json`. Later launches refresh them without a message.
+Run `cliamp`, select Spotify, and press Enter to sign in. The browser completes two authorization steps in one tab: one for Web API access and one for playback. This applies to your own `client_id` and to the built-in default alike, because playback is always authorized through the librespot keymaster identity. Only a `client_id` set explicitly to keymaster completes in one step. cliamp stores credentials in `~/.config/cliamp/spotify_credentials.json`. Later launches refresh them without a message.
 
 ### Development Mode search page size
 
