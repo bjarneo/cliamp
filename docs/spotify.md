@@ -4,11 +4,13 @@ Use Cliamp to stream your [Spotify](https://www.spotify.com/) library through it
 
 > **Windows:** Build cliamp with CGO enabled and a MinGW toolchain for Spotify support. See [Building from source](../README.md#building-from-source) in the README. Pre-built Windows binaries from Releases include Spotify support.
 >
-> **Quick start:** Run `cliamp setup`, select Spotify, and follow the prompts. Register a Spotify Developer app and enter its `client_id` to get a private Web API rate-limit quota, including for search. Cliamp authorizes playback separately with the built-in Spotify identity. You can instead use the built-in shared `client_id` without registering an app.
+> **Quick start:** Run `cliamp setup`, select Spotify, and follow the prompts. The built-in `client_id` needs no registration and is the recommended choice. Registering your own Spotify Developer app gives you a private rate-limit quota, but places you in Development Mode, which cannot read playlists you follow but do not own.
 
 ## Setup
 
-### Recommended: bring your own client ID
+### Advanced: bring your own client ID
+
+> **Most users should skip this section** and use the [built-in client ID](#recommended-the-built-in-client-id). An app you register today starts in Development Mode, which cannot read playlists you follow but do not own — they appear in the library and fail with `403 Forbidden` when opened. Register your own app only if you specifically need a private quota and can live with that.
 
 Register a Spotify Developer app. Set its `client_id` in `~/.config/cliamp/config.toml`:
 
@@ -40,7 +42,7 @@ Search remains available in Development Mode, but `/v1/search` accepts at most *
 
 Other Development Mode changes remove endpoints such as `/v1/browse/new-releases`. They restrict playlist items to playlists the user owns or collaborates on. `/v1/search` remains available and does not require Extended Quota Mode.
 
-### Alternative: built-in shared client ID
+### Recommended: the built-in client ID
 
 To use no registered app, omit the `client_id` line:
 
@@ -49,9 +51,16 @@ To use no registered app, omit the `client_id` line:
 bitrate = 320
 ```
 
-cliamp uses a built-in `client_id`. [librespot](https://github.com/librespot-org/librespot) and [spotify-player](https://github.com/aome510/spotify-player) use the same client ID.
+cliamp then uses two built-in identities, the same split [ncspot](https://github.com/hrkfdn/ncspot) and [spotify-player](https://github.com/aome510/spotify-player) use:
 
-> **Shared rate limit:** The built-in `client_id` is shared by librespot, spotify-player, and cliamp users worldwide. Spotify applies its per-app quota globally. A busy pool can cause `429 Too Many Requests` during search or playlist loading. Cliamp retries with backoff. Persistent 429 errors indicate a busy pool. Your own `client_id` has a separate quota.
+| Purpose | Client ID | Why |
+| --- | --- | --- |
+| Web API | ncspot's `d420a117…` | Registered in Extended Quota Mode. Predates the November 2024 restrictions and is exempt from the February 2026 ones, so followed playlists, search, and browse all work. |
+| Playback | librespot keymaster `65b70807…` | The identity librespot authenticates with, and the only one that mints the `streaming` grant. |
+
+Sign-in therefore completes two authorization steps in one browser tab.
+
+> **Shared quota:** Extended Quota Mode has a far higher rate limit than a Development Mode app, but it is still a pool shared with other ncspot and spotify-player users, and Spotify applies quota per `client_id` globally. Cliamp retries `429 Too Many Requests` with exponential backoff.
 
 ## Usage
 
@@ -83,12 +92,13 @@ Podcast episodes work as tracks. Press `Ctrl+F` to search Spotify. Matching epis
 ## Troubleshooting
 
 - **"OAuth failed"**: Ensure the Spotify dashboard redirect URI is exactly `http://127.0.0.1:19872/login`, without a trailing slash.
-- **Two authorization steps**: This is expected with your own `client_id`. After you approve Web API access, the same browser tab redirects to create a playback credential with the required Spotify built-in identity.
+- **Two authorization steps**: This is expected. Web API access and playback are separate grants on separate client IDs, so after you approve Web API access the same browser tab redirects to create a playback credential through the librespot keymaster identity. Only a `client_id` explicitly set to keymaster completes in one step.
 - **Playlist not showing**: Save or follow the playlist in Spotify. The provider lists only library playlists.
+- **`403 Forbidden` opening a playlist you follow but do not own**: Your `client_id` is a Development Mode app, which cannot read them. Remove the `client_id` line from `[spotify]` to use the built-in Extended Quota Mode identity, then run `cliamp spotify reset` and sign in again.
 - **Playback issues**: Spotify integration needs a Premium account. Free accounts cannot stream.
 - **Re-authenticate**: Run `cliamp spotify reset` to clear stored credentials. Then restart cliamp, select Spotify, and sign in again. This is the same as deleting `~/.config/cliamp/spotify_credentials.json`.
 - **Persistent "rate-limited" errors on `/v1/me`**: Stored authorization has expired or been revoked. Cliamp usually detects this at startup and prompts for sign-in. If it does not, run `cliamp spotify reset` and authenticate again. This is *not* a Spotify rate limit. Waiting does not fix it.
-- **`429 Too Many Requests` on search or playlist loading (using the built-in fallback)**: The built-in `client_id` is shared with librespot- and spotify-player-based clients. When the global pool is busy, Spotify limits requests for every client that uses it. Cliamp retries with exponential backoff. If errors continue, register a developer app and set `client_id` in `[spotify]`. Your app has a separate quota.
+- **`429 Too Many Requests` on search or playlist loading (using the built-in fallback)**: The built-in Web API `client_id` is shared with ncspot- and spotify-player-based clients. When the pool is busy, Spotify limits requests for every client that uses it. Cliamp retries with exponential backoff. Registering your own app gives you a separate quota, at the cost of the Development Mode restrictions described above.
 - **`400 "Invalid limit"` on <kbd>Ctrl+F</kbd>**: Development Mode apps limit `/v1/search` to 10 results per request. Cliamp pages results automatically. This error means the limit is now less than 10. Open an issue.
 
 ## Requirements

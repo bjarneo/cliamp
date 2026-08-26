@@ -497,14 +497,16 @@ func doWebAPIAuth(ctx context.Context, clientID string) (*oauth2.Token, error) {
 }
 
 // interactiveOAuthFlows returns the authorization sequence for a new session.
-// The built-in client already is keymaster, so it needs only one flow.
+// Web API access and playback are separate grants on separate client IDs, so
+// the usual case is two flows. Only keymaster can serve both from one flow,
+// since it is already the playback identity.
 func interactiveOAuthFlows(clientID string) []oauthFlow {
-	if clientID == DefaultClientID {
+	if clientID == PlaybackClientID {
 		return []oauthFlow{{name: "web api and playback", clientID: clientID, scopes: oauthScopes}}
 	}
 	return []oauthFlow{
 		{name: "web api", clientID: clientID, scopes: oauthScopes},
-		{name: "playback", clientID: DefaultClientID, scopes: playbackOAuthScopes},
+		{name: "playback", clientID: PlaybackClientID, scopes: playbackOAuthScopes},
 	}
 }
 

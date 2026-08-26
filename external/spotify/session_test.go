@@ -121,16 +121,24 @@ func TestInteractiveOAuthFlows(t *testing.T) {
 		want     []oauthFlow
 	}{
 		{
-			name:     "built-in client uses one flow",
+			name:     "keymaster uses one flow",
+			clientID: PlaybackClientID,
+			want:     []oauthFlow{{name: "web api and playback", clientID: PlaybackClientID, scopes: oauthScopes}},
+		},
+		{
+			name:     "built-in web api client authorizes playback through keymaster",
 			clientID: DefaultClientID,
-			want:     []oauthFlow{{name: "web api and playback", clientID: DefaultClientID, scopes: oauthScopes}},
+			want: []oauthFlow{
+				{name: "web api", clientID: DefaultClientID, scopes: oauthScopes},
+				{name: "playback", clientID: PlaybackClientID, scopes: playbackOAuthScopes},
+			},
 		},
 		{
 			name:     "custom client authorizes playback through keymaster",
 			clientID: "custom-client",
 			want: []oauthFlow{
 				{name: "web api", clientID: "custom-client", scopes: oauthScopes},
-				{name: "playback", clientID: DefaultClientID, scopes: playbackOAuthScopes},
+				{name: "playback", clientID: PlaybackClientID, scopes: playbackOAuthScopes},
 			},
 		},
 	}
@@ -346,5 +354,23 @@ func TestCredsPath(t *testing.T) {
 	want := filepath.Join(home, ".config", "cliamp", "spotify_credentials.json")
 	if got != want {
 		t.Errorf("CredsPath() = %q, want %q", got, want)
+	}
+}
+
+func TestBuiltInClientIDsAreDistinct(t *testing.T) {
+	// Routing Web API calls through keymaster puts them in a quota pool shared
+	// with every librespot-based player, which is what caused the 429s these
+	// two constants were split to fix.
+	if DefaultClientID == PlaybackClientID {
+		t.Fatal("web api and playback client IDs must stay distinct")
+	}
+	if !isExtendedQuotaClient(DefaultClientID) {
+		t.Error("built-in web api client ID should be treated as extended quota")
+	}
+	if !isExtendedQuotaClient(PlaybackClientID) {
+		t.Error("keymaster should be treated as extended quota")
+	}
+	if isExtendedQuotaClient("custom-client") {
+		t.Error("a user-supplied client ID must not be assumed to have extended quota")
 	}
 }

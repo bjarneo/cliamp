@@ -652,9 +652,10 @@ func (p *SpotifyProvider) SearchTracks(ctx context.Context, query string, limit 
 
 	var result *spotifySearchPage
 	var err error
-	if p.clientID == DefaultClientID {
-		// Preserve one-request searches for the shared legacy client. Fall back
-		// to Development Mode pages if Spotify applies the new cap to it later.
+	if isExtendedQuotaClient(p.clientID) {
+		// Preserve one-request searches for the built-in extended-quota clients.
+		// Fall back to Development Mode pages if Spotify applies the new cap to
+		// them later.
 		result, err = p.searchPage(ctx, query, limit, 0)
 		if err != nil && isInvalidLimit(err) && limit > devModeSearchLimit {
 			result, err = p.searchPaged(ctx, query, limit)

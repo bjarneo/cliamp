@@ -68,22 +68,25 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Spotify (optional)
 # Requires a Spotify Premium account.
 #
-# Recommended: register your own Spotify Developer app at
+# Recommended: leave client_id unset. cliamp then uses ncspot's Extended
+# Quota Mode client_id for the Web API and the librespot keymaster client_id
+# for playback, the same split ncspot and spotify-player use. First sign-in
+# completes two steps in one tab. Its quota is shared with other ncspot- and
+# spotify-player-based clients, so occasional 429s are possible.
+#
+# Advanced: register your own Spotify Developer app at
 # developer.spotify.com/dashboard with redirect URI
 # http://127.0.0.1:19872/login, then uncomment the section below with
-# your client_id. You get a private Web API rate-limit quota for library,
-# playlist, and search requests. Playback is authorized separately with
-# Spotify's built-in identity, so first sign-in completes two steps in one tab.
+# your client_id for a private Web API rate-limit quota.
 # [spotify]
 # client_id = "your-spotify-app-client-id"
 # bitrate = 320
 #
-# Development Mode limits /v1/search to 10 results per request. cliamp pages
-# automatically with offset, so search works with your own client_id.
-#
-# Alternative: drop client_id to use cliamp's built-in fallback (the
-# librespot keymaster client_id). Its rate-limit quota is shared with every
-# librespot-based client, so you may see occasional 429s.
+# An app registered today starts in Development Mode, which cannot read
+# playlists you follow but do not own (they fail with 403 Forbidden) and
+# limits /v1/search to 10 results per request. cliamp pages search
+# automatically with offset; the playlist restriction has no workaround
+# short of using the built-in client_id.
 
 # ---
 # Qobuz (optional)
