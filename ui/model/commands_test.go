@@ -125,3 +125,37 @@ func TestPlaylistManagerTrackSortUsesLowercaseKey(t *testing.T) {
 		t.Fatalf("saved tracks = %+v, want sorted by title", local.saved)
 	}
 }
+
+// TestURLOverlayLoadsRawStream pins the u overlay end to end: a stream address
+// entered there must load as a track, the way the same address does as a
+// command-line argument. The overlay used to hand its input to resolve.Remote,
+// whose default arm assumes the URL was already classified as a feed, so a raw
+// stream was parsed as XML and failed.
+func TestURLOverlayLoadsRawStream(t *testing.T) {
+	const raw = "https://example.com/live.mp3"
+
+	m := Model{urlInputting: true, urlInput: raw}
+
+	cmd := m.handleURLInputKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("Enter on a non-empty URL returned no command")
+	}
+
+	loaded, ok := cmd().(feedsLoadedMsg)
+	if !ok {
+		msg := cmd()
+		t.Fatalf("url overlay produced %T (%v), want feedsLoadedMsg", msg, msg)
+	}
+	if len(loaded.tracks) != 1 {
+		t.Fatalf("loaded %d tracks, want 1", len(loaded.tracks))
+	}
+	if loaded.tracks[0].Path != raw {
+		t.Fatalf("track path = %q, want %q", loaded.tracks[0].Path, raw)
+	}
+	if len(loaded.urls) != 1 || loaded.urls[0] != raw {
+		t.Fatalf("urls = %#v, want [%q] so incremental loading still sees the source", loaded.urls, raw)
+	}
+	if !loaded.autoPlay {
+		t.Fatal("autoPlay = false, want true")
+	}
+}

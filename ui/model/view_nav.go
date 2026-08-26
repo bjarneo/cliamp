@@ -61,8 +61,26 @@ func (m Model) navBreadcrumb() string {
 			if m.navBrowser.selAlbum.Name != "" {
 				parts = append(parts, m.navBrowser.selAlbum.Name)
 			}
+		case navBrowseModeByGenre:
+			parts = append(parts, "Genres")
+			if m.navBrowser.selGenre.Name != "" {
+				parts = append(parts, m.navBrowser.selGenre.Name)
+			}
+			if m.navBrowser.selGenreSort.Label != "" {
+				parts = append(parts, m.navBrowser.selGenreSort.Label)
+			}
 		}
 		parts = append(parts, "Tracks")
+	case navViewGenres:
+		parts = append(parts, "Genres")
+		if m.navBrowser.genreQuery != "" {
+			parts = append(parts, "Search: "+m.navBrowser.genreQuery)
+		}
+	case navViewGenreSorts:
+		parts = append(parts, "Genres")
+		if m.navBrowser.selGenre.Name != "" {
+			parts = append(parts, m.navBrowser.selGenre.Name)
+		}
 	default:
 		parts = append(parts, "Browse")
 	}

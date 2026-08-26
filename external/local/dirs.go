@@ -13,14 +13,6 @@ import (
 	"github.com/bjarneo/cliamp/resolve"
 )
 
-// DirSource is a [[dir]] section in a playlist file: a directory that is
-// scanned for audio files every time the playlist loads, instead of listing
-// every file explicitly.
-type DirSource struct {
-	Path      string // directory path; supports ~ and environment variables
-	Recursive bool   // scan subdirectories too (default true)
-}
-
 // ExpandPath expands a leading ~ and environment variables in p.
 func ExpandPath(p string) string {
 	if p == "" {
@@ -45,7 +37,7 @@ const (
 // [[dir]] sources, with section order preserved for ordered expansion.
 type playlistDoc struct {
 	tracks []playlist.Track
-	dirs   []DirSource
+	dirs   []playlist.DirSource
 	order  []uint8 // itemTrack or itemDir per section, in document order
 }
 
@@ -62,7 +54,7 @@ func parsePlaylistDoc(data []byte) *playlistDoc {
 			if f["path"] == "" {
 				return
 			}
-			doc.dirs = append(doc.dirs, DirSource{
+			doc.dirs = append(doc.dirs, playlist.DirSource{
 				Path:      f["path"],
 				Recursive: f["recursive"] != "false",
 			})
@@ -123,7 +115,7 @@ func (d *playlistDoc) expand(withTags bool) []playlist.Track {
 }
 
 // writeDir writes a single [[dir]] TOML section to w.
-func writeDir(w io.Writer, src DirSource) {
+func writeDir(w io.Writer, src playlist.DirSource) {
 	fmt.Fprintln(w, "[[dir]]")
 	fmt.Fprintf(w, "path = %q\n", src.Path)
 	if !src.Recursive {
@@ -135,7 +127,7 @@ func writeDir(w io.Writer, src DirSource) {
 type playlistSection struct {
 	kind  uint8 // itemTrack or itemDir
 	track playlist.Track
-	dir   DirSource
+	dir   playlist.DirSource
 }
 
 // rebuildDoc merges the caller's explicit tracks back into an existing parsed
@@ -150,7 +142,7 @@ type playlistSection struct {
 // before the directory section that would otherwise supply them, so a
 // materialized track keeps its position among the directory's tracks; tracks
 // no directory provides are appended at the end.
-func rebuildDoc(existing *playlistDoc, explicit []playlist.Track) (tracks []playlist.Track, dirs []DirSource, order []uint8) {
+func rebuildDoc(existing *playlistDoc, explicit []playlist.Track) (tracks []playlist.Track, dirs []playlist.DirSource, order []uint8) {
 	origPaths := make([]string, len(existing.tracks))
 	for i, t := range existing.tracks {
 		origPaths[i] = t.Path
@@ -298,7 +290,7 @@ func validateDirSource(dir string) error {
 // non-recursive sources, not below an immediate subdirectory. The check is
 // path-only so save-time rewrites do not repeat the filesystem walk done at
 // load.
-func dirSuppliesFile(dir DirSource, file string) bool {
+func dirSuppliesFile(dir playlist.DirSource, file string) bool {
 	if !player.SupportedExts[strings.ToLower(filepath.Ext(file))] {
 		return false
 	}

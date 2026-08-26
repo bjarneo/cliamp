@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <defs>
+    <clipPath id="plate"><rect width="100" height="100" rx="12"/></clipPath>
+    <pattern id="scanlines" width="100" height="3" patternUnits="userSpaceOnUse">
+      <rect width="100" height="1" fill="#000" opacity=".42"/>
+    </pattern>
+  </defs>
+  <g clip-path="url(#plate)">
+    <rect width="100" height="100" fill="#050505"/>
+    <rect x="10" y="43" width="4" height="14" fill="#00ff41"/>
+    <rect x="20" y="33" width="4" height="34" fill="#ffe000"/>
+    <rect x="30" y="23" width="4" height="54" fill="#ff9500"/>
+    <rect x="40" y="37" width="4" height="26" fill="#00ff41"/>
+    <rect x="50" y="19" width="4" height="62" fill="#ff3b1f"/>
+    <rect x="60" y="35" width="4" height="30" fill="#00ff41"/>
+    <rect x="70" y="27" width="4" height="46" fill="#ff9500"/>
+    <rect x="80" y="41" width="4" height="18" fill="#00ff41"/>
+    <rect width="100" height="100" fill="url(#scanlines)"/>
+  </g>
+  <rect x=".5" y=".5" width="99" height="99" rx="11.5" fill="none" stroke="#fff" stroke-opacity=".1"/>
+</svg>

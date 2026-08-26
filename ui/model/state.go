@@ -66,6 +66,9 @@ type provSearchState struct {
 // seekState holds debounce state for yt-dlp seek-by-restart.
 type seekState struct {
 	active    bool          // true from first keypress until seek completes
+	inFlight  bool          // a decoder-restarting seek command is running
+	gen       uint64        // bumped per track; completions from older tracks are ignored
+	pending   bool          // targetPos still needs a commit once inFlight clears
 	targetPos time.Duration // absolute target position
 	timer     int           // tick countdown for debounce (0 = idle)
 	grace     int           // ticks to suppress reconnect after seek completes
@@ -138,9 +141,10 @@ type plManagerState struct {
 	cursor        int // view-index: offset into filtered when filter != "", else direct index
 	scroll        int
 	playlists     []playlist.PlaylistInfo
-	selPlaylist   string           // playlist name open in screen 1
-	tracks        []playlist.Track // tracks in the selected playlist
-	missingLocal  []bool           // cached missing-file state, indexed with tracks
+	selPlaylist   string               // playlist name open in screen 1
+	tracks        []playlist.Track     // tracks in the selected playlist
+	missingLocal  []bool               // cached missing-file state, indexed with tracks
+	dirs          []playlist.DirSource // [[dir]] sources for the selected playlist (screen 2)
 	newName       string
 	confirmDel    bool
 	renameOldName string
@@ -172,6 +176,7 @@ type plManagerUndo struct {
 	name         string
 	tracks       []playlist.Track
 	missingLocal []bool
+	doc          []byte // raw TOML snapshot; when set, undo restores it verbatim
 }
 
 type playlistPickerScreen int
@@ -214,25 +219,33 @@ type fileBrowserState struct {
 
 // navBrowserState holds state for the provider browser overlay.
 type navBrowserState struct {
-	prov           playlist.Provider
-	visible        bool
-	mode           navBrowseModeType
-	screen         navBrowseScreenType
-	cursor         int
-	scroll         int
-	artists        []provider.ArtistInfo
-	albums         []provider.AlbumInfo
-	tracks         []playlist.Track
-	selArtist      provider.ArtistInfo
-	selAlbum       provider.AlbumInfo
-	sortType       string
-	albumLoading   bool
-	albumDone      bool
-	loading        bool
-	searching      bool
-	search         string
-	searchIdx      []int
-	confirmReplace bool
+	prov            playlist.Provider
+	visible         bool
+	mode            navBrowseModeType
+	screen          navBrowseScreenType
+	cursor          int
+	scroll          int
+	artists         []provider.ArtistInfo
+	albums          []provider.AlbumInfo
+	tracks          []playlist.Track
+	genres          []provider.GenreInfo
+	genreSorts      []provider.SortType
+	selArtist       provider.ArtistInfo
+	selAlbum        provider.AlbumInfo
+	selGenre        provider.GenreInfo
+	selGenreSort    provider.SortType
+	genreQuery      string
+	sortType        string
+	albumLoading    bool
+	albumDone       bool
+	loading         bool
+	searching       bool
+	search          string
+	searchIdx       []int
+	confirmReplace  bool
+	directTrackJump bool
+	fromProvList    bool
+	openInPlaylist  bool
 }
 
 // requestState tracks the latest request in each independently asynchronous UI

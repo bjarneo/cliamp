@@ -9,6 +9,7 @@ import (
 	"github.com/bjarneo/cliamp/luaplugin"
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
 )
@@ -184,6 +185,7 @@ type plMgrScreenType int
 const (
 	plMgrScreenList plMgrScreenType = iota
 	plMgrScreenTracks
+	plMgrScreenDirs
 	plMgrScreenNewName
 	plMgrScreenRename
 )
@@ -196,6 +198,7 @@ const (
 	navBrowseModeByAlbum                                // paginated album list → track list
 	navBrowseModeByArtist                               // artist list → track list (album-separated)
 	navBrowseModeByArtistAlbum                          // artist list → album list → track list
+	navBrowseModeByGenre                                // genre list → latest/popular → track list
 )
 
 // navBrowseScreenType identifies which screen within the active browse mode is shown.
@@ -245,8 +248,9 @@ type Model struct {
 	plCursor        int       // selected playlist item
 	plScroll        int       // scroll offset for playlist view
 	plVisible       int       // desired max visible playlist lines
-	titleOff        int       // scroll offset for long track titles
+	titleOff        int       // scroll offset for the now-playing marquee
 	titleLastScroll time.Time // last time the title scrolled
+	titleScrolled   bool      // whether the current title completed its single pass
 	err             error
 	quitting        bool
 	width           int
@@ -371,6 +375,14 @@ type Model struct {
 
 	// History recorder (nil if config dir unavailable; safe to call when nil)
 	historyStore *history.Store
+
+	// Favorites manager (nil when local provider doesn't support it; safe to
+	// call when nil). Cached here to avoid a type assertion per rendered track.
+	favMgr provider.FavoritesManager
+
+	// favSet is a cached set of favorited paths for O(1) lookup during
+	// rendering. Refreshed on init and after every toggle.
+	favSet map[string]struct{}
 
 	// initialDir is the starting path for the file browser ('o' key).
 	initialDir string

@@ -47,6 +47,76 @@ func TestSetVolumeClamps(t *testing.T) {
 	}
 }
 
+func TestRestoreYTDLSeekSource(t *testing.T) {
+	original := newPlaybackTestDecoder()
+	replacement := newPlaybackTestDecoder()
+	cur := &trackPipeline{decoder: original, stream: original, ytdlSeek: true}
+	p := &Player{gapless: &gaplessStreamer{}, current: cur}
+	p.gapless.Replace(nil) // SeekYTDL mutes playback while rebuilding.
+	p.gaplessAdvance.Store(true)
+
+	p.restoreYTDLSeekSource(cur, 0)
+
+	p.gapless.mu.Lock()
+	got := p.gapless.current
+	p.gapless.mu.Unlock()
+	if got != original {
+		t.Fatal("failed seek did not restore the original stream")
+	}
+	if p.GaplessAdvanced() {
+		t.Fatal("failed seek retained a stale gapless-advance notification")
+	}
+
+	p.gapless.Replace(replacement)
+	p.seekGen.Add(1)
+	p.restoreYTDLSeekSource(cur, 0)
+	p.gapless.mu.Lock()
+	got = p.gapless.current
+	p.gapless.mu.Unlock()
+	if got != replacement {
+		t.Fatal("stale failed seek overwrote a newer stream")
+	}
+}
+
+func TestCommitYTDLSeekDoesNotReplaceNewTrack(t *testing.T) {
+	old := &trackPipeline{}
+	current := &trackPipeline{}
+	p := &Player{gapless: &gaplessStreamer{}, current: current}
+
+	if p.commitYTDLSeek(old, &trackPipeline{}, 0) {
+		t.Fatal("commitYTDLSeek() = true, want false for replaced track")
+	}
+	if p.current != current {
+		t.Fatal("stale seek replaced the current pipeline")
+	}
+}
+
+func TestPlayPipelineForGenerationDiscardsStaleStart(t *testing.T) {
+	p := newTestPlayer()
+	p.SetPlaybackGeneration(2)
+
+	if err := p.playPipelineForGeneration(&trackPipeline{}, 1); err != nil {
+		t.Fatalf("playPipelineForGeneration: %v", err)
+	}
+	if p.current != nil {
+		t.Fatal("stale playback start replaced the current pipeline")
+	}
+}
+
+func TestPreloadPipelineForGenerationDiscardsStalePreload(t *testing.T) {
+	p := newTestPlayer()
+	p.gapless = &gaplessStreamer{}
+	stale := p.BeginPreload()
+	p.BeginPreload()
+
+	if err := p.preloadPipelineForGeneration(&trackPipeline{}, stale); err != nil {
+		t.Fatalf("preloadPipelineForGeneration: %v", err)
+	}
+	if p.nextPipeline != nil {
+		t.Fatal("stale preload replaced the next pipeline")
+	}
+}
+
 func TestSetVolumeMinClamps(t *testing.T) {
 	p := newTestPlayer()
 

@@ -140,6 +140,8 @@ func (m *Model) clampActiveScrollState() {
 			m.plMgrListMaybeAdjustScroll(m.plMgrListVisible())
 		} else if m.plManager.screen == plMgrScreenTracks {
 			m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
+		} else if m.plManager.screen == plMgrScreenDirs {
+			m.plMgrDirsMaybeAdjustScroll(m.plMgrDirsVisible())
 		}
 	case screenSpotSearch:
 		if m.spotSearch.screen == spotSearchResults {

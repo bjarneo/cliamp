@@ -58,16 +58,13 @@ var defaultBrowse = []playlist.PlaylistInfo{
 }
 
 // NewFromConfig returns a provider, or nil when SoundCloud is not enabled.
-// Sets resolve's yt-dlp cookies as a side effect when CookiesFrom is non-empty
-// so any yt-dlp invocation (search, browse, playback) uses the user's
-// signed-in session.
+// Registers SoundCloud's yt-dlp cookie source so search, browse, and playback
+// use the user's signed-in session without affecting other providers.
 func NewFromConfig(cfg Config) *Provider {
 	if !cfg.Enabled {
 		return nil
 	}
-	if cfg.CookiesFrom != "" {
-		resolve.SetYTDLCookiesFrom(cfg.CookiesFrom)
-	}
+	resolve.SetYTDLCookiesForHost("soundcloud.com", cfg.CookiesFrom)
 	return &Provider{user: strings.TrimSpace(cfg.User)}
 }
 

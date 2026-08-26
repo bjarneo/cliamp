@@ -171,6 +171,7 @@ jobs:
           BINARY="cliamp-windows-${GOARCH}.exe"
           PACKAGE="cliamp-windows-${GOARCH}"
           VERSION="${GITHUB_REF#refs/tags/}"
+          windres -i cliamp_windows.rc -o cliamp_windows.syso -O coff
           go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "$BINARY" .
           mkdir "$PACKAGE"
           cp "$BINARY" "$PACKAGE/cliamp.exe"

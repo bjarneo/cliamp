@@ -1,8 +1,8 @@
 # Jellyfin
 
-cliamp can stream music directly from a Jellyfin server using Jellyfin's authenticated HTTP API. The first integration exposes your music libraries as a flat album list in the normal provider pane, following the same shape as the Plex provider.
+Use cliamp to stream music from a Jellyfin server through Jellyfin's authenticated HTTP API. The provider pane shows music libraries as a flat album list, like the Plex provider.
 
-> **Quick start:** run `cliamp setup` for a guided TUI that lets you pick API-token or username+password auth, validates against `/Users/Me`, and writes the `[jellyfin]` block for you. Manual setup steps are below.
+> **Quick start:** Run `cliamp setup`. Select API-token or username+password authentication. The TUI validates `/Users/Me` and writes the `[jellyfin]` block. Manual steps follow.
 
 ## Prerequisites
 
@@ -28,13 +28,13 @@ password = "your_password_here"
 |-----|-------------|
 | `url` | Base URL of your Jellyfin server |
 | `user` | Jellyfin username for password-based login |
-| `password` | Jellyfin password for password-based login |
-| `token` | Optional Jellyfin API token instead of username/password |
+| `password` | Jellyfin password for password login |
+| `token` | Optional Jellyfin API token. Use it instead of a username and password. |
 | `user_id` | Optional Jellyfin user id to skip discovery |
 
 ## Usage
 
-Once configured, **Jellyfin** appears as a provider alongside Radio, Navidrome, Plex, Spotify, and the YouTube providers.
+After configuration, **Jellyfin** appears in the provider list.
 
 To start cliamp with Jellyfin selected:
 
@@ -42,26 +42,26 @@ To start cliamp with Jellyfin selected:
 cliamp --provider jellyfin
 ```
 
-Or set it in config:
+Or set the provider in configuration:
 
 ```toml
 provider = "jellyfin"
 ```
 
-The provider currently exposes a flat list of albums:
+The provider shows a flat album list:
 
 ```text
 Artist - Album Title (Year)
 ```
 
-Select an album to load its tracks, then play as normal.
+Select an album to load its tracks.
 
 ## How it works
 
-cliamp authenticates with either a configured token or the supplied username/password, resolves the active Jellyfin user, enumerates music library views, fetches album items from those views, then fetches track items for the selected album. Playback uses Jellyfin's authenticated audio endpoint, so the existing cliamp HTTP pipeline can stream the result directly.
+cliamp authenticates with a configured token or the supplied username and password. It resolves the active Jellyfin user, lists music library views, gets albums from those views, then gets tracks for the selected album. Playback uses Jellyfin's authenticated audio endpoint and streams through the cliamp HTTP pipeline.
 
 ## Known limitations
 
-- **Album list is flat**: no artist drill-down yet
-- **No scrobbling/write-back**: plays are not reported back to Jellyfin yet
-- **Token-based access**: store the API token carefully
+- **Album list is flat**: Artist drill-down is not available.
+- **No scrobbling/write-back**: cliamp does not report plays to Jellyfin.
+- **Token-based access**: Store the API token safely.

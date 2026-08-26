@@ -20,9 +20,7 @@ type searchRequest struct {
 	offset int
 }
 
-// devModeSpotify fakes an app in Development Mode: /v1/search rejects any limit
-// above devModeSearchLimit with the same 400 "Invalid limit" the real API
-// returns, and serves offset paging normally. It records each page request.
+// devModeSpotify fakes an app in Development Mode and records each search page.
 func devModeSpotify(t *testing.T, total, failOffset int) (*SpotifyProvider, *[]searchRequest) {
 	t.Helper()
 	var requests []searchRequest
@@ -33,6 +31,12 @@ func devModeSpotify(t *testing.T, total, failOffset int) (*SpotifyProvider, *[]s
 			return nil, fmt.Errorf("unexpected Spotify API path %q", req.URL.Path)
 		}
 		q := req.URL.Query()
+		if q.Get("q") != "radiohead" {
+			t.Errorf("search query = %q, want radiohead", q.Get("q"))
+		}
+		if q.Get("type") != "album,track,episode" {
+			t.Errorf("search type = %q, want album,track,episode", q.Get("type"))
+		}
 		limit, _ := strconv.Atoi(q.Get("limit"))
 		offset, _ := strconv.Atoi(q.Get("offset"))
 		requests = append(requests, searchRequest{limit: limit, offset: offset})
@@ -92,7 +96,6 @@ func TestSearchTracksDevModePagination(t *testing.T) {
 			limit:       25,
 			wantResults: 25,
 			wantRequests: []searchRequest{
-				{limit: 25, offset: 0},
 				{limit: 10, offset: 0},
 				{limit: 10, offset: 10},
 				{limit: 5, offset: 20},
@@ -111,7 +114,6 @@ func TestSearchTracksDevModePagination(t *testing.T) {
 			limit:       50,
 			wantResults: 12,
 			wantRequests: []searchRequest{
-				{limit: 50, offset: 0},
 				{limit: 10, offset: 0},
 				{limit: 10, offset: 10},
 			},
@@ -147,11 +149,38 @@ func TestSearchTracksReturnsLaterPageError(t *testing.T) {
 		t.Errorf("SearchTracks() returned %d partial results, want none", len(got))
 	}
 	wantRequests := []searchRequest{
-		{limit: 25, offset: 0},
 		{limit: 10, offset: 0},
 		{limit: 10, offset: 10},
 	}
 	if !slices.Equal(*requests, wantRequests) {
 		t.Errorf("requests = %v, want %v", *requests, wantRequests)
+	}
+}
+
+func TestSearchTracksSharedClientKeepsSingleRequest(t *testing.T) {
+	var requests []searchRequest
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
+		offset, _ := strconv.Atoi(req.URL.Query().Get("offset"))
+		requests = append(requests, searchRequest{limit: limit, offset: offset})
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"tracks":{"items":[]},"episodes":{"items":[]}}`)),
+			Request:    req,
+		}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
+	p := New(sess, DefaultClientID, 320)
+	if _, err := p.SearchTracks(context.Background(), "radiohead", 20); err != nil {
+		t.Fatalf("SearchTracks() error = %v", err)
+	}
+	want := []searchRequest{{limit: 20, offset: 0}}
+	if !slices.Equal(requests, want) {
+		t.Errorf("requests = %v, want %v", requests, want)
 	}
 }

@@ -48,6 +48,13 @@ type pluginInfo struct {
 	err         error
 }
 
+func (p pluginInfo) trustName() string {
+	if strings.HasSuffix(p.file, "/") {
+		return strings.TrimSuffix(p.file, "/")
+	}
+	return strings.TrimSuffix(p.file, ".lua")
+}
+
 // List prints all installed plugins with their metadata.
 func List() error {
 	dir, err := appdir.PluginDir()
@@ -70,7 +77,7 @@ func List() error {
 		return trustErr
 	}
 	for i := range plugins {
-		switch err := plugintrust.Verify(manifest, strings.TrimSuffix(plugins[i].file, "/"), plugins[i].path); {
+		switch err := plugintrust.Verify(manifest, plugins[i].trustName(), plugins[i].path); {
 		case err == nil:
 			plugins[i].trust = "trusted"
 		case err == plugintrust.ErrHashMismatch:

@@ -180,6 +180,8 @@ func TestIsYTDL(t *testing.T) {
 		{"scsearch5:multi result query", true},
 		// SoundCloud
 		{"https://soundcloud.com/artist/track", true},
+		// Mixcloud
+		{"https://www.mixcloud.com/artist/show/", true},
 		// Bandcamp
 		{"https://bandcamp.com/album", true},
 		{"https://artist.bandcamp.com/album/name", true},
@@ -199,6 +201,27 @@ func TestIsYTDL(t *testing.T) {
 		t.Run(tt.path, func(t *testing.T) {
 			if got := IsYTDL(tt.path); got != tt.want {
 				t.Errorf("IsYTDL(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsMixcloudURL(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"https://www.mixcloud.com/creator/show/", true},
+		{"https://m.mixcloud.com/creator/show/", true},
+		{"https://mixcloud.com/creator/show/", true},
+		{"https://notmixcloud.com/creator/show/", false},
+		{"https://mixcloud.com.example/creator/show/", false},
+		{"/local/mixcloud.com/show.mp3", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			if got := IsMixcloudURL(tt.path); got != tt.want {
+				t.Errorf("IsMixcloudURL(%q) = %v, want %v", tt.path, got, tt.want)
 			}
 		})
 	}

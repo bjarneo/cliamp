@@ -59,6 +59,9 @@ func (m Model) plMgrHeaderLine() string {
 			label += " · sort: " + mode
 		}
 		return sepHeaderN(label, m.plManager.cursor+1, len(m.plManager.tracks))
+	case plMgrScreenDirs:
+		label := "Directory sources: " + m.plManager.selPlaylist
+		return sepHeaderN(label, m.plManager.cursor+1, len(m.plManager.dirs))
 	case plMgrScreenNewName:
 		return m.promptHeader("playlist-manager-new-name", "New Playlist", m.plManager.newName)
 	case plMgrScreenRename:
@@ -76,6 +79,8 @@ func (m Model) plMgrHelpLine() string {
 	switch m.plManager.screen {
 	case plMgrScreenTracks:
 		return m.plMgrTracksHelpLine()
+	case plMgrScreenDirs:
+		return m.plMgrDirsHelpLine()
 	case plMgrScreenNewName:
 		return m.commandHelp(commandModePlaylistManagerInput)
 	case plMgrScreenRename:
@@ -89,6 +94,8 @@ func (m Model) renderPlMgrBody() string {
 	switch m.plManager.screen {
 	case plMgrScreenTracks:
 		return m.renderPlMgrTracksBody()
+	case plMgrScreenDirs:
+		return m.renderPlMgrDirsBody()
 	case plMgrScreenNewName, plMgrScreenRename:
 		return m.renderPlMgrFormBody()
 	default:
@@ -103,7 +110,7 @@ func (m Model) renderPlMgrFormBody() string {
 	}
 	label := "Create the playlist (nothing playing to add)."
 	if track, idx := m.currentPlaybackTrack(); idx >= 0 && track.Path != "" {
-		label = "Create & add: " + truncate(track.DisplayName(), max(1, ui.PanelWidth-16))
+		label = "Create & add: " + truncate(trackViewName(track), max(1, ui.PanelWidth-16))
 	}
 	lines := []string{dimStyle.Render("  " + label)}
 	if m.plManager.inputErr != "" {
@@ -250,6 +257,36 @@ func (m Model) renderPlMgrTracksBody() string {
 	return bodyLines(lines, budget)
 }
 
+// renderPlMgrDirsBody renders the [[dir]] directory sources for the open
+// playlist. Each row shows the source path and its scan mode (recursive or
+// flat). An empty list shows how to add a source.
+func (m Model) renderPlMgrDirsBody() string {
+	budget := m.effectivePlaylistVisible()
+
+	if len(m.plManager.dirs) == 0 {
+		return bodyLines([]string{
+			dimStyle.Render("  No directory sources."),
+			dimStyle.Render("  Press `a` to pick a directory to scan."),
+		}, budget)
+	}
+
+	scroll := m.plManager.scroll
+	lines := make([]string, 0, budget)
+	for i := scroll; i < len(m.plManager.dirs) && len(lines) < budget; i++ {
+		src := m.plManager.dirs[i]
+		mode := "recursive"
+		if !src.Recursive {
+			mode = "flat"
+		}
+		if m.plManager.confirmDel && i == m.plManager.cursor {
+			lines = append(lines, playlistSelectedStyle.Render("> Remove "+src.Path+"? [y/n]"))
+			continue
+		}
+		lines = append(lines, cursorLine(src.Path+" · "+mode, i == m.plManager.cursor))
+	}
+	return bodyLines(lines, budget)
+}
+
 func (m Model) plMgrTrackLabel(realIdx int) string {
 	t := m.plManager.tracks[realIdx]
 	mark := "  "
@@ -260,7 +297,7 @@ func (m Model) plMgrTrackLabel(realIdx int) string {
 	if realIdx < len(m.plManager.missingLocal) && m.plManager.missingLocal[realIdx] {
 		missing = "! "
 	}
-	return mark + missing + formatTrackRow(realIdx+1, t.DisplayName()+trackAlbumSuffix(t, m.showAlbumHeaders), t.DurationSecs)
+	return mark + missing + formatTrackRow(realIdx+1, trackViewName(t)+trackAlbumSuffix(t, m.showAlbumHeaders), t.DurationSecs)
 }
 
 // renderSearchList renders the playlist-search results for the playlist region
@@ -298,7 +335,7 @@ func (m Model) renderSearchList() string {
 			style = playlistActiveStyle
 		}
 
-		name := track.DisplayName()
+		name := trackViewName(track)
 		queueSuffix := ""
 		if qp := m.playlist.QueuePosition(i); qp > 0 {
 			queueSuffix = fmt.Sprintf(" [Q%d]", qp)

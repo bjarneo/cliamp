@@ -211,19 +211,22 @@ func TestAlbums_RequestsType9(t *testing.T) {
 }
 
 func TestAlbums_Paginates(t *testing.T) {
-	callCount := 0
+	seenStarts := map[string]bool{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
 		start := r.URL.Query().Get("X-Plex-Container-Start")
+		seenStarts[start] = true
 		w.Header().Set("Content-Type", "application/json")
 		switch start {
 		case "0", "":
-			w.Write([]byte(`{"MediaContainer":{"totalSize":2,"Metadata":[{"ratingKey":"1","title":"A","parentTitle":"Art","year":2000,"leafCount":1}]}}`))
-		case "300":
-			// Second page — but totalSize=2 means we should never reach here with pageSize=300.
-			// This tests that we stop after the first page when totalSize <= pageSize.
-			t.Errorf("unexpected second page request (offset=%s)", start)
-			w.Write([]byte(`{"MediaContainer":{"totalSize":2,"Metadata":[]}}`))
+			// Two albums for a page of 300: the server returned fewer
+			// items than were asked for, which is the case that used to
+			// make the loop skip straight past the remainder.
+			w.Write([]byte(`{"MediaContainer":{"totalSize":3,"Metadata":[{"ratingKey":"1","title":"A","parentTitle":"Art","year":2000,"leafCount":1},{"ratingKey":"2","title":"B","parentTitle":"Art","year":2001,"leafCount":2}]}}`))
+		case "2":
+			w.Write([]byte(`{"MediaContainer":{"totalSize":3,"Metadata":[{"ratingKey":"3","title":"C","parentTitle":"Art","year":2002,"leafCount":3}]}}`))
+		default:
+			t.Errorf("unexpected start %q", start)
+			w.WriteHeader(http.StatusBadRequest)
 		}
 	}))
 	defer srv.Close()
@@ -232,11 +235,68 @@ func TestAlbums_Paginates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Albums() error: %v", err)
 	}
-	if len(albums) != 1 {
-		t.Errorf("expected 1 album, got %d", len(albums))
+	if len(albums) != 3 {
+		t.Fatalf("expected 3 albums, got %d", len(albums))
 	}
-	if callCount != 1 {
-		t.Errorf("expected 1 API call, got %d", callCount)
+	if albums[2].Title != "C" || albums[2].TrackCount != 3 {
+		t.Errorf("unexpected albums[2]: %+v", albums[2])
+	}
+	if !seenStarts["0"] || !seenStarts["2"] {
+		t.Errorf("expected pagination to hit starts 0 and 2, got %v", seenStarts)
+	}
+}
+
+func TestAlbums_PaginatesWithoutTotalSize(t *testing.T) {
+	var starts []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := r.URL.Query().Get("X-Plex-Container-Start")
+		starts = append(starts, start)
+		w.Header().Set("Content-Type", "application/json")
+		switch start {
+		case "0", "":
+			w.Write([]byte(`{"MediaContainer":{"Metadata":[{"ratingKey":"1","title":"A"}]}}`))
+		case "1":
+			w.Write([]byte(`{"MediaContainer":{"Metadata":[{"ratingKey":"2","title":"B"}]}}`))
+		case "2":
+			w.Write([]byte(`{"MediaContainer":{"Metadata":[]}}`))
+		default:
+			t.Errorf("unexpected start %q", start)
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer srv.Close()
+
+	albums, err := newTestClient(srv).Albums("1")
+	if err != nil {
+		t.Fatalf("Albums() error: %v", err)
+	}
+	if len(albums) != 2 {
+		t.Fatalf("expected 2 albums, got %d", len(albums))
+	}
+	wantStarts := []string{"0", "1", "2"}
+	if !slices.Equal(starts, wantStarts) {
+		t.Fatalf("starts = %v, want %v", starts, wantStarts)
+	}
+}
+
+func TestAlbums_StopsWhenTotalSizeReached(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"MediaContainer":{"totalSize":1,"Metadata":[{"ratingKey":"1","title":"A"}]}}`))
+	}))
+	defer srv.Close()
+
+	albums, err := newTestClient(srv).Albums("1")
+	if err != nil {
+		t.Fatalf("Albums() error: %v", err)
+	}
+	if len(albums) != 1 {
+		t.Fatalf("expected 1 album, got %d", len(albums))
+	}
+	if calls != 1 {
+		t.Fatalf("expected 1 API call once totalSize was reached, got %d", calls)
 	}
 }
 

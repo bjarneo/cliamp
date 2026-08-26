@@ -1,8 +1,8 @@
 # Emby
 
-cliamp can stream music directly from an Emby server using Emby's authenticated HTTP API. The integration exposes your music libraries as a flat album list in the normal provider pane, following the same shape as the Jellyfin and Plex providers.
+Use cliamp to stream music from an Emby server through Emby's authenticated HTTP API. The provider pane shows music libraries as a flat album list, like the Jellyfin and Plex providers.
 
-> **Quick start:** run `cliamp setup` for a guided TUI that lets you pick API-key or username+password auth, validates against `/System/Info`, and writes the `[emby]` block for you. Manual setup steps are below.
+> **Quick start:** Run `cliamp setup`. Select API-key or username+password authentication. The TUI validates `/System/Info` and writes the `[emby]` block. Manual steps follow.
 
 ## Prerequisites
 
@@ -27,14 +27,14 @@ password = "your_password_here"
 | Key | Description |
 |-----|-------------|
 | `url` | Base URL of your Emby server |
-| `user` | Emby username — used for password login, and to select the matching account when using an API key |
-| `password` | Emby password for password-based login |
-| `token` | Emby API key — alternative to username/password |
+| `user` | Emby username. Use it for password login and to select the account for an API key. |
+| `password` | Emby password for password login |
+| `token` | Emby API key. Use it instead of a username and password. |
 | `user_id` | Optional Emby user id to skip discovery |
 
 ## Usage
 
-Once configured, **Emby** appears as a provider alongside Radio, Navidrome, Plex, Jellyfin, Spotify, and the YouTube providers.
+After configuration, **Emby** appears in the provider list.
 
 To start cliamp with Emby selected:
 
@@ -42,26 +42,26 @@ To start cliamp with Emby selected:
 cliamp --provider emby
 ```
 
-Or set it in config:
+Or set the provider in configuration:
 
 ```toml
 provider = "emby"
 ```
 
-The provider exposes a flat list of albums:
+The provider shows a flat album list:
 
 ```text
 Artist — Album Title (Year)
 ```
 
-Select an album to load its tracks, then play as normal. Press `E` anywhere in the UI to switch to Emby quickly.
+Select an album to load its tracks. Press `E` to select Emby.
 
 ## How it works
 
-cliamp authenticates with either a configured API key or the supplied username/password, resolves the active Emby user, enumerates music library views, fetches album items from those views, then fetches track items for the selected album. Playback uses Emby's authenticated download endpoint, so the existing cliamp HTTP pipeline can stream the result directly.
+cliamp authenticates with an API key or the supplied username and password. It resolves the active Emby user, lists music library views, gets albums from those views, then gets tracks for the selected album. Playback uses Emby's authenticated download endpoint and streams through the cliamp HTTP pipeline.
 
 ## Known limitations
 
-- **Album list is flat**: no artist drill-down yet
-- **Token-based access**: store the API key carefully
-- **API key user selection**: Emby API keys are server-level (no "current user"). When no `user` is configured, cliamp picks the first user returned by `/Users`. On single-user servers this is always correct; on multi-user servers, set `user_id` explicitly in `[emby]` to target a specific account.
+- **Album list is flat**: Artist drill-down is not available.
+- **Token-based access**: Store the API key safely.
+- **API key user selection**: Emby API keys apply to the server and have no "current user". Without `user`, cliamp selects the first user returned by `/Users`. This is correct for a single-user server. On a multi-user server, set `user_id` in `[emby]` to select an account.

@@ -1,10 +1,10 @@
 # Playlists
 
-Cliamp supports local **TOML playlists** managed from the TUI or CLI, plus **M3U/M3U8/PLS playlists** loaded from files or URLs.
+cliamp supports local **TOML playlists** that you manage in the TUI or CLI. It also loads **M3U/M3U8/PLS playlists** from files and URLs.
 
 ## M3U and PLS Playlists
 
-Load any `.m3u`, `.m3u8`, or `.pls` file, local or remote:
+Load local or remote `.m3u`, `.m3u8`, and `.pls` files:
 
 ```sh
 cliamp ~/radio-stations.m3u
@@ -15,7 +15,7 @@ cliamp ~/radio.pls
 
 ### EXTINF Metadata
 
-The parser extracts titles and durations from `#EXTINF` lines:
+cliamp reads titles and durations from `#EXTINF` lines:
 
 ```m3u
 #EXTM3U
@@ -25,11 +25,11 @@ http://station-1.com/stream
 http://station-2.com/stream/hd
 ```
 
-Entries without `#EXTINF` still work. The filename or URL is used as the title instead.
+Entries without `#EXTINF` also work. cliamp uses the file name or URL as the title.
 
 ### Relative Paths
 
-Paths in a local M3U file are resolved relative to the M3U file's directory:
+cliamp resolves paths in a local M3U file from the M3U file directory:
 
 ```m3u
 #EXTINF:240,My Song
@@ -38,7 +38,7 @@ Paths in a local M3U file are resolved relative to the M3U file's directory:
 http://example.com/live
 ```
 
-If `radio.m3u` is in `~/playlists/`, then `../Music/song.mp3` resolves to `~/Music/song.mp3`.
+If `radio.m3u` is in `~/playlists/`, cliamp resolves `../Music/song.mp3` to `~/Music/song.mp3`.
 
 ### Edge Cases Handled
 
@@ -52,11 +52,11 @@ If `radio.m3u` is in `~/playlists/`, then `../Music/song.mp3` resolves to `~/Mus
 
 ## Local TOML Playlists
 
-Create and manage your own playlists stored as `.toml` files in `~/.config/cliamp/playlists/`. (The folder follows cliamp's config-dir resolution: `CLIAMP_CONFIG_DIR`, then `XDG_CONFIG_HOME/cliamp`, then `HOME/.config/cliamp`.)
+Create and manage playlists as `.toml` files in `~/.config/cliamp/playlists/`. The folder follows cliamp config directory resolution: `CLIAMP_CONFIG_DIR`, then `XDG_CONFIG_HOME/cliamp`, then `HOME/.config/cliamp`.
 
 ### File Format
 
-Each playlist is a separate `.toml` file, and every file in the `playlists/` folder with a `.toml` extension (case-insensitive) is picked up automatically — whether created by the CLI or written by hand. Files that fail to parse are skipped. The filename (minus extension) becomes the playlist name:
+Each playlist has one `.toml` file. cliamp automatically reads every file in the `playlists/` folder with a `.toml` extension, case-insensitively. The CLI or a user can create these files. cliamp skips files that it cannot parse. The file name without its extension is the playlist name:
 
 ```text
 ~/.config/cliamp/playlists/
@@ -65,7 +65,7 @@ Each playlist is a separate `.toml` file, and every file in the `playlists/` fol
 └── gym.toml              → playlist "gym"
 ```
 
-Keep one file per collection; mix hand-written and CLI-created files freely. Empty playlists are kept on disk so they remain visible in the TUI and CLI.
+Use one file for each collection. You can use files that you create and files that the CLI creates. cliamp keeps empty playlists on disk so they remain visible in the TUI and CLI.
 
 ```toml
 # ~/.config/cliamp/playlists/radio-stations.toml
@@ -86,31 +86,31 @@ title = "My Song"
 artist = "My Artist"
 ```
 
-Each `[[track]]` section supports:
+Each `[[track]]` section supports these keys:
 
 | Key | Required | Description |
 |-----|----------|-------------|
 | `path` | Yes | File path or HTTP URL |
-| `title` | Yes | Display title |
+| `title` | Yes | Title to display |
 | `artist` | No | Artist name |
 | `album` | No | Album name |
 | `genre` | No | Genre name |
 | `year` | No | Release year |
 | `track_number` | No | Track number |
 | `duration_secs` | No | Duration in seconds |
-| `realtime` | No | Treat an HTTP URL as live radio and reconnect it after pause or disconnect |
-| `embedded_lyrics` | No | Lyrics copied from local file tags |
+| `realtime` | No | Treat an HTTP URL as live radio. Reconnect after pause or disconnect. |
+| `embedded_lyrics` | No | Lyrics from local file tags |
 | `album_art_url` | No | Cached file URL for embedded album art |
 | `bookmark` | No | Bookmark flag |
 
-HTTP/HTTPS paths are automatically treated as streams. Set `realtime = true`
-for live radio. cliamp preserves this flag when it saves the playlist.
+cliamp treats HTTP/HTTPS paths as streams. Set `realtime = true` for live radio.
+cliamp keeps this flag when it saves the playlist.
 
 ### Directory Sources (`[[dir]]`)
 
-Instead of listing every file, a playlist can reference a directory that is
-scanned for audio files every time the playlist loads. The directory is read
-at load time, so new files show up automatically and removed files disappear:
+Instead of listing each file, reference a directory in a playlist. cliamp scans
+the directory for audio files each time it loads the playlist. New files appear
+automatically. Removed files no longer appear:
 
 ```toml
 # ~/.config/cliamp/playlists/music.toml
@@ -123,21 +123,21 @@ path = "https://radio.example.com/stream"
 title = "My Radio"
 ```
 
-Each `[[dir]]` section supports:
+Each `[[dir]]` section supports these keys:
 
 | Key | Required | Description |
 |-----|----------|-------------|
-| `path` | Yes | Directory path; `~` and environment variables are expanded |
-| `recursive` | No | Scan subdirectories too (default `true`) |
+| `path` | Yes | Directory path. cliamp expands `~` and environment variables. |
+| `recursive` | No | Also scan subdirectories (default `true`) |
 
-Directory-sourced tracks are returned in document order, sorted by path within
-each directory. An explicit `[[track]]` with the same path always wins over a
-directory scan, so you can pin a bookmark or custom metadata onto a specific
-file. Bookmarking a directory-sourced track (TUI `f` or
-`cliamp playlist bookmark`) materializes it as an explicit `[[track]]` entry so
-the bookmark survives. Unreadable or missing directories contribute no tracks.
+cliamp returns directory tracks in document order and sorts each directory by
+path. An explicit `[[track]]` with the same path overrides a directory scan. Use
+this to save a bookmark or custom metadata for a file. When you bookmark a
+directory track with TUI `f` or `cliamp playlist bookmark`, cliamp writes an
+explicit `[[track]]` entry so the bookmark remains. Unreadable or missing
+directories add no tracks.
 
-Use `--dir` to create or extend such playlists from the CLI:
+Use `--dir` to create or extend these playlists on the CLI:
 
 ```sh
 cliamp playlist create "Music" --dir ~/Music
@@ -145,15 +145,15 @@ cliamp playlist add "Music" --dir ~/Downloads/live
 cliamp playlist dirs "Music"               # list referenced directories
 ```
 
-`--dir` cannot be combined with `--ssh`. Removing a directory-sourced track
-(CLI or TUI) is refused, since the file is owned by the directory source;
-delete the file from the directory or edit the `[[dir]]` section instead.
+Do not combine `--dir` with `--ssh`. The CLI and TUI refuse to remove a
+directory track because the directory source owns it. Delete the file from the
+directory or edit the `[[dir]]` section instead.
 
 ### Adding Files and Directories
 
-A playlist file can hold any number of `[[track]]` and `[[dir]]` sections,
-mixed freely. This single `mix.toml` combines two directory sources, two
-absolute file paths, and a stream URL:
+A playlist file can contain any number of `[[track]]` and `[[dir]]` sections.
+Mix them as needed. This `mix.toml` has two directory sources, two absolute file
+paths, and a stream URL:
 
 ```toml
 # ~/.config/cliamp/playlists/mix.toml
@@ -174,8 +174,8 @@ path = "https://radio.example.com/stream"
 title = "My Radio"
 ```
 
-Or spread the tracks and directories across many files — every `.toml` file in
-the `playlists/` folder becomes its own playlist:
+You can also use many files. Each `.toml` file in the `playlists/` folder is a
+separate playlist:
 
 ```toml
 # ~/.config/cliamp/playlists/gym.toml
@@ -196,9 +196,9 @@ path = "/home/user/Downloads/chill-lofi.mp3"
 title = "Lofi"
 ```
 
-The same playlists can be built from the command line without editing files.
-Positional paths are expanded into `[[track]]` entries; `--dir` keeps a live
-directory reference that re-scans on every load:
+Build the same playlists on the command line without editing files. Positional
+paths become `[[track]]` entries. `--dir` stores a directory reference that
+cliamp scans on every load:
 
 ```sh
 cliamp playlist create "mix" ~/Downloads/live-set.mp3 --dir ~/Music --dir ~/Downloads/podcasts
@@ -206,18 +206,19 @@ cliamp playlist create "gym" ~/Documents/warmup.mp3 --dir ~/Music/gym
 cliamp playlist create "chill" ~/Downloads/chill-lofi.mp3
 ```
 
-Append more files and directories to an existing playlist at any time:
+Add more files and directories to an existing playlist:
 
 ```sh
 cliamp playlist add "mix" another-track.mp3 --dir ~/Downloads/live
 ```
 
-Note that `recursive = false` has no CLI flag — set it by editing the
-playlist file's `[[dir]]` section.
+`recursive = false` has no CLI flag. Set it in the playlist `[[dir]]` section.
 
 ### Podcast / RSS Feed Playlists
 
-You can save podcast RSS feed URLs in a playlist. Add `feed = true` to mark a track as a feed. When played, the feed is resolved into individual episodes instead of being streamed directly.
+Save podcast RSS feed URLs in a playlist. Set `feed = true` to mark a track as a
+feed. When you play it, cliamp resolves the feed into individual episodes. It
+does not stream the feed directly.
 
 ```toml
 # ~/.config/cliamp/playlists/podcasts.toml
@@ -233,7 +234,7 @@ title = "Lex Fridman Podcast"
 feed = true
 ```
 
-Each `[[track]]` with `feed = true` supports:
+Each `[[track]]` with `feed = true` supports these keys:
 
 | Key | Required | Description |
 |-----|----------|-------------|
@@ -241,17 +242,24 @@ Each `[[track]]` with `feed = true` supports:
 | `title` | Yes | Display name for the feed |
 | `feed` | Yes | Must be `true` to enable feed resolution |
 
-When you select a feed entry, cliamp fetches the RSS feed, extracts all episodes with audio enclosures, and loads them into the playlist. Episode titles and durations (from `<itunes:duration>`) are preserved.
+When you select a feed entry, cliamp fetches the RSS feed. It extracts episodes
+with audio enclosures and loads them into the playlist. It keeps episode titles
+and durations from `<itunes:duration>`.
 
-URLs with `.xml`, `.rss`, or `.atom` extensions are also auto-detected as feeds without needing `feed = true`.
+cliamp also detects URLs with `.xml`, `.rss`, or `.atom` extensions as feeds. You
+do not need `feed = true` for these URLs.
 
 ### Browsing and Loading Playlists
 
-Running `cliamp` without arguments connects to the built-in radio channel. If Navidrome is configured, it opens the provider browser instead.
+Run `cliamp` without arguments to connect to the built-in radio channel. If you configure Navidrome, cliamp opens the provider browser instead.
 
-To browse your local playlists, press `Esc` or `b` during playback to open the provider browser. Navigate with `Up`/`Down` (or `j`/`k`) and press `Enter` to load a playlist. Tracks replace the current playlist and playback starts immediately. Press `Tab` to jump back to the now-playing playlist without reloading.
+To browse local playlists, press `Esc` or `b` during playback to open the
+provider browser. Use `Up`/`Down` or `j`/`k` to navigate. Press `Enter` to load
+a playlist. Its tracks replace the current playlist and start playback. Press
+`Tab` to return to the now-playing playlist without loading it again.
 
-If Navidrome is also configured, both sources appear in the same list with provider labels (e.g., `[Navidrome] Jazz`, `[Local Playlists] favorites`).
+If you also configure Navidrome, both sources appear in one list with provider
+labels, such as `[Navidrome] Jazz` and `[Local Playlists] favorites`.
 
 You can start with CLI files and browse playlists later:
 
@@ -261,33 +269,42 @@ cliamp song.mp3                    # starts playing, Esc opens browser
 
 ### Managing Playlists
 
-Press `p` from any view to open the playlist manager:
+Press `p` in any view to open the playlist manager:
 
-1. **Browse**: see all playlists with track counts
-2. **Filter**: press `/` to incrementally filter the list (works on both the playlists screen and the track screen). `Esc` clears the filter.
-3. **Open**: press `Enter` or `→` to view tracks inside a playlist
-4. **Add now-playing**: press `a` to add the currently playing track (the footer shows the track name so you know what gets added)
-5. **Delete playlist**: press `d` then `y` to confirm deletion
-6. **Mark tracks**: open a playlist, press `Space` to mark a track and advance, or `a` to mark or unmark all visible tracks
-7. **Move tracks**: press `[` or `]`; the saved playlist is updated immediately
-8. **Sort tracks**: press `s` to cycle `track`, `title`, `artist`, `album`, `artist+album`, and `path` sorting
-9. **Remove tracks**: press `d` to remove the marked tracks, or the highlighted track when nothing is marked
-10. **Undo manager edits**: press `u` after delete, remove, move, or sort
-11. **Write tracks elsewhere**: press `w` to copy the marked or highlighted tracks to another playlist; duplicate paths are skipped
-12. **Add files**: press `o` from inside a playlist to browse files and add them to that playlist
-13. **Play this**: press `Enter` on the track list to start playback at the highlighted track. The rest of the playlist follows.
-14. **Play all**: press `p` to start from the top, regardless of cursor position
-15. **New playlist**: select "+ New Playlist...", type a name, and press Enter. If you create a playlist while a `/` filter is active, the filter text is pre-filled as the new playlist name.
+1. **Browse**: View all playlists and their track counts.
+2. **Filter**: Press `/` to filter the list as you type. This works on the playlists and tracks screens. `Esc` clears the filter.
+3. **Open**: Press `Enter` or `→` to view playlist tracks.
+4. **Create playlist**: Press `a`, enter a name, and press `Enter`. The file browser opens at `~` for the new playlist. Use `Space` to select folders or files. Folders become live `[[dir]]` sources. Press `Enter` to confirm or `Esc` to finish.
+5. **Rename playlist**: Press `r` on the list screen.
+6. **Delete playlist**: Press `d`, then `y` to confirm.
+7. **Mark tracks**: Open a playlist. Press `Space` to mark a track and advance, or `a` to mark or unmark all visible tracks.
+8. **Move tracks**: Press `[` or `]`. cliamp saves the playlist immediately.
+9. **Sort tracks**: Press `s` to cycle `track`, `title`, `artist`, `album`, `artist+album`, and `path`.
+10. **Remove tracks**: Press `d` to remove marked tracks, or the selected track when none are marked.
+11. **Undo manager edits**: Press `u` after delete, remove, move, or sort.
+12. **Write tracks elsewhere**: Press `w` to copy marked or selected tracks to another playlist. cliamp skips duplicate paths.
+13. **Add files**: Press `o` inside a playlist to browse and add files to it.
+14. **Play this**: Press `Enter` in the track list to start at the selected track. The rest of the playlist follows.
+15. **Play all**: Press `p` to start from the top, regardless of cursor position.
+16. **New playlist**: Select "+ New Playlist...", enter a name, and press `Enter`. The file browser opens so you can add tracks immediately. If a `/` filter is active, cliamp fills the new playlist name with the filter text.
 
-Tracks with an `album` field are grouped by album with visual separator headers in the playlist manager (album grouping is hidden while a filter is active) and the main player view.
+Tracks with an `album` field are grouped by album with separator headers in the
+playlist manager and the main player view. Album grouping is hidden while a
+filter is active.
 
-The directory `~/.config/cliamp/playlists/` is created automatically on first use. Removing the last track leaves an empty playlist file; use `d` on the playlist list or `cliamp playlist delete` to delete the playlist itself.
+cliamp creates `~/.config/cliamp/playlists/` on first use. Removing the last
+track leaves an empty playlist file. Use `d` in the playlist list or `cliamp
+playlist delete` to delete the playlist.
 
 ### Writing to Playlists
 
-Press `w` on a track in the main playlist to open the local playlist picker. Pick an existing playlist or choose `+ New Playlist...`. Exact duplicate paths are skipped and reported.
+Press `w` on a track in the main playlist to open the local playlist picker.
+Select an existing playlist or `+ New Playlist...`. cliamp skips and reports
+exact duplicate paths.
 
-In the file browser, select files with `Space`, select all visible audio files with `a`, then press `w` to write the selection to a playlist instead of loading it into the current queue.
+In the file browser, use `Space` to select files. Use `a` to select all visible
+audio files. Press `w` to write the selection to a playlist instead of loading
+it into the current queue.
 
 ### Command Line Management
 
@@ -316,13 +333,15 @@ cliamp playlist enrich "Name"                    # backfill duration/album metad
 cliamp playlist delete "Name"
 ```
 
-Sort keys are `track`, `title`, `artist`, `album`, `artist+album`, and `path`.
+Use `track`, `title`, `artist`, `album`, `artist+album`, or `path` as sort keys.
 
-New playlist names reject path separators and non-portable filename characters. Existing playlist files with older Unix-only names remain readable and writable.
+New playlist names reject path separators and non-portable file name characters.
+cliamp can still read and write existing playlist files with older Unix-only
+names.
 
 ### Creating Playlists Manually
 
-Create the directory and add a `.toml` file:
+Create the directory, then add a `.toml` file:
 
 ```sh
 mkdir -p ~/.config/cliamp/playlists
@@ -348,25 +367,63 @@ title = "My Radio"
 | Key | Action |
 |-----|--------|
 | `Up` `Down` / `j` `k` | Navigate playlists |
-| `Enter` | Load selected playlist |
-| `Tab` | Switch to now-playing playlist |
+| `Enter` | Load the selected playlist |
+| `Tab` | Switch to the now-playing playlist |
 | `Esc` `b` | Open browser (from playlist view) |
 
 **Playlist manager (`p` key):**
 
 | Key | Action |
 |-----|--------|
-| `p` / `Esc` | Open/close playlist manager (Esc on tracks screen goes back) |
+| `p` / `Esc` | Open or close the playlist manager. `Esc` on the tracks screen goes back. |
 | `Up` `Down` / `j` `k` | Navigate |
 | `/` | Filter playlists or tracks; `Esc` clears |
-| `Enter` / `→` | Open playlist (list screen) / Play **highlighted** track (tracks screen) |
+| `Enter` / `→` | List screen: open a playlist. Tracks screen: play the **selected** track. |
 | `p` | Play all tracks from the top (tracks screen) |
-| `a` | List: add currently playing track. Tracks: mark/unmark all visible tracks |
+| `a` | List: create a playlist. After naming it, the file browser opens at `~`. Use `Space` to select folders or files and `Esc` to finish. Tracks: mark or unmark all visible tracks. |
+| `r` | Rename the highlighted playlist (list screen; `Recently Played` cannot be renamed) |
 | `Space` | Mark/unmark track and advance (tracks screen) |
-| `s` | Sort tracks, cycling supported sort keys (tracks screen) |
-| `w` | Write marked/highlighted tracks, or the current queue from the list screen, to another playlist |
+| `s` | Cycle supported sort keys (tracks screen) |
+| `w` | Write marked or selected tracks to another playlist. On the list screen, write the current queue. |
 | `o` | Add files to the open playlist (tracks screen) |
+| `D` | List: open the file browser to add `[[dir]]` sources to the selected playlist. Tracks: open the directory-sources screen for the open playlist. |
 | `[` `]` | Move track up/down and save (tracks screen) |
-| `d` | Delete playlist (confirms) / Remove marked tracks, or highlighted track if none are marked |
+| `d` | Delete a playlist after confirmation. `Recently Played` cannot be deleted. In tracks, remove marked tracks or the selected track if none are marked. |
 | `u` | Undo the last playlist-manager edit |
 | `←` / `Backspace` | Go back from tracks screen to list |
+
+The playlist list marks playlists with `[[dir]]` sources with a `· N dir(s)`
+indicator next to the track count.
+
+**Directory sources screen (tracks screen, `D`):**
+
+| Key | Action |
+|-----|--------|
+| `Up` `Down` / `j` `k` | Navigate directory sources |
+| `a` | Open the file browser to add a directory as a `[[dir]]` source |
+| `d` then `y` | Remove the selected source. Confirm with `y`; any other key cancels. |
+| `r` | Toggle `recursive` on the selected source. cliamp scans it again immediately. |
+| `←` / `Backspace` / `Esc` | Back to the tracks screen |
+
+In the file browser, press `D` to add selected directories as live `[[dir]]`
+sources instead of expanding them into explicit tracks. If none are selected,
+cliamp adds the selected directory or the directory that you are browsing. This
+browser mode starts with `a` above, `o` from the tracks screen, or `D` from the
+list screen. cliamp skips and reports directories that are already referenced.
+
+## Favorites
+
+Press `n` on a track in the track list to toggle its favorite state. cliamp
+collects favorited tracks in the virtual **"Favorites"** playlist. This playlist
+always appears at the top of the playlist list, even when empty and regardless
+of the source playlist.
+
+Favorites apply across playlists. A track that you favorite in "gym" appears in
+"Favorites", and the reverse is also true. `~/.config/cliamp/favorites.toml`
+stores the "Favorites" playlist. Like "Recently Played", it is a virtual
+playlist that you cannot rename, delete, or change in the playlist manager. Use
+`n` again to remove a favorite.
+
+Favorited tracks show a small red `♥` marker in the track list. The bookmark
+system is separate: it uses the `f` key and `★` marker. Bookmarks apply to one
+playlist. Favorites apply to all playlists.

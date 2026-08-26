@@ -9,15 +9,14 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
 )
 
-// titleScrollSep is the separator runes for cyclic title scrolling,
-// pre-allocated to avoid per-frame conversion.
-var titleScrollSep = []rune("   ♫   ")
+const trackInfoMarqueeWidth = 48
 
 // Pre-built styles for elements created per-render to avoid repeated allocation.
 var (
@@ -25,6 +24,25 @@ var (
 	seekDimStyle  = lipgloss.NewStyle().Foreground(ui.ColorDim)
 	volBarStyle   = lipgloss.NewStyle().Foreground(ui.ColorVolume)
 	activeToggle  = lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true)
+	// favMarkerStyle paints the favorite heart in the theme's red so it
+	// reads as a deliberate accent instead of inheriting the dim/unavailable
+	// look. The glyph carries U+FE0E (text presentation) so terminals render
+	// it as a compact font glyph rather than a large color emoji.
+	favMarkerStyle = lipgloss.NewStyle().Foreground(ui.ColorError)
+	// favRemovedStyle mutes the same filled heart for unfavorite feedback:
+	// identical attractive glyph, faded to signal the removed state instead
+	// of switching to a thin outline glyph.
+	favRemovedStyle = lipgloss.NewStyle().Foreground(ui.ColorDim)
+)
+
+// favHeart is the small, text-presentation favorite heart used everywhere the
+// UI shows favorite state (track rows, header badge, status messages).
+const favHeart = "♥\uFE0E"
+
+// Pre-rendered toggle feedback marks for the status bar.
+var (
+	favAddedMark   = favMarkerStyle.Render(favHeart)
+	favRemovedMark = favRemovedStyle.Render(favHeart)
 )
 
 // providerEmptyStateHint, keyed by lowercase provider Name(), returns the
@@ -94,15 +112,21 @@ func (m Model) isProviderRowActive(p playlist.PlaylistInfo) bool {
 }
 
 // playlistLabel formats a playlist entry, omitting fields the provider didn't
-// supply. Track count and total duration are appended when available.
+// supply. Track count and total duration are appended when available. The
+// Favorites virtual playlist always shows its count — it stays listed even
+// when empty, and a bare name would look broken. Directory-backed playlists
+// hide the duration: their track counts are cheap estimates, so a runtime
+// total would be misleading.
 func playlistLabel(prefix string, p playlist.PlaylistInfo) string {
 	out := prefix + p.Name
-	parts := make([]string, 0, 2)
-	if p.TrackCount > 0 {
+	var parts []string
+	if p.TrackCount > 0 || p.Name == favorites.PlaylistName {
 		parts = append(parts, fmt.Sprintf("%d tracks", p.TrackCount))
 	}
-	if d := formatPlaylistDuration(p.DurationSecs); d != "" {
-		parts = append(parts, d)
+	if p.DirSourceCount == 0 {
+		if d := formatPlaylistDuration(p.DurationSecs); d != "" {
+			parts = append(parts, d)
+		}
 	}
 	if len(parts) > 0 {
 		out += " · " + strings.Join(parts, " · ")
@@ -253,13 +277,7 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 
 func (m Model) renderSimplifiedTrackInfo() string {
 	track, _ := m.currentPlaybackTrack()
-	name := track.DisplayName()
-	if name == "" {
-		name = "No track loaded"
-	}
-	if m.streamTitle != "" && track.Stream {
-		name = m.streamTitle
-	}
+	name := trackInfoName(track, m.streamTitle)
 
 	duration := formatTrackTime(int(m.cachedDur.Seconds()))
 	if duration == "" {
@@ -272,9 +290,59 @@ func (m Model) renderSimplifiedTrackInfo() string {
 		}
 	}
 
-	name = truncate(name, max(1, ui.PanelWidth-lipgloss.Width(duration)-1))
+	maxW := min(max(1, ui.PanelWidth-lipgloss.Width(duration)-1), trackInfoMarqueeWidth)
+	name = scrollTrackNameOnce(name, maxW, m.titleOff)
 	gap := max(1, ui.PanelWidth-lipgloss.Width(name)-lipgloss.Width(duration))
 	return trackStyle.Render(name) + strings.Repeat(" ", gap) + dimStyle.Render(duration)
+}
+
+func trackInfoName(track playlist.Track, streamTitle string) string {
+	if streamTitle != "" && track.Stream {
+		return streamTitle
+	}
+
+	name := trackViewName(track)
+	if name == "" {
+		name = "No track loaded"
+	}
+	if track.Album != "" {
+		name += " · " + track.Album
+	}
+	return name
+}
+
+func scrollTrackNameOnce(name string, maxW, offset int) string {
+	runes := []rune(name)
+	if len(runes) <= maxW {
+		return name
+	}
+	offset = min(max(0, offset), len(runes)-maxW)
+	return string(runes[offset : offset+maxW])
+}
+
+func (m *Model) resetTitleScroll() {
+	m.titleOff = 0
+	m.titleLastScroll = time.Time{}
+	m.titleScrolled = false
+}
+
+func (m Model) titleScrollLimit() int {
+	track, _ := m.currentPlaybackTrack()
+	maxW := min(ui.PanelWidth-4, trackInfoMarqueeWidth)
+	return max(0, len([]rune(trackInfoName(track, m.streamTitle)))-maxW)
+}
+
+func (m *Model) advanceTitleScroll(now time.Time) {
+	if m.player == nil || !m.player.IsPlaying() || m.player.IsPaused() || m.titleScrolled || now.Sub(m.titleLastScroll) < 200*time.Millisecond {
+		return
+	}
+	m.titleLastScroll = now
+	if m.titleOff >= m.titleScrollLimit() {
+		m.titleOff = 0
+		m.titleScrolled = true
+		return
+	}
+	m.titleOff++
 }
 
 func (m Model) renderTierHelp() string {
@@ -378,53 +446,17 @@ func (m Model) renderTitle() string {
 
 func (m Model) renderTrackInfo() string {
 	track, _ := m.currentPlaybackTrack()
-	name := track.DisplayName()
-	if name == "" {
-		name = "No track loaded"
-	}
-	// Show live ICY stream title instead of static track name for radio streams.
-	if m.streamTitle != "" && track.Stream {
-		name = m.streamTitle
-	}
-
-	// Append album to the title line to save vertical space.
-	// The album is truncated (never scrolled) so artist/song stays readable.
-	album := track.Album
-	if m.streamTitle != "" && track.Stream {
-		album = ""
-	}
-
-	maxW := ui.PanelWidth - 4
+	name := trackInfoName(track, m.streamTitle)
+	maxW := min(ui.PanelWidth-4, trackInfoMarqueeWidth)
 	if maxW < 1 {
 		return trackStyle.Render("♫ " + name)
 	}
-	nameRunes := []rune(name)
-
-	if album != "" {
-		sep := " · "
-		sepLen := len([]rune(sep))
-		remaining := maxW - len(nameRunes) - sepLen
-		if remaining >= 4 {
-			name += sep + truncate(album, remaining)
-		}
-		// remaining < 4: drop album, name alone fits or scrolls below.
-	}
-
 	runes := []rune(name)
 
 	if len(runes) <= maxW {
 		return trackStyle.Render("♫ " + name)
 	}
-	// Cyclic scrolling for long titles (only artist/song, album already handled)
-	padded := append(runes, titleScrollSep...)
-	total := len(padded)
-	off := m.titleOff % total
-
-	display := make([]rune, maxW)
-	for i := range maxW {
-		display[i] = padded[(off+i)%total]
-	}
-	return trackStyle.Render("♫ " + string(display))
+	return trackStyle.Render("♫ " + scrollTrackNameOnce(name, maxW, m.titleOff))
 }
 
 func (m Model) renderTimeStatus() string {
@@ -661,6 +693,12 @@ func (m Model) renderPlaylistHeader() string {
 		bookmarkStr = " " + activeToggle.Render(fmt.Sprintf("[★ %d]", bookmarkCount))
 	}
 
+	var favStr string
+	// Render from the cached favSet: the render path must not hit disk.
+	if count := len(m.favSet); count > 0 {
+		favStr = " " + activeToggle.Render(fmt.Sprintf("[%s %d]", favHeart, count))
+	}
+
 	var themeStr string
 	if name := m.ThemeName(); name != theme.DefaultName {
 		themeStr = " " + activeToggle.Render("[Theme: "+name+"]")
@@ -677,7 +715,7 @@ func (m Model) renderPlaylistHeader() string {
 		headerStyle = activeToggle
 		headerLabel = "▸─ Playlist ── "
 	}
-	return headerStyle.Render(headerLabel) + shuffle + queueStr + bookmarkStr + posStr + themeStr + " " + dimStyle.Render("──")
+	return headerStyle.Render(headerLabel) + shuffle + queueStr + bookmarkStr + favStr + posStr + themeStr + " " + dimStyle.Render("──")
 }
 
 func (m Model) renderProviderList() string {
@@ -888,13 +926,19 @@ func (m Model) renderPlaylist() string {
 		if t.Bookmark {
 			bookmarkMarker = "★"
 		}
+		favMarker := " "
+		if m.favSet != nil {
+			if _, ok := m.favSet[t.Path]; ok {
+				favMarker = favHeart
+			}
+		}
 		unavailableMarker := " "
 		if t.Unplayable {
 			unavailableMarker = "!"
 		}
-		markers := cursorMarker + playingMarker + queueMarker + bookmarkMarker + unavailableMarker + " "
+		markers := cursorMarker + playingMarker + queueMarker + bookmarkMarker + favMarker + unavailableMarker + " "
 
-		name := t.DisplayName()
+		name := trackViewName(t)
 		queueSuffix := ""
 		if queuePosition > 0 && ui.PanelWidth >= 64 {
 			queueSuffix = fmt.Sprintf(" [Q%d]", queuePosition)
@@ -929,7 +973,8 @@ func (m Model) renderPlaylist() string {
 
 		numStr := fmt.Sprintf("%*d. ", numWidth, i+1)
 		line := dimStyle.Render(cursorMarker) + playlistActiveStyle.Render(playingMarker) +
-			activeToggle.Render(queueMarker+bookmarkMarker) + playlistUnavailableStyle.Render(unavailableMarker) +
+			activeToggle.Render(queueMarker+bookmarkMarker) + favMarkerStyle.Render(favMarker) +
+			playlistUnavailableStyle.Render(unavailableMarker) +
 			" " + style.Render(numStr)
 		line += style.Render(name)
 		if albumSuffix != "" {

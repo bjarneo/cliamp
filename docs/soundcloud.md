@@ -1,27 +1,27 @@
 # SoundCloud Integration
 
-cliamp supports [SoundCloud](https://soundcloud.com) as an opt-in provider. Search, paste-to-play, browse a profile, and (with a browser cookie hookup) stream subscriber-gated tracks. Powered by [yt-dlp](https://github.com/yt-dlp/yt-dlp), so it requires `yt-dlp` on `PATH`.
+Enable [SoundCloud](https://soundcloud.com) to search, paste URLs to play, browse profiles, and stream subscriber-gated tracks with browser cookies. Playback uses [yt-dlp](https://github.com/yt-dlp/yt-dlp). Put `yt-dlp` on `PATH`.
 
-> SoundCloud closed its OAuth program to new applications in 2014, so the bring-your-own-`client_id` pattern Spotify uses isn't available. cliamp signs you in by reusing your browser's existing SoundCloud session — see [Sign in via browser cookies](#sign-in-via-browser-cookies) below.
+> SoundCloud closed its OAuth program to new applications in 2014. You cannot use the Spotify-style bring-your-own-`client_id` pattern. cliamp uses the existing SoundCloud session in your browser. See [Sign in via browser cookies](#sign-in-via-browser-cookies).
 
 ## Enable
 
-SoundCloud is **off by default**. To turn it on, add to `~/.config/cliamp/config.toml`:
+SoundCloud is **off by default**. To enable it, add this to `~/.config/cliamp/config.toml`:
 
 ```toml
 [soundcloud]
 enabled = true
 ```
 
-Once enabled:
+After you enable it:
 
-- **Search** with `Ctrl+F` while SoundCloud is the active provider — runs `scsearch:` against SoundCloud's public index.
-- **Paste a URL** (`u`) — any `soundcloud.com/<artist>/<track>` URL plays.
-- **Browse list with curated genres** — when no profile is configured, the playlists pane is seeded with **Trending**, **Hip-Hop**, **Electronic**, **House**, **Lo-Fi**, **Indie**, and **Pop**. These are search-backed virtual playlists (real-time scsearch results), not editorial charts — SoundCloud's official chart endpoints all 404 through yt-dlp at present.
+- **Search** with `Ctrl+F` while SoundCloud is active. cliamp runs `scsearch:` against the SoundCloud public index.
+- **Paste a URL** (`u`). Any `soundcloud.com/<artist>/<track>` URL plays.
+- **Browse list with curated genres**. Without a configured profile, the playlists pane lists **Trending**, **Hip-Hop**, **Electronic**, **House**, **Lo-Fi**, **Indie**, and **Pop**. These are virtual playlists backed by real-time scsearch results, not editorial charts. SoundCloud official chart endpoints currently return 404 through yt-dlp.
 
 ## Browse a profile
 
-Set a username to expose that profile's content in the browse pane:
+Set a username to show the profile content in the browse pane:
 
 ```toml
 [soundcloud]
@@ -29,17 +29,17 @@ enabled = true
 user = "yourname"
 ```
 
-This replaces the curated Browse list with three playlists for `soundcloud.com/yourname`:
+This replaces the curated Browse list with three playlists from `soundcloud.com/yourname`:
 
-- **Tracks** — everything the user has uploaded
-- **Likes** — tracks they've liked
-- **Reposts** — tracks they've reposted
+- **Tracks**: All tracks the user uploaded.
+- **Likes**: Tracks the user liked.
+- **Reposts**: Tracks the user reposted.
 
-Works for any public profile. No SoundCloud sign-in required at this level.
+This works for any public profile. It does not require SoundCloud sign-in.
 
 ## Sign in via browser cookies
 
-For private likes, hidden uploads, or SoundCloud Go+ subscriber-gated tracks, point yt-dlp at your browser's cookie jar:
+For private likes, hidden uploads, or SoundCloud Go+ subscriber-gated tracks, point yt-dlp to the browser cookie jar:
 
 ```toml
 [soundcloud]
@@ -48,9 +48,11 @@ user = "yourname"
 cookies_from = "firefox"   # also: chrome, chromium, brave, edge, opera, safari, vivaldi
 ```
 
-cliamp passes `--cookies-from-browser <name>` to every yt-dlp invocation — search, browse, and playback. As long as you're signed into SoundCloud in that browser (no need to keep it open), yt-dlp acts as logged-in-you and can access content your account is authorized for.
+cliamp passes `--cookies-from-browser <name>` to every yt-dlp command for search, browse, and playback. Sign in to SoundCloud in that browser. You do not need to keep it open. yt-dlp then uses the account access permissions.
 
-This is the same mechanism `[ytmusic] cookies_from` uses. If you set both, the last one to initialize wins for the playback path; in practice users have one default browser they're signed into multiple sites with, so this is fine.
+This is the same mechanism as `[ytmusic] cookies_from`. cliamp selects cookie
+sources by service. SoundCloud and YouTube can use different browsers or
+profiles in one cliamp process.
 
 ## CLI
 
@@ -62,13 +64,13 @@ cliamp --provider soundcloud                      # start with SoundCloud as the
 cliamp search-sc "lofi beats"                     # legacy: SoundCloud search from the shell
 ```
 
-URL playback works regardless of the `[soundcloud]` toggle — yt-dlp resolves any SoundCloud link cliamp hands it. The `enabled` flag gates only the in-app provider entry.
+URL playback works whether or not `[soundcloud]` is enabled. yt-dlp resolves any SoundCloud link passed by cliamp. The `enabled` flag controls only the in-app provider entry.
 
 ## When playback fails
 
-Some tracks 404 on SoundCloud's per-track format API even though the page and search index still show them. Common causes: subscriber-gated content (Go+), region-blocked streams, deleted-but-cached entries, or transient yt-dlp extractor glitches. cliamp surfaces yt-dlp's exit message and shows a status notification — *"Couldn't play X — track is gated, restricted, or unavailable."* — so you know it's an upstream issue rather than a cliamp bug.
+Some tracks return 404 from the SoundCloud per-track format API even when the page and search index still list them. Common causes are Go+ subscriber-gated content, region-blocked streams, deleted cached entries, and temporary yt-dlp extractor errors. cliamp shows the yt-dlp exit message and the status notification *"Couldn't play X — track is gated, restricted, or unavailable."* This indicates an upstream issue.
 
-If you hit this on tracks you expect to play, set `cookies_from` (above) and confirm you're signed into SoundCloud in that browser.
+If this occurs for an expected track, set `cookies_from` and confirm SoundCloud sign-in in that browser.
 
 ## Requirements
 

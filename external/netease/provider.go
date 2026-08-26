@@ -84,16 +84,14 @@ type Provider struct {
 }
 
 // NewFromConfig returns a provider, or nil when NetEase is not enabled.
-// Sets resolve's yt-dlp cookies as a side effect when CookiesFrom is non-empty
-// so URL resolution uses the same signed-in browser session.
+// Registers NetEase's yt-dlp cookie source so resolution and playback use the
+// same signed-in browser session without affecting other providers.
 func NewFromConfig(cfg Config) *Provider {
 	if !cfg.Enabled {
 		return nil
 	}
 	cfg.CookiesFrom = strings.TrimSpace(cfg.CookiesFrom)
-	if cfg.CookiesFrom != "" {
-		resolve.SetYTDLCookiesFrom(cfg.CookiesFrom)
-	}
+	resolve.SetYTDLCookiesForHost("music.163.com", cfg.CookiesFrom)
 	return New(cfg)
 }
 

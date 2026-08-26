@@ -91,6 +91,75 @@ func TestFetchListMaxItems(t *testing.T) {
 	}
 }
 
+func TestUserPlaylistsRespectsPageCap(t *testing.T) {
+	// The playlistsAndFavoritePlaylists endpoint rejects limit > 50, unlike
+	// most v1 list endpoints which allow 100.
+	total := 120
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		if limit > 50 {
+			w.WriteHeader(http.StatusBadRequest)
+			if _, err := fmt.Fprint(w, `{"status":400,"subStatus":1001,"userMessage":"Too big page, max page size is [50]"}`); err != nil {
+				t.Errorf("write error: %v", err)
+			}
+			return
+		}
+		offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+		var items []map[string]any
+		for i := offset; i < offset+limit && i < total; i++ {
+			items = append(items, map[string]any{
+				"playlist": map[string]any{"uuid": fmt.Sprintf("uuid-%d", i), "title": fmt.Sprintf("playlist-%d", i)},
+			})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items":              items,
+			"totalNumberOfItems": total,
+		})
+	}))
+	defer srv.Close()
+
+	c := testClient(srv)
+	playlists, err := c.userPlaylists(context.Background())
+	if err != nil {
+		t.Fatalf("userPlaylists: %v", err)
+	}
+	if len(playlists) != total {
+		t.Fatalf("got %d playlists, want %d", len(playlists), total)
+	}
+	if playlists[0].Title != "playlist-0" || playlists[total-1].Title != "playlist-119" {
+		t.Errorf("unexpected boundary items: %q, %q", playlists[0].Title, playlists[total-1].Title)
+	}
+}
+
+func TestSearchAlbums(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/search/albums" {
+			t.Errorf("path = %q, want /search/albums", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("query"); got != "query" {
+			t.Errorf("query param = %q, want query", got)
+		}
+		if got := r.URL.Query().Get("limit"); got != "10" {
+			t.Errorf("limit param = %q, want 10", got)
+		}
+		fmt.Fprint(w, `{"items": [{"id": 1, "title": "A", "artist": {"id": 2, "name": "Artist"}}]}`)
+	}))
+	defer srv.Close()
+
+	c := testClient(srv)
+	albums, err := c.searchAlbums(context.Background(), "query", 10)
+	if err != nil {
+		t.Fatalf("searchAlbums: %v", err)
+	}
+	if len(albums) != 1 {
+		t.Fatalf("got %d albums, want 1", len(albums))
+	}
+	a := albums[0]
+	if a.ID.String() != "1" || a.Title != "A" || a.Artist.Name != "Artist" {
+		t.Errorf("album = %+v", a)
+	}
+}
+
 func TestDoRequestRefreshesOn401(t *testing.T) {
 	// The refresh path persists rotated tokens; keep the write away from the
 	// user's real credentials file.

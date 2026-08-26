@@ -16,12 +16,17 @@ var ErrNeedsAuth = errors.New("sign-in required")
 // Adjacent rows that share a Section are rendered under one header; a change of
 // Section emits a "── header ──" divider. The radio provider uses
 // SectionedList.IDPrefix instead and leaves Section empty.
+//
+// DirSourceCount is optional: providers that back playlists with [[dir]]
+// directory sources set it so the UI can flag them in the list. A zero value
+// means "none/unknown" and the UI hides the indicator.
 type PlaylistInfo struct {
-	ID           string
-	Name         string
-	TrackCount   int
-	DurationSecs int
-	Section      string
+	ID             string
+	Name           string
+	TrackCount     int
+	DurationSecs   int
+	Section        string
+	DirSourceCount int
 }
 
 // Provider is the interface for playlist sources (radio, Navidrome, Spotify, etc.).

@@ -140,6 +140,33 @@ func TestApplyTracksResume(t *testing.T) {
 	}
 }
 
+func TestTracksLoadedResumeKeepsCursorVisible(t *testing.T) {
+	tracks := make([]playlist.Track, 40)
+	for i := range tracks {
+		tracks[i] = playlist.Track{Path: "https://abs/chapter", Title: "Chapter"}
+	}
+	prov := &resumeProv{}
+	m := Model{
+		player:   &playbackFakeEngine{},
+		playlist: playlist.New(),
+		provider: prov,
+	}
+	m.requests.tracks = 1
+
+	updated, _ := m.Update(tracksLoadedMsg{
+		tracks:       tracks,
+		providerName: prov.Name(),
+		resumeIdx:    30,
+		resumeOffset: 90 * time.Second,
+		gen:          1,
+	})
+	got := updated.(Model)
+	visible := got.effectivePlaylistVisible()
+	if got.plCursor != 30 || got.plScroll == 0 || got.plCursor-got.plScroll >= visible {
+		t.Fatalf("resume viewport = cursor:%d scroll:%d visible:%d", got.plCursor, got.plScroll, visible)
+	}
+}
+
 // progressProv records interim progress reports.
 type progressProv struct {
 	plainProv

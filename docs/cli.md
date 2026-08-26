@@ -1,6 +1,6 @@
 # CLI Flags
 
-Override any config option for a single session without editing `~/.config/cliamp/config.toml`. Flags can appear before or after file/URL arguments.
+Override a config option for one session without editing `~/.config/cliamp/config.toml`. Put flags before or after file and URL arguments.
 
 ## Playback
 
@@ -31,7 +31,7 @@ cliamp --eq-preset "Bass Boost" ~/Music
 cliamp --visualizer-60fps ~/Music            # smoother visualizer animation (higher CPU use)
 ```
 
-`--visualizer-60fps` renders a visible visualizer at roughly 60 FPS while audio plays. `Wave`, `Scope`, and `Heartbeat` already use this cadence because they draw directly from audio samples. The flag does not affect overlays or low-power mode.
+`--visualizer-60fps` renders a visible visualizer at about 60 FPS during playback. `Wave`, `Scope`, and `Heartbeat` already use this rate because they draw from audio samples. The flag does not affect overlays or low-power mode.
 
 ## Diagnostics
 
@@ -39,7 +39,7 @@ cliamp --visualizer-60fps ~/Music            # smoother visualizer animation (hi
 cliamp --log-level debug                     # raise log verbosity for one session
 ```
 
-Logs are written to `~/.config/cliamp/cliamp.log`. Levels: `debug`, `info` (default), `warn`, `error`.
+cliamp writes logs to `~/.config/cliamp/cliamp.log`. Use `debug`, `info` (default), `warn`, or `error`.
 
 ## Low-power mode
 
@@ -47,7 +47,7 @@ Logs are written to `~/.config/cliamp/cliamp.log`. Levels: `debug`, `info` (defa
 cliamp --low-power track.mp3                 # reduce CPU load for this session
 ```
 
-Reduces CPU load by lowering UI/render cadence and forcing the visualizer to `none`. Useful on battery, slow terminals, or SSH sessions. Press `v` in the player to cycle visualizers back on at any time.
+This reduces CPU load. It lowers the UI and render rate and sets the visualizer to `none`. Use it on battery power, slow terminals, or SSH sessions. Press `v` in the player to enable a visualizer again.
 
 To make this persistent, set it in `~/.config/cliamp/config.toml`:
 
@@ -63,18 +63,18 @@ cliamp --daemon --auto-play --playlist Lofi  # start playing on launch
 cliamp -d ~/Music --auto-play                # short flag form
 ```
 
-Runs cliamp without rendering a UI, listening on the same Unix socket the TUI uses. All `cliamp <subcommand>` IPC clients keep working. UI-specific commands (`theme`, `vis`) return an error in this mode. See [Headless Daemon Mode](headless.md) for use cases and example configs (Waybar, Hyprland, systemd, cron).
+Run cliamp without a UI. It listens on the Unix socket that the TUI uses. All `cliamp <subcommand>` IPC clients work. UI-only commands (`theme`, `vis`) return an error. See [Headless Daemon Mode](headless.md) for use cases and configuration examples for Waybar, Hyprland, systemd, and cron.
 
 ## Search
 
-Search and play a track directly from the command line (requires [yt-dlp](https://github.com/yt-dlp/yt-dlp)):
+Search for and play a track from the command line. This requires [yt-dlp](https://github.com/yt-dlp/yt-dlp):
 
 ```sh
 cliamp search "never gonna give you up"       # search YouTube
 cliamp search-sc "lofi beats"                  # search SoundCloud
 ```
 
-Press `Ctrl+F` in the player for context-aware search: it runs the active provider's native search when available or falls back to YouTube search.
+Press `Ctrl+F` in the player for context-aware search. cliamp uses the active provider search when available. Otherwise, it searches YouTube.
 
 ## Updates
 
@@ -83,9 +83,9 @@ cliamp upgrade                # latest stable release
 cliamp upgrade --prerelease   # latest beta or release candidate
 ```
 
-Prerelease updates are opt-in for each upgrade. Normal installs, package-manager updates, and `cliamp upgrade` continue to use stable releases only.
+Select prerelease updates for each upgrade. Normal installs, package-manager updates, and `cliamp upgrade` use stable releases only.
 
-Maintainers publish a prerelease by tagging the release commit with a SemVer prerelease tag such as `v1.5.0-beta.1` or `v1.5.0-rc.1`. The release workflow builds all platform binaries and creates a GitHub prerelease without updating Homebrew, AUR, or the public changelog.
+Maintainers publish a prerelease by tagging the release commit with a SemVer prerelease tag such as `v1.5.0-beta.1` or `v1.5.0-rc.1`. The release workflow builds binaries for all platforms and creates a GitHub prerelease. It does not update Homebrew, AUR, or the public changelog.
 
 ## General
 
@@ -96,7 +96,7 @@ Maintainers publish a prerelease by tagging the release commit with a SemVer pre
 
 ## Shell completion
 
-Generate shell completion scripts for supported shells.
+Generate completion scripts for supported shells.
 
 ```sh
 cliamp completion bash
@@ -105,11 +105,11 @@ cliamp completion fish
 cliamp completion pwsh
 ```
 
-The generated script can be sourced directly or installed according to your shell's documentation.
+Source the generated script directly or install it as your shell documentation describes.
 
 ## Mixing flags and files
 
-Flags can appear before, after, or between positional arguments:
+Put flags before, after, or between positional arguments:
 
 ```sh
 cliamp --shuffle track.mp3 --volume -5
@@ -126,29 +126,29 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--mono` / `--no-mono` | bool | false | |
 | `--auto-play` | bool | false | |
 | `--simplified` | bool | false | artist/title and time strip; no visualizer or playlist |
-| `--visualizer-60fps` | bool | false | render a visible visualizer at roughly 60 FPS |
+| `--visualizer-60fps` | bool | false | render a visible visualizer at about 60 FPS |
 | `--start-theme` | string | | theme name |
 | `--eq-preset` | string | | preset name |
 | `--sample-rate` | int | 44100 | 22050, 44100, 48000, 96000, 192000 |
 | `--buffer-ms` | int | 250 | 50-5000 |
-| `--resample-quality` | int | 4 | 1–4 |
+| `--resample-quality` | int | 4 | 1-4 |
 | `--bit-depth` | int | 16 | 16, 32 |
 | `--playlist` | string | | local TOML playlist name |
 | `--log-level` | string | info | debug, info, warn, error |
-| `--low-power` | bool | false | lowers UI cadence; disables visualization |
+| `--low-power` | bool | false | lower UI cadence; disable visualization |
 | `--daemon` / `-d` | bool | false | run headless; IPC only, no TUI |
 
-CLI flags override config file values for the current session only. They are not persisted.
+CLI flags override config file values for the current session only. cliamp does not save them.
 
 ## Setup wizard
 
-Configure remote providers (Navidrome, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, NetEase, Audiobookshelf, YouTube Music) through a small TUI. Each provider page links to where to find the required credentials, validates the connection live where the provider supports it (media servers like Navidrome, Plex, Jellyfin, Emby, and Audiobookshelf), and writes the resulting `[provider]` block to `~/.config/cliamp/config.toml` without disturbing the rest of the file. OAuth providers (Spotify, Qobuz, Tidal) authenticate later, interactively in the player.
+Configure remote providers through a small TUI. Supported providers are Navidrome, Lyrion, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, Mixcloud, NetEase, Audiobookshelf, and YouTube Music. Each provider page links to its required credentials. The wizard writes the `[provider]` block to `~/.config/cliamp/config.toml` and leaves the rest of the file unchanged. It validates supported server connections during setup. OAuth providers (Spotify, Qobuz, Tidal) authenticate later in the player. Mixcloud checks optional browser-session or OAuth credentials when you use them.
 
 ```sh
 cliamp setup
 ```
 
-Keys: `↑/↓` to navigate, `Enter` to confirm or submit, `Esc` to back out, `q` from the menu to quit. Passwords and tokens are masked. Running setup again for an already-configured provider replaces its section in place.
+Use `↑/↓` to navigate. Use `Enter` to confirm or submit. Use `Esc` to go back. Use `q` in the menu to quit. Passwords and tokens are masked. Running setup again for a configured provider replaces its section.
 
 ## Playlist Management
 
@@ -183,7 +183,7 @@ cliamp playlist delete "Name"                   # delete entire playlist
 
 Sort keys: `track`, `title`, `artist`, `album`, `artist+album`, `path`.
 
-See [playlists.md](playlists.md) for the TOML format and [ssh-streaming.md](ssh-streaming.md) for remote playback.
+See [playlists.md](playlists.md) for the TOML format. See [ssh-streaming.md](ssh-streaming.md) for remote playback.
 
 ## Recently Played
 
@@ -194,9 +194,9 @@ cliamp history --json                         # machine-readable output
 cliamp history clear                          # wipe ~/.config/cliamp/history.toml
 ```
 
-A play is recorded once you've listened to a track for at least 50% of its
-duration. Inside the TUI, the same data appears as the virtual "Recently
-Played" entry in the Local Playlists provider. See [history.md](history.md).
+cliamp records a play after you listen to at least 50% of a track. In the TUI,
+the Local Playlists provider shows this data in the virtual "Recently Played"
+entry. See [history.md](history.md).
 
 ## Spotify
 
@@ -204,7 +204,7 @@ Played" entry in the Local Playlists provider. See [history.md](history.md).
 cliamp spotify reset                          # clear stored Spotify credentials
 ```
 
-Use `spotify reset` if you see persistent `rate-limited on /v1/me` warnings or stale auth errors. After running it, relaunch cliamp and select Spotify to sign in again. See [spotify.md](spotify.md) for the full setup guide.
+Use `spotify reset` for persistent `rate-limited on /v1/me` warnings or stale authentication errors. Then restart cliamp and select Spotify to sign in again. See [spotify.md](spotify.md) for the setup guide.
 
 ## Remote Control (IPC)
 
@@ -232,4 +232,4 @@ cliamp remote capabilities              # v2 operation list
 cliamp remote events runtime.state      # v2 event stream
 ```
 
-See [remote-control.md](remote-control.md) for the full protocol specification.
+See [remote-control.md](remote-control.md) for the protocol specification.

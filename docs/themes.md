@@ -1,10 +1,10 @@
 # Themes
 
-cliamp ships with 21 contrast-checked color themes and supports custom themes via simple TOML files.
+cliamp includes 21 color themes that pass contrast checks. You can add custom themes with TOML files.
 
-Press `t` during playback to open the theme picker. Navigate with `↑`/`↓`, preview live as you move, confirm with `Enter`, or cancel with `Esc`.
+Press `t` during playback to open the theme picker. Use `↑`/`↓` to navigate and preview each theme. Press `Enter` to select it or `Esc` to cancel.
 
-Your selection is saved automatically and restored on next launch.
+cliamp saves your selection and restores it at the next start.
 
 ## Built-in themes
 
@@ -18,9 +18,9 @@ Create a `.toml` file in `~/.config/cliamp/themes/`:
 mkdir -p ~/.config/cliamp/themes
 ```
 
-Each file needs all 6 foreground colors as `#RRGGBB` hex values. Add `bg` to set
-a matching background; omit it to keep your terminal background. Incomplete or
-malformed custom themes are ignored. The filename (minus `.toml`) becomes the
+Each file needs all six foreground colors as `#RRGGBB` hex values. Add `bg` to
+set a background. Omit it to keep the terminal background. cliamp ignores
+incomplete or malformed custom themes. The file name without `.toml` is the
 theme name.
 
 ### Example: `~/.config/cliamp/themes/solarized.toml`
@@ -35,11 +35,11 @@ yellow = "#b58900"
 red = "#dc322f"
 ```
 
-That's it. Press `t` and your theme appears in the list immediately.
+Press `t` to show the theme in the list immediately.
 
 ### Color reference
 
-| Key         | What it colors                              |
+| Key         | Color use                                   |
 |-------------|---------------------------------------------|
 | `bg`        | Optional application background             |
 | `accent`    | Title, track name, seek bar, selected items |
@@ -49,16 +49,18 @@ That's it. Press `t` and your theme appears in the list immediately.
 | `yellow`    | Warnings and spectrum middle               |
 | `red`       | Errors and spectrum top                    |
 
-All values are six-digit hex strings (for example, `"#ff5733"`). Help-key
-pill text automatically switches between black and white for readable contrast.
+All values are six-digit hex strings, for example `"#ff5733"`. Help-key pill
+text switches between black and white for readable contrast.
 
-Important UI states also use stable text markers such as `>`, `Q`, `★`, `!`,
-`WARN:`, and `ERR:`, so state and feedback remain distinguishable in monochrome
+Important UI states also use stable text markers: `>`, `Q`, `★`, `!`, `WARN:`,
+and `ERR:`. These markers keep state and feedback distinct in monochrome
 terminals.
 
 ## Overriding a built-in theme
 
-If your custom file has the same name as a built-in theme, yours takes priority. For example, creating `~/.config/cliamp/themes/catppuccin.toml` replaces the built-in catppuccin.
+If a custom file has the same name as a built-in theme, the custom file takes
+priority. For example, `~/.config/cliamp/themes/catppuccin.toml` replaces the
+built-in catppuccin theme.
 
 ## Setting a default theme
 
@@ -68,4 +70,5 @@ Add a `theme` line to `~/.config/cliamp/config.toml`:
 theme = "catppuccin"
 ```
 
-Use the filename without `.toml`. Leave empty or omit for terminal default colors.
+Use the file name without `.toml`. Leave the value empty or omit it to use
+terminal default colors.

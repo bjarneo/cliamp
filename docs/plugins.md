@@ -1,14 +1,14 @@
 # Lua Plugins
 
-cliamp has a Lua 5.1 plugin system. Plugins can hook into playback events (scrobbling, notifications, status bar output) and add custom visualizers. Each plugin runs in an isolated VM. A crash in one plugin cannot affect others or the player.
+cliamp uses Lua 5.1 plugins. Plugins can handle playback events, such as scrobbling, notifications, and status-bar output. They can also add visualizers. Each plugin runs in an isolated VM. A plugin crash does not affect other plugins or the player.
 
-Plugins live in `~/.config/cliamp/plugins/`. Create the directory:
+Store plugins in `~/.config/cliamp/plugins/`. Create the directory:
 
 ```
 mkdir -p ~/.config/cliamp/plugins
 ```
 
-Plugins run only after their exact contents have been approved. Existing and manually copied plugins start untrusted; approve one with `cliamp plugins trust <name>`.
+cliamp runs a plugin only after you approve its exact contents. Existing and manually copied plugins start as untrusted. Approve one with `cliamp plugins trust <name>`.
 
 ## Plugin manager
 
@@ -20,7 +20,7 @@ cliamp plugins trust <name>             # approve installed plugin contents
 cliamp plugins remove <name>            # remove a plugin
 ```
 
-Install and trust display the source, SHA-256, declared permissions, and implicit filesystem/network access before prompting. Use `--yes` only after independently reviewing the same content in non-interactive environments. Approvals are stored in `plugins/.trust.json`; editing a plugin changes its hash and disables it until it is approved again. Unknown permission names are rejected.
+The install and trust commands show the source, SHA-256, declared permissions, and implicit file-system and network access before the prompt. In a non-interactive environment, use `--yes` only after you review the same content independently. cliamp stores approvals in `plugins/.trust.json`. Editing a plugin changes its hash and disables it until you approve it again. cliamp rejects unknown permission names.
 
 ### Install sources
 
@@ -36,7 +36,7 @@ Install and trust display the source, SHA-256, declared permissions, and implici
 
 ### Naming convention
 
-Plugin repositories **must** be named `cliamp-plugin-<name>` with the entry point `<name>.lua` at the repo root. The `cliamp-plugin-` prefix is stripped on install, so `cliamp-plugin-soap-bubbles` (containing `soap-bubbles.lua`) installs as `soap-bubbles`.
+Name plugin repositories `cliamp-plugin-<name>`. Put the `<name>.lua` entry point in the repository root. cliamp removes the `cliamp-plugin-` prefix during installation. For example, `cliamp-plugin-soap-bubbles`, which contains `soap-bubbles.lua`, installs as `soap-bubbles`.
 
 ```sh
 cliamp plugins install bjarneo/cliamp-plugin-lastfm
@@ -49,7 +49,7 @@ cliamp plugins remove lastfm
 
 ## Quick start
 
-### Now-playing file (for Waybar, Polybar, etc.)
+### Now-playing file for Waybar, Polybar, and similar bars
 
 ```lua
 -- ~/.config/cliamp/plugins/now-playing.lua
@@ -89,7 +89,7 @@ p:on("track.change", function(track)
 end)
 ```
 
-Note: `os.execute` is removed by the sandbox. Public HTTP endpoints are available through `cliamp.http`; private, loopback, link-local, multicast, and unspecified addresses are blocked. For local automation, write to an allowlisted file that a watcher picks up or declare the permission-gated `exec` capability.
+`os.execute` is not available in the sandbox. Use `cliamp.http` for public HTTP endpoints. cliamp blocks private, loopback, link-local, multicast, and unspecified addresses. For local automation, write to an allowed file for a watcher to read. You can also declare the permission-gated `exec` capability.
 
 ### Webhook
 
@@ -132,11 +132,11 @@ url = "https://example.com/hook"
     helpers.lua
 ```
 
-The directory name becomes the plugin name. Only `init.lua` is loaded automatically.
+The directory name is the plugin name. cliamp loads only `init.lua` automatically.
 
 ## Registration
 
-Every plugin must call `plugin.register()` to be recognized. Files that don't call it are silently skipped.
+Each plugin must call `plugin.register()`. cliamp silently skips files that do not call it.
 
 ```lua
 local p = plugin.register({
@@ -147,7 +147,7 @@ local p = plugin.register({
 })
 ```
 
-The returned object `p` provides two methods:
+The returned `p` object provides these methods:
 
 | Method | Description |
 |--------|-------------|
@@ -157,19 +157,20 @@ The returned object `p` provides two methods:
 
 ## Plugin event pub/sub
 
-Plugins can publish JSON-compatible values to external programs connected to
-Cliamp's owner-only IPC socket. Topics are automatically isolated beneath the
-installed plugin name; a plugin installed as `myplugin.lua` publishing
-`"playback"` produces the topic `plugin.myplugin.playback`. The name contributes
-exactly one topic segment: any character outside letters, digits, `_`, and `-`
-becomes `_`, so `my.plugin.lua` publishes under the prefix `plugin.my_plugin.*`
-(publishing `"playback"` from it gives `plugin.my_plugin.playback`) and can never
-collide with topics from a plugin named `my`. Because that folding is lossy,
-namespaces are unique per session: if `my.plugin.lua` and `my_plugin.lua` are
-both installed, the first one loaded (plugins load in name order) owns the
-`plugin.my_plugin.*` prefix and `p:publish()` in the other returns `nil, err`
-naming the owner. Rename one of them to publish from both. Subscribers must name
-complete topics, not prefixes.
+Plugins can publish JSON-compatible values to external programs that connect to
+Cliamp's owner-only IPC socket. cliamp puts each topic below the installed plugin
+name. For example, `myplugin.lua` that publishes `"playback"` uses the topic
+`plugin.myplugin.playback`. The name provides one topic segment. cliamp replaces
+each character other than a letter, digit, `_`, or `-` with `_`. Therefore,
+`my.plugin.lua` uses the `plugin.my_plugin.*` prefix. Publishing `"playback"`
+from that plugin uses `plugin.my_plugin.playback`. It cannot collide with topics
+from a plugin named `my`.
+
+This conversion loses information, so namespaces are unique for a session. If
+`my.plugin.lua` and `my_plugin.lua` are both installed, the first loaded plugin
+(plugins load in name order) owns the `plugin.my_plugin.*` prefix. In the other
+plugin, `p:publish()` returns `nil, err` and names the owner. Rename one plugin
+to publish from both. Subscribers must specify complete topics, not prefixes.
 
 ```lua
 p:publish("playback", {
@@ -179,11 +180,11 @@ p:publish("playback", {
 ```
 
 With `retain = true`, Cliamp keeps the latest value in memory and sends it to
-new subscribers immediately. Retained values are discarded when Cliamp exits;
-no event data is persisted to disk. Publishing is non-blocking. A subscriber
-that cannot keep up is disconnected rather than blocking the player.
+new subscribers immediately. Cliamp discards retained values when it exits. It
+does not save event data to disk. Publishing does not block. cliamp disconnects
+a subscriber that cannot keep up instead of blocking the player.
 
-Subscribe by opening `cliamp.sock` and sending one NDJSON request:
+Open `cliamp.sock` and send one NDJSON request to subscribe:
 
 ```json
 {"version":2,"id":"events","method":"subscribe","topics":["plugin.myplugin.playback"]}
@@ -196,18 +197,17 @@ server-to-client event stream:
 {"event":"plugin.myplugin.playback","seq":42,"time":1786685741,"retained":true,"data":{"status":"playing","title":"Track"}}
 ```
 
-Subscriptions use exact topic matches, accept at most 32 topics, and are
-streaming-only; use another IPC connection for ordinary commands. Sending any
-further bytes on a subscription closes it. Payloads are limited to 64 KiB and
-are converted with the same nesting and cycle rules as
-[`cliamp.json`](#cliampjson). Topic segments may contain letters, digits, `.`,
-`_`, and `-`. `p:publish()` requires no permission because IPC remains local to
-the same user and the existing `status` command already exposes playback
-metadata.
+Subscriptions use exact topic matches and accept at most 32 topics. They are
+for streaming only. Use another IPC connection for normal commands. Sending
+more bytes on a subscription closes it. Payloads can be at most 64 KiB. cliamp
+converts them with the nesting and cycle rules of
+[`cliamp.json`](#cliampjson). Topic segments can contain letters, digits, `.`,
+`_`, and `-`. `p:publish()` needs no permission. IPC is local to the same user,
+and the `status` command already exposes playback metadata.
 
 ## Events
 
-Plugins subscribe to events with `p:on(event, callback)`. Callbacks run asynchronously in goroutines and have a 5-second timeout.
+Use `p:on(event, callback)` to subscribe to events. Callbacks run in goroutines and time out after 5 seconds.
 
 ### Available events
 
@@ -224,15 +224,15 @@ Plugins subscribe to events with `p:on(event, callback)`. Callbacks run asynchro
 | `app.start` | `{}` | After all plugins loaded |
 | `app.quit` | `{}` | Before shutdown |
 
-The `status` field in `playback.state` is one of: `"playing"`, `"paused"`, `"stopped"`. The `repeat` field in `player.mode` is one of: `"Off"`, `"All"`, `"One"` (matching `cliamp.player.repeat_mode()`). In `player.eq`, `bands` is an array of 10 dB values.
+In `playback.state`, `status` is `"playing"`, `"paused"`, or `"stopped"`. In `player.mode`, `repeat` is `"Off"`, `"All"`, or `"One"`, matching `cliamp.player.repeat_mode()`. In `player.eq`, `bands` is an array of 10 dB values.
 
-The `player.*` and `queue.change` events are fired by diffing state after each UI update, so they cover every change regardless of source (keypress, IPC, MPRIS, or another plugin).
+cliamp sends `player.*` and `queue.change` events by comparing state after each UI update. They cover every source, including a keypress, IPC, MPRIS, or another plugin.
 
 ## Plugin object methods
 
-The object returned by `plugin.register(...)` exposes additional methods beyond `:on()` / `:config()`:
+The object from `plugin.register(...)` provides these methods in addition to `:on()` and `:config()`:
 
-### `p:bind(key, [description,] callback)` — keyboard binding (requires `permissions = {"keymap"}`)
+### `p:bind(key, [description,] callback)` - keyboard binding (requires `permissions = {"keymap"}`)
 
 ```lua
 local p = plugin.register({
@@ -248,15 +248,15 @@ p:bind("x", "Extract chapters", function(key) ... end)
 p:bind("ctrl+e", function(key) ... end)
 ```
 
-Returns `true` on success, or `false, reason` if the key is already owned by cliamp's core UI or the plugin lacks the `keymap` permission. Pass a description string as the middle argument to surface the binding in the `Ctrl+K` keymap overlay; omit it for an internal-only binding.
+Returns `true` on success. Returns `false, reason` when cliamp's core UI owns the key or the plugin lacks the `keymap` permission. Pass a description as the middle argument to show the binding in the `Ctrl+K` keymap overlay. Omit it for an internal-only binding.
 
-Key strings are in Bubbletea's `msg.String()` form: lowercase letters, `ctrl+` / `shift+` / `alt+` prefixes (e.g. `"x"`, `"ctrl+e"`, `"shift+f1"`). Case-insensitive.
+Use Bubbletea's `msg.String()` form for key strings: lowercase letters and the `ctrl+`, `shift+`, or `alt+` prefixes. For example: `"x"`, `"ctrl+e"`, and `"shift+f1"`. Key strings are case-insensitive.
 
-Plugin keys only fire in the main view — overlays like the file browser, theme picker, and keymap itself capture their own input. Core reserves all keys documented in `docs/keybindings.md`; trying to bind one of those logs a warning and returns `false`.
+Plugin keys work only in the main view. Overlays such as the file browser, theme picker, and keymap capture their own input. The core reserves every key in `docs/keybindings.md`. Trying to bind one logs a warning and returns `false`.
 
 Use `p:unbind(key)` to release a binding.
 
-### `p:command(name, callback)` — shell-invokable command
+### `p:command(name, callback)` - shell-invokable command
 
 ```lua
 p:command("run", function(args)
@@ -265,13 +265,13 @@ p:command("run", function(args)
 end)
 ```
 
-The callback can return a string, which is printed by the CLI client. Commands are invoked from the shell via `cliamp plugins call <plugin-name> <command> [args...]` and dispatched to the running cliamp over IPC. Since dispatch runs in the running player, commands don't need a separate permission (they're user-initiated).
+The callback can return a string. The CLI client prints it. Invoke commands from the shell with `cliamp plugins call <plugin-name> <command> [args...]`. cliamp sends the command to the running player over IPC. Commands need no separate permission because the user starts them.
 
-List all registered commands with `cliamp plugins commands`. Commands can run for up to 5 minutes before timing out.
+List registered commands with `cliamp plugins commands`. A command can run for up to 5 minutes before it times out.
 
 ## Lua API
 
-All APIs are under the `cliamp` global table.
+All APIs are in the global `cliamp` table.
 
 ### cliamp.player (read-only)
 
@@ -303,8 +303,7 @@ cliamp.track.duration_secs()  --> number
 
 ### cliamp.queue
 
-Read the playlist freely; mutating it requires `permissions = {"control"}`. All
-indices are 0-based, matching `cliamp.queue.current()`.
+You can read the playlist without permission. To change it, declare `permissions = {"control"}`. All indices are 0-based, as in `cliamp.queue.current()`.
 
 ```lua
 -- read (no permission)
@@ -319,9 +318,9 @@ cliamp.queue.remove(index)     -- remove the track at index
 cliamp.queue.move(from, to)    -- reorder a track
 ```
 
-`add` accepts anything the CLI accepts: a local file or directory, an HTTP
-stream, an M3U/PLS URL, or a YouTube/yt-dlp URL. Resolution happens off the UI
-thread, so a slow URL never blocks playback.
+`add` accepts every input that the CLI accepts: a local file or directory, an
+HTTP stream, an M3U/PLS URL, or a YouTube/yt-dlp URL. cliamp resolves it off the
+UI thread. A slow URL does not block playback.
 
 ### cliamp.http
 
@@ -343,7 +342,7 @@ local body, status = cliamp.http.post(url, {
 })
 ```
 
-Restrictions: 5-second timeout, 1 MB response body cap.
+The timeout is 5 seconds. The response body limit is 1 MB.
 
 ### cliamp.fs
 
@@ -357,7 +356,7 @@ cliamp.fs.mkdir(path)             -- create directory (recursive)
 cliamp.fs.listdir(path)           --> {names}, err
 ```
 
-Writes are restricted to the system temp directory (`/tmp/` on Unix), `~/.config/cliamp/`, `~/.local/share/cliamp/`, and `~/Music/cliamp/`. Reads are allowed from anywhere. On Windows, if `HOME` is unset, the config directory portion resolves to `%APPDATA%\cliamp`.
+You can write only to the system temp directory (`/tmp/` on Unix), `~/.config/cliamp/`, `~/.local/share/cliamp/`, and `~/Music/cliamp/`. You can read from any path. On Windows, when `HOME` is unset, the config directory resolves to `%APPDATA%\cliamp`.
 
 ### cliamp.json
 
@@ -366,15 +365,15 @@ local tbl = cliamp.json.decode('{"key": "value"}')
 local str = cliamp.json.encode({ key = "value" })
 ```
 
-Tables are encoded up to 64 levels deep; anything deeper, and any cyclic
-reference, becomes `null` instead of failing. The same conversion is used by
-`p:publish()` and `cliamp.store`.
+cliamp encodes tables to a depth of 64 levels. A deeper table or a cyclic
+reference becomes `null`; it does not fail. `p:publish()` and `cliamp.store`
+use the same conversion.
 
 ### cliamp.store
 
-A persistent per-plugin key/value store. Values (strings, numbers, booleans,
-and tables) survive restarts. No permission required: each plugin sees only its
-own namespace, so one plugin can never read another's keys.
+This is a persistent key/value store for each plugin. Strings, numbers,
+booleans, and tables survive restarts. No permission is required. Each plugin
+can access only its own namespace, so it cannot read another plugin's keys.
 
 ```lua
 cliamp.store.set(key, value)   -- value: string|number|boolean|table
@@ -384,9 +383,9 @@ cliamp.store.keys()            --> sorted array of keys
 cliamp.store.clear()
 ```
 
-Backed by `~/.local/share/cliamp/plugins/<name>/store.json`, written owner-only
-(0600). Use it for play counts, offline scrobble queues, resume positions, or
-remembered settings, not for large data.
+cliamp stores this data in `~/.local/share/cliamp/plugins/<name>/store.json`
+with owner-only mode (0600). Use it for play counts, offline scrobble queues,
+resume positions, and saved settings. Do not use it for large data.
 
 ```lua
 local counts = cliamp.store.get("counts") or {}
@@ -411,11 +410,11 @@ cliamp.log.error("request failed: " .. err)
 cliamp.log.debug("response: " .. body)
 ```
 
-Logs are written to `~/.config/cliamp/plugins.log` with timestamps and `[plugin-name]` prefix.
+cliamp writes logs to `~/.config/cliamp/plugins.log`. Each line has a timestamp and the `[plugin-name]` prefix.
 
 ### cliamp.player control (requires permissions)
 
-Plugins that declare `permissions = {"control"}` can send commands to the player:
+Plugins that declare `permissions = {"control"}` can control the player:
 
 ```lua
 local p = plugin.register({
@@ -437,7 +436,7 @@ cliamp.player.set_eq_preset("Metal", {6,4,1,-1,-2,2,4,6,6,5}) -- custom preset w
 cliamp.player.set_eq_band(1, 6)   -- set EQ band 1 to +6 dB (bands 1-10, -12 to +12)
 ```
 
-Without `permissions = {"control"}`, these functions log a warning and do nothing.
+If a plugin does not declare `permissions = {"control"}`, these functions log a warning and do nothing.
 
 ### cliamp.notify
 
@@ -446,11 +445,11 @@ cliamp.notify("Song Title")                -- notification with title only
 cliamp.notify("Song Title", "Artist Name") -- notification with title and body
 ```
 
-Sends a desktop notification via `notify-send`. Works with mako, dunst, and other notification daemons.
+This sends a desktop notification through `notify-send`. It works with mako, dunst, and other notification daemons.
 
 ### cliamp.exec (requires permissions)
 
-Plugins that declare `permissions = {"exec"}` can spawn subprocesses from a configurable binary allowlist. Default allowlist: `yt-dlp`, `ffmpeg`. Extend it in `config.toml`:
+Plugins that declare `permissions = {"exec"}` can start subprocesses from a configurable binary allowlist. The default allowlist is `yt-dlp`, `ffmpeg`. Add binaries in `config.toml`:
 
 ```toml
 [plugins]
@@ -476,15 +475,15 @@ handle:cancel()                           -- terminate the process
 handle:alive()                            -- --> boolean
 ```
 
-**Safety rails:**
+**Safety rules:**
 
-- Binary must be in the allowlist. Argv is argv — no shell, no expansion.
-- `args` must be a flat array of strings. Nested tables / non-strings are rejected.
-- Subprocess env is minimal (`PATH`, `HOME`, `LANG`) — secrets in the parent env are not passed through.
-- Output is capped at 4 MiB per process (stdout + stderr combined); further lines are dropped silently.
-- Concurrency capped at 4 running processes per plugin.
-- All processes owned by a plugin are killed on plugin unload and on cliamp exit.
-- Negative `on_exit` codes signal cancellation/timeout (`-1`) or spawn failure (`-2`).
+- The binary must be in the allowlist. Argv is argv. No shell or expansion is used.
+- `args` must be a flat array of strings. cliamp rejects nested tables and non-strings.
+- The subprocess environment contains only `PATH`, `HOME`, and `LANG`. cliamp does not pass parent-environment secrets.
+- Output is limited to 4 MiB per process, for stdout and stderr together. cliamp silently drops later lines.
+- Each plugin can run up to 4 processes at one time.
+- cliamp kills every plugin-owned process when the plugin unloads and when cliamp exits.
+- Negative `on_exit` codes indicate cancellation or timeout (`-1`), or a start failure (`-2`).
 
 Without `permissions = {"exec"}`, `cliamp.exec.run` returns `nil, "exec permission required"`.
 
@@ -495,8 +494,9 @@ cliamp.message("Scrobble Sent")        -- show for default duration
 cliamp.message("Syncing Library", 5)   -- show for 5 seconds
 ```
 
-Displays a transient message in the status bar at the bottom of the UI. The
-duration argument is optional (seconds); omit it to use the default TTL. Durations above 60 seconds are clamped.
+This shows a temporary message in the status bar at the bottom of the UI. The
+duration is optional and uses seconds. Omit it to use the default TTL. cliamp
+limits durations above 60 seconds.
 
 ### cliamp.sleep
 
@@ -504,7 +504,7 @@ duration argument is optional (seconds); omit it to use the default TTL. Duratio
 cliamp.sleep(2.5)  -- block for 2.5 seconds (max 10)
 ```
 
-Blocks the plugin's Lua VM. Other hooks for the same plugin will queue until the sleep finishes. Prefer `cliamp.timer.after()` for non-blocking delays.
+This blocks the plugin's Lua VM. Other hooks for the same plugin wait until the sleep ends. Use `cliamp.timer.after()` for a non-blocking delay.
 
 ### cliamp.timer
 
@@ -525,7 +525,7 @@ cliamp.timer.cancel(id)
 
 ## Configuration
 
-Plugin-specific config goes in `config.toml` under `[plugins.<name>]`:
+Put plugin-specific configuration in `config.toml` under `[plugins.<name>]`:
 
 ```toml
 [plugins.lastfm]
@@ -537,7 +537,7 @@ session_key = "sk-xxx"
 url = "https://example.com/hook"
 ```
 
-Access in Lua:
+Read it in Lua:
 
 ```lua
 local api_key = p:config("api_key")   --> "abc123" or nil
@@ -545,14 +545,14 @@ local api_key = p:config("api_key")   --> "abc123" or nil
 
 ### Disabling plugins
 
-Disable a specific plugin:
+Disable one plugin:
 
 ```toml
 [plugins.webhook]
 enabled = false
 ```
 
-Or disable multiple at once:
+To disable several plugins:
 
 ```toml
 [plugins]
@@ -561,7 +561,7 @@ disabled = webhook, discord-rpc
 
 ## Visualizer plugins
 
-Plugins with `type = "visualizer"` add custom visualizer modes that appear in the `v` key cycle alongside built-in modes.
+Plugins with `type = "visualizer"` add visualizer modes to the `v` key cycle with the built-in modes.
 
 ```lua
 -- ~/.config/cliamp/plugins/simple-bars.lua
@@ -606,11 +606,11 @@ end
 | `p:init(rows, cols)` | Setup when selected | No |
 | `p:destroy()` | Cleanup when deselected | No |
 
-Render has a 10 ms budget per frame. If it exceeds this, the previous frame is reused to prevent UI jank.
+`render` has a 10 ms limit for each frame. If it exceeds the limit, cliamp reuses the previous frame to prevent UI delay.
 
 ## Sandbox
 
-For security, plugins run with restricted access. The sandbox removes dangerous standard library functions and restricts file system access.
+For security, plugins have restricted access. The sandbox removes unsafe standard-library functions and limits file-system access.
 
 ### Removed functions
 
@@ -622,27 +622,27 @@ For security, plugins run with restricted access. The sandbox removes dangerous 
 
 ### Kept functions
 
-`os.time()`, `os.date()`, `os.clock()`, `os.getenv()` are available.
+You can use `os.time()`, `os.date()`, `os.clock()`, and `os.getenv()`.
 
 ### File system restrictions
 
-**Reads:** Allowed from any path (max 1 MB per read).
+**Reads:** You can read from any path, up to 1 MB for each read.
 
-**Writes/removes/mkdir** are restricted to these directories only:
+**Writes/removes/mkdir** work only in these directories:
 
 - `/tmp/` (and the system temp directory)
 - `~/.config/cliamp/`
 - `~/.local/share/cliamp/`
 - `~/Music/cliamp/`
 
-Attempts to write outside these directories will raise a Lua error. Directory traversal (`..`) is blocked.
+Writing outside these directories raises a Lua error. cliamp blocks directory traversal (`..`).
 
 ### Isolation
 
-- Each plugin runs in its own Lua VM. Plugins cannot access each other's state or variables.
-- A crash in one plugin does not affect other plugins or the player.
-- Public network access is available via `cliamp.http` (no raw socket access). Private, loopback, link-local, multicast, and unspecified destinations are blocked after DNS resolution and across redirects.
-- `os.execute` is removed. Permission-gated `cliamp.exec` can spawn only configured allowlisted binaries.
+- Each plugin has its own Lua VM. A plugin cannot access another plugin's state or variables.
+- A plugin crash does not affect other plugins or the player.
+- Use `cliamp.http` for public network access. Raw socket access is not available. cliamp blocks private, loopback, link-local, multicast, and unspecified destinations after DNS resolution and through redirects.
+- `os.execute` is not available. Permission-gated `cliamp.exec` can start only configured allowed binaries.
 
 ## Debugging
 
@@ -653,4 +653,4 @@ Check `~/.config/cliamp/plugins.log` for plugin output and errors:
 2025-03-29 14:30:01 [webhook] error: track.change handler error: connection refused
 ```
 
-Use `cliamp.log.debug()` liberally during development.
+Use `cliamp.log.debug()` during development.

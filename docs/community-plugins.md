@@ -1,6 +1,6 @@
 # Community Plugins
 
-Plugins built by the community. If you've built a plugin, open a PR to add it here.
+These plugins are maintained by the community. To add a plugin, open a PR.
 
 | Plugin | Description | Author |
 |--------|-------------|--------|

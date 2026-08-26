@@ -1,30 +1,34 @@
 # Media Controls
 
-Cliamp integrates with the operating system's media control infrastructure so that desktop environments, hardware media keys, and command line tools can control playback, read track metadata, and adjust volume without touching the TUI.
+cliamp integrates with operating system media controls. Desktop environments,
+hardware media keys, and command line tools can control playback, read track
+metadata, and adjust volume without using the TUI.
 
 ## Platform Support
 
 | Platform | Backend | Requirements |
 |---|---|---|
-| Linux | [MPRIS2](https://specifications.freedesktop.org/mpris-spec/latest/) over D-Bus | A running D-Bus session bus (provided by most desktop environments and Wayland compositors) |
-| macOS | MPNowPlayingInfoCenter / MPRemoteCommandCenter | None (frameworks are built-in) |
-| Other | No-op stub | — |
+| Linux | [MPRIS2](https://specifications.freedesktop.org/mpris-spec/latest/) over D-Bus | Running D-Bus session bus (provided by most desktop environments and Wayland compositors) |
+| macOS | MPNowPlayingInfoCenter / MPRemoteCommandCenter | None (built-in frameworks) |
+| Other | No-op stub | None |
 
 ## Linux (MPRIS2)
 
 ### Bus Name
 
-Cliamp registers itself as:
+cliamp registers this name:
 
 ```
 org.mpris.MediaPlayer2.cliamp
 ```
 
-Only one instance can hold this name at a time. If a second Cliamp process tries to start, the MPRIS registration will fail silently and that instance will run without D-Bus integration.
+Only one instance can hold this name. If a second cliamp process starts, its
+MPRIS registration fails without an error message. That instance runs without
+D-Bus integration.
 
 ### Playback Control
 
-All standard transport commands are supported through the `org.mpris.MediaPlayer2.Player` interface:
+The `org.mpris.MediaPlayer2.Player` interface supports all standard transport commands:
 
 | playerctl command | Effect |
 |---|---|
@@ -37,7 +41,7 @@ All standard transport commands are supported through the `org.mpris.MediaPlayer
 
 ### Seeking
 
-Relative and absolute seeking are both supported:
+You can seek by an absolute or relative value:
 
 ```sh
 playerctl position 30          # seek to 30 seconds
@@ -45,34 +49,37 @@ playerctl position 5+          # seek forward 5 seconds
 playerctl position 5-          # seek backward 5 seconds
 ```
 
-Desktop widgets that display a progress bar will receive `Seeked` signals and stay in sync.
+Desktop widgets with a progress bar receive `Seeked` signals and stay in sync.
 
 ### Volume
 
-Volume is exposed as a linear value between 0.0 and 1.0. Internally Cliamp uses a decibel scale (from -30 dB to +6 dB), and the conversion happens automatically.
+Volume is available as a linear value from 0.0 to 1.0. Internally, cliamp uses
+a decibel scale from -30 dB to +6 dB. It converts the values automatically.
 
 ```sh
 playerctl volume               # print current volume (0.0 to 1.0)
 playerctl volume 0.5           # set volume to 50%
 ```
 
-Setting volume through `playerctl` updates the player immediately. Changing volume with the `+` and `-` keys in the TUI is reflected back to D-Bus clients on the next tick.
+Setting volume through `playerctl` updates the player immediately. When you
+change volume with the TUI `+` and `-` keys, D-Bus clients receive the new value
+on the next tick.
 
 ### Metadata
 
-Track metadata is published under the standard MPRIS keys:
+cliamp publishes track metadata with standard MPRIS keys:
 
 | Key | Description |
 |---|---|
-| `mpris:trackid` | D-Bus object path identifying the current track |
+| `mpris:trackid` | D-Bus object path for the current track |
 | `xesam:title` | Track title |
-| `xesam:artist` | Artist name (as a list with one entry) |
+| `xesam:artist` | Artist name as a list with one entry |
 | `xesam:album` | Album name, when available |
 | `xesam:url` | File path or stream URL |
-| `mpris:artUrl` | Embedded album artwork from local files, when available |
+| `mpris:artUrl` | Embedded album art from local files, when available |
 | `mpris:length` | Duration in microseconds |
 
-Query metadata with:
+Query metadata:
 
 ```sh
 playerctl metadata              # all keys
@@ -80,7 +87,8 @@ playerctl metadata artist       # just the artist
 playerctl metadata title        # just the title
 ```
 
-For live radio streams that provide ICY metadata, the artist and title fields update dynamically as the station reports new track information.
+For live radio streams with ICY metadata, artist and title update when the
+station sends new track information.
 
 ### Status
 
@@ -90,7 +98,9 @@ playerctl status                # prints Playing, Paused, or Stopped
 
 ### Hyprland bindings
 
-Hyprland does not bind `XF86Audio*` keys by default. Add the following to your Hyprland config (typically `~/.config/hypr/bindings.conf` or `hyprland.conf`) to wire hardware media keys to Cliamp through `playerctl`:
+Hyprland does not bind `XF86Audio*` keys by default. Add the following to the
+Hyprland config, usually `~/.config/hypr/bindings.conf` or `hyprland.conf`, to
+bind hardware media keys to cliamp through `playerctl`:
 
 ```conf
 bindl = , XF86AudioPlay,  exec, playerctl --player=cliamp play-pause
@@ -101,39 +111,53 @@ bindl = , XF86AudioPrev,  exec, playerctl --player=cliamp previous
 
 Notes:
 
-- `bindl` fires even when the session is locked, so keys continue to work under `hyprlock`.
-- `--player=cliamp` scopes the command to Cliamp only. Drop the flag to control whichever MPRIS player was most recently active (useful when Cliamp shares the session with browsers or Spotify).
-- Reload with `hyprctl reload` after editing.
-- `playerctl` must be installed (`pacman -S playerctl`, `apt install playerctl`, …).
+- `bindl` runs even when the session is locked. Keys continue to work under `hyprlock`.
+- `--player=cliamp` limits the command to cliamp. Remove the flag to control the most recently active MPRIS player. Use this when cliamp shares the session with browsers or Spotify.
+- Run `hyprctl reload` after you edit the configuration.
+- Install `playerctl`, for example with `pacman -S playerctl` or `apt install playerctl`.
 
 ## macOS
 
-On macOS, Cliamp publishes now-playing information to the system's MPNowPlayingInfoCenter. This enables:
+On macOS, cliamp publishes now-playing information to the system MPNowPlayingInfoCenter. This enables:
 
 - Control Centre and Lock Screen media controls
 - Touch Bar playback buttons
 - Hardware media keys (play/pause, next, previous)
 - Bluetooth headphone buttons
 
-Local files with embedded cover art publish that artwork to Control Centre and Lock Screen media controls. Artwork is cached by content under `~/.local/share/cliamp/album-art/` and pruned opportunistically to stay around 100 MB.
+Local files with embedded cover art publish that art to Control Centre and Lock
+Screen media controls. cliamp caches art by content in
+`~/.local/share/cliamp/album-art/`. It removes cached art as needed to keep the
+cache near 100 MB.
 
-The macOS implementation requires the media-control runtime to pin the main goroutine to thread 0 (via `runtime.LockOSThread`) so that the Cocoa run loop can pump events. Bubbletea runs on a background goroutine instead.
+The macOS media-control runtime pins the main goroutine to thread 0 with
+`runtime.LockOSThread`. This lets the Cocoa run loop process events. Bubbletea
+runs on a background goroutine.
 
 ## Architecture
 
-The app-owned playback command and notifier boundary lives in `internal/playback`. The `mediactl` package translates platform APIs to and from that boundary and owns the platform-specific interactive runtime helper.
+The application playback command and notifier boundary is in
+`internal/playback`. The `mediactl` package translates platform APIs to and from
+this boundary. It owns the platform-specific interactive runtime helper.
 
 Platform-specific `Service` implementations:
 
-- `internal/playback/*` — app-level playback commands and outbound notifier state.
-- `mediactl/service_linux.go` — connects to the session bus, claims the MPRIS bus name, translates D-Bus calls into playback commands, and publishes outbound state through MPRIS properties.
-- `mediactl/service_darwin.go` — initialises NSApplication as an accessory process, registers MPRemoteCommandCenter handlers, translates them into playback commands, and publishes now-playing state on the main-thread run loop.
-- `mediactl/service_stub.go` — no-op implementation for unsupported platforms.
+- `internal/playback/*`: application playback commands and outbound notifier state.
+- `mediactl/service_linux.go`: connects to the session bus, claims the MPRIS bus name, translates D-Bus calls to playback commands, and publishes state through MPRIS properties.
+- `mediactl/service_darwin.go`: starts NSApplication as an accessory process, registers MPRemoteCommandCenter handlers, translates them to playback commands, and publishes now-playing state in the main-thread run loop.
+- `mediactl/service_stub.go`: no-op implementation for unsupported platforms.
 
-The model publishes playback state through the playback notifier whenever state changes. On Linux, `mediactl` uses `SetMust` rather than `Set` to bypass the property library's writable checks and callback triggers, which are intended for external D-Bus writes. For writable properties like Volume, the D-Bus callback is translated into an app playback command and dispatched back into the Bubbletea event loop.
+The model sends playback state through the playback notifier when state changes.
+On Linux, `mediactl` uses `SetMust`, not `Set`, to bypass property-library
+writable checks and callback triggers. These checks and triggers apply to
+external D-Bus writes. For writable properties such as Volume, `mediactl`
+translates the D-Bus callback to an application playback command. It sends this
+command to the Bubbletea event loop.
 
 ## Limitations
 
-Shuffle and loop status are not exposed. The `z` and `r` keys in the TUI control shuffle and repeat locally, but these states are not visible to or controllable from external tools.
+cliamp does not expose shuffle and loop status. The TUI `z` and `r` keys control
+shuffle and repeat locally. External tools cannot view or control these states.
 
-The `HasTrackList` property is set to false on Linux. Cliamp does not implement the optional `org.mpris.MediaPlayer2.TrackList` interface.
+On Linux, `HasTrackList` is false. cliamp does not implement the optional
+`org.mpris.MediaPlayer2.TrackList` interface.

@@ -22,6 +22,16 @@ const streamPreloadLeadTime = 3 * time.Second
 // takes 3-10 seconds, so we start preloading much earlier.
 const ytdlPreloadLeadTime = 15 * time.Second
 
+// rearmPreload discards any armed gapless pipeline and re-arms from the
+// current playlist state. Call after any change that alters which track
+// plays next.
+func (m *Model) rearmPreload() tea.Cmd {
+	nextRequest(&m.requests.preload)
+	m.preloading = false
+	m.player.ClearPreload()
+	return m.preloadNext()
+}
+
 // preloadNext looks ahead in the playlist and preloads the next track for
 // gapless transition. Errors are silently ignored — playback falls back to
 // non-gapless if preloading fails.
@@ -64,7 +74,7 @@ func (m *Model) preloadNext() tea.Cmd {
 		}
 		nextDur := time.Duration(next.DurationSecs) * time.Second
 		m.preloading = true
-		return preloadYTDLStreamCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload))
+		return preloadYTDLStreamCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload), m.player.BeginPreload())
 	}
 	if next.Stream {
 		// For streams, only arm gapless if we're within the lead-time window.
@@ -84,9 +94,9 @@ func (m *Model) preloadNext() tea.Cmd {
 		// Mark in-flight so the tick loop doesn't dispatch a second concurrent
 		// preload before this goroutine has finished arming gapless.SetNext.
 		m.preloading = true
-		return preloadStreamCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload))
+		return preloadStreamCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload), m.player.BeginPreload())
 	}
 	nextDur := time.Duration(next.DurationSecs) * time.Second
 	m.preloading = true
-	return preloadLocalCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload))
+	return preloadLocalCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload), m.player.BeginPreload())
 }

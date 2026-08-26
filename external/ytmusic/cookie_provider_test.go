@@ -408,11 +408,11 @@ func TestCookieProviderSearchTracksHonorsCancellation(t *testing.T) {
 	}
 }
 
-func TestNewCookieProvidersDoesNotMutateGlobalCookies(t *testing.T) {
+func TestNewCookieProvidersDoesNotMutateOtherHostCookies(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping Unix shell script test on Windows")
 	}
-	t.Cleanup(func() { resolve.SetYTDLCookiesFrom("") })
+	t.Cleanup(func() { resolve.SetYTDLCookiesForHost("soundcloud.com", "") })
 
 	tmpDir := t.TempDir()
 	logFile := filepath.Join(tmpDir, "ytdlp_args.log")
@@ -425,23 +425,22 @@ func TestNewCookieProvidersDoesNotMutateGlobalCookies(t *testing.T) {
 
 	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	// Baseline global cookie configured by another provider (e.g. SoundCloud)
-	resolve.SetYTDLCookiesFrom("firefox")
+	// Configure a cookie source for another provider.
+	resolve.SetYTDLCookiesForHost("soundcloud.com", "firefox")
 
-	// Initializing YouTube Music cookie providers should NOT overwrite global cookies
+	// Initializing YouTube Music cookie providers must not affect SoundCloud.
 	_ = NewCookieProviders("chrome")
 	_ = NewCookieProvider("chrome", KindMusic)
 
-	// Caller relying on global cookies (e.g. SoundCloud) should still get firefox
 	_, _ = resolve.ResolveYTDLBatch("https://soundcloud.com/user/tracks", 0, 0)
 	logged, err := os.ReadFile(logFile)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(logged), "--cookies-from-browser firefox") {
-		t.Errorf("expected global cookies 'firefox' to remain unchanged, got: %s", string(logged))
+		t.Errorf("expected SoundCloud cookies 'firefox' to remain unchanged, got: %s", string(logged))
 	}
 	if strings.Contains(string(logged), "--cookies-from-browser chrome") {
-		t.Errorf("global cookies was corrupted with 'chrome': %s", string(logged))
+		t.Errorf("SoundCloud cookies were replaced with 'chrome': %s", string(logged))
 	}
 }

@@ -74,7 +74,7 @@ func (m *Model) playCurrentLogicalTrack() tea.Cmd {
 	if idx < 0 {
 		return nil
 	}
-	m.titleOff = 0
+	m.resetTitleScroll()
 	m.plCursor = idx
 	m.adjustScroll()
 	return m.playTrack(track)
@@ -83,7 +83,7 @@ func (m *Model) playCurrentLogicalTrack() tea.Cmd {
 // playCurrentTrack starts playing the selected track, skipping forward in
 // playlist order if the selection is unplayable.
 func (m *Model) playCurrentTrack() tea.Cmd {
-	m.titleOff = 0
+	m.resetTitleScroll()
 	if m.playlist.Len() == 0 {
 		return nil
 	}
@@ -194,7 +194,7 @@ func (m *Model) queueAlbumNext(album playlist.Track, tracks []playlist.Track) te
 		m.notifyPlayback()
 		return cmd
 	}
-	return nil
+	return m.rearmPreload()
 }
 
 // closeNetSearch fully resets the net search overlay and restores focus,
@@ -250,7 +250,7 @@ func (m *Model) queueTrackNext(track playlist.Track) tea.Cmd {
 		m.notifyPlayback()
 		return cmd
 	}
-	return nil
+	return m.rearmPreload()
 }
 
 // removeSelectedFromPlaylist removes the track at the current playlist cursor.
@@ -330,21 +330,21 @@ func (m *Model) removeSelectedFromPlaylist() {
 	m.notifyPlayback()
 }
 
-func (m *Model) undoPlaylistMutation() {
+func (m *Model) undoPlaylistMutation() tea.Cmd {
 	undo := m.playlistUndo
 	if !undo.active {
 		m.status.Warning("Nothing to undo", statusTTLShort)
-		return
+		return nil
 	}
 	if undo.persisted {
 		saver := m.localSaver()
 		if saver == nil {
 			m.status.Warning("Undo unavailable", statusTTLDefault)
-			return
+			return nil
 		}
 		if err := saver.SavePlaylist(undo.loaded, cloneTracks(undo.saved)); err != nil {
 			m.status.Errorf(statusTTLDefault, "Undo failed: %s", err)
-			return
+			return nil
 		}
 	}
 	m.playlist.Restore(undo.snapshot)
@@ -355,6 +355,7 @@ func (m *Model) undoPlaylistMutation() {
 	}
 	m.adjustScroll()
 	m.status.Show("Restored previous playlist state", statusTTLDefault)
+	return m.rearmPreload()
 }
 
 // playTrack plays a track, using async HTTP for streams and sync I/O for local files.
@@ -386,9 +387,9 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		m.buffering = true
 		m.bufferingAt = time.Now()
 		m.err = nil
-		return tea.Batch(playStreamCmd(m.player, track.Path, dur, m.requests.stream), fetchCmd)
+		return tea.Batch(playStreamCmd(m.player, track.Path, dur, m.startPosition(track), m.requests.stream), fetchCmd)
 	}
-	if err := m.player.Play(track.Path, dur); err != nil {
+	if err := m.player.PlayAt(track.Path, dur, m.startPosition(track)()); err != nil {
 		// Provider session went stale (e.g. Spotify auth expired and
 		// silent reconnect failed). Surface the standard sign-in
 		// overlay rather than the raw stream error.
@@ -400,8 +401,14 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		}
 	} else {
 		m.err = nil
+		// yt-dlp streams resume after streamPlayedMsg; local playback reaches
+		// this branch, where applyResume performs the seek synchronously.
 		m.applyResume()
 		m.backfillLoadedPlaylistDuration(track)
+		if fetchCmd != nil {
+			return tea.Batch(m.preloadNext(), fetchCmd)
+		}
+		return m.preloadNext()
 	}
 
 	if fetchCmd != nil {
@@ -449,12 +456,19 @@ func (m *Model) backfillLoadedPlaylistDuration(track playlist.Track) {
 // new active track. It is used both by explicit playback and by gapless
 // transitions, which advance audio without calling playTrack.
 func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cmd) {
+	m.resetTitleScroll()
 	nextRequest(&m.requests.stream)
+	if m.player != nil {
+		m.player.CancelSeekYTDL()
+		m.player.SetPlaybackGeneration(m.requests.stream)
+		m.player.ClearPreload()
+	}
 	nextRequest(&m.requests.preload)
 	m.preloading = false
 	nextRequest(&m.requests.lyrics)
 	track = playlist.RefreshEmbeddedMetadata(track)
 	m.setPlaybackTrack(track)
+	historyCmd := m.recordListenedTrack(track)
 	m.reconnect.attempts = 0
 	m.reconnect.at = time.Time{}
 	m.streamTitle = ""
@@ -463,6 +477,9 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	m.lyrics.query = ""
 	m.lyrics.scroll = 0
 	m.seek.active = false
+	m.seek.inFlight = false
+	m.seek.pending = false
+	m.seek.gen++
 	m.seek.timer = 0
 	m.seek.timerFor = 0
 	m.seek.grace = 0
@@ -470,15 +487,14 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	if m.lyrics.visible {
 		q := lyricsLookupKey(track, track.Artist, track.Title)
 		if q == "" {
-			m.lyrics.loading = false
-			return track, nil
+			return track, historyCmd
 		}
 		m.lyrics.loading = true
 		m.lyrics.query = q
-		return track, m.fetchLyricsForTrack(track, track.Artist, track.Title)
+		return track, tea.Batch(historyCmd, m.fetchLyricsForTrack(track, track.Artist, track.Title))
 	}
 	m.lyrics.loading = false
-	return track, nil
+	return track, historyCmd
 }
 
 func (m *Model) fetchLyricsForTrack(track playlist.Track, artist, title string) tea.Cmd {
@@ -558,25 +574,70 @@ func shouldReconnectOnUnpause(track playlist.Track, idx int, pausedFor time.Dura
 	return pausedFor >= ytdlReconnectPauseThreshold && playlist.IsYTDL(track.Path)
 }
 
+// startPosition returns where track should begin. The returned func may make a
+// provider HTTP call, so callers run it on their own goroutine.
+func (m *Model) startPosition(track playlist.Track) func() time.Duration {
+	// Only remote tracks have a server-side position, so a local file never
+	// reaches the provider and the synchronous caller cannot block on HTTP.
+	var positioner provider.TrackPosition
+	if track.Stream || playlist.IsURL(track.Path) {
+		positioner = m.findTrackPosition(track)
+	}
+	hint := time.Duration(0)
+	if m.resume.path == track.Path && m.resume.secs > 0 {
+		hint = time.Duration(m.resume.secs) * time.Second
+	}
+	if positioner == nil {
+		return func() time.Duration { return hint }
+	}
+	return func() time.Duration { return positioner.TrackPosition(track) }
+}
+
+// clearResume drops the startup hint for track.
+func (m *Model) clearResume(track playlist.Track) {
+	if m.resume.path == track.Path {
+		m.resume.path = ""
+		m.resume.secs = 0
+	}
+}
+
 // applyResume seeks to the saved resume position if the current track matches.
-// It clears the resume state after a successful seek so it only fires once.
-func (m *Model) applyResume() {
+// yt-dlp resume is asynchronous because it rebuilds the playback pipeline.
+func (m *Model) applyResume() tea.Cmd {
 	// secs == 0 is indistinguishable from "never played"; skip resume.
 	if m.resume.path == "" || m.resume.secs <= 0 {
-		return
+		return nil
 	}
 	track, _ := m.currentPlaybackTrack()
 	if track.Path != m.resume.path {
-		return
+		return nil
+	}
+	// PlayAt already started at the provider's position, so spend the hint
+	// without seeking rather than overriding that with a stale value.
+	if m.findTrackPosition(track) != nil {
+		m.clearResume(track)
+		return nil
 	}
 	// Only seek if the player reports the stream is seekable; otherwise the
 	// seek is a no-op that returns nil, which we must not mistake for success.
 	if !m.player.Seekable() {
-		return
+		return nil
 	}
-	target := time.Duration(m.resume.secs) * time.Second
+	target := m.clampPosition(time.Duration(m.resume.secs) * time.Second)
+	if playlist.IsMixcloudURL(track.Path) && m.player.IsYTDLSeek() {
+		m.seek.active = true
+		m.seek.inFlight = true
+		m.seek.pending = false
+		m.seek.targetPos = target
+		m.seek.timer = 0
+		m.seek.timerFor = 0
+		m.player.CancelSeekYTDL()
+		m.status.Activityf(statusTTLLong, "Resuming at %s…", formatJumpClock(target))
+		return m.seekCmd(target, true)
+	}
 	if err := m.player.Seek(target - m.player.Position()); err == nil {
 		m.resume.path = ""
 		m.resume.secs = 0
 	}
+	return nil
 }

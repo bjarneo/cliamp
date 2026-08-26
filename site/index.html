@@ -3,21 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CLIAMP — Terminal Music Player</title>
-<meta name="description" content="A retro terminal music player inspired by Winamp 2.x. Play local files, YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, SoundCloud, NetEase, and 30,000+ radio stations with a spectrum visualizer and 10-band EQ.">
+<title>CLIAMP - Terminal Music Player</title>
+<meta name="description" content="A terminal music player based on Winamp 2.x. Play local files, YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, and more than 30,000 radio stations. Use a spectrum visualizer and 10-band equalizer.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#050505">
 
 <!-- Open Graph -->
 <meta property="og:type" content="website">
-<meta property="og:title" content="CLIAMP — Terminal Music Player">
-<meta property="og:description" content="A retro terminal music player inspired by Winamp 2.x. Play YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, SoundCloud, NetEase, and 30,000+ radio stations from your terminal with a spectrum visualizer and 10-band EQ.">
+<meta property="og:title" content="CLIAMP - Terminal Music Player">
+<meta property="og:description" content="A terminal music player based on Winamp 2.x. Play YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, and more than 30,000 radio stations. Use a spectrum visualizer and 10-band equalizer.">
 <meta property="og:image" content="https://cliamp.stream/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta property="og:url" content="https://cliamp.stream">
 
 <!-- Twitter Card -->
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="CLIAMP — Terminal Music Player">
-<meta name="twitter:description" content="A retro terminal music player inspired by Winamp 2.x. Play YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, SoundCloud, NetEase, and 30,000+ radio stations from your terminal with a spectrum visualizer and 10-band EQ.">
+<meta name="twitter:title" content="CLIAMP - Terminal Music Player">
+<meta name="twitter:description" content="A terminal music player based on Winamp 2.x. Play YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, and more than 30,000 radio stations. Use a spectrum visualizer and 10-band equalizer.">
 <meta name="twitter:image" content="https://cliamp.stream/og-image.png">
 
 <style>
@@ -77,6 +81,7 @@ body{
     radial-gradient(140% 120% at 50% 40%,transparent 55%,rgba(0,0,0,.55) 100%);
   background-attachment:fixed;
 }
+body.globe-open{overflow:hidden}
 ::selection{background:var(--green);color:var(--ink)}
 
 /* CRT atmosphere */
@@ -117,6 +122,7 @@ code{font-family:var(--mono)}
 .brand{display:inline-flex;align-items:center;gap:11px;color:var(--fg-hi);
   font-weight:800;font-size:15px;letter-spacing:3px;text-shadow:var(--engrave)}
 .brand b{color:var(--green);text-shadow:0 0 12px var(--green-glow)}
+.brand-logo{display:block;width:30px;height:30px;flex:0 0 auto}
 .led{width:8px;height:8px;border-radius:50%;background:var(--green);
   box-shadow:0 0 10px var(--green-glow),0 0 2px #fff inset;animation:blink 2.4s ease-in-out infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
@@ -185,6 +191,8 @@ kbd{color:var(--ink);background:var(--fg-hi);padding:1px 6px;border-radius:3px;
 @media (max-width:900px){.hero-grid{grid-template-columns:1fr;gap:36px}}
 .hero-eyebrow{font-size:11px;letter-spacing:5px;text-transform:uppercase;color:var(--amber);
   font-weight:700;margin-bottom:20px;display:flex;align-items:center;gap:9px}
+.hero-lockup{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+.hero-logo{display:block;width:clamp(56px,5.5vw,68px);height:auto;flex:0 0 auto}
 .hero-word{font-size:clamp(52px,9vw,104px);line-height:.86;font-weight:800;letter-spacing:-3px;
   color:var(--fg-max);text-shadow:var(--engrave);margin-bottom:6px}
 .hero-word span{color:var(--green);text-shadow:0 0 34px var(--green-glow),0 0 90px rgba(55,245,160,.15)}
@@ -476,12 +484,46 @@ kbd{color:var(--ink);background:var(--fg-hi);padding:1px 6px;border-radius:3px;
 .radio-chart-labels{display:flex;justify-content:space-between;margin-top:8px;font-size:9px;color:var(--mute-2);letter-spacing:1px}
 
 .radio-globe-wrap{display:flex;gap:26px;align-items:center;flex-wrap:wrap}
-.radio-globe-canvas{width:300px;max-width:100%;aspect-ratio:1;opacity:0;transition:opacity .5s}
+.radio-globe-button{position:relative;width:300px;max-width:100%;padding:0;border:1px solid var(--line);background:#050806;color:var(--green);font:inherit;cursor:zoom-in}
+.radio-globe-button:hover{border-color:var(--green)}
+.radio-globe-canvas{display:block;width:100%;max-width:100%;aspect-ratio:1;opacity:0;transition:opacity .5s}
 .radio-globe-canvas.loaded{opacity:1}
-.radio-countries{flex:1;min-width:220px;display:flex;flex-direction:column;gap:9px}
-.radio-country{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--fg)}
+.radio-globe-open-label{position:absolute;right:8px;bottom:8px;padding:4px 7px;background:var(--green);color:var(--ink);font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase}
+.radio-countries{flex:1;min-width:220px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 22px}
+.radio-country{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px dotted var(--line);font-size:12.5px;color:var(--fg)}
 .radio-country-flag{font-size:15px;line-height:1}
+.radio-country-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .radio-country-sessions{margin-left:auto;color:var(--mute);font-variant-numeric:tabular-nums;font-size:11px}
+.radio-country-more{grid-column:1/-1;border-bottom:0;color:var(--amber);font-size:11px;letter-spacing:.5px}
+
+.globe-dialog{width:100%;height:100dvh;max-width:none;max-height:none;margin:0;padding:0;border:0;border-top:3px solid var(--green);background:var(--ink);color:var(--fg);overflow:hidden}
+.globe-dialog::backdrop{background:rgba(0,0,0,.88)}
+.globe-dialog[open]{display:grid;grid-template-rows:auto minmax(0,1fr)}
+.globe-dialog-head{display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid var(--line-hi);background:var(--green);color:var(--ink)}
+.globe-dialog-title{font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase}
+.globe-dialog-status{font-size:10px;opacity:.65}
+.globe-dialog-close{margin-left:auto;padding:6px 9px;border:1px solid var(--ink);background:var(--ink);color:var(--green);font:inherit;font-size:10px;font-weight:800;cursor:pointer}
+.globe-dialog-body{display:grid;grid-template-columns:minmax(0,1fr) 340px;min-height:0}
+.globe-dialog-map{position:relative;display:grid;place-items:center;min-width:0;min-height:0;padding:20px;border-right:1px solid var(--line);background:#030604}
+.globe-dialog-canvas{display:block;width:min(100%,680px);max-height:100%;aspect-ratio:1;cursor:crosshair;touch-action:none}
+.globe-spin-toggle{position:absolute;top:12px;left:12px;z-index:2;padding:6px 8px;border:1px solid var(--line-hi);background:rgba(5,8,6,.9);color:var(--green);font:inherit;font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;cursor:pointer}
+.globe-spin-toggle.paused{border-color:var(--amber);color:var(--amber)}
+.globe-dialog-side{display:grid;grid-template-rows:auto minmax(0,1fr);min-height:0;background:var(--panel)}
+.globe-detail{padding:22px;border-bottom:1px solid var(--line-hi)}
+.globe-detail-label{display:block;margin-bottom:8px;color:var(--green);font-size:9px;font-weight:800;letter-spacing:2px;text-transform:uppercase}
+.globe-detail-country{display:block;color:var(--fg-max);font-size:20px;line-height:1.2}
+.globe-detail-count{display:block;margin-top:7px;color:var(--amber);font-size:34px;font-weight:800;line-height:1}
+.globe-detail-unit{color:var(--mute);font-size:10px;letter-spacing:1px;text-transform:uppercase}
+.globe-rank-list{min-height:0;overflow-y:auto;padding:8px;scrollbar-width:thin;scrollbar-color:var(--line-hi) var(--panel)}
+.globe-rank-list::-webkit-scrollbar{width:7px}
+.globe-rank-list::-webkit-scrollbar-track{background:var(--panel)}
+.globe-rank-list::-webkit-scrollbar-thumb{background:var(--line-hi)}
+.globe-rank-item{display:grid;width:100%;grid-template-columns:28px 24px minmax(0,1fr) auto;gap:8px;align-items:center;padding:9px 8px;border:0;border-bottom:1px dotted var(--line);background:transparent;color:var(--fg);font:inherit;font-size:11px;text-align:left;cursor:pointer}
+.globe-rank-item:hover,.globe-rank-item.active{background:var(--green-dim);color:var(--fg-hi)}
+.globe-rank-item.active{box-shadow:inset 2px 0 0 var(--green)}
+.globe-rank-num{color:var(--mute-2)}
+.globe-rank-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.globe-rank-count{color:var(--amber);font-variant-numeric:tabular-nums}
 
 /* ═══════════ FOOTER ═══════════ */
 footer{border-top:1px solid var(--line);background:var(--ink-2);padding:46px 0 56px;position:relative}
@@ -496,9 +538,276 @@ footer{border-top:1px solid var(--line);background:var(--ink-2);padding:46px 0 5
 .footer-link{display:inline-flex;align-items:center;gap:7px;color:var(--mute);font-size:11px;letter-spacing:.5px}
 .footer-link:hover{color:var(--green)}
 .footer-link svg{width:14px;height:14px;fill:currentColor}
+
+/* Terminal manual redesign: hard edges, dense data, restrained motion. */
+:root{
+  --ink:#050806;
+  --ink-2:#080c09;
+  --panel:#0c120e;
+  --panel-2:#101812;
+  --panel-3:#152019;
+  --line:#203026;
+  --line-hi:#385342;
+  --fg:#aab7ac;
+  --fg-hi:#d9e3da;
+  --fg-max:#f4fff5;
+  --mute:#667568;
+  --mute-2:#405046;
+  --green:#42ff88;
+  --green-hi:#91ffb8;
+  --green-glow:rgba(66,255,136,.14);
+  --green-dim:rgba(66,255,136,.07);
+  --amber:#ffb000;
+  --amber-hi:#ffd166;
+  --amber-glow:rgba(255,176,0,.12);
+  --amber-dim:rgba(255,176,0,.07);
+  --cyan:#4bdbff;
+  --red:#ff4260;
+  --wrap:1180px;
+  --engrave:none;
+}
+
+body{
+  background:var(--ink);
+  background-image:linear-gradient(90deg,transparent calc(50% - 590px),rgba(66,255,136,.025) calc(50% - 590px),rgba(66,255,136,.025) calc(50% - 589px),transparent calc(50% - 589px));
+  background-attachment:scroll;
+  color:var(--fg);
+}
+
+.crt-scan,.crt-grain,.chassis,.screw{display:none}
+main{display:block}
+.skip-link{position:fixed;top:8px;left:8px;z-index:10000;padding:8px 12px;background:var(--green);color:var(--ink);font-weight:800;transform:translateY(-150%)}
+.skip-link:focus{transform:none}
+a{transition:none}
+a:hover{text-decoration:underline;text-underline-offset:3px}
+.wrap{padding-inline:28px}
+
+.nav{
+  background:rgba(5,8,6,.97);
+  border-top:3px solid var(--green);
+  border-bottom:1px solid var(--line-hi);
+  box-shadow:none;
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+}
+.nav-in{height:48px;padding-inline:28px}
+.brand{gap:9px;font-size:13px;letter-spacing:2px;text-shadow:none}
+.brand:hover{text-decoration:none}
+.brand::after{content:"/usr/bin";color:var(--mute-2);font-size:9px;letter-spacing:1px;font-weight:500}
+.led{width:8px;height:8px;border-radius:0;box-shadow:none;animation:none}
+.nav-links{gap:0;height:100%}
+.nav-links a{display:flex;align-items:center;height:100%;padding:0 9px;color:var(--mute);font-size:10px;letter-spacing:1px;text-transform:lowercase}
+.nav-links a::before{content:"[";color:var(--mute-2)}
+.nav-links a::after{content:"]";color:var(--mute-2)}
+.nav-links a:hover{color:var(--green);text-shadow:none;text-decoration:none;background:var(--green-dim)}
+.nav-links .ext{color:var(--cyan)}
+.nav-toggle{width:auto;height:30px;padding:0 9px;border-radius:0;background:transparent;border-color:var(--line-hi);font-size:10px;letter-spacing:1px}
+
+section{padding:74px 0;border-top:1px solid var(--line)}
+.hero{padding:64px 0 52px;border-top:0;overflow:visible}
+.hero-grid{grid-template-columns:minmax(300px,.78fr) minmax(0,1.22fr);gap:54px;align-items:start}
+.hero-grid>div:first-child{border-left:4px solid var(--green);padding:8px 0 8px 24px}
+.hero-eyebrow{margin-bottom:22px;color:var(--green);font-size:10px;letter-spacing:2px}
+.hero-eyebrow::before{content:"root@localhost:";color:var(--mute)}
+.hero-word{margin:0;font-size:clamp(50px,6.5vw,78px);line-height:.82;letter-spacing:-5px;color:var(--fg-max);text-shadow:none}
+.hero-word span{color:var(--green);text-shadow:none}
+.hero-sub{margin:0 0 16px;color:var(--amber);font-size:15px;letter-spacing:0}
+.hero-sub em{color:inherit}
+.hero-desc{margin-bottom:26px;color:var(--fg);font-size:13px;line-height:1.75}
+.hero-desc em{color:var(--fg-hi)}
+.hero-cta{gap:8px}
+.btn{border-radius:0;padding:11px 17px;font-size:10px;letter-spacing:1px;box-shadow:none;transition:none}
+.btn-go,.btn-go:hover{color:var(--ink);border-color:var(--green);background:var(--green);box-shadow:none;text-decoration:none}
+.btn-go:hover{background:var(--amber);border-color:var(--amber)}
+.btn-ghost{color:var(--fg-hi);background:transparent;border-color:var(--line-hi);box-shadow:none}
+.btn-ghost:hover{color:var(--green);border-color:var(--green);text-shadow:none;text-decoration:none}
+.hero-facts{display:grid;grid-template-columns:repeat(3,max-content);gap:8px 16px;margin-top:25px;color:var(--mute);font-size:10px;text-transform:uppercase;letter-spacing:1px}
+.hero-facts b{color:var(--amber);font-weight:700}
+
+.tty{border:1px solid var(--line-hi);border-radius:0;padding:0;background:var(--ink-2);box-shadow:10px 10px 0 #020302;animation:none}
+.tty-head{min-height:36px;padding:0 9px;background:var(--green);color:var(--ink);gap:8px}
+.tty-head-prompt,.tty-head-cmd,.tty-head-flag,.tty-head-pid{color:var(--ink);text-shadow:none}
+.tty-head-flag,.tty-head-pid{opacity:.66}
+.rp-play{height:24px;width:30px;border:1px solid var(--ink);border-radius:0;background:var(--ink);color:var(--green);box-shadow:none}
+.rp-play:hover{border-color:var(--ink);box-shadow:none;color:var(--amber)}
+.tty-body{border:0;border-top:1px solid var(--line-hi);border-radius:0;padding:16px 18px;background:#060a07}
+.tty-body::after{display:none}
+.t-title,.t-track-sym,.t-status-playing,.t-pl-mark{color:var(--green);text-shadow:none}
+.t-time-row,.t-pl-item{border-radius:0}
+.t-time-row:hover,.t-pl-item:hover{background:var(--green-dim)}
+#ascii-viz{filter:none}
+.t-seek,.t-active,.t-pl-header{color:var(--amber);text-shadow:none}
+.rp-vol::-webkit-slider-thumb{box-shadow:none}
+.rp-vol::-moz-range-thumb,.rp-vol::-moz-range-progress{box-shadow:none}
+.tune-hint::before{content:">  "}
+.tty-hint code{display:inline-block;border-bottom:1px solid var(--line-hi);padding-bottom:4px}
+
+.sponsor{margin-top:42px;padding-top:20px;border-top:1px dotted var(--line);text-align:left}
+.sponsor img{width:280px;opacity:.58}
+
+.ticker{padding:12px 0;border-block:1px solid var(--amber);background:#0b0b06}
+.ticker::before,.ticker::after{display:none}
+.ticker-track{width:100%;animation:none}
+.ticker-track span{width:100%;padding:0 28px;justify-content:center;color:var(--amber);font-size:10px;line-height:1.7;letter-spacing:.7px;white-space:normal;text-align:center}
+.ticker-track span::after{display:none}
+.ticker-track span:nth-child(n+2){display:none}
+
+.strip{gap:12px;margin-bottom:28px}
+.strip.rev{flex-direction:row}
+.strip-idx{padding:0;border:0;border-radius:0;background:none;box-shadow:none;color:var(--amber);font-size:11px;text-shadow:none}
+.strip-idx::before{content:"[";color:var(--mute-2)}
+.strip-idx::after{content:"]";color:var(--mute-2)}
+.strip-name{color:var(--fg-hi);font-size:clamp(19px,3vw,25px);letter-spacing:-1px;text-shadow:none}
+.strip-name::before{content:"./";color:var(--green)}
+.strip-name em{color:var(--amber);text-shadow:none}
+.strip-rule,.strip.rev .strip-rule{height:1px;background:var(--line);box-shadow:none}
+.strip-meter{display:none}
+.reveal{opacity:1;transform:none;transition:none}
+
+.demo-frame{padding:0;border:1px solid var(--line-hi);border-radius:0;background:var(--ink-2);box-shadow:8px 8px 0 #020302}
+.demo-frame::before{content:"demo@cliamp: playback";display:block;padding:8px 12px;border-bottom:1px solid var(--line-hi);background:var(--panel);color:var(--green);font-size:10px;letter-spacing:1px}
+.demo-wrap{border:0;border-radius:0}
+.demo-wrap::after{display:none}
+.sound-toggle{right:12px;bottom:12px;width:36px;height:32px;border-radius:0;background:var(--ink);box-shadow:none}
+.sound-toggle:hover{background:var(--green);color:var(--ink)}
+
+.install-grid{grid-template-columns:repeat(2,1fr);gap:1px;border:1px solid var(--line);background:var(--line)}
+.install-box{width:100%;min-width:0;padding:17px 18px;border:0;border-radius:0;background:var(--panel);color:var(--fg);font:inherit;text-align:left;box-shadow:none;transition:none}
+.install-box:hover{transform:none;border-color:transparent;background:var(--panel-2);box-shadow:inset 3px 0 0 var(--green)}
+.install-grid .install-box:last-child{grid-column:1/-1}
+.install-platform{display:block;margin-bottom:7px;color:var(--amber);font-size:9px;letter-spacing:1px}
+.install-box code{font-size:12px}
+.copied-msg{top:9px;right:10px;padding:2px 5px;background:var(--green);color:var(--ink)}
+.install-note{margin-top:18px;padding-left:14px;border-left:2px solid var(--line-hi);color:var(--mute)}
+.next-step{display:grid;grid-template-columns:1fr minmax(280px,340px);gap:28px;align-items:center;margin-top:34px;padding:24px 26px;border:1px solid var(--line-hi);border-radius:0;background:var(--ink-2);box-shadow:none}
+.next-step::before{display:none}
+.next-step-label{grid-column:1;margin:0;color:var(--green);font-size:9px;letter-spacing:2px}
+.next-step h3{grid-column:1;margin:-22px 0 0;color:var(--fg-hi);font-size:18px;text-shadow:none}
+.next-step p{grid-column:1;margin:0;font-size:12px}
+.next-step .install-box{grid-column:2;grid-row:1/4;width:100%;border:1px solid var(--line-hi)}
+
+.sources-intro{margin-bottom:25px;padding-left:15px;border-left:2px solid var(--amber);font-size:13px}
+.sources-grid{grid-template-columns:repeat(2,1fr);gap:1px;border:1px solid var(--line);background:var(--line)}
+.source{display:grid;grid-template-columns:142px minmax(0,1fr);grid-template-areas:"name desc" "badge desc";align-content:start;gap:4px 18px;padding:16px 18px;border:0;border-radius:0;background:var(--panel);box-shadow:none;transition:none}
+.source:last-child{grid-column:1/-1}
+.source::before{width:2px;box-shadow:none}
+.source:hover{transform:none;border-color:transparent;background:var(--panel-2);box-shadow:none}
+.source-badge{grid-area:badge;align-self:start;margin:0;padding:0;border:0;border-radius:0;color:var(--src-color,var(--green));font-size:8px;line-height:1.4;letter-spacing:1px}
+.source-badge::before{content:"["}.source-badge::after{content:"]"}
+.source-name{grid-area:name;margin:0;color:var(--fg-hi);font-size:14px;letter-spacing:0;text-shadow:none}
+.source-name::after{display:none}
+.source-desc{grid-area:desc;color:var(--mute);font-size:11px;line-height:1.65}
+.source-config{margin-top:28px;padding:22px 24px;border:1px solid var(--line-hi);border-radius:0;background:var(--ink-2);box-shadow:none}
+.source-config h3{font-size:16px;text-shadow:none}
+.source-config pre{border-radius:0;background:#030604}
+
+.features-grid{display:block;border:1px solid var(--line);border-radius:0;background:var(--line)}
+.feature{display:grid;grid-template-columns:38px 210px minmax(0,1fr);gap:14px;align-items:start;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--panel);transition:none}
+.feature:last-child{border-bottom:0}
+.feature:hover{background:var(--panel-2)}
+.feature-icon{width:30px;height:24px;margin:0;border:0;border-radius:0;background:transparent;color:var(--green);box-shadow:none;font-size:13px}
+.feature:nth-child(3n+2) .feature-icon{background:transparent;box-shadow:none;color:var(--amber)}
+.feature-icon::before{content:"[";color:var(--mute-2)}
+.feature-icon::after{content:"]";color:var(--mute-2)}
+.feature-name{margin:1px 0 0;color:var(--fg-hi);font-size:12px;letter-spacing:0;text-shadow:none}
+.feature p{color:var(--mute);font-size:11px;line-height:1.65}
+
+.community-plugins{grid-template-columns:repeat(2,1fr);gap:1px;border:1px solid var(--line);background:var(--line)}
+.community-plugin{min-width:0;padding:14px 16px;border:0;border-radius:0;background:var(--panel);box-shadow:none;transition:none}
+.community-plugin:hover{transform:none;border-color:transparent;background:var(--panel-2);box-shadow:none}
+.community-plugin-jack{width:12px;height:12px;border:1px solid var(--green);border-radius:0;background:transparent;box-shadow:none}
+.community-plugin-jack::after{inset:3px;border-radius:0;background:var(--green);box-shadow:none}
+.community-plugin-name{font-size:12px}
+.community-plugin-desc,.community-plugin-author{font-size:10px}
+
+.radio-header{padding-bottom:12px;border-bottom:1px solid var(--line)}
+.radio-tabs{gap:0}
+.radio-tab{padding:7px 10px;border-color:var(--line);border-radius:0;background:var(--panel);font-size:9px;letter-spacing:.5px;transition:none}
+.radio-tab.active{border-color:var(--green);background:var(--green);color:var(--ink);box-shadow:none}
+.radio-live-dot,.radio-stat-dot{border-radius:0;box-shadow:none;animation:none}
+.radio-stats-row{gap:1px;border:1px solid var(--line);background:var(--line)}
+.radio-stat{padding:18px;border:0;border-radius:0;background:var(--panel);box-shadow:none;text-align:left}
+.radio-stat-peak{background:var(--panel)}
+.radio-stat-value{justify-content:flex-start;color:var(--fg-max);font-size:34px;letter-spacing:-2px;text-shadow:none}
+.radio-stat-peak .radio-stat-value{color:var(--amber);text-shadow:none}
+.radio-stat-label{font-size:9px;letter-spacing:1px}
+.radio-card{padding:20px;border:1px solid var(--line);border-radius:0;background:var(--panel);box-shadow:none}
+.radio-chart{gap:2px}
+.radio-chart-bar{border-radius:0;box-shadow:none}
+.radio-chart-bar .tooltip{border-radius:0;background:var(--ink)}
+.radio-globe-canvas{filter:saturate(1.15)}
+
+footer{padding:26px 0;border-top:1px solid var(--green);background:var(--ink)}
+.footer-inner{padding-inline:28px}
+.footer-brand,.footer-ascii{font-size:10px}
+.footer-brand{color:var(--green)}
+.footer-links{gap:14px}
+
+@media (max-width:900px){
+  .hero-grid{grid-template-columns:1fr;gap:42px}
+  .hero-grid>div:first-child{max-width:700px}
+  .source{grid-template-columns:118px minmax(0,1fr)}
+}
+@media (max-width:820px){
+  .nav-in{padding-inline:18px}
+  .nav-links{top:48px;height:auto;background:var(--ink);border-bottom:1px solid var(--green);padding:0}
+  .nav-links.open{max-height:560px}
+  .nav-links a{width:100%;height:auto;padding:11px 18px;border-bottom:1px solid var(--line)}
+  .sources-grid{grid-template-columns:1fr}
+  .source{grid-template-columns:145px minmax(0,1fr)}
+  .feature{grid-template-columns:38px 170px minmax(0,1fr)}
+}
+@media (max-width:720px){
+  .wrap{padding-inline:18px}
+  section{padding:54px 0}
+  .hero{padding-top:42px}
+  .hero-grid>div:first-child{padding-left:18px}
+  .hero-word{letter-spacing:-3px}
+  .hero-facts{grid-template-columns:1fr}
+  .tty{box-shadow:5px 5px 0 #020302}
+  .t-eq-bands{display:none}
+  .ticker-track span{padding-inline:18px;text-align:left}
+  .next-step{display:block;padding:20px}
+  .next-step h3{margin:8px 0}
+  .next-step p{margin-bottom:18px}
+  .community-plugins{grid-template-columns:1fr}
+  .footer-inner{padding-inline:18px}
+  .globe-dialog-body{grid-template-columns:1fr;grid-template-rows:minmax(280px,48dvh) minmax(0,1fr)}
+  .globe-dialog-map{padding:10px;border-right:0;border-bottom:1px solid var(--line)}
+  .globe-dialog-side{grid-template-columns:138px minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
+  .globe-detail{padding:14px 12px;border-right:1px solid var(--line-hi);border-bottom:0}
+  .globe-detail-country{font-size:14px}
+  .globe-detail-count{font-size:27px}
+}
+@media (max-width:560px){
+  .brand::after{display:none}
+  .hero-lockup{gap:12px}
+  .hero-logo{width:52px}
+  .hero-word{font-size:46px;letter-spacing:-3px}
+  .hero-desc{font-size:12px}
+  .install-grid{grid-template-columns:1fr}
+  .install-grid .install-box:last-child{grid-column:auto}
+  .source{display:block;padding-left:16px}
+  .source:last-child{grid-column:auto}
+  .source-badge{display:block;margin:5px 0 9px}
+  .feature{grid-template-columns:32px minmax(0,1fr);gap:8px}
+  .feature-name{align-self:center}
+  .feature p{grid-column:2}
+  .radio-stats-row{grid-template-columns:repeat(2,1fr)}
+  .radio-stat{padding:14px}
+  .radio-stat-value{font-size:27px}
+  .radio-countries{gap:0 12px}
+  .radio-country{gap:6px;font-size:11px}
+  .radio-country-flag{font-size:13px}
+  .radio-country-sessions{font-size:10px}
+  .radio-chart{overflow:hidden}
+  .footer-ascii{display:none}
+}
 </style>
 </head>
 <body>
+
+<a class="skip-link" href="#main">Skip to content</a>
 
 <div class="crt-scan"></div>
 <div class="crt-grain"></div>
@@ -507,34 +816,39 @@ footer{border-top:1px solid var(--line);background:var(--ink-2);padding:46px 0 5
 <span class="screw bl"></span><span class="screw br"></span>
 
 <!-- ═══ NAV ═══ -->
-<nav class="nav">
+<nav class="nav" aria-label="Primary navigation">
   <div class="nav-in">
-    <a href="#top" class="brand"><span class="led"></span>CLI<b>AMP</b></a>
-    <button class="nav-toggle" aria-label="Menu" onclick="document.getElementById('nl').classList.toggle('open')">≡</button>
-    <div class="nav-links" id="nl" onclick="this.classList.remove('open')">
+    <a href="#top" class="brand"><img class="brand-logo" src="logo-small.svg" alt="">CLI<b>AMP</b></a>
+    <button class="nav-toggle" aria-label="Toggle menu" aria-controls="nl" aria-expanded="false" onclick="var n=document.getElementById('nl');n.classList.toggle('open');this.setAttribute('aria-expanded',n.classList.contains('open'))">menu</button>
+    <div class="nav-links" id="nl" onclick="this.classList.remove('open');document.querySelector('.nav-toggle').setAttribute('aria-expanded','false')">
       <a href="#install">Install</a>
+      <a href="#demo">Demo</a>
       <a href="#sources">Sources</a>
       <a href="#features">Features</a>
+      <a href="#plugins">Plugins</a>
       <a href="#radio">Radio</a>
-      <a href="https://whiterose.org.contextowl.co/docs/cliamp" class="ext">Docs ↗</a>
-      <a href="https://github.com/bjarneo/cliamp" class="ext">GitHub ↗</a>
+      <a href="https://whiterose.org.contextowl.co/docs/cliamp" class="ext">Docs</a>
+      <a href="https://github.com/bjarneo/cliamp" class="ext">GitHub</a>
     </div>
   </div>
 </nav>
+
+<main id="main">
 
 <!-- ═══ HERO ═══ -->
 <section class="hero" id="top">
   <div class="wrap">
     <div class="hero-grid">
       <div>
-        <div class="hero-eyebrow"><span class="led"></span>Terminal music player</div>
-        <h1 class="hero-word">cli<span>amp</span></h1>
-        <p class="hero-sub"><em>Winamp</em> for your shell.</p>
-        <p class="hero-desc">Playlists, a 10-band EQ, visualizers, synced lyrics, remote control, and a Lua plugin system — streaming from <em>Spotify, Qobuz, Tidal, YouTube Music, Plex, Jellyfin, Emby, Navidrome</em>, and 30,000+ radio stations.</p>
+        <div class="hero-eyebrow"><span class="led"></span>~/audio/cliamp</div>
+        <div class="hero-lockup"><img class="hero-logo" src="logo.svg" alt=""><h1 class="hero-word">cli<span>amp</span></h1></div>
+        <p class="hero-sub"><em>Winamp</em> for the shell. No browser tab required.</p>
+        <p class="hero-desc">Use playlists, a 10-band EQ, visualizers, synced lyrics, remote control, and Lua plugins. Stream from <em>Spotify, Qobuz, Tidal, YouTube Music, Plex, Jellyfin, Emby, Navidrome, Lyrion</em>, and more than 30,000 radio stations.</p>
         <div class="hero-cta">
-          <a href="#install" class="btn btn-go">Install<span class="ar">→</span></a>
-          <a href="https://github.com/bjarneo/cliamp" class="btn btn-ghost">Source<span class="ar">↗</span></a>
+          <a href="#install" class="btn btn-go">Install</a>
+          <a href="https://github.com/bjarneo/cliamp" class="btn btn-ghost">View source</a>
         </div>
+        <div class="hero-facts" aria-label="Project details"><span><b>MIT</b> licensed</span><span><b>Go</b> 1.26</span><span><b>Linux / macOS / Windows</b></span></div>
       </div>
 
       <!-- CRT terminal — live radio player -->
@@ -552,11 +866,11 @@ footer{border-top:1px solid var(--line);background:var(--ink-2);padding:46px 0 5
           <div class="tty-body">
             <div class="t-row"><span class="t-title">C L I A M P</span><span class="t-focus">[Playlist]</span></div>
             <div class="t-row t-track-row"><span class="t-track-sym">♫</span><span class="t-track" id="t-track-name">Lofi Hip Hop Radio</span></div>
-            <div class="t-row t-time-row" onclick="toggleRadio()" role="button" tabindex="0" aria-label="Play / Stop" onkeydown="if(event.key===' '||event.key==='Enter'){event.preventDefault();toggleRadio()}">
+            <div class="t-row t-time-row" onclick="toggleRadio()" role="button" tabindex="0" aria-label="Play or stop" onkeydown="if(event.key===' '||event.key==='Enter'){event.preventDefault();toggleRadio()}">
               <span class="t-time">00:00 / 00:00</span>
               <span class="t-status">
                 <span class="t-status-stopped">■ Stopped <em>(click to play)</em></span>
-                <span class="t-status-loading">◌ Buffering…</span>
+                <span class="t-status-loading">◌ Buffering...</span>
                 <span class="t-status-playing">● Streaming</span>
               </span>
             </div>
@@ -619,14 +933,14 @@ footer{border-top:1px solid var(--line);background:var(--ink-2);padding:46px 0 5
             </div>
           </div>
         </div>
-        <p class="tune-hint">Click a station above to tune in live — right here in your browser.</p>
+        <p class="tune-hint">Select a station to play it live in this browser.</p>
         <div class="tty-hint"><code id="radio-hint-cmd"><span class="p">$ </span>cliamp https://radio.cliamp.stream/lofi/stream.pls</code></div>
       </div>
     </div>
 
     <!-- sponsor -->
     <div class="sponsor">
-      <a href="https://contextowl.co"><img src="https://contextowl.co/uploads/_brand/sponsor-dark.svg" alt="Proudly sponsored by contextowl.co" width="400"></a>
+      <a href="https://contextowl.co"><img src="https://contextowl.co/uploads/_brand/sponsor-dark.svg" alt="Sponsored by contextowl.co" width="400"></a>
     </div>
   </div>
 </section>
@@ -634,15 +948,65 @@ footer{border-top:1px solid var(--line);background:var(--ink-2);padding:46px 0 5
 <!-- ═══ TICKER ═══ -->
 <div class="ticker" aria-hidden="true">
   <div class="ticker-track" id="ticker">
-    <span>MP3 · FLAC · OGG · OPUS · WAV · AAC · ALAC · Spotify · Qobuz · Tidal · YouTube · Plex · Jellyfin · Emby · Navidrome · SoundCloud · NetEase · Bandcamp · Bilibili · RSS / Podcasts · 30k+ Radio Stations · ICY metadata · MPRIS · Lua plugins</span>
+    <span>MP3 · FLAC · OGG · OPUS · WAV · AAC · ALAC · Spotify · Qobuz · Tidal · YouTube · Plex · Jellyfin · Emby · Navidrome · Lyrion · SoundCloud · Mixcloud · NetEase · Bandcamp · Bilibili · RSS / Podcasts · 30k+ Radio Stations · ICY metadata · MPRIS · Lua plugins</span>
   </div>
 </div>
 
-<!-- ═══ 01 DEMO ═══ -->
-<section>
+<!-- ═══ 01 INSTALL ═══ -->
+<section id="install">
+  <div class="wrap">
+    <div class="strip rev reveal">
+      <span class="strip-idx">01</span><h2 class="strip-name">install<em>.sh</em></h2><span class="strip-rule"></span>
+      <span class="strip-meter"><i></i><i></i><i></i><i></i><i></i></span>
+    </div>
+    <div class="install-grid reveal">
+      <button class="install-box" type="button" onclick="copyCmd(this,'curl -fsSL https://raw.githubusercontent.com/bjarneo/cliamp/HEAD/install.sh | sh')">
+        <span class="install-platform">Direct</span>
+        <code><span class="prompt">$ </span>curl -fsSL …/install.sh | sh</code>
+        <span class="copied-msg">COPIED</span>
+      </button>
+      <button class="install-box" type="button" onclick="copyCmd(this,'brew install bjarneo/cliamp/cliamp')">
+        <span class="install-platform">Homebrew</span>
+        <code><span class="prompt">$ </span>brew install bjarneo/cliamp/cliamp</code>
+        <span class="copied-msg">COPIED</span>
+      </button>
+      <button class="install-box" type="button" onclick="copyCmd(this,'yay -S cliamp')">
+        <span class="install-platform">Arch (AUR)</span>
+        <code><span class="prompt">$ </span>yay -S cliamp</code>
+        <span class="copied-msg">COPIED</span>
+      </button>
+      <button class="install-box" type="button" onclick="copyCmd(this,'nix run github:bjarneo/cliamp')">
+        <span class="install-platform">Nix</span>
+        <code><span class="prompt">$ </span>nix run github:bjarneo/cliamp</code>
+        <span class="copied-msg">COPIED</span>
+      </button>
+      <button class="install-box" type="button" onclick="copyCmd(this,'go install github.com/bjarneo/cliamp@latest')">
+        <span class="install-platform">Go</span>
+        <code><span class="prompt">$ </span>go install github.com/bjarneo/cliamp@latest</code>
+        <span class="copied-msg">COPIED</span>
+      </button>
+    </div>
+    <div class="install-note reveal">
+      Build from source. <a href="https://github.com/bjarneo/cliamp">See the README.</a> Windows builds are in Releases. If <code>HOME</code> is not set, the config is in <code>%APPDATA%\cliamp</code>.
+    </div>
+    <div class="next-step reveal">
+      <div class="next-step-label">Next: configure providers</div>
+      <h3>Run setup</h3>
+      <p>Use the interactive TUI to configure Navidrome, Lyrion, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, Mixcloud, NetEase, and YouTube Music. The TUI opens each provider credential page and writes the required block to the config file. The TUI tests supported server connections during setup. Mixcloud browser-session or OAuth credentials are optional and are tested when you use them.</p>
+      <button class="install-box" type="button" onclick="copyCmd(this,'cliamp setup')">
+        <span class="install-platform">Setup</span>
+        <code><span class="prompt">$ </span>cliamp setup</code>
+        <span class="copied-msg">COPIED</span>
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 02 DEMO ═══ -->
+<section id="demo">
   <div class="wrap">
     <div class="strip reveal">
-      <span class="strip-idx">01</span><span class="strip-name">demo<em>.mp4</em></span><span class="strip-rule"></span>
+      <span class="strip-idx">02</span><h2 class="strip-name">demo<em>.mp4</em></h2><span class="strip-rule"></span>
       <span class="strip-meter"><i></i><i></i><i></i><i></i><i></i></span>
     </div>
     <div class="demo-frame reveal">
@@ -659,94 +1023,46 @@ footer{border-top:1px solid var(--line);background:var(--ink-2);padding:46px 0 5
   </div>
 </section>
 
-<!-- ═══ 02 INSTALL ═══ -->
-<section id="install">
-  <div class="wrap">
-    <div class="strip rev reveal">
-      <span class="strip-idx">02</span><span class="strip-name">install<em>.sh</em></span><span class="strip-rule"></span>
-      <span class="strip-meter"><i></i><i></i><i></i><i></i><i></i></span>
-    </div>
-    <div class="install-grid reveal">
-      <div class="install-box" onclick="copyCmd(this,'curl -fsSL https://raw.githubusercontent.com/bjarneo/cliamp/HEAD/install.sh | sh')">
-        <div class="install-platform">Direct</div>
-        <code><span class="prompt">$ </span>curl -fsSL …/install.sh | sh</code>
-        <span class="copied-msg">COPIED</span>
-      </div>
-      <div class="install-box" onclick="copyCmd(this,'brew install bjarneo/cliamp/cliamp')">
-        <div class="install-platform">Homebrew</div>
-        <code><span class="prompt">$ </span>brew install bjarneo/cliamp/cliamp</code>
-        <span class="copied-msg">COPIED</span>
-      </div>
-      <div class="install-box" onclick="copyCmd(this,'yay -S cliamp')">
-        <div class="install-platform">Arch (AUR)</div>
-        <code><span class="prompt">$ </span>yay -S cliamp</code>
-        <span class="copied-msg">COPIED</span>
-      </div>
-      <div class="install-box" onclick="copyCmd(this,'nix run github:bjarneo/cliamp')">
-        <div class="install-platform">Nix</div>
-        <code><span class="prompt">$ </span>nix run github:bjarneo/cliamp</code>
-        <span class="copied-msg">COPIED</span>
-      </div>
-      <div class="install-box" onclick="copyCmd(this,'go install github.com/bjarneo/cliamp@latest')">
-        <div class="install-platform">Go</div>
-        <code><span class="prompt">$ </span>go install github.com/bjarneo/cliamp@latest</code>
-        <span class="copied-msg">COPIED</span>
-      </div>
-    </div>
-    <div class="install-note reveal">
-      Or build from source — <a href="https://github.com/bjarneo/cliamp">see the README</a>. Windows builds are available from Releases; when <code>HOME</code> is unset, config lives under <code>%APPDATA%\cliamp</code>.
-    </div>
-    <div class="next-step reveal">
-      <div class="next-step-label">Next step · configure providers</div>
-      <h3>Run the setup wizard</h3>
-      <p>An interactive TUI walks you through Navidrome, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, NetEase, and YouTube Music. It links to each provider's credential page, validates the connection, and writes the right block to your config file.</p>
-      <div class="install-box" onclick="copyCmd(this,'cliamp setup')">
-        <div class="install-platform">Setup</div>
-        <code><span class="prompt">$ </span>cliamp setup</code>
-        <span class="copied-msg">COPIED</span>
-      </div>
-    </div>
-  </div>
-</section>
-
 <!-- ═══ 03 SOURCES ═══ -->
 <section id="sources">
   <div class="wrap">
     <div class="strip reveal">
-      <span class="strip-idx">03</span><span class="strip-name">sources</span><span class="strip-rule"></span>
+      <span class="strip-idx">03</span><h2 class="strip-name">sources</h2><span class="strip-rule"></span>
       <span class="strip-meter"><i></i><i></i><i></i><i></i><i></i></span>
     </div>
     <p class="sources-intro reveal">
-      Stream from everywhere. Every provider runs through the same <em>playlist, EQ, visualizer, and lyrics pipeline</em> — your config follows you across services. Run <code>cliamp setup</code> for an interactive wizard that walks you through Navidrome, Plex, Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz, Tidal, NetEase, and YouTube Music.
+      Use all providers with the same <em>playlist, EQ, visualizer, and lyrics pipeline</em>. Your config works across services. Run <code>cliamp setup</code> to configure Navidrome, Lyrion, Plex, Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz, Tidal, Mixcloud, NetEase, and YouTube Music.
     </p>
     <div class="sources-grid reveal">
-      <div class="source" style="--src-color:#1db954"><div class="source-badge">OAuth · cached</div><div class="source-name">Spotify</div><div class="source-desc">Stream your Premium library. Bring your own developer <code>client_id</code> for a private Web API quota; playback is authorized separately. Search with <kbd>Ctrl+F</kbd>; Development Mode paging is automatic. Pre-built Windows releases include Spotify support.</div></div>
-      <div class="source" style="--src-color:#c3c9d4"><div class="source-badge">OAuth · lossless</div><div class="source-name">Qobuz</div><div class="source-desc">Opt-in: set <code>[qobuz] enabled = true</code>. Stream lossless FLAC up to 24-bit/192kHz from your subscription. Browse favorites &amp; playlists, search with <kbd>Ctrl+F</kbd>. Sign in once via OAuth in your browser.</div></div>
-      <div class="source" style="--src-color:#33ffee"><div class="source-badge">OAuth · lossless</div><div class="source-name">Tidal</div><div class="source-desc">Opt-in: set <code>[tidal] enabled = true</code>. Stream lossless FLAC (CD quality) from your subscription. Browse favorites &amp; playlists, search with <kbd>Ctrl+F</kbd>. Sign in once by approving a <code>link.tidal.com</code> device code.</div></div>
-      <div class="source" style="--src-color:#ff0000"><div class="source-badge">yt-dlp</div><div class="source-name">YouTube</div><div class="source-desc">Search videos with <kbd>Ctrl+F</kbd>, then play, append, or queue from a results list.</div></div>
-      <div class="source" style="--src-color:#ff4444"><div class="source-badge">Cookies · OAuth</div><div class="source-name">YT Music</div><div class="source-desc">Browse your playlists and Liked Music directly via browser cookies (zero OAuth setup) or custom Google Cloud credentials. Set <code>cookies_from</code> in your config.</div></div>
-      <div class="source" style="--src-color:#e5a00d"><div class="source-badge">Media server</div><div class="source-name">Plex</div><div class="source-desc">Browse albums and stream from your Plex Media Server.</div></div>
-      <div class="source" style="--src-color:#00a4dc"><div class="source-badge">Media server</div><div class="source-name">Jellyfin</div><div class="source-desc">Artists, albums, tracks — buffered gapless playback.</div></div>
-      <div class="source" style="--src-color:#52b54b"><div class="source-badge">Media server</div><div class="source-name">Emby</div><div class="source-desc">Browse your Emby music library with API key or username/password auth.</div></div>
-      <div class="source" style="--src-color:#2ecc71"><div class="source-badge">Subsonic API</div><div class="source-name">Navidrome</div><div class="source-desc">Browse your self-hosted library with synced lyrics.</div></div>
-      <div class="source" style="--src-color:#3c873a"><div class="source-badge">Media server</div><div class="source-name">Audiobookshelf</div><div class="source-desc">Audiobooks and podcasts from your own server, with synced listening position and resume.</div></div>
-      <div class="source" style="--src-color:#ff7700"><div class="source-badge">Provider · yt-dlp</div><div class="source-name">SoundCloud</div><div class="source-desc">Opt-in: set <code>[soundcloud] enabled = true</code>. Search with <kbd>Ctrl+F</kbd>, browse curated genre playlists, or add <code>user</code> for your profile. <code>cookies_from</code> unlocks Go+ tracks via your browser session.</div></div>
-      <div class="source" style="--src-color:#d33a31"><div class="source-badge">Provider · yt-dlp</div><div class="source-name">NetEase</div><div class="source-desc">Opt-in: run <code>cliamp setup</code> after signing in at <code>music.163.com</code>, then choose your browser. Browse liked songs, account playlists, saved playlists, and charts with browser-cookie playback.</div></div>
-      <div class="source" style="--src-color:#629aa9"><div class="source-badge">yt-dlp</div><div class="source-name">Bandcamp</div><div class="source-desc">Paste any Bandcamp URL and it just plays.</div></div>
-      <div class="source" style="--src-color:#00a1d6"><div class="source-badge">yt-dlp</div><div class="source-name">Bilibili</div><div class="source-desc">Audio tracks from Bilibili videos via yt-dlp.</div></div>
-      <div class="source" style="--src-color:#f7a000"><div class="source-badge">30k+ stations</div><div class="source-name">Radio</div><div class="source-desc">Browse stations by country, tag, or name. ICY metadata.</div></div>
-      <div class="source" style="--src-color:#c3a6ff"><div class="source-badge">RSS feeds</div><div class="source-name">Podcasts</div><div class="source-desc">Pass any podcast RSS URL and listen in your terminal.</div></div>
-      <div class="source" style="--src-color:#37f5a0"><div class="source-badge">Local</div><div class="source-name">Files</div><div class="source-desc">MP3, FLAC, OGG, Opus, WAV, AAC, ALAC, WMA. ID3 tags read.</div></div>
+      <div class="source" style="--src-color:#1db954"><div class="source-badge">OAuth · cached</div><div class="source-name">Spotify</div><div class="source-desc">Stream your Premium library. Set your developer <code>client_id</code> to use a private Web API quota. Authorize playback separately. Search with <kbd>Ctrl+F</kbd>. The app handles Development Mode paging. Pre-built Windows releases support Spotify.</div></div>
+      <div class="source" style="--src-color:#c3c9d4"><div class="source-badge">OAuth · lossless</div><div class="source-name">Qobuz</div><div class="source-desc">Enable Qobuz: set <code>[qobuz] enabled = true</code>. Stream lossless FLAC from your subscription, up to 24-bit/192kHz. Browse favorites and playlists. Search with <kbd>Ctrl+F</kbd>. Sign in once with OAuth in your browser.</div></div>
+      <div class="source" style="--src-color:#33ffee"><div class="source-badge">OAuth · lossless</div><div class="source-name">Tidal</div><div class="source-desc">Enable Tidal: set <code>[tidal] enabled = true</code>. Stream lossless FLAC at CD quality from your subscription. Browse favorites and playlists. Search tracks and albums with <kbd>Ctrl+F</kbd>. Album results appear first and expand to the full track list. Sign in once by approving a <code>link.tidal.com</code> device code.</div></div>
+      <div class="source" style="--src-color:#ff0000"><div class="source-badge">yt-dlp</div><div class="source-name">YouTube</div><div class="source-desc">Search videos with <kbd>Ctrl+F</kbd>. Then play, append, or queue a result.</div></div>
+      <div class="source" style="--src-color:#ff4444"><div class="source-badge">Cookies · OAuth</div><div class="source-name">YT Music</div><div class="source-desc">Browse playlists and Liked Music with browser cookies. Browser cookies need no OAuth setup. You can use custom Google Cloud credentials instead. Set <code>cookies_from</code> in your config.</div></div>
+      <div class="source" style="--src-color:#e5a00d"><div class="source-badge">Media server</div><div class="source-name">Plex</div><div class="source-desc">Browse albums. Stream from your Plex Media Server.</div></div>
+      <div class="source" style="--src-color:#00a4dc"><div class="source-badge">Media server</div><div class="source-name">Jellyfin</div><div class="source-desc">Browse artists, albums, and tracks. Use buffered gapless playback.</div></div>
+      <div class="source" style="--src-color:#52b54b"><div class="source-badge">Media server</div><div class="source-name">Emby</div><div class="source-desc">Browse your Emby music library. Use an API key or username and password.</div></div>
+      <div class="source" style="--src-color:#2ecc71"><div class="source-badge">Subsonic API</div><div class="source-name">Navidrome</div><div class="source-desc">Browse your self-hosted library. View synced lyrics.</div></div>
+      <div class="source" style="--src-color:#8e6bb5"><div class="source-badge">Media server</div><div class="source-name">Lyrion</div><div class="source-desc">Browse a Lyrion Music Server (LMS) library: playlists, artists, albums, and search.</div></div>
+      <div class="source" style="--src-color:#3c873a"><div class="source-badge">Media server</div><div class="source-name">Audiobookshelf</div><div class="source-desc">Listen to audiobooks and podcasts from your server. Sync listening position and resume.</div></div>
+      <div class="source" style="--src-color:#ff7700"><div class="source-badge">Provider · yt-dlp</div><div class="source-name">SoundCloud</div><div class="source-desc">Enable SoundCloud: set <code>[soundcloud] enabled = true</code>. Search with <kbd>Ctrl+F</kbd>, browse curated genre playlists, or add <code>user</code> for your profile. <code>cookies_from</code> lets you play Go+ tracks from your browser session.</div></div>
+      <div class="source" style="--src-color:#5000ff"><div class="source-badge">Public API · yt-dlp</div><div class="source-name">Mixcloud</div><div class="source-desc">Enable Mixcloud: set <code>[mixcloud] enabled = true</code>. Browse account Stream and Favorites, followed Creators, recent and popular shows, collections, and creator Uploads and Favorites. Search shows and discover live genres and tags. View locally favorited style charts, restricted-show warnings, and resume. Press <kbd>Shift+X</kbd> to open. Browser cookies support signed-in playback.</div></div>
+      <div class="source" style="--src-color:#d33a31"><div class="source-badge">Provider · yt-dlp</div><div class="source-name">NetEase</div><div class="source-desc">Run <code>cliamp setup</code> after you sign in at <code>music.163.com</code>. Then select your browser. Browse liked songs, account playlists, saved playlists, and charts. Use browser cookies for playback.</div></div>
+      <div class="source" style="--src-color:#629aa9"><div class="source-badge">yt-dlp</div><div class="source-name">Bandcamp</div><div class="source-desc">Paste a Bandcamp URL to play it.</div></div>
+      <div class="source" style="--src-color:#00a1d6"><div class="source-badge">yt-dlp</div><div class="source-name">Bilibili</div><div class="source-desc">Play audio from Bilibili videos with yt-dlp.</div></div>
+      <div class="source" style="--src-color:#f7a000"><div class="source-badge">30k+ stations</div><div class="source-name">Radio</div><div class="source-desc">Browse stations by country, tag, or name. View ICY metadata.</div></div>
+      <div class="source" style="--src-color:#c3a6ff"><div class="source-badge">RSS feeds</div><div class="source-name">Podcasts</div><div class="source-desc">Give a podcast RSS URL to listen in the terminal.</div></div>
+      <div class="source" style="--src-color:#37f5a0"><div class="source-badge">Local</div><div class="source-name">Files</div><div class="source-desc">Play MP3, FLAC, OGG, Opus, WAV, AAC, ALAC, and WMA files. The app reads ID3 tags.</div></div>
     </div>
     <div class="source-config reveal">
       <div class="next-step-label">NetEase Cloud Music</div>
-      <h3>Browser-session setup</h3>
-      <p>Sign in at <code>music.163.com</code>, then run <code>cliamp setup</code>. Choose NetEase Cloud Music, pick the browser you used, and the wizard validates the session before writing config.</p>
+      <h3>Browser session setup</h3>
+      <p>Sign in at <code>music.163.com</code>. Then run <code>cliamp setup</code>. Select NetEase Cloud Music and the browser you used. The wizard checks the session before it writes the config.</p>
       <pre><code>[netease]
 enabled = true
 cookies_from = "chrome"
 user_id = "your-account-user-id"</code></pre>
-      <p>After setup, press <kbd>M</kbd> to open NetEase and <kbd>Ctrl+F</kbd> to search. Playback uses <code>yt-dlp</code> with the same browser cookie source.</p>
+      <p>After setup, press <kbd>M</kbd> to open NetEase and <kbd>Ctrl+F</kbd> to search. Playback uses <code>yt-dlp</code> and the same browser cookie source.</p>
     </div>
   </div>
 </section>
@@ -755,42 +1071,41 @@ user_id = "your-account-user-id"</code></pre>
 <section id="features">
   <div class="wrap">
     <div class="strip rev reveal">
-      <span class="strip-idx">04</span><span class="strip-name">features</span><span class="strip-rule"></span>
+      <span class="strip-idx">04</span><h2 class="strip-name">features</h2><span class="strip-rule"></span>
       <span class="strip-meter"><i></i><i></i><i></i><i></i><i></i></span>
     </div>
     <div class="features-grid reveal">
-      <div class="feature"><div class="feature-icon">≡</div><div class="feature-name">10-Band Equalizer</div><p>Parametric EQ presets plus a persistent Custom curve that survives preset changes and restarts.</p></div>
-      <div class="feature"><div class="feature-icon">◈</div><div class="feature-name">Themes &amp; Visualizers</div><p>21 contrast-checked built-in themes and spectrum, mirrored spectrum, waveform, particle, and true-stereo modes. Wave, Scope, and Heartbeat render at 60 FPS; use <code>--visualizer-60fps</code> for smoother animation elsewhere. Stereo provides dedicated L/R horizontal LED peak meters. Hot-swap with <kbd>t</kbd> / <kbd>v</kbd>.</p></div>
-      <div class="feature"><div class="feature-icon">☰</div><div class="feature-name">Playlists</div><p>TOML playlists with dynamic directory sources (<code>--dir</code>), M3U/M3U8/PLS import/export, duplicate-safe writes, and TUI/CLI sort tools.</p></div>
-      <div class="feature"><div class="feature-icon">⟲</div><div class="feature-name">Recently Played</div><p>Auto-recorded listening history. Browse it as a virtual playlist or run <code>cliamp history</code> from the shell.</p></div>
-      <div class="feature"><div class="feature-icon">→</div><div class="feature-name">HTTP Streaming</div><p>Play from URLs, internet radio, remote M3U playlists, and HLS (<code>.m3u8</code>) streams, with decoded-audio jitter buffering for live radio.</p></div>
-      <div class="feature"><div class="feature-icon">♪</div><div class="feature-name">Synced Lyrics</div><p>Embedded local lyrics first, then Spotify for signed-in Spotify tracks, with LRCLIB/NetEase fallback. Auto-scrolling for timestamped lyrics, with a `[` `]` keybinding to fine-tune timing if a source is slightly off.</p></div>
-      <div class="feature"><div class="feature-icon">⇄</div><div class="feature-name">Gapless Playback</div><p>Seamless transitions with preloaded next-track buffering.</p></div>
-      <div class="feature"><div class="feature-icon">♬</div><div class="feature-name">MPRIS / Media Keys</div><p>Desktop integration. Hardware media keys, <code>playerctl</code>, and embedded local cover art.</p></div>
-      <div class="feature"><div class="feature-icon">▮</div><div class="feature-name">Quickshell Widget (Omarchy)</div><p>Drop-in <a href="https://quickshell.org">Quickshell</a> now-playing card with a Winamp 2-style spectrum, tracking your active Omarchy theme. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/quickshell.md">Setup</a>.</p></div>
-      <div class="feature"><div class="feature-icon">⚙</div><div class="feature-name">Audio Quality</div><p>Configurable sample rate (22kHz-192kHz), up to 5 seconds of buffering, and resampling.</p></div>
-      <div class="feature"><div class="feature-icon">⌀</div><div class="feature-name">Live Radio Metadata</div><p>ICY/Shoutcast metadata for the current song on internet radio, plus API-based now-playing for FIP and NTS.</p></div>
-      <div class="feature"><div class="feature-icon">✎</div><div class="feature-name">Embedded Tag Reading</div><p>ID3v2, Vorbis comments, MP4 atoms - artist, album, genre, year, lyrics, cover art.</p></div>
-      <div class="feature"><div class="feature-icon">▶</div><div class="feature-name">CLI Flags</div><p>Override volume, shuffle, repeat, theme, EQ, sample rate per-session.</p></div>
+      <div class="feature"><div class="feature-icon">≡</div><div class="feature-name">10-Band Equalizer</div><p>Use parametric EQ presets. The persistent Custom curve remains after preset changes and restarts.</p></div>
+      <div class="feature"><div class="feature-icon">◈</div><div class="feature-name">Themes &amp; Visualizers</div><p>Use 21 built-in themes with contrast checks. Select spectrum, mirrored spectrum, waveform, particle, and true-stereo modes. Wave, Scope, and Heartbeat run at 60 FPS. Use <code>--visualizer-60fps</code> for smoother animation in other modes. Stereo has separate L/R horizontal LED peak meters. Press <kbd>t</kbd> / <kbd>v</kbd> to change them.</p></div>
+      <div class="feature"><div class="feature-icon">☰</div><div class="feature-name">Playlists</div><p>Use TOML playlists and dynamic <code>[[dir]]</code> directory sources. In the playlist manager (<code>D</code>), add, remove, and turn recursive search on or off. Create, rename, delete, and fill playlists with folders or files in the manager (<code>a</code>/<code>r</code>/<code>d</code>). Use cross-playlist favorites (<code>n</code>). Import and export M3U/M3U8/PLS files. The app prevents duplicate writes and sorts in the TUI or CLI.</p></div>
+      <div class="feature"><div class="feature-icon">⟲</div><div class="feature-name">Recently Played</div><p>The app records listening history automatically. Browse it as a virtual playlist or run <code>cliamp history</code>.</p></div>
+      <div class="feature"><div class="feature-icon">→</div><div class="feature-name">HTTP Streaming</div><p>Play URLs, internet radio, remote M3U playlists, and HLS (<code>.m3u8</code>) streams. The app uses decoded-audio jitter buffering for live radio.</p></div>
+      <div class="feature"><div class="feature-icon">♪</div><div class="feature-name">Synced Lyrics</div><p>Use embedded local lyrics first, then Spotify for signed-in Spotify tracks, with LRCLIB/NetEase fallback. It auto-scrolls timestamped lyrics; fine-tune timing with `[`/`]` if a source is slightly off.</p></div>
+      <div class="feature"><div class="feature-icon">⇄</div><div class="feature-name">Gapless Playback</div><p>The app preloads the next track for seamless transitions.</p></div>
+      <div class="feature"><div class="feature-icon">♬</div><div class="feature-name">MPRIS / Media Keys</div><p>The app integrates with the desktop. Use hardware media keys and <code>playerctl</code>. The app shows embedded local cover art.</p></div>
+      <div class="feature"><div class="feature-icon">⚙</div><div class="feature-name">Audio Quality</div><p>Set the sample rate and buffering time (up to 5 seconds). Use resampling.</p></div>
+      <div class="feature"><div class="feature-icon">⌀</div><div class="feature-name">Live Radio Metadata</div><p>View ICY/Shoutcast metadata for the current internet-radio song. Get API-based now-playing data for FIP and NTS.</p></div>
+      <div class="feature"><div class="feature-icon">✎</div><div class="feature-name">Embedded Tag Reading</div><p>Read ID3v2, Vorbis comments, and MP4 atoms: artist, album, genre, year, lyrics, and cover art.</p></div>
+      <div class="feature"><div class="feature-icon">▶</div><div class="feature-name">CLI Flags</div><p>Use flags to override volume, shuffle, repeat, theme, EQ, and sample rate for a session.</p></div>
       <div class="feature"><div class="feature-icon">⇥</div><div class="feature-name">Shell Completion</div><p>Generate completion scripts for Bash, Zsh, Fish, and PowerShell.</p></div>
-      <div class="feature"><div class="feature-icon">≡</div><div class="feature-name">Diagnostic Logging</div><p>File logs at <span class="path">~/.config/cliamp/cliamp.log</span>. Set <code>log_level</code> in config or <code>--log-level</code> on the CLI: <code>debug</code>, <code>info</code>, <code>warn</code>, <code>error</code>.</p></div>
-      <div class="feature"><div class="feature-icon">↑</div><div class="feature-name">Self-Update</div><p>Run <code>cliamp upgrade</code> for stable releases, or <code>cliamp upgrade --prerelease</code> to test betas.</p></div>
-      <div class="feature"><div class="feature-icon">$</div><div class="feature-name">Env-Interpolated Secrets</div><p>Reference any string in <code>config.toml</code> from the environment with <code>${VAR}</code> or <code>$VAR</code>. Keep passwords and tokens out of the file.</p></div>
-      <div class="feature"><div class="feature-icon">⌁</div><div class="feature-name">Remote Control</div><p>Control a running instance or build a GUI with V2-only local-socket IPC. It provides complete state snapshots, jobs, live playlist and provider controls, and push NDJSON events. Run with <code>--daemon</code> for headless playback driven by scripts or a desktop widget. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/upgrading-ipc-v2.md">Upgrade guide</a>.</p></div>
-      <div class="feature"><div class="feature-icon">⎔</div><div class="feature-name">Lua Plugins</div><p>Lua 5.1 sandboxed plugin system. Hook events, add visualizers, push data. Publish namespaced events with <code>p:publish()</code>; retained events replay to new subscribers, so local companion apps get current state the moment they connect. Values convert to JSON up to 64 levels deep, and cyclic references become <code>null</code>.</p></div>
+      <div class="feature"><div class="feature-icon">≡</div><div class="feature-name">Diagnostic Logging</div><p>Write logs to <span class="path">~/.config/cliamp/cliamp.log</span>. Set <code>log_level</code> in the config or <code>--log-level</code> on the CLI: <code>debug</code>, <code>info</code>, <code>warn</code>, <code>error</code>.</p></div>
+      <div class="feature"><div class="feature-icon">↑</div><div class="feature-name">Self-Update</div><p>Run <code>cliamp upgrade</code> for stable releases. Run <code>cliamp upgrade --prerelease</code> to test beta releases.</p></div>
+      <div class="feature"><div class="feature-icon">$</div><div class="feature-name">Env-Interpolated Secrets</div><p>Read any string in <code>config.toml</code> from the environment with <code>${VAR}</code> or <code>$VAR</code>. Keep passwords and tokens out of the file.</p></div>
+      <div class="feature"><div class="feature-icon">⌁</div><div class="feature-name">Remote Control</div><p>Control a running instance or build a GUI with V2-only local-socket IPC. It provides complete state snapshots, jobs, live playlist and provider controls, and push NDJSON events. Run with <code>--daemon</code> for headless playback from scripts or a desktop widget. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/upgrading-ipc-v2.md">Upgrade guide</a>.</p></div>
+      <div class="feature"><div class="feature-icon">⎔</div><div class="feature-name">Lua Plugins</div><p>Use sandboxed Lua 5.1 plugins. Handle events, add visualizers, and send data. Publish namespaced events with <code>p:publish()</code>. Retained events go to new subscribers, so local companion apps get the current state when they connect. Values convert to JSON up to 64 levels deep. Cyclic references become <code>null</code>.</p></div>
       <div class="feature"><div class="feature-icon">▣</div><div class="feature-name">Save to Disk</div><p>Press <kbd>Ctrl+S</kbd> to save the current track to <code>~/Music</code>.</p></div>
-      <div class="feature"><div class="feature-icon">↔</div><div class="feature-name">Responsive TUI</div><p>Full, compact, minimal, and simplified layouts keep playback usable in terminal splits and small SSH sessions. Simplified mode shows artist/title and a time and seek-progress strip, without a visualizer or playlist.</p></div>
-      <div class="feature"><div class="feature-icon">⟲</div><div class="feature-name">Undo Queue Edits</div><p>Restore the last playlist removal or queue clear with <kbd>Ctrl+Z</kbd>.</p></div>
-      <div class="feature"><div class="feature-icon">⌨</div><div class="feature-name">Consistent Keyboard Input</div><p>Search, URLs, playlist names, and jump prompts support cursor movement, paste, word deletion, and clear-line editing.</p></div>
+      <div class="feature"><div class="feature-icon">↔</div><div class="feature-name">Responsive TUI</div><p>Use full, compact, minimal, and simplified layouts in terminal splits and small SSH sessions. Simplified mode shows artist and title, plus a time and seek-progress strip. It has no visualizer or playlist.</p></div>
+      <div class="feature"><div class="feature-icon">⟲</div><div class="feature-name">Undo Queue Edits</div><p>Press <kbd>Ctrl+Z</kbd> to restore the last playlist removal or queue clear.</p></div>
+      <div class="feature"><div class="feature-icon">⌨</div><div class="feature-name">Consistent Keyboard Input</div><p>Use cursor movement, paste, word deletion, and clear-line editing in search, URL, playlist-name, and jump prompts.</p></div>
     </div>
   </div>
 </section>
 
 <!-- ═══ 05 COMMUNITY PLUGINS ═══ -->
-<section>
+<section id="plugins">
   <div class="wrap">
     <div class="strip reveal">
-      <span class="strip-idx">05</span><span class="strip-name">community<em>-plugins</em></span><span class="strip-rule"></span>
+      <span class="strip-idx">05</span><h2 class="strip-name">community<em>-plugins</em></h2><span class="strip-rule"></span>
       <span class="strip-meter"><i></i><i></i><i></i><i></i><i></i></span>
     </div>
     <div class="community-plugins reveal">
@@ -799,9 +1114,9 @@ user_id = "your-account-user-id"</code></pre>
       <div class="community-plugin"><span class="community-plugin-jack"></span><div class="community-plugin-meta"><div class="community-plugin-name"><a href="https://github.com/HANCORE-linux/cliamp-plugin-nightrider">cliamp-plugin-nightrider</a></div><div class="community-plugin-desc">Nightrider visualizer</div></div><span class="community-plugin-author"><a href="https://github.com/HANCORE-linux">@HANCORE-linux</a></span></div>
       <div class="community-plugin"><span class="community-plugin-jack"></span><div class="community-plugin-meta"><div class="community-plugin-name"><a href="https://github.com/8bit64k/cliamp-plugin-tubeamp">cliamp-plugin-tubeamp</a></div><div class="community-plugin-desc">Vacuum-tube amplifier visualizer</div></div><span class="community-plugin-author"><a href="https://github.com/8bit64k">@8bit64k</a></span></div>
       <div class="community-plugin"><span class="community-plugin-jack"></span><div class="community-plugin-meta"><div class="community-plugin-name"><a href="https://github.com/8bit64k/cliamp-plugin-nova">cliamp-plugin-nova</a></div><div class="community-plugin-desc">Concentric-ring spectrum visualizer</div></div><span class="community-plugin-author"><a href="https://github.com/8bit64k">@8bit64k</a></span></div>
-      <div class="community-plugin"><span class="community-plugin-jack"></span><div class="community-plugin-meta"><div class="community-plugin-name"><a href="https://github.com/sollymay/cliamp-plugin-gpodder-sync">cliamp-plugin-gpodder-sync</a></div><div class="community-plugin-desc">gpodder.net subscription, progress and download sync</div></div><span class="community-plugin-author"><a href="https://github.com/sollymay">@sollymay</a></span></div>
+      <div class="community-plugin"><span class="community-plugin-jack"></span><div class="community-plugin-meta"><div class="community-plugin-name"><a href="https://github.com/sollymay/cliamp-plugin-gpodder-sync">cliamp-plugin-gpodder-sync</a></div><div class="community-plugin-desc">gpodder.net subscription, progress, and download sync</div></div><span class="community-plugin-author"><a href="https://github.com/sollymay">@sollymay</a></span></div>
       <div class="community-plugin"><span class="community-plugin-jack"></span><div class="community-plugin-meta"><div class="community-plugin-name"><a href="https://github.com/fazaimron27/cliamp-plugin-discord-rpc">cliamp-plugin-discord-rpc</a></div><div class="community-plugin-desc">Discord Rich Presence</div></div><span class="community-plugin-author"><a href="https://github.com/fazaimron27">@fazaimron27</a></span></div>
-      <div class="community-plugin"><span class="community-plugin-jack"></span><div class="community-plugin-meta"><div class="community-plugin-name"><a href="https://github.com/coryshaw1/herdr-cliamp">herdr-cliamp</a></div><div class="community-plugin-desc">Floating cliamp for the herdr multiplexer that keeps playing when hidden, with now-playing and transport keybinds</div></div><span class="community-plugin-author"><a href="https://github.com/coryshaw1">@coryshaw1</a></span></div>
+      <div class="community-plugin"><span class="community-plugin-jack"></span><div class="community-plugin-meta"><div class="community-plugin-name"><a href="https://github.com/coryshaw1/herdr-cliamp">herdr-cliamp</a></div><div class="community-plugin-desc">Floating cliamp for the herdr multiplexer. It keeps playing when hidden and has now-playing and transport key bindings.</div></div><span class="community-plugin-author"><a href="https://github.com/coryshaw1">@coryshaw1</a></span></div>
     </div>
   </div>
 </section>
@@ -810,7 +1125,7 @@ user_id = "your-account-user-id"</code></pre>
 <section id="radio">
   <div class="wrap">
     <div class="strip rev reveal">
-      <span class="strip-idx">06</span><span class="strip-name">radio<em>.stats</em></span><span class="strip-rule"></span>
+      <span class="strip-idx">06</span><h2 class="strip-name">radio<em>.stats</em></h2><span class="strip-rule"></span>
       <span class="strip-meter"><i></i><i></i><i></i><i></i><i></i></span>
     </div>
     <div class="radio-header reveal">
@@ -836,7 +1151,7 @@ user_id = "your-account-user-id"</code></pre>
         <div class="radio-stat-value"><span class="radio-stat-dot"></span><span id="radio-now">-</span></div>
         <div class="radio-stat-label">listening now</div>
       </div>
-      <div class="radio-stat radio-stat-peak" title="Highest number of listeners online at once">
+      <div class="radio-stat radio-stat-peak" title="Highest number of listeners online at one time">
         <div class="radio-stat-value" id="radio-peak">-</div>
         <div class="radio-stat-label">all-time high</div>
       </div>
@@ -846,18 +1161,21 @@ user_id = "your-account-user-id"</code></pre>
       </div>
       <div class="radio-stat">
         <div class="radio-stat-value" id="radio-hours">-</div>
-        <div class="radio-stat-label">listen hours</div>
+        <div class="radio-stat-label">listening hours</div>
       </div>
     </div>
     <div class="radio-card reveal">
-      <div class="radio-card-title">Daily Activity</div>
+      <div class="radio-card-title">Daily activity</div>
       <div class="radio-chart" id="radio-chart"></div>
       <div class="radio-chart-labels" id="radio-chart-labels"></div>
     </div>
     <div class="radio-card reveal">
-      <div class="radio-card-title">Listeners Around the World</div>
+      <div class="radio-card-title">Listeners by country</div>
       <div class="radio-globe-wrap">
-        <canvas class="radio-globe-canvas" id="radio-globe"></canvas>
+        <button class="radio-globe-button" type="button" onclick="openGlobe()" aria-haspopup="dialog" aria-controls="globe-dialog" aria-label="Open detailed listener globe">
+          <canvas class="radio-globe-canvas" id="radio-globe" aria-hidden="true"></canvas>
+          <span class="radio-globe-open-label">Open map</span>
+        </button>
         <div class="radio-countries" id="radio-countries"></div>
       </div>
     </div>
@@ -865,18 +1183,43 @@ user_id = "your-account-user-id"</code></pre>
       <div class="radio-card-title">Top Countries</div>
       <div class="radio-countries" id="radio-total-countries"></div>
     </div>
-    <div class="install-box" id="radio-cmd-box" onclick="copyCmd(this,'cliamp https://radio.cliamp.stream/lofi/stream.pls')" style="display:none">
+    <button class="install-box" type="button" id="radio-cmd-box" onclick="copyCmd(this,'cliamp https://radio.cliamp.stream/lofi/stream.pls')" style="display:none">
       <span class="copied-msg">COPIED</span>
-      <div class="install-platform">Tune in</div>
+      <span class="install-platform">Tune in</span>
       <code><span class="prompt">$ </span><span id="radio-cmd-text">cliamp https://radio.cliamp.stream/lofi/stream.pls</span></code>
-    </div>
+    </button>
   </div>
 </section>
+
+<dialog class="globe-dialog" id="globe-dialog" aria-labelledby="globe-dialog-title">
+  <div class="globe-dialog-head">
+    <span class="globe-dialog-title" id="globe-dialog-title">Listeners by country</span>
+    <span class="globe-dialog-status">live radio telemetry</span>
+    <button class="globe-dialog-close" type="button" onclick="closeGlobe()">Close [Esc]</button>
+  </div>
+  <div class="globe-dialog-body">
+    <div class="globe-dialog-map">
+      <button class="globe-spin-toggle" id="globe-spin-toggle" type="button" onclick="toggleGlobeSpin()">Auto-spin: on</button>
+      <canvas class="globe-dialog-canvas" id="radio-globe-full" tabindex="0" aria-label="Interactive globe of current radio listeners. Drag or use the arrow keys to rotate it."></canvas>
+    </div>
+    <aside class="globe-dialog-side" aria-label="Country listener details">
+      <div class="globe-detail" aria-live="polite">
+        <span class="globe-detail-label">Selected</span>
+        <strong class="globe-detail-country" id="globe-detail-country">No active listeners</strong>
+        <strong class="globe-detail-count" id="globe-detail-count">0</strong>
+        <span class="globe-detail-unit">listeners now</span>
+      </div>
+      <div class="globe-rank-list" id="globe-rank-list"></div>
+    </aside>
+  </div>
+</dialog>
+
+</main>
 
 <!-- ═══ FOOTER ═══ -->
 <footer>
   <div class="footer-inner">
-    <div class="footer-brand">CLIAMP · built for the terminal</div>
+    <div class="footer-brand">CLIAMP - terminal music player</div>
     <div class="footer-ascii">░▒▓█▓▒░ ░▒▓█▓▒░ ░▒▓█▓▒░</div>
     <div class="footer-links">
       <a href="https://whiterose.org.contextowl.co/docs/cliamp" class="footer-link">
@@ -1050,6 +1393,96 @@ function formatDate(iso){
   return months[parseInt(parts[1],10)-1]+" "+parseInt(parts[2],10);
 }
 
+function renderCountryList(el,countries,limit){
+  el.textContent="";
+  countries.slice(0,limit).forEach(function(c){
+    var flag=countryFlags[c.country_code]||"🌐";
+    var div=document.createElement("div");
+    div.className="radio-country";
+    var flagSpan=document.createElement("span");
+    flagSpan.className="radio-country-flag";
+    flagSpan.textContent=flag;
+    var nameSpan=document.createElement("span");
+    nameSpan.className="radio-country-name";
+    nameSpan.textContent=c.country;
+    var sessSpan=document.createElement("span");
+    sessSpan.className="radio-country-sessions";
+    sessSpan.textContent=c.sessions;
+    div.appendChild(flagSpan);
+    div.appendChild(nameSpan);
+    div.appendChild(sessSpan);
+    el.appendChild(div);
+  });
+  if(countries.length>limit){
+    var more=document.createElement("div");
+    more.className="radio-country radio-country-more";
+    more.textContent="+ "+(countries.length-limit)+" more countries";
+    el.appendChild(more);
+  }
+}
+
+function updateGlobeDetail(country){
+  var name=document.getElementById("globe-detail-country");
+  var count=document.getElementById("globe-detail-count");
+  if(!country){
+    name.textContent="No active listeners";
+    count.textContent="0";
+    return;
+  }
+  name.textContent=country.country;
+  count.textContent=country.sessions.toLocaleString();
+  document.querySelectorAll(".globe-rank-item").forEach(function(item){
+    item.classList.toggle("active",item.dataset.country===country.country_code);
+  });
+}
+
+function renderGlobeRankList(countries){
+  var list=document.getElementById("globe-rank-list");
+  list.textContent="";
+  countries.forEach(function(country,index){
+    var button=document.createElement("button");
+    button.type="button";
+    button.className="globe-rank-item";
+    button.dataset.country=country.country_code;
+    button.innerHTML='<span class="globe-rank-num">'+String(index+1).padStart(2,"0")+'</span><span>'+(countryFlags[country.country_code]||"🌐")+'</span><span class="globe-rank-name"></span><strong class="globe-rank-count"></strong>';
+    button.querySelector(".globe-rank-name").textContent=country.country;
+    button.querySelector(".globe-rank-count").textContent=country.sessions.toLocaleString();
+    button.addEventListener("click",function(){
+      updateGlobeDetail(country);
+      var canvas=document.getElementById("radio-globe-full");
+      if(canvas._selectCountry)canvas._selectCountry(country);
+    });
+    list.appendChild(button);
+  });
+  updateGlobeDetail(countries[0]||null);
+}
+
+function setGlobeSpinButton(spinning){
+  var button=document.getElementById("globe-spin-toggle");
+  button.textContent=spinning?"Auto-spin: on":"Resume auto-spin";
+  button.classList.toggle("paused",!spinning);
+}
+
+function toggleGlobeSpin(){
+  var canvas=document.getElementById("radio-globe-full");
+  if(canvas._toggleAutoSpin)canvas._toggleAutoSpin();
+}
+
+function openGlobe(){
+  var dialog=document.getElementById("globe-dialog");
+  var countries=window._radioCountries||[];
+  renderGlobeRankList(countries);
+  document.body.classList.add("globe-open");
+  dialog.showModal();
+  requestAnimationFrame(function(){
+    initGlobe(countries,document.getElementById("radio-globe-full"),true);
+  });
+}
+
+function closeGlobe(){
+  document.getElementById("globe-dialog").close();
+}
+
 function renderStationStats(data,stationKey){
   var station;
   if(stationKey==='total'){
@@ -1123,46 +1556,22 @@ function renderStationStats(data,stationKey){
 
   var activeCountries=station.active_listener_countries||[];
   var cEl=document.getElementById("radio-countries");
-  cEl.textContent="";
-  activeCountries.forEach(function(c){
-    var flag=countryFlags[c.country_code]||"🌐";
-    var div=document.createElement("div");
-    div.className="radio-country";
-    var flagSpan=document.createElement("span");
-    flagSpan.className="radio-country-flag";
-    flagSpan.textContent=flag;
-    var sessSpan=document.createElement("span");
-    sessSpan.className="radio-country-sessions";
-    sessSpan.textContent=c.sessions;
-    div.appendChild(flagSpan);
-    div.appendChild(document.createTextNode(c.country));
-    div.appendChild(sessSpan);
-    cEl.appendChild(div);
-  });
+  renderCountryList(cEl,activeCountries,8);
 
   var totalCountries=station.top_countries||[];
   var tEl=document.getElementById("radio-total-countries");
-  tEl.textContent="";
-  totalCountries.forEach(function(c){
-    var flag=countryFlags[c.country_code]||"🌐";
-    var div=document.createElement("div");
-    div.className="radio-country";
-    var flagSpan=document.createElement("span");
-    flagSpan.className="radio-country-flag";
-    flagSpan.textContent=flag;
-    var sessSpan=document.createElement("span");
-    sessSpan.className="radio-country-sessions";
-    sessSpan.textContent=c.sessions;
-    div.appendChild(flagSpan);
-    div.appendChild(document.createTextNode(c.country));
-    div.appendChild(sessSpan);
-    tEl.appendChild(div);
-  });
+  renderCountryList(tEl,totalCountries,10);
 
-  if(!window._globeInitialized){
-    window._radioCountries=activeCountries;
+  window._radioCountries=activeCountries;
+  var globeSignature=activeCountries.map(function(c){return c.country_code+":"+c.sessions}).join(",");
+  if(window._globeSignature!==globeSignature){
     initGlobe(activeCountries);
-    window._globeInitialized=true;
+    window._globeSignature=globeSignature;
+    var dialog=document.getElementById("globe-dialog");
+    if(dialog.open){
+      renderGlobeRankList(activeCountries);
+      initGlobe(activeCountries,document.getElementById("radio-globe-full"),true);
+    }
   }
 }
 
@@ -1179,7 +1588,7 @@ function renderRadioStats(){
       el.textContent="";
       var err=document.createElement("span");
       err.className="radio-error";
-      err.textContent="Could not load radio stats";
+      err.textContent="Cannot load radio statistics.";
       el.appendChild(err);
     });
 }
@@ -1204,7 +1613,6 @@ var countryCoords={
 };
 
 /* ── Canvas globe with land outlines ── */
-var _globeAnim=null;
 var _globeResizeTimer=null;
 var _landPolygons=null;
 
@@ -1260,15 +1668,18 @@ function loadLand(cb){
     .catch(function(){cb([])});
 }
 
-function initGlobe(countries){
-  var canvas=document.getElementById("radio-globe");
+function initGlobe(countries,canvas,interactive){
+  canvas=canvas||document.getElementById("radio-globe");
   if(!canvas)return;
   var ctx=canvas.getContext("2d");
   if(!ctx)return;
-  if(_globeAnim){cancelAnimationFrame(_globeAnim);_globeAnim=null;}
+  if(canvas._globeAnim){cancelAnimationFrame(canvas._globeAnim);canvas._globeAnim=null;}
+  var previousState=canvas._globeState||null;
 
-  var size=canvas.offsetWidth||300;
+  var size=interactive?Math.min(canvas.parentElement.clientWidth-40,canvas.parentElement.clientHeight-40):canvas.offsetWidth;
+  size=Math.min(size||300,680);
   if(size<10)return;
+  if(interactive){canvas.style.width=size+"px";canvas.style.height=size+"px";}
   var dpr=Math.min(window.devicePixelRatio||1,2);
   if(size<200)dpr=1;
   var buf=size*dpr;
@@ -1277,7 +1688,7 @@ function initGlobe(countries){
 
   var R=buf*0.42;
   var cx=buf/2,cy=buf/2;
-  var tilt=0.15;
+  var tilt=previousState?previousState.tilt:0.15;
 
   var maxSessions=Math.max.apply(null,countries.map(function(c){return c.sessions}))||1;
   var markers=[];
@@ -1286,11 +1697,96 @@ function initGlobe(countries){
     if(!coords)return;
     var lat=coords[0]*Math.PI/180;
     var lng=coords[1]*Math.PI/180;
-    var s=3+6*(c.sessions/maxSessions);
-    markers.push({lat:lat,lng:lng,size:s*dpr});
+    var s=(interactive?5:3)+(interactive?8:6)*(c.sessions/maxSessions);
+    markers.push({lat:lat,lng:lng,size:s*dpr,country:c,screen:null});
   });
 
-  var rotation=0;
+  var rotation=previousState?previousState.rotation:0;
+  var targetRotation=null;
+  var selectedCode=previousState?previousState.selectedCode:(interactive&&countries[0]?countries[0].country_code:"");
+  if(selectedCode&&!countries.some(function(c){return c.country_code===selectedCode}))selectedCode=countries[0]?countries[0].country_code:"";
+  var hoverPaused=false;
+  var manualPaused=interactive&&previousState?previousState.manualPaused:false;
+  var dragging=false;
+  var lastPointerX=0;
+  var lastPointerY=0;
+
+  function selectCountry(country,rotate){
+    selectedCode=country.country_code;
+    updateGlobeDetail(country);
+    if(rotate){
+      for(var i=0;i<markers.length;i++){
+        if(markers[i].country.country_code===country.country_code){
+          targetRotation=-markers[i].lng;
+          break;
+        }
+      }
+    }
+  }
+
+  if(interactive){
+    canvas._selectCountry=function(country){selectCountry(country,true)};
+    canvas._toggleAutoSpin=function(){
+      manualPaused=!manualPaused;
+      setGlobeSpinButton(!manualPaused);
+    };
+    setGlobeSpinButton(!manualPaused);
+    canvas.onpointerenter=function(){hoverPaused=true};
+    canvas.onpointerleave=function(){hoverPaused=false;if(!dragging)canvas.style.cursor="crosshair"};
+    canvas.onpointerdown=function(event){
+      dragging=true;
+      manualPaused=true;
+      targetRotation=null;
+      lastPointerX=event.clientX;
+      lastPointerY=event.clientY;
+      canvas.setPointerCapture(event.pointerId);
+      canvas.style.cursor="grabbing";
+      setGlobeSpinButton(false);
+      event.preventDefault();
+    };
+    canvas.onpointerup=canvas.onpointercancel=function(event){
+      dragging=false;
+      if(canvas.hasPointerCapture(event.pointerId))canvas.releasePointerCapture(event.pointerId);
+      canvas.style.cursor="crosshair";
+    };
+    canvas.onkeydown=function(event){
+      if(event.key!=="ArrowLeft"&&event.key!=="ArrowRight"&&event.key!=="ArrowUp"&&event.key!=="ArrowDown")return;
+      manualPaused=true;
+      targetRotation=null;
+      if(event.key==="ArrowLeft")rotation-=0.16;
+      if(event.key==="ArrowRight")rotation+=0.16;
+      if(event.key==="ArrowUp")tilt=Math.max(-1.1,tilt-0.12);
+      if(event.key==="ArrowDown")tilt=Math.min(1.1,tilt+0.12);
+      setGlobeSpinButton(false);
+      event.preventDefault();
+    };
+    canvas.onpointermove=function(event){
+      if(dragging){
+        rotation+=(event.clientX-lastPointerX)/size*Math.PI*2;
+        tilt=Math.max(-1.1,Math.min(1.1,tilt+(event.clientY-lastPointerY)/size*Math.PI));
+        lastPointerX=event.clientX;
+        lastPointerY=event.clientY;
+        return;
+      }
+      var rect=canvas.getBoundingClientRect();
+      var x=(event.clientX-rect.left)*(canvas.width/rect.width);
+      var y=(event.clientY-rect.top)*(canvas.height/rect.height);
+      var hit=null;
+      var nearest=Infinity;
+      markers.forEach(function(marker){
+        if(!marker.screen||marker.screen.z<0)return;
+        var dx=marker.screen.x-x;
+        var dy=marker.screen.y-y;
+        var distance=Math.sqrt(dx*dx+dy*dy);
+        if(distance<Math.max(marker.size*2.5,14*dpr)&&distance<nearest){hit=marker;nearest=distance}
+      });
+      canvas.style.cursor=hit?"pointer":"crosshair";
+      if(hit)selectCountry(hit.country,false);
+    };
+    var selectedCountry=countries.find(function(c){return c.country_code===selectedCode})||countries[0];
+    if(selectedCountry)selectCountry(selectedCountry,!previousState);
+  }
+
   function project(latD,lngD){
     var lat=latD*Math.PI/180;
     var lng=lngD*Math.PI/180+rotation;
@@ -1355,9 +1851,11 @@ function initGlobe(countries){
       ctx.restore();
 
       /* Markers */
+      var selectedMarker=null;
       for(var j=0;j<markers.length;j++){
         var m=markers[j];
         var p=projectRad(m.lat,m.lng);
+        m.screen=p;
         if(p.z<0)continue;
         var alpha=0.3+0.7*p.z;
 
@@ -1370,10 +1868,36 @@ function initGlobe(countries){
         ctx.arc(p.x,p.y,m.size,0,Math.PI*2);
         ctx.fillStyle="rgba(255,180,84,"+alpha+")";
         ctx.fill();
+        if(m.country.country_code===selectedCode)selectedMarker={marker:m,point:p};
       }
 
-      rotation+=0.003;
-      _globeAnim=requestAnimationFrame(draw);
+      if(interactive&&selectedMarker){
+        var label=selectedMarker.marker.country.country+"  "+selectedMarker.marker.country.sessions.toLocaleString();
+        ctx.font="700 "+11*dpr+"px monospace";
+        var labelWidth=ctx.measureText(label).width+16*dpr;
+        var labelX=Math.min(Math.max(selectedMarker.point.x+14*dpr,4*dpr),buf-labelWidth-4*dpr);
+        var labelY=Math.max(selectedMarker.point.y-28*dpr,4*dpr);
+        ctx.fillStyle="rgba(5,8,6,0.94)";
+        ctx.fillRect(labelX,labelY,labelWidth,24*dpr);
+        ctx.strokeStyle="#42ff88";
+        ctx.lineWidth=1*dpr;
+        ctx.strokeRect(labelX,labelY,labelWidth,24*dpr);
+        ctx.fillStyle="#f4fff5";
+        ctx.textBaseline="middle";
+        ctx.fillText(label,labelX+8*dpr,labelY+12*dpr);
+      }
+
+      if(targetRotation!==null){
+        var delta=targetRotation-rotation;
+        while(delta>Math.PI)delta-=Math.PI*2;
+        while(delta<-Math.PI)delta+=Math.PI*2;
+        rotation+=delta*0.08;
+        if(Math.abs(delta)<0.002)targetRotation=null;
+      }else if(!hoverPaused&&!manualPaused&&!dragging){
+        rotation+=0.003;
+      }
+      canvas._globeState={rotation:rotation,tilt:tilt,manualPaused:manualPaused,selectedCode:selectedCode};
+      canvas._globeAnim=requestAnimationFrame(draw);
     }
     draw();
     canvas.classList.add("loaded");
@@ -1383,8 +1907,17 @@ function initGlobe(countries){
 window.addEventListener("resize",function(){
   clearTimeout(_globeResizeTimer);
   _globeResizeTimer=setTimeout(function(){
-    if(window._radioCountries)initGlobe(window._radioCountries);
+    if(!window._radioCountries)return;
+    initGlobe(window._radioCountries);
+    var dialog=document.getElementById("globe-dialog");
+    if(dialog.open)initGlobe(window._radioCountries,document.getElementById("radio-globe-full"),true);
   },300);
+});
+
+document.getElementById("globe-dialog").addEventListener("close",function(){
+  document.body.classList.remove("globe-open");
+  var canvas=document.getElementById("radio-globe-full");
+  if(canvas._globeAnim){cancelAnimationFrame(canvas._globeAnim);canvas._globeAnim=null;}
 });
 
 /* ── Playlist: keyboard activation (click plays via inline onclick) ── */

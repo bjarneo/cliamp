@@ -22,6 +22,7 @@ var (
 	_ provider.Searcher         = (*Provider)(nil)
 	_ provider.ProgressReporter = (*Provider)(nil)
 	_ provider.ResumeTarget     = (*Provider)(nil)
+	_ provider.TrackPosition    = (*Provider)(nil)
 	_ provider.BrowseLabeler    = (*Provider)(nil)
 )
 
@@ -500,6 +501,10 @@ func (p *Provider) CanReportPlayback(track playlist.Track) bool {
 	return track.Meta(provider.MetaAudiobookshelfID) != ""
 }
 
+func (p *Provider) CanTrackPosition(track playlist.Track) bool {
+	return p.CanReportPlayback(track)
+}
+
 func (p *Provider) ReportNowPlaying(track playlist.Track, position time.Duration, _ bool) error {
 	if position <= 0 {
 		return nil
@@ -509,6 +514,28 @@ func (p *Provider) ReportNowPlaying(track playlist.Track, position time.Duration
 
 func (p *Provider) ReportScrobble(track playlist.Track, elapsed, _ time.Duration, _ bool) error {
 	return p.report(track, elapsed, true)
+}
+
+// TrackPosition returns the server-side position for track, read live so a
+// revisited track reflects progress reported during this session.
+func (p *Provider) TrackPosition(track playlist.Track) time.Duration {
+	itemID := track.Meta(provider.MetaAudiobookshelfID)
+	if itemID == "" {
+		return 0
+	}
+	list, err := p.client.Progress()
+	if err != nil {
+		return 0
+	}
+	mp, ok := findProgress(list, itemID, track.Meta(provider.MetaAudiobookshelfEpisode))
+	if !ok || mp.IsFinished || mp.CurrentTime <= 0 {
+		return 0
+	}
+	offset := mp.CurrentTime - metaFloat(track, provider.MetaAudiobookshelfOffset)
+	if offset <= 0 || (track.DurationSecs > 0 && offset >= float64(track.DurationSecs)) {
+		return 0
+	}
+	return time.Duration(offset * float64(time.Second))
 }
 
 // ReportProgress pushes an interim listening position.

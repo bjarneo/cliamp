@@ -272,20 +272,51 @@ func (p *TidalProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 	return slices.Clone(tracks), nil
 }
 
-// SearchTracks searches the Tidal catalog. Implements provider.Searcher.
+// SearchTracks searches the Tidal catalog for albums and tracks. Album hits
+// lead the results as album placeholders (playlist.Track.IsAlbum), because a
+// query is usually an artist or record name and the album is the more useful
+// answer; the UI expands the chosen one with AlbumTracks. Implements
+// provider.Searcher.
 func (p *TidalProvider) SearchTracks(ctx context.Context, query string, limit int) ([]playlist.Track, error) {
 	c, err := p.ensureClient()
 	if err != nil {
 		return nil, err
 	}
-	apiTracks, err := c.searchTracks(ctx, query, limit)
-	if err != nil {
-		return nil, p.mapErr(err)
+
+	// Tracks and albums are separate endpoints; fetch them concurrently.
+	var (
+		apiTracks []apiTrack
+		trackErr  error
+		apiAlbums []apiAlbum
+		albumErr  error
+		wg        sync.WaitGroup
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		apiTracks, trackErr = c.searchTracks(ctx, query, limit)
+	}()
+	go func() {
+		defer wg.Done()
+		apiAlbums, albumErr = c.searchAlbums(ctx, query, limit)
+	}()
+	wg.Wait()
+	if trackErr != nil {
+		return nil, p.mapErr(trackErr)
+	}
+	if albumErr != nil {
+		// Tracks still answer the query; degrade to a track-only result.
+		applog.Debug("tidal: album search failed: %v", albumErr)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return tracksFromAPI(apiTracks, nil), nil
+
+	out := make([]playlist.Track, 0, len(apiAlbums)+len(apiTracks))
+	for _, a := range apiAlbums {
+		out = append(out, albumPlaceholder(a))
+	}
+	return append(out, tracksFromAPI(apiTracks, nil)...), nil
 }
 
 // Artists returns the user's favorite artists. Implements provider.ArtistBrowser.
@@ -509,5 +540,23 @@ func albumInfo(a apiAlbum) provider.AlbumInfo {
 		ArtistID:   a.Artist.ID.String(),
 		Year:       provider.YearFromDate(a.ReleaseDate),
 		TrackCount: a.NumberOfTracks,
+	}
+}
+
+// albumPlaceholder converts an album search hit into an album placeholder
+// Track. The result is deliberately not playable: Path carries a
+// tidal://album/ URI so the entry is identifiable, and playlist.Track.IsAlbum
+// signals the UI to expand it through AlbumTracks before queueing.
+func albumPlaceholder(a apiAlbum) playlist.Track {
+	return playlist.Track{
+		Path:   "tidal://album/" + a.ID.String(),
+		Title:  a.Title,
+		Artist: a.Artist.Name,
+		Album:  a.Title,
+		Year:   provider.YearFromDate(a.ReleaseDate),
+		ProviderMeta: map[string]string{
+			playlist.MetaKind:    playlist.MetaKindAlbum,
+			playlist.MetaAlbumID: a.ID.String(),
+		},
 	}
 }

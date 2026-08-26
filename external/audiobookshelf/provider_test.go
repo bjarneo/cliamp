@@ -610,6 +610,12 @@ func TestCanReportPlayback(t *testing.T) {
 	if p.CanReportPlayback(other) {
 		t.Fatal("CanReportPlayback(other) = true, want false")
 	}
+	if !p.CanTrackPosition(own) {
+		t.Fatal("CanTrackPosition(own) = false, want true")
+	}
+	if p.CanTrackPosition(other) {
+		t.Fatal("CanTrackPosition(other) = true, want false")
+	}
 }
 
 func TestProgressReporterInterface(t *testing.T) {

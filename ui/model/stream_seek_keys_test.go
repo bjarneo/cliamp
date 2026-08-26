@@ -15,10 +15,25 @@ type fakeEngine struct {
 	position   time.Duration
 }
 
-func (f *fakeEngine) Play(string, time.Duration) error                    { return nil }
-func (f *fakeEngine) PlayYTDL(string, time.Duration) error                { return nil }
-func (f *fakeEngine) Preload(string, time.Duration) error                 { return nil }
-func (f *fakeEngine) PreloadYTDL(string, time.Duration) error             { return nil }
+func (f *fakeEngine) Play(string, time.Duration) error                  { return nil }
+func (f *fakeEngine) PlayAt(string, time.Duration, time.Duration) error { return nil }
+func (f *fakeEngine) PlayYTDL(string, time.Duration) error              { return nil }
+func (f *fakeEngine) SetPlaybackGeneration(uint64)                      {}
+func (f *fakeEngine) PlayAtForGeneration(path string, dur, offset time.Duration, _ uint64) error {
+	return f.PlayAt(path, dur, offset)
+}
+func (f *fakeEngine) PlayYTDLForGeneration(path string, dur time.Duration, _ uint64) error {
+	return f.PlayYTDL(path, dur)
+}
+func (f *fakeEngine) Preload(string, time.Duration) error     { return nil }
+func (f *fakeEngine) PreloadYTDL(string, time.Duration) error { return nil }
+func (f *fakeEngine) BeginPreload() uint64                    { return 0 }
+func (f *fakeEngine) PreloadForGeneration(path string, dur time.Duration, _ uint64) error {
+	return f.Preload(path, dur)
+}
+func (f *fakeEngine) PreloadYTDLForGeneration(path string, dur time.Duration, _ uint64) error {
+	return f.PreloadYTDL(path, dur)
+}
 func (f *fakeEngine) ClearPreload()                                       {}
 func (f *fakeEngine) Stop()                                               {}
 func (f *fakeEngine) Close()                                              {}
@@ -34,6 +49,7 @@ func (f *fakeEngine) Seekable() bool                                      { retu
 func (f *fakeEngine) IsStreamSeek() bool                                  { return f.streamSeek }
 func (f *fakeEngine) IsYTDLSeek() bool                                    { return false }
 func (f *fakeEngine) GaplessAdvanced() bool                               { return false }
+func (f *fakeEngine) LastPlayedDuration() time.Duration                   { return 0 }
 func (f *fakeEngine) Position() time.Duration                             { return f.position }
 func (f *fakeEngine) Duration() time.Duration                             { return time.Hour }
 func (f *fakeEngine) PositionAndDuration() (time.Duration, time.Duration) { return 0, time.Hour }

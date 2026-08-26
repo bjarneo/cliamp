@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/bjarneo/cliamp/internal/appdir"
+	"github.com/bjarneo/cliamp/internal/fileutil"
 	"github.com/bjarneo/cliamp/internal/tomlutil"
 	"github.com/bjarneo/cliamp/playlist"
 )
@@ -28,12 +29,6 @@ import (
 // DefaultCap is the maximum number of entries kept on disk. Older entries are
 // dropped FIFO once the cap is exceeded.
 const DefaultCap = 200
-
-// dedupWindow is how recently the previous entry must have been recorded for
-// a same-path play to be treated as a replay (timestamp updated, no new row)
-// rather than a fresh listening event. This filters out cases where a user
-// scrubs back to the start of a track that's already 50% played.
-const dedupWindow = 5 * time.Minute
 
 // PlaylistName is the virtual playlist name surfaced to the UI by the local
 // provider. Browsing this name returns history entries newest-first.
@@ -84,6 +79,10 @@ func (s *Store) Path() string { return s.path }
 // Record appends an entry for track played at playedAt. If the most recent
 // entry has the same path and was logged within dedupWindow, its timestamp is
 // updated in place instead of duplicating the row. Empty paths are ignored.
+// Record appends a play event. There are no duplicate paths: recording a
+// track that is already in the list moves that entry to the top with the new
+// timestamp (merging any richer metadata), so Recently Played reflects
+// distinct tracks in listen order rather than play counts.
 func (s *Store) Record(track playlist.Track, playedAt time.Time) error {
 	if s == nil || strings.TrimSpace(track.Path) == "" {
 		return nil
@@ -97,15 +96,15 @@ func (s *Store) Record(track playlist.Track, playedAt time.Time) error {
 		// proceeding would rewrite the file with only the new entry.
 		return fmt.Errorf("load history: %w", err)
 	}
-	if n := len(entries); n > 0 {
-		top := entries[0]
-		if top.Track.Path == track.Path && playedAt.Sub(top.PlayedAt) < dedupWindow {
-			entries[0].PlayedAt = playedAt
-			entries[0].Track = mergeTrackMeta(top.Track, track)
-			return s.saveLocked(entries)
+	for i, e := range entries {
+		if e.Track.Path != track.Path {
+			continue
 		}
+		merged := mergeTrackMeta(e.Track, track)
+		entries = append(entries[:i], entries[i+1:]...)
+		entries = append([]Entry{{Track: merged, PlayedAt: playedAt}}, entries...)
+		return s.saveLocked(entries)
 	}
-
 	entry := Entry{Track: track, PlayedAt: playedAt}
 	entries = append([]Entry{entry}, entries...)
 	if s.cap > 0 && len(entries) > s.cap {
@@ -167,16 +166,29 @@ func (s *Store) loadLocked() ([]Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parse(data), nil
+	return dedupeNewestFirst(parse(data)), nil
+}
+
+// dedupeNewestFirst collapses repeated paths, keeping the newest occurrence.
+// History written by older versions could contain duplicate rows for the same
+// track; this heals them on read so the list always shows distinct tracks.
+func dedupeNewestFirst(entries []Entry) []Entry {
+	seen := make(map[string]struct{}, len(entries))
+	clean := make([]Entry, 0, len(entries))
+	for _, e := range entries {
+		if _, dup := seen[e.Track.Path]; dup {
+			continue
+		}
+		seen[e.Track.Path] = struct{}{}
+		clean = append(clean, e)
+	}
+	return clean
 }
 
 func (s *Store) saveLocked(entries []Entry) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
 	// Build the full content in memory (writes to a Builder can't fail), then
-	// write a temp file and rename so a partial/failed write can never truncate
-	// the existing history file.
+	// write a unique temp file and rename so a partial/failed write — or a
+	// second cliamp process — can never truncate or clobber existing history.
 	var b strings.Builder
 	for i, e := range entries {
 		if i > 0 {
@@ -184,11 +196,7 @@ func (s *Store) saveLocked(entries []Entry) error {
 		}
 		writeEntry(&b, e)
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
+	return fileutil.WriteFileAtomic(s.path, []byte(b.String()), 0o644)
 }
 
 // mergeTrackMeta keeps any non-empty metadata from the previous entry when a

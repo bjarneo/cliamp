@@ -45,6 +45,8 @@ buildGoModule {
         ffmpeg-headless
         yt-dlp
       ]}
+    install -Dm644 Cliamp.png "$out/share/icons/hicolor/512x512/apps/cliamp.png"
+    install -Dm644 cliamp.desktop "$out/share/applications/cliamp.desktop"
   '';
 
   meta = {

@@ -1,101 +1,134 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-  <defs>
-    <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0a0a0c"/>
-      <stop offset="100%" stop-color="#060608"/>
-    </linearGradient>
-    <filter id="greenGlow">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-    <filter id="subtleGlow">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="1" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-  </defs>
+  <style>
+    text { font-family: "SFMono-Regular", "Liberation Mono", Menlo, Consolas, monospace; }
+    .micro { font-size: 11px; font-weight: 700; letter-spacing: 2px; }
+    .small { font-size: 13px; }
+    .label { font-size: 12px; font-weight: 700; letter-spacing: 1px; }
+  </style>
 
-  <!-- Background -->
-  <rect width="1200" height="630" fill="url(#glow)"/>
+  <rect width="1200" height="630" fill="#050806"/>
+  <rect width="1200" height="6" fill="#42ff88"/>
+  <path d="M60 6V630M1140 6V630" stroke="#101812"/>
 
-  <!-- Scanlines -->
-  <pattern id="scanlines" width="4" height="4" patternUnits="userSpaceOnUse">
-    <rect width="4" height="2" fill="transparent"/>
-    <rect y="2" width="4" height="2" fill="rgba(0,0,0,0.06)"/>
-  </pattern>
-  <rect width="1200" height="630" fill="url(#scanlines)"/>
+  <g transform="translate(80 16)">
+    <rect width="30" height="30" rx="4" fill="#050505" stroke="#fff" stroke-opacity=".1"/>
+    <rect x="3.6" y="11.7" width="2.4" height="6.6" fill="#00ff41"/>
+    <rect x="8.7" y="8.1" width="2.4" height="13.8" fill="#ff9500"/>
+    <rect x="13.8" y="5.4" width="2.4" height="19.2" fill="#ff3b1f"/>
+    <rect x="18.9" y="10.2" width="2.4" height="9.6" fill="#00ff41"/>
+    <rect x="24" y="8.7" width="2.4" height="12.6" fill="#ffe000"/>
+    <text x="42" y="20" class="micro" fill="#d9e3da">CLI</text>
+    <text x="68" y="20" class="micro" fill="#42ff88">AMP</text>
+    <text x="106" y="20" font-size="10" fill="#405046">/usr/bin</text>
+  </g>
+  <g transform="translate(880 28)" class="micro">
+    <text x="0" y="9" fill="#667568">[music]</text>
+    <text x="84" y="9" fill="#667568">[tui]</text>
+    <text x="144" y="9" fill="#4bdbff">[github]</text>
+  </g>
+  <path d="M0 54H1200" stroke="#385342"/>
 
-  <!-- Terminal window frame -->
-  <rect x="80" y="40" width="1040" height="550" rx="8" fill="#0d0d0d" stroke="#1c1c1c" stroke-width="1"/>
+  <g transform="translate(82 106)">
+    <rect width="4" height="350" fill="#42ff88"/>
+    <text x="24" y="15" class="micro" fill="#667568">ROOT@LOCALHOST:</text>
+    <rect x="154" y="6" width="8" height="8" fill="#42ff88"/>
+    <text x="174" y="15" class="micro" fill="#42ff88">~/AUDIO/CLIAMP</text>
 
-  <!-- Title bar -->
-  <rect x="80" y="40" width="1040" height="32" rx="8" fill="#111"/>
-  <rect x="80" y="56" width="1040" height="16" fill="#111"/>
-  <circle cx="104" cy="56" r="5" fill="#ff4444" opacity="0.8"/>
-  <circle cx="122" cy="56" r="5" fill="#ffaa00" opacity="0.8"/>
-  <circle cx="140" cy="56" r="5" fill="#00ff41" opacity="0.8"/>
-  <text x="600" y="60" text-anchor="middle" fill="#555" font-family="monospace" font-size="11">cliamp</text>
+    <g transform="translate(24 54)">
+      <rect width="72" height="72" rx="9" fill="#050505" stroke="#fff" stroke-opacity=".1"/>
+      <rect x="7.2" y="30.96" width="2.88" height="10.08" fill="#00ff41"/>
+      <rect x="14.4" y="23.76" width="2.88" height="24.48" fill="#ffe000"/>
+      <rect x="21.6" y="16.56" width="2.88" height="38.88" fill="#ff9500"/>
+      <rect x="28.8" y="26.64" width="2.88" height="18.72" fill="#00ff41"/>
+      <rect x="36" y="13.68" width="2.88" height="44.64" fill="#ff3b1f"/>
+      <rect x="43.2" y="25.2" width="2.88" height="21.6" fill="#00ff41"/>
+      <rect x="50.4" y="19.44" width="2.88" height="33.12" fill="#ff9500"/>
+      <rect x="57.6" y="29.52" width="2.88" height="12.96" fill="#00ff41"/>
+    </g>
+    <text x="112" y="132" font-size="106" font-weight="800" letter-spacing="-7" fill="#f4fff5">cli</text>
+    <text x="298" y="132" font-size="106" font-weight="800" letter-spacing="-7" fill="#42ff88">amp</text>
 
-  <!-- ASCII art CLIAMP logo -->
-  <text filter="url(#greenGlow)" fill="#00ff41" font-family="monospace" font-size="20" xml:space="preserve">
-    <tspan x="310" y="130"> ██████ ██      ██  █████  ███    ███ ██████</tspan>
-    <tspan x="310" y="152">██      ██      ██ ██   ██ ████  ████ ██   ██</tspan>
-    <tspan x="310" y="174">██      ██      ██ ███████ ██ ████ ██ ██████</tspan>
-    <tspan x="310" y="196">██      ██      ██ ██   ██ ██  ██  ██ ██</tspan>
-    <tspan x="310" y="218"> ██████ ███████ ██ ██   ██ ██      ██ ██</tspan>
-  </text>
+    <text x="24" y="181" font-size="18" font-weight="700" fill="#ffb000">Winamp for the shell.</text>
+    <text x="24" y="218" class="small" fill="#aab7ac">Local files, streaming services, radio,</text>
+    <text x="24" y="241" class="small" fill="#aab7ac">playlists, EQ, lyrics, and Lua plugins.</text>
 
-  <!-- Subtitle -->
-  <text x="600" y="260" text-anchor="middle" fill="#555" font-family="monospace" font-size="14" letter-spacing="4">TERMINAL MUSIC PLAYER</text>
+    <rect x="24" y="276" width="112" height="38" fill="#42ff88"/>
+    <text x="49" y="300" class="micro" fill="#050806">INSTALL</text>
+    <rect x="146" y="276" width="134" height="38" fill="none" stroke="#385342"/>
+    <text x="166" y="300" class="micro" fill="#d9e3da">VIEW SOURCE</text>
 
-  <!-- Spectrum visualizer bars (bottom at y=430, max height 130) -->
-  <g filter="url(#subtleGlow)" opacity="0.9">
-    <rect x="280" y="390" width="16" height="40" rx="2" fill="#00ff41" opacity="0.7"/>
-    <rect x="304" y="378" width="16" height="52" rx="2" fill="#00ff41" opacity="0.8"/>
-    <rect x="328" y="360" width="16" height="70" rx="2" fill="#00ff41" opacity="0.85"/>
-    <rect x="352" y="370" width="16" height="60" rx="2" fill="#00ff41" opacity="0.8"/>
-    <rect x="376" y="345" width="16" height="85" rx="2" fill="#00ff41" opacity="0.9"/>
-    <rect x="400" y="332" width="16" height="98" rx="2" fill="#00ff41" opacity="0.95"/>
-    <rect x="424" y="350" width="16" height="80" rx="2" fill="#00ff41" opacity="0.85"/>
-    <rect x="448" y="320" width="16" height="110" rx="2" fill="#00ff41" opacity="0.95"/>
-    <rect x="472" y="335" width="16" height="95" rx="2" fill="#00ff41" opacity="0.9"/>
-    <rect x="496" y="310" width="16" height="120" rx="2" fill="#00ff41"/>
-    <rect x="520" y="325" width="16" height="105" rx="2" fill="#00ff41" opacity="0.9"/>
-    <rect x="544" y="300" width="16" height="130" rx="2" fill="#00cc55"/>
-    <rect x="568" y="318" width="16" height="112" rx="2" fill="#00ff41" opacity="0.95"/>
-    <rect x="592" y="300" width="16" height="130" rx="2" fill="#00cc55"/>
-    <rect x="616" y="315" width="16" height="115" rx="2" fill="#00ff41" opacity="0.95"/>
-    <rect x="640" y="305" width="16" height="125" rx="2" fill="#00cc55"/>
-    <rect x="664" y="325" width="16" height="105" rx="2" fill="#00ff41" opacity="0.9"/>
-    <rect x="688" y="310" width="16" height="120" rx="2" fill="#00ff41"/>
-    <rect x="712" y="335" width="16" height="95" rx="2" fill="#00ff41" opacity="0.9"/>
-    <rect x="736" y="320" width="16" height="110" rx="2" fill="#00ff41" opacity="0.95"/>
-    <rect x="760" y="350" width="16" height="80" rx="2" fill="#00ff41" opacity="0.85"/>
-    <rect x="784" y="332" width="16" height="98" rx="2" fill="#00ff41" opacity="0.95"/>
-    <rect x="808" y="345" width="16" height="85" rx="2" fill="#00ff41" opacity="0.9"/>
-    <rect x="832" y="370" width="16" height="60" rx="2" fill="#00ff41" opacity="0.8"/>
-    <rect x="856" y="360" width="16" height="70" rx="2" fill="#00ff41" opacity="0.85"/>
-    <rect x="880" y="378" width="16" height="52" rx="2" fill="#00ff41" opacity="0.8"/>
-    <rect x="904" y="390" width="16" height="40" rx="2" fill="#00ff41" opacity="0.7"/>
+    <text x="24" y="344" font-size="10" font-weight="700" letter-spacing="1" fill="#ffb000">MIT</text>
+    <text x="55" y="344" font-size="10" letter-spacing="1" fill="#667568">LICENSED</text>
+    <text x="127" y="344" font-size="10" font-weight="700" letter-spacing="1" fill="#ffb000">GO 1.26</text>
+    <text x="206" y="344" font-size="10" font-weight="700" letter-spacing="1" fill="#ffb000">LINUX / MACOS / WINDOWS</text>
   </g>
 
-  <!-- Bottom info line -->
-  <text x="600" y="480" text-anchor="middle" fill="#b0b0b0" font-family="monospace" font-size="15">
-    YouTube  ·  Spotify  ·  Radio  ·  Plex  ·  Jellyfin  ·  SoundCloud  ·  Local Files
-  </text>
+  <g transform="translate(584 88)">
+    <rect width="534" height="394" fill="#080c09" stroke="#385342"/>
+    <rect width="534" height="42" fill="#42ff88"/>
+    <text x="16" y="27" font-size="13" font-weight="700" fill="#050806">$ cliamp</text>
+    <text x="88" y="27" font-size="12" fill="#385342">--provider radio</text>
+    <rect x="467" y="9" width="28" height="24" fill="#050806"/>
+    <path d="M478 16L487 21L478 26Z" fill="#42ff88"/>
+    <text x="504" y="27" font-size="11" fill="#385342">tty1</text>
 
-  <!-- Command prompt -->
-  <text x="600" y="520" text-anchor="middle" font-family="monospace" font-size="13">
-    <tspan fill="#333">$ </tspan>
-    <tspan fill="#00ccff">cliamp</tspan>
-    <tspan fill="#555"> ~/music/playlist.m3u</tspan>
-  </text>
+    <text x="20" y="74" class="micro" fill="#42ff88">C L I A M P</text>
+    <text x="419" y="74" class="small" fill="#667568">[Playlist]</text>
+    <text x="20" y="99" class="label" fill="#42ff88">#</text>
+    <text x="38" y="99" class="label" fill="#d9e3da">Lofi Hip Hop Radio</text>
+    <text x="20" y="120" class="small" fill="#667568">00:00 / 00:00</text>
+    <rect x="407" y="111" width="7" height="7" fill="#667568"/>
+    <text x="423" y="120" font-size="11" fill="#667568">Stopped</text>
 
-  <!-- URL -->
-  <text x="600" y="560" text-anchor="middle" fill="#333" font-family="monospace" font-size="12">cliamp.stream</text>
+    <g transform="translate(66 146)">
+      <g fill="#42ff88">
+        <rect x="0" y="55" width="10" height="17"/><rect x="15" y="42" width="10" height="30"/>
+        <rect x="30" y="20" width="10" height="52"/><rect x="45" y="38" width="10" height="34"/>
+        <rect x="60" y="31" width="10" height="41"/><rect x="75" y="12" width="10" height="60"/>
+        <rect x="90" y="27" width="10" height="45"/><rect x="105" y="45" width="10" height="27"/>
+        <rect x="120" y="22" width="10" height="50"/><rect x="135" y="5" width="10" height="67"/>
+        <rect x="150" y="34" width="10" height="38"/><rect x="165" y="17" width="10" height="55"/>
+        <rect x="180" y="29" width="10" height="43"/><rect x="195" y="9" width="10" height="63"/>
+        <rect x="210" y="38" width="10" height="34"/><rect x="225" y="25" width="10" height="47"/>
+        <rect x="240" y="16" width="10" height="56"/><rect x="255" y="41" width="10" height="31"/>
+        <rect x="270" y="31" width="10" height="41"/><rect x="285" y="20" width="10" height="52"/>
+        <rect x="300" y="47" width="10" height="25"/><rect x="315" y="36" width="10" height="36"/>
+        <rect x="330" y="53" width="10" height="19"/><rect x="345" y="43" width="10" height="29"/>
+      </g>
+      <g fill="#ffb000">
+        <rect x="30" y="20" width="10" height="14"/><rect x="75" y="12" width="10" height="16"/>
+        <rect x="135" y="5" width="10" height="18"/><rect x="165" y="17" width="10" height="14"/>
+        <rect x="195" y="9" width="10" height="17"/><rect x="240" y="16" width="10" height="15"/>
+        <rect x="285" y="20" width="10" height="14"/>
+      </g>
+      <g fill="#ff4260">
+        <rect x="135" y="5" width="10" height="6"/><rect x="195" y="9" width="10" height="6"/>
+      </g>
+    </g>
+
+    <path d="M86 240H240M292 240H446" stroke="#ffb000" stroke-width="2"/>
+    <text x="246" y="236" font-size="10" font-weight="700" letter-spacing="2" fill="#ffb000">STREAMING</text>
+    <text x="20" y="258" class="small" fill="#667568">EQ [</text>
+    <text x="51" y="258" class="small" font-weight="700" fill="#ffb000">Rock</text>
+    <text x="82" y="258" class="small" fill="#667568">]  VOL</text>
+    <path d="M134 254H278" stroke="#385342" stroke-width="8" stroke-dasharray="2 2"/>
+    <path d="M134 254H236" stroke="#42ff88" stroke-width="8" stroke-dasharray="2 2"/>
+
+    <text x="20" y="289" class="label" fill="#ffb000">&gt;- Playlist -- [Shuffle]</text>
+    <text x="20" y="314" class="label" fill="#42ff88">&gt; 1.</text>
+    <text x="61" y="314" class="label" fill="#d9e3da">Lofi Hip Hop Radio</text>
+    <text x="28" y="338" class="small" fill="#667568">2. EDM Pulse</text>
+    <text x="28" y="360" class="small" fill="#667568">3. Synthwave Nights</text>
+
+    <path d="M18 374H516" stroke="#203026"/>
+    <text x="20" y="389" font-size="10" fill="#667568">[Enter] play  [Spc] pause  [Tab] focus  [?] keys</text>
+  </g>
+
+  <g transform="translate(0 530)">
+    <path d="M0 0H1200M0 48H1200" stroke="#ffb000"/>
+    <text x="600" y="29" text-anchor="middle" font-size="11" font-weight="700" letter-spacing="1" fill="#ffb000">MP3 | FLAC | SPOTIFY | QOBUZ | TIDAL | YOUTUBE | RADIO | PLEX | JELLYFIN | NAVIDROME | LUA</text>
+  </g>
+
+  <text x="80" y="608" class="micro" fill="#42ff88">cliamp.stream</text>
+  <text x="1120" y="608" text-anchor="end" class="micro" fill="#667568">TERMINAL MUSIC PLAYER</text>
 </svg>

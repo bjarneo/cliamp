@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -248,6 +249,49 @@ func TestNetEaseSetupBody(t *testing.T) {
 	}
 }
 
+func TestSaveSectionSecuresConfigFile(t *testing.T) {
+	configDir := filepath.Join(t.TempDir(), "config")
+	t.Setenv("CLIAMP_CONFIG_DIR", configDir)
+
+	if err := saveSection("mixcloud", "access_token = \"secret\""); err != nil {
+		t.Fatalf("saveSection: %v", err)
+	}
+	if runtime.GOOS == "windows" {
+		return // Windows does not expose Unix permission bits.
+	}
+
+	dirInfo, err := os.Stat(configDir)
+	if err != nil {
+		t.Fatalf("Stat(%q): %v", configDir, err)
+	}
+	if got, want := dirInfo.Mode().Perm(), os.FileMode(0o700); got != want {
+		t.Errorf("mode for %q = %o, want %o", configDir, got, want)
+	}
+
+	path := filepath.Join(configDir, "config.toml")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat(%q): %v", path, err)
+	}
+	if got, want := info.Mode().Perm(), os.FileMode(0o600); got != want {
+		t.Errorf("mode for %q = %o, want %o", path, got, want)
+	}
+
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatalf("Chmod(%q): %v", path, err)
+	}
+	if err := saveSection("mixcloud", "access_token = \"secret\""); err != nil {
+		t.Fatalf("rewrite saveSection: %v", err)
+	}
+	info, err = os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat(%q): %v", path, err)
+	}
+	if got, want := info.Mode().Perm(), os.FileMode(0o600); got != want {
+		t.Errorf("rewritten mode for %q = %o, want %o", path, got, want)
+	}
+}
+
 func TestQobuzSetupBody(t *testing.T) {
 	spec := providerSpec{}
 	for _, p := range providers() {
@@ -307,6 +351,65 @@ func TestTidalSetupBody(t *testing.T) {
 	// No live probe (auth happens interactively in the TUI).
 	if spec.validate != nil {
 		t.Fatal("tidal spec should not define a validate probe")
+	}
+}
+
+func TestMixcloudSetupBody(t *testing.T) {
+	var spec providerSpec
+	for _, p := range providers() {
+		if p.section == "mixcloud" {
+			spec = p
+			break
+		}
+	}
+	if spec.section == "" {
+		t.Fatal("mixcloud spec missing")
+	}
+	values := map[string]string{
+		keyMixcloudBrowser: "firefox",
+		"username":         "alice",
+		"access_token":     "token",
+		"styles":           "ambient, deep-house",
+		"max_items":        " 75 ",
+		"stream_creators":  "15",
+	}
+	if err := spec.extraValidate(values); err != nil {
+		t.Fatalf("extraValidate: %v", err)
+	}
+	body := spec.body(values)
+	for _, want := range []string{
+		"enabled = true", `username = "alice"`, `access_token = "token"`,
+		`cookies_from = "firefox"`, `styles = ["ambient", "deep-house"]`,
+		"max_items = 75", "stream_creators = 15",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q: %q", want, body)
+		}
+	}
+	publicOnly := spec.body(map[string]string{
+		keyMixcloudBrowser: "none",
+		"max_items":        "100",
+		"stream_creators":  "20",
+	})
+	if strings.Contains(publicOnly, "cookies_from") {
+		t.Fatalf("public-only session must not write cookies_from: %q", publicOnly)
+	}
+	custom := spec.body(map[string]string{
+		keyMixcloudBrowser: "custom",
+		"cookies_from":     "chrome:Profile 1",
+		"max_items":        "100",
+		"stream_creators":  "20",
+	})
+	if !strings.Contains(custom, `cookies_from = "chrome:Profile 1"`) {
+		t.Fatalf("custom browser/profile was not written: %q", custom)
+	}
+	if spec.validate != nil {
+		t.Fatal("mixcloud setup should not claim a live validation probe")
+	}
+
+	err := spec.extraValidate(map[string]string{"max_items": "bad", "stream_creators": "also bad"})
+	if err == nil || !strings.Contains(err.Error(), "items per view") {
+		t.Fatalf("validation order error = %v, want items per view first", err)
 	}
 }
 

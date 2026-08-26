@@ -47,7 +47,7 @@ eq_preset = "Flat"
 # Saved Custom curve; applied when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-# Default provider on startup: "radio", "navidrome", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "soundcloud", "netease", "audiobookshelf", or a YouTube provider
+# Default provider on startup: "radio", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "soundcloud", "mixcloud", "netease", "audiobookshelf", or a YouTube provider
 # provider = "radio"
 
 # Simplified mode: artist/title and time strip without a visualizer or playlist.
@@ -75,20 +75,19 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Recommended: register your own Spotify Developer app at
 # developer.spotify.com/dashboard with redirect URI
 # http://127.0.0.1:19872/login, then uncomment the section below with
-# your client_id. You get a private Web API rate-limit quota for library
-# and playlist requests. Playback is authorized separately with Spotify's
-# built-in identity, so the first sign-in completes two steps in one tab.
+# your client_id. You get a private Web API rate-limit quota for library,
+# playlist, and search requests. Playback is authorized separately with
+# Spotify's built-in identity, so first sign-in completes two steps in one tab.
 # [spotify]
 # client_id = "your-spotify-app-client-id"
 # bitrate = 320
 #
-# Note: apps registered after Nov 27, 2024 in Development Mode can't use
-# /v1/search (Spotify returns "Invalid limit"). Playback is unaffected.
+# Development Mode limits /v1/search to 10 results per request. cliamp pages
+# automatically with offset, so search works with your own client_id.
 #
 # Alternative: drop client_id to use cliamp's built-in fallback (the
-# librespot keymaster client_id). It still has search access, but the
-# rate-limit quota is shared with every librespot-based client and you
-# may see occasional 429s.
+# librespot keymaster client_id). Its rate-limit quota is shared with every
+# librespot-based client, so you may see occasional 429s.
 
 # ---
 # Qobuz (optional)
@@ -154,6 +153,24 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # browse_sort = alphabeticalByName
 
 # ---
+# Lyrion Music Server / LMS (optional)
+# Only `url` is required; add credentials if the server has password
+# protection enabled. Port 9000 is the LMS default — the same port as its web
+# interface, not the 9090 CLI port.
+# These values take precedence over the LYRION_URL / LYRION_USER /
+# LYRION_PASS environment variables when both are present.
+# [lyrion]
+# url      = "http://nas.local:9000"
+# user     = "alice"
+# password = "secret"
+#
+# Tracks and playlists contributed by LMS plugins (Spotty and similar) are not
+# file-backed, so cliamp cannot stream them and hides them by default. Set this
+# to show them anyway, flagged as unplayable and skipped during playback.
+# See docs/lyrion.md.
+# show_unplayable = true
+
+# ---
 # SoundCloud (optional, opt-in)
 # Off by default. Set `enabled = true` to register the provider; then search,
 # URL playback, and a curated browse list work via yt-dlp. Set `user` to
@@ -163,6 +180,24 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # enabled = true
 # user = "yourname"
 # cookies_from = "firefox"   # chrome, brave, edge, opera, safari, vivaldi…
+
+# ---
+# Mixcloud (optional, opt-in)
+# Public discovery, show search, the live genre catalogue, genre/tag search,
+# creator jumps, and Latest/Popular charts work with enabled=true. Set username
+# for your following stream, profile activity, uploads, read-only show favorites,
+# listening history, collections, and followed-creator browsing. A developer
+# OAuth access_token makes /me the account identity and adds Listen Later.
+# cookies_from is used by yt-dlp for signed-in playback only. styles is the
+# local genre-favorites list; toggle it with [f] in Mixcloud's Genres browser.
+# [mixcloud]
+# enabled = true
+# username = "yourname"
+# access_token = "${MIXCLOUD_ACCESS_TOKEN}"
+# cookies_from = "firefox"   # chrome, brave, edge, chromium, opera, safari, vivaldi, whale…
+# styles = ["ambient", "deep-house", "house", "jazz", "techno"]
+# max_items = 100
+# stream_creators = 20
 
 # ---
 # NetEase Cloud Music (optional, opt-in)

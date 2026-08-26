@@ -1,10 +1,10 @@
 # Streaming
 
-cliamp can play audio from URLs, M3U/PLS playlists, and podcast RSS feeds.
+cliamp plays audio from URLs, M3U/PLS playlists, and podcast RSS feeds.
 
 ## HTTP Streams
 
-Play audio directly from URLs:
+Play audio directly from a URL:
 
 ```sh
 cliamp https://example.com/song.mp3
@@ -12,11 +12,11 @@ cliamp http://radio-station.com/stream.m3u
 cliamp local.mp3 https://example.com/remote.mp3   # mix local + remote
 ```
 
-For non-seekable HTTP streams, the UI shows `● Streaming` with a static seek bar, and seek keys are silently ignored.
+For a non-seekable HTTP stream, the UI shows `● Streaming` and a static seek bar. Seek keys have no effect.
 
 ## PLS Playlists
 
-PLS playlist files are supported alongside M3U:
+cliamp supports PLS playlist files and M3U files:
 
 ```sh
 cliamp https://radio.cliamp.stream/lofi/stream.pls
@@ -24,29 +24,29 @@ cliamp https://radio.cliamp.stream/lofi/stream.pls
 
 ## HLS Streams
 
-HLS playlists (`.m3u8`, master or media) are supported, as used by large broadcasters such as Brazilian RBS/Wowza stations:
+cliamp supports HLS master and media playlists (`.m3u8`). Large broadcasters, such as Brazilian RBS/Wowza stations, use these playlists:
 
 ```sh
 cliamp "https://example.com/live/playlist.m3u8"
 ```
 
-cliamp hands the URL to ffmpeg, which resolves the relative chunklist/segment URIs and follows the live segment window. Requires `ffmpeg` (already needed for AAC/Opus).
+cliamp passes the URL to ffmpeg. ffmpeg resolves relative chunklist and segment URIs and follows the live segment window. This requires `ffmpeg`, which AAC and Opus also require.
 
-Live HLS carries timed metadata rather than inline ICY, so the now-playing track title isn't updated for HLS streams.
+Live HLS uses timed metadata, not inline ICY. cliamp does not update the now-playing track title for HLS streams.
 
 ## Podcasts
 
-Play any podcast by passing its RSS feed URL:
+Play a podcast by passing its RSS feed URL:
 
 ```sh
 cliamp https://example.com/podcast/feed.xml
 ```
 
-Episode titles and the podcast name are extracted from the feed and shown in the playlist.
+cliamp reads episode titles and the podcast name from the feed and shows them in the playlist.
 
 ### Xiaoyuzhou (小宇宙)
 
-Play individual episodes from [Xiaoyuzhou](https://www.xiaoyuzhoufm.com) by passing the episode URL:
+Play an individual [Xiaoyuzhou](https://www.xiaoyuzhoufm.com) episode by passing its URL:
 
 ```sh
 cliamp https://www.xiaoyuzhoufm.com/episode/xxxx
@@ -54,27 +54,27 @@ cliamp https://www.xiaoyuzhoufm.com/episode/xxxx
 
 ## Radio Catalog
 
-Press `R` in the player to browse and search 30,000+ online radio stations from the [Radio Browser](https://www.radio-browser.info/) directory. Use `/` to search by name, `Enter` to play, and `a` to append a station to the playlist.
+Press `R` in the player to browse and search more than 30,000 online radio stations in the [Radio Browser](https://www.radio-browser.info/) directory. Use `/` to search by name, `Enter` to play, and `a` to add a station to the playlist.
 
 ## Track Info
 
-For live radio, cliamp shows the current track from the stream's inline ICY metadata (`StreamTitle`). This works for most stations, in any codec (MP3, AAC, Opus, ...).
+For live radio, cliamp shows the current track from inline ICY metadata (`StreamTitle`). This works for most stations and codecs, including MP3, AAC, and Opus.
 
-Some broadcasters send no inline metadata and publish now-playing through a separate API instead. cliamp pulls those automatically:
+Some broadcasters do not send inline metadata. They publish now-playing data through a separate API. cliamp reads these APIs automatically:
 
 | Station | Source | Shown |
 | --- | --- | --- |
 | FIP (and FIP Jazz, Rock, Groove, Reggae, Electro, Metal, Monde, Nouveautes) | Radio France livemeta API | Artist - Title |
 | NTS 1 / NTS 2 | NTS live API | Current show |
 
-NTS is live DJ radio with no per-track tagging, so it shows the show/host name rather than a song.
+NTS is live DJ radio with no tag for each track. cliamp shows the show or host name, not a song.
 
 ## Load URL at Runtime
 
-Press `u` while playing to load a new stream or playlist URL without restarting. Supports the same URL types as CLI arguments: direct audio URLs, M3U/PLS playlists, RSS podcast feeds, and yt-dlp compatible links.
+Press `u` during playback to load a stream or playlist URL without restarting. It supports the same URL types as CLI arguments: direct audio URLs, M3U/PLS playlists, RSS podcast feeds, and yt-dlp compatible links.
 
 ## Run Your Own Radio Station
 
-Run your own internet radio with [cliamp-server](https://github.com/bjarneo/cliamp-server). Point it at a directory of audio files and it starts broadcasting. Supports multiple stations, live metadata, and on-the-fly transcoding.
+Run an internet radio station with [cliamp-server](https://github.com/bjarneo/cliamp-server). Point it to a directory of audio files to start broadcasting. It supports multiple stations, live metadata, and on-the-fly transcoding.
 
-See also: [playlists.md](playlists.md) for M3U playlist details.
+See [playlists.md](playlists.md) for M3U playlist details.

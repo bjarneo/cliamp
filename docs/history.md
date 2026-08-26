@@ -1,19 +1,18 @@
 # Recently Played
 
-cliamp keeps a local listening history in `~/.config/cliamp/history.toml`. A
-play is recorded once you've listened to a track for at least 50% of its
-duration — the same threshold Last.fm and the Navidrome scrobbler use, so
-skipped tracks never enter the list.
+cliamp stores local listening history in `~/.config/cliamp/history.toml`. It
+records a play after you listen to at least 50% of a track. This is the same
+threshold that Last.fm and the Navidrome scrobbler use. Skipped tracks do not
+enter the list.
 
 ## Browsing in the TUI
 
-Open the **Local Playlists** provider. When at least one play has been
-recorded, a virtual `Recently Played` entry appears at the top of the list.
-Open it like any other playlist — the tracks are listed newest-first. The list
-is read-only: bookmarking, removing tracks, or deleting the playlist itself is
-rejected with a clear error.
+Open the **Local Playlists** provider. After cliamp records at least one play,
+a virtual `Recently Played` entry appears at the top. Open it like any other
+playlist. Tracks are newest first. The list is read-only. cliamp rejects
+bookmark, track removal, and playlist deletion requests with an error.
 
-To clear the list, run `cliamp history clear` (see below).
+To clear the list, run `cliamp history clear`.
 
 ## CLI
 
@@ -25,12 +24,12 @@ cliamp history --json         # machine-readable output
 cliamp history clear          # wipe the history file
 ```
 
-The relative timestamp (`3m ago`, `yesterday`, …) is local time. The JSON
-output uses `played_at` in RFC 3339 UTC for portability.
+The relative timestamp, such as `3m ago` or `yesterday`, uses local time. The
+JSON output uses `played_at` in RFC 3339 UTC for portability.
 
 ## File format
 
-`history.toml` uses the same minimal TOML dialect as cliamp's local playlists:
+`history.toml` uses the same minimal TOML format as cliamp local playlists:
 
 ```toml
 [[entry]]
@@ -43,13 +42,13 @@ year = 1979
 duration_secs = 208
 ```
 
-Entries cap at 200 by default; older plays roll off FIFO. Consecutive replays
-of the same track within 5 minutes update the existing top entry's timestamp
-rather than duplicating it.
+The default limit is 200 entries. cliamp removes older plays in FIFO order.
+Consecutive plays of the same track within 5 minutes update the top entry time
+instead of adding another entry.
 
 ## What is not recorded
 
-- Tracks you skipped before the 50% threshold.
-- Live streams without a known duration (radio stations, ICY streams) — there
-  is no "halfway through" to detect.
-- Tracks with empty paths (defensive guard).
+- Tracks skipped before the 50% threshold.
+- Live streams without a known duration, such as radio stations and ICY streams.
+  cliamp cannot detect their 50% point.
+- Tracks with empty paths. This is a defensive check.

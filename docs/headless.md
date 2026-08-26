@@ -1,6 +1,9 @@
 # Headless Daemon Mode
 
-Run cliamp without a TUI. The daemon listens on the same Unix socket as the interactive player, so playback, library, and V2 remote commands keep working, but nothing renders to the terminal. This is useful when you want a music player you only ever talk to over IPC: from a status bar, a script, a hotkey daemon, or a cron job.
+Run cliamp without a TUI. The daemon listens on the same Unix socket as the
+interactive player. Playback, library, and V2 remote commands work, but cliamp
+does not render a terminal UI. Use this mode to control playback through IPC
+from a status bar, script, hotkey daemon, or cron job.
 
 ```sh
 cliamp --daemon                              # no TUI, IPC only
@@ -9,11 +12,11 @@ cliamp --daemon --auto-play --playlist Lofi  # start playing on launch
 cliamp --daemon ~/Music --auto-play          # auto-play a directory
 ```
 
-Send `SIGINT` or `SIGTERM` to stop. Resume position is saved on graceful shutdown.
+Send `SIGINT` or `SIGTERM` to stop the daemon. cliamp saves the resume position on a graceful shutdown.
 
 ## What works
 
-The daemon exposes the same runtime, library, job, and event IPC surface as the TUI. See [Remote Control](remote-control.md) for the full list:
+The daemon exposes the same runtime, library, job, and event IPC interface as the TUI. See [Remote Control](remote-control.md) for the list:
 
 - Playback: `play`, `pause`, `toggle`, `stop`, `next`, `prev`
 - Position: `seek`, `volume`, `speed`
@@ -26,16 +29,16 @@ The daemon exposes the same runtime, library, job, and event IPC surface as the 
 
 UI-only commands return an error in headless mode:
 
-- `theme` — no UI to apply a theme to
-- `vis` — no visualizer running
+- `theme`: no UI is available for themes
+- `vis`: no visualizer is running
 
-The daemon still wires MPRIS on Linux and NowPlaying on macOS when the platform service is available. You can also wire media keys to `cliamp` subcommands directly (see [Hyprland](#hyprland) below).
+The daemon still enables MPRIS on Linux and NowPlaying on macOS when the platform service is available. You can also bind media keys directly to `cliamp` subcommands. See [Hyprland](#hyprland).
 
 ## Use cases
 
 ### Background music daemon
 
-Start cliamp once at login (e.g. via `~/.config/systemd/user/cliamp.service` or your DE's autostart) and leave it running. Control it from any terminal:
+Start cliamp once at login, for example with `~/.config/systemd/user/cliamp.service` or desktop-environment autostart. Keep it running. Control it from any terminal:
 
 ```sh
 cliamp toggle      # play/pause from anywhere
@@ -43,7 +46,7 @@ cliamp next
 cliamp volume -3
 ```
 
-A minimal systemd user unit:
+Use this minimal systemd user unit:
 
 ```ini
 [Unit]
@@ -63,7 +66,7 @@ systemctl --user enable --now cliamp.service
 
 ### Waybar / Polybar / i3blocks status modules
 
-Poll `cliamp status --json` on an interval, render whatever fields you want.
+Poll `cliamp status --json` at an interval. Render the fields that you need.
 
 **Waybar** (`~/.config/waybar/config`):
 
@@ -91,18 +94,18 @@ click-right = cliamp next
 
 #### Radio stream metadata
 
-A radio station's playlist entry only knows the station name. While a stream is
-playing, `.track` instead reports the now-playing metadata the station itself
-broadcasts inline — the ICY metadata of the SHOUTcast/Icecast protocol:
+A radio station playlist entry only has the station name. During playback,
+`.track` reports the station now-playing metadata. The station sends this data
+inline as SHOUTcast/Icecast ICY metadata:
 
 | Field | Description |
 |-------|-------------|
-| `title` | Current song, from the ICY tag (the station name before any arrives) |
-| `artist` | Current artist, when the ICY tag uses `"Artist - Title"` |
-| `station` | The station's own name, present only once a song replaces `title` |
-| `stream_title` | The raw, unsplit ICY value |
+| `title` | Current song from the ICY tag. Before it arrives, this is the station name. |
+| `artist` | Current artist when the ICY tag uses `"Artist - Title"` |
+| `station` | Station name. Present only after a song replaces `title`. |
+| `stream_title` | Raw, unsplit ICY value |
 
-So a status bar can show the station and the song together:
+A status bar can show the station and song together:
 
 ```sh
 cliamp status --json | jq -r '(.track // {}) | if .station then (if .artist then "\(.station): \(.artist) - \(.title)" else "\(.station): \(.title)" end) else (.title // "") end'
@@ -110,7 +113,7 @@ cliamp status --json | jq -r '(.track // {}) | if .station then (if .artist then
 
 ### Hotkeys (window manager / sxhkd / Hyprland)
 
-Bind your media keys directly to IPC subcommands.
+Bind media keys directly to IPC subcommands.
 
 **Hyprland** (`~/.config/hypr/hyprland.conf`):
 
@@ -156,7 +159,7 @@ done
 
 ### Remote control over SSH
 
-Since the socket lives at `~/.config/cliamp/cliamp.sock` and the CLI talks to it locally, anything that gets you a shell on the host (SSH, tmux session attach) lets you control playback:
+The socket is at `~/.config/cliamp/cliamp.sock`, and the CLI accesses it locally. Get a shell on the host with SSH or tmux session attach to control playback:
 
 ```sh
 ssh kitchen-pi cliamp toggle
@@ -165,7 +168,7 @@ ssh kitchen-pi cliamp status --json
 
 ### Embedded / kiosk audio
 
-Run on a Pi or small Linux box that has no display. The daemon needs no terminal allocation, just a working ALSA/PipeWire/PulseAudio output.
+Run this mode on a Pi or small Linux computer without a display. The daemon needs no terminal allocation. It needs working ALSA, PipeWire, or PulseAudio output.
 
 ```sh
 cliamp --daemon --auto-play http://radio.cliamp.stream/lofi/stream
@@ -173,6 +176,6 @@ cliamp --daemon --auto-play http://radio.cliamp.stream/lofi/stream
 
 ## Notes
 
-- The daemon and TUI share the same Unix socket, so only one cliamp instance can run at a time per user. Starting a second instance refuses to bind.
-- Lua plugins are not loaded in this version of headless mode. They depend on UI hooks that aren't wired up here.
-- Auto-advance has no gapless preloading in headless mode — small inter-track gaps are expected.
+- The daemon and TUI share one Unix socket. Only one cliamp instance can run for a user. A second instance cannot bind to the socket.
+- This version of headless mode does not load Lua plugins. They need UI hooks that this mode does not enable.
+- Headless mode does not preload the next track for gapless playback. Small gaps between tracks are expected.

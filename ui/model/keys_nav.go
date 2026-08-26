@@ -1,6 +1,8 @@
 package model
 
 import (
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/playlist"
@@ -47,6 +49,13 @@ func (m *Model) handleNavBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 				m.navClearSearch()
 			} else {
 				m.navBrowser.searching = true
+				if m.navBrowser.mode == navBrowseModeByAlbum &&
+					m.navBrowser.screen == navBrowseScreenList && !m.navBrowser.albumDone {
+					if ab, ok := m.navBrowser.prov.(provider.AlbumBrowser); ok {
+						m.navBrowser.albumLoading = true
+						return fetchNavRemainingAlbumsCmd(ab, m.navBrowser.sortType, len(m.navBrowser.albums), m.nextNavRequest())
+					}
+				}
 			}
 			return nil
 		}
@@ -61,12 +70,33 @@ func (m *Model) handleNavBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handleNavByArtistKey(msg)
 	case navBrowseModeByArtistAlbum:
 		return m.handleNavByArtistAlbumKey(msg)
+	case navBrowseModeByGenre:
+		return m.handleNavByGenreKey(msg)
 	}
 	return nil
 }
 
+type navMenuItem struct {
+	label string
+	mode  provider.BrowseMode
+}
+
+func (m Model) navMenuItems() []navMenuItem {
+	labels := m.navLabels()
+	items := []navMenuItem{
+		{label: "By " + labels.album, mode: provider.BrowseAlbums},
+		{label: "By " + labels.artist, mode: provider.BrowseArtists},
+		{label: "By " + labels.artist + " / " + labels.album, mode: provider.BrowseArtistAlbums},
+	}
+	if _, ok := m.navBrowser.prov.(provider.GenreBrowser); ok {
+		items = append(items, navMenuItem{label: "Genres", mode: provider.BrowseGenres})
+	}
+	return items
+}
+
 func (m *Model) handleNavMenuKey(msg tea.KeyPressMsg) tea.Cmd {
-	const menuItems = 3
+	menuItems := m.navMenuItems()
+	menuLen := len(menuItems)
 	switch msg.String() {
 	case "ctrl+x":
 		m.toggleExpandedView()
@@ -77,55 +107,18 @@ func (m *Model) handleNavMenuKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "up", "k":
 		if m.navBrowser.cursor > 0 {
 			m.navBrowser.cursor--
-		} else {
-			m.navBrowser.cursor = menuItems - 1
+		} else if menuLen > 0 {
+			m.navBrowser.cursor = menuLen - 1
 		}
 	case "down", "j":
-		if m.navBrowser.cursor < menuItems-1 {
+		if m.navBrowser.cursor < menuLen-1 {
 			m.navBrowser.cursor++
 		} else {
 			m.navBrowser.cursor = 0
 		}
 	case "enter", "l", "right":
-		switch m.navBrowser.cursor {
-		case 0: // By Album
-			ab, ok := m.navBrowser.prov.(provider.AlbumBrowser)
-			if !ok {
-				return nil
-			}
-			m.navBrowser.mode = navBrowseModeByAlbum
-			m.navBrowser.screen = navBrowseScreenList
-			m.navBrowser.cursor = 0
-			m.navBrowser.scroll = 0
-			m.navBrowser.albums = nil
-			m.navBrowser.albumLoading = true
-			m.navBrowser.albumDone = false
-			m.navBrowser.loading = false
-			return fetchNavAlbumListCmd(ab, m.navBrowser.sortType, 0, m.nextNavRequest())
-		case 1: // By Artist
-			ab, ok := m.navBrowser.prov.(provider.ArtistBrowser)
-			if !ok {
-				return nil
-			}
-			m.navBrowser.mode = navBrowseModeByArtist
-			m.navBrowser.screen = navBrowseScreenList
-			m.navBrowser.cursor = 0
-			m.navBrowser.scroll = 0
-			m.navBrowser.artists = nil
-			m.navBrowser.loading = true
-			return fetchNavArtistsCmd(ab, m.nextNavRequest())
-		case 2: // By Artist / Album
-			ab, ok := m.navBrowser.prov.(provider.ArtistBrowser)
-			if !ok {
-				return nil
-			}
-			m.navBrowser.mode = navBrowseModeByArtistAlbum
-			m.navBrowser.screen = navBrowseScreenList
-			m.navBrowser.cursor = 0
-			m.navBrowser.scroll = 0
-			m.navBrowser.artists = nil
-			m.navBrowser.loading = true
-			return fetchNavArtistsCmd(ab, m.nextNavRequest())
+		if m.navBrowser.cursor >= 0 && m.navBrowser.cursor < menuLen {
+			return m.openNavBrowserAt(m.navBrowser.prov, menuItems[m.navBrowser.cursor].mode)
 		}
 	case "esc", "N", "backspace", "b":
 		m.cancelNavRequests()
@@ -164,6 +157,155 @@ func (m *Model) handleNavByArtistAlbumKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handleNavTrackListKey(msg)
 	}
 	return nil
+}
+
+func (m *Model) handleNavByGenreKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch m.navBrowser.screen {
+	case navBrowseScreenList:
+		return m.handleNavGenreListKey(msg)
+	case navBrowseScreenAlbums:
+		return m.handleNavGenreSortKey(msg)
+	case navBrowseScreenTracks:
+		return m.handleNavTrackListKey(msg)
+	}
+	return nil
+}
+
+func (m *Model) handleNavGenreListKey(msg tea.KeyPressMsg) tea.Cmd {
+	listLen := len(m.navBrowser.genres)
+	if m.navBrowser.search != "" {
+		listLen = len(m.navBrowser.searchIdx)
+	}
+
+	switch msg.String() {
+	case "ctrl+c":
+		m.navBrowser.visible = false
+		return m.quit()
+	case "up", "k":
+		if m.navBrowser.cursor > 0 {
+			m.navBrowser.cursor--
+		} else if listLen > 0 {
+			m.navBrowser.cursor = listLen - 1
+		}
+		m.navMaybeAdjustScroll()
+	case "down", "j":
+		if m.navBrowser.cursor < listLen-1 {
+			m.navBrowser.cursor++
+		} else if listLen > 0 {
+			m.navBrowser.cursor = 0
+		}
+		m.navMaybeAdjustScroll()
+	case "enter", "l", "right":
+		genre, ok := m.selectedNavGenre()
+		if m.navBrowser.loading || !ok {
+			return nil
+		}
+		browser, ok := m.navBrowser.prov.(provider.GenreBrowser)
+		if !ok {
+			return nil
+		}
+		m.navBrowser.selGenre = genre
+		m.navBrowser.genreSorts = browser.GenreSortTypes()
+		m.navBrowser.screen = navBrowseScreenAlbums
+		m.navClearSearch()
+	case "f":
+		genre, ok := m.selectedNavGenre()
+		if m.navBrowser.loading || !ok {
+			return nil
+		}
+		browser, ok := m.navBrowser.prov.(provider.GenreFavoriteToggler)
+		if !ok {
+			return nil
+		}
+		favorite, err := browser.ToggleGenreFavorite(genre.ID)
+		if err != nil {
+			m.status.Errorf(statusTTLDefault, "Genre favorite save failed: %s", err)
+			return nil
+		}
+		rawIdx := m.selectedNavRawIndex(len(m.navBrowser.genres))
+		m.navBrowser.genres[rawIdx].Favorite = favorite
+		providerName := m.navBrowser.prov.Name()
+		if favorite {
+			m.status.Showf(statusTTLDefault, "★ Added %s to %s favorites", genre.Name, providerName)
+		} else {
+			m.status.Showf(statusTTLDefault, "☆ Removed %s from %s favorites", genre.Name, providerName)
+		}
+		if m.provider != nil && m.provider == m.navBrowser.prov {
+			return m.fetchProviderPlaylists()
+		}
+	case "esc", "h", "left", "backspace":
+		m.navBackFromRoot()
+	}
+	return nil
+}
+
+func (m *Model) handleNavGenreSortKey(msg tea.KeyPressMsg) tea.Cmd {
+	listLen := len(m.navBrowser.genreSorts)
+	if m.navBrowser.search != "" {
+		listLen = len(m.navBrowser.searchIdx)
+	}
+	switch msg.String() {
+	case "ctrl+c":
+		m.navBrowser.visible = false
+		return m.quit()
+	case "up", "k":
+		if m.navBrowser.cursor > 0 {
+			m.navBrowser.cursor--
+		} else if listLen > 0 {
+			m.navBrowser.cursor = listLen - 1
+		}
+		m.navMaybeAdjustScroll()
+	case "down", "j":
+		if m.navBrowser.cursor < listLen-1 {
+			m.navBrowser.cursor++
+		} else if listLen > 0 {
+			m.navBrowser.cursor = 0
+		}
+		m.navMaybeAdjustScroll()
+	case "enter", "l", "right":
+		if listLen == 0 {
+			return nil
+		}
+		rawIdx := m.selectedNavRawIndex(len(m.navBrowser.genreSorts))
+		if rawIdx < 0 {
+			return nil
+		}
+		browser, ok := m.navBrowser.prov.(provider.GenreBrowser)
+		if !ok {
+			return nil
+		}
+		m.navBrowser.selGenreSort = m.navBrowser.genreSorts[rawIdx]
+		m.navBrowser.loading = true
+		m.navClearSearchKeepingCursor(rawIdx)
+		return fetchNavGenreTracksCmd(browser, m.navBrowser.selGenre.ID, m.navBrowser.selGenreSort.ID, m.nextNavRequest())
+	case "esc", "h", "left", "backspace":
+		m.cancelNavRequests()
+		m.navClearSearch()
+		m.navBrowser.screen = navBrowseScreenList
+	}
+	return nil
+}
+
+func (m Model) selectedNavRawIndex(rawLen int) int {
+	idx := m.navBrowser.cursor
+	if m.navBrowser.search != "" {
+		if idx < 0 || idx >= len(m.navBrowser.searchIdx) {
+			return -1
+		}
+		idx = m.navBrowser.searchIdx[idx]
+	}
+	if idx < 0 || idx >= rawLen {
+		return -1
+	}
+	return idx
+}
+
+func (m Model) selectedNavGenre() (provider.GenreInfo, bool) {
+	idx := m.selectedNavRawIndex(len(m.navBrowser.genres))
+	if idx < 0 {
+		return provider.GenreInfo{}, false
+	}
+	return m.navBrowser.genres[idx], true
 }
 
 // handleNavArtistListKey handles the artist list screen.
@@ -218,13 +360,10 @@ func (m *Model) handleNavArtistListKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.navClearSearch()
 			return fetchNavArtistAlbumsCmd(ab, artist.ID, m.nextNavRequest())
 		}
-		m.navClearSearch()
+		m.navClearSearchKeepingCursor(rawIdx)
 		return m.fetchNavArtistAllTracksCmd(ab, artist.ID)
 	case "esc", "h", "left", "backspace":
-		// Back to menu.
-		m.navClearSearch()
-		m.navBrowser.mode = navBrowseModeMenu
-		m.navBrowser.screen = navBrowseScreenList
+		m.navBackFromRoot()
 	}
 	return nil
 }
@@ -276,7 +415,7 @@ func (m *Model) handleNavAlbumListKey(msg tea.KeyPressMsg, artistAlbums bool) te
 		album := m.navBrowser.albums[rawIdx]
 		m.navBrowser.selAlbum = album
 		m.navBrowser.loading = true
-		m.navClearSearch()
+		m.navClearSearchKeepingCursor(rawIdx)
 		if l, ok := m.navBrowser.prov.(provider.AlbumTrackLoader); ok {
 			return fetchNavAlbumTracksCmd(l, album.ID, m.nextNavRequest())
 		}
@@ -303,14 +442,18 @@ func (m *Model) handleNavAlbumListKey(msg tea.KeyPressMsg, artistAlbums bool) te
 		}
 		return fetchNavAlbumListCmd(ab, m.navBrowser.sortType, 0, m.nextNavRequest())
 	case "esc", "h", "left", "backspace":
-		m.navClearSearch()
 		if artistAlbums {
+			m.cancelNavRequests()
+			m.navClearSearch()
+			if m.navBrowser.directTrackJump {
+				m.navBrowser.directTrackJump = false
+				m.navBrowser.visible = false
+				return nil
+			}
 			// Back to artist list.
 			m.navBrowser.screen = navBrowseScreenList
 		} else {
-			// Back to menu.
-			m.navBrowser.mode = navBrowseModeMenu
-			m.navBrowser.screen = navBrowseScreenList
+			m.navBackFromRoot()
 		}
 	}
 	return nil
@@ -451,6 +594,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 				m.notifyPlayback()
 				return cmd
 			}
+			return m.rearmPreload()
 		}
 	case "esc", "h", "left", "backspace":
 		// Navigate back one level depending on the mode and how we got here.
@@ -463,6 +607,8 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 		case navBrowseModeByArtist:
 			m.navBrowser.screen = navBrowseScreenList
 		case navBrowseModeByArtistAlbum:
+			m.navBrowser.screen = navBrowseScreenAlbums
+		case navBrowseModeByGenre:
 			m.navBrowser.screen = navBrowseScreenAlbums
 		}
 	}
@@ -512,6 +658,20 @@ func (m *Model) handleNavSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case tea.KeyEnter:
 		m.navBrowser.searching = false
+		if m.navBrowser.mode == navBrowseModeByGenre && m.navBrowser.screen == navBrowseScreenList {
+			query := strings.TrimSpace(m.navBrowser.search)
+			searcher, ok := m.navBrowser.prov.(provider.GenreSearcher)
+			if ok && query != "" {
+				m.navBrowser.genreQuery = query
+				m.navBrowser.search = ""
+				m.navBrowser.searchIdx = nil
+				m.navBrowser.genres = nil
+				m.navBrowser.cursor = 0
+				m.navBrowser.scroll = 0
+				m.navBrowser.loading = true
+				return fetchNavGenreSearchCmd(searcher, query, m.nextNavRequest())
+			}
+		}
 		return nil
 	}
 	if msg.Code == tea.KeySpace && msg.Text == "" {
@@ -540,7 +700,7 @@ func navNextSort(s string, types []provider.SortType) string {
 
 // navMaybeAdjustScroll keeps navCursor visible within the rendered list window.
 func (m *Model) navMaybeAdjustScroll() {
-	count := 3 // browse mode menu
+	count := len(m.navMenuItems())
 	switch m.navView() {
 	case navViewArtists:
 		count = len(m.navBrowser.artists)
@@ -548,6 +708,10 @@ func (m *Model) navMaybeAdjustScroll() {
 		count = len(m.navBrowser.albums)
 	case navViewTracks:
 		count = len(m.navBrowser.tracks)
+	case navViewGenres:
+		count = len(m.navBrowser.genres)
+	case navViewGenreSorts:
+		count = len(m.navBrowser.genreSorts)
 	}
 	if m.navBrowser.search != "" {
 		count = len(m.navBrowser.searchIdx)

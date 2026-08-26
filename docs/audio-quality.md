@@ -1,10 +1,10 @@
 # Audio Quality
 
-cliamp lets you tune the output sample rate, speaker buffer size, resample quality, and bit depth via `~/.config/cliamp/config.toml`. The active settings are shown in the `OUT` status line below the EQ.
+Set the output sample rate, speaker buffer size, resample quality, and bit depth in `~/.config/cliamp/config.toml`. The `OUT` status line below the EQ shows the active settings.
 
 ## Configuration
 
-Add any of these to your config file:
+Add these settings to your config file as needed:
 
 ```toml
 # Output sample rate in Hz (22050, 44100, 48000, 96000, 192000)
@@ -20,20 +20,20 @@ resample_quality = 4
 bit_depth = 16
 ```
 
-All four are optional. Defaults are shown above.
+All settings are optional. The defaults are shown above.
 
 ## What they do
 
 | Setting            | Effect                                                                 |
 |--------------------|------------------------------------------------------------------------|
-| `sample_rate`      | Output rate sent to your sound card. 48000 matches most modern DACs.   |
-| `buffer_ms`        | Lower = less latency, higher = fewer glitches. Try 200 if audio pops, or 2000 for unstable radio streams. |
-| `resample_quality` | Sinc interpolation quality when a file's native rate differs from output. 4 is best, 1 is fastest. |
-| `bit_depth`        | PCM precision for FFmpeg-decoded formats (m4a, aac, alac, opus, wma, webm). 32 uses float PCM which preserves up to 24-bit audio without truncation. Native formats (mp3, flac, wav, ogg) always decode at full precision regardless of this setting. |
+| `sample_rate`      | Output rate sent to the sound card. 48000 matches most modern DACs. |
+| `buffer_ms`        | Lower values reduce latency. Higher values reduce glitches. Try 200 if audio pops, or 2000 for unstable radio streams. |
+| `resample_quality` | Sinc interpolation quality when a file rate differs from the output rate. 4 gives the best quality; 1 is fastest. |
+| `bit_depth`        | PCM precision for FFmpeg-decoded formats (m4a, aac, alac, opus, wma, webm). 32 uses float PCM and preserves up to 24-bit audio without truncation. Native formats (mp3, flac, wav, ogg) always decode at full precision. This setting does not affect them. |
 
 ## Quick recipes
 
-**Lossless / hi-res setup** (good DAC, beefy CPU):
+**Lossless / high-resolution setup** (good DAC, high CPU capacity):
 
 ```toml
 sample_rate = 96000
@@ -42,7 +42,7 @@ resample_quality = 4
 bit_depth = 32
 ```
 
-**Low-latency / weak hardware**:
+**Low-latency / low-capacity hardware**:
 
 ```toml
 sample_rate = 44100
@@ -56,12 +56,12 @@ resample_quality = 1
 buffer_ms = 2000
 ```
 
-This adds up to two seconds of playback latency, but gives the audio device more time to absorb short network interruptions.
+This can add up to two seconds of playback latency. It gives the audio device more time to handle short network interruptions.
 
 Live HTTP radio also uses an automatic decoded-audio jitter buffer. If the
-network runs dry, cliamp outputs silence without blocking the UI and waits for
-a short refill before resuming, which avoids rapid sputtering. A source that
-stays slower than its audio bitrate can still have silent gaps because the
-missing audio cannot be reconstructed.
+network has no data, cliamp outputs silence without blocking the UI. It waits
+for a short refill before it resumes. This avoids rapid sound breaks. A source
+that stays slower than its audio bitrate can still have silent gaps. cliamp
+cannot reconstruct missing audio.
 
-Changes take effect on next launch.
+Changes take effect when you next start cliamp.

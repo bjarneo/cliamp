@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -256,5 +257,29 @@ func TestProviderRefreshFailureKeepsExistingLists(t *testing.T) {
 	}
 	if m.provLoading {
 		t.Fatal("provLoading = true after failed refresh, want false")
+	}
+}
+
+func TestProviderPartialRefreshShowsPublicListsAndWarning(t *testing.T) {
+	current := providerPaneBrowseProvider{interactionBrowseProvider{commandsTestProvider{name: "Mixcloud"}}}
+	m := Model{provider: current, provLoading: true}
+	m.requests.provider = 1
+
+	updated, _ := m.Update(playlistsLoadedMsg{
+		providerName: "Mixcloud",
+		gen:          1,
+		playlists:    []playlist.PlaylistInfo{{ID: "recent", Name: "Recent Releases", Section: "Discover"}},
+		err:          errors.New("mixcloud: account views unavailable: User does not exist"),
+	})
+	m = updated.(Model)
+
+	if got := len(m.providerLists); got != 4 {
+		t.Fatalf("provider lists = %+v, want three browse entries and public discovery", m.providerLists)
+	}
+	if m.providerLists[0].Name != "Shows" || m.providerLists[1].Name != "Creators" || m.providerLists[2].Name != "Genres" || m.providerLists[3].Name != "Recent Releases" {
+		t.Fatalf("provider lists = %+v", m.providerLists)
+	}
+	if m.err != nil || m.status.kind != feedbackWarning || !strings.Contains(m.status.text, "account views unavailable") {
+		t.Fatalf("partial refresh state = err:%v status:%+v", m.err, m.status)
 	}
 }

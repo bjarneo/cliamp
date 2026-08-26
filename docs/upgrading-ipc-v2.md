@@ -1,18 +1,18 @@
 # Upgrading IPC Clients To V2
 
-Update raw Unix-socket clients to V2. Named `cliamp` commands already use V2
-and need no script changes.
+Update raw Unix-socket clients to V2. Named `cliamp` commands already use V2,
+so scripts that use them need no changes.
 
 ## Quick Migration
 
-Replace an unversioned command with a V2 envelope. Every V2 request includes
+Replace each unversioned command with a V2 envelope. Each V2 request has
 `version: 2` and a request `id`.
 
 ```json
 {"version":2,"id":"next","method":"operation.submit","operation":"next","params":{}}
 ```
 
-The response returns a job immediately. Read `job.id`, then wait for a terminal
+The response returns a job at once. Read `job.id`. Then wait for a terminal
 `runtime.job` event or call `job.get`.
 
 ```json
@@ -31,17 +31,17 @@ The response returns a job immediately. Read `job.id`, then wait for a terminal
 | `{"cmd":"queue","path":"/music/song.flac"}` | `{"version":2,"id":"queue","method":"operation.submit","operation":"queue","params":{"path":"/music/song.flac"}}` |
 | `{"cmd":"provider.search","provider":"local","query":"ambient"}` | `{"version":2,"id":"search","method":"operation.submit","operation":"provider.search","params":{"provider":"local","query":"ambient"}}` |
 
-`volume` sets an absolute dB value. `seek` is relative to the current playback
-position. Use `seek.absolute` for an absolute position.
+`volume` sets an absolute dB value. `seek` uses the current playback position.
+Use `seek.absolute` for an absolute position.
 
 ## State And Results
 
-`state.get` returns its data in the V2 `snapshot` field. It replaces the old
-top-level status object and includes the active playback track, logical
+`state.get` returns data in the V2 `snapshot` field. It replaces the old
+top-level status object. It includes the active playback track, logical
 playlist track, playback state, position, modes, EQ, theme, device, and
 playlist revisions.
 
-Mutation and provider operations return a job. A terminal job includes:
+Mutation and provider operations return a job. A terminal job has:
 
 - `state`: `succeeded`, `failed`, or `canceled`
 - `result`: operation-specific data such as tracks, devices, lyrics, or output
@@ -50,32 +50,31 @@ Mutation and provider operations return a job. A terminal job includes:
 - `error`: stable `code` and `message`, with an optional diagnostic `detail`
 
 Use `if_revision` for destructive live-playlist and play-next mutations. A
-stale revision fails with `conflict` instead of applying a stale GUI action.
+stale revision fails with `conflict`. cliamp does not apply the stale GUI action.
 
 ## Events
 
 Replace the old subscription request with a V2 subscription. The
-acknowledgement is a V2 response; event lines keep the shared event envelope.
+acknowledgement is a V2 response. Event lines keep the shared event envelope.
 
 ```json
 {"version":2,"id":"events","method":"subscribe","topics":["runtime.state","runtime.job","plugin.example.playback"]}
 ```
 
-Core retained topics are `runtime.state`, `runtime.playback`,
-`runtime.playlist`, and `runtime.settings`. `runtime.job` is transient and
+The core retained topics are `runtime.state`, `runtime.playback`,
+`runtime.playlist`, and `runtime.settings`. `runtime.job` is transient. It
 reports terminal jobs. Plugin topics remain `plugin.*`.
 
-If a stream receives `system.overflow`, reconnect and call `state.get` before
-submitting another mutation.
+If a stream receives `system.overflow`, reconnect. Call `state.get` before you
+submit another mutation.
 
 ## Spectrum Clients
 
-`cliamp visstream` keeps its existing one-frame-per-line NDJSON output. It now
-uses V2 `spectrum.get` internally, so Quickshell and status-bar integrations do
-not need parser changes.
+`cliamp visstream` keeps its one-frame-per-line NDJSON output. It now uses V2
+`spectrum.get` internally. Its parser contract does not change.
 
-Raw clients can issue `spectrum.get` at their preferred bounded frame rate. Use
-one request and response at a time on a connection.
+Raw clients can issue `spectrum.get` at a bounded frame rate. Use one request
+and response at a time on each connection.
 
 ## Client Checklist
 
@@ -87,5 +86,5 @@ one request and response at a time on a connection.
 - Query `capabilities` at startup, especially in daemon mode where theme,
   visualizer selection, and plugins are unavailable.
 
-See [Remote Control](remote-control.md) for the complete V2 operation list and
-error contract.
+See [Remote Control](remote-control.md) for the full V2 operation list and error
+contract.
