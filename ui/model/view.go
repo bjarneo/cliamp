@@ -254,9 +254,10 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 				m.renderTitle(),
 				m.renderTrackInfo(),
 				m.renderTimeStatus(),
+				"",
 			}
 			if m.vis != nil && m.vis.Mode != ui.VisNone {
-				sections = append(sections, "", m.renderSpectrum())
+				sections = append(sections, m.renderSpectrum())
 			}
 			sections = append(sections,
 				m.renderSeekBar(),
