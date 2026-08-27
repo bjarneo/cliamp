@@ -53,6 +53,12 @@ JSON output:
 
 The `theme` block carries the active cliamp theme's resolved hex colors. Empty hex fields mean the default ANSI fallback theme is active.
 
+For a stream (`"stream": true` — radio or any HTTP/HTTPS source), `track` may also
+carry `broadcast_title`: the live now-playing title (e.g. `"Stevie Wonder -
+Superstition"`), sourced from ICY inline metadata or a station-API fallback
+when the stream doesn't send ICY metadata. Omitted when unavailable or the
+current stream has no now-playing info yet.
+
 ## Volume and Seek
 
 ```sh

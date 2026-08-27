@@ -102,6 +102,11 @@ type TrackInfo struct {
 	Realtime      bool   `json:"realtime,omitempty"`
 	Bookmark      bool   `json:"bookmark,omitempty"`
 	Unplayable    bool   `json:"unplayable,omitempty"`
+	// BroadcastTitle is the live now-playing title for a stream (Player.StreamTitle:
+	// ICY inline metadata, or the registered StreamMetadataResolver fallback for
+	// stations without ICY support). Empty for non-stream tracks or when the
+	// current stream has no now-playing info available.
+	BroadcastTitle string `json:"broadcast_title,omitempty"`
 }
 
 type PlaylistInfo struct {
