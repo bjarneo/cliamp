@@ -74,7 +74,7 @@ func (m *Model) recomputeLayout() {
 	} else if simplified {
 		layout.visualizerRows = 0
 		layout.fixedRows = 3
-	} else if m.vis == nil || m.vis.Mode == ui.VisNone {
+	} else if m.visualizerDisabled() {
 		layout.visualizerRows = 0
 		if layout.tier == layoutFull {
 			layout.fixedRows = 10
@@ -110,7 +110,7 @@ func (m *Model) recomputeLayout() {
 			m.vis.Rows = layout.fullVisualizerRows
 		} else {
 			rows := layout.visualizerRows
-			if contentFirst || m.vis.Mode == ui.VisNone {
+			if contentFirst || m.visualizerDisabled() {
 				// Keep the normal canvas size cached while visualizer work is paused
 				// so modes resume with valid dimensions when the layout returns.
 				switch layout.tier {

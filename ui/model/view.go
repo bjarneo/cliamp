@@ -233,7 +233,7 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 				m.renderTrackInfo(),
 				m.renderTimeStatus(),
 			}
-			if m.vis != nil && m.vis.Mode != ui.VisNone {
+			if !m.visualizerDisabled() {
 				sections = append(sections, m.renderSpectrum())
 			}
 			sections = append(sections,
@@ -256,7 +256,7 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 				m.renderTimeStatus(),
 				"",
 			}
-			if m.vis != nil && m.vis.Mode != ui.VisNone {
+			if !m.visualizerDisabled() {
 				sections = append(sections, m.renderSpectrum())
 			}
 			sections = append(sections,
@@ -511,7 +511,7 @@ func (m Model) renderTimeStatus() string {
 }
 
 func (m Model) renderSpectrum() string {
-	if m.vis.Mode == ui.VisNone {
+	if m.visualizerDisabled() {
 		return ""
 	}
 	return m.vis.Render()
