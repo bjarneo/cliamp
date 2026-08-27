@@ -1,7 +1,7 @@
 {
   description = "A retro terminal music player inspired by Winamp";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/master";
 
   outputs =
     { self, nixpkgs }:
