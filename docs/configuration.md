@@ -75,6 +75,12 @@ visualizer = "Bars"
 # even at very low volume levels.
 vis_volume_linked = true
 
+# Visualizer height in rows (default: 5), used at the full layout tier.
+# Extra rows are taken from the playlist below, and the layout caps the value
+# at what the terminal can spare, always leaving one playlist row. Range 1-40.
+# The full screen visualizer (V) is unaffected: it always fills the terminal.
+vis_rows = 5
+
 # Reduce CPU usage by lowering UI cadence and disabling visualization.
 # This has the same effect as starting with --low-power.
 low_power = false
@@ -100,7 +106,7 @@ cliamp adapts its playback screen to the terminal size:
 
 | Terminal size | Layout |
 | --- | --- |
-| At least `80x24` | Full controls, five visualizer rows, and detailed source controls |
+| At least `80x24` | Full controls, five visualizer rows (see `vis_rows`), and detailed source controls |
 | At least `56x16` | Compact controls and three visualizer rows |
 | At least `40x10` | Minimal playback, list, seek bar, and help layout |
 | Smaller than `40x10` | Resize message only |

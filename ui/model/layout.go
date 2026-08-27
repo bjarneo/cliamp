@@ -21,6 +21,7 @@ type frameLayout struct {
 	footerRows         int
 	bodyRows           int
 	visualizerRows     int
+	baseVisualizerRows int
 	fullVisualizerRows int
 }
 
@@ -52,8 +53,15 @@ func (m *Model) recomputeLayout() {
 		layout.tier = layoutTooSmall
 	case width >= 80 && height >= 24:
 		layout.tier = layoutFull
-		layout.visualizerRows = ui.DefaultVisRows
-		layout.fixedRows = 16
+		// fixedRows counts the five default visualizer rows, so extra rows come
+		// straight out of the playlist below.
+		rows := m.visualizerRowsSetting()
+		bodyAtDefault := height - 2*paddingV - 16 - layout.footerRows
+		if extra := rows - ui.DefaultVisRows; extra > 0 {
+			rows = ui.DefaultVisRows + min(extra, max(0, bodyAtDefault-1))
+		}
+		layout.visualizerRows = rows
+		layout.fixedRows = 16 + rows - ui.DefaultVisRows
 	case width >= 56 && height >= 16:
 		layout.tier = layoutCompact
 		layout.visualizerRows = 3
@@ -62,6 +70,7 @@ func (m *Model) recomputeLayout() {
 		layout.tier = layoutMinimal
 		layout.fixedRows = 7
 	}
+	layout.baseVisualizerRows = layout.visualizerRows
 	contentFirst := m.usesContentFirstLayout()
 	simplified := m.usesSimplifiedLayout()
 	if contentFirst {
@@ -106,16 +115,18 @@ func (m *Model) recomputeLayout() {
 			if contentFirst {
 				// Keep the normal canvas size cached while visualizer work is paused
 				// so modes resume with valid dimensions when the layout returns.
-				switch layout.tier {
-				case layoutFull:
-					rows = ui.DefaultVisRows
-				case layoutCompact:
-					rows = 3
-				default:
-					rows = 1
-				}
+				rows = max(1, layout.baseVisualizerRows)
 			}
 			m.vis.Rows = rows
 		}
 	}
+}
+
+// visualizerRowsSetting returns the configured visualizer height at the full
+// layout tier, falling back to the built-in default when unset.
+func (m *Model) visualizerRowsSetting() int {
+	if m.visRows > 0 {
+		return m.visRows
+	}
+	return ui.DefaultVisRows
 }

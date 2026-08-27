@@ -317,6 +317,7 @@ type Model struct {
 	feedLoading bool
 
 	visVolumeLinked bool // when true, visualizer samples are scaled by volume gain
+	visRows         int  // configured visualizer height at the full tier; 0 uses ui.DefaultVisRows
 
 	// Async stream buffering (true while HTTP connect is in progress)
 	buffering   bool

@@ -11,6 +11,11 @@ volume = 0
 # Set to false to keep bars visible at low volumes.
 # vis_volume_linked = true
 
+# Visualizer height in rows on a terminal of at least 80x24 (default: 5).
+# Extra rows come out of the playlist below, and the layout shrinks the value
+# when the terminal cannot spare them. Range 1-40.
+# vis_rows = 5
+
 # Repeat mode: "off", "all", or "one"
 repeat = "off"
 

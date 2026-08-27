@@ -400,6 +400,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	m.SetIPCBroker(pluginBroker)
 	m.SetCustomEQBands(cfg.EQ)
 	m.SetVisVolumeLinked(cfg.VisVolumeLinked)
+	m.SetVisRows(cfg.VisRows)
 	m.SetVisualizer60FPS(visualizer60FPS)
 
 	if luaMgr != nil {

@@ -489,3 +489,36 @@ func assertViewFits(t *testing.T, view string, width, height int) {
 		}
 	}
 }
+
+func TestConfiguredVisualizerRows(t *testing.T) {
+	tests := []struct {
+		name    string
+		width   int
+		height  int
+		visRows int
+		want    int
+	}{
+		{name: "unset keeps the default", width: 120, height: 50, visRows: 0, want: ui.DefaultVisRows},
+		{name: "taller than the default", width: 120, height: 50, visRows: 20, want: 20},
+		{name: "shorter than the default", width: 120, height: 50, visRows: 2, want: 2},
+		{name: "capped by a short terminal", width: 120, height: 24, visRows: 40, want: 9},
+		{name: "compact tier is unaffected", width: 60, height: 16, visRows: 20, want: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newLayoutTestModel(tt.width, tt.height)
+			m.SetVisRows(tt.visRows)
+			if m.vis.Rows != tt.want {
+				t.Fatalf("visualizer rows = %d, want %d", m.vis.Rows, tt.want)
+			}
+			if m.layout.bodyRows < 1 {
+				t.Fatalf("body rows = %d, want at least one", m.layout.bodyRows)
+			}
+			out := m.View().Content
+			if got := lipgloss.Height(out); got > tt.height {
+				t.Fatalf("view height = %d, want <= %d", got, tt.height)
+			}
+		})
+	}
+}
