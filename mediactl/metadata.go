@@ -22,6 +22,7 @@ func makeMetadata(t playback.Track, trackID dbus.ObjectPath) map[string]dbus.Var
 	t.Album = dbusString(t.Album)
 	t.Genre = dbusString(t.Genre)
 	t.URL = dbusString(t.URL)
+	t.ArtURL = dbusString(t.ArtURL)
 
 	m := map[string]dbus.Variant{
 		"mpris:trackid": dbus.MakeVariant(trackID),
