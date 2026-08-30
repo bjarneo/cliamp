@@ -68,14 +68,14 @@ performs the action once the player is up. The desktop entry sets
 register the scheme, because a registered handler lets any web page hand
 cliamp a target with one click. That is worth granting on purpose.
 
-| Platform | What gets written |
-| --- | --- |
-| Linux | `~/.local/share/applications/cliamp-url-handler.desktop` |
-| macOS | `~/Applications/cliamp URL Handler.app` |
-| Windows | `HKCU\Software\Classes\cliamp` |
+Registration is implemented for Linux only. It writes
+`~/.local/share/applications/cliamp-url-handler.desktop` with
+`NoDisplay=true`, so it handles links without adding a second cliamp icon to
+your application menu.
 
-On Linux the entry is `NoDisplay=true`, so it handles links without adding a
-second cliamp icon to your application menu.
+On macOS and Windows, `cliamp protocol register` reports that it is not
+implemented yet. `cliamp open <uri>` works everywhere, so you can still wire
+the scheme up through your platform's own handler settings.
 
 ## What Links Cannot Do
 
@@ -135,6 +135,10 @@ In HTML:
 
 `queue` works with `url` and `q` targets. Queueing a provider album or
 playlist is not supported yet; use `cliamp://play` for those.
+
+`cliamp protocol register` is Linux only for now. macOS needs an app bundle,
+because the OS delivers a URL as an Apple Event rather than as an argument,
+and Windows needs registry keys.
 
 ## See Also
 

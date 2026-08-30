@@ -22,7 +22,7 @@ func TestSchemeMatches(t *testing.T) {
 
 func TestProtocolRoundTrip(t *testing.T) {
 	if runtime.GOOS != "linux" {
-		t.Skipf("registration writes platform-specific state; %s is exercised on its own hosts", runtime.GOOS)
+		t.Skipf("registration is implemented for Linux only; %s returns an unsupported error", runtime.GOOS)
 	}
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir()) // no update-desktop-database or xdg-mime
@@ -85,7 +85,7 @@ func TestProtocolRoundTrip(t *testing.T) {
 // twice or to run defensively.
 func TestProtocolUnregisterWhenAbsent(t *testing.T) {
 	if runtime.GOOS != "linux" {
-		t.Skipf("registration writes platform-specific state; %s is exercised on its own hosts", runtime.GOOS)
+		t.Skipf("registration is implemented for Linux only; %s returns an unsupported error", runtime.GOOS)
 	}
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
@@ -102,7 +102,7 @@ func TestProtocolUnregisterWhenAbsent(t *testing.T) {
 // whenever someone reinstalls cliamp to a new path.
 func TestProtocolRegisterIsIdempotent(t *testing.T) {
 	if runtime.GOOS != "linux" {
-		t.Skipf("registration writes platform-specific state; %s is exercised on its own hosts", runtime.GOOS)
+		t.Skipf("registration is implemented for Linux only; %s returns an unsupported error", runtime.GOOS)
 	}
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
@@ -132,7 +132,7 @@ func TestProtocolRegisterIsIdempotent(t *testing.T) {
 // asserts the common case stays intact and fails loudly if the format changes.
 func TestHandlerEntryUsesAbsoluteExecutable(t *testing.T) {
 	if runtime.GOOS != "linux" {
-		t.Skipf("linux-only entry format")
+		t.Skipf("registration is implemented for Linux only")
 	}
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
@@ -178,7 +178,7 @@ func TestHandlerEntryUsesAbsoluteExecutable(t *testing.T) {
 // TestDesktopExecArgQuoting covers the paths that break an unquoted Exec line.
 func TestDesktopExecArgQuoting(t *testing.T) {
 	if runtime.GOOS != "linux" {
-		t.Skipf("linux-only entry format")
+		t.Skipf("registration is implemented for Linux only")
 	}
 	tests := []struct {
 		path string
