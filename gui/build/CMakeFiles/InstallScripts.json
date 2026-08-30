@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/bjarneo/Code/cliamp/gui/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

@@ -1,0 +1,37 @@
+Start testing: Aug 29 10:38 CEST
+----------------------------------------------------------
+1/1 Testing: cliamp-gui-ipc
+1/1 Test: cliamp-gui-ipc
+Command: "/home/bjarneo/Code/cliamp/gui/build/cliamp-gui-ipc-tests"
+Directory: /home/bjarneo/Code/cliamp/gui/build
+"cliamp-gui-ipc" start time: Aug 29 10:38 CEST
+Output:
+----------------------------------------------------------
+********* Start testing of IpcClientTest *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), omarchy 4.0.0.r1854.g06e32d2
+PASS   : IpcClientTest::initTestCase()
+PASS   : IpcClientTest::readsCorrelatedV2Response()
+PASS   : IpcClientTest::pollsOperationUntilSuccess()
+PASS   : IpcClientTest::propagatesTerminalJobFailure()
+PASS   : IpcClientTest::rejectsMismatchedResponseId()
+PASS   : IpcClientTest::aggregatesQueuePages()
+PASS   : IpcClientTest::loadsDesktopTheme()
+PASS   : IpcClientTest::avoidsIdenticalModelReset()
+PASS   : IpcClientTest::detectsOmarchySession(omarchy path set)
+PASS   : IpcClientTest::detectsOmarchySession(session name)
+PASS   : IpcClientTest::detectsOmarchySession(session name uppercase)
+PASS   : IpcClientTest::detectsOmarchySession(both set)
+PASS   : IpcClientTest::detectsOmarchySession(other desktop)
+PASS   : IpcClientTest::detectsOmarchySession(nothing set)
+PASS   : IpcClientTest::cleanupTestCase()
+Totals: 15 passed, 0 failed, 0 skipped, 0 blacklisted, 371ms
+********* Finished testing of IpcClientTest *********
+<end of output>
+Test time =   0.39 sec
+----------------------------------------------------------
+Test Passed.
+"cliamp-gui-ipc" end time: Aug 29 10:38 CEST
+"cliamp-gui-ipc" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Aug 29 10:38 CEST

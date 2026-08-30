@@ -455,6 +455,7 @@ func extractBrowserCookieHeader(ctx context.Context, browser string) (string, er
 		"--playlist-end", "1",
 		"--socket-timeout", "15",
 		"--print", "title",
+		"--",
 		probeURL,
 	)
 	var stderr strings.Builder

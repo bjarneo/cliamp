@@ -1,0 +1,3 @@
+/home/bjarneo/Code/cliamp/gui/build/cliamp-gui_autogen/include/../UVLADIE3JM/moc_guicontroller.cpp.json
+/home/bjarneo/Code/cliamp/gui/build/cliamp-gui_autogen/include/../UVLADIE3JM/moc_ipcclient.cpp.json
+/home/bjarneo/Code/cliamp/gui/build/cliamp-gui_autogen/include/../UVLADIE3JM/moc_listmodel.cpp.json

@@ -109,7 +109,7 @@ func FetchUserPlaylists(browser string) ([]playlist.PlaylistInfo, error) {
 	if b != "" {
 		args = append(args, "--cookies-from-browser", b)
 	}
-	args = append(args, "https://www.youtube.com/feed/playlists")
+	args = append(args, "--", "https://www.youtube.com/feed/playlists")
 
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 	cmd.WaitDelay = 3 * time.Second

@@ -52,7 +52,10 @@ func probeYTDLDuration(pageURL string) time.Duration {
 	defer cancel()
 	args := []string{"--skip-download", "--no-playlist", "--socket-timeout", "10", "--print", "duration"}
 	args = appendYTDLCookieArgs(args, pageURL)
-	args = append(args, pageURL)
+	// "--" stops yt-dlp parsing pageURL as a flag. Callers gate on
+	// playlist.IsURL, but keep the terminator so a future caller cannot turn
+	// a crafted URL into --exec and reach arbitrary command execution.
+	args = append(args, "--", pageURL)
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 	// WaitDelay ensures cmd.Output() doesn't hang indefinitely if the
 	// process is killed but I/O pipe goroutines haven't drained. Without
@@ -316,7 +319,7 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 		"-o", "-",
 	}
 	ytdlArgs = appendYTDLCookieArgs(ytdlArgs, pageURL)
-	ytdlArgs = append(ytdlArgs, pageURL)
+	ytdlArgs = append(ytdlArgs, "--", pageURL)
 	ytdlCmd := exec.Command("yt-dlp", ytdlArgs...)
 	ytdlCmd.Stdout = pw
 	var ytdlStderr limitedBuffer

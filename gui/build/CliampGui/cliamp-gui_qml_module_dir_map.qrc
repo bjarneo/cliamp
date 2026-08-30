@@ -1,0 +1,6 @@
+<RCC>
+  <qresource prefix="/">
+    <file alias="/qt/qml/CliampGui">/home/bjarneo/Code/cliamp/gui/build/CliampGui</file>
+
+  </qresource>
+</RCC>

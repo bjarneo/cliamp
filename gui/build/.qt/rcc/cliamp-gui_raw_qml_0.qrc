@@ -1,0 +1,14 @@
+<RCC>
+  <qresource prefix="/qt/qml/CliampGui/">
+    <file alias="qml/Main.qml">/home/bjarneo/Code/cliamp/gui/qml/Main.qml</file>
+    <file alias="qml/Theme.qml">/home/bjarneo/Code/cliamp/gui/qml/Theme.qml</file>
+    <file alias="qml/FlatButton.qml">/home/bjarneo/Code/cliamp/gui/qml/FlatButton.qml</file>
+    <file alias="qml/AlbumArt.qml">/home/bjarneo/Code/cliamp/gui/qml/AlbumArt.qml</file>
+    <file alias="qml/SpectrumVisualizer.qml">/home/bjarneo/Code/cliamp/gui/qml/SpectrumVisualizer.qml</file>
+    <file alias="qml/PlaylistView.qml">/home/bjarneo/Code/cliamp/gui/qml/PlaylistView.qml</file>
+    <file alias="qml/EqualizerView.qml">/home/bjarneo/Code/cliamp/gui/qml/EqualizerView.qml</file>
+    <file alias="qml/LibraryView.qml">/home/bjarneo/Code/cliamp/gui/qml/LibraryView.qml</file>
+    <file alias="qml/RadioView.qml">/home/bjarneo/Code/cliamp/gui/qml/RadioView.qml</file>
+  </qresource>
+</RCC>
+

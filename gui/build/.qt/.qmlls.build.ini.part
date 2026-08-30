@@ -1,0 +1,3 @@
+[<SLASH>home<SLASH>bjarneo<SLASH>Code<SLASH>cliamp<SLASH>gui]
+importPaths="/home/bjarneo/Code/cliamp/gui/build:/home/bjarneo/Code/cliamp/gui/build/CliampGui:/usr/lib/qt6/qml"
+resourceFiles="/home/bjarneo/Code/cliamp/gui/build/.qt/rcc/qmake_CliampGui.qrc:/home/bjarneo/Code/cliamp/gui/build/.qt/rcc/cliamp-gui_raw_qml_0.qrc:/home/bjarneo/Code/cliamp/gui/build/.qt/rcc/cliamp-gui_raw_qml_0_extra_qmldirs.qrc"

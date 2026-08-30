@@ -1,0 +1,16 @@
+-I
+/home/bjarneo/Code/cliamp/gui/build
+-I
+/home/bjarneo/Code/cliamp/gui/build/CliampGui
+-I
+/home/bjarneo/Code/cliamp/gui/build
+-I
+/usr/lib/qt6/qml
+--resource
+/home/bjarneo/Code/cliamp/gui/build/.qt/rcc/qmake_CliampGui.qrc
+--resource
+/home/bjarneo/Code/cliamp/gui/build/.qt/rcc/cliamp-gui_raw_qml_0.qrc
+--resource
+/home/bjarneo/Code/cliamp/gui/build/.qt/rcc/cliamp-gui_raw_qml_0_extra_qmldirs.qrc
+--module
+CliampGui

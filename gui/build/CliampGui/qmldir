@@ -1,0 +1,14 @@
+module CliampGui
+typeinfo cliamp-gui.qmltypes
+prefer :/qt/qml/CliampGui/
+Main 254.0 qml/Main.qml
+singleton Theme 254.0 qml/Theme.qml
+FlatButton 254.0 qml/FlatButton.qml
+AlbumArt 254.0 qml/AlbumArt.qml
+SpectrumVisualizer 254.0 qml/SpectrumVisualizer.qml
+PlaylistView 254.0 qml/PlaylistView.qml
+EqualizerView 254.0 qml/EqualizerView.qml
+LibraryView 254.0 qml/LibraryView.qml
+RadioView 254.0 qml/RadioView.qml
+depends QtQuick
+

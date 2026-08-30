@@ -1,0 +1,15 @@
+--resource
+/home/bjarneo/Code/cliamp/gui/build/.qt/rcc/qmake_CliampGui.qrc
+--resource
+/home/bjarneo/Code/cliamp/gui/build/.qt/rcc/cliamp-gui_raw_qml_0.qrc
+--resource
+/home/bjarneo/Code/cliamp/gui/build/.qt/rcc/cliamp-gui_raw_qml_0_extra_qmldirs.qrc
+/qt/qml/CliampGui/qml/Main.qml
+/qt/qml/CliampGui/qml/Theme.qml
+/qt/qml/CliampGui/qml/FlatButton.qml
+/qt/qml/CliampGui/qml/AlbumArt.qml
+/qt/qml/CliampGui/qml/SpectrumVisualizer.qml
+/qt/qml/CliampGui/qml/PlaylistView.qml
+/qt/qml/CliampGui/qml/EqualizerView.qml
+/qt/qml/CliampGui/qml/LibraryView.qml
+/qt/qml/CliampGui/qml/RadioView.qml

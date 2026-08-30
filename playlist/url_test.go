@@ -21,6 +21,12 @@ func TestIsURL(t *testing.T) {
 		{"", false},
 		{"ftp://files.example.com/song.mp3", false},
 		{"spotify:track:abc123", false},
+		// Flag-shaped inputs must never classify as URLs: everything that does
+		// reaches yt-dlp as a positional argument.
+		{"--exec=touch /tmp/pwned", false},
+		{"-o/tmp/out", false},
+		{"--config-location=/tmp/evil.conf", false},
+		{"--ytsearch:x", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {

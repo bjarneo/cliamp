@@ -694,7 +694,7 @@ func resolveYTDLRangePageContext(ctx context.Context, pageURL string, start, end
 	if end > 0 {
 		args = append(args, "--playlist-end", strconv.Itoa(end))
 	}
-	args = append(args, pageURL)
+	args = append(args, "--", pageURL)
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 	cmd.WaitDelay = 3 * time.Second
 	var stderr strings.Builder
@@ -776,7 +776,7 @@ func DownloadYTDL(pageURL, saveDir string) (string, error) {
 	if browser := ytdlcookies.ForURL(pageURL); browser != "" {
 		args = append(args, "--cookies-from-browser", browser)
 	}
-	args = append(args, pageURL)
+	args = append(args, "--", pageURL)
 	cmd := exec.Command("yt-dlp", args...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr

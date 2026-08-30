@@ -1,0 +1,15 @@
+-rootPath
+/home/bjarneo/Code/cliamp/gui
+-cmake-output
+-output-file
+/home/bjarneo/Code/cliamp/gui/build/.qt/qml_imports/cliamp-gui_build.cmake
+-importPath
+/home/bjarneo/Code/cliamp/gui/build
+-importPath
+/home/bjarneo/Code/cliamp/gui/build/CliampGui
+-importPath
+/usr/lib/qt6/qml
+-qrcFiles
+/home/bjarneo/Code/cliamp/gui/build/.qt/rcc/qmake_CliampGui.qrc
+/home/bjarneo/Code/cliamp/gui/build/.qt/rcc/cliamp-gui_raw_qml_0.qrc
+/home/bjarneo/Code/cliamp/gui/build/.qt/rcc/cliamp-gui_raw_qml_0_extra_qmldirs.qrc

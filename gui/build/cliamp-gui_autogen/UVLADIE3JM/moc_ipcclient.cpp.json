@@ -1,0 +1,19 @@
+{
+    "classes": [
+        {
+            "className": "IpcClient",
+            "final": true,
+            "lineNumber": 8,
+            "object": true,
+            "qualifiedClassName": "IpcClient",
+            "superClasses": [
+                {
+                    "access": "public",
+                    "name": "QObject"
+                }
+            ]
+        }
+    ],
+    "inputFile": "ipcclient.h",
+    "outputRevision": 69
+}
