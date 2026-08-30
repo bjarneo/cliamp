@@ -206,6 +206,7 @@ func TestV2KeymapFollowsActiveScreen(t *testing.T) {
 	}
 }
 
+// countRows counts selectable overlay rows, skipping section dividers.
 func countRows(entries []keymapEntry) int {
 	n := 0
 	for _, entry := range entries {

@@ -89,6 +89,8 @@ type ipcV2ResponseMsg struct {
 	Response  ipc.Response
 }
 
+// handleV2Request serves a V2 request on the update loop: read methods reply
+// immediately, operations run under their job.
 func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 	switch strings.ToLower(strings.TrimSpace(msg.Request.Method)) {
 	case "state.get":
@@ -528,6 +530,7 @@ func (m *Model) replyV2(reply chan V2RequestResult, result ipc.V2Result, err *ip
 	}
 }
 
+// runtimeSnapshot captures the state.get view of the model.
 func (m *Model) runtimeSnapshot() ipc.RuntimeSnapshot {
 	snapshot := ipc.RuntimeSnapshot{}
 	if m.ipcRuntime != nil {

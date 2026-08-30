@@ -86,6 +86,7 @@ var commandModeIDs = map[commandMode]string{
 	commandModeRadioStats:           "radio_stats",
 }
 
+// id returns the stable name used for the IPC screen field.
 func (mode commandMode) id() string {
 	if id, ok := commandModeIDs[mode]; ok {
 		return id

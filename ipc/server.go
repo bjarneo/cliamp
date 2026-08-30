@@ -373,6 +373,8 @@ func isV2Subscribe(req V2Request) bool {
 	return strings.EqualFold(req.Method, "subscribe") || strings.EqualFold(req.Operation, "subscribe")
 }
 
+// dispatchV2 routes one V2 request: server-side methods (capabilities, jobs)
+// are answered here, reads and operations go to the runtime owner.
 func (s *Server) dispatchV2(req V2Request) V2Response {
 	response := V2Response{ID: cloneRawMessage(req.ID)}
 	method := strings.ToLower(strings.TrimSpace(req.Method))

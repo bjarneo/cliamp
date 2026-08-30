@@ -595,6 +595,8 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	return nil
 }
 
+// newTUIV2Dispatcher routes V2 requests into the Bubbletea program: reads are
+// answered inline, everything else becomes a job the update loop works off.
 func newTUIV2Dispatcher(prog *tea.Program, jobs *ipc.JobStore, plugins *luaplugin.Manager) ipc.V2Dispatcher {
 	return ipc.V2DispatcherFunc(func(ctx context.Context, request ipc.V2Request) (ipc.V2Result, *ipc.V2Error) {
 		if request.Operation == "runtime.snapshot" || request.Operation == "runtime.status" {
@@ -783,6 +785,8 @@ func ipcState() (ipc.RuntimeSnapshot, error) {
 	return *response.Snapshot, nil
 }
 
+// stateResult flattens a V2 snapshot into the legacy Response shape that
+// `cliamp status` prints.
 func stateResult(snapshot ipc.RuntimeSnapshot) ipc.Response {
 	return ipc.Response{
 		OK:         true,
@@ -806,6 +810,7 @@ func stateResult(snapshot ipc.RuntimeSnapshot) ipc.Response {
 	}
 }
 
+// ipcKeymap asks the running instance for the keymap of its current screen.
 func ipcKeymap() ([]ipc.KeymapEntry, error) {
 	response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{ID: json.RawMessage(`"cliamp"`), Method: "keymap.get"})
 	if err != nil {

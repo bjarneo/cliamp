@@ -666,6 +666,8 @@ func ipcSimpleCommand(name, usage string) *cli.Command {
 	}
 }
 
+// keymapCommand prints the keys that apply on the running TUI's current
+// screen, grouped by section, as text or JSON.
 func keymapCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "keymap",
