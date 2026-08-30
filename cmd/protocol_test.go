@@ -150,12 +150,52 @@ func TestHandlerEntryUsesAbsoluteExecutable(t *testing.T) {
 		t.Fatalf("reading the handler entry: %v", err)
 	}
 	for _, line := range strings.Split(string(entry), "\n") {
-		if after, ok := strings.CutPrefix(line, "Exec="); ok {
-			if !filepath.IsAbs(strings.Fields(after)[0]) {
-				t.Errorf("Exec line %q does not start with an absolute path", line)
-			}
-			return
+		after, ok := strings.CutPrefix(line, "Exec=")
+		if !ok {
+			continue
 		}
+		// The path is quoted so an install directory containing a space
+		// still parses as one argument.
+		if !strings.HasPrefix(after, `"`) {
+			t.Errorf("Exec line %q does not quote the executable", line)
+		}
+		quoted, rest, ok := strings.Cut(strings.TrimPrefix(after, `"`), `"`)
+		if !ok {
+			t.Fatalf("Exec line %q has an unterminated quote", line)
+		}
+		if !filepath.IsAbs(quoted) {
+			t.Errorf("Exec line %q does not use an absolute path", line)
+		}
+		// Field codes must sit outside the quotes to be expanded.
+		if strings.TrimSpace(rest) != "open %u" {
+			t.Errorf("Exec line %q does not end with an unquoted `open %%u`", line)
+		}
+		return
 	}
 	t.Errorf("handler entry has no Exec line:\n%s", entry)
+}
+
+// TestDesktopExecArgQuoting covers the paths that break an unquoted Exec line.
+func TestDesktopExecArgQuoting(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skipf("linux-only entry format")
+	}
+	tests := []struct {
+		path string
+		want string
+	}{
+		{"/usr/bin/cliamp", `"/usr/bin/cliamp"`},
+		{"/home/a b/cliamp", `"/home/a b/cliamp"`},
+		{"/home/a\"b/cliamp", "\"/home/a\\\"b/cliamp\""},
+		{`/home/a\b/cliamp`, `"/home/a\\b/cliamp"`},
+		{"/home/a$b/cliamp", `"/home/a\$b/cliamp"`},
+		{"/home/a`b/cliamp", "\"/home/a\\`b/cliamp\""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			if got := desktopExecArg(tt.path); got != tt.want {
+				t.Errorf("desktopExecArg(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
 }

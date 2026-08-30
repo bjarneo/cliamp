@@ -173,6 +173,13 @@ func dispatchDeepLinkSearch(action deeplink.Action, play bool) error {
 	if len(response.Tracks) == 0 {
 		return fmt.Errorf("%s has no match for %q", action.Provider, action.Query)
 	}
+	// track.play hands the path straight to playback, bypassing resolve, so
+	// the allowlist is applied here instead. The radio directory is public and
+	// its entries are filtered at ingest; this keeps the guarantee even for a
+	// provider added later that forwards a URL it did not construct.
+	if path := response.Tracks[0].Path; !deeplink.AllowsTrackPath(path) {
+		return fmt.Errorf("%s returned a result a cliamp:// link may not play: %q", action.Provider, path)
+	}
 
 	operation := "track.queue"
 	if play {

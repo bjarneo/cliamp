@@ -34,6 +34,18 @@ MimeType=x-scheme-handler/%s;
 Categories=Audio;Music;Player;AudioVideo;
 `
 
+// desktopExecArg renders a path as a single Exec argument.
+//
+// The Desktop Entry spec splits Exec on whitespace, so an unquoted path
+// containing a space becomes two arguments and the link silently fails to
+// open with no diagnostic anywhere. Quoting is valid for any argument, and
+// inside quotes the spec requires ", `, $ and \ to be escaped. Field codes
+// such as %u must stay outside the quotes, which they do.
+func desktopExecArg(path string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "`", "\\`", `$`, `\$`)
+	return `"` + replacer.Replace(path) + `"`
+}
+
 func applicationsDir() (string, error) {
 	base := strings.TrimSpace(os.Getenv("XDG_DATA_HOME"))
 	if base == "" {
@@ -63,7 +75,7 @@ func registerHandler(exe string) (string, error) {
 		return "", fmt.Errorf("creating %s: %w", dir, err)
 	}
 	path := filepath.Join(dir, desktopFileName)
-	entry := fmt.Sprintf(desktopEntry, exe, SchemeName)
+	entry := fmt.Sprintf(desktopEntry, desktopExecArg(exe), SchemeName)
 	if err := os.WriteFile(path, []byte(entry), 0o644); err != nil {
 		return "", fmt.Errorf("writing %s: %w", path, err)
 	}

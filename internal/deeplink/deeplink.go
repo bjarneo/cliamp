@@ -295,7 +295,64 @@ func validateURL(raw string) (string, error) {
 	if u.User != nil {
 		return "", errors.New("url must not carry credentials")
 	}
+
+	// Normalize the scheme to lowercase. url.Parse lowercases u.Scheme, but
+	// the checks downstream compare a literal "https://" prefix against the
+	// raw string, so returning "HTTPS://host/a.mp3" unchanged would be
+	// accepted here and then treated as a local file path by resolve. Layers
+	// that disagree about what a value is are how a validated input turns
+	// back into an unvalidated one.
+	if scheme, rest, ok := strings.Cut(raw, ":"); ok && scheme != strings.ToLower(scheme) {
+		raw = strings.ToLower(scheme) + ":" + rest
+	}
 	return raw, nil
+}
+
+// dangerousTrackSchemes name the transports a link must not reach through a
+// provider's answer.
+//
+// "ssh" is the one that matters: player.openSource routes an ssh:// path to
+// exec.Command("ssh", ...) against the host named in it, so whoever chose the
+// path chooses a host the user connects to. The rest only ever fail to
+// decode, but a provider has no legitimate reason to return one.
+var dangerousTrackSchemes = map[string]bool{
+	"ssh":        true,
+	"file":       true,
+	"data":       true,
+	"javascript": true,
+}
+
+// AllowsTrackPath reports whether a track a provider resolved on behalf of a
+// link may be played.
+//
+// This is deliberately looser than the http-only rule applied to a url=
+// target. A provider answers with its own native paths, and some are not URLs
+// at all: Spotify returns "spotify:track:...", which player.pipeline hands to
+// a registered streamer before openSource is ever consulted. Refusing those
+// would break a legitimate search link for no gain, because the provider
+// built the path rather than forwarding a stranger's.
+//
+// What it refuses is a path that reaches the ssh client or the local
+// filesystem. A path with no scheme is opened with os.Open, which would let a
+// link probe for files through decode behavior.
+func AllowsTrackPath(path string) bool {
+	path = strings.TrimSpace(path)
+	if path == "" || strings.HasPrefix(path, "-") {
+		return false
+	}
+	if err := rejectUnprintable("track path", path); err != nil {
+		return false
+	}
+	u, err := url.Parse(path)
+	if err != nil {
+		return false
+	}
+	// A one-character scheme is a Windows drive letter ("C:\music\a.mp3"),
+	// which is a local path rather than a transport.
+	if len(u.Scheme) < 2 {
+		return false
+	}
+	return !dangerousTrackSchemes[strings.ToLower(u.Scheme)]
 }
 
 // validateProvider requires a bare lowercase identifier. Provider keys are

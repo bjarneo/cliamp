@@ -97,6 +97,14 @@ chooses its contents. The handler is built around that.
 - **Entries from remote playlists are filtered.** When a link points at an
   `.m3u` or `.pls`, entries naming a scheme other than `http` or `https` are
   dropped, so the playlist's author cannot pick which program cliamp runs.
+- **Third-party directory entries are filtered.** The radio catalog comes from
+  Radio Browser, a public directory that accepts submissions from anyone.
+  Station URLs that are not `http` or `https` are dropped when they are
+  fetched, so a submitted station cannot name a transport.
+- **Provider results are re-checked.** A `q` search plays what the provider
+  returns, so that path is checked again before playback. A provider's own
+  URIs are fine (Spotify returns `spotify:track:...`), but a result naming
+  the `ssh` transport or a local file is refused.
 
 Private and loopback addresses are allowed on purpose: streaming from a
 Navidrome or Jellyfin server on your own network is the common case.

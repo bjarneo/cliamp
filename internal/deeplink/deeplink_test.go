@@ -83,6 +83,25 @@ func TestParseValid(t *testing.T) {
 			want: Action{Verb: Play, Target: TargetAlbum, Provider: "sub-sonic2", Album: "x"},
 		},
 		{
+			// url.Parse lowercases the scheme it reports, but resolve compares
+			// a literal "https://" prefix. Parse must hand back a string both
+			// layers agree on.
+			name: "uppercase scheme is normalized",
+			uri:  "cliamp://play?url=HTTPS%3A%2F%2Fexample.com%2Fa.mp3",
+			want: Action{Verb: Play, Target: TargetURL, URL: "https://example.com/a.mp3"},
+		},
+		{
+			name: "mixed case scheme is normalized",
+			uri:  "cliamp://play?url=HtTpS%3A%2F%2Fexample.com%2Fa.mp3",
+			want: Action{Verb: Play, Target: TargetURL, URL: "https://example.com/a.mp3"},
+		},
+		{
+			// Only the scheme is lowercased; a path is case-sensitive.
+			name: "path case is preserved",
+			uri:  "cliamp://play?url=HTTPS%3A%2F%2Fexample.com%2FMixedCase.mp3",
+			want: Action{Verb: Play, Target: TargetURL, URL: "https://example.com/MixedCase.mp3"},
+		},
+		{
 			name: "surrounding whitespace is tolerated",
 			uri:  "  cliamp://play?url=https://example.com/a.mp3  ",
 			want: Action{Verb: Play, Target: TargetURL, URL: "https://example.com/a.mp3"},
@@ -251,5 +270,79 @@ func TestParseRoundTripsVerbs(t *testing.T) {
 		if got.Verb != verb {
 			t.Errorf("Parse(%q).Verb = %v, want %v", uri, got.Verb, verb)
 		}
+	}
+}
+
+// TestAllowsTrackPath covers the second gate, applied to a path a provider
+// resolved rather than one the URI carried. The radio directory is public, so
+// a search result is not automatically safe to hand to playback.
+func TestAllowsTrackPath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{"https stream", "https://stream.example/live.mp3", true},
+		{"http stream", "http://stream.example/live.mp3", true},
+		{"lan stream", "http://192.168.1.10:4533/rest/stream", true},
+		{"surrounding whitespace", "  https://stream.example/live.mp3  ", true},
+		{"uppercase scheme", "HTTPS://stream.example/live.mp3", true},
+		// Provider-native URIs reach a registered streamer in
+		// player.pipeline before openSource is consulted, so refusing them
+		// would break a legitimate search link.
+		{"spotify uri", "spotify:track:abc123", true},
+
+		// player.openSource routes this to exec.Command("ssh", ...) against
+		// the host in the path. This is the case the gate exists for.
+		{"ssh transport", "ssh://attacker.example/x", false},
+		{"ssh uppercase", "SSH://attacker.example/x", false},
+		// Opened with os.Open.
+		{"absolute local path", "/etc/shadow", false},
+		{"relative local path", "music/a.mp3", false},
+		{"windows drive path", `C:\music\a.mp3`, false},
+		{"file url", "file:///etc/passwd", false},
+		{"data url", "data:audio/mp3,AAAA", false},
+		{"javascript url", "javascript:alert(1)", false},
+		{"flag shaped", "--exec=whoami", false},
+		{"empty", "", false},
+		{"control character", "https://e.com/a\x00b", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := AllowsTrackPath(tt.path); got != tt.want {
+				t.Errorf("AllowsTrackPath(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestParsedURLsAreAcceptedDownstream is the invariant that ties the two
+// layers together: anything Parse accepts as a URL target must also satisfy
+// the http/https prefix test that resolve and playback apply to a track path.
+// A disagreement here means a value validated as a URL gets handled as a
+// local path further in.
+func TestParsedURLsAreAcceptedDownstream(t *testing.T) {
+	uris := []string{
+		"cliamp://play?url=https://example.com/a.mp3",
+		"cliamp://play?url=HTTPS%3A%2F%2Fexample.com%2Fa.mp3",
+		"cliamp://play?url=HtTp%3A%2F%2Fexample.com%2Fa.mp3",
+		"cliamp://queue?url=http://localhost:4533/s.mp3",
+	}
+	for _, uri := range uris {
+		t.Run(uri, func(t *testing.T) {
+			action, err := Parse(uri)
+			if err != nil {
+				t.Fatalf("Parse(%q): %v", uri, err)
+			}
+			if !strings.HasPrefix(action.URL, "http://") && !strings.HasPrefix(action.URL, "https://") {
+				t.Errorf("Parse(%q).URL = %q, which downstream prefix checks reject", uri, action.URL)
+			}
+			if !AllowsTrackPath(action.URL) {
+				t.Errorf("Parse(%q).URL = %q, which AllowsTrackPath rejects", uri, action.URL)
+			}
+			if _, err := validateURL(action.URL); err != nil {
+				t.Errorf("Parse(%q).URL = %q, which validateURL rejects: %v", uri, action.URL, err)
+			}
+		})
 	}
 }

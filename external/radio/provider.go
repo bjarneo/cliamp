@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -167,6 +168,7 @@ func (p *Provider) Tracks(id string) ([]playlist.Track, error) {
 
 // AppendCatalog adds catalog stations fetched from the Radio Browser API.
 func (p *Provider) AppendCatalog(stations []CatalogStation) {
+	stations = streamableStations(stations)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	seen := make(map[string]struct{}, len(p.catalog)+len(stations))
@@ -224,9 +226,38 @@ func (p *Provider) ToggleFavorite(id string) (added bool, name string, err error
 // SetSearchResults activates search mode with the given results.
 // Playlists() will return search results instead of catalog stations.
 func (p *Provider) SetSearchResults(stations []CatalogStation) {
+	stations = streamableStations(stations)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.searchResults = stations
+}
+
+// streamableStations drops directory entries whose URL is not http or https.
+//
+// Radio Browser is a public directory: anyone can submit a station with any
+// url_resolved value, and that string becomes a playlist.Track.Path that
+// playback dispatches on. An "ssh://" path reaches exec.Command("ssh", ...)
+// against the submitter's host, and a bare filesystem path is opened as a
+// local file. A station is by definition a network stream, so nothing
+// legitimate is lost by requiring one here.
+//
+// Local stations from radios.toml are not filtered: that file is the user's
+// own, and it carries the trust of anything else they type.
+func streamableStations(stations []CatalogStation) []CatalogStation {
+	filtered := make([]CatalogStation, 0, len(stations))
+	for _, station := range stations {
+		u, err := url.Parse(strings.TrimSpace(station.URL))
+		if err != nil {
+			continue
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "http", "https":
+			if u.Host != "" {
+				filtered = append(filtered, station)
+			}
+		}
+	}
+	return filtered
 }
 
 // ClearSearch deactivates search mode, restoring the catalog view.
