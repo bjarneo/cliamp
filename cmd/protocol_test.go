@@ -1,0 +1,161 @@
+package cmd
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/bjarneo/cliamp/internal/deeplink"
+)
+
+// TestSchemeMatches keeps the registered scheme and the parsed scheme in step.
+// They live in different packages, and a mismatch would register a handler for
+// links that `cliamp open` then refuses.
+func TestSchemeMatches(t *testing.T) {
+	if SchemeName != deeplink.Scheme {
+		t.Errorf("SchemeName = %q, deeplink.Scheme = %q; they must match", SchemeName, deeplink.Scheme)
+	}
+}
+
+func TestProtocolRoundTrip(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skipf("registration writes platform-specific state; %s is exercised on its own hosts", runtime.GOOS)
+	}
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir()) // no update-desktop-database or xdg-mime
+
+	var out bytes.Buffer
+	if _, registered, err := handlerStatus(); err != nil || registered {
+		t.Fatalf("status before register = (%v, %v), want (false, nil)", registered, err)
+	}
+	if err := ProtocolStatus(&out); err != nil {
+		t.Fatalf("ProtocolStatus: %v", err)
+	}
+	if !strings.Contains(out.String(), "is not registered") {
+		t.Errorf("status output = %q, want it to report an unregistered scheme", out.String())
+	}
+
+	out.Reset()
+	if err := ProtocolRegister(&out); err != nil {
+		t.Fatalf("ProtocolRegister: %v", err)
+	}
+	path, registered, err := handlerStatus()
+	if err != nil || !registered {
+		t.Fatalf("status after register = (%v, %v), want (true, nil)", registered, err)
+	}
+
+	entry, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading the handler entry: %v", err)
+	}
+	body := string(entry)
+	for _, want := range []string{
+		"MimeType=x-scheme-handler/cliamp;",
+		" open %u",
+		"Terminal=true",
+		"NoDisplay=true",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("handler entry is missing %q:\n%s", want, body)
+		}
+	}
+	// %u passes a single URL. %U would pass a list, and the open command
+	// takes exactly one argument.
+	if strings.Contains(body, "%U") {
+		t.Errorf("handler entry uses %%U, want %%u:\n%s", body)
+	}
+
+	out.Reset()
+	if err := ProtocolUnregister(&out); err != nil {
+		t.Fatalf("ProtocolUnregister: %v", err)
+	}
+	if _, registered, _ := handlerStatus(); registered {
+		t.Error("scheme still registered after unregister")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("handler entry still present after unregister: %v", err)
+	}
+}
+
+// TestProtocolUnregisterWhenAbsent confirms removing a registration that was
+// never made is a no-op rather than an error, so the command is safe to run
+// twice or to run defensively.
+func TestProtocolUnregisterWhenAbsent(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skipf("registration writes platform-specific state; %s is exercised on its own hosts", runtime.GOOS)
+	}
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	var out bytes.Buffer
+	if err := ProtocolUnregister(&out); err != nil {
+		t.Fatalf("ProtocolUnregister on an unregistered scheme: %v", err)
+	}
+	if !strings.Contains(out.String(), "nothing to do") {
+		t.Errorf("output = %q, want it to report nothing to do", out.String())
+	}
+}
+
+// TestProtocolRegisterIsIdempotent covers re-running register, which happens
+// whenever someone reinstalls cliamp to a new path.
+func TestProtocolRegisterIsIdempotent(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skipf("registration writes platform-specific state; %s is exercised on its own hosts", runtime.GOOS)
+	}
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+
+	var out bytes.Buffer
+	for i := range 2 {
+		if err := ProtocolRegister(&out); err != nil {
+			t.Fatalf("ProtocolRegister call %d: %v", i+1, err)
+		}
+	}
+	dir, err := applicationsDir()
+	if err != nil {
+		t.Fatalf("applicationsDir: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading %s: %v", dir, err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("registering twice produced %d entries, want 1", len(entries))
+	}
+}
+
+// TestHandlerEntryEscapesNothingUnexpected documents that the executable path
+// is interpolated into a Desktop Entry Exec line verbatim. Desktop files have
+// their own quoting rules, so a path with a space would need escaping; this
+// asserts the common case stays intact and fails loudly if the format changes.
+func TestHandlerEntryUsesAbsoluteExecutable(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skipf("linux-only entry format")
+	}
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+
+	var out bytes.Buffer
+	if err := ProtocolRegister(&out); err != nil {
+		t.Fatalf("ProtocolRegister: %v", err)
+	}
+	path, _, err := handlerStatus()
+	if err != nil {
+		t.Fatalf("handlerStatus: %v", err)
+	}
+	entry, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading the handler entry: %v", err)
+	}
+	for _, line := range strings.Split(string(entry), "\n") {
+		if after, ok := strings.CutPrefix(line, "Exec="); ok {
+			if !filepath.IsAbs(strings.Fields(after)[0]) {
+				t.Errorf("Exec line %q does not start with an absolute path", line)
+			}
+			return
+		}
+	}
+	t.Errorf("handler entry has no Exec line:\n%s", entry)
+}

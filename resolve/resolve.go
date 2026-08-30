@@ -486,7 +486,7 @@ func resolveM3U(m3uURL string) ([]playlist.Track, error) {
 	if err != nil {
 		return nil, err
 	}
-	return entriesToTracks(entries), nil
+	return filterRemoteEntries(entriesToTracks(entries)), nil
 }
 
 // resolvePLS fetches a PLS playlist URL and returns tracks.
@@ -516,7 +516,7 @@ func resolvePLS(plsURL string) ([]playlist.Track, error) {
 	if err != nil {
 		return nil, err
 	}
-	return plsEntriesToTracks(entries), nil
+	return filterRemoteEntries(plsEntriesToTracks(entries)), nil
 }
 
 // isHLSPlaylist reports whether an M3U body is an HLS playlist (master or media)

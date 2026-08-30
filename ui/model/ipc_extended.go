@@ -49,11 +49,24 @@ func (m *Model) handleIPCURLResult(result ipcURLLoadResult) tea.Cmd {
 		result.request.Reply <- ipc.Response{OK: false, Error: "no tracks found at URL"}
 		return nil
 	}
+	// A Play request jumps to the first newly added track, so a caller that
+	// asked to play a URL hears it even when something is already playing.
+	// Without it the tracks are appended and only start when the player is
+	// idle, which is the right default for a plain append.
+	start := m.playlist.Len()
 	wasStopped := !m.player.IsPlaying()
 	m.playlist.Add(result.tracks...)
 	m.loadedPlaylist = ""
 	m.addToHeaderState(result.tracks)
 	result.request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(result.tracks), Total: len(result.tracks)}
+	if result.request.Play {
+		m.player.Stop()
+		m.player.ClearPreload()
+		m.playlist.SetIndex(start)
+		m.plCursor = start
+		m.adjustScroll()
+		return m.playCurrentTrack()
+	}
 	if wasStopped {
 		return m.playCurrentTrack()
 	}

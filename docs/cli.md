@@ -206,6 +206,22 @@ cliamp spotify reset                          # clear stored Spotify credentials
 
 Use `spotify reset` for persistent `rate-limited on /v1/me` warnings or stale authentication errors. Then restart cliamp and select Spotify to sign in again. See [spotify.md](spotify.md) for the setup guide.
 
+## cliamp:// Links
+
+Open a song from a browser, a script, or anything that can open a URL:
+
+```sh
+cliamp protocol register                                     # register the scheme
+cliamp open 'cliamp://play?url=https://example.com/s.mp3'    # play a stream
+cliamp open 'cliamp://play?provider=navidrome&album=a1b2c3'  # play an album
+cliamp open 'cliamp://queue?provider=ytmusic&q=aphex+twin'   # queue a search hit
+cliamp protocol status                                       # check registration
+cliamp protocol unregister                                   # remove it
+```
+
+Registration is opt-in: installing cliamp does not claim the scheme. See
+[url-scheme.md](url-scheme.md) for the URI format and what links cannot do.
+
 ## Remote Control (IPC)
 
 Control a running cliamp instance from another terminal:
