@@ -32,6 +32,7 @@ var (
 	_ provider.PlaylistCreator = (*SpotifyProvider)(nil)
 	_ provider.CustomStreamer  = (*SpotifyProvider)(nil)
 	_ provider.Closer          = (*SpotifyProvider)(nil)
+	_ provider.TrackPager      = (*SpotifyProvider)(nil)
 )
 
 // maxResponseBody limits JSON API responses to 10 MB.
@@ -45,6 +46,14 @@ type playlistCache struct {
 	total      int
 }
 
+// pendingTracks accumulates a progressive load. want is the offset the next
+// page must carry; a page arriving out of order belongs to a superseded chain
+// and is served to the caller but never accumulated.
+type pendingTracks struct {
+	tracks []playlist.Track
+	want   int
+}
+
 type SpotifyProvider struct {
 	session    *Session
 	clientID   string
@@ -53,7 +62,7 @@ type SpotifyProvider struct {
 	meFetched  bool   // /v1/me has been attempted this session; suppresses retry on failure
 	mu         sync.Mutex
 	trackCache map[string]*playlistCache // playlist ID → cache entry
-	pending    map[string][]playlist.Track
+	pending    map[string]*pendingTracks
 	authCancel context.CancelFunc // cancels any in-progress OAuth flow
 
 	// Playlist list cache to avoid redundant API calls on provider switch.
@@ -72,7 +81,7 @@ func New(session *Session, clientID string, bitrate int) *SpotifyProvider {
 		clientID:   clientID,
 		bitrate:    bitrate,
 		trackCache: make(map[string]*playlistCache),
-		pending:    make(map[string][]playlist.Track),
+		pending:    make(map[string]*pendingTracks),
 	}
 }
 
@@ -426,12 +435,7 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 
 	// Cache the fetched tracks.
 	p.mu.Lock()
-	if cached, ok := p.trackCache[playlistID]; ok {
-		cached.tracks = all
-		cached.total = grand
-	} else {
-		p.trackCache[playlistID] = &playlistCache{tracks: all, total: grand}
-	}
+	p.cacheTracksLocked(playlistID, all, grand)
 	p.mu.Unlock()
 
 	return slices.Clone(all), nil
@@ -475,9 +479,21 @@ func (p *SpotifyProvider) fetchTracksPage(ctx context.Context, playlistID string
 	return tracks, result.Total, nil
 }
 
+// cacheTracksLocked stores a fully loaded track list. p.mu must be held.
+func (p *SpotifyProvider) cacheTracksLocked(playlistID string, tracks []playlist.Track, total int) {
+	if cached, ok := p.trackCache[playlistID]; ok {
+		cached.tracks = tracks
+		cached.total = total
+		return
+	}
+	p.trackCache[playlistID] = &playlistCache{tracks: tracks, total: total}
+}
+
 // savedTracksUnchanged revalidates a cached Liked Songs list with a single
-// limit=1 request: /v1/me/tracks is sorted by added_at descending, so an
-// unchanged total plus an unchanged newest entry means no add or removal.
+// limit=1 request. /v1/me/tracks ordering is undocumented but is empirically
+// added_at descending, so an unchanged total plus an unchanged newest entry
+// means no add or removal. If that ever stops holding the comparison simply
+// misses and we refetch, so the failure direction is stale-free.
 func (p *SpotifyProvider) savedTracksUnchanged(ctx context.Context, tracks []playlist.Track, total int) bool {
 	resp, err := p.webAPI(ctx, "GET", "/v1/me/tracks", url.Values{"limit": {"1"}})
 	if err != nil {
@@ -495,7 +511,7 @@ func (p *SpotifyProvider) savedTracksUnchanged(ctx context.Context, tracks []pla
 	if len(result.Items) == 0 || result.Items[0].Track == nil {
 		return len(tracks) == 0
 	}
-	return len(tracks) > 0 && trackFromItem(result.Items[0].Track).Path == tracks[0].Path
+	return len(tracks) > 0 && result.Items[0].Track.URI == tracks[0].Path
 }
 
 // TracksPage returns one page of playlistID's tracks plus the offset to request
@@ -505,10 +521,11 @@ func (p *SpotifyProvider) TracksPage(playlistID string, offset int) ([]playlist.
 		return nil, 0, err
 	}
 	p.mu.Lock()
-	cached, hit := p.trackCache[playlistID]
+	cached := p.trackCache[playlistID]
+	hit := offset == 0 && cached != nil && cached.tracks != nil
 	var tracks []playlist.Track
 	var cachedTotal int
-	if hit = hit && cached.tracks != nil && offset == 0; hit {
+	if hit {
 		tracks = slices.Clone(cached.tracks)
 		cachedTotal = cached.total
 	}
@@ -526,23 +543,26 @@ func (p *SpotifyProvider) TracksPage(playlistID string, offset int) ([]playlist.
 	}
 
 	next := offset + spotifyTrackPageSize
+	if next >= total {
+		next = 0
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	pend := p.pending[playlistID]
 	if offset == 0 {
-		p.pending[playlistID] = nil
+		pend = &pendingTracks{}
+		p.pending[playlistID] = pend
 	}
-	p.pending[playlistID] = append(p.pending[playlistID], page...)
-	if next < total {
+	if pend == nil || pend.want != offset {
 		return page, next, nil
 	}
-	if cached, ok := p.trackCache[playlistID]; ok {
-		cached.tracks = p.pending[playlistID]
-		cached.total = total
-	} else {
-		p.trackCache[playlistID] = &playlistCache{tracks: p.pending[playlistID], total: total}
+	pend.tracks = append(pend.tracks, page...)
+	pend.want = next
+	if next == 0 {
+		p.cacheTracksLocked(playlistID, pend.tracks, total)
+		delete(p.pending, playlistID)
 	}
-	delete(p.pending, playlistID)
-	return page, 0, nil
+	return page, next, nil
 }
 
 // isAuthError returns true if the error is an authentication/session-related

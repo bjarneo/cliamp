@@ -108,12 +108,50 @@ func TestTracksPageRefetchesWhenSavedTracksChanged(t *testing.T) {
 
 	calls = 0
 	p2 := savedTracksProvider(t, 140, &calls)
-	p2.trackCache = p.trackCache
+	p2.trackCache["YOUR MUSIC"] = p.trackCache["YOUR MUSIC"]
 	if got := drainSavedTracks(t, p2); got != 140 {
 		t.Errorf("collected %d tracks, want 140 after change", got)
 	}
-	if calls < 4 {
-		t.Errorf("made %d requests, want a probe plus 3 pages", calls)
+	if calls != 4 {
+		t.Errorf("made %d requests, want 4 (probe plus 3 pages)", calls)
+	}
+}
+
+// A same-size library whose newest entry changed is the case the total check
+// alone cannot see; only the newest-URI comparison catches it.
+func TestTracksPageRefetchesWhenNewestSavedTrackChanged(t *testing.T) {
+	calls := 0
+	p := savedTracksProvider(t, 60, &calls)
+	if got := drainSavedTracks(t, p); got != 60 {
+		t.Fatalf("first load collected %d tracks, want 60", got)
+	}
+
+	cached := p.trackCache["YOUR MUSIC"]
+	cached.tracks[0].Path = "spotify:track:replaced"
+
+	calls = 0
+	if got := drainSavedTracks(t, p); got != 60 {
+		t.Errorf("collected %d tracks, want 60", got)
+	}
+	if calls != 3 {
+		t.Errorf("made %d requests, want 3 (probe plus 2 pages)", calls)
+	}
+}
+
+func TestTracksPageIgnoresNonContiguousPages(t *testing.T) {
+	calls := 0
+	p := savedTracksProvider(t, 200, &calls)
+	if _, next, err := p.TracksPage("YOUR MUSIC", 0); err != nil || next != 50 {
+		t.Fatalf("first page: next=%d err=%v", next, err)
+	}
+	// A page from a superseded chain lands at an offset the current
+	// accumulation is not waiting for; it must not be spliced in.
+	if _, _, err := p.TracksPage("YOUR MUSIC", 100); err != nil {
+		t.Fatal(err)
+	}
+	pend := p.pending["YOUR MUSIC"]
+	if pend == nil || len(pend.tracks) != 50 || pend.want != 50 {
+		t.Fatalf("non-contiguous page polluted accumulation: len=%d want=%d", len(pend.tracks), pend.want)
 	}
 }
 

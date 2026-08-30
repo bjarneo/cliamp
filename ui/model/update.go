@@ -408,7 +408,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tracksPageMsg:
+	case tracksLoadedMsg:
 		if msg.gen != m.requests.tracks || !m.isActiveProvider(msg.providerName) {
 			return m, nil
 		}
@@ -422,45 +422,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err
 			return m, nil
 		}
-		if msg.offset == 0 {
-			m.replacePlayerPlaylist(msg.tracks)
-		} else {
+		if msg.offset > 0 {
 			m.playlist.Add(msg.tracks...)
 			m.normalizeQueueOverlay()
 			m.setHeaderStateFromTracks(m.playlist.Tracks())
+		} else {
+			m.replacePlayerPlaylist(msg.tracks)
+			if msg.playlistExact && m.localProvider != nil && msg.providerName == m.localProvider.Name() && msg.playlistID != history.PlaylistName {
+				m.loadedPlaylist = msg.playlistID
+			}
 		}
 		if msg.next > 0 {
 			m.adjustScroll()
 			m.notifyAll()
-			pager, ok := m.provider.(provider.TrackPager)
-			if !ok {
-				return m, nil
+			if pager, ok := m.provider.(provider.TrackPager); ok {
+				return m, fetchTracksPageCmd(pager, msg.providerName, msg.playlistID, msg.next, msg.gen)
 			}
-			return m, fetchTracksPageCmd(pager, msg.providerName, msg.playlistID, msg.next, msg.gen)
 		}
 		m.provLoading = false
-		m.applyTracksResume(tracksLoadedMsg{tracks: m.playlist.Tracks(), playlistID: msg.playlistID, providerName: msg.providerName, gen: msg.gen})
-		m.adjustScroll()
-		m.notifyAll()
-		return m, nil
-
-	case tracksLoadedMsg:
-		if msg.gen != m.requests.tracks || !m.isActiveProvider(msg.providerName) {
-			return m, nil
-		}
-		m.provLoading = false
-		if msg.err != nil {
-			if errors.Is(msg.err, playlist.ErrNeedsAuth) {
-				m.provSignIn = true
-				m.err = nil
-				return m, nil
-			}
-			m.err = msg.err
-			return m, nil
-		}
-		m.replacePlayerPlaylist(msg.tracks)
-		if msg.playlistExact && m.localProvider != nil && msg.providerName == m.localProvider.Name() && msg.playlistID != history.PlaylistName {
-			m.loadedPlaylist = msg.playlistID
+		if msg.offset > 0 {
+			msg.tracks = m.playlist.Tracks()
 		}
 		m.applyTracksResume(msg)
 		m.adjustScroll()
