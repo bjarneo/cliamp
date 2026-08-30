@@ -84,6 +84,7 @@ func buildApp() *cli.Command {
 			ipcSimpleCommand("prev", "previous track"),
 			ipcSimpleCommand("stop", "stop playback"),
 			statusCommand(),
+			keymapCommand(),
 			volumeCommand(),
 			seekCommand(),
 			loadCommand(),
@@ -661,6 +662,38 @@ func ipcSimpleCommand(name, usage string) *cli.Command {
 		Action: func(ctx context.Context, c *cli.Command) error {
 			_, err := ipcSend(name, ipc.Request{})
 			return err
+		},
+	}
+}
+
+// keymapCommand prints the keys that apply on the running TUI's current
+// screen, grouped by section, as text or JSON.
+func keymapCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "keymap",
+		Usage: "show the keys that apply on the current screen",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "json", Usage: "machine-readable JSON output"},
+		},
+		Action: func(ctx context.Context, c *cli.Command) error {
+			entries, err := ipcKeymap()
+			if err != nil {
+				return err
+			}
+			if c.Bool("json") {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(entries)
+			}
+			section := ""
+			for _, entry := range entries {
+				if entry.Section != section {
+					section = entry.Section
+					fmt.Printf("[%s]\n", section)
+				}
+				fmt.Printf("  %-18s %s\n", entry.Label, entry.Action)
+			}
+			return nil
 		},
 	}
 }

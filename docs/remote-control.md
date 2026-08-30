@@ -36,6 +36,7 @@ Use these methods:
 | `capabilities` | List available operation names and parameter hints |
 | `state.get` | Read the runtime snapshot |
 | `spectrum.get` | Read current visualizer bands |
+| `keymap.get` | Read the keys that apply on the current screen |
 | `operation.submit` | Start a runtime or library operation |
 | `job.get` | Read an operation job by `job_id` |
 | `job.cancel` | Request cancellation of an active job |
@@ -66,7 +67,7 @@ writes, remains asynchronous.
 
 `state.get` returns a snapshot with the active audio track, logical playlist
 track, playback state, position, duration, seekability, modes, EQ, visualizer,
-theme, stream error, and two revisions.
+theme, stream error, the active screen, and two revisions.
 
 ```json
 {
@@ -82,10 +83,15 @@ theme, stream error, and two revisions.
     "position": 42.5,
     "duration": 183,
     "seekable": true,
-    "play_next_total": 2
+    "play_next_total": 2,
+    "screen": {"id": "playlist", "label": "Playlist"}
   }
 }
 ```
+
+`screen` names the interactive screen that currently owns keyboard input, such
+as `playlist`, `file_browser`, `queue`, or `lyrics`. It is absent in `--daemon`
+mode, which has no screen.
 
 `revision` changes when meaningful runtime state changes. `playlist_revision`
 changes when the live playlist or play-next list changes. Position-only playback
@@ -96,6 +102,36 @@ play-next operations to reject stale GUI actions with the `conflict` error code.
 directory-source state. A GUI can send a provider result through `track.play`,
 `track.queue`, `playlist.add`, `playlist.add_many`, or `playlist.replace`
 without losing provider identity.
+
+## Keymap
+
+`keymap.get` returns the rows the TUI shows on `Ctrl+K`, for the screen that is
+active right now. Each entry carries the Bubbletea key names a client can send,
+the human key label, the action, and a `section`: `current` for the active
+screen's keys (omitted on the main screen), `main` for player and library keys,
+and `plugins` for Lua plugin bindings.
+
+```json
+{"version":2,"id":"keys","method":"keymap.get"}
+```
+
+```json
+{
+  "version": 2,
+  "id": "keys",
+  "ok": true,
+  "result": [
+    {"keys": ["esc"], "label": "Esc", "action": "Back", "section": "current"},
+    {"keys": ["space"], "label": "Space", "action": "Play / Pause", "section": "main"}
+  ]
+}
+```
+
+Keys that are disabled in the current state are left out, so the list is what
+can actually be pressed. Read it again after `screen` changes in a `state.get`
+snapshot or state event. In `--daemon` mode `keymap.get` returns the
+`unavailable` error, since there is no screen. `cliamp keymap [--json]` prints
+the same list from the shell.
 
 ## Operations
 

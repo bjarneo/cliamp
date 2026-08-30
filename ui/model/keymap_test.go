@@ -52,3 +52,23 @@ func TestReservedKeysCoversHandleKey(t *testing.T) {
 		t.Fatalf("handleKey has case clauses not covered by coreReservedKeys: %v\nAdd these to keymap.go so plugin binds can't shadow them.", missing)
 	}
 }
+
+// TestCommandModeIDsCoverEveryMode is a drift guard: adding a commandMode
+// without an id would make the IPC screen field report "unknown".
+func TestCommandModeIDsCoverEveryMode(t *testing.T) {
+	seen := make(map[string]commandMode)
+	for mode := commandModeMain; mode <= commandModeRadioStats; mode <<= 1 {
+		id := mode.id()
+		if id == "unknown" {
+			t.Errorf("commandMode %#x has no id", uint64(mode))
+			continue
+		}
+		if other, dup := seen[id]; dup {
+			t.Errorf("id %q used by both %#x and %#x", id, uint64(other), uint64(mode))
+		}
+		seen[id] = mode
+	}
+	if commandModeAny.id() != "unknown" {
+		t.Errorf("commandModeAny should not have an id")
+	}
+}

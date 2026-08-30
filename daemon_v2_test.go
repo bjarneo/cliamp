@@ -225,3 +225,16 @@ func drainDaemonControl(t *testing.T, d *daemon) {
 		t.Fatal("daemon control queue is empty")
 	}
 }
+
+// TestDaemonKeymapGetIsUnavailable pins the headless contract: there is no
+// screen, so keymap.get says so instead of returning an empty list a client
+// might mistake for "no keys".
+func TestDaemonKeymapGetIsUnavailable(t *testing.T) {
+	d := &daemon{}
+	reply := make(chan daemonV2ReadResult, 1)
+	d.handleV2ReadRequest(daemonV2ReadRequest{request: ipc.V2Request{Method: "keymap.get"}, reply: reply})
+	result := <-reply
+	if result.err == nil || result.err.Code != ipc.V2ErrorCodeUnavailable || result.err.Detail == "" {
+		t.Fatalf("keymap.get in daemon = %#v", result)
+	}
+}

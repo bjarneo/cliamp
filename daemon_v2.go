@@ -58,6 +58,8 @@ type daemonRuntimeFingerprint struct {
 	streamError      string
 }
 
+// newDaemonV2Dispatcher routes V2 requests into the headless daemon: reads are
+// answered inline, everything else becomes a job on the control loop.
 func newDaemonV2Dispatcher(d *daemon, jobs *ipc.JobStore) ipc.V2Dispatcher {
 	return ipc.V2DispatcherFunc(func(ctx context.Context, request ipc.V2Request) (ipc.V2Result, *ipc.V2Error) {
 		if d == nil || jobs == nil {
@@ -68,7 +70,7 @@ func newDaemonV2Dispatcher(d *daemon, jobs *ipc.JobStore) ipc.V2Dispatcher {
 			request.Operation = ""
 		}
 		switch strings.ToLower(strings.TrimSpace(request.Method)) {
-		case "state.get", "spectrum.get":
+		case "state.get", "spectrum.get", "keymap.get":
 			return d.dispatchV2Read(ctx, request)
 		}
 		if err := ctx.Err(); err != nil {
@@ -119,6 +121,7 @@ func (d *daemon) enqueueV2(ctx context.Context, message any) bool {
 	}
 }
 
+// handleV2ReadRequest answers the read-only V2 methods from the control loop.
 func (d *daemon) handleV2ReadRequest(msg daemonV2ReadRequest) {
 	method := strings.ToLower(strings.TrimSpace(msg.request.Method))
 	switch method {
@@ -139,6 +142,11 @@ func (d *daemon) handleV2ReadRequest(msg daemonV2ReadRequest) {
 			return
 		}
 		msg.reply <- daemonV2ReadResult{result: ipc.V2Result{Result: result}}
+	case "keymap.get":
+		// The keymap describes an interactive screen, and the daemon has none.
+		err := daemonV2UnavailableError()
+		err.Detail = "keymap is only available from the interactive TUI, not --daemon"
+		msg.reply <- daemonV2ReadResult{err: err}
 	default:
 		msg.reply <- daemonV2ReadResult{err: daemonV2InvalidParamsError()}
 	}

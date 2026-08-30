@@ -57,6 +57,7 @@ type Response struct {
 	Output     string         `json:"output,omitempty"`
 	Items      []string       `json:"items,omitempty"`
 	Theme      *ThemeInfo     `json:"theme,omitempty"`
+	Screen     *ScreenInfo    `json:"screen,omitempty"`
 	Bands      []float64      `json:"bands,omitempty"`
 	EQBands    []float64      `json:"eq_bands,omitempty"`
 	Tracks     []TrackInfo    `json:"tracks,omitempty"`
@@ -72,6 +73,25 @@ type Response struct {
 
 // ThemeInfo carries the active theme name and its resolved hex colors.
 // Empty hex fields mean the default (ANSI fallback) theme is active.
+// ScreenInfo identifies which interactive screen currently owns keyboard
+// input, so a client can tell which keys apply right now. It is absent in
+// headless mode, where there is no screen.
+type ScreenInfo struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// KeymapEntry is one row of the keymap the TUI shows on Ctrl+K. Keys holds
+// the Bubbletea key names a client would send; Label is the human form.
+// Section is "current" for the active screen's keys, "main" for global
+// player and library keys, and "plugins" for Lua plugin bindings.
+type KeymapEntry struct {
+	Keys    []string `json:"keys,omitempty"`
+	Label   string   `json:"label"`
+	Action  string   `json:"action"`
+	Section string   `json:"section"`
+}
+
 type ThemeInfo struct {
 	Name     string `json:"name"`
 	BG       string `json:"bg,omitempty"`

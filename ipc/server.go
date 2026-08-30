@@ -373,6 +373,8 @@ func isV2Subscribe(req V2Request) bool {
 	return strings.EqualFold(req.Method, "subscribe") || strings.EqualFold(req.Operation, "subscribe")
 }
 
+// dispatchV2 routes one V2 request: server-side methods (capabilities, jobs)
+// are answered here, reads and operations go to the runtime owner.
 func (s *Server) dispatchV2(req V2Request) V2Response {
 	response := V2Response{ID: cloneRawMessage(req.ID)}
 	method := strings.ToLower(strings.TrimSpace(req.Method))
@@ -380,7 +382,7 @@ func (s *Server) dispatchV2(req V2Request) V2Response {
 	operations := s.operations
 	s.v2Mu.RUnlock()
 	operation := strings.TrimSpace(req.Operation)
-	if operation == "" && (method == "state.get" || method == "spectrum.get") {
+	if operation == "" && (method == "state.get" || method == "spectrum.get" || method == "keymap.get") {
 		return s.dispatchV2ToOwner(response, req)
 	}
 	if operation == "" && operations != nil {
@@ -400,7 +402,7 @@ func (s *Server) dispatchV2(req V2Request) V2Response {
 		return s.v2GetJob(response, req.JobID)
 	case "job.cancel":
 		return s.v2CancelJob(response, req.JobID)
-	case "state.get", "spectrum.get":
+	case "state.get", "spectrum.get", "keymap.get":
 		if operation != "" {
 			response.Error = invalidV2Request()
 			return response

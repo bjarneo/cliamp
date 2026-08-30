@@ -2,7 +2,9 @@
 
 Press `Ctrl+K` in any mode, or `?` in the player, to view keybindings. The
 keymap first shows commands for the active screen. It then shows player and
-library commands.
+library commands. `cliamp keymap` prints the same list for the current screen
+from the shell, and `keymap.get` returns it over IPC (see
+[remote-control.md](remote-control.md#keymap)).
 
 ## Playback
 

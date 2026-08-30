@@ -89,6 +89,8 @@ type ipcV2ResponseMsg struct {
 	Response  ipc.Response
 }
 
+// handleV2Request serves a V2 request on the update loop: read methods reply
+// immediately, operations run under their job.
 func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 	switch strings.ToLower(strings.TrimSpace(msg.Request.Method)) {
 	case "state.get":
@@ -98,6 +100,9 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 	case "spectrum.get":
 		response := m.v2BandsResponse()
 		m.replyV2(msg.Reply, ipc.V2Result{Result: marshalV2Result(response)}, nil)
+		return nil
+	case "keymap.get":
+		m.replyV2(msg.Reply, ipc.V2Result{Result: marshalV2Result(m.keymapExport())}, nil)
 		return nil
 	}
 
@@ -525,11 +530,14 @@ func (m *Model) replyV2(reply chan V2RequestResult, result ipc.V2Result, err *ip
 	}
 }
 
+// runtimeSnapshot captures the state.get view of the model.
 func (m *Model) runtimeSnapshot() ipc.RuntimeSnapshot {
 	snapshot := ipc.RuntimeSnapshot{}
 	if m.ipcRuntime != nil {
 		snapshot.Revision = m.ipcRuntime.revision
 	}
+	screen := m.screenInfo()
+	snapshot.Screen = &screen
 	if m.playlist != nil {
 		snapshot.PlaylistRevision = m.playlist.Revision()
 		snapshot.Index = m.playlist.Index()

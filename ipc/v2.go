@@ -104,30 +104,31 @@ func invalidV2Params() *V2Error {
 // RuntimeSnapshot is the common runtime state shape used by V2 responses and
 // terminal job results. Additional runtime data belongs in V2Response.Result.
 type RuntimeSnapshot struct {
-	Revision         uint64     `json:"revision"`
-	PlaylistRevision uint64     `json:"playlist_revision"`
-	State            string     `json:"state,omitempty"`
-	Track            *TrackInfo `json:"track,omitempty"`
-	LogicalTrack     *TrackInfo `json:"logical_track,omitempty"`
-	PlaybackDetached bool       `json:"playback_detached,omitempty"`
-	Position         float64    `json:"position,omitempty"`
-	Duration         float64    `json:"duration,omitempty"`
-	Seekable         bool       `json:"seekable"`
-	Volume           float64    `json:"volume,omitempty"`
-	Playlist         string     `json:"playlist,omitempty"`
-	Index            int        `json:"index,omitempty"`
-	Total            int        `json:"total,omitempty"`
-	PlayNextTotal    int        `json:"play_next_total,omitempty"`
-	Shuffle          *bool      `json:"shuffle,omitempty"`
-	Repeat           string     `json:"repeat,omitempty"`
-	Mono             *bool      `json:"mono,omitempty"`
-	Speed            float64    `json:"speed,omitempty"`
-	EQPreset         string     `json:"eq_preset,omitempty"`
-	EQBands          []float64  `json:"eq_bands,omitempty"`
-	Device           string     `json:"device,omitempty"`
-	Visualizer       string     `json:"visualizer,omitempty"`
-	Theme            *ThemeInfo `json:"theme,omitempty"`
-	StreamError      string     `json:"stream_error,omitempty"`
+	Revision         uint64      `json:"revision"`
+	PlaylistRevision uint64      `json:"playlist_revision"`
+	State            string      `json:"state,omitempty"`
+	Track            *TrackInfo  `json:"track,omitempty"`
+	LogicalTrack     *TrackInfo  `json:"logical_track,omitempty"`
+	PlaybackDetached bool        `json:"playback_detached,omitempty"`
+	Position         float64     `json:"position,omitempty"`
+	Duration         float64     `json:"duration,omitempty"`
+	Seekable         bool        `json:"seekable"`
+	Volume           float64     `json:"volume,omitempty"`
+	Playlist         string      `json:"playlist,omitempty"`
+	Index            int         `json:"index,omitempty"`
+	Total            int         `json:"total,omitempty"`
+	PlayNextTotal    int         `json:"play_next_total,omitempty"`
+	Shuffle          *bool       `json:"shuffle,omitempty"`
+	Repeat           string      `json:"repeat,omitempty"`
+	Mono             *bool       `json:"mono,omitempty"`
+	Speed            float64     `json:"speed,omitempty"`
+	EQPreset         string      `json:"eq_preset,omitempty"`
+	EQBands          []float64   `json:"eq_bands,omitempty"`
+	Device           string      `json:"device,omitempty"`
+	Visualizer       string      `json:"visualizer,omitempty"`
+	Theme            *ThemeInfo  `json:"theme,omitempty"`
+	Screen           *ScreenInfo `json:"screen,omitempty"`
+	StreamError      string      `json:"stream_error,omitempty"`
 }
 
 // V2Result is the dispatcher result payload. Exactly one of Result or

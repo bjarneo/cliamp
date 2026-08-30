@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/bjarneo/cliamp/ipc"
 )
 
 // keymapEntry is a row in the Ctrl+K overlay. Rows with `divider = true` are
@@ -32,47 +34,78 @@ func ReservedKeys() map[string]bool {
 // so navigation (which calls keymapCount many times per frame) is allocation-free.
 func (m Model) buildKeymapEntries() []keymapEntry {
 	out := make([]keymapEntry, 0, len(commandRegistry)+6)
+	m.walkKeymap(func(section, label string) {
+		out = append(out, keymapEntry{action: "— " + label + " —", divider: true})
+	}, func(_ string, keys []string, label, action string) {
+		out = append(out, keymapEntry{key: label, action: action})
+	})
+	return out
+}
+
+// walkKeymap is the one place that decides which keys the keymap shows: the
+// active screen's commands first, then global player and library commands,
+// then Lua plugin bindings, deduplicated by label. The Ctrl+K overlay and the
+// keymap.get IPC method both render it, so they cannot disagree.
+//
+// section is called at each boundary with the section id and its display
+// label; entry is called once per row.
+func (m Model) walkKeymap(section func(id, label string), entry func(section string, keys []string, label, action string)) {
 	seen := make(map[string]bool)
-	add := func(command commandSpec) {
-		label := command.label(m)
-		id := command.KeyLabel + "\x00" + label
+	add := func(sectionID string, command commandSpec) {
+		action := command.label(m)
+		id := command.KeyLabel + "\x00" + action
 		if seen[id] {
 			return
 		}
 		seen[id] = true
-		out = append(out, keymapEntry{key: command.KeyLabel, action: label})
+		entry(sectionID, command.Keys, command.KeyLabel, action)
 	}
 
 	mode, label := m.keymapContext()
 	if mode != commandModeMain {
-		out = append(out, keymapEntry{action: "— current: " + label + " —", divider: true})
+		section("current", "current: "+label)
 		for _, command := range commandRegistry {
 			if command.Mode != commandModeAny && (command.Keymap || command.ContextHelp) && command.enabled(m) && command.Mode&mode != 0 {
-				add(command)
+				add("current", command)
 			}
 		}
-		out = append(out, keymapEntry{action: "— player & library —", divider: true})
+		section("main", "player & library")
 	}
 	for _, command := range commandRegistry {
 		if command.Keymap && command.enabled(m) {
-			add(command)
+			add("main", command)
 		}
 	}
 	if mode != commandModeMain || m.luaMgr == nil {
-		return out
+		return
 	}
 	binds := m.luaMgr.KeyBindings()
 	if len(binds) == 0 {
-		return out
+		return
 	}
-	out = append(out, keymapEntry{action: "— plugins —", divider: true})
+	section("plugins", "plugins")
 	for _, b := range binds {
-		label := b.Description
+		action := b.Description
 		if b.Plugin != "" {
-			label += "  (" + b.Plugin + ")"
+			action += "  (" + b.Plugin + ")"
 		}
-		out = append(out, keymapEntry{key: b.Key, action: label})
+		entry("plugins", []string{b.Key}, b.Key, action)
 	}
+}
+
+// screenInfo reports which screen owns keyboard input, for state.get.
+func (m Model) screenInfo() ipc.ScreenInfo {
+	mode, label := m.keymapContext()
+	return ipc.ScreenInfo{ID: mode.id(), Label: label}
+}
+
+// keymapExport is the keymap.get payload: the same rows as the Ctrl+K
+// overlay, with the machine key names a client would send.
+func (m Model) keymapExport() []ipc.KeymapEntry {
+	out := make([]ipc.KeymapEntry, 0, len(commandRegistry))
+	m.walkKeymap(func(string, string) {}, func(section string, keys []string, label, action string) {
+		out = append(out, ipc.KeymapEntry{Keys: append([]string(nil), keys...), Label: label, Action: action, Section: section})
+	})
 	return out
 }
 
