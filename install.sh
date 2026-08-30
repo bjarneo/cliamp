@@ -160,9 +160,30 @@ EOF
         $SUDO install -m 0644 "$ICON_TMP" "${ICON_DIR}/cliamp.png"
         echo "Installed icon to ${ICON_DIR}/cliamp.png"
     fi
-    rm -f "$ICON_TMP" "$DESKTOP_TMP"
+    # URL handler entry: makes cliamp:// links open in cliamp. It is a second
+    # file rather than a MimeType line on cliamp.desktop because a handler
+    # needs "open %u" in its Exec, and putting that on the launcher entry
+    # would break starting the player from an application menu.
+    HANDLER_TMP=$(mktemp)
+    cat > "$HANDLER_TMP" <<EOF
+[Desktop Entry]
+Type=Application
+Name=cliamp (URL handler)
+Comment=Open cliamp:// links in cliamp
+Exec="${INSTALL_DIR}/cliamp" open %u
+Icon=cliamp
+Terminal=true
+NoDisplay=true
+StartupNotify=false
+MimeType=x-scheme-handler/cliamp;
+Categories=Audio;Music;Player;AudioVideo;
+EOF
+    $SUDO install -m 0644 "$HANDLER_TMP" "${APP_DIR}/cliamp-url-handler.desktop"
+
+    rm -f "$ICON_TMP" "$DESKTOP_TMP" "$HANDLER_TMP"
 
     echo "Installed desktop entry to ${APP_DIR}/cliamp.desktop"
+    echo "Registered cliamp:// links (remove with: cliamp protocol unregister)"
 
     if command -v update-desktop-database > /dev/null; then
         $SUDO update-desktop-database "$APP_DIR" 2>/dev/null || true

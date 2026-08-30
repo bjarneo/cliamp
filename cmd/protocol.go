@@ -37,33 +37,54 @@ func ProtocolRegister(out io.Writer) error {
 	return nil
 }
 
-// ProtocolUnregister removes the handler registration.
+// ProtocolUnregister removes every handler registration it can write to.
+//
+// install.sh registers the scheme too, and for a system-wide install it does
+// so under a root-owned directory. Reporting those separately matters: saying
+// "nothing to do" while links still open cliamp would be worse than saying
+// which file is left and why.
 func ProtocolUnregister(out io.Writer) error {
-	removed, location, err := unregisterHandler()
+	removed, blocked, err := unregisterHandler()
 	if err != nil {
 		return err
 	}
-	if !removed {
+	if len(removed) == 0 && len(blocked) == 0 {
 		fmt.Fprintf(out, "%s:// was not registered; nothing to do\n", SchemeName)
 		return nil
 	}
-	fmt.Fprintf(out, "Unregistered %s:// (removed %s)\n", SchemeName, location)
+	for _, location := range removed {
+		fmt.Fprintf(out, "Removed %s\n", location)
+	}
+	if len(blocked) > 0 {
+		fmt.Fprintf(out, "\n%s:// is still registered by a file this user cannot remove:\n", SchemeName)
+		for _, location := range blocked {
+			fmt.Fprintf(out, "  %s\n", location)
+		}
+		fmt.Fprintf(out, "Remove it with:\n  sudo rm %s\n", blocked[0])
+		return nil
+	}
+	fmt.Fprintf(out, "\nUnregistered %s://\n", SchemeName)
 	return nil
 }
 
-// ProtocolStatus reports whether the scheme is currently registered.
+// ProtocolStatus reports where the scheme is currently registered.
 func ProtocolStatus(out io.Writer) error {
-	location, registered, err := handlerStatus()
+	locations, err := handlerStatus()
 	if err != nil {
 		return err
 	}
-	if !registered {
+	if len(locations) == 0 {
 		fmt.Fprintf(out, "%s:// is not registered\n", SchemeName)
 		fmt.Fprintf(out, "Register it with:\n  cliamp protocol register\n")
 		return nil
 	}
 	fmt.Fprintf(out, "%s:// is registered\n", SchemeName)
-	fmt.Fprintf(out, "Handler: %s\n", location)
+	for _, location := range locations {
+		fmt.Fprintf(out, "Handler: %s\n", location)
+	}
+	if len(locations) > 1 {
+		fmt.Fprintf(out, "\nThe first entry takes precedence; the others are shadowed.\n")
+	}
 	return nil
 }
 

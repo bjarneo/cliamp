@@ -6,13 +6,14 @@ running cliamp instance, or starts cliamp if it is not running.
 
 ## Quick Start
 
+The installer registers the scheme, so links work from a browser right away:
+
 ```sh
-cliamp protocol register
 cliamp open 'cliamp://play?url=https://example.com/stream.mp3'
 ```
 
-`register` makes cliamp the system handler for the scheme, so links work from
-a browser too. Remove it any time with `cliamp protocol unregister`.
+Remove the registration any time with `cliamp protocol unregister`, and put it
+back with `cliamp protocol register`.
 
 ## URI Format
 
@@ -64,18 +65,34 @@ performs the action once the player is up. The desktop entry sets
 
 ## Registration
 
-`cliamp protocol register` is opt-in and per-user. Installing cliamp does not
-register the scheme, because a registered handler lets any web page hand
-cliamp a target with one click. That is worth granting on purpose.
-
-Registration is implemented for Linux only. It writes
-`~/.local/share/applications/cliamp-url-handler.desktop` with
+`install.sh` registers the scheme, writing `cliamp-url-handler.desktop` next
+to the `cliamp.desktop` launcher it already installs. The entry is
 `NoDisplay=true`, so it handles links without adding a second cliamp icon to
 your application menu.
 
-On macOS and Windows, `cliamp protocol register` reports that it is not
-implemented yet. `cliamp open <uri>` works everywhere, so you can still wire
-the scheme up through your platform's own handler settings.
+Where it lands follows the install location:
+
+| Install directory | Handler entry |
+| --- | --- |
+| Under `$HOME` | `~/.local/share/applications/` |
+| Anywhere else | `/usr/local/share/applications/` |
+
+`cliamp protocol register` writes the same entry to your user directory. Use
+it after a `go install` build, or to point the scheme at a different binary.
+
+`cliamp protocol status` lists every entry it finds, user directory first.
+`cliamp protocol unregister` removes the ones you own; a system-wide entry
+from a root install is reported with the `sudo rm` needed to remove it, rather
+than silently left in place.
+
+Registration is implemented for Linux only. On macOS and Windows,
+`cliamp protocol register` reports that it is not implemented yet.
+`cliamp open <uri>` works everywhere, so you can still wire the scheme up
+through your platform's own handler settings.
+
+A registered handler means any web page can hand cliamp a target with one
+click. [What Links Cannot Do](#what-links-cannot-do) is the list of what that
+does and does not let a page reach.
 
 ## What Links Cannot Do
 

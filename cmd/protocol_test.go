@@ -25,11 +25,12 @@ func TestProtocolRoundTrip(t *testing.T) {
 		t.Skipf("registration is implemented for Linux only; %s returns an unsupported error", runtime.GOOS)
 	}
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	t.Setenv("PATH", t.TempDir()) // no update-desktop-database or xdg-mime
+	t.Setenv("XDG_DATA_DIRS", t.TempDir()) // no real system entries
+	t.Setenv("PATH", t.TempDir())          // no update-desktop-database or xdg-mime
 
 	var out bytes.Buffer
-	if _, registered, err := handlerStatus(); err != nil || registered {
-		t.Fatalf("status before register = (%v, %v), want (false, nil)", registered, err)
+	if locations, err := handlerStatus(); err != nil || len(locations) != 0 {
+		t.Fatalf("status before register = (%v, %v), want (none, nil)", locations, err)
 	}
 	if err := ProtocolStatus(&out); err != nil {
 		t.Fatalf("ProtocolStatus: %v", err)
@@ -42,10 +43,11 @@ func TestProtocolRoundTrip(t *testing.T) {
 	if err := ProtocolRegister(&out); err != nil {
 		t.Fatalf("ProtocolRegister: %v", err)
 	}
-	path, registered, err := handlerStatus()
-	if err != nil || !registered {
-		t.Fatalf("status after register = (%v, %v), want (true, nil)", registered, err)
+	locations, err := handlerStatus()
+	if err != nil || len(locations) != 1 {
+		t.Fatalf("status after register = (%v, %v), want one location", locations, err)
 	}
+	path := locations[0]
 
 	entry, err := os.ReadFile(path)
 	if err != nil {
@@ -72,8 +74,8 @@ func TestProtocolRoundTrip(t *testing.T) {
 	if err := ProtocolUnregister(&out); err != nil {
 		t.Fatalf("ProtocolUnregister: %v", err)
 	}
-	if _, registered, _ := handlerStatus(); registered {
-		t.Error("scheme still registered after unregister")
+	if locations, _ := handlerStatus(); len(locations) != 0 {
+		t.Errorf("scheme still registered after unregister: %v", locations)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Errorf("handler entry still present after unregister: %v", err)
@@ -88,6 +90,7 @@ func TestProtocolUnregisterWhenAbsent(t *testing.T) {
 		t.Skipf("registration is implemented for Linux only; %s returns an unsupported error", runtime.GOOS)
 	}
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_DIRS", t.TempDir())
 
 	var out bytes.Buffer
 	if err := ProtocolUnregister(&out); err != nil {
@@ -141,11 +144,11 @@ func TestHandlerEntryUsesAbsoluteExecutable(t *testing.T) {
 	if err := ProtocolRegister(&out); err != nil {
 		t.Fatalf("ProtocolRegister: %v", err)
 	}
-	path, _, err := handlerStatus()
-	if err != nil {
-		t.Fatalf("handlerStatus: %v", err)
+	locations, err := handlerStatus()
+	if err != nil || len(locations) == 0 {
+		t.Fatalf("handlerStatus = (%v, %v), want a location", locations, err)
 	}
-	entry, err := os.ReadFile(path)
+	entry, err := os.ReadFile(locations[0])
 	if err != nil {
 		t.Fatalf("reading the handler entry: %v", err)
 	}
@@ -197,5 +200,88 @@ func TestDesktopExecArgQuoting(t *testing.T) {
 				t.Errorf("desktopExecArg(%q) = %q, want %q", tt.path, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestProtocolStatusFindsSystemWideEntry covers the install.sh case: for an
+// install outside the home directory the handler entry lands in a system
+// applications directory. Status must see it, or a user would be told the
+// scheme is unregistered while links still open cliamp.
+func TestProtocolStatusFindsSystemWideEntry(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skipf("registration is implemented for Linux only")
+	}
+	systemShare := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_DIRS", systemShare)
+
+	systemApps := filepath.Join(systemShare, "applications")
+	if err := os.MkdirAll(systemApps, 0o755); err != nil {
+		t.Fatalf("creating %s: %v", systemApps, err)
+	}
+	systemEntry := filepath.Join(systemApps, desktopFileName)
+	if err := os.WriteFile(systemEntry, []byte("[Desktop Entry]\n"), 0o644); err != nil {
+		t.Fatalf("writing %s: %v", systemEntry, err)
+	}
+
+	locations, err := handlerStatus()
+	if err != nil {
+		t.Fatalf("handlerStatus: %v", err)
+	}
+	if len(locations) != 1 || locations[0] != systemEntry {
+		t.Fatalf("handlerStatus = %v, want [%s]", locations, systemEntry)
+	}
+
+	var out bytes.Buffer
+	if err := ProtocolStatus(&out); err != nil {
+		t.Fatalf("ProtocolStatus: %v", err)
+	}
+	if !strings.Contains(out.String(), "is registered") {
+		t.Errorf("status output = %q, want it to report a registered scheme", out.String())
+	}
+}
+
+// TestProtocolStatusOrdersUserEntryFirst confirms the precedence note is
+// accurate: XDG_DATA_HOME shadows the system directories.
+func TestProtocolStatusOrdersUserEntryFirst(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skipf("registration is implemented for Linux only")
+	}
+	systemShare := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_DIRS", systemShare)
+	t.Setenv("PATH", t.TempDir())
+
+	systemApps := filepath.Join(systemShare, "applications")
+	if err := os.MkdirAll(systemApps, 0o755); err != nil {
+		t.Fatalf("creating %s: %v", systemApps, err)
+	}
+	if err := os.WriteFile(filepath.Join(systemApps, desktopFileName), []byte("[Desktop Entry]\n"), 0o644); err != nil {
+		t.Fatalf("writing the system entry: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := ProtocolRegister(&out); err != nil {
+		t.Fatalf("ProtocolRegister: %v", err)
+	}
+	locations, err := handlerStatus()
+	if err != nil {
+		t.Fatalf("handlerStatus: %v", err)
+	}
+	if len(locations) != 2 {
+		t.Fatalf("handlerStatus = %v, want two locations", locations)
+	}
+	userDir, _ := applicationsDir()
+	if filepath.Dir(locations[0]) != userDir {
+		t.Errorf("locations[0] = %s, want the user entry under %s", locations[0], userDir)
+	}
+
+	// Unregister removes the writable ones; both are writable here.
+	removed, blocked, err := unregisterHandler()
+	if err != nil {
+		t.Fatalf("unregisterHandler: %v", err)
+	}
+	if len(removed) != 2 || len(blocked) != 0 {
+		t.Errorf("unregisterHandler removed %v, blocked %v; want both removed", removed, blocked)
 	}
 }
