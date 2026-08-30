@@ -47,11 +47,16 @@ type playlistCache struct {
 }
 
 // pendingTracks accumulates a progressive load. want is the offset the next
-// page must carry; a page arriving out of order belongs to a superseded chain
-// and is served to the caller but never accumulated.
+// page must carry and total is the list size the first page reported; a page
+// that is out of order, or that reports a different total and so was read from
+// a changed library, is served to the caller but never accumulated. Contiguity
+// alone is not enough: a mutation mid-load shifts every later offset, so pages
+// from two snapshots can splice together into a list that is short by one and
+// duplicated by one, which revalidation cannot detect.
 type pendingTracks struct {
 	tracks []playlist.Track
 	want   int
+	total  int
 }
 
 type SpotifyProvider struct {
@@ -550,10 +555,10 @@ func (p *SpotifyProvider) TracksPage(playlistID string, offset int) ([]playlist.
 	defer p.mu.Unlock()
 	pend := p.pending[playlistID]
 	if offset == 0 {
-		pend = &pendingTracks{}
+		pend = &pendingTracks{total: total}
 		p.pending[playlistID] = pend
 	}
-	if pend == nil || pend.want != offset {
+	if pend == nil || pend.want != offset || pend.total != total {
 		return page, next, nil
 	}
 	pend.tracks = append(pend.tracks, page...)

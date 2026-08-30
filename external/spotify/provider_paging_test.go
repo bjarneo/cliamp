@@ -169,3 +169,40 @@ func TestTracksPageAbortedLoadDoesNotCache(t *testing.T) {
 		t.Errorf("restart collected %d tracks, want 120", got)
 	}
 }
+
+// A library that changes mid-load shifts every later offset, so pages from two
+// snapshots would splice into a list short by one and duplicated by one. The
+// revalidation probe cannot see that, so the accumulation must refuse to commit.
+func TestTracksPageAbandonsLoadWhenLibraryChangesMidLoad(t *testing.T) {
+	calls := 0
+	total := 120
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/v1/me/tracks" {
+			return nil, fmt.Errorf("unexpected Spotify API path %q", req.URL.Path)
+		}
+		calls++
+		offset, _ := strconv.Atoi(req.URL.Query().Get("offset"))
+		limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
+		body := savedTracksBody(offset, limit, total)
+		if offset == 0 {
+			total++ // someone liked a track while page 1 was in flight
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    req,
+		}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
+	p := New(sess, "client", 320)
+	drainSavedTracks(t, p)
+
+	if cached, ok := p.trackCache["YOUR MUSIC"]; ok && cached.tracks != nil {
+		t.Errorf("committed a cache spanning two library snapshots (%d tracks)", len(cached.tracks))
+	}
+}
