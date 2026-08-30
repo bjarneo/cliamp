@@ -412,8 +412,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.gen != m.requests.tracks || !m.isActiveProvider(msg.providerName) {
 			return m, nil
 		}
+		m.provLoading = false
 		if msg.err != nil {
-			m.provLoading = false
 			if errors.Is(msg.err, playlist.ErrNeedsAuth) {
 				m.provSignIn = true
 				m.err = nil
@@ -439,7 +439,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, fetchTracksPageCmd(pager, msg.providerName, msg.playlistID, msg.next, msg.gen)
 			}
 		}
-		m.provLoading = false
 		if msg.offset > 0 {
 			msg.tracks = m.playlist.Tracks()
 		}
