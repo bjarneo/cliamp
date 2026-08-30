@@ -108,3 +108,31 @@ func TestLaterPagesAppendWithoutReplacing(t *testing.T) {
 		t.Error("provLoading set after the terminal page")
 	}
 }
+
+// A superseded chain's straggler page must not append to the list the new chain
+// installed. phase0_test covers the offset == 0 shape; this guards the append.
+func TestStaleGenPageDoesNotAppend(t *testing.T) {
+	prov := &pagerProv{name: "Pager", pages: [][]playlist.Track{
+		pageOf("a", "b"),
+		pageOf("c", "d"),
+	}}
+	m := newPagingModel(prov)
+
+	updated, _ := m.Update(tracksLoadedMsg{
+		tracks: prov.pages[0], playlistID: "list", providerName: "Pager", offset: 0, next: 1, gen: 1,
+	})
+	m = updated.(Model)
+	m.requests.tracks = 2 // the user re-entered; chain 1 is now dead
+
+	updated, cmd := m.Update(tracksLoadedMsg{
+		tracks: prov.pages[1], playlistID: "list", providerName: "Pager", offset: 1, next: 0, gen: 1,
+	})
+	m = updated.(Model)
+
+	if got := m.playlist.Len(); got != 2 {
+		t.Errorf("playlist has %d tracks, want 2: a stale page appended", got)
+	}
+	if cmd != nil {
+		t.Error("a stale page dispatched a follow-up request")
+	}
+}
