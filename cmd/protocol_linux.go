@@ -58,14 +58,6 @@ func applicationsDir() (string, error) {
 	return filepath.Join(base, "applications"), nil
 }
 
-func handlerFile() (string, error) {
-	dir, err := applicationsDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, desktopFileName), nil
-}
-
 // handlerSearchDirs lists the application directories a handler entry can
 // live in, in XDG precedence order.
 //
