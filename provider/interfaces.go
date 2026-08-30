@@ -328,3 +328,9 @@ type FavoritesManager interface {
 	// FavoritesCount returns the number of favorited tracks.
 	FavoritesCount() int
 }
+
+// TrackPager is implemented by providers that can return a playlist's tracks
+// one page at a time so the UI can populate the queue progressively.
+type TrackPager interface {
+	TracksPage(playlistID string, offset int) (tracks []playlist.Track, next int, err error)
+}

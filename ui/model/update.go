@@ -408,6 +408,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tracksPageMsg:
+		if msg.gen != m.requests.tracks || !m.isActiveProvider(msg.providerName) {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.provLoading = false
+			if errors.Is(msg.err, playlist.ErrNeedsAuth) {
+				m.provSignIn = true
+				m.err = nil
+				return m, nil
+			}
+			m.err = msg.err
+			return m, nil
+		}
+		if msg.offset == 0 {
+			m.replacePlayerPlaylist(msg.tracks)
+		} else {
+			m.playlist.Add(msg.tracks...)
+			m.normalizeQueueOverlay()
+			m.setHeaderStateFromTracks(m.playlist.Tracks())
+		}
+		if msg.next > 0 {
+			m.adjustScroll()
+			m.notifyAll()
+			pager, ok := m.provider.(provider.TrackPager)
+			if !ok {
+				return m, nil
+			}
+			return m, fetchTracksPageCmd(pager, msg.providerName, msg.playlistID, msg.next, msg.gen)
+		}
+		m.provLoading = false
+		m.applyTracksResume(tracksLoadedMsg{tracks: m.playlist.Tracks(), playlistID: msg.playlistID, providerName: msg.providerName, gen: msg.gen})
+		m.adjustScroll()
+		m.notifyAll()
+		return m, nil
+
 	case tracksLoadedMsg:
 		if msg.gen != m.requests.tracks || !m.isActiveProvider(msg.providerName) {
 			return m, nil

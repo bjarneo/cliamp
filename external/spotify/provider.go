@@ -42,6 +42,7 @@ var (
 type playlistCache struct {
 	snapshotID string
 	tracks     []playlist.Track
+	total      int
 }
 
 type SpotifyProvider struct {
@@ -52,7 +53,8 @@ type SpotifyProvider struct {
 	meFetched  bool   // /v1/me has been attempted this session; suppresses retry on failure
 	mu         sync.Mutex
 	trackCache map[string]*playlistCache // playlist ID → cache entry
-	authCancel context.CancelFunc        // cancels any in-progress OAuth flow
+	pending    map[string][]playlist.Track
+	authCancel context.CancelFunc // cancels any in-progress OAuth flow
 
 	// Playlist list cache to avoid redundant API calls on provider switch.
 	listCache   []playlist.PlaylistInfo
@@ -70,6 +72,7 @@ func New(session *Session, clientID string, bitrate int) *SpotifyProvider {
 		clientID:   clientID,
 		bitrate:    bitrate,
 		trackCache: make(map[string]*playlistCache),
+		pending:    make(map[string][]playlist.Track),
 	}
 }
 
@@ -407,55 +410,15 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 	offset := 0
 	limit := spotifyTrackPageSize
 
+	grand := 0
 	for {
-		var (
-			resp *http.Response
-			err  error
-		)
-
-		if playlistID == "YOUR MUSIC" {
-			query := url.Values{
-				"limit":  {fmt.Sprintf("%d", limit)},
-				"offset": {fmt.Sprintf("%d", offset)},
-			}
-			resp, err = p.webAPI(ctx, "GET", "/v1/me/tracks", query)
-		} else {
-			query := url.Values{
-				"limit":  {fmt.Sprintf("%d", limit)},
-				"offset": {fmt.Sprintf("%d", offset)},
-				"fields": {"items(item(id,name,type,uri,artists(name),album(name,release_date),show(name),release_date,duration_ms,track_number,is_playable,restrictions(reason))),total"},
-			}
-			path := fmt.Sprintf("/v1/playlists/%s/items", playlistID)
-			resp, err = p.webAPI(ctx, "GET", path, query)
-		}
-
+		page, total, err := p.fetchTracksPage(ctx, playlistID, offset)
 		if err != nil {
-			return nil, fmt.Errorf("spotify: list tracks: %w", err)
+			return nil, err
 		}
-
-		var result struct {
-			Items []struct {
-				Item  *spotifyItem `json:"item"`
-				Track *spotifyItem `json:"track"`
-			} `json:"items"`
-			Total int `json:"total"`
-		}
-		if err := decodeBody(resp, &result); err != nil {
-			return nil, fmt.Errorf("spotify: parse tracks: %w", err)
-		}
-
-		for _, item := range result.Items {
-			t := item.Item
-			if t == nil {
-				t = item.Track
-			}
-			if t == nil || t.ID == "" {
-				continue // skip local/unavailable tracks
-			}
-			all = append(all, trackFromItem(t))
-		}
-
-		if offset+limit >= result.Total {
+		all = append(all, page...)
+		grand = total
+		if offset+limit >= total {
 			break
 		}
 		offset += limit
@@ -465,12 +428,121 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 	p.mu.Lock()
 	if cached, ok := p.trackCache[playlistID]; ok {
 		cached.tracks = all
+		cached.total = grand
 	} else {
-		p.trackCache[playlistID] = &playlistCache{tracks: all}
+		p.trackCache[playlistID] = &playlistCache{tracks: all, total: grand}
 	}
 	p.mu.Unlock()
 
 	return slices.Clone(all), nil
+}
+
+func (p *SpotifyProvider) fetchTracksPage(ctx context.Context, playlistID string, offset int) ([]playlist.Track, int, error) {
+	query := url.Values{
+		"limit":  {fmt.Sprintf("%d", spotifyTrackPageSize)},
+		"offset": {fmt.Sprintf("%d", offset)},
+	}
+	path := "/v1/me/tracks"
+	if playlistID != "YOUR MUSIC" {
+		query.Set("fields", "items(item(id,name,type,uri,artists(name),album(name,release_date),show(name),release_date,duration_ms,track_number,is_playable,restrictions(reason))),total")
+		path = fmt.Sprintf("/v1/playlists/%s/items", playlistID)
+	}
+	resp, err := p.webAPI(ctx, "GET", path, query)
+	if err != nil {
+		return nil, 0, fmt.Errorf("spotify: list tracks: %w", err)
+	}
+	var result struct {
+		Items []struct {
+			Item  *spotifyItem `json:"item"`
+			Track *spotifyItem `json:"track"`
+		} `json:"items"`
+		Total int `json:"total"`
+	}
+	if err := decodeBody(resp, &result); err != nil {
+		return nil, 0, fmt.Errorf("spotify: parse tracks: %w", err)
+	}
+	var tracks []playlist.Track
+	for _, item := range result.Items {
+		t := item.Item
+		if t == nil {
+			t = item.Track
+		}
+		if t == nil || t.ID == "" {
+			continue
+		}
+		tracks = append(tracks, trackFromItem(t))
+	}
+	return tracks, result.Total, nil
+}
+
+// savedTracksUnchanged revalidates a cached Liked Songs list with a single
+// limit=1 request: /v1/me/tracks is sorted by added_at descending, so an
+// unchanged total plus an unchanged newest entry means no add or removal.
+func (p *SpotifyProvider) savedTracksUnchanged(ctx context.Context, tracks []playlist.Track, total int) bool {
+	resp, err := p.webAPI(ctx, "GET", "/v1/me/tracks", url.Values{"limit": {"1"}})
+	if err != nil {
+		return false
+	}
+	var result struct {
+		Items []struct {
+			Track *spotifyItem `json:"track"`
+		} `json:"items"`
+		Total int `json:"total"`
+	}
+	if err := decodeBody(resp, &result); err != nil || result.Total != total {
+		return false
+	}
+	if len(result.Items) == 0 || result.Items[0].Track == nil {
+		return len(tracks) == 0
+	}
+	return len(tracks) > 0 && trackFromItem(result.Items[0].Track).Path == tracks[0].Path
+}
+
+// TracksPage returns one page of playlistID's tracks plus the offset to request
+// next, or 0 when the playlist is fully loaded. Implements provider.TrackPager.
+func (p *SpotifyProvider) TracksPage(playlistID string, offset int) ([]playlist.Track, int, error) {
+	if err := p.ensureSession(); err != nil {
+		return nil, 0, err
+	}
+	p.mu.Lock()
+	cached, hit := p.trackCache[playlistID]
+	var tracks []playlist.Track
+	var cachedTotal int
+	if hit = hit && cached.tracks != nil && offset == 0; hit {
+		tracks = slices.Clone(cached.tracks)
+		cachedTotal = cached.total
+	}
+	p.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	if hit && (playlistID != "YOUR MUSIC" || p.savedTracksUnchanged(ctx, tracks, cachedTotal)) {
+		return tracks, 0, nil
+	}
+	page, total, err := p.fetchTracksPage(ctx, playlistID, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	next := offset + spotifyTrackPageSize
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if offset == 0 {
+		p.pending[playlistID] = nil
+	}
+	p.pending[playlistID] = append(p.pending[playlistID], page...)
+	if next < total {
+		return page, next, nil
+	}
+	if cached, ok := p.trackCache[playlistID]; ok {
+		cached.tracks = p.pending[playlistID]
+		cached.total = total
+	} else {
+		p.trackCache[playlistID] = &playlistCache{tracks: p.pending[playlistID], total: total}
+	}
+	delete(p.pending, playlistID)
+	return page, 0, nil
 }
 
 // isAuthError returns true if the error is an authentication/session-related

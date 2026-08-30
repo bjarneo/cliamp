@@ -50,6 +50,16 @@ type ShowStatusMsg struct {
 	Duration time.Duration
 }
 
+type tracksPageMsg struct {
+	tracks       []playlist.Track
+	playlistID   string
+	providerName string
+	offset       int
+	next         int
+	gen          uint64
+	err          error
+}
+
 type tracksLoadedMsg struct {
 	tracks        []playlist.Track
 	playlistID    string
@@ -318,6 +328,13 @@ func saveYTDLCmd(pageURL string, saveDir string) tea.Cmd {
 	return func() tea.Msg {
 		path, err := resolve.DownloadYTDL(pageURL, saveDir)
 		return ytdlSavedMsg{path: path, err: err}
+	}
+}
+
+func fetchTracksPageCmd(pager provider.TrackPager, name, playlistID string, offset int, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		tracks, next, err := pager.TracksPage(playlistID, offset)
+		return tracksPageMsg{tracks: tracks, playlistID: playlistID, providerName: name, offset: offset, next: next, gen: gen, err: err}
 	}
 }
 
