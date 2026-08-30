@@ -214,7 +214,9 @@ Control a running cliamp instance from another terminal:
 cliamp play / pause / toggle / stop    # playback control
 cliamp next / prev                     # track navigation
 cliamp status                          # current state
-cliamp status --json                   # machine-readable state
+cliamp status --json                   # machine-readable state (includes the active screen)
+cliamp keymap                          # keys that apply on the current screen
+cliamp keymap --json                   # the same, machine-readable
 cliamp volume -5                       # adjust volume (dB)
 cliamp seek 30                         # seek relative to current position (seconds)
 cliamp load "Playlist Name"            # load a playlist

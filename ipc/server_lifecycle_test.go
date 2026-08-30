@@ -122,3 +122,30 @@ func TestStreamBandsUsesV2SpectrumMethod(t *testing.T) {
 		t.Fatalf("stream output = %q", got)
 	}
 }
+
+// TestKeymapGetRoutesToOwner checks the server treats keymap.get as a read
+// method handed to the runtime owner, like state.get, rather than as an
+// unknown operation.
+func TestKeymapGetRoutesToOwner(t *testing.T) {
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+	server, err := NewServer(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	server.SetV2Dispatcher(V2DispatcherFunc(func(_ context.Context, request V2Request) (V2Result, *V2Error) {
+		if request.Method != "keymap.get" {
+			t.Fatalf("method = %q", request.Method)
+		}
+		result, err := json.Marshal([]KeymapEntry{{Keys: []string{"space"}, Label: "Space", Action: "Play / Pause", Section: "main"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return V2Result{Result: result}, nil
+	}))
+
+	response := sendRawV2Request(t, sock, []byte(`{"version":2,"id":"k","method":"keymap.get"}`))
+	if !response.OK || !strings.Contains(string(response.Result), `"section":"main"`) {
+		t.Fatalf("response = %#v", response)
+	}
+}

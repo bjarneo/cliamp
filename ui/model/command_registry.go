@@ -49,6 +49,50 @@ const (
 
 const commandModeAny = ^commandMode(0)
 
+// commandModeIDs gives every mode a stable, machine-readable name for the
+// IPC screen field. TestCommandModeIDsCoverEveryMode guards against a new
+// mode being added without one.
+var commandModeIDs = map[commandMode]string{
+	commandModeMain:                 "playlist",
+	commandModeProvider:             "provider",
+	commandModeEQ:                   "eq",
+	commandModeSpeed:                "speed",
+	commandModeProviderPill:         "source",
+	commandModeKeymap:               "keymap",
+	commandModeKeymapSearch:         "keymap_search",
+	commandModeFileBrowser:          "file_browser",
+	commandModeFileBrowserSearch:    "file_browser_search",
+	commandModeNavBrowser:           "browser",
+	commandModeNavSearch:            "browser_search",
+	commandModePlaylistManager:      "playlist_manager",
+	commandModePlaylistManagerInput: "playlist_manager_input",
+	commandModePlaylistManagerDirs:  "playlist_manager_dirs",
+	commandModePlaylistPicker:       "playlist_picker",
+	commandModePlaylistPickerInput:  "playlist_picker_input",
+	commandModeQueue:                "queue",
+	commandModeSearch:               "playlist_search",
+	commandModeNetSearch:            "online_search",
+	commandModeSpotSearch:           "provider_search",
+	commandModeJump:                 "jump",
+	commandModeURL:                  "url",
+	commandModeLyrics:               "lyrics",
+	commandModeThemePicker:          "theme_picker",
+	commandModeVisPicker:            "visualizer_picker",
+	commandModeDevicePicker:         "device_picker",
+	commandModeInfo:                 "track_info",
+	commandModeThemePickerFilter:    "theme_picker_filter",
+	commandModeVisPickerFilter:      "visualizer_picker_filter",
+	commandModeProviderSearch:       "provider_filter",
+	commandModeRadioStats:           "radio_stats",
+}
+
+func (mode commandMode) id() string {
+	if id, ok := commandModeIDs[mode]; ok {
+		return id
+	}
+	return "unknown"
+}
+
 // commandSpec is the single source of metadata for in-app commands. Dispatch
 // remains in the focused handlers, while keymap, plugin reservations, and help
 // all consume this description.

@@ -146,3 +146,72 @@ func TestV2QueueRemoveStopsActivePlayback(t *testing.T) {
 		t.Fatalf("stops=%d tracks=%#v", engine.stopCalls, pl.Tracks())
 	}
 }
+
+// TestV2KeymapFollowsActiveScreen pins keymap.get and the state.get screen
+// field to the screen that owns input: on the main screen only global rows
+// come back, and opening a picker puts that screen's rows first.
+func TestV2KeymapFollowsActiveScreen(t *testing.T) {
+	tests := []struct {
+		name         string
+		open         func(*Model)
+		wantScreenID string
+		wantLabel    string
+		wantFirst    string
+	}{
+		{name: "main screen", open: func(*Model) {}, wantScreenID: "playlist", wantLabel: "Playlist", wantFirst: "main"},
+		{name: "file browser", open: func(m *Model) { m.fileBrowser.visible = true }, wantScreenID: "file_browser", wantLabel: "Files", wantFirst: "current"},
+		{name: "queue", open: func(m *Model) { m.queue.visible = true }, wantScreenID: "queue", wantLabel: "Queue", wantFirst: "current"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := &playbackFakeEngine{}
+			m := Model{player: engine, playlist: playlist.New(), vis: ui.NewVisualizer(float64(engine.SampleRate()))}
+			m.SetIPCBroker(ipc.NewBroker())
+			tt.open(&m)
+
+			reply := make(chan V2RequestResult, 1)
+			updated, _ := m.Update(V2RequestMsg{Request: ipc.V2Request{Method: "state.get"}, Reply: reply})
+			m = updated.(Model)
+			state := <-reply
+			if state.Error != nil || state.Result.Snapshot == nil || state.Result.Snapshot.Screen == nil {
+				t.Fatalf("state result = %#v", state)
+			}
+			if got := *state.Result.Snapshot.Screen; got.ID != tt.wantScreenID || got.Label != tt.wantLabel {
+				t.Fatalf("screen = %#v, want %s/%s", got, tt.wantScreenID, tt.wantLabel)
+			}
+
+			reply = make(chan V2RequestResult, 1)
+			updated, _ = m.Update(V2RequestMsg{Request: ipc.V2Request{Method: "keymap.get"}, Reply: reply})
+			m = updated.(Model)
+			result := <-reply
+			if result.Error != nil {
+				t.Fatalf("keymap error = %#v", result.Error)
+			}
+			var entries []ipc.KeymapEntry
+			if err := json.Unmarshal(result.Result.Result, &entries); err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) == 0 || entries[0].Section != tt.wantFirst {
+				t.Fatalf("first entry = %#v, want section %q", entries, tt.wantFirst)
+			}
+			for _, entry := range entries {
+				if len(entry.Keys) == 0 || entry.Label == "" || entry.Action == "" {
+					t.Fatalf("incomplete entry %#v", entry)
+				}
+			}
+			if overlay := m.buildKeymapEntries(); countRows(overlay) != len(entries) {
+				t.Fatalf("overlay has %d rows, keymap.get has %d", countRows(overlay), len(entries))
+			}
+		})
+	}
+}
+
+func countRows(entries []keymapEntry) int {
+	n := 0
+	for _, entry := range entries {
+		if !entry.divider {
+			n++
+		}
+	}
+	return n
+}

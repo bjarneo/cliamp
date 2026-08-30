@@ -602,7 +602,7 @@ func newTUIV2Dispatcher(prog *tea.Program, jobs *ipc.JobStore, plugins *luaplugi
 			request.Operation = ""
 		}
 		switch request.Method {
-		case "state.get", "spectrum.get":
+		case "state.get", "spectrum.get", "keymap.get":
 			reply := make(chan model.V2RequestResult, 1)
 			go prog.Send(model.V2RequestMsg{Request: request, Reply: reply})
 			select {
@@ -801,8 +801,26 @@ func stateResult(snapshot ipc.RuntimeSnapshot) ipc.Response {
 		Speed:      snapshot.Speed,
 		EQPreset:   snapshot.EQPreset,
 		Theme:      snapshot.Theme,
+		Screen:     snapshot.Screen,
 		EQBands:    snapshot.EQBands,
 	}
+}
+
+func ipcKeymap() ([]ipc.KeymapEntry, error) {
+	response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{ID: json.RawMessage(`"cliamp"`), Method: "keymap.get"})
+	if err != nil {
+		return nil, userIPCError(err)
+	}
+	if err := v2ResponseError(response); err != nil {
+		return nil, err
+	}
+	var entries []ipc.KeymapEntry
+	if len(response.Result) > 0 {
+		if err := json.Unmarshal(response.Result, &entries); err != nil {
+			return nil, fmt.Errorf("keymap response: %w", err)
+		}
+	}
+	return entries, nil
 }
 
 func main() {

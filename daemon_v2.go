@@ -68,7 +68,7 @@ func newDaemonV2Dispatcher(d *daemon, jobs *ipc.JobStore) ipc.V2Dispatcher {
 			request.Operation = ""
 		}
 		switch strings.ToLower(strings.TrimSpace(request.Method)) {
-		case "state.get", "spectrum.get":
+		case "state.get", "spectrum.get", "keymap.get":
 			return d.dispatchV2Read(ctx, request)
 		}
 		if err := ctx.Err(); err != nil {
@@ -139,6 +139,11 @@ func (d *daemon) handleV2ReadRequest(msg daemonV2ReadRequest) {
 			return
 		}
 		msg.reply <- daemonV2ReadResult{result: ipc.V2Result{Result: result}}
+	case "keymap.get":
+		// The keymap describes an interactive screen, and the daemon has none.
+		err := daemonV2UnavailableError()
+		err.Detail = "keymap is only available from the interactive TUI, not --daemon"
+		msg.reply <- daemonV2ReadResult{err: err}
 	default:
 		msg.reply <- daemonV2ReadResult{err: daemonV2InvalidParamsError()}
 	}

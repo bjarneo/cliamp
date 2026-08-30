@@ -99,6 +99,9 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 		response := m.v2BandsResponse()
 		m.replyV2(msg.Reply, ipc.V2Result{Result: marshalV2Result(response)}, nil)
 		return nil
+	case "keymap.get":
+		m.replyV2(msg.Reply, ipc.V2Result{Result: marshalV2Result(m.keymapExport())}, nil)
+		return nil
 	}
 
 	if msg.Jobs == nil || msg.JobID == "" {
@@ -530,6 +533,8 @@ func (m *Model) runtimeSnapshot() ipc.RuntimeSnapshot {
 	if m.ipcRuntime != nil {
 		snapshot.Revision = m.ipcRuntime.revision
 	}
+	screen := m.screenInfo()
+	snapshot.Screen = &screen
 	if m.playlist != nil {
 		snapshot.PlaylistRevision = m.playlist.Revision()
 		snapshot.Index = m.playlist.Index()
