@@ -146,8 +146,9 @@ func TestTracksPageIgnoresNonContiguousPages(t *testing.T) {
 	}
 	// A page from a superseded chain lands at an offset the current
 	// accumulation is not waiting for; it must not be spliced in.
-	if _, _, err := p.TracksPage("YOUR MUSIC", 100); err != nil {
-		t.Fatal(err)
+	page, next, err := p.TracksPage("YOUR MUSIC", 100)
+	if err != nil || len(page) != 50 || next != 150 {
+		t.Fatalf("stale page not served to its caller: len=%d next=%d err=%v", len(page), next, err)
 	}
 	pend := p.pending["YOUR MUSIC"]
 	if pend == nil || len(pend.tracks) != 50 || pend.want != 50 {
