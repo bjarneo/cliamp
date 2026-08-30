@@ -490,6 +490,9 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if cfg.HideHelpBar {
 		m.SetHideHelpBar(true)
 	}
+	if cfg.Expanded {
+		m.SetExpanded(true)
+	}
 
 	if rs := resume.Load(); rs.Path != "" && rs.PositionSec > 0 {
 		// Mixcloud is commonly opened from its provider browser rather than a

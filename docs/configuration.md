@@ -85,6 +85,9 @@ simplified = false
 
 # Hide the key-binding hint bar above the status line.
 hide_help_bar = false
+# Start with the playlist expanded, the state Ctrl+X toggles (default: false).
+# Ignored in simplified mode, which has no playlist to expand.
+expanded = false
 
 # UI theme name (see available themes in ~/.config/cliamp/themes/)
 theme = "Tokyo Night"
@@ -118,6 +121,10 @@ and gives that row back to the playlist. The full keymap stays available with
 `?`, and `Ctrl+G` toggles the bar for the current session. Start one session
 with `cliamp --no-help-bar`. Simplified mode draws neither the hint bar nor a
 playlist, so it is unaffected by this setting.
+`expanded = true` starts with the playlist at the expanded height, so a tall
+terminal shows the full list without pressing `Ctrl+X` on every launch. The key
+keeps working and collapses the view as before. Start one session with
+`cliamp --expanded`.
 
 List views such as provider browsing, file selection, queues, playlists, search
 results, themes, and keybindings use a content-first layout. This layout replaces
