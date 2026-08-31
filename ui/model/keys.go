@@ -390,8 +390,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 					r.Refresh()
 				}
 				m.provLoading = true
-				m.activeProviderPlaylistID = ""
 				m.status.Activityf(statusTTLShort, "Refreshing %s…", m.provider.Name())
+				// When a playlist (e.g. the Yandex "Моя волна" radio) is open,
+				// re-load it in place so a refresh starts a fresh batch; the
+				// provider's Refresh() clears its cached session. Otherwise
+				// fall back to the playlists pane.
+				if m.activeProviderPlaylistID != "" {
+					return m.fetchProviderTracks(m.activeProviderPlaylistID)
+				}
 				return m.fetchProviderPlaylists()
 			}
 		case "f":
@@ -508,6 +514,18 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m.quit()
+	case "ctrl+r":
+		// Refresh in the queue/playlist view: when a provider playlist (e.g.
+		// the Yandex "Моя волна" radio) is open, drop its cached session and
+		// reload a fresh batch in place.
+		if m.provider != nil && !m.provLoading && m.activeProviderPlaylistID != "" {
+			if r, ok := m.provider.(playlist.Refresher); ok {
+				r.Refresh()
+			}
+			m.provLoading = true
+			m.status.Activityf(statusTTLShort, "Refreshing %s…", m.provider.Name())
+			return m.fetchProviderTracks(m.activeProviderPlaylistID)
+		}
 	case "esc", "backspace", "b":
 		if m.focus == focusPlaylist {
 			// Keep current expanded/collapsed height mode when switching focus.

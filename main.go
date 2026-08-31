@@ -29,6 +29,7 @@ import (
 	"github.com/bjarneo/cliamp/external/soundcloud"
 	"github.com/bjarneo/cliamp/external/spotify"
 	"github.com/bjarneo/cliamp/external/tidal"
+	"github.com/bjarneo/cliamp/external/yandex"
 	"github.com/bjarneo/cliamp/external/ytmusic"
 	"github.com/bjarneo/cliamp/internal/appdir"
 	"github.com/bjarneo/cliamp/internal/appmeta"
@@ -65,7 +66,8 @@ func isBufferedProviderURL(u string) bool {
 		qobuz.IsStreamURL(u) ||
 		tidal.IsStreamURL(u) ||
 		audiobookshelf.IsStreamURL(u) ||
-		lyrion.IsStreamURL(u)
+		lyrion.IsStreamURL(u) ||
+		yandex.IsStreamURL(u)
 }
 
 func run(overrides config.Overrides, positional []string, daemon, visualizer60FPS bool) error {
@@ -177,6 +179,14 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		UserID:      cfg.NetEase.UserID,
 	}); neProv != nil {
 		providers = append(providers, model.ProviderEntry{Key: "netease", Name: "NetEase", Provider: neProv})
+	}
+
+	yaProv := yandex.NewFromConfig(yandex.Config{
+		Enabled: cfg.Yandex.Enabled,
+		Token:   cfg.Yandex.Token,
+	})
+	if yaProv != nil {
+		providers = append(providers, model.ProviderEntry{Key: "yandex", Name: "Yandex Music", Provider: yaProv})
 	}
 
 	var closeYouTube func()
@@ -344,6 +354,15 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 
 	if spotifyProv != nil {
 		p.RegisterStreamerFactory("spotify:", spotifyProv.NewStreamer)
+	}
+
+	if yaProv != nil {
+		// Yandex tracks carry yandex:track: URIs; the provider resolves them
+		// to a fresh signed stream URL when playback starts.
+		p.RegisterSourceResolver(yandex.TrackURIPrefix, func(uri string) (player.ResolvedSource, error) {
+			u, err := yaProv.ResolveSource(uri)
+			return player.ResolvedSource{URL: u}, err
+		})
 	}
 
 	if tidalProv != nil {

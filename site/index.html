@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CLIAMP - Terminal Music Player</title>
-<meta name="description" content="A terminal music player based on Winamp 2.x. Play local files, YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, and more than 30,000 radio stations. Use a spectrum visualizer and 10-band equalizer.">
+<meta name="description" content="A terminal music player based on Winamp 2.x. Play local files, YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, Yandex Music, and more than 30,000 radio stations. Use a spectrum visualizer and 10-band equalizer.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#050505">
@@ -12,7 +12,7 @@
 <!-- Open Graph -->
 <meta property="og:type" content="website">
 <meta property="og:title" content="CLIAMP - Terminal Music Player">
-<meta property="og:description" content="A terminal music player based on Winamp 2.x. Play YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, and more than 30,000 radio stations. Use a spectrum visualizer and 10-band equalizer.">
+<meta property="og:description" content="A terminal music player based on Winamp 2.x. Play YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, Yandex Music, and more than 30,000 radio stations. Use a spectrum visualizer and 10-band equalizer.">
 <meta property="og:image" content="https://cliamp.stream/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -21,7 +21,7 @@
 <!-- Twitter Card -->
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="CLIAMP - Terminal Music Player">
-<meta name="twitter:description" content="A terminal music player based on Winamp 2.x. Play YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, and more than 30,000 radio stations. Use a spectrum visualizer and 10-band equalizer.">
+<meta name="twitter:description" content="A terminal music player based on Winamp 2.x. Play YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, Yandex Music, and more than 30,000 radio stations. Use a spectrum visualizer and 10-band equalizer.">
 <meta name="twitter:image" content="https://cliamp.stream/og-image.png">
 
 <style>
@@ -948,7 +948,7 @@ footer{padding:26px 0;border-top:1px solid var(--green);background:var(--ink)}
 <!-- ═══ TICKER ═══ -->
 <div class="ticker" aria-hidden="true">
   <div class="ticker-track" id="ticker">
-    <span>MP3 · FLAC · OGG · OPUS · WAV · AAC · ALAC · Spotify · Qobuz · Tidal · YouTube · Plex · Jellyfin · Emby · Navidrome · Lyrion · SoundCloud · Mixcloud · NetEase · Bandcamp · Bilibili · RSS / Podcasts · 30k+ Radio Stations · ICY metadata · MPRIS · Lua plugins</span>
+    <span>MP3 · FLAC · OGG · OPUS · WAV · AAC · ALAC · Spotify · Qobuz · Tidal · YouTube · Plex · Jellyfin · Emby · Navidrome · Lyrion · SoundCloud · Mixcloud · NetEase · Yandex · Bandcamp · Bilibili · RSS / Podcasts · 30k+ Radio Stations · ICY metadata · MPRIS · Lua plugins</span>
   </div>
 </div>
 
@@ -1048,6 +1048,7 @@ footer{padding:26px 0;border-top:1px solid var(--green);background:var(--ink)}
       <div class="source" style="--src-color:#ff7700"><div class="source-badge">Provider · yt-dlp</div><div class="source-name">SoundCloud</div><div class="source-desc">Enable SoundCloud: set <code>[soundcloud] enabled = true</code>. Search with <kbd>Ctrl+F</kbd>, browse curated genre playlists, or add <code>user</code> for your profile. <code>cookies_from</code> lets you play Go+ tracks from your browser session.</div></div>
       <div class="source" style="--src-color:#5000ff"><div class="source-badge">Public API · yt-dlp</div><div class="source-name">Mixcloud</div><div class="source-desc">Enable Mixcloud: set <code>[mixcloud] enabled = true</code>. Browse account Stream and Favorites, followed Creators, recent and popular shows, collections, and creator Uploads and Favorites. Search shows and discover live genres and tags. View locally favorited style charts, restricted-show warnings, and resume. Press <kbd>Shift+X</kbd> to open. Browser cookies support signed-in playback.</div></div>
       <div class="source" style="--src-color:#d33a31"><div class="source-badge">Provider · yt-dlp</div><div class="source-name">NetEase</div><div class="source-desc">Run <code>cliamp setup</code> after you sign in at <code>music.163.com</code>. Then select your browser. Browse liked songs, account playlists, saved playlists, and charts. Use browser cookies for playback.</div></div>
+      <div class="source" style="--src-color:#ffcc00"><div class="source-badge">Provider · OAuth</div><div class="source-name">Yandex Music</div><div class="source-desc">Set <code>[yandex] enabled = true</code> with a personal OAuth token. Browse liked tracks and your playlists, search the catalog. Playback uses direct signed CDN URLs.</div></div>
       <div class="source" style="--src-color:#629aa9"><div class="source-badge">yt-dlp</div><div class="source-name">Bandcamp</div><div class="source-desc">Paste a Bandcamp URL to play it.</div></div>
       <div class="source" style="--src-color:#00a1d6"><div class="source-badge">yt-dlp</div><div class="source-name">Bilibili</div><div class="source-desc">Play audio from Bilibili videos with yt-dlp.</div></div>
       <div class="source" style="--src-color:#f7a000"><div class="source-badge">30k+ stations</div><div class="source-name">Radio</div><div class="source-desc">Browse stations by country, tag, or name. View ICY metadata.</div></div>
