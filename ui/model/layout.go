@@ -28,6 +28,9 @@ func (l frameLayout) tooSmall() bool {
 	return l.tier == layoutTooSmall
 }
 
+// recomputeLayout picks the layout tier for the current terminal size and
+// derives the row budget from it: fixed chrome, the visualizer, and whatever
+// is left for the body.
 func (m *Model) recomputeLayout() {
 	width, height := m.width, m.height
 	if width <= 0 {
@@ -74,6 +77,11 @@ func (m *Model) recomputeLayout() {
 	} else if simplified {
 		layout.visualizerRows = 0
 		layout.fixedRows = 3
+	}
+	// The simplified view never draws the hint bar, so its fixedRows budget
+	// does not include that row and must not be reduced here.
+	if m.hideHelpBar && !simplified {
+		layout.fixedRows = max(0, layout.fixedRows-1)
 	}
 
 	layout.fullVisualizerRows = max(1, height-6-2*paddingV)

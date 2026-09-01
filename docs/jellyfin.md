@@ -1,6 +1,6 @@
 # Jellyfin
 
-Use cliamp to stream music from a Jellyfin server through Jellyfin's authenticated HTTP API. The provider pane shows music libraries as a flat album list, like the Plex provider.
+Use cliamp to stream music from a Jellyfin server through Jellyfin's authenticated HTTP API. Jellyfin opens in an artists-first hierarchy by default: artist, then album, then songs.
 
 > **Quick start:** Run `cliamp setup`. Select API-token or username+password authentication. The TUI validates `/Users/Me` and writes the `[jellyfin]` block. Manual steps follow.
 
@@ -48,20 +48,15 @@ Or set the provider in configuration:
 provider = "jellyfin"
 ```
 
-The provider shows a flat album list:
+Jellyfin opens directly in **By Artist / Album** mode. Artists are listed alphabetically; selecting one opens their albums, and selecting an album opens its songs.
 
-```text
-Artist - Album Title (Year)
-```
-
-Select an album to load its tracks.
+Press `N` while browsing Jellyfin to temporarily switch to **By Album** or **By Artist**. These alternate modes apply only to the current session; the next launch always returns to **By Artist / Album**.
 
 ## How it works
 
-cliamp authenticates with a configured token or the supplied username and password. It resolves the active Jellyfin user, lists music library views, gets albums from those views, then gets tracks for the selected album. Playback uses Jellyfin's authenticated audio endpoint and streams through the cliamp HTTP pipeline.
+cliamp authenticates with a configured token or the supplied username and password. It resolves the active Jellyfin user, lists music library views, derives an alphabetical artist index from the album catalog, then gets tracks for the selected album. Playback uses Jellyfin's authenticated audio endpoint and streams through the cliamp HTTP pipeline.
 
 ## Known limitations
 
-- **Album list is flat**: Artist drill-down is not available.
 - **No scrobbling/write-back**: cliamp does not report plays to Jellyfin.
 - **Token-based access**: Store the API token safely.

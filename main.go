@@ -87,7 +87,10 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	}
 
 	// Build provider list: Radio is always available, Navidrome and Spotify if configured.
-	radioProv := radio.New()
+	radioProv := radio.New(radio.Options{
+		Country:     cfg.Radio.Country,
+		SaveCountry: config.SaveRadioCountry,
+	})
 	localProv := local.New()
 
 	var providers []model.ProviderEntry
@@ -303,6 +306,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 			playlist.Track{Path: "http://radio.cliamp.stream/lofi/stream", Title: "Lofi Stream", Stream: true, Realtime: true},
 			playlist.Track{Path: "http://radio.cliamp.stream/synthwave/stream", Title: "Synthwave Stream", Stream: true, Realtime: true},
 			playlist.Track{Path: "http://radio.cliamp.stream/edm/stream", Title: "EDM Stream", Stream: true, Realtime: true},
+			playlist.Track{Path: "http://radio.cliamp.stream/omarchy/stream", Title: "Omarchy Radio", Stream: true, Realtime: true},
 			playlist.Track{Path: "http://radio.cliamp.stream/ncs/stream", Title: "NCS Stream", Stream: true, Realtime: true},
 			playlist.Track{Path: "http://radio.cliamp.stream/ncs-house/stream", Title: "NCS House Stream", Stream: true, Realtime: true},
 			playlist.Track{Path: "http://radio.cliamp.stream/ncs-dubstep/stream", Title: "NCS Dubstep Stream", Stream: true, Realtime: true},
@@ -501,6 +505,9 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	}
 	if cfg.Simplified {
 		m.SetSimplified(true)
+	}
+	if cfg.HideHelpBar {
+		m.SetHideHelpBar(true)
 	}
 
 	if rs := resume.Load(); rs.Path != "" && rs.PositionSec > 0 {

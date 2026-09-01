@@ -31,6 +31,7 @@ func (m *Model) StartInProvider() {
 	if m.provider != nil {
 		m.focus = focusProvider
 		m.resetProviderNav()
+		_, m.openDefaultProviderOnce = m.provider.(provider.DefaultBrowseModeProvider)
 	}
 }
 
@@ -47,7 +48,11 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	m.activeProviderPlaylistID = ""
 	m.resetProviderNav()
 	m.focus = focusProvider
-	return m.fetchProviderPlaylists()
+	listsCmd := m.fetchProviderPlaylists()
+	if _, ok := m.provider.(provider.DefaultBrowseModeProvider); ok {
+		return tea.Batch(listsCmd, m.openDefaultProviderBrowser())
+	}
+	return listsCmd
 }
 
 func (m *Model) fetchProviderPlaylists() tea.Cmd {
@@ -367,6 +372,15 @@ func (m *Model) openProviderList(index int) tea.Cmd {
 		return nil
 	}
 	item := m.providerLists[index]
+	// The location offer is a question, not a list. Selecting it raises the
+	// question; nothing about the listener's location is worked out until they
+	// answer it.
+	if consenter, ok := m.provider.(provider.LocationConsenter); ok {
+		if id := consenter.LocationConsentID(); id != "" && id == item.ID {
+			m.provAskLoc = true
+			return nil
+		}
+	}
 	if entry, ok := providerBrowseEntryForID(m.provider, item.ID); ok {
 		m.activeProviderPlaylistID = ""
 		cmd := m.openNavBrowserEntry(m.provider, entry)
@@ -396,6 +410,14 @@ func (m *Model) SetLoadedPlaylist(name string) {
 // or genre browsing, preferring the active provider.
 func (m *Model) findBrowseProvider() playlist.Provider {
 	return m.findProviderWith(providerSupportsBrowse)
+}
+
+func (m *Model) openDefaultProviderBrowser() tea.Cmd {
+	preferred, ok := m.provider.(provider.DefaultBrowseModeProvider)
+	if !ok {
+		return nil
+	}
+	return m.openNavBrowserAt(m.provider, preferred.DefaultBrowseMode())
 }
 
 func providerSupportsBrowse(prov playlist.Provider) bool {

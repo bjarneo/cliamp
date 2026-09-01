@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -197,6 +199,43 @@ func TestJellyfinAuthenticatesWithPassword(t *testing.T) {
 	}
 	if c.token != "tok-1" || c.userID != "user-1" {
 		t.Fatalf("client auth state = token:%q userID:%q", c.token, c.userID)
+	}
+}
+
+func TestConcurrentJellyfinAuthenticationUsesSingleRequest(t *testing.T) {
+	var authCalls atomic.Int32
+	c := mock(NewJellyfinClient("https://jf.example.com", "", "", "finamp", "1qazxsw2"), func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/Users/AuthenticateByName" {
+			t.Fatalf("unexpected path %s", req.URL.Path)
+		}
+		authCalls.Add(1)
+		time.Sleep(25 * time.Millisecond)
+		return jsonResponse(`{"User":{"Id":"user-1"},"AccessToken":"tok-1"}`), nil
+	})
+
+	const callers = 16
+	start := make(chan struct{})
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	wg.Add(callers)
+	for range callers {
+		go func() {
+			defer wg.Done()
+			<-start
+			errs <- c.ensureAuth()
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Errorf("ensureAuth() error: %v", err)
+		}
+	}
+	if got := authCalls.Load(); got != 1 {
+		t.Fatalf("authentication requests = %d, want 1", got)
 	}
 }
 

@@ -142,14 +142,15 @@ func (m Model) renderNavBody() string {
 	case navViewTracks:
 		return m.renderNavTrackBody(budget)
 	case navViewGenres:
+		genres := m.navLabels().genresLower()
 		if m.navBrowser.loading && len(m.navBrowser.genres) == 0 {
-			return bodyLines([]string{loadingLine("Loading genres…")}, budget)
+			return bodyLines([]string{loadingLine("Loading " + genres + "…")}, budget)
 		}
 		if m.navBrowser.search != "" && len(m.navBrowser.searchIdx) == 0 {
 			return bodyMessage("No matches.", budget)
 		}
 		if len(m.navBrowser.genres) == 0 {
-			return bodyMessage("No genres found.", budget)
+			return bodyMessage("No "+genres+" found.", budget)
 		}
 		items := m.navScrollItems(len(m.navBrowser.genres), func(i int) string {
 			genre := m.navBrowser.genres[i]
@@ -166,7 +167,7 @@ func (m Model) renderNavBody() string {
 		return strings.Join(items, "\n")
 	case navViewGenreSorts:
 		if len(m.navBrowser.genreSorts) == 0 {
-			return bodyMessage("No genre views found.", budget)
+			return bodyMessage("No views found.", budget)
 		}
 		items := m.navScrollItems(len(m.navBrowser.genreSorts), func(i int) string {
 			return truncate(m.navBrowser.genreSorts[i].Label, ui.PanelWidth-6)

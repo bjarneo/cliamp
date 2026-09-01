@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -22,25 +23,67 @@ import (
 
 // Compile-time interface checks.
 var (
-	_ provider.FavoriteToggler  = (*Provider)(nil)
-	_ provider.CatalogLoader    = (*Provider)(nil)
-	_ provider.CatalogSearcher  = (*Provider)(nil)
-	_ provider.RadioStatsLoader = (*Provider)(nil)
-	_ provider.SectionedList    = (*Provider)(nil)
+	_ provider.FavoriteToggler      = (*Provider)(nil)
+	_ provider.CatalogLoader        = (*Provider)(nil)
+	_ provider.CatalogSearcher      = (*Provider)(nil)
+	_ provider.RadioStatsLoader     = (*Provider)(nil)
+	_ provider.SectionedList        = (*Provider)(nil)
+	_ provider.SectionTitler        = (*Provider)(nil)
+	_ provider.GenreBrowser         = (*Provider)(nil)
+	_ provider.GenreFavoriteToggler = (*Provider)(nil)
+	_ provider.GenreLabeler         = (*Provider)(nil)
+	_ provider.LocationConsenter    = (*Provider)(nil)
+	_ provider.BrowseEntryProvider  = (*Provider)(nil)
+	_ playlist.Refresher            = (*Provider)(nil)
 )
 
 const builtinName = "cliamp radio"
 const builtinURL = "https://radio.cliamp.stream/streams.m3u"
 
+// Section headings for each ID prefix, shown above the rows they cover in the
+// radio pane. The browse shortcut shares the pinned-places heading so the two
+// render as one block.
+const (
+	sectionCountries = "Countries"
+	sectionStations  = "Stations"
+	sectionFavorites = "Favorites"
+	sectionCatalog   = "Catalog"
+	sectionSearch    = "Search Results"
+)
+
+// Options configures the provider at construction time.
+type Options struct {
+	// Country records what the listener has already said about their location:
+	// an ISO 3166-1 alpha-2 code to use, CountryDeclined to leave it alone, or
+	// empty for "not asked yet". Nothing is detected until this is a code, so
+	// a fresh install works out nobody's location on its own.
+	Country string
+	// SaveCountry persists the listener's answer so they are asked once rather
+	// than every launch. A nil SaveCountry keeps the answer for this run only.
+	SaveCountry func(code string) error
+}
+
+// CountryDeclined is the Country value recording that the listener said no to
+// location detection.
+const CountryDeclined = "none"
+
 // Provider serves radio stations as single-track playlists.
-// It combines local stations, user favorites, and catalog stations
-// from the Radio Browser API into a single unified list.
+// It combines local stations, pinned places, user favorites, and catalog
+// stations from the Radio Browser API into a single unified list.
 type Provider struct {
 	mu            sync.Mutex
 	stations      []station        // built-in + user-defined (radios.toml)
 	favorites     *Favorites       // user favorites (radio_favorites.toml)
+	pins          *Pins            // pinned countries and regions (radio_countries.toml)
+	home          Place            // listener's own country; zero when unknown
 	catalog       []CatalogStation // lazily loaded from Radio Browser API
 	searchResults []CatalogStation // non-nil when API search is active
+	countries     []Country        // cached country index, nil until first browse
+	states        []State          // cached regions of the home country
+	// locationSettled is false only until the listener answers the location
+	// question. It gates whether to ask, not whether p.home may be used.
+	locationSettled bool
+	saveCountry     func(string) error
 }
 
 type station struct {
@@ -49,30 +92,53 @@ type station struct {
 }
 
 // New creates a Provider with the built-in station plus any user-defined
-// stations from ~/.config/cliamp/radios.toml and favorites.
-func New() *Provider {
+// stations from ~/.config/cliamp/radios.toml, favorites, and pinned places.
+func New(opts Options) *Provider {
 	p := &Provider{
 		stations: []station{
 			{name: builtinName, url: builtinURL},
 		},
 	}
 
+	p.saveCountry = opts.SaveCountry
+
+	answer := strings.TrimSpace(opts.Country)
+	if code := normalizeCountryCode(answer); code != "" {
+		p.home = namedPlace(code)
+		p.locationSettled = true
+	} else if strings.EqualFold(answer, CountryDeclined) {
+		p.locationSettled = true
+	}
+
 	dir, err := appdir.Dir()
 	if err != nil {
 		p.favorites = &Favorites{byURL: make(map[string]struct{})}
+		p.pins = &Pins{}
 		return p
 	}
 	if extra, err := loadStations(filepath.Join(dir, "radios.toml")); err == nil {
 		p.stations = append(p.stations, extra...)
 	}
 	p.favorites = LoadFavorites()
+	p.pins = LoadPins()
 	return p
+}
+
+// namedPlace pairs a country code with the best name available without a
+// network call. The directory's own name replaces it once its index loads.
+func namedPlace(code string) Place {
+	name := CountryName(code)
+	if name == "" {
+		name = code
+	}
+	return Place{Code: code, Name: name}
 }
 
 func (p *Provider) Name() string { return "Radio" }
 
-// Playlists returns a unified list: local stations, then favorites (★ prefixed),
-// then catalog stations (with metadata). IDs are prefixed: "l:", "f:", "c:".
+// Playlists returns a unified list: pinned places, local stations, favorites
+// (★ prefixed), then catalog stations (with metadata). IDs are prefixed with
+// "p:", "l:", "f:", or "c:".
 func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -85,6 +151,29 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 			out = append(out, p.catalogEntry("s", i, s))
 		}
 		return out, nil
+	}
+
+	// The location offer sits at the top of the Countries section, directly
+	// under the browse shortcut, and only until the listener has answered.
+	if !p.locationSettled {
+		out = append(out, playlist.PlaylistInfo{
+			ID:   locationConsentID,
+			Name: "Use my location",
+		})
+	}
+
+	// Places: the listener's own country first, then whatever they pinned.
+	for i, place := range p.placesLocked() {
+		name := place.Name
+		if i == 0 && place.ID() == p.homeLocked().ID() {
+			name += " (near you)"
+		} else {
+			name = "★ " + name
+		}
+		out = append(out, playlist.PlaylistInfo{
+			ID:   fmt.Sprintf("p:%d", i),
+			Name: name,
+		})
 	}
 
 	// Local stations.
@@ -123,15 +212,34 @@ func (p *Provider) catalogEntry(prefix string, idx int, s CatalogStation) playli
 	}
 }
 
-// Tracks returns a single-track playlist for the given station ID.
+// Tracks returns a playlist for the given ID: a single stream for a station,
+// or a country's or region's stations for a place.
 func (p *Provider) Tracks(id string) ([]playlist.Track, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	// The location offer is a question, not a playlist. The UI intercepts it
+	// before reaching here; refuse it by name so a caller that does not (an
+	// IPC client, say) gets a useful error rather than "invalid station ID".
+	if id == locationConsentID {
+		return nil, errors.New("radio: the location row is a prompt, not a playlist")
+	}
 
 	prefix, idx, err := parseStationID(id)
 	if err != nil {
 		return nil, err
 	}
+
+	// A place is not a station: it expands to that country's or region's
+	// stations, so next and previous scan through them. The directory call
+	// runs off the provider lock, which the UI needs to render the pane.
+	if prefix == "p" {
+		place, ok := p.placeAt(idx)
+		if !ok {
+			return nil, errors.New("invalid place index")
+		}
+		return p.GenreTracks(place.ID(), SortVotes)
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	var url, title string
 	switch prefix {
@@ -165,8 +273,20 @@ func (p *Provider) Tracks(id string) ([]playlist.Track, error) {
 	}}, nil
 }
 
+// placeAt returns the place at index idx of the pane's Countries section.
+func (p *Provider) placeAt(idx int) (Place, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	places := p.placesLocked()
+	if idx < 0 || idx >= len(places) {
+		return Place{}, false
+	}
+	return places[idx], true
+}
+
 // AppendCatalog adds catalog stations fetched from the Radio Browser API.
 func (p *Provider) AppendCatalog(stations []CatalogStation) {
+	stations = streamableStations(stations)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	seen := make(map[string]struct{}, len(p.catalog)+len(stations))
@@ -224,9 +344,38 @@ func (p *Provider) ToggleFavorite(id string) (added bool, name string, err error
 // SetSearchResults activates search mode with the given results.
 // Playlists() will return search results instead of catalog stations.
 func (p *Provider) SetSearchResults(stations []CatalogStation) {
+	stations = streamableStations(stations)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.searchResults = stations
+}
+
+// streamableStations drops directory entries whose URL is not http or https.
+//
+// Radio Browser is a public directory: anyone can submit a station with any
+// url_resolved value, and that string becomes a playlist.Track.Path that
+// playback dispatches on. An "ssh://" path reaches exec.Command("ssh", ...)
+// against the submitter's host, and a bare filesystem path is opened as a
+// local file. A station is by definition a network stream, so nothing
+// legitimate is lost by requiring one here.
+//
+// Local stations from radios.toml are not filtered: that file is the user's
+// own, and it carries the trust of anything else they type.
+func streamableStations(stations []CatalogStation) []CatalogStation {
+	filtered := make([]CatalogStation, 0, len(stations))
+	for _, station := range stations {
+		u, err := url.Parse(strings.TrimSpace(station.URL))
+		if err != nil {
+			continue
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "http", "https":
+			if u.Host != "" {
+				filtered = append(filtered, station)
+			}
+		}
+	}
+	return filtered
 }
 
 // ClearSearch deactivates search mode, restoring the catalog view.
@@ -244,10 +393,11 @@ func (p *Provider) IsSearching() bool {
 }
 
 // LoadCatalogPage fetches the next page of catalog entries from the Radio
-// Browser API and appends them to the provider's catalog.
+// Browser API, the directory's own top-voted feed, and appends them to the
+// provider's catalog.
 // Implements provider.CatalogLoader.
 func (p *Provider) LoadCatalogPage(offset, limit int) (int, error) {
-	stations, err := TopStationsOffset(offset, limit)
+	stations, err := Stations(StationQuery{Order: SortVotes, Offset: offset, Limit: limit})
 	if err != nil {
 		return 0, err
 	}
@@ -255,16 +405,39 @@ func (p *Provider) LoadCatalogPage(offset, limit int) (int, error) {
 	return len(stations), nil
 }
 
-// SearchCatalog performs a server-side station search via the Radio Browser API.
-// Results are reflected in subsequent Playlists() calls.
+// SearchCatalog performs a server-side station search via the Radio Browser
+// API. Results are reflected in subsequent Playlists() calls.
 // Implements provider.CatalogSearcher.
 func (p *Provider) SearchCatalog(query string) (int, error) {
-	stations, err := SearchStations(query, 200)
+	stations, err := Stations(StationQuery{Name: query, Order: SortVotes, Limit: searchLimit})
 	if err != nil {
 		return 0, err
 	}
 	p.SetSearchResults(stations)
 	return len(stations), nil
+}
+
+// searchLimit caps how many results one catalog search returns.
+const searchLimit = 200
+
+// SectionTitle names the pane section for an ID prefix. The provider owns this
+// wording because only it knows what its prefixes mean.
+// Implements provider.SectionTitler.
+func (*Provider) SectionTitle(prefix string) string {
+	switch prefix {
+	case "p", "browse", "loc":
+		return sectionCountries
+	case "l":
+		return sectionStations
+	case "f":
+		return sectionFavorites
+	case "c":
+		return sectionCatalog
+	case "s":
+		return sectionSearch
+	default:
+		return ""
+	}
 }
 
 // IsFavoritableID reports whether the given ID can be favorited.
@@ -278,7 +451,8 @@ func IsCatalogOrFavID(id string) bool {
 	return strings.HasPrefix(id, "c:") || strings.HasPrefix(id, "f:") || strings.HasPrefix(id, "s:")
 }
 
-// IDPrefix returns the type prefix of a provider list ID ("l", "f", "c", or "").
+// IDPrefix returns the type prefix of a provider list ID ("p", "l", "f", "c",
+// "s", "browse", or "").
 // Also implements provider.SectionedList when called as a method.
 func (p *Provider) IDPrefix(id string) string {
 	return idPrefix(id)
@@ -308,14 +482,17 @@ func parseStationID(id string) (prefix string, idx int, err error) {
 	return prefix, idx, nil
 }
 
-// formatCatalogName builds a display name from a CatalogStation.
+// formatCatalogName builds a display name from a CatalogStation. The country
+// is trimmed the same way the country browser trims it, so one station does
+// not read as being in "The United States Of America" while the country it was
+// picked from reads as "United States Of America".
 func formatCatalogName(s CatalogStation) string {
 	name := s.Name
 	if s.Bitrate > 0 {
 		name += fmt.Sprintf(" [%dk]", s.Bitrate)
 	}
-	if s.Country != "" {
-		name += " · " + s.Country
+	if country := displayCountryName(s.Country); country != "" {
+		name += " · " + country
 	}
 	return name
 }

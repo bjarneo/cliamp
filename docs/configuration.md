@@ -83,6 +83,9 @@ low_power = false
 # No visualizer or playback controls are shown.
 simplified = false
 
+# Hide the key-binding hint bar above the status line.
+hide_help_bar = false
+
 # UI theme name (see available themes in ~/.config/cliamp/themes/)
 theme = "Tokyo Night"
 
@@ -109,6 +112,12 @@ cliamp adapts its playback screen to the terminal size:
 artist/title, time, and seek-progress strip. It hides the visualizer, playback
 controls, and playlist. Provider browsing and overlays keep their list-focused
 layout. Start one session with `cliamp --simplified`.
+
+`hide_help_bar = true` removes the key-binding hint bar above the status line
+and gives that row back to the playlist. The full keymap stays available with
+`?`, and `Ctrl+G` toggles the bar for the current session. Start one session
+with `cliamp --no-help-bar`. Simplified mode draws neither the hint bar nor a
+playlist, so it is unaffected by this setting.
 
 List views such as provider browsing, file selection, queues, playlists, search
 results, themes, and keybindings use a content-first layout. This layout replaces
@@ -271,6 +280,21 @@ user_id = "your-account-user-id"
 ```
 
 After you enable NetEase, the provider shows liked songs, created playlists, saved playlists, and public charts. Use `Ctrl+F` to search. Playback uses `yt-dlp` with the same browser cookie source.
+
+## Radio
+
+The Radio provider is always on. The `[radio]` block only tunes it:
+
+```toml
+[radio]
+country = "NO"
+```
+
+`country` is your home country as an ISO 3166-1 alpha-2 code. It puts a "near you" row at the top of the radio pane and offers that country's regions in the country browser.
+
+Leave it unset and cliamp does not work out where you are. It offers instead: the radio pane shows a "Use my location" row, and only if you accept does it read your country from the system timezone, then the locale, with no network call. Your answer is written here either way, so you are asked once. Set it to `"none"` to decline up front. See [radio.md](radio.md#using-your-location).
+
+Pinned countries live in `~/.config/cliamp/radio_countries.toml` and are written by pressing `f` in the country browser, so you do not normally edit that file by hand.
 
 ## Custom Radio Stations
 

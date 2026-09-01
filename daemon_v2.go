@@ -270,7 +270,7 @@ func (d *daemon) executeV2Operation(ctx context.Context, request ipc.V2Request) 
 		if params.Path == "" {
 			return ipc.Response{}, daemonV2InvalidParamsError()
 		}
-		return d.v2Reply(ipc.URLRequestMsg{URL: params.Path})
+		return d.v2Reply(ipc.URLRequestMsg{URL: params.Path, Play: params.Play})
 	case "save":
 		return d.v2Reply(ipc.SaveRequestMsg{})
 	case "lyrics":

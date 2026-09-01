@@ -10,6 +10,7 @@ metadata, and adjust volume without using the TUI.
 |---|---|---|
 | Linux | [MPRIS2](https://specifications.freedesktop.org/mpris-spec/latest/) over D-Bus | Running D-Bus session bus (provided by most desktop environments and Wayland compositors) |
 | macOS | MPNowPlayingInfoCenter / MPRemoteCommandCenter | None (built-in frameworks) |
+| Windows | Global hardware media key hotkeys | None (built-in Win32 API) |
 | Other | No-op stub | None |
 
 ## Linux (MPRIS2)
@@ -134,6 +135,22 @@ The macOS media-control runtime pins the main goroutine to thread 0 with
 `runtime.LockOSThread`. This lets the Cocoa run loop process events. Bubbletea
 runs on a background goroutine.
 
+## Windows
+
+On Windows, cliamp registers the hardware media keys (Play/Pause, Next,
+Previous, Stop) as global hotkeys via the Win32 `RegisterHotKey` API. This
+works regardless of which window has focus, without needing a visible window
+of its own — `RegisterHotKey` ties the hotkeys to a message queue owned by a
+dedicated OS thread rather than to an `HWND`.
+
+cliamp does not publish now-playing metadata to the Windows shell (no
+System Media Transport Controls integration), so there is no track info in
+the volume flyout or lock screen on Windows. Only the transport keys work.
+
+A hotkey registration can fail if another running application already holds
+the same key; that key then does not control cliamp. Registration failures
+are silent and do not affect the other keys or the rest of the app.
+
 ## Architecture
 
 The application playback command and notifier boundary is in
@@ -145,6 +162,7 @@ Platform-specific `Service` implementations:
 - `internal/playback/*`: application playback commands and outbound notifier state.
 - `mediactl/service_linux.go`: connects to the session bus, claims the MPRIS bus name, translates D-Bus calls to playback commands, and publishes state through MPRIS properties.
 - `mediactl/service_darwin.go`: starts NSApplication as an accessory process, registers MPRemoteCommandCenter handlers, translates them to playback commands, and publishes now-playing state in the main-thread run loop.
+- `mediactl/service_windows.go`: registers the media keys as global hotkeys via `user32.dll` and pumps a Win32 message loop on a dedicated OS thread, translating `WM_HOTKEY` to playback commands.
 - `mediactl/service_stub.go`: no-op implementation for unsupported platforms.
 
 The model sends playback state through the playback notifier when state changes.

@@ -17,18 +17,26 @@ import (
 
 // Compile-time interface checks.
 var (
-	_ playlist.Provider         = (*TidalProvider)(nil)
-	_ playlist.Authenticator    = (*TidalProvider)(nil)
-	_ playlist.Refresher        = (*TidalProvider)(nil)
-	_ provider.Searcher         = (*TidalProvider)(nil)
-	_ provider.ArtistBrowser    = (*TidalProvider)(nil)
-	_ provider.AlbumBrowser     = (*TidalProvider)(nil)
-	_ provider.AlbumTrackLoader = (*TidalProvider)(nil)
-	_ provider.Closer           = (*TidalProvider)(nil)
+	_ playlist.Provider            = (*TidalProvider)(nil)
+	_ playlist.Authenticator       = (*TidalProvider)(nil)
+	_ playlist.Refresher           = (*TidalProvider)(nil)
+	_ provider.Searcher            = (*TidalProvider)(nil)
+	_ provider.ArtistBrowser       = (*TidalProvider)(nil)
+	_ provider.AlbumBrowser        = (*TidalProvider)(nil)
+	_ provider.BrowseEntryProvider = (*TidalProvider)(nil)
+	_ provider.AlbumTrackLoader    = (*TidalProvider)(nil)
+	_ provider.Closer              = (*TidalProvider)(nil)
 )
 
 // favoriteTracksID is the synthetic playlist ID for the user's favorite tracks.
 const favoriteTracksID = "favorites/tracks"
+
+// browseArtistsID and browseAlbumsID identify the UI-only provider-pane
+// shortcuts into the hierarchical browser (see BrowseEntries).
+const (
+	browseArtistsID = "browse/artists"
+	browseAlbumsID  = "browse/albums"
+)
 
 // favoriteTracksLimit caps the synthetic Favorite Tracks list, matching Qobuz.
 const favoriteTracksLimit = 500
@@ -233,6 +241,25 @@ func (p *TidalProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 	p.listCache = lists
 	p.mu.Unlock()
 	return slices.Clone(lists), nil
+}
+
+// BrowseEntries adds Favorite Artists and Favorite Albums shortcuts to the
+// provider pane's Library section, next to Favorite Tracks. Both open the
+// hierarchical browser (also reachable via N). Implements
+// provider.BrowseEntryProvider.
+func (p *TidalProvider) BrowseEntries() []provider.BrowseEntry {
+	return []provider.BrowseEntry{
+		{
+			ID: browseArtistsID, Name: "Favorite Artists", Section: "Library",
+			Mode: provider.BrowseArtistAlbums, AfterID: favoriteTracksID,
+			AfterSection: "Library",
+		},
+		{
+			ID: browseAlbumsID, Name: "Favorite Albums", Section: "Library",
+			Mode: provider.BrowseAlbums, AfterID: favoriteTracksID,
+			AfterSection: "Library",
+		},
+	}
 }
 
 // Tracks returns the tracks of a playlist (or the synthetic Favorite Tracks

@@ -30,10 +30,10 @@ func buildApp() *cli.Command {
 		&cli.Float64Flag{Name: "vol", Usage: "startup volume in dB [-30, +6]"},
 		&cli.BoolFlag{Name: "shuffle", Usage: "shuffle playback"},
 		&cli.StringFlag{Name: "repeat", Usage: "repeat mode: off, all, one"},
-		&cli.BoolFlag{Name: "mono", Usage: "mono output"},
-		&cli.BoolFlag{Name: "no-mono", Usage: "disable mono output"},
+		&cli.BoolWithInverseFlag{Name: "mono", Usage: "mono output"},
 		&cli.BoolFlag{Name: "auto-play", Usage: "start playback immediately"},
 		&cli.BoolFlag{Name: "simplified", Usage: "simplified playback view (no visualizer or playlist)"},
+		&cli.BoolFlag{Name: "no-help-bar", Usage: "hide the key-binding hint bar (? still opens the full keymap)"},
 		&cli.StringFlag{Name: "provider", Usage: "default provider: radio, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, soundcloud, mixcloud, netease, yandex, audiobookshelf, abs, yt, youtube, ytmusic"},
 		&cli.StringFlag{Name: "start-theme", Usage: "UI theme name"},
 		&cli.StringFlag{Name: "visualizer", Usage: "visualizer mode"},
@@ -46,8 +46,7 @@ func buildApp() *cli.Command {
 		&cli.StringFlag{Name: "audio-device", Usage: "audio output device (use 'list' to show)"},
 		&cli.StringFlag{Name: "playlist", Usage: "load a local TOML playlist by name and start playing"},
 		&cli.StringFlag{Name: "log-level", Usage: "log level: debug, info, warn, error"},
-		&cli.BoolFlag{Name: "expand-playlist", Usage: "expand YouTube Music playlists from list= URLs"},
-		&cli.BoolFlag{Name: "no-expand-playlist", Usage: "disable playlist expansion for YouTube Music URLs"},
+		&cli.BoolWithInverseFlag{Name: "expand-playlist", Usage: "expand YouTube Music playlists from list= URLs"},
 		&cli.BoolFlag{Name: "low-power", Usage: "low-power mode: reduce CPU by lowering UI cadence and disabling visualization"},
 		&cli.BoolFlag{Name: "daemon", Aliases: []string{"d"}, Usage: "run headless (no TUI), serving IPC for scripts/Waybar"},
 	}
@@ -98,6 +97,8 @@ func buildApp() *cli.Command {
 			eqCommand(),
 			deviceCommand(),
 			remoteCommand(),
+			openCommand(),
+			protocolCommand(),
 		},
 	}
 }
@@ -141,11 +142,7 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 		}
 	}
 	if c.IsSet("mono") {
-		v := true
-		ov.Mono = &v
-	}
-	if c.IsSet("no-mono") {
-		v := false
+		v := c.Bool("mono")
 		ov.Mono = &v
 	}
 	if c.IsSet("auto-play") {
@@ -155,6 +152,10 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 	if c.IsSet("simplified") {
 		v := true
 		ov.Simplified = &v
+	}
+	if c.IsSet("no-help-bar") {
+		v := true
+		ov.HideHelpBar = &v
 	}
 	if c.IsSet("provider") {
 		v := strings.ToLower(c.String("provider"))
@@ -216,11 +217,7 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 		ov.LowPower = &v
 	}
 	if c.IsSet("expand-playlist") {
-		v := true
-		ov.ExpandPlaylist = &v
-	}
-	if c.IsSet("no-expand-playlist") {
-		v := false
+		v := c.Bool("expand-playlist")
 		ov.ExpandPlaylist = &v
 	}
 	return ov, nil
@@ -329,6 +326,40 @@ func pluginsCommand() *cli.Command {
 						fmt.Println(item)
 					}
 					return nil
+				},
+			},
+		},
+	}
+}
+
+func protocolCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "protocol",
+		Usage: "register cliamp:// links with the desktop",
+		Description: "Makes cliamp the handler for cliamp:// links, so clicking one plays\n" +
+			"or queues its target. install.sh already registers the scheme; use\n" +
+			"these commands after a go install build, to point the scheme at a\n" +
+			"different binary, or to remove the registration.",
+		Commands: []*cli.Command{
+			{
+				Name:  "register",
+				Usage: "make cliamp the handler for cliamp:// links",
+				Action: func(ctx context.Context, c *cli.Command) error {
+					return cmd.ProtocolRegister(os.Stdout)
+				},
+			},
+			{
+				Name:  "unregister",
+				Usage: "remove the cliamp:// handler registration",
+				Action: func(ctx context.Context, c *cli.Command) error {
+					return cmd.ProtocolUnregister(os.Stdout)
+				},
+			},
+			{
+				Name:  "status",
+				Usage: "report whether cliamp:// is registered",
+				Action: func(ctx context.Context, c *cli.Command) error {
+					return cmd.ProtocolStatus(os.Stdout)
 				},
 			},
 		},

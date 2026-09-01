@@ -203,6 +203,17 @@ func (y YouTubeMusicConfig) ResolveCredentials(fallbackFn func() (string, string
 	return "", ""
 }
 
+// RadioConfig holds settings for the built-in Radio provider. Radio is always
+// enabled, so this block only tunes it.
+type RadioConfig struct {
+	// Country is the listener's home country as an ISO 3166-1 alpha-2 code.
+	// It puts a "near you" row at the top of the radio pane, offers that
+	// country's regions in the country browser, and is the first stop of the
+	// catalog country filter. Unset means "detect from the system timezone,
+	// then the locale"; set it to "none" to turn detection off.
+	Country string
+}
+
 // SoundCloudConfig holds settings for the SoundCloud provider.
 // SoundCloud is opt-in: requires enabled = true in [soundcloud] before the
 // provider registers. Setting User exposes that profile's Tracks/Likes/Reposts
@@ -339,6 +350,7 @@ type Config struct {
 	ResampleQuality  int                          // beep resample quality factor (1–4)
 	BitDepth         int                          // PCM bit depth for FFmpeg output: 16 or 32
 	Simplified       bool                         // simplified playback view: track summary and time strip
+	HideHelpBar      bool                         // hide the key-binding hint bar above the status line
 	PaddingH         int                          // horizontal padding for the UI frame (default 3)
 	PaddingV         int                          // vertical padding for the UI frame (default 1)
 	AudioDevice      string                       // preferred audio output device name (empty = system default)
@@ -354,6 +366,7 @@ type Config struct {
 	Jellyfin         JellyfinConfig               // optional Jellyfin server credentials
 	Emby             EmbyConfig                   // optional Emby server credentials
 	Audiobookshelf   AudiobookshelfConfig         // optional Audiobookshelf server credentials
+	Radio            RadioConfig                  // built-in Radio provider settings
 	SoundCloud       SoundCloudConfig             // SoundCloud provider (opt-in via enabled = true)
 	Mixcloud         MixcloudConfig               // Mixcloud provider (opt-in via enabled = true)
 	NetEase          NetEaseConfig                // NetEase Cloud Music provider (opt-in via enabled = true)
@@ -533,6 +546,11 @@ func Load() (Config, error) {
 			case "libraries":
 				cfg.Plex.Libraries = parseStringSlice(val)
 			}
+		case "radio":
+			switch key {
+			case "country":
+				cfg.Radio.Country = strings.TrimSpace(parseString(val))
+			}
 		case "soundcloud":
 			switch key {
 			case "enabled":
@@ -694,6 +712,8 @@ func Load() (Config, error) {
 				}
 			case "simplified":
 				cfg.Simplified = val == "true"
+			case "hide_help_bar":
+				cfg.HideHelpBar = val == "true"
 			case "audio_device":
 				cfg.AudioDevice = parseString(val)
 			case "initial_directory":
@@ -791,6 +811,16 @@ func Save(key, value string) error {
 // If no [navidrome] section exists, one is appended along with the key.
 func SaveNavidromeSort(sortType string) error {
 	return saveSectionValue("navidrome", "browse_sort", strconv.Quote(sortType))
+}
+
+// SaveRadioCountry persists the listener's home country in the [radio] section
+// so the choice survives a restart. Pass "" to record that detection should be
+// turned off.
+func SaveRadioCountry(code string) error {
+	if code == "" {
+		code = "none"
+	}
+	return saveSectionValue("radio", "country", strconv.Quote(code))
 }
 
 // SaveMixcloudStyles persists the selected discovery styles in the [mixcloud]

@@ -126,6 +126,7 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--mono` / `--no-mono` | bool | false | |
 | `--auto-play` | bool | false | |
 | `--simplified` | bool | false | artist/title and time strip; no visualizer or playlist |
+| `--no-help-bar` | bool | false | hide the key-binding hint bar; `?` still opens the full keymap |
 | `--visualizer-60fps` | bool | false | render a visible visualizer at about 60 FPS |
 | `--start-theme` | string | | theme name |
 | `--eq-preset` | string | | preset name |
@@ -205,6 +206,22 @@ cliamp spotify reset                          # clear stored Spotify credentials
 ```
 
 Use `spotify reset` for persistent `rate-limited on /v1/me` warnings or stale authentication errors. Then restart cliamp and select Spotify to sign in again. See [spotify.md](spotify.md) for the setup guide.
+
+## cliamp:// Links
+
+Open a song from a browser, a script, or anything that can open a URL:
+
+```sh
+cliamp open 'cliamp://play?url=https://example.com/s.mp3'    # play a stream
+cliamp open 'cliamp://play?provider=navidrome&album=a1b2c3'  # play an album
+cliamp open 'cliamp://queue?provider=ytmusic&q=aphex+twin'   # queue a search hit
+cliamp protocol status                                       # where it is registered
+cliamp protocol register                                     # register the scheme
+cliamp protocol unregister                                   # remove it
+```
+
+install.sh registers the scheme. See [url-scheme.md](url-scheme.md) for the
+URI format and what links cannot do.
 
 ## Remote Control (IPC)
 

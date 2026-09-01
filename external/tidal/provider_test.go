@@ -6,7 +6,30 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/bjarneo/cliamp/provider"
 )
+
+func TestBrowseEntriesExposeFavoriteArtistsAndAlbums(t *testing.T) {
+	entries := New("lossless", "", "").BrowseEntries()
+	if len(entries) != 2 {
+		t.Fatalf("browse entries = %d, want 2", len(entries))
+	}
+	if entries[0].ID != browseArtistsID || entries[0].Name != "Favorite Artists" || entries[0].Mode != provider.BrowseArtistAlbums {
+		t.Fatalf("artists entry = %+v", entries[0])
+	}
+	if entries[1].ID != browseAlbumsID || entries[1].Name != "Favorite Albums" || entries[1].Mode != provider.BrowseAlbums {
+		t.Fatalf("albums entry = %+v", entries[1])
+	}
+	for _, entry := range entries {
+		if entry.Section != "Library" || entry.AfterID != favoriteTracksID || entry.AfterSection != "Library" {
+			t.Fatalf("browse entry placement = %+v, want Library section after Favorite Tracks", entry)
+		}
+		if entry.OpenInPlaylist {
+			t.Fatalf("browse entry %q must open the browser track screen, not the playlist", entry.ID)
+		}
+	}
+}
 
 func TestNewNormalizesQualityAndCredentials(t *testing.T) {
 	tests := []struct {

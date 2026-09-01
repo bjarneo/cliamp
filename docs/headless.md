@@ -32,7 +32,7 @@ UI-only commands return an error in headless mode:
 - `theme`: no UI is available for themes
 - `vis`: no visualizer is running
 
-The daemon still enables MPRIS on Linux and NowPlaying on macOS when the platform service is available. You can also bind media keys directly to `cliamp` subcommands. See [Hyprland](#hyprland).
+The daemon still enables MPRIS on Linux, NowPlaying on macOS, and hardware media key hotkeys on Windows when the platform service is available. You can also bind media keys directly to `cliamp` subcommands. See [Hyprland](#hyprland).
 
 ## Use cases
 

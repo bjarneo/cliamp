@@ -61,9 +61,11 @@ After authentication, Tidal appears in the provider list. Press `T` to select Ti
 The provider shows your Tidal library:
 
 - **Favorite Tracks**: your liked songs (up to 500).
+- **Favorite Artists**: browse a favorite artist to see their albums and tracks.
+- **Favorite Albums**: browse your favorite albums and their tracks.
 - **Your playlists**: playlists you created or subscribed to.
-- **Favorite albums**: browsable in the album view.
-- **Favorite artists**: browse an artist to see their albums.
+
+`Favorite Artists` and `Favorite Albums` open the hierarchical browser, also reachable with `N`.
 
 Press `Ctrl+F` while Tidal is active to search the Tidal catalog for tracks and albums. Album results appear first. When you select an album, it expands to its track list. Enter plays, `a` appends, and `q` queues the next track.
 

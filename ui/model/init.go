@@ -16,6 +16,8 @@ import (
 	"github.com/bjarneo/cliamp/ui"
 )
 
+type openDefaultProviderBrowserMsg struct{}
+
 // applyThemeAll updates colors, spectrum styles, and model-specific styles.
 func applyThemeAll(t theme.Theme) {
 	ui.ApplyThemeColors(t)
@@ -113,6 +115,13 @@ func (m *Model) SetSimplified(v bool) {
 	}
 	m.refreshChrome()
 	m.normalizeMainFocus()
+}
+
+// SetHideHelpBar hides the key-binding hint bar and gives the row back to the
+// body. The full keymap stays reachable with "?".
+func (m *Model) SetHideHelpBar(v bool) {
+	m.hideHelpBar = v
+	m.refreshChrome()
 }
 
 // SetInitialDirectory sets the initial directory for the file browser.
@@ -215,6 +224,9 @@ func (m Model) Init() tea.Cmd {
 		// on its private model copy. The initial zero generation is current until
 		// the user starts another provider request.
 		cmds = append(cmds, fetchPlaylistsCmd(m.provider, m.requests.provider))
+	}
+	if m.openDefaultProviderOnce {
+		cmds = append(cmds, func() tea.Msg { return openDefaultProviderBrowserMsg{} })
 	}
 	if len(m.pendingURLs) > 0 {
 		cmds = append(cmds, resolveRemoteCmd(m.pendingURLs, m.autoPlay))

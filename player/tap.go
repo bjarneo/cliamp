@@ -25,17 +25,25 @@ type tap struct {
 	writeFrames atomic.Int64 // frame count of the latest write
 	size        int
 	sampleRate  int
-	now         func() time.Time
+	// speakerFrames is the size of the audio backend's own buffer, in frames.
+	// Frames handed to Stream are not audible yet: they sit in that buffer for
+	// up to speakerFrames/sampleRate seconds. The waveform read position has to
+	// subtract it to follow what is actually being heard.
+	speakerFrames int
+	now           func() time.Time
 }
 
-// newTap wraps a streamer with a ring buffer of the given size.
-func newTap(s beep.Streamer, bufSize, sampleRate int) *tap {
+// newTap wraps a streamer with a ring buffer of the given size. speakerFrames
+// is the audio backend's buffer size in frames, used by WaveformSamplesInto to
+// place the read position at what is currently audible.
+func newTap(s beep.Streamer, bufSize, sampleRate, speakerFrames int) *tap {
 	return &tap{
-		s:          s,
-		buf:        make([][2]float64, bufSize),
-		size:       bufSize,
-		sampleRate: sampleRate,
-		now:        time.Now,
+		s:             s,
+		buf:           make([][2]float64, bufSize),
+		size:          bufSize,
+		sampleRate:    sampleRate,
+		speakerFrames: max(0, speakerFrames),
+		now:           time.Now,
 	}
 }
 
@@ -65,17 +73,34 @@ func (t *tap) SamplesInto(dst []float64) int {
 	return t.samplesIntoAt(dst, t.written.Load())
 }
 
-// WaveformSamplesInto copies samples from the most recent output buffer at its
-// real-time playback position. This keeps raw visualizers moving between the
-// audio backend's larger buffer refills.
+// WaveformSamplesInto copies samples at the position that is currently
+// audible, interpolated from the wall clock. Raw visualizers therefore advance
+// on every frame they are rendered at, instead of once per backend refill.
+//
+// The backend does not ask for samples at a steady rate: it refills its buffer
+// in bursts, then goes quiet for as long as that buffer takes to play. Anchoring
+// the read position to the last Stream call meant the waveform advanced only
+// through that call's frames and then froze until the next burst, so its
+// effective refresh rate followed the buffer size rather than the tick rate
+// (~7 FPS at the default 250 ms buffer, ~19 FPS at 50 ms).
+//
+// Anchoring it to the whole backend buffer instead makes the position advance
+// continuously: at the moment of a write, what is audible is speakerFrames
+// behind what has been written, and it moves forward with elapsed time.
 func (t *tap) WaveformSamplesInto(dst []float64) int {
-	frames := t.writeFrames.Load()
-	if frames <= 0 || t.sampleRate <= 0 {
+	written := t.written.Load()
+	if written <= 0 || t.sampleRate <= 0 {
 		return 0
 	}
+	if t.speakerFrames <= 0 {
+		return t.samplesIntoAt(dst, written)
+	}
 	elapsed := int64(t.now().Sub(time.Unix(0, t.writeAt.Load())) * time.Duration(t.sampleRate) / time.Second)
-	elapsed = max(0, min(elapsed, frames))
-	end := t.written.Load() - frames + elapsed
+	elapsed = max(0, elapsed)
+	end := written - int64(t.speakerFrames) + elapsed
+	// Never read past what has been written (a stall would otherwise walk the
+	// window into stale ring-buffer data) nor before the start of the stream.
+	end = max(0, min(end, written))
 	return t.samplesIntoAt(dst, end)
 }
 

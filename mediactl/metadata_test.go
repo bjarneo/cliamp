@@ -101,3 +101,39 @@ func TestMakeMetadataCoercesInvalidDBusStrings(t *testing.T) {
 		}
 	}
 }
+
+func TestMakeMetadataCoercesInvalidArtURL(t *testing.T) {
+	tests := []struct {
+		name   string
+		artURL string
+		want   string
+	}{
+		{
+			name:   "invalid UTF-8 in artURL",
+			artURL: "file:///tmp/cover\xff.jpg",
+			want:   "file:///tmp/cover\uFFFD.jpg",
+		},
+		{
+			name:   "null byte in artURL",
+			artURL: "file:///tmp/cover\x00.jpg",
+			want:   "file:///tmp/cover.jpg",
+		},
+		{
+			name:   "valid artURL unchanged",
+			artURL: "file:///tmp/cover.jpg",
+			want:   "file:///tmp/cover.jpg",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			track := playback.Track{ArtURL: tt.artURL}
+			got := makeMetadata(track, trackPath(1))
+
+			gotArtURL := got["mpris:artUrl"].Value().(string)
+			if gotArtURL != tt.want {
+				t.Fatalf("artURL = %q, want %q", gotArtURL, tt.want)
+			}
+		})
+	}
+}

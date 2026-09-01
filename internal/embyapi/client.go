@@ -36,6 +36,10 @@ type Client struct {
 	dialect    dialect
 	httpClient *http.Client
 
+	// authMu serializes password authentication. Startup may fetch playlists and
+	// artists concurrently, and Jellyfin can reject overlapping login requests.
+	authMu sync.Mutex
+
 	// mu guards the lazily-populated fields below, which are read and written
 	// from concurrent tea.Cmd goroutines. It is never held across network I/O.
 	mu         sync.Mutex
@@ -581,10 +585,13 @@ func (c *Client) postJSON(p string, payload any) error {
 }
 
 func (c *Client) ensureAuth() error {
-	c.mu.Lock()
-	have := c.token != ""
-	c.mu.Unlock()
-	if have {
+	if c.authToken() != "" {
+		return nil
+	}
+
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	if c.authToken() != "" {
 		return nil
 	}
 	if c.user == "" || c.password == "" {

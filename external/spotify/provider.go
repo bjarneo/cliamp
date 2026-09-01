@@ -292,12 +292,20 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 		offset += limit
 	}
 
+	albums, err := p.savedAlbums(ctx)
+	if err != nil {
+		return nil, err
+	}
+	all = append(all, albums...)
+
 	// Group playlists by section so the UI can emit one header per group.
-	// Library first, then owned, then followed; preserve API order within.
+	// Library first, then owned, then followed, then saved albums; preserve
+	// API order within each section.
 	sectionOrder := map[string]int{
 		"Library":            0,
 		"Your playlists":     1,
 		"Followed playlists": 2,
+		savedAlbumSection:    3,
 	}
 	sort.SliceStable(all, func(i, j int) bool {
 		return sectionOrder[all[i].Section] < sectionOrder[all[j].Section]
@@ -311,12 +319,77 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 	return slices.Clone(all), nil
 }
 
+// savedAlbums returns the authenticated user's saved albums from
+// /v1/me/albums, paginated. Each is surfaced as a playlist entry whose ID
+// carries the savedAlbumIDPrefix, so Tracks() expands it via AlbumTracks.
+func (p *SpotifyProvider) savedAlbums(ctx context.Context) ([]playlist.PlaylistInfo, error) {
+	var all []playlist.PlaylistInfo
+	offset := 0
+
+	for {
+		query := url.Values{
+			"limit":  {strconv.Itoa(spotifyAlbumPageSize)},
+			"offset": {strconv.Itoa(offset)},
+		}
+
+		resp, err := p.webAPI(ctx, "GET", "/v1/me/albums", query)
+		if err != nil {
+			return nil, fmt.Errorf("spotify: list saved albums: %w", err)
+		}
+
+		var result struct {
+			Items []struct {
+				Album spotifyAlbumItem `json:"album"`
+			} `json:"items"`
+			Total int `json:"total"`
+		}
+		if err := decodeBody(resp, &result); err != nil {
+			return nil, fmt.Errorf("spotify: parse saved albums: %w", err)
+		}
+
+		for _, item := range result.Items {
+			a := item.Album
+			if a.ID == "" {
+				continue // skip unavailable albums
+			}
+			name := a.Name
+			if artist := artistNames(a.Artists); artist != "" {
+				name = artist + " - " + a.Name
+			}
+			all = append(all, playlist.PlaylistInfo{
+				ID:         savedAlbumIDPrefix + a.ID,
+				Name:       name,
+				TrackCount: a.TotalTracks,
+				Section:    savedAlbumSection,
+			})
+		}
+
+		if offset+spotifyAlbumPageSize >= result.Total {
+			break
+		}
+		offset += spotifyAlbumPageSize
+	}
+
+	// Spotify returns saved albums most-recently-added first; sort by the
+	// "Artist - Album" display name so the list reads alphabetically by artist.
+	sort.SliceStable(all, func(i, j int) bool {
+		return strings.ToLower(all[i].Name) < strings.ToLower(all[j].Name)
+	})
+
+	return all, nil
+}
+
 // Tracks returns all tracks for the given Spotify playlist ID.
 // Track.Path is set to the canonical spotify: URI for the player to resolve.
 // Results are cached by snapshot_id; unchanged playlists skip the API call.
+// Saved-album entries (savedAlbumIDPrefix) are expanded via AlbumTracks.
 func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 	if err := p.ensureSession(); err != nil {
 		return nil, err
+	}
+
+	if albumID, ok := isSavedAlbumID(playlistID); ok {
+		return p.AlbumTracks(albumID)
 	}
 	// Check cache — if we have tracks and the snapshot_id hasn't changed, return cached.
 	p.mu.Lock()

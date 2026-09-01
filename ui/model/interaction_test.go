@@ -39,6 +39,14 @@ type sharedModeBrowseProvider struct {
 	providerPaneBrowseProvider
 }
 
+type preferredBrowseProvider struct {
+	providerPaneBrowseProvider
+}
+
+func (p *preferredBrowseProvider) DefaultBrowseMode() provider.BrowseMode {
+	return provider.BrowseArtistAlbums
+}
+
 type favoriteBrowseProvider struct {
 	commandsTestProvider
 }
@@ -163,6 +171,88 @@ func TestHandleKeyEnhancedShiftNOpensProviderBrowser(t *testing.T) {
 	}
 	if got := m.navBrowser.prov.Name(); got != "Navidrome" {
 		t.Fatalf("browser provider = %q, want Navidrome", got)
+	}
+}
+
+func TestSwitchProviderOpensPreferredBrowseMode(t *testing.T) {
+	jellyfin := &preferredBrowseProvider{
+		providerPaneBrowseProvider: providerPaneBrowseProvider{
+			interactionBrowseProvider{commandsTestProvider{name: "Jellyfin"}},
+		},
+	}
+	m := keybindingTestModel()
+	m.providers = append(m.providers, ProviderEntry{Key: "jellyfin", Name: "Jellyfin", Provider: jellyfin})
+
+	cmd := m.switchToProvider("jellyfin")
+
+	if cmd == nil {
+		t.Fatal("switchToProvider returned no load command")
+	}
+	if !m.navBrowser.visible || m.navBrowser.prov != jellyfin {
+		t.Fatalf("preferred browser not opened: %+v", m.navBrowser)
+	}
+	if m.navBrowser.mode != navBrowseModeByArtistAlbum || !m.navBrowser.loading {
+		t.Fatalf("browser mode/loading = %d/%v, want artist-album/true", m.navBrowser.mode, m.navBrowser.loading)
+	}
+}
+
+func TestStartInProviderQueuesPreferredBrowser(t *testing.T) {
+	jellyfin := &preferredBrowseProvider{
+		providerPaneBrowseProvider: providerPaneBrowseProvider{
+			interactionBrowseProvider{commandsTestProvider{name: "Jellyfin"}},
+		},
+	}
+	m := keybindingTestModel()
+	m.provider = jellyfin
+
+	m.StartInProvider()
+	if !m.openDefaultProviderOnce {
+		t.Fatal("StartInProvider did not queue the preferred browser")
+	}
+	updated, cmd := m.Update(openDefaultProviderBrowserMsg{})
+	got := updated.(Model)
+	if cmd == nil || !got.navBrowser.visible || got.navBrowser.mode != navBrowseModeByArtistAlbum {
+		t.Fatalf("startup browser = visible:%v mode:%d cmd:%v", got.navBrowser.visible, got.navBrowser.mode, cmd != nil)
+	}
+}
+
+func TestPreferredProviderNOpensModeChooser(t *testing.T) {
+	jellyfin := &preferredBrowseProvider{
+		providerPaneBrowseProvider: providerPaneBrowseProvider{
+			interactionBrowseProvider{commandsTestProvider{name: "Jellyfin"}},
+		},
+	}
+	m := keybindingTestModel()
+	m.navBrowser = navBrowserState{
+		prov: jellyfin, visible: true, mode: navBrowseModeByArtistAlbum,
+	}
+
+	m.handleNavBrowserKey(tea.KeyPressMsg{Text: "N"})
+
+	if !m.navBrowser.visible || m.navBrowser.mode != navBrowseModeMenu {
+		t.Fatalf("N left browser in mode %d, want mode chooser", m.navBrowser.mode)
+	}
+}
+
+func TestBrowseModeSelectionDoesNotChangeProviderDefault(t *testing.T) {
+	jellyfin := &preferredBrowseProvider{
+		providerPaneBrowseProvider: providerPaneBrowseProvider{
+			interactionBrowseProvider{commandsTestProvider{name: "Jellyfin"}},
+		},
+	}
+	m := keybindingTestModel()
+	m.navBrowser = navBrowserState{prov: jellyfin, visible: true, mode: navBrowseModeMenu}
+
+	cmd := m.handleNavBrowserKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if cmd == nil {
+		t.Fatal("mode selection returned no album-load command")
+	}
+	if m.navBrowser.mode != navBrowseModeByAlbum {
+		t.Fatalf("active mode = %d, want album mode", m.navBrowser.mode)
+	}
+	if jellyfin.DefaultBrowseMode() != provider.BrowseArtistAlbums {
+		t.Fatalf("default mode = %d, want BrowseArtistAlbums", jellyfin.DefaultBrowseMode())
 	}
 }
 

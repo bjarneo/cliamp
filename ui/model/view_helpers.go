@@ -125,6 +125,33 @@ func truncate(s string, maxW int) string {
 	return ansi.Truncate(s, maxW, "…")
 }
 
+// wrapText breaks s into lines no wider than maxW, splitting on spaces.
+// Widths are measured with lipgloss so wide glyphs and accents count once.
+// A single word longer than maxW is truncated rather than left to overflow
+// the panel.
+func wrapText(s string, maxW int) []string {
+	if maxW <= 0 {
+		return nil
+	}
+	var lines []string
+	line := ""
+	for _, word := range strings.Fields(s) {
+		switch {
+		case line == "":
+			line = word
+		case lipgloss.Width(line)+1+lipgloss.Width(word) <= maxW:
+			line += " " + word
+		default:
+			lines = append(lines, truncate(line, maxW))
+			line = word
+		}
+	}
+	if line != "" {
+		lines = append(lines, truncate(line, maxW))
+	}
+	return lines
+}
+
 // cursorLine renders a list item with "> " prefix when active, "  " otherwise.
 func cursorLine(label string, active bool) string {
 	if active {
@@ -186,6 +213,12 @@ func fitHelpLine(s string) string {
 func (m *Model) toggleAlbumHeadersManual() {
 	m.showAlbumHeaders = !m.showAlbumHeaders
 	m.headerManual = true
+}
+
+// toggleHelpBar shows or hides the key-binding hint bar for this session. The
+// persistent choice is the hide_help_bar config key.
+func (m *Model) toggleHelpBar() {
+	m.SetHideHelpBar(!m.hideHelpBar)
 }
 
 // minTracksPerAlbum is the threshold at which a list is considered cohesive

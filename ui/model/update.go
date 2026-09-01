@@ -375,6 +375,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, tickCmdAt(m.tickInterval()))
 		return m, tea.Batch(cmds...)
 
+	case openDefaultProviderBrowserMsg:
+		if !m.openDefaultProviderOnce {
+			return m, nil
+		}
+		m.openDefaultProviderOnce = false
+		return m, m.openDefaultProviderBrowser()
+
 	case playlistsLoadedMsg:
 		if msg.gen != m.requests.provider || !m.isActiveProvider(msg.providerName) {
 			return m, nil

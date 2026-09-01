@@ -32,6 +32,7 @@ type Request struct {
 	Track    *TrackInfo  `json:"track,omitempty"`
 	Tracks   []TrackInfo `json:"tracks,omitempty"`
 	Topics   []string    `json:"topics,omitempty"`
+	Play     bool        `json:"play,omitempty"`
 }
 
 // Response is the operation-specific data embedded in a successful V2 job.
@@ -268,7 +269,11 @@ type HistoryRequestMsg struct {
 }
 
 type URLRequestMsg struct {
-	URL     string
+	URL string
+	// Play starts the first newly added track even when something is already
+	// playing. Without it the URL is appended and only auto-plays when the
+	// player was idle.
+	Play    bool
 	Context context.Context
 	Reply   chan Response
 }

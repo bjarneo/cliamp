@@ -36,6 +36,13 @@ func TestProviderName(t *testing.T) {
 	}
 }
 
+func TestProviderDefaultBrowseMode(t *testing.T) {
+	p := newProvider(NewClient("https://jf.example.com", "tok", "user-1", "", ""))
+	if got := p.DefaultBrowseMode(); got != provider.BrowseArtistAlbums {
+		t.Fatalf("DefaultBrowseMode() = %d, want BrowseArtistAlbums", got)
+	}
+}
+
 func TestProviderPlaylists(t *testing.T) {
 	p := mockProvider("", func(req *http.Request) (*http.Response, error) {
 		switch req.URL.Path {

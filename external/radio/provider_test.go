@@ -6,11 +6,13 @@ import (
 	"testing"
 )
 
+// newTestProvider builds a provider with the location question already
+// answered, so these tests see the station rows and not the offer row.
 func newTestProvider(t *testing.T) *Provider {
 	t.Helper()
 	// Point HOME at a temp dir so New() doesn't touch real state.
 	t.Setenv("HOME", t.TempDir())
-	return New()
+	return New(Options{Country: CountryDeclined})
 }
 
 func TestProviderNewHasBuiltinStation(t *testing.T) {
@@ -44,7 +46,7 @@ name = "Extra"
 url = "https://extra.example/stream"
 `)
 
-	p := New()
+	p := New(Options{Country: CountryDeclined})
 	infos, _ := p.Playlists()
 	if len(infos) < 2 {
 		t.Fatalf("expected builtin + extra, got %d", len(infos))

@@ -18,7 +18,24 @@ const (
 	// silently truncates larger limits; requesting more would cause the loop
 	// to skip items when offset advances by the requested limit.
 	spotifyTrackPageSize = 50
+	// spotifyAlbumPageSize is the maximum /v1/me/albums accepts per request.
+	spotifyAlbumPageSize = 50
 )
+
+// savedAlbumIDPrefix marks a PlaylistInfo.ID as a saved album rather than a
+// playlist, so Tracks() routes it to AlbumTracks. Real playlist and album IDs
+// are bare base62, so the "spotify:album:" prefix never collides with one.
+const savedAlbumIDPrefix = "spotify:album:"
+
+// savedAlbumSection is the UI section header for the user's saved albums.
+const savedAlbumSection = "Saved albums"
+
+// isSavedAlbumID reports whether id is a saved-album playlist entry and returns
+// the bare album ID.
+func isSavedAlbumID(id string) (albumID string, ok bool) {
+	rest, ok := strings.CutPrefix(id, savedAlbumIDPrefix)
+	return rest, ok
+}
 
 // spotifyPlaylistItem is the raw playlist object returned by /v1/me/playlists.
 type spotifyPlaylistItem struct {
@@ -34,6 +51,15 @@ type spotifyPlaylistItem struct {
 }
 type spotifyArtist struct {
 	Name string `json:"name"`
+}
+
+// artistNames joins the artist display names with ", ".
+func artistNames(artists []spotifyArtist) string {
+	names := make([]string, len(artists))
+	for i, a := range artists {
+		names[i] = a.Name
+	}
+	return strings.Join(names, ", ")
 }
 
 // spotifyItem is a track or podcast episode object from the Spotify Web API.
@@ -79,11 +105,6 @@ type spotifyAlbumItem struct {
 // Callers must expand it through SearchTracks' companion AlbumTracks before
 // queueing it, which playlist.Track.IsAlbum signals to the UI.
 func albumFromItem(a *spotifyAlbumItem) playlist.Track {
-	artists := make([]string, len(a.Artists))
-	for i, ar := range a.Artists {
-		artists[i] = ar.Name
-	}
-
 	var year int
 	if len(a.ReleaseDate) >= 4 {
 		if y, err := strconv.Atoi(a.ReleaseDate[:4]); err == nil {
@@ -99,7 +120,7 @@ func albumFromItem(a *spotifyAlbumItem) playlist.Track {
 	return playlist.Track{
 		Path:   uri,
 		Title:  a.Name,
-		Artist: strings.Join(artists, ", "),
+		Artist: artistNames(a.Artists),
 		Album:  a.Name,
 		Year:   year,
 		ProviderMeta: map[string]string{

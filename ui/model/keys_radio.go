@@ -26,6 +26,34 @@ func (m *Model) maybeLoadCatalogBatch() tea.Cmd {
 	return nil
 }
 
+// answerLocationPrompt records the listener's answer to the location question
+// and refreshes the pane, where the offer row is replaced by their country.
+func (m *Model) answerLocationPrompt(allowed bool) tea.Cmd {
+	m.provAskLoc = false
+	consenter, ok := m.provider.(provider.LocationConsenter)
+	if !ok {
+		return nil
+	}
+
+	place, err := consenter.SetLocationConsent(allowed)
+	if err != nil {
+		// The answer holds for this run even when it could not be written.
+		m.status.Errorf(statusTTLDefault, "Could not save the choice: %s", err)
+	}
+	switch {
+	case !allowed:
+		m.status.Show("Location off. Pin countries with f in Countries.", statusTTLLong)
+	case place == "":
+		m.status.Warning("Could not tell which country you are in. Pin countries with f in Countries.", statusTTLLong)
+	default:
+		m.status.Showf(statusTTLMedium, "Nearby radio: %s", place)
+	}
+
+	// The offer row is gone and, on a yes, a country row has taken its place.
+	m.provLoading = true
+	return m.fetchProviderPlaylists()
+}
+
 // toggleProviderFavorite toggles favorite status for the current entry in the
 // provider list (only works for providers implementing FavoriteToggler + SectionedList).
 func (m *Model) toggleProviderFavorite() tea.Cmd {

@@ -128,6 +128,26 @@ func TestSearchTracksLeadsWithAlbums(t *testing.T) {
 	}
 }
 
+// TestTracksExpandsSavedAlbum verifies a saved-album playlist entry is routed
+// through AlbumTracks rather than the playlist items endpoint.
+func TestTracksExpandsSavedAlbum(t *testing.T) {
+	p, _ := albumSpotify(t, 0, 0, 3)
+
+	got, err := p.Tracks(savedAlbumIDPrefix + "al0")
+	if err != nil {
+		t.Fatalf("Tracks() error = %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d tracks, want 3", len(got))
+	}
+	if got[0].Path != "spotify:track:at0" {
+		t.Errorf("first track path = %q, want %q", got[0].Path, "spotify:track:at0")
+	}
+	if got[0].Album != "Punk In Drublic" {
+		t.Errorf("first track album = %q, want %q", got[0].Album, "Punk In Drublic")
+	}
+}
+
 func TestAlbumTracksPagesAndFillsAlbumMetadata(t *testing.T) {
 	const total = spotifyTrackPageSize + 3
 	p, _ := albumSpotify(t, 0, 0, total)

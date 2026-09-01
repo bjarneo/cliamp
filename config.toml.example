@@ -50,6 +50,11 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # No visualizer or playback controls are shown.
 # simplified = true
 
+# Hide the key-binding hint bar above the status line. The row is given back to
+# the playlist. Press "?" for the full keymap, or Ctrl+G to toggle the bar.
+# Simplified mode has no hint bar or playlist, so it is unaffected.
+# hide_help_bar = true
+
 # UI theme name (check ~/.config/cliamp/themes/ for available themes)
 # theme = "Tokyo Night"
 

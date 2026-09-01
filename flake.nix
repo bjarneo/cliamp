@@ -39,5 +39,30 @@
           meta.description = "Run cliamp";
         };
       });
+
+      devShells = forAllSystems (system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
+          default = pkgs.mkShell {
+            name = "cliamp-dev";
+            buildInputs = with pkgs; [
+              go
+              pkg-config
+              alsa-lib
+              flac
+              libogg
+              libvorbis
+              mpg123
+              ffmpeg-headless
+              yt-dlp
+            ];
+            shellHook = ''
+              echo "🎵 cliamp dev shell loaded"
+            '';
+          };
+        }
+      );
     };
 }

@@ -140,7 +140,7 @@ func DefaultOperationRegistry() *OperationRegistry {
 		{Name: "vis", Description: "list or change visualizers", Parameters: []string{"name"}},
 		{Name: "load", Description: "load a local playlist", Async: true, Parameters: []string{"playlist"}},
 		{Name: "queue", Description: "append one path to the live playlist", Parameters: []string{"path", "if_revision"}},
-		{Name: "url.load", Description: "resolve and append a URL", Async: true, Parameters: []string{"path"}},
+		{Name: "url.load", Description: "resolve and append a URL, optionally playing it", Async: true, Parameters: []string{"path", "play"}},
 		{Name: "save", Description: "download the current track", Async: true},
 		{Name: "queue.list", Description: "list the live playlist", Parameters: []string{"offset", "limit"}},
 		{Name: "queue.play", Description: "play a live playlist track", Async: true, Parameters: []string{"index", "if_revision"}},

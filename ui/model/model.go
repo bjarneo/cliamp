@@ -260,19 +260,21 @@ type Model struct {
 	playlistUndo    playlistUndo
 
 	// Provider state
-	provider      playlist.Provider
-	localProvider playlist.Provider // local playlist provider for file-based playlist management (always available)
-	providerLists []playlist.PlaylistInfo
-	provCursor    int
-	provScroll    int
-	provLoading   bool
-	provSignIn    bool            // true when provider needs interactive sign-in
-	provAuthURL   string          // OAuth URL to display while interactive auth is in flight
-	providers     []ProviderEntry // all available providers
-	provPillIdx   int             // selected pill index
-	eqPresetIdx   int             // -1 = custom, 0+ = index into eqPresets
-	eqCustomLabel string          // non-empty = plugin-defined preset label (shown instead of "Custom")
-	eqCustomBands [eqBandCount]float64
+	provider                playlist.Provider
+	localProvider           playlist.Provider // local playlist provider for file-based playlist management (always available)
+	providerLists           []playlist.PlaylistInfo
+	provCursor              int
+	provScroll              int
+	provLoading             bool
+	provSignIn              bool            // true when provider needs interactive sign-in
+	provAskLoc              bool            // true while the location question is on screen
+	provAuthURL             string          // OAuth URL to display while interactive auth is in flight
+	openDefaultProviderOnce bool            // open the provider's preferred hierarchy after Init
+	providers               []ProviderEntry // all available providers
+	provPillIdx             int             // selected pill index
+	eqPresetIdx             int             // -1 = custom, 0+ = index into eqPresets
+	eqCustomLabel           string          // non-empty = plugin-defined preset label (shown instead of "Custom")
+	eqCustomBands           [eqBandCount]float64
 
 	// Overlay / feature state (see state.go for struct definitions)
 	search         searchState
@@ -413,6 +415,7 @@ type Model struct {
 	lowPower        bool // lower UI/render cadences in low-power mode
 	visualizer60FPS bool // render a visible visualizer at the animation cadence
 	simplified      bool // simplified playback view: track summary and time strip
+	hideHelpBar     bool // hide the key-binding hint bar above the status line
 	heightExpanded  bool // tracks whether manual 'x' expansion is active
 
 	// Cached per-tick to avoid repeated speaker.Lock() calls in View().

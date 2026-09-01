@@ -270,10 +270,19 @@ func (d *daemon) handleURL(m ipc.URLRequestMsg) {
 		return
 	}
 	d.mu.Lock()
+	// A Play request jumps to the first newly added track, so a caller that
+	// asked to play a URL hears it even when something is already playing.
+	// Without it the tracks are appended and only start when the player is
+	// idle, which is the right default for a plain append.
+	start := d.playlist.Len()
 	wasStopped := !d.player.IsPlaying()
 	d.playlist.Add(tracks...)
 	d.loadedPlaylist = ""
-	if wasStopped {
+	switch {
+	case m.Play:
+		d.playlist.SetIndex(start)
+		d.playCurrent()
+	case wasStopped:
 		d.playCurrent()
 	}
 	d.mu.Unlock()

@@ -12,11 +12,12 @@ import (
 )
 
 var (
-	_ provider.ArtistBrowser    = (*Provider)(nil)
-	_ provider.AlbumBrowser     = (*Provider)(nil)
-	_ provider.AlbumTrackLoader = (*Provider)(nil)
-	_ provider.PlaybackReporter = (*Provider)(nil)
-	_ provider.Searcher         = (*Provider)(nil)
+	_ provider.ArtistBrowser             = (*Provider)(nil)
+	_ provider.AlbumBrowser              = (*Provider)(nil)
+	_ provider.AlbumTrackLoader          = (*Provider)(nil)
+	_ provider.DefaultBrowseModeProvider = (*Provider)(nil)
+	_ provider.PlaybackReporter          = (*Provider)(nil)
+	_ provider.Searcher                  = (*Provider)(nil)
 )
 
 // Provider implements playlist.Provider for a Jellyfin server.
@@ -43,6 +44,11 @@ func NewFromConfig(cfg config.JellyfinConfig) *Provider {
 
 // Name returns the display name used in the provider selector.
 func (p *Provider) Name() string { return "Jellyfin" }
+
+// DefaultBrowseMode always opens Jellyfin as artist → album → songs.
+func (p *Provider) DefaultBrowseMode() provider.BrowseMode {
+	return provider.BrowseArtistAlbums
+}
 
 // Refresh clears cached playlist, track, and album data so the next call
 // re-fetches from the server. Implements playlist.Refresher.
