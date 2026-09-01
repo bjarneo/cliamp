@@ -205,6 +205,12 @@ func TestWavePlaybackFeedback(t *testing.T) {
 }
 
 func TestResolveStreamURLCached(t *testing.T) {
+	// The default guard only allows HTTPS *.yandex.net; point it at the
+	// local httptest server for the duration of the test.
+	origGuard := fullDownloadInfoGuard
+	fullDownloadInfoGuard = func(infoURL string) error { return nil }
+	defer func() { fullDownloadInfoGuard = origGuard }()
+
 	var dlCalls int
 	var mu sync.Mutex
 	var tsURL string

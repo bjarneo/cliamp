@@ -391,13 +391,17 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 				}
 				m.provLoading = true
 				m.status.Activityf(statusTTLShort, "Refreshing %s…", m.provider.Name())
-				// When a playlist (e.g. the Yandex "Моя волна" radio) is open,
-				// re-load it in place so a refresh starts a fresh batch; the
-				// provider's Refresh() clears its cached session. Otherwise
-				// fall back to the playlists pane.
-				if m.activeProviderPlaylistID != "" {
-					return m.fetchProviderTracks(m.activeProviderPlaylistID)
+				// Re-open the current playlist in place only when the
+				// provider guarantees the ID stays valid across Refresh()
+				// (e.g. the Yandex "Моя волна" session). Positional IDs
+				// (radio catalog indexes) must fall back to the playlists
+				// pane.
+				if id := m.activeProviderPlaylistID; id != "" {
+					if pr, ok := m.provider.(playlist.RefreshablePlaylist); ok && pr.CanRefreshPlaylist(id) {
+						return m.fetchProviderTracks(id)
+					}
 				}
+				m.activeProviderPlaylistID = ""
 				return m.fetchProviderPlaylists()
 			}
 		case "f":
@@ -515,16 +519,20 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "q", "ctrl+c":
 		return m.quit()
 	case "ctrl+r":
-		// Refresh in the queue/playlist view: when a provider playlist (e.g.
-		// the Yandex "Моя волна" radio) is open, drop its cached session and
-		// reload a fresh batch in place.
+		// Refresh in the queue/playlist view: when a refreshable provider
+		// playlist (e.g. the Yandex "Моя волна" session) is open, drop its
+		// cached session and reload a fresh batch in place. Providers whose
+		// IDs don't survive Refresh (positional catalog indexes) are skipped.
 		if m.provider != nil && !m.provLoading && m.activeProviderPlaylistID != "" {
-			if r, ok := m.provider.(playlist.Refresher); ok {
-				r.Refresh()
+			id := m.activeProviderPlaylistID
+			pr, capable := m.provider.(playlist.RefreshablePlaylist)
+			if !capable || !pr.CanRefreshPlaylist(id) {
+				break
 			}
+			pr.Refresh()
 			m.provLoading = true
 			m.status.Activityf(statusTTLShort, "Refreshing %s…", m.provider.Name())
-			return m.fetchProviderTracks(m.activeProviderPlaylistID)
+			return m.fetchProviderTracks(id)
 		}
 	case "esc", "backspace", "b":
 		if m.focus == focusPlaylist {

@@ -95,8 +95,19 @@ func (p *Provider) Refresh() {
 	p.urlCache = map[string]urlEntry{}
 }
 
-// userIDLocked returns the account user id, verifying the token on first use.
-func (p *Provider) userIDLocked() (uint64, error) {
+// CanRefreshPlaylist implements playlist.RefreshablePlaylist: only the wave
+// session is ephemeral and benefits from an in-place reload. Regular
+// playlists are static server-side objects — refreshing them in place just
+// burns API calls.
+func (p *Provider) CanRefreshPlaylist(id string) bool {
+	return id == wavePlaylistID
+}
+
+// userID returns the account user id, verifying the token on first use.
+// It takes p.mu itself: all callers must not hold the lock.
+func (p *Provider) accountUserID() (uint64, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.userID != 0 {
 		return p.userID, nil
 	}
@@ -119,7 +130,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	}
 	p.mu.Unlock()
 
-	uid, err := p.userIDLocked()
+	uid, err := p.accountUserID()
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +161,10 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 			name = "Untitled Playlist"
 		}
 		infos = append(infos, playlist.PlaylistInfo{
-			ID:         playlistIDPrefix + strconv.FormatUint(list.Kind, 10),
+			// Yandex playlist identity is (owner UID, kind); keeping only
+			// kind would resolve saved playlists of other owners against
+			// the signed-in user.
+			ID:         fmt.Sprintf("%s%d:%d", playlistIDPrefix, list.Owner.UID, list.Kind),
 			Name:       name,
 			TrackCount: list.TrackCount,
 			Section:    section,
@@ -167,7 +181,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 // the user's playlists.
 func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	playlistID = strings.TrimSpace(playlistID)
-	uid, err := p.userIDLocked()
+	uid, err := p.accountUserID()
 	if err != nil {
 		return nil, err
 	}
@@ -190,11 +204,21 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	case playlistID == wavePlaylistID:
 		return p.loadWave()
 	case strings.HasPrefix(playlistID, playlistIDPrefix):
-		kind, err := strconv.ParseUint(strings.TrimPrefix(playlistID, playlistIDPrefix), 10, 64)
+		// ID format: pl:<owner-uid>:<kind>. Use the playlist owner, not the
+		// signed-in user — saved playlists belong to someone else.
+		parts := strings.SplitN(strings.TrimPrefix(playlistID, playlistIDPrefix), ":", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("yandex: invalid playlist id %q", playlistID)
+		}
+		owner, err := strconv.ParseUint(parts[0], 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("yandex: invalid playlist id %q", playlistID)
 		}
-		remote, err = p.api.playlistTracks(uid, kind)
+		kind, err := strconv.ParseUint(parts[1], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("yandex: invalid playlist id %q", playlistID)
+		}
+		remote, err = p.api.playlistTracks(owner, kind)
 		if err != nil {
 			return nil, err
 		}

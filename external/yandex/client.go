@@ -24,6 +24,16 @@ const (
 	timestampFmt   = "2006-01-02T15:04:05.999Z"
 )
 
+// fullDownloadInfoGuard validates the API-provided download info URL before
+// it is fetched (token-free). Tests override it to point at httptest servers.
+var fullDownloadInfoGuard = func(infoURL string) error {
+	u, err := url.Parse(infoURL)
+	if err != nil || u.Scheme != "https" || !strings.HasSuffix(u.Hostname(), "yandex.net") {
+		return fmt.Errorf("yandex: refusing untrusted download info URL %q", infoURL)
+	}
+	return nil
+}
+
 // client is a minimal Yandex Music API client authenticated with a personal
 // OAuth token.
 type client struct {
@@ -364,11 +374,19 @@ func buildStreamURL(info downloadInfo, full fullDownloadInfo) string {
 
 func (c *client) fullDownloadInfo(infoURL string) (fullDownloadInfo, error) {
 	var full fullDownloadInfo
+	// infoURL comes from the API response and may point at an unexpected
+	// host. The guard refuses non-Yandex HTTPS URLs; the request itself
+	// never carries the OAuth token.
+	if err := fullDownloadInfoGuard(infoURL); err != nil {
+		return full, err
+	}
 	req, err := http.NewRequest(http.MethodGet, infoURL+"&format=json", nil)
 	if err != nil {
 		return full, err
 	}
-	c.setHeaders(req)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Yandex-Music-Client", "YandexMusicAndroid/24024312")
+	req.Header.Set("User-Agent", "okhttp/4.12.0")
 
 	dl := &http.Client{Timeout: dlTimeout}
 	resp, err := dl.Do(req)
