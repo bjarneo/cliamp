@@ -19,7 +19,7 @@ func writeResult(w http.ResponseWriter, v any) {
 }
 
 func testTrack(id string, albumID int) track {
-	t := track{ID: flexString(id), Title: "Track " + id, DurationMs: 60000}
+	t := track{ID: flexString(id), Title: "Track " + id, DurationMs: 60000, Available: true}
 	if albumID > 0 {
 		t.Albums = []album{{ID: uint64(albumID), Title: "Album " + strconv.Itoa(albumID)}}
 	}

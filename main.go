@@ -365,7 +365,10 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		// to a fresh signed stream URL when playback starts.
 		p.RegisterSourceResolver(yandex.TrackURIPrefix, func(uri string) (player.ResolvedSource, error) {
 			u, err := yaProv.ResolveSource(uri)
-			return player.ResolvedSource{URL: u}, err
+			if err != nil {
+				return player.ResolvedSource{}, fmt.Errorf("resolve Yandex source: %w", err)
+			}
+			return player.ResolvedSource{URL: u}, nil
 		})
 	}
 

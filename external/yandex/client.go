@@ -28,7 +28,11 @@ const (
 // it is fetched (token-free). Tests override it to point at httptest servers.
 var fullDownloadInfoGuard = func(infoURL string) error {
 	u, err := url.Parse(infoURL)
-	if err != nil || u.Scheme != "https" || !strings.HasSuffix(u.Hostname(), "yandex.net") {
+	if err != nil {
+		return fmt.Errorf("yandex: refusing unparseable download info URL %q: %w", infoURL, err)
+	}
+	h := u.Hostname()
+	if u.Scheme != "https" || (h != "yandex.net" && !strings.HasSuffix(h, ".yandex.net")) {
 		return fmt.Errorf("yandex: refusing untrusted download info URL %q", infoURL)
 	}
 	return nil
@@ -59,13 +63,13 @@ func (c *client) apiGet(path string, params url.Values, out any) error {
 	}
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("yandex: build request %s: %w", path, err)
 	}
 	c.setHeaders(req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("yandex: %s %s: %w", http.MethodGet, path, err)
 	}
 	defer resp.Body.Close()
 	return decodeAPIResponse(resp, out)
@@ -75,14 +79,14 @@ func (c *client) apiGet(path string, params url.Values, out any) error {
 func (c *client) apiPost(path string, params url.Values, out any) error {
 	req, err := http.NewRequest(http.MethodPost, c.apiBase+path, strings.NewReader(params.Encode()))
 	if err != nil {
-		return err
+		return fmt.Errorf("yandex: build request %s: %w", path, err)
 	}
 	c.setHeaders(req)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("yandex: %s %s: %w", http.MethodPost, path, err)
 	}
 	defer resp.Body.Close()
 	return decodeAPIResponse(resp, out)
@@ -96,18 +100,18 @@ func (c *client) apiPostJSON(path string, params url.Values, body any, out any) 
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return err
+		return fmt.Errorf("yandex: encode request %s: %w", path, err)
 	}
 	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return err
+		return fmt.Errorf("yandex: build request %s: %w", path, err)
 	}
 	c.setHeaders(req)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("yandex: %s %s: %w", http.MethodPost, path, err)
 	}
 	defer resp.Body.Close()
 	return decodeAPIResponse(resp, out)
@@ -315,12 +319,24 @@ func (c *client) tracks(ids []string) ([]track, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
+	// The /tracks endpoint accepts at most 100 ids per request.
 	var out []track
-	err := c.apiPost("/tracks", url.Values{
-		"track-ids":      ids,
-		"with-positions": {"false"},
-	}, &out)
-	return out, err
+	for start := 0; start < len(ids); start += 100 {
+		end := start + 100
+		if end > len(ids) {
+			end = len(ids)
+		}
+		var batch []track
+		err := c.apiPost("/tracks", url.Values{
+			"track-ids":      ids[start:end],
+			"with-positions": {"false"},
+		}, &batch)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, batch...)
+	}
+	return out, nil
 }
 
 // search performs a track search.
@@ -407,13 +423,15 @@ func (c *client) fullDownloadInfo(infoURL string) (fullDownloadInfo, error) {
 }
 
 // reportPlayback posts play-audio feedback so the service tracks listening.
-func (c *client) reportPlayback(userID uint64, trackID string, playedSeconds int) error {
+// trackLengthSeconds is the full track duration; playedSeconds is how much of
+// it was actually played. Yandex treats the two as distinct values.
+func (c *client) reportPlayback(userID uint64, trackID string, trackLengthSeconds, playedSeconds int) error {
 	params := url.Values{
 		"uid":                  {strconv.FormatUint(userID, 10)},
 		"track-id":             {trackID},
 		"from":                 {"cliamp"},
 		"play-id":              {time.Now().Format(timestampFmt)},
-		"track-length-seconds": {strconv.Itoa(playedSeconds)},
+		"track-length-seconds": {strconv.Itoa(trackLengthSeconds)},
 		"total-played-seconds": {strconv.Itoa(playedSeconds)},
 		"timestamp":            {time.Now().Format(timestampFmt)},
 	}
@@ -425,7 +443,10 @@ func (c *client) reportPlayback(userID uint64, trackID string, playedSeconds int
 // buffered download pipeline for them.
 func IsStreamURL(u string) bool {
 	return strings.Contains(u, "//api.music.yandex.net/get-") ||
-		strings.Contains(u, ".strm.yandex.net/")
+		strings.Contains(u, ".strm.yandex.net/") ||
+		// Resolved CDN URLs built by buildStreamURL, e.g.
+		// https://s130.music.yandex.ru/get-mp3/<hash>/...
+		strings.Contains(u, ".music.yandex.ru/get-")
 }
 
 type fullDownloadInfo struct {

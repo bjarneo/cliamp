@@ -6,7 +6,7 @@ Enable Yandex Music to browse your liked tracks and personal playlists, listen t
 
 Get a personal OAuth token. Open this URL in a browser and authorize the official Yandex Music client:
 
-```
+```text
 https://oauth.yandex.ru/authorize?response_type=token&client_id=23cabbbdc6cd418abb4b39c32c41195d
 ```
 

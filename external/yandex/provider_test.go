@@ -154,10 +154,14 @@ func TestTrackConversion(t *testing.T) {
 		{ID: "", Title: "no id"},
 		{ID: "1002", Error: &apiError{Name: "not-found"}},
 		{ID: "1003", Error: &apiError{Name: "track-not-available"}},
+		{ID: "1004", Title: "Region-locked", DurationMs: 1000, Available: false},
 	}
 	tracks := p.toPlaylistTracks(remote)
-	if len(tracks) != 1 {
-		t.Fatalf("got %d tracks, want 1", len(tracks))
+	if len(tracks) != 2 {
+		t.Fatalf("got %d tracks, want 2", len(tracks))
+	}
+	if !tracks[1].Unplayable {
+		t.Error("unavailable track should be marked Unplayable")
 	}
 	got := tracks[0]
 	if got.Path != TrackURIPrefix+"1001" {
@@ -211,6 +215,9 @@ func TestResolveSourceRejects(t *testing.T) {
 	p := New("token")
 	if _, err := p.ResolveSource("other://1"); err == nil {
 		t.Error("ResolveSource should reject foreign URIs")
+	}
+	if _, err := p.ResolveSource("spotify:track:abc"); err == nil {
+		t.Error("ResolveSource should reject foreign prefixed URIs")
 	}
 	if _, err := p.ResolveSource(TrackURIPrefix); err == nil {
 		t.Error("ResolveSource should reject empty track ids")

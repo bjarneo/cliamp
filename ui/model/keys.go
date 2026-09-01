@@ -544,7 +544,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			id := m.activeProviderPlaylistID
 			pr, capable := m.provider.(playlist.RefreshablePlaylist)
 			if !capable || !pr.CanRefreshPlaylist(id) {
-				break
+				// Keep plugin key bindings working: ctrl+r is no longer an
+				// unhandled key here, so forward it explicitly.
+				if m.luaMgr != nil {
+					m.luaMgr.EmitKey(msg.String())
+				}
+				return nil
 			}
 			pr.Refresh()
 			m.provLoading = true

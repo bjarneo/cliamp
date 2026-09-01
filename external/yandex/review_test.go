@@ -8,6 +8,18 @@ import (
 	"testing"
 )
 
+func TestIsStreamURLMatchesBuiltCDNURL(t *testing.T) {
+	info := downloadInfo{Codec: "mp3"}
+	full := fullDownloadInfo{Host: "s130.music.yandex.ru", Path: "/download-info/123.mp3", Ts: "1675244728", S: "xyz"}
+	u := buildStreamURL(info, full)
+	if !IsStreamURL(u) {
+		t.Errorf("IsStreamURL(%q) = false, want true for built CDN URL", u)
+	}
+	if IsStreamURL("https://example.com/get-mp3/abc") {
+		t.Error("IsStreamURL should not match non-Yandex hosts")
+	}
+}
+
 func TestFullDownloadInfoGuard(t *testing.T) {
 	cases := []struct {
 		url  string
@@ -19,6 +31,8 @@ func TestFullDownloadInfoGuard(t *testing.T) {
 		{"https://evil.example.com/dl?sign=x", false},     // wrong host
 		{"https://evil.example.com/?u=yandex.net", false}, // host trick in query
 		{"https://yandex.net.evil.com/dl", false},         // suffix spoof
+		{"https://evilyandex.net/dl", false},              // label boundary
+		{"https://music-resp.yandex.net.evil.com/dl", false},
 		{"://broken", false},
 	}
 	for _, tc := range cases {
@@ -122,8 +136,12 @@ func TestConcurrentAccess(t *testing.T) {
 		})
 	})
 	mux.HandleFunc("/rotor/session/new", func(w http.ResponseWriter, r *http.Request) {
+		// A non-empty sequence is required: an empty one makes loadWave fail
+		// before the double-checked p.wave assignment this test must cover.
 		writeResult(w, map[string]any{
-			"sequence":       []any{},
+			"sequence": []any{
+				map[string]any{"type": "track", "track": map[string]any{"id": "77", "title": "T", "durationMs": 60000}},
+			},
 			"batchId":        "batch-0",
 			"radioSessionId": "session-1",
 		})

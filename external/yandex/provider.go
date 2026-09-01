@@ -27,7 +27,7 @@ const (
 	likedPlaylistID  = "likes"
 	wavePlaylistID   = "wave"
 	playlistIDPrefix = "pl:"
-	urlTTL           = 30 * time.Minute
+	urlTTL           = 45 * time.Second // signed CDN URLs expire after ~1 minute
 )
 
 // Config holds settings for the Yandex Music provider.
@@ -152,6 +152,15 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 		},
 	}
 	for _, list := range lists {
+		// Some endpoints omit the owner object; fall back to the top-level
+		// uid field, then to the signed-in user.
+		owner := list.Owner.UID
+		if owner == 0 {
+			owner = list.UID
+		}
+		if owner == 0 {
+			owner = uid
+		}
 		section := "Saved Playlists"
 		if list.Owner.UID == uid {
 			section = "My Playlists"
@@ -164,7 +173,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 			// Yandex playlist identity is (owner UID, kind); keeping only
 			// kind would resolve saved playlists of other owners against
 			// the signed-in user.
-			ID:         fmt.Sprintf("%s%d:%d", playlistIDPrefix, list.Owner.UID, list.Kind),
+			ID:         fmt.Sprintf("%s%d:%d", playlistIDPrefix, owner, list.Kind),
 			Name:       name,
 			TrackCount: list.TrackCount,
 			Section:    section,
@@ -302,6 +311,7 @@ func (p *Provider) toPlaylistTracks(remote []track) []playlist.Track {
 			Album:        joinAlbums(t.Albums),
 			Year:         albumYear(t.Albums),
 			DurationSecs: millisToSeconds(t.DurationMs),
+			Unplayable:   !t.Available,
 			Stream:       true, // resolved to a buffered HTTP stream at play time
 			ProviderMeta: map[string]string{provider.MetaYandexID: id},
 		})
@@ -338,8 +348,8 @@ func waveKeyFor(keys []string, id string) string {
 // ResolveSource resolves a yandex:track: URI to a fresh signed stream URL at
 // play time. Registered as a player.SourceResolver in main.go.
 func (p *Provider) ResolveSource(uri string) (string, error) {
-	id := strings.TrimPrefix(uri, TrackURIPrefix)
-	if id == "" || strings.ContainsAny(id, "/?#") {
+	id, ok := strings.CutPrefix(uri, TrackURIPrefix)
+	if !ok || id == "" || strings.ContainsAny(id, "/?#") {
 		return "", fmt.Errorf("yandex: invalid track uri %q", uri)
 	}
 	return p.resolveStreamURL(id, false)
@@ -404,7 +414,7 @@ func (p *Provider) report(track playlist.Track, playedSeconds int, waveEvent str
 	if uid == 0 {
 		return nil
 	}
-	if err := p.api.reportPlayback(uid, id, playedSeconds); err != nil {
+	if err := p.api.reportPlayback(uid, id, track.DurationSecs, playedSeconds); err != nil {
 		return err
 	}
 	if wave == nil {
