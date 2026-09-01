@@ -74,7 +74,7 @@ and `Esc` clears it.
 
 | Key | Action |
 |---|---|
-| `f` | Toggle bookmark ★ on the selected track. In the radio browser, favorite the selected station. |
+| `f` | Toggle bookmark ★ on the selected track. In the radio browser, favorite the selected station. In the country browser, pin the selected country or region. |
 | `n` | Toggle favorite ♥ on the selected track. Favorited tracks appear in the cross-playlist "Favorites" virtual playlist. |
 | `Ctrl+F` | Search with the active provider (Spotify, Qobuz, Tidal, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, Local), or search YouTube. Available in playlist and provider-browser views. |
 | `u` | Load URL (stream/playlist) |
@@ -83,7 +83,7 @@ and `Esc` clears it.
 | `i` | Show track metadata (`↑`/`↓` scrolls) |
 | `Ctrl+S` | Save track to `~/Music/cliamp` |
 | `w` | Write the highlighted track to a local playlist |
-| `N` | Open the active provider browser. On a selected Mixcloud show, open that creator's Uploads/Favorites. |
+| `N` | Open the active provider browser. On a selected Mixcloud show, open that creator's Uploads/Favorites. In the radio pane, open the country browser. |
 | `L` | Browse local playlists (with cliamp radio) |
 | `R` | Open radio provider |
 | `S` | Open Spotify provider |

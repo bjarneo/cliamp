@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 )
@@ -48,35 +47,33 @@ func testHTTPClient(t *testing.T, serverURL string) *http.Client {
 	}
 }
 
-func TestSearchStationsSuccess(t *testing.T) {
+func TestStationsSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, "/stations/byname/") {
+		if r.URL.Path != "/json/stations/search" {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
-		if !strings.Contains(r.URL.Path, "jazz") {
-			t.Errorf("path should contain query 'jazz': %q", r.URL.Path)
+		if got := r.URL.Query().Get("name"); got != "jazz" {
+			t.Errorf("name = %q, want jazz", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[{"name":"Jazz FM","url_resolved":"https://jazz.example/stream","country":"UK","bitrate":128}]`))
+		_, _ = w.Write([]byte(`[{"name":"Jazz FM","url_resolved":"https://jazz.example/stream","country":"UK","countrycode":"GB","bitrate":128}]`))
 	}))
 	defer srv.Close()
 	installCatalogClient(t, srv.URL)
 
-	stations, err := SearchStations("jazz", 10)
+	stations, err := Stations(StationQuery{Name: "jazz", Limit: 10})
 	if err != nil {
-		t.Fatalf("SearchStations: %v", err)
+		t.Fatalf("Stations: %v", err)
 	}
 	if len(stations) != 1 {
 		t.Fatalf("got %d stations, want 1", len(stations))
 	}
-	if stations[0].Name != "Jazz FM" {
-		t.Errorf("Name = %q, want Jazz FM", stations[0].Name)
+	got := stations[0]
+	if got.Name != "Jazz FM" || got.URL != "https://jazz.example/stream" {
+		t.Errorf("station = %+v", got)
 	}
-	if stations[0].URL != "https://jazz.example/stream" {
-		t.Errorf("URL = %q", stations[0].URL)
-	}
-	if stations[0].Bitrate != 128 {
-		t.Errorf("Bitrate = %d, want 128", stations[0].Bitrate)
+	if got.Bitrate != 128 || got.CountryCode != "GB" {
+		t.Errorf("station = %+v, want bitrate 128 and country code GB", got)
 	}
 }
 
@@ -108,93 +105,27 @@ func TestFetchStats(t *testing.T) {
 	}
 }
 
-func TestSearchStationsDefaultLimit(t *testing.T) {
-	var gotURL string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotURL = r.URL.String()
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[]`))
-	}))
-	defer srv.Close()
-	installCatalogClient(t, srv.URL)
-
-	if _, err := SearchStations("x", 0); err != nil {
-		t.Fatalf("SearchStations: %v", err)
-	}
-	if !strings.Contains(gotURL, "limit=50") {
-		t.Errorf("default limit should be 50, got URL %q", gotURL)
-	}
-}
-
-func TestSearchStationsHTTPError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestStationsHTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "down", http.StatusInternalServerError)
 	}))
 	defer srv.Close()
 	installCatalogClient(t, srv.URL)
 
-	_, err := SearchStations("jazz", 10)
-	if err == nil {
-		t.Error("SearchStations should return error on 500")
+	if _, err := Stations(StationQuery{Name: "jazz"}); err == nil {
+		t.Error("Stations should return an error on 500")
 	}
 }
 
-func TestTopStationsOffset(t *testing.T) {
-	var gotURL string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotURL = r.URL.String()
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[{"name":"Top1","url_resolved":"http://t1/","bitrate":64}]`))
-	}))
-	defer srv.Close()
-	installCatalogClient(t, srv.URL)
-
-	stations, err := TopStationsOffset(50, 25)
-	if err != nil {
-		t.Fatalf("TopStationsOffset: %v", err)
-	}
-	if len(stations) != 1 || stations[0].Name != "Top1" {
-		t.Fatalf("stations = %+v", stations)
-	}
-	if !strings.Contains(gotURL, "topvote/25") {
-		t.Errorf("URL %q should use limit 25", gotURL)
-	}
-	if !strings.Contains(gotURL, "offset=50") {
-		t.Errorf("URL %q should contain offset=50", gotURL)
-	}
-}
-
-func TestTopStationsOffsetClampsNegatives(t *testing.T) {
-	var gotURL string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotURL = r.URL.String()
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[]`))
-	}))
-	defer srv.Close()
-	installCatalogClient(t, srv.URL)
-
-	if _, err := TopStationsOffset(-10, 0); err != nil {
-		t.Fatalf("TopStationsOffset: %v", err)
-	}
-	if !strings.Contains(gotURL, "offset=0") {
-		t.Errorf("URL %q should clamp negative offset to 0", gotURL)
-	}
-	if !strings.Contains(gotURL, "topvote/50") {
-		t.Errorf("URL %q should use default limit 50", gotURL)
-	}
-}
-
-func TestFetchStationsInvalidJSON(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestStationsInvalidJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{not valid`))
 	}))
 	defer srv.Close()
 	installCatalogClient(t, srv.URL)
 
-	_, err := SearchStations("x", 10)
-	if err == nil {
-		t.Error("SearchStations should error on invalid JSON")
+	if _, err := Stations(StationQuery{Name: "x"}); err == nil {
+		t.Error("Stations should error on invalid JSON")
 	}
 }

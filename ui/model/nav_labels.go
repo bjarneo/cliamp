@@ -6,19 +6,25 @@ import (
 	"github.com/bjarneo/cliamp/provider"
 )
 
-// navLabels holds the vocabulary the browse overlay uses for the two catalog
+// navLabels holds the vocabulary the browse overlay uses for the catalog
 // levels. Music providers keep the defaults; others supply their own via
-// provider.BrowseLabeler.
+// provider.BrowseLabeler and provider.GenreLabeler.
 type navLabels struct {
 	artist string
 	album  string
+	genre  string
 }
 
 func (m Model) navLabels() navLabels {
-	l := navLabels{artist: "Artist", album: "Album"}
+	l := navLabels{artist: "Artist", album: "Album", genre: "Genres"}
 	if bl, ok := m.navBrowser.prov.(provider.BrowseLabeler); ok {
 		if artist, album := bl.BrowseLabels(); artist != "" && album != "" {
 			l.artist, l.album = artist, album
+		}
+	}
+	if gl, ok := m.navBrowser.prov.(provider.GenreLabeler); ok {
+		if genre := gl.GenreLabel(); genre != "" {
+			l.genre = genre
 		}
 	}
 	return l
@@ -31,3 +37,8 @@ func (l navLabels) albumsTitle() string { return l.album + "s" }
 func (l navLabels) artistsLower() string { return strings.ToLower(l.artistsTitle()) }
 
 func (l navLabels) albumsLower() string { return strings.ToLower(l.albumsTitle()) }
+
+// genresTitle is already plural: providers name the level, not one item.
+func (l navLabels) genresTitle() string { return l.genre }
+
+func (l navLabels) genresLower() string { return strings.ToLower(l.genre) }

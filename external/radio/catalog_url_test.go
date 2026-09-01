@@ -34,7 +34,7 @@ func TestCatalogStationURLsAreConstrainedToHTTP(t *testing.T) {
 		{"search results", "s", (*Provider).SetSearchResults},
 	} {
 		t.Run(setup.name, func(t *testing.T) {
-			p := New()
+			p := New(Options{})
 			setup.apply(p, hostile)
 
 			var kept []string

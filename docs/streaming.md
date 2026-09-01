@@ -54,7 +54,9 @@ cliamp https://www.xiaoyuzhoufm.com/episode/xxxx
 
 ## Radio Catalog
 
-Press `R` in the player to browse and search more than 30,000 online radio stations in the [Radio Browser](https://www.radio-browser.info/) directory. Use `/` to search by name, `Enter` to play, and `a` to add a station to the playlist.
+Press `R` in the player to browse about 58,000 online radio stations in the [Radio Browser](https://www.radio-browser.info/) directory. Use `/` to search by name, `Enter` to play, and `a` to add a station to the playlist.
+
+To cut the list down by location, browse by country (`N`), pin the countries you listen to (`f`), and narrow the catalog to one of them (`c`). See [radio.md](radio.md).
 
 ## Track Info
 
@@ -76,5 +78,7 @@ Press `u` during playback to load a stream or playlist URL without restarting. I
 ## Run Your Own Radio Station
 
 Run an internet radio station with [cliamp-server](https://github.com/bjarneo/cliamp-server). Point it to a directory of audio files to start broadcasting. It supports multiple stations, live metadata, and on-the-fly transcoding.
+
+See [radio.md](radio.md) for the radio provider in full.
 
 See [playlists.md](playlists.md) for M3U playlist details.

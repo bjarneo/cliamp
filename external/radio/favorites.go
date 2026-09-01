@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/bjarneo/cliamp/internal/appdir"
+	"github.com/bjarneo/cliamp/internal/fileutil"
 	"github.com/bjarneo/cliamp/internal/tomlutil"
 )
 
@@ -90,8 +91,8 @@ func (f *Favorites) save() error {
 	}
 
 	// Build the full content in memory (writes to a Builder can't fail), then
-	// write a temp file and rename so a partial/failed write can never truncate
-	// or corrupt the existing favorites file.
+	// hand it to WriteFileAtomic so a partial or failed write can never
+	// truncate or corrupt the existing favorites file.
 	var b strings.Builder
 	for i, s := range f.stations {
 		if i > 0 {
@@ -117,11 +118,7 @@ func (f *Favorites) save() error {
 		}
 	}
 
-	tmp := f.path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, f.path)
+	return fileutil.WriteFileAtomic(f.path, []byte(b.String()), 0o644)
 }
 
 // loadFavoriteStations parses the favorites TOML file.

@@ -85,7 +85,10 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	}
 
 	// Build provider list: Radio is always available, Navidrome and Spotify if configured.
-	radioProv := radio.New()
+	radioProv := radio.New(radio.Options{
+		Country:     cfg.Radio.Country,
+		SaveCountry: config.SaveRadioCountry,
+	})
 	localProv := local.New()
 
 	var providers []model.ProviderEntry

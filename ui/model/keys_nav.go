@@ -81,15 +81,23 @@ type navMenuItem struct {
 	mode  provider.BrowseMode
 }
 
+// navMenuItems lists only the routes the browsed provider can actually serve.
+// Offering a level the provider does not implement is not a harmless extra
+// row: selecting it closes the browser with no explanation.
 func (m Model) navMenuItems() []navMenuItem {
 	labels := m.navLabels()
-	items := []navMenuItem{
-		{label: "By " + labels.album, mode: provider.BrowseAlbums},
-		{label: "By " + labels.artist, mode: provider.BrowseArtists},
-		{label: "By " + labels.artist + " / " + labels.album, mode: provider.BrowseArtistAlbums},
+	var items []navMenuItem
+	if _, ok := m.navBrowser.prov.(provider.AlbumBrowser); ok {
+		items = append(items, navMenuItem{label: "By " + labels.album, mode: provider.BrowseAlbums})
+	}
+	if _, ok := m.navBrowser.prov.(provider.ArtistBrowser); ok {
+		items = append(items,
+			navMenuItem{label: "By " + labels.artist, mode: provider.BrowseArtists},
+			navMenuItem{label: "By " + labels.artist + " / " + labels.album, mode: provider.BrowseArtistAlbums},
+		)
 	}
 	if _, ok := m.navBrowser.prov.(provider.GenreBrowser); ok {
-		items = append(items, navMenuItem{label: "Genres", mode: provider.BrowseGenres})
+		items = append(items, navMenuItem{label: labels.genresTitle(), mode: provider.BrowseGenres})
 	}
 	return items
 }

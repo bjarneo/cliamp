@@ -247,6 +247,30 @@ type CatalogSearcher interface {
 	IsSearching() bool
 }
 
+// LocationConsenter is implemented by providers that can make use of the
+// listener's approximate location. Working out where someone is counts as
+// using their location whether or not a network lookup is involved, so a
+// provider must not do it until the listener has said yes.
+type LocationConsenter interface {
+	// NeedsLocationConsent reports whether the listener has yet to answer.
+	// It is false once they have answered either way, and false when the
+	// answer is already recorded in configuration.
+	NeedsLocationConsent() bool
+	// LocationConsentID is the provider-list row that raises the question, or
+	// "" when the provider is offering no such row. Selecting that row must
+	// ask rather than load anything.
+	LocationConsentID() string
+	// LocationPrompt returns the question to put to the listener. It should
+	// say what the provider would do with the answer and where the location
+	// would come from.
+	LocationPrompt() string
+	// SetLocationConsent records the answer and persists it, so the listener
+	// is asked once rather than every launch. On true the provider may work
+	// out and use the location, and returns what it found ("" when it could
+	// not tell). On false it must not.
+	SetLocationConsent(allowed bool) (place string, err error)
+}
+
 // RadioStatsLoader is implemented by radio providers that expose aggregate
 // listener statistics for their built-in stations.
 type RadioStatsLoader interface {
@@ -276,6 +300,21 @@ type SectionedList interface {
 	IDPrefix(id string) string
 	// IsFavoritableID reports whether the given ID can be favorited.
 	IsFavoritableID(id string) bool
+}
+
+// SectionTitler is implemented by SectionedList providers whose section
+// headings change at runtime, such as a radio catalog narrowed to one country.
+// Returning "" leaves the heading to the UI's built-in name for that prefix.
+type SectionTitler interface {
+	SectionTitle(prefix string) string
+}
+
+// GenreLabeler is implemented by GenreBrowser providers whose categories are
+// not genres, so the browse overlay can name them correctly (for example
+// "Countries" for a radio directory).
+type GenreLabeler interface {
+	// GenreLabel returns the plural noun for the category level, e.g. "Countries".
+	GenreLabel() string
 }
 
 // Closer is implemented by providers that hold resources (sessions,

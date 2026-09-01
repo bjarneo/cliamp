@@ -367,6 +367,15 @@ func (m *Model) openProviderList(index int) tea.Cmd {
 		return nil
 	}
 	item := m.providerLists[index]
+	// The location offer is a question, not a list. Selecting it raises the
+	// question; nothing about the listener's location is worked out until they
+	// answer it.
+	if consenter, ok := m.provider.(provider.LocationConsenter); ok {
+		if id := consenter.LocationConsentID(); id != "" && id == item.ID {
+			m.provAskLoc = true
+			return nil
+		}
+	}
 	if entry, ok := providerBrowseEntryForID(m.provider, item.ID); ok {
 		m.activeProviderPlaylistID = ""
 		cmd := m.openNavBrowserEntry(m.provider, entry)

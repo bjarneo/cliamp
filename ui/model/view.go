@@ -740,6 +740,9 @@ func (m Model) renderProviderList() string {
 		}
 		return strings.Join(lines, "\n")
 	}
+	if m.provAskLoc {
+		return m.renderLocationPrompt(visibleBudget)
+	}
 	if len(m.providerLists) == 0 {
 		return m.renderProviderEmptyState(visibleBudget)
 	}
@@ -794,9 +797,12 @@ func (m Model) renderProviderList() string {
 			scroll = m.provCursor - visibleBudget + 1
 		}
 
-		prevPrefix := ""
+		// Headers are deduplicated on the resolved title, not the ID prefix:
+		// distinct prefixes can share one heading (the country browse shortcut
+		// sits under the same "Countries" heading as the pinned places).
+		prevTitle := ""
 		if isRadio && scroll > 0 {
-			prevPrefix = sl.IDPrefix(m.providerLists[scroll-1].ID)
+			prevTitle = m.providerSectionTitle(sl.IDPrefix(m.providerLists[scroll-1].ID))
 		}
 		prevSection := ""
 		if hasSections && scroll > 0 {
@@ -807,21 +813,12 @@ func (m Model) renderProviderList() string {
 			p := m.providerLists[j]
 
 			if isRadio {
-				pfx := sl.IDPrefix(p.ID)
-				if pfx != prevPrefix {
-					var header string
-					switch pfx {
-					case "f":
-						header = labeledSeparator("  ", "Favorites")
-					case "c":
-						header = labeledSeparator("  ", "Catalog")
-					case "s":
-						header = labeledSeparator("  ", "Search Results")
+				title := m.providerSectionTitle(sl.IDPrefix(p.ID))
+				if title != prevTitle {
+					if title != "" && len(lines) < visibleBudget {
+						lines = append(lines, dimStyle.Render(labeledSeparator("  ", title)))
 					}
-					if header != "" && len(lines) < visibleBudget {
-						lines = append(lines, dimStyle.Render(header))
-					}
-					prevPrefix = pfx
+					prevTitle = title
 				}
 			} else if hasSections && p.Section != prevSection {
 				header := labeledSeparator("  ", p.Section)
@@ -846,6 +843,37 @@ func (m Model) renderProviderList() string {
 	}
 
 	return strings.Join(fitLines(lines, visibleBudget), "\n")
+}
+
+// renderLocationPrompt puts the provider's location question to the listener.
+// The wording comes from the provider, which is the only thing that knows what
+// it would do with the answer and where the location would come from.
+func (m Model) renderLocationPrompt(budget int) string {
+	question := "Use your location?"
+	if consenter, ok := m.provider.(provider.LocationConsenter); ok {
+		if prompt := consenter.LocationPrompt(); prompt != "" {
+			question = prompt
+		}
+	}
+
+	lines := []string{""}
+	for _, line := range wrapText(question, ui.PanelWidth-6) {
+		lines = append(lines, "  "+line)
+	}
+	lines = append(lines, "", playlistSelectedStyle.Render("  y  Yes"), dimStyle.Render("  n  No, don't"))
+	return strings.Join(fitLines(lines, budget), "\n")
+}
+
+// providerSectionTitle names a SectionedList pane section. The provider owns
+// the wording: only it knows what its ID prefixes mean, and only it knows the
+// live state a heading may need to carry, such as the radio catalog's active
+// country filter. A provider that supplies no title gets no heading.
+func (m Model) providerSectionTitle(prefix string) string {
+	titler, ok := m.provider.(provider.SectionTitler)
+	if !ok {
+		return ""
+	}
+	return titler.SectionTitle(prefix)
 }
 
 func (m Model) renderPlaylist() string {

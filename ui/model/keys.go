@@ -108,20 +108,22 @@ func (m *Model) providerRowsFromScroll(scroll, cursor int) int {
 
 	rows := 0
 	sl, isRadio := m.provider.(provider.SectionedList)
+	// Must resolve the same heading the renderer does, or the two disagree on
+	// how many rows a window holds and the cursor scrolls out of view.
+	headerAt := func(i int) string {
+		if isRadio {
+			return m.providerSectionTitle(sl.IDPrefix(m.providerLists[i].ID))
+		}
+		return m.providerLists[i].Section
+	}
+
 	prevHeader := ""
 	if scroll > 0 {
-		if isRadio {
-			prevHeader = sl.IDPrefix(m.providerLists[scroll-1].ID)
-		} else {
-			prevHeader = m.providerLists[scroll-1].Section
-		}
+		prevHeader = headerAt(scroll - 1)
 	}
 
 	for i := scroll; i <= cursor && i < total; i++ {
-		header := m.providerLists[i].Section
-		if isRadio {
-			header = sl.IDPrefix(m.providerLists[i].ID)
-		}
+		header := headerAt(i)
 		if header != "" && header != prevHeader {
 			rows++ // section header row
 		}
@@ -341,6 +343,21 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	}
 
 	if m.focus == focusProvider {
+		// The location question owns the keyboard until it is answered: it is
+		// a yes/no about the listener's own data, so it must not be dismissed
+		// by a stray key that happens to mean something else in this pane.
+		if m.provAskLoc {
+			switch msg.String() {
+			case "y", "Y", "enter":
+				return m.answerLocationPrompt(true)
+			case "n", "N", "esc":
+				return m.answerLocationPrompt(false)
+			case "ctrl+c":
+				return m.quit()
+			}
+			return nil
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m.quit()

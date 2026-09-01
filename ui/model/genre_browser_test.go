@@ -183,12 +183,75 @@ func TestGenreBrowseEntryAppearsInProviderPaneAndNavMenu(t *testing.T) {
 	if len(lists) != 1 || lists[0].ID != "browse:genres" {
 		t.Fatalf("provider lists = %+v", lists)
 	}
+	// A genre-only provider must be offered only the genre route. The album and
+	// artist rows would close the browser with no explanation when selected.
 	m := Model{navBrowser: navBrowserState{prov: p}}
 	menu := m.navMenuItems()
-	if len(menu) != 4 || menu[3].mode != provider.BrowseGenres {
+	if len(menu) != 1 || menu[0].mode != provider.BrowseGenres {
 		t.Fatalf("nav menu = %+v", menu)
 	}
 }
+
+func TestNavMenuListsOnlyRoutesTheProviderImplements(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		prov  playlist.Provider
+		modes []provider.BrowseMode
+	}{
+		{
+			name: "album, artist and genre browser",
+			prov: providerPaneBrowseProvider{},
+			modes: []provider.BrowseMode{
+				provider.BrowseAlbums, provider.BrowseArtists,
+				provider.BrowseArtistAlbums, provider.BrowseGenres,
+			},
+		},
+		{
+			name:  "genre browser only",
+			prov:  &genreBrowserProvider{},
+			modes: []provider.BrowseMode{provider.BrowseGenres},
+		},
+		{
+			name:  "no browse capability at all",
+			prov:  &commandsTestProvider{},
+			modes: nil,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := Model{navBrowser: navBrowserState{prov: tc.prov}}
+			menu := m.navMenuItems()
+			if len(menu) != len(tc.modes) {
+				t.Fatalf("nav menu = %+v, want %d entries", menu, len(tc.modes))
+			}
+			for i, want := range tc.modes {
+				if menu[i].mode != want {
+					t.Errorf("menu[%d].mode = %v, want %v", i, menu[i].mode, want)
+				}
+			}
+		})
+	}
+}
+
+func TestGenreLabelerRenamesTheCategoryLevel(t *testing.T) {
+	m := Model{navBrowser: navBrowserState{prov: &placeBrowserProvider{}}}
+	if got := m.navLabels().genresTitle(); got != "Countries" {
+		t.Errorf("genresTitle() = %q, want Countries", got)
+	}
+	menu := m.navMenuItems()
+	if len(menu) != 1 || menu[0].label != "Countries" {
+		t.Fatalf("nav menu = %+v, want a single Countries row", menu)
+	}
+}
+
+// placeBrowserProvider browses places rather than genres, the way the radio
+// directory does.
+type placeBrowserProvider struct {
+	genreBrowserProvider
+}
+
+func (p *placeBrowserProvider) GenreLabel() string { return "Countries" }
+
+var _ provider.GenreLabeler = (*placeBrowserProvider)(nil)
 
 func TestGenreBrowseEntriesAreUniqueAndGenreOnlyProvidersCanBrowse(t *testing.T) {
 	p := &genreBrowserProvider{}
