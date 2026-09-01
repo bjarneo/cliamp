@@ -15,6 +15,7 @@ type navLabels struct {
 	genre  string
 }
 
+// navLabels returns provider-specific vocabulary for the active browse route.
 func (m Model) navLabels() navLabels {
 	l := navLabels{artist: "Artist", album: "Album", genre: "Genres"}
 	if bl, ok := m.navBrowser.prov.(provider.BrowseLabeler); ok {

@@ -83,6 +83,7 @@ type Provider struct {
 	countries     []Country        // cached country index, nil until first browse
 	states        []State          // cached regions of the home country
 	tags          []Tag            // cached tag index, nil until first browse
+	tagGeneration uint64           // incremented when Refresh invalidates a tag fetch
 	// locationSettled is false only until the listener answers the location
 	// question. It gates whether to ask, not whether p.home may be used.
 	locationSettled bool

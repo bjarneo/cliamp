@@ -1,8 +1,15 @@
 package radio
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/bjarneo/cliamp/provider"
 )
@@ -38,6 +45,39 @@ func TestFetchTagsCleansDuplicatesAndSortsByStationCount(t *testing.T) {
 	}
 }
 
+func TestFetchTagsWrapsTheOperationOnFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "down", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	installCatalogClient(t, srv.URL)
+
+	_, err := FetchTags()
+	if err == nil || !strings.Contains(err.Error(), "fetch tags: radio-browser: HTTP 500") {
+		t.Fatalf("FetchTags error = %v, want wrapped operation and transport context", err)
+	}
+}
+
+func TestSanitizeTagLabelRemovesTerminalControls(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "plain Unicode", in: "música pop", want: "música pop"},
+		{name: "ANSI color", in: "\x1b[31mjazz\x1b[0m", want: "jazz"},
+		{name: "terminal title", in: "\x1b]2;owned\ajazz", want: "jazz"},
+		{name: "line controls", in: "smooth\njazz\t radio", want: "smooth jazz radio"},
+		{name: "other controls", in: "r\x00o\x7fc\u0085k", want: "rock"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sanitizeTagLabel(tc.in); got != tc.want {
+				t.Fatalf("sanitizeTagLabel(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestTagBrowserListsTheDirectoryIndex(t *testing.T) {
 	d := &directory{tags: []Tag{
 		{Name: "pop", StationCount: 5723},
@@ -63,6 +103,21 @@ func TestTagBrowserListsTheDirectoryIndex(t *testing.T) {
 	}
 	if got := labeler.GenreLabel(); got != "Genres & Tags" {
 		t.Fatalf("tag browser label = %q, want Genres & Tags", got)
+	}
+}
+
+func TestTagBrowserKeepsRawTagIDButSanitizesItsLabel(t *testing.T) {
+	raw := "\x1b[31mjazz\x1b[0m"
+	d := &directory{tags: []Tag{{Name: raw, StationCount: 12}}}
+	d.serve(t)
+	p := newPlaceProvider(t, "")
+
+	genres, err := p.GenreBrowserFor(browseTagsID).Genres()
+	if err != nil {
+		t.Fatalf("Genres: %v", err)
+	}
+	if len(genres) != 1 || genres[0].ID != raw || genres[0].Name != "jazz (12)" {
+		t.Fatalf("genres = %+v, want raw query ID and safe display label", genres)
 	}
 }
 
@@ -109,5 +164,57 @@ func TestRadioBrowseEntriesOfferCountriesAndTags(t *testing.T) {
 	}
 	if p.GenreBrowserFor("browse:unknown") != nil {
 		t.Fatal("unknown browse route should not resolve a genre browser")
+	}
+}
+
+func TestRefreshDoesNotRestoreAnInFlightTagIndex(t *testing.T) {
+	var calls atomic.Int32
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseFirst) }) }
+	t.Cleanup(release)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if calls.Add(1) == 1 {
+			close(firstStarted)
+			<-releaseFirst
+			_ = json.NewEncoder(w).Encode([]Tag{{Name: "stale", StationCount: 1}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode([]Tag{{Name: "fresh", StationCount: 2}})
+	}))
+	t.Cleanup(srv.Close)
+	installCatalogClient(t, srv.URL)
+
+	p := newPlaceProvider(t, "")
+	browser := p.GenreBrowserFor(browseTagsID)
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := browser.Genres()
+		firstDone <- err
+	}()
+
+	select {
+	case <-firstStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the first tag request")
+	}
+	p.Refresh()
+	release()
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first Genres: %v", err)
+	}
+
+	genres, err := browser.Genres()
+	if err != nil {
+		t.Fatalf("second Genres: %v", err)
+	}
+	if len(genres) != 1 || !strings.HasPrefix(genres[0].Name, "fresh ") {
+		t.Fatalf("genres after refresh = %+v, want a fresh second fetch", genres)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("tag requests = %d, want 2", got)
 	}
 }

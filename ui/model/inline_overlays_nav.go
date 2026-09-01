@@ -95,6 +95,7 @@ func (m Model) navHelpLine() string {
 	return m.commandHelp(commandModeNavBrowser)
 }
 
+// renderNavBody renders the list for the active provider-browser route.
 func (m Model) renderNavBody() string {
 	labels := m.navLabels()
 	budget := m.effectivePlaylistVisible()

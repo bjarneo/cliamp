@@ -455,6 +455,7 @@ func (m Model) canOpenProviderBrowser() bool {
 	return providerSupportsBrowse(m.provider)
 }
 
+// openNavBrowserWith resets and opens the hierarchy for prov at its root menu.
 func (m *Model) openNavBrowserWith(prov playlist.Provider) {
 	nextRequest(&m.requests.nav)
 	m.navBrowser.prov = prov
@@ -524,6 +525,7 @@ func (m *Model) openNavBrowserEntry(prov playlist.Provider, entry provider.Brows
 	return m.openNavBrowserRoute(prov, entry.Mode, entry.ID, entry.OpenInPlaylist)
 }
 
+// openNavBrowserRoute resolves and loads one concrete provider browse route.
 func (m *Model) openNavBrowserRoute(prov playlist.Provider, mode provider.BrowseMode, entryID string, openInPlaylist bool) tea.Cmd {
 	m.openNavBrowserWith(prov)
 	m.navBrowser.openInPlaylist = openInPlaylist

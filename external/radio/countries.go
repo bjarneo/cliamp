@@ -125,6 +125,7 @@ func (*Provider) GenreSortTypes() []provider.SortType {
 	return radioSortTypes()
 }
 
+// radioSortTypes returns the station orders shared by place and tag browsing.
 func radioSortTypes() []provider.SortType {
 	return []provider.SortType{
 		{ID: SortVotes, Label: "Most Voted"},
@@ -365,5 +366,6 @@ func (p *Provider) Refresh() {
 	p.countries = nil
 	p.states = nil
 	p.tags = nil
+	p.tagGeneration++
 	p.catalog = nil
 }

@@ -71,7 +71,7 @@ The result replaces your playlist with up to 200 stations from that place.
 "Browse genres & tags" opens Radio Browser's complete community-maintained tag
 index, ordered by the number of stations carrying each tag:
 
-```
+```text
 pop (5723)
 rock (2983)
 classical (1525)
@@ -130,7 +130,7 @@ nothing else.
 Nothing else in cliamp reads your location, and no other feature is gated on
 this. The country browser, pinning, and the catalog all work the same whether
 you say yes or no; a yes only saves you finding your own country in a list of
-250.
+241.
 
 ### How it is worked out
 

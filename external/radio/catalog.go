@@ -241,7 +241,7 @@ func FetchTags() ([]Tag, error) {
 
 	var raw []Tag
 	if err := fetchJSON(radioBrowserBase+"/tags?"+v.Encode(), &raw); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch tags: %w", err)
 	}
 
 	tags := make([]Tag, 0, len(raw))
