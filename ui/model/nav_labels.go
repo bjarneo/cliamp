@@ -22,7 +22,11 @@ func (m Model) navLabels() navLabels {
 			l.artist, l.album = artist, album
 		}
 	}
-	if gl, ok := m.navBrowser.prov.(provider.GenreLabeler); ok {
+	genreSource := any(m.navBrowser.prov)
+	if browser := m.navGenreBrowser(); browser != nil {
+		genreSource = browser
+	}
+	if gl, ok := genreSource.(provider.GenreLabeler); ok {
 		if genre := gl.GenreLabel(); genre != "" {
 			l.genre = genre
 		}

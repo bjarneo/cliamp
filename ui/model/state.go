@@ -219,6 +219,7 @@ type fileBrowserState struct {
 // navBrowserState holds state for the provider browser overlay.
 type navBrowserState struct {
 	prov            playlist.Provider
+	genreBrowser    provider.GenreBrowser
 	visible         bool
 	mode            navBrowseModeType
 	screen          navBrowseScreenType

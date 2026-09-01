@@ -122,7 +122,12 @@ playback, resume, seeking, and limitations.
 
 Press `R` in the player to browse about 58,000 online radio stations in the [Radio Browser](https://www.radio-browser.info/) directory.
 
-Cut that down by location: `N` browses by country, `f` pins the countries you listen to, and `Enter` on a country loads its stations as a playlist. cliamp does not work out where you are unless you pick "Use my location" and accept; it then reads your country from the system timezone, never from a geo-IP service. See [docs/radio.md](docs/radio.md).
+Cut that down by location or genre: `N` browses by country, **Browse genres &
+tags** opens the directory's complete tag index, and `/` filters either list.
+`f` pins the countries you listen to, and `Enter` on a country or tag loads its
+stations as a playlist. cliamp does not work out where you are unless you pick
+"Use my location" and accept; it then reads your country from the system
+timezone, never from a geo-IP service. See [docs/radio.md](docs/radio.md).
 
 Add your own stations to `~/.config/cliamp/radios.toml` (or `%APPDATA%\cliamp\radios.toml` on Windows when `HOME` is unset). See [docs/configuration.md](docs/configuration.md#custom-radio-stations).
 

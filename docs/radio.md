@@ -2,7 +2,8 @@
 
 cliamp ships with the [Radio Browser](https://www.radio-browser.info/) directory: about 58,000 internet radio stations across 241 countries. Press `R` in the player to open it.
 
-A list that long is only useful if you can cut it down. The main way to do that is by location.
+A list that long is only useful if you can cut it down. Browse it by location,
+filter the directory's genres and tags, or search for a station by name.
 
 ## Quick start
 
@@ -10,6 +11,8 @@ A list that long is only useful if you can cut it down. The main way to do that 
 | --- | --- |
 | `R`, then `Enter` on "Browse all countries" | The country list, your own regions first |
 | `/` in the country list | Filter it: type `japan`, `europe`, `oslo` |
+| `Enter` on "Browse genres & tags" | The complete tag list, most-used first |
+| `/` in the tag list | Filter it: type `jazz`, `rock`, `news`, `80s` |
 | `f` on a country | Pin it, so it gets its own row in the radio pane |
 | `Enter` on a country row | That country's stations as a playlist |
 | `Enter` on "Use my location" | Offers to work out your country, once, and only if you say yes |
@@ -22,6 +25,8 @@ A list that long is only useful if you can cut it down. The main way to do that 
   Norway (near you)
   ★ Germany
   ★ Japan
+── Genres & Tags ──────────────────
+  Browse genres & tags
 ── Stations ───────────────────────
   cliamp radio
 ── Favorites ──────────────────────
@@ -60,6 +65,31 @@ Pick a country and choose how to order its stations:
 | Random | Nothing; a different set each time |
 
 The result replaces your playlist with up to 200 stations from that place.
+
+## Browsing by genre or tag
+
+"Browse genres & tags" opens Radio Browser's complete community-maintained tag
+index, ordered by the number of stations carrying each tag:
+
+```
+pop (5723)
+rock (2983)
+classical (1525)
+jazz (1134)
+electronic (928)
+```
+
+Press `/` and type to filter the list. Select a tag, choose the same vote,
+listener, trend, name, or random order offered by the country browser, and
+cliamp replaces the playlist with up to 200 matching stations. Tag matching is
+exact: selecting `rock` does not imply `classic rock`, although a station that
+carries both tags appears in both results.
+
+The tags are supplied by the directory's contributors, not a controlled genre
+taxonomy. They include genres, formats, eras, languages, and descriptors such
+as `news`, `talk`, or `public radio`. Some are inconsistent or unusually
+specific; cliamp exposes the index as submitted, removes empty and case-only
+duplicates, and shows station counts so useful filters are easy to recognize.
 
 ### Pinning
 
@@ -162,7 +192,7 @@ Unlike directory entries, these are not filtered to `http` and `https`. That fil
 | `f` | Favorite the selected station, or pin the selected country |
 | `N` | Open the country browser |
 | `i` | Show cliamp radio listener statistics |
-| `Ctrl+R` | Refresh: re-fetch the country list and the catalog |
+| `Ctrl+R` | Refresh: re-fetch the country list, tag list, and catalog |
 
 See [keybindings.md](keybindings.md) for the rest.
 

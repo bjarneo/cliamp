@@ -79,6 +79,14 @@ type GenreBrowser interface {
 	GenreTracks(genreID, sortType string) ([]playlist.Track, error)
 }
 
+// GenreBrowseRouter lets one provider-pane entry select a different category
+// catalogue from the provider's default GenreBrowser. This is useful when a
+// provider exposes more than one independent category axis, such as countries
+// and tags for an internet-radio directory.
+type GenreBrowseRouter interface {
+	GenreBrowserFor(entryID string) GenreBrowser
+}
+
 // GenreFavoriteToggler is implemented by genre browsers that can persist
 // favorite state in provider-specific configuration or on the remote service.
 type GenreFavoriteToggler interface {

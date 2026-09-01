@@ -176,7 +176,7 @@ Spotify, Qobuz, Tidal, Mixcloud, and YouTube Music.
 |---|---|
 | `↑` `↓` / `j` `k` | Move cursor (wraps from top to bottom) |
 | `←` `→` / `h` `l` | Go back; open the selected item |
-| `/` | Filter the visible list. In the Mixcloud Genres list, `Enter` searches the complete server-side genre/tag catalog. |
+| `/` | Filter the visible list, including Radio's complete genre/tag index. In the Mixcloud Genres list, `Enter` searches the complete server-side genre/tag catalog. |
 | `f` | In the Mixcloud Genres list, favorite or unfavorite the selected genre locally. Update `[mixcloud].styles`. |
 | `Enter` | Open the selected artist or album. Play the selected track and queue the rest of the visible list. |
 | `R` | Replace the queue with all visible tracks (start from the top, confirm when non-empty) |

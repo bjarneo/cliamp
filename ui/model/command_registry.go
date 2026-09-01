@@ -184,7 +184,7 @@ var commandRegistry = []commandSpec{
 		}
 		return "Favorite genre"
 	}, ContextHelp: true, Enabled: func(m Model) bool {
-		_, canFavorite := m.navBrowser.prov.(provider.GenreFavoriteToggler)
+		_, canFavorite := m.navGenreBrowser().(provider.GenreFavoriteToggler)
 		return canFavorite && m.navBrowser.mode == navBrowseModeByGenre && m.navBrowser.screen == navBrowseScreenList && !m.navBrowser.loading
 	}},
 	{Mode: commandModeKeymap, Keys: []string{"/"}, KeyLabel: "/", Label: "Filter", ContextHelp: true, Primary: true},
