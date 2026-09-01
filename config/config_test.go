@@ -871,3 +871,45 @@ func TestApplyPlaylist(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadExpanded(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "true", body: "expanded = true\n", want: true},
+		{name: "mixed case", body: "expanded = True\n", want: true},
+		{name: "false", body: "expanded = false\n", want: false},
+		{name: "absent", body: "visualizer = \"Wave\"\n", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+
+			path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			if err := os.WriteFile(path, []byte(tc.body), 0o644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.Expanded != tc.want {
+				t.Errorf("Expanded = %v, want %v", cfg.Expanded, tc.want)
+			}
+		})
+	}
+}
+
+func TestOverridesApplyExpanded(t *testing.T) {
+	cfg := defaultConfig()
+	expanded := true
+	Overrides{Expanded: &expanded}.Apply(&cfg)
+	if !cfg.Expanded {
+		t.Error("Expanded should be true after applying the override")
+	}
+}

@@ -340,6 +340,7 @@ type Config struct {
 	BitDepth         int                          // PCM bit depth for FFmpeg output: 16 or 32
 	Simplified       bool                         // simplified playback view: track summary and time strip
 	HideHelpBar      bool                         // hide the key-binding hint bar above the status line
+	Expanded         bool                         // start with the playlist expanded (the Ctrl+X state)
 	PaddingH         int                          // horizontal padding for the UI frame (default 3)
 	PaddingV         int                          // vertical padding for the UI frame (default 1)
 	AudioDevice      string                       // preferred audio output device name (empty = system default)
@@ -695,6 +696,8 @@ func Load() (Config, error) {
 				cfg.Simplified = val == "true"
 			case "hide_help_bar":
 				cfg.HideHelpBar = val == "true"
+			case "expanded":
+				cfg.Expanded = strings.ToLower(val) == "true"
 			case "audio_device":
 				cfg.AudioDevice = parseString(val)
 			case "initial_directory":

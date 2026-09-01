@@ -122,6 +122,18 @@ func (m *Model) SetHideHelpBar(v bool) {
 	m.refreshChrome()
 }
 
+// SetExpanded starts the UI in the expanded playlist height, the state the
+// Ctrl+X binding toggles. Simplified mode has no playlist to expand, so the
+// request is ignored there, matching what toggleExpandedView produces.
+func (m *Model) SetExpanded(v bool) {
+	if v && m.simplified {
+		return
+	}
+	m.heightExpanded = v
+	m.applyHeightMode()
+	m.adjustScroll()
+}
+
 // SetInitialDirectory sets the initial directory for the file browser.
 func (m *Model) SetInitialDirectory(dir string) { m.initialDir = dir }
 

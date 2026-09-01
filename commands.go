@@ -34,6 +34,7 @@ func buildApp() *cli.Command {
 		&cli.BoolFlag{Name: "auto-play", Usage: "start playback immediately"},
 		&cli.BoolFlag{Name: "simplified", Usage: "simplified playback view (no visualizer or playlist)"},
 		&cli.BoolFlag{Name: "no-help-bar", Usage: "hide the key-binding hint bar (? still opens the full keymap)"},
+		&cli.BoolFlag{Name: "expanded", Usage: "start with the playlist expanded (the Ctrl+X state)"},
 		&cli.StringFlag{Name: "provider", Usage: "default provider: radio, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, soundcloud, mixcloud, netease, audiobookshelf, abs, yt, youtube, ytmusic"},
 		&cli.StringFlag{Name: "start-theme", Usage: "UI theme name"},
 		&cli.StringFlag{Name: "visualizer", Usage: "visualizer mode"},
@@ -156,6 +157,10 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 	if c.IsSet("no-help-bar") {
 		v := true
 		ov.HideHelpBar = &v
+	}
+	if c.IsSet("expanded") {
+		v := true
+		ov.Expanded = &v
 	}
 	if c.IsSet("provider") {
 		v := strings.ToLower(c.String("provider"))
