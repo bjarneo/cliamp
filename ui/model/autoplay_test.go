@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/bjarneo/cliamp/playlist"
 )
 
@@ -214,5 +216,52 @@ func TestMaybePrefetchAutoplay(t *testing.T) {
 	}
 	if cmd := m.maybePrefetchAutoplay(); cmd != nil {
 		t.Error("duplicate prefetch while one is in flight")
+	}
+}
+
+type autoplaySaverStub struct{ saved map[string]string }
+
+func (s *autoplaySaverStub) Save(key, value string) error {
+	if s.saved == nil {
+		s.saved = map[string]string{}
+	}
+	s.saved[key] = value
+	return nil
+}
+
+func TestAutoplayToggleKeyPersists(t *testing.T) {
+	saver := &autoplaySaverStub{}
+	m := autoplayTestModel("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+	m.autoplayRadio = false
+	m.configSaver = saver
+
+	m.toggleAutoplayRadio()
+	if !m.autoplayRadio {
+		t.Error("toggle did not enable autoplay")
+	}
+	if saver.saved["autoplay_radio"] != "true" {
+		t.Errorf("saved autoplay_radio = %q, want \"true\"", saver.saved["autoplay_radio"])
+	}
+	m.toggleAutoplayRadio()
+	if m.autoplayRadio {
+		t.Error("toggle did not disable autoplay")
+	}
+	if saver.saved["autoplay_radio"] != "false" {
+		t.Errorf("saved autoplay_radio = %q, want \"false\"", saver.saved["autoplay_radio"])
+	}
+}
+
+func TestAutoplayToggleKeyDispatch(t *testing.T) {
+	saver := &autoplaySaverStub{}
+	m := autoplayTestModel("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+	m.autoplayRadio = false
+	m.configSaver = saver
+
+	m.handleKey(tea.KeyPressMsg{Text: "c"})
+	if !m.autoplayRadio {
+		t.Error("c key did not enable autoplay radio")
+	}
+	if saver.saved["autoplay_radio"] != "true" {
+		t.Errorf("saved autoplay_radio = %q, want \"true\"", saver.saved["autoplay_radio"])
 	}
 }

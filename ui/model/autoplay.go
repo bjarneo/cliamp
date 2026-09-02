@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -122,6 +123,21 @@ func (m *Model) appendAutoplayTracks(tracks []playlist.Track) int {
 	m.loadedPlaylist = ""
 	m.addToHeaderState(fresh)
 	return len(fresh)
+}
+
+// toggleAutoplayRadio flips autoplay continuation and persists the choice,
+// mirroring the shuffle (z) and repeat (r) toggles.
+func (m *Model) toggleAutoplayRadio() {
+	m.autoplayRadio = !m.autoplayRadio
+	state := "off"
+	if m.autoplayRadio {
+		state = "on"
+	}
+	m.autoplayFailedSeed = ""
+	m.status.Showf(statusTTLDefault, "Autoplay radio %s", state)
+	if err := m.configSaver.Save("autoplay_radio", fmt.Sprintf("%v", m.autoplayRadio)); err != nil {
+		m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
+	}
 }
 
 func autoplayDedupeKey(path string) string {
