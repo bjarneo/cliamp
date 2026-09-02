@@ -420,6 +420,7 @@ type Model struct {
 	autoplayAdvance    bool            // playback drained while fetching; advance when tracks arrive
 	autoplayFailedSeed string          // seed path whose Mix fetch failed or added nothing; blocks refetch loops
 	autoplayAdded      map[string]bool // dedupe keys of tracks autoplay appended; dropped on the next manual play
+	playNowKey         string          // dedupe key of the last "play now" track; replaced by the next one
 
 	// Cached per-tick to avoid repeated speaker.Lock() calls in View().
 	cachedPos  time.Duration

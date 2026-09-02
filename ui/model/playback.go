@@ -116,10 +116,11 @@ func (m *Model) playTrackImmediate(track playlist.Track) tea.Cmd {
 	m.player.Stop()
 	m.player.ClearPreload()
 	// Starting a new track by hand ends the previous autoplay run: drop the
-	// related tracks it queued so this one plays from the end of the queue
-	// instead of behind a stale Mix.
+	// previously played track and the related tracks autoplay queued behind
+	// it, so this one reuses that slot instead of stacking up at the end.
 	m.discardAutoplayTracks()
 	m.playlist.Add(track)
+	m.playNowKey = autoplayDedupeKey(track.Path)
 	m.loadedPlaylist = ""
 	m.addToHeaderState([]playlist.Track{track})
 	idx := m.playlist.Len() - 1
