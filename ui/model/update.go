@@ -634,6 +634,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case autoplayTracksMsg:
+		if msg.gen != m.requests.autoplay {
+			return m, nil
+		}
+		m.autoplayLoading = false
+		added := m.appendAutoplayTracks(msg.tracks)
+		if msg.err != nil || added == 0 {
+			m.autoplayFailedSeed = msg.seed
+			if m.autoplayAdvance {
+				m.autoplayAdvance = false
+				m.player.Stop()
+				m.clearPlaybackTrack()
+			}
+			if msg.err != nil {
+				m.status.Errorf(statusTTLDefault, "Autoplay: %s", msg.err)
+			} else {
+				m.status.Warning("Autoplay: no new related tracks", statusTTLDefault)
+			}
+			m.notifyAll()
+			return m, nil
+		}
+		m.status.Showf(statusTTLMedium, "Autoplay: added %d related tracks", added)
+		var autoplayCmd tea.Cmd
+		if m.autoplayAdvance {
+			m.autoplayAdvance = false
+			autoplayCmd = m.nextTrack()
+		} else {
+			// Early prefetch landed while the last track is still playing:
+			// re-arm the gapless preloader so the transition is seamless.
+			autoplayCmd = m.rearmPreload()
+		}
+		m.notifyAll()
+		return m, autoplayCmd
+
 	case netSearchResultsMsg:
 		if msg.gen != m.requests.netSearch || !m.netSearch.active || msg.query != m.netSearch.request {
 			return m, nil
