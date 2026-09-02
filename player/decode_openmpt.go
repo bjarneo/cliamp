@@ -49,7 +49,7 @@ func decodeOpenmpt(rc io.ReadCloser, path string, sr beep.SampleRate) (beep.Stre
 	defer rc.Close()
 
 	if !openmpt.Available() {
-		return nil, beep.Format{}, fmt.Errorf("libopenmpt is required to play %s — install: %s (%w)", path, openmptInstallHint(), openmpt.ErrUnavailable)
+		return nil, beep.Format{}, fmt.Errorf("play %s: %w", path, openmpt.ErrUnavailable)
 	}
 
 	// Read one byte past the cap so an oversized module is reported rather
@@ -73,11 +73,16 @@ func decodeOpenmpt(rc io.ReadCloser, path string, sr beep.SampleRate) (beep.Stre
 	return &openmptStreamer{mod: mod, sampleRate: int(sr), length: length}, format, nil
 }
 
-// openmptInstallHint returns a platform-specific install command
-// suggestion, mirroring ffmpegInstallHint in ytdl.go. Windows has no
+// OpenmptInstallHint returns a platform-specific install command
+// suggestion, mirroring YtdlpInstallHint in ytdl.go. Windows has no
 // well-known package-manager entry for a bare shared library, so it
 // points at a direct download instead of guessing at a winget package.
-func openmptInstallHint() string {
+//
+// decodeOpenmpt returns a typed openmpt.ErrUnavailable rather than
+// embedding this hint; the UI appends it when rendering the error, per
+// the guideline that user-facing messages are built at the output
+// boundary (see playbackErrText in ui/model).
+func OpenmptInstallHint() string {
 	switch runtime.GOOS {
 	case "darwin":
 		return "brew install libopenmpt"
