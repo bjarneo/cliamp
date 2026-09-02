@@ -470,14 +470,19 @@ type Model struct {
 	// Full-screen visualizer mode (Shift+V)
 	fullVis bool
 
-	autoPlay        bool // start playing immediately on launch
-	lowPower        bool // lower UI/render cadences in low-power mode
-	visualizer60FPS bool // render a visible visualizer at the animation cadence
-	simplified      bool // simplified playback view: track summary and time strip
-	hideHelpBar     bool // hide the key-binding hint bar above the status line
-	hideSettings    bool // close the two-column settings pane beside the playlist
-	showMetadata    bool // expand highlighted-track metadata below settings
-	heightExpanded  bool // tracks whether manual 'x' expansion is active
+	autoPlay bool // start playing immediately on launch
+
+	autoplayRadio      bool   // continue with YouTube Mix related tracks when the queue runs out
+	autoplayLoading    bool   // a Mix fetch is in flight
+	autoplayAdvance    bool   // playback drained while fetching; advance when tracks arrive
+	autoplayFailedSeed string // seed path whose Mix fetch failed or added nothing; blocks refetch loops
+	lowPower           bool   // lower UI/render cadences in low-power mode
+	visualizer60FPS    bool   // render a visible visualizer at the animation cadence
+	simplified         bool   // simplified playback view: track summary and time strip
+	hideHelpBar        bool   // hide the key-binding hint bar above the status line
+	hideSettings       bool   // close the two-column settings pane beside the playlist
+	showMetadata       bool   // expand highlighted-track metadata below settings
+	heightExpanded     bool   // tracks whether manual 'x' expansion is active
 
 	// Cached per-tick to avoid repeated speaker.Lock() calls in View().
 	cachedPos  time.Duration
