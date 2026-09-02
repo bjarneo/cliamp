@@ -94,8 +94,9 @@ theme = "Tokyo Night"
 log_level = "info"
 
 # yt-dlp binary to run (default: "yt-dlp" from PATH)
-# Use this when your distribution ships an outdated yt-dlp. See yt-dlp.md.
-ytdlp_path = "~/.local/bin/yt-dlp"
+# Set this only when your distribution ships an outdated yt-dlp; an unset key
+# keeps the PATH lookup. See yt-dlp.md.
+# ytdlp_path = "~/.local/bin/yt-dlp"
 
 ```
 

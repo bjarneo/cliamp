@@ -98,3 +98,29 @@ func TestCommandUsesResolvedName(t *testing.T) {
 		t.Fatalf("CommandContext().Path = %q, want /opt/yt-dlp", got)
 	}
 }
+
+func TestNotFoundError(t *testing.T) {
+	tests := []struct {
+		name       string
+		env        string
+		configured string
+		want       string
+	}{
+		{name: "default lookup", want: "yt-dlp not found in PATH"},
+		{name: "config selection", configured: "/opt/yt-dlp", want: "yt-dlp not found at /opt/yt-dlp (selected by ytdlp_path)"},
+		{name: "env selection", env: "/opt/next/yt-dlp", want: "yt-dlp not found at /opt/next/yt-dlp (selected by " + EnvVar + ")"},
+		{name: "env selection wins over config", env: "/opt/next/yt-dlp", configured: "/opt/yt-dlp", want: "yt-dlp not found at /opt/next/yt-dlp (selected by " + EnvVar + ")"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(EnvVar, tt.env)
+			Configure(tt.configured)
+			t.Cleanup(func() { Configure("") })
+
+			if got := NotFoundError().Error(); got != tt.want {
+				t.Fatalf("NotFoundError() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
