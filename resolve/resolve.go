@@ -705,7 +705,7 @@ func ResolveYTDLBatchContext(ctx context.Context, pageURL string, start, count i
 // host of pageURL applies.
 func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, count int, browser string) ([]playlist.Track, int, error) {
 	if _, err := ytdlbin.LookPath(); err != nil {
-		return nil, 0, fmt.Errorf("yt-dlp not found (%s) — see https://github.com/yt-dlp/yt-dlp#installation", ytdlbin.Name())
+		return nil, 0, fmt.Errorf("%w — see https://github.com/yt-dlp/yt-dlp#installation", ytdlbin.NotFoundError())
 	}
 
 	args := []string{"--flat-playlist", "-j", "--socket-timeout", "15"}
@@ -805,7 +805,7 @@ func parseYTDLTracks(r io.Reader) ([]playlist.Track, int, error) {
 // limit of its own, because a download can take minutes.
 func DownloadYTDLContext(ctx context.Context, pageURL, saveDir string) (string, error) {
 	if _, err := ytdlbin.LookPath(); err != nil {
-		return "", fmt.Errorf("yt-dlp not found (%s)", ytdlbin.Name())
+		return "", ytdlbin.NotFoundError()
 	}
 
 	outTemplate := filepath.Join(saveDir, "%(artist,uploader)s - %(title)s.%(ext)s")

@@ -10,6 +10,8 @@ package ytdlbin
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,6 +63,25 @@ func LookPath() (string, error) {
 func Available() bool {
 	_, err := LookPath()
 	return err == nil
+}
+
+// NotFoundError describes an unusable yt-dlp. An explicitly selected binary is
+// named together with the setting that selected it, so a typo in ytdlp_path is
+// not mistaken for a missing installation.
+func NotFoundError() error {
+	name := Name()
+	if name == DefaultName {
+		return errors.New("yt-dlp not found in PATH")
+	}
+	return fmt.Errorf("yt-dlp not found at %s (selected by %s)", name, selectedBy())
+}
+
+// selectedBy names the setting that chose the current binary.
+func selectedBy() string {
+	if expand(os.Getenv(EnvVar)) != "" {
+		return EnvVar
+	}
+	return "ytdlp_path"
 }
 
 // Command builds an *exec.Cmd for the resolved yt-dlp binary.
