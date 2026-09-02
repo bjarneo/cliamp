@@ -129,6 +129,12 @@ func (m *Model) appendAutoplayTracks(tracks []playlist.Track) int {
 	if len(fresh) == 0 {
 		return 0
 	}
+	if m.autoplayAdded == nil {
+		m.autoplayAdded = make(map[string]bool, len(fresh))
+	}
+	for _, t := range fresh {
+		m.autoplayAdded[autoplayDedupeKey(t.Path)] = true
+	}
 	m.playlist.Add(fresh...)
 	m.loadedPlaylist = ""
 	m.addToHeaderState(fresh)
@@ -148,6 +154,37 @@ func (m *Model) toggleAutoplayRadio() {
 	if err := m.configSaver.Save("autoplay_radio", fmt.Sprintf("%v", m.autoplayRadio)); err != nil {
 		m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
 	}
+}
+
+// discardAutoplayTracks removes every track autoplay appended, so a new
+// user-chosen track lands at the end of the queue instead of behind a trail
+// of stale related tracks. Tracks the user added stay put. Returns how many
+// tracks were removed.
+func (m *Model) discardAutoplayTracks() int {
+	if len(m.autoplayAdded) == 0 {
+		return 0
+	}
+	removed := 0
+	for i := m.playlist.Len() - 1; i >= 0; i-- {
+		t, ok := m.playlist.Track(i)
+		if !ok || !m.autoplayAdded[autoplayDedupeKey(t.Path)] {
+			continue
+		}
+		if m.playlist.Remove(i) {
+			removed++
+		}
+	}
+	m.autoplayAdded = nil
+	if removed == 0 {
+		return 0
+	}
+	m.normalizeQueueOverlay()
+	if newLen := m.playlist.Len(); newLen == 0 {
+		m.plCursor = 0
+	} else if m.plCursor >= newLen {
+		m.plCursor = newLen - 1
+	}
+	return removed
 }
 
 func autoplayDedupeKey(path string) string {

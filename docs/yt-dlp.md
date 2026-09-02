@@ -35,7 +35,10 @@ last track — the same "related tracks" radio YouTube's own autoplay uses — a
 appends the top 5 entries that are not already in the queue. When those run
 out, the last of them seeds the next batch. This works for any
 YouTube or YouTube Music track, including single tracks played from `Ctrl+F`
-search. Repeat modes take precedence: autoplay only fires when repeat is off
+search. Playing a new track yourself ends the run: the related tracks autoplay
+queued are removed, so the track you picked plays from the end of the queue
+instead of behind a stale Mix. Tracks you added yourself are never touched.
+Repeat modes take precedence: autoplay only fires when repeat is off
 and the queue is exhausted. Tracks from other sources (SoundCloud, local
 files, …) end playback as before.
 

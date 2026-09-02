@@ -299,3 +299,80 @@ func TestAutoplayMaxAppendIsFive(t *testing.T) {
 		t.Errorf("autoplayMaxAppend = %d, want 5", autoplayMaxAppend)
 	}
 }
+
+func TestPlayTrackImmediateDiscardsAutoplayTracks(t *testing.T) {
+	m := autoplayTestModel("https://www.youtube.com/watch?v=seed00000001")
+	added := m.appendAutoplayTracks([]playlist.Track{
+		{Path: "https://www.youtube.com/watch?v=auto0000001", Title: "auto 1"},
+		{Path: "https://www.youtube.com/watch?v=auto0000002", Title: "auto 2"},
+		{Path: "https://www.youtube.com/watch?v=auto0000003", Title: "auto 3"},
+	})
+	if added != 3 || m.playlist.Len() != 4 {
+		t.Fatalf("setup: added=%d len=%d, want 3 and 4", added, m.playlist.Len())
+	}
+
+	_ = m.playTrackImmediate(playlist.Track{Path: "https://www.youtube.com/watch?v=search000001", Title: "searched"})
+
+	if m.playlist.Len() != 2 {
+		t.Fatalf("playlist len = %d, want 2 (seed + searched)", m.playlist.Len())
+	}
+	first, _ := m.playlist.Track(0)
+	if first.Path != "https://www.youtube.com/watch?v=seed00000001" {
+		t.Errorf("track 0 = %q, want the pre-existing user track", first.Path)
+	}
+	cur, idx := m.playlist.Current()
+	if idx != 1 {
+		t.Errorf("current index = %d, want 1 (last index)", idx)
+	}
+	if cur.Path != "https://www.youtube.com/watch?v=search000001" {
+		t.Errorf("current = %q, want the searched track", cur.Path)
+	}
+	if m.plCursor != 1 {
+		t.Errorf("plCursor = %d, want 1", m.plCursor)
+	}
+}
+
+func TestPlayTrackImmediateKeepsUserTracks(t *testing.T) {
+	m := autoplayTestModel(
+		"/home/user/a.mp3",
+		"https://www.youtube.com/watch?v=user00000001",
+	)
+	m.appendAutoplayTracks([]playlist.Track{
+		{Path: "https://www.youtube.com/watch?v=auto0000001", Title: "auto 1"},
+		{Path: "https://www.youtube.com/watch?v=auto0000002", Title: "auto 2"},
+	})
+	if m.playlist.Len() != 4 {
+		t.Fatalf("setup len = %d, want 4", m.playlist.Len())
+	}
+
+	_ = m.playTrackImmediate(playlist.Track{Path: "https://www.youtube.com/watch?v=search000001"})
+
+	if m.playlist.Len() != 3 {
+		t.Fatalf("playlist len = %d, want 3 (2 user + searched)", m.playlist.Len())
+	}
+	want := []string{
+		"/home/user/a.mp3",
+		"https://www.youtube.com/watch?v=user00000001",
+		"https://www.youtube.com/watch?v=search000001",
+	}
+	for i, w := range want {
+		got, _ := m.playlist.Track(i)
+		if got.Path != w {
+			t.Errorf("track %d = %q, want %q", i, got.Path, w)
+		}
+	}
+}
+
+func TestDiscardAutoplayTracksIsIdempotent(t *testing.T) {
+	m := autoplayTestModel("https://www.youtube.com/watch?v=seed00000001")
+	m.appendAutoplayTracks([]playlist.Track{{Path: "https://www.youtube.com/watch?v=auto0000001"}})
+	if n := m.discardAutoplayTracks(); n != 1 {
+		t.Errorf("first discard removed %d, want 1", n)
+	}
+	if n := m.discardAutoplayTracks(); n != 0 {
+		t.Errorf("second discard removed %d, want 0", n)
+	}
+	if m.playlist.Len() != 1 {
+		t.Errorf("playlist len = %d, want 1", m.playlist.Len())
+	}
+}
