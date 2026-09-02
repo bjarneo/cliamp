@@ -85,6 +85,7 @@ Download from [GitHub Releases](https://github.com/bjarneo/cliamp/releases/lates
 
 - [ffmpeg](https://ffmpeg.org/) for AAC, ALAC, Opus, and WMA playback
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) for YouTube, YouTube Music, SoundCloud, Mixcloud, Bandcamp, Bilibili, and NetEase Cloud Music
+- [libopenmpt](https://lib.openmpt.org/) for tracker module playback (.mod, .s3m, .xm, .it, .mptm)
 
 On macOS, run `brew install ffmpeg yt-dlp`. On Linux, use your distribution package manager.
 
@@ -192,6 +193,7 @@ Or without Make: `go build -o cliamp .`
 
 - [ffmpeg](https://ffmpeg.org/) for AAC, ALAC, Opus, and WMA playback
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) for YouTube, SoundCloud, Mixcloud, Bandcamp, Bilibili, and NetEase Cloud Music
+- [libopenmpt](https://lib.openmpt.org/) for tracker module playback (.mod, .s3m, .xm, .it, .mptm)
 
 ## Docs
 

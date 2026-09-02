@@ -5,6 +5,7 @@
   flac,
   lib,
   libogg,
+  libopenmpt,
   libvorbis,
   makeWrapper,
   mpg123,
@@ -44,6 +45,9 @@ buildGoModule {
       --prefix PATH : ${lib.makeBinPath [
         ffmpeg-headless
         yt-dlp
+      ]} \
+      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [
+        libopenmpt
       ]}
     install -Dm644 Cliamp.png "$out/share/icons/hicolor/512x512/apps/cliamp.png"
     install -Dm644 cliamp.desktop "$out/share/applications/cliamp.desktop"
