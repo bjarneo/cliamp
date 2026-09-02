@@ -27,6 +27,39 @@ cliamp search-sc "lofi beats"                  # search SoundCloud
 
 In the TUI, press `Ctrl+F` to search the active provider. This searches YouTube for YouTube/YT-Music, SoundCloud for SoundCloud, Mixcloud for Mixcloud, and NetEase for NetEase. These providers have signed-in playback guides: [SoundCloud](soundcloud.md), [Mixcloud](mixcloud.md), and [NetEase](netease.md).
 
+## Choosing which yt-dlp to run
+
+By default cliamp runs the first `yt-dlp` on your `PATH`. Some distributions
+ship a yt-dlp that is months behind upstream, and YouTube stops working with
+old versions quickly. Point cliamp at a current binary instead of shadowing the
+packaged one:
+
+```toml
+# ~/.config/cliamp/config.toml
+ytdlp_path = "~/.local/bin/yt-dlp"
+```
+
+`CLIAMP_YTDLP` overrides the config key for a single run:
+
+```sh
+CLIAMP_YTDLP=~/.local/bin/yt-dlp cliamp
+```
+
+## Playback fails with HTTP 403
+
+`HTTP Error 403: Forbidden` means YouTube rejected the media URL yt-dlp handed
+to cliamp. A single 403 is usually transient, and cliamp retries the track
+automatically. A 403 that survives every retry is almost always local, and
+cliamp appends what it found to the error message:
+
+- **Outdated yt-dlp.** Update it, or set `ytdlp_path` to a newer binary.
+  Check with `yt-dlp --version`.
+- **No JavaScript runtime.** yt-dlp needs one (`deno` by default) to solve the
+  challenge that signs media URLs. Install [Deno](https://deno.com), or see
+  yt-dlp's [EJS guide](https://github.com/yt-dlp/yt-dlp/wiki/EJS) for the other
+  supported runtimes. `yt-dlp -v --simulate` prints a `JS runtimes:` line that
+  reads `none` when nothing is available.
+
 ## Disclaimer
 
 **Use at your own risk.** Downloading or streaming copyrighted content can violate the terms of service of these platforms. You are responsible for use of this feature.
