@@ -52,6 +52,13 @@ type Track struct {
 
 	DirSourced bool // true when expanded from a [[dir]] playlist section; re-derived on load, never persisted
 
+	// Ephemeral marks an entry the player queued on the user's behalf for the
+	// current listening session: a "play now" track and the related tracks
+	// autoplay appended after it. Those entries are dropped when the user
+	// starts something else. Entries the user added or queued are never
+	// marked. Runtime-only, never persisted.
+	Ephemeral bool
+
 	EmbeddedLyrics string // embedded lyrics from local file tags, when present
 	AlbumArtURL    string // file:// URL for cached embedded album art, when present
 

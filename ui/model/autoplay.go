@@ -42,14 +42,19 @@ func fetchAutoplayCmd(mixURL, seedPath string, gen uint64) tea.Cmd {
 
 // autoplayEligibleSeed returns the Mix URL seeded from the active playback
 // track when autoplay is able to continue playback: the feature is on,
-// playback is attached, the track is a YouTube video, and its Mix has not
-// already come back empty or failed.
+// playback is attached, the track is a non-live YouTube video, and its Mix
+// has not already come back empty or failed.
 func (m *Model) autoplayEligibleSeed() (string, bool) {
 	if !m.autoplayRadio || m.playbackDetached {
 		return "", false
 	}
 	track, idx := m.currentPlaybackTrack()
 	if idx < 0 || track.Path == m.autoplayFailedSeed {
+		return "", false
+	}
+	// Live streams (24/7 YouTube radios) have no track boundary: they
+	// reconnect instead of advancing, so a Mix must never be seeded from one.
+	if m.currentPlaybackIsLive(track) {
 		return "", false
 	}
 	return resolve.RadioMixURL(track.Path)
@@ -129,11 +134,10 @@ func (m *Model) appendAutoplayTracks(tracks []playlist.Track) int {
 	if len(fresh) == 0 {
 		return 0
 	}
-	if m.autoplayAdded == nil {
-		m.autoplayAdded = make(map[string]bool, len(fresh))
-	}
-	for _, t := range fresh {
-		m.autoplayAdded[autoplayDedupeKey(t.Path)] = true
+	for i := range fresh {
+		// Mark the entry itself, so cleanup can never remove a copy of the
+		// same video the user added or queued by hand.
+		fresh[i].Ephemeral = true
 	}
 	m.playlist.Add(fresh...)
 	m.loadedPlaylist = ""
@@ -162,25 +166,16 @@ func (m *Model) toggleAutoplayRadio() {
 // user added or queued themselves stay put, as do bookmarked ones. Returns
 // how many tracks were removed.
 func (m *Model) discardAutoplayTracks() int {
-	if len(m.autoplayAdded) == 0 && m.playNowKey == "" {
-		return 0
-	}
 	removed := 0
 	for i := m.playlist.Len() - 1; i >= 0; i-- {
 		t, ok := m.playlist.Track(i)
-		if !ok || t.Bookmark {
-			continue
-		}
-		key := autoplayDedupeKey(t.Path)
-		if !m.autoplayAdded[key] && key != m.playNowKey {
+		if !ok || !t.Ephemeral || t.Bookmark {
 			continue
 		}
 		if m.playlist.Remove(i) {
 			removed++
 		}
 	}
-	m.autoplayAdded = nil
-	m.playNowKey = ""
 	if removed == 0 {
 		return 0
 	}
