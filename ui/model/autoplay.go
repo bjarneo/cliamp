@@ -14,6 +14,13 @@ import (
 // matches the initial batch used for pasted Radio/Mix URLs.
 const autoplayFetchCount = resolve.YTDLRadioInitialItems
 
+// autoplayMaxAppend caps how many related tracks are appended per refill.
+// The Mix is fetched with more headroom than this so duplicates already in
+// the queue can be dropped and still leave a full batch; the first
+// autoplayMaxAppend fresh entries — the closest matches YouTube returns —
+// are kept. Refills happen again when these run out.
+const autoplayMaxAppend = 5
+
 // autoplayTracksMsg carries related tracks fetched for autoplay continuation.
 // gen must match requests.autoplay or the result is stale and dropped.
 type autoplayTracksMsg struct {
@@ -107,7 +114,7 @@ func (m *Model) appendAutoplayTracks(tracks []playlist.Track) int {
 		}
 		seen[autoplayDedupeKey(t.Path)] = true
 	}
-	var fresh []playlist.Track
+	fresh := make([]playlist.Track, 0, autoplayMaxAppend)
 	for _, t := range tracks {
 		key := autoplayDedupeKey(t.Path)
 		if seen[key] {
@@ -115,6 +122,9 @@ func (m *Model) appendAutoplayTracks(tracks []playlist.Track) int {
 		}
 		seen[key] = true
 		fresh = append(fresh, t)
+		if len(fresh) == autoplayMaxAppend {
+			break
+		}
 	}
 	if len(fresh) == 0 {
 		return 0

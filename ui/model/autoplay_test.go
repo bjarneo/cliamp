@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -263,5 +264,38 @@ func TestAutoplayToggleKeyDispatch(t *testing.T) {
 	}
 	if saver.saved["autoplay_radio"] != "true" {
 		t.Errorf("saved autoplay_radio = %q, want \"true\"", saver.saved["autoplay_radio"])
+	}
+}
+
+func TestAppendAutoplayTracksCapsAtMax(t *testing.T) {
+	m := autoplayTestModel("https://www.youtube.com/watch?v=seed00000001")
+	var mix []playlist.Track
+	mix = append(mix, playlist.Track{Path: "https://www.youtube.com/watch?v=seed00000001", Title: "seed"})
+	for i := 0; i < 15; i++ {
+		mix = append(mix, playlist.Track{
+			Path:  fmt.Sprintf("https://www.youtube.com/watch?v=fresh%07d", i),
+			Title: fmt.Sprintf("fresh %d", i),
+		})
+	}
+	added := m.appendAutoplayTracks(mix)
+	if added != autoplayMaxAppend {
+		t.Errorf("added = %d, want %d", added, autoplayMaxAppend)
+	}
+	if m.playlist.Len() != 1+autoplayMaxAppend {
+		t.Errorf("playlist len = %d, want %d", m.playlist.Len(), 1+autoplayMaxAppend)
+	}
+	// The kept tracks must be the first five non-duplicate Mix entries, in order.
+	for i := 0; i < autoplayMaxAppend; i++ {
+		got, _ := m.playlist.Track(1 + i)
+		want := fmt.Sprintf("https://www.youtube.com/watch?v=fresh%07d", i)
+		if got.Path != want {
+			t.Errorf("track %d = %q, want %q", 1+i, got.Path, want)
+		}
+	}
+}
+
+func TestAutoplayMaxAppendIsFive(t *testing.T) {
+	if autoplayMaxAppend != 5 {
+		t.Errorf("autoplayMaxAppend = %d, want 5", autoplayMaxAppend)
 	}
 }
