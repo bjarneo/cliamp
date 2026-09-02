@@ -265,6 +265,7 @@ type requestState struct {
 	catalog      uint64
 	stream       uint64
 	preload      uint64
+	autoplay     uint64
 }
 
 func nextRequest(gen *uint64) uint64 {
