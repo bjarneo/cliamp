@@ -25,6 +25,7 @@ import (
 	"github.com/bjarneo/cliamp/internal/embyapi"
 	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/internal/resume"
+	"github.com/bjarneo/cliamp/internal/ytdlbin"
 	"github.com/bjarneo/cliamp/ipc"
 	"github.com/bjarneo/cliamp/luaplugin"
 	"github.com/bjarneo/cliamp/mediactl"
@@ -76,6 +77,10 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 		return fmt.Errorf("config: %w", err)
 	}
 	overrides.Apply(&cfg)
+
+	// Point every yt-dlp invocation at the configured binary before providers
+	// or the player resolve anything.
+	ytdlbin.Configure(cfg.YtdlpPath)
 
 	closeLog, appliedLevel, logErr := initLogging(cfg.LogLevel)
 	defer closeLog()
