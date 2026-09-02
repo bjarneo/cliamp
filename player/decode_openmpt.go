@@ -38,6 +38,13 @@ func init() {
 // .xm, .it, and the rest of openmpt.SupportedExtensions. libopenmpt
 // renders directly at the requested sample rate, so no separate
 // resampling stage is needed.
+// maxModuleSize caps how much of a tracker module we buffer before handing
+// it to libopenmpt, so a hostile or misbehaving HTTP source can't force an
+// unbounded allocation via io.ReadAll. Real tracker modules — even MO3
+// files with embedded samples — are at most a few tens of MB. A var rather
+// than a const so tests can lower it.
+var maxModuleSize int64 = 64 << 20 // 64 MiB
+
 func decodeOpenmpt(rc io.ReadCloser, path string, sr beep.SampleRate) (beep.StreamSeekCloser, beep.Format, error) {
 	defer rc.Close()
 
@@ -45,14 +52,20 @@ func decodeOpenmpt(rc io.ReadCloser, path string, sr beep.SampleRate) (beep.Stre
 		return nil, beep.Format{}, fmt.Errorf("libopenmpt is required to play %s — install: %s (%w)", path, openmptInstallHint(), openmpt.ErrUnavailable)
 	}
 
-	data, err := io.ReadAll(rc)
+	// Read one byte past the cap so an oversized module is reported rather
+	// than silently truncated: handing libopenmpt a module cut mid-sample
+	// would decode garbage — same approach as resolve.go's playlist cap.
+	data, err := io.ReadAll(io.LimitReader(rc, maxModuleSize+1))
 	if err != nil {
 		return nil, beep.Format{}, fmt.Errorf("read module: %w", err)
+	}
+	if int64(len(data)) > maxModuleSize {
+		return nil, beep.Format{}, fmt.Errorf("%s: tracker module exceeds %d MiB size limit", path, maxModuleSize>>20)
 	}
 
 	mod, err := openmpt.Open(data)
 	if err != nil {
-		return nil, beep.Format{}, err
+		return nil, beep.Format{}, fmt.Errorf("open module: %w", err)
 	}
 
 	format := beep.Format{SampleRate: sr, NumChannels: 2, Precision: 2}

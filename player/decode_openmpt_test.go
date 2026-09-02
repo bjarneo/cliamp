@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/gopxl/beep/v2"
@@ -99,18 +100,16 @@ func TestDecodeWithExtRoutesModuleFormats(t *testing.T) {
 	}
 
 	data := testModuleBytes(t)
+	// libopenmpt sniffs the module type from the file's content rather
+	// than its extension, so the same valid MOD bytes must decode
+	// successfully through every routed extension — proving each one
+	// reaches the openmpt decoder instead of falling through to the
+	// mp3/wav/flac/ogg switch below it in decodeWithExt.
 	for _, ext := range []string{".mod", ".s3m", ".xm", ".it"} {
 		rc := &closeCountingReader{Reader: bytes.NewReader(data)}
 		decoder, format, err := decodeWithExt(rc, ext, "test"+ext, 44100, 16)
 		if err != nil {
-			// Only .mod is actually a valid MOD file; the others are
-			// expected to fail decoding (wrong format for the bytes) but
-			// must still be *routed* to the openmpt decoder rather than
-			// falling through to the mp3/wav/flac switch below it.
-			if ext == ".mod" {
-				t.Fatalf("decodeWithExt(%q): %v", ext, err)
-			}
-			continue
+			t.Fatalf("decodeWithExt(%q): %v", ext, err)
 		}
 		defer decoder.Close()
 		if format.NumChannels != 2 {
@@ -190,6 +189,28 @@ func TestDecodeOpenmptRejectsCorruptFile(t *testing.T) {
 	rc := &closeCountingReader{Reader: bytes.NewReader([]byte("not a module"))}
 	if _, _, err := decodeOpenmpt(rc, "test.mod", beep.SampleRate(44100)); err == nil {
 		t.Error("decodeOpenmpt on garbage bytes: got nil error, want an error")
+	}
+	if rc.closed != 1 {
+		t.Errorf("decodeOpenmpt closed the source reader %d times, want 1", rc.closed)
+	}
+}
+
+func TestDecodeOpenmptRejectsOversizedModule(t *testing.T) {
+	if !openmpt.Available() {
+		t.Skip("libopenmpt not installed in this environment")
+	}
+
+	orig := maxModuleSize
+	maxModuleSize = 1024
+	t.Cleanup(func() { maxModuleSize = orig })
+
+	rc := &closeCountingReader{Reader: bytes.NewReader(make([]byte, maxModuleSize+1))}
+	_, _, err := decodeOpenmpt(rc, "big.mod", beep.SampleRate(44100))
+	if err == nil {
+		t.Fatal("decodeOpenmpt on oversized module: got nil error, want the size-limit error")
+	}
+	if !strings.Contains(err.Error(), "size limit") {
+		t.Errorf("decodeOpenmpt error = %v, want the size-limit error", err)
 	}
 	if rc.closed != 1 {
 		t.Errorf("decodeOpenmpt closed the source reader %d times, want 1", rc.closed)

@@ -82,7 +82,7 @@ func ensureInit() error {
 	initOnce.Do(func() {
 		handle, err := loadLibrary()
 		if err != nil {
-			initErr = fmt.Errorf("%w: %v", ErrUnavailable, err)
+			initErr = fmt.Errorf("%w: %w", ErrUnavailable, err)
 			return
 		}
 		purego.RegisterLibFunc(&fnCreateFromMemory2, handle, "openmpt_module_create_from_memory2")

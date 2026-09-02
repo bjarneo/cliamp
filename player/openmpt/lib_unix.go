@@ -6,7 +6,11 @@
 // per-platform while this file carries the shared logic once.
 package openmpt
 
-import "github.com/ebitengine/purego"
+import (
+	"fmt"
+
+	"github.com/ebitengine/purego"
+)
 
 func loadLibrary() (uintptr, error) {
 	var lastErr error
@@ -17,7 +21,7 @@ func loadLibrary() (uintptr, error) {
 		}
 		lastErr = err
 	}
-	return 0, lastErr
+	return 0, fmt.Errorf("load libopenmpt: %w", lastErr)
 }
 
 func dlsym(handle uintptr, name string) (uintptr, error) {

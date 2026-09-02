@@ -123,6 +123,9 @@ func TestOpenRejectsGarbage(t *testing.T) {
 }
 
 func TestOpenRejectsEmpty(t *testing.T) {
+	if !Available() {
+		t.Skip("libopenmpt not installed in this environment")
+	}
 	if _, err := Open(nil); err == nil {
 		t.Error("Open(nil): got nil error, want an error")
 	}
