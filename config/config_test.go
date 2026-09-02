@@ -871,3 +871,26 @@ func TestApplyPlaylist(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadAutoplayRadio(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("autoplay_radio = true\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.AutoplayRadio {
+		t.Error("autoplay_radio = true not parsed")
+	}
+	if defaultConfig().AutoplayRadio {
+		t.Error("AutoplayRadio should default to false")
+	}
+}

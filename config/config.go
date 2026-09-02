@@ -330,6 +330,7 @@ type Config struct {
 	Mono             bool
 	Speed            float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
 	AutoPlay         bool                         // start playback automatically on launch (radio streams, CLI tracks)
+	AutoplayRadio    bool                         // continue with YouTube Mix related tracks when the queue runs out
 	SeekStepLarge    int                          // seconds for Shift+Left/Right seek jumps
 	Provider         string                       // default provider: "radio", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "mixcloud", "netease", "ytmusic" (default "radio")
 	Theme            string                       // theme name, or "" for ANSI default
@@ -374,6 +375,7 @@ func defaultConfig() Config {
 		VisVolumeLinked: true,
 		Repeat:          "off",
 		AutoPlay:        false,
+		AutoplayRadio:   false,
 		Speed:           1.0,
 		SeekStepLarge:   30,
 		SampleRate:      0,
@@ -657,6 +659,8 @@ func Load() (Config, error) {
 				cfg.Mono = val == "true"
 			case "auto_play":
 				cfg.AutoPlay = val == "true"
+			case "autoplay_radio":
+				cfg.AutoplayRadio = val == "true"
 			case "seek_large_step_sec":
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.SeekStepLarge = v
