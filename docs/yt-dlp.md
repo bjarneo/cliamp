@@ -32,7 +32,8 @@ In the TUI, press `Ctrl+F` to search the active provider. This searches YouTube 
 With `autoplay_radio = true` (or the `c` key in the player), cliamp keeps the
 music going when the queue runs out: it loads the YouTube Mix seeded from the
 last track — the same "related tracks" radio YouTube's own autoplay uses — and
-appends up to 20 tracks that are not already in the queue. This works for any
+appends the top 5 entries that are not already in the queue. When those run
+out, the last of them seeds the next batch. This works for any
 YouTube or YouTube Music track, including single tracks played from `Ctrl+F`
 search. Repeat modes take precedence: autoplay only fires when repeat is off
 and the queue is exhausted. Tracks from other sources (SoundCloud, local
