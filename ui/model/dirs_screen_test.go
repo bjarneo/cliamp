@@ -393,7 +393,7 @@ func TestPlMgrNKeyRemovesRowFromFavoritesScreen(t *testing.T) {
 		t.Fatalf("tracks = %+v, want only /b.mp3", m.plManager.tracks)
 	}
 	if !strings.HasPrefix(m.status.text, favRemovedMark) {
-		t.Fatalf("status = %q, want dimmed heart prefix %q", m.status.text, favRemovedMark)
+		t.Fatalf("status = %q, want dimmed star prefix %q", m.status.text, favRemovedMark)
 	}
 	if cmd == nil {
 		t.Fatal("expected a provider-playlist refresh command")
@@ -888,7 +888,7 @@ func TestNKeyTogglesFavorite(t *testing.T) {
 		t.Fatal("favSet should contain /song.mp3 after toggle")
 	}
 	if !strings.HasPrefix(m.status.text, favAddedMark) {
-		t.Fatalf("status = %q, want red heart prefix %q", m.status.text, favAddedMark)
+		t.Fatalf("status = %q, want red star prefix %q", m.status.text, favAddedMark)
 	}
 
 	// Toggle off.
@@ -902,7 +902,7 @@ func TestNKeyTogglesFavorite(t *testing.T) {
 		}
 	}
 	if !strings.HasPrefix(m.status.text, favRemovedMark) {
-		t.Fatalf("status = %q, want dimmed heart prefix %q", m.status.text, favRemovedMark)
+		t.Fatalf("status = %q, want dimmed star prefix %q", m.status.text, favRemovedMark)
 	}
 }
 

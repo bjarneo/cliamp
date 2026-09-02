@@ -46,6 +46,41 @@ func TestPlaylistStateMarkersStayVisibleWithoutColor(t *testing.T) {
 	}
 }
 
+func TestFavoritedRowsKeepMarkerColumnAlignment(t *testing.T) {
+	oldPanelWidth := ui.PanelWidth
+	ui.PanelWidth = 80
+	t.Cleanup(func() { ui.PanelWidth = oldPanelWidth })
+
+	favPath := "fav:1"
+	p := playlist.New()
+	p.Add(playlist.Track{Title: "Favorited", Path: favPath})
+	p.Add(playlist.Track{Title: "Normal"})
+	m := Model{
+		player:    &playbackFakeEngine{},
+		playlist:  p,
+		focus:     focusPlaylist,
+		plVisible: 2,
+		favSet:    map[string]struct{}{favPath: {}},
+	}
+
+	plain := ansi.Strip(m.renderPlaylist())
+	lines := strings.Split(plain, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("playlist = %q, want at least two rows", plain)
+	}
+	if !strings.Contains(lines[0], "★") || strings.Contains(lines[0], "☆") {
+		t.Fatalf("favorited row = %q, want filled star marker", lines[0])
+	}
+	if !strings.Contains(lines[1], "☆") || strings.Contains(lines[1], "★") {
+		t.Fatalf("plain row = %q, want dim outline star marker", lines[1])
+	}
+	favCol := ansi.StringWidth(lines[0][:strings.Index(lines[0], "Favorited")])
+	normCol := ansi.StringWidth(lines[1][:strings.Index(lines[1], "Normal")])
+	if favCol != normCol {
+		t.Fatalf("track names misaligned: favorited starts at cell %d, plain row at %d (%q)", favCol, normCol, plain)
+	}
+}
+
 func TestPlaylistShowsKnownTrackDuration(t *testing.T) {
 	oldPanelWidth := ui.PanelWidth
 	ui.PanelWidth = 80

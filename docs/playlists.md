@@ -424,6 +424,7 @@ stores the "Favorites" playlist. Like "Recently Played", it is a virtual
 playlist that you cannot rename, delete, or change in the playlist manager. Use
 `n` again to remove a favorite.
 
-Favorited tracks show a small red `♥` marker in the track list. The bookmark
-system is separate: it uses the `f` key and `★` marker. Bookmarks apply to one
+Favorited tracks show a filled, red star (`★`) in the track list; unfavorited
+rows show a dim outline star (`☆`). The bookmark system is separate: it uses
+the `f` key and a `★` marker in the same column. Bookmarks apply to one
 playlist. Favorites apply to all playlists.

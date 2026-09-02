@@ -24,25 +24,30 @@ var (
 	seekDimStyle  = lipgloss.NewStyle().Foreground(ui.ColorDim)
 	volBarStyle   = lipgloss.NewStyle().Foreground(ui.ColorVolume)
 	activeToggle  = lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true)
-	// favMarkerStyle paints the favorite heart in the theme's red so it
+	// favMarkerStyle paints the favorite star in the theme's red so it
 	// reads as a deliberate accent instead of inheriting the dim/unavailable
-	// look. The glyph carries U+FE0E (text presentation) so terminals render
-	// it as a compact font glyph rather than a large color emoji.
+	// look. Favorited rows show this filled star.
 	favMarkerStyle = lipgloss.NewStyle().Foreground(ui.ColorError)
-	// favRemovedStyle mutes the same filled heart for unfavorite feedback:
-	// identical attractive glyph, faded to signal the removed state instead
-	// of switching to a thin outline glyph.
+	// favRemovedStyle paints the outline star used for unfavorite feedback
+	// and for tracks that are not favorited, mirroring the tinted outline
+	// star cliamp-mobile shows for non-favorites.
 	favRemovedStyle = lipgloss.NewStyle().Foreground(ui.ColorDim)
 )
 
-// favHeart is the small, text-presentation favorite heart used everywhere the
-// UI shows favorite state (track rows, header badge, status messages).
-const favHeart = "♥\uFE0E"
+// favStar is the filled star used everywhere the UI shows favorite state
+// (track rows, header badge, status messages); favStarOutline is its
+// one-cell outline counterpart. They mirror cliamp-mobile's StarFilled and
+// Star icons: filled with the theme color when favorited, outline and dim
+// when not.
+const (
+	favStar        = "★"
+	favStarOutline = "☆"
+)
 
 // Pre-rendered toggle feedback marks for the status bar.
 var (
-	favAddedMark   = favMarkerStyle.Render(favHeart)
-	favRemovedMark = favRemovedStyle.Render(favHeart)
+	favAddedMark   = favMarkerStyle.Render(favStar)
+	favRemovedMark = favRemovedStyle.Render(favStarOutline)
 )
 
 // providerEmptyStateHint, keyed by lowercase provider Name(), returns the
@@ -697,7 +702,7 @@ func (m Model) renderPlaylistHeader() string {
 	var favStr string
 	// Render from the cached favSet: the render path must not hit disk.
 	if count := len(m.favSet); count > 0 {
-		favStr = " " + activeToggle.Render(fmt.Sprintf("[%s %d]", favHeart, count))
+		favStr = " " + activeToggle.Render(fmt.Sprintf("[%s %d]", favStar, count))
 	}
 
 	var themeStr string
@@ -955,10 +960,13 @@ func (m Model) renderPlaylist() string {
 		if t.Bookmark {
 			bookmarkMarker = "★"
 		}
-		favMarker := " "
+		// Every row shows a star like cliamp-mobile: a dim outline star when
+		// not favorited, and the theme's filled star when favorited. Both
+		// glyphs are one cell wide so rows stay column-aligned.
+		favMarker := favRemovedStyle.Render(favStarOutline)
 		if m.favSet != nil {
 			if _, ok := m.favSet[t.Path]; ok {
-				favMarker = favHeart
+				favMarker = favMarkerStyle.Render(favStar)
 			}
 		}
 		unavailableMarker := " "
@@ -1002,7 +1010,7 @@ func (m Model) renderPlaylist() string {
 
 		numStr := fmt.Sprintf("%*d. ", numWidth, i+1)
 		line := dimStyle.Render(cursorMarker) + playlistActiveStyle.Render(playingMarker) +
-			activeToggle.Render(queueMarker+bookmarkMarker) + favMarkerStyle.Render(favMarker) +
+			activeToggle.Render(queueMarker+bookmarkMarker) + favMarker +
 			playlistUnavailableStyle.Render(unavailableMarker) +
 			" " + style.Render(numStr)
 		line += style.Render(name)
