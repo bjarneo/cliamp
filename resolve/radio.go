@@ -5,6 +5,24 @@ import (
 	"strings"
 )
 
+// isYouTubeVideoID reports whether s looks like a video ID rather than a
+// handle, path, or other identifier. YouTube IDs are base64url-ish, so any
+// separator ("/", "@", "?", …) means the caller matched something else, such
+// as youtu.be/@channel or a watch?v= value carrying extra path segments.
+func isYouTubeVideoID(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // YouTubeVideoID extracts the video ID from a YouTube, YouTube Music, or
 // youtu.be track URL. Returns "" when no video ID is present.
 func YouTubeVideoID(rawURL string) string {
@@ -18,10 +36,14 @@ func YouTubeVideoID(rawURL string) string {
 	switch host {
 	case "youtube.com", "music.youtube.com":
 		if u.Path == "/watch" {
-			return u.Query().Get("v")
+			if id := u.Query().Get("v"); isYouTubeVideoID(id) {
+				return id
+			}
 		}
 	case "youtu.be":
-		return strings.Trim(u.Path, "/")
+		if id := strings.Trim(u.Path, "/"); isYouTubeVideoID(id) {
+			return id
+		}
 	}
 	return ""
 }

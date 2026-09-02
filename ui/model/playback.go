@@ -119,8 +119,8 @@ func (m *Model) playTrackImmediate(track playlist.Track) tea.Cmd {
 	// previously played track and the related tracks autoplay queued behind
 	// it, so this one reuses that slot instead of stacking up at the end.
 	m.discardAutoplayTracks()
+	track.Ephemeral = true
 	m.playlist.Add(track)
-	m.playNowKey = autoplayDedupeKey(track.Path)
 	m.loadedPlaylist = ""
 	m.addToHeaderState([]playlist.Track{track})
 	idx := m.playlist.Len() - 1

@@ -639,6 +639,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.autoplayLoading = false
+		// The world may have moved on while yt-dlp ran: the user can have
+		// turned autoplay off, or playback can have left the seed behind.
+		// Either way the result is no longer wanted; never touch the queue.
+		active, activeIdx := m.currentPlaybackTrack()
+		if !m.autoplayRadio || activeIdx < 0 || active.Path != msg.seed {
+			m.autoplayAdvance = false
+			return m, nil
+		}
 		added := m.appendAutoplayTracks(msg.tracks)
 		if msg.err != nil || added == 0 {
 			m.autoplayFailedSeed = msg.seed

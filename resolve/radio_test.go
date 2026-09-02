@@ -14,6 +14,11 @@ func TestYouTubeVideoID(t *testing.T) {
 		{"soundcloud", "https://soundcloud.com/artist/track", ""},
 		{"local file", "/home/user/Music/song.mp3", ""},
 		{"channel url", "https://www.youtube.com/@somechannel", ""},
+		{"short link to handle", "https://youtu.be/@somechannel", ""},
+		{"short link extra segment", "https://youtu.be/dQw4w9WgXcQ/extra", ""},
+		{"short link root", "https://youtu.be/", ""},
+		{"watch v with slash", "https://www.youtube.com/watch?v=abc/def", ""},
+		{"watch v empty", "https://www.youtube.com/watch?v=", ""},
 		{"empty", "", ""},
 	}
 	for _, tc := range cases {
@@ -36,5 +41,14 @@ func TestRadioMixURL(t *testing.T) {
 	}
 	if _, ok := RadioMixURL("https://soundcloud.com/a/b"); ok {
 		t.Error("RadioMixURL(soundcloud): ok = true, want false")
+	}
+	for _, bad := range []string{
+		"https://youtu.be/@somechannel",
+		"https://youtu.be/dQw4w9WgXcQ/extra",
+		"https://www.youtube.com/watch?v=abc/def",
+	} {
+		if got, ok := RadioMixURL(bad); ok {
+			t.Errorf("RadioMixURL(%q) = %q, ok = true; want ok = false", bad, got)
+		}
 	}
 }

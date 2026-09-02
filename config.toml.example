@@ -22,6 +22,7 @@ mono = false
 
 # Continue playback with YouTube Mix "related" tracks when the queue runs out
 # (YouTube-style autoplay). Toggle at runtime with the c key.
+# Player only: headless daemon mode (--daemon) ignores this key.
 autoplay_radio = false
 
 # Initial directory for the file browser ('o' key). 

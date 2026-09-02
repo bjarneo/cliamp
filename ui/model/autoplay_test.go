@@ -442,3 +442,123 @@ func TestAppendedTracksAreNotTreatedAsPlayNow(t *testing.T) {
 		t.Errorf("track 0 = %q, want the appended track", got.Path)
 	}
 }
+
+// Regression: cleanup must key off entry origin, not the video ID, so a
+// user-owned copy of an autoplay track survives.
+func TestDiscardKeepsUserOwnedEquivalentTrack(t *testing.T) {
+	m := autoplayTestModel("/home/user/mine.mp3")
+	m.appendAutoplayTracks([]playlist.Track{
+		{Path: "https://www.youtube.com/watch?v=shared000001", Title: "auto copy"},
+	})
+	// The user adds the same video by hand (different URL host, same ID).
+	_ = m.appendTrack(playlist.Track{Path: "https://music.youtube.com/watch?v=shared000001", Title: "user copy"})
+	if m.playlist.Len() != 3 {
+		t.Fatalf("setup len = %d, want 3", m.playlist.Len())
+	}
+
+	removed := m.discardAutoplayTracks()
+	if removed != 1 {
+		t.Errorf("removed = %d, want 1 (only the autoplay entry)", removed)
+	}
+	if m.playlist.Len() != 2 {
+		t.Fatalf("playlist len = %d, want 2", m.playlist.Len())
+	}
+	got, _ := m.playlist.Track(1)
+	if got.Path != "https://music.youtube.com/watch?v=shared000001" {
+		t.Errorf("track 1 = %q, want the user-added copy", got.Path)
+	}
+}
+
+func TestPlayTrackImmediateKeepsUserOwnedEquivalentTrack(t *testing.T) {
+	m := autoplayTestModel()
+	_ = m.playTrackImmediate(playlist.Track{Path: "https://www.youtube.com/watch?v=shared000001", Title: "played"})
+	_ = m.appendTrack(playlist.Track{Path: "https://youtu.be/shared000001", Title: "user copy"})
+
+	_ = m.playTrackImmediate(playlist.Track{Path: "https://www.youtube.com/watch?v=next00000001"})
+
+	if m.playlist.Len() != 2 {
+		t.Fatalf("playlist len = %d, want 2 (user copy + new track)", m.playlist.Len())
+	}
+	got, _ := m.playlist.Track(0)
+	if got.Path != "https://youtu.be/shared000001" {
+		t.Errorf("track 0 = %q, want the user-added copy", got.Path)
+	}
+}
+
+func TestAutoplayEligibleSeedRejectsLiveStream(t *testing.T) {
+	pl := playlist.New()
+	pl.Add(playlist.Track{Path: "https://www.youtube.com/watch?v=live00000001", Stream: true, Realtime: true})
+	pl.SetIndex(0)
+	m := &Model{player: &playbackFakeEngine{}, playlist: pl, autoplayRadio: true}
+	track, _ := pl.Current()
+	m.setPlaybackTrack(track)
+
+	if _, ok := m.autoplayEligibleSeed(); ok {
+		t.Error("live track: ok = true, want false")
+	}
+	if cmd := m.nextTrack(); cmd != nil {
+		t.Error("nextTrack started an autoplay fetch for a live track")
+	}
+}
+
+func TestAutoplayEligibleSeedRejectsRuntimeDetectedLiveStream(t *testing.T) {
+	pl := playlist.New()
+	pl.Add(playlist.Track{Path: "https://www.youtube.com/watch?v=live00000002", Stream: true})
+	pl.SetIndex(0)
+	m := &Model{player: &playbackFakeEngine{live: true}, playlist: pl, autoplayRadio: true}
+	track, _ := pl.Current()
+	m.setPlaybackTrack(track)
+
+	if _, ok := m.autoplayEligibleSeed(); ok {
+		t.Error("runtime-detected live track: ok = true, want false")
+	}
+}
+
+func TestAutoplayTracksMsgDroppedWhenDisabledMidFlight(t *testing.T) {
+	m := autoplayTestModel("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+	m.playlist.SetIndex(0)
+	track, _ := m.playlist.Current()
+	m.setPlaybackTrack(track)
+	_ = m.nextTrack()
+
+	m.autoplayRadio = false // user pressed `c` while the fetch was in flight
+	updated, cmd := m.Update(autoplayTracksMsg{
+		gen:    m.requests.autoplay,
+		seed:   track.Path,
+		tracks: []playlist.Track{{Path: "https://www.youtube.com/watch?v=fresh0000001"}},
+	})
+	got := updated.(Model)
+	if got.playlist.Len() != 1 {
+		t.Errorf("playlist len = %d, want 1 (result discarded)", got.playlist.Len())
+	}
+	if cmd != nil {
+		t.Error("cmd != nil, want nil")
+	}
+	if got.autoplayLoading || got.autoplayAdvance {
+		t.Error("autoplay flags not cleared")
+	}
+}
+
+func TestAutoplayTracksMsgDroppedWhenSeedNoLongerActive(t *testing.T) {
+	m := autoplayTestModel("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+	m.playlist.SetIndex(0)
+	track, _ := m.playlist.Current()
+	m.setPlaybackTrack(track)
+	_ = m.nextTrack()
+
+	updated, cmd := m.Update(autoplayTracksMsg{
+		gen:    m.requests.autoplay,
+		seed:   "https://www.youtube.com/watch?v=someother001", // stale seed
+		tracks: []playlist.Track{{Path: "https://www.youtube.com/watch?v=fresh0000001"}},
+	})
+	got := updated.(Model)
+	if got.playlist.Len() != 1 {
+		t.Errorf("playlist len = %d, want 1 (result discarded)", got.playlist.Len())
+	}
+	if cmd != nil {
+		t.Error("cmd != nil, want nil")
+	}
+	if got.autoplayLoading || got.autoplayAdvance {
+		t.Error("autoplay flags not cleared")
+	}
+}
