@@ -30,6 +30,13 @@ func YouTubeVideoID(rawURL string) string {
 	if err != nil || u.Host == "" {
 		return ""
 	}
+	// Only real web URLs describe a playable YouTube video; anything else
+	// (ftp://, scheme-relative, custom schemes) is not one of ours.
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+	default:
+		return ""
+	}
 	host := strings.ToLower(u.Hostname())
 	host = strings.TrimPrefix(host, "www.")
 	host = strings.TrimPrefix(host, "m.")

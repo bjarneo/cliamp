@@ -19,6 +19,10 @@ func TestYouTubeVideoID(t *testing.T) {
 		{"short link root", "https://youtu.be/", ""},
 		{"watch v with slash", "https://www.youtube.com/watch?v=abc/def", ""},
 		{"watch v empty", "https://www.youtube.com/watch?v=", ""},
+		{"ftp scheme", "ftp://youtu.be/dQw4w9WgXcQ", ""},
+		{"ftp scheme watch", "ftp://www.youtube.com/watch?v=dQw4w9WgXcQ", ""},
+		{"scheme relative", "//www.youtube.com/watch?v=dQw4w9WgXcQ", ""},
+		{"http scheme", "http://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ"},
 		{"empty", "", ""},
 	}
 	for _, tc := range cases {
@@ -46,9 +50,11 @@ func TestRadioMixURL(t *testing.T) {
 		"https://youtu.be/@somechannel",
 		"https://youtu.be/dQw4w9WgXcQ/extra",
 		"https://www.youtube.com/watch?v=abc/def",
+		"ftp://youtu.be/dQw4w9WgXcQ",
 	} {
-		if got, ok := RadioMixURL(bad); ok {
-			t.Errorf("RadioMixURL(%q) = %q, ok = true; want ok = false", bad, got)
+		got, ok := RadioMixURL(bad)
+		if ok || got != "" {
+			t.Errorf("RadioMixURL(%q) = (%q, %v), want (\"\", false)", bad, got, ok)
 		}
 	}
 }

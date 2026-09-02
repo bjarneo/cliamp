@@ -56,8 +56,10 @@ type Track struct {
 	// current listening session: a "play now" track and the related tracks
 	// autoplay appended after it. Those entries are dropped when the user
 	// starts something else. Entries the user added or queued are never
-	// marked. Runtime-only, never persisted.
-	Ephemeral bool
+	// marked. Runtime-only: json:"-" keeps it out of caches that serialize
+	// tracks (for example ytmusic_cache.json), so a restored track can never
+	// come back marked.
+	Ephemeral bool `json:"-"`
 
 	EmbeddedLyrics string // embedded lyrics from local file tags, when present
 	AlbumArtURL    string // file:// URL for cached embedded album art, when present
