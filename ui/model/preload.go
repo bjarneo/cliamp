@@ -62,7 +62,9 @@ func (m *Model) preloadNext() tea.Cmd {
 		next, ok = m.playlist.PeekNext()
 	}
 	if !ok {
-		return nil
+		// No next track: with autoplay on, refill the queue with the Mix
+		// seeded from the current track before it ends.
+		return m.maybePrefetchAutoplay()
 	}
 	isYTDL := playlist.IsYTDL(next.Path)
 	if isYTDL && currentIdx >= 0 && next.Path == current.Path {

@@ -2,6 +2,7 @@ package model
 
 import (
 	"testing"
+	"time"
 
 	"github.com/bjarneo/cliamp/playlist"
 )
@@ -186,5 +187,32 @@ func TestAutoplayTracksMsgEmptyResultStops(t *testing.T) {
 	}
 	if got.autoplayFailedSeed != track.Path {
 		t.Errorf("autoplayFailedSeed = %q, want %q", got.autoplayFailedSeed, track.Path)
+	}
+}
+
+func TestMaybePrefetchAutoplay(t *testing.T) {
+	engine := &playbackFakeEngine{playing: true, duration: 3 * time.Minute}
+	pl := playlist.New()
+	pl.Add(playlist.Track{Path: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", Stream: true})
+	pl.SetIndex(0)
+	m := &Model{player: engine, playlist: pl, autoplayRadio: true}
+	track, _ := pl.Current()
+	m.setPlaybackTrack(track)
+
+	// Far from the end: no fetch yet.
+	engine.position = 1 * time.Minute
+	if cmd := m.maybePrefetchAutoplay(); cmd != nil {
+		t.Error("prefetch fired with >45s remaining")
+	}
+	// Inside the lead window: fetch starts once.
+	engine.position = 3*time.Minute - 30*time.Second
+	if cmd := m.maybePrefetchAutoplay(); cmd == nil {
+		t.Fatal("prefetch did not fire inside lead window")
+	}
+	if !m.autoplayLoading {
+		t.Error("autoplayLoading not set")
+	}
+	if cmd := m.maybePrefetchAutoplay(); cmd != nil {
+		t.Error("duplicate prefetch while one is in flight")
 	}
 }
