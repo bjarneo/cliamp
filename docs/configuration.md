@@ -45,6 +45,10 @@ shuffle = false
 # Start with mono output (L+R downmix)
 mono = false
 
+# Continue playback with YouTube Mix "related" tracks when the queue runs out
+# (YouTube-style autoplay). Toggle at runtime with the c key.
+autoplay_radio = false
+
 # Initial directory for the file browser ('o' key)
 initial_directory = "~/Music"
 

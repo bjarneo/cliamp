@@ -18,6 +18,7 @@ library commands.
 | `+` `-` | Volume up/down |
 | `]` `[` | Change speed by 0.25x |
 | `m` | Toggle mono |
+| `c` | Toggle autoplay radio (continue with YouTube Mix related tracks) |
 | `Ctrl+J` | Jump to time |
 
 ## Navigation
