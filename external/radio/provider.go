@@ -26,7 +26,6 @@ var (
 	_ provider.FavoriteToggler      = (*Provider)(nil)
 	_ provider.CatalogLoader        = (*Provider)(nil)
 	_ provider.CatalogSearcher      = (*Provider)(nil)
-	_ provider.RadioStatsLoader     = (*Provider)(nil)
 	_ provider.SectionedList        = (*Provider)(nil)
 	_ provider.SectionTitler        = (*Provider)(nil)
 	_ provider.GenreBrowser         = (*Provider)(nil)

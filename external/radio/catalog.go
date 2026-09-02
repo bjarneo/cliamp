@@ -11,12 +11,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/bjarneo/cliamp/provider"
 )
 
 const radioBrowserBase = "https://de1.api.radio-browser.info/json"
-const cliampRadioStatsURL = "https://radio.cliamp.stream/statistics"
 
 // CatalogStation represents a station from the Radio Browser API.
 type CatalogStation struct {
@@ -56,21 +53,6 @@ type Tag struct {
 }
 
 var catalogClient = &http.Client{Timeout: 10 * time.Second}
-var statsClient = &http.Client{Timeout: 10 * time.Second}
-
-// RadioStats returns listener statistics for cliamp radio's built-in stations.
-func (*Provider) RadioStats() (provider.RadioStats, error) {
-	return FetchStats()
-}
-
-// FetchStats fetches listener statistics for cliamp radio's built-in stations.
-func FetchStats() (provider.RadioStats, error) {
-	var stats provider.RadioStats
-	if err := getJSON(statsClient, cliampRadioStatsURL, &stats); err != nil {
-		return provider.RadioStats{}, fmt.Errorf("cliamp radio stats: %w", err)
-	}
-	return stats, nil
-}
 
 // StationQuery narrows a station listing. The zero value lists everything.
 //

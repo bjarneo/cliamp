@@ -50,7 +50,6 @@ func TestCommandHelpKeepsEssentialHintsAtMinimumWidth(t *testing.T) {
 		{name: "visualizer picker", mode: commandModeVisPicker, keys: []string{"Esc", "Enter", "Ctrl+K"}},
 		{name: "device picker", mode: commandModeDevicePicker, keys: []string{"Esc", "Enter", "Ctrl+K"}},
 		{name: "track info", mode: commandModeInfo, keys: []string{"Esc", "Ctrl+K"}},
-		{name: "radio stats", mode: commandModeRadioStats, keys: []string{"Esc", "r", "Ctrl+K"}},
 	}
 
 	for _, tt := range tests {

@@ -286,28 +286,6 @@ type LocationConsenter interface {
 	SetLocationConsent(allowed bool) (place string, err error)
 }
 
-// RadioStatsLoader is implemented by radio providers that expose aggregate
-// listener statistics for their built-in stations.
-type RadioStatsLoader interface {
-	RadioStats() (RadioStats, error)
-}
-
-// RadioStats summarizes listener activity across a radio provider's stations.
-type RadioStats struct {
-	TotalSessions    int                          `json:"total_sessions"`
-	TotalListenHours float64                      `json:"total_listen_hours"`
-	PeakListeners    int                          `json:"peak_listeners"`
-	Stations         map[string]RadioStationStats `json:"stations"`
-}
-
-// RadioStationStats summarizes listener activity for one radio station.
-type RadioStationStats struct {
-	TotalSessions    int     `json:"total_sessions"`
-	TotalListenHours float64 `json:"total_listen_hours"`
-	PeakListeners    int     `json:"peak_listeners"`
-	ActiveListeners  int     `json:"active_listeners"`
-}
-
 // SectionedList is implemented by providers whose playlist list has
 // logical sections (e.g. local stations, favorites, catalog).
 type SectionedList interface {

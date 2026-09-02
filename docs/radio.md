@@ -191,8 +191,7 @@ Unlike directory entries, these are not filtered to `http` and `https`. That fil
 | `/` | Search station names through the directory (Enter runs it, Esc clears) |
 | `f` | Favorite the selected station, or pin the selected country |
 | `N` | Open the country browser |
-| `i` | Show cliamp radio listener statistics |
-| `Ctrl+R` | Refresh: re-fetch the country list, tag list, and catalog |
+| `Ctrl+R` | Refresh: re-fetch the country list and the catalog |
 
 See [keybindings.md](keybindings.md) for the rest.
 

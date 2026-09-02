@@ -271,10 +271,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handleQueueKey(msg)
 	}
 
-	if m.radioStats.visible {
-		return m.handleRadioStatsKey(msg)
-	}
-
 	// Track info overlay
 	if m.showInfo {
 		switch msg.String() {
@@ -413,10 +409,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			}
 		case "f":
 			return m.toggleProviderFavorite()
-		case "i":
-			if m.canOpenRadioStats() {
-				return m.openRadioStats()
-			}
 		case "o":
 			m.openFileBrowser()
 		case "N":

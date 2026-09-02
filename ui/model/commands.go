@@ -456,20 +456,6 @@ type catalogSearchMsg struct {
 	err          error
 }
 
-// radioStatsLoadedMsg carries listener statistics from cliamp radio.
-type radioStatsLoadedMsg struct {
-	stats provider.RadioStats
-	gen   uint64
-	err   error
-}
-
-func fetchRadioStatsCmd(loader provider.RadioStatsLoader, gen uint64) tea.Cmd {
-	return func() tea.Msg {
-		stats, err := loader.RadioStats()
-		return radioStatsLoadedMsg{stats: stats, gen: gen, err: err}
-	}
-}
-
 func fetchCatalogSearchCmd(s provider.CatalogSearcher, providerName, query string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		count, err := s.SearchCatalog(query)
