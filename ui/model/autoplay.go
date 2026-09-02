@@ -156,18 +156,23 @@ func (m *Model) toggleAutoplayRadio() {
 	}
 }
 
-// discardAutoplayTracks removes every track autoplay appended, so a new
-// user-chosen track lands at the end of the queue instead of behind a trail
-// of stale related tracks. Tracks the user added stay put. Returns how many
-// tracks were removed.
+// discardAutoplayTracks removes the previous "play now" track together with
+// every related track autoplay queued behind it, so a newly played track
+// reuses that slot instead of piling up at the end of the queue. Tracks the
+// user added or queued themselves stay put, as do bookmarked ones. Returns
+// how many tracks were removed.
 func (m *Model) discardAutoplayTracks() int {
-	if len(m.autoplayAdded) == 0 {
+	if len(m.autoplayAdded) == 0 && m.playNowKey == "" {
 		return 0
 	}
 	removed := 0
 	for i := m.playlist.Len() - 1; i >= 0; i-- {
 		t, ok := m.playlist.Track(i)
-		if !ok || !m.autoplayAdded[autoplayDedupeKey(t.Path)] {
+		if !ok || t.Bookmark {
+			continue
+		}
+		key := autoplayDedupeKey(t.Path)
+		if !m.autoplayAdded[key] && key != m.playNowKey {
 			continue
 		}
 		if m.playlist.Remove(i) {
@@ -175,6 +180,7 @@ func (m *Model) discardAutoplayTracks() int {
 		}
 	}
 	m.autoplayAdded = nil
+	m.playNowKey = ""
 	if removed == 0 {
 		return 0
 	}

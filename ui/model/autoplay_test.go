@@ -376,3 +376,69 @@ func TestDiscardAutoplayTracksIsIdempotent(t *testing.T) {
 		t.Errorf("playlist len = %d, want 1", m.playlist.Len())
 	}
 }
+
+func TestPlayTrackImmediateReplacesPreviousPlayNowTrack(t *testing.T) {
+	m := autoplayTestModel("/home/user/mine.mp3")
+
+	_ = m.playTrackImmediate(playlist.Track{Path: "https://www.youtube.com/watch?v=first0000001", Title: "first search"})
+	m.appendAutoplayTracks([]playlist.Track{
+		{Path: "https://www.youtube.com/watch?v=auto0000001"},
+		{Path: "https://www.youtube.com/watch?v=auto0000002"},
+	})
+	if m.playlist.Len() != 4 {
+		t.Fatalf("setup len = %d, want 4", m.playlist.Len())
+	}
+
+	_ = m.playTrackImmediate(playlist.Track{Path: "https://www.youtube.com/watch?v=second000001", Title: "second search"})
+
+	if m.playlist.Len() != 2 {
+		t.Fatalf("playlist len = %d, want 2 (user track + newest search)", m.playlist.Len())
+	}
+	first, _ := m.playlist.Track(0)
+	if first.Path != "/home/user/mine.mp3" {
+		t.Errorf("track 0 = %q, want the user's own track", first.Path)
+	}
+	cur, idx := m.playlist.Current()
+	if idx != 1 {
+		t.Errorf("current index = %d, want 1", idx)
+	}
+	if cur.Path != "https://www.youtube.com/watch?v=second000001" {
+		t.Errorf("current = %q, want the newest searched track", cur.Path)
+	}
+}
+
+func TestPlayTrackImmediateKeepsBookmarkedPlayNowTrack(t *testing.T) {
+	m := autoplayTestModel("/home/user/mine.mp3")
+	_ = m.playTrackImmediate(playlist.Track{Path: "https://www.youtube.com/watch?v=first0000001", Title: "first search"})
+
+	kept, ok := m.playlist.Track(1)
+	if !ok {
+		t.Fatal("missing search track")
+	}
+	kept.Bookmark = true
+	m.playlist.SetTrack(1, kept)
+
+	_ = m.playTrackImmediate(playlist.Track{Path: "https://www.youtube.com/watch?v=second000001"})
+
+	if m.playlist.Len() != 3 {
+		t.Fatalf("playlist len = %d, want 3 (bookmarked track survives)", m.playlist.Len())
+	}
+	got, _ := m.playlist.Track(1)
+	if got.Path != "https://www.youtube.com/watch?v=first0000001" {
+		t.Errorf("track 1 = %q, want the bookmarked search track", got.Path)
+	}
+}
+
+func TestAppendedTracksAreNotTreatedAsPlayNow(t *testing.T) {
+	m := autoplayTestModel()
+	_ = m.appendTrack(playlist.Track{Path: "https://www.youtube.com/watch?v=append000001", Title: "appended"})
+	_ = m.playTrackImmediate(playlist.Track{Path: "https://www.youtube.com/watch?v=search000001"})
+
+	if m.playlist.Len() != 2 {
+		t.Fatalf("playlist len = %d, want 2 (appended track kept)", m.playlist.Len())
+	}
+	got, _ := m.playlist.Track(0)
+	if got.Path != "https://www.youtube.com/watch?v=append000001" {
+		t.Errorf("track 0 = %q, want the appended track", got.Path)
+	}
+}
