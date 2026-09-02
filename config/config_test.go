@@ -871,3 +871,39 @@ func TestApplyPlaylist(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadYtdlpPath(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"unset", "", ""},
+		{"quoted path", "ytdlp_path = \"/usr/local/bin/yt-dlp\"\n", "/usr/local/bin/yt-dlp"},
+		{"tilde path stays literal in config", "ytdlp_path = \"~/.local/bin/yt-dlp\"\n", "~/.local/bin/yt-dlp"},
+		{"env reference", "ytdlp_path = \"$CLIAMP_TEST_YTDLP\"\n", "/opt/yt-dlp"},
+		{"ignored inside a section", "[netease]\nytdlp_path = \"/opt/yt-dlp\"\n", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("CLIAMP_TEST_YTDLP", "/opt/yt-dlp")
+
+			path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			if err := os.WriteFile(path, []byte(tt.body), 0o644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.YtdlpPath != tt.want {
+				t.Fatalf("YtdlpPath = %q, want %q", cfg.YtdlpPath, tt.want)
+			}
+		})
+	}
+}

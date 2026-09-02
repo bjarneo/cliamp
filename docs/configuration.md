@@ -93,6 +93,10 @@ theme = "Tokyo Night"
 # Logs are written to ~/.config/cliamp/cliamp.log
 log_level = "info"
 
+# yt-dlp binary to run (default: "yt-dlp" from PATH)
+# Use this when your distribution ships an outdated yt-dlp. See yt-dlp.md.
+ytdlp_path = "~/.local/bin/yt-dlp"
+
 ```
 
 `Stereo` shows separate left and right horizontal LED meters with held peak markers.

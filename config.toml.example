@@ -69,6 +69,11 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Logs are written to ~/.config/cliamp/cliamp.log
 # log_level = "info"
 
+# yt-dlp binary to run (default: "yt-dlp" from PATH)
+# Useful when your distribution ships an outdated yt-dlp: install a current
+# one somewhere else and point cliamp at it. CLIAMP_YTDLP overrides this.
+# ytdlp_path = "~/.local/bin/yt-dlp"
+
 # ---
 # Spotify (optional)
 # Requires a Spotify Premium account.

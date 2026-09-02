@@ -15,6 +15,7 @@ import (
 
 	"github.com/gopxl/beep/v2"
 
+	"github.com/bjarneo/cliamp/internal/ytdlbin"
 	"github.com/bjarneo/cliamp/internal/ytdlcookies"
 )
 
@@ -32,10 +33,9 @@ const ytdlCauseGrace = 3 * time.Second
 
 const ytdlPipelineMaxAttempts = 3
 
-// YTDLPAvailable reports whether yt-dlp is installed and on PATH.
+// YTDLPAvailable reports whether the configured yt-dlp binary is executable.
 func YTDLPAvailable() bool {
-	_, err := exec.LookPath("yt-dlp")
-	return err == nil
+	return ytdlbin.Available()
 }
 
 func appendYTDLCookieArgs(args []string, pageURL string) []string {
@@ -56,7 +56,7 @@ func probeYTDLDuration(pageURL string) time.Duration {
 	// playlist.IsURL, but keep the terminator so a future caller cannot turn
 	// a crafted URL into --exec and reach arbitrary command execution.
 	args = append(args, "--", pageURL)
-	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+	cmd := ytdlbin.CommandContext(ctx, args...)
 	// WaitDelay ensures cmd.Output() doesn't hang indefinitely if the
 	// process is killed but I/O pipe goroutines haven't drained. Without
 	// this, a zombie yt-dlp child keeping stdout open can block Output()
@@ -291,7 +291,7 @@ func monitorExit(cmd *exec.Cmd, stderr *limitedBuffer, name string) (<-chan erro
 // and returns a streaming PCM decoder. If startSec > 0, ffmpeg -ss is used
 // to skip to the desired position in the input stream.
 func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) (*ytdlPipeStreamer, beep.Format, error) {
-	if _, err := exec.LookPath("yt-dlp"); err != nil {
+	if _, err := ytdlbin.LookPath(); err != nil {
 		return nil, beep.Format{}, fmt.Errorf("yt-dlp is required — install: %s", YtdlpInstallHint())
 	}
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
@@ -320,7 +320,7 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 	}
 	ytdlArgs = appendYTDLCookieArgs(ytdlArgs, pageURL)
 	ytdlArgs = append(ytdlArgs, "--", pageURL)
-	ytdlCmd := exec.Command("yt-dlp", ytdlArgs...)
+	ytdlCmd := ytdlbin.Command(ytdlArgs...)
 	ytdlCmd.Stdout = pw
 	var ytdlStderr limitedBuffer
 	ytdlCmd.Stderr = &ytdlStderr
@@ -410,8 +410,13 @@ func (p *Player) buildYTDLPipeline(pageURL string, startSec int) (*trackPipeline
 		}
 
 		if err := prefillYTDLPipe(decoder); err != nil {
-			if attempt == ytdlPipelineMaxAttempts || !isTransientYTDL403(err) {
+			if !isTransientYTDL403(err) {
 				return nil, err
+			}
+			if attempt == ytdlPipelineMaxAttempts {
+				// A 403 that survives every retry usually means the local
+				// yt-dlp cannot sign the media URL; say why.
+				return nil, annotateYTDL403(err)
 			}
 			continue
 		}
