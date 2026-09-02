@@ -1,0 +1,9 @@
+# Alucard — the complementary light theme of Dracula.
+# Exact Alucard Classic values from the official spec: draculatheme.com/spec
+bg = "#fffbeb"
+accent = "#644ac9"
+bright_fg = "#1f1f1f"
+fg = "#6c664b"
+green = "#14710a"
+yellow = "#846e15"
+red = "#cb3a2a"
