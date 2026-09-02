@@ -779,6 +779,7 @@ type Config struct {
 	PaddingV         int                          // vertical padding for the UI frame (default 1)
 	AudioDevice      string                       // preferred audio output device name (empty = system default)
 	Playlist         string                       // local TOML playlist name to load on startup
+	YtdlpPath        string                       // explicit yt-dlp binary path (empty = look up "yt-dlp" on PATH)
 	InitialDirectory string                       // initial directory for the file browser
 	LyricsOffsetMs   int                          // lyric timestamp adjustment in ms (-10000..10000), applied to all sources
 	Navidrome        NavidromeConfig              // optional Navidrome/Subsonic server credentials
@@ -1095,6 +1096,8 @@ func (c *Config) setTopLevel(key, val string) {
 		c.AudioDevice = parseString(val)
 	case "initial_directory":
 		c.InitialDirectory = parseString(val)
+	case "ytdlp_path":
+		c.YtdlpPath = parseString(val)
 	case "padding_horizontal":
 		if v, ok := parseInt(val); ok {
 			c.PaddingH = v

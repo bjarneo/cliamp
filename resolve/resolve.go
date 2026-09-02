@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -23,6 +22,7 @@ import (
 	"time"
 
 	"github.com/bjarneo/cliamp/internal/httpclient"
+	"github.com/bjarneo/cliamp/internal/ytdlbin"
 	"github.com/bjarneo/cliamp/internal/ytdlcookies"
 	"github.com/bjarneo/cliamp/playlist"
 
@@ -704,8 +704,8 @@ func ResolveYTDLBatchContext(ctx context.Context, pageURL string, start, count i
 // browser supplies the cookies. Otherwise the cookie source configured for the
 // host of pageURL applies.
 func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, count int, browser string) ([]playlist.Track, int, error) {
-	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		return nil, 0, fmt.Errorf("yt-dlp not found in PATH — see https://github.com/yt-dlp/yt-dlp#installation")
+	if _, err := ytdlbin.LookPath(); err != nil {
+		return nil, 0, fmt.Errorf("yt-dlp not found (%s) — see https://github.com/yt-dlp/yt-dlp#installation", ytdlbin.Name())
 	}
 
 	args := []string{"--flat-playlist", "-j", "--socket-timeout", "15"}
@@ -727,7 +727,7 @@ func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, cou
 		args = append(args, "--playlist-end", strconv.Itoa(end))
 	}
 	args = append(args, "--", pageURL)
-	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+	cmd := ytdlbin.CommandContext(ctx, args...)
 	cmd.WaitDelay = 3 * time.Second
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -804,8 +804,8 @@ func parseYTDLTracks(r io.Reader) ([]playlist.Track, int, error) {
 // returns the output file path. A cancel of ctx stops yt-dlp. It sets no time
 // limit of its own, because a download can take minutes.
 func DownloadYTDLContext(ctx context.Context, pageURL, saveDir string) (string, error) {
-	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		return "", fmt.Errorf("yt-dlp not found in PATH")
+	if _, err := ytdlbin.LookPath(); err != nil {
+		return "", fmt.Errorf("yt-dlp not found (%s)", ytdlbin.Name())
 	}
 
 	outTemplate := filepath.Join(saveDir, "%(artist,uploader)s - %(title)s.%(ext)s")
@@ -819,7 +819,7 @@ func DownloadYTDLContext(ctx context.Context, pageURL, saveDir string) (string, 
 		args = append(args, "--cookies-from-browser", browser)
 	}
 	args = append(args, "--", pageURL)
-	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+	cmd := ytdlbin.CommandContext(ctx, args...)
 	cmd.WaitDelay = 3 * time.Second
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
