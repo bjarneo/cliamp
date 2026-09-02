@@ -1,6 +1,8 @@
 package model
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/playlist"
@@ -61,6 +63,35 @@ func (m *Model) continueWithAutoplay() (tea.Cmd, bool) {
 	m.autoplayLoading = true
 	m.status.Activity("Autoplay: finding related tracks…", statusTTLLong)
 	return fetchAutoplayCmd(mixURL, track.Path, nextRequest(&m.requests.autoplay)), true
+}
+
+// autoplayPrefetchLeadTime starts the Mix fetch well before the final track
+// ends so related tracks can arrive and the gapless preloader can arm the
+// transition (yt-dlp resolve typically takes a few seconds).
+const autoplayPrefetchLeadTime = 45 * time.Second
+
+// maybePrefetchAutoplay fetches related tracks while the last queue track is
+// still playing so the autoplay transition is gapless. The tick loop retries
+// preloadNext every pass, so this fires once per exhaustion thanks to the
+// autoplayLoading guard (and autoplayFailedSeed after a failed fetch).
+func (m *Model) maybePrefetchAutoplay() tea.Cmd {
+	if m.autoplayLoading {
+		return nil
+	}
+	mixURL, ok := m.autoplayEligibleSeed()
+	if !ok {
+		return nil
+	}
+	dur := m.player.Duration()
+	if dur <= 0 {
+		return nil
+	}
+	if dur-m.player.Position() > autoplayPrefetchLeadTime {
+		return nil
+	}
+	track, _ := m.currentPlaybackTrack()
+	m.autoplayLoading = true
+	return fetchAutoplayCmd(mixURL, track.Path, nextRequest(&m.requests.autoplay))
 }
 
 // appendAutoplayTracks appends Mix tracks that are not already in the
