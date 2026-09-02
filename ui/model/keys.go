@@ -724,6 +724,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		return m.rearmPreload()
 
+	case "c":
+		m.toggleAutoplayRadio()
+
 	case "tab":
 		m.focus = m.nextMainFocus(m.focus)
 
