@@ -6,7 +6,11 @@
   outputs =
     { self, nixpkgs }:
     let
+      # x86_64-darwin is intentionally absent: nixpkgs 26.11 (nixos-unstable)
+      # dropped support for it. Intel Macs can still use nix/package.nix via a
+      # nixpkgs-26.05-darwin channel with callPackage.
       systems = [
+        "aarch64-darwin"
         "aarch64-linux"
         "x86_64-linux"
       ];
@@ -47,17 +51,21 @@
         {
           default = pkgs.mkShell {
             name = "cliamp-dev";
-            buildInputs = with pkgs; [
-              go
-              pkg-config
-              alsa-lib
-              flac
-              libogg
-              libvorbis
-              mpg123
-              ffmpeg-headless
-              yt-dlp
-            ];
+            buildInputs =
+              with pkgs;
+              [
+                go
+                pkg-config
+                flac
+                libogg
+                libvorbis
+                mpg123
+                ffmpeg-headless
+                yt-dlp
+              ]
+              ++ lib.optionals stdenv.hostPlatform.isLinux [
+                alsa-lib
+              ];
             shellHook = ''
               echo "🎵 cliamp dev shell loaded"
             '';
