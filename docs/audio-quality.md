@@ -29,7 +29,7 @@ All settings are optional. The defaults are shown above.
 | `sample_rate`      | Output rate sent to the sound card. 48000 matches most modern DACs. |
 | `buffer_ms`        | Lower values reduce latency. Higher values reduce glitches. Try 200 if audio pops, or 2000 for unstable radio streams. |
 | `resample_quality` | Sinc interpolation quality when a file rate differs from the output rate. 4 gives the best quality; 1 is fastest. |
-| `bit_depth`        | PCM precision for FFmpeg-decoded formats (m4a, aac, alac, opus, wma, webm). 32 uses float PCM and preserves up to 24-bit audio without truncation. Native formats (mp3, flac, wav, ogg) always decode at full precision. This setting does not affect them. |
+| `bit_depth`        | PCM precision for FFmpeg-decoded formats (m4a, aac, alac, opus, wma, webm). 32 uses float PCM and preserves up to 24-bit audio without truncation. Native formats (mp3, flac, wav, ogg) and tracker modules (mod, s3m, xm, it, and other libopenmpt formats) always decode at full precision. This setting does not affect them. |
 
 ## Quick recipes
 
