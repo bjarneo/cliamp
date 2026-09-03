@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bjarneo/cliamp/ipc"
 	"github.com/bjarneo/cliamp/playlist"
 )
 
@@ -273,5 +274,43 @@ func TestTickDoesNotArmPreloadWhilePaging(t *testing.T) {
 	updated, _ = m.Update(tickMsg(time.Now()))
 	if !updated.(Model).preloading {
 		t.Fatal("a tick did not arm a preload once paging finished; the test proves nothing")
+	}
+}
+
+// An external provider.load replaces the queue wholesale. A paged load still in
+// flight would otherwise keep passing the generation guard and append its
+// remaining pages onto the list the IPC client just installed.
+func TestIPCProviderLoadRetiresAnInFlightPagedLoad(t *testing.T) {
+	prov := &pagerProv{name: "Pager", pages: [][]playlist.Track{
+		pageOf("a", "b"), pageOf("c", "d"),
+	}}
+	m := newPagingModel(prov)
+
+	updated, _ := m.Update(tracksLoadedMsg{
+		tracks: prov.pages[0], playlistID: "list", providerName: "Pager", offset: 0, next: 1, gen: 1,
+	})
+	m = updated.(Model)
+	if !m.tracksPaging {
+		t.Fatal("setup: expected a paged load in flight")
+	}
+
+	reply := make(chan ipc.Response, 1)
+	m.handleIPCProviderLoad(ipcProviderLoadResult{
+		request: ipc.LibraryRequestMsg{Reply: reply},
+		tracks:  pageOf("ipc-1", "ipc-2"),
+		loaded:  "other",
+	})
+
+	if m.tracksPaging {
+		t.Error("an IPC load left the paged load marked in flight")
+	}
+
+	updated, _ = m.Update(tracksLoadedMsg{
+		tracks: prov.pages[1], playlistID: "list", providerName: "Pager", offset: 1, next: 0, gen: 1,
+	})
+	m = updated.(Model)
+
+	if got := m.playlist.Len(); got != 2 {
+		t.Errorf("queue has %d tracks, want the 2 the IPC client loaded: a retired page appended", got)
 	}
 }

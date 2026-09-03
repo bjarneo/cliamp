@@ -364,7 +364,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the current stream has >streamPreloadLeadTime remaining. Poll every tick
 		// until we're within the window and the preload gets armed.
 		// Guard with !m.preloading so we don't fire a second concurrent HTTP
-		// connection while the first preloadStreamCmd goroutine is still running.
+		// connection while the first preloadStreamCmd goroutine is still running,
+		// and with !m.tracksPaging because each page of a paged load remixes the
+		// upcoming order, so anything armed now would be stale by the next one.
 		if m.player.IsPlaying() && !m.player.IsPaused() && !m.buffering && !m.preloading && !m.tracksPaging && !m.player.HasPreload() {
 			if cmd := m.preloadNext(); cmd != nil {
 				cmds = append(cmds, cmd)
