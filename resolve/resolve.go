@@ -674,7 +674,7 @@ func resolveYTDLRangeContext(ctx context.Context, pageURL string, start, end int
 
 func resolveYTDLRangePageContext(ctx context.Context, pageURL string, start, end int, browser ...string) ([]playlist.Track, int, error) {
 	if _, err := ytdlbin.LookPath(); err != nil {
-		return nil, 0, fmt.Errorf("%w — see https://github.com/yt-dlp/yt-dlp#installation", ytdlbin.NotFoundError())
+		return nil, 0, ytdlbin.NotFoundErrorWithAdvice("see https://github.com/yt-dlp/yt-dlp#installation")
 	}
 
 	args := []string{"--flat-playlist", "-j", "--socket-timeout", "15"}

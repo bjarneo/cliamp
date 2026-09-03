@@ -76,6 +76,19 @@ func NotFoundError() error {
 	return fmt.Errorf("yt-dlp not found at %s (selected by %s)", name, selectedBy())
 }
 
+// NotFoundErrorWithAdvice returns NotFoundError with install guidance
+// appended, but only when the bare PATH lookup is in effect. An explicitly
+// selected binary keeps precedence over anything installed on PATH, so telling
+// a user with a broken ytdlp_path or CLIAMP_YTDLP to install yt-dlp sends them
+// after a fix that cannot work.
+func NotFoundErrorWithAdvice(advice string) error {
+	err := NotFoundError()
+	if Name() != DefaultName || strings.TrimSpace(advice) == "" {
+		return err
+	}
+	return fmt.Errorf("%w — %s", err, advice)
+}
+
 // selectedBy names the setting that chose the current binary.
 func selectedBy() string {
 	if expand(os.Getenv(EnvVar)) != "" {

@@ -292,7 +292,7 @@ func monitorExit(cmd *exec.Cmd, stderr *limitedBuffer, name string) (<-chan erro
 // to skip to the desired position in the input stream.
 func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) (*ytdlPipeStreamer, beep.Format, error) {
 	if _, err := ytdlbin.LookPath(); err != nil {
-		return nil, beep.Format{}, fmt.Errorf("yt-dlp is required — install: %s", YtdlpInstallHint())
+		return nil, beep.Format{}, ytdlbin.NotFoundErrorWithAdvice("install: " + YtdlpInstallHint())
 	}
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		return nil, beep.Format{}, fmt.Errorf("ffmpeg is required — install: %s", ffmpegInstallHint())
@@ -313,8 +313,11 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 	ytdlArgs := []string{
 		"-f", "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio[protocol!=m3u8_native][protocol!=m3u8]/bestaudio/best",
 		"--no-playlist",
+		// --quiet drops progress chatter but keeps warnings on stderr. Do not
+		// add --no-warnings: yt-dlp's own "version is older than 90 days" and
+		// missing-JS-runtime warnings are what explain a persistent HTTP 403,
+		// and monitorExit surfaces this stderr in the failing error.
 		"--quiet",
-		"--no-warnings",
 		"--socket-timeout", "15",
 		"-o", "-",
 	}
@@ -414,9 +417,10 @@ func (p *Player) buildYTDLPipeline(pageURL string, startSec int) (*trackPipeline
 				return nil, err
 			}
 			if attempt == ytdlPipelineMaxAttempts {
-				// A 403 that survives every retry usually means the local
-				// yt-dlp cannot sign the media URL; say why.
-				return nil, annotateYTDL403(err)
+				// The last attempt's error carries yt-dlp's own stderr, which
+				// includes its stale-version and missing-JS-runtime warnings:
+				// the usual reasons a 403 survives every retry.
+				return nil, err
 			}
 			continue
 		}

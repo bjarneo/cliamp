@@ -436,7 +436,7 @@ func (p *Provider) ensureCookieHeader(ctx context.Context) (string, error) {
 
 func extractBrowserCookieHeader(ctx context.Context, browser string) (string, error) {
 	if _, err := ytdlbin.LookPath(); err != nil {
-		return "", fmt.Errorf("%w. Install with: %s", ytdlbin.NotFoundError(), ytDLPInstallHint())
+		return "", ytdlbin.NotFoundErrorWithAdvice("install with: " + ytDLPInstallHint())
 	}
 	tmp, err := os.CreateTemp("", "cliamp-netease-cookies-*.txt")
 	if err != nil {

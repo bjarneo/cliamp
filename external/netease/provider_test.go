@@ -144,7 +144,7 @@ func TestExtractBrowserCookieHeaderMissingYTDLPShowsInstallHint(t *testing.T) {
 		t.Fatal("extractBrowserCookieHeader() error = nil, want missing yt-dlp error")
 	}
 	msg := err.Error()
-	const prefix = "yt-dlp not found in PATH. Install with: "
+	const prefix = "yt-dlp not found in PATH — install with: "
 	if !strings.HasPrefix(msg, prefix) {
 		t.Fatalf("error = %q", msg)
 	}

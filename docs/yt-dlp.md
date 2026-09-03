@@ -47,16 +47,19 @@ CLIAMP_YTDLP=~/.local/bin/yt-dlp cliamp
 
 ## Playback fails with HTTP 403
 
-`HTTP Error 403: Forbidden` means YouTube rejected the media URL yt-dlp handed
-to cliamp. A single 403 is usually transient, and cliamp retries the track
-automatically. A 403 that survives every retry is almost always local, and
-cliamp appends what it found to the error message:
+`HTTP Error 403: Forbidden` means the source rejected the media URL yt-dlp
+handed to cliamp. A single 403 is usually transient, and cliamp retries the
+track automatically. When every retry fails, cliamp shows yt-dlp's own output
+for the last attempt, including any warnings it printed. On YouTube the cause
+is almost always local:
 
-- **Outdated yt-dlp.** Update it, or set `ytdlp_path` to a newer binary.
-  Check with `yt-dlp --version`.
+- **Outdated yt-dlp.** yt-dlp warns when its version is more than 90 days old.
+  Update it, or set `ytdlp_path` to a newer binary. Check with
+  `yt-dlp --version`.
 - **No JavaScript runtime.** yt-dlp needs one (`deno` by default) to solve the
-  challenge that signs media URLs. Install [Deno](https://deno.com), or see
-  yt-dlp's [EJS guide](https://github.com/yt-dlp/yt-dlp/wiki/EJS) for the other
+  challenge that signs media URLs, and warns when it has none. Install
+  [Deno](https://deno.com), or see yt-dlp's
+  [EJS guide](https://github.com/yt-dlp/yt-dlp/wiki/EJS) for the other
   supported runtimes. `yt-dlp -v --simulate` prints a `JS runtimes:` line that
   reads `none` when nothing is available.
 
