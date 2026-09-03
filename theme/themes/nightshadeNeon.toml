@@ -1,0 +1,8 @@
+# nightshadeNeon — retrofuturistic, cyberpunk neon colors
+bg = "#000000"
+accent = "#ff10f0"
+bright_fg = "#ffffff"
+fg = "#00ffff"
+green = "#39ff14"
+yellow = "#ff10f0"
+red = "#ff3131"
