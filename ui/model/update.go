@@ -365,7 +365,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// until we're within the window and the preload gets armed.
 		// Guard with !m.preloading so we don't fire a second concurrent HTTP
 		// connection while the first preloadStreamCmd goroutine is still running.
-		if m.player.IsPlaying() && !m.player.IsPaused() && !m.buffering && !m.preloading && !m.player.HasPreload() {
+		if m.player.IsPlaying() && !m.player.IsPaused() && !m.buffering && !m.preloading && !m.tracksPaging && !m.player.HasPreload() {
 			if cmd := m.preloadNext(); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
@@ -413,6 +413,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.provLoading = false
+		m.tracksPaging = msg.err == nil && msg.next > 0
 		if msg.err != nil {
 			if errors.Is(msg.err, playlist.ErrNeedsAuth) {
 				m.provSignIn = true
@@ -432,7 +433,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// playlist.Next(), so a stale preload would play one track while the
 			// UI, scrobble and now-playing announced another. Drop it and let the
 			// tick loop re-arm against the order this page produced.
-			if m.player.HasPreload() {
+			if m.player.HasPreload() || m.preloading {
 				m.player.ClearPreload()
 				m.preloading = false
 			}

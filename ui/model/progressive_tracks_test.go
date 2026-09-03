@@ -1,10 +1,14 @@
 package model
 
 import (
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/bjarneo/cliamp/playlist"
 )
+
+var errStubLoad = errors.New("stub load failure")
 
 // pagerProv is a stub provider that serves tracks one page at a time.
 type pagerProv struct {
@@ -197,5 +201,77 @@ func TestPageDropsAStalePreload(t *testing.T) {
 	}
 	if m.preloading {
 		t.Error("preloading flag still set; the tick loop will not re-arm")
+	}
+}
+
+func TestPagingSuppressesPreloadUntilTheOrderSettles(t *testing.T) {
+	prov := &pagerProv{name: "Pager", pages: [][]playlist.Track{
+		pageOf("a", "b"), pageOf("c", "d"),
+	}}
+	m := newPagingModel(prov)
+
+	updated, _ := m.Update(tracksLoadedMsg{
+		tracks: prov.pages[0], playlistID: "list", providerName: "Pager", offset: 0, next: 1, gen: 1,
+	})
+	m = updated.(Model)
+	if !m.tracksPaging {
+		t.Error("tracksPaging not set while pages are still in flight")
+	}
+
+	updated, _ = m.Update(tracksLoadedMsg{
+		tracks: prov.pages[1], playlistID: "list", providerName: "Pager", offset: 1, next: 0, gen: 1,
+	})
+	if updated.(Model).tracksPaging {
+		t.Error("tracksPaging still set after the terminal page")
+	}
+}
+
+func TestPagingFlagClearsOnError(t *testing.T) {
+	prov := &pagerProv{name: "Pager", pages: [][]playlist.Track{pageOf("a")}}
+	m := newPagingModel(prov)
+	m.tracksPaging = true
+
+	updated, _ := m.Update(tracksLoadedMsg{
+		playlistID: "list", providerName: "Pager", offset: 1, gen: 1, err: errStubLoad,
+	})
+	if updated.(Model).tracksPaging {
+		t.Error("a failed page left preloading suppressed for the session")
+	}
+}
+
+// A superseded chain never delivers a terminal page, so the flag has to be
+// reset where the next request is dispatched, not only where pages arrive.
+func TestProviderNavResetClearsThePagingFlag(t *testing.T) {
+	prov := &pagerProv{name: "Pager", pages: [][]playlist.Track{pageOf("a")}}
+	m := newPagingModel(prov)
+	m.tracksPaging = true
+
+	m.resetProviderNav()
+
+	if m.tracksPaging {
+		t.Error("switching provider left preloading suppressed for the session")
+	}
+}
+
+// The tick loop is the main arming path, and it only fires into an empty slot.
+// While pages are landing the order keeps changing, so it must be held off;
+// preloadNext marks m.preloading before returning its command, which is the
+// observable side effect of the guard letting it through.
+func TestTickDoesNotArmPreloadWhilePaging(t *testing.T) {
+	prov := &pagerProv{name: "Pager", pages: [][]playlist.Track{pageOf("a", "b")}}
+	m := newPagingModel(prov)
+	m.playlist.Add(pageOf("a", "b")...)
+	m.player.(*playbackFakeEngine).playing = true
+
+	m.tracksPaging = true
+	updated, _ := m.Update(tickMsg(time.Now()))
+	if updated.(Model).preloading {
+		t.Error("a tick armed a preload while pages were still landing")
+	}
+
+	m.tracksPaging = false
+	updated, _ = m.Update(tickMsg(time.Now()))
+	if !updated.(Model).preloading {
+		t.Fatal("a tick did not arm a preload once paging finished; the test proves nothing")
 	}
 }
