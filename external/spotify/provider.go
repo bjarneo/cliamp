@@ -496,6 +496,23 @@ func (p *SpotifyProvider) fetchTracksPage(ctx context.Context, playlistID string
 	return tracks, result.Total, nil
 }
 
+// headMatches reports whether an abandoned accumulation still begins with the
+// freshly fetched page 0, meaning nothing entered or left the head of the list
+// while it was closed. Resuming stitches two separate loads together, so an
+// unchanged total is not enough on its own: a same-total swap below the head
+// would splice the old ordering onto the new suffix.
+func headMatches(accumulated, page []playlist.Track) bool {
+	if len(accumulated) < len(page) {
+		return false
+	}
+	for i, t := range page {
+		if accumulated[i].Path != t.Path {
+			return false
+		}
+	}
+	return true
+}
+
 // cacheTracksLocked stores a fully loaded track list. p.mu must be held.
 func (p *SpotifyProvider) cacheTracksLocked(playlistID string, tracks []playlist.Track, total int) {
 	if cached, ok := p.trackCache[playlistID]; ok {
@@ -571,7 +588,7 @@ func (p *SpotifyProvider) TracksPage(playlistID string, offset int) ([]playlist.
 		// accumulation rather than refetching every page already paid for, but
 		// only when page 0 still reports the total it was started from -- a
 		// changed library would otherwise splice two snapshots.
-		if pend != nil && pend.want > 0 && pend.total == total {
+		if pend != nil && pend.want > 0 && pend.total == total && headMatches(pend.tracks, page) {
 			return slices.Clone(pend.tracks), pend.want, nil
 		}
 		pend = &pendingTracks{total: total}

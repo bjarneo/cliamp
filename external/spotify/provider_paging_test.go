@@ -207,6 +207,22 @@ func TestTracksPageAbandonsLoadWhenLibraryChangesMidLoad(t *testing.T) {
 	}
 }
 
+// savedTracksBodyShift renders a saved-tracks page for a library that has had
+// shift entries prepended: index i holds new{shift-1-i} for the newest ones and
+// t{i-shift} below them, which is how a like actually moves every later index.
+func savedTracksBodyShift(offset, limit, total, shift int) string {
+	var items []string
+	for i := offset; i < total && i < offset+limit; i++ {
+		id := fmt.Sprintf("t%d", i-shift)
+		if i < shift {
+			id = fmt.Sprintf("new%d", shift-1-i)
+		}
+		items = append(items, fmt.Sprintf(
+			`{"track":{"id":"%s","name":"%s","type":"track","uri":"spotify:track:%s"}}`, id, id, id))
+	}
+	return fmt.Sprintf(`{"items":[%s],"total":%d}`, strings.Join(items, ","), total)
+}
+
 // mutatingSavedTracks models a library that grows while it is being read. A
 // like prepends, so at snapshot k index i holds new{k-1-i} for the k newest
 // entries and t{i-k} below them -- meaning pages read either side of a change
@@ -215,18 +231,6 @@ func mutatingSavedTracks(t *testing.T, start, bumps int, calls *int) *SpotifyPro
 	t.Helper()
 	total := start
 	done := 0
-	body := func(offset, limit, total, shift int) string {
-		var items []string
-		for i := offset; i < total && i < offset+limit; i++ {
-			id := fmt.Sprintf("t%d", i-shift)
-			if i < shift {
-				id = fmt.Sprintf("new%d", shift-1-i)
-			}
-			items = append(items, fmt.Sprintf(
-				`{"track":{"id":"%s","name":"%s","type":"track","uri":"spotify:track:%s"}}`, id, id, id))
-		}
-		return fmt.Sprintf(`{"items":[%s],"total":%d}`, strings.Join(items, ","), total)
-	}
 	originalTransport := http.DefaultTransport
 	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.URL.Path != "/v1/me/tracks" {
@@ -235,7 +239,7 @@ func mutatingSavedTracks(t *testing.T, start, bumps int, calls *int) *SpotifyPro
 		*calls++
 		offset, _ := strconv.Atoi(req.URL.Query().Get("offset"))
 		limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
-		out := body(offset, limit, total, done)
+		out := savedTracksBodyShift(offset, limit, total, done)
 		if offset == 0 && done < bumps {
 			total++
 			done++
@@ -366,4 +370,57 @@ func drainFrom(t *testing.T, p *SpotifyProvider, offset int) int {
 		offset = next
 	}
 	return got
+}
+
+// A same-total swap while the list is closed -- one track unliked, another
+// liked -- leaves the total intact but moves the head. Resuming onto that
+// accumulation would splice the old ordering onto a new suffix, so the head
+// comparison must discard it even though the total still matches.
+func TestTracksPageDiscardsAbandonedLoadWhenHeadChangedAtSameTotal(t *testing.T) {
+	calls := 0
+	shift := 0
+	const total = 200
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/v1/me/tracks" {
+			return nil, fmt.Errorf("unexpected Spotify API path %q", req.URL.Path)
+		}
+		calls++
+		offset, _ := strconv.Atoi(req.URL.Query().Get("offset"))
+		limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(savedTracksBodyShift(offset, limit, total, shift))),
+			Request:    req,
+		}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
+	p := New(sess, "client", 320)
+
+	if _, next, err := p.TracksPage("YOUR MUSIC", 0); err != nil || next != 50 {
+		t.Fatalf("page 0: next=%d err=%v", next, err)
+	}
+	if _, _, err := p.TracksPage("YOUR MUSIC", 50); err != nil {
+		t.Fatal(err)
+	}
+	shift = 1 // one unliked, one liked: same total, different head
+
+	page, next, err := p.TracksPage("YOUR MUSIC", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 50 || next != 50 {
+		t.Fatalf("got %d tracks and next=%d, want a fresh page 0 of 50 and next=50", len(page), next)
+	}
+	pend := p.pending["YOUR MUSIC"]
+	if pend == nil || len(pend.tracks) != 50 {
+		t.Fatalf("stale accumulation survived a same-total head change: %v", pend)
+	}
+	if pend.tracks[0].Path != "spotify:track:new0" {
+		t.Errorf("restarted accumulation begins with %s, want the new head", pend.tracks[0].Path)
+	}
 }
