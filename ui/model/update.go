@@ -425,7 +425,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.offset > 0 {
 			m.playlist.Add(msg.tracks...)
 			m.normalizeQueueOverlay()
-			m.setHeaderStateFromTracks(m.playlist.Tracks())
+			m.addToHeaderState(msg.tracks)
 		} else {
 			m.replacePlayerPlaylist(msg.tracks)
 			if msg.playlistExact && m.localProvider != nil && msg.providerName == m.localProvider.Name() && msg.playlistID != history.PlaylistName {

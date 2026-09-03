@@ -11,16 +11,8 @@ import (
 	"golang.org/x/oauth2"
 )
 
-func savedTracksBody(offset, limit, total int) string {
-	var items []string
-	for i := offset; i < total && i < offset+limit; i++ {
-		items = append(items, fmt.Sprintf(
-			`{"track":{"id":"t%d","name":"Track %d","type":"track","uri":"spotify:track:t%d"}}`, i, i, i))
-	}
-	return fmt.Sprintf(`{"items":[%s],"total":%d}`, strings.Join(items, ","), total)
-}
-
-func savedTracksProvider(t *testing.T, total int, calls *int) *SpotifyProvider {
+// stubSavedTracks serves /v1/me/tracks pages rendered by body and counts requests.
+func stubSavedTracks(t *testing.T, calls *int, body func(offset, limit int) string) *SpotifyProvider {
 	t.Helper()
 	originalTransport := http.DefaultTransport
 	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -34,7 +26,7 @@ func savedTracksProvider(t *testing.T, total int, calls *int) *SpotifyProvider {
 			StatusCode: http.StatusOK,
 			Status:     "200 OK",
 			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(savedTracksBody(offset, limit, total))),
+			Body:       io.NopCloser(strings.NewReader(body(offset, limit))),
 			Request:    req,
 		}, nil
 	})
@@ -43,20 +35,16 @@ func savedTracksProvider(t *testing.T, total int, calls *int) *SpotifyProvider {
 	return New(sess, "client", 320)
 }
 
+func savedTracksProvider(t *testing.T, total int, calls *int) *SpotifyProvider {
+	t.Helper()
+	return stubSavedTracks(t, calls, func(offset, limit int) string {
+		return savedTracksBodyShift(offset, limit, total, 0)
+	})
+}
+
 func drainSavedTracks(t *testing.T, p *SpotifyProvider) int {
 	t.Helper()
-	got, offset := 0, 0
-	for {
-		page, next, err := p.TracksPage("YOUR MUSIC", offset)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got += len(page)
-		if next == 0 {
-			return got
-		}
-		offset = next
-	}
+	return drainFrom(t, p, 0)
 }
 
 func TestTracksPagePagesThroughSavedTracks(t *testing.T) {
@@ -176,30 +164,13 @@ func TestTracksPageAbortedLoadDoesNotCache(t *testing.T) {
 func TestTracksPageAbandonsLoadWhenLibraryChangesMidLoad(t *testing.T) {
 	calls := 0
 	total := 120
-	originalTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if req.URL.Path != "/v1/me/tracks" {
-			return nil, fmt.Errorf("unexpected Spotify API path %q", req.URL.Path)
-		}
-		calls++
-		offset, _ := strconv.Atoi(req.URL.Query().Get("offset"))
-		limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
-		body := savedTracksBody(offset, limit, total)
+	p := stubSavedTracks(t, &calls, func(offset, limit int) string {
+		body := savedTracksBodyShift(offset, limit, total, 0)
 		if offset == 0 {
 			total++ // someone liked a track while page 1 was in flight
 		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Status:     "200 OK",
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(body)),
-			Request:    req,
-		}, nil
+		return body
 	})
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
-
-	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
-	p := New(sess, "client", 320)
 	drainSavedTracks(t, p)
 
 	if cached, ok := p.trackCache["YOUR MUSIC"]; ok && cached.tracks != nil {
@@ -229,32 +200,15 @@ func savedTracksBodyShift(offset, limit, total, shift int) string {
 // overlap by one. bumps caps how many times the library moves.
 func mutatingSavedTracks(t *testing.T, start, bumps int, calls *int) *SpotifyProvider {
 	t.Helper()
-	total := start
-	done := 0
-	originalTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if req.URL.Path != "/v1/me/tracks" {
-			return nil, fmt.Errorf("unexpected Spotify API path %q", req.URL.Path)
-		}
-		*calls++
-		offset, _ := strconv.Atoi(req.URL.Query().Get("offset"))
-		limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
-		out := savedTracksBodyShift(offset, limit, total, done)
+	total, done := start, 0
+	return stubSavedTracks(t, calls, func(offset, limit int) string {
+		body := savedTracksBodyShift(offset, limit, total, done)
 		if offset == 0 && done < bumps {
 			total++
 			done++
 		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Status:     "200 OK",
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(out)),
-			Request:    req,
-		}, nil
+		return body
 	})
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
-	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
-	return New(sess, "client", 320)
 }
 
 func TestTracksRestartsWhenLibraryChangesMidLoad(t *testing.T) {
@@ -335,7 +289,7 @@ func TestTracksPageResumesAnAbandonedLoad(t *testing.T) {
 // accumulation rather than resuming onto a different snapshot.
 func TestTracksPageDiscardsAbandonedLoadWhenLibraryChanged(t *testing.T) {
 	calls := 0
-	p := mutatingSavedTracks(t, 200, 0, &calls)
+	p := savedTracksProvider(t, 200, &calls)
 
 	if _, next, err := p.TracksPage("YOUR MUSIC", 0); err != nil || next != 50 {
 		t.Fatalf("page 0: next=%d err=%v", next, err)
@@ -361,15 +315,17 @@ func TestTracksPageDiscardsAbandonedLoadWhenLibraryChanged(t *testing.T) {
 func drainFrom(t *testing.T, p *SpotifyProvider, offset int) int {
 	t.Helper()
 	got := 0
-	for offset != 0 {
+	for {
 		page, next, err := p.TracksPage("YOUR MUSIC", offset)
 		if err != nil {
 			t.Fatal(err)
 		}
 		got += len(page)
+		if next == 0 {
+			return got
+		}
 		offset = next
 	}
-	return got
 }
 
 // A same-total swap while the list is closed -- one track unliked, another
@@ -379,27 +335,9 @@ func drainFrom(t *testing.T, p *SpotifyProvider, offset int) int {
 func TestTracksPageDiscardsAbandonedLoadWhenHeadChangedAtSameTotal(t *testing.T) {
 	calls := 0
 	shift := 0
-	const total = 200
-	originalTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if req.URL.Path != "/v1/me/tracks" {
-			return nil, fmt.Errorf("unexpected Spotify API path %q", req.URL.Path)
-		}
-		calls++
-		offset, _ := strconv.Atoi(req.URL.Query().Get("offset"))
-		limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Status:     "200 OK",
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(savedTracksBodyShift(offset, limit, total, shift))),
-			Request:    req,
-		}, nil
+	p := stubSavedTracks(t, &calls, func(offset, limit int) string {
+		return savedTracksBodyShift(offset, limit, 200, shift)
 	})
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
-
-	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
-	p := New(sess, "client", 320)
 
 	if _, next, err := p.TracksPage("YOUR MUSIC", 0); err != nil || next != 50 {
 		t.Fatalf("page 0: next=%d err=%v", next, err)

@@ -410,8 +410,7 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 	}
 	// Check cache — if we have tracks and the snapshot_id hasn't changed, return cached.
 	p.mu.Lock()
-	if cached, ok := p.trackCache[playlistID]; ok && cached.tracks != nil {
-		tracks := slices.Clone(cached.tracks)
+	if tracks, _, ok := p.cachedTracksLocked(playlistID); ok {
 		p.mu.Unlock()
 		return tracks, nil
 	}
@@ -460,8 +459,8 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 
 func (p *SpotifyProvider) fetchTracksPage(ctx context.Context, playlistID string, offset int) ([]playlist.Track, int, error) {
 	query := url.Values{
-		"limit":  {fmt.Sprintf("%d", spotifyTrackPageSize)},
-		"offset": {fmt.Sprintf("%d", offset)},
+		"limit":  {strconv.Itoa(spotifyTrackPageSize)},
+		"offset": {strconv.Itoa(offset)},
 	}
 	path := "/v1/me/tracks"
 	if playlistID != "YOUR MUSIC" {
@@ -513,6 +512,16 @@ func headMatches(accumulated, page []playlist.Track) bool {
 	return true
 }
 
+// cachedTracksLocked returns a copy of the committed list and its total, if
+// any. p.mu must be held.
+func (p *SpotifyProvider) cachedTracksLocked(playlistID string) (tracks []playlist.Track, total int, ok bool) {
+	cached := p.trackCache[playlistID]
+	if cached == nil || cached.tracks == nil {
+		return nil, 0, false
+	}
+	return slices.Clone(cached.tracks), cached.total, true
+}
+
 // cacheTracksLocked stores a fully loaded track list. p.mu must be held.
 func (p *SpotifyProvider) cacheTracksLocked(playlistID string, tracks []playlist.Track, total int) {
 	if cached, ok := p.trackCache[playlistID]; ok {
@@ -555,13 +564,11 @@ func (p *SpotifyProvider) TracksPage(playlistID string, offset int) ([]playlist.
 		return nil, 0, err
 	}
 	p.mu.Lock()
-	cached := p.trackCache[playlistID]
-	hit := offset == 0 && cached != nil && cached.tracks != nil
 	var tracks []playlist.Track
 	var cachedTotal int
-	if hit {
-		tracks = slices.Clone(cached.tracks)
-		cachedTotal = cached.total
+	hit := false
+	if offset == 0 {
+		tracks, cachedTotal, hit = p.cachedTracksLocked(playlistID)
 	}
 	p.mu.Unlock()
 
