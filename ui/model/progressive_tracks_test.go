@@ -136,3 +136,34 @@ func TestStaleGenPageDoesNotAppend(t *testing.T) {
 		t.Error("a stale page dispatched a follow-up request")
 	}
 }
+
+// toggleAlbumHeadersManual pins the user's choice so later Adds do not re-run
+// the cohesion heuristic over them. Rebuilding the header from the whole queue
+// on each page cleared that pin, silently undoing a mid-load toggle.
+func TestPagesDoNotUnpinTheAlbumHeader(t *testing.T) {
+	prov := &pagerProv{name: "Pager", pages: [][]playlist.Track{
+		pageOf("a", "b"),
+		pageOf("c", "d"),
+	}}
+	m := newPagingModel(prov)
+
+	updated, _ := m.Update(tracksLoadedMsg{
+		tracks: prov.pages[0], playlistID: "list", providerName: "Pager", offset: 0, next: 1, gen: 1,
+	})
+	m = updated.(Model)
+
+	m.toggleAlbumHeadersManual()
+	pinned := m.showAlbumHeaders
+
+	updated, _ = m.Update(tracksLoadedMsg{
+		tracks: prov.pages[1], playlistID: "list", providerName: "Pager", offset: 1, next: 0, gen: 1,
+	})
+	m = updated.(Model)
+
+	if !m.headerManual {
+		t.Error("a later page cleared the manual header pin")
+	}
+	if m.showAlbumHeaders != pinned {
+		t.Errorf("album headers = %v after a later page, want %v", m.showAlbumHeaders, pinned)
+	}
+}
