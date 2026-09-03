@@ -124,3 +124,49 @@ func TestNotFoundError(t *testing.T) {
 		})
 	}
 }
+
+func TestNotFoundErrorWithAdvice(t *testing.T) {
+	tests := []struct {
+		name       string
+		env        string
+		configured string
+		advice     string
+		want       string
+	}{
+		{
+			name:   "default lookup takes install advice",
+			advice: "install: sudo pacman -S yt-dlp",
+			want:   "yt-dlp not found in PATH — install: sudo pacman -S yt-dlp",
+		},
+		{
+			name: "default lookup without advice",
+			want: "yt-dlp not found in PATH",
+		},
+		{
+			// Installing yt-dlp on PATH cannot fix a broken selection: the
+			// selected path keeps precedence, so the advice must be dropped.
+			name:       "config selection drops install advice",
+			configured: "/opt/yt-dlp",
+			advice:     "install: sudo pacman -S yt-dlp",
+			want:       "yt-dlp not found at /opt/yt-dlp (selected by ytdlp_path)",
+		},
+		{
+			name:   "env selection drops install advice",
+			env:    "/opt/next/yt-dlp",
+			advice: "see https://github.com/yt-dlp/yt-dlp#installation",
+			want:   "yt-dlp not found at /opt/next/yt-dlp (selected by " + EnvVar + ")",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(EnvVar, tt.env)
+			Configure(tt.configured)
+			t.Cleanup(func() { Configure("") })
+
+			if got := NotFoundErrorWithAdvice(tt.advice).Error(); got != tt.want {
+				t.Fatalf("NotFoundErrorWithAdvice(%q) = %q, want %q", tt.advice, got, tt.want)
+			}
+		})
+	}
+}

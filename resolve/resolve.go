@@ -705,7 +705,7 @@ func ResolveYTDLBatchContext(ctx context.Context, pageURL string, start, count i
 // host of pageURL applies.
 func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, count int, browser string) ([]playlist.Track, int, error) {
 	if _, err := ytdlbin.LookPath(); err != nil {
-		return nil, 0, fmt.Errorf("%w — see https://github.com/yt-dlp/yt-dlp#installation", ytdlbin.NotFoundError())
+		return nil, 0, ytdlbin.NotFoundErrorWithAdvice("see https://github.com/yt-dlp/yt-dlp#installation")
 	}
 
 	args := []string{"--flat-playlist", "-j", "--socket-timeout", "15"}
