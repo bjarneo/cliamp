@@ -153,8 +153,6 @@ func (m *Model) clampActiveScrollState() {
 		m.normalizeQueueOverlay()
 	case screenInfo:
 		m.infoMaybeAdjustScroll()
-	case screenRadioStats:
-		m.radioStatsMaybeAdjustScroll()
 	case screenSearch:
 		m.searchMaybeAdjustScroll(m.searchVisible())
 	case screenNetSearch:

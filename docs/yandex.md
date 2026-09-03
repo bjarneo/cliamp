@@ -38,7 +38,7 @@ Inside the TUI:
 
 | Key | Action |
 |---|---|
-| `M` | Open the Yandex Music provider |
+| — | No in-TUI hotkey yet: start cliamp with `--provider yandex` or set `provider = "yandex"` in `config.toml` |
 | `Ctrl+F` | Search the Yandex Music catalog while the provider is active |
 | `Enter` | Load the highlighted playlist or play the highlighted track |
 | `Ctrl+R` | Refresh: reload the current playlist/wave in place, or return to the playlists pane |

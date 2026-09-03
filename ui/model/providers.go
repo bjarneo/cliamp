@@ -434,6 +434,17 @@ func providerSupportsBrowse(prov playlist.Provider) bool {
 	return ok
 }
 
+// navGenreBrowser returns the route-specific category catalogue when one was
+// selected, otherwise the provider's default catalogue. The fallback also
+// keeps directly constructed navigation state useful in tests and integrations.
+func (m Model) navGenreBrowser() provider.GenreBrowser {
+	if m.navBrowser.genreBrowser != nil {
+		return m.navBrowser.genreBrowser
+	}
+	browser, _ := m.navBrowser.prov.(provider.GenreBrowser)
+	return browser
+}
+
 // canOpenProviderBrowser keeps help scoped to the active provider or a
 // highlighted track with a provider-specific creator jump. Merely registering
 // another browsable provider must not advertise its browser in this context.
@@ -444,9 +455,11 @@ func (m Model) canOpenProviderBrowser() bool {
 	return providerSupportsBrowse(m.provider)
 }
 
+// openNavBrowserWith resets and opens the hierarchy for prov at its root menu.
 func (m *Model) openNavBrowserWith(prov playlist.Provider) {
 	nextRequest(&m.requests.nav)
 	m.navBrowser.prov = prov
+	m.navBrowser.genreBrowser, _ = prov.(provider.GenreBrowser)
 	m.navBrowser.visible = true
 	m.navBrowser.mode = navBrowseModeMenu
 	m.navBrowser.screen = navBrowseScreenList
@@ -497,20 +510,23 @@ func (m *Model) navBackFromRoot() {
 // of making the user pass through the generic browse-mode menu first.
 func (m *Model) openNavBrowserAt(prov playlist.Provider, mode provider.BrowseMode) tea.Cmd {
 	openInPlaylist := false
+	entryID := ""
 	if entry, ok := providerBrowseEntryForMode(prov, mode); ok {
 		openInPlaylist = entry.OpenInPlaylist
+		entryID = entry.ID
 	}
-	return m.openNavBrowserRoute(prov, mode, openInPlaylist)
+	return m.openNavBrowserRoute(prov, mode, entryID, openInPlaylist)
 }
 
 // openNavBrowserEntry opens the exact provider-pane route selected by ID. It
 // must not re-resolve by mode because providers may expose multiple entries
 // with the same hierarchy and different leaf behavior.
 func (m *Model) openNavBrowserEntry(prov playlist.Provider, entry provider.BrowseEntry) tea.Cmd {
-	return m.openNavBrowserRoute(prov, entry.Mode, entry.OpenInPlaylist)
+	return m.openNavBrowserRoute(prov, entry.Mode, entry.ID, entry.OpenInPlaylist)
 }
 
-func (m *Model) openNavBrowserRoute(prov playlist.Provider, mode provider.BrowseMode, openInPlaylist bool) tea.Cmd {
+// openNavBrowserRoute resolves and loads one concrete provider browse route.
+func (m *Model) openNavBrowserRoute(prov playlist.Provider, mode provider.BrowseMode, entryID string, openInPlaylist bool) tea.Cmd {
 	m.openNavBrowserWith(prov)
 	m.navBrowser.openInPlaylist = openInPlaylist
 	switch mode {
@@ -537,11 +553,15 @@ func (m *Model) openNavBrowserRoute(prov playlist.Provider, mode provider.Browse
 		m.navBrowser.loading = true
 		return fetchNavArtistsCmd(browser, m.nextNavRequest())
 	case provider.BrowseGenres:
-		browser, ok := prov.(provider.GenreBrowser)
-		if !ok {
+		browser := m.navBrowser.genreBrowser
+		if router, ok := prov.(provider.GenreBrowseRouter); ok && entryID != "" {
+			browser = router.GenreBrowserFor(entryID)
+		}
+		if browser == nil {
 			m.navBrowser.visible = false
 			return nil
 		}
+		m.navBrowser.genreBrowser = browser
 		m.navBrowser.mode = navBrowseModeByGenre
 		m.navBrowser.loading = true
 		return fetchNavGenresCmd(browser, m.nextNavRequest())

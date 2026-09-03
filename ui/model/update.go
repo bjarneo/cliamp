@@ -560,18 +560,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case radioStatsLoadedMsg:
-		if msg.gen != m.requests.radioStats || !m.radioStats.visible {
-			return m, nil
-		}
-		m.radioStats.loading = false
-		m.radioStats.err = msg.err
-		if msg.err == nil {
-			m.radioStats.stats = msg.stats
-		}
-		m.radioStatsMaybeAdjustScroll()
-		return m, nil
-
 	case ytdlBatchMsg:
 		// Discard stale responses from a previous batch session.
 		if msg.gen != m.ytdlBatch.gen {

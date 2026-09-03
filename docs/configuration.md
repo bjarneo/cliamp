@@ -115,8 +115,9 @@ layout. Start one session with `cliamp --simplified`.
 
 `hide_help_bar = true` removes the key-binding hint bar above the status line
 and gives that row back to the playlist. The full keymap stays available with
-`?`, and `Ctrl+G` toggles the bar for the current session. Start one session
-with `cliamp --no-help-bar`. Simplified mode draws neither the hint bar nor a
+`?`, and `Ctrl+G` toggles the bar for the current session. Use
+`cliamp --no-help-bar` to hide it for one session, or `cliamp --help-bar` to
+show it despite this setting. Simplified mode draws neither the hint bar nor a
 playlist, so it is unaffected by this setting.
 
 List views such as provider browsing, file selection, queues, playlists, search

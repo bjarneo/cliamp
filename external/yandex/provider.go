@@ -162,7 +162,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 			owner = uid
 		}
 		section := "Saved Playlists"
-		if list.Owner.UID == uid {
+		if owner == uid {
 			section = "My Playlists"
 		}
 		name := strings.TrimSpace(list.Title)
@@ -415,7 +415,7 @@ func (p *Provider) report(track playlist.Track, playedSeconds int, waveEvent str
 		return nil
 	}
 	if err := p.api.reportPlayback(uid, id, track.DurationSecs, playedSeconds); err != nil {
-		return err
+		return fmt.Errorf("report playback: %w", err)
 	}
 	if wave == nil {
 		return nil

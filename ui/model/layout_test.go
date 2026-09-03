@@ -458,7 +458,6 @@ func TestInlineOverlaysFitResponsiveTerminal(t *testing.T) {
 		{name: "navigation", set: func(m *Model) { m.navBrowser.visible = true }},
 		{name: "playlist manager", set: func(m *Model) { m.plManager.visible = true }},
 		{name: "queue", set: func(m *Model) { m.queue.visible = true }},
-		{name: "radio stats", set: func(m *Model) { m.radioStats.visible = true }},
 		{name: "info", set: func(m *Model) { m.showInfo = true }},
 		{name: "lyrics", set: func(m *Model) { m.lyrics.visible = true }},
 		{name: "jump", set: func(m *Model) { m.jumping = true }},

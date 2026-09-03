@@ -25,18 +25,26 @@ const countryTrackLimit = 200
 // "genres"; for a radio directory they are places.
 func (*Provider) GenreLabel() string { return "Countries" }
 
-// BrowseEntries advertises the country browser in the radio pane. It is
-// unanchored, which puts it at the top of the pane alongside the pinned
-// places: with 58,000 stations behind it, picking a place is the entry point
-// to the catalog, not a footnote to it.
+// BrowseEntries advertises the country and tag browsers in the radio pane.
+// They are unanchored, which puts both discovery routes ahead of the flat
+// station catalog.
 func (*Provider) BrowseEntries() []provider.BrowseEntry {
-	return []provider.BrowseEntry{{
-		ID:             browseCountriesID,
-		Name:           "Browse all countries",
-		Section:        sectionCountries,
-		Mode:           provider.BrowseGenres,
-		OpenInPlaylist: true,
-	}}
+	return []provider.BrowseEntry{
+		{
+			ID:             browseCountriesID,
+			Name:           "Browse all countries",
+			Section:        sectionCountries,
+			Mode:           provider.BrowseGenres,
+			OpenInPlaylist: true,
+		},
+		{
+			ID:             browseTagsID,
+			Name:           "Browse genres & tags",
+			Section:        sectionGenres,
+			Mode:           provider.BrowseGenres,
+			OpenInPlaylist: true,
+		},
+	}
 }
 
 // Genres lists the places stations can be browsed by: every country in the
@@ -114,6 +122,11 @@ func (p *Provider) homeRegionGenres(home Place, pinned map[string]bool) []provid
 
 // GenreSortTypes returns the orders a place's stations can be listed in.
 func (*Provider) GenreSortTypes() []provider.SortType {
+	return radioSortTypes()
+}
+
+// radioSortTypes returns the station orders shared by place and tag browsing.
+func radioSortTypes() []provider.SortType {
 	return []provider.SortType{
 		{ID: SortVotes, Label: "Most Voted"},
 		{ID: SortClicks, Label: "Most Listened"},
@@ -345,12 +358,14 @@ func (p *Provider) placesLocked() []Place {
 	return places
 }
 
-// Refresh drops the cached country index and the loaded catalog page so the
-// next browse and the next catalog page come from the directory again.
+// Refresh drops the cached country and tag indexes and the loaded catalog page
+// so the next browse and the next catalog page come from the directory again.
 func (p *Provider) Refresh() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.countries = nil
 	p.states = nil
+	p.tags = nil
+	p.tagGeneration++
 	p.catalog = nil
 }

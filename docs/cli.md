@@ -121,12 +121,12 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | Flag | Type | Default | Range / Values |
 |------|------|---------|----------------|
 | `--vol` | float | 0 | -30 to +6 dB |
-| `--shuffle` | bool | false | |
+| `--shuffle` / `--no-shuffle` | bool | false | |
 | `--repeat` | string | off | off, all, one |
 | `--mono` / `--no-mono` | bool | false | |
-| `--auto-play` | bool | false | |
-| `--simplified` | bool | false | artist/title and time strip; no visualizer or playlist |
-| `--no-help-bar` | bool | false | hide the key-binding hint bar; `?` still opens the full keymap |
+| `--auto-play` / `--no-auto-play` | bool | false | |
+| `--simplified` / `--no-simplified` | bool | false | artist/title and time strip; no visualizer or playlist |
+| `--help-bar` / `--no-help-bar` | bool | true | show or hide the key-binding hint bar; `?` still opens the full keymap |
 | `--visualizer-60fps` | bool | false | render a visible visualizer at about 60 FPS |
 | `--start-theme` | string | | theme name |
 | `--eq-preset` | string | | preset name |
@@ -136,10 +136,10 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--bit-depth` | int | 16 | 16, 32 |
 | `--playlist` | string | | local TOML playlist name |
 | `--log-level` | string | info | debug, info, warn, error |
-| `--low-power` | bool | false | lower UI cadence; disable visualization |
+| `--low-power` / `--no-low-power` | bool | false | lower UI cadence; disable visualization |
 | `--daemon` / `-d` | bool | false | run headless; IPC only, no TUI |
 
-CLI flags override config file values for the current session only. cliamp does not save them.
+CLI flags override config file values for the current session only. Persisted boolean options accept matching `--no-*` flags, such as `--no-shuffle` and `--no-low-power`. cliamp does not save them.
 
 ## Setup wizard
 

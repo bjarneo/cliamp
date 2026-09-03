@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/ui"
 )
 
@@ -94,6 +95,7 @@ func (m Model) navHelpLine() string {
 	return m.commandHelp(commandModeNavBrowser)
 }
 
+// renderNavBody renders the list for the active provider-browser route.
 func (m Model) renderNavBody() string {
 	labels := m.navLabels()
 	budget := m.effectivePlaylistVisible()
@@ -152,11 +154,15 @@ func (m Model) renderNavBody() string {
 		if len(m.navBrowser.genres) == 0 {
 			return bodyMessage("No "+genres+" found.", budget)
 		}
+		_, canFavorite := m.navGenreBrowser().(provider.GenreFavoriteToggler)
 		items := m.navScrollItems(len(m.navBrowser.genres), func(i int) string {
 			genre := m.navBrowser.genres[i]
-			mark := "☆ "
-			if genre.Favorite {
-				mark = "★ "
+			mark := ""
+			if canFavorite {
+				mark = "☆ "
+				if genre.Favorite {
+					mark = "★ "
+				}
 			}
 			label := mark + genre.Name
 			if genre.Group != "" && !strings.EqualFold(genre.Group, "music") {

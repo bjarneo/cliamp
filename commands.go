@@ -28,12 +28,12 @@ import (
 func buildApp() *cli.Command {
 	rootFlags := []cli.Flag{
 		&cli.Float64Flag{Name: "vol", Usage: "startup volume in dB [-30, +6]"},
-		&cli.BoolFlag{Name: "shuffle", Usage: "shuffle playback"},
+		&cli.BoolWithInverseFlag{Name: "shuffle", Usage: "shuffle playback"},
 		&cli.StringFlag{Name: "repeat", Usage: "repeat mode: off, all, one"},
 		&cli.BoolWithInverseFlag{Name: "mono", Usage: "mono output"},
-		&cli.BoolFlag{Name: "auto-play", Usage: "start playback immediately"},
-		&cli.BoolFlag{Name: "simplified", Usage: "simplified playback view (no visualizer or playlist)"},
-		&cli.BoolFlag{Name: "no-help-bar", Usage: "hide the key-binding hint bar (? still opens the full keymap)"},
+		&cli.BoolWithInverseFlag{Name: "auto-play", Usage: "start playback immediately"},
+		&cli.BoolWithInverseFlag{Name: "simplified", Usage: "simplified playback view (no visualizer or playlist)"},
+		&cli.BoolWithInverseFlag{Name: "help-bar", Usage: "show the key-binding hint bar (? still opens the full keymap)", Value: true},
 		&cli.StringFlag{Name: "provider", Usage: "default provider: radio, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, soundcloud, mixcloud, netease, yandex, audiobookshelf, abs, yt, youtube, ytmusic"},
 		&cli.StringFlag{Name: "start-theme", Usage: "UI theme name"},
 		&cli.StringFlag{Name: "visualizer", Usage: "visualizer mode"},
@@ -47,7 +47,7 @@ func buildApp() *cli.Command {
 		&cli.StringFlag{Name: "playlist", Usage: "load a local TOML playlist by name and start playing"},
 		&cli.StringFlag{Name: "log-level", Usage: "log level: debug, info, warn, error"},
 		&cli.BoolWithInverseFlag{Name: "expand-playlist", Usage: "expand YouTube Music playlists from list= URLs"},
-		&cli.BoolFlag{Name: "low-power", Usage: "low-power mode: reduce CPU by lowering UI cadence and disabling visualization"},
+		&cli.BoolWithInverseFlag{Name: "low-power", Usage: "low-power mode: reduce CPU by lowering UI cadence and disabling visualization"},
 		&cli.BoolFlag{Name: "daemon", Aliases: []string{"d"}, Usage: "run headless (no TUI), serving IPC for scripts/Waybar"},
 	}
 
@@ -146,15 +146,15 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 		ov.Mono = &v
 	}
 	if c.IsSet("auto-play") {
-		v := true
+		v := c.Bool("auto-play")
 		ov.Play = &v
 	}
 	if c.IsSet("simplified") {
-		v := true
+		v := c.Bool("simplified")
 		ov.Simplified = &v
 	}
-	if c.IsSet("no-help-bar") {
-		v := true
+	if c.IsSet("help-bar") {
+		v := !c.Bool("help-bar")
 		ov.HideHelpBar = &v
 	}
 	if c.IsSet("provider") {

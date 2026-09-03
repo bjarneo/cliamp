@@ -43,6 +43,41 @@ type preferredBrowseProvider struct {
 	providerPaneBrowseProvider
 }
 
+type routedGenreBrowser struct{}
+
+func (*routedGenreBrowser) Genres() ([]provider.GenreInfo, error) {
+	return []provider.GenreInfo{{ID: "jazz", Name: "jazz (100)"}}, nil
+}
+
+func (*routedGenreBrowser) GenreSortTypes() []provider.SortType {
+	return []provider.SortType{{ID: "votes", Label: "Most Voted"}}
+}
+
+func (*routedGenreBrowser) GenreTracks(string, string) ([]playlist.Track, error) {
+	return nil, nil
+}
+
+func (*routedGenreBrowser) GenreLabel() string { return "Genres & Tags" }
+
+type routedGenreProvider struct {
+	providerPaneBrowseProvider
+	tags routedGenreBrowser
+}
+
+func (p *routedGenreProvider) BrowseEntries() []provider.BrowseEntry {
+	return []provider.BrowseEntry{
+		{ID: "browse:countries", Name: "Countries", Mode: provider.BrowseGenres},
+		{ID: "browse:tags", Name: "Genres & Tags", Mode: provider.BrowseGenres},
+	}
+}
+
+func (p *routedGenreProvider) GenreBrowserFor(entryID string) provider.GenreBrowser {
+	if entryID == "browse:tags" {
+		return &p.tags
+	}
+	return p
+}
+
 func (p *preferredBrowseProvider) DefaultBrowseMode() provider.BrowseMode {
 	return provider.BrowseArtistAlbums
 }
@@ -552,6 +587,30 @@ func TestProviderPaneUsesExactBrowseEntryLeafBehavior(t *testing.T) {
 	}
 	if !m.navBrowser.openInPlaylist {
 		t.Fatalf("second entry inherited first entry behavior: %+v", m.navBrowser)
+	}
+}
+
+func TestProviderPaneRoutesSameModeEntriesToDistinctGenreBrowsers(t *testing.T) {
+	browse := &routedGenreProvider{providerPaneBrowseProvider: providerPaneBrowseProvider{
+		interactionBrowseProvider{commandsTestProvider{name: "Radio"}},
+	}}
+	m := keybindingTestModel()
+	m.provider = browse
+	m.providerLists = providerListsWithBrowse(browse, nil)
+
+	cmd := m.openProviderList(1)
+	if cmd == nil {
+		t.Fatal("tag browse entry returned no genre-load command")
+	}
+	if m.navGenreBrowser() != &browse.tags {
+		t.Fatalf("genre browser = %T, want routed tag browser", m.navGenreBrowser())
+	}
+	if got := m.navLabels().genresTitle(); got != "Genres & Tags" {
+		t.Fatalf("genre label = %q, want route-specific label", got)
+	}
+	msg, ok := cmd().(navGenresLoadedMsg)
+	if !ok || len(msg.genres) != 1 || msg.genres[0].ID != "jazz" {
+		t.Fatalf("genre load = %#v, want routed jazz catalogue", msg)
 	}
 }
 

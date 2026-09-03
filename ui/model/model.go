@@ -129,7 +129,6 @@ const (
 	screenLyrics
 	screenJump
 	screenFullVisualizer
-	screenRadioStats
 )
 
 func (s topLevelScreen) label() string {
@@ -166,8 +165,6 @@ func (s topLevelScreen) label() string {
 		return "Jump to Time"
 	case screenFullVisualizer:
 		return "Visualizer"
-	case screenRadioStats:
-		return "Radio Stats"
 	default:
 		return ""
 	}
@@ -292,7 +289,6 @@ type Model struct {
 	fileBrowser    fileBrowserState
 	navBrowser     navBrowserState
 	catalogBatch   catalogBatchState
-	radioStats     radioStatsState
 	ytdlBatch      ytdlBatchState
 	reconnect      reconnectState
 	save           saveState
@@ -449,8 +445,6 @@ func (m Model) activeScreen() topLevelScreen {
 		return screenPlaylistManager
 	case m.queue.visible:
 		return screenQueue
-	case m.radioStats.visible:
-		return screenRadioStats
 	case m.showInfo:
 		return screenInfo
 	case m.lyrics.visible:
@@ -483,8 +477,7 @@ func (m Model) usesContentFirstLayout() bool {
 		return true
 	}
 	if m.keymap.visible || m.devicePicker.visible || m.fileBrowser.visible ||
-		m.navBrowser.visible || m.themePicker.visible || m.queue.visible ||
-		m.radioStats.visible || m.search.active {
+		m.navBrowser.visible || m.themePicker.visible || m.queue.visible || m.search.active {
 		return true
 	}
 	if m.plPicker.visible && m.plPicker.screen == plPickerChoose {
