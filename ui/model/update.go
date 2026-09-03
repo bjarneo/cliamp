@@ -426,6 +426,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.playlist.Add(msg.tracks...)
 			m.normalizeQueueOverlay()
 			m.addToHeaderState(msg.tracks)
+			// Add mixes the page into the upcoming shuffle order, so an armed
+			// preload may no longer be the next track. The gapless swap runs on
+			// the audio thread and the model then names the new track from
+			// playlist.Next(), so a stale preload would play one track while the
+			// UI, scrobble and now-playing announced another. Drop it and let the
+			// tick loop re-arm against the order this page produced.
+			if m.player.HasPreload() {
+				m.player.ClearPreload()
+				m.preloading = false
+			}
 		} else {
 			m.replacePlayerPlaylist(msg.tracks)
 			if msg.playlistExact && m.localProvider != nil && msg.providerName == m.localProvider.Name() && msg.playlistID != history.PlaylistName {

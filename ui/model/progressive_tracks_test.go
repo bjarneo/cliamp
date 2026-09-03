@@ -167,3 +167,35 @@ func TestPagesDoNotUnpinTheAlbumHeader(t *testing.T) {
 		t.Errorf("album headers = %v after a later page, want %v", m.showAlbumHeaders, pinned)
 	}
 }
+
+// Add mixes a new page into the upcoming shuffle order, so a preload armed for
+// the old order is no longer the next track. Gapless swaps on the audio thread
+// and the model then names the track from playlist.Next(), so keeping a stale
+// preload would play one track while announcing another.
+func TestPageDropsAStalePreload(t *testing.T) {
+	prov := &pagerProv{name: "Pager", pages: [][]playlist.Track{
+		pageOf("a", "b"), pageOf("c", "d"),
+	}}
+	m := newPagingModel(prov)
+	engine := m.player.(*playbackFakeEngine)
+	engine.hasPreload = true
+
+	updated, _ := m.Update(tracksLoadedMsg{
+		tracks: prov.pages[0], playlistID: "list", providerName: "Pager", offset: 0, next: 1, gen: 1,
+	})
+	m = updated.(Model)
+	before := engine.clearPreloadCalls
+	m.preloading = true
+
+	updated, _ = m.Update(tracksLoadedMsg{
+		tracks: prov.pages[1], playlistID: "list", providerName: "Pager", offset: 1, next: 0, gen: 1,
+	})
+	m = updated.(Model)
+
+	if engine.clearPreloadCalls == before {
+		t.Error("appending a page left a stale preload armed")
+	}
+	if m.preloading {
+		t.Error("preloading flag still set; the tick loop will not re-arm")
+	}
+}
