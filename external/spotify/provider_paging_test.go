@@ -158,26 +158,6 @@ func TestTracksPageAbortedLoadDoesNotCache(t *testing.T) {
 	}
 }
 
-// A library that changes mid-load shifts every later offset, so pages from two
-// snapshots would splice into a list short by one and duplicated by one. The
-// revalidation probe cannot see that, so the accumulation must refuse to commit.
-func TestTracksPageAbandonsLoadWhenLibraryChangesMidLoad(t *testing.T) {
-	calls := 0
-	total := 120
-	p := stubSavedTracks(t, &calls, func(offset, limit int) string {
-		body := savedTracksBodyShift(offset, limit, total, 0)
-		if offset == 0 {
-			total++ // someone liked a track while page 1 was in flight
-		}
-		return body
-	})
-	drainSavedTracks(t, p)
-
-	if cached, ok := p.trackCache["YOUR MUSIC"]; ok && cached.tracks != nil {
-		t.Errorf("committed a cache spanning two library snapshots (%d tracks)", len(cached.tracks))
-	}
-}
-
 // savedTracksBodyShift renders a saved-tracks page for a library that has had
 // shift entries prepended: index i holds new{shift-1-i} for the newest ones and
 // t{i-shift} below them, which is how a like actually moves every later index.
@@ -209,6 +189,69 @@ func mutatingSavedTracks(t *testing.T, start, bumps int, calls *int) *SpotifyPro
 		}
 		return body
 	})
+}
+
+// A library that changes mid-load shifts every later offset, so pages from two
+// snapshots would splice into a list short by one and duplicated by one. The
+// revalidation probe cannot see that, so the load must refuse to commit -- and
+// must stop, since every later page would mismatch the pinned snapshot too.
+func TestTracksPageAbandonsLoadWhenLibraryChangesMidLoad(t *testing.T) {
+	calls := 0
+	total := 120
+	p := stubSavedTracks(t, &calls, func(offset, limit int) string {
+		body := savedTracksBodyShift(offset, limit, total, 0)
+		if offset == 0 {
+			total++ // someone liked a track while page 1 was in flight
+		}
+		return body
+	})
+
+	var err error
+	for offset := 0; ; {
+		var next int
+		if _, next, err = p.TracksPage("YOUR MUSIC", offset); err != nil || next == 0 {
+			break
+		}
+		offset = next
+	}
+
+	if err == nil {
+		t.Error("a load spanning two snapshots was allowed to run to completion")
+	}
+	if cached, ok := p.trackCache["YOUR MUSIC"]; ok && cached.tracks != nil {
+		t.Errorf("committed a cache spanning two library snapshots (%d tracks)", len(cached.tracks))
+	}
+	if _, ok := p.pending["YOUR MUSIC"]; ok {
+		t.Error("a doomed accumulation was left behind")
+	}
+}
+
+// Drift is detected on the page that carries the new total, and nothing after
+// it can ever be accumulated. Continuing would spend the rest of the library's
+// pages on a result already destined to be discarded.
+func TestTracksPageStopsSpendingRequestsAfterDrift(t *testing.T) {
+	calls := 0
+	total := 1000
+	p := stubSavedTracks(t, &calls, func(offset, limit int) string {
+		body := savedTracksBodyShift(offset, limit, total, 0)
+		if offset == 200 {
+			total-- // a track is removed while page 200 is in flight
+		}
+		return body
+	})
+
+	for offset := 0; ; {
+		_, next, err := p.TracksPage("YOUR MUSIC", offset)
+		if err != nil || next == 0 {
+			break
+		}
+		offset = next
+	}
+
+	// Pages 0..200 are five requests; the sixth carries the changed total.
+	if calls != 6 {
+		t.Errorf("made %d requests, want 6: the chain kept fetching past the drift", calls)
+	}
 }
 
 func TestTracksRestartsWhenLibraryChangesMidLoad(t *testing.T) {

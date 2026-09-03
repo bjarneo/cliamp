@@ -601,8 +601,18 @@ func (p *SpotifyProvider) TracksPage(playlistID string, offset int) ([]playlist.
 		pend = &pendingTracks{total: total}
 		p.pending[playlistID] = pend
 	}
-	if pend == nil || pend.want != offset || pend.total != total {
+	// A page at an offset this accumulation is not waiting for belongs to a
+	// superseded chain: serve it to its caller, but do not accumulate it.
+	if pend == nil || pend.want != offset {
 		return page, next, nil
+	}
+	// The live chain's own page reporting a different total means the library
+	// moved under it. Every later page would mismatch the pinned snapshot too,
+	// so the load can never commit -- stop now rather than spending the rest of
+	// the pages on a result that is already discarded.
+	if pend.total != total {
+		delete(p.pending, playlistID)
+		return nil, 0, fmt.Errorf("spotify: list tracks: %q changed while loading", playlistID)
 	}
 	pend.tracks = append(pend.tracks, page...)
 	pend.want = next
