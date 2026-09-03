@@ -567,6 +567,13 @@ func (p *SpotifyProvider) TracksPage(playlistID string, offset int) ([]playlist.
 	defer p.mu.Unlock()
 	pend := p.pending[playlistID]
 	if offset == 0 {
+		// Re-entering a list that was abandoned mid-load resumes the earlier
+		// accumulation rather than refetching every page already paid for, but
+		// only when page 0 still reports the total it was started from -- a
+		// changed library would otherwise splice two snapshots.
+		if pend != nil && pend.want > 0 && pend.total == total {
+			return slices.Clone(pend.tracks), pend.want, nil
+		}
 		pend = &pendingTracks{total: total}
 		p.pending[playlistID] = pend
 	}

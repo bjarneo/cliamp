@@ -290,3 +290,80 @@ func TestTracksGivesUpOnAContinuouslyChangingLibrary(t *testing.T) {
 		t.Error("cached a list assembled from a library that never settled")
 	}
 }
+
+// Backing out of a still-loading list and re-entering must not refetch the
+// pages already paid for; the accumulation resumes where it stopped.
+func TestTracksPageResumesAnAbandonedLoad(t *testing.T) {
+	calls := 0
+	p := savedTracksProvider(t, 200, &calls)
+
+	if _, next, err := p.TracksPage("YOUR MUSIC", 0); err != nil || next != 50 {
+		t.Fatalf("page 0: next=%d err=%v", next, err)
+	}
+	if _, next, err := p.TracksPage("YOUR MUSIC", 50); err != nil || next != 100 {
+		t.Fatalf("page 50: next=%d err=%v", next, err)
+	}
+	calls = 0
+
+	page, next, err := p.TracksPage("YOUR MUSIC", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 100 {
+		t.Errorf("resumed with %d tracks, want the 100 already loaded", len(page))
+	}
+	if next != 100 {
+		t.Errorf("resumed at offset %d, want 100", next)
+	}
+	if calls != 1 {
+		t.Errorf("made %d requests to resume, want 1 (page 0 only)", calls)
+	}
+
+	if got := drainFrom(t, p, next) + len(page); got != 200 {
+		t.Errorf("collected %d tracks in total, want 200", got)
+	}
+	if cached := p.trackCache["YOUR MUSIC"]; cached == nil || len(cached.tracks) != 200 {
+		t.Error("resumed load did not commit a complete cache")
+	}
+}
+
+// A library that changed while the user was away must discard the abandoned
+// accumulation rather than resuming onto a different snapshot.
+func TestTracksPageDiscardsAbandonedLoadWhenLibraryChanged(t *testing.T) {
+	calls := 0
+	p := mutatingSavedTracks(t, 200, 0, &calls)
+
+	if _, next, err := p.TracksPage("YOUR MUSIC", 0); err != nil || next != 50 {
+		t.Fatalf("page 0: next=%d err=%v", next, err)
+	}
+	if _, _, err := p.TracksPage("YOUR MUSIC", 50); err != nil {
+		t.Fatal(err)
+	}
+	// Someone likes a track while the list is closed.
+	p.pending["YOUR MUSIC"].total = 199
+
+	page, next, err := p.TracksPage("YOUR MUSIC", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 50 || next != 50 {
+		t.Errorf("got %d tracks and next=%d, want a fresh page 0 of 50 and next=50", len(page), next)
+	}
+	if pend := p.pending["YOUR MUSIC"]; pend == nil || len(pend.tracks) != 50 || pend.total != 200 {
+		t.Error("stale accumulation survived a snapshot change")
+	}
+}
+
+func drainFrom(t *testing.T, p *SpotifyProvider, offset int) int {
+	t.Helper()
+	got := 0
+	for offset != 0 {
+		page, next, err := p.TracksPage("YOUR MUSIC", offset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got += len(page)
+		offset = next
+	}
+	return got
+}
