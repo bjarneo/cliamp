@@ -424,3 +424,74 @@ func TestTracksPageDiscardsAbandonedLoadWhenHeadChangedAtSameTotal(t *testing.T)
 		t.Errorf("restarted accumulation begins with %s, want the new head", pend.tracks[0].Path)
 	}
 }
+
+// Accumulations are keyed by playlist, so several lists can each be abandoned
+// part-way and later resume from their own stopping point.
+func TestTracksPageResumesEachPlaylistIndependently(t *testing.T) {
+	totals := map[string]int{"alpha": 200, "beta": 150}
+	calls := 0
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		id := strings.TrimSuffix(strings.TrimPrefix(req.URL.Path, "/v1/playlists/"), "/items")
+		total, ok := totals[id]
+		if !ok {
+			return nil, fmt.Errorf("unexpected Spotify API path %q", req.URL.Path)
+		}
+		calls++
+		offset, _ := strconv.Atoi(req.URL.Query().Get("offset"))
+		limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
+		var items []string
+		for i := offset; i < total && i < offset+limit; i++ {
+			items = append(items, fmt.Sprintf(
+				`{"item":{"id":"%s%d","name":"n","type":"track","uri":"spotify:track:%s%d"}}`, id, i, id, i))
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     make(http.Header),
+			Body: io.NopCloser(strings.NewReader(
+				fmt.Sprintf(`{"items":[%s],"total":%d}`, strings.Join(items, ","), total))),
+			Request: req,
+		}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
+	p := New(sess, "client", 320)
+
+	// Get two lists part-way, abandoning each.
+	for _, step := range []struct {
+		id     string
+		stopAt int
+	}{{"alpha", 100}, {"beta", 50}} {
+		offset := 0
+		for offset < step.stopAt {
+			_, next, err := p.TracksPage(step.id, offset)
+			if err != nil {
+				t.Fatal(err)
+			}
+			offset = next
+		}
+	}
+
+	for _, want := range []struct {
+		id     string
+		tracks int
+		next   int
+	}{{"alpha", 100, 100}, {"beta", 50, 50}} {
+		calls = 0
+		page, next, err := p.TracksPage(want.id, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page) != want.tracks || next != want.next {
+			t.Errorf("%s resumed with %d tracks at %d, want %d at %d", want.id, len(page), next, want.tracks, want.next)
+		}
+		if calls != 1 {
+			t.Errorf("%s took %d requests to resume, want 1", want.id, calls)
+		}
+		if page[0].Path != fmt.Sprintf("spotify:track:%s0", want.id) {
+			t.Errorf("%s resumed with another playlist's tracks: %s", want.id, page[0].Path)
+		}
+	}
+}
