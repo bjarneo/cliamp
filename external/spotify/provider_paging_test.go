@@ -264,6 +264,9 @@ func TestTracksRestartsWhenLibraryChangesMidLoad(t *testing.T) {
 	if len(tracks) != 121 {
 		t.Errorf("got %d tracks, want 121 from a single settled snapshot", len(tracks))
 	}
+	if len(tracks) > 0 && tracks[0].Path != "spotify:track:new0" {
+		t.Errorf("newest track is %s, want the settled snapshot's new0", tracks[0].Path)
+	}
 	seen := make(map[string]bool, len(tracks))
 	for _, tr := range tracks {
 		if seen[tr.Path] {
