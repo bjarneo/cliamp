@@ -420,27 +420,39 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
+	// A like or unlike mid-load shifts every later offset, so pages read either
+	// side of the change splice into a list short by one and duplicated by one.
+	// Restart against the new snapshot when the total moves, bounding restarts
+	// so a library being actively edited cannot loop forever.
+	const maxRestarts = 2
 	var all []playlist.Track
-	offset := 0
-	limit := spotifyTrackPageSize
-
-	grand := 0
+	total, offset, restarts := -1, 0, 0
 	for {
-		page, total, err := p.fetchTracksPage(ctx, playlistID, offset)
+		page, pageTotal, err := p.fetchTracksPage(ctx, playlistID, offset)
 		if err != nil {
 			return nil, err
 		}
+		if total < 0 {
+			total = pageTotal
+		}
+		if pageTotal != total {
+			if restarts == maxRestarts {
+				return nil, fmt.Errorf("spotify: list tracks: %q changed while loading", playlistID)
+			}
+			restarts++
+			all, total, offset = nil, -1, 0
+			continue
+		}
 		all = append(all, page...)
-		grand = total
-		if offset+limit >= total {
+		if offset+spotifyTrackPageSize >= total {
 			break
 		}
-		offset += limit
+		offset += spotifyTrackPageSize
 	}
 
 	// Cache the fetched tracks.
 	p.mu.Lock()
-	p.cacheTracksLocked(playlistID, all, grand)
+	p.cacheTracksLocked(playlistID, all, total)
 	p.mu.Unlock()
 
 	return slices.Clone(all), nil

@@ -206,3 +206,84 @@ func TestTracksPageAbandonsLoadWhenLibraryChangesMidLoad(t *testing.T) {
 		t.Errorf("committed a cache spanning two library snapshots (%d tracks)", len(cached.tracks))
 	}
 }
+
+// mutatingSavedTracks models a library that grows while it is being read. A
+// like prepends, so at snapshot k index i holds new{k-1-i} for the k newest
+// entries and t{i-k} below them -- meaning pages read either side of a change
+// overlap by one. bumps caps how many times the library moves.
+func mutatingSavedTracks(t *testing.T, start, bumps int, calls *int) *SpotifyProvider {
+	t.Helper()
+	total := start
+	done := 0
+	body := func(offset, limit, total, shift int) string {
+		var items []string
+		for i := offset; i < total && i < offset+limit; i++ {
+			id := fmt.Sprintf("t%d", i-shift)
+			if i < shift {
+				id = fmt.Sprintf("new%d", shift-1-i)
+			}
+			items = append(items, fmt.Sprintf(
+				`{"track":{"id":"%s","name":"%s","type":"track","uri":"spotify:track:%s"}}`, id, id, id))
+		}
+		return fmt.Sprintf(`{"items":[%s],"total":%d}`, strings.Join(items, ","), total)
+	}
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/v1/me/tracks" {
+			return nil, fmt.Errorf("unexpected Spotify API path %q", req.URL.Path)
+		}
+		*calls++
+		offset, _ := strconv.Atoi(req.URL.Query().Get("offset"))
+		limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
+		out := body(offset, limit, total, done)
+		if offset == 0 && done < bumps {
+			total++
+			done++
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(out)),
+			Request:    req,
+		}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
+	return New(sess, "client", 320)
+}
+
+func TestTracksRestartsWhenLibraryChangesMidLoad(t *testing.T) {
+	calls := 0
+	p := mutatingSavedTracks(t, 120, 1, &calls)
+
+	tracks, err := p.Tracks("YOUR MUSIC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tracks) != 121 {
+		t.Errorf("got %d tracks, want 121 from a single settled snapshot", len(tracks))
+	}
+	seen := make(map[string]bool, len(tracks))
+	for _, tr := range tracks {
+		if seen[tr.Path] {
+			t.Fatalf("duplicate %s: the list was spliced across two snapshots", tr.Path)
+		}
+		seen[tr.Path] = true
+	}
+	if cached := p.trackCache["YOUR MUSIC"]; cached == nil || cached.total != 121 {
+		t.Errorf("cached total = %v, want 121", cached)
+	}
+}
+
+func TestTracksGivesUpOnAContinuouslyChangingLibrary(t *testing.T) {
+	calls := 0
+	p := mutatingSavedTracks(t, 120, 99, &calls)
+
+	if _, err := p.Tracks("YOUR MUSIC"); err == nil {
+		t.Fatal("expected an error when the library never settles")
+	}
+	if _, ok := p.trackCache["YOUR MUSIC"]; ok {
+		t.Error("cached a list assembled from a library that never settled")
+	}
+}
