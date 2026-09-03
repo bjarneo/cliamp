@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bjarneo/cliamp/internal/ytdlbin"
 	"github.com/bjarneo/cliamp/playlist"
 )
 
@@ -333,6 +334,9 @@ func TestResolveYTDLBatchCookieSelection(t *testing.T) {
 	}
 
 	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// CLIAMP_YTDLP outranks PATH, so a developer with it set would otherwise
+	// run their real yt-dlp instead of this fixture.
+	t.Setenv(ytdlbin.EnvVar, "")
 
 	// 1. Fall back to cookies configured for the URL's host.
 	SetYTDLCookiesForHost("example.com", "firefox")
