@@ -674,7 +674,7 @@ func resolveYTDLRangeContext(ctx context.Context, pageURL string, start, end int
 
 func resolveYTDLRangePageContext(ctx context.Context, pageURL string, start, end int, browser ...string) ([]playlist.Track, int, error) {
 	if _, err := ytdlbin.LookPath(); err != nil {
-		return nil, 0, ytdlbin.NotFoundErrorWithAdvice("see https://github.com/yt-dlp/yt-dlp#installation")
+		return nil, 0, ytdlbin.NotFoundErrorWithAdvice(err, "see https://github.com/yt-dlp/yt-dlp#installation")
 	}
 
 	args := []string{"--flat-playlist", "-j", "--socket-timeout", "15"}
@@ -763,7 +763,7 @@ func parseYTDLTracks(r io.Reader) ([]playlist.Track, int, error) {
 // and returns the output file path. Uses yt-dlp's default naming template.
 func DownloadYTDL(pageURL, saveDir string) (string, error) {
 	if _, err := ytdlbin.LookPath(); err != nil {
-		return "", ytdlbin.NotFoundError()
+		return "", ytdlbin.NotFoundError(err)
 	}
 
 	outTemplate := filepath.Join(saveDir, "%(artist,uploader)s - %(title)s.%(ext)s")

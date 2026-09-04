@@ -229,7 +229,7 @@ cookies_from = "firefox"   # or chrome, chromium, brave, edge, opera, safari, vi
 
 With cookies set, yt-dlp can stream subscriber-gated tracks (SoundCloud Go+) and access private likes and playlists that your account can access. The same cookies apply to player yt-dlp calls. Playback uses your signed-in session.
 
-Requires `yt-dlp` on `PATH`.
+Requires an executable yt-dlp, selected by `CLIAMP_YTDLP`, `ytdlp_path`, or `PATH`. See [yt-dlp.md](yt-dlp.md).
 
 ## Mixcloud
 

@@ -292,7 +292,7 @@ func monitorExit(cmd *exec.Cmd, stderr *limitedBuffer, name string) (<-chan erro
 // to skip to the desired position in the input stream.
 func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) (*ytdlPipeStreamer, beep.Format, error) {
 	if _, err := ytdlbin.LookPath(); err != nil {
-		return nil, beep.Format{}, ytdlbin.NotFoundErrorWithAdvice("install: " + YtdlpInstallHint())
+		return nil, beep.Format{}, ytdlbin.NotFoundErrorWithAdvice(err, "install: "+YtdlpInstallHint())
 	}
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		return nil, beep.Format{}, fmt.Errorf("ffmpeg is required — install: %s", ffmpegInstallHint())

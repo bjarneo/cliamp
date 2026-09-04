@@ -50,18 +50,52 @@ CLIAMP_YTDLP=~/.local/bin/yt-dlp cliamp
 `HTTP Error 403: Forbidden` means the source rejected the media URL yt-dlp
 handed to cliamp. A single 403 is usually transient, and cliamp retries the
 track automatically. When every retry fails, cliamp shows yt-dlp's own output
-for the last attempt, including any warnings it printed. On YouTube the cause
-is almost always local:
+for the last attempt, including any warnings it printed. On YouTube, common
+causes include:
 
 - **Outdated yt-dlp.** yt-dlp warns when its version is more than 90 days old.
-  Update it, or set `ytdlp_path` to a newer binary. Check with
-  `yt-dlp --version`.
-- **No JavaScript runtime.** yt-dlp needs one (`deno` by default) to solve the
-  challenge that signs media URLs, and warns when it has none. Install
-  [Deno](https://deno.com), or see yt-dlp's
-  [EJS guide](https://github.com/yt-dlp/yt-dlp/wiki/EJS) for the other
-  supported runtimes. `yt-dlp -v --simulate` prints a `JS runtimes:` line that
-  reads `none` when nothing is available.
+  Update it, or set `ytdlp_path` to a newer binary.
+- **No JavaScript runtime.** yt-dlp solves YouTube's challenges with an
+  external runtime, `deno` by default. Install [Deno](https://deno.com), or see
+  yt-dlp's [EJS guide](https://github.com/yt-dlp/yt-dlp/wiki/EJS) for the other
+  supported runtimes and how to point yt-dlp at one that is not on `PATH`.
+- **Missing EJS components.** The runtime executes the
+  [yt-dlp-ejs](https://github.com/yt-dlp/ejs) solver scripts. Official yt-dlp
+  binaries bundle them; a pip or pipx install needs the `default` dependency
+  group (`pip install -U "yt-dlp[default]"`), and a distribution package may
+  ship an outdated `yt-dlp-ejs` or none at all. The
+  [EJS guide](https://github.com/yt-dlp/yt-dlp/wiki/EJS) also covers fetching
+  the scripts at runtime with `--remote-components`.
+- **Missing PO token.** Some YouTube clients only serve formats to a request
+  carrying a proof-of-origin token. See yt-dlp's
+  [PO token guide](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide);
+  browser cookies (`cookies_from`) change which clients yt-dlp uses and often
+  help.
+
+Run the diagnostics against the binary cliamp actually runs, not whichever
+`yt-dlp` your shell resolves first — with `ytdlp_path` set they can be
+different installs:
+
+```sh
+# $CLIAMP_YTDLP, else the ytdlp_path from config.toml, else yt-dlp on PATH
+YTDLP="${CLIAMP_YTDLP:-yt-dlp}"   # or: YTDLP=~/.local/bin/yt-dlp
+"$YTDLP" --version
+"$YTDLP" -v --simulate 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+```
+
+The `-v` header covers the first three, and the `[pot]` lines show which
+proof-of-origin providers, if any, are plugged in:
+
+```text
+[debug] yt-dlp version stable@2026.08.19 from yt-dlp/yt-dlp (linux_aarch64_exe)
+[debug] Optional libraries: ..., yt_dlp_ejs-0.8.0   # absent = no EJS scripts
+[debug] JS runtimes: deno-2.9.6                     # "none" = no runtime
+[debug] [youtube] [pot] PO Token Providers: none
+```
+
+yt-dlp reports the outdated-version and missing-runtime cases as warnings on
+stderr, and cliamp passes them through, so they normally show up in the error
+without running this by hand.
 
 ## Disclaimer
 

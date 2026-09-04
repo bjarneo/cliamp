@@ -140,6 +140,6 @@ For cookie-backed providers (`cookies_from`), cliamp adds all custom playlists t
 
 ## Requirements
 
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) installed and on `PATH` for audio playback
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) installed for audio playback, on `PATH` or selected by `ytdlp_path`/`CLIAMP_YTDLP` ([yt-dlp.md](yt-dlp.md))
 - Browser cookies (`cookies_from = "browser"`, no Google Cloud setup) or a Google Cloud project with YouTube Data API v3 enabled for OAuth
 - No Spotify Premium or other paid subscription is required. The YouTube Music free tier works.

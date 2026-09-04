@@ -10,7 +10,6 @@ package ytdlbin
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -41,16 +40,24 @@ func Configure(path string) {
 // Name returns the command cliamp should exec. A bare "yt-dlp" is resolved
 // from PATH by os/exec; an explicit path is used as given.
 func Name() string {
+	name, _ := selection()
+	return name
+}
+
+// selection reports the command to exec and the setting that chose it. The
+// source is "" for the default PATH lookup, so callers can tell an unset
+// installation apart from a selector that happens to name "yt-dlp".
+func selection() (name, source string) {
 	if env := expand(os.Getenv(EnvVar)); env != "" {
-		return env
+		return env, EnvVar
 	}
 
 	mu.RLock()
 	defer mu.RUnlock()
 	if configured != "" {
-		return configured
+		return configured, "ytdlp_path"
 	}
-	return DefaultName
+	return DefaultName, ""
 }
 
 // LookPath reports the absolute path of the yt-dlp cliamp would run, or an
@@ -65,36 +72,53 @@ func Available() bool {
 	return err == nil
 }
 
-// NotFoundError describes an unusable yt-dlp. An explicitly selected binary is
-// named together with the setting that selected it, so a typo in ytdlp_path is
-// not mistaken for a missing installation.
-func NotFoundError() error {
-	name := Name()
-	if name == DefaultName {
-		return errors.New("yt-dlp not found in PATH")
+// notFoundError explains an unusable yt-dlp in cliamp's terms while still
+// unwrapping to the os/exec lookup failure, so callers keep errors.Is and
+// errors.As against exec.ErrNotFound or fs.ErrPermission. Wrapping with %w in
+// the text instead would paste exec's own "executable file not found in $PATH"
+// into a message the TUI shows.
+type notFoundError struct {
+	msg   string
+	cause error
+}
+
+func (e *notFoundError) Error() string { return e.msg }
+func (e *notFoundError) Unwrap() error { return e.cause }
+
+// NotFoundError describes an unusable yt-dlp, wrapping the lookup failure that
+// produced it. An explicitly selected binary is named together with the
+// setting that selected it, so a typo in ytdlp_path is not mistaken for a
+// missing installation. A selector holding a bare "yt-dlp" still resolves
+// through PATH, and the message says so while naming the selector.
+func NotFoundError(cause error) error {
+	name, source := selection()
+	switch {
+	case source == "":
+		return &notFoundError{msg: "yt-dlp not found in PATH", cause: cause}
+	case name == DefaultName:
+		return &notFoundError{
+			msg:   fmt.Sprintf("yt-dlp not found in PATH (selected by %s)", source),
+			cause: cause,
+		}
+	default:
+		return &notFoundError{
+			msg:   fmt.Sprintf("yt-dlp not found at %s (selected by %s)", name, source),
+			cause: cause,
+		}
 	}
-	return fmt.Errorf("yt-dlp not found at %s (selected by %s)", name, selectedBy())
 }
 
 // NotFoundErrorWithAdvice returns NotFoundError with install guidance
-// appended, but only when the bare PATH lookup is in effect. An explicitly
-// selected binary keeps precedence over anything installed on PATH, so telling
-// a user with a broken ytdlp_path or CLIAMP_YTDLP to install yt-dlp sends them
-// after a fix that cannot work.
-func NotFoundErrorWithAdvice(advice string) error {
-	err := NotFoundError()
+// appended, but only when the command still resolves through PATH. An explicit
+// path keeps precedence over anything installed on PATH, so telling a user with
+// a broken ytdlp_path or CLIAMP_YTDLP to install yt-dlp sends them after a fix
+// that cannot work.
+func NotFoundErrorWithAdvice(cause error, advice string) error {
+	err := NotFoundError(cause)
 	if Name() != DefaultName || strings.TrimSpace(advice) == "" {
 		return err
 	}
-	return fmt.Errorf("%w — %s", err, advice)
-}
-
-// selectedBy names the setting that chose the current binary.
-func selectedBy() string {
-	if expand(os.Getenv(EnvVar)) != "" {
-		return EnvVar
-	}
-	return "ytdlp_path"
+	return &notFoundError{msg: fmt.Sprintf("%s — %s", err, advice), cause: cause}
 }
 
 // Command builds an *exec.Cmd for the resolved yt-dlp binary.
