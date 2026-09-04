@@ -8,9 +8,9 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"time"
 
+	"golang.org/x/net/http/httpproxy"
 	"golang.org/x/net/proxy"
 )
 
@@ -25,37 +25,37 @@ import (
 // the codebase uses http.DefaultTransport, which already honors these vars.
 var Streaming = &http.Client{Transport: newStreamingTransport()}
 
-// socks5ProxyFromEnv looks for a socks5:// or socks5h:// proxy URL in the
-// standard proxy environment variables.
-//
-// net/http.Transport's Proxy field, and the CONNECT-based tunneling it does
-// under the hood, only understand plain HTTP proxying and HTTP(S) proxies.
-// They have no support for the SOCKS5 protocol. If HTTPS_PROXY/HTTP_PROXY
-// is set to a socks5:// URL (common with corporate VPN clients that expose
-// a local SOCKS5 endpoint), http.ProxyFromEnvironment still happily returns
-// it as "the proxy to use", so Transport dials the proxy's address and then
-// writes an HTTP request line or a CONNECT request at it. A SOCKS5 server
-// doesn't understand either, so the connection just hangs forever: no
-// error, the local TCP connect to the proxy succeeds fine, it just never
-// gets a response it can parse. This is handled explicitly below instead.
-func socks5ProxyFromEnv() *url.URL {
-	for _, env := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"} {
-		v := os.Getenv(env)
-		if v == "" {
-			continue
-		}
-		u, err := url.Parse(v)
-		if err != nil || (u.Scheme != "socks5" && u.Scheme != "socks5h") {
-			continue
-		}
-		return u
-	}
-	return nil
+// resolveEnvProxy resolves the proxy that applies to a request for the
+// given scheme+addr, honoring HTTP_PROXY/HTTPS_PROXY/ALL_PROXY/NO_PROXY
+// exactly like the standard library does: httpproxy.FromEnvironment()
+// reads those same variables (NO_PROXY included) and applies the same
+// host/port bypass matching net/http itself uses. addr is "host:port";
+// scheme is "http" or "https" so the scheme-specific proxy variable
+// (HTTP_PROXY vs HTTPS_PROXY) is honored per request rather than picking
+// one proxy for every request regardless of scheme.
+func resolveEnvProxy(scheme, addr string) (*url.URL, error) {
+	reqURL := &url.URL{Scheme: scheme, Host: addr}
+	return httpproxy.FromEnvironment().ProxyFunc()(reqURL)
 }
 
+// socks5DialerFromURL builds a SOCKS5 dialer for u (scheme socks5/socks5h).
+//
+// If u carries credentials, they're refused unless the proxy is reached
+// over loopback: the SOCKS5 handshake itself is unauthenticated/unencrypted
+// on the wire, so a username/password would otherwise cross the network in
+// the clear. A local proxy (127.0.0.1/::1 -- the common case for VPN
+// clients that expose a SOCKS5 endpoint on the machine itself) doesn't
+// have that exposure, so credentials are allowed there.
 func socks5DialerFromURL(u *url.URL) (proxy.Dialer, error) {
 	var auth *proxy.Auth
 	if u.User != nil {
+		host, _, err := net.SplitHostPort(u.Host)
+		if err != nil {
+			host = u.Host
+		}
+		if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+			return nil, fmt.Errorf("refusing to send SOCKS5 credentials to non-local proxy %q over an unencrypted connection", u.Host)
+		}
 		auth = &proxy.Auth{User: u.User.Username()}
 		if pw, ok := u.User.Password(); ok {
 			auth.Password = pw
@@ -64,36 +64,53 @@ func socks5DialerFromURL(u *url.URL) (proxy.Dialer, error) {
 	return proxy.SOCKS5("tcp", u.Host, auth, proxy.Direct)
 }
 
-func newStreamingTransport() *http.Transport {
-	var socks5 proxy.Dialer
-	if u := socks5ProxyFromEnv(); u != nil {
-		if d, err := socks5DialerFromURL(u); err == nil {
-			socks5 = d
-		}
+// socks5DialerFor returns a SOCKS5 dialer to use for a request of the
+// given scheme to addr, or nil if the environment's proxy configuration
+// (NO_PROXY included) doesn't call for SOCKS5 here -- either no proxy
+// applies, or it's a plain http(s) proxy that net/http.Transport's own
+// Proxy field already knows how to speak to.
+func socks5DialerFor(scheme, addr string) (proxy.Dialer, error) {
+	u, err := resolveEnvProxy(scheme, addr)
+	if err != nil || u == nil {
+		return nil, err
 	}
+	if u.Scheme != "socks5" && u.Scheme != "socks5h" {
+		return nil, nil
+	}
+	return socks5DialerFromURL(u)
+}
 
+func newStreamingTransport() *http.Transport {
 	tr := &http.Transport{
 		ResponseHeaderTimeout: 30 * time.Second,
 		TLSNextProto:          make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
 	}
-	if socks5 == nil {
-		// Only hand HTTP(S)-style proxying off to Transport's own logic.
-		// When we're dialing through SOCKS5 ourselves (below), Transport
-		// must not also try to proxy: it would dial the proxy's address
-		// via DialContext and speak CONNECT at it, conflicting with the
-		// SOCKS5 dial happening inside DialContext/DialTLSContext.
-		tr.Proxy = http.ProxyFromEnvironment
-	}
 
-	rawDial := func(ctx context.Context, network, addr string) (net.Conn, error) {
-		if socks5 != nil {
-			return socks5.Dial(network, addr)
+	// Delegate to the environment exactly like http.ProxyFromEnvironment,
+	// EXCEPT when the resolved proxy is socks5/socks5h: net/http.Transport
+	// only understands plain HTTP proxying and HTTP CONNECT tunneling
+	// against an http(s):// proxy, nothing else. If HTTPS_PROXY/HTTP_PROXY
+	// is set to a socks5:// URL, Transport would dial the proxy's address
+	// and write an HTTP request/CONNECT at it; a SOCKS5 server doesn't
+	// understand either, so the connection hangs forever with no error.
+	// Returning nil here for that case tells Transport "no proxy, dial
+	// the target directly" -- DialContext/DialTLSContext below then do
+	// the actual SOCKS5 dial themselves, re-resolving per request so
+	// NO_PROXY and the scheme-specific *_PROXY variable are both honored,
+	// not just baked in once at transport-construction time.
+	tr.Proxy = func(req *http.Request) (*url.URL, error) {
+		u, err := httpproxy.FromEnvironment().ProxyFunc()(req.URL)
+		if err != nil || u == nil {
+			return u, err
 		}
-		return (&net.Dialer{}).DialContext(ctx, network, addr)
+		if u.Scheme == "socks5" || u.Scheme == "socks5h" {
+			return nil, nil
+		}
+		return u, nil
 	}
 
 	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		conn, err := rawDial(ctx, network, addr)
+		conn, err := dialMaybeSOCKS5(ctx, "http", network, addr)
 		if err != nil {
 			return nil, fmt.Errorf("dial %s: %w", addr, err)
 		}
@@ -114,16 +131,36 @@ func newStreamingTransport() *http.Transport {
 		// Icecast and SHOUTcast servers only support HTTP/1.x.
 		config.NextProtos = nil
 
-		rawConn, err := rawDial(ctx, network, addr)
+		rawConn, err := dialMaybeSOCKS5(ctx, "https", network, addr)
 		if err != nil {
 			return nil, fmt.Errorf("dial TLS %s: %w", addr, err)
 		}
 		tlsConn := tls.Client(rawConn, config)
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
-			rawConn.Close()
+			_ = rawConn.Close()
 			return nil, fmt.Errorf("dial TLS %s: %w", addr, err)
 		}
 		return newICYConn(tlsConn), nil
 	}
 	return tr
+}
+
+// dialMaybeSOCKS5 dials addr directly, unless the environment's proxy
+// configuration calls for a SOCKS5 proxy for a request of this scheme to
+// this addr, in which case it dials through that proxy instead. Context
+// cancellation applies to both paths (the SOCKS5 dialer's context-aware
+// DialContext is used when the proxy supports it, which proxy.SOCKS5's
+// dialer does).
+func dialMaybeSOCKS5(ctx context.Context, scheme, network, addr string) (net.Conn, error) {
+	d, err := socks5DialerFor(scheme, addr)
+	if err != nil {
+		return nil, err
+	}
+	if d == nil {
+		return (&net.Dialer{}).DialContext(ctx, network, addr)
+	}
+	if cd, ok := d.(proxy.ContextDialer); ok {
+		return cd.DialContext(ctx, network, addr)
+	}
+	return d.Dial(network, addr)
 }
