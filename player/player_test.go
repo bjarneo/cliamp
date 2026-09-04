@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/gopxl/beep/v2"
-	"github.com/gopxl/beep/v2/speaker"
 )
 
 // newTestPlayer returns a Player with only the atomic accessors wired up.
@@ -481,10 +480,10 @@ func blockedNavPlayback(t *testing.T) (*trackPipeline, <-chan struct{}, <-chan s
 	started := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		speaker.Lock()
+		SpeakerLock()
 		close(started)
 		decoder.Stream(make([][2]float64, 1))
-		speaker.Unlock()
+		SpeakerUnlock()
 		close(done)
 	}()
 	return tp, started, done, func() { _ = writer.Close() }
@@ -545,20 +544,20 @@ printf '10\n'
 			p.gapless.Replace(tp.stream)
 			p.gapless.SetNext(preloaded.stream)
 
-			speaker.Lock()
+			SpeakerLock()
 			seekDone := make(chan error, 1)
 			go func() { seekDone <- p.Seek(time.Second) }()
 			if !waitForPath(readyPath) {
-				speaker.Unlock()
+				SpeakerUnlock()
 				t.Fatalf("timed out waiting for %s", readyPath)
 			}
 			select {
 			case err := <-seekDone:
-				speaker.Unlock()
+				SpeakerUnlock()
 				t.Fatalf("Seek completed before speaker commit lock was available: %v", err)
 			default:
 			}
-			speaker.Unlock()
+			SpeakerUnlock()
 
 			select {
 			case err := <-seekDone:

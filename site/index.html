@@ -848,7 +848,7 @@ footer{padding:26px 0;border-top:1px solid var(--green);background:var(--ink)}
           <a href="#install" class="btn btn-go">Install</a>
           <a href="https://github.com/bjarneo/cliamp" class="btn btn-ghost">View source</a>
         </div>
-        <div class="hero-facts" aria-label="Project details"><span><b>MIT</b> licensed</span><span><b>Go</b> 1.26</span><span><b>Linux / macOS / Windows</b></span></div>
+        <div class="hero-facts" aria-label="Project details"><span><b>MIT</b> licensed</span><span><b>Go</b> 1.26</span><span><b>Linux / macOS / Windows / Termux</b></span></div>
       </div>
 
       <!-- CRT terminal — live radio player -->
@@ -988,7 +988,7 @@ footer{padding:26px 0;border-top:1px solid var(--green);background:var(--ink)}
       </button>
     </div>
     <div class="install-note reveal">
-      Build from source. <a href="https://github.com/bjarneo/cliamp">See the README.</a> Windows builds are in Releases. If <code>HOME</code> is not set, the config is in <code>%APPDATA%\cliamp</code>.
+      Build from source. <a href="https://github.com/bjarneo/cliamp">See the README.</a> Windows builds are in Releases. If <code>HOME</code> is not set, the config is in <code>%APPDATA%\cliamp</code>. On Termux (Android), build with <code>-tags=termux</code>; cliamp speaks PulseAudio directly, no ALSA bridge or <code>pactl</code> needed.
     </div>
     <div class="next-step reveal">
       <div class="next-step-label">Next: configure providers</div>

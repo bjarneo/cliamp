@@ -4,7 +4,7 @@ A retro terminal music player inspired by Winamp. Play local files, streams, pod
 
 **[cliamp.stream](https://cliamp.stream)** | **[docs](https://whiterose.org.contextowl.co/docs/cliamp)**
 
-cliamp uses [Bubbletea](https://github.com/charmbracelet/bubbletea), [Lip Gloss](https://github.com/charmbracelet/lipgloss), [Beep](https://github.com/gopxl/beep), and [go-librespot](https://github.com/devgianlu/go-librespot).
+cliamp uses [Bubbletea](https://github.com/charmbracelet/bubbletea), [Lip Gloss](https://github.com/charmbracelet/lipgloss), [Beep](https://github.com/gopxl/beep), and [go-librespot](https://github.com/devgianlu/go-librespot). Runs natively on Linux, macOS, Windows, and Termux (Android).
 
 
 https://github.com/user-attachments/assets/fbc33d20-e3ac-4a62-a991-8a2f0243c8ea
@@ -76,6 +76,10 @@ Download from [GitHub Releases](https://github.com/bjarneo/cliamp/releases/lates
 > **Linux:** Pre-built binaries link FLAC, Vorbis, Ogg, and mpg123 statically. No
 > extra codec packages are required. You can still need an ALSA bridge for your
 > sound server. See [Troubleshooting](#troubleshooting).
+>
+> **Termux (Android):** Build from source with `-tags=termux` for a native
+> PulseAudio backend. No ALSA bridge needed; cliamp speaks the PulseAudio
+> protocol directly. See [Termux build instructions](#building-from-source).
 >
 > **Windows:** Download and extract `cliamp-windows-amd64.zip` from Releases. It
 > includes the codec DLLs that Spotify requires. If `HOME` is not set, cliamp stores
@@ -158,6 +162,19 @@ sudo dnf install alsa-lib-devel flac-devel libvorbis-devel libogg-devel mpg123-d
 sudo pacman -S alsa-lib flac libvorbis libogg mpg123
 ```
 
+**Termux (Android):**
+
+```sh
+pkg install pulseaudio golang
+go build -tags=termux -trimpath -ldflags='-s -w' -o cliamp .
+```
+
+The `termux` build tag selects a pure-Go PulseAudio backend. cliamp
+discovers the daemon's Unix socket automatically and falls back to
+`pulseaudio --start` when the daemon is not running. No ALSA bridge
+or `pactl` is required. Set `CLIAMP_DEBUG_PULSE=1` to diagnose audio
+issues.
+
 **macOS:** `brew install flac libvorbis libogg mpg123 pkg-config`
 
 **Windows:** The core player needs no extra SDKs. It uses pure-Go audio decoding. `ffmpeg.exe` and `yt-dlp.exe` remain optional runtime dependencies for the same formats and providers as other platforms.
@@ -204,7 +221,7 @@ Full documentation is hosted at **[whiterose.org.contextowl.co/docs/cliamp](http
 
 ## Troubleshooting
 
-**No audio output (silence with no errors)**
+**No audio output (silence with no errors) on Linux desktop**
 
 On Linux systems that use PipeWire or PulseAudio, the cliamp ALSA backend needs a bridge package to route audio through the sound server:
 
