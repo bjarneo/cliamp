@@ -1,9 +1,12 @@
 package ytdlbin
 
 import (
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -110,6 +113,10 @@ func TestNotFoundError(t *testing.T) {
 		{name: "config selection", configured: "/opt/yt-dlp", want: "yt-dlp not found at /opt/yt-dlp (selected by ytdlp_path)"},
 		{name: "env selection", env: "/opt/next/yt-dlp", want: "yt-dlp not found at /opt/next/yt-dlp (selected by " + EnvVar + ")"},
 		{name: "env selection wins over config", env: "/opt/next/yt-dlp", configured: "/opt/yt-dlp", want: "yt-dlp not found at /opt/next/yt-dlp (selected by " + EnvVar + ")"},
+		// A selector holding a bare name still goes through PATH, but the
+		// message must not read like an unconfigured install.
+		{name: "config selection of the default name", configured: DefaultName, want: "yt-dlp not found in PATH (selected by ytdlp_path)"},
+		{name: "env selection of the default name", env: DefaultName, want: "yt-dlp not found in PATH (selected by " + EnvVar + ")"},
 	}
 
 	for _, tt := range tests {
@@ -118,10 +125,32 @@ func TestNotFoundError(t *testing.T) {
 			Configure(tt.configured)
 			t.Cleanup(func() { Configure("") })
 
-			if got := NotFoundError().Error(); got != tt.want {
+			if got := NotFoundError(nil).Error(); got != tt.want {
 				t.Fatalf("NotFoundError() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// The guards return this error instead of the os/exec failure, so unwrapping
+// has to keep working for callers matching on exec.ErrNotFound or on
+// *exec.Error.
+func TestNotFoundErrorUnwrapsLookupFailure(t *testing.T) {
+	t.Setenv(EnvVar, "")
+	Configure("")
+	cause := &exec.Error{Name: DefaultName, Err: exec.ErrNotFound}
+
+	for _, err := range []error{NotFoundError(cause), NotFoundErrorWithAdvice(cause, "install: pip install yt-dlp")} {
+		if !errors.Is(err, exec.ErrNotFound) {
+			t.Errorf("errors.Is(%v, exec.ErrNotFound) = false", err)
+		}
+		var execErr *exec.Error
+		if !errors.As(err, &execErr) || execErr.Name != DefaultName {
+			t.Errorf("errors.As(%v, *exec.Error) failed", err)
+		}
+		if strings.Contains(err.Error(), "executable file not found") {
+			t.Errorf("error = %q, want exec's wording kept out of the user-facing text", err)
+		}
 	}
 }
 
@@ -156,6 +185,14 @@ func TestNotFoundErrorWithAdvice(t *testing.T) {
 			advice: "see https://github.com/yt-dlp/yt-dlp#installation",
 			want:   "yt-dlp not found at /opt/next/yt-dlp (selected by " + EnvVar + ")",
 		},
+		{
+			// A selector naming the bare default still resolves through PATH,
+			// so installing yt-dlp does fix it: keep the advice.
+			name:   "env selection of the default name keeps install advice",
+			env:    DefaultName,
+			advice: "install: sudo pacman -S yt-dlp",
+			want:   "yt-dlp not found in PATH (selected by " + EnvVar + ") — install: sudo pacman -S yt-dlp",
+		},
 	}
 
 	for _, tt := range tests {
@@ -164,7 +201,7 @@ func TestNotFoundErrorWithAdvice(t *testing.T) {
 			Configure(tt.configured)
 			t.Cleanup(func() { Configure("") })
 
-			if got := NotFoundErrorWithAdvice(tt.advice).Error(); got != tt.want {
+			if got := NotFoundErrorWithAdvice(nil, tt.advice).Error(); got != tt.want {
 				t.Fatalf("NotFoundErrorWithAdvice(%q) = %q, want %q", tt.advice, got, tt.want)
 			}
 		})

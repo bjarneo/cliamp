@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -153,6 +154,12 @@ func TestDecodeYTDLPipeNamesSelectedBinary(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "install") {
 		t.Fatalf("error = %q, want no install advice for an explicit selection", err)
+	}
+	// The guard replaces the os/exec failure with its own message, so the
+	// lookup cause has to stay reachable for callers matching on it.
+	var execErr *exec.Error
+	if !errors.As(err, &execErr) || !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("error %v does not unwrap to the exec lookup failure", err)
 	}
 }
 
