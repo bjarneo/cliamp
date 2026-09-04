@@ -95,7 +95,7 @@ func parseYTDLPlaylistFeed(r io.Reader) ([]playlist.PlaylistInfo, error) {
 // If browser is empty, the cookie source configured for YouTube is used.
 func FetchUserPlaylists(browser string) ([]playlist.PlaylistInfo, error) {
 	if _, err := ytdlbin.LookPath(); err != nil {
-		return nil, ytdlbin.NotFoundErrorWithAdvice("see https://github.com/yt-dlp/yt-dlp#installation")
+		return nil, ytdlbin.NotFoundErrorWithAdvice(err, "see https://github.com/yt-dlp/yt-dlp#installation")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
