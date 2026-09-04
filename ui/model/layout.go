@@ -48,7 +48,7 @@ func (m *Model) recomputeLayout() {
 		panelWidth: max(1, width-2*paddingH),
 		paddingH:   paddingH,
 		paddingV:   paddingV,
-		footerRows: 1,
+		footerRows: 2,
 	}
 	switch {
 	case width < 40 || height < 10:

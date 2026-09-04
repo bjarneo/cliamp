@@ -203,9 +203,7 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 			m.renderSeekBar(),
 		}
 		if includeTransient {
-			if line := m.renderTransient(); line != "" {
-				sections = append(sections, line)
-			}
+			sections = append(sections, m.renderFooter()...)
 		}
 		return sections
 	}
@@ -267,11 +265,12 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 	if playlist != "" {
 		sections = append(sections, playlist)
 	}
-	sections = append(sections, "")
 	if !m.hideHelpBar {
 		sections = append(sections, m.renderTierHelp())
 	}
-	sections = append(sections, m.renderFooterStatus())
+	if includeTransient {
+		sections = append(sections, m.renderFooter()...)
+	}
 
 	return trimTrailingEmpty(sections)
 }
@@ -1094,13 +1093,15 @@ func (m Model) renderBottomStatus() string {
 	return left + strings.Repeat(" ", gap) + right
 }
 
-// renderFooterStatus renders the single always-present footer row. An active
-// transient (error, save activity, status notification, last log line)
-// replaces the speed/network status so the frame height never changes when a
-// notification appears or expires.
-func (m Model) renderFooterStatus() string {
-	if line := m.renderTransient(); line != "" {
-		return line
+// renderFooter returns the two fixed footer rows: the bottom status line
+// (speed + network/stream stats, always visible) followed by a notification
+// row. The notification row is rendered on every frame — blank when idle —
+// so the frame height never changes when a transient error, save activity,
+// status message, or log line appears or expires.
+func (m Model) renderFooter() []string {
+	transient := m.renderTransient()
+	if transient == "" {
+		transient = strings.Repeat(" ", m.layout.panelWidth)
 	}
-	return m.renderBottomStatus()
+	return []string{m.renderBottomStatus(), transient}
 }

@@ -310,33 +310,44 @@ Line 119: %q (index %d)`, line9, ninthLineTrackIndex, line99, ninetyNinthLineTra
 func TestFooterNotificationDoesNotChangeFrameHeight(t *testing.T) {
 	withFrameWidth(t, 80)
 
-	m := Model{
-		player:   &playbackFakeEngine{},
-		playlist: playlist.New(),
-		focus:    focusPlaylist,
-		layout:   frameLayout{tier: layoutFull, panelWidth: 80},
-	}
+	for _, tc := range []struct {
+		name       string
+		simplified bool
+	}{
+		{name: "full"},
+		{name: "simplified", simplified: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := Model{
+				player:     &playbackFakeEngine{},
+				playlist:   playlist.New(),
+				focus:      focusPlaylist,
+				simplified: tc.simplified,
+				layout:     frameLayout{tier: layoutFull, panelWidth: 80},
+			}
 
-	render := func() string {
-		return strings.Join(m.mainSections("body", true, true), "\n")
-	}
+			render := func() string {
+				return strings.Join(m.mainSections("body", true, true), "\n")
+			}
 
-	idle := render()
-	m.status.Showf(statusTTLDefault, "%s %s", favAddedMark, "Alpha")
-	active := render()
+			idle := render()
+			m.status.Showf(statusTTLDefault, "%s %s", favAddedMark, "Alpha")
+			active := render()
 
-	idleHeight := lipgloss.Height(idle)
-	activeHeight := lipgloss.Height(active)
-	if idleHeight != activeHeight {
-		t.Fatalf("footer notification changed frame height: idle=%d lines, active=%d lines", idleHeight, activeHeight)
-	}
+			idleHeight := lipgloss.Height(idle)
+			activeHeight := lipgloss.Height(active)
+			if idleHeight != activeHeight {
+				t.Fatalf("footer notification changed frame height: idle=%d lines, active=%d lines", idleHeight, activeHeight)
+			}
 
-	idleText := stripAnsi(idle)
-	activeText := stripAnsi(active)
-	if got := strings.LastIndex(activeText, "Alpha"); got < 0 {
-		t.Fatalf("active footer = %q, want favorite notification text", activeText)
-	}
-	if strings.Contains(idleText, "Alpha") {
-		t.Fatalf("idle footer = %q, must not show notification", idleText)
+			idleText := stripAnsi(idle)
+			activeText := stripAnsi(active)
+			if got := strings.LastIndex(activeText, "Alpha"); got < 0 {
+				t.Fatalf("active footer = %q, want favorite notification text", activeText)
+			}
+			if strings.Contains(idleText, "Alpha") {
+				t.Fatalf("idle footer = %q, must not show notification", idleText)
+			}
+		})
 	}
 }
