@@ -427,7 +427,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// partial view of a list that no longer exists. Say so and let it
 				// expire: reopening starts a clean load, and a persistent error
 				// would sit in front of every later status message.
-				m.status.Warningf(statusTTLDefault, "Playlist changed while loading — reopen to reload")
+				m.status.Warningf(statusTTLDefault, "Playlist changed while loading — reopen current playlist to reload")
 				return m, nil
 			}
 			m.err = msg.err
