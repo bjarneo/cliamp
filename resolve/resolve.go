@@ -30,6 +30,19 @@ import (
 	"github.com/kkdai/youtube/v2"
 )
 
+func isCookieSecretStorageError(msg string) bool {
+	lower := strings.ToLower(msg)
+	return strings.Contains(lower, "secretstorage not available") ||
+		strings.Contains(lower, "cannot decrypt v11 cookies")
+}
+
+func wrapCookieError(msg string) string {
+	if isCookieSecretStorageError(msg) {
+		return msg + " (install python-secretstorage and use cookies_from=\"chrome+gnomekeyring\" — see docs/youtube-music.md)"
+	}
+	return msg
+}
+
 // ExpandYTPlaylist controls whether YouTube (Music) URLs with a list=
 // parameter expand the full playlist or resolve as a single video.
 // Default true preserves backward compatibility.
@@ -706,7 +719,10 @@ func resolveYTDLRangePageContext(ctx context.Context, pageURL string, start, end
 		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
-			return nil, 0, fmt.Errorf("yt-dlp: %s", msg)
+			return nil, 0, fmt.Errorf("yt-dlp: %s", wrapCookieError(msg))
+		}
+		if isCookieSecretStorageError(err.Error()) {
+			return nil, 0, fmt.Errorf("yt-dlp: %w (install python-secretstorage and use cookies_from=\"chrome+gnomekeyring\" — see docs/youtube-music.md)", err)
 		}
 		return nil, 0, fmt.Errorf("yt-dlp: %w", err)
 	}
@@ -784,7 +800,10 @@ func DownloadYTDL(pageURL, saveDir string) (string, error) {
 	if err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
-			return "", fmt.Errorf("yt-dlp: %s", msg)
+			return "", fmt.Errorf("yt-dlp: %s", wrapCookieError(msg))
+		}
+		if isCookieSecretStorageError(err.Error()) {
+			return "", fmt.Errorf("yt-dlp: %w (install python-secretstorage and use cookies_from=\"chrome+gnomekeyring\" — see docs/youtube-music.md)", err)
 		}
 		return "", fmt.Errorf("yt-dlp: %w", err)
 	}
