@@ -172,7 +172,7 @@ Spotify support uses `go-librespot`. It needs CGO and a MinGW toolchain:
 2. Open the **MSYS2 MinGW64** terminal, not the standard MSYS2 terminal. Install the toolchain and codec libraries:
 
    ```sh
-   pacman -S \
+   pacman -S make \
      mingw-w64-x86_64-gcc mingw-w64-x86_64-go mingw-w64-x86_64-pkg-config \
      mingw-w64-x86_64-libogg mingw-w64-x86_64-libvorbis \
      mingw-w64-x86_64-flac mingw-w64-x86_64-mpg123
