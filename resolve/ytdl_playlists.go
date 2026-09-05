@@ -122,10 +122,10 @@ func FetchUserPlaylists(browser string) ([]playlist.PlaylistInfo, error) {
 		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
-			return nil, fmt.Errorf("yt-dlp: %s", wrapCookieError(msg))
-		}
-		if isCookieSecretStorageError(err.Error()) {
-			return nil, fmt.Errorf("yt-dlp: %w (install python-secretstorage and use cookies_from=\"chrome+gnomekeyring\" — see docs/youtube-music.md)", err)
+			if isCookieSecretStorageError(msg) {
+				return nil, fmt.Errorf("%w: %w: browser=%s: %s: %w", playlist.ErrNeedsAuth, ErrMissingSecretStorage, b, msg, err)
+			}
+			return nil, fmt.Errorf("yt-dlp: %s: %w", msg, err)
 		}
 		return nil, fmt.Errorf("yt-dlp: %w", err)
 	}

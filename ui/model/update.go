@@ -13,6 +13,7 @@ import (
 	"github.com/bjarneo/cliamp/ipc"
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/resolve"
 	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
@@ -388,6 +389,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.provLoading = false
 		if msg.err != nil {
+			if errors.Is(msg.err, resolve.ErrMissingSecretStorage) {
+				b := resolve.SecretStorageBrowser(msg.err)
+				hint := resolve.CookieHint(b)
+				m.status.Warningf(statusTTLLong, "yt-dlp: missing secretstorage — install python-secretstorage and use cookies_from=%q (see docs/youtube-music.md)", hint)
+				return m, nil
+			}
 			if errors.Is(msg.err, playlist.ErrNeedsAuth) {
 				m.provSignIn = true
 				m.err = nil
@@ -414,6 +421,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.provLoading = false
 		if msg.err != nil {
+			if errors.Is(msg.err, resolve.ErrMissingSecretStorage) {
+				b := resolve.SecretStorageBrowser(msg.err)
+				hint := resolve.CookieHint(b)
+				m.status.Warningf(statusTTLLong, "yt-dlp: missing secretstorage — install python-secretstorage and use cookies_from=%q (see docs/youtube-music.md)", hint)
+				return m, nil
+			}
 			if errors.Is(msg.err, playlist.ErrNeedsAuth) {
 				m.provSignIn = true
 				m.err = nil

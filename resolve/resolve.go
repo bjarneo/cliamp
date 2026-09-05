@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -30,17 +31,44 @@ import (
 	"github.com/kkdai/youtube/v2"
 )
 
+var ErrMissingSecretStorage = errors.New("yt-dlp secretstorage missing")
+
 func isCookieSecretStorageError(msg string) bool {
 	lower := strings.ToLower(msg)
 	return strings.Contains(lower, "secretstorage not available") ||
 		strings.Contains(lower, "cannot decrypt v11 cookies")
 }
 
-func wrapCookieError(msg string) string {
-	if isCookieSecretStorageError(msg) {
-		return msg + " (install python-secretstorage and use cookies_from=\"chrome+gnomekeyring\" — see docs/youtube-music.md)"
+func CookieHint(browser string) string {
+	b := strings.ToLower(strings.TrimSpace(browser))
+	switch {
+	case strings.Contains(b, "brave"):
+		return "brave+kwallet"
+	case strings.Contains(b, "chromium"):
+		return "chromium+gnomekeyring"
+	case strings.Contains(b, "chrome"):
+		return "chrome+gnomekeyring"
+	case b == "":
+		return "chrome+gnomekeyring"
+	default:
+		return b + "+gnomekeyring"
 	}
-	return msg
+}
+
+func SecretStorageBrowser(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	// Look for browser=... in the wrapped error from ytdlEnv handling
+	if idx := strings.Index(msg, "browser="); idx >= 0 {
+		rest := msg[idx+8:]
+		if end := strings.IndexAny(rest, " :"); end >= 0 {
+			return strings.TrimSpace(rest[:end])
+		}
+		return strings.TrimSpace(rest)
+	}
+	return ""
 }
 
 // ExpandYTPlaylist controls whether YouTube (Music) URLs with a list=
@@ -719,10 +747,10 @@ func resolveYTDLRangePageContext(ctx context.Context, pageURL string, start, end
 		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
-			return nil, 0, fmt.Errorf("yt-dlp: %s", wrapCookieError(msg))
-		}
-		if isCookieSecretStorageError(err.Error()) {
-			return nil, 0, fmt.Errorf("yt-dlp: %w (install python-secretstorage and use cookies_from=\"chrome+gnomekeyring\" — see docs/youtube-music.md)", err)
+			if isCookieSecretStorageError(msg) {
+				return nil, 0, fmt.Errorf("%w: browser=%s: %s: %w", ErrMissingSecretStorage, b, msg, err)
+			}
+			return nil, 0, fmt.Errorf("yt-dlp: %s: %w", msg, err)
 		}
 		return nil, 0, fmt.Errorf("yt-dlp: %w", err)
 	}
@@ -789,7 +817,8 @@ func DownloadYTDL(pageURL, saveDir string) (string, error) {
 		"--print-json",
 		"-o", outTemplate,
 	}
-	if browser := ytdlcookies.ForURL(pageURL); browser != "" {
+	browser := ytdlcookies.ForURL(pageURL)
+	if browser != "" {
 		args = append(args, "--cookies-from-browser", browser)
 	}
 	args = append(args, "--", pageURL)
@@ -800,10 +829,10 @@ func DownloadYTDL(pageURL, saveDir string) (string, error) {
 	if err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
-			return "", fmt.Errorf("yt-dlp: %s", wrapCookieError(msg))
-		}
-		if isCookieSecretStorageError(err.Error()) {
-			return "", fmt.Errorf("yt-dlp: %w (install python-secretstorage and use cookies_from=\"chrome+gnomekeyring\" — see docs/youtube-music.md)", err)
+			if isCookieSecretStorageError(msg) {
+				return "", fmt.Errorf("%w: browser=%s: %s: %w", ErrMissingSecretStorage, browser, msg, err)
+			}
+			return "", fmt.Errorf("yt-dlp: %s: %w", msg, err)
 		}
 		return "", fmt.Errorf("yt-dlp: %w", err)
 	}
