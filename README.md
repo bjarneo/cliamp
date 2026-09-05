@@ -158,9 +158,9 @@ sudo dnf install alsa-lib-devel flac-devel libvorbis-devel libogg-devel mpg123-d
 sudo pacman -S alsa-lib flac libvorbis libogg mpg123
 ```
 
-**macOS:** 
+**macOS:**
 
-```sh 
+```sh
 brew install flac libvorbis libogg mpg123 pkg-config
 ```
 
@@ -170,30 +170,40 @@ Spotify support uses `go-librespot`. It needs CGO and a MinGW toolchain:
 
 1. Install [MSYS2](https://www.msys2.org/).
 2. Open the **MSYS2 MinGW64** terminal, not the standard MSYS2 terminal. Install the toolchain and codec libraries:
+
    ```sh
    pacman -S \
      mingw-w64-x86_64-gcc mingw-w64-x86_64-go mingw-w64-x86_64-pkg-config \
      mingw-w64-x86_64-libogg mingw-w64-x86_64-libvorbis \
      mingw-w64-x86_64-flac mingw-w64-x86_64-mpg123
    ```
-   To check if Go was installed correctly, run 
-   ```sh 
+
+   To check if Go was installed correctly, run
+
+   ```sh
    go env GOROOT
    ```
-   If the command causes the error `go: cannot find GOROOT directory: 'go' binary is trimmed and GOROOT is not set`, 
-   it means that the enviroment `GOROOT` variable has to be manually set: 
-   ```sh 
+
+   If the command causes the error `go: cannot find GOROOT directory: 'go' binary is trimmed and GOROOT is not set`,
+   it means that the enviroment `GOROOT` variable has to be manually set:
+
+   ```sh
    export GOROOT=/mingw64/lib/go
    ```
+
    Now, when running `go env GOROOT`, the output should be: `<mtsys2-install-folder>/mingw64/lib/go`
 3. In that MinGW64 terminal, build with CGO enabled. This keeps `gcc` and `pkg-config` on `PATH`:
+
    ```sh
    CGO_ENABLED=1 go build -o cliamp.exe .
    ```
+
    Some MSYS2 `libogg` builds provide `libogg-0.dll` without `ogg_stream_iovecin` in its export table. The static `libogg.a` has this symbol. If linking fails with `undefined reference to 'ogg_stream_iovecin'`, use static linking for this library only:
+
    ```sh
    CGO_LDFLAGS="-Wl,-Bstatic -logg -Wl,-Bdynamic" CGO_ENABLED=1 go build -o cliamp.exe .
    ```
+
 4. `cliamp.exe` links dynamically to codec and MinGW runtime DLLs. Keep `C:\msys64\mingw64\bin` on `PATH` at runtime, or copy each `/mingw64/bin/*.dll` that `ldd cliamp.exe` shows next to `cliamp.exe`.
 
 **Clone and build:**
