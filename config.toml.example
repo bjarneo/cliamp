@@ -216,6 +216,17 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # user_id = "optional-account-user-id"
 
 # ---
+# Yandex Music (optional, opt-in)
+# Get a personal OAuth token by opening:
+# https://oauth.yandex.ru/authorize?response_type=token&client_id=23cabbbdc6cd418abb4b39c32c41195d
+# The token appears in the address bar after `#access_token=`. The provider
+# lists liked tracks and your playlists. Playback uses direct signed CDN URLs.
+# Without a Yandex Music Plus subscription only low-bitrate previews play.
+# [yandex]
+# enabled = true
+# token = "y0_YourPersonalOAuthToken"
+
+# ---
 # Plex Media Server (optional)
 # [plex]
 # url   = "http://192.168.1.10:32400"
