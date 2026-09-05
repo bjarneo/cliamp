@@ -1,6 +1,6 @@
 # Themes
 
-cliamp includes 21 color themes that pass contrast checks. You can add custom themes with TOML files.
+cliamp includes 22 color themes that pass contrast checks. You can add custom themes with TOML files.
 
 Press `t` during playback to open the theme picker. Use `↑`/`↓` to navigate and preview each theme. Press `Enter` to select it or `Esc` to cancel.
 
@@ -8,7 +8,7 @@ cliamp saves your selection and restores it at the next start.
 
 ## Built-in themes
 
-ayu-mirage-dark, catppuccin, catppuccin-latte, dracula, ember, ethereal, everforest, flexoki-light, gruvbox, hackerman, kanagawa, matte-black, miasma, neon-blade-runner, nord, osaka-jade, ristretto, rose-pine, tokyo-night, vantablack, winamp
+alucard, ayu-mirage-dark, catppuccin, catppuccin-latte, dracula, ember, ethereal, everforest, flexoki-light, gruvbox, hackerman, kanagawa, matte-black, miasma, neon-blade-runner, nord, osaka-jade, ristretto, rose-pine, tokyo-night, vantablack, winamp
 
 ## Creating a custom theme
 
