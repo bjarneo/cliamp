@@ -77,6 +77,13 @@ func (m *Model) recomputeLayout() {
 	} else if simplified {
 		layout.visualizerRows = 0
 		layout.fixedRows = 3
+	} else if m.visualizerDisabled() {
+		layout.visualizerRows = 0
+		if layout.tier == layoutFull {
+			layout.fixedRows = 10
+		} else if layout.tier == layoutCompact {
+			layout.fixedRows = 9
+		}
 	}
 	// The simplified view never draws the hint bar, so its fixedRows budget
 	// does not include that row and must not be reduced here.
@@ -111,7 +118,7 @@ func (m *Model) recomputeLayout() {
 			m.vis.Rows = layout.fullVisualizerRows
 		} else {
 			rows := layout.visualizerRows
-			if contentFirst {
+			if contentFirst || m.visualizerDisabled() {
 				// Keep the normal canvas size cached while visualizer work is paused
 				// so modes resume with valid dimensions when the layout returns.
 				switch layout.tier {
