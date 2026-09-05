@@ -35,7 +35,11 @@ var Streaming = &http.Client{Transport: newStreamingTransport()}
 // one proxy for every request regardless of scheme.
 func resolveEnvProxy(scheme, addr string) (*url.URL, error) {
 	reqURL := &url.URL{Scheme: scheme, Host: addr}
-	return httpproxy.FromEnvironment().ProxyFunc()(reqURL)
+	u, err := httpproxy.FromEnvironment().ProxyFunc()(reqURL)
+	if err != nil {
+		return nil, fmt.Errorf("resolve environment proxy for %s://%s: %w", scheme, addr, err)
+	}
+	return u, nil
 }
 
 // socks5DialerFromURL builds a SOCKS5 dialer for u (scheme socks5/socks5h).
@@ -77,7 +81,11 @@ func socks5DialerFor(scheme, addr string) (proxy.Dialer, error) {
 	if u.Scheme != "socks5" && u.Scheme != "socks5h" {
 		return nil, nil
 	}
-	return socks5DialerFromURL(u)
+	d, err := socks5DialerFromURL(u)
+	if err != nil {
+		return nil, fmt.Errorf("build SOCKS5 dialer for %s: %w", u.Host, err)
+	}
+	return d, nil
 }
 
 func newStreamingTransport() *http.Transport {
@@ -100,8 +108,11 @@ func newStreamingTransport() *http.Transport {
 	// not just baked in once at transport-construction time.
 	tr.Proxy = func(req *http.Request) (*url.URL, error) {
 		u, err := httpproxy.FromEnvironment().ProxyFunc()(req.URL)
-		if err != nil || u == nil {
-			return u, err
+		if err != nil {
+			return nil, fmt.Errorf("resolve proxy for %s: %w", req.URL, err)
+		}
+		if u == nil {
+			return nil, nil
 		}
 		if u.Scheme == "socks5" || u.Scheme == "socks5h" {
 			return nil, nil
@@ -154,13 +165,25 @@ func newStreamingTransport() *http.Transport {
 func dialMaybeSOCKS5(ctx context.Context, scheme, network, addr string) (net.Conn, error) {
 	d, err := socks5DialerFor(scheme, addr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve dialer for %s: %w", addr, err)
 	}
 	if d == nil {
-		return (&net.Dialer{}).DialContext(ctx, network, addr)
+		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, fmt.Errorf("dial %s directly: %w", addr, err)
+		}
+		return conn, nil
 	}
 	if cd, ok := d.(proxy.ContextDialer); ok {
-		return cd.DialContext(ctx, network, addr)
+		conn, err := cd.DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, fmt.Errorf("dial %s via SOCKS5: %w", addr, err)
+		}
+		return conn, nil
 	}
-	return d.Dial(network, addr)
+	conn, err := d.Dial(network, addr)
+	if err != nil {
+		return nil, fmt.Errorf("dial %s via SOCKS5: %w", addr, err)
+	}
+	return conn, nil
 }
