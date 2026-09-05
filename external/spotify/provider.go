@@ -457,6 +457,13 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 	return slices.Clone(all), nil
 }
 
+// fetchTracksPage reads one page of a playlist's tracks and returns it with the
+// list's current total. Saved tracks and playlist items come from different
+// endpoints with different shapes, so this is the single place that difference
+// lives; both Tracks and TracksPage page through it so they cannot drift apart.
+// Items without an ID -- local files, unavailable tracks -- are skipped, so the
+// returned slice is usually shorter than the page size and the caller must
+// advance by the page size rather than by len(tracks).
 func (p *SpotifyProvider) fetchTracksPage(ctx context.Context, playlistID string, offset int) ([]playlist.Track, int, error) {
 	query := url.Values{
 		"limit":  {strconv.Itoa(spotifyTrackPageSize)},

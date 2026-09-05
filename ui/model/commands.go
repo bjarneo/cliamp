@@ -323,6 +323,11 @@ func saveYTDLCmd(pageURL string, saveDir string) tea.Cmd {
 	}
 }
 
+// fetchTracksPageCmd fetches one page of a paged provider's tracks. The chain is
+// driven from the message loop rather than from a goroutine: the handler for the
+// resulting message issues the command for the next offset, so pages stay
+// strictly sequential and a superseded load stops as soon as one of its messages
+// is dropped by the generation guard.
 func fetchTracksPageCmd(pager provider.TrackPager, name, playlistID string, offset int, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		tracks, next, err := pager.TracksPage(playlistID, offset)
