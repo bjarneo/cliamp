@@ -612,7 +612,7 @@ func (p *SpotifyProvider) TracksPage(playlistID string, offset int) ([]playlist.
 	// the pages on a result that is already discarded.
 	if pend.total != total {
 		delete(p.pending, playlistID)
-		return nil, 0, fmt.Errorf("spotify: list tracks: %q changed while loading", playlistID)
+		return nil, 0, fmt.Errorf("spotify: list tracks %q: %w", playlistID, playlist.ErrListChanged)
 	}
 	pend.tracks = append(pend.tracks, page...)
 	pend.want = next

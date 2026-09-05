@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -312,5 +313,42 @@ func TestIPCProviderLoadRetiresAnInFlightPagedLoad(t *testing.T) {
 
 	if got := m.playlist.Len(); got != 2 {
 		t.Errorf("queue has %d tracks, want the 2 the IPC client loaded: a retired page appended", got)
+	}
+}
+
+// m.err has no expiry and renders ahead of the status line, so a list that
+// changed mid-load must not land there: the message would sit on screen for
+// the rest of the session and mask every later status.
+func TestListChangedReportsThroughTheStatusLine(t *testing.T) {
+	prov := &pagerProv{name: "Pager", pages: [][]playlist.Track{pageOf("a")}}
+	m := newPagingModel(prov)
+
+	updated, _ := m.Update(tracksLoadedMsg{
+		playlistID: "list", providerName: "Pager", offset: 1, gen: 1,
+		err: fmt.Errorf("spotify: list tracks %q: %w", "YOUR MUSIC", playlist.ErrListChanged),
+	})
+	m = updated.(Model)
+
+	if m.err != nil {
+		t.Errorf("a mid-load change set the permanent error slot: %v", m.err)
+	}
+	if m.status.text == "" {
+		t.Error("no status message shown for a list that changed mid-load")
+	}
+	if m.provLoading || m.tracksPaging {
+		t.Error("the load was not retired after the list changed")
+	}
+}
+
+// Genuine failures should still persist rather than expiring silently.
+func TestOtherLoadFailuresStillPersist(t *testing.T) {
+	prov := &pagerProv{name: "Pager", pages: [][]playlist.Track{pageOf("a")}}
+	m := newPagingModel(prov)
+
+	updated, _ := m.Update(tracksLoadedMsg{
+		playlistID: "list", providerName: "Pager", offset: 1, gen: 1, err: errStubLoad,
+	})
+	if updated.(Model).err == nil {
+		t.Error("a real load failure was downgraded to a transient status message")
 	}
 }

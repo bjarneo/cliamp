@@ -422,6 +422,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = nil
 				return m, nil
 			}
+			if errors.Is(msg.err, playlist.ErrListChanged) {
+				// The list moved under a paged read, so what is on screen is a
+				// partial view of a list that no longer exists. Say so and let it
+				// expire: reopening starts a clean load, and a persistent error
+				// would sit in front of every later status message.
+				m.status.Warningf(statusTTLDefault, "Playlist changed while loading — reopen to reload")
+				return m, nil
+			}
 			m.err = msg.err
 			return m, nil
 		}
