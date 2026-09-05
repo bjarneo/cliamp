@@ -16,6 +16,10 @@ import (
 	"github.com/bjarneo/cliamp/internal/fileutil"
 )
 
+// maxVisRows caps the configurable visualizer height. The layout shrinks the
+// value further when the terminal cannot spare the rows.
+const maxVisRows = 40
+
 // configPath returns the path to the config file.
 func configPath() (string, error) {
 	dir, err := appdir.Dir()
@@ -334,6 +338,7 @@ type Config struct {
 	Provider         string                       // default provider: "radio", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "mixcloud", "netease", "ytmusic" (default "radio")
 	Theme            string                       // theme name, or "" for ANSI default
 	Visualizer       string                       // visualizer mode name, or "" for default (Bars)
+	VisRows          int                          // visualizer height in rows at the full layout tier, or 0 for the built-in default
 	SampleRate       int                          // output sample rate: 22050, 44100, 48000, 96000, 192000
 	BufferMs         int                          // speaker buffer in milliseconds (50-5000)
 	ResampleQuality  int                          // beep resample quality factor (1–4)
@@ -671,6 +676,10 @@ func Load() (Config, error) {
 				cfg.Provider = strings.ToLower(parseString(val))
 			case "visualizer":
 				cfg.Visualizer = parseString(val)
+			case "vis_rows":
+				if v, err := strconv.Atoi(val); err == nil {
+					cfg.VisRows = v
+				}
 			case "sample_rate":
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.SampleRate = v
@@ -956,6 +965,9 @@ func (c *Config) clamp() {
 	c.Spotify.Bitrate = clampSpotifyBitrate(c.Spotify.Bitrate)
 	c.PaddingH = max(min(c.PaddingH, 10), 0)
 	c.PaddingV = max(min(c.PaddingV, 5), 0)
+	if c.VisRows != 0 {
+		c.VisRows = max(min(c.VisRows, maxVisRows), 1)
+	}
 	if c.LowPower {
 		c.Visualizer = "none"
 	}
