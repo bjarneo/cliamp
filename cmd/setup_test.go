@@ -404,6 +404,38 @@ func TestTidalSetupBody(t *testing.T) {
 	}
 }
 
+func TestPlexSetupBody(t *testing.T) {
+	var spec providerSpec
+	for _, p := range providers() {
+		if p.section == "plex" {
+			spec = p
+			break
+		}
+	}
+	if spec.section == "" {
+		t.Fatal("plex spec missing")
+	}
+
+	withLibraries := spec.body(map[string]string{
+		"url":       "http://192.168.1.10:32400",
+		"token":     "tok",
+		"libraries": "Music, Jazz",
+	})
+	for _, want := range []string{
+		`url   = "http://192.168.1.10:32400"`, `token = "tok"`,
+		`libraries = ["Music", "Jazz"]`,
+	} {
+		if !strings.Contains(withLibraries, want) {
+			t.Fatalf("body missing %q: %q", want, withLibraries)
+		}
+	}
+
+	noFilter := spec.body(map[string]string{"url": "http://x", "token": "tok"})
+	if strings.Contains(noFilter, "libraries") {
+		t.Fatalf("blank libraries field must not write a libraries key: %q", noFilter)
+	}
+}
+
 func TestMixcloudSetupBody(t *testing.T) {
 	var spec providerSpec
 	for _, p := range providers() {
