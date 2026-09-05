@@ -1008,6 +1008,7 @@ func (m *setupModel) persistAndDone(warn bool) tea.Cmd {
 	}
 	m.stage = stageResult
 	m.awaitingSave = false
+	m.resultErr = nil
 	m.resultWarning = warn
 	m.resultText = fmt.Sprintf("Saved [%s] section.", spec.section)
 	return nil
