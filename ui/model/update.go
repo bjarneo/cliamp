@@ -393,6 +393,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				b := resolve.SecretStorageBrowser(msg.err)
 				hint := resolve.CookieHint(b)
 				m.status.Warningf(statusTTLLong, "yt-dlp: missing secretstorage — install python-secretstorage and use cookies_from=%q (see docs/youtube-music.md)", hint)
+				m.err = nil
+				if errors.Is(msg.err, playlist.ErrNeedsAuth) {
+					m.provSignIn = true
+				}
 				return m, nil
 			}
 			if errors.Is(msg.err, playlist.ErrNeedsAuth) {
@@ -425,6 +429,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				b := resolve.SecretStorageBrowser(msg.err)
 				hint := resolve.CookieHint(b)
 				m.status.Warningf(statusTTLLong, "yt-dlp: missing secretstorage — install python-secretstorage and use cookies_from=%q (see docs/youtube-music.md)", hint)
+				m.err = nil
+				if errors.Is(msg.err, playlist.ErrNeedsAuth) {
+					m.provSignIn = true
+				}
 				return m, nil
 			}
 			if errors.Is(msg.err, playlist.ErrNeedsAuth) {
