@@ -55,10 +55,18 @@
               libogg
               libvorbis
               mpg123
+              libopenmpt
               ffmpeg-headless
               yt-dlp
             ];
             shellHook = ''
+              # libopenmpt (tracker module playback) is loaded at runtime via
+              # purego/dlopen rather than linked at build time, so - unlike
+              # alsa-lib/flac/libvorbis/mpg123, which stdenv links with an
+              # rpath baked into the binary - it needs LD_LIBRARY_PATH here
+              # too, mirroring nix/package.nix's wrapProgram for the same
+              # reason.
+              export LD_LIBRARY_PATH="${pkgs.libopenmpt}/lib:$LD_LIBRARY_PATH"
               echo "🎵 cliamp dev shell loaded"
             '';
           };
