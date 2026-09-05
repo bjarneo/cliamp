@@ -29,21 +29,11 @@ var (
 	// look. The glyph carries U+FE0E (text presentation) so terminals render
 	// it as a compact font glyph rather than a large color emoji.
 	favMarkerStyle = lipgloss.NewStyle().Foreground(ui.ColorError)
-	// favRemovedStyle mutes the same filled heart for unfavorite feedback:
-	// identical attractive glyph, faded to signal the removed state instead
-	// of switching to a thin outline glyph.
-	favRemovedStyle = lipgloss.NewStyle().Foreground(ui.ColorDim)
 )
 
 // favHeart is the small, text-presentation favorite heart used everywhere the
-// UI shows favorite state (track rows, header badge, status messages).
+// UI shows favorite state (track rows, header badge).
 const favHeart = "♥\uFE0E"
-
-// Pre-rendered toggle feedback marks for the status bar.
-var (
-	favAddedMark   = favMarkerStyle.Render(favHeart)
-	favRemovedMark = favRemovedStyle.Render(favHeart)
-)
 
 // providerEmptyStateHint, keyed by lowercase provider Name(), returns the
 // remediation hint shown under the generic "No playlists in X" message.
