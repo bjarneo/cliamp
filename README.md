@@ -204,12 +204,14 @@ Full documentation is hosted at **[whiterose.org.contextowl.co/docs/cliamp](http
 
 ## Troubleshooting
 
-**No audio output (silence with no errors)**
+**No audio output**
 
-On Linux systems that use PipeWire or PulseAudio, the cliamp ALSA backend needs a bridge package to route audio through the sound server:
+cliamp reports `audio output unavailable` when it cannot open an output
+device. On Linux systems that use PipeWire or PulseAudio, the cliamp ALSA
+backend needs a bridge package to route audio through the sound server:
 
 - **PipeWire:** `pipewire-alsa`
-- **PulseAudio:** `pulseaudio-alsa`
+- **PulseAudio:** `pulseaudio-alsa` (`libasound2-plugins` on Debian/Ubuntu)
 
 Install the package for your system:
 
@@ -222,7 +224,13 @@ sudo pacman -S pulseaudio-alsa
 
 # Debian/Ubuntu (PipeWire)
 sudo apt install pipewire-alsa
+
+# Debian/Ubuntu (PulseAudio, including WSL2)
+sudo apt install libasound2-plugins
 ```
+
+On WSL2 see [WSL2 setup](docs/configuration.md#wsl2-windows-subsystem-for-linux)
+for the extra ALSA routing step.
 
 ## Author
 
