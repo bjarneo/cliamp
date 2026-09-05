@@ -77,22 +77,78 @@ func TestSocks5DialerForPlainHTTPProxyDefersToTransport(t *testing.T) {
 	}
 }
 
-func TestSocks5DialerFromURLRejectsRemoteCredentials(t *testing.T) {
-	u, err := url.Parse("socks5://user:pass@proxy.example.com:1080")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := socks5DialerFromURL(u); err == nil {
-		t.Fatal("want an error: credentials to a non-loopback SOCKS5 proxy would cross the network unencrypted")
+func TestSocks5DialerFromURLRejectsAnyCredentials(t *testing.T) {
+	for _, host := range []string{"proxy.example.com:1080", "127.0.0.1:1080"} {
+		u, err := url.Parse("socks5://user:pass@" + host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := socks5DialerFromURL(u); err == nil {
+			t.Fatalf("want an error for credentialed SOCKS5 URL %s: RFC 1929 auth is cleartext even on loopback", host)
+		}
 	}
 }
 
-func TestSocks5DialerFromURLAllowsLoopbackCredentials(t *testing.T) {
-	u, err := url.Parse("socks5://user:pass@127.0.0.1:1080")
+func TestSocks5DialerFromURLAllowsNoCredentials(t *testing.T) {
+	u, err := url.Parse("socks5://127.0.0.1:1080")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := socks5DialerFromURL(u); err != nil {
-		t.Fatalf("unexpected error for a loopback proxy: %v", err)
+		t.Fatalf("unexpected error for a SOCKS5 URL without credentials: %v", err)
+	}
+}
+
+func TestSocks5DialerForALLProxyFallback(t *testing.T) {
+	clearProxyEnv(t)
+	t.Setenv("ALL_PROXY", "socks5h://127.0.0.1:1080")
+
+	d, err := socks5DialerFor("https", "example.com:443")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if d == nil {
+		t.Fatal("want a SOCKS5 dialer from ALL_PROXY when no scheme-specific proxy is set")
+	}
+}
+
+func TestSocks5DialerForAllProxyLowercaseFallback(t *testing.T) {
+	clearProxyEnv(t)
+	t.Setenv("all_proxy", "socks5h://127.0.0.1:1080")
+
+	d, err := socks5DialerFor("http", "example.com:80")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if d == nil {
+		t.Fatal("want a SOCKS5 dialer from lowercase all_proxy")
+	}
+}
+
+func TestSocks5DialerForALLProxyRespectsNoProxy(t *testing.T) {
+	clearProxyEnv(t)
+	t.Setenv("ALL_PROXY", "socks5h://127.0.0.1:1080")
+	t.Setenv("NO_PROXY", "example.com")
+
+	d, err := socks5DialerFor("https", "example.com:443")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if d != nil {
+		t.Fatal("want nil: example.com is in NO_PROXY, ALL_PROXY should not override that")
+	}
+}
+
+func TestSocks5DialerForSchemeSpecificTakesPrecedenceOverALLProxy(t *testing.T) {
+	clearProxyEnv(t)
+	t.Setenv("HTTPS_PROXY", "http://realproxy.example:8080")
+	t.Setenv("ALL_PROXY", "socks5h://127.0.0.1:1080")
+
+	d, err := socks5DialerFor("https", "example.com:443")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if d != nil {
+		t.Fatal("want nil: HTTPS_PROXY (a plain http proxy) should be used, not fall back to ALL_PROXY")
 	}
 }

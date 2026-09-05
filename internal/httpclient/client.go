@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"golang.org/x/net/http/httpproxy"
@@ -39,7 +40,42 @@ func resolveEnvProxy(scheme, addr string) (*url.URL, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve environment proxy for %s://%s: %w", scheme, addr, err)
 	}
+	if u != nil {
+		return u, nil
+	}
+	// httpproxy.FromEnvironment() only understands HTTP_PROXY/HTTPS_PROXY
+	// and NO_PROXY -- it does not fall back to ALL_PROXY the way
+	// golang.org/x/net/proxy.FromEnvironment does. Without this, setting
+	// only ALL_PROXY=socks5h://... (a common convention for "use this
+	// proxy for everything") would silently dial every connection
+	// directly instead of through the SOCKS5 proxy. Re-resolve using
+	// ALL_PROXY/all_proxy as both the HTTP and HTTPS proxy so
+	// httpproxy.Config still applies its own NO_PROXY bypass logic.
+	allProxy := firstNonEmpty(os.Getenv("ALL_PROXY"), os.Getenv("all_proxy"))
+	if allProxy == "" {
+		return nil, nil
+	}
+	cfg := &httpproxy.Config{
+		HTTPProxy:  allProxy,
+		HTTPSProxy: allProxy,
+		NoProxy:    firstNonEmpty(os.Getenv("NO_PROXY"), os.Getenv("no_proxy")),
+	}
+	u, err = cfg.ProxyFunc()(reqURL)
+	if err != nil {
+		return nil, fmt.Errorf("resolve ALL_PROXY for %s://%s: %w", scheme, addr, err)
+	}
 	return u, nil
+}
+
+// firstNonEmpty returns the first non-empty string, or "" if all are empty --
+// used to check an env var's upper- and lowercase spelling.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // socks5DialerFromURL builds a SOCKS5 dialer for u (scheme socks5/socks5h).
@@ -51,21 +87,16 @@ func resolveEnvProxy(scheme, addr string) (*url.URL, error) {
 // clients that expose a SOCKS5 endpoint on the machine itself) doesn't
 // have that exposure, so credentials are allowed there.
 func socks5DialerFromURL(u *url.URL) (proxy.Dialer, error) {
-	var auth *proxy.Auth
 	if u.User != nil {
-		host, _, err := net.SplitHostPort(u.Host)
-		if err != nil {
-			host = u.Host
-		}
-		if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
-			return nil, fmt.Errorf("refusing to send SOCKS5 credentials to non-local proxy %q over an unencrypted connection", u.Host)
-		}
-		auth = &proxy.Auth{User: u.User.Username()}
-		if pw, ok := u.User.Password(); ok {
-			auth.Password = pw
-		}
+		// RFC 1929 SOCKS5 username/password authentication is sent in
+		// cleartext on the wire. A loopback-only restriction still limits
+		// exposure to a REMOTE eavesdropper, but not to another local,
+		// unprivileged process capturing loopback traffic -- so it is not
+		// a safe enough bar to forward credentials on. Fail clearly
+		// instead of silently sending (or silently dropping) them.
+		return nil, fmt.Errorf("SOCKS5 credentials in proxy URL for %q are not supported: RFC 1929 auth is sent in cleartext, even over loopback", u.Host)
 	}
-	return proxy.SOCKS5("tcp", u.Host, auth, proxy.Direct)
+	return proxy.SOCKS5("tcp", u.Host, nil, proxy.Direct)
 }
 
 // socks5DialerFor returns a SOCKS5 dialer to use for a request of the
