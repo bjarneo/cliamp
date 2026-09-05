@@ -158,7 +158,11 @@ sudo dnf install alsa-lib-devel flac-devel libvorbis-devel libogg-devel mpg123-d
 sudo pacman -S alsa-lib flac libvorbis libogg mpg123
 ```
 
-**macOS:** `brew install flac libvorbis libogg mpg123 pkg-config`
+**macOS:** 
+
+```sh 
+brew install flac libvorbis libogg mpg123 pkg-config
+```
 
 **Windows:** The core player needs no extra SDKs. It uses pure-Go audio decoding. `ffmpeg.exe` and `yt-dlp.exe` remain optional runtime dependencies for the same formats and providers as other platforms.
 
@@ -167,10 +171,21 @@ Spotify support uses `go-librespot`. It needs CGO and a MinGW toolchain:
 1. Install [MSYS2](https://www.msys2.org/).
 2. Open the **MSYS2 MinGW64** terminal, not the standard MSYS2 terminal. Install the toolchain and codec libraries:
    ```sh
-   pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-pkg-config \
+   pacman -S \
+     mingw-w64-x86_64-gcc mingw-w64-x86_64-go mingw-w64-x86_64-pkg-config \
      mingw-w64-x86_64-libogg mingw-w64-x86_64-libvorbis \
      mingw-w64-x86_64-flac mingw-w64-x86_64-mpg123
    ```
+   To check if Go was installed correctly, run 
+   ```sh 
+   go env GOROOT
+   ```
+   If the command causes the error `go: cannot find GOROOT directory: 'go' binary is trimmed and GOROOT is not set`, 
+   it means that the enviroment `GOROOT` variable has to be manually set: 
+   ```sh 
+   export GOROOT=/mingw64/lib/go
+   ```
+   Now, when running `go env GOROOT`, the output should be: `<mtsys2-install-folder>/mingw64/lib/go`
 3. In that MinGW64 terminal, build with CGO enabled. This keeps `gcc` and `pkg-config` on `PATH`:
    ```sh
    CGO_ENABLED=1 go build -o cliamp.exe .
