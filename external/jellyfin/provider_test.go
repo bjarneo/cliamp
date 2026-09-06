@@ -119,6 +119,66 @@ func TestProviderCanReportPlayback(t *testing.T) {
 	}
 }
 
+func TestProviderRestoreTrack(t *testing.T) {
+	p := newProvider(NewClient("https://jf.example.com/media", "new-token", "user-1", "", ""))
+	tests := []struct {
+		name  string
+		track playlist.Track
+		want  bool
+	}{
+		{
+			name:  "current history URL",
+			track: playlist.Track{Title: "Song", Path: "https://jf.example.com/media/Items/track-1/Download?api_key=new-token"},
+			want:  true,
+		},
+		{
+			name:  "legacy history URL",
+			track: playlist.Track{Title: "Song", Path: "https://jf.example.com/media/Items/track-2/Download?api_key=old-token"},
+			want:  true,
+		},
+		{
+			name:  "other Jellyfin server",
+			track: playlist.Track{Path: "https://other.example.com/Items/track-3/Download"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := p.RestoreTrack(tt.track)
+			if ok != tt.want {
+				t.Fatalf("RestoreTrack() ok = %v, want %v", ok, tt.want)
+			}
+			if !ok {
+				return
+			}
+			if got.Title != tt.track.Title || !got.Stream {
+				t.Fatalf("restored track = %+v", got)
+			}
+			if got.Meta(provider.MetaJellyfinID) == "" {
+				t.Fatal("restored track is missing Jellyfin item metadata")
+			}
+			if !bytes.Contains([]byte(got.Path), []byte("api_key=new-token")) {
+				t.Fatalf("restored path did not refresh credentials: %q", got.Path)
+			}
+		})
+	}
+}
+
+func TestProviderRestoreTrackDoesNotAuthenticateDuringStartup(t *testing.T) {
+	p := newProvider(NewClient("https://jf.example.com", "", "", "user", "password"))
+	p.client.SetHTTPClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		t.Fatalf("unexpected startup request: %s", req.URL)
+		return nil, nil
+	})})
+	oldURL := "https://jf.example.com/Items/track-1/Download?api_key=old-token"
+	got, ok := p.RestoreTrack(playlist.Track{Path: oldURL, Title: "Song"})
+	if !ok {
+		t.Fatal("RestoreTrack() did not recognize history URL")
+	}
+	if got.Path != oldURL {
+		t.Fatalf("RestoreTrack() path = %q, want saved URL before password authentication", got.Path)
+	}
+}
+
 func trackWithMeta(key, value string) playlist.Track {
 	return playlist.Track{ProviderMeta: map[string]string{key: value}}
 }

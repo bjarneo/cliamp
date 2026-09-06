@@ -343,6 +343,41 @@ func TestStreamURL(t *testing.T) {
 	}
 }
 
+func TestStreamURLFromCurrentAuth(t *testing.T) {
+	withToken := NewJellyfinClient("https://jf.example.com", "token", "user-1", "", "")
+	if got, ok := withToken.StreamURLFromCurrentAuth("track-1"); !ok || !strings.Contains(got, "api_key=token") {
+		t.Fatalf("StreamURLFromCurrentAuth() = (%q, %v), want current token", got, ok)
+	}
+
+	passwordOnly := NewJellyfinClient("https://jf.example.com", "", "", "user", "password")
+	if got, ok := passwordOnly.StreamURLFromCurrentAuth("track-1"); ok || got != "" {
+		t.Fatalf("StreamURLFromCurrentAuth() = (%q, %v), want no URL before authentication", got, ok)
+	}
+}
+
+func TestStreamItemID(t *testing.T) {
+	c := NewJellyfinClient("https://jf.example.com/media", "new-token", "user-1", "", "")
+	tests := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{name: "matching server", url: "https://jf.example.com/media/Items/track-1/Download?api_key=old-token", want: "track-1"},
+		{name: "case insensitive route", url: "https://JF.EXAMPLE.COM/media/items/track-2/download", want: "track-2"},
+		{name: "different server", url: "https://other.example.com/media/Items/track-1/Download"},
+		{name: "outside base path", url: "https://jf.example.com/Items/track-1/Download"},
+		{name: "extra path", url: "https://jf.example.com/media/Items/track-1/Download/more"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := c.StreamItemID(tt.url)
+			if got != tt.want || ok != (tt.want != "") {
+				t.Fatalf("StreamItemID(%q) = (%q, %v), want (%q, %v)", tt.url, got, ok, tt.want, tt.want != "")
+			}
+		})
+	}
+}
+
 func TestReportScrobble(t *testing.T) {
 	c := NewJellyfinClient("https://jf.example.com", "tok", "user-1", "", "")
 	call := 0

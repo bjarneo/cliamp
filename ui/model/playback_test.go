@@ -2,7 +2,9 @@ package model
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -302,12 +304,104 @@ func TestQuitCapturesMixcloudResumePosition(t *testing.T) {
 		Stream:       true,
 		DurationSecs: 3600,
 	}
+	context := []playlist.Track{
+		{Title: "Earlier", Path: "https://www.mixcloud.com/creator/earlier/", Stream: true},
+		track,
+		{Title: "Later", Path: "https://www.mixcloud.com/creator/later/", Stream: true},
+	}
 	player := &playbackFakeEngine{playing: true, position: 12*time.Minute + 34*time.Second}
-	m := Model{player: player, playingTrack: track, playingTrackActive: true}
+	m := Model{player: player, playingTrack: track, playingTrackActive: true, playbackContext: context}
 
 	m.quit()
 	if m.exitResume.path != track.Path || m.exitResume.secs != 754 {
 		t.Fatalf("exit resume = (%q, %d), want (%q, 754)", m.exitResume.path, m.exitResume.secs, track.Path)
+	}
+	gotContext, gotIndex := m.ResumeContext()
+	if len(gotContext) != 3 || gotIndex != 1 || gotContext[gotIndex].Path != track.Path {
+		t.Fatalf("exit context = len:%d index:%d tracks:%+v", len(gotContext), gotIndex, gotContext)
+	}
+}
+
+func TestNavTrackPlaybackKeepsCompleteAlbumContext(t *testing.T) {
+	player := &playbackFakeEngine{}
+	p := playlist.New()
+	album := []playlist.Track{
+		{Title: "One", Path: "https://example.com/one", Stream: true},
+		{Title: "Two", Path: "https://example.com/two", Stream: true},
+		{Title: "Three", Path: "https://example.com/three", Stream: true},
+	}
+	m := Model{
+		player:   player,
+		playlist: p,
+		vis:      ui.NewVisualizer(float64(player.SampleRate())),
+		navBrowser: navBrowserState{
+			tracks: album,
+			cursor: 1,
+		},
+	}
+
+	if cmd := m.handleNavTrackListKey(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil {
+		t.Fatal("handleNavTrackListKey(Enter) = nil, want playback command")
+	}
+	if len(m.playbackContext) != 3 || m.playbackContext[0].Title != "One" || m.playbackContext[2].Title != "Three" {
+		t.Fatalf("playback context = %+v, want complete album", m.playbackContext)
+	}
+	if tracks := p.Tracks(); len(tracks) != 2 || tracks[0].Title != "Two" {
+		t.Fatalf("live queue = %+v, want playback queue from selected track", tracks)
+	}
+}
+
+func TestBeginPlaybackPersistsActualTrackAndCompleteContextImmediately(t *testing.T) {
+	player := &playbackFakeEngine{}
+	pl := playlist.New()
+	album := make([]playlist.Track, 12)
+	for i := range album {
+		album[i] = playlist.Track{Title: fmt.Sprintf("Track %d", i+1), Path: fmt.Sprintf("https://example.com/%d", i+1), Stream: true}
+	}
+	pl.Add(album[11])
+	pl.SetIndex(0)
+	m := Model{player: player, playlist: pl, playbackContext: album}
+	var savedTrack playlist.Track
+	var savedContext []playlist.Track
+	var savedIndex, savedPosition int
+	m.SetResumeSaver(func(track playlist.Track, positionSec int, context []playlist.Track, contextIndex int) {
+		savedTrack = track
+		savedPosition = positionSec
+		savedContext = context
+		savedIndex = contextIndex
+	})
+
+	m.beginPlaybackTrack(album[11])
+
+	if savedTrack.Title != "Track 12" || savedIndex != 11 || savedPosition != 0 {
+		t.Fatalf("saved playback = track:%q index:%d position:%d", savedTrack.Title, savedIndex, savedPosition)
+	}
+	if len(savedContext) != 12 {
+		t.Fatalf("saved context length = %d, want 12", len(savedContext))
+	}
+}
+
+func TestTickResumeSavePersistsPositionAndThrottlesWrites(t *testing.T) {
+	track := playlist.Track{Title: "Track 12", Path: "https://example.com/12", Stream: true}
+	player := &playbackFakeEngine{playing: true}
+	pl := playlist.New()
+	pl.Add(track)
+	m := Model{player: player, playlist: pl, playingTrack: track, playingTrackActive: true, playbackContext: []playlist.Track{track}}
+	var positions []int
+	m.SetResumeSaver(func(_ playlist.Track, positionSec int, _ []playlist.Track, _ int) {
+		positions = append(positions, positionSec)
+	})
+	base := time.Now()
+	m.cachedPos = 42 * time.Second
+
+	m.tickResumeSave(base)
+	m.cachedPos = 43 * time.Second
+	m.tickResumeSave(base.Add(time.Second))
+	m.cachedPos = 47 * time.Second
+	m.tickResumeSave(base.Add(resumeSaveInterval))
+
+	if !slices.Equal(positions, []int{42, 47}) {
+		t.Fatalf("saved positions = %v, want [42 47]", positions)
 	}
 }
 

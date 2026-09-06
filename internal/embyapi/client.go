@@ -475,12 +475,48 @@ func IsStreamURL(path string) bool {
 	return strings.Contains(p, "/items/") && strings.HasSuffix(p, "/download")
 }
 
+// StreamItemID extracts an item ID from a download URL belonging to this
+// server. It rejects lookalike URLs from other Jellyfin or Emby servers.
+func (c *Client) StreamItemID(rawURL string) (string, bool) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", false
+	}
+	base, err := url.Parse(c.baseURL)
+	if err != nil || !strings.EqualFold(u.Scheme, base.Scheme) || !strings.EqualFold(u.Host, base.Host) {
+		return "", false
+	}
+
+	prefix := strings.TrimRight(base.Path, "/") + "/Items/"
+	if len(u.Path) < len(prefix) || !strings.EqualFold(u.Path[:len(prefix)], prefix) {
+		return "", false
+	}
+	rest := u.Path[len(prefix):]
+	itemID, suffix, ok := strings.Cut(rest, "/")
+	if !ok || itemID == "" || !strings.EqualFold(suffix, "Download") {
+		return "", false
+	}
+	return itemID, true
+}
+
+// StreamURLFromCurrentAuth returns an authenticated stream URL without doing
+// network I/O. It reports false when password authentication has not run yet.
+func (c *Client) StreamURLFromCurrentAuth(itemID string) (string, bool) {
+	token := c.authToken()
+	if token == "" {
+		return "", false
+	}
+	return c.streamURL(itemID, token), true
+}
+
 // StreamURL returns an authenticated audio URL for a track item.
 func (c *Client) StreamURL(itemID string) string {
 	_ = c.ensureAuth()
-	v := url.Values{
-		"api_key": {c.authToken()},
-	}
+	return c.streamURL(itemID, c.authToken())
+}
+
+func (c *Client) streamURL(itemID, token string) string {
+	v := url.Values{"api_key": {token}}
 
 	// Use the direct item download route rather than the Audio controller.
 	// On the live servers used for validation, the Audio endpoints returned

@@ -3,7 +3,10 @@ package resume
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
+
+	"github.com/bjarneo/cliamp/playlist"
 )
 
 // withTempHome sets HOME so appdir.Dir() points inside a temp directory,
@@ -32,6 +35,36 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSaveStateLoadContextRoundTrip(t *testing.T) {
+	withTempHome(t)
+	state := State{
+		Path:         "https://jf.example/Items/two/Download",
+		PositionSec:  95,
+		Context:      []playlist.Track{{Path: "one", Title: "One"}, {Path: "https://jf.example/Items/two/Download", Title: "Two", Stream: true}},
+		ContextIndex: 1,
+	}
+
+	SaveState(state)
+
+	if got := Load(); !reflect.DeepEqual(got, state) {
+		t.Fatalf("Load() = %+v, want %+v", got, state)
+	}
+}
+
+func TestSaveStatePersistsZeroPositionWithContext(t *testing.T) {
+	withTempHome(t)
+	state := State{
+		Path:    "https://jf.example/Items/one/Download",
+		Context: []playlist.Track{{Path: "https://jf.example/Items/one/Download", Title: "One"}},
+	}
+
+	SaveState(state)
+
+	if got := Load(); !reflect.DeepEqual(got, state) {
+		t.Fatalf("Load() = %+v, want %+v", got, state)
+	}
+}
+
 func TestSaveIgnoresEmptyPath(t *testing.T) {
 	home := withTempHome(t)
 	Save("", 10, "p")
@@ -56,7 +89,7 @@ func TestSaveIgnoresNonPositivePosition(t *testing.T) {
 func TestLoadMissingFileReturnsZero(t *testing.T) {
 	withTempHome(t)
 	got := Load()
-	if got != (State{}) {
+	if !reflect.DeepEqual(got, State{}) {
 		t.Errorf("Load() = %+v, want zero State", got)
 	}
 }
@@ -72,7 +105,7 @@ func TestLoadCorruptFileReturnsZero(t *testing.T) {
 	}
 
 	got := Load()
-	if got != (State{}) {
+	if !reflect.DeepEqual(got, State{}) {
 		t.Errorf("Load() = %+v, want zero State for corrupt file", got)
 	}
 }

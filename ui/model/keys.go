@@ -31,9 +31,12 @@ func (m *Model) quit() tea.Cmd {
 		!track.IsLive() &&
 		m.player.IsPlaying() {
 		if secs := int(m.player.Position().Seconds()); secs > 0 {
+			context, contextIndex := m.playbackContextFor(track)
 			m.exitResume.path = track.Path
 			m.exitResume.secs = secs
 			m.exitResume.playlist = m.loadedPlaylist
+			m.exitResume.context = cloneTracks(context)
+			m.exitResume.contextIndex = contextIndex
 		}
 	}
 

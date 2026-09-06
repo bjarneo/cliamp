@@ -12,11 +12,63 @@ import (
 	"github.com/bjarneo/cliamp/provider"
 )
 
-const ytdlReconnectPauseThreshold = 45 * time.Second
+const (
+	ytdlReconnectPauseThreshold = 45 * time.Second
+	resumeSaveInterval          = 2 * time.Second
+)
 
 func (m *Model) replacePlaylist(tracks []playlist.Track) {
 	m.playlist.Replace(tracks)
 	m.normalizeQueueOverlay()
+}
+
+func trackIndexByPath(tracks []playlist.Track, path string) int {
+	for i, track := range tracks {
+		if track.Path == path {
+			return i
+		}
+	}
+	return -1
+}
+
+func (m *Model) setPlaybackContext(tracks []playlist.Track) {
+	m.playbackContext = cloneTracks(tracks)
+}
+
+func (m *Model) playbackContextFor(track playlist.Track) ([]playlist.Track, int) {
+	context := m.playbackContext
+	index := trackIndexByPath(context, track.Path)
+	if index < 0 && m.playlist != nil {
+		context = m.playlist.Tracks()
+		index = trackIndexByPath(context, track.Path)
+	}
+	return context, index
+}
+
+func (m *Model) persistPlaybackContext(track playlist.Track, positionSec int, now time.Time) {
+	if m.resumeSaver == nil {
+		return
+	}
+	context, index := m.playbackContextFor(track)
+	if index < 0 {
+		return
+	}
+	m.resumeSaver(track, positionSec, cloneTracks(context), index)
+	m.lastResumeSave = now
+}
+
+func (m *Model) tickResumeSave(now time.Time) {
+	if m.resumeSaver == nil || m.player == nil || !m.player.IsPlaying() {
+		return
+	}
+	if !m.lastResumeSave.IsZero() && now.Sub(m.lastResumeSave) < resumeSaveInterval {
+		return
+	}
+	track, index := m.currentPlaybackTrack()
+	if index < 0 {
+		return
+	}
+	m.persistPlaybackContext(track, max(0, int(m.cachedPos.Seconds())), now)
 }
 
 // nextTrack advances to the next playlist track and starts playing it.
@@ -467,7 +519,15 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	m.preloading = false
 	nextRequest(&m.requests.lyrics)
 	track = playlist.RefreshEmbeddedMetadata(track)
+	if trackIndexByPath(m.playbackContext, track.Path) < 0 && m.playlist != nil {
+		m.setPlaybackContext(m.playlist.Tracks())
+	}
 	m.setPlaybackTrack(track)
+	positionSec := 0
+	if m.resume.path == track.Path {
+		positionSec = m.resume.secs
+	}
+	m.persistPlaybackContext(track, positionSec, time.Now())
 	historyCmd := m.recordListenedTrack(track)
 	m.reconnect.attempts = 0
 	m.reconnect.at = time.Time{}

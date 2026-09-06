@@ -8,13 +8,17 @@ import (
 	"path/filepath"
 
 	"github.com/bjarneo/cliamp/internal/appdir"
+	"github.com/bjarneo/cliamp/internal/fileutil"
+	"github.com/bjarneo/cliamp/playlist"
 )
 
 // State holds enough information to resume a previous playback session.
 type State struct {
-	Path        string `json:"path"`
-	PositionSec int    `json:"position_sec"`
-	Playlist    string `json:"playlist,omitempty"`
+	Path         string           `json:"path"`
+	PositionSec  int              `json:"position_sec"`
+	Playlist     string           `json:"playlist,omitempty"`
+	Context      []playlist.Track `json:"context,omitempty"`
+	ContextIndex int              `json:"context_index,omitempty"`
 }
 
 func stateFile() (string, error) {
@@ -27,21 +31,25 @@ func stateFile() (string, error) {
 
 // Save writes the resume state to disk. No-ops for empty path or zero/negative
 // position to avoid overwriting a valid resume file with useless data.
-// Errors are silently ignored so a failed write never disrupts normal exit.
 func Save(path string, positionSec int, playlist string) {
-	if path == "" || positionSec <= 0 {
+	SaveState(State{Path: path, PositionSec: positionSec, Playlist: playlist})
+}
+
+// SaveState writes a complete resume state, including its playback context.
+// Errors are silently ignored so a failed write never disrupts normal exit.
+func SaveState(state State) {
+	if state.Path == "" || state.PositionSec < 0 || (state.PositionSec == 0 && len(state.Context) == 0) {
 		return
 	}
 	f, err := stateFile()
 	if err != nil {
 		return
 	}
-	data, err := json.Marshal(State{Path: path, PositionSec: positionSec, Playlist: playlist})
+	data, err := json.Marshal(state)
 	if err != nil {
 		return
 	}
-	_ = os.MkdirAll(filepath.Dir(f), 0o755)
-	_ = os.WriteFile(f, data, 0o600)
+	_ = fileutil.WriteFileAtomic(f, data, 0o600)
 }
 
 // Load reads the resume state from disk. Returns a zero State if the file
