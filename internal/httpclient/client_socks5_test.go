@@ -1,8 +1,12 @@
 package httpclient
 
 import (
+	"context"
+	"net"
+	"net/http"
 	"net/url"
 	"testing"
+	"time"
 )
 
 // clearProxyEnv resets every proxy-related env var (upper and lower case)
@@ -136,6 +140,65 @@ func TestSocks5DialerForALLProxyRespectsNoProxy(t *testing.T) {
 	}
 	if d != nil {
 		t.Fatal("want nil: example.com is in NO_PROXY, ALL_PROXY should not override that")
+	}
+}
+
+// TestDialDecisionIsNotReresolvedFromProxyHopAddress reproduces the mixed
+// HTTP_PROXY/HTTPS_PROXY configuration CodeRabbit flagged: an https target
+// whose HTTPS_PROXY is a plain http(s) proxy, while HTTP_PROXY happens to be
+// a SOCKS5 proxy. net/http.Transport dials the CONNECT tunnel's proxy
+// address (not the request's target) through DialContext for this request,
+// so the dial decision must come from the request's own scheme (https,
+// which resolves to a plain proxy) -- never re-derived from that proxy
+// address as if it were something to look up HTTP_PROXY for.
+func TestDialDecisionIsNotReresolvedFromProxyHopAddress(t *testing.T) {
+	clearProxyEnv(t)
+	t.Setenv("HTTPS_PROXY", "http://real-proxy.example:8080")
+	t.Setenv("HTTP_PROXY", "socks5h://bogus-proxy.invalid:1080")
+
+	req, err := http.NewRequest(http.MethodGet, "https://example.com/stream", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := dialDecisionFor(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if decision.socks5 != nil {
+		t.Fatal("want no SOCKS5 dialer: the request's own scheme (https) resolves to a plain http proxy, HTTP_PROXY's SOCKS5 setting must not apply to it")
+	}
+
+	// Stand in for net/http.Transport dialing the CONNECT tunnel's proxy
+	// address directly (never "example.com:443") with a real, reachable
+	// listener. dialWithDecision must reach it directly -- if the dial
+	// decision were (wrongly) re-derived from this address instead of
+	// read from ctx, HTTP_PROXY's bogus SOCKS5 proxy would apply instead
+	// and this dial would fail or hang rather than connecting straight in.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	accepted := make(chan struct{})
+	go func() {
+		conn, err := ln.Accept()
+		if err == nil {
+			conn.Close()
+			close(accepted)
+		}
+	}()
+
+	ctx := context.WithValue(context.Background(), dialDecisionKey{}, decision)
+	conn, err := dialWithDecision(ctx, "tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("dial proxy hop directly: %v", err)
+	}
+	conn.Close()
+
+	select {
+	case <-accepted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("listener never accepted a direct connection -- dial was routed elsewhere")
 	}
 }
 

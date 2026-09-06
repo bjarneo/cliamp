@@ -24,7 +24,7 @@ import (
 // Proxy is read from the environment (HTTP_PROXY, HTTPS_PROXY, NO_PROXY)
 // so users behind corporate or local proxies aren't bypassed; the rest of
 // the codebase uses http.DefaultTransport, which already honors these vars.
-var Streaming = &http.Client{Transport: newStreamingTransport()}
+var Streaming = &http.Client{Transport: &socks5RoundTripper{transport: newStreamingTransport()}}
 
 // resolveEnvProxy resolves the proxy that applies to a request for the
 // given scheme+addr, honoring HTTP_PROXY/HTTPS_PROXY/ALL_PROXY/NO_PROXY
@@ -76,6 +76,71 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// canonicalAddr returns u's authority as "host:port", applying the scheme's
+// default port (80/443) when u carries none -- matching how net/http itself
+// canonicalizes a request URL's address before proxy/dial resolution.
+func canonicalAddr(u *url.URL) string {
+	if u.Port() != "" {
+		return u.Host
+	}
+	port := "80"
+	if u.Scheme == "https" {
+		port = "443"
+	}
+	return net.JoinHostPort(u.Hostname(), port)
+}
+
+// dialDecisionKey is the context key socks5RoundTripper.RoundTrip uses to
+// pin a request's resolved dial decision so DialContext/DialTLSContext can
+// read it back later.
+type dialDecisionKey struct{}
+
+// dialDecision is resolved once per request, from the request's own scheme
+// and target host, and travels with req.Context() down into
+// DialContext/DialTLSContext -- both of which net/http.Transport calls
+// with that same context object. This matters because the address those
+// two functions are asked to dial is NOT always the request's target: for
+// a request routed through a plain http(s) proxy, Transport dials the
+// PROXY's address itself (to open the CONNECT tunnel, or to relay a plain
+// http request), never the origin host. Re-resolving *_PROXY env vars
+// against that proxy address (as if it were the thing to reach) can pick
+// a completely unrelated proxy for it -- e.g. HTTPS_PROXY=http://real:8080
+// together with HTTP_PROXY=socks5://other:1080 previously made the dial
+// to real:8080 get routed through other:1080 via SOCKS5, instead of
+// dialing real:8080 directly like it should. Pinning the decision once,
+// from the true target, avoids that entirely: whatever address Transport
+// later dials for this connection, the SOCKS5-or-not decision is already
+// fixed and correct.
+type dialDecision struct {
+	socks5 proxy.Dialer // nil: no SOCKS5 for this connection, dial addr directly
+}
+
+func dialDecisionFor(req *http.Request) (*dialDecision, error) {
+	d, err := socks5DialerFor(req.URL.Scheme, canonicalAddr(req.URL))
+	if err != nil {
+		return nil, err
+	}
+	return &dialDecision{socks5: d}, nil
+}
+
+// socks5RoundTripper wraps a *http.Transport to resolve each request's
+// dial decision (see dialDecision) exactly once, from the request itself,
+// before handing off to the real Transport -- which will call
+// DialContext/DialTLSContext with the same context one or more times as
+// it establishes (or reuses) the underlying connection.
+type socks5RoundTripper struct {
+	transport *http.Transport
+}
+
+func (rt *socks5RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	decision, err := dialDecisionFor(req)
+	if err != nil {
+		return nil, fmt.Errorf("resolve proxy dial decision for %s: %w", req.URL, err)
+	}
+	ctx := context.WithValue(req.Context(), dialDecisionKey{}, decision)
+	return rt.transport.RoundTrip(req.WithContext(ctx))
 }
 
 // socks5DialerFromURL builds a SOCKS5 dialer for u (scheme socks5/socks5h).
@@ -152,7 +217,7 @@ func newStreamingTransport() *http.Transport {
 	}
 
 	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		conn, err := dialMaybeSOCKS5(ctx, "http", network, addr)
+		conn, err := dialWithDecision(ctx, network, addr)
 		if err != nil {
 			return nil, fmt.Errorf("dial %s: %w", addr, err)
 		}
@@ -173,7 +238,7 @@ func newStreamingTransport() *http.Transport {
 		// Icecast and SHOUTcast servers only support HTTP/1.x.
 		config.NextProtos = nil
 
-		rawConn, err := dialMaybeSOCKS5(ctx, "https", network, addr)
+		rawConn, err := dialWithDecision(ctx, network, addr)
 		if err != nil {
 			return nil, fmt.Errorf("dial TLS %s: %w", addr, err)
 		}
@@ -187,16 +252,21 @@ func newStreamingTransport() *http.Transport {
 	return tr
 }
 
-// dialMaybeSOCKS5 dials addr directly, unless the environment's proxy
-// configuration calls for a SOCKS5 proxy for a request of this scheme to
-// this addr, in which case it dials through that proxy instead. Context
-// cancellation applies to both paths (the SOCKS5 dialer's context-aware
-// DialContext is used when the proxy supports it, which proxy.SOCKS5's
-// dialer does).
-func dialMaybeSOCKS5(ctx context.Context, scheme, network, addr string) (net.Conn, error) {
-	d, err := socks5DialerFor(scheme, addr)
-	if err != nil {
-		return nil, fmt.Errorf("resolve dialer for %s: %w", addr, err)
+// dialWithDecision dials addr directly, unless ctx carries a *dialDecision
+// (stashed by socks5RoundTripper.RoundTrip, from the original request's own
+// scheme and target host) that calls for a SOCKS5 proxy, in which case it
+// dials through that proxy instead. Context cancellation applies to both
+// paths (the SOCKS5 dialer's context-aware DialContext is used when the
+// proxy supports it, which proxy.SOCKS5's dialer does).
+//
+// Deliberately NOT re-resolved from addr here: see dialDecision's doc
+// comment for why that was wrong for connections routed through a plain
+// http(s) proxy.
+func dialWithDecision(ctx context.Context, network, addr string) (net.Conn, error) {
+	decision, _ := ctx.Value(dialDecisionKey{}).(*dialDecision)
+	var d proxy.Dialer
+	if decision != nil {
+		d = decision.socks5
 	}
 	if d == nil {
 		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
