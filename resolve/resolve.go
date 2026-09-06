@@ -31,14 +31,17 @@ import (
 	"github.com/kkdai/youtube/v2"
 )
 
+// ErrMissingSecretStorage indicates yt-dlp failed to decrypt Chrome v11 cookies due to missing python-secretstorage.
 var ErrMissingSecretStorage = errors.New("yt-dlp secretstorage missing")
 
+// isCookieSecretStorageError reports whether msg indicates a secretstorage or v11 cookie decryption failure.
 func isCookieSecretStorageError(msg string) bool {
 	lower := strings.ToLower(msg)
 	return strings.Contains(lower, "secretstorage not available") ||
 		strings.Contains(lower, "cannot decrypt v11 cookies")
 }
 
+// CookieHint returns the browser+keyring hint for the given browser (e.g. "chrome+gnomekeyring").
 func CookieHint(browser string) string {
 	b := strings.ToLower(strings.TrimSpace(browser))
 	switch {
@@ -55,6 +58,7 @@ func CookieHint(browser string) string {
 	}
 }
 
+// SecretStorageBrowser extracts the browser name from a wrapped ErrMissingSecretStorage error.
 func SecretStorageBrowser(err error) string {
 	if err == nil {
 		return ""
