@@ -31,7 +31,9 @@ import (
 	"github.com/kkdai/youtube/v2"
 )
 
-// ErrMissingSecretStorage indicates yt-dlp failed to decrypt Chrome v11 cookies due to missing python-secretstorage.
+// ErrMissingSecretStorage indicates yt-dlp failed to access the system keyring for cookie
+// decryption, including missing python-secretstorage and Chromium v11 cookie decryption
+// failures. See isCookieSecretStorageError for the classified error patterns.
 var ErrMissingSecretStorage = errors.New("yt-dlp secretstorage missing")
 
 // isCookieSecretStorageError reports whether msg indicates a secretstorage or v11 cookie decryption failure.
