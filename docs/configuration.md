@@ -99,6 +99,11 @@ theme = "Tokyo Night"
 # Logs are written to ~/.config/cliamp/cliamp.log
 log_level = "info"
 
+# yt-dlp binary to run (default: "yt-dlp" from PATH)
+# Set this only when your distribution ships an outdated yt-dlp; an unset key
+# keeps the PATH lookup. See yt-dlp.md.
+# ytdlp_path = "~/.local/bin/yt-dlp"
+
 ```
 
 `Stereo` shows separate left and right horizontal LED meters with held peak markers.
@@ -230,7 +235,7 @@ cookies_from = "firefox"   # or chrome, chromium, brave, edge, opera, safari, vi
 
 With cookies set, yt-dlp can stream subscriber-gated tracks (SoundCloud Go+) and access private likes and playlists that your account can access. The same cookies apply to player yt-dlp calls. Playback uses your signed-in session.
 
-Requires `yt-dlp` on `PATH`.
+Requires an executable yt-dlp, selected by `CLIAMP_YTDLP`, `ytdlp_path`, or `PATH`. See [yt-dlp.md](yt-dlp.md).
 
 ## Mixcloud
 

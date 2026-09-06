@@ -2,7 +2,8 @@
 
 Enable [Mixcloud](https://www.mixcloud.com) to browse catalog metadata through
 the Mixcloud public JSON API. Playback uses the existing `yt-dlp` and FFmpeg
-pipeline. Put `yt-dlp` and `ffmpeg` on `PATH`.
+pipeline. Put `yt-dlp` and `ffmpeg` on `PATH`, or select the yt-dlp binary with
+`ytdlp_path`/`CLIAMP_YTDLP` ([yt-dlp.md](yt-dlp.md)).
 
 ## Feature summary
 

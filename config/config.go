@@ -360,6 +360,7 @@ type Config struct {
 	PaddingV         int                          // vertical padding for the UI frame (default 1)
 	AudioDevice      string                       // preferred audio output device name (empty = system default)
 	Playlist         string                       // local TOML playlist name to load on startup
+	YtdlpPath        string                       // explicit yt-dlp binary path (empty = look up "yt-dlp" on PATH)
 	InitialDirectory string                       // initial directory for the file browser
 	Navidrome        NavidromeConfig              // optional Navidrome/Subsonic server credentials
 	Lyrion           LyrionConfig                 // optional Lyrion Music Server (LMS) instance
@@ -727,6 +728,8 @@ func Load() (Config, error) {
 				cfg.AudioDevice = parseString(val)
 			case "initial_directory":
 				cfg.InitialDirectory = parseString(val)
+			case "ytdlp_path":
+				cfg.YtdlpPath = parseString(val)
 			case "padding_horizontal":
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.PaddingH = v

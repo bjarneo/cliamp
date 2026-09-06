@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +15,14 @@ import (
 	"time"
 
 	"github.com/gopxl/beep/v2"
+
+	"github.com/bjarneo/cliamp/internal/ytdlbin"
 )
+
+// ytdlpWarning is what a real yt-dlp prints to stderr before failing with a
+// 403 it cannot avoid. It must reach the user, so the playback command may not
+// pass --no-warnings.
+const ytdlpWarning = "WARNING: yt-dlp version stable@2024.01.01 is older than 90 days"
 
 func installYTDLRetryFixtures(t *testing.T, mode string) (string, string) {
 	t.Helper()
@@ -25,7 +33,14 @@ func installYTDLRetryFixtures(t *testing.T, mode string) (string, string) {
 	dir := t.TempDir()
 	attemptsPath := filepath.Join(dir, "attempts")
 	ffmpegDonePath := filepath.Join(dir, "ffmpeg-done")
+	suppressedPath := filepath.Join(dir, "warnings-suppressed")
 	ytdlScript := `#!/bin/sh
+for arg in "$@"; do
+	if [ "$arg" = "--no-warnings" ]; then
+		printf 'yes\n' > "$YTDL_SUPPRESSED"
+	fi
+done
+printf '%s\n' "$YTDL_WARNING" >&2
 count=0
 if [ -f "$YTDL_ATTEMPTS" ]; then
 	count=$(wc -l < "$YTDL_ATTEMPTS")
@@ -61,8 +76,18 @@ cat
 	}
 	t.Setenv("YTDL_ATTEMPTS", attemptsPath)
 	t.Setenv("YTDL_MODE", mode)
+	t.Setenv("YTDL_WARNING", ytdlpWarning)
+	t.Setenv("YTDL_SUPPRESSED", suppressedPath)
 	t.Setenv("FFMPEG_DONE", ffmpegDonePath)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// CLIAMP_YTDLP outranks PATH, so a developer with it set would otherwise
+	// run their real yt-dlp instead of this fixture.
+	t.Setenv(ytdlbin.EnvVar, "")
+	t.Cleanup(func() {
+		if _, err := os.Stat(suppressedPath); err == nil {
+			t.Error("yt-dlp was invoked with --no-warnings; its 403 diagnostics would be hidden")
+		}
+	})
 	return attemptsPath, ffmpegDonePath
 }
 
@@ -95,6 +120,10 @@ func TestBuildYTDLPipelineRetriesTransient403(t *testing.T) {
 	}
 }
 
+// TestBuildYTDLPipelineStopsAfterTransient403RetryBudget also covers the
+// common real-world cause of an unrecoverable 403 — a yt-dlp too old to sign
+// YouTube media URLs — by asserting that yt-dlp's own warning about it reaches
+// the error the UI shows.
 func TestBuildYTDLPipelineStopsAfterTransient403RetryBudget(t *testing.T) {
 	attemptsPath, _ := installYTDLRetryFixtures(t, "403-always")
 	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
@@ -103,8 +132,34 @@ func TestBuildYTDLPipelineStopsAfterTransient403RetryBudget(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "HTTP Error 403: Forbidden") {
 		t.Fatalf("buildYTDLPipeline() error = %v, want yt-dlp 403 cause", err)
 	}
+	if !strings.Contains(err.Error(), ytdlpWarning) {
+		t.Errorf("buildYTDLPipeline() error = %q, want yt-dlp's own warning %q", err, ytdlpWarning)
+	}
 	if got := fixtureLineCount(t, attemptsPath); got != 3 {
 		t.Fatalf("yt-dlp attempts = %d, want 3", got)
+	}
+}
+
+// A missing binary selected by CLIAMP_YTDLP or ytdlp_path must name that
+// selection instead of advising an install that the selection would override.
+func TestDecodeYTDLPipeNamesSelectedBinary(t *testing.T) {
+	t.Setenv(ytdlbin.EnvVar, filepath.Join(t.TempDir(), "absent-yt-dlp"))
+
+	_, _, err := decodeYTDLPipe("https://www.youtube.com/watch?v=x", beep.SampleRate(44100), 16, 0)
+	if err == nil {
+		t.Fatal("decodeYTDLPipe() error = nil, want missing yt-dlp error")
+	}
+	if !strings.Contains(err.Error(), "absent-yt-dlp") || !strings.Contains(err.Error(), ytdlbin.EnvVar) {
+		t.Fatalf("error = %q, want the selected binary and its source", err)
+	}
+	if strings.Contains(err.Error(), "install") {
+		t.Fatalf("error = %q, want no install advice for an explicit selection", err)
+	}
+	// The guard replaces the os/exec failure with its own message, so the
+	// lookup cause has to stay reachable for callers matching on it.
+	var execErr *exec.Error
+	if !errors.As(err, &execErr) || !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("error %v does not unwrap to the exec lookup failure", err)
 	}
 }
 
