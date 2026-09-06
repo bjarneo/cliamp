@@ -406,35 +406,76 @@ func TestTracksPageDiscardsAbandonedLoadWhenHeadChangedAtSameTotal(t *testing.T)
 	}
 }
 
-// An ordinary playlist can be edited anywhere, so an unchanged total and head
-// prove nothing about the pages already read: a same-total edit below the head
-// would shift every later offset and stitch the halves together a track short.
-// Only saved tracks resume; everything else restarts from a clean page 0.
-func TestTracksPageDoesNotResumeOrdinaryPlaylists(t *testing.T) {
-	const total = 200
-	calls := 0
+// playlistStub serves one playlist's items plus its snapshot_id, so a test can
+// move the playlist underneath a load without changing its length.
+func playlistStub(t *testing.T, id string, total int, snapshot, prefix *string, calls *int) *SpotifyProvider {
+	t.Helper()
 	originalTransport := http.DefaultTransport
 	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if req.URL.Path != "/v1/playlists/alpha/items" {
-			return nil, fmt.Errorf("unexpected Spotify API path %q", req.URL.Path)
+		*calls++
+		switch req.URL.Path {
+		case "/v1/playlists/" + id:
+			return jsonResponse(req, fmt.Sprintf(`{"snapshot_id":%q}`, *snapshot))
+		case "/v1/playlists/" + id + "/items":
+			offset, _ := strconv.Atoi(req.URL.Query().Get("offset"))
+			limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
+			var items []string
+			for i := offset; i < total && i < offset+limit; i++ {
+				items = append(items, fmt.Sprintf(
+					`{"item":{"id":"%s%d","name":"n","type":"track","uri":"spotify:track:%s%d"}}`,
+					*prefix, i, *prefix, i))
+			}
+			return jsonResponse(req, fmt.Sprintf(`{"items":[%s],"total":%d}`, strings.Join(items, ","), total))
 		}
-		calls++
-		offset, _ := strconv.Atoi(req.URL.Query().Get("offset"))
-		limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
-		var items []string
-		for i := offset; i < total && i < offset+limit; i++ {
-			items = append(items, fmt.Sprintf(
-				`{"item":{"id":"p%d","name":"n","type":"track","uri":"spotify:track:p%d"}}`, i, i))
-		}
-		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
-			Body: io.NopCloser(strings.NewReader(
-				fmt.Sprintf(`{"items":[%s],"total":%d}`, strings.Join(items, ","), total))),
-			Request: req}, nil
+		return nil, fmt.Errorf("unexpected Spotify API path %q", req.URL.Path)
 	})
 	t.Cleanup(func() { http.DefaultTransport = originalTransport })
-
 	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
 	p := New(sess, "client", 320)
+	p.trackCache[id] = &playlistCache{snapshotID: *snapshot}
+	return p
+}
+
+func jsonResponse(req *http.Request, body string) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
+		Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+}
+
+// An unchanged snapshot_id is Spotify's own proof that a playlist has not been
+// touched, so the pages already read can be trusted and the load resumes.
+func TestTracksPageResumesPlaylistOnUnchangedSnapshot(t *testing.T) {
+	calls := 0
+	snapshot, prefix := "snap-1", "p"
+	p := playlistStub(t, "alpha", 200, &snapshot, &prefix, &calls)
+
+	for offset := 0; offset < 100; {
+		_, next, err := p.TracksPage("alpha", offset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		offset = next
+	}
+	calls = 0
+
+	page, next, err := p.TracksPage("alpha", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 100 || next != 100 {
+		t.Errorf("resumed with %d tracks at %d, want 100 at 100", len(page), next)
+	}
+	if calls != 2 {
+		t.Errorf("took %d requests to resume, want 2 (page 0 plus the snapshot probe)", calls)
+	}
+}
+
+// A changed snapshot_id means the playlist was edited, and an ordinary playlist
+// can be edited anywhere -- a same-total edit below the head would shift every
+// later offset and stitch the halves together a track short. Restart instead.
+func TestTracksPageRestartsPlaylistOnChangedSnapshot(t *testing.T) {
+	calls := 0
+	snapshot, prefix := "snap-1", "p"
+	p := playlistStub(t, "alpha", 200, &snapshot, &prefix, &calls)
 
 	for offset := 0; offset < 100; {
 		_, next, err := p.TracksPage("alpha", offset)
@@ -444,15 +485,17 @@ func TestTracksPageDoesNotResumeOrdinaryPlaylists(t *testing.T) {
 		offset = next
 	}
 
+	snapshot, prefix = "snap-2", "q" // edited: same length, different contents
+
 	page, next, err := p.TracksPage("alpha", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(page) != 50 || next != 50 {
-		t.Errorf("got %d tracks and next=%d, want a fresh page 0 of 50 and next=50", len(page), next)
+		t.Fatalf("got %d tracks and next=%d, want a fresh page 0 of 50 and next=50", len(page), next)
 	}
-	if page[0].Path != "spotify:track:p0" {
-		t.Errorf("restarted page 0 begins with %s, want the head of the playlist", page[0].Path)
+	if page[0].Path != "spotify:track:q0" {
+		t.Errorf("restarted page 0 begins with %s, want the edited playlist's head", page[0].Path)
 	}
 }
 

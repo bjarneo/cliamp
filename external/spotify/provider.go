@@ -54,9 +54,10 @@ type playlistCache struct {
 // from two snapshots can splice together into a list that is short by one and
 // duplicated by one, which revalidation cannot detect.
 type pendingTracks struct {
-	tracks []playlist.Track
-	want   int
-	total  int
+	tracks   []playlist.Track
+	want     int
+	total    int
+	snapshot string // playlist snapshot_id the accumulation began under; "" for saved tracks
 }
 
 type SpotifyProvider struct {
@@ -519,6 +520,33 @@ func headMatches(accumulated, page []playlist.Track) bool {
 	return true
 }
 
+// snapshotIDLocked returns the snapshot_id last seen for playlistID, or "" if
+// none is known. p.mu must be held.
+func (p *SpotifyProvider) snapshotIDLocked(playlistID string) string {
+	if cached := p.trackCache[playlistID]; cached != nil {
+		return cached.snapshotID
+	}
+	return ""
+}
+
+// playlistSnapshot reads a playlist's current snapshot_id, Spotify's own version
+// token: it changes on every edit, so an unchanged one proves the playlist is
+// untouched -- which an unchanged total and head cannot, since an ordinary
+// playlist can be edited anywhere.
+func (p *SpotifyProvider) playlistSnapshot(ctx context.Context, playlistID string) (string, error) {
+	resp, err := p.webAPI(ctx, "GET", "/v1/playlists/"+playlistID, url.Values{"fields": {"snapshot_id"}})
+	if err != nil {
+		return "", err
+	}
+	var result struct {
+		SnapshotID string `json:"snapshot_id"`
+	}
+	if err := decodeBody(resp, &result); err != nil {
+		return "", err
+	}
+	return result.SnapshotID, nil
+}
+
 // cachedTracksLocked returns a copy of the committed list and its total, if
 // any. p.mu must be held.
 func (p *SpotifyProvider) cachedTracksLocked(playlistID string) (tracks []playlist.Track, total int, ok bool) {
@@ -601,22 +629,43 @@ func (p *SpotifyProvider) TracksPage(playlistID string, offset int) ([]playlist.
 	if next >= total {
 		next = 0
 	}
+
+	// Whether an abandoned accumulation can be resumed may need a request, so
+	// settle it before taking the lock the accumulation is guarded by.
+	resumable := false
+	if offset == 0 {
+		p.mu.Lock()
+		pend := p.pending[playlistID]
+		viable := pend != nil && pend.want > 0 && pend.total == total
+		head := viable && playlistID == savedTracksPlaylistID && headMatches(pend.tracks, page)
+		snapshot := ""
+		if viable && playlistID != savedTracksPlaylistID {
+			snapshot = pend.snapshot
+		}
+		p.mu.Unlock()
+
+		switch {
+		case head:
+			// Saved tracks cannot hide an edit: a like lands at position 0 and an
+			// unlike moves the total, so the head and total together are proof.
+			resumable = true
+		case snapshot != "":
+			current, err := p.playlistSnapshot(ctx, playlistID)
+			resumable = err == nil && current == snapshot
+		}
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	pend := p.pending[playlistID]
 	if offset == 0 {
 		// Re-entering a list abandoned mid-load resumes the earlier accumulation
-		// rather than refetching every page already paid for. Only saved tracks
-		// qualify: an unchanged total and an unchanged head prove nothing moved
-		// there, because a like lands at position 0 and an unlike changes the
-		// total. An ordinary playlist can be edited anywhere, so a same-total
-		// edit below the head but inside the fetched prefix would shift every
-		// later offset and stitch the two halves together a track short.
-		if playlistID == savedTracksPlaylistID && pend != nil && pend.want > 0 &&
-			pend.total == total && headMatches(pend.tracks, page) {
+		// rather than refetching every page already paid for, at the cost of one
+		// request to prove nothing moved in between.
+		if resumable && pend != nil {
 			return slices.Clone(pend.tracks), pend.want, nil
 		}
-		pend = &pendingTracks{total: total}
+		pend = &pendingTracks{total: total, snapshot: p.snapshotIDLocked(playlistID)}
 		p.pending[playlistID] = pend
 	}
 	// A page at an offset this accumulation is not waiting for belongs to a
