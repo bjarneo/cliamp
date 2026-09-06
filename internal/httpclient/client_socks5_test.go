@@ -156,7 +156,8 @@ func TestDialDecisionIsNotReresolvedFromProxyHopAddress(t *testing.T) {
 	t.Setenv("HTTPS_PROXY", "http://real-proxy.example:8080")
 	t.Setenv("HTTP_PROXY", "socks5h://bogus-proxy.invalid:1080")
 
-	req, err := http.NewRequest(http.MethodGet, "https://example.com/stream", nil)
+	baseCtx := context.Background()
+	req, err := http.NewRequestWithContext(baseCtx, http.MethodGet, "https://example.com/stream", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,26 +175,26 @@ func TestDialDecisionIsNotReresolvedFromProxyHopAddress(t *testing.T) {
 	// decision were (wrongly) re-derived from this address instead of
 	// read from ctx, HTTP_PROXY's bogus SOCKS5 proxy would apply instead
 	// and this dial would fail or hang rather than connecting straight in.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(baseCtx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	accepted := make(chan struct{})
 	go func() {
 		conn, err := ln.Accept()
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			close(accepted)
 		}
 	}()
 
-	ctx := context.WithValue(context.Background(), dialDecisionKey{}, decision)
+	ctx := context.WithValue(baseCtx, dialDecisionKey{}, decision)
 	conn, err := dialWithDecision(ctx, "tcp", ln.Addr().String())
 	if err != nil {
 		t.Fatalf("dial proxy hop directly: %v", err)
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	select {
 	case <-accepted:
