@@ -70,6 +70,36 @@ func isBufferedProviderURL(u string) bool {
 		yandex.IsStreamURL(u)
 }
 
+func restoreJellyfinContext(state resume.State, prov *jellyfin.Provider) ([]playlist.Track, int, string, bool) {
+	if prov == nil || len(state.Context) == 0 {
+		return nil, 0, "", false
+	}
+	index := state.ContextIndex
+	if index < 0 || index >= len(state.Context) || state.Context[index].Path != state.Path {
+		index = -1
+		for i, track := range state.Context {
+			if track.Path == state.Path {
+				index = i
+				break
+			}
+		}
+	}
+	if index < 0 {
+		return nil, 0, "", false
+	}
+	if _, ok := prov.RestoreTrack(state.Context[index]); !ok {
+		return nil, 0, "", false
+	}
+
+	tracks := append([]playlist.Track(nil), state.Context...)
+	for i, track := range tracks {
+		if restored, ok := prov.RestoreTrack(track); ok {
+			tracks[i] = restored
+		}
+	}
+	return tracks, index, tracks[index].Path, true
+}
+
 func run(overrides config.Overrides, positional []string, daemon, visualizer60FPS bool) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -123,7 +153,9 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		providers = append(providers, model.ProviderEntry{Key: "plex", Name: "Plex", Provider: plexProv})
 	}
 
-	if jellyProv := jellyfin.NewFromConfig(cfg.Jellyfin); jellyProv != nil {
+	var jellyProv *jellyfin.Provider
+	if p := jellyfin.NewFromConfig(cfg.Jellyfin); p != nil {
+		jellyProv = p
 		providers = append(providers, model.ProviderEntry{Key: "jellyfin", Name: "Jellyfin", Provider: jellyProv})
 	}
 
@@ -293,6 +325,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		defaultProvider = "radio"
 	}
 	defaultRadio := len(positional) == 0 && defaultProvider == "radio"
+	resumeState := resume.Load()
 
 	pl := playlist.New()
 	if cfg.Playlist != "" && localProv != nil {
@@ -318,6 +351,18 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		)
 	}
 	pl.Add(resolved.Tracks...)
+
+	restoredJellyfinChoice := false
+	restoredJellyfinIndex := 0
+	restoredResumePath := ""
+	if !daemon && defaultProvider == "jellyfin" && jellyProv != nil && cfg.Playlist == "" && len(positional) == 0 && len(resolved.Pending) == 0 && pl.Len() == 0 {
+		if tracks, index, activePath, ok := restoreJellyfinContext(resumeState, jellyProv); ok {
+			pl.Add(tracks...)
+			restoredJellyfinChoice = true
+			restoredJellyfinIndex = index
+			restoredResumePath = activePath
+		}
+	}
 
 	// Daemon mode has no UI loop to drain pending URLs (feeds, M3U, yt-dlp),
 	// so resolve them synchronously here. The TUI path does this in the
@@ -423,6 +468,20 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	}
 
 	m := model.New(p, pl, providers, defaultProvider, localProv, themes, luaMgr, config.SaveFunc{})
+	if defaultProvider == "jellyfin" && jellyProv != nil {
+		m.SetResumeSaver(func(track playlist.Track, positionSec int, context []playlist.Track, contextIndex int) {
+			if _, ok := jellyProv.RestoreTrack(track); !ok {
+				return
+			}
+			resume.SaveState(resume.State{
+				Path: track.Path, PositionSec: positionSec,
+				Context: context, ContextIndex: contextIndex,
+			})
+		})
+	}
+	if restoredJellyfinChoice {
+		m.SetInitialTrack(restoredJellyfinIndex)
+	}
 	m.SetIPCBroker(pluginBroker)
 	m.SetCustomEQBands(cfg.EQ)
 	m.SetVisVolumeLinked(cfg.VisVolumeLinked)
@@ -501,7 +560,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if cfg.Visualizer != "" {
 		m.SetVisualizer(cfg.Visualizer)
 	}
-	if cfg.AutoPlay {
+	if cfg.AutoPlay && !restoredJellyfinChoice {
 		m.SetAutoPlay(true)
 	}
 	if cfg.LowPower {
@@ -514,12 +573,15 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		m.SetHideHelpBar(true)
 	}
 
-	if rs := resume.Load(); rs.Path != "" && rs.PositionSec > 0 {
-		// Mixcloud is commonly opened from its provider browser rather than a
-		// positional URL. Arm only that provider's browser-started resume while
-		// preserving cliamp's existing positional-file behavior elsewhere.
-		if playlist.IsMixcloudURL(rs.Path) || (!defaultRadio && len(positional) > 0) {
-			m.SetResume(rs.Path, rs.PositionSec)
+	if resumeState.Path != "" && resumeState.PositionSec > 0 {
+		// Jellyfin resumes the restored context above. Mixcloud is also commonly
+		// opened from its provider browser rather than a positional URL; preserve
+		// cliamp's existing positional-file behavior for other providers.
+		switch {
+		case restoredResumePath != "":
+			m.SetResume(restoredResumePath, resumeState.PositionSec)
+		case playlist.IsMixcloudURL(resumeState.Path) || (!defaultRadio && len(positional) > 0):
+			m.SetResume(resumeState.Path, resumeState.PositionSec)
 		}
 	}
 
@@ -617,8 +679,16 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		}
 		_ = config.Save("theme", fmt.Sprintf("%q", themeName))
 
-		if path, secs, pl := fm.ResumeState(); path != "" && secs > 0 {
-			resume.Save(path, secs, pl)
+		if path, secs, playlistName := fm.ResumeState(); path != "" && secs > 0 {
+			if defaultProvider == "jellyfin" && jellyfin.IsStreamURL(path) {
+				context, index := fm.ResumeContext()
+				resume.SaveState(resume.State{
+					Path: path, PositionSec: secs, Playlist: playlistName,
+					Context: context, ContextIndex: index,
+				})
+			} else {
+				resume.Save(path, secs, playlistName)
+			}
 		}
 	}
 

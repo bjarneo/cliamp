@@ -532,16 +532,22 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.player.Stop()
 			m.player.ClearPreload()
 
-			var toAdd []playlist.Track
+			var context, toAdd []playlist.Track
 			if m.navBrowser.search != "" {
+				context = make([]playlist.Track, 0, len(m.navBrowser.searchIdx))
+				for _, idx := range m.navBrowser.searchIdx {
+					context = append(context, m.navBrowser.tracks[idx])
+				}
 				for j := m.navBrowser.cursor; j < len(m.navBrowser.searchIdx) && len(toAdd) < maxAdd; j++ {
 					toAdd = append(toAdd, m.navBrowser.tracks[m.navBrowser.searchIdx[j]])
 				}
 			} else {
+				context = m.navBrowser.tracks
 				for i := rawIdx; i < len(m.navBrowser.tracks) && len(toAdd) < maxAdd; i++ {
 					toAdd = append(toAdd, m.navBrowser.tracks[i])
 				}
 			}
+			m.setPlaybackContext(context)
 
 			m.playlist.Add(toAdd...)
 			m.loadedPlaylist = ""

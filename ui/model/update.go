@@ -168,6 +168,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cachedPos = 0
 		}
 		m.tickVisualizer(now)
+		m.tickResumeSave(now)
 		m.tickProgressReport(now)
 		// Process debounced yt-dlp seek.
 		var seekCmd tea.Cmd

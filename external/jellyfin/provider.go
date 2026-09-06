@@ -88,6 +88,21 @@ func (p *Provider) CanReportPlayback(track playlist.Track) bool {
 	return track.Meta(provider.MetaJellyfinID) != ""
 }
 
+// RestoreTrack recognizes a previously played track from this Jellyfin server.
+// A configured token refreshes its URL without making startup wait on the network.
+func (p *Provider) RestoreTrack(track playlist.Track) (playlist.Track, bool) {
+	itemID, ok := p.client.StreamItemID(track.Path)
+	if !ok {
+		return playlist.Track{}, false
+	}
+	track.ProviderMeta = map[string]string{provider.MetaJellyfinID: itemID}
+	if streamURL, ok := p.client.StreamURLFromCurrentAuth(itemID); ok {
+		track.Path = streamURL
+	}
+	track.Stream = true
+	return track, true
+}
+
 func (p *Provider) ReportNowPlaying(track playlist.Track, position time.Duration, canSeek bool) error {
 	return p.client.ReportNowPlaying(track, position, canSeek)
 }

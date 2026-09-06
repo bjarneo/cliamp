@@ -200,6 +200,23 @@ func (m *Model) SetResume(path string, secs int) {
 	m.resume.secs = secs
 }
 
+// SetResumeSaver enables continuous playback-context persistence.
+func (m *Model) SetResumeSaver(save ResumeSaver) {
+	m.resumeSaver = save
+}
+
+// SetInitialTrack selects the restored track without starting playback.
+func (m *Model) SetInitialTrack(index int) {
+	if m.playlist == nil || index < 0 || index >= m.playlist.Len() {
+		return
+	}
+	m.playlist.SetIndex(index)
+	m.plCursor = index
+	tracks := m.playlist.Tracks()
+	m.setPlaybackContext(tracks)
+	m.setHeaderStateFromTracks(tracks)
+}
+
 // ResumePlaylist loads a playlist into the model for session resume.
 func (m *Model) ResumePlaylist(name string, tracks []playlist.Track) {
 	m.replacePlaylist(tracks)
@@ -211,6 +228,11 @@ func (m *Model) ResumePlaylist(name string, tracks []playlist.Track) {
 // Called after prog.Run() returns (player already closed).
 func (m Model) ResumeState() (path string, secs int, playlist string) {
 	return m.exitResume.path, m.exitResume.secs, m.exitResume.playlist
+}
+
+// ResumeContext returns the complete list the active track was selected from.
+func (m Model) ResumeContext() ([]playlist.Track, int) {
+	return cloneTracks(m.exitResume.context), m.exitResume.contextIndex
 }
 
 // ThemeName returns the current theme name.
