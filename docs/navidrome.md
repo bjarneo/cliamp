@@ -117,6 +117,10 @@ Bubbletea commands get playlists and tracks asynchronously. The UI remains respo
 
 To support another Subsonic-compatible server, such as Airsonic or Gonic, implement the same `Provider` interface for that server API.
 
+## Transcoding
+
+Cliamp will use transcoded files from Navidrome by default. The exact settings can be changed within Navidrome itself. If you want Navidrome to send raw music data (e.g. your flac files) instead of transcodes, add ``format = "raw"`` under ``[navidrome]`` section in ``config.toml``. A specific format (like mp3, aac, opus, etc.) can be set with the same configuration.
+
 ## Requirements
 
 You need only a running Navidrome instance. The client uses the Go standard `net/http` and `crypto/md5` packages. The Navidrome server must have the Subsonic API enabled. This is the default.

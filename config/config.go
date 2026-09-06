@@ -74,6 +74,7 @@ type NavidromeConfig struct {
 	URL              string // e.g. "https://music.example.com"
 	User             string
 	Password         string
+	Format           string
 	BrowseSort       string // album browse sort order, e.g. "alphabeticalByName"
 	ScrobbleDisabled bool   // true only when "scrobble = false" is explicitly set
 }
@@ -482,6 +483,8 @@ func Load() (Config, error) {
 				cfg.Navidrome.Password = parseString(val)
 			case "browse_sort":
 				cfg.Navidrome.BrowseSort = parseString(val)
+			case "format":
+				cfg.Navidrome.Format = parseString(val)
 			case "scrobble":
 				// Opt-out: only mark disabled when the value is explicitly "false".
 				cfg.Navidrome.ScrobbleDisabled = strings.ToLower(val) == "false"
