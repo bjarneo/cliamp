@@ -396,6 +396,10 @@ type Model struct {
 
 	showAlbumHeaders bool
 	headerManual     bool
+	// tracksPaging is true while a progressive track load still has pages in
+	// flight. Each page remixes the upcoming order, so preloading is held off
+	// until the order settles. A frontier-EOF deferral would use this too.
+	tracksPaging bool
 	// Running counters for the cohesion heuristic so Add can update header
 	// visibility in O(k) instead of walking the whole playlist on each call.
 	headerLastAlbum string

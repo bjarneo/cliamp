@@ -6,6 +6,11 @@ import "errors"
 // before they can be used.
 var ErrNeedsAuth = errors.New("sign-in required")
 
+// ErrListChanged is returned when a list changed underneath a load that was
+// reading it in pages, so the pages already read can no longer be combined
+// into one coherent result. Reopening the list starts a clean load.
+var ErrListChanged = errors.New("list changed while loading")
+
 // PlaylistInfo describes a playlist with its name and track count.
 //
 // DurationSecs is optional: providers that can compute it cheaply should

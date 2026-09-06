@@ -528,6 +528,11 @@ func (m *Model) handleIPCProviderLoad(result ipcProviderLoadResult) tea.Cmd {
 		result.request.Reply <- ipc.Response{OK: false, Error: result.err.Error()}
 		return nil
 	}
+	// This replaces the queue wholesale, so retire any in-flight paged load:
+	// its later pages would otherwise still pass the generation guard and
+	// append onto the list loaded here.
+	nextRequest(&m.requests.tracks)
+	m.tracksPaging = false
 	m.replacePlaylist(result.tracks)
 	m.loadedPlaylist = result.loaded
 	m.setHeaderStateFromTracks(result.tracks)

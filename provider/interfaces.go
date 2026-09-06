@@ -328,3 +328,13 @@ type FavoritesManager interface {
 	// FavoritesCount returns the number of favorited tracks.
 	FavoritesCount() int
 }
+
+// TrackPager is implemented by providers that can return a playlist's tracks
+// one page at a time so the UI can populate the queue progressively. Pages are
+// requested sequentially: the caller feeds each returned next back in until it
+// is 0. Unlike the Tracks path, paged results are not run through PLS/M3U
+// wrapper resolution and skip the ResumeTarget probe, so only implement this
+// for providers returning direct, already-resolved track URIs.
+type TrackPager interface {
+	TracksPage(playlistID string, offset int) (tracks []playlist.Track, next int, err error)
+}

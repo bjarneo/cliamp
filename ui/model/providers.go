@@ -15,6 +15,7 @@ func (m *Model) resetProviderNav() {
 	nextRequest(&m.requests.tracks)
 	nextRequest(&m.requests.auth)
 	nextRequest(&m.requests.catalog)
+	m.tracksPaging = false
 	m.provCursor = 0
 	m.provScroll = 0
 	m.provLoading = true
@@ -77,7 +78,13 @@ func (m *Model) fetchProviderTracks(playlistID string) tea.Cmd {
 	if m.provider == nil {
 		return nil
 	}
-	return fetchTracksCmd(m.provider, playlistID, nextRequest(&m.requests.tracks))
+	gen := nextRequest(&m.requests.tracks)
+	pager, paged := m.provider.(provider.TrackPager)
+	m.tracksPaging = paged
+	if paged {
+		return fetchTracksPageCmd(pager, m.provider.Name(), playlistID, 0, gen)
+	}
+	return fetchTracksCmd(m.provider, playlistID, gen)
 }
 
 // applyTracksResume positions the cursor on the in-progress track and arms the

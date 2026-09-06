@@ -364,8 +364,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the current stream has >streamPreloadLeadTime remaining. Poll every tick
 		// until we're within the window and the preload gets armed.
 		// Guard with !m.preloading so we don't fire a second concurrent HTTP
-		// connection while the first preloadStreamCmd goroutine is still running.
-		if m.player.IsPlaying() && !m.player.IsPaused() && !m.buffering && !m.preloading && !m.player.HasPreload() {
+		// connection while the first preloadStreamCmd goroutine is still running,
+		// and with !m.tracksPaging because each page of a paged load remixes the
+		// upcoming order, so anything armed now would be stale by the next one.
+		if m.player.IsPlaying() && !m.player.IsPaused() && !m.buffering && !m.preloading && !m.tracksPaging && !m.player.HasPreload() {
 			if cmd := m.preloadNext(); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
@@ -413,18 +415,53 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.provLoading = false
+		m.tracksPaging = msg.err == nil && msg.next > 0
 		if msg.err != nil {
 			if errors.Is(msg.err, playlist.ErrNeedsAuth) {
 				m.provSignIn = true
 				m.err = nil
 				return m, nil
 			}
+			if errors.Is(msg.err, playlist.ErrListChanged) {
+				// The list moved under a paged read, so what is on screen is a
+				// partial view of a list that no longer exists. Say so and let it
+				// expire: reopening starts a clean load, and a persistent error
+				// would sit in front of every later status message.
+				m.status.Warningf(statusTTLDefault, "Playlist changed while loading — reopen current playlist to reload")
+				return m, nil
+			}
 			m.err = msg.err
 			return m, nil
 		}
-		m.replacePlayerPlaylist(msg.tracks)
-		if msg.playlistExact && m.localProvider != nil && msg.providerName == m.localProvider.Name() && msg.playlistID != history.PlaylistName {
-			m.loadedPlaylist = msg.playlistID
+		if msg.offset > 0 {
+			m.playlist.Add(msg.tracks...)
+			m.normalizeQueueOverlay()
+			m.addToHeaderState(msg.tracks)
+			// Add mixes the page into the upcoming shuffle order, so an armed
+			// preload may no longer be the next track. The gapless swap runs on
+			// the audio thread and the model then names the new track from
+			// playlist.Next(), so a stale preload would play one track while the
+			// UI, scrobble and now-playing announced another. Drop it and let the
+			// tick loop re-arm against the order this page produced.
+			if m.player.HasPreload() || m.preloading {
+				m.player.ClearPreload()
+				m.preloading = false
+			}
+		} else {
+			m.replacePlayerPlaylist(msg.tracks)
+			if msg.playlistExact && m.localProvider != nil && msg.providerName == m.localProvider.Name() && msg.playlistID != history.PlaylistName {
+				m.loadedPlaylist = msg.playlistID
+			}
+		}
+		if msg.next > 0 {
+			m.adjustScroll()
+			m.notifyAll()
+			if pager, ok := m.provider.(provider.TrackPager); ok {
+				return m, fetchTracksPageCmd(pager, msg.providerName, msg.playlistID, msg.next, msg.gen)
+			}
+		}
+		if msg.offset > 0 {
+			msg.tracks = m.playlist.Tracks()
 		}
 		m.applyTracksResume(msg)
 		m.adjustScroll()
