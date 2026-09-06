@@ -536,13 +536,13 @@ func (p *SpotifyProvider) snapshotIDLocked(playlistID string) string {
 func (p *SpotifyProvider) playlistSnapshot(ctx context.Context, playlistID string) (string, error) {
 	resp, err := p.webAPI(ctx, "GET", "/v1/playlists/"+playlistID, url.Values{"fields": {"snapshot_id"}})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("spotify: playlist snapshot %q: %w", playlistID, err)
 	}
 	var result struct {
 		SnapshotID string `json:"snapshot_id"`
 	}
 	if err := decodeBody(resp, &result); err != nil {
-		return "", err
+		return "", fmt.Errorf("spotify: parse playlist snapshot %q: %w", playlistID, err)
 	}
 	return result.SnapshotID, nil
 }
