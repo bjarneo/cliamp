@@ -509,10 +509,11 @@ func albumFromSubsonic(a subsonicAlbum) Album {
 // streamURL generates the authenticated streaming URL for a track ID.
 // format can be set in config.toml, see documentation
 func (c *NavidromeClient) streamURL(id string) string {
-	if c.format == "" {
-		return c.buildURL("stream", url.Values{"id": {id}})
+	urlValues := url.Values{"id": {id}}
+	if c.format != "" {
+		urlValues.Set("format", c.format)
 	}
-	return c.buildURL("stream", url.Values{"id": {id}, "format": {c.format}})
+	return c.buildURL("stream", urlValues)
 }
 
 func (c *NavidromeClient) CanReportPlayback(track playlist.Track) bool {
