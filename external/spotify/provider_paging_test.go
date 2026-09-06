@@ -406,16 +406,16 @@ func TestTracksPageDiscardsAbandonedLoadWhenHeadChangedAtSameTotal(t *testing.T)
 	}
 }
 
-// Accumulations are keyed by playlist, so several lists can each be abandoned
-// part-way and later resume from their own stopping point.
-func TestTracksPageResumesEachPlaylistIndependently(t *testing.T) {
-	totals := map[string]int{"alpha": 200, "beta": 150}
+// An ordinary playlist can be edited anywhere, so an unchanged total and head
+// prove nothing about the pages already read: a same-total edit below the head
+// would shift every later offset and stitch the halves together a track short.
+// Only saved tracks resume; everything else restarts from a clean page 0.
+func TestTracksPageDoesNotResumeOrdinaryPlaylists(t *testing.T) {
+	const total = 200
 	calls := 0
 	originalTransport := http.DefaultTransport
 	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		id := strings.TrimSuffix(strings.TrimPrefix(req.URL.Path, "/v1/playlists/"), "/items")
-		total, ok := totals[id]
-		if !ok {
+		if req.URL.Path != "/v1/playlists/alpha/items" {
 			return nil, fmt.Errorf("unexpected Spotify API path %q", req.URL.Path)
 		}
 		calls++
@@ -424,55 +424,77 @@ func TestTracksPageResumesEachPlaylistIndependently(t *testing.T) {
 		var items []string
 		for i := offset; i < total && i < offset+limit; i++ {
 			items = append(items, fmt.Sprintf(
-				`{"item":{"id":"%s%d","name":"n","type":"track","uri":"spotify:track:%s%d"}}`, id, i, id, i))
+				`{"item":{"id":"p%d","name":"n","type":"track","uri":"spotify:track:p%d"}}`, i, i))
 		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Status:     "200 OK",
-			Header:     make(http.Header),
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
 			Body: io.NopCloser(strings.NewReader(
 				fmt.Sprintf(`{"items":[%s],"total":%d}`, strings.Join(items, ","), total))),
-			Request: req,
-		}, nil
+			Request: req}, nil
 	})
 	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 
 	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
 	p := New(sess, "client", 320)
 
-	// Get two lists part-way, abandoning each.
-	for _, step := range []struct {
-		id     string
-		stopAt int
-	}{{"alpha", 100}, {"beta", 50}} {
-		offset := 0
-		for offset < step.stopAt {
-			_, next, err := p.TracksPage(step.id, offset)
-			if err != nil {
-				t.Fatal(err)
-			}
-			offset = next
-		}
-	}
-
-	for _, want := range []struct {
-		id     string
-		tracks int
-		next   int
-	}{{"alpha", 100, 100}, {"beta", 50, 50}} {
-		calls = 0
-		page, next, err := p.TracksPage(want.id, 0)
+	for offset := 0; offset < 100; {
+		_, next, err := p.TracksPage("alpha", offset)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(page) != want.tracks || next != want.next {
-			t.Errorf("%s resumed with %d tracks at %d, want %d at %d", want.id, len(page), next, want.tracks, want.next)
+		offset = next
+	}
+
+	page, next, err := p.TracksPage("alpha", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 50 || next != 50 {
+		t.Errorf("got %d tracks and next=%d, want a fresh page 0 of 50 and next=50", len(page), next)
+	}
+	if page[0].Path != "spotify:track:p0" {
+		t.Errorf("restarted page 0 begins with %s, want the head of the playlist", page[0].Path)
+	}
+}
+
+// Saved albums come from /v1/albums/{id}/tracks, not the playlist-items
+// endpoint. Every Spotify list opens through TracksPage now, so without a guard
+// here an album ID would be spliced into a playlist URL.
+func TestTracksPageServesSavedAlbumsWholly(t *testing.T) {
+	var paths []string
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		paths = append(paths, req.URL.Path)
+		var body string
+		switch {
+		case strings.HasPrefix(req.URL.Path, "/v1/albums/") && strings.HasSuffix(req.URL.Path, "/tracks"):
+			body = `{"items":[{"id":"a1","name":"One","type":"track","uri":"spotify:track:a1"},` +
+				`{"id":"a2","name":"Two","type":"track","uri":"spotify:track:a2"}],"total":2}`
+		case strings.HasPrefix(req.URL.Path, "/v1/albums/"):
+			body = `{"id":"alb","name":"Album","total_tracks":2,"artists":[{"name":"Artist"}]}`
+		default:
+			return nil, fmt.Errorf("unexpected Spotify API path %q", req.URL.Path)
 		}
-		if calls != 1 {
-			t.Errorf("%s took %d requests to resume, want 1", want.id, calls)
-		}
-		if page[0].Path != fmt.Sprintf("spotify:track:%s0", want.id) {
-			t.Errorf("%s resumed with another playlist's tracks: %s", want.id, page[0].Path)
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
+	p := New(sess, "client", 320)
+
+	tracks, next, err := p.TracksPage(savedAlbumIDPrefix+"alb", 0)
+	if err != nil {
+		t.Fatalf("saved album failed to load: %v", err)
+	}
+	if next != 0 {
+		t.Errorf("next = %d, want 0: an album arrives whole", next)
+	}
+	if len(tracks) != 2 {
+		t.Errorf("got %d tracks, want 2", len(tracks))
+	}
+	for _, path := range paths {
+		if strings.HasPrefix(path, "/v1/playlists/") {
+			t.Errorf("an album ID was routed to the playlist-items endpoint: %s", path)
 		}
 	}
 }

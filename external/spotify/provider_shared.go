@@ -27,6 +27,10 @@ const (
 // are bare base62, so the "spotify:album:" prefix never collides with one.
 const savedAlbumIDPrefix = "spotify:album:"
 
+// savedTracksPlaylistID is the synthetic list ID standing in for Liked Songs,
+// which Spotify does not expose through /v1/me/playlists.
+const savedTracksPlaylistID = "YOUR MUSIC"
+
 // savedAlbumSection is the UI section header for the user's saved albums.
 const savedAlbumSection = "Saved albums"
 

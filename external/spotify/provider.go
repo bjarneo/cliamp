@@ -248,7 +248,7 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 	// For the moment, "Your Music" must sufficice without adding a localization
 	// map.
 	all = append(all, playlist.PlaylistInfo{
-		ID:         "YOUR MUSIC",
+		ID:         savedTracksPlaylistID,
 		Name:       "Your Music",
 		TrackCount: result.Total,
 		Section:    "Library",
@@ -470,7 +470,7 @@ func (p *SpotifyProvider) fetchTracksPage(ctx context.Context, playlistID string
 		"offset": {strconv.Itoa(offset)},
 	}
 	path := "/v1/me/tracks"
-	if playlistID != "YOUR MUSIC" {
+	if playlistID != savedTracksPlaylistID {
 		query.Set("fields", "items(item(id,name,type,uri,artists(name),album(name,release_date),show(name),release_date,duration_ms,track_number,is_playable,restrictions(reason))),total")
 		path = fmt.Sprintf("/v1/playlists/%s/items", playlistID)
 	}
@@ -570,6 +570,13 @@ func (p *SpotifyProvider) TracksPage(playlistID string, offset int) ([]playlist.
 	if err := p.ensureSession(); err != nil {
 		return nil, 0, err
 	}
+	// Saved albums are a separate endpoint and are small enough to arrive whole,
+	// so hand them back as one complete page. Tracks() routes them the same way;
+	// leaving them out here would build a playlist-items URL from an album ID.
+	if albumID, ok := isSavedAlbumID(playlistID); ok {
+		tracks, err := p.AlbumTracks(albumID)
+		return tracks, 0, err
+	}
 	p.mu.Lock()
 	var tracks []playlist.Track
 	var cachedTotal int
@@ -582,7 +589,7 @@ func (p *SpotifyProvider) TracksPage(playlistID string, offset int) ([]playlist.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	if hit && (playlistID != "YOUR MUSIC" || p.savedTracksUnchanged(ctx, tracks, cachedTotal)) {
+	if hit && (playlistID != savedTracksPlaylistID || p.savedTracksUnchanged(ctx, tracks, cachedTotal)) {
 		return tracks, 0, nil
 	}
 	page, total, err := p.fetchTracksPage(ctx, playlistID, offset)
@@ -598,11 +605,15 @@ func (p *SpotifyProvider) TracksPage(playlistID string, offset int) ([]playlist.
 	defer p.mu.Unlock()
 	pend := p.pending[playlistID]
 	if offset == 0 {
-		// Re-entering a list that was abandoned mid-load resumes the earlier
-		// accumulation rather than refetching every page already paid for, but
-		// only when page 0 still reports the total it was started from -- a
-		// changed library would otherwise splice two snapshots.
-		if pend != nil && pend.want > 0 && pend.total == total && headMatches(pend.tracks, page) {
+		// Re-entering a list abandoned mid-load resumes the earlier accumulation
+		// rather than refetching every page already paid for. Only saved tracks
+		// qualify: an unchanged total and an unchanged head prove nothing moved
+		// there, because a like lands at position 0 and an unlike changes the
+		// total. An ordinary playlist can be edited anywhere, so a same-total
+		// edit below the head but inside the fetched prefix would shift every
+		// later offset and stitch the two halves together a track short.
+		if playlistID == savedTracksPlaylistID && pend != nil && pend.want > 0 &&
+			pend.total == total && headMatches(pend.tracks, page) {
 			return slices.Clone(pend.tracks), pend.want, nil
 		}
 		pend = &pendingTracks{total: total}
