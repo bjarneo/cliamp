@@ -12,7 +12,6 @@ import (
 	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
-	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
 )
 
@@ -714,11 +713,6 @@ func (m Model) renderPlaylistHeader() string {
 		favStr = " " + activeToggle.Render(fmt.Sprintf("[%s %d]", favHeart, count))
 	}
 
-	var themeStr string
-	if name := m.ThemeName(); name != theme.DefaultName {
-		themeStr = " " + activeToggle.Render("[Theme: "+name+"]")
-	}
-
 	var posStr string
 	if total := m.playlist.Len(); total > 0 {
 		posStr = " " + dimStyle.Render(fmt.Sprintf("[%d/%d]", m.playlist.Index()+1, total))
@@ -730,7 +724,7 @@ func (m Model) renderPlaylistHeader() string {
 		headerStyle = activeToggle
 		headerLabel = "▸─ Playlist ── "
 	}
-	return headerStyle.Render(headerLabel) + shuffle + queueStr + bookmarkStr + favStr + posStr + themeStr + " " + dimStyle.Render("──")
+	return headerStyle.Render(headerLabel) + shuffle + queueStr + bookmarkStr + favStr + posStr + " " + dimStyle.Render("──")
 }
 
 func (m Model) renderProviderList() string {
