@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -604,4 +605,49 @@ func waitForFileValue(t *testing.T, path, want string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s to contain %q", path, want)
+}
+
+// TestNewRejectsInvalidQuality covers the validation branch of New, which
+// returns before speaker.Init and therefore needs no audio device.
+func TestNewRejectsInvalidQuality(t *testing.T) {
+	tests := []struct {
+		name string
+		q    Quality
+	}{
+		{"zero sample rate", Quality{SampleRate: 0, BufferMs: 100, ResampleQuality: 4}},
+		{"negative sample rate", Quality{SampleRate: -1, BufferMs: 100, ResampleQuality: 4}},
+		{"zero buffer", Quality{SampleRate: 44100, BufferMs: 0, ResampleQuality: 4}},
+		{"negative buffer", Quality{SampleRate: 44100, BufferMs: -1, ResampleQuality: 4}},
+		{"zero resample quality", Quality{SampleRate: 44100, BufferMs: 100, ResampleQuality: 0}},
+		{"negative resample quality", Quality{SampleRate: 44100, BufferMs: 100, ResampleQuality: -1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := New(tt.q)
+			if err == nil {
+				t.Fatal("New() error = nil, want non-nil")
+			}
+			if p != nil {
+				t.Errorf("New() player = %v, want nil on error", p)
+			}
+		})
+	}
+}
+
+// TestAudioOutputHint guards the actionable part of the "audio output
+// unavailable" error: on Linux the failure is almost always a missing ALSA
+// bridge, so the hint must name the packages that fix it.
+func TestAudioOutputHint(t *testing.T) {
+	hint := audioOutputHint()
+	if runtime.GOOS != "linux" {
+		if hint != "" {
+			t.Errorf("audioOutputHint() = %q, want empty on %s", hint, runtime.GOOS)
+		}
+		return
+	}
+	for _, want := range []string{"libasound2-plugins", "pipewire-alsa", "pulseaudio-alsa", "ALSA"} {
+		if !strings.Contains(hint, want) {
+			t.Errorf("audioOutputHint() missing %q, got:\n%s", want, hint)
+		}
+	}
 }

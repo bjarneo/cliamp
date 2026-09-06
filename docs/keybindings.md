@@ -209,7 +209,7 @@ Navidrome, or Local Playlists:
 | `Enter` | Load the selected playlist tracks into the queue |
 | `/` | Filter the playlist list |
 | `Ctrl+F` | Run the provider online or server search (Spotify, Navidrome, NetEase, and others). |
-| `Ctrl+R` | Refresh the playlist list from the provider. For Mixcloud, also clear the cached `/me/` identity. |
+| `Ctrl+R` | Refresh the provider: reload the currently open playlist or starting wave in place (e.g. a fresh Yandex "Моя волна" batch), or return to the playlist list. For Mixcloud, also clear the cached `/me/` identity. |
 | `p` | Open the playlist manager (Local pane only; create, rename, delete, add dirs/tracks) |
 | `S` `N` `P` `J` `E` `Y` `C` `X` `M` `Q` `L` `R` | Switch to that provider |
 | `Tab` | Switch focus to EQ |

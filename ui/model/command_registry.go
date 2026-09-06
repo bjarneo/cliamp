@@ -154,7 +154,7 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"?"}, KeyLabel: "?", Label: "Help", Keymap: true},
 	{Mode: commandModeAny, Keys: []string{"ctrl+c", "q"}, KeyLabel: "q", Label: "Quit", Keymap: true},
 	{Mode: commandModeAny, Keys: []string{"ctrl+z"}, KeyLabel: "Ctrl+Z", Label: "Undo latest playlist or queue mutation"},
-	{Mode: commandModeProvider, Keys: []string{"ctrl+r"}, KeyLabel: "Ctrl+R", Label: "Refresh provider"},
+	{Mode: commandModeProvider, Keys: []string{"ctrl+r"}, KeyLabel: "Ctrl+R", Label: "Refresh provider", Keymap: true, ContextHelp: true},
 
 	// Shared text editing is reserved even though these are intentionally absent
 	// from the global keymap, where they would be misleading outside a field.

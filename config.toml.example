@@ -11,6 +11,11 @@ volume = 0
 # Set to false to keep bars visible at low volumes.
 # vis_volume_linked = true
 
+# Visualizer height in rows on a terminal of at least 80x24 (default: 5).
+# Extra rows come out of the playlist below, and the layout shrinks the value
+# when the terminal cannot spare them. Range 1-40.
+# vis_rows = 5
+
 # Repeat mode: "off", "all", or "one"
 repeat = "off"
 
@@ -209,6 +214,17 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # enabled = true
 # cookies_from = "chrome"
 # user_id = "optional-account-user-id"
+
+# ---
+# Yandex Music (optional, opt-in)
+# Get a personal OAuth token by opening:
+# https://oauth.yandex.ru/authorize?response_type=token&client_id=23cabbbdc6cd418abb4b39c32c41195d
+# The token appears in the address bar after `#access_token=`. The provider
+# lists liked tracks and your playlists. Playback uses direct signed CDN URLs.
+# Without a Yandex Music Plus subscription only low-bitrate previews play.
+# [yandex]
+# enabled = true
+# token = "y0_YourPersonalOAuthToken"
 
 # ---
 # Plex Media Server (optional)

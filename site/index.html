@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CLIAMP - Terminal Music Player</title>
-<meta name="description" content="A terminal music player based on Winamp 2.x. Play local files, YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, and about 58,000 radio stations. Use a spectrum visualizer and 10-band equalizer.">
+<meta name="description" content="A terminal music player based on Winamp 2.x. Play local files, YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, Yandex Music, and about 58,000 radio stations. Use a spectrum visualizer and 10-band equalizer.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#050505">
@@ -12,7 +12,7 @@
 <!-- Open Graph -->
 <meta property="og:type" content="website">
 <meta property="og:title" content="CLIAMP - Terminal Music Player">
-<meta property="og:description" content="A terminal music player based on Winamp 2.x. Play YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, and about 58,000 radio stations. Use a spectrum visualizer and 10-band equalizer.">
+<meta property="og:description" content="A terminal music player based on Winamp 2.x. Play YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, Yandex Music, and about 58,000 radio stations. Use a spectrum visualizer and 10-band equalizer.">
 <meta property="og:image" content="https://cliamp.stream/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -21,7 +21,7 @@
 <!-- Twitter Card -->
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="CLIAMP - Terminal Music Player">
-<meta name="twitter:description" content="A terminal music player based on Winamp 2.x. Play YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, and about 58,000 radio stations. Use a spectrum visualizer and 10-band equalizer.">
+<meta name="twitter:description" content="A terminal music player based on Winamp 2.x. Play YouTube, Spotify, Qobuz, Tidal, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, Yandex Music, and about 58,000 radio stations. Use a spectrum visualizer and 10-band equalizer.">
 <meta name="twitter:image" content="https://cliamp.stream/og-image.png">
 
 <style>
@@ -843,7 +843,7 @@ footer{padding:26px 0;border-top:1px solid var(--green);background:var(--ink)}
         <div class="hero-eyebrow"><span class="led"></span>~/audio/cliamp</div>
         <div class="hero-lockup"><img class="hero-logo" src="logo.svg" alt=""><h1 class="hero-word">cli<span>amp</span></h1></div>
         <p class="hero-sub"><em>Winamp</em> for the shell. No browser tab required.</p>
-        <p class="hero-desc">Use playlists, a 10-band EQ, visualizers, synced lyrics, remote control, and Lua plugins. Stream from <em>Spotify, Qobuz, Tidal, YouTube Music, Plex, Jellyfin, Emby, Navidrome, Lyrion</em>, and about 58,000 radio stations.</p>
+        <p class="hero-desc">Use playlists, a 10-band EQ, visualizers, synced lyrics, remote control, and Lua plugins. Stream from <em>Spotify, Qobuz, Tidal, YouTube Music, Plex, Jellyfin, Emby, Navidrome, Lyrion, Yandex Music</em>, and about 58,000 radio stations.</p>
         <div class="hero-cta">
           <a href="#install" class="btn btn-go">Install</a>
           <a href="https://github.com/bjarneo/cliamp" class="btn btn-ghost">View source</a>
@@ -927,6 +927,7 @@ footer{padding:26px 0;border-top:1px solid var(--green);background:var(--ink)}
                <span class="t-help-item"><kbd>f</kbd> Fav</span>
               <span class="t-help-item"><kbd>Tab</kbd> Focus</span>
               <span class="t-help-item"><kbd>?</kbd> Keys</span>
+              <span class="t-help-item"><kbd>Ctrl+R</kbd> Refresh provider</span>
             </div>
             <div class="t-row t-bot">
               <span><span class="t-label">SPD</span> <span class="t-dim">[</span><span class="t-fg">1x</span><span class="t-dim">]</span></span>
@@ -949,7 +950,7 @@ footer{padding:26px 0;border-top:1px solid var(--green);background:var(--ink)}
 <!-- ═══ TICKER ═══ -->
 <div class="ticker" aria-hidden="true">
   <div class="ticker-track" id="ticker">
-    <span>MP3 · FLAC · OGG · OPUS · WAV · AAC · ALAC · Spotify · Qobuz · Tidal · YouTube · Plex · Jellyfin · Emby · Navidrome · Lyrion · SoundCloud · Mixcloud · NetEase · Bandcamp · Bilibili · RSS / Podcasts · 58k+ Radio Stations · ICY metadata · MPRIS · Lua plugins</span>
+    <span>MP3 · FLAC · OGG · OPUS · WAV · AAC · ALAC · Spotify · Qobuz · Tidal · YouTube · Plex · Jellyfin · Emby · Navidrome · Lyrion · SoundCloud · Mixcloud · NetEase · Yandex · Bandcamp · Bilibili · RSS / Podcasts · 58k+ Radio Stations · ICY metadata · MPRIS · Lua plugins</span>
   </div>
 </div>
 
@@ -993,7 +994,7 @@ footer{padding:26px 0;border-top:1px solid var(--green);background:var(--ink)}
     <div class="next-step reveal">
       <div class="next-step-label">Next: configure providers</div>
       <h3>Run setup</h3>
-      <p>Use the interactive TUI to configure Navidrome, Lyrion, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, Mixcloud, NetEase, and YouTube Music. The TUI opens each provider credential page and writes the required block to the config file. The TUI tests supported server connections during setup. Mixcloud browser-session or OAuth credentials are optional and are tested when you use them.</p>
+      <p>Use the interactive TUI to configure Navidrome, Lyrion, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, Mixcloud, NetEase, and YouTube Music. The TUI opens each provider credential page and writes the required block to the config file. The TUI tests supported server connections during setup. Mixcloud browser-session or OAuth credentials are optional and are tested when you use them. Plex setup can optionally restrict which music libraries load.</p>
       <button class="install-box" type="button" onclick="copyCmd(this,'cliamp setup')">
         <span class="install-platform">Setup</span>
         <code><span class="prompt">$ </span>cliamp setup</code>
@@ -1049,6 +1050,7 @@ footer{padding:26px 0;border-top:1px solid var(--green);background:var(--ink)}
       <div class="source" style="--src-color:#ff7700"><div class="source-badge">Provider · yt-dlp</div><div class="source-name">SoundCloud</div><div class="source-desc">Enable SoundCloud: set <code>[soundcloud] enabled = true</code>. Search with <kbd>Ctrl+F</kbd>, browse curated genre playlists, or add <code>user</code> for your profile. <code>cookies_from</code> lets you play Go+ tracks from your browser session.</div></div>
       <div class="source" style="--src-color:#5000ff"><div class="source-badge">Public API · yt-dlp</div><div class="source-name">Mixcloud</div><div class="source-desc">Enable Mixcloud: set <code>[mixcloud] enabled = true</code>. Browse account Stream and Favorites, followed Creators, recent and popular shows, collections, and creator Uploads and Favorites. Search shows and discover live genres and tags. View locally favorited style charts, restricted-show warnings, and resume. Press <kbd>Shift+X</kbd> to open. Browser cookies support signed-in playback.</div></div>
       <div class="source" style="--src-color:#d33a31"><div class="source-badge">Provider · yt-dlp</div><div class="source-name">NetEase</div><div class="source-desc">Run <code>cliamp setup</code> after you sign in at <code>music.163.com</code>. Then select your browser. Browse liked songs, account playlists, saved playlists, and charts. Use browser cookies for playback.</div></div>
+      <div class="source" style="--src-color:#ffcc00"><div class="source-badge">Provider · OAuth</div><div class="source-name">Yandex Music</div><div class="source-desc">Set <code>[yandex] enabled = true</code> with a personal OAuth token. Browse liked tracks and your playlists, search the catalog. Playback uses direct signed CDN URLs.</div></div>
       <div class="source" style="--src-color:#629aa9"><div class="source-badge">yt-dlp</div><div class="source-name">Bandcamp</div><div class="source-desc">Paste a Bandcamp URL to play it.</div></div>
       <div class="source" style="--src-color:#00a1d6"><div class="source-badge">yt-dlp</div><div class="source-name">Bilibili</div><div class="source-desc">Play audio from Bilibili videos with yt-dlp.</div></div>
       <div class="source" style="--src-color:#f7a000"><div class="source-badge">58k+ stations</div><div class="source-name">Radio</div><div class="source-desc">Browse stations by country, tag, or name. View ICY metadata.</div></div>
@@ -1077,7 +1079,7 @@ user_id = "your-account-user-id"</code></pre>
     </div>
     <div class="features-grid reveal">
       <div class="feature"><div class="feature-icon">≡</div><div class="feature-name">10-Band Equalizer</div><p>Use parametric EQ presets. The persistent Custom curve remains after preset changes and restarts.</p></div>
-      <div class="feature"><div class="feature-icon">◈</div><div class="feature-name">Themes &amp; Visualizers</div><p>Use 21 built-in themes with contrast checks. Select spectrum, mirrored spectrum, waveform, particle, and true-stereo modes. Wave, Scope, and Heartbeat run at 60 FPS. Use <code>--visualizer-60fps</code> for smoother animation in other modes. Stereo has separate L/R horizontal LED peak meters. Press <kbd>t</kbd> / <kbd>v</kbd> to change them.</p></div>
+      <div class="feature"><div class="feature-icon">◈</div><div class="feature-name">Themes &amp; Visualizers</div><p>Use 22 built-in themes with contrast checks. Select spectrum, mirrored spectrum, waveform, particle, and true-stereo modes. Wave, Scope, and Heartbeat run at 60 FPS. Use <code>--visualizer-60fps</code> for smoother animation in other modes. Stereo has separate L/R horizontal LED peak meters. Press <kbd>t</kbd> / <kbd>v</kbd> to change them. Set <code>vis_rows</code> for a taller spectrum, or press <kbd>V</kbd> for full screen.</p></div>
       <div class="feature"><div class="feature-icon">☰</div><div class="feature-name">Playlists</div><p>Use TOML playlists and dynamic <code>[[dir]]</code> directory sources. In the playlist manager (<code>D</code>), add, remove, and turn recursive search on or off. Create, rename, delete, and fill playlists with folders or files in the manager (<code>a</code>/<code>r</code>/<code>d</code>). Use cross-playlist favorites (<code>n</code>). Import and export M3U/M3U8/PLS files. The app prevents duplicate writes and sorts in the TUI or CLI.</p></div>
       <div class="feature"><div class="feature-icon">⟲</div><div class="feature-name">Recently Played</div><p>The app records listening history automatically. Browse it as a virtual playlist or run <code>cliamp history</code>.</p></div>
       <div class="feature"><div class="feature-icon">→</div><div class="feature-name">HTTP Streaming</div><p>Play URLs, internet radio, remote M3U playlists, and HLS (<code>.m3u8</code>) streams. The app uses decoded-audio jitter buffering for live radio.</p></div>

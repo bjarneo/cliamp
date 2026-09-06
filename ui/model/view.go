@@ -235,12 +235,16 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 				m.renderTitle(),
 				m.renderTrackInfo(),
 				m.renderTimeStatus(),
-				m.renderSpectrum(),
+			}
+			if !m.visualizerDisabled() {
+				sections = append(sections, m.renderSpectrum())
+			}
+			sections = append(sections,
 				m.renderSeekBar(),
 				m.renderCompactControls(),
 				m.renderCompactSource(),
 				m.renderPlaylistHeader(),
-			}
+			)
 		case layoutMinimal:
 			sections = []string{
 				m.renderTrackInfo(),
@@ -254,10 +258,14 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 				m.renderTrackInfo(),
 				m.renderTimeStatus(),
 				"",
-				m.renderSpectrum(),
+			}
+			if !m.visualizerDisabled() {
+				sections = append(sections, m.renderSpectrum())
+			}
+			sections = append(sections,
 				m.renderSeekBar(),
 				m.renderControls(),
-			}
+			)
 			if source := m.renderProviderPill(); source != "" {
 				sections = append(sections, source)
 			}
@@ -510,7 +518,7 @@ func (m Model) renderTimeStatus() string {
 }
 
 func (m Model) renderSpectrum() string {
-	if m.vis.Mode == ui.VisNone {
+	if m.visualizerDisabled() {
 		return ""
 	}
 	return m.vis.Render()

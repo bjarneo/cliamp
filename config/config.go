@@ -16,6 +16,10 @@ import (
 	"github.com/bjarneo/cliamp/internal/fileutil"
 )
 
+// maxVisRows caps the configurable visualizer height. The layout shrinks the
+// value further when the terminal cannot spare the rows.
+const maxVisRows = 40
+
 // configPath returns the path to the config file.
 func configPath() (string, error) {
 	dir, err := appdir.Dir()
@@ -258,6 +262,17 @@ type NetEaseConfig struct {
 // IsSet reports whether the NetEase provider should be shown.
 func (n NetEaseConfig) IsSet() bool { return n.Enabled }
 
+// YandexConfig holds settings for the Yandex Music provider.
+// The provider is opt-in and authenticates with a personal OAuth token
+// obtained from https://oauth.yandex.ru/authorize?response_type=token&client_id=23cabbbdc6cd418abb4b39c32c41195d
+type YandexConfig struct {
+	Enabled bool   // true only when user explicitly sets enabled = true
+	Token   string // personal OAuth token
+}
+
+// IsSet reports whether the Yandex provider should be shown.
+func (y YandexConfig) IsSet() bool { return y.Enabled && strings.TrimSpace(y.Token) != "" }
+
 // PlexConfig holds credentials for a Plex Media Server.
 // Both URL and Token must be non-empty for a client to be constructed.
 type PlexConfig struct {
@@ -331,9 +346,10 @@ type Config struct {
 	Speed            float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
 	AutoPlay         bool                         // start playback automatically on launch (radio streams, CLI tracks)
 	SeekStepLarge    int                          // seconds for Shift+Left/Right seek jumps
-	Provider         string                       // default provider: "radio", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "mixcloud", "netease", "ytmusic" (default "radio")
+	Provider         string                       // default provider: "radio", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "mixcloud", "netease", "yandex", "ytmusic" (default "radio")
 	Theme            string                       // theme name, or "" for ANSI default
 	Visualizer       string                       // visualizer mode name, or "" for default (Bars)
+	VisRows          int                          // visualizer height in rows at the full layout tier, or 0 for the built-in default
 	SampleRate       int                          // output sample rate: 22050, 44100, 48000, 96000, 192000
 	BufferMs         int                          // speaker buffer in milliseconds (50-5000)
 	ResampleQuality  int                          // beep resample quality factor (1–4)
@@ -359,6 +375,7 @@ type Config struct {
 	SoundCloud       SoundCloudConfig             // SoundCloud provider (opt-in via enabled = true)
 	Mixcloud         MixcloudConfig               // Mixcloud provider (opt-in via enabled = true)
 	NetEase          NetEaseConfig                // NetEase Cloud Music provider (opt-in via enabled = true)
+	Yandex           YandexConfig                 // Yandex Music provider (opt-in via enabled = true)
 	Plugins          map[string]map[string]string // per-plugin config from [plugins.*] sections
 	LogLevel         string                       // log level: debug, info, warn, error (default "info")
 	LowPower         bool                         // reduce CPU by lowering UI cadence and disabling visualization
@@ -579,6 +596,13 @@ func Load() (Config, error) {
 			case "user_id":
 				cfg.NetEase.UserID = parseString(val)
 			}
+		case "yandex":
+			switch key {
+			case "enabled":
+				cfg.Yandex.Enabled = strings.ToLower(val) == "true"
+			case "token":
+				cfg.Yandex.Token = parseString(val)
+			}
 		case "jellyfin":
 			switch key {
 			case "url":
@@ -671,6 +695,10 @@ func Load() (Config, error) {
 				cfg.Provider = strings.ToLower(parseString(val))
 			case "visualizer":
 				cfg.Visualizer = parseString(val)
+			case "vis_rows":
+				if v, err := strconv.Atoi(val); err == nil {
+					cfg.VisRows = v
+				}
 			case "sample_rate":
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.SampleRate = v
@@ -956,6 +984,9 @@ func (c *Config) clamp() {
 	c.Spotify.Bitrate = clampSpotifyBitrate(c.Spotify.Bitrate)
 	c.PaddingH = max(min(c.PaddingH, 10), 0)
 	c.PaddingV = max(min(c.PaddingV, 5), 0)
+	if c.VisRows != 0 {
+		c.VisRows = max(min(c.VisRows, maxVisRows), 1)
+	}
 	if c.LowPower {
 		c.Visualizer = "none"
 	}

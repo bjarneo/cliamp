@@ -72,6 +72,7 @@ const (
 	VisClassicLED                 // Winamp 2.9 LED matrix with falling peak caps
 	VisStereo                     // stereo L/R horizontal LED peak meters
 	VisMirror                     // Braille spectrum bars mirrored about a horizontal axis
+	VisOmarchy                    // dithered pixel field with the Omarchy mark (omarchy.org style)
 	VisNone                       // hidden — no visualizer
 	VisCount                      // sentinel for cycling
 )
@@ -488,6 +489,7 @@ var visModes = [VisCount]visEntry{
 	VisClassicLED:  {"ClassicLED", newClassicLEDDriver},
 	VisStereo:      {"Stereo", newStereoDriver},
 	VisMirror:      {"Mirror", newFastRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), TickAnim, (*Visualizer).renderMirror)},
+	VisOmarchy:     {"Omarchy", newFastRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), TickAnim, (*Visualizer).renderOmarchy)},
 	VisNone:        {"None", newNoOpDriver},
 }
 

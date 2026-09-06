@@ -116,6 +116,58 @@ func TestExpandedPlaylistUsesAvailableRows(t *testing.T) {
 	}
 }
 
+func TestExpandedPlaylistWithoutVisualizerFillsTerminal(t *testing.T) {
+	for _, size := range []struct {
+		width, height int
+		wantFixed     int
+		extraBodyRows int
+	}{
+		{width: 80, height: 50, wantFixed: 10, extraBodyRows: 6},
+		{width: 80, height: 24, wantFixed: 10, extraBodyRows: 6},
+		{width: 56, height: 20, wantFixed: 9, extraBodyRows: 3},
+	} {
+		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
+			mWithVis := newLayoutTestModel(size.width, size.height)
+			mWithVis.heightExpanded = true
+			mWithVis.recomputeLayout()
+			bodyRowsWithVis := mWithVis.layout.bodyRows
+
+			m := newLayoutTestModel(size.width, size.height)
+			for i := 16; i < 100; i++ {
+				m.playlist.Add(playlist.Track{Path: fmt.Sprintf("/tmp/track-%d.mp3", i), Title: "Track"})
+			}
+			m.providers = []ProviderEntry{{Name: "Local"}, {Name: "Radio"}}
+			m.vis.Mode = ui.VisNone
+			m.heightExpanded = true
+			m.recomputeLayout()
+
+			if m.layout.fixedRows != size.wantFixed {
+				t.Fatalf("fixed rows = %d, want %d", m.layout.fixedRows, size.wantFixed)
+			}
+			if m.layout.bodyRows != bodyRowsWithVis+size.extraBodyRows {
+				t.Fatalf("body rows = %d, want %d (%d more than with visualizer)", m.layout.bodyRows, bodyRowsWithVis+size.extraBodyRows, size.extraBodyRows)
+			}
+			if m.plVisible != m.layout.bodyRows {
+				t.Fatalf("expanded playlist rows = %d, want available body rows %d", m.plVisible, m.layout.bodyRows)
+			}
+
+			// View without transient status message should not have empty top padding lines
+			out := m.View().Content
+			lines := strings.Split(out, "\n")
+			if lines[0] == "" {
+				t.Fatalf("first line is empty, view has extra top padding when expanded without visualizer")
+			}
+
+			// When a transient status message is present, view height should match terminal height exactly
+			m.status.Show("status", statusTTLDefault)
+			outWithStatus := m.View().Content
+			if got := lipgloss.Height(outWithStatus); got != size.height {
+				t.Fatalf("view height with status = %d, want %d", got, size.height)
+			}
+		})
+	}
+}
+
 func TestCollapsedPlaylistCentersFrameVertically(t *testing.T) {
 	m := newLayoutTestModel(80, 50)
 	body := ui.FitRect(m.renderMainBody(), m.layout.panelWidth, m.layout.bodyRows)
@@ -486,5 +538,38 @@ func assertViewFits(t *testing.T, view string, width, height int) {
 		if got := lipgloss.Width(line); got > width {
 			t.Fatalf("line width = %d, want <= %d: %q", got, width, line)
 		}
+	}
+}
+
+func TestConfiguredVisualizerRows(t *testing.T) {
+	tests := []struct {
+		name    string
+		width   int
+		height  int
+		visRows int
+		want    int
+	}{
+		{name: "unset keeps the default", width: 120, height: 50, visRows: 0, want: ui.DefaultVisRows},
+		{name: "taller than the default", width: 120, height: 50, visRows: 20, want: 20},
+		{name: "shorter than the default", width: 120, height: 50, visRows: 2, want: 2},
+		{name: "capped by a short terminal", width: 120, height: 24, visRows: 40, want: 9},
+		{name: "compact tier is unaffected", width: 60, height: 16, visRows: 20, want: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newLayoutTestModel(tt.width, tt.height)
+			m.SetVisRows(tt.visRows)
+			if m.vis.Rows != tt.want {
+				t.Fatalf("visualizer rows = %d, want %d", m.vis.Rows, tt.want)
+			}
+			if m.layout.bodyRows < 1 {
+				t.Fatalf("body rows = %d, want at least one", m.layout.bodyRows)
+			}
+			out := m.View().Content
+			if got := lipgloss.Height(out); got > tt.height {
+				t.Fatalf("view height = %d, want <= %d", got, tt.height)
+			}
+		})
 	}
 }

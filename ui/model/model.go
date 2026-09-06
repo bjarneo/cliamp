@@ -315,6 +315,7 @@ type Model struct {
 	feedLoading bool
 
 	visVolumeLinked bool // when true, visualizer samples are scaled by volume gain
+	visRows         int  // configured visualizer height at the full tier; 0 uses ui.DefaultVisRows
 
 	// Async stream buffering (true while HTTP connect is in progress)
 	buffering   bool
@@ -496,6 +497,10 @@ func (m Model) usesContentFirstLayout() bool {
 // playlist view. Provider browsing and overlays retain their normal space.
 func (m Model) usesSimplifiedLayout() bool {
 	return m.simplified && m.activeScreen() == screenMain && m.focus != focusProvider
+}
+
+func (m Model) visualizerDisabled() bool {
+	return m.vis == nil || m.vis.Mode == ui.VisNone
 }
 
 func (m Model) isPlaying() bool {
