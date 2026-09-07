@@ -11,6 +11,11 @@ volume = 0
 # Set to false to keep bars visible at low volumes.
 # vis_volume_linked = true
 
+# Visualizer height in rows on a terminal of at least 80x24 (default: 5).
+# Extra rows come out of the playlist below, and the layout shrinks the value
+# when the terminal cannot spare them. Range 1-40.
+# vis_rows = 5
+
 # Repeat mode: "off", "all", or "one"
 repeat = "off"
 
@@ -54,6 +59,12 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # the playlist. Press "?" for the full keymap, or Ctrl+G to toggle the bar.
 # Simplified mode has no hint bar or playlist, so it is unaffected.
 # hide_help_bar = true
+
+# Close the settings pane beside the playlist at the 80x24-and-up layout. The
+# playlist then gets the full frame width, with one row above it showing the
+# source and the volume meter; the EQ, speed, and download readouts are not
+# drawn. The pane is open unless this is set; Ctrl+B toggles it and saves here.
+# hide_settings_pane = true
 
 # UI theme name (check ~/.config/cliamp/themes/ for available themes)
 # theme = "Tokyo Night"
@@ -209,6 +220,17 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # enabled = true
 # cookies_from = "chrome"
 # user_id = "optional-account-user-id"
+
+# ---
+# Yandex Music (optional, opt-in)
+# Get a personal OAuth token by opening:
+# https://oauth.yandex.ru/authorize?response_type=token&client_id=23cabbbdc6cd418abb4b39c32c41195d
+# The token appears in the address bar after `#access_token=`. The provider
+# lists liked tracks and your playlists. Playback uses direct signed CDN URLs.
+# Without a Yandex Music Plus subscription only low-bitrate previews play.
+# [yandex]
+# enabled = true
+# token = "y0_YourPersonalOAuthToken"
 
 # ---
 # Plex Media Server (optional)

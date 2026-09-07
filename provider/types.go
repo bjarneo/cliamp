@@ -63,6 +63,7 @@ const (
 	MetaJellyfinID  = "jellyfin.id"
 	MetaEmbyID      = "emby.id"
 	MetaNetEaseID   = "netease.id"
+	MetaYandexID    = "yandex.id"
 	MetaQobuzID     = "qobuz.id"
 	MetaTidalID     = "tidal.id"
 	MetaLyrionID    = "lyrion.id"

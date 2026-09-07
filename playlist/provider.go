@@ -52,3 +52,13 @@ type Authenticator interface {
 type Refresher interface {
 	Refresh()
 }
+
+// RefreshablePlaylist is optionally implemented by Refresher providers whose
+// specific playlist IDs remain valid across Refresh() and can be reloaded in
+// place (ctrl+r). Providers with positional or index-based IDs (e.g. radio
+// catalog stations) must not implement it: refreshing then falls back to
+// reloading the playlist list.
+type RefreshablePlaylist interface {
+	Refresher
+	CanRefreshPlaylist(id string) bool
+}

@@ -119,7 +119,15 @@ func New(q Quality) (*Player, error) {
 	p.gapless = &gaplessStreamer{}
 	// Suspend the speaker immediately; the ALSA audio callback goroutine
 	// burns ~2% CPU even on silence. Resume is called on every Play().
-	_ = speaker.Suspend()
+	//
+	// Suspend is also where a failed device open first becomes visible: oto
+	// opens the device on a background goroutine and only stores the error,
+	// so speaker.Init above returns nil even when every candidate device
+	// failed. Without this check playback silently no-ops while the UI and
+	// `cliamp status` keep reporting "playing".
+	if err := speaker.Suspend(); err != nil {
+		return nil, fmt.Errorf("audio output unavailable: %w%s", err, audioOutputHint())
+	}
 	p.suspended = true
 	p.gapless.onSwap = func(token uint64) {
 		// Called from audio thread (goroutine) when gapless transition occurs.

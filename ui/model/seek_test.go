@@ -2,8 +2,12 @@ package model
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
+
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/ui"
@@ -202,5 +206,68 @@ func TestPendingSeekSurvivesFailedSeek(t *testing.T) {
 	cmd()
 	if len(eng.seekCalls) != 2 {
 		t.Fatalf("Seek calls = %v, want the failed seek and the queued one", eng.seekCalls)
+	}
+}
+
+// TestSeekBarPlayheadTracksProgress checks that the bar keeps the panel width,
+// carries a head everywhere but the very end, and never moves backwards.
+func TestSeekBarPlayheadTracksProgress(t *testing.T) {
+	const width = 40
+	// recomputeLayout inside the constructor resets ui.PanelWidth, so pin the
+	// bar width after the model exists.
+	m := newLayoutTestModel(80, 24)
+	prev := ui.PanelWidth
+	ui.PanelWidth = width
+	defer func() { ui.PanelWidth = prev }()
+
+	m.cachedDur = time.Duration(width) * time.Second
+
+	prevFilled := -1
+	for step := 0; step < width; step++ {
+		m.cachedPos = time.Duration(step) * time.Second
+		bar := ansi.Strip(m.renderSeekBar())
+
+		if got := lipgloss.Width(bar); got != width {
+			t.Fatalf("step %d: bar width = %d, want %d: %q", step, got, width, bar)
+		}
+		if got := strings.Count(bar, seekHeadGlyph); got != 1 {
+			t.Fatalf("step %d: head count = %d, want 1: %q", step, got, bar)
+		}
+		filled := strings.Count(bar, seekFillGlyph)
+		if filled != step {
+			t.Fatalf("step %d: played cells = %d, want %d: %q", step, filled, step, bar)
+		}
+		if filled < prevFilled {
+			t.Fatalf("step %d: fill went backwards, %d after %d", step, filled, prevFilled)
+		}
+		prevFilled = filled
+	}
+
+	// At the end the bar is simply full: there is no cell left for the head.
+	m.cachedPos = m.cachedDur
+	if got, want := ansi.Strip(m.renderSeekBar()), strings.Repeat(seekFillGlyph, width); got != want {
+		t.Fatalf("bar at end = %q, want %q", got, want)
+	}
+}
+
+// TestSeekBarSeparatesFillFromRemainder checks that played and unplayed cells
+// use different glyphs, so the bar is readable without relying on color.
+func TestSeekBarSeparatesFillFromRemainder(t *testing.T) {
+	if seekFillGlyph == seekEmptyGlyph {
+		t.Fatal("fill and remainder glyphs must differ")
+	}
+	m := newLayoutTestModel(80, 24)
+	prev := ui.PanelWidth
+	ui.PanelWidth = 20
+	defer func() { ui.PanelWidth = prev }()
+
+	m.cachedDur = 100 * time.Second
+	m.cachedPos = 50 * time.Second
+
+	bar := ansi.Strip(m.renderSeekBar())
+	for _, want := range []string{seekFillGlyph, seekHeadGlyph, seekEmptyGlyph} {
+		if !strings.Contains(bar, want) {
+			t.Fatalf("half-played bar should show %q: %q", want, bar)
+		}
 	}
 }

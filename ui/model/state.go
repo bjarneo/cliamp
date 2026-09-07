@@ -219,6 +219,7 @@ type fileBrowserState struct {
 // navBrowserState holds state for the provider browser overlay.
 type navBrowserState struct {
 	prov            playlist.Provider
+	genreBrowser    provider.GenreBrowser
 	visible         bool
 	mode            navBrowseModeType
 	screen          navBrowseScreenType
@@ -262,7 +263,6 @@ type requestState struct {
 	spotMutation uint64
 	auth         uint64
 	catalog      uint64
-	radioStats   uint64
 	stream       uint64
 	preload      uint64
 }
@@ -307,15 +307,6 @@ type catalogBatchState struct {
 	offset  int  // next offset to fetch
 	loading bool // true while a fetch is in flight
 	done    bool // true when all stations have been loaded
-}
-
-// radioStatsState holds the hidden built-in radio statistics screen.
-type radioStatsState struct {
-	visible bool
-	loading bool
-	stats   provider.RadioStats
-	err     error
-	scroll  int
 }
 
 // ytdlBatchState holds state for incremental yt-dlp playlist loading.

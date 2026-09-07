@@ -64,7 +64,8 @@ fields support these editor keys:
 | `Ctrl+V` | Pick visualizer from a list (live preview) |
 | `V` | Full screen visualizer |
 | `Ctrl+H` | Toggle album headers |
-| `Ctrl+G` | Toggle the key-binding hint bar |
+| `Ctrl+G` | Toggle the key-binding hint bar (remembered in `hide_help_bar`) |
+| `Ctrl+B` | Open/close the settings pane (remembered in `hide_settings_pane`) |
 
 Theme and visualizer pickers support `/` filtering. While you browse, arrow
 keys preview the selected option. `Enter` keeps it. `Esc` restores the option
@@ -176,9 +177,9 @@ Spotify, Qobuz, Tidal, Mixcloud, and YouTube Music.
 |---|---|
 | `↑` `↓` / `j` `k` | Move cursor (wraps from top to bottom) |
 | `←` `→` / `h` `l` | Go back; open the selected item |
-| `/` | Filter the visible list. In the Mixcloud Genres list, `Enter` searches the complete server-side genre/tag catalog. |
+| `/` | Filter the visible list, including Radio's complete genre/tag index. In the Mixcloud Genres list, `Enter` searches the complete server-side genre/tag catalog. |
 | `f` | In the Mixcloud Genres list, favorite or unfavorite the selected genre locally. Update `[mixcloud].styles`. |
-| `Enter` | Open the selected artist or album. Play the selected track and queue the rest of the visible list. |
+| `Enter` | Open the selected artist or album. A Radio tag loads up to 200 matching stations; a selected track plays and queues the rest of the visible list. |
 | `R` | Replace the queue with all visible tracks (start from the top, confirm when non-empty) |
 | `a` | Append all visible tracks to the queue |
 | `q` | Queue the highlighted track to play next |
@@ -209,7 +210,7 @@ Navidrome, or Local Playlists:
 | `Enter` | Load the selected playlist tracks into the queue |
 | `/` | Filter the playlist list |
 | `Ctrl+F` | Run the provider online or server search (Spotify, Navidrome, NetEase, and others). |
-| `Ctrl+R` | Refresh the playlist list from the provider. For Mixcloud, also clear the cached `/me/` identity. |
+| `Ctrl+R` | Refresh the provider: reload the currently open playlist or starting wave in place (e.g. a fresh Yandex "Моя волна" batch), or return to the playlist list. For Mixcloud, also clear the cached `/me/` identity. |
 | `p` | Open the playlist manager (Local pane only; create, rename, delete, add dirs/tracks) |
 | `S` `N` `P` `J` `E` `Y` `C` `X` `M` `Q` `L` `R` | Switch to that provider |
 | `Tab` | Switch focus to EQ |

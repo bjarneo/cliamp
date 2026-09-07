@@ -26,10 +26,10 @@ var (
 	_ provider.FavoriteToggler      = (*Provider)(nil)
 	_ provider.CatalogLoader        = (*Provider)(nil)
 	_ provider.CatalogSearcher      = (*Provider)(nil)
-	_ provider.RadioStatsLoader     = (*Provider)(nil)
 	_ provider.SectionedList        = (*Provider)(nil)
 	_ provider.SectionTitler        = (*Provider)(nil)
 	_ provider.GenreBrowser         = (*Provider)(nil)
+	_ provider.GenreBrowseRouter    = (*Provider)(nil)
 	_ provider.GenreFavoriteToggler = (*Provider)(nil)
 	_ provider.GenreLabeler         = (*Provider)(nil)
 	_ provider.LocationConsenter    = (*Provider)(nil)
@@ -45,6 +45,7 @@ const builtinURL = "https://radio.cliamp.stream/streams.m3u"
 // render as one block.
 const (
 	sectionCountries = "Countries"
+	sectionGenres    = "Genres & Tags"
 	sectionStations  = "Stations"
 	sectionFavorites = "Favorites"
 	sectionCatalog   = "Catalog"
@@ -80,6 +81,8 @@ type Provider struct {
 	searchResults []CatalogStation // non-nil when API search is active
 	countries     []Country        // cached country index, nil until first browse
 	states        []State          // cached regions of the home country
+	tags          []Tag            // cached tag index, nil until first browse
+	tagGeneration uint64           // incremented when Refresh invalidates a tag fetch
 	// locationSettled is false only until the listener answers the location
 	// question. It gates whether to ask, not whether p.home may be used.
 	locationSettled bool

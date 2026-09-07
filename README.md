@@ -1,6 +1,6 @@
 [![Docs on contextowl.co](https://contextowl.co/uploads/_brand/badge-docs.svg)](https://contextowl.co)
 
-A retro terminal music player inspired by Winamp. Play local files, streams, podcasts, YouTube, YouTube Music, SoundCloud, Mixcloud, Bilibili, Spotify, NetEase Cloud Music, Xiaoyuzhou (小宇宙), Navidrome, Lyrion, Plex, Jellyfin, and Audiobookshelf. Use the spectrum visualizer, parametric EQ, and playlist manager.
+A retro terminal music player inspired by Winamp. Play local files, streams, podcasts, YouTube, YouTube Music, SoundCloud, Mixcloud, Bilibili, Spotify, NetEase Cloud Music, Yandex Music, Xiaoyuzhou (小宇宙), Navidrome, Lyrion, Plex, Jellyfin, and Audiobookshelf. Use the spectrum visualizer, parametric EQ, and playlist manager.
 
 **[cliamp.stream](https://cliamp.stream)** | **[docs](https://whiterose.org.contextowl.co/docs/cliamp)**
 
@@ -123,7 +123,12 @@ playback, resume, seeking, and limitations.
 
 Press `R` in the player to browse about 58,000 online radio stations in the [Radio Browser](https://www.radio-browser.info/) directory.
 
-Cut that down by location: `N` browses by country, `f` pins the countries you listen to, and `Enter` on a country loads its stations as a playlist. cliamp does not work out where you are unless you pick "Use my location" and accept; it then reads your country from the system timezone, never from a geo-IP service. See [docs/radio.md](docs/radio.md).
+Cut that down by location or genre: `N` browses by country, **Browse genres &
+tags** opens the directory's complete tag index, and `/` filters either list.
+`f` pins the countries you listen to, and `Enter` on a country or tag loads its
+stations as a playlist. cliamp does not work out where you are unless you pick
+"Use my location" and accept; it then reads your country from the system
+timezone, never from a geo-IP service. See [docs/radio.md](docs/radio.md).
 
 Add your own stations to `~/.config/cliamp/radios.toml` (or `%APPDATA%\cliamp\radios.toml` on Windows when `HOME` is unset). See [docs/configuration.md](docs/configuration.md#custom-radio-stations).
 
@@ -201,12 +206,14 @@ Full documentation is hosted at **[whiterose.org.contextowl.co/docs/cliamp](http
 
 ## Troubleshooting
 
-**No audio output (silence with no errors)**
+**No audio output**
 
-On Linux systems that use PipeWire or PulseAudio, the cliamp ALSA backend needs a bridge package to route audio through the sound server:
+cliamp reports `audio output unavailable` when it cannot open an output
+device. On Linux systems that use PipeWire or PulseAudio, the cliamp ALSA
+backend needs a bridge package to route audio through the sound server:
 
 - **PipeWire:** `pipewire-alsa`
-- **PulseAudio:** `pulseaudio-alsa`
+- **PulseAudio:** `pulseaudio-alsa` (`libasound2-plugins` on Debian/Ubuntu)
 
 Install the package for your system:
 
@@ -219,7 +226,13 @@ sudo pacman -S pulseaudio-alsa
 
 # Debian/Ubuntu (PipeWire)
 sudo apt install pipewire-alsa
+
+# Debian/Ubuntu (PulseAudio, including WSL2)
+sudo apt install libasound2-plugins
 ```
+
+On WSL2 see [WSL2 setup](docs/configuration.md#wsl2-windows-subsystem-for-linux)
+for the extra ALSA routing step.
 
 ## Author
 

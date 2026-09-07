@@ -15,6 +15,7 @@ import (
 type directory struct {
 	countries []Country
 	states    []State
+	tags      []Tag
 	stations  []CatalogStation
 	lastPath  string
 	lastQuery url.Values
@@ -30,6 +31,8 @@ func (d *directory) serve(t *testing.T) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/countries"):
 			body = d.countries
+		case strings.HasSuffix(r.URL.Path, "/tags"):
+			body = d.tags
 		case strings.Contains(r.URL.Path, "/states/"):
 			body = d.states
 		default:
@@ -143,7 +146,7 @@ func TestStationQueryValues(t *testing.T) {
 			name:   "defaults",
 			query:  StationQuery{},
 			want:   map[string]string{"limit": "50", "offset": "0", "order": SortVotes, "reverse": "true", "hidebroken": "true"},
-			absent: []string{"name", "countrycode", "state"},
+			absent: []string{"name", "tag", "tagExact", "countrycode", "state"},
 		},
 		{
 			name:  "country and region are matched exactly",
@@ -152,6 +155,11 @@ func TestStationQueryValues(t *testing.T) {
 				"countrycode": "NO", "state": "Oslo", "stateExact": "true",
 				"limit": "25", "offset": "50",
 			},
+		},
+		{
+			name:  "tag is matched exactly",
+			query: StationQuery{Tag: "smooth jazz"},
+			want:  map[string]string{"tag": "smooth jazz", "tagExact": "true"},
 		},
 		{
 			name:   "names sort ascending",

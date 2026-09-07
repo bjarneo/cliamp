@@ -28,13 +28,6 @@ func installCatalogClient(t *testing.T, serverURL string) {
 	t.Cleanup(func() { catalogClient = old })
 }
 
-func installStatsClient(t *testing.T, serverURL string) {
-	t.Helper()
-	old := statsClient
-	statsClient = testHTTPClient(t, serverURL)
-	t.Cleanup(func() { statsClient = old })
-}
-
 func testHTTPClient(t *testing.T, serverURL string) *http.Client {
 	t.Helper()
 	u, err := url.Parse(serverURL)
@@ -74,34 +67,6 @@ func TestStationsSuccess(t *testing.T) {
 	}
 	if got.Bitrate != 128 || got.CountryCode != "GB" {
 		t.Errorf("station = %+v, want bitrate 128 and country code GB", got)
-	}
-}
-
-func TestFetchStats(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/statistics" {
-			t.Errorf("path = %q, want /statistics", r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"total_sessions":42,
-			"total_listen_hours":12.5,
-			"peak_listeners":7,
-			"stations":{"lofi":{"total_sessions":40,"active_listeners":3}}
-		}`))
-	}))
-	defer srv.Close()
-	installStatsClient(t, srv.URL)
-
-	stats, err := FetchStats()
-	if err != nil {
-		t.Fatalf("FetchStats: %v", err)
-	}
-	if stats.TotalSessions != 42 || stats.TotalListenHours != 12.5 || stats.PeakListeners != 7 {
-		t.Fatalf("stats = %+v, want aggregate values", stats)
-	}
-	if station := stats.Stations["lofi"]; station.TotalSessions != 40 || station.ActiveListeners != 3 {
-		t.Fatalf("lofi stats = %+v, want decoded station values", station)
 	}
 }
 

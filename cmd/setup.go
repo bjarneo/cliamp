@@ -164,15 +164,20 @@ func providers() []providerSpec {
 			fields: []fieldSpec{
 				{key: "url", label: "Server URL", help: "e.g. http://192.168.1.10:32400", required: true},
 				{key: "token", label: "X-Plex-Token", required: true, secret: true},
+				{key: "libraries", label: "Music libraries (optional)", help: "comma-separated names to include; blank loads every music library"},
 			},
 			validate: func(v map[string]string) error {
 				return plex.NewClient(v["url"], v["token"]).Ping()
 			},
 			body: func(v map[string]string) string {
-				return strings.Join([]string{
+				lines := []string{
 					fmt.Sprintf("url   = %q", v["url"]),
 					fmt.Sprintf("token = %q", v["token"]),
-				}, "\n")
+				}
+				if libraries := setupStringList(v["libraries"]); libraries != "" {
+					lines = append(lines, "libraries = "+libraries)
+				}
+				return strings.Join(lines, "\n")
 			},
 		},
 		{
@@ -1008,6 +1013,7 @@ func (m *setupModel) persistAndDone(warn bool) tea.Cmd {
 	}
 	m.stage = stageResult
 	m.awaitingSave = false
+	m.resultErr = nil
 	m.resultWarning = warn
 	m.resultText = fmt.Sprintf("Saved [%s] section.", spec.section)
 	return nil

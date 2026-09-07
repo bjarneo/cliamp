@@ -56,7 +56,9 @@ cliamp https://www.xiaoyuzhoufm.com/episode/xxxx
 
 Press `R` in the player to browse about 58,000 online radio stations in the [Radio Browser](https://www.radio-browser.info/) directory. Use `/` to search by name, `Enter` to play, and `a` to add a station to the playlist.
 
-To cut the list down by location, browse by country (`N`), pin the countries you listen to (`f`), and narrow the catalog to one of them (`c`). See [radio.md](radio.md).
+To cut the list down, browse by country (`N`), pin the countries you listen to
+(`f`), or open **Browse genres & tags** in the radio pane and filter the full
+tag index with `/`. See [radio.md](radio.md).
 
 ## Track Info
 

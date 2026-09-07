@@ -21,8 +21,56 @@ type frameLayout struct {
 	footerRows         int
 	bodyRows           int
 	visualizerRows     int
+	baseVisualizerRows int
 	fullVisualizerRows int
+	// twoColumn splits the body region into the playlist (left) and the
+	// settings pane (right); the two widths are zero when it is off.
+	twoColumn     bool
+	playlistWidth int
+	settingsWidth int
+	// closedSettings is the same full-tier playback screen with the pane shut:
+	// source and volume share one row and the EQ, speed, and download readouts
+	// are not drawn at all.
+	closedSettings bool
 }
+
+// chromeRowsFreed is how many stacked chrome rows the current layout does not
+// draw, and therefore hands to the playlist.
+func (l frameLayout) chromeRowsFreed() int {
+	switch {
+	case l.twoColumn:
+		return twoColumnChromeRows
+	case l.closedSettings:
+		return closedSettingsChromeRows
+	default:
+		return 0
+	}
+}
+
+// Two-column body geometry. The columns are separated by blank space rather
+// than a rule, so the gutter has to be wide enough to read as a break on its
+// own. The settings pane is clamped so it never crowds out the playlist, and
+// the split is abandoned entirely when the playlist would end up narrower than
+// playlistMinWidth.
+const (
+	// columnGutter is the blank channel between the two columns. It runs
+	// unbroken down the body, which is what separates them. Its width is the
+	// declared one, not len(): a non-ASCII gutter would make those differ.
+	columnGutterWidth = 5
+	columnGutter      = "     "
+	settingsMinWidth  = 22
+	settingsMaxWidth  = 30
+	playlistMinWidth  = 40
+	// twoColumnChromeRows counts the stacked rows the two-column body does not
+	// draw: the EQ/volume row, the source row, and the status line, which all
+	// move into the settings pane, plus the blank spacer above the hint bar,
+	// which the pane's own blank tail makes redundant.
+	twoColumnChromeRows = 4
+	// closedSettingsChromeRows counts what the closed-pane layout drops
+	// instead: the EQ row (source and volume share one row) and the status
+	// line carrying speed and the download counters.
+	closedSettingsChromeRows = 2
+)
 
 func (l frameLayout) tooSmall() bool {
 	return l.tier == layoutTooSmall
@@ -55,8 +103,15 @@ func (m *Model) recomputeLayout() {
 		layout.tier = layoutTooSmall
 	case width >= 80 && height >= 24:
 		layout.tier = layoutFull
-		layout.visualizerRows = ui.DefaultVisRows
-		layout.fixedRows = 16
+		// fixedRows counts the five default visualizer rows, so extra rows come
+		// straight out of the playlist below.
+		rows := m.visualizerRowsSetting()
+		bodyAtDefault := height - 2*paddingV - 16 - layout.footerRows
+		if extra := rows - ui.DefaultVisRows; extra > 0 {
+			rows = ui.DefaultVisRows + min(extra, max(0, bodyAtDefault-1))
+		}
+		layout.visualizerRows = rows
+		layout.fixedRows = 16 + rows - ui.DefaultVisRows
 	case width >= 56 && height >= 16:
 		layout.tier = layoutCompact
 		layout.visualizerRows = 3
@@ -65,6 +120,7 @@ func (m *Model) recomputeLayout() {
 		layout.tier = layoutMinimal
 		layout.fixedRows = 7
 	}
+	layout.baseVisualizerRows = layout.visualizerRows
 	contentFirst := m.usesContentFirstLayout()
 	simplified := m.usesSimplifiedLayout()
 	if contentFirst {
@@ -77,7 +133,32 @@ func (m *Model) recomputeLayout() {
 	} else if simplified {
 		layout.visualizerRows = 0
 		layout.fixedRows = 3
+	} else if m.visualizerDisabled() {
+		layout.visualizerRows = 0
+		if layout.tier == layoutFull {
+			layout.fixedRows = 10
+		} else if layout.tier == layoutCompact {
+			layout.fixedRows = 9
+		}
 	}
+	// The settings pane, open or closed, belongs to the full-tier playback
+	// screen only: the denser tiers and the list-focused layouts have no room
+	// for a column and draw their own controls.
+	if layout.tier == layoutFull && !contentFirst && !simplified && m.activeScreen() == screenMain {
+		if m.hideSettings {
+			layout.closedSettings = true
+		} else {
+			settingsWidth := min(settingsMaxWidth, max(settingsMinWidth, layout.panelWidth/3))
+			if playlistWidth := layout.panelWidth - columnGutterWidth - settingsWidth; playlistWidth >= playlistMinWidth {
+				layout.twoColumn = true
+				layout.playlistWidth = playlistWidth
+				layout.settingsWidth = settingsWidth
+			}
+		}
+	}
+	// Whatever the chrome gives up goes to the playlist, both as budget and as
+	// a higher cap so the reclaimed rows show tracks instead of blank space.
+	layout.fixedRows = max(0, layout.fixedRows-layout.chromeRowsFreed())
 	// The simplified view never draws the hint bar, so its fixedRows budget
 	// does not include that row and must not be reduced here.
 	if m.hideHelpBar && !simplified {
@@ -95,6 +176,8 @@ func (m *Model) recomputeLayout() {
 				limit = layout.bodyRows
 			} else if contentFirst {
 				limit = maxPlExpandVisible
+			} else if freed := layout.chromeRowsFreed(); freed > 0 {
+				limit = maxPlVisible + freed
 			}
 			m.plVisible = min(limit, layout.bodyRows)
 		}
@@ -111,19 +194,21 @@ func (m *Model) recomputeLayout() {
 			m.vis.Rows = layout.fullVisualizerRows
 		} else {
 			rows := layout.visualizerRows
-			if contentFirst {
+			if contentFirst || m.visualizerDisabled() {
 				// Keep the normal canvas size cached while visualizer work is paused
 				// so modes resume with valid dimensions when the layout returns.
-				switch layout.tier {
-				case layoutFull:
-					rows = ui.DefaultVisRows
-				case layoutCompact:
-					rows = 3
-				default:
-					rows = 1
-				}
+				rows = max(1, layout.baseVisualizerRows)
 			}
 			m.vis.Rows = rows
 		}
 	}
+}
+
+// visualizerRowsSetting returns the configured visualizer height at the full
+// layout tier, falling back to the built-in default when unset.
+func (m *Model) visualizerRowsSetting() int {
+	if m.visRows > 0 {
+		return m.visRows
+	}
+	return ui.DefaultVisRows
 }

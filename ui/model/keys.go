@@ -271,10 +271,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handleQueueKey(msg)
 	}
 
-	if m.radioStats.visible {
-		return m.handleRadioStatsKey(msg)
-	}
-
 	// Track info overlay
 	if m.showInfo {
 		switch msg.String() {
@@ -407,16 +403,22 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 					r.Refresh()
 				}
 				m.provLoading = true
-				m.activeProviderPlaylistID = ""
 				m.status.Activityf(statusTTLShort, "Refreshing %s…", m.provider.Name())
+				// Re-open the current playlist in place only when the
+				// provider guarantees the ID stays valid across Refresh()
+				// (e.g. the Yandex "Моя волна" session). Positional IDs
+				// (radio catalog indexes) must fall back to the playlists
+				// pane.
+				if id := m.activeProviderPlaylistID; id != "" {
+					if pr, ok := m.provider.(playlist.RefreshablePlaylist); ok && pr.CanRefreshPlaylist(id) {
+						return m.fetchProviderTracks(id)
+					}
+				}
+				m.activeProviderPlaylistID = ""
 				return m.fetchProviderPlaylists()
 			}
 		case "f":
 			return m.toggleProviderFavorite()
-		case "i":
-			if m.canOpenRadioStats() {
-				return m.openRadioStats()
-			}
 		case "o":
 			m.openFileBrowser()
 		case "N":
@@ -525,6 +527,27 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m.quit()
+	case "ctrl+r":
+		// Refresh in the queue/playlist view: when a refreshable provider
+		// playlist (e.g. the Yandex "Моя волна" session) is open, drop its
+		// cached session and reload a fresh batch in place. Providers whose
+		// IDs don't survive Refresh (positional catalog indexes) are skipped.
+		if m.provider != nil && !m.provLoading && m.activeProviderPlaylistID != "" {
+			id := m.activeProviderPlaylistID
+			pr, capable := m.provider.(playlist.RefreshablePlaylist)
+			if !capable || !pr.CanRefreshPlaylist(id) {
+				// Keep plugin key bindings working: ctrl+r is no longer an
+				// unhandled key here, so forward it explicitly.
+				if m.luaMgr != nil {
+					m.luaMgr.EmitKey(msg.String())
+				}
+				return nil
+			}
+			pr.Refresh()
+			m.provLoading = true
+			m.status.Activityf(statusTTLShort, "Refreshing %s…", m.provider.Name())
+			return m.fetchProviderTracks(id)
+		}
 	case "esc", "backspace", "b":
 		if m.focus == focusPlaylist {
 			// Keep current expanded/collapsed height mode when switching focus.
@@ -866,6 +889,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "ctrl+g":
 		m.toggleHelpBar()
+		m.adjustScroll()
+
+	case "ctrl+b":
+		m.toggleSettingsPane()
 		m.adjustScroll()
 
 	case "v":

@@ -217,8 +217,8 @@ func (m *Model) handleNavGenreListKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.navBrowser.loading || !ok {
 			return nil
 		}
-		browser, ok := m.navBrowser.prov.(provider.GenreBrowser)
-		if !ok {
+		browser := m.navGenreBrowser()
+		if browser == nil {
 			return nil
 		}
 		m.navBrowser.selGenre = genre
@@ -230,7 +230,7 @@ func (m *Model) handleNavGenreListKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.navBrowser.loading || !ok {
 			return nil
 		}
-		browser, ok := m.navBrowser.prov.(provider.GenreFavoriteToggler)
+		browser, ok := m.navGenreBrowser().(provider.GenreFavoriteToggler)
 		if !ok {
 			return nil
 		}
@@ -287,8 +287,8 @@ func (m *Model) handleNavGenreSortKey(msg tea.KeyPressMsg) tea.Cmd {
 		if rawIdx < 0 {
 			return nil
 		}
-		browser, ok := m.navBrowser.prov.(provider.GenreBrowser)
-		if !ok {
+		browser := m.navGenreBrowser()
+		if browser == nil {
 			return nil
 		}
 		m.navBrowser.selGenreSort = m.navBrowser.genreSorts[rawIdx]
@@ -677,7 +677,7 @@ func (m *Model) handleNavSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.navBrowser.searching = false
 		if m.navBrowser.mode == navBrowseModeByGenre && m.navBrowser.screen == navBrowseScreenList {
 			query := strings.TrimSpace(m.navBrowser.search)
-			searcher, ok := m.navBrowser.prov.(provider.GenreSearcher)
+			searcher, ok := m.navGenreBrowser().(provider.GenreSearcher)
 			if ok && query != "" {
 				m.navBrowser.genreQuery = query
 				m.navBrowser.search = ""

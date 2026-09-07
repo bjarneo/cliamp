@@ -303,6 +303,9 @@ func TestReadOnlyGenreBrowserDoesNotAdvertiseFavorite(t *testing.T) {
 	if cmd := m.handleNavBrowserKey(tea.KeyPressMsg{Text: "f"}); cmd != nil {
 		t.Fatal("read-only genre browser handled favorite action")
 	}
+	if body := m.renderNavBody(); strings.Contains(body, "☆") || strings.Contains(body, "★") {
+		t.Fatalf("read-only genre browser rendered favorite markers: %q", body)
+	}
 }
 
 func TestGenreFilterEnterSearchesFullProviderCatalogue(t *testing.T) {

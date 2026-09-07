@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -249,6 +250,55 @@ func TestNetEaseSetupBody(t *testing.T) {
 	}
 }
 
+// TestSaveAnywayClearsStaleValidationError covers a regression where
+// choosing "Save anyway" after a failed validation probe saved the config
+// correctly but left the stale connection error in place, so the result
+// screen kept showing "Validation failed" / the raw error instead of the
+// intended "Saved without verification" message.
+func TestSaveAnywayClearsStaleValidationError(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+
+	m := newSetupModel()
+	m.pidx = -1
+	for i, p := range m.provs {
+		if p.section == "navidrome" {
+			m.pidx = i
+			break
+		}
+	}
+	if m.pidx < 0 {
+		t.Fatal("navidrome spec missing")
+	}
+	m.values = map[string]string{"url": "http://example.com", "user": "alice", "password": "secret"}
+
+	m.onValidateDone(errors.New("dial tcp: connection refused"))
+	if !m.awaitingSave || m.resultErr == nil {
+		t.Fatalf("onValidateDone(err) should prompt to save anyway; awaitingSave=%v resultErr=%v", m.awaitingSave, m.resultErr)
+	}
+
+	m.resultKey(keyPress('y', "y"))
+	if m.awaitingSave {
+		t.Fatal("pressing y should clear awaitingSave")
+	}
+	if m.saveFailed != nil {
+		t.Fatalf("saveFailed = %v, want nil", m.saveFailed)
+	}
+	if m.resultErr != nil {
+		t.Fatalf("resultErr = %v, want nil after a successful save-anyway", m.resultErr)
+	}
+	if !m.resultWarning {
+		t.Fatal("resultWarning should be true after save-anyway")
+	}
+
+	view := m.viewResult()
+	if strings.Contains(view, "connection refused") || strings.Contains(view, "Validation failed") {
+		t.Fatalf("view still shows the stale validation error: %q", view)
+	}
+	if !strings.Contains(view, "Saved without verification") {
+		t.Fatalf("view missing the save-anyway success message: %q", view)
+	}
+}
+
 func TestSaveSectionSecuresConfigFile(t *testing.T) {
 	configDir := filepath.Join(t.TempDir(), "config")
 	t.Setenv("CLIAMP_CONFIG_DIR", configDir)
@@ -351,6 +401,38 @@ func TestTidalSetupBody(t *testing.T) {
 	// No live probe (auth happens interactively in the TUI).
 	if spec.validate != nil {
 		t.Fatal("tidal spec should not define a validate probe")
+	}
+}
+
+func TestPlexSetupBody(t *testing.T) {
+	var spec providerSpec
+	for _, p := range providers() {
+		if p.section == "plex" {
+			spec = p
+			break
+		}
+	}
+	if spec.section == "" {
+		t.Fatal("plex spec missing")
+	}
+
+	withLibraries := spec.body(map[string]string{
+		"url":       "http://192.168.1.10:32400",
+		"token":     "tok",
+		"libraries": "Music, Jazz",
+	})
+	for _, want := range []string{
+		`url   = "http://192.168.1.10:32400"`, `token = "tok"`,
+		`libraries = ["Music", "Jazz"]`,
+	} {
+		if !strings.Contains(withLibraries, want) {
+			t.Fatalf("body missing %q: %q", want, withLibraries)
+		}
+	}
+
+	noFilter := spec.body(map[string]string{"url": "http://x", "token": "tok"})
+	if strings.Contains(noFilter, "libraries") {
+		t.Fatalf("blank libraries field must not write a libraries key: %q", noFilter)
 	}
 }
 

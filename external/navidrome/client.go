@@ -35,8 +35,10 @@ var (
 // httpClient is used for all Navidrome API calls with a finite timeout.
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
-// maxResponseBody limits JSON API responses to 10 MB to prevent unbounded memory growth.
-const maxResponseBody = 10 << 20
+// maxResponseBody limits JSON API responses to 128 MB to prevent unbounded
+// memory growth. A getPlaylist response runs roughly 1.2 KB per entry, so this
+// leaves room for playlists of ~100k tracks.
+const maxResponseBody = 128 << 20
 
 // Sort type constants for album browsing (Subsonic getAlbumList2 "type" parameter).
 const (
@@ -215,9 +217,16 @@ func (c *NavidromeClient) subsonicGet(endpoint string, params url.Values, result
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("navidrome: %s: http status %s", endpoint, resp.Status)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+	// Read one byte past the cap so an oversized response is reported rather
+	// than silently truncated: io.LimitReader alone would cut mid-object and
+	// hand json.Unmarshal a partial body, which fails as the opaque
+	// "unexpected end of JSON input".
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody+1))
 	if err != nil {
 		return fmt.Errorf("navidrome: %s: %w", endpoint, err)
+	}
+	if len(body) > maxResponseBody {
+		return fmt.Errorf("navidrome: %s: response exceeds %d bytes", endpoint, maxResponseBody)
 	}
 	// Check for API-level errors.
 	var env struct {

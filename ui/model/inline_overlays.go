@@ -167,11 +167,6 @@ func (m Model) activeOverlay() (overlayView, bool) {
 		return overlayView{
 			func(m *Model) string { return sepHeaderN("Queue", m.queue.cursor+1, m.playlist.QueueLen()) },
 			(*Model).queueHelpLine, (*Model).renderQueueBody}, true
-	case m.radioStats.visible:
-		return overlayView{
-			func(*Model) string { return sepHeader("Radio Stats") },
-			func(m *Model) string { return m.commandHelp(commandModeRadioStats) },
-			(*Model).renderRadioStatsBody}, true
 	case m.showInfo:
 		return overlayView{
 			func(*Model) string { return sepHeader("Track Info") },

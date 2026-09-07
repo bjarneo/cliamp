@@ -82,6 +82,14 @@ func (m *Model) SetVisVolumeLinked(linked bool) {
 	m.visVolumeLinked = linked
 }
 
+// SetVisRows sets the visualizer height in rows for the full layout tier.
+// Zero keeps the built-in default. The layout caps it at what the terminal
+// can spare.
+func (m *Model) SetVisRows(rows int) {
+	m.visRows = rows
+	m.recomputeLayout()
+}
+
 // findProviderWith returns the first registered provider that satisfies the
 // given capability check. This is used for cross-provider shortcuts like "N"
 // (browse) and "F" (search) which should work regardless of the active provider.
@@ -121,6 +129,14 @@ func (m *Model) SetSimplified(v bool) {
 // body. The full keymap stays reachable with "?".
 func (m *Model) SetHideHelpBar(v bool) {
 	m.hideHelpBar = v
+	m.refreshChrome()
+}
+
+// SetHideSettingsPane closes the settings pane beside the playlist, returning
+// the playback screen to its single-column layout where the same settings are
+// drawn as stacked rows.
+func (m *Model) SetHideSettingsPane(v bool) {
+	m.hideSettings = v
 	m.refreshChrome()
 }
 

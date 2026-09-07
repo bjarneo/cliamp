@@ -44,7 +44,6 @@ const (
 	commandModeThemePickerFilter
 	commandModeVisPickerFilter
 	commandModeProviderSearch
-	commandModeRadioStats
 )
 
 const commandModeAny = ^commandMode(0)
@@ -138,6 +137,9 @@ var commandRegistry = []commandSpec{
 	}},
 	{Mode: commandModeMain, Keys: []string{"ctrl+h"}, KeyLabel: "Ctrl+H", Label: "Toggle album headers", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+g"}, KeyLabel: "Ctrl+G", Label: "Toggle key-binding hint bar", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"ctrl+b"}, KeyLabel: "Ctrl+B", Label: "Open/close the settings pane", Enabled: func(m Model) bool {
+		return !m.simplified && m.layout.tier == layoutFull
+	}, Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"i"}, KeyLabel: "i", Label: "Track info / metadata", Keymap: true, ContextHelp: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+s"}, KeyLabel: "Ctrl+S", Label: "Save/download track to ~/Music/cliamp", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+x"}, KeyLabel: "Ctrl+X", Label: "Expand/collapse view", Enabled: func(m Model) bool { return !m.simplified }, Keymap: true},
@@ -155,7 +157,7 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"?"}, KeyLabel: "?", Label: "Help", Keymap: true},
 	{Mode: commandModeAny, Keys: []string{"ctrl+c", "q"}, KeyLabel: "q", Label: "Quit", Keymap: true},
 	{Mode: commandModeAny, Keys: []string{"ctrl+z"}, KeyLabel: "Ctrl+Z", Label: "Undo latest playlist or queue mutation"},
-	{Mode: commandModeProvider, Keys: []string{"ctrl+r"}, KeyLabel: "Ctrl+R", Label: "Refresh provider"},
+	{Mode: commandModeProvider, Keys: []string{"ctrl+r"}, KeyLabel: "Ctrl+R", Label: "Refresh provider", Keymap: true, ContextHelp: true},
 
 	// Shared text editing is reserved even though these are intentionally absent
 	// from the global keymap, where they would be misleading outside a field.
@@ -184,7 +186,7 @@ var commandRegistry = []commandSpec{
 		}
 		return "Favorite genre"
 	}, ContextHelp: true, Enabled: func(m Model) bool {
-		_, canFavorite := m.navBrowser.prov.(provider.GenreFavoriteToggler)
+		_, canFavorite := m.navGenreBrowser().(provider.GenreFavoriteToggler)
 		return canFavorite && m.navBrowser.mode == navBrowseModeByGenre && m.navBrowser.screen == navBrowseScreenList && !m.navBrowser.loading
 	}},
 	{Mode: commandModeKeymap, Keys: []string{"/"}, KeyLabel: "/", Label: "Filter", ContextHelp: true, Primary: true},
@@ -236,9 +238,6 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeFileBrowser, Keys: []string{"D"}, KeyLabel: "D", Label: "Add as dir source", ContextHelp: true, Enabled: func(m Model) bool {
 		return m.fileBrowser.visible && m.fileBrowser.targetPlaylist != ""
 	}},
-	{Mode: commandModeRadioStats, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Close", ContextHelp: true, Cancel: true},
-	{Mode: commandModeRadioStats, Keys: []string{"r"}, KeyLabel: "r", Label: "Refresh", ContextHelp: true, Primary: true},
-	{Mode: commandModeRadioStats, Keys: []string{"up", "down", "k", "j"}, KeyLabel: "Up Down", Label: "Scroll", ContextHelp: true},
 }
 
 func (m Model) commandHelp(mode commandMode) string {

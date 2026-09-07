@@ -116,8 +116,6 @@ func (m Model) keymapContext() (commandMode, string) {
 		return commandModeQueue, "Queue"
 	case screenInfo:
 		return commandModeInfo, "Track Info"
-	case screenRadioStats:
-		return commandModeRadioStats, "Radio Stats"
 	case screenSearch:
 		return commandModeSearch, "Playlist Filter"
 	case screenNetSearch:
