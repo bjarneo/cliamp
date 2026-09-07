@@ -413,6 +413,7 @@ type Model struct {
 	visualizer60FPS bool // render a visible visualizer at the animation cadence
 	simplified      bool // simplified playback view: track summary and time strip
 	hideHelpBar     bool // hide the key-binding hint bar above the status line
+	hideTheme       bool // hide the currently selected theme (located next to the playback stats)
 	heightExpanded  bool // tracks whether manual 'x' expansion is active
 
 	// Cached per-tick to avoid repeated speaker.Lock() calls in View().

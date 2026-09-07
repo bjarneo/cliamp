@@ -92,6 +92,9 @@ simplified = false
 # Hide the key-binding hint bar above the status line.
 hide_help_bar = false
 
+# Hide the currently selected theme (next to the playback stats)
+hide_theme = false
+
 # UI theme name (see available themes in ~/.config/cliamp/themes/)
 theme = "Tokyo Night"
 

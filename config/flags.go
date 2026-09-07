@@ -17,6 +17,7 @@ type Overrides struct {
 	Play            *bool
 	Simplified      *bool
 	HideHelpBar     *bool
+	HideTheme       *bool
 	AudioDevice     *string
 	Playlist        *string
 	LogLevel        *string
@@ -67,6 +68,9 @@ func (o Overrides) Apply(cfg *Config) {
 	}
 	if o.HideHelpBar != nil {
 		cfg.HideHelpBar = *o.HideHelpBar
+	}
+	if o.HideTheme != nil {
+		cfg.HideTheme = *o.HideTheme
 	}
 	if o.Play != nil {
 		cfg.AutoPlay = *o.Play

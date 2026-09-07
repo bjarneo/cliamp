@@ -132,6 +132,11 @@ func (m *Model) SetHideHelpBar(v bool) {
 	m.refreshChrome()
 }
 
+// SetHideTheme hides the currently selected theme (located next to the playback stats)
+func (m *Model) SetHideTheme(v bool) {
+	m.hideTheme = v
+}
+
 // SetInitialDirectory sets the initial directory for the file browser.
 func (m *Model) SetInitialDirectory(dir string) { m.initialDir = dir }
 

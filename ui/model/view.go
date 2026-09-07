@@ -715,7 +715,7 @@ func (m Model) renderPlaylistHeader() string {
 	}
 
 	var themeStr string
-	if name := m.ThemeName(); name != theme.DefaultName {
+	if name := m.ThemeName(); !m.hideTheme && name != theme.DefaultName {
 		themeStr = " " + activeToggle.Render("[Theme: "+name+"]")
 	}
 
