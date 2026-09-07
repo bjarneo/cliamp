@@ -34,6 +34,14 @@ func (m *Model) nextTrack() tea.Cmd {
 	track, ok := m.playlist.Next()
 	m.normalizeQueueOverlay()
 	if !ok {
+		if cmd, pending := m.continueWithAutoplay(); pending {
+			// Queue exhausted but autoplay will refill it. Stop audio (the
+			// drain path already did) but keep the finished track visible as
+			// the seed while the Mix fetch is in flight.
+			m.player.Stop()
+			m.autoplayAdvance = true
+			return cmd
+		}
 		m.player.Stop()
 		m.clearPlaybackTrack()
 		return nil
@@ -107,6 +115,11 @@ func (m *Model) playCurrentTrack() tea.Cmd {
 func (m *Model) playTrackImmediate(track playlist.Track) tea.Cmd {
 	m.player.Stop()
 	m.player.ClearPreload()
+	// Starting a new track by hand ends the previous autoplay run: drop the
+	// previously played track and the related tracks autoplay queued behind
+	// it, so this one reuses that slot instead of stacking up at the end.
+	m.discardAutoplayTracks()
+	track.Ephemeral = true
 	m.playlist.Add(track)
 	m.loadedPlaylist = ""
 	m.addToHeaderState([]playlist.Track{track})
@@ -465,6 +478,10 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	}
 	nextRequest(&m.requests.preload)
 	m.preloading = false
+	nextRequest(&m.requests.autoplay)
+	m.autoplayLoading = false
+	m.autoplayAdvance = false
+	m.autoplayFailedSeed = ""
 	nextRequest(&m.requests.lyrics)
 	track = playlist.RefreshEmbeddedMetadata(track)
 	m.setPlaybackTrack(track)

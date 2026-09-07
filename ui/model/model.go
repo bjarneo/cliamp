@@ -415,6 +415,12 @@ type Model struct {
 	hideHelpBar     bool // hide the key-binding hint bar above the status line
 	heightExpanded  bool // tracks whether manual 'x' expansion is active
 
+	// YouTube-style autoplay continuation (see autoplay.go).
+	autoplayRadio      bool   // continue with YouTube Mix related tracks when the queue runs out
+	autoplayLoading    bool   // a Mix fetch is in flight
+	autoplayAdvance    bool   // playback drained while fetching; advance when tracks arrive
+	autoplayFailedSeed string // seed path whose Mix fetch failed or added nothing; blocks refetch loops
+
 	// Cached per-tick to avoid repeated speaker.Lock() calls in View().
 	cachedPos  time.Duration
 	cachedDur  time.Duration

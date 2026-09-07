@@ -109,6 +109,9 @@ func (m *Model) findProviderWith(check func(playlist.Provider) bool) playlist.Pr
 // SetAutoPlay makes the player start playback immediately on Init.
 func (m *Model) SetAutoPlay(v bool) { m.autoPlay = v }
 
+// SetAutoplayRadio enables YouTube-style autoplay continuation from config.
+func (m *Model) SetAutoplayRadio(v bool) { m.autoplayRadio = v }
+
 // SetLowPower lowers UI cadences without affecting normal mode.
 func (m *Model) SetLowPower(v bool) { m.lowPower = v }
 

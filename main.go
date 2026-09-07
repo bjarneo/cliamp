@@ -504,6 +504,9 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if cfg.AutoPlay {
 		m.SetAutoPlay(true)
 	}
+	if cfg.AutoplayRadio {
+		m.SetAutoplayRadio(true)
+	}
 	if cfg.LowPower {
 		m.SetLowPower(true)
 	}
