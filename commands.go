@@ -34,7 +34,7 @@ func buildApp() *cli.Command {
 		&cli.BoolWithInverseFlag{Name: "auto-play", Usage: "start playback immediately"},
 		&cli.BoolWithInverseFlag{Name: "simplified", Usage: "simplified playback view (no visualizer or playlist)"},
 		&cli.BoolWithInverseFlag{Name: "help-bar", Usage: "show the key-binding hint bar (? still opens the full keymap)", Value: true},
-		&cli.BoolWithInverseFlag{Name: "show-theme", Usage: "show the currently selected theme next to the playback stats", Value: true},
+		&cli.BoolWithInverseFlag{Name: "print-theme", Usage: "show the currently selected theme next to the playback stats", Value: true},
 		&cli.StringFlag{Name: "provider", Usage: "default provider: radio, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, soundcloud, mixcloud, netease, yandex, audiobookshelf, abs, yt, youtube, ytmusic"},
 		&cli.StringFlag{Name: "start-theme", Usage: "UI theme name"},
 		&cli.StringFlag{Name: "visualizer", Usage: "visualizer mode"},
@@ -158,8 +158,8 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 		v := !c.Bool("help-bar")
 		ov.HideHelpBar = &v
 	}
-	if c.IsSet("show-theme") {
-		v := !c.Bool("show-theme")
+	if c.IsSet("print-theme") {
+		v := !c.Bool("print-theme")
 		ov.HideTheme = &v
 	}
 	if c.IsSet("provider") {
