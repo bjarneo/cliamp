@@ -13,6 +13,7 @@ import (
 	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
+	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
 )
 
