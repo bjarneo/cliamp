@@ -111,6 +111,7 @@ type lyricsState struct {
 	err     error
 	query   string // "artist\ntitle" of the last fetch
 	scroll  int
+	offset  time.Duration // synced-lyrics timestamp adjustment (persisted as lyrics_offset_ms)
 }
 
 // keymapOverlay holds state for the keybindings overlay.

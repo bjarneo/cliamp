@@ -81,6 +81,7 @@ and `Esc` clears it.
 | `u` | Load URL (stream/playlist) |
 | `y` | Show or close lyrics |
 | `r` | Retry lyrics lookup while lyrics are open |
+| `[` / `]` | Adjust synced-lyrics timing offset (−/+250 ms) while lyrics are open |
 | `i` | Show track metadata (`↑`/`↓` scrolls) |
 | `Ctrl+S` | Save track to `~/Music/cliamp` |
 | `w` | Write the highlighted track to a local playlist |

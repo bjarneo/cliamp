@@ -32,6 +32,10 @@ mono = false
 # Shift+Left/Right seek jump in seconds (6-600)
 seek_large_step_sec = 30
 
+# Lyric timestamp adjustment in milliseconds (-10000 to 10000).
+# Tune with [ and ] while the lyrics overlay is open. Default 0.
+# lyrics_offset_ms = 0
+
 # Advanced audio settings (most users don't need to change these)
 # sample_rate = 0          # 0=auto-detect, or 22050/44100/48000/96000/192000
 # buffer_ms = 250          # speaker buffer in ms (50-5000; try 2000 for unstable radio streams)
