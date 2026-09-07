@@ -121,16 +121,24 @@ func TestInteractiveOAuthFlows(t *testing.T) {
 		want     []oauthFlow
 	}{
 		{
-			name:     "built-in client uses one flow",
+			name:     "keymaster uses one flow",
+			clientID: PlaybackClientID,
+			want:     []oauthFlow{{name: "web api and playback", clientID: PlaybackClientID, scopes: oauthScopes}},
+		},
+		{
+			name:     "built-in web api client authorizes playback through keymaster",
 			clientID: DefaultClientID,
-			want:     []oauthFlow{{name: "web api and playback", clientID: DefaultClientID, scopes: oauthScopes}},
+			want: []oauthFlow{
+				{name: "web api", clientID: DefaultClientID, scopes: webAPIScopes(DefaultClientID)},
+				{name: "playback", clientID: PlaybackClientID, scopes: playbackOAuthScopes},
+			},
 		},
 		{
 			name:     "custom client authorizes playback through keymaster",
 			clientID: "custom-client",
 			want: []oauthFlow{
-				{name: "web api", clientID: "custom-client", scopes: oauthScopes},
-				{name: "playback", clientID: DefaultClientID, scopes: playbackOAuthScopes},
+				{name: "web api", clientID: "custom-client", scopes: webAPIScopes("custom-client")},
+				{name: "playback", clientID: PlaybackClientID, scopes: playbackOAuthScopes},
 			},
 		},
 	}
@@ -346,5 +354,46 @@ func TestCredsPath(t *testing.T) {
 	want := filepath.Join(home, ".config", "cliamp", "spotify_credentials.json")
 	if got != want {
 		t.Errorf("CredsPath() = %q, want %q", got, want)
+	}
+}
+
+func TestBuiltInClientIDsAreDistinct(t *testing.T) {
+	// Routing Web API calls through keymaster puts them in a quota pool shared
+	// with every librespot-based player, which is what caused the 429s these
+	// two constants were split to fix.
+	if DefaultClientID == PlaybackClientID {
+		t.Fatal("web api and playback client IDs must stay distinct")
+	}
+	if !isExtendedQuotaClient(DefaultClientID) {
+		t.Error("built-in web api client ID should be treated as extended quota")
+	}
+	if !isExtendedQuotaClient(PlaybackClientID) {
+		t.Error("keymaster should be treated as extended quota")
+	}
+	if isExtendedQuotaClient("custom-client") {
+		t.Error("a user-supplied client ID must not be assumed to have extended quota")
+	}
+}
+
+func TestWebAPIScopesExcludeStreamingForNonKeymasterClients(t *testing.T) {
+	// login5 rejects playback credentials minted by anything but keymaster, so
+	// asking a separate Web API client for "streaming" buys nothing and shows
+	// the user a permission the client cannot use.
+	got := webAPIScopes(DefaultClientID)
+	if slices.Contains(got, "streaming") {
+		t.Error(`webAPIScopes(DefaultClientID) contains "streaming", want it dropped`)
+	}
+	if len(got) != len(oauthScopes)-1 {
+		t.Errorf("webAPIScopes(DefaultClientID) dropped %d scopes, want 1", len(oauthScopes)-len(got))
+	}
+	for _, scope := range oauthScopes {
+		if scope != "streaming" && !slices.Contains(got, scope) {
+			t.Errorf("webAPIScopes(DefaultClientID) is missing %q", scope)
+		}
+	}
+
+	// Keymaster authorizes playback in the same flow, so it keeps the full set.
+	if keymaster := webAPIScopes(PlaybackClientID); !slices.Equal(keymaster, oauthScopes) {
+		t.Errorf("webAPIScopes(PlaybackClientID) = %v, want the full scope set", keymaster)
 	}
 }
