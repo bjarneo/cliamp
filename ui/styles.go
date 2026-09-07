@@ -51,6 +51,15 @@ func SetPadding(h, v int) {
 	FrameStyle = FrameStyle.Padding(paddingV, PaddingH)
 }
 
+// WithPanelWidth narrows PanelWidth for a scope and returns the restore func,
+// so callers rendering into a sub-width column can `defer WithPanelWidth(w)()`
+// and be sure the frame width comes back even if the call panics.
+func WithPanelWidth(w int) func() {
+	previous := PanelWidth
+	PanelWidth = w
+	return func() { PanelWidth = previous }
+}
+
 // VerticalPadding returns the current frame padding above and below content.
 func VerticalPadding() int {
 	return paddingV

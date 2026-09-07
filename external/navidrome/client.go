@@ -90,6 +90,7 @@ type NavidromeClient struct {
 	user             string
 	password         string
 	browseSort       string
+	format           string
 	scrobbleDisabled bool
 	mu               sync.Mutex
 	playlistCache    []playlist.PlaylistInfo
@@ -127,6 +128,9 @@ func NewFromConfig(cfg config.NavidromeConfig) *NavidromeClient {
 	client := New(cfg.URL, cfg.User, cfg.Password)
 	if cfg.BrowseSort != "" {
 		client.browseSort = cfg.BrowseSort
+	}
+	if cfg.Format != "" {
+		client.format = cfg.Format
 	}
 	client.scrobbleDisabled = cfg.ScrobbleDisabled
 	return client
@@ -512,11 +516,13 @@ func albumFromSubsonic(a subsonicAlbum) Album {
 }
 
 // streamURL generates the authenticated streaming URL for a track ID.
-// format=raw (Subsonic API 1.9.0+) instructs the server to return the original
-// file without transcoding, giving a genuine Content-Length and preserving
-// audio quality (FLAC, OPUS, AAC, MP3 — whatever is stored).
+// format can be set in config.toml, see documentation
 func (c *NavidromeClient) streamURL(id string) string {
-	return c.buildURL("stream", url.Values{"id": {id}, "format": {"raw"}})
+	urlValues := url.Values{"id": {id}}
+	if c.format != "" {
+		urlValues.Set("format", c.format)
+	}
+	return c.buildURL("stream", urlValues)
 }
 
 func (c *NavidromeClient) CanReportPlayback(track playlist.Track) bool {

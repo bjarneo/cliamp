@@ -137,6 +137,9 @@ var commandRegistry = []commandSpec{
 	}},
 	{Mode: commandModeMain, Keys: []string{"ctrl+h"}, KeyLabel: "Ctrl+H", Label: "Toggle album headers", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+g"}, KeyLabel: "Ctrl+G", Label: "Toggle key-binding hint bar", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"ctrl+b"}, KeyLabel: "Ctrl+B", Label: "Open/close the settings pane", Enabled: func(m Model) bool {
+		return !m.simplified && m.layout.tier == layoutFull
+	}, Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"i"}, KeyLabel: "i", Label: "Track info / metadata", Keymap: true, ContextHelp: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+s"}, KeyLabel: "Ctrl+S", Label: "Save/download track to ~/Music/cliamp", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+x"}, KeyLabel: "Ctrl+X", Label: "Expand/collapse view", Enabled: func(m Model) bool { return !m.simplified }, Keymap: true},

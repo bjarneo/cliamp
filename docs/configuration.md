@@ -112,10 +112,39 @@ cliamp adapts its playback screen to the terminal size:
 
 | Terminal size | Layout |
 | --- | --- |
-| At least `80x24` | Full controls, five visualizer rows (see `vis_rows`), and detailed source controls |
+| At least `80x24` | Two columns below the seek bar, five visualizer rows (see `vis_rows`), and detailed source controls |
 | At least `56x16` | Compact controls and three visualizer rows |
 | At least `40x10` | Minimal playback, list, seek bar, and help layout |
 | Smaller than `40x10` | Resize message only |
+
+At the full tier the playback screen splits below the seek bar: the playlist
+fills the left column and a `Settings` pane fills the right one. The pane reads
+as a signal chain: the source (`SRC`), then volume (`VOL`) and the EQ preset
+with its ten bands, then how the list plays — shuffle (`SHF`), repeat (`RPT`),
+and speed (`SPD`) — and last the live network counters for a stream (`NET`).
+Shuffle and repeat move out of the playlist header here, which keeps its
+counts: queue, bookmarks, favorites, and position. The rows those
+controls used to occupy above and below the playlist go to the playlist itself.
+The title, track line, time, visualizer, seek bar, and hint bar stay full width.
+Narrower terminals, simplified mode, overlays, and list views keep the stacked
+single-column layout, with shuffle and repeat back in the header.
+
+The pane is open unless `hide_settings_pane = true`. `Ctrl+B` toggles it and
+writes the new value back to that key, so it comes back the way you left it.
+With the pane closed the playlist takes the full
+frame width and one chrome row is kept above it: the active source on the left
+and the volume meter on the right. The EQ readout, the speed indicator, and the
+download counters are not drawn — `e` still cycles the EQ preset and `[` / `]`
+still change speed, but their readouts are gone, so `Tab` skips the EQ and
+speed stops rather than landing on a control you cannot see. Shuffle and repeat
+return to the playlist header. The two rows this frees go to the playlist.
+
+A short body — a tall `vis_rows` leaves the pane few rows — sheds rows by how
+readily they are missed rather than by position: the network counters go first,
+then the EQ band gains, then shuffle and repeat, so a setting you can change is
+never the one that goes missing. Those groups drop whole, so the pane can end
+up a row shorter than it was given. A playlist header too narrow for all its
+badges drops whole badges off the tail rather than clipping one mid-word.
 
 `simplified = true` replaces the main playback view with the current track
 artist/title, time, and seek-progress strip. It hides the visualizer, playback
@@ -124,10 +153,11 @@ layout. Start one session with `cliamp --simplified`.
 
 `hide_help_bar = true` removes the key-binding hint bar above the status line
 and gives that row back to the playlist. The full keymap stays available with
-`?`, and `Ctrl+G` toggles the bar for the current session. Use
-`cliamp --no-help-bar` to hide it for one session, or `cliamp --help-bar` to
-show it despite this setting. Simplified mode draws neither the hint bar nor a
-playlist, so it is unaffected by this setting.
+`?`. `Ctrl+G` toggles the bar and writes the new value back to this key, so the
+bar comes back the way you left it. Use `cliamp --no-help-bar` to hide it for
+one session, or `cliamp --help-bar` to show it despite this setting. Simplified
+mode draws neither the hint bar nor a playlist, so it is unaffected by this
+setting.
 
 List views such as provider browsing, file selection, queues, playlists, search
 results, themes, and keybindings use a content-first layout. This layout replaces

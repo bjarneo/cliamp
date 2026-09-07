@@ -66,8 +66,8 @@ func TestProviderTracksLocalStation(t *testing.T) {
 	if len(tracks) != 1 {
 		t.Fatalf("got %d tracks, want 1", len(tracks))
 	}
-	if tracks[0].Path != builtinURL {
-		t.Errorf("Path = %q, want %q", tracks[0].Path, builtinURL)
+	if tracks[0].Path != BuiltinURL {
+		t.Errorf("Path = %q, want %q", tracks[0].Path, BuiltinURL)
 	}
 	if !tracks[0].Stream || !tracks[0].Realtime {
 		t.Errorf("Stream/Realtime = %v/%v, want true/true", tracks[0].Stream, tracks[0].Realtime)

@@ -137,6 +137,14 @@ func (m *Model) SetHideTheme(v bool) {
 	m.hideTheme = v
 }
 
+// SetHideSettingsPane closes the settings pane beside the playlist, returning
+// the playback screen to its single-column layout where the same settings are
+// drawn as stacked rows.
+func (m *Model) SetHideSettingsPane(v bool) {
+	m.hideSettings = v
+	m.refreshChrome()
+}
+
 // SetInitialDirectory sets the initial directory for the file browser.
 func (m *Model) SetInitialDirectory(dir string) { m.initialDir = dir }
 

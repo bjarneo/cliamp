@@ -152,6 +152,28 @@ func wrapText(s string, maxW int) []string {
 	return lines
 }
 
+// markerColumns says which optional state columns the playlist rows reserve.
+// The cursor and playing/unavailable cells are always drawn; the rest cost a
+// column of title width each, so they are reserved only once the playlist has
+// something to put in them.
+type markerColumns struct {
+	queue    bool
+	bookmark bool
+	favorite bool
+}
+
+// markerColumns decides the reserved marker columns for one render pass. It is
+// a per-pass decision, not a per-row one: a row-by-row choice would shift the
+// title column as you scrolled. With no queue, bookmarks, or favorites the
+// titles start four columns further left.
+func (m Model) markerColumns() markerColumns {
+	return markerColumns{
+		queue:    m.playlist.QueueLen() > 0,
+		bookmark: m.playlist.BookmarkCount() > 0,
+		favorite: len(m.favSet) > 0,
+	}
+}
+
 // cursorLine renders a list item with "> " prefix when active, "  " otherwise.
 func cursorLine(label string, active bool) string {
 	if active {
@@ -215,10 +237,21 @@ func (m *Model) toggleAlbumHeadersManual() {
 	m.headerManual = true
 }
 
-// toggleHelpBar shows or hides the key-binding hint bar for this session. The
-// persistent choice is the hide_help_bar config key.
+// toggleHelpBar shows or hides the key-binding hint bar and persists the
+// choice to the hide_help_bar config key, so the bar comes back the way the
+// listener left it on the next launch.
 func (m *Model) toggleHelpBar() {
 	m.SetHideHelpBar(!m.hideHelpBar)
+	m.saveConfigKey("hide_help_bar", fmt.Sprintf("%v", m.hideHelpBar))
+}
+
+// toggleSettingsPane opens or closes the settings pane beside the playlist and
+// persists the choice to the hide_settings_pane config key, so the pane comes
+// back the way it was left. Closing it hands the playlist the full frame width
+// and keeps a source and volume row above it.
+func (m *Model) toggleSettingsPane() {
+	m.SetHideSettingsPane(!m.hideSettings)
+	m.saveConfigKey("hide_settings_pane", fmt.Sprintf("%v", m.hideSettings))
 }
 
 // minTracksPerAlbum is the threshold at which a list is considered cohesive
@@ -397,18 +430,36 @@ func (m Model) albumSeparatorRows(tracks []playlist.Track, scroll, cursor int, s
 	return rows
 }
 
-// separatorLine pads or truncates an unstyled separator to exactly fill the playlist pane width.
+// separatorLine pads or truncates an unstyled separator to exactly fill the
+// playlist pane width. The caller styles the result, so the "─" fill is added
+// bare; use fillSeparator for a line that is already rendered.
 func separatorLine(line string) string {
 	if ui.PanelWidth <= 0 {
 		return ""
 	}
-	if w := lipgloss.Width(line); w < ui.PanelWidth {
+	switch w := lipgloss.Width(line); {
+	case w < ui.PanelWidth:
 		return line + strings.Repeat("─", ui.PanelWidth-w)
-	}
-	if lipgloss.Width(line) > ui.PanelWidth {
+	case w > ui.PanelWidth:
 		return ansi.Truncate(line, ui.PanelWidth, "")
+	default:
+		return line
 	}
-	return line
+}
+
+// fillSeparator extends an already-styled separator with dim "─" fill to
+// exactly width cells, clipping it instead when it is longer. separatorLine
+// cannot do this job: it appends bare runes, which on a pre-rendered line show
+// up in the terminal's default foreground rather than continuing the dim rule
+// they are extending.
+func fillSeparator(line string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if w := lipgloss.Width(line); w < width {
+		return line + dimStyle.Render(strings.Repeat("─", width-w))
+	}
+	return ansi.Truncate(line, width, "")
 }
 
 // labeledSeparator builds a labeled separator line.

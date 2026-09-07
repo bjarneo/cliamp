@@ -74,6 +74,7 @@ type NavidromeConfig struct {
 	URL              string // e.g. "https://music.example.com"
 	User             string
 	Password         string
+	Format           string
 	BrowseSort       string // album browse sort order, e.g. "alphabeticalByName"
 	ScrobbleDisabled bool   // true only when "scrobble = false" is explicitly set
 }
@@ -357,6 +358,7 @@ type Config struct {
 	Simplified       bool                         // simplified playback view: track summary and time strip
 	HideHelpBar      bool                         // hide the key-binding hint bar above the status line
 	HideTheme        bool                         // hide current cliamp theme in player view
+	HideSettingsPane bool                         // close the settings pane beside the playlist
 	PaddingH         int                          // horizontal padding for the UI frame (default 3)
 	PaddingV         int                          // vertical padding for the UI frame (default 1)
 	AudioDevice      string                       // preferred audio output device name (empty = system default)
@@ -483,6 +485,8 @@ func Load() (Config, error) {
 				cfg.Navidrome.Password = parseString(val)
 			case "browse_sort":
 				cfg.Navidrome.BrowseSort = parseString(val)
+			case "format":
+				cfg.Navidrome.Format = parseString(val)
 			case "scrobble":
 				// Opt-out: only mark disabled when the value is explicitly "false".
 				cfg.Navidrome.ScrobbleDisabled = strings.ToLower(val) == "false"
@@ -726,6 +730,8 @@ func Load() (Config, error) {
 				cfg.HideHelpBar = val == "true"
 			case "hide_theme":
 				cfg.HideTheme = val == "true"
+			case "hide_settings_pane":
+				cfg.HideSettingsPane = val == "true"
 			case "audio_device":
 				cfg.AudioDevice = parseString(val)
 			case "initial_directory":

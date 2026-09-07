@@ -891,6 +891,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.toggleHelpBar()
 		m.adjustScroll()
 
+	case "ctrl+b":
+		m.toggleSettingsPane()
+		m.adjustScroll()
+
 	case "v":
 		if m.simplified {
 			break

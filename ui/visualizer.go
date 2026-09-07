@@ -12,7 +12,7 @@ import (
 const (
 	DefaultSpectrumBands = 10
 	defaultFFTSize       = 2048
-	DefaultVisRows       = 5
+	DefaultVisRows       = 7
 	minSpectrumHz        = 20.0
 	maxSpectrumHz        = 20000.0
 	// Cap on dt fed into smoothing easing — long gaps (sleep, paused, stalled
@@ -781,9 +781,7 @@ func (v *Visualizer) Render() string {
 	if cols <= 0 {
 		return ""
 	}
-	previousWidth := PanelWidth
-	PanelWidth = cols
-	defer func() { PanelWidth = previousWidth }()
+	defer WithPanelWidth(cols)()
 
 	driver := v.syncDriverMode()
 	if driver == nil {
@@ -884,9 +882,7 @@ func (v *Visualizer) Tick(ctx VisTickContext) {
 	if cols <= 0 {
 		return
 	}
-	previousWidth := PanelWidth
-	PanelWidth = cols
-	defer func() { PanelWidth = previousWidth }()
+	defer WithPanelWidth(cols)()
 
 	driver := v.syncDriverMode()
 	if driver == nil {

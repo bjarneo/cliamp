@@ -302,20 +302,13 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		}
 		pl.Add(tracks...)
 	} else if defaultRadio {
-		pl.Add(
-			playlist.Track{Path: "http://radio.cliamp.stream/lofi/stream", Title: "Lofi Stream", Stream: true, Realtime: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/synthwave/stream", Title: "Synthwave Stream", Stream: true, Realtime: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/edm/stream", Title: "EDM Stream", Stream: true, Realtime: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/omarchy/stream", Title: "Omarchy Radio", Stream: true, Realtime: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/ncs/stream", Title: "NCS Stream", Stream: true, Realtime: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/ncs-house/stream", Title: "NCS House Stream", Stream: true, Realtime: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/ncs-dubstep/stream", Title: "NCS Dubstep Stream", Stream: true, Realtime: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/ncs-dnb/stream", Title: "NCS Drum & Bass Stream", Stream: true, Realtime: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/ncs-trap/stream", Title: "NCS Trap Stream", Stream: true, Realtime: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/ncs-phonk/stream", Title: "NCS Phonk Stream", Stream: true, Realtime: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/ncs-pop/stream", Title: "NCS Pop Stream", Stream: true, Realtime: true},
-			playlist.Track{Path: "http://radio.cliamp.stream/ncs-chill/stream", Title: "NCS Chill Stream", Stream: true, Realtime: true},
-		)
+		// The channel list lives in the M3U the radio provider already serves,
+		// so resolve that instead of restating it here: the startup playlist
+		// then matches what browsing "cliamp radio" shows -- same channels,
+		// same order, same titles -- and a new channel needs no code change.
+		// It goes through the normal pending path, so the fetch happens in the
+		// background rather than delaying launch.
+		resolved.Pending = append(resolved.Pending, radio.BuiltinURL)
 	}
 	pl.Add(resolved.Tracks...)
 
@@ -515,6 +508,9 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	}
 	if cfg.HideTheme {
 		m.SetHideTheme(true)
+  }
+	if cfg.HideSettingsPane {
+		m.SetHideSettingsPane(true)
 	}
 
 	if rs := resume.Load(); rs.Path != "" && rs.PositionSec > 0 {

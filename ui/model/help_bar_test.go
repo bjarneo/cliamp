@@ -114,3 +114,21 @@ func TestToggleHelpBar(t *testing.T) {
 		t.Fatalf("body rows after restoring = %d, want %d", m.layout.bodyRows, rows)
 	}
 }
+
+// TestToggleHelpBarPersists checks that the runtime toggle writes the choice to
+// the config, so the hint bar comes back the way it was left.
+func TestToggleHelpBarPersists(t *testing.T) {
+	saver := &recordingConfigSaver{}
+	m := newColumnTestModel(80, 24)
+	m.configSaver = saver
+
+	m.toggleHelpBar()
+	if got := saver.values["hide_help_bar"]; got != "true" {
+		t.Fatalf("saved hide_help_bar = %q, want %q", got, "true")
+	}
+
+	m.toggleHelpBar()
+	if got := saver.values["hide_help_bar"]; got != "false" {
+		t.Fatalf("saved hide_help_bar = %q, want %q", got, "false")
+	}
+}

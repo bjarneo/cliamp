@@ -60,6 +60,12 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Simplified mode has no hint bar or playlist, so it is unaffected.
 # hide_help_bar = true
 
+# Close the settings pane beside the playlist at the 80x24-and-up layout. The
+# playlist then gets the full frame width, with one row above it showing the
+# source and the volume meter; the EQ, speed, and download readouts are not
+# drawn. The pane is open unless this is set; Ctrl+B toggles it and saves here.
+# hide_settings_pane = true
+
 # UI theme name (check ~/.config/cliamp/themes/ for available themes)
 # theme = "Tokyo Night"
 

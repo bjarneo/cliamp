@@ -20,6 +20,18 @@ type ConfigSaver interface {
 	Save(key, value string) error
 }
 
+// saveConfigKey persists a top-level config key, surfacing a write failure in
+// the status line. It is a no-op when no saver is wired, so headless callers
+// and tests can toggle settings without touching the config file.
+func (m *Model) saveConfigKey(key, value string) {
+	if m.configSaver == nil {
+		return
+	}
+	if err := m.configSaver.Save(key, value); err != nil {
+		m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
+	}
+}
+
 type focusArea int
 
 const (
@@ -59,6 +71,14 @@ func (f focusArea) label() string {
 func (m Model) mainFocusAreas() []focusArea {
 	areas := []focusArea{focusPlaylist}
 	if m.simplified || m.layout.tier == layoutMinimal || m.layout.tier == layoutTooSmall {
+		return areas
+	}
+	// The closed-pane layout draws no EQ or speed readout, so Tab must not
+	// stop on a control the listener cannot see. Both stay reachable by key.
+	if m.layout.closedSettings {
+		if len(m.providers) > 1 {
+			areas = append(areas, focusProvPill)
+		}
 		return areas
 	}
 	areas = append(areas, focusEQ)
@@ -247,7 +267,6 @@ type Model struct {
 	plVisible       int       // desired max visible playlist lines
 	titleOff        int       // scroll offset for the now-playing marquee
 	titleLastScroll time.Time // last time the title scrolled
-	titleScrolled   bool      // whether the current title completed its single pass
 	err             error
 	quitting        bool
 	width           int
@@ -414,6 +433,7 @@ type Model struct {
 	simplified      bool // simplified playback view: track summary and time strip
 	hideHelpBar     bool // hide the key-binding hint bar above the status line
 	hideTheme       bool // hide the currently selected theme (located next to the playback stats)
+	hideSettings    bool // close the two-column settings pane beside the playlist
 	heightExpanded  bool // tracks whether manual 'x' expansion is active
 
 	// Cached per-tick to avoid repeated speaker.Lock() calls in View().

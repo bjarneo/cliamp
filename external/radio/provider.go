@@ -38,7 +38,12 @@ var (
 )
 
 const builtinName = "cliamp radio"
-const builtinURL = "https://radio.cliamp.stream/streams.m3u"
+
+// BuiltinURL is the M3U listing the cliamp radio channels. It is the single
+// source of truth for that station list: the provider serves it as the
+// "cliamp radio" entry, and the default startup playlist resolves the same URL
+// so both show the same channels, in the same order, under the same titles.
+const BuiltinURL = "https://radio.cliamp.stream/streams.m3u"
 
 // Section headings for each ID prefix, shown above the rows they cover in the
 // radio pane. The browse shortcut shares the pinned-places heading so the two
@@ -99,7 +104,7 @@ type station struct {
 func New(opts Options) *Provider {
 	p := &Provider{
 		stations: []station{
-			{name: builtinName, url: builtinURL},
+			{name: builtinName, url: BuiltinURL},
 		},
 	}
 

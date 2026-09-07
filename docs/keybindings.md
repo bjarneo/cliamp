@@ -64,7 +64,8 @@ fields support these editor keys:
 | `Ctrl+V` | Pick visualizer from a list (live preview) |
 | `V` | Full screen visualizer |
 | `Ctrl+H` | Toggle album headers |
-| `Ctrl+G` | Toggle the key-binding hint bar |
+| `Ctrl+G` | Toggle the key-binding hint bar (remembered in `hide_help_bar`) |
+| `Ctrl+B` | Open/close the settings pane (remembered in `hide_settings_pane`) |
 
 Theme and visualizer pickers support `/` filtering. While you browse, arrow
 keys preview the selected option. `Enter` keeps it. `Esc` restores the option
