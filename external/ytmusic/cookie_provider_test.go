@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bjarneo/cliamp/internal/ytdlbin"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/resolve"
@@ -399,6 +400,9 @@ func TestCookieProviderSearchTracksHonorsCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// CLIAMP_YTDLP outranks PATH, so a developer with it set would otherwise
+	// run their real yt-dlp instead of this fixture.
+	t.Setenv(ytdlbin.EnvVar, "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -424,6 +428,9 @@ func TestNewCookieProvidersDoesNotMutateOtherHostCookies(t *testing.T) {
 	}
 
 	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// CLIAMP_YTDLP outranks PATH, so a developer with it set would otherwise
+	// run their real yt-dlp instead of this fixture.
+	t.Setenv(ytdlbin.EnvVar, "")
 
 	// Configure a cookie source for another provider.
 	resolve.SetYTDLCookiesForHost("soundcloud.com", "firefox")

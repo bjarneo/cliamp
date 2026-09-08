@@ -1,6 +1,6 @@
 # NetEase Cloud Music Integration
 
-Enable NetEase Cloud Music to browse account playlists, saved playlists, liked songs, and public charts. Playback uses `yt-dlp`. Put `yt-dlp` and `ffmpeg` on `PATH`.
+Enable NetEase Cloud Music to browse account playlists, saved playlists, liked songs, and public charts. Playback uses `yt-dlp`. Put `yt-dlp` and `ffmpeg` on `PATH`, or select the yt-dlp binary with `ytdlp_path`/`CLIAMP_YTDLP` ([yt-dlp.md](yt-dlp.md)).
 
 ## Quick Start
 
