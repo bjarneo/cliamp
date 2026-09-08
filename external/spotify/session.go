@@ -34,6 +34,10 @@ type storedCreds struct {
 	Data         []byte `json:"data"`
 	DeviceID     string `json:"device_id"`
 	RefreshToken string `json:"refresh_token,omitempty"` // OAuth2 refresh token for silent re-auth
+	// CatalogRefreshToken re-mints the keymaster token used for catalog reads
+	// that Development Mode refuses to the user's own client. Empty when the
+	// primary client already is keymaster.
+	CatalogRefreshToken string `json:"catalog_refresh_token,omitempty"`
 }
 
 // CallbackPort is the fixed port for the OAuth2 callback server.
@@ -70,6 +74,10 @@ type Session struct {
 	devID       string
 	clientID    string             // Spotify Developer app client ID
 	tokenSource oauth2.TokenSource // auto-refreshing OAuth2 token source
+	// catalogSource is a second auto-refreshing token source on the keymaster
+	// client, used to retry requests Development Mode refuses. nil when the
+	// primary client already is keymaster, or when it could not be minted.
+	catalogSource oauth2.TokenSource
 }
 
 type streamContextTransport struct {
@@ -189,10 +197,11 @@ func newSessionFromStored(ctx context.Context, clientID string, creds *storedCre
 			applog.UserError("spotify: stored auth no longer valid; run 'cliamp spotify reset' or sign in again to fix")
 			s := &Session{sess: sess, devID: devID, clientID: clientID}
 			if err := saveCreds(&storedCreds{
-				Username:     sess.Username(),
-				Data:         sess.StoredCredentials(),
-				DeviceID:     devID,
-				RefreshToken: creds.RefreshToken, // preserve for next attempt
+				Username:            sess.Username(),
+				Data:                sess.StoredCredentials(),
+				DeviceID:            devID,
+				RefreshToken:        creds.RefreshToken, // preserve for next attempt
+				CatalogRefreshToken: creds.CatalogRefreshToken,
 			}); err != nil {
 				applog.UserError("spotify: failed to save credentials: %v", err)
 			}
@@ -212,10 +221,11 @@ func newSessionFromStored(ctx context.Context, clientID string, creds *storedCre
 
 	// Re-save credentials (including refresh token for next launch).
 	stored := storedCreds{
-		Username:     sess.Username(),
-		Data:         sess.StoredCredentials(),
-		DeviceID:     devID,
-		RefreshToken: oauthToken.RefreshToken,
+		Username:            sess.Username(),
+		Data:                sess.StoredCredentials(),
+		DeviceID:            devID,
+		RefreshToken:        oauthToken.RefreshToken,
+		CatalogRefreshToken: creds.CatalogRefreshToken,
 	}
 	if err := saveCreds(&stored); err != nil {
 		applog.UserError("spotify: failed to save credentials: %v", err)
@@ -227,6 +237,7 @@ func newSessionFromStored(ctx context.Context, clientID string, creds *storedCre
 		clientID:    clientID,
 		tokenSource: webAPITokenSource(clientID, oauthToken, stored),
 	}
+	s.restoreCatalogSource(clientID, creds.CatalogRefreshToken)
 
 	if err := s.initPlayer(); err != nil {
 		sess.Close()
@@ -263,9 +274,17 @@ var oauthScopes = []string{
 	"user-follow-modify",
 }
 
-// playbackOAuthScopes are requested through Spotify's keymaster client. Since
-// August 2026, login5 rejects playback credentials minted by any other client.
-var playbackOAuthScopes = []string{"streaming"}
+// keymasterOAuthScopes are requested through Spotify's keymaster client. Since
+// August 2026, login5 rejects playback credentials minted by any other client,
+// so this flow runs whenever the user brings their own client_id.
+//
+// It asks for the full oauthScopes rather than "streaming" alone. keymaster is
+// a first-party client that Spotify does not place in Development Mode, so the
+// token it returns can also serve the catalog reads a Development Mode client
+// is refused — notably items of playlists the user does not own. The built-in
+// path already requests exactly these scopes from this client, so this asks
+// Spotify for nothing it does not already grant.
+var keymasterOAuthScopes = oauthScopes
 
 // spotifyOAuthConfig returns the OAuth2 config for the given client ID.
 func spotifyOAuthConfig(clientID string, scopes []string) *oauth2.Config {
@@ -322,10 +341,37 @@ func webAPITokenSource(clientID string, token *oauth2.Token, creds storedCreds) 
 		source:       source,
 		refreshToken: creds.RefreshToken,
 		persist: func(refreshToken string) error {
-			creds.RefreshToken = refreshToken
-			return saveCreds(&creds)
+			return updateCreds(func(c *storedCreds) { c.RefreshToken = refreshToken })
 		},
 	}
+}
+
+// catalogTokenSource builds the keymaster-backed token source used to retry
+// requests that Development Mode refuses to the user's own client.
+func catalogTokenSource(token *oauth2.Token) oauth2.TokenSource {
+	conf := spotifyOAuthConfig(DefaultClientID, keymasterOAuthScopes)
+	return &persistingTokenSource{
+		source:       conf.TokenSource(context.Background(), token),
+		refreshToken: token.RefreshToken,
+		persist: func(refreshToken string) error {
+			return updateCreds(func(c *storedCreds) { c.CatalogRefreshToken = refreshToken })
+		},
+	}
+}
+
+// restoreCatalogSource re-mints the keymaster token from its stored refresh
+// token. Failure is not fatal: the session keeps Development Mode's limits
+// rather than losing Spotify altogether.
+func (s *Session) restoreCatalogSource(clientID, catalogRefreshToken string) {
+	if clientID == DefaultClientID || catalogRefreshToken == "" {
+		return
+	}
+	token, err := silentTokenRefresh(DefaultClientID, catalogRefreshToken)
+	if err != nil {
+		applog.Warn("spotify: catalog client unavailable (%v); Development Mode limits stay in effect", err)
+		return
+	}
+	s.catalogSource = catalogTokenSource(token)
 }
 
 // isInvalidGrant reports whether err is an OAuth2 invalid_grant response
@@ -504,7 +550,7 @@ func interactiveOAuthFlows(clientID string) []oauthFlow {
 	}
 	return []oauthFlow{
 		{name: "web api", clientID: clientID, scopes: oauthScopes},
-		{name: "playback", clientID: DefaultClientID, scopes: playbackOAuthScopes},
+		{name: "playback and catalog", clientID: DefaultClientID, scopes: keymasterOAuthScopes},
 	}
 }
 
@@ -542,6 +588,11 @@ func newInteractiveSession(ctx context.Context, clientID string) (*Session, erro
 		DeviceID:     devID,
 		RefreshToken: webToken.RefreshToken,
 	}
+	// Only a separate keymaster flow yields a second refresh token; when the
+	// primary client already is keymaster, the one token covers the catalog.
+	if clientID != DefaultClientID {
+		stored.CatalogRefreshToken = playbackToken.RefreshToken
+	}
 	if err := saveCreds(&stored); err != nil {
 		applog.UserError("spotify: failed to save credentials: %v", err)
 	}
@@ -551,6 +602,9 @@ func newInteractiveSession(ctx context.Context, clientID string) (*Session, erro
 		devID:       devID,
 		clientID:    clientID,
 		tokenSource: webAPITokenSource(clientID, webToken, stored),
+	}
+	if stored.CatalogRefreshToken != "" {
+		s.catalogSource = catalogTokenSource(playbackToken)
 	}
 	if err := s.initPlayer(); err != nil {
 		sess.Close()
@@ -617,9 +671,21 @@ func (s *Session) NewStream(ctx context.Context, spotID librespot.SpotifyId, bit
 // misleading errors ("Invalid limit", 429) instead of a clear auth failure.
 // So if there is no OAuth2 token source, fail loudly with ErrNeedsAuth
 // rather than attempting the call with the wrong token.
-func (s *Session) webApiWithBody(ctx context.Context, method, path string, query url.Values, body io.Reader, contentType string) (*http.Response, error) {
+// hasCatalogSource reports whether a keymaster fallback token is available.
+func (s *Session) hasCatalogSource() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.catalogSource != nil
+}
+
+// webApiWithBody calls the Web API. When catalog is true and a keymaster token
+// exists, the request goes out under that client instead of the user's own.
+func (s *Session) webApiWithBody(ctx context.Context, method, path string, query url.Values, body io.Reader, contentType string, catalog bool) (*http.Response, error) {
 	s.mu.RLock()
 	ts := s.tokenSource
+	if catalog && s.catalogSource != nil {
+		ts = s.catalogSource
+	}
 	s.mu.RUnlock()
 
 	if ts == nil {
@@ -743,6 +809,23 @@ func loadCreds() (*storedCreds, error) {
 		return nil, err
 	}
 	return &creds, nil
+}
+
+// credsMu serializes read-modify-write updates to the credentials file so the
+// two token sources rotating at once cannot clobber each other's token.
+var credsMu sync.Mutex
+
+// updateCreds applies mutate to the stored credentials, rewriting only the
+// fields mutate touches. A rotation must never drop the rest of the file.
+func updateCreds(mutate func(*storedCreds)) error {
+	credsMu.Lock()
+	defer credsMu.Unlock()
+	creds, err := loadCreds()
+	if err != nil {
+		return err
+	}
+	mutate(creds)
+	return saveCreds(creds)
 }
 
 func saveCreds(creds *storedCreds) error {
