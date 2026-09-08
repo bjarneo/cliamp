@@ -347,9 +347,11 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	decoder, format, err := decodeWithExt(rc, ext, path, p.sr, p.bitDepth)
 	if err != nil {
 		rc.Close()
-		// If the format already required ffmpeg (e.g., .m4a), decodeWithExt already
-		// tried it — don't invoke ffmpeg a second time.
-		if needsFFmpeg(ext) {
+		// If the format already required ffmpeg (e.g., .m4a), decodeWithExt
+		// already tried it; if it's a tracker module, ffmpeg has no demuxer
+		// for it at all. Either way, don't retry through ffmpeg below —
+		// surface the original error instead.
+		if unsuitableForFFmpegFallback(ext) {
 			return nil, fmt.Errorf("decode: %w", err)
 		}
 		if isURL(path) {

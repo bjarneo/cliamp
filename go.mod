@@ -8,6 +8,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/devgianlu/go-librespot v0.9.0
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
+	github.com/ebitengine/purego v0.10.2
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/gopxl/beep/v2 v2.1.1
 	github.com/jfreymuth/oggvorbis v1.0.5
@@ -39,7 +40,6 @@ require (
 	github.com/dlclark/regexp2/v2 v2.7.1 // indirect
 	github.com/dop251/goja v0.0.0-20260826204918-8f1c0696a37b // indirect
 	github.com/ebitengine/oto/v3 v3.4.1 // indirect
-	github.com/ebitengine/purego v0.10.2 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

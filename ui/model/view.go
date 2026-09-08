@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -11,6 +12,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/bjarneo/cliamp/favorites"
+	"github.com/bjarneo/cliamp/player"
+	"github.com/bjarneo/cliamp/player/openmpt"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/ui"
@@ -415,9 +418,22 @@ func (m Model) renderTierHelp() string {
 	return m.commandHelp(commandModeMain)
 }
 
+// playbackErrText renders a playback error for the transient ERR line,
+// adding user-facing install guidance for typed decoder errors. This is
+// the output boundary where user-facing messages are built: player/
+// returns typed errors only (openmpt.ErrUnavailable here, the same way
+// playback.go handles playlist.ErrNeedsAuth) instead of embedding hints
+// in decoder errors.
+func playbackErrText(err error) string {
+	if errors.Is(err, openmpt.ErrUnavailable) {
+		return fmt.Sprintf("%s — install: %s", err, player.OpenmptInstallHint())
+	}
+	return err.Error()
+}
+
 func (m Model) renderTransient() string {
 	if m.err != nil {
-		return ui.FitRect(errorStyle.Render(fmt.Sprintf("ERR: %s", m.err)), m.layout.panelWidth, 1)
+		return ui.FitRect(errorStyle.Render(fmt.Sprintf("ERR: %s", playbackErrText(m.err))), m.layout.panelWidth, 1)
 	}
 	if text := m.save.activityText(); text != "" {
 		return ui.FitRect(feedbackActivityStyle.Render(text), m.layout.panelWidth, 1)
