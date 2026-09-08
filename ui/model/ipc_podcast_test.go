@@ -520,6 +520,10 @@ func TestIPCTrackActionsNonFeed(t *testing.T) {
 					if op == "track.queue" {
 						queued = append(queued, track)
 						wantIndex = 0
+					} else {
+						// track.play fills the "play now" slot, which the next
+						// play-now (or autoplay cleanup) may reclaim.
+						track.Ephemeral = true
 					}
 					if !reflect.DeepEqual(m.playlist.Tracks(), append(original, track)) || !reflect.DeepEqual(m.playlist.QueueTracks(), queued) || m.playlist.Index() != wantIndex {
 						t.Fatal("non-feed single-track behavior changed")
