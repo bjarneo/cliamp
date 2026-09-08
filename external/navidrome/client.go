@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/internal/httpclient"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
@@ -108,15 +109,13 @@ func New(serverURL, user, password string) *NavidromeClient {
 }
 
 // NewFromEnv creates a NavidromeClient from NAVIDROME_URL, NAVIDROME_USER,
-// and NAVIDROME_PASS environment variables. Returns nil if any are unset.
-func NewFromEnv() *NavidromeClient {
-	u := os.Getenv("NAVIDROME_URL")
-	user := os.Getenv("NAVIDROME_USER")
-	pass := os.Getenv("NAVIDROME_PASS")
-	if u == "" || user == "" || pass == "" {
-		return nil
-	}
-	return New(u, user, pass)
+// and NAVIDROME_PASS environment variables, retaining non-credential settings
+// from cfg. Returns nil if any environment credentials are unset.
+func NewFromEnv(cfg config.NavidromeConfig) *NavidromeClient {
+	cfg.URL = os.Getenv("NAVIDROME_URL")
+	cfg.User = os.Getenv("NAVIDROME_USER")
+	cfg.Password = os.Getenv("NAVIDROME_PASS")
+	return NewFromConfig(cfg)
 }
 
 // NewFromConfig creates a NavidromeClient from a config.NavidromeConfig value.
@@ -210,10 +209,21 @@ func (c *NavidromeClient) buildURL(endpoint string, params url.Values) string {
 	return fmt.Sprintf("%s/rest/%s?%s", c.url, endpoint, params.Encode())
 }
 
+// httpGet performs a GET with the same User-Agent the stream download uses, so
+// Navidrome registers a single player for cliamp instead of one per User-Agent.
+func (c *NavidromeClient) httpGet(rawURL string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", httpclient.UserAgent)
+	return httpClient.Do(req)
+}
+
 // subsonicGet performs a GET to the Subsonic API endpoint, decodes the JSON
 // response into result, and checks for both HTTP and API-level errors.
 func (c *NavidromeClient) subsonicGet(endpoint string, params url.Values, result any) error {
-	resp, err := httpClient.Get(c.buildURL(endpoint, params))
+	resp, err := c.httpGet(c.buildURL(endpoint, params))
 	if err != nil {
 		return fmt.Errorf("navidrome: %s: %w", endpoint, err)
 	}
@@ -516,11 +526,14 @@ func albumFromSubsonic(a subsonicAlbum) Album {
 }
 
 // streamURL generates the authenticated streaming URL for a track ID.
-// format can be set in config.toml, see documentation
+// Without a format parameter, Navidrome applies the player's transcoding if
+// configured, otherwise it sends the original file. Transcoded streams may be
+// chunked without a Content-Length until cached. format=raw (Subsonic 1.9.0+)
+// always requests the original file.
 func (c *NavidromeClient) streamURL(id string) string {
 	urlValues := url.Values{"id": {id}}
-	if c.format != "" {
-		urlValues.Set("format", c.format)
+	if format := strings.ToLower(strings.TrimSpace(c.format)); format != "" {
+		urlValues.Set("format", format)
 	}
 	return c.buildURL("stream", urlValues)
 }
@@ -554,7 +567,7 @@ func (c *NavidromeClient) scrobble(id string, submission bool) error {
 		// the spec for submission=true (Subsonic API 1.8.0+).
 		params.Set("time", fmt.Sprintf("%d", time.Now().UnixMilli()))
 	}
-	resp, err := httpClient.Get(c.buildURL("scrobble", params))
+	resp, err := c.httpGet(c.buildURL("scrobble", params))
 	if err != nil {
 		return fmt.Errorf("navidrome: scrobble: %w", err)
 	}

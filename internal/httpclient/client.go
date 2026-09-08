@@ -15,6 +15,10 @@ import (
 	"golang.org/x/net/proxy"
 )
 
+// UserAgent is shared by API and stream requests so Navidrome identifies them
+// as the same player when applying per-player settings.
+const UserAgent = "cliamp/1.0 (https://github.com/bjarneo/cliamp)"
+
 // Streaming is a shared HTTP client for audio streaming connections.
 // It sets a generous header timeout but no overall timeout, so infinite
 // live streams (Icecast/SHOUTcast) aren't killed. HTTP/2 is explicitly

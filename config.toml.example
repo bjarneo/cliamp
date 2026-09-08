@@ -176,6 +176,11 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 #               frequent, starred, byYear, byGenre
 # This is updated automatically when you press [s] inside the browser.
 # browse_sort = alphabeticalByName
+#
+# Stream format: unset lets Navidrome use its per-player transcoding if
+# configured, otherwise the original file. "raw" always requests the original.
+# Other requested formats do not override per-player transcoding.
+# format = "raw"
 
 # ---
 # Lyrion Music Server / LMS (optional)

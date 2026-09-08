@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
 // readStallTimeout is how long Read/Seek wait for new data before returning
@@ -108,7 +110,7 @@ func navBufferGet(ctx context.Context, rawURL string) (*http.Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("nav buffer request: %w", err)
 	}
-	req.Header.Set("User-Agent", "cliamp/1.0 (https://github.com/bjarneo/cliamp)")
+	req.Header.Set("User-Agent", httpclient.UserAgent)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -380,7 +382,8 @@ func (b *navBuffer) Seek(offset int64, whence int) (int64, error) {
 		target = b.pos + offset
 	case io.SeekEnd:
 		// If Content-Length is known, use it immediately — no need to wait for
-		// the full download. This is the common case with format=raw, and avoids
+		// the full download. Original files and cached transcodes can provide it,
+		// while uncached transcodes may be chunked. Using the known size avoids
 		// blocking the FLAC decoder which seeks to SeekEnd during header parsing
 		// just to determine the file size.
 		if b.total >= 0 {
