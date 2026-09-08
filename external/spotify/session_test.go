@@ -126,11 +126,11 @@ func TestInteractiveOAuthFlows(t *testing.T) {
 			want:     []oauthFlow{{name: "web api and playback", clientID: DefaultClientID, scopes: oauthScopes}},
 		},
 		{
-			name:     "custom client authorizes playback through keymaster",
+			name:     "custom client authorizes playback and catalog through keymaster",
 			clientID: "custom-client",
 			want: []oauthFlow{
 				{name: "web api", clientID: "custom-client", scopes: oauthScopes},
-				{name: "playback", clientID: DefaultClientID, scopes: playbackOAuthScopes},
+				{name: "playback and catalog", clientID: DefaultClientID, scopes: keymasterOAuthScopes},
 			},
 		},
 	}

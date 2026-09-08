@@ -30,7 +30,7 @@ To register an app:
 
 `bitrate` is optional. If omitted, cliamp uses `320`. Supported values are `96`, `160`, and `320`. Values less than or equal to zero use `320`. cliamp rounds other positive values to the nearest supported bitrate.
 
-Run `cliamp`, select Spotify, and press Enter to sign in. With your own `client_id`, the browser completes two authorization steps in one tab: one for Web API access and one for playback. The built-in client path needs one step. cliamp stores credentials in `~/.config/cliamp/spotify_credentials.json`. Later launches refresh them without a message.
+Run `cliamp`, select Spotify, and press Enter to sign in. With your own `client_id`, the browser completes two authorization steps in one tab: one for Web API access and one for playback and catalog reads. The built-in client path needs one step. cliamp stores credentials in `~/.config/cliamp/spotify_credentials.json`. Later launches refresh them without a message.
 
 ### Development Mode search page size
 
@@ -38,7 +38,15 @@ Spotify introduced the current Development Mode restrictions for new apps on Feb
 
 Search remains available in Development Mode, but `/v1/search` accepts at most **10 results per request**. A larger request returns `400 "Invalid limit"`. This does not mean search is blocked. Cliamp uses `offset` to page results in groups of 10. <kbd>Ctrl+F</kbd> returns the full result set.
 
-Other Development Mode changes remove endpoints such as `/v1/browse/new-releases`. They restrict playlist items to playlists the user owns or collaborates on. `/v1/search` remains available and does not require Extended Quota Mode.
+Other Development Mode changes remove endpoints such as `/v1/browse/new-releases`. They restrict playlist items to playlists the user owns or collaborates on, so `/v1/playlists/{id}/items` returns `403 Forbidden` for a Spotify editorial playlist, a friend's playlist, or any other playlist you only follow. `/v1/search` remains available and does not require Extended Quota Mode.
+
+### Catalog reads fall back to the built-in client
+
+That `403` is not a limit on cliamp. When you bring your own `client_id`, cliamp already authorizes a second client for playback — Spotify's built-in one, which is not in Development Mode and carries none of these restrictions. cliamp asks that client for the same read scopes it asks yours for, stores its refresh token alongside the first, and retries a refused request under it once. Playlists you do not own load normally.
+
+Your own `client_id` still serves everything it can, including search, so its private rate-limit quota is what you use day to day. Only requests Development Mode refuses reach the shared client.
+
+This needs the extra authorization step, so credentials saved before this behavior existed do not have it. Run `cliamp spotify reset` and sign in again to pick it up.
 
 ### Alternative: built-in shared client ID
 
@@ -85,7 +93,8 @@ Podcast episodes work as tracks. Press `Ctrl+F` to search Spotify. Matching epis
 ## Troubleshooting
 
 - **"OAuth failed"**: Ensure the Spotify dashboard redirect URI is exactly `http://127.0.0.1:19872/login`, without a trailing slash.
-- **Two authorization steps**: This is expected with your own `client_id`. After you approve Web API access, the same browser tab redirects to create a playback credential with the required Spotify built-in identity.
+- **Two authorization steps**: This is expected with your own `client_id`. After you approve Web API access, the same browser tab redirects to authorize the required Spotify built-in identity, which covers both playback and the catalog reads Development Mode refuses your own app.
+- **`spotify: list tracks: http status 403 Forbidden`**: Development Mode restricts playlist items to playlists you own or collaborate on. cliamp retries these under its built-in client, which is not restricted, but only when that client was authorized with read scopes. Credentials saved before that behavior existed were not: run `cliamp spotify reset` and sign in again.
 - **Playlist not showing**: Save or follow the playlist in Spotify. The provider lists only library playlists.
 - **Playback issues**: Spotify integration needs a Premium account. Free accounts cannot stream.
 - **Re-authenticate**: Run `cliamp spotify reset` to clear stored credentials. Then restart cliamp, select Spotify, and sign in again. This is the same as deleting `~/.config/cliamp/spotify_credentials.json`.

@@ -580,15 +580,28 @@ func (p *SpotifyProvider) webAPIWithBody(ctx context.Context, method, path strin
 		}
 	}
 
+	// catalog flips to true once Development Mode refuses a request, sending
+	// the retry out under the unrestricted keymaster client.
+	catalog := false
+
 	for attempt := range maxRetries {
 		var reqBody io.Reader
 		if bodyBytes != nil {
 			reqBody = bytes.NewReader(bodyBytes)
 		}
 
-		resp, err := p.session.webApiWithBody(ctx, method, path, query, reqBody, contentType)
+		resp, err := p.session.webApiWithBody(ctx, method, path, query, reqBody, contentType, catalog)
 		if err != nil {
 			return nil, err
+		}
+		// Development Mode restricts endpoints such as playlist items to
+		// playlists the user owns. keymaster carries no such restriction, so
+		// retry the request once under it before surfacing the 403.
+		if resp.StatusCode == http.StatusForbidden && !catalog && p.session.hasCatalogSource() {
+			resp.Body.Close()
+			catalog = true
+			applog.Info("spotify: %s refused for your client_id; retrying with the built-in client", path)
+			continue
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
 			resp.Body.Close()
