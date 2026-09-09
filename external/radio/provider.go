@@ -96,8 +96,9 @@ type Provider struct {
 }
 
 type station struct {
-	name string
-	url  string
+	name      string
+	url       string
+	frequency string // e.g. "88.3 FM", "1200 AM"; shown on the radio dial widget
 }
 
 // New creates a Provider with the built-in station plus any user-defined
@@ -256,9 +257,13 @@ func (p *Provider) Tracks(id string) ([]playlist.Track, error) {
 		if idx < 0 || idx >= len(p.stations) {
 			return nil, errors.New("invalid local station index")
 		}
-		return []playlist.Track{{
+		track := playlist.Track{
 			Path: p.stations[idx].url, Title: p.stations[idx].name, Stream: true, Realtime: true,
-		}}, nil
+		}
+		if freq := p.stations[idx].frequency; freq != "" {
+			track.ProviderMeta = map[string]string{"radio.frequency": freq}
+		}
+		return []playlist.Track{track}, nil
 	case "f":
 		favs := p.favorites.Stations()
 		if idx < 0 || idx >= len(favs) {
@@ -557,7 +562,7 @@ func loadStations(path string) ([]station, error) {
 
 	var stations []station
 	tomlutil.ParseSections(data, "station", func(f map[string]string) {
-		s := station{name: f["name"], url: f["url"]}
+		s := station{name: f["name"], url: f["url"], frequency: f["frequency"]}
 		if s.name != "" && s.url != "" {
 			stations = append(stations, s)
 		}
