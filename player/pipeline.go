@@ -345,6 +345,10 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	}
 
 	decoder, format, err := decodeWithExt(rc, ext, path, p.sr, p.bitDepth)
+	if err == nil && isLowRateMP3(ext, format.SampleRate) {
+		decoder.Close()
+		err = errGoMP3LowRateUnreliable
+	}
 	if err != nil {
 		rc.Close()
 		// If the format already required ffmpeg (e.g., .m4a), decodeWithExt already
