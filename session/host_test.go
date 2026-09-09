@@ -53,7 +53,16 @@ func (m hostedModel) View() tea.View {
 // hostedProgram starts a host with a live program, as run() wires them.
 func hostedProgram(t *testing.T, opts Options) (*Host, func()) {
 	t.Helper()
-	host := New(opts)
+	host, start, stop := hostedProgramDeferred(t, opts)
+	start()
+	return host, stop
+}
+
+// hostedProgramDeferred is hostedProgram with the program's start under the
+// test's control, so a test can attach before the program is running.
+func hostedProgramDeferred(t *testing.T, opts Options) (host *Host, start func(), stop func()) {
+	t.Helper()
+	host = New(opts)
 	prog := tea.NewProgram(hostedModel{},
 		tea.WithInput(host.Input()),
 		tea.WithOutput(host.Output()),
@@ -64,11 +73,13 @@ func hostedProgram(t *testing.T, opts Options) (*Host, func()) {
 	)
 	host.SetProgram(prog)
 	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_, _ = prog.Run()
-	}()
-	return host, func() {
+	start = func() {
+		go func() {
+			defer close(done)
+			_, _ = prog.Run()
+		}()
+	}
+	stop = func() {
 		prog.Quit()
 		host.Close()
 		select {
@@ -77,6 +88,7 @@ func hostedProgram(t *testing.T, opts Options) (*Host, func()) {
 			t.Error("program did not exit")
 		}
 	}
+	return host, start, stop
 }
 
 // attachConn is the client half of an attach session.
@@ -291,6 +303,31 @@ func TestAttachTakeoverDetachesPreviousClient(t *testing.T) {
 			t.Fatal("first client was not detached")
 		}
 	}
+}
+
+// Bubble Tea announces its own initial size asynchronously, so a client that
+// attaches while the program is still starting can see that placeholder land
+// after its own size. The session must still end up at the client's size.
+func TestAttachDuringStartupKeepsClientSize(t *testing.T) {
+	host, start, stop := hostedProgramDeferred(t, Options{})
+	defer stop()
+
+	attached := make(chan *attachConn, 1)
+	go func() {
+		client, response := attach(t, host, 90, 30)
+		if !response.OK {
+			t.Errorf("attach failed: %v", response.Error)
+		}
+		attached <- client
+	}()
+	// Let the handshake and its size message queue up ahead of the program.
+	time.Sleep(50 * time.Millisecond)
+	start()
+
+	client := <-attached
+	// The size lands as a patch of the line the placeholder frame already
+	// drew, so the stream carries the new value rather than a whole line.
+	client.waitForOutput(t, "90x30")
 }
 
 func TestAttachRejectsMissingSize(t *testing.T) {

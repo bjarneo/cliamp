@@ -19,3 +19,10 @@ func (m *Model) SetDetached(detached bool) {
 func (m Model) Detached() bool {
 	return m.detached
 }
+
+// SetSessionDetach makes the quit key hand the terminal back instead of
+// stopping the player. Only a session host sets it; a cliamp that owns its
+// terminal has nowhere to detach to, so there the quit key still quits.
+func (m *Model) SetSessionDetach(detach func()) {
+	m.sessionDetach = detach
+}

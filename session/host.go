@@ -18,6 +18,13 @@ import (
 // stalls the program's render loop, so it is dropped instead of held.
 const writeTimeout = 5 * time.Second
 
+// startupSizeGrace is how long after an attach the host re-asserts the client's
+// terminal size. Bubble Tea sends its own initial size -- the placeholder from
+// WithWindowSize -- with `go p.Send(...)`, so for a client that attaches while
+// the program is still starting, that message can land after ours and leave
+// the session rendering at the placeholder size until the user resizes.
+const startupSizeGrace = 250 * time.Millisecond
+
 // inputBufferLimit bounds pending client input. Input is keystrokes; a peer
 // flooding past this limit has its excess dropped rather than growing the
 // host's memory.
@@ -117,7 +124,7 @@ func (h *Host) HandleAttach(conn net.Conn, request ipc.V2Request) {
 	// over rather than sharing it. The previous client is told why.
 	previous := h.client
 	prog := h.prog
-	client := &clientConn{conn: conn}
+	client := &clientConn{conn: conn, width: params.Width, height: params.Height}
 	h.client = client
 	h.mu.Unlock()
 
@@ -146,8 +153,25 @@ func (h *Host) HandleAttach(conn net.Conn, request ipc.V2Request) {
 	// believes the client's terminal already shows the current frame. Force a
 	// full repaint for the terminal that just arrived.
 	prog.Send(tea.ClearScreen())
+	go h.reassertSize(client, prog)
 
 	h.serve(client, prog)
+}
+
+// reassertSize resends the client's terminal size once the program is
+// certainly past startup. See startupSizeGrace.
+func (h *Host) reassertSize(client *clientConn, prog *tea.Program) {
+	timer := time.NewTimer(startupSizeGrace)
+	defer timer.Stop()
+	<-timer.C
+	h.mu.Lock()
+	current := h.client == client
+	h.mu.Unlock()
+	if !current {
+		return
+	}
+	width, height := client.size()
+	prog.Send(tea.WindowSizeMsg{Width: width, Height: height})
 }
 
 // serve reads frames from one client until the session ends.
@@ -169,6 +193,7 @@ func (h *Host) serve(client *clientConn, prog *tea.Program) {
 			if !ok || width <= 0 || height <= 0 {
 				continue
 			}
+			client.setSize(width, height)
 			prog.Send(tea.WindowSizeMsg{Width: width, Height: height})
 		case kindDetach:
 			applog.Info("session: client detached")
@@ -199,6 +224,17 @@ func (h *Host) clearClient(client *clientConn) {
 	}
 }
 
+// Detach hands the terminal back to the attached client and leaves the session
+// running. It is what the player's detach key calls.
+func (h *Host) Detach() {
+	h.mu.Lock()
+	client := h.client
+	h.mu.Unlock()
+	if client != nil {
+		client.detach(reasonDetached)
+	}
+}
+
 // Close ends any live session and unblocks the program's input reader.
 func (h *Host) Close() {
 	h.mu.Lock()
@@ -219,6 +255,20 @@ type clientConn struct {
 	mu       sync.Mutex
 	closed   bool
 	detached bool
+	width    int
+	height   int
+}
+
+func (c *clientConn) setSize(width, height int) {
+	c.mu.Lock()
+	c.width, c.height = width, height
+	c.mu.Unlock()
+}
+
+func (c *clientConn) size() (width, height int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.width, c.height
 }
 
 // write sends one frame under a deadline.

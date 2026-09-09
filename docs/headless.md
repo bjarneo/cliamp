@@ -16,9 +16,10 @@ cliamp --daemon ~/Music --auto-play          # auto-play a directory
 cliamp attach                                # borrow this terminal to the session
 ```
 
-Press `ctrl+\` in an attached terminal to detach: the session keeps playing.
-Every other key belongs to the player, so `q` still quits cliamp -- session and
-playback included.
+Press `q` in an attached terminal to hand it back: the session keeps playing.
+`ctrl+q` quits cliamp for real, session and playback included. `ctrl+\` also
+detaches, without asking the player, so it works even if the session stops
+responding.
 
 Send `SIGINT` or `SIGTERM` to stop the session. cliamp saves the resume position on a graceful shutdown.
 
@@ -50,6 +51,10 @@ it -- resize the window and the session follows.
   second terminal takes the session over and the first is told why.
 - **Color depth is fixed for the session.** A session outlives its clients, so
   it renders truecolor and each client downsamples for its own terminal.
+- **The quit key detaches.** In a session `q` hands the terminal back rather
+  than stopping the music, and the keymap says so. `ctrl+q` is the one that
+  ends the session. Everywhere `q` already meant something else -- queueing a
+  track in the provider browser, typing in a search field -- it still does.
 - **The client owns its terminal.** It enters the alternate screen on attach and
   restores the screen, cursor, and title on detach, so a session that dies
   never leaves your terminal in a strange state.
@@ -72,7 +77,7 @@ Start cliamp once at login, for example with `~/.config/systemd/user/cliamp.serv
 cliamp toggle      # play/pause from anywhere
 cliamp next
 cliamp volume -3
-cliamp attach      # full UI in this terminal, ctrl+\ to leave it playing
+cliamp attach      # full UI in this terminal, q to leave it playing
 ```
 
 Use this minimal systemd user unit:

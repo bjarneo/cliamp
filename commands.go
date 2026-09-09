@@ -701,7 +701,7 @@ func ipcSimpleCommand(name, usage string) *cli.Command {
 func attachCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "attach",
-		Usage: "lend this terminal to a detached cliamp (detach with ctrl+\\)",
+		Usage: "lend this terminal to a detached cliamp (q detaches, ctrl+q quits)",
 		Action: func(ctx context.Context, c *cli.Command) error {
 			err := session.Attach(ipc.DefaultSocketPath(), session.ClientOptions{Client: "cliamp " + version})
 			return userIPCError(err)

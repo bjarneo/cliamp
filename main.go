@@ -598,6 +598,9 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 			OnAttach: func(int, int) { prog.Send(model.SetDetachedMsg{Detached: false}) },
 			OnDetach: func() { prog.Send(model.SetDetachedMsg{Detached: true}) },
 		})
+		// The quit key hands the terminal back instead of stopping the music;
+		// ctrl+q still quits.
+		m.SetSessionDetach(host.Detach)
 		defer host.Close()
 		progOpts = append(progOpts,
 			// A detached session is a service, so a signal has to quit it the
@@ -627,7 +630,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 				prog.Send(playback.QuitMsg{})
 			}
 		}()
-		fmt.Fprintf(os.Stderr, "cliamp: running detached (socket: %s)\ncliamp: attach with `cliamp attach`, detach with ctrl+\\\n", ipc.DefaultSocketPath())
+		fmt.Fprintf(os.Stderr, "cliamp: running detached (socket: %s)\ncliamp: attach with `cliamp attach`; q detaches, ctrl+q quits\n", ipc.DefaultSocketPath())
 		applog.Info("session: running detached")
 	}
 

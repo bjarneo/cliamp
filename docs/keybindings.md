@@ -305,5 +305,6 @@ query to their search API. Their services control matching rules.
 | Key | Action |
 |---|---|
 | `?` / `Ctrl+K` | Show keymap |
-| `q` | Quit |
-| `Ctrl+\` | Detach from a session started with `--daemon`, leaving it playing (see [Detached Mode](headless.md)). Handled by `cliamp attach` itself, so it never reaches the player. |
+| `q` | Quit. In a terminal attached to a `--daemon` session it detaches instead, leaving the session playing (see [Detached Mode](headless.md)) |
+| `Ctrl+Q` | Quit cliamp, session and playback included. Works from text fields too |
+| `Ctrl+\` | Detach without asking the player -- handled by `cliamp attach` itself, so it works even if the session stops responding |

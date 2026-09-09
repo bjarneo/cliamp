@@ -19,8 +19,19 @@ import (
 	"github.com/bjarneo/cliamp/provider"
 )
 
-// quit shuts down the player and signals the TUI to exit.
+// quit ends what the user started. In a detached session that is the terminal,
+// not the music: the quit key hands the terminal back and the session keeps
+// playing, and ctrl+q (shutDown) is what stops the player.
 func (m *Model) quit() tea.Cmd {
+	if m.sessionDetach != nil {
+		m.sessionDetach()
+		return nil
+	}
+	return m.shutDown()
+}
+
+// shutDown stops the player and signals the TUI to exit.
+func (m *Model) shutDown() tea.Cmd {
 	// Only save resume for seekable tracks:
 	// - local files (not stream)
 	// - HTTP streams with known duration (podcast MP3s, seek-by-reconnect)
@@ -205,6 +216,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	if msg.String() == "ctrl+z" {
 		return m.undoPlaylistMutation()
+	}
+	// ctrl+q stops the player from anywhere, including a text field: in a
+	// detached session the quit key detaches instead, so ending the session
+	// needs a key of its own that no mode can swallow.
+	if msg.String() == "ctrl+q" {
+		return m.shutDown()
 	}
 	if msg.String() == "ctrl+k" && !m.keymap.visible {
 		if m.fullVis {

@@ -123,4 +123,96 @@ func TestDetachedSpectrumIsAnalyzedOnDemand(t *testing.T) {
 	}
 }
 
+// In a session the quit key hands the terminal back and the music keeps
+// playing; ctrl+q is what ends the session.
+func TestQuitKeyDetachesInASession(t *testing.T) {
+	detached := 0
+	m := Model{
+		player:   &playbackFakeEngine{playing: true},
+		playlist: playlist.New(),
+		vis:      ui.NewVisualizer(44100),
+	}
+	m.SetSessionDetach(func() { detached++ })
+
+	if cmd := m.quit(); cmd != nil {
+		t.Error("the quit key returned a command in a session, want a plain detach")
+	}
+	if detached != 1 {
+		t.Errorf("detach calls = %d, want 1", detached)
+	}
+	if m.quitting {
+		t.Error("the quit key stopped the session")
+	}
+
+	if cmd := m.shutDown(); cmd == nil {
+		t.Error("ctrl+q returned no command, want tea.Quit")
+	}
+	if !m.quitting {
+		t.Error("ctrl+q did not quit")
+	}
+	if detached != 1 {
+		t.Errorf("detach calls = %d after ctrl+q, want it left alone", detached)
+	}
+}
+
+// Without a session there is nowhere to detach to, so the quit key quits.
+func TestQuitKeyQuitsWithoutASession(t *testing.T) {
+	m := Model{
+		player:   &playbackFakeEngine{playing: true},
+		playlist: playlist.New(),
+		vis:      ui.NewVisualizer(44100),
+	}
+
+	if cmd := m.quit(); cmd == nil {
+		t.Error("the quit key returned no command, want tea.Quit")
+	}
+	if !m.quitting {
+		t.Error("the quit key did not quit")
+	}
+}
+
+// ctrl+q has to reach the player from a text field too, or a session could
+// not be stopped from a search box.
+func TestCtrlQQuitsFromATextField(t *testing.T) {
+	m := Model{
+		player:   &playbackFakeEngine{playing: true},
+		playlist: playlist.New(),
+		vis:      ui.NewVisualizer(44100),
+		width:    80,
+		height:   24,
+	}
+	m.SetSessionDetach(func() { t.Error("ctrl+q detached instead of quitting") })
+	m.recomputeLayout()
+	m.search.active = true
+
+	if cmd := m.handleKey(tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl}); cmd == nil {
+		t.Fatal("ctrl+q returned no command in a text field, want tea.Quit")
+	}
+	if !m.quitting {
+		t.Error("ctrl+q did not quit from a text field")
+	}
+}
+
+// The keymap has to say what the key does in the mode the user is in.
+func TestKeymapLabelsDetachInASession(t *testing.T) {
+	m := Model{player: &playbackFakeEngine{}, playlist: playlist.New()}
+	var quit commandSpec
+	for _, command := range commandRegistry {
+		if command.KeyLabel == "q" {
+			quit = command
+			break
+		}
+	}
+	if quit.KeyLabel != "q" {
+		t.Fatal("no command registered for q")
+	}
+	if label := quit.label(m); label != "Quit" {
+		t.Errorf("label without a session = %q, want %q", label, "Quit")
+	}
+	m.SetSessionDetach(func() {})
+	if label := quit.label(m); label == "Quit" {
+		t.Errorf("label in a session = %q, want it to mention detaching", label)
+	}
+}
+
 var _ tea.Msg = SetDetachedMsg{}

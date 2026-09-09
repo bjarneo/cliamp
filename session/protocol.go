@@ -32,6 +32,7 @@ const (
 const (
 	reasonTakenOver   = "another client attached to this session"
 	reasonHostStopped = "the cliamp session is shutting down"
+	reasonDetached    = "detached; the session keeps playing"
 )
 
 // maxFramePayload bounds one frame. Terminal output frames are a repaint at

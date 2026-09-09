@@ -67,9 +67,10 @@ cliamp attach                                # lend this terminal to the session
 
 Run the whole player without a terminal of its own: playback survives every
 terminal, all `cliamp <subcommand>` IPC clients work, and `cliamp attach`
-borrows a terminal to the running player when you want the UI. Press `ctrl+\`
-to detach and leave it playing. See [Detached Mode](headless.md) for use cases
-and configuration examples for Waybar, Hyprland, systemd, and cron.
+borrows a terminal to the running player when you want the UI. Press `q` to
+detach and leave it playing, `ctrl+q` to quit cliamp for real. See
+[Detached Mode](headless.md) for use cases and configuration examples for
+Waybar, Hyprland, systemd, and cron.
 
 ## Search
 

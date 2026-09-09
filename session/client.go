@@ -18,9 +18,10 @@ import (
 	"github.com/bjarneo/cliamp/ipc"
 )
 
-// DetachKey is ctrl+\, handled by the client and never forwarded. The keymap
-// leaves it unused, and the player's own quit key must keep quitting the
-// player, so detaching needs a key of its own.
+// DetachKey is ctrl+\, handled by the client and never forwarded. Detaching is
+// normally the player's own quit key, which needs the session to be answering
+// its input; this one does not, so it stays as the way out of a wedged
+// session. The keymap leaves it unused.
 const DetachKey = 0x1C
 
 // The host's renderer sets terminal modes against a terminal that was not
