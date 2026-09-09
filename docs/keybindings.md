@@ -306,3 +306,4 @@ query to their search API. Their services control matching rules.
 |---|---|
 | `?` / `Ctrl+K` | Show keymap |
 | `q` | Quit |
+| `Ctrl+\` | Detach from a session started with `--daemon`, leaving it playing (see [Detached Mode](headless.md)). Handled by `cliamp attach` itself, so it never reaches the player. |

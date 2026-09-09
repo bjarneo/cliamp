@@ -20,6 +20,7 @@ import (
 	"github.com/bjarneo/cliamp/ipc"
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/pluginmgr"
+	"github.com/bjarneo/cliamp/session"
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
 	"github.com/bjarneo/cliamp/upgrade"
@@ -48,7 +49,7 @@ func buildApp() *cli.Command {
 		&cli.StringFlag{Name: "log-level", Usage: "log level: debug, info, warn, error"},
 		&cli.BoolWithInverseFlag{Name: "expand-playlist", Usage: "expand YouTube Music playlists from list= URLs"},
 		&cli.BoolWithInverseFlag{Name: "low-power", Usage: "low-power mode: reduce CPU by lowering UI cadence and disabling visualization"},
-		&cli.BoolFlag{Name: "daemon", Aliases: []string{"d"}, Usage: "run headless (no TUI), serving IPC for scripts/Waybar"},
+		&cli.BoolFlag{Name: "daemon", Aliases: []string{"d"}, Usage: "run detached: no terminal of its own, serving IPC and `cliamp attach`"},
 	}
 
 	return &cli.Command{
@@ -97,6 +98,7 @@ func buildApp() *cli.Command {
 			eqCommand(),
 			deviceCommand(),
 			remoteCommand(),
+			attachCommand(),
 			openCommand(),
 			protocolCommand(),
 		},
@@ -692,6 +694,17 @@ func ipcSimpleCommand(name, usage string) *cli.Command {
 		Action: func(ctx context.Context, c *cli.Command) error {
 			_, err := ipcSend(name, ipc.Request{})
 			return err
+		},
+	}
+}
+
+func attachCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "attach",
+		Usage: "lend this terminal to a detached cliamp (detach with ctrl+\\)",
+		Action: func(ctx context.Context, c *cli.Command) error {
+			err := session.Attach(ipc.DefaultSocketPath(), session.ClientOptions{Client: "cliamp " + version})
+			return userIPCError(err)
 		},
 	}
 }

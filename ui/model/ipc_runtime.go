@@ -664,10 +664,28 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 
 func (m *Model) v2BandsResponse() ipc.Response {
 	response := ipc.Response{OK: true}
-	if m.vis != nil {
-		response.Visualizer = m.vis.ModeName()
-		response.Bands = append([]float64(nil), m.vis.SmoothedBands()...)
+	if m.vis == nil {
+		return response
 	}
+	// A detached session runs no visualizer of its own: nothing would refresh
+	// these bands, and a status bar asking for a spectrum would get the frame
+	// that was current when the last client left. Analyze on demand instead,
+	// from the same audio tap an attached UI reads.
+	if m.detached && m.player != nil {
+		m.vis.Tick(ui.VisTickContext{
+			Now:     time.Now(),
+			Playing: m.player.IsPlaying(),
+			Paused:  m.player.IsPaused(),
+			Analyze: func(spec ui.VisAnalysisSpec) []float64 {
+				spec = ui.NormalizeAnalysisSpec(spec)
+				buf := m.vis.EnsureSampleBuf(spec.FFTSize)
+				n := m.player.SamplesInto(buf)
+				return m.vis.Analyze(buf[:n], spec)
+			},
+		})
+	}
+	response.Visualizer = m.vis.ModeName()
+	response.Bands = append([]float64(nil), m.vis.SmoothedBands()...)
 	return response
 }
 

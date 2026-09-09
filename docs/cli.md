@@ -55,15 +55,21 @@ To make this persistent, set it in `~/.config/cliamp/config.toml`:
 low_power = true
 ```
 
-## Headless daemon mode
+## Detached mode
 
 ```sh
-cliamp --daemon                              # no TUI, IPC only
+cliamp --daemon                              # detached: no terminal of its own
 cliamp --daemon --auto-play --playlist Lofi  # start playing on launch
 cliamp -d ~/Music --auto-play                # short flag form
+
+cliamp attach                                # lend this terminal to the session
 ```
 
-Run cliamp without a UI. It listens on the Unix socket that the TUI uses. All `cliamp <subcommand>` IPC clients work. UI-only commands (`theme`, `vis`) return an error. See [Headless Daemon Mode](headless.md) for use cases and configuration examples for Waybar, Hyprland, systemd, and cron.
+Run the whole player without a terminal of its own: playback survives every
+terminal, all `cliamp <subcommand>` IPC clients work, and `cliamp attach`
+borrows a terminal to the running player when you want the UI. Press `ctrl+\`
+to detach and leave it playing. See [Detached Mode](headless.md) for use cases
+and configuration examples for Waybar, Hyprland, systemd, and cron.
 
 ## Search
 
@@ -137,7 +143,7 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--playlist` | string | | local TOML playlist name |
 | `--log-level` | string | info | debug, info, warn, error |
 | `--low-power` / `--no-low-power` | bool | false | lower UI cadence; disable visualization |
-| `--daemon` / `-d` | bool | false | run headless; IPC only, no TUI |
+| `--daemon` / `-d` | bool | false | run detached: no terminal of its own, serving IPC and `cliamp attach` |
 
 CLI flags override config file values for the current session only. Persisted boolean options accept matching `--no-*` flags, such as `--no-shuffle` and `--no-low-power`. cliamp does not save them.
 

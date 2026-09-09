@@ -162,16 +162,20 @@ Named CLI commands such as `cliamp volume`, `cliamp seek`, `cliamp load`, and
 value. `seek` is relative to the current position. V2 subscriptions read
 `plugin.*` topics and runtime events.
 
-## Headless Mode
+## Detached Mode
 
 ```sh
 cliamp --daemon --auto-play --playlist Lofi
+cliamp attach                                 # borrow a terminal for the UI
 ```
 
-The daemon exposes the same playback, queue, provider, saved-playlist, job,
-snapshot, and event APIs. It has no TUI theme or visualizer selection. It does
-not load Lua plugins. Use `capabilities` instead of assuming that each
-interactive-only operation is available.
+A detached session is the interactive player without a terminal of its own, so
+it exposes the whole operation set -- playback, queue, provider,
+saved-playlist, job, snapshot, event, theme, visualizer, and plugin APIs.
+`attach` is a method of its own rather than an operation: the request
+acknowledgment is followed by a terminal stream on the same connection, and a
+cliamp that owns a real terminal answers it with `unavailable`. Use
+`capabilities` instead of assuming that a given operation is available.
 
 ## Errors And Limits
 

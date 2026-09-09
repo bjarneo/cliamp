@@ -420,6 +420,12 @@ type Model struct {
 	playingTrackActive bool
 	playbackDetached   bool
 
+	// detached is true while no client terminal is attached to this session
+	// (see SetDetachedMsg). Rendering still happens, into a stream nobody
+	// reads, so the visualizer stays off and the tick drops to the cadence
+	// playback bookkeeping needs.
+	detached bool
+
 	notifier playback.Notifier
 
 	// Lua plugin manager (nil if no plugins loaded)

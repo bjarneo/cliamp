@@ -25,6 +25,9 @@ func tickCmdAt(d time.Duration) tea.Cmd {
 }
 
 func (m Model) visualizerVisible() bool {
+	if m.detached {
+		return false
+	}
 	if m.simplified || m.vis == nil || m.vis.Mode == ui.VisNone || m.vis.Rows <= 0 || m.vis.Cols <= 0 || m.layout.tooSmall() {
 		return false
 	}
@@ -163,6 +166,14 @@ func advanceTickUnits(counter *int, elapsed *time.Duration, dt, quantum time.Dur
 }
 
 func (m *Model) tickInterval() time.Duration {
+	// A detached session renders into a stream nobody reads, so no cadence
+	// above the one playback bookkeeping needs buys anything.
+	if m.detached {
+		if m.isFullyIdle() {
+			return ui.TickIdle
+		}
+		return ui.TickDetached
+	}
 	if m.termTitle.introActive {
 		return ui.TickFast
 	}

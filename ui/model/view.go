@@ -159,6 +159,13 @@ func (m Model) View() tea.View {
 	if m.quitting {
 		return tea.NewView("")
 	}
+	// A detached session has no terminal to paint, so there is no reason to
+	// build a frame, scroll a title, or run the visualizer for it. Attaching
+	// flips this back, and the repaint the host then asks for is also what
+	// takes the client's terminal into the alternate screen.
+	if m.detached {
+		return tea.NewView("")
+	}
 	m.recomputeLayout()
 	if m.layout.tooSmall() {
 		content := fmt.Sprintf("Terminal too small. Resize to at least 40x10 (current: %dx%d).", m.width, m.height)
