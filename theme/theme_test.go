@@ -155,3 +155,25 @@ func TestThemeValidate(t *testing.T) {
 		t.Fatal("Validate() accepted invalid background color")
 	}
 }
+
+func TestFind(t *testing.T) {
+	all := LoadAll()
+	if len(all) == 0 {
+		t.Fatal("no built-in themes")
+	}
+	want := all[0]
+	for _, name := range []string{want.Name, strings.ToUpper(want.Name), strings.ToLower(want.Name)} {
+		got, ok := Find(name)
+		if !ok || got.Name != want.Name {
+			t.Errorf("Find(%q) = %q, %t; want %q", name, got.Name, ok, want.Name)
+		}
+	}
+	for _, name := range []string{"", "default", "DEFAULT", DefaultName} {
+		if got, ok := Find(name); !ok || !got.IsDefault() {
+			t.Errorf("Find(%q) = %+v, %t; want the default theme", name, got, ok)
+		}
+	}
+	if _, ok := Find("no such theme"); ok {
+		t.Error("Find of an unknown theme reported ok")
+	}
+}

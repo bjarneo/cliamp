@@ -115,6 +115,21 @@ func Parse(name string, r io.Reader) (Theme, error) {
 	return t, scanner.Err()
 }
 
+// Find returns the theme called name, matched case-insensitively across the
+// built-in and user themes. An empty name, "default", or DefaultName give the
+// ANSI default. ok is false when no theme has that name.
+func Find(name string) (Theme, bool) {
+	if name == "" || strings.EqualFold(name, "default") || strings.EqualFold(name, DefaultName) {
+		return Default(), true
+	}
+	for _, t := range LoadAll() {
+		if strings.EqualFold(t.Name, name) {
+			return t, true
+		}
+	}
+	return Theme{}, false
+}
+
 // LoadAll loads built-in themes and user custom themes from
 // ~/.config/cliamp/themes/*.toml. User themes override built-in
 // themes with the same name. Returns a sorted list.

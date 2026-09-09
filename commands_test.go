@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"slices"
+	"strings"
 	"testing"
 
 	cli "github.com/urfave/cli/v3"
@@ -65,5 +67,23 @@ func TestPodcastProviderFlag(t *testing.T) {
 	}
 	if got.Provider == nil || *got.Provider != "podcast" {
 		t.Fatalf("provider = %v, want podcast", got.Provider)
+	}
+}
+
+func TestRadioCommandFlags(t *testing.T) {
+	app := buildApp()
+	radioCmd := app.Command("radio")
+	if radioCmd == nil {
+		t.Fatal("radio command not registered")
+	}
+	for _, name := range []string{"stats", "globe", "json"} {
+		if !slices.ContainsFunc(radioCmd.Flags, func(f cli.Flag) bool { return slices.Contains(f.Names(), name) }) {
+			t.Errorf("radio command lacks --%s", name)
+		}
+	}
+	// --globe --json is contradictory and must fail before any network call.
+	err := app.Run(context.Background(), []string{"cliamp", "radio", "--globe", "--json"})
+	if err == nil || !strings.Contains(err.Error(), "cannot be combined") {
+		t.Errorf("--globe --json error = %v", err)
 	}
 }
