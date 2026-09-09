@@ -2,6 +2,7 @@ package model
 
 import (
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -228,6 +229,35 @@ func TestKeymapLabelsDetachInASession(t *testing.T) {
 	m.SetSessionDetach(func() {})
 	if label := quit.label(m); label == "Quit" {
 		t.Errorf("label in a session = %q, want it to mention detaching", label)
+	}
+}
+
+// A detached session keeps reporting listening progress: it is the same tick
+// loop, so providers that track position (Audiobookshelf and friends) see a
+// session driven only over IPC exactly as they see the TUI. Issue #377.
+func TestDetachedSessionReportsListeningProgress(t *testing.T) {
+	prov := &progressProv{reports: make(chan time.Duration, 2)}
+	engine := &playbackFakeEngine{playing: true, position: 42 * time.Second}
+	m := Model{
+		player:             engine,
+		playlist:           playlist.New(),
+		vis:                ui.NewVisualizer(float64(engine.SampleRate())),
+		provider:           prov,
+		providers:          []ProviderEntry{{Key: "stub", Name: "Plain", Provider: prov}},
+		playingTrack:       stubTracks()[0],
+		playingTrackActive: true,
+		detached:           true,
+	}
+
+	m.Update(tickMsg(time.Now()))
+
+	select {
+	case position := <-prov.reports:
+		if position != 42*time.Second {
+			t.Errorf("reported position = %v, want %v", position, 42*time.Second)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a detached session reported no progress")
 	}
 }
 
