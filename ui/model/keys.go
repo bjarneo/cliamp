@@ -14,7 +14,6 @@ import (
 
 	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/history"
-	"github.com/bjarneo/cliamp/internal/clipboard"
 	"github.com/bjarneo/cliamp/internal/fileutil"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
@@ -1141,12 +1140,8 @@ func (m *Model) shareTrack() tea.Cmd {
 		m.status.Warning("No shareable link for this track", statusTTLShort)
 		return nil
 	}
-	if err := clipboard.Copy(link); err != nil {
-		m.status.Errorf(statusTTLShort, "Copy failed, link: %s (%s)", link, err)
-		return nil
-	}
-	m.status.Successf(statusTTLShort, "Link copied: %s", link)
-	return nil
+	m.status.Clear()
+	return shareCopyCmd(link)
 }
 
 func (m *Model) resetJumpInput() {
