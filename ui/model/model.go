@@ -185,6 +185,7 @@ const (
 	screenFullVisualizer
 )
 
+// label is the screen name the keymap header shows.
 func (s topLevelScreen) label() string {
 	switch s {
 	case screenKeymap:

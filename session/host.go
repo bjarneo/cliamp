@@ -17,7 +17,9 @@ import (
 )
 
 // writeTimeout bounds one output frame write. A client that stops reading
-// stalls the program's render loop, so it is dropped instead of held.
+// holds the program's render loop for this long before it is dropped, which
+// is the trade: a frame is worth waiting a moment for, a dead client is not
+// worth waiting on forever.
 const writeTimeout = 5 * time.Second
 
 // startupSizeGrace is how long after an attach the host re-asserts the client's
@@ -365,12 +367,15 @@ type clientConn struct {
 	height   int
 }
 
+// setSize records the client's terminal size, so a size re-assert sends
+// what the client last reported rather than what it attached with.
 func (c *clientConn) setSize(width, height int) {
 	c.mu.Lock()
 	c.width, c.height = width, height
 	c.mu.Unlock()
 }
 
+// size returns the client's last reported terminal size.
 func (c *clientConn) size() (width, height int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -404,6 +409,8 @@ func (c *clientConn) detach(reason string) {
 	c.mu.Unlock()
 }
 
+// close drops the connection without telling the client anything, for a
+// peer that is already gone.
 func (c *clientConn) close() {
 	c.mu.Lock()
 	if !c.closed {
@@ -413,6 +420,8 @@ func (c *clientConn) close() {
 	c.mu.Unlock()
 }
 
+// isDetached reports whether this side ended the session, which makes the
+// read error that follows expected rather than worth logging.
 func (c *clientConn) isDetached() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -427,6 +436,7 @@ type outputSwitch struct {
 	client *clientConn
 }
 
+// set routes the program's output to client.
 func (o *outputSwitch) set(client *clientConn) {
 	o.mu.Lock()
 	o.client = client
@@ -442,6 +452,9 @@ func (o *outputSwitch) clear(client *clientConn) {
 	o.mu.Unlock()
 }
 
+// Write sends one rendered frame to the attached client, and reports
+// success either way: an error here would end the program, and a client that
+// cannot take its frame is only a client.
 func (o *outputSwitch) Write(p []byte) (int, error) {
 	o.mu.Lock()
 	client := o.client

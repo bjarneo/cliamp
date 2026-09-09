@@ -23,8 +23,10 @@ type hostedModel struct {
 	height int
 }
 
+// Init implements tea.Model. The stand-in has nothing to start.
 func (m hostedModel) Init() tea.Cmd { return nil }
 
+// Update records the size and the last key, and quits on q.
 func (m hostedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -132,6 +134,8 @@ func attach(t *testing.T, host *Host, width, height int) (*attachConn, ipc.V2Res
 	return client, response
 }
 
+// read collects frames until the session ends, so a test can wait on them
+// without blocking the host.
 func (c *attachConn) read() {
 	for {
 		kind, payload, err := readFrame(c.conn)
@@ -167,6 +171,7 @@ func (c *attachConn) waitForOutput(t *testing.T, want string) string {
 	}
 }
 
+// send writes one frame to the host.
 func (c *attachConn) send(t *testing.T, kind byte, payload []byte) {
 	t.Helper()
 	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
@@ -175,6 +180,8 @@ func (c *attachConn) send(t *testing.T, kind byte, payload []byte) {
 	}
 }
 
+// readLine reads the handshake acknowledgment a byte at a time, the way a
+// real client has to, so the frames behind it stay on the connection.
 func readLine(conn net.Conn) ([]byte, error) {
 	line := make([]byte, 0, 256)
 	var one [1]byte
@@ -324,24 +331,30 @@ func TestAttachDuringStartupKeepsClientSize(t *testing.T) {
 	host, start, stop := hostedProgramDeferred(t, Options{})
 	defer stop()
 
-	attached := make(chan *attachConn, 1)
+	// attach reports handshake failures with t.Fatalf, which would kill this
+	// goroutine before it hands anything back and hang the test on the
+	// receive below, so it runs on the test goroutine after the program is up.
+	handshake := make(chan struct{})
 	go func() {
-		client, response := attach(t, host, 90, 30)
-		if !response.OK {
-			t.Errorf("attach failed: %v", response.Error)
-		}
-		attached <- client
+		defer close(handshake)
+		// Let the handshake and its size message queue up ahead of the
+		// program, then let it start.
+		time.Sleep(50 * time.Millisecond)
+		start()
 	}()
-	// Let the handshake and its size message queue up ahead of the program.
-	time.Sleep(50 * time.Millisecond)
-	start()
 
-	client := <-attached
+	client, response := attach(t, host, 90, 30)
+	<-handshake
+	if !response.OK {
+		t.Fatalf("attach failed: %v", response.Error)
+	}
 	// The size lands as a patch of the line the placeholder frame already
 	// drew, so the stream carries the new value rather than a whole line.
 	client.waitForOutput(t, "90x30")
 }
 
+// A session has to render at some size, so an attach that reports none is
+// refused instead of guessed at.
 func TestAttachRejectsMissingSize(t *testing.T) {
 	host, stop := hostedProgram(t, Options{})
 	defer stop()
@@ -394,6 +407,8 @@ func TestInputWorksAgainAfterReattach(t *testing.T) {
 	second.waitForOutput(t, "bbbbb")
 }
 
+// waitFor polls until ok is true, for state that settles on another
+// goroutine.
 func waitFor(t *testing.T, what string, ok func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)

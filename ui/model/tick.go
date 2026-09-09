@@ -18,12 +18,16 @@ func tickCmd() tea.Cmd {
 	return tickCmdAt(ui.TickFast)
 }
 
+// tickCmdAt schedules the next tick. Each tick schedules its successor, so
+// exactly one of these may be in flight: a second chain would never end.
 func tickCmdAt(d time.Duration) tea.Cmd {
 	return teaTick(d, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
 }
 
+// visualizerVisible reports whether the visualizer has a place to draw and
+// somebody to draw it for.
 func (m Model) visualizerVisible() bool {
 	if m.detached {
 		return false
@@ -165,6 +169,8 @@ func advanceTickUnits(counter *int, elapsed *time.Duration, dt, quantum time.Dur
 	return steps
 }
 
+// tickInterval picks the cadence of the next tick from what the model has
+// to keep up with: animation, playback bookkeeping, or nothing at all.
 func (m *Model) tickInterval() time.Duration {
 	// A detached session renders into a stream nobody reads, so no cadence
 	// above the one playback bookkeeping needs buys anything.

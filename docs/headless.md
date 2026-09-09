@@ -113,12 +113,13 @@ WantedBy=default.target
 systemctl --user enable --now cliamp.service
 ```
 
-`Restart=on-failure` and not `Restart=always`: every graceful stop --
-`cliamp quit`, an MPRIS client's Quit, `systemctl --user stop cliamp` -- exits
-0, and `always` reads that as a reason to start the session again. The music
-would come back moments after you asked it to stop, and `systemctl stop` would
-be the only thing that could end it. `on-failure` restarts the session when it
-actually crashed, which is what you wanted the line for.
+`Restart=on-failure` and not `Restart=always`: a graceful stop the session asks
+for itself -- `cliamp quit`, an MPRIS client's Quit, a SIGTERM you send by hand
+-- exits 0, and `always` reads that as a reason to start it again. The music
+would come back moments after you asked it to stop, leaving `systemctl --user
+stop` (which systemd does not restart after) as the only way to end it.
+`on-failure` restarts the session when it actually crashed, which is what you
+wanted the line for.
 
 ### Waybar / Polybar / i3blocks status modules
 

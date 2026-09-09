@@ -109,6 +109,10 @@ func restoreJellyfinContext(state resume.State, prov *jellyfin.Provider) ([]play
 	return tracks, index, tracks[index].Path, true
 }
 
+// run starts the player: config and providers, the audio engine, the
+// Bubble Tea model, IPC, and media controls. With daemon set it renders into
+// a virtual terminal instead of this process's own, so `cliamp attach` can
+// lend it one later.
 func run(overrides config.Overrides, positional []string, daemon, visualizer60FPS bool) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -595,6 +599,10 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if daemon {
 		m.SetDetached(true)
 		var hostErr error
+		// These callbacks read prog, which is assigned below. Nothing can run
+		// them before that: the host only reaches them from an attach, and
+		// attaches only arrive once the IPC server has the host registered,
+		// which happens further down. Keep that order.
 		host, hostErr = session.New(session.Options{
 			OnAttach: func(int, int) { prog.Send(model.SetDetachedMsg{Detached: false}) },
 			OnDetach: func() { prog.Send(model.SetDetachedMsg{Detached: true}) },
@@ -630,9 +638,20 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 		defer signal.Stop(signals)
 		go func() {
-			if _, ok := <-signals; ok {
-				applog.Info("session: signal received, shutting down")
-				prog.Send(playback.QuitMsg{})
+			first := true
+			for signal := range signals {
+				if first {
+					applog.Info("session: signal received, shutting down")
+					prog.Send(playback.QuitMsg{})
+					first = false
+					continue
+				}
+				// Bubble Tea's own handler is off, so this is the only escape
+				// left if the graceful path stalls. Leave without it rather
+				// than making the operator reach for SIGKILL.
+				applog.Warn("session: %v while shutting down, exiting now", signal)
+				fmt.Fprintln(os.Stderr, "cliamp: second signal, exiting immediately")
+				os.Exit(1)
 			}
 		}()
 		fmt.Fprintf(os.Stderr, "cliamp: running detached (socket: %s)\ncliamp: attach with `cliamp attach`; q detaches, `cliamp quit` stops it\n", ipc.DefaultSocketPath())

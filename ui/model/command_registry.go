@@ -74,6 +74,8 @@ func (c commandSpec) enabled(m Model) bool {
 	return c.Enabled == nil || c.Enabled(m)
 }
 
+// label is what the keymap shows for this command, which some commands
+// decide from the state the model is in.
 func (c commandSpec) label(m Model) string {
 	if c.LabelFor != nil {
 		return c.LabelFor(m)

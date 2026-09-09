@@ -1020,16 +1020,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.detached = msg.Detached
-		// Attaching brings a terminal of its own size, and the host follows
-		// this message with the size and a repaint. Reattaching also has to
-		// restart the tick: a detached session that reached the idle cadence
-		// would otherwise take up to TickIdle to draw its first frame.
+		// No tick is scheduled here. Each tick schedules the next one, so a
+		// tick started from anywhere else runs forever beside the first, and
+		// every attach and detach would leave another one behind. The next
+		// tick picks up the new cadence on its own, and rendering does not
+		// wait for it: the host follows this message with the client's size
+		// and a repaint.
 		if !m.detached {
 			m.applyHeightMode()
 			m.adjustScroll()
-			return m, tickCmdAt(ui.TickFast)
 		}
-		return m, tickCmdAt(ui.TickDetached)
+		return m, nil
 
 	case ShowStatusMsg:
 		ttl := statusTTLDefault

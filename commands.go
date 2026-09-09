@@ -26,6 +26,8 @@ import (
 	"github.com/bjarneo/cliamp/upgrade"
 )
 
+// buildApp defines the CLI: the root command that runs the player, and the
+// subcommands, most of which are thin IPC clients for a running instance.
 func buildApp() *cli.Command {
 	rootFlags := []cli.Flag{
 		&cli.Float64Flag{Name: "vol", Usage: "startup volume in dB [-30, +6]"},
@@ -699,6 +701,8 @@ func ipcSimpleCommand(name, usage string) *cli.Command {
 	}
 }
 
+// quitCommand stops the running cliamp. Detaching leaves a session playing,
+// so ending one is deliberate and has a command of its own.
 func quitCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "quit",
@@ -724,6 +728,7 @@ func quitCommand() *cli.Command {
 	}
 }
 
+// attachCommand lends this terminal to a session started with --daemon.
 func attachCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "attach",

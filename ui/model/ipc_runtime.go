@@ -89,6 +89,8 @@ type ipcV2ResponseMsg struct {
 	Response  ipc.Response
 }
 
+// handleV2Request serves one IPC request from the update loop: reads answer
+// immediately, everything else runs as a job.
 func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 	switch strings.ToLower(strings.TrimSpace(msg.Request.Method)) {
 	case "state.get":
@@ -667,6 +669,8 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 	return fingerprint
 }
 
+// v2BandsResponse answers a spectrum request with the visualizer's current
+// bands.
 func (m *Model) v2BandsResponse() ipc.Response {
 	response := ipc.Response{OK: true}
 	if m.vis == nil {
@@ -751,6 +755,8 @@ func v2OperationRequest(request ipc.V2Request) (ipc.Request, *ipc.V2Error) {
 	return result, nil
 }
 
+// normalizeV2Operation maps the operation aliases clients may send onto the
+// names the dispatch switch uses.
 func normalizeV2Operation(operation string) string {
 	operation = strings.ToLower(strings.TrimSpace(operation))
 	switch operation {

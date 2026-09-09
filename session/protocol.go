@@ -123,6 +123,8 @@ func decodeSize(payload []byte) (width, height int, ok bool) {
 	return int(binary.BigEndian.Uint16(payload[0:])), int(binary.BigEndian.Uint16(payload[2:])), true
 }
 
+// clampSize fits a terminal dimension into the two bytes a resize frame
+// carries for it.
 func clampSize(v int) int {
 	if v < 0 {
 		return 0

@@ -57,9 +57,10 @@ func TestDetachedIdleSessionUsesIdleCadence(t *testing.T) {
 	}
 }
 
-// Attaching has to restart the tick: a detached session sitting at the idle
-// cadence would otherwise take up to TickIdle to draw its first frame.
-func TestAttachingRestartsTheTick(t *testing.T) {
+// Attaching and detaching must not schedule a tick. Each tick schedules the
+// next, so a second chain started here would never end, and every attach and
+// detach would leave one more behind.
+func TestDetachedTransitionsScheduleNoExtraTick(t *testing.T) {
 	p := &playbackFakeEngine{playing: true}
 	m := Model{
 		player:   p,
@@ -79,22 +80,25 @@ func TestAttachingRestartsTheTick(t *testing.T) {
 	if next.Detached() {
 		t.Error("model still detached after attaching")
 	}
-	if cmd == nil {
-		t.Fatal("attaching returned no command, want a tick")
+	if cmd != nil {
+		t.Error("attaching scheduled a tick, want the running one to carry on")
 	}
-	if _, ok := cmd().(tickMsg); !ok {
-		t.Errorf("command produced %T, want tickMsg", cmd())
+	// The cadence the running tick reads has already changed, which is what
+	// makes scheduling one here unnecessary.
+	if got := next.tickInterval(); got != ui.TickFast {
+		t.Errorf("attached tickInterval() = %v, want %v", got, ui.TickFast)
 	}
 
-	// Detaching again is the same story in reverse, and repeating the state
-	// change must not queue redundant ticks.
-	updated, cmd = next.Update(SetDetachedMsg{Detached: false})
+	updated, cmd = next.Update(SetDetachedMsg{Detached: true})
 	if cmd != nil {
-		t.Error("attaching an already-attached session queued another tick")
+		t.Error("detaching scheduled a tick")
 	}
 	next, _ = updated.(Model)
-	if _, cmd := next.Update(SetDetachedMsg{Detached: true}); cmd == nil {
-		t.Error("detaching returned no command, want a tick")
+	if got := next.tickInterval(); got != ui.TickDetached {
+		t.Errorf("detached tickInterval() = %v, want %v", got, ui.TickDetached)
+	}
+	if _, cmd := next.Update(SetDetachedMsg{Detached: true}); cmd != nil {
+		t.Error("a repeated state change returned a command")
 	}
 }
 

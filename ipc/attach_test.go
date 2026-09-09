@@ -17,10 +17,13 @@ type attachRecorder struct {
 	done     chan struct{}
 }
 
+// newAttachRecorder creates a handler that records the attach requests it
+// is handed.
 func newAttachRecorder() *attachRecorder {
 	return &attachRecorder{done: make(chan struct{}, 1)}
 }
 
+// HandleAttach implements AttachHandler.
 func (a *attachRecorder) HandleAttach(conn net.Conn, request V2Request) {
 	a.mu.Lock()
 	a.requests = append(a.requests, request)
@@ -31,12 +34,15 @@ func (a *attachRecorder) HandleAttach(conn net.Conn, request V2Request) {
 	a.done <- struct{}{}
 }
 
+// count returns how many attaches the handler has taken.
 func (a *attachRecorder) count() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return len(a.requests)
 }
 
+// An attach request leaves the connection with the handler, which then
+// speaks its own protocol on it.
 func TestAttachHandsOffTheConnection(t *testing.T) {
 	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
 	server, err := NewServer(sock)
@@ -91,6 +97,8 @@ func TestAttachWithoutHandlerReportsUnavailable(t *testing.T) {
 	}
 }
 
+// Attaching to nothing reports the sentinel the CLI turns into its own
+// wording.
 func TestDialAttachReportsMissingSocket(t *testing.T) {
 	sock := filepath.Join(shortTempDir(t), "missing.sock")
 	if _, _, err := DialAttach(sock, V2Request{ID: []byte(`1`)}); !errors.Is(err, ErrNotRunning) {

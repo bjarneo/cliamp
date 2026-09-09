@@ -133,8 +133,11 @@ type attachClient struct {
 	width  int
 	height int
 
-	// reason is what the host said when it ended the session, if anything.
-	reason string
+	// reason is what the host said when it ended the session, if anything,
+	// and inputErr why this side ended it. Both are written before leaving
+	// is set and read after it, so the atomic orders the handoff to run.
+	reason   string
+	inputErr error
 
 	writeMu sync.Mutex
 	// leaving marks a detach this client asked for, so the read error that
@@ -145,23 +148,21 @@ type attachClient struct {
 
 // run pumps the session until either side ends it.
 func (c *attachClient) run() error {
-	done := make(chan error, 1)
-	go func() { done <- c.forwardInput() }()
-	go c.pollResize(done)
+	stop := make(chan struct{})
+	defer close(stop)
+	go c.forwardInput(stop)
+	go c.pollResize(stop)
 
 	for {
 		kind, payload, err := readFrame(c.conn)
 		if err != nil {
-			if c.leaving.Load() || errors.Is(err, io.EOF) {
-				return nil
+			// Ending the session on this side looks like a read error from
+			// here, so the input pump's own reason comes first.
+			if c.leaving.Load() {
+				return c.inputErr
 			}
-			select {
-			case inputErr := <-done:
-				if inputErr != nil {
-					return inputErr
-				}
+			if errors.Is(err, io.EOF) {
 				return nil
-			default:
 			}
 			return fmt.Errorf("session ended: %w", err)
 		}
@@ -177,12 +178,27 @@ func (c *attachClient) run() error {
 	}
 }
 
+// leave ends the session on this side and unblocks run, which reports err.
+// The atomic write is what publishes err to run's goroutine.
+func (c *attachClient) leave(err error) {
+	c.inputErr = err
+	c.leaving.Store(true)
+	_ = c.conn.Close()
+}
+
 // forwardInput sends local keystrokes to the host, holding back the detach
-// key. It returns once the user detaches.
-func (c *attachClient) forwardInput() error {
+// key, and ends the session when it can no longer do that: a client that
+// renders on with nothing reaching the player has no way out, detach key
+// included.
+func (c *attachClient) forwardInput(stop <-chan struct{}) {
 	buf := make([]byte, 4096)
 	for {
 		n, err := c.in.Read(buf)
+		select {
+		case <-stop:
+			return
+		default:
+		}
 		if n > 0 {
 			data := buf[:n]
 			if index := bytes.IndexByte(data, DetachKey); index >= 0 {
@@ -191,31 +207,32 @@ func (c *attachClient) forwardInput() error {
 				}
 				c.leaving.Store(true)
 				_ = c.send(kindDetach, nil)
-				_ = c.conn.Close()
-				return nil
+				c.leave(nil)
+				return
 			}
-			if err := c.send(kindInput, data); err != nil {
-				return nil
+			if sendErr := c.send(kindInput, data); sendErr != nil {
+				c.leave(fmt.Errorf("forward input: %w", sendErr))
+				return
 			}
 		}
 		if err != nil {
-			c.leaving.Store(true)
-			_ = c.conn.Close()
 			if errors.Is(err, io.EOF) {
-				return nil
+				c.leave(nil)
+				return
 			}
-			return fmt.Errorf("read terminal: %w", err)
+			c.leave(fmt.Errorf("read terminal: %w", err))
+			return
 		}
 	}
 }
 
 // pollResize reports terminal size changes for as long as the session lives.
-func (c *attachClient) pollResize(done <-chan error) {
+func (c *attachClient) pollResize(stop <-chan struct{}) {
 	ticker := time.NewTicker(resizePollInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-done:
+		case <-stop:
 			return
 		case <-ticker.C:
 			width, height, err := term.GetSize(c.outFd)
@@ -233,6 +250,7 @@ func (c *attachClient) pollResize(done <-chan error) {
 	}
 }
 
+// send writes one frame to the host under a deadline.
 func (c *attachClient) send(kind byte, payload []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
@@ -242,6 +260,7 @@ func (c *attachClient) send(kind byte, payload []byte) error {
 	return writeFrame(c.conn, kind, payload)
 }
 
+// marshalParams encodes the handshake parameters for the attach request.
 func marshalParams(params AttachParams) ([]byte, error) {
 	data, err := json.Marshal(params)
 	if err != nil {

@@ -3,6 +3,7 @@ package ipc
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -30,6 +31,8 @@ func (s *Server) SetAttachHandler(handler AttachHandler) {
 	s.v2Mu.Unlock()
 }
 
+// isV2Attach reports whether req asks to take the connection over as a
+// terminal session.
 func isV2Attach(req V2Request) bool {
 	return strings.EqualFold(req.Method, "attach") || strings.EqualFold(req.Operation, "attach")
 }
@@ -131,26 +134,27 @@ func DialAttach(sockPath string, request V2Request) (net.Conn, V2Response, error
 	return conn, response, nil
 }
 
+// readLineUnbuffered reads one NDJSON line without reading ahead, so the
+// bytes that follow it stay on the connection for whoever owns it next.
 func readLineUnbuffered(conn net.Conn) ([]byte, error) {
 	line := make([]byte, 0, 256)
 	var one [1]byte
 	for {
-		n, err := conn.Read(one[:])
-		if n == 1 {
-			if one[0] == '\n' {
-				return line, nil
-			}
-			line = append(line, one[0])
-			if len(line) > maxHandshakeLine {
-				return nil, fmt.Errorf("response line too long")
-			}
-			continue
-		}
-		if err != nil {
-			if err == io.EOF {
+		// ReadFull rather than Read: a reader is allowed to return (0, nil),
+		// which a hand-rolled loop would spin on for as long as the deadline
+		// lets it, since no error is ever produced.
+		if _, err := io.ReadFull(conn, one[:]); err != nil {
+			if errors.Is(err, io.EOF) {
 				return nil, fmt.Errorf("no response from server")
 			}
 			return nil, err
+		}
+		if one[0] == '\n' {
+			return line, nil
+		}
+		line = append(line, one[0])
+		if len(line) > maxHandshakeLine {
+			return nil, fmt.Errorf("response line too long")
 		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+// Every frame kind survives a write and a read unchanged.
 func TestFrameRoundTrip(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -42,6 +43,7 @@ func TestFrameRoundTrip(t *testing.T) {
 	}
 }
 
+// Frames carry their own length, so a stream of them needs no separator.
 func TestFramesStreamBackToBack(t *testing.T) {
 	var buf bytes.Buffer
 	for _, payload := range []string{"a", "bb", "ccc"} {
@@ -63,6 +65,8 @@ func TestFramesStreamBackToBack(t *testing.T) {
 	}
 }
 
+// An oversized payload is refused whole: half a frame on the wire would
+// desynchronize the peer.
 func TestWriteFrameRejectsOversizedPayload(t *testing.T) {
 	var buf bytes.Buffer
 	if err := writeFrame(&buf, kindOutput, make([]byte, maxFramePayload+1)); !errors.Is(err, errFrameTooLarge) {
@@ -82,6 +86,7 @@ func TestReadFrameRejectsOversizedLength(t *testing.T) {
 	}
 }
 
+// A frame cut short is an error, not a short payload.
 func TestReadFrameReportsTruncatedFrame(t *testing.T) {
 	var buf bytes.Buffer
 	if err := writeFrame(&buf, kindOutput, []byte("full payload")); err != nil {
@@ -93,6 +98,8 @@ func TestReadFrameReportsTruncatedFrame(t *testing.T) {
 	}
 }
 
+// Terminal sizes survive the round trip, and absurd ones are clamped
+// rather than wrapped.
 func TestSizeCodec(t *testing.T) {
 	tests := []struct {
 		name                  string

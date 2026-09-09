@@ -15,7 +15,7 @@ func (m *Model) SetDetached(detached bool) {
 	m.detached = detached
 }
 
-// Detached reports whether a client terminal is attached to this session.
+// Detached reports whether this session has no client terminal attached.
 func (m Model) Detached() bool {
 	return m.detached
 }
