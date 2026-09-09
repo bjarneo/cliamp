@@ -146,10 +146,7 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 		if err != nil {
 			return nil, fmt.Errorf("custom streamer: %w", err)
 		}
-		var s beep.Streamer = decoder
-		if format.SampleRate != p.sr {
-			s = beep.Resample(p.resampleQuality, format.SampleRate, p.sr, s)
-		}
+		s := resampleWithHeadroom(p.resampleQuality, format.SampleRate, p.sr, decoder)
 		return &trackPipeline{
 			decoder:       decoder,
 			stream:        s,
@@ -384,10 +381,7 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	// HTTP streams decoded natively read from a non-seekable http.Response.Body.
 	seekable := !isURL(path)
 
-	var s beep.Streamer = decoder
-	if format.SampleRate != p.sr {
-		s = beep.Resample(p.resampleQuality, format.SampleRate, p.sr, s)
-	}
+	s := resampleWithHeadroom(p.resampleQuality, format.SampleRate, p.sr, decoder)
 
 	tp := &trackPipeline{
 		decoder:       decoder,
