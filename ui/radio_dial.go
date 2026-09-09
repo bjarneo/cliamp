@@ -17,11 +17,29 @@ const (
 	amMax = 1700.0
 )
 
-// dialTicksFM are the major tick marks on the FM dial.
+// dialTicksFM are the major tick marks on the FM dial (labeled).
 var dialTicksFM = []float64{88, 90, 92, 94, 96, 98, 100, 102, 104, 106, 108}
 
-// dialTicksAM are the major tick marks on the AM dial.
+// dialMinorTicksFM are the minor subdivisions between major FM ticks.
+var dialMinorTicksFM = func() []float64 {
+	var t []float64
+	for f := 89.0; f < 108.0; f += 2.0 {
+		t = append(t, f)
+	}
+	return t
+}()
+
+// dialTicksAM are the major tick marks on the AM dial (labeled).
 var dialTicksAM = []float64{600, 800, 1000, 1200, 1400, 1600}
+
+// dialMinorTicksAM are minor subdivisions for AM.
+var dialMinorTicksAM = func() []float64 {
+	var t []float64
+	for f := 700.0; f < 1700.0; f += 200.0 {
+		t = append(t, f)
+	}
+	return t
+}()
 
 // ParseFrequency extracts the numeric frequency and band ("FM" or "AM") from
 // a string like "88.3 FM" or "1200 AM". Returns 0, "" on parse failure.
@@ -50,7 +68,6 @@ func ParseFrequency(s string) (float64, string) {
 		return 0, ""
 	}
 
-	// Auto-detect band from frequency range if not explicitly stated.
 	if freq > 200 {
 		band = "AM"
 	}
@@ -58,17 +75,28 @@ func ParseFrequency(s string) (float64, string) {
 	return freq, band
 }
 
-// dialRows is the height of the LED dot-matrix dial in terminal rows.
+// dialRows is the height of the Braille dial area in terminal rows.
 const dialRows = 4
 
-// dialColor is a light blue reminiscent of classic Pioneer/Marantz receiver
-// tuner dials from the 1970s–80s.
-var dialColor = lipgloss.ANSIColor(14) // bright cyan
+// Dial colors: green scale with a red needle, like a 1970s Sansui/Marantz.
+var (
+	dialGreen    = lipgloss.ANSIColor(2)  // dark green — warm backlit scale
+	dialGreenLit = lipgloss.ANSIColor(10) // bright green — lit numerals/ticks
+	dialRed      = lipgloss.ANSIColor(9)  // bright red — the needle/pointer
+)
 
-// RenderRadioDial draws a retro LED dot-matrix frequency dial using Braille
-// characters in light blue. The band to the left of the needle is bright, the
-// right side is dim. A uniform-width needle line rises from bottom to top.
-// Tick marks punctuate at major frequencies.
+// Grid cell types for the two-color render pass.
+const (
+	cellEmpty    = 0
+	cellGreenDim = 1 // dim green (untuned band fill)
+	cellGreen    = 2 // bright green (tuned band fill, ticks)
+	cellRed      = 3 // red needle
+)
+
+// RenderRadioDial draws a retro receiver-style frequency dial. Green backlit
+// scale with a thin red pointer line, inspired by 1970s Sansui and Marantz
+// stereo receivers. The band fills bright green left of the needle and dim
+// green right. Major and minor tick marks punctuate the scale.
 func RenderRadioDial(freqStr string, width int) string {
 	freq, band := ParseFrequency(freqStr)
 	if freq == 0 {
@@ -80,11 +108,13 @@ func RenderRadioDial(freqStr string, width int) string {
 	}
 
 	var minF, maxF float64
-	var ticks []float64
+	var majorTicks, minorTicks []float64
 	if band == "AM" {
-		minF, maxF, ticks = amMin, amMax, dialTicksAM
+		minF, maxF = amMin, amMax
+		majorTicks, minorTicks = dialTicksAM, dialMinorTicksAM
 	} else {
-		minF, maxF, ticks = fmMin, fmMax, dialTicksFM
+		minF, maxF = fmMin, fmMax
+		majorTicks, minorTicks = dialTicksFM, dialMinorTicksFM
 	}
 
 	pos := clampF(freq, minF, maxF)
@@ -93,14 +123,12 @@ func RenderRadioDial(freqStr string, width int) string {
 	height := dialRows
 	dotRows := height * 4
 
-	// Needle position in dot-column space.
 	needleDot := int(math.Round(float64(dotCols-1) * (pos - minF) / (maxF - minF)))
 
-	// Grid stores brightness: 0=empty, 1=dim, 2=bright.
 	grid := make([]byte, dotRows*dotCols)
 
-	// --- Filled band: bottom 40% is a solid lit strip ---
-	// Left of needle = bright (2), right of needle = dim (1).
+	// --- Filled band: bottom 40% solid green strip ---
+	// Left of needle = bright green, right = dim green.
 	bandHeight := dotRows * 2 / 5
 	if bandHeight < 4 {
 		bandHeight = 4
@@ -109,29 +137,25 @@ func RenderRadioDial(freqStr string, width int) string {
 		row := dotRows - 1 - dr
 		for dc := range dotCols {
 			if dc <= needleDot {
-				grid[row*dotCols+dc] = 2
+				grid[row*dotCols+dc] = cellGreen
 			} else {
-				grid[row*dotCols+dc] = 1
+				grid[row*dotCols+dc] = cellGreenDim
 			}
 		}
 	}
 
-	// --- Tick marks: short columns rising above the band ---
-	tickRise := 5 // dots above the band top
-	for _, t := range ticks {
+	// --- Major tick marks: tall columns through the band and above ---
+	majorTickHeight := bandHeight + 6
+	for _, t := range majorTicks {
 		tc := int(math.Round(float64(dotCols-1) * (t - minF) / (maxF - minF)))
 		if tc < 0 || tc >= dotCols {
 			continue
 		}
-		topOfBand := dotRows - bandHeight
-		for dr := 0; dr < bandHeight+tickRise && dotRows-1-dr >= 0; dr++ {
+		for dr := 0; dr < majorTickHeight && dotRows-1-dr >= 0; dr++ {
 			row := dotRows - 1 - dr
-			brightness := byte(1)
+			brightness := byte(cellGreenDim)
 			if tc <= needleDot {
-				brightness = 2
-			}
-			if row >= topOfBand {
-				brightness = max(brightness, grid[row*dotCols+tc])
+				brightness = cellGreen
 			}
 			if grid[row*dotCols+tc] < brightness {
 				grid[row*dotCols+tc] = brightness
@@ -139,35 +163,72 @@ func RenderRadioDial(freqStr string, width int) string {
 		}
 	}
 
-	// --- Needle: uniform 3-dot-wide line from bottom to top ---
-	for row := range dotRows {
-		// Center column: bright.
-		if needleDot >= 0 && needleDot < dotCols {
-			grid[row*dotCols+needleDot] = 2
+	// --- Minor tick marks: shorter columns, just above the band ---
+	minorTickHeight := bandHeight + 3
+	for _, t := range minorTicks {
+		tc := int(math.Round(float64(dotCols-1) * (t - minF) / (maxF - minF)))
+		if tc < 0 || tc >= dotCols {
+			continue
 		}
-		// One dot on each side: bright.
-		if c := needleDot - 1; c >= 0 && c < dotCols {
-			if grid[row*dotCols+c] < 2 {
-				grid[row*dotCols+c] = 2
+		for dr := 0; dr < minorTickHeight && dotRows-1-dr >= 0; dr++ {
+			row := dotRows - 1 - dr
+			brightness := byte(cellGreenDim)
+			if tc <= needleDot {
+				brightness = cellGreen
 			}
-		}
-		if c := needleDot + 1; c >= 0 && c < dotCols {
-			if grid[row*dotCols+c] < 2 {
-				grid[row*dotCols+c] = 2
+			if grid[row*dotCols+tc] < brightness {
+				grid[row*dotCols+tc] = brightness
 			}
 		}
 	}
 
-	// --- Render grid into Braille characters, all in light blue ---
-	dialBright := lipgloss.NewStyle().Foreground(dialColor)
-	dialDim := lipgloss.NewStyle().Foreground(dialColor).Faint(true)
+	// --- Red needle: exactly 2-dot-wide line from bottom to top ---
+	// We paint two adjacent dot-columns as red. To prevent the needle from
+	// appearing wider in the filled band, clear any green dots in the same
+	// Braille cells as the needle so the cell only contains red dots.
+	needleDots := [2]int{needleDot, needleDot + 1}
+	for row := range dotRows {
+		for _, nd := range needleDots {
+			if nd >= 0 && nd < dotCols {
+				grid[row*dotCols+nd] = cellRed
+			}
+		}
+		// Clear the other dot-column in each Braille cell that contains a
+		// needle dot, so the cell doesn't mix red and green.
+		for _, nd := range needleDots {
+			if nd < 0 || nd >= dotCols {
+				continue
+			}
+			// Braille cells are 2 dot-columns wide. Find the partner column.
+			partner := nd ^ 1 // if nd is even, partner is nd+1; if odd, nd-1
+			if partner < 0 || partner >= dotCols {
+				continue
+			}
+			// If the partner is not also a needle dot, clear it.
+			isNeedle := false
+			for _, nd2 := range needleDots {
+				if partner == nd2 {
+					isNeedle = true
+					break
+				}
+			}
+			if !isNeedle && grid[row*dotCols+partner] != cellEmpty {
+				grid[row*dotCols+partner] = cellEmpty
+			}
+		}
+	}
+
+	// --- Render grid into Braille characters ---
+	greenBright := lipgloss.NewStyle().Foreground(dialGreenLit)
+	greenDim := lipgloss.NewStyle().Foreground(dialGreen)
+	redStyle := lipgloss.NewStyle().Foreground(dialRed)
 
 	lines := make([]string, height)
 	for row := range height {
 		var sb strings.Builder
 		for col := range width {
 			var braille rune = '\u2800'
-			maxBright := byte(0)
+			maxType := byte(0)
 			for dr := range 4 {
 				for dc := range 2 {
 					gr := row*4 + dr
@@ -177,18 +238,20 @@ func RenderRadioDial(freqStr string, width int) string {
 						if val > 0 {
 							braille |= brailleBit[dr][dc]
 						}
-						if val > maxBright {
-							maxBright = val
+						if val > maxType {
+							maxType = val
 						}
 					}
 				}
 			}
 
-			switch maxBright {
-			case 2:
-				sb.WriteString(dialBright.Render(string(braille)))
-			case 1:
-				sb.WriteString(dialDim.Render(string(braille)))
+			switch maxType {
+			case cellRed:
+				sb.WriteString(redStyle.Render(string(braille)))
+			case cellGreen:
+				sb.WriteString(greenBright.Render(string(braille)))
+			case cellGreenDim:
+				sb.WriteString(greenDim.Render(string(braille)))
 			default:
 				sb.WriteRune(' ')
 			}
@@ -196,13 +259,13 @@ func RenderRadioDial(freqStr string, width int) string {
 		lines[row] = sb.String()
 	}
 
-	// --- Tick labels below the dial ---
-	labelLine := renderDialLabels(ticks, minF, maxF, width)
+	// --- Tick labels below the dial in green ---
+	labelLine := renderDialLabels(majorTicks, minF, maxF, width, dialGreenLit)
 
 	// --- Frequency readout centered above the dial ---
 	readout := formatDialReadout(freq, band)
-	readoutStyle := lipgloss.NewStyle().Foreground(dialColor).Bold(true)
-	bandStyle := lipgloss.NewStyle().Foreground(ColorDim)
+	readoutStyle := lipgloss.NewStyle().Foreground(dialRed).Bold(true)
+	bandStyle := lipgloss.NewStyle().Foreground(dialGreen)
 
 	readoutStr := bandStyle.Render(band+" ") + readoutStyle.Render(readout)
 	rawLen := len(band) + 1 + len(readout)
@@ -237,8 +300,8 @@ func formatDialReadout(freq float64, band string) string {
 }
 
 // renderDialLabels renders the tick frequency labels below the dial.
-func renderDialLabels(ticks []float64, minF, maxF float64, width int) string {
-	dimStyle := lipgloss.NewStyle().Foreground(ColorDim)
+func renderDialLabels(ticks []float64, minF, maxF float64, width int, labelColor lipgloss.ANSIColor) string {
+	style := lipgloss.NewStyle().Foreground(labelColor)
 
 	runes := make([]rune, width)
 	for i := range runes {
@@ -272,7 +335,7 @@ func renderDialLabels(ticks []float64, minF, maxF float64, width int) string {
 		}
 	}
 
-	return dimStyle.Render(string(runes))
+	return style.Render(string(runes))
 }
 
 // formatTickLabel formats a tick value for the scale.
