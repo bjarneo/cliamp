@@ -5,37 +5,38 @@ import (
 	"testing"
 )
 
-func TestShareCopiedMsgSuccess(t *testing.T) {
-	m := Model{}
+func TestShareCopiedMsg(t *testing.T) {
 	link := "https://open.spotify.com/track/abc123"
-
-	nextModel, cmd := m.Update(shareCopiedMsg{link: link})
-	if cmd != nil {
-		t.Fatalf("Update() cmd = %v, want nil", cmd)
+	tests := []struct {
+		name string
+		msg  shareCopiedMsg
+		want string
+	}{
+		{
+			name: "success",
+			msg:  shareCopiedMsg{link: link},
+			want: "Link copied: " + link,
+		},
+		{
+			name: "failure keeps link",
+			msg:  shareCopiedMsg{link: link, err: errors.New("no clipboard backend found")},
+			want: "Copy failed, link: " + link + " (no clipboard backend found)",
+		},
 	}
-	next, ok := nextModel.(Model)
-	if !ok {
-		t.Fatalf("Update() model = %T, want ui.Model", nextModel)
-	}
-	if got := next.status.text; got != "Link copied: "+link {
-		t.Fatalf("status.text after shareCopiedMsg = %q, want %q", got, "Link copied: "+link)
-	}
-}
-
-func TestShareCopiedMsgFailureKeepsLink(t *testing.T) {
-	m := Model{}
-	link := "https://open.spotify.com/track/abc123"
-
-	nextModel, cmd := m.Update(shareCopiedMsg{link: link, err: errors.New("no clipboard backend found")})
-	if cmd != nil {
-		t.Fatalf("Update() cmd = %v, want nil", cmd)
-	}
-	next, ok := nextModel.(Model)
-	if !ok {
-		t.Fatalf("Update() model = %T, want ui.Model", nextModel)
-	}
-	want := "Copy failed, link: " + link + " (no clipboard backend found)"
-	if got := next.status.text; got != want {
-		t.Fatalf("status.text after failed shareCopiedMsg = %q, want %q", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{}
+			nextModel, cmd := m.Update(tt.msg)
+			if cmd != nil {
+				t.Fatalf("Update() cmd = %v, want nil", cmd)
+			}
+			next, ok := nextModel.(Model)
+			if !ok {
+				t.Fatalf("Update() model = %T, want ui.Model", nextModel)
+			}
+			if got := next.status.text; got != tt.want {
+				t.Fatalf("status.text = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
