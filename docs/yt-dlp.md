@@ -57,10 +57,10 @@ and the full captured stderr from each failed attempt are written to
 `cliamp.log` in the configuration directory, even with `log_level = "error"`.
 The location is `$CLIAMP_CONFIG_DIR/cliamp.log` when that override is set,
 otherwise `$XDG_CONFIG_HOME/cliamp/cliamp.log` when set, or normally
-`~/.config/cliamp/cliamp.log`. Signal exits (including processes killed on stop
-or seek) are logged only at `debug` level. Capture is limited to 64 KiB per
-process, with a truncation marker for longer output. On YouTube, common
-causes include:
+`~/.config/cliamp/cliamp.log`. Exits caused by cliamp's own teardown (the
+processes it stops on stop, seek, or an abandoned retry) are logged only at
+`debug` level. Capture is limited to 64 KiB per process, with a truncation
+marker for longer output. On YouTube, common causes include:
 
 - **Outdated yt-dlp.** yt-dlp warns when its version is more than 90 days old.
   Update it, or set `ytdlp_path` to a newer binary.

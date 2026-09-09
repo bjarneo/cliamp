@@ -274,17 +274,15 @@ func TestYTDLPipeCloseReapsBothProcesses(t *testing.T) {
 		_ = ytdlCmd.Wait()
 		t.Fatal(err)
 	}
-	ytdlErr, ytdlDone := monitorExit(ytdlCmd, &ytdlStderr, "yt-dlp")
-	ffmpegErr, ffmpegDone := monitorExit(ffmpegCmd, &ffmpegStderr, "ffmpeg")
 	y := &ytdlPipeStreamer{
-		ytdlCmd:    ytdlCmd,
-		ffmpegCmd:  ffmpegCmd,
-		pipe:       io.NopCloser(bytes.NewReader(nil)),
-		ytdlErr:    ytdlErr,
-		ffmpegErr:  ffmpegErr,
-		ytdlDone:   ytdlDone,
-		ffmpegDone: ffmpegDone,
+		ytdlCmd:   ytdlCmd,
+		ffmpegCmd: ffmpegCmd,
+		pipe:      io.NopCloser(bytes.NewReader(nil)),
 	}
+	ytdlErr, ytdlDone := monitorExit(ytdlCmd, &ytdlStderr, "yt-dlp", &y.closing)
+	ffmpegErr, ffmpegDone := monitorExit(ffmpegCmd, &ffmpegStderr, "ffmpeg", &y.closing)
+	y.ytdlErr, y.ffmpegErr = ytdlErr, ffmpegErr
+	y.ytdlDone, y.ffmpegDone = ytdlDone, ffmpegDone
 
 	start := time.Now()
 	if err := y.Close(); err != nil {
@@ -377,7 +375,7 @@ func TestMonitorExitYTDLDiagnostics(t *testing.T) {
 			if process == "" {
 				process = "yt-dlp"
 			}
-			ch, done := monitorExit(cmd, &stderr, process)
+			ch, done := monitorExit(cmd, &stderr, process, nil)
 			err := <-ch
 			<-done
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
@@ -406,9 +404,10 @@ func TestMonitorExitYTDLDiagnostics(t *testing.T) {
 	}
 }
 
-// PCM EOF can precede cmd.Wait completing; polling once loses the failure and
-// treats a broken stream as a successful end of track.
-func TestYTDLPipeStreamWaitsForExitDiagnostic(t *testing.T) {
+// PCM EOF can precede cmd.Wait completing; losing that failure would treat a
+// broken stream as a successful end of track. watchExitCause publishes it into
+// the same latch Player.StreamErr polls, without blocking the audio callback.
+func TestYTDLPipeWatchExitCausePublishesLateDiagnostic(t *testing.T) {
 	ytdlCh := make(chan error, 1)
 	ffmpegCh := make(chan error, 1)
 	cause := errors.New("yt-dlp: Video unavailable")
@@ -416,6 +415,7 @@ func TestYTDLPipeStreamWaitsForExitDiagnostic(t *testing.T) {
 		reader:  bufio.NewReader(strings.NewReader("")),
 		ytdlErr: ytdlCh, ffmpegErr: ffmpegCh, state: newPipeStreamState(0),
 	}
+	watched := y.watchExitCause()
 	go func() {
 		time.Sleep(20 * time.Millisecond)
 		ffmpegCh <- errors.New("ffmpeg: Invalid data found when processing input")
@@ -425,7 +425,136 @@ func TestYTDLPipeStreamWaitsForExitDiagnostic(t *testing.T) {
 	if n != 0 || ok {
 		t.Fatalf("Stream() = %d, %v, want EOF", n, ok)
 	}
-	if !errors.Is(y.Err(), cause) {
-		t.Errorf("Err() = %v, want yt-dlp cause", y.Err())
+	<-watched
+	if err := y.Err(); !errors.Is(err, cause) {
+		t.Errorf("Err() = %v, want yt-dlp cause", err)
 	}
+}
+
+// Stream runs on the speaker callback while the speaker lock is held, so an
+// unreported process exit must not stall audio, gapless promotion, or any UI
+// action that takes that lock.
+func TestYTDLPipeStreamDoesNotBlockOnEOF(t *testing.T) {
+	y := &ytdlPipeStreamer{
+		reader:  bufio.NewReader(strings.NewReader("")),
+		ytdlErr: make(chan error), ffmpegErr: make(chan error),
+		state: newPipeStreamState(0),
+	}
+	type streamResult struct {
+		n  int
+		ok bool
+	}
+	// The result travels back to the test goroutine: a failed assertion in the
+	// spawned one would panic after the timeout has already ended the test.
+	result := make(chan streamResult, 1)
+	go func() {
+		n, ok := y.Stream(make([][2]float64, 1))
+		result <- streamResult{n: n, ok: ok}
+	}()
+	select {
+	case got := <-result:
+		if got.n != 0 || got.ok {
+			t.Errorf("Stream() = %d, %v, want EOF", got.n, got.ok)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("Stream() blocked on EOF waiting for a process exit")
+	}
+}
+
+// Close kills both children on stop, seek, and abandoned retries. Those exits
+// are cleanup, not playback failures, so they must not reach StreamErr. A
+// killed process reports a signal on POSIX but exit status 1 on Windows, so
+// the teardown flag Close sets, not the exit code, decides.
+func TestYTDLPipeWatchExitCauseIgnoresTeardownExit(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		exit func(*testing.T) error
+	}{
+		{name: "signalled", exit: killedExitError},
+		// Guards against classifying teardown by exit code again: a Windows
+		// kill reports a plain status, indistinguishable from a real failure.
+		{name: "non-signal exit", exit: func(*testing.T) error { return errors.New("exit status 1") }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ytdlCh := make(chan error, 1)
+			ffmpegCh := make(chan error, 1)
+			y := &ytdlPipeStreamer{
+				reader:  bufio.NewReader(strings.NewReader("")),
+				ytdlErr: ytdlCh, ffmpegErr: ffmpegCh, state: newPipeStreamState(0),
+			}
+			y.closing.Store(true)
+			watched := y.watchExitCause()
+			ytdlCh <- &ytdlExitError{cause: tt.exit(t)}
+			ffmpegCh <- nil
+			<-watched
+			if err := y.Err(); err != nil {
+				t.Errorf("Err() = %v, want no playback error during teardown", err)
+			}
+		})
+	}
+}
+
+// ffmpeg buffers PCM in the kernel pipe while playback consumes it at rate, so
+// ffmpeg usually exits with audio still in flight. If cmd.Wait owns the read
+// end it closes it there, dropping the tail and turning the end of every track
+// into a "file already closed" error the UI treats as a stream failure.
+func TestYTDLPipeDeliversTailAfterFFmpegExits(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX process fixtures")
+	}
+	// Larger than the kernel pipe plus bufio buffer, so the fixture's exit
+	// leaves undelivered PCM behind without making the test slow.
+	const pcmBytes = 1 << 18
+	dir := t.TempDir()
+	writeExecutable(t, filepath.Join(dir, "yt-dlp"), "#!/bin/sh\nprintf 'audio'\n")
+	writeExecutable(t, filepath.Join(dir, "ffmpeg"), fmt.Sprintf(
+		"#!/bin/sh\ncat >/dev/null &\ndd if=/dev/zero bs=1024 count=%d 2>/dev/null\n", pcmBytes/1024))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(ytdlbin.EnvVar, "")
+
+	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
+	pipeline, err := p.buildYTDLPipeline("https://www.youtube.com/watch?v=tail", 0)
+	if err != nil {
+		t.Fatalf("buildYTDLPipeline() error = %v", err)
+	}
+	defer pipeline.decoder.Close()
+
+	// Consume slower than the fixture writes, as the speaker does, so ffmpeg
+	// exits while the kernel pipe still holds undelivered PCM.
+	frames := 0
+	buf := make([][2]float64, 256)
+	for {
+		time.Sleep(500 * time.Microsecond)
+		n, ok := pipeline.stream.Stream(buf)
+		frames += n
+		if !ok {
+			break
+		}
+	}
+	if want := pcmBytes / pcmFrameSize(false); frames != want {
+		t.Errorf("streamed %d frames, want %d: PCM tail lost at end of track", frames, want)
+	}
+	if err := pipeline.decoder.Err(); err != nil {
+		t.Errorf("Err() = %v, want a clean end of track", err)
+	}
+}
+
+// killedExitError returns the *exec.ExitError of a signalled process.
+func killedExitError(t *testing.T) error {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX process fixture")
+	}
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	err := cmd.Wait()
+	if err == nil {
+		t.Fatal("expected signal exit error")
+	}
+	return err
 }
