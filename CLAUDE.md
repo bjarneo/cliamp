@@ -13,7 +13,7 @@
 A TUI music player inspired by Winamp. Plays local files, HTTP streams, podcasts, and content from many providers: YouTube / YouTube Music, SoundCloud, Bilibili, Spotify, Xiaoyuzhou, Navidrome, Plex, Jellyfin, and a curated radio directory. Ships with a spectrum visualizer, 10-band parametric EQ, Lua plugin system, IPC remote control, and MPRIS/MediaRemote integration.
 
 - Site: https://cliamp.stream
-- Install: `curl -fsSL https://raw.githubusercontent.com/bjarneo/cliamp/HEAD/install.sh | sh`
+- Install: `curl -fsSL https://cliamp.stream/install.sh | sh`
 - Entry point: `main.go` → `run(...)` wires providers, player, playlist, Lua plugin manager, IPC server, and the Bubbletea program.
 - CLI built with `urfave/cli/v3` in `commands.go`.
 

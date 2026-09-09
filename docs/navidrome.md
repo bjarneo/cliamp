@@ -40,7 +40,7 @@ When focused on the provider panel:
 |---|---|
 | `Up` `Down` / `j` `k` | Navigate playlists |
 | `Enter` | Load the selected playlist |
-| `Tab` | Switch between provider and playlist focus |
+| `Tab` | Return to playback controls, starting at Source when visible ([navigation](keybindings.md#navigation)) |
 | `N` | Open the Navidrome browser |
 
 After you load a playlist, Cliamp returns to the standard playlist view. Use the usual controls for seek, volume, EQ, shuffle, repeat, queue, and search.
@@ -116,6 +116,10 @@ The Navidrome client (`external/navidrome/client.go`) implements this interface.
 Bubbletea commands get playlists and tracks asynchronously. The UI remains responsive while the server responds.
 
 To support another Subsonic-compatible server, such as Airsonic or Gonic, implement the same `Provider` interface for that server API.
+
+## Transcoding
+
+Cliamp will use transcoded files from Navidrome by default. The exact settings can be changed within Navidrome itself. If you want Navidrome to send raw music data (e.g. your flac files) instead of transcodes, add ``format = "raw"`` under ``[navidrome]`` section in ``config.toml``. A specific format (like mp3, aac, opus, etc.) can be set with the same configuration.
 
 ## Requirements
 

@@ -42,6 +42,7 @@ are in `provider/interfaces.go`.
 | `ArtistBrowser` | Hierarchical artist browsing | `Artists()`, `ArtistAlbums(id)` |
 | `TrackArtistResolver` | Jump from a highlighted provider track to its artist/creator with `N` | `ArtistForTrack(track)` |
 | `BrowseEntryProvider` | Add non-playable shortcuts into the provider playlist pane | `BrowseEntries()`; each entry can set `AfterID`, `AfterSection`, and `OpenInPlaylist` |
+| `BrowseModeProvider` | Restrict the inferred browser routes, e.g. podcast categories must open shows rather than load every feed | `BrowseModes()` |
 | `GenreBrowser` | Hierarchical category browsing with provider-defined sort views | `Genres()`, `GenreSortTypes()`, `GenreTracks(genreID, sortType)` |
 | `GenreBrowseRouter` | Route multiple provider-pane entries to distinct category catalogues | `GenreBrowserFor(entryID)` |
 | `GenreFavoriteToggler` | Favorite/unfavorite categories with `f` in the genre browser | `ToggleGenreFavorite(genreID)` |

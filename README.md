@@ -16,7 +16,7 @@ https://github.com/user-attachments/assets/fbc33d20-e3ac-4a62-a991-8a2f0243c8ea
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/bjarneo/cliamp/HEAD/install.sh | sh
+curl -fsSL https://cliamp.stream/install.sh | sh
 ```
 
 **Homebrew**
@@ -117,6 +117,11 @@ The wizard guides you through each provider. It writes the required block to you
 See the [Mixcloud provider guide](docs/mixcloud.md) for discovery, account,
 creator/show, genre search, local genre favorites, authentication, signed-in
 playback, resume, seeking, and limitations.
+
+For podcast discovery and subscriptions, run `cliamp --provider podcast`.
+Browse Apple's top 100 shows and 19 categories, search with `/` then `Enter`,
+and subscribe with `f`. No account or API key is needed.
+See the [Podcasts guide](docs/podcasts.md).
 
 ## Radio
 

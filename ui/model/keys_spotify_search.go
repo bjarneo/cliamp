@@ -131,6 +131,13 @@ func (m *Model) handleSpotSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.spotSearch.err = ""
 			return fetchSpotPlaylistsCmd(m.spotSearch.prov, nextRequest(&m.requests.spotLists))
 		}
+	case "f":
+		if !m.spotSearchBusy() && m.spotSearch.cursor >= 0 && m.spotSearch.cursor < count {
+			track := m.spotSearch.results[m.spotSearch.cursor]
+			if track.IsAlbum() && m.toggleFavorite(m.spotSearch.prov, track.AlbumID()) && m.isActiveProvider(m.spotSearch.prov.Name()) {
+				return m.fetchProviderPlaylists()
+			}
+		}
 	case "esc", "backspace":
 		m.invalidateSpotAlbumRequest()
 		nextRequest(&m.requests.spotLists)

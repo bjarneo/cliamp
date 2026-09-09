@@ -92,6 +92,12 @@ simplified = false
 # Hide the key-binding hint bar above the status line.
 hide_help_bar = false
 
+# Close the Settings pane beside the playlist (Ctrl+B toggles and saves).
+hide_settings_pane = false
+
+# Show highlighted-playlist metadata below Settings (Ctrl+I toggles and saves).
+show_metadata = false
+
 # UI theme name (see available themes in ~/.config/cliamp/themes/)
 theme = "Tokyo Night"
 
@@ -109,10 +115,46 @@ cliamp adapts its playback screen to the terminal size:
 
 | Terminal size | Layout |
 | --- | --- |
-| At least `80x24` | Full controls, five visualizer rows (see `vis_rows`), and detailed source controls |
-| At least `56x16` | Compact controls and three visualizer rows |
+| At least `80x24` | Two columns below the seek bar, seven visualizer rows (see `vis_rows`), and detailed source controls |
+| At least `56x16` | Compact controls and five visualizer rows |
 | At least `40x10` | Minimal playback, list, seek bar, and help layout |
 | Smaller than `40x10` | Resize message only |
+
+At the full tier the playback screen splits below the seek bar: the playlist
+fills the left column and a `Settings` pane fills the right one. The pane reads
+as a signal chain: the source (`SRC`), then volume (`VOL`) and the EQ preset
+with its ten bands, then how the list plays — shuffle (`SHF`), repeat (`RPT`),
+and speed (`SPD`) — and last the live network counters for a stream (`NET`).
+Shuffle and repeat move out of the playlist header here, which keeps its
+counts: queue, bookmarks, favorites, and position. The rows those
+controls used to occupy above and below the playlist go to the playlist itself.
+The title, track line, time, visualizer, seek bar, and hint bar stay full width.
+Narrower terminals, simplified mode, overlays, and list views keep the stacked
+single-column layout, with shuffle and repeat back in the header.
+
+In full and compact playback layouts, `Tab` cycles from Playlist through Source,
+Volume, EQ, Shuffle, Repeat, and Speed, then returns to Playlist. `Shift+Tab`
+reverses the order. Only visible controls participate; Source is skipped when
+only one provider is available. See [keybindings](keybindings.md#navigation) for
+each control's keys.
+
+The pane is open unless `hide_settings_pane = true`. `Ctrl+B` toggles it and
+writes the new value back to that key, so it comes back the way you left it.
+With the pane closed the playlist takes the full
+frame width and one chrome row is kept above it: the active source on the left
+and the volume meter on the right. The EQ readout, the speed indicator, and the
+download counters are not drawn — `e` still cycles the EQ preset and `[` / `]`
+still change speed, but their readouts are gone, so `Tab` skips the EQ and
+speed stops rather than landing on a control you cannot see. Shuffle and repeat
+return to the playlist header. The two rows this frees go to the playlist.
+Closing Settings also hides Metadata without changing `show_metadata`.
+
+A short body — a tall `vis_rows` leaves the pane few rows — sheds rows by how
+readily they are missed rather than by position: the network counters go first,
+then the EQ band gains, then shuffle and repeat together. Hidden controls are
+also skipped by `Tab` and `Shift+Tab`. Those groups drop whole, so the pane can end
+up a row shorter than it was given. A playlist header too narrow for all its
+badges drops whole badges off the tail rather than clipping one mid-word.
 
 `simplified = true` replaces the main playback view with the current track
 artist/title, time, and seek-progress strip. It hides the visualizer, playback
@@ -121,15 +163,57 @@ layout. Start one session with `cliamp --simplified`.
 
 `hide_help_bar = true` removes the key-binding hint bar above the status line
 and gives that row back to the playlist. The full keymap stays available with
-`?`, and `Ctrl+G` toggles the bar for the current session. Use
-`cliamp --no-help-bar` to hide it for one session, or `cliamp --help-bar` to
-show it despite this setting. Simplified mode draws neither the hint bar nor a
-playlist, so it is unaffected by this setting.
+`?`. `Ctrl+G` toggles the bar and writes the new value back to this key, so the
+bar comes back the way you left it. Use `cliamp --no-help-bar` to hide it for
+one session, or `cliamp --help-bar` to show it despite this setting. Simplified
+mode draws neither the hint bar nor a playlist, so it is unaffected by this
+setting.
 
 List views such as provider browsing, file selection, queues, playlists, search
 results, themes, and keybindings use a content-first layout. This layout replaces
 the visualizer and detailed controls with a compact now-playing summary. It leaves
 more rows for navigation. The visualizer picker keeps its live preview.
+
+### Metadata
+
+The read-only `Metadata` section sits below Settings and is hidden by default.
+In the main playback view, `Ctrl+I` toggles it and saves the
+top-level `show_metadata` preference. The default is `show_metadata = false`,
+so the existing layout stays unchanged until you enable it. Metadata is not a
+separate Tab stop, and the toggle is inactive while an input field is active.
+
+`Ctrl+I` requires enhanced keyboard reporting to distinguish it from `Tab`.
+On terminals that send both keys identically, `Tab` navigation takes precedence;
+use lowercase `i` for full info or set `show_metadata = true` in the config.
+
+Metadata describes the **highlighted playlist item**, not necessarily the item
+currently playing: a song, podcast episode, or radio stream. Moving the highlight
+uses fields already loaded on that track, with no provider or network lookup.
+Provider browsers and other list views do not show the section.
+
+Available fields are Title, Artist (Show for podcast episodes), Album, Genre
+(Tags for live radio), Date or Year, Track or Episode, and Length. Album is
+omitted when it duplicates the artist/show. A podcast publication Date takes
+precedence over Year. Radio can also show Country, Region, Codec, Bitrate in
+kbps, and Type: Live radio. Live now-playing text appears as Playing only when
+the selected stream is the one playing. Unknown fields are omitted.
+
+In the full two-column layout, opening Metadata can borrow visualizer rows,
+keeping at least one row when the visualizer is enabled. It does not overwrite
+`vis_rows`; closing Metadata restores the configured height as space allows.
+It never removes the six direct settings (Source, Volume, EQ, Shuffle, Repeat,
+Speed) to make room. If there is no room for details after those controls, the
+section stays hidden. When fields exceed the section's row budget, it shows
+`i: more details`.
+
+The compact Metadata section omits Path. From the playlist, lowercase `i` opens
+the full, scrollable info view for the same highlighted item, including Path.
+Use `Up`/`Down` or `j`/`k` to scroll, and `i` or `Esc` to close it.
+
+When enabling Metadata in a narrow or simplified layout, with Settings closed,
+or with a sidebar too short for details, `Ctrl+I` opens that full info overlay
+instead. The preference remains saved so the section appears when you return
+to a wide playback layout with enough room and Settings open.
 
 ## Secrets from Environment Variables
 
@@ -188,9 +272,27 @@ Set the provider that cliamp opens at start:
 provider = "radio"
 ```
 
-Valid values: `radio` (default), `navidrome`, `lyrion`, `spotify`, `plex`, `jellyfin`, `emby`, `qobuz`, `tidal`, `soundcloud`, `mixcloud`, `netease`, `audiobookshelf`, `yt`, `youtube`, `ytmusic`.
+Valid values: `radio` (default), `podcast`, `navidrome`, `lyrion`, `spotify`, `plex`, `jellyfin`, `emby`, `qobuz`, `tidal`, `soundcloud`, `mixcloud`, `netease`, `audiobookshelf`, `yt`, `youtube`, `ytmusic`.
 
 You can also override this setting on the CLI: `cliamp --provider jellyfin`.
+
+## Podcasts
+
+Podcasts is always registered: no `enabled` setting, API key, account, or setup
+wizard is needed. Start with `cliamp --provider podcast`, or set the top-level
+`provider = "podcast"` in `config.toml`.
+
+The optional `[podcast]` block selects the country for Apple's top 100 chart:
+
+```toml
+[podcast]
+country = "no"
+```
+
+`country` is a two-letter country code, defaulting to `"us"` without location
+detection. It affects charts only, not show searches, categories, subscriptions,
+or publisher feeds. Subscriptions are saved in `podcast_subscriptions.json` in
+the config directory. See [podcasts.md](podcasts.md) for discovery and controls.
 
 ## SoundCloud
 

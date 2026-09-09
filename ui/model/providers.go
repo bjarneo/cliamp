@@ -1,6 +1,7 @@
 package model
 
 import (
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -19,6 +20,7 @@ func (m *Model) resetProviderNav() {
 	m.provScroll = 0
 	m.provLoading = true
 	m.provSearch.active = false
+	m.provSearch.loading = false
 	m.provSearch.query = ""
 	m.provSearch.results = nil
 	m.provSearch.cursor = 0
@@ -165,7 +167,7 @@ func (m *Model) fetchCatalogBatch(loader provider.CatalogLoader) tea.Cmd {
 
 // quickSwitchProvider closes any browser overlays and jumps to the provider
 // matched by key. Use the same Shift+letter shortcuts that switch providers
-// from the main pane (S, N, P, J, E, B, Y, C, X, M, Q, R, L). Returns nil when the key doesn't
+// from the main pane (S, N, P, J, E, B, Y, C, X, M, Q, T, R, L, O). Returns nil when the key doesn't
 // match a known provider.
 func (m *Model) quickSwitchProvider(key string) tea.Cmd {
 	provKey := providerKeyForShortcut(key)
@@ -212,6 +214,8 @@ func providerKeyForShortcut(key string) string {
 		return "local"
 	case "R":
 		return "radio"
+	case "O":
+		return "podcast"
 	}
 	return ""
 }
@@ -238,6 +242,9 @@ type browseEntryGroup struct {
 // provider's playable playlist list. Keeping these routes out of Playlists()
 // means IPC and other playlist consumers never mistake them for audio lists.
 func providerListsWithBrowse(prov playlist.Provider, lists []playlist.PlaylistInfo) []playlist.PlaylistInfo {
+	if cs, ok := prov.(provider.CatalogSearcher); ok && cs.IsSearching() {
+		return lists
+	}
 	entries, ok := prov.(provider.BrowseEntryProvider)
 	if !ok {
 		return lists
@@ -527,6 +534,9 @@ func (m *Model) openNavBrowserEntry(prov playlist.Provider, entry provider.Brows
 
 // openNavBrowserRoute resolves and loads one concrete provider browse route.
 func (m *Model) openNavBrowserRoute(prov playlist.Provider, mode provider.BrowseMode, entryID string, openInPlaylist bool) tea.Cmd {
+	if restricted, ok := prov.(provider.BrowseModeProvider); ok && !slices.Contains(restricted.BrowseModes(), mode) {
+		return nil
+	}
 	m.openNavBrowserWith(prov)
 	m.navBrowser.openInPlaylist = openInPlaylist
 	switch mode {

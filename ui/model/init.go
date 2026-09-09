@@ -132,6 +132,20 @@ func (m *Model) SetHideHelpBar(v bool) {
 	m.refreshChrome()
 }
 
+// SetHideSettingsPane closes the settings pane beside the playlist, returning
+// the playback screen to its single-column layout where the same settings are
+// drawn as stacked rows.
+func (m *Model) SetHideSettingsPane(v bool) {
+	m.hideSettings = v
+	m.refreshChrome()
+}
+
+// SetShowMetadata expands the highlighted-track details below Settings.
+func (m *Model) SetShowMetadata(v bool) {
+	m.showMetadata = v
+	m.refreshChrome()
+}
+
 // SetInitialDirectory sets the initial directory for the file browser.
 func (m *Model) SetInitialDirectory(dir string) { m.initialDir = dir }
 
@@ -200,6 +214,29 @@ func (m *Model) SetResume(path string, secs int) {
 	m.resume.secs = secs
 }
 
+// SetResumeSaver enables continuous playback-context persistence.
+func (m *Model) SetResumeSaver(save ResumeSaver) {
+	m.resumeSaver = save
+	if save != nil && m.playlist != nil {
+		// Updating entries preserves selection, shuffle order, and queued playback.
+		for i, track := range playlist.WithPlaybackContext(m.playlist.Tracks()) {
+			m.playlist.SetTrack(i, track)
+		}
+	}
+}
+
+// SetInitialTrack selects the restored track without starting playback.
+func (m *Model) SetInitialTrack(index int) {
+	if m.playlist == nil || index < 0 || index >= m.playlist.Len() {
+		return
+	}
+	m.playlist.SetIndex(index)
+	m.plCursor = index
+	tracks := m.playlist.Tracks()
+	m.setPlaybackContext(tracks, index)
+	m.setHeaderStateFromTracks(tracks)
+}
+
 // ResumePlaylist loads a playlist into the model for session resume.
 func (m *Model) ResumePlaylist(name string, tracks []playlist.Track) {
 	m.replacePlaylist(tracks)
@@ -211,6 +248,11 @@ func (m *Model) ResumePlaylist(name string, tracks []playlist.Track) {
 // Called after prog.Run() returns (player already closed).
 func (m Model) ResumeState() (path string, secs int, playlist string) {
 	return m.exitResume.path, m.exitResume.secs, m.exitResume.playlist
+}
+
+// ResumeContext returns the complete list the active track was selected from.
+func (m Model) ResumeContext() ([]playlist.Track, int) {
+	return cloneTracks(m.exitResume.context), m.exitResume.contextIndex
 }
 
 // ThemeName returns the current theme name.

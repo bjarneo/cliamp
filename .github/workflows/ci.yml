@@ -22,7 +22,7 @@ jobs:
       - run: make fmt-check vet staticcheck security
       - run: go test -count=1 -race ./...
       - run: make coverage
-      - run: shellcheck install.sh
+      - run: shellcheck site/install.sh
       - run: git diff --exit-code
 
   build:
@@ -42,7 +42,22 @@ jobs:
           go-version-file: go.mod
       - name: Install codec libs (macOS)
         if: matrix.goos == 'darwin'
-        run: brew install flac libvorbis libogg mpg123 pkg-config
+        run: |
+          brew install flac libvorbis libogg mpg123 pkg-config
+          # Make sure pkg-config resolves the version just poured rather than
+          # a leftover symlink into an older Cellar directory.
+          brew link --overwrite flac libvorbis libogg mpg123
+          pkg-config --libs libmpg123 flac vorbis ogg
+      - name: Discard cached cgo objects (macOS)
+        if: matrix.goos == 'darwin'
+        # cgo records the -L paths pkg-config returned when a package was
+        # compiled, and Homebrew's paths carry the exact codec version. The
+        # restored build cache is keyed on go.sum alone, so once the runner
+        # image moves mpg123 to a new version those cached objects keep
+        # linking against a Cellar directory that no longer exists. Dropping
+        # the build cache costs a cold cgo build; the module cache is
+        # untouched.
+        run: go clean -cache
       - name: Set up MinGW toolchain (Windows)
         if: matrix.goos == 'windows'
         uses: msys2/setup-msys2@v2

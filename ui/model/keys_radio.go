@@ -3,6 +3,7 @@ package model
 import (
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
 
@@ -13,7 +14,7 @@ func (m *Model) maybeLoadCatalogBatch() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	if m.catalogBatch.loading || m.catalogBatch.done {
+	if m.catalogBatch.loading || m.catalogBatch.done || m.provSearch.active || m.provSearch.loading {
 		return nil
 	}
 	if cs, ok := m.provider.(provider.CatalogSearcher); ok && cs.IsSearching() {
@@ -55,10 +56,9 @@ func (m *Model) answerLocationPrompt(allowed bool) tea.Cmd {
 }
 
 // toggleProviderFavorite toggles favorite status for the current entry in the
-// provider list (only works for providers implementing FavoriteToggler + SectionedList).
+// provider list when the provider supports it.
 func (m *Model) toggleProviderFavorite() tea.Cmd {
-	ft, ok := m.provider.(provider.FavoriteToggler)
-	if !ok || len(m.providerLists) == 0 {
+	if m.provLoading || m.provCursor < 0 || m.provCursor >= len(m.providerLists) || m.selectedProviderListIsBrowseEntry() {
 		return nil
 	}
 	id := m.providerLists[m.provCursor].ID
@@ -67,14 +67,8 @@ func (m *Model) toggleProviderFavorite() tea.Cmd {
 			return nil
 		}
 	}
-	added, name, err := ft.ToggleFavorite(id)
-	if err != nil {
+	if !m.toggleFavorite(m.provider, id) {
 		return nil
-	}
-	if added {
-		m.status.Showf(statusTTLMedium, "Favorited: %s", name)
-	} else {
-		m.status.Showf(statusTTLMedium, "Removed: %s", name)
 	}
 
 	prevID := id
@@ -91,4 +85,23 @@ func (m *Model) toggleProviderFavorite() tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// toggleFavorite shares persistence feedback without decorating item metadata.
+func (m *Model) toggleFavorite(prov playlist.Provider, id string) bool {
+	ft, ok := prov.(provider.FavoriteToggler)
+	if !ok || id == "" {
+		return false
+	}
+	added, name, err := ft.ToggleFavorite(id)
+	if err != nil {
+		m.status.Errorf(statusTTLDefault, "Favorite save failed: %s", err)
+		return false
+	}
+	if added {
+		m.status.Showf(statusTTLMedium, "Favorited: %s", name)
+	} else {
+		m.status.Showf(statusTTLMedium, "Removed: %s", name)
+	}
+	return true
 }

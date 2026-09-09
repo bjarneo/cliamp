@@ -74,6 +74,7 @@ type NavidromeConfig struct {
 	URL              string // e.g. "https://music.example.com"
 	User             string
 	Password         string
+	Format           string
 	BrowseSort       string // album browse sort order, e.g. "alphabeticalByName"
 	ScrobbleDisabled bool   // true only when "scrobble = false" is explicitly set
 }
@@ -218,6 +219,11 @@ type RadioConfig struct {
 	Country string
 }
 
+// PodcastConfig tunes the always-available public podcast directory.
+type PodcastConfig struct {
+	Country string // two-letter country code for Apple charts (default "us")
+}
+
 // SoundCloudConfig holds settings for the SoundCloud provider.
 // SoundCloud is opt-in: requires enabled = true in [soundcloud] before the
 // provider registers. Setting User exposes that profile's Tracks/Likes/Reposts
@@ -346,7 +352,7 @@ type Config struct {
 	Speed            float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
 	AutoPlay         bool                         // start playback automatically on launch (radio streams, CLI tracks)
 	SeekStepLarge    int                          // seconds for Shift+Left/Right seek jumps
-	Provider         string                       // default provider: "radio", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "mixcloud", "netease", "yandex", "ytmusic" (default "radio")
+	Provider         string                       // default provider: "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "mixcloud", "netease", "yandex", "ytmusic" (default "radio")
 	Theme            string                       // theme name, or "" for ANSI default
 	Visualizer       string                       // visualizer mode name, or "" for default (Bars)
 	VisRows          int                          // visualizer height in rows at the full layout tier, or 0 for the built-in default
@@ -356,6 +362,8 @@ type Config struct {
 	BitDepth         int                          // PCM bit depth for FFmpeg output: 16 or 32
 	Simplified       bool                         // simplified playback view: track summary and time strip
 	HideHelpBar      bool                         // hide the key-binding hint bar above the status line
+	HideSettingsPane bool                         // close the settings pane beside the playlist
+	ShowMetadata     bool                         // expand highlighted-track metadata below settings (default false)
 	PaddingH         int                          // horizontal padding for the UI frame (default 3)
 	PaddingV         int                          // vertical padding for the UI frame (default 1)
 	AudioDevice      string                       // preferred audio output device name (empty = system default)
@@ -372,6 +380,7 @@ type Config struct {
 	Emby             EmbyConfig                   // optional Emby server credentials
 	Audiobookshelf   AudiobookshelfConfig         // optional Audiobookshelf server credentials
 	Radio            RadioConfig                  // built-in Radio provider settings
+	Podcast          PodcastConfig                // built-in podcast directory settings
 	SoundCloud       SoundCloudConfig             // SoundCloud provider (opt-in via enabled = true)
 	Mixcloud         MixcloudConfig               // Mixcloud provider (opt-in via enabled = true)
 	NetEase          NetEaseConfig                // NetEase Cloud Music provider (opt-in via enabled = true)
@@ -482,6 +491,8 @@ func Load() (Config, error) {
 				cfg.Navidrome.Password = parseString(val)
 			case "browse_sort":
 				cfg.Navidrome.BrowseSort = parseString(val)
+			case "format":
+				cfg.Navidrome.Format = parseString(val)
 			case "scrobble":
 				// Opt-out: only mark disabled when the value is explicitly "false".
 				cfg.Navidrome.ScrobbleDisabled = strings.ToLower(val) == "false"
@@ -555,6 +566,10 @@ func Load() (Config, error) {
 			switch key {
 			case "country":
 				cfg.Radio.Country = strings.TrimSpace(parseString(val))
+			}
+		case "podcast":
+			if key == "country" {
+				cfg.Podcast.Country = strings.TrimSpace(parseString(val))
 			}
 		case "soundcloud":
 			switch key {
@@ -723,6 +738,10 @@ func Load() (Config, error) {
 				cfg.Simplified = val == "true"
 			case "hide_help_bar":
 				cfg.HideHelpBar = val == "true"
+			case "hide_settings_pane":
+				cfg.HideSettingsPane = val == "true"
+			case "show_metadata":
+				cfg.ShowMetadata = val == "true"
 			case "audio_device":
 				cfg.AudioDevice = parseString(val)
 			case "initial_directory":

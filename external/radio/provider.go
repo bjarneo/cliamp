@@ -38,7 +38,12 @@ var (
 )
 
 const builtinName = "cliamp radio"
-const builtinURL = "https://radio.cliamp.stream/streams.m3u"
+
+// BuiltinURL is the M3U listing the cliamp radio channels. It is the single
+// source of truth for that station list: the provider serves it as the
+// "cliamp radio" entry, and the default startup playlist resolves the same URL
+// so both show the same channels, in the same order, under the same titles.
+const BuiltinURL = "https://radio.cliamp.stream/streams.m3u"
 
 // Section headings for each ID prefix, shown above the rows they cover in the
 // radio pane. The browse shortcut shares the pinned-places heading so the two
@@ -72,17 +77,18 @@ const CountryDeclined = "none"
 // It combines local stations, pinned places, user favorites, and catalog
 // stations from the Radio Browser API into a single unified list.
 type Provider struct {
-	mu            sync.Mutex
-	stations      []station        // built-in + user-defined (radios.toml)
-	favorites     *Favorites       // user favorites (radio_favorites.toml)
-	pins          *Pins            // pinned countries and regions (radio_countries.toml)
-	home          Place            // listener's own country; zero when unknown
-	catalog       []CatalogStation // lazily loaded from Radio Browser API
-	searchResults []CatalogStation // non-nil when API search is active
-	countries     []Country        // cached country index, nil until first browse
-	states        []State          // cached regions of the home country
-	tags          []Tag            // cached tag index, nil until first browse
-	tagGeneration uint64           // incremented when Refresh invalidates a tag fetch
+	mu               sync.Mutex
+	stations         []station        // built-in + user-defined (radios.toml)
+	favorites        *Favorites       // user favorites (radio_favorites.toml)
+	pins             *Pins            // pinned countries and regions (radio_countries.toml)
+	home             Place            // listener's own country; zero when unknown
+	catalog          []CatalogStation // lazily loaded from Radio Browser API
+	searchResults    []CatalogStation // non-nil when API search is active
+	searchGeneration uint64           // invalidates pending searches when search state changes
+	countries        []Country        // cached country index, nil until first browse
+	states           []State          // cached regions of the home country
+	tags             []Tag            // cached tag index, nil until first browse
+	tagGeneration    uint64           // incremented when Refresh invalidates a tag fetch
 	// locationSettled is false only until the listener answers the location
 	// question. It gates whether to ask, not whether p.home may be used.
 	locationSettled bool
@@ -99,7 +105,7 @@ type station struct {
 func New(opts Options) *Provider {
 	p := &Provider{
 		stations: []station{
-			{name: builtinName, url: builtinURL},
+			{name: builtinName, url: BuiltinURL},
 		},
 	}
 
@@ -244,36 +250,60 @@ func (p *Provider) Tracks(id string) ([]playlist.Track, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	var url, title string
+	var s CatalogStation
 	switch prefix {
 	case "l":
 		if idx < 0 || idx >= len(p.stations) {
 			return nil, errors.New("invalid local station index")
 		}
-		url, title = p.stations[idx].url, p.stations[idx].name
+		return []playlist.Track{{
+			Path: p.stations[idx].url, Title: p.stations[idx].name, Stream: true, Realtime: true,
+		}}, nil
 	case "f":
 		favs := p.favorites.Stations()
 		if idx < 0 || idx >= len(favs) {
 			return nil, errors.New("invalid favorite index")
 		}
-		url, title = favs[idx].URL, favs[idx].Name
+		s = favs[idx]
 	case "c":
 		if idx < 0 || idx >= len(p.catalog) {
 			return nil, errors.New("invalid catalog station index")
 		}
-		url, title = p.catalog[idx].URL, p.catalog[idx].Name
+		s = p.catalog[idx]
 	case "s":
 		if p.searchResults == nil || idx < 0 || idx >= len(p.searchResults) {
 			return nil, errors.New("invalid search result index")
 		}
-		url, title = p.searchResults[idx].URL, p.searchResults[idx].Name
+		s = p.searchResults[idx]
 	default:
 		return nil, errors.New("unknown station type")
 	}
 
-	return []playlist.Track{{
-		Path: url, Title: title, Stream: true, Realtime: true,
-	}}, nil
+	return []playlist.Track{stationTrack(s)}, nil
+}
+
+// stationTrack retains metadata already supplied by the directory or favorites.
+func stationTrack(s CatalogStation) playlist.Track {
+	track := playlist.Track{
+		Path: s.URL, Title: s.Name, Genre: s.Tags, Stream: true, Realtime: true,
+	}
+	meta := make(map[string]string, 4)
+	if s.Country != "" {
+		meta["radio.country"] = s.Country
+	}
+	if s.Codec != "" {
+		meta["radio.codec"] = s.Codec
+	}
+	if s.Bitrate > 0 {
+		meta["radio.bitrate"] = strconv.Itoa(s.Bitrate)
+	}
+	if s.State != "" {
+		meta["radio.state"] = s.State
+	}
+	if len(meta) > 0 {
+		track.ProviderMeta = meta
+	}
+	return track
 }
 
 // placeAt returns the place at index idx of the pane's Countries section.
@@ -346,10 +376,12 @@ func (p *Provider) ToggleFavorite(id string) (added bool, name string, err error
 
 // SetSearchResults activates search mode with the given results.
 // Playlists() will return search results instead of catalog stations.
+// Any pending search is invalidated.
 func (p *Provider) SetSearchResults(stations []CatalogStation) {
 	stations = streamableStations(stations)
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.searchGeneration++
 	p.searchResults = stations
 }
 
@@ -381,10 +413,12 @@ func streamableStations(stations []CatalogStation) []CatalogStation {
 	return filtered
 }
 
-// ClearSearch deactivates search mode, restoring the catalog view.
+// ClearSearch deactivates search mode, restoring the catalog view, and
+// invalidates any pending search.
 func (p *Provider) ClearSearch() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.searchGeneration++
 	p.searchResults = nil
 }
 
@@ -409,14 +443,25 @@ func (p *Provider) LoadCatalogPage(offset, limit int) (int, error) {
 }
 
 // SearchCatalog performs a server-side station search via the Radio Browser
-// API. Results are reflected in subsequent Playlists() calls.
+// API. Only the latest search can commit results to subsequent Playlists() calls.
 // Implements provider.CatalogSearcher.
 func (p *Provider) SearchCatalog(query string) (int, error) {
+	p.mu.Lock()
+	p.searchGeneration++
+	generation := p.searchGeneration
+	p.mu.Unlock()
+
 	stations, err := Stations(StationQuery{Name: query, Order: SortVotes, Limit: searchLimit})
 	if err != nil {
 		return 0, err
 	}
-	p.SetSearchResults(stations)
+	filtered := streamableStations(stations)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.searchGeneration != generation {
+		return 0, nil
+	}
+	p.searchResults = filtered
 	return len(stations), nil
 }
 

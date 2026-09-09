@@ -331,6 +331,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.preloadNext())
 			m.notifyAll()
 		}
+		m.tickResumeSave(now)
 		// Check if gapless drained (end of playlist, no preloaded next).
 		// Skip if already buffering a yt-dlp download to avoid advancing
 		// the playlist on every tick while waiting for the resolve.
@@ -387,7 +388,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.gen != m.requests.provider || !m.isActiveProvider(msg.providerName) {
 			return m, nil
 		}
-		m.provLoading = false
+		m.provLoading = m.provSearch.loading
 		if msg.err != nil {
 			if errors.Is(msg.err, resolve.ErrMissingSecretStorage) {
 				b := resolve.SecretStorageBrowser(msg.err)
@@ -412,8 +413,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status.Warningf(statusTTLLong, "%s", msg.err)
 		}
 		m.providerLists = providerListsWithBrowse(m.provider, msg.playlists)
+		m.provCursor = min(m.provCursor, max(0, len(m.providerLists)-1))
 		// Start loading catalog when the provider supports lazy catalog loading.
-		if loader, ok := m.provider.(provider.CatalogLoader); ok && !m.catalogBatch.loading && !m.catalogBatch.done {
+		if cs, ok := m.provider.(provider.CatalogSearcher); ok && cs.IsSearching() {
+			return m, nil
+		}
+		if loader, ok := m.provider.(provider.CatalogLoader); ok && !m.catalogBatch.loading && !m.catalogBatch.done && !m.provSearch.active && !m.provSearch.loading {
 			m.catalogBatch.loading = true
 			return m, m.fetchCatalogBatch(loader)
 		}
@@ -527,6 +532,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.replacePlayerPlaylist(msg.tracks)
+			m.activeProviderPlaylistID = ""
+			if pr, ok := m.navBrowser.prov.(playlist.RefreshablePlaylist); ok &&
+				m.isActiveProvider(m.navBrowser.prov.Name()) && pr.CanRefreshPlaylist(m.navBrowser.selAlbum.ID) {
+				m.activeProviderPlaylistID = m.navBrowser.selAlbum.ID
+			}
 			m.navBrowser.visible = false
 			m.status.Successf(statusTTLDefault, "Replaced queue with %d tracks", len(msg.tracks))
 			m.notifyAll()
@@ -546,7 +556,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.catalogBatch.loading = false
 		if msg.err != nil {
 			m.catalogBatch.done = true
-			m.status.Error("Catalog load failed", statusTTLDefault)
+			m.status.Errorf(statusTTLDefault, "Catalog load failed: %s", msg.err)
 			return m, nil
 		}
 		if msg.added == 0 {
@@ -567,8 +577,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.provLoading = false
+		m.provSearch.loading = false
 		if msg.err != nil {
-			m.status.Error("Search failed", statusTTLDefault)
+			m.status.Errorf(statusTTLDefault, "Search failed: %s", msg.err)
 		} else {
 			if lists, err := m.provider.Playlists(); err == nil {
 				m.providerLists = providerListsWithBrowse(m.provider, lists)
@@ -576,7 +587,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.provCursor = 0
 			m.provScroll = 0
 			if msg.count == 0 {
-				m.status.Warning("No stations found", statusTTLDefault)
+				m.status.Warning("No results found", statusTTLDefault)
 			}
 		}
 		return m, nil
@@ -1244,6 +1255,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ipcProviderLoadResult:
 		return m, m.handleIPCProviderLoad(msg)
+
+	case ipcFeedLoadResult:
+		return m, m.handleIPCFeedLoad(msg)
 
 	case ipc.LyricsRequestMsg:
 		return m, m.handleIPCLyrics(msg)

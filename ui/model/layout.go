@@ -23,7 +23,73 @@ type frameLayout struct {
 	visualizerRows     int
 	baseVisualizerRows int
 	fullVisualizerRows int
+	// twoColumn splits the body region into the playlist (left) and the
+	// settings pane (right); the two widths are zero when it is off.
+	twoColumn     bool
+	playlistWidth int
+	settingsWidth int
+	// closedSettings is the same full-tier playback screen with the pane shut:
+	// source and volume share one row and the EQ, speed, and download readouts
+	// are not drawn at all.
+	closedSettings bool
 }
+
+// chromeRowsFreed is how many stacked chrome rows the current layout does not
+// draw, and therefore hands to the playlist.
+func (l frameLayout) chromeRowsFreed() int {
+	switch {
+	case l.twoColumn:
+		return twoColumnChromeRows
+	case l.closedSettings:
+		return closedSettingsChromeRows
+	default:
+		return 0
+	}
+}
+
+// Two-column body geometry. The columns are separated by blank space rather
+// than a rule, so the gutter has to be wide enough to read as a break on its
+// own. The settings pane is clamped so it never crowds out the playlist, and
+// the split is abandoned entirely when the playlist would end up narrower than
+// playlistMinWidth.
+const (
+	// columnGutter is the blank channel between the two columns. It runs
+	// unbroken down the body, which is what separates them. Its width is the
+	// declared one, not len(): a non-ASCII gutter would make those differ.
+	columnGutterWidth = 5
+	columnGutter      = "     "
+	settingsMinWidth  = 22
+	settingsMaxWidth  = 30
+	playlistMinWidth  = 40
+	// twoColumnChromeRows counts the stacked rows the two-column body does not
+	// draw: the EQ/volume row, the source row, and the status line, which all
+	// move into the settings pane, plus the blank spacer above the hint bar,
+	// which the pane's own blank tail makes redundant.
+	twoColumnChromeRows = 4
+	// closedSettingsChromeRows counts what the closed-pane layout drops
+	// instead: the EQ row (source and volume share one row) and the status
+	// line carrying speed and the download counters.
+	closedSettingsChromeRows = 2
+)
+
+// Chrome heights are counted as "everything but the visualizer" plus the
+// visualizer, so changing a visualizer height cannot leave the row budget
+// disagreeing with what is drawn.
+const (
+	// fullBaseRows is the full tier's chrome without the visualizer: title,
+	// track line, time, a blank, the seek bar, the EQ/volume row, the source
+	// row, the playlist header, a blank, the hint bar, and the status line.
+	fullBaseRows = 11
+	// compactBaseRows is the same count for the compact tier, which drops the
+	// blank spacers and uses one-line controls.
+	compactBaseRows = 9
+	// compactVisRows is the compact tier's fixed visualizer height.
+	compactVisRows = 5
+)
+
+// fullChromeRows is the full tier's chrome height at the default visualizer
+// size, the baseline the configurable vis_rows is measured against.
+func fullChromeRows() int { return fullBaseRows + ui.DefaultVisRows }
 
 func (l frameLayout) tooSmall() bool {
 	return l.tier == layoutTooSmall
@@ -56,19 +122,19 @@ func (m *Model) recomputeLayout() {
 		layout.tier = layoutTooSmall
 	case width >= 80 && height >= 24:
 		layout.tier = layoutFull
-		// fixedRows counts the five default visualizer rows, so extra rows come
+		// fixedRows counts the default visualizer height, so extra rows come
 		// straight out of the playlist below.
 		rows := m.visualizerRowsSetting()
-		bodyAtDefault := height - 2*paddingV - 16 - layout.footerRows
+		bodyAtDefault := height - 2*paddingV - fullChromeRows() - layout.footerRows
 		if extra := rows - ui.DefaultVisRows; extra > 0 {
 			rows = ui.DefaultVisRows + min(extra, max(0, bodyAtDefault-1))
 		}
 		layout.visualizerRows = rows
-		layout.fixedRows = 16 + rows - ui.DefaultVisRows
+		layout.fixedRows = fullBaseRows + rows
 	case width >= 56 && height >= 16:
 		layout.tier = layoutCompact
-		layout.visualizerRows = 3
-		layout.fixedRows = 12
+		layout.visualizerRows = compactVisRows
+		layout.fixedRows = compactBaseRows + compactVisRows
 	default:
 		layout.tier = layoutMinimal
 		layout.fixedRows = 7
@@ -94,10 +160,40 @@ func (m *Model) recomputeLayout() {
 			layout.fixedRows = 9
 		}
 	}
+	// The settings pane, open or closed, belongs to the full-tier playback
+	// screen only: the denser tiers and the list-focused layouts have no room
+	// for a column and draw their own controls.
+	if layout.tier == layoutFull && !contentFirst && !simplified && m.activeScreen() == screenMain {
+		if m.hideSettings {
+			layout.closedSettings = true
+		} else {
+			settingsWidth := min(settingsMaxWidth, max(settingsMinWidth, layout.panelWidth/3))
+			if playlistWidth := layout.panelWidth - columnGutterWidth - settingsWidth; playlistWidth >= playlistMinWidth {
+				layout.twoColumn = true
+				layout.playlistWidth = playlistWidth
+				layout.settingsWidth = settingsWidth
+			}
+		}
+	}
+	// Whatever the chrome gives up goes to the playlist, both as budget and as
+	// a higher cap so the reclaimed rows show tracks instead of blank space.
+	layout.fixedRows = max(0, layout.fixedRows-layout.chromeRowsFreed())
 	// The simplified view never draws the hint bar, so its fixedRows budget
 	// does not include that row and must not be reduced here.
 	if m.hideHelpBar && !simplified {
 		layout.fixedRows = max(0, layout.fixedRows-1)
+	}
+	if layout.twoColumn && m.showMetadata && !m.visualizerDisabled() {
+		// Opening details can borrow visualizer rows, never hide direct settings.
+		// The configured height stays intact and returns when details close.
+		bodyRows := height - 2*paddingV - layout.fixedRows - layout.footerRows
+		needed := 5 + metadataPaneMaxRows
+		if len(m.providers) > 1 {
+			needed++
+		}
+		freed := min(max(0, needed-bodyRows), max(0, layout.visualizerRows-1))
+		layout.visualizerRows -= freed
+		layout.fixedRows -= freed
 	}
 
 	layout.fullVisualizerRows = max(1, height-6-2*paddingV)
@@ -111,6 +207,8 @@ func (m *Model) recomputeLayout() {
 				limit = layout.bodyRows
 			} else if contentFirst {
 				limit = maxPlExpandVisible
+			} else if freed := layout.chromeRowsFreed(); freed > 0 {
+				limit = maxPlVisible + freed
 			}
 			m.plVisible = min(limit, layout.bodyRows)
 		}

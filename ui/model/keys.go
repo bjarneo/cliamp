@@ -29,11 +29,14 @@ func (m *Model) quit() tea.Cmd {
 	if track, _ := m.currentPlaybackTrack(); track.Path != "" &&
 		(!playlist.IsYTDL(track.Path) || playlist.IsMixcloudURL(track.Path)) &&
 		!track.IsLive() &&
-		m.player.IsPlaying() {
+		m.player.IsPlaying() && !m.buffering && !m.player.GaplessAdvanced() {
 		if secs := int(m.player.Position().Seconds()); secs > 0 {
+			context, contextIndex := m.playbackContextFor(track)
 			m.exitResume.path = track.Path
 			m.exitResume.secs = secs
 			m.exitResume.playlist = m.loadedPlaylist
+			m.exitResume.context = cloneTracks(context)
+			m.exitResume.contextIndex = contextIndex
 		}
 	}
 
@@ -65,7 +68,7 @@ func (m *Model) handleSpeedKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.changeSpeed(-0.25)
 	case "tab":
 		m.focus = m.nextMainFocus(focusSpeed)
-	case "esc", "backspace":
+	case "shift+tab", "esc", "backspace":
 		m.focus = m.previousMainFocus(focusSpeed)
 	case "space":
 		return m.togglePlayPause()
@@ -278,6 +281,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.quit()
 		case "esc", "i":
 			m.showInfo = false
+		case "ctrl+i":
+			m.showInfo = false
+			m.toggleMetadata()
 		case "up", "k":
 			if m.infoScroll > 0 {
 				m.infoScroll--
@@ -337,6 +343,17 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	if m.provSearch.active {
 		return m.handleProvSearchKey(msg)
 	}
+	if m.focus != focusProvider {
+		switch msg.String() {
+		case "ctrl+i":
+			m.toggleMetadata()
+			return nil
+		case "i":
+			m.showInfo = true
+			m.infoScroll = 0
+			return nil
+		}
+	}
 
 	if m.focus == focusProvider {
 		// The location question owns the keyboard until it is answered: it is
@@ -380,13 +397,20 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			if len(m.providerLists) > 0 && !m.provLoading {
 				return m.openProviderList(m.provCursor)
 			}
-		case "tab":
-			m.focus = m.nextMainFocus(focusPlaylist)
+		case "tab", "shift+tab":
+			// Leave the content-first provider layout before choosing a control;
+			// the playback pane may be closed or too short to show every setting.
+			m.focus = focusPlaylist
+			m.recomputeLayout()
+			if msg.String() == "shift+tab" {
+				m.focus = m.previousMainFocus(focusPlaylist)
+			} else {
+				m.focus = m.nextMainFocus(focusPlaylist)
+			}
 		case "esc", "backspace", "b":
-			// If viewing catalog search results, clear them first.
-			if cs, ok := m.provider.(provider.CatalogSearcher); ok && cs.IsSearching() {
-				m.restoreCatalog(cs)
-				return nil
+			// Clear completed results or cancel a search still in flight.
+			if cs, ok := m.provider.(provider.CatalogSearcher); ok && (m.provSearch.loading || cs.IsSearching()) {
+				return m.restoreCatalog(cs)
 			}
 			if m.playlist.Len() > 0 {
 				m.focus = focusPlaylist
@@ -402,6 +426,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 				if r, ok := m.provider.(playlist.Refresher); ok {
 					r.Refresh()
 				}
+				nextRequest(&m.requests.catalog)
+				m.catalogBatch = catalogBatchState{}
 				m.provLoading = true
 				m.status.Activityf(statusTTLShort, "Refreshing %s…", m.provider.Name())
 				// Re-open the current playlist in place only when the
@@ -466,6 +492,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.switchToProvider("local")
 		case "R":
 			return m.switchToProvider("radio")
+		case "O":
+			return m.switchToProvider("podcast")
 		case "ctrl+x":
 			m.toggleExpandedView()
 		case "ctrl+f":
@@ -494,7 +522,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.switchProvider(m.provPillIdx)
 		case "tab":
 			m.focus = m.nextMainFocus(focusProvPill)
-		case "esc", "backspace":
+		case "shift+tab", "esc", "backspace":
 			m.focus = m.previousMainFocus(focusProvPill)
 		case "space":
 			return m.togglePlayPause()
@@ -524,7 +552,34 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	}
 
-	switch msg.String() {
+	// Focused settings reuse the global actions below, including notifications,
+	// config persistence, and gapless rearming.
+	key := msg.String()
+	repeatStep := playlist.RepeatMode(1)
+	switch m.focus {
+	case focusVolume:
+		switch key {
+		case "left", "h", "down", "j":
+			key = "-"
+		case "right", "l", "up", "k":
+			key = "+"
+		}
+	case focusShuffle:
+		switch key {
+		case "left", "h", "down", "j", "right", "l", "up", "k", "enter":
+			key = "z"
+		}
+	case focusRepeat:
+		switch key {
+		case "left", "h", "down", "j":
+			repeatStep = -1
+			key = "r"
+		case "right", "l", "up", "k", "enter":
+			key = "r"
+		}
+	}
+
+	switch key {
 	case "q", "ctrl+c":
 		return m.quit()
 	case "ctrl+r":
@@ -544,6 +599,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 				return nil
 			}
 			pr.Refresh()
+			nextRequest(&m.requests.catalog)
+			m.catalogBatch = catalogBatchState{}
 			m.provLoading = true
 			m.status.Activityf(statusTTLShort, "Refreshing %s…", m.provider.Name())
 			return m.fetchProviderTracks(id)
@@ -552,6 +609,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.focus == focusPlaylist {
 			// Keep current expanded/collapsed height mode when switching focus.
 			m.focus = focusProvider
+		} else {
+			m.focus = m.previousMainFocus(m.focus)
 		}
 
 	case "space":
@@ -742,21 +801,20 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.notifyPlayback()
 
 	case "r":
-		m.playlist.CycleRepeat()
-		if err := m.configSaver.Save("repeat", fmt.Sprintf("%q", m.playlist.Repeat().String())); err != nil {
-			m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
-		}
+		const repeatModes = playlist.RepeatOne + 1
+		m.playlist.SetRepeat((m.playlist.Repeat() + repeatStep + repeatModes) % repeatModes)
+		m.saveConfigKey("repeat", fmt.Sprintf("%q", m.playlist.Repeat().String()))
 		return m.rearmPreload()
 
 	case "z":
 		m.playlist.ToggleShuffle()
-		if err := m.configSaver.Save("shuffle", fmt.Sprintf("%v", m.playlist.Shuffled())); err != nil {
-			m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
-		}
+		m.saveConfigKey("shuffle", fmt.Sprintf("%v", m.playlist.Shuffled()))
 		return m.rearmPreload()
 
 	case "tab":
 		m.focus = m.nextMainFocus(m.focus)
+	case "shift+tab":
+		m.focus = m.previousMainFocus(m.focus)
 
 	case "h":
 		if m.focus == focusEQ && m.eqCursor > 0 {
@@ -838,10 +896,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "t":
 		m.openThemePicker()
 
-	case "i":
-		m.showInfo = true
-		m.infoScroll = 0
-
 	case "y":
 		m.lyrics.visible = !m.lyrics.visible
 		if m.lyrics.visible {
@@ -868,6 +922,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.switchToProvider("local")
 	case "R":
 		return m.switchToProvider("radio")
+	case "O":
+		return m.switchToProvider("podcast")
 	case "P":
 		return m.switchToProvider("plex")
 	case "Y":
@@ -889,6 +945,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "ctrl+g":
 		m.toggleHelpBar()
+		m.adjustScroll()
+
+	case "ctrl+b":
+		m.toggleSettingsPane()
 		m.adjustScroll()
 
 	case "v":
@@ -1255,14 +1315,16 @@ func (m *Model) handleCatalogSearchKey(msg tea.KeyPressMsg, cs provider.CatalogS
 	switch msg.Code {
 	case tea.KeyEscape:
 		m.provSearch.active = false
-		m.restoreCatalog(cs)
+		return m.restoreCatalog(cs)
 	case tea.KeyEnter:
 		m.provSearch.active = false
 		if m.provSearch.query == "" {
-			m.restoreCatalog(cs)
-			return nil
+			return m.restoreCatalog(cs)
 		}
 		m.provLoading = true
+		m.provSearch.loading = true
+		m.catalogBatch.loading = false
+		nextRequest(&m.requests.provider)
 		return fetchCatalogSearchCmd(cs, m.provider.Name(), m.provSearch.query, nextRequest(&m.requests.catalog))
 	default:
 		if msg.Code == tea.KeySpace && msg.Text == "" {
@@ -1275,16 +1337,16 @@ func (m *Model) handleCatalogSearchKey(msg tea.KeyPressMsg, cs provider.CatalogS
 }
 
 // restoreCatalog clears search results and restores the normal catalog view.
-func (m *Model) restoreCatalog(cs provider.CatalogSearcher) {
-	if !cs.IsSearching() {
-		return
-	}
+func (m *Model) restoreCatalog(cs provider.CatalogSearcher) tea.Cmd {
+	nextRequest(&m.requests.catalog)
+	// Clear before results arrive so providers can invalidate in-flight work.
 	cs.ClearSearch()
-	if lists, err := m.provider.Playlists(); err == nil {
-		m.providerLists = providerListsWithBrowse(m.provider, lists)
-	}
+	m.provSearch.loading = false
+	m.provLoading = true
+	m.catalogBatch.loading = false
 	m.provCursor = 0
 	m.provScroll = 0
+	return m.fetchProviderPlaylists()
 }
 
 func (m *Model) updateProvSearch() {

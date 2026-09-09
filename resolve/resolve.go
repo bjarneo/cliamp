@@ -448,49 +448,7 @@ func scanTracks(files []string) []playlist.Track {
 
 // resolveFeed fetches a podcast RSS feed and returns tracks with metadata.
 func resolveFeed(feedURL string) ([]playlist.Track, error) {
-	resp, err := httpClient.Get(feedURL)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("http status %s", resp.Status)
-	}
-
-	var rss struct {
-		Channel struct {
-			Title string `xml:"title"`
-			Items []struct {
-				Title     string `xml:"title"`
-				Duration  string `xml:"http://www.itunes.com/dtds/podcast-1.0.dtd duration"`
-				Enclosure struct {
-					URL  string `xml:"url,attr"`
-					Type string `xml:"type,attr"`
-				} `xml:"enclosure"`
-			} `xml:"item"`
-		} `xml:"channel"`
-	}
-	// Bound the read so a huge or malicious feed can't exhaust memory.
-	const maxFeedBody = 32 << 20 // 32 MB
-	if err := xml.NewDecoder(io.LimitReader(resp.Body, maxFeedBody)).Decode(&rss); err != nil {
-		return nil, fmt.Errorf("parsing feed: %w", err)
-	}
-
-	var tracks []playlist.Track
-	for _, item := range rss.Channel.Items {
-		if item.Enclosure.URL == "" {
-			continue
-		}
-		tracks = append(tracks, playlist.Track{
-			Path:         item.Enclosure.URL,
-			Title:        item.Title,
-			Artist:       rss.Channel.Title,
-			Stream:       true,
-			DurationSecs: parseItunesDuration(item.Duration),
-		})
-	}
-	return tracks, nil
+	return Feed(context.Background(), feedURL)
 }
 
 // maxPlaylistBody caps how much of a remote playlist we read before

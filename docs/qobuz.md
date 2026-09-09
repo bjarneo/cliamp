@@ -65,7 +65,7 @@ When focused on the provider panel:
 | `Enter` | Load the selected playlist/album or play the selected track |
 | `Ctrl+F` | Search Qobuz tracks |
 | `Ctrl+R` | Refresh (re-resolves stream URLs) |
-| `Tab` | Switch between provider and playlist focus |
+| `Tab` | Return to playback controls, starting at Source when visible ([navigation](keybindings.md#navigation)) |
 | `Esc` / `b` | Open provider browser |
 
 After you load a playlist or album, cliamp returns to the standard playlist view. Use the usual controls for seek, volume, EQ, shuffle, repeat, queue, search, and lyrics.

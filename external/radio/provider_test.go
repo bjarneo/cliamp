@@ -2,8 +2,11 @@ package radio
 
 import (
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/bjarneo/cliamp/playlist"
 )
 
 // newTestProvider builds a provider with the location question already
@@ -54,6 +57,14 @@ url = "https://extra.example/stream"
 	if infos[1].Name != "Extra" {
 		t.Errorf("second playlist = %q, want Extra", infos[1].Name)
 	}
+	tracks, err := p.Tracks(infos[1].ID)
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	want := []playlist.Track{{Path: "https://extra.example/stream", Title: "Extra", Stream: true, Realtime: true}}
+	if !reflect.DeepEqual(tracks, want) {
+		t.Errorf("tracks = %+v, want %+v", tracks, want)
+	}
 }
 
 func TestProviderTracksLocalStation(t *testing.T) {
@@ -66,11 +77,69 @@ func TestProviderTracksLocalStation(t *testing.T) {
 	if len(tracks) != 1 {
 		t.Fatalf("got %d tracks, want 1", len(tracks))
 	}
-	if tracks[0].Path != builtinURL {
-		t.Errorf("Path = %q, want %q", tracks[0].Path, builtinURL)
+	if tracks[0].Path != BuiltinURL {
+		t.Errorf("Path = %q, want %q", tracks[0].Path, BuiltinURL)
 	}
 	if !tracks[0].Stream || !tracks[0].Realtime {
 		t.Errorf("Stream/Realtime = %v/%v, want true/true", tracks[0].Stream, tracks[0].Realtime)
+	}
+	if tracks[0].Title != builtinName || tracks[0].Genre != "" || tracks[0].ProviderMeta != nil {
+		t.Errorf("built-in station metadata changed: %+v", tracks[0])
+	}
+}
+
+func TestProviderTracksMetadata(t *testing.T) {
+	d := &directory{}
+	d.serve(t)
+	for _, tt := range []struct {
+		name    string
+		station CatalogStation
+		meta    map[string]string
+	}{
+		{
+			name: "all fields",
+			station: CatalogStation{
+				Tags: "jazz,smooth jazz", Country: "The United States Of America", CountryCode: "US",
+				Codec: "MP3", Bitrate: 192, State: "New York",
+			},
+			meta: map[string]string{
+				"radio.country": "The United States Of America", "radio.codec": "MP3",
+				"radio.bitrate": "192", "radio.state": "New York",
+			},
+		},
+		{name: "tags only", station: CatalogStation{Tags: "ambient"}},
+		{name: "missing fields"},
+		{
+			name:    "invalid bitrate",
+			station: CatalogStation{Codec: "AAC", Bitrate: -1},
+			meta:    map[string]string{"radio.codec": "AAC"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newTestProvider(t)
+			s := tt.station
+			s.Name, s.URL = "Jazz [live]", "https://jazz.example/stream"
+			p.AppendCatalog([]CatalogStation{s})
+			p.SetSearchResults([]CatalogStation{s})
+			if _, _, err := p.ToggleFavorite("c:0"); err != nil {
+				t.Fatalf("ToggleFavorite: %v", err)
+			}
+			want := []playlist.Track{{
+				Path: s.URL, Title: s.Name, Genre: s.Tags, Stream: true, Realtime: true, ProviderMeta: tt.meta,
+			}}
+			for _, id := range []string{"c:0", "f:0", "s:0"} {
+				tracks, err := p.Tracks(id)
+				if err != nil {
+					t.Fatalf("Tracks(%q): %v", id, err)
+				}
+				if !reflect.DeepEqual(tracks, want) {
+					t.Errorf("Tracks(%q) = %+v, want %+v", id, tracks, want)
+				}
+			}
+		})
+	}
+	if d.lastPath != "" {
+		t.Errorf("requested %q, want cached metadata without any request", d.lastPath)
 	}
 }
 

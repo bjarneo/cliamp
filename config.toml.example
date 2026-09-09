@@ -48,7 +48,7 @@ eq_preset = "Flat"
 # Saved Custom curve; applied when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-# Default provider on startup: "radio", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "soundcloud", "mixcloud", "netease", "audiobookshelf", or a YouTube provider
+# Default provider on startup: "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "soundcloud", "mixcloud", "netease", "audiobookshelf", or a YouTube provider
 # provider = "radio"
 
 # Simplified mode: artist/title and time strip without a visualizer or playlist.
@@ -59,6 +59,17 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # the playlist. Press "?" for the full keymap, or Ctrl+G to toggle the bar.
 # Simplified mode has no hint bar or playlist, so it is unaffected.
 # hide_help_bar = true
+
+# Close the settings pane beside the playlist at the 80x24-and-up layout. The
+# playlist then gets the full frame width, with one row above it showing the
+# source and the volume meter; the EQ, speed, and download readouts are not
+# drawn. The pane is open unless this is set; Ctrl+B toggles it and saves here.
+# hide_settings_pane = true
+
+# Show read-only metadata below Settings for the highlighted playlist item.
+# Hidden by default; Ctrl+I toggles and saves. Enabling it without room for the
+# section opens full info instead. Closing Settings preserves this preference.
+# show_metadata = false
 
 # UI theme name (check ~/.config/cliamp/themes/ for available themes)
 # theme = "Tokyo Night"
@@ -73,6 +84,14 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Log level: "debug", "info", "warn", or "error" (default "info")
 # Logs are written to ~/.config/cliamp/cliamp.log
 # log_level = "info"
+
+# ---
+# Podcasts (always available; no enabled setting, API key, or account)
+# Start with cliamp --provider podcast, or set provider = "podcast" above.
+# Country affects Apple's top 100 chart only, not searches or categories.
+# Default: "us". No location detection. See docs/podcasts.md.
+# [podcast]
+# country = "no"
 
 # ---
 # Spotify (optional)

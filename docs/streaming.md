@@ -36,13 +36,19 @@ Live HLS uses timed metadata, not inline ICY. cliamp does not update the now-pla
 
 ## Podcasts
 
-Play a podcast by passing its RSS feed URL:
+Discover shows with `cliamp --provider podcast`: browse Apple's top 100 chart
+and 19 categories, search shows with `/` then `Enter`, and subscribe with `f`.
+No account or API key is needed. See the [Podcasts guide](podcasts.md) for
+controls, subscriptions, direct RSS search, and chart-country configuration.
+
+You can also play a podcast by passing its RSS feed URL:
 
 ```sh
 cliamp https://example.com/podcast/feed.xml
 ```
 
-cliamp reads episode titles and the podcast name from the feed and shows them in the playlist.
+cliamp loads the first 300 playable episodes in feed order, retaining episode
+titles, show names, durations, artwork, and episode numbers when available.
 
 ### Xiaoyuzhou (小宇宙)
 

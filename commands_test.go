@@ -51,3 +51,19 @@ func TestInverseBoolFlags(t *testing.T) {
 		})
 	}
 }
+
+func TestPodcastProviderFlag(t *testing.T) {
+	app := buildApp()
+	var got config.Overrides
+	app.Action = func(_ context.Context, c *cli.Command) error {
+		var err error
+		got, err = overridesFromFlags(c)
+		return err
+	}
+	if err := app.Run(t.Context(), []string{"cliamp", "--provider", "podcast"}); err != nil {
+		t.Fatal(err)
+	}
+	if got.Provider == nil || *got.Provider != "podcast" {
+		t.Fatalf("provider = %v, want podcast", got.Provider)
+	}
+}

@@ -65,6 +65,13 @@ type BrowseEntryProvider interface {
 	BrowseEntries() []BrowseEntry
 }
 
+// BrowseModeProvider limits the routes inferred from a provider's capabilities.
+// For example, podcast categories use artist/album browsing but cannot sensibly
+// load every track from every show in a category through BrowseArtists.
+type BrowseModeProvider interface {
+	BrowseModes() []BrowseMode
+}
+
 // DefaultBrowseModeProvider is implemented by providers that should open a
 // hierarchical browse route immediately when selected instead of landing on
 // their flat playlist pane.

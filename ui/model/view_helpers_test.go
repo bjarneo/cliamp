@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/bjarneo/cliamp/favorites"
@@ -149,7 +150,36 @@ func TestFormatTrackRow(t *testing.T) {
 	}
 }
 
-func TestRenderTrackInfoScrollsLongArtistAndTitleOnce(t *testing.T) {
+// window returns what the marquee shows for a name at a given tick, with the
+// "♫ " prefix stripped.
+func marqueeWindow(t *testing.T, m Model) string {
+	t.Helper()
+	return strings.TrimPrefix(ansi.Strip(m.renderTrackInfo()), "♫ ")
+}
+
+// TestRenderTrackInfoFitsWithoutScrolling checks that a name with room to
+// spare is drawn whole: the marquee only moves when it has to.
+func TestRenderTrackInfoFitsWithoutScrolling(t *testing.T) {
+	oldPanelWidth := ui.PanelWidth
+	ui.PanelWidth = 80
+	t.Cleanup(func() { ui.PanelWidth = oldPanelWidth })
+
+	p := playlist.New()
+	p.Add(playlist.Track{Artist: "Bonobo", Title: "Kerala", Album: "Migration"})
+	name := "Bonobo - Kerala · Migration"
+
+	for _, tick := range []int{0, 1, 7, 40, 1000} {
+		m := Model{playlist: p, titleOff: tick}
+		if got := marqueeWindow(t, m); got != name {
+			t.Fatalf("tick %d: renderTrackInfo() = %q, want the whole name %q", tick, got, name)
+		}
+	}
+}
+
+// TestRenderTrackInfoMarqueeLoops checks the three things a marquee has to get
+// right: it holds at the start, it advances a cell at a time, and it comes
+// back around instead of freezing after one pass.
+func TestRenderTrackInfoMarqueeLoops(t *testing.T) {
 	oldPanelWidth := ui.PanelWidth
 	ui.PanelWidth = 20
 	t.Cleanup(func() { ui.PanelWidth = oldPanelWidth })
@@ -158,90 +188,135 @@ func TestRenderTrackInfoScrollsLongArtistAndTitleOnce(t *testing.T) {
 	p := playlist.New()
 	p.Add(track)
 	name := track.DisplayName() + " · " + track.Album
-	nameRunes := []rune(name)
-	maxW := ui.PanelWidth - 4
+	width := ui.PanelWidth - 2
+	cycle := lipgloss.Width(name + marqueeGap)
 
-	tests := []struct {
-		name   string
-		offset int
-		want   string
-	}{
-		{
-			name:   "starts at the artist",
-			offset: 0,
-			want:   string(nameRunes[:maxW]),
-		},
-		{
-			name:   "advances through the title",
-			offset: 1,
-			want:   string(nameRunes[1 : maxW+1]),
-		},
-		{
-			name:   "holds at the end instead of repeating",
-			offset: len(nameRunes),
-			want:   string(nameRunes[len(nameRunes)-maxW:]),
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := Model{playlist: p, titleOff: tt.offset}
-			got := strings.TrimPrefix(ansi.Strip(m.renderTrackInfo()), "♫ ")
-			if got != tt.want {
-				t.Errorf("renderTrackInfo() = %q, want %q", got, tt.want)
-			}
-		})
+	start := marqueeWindow(t, Model{playlist: p, titleOff: 0})
+	if want := ansi.Truncate(name, width, ""); start != want {
+		t.Fatalf("at rest = %q, want the head of the name %q", start, want)
 	}
 
-	track.DurationSecs = 1
-	p.SetTrack(0, track)
-	m := Model{playlist: p, titleOff: len(nameRunes)}
-	got := ansi.Strip(m.renderSimplifiedTrackInfo())
-	wantName := string(nameRunes[len(nameRunes)-(ui.PanelWidth-len("0:01")-1):])
-	if !strings.HasPrefix(got, wantName) {
-		t.Errorf("renderSimplifiedTrackInfo() = %q, want prefix %q", got, wantName)
+	// Held at the start for the whole hold window, then moving.
+	if got := marqueeWindow(t, Model{playlist: p, titleOff: marqueeHoldTicks - 1}); got != start {
+		t.Fatalf("during hold = %q, want it still at %q", got, start)
+	}
+	if got := marqueeWindow(t, Model{playlist: p, titleOff: marqueeHoldTicks + 1}); got == start {
+		t.Fatalf("after hold = %q, want the window to have advanced", got)
 	}
 
-	ui.PanelWidth = 80
-	track = playlist.Track{
-		Artist: "An Artist With A Very Long Name",
-		Title:  "An Equally Long Title",
-		Album:  "An Album Too Long To Fit",
+	// A full cycle brings it back to the start rather than leaving it parked.
+	if got := marqueeWindow(t, Model{playlist: p, titleOff: cycle + marqueeHoldTicks}); got != start {
+		t.Fatalf("after a full cycle = %q, want back at %q", got, start)
 	}
-	p.Replace([]playlist.Track{track})
-	name = track.DisplayName() + " · " + track.Album
-	nameRunes = []rune(name)
-	m = Model{playlist: p, titleOff: 1}
-	got = strings.TrimPrefix(ansi.Strip(m.renderTrackInfo()), "♫ ")
-	if got != string(nameRunes[1:trackInfoMarqueeWidth+1]) {
-		t.Errorf("wide renderTrackInfo() = %q, want marquee offset", got)
+
+	// Every window is exactly one row wide, at every point in the cycle.
+	for tick := range cycle + 2*marqueeHoldTicks {
+		if got := lipgloss.Width(marqueeWindow(t, Model{playlist: p, titleOff: tick})); got > width {
+			t.Fatalf("tick %d: window width = %d, want at most %d", tick, got, width)
+		}
 	}
 }
 
-func TestTitleScrollResetsAfterOnePass(t *testing.T) {
+// TestMarqueeMeasuresDisplayCells checks the bug that made a wide-glyph title
+// overflow its row: the window has to be measured in cells, not runes.
+func TestMarqueeMeasuresDisplayCells(t *testing.T) {
+	const width = 20
+	// Every glyph here is two cells wide, so a rune-counted window would come
+	// out twice as wide as the row.
+	name := strings.Repeat("音楽", 20)
+
+	for _, tick := range []int{0, marqueeHoldTicks, marqueeHoldTicks + 3, 500} {
+		got := scrollTrackName(name, width, tick)
+		if w := lipgloss.Width(got); w > width {
+			t.Fatalf("tick %d: window width = %d cells, want at most %d: %q", tick, w, width, got)
+		}
+	}
+}
+
+// TestRenderSimplifiedTrackInfoLeavesRoomForDuration checks that the
+// simplified row scrolls against its own budget: it shares the row with the
+// duration, so the marquee gets less width than the full view's.
+func TestRenderSimplifiedTrackInfoLeavesRoomForDuration(t *testing.T) {
 	oldPanelWidth := ui.PanelWidth
-	ui.PanelWidth = 80
+	ui.PanelWidth = 30
 	t.Cleanup(func() { ui.PanelWidth = oldPanelWidth })
 
 	p := playlist.New()
 	p.Add(playlist.Track{
-		Artist: "An Artist With A Very Long Name",
-		Title:  "An Equally Long Title",
-		Album:  "An Album Too Long To Fit",
+		Artist:       "An Artist With A Very Long Name",
+		Title:        "An Equally Long Title",
+		DurationSecs: 1,
 	})
-	m := Model{player: &playbackFakeEngine{playing: true}, playlist: p}
-	m.titleOff = m.titleScrollLimit()
-	now := time.Now()
-	m.advanceTitleScroll(now)
 
-	if m.titleOff != 0 {
-		t.Errorf("titleOff = %d, want 0 after a full marquee pass", m.titleOff)
+	for _, tick := range []int{0, marqueeHoldTicks + 2, 200} {
+		m := Model{playlist: p, titleOff: tick}
+		row := ansi.Strip(m.renderSimplifiedTrackInfo())
+		if got := lipgloss.Width(row); got > ui.PanelWidth {
+			t.Fatalf("tick %d: row width = %d, want at most %d: %q", tick, got, ui.PanelWidth, row)
+		}
+		if !strings.HasSuffix(row, "0:01") {
+			t.Fatalf("tick %d: row %q lost its duration", tick, row)
+		}
 	}
-	if !m.titleScrolled {
-		t.Fatal("titleScrolled = false, want true after a full marquee pass")
-	}
-	m.advanceTitleScroll(now.Add(time.Second))
+}
+
+// TestTitleScrollAdvancesWhilePlaying checks the tick gate: the marquee moves
+// only while playback is running, and no faster than its interval.
+func TestTitleScrollAdvancesWhilePlaying(t *testing.T) {
+	now := time.Now()
+
+	t.Run("advances on interval", func(t *testing.T) {
+		m := Model{player: &playbackFakeEngine{playing: true}}
+		m.advanceTitleScroll(now)
+		if m.titleOff != 1 {
+			t.Fatalf("titleOff = %d, want 1", m.titleOff)
+		}
+		m.advanceTitleScroll(now.Add(titleScrollInterval / 2))
+		if m.titleOff != 1 {
+			t.Fatalf("titleOff = %d, want it held inside the interval", m.titleOff)
+		}
+		m.advanceTitleScroll(now.Add(titleScrollInterval))
+		if m.titleOff != 2 {
+			t.Fatalf("titleOff = %d, want 2 after the interval", m.titleOff)
+		}
+	})
+
+	t.Run("keeps going past one pass", func(t *testing.T) {
+		m := Model{player: &playbackFakeEngine{playing: true}}
+		at := now
+		for range 500 {
+			at = at.Add(titleScrollInterval)
+			m.advanceTitleScroll(at)
+		}
+		if m.titleOff != 500 {
+			t.Fatalf("titleOff = %d, want 500: the marquee must not stop after one pass", m.titleOff)
+		}
+	})
+
+	t.Run("stays put when paused or stopped", func(t *testing.T) {
+		for name, engine := range map[string]*playbackFakeEngine{
+			"stopped": {},
+			"paused":  {playing: true, paused: true},
+		} {
+			m := Model{player: engine}
+			m.advanceTitleScroll(now)
+			if m.titleOff != 0 {
+				t.Fatalf("%s: titleOff = %d, want 0", name, m.titleOff)
+			}
+		}
+	})
+}
+
+// TestResetTitleScrollReturnsToStart checks that a new track starts its
+// marquee from the beginning.
+func TestResetTitleScrollReturnsToStart(t *testing.T) {
+	m := Model{titleOff: 42, titleLastScroll: time.Now()}
+	m.resetTitleScroll()
 	if m.titleOff != 0 {
-		t.Errorf("titleOff = %d after completion, want marquee to stay at the start", m.titleOff)
+		t.Fatalf("titleOff = %d, want 0", m.titleOff)
+	}
+	if !m.titleLastScroll.IsZero() {
+		t.Fatalf("titleLastScroll = %v, want the zero time", m.titleLastScroll)
 	}
 }
 
@@ -368,6 +443,8 @@ func TestProviderKeyForShortcut(t *testing.T) {
 		"X": "mixcloud",
 		"L": "local",
 		"R": "radio",
+		"O": "podcast",
+		"o": "",
 		"x": "",
 		"":  "",
 	}

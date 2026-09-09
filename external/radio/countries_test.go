@@ -5,9 +5,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/bjarneo/cliamp/playlist"
 )
 
 // directory is a stand-in Radio Browser server that records the query it was
@@ -289,7 +292,7 @@ func TestGenresSurvivesAStateLookupFailure(t *testing.T) {
 
 func TestGenreTracksQueriesOnePlace(t *testing.T) {
 	d := &directory{stations: []CatalogStation{
-		{Name: "NRK P3", URL: "https://nrk.example/p3", Country: "Norway", Bitrate: 192},
+		{Name: "NRK P3", URL: "https://nrk.example/p3", Country: "Norway", Bitrate: 192, Codec: "MP3", State: "Oslo", Tags: "pop,rock"},
 		{Name: "Hostile", URL: "ssh://attacker.example/payload"},
 	}}
 	d.serve(t)
@@ -309,11 +312,12 @@ func TestGenreTracksQueriesOnePlace(t *testing.T) {
 	if len(tracks) != 1 {
 		t.Fatalf("tracks = %+v, want only the streamable station", tracks)
 	}
-	if !tracks[0].Stream || !tracks[0].Realtime {
-		t.Errorf("track = %+v, want a realtime stream", tracks[0])
+	want := playlist.Track{
+		Path: "https://nrk.example/p3", Title: "NRK P3 [192k] · Norway", Genre: "pop,rock", Stream: true, Realtime: true,
+		ProviderMeta: map[string]string{"radio.country": "Norway", "radio.codec": "MP3", "radio.bitrate": "192", "radio.state": "Oslo"},
 	}
-	if tracks[0].Title != "NRK P3 [192k] · Norway" {
-		t.Errorf("title = %q, want the station's bitrate and country", tracks[0].Title)
+	if !reflect.DeepEqual(tracks[0], want) {
+		t.Errorf("track = %+v, want %+v", tracks[0], want)
 	}
 }
 

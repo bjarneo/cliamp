@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
 
@@ -123,7 +125,7 @@ func TestTagBrowserKeepsRawTagIDButSanitizesItsLabel(t *testing.T) {
 
 func TestTagBrowserLoadsExactTagWithSelectedSort(t *testing.T) {
 	d := &directory{stations: []CatalogStation{
-		{Name: "Jazz FM", URL: "https://jazz.example/stream", Tags: "jazz,smooth jazz"},
+		{Name: "Jazz FM", URL: "https://jazz.example/stream", Tags: "jazz,smooth jazz", Country: "UK", Codec: "AAC", Bitrate: 128, State: "London"},
 	}}
 	d.serve(t)
 	p := newPlaceProvider(t, "")
@@ -133,8 +135,12 @@ func TestTagBrowserLoadsExactTagWithSelectedSort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenreTracks: %v", err)
 	}
-	if len(tracks) != 1 || tracks[0].Title != "Jazz FM" {
-		t.Fatalf("tracks = %+v, want Jazz FM", tracks)
+	want := []playlist.Track{{
+		Path: "https://jazz.example/stream", Title: "Jazz FM [128k] · UK", Genre: "jazz,smooth jazz", Stream: true, Realtime: true,
+		ProviderMeta: map[string]string{"radio.country": "UK", "radio.codec": "AAC", "radio.bitrate": "128", "radio.state": "London"},
+	}}
+	if !reflect.DeepEqual(tracks, want) {
+		t.Fatalf("tracks = %+v, want %+v", tracks, want)
 	}
 	if d.lastQuery.Get("tag") != "jazz" || d.lastQuery.Get("tagExact") != "true" {
 		t.Errorf("query = %v, want exact jazz tag", d.lastQuery)
