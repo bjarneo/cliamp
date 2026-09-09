@@ -55,9 +55,12 @@ it -- resize the window and the session follows.
   than stopping the music, and the keymap says so. `ctrl+q` is the one that
   ends the session. Everywhere `q` already meant something else -- queueing a
   track in the provider browser, typing in a search field -- it still does.
-- **The client owns its terminal.** It enters the alternate screen on attach and
-  restores the screen, cursor, and title on detach, so a session that dies
-  never leaves your terminal in a strange state.
+- **Your terminal comes back as you left it.** Attaching and detaching go
+  through the player's own terminal setup and teardown, so the alternate
+  screen, cursor, window title, and the colors a theme sets are restored on
+  detach exactly as they are when cliamp exits. The client repeats the
+  restore on its way out, so a session that dies without a teardown does not
+  leave your terminal in a strange state either.
 - **Attach only works against `--daemon`.** A cliamp that owns a real terminal
   has no virtual one to lend and reports that.
 

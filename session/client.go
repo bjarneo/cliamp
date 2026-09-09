@@ -107,6 +107,9 @@ func Attach(sockPath string, opts ClientOptions) error {
 		_ = term.Restore(in.Fd(), state)
 		_, _ = out.WriteString(terminalRestore)
 	}()
+	if err := keepNewlineTranslation(out.Fd()); err != nil {
+		return fmt.Errorf("terminal newline mode: %w", err)
+	}
 	_, _ = out.WriteString(terminalSetup)
 
 	client := &attachClient{

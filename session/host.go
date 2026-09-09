@@ -3,8 +3,10 @@ package session
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -25,11 +27,6 @@ const writeTimeout = 5 * time.Second
 // the session rendering at the placeholder size until the user resizes.
 const startupSizeGrace = 250 * time.Millisecond
 
-// inputBufferLimit bounds pending client input. Input is keystrokes; a peer
-// flooding past this limit has its excess dropped rather than growing the
-// host's memory.
-const inputBufferLimit = 64 * 1024
-
 // Options configure a Host.
 type Options struct {
 	// OnAttach runs after a client's terminal is connected, OnDetach once it
@@ -43,10 +40,30 @@ type Options struct {
 // ipc.AttachHandler: an attaching client lends its terminal to the running
 // program, and detaching leaves the program running with nothing reading its
 // output.
+//
+// Attach and detach go through Bubble Tea's own RestoreTerminal and
+// ReleaseTerminal. That is what makes the handover clean: while no client is
+// attached the renderer is stopped, so not one byte is written for a terminal
+// that is not there, and it is restarted against the client's terminal with a
+// full repaint. Writing to the switched output alone is not enough -- the
+// renderer tracks a relative cursor in inline mode and would send a client
+// cursor movements measured against a screen it never saw.
 type Host struct {
 	opts   Options
-	input  *inputPipe
+	inputR *os.File
+	inputW *os.File
 	output *outputSwitch
+
+	// handover serializes whole attach and detach sequences against each
+	// other: each one drives the program's terminal in and out, and half of
+	// one interleaved with half of the other leaves the renderer either
+	// stopped with a client attached or started twice. It is never held while
+	// reading state the program's own loop asks for, so Detach (which the
+	// player's quit key calls from that loop) cannot deadlock against it.
+	handover sync.Mutex
+	// restored tracks whether the program currently holds a terminal, so it
+	// is released and restored exactly once per client.
+	restored bool
 
 	mu     sync.Mutex
 	prog   *tea.Program
@@ -56,18 +73,30 @@ type Host struct {
 
 // New creates a detached host. Wire Input and Output into the Bubble Tea
 // program, then hand the program back with SetProgram.
-func New(opts Options) *Host {
+func New(opts Options) (*Host, error) {
+	// A pipe, rather than an in-memory reader: Bubble Tea can only cancel a
+	// blocking read on something with a file descriptor, and ReleaseTerminal
+	// cancels the input reader. An in-memory reader would leave the old read
+	// loop parked on it and a second one racing it after every attach.
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return nil, fmt.Errorf("session: input pipe: %w", err)
+	}
 	return &Host{
 		opts:   opts,
-		input:  newInputPipe(),
+		inputR: reader,
+		inputW: writer,
 		output: &outputSwitch{},
-	}
+		// The program starts with its renderer running, drawing into the
+		// discarded output. The first attach releases that before taking the
+		// client's terminal.
+		restored: true,
+	}, nil
 }
 
-// Input is the program's terminal input. It blocks while no client is
-// attached rather than reporting end of input, so one program serves every
-// attach for the life of the process.
-func (h *Host) Input() io.Reader { return h.input }
+// Input is the program's terminal input: client keystrokes, and nothing at all
+// while no client is attached.
+func (h *Host) Input() io.Reader { return h.inputR }
 
 // Output is the program's terminal output. Writes are discarded while no
 // client is attached.
@@ -110,9 +139,11 @@ func (h *Host) HandleAttach(conn net.Conn, request ipc.V2Request) {
 		return
 	}
 
+	h.handover.Lock()
 	h.mu.Lock()
 	if h.closed || h.prog == nil {
 		h.mu.Unlock()
+		h.handover.Unlock()
 		_ = ipc.WriteV2Response(conn, ipc.V2Response{
 			ID:    request.ID,
 			OK:    false,
@@ -128,33 +159,53 @@ func (h *Host) HandleAttach(conn net.Conn, request ipc.V2Request) {
 	h.client = client
 	h.mu.Unlock()
 
+	size := tea.WindowSizeMsg{Width: params.Width, Height: params.Height}
+	// Send before touching the terminal: Send only returns once the program's
+	// loop is running, and Run wires the input reader and the renderer that
+	// Release and RestoreTerminal act on before that. A client attaching in
+	// the moment between the socket binding and the program starting would
+	// otherwise race that setup.
+	prog.Send(size)
+
+	// The program has to let go of the terminal it holds before it can take
+	// this one. Releasing before the output switches is what sends the
+	// renderer's teardown to the right place: the discarded output on the
+	// first attach, and the client being displaced on a takeover.
+	h.releaseTerminal(prog)
 	if previous != nil {
 		previous.detach(reasonTakenOver)
+		h.output.clear(previous)
 	}
 
 	result, err := json.Marshal(AttachResult{Attached: true, TookOver: previous != nil})
 	if err != nil {
-		h.clearClient(client)
+		h.handover.Unlock()
+		h.detachClient(client, "")
 		return
 	}
 	if err := ipc.WriteV2Response(conn, ipc.V2Response{ID: request.ID, OK: true, Result: result}); err != nil {
-		h.clearClient(client)
+		h.handover.Unlock()
+		h.detachClient(client, "")
 		return
 	}
 
 	applog.Info("session: client attached (%dx%d, %s)", params.Width, params.Height, params.Client)
-	h.input.reset()
 	h.output.set(client)
 	if h.opts.OnAttach != nil {
 		h.opts.OnAttach(params.Width, params.Height)
 	}
-	prog.Send(tea.WindowSizeMsg{Width: params.Width, Height: params.Height})
-	// The program has been rendering into a discarded stream, so its renderer
-	// believes the client's terminal already shows the current frame. Force a
-	// full repaint for the terminal that just arrived.
+	// The loop takes the next message only once it has finished the previous
+	// one, view included, so the send after the size is a barrier: when it
+	// returns, the model has taken the size and rendered the full UI at it.
+	// The renderer then restarts against a view that is already the right
+	// shape and emits the alternate screen, colors, and modes for this
+	// terminal. The barrier doubles as the repaint request.
+	prog.Send(size)
 	prog.Send(tea.ClearScreen())
-	go h.reassertSize(client, prog)
+	h.restoreTerminal(prog)
+	h.handover.Unlock()
 
+	go h.reassertSize(client, prog)
 	h.serve(client, prog)
 }
 
@@ -176,7 +227,9 @@ func (h *Host) reassertSize(client *clientConn, prog *tea.Program) {
 
 // serve reads frames from one client until the session ends.
 func (h *Host) serve(client *clientConn, prog *tea.Program) {
-	defer h.clearClient(client)
+	// The peer is gone by the time this returns -- it sent a detach frame or
+	// its connection failed -- so there is no reason to send it.
+	defer h.detachClient(client, "")
 	for {
 		kind, payload, err := readFrame(client.conn)
 		if err != nil {
@@ -187,7 +240,10 @@ func (h *Host) serve(client *clientConn, prog *tea.Program) {
 		}
 		switch kind {
 		case kindInput:
-			h.input.feed(payload)
+			if _, err := h.inputW.Write(payload); err != nil {
+				applog.Warn("session: forward input: %v", err)
+				return
+			}
 		case kindResize:
 			width, height, ok := decodeSize(payload)
 			if !ok || width <= 0 || height <= 0 {
@@ -205,33 +261,79 @@ func (h *Host) serve(client *clientConn, prog *tea.Program) {
 	}
 }
 
-// clearClient disconnects client if it is still the attached one.
-func (h *Host) clearClient(client *clientConn) {
+// detachClient ends the session for client. A reason is sent to the client
+// before the connection closes, so it is set when this side is the one
+// leaving; a client that already went away gets none.
+func (h *Host) detachClient(client *clientConn, reason string) {
+	h.handover.Lock()
 	h.mu.Lock()
 	current := h.client == client
 	if current {
 		h.client = nil
 	}
+	prog := h.prog
 	h.mu.Unlock()
+
+	if current {
+		// Releasing while the connection is still open is what puts the
+		// client's terminal back: the renderer's teardown -- leave the
+		// alternate screen, reset the theme colors it set, show the cursor,
+		// drop the window title -- is written to the client that is still
+		// there. It also has to happen before the model hears about the
+		// detach, because that teardown describes the view still on screen.
+		h.releaseTerminal(prog)
+	}
+	if reason != "" {
+		client.detach(reason)
+	}
 	h.output.clear(client)
 	client.close()
+	h.handover.Unlock()
+
 	if !current {
 		return
 	}
-	h.input.reset()
 	if h.opts.OnDetach != nil {
 		h.opts.OnDetach()
 	}
 }
 
+// releaseTerminal stops the renderer, writing its teardown to whatever output
+// is attached. Callers hold handover.
+func (h *Host) releaseTerminal(prog *tea.Program) {
+	if prog == nil || !h.restored {
+		return
+	}
+	h.restored = false
+	if err := prog.ReleaseTerminal(); err != nil {
+		applog.Warn("session: release terminal: %v", err)
+	}
+}
+
+// restoreTerminal restarts the renderer against the attached client's
+// terminal. Callers hold handover.
+func (h *Host) restoreTerminal(prog *tea.Program) {
+	if prog == nil || h.restored {
+		return
+	}
+	h.restored = true
+	if err := prog.RestoreTerminal(); err != nil {
+		applog.Warn("session: restore terminal: %v", err)
+	}
+}
+
 // Detach hands the terminal back to the attached client and leaves the session
 // running. It is what the player's detach key calls.
+//
+// The work runs on its own goroutine because the caller is the program's own
+// update loop: releasing the terminal waits on that program, and the loop
+// cannot wait on itself.
 func (h *Host) Detach() {
 	h.mu.Lock()
 	client := h.client
 	h.mu.Unlock()
 	if client != nil {
-		client.detach(reasonDetached)
+		go h.detachClient(client, reasonDetached)
 	}
 }
 
@@ -245,7 +347,11 @@ func (h *Host) Close() {
 	if client != nil {
 		client.detach(reasonHostStopped)
 	}
-	h.input.close()
+	// Closing the write end gives the program's input reader a clean end of
+	// input. The read end is left alone on purpose: closing a file another
+	// goroutine is blocked reading is a race, and a host only closes when the
+	// process is going away.
+	_ = h.inputW.Close()
 }
 
 // clientConn serializes frame writes to one attached client.
@@ -350,71 +456,4 @@ func (o *outputSwitch) Write(p []byte) (int, error) {
 		client.close()
 	}
 	return len(p), nil
-}
-
-// inputPipe is the program's terminal input across attaches. Read blocks
-// while empty and reports end of input only after close, so the program's
-// input reader survives every detach.
-type inputPipe struct {
-	mu     sync.Mutex
-	wake   *sync.Cond
-	buf    []byte
-	closed bool
-}
-
-func newInputPipe() *inputPipe {
-	pipe := &inputPipe{}
-	pipe.wake = sync.NewCond(&pipe.mu)
-	return pipe
-}
-
-func (p *inputPipe) Read(dst []byte) (int, error) {
-	if len(dst) == 0 {
-		return 0, nil
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	for len(p.buf) == 0 && !p.closed {
-		p.wake.Wait()
-	}
-	if len(p.buf) == 0 {
-		return 0, io.EOF
-	}
-	n := copy(dst, p.buf)
-	p.buf = p.buf[n:]
-	if len(p.buf) == 0 {
-		p.buf = nil
-	}
-	return n, nil
-}
-
-func (p *inputPipe) feed(data []byte) {
-	if len(data) == 0 {
-		return
-	}
-	p.mu.Lock()
-	if !p.closed && len(p.buf) < inputBufferLimit {
-		room := inputBufferLimit - len(p.buf)
-		if len(data) > room {
-			data = data[:room]
-		}
-		p.buf = append(p.buf, data...)
-		p.wake.Broadcast()
-	}
-	p.mu.Unlock()
-}
-
-// reset drops input that arrived before an attach or after a detach: those
-// keystrokes belong to a terminal that is no longer watching.
-func (p *inputPipe) reset() {
-	p.mu.Lock()
-	p.buf = nil
-	p.mu.Unlock()
-}
-
-func (p *inputPipe) close() {
-	p.mu.Lock()
-	p.closed = true
-	p.wake.Broadcast()
-	p.mu.Unlock()
 }

@@ -594,10 +594,14 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	var host *session.Host
 	if daemon {
 		m.SetDetached(true)
-		host = session.New(session.Options{
+		var hostErr error
+		host, hostErr = session.New(session.Options{
 			OnAttach: func(int, int) { prog.Send(model.SetDetachedMsg{Detached: false}) },
 			OnDetach: func() { prog.Send(model.SetDetachedMsg{Detached: true}) },
 		})
+		if hostErr != nil {
+			return fmt.Errorf("session: %w", hostErr)
+		}
 		// The quit key hands the terminal back instead of stopping the music;
 		// ctrl+q still quits.
 		m.SetSessionDetach(host.Detach)

@@ -3,7 +3,6 @@ package session
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"strings"
 	"sync"
@@ -62,7 +61,10 @@ func hostedProgram(t *testing.T, opts Options) (*Host, func()) {
 // test's control, so a test can attach before the program is running.
 func hostedProgramDeferred(t *testing.T, opts Options) (host *Host, start func(), stop func()) {
 	t.Helper()
-	host = New(opts)
+	host, err := New(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
 	prog := tea.NewProgram(hostedModel{},
 		tea.WithInput(host.Input()),
 		tea.WithOutput(host.Output()),
@@ -223,11 +225,21 @@ func TestAttachRendersAndForwardsInput(t *testing.T) {
 	client.waitForOutput(t, "size=70x20")
 
 	client.send(t, kindDetach, nil)
-	waitFor(t, "detach", func() bool { return !host.Attached() })
+	// The detach callback is the last step of the handover -- the terminal is
+	// released and the connection closed first -- so waiting on the callback
+	// is what says the session is fully back to detached.
+	waitFor(t, "the detach callback", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return detached == 1
+	})
+	if host.Attached() {
+		t.Error("host still reports an attached client")
+	}
 	mu.Lock()
 	defer mu.Unlock()
-	if attached != 1 || detached != 1 {
-		t.Errorf("attach/detach callbacks = %d/%d, want 1/1", attached, detached)
+	if attached != 1 {
+		t.Errorf("attach callbacks = %d, want 1", attached)
 	}
 }
 
@@ -357,63 +369,29 @@ func TestAttachRejectsMissingSize(t *testing.T) {
 	_ = clientSide.Close()
 }
 
-func TestInputPipeBlocksUntilFedAndEndsOnClose(t *testing.T) {
-	pipe := newInputPipe()
+// One program serves every attach, so its input has to survive a detach: the
+// reader is cancelled and restarted, not ended.
+func TestInputWorksAgainAfterReattach(t *testing.T) {
+	host, stop := hostedProgram(t, Options{})
+	defer stop()
 
-	read := make(chan string, 1)
-	go func() {
-		buf := make([]byte, 16)
-		n, err := pipe.Read(buf)
-		if err != nil {
-			read <- "error: " + err.Error()
-			return
-		}
-		read <- string(buf[:n])
-	}()
-
-	select {
-	case got := <-read:
-		t.Fatalf("Read returned %q before any input", got)
-	case <-time.After(50 * time.Millisecond):
+	first, response := attach(t, host, 90, 30)
+	if !response.OK {
+		t.Fatalf("attach failed: %v", response.Error)
 	}
+	first.waitForOutput(t, "size=90x30")
+	first.send(t, kindInput, []byte("a"))
+	first.waitForOutput(t, "aaaaa")
+	first.send(t, kindDetach, nil)
+	waitFor(t, "detach", func() bool { return !host.Attached() })
 
-	pipe.feed([]byte("hey"))
-	select {
-	case got := <-read:
-		if got != "hey" {
-			t.Errorf("Read = %q, want %q", got, "hey")
-		}
-	case <-time.After(time.Second):
-		t.Fatal("Read did not wake on input")
+	second, response := attach(t, host, 90, 30)
+	if !response.OK {
+		t.Fatalf("reattach failed: %v", response.Error)
 	}
-
-	// Keystrokes typed at a terminal that has gone away belong to nobody.
-	pipe.feed([]byte("stale"))
-	pipe.reset()
-	pipe.close()
-	buf := make([]byte, 16)
-	if _, err := pipe.Read(buf); err != io.EOF {
-		t.Errorf("Read after close = %v, want EOF", err)
-	}
-}
-
-func TestInputPipeDropsFloodBeyondLimit(t *testing.T) {
-	pipe := newInputPipe()
-	pipe.feed(make([]byte, inputBufferLimit+4096))
-
-	total := 0
-	buf := make([]byte, 8192)
-	for total < inputBufferLimit {
-		n, err := pipe.Read(buf)
-		if err != nil {
-			t.Fatalf("Read: %v", err)
-		}
-		total += n
-	}
-	pipe.close()
-	if n, err := pipe.Read(buf); n != 0 || err != io.EOF {
-		t.Errorf("buffered %d bytes past the limit", total+n)
-	}
+	second.waitForOutput(t, "aaaaa")
+	second.send(t, kindInput, []byte("b"))
+	second.waitForOutput(t, "bbbbb")
 }
 
 func waitFor(t *testing.T, what string, ok func() bool) {
