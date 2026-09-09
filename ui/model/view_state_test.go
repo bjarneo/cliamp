@@ -142,15 +142,13 @@ func TestRenderPlaylistKeepsCursorVisibleWhenFooterShrinksBudget(t *testing.T) {
 }
 
 func TestViewConsumesInitialVisualizerRefresh(t *testing.T) {
-	if sharedPlayer == nil {
-		t.Skip("audio hardware unavailable")
-	}
 	withFrameWidth(t, 80)
 
+	player := &playbackFakeEngine{playing: true}
 	m := Model{
-		player:   sharedPlayer,
+		player:   player,
 		playlist: playlist.New(),
-		vis:      ui.NewVisualizer(float64(sharedPlayer.SampleRate())),
+		vis:      ui.NewVisualizer(float64(player.SampleRate())),
 		width:    80,
 		height:   24,
 	}

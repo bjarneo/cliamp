@@ -3,8 +3,12 @@ package ui
 import (
 	"math"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestAnalyzeSupportsArbitraryBandCounts(t *testing.T) {
@@ -143,15 +147,15 @@ func TestFastFrameDriverBoundsCatchUp(t *testing.T) {
 	}
 }
 
-func TestFastFrameDriverDoesNotCatchUpPausedOrHiddenTime(t *testing.T) {
+func TestFastFrameDriverDoesNotCatchUpInactiveOrHiddenTime(t *testing.T) {
 	tests := []struct {
 		name    string
 		suspend func(*Visualizer, time.Time)
 	}{
 		{
-			name: "paused",
+			name: "inactive",
 			suspend: func(v *Visualizer, now time.Time) {
-				v.Tick(VisTickContext{Now: now, Playing: true, Paused: true})
+				v.Tick(VisTickContext{Now: now})
 			},
 		},
 		{name: "hidden", suspend: func(v *Visualizer, _ time.Time) { v.Suspend() }},
@@ -218,7 +222,7 @@ func TestAdvanceSmoothingResizesOnBandCountChange(t *testing.T) {
 	}
 }
 
-func TestPausedBarsDecayToRestThenSuspend(t *testing.T) {
+func TestInactiveBarsDecayToRestThenSuspend(t *testing.T) {
 	withPanelWidth(t, 16)
 
 	v := NewVisualizer(44100)
@@ -226,66 +230,174 @@ func TestPausedBarsDecayToRestThenSuspend(t *testing.T) {
 	v.bands = uniformBands(0.8)
 	v.smoothedBands = append([]float64(nil), v.bands...)
 
-	analyze := func(spec VisAnalysisSpec) []float64 {
-		return v.Analyze(nil, spec)
-	}
-	ctxAt := func(now time.Time) VisTickContext {
-		return VisTickContext{Now: now, Paused: true, Analyze: analyze}
-	}
-
 	prev := append([]float64(nil), v.SmoothedBands()...)
 	settled := false
 	now := time.Unix(1, 0)
 	for i := 0; i < 240; i++ {
-		v.Tick(ctxAt(now.Add(time.Duration(i+1) * TickSlow)))
+		v.Tick(VisTickContext{Now: now.Add(time.Duration(i+1) * TickSlow)})
 		cur := v.SmoothedBands()
 		for b := range len(cur) {
 			if cur[b] > prev[b]+1e-9 {
-				t.Fatalf("paused tick %d band %d rose %v -> %v, want monotonic decay", i, b, prev[b], cur[b])
+				t.Fatalf("inactive tick %d band %d rose %v -> %v, want monotonic decay", i, b, prev[b], cur[b])
 			}
 		}
 		prev = append(prev[:0], cur...)
-		if !v.PausedDecayPending(ctxAt(now.Add(time.Duration(i+2) * TickSlow))) {
+		if !v.DecayPending() {
 			settled = true
 			break
 		}
 	}
 	if !settled {
-		t.Fatal("paused bars never settled to rest")
+		t.Fatal("inactive bars never settled to rest")
 	}
 	for i, got := range prev {
-		if got >= pausedDecayEpsilon {
-			t.Fatalf("band %d = %v after decay, want below %v", i, got, pausedDecayEpsilon)
+		if got >= decaySettledEpsilon {
+			t.Fatalf("band %d = %v after decay, want below %v", i, got, decaySettledEpsilon)
 		}
 	}
 
-	// Once settled, further paused ticks suspend and leave the frame alone.
+	// Once settled, further inactive ticks suspend and leave the frame alone.
 	frameBefore := v.Frame()
-	v.Tick(ctxAt(now.Add(10 * time.Second)))
+	v.Tick(VisTickContext{Now: now.Add(10 * time.Second)})
 	if got := v.Frame(); got != frameBefore {
-		t.Fatalf("settled paused tick advanced frame %d -> %d", frameBefore, got)
+		t.Fatalf("settled inactive tick advanced frame %d -> %d", frameBefore, got)
 	}
 	for i, got := range v.SmoothedBands() {
 		if math.Abs(got-prev[i]) > 1e-9 {
-			t.Fatalf("settled paused tick changed band %d %v -> %v", i, prev[i], got)
+			t.Fatalf("settled inactive tick changed band %d %v -> %v", i, prev[i], got)
 		}
 	}
 }
 
-func TestPausedRawSampleModeClearsWaveform(t *testing.T) {
+// sineSamples returns n samples of a loud 1 kHz tone at 44.1 kHz.
+func sineSamples(n int) []float64 {
+	s := make([]float64, n)
+	for i := range s {
+		s[i] = 0.8 * math.Sin(2*math.Pi*1000*float64(i)/44100)
+	}
+	return s
+}
+
+func TestInactiveWidthChangeDecaysReturnedSpecHistory(t *testing.T) {
+	withPanelWidth(t, 30)
+	v := NewVisualizer(44100)
+	v.Rows = 5
+	v.Mode = VisClassicLED
+	sine := sineSamples(classicLEDFFTSize)
+	loud := func(spec VisAnalysisSpec) []float64 { return v.Analyze(sine, spec) }
+	now := time.Unix(1, 0)
+	for _, width := range []int{30, 60} {
+		PanelWidth = width
+		for range 20 {
+			now = now.Add(TickFast)
+			v.Tick(VisTickContext{Now: now, Playing: true, Analyze: loud})
+		}
+	}
+
+	// Stop and settle at width 60, then shrink back to 30 while stopped.
+	for i := 0; i < 240 && v.DecayPending(); i++ {
+		now = now.Add(TickFast)
+		v.Tick(VisTickContext{Now: now})
+	}
+	PanelWidth = 30
+	if !v.DecayPending() {
+		t.Fatal("ClassicLED reported settled after a width change with its charged history")
+	}
+	for i := 0; i < 240 && v.DecayPending(); i++ {
+		now = now.Add(TickFast)
+		v.Tick(VisTickContext{Now: now})
+	}
+	if v.DecayPending() {
+		t.Fatal("ClassicLED never settled after the width change")
+	}
+
+	silent := func(spec VisAnalysisSpec) []float64 { return v.Analyze(nil, spec) }
+	v.Tick(VisTickContext{Now: now.Add(time.Second), Playing: true, Analyze: silent})
+	if got := slices.Max(v.Bands()); got >= decaySettledEpsilon {
+		t.Fatalf("resumed into silence with band level %v, want stale history decayed below %v", got, decaySettledEpsilon)
+	}
+}
+
+func TestInactiveModeSwitchDecaysReturnedSpecHistory(t *testing.T) {
+	withPanelWidth(t, 16)
+	v := NewVisualizer(44100)
+	v.Rows = 5
+	v.Mode = VisClassicPeak
+	sine := sineSamples(classicPeakFFTSize)
+	loud := func(spec VisAnalysisSpec) []float64 { return v.Analyze(sine, spec) }
+	now := time.Unix(1, 0)
+	for range 20 {
+		now = now.Add(TickFast)
+		v.Tick(VisTickContext{Now: now, Playing: true, Analyze: loud})
+	}
+
+	// Stop, let Bars settle, then return to ClassicPeak while still stopped.
+	v.Mode = VisBars
+	for i := 0; i < 240 && v.DecayPending(); i++ {
+		now = now.Add(TickFast)
+		v.Tick(VisTickContext{Now: now})
+	}
+	v.Mode = VisClassicPeak
+	if !v.DecayPending() {
+		t.Fatal("ClassicPeak reported settled on re-entry with its charged history")
+	}
+	for i := 0; i < 240 && v.DecayPending(); i++ {
+		now = now.Add(TickFast)
+		v.Tick(VisTickContext{Now: now})
+	}
+	if v.DecayPending() {
+		t.Fatal("ClassicPeak never settled after re-entry")
+	}
+
+	silent := func(spec VisAnalysisSpec) []float64 { return v.Analyze(nil, spec) }
+	v.Tick(VisTickContext{Now: now.Add(time.Second), Playing: true, Analyze: silent})
+	if got := slices.Max(v.Bands()); got >= decaySettledEpsilon {
+		t.Fatalf("resumed into silence with band level %v, want stale history decayed below %v", got, decaySettledEpsilon)
+	}
+}
+
+func TestSettledInactiveSpectrumReadsZero(t *testing.T) {
+	withPanelWidth(t, 16)
+	v := NewVisualizer(44100)
+	v.Rows = 5
+	v.Mode = VisBricks
+	sine := sineSamples(defaultFFTSize)
+	loud := func(spec VisAnalysisSpec) []float64 { return v.Analyze(sine, spec) }
+	now := time.Unix(1, 0)
+	for range 20 {
+		now = now.Add(TickFast)
+		v.Tick(VisTickContext{Now: now, Playing: true, Analyze: loud})
+	}
+	for i := 0; i < 240 && v.DecayPending(); i++ {
+		now = now.Add(TickFast)
+		v.Tick(VisTickContext{Now: now})
+	}
+	if v.DecayPending() {
+		t.Fatal("bricks never settled while inactive")
+	}
+	if got := slices.Max(v.SmoothedBands()); got != 0 {
+		t.Fatalf("settled smoothed band level = %v, want 0", got)
+	}
+	lines := strings.Split(v.Render(), "\n")
+	if bottom := strings.TrimSpace(ansi.Strip(lines[len(lines)-1])); bottom != "" {
+		t.Fatalf("settled bricks bottom row = %q, want blank", bottom)
+	}
+}
+
+func TestInactiveRawSampleModeClearsWaveform(t *testing.T) {
 	v := NewVisualizer(44100)
 	activateMode(t, v, VisWave)
 	v.waveBuf = []float64{-0.5, 0.5}
-	ctx := VisTickContext{Paused: true}
+	ctx := VisTickContext{}
 
-	if !v.PausedDecayPending(ctx) {
+	if !v.DecayPending() {
 		t.Fatal("raw waveform was considered settled before being cleared")
 	}
 	v.Tick(ctx)
 	if len(v.waveBuf) != 0 {
 		t.Fatalf("waveBuf len = %d after pause, want 0", len(v.waveBuf))
 	}
-	if v.PausedDecayPending(ctx) {
+	if v.DecayPending() {
 		t.Fatal("raw waveform still settling after pause clear")
 	}
 }
@@ -301,7 +413,7 @@ func TestModeSwitchClearsSmoothedBands(t *testing.T) {
 	}
 }
 
-func TestPausedGeyserWaitsForParticles(t *testing.T) {
+func TestInactiveGeyserWaitsForParticles(t *testing.T) {
 	withPanelWidth(t, 16)
 	v := NewVisualizer(44100)
 	v.Rows = 5
@@ -310,21 +422,21 @@ func TestPausedGeyserWaitsForParticles(t *testing.T) {
 	driver.particles = []geyserParticle{{x: 1, y: float64(v.Rows * 4), tier: 1}}
 	v.bands = uniformBands(0)
 	v.smoothedBands = uniformBands(0)
-	ctx := VisTickContext{Paused: true}
+	ctx := VisTickContext{}
 
-	if !v.PausedDecayPending(ctx) {
+	if !v.DecayPending() {
 		t.Fatal("geyser was considered settled with a live particle")
 	}
 	v.Tick(ctx)
 	if len(driver.particles) != 0 {
 		t.Fatalf("geyser particles = %d after off-screen decay, want 0", len(driver.particles))
 	}
-	if v.PausedDecayPending(ctx) {
+	if v.DecayPending() {
 		t.Fatal("geyser still settling after particles expired")
 	}
 }
 
-func TestPausedSandWaitsForExplosion(t *testing.T) {
+func TestInactiveSandWaitsForExplosion(t *testing.T) {
 	withPanelWidth(t, 16)
 	v := NewVisualizer(44100)
 	v.Rows = 5
@@ -335,17 +447,145 @@ func TestPausedSandWaitsForExplosion(t *testing.T) {
 	driver.explosionTTL = 1
 	v.bands = uniformBands(0)
 	v.smoothedBands = uniformBands(0)
-	ctx := VisTickContext{Paused: true}
+	ctx := VisTickContext{}
 
-	if !v.PausedDecayPending(ctx) {
+	if !v.DecayPending() {
 		t.Fatal("sand was considered settled during an explosion")
 	}
 	v.Tick(ctx)
 	if len(driver.particles) != 0 || driver.explosionTTL != 0 {
 		t.Fatalf("sand explosion state after decay = particles %d, ttl %d", len(driver.particles), driver.explosionTTL)
 	}
-	if v.PausedDecayPending(ctx) {
+	if v.DecayPending() {
 		t.Fatal("sand still settling after explosion expired")
+	}
+}
+
+func TestInactiveSandWaitsForFallingGrains(t *testing.T) {
+	withPanelWidth(t, 4)
+	v := NewVisualizer(44100)
+	v.Rows = 10
+	activateMode(t, v, VisSand)
+	driver := v.driverFor(VisSand).(*sandDriver)
+	driver.ensure(v.Rows*4, PanelWidth*2)
+	x := PanelWidth
+	driver.grid[x] = 1
+	v.bands = uniformBands(0)
+	v.smoothedBands = uniformBands(0)
+
+	now := time.Unix(1, 0)
+	v.Tick(VisTickContext{Now: now, Playing: true})
+	if !v.DecayPending() {
+		t.Fatal("sand was considered settled with a falling grain")
+	}
+	for i := 1; i <= driver.dotRows && v.DecayPending(); i++ {
+		v.Tick(VisTickContext{Now: now.Add(time.Duration(i) * TickFast)})
+	}
+	if v.DecayPending() {
+		t.Fatal("sand remained active after its falling grain landed")
+	}
+	if got := driver.grid[(driver.dotRows-1)*driver.dotCols+x]; got != 1 {
+		t.Fatalf("landed grain = %d, want 1", got)
+	}
+}
+
+func TestSandFloorErosionNeverSettlesOverAHole(t *testing.T) {
+	withPanelWidth(t, 4)
+	v := NewVisualizer(44100)
+	v.Rows = 5
+	activateMode(t, v, VisSand)
+	driver := v.driverFor(VisSand).(*sandDriver)
+	dotRows, dotCols := v.Rows*4, PanelWidth*2
+	driver.ensure(dotRows, dotCols)
+	for i := (dotRows - 2) * dotCols; i < len(driver.grid); i++ {
+		driver.grid[i] = 1
+	}
+	v.bands = uniformBands(0)
+	v.smoothedBands = uniformBands(0)
+
+	// Silent playback only erodes the floor. Run until the first erosion and
+	// check the grains it left unsupported keep the visualizer pending.
+	now := time.Unix(1, 0)
+	eroded := false
+	for i := 0; i < 2000 && !eroded; i++ {
+		before := slices.Clone(driver.grid)
+		now = now.Add(TickFast)
+		v.Tick(VisTickContext{Now: now, Playing: true})
+		eroded = !slices.Equal(before, driver.grid)
+	}
+	if !eroded {
+		t.Fatal("floor erosion never removed a grain")
+	}
+	if !v.DecayPending() {
+		t.Fatal("sand reported settled right after eroding a support")
+	}
+
+	for i := 0; i < dotRows && v.DecayPending(); i++ {
+		now = now.Add(TickFast)
+		v.Tick(VisTickContext{Now: now})
+	}
+	if v.DecayPending() {
+		t.Fatal("sand did not settle after erosion")
+	}
+	for y := 0; y < dotRows-1; y++ {
+		for x := range dotCols {
+			if driver.grid[y*dotCols+x] != 0 && driver.grid[(y+1)*dotCols+x] == 0 {
+				t.Fatalf("settled grain at column %d row %d floats over a hole", x, y)
+			}
+		}
+	}
+}
+
+func TestInactiveMosaicWaitsForVisibleCells(t *testing.T) {
+	withPanelWidth(t, 8)
+	v := NewVisualizer(44100)
+	v.Rows = 2
+	activateMode(t, v, VisMosaic)
+	driver := v.driverFor(VisMosaic).(*mosaicDriver)
+	driver.ensureGrid(v.Rows, mosaicTileCount(PanelWidth), DefaultSpectrumBands)
+	driver.cells[0].value = 0.06
+	v.bands = uniformBands(0)
+	v.smoothedBands = uniformBands(0)
+
+	if !v.DecayPending() {
+		t.Fatal("mosaic was considered settled with a visible cell")
+	}
+	v.Tick(VisTickContext{})
+	if !v.DecayPending() {
+		t.Fatal("mosaic settled while its fading cell was still visible")
+	}
+	v.Tick(VisTickContext{})
+	if v.DecayPending() {
+		t.Fatal("mosaic remained active after its cells became invisible")
+	}
+}
+
+func TestInactiveFlameWaitsForVisibleHeat(t *testing.T) {
+	withPanelWidth(t, 4)
+	v := NewVisualizer(44100)
+	v.Rows = 10
+	activateMode(t, v, VisFlame)
+	driver := v.driverFor(VisFlame).(*flameDriver)
+	for i := range driver.heat {
+		driver.heat[i] = 1
+	}
+	v.bands = uniformBands(0)
+	v.smoothedBands = uniformBands(0)
+
+	if !v.DecayPending() {
+		t.Fatal("flame was considered settled with visible heat")
+	}
+	v.Tick(VisTickContext{})
+	for x := range driver.dotCols {
+		if driver.heat[x] != 0 {
+			t.Fatalf("inactive flame source %d = %v, want 0", x, driver.heat[x])
+		}
+	}
+	for i := 1; i < 2*driver.dotRows && v.DecayPending(); i++ {
+		v.Tick(VisTickContext{})
+	}
+	if v.DecayPending() {
+		t.Fatal("flame remained active after its heat became invisible")
 	}
 }
 
@@ -398,6 +638,7 @@ func TestRenderOnlyDriverRequestsConfiguredBandCount(t *testing.T) {
 
 	var requested VisAnalysisSpec
 	v.Tick(VisTickContext{
+		Playing: true,
 		Analyze: func(spec VisAnalysisSpec) []float64 {
 			requested = spec
 			return uniformBandsN(spec.BandCount, 0.6)
@@ -514,7 +755,7 @@ func TestTerrainPreservesStateAcrossModeSwitch(t *testing.T) {
 	bands := uniformBands(0.6)
 	v.bands = bands
 
-	v.Tick(VisTickContext{})
+	v.Tick(VisTickContext{Playing: true})
 	snapshot := append([]float64(nil), driver.buf...)
 	if len(snapshot) != PanelWidth*2 {
 		t.Fatalf("terrain buffer len = %d, want %d", len(snapshot), PanelWidth*2)
@@ -541,7 +782,7 @@ func TestTerrainRenderDoesNotAdvanceWithoutTick(t *testing.T) {
 	driver := terrainDriverFor(t, v)
 	v.bands = uniformBands(0.6)
 
-	v.Tick(VisTickContext{})
+	v.Tick(VisTickContext{Playing: true})
 	snapshot := append([]float64(nil), driver.buf...)
 
 	v.Render()
@@ -549,6 +790,32 @@ func TestTerrainRenderDoesNotAdvanceWithoutTick(t *testing.T) {
 
 	if !reflect.DeepEqual(driver.buf, snapshot) {
 		t.Fatalf("terrain buffer changed across redraws without tick: got %v want %v", driver.buf, snapshot)
+	}
+}
+
+func TestInactiveTerrainScrollsHistoryToRest(t *testing.T) {
+	withPanelWidth(t, 8)
+
+	v := NewVisualizer(44100)
+	activateMode(t, v, VisTerrain)
+	driver := terrainDriverFor(t, v)
+	driver.buf = uniformBandsN(PanelWidth*2, 0.6)
+	v.bands = uniformBands(0)
+	v.smoothedBands = uniformBands(0)
+
+	if !v.DecayPending() {
+		t.Fatal("terrain was considered settled with visible history")
+	}
+	for range len(driver.buf) / 2 {
+		v.Tick(VisTickContext{})
+	}
+	if v.DecayPending() {
+		t.Fatal("terrain remained active after its history scrolled out")
+	}
+	for i, height := range driver.buf {
+		if height != 0 {
+			t.Fatalf("terrain column %d = %v after inactive decay, want 0", i, height)
+		}
 	}
 }
 

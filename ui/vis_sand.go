@@ -23,6 +23,7 @@ type sandDriver struct {
 	// each tick so the existing renderer needs no changes.
 	particles    []sandParticle
 	explosionTTL int
+	falling      bool
 }
 
 // sandParticle is one grain in mid-flight during the explosion sequence. Sub-
@@ -68,6 +69,7 @@ func (d *sandDriver) Tick(v *Visualizer, ctx VisTickContext) {
 		return
 	}
 	d.ensure(dotRows, dotCols)
+	d.falling = false
 
 	bands := v.SmoothedBands()
 	bass := bandAvg(bands, 0, max(1, len(bands)/3))
@@ -251,6 +253,18 @@ func (d *sandDriver) Tick(v *Visualizer, ctx VisTickContext) {
 		}
 	}
 
+	// Floor: grains in the very bottom row drift off-screen at a slow rate so
+	// the grid doesn't fill up over time. Without this, a long-running session
+	// gradually packs every cell. Runs before the falling pass so a grain left
+	// unsupported drops this same tick and d.falling reflects it.
+	if ctx.Playing {
+		for x := 0; x < dotCols; x++ {
+			if d.grid[(dotRows-1)*dotCols+x] != 0 && d.rand01() < 0.04 {
+				d.grid[(dotRows-1)*dotCols+x] = 0
+			}
+		}
+	}
+
 	// Falling pass: bottom-up so a grain we just moved into y+1 isn't moved
 	// twice this frame. Grains at the bottom row leave the grid.
 	for y := dotRows - 2; y >= 0; y-- {
@@ -270,6 +284,7 @@ func (d *sandDriver) Tick(v *Visualizer, ctx VisTickContext) {
 			if d.grid[(y+1)*dotCols+x] == 0 {
 				d.grid[(y+1)*dotCols+x] = g
 				d.grid[y*dotCols+x] = 0
+				d.falling = true
 				continue
 			}
 			// Diagonal: pick left or right first based on parity for symmetry.
@@ -285,18 +300,10 @@ func (d *sandDriver) Tick(v *Visualizer, ctx VisTickContext) {
 				if d.grid[(y+1)*dotCols+nx] == 0 {
 					d.grid[(y+1)*dotCols+nx] = g
 					d.grid[y*dotCols+x] = 0
+					d.falling = true
 					break
 				}
 			}
-		}
-	}
-
-	// Floor: grains in the very bottom row drift off-screen at a slow rate so
-	// the grid doesn't fill up over time. Without this, a long-running session
-	// gradually packs every cell.
-	for x := 0; x < dotCols; x++ {
-		if d.grid[(dotRows-1)*dotCols+x] != 0 && d.rand01() < 0.04 {
-			d.grid[(dotRows-1)*dotCols+x] = 0
 		}
 	}
 }
@@ -305,8 +312,8 @@ func (*sandDriver) TickInterval(_ *Visualizer, ctx VisTickContext) time.Duration
 	return defaultDriverTickInterval(ctx)
 }
 
-func (d *sandDriver) pauseSettled() bool {
-	return d.explosionTTL == 0 && len(d.particles) == 0
+func (d *sandDriver) decaySettled() bool {
+	return d.explosionTTL == 0 && len(d.particles) == 0 && !d.falling
 }
 
 func (d *sandDriver) OnEnter(*Visualizer) {
@@ -316,6 +323,7 @@ func (d *sandDriver) OnEnter(*Visualizer) {
 	d.prevBass = 0
 	d.particles = nil
 	d.explosionTTL = 0
+	d.falling = false
 }
 
 func (*sandDriver) OnLeave(*Visualizer) {}

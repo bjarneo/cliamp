@@ -166,6 +166,31 @@ func TestTickIntervalClampsFastVisualizerCadence(t *testing.T) {
 	}
 }
 
+func TestTickIntervalClassicMetersUseDriverCadence(t *testing.T) {
+	for _, mode := range []string{"ClassicPeak", "ClassicLED"} {
+		t.Run(mode, func(t *testing.T) {
+			p := &playbackFakeEngine{playing: true}
+			m := Model{
+				player:   p,
+				vis:      ui.NewVisualizer(float64(p.SampleRate())),
+				playlist: playlist.New(),
+				width:    80,
+				height:   24,
+			}
+			m.recomputeLayout()
+			m.SetVisualizer(mode)
+
+			want := m.vis.TickInterval(m.visualizerTickContext(time.Time{}))
+			if want >= ui.TickFast {
+				t.Fatalf("visualizer interval = %v, want faster than %v for test setup", want, ui.TickFast)
+			}
+			if got := m.tickInterval(); got != want {
+				t.Fatalf("tickInterval() = %v, want driver cadence %v", got, want)
+			}
+		})
+	}
+}
+
 func TestTickIntervalVisualizer60FPS(t *testing.T) {
 	p := &playbackFakeEngine{playing: true}
 	m := Model{
@@ -231,6 +256,31 @@ func TestRawSampleVisualizerUsesWaveformTap(t *testing.T) {
 	}
 }
 
+func TestStoppedModeSwitchDropsStaleWaveformAndIdles(t *testing.T) {
+	p := &samplingFakeEngine{playbackFakeEngine: &playbackFakeEngine{playing: true}}
+	m := Model{
+		player:   p,
+		vis:      ui.NewVisualizer(float64(p.SampleRate())),
+		playlist: playlist.New(),
+		width:    80,
+		height:   24,
+	}
+	m.recomputeLayout()
+
+	now := time.Unix(1, 0)
+	m.SetVisualizer("Wave")
+	m.tickVisualizer(now)
+	m.SetVisualizer("Stereo")
+	p.playing = false
+
+	if m.visualizerSettling() {
+		t.Fatal("visualizerSettling() = true after a stopped mode switch, want stale waveform dropped")
+	}
+	if got := m.tickInterval(); got != ui.TickIdle {
+		t.Fatalf("tickInterval() = %v, want %v after stopped Stereo settled", got, ui.TickIdle)
+	}
+}
+
 func TestTickIntervalLowPowerPlayingUsesLowPowerCadence(t *testing.T) {
 	p := &playbackFakeEngine{playing: true}
 	m := Model{
@@ -245,7 +295,7 @@ func TestTickIntervalLowPowerPlayingUsesLowPowerCadence(t *testing.T) {
 	}
 }
 
-func chargedPausedModel(t *testing.T) (Model, *samplingFakeEngine) {
+func chargedBarsModel(t *testing.T) (Model, *samplingFakeEngine) {
 	t.Helper()
 	p := &samplingFakeEngine{playbackFakeEngine: &playbackFakeEngine{playing: true}}
 	m := Model{
@@ -258,12 +308,17 @@ func chargedPausedModel(t *testing.T) (Model, *samplingFakeEngine) {
 	m.recomputeLayout()
 	m.vis.Mode = ui.VisBars
 
-	// Charge the bars through the normal tick path so v.bands is populated,
-	// then pause to leave non-empty spectrum content behind.
+	// Charge the bars through the normal tick path so v.bands is populated.
 	base := time.Unix(1, 0)
 	for i := range 3 {
 		m.tickVisualizer(base.Add(time.Duration(i+1) * ui.TickFast))
 	}
+	return m, p
+}
+
+func chargedPausedModel(t *testing.T) (Model, *samplingFakeEngine) {
+	t.Helper()
+	m, p := chargedBarsModel(t)
 	p.paused = true
 	return m, p
 }
@@ -275,8 +330,8 @@ func chargedPausedModel(t *testing.T) (Model, *samplingFakeEngine) {
 func TestTickIntervalPausedSettlingVisualizerUsesFast(t *testing.T) {
 	m, _ := chargedPausedModel(t)
 
-	if !m.isOverlayActive() && !m.visualizerSettlingPaused() {
-		t.Fatal("visualizerSettlingPaused() = false with charged paused bars, want true")
+	if !m.visualizerSettling() {
+		t.Fatal("visualizerSettling() = false with charged paused bars, want true")
 	}
 	if m.isFullyIdle() {
 		t.Fatal("isFullyIdle() = true while paused bars settle, want false")
@@ -292,11 +347,11 @@ func TestTickIntervalPausedSettledVisualizerUsesIdle(t *testing.T) {
 	base := time.Unix(1, 0)
 	for i := range 120 {
 		m.tickVisualizer(base.Add(time.Duration(i+1) * ui.TickSlow))
-		if !m.visualizerSettlingPaused() {
+		if !m.visualizerSettling() {
 			break
 		}
 	}
-	if m.visualizerSettlingPaused() {
+	if m.visualizerSettling() {
 		t.Fatal("visualizer still settling after decay ticks")
 	}
 	if !m.isFullyIdle() {
@@ -304,6 +359,85 @@ func TestTickIntervalPausedSettledVisualizerUsesIdle(t *testing.T) {
 	}
 	if got := m.tickInterval(); got != ui.TickIdle {
 		t.Fatalf("tickInterval() = %v, want %v after paused bars settle", got, ui.TickIdle)
+	}
+}
+
+func TestStoppedSpectrumUsesSilence(t *testing.T) {
+	m, p := chargedBarsModel(t)
+	before := append([]float64(nil), m.vis.Bands()...)
+	sampleCalls := p.sampleCalls
+	p.playing = false
+
+	if !m.visualizerSettling() {
+		t.Fatal("visualizerSettling() = false with charged stopped bars, want true")
+	}
+	m.tickVisualizer(time.Unix(2, 0))
+
+	if p.sampleCalls != sampleCalls {
+		t.Fatalf("SamplesInto calls while stopped = %d, want 0", p.sampleCalls-sampleCalls)
+	}
+	decreased := false
+	for i, got := range m.vis.Bands() {
+		if got > before[i] {
+			t.Fatalf("stopped band[%d] increased from %v to %v", i, before[i], got)
+		}
+		decreased = decreased || got < before[i]
+	}
+	if !decreased {
+		t.Fatal("stopped bands did not decay toward silence")
+	}
+}
+
+func TestTickIntervalStoppedClassicMetersSettleBeforeIdle(t *testing.T) {
+	for _, mode := range []string{"ClassicPeak", "ClassicLED"} {
+		t.Run(mode, func(t *testing.T) {
+			p := &samplingFakeEngine{playbackFakeEngine: &playbackFakeEngine{playing: true}}
+			m := Model{
+				player:   p,
+				vis:      ui.NewVisualizer(float64(p.SampleRate())),
+				playlist: playlist.New(),
+				width:    80,
+				height:   24,
+			}
+			m.recomputeLayout()
+			m.SetVisualizer(mode)
+
+			now := time.Unix(1, 0)
+			for range 4 {
+				now = now.Add(ui.TickFast)
+				m.tickVisualizer(now)
+			}
+			if p.sampleCalls == 0 {
+				t.Fatal("visualizer did not sample audio before stop")
+			}
+
+			p.playing = false
+			if !m.visualizerSettling() {
+				t.Fatal("visualizerSettling() = false with charged stopped meter, want true")
+			}
+			want := m.vis.TickInterval(m.visualizerTickContext(time.Time{}))
+			if got := m.tickInterval(); got != want {
+				t.Fatalf("tickInterval() = %v, want driver cadence %v", got, want)
+			}
+
+			sampleCalls := p.sampleCalls
+			for range 240 {
+				now = now.Add(m.tickInterval())
+				m.tickVisualizer(now)
+				if !m.visualizerSettling() {
+					break
+				}
+			}
+			if m.visualizerSettling() {
+				t.Fatal("stopped meter did not settle")
+			}
+			if p.sampleCalls != sampleCalls {
+				t.Fatalf("SamplesInto calls while stopped = %d, want 0", p.sampleCalls-sampleCalls)
+			}
+			if got := m.tickInterval(); got != ui.TickIdle {
+				t.Fatalf("tickInterval() = %v, want %v after stopped meter settled", got, ui.TickIdle)
+			}
+		})
 	}
 }
 
@@ -441,6 +575,7 @@ func TestVisualizerTickContextProcessesStereoOutput(t *testing.T) {
 
 func TestRefreshVisualizerIfPendingConsumesOneShotRequest(t *testing.T) {
 	m := Model{
+		player: &playbackFakeEngine{playing: true},
 		vis:    ui.NewVisualizer(44100),
 		width:  80,
 		height: 24,
@@ -465,6 +600,7 @@ func TestRefreshVisualizerIfPendingConsumesOneShotRequest(t *testing.T) {
 
 func TestLyricsScreenKeepsVisualizerLive(t *testing.T) {
 	m := Model{
+		player: &playbackFakeEngine{playing: true},
 		vis:    ui.NewVisualizer(44100),
 		width:  80,
 		height: 24,

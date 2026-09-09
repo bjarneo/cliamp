@@ -15,7 +15,7 @@ func TestVisualizerFitsTinyRectangles(t *testing.T) {
 				v.Mode = mode
 				v.Cols = rect.cols
 				v.Rows = rect.rows
-				v.Tick(VisTickContext{})
+				v.Tick(VisTickContext{Playing: true})
 				got := v.Render()
 				if rect.cols == 0 || rect.rows == 0 || mode == VisNone {
 					if got != "" {

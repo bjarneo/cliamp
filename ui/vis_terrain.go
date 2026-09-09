@@ -83,18 +83,22 @@ func (d *terrainDriver) Tick(v *Visualizer, ctx VisTickContext) {
 	// Scroll left by 2 dot columns per frame for visible movement.
 	copy(d.buf, d.buf[2:])
 
-	// Compute new rightmost height from average smoothed spectrum energy
-	// so successive scrolled columns glide instead of stepping at the FFT rate.
-	bands := v.SmoothedBands()
-	var totalEnergy float64
-	for _, e := range bands {
-		totalEnergy += e
-	}
-	avg := totalEnergy / float64(max(1, len(bands)))
+	if ctx.Playing {
+		// Compute new rightmost height from average smoothed spectrum energy
+		// so successive scrolled columns glide instead of stepping at the FFT rate.
+		bands := v.SmoothedBands()
+		var totalEnergy float64
+		for _, e := range bands {
+			totalEnergy += e
+		}
+		avg := totalEnergy / float64(max(1, len(bands)))
 
-	// Two new columns with slight noise for organic ridge edges.
-	d.buf[dotCols-2] = min(1.0, avg+scatterHash(0, 0, 0, v.frame)*0.12)
-	d.buf[dotCols-1] = min(1.0, avg+scatterHash(0, 0, 1, v.frame)*0.12)
+		// Two new columns with slight noise for organic ridge edges.
+		d.buf[dotCols-2] = min(1.0, avg+scatterHash(0, 0, 0, v.frame)*0.12)
+		d.buf[dotCols-1] = min(1.0, avg+scatterHash(0, 0, 1, v.frame)*0.12)
+	} else {
+		clear(d.buf[dotCols-2:])
+	}
 }
 
 func (*terrainDriver) TickInterval(_ *Visualizer, ctx VisTickContext) time.Duration {
@@ -104,3 +108,12 @@ func (*terrainDriver) TickInterval(_ *Visualizer, ctx VisTickContext) time.Durat
 func (*terrainDriver) OnEnter(*Visualizer) {}
 
 func (*terrainDriver) OnLeave(*Visualizer) {}
+
+func (d *terrainDriver) decaySettled() bool {
+	for _, height := range d.buf {
+		if height != 0 {
+			return false
+		}
+	}
+	return true
+}

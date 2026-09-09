@@ -19,9 +19,9 @@ const (
 	// frame) step like ~1 frame instead of integrating over a huge interval.
 	maxSmoothDtFrames        = 10
 	maxAnimationCatchUpSteps = 4
-	// Band level below which paused spectrum content is treated as fully
+	// Band level below which inactive spectrum content is treated as fully
 	// decayed to rest, letting the model drop the visualizer to the idle tick.
-	pausedDecayEpsilon = 0.01
+	decaySettledEpsilon = 0.01
 )
 
 var legacySpectrumEdges = [DefaultSpectrumBands + 1]float64{
@@ -244,7 +244,6 @@ func splitStyleAroundProbe(s lipgloss.Style) (prefix, suffix string) {
 type VisTickContext struct {
 	Now               time.Time
 	Playing           bool
-	Paused            bool
 	OverlayActive     bool
 	Analyze           func(VisAnalysisSpec) []float64
 	StereoSamplesInto func([][2]float64) int
@@ -281,8 +280,8 @@ type visModeDriver interface {
 	OnLeave(*Visualizer)
 }
 
-type visPauseSettler interface {
-	pauseSettled() bool
+type visDecaySettler interface {
+	decaySettled() bool
 }
 
 // visEntry pairs a display name with a factory for that mode's visModeDriver.
@@ -359,7 +358,12 @@ func defaultDriverTick(v *Visualizer, ctx VisTickContext, spec VisAnalysisSpec) 
 		return
 	}
 	spec = NormalizeAnalysisSpec(spec)
-	if ctx.Analyze != nil {
+	if !ctx.Playing {
+		v.lastAnalyzeAt = time.Time{}
+		if spec.BandCount > 0 {
+			v.bands = v.Analyze(nil, spec)
+		}
+	} else if ctx.Analyze != nil {
 		// Decouple FFT cadence from animation cadence. Raw-sample modes have no
 		// FFT work, so refresh their waveform on every render tick.
 		due := spec.BandCount == 0 || v.lastAnalyzeAt.IsZero() || ctx.Now.IsZero() ||
@@ -421,6 +425,7 @@ type Visualizer struct {
 	sampleBuf       []float64 // reusable buffer for reading audio tap samples
 	drivers         [VisCount]visModeDriver
 	activeMode      VisMode
+	activeSpec      VisAnalysisSpec // spec v.bands currently belongs to
 	activeModeSet   bool
 	refreshPending  bool
 	luaVisNames     []string
@@ -865,9 +870,6 @@ func (v *Visualizer) TickInterval(ctx VisTickContext) time.Duration {
 	if driver == nil {
 		return TickSlow
 	}
-	if ctx.Paused {
-		return TickSlow
-	}
 	return driver.TickInterval(v, ctx)
 }
 
@@ -892,30 +894,30 @@ func (v *Visualizer) Tick(ctx VisTickContext) {
 		return
 	}
 	v.refreshPending = false
-	if ctx.Paused {
-		if spec := NormalizeAnalysisSpec(driver.AnalysisSpec(v)); spec.BandCount == 0 {
-			v.waveBuf = v.waveBuf[:0]
-		}
-		// Keep easing the visual down to rest instead of freezing mid-frame.
-		// Drivers already know how to decay when not playing (silent band
-		// analysis, target-zero physics); we just keep ticking until settled.
-		if v.pausedSettled(driver, ctx) {
-			v.Suspend()
-		} else {
+	if ctx.OverlayActive {
+		v.resetFrameTiming()
+		driver.Tick(v, ctx)
+		return
+	}
+	if !ctx.Playing {
+		v.waveBuf = v.waveBuf[:0]
+		if !v.decaySettled(driver) {
 			driver.Tick(v, ctx)
+		}
+		if v.decaySettled(driver) {
+			v.clearSpectrum(driver)
+			v.Suspend()
 		}
 		return
 	}
-	if ctx.OverlayActive {
-		v.resetFrameTiming()
-	} else if v.Mode != VisNone {
+	if v.Mode != VisNone {
 		v.frame += v.animationSteps(ctx.Now, driver.TickInterval(v, ctx))
 	}
 	driver.Tick(v, ctx)
 }
 
 // Suspend resets elapsed-time accounting and the active driver's wall clock so
-// resuming after a hidden or paused interval advances by one frame, not the gap.
+// resuming after a hidden or inactive interval advances by one frame, not the gap.
 func (v *Visualizer) Suspend() {
 	if v == nil {
 		return
@@ -933,13 +935,13 @@ func (v *Visualizer) resetFrameTiming() {
 	v.frameInterval = 0
 }
 
-// pausedSettled reports whether a paused visualizer has no content left to
+// decaySettled reports whether an inactive visualizer has no content left to
 // ease down, so it can freeze at rest. Band-driven modes must empty both the
 // raw and smoothed bands, raw-sample modes must clear their waveform, and
 // stateful drivers must finish their own animation. Classic meters signal
-// animation through their tick interval; particle modes implement
-// visPauseSettler.
-func (v *Visualizer) pausedSettled(driver visModeDriver, ctx VisTickContext) bool {
+// animation through their tick interval; other stateful modes implement
+// visDecaySettler.
+func (v *Visualizer) decaySettled(driver visModeDriver) bool {
 	if v == nil || driver == nil {
 		return true
 	}
@@ -949,32 +951,42 @@ func (v *Visualizer) pausedSettled(driver visModeDriver, ctx VisTickContext) boo
 	}
 	if spec.BandCount > 0 {
 		for _, b := range v.bands {
-			if b >= pausedDecayEpsilon {
+			if b >= decaySettledEpsilon {
 				return false
 			}
 		}
 		for _, b := range v.smoothedBands {
-			if b >= pausedDecayEpsilon {
+			if b >= decaySettledEpsilon {
 				return false
 			}
 		}
 	}
-	if settler, ok := driver.(visPauseSettler); ok && !settler.pauseSettled() {
+	if settler, ok := driver.(visDecaySettler); ok && !settler.decaySettled() {
 		return false
 	}
-	ctx.Playing = false
-	return driver.TickInterval(v, ctx) >= TickSlow
+	return driver.TickInterval(v, VisTickContext{}) >= TickSlow
 }
 
-// PausedDecayPending reports whether a paused visualizer still needs ticks to
+// clearSpectrum drops the sub-epsilon residual left by inactive decay.
+// Eased renderers already show it as blank, but dot, brick, and outline
+// renderers light any level above zero and IPC consumers would read it.
+func (v *Visualizer) clearSpectrum(driver visModeDriver) {
+	clear(v.bands)
+	clear(v.smoothedBands)
+	if spec := NormalizeAnalysisSpec(driver.AnalysisSpec(v)); spec.BandCount > 0 {
+		clear(v.prevBands(spec))
+	}
+}
+
+// DecayPending reports whether an inactive visualizer still needs ticks to
 // settle its content to rest. The model uses it to keep an active tick cadence
 // instead of dropping to fully idle while content eases down.
-func (v *Visualizer) PausedDecayPending(ctx VisTickContext) bool {
+func (v *Visualizer) DecayPending() bool {
 	driver := v.syncDriverMode()
 	if driver == nil {
 		return false
 	}
-	return !v.pausedSettled(driver, ctx)
+	return !v.decaySettled(driver)
 }
 
 func (v *Visualizer) animationSteps(now time.Time, interval time.Duration) uint64 {
@@ -1125,36 +1137,42 @@ func (v *Visualizer) syncDriverMode() visModeDriver {
 		return nil
 	}
 	driver := v.driverFor(v.Mode)
+	spec := VisAnalysisSpec{}
+	if driver != nil {
+		spec = NormalizeAnalysisSpec(driver.AnalysisSpec(v))
+	}
 	if !v.activeModeSet {
 		if driver != nil {
 			driver.OnEnter(v)
 		}
 		v.activeMode = v.Mode
+		v.activeSpec = spec
 		v.activeModeSet = true
 		return driver
 	}
-	if v.activeMode != v.Mode {
-		prev := v.driverFor(v.activeMode)
-		prevSpec := VisAnalysisSpec{}
-		if prev != nil {
-			prevSpec = NormalizeAnalysisSpec(prev.AnalysisSpec(v))
-		}
-		nextSpec := VisAnalysisSpec{}
-		if driver != nil {
-			nextSpec = NormalizeAnalysisSpec(driver.AnalysisSpec(v))
-		}
-		if (prevSpec.BandCount == 0) != (nextSpec.BandCount == 0) {
-			v.resetSpectrumHistory()
-		}
-		v.smoothedBands = v.smoothedBands[:0]
-		v.lastSmoothTick = time.Time{}
-		if prev != nil {
+	modeChanged := v.activeMode != v.Mode
+	if modeChanged {
+		if prev := v.driverFor(v.activeMode); prev != nil {
 			prev.OnLeave(v)
 		}
 		if driver != nil {
 			driver.OnEnter(v)
 		}
 		v.activeMode = v.Mode
+	}
+	// The spec can also change without a mode change: ClassicLED's band
+	// count follows the panel width.
+	if modeChanged || spec != v.activeSpec {
+		if (v.activeSpec.BandCount == 0) != (spec.BandCount == 0) {
+			v.resetSpectrumHistory()
+		}
+		v.smoothedBands = v.smoothedBands[:0]
+		v.lastSmoothTick = time.Time{}
+		// Start from the incoming spec's own history so an inactive visualizer
+		// keeps decaying it instead of judging readiness by the old spec's
+		// bands and resuming with stale levels.
+		v.bands = v.Analyze(nil, spec)
+		v.activeSpec = spec
 	}
 	return driver
 }

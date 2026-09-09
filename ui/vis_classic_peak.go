@@ -51,12 +51,13 @@ var classicPeakGlyphs = [4]rune{
 }
 
 type classicPeakDriver struct {
-	barPos   []float64
-	peakPos  []float64
-	peakVel  []float64
-	peakHold []float64
-	lastTick time.Time
-	bandsAt  time.Time
+	barPos     []float64
+	peakPos    []float64
+	peakVel    []float64
+	peakHold   []float64
+	lastTick   time.Time
+	bandsAt    time.Time // nominal hop boundary of the last analysis
+	analyzedAt time.Time // wall clock of the last analysis
 }
 
 func newClassicPeakDriver() visModeDriver {
@@ -111,11 +112,23 @@ func (d *classicPeakDriver) Tick(v *Visualizer, ctx VisTickContext) {
 		return
 	}
 	if ctx.Playing {
-		if d.bandsAt.IsZero() || ctx.Now.Sub(d.bandsAt) >= d.analysisInterval(v) {
+		interval := d.analysisInterval(v)
+		hopDue := d.bandsAt.IsZero() || ctx.Now.Sub(d.bandsAt) >= interval
+		floorDue := d.analyzedAt.IsZero() || ctx.Now.Sub(d.analyzedAt) >= classicPeakSampleFloor
+		if hopDue && floorDue {
 			if ctx.Analyze != nil {
 				v.bands = ctx.Analyze(d.AnalysisSpec(v))
 			}
-			d.bandsAt = ctx.Now
+			d.analyzedAt = ctx.Now
+			// Keep the nominal hop phase so redraw quantization does not lower
+			// the average analysis rate. The floor above is measured from the
+			// real analysis time so it survives interval changes.
+			if d.bandsAt.IsZero() {
+				d.bandsAt = ctx.Now
+			} else {
+				elapsed := ctx.Now.Sub(d.bandsAt)
+				d.bandsAt = d.bandsAt.Add(elapsed - elapsed%interval)
+			}
 		}
 	} else {
 		d.bandsAt = time.Time{}
@@ -124,6 +137,9 @@ func (d *classicPeakDriver) Tick(v *Visualizer, ctx VisTickContext) {
 	d.sync(v)
 	if d.animating(v) {
 		d.advance(v, ctx.Now)
+	} else {
+		// Fresh motion starts with one nominal frame after resting.
+		d.lastTick = time.Time{}
 	}
 }
 
@@ -195,8 +211,12 @@ func classicPeakGlyph(level float64, height int) (row int, glyph rune) {
 }
 
 func classicPeakDetached(level, peak float64, height int) bool {
-	minGap := max(classicPeakVisibleEpsilon, 0.5/float64(max(1, height*4)))
-	return peak > level+minGap
+	return peak > level+classicPeakVisibleGap(height)
+}
+
+func classicPeakVisibleGap(height int) float64 {
+	// Half a cap subcell filters motion that cannot be rendered reliably.
+	return max(classicPeakVisibleEpsilon, 0.5/float64(max(1, height*4)))
 }
 
 func classicPeakColsForWidth(width int) int {
@@ -248,8 +268,9 @@ func (d *classicPeakDriver) sync(v *Visualizer) {
 		d.reset(levels, time.Time{})
 		return
 	}
+	gap := classicPeakVisibleGap(v.Rows)
 	for i, level := range levels {
-		if d.landed(i) && level > d.peakPos[i] {
+		if d.landed(i) && level > d.peakPos[i]+gap {
 			delta := level - d.peakPos[i]
 			d.peakPos[i] = level
 			d.peakVel[i] = min(classicPeakLaunchMax, classicPeakLaunchBase+classicPeakLaunchGain*delta)
@@ -269,8 +290,7 @@ func (d *classicPeakDriver) advance(v *Visualizer, now time.Time) {
 	if !now.IsZero() && !d.lastTick.IsZero() {
 		dtSeconds = now.Sub(d.lastTick).Seconds()
 	}
-	// Clamp dt so long gaps (pause, sleep, stalled frame) step like one frame
-	// instead of integrating physics over a huge interval.
+	// Long gaps are suspension, not animation time. Resume with one frame.
 	if dtSeconds <= 0 || dtSeconds > 10*tickClassicPeak.Seconds() {
 		dtSeconds = tickClassicPeak.Seconds()
 	}
@@ -279,26 +299,30 @@ func (d *classicPeakDriver) advance(v *Visualizer, now time.Time) {
 	for i, level := range levels {
 		d.barPos[i] = classicPeakStep(d.barPos[i], level, dtSeconds)
 
-		if d.peakHold[i] > 0 {
-			d.peakHold[i] = max(0, d.peakHold[i]-dtSeconds)
-			if d.peakHold[i] > 0 {
-				continue
+		remaining := dtSeconds
+		if d.peakVel[i] > 0 {
+			// Apex within this frame: land there, start the hold, and spend
+			// the rest of the frame on the hold and the fall.
+			apexAt := d.peakVel[i] / classicPeakGravity
+			if apexAt <= remaining {
+				d.peakPos[i] = min(classicPeakMaxHeight, d.peakPos[i]+0.5*d.peakVel[i]*apexAt)
+				d.peakVel[i] = 0
+				remaining -= apexAt
+				d.peakHold[i] = classicPeakApexHold
 			}
 		}
-
-		prevVel := d.peakVel[i]
-		d.peakPos[i] += d.peakVel[i] * dtSeconds
-		d.peakVel[i] -= classicPeakGravity * dtSeconds
-
-		if d.peakPos[i] > classicPeakMaxHeight {
-			d.peakPos[i] = classicPeakMaxHeight
+		if d.peakHold[i] > 0 {
+			if remaining <= d.peakHold[i] {
+				d.peakHold[i] -= remaining
+				continue
+			}
+			remaining -= d.peakHold[i]
+			d.peakHold[i] = 0
 		}
-		if prevVel > 0 && d.peakVel[i] <= 0 && d.peakPos[i] > d.barPos[i]+classicPeakVisibleEpsilon {
-			d.peakVel[i] = 0
-			d.peakHold[i] = classicPeakApexHold
-			continue
-		}
-		if d.peakPos[i] <= d.barPos[i] {
+
+		d.peakPos[i] = min(classicPeakMaxHeight, d.peakPos[i]+d.peakVel[i]*remaining-0.5*classicPeakGravity*remaining*remaining)
+		d.peakVel[i] -= classicPeakGravity * remaining
+		if d.peakPos[i] <= d.barPos[i]+classicPeakVisibleEpsilon {
 			d.peakPos[i] = d.barPos[i]
 			d.peakVel[i] = 0
 			d.peakHold[i] = 0

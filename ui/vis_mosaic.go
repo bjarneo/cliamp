@@ -211,6 +211,15 @@ func (*mosaicDriver) TickInterval(_ *Visualizer, ctx VisTickContext) time.Durati
 	return defaultDriverTickInterval(ctx)
 }
 
+func (d *mosaicDriver) decaySettled() bool {
+	for _, cell := range d.cells {
+		if mosaicLevelFor(cell.value).tier >= 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func (d *mosaicDriver) OnEnter(*Visualizer) {
 	// Force the grid to be regenerated on next Render/Tick so each visit
 	// reshuffles thresholds and band assignments — keeps the visualizer fresh.

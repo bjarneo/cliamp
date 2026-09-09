@@ -97,7 +97,7 @@ func TestVisualizerFrameAdvancesOnTickNotRender(t *testing.T) {
 		t.Fatalf("Render() advanced frame to %d, want 0 before tick", v.frame)
 	}
 
-	v.Tick(VisTickContext{})
+	v.Tick(VisTickContext{Playing: true})
 	if v.frame != 1 {
 		t.Fatalf("Tick() advanced frame to %d, want 1", v.frame)
 	}
@@ -286,6 +286,160 @@ func TestClassicPeakDoesNotRelaunchWhileAirborne(t *testing.T) {
 	}
 }
 
+func TestClassicPeakIgnoresSubcellLaunchJitter(t *testing.T) {
+	withPanelWidth(t, 8)
+
+	v := NewVisualizer(44100)
+	activateMode(t, v, VisClassicPeak)
+	driver := classicPeakDriverFor(t, v)
+	v.bands = uniformBands(0.2)
+	driver.sync(v)
+
+	gap := classicPeakVisibleGap(v.Rows)
+	v.bands = uniformBands(0.2 + gap/2)
+	driver.sync(v)
+	for i, vel := range driver.peakVel {
+		if vel != 0 {
+			t.Fatalf("subcell jitter launched cap[%d] with velocity %v", i, vel)
+		}
+	}
+
+	v.bands = uniformBands(0.2 + 2*gap)
+	driver.sync(v)
+	for i, vel := range driver.peakVel {
+		if vel <= 0 {
+			t.Fatalf("visible rise did not launch cap[%d]: velocity %v", i, vel)
+		}
+	}
+}
+
+func TestClassicPeakPhysicsIsConsistentAcrossTickCadences(t *testing.T) {
+	withPanelWidth(t, 1)
+
+	newDriver := func() (*Visualizer, *classicPeakDriver) {
+		v := NewVisualizer(44100)
+		activateMode(t, v, VisClassicPeak)
+		v.bands = uniformBands(0.2)
+		driver := classicPeakDriverFor(t, v)
+		driver.barPos = []float64{0.2}
+		driver.peakPos = []float64{0.6}
+		driver.peakVel = []float64{1.2}
+		driver.peakHold = []float64{0}
+		driver.lastTick = time.Unix(1, 0)
+		return v, driver
+	}
+
+	fineV, fine := newDriver()
+	coarseV, coarse := newDriver()
+	start := time.Unix(1, 0)
+	const elapsed = 400 * time.Millisecond
+	advanceFor := func(v *Visualizer, driver *classicPeakDriver, frame time.Duration) {
+		now := start
+		for remaining := elapsed; remaining > 0; {
+			step := min(remaining, frame)
+			now = now.Add(step)
+			driver.advance(v, now)
+			remaining -= step
+		}
+	}
+	advanceFor(fineV, fine, TickAnim)
+	advanceFor(coarseV, coarse, time.Second/time.Duration(classicPeakMinFPS))
+
+	if math.Abs(fine.barPos[0]-coarse.barPos[0]) > classicPeakTestEpsilon {
+		t.Fatalf("bar position differs by cadence: fine=%v coarse=%v", fine.barPos[0], coarse.barPos[0])
+	}
+	if math.Abs(fine.peakPos[0]-coarse.peakPos[0]) > classicPeakTestEpsilon {
+		t.Fatalf("peak position differs by cadence: fine=%v coarse=%v", fine.peakPos[0], coarse.peakPos[0])
+	}
+	if math.Abs(fine.peakVel[0]-coarse.peakVel[0]) > classicPeakTestEpsilon {
+		t.Fatalf("peak velocity differs by cadence: fine=%v coarse=%v", fine.peakVel[0], coarse.peakVel[0])
+	}
+	if math.Abs(fine.peakHold[0]-coarse.peakHold[0]) > classicPeakTestEpsilon {
+		t.Fatalf("peak hold differs by cadence: fine=%v coarse=%v", fine.peakHold[0], coarse.peakHold[0])
+	}
+}
+
+func TestClassicPeakAdvanceUsesFullRedrawInterval(t *testing.T) {
+	withPanelWidth(t, 1)
+
+	v := NewVisualizer(44100)
+	activateMode(t, v, VisClassicPeak)
+	v.bands = uniformBands(0.2)
+	driver := classicPeakDriverFor(t, v)
+	driver.barPos = []float64{0.2}
+	driver.peakPos = []float64{0.8}
+	driver.peakVel = []float64{-0.5}
+	driver.peakHold = []float64{0}
+
+	t0 := time.Unix(1, 0)
+	driver.lastTick = t0
+	dt := driver.frameInterval(v)
+	driver.advance(v, t0.Add(dt))
+
+	dtSeconds := dt.Seconds()
+	wantPos := 0.8 - 0.5*dtSeconds - 0.5*classicPeakGravity*dtSeconds*dtSeconds
+	wantVel := -0.5 - classicPeakGravity*dtSeconds
+	if math.Abs(driver.peakPos[0]-wantPos) > classicPeakTestEpsilon ||
+		math.Abs(driver.peakVel[0]-wantVel) > classicPeakTestEpsilon {
+		t.Fatalf("peak after %v = pos %v vel %v, want pos %v vel %v", dt, driver.peakPos[0], driver.peakVel[0], wantPos, wantVel)
+	}
+}
+
+func TestClassicPeakQuietPeriodDoesNotAgeNextTransient(t *testing.T) {
+	withPanelWidth(t, 1)
+
+	v := NewVisualizer(44100)
+	activateMode(t, v, VisClassicPeak)
+	v.Rows = DefaultVisRows
+	v.bands = uniformBands(0.2)
+	driver := classicPeakDriverFor(t, v)
+	driver.barPos = []float64{0.2}
+	driver.peakPos = []float64{0.2}
+	driver.peakVel = []float64{0}
+	driver.peakHold = []float64{0}
+
+	t0 := time.Unix(1, 0)
+	driver.lastTick = t0
+	quietAt := t0.Add(5 * tickClassicPeak)
+	driver.Tick(v, VisTickContext{Now: quietAt, Playing: true})
+	if !driver.lastTick.IsZero() {
+		t.Errorf("lastTick at rest = %v, want zero", driver.lastTick)
+	}
+
+	v.bands = uniformBands(0.95)
+	// The adaptive redraw interval is longer than the nominal first step.
+	driver.Tick(v, VisTickContext{Now: quietAt.Add(driver.frameInterval(v)), Playing: true})
+	want := classicPeakLaunchMax - classicPeakGravity*tickClassicPeak.Seconds()
+	if got := driver.peakVel[0]; math.Abs(got-want) > classicPeakTestEpsilon {
+		t.Fatalf("new peak velocity = %v after quiet period, want %v", got, want)
+	}
+}
+
+func TestClassicPeakCapStopsAtCeiling(t *testing.T) {
+	withPanelWidth(t, 1)
+
+	v := NewVisualizer(44100)
+	activateMode(t, v, VisClassicPeak)
+	v.bands = uniformBands(0.2)
+	driver := classicPeakDriverFor(t, v)
+	driver.barPos = []float64{0.2}
+	driver.peakPos = []float64{0.99}
+	driver.peakVel = []float64{classicPeakLaunchMax}
+	driver.peakHold = []float64{0}
+
+	t0 := time.Unix(1, 0)
+	driver.lastTick = t0
+	for i := 1; i <= 60 && driver.peakVel[0] > 0; i++ {
+		driver.advance(v, t0.Add(time.Duration(i)*tickClassicPeak))
+		if driver.peakPos[0] > classicPeakMaxHeight {
+			t.Fatalf("frame %d peak = %v, want at most %v", i, driver.peakPos[0], classicPeakMaxHeight)
+		}
+	}
+	if driver.peakVel[0] != 0 || driver.peakPos[0] != classicPeakMaxHeight || driver.peakHold[0] <= 0 {
+		t.Fatalf("apex = pos %v vel %v hold %v, want held at %v", driver.peakPos[0], driver.peakVel[0], driver.peakHold[0], classicPeakMaxHeight)
+	}
+}
+
 func TestClassicPeakResetsOnModeSwitchAndWidthChange(t *testing.T) {
 	withPanelWidth(t, 6)
 	cols6 := classicPeakColsForWidth(PanelWidth)
@@ -302,6 +456,7 @@ func TestClassicPeakResetsOnModeSwitchAndWidthChange(t *testing.T) {
 
 	activateMode(t, v, VisBars)
 	activateMode(t, v, VisClassicPeak)
+	v.bands = uniformBands(0.4)
 	driver.sync(v)
 	if len(driver.barPos) != cols6 {
 		t.Fatalf("reset bar len = %d, want %d", len(driver.barPos), cols6)
@@ -443,7 +598,7 @@ func TestClassicPeakRenderShowsAttachedCapWhileSettling(t *testing.T) {
 	}
 }
 
-func TestClassicPeakPausedDecaysBarsAndCapsToRest(t *testing.T) {
+func TestClassicPeakInactiveDecaysBarsAndCapsToRest(t *testing.T) {
 	withPanelWidth(t, 8)
 
 	v := NewVisualizer(44100)
@@ -460,40 +615,77 @@ func TestClassicPeakPausedDecaysBarsAndCapsToRest(t *testing.T) {
 
 	t0 := time.Unix(1, 0)
 	driver.lastTick = t0
-	// Paused ticks empty the bars instead of freezing them at launch height.
+	// Inactive ticks empty the bars instead of freezing them at launch height.
 	for i := range 2 {
-		v.Tick(VisTickContext{Now: t0.Add(time.Duration(i+1) * TickSlow), Paused: true})
+		v.Tick(VisTickContext{Now: t0.Add(time.Duration(i+1) * TickSlow)})
 	}
 	for i, got := range driver.barPos {
 		if got >= snapshotBar[i] {
-			t.Fatalf("paused bar[%d] = %v after decay, want below %v", i, got, snapshotBar[i])
+			t.Fatalf("inactive bar[%d] = %v after decay, want below %v", i, got, snapshotBar[i])
 		}
 	}
 
 	// Keep ticking until the airborne caps have fallen and the driver settles.
 	settled := false
 	for i := 2; i < 240; i++ {
-		v.Tick(VisTickContext{Now: t0.Add(time.Duration(i+1) * TickSlow), Paused: true})
-		if !v.PausedDecayPending(VisTickContext{Paused: true}) {
+		v.Tick(VisTickContext{Now: t0.Add(time.Duration(i+1) * TickSlow)})
+		if !v.DecayPending() {
 			settled = true
 			break
 		}
 	}
 	if !settled {
-		t.Fatal("classic peak never settled to rest while paused")
+		t.Fatal("classic peak never settled to rest while inactive")
 	}
 	for i, got := range driver.barPos {
-		if got >= pausedDecayEpsilon {
-			t.Fatalf("settled bar[%d] = %v, want below %v", i, got, pausedDecayEpsilon)
+		if got >= decaySettledEpsilon {
+			t.Fatalf("settled bar[%d] = %v, want below %v", i, got, decaySettledEpsilon)
 		}
 	}
 	for i, got := range driver.peakPos {
-		if got >= pausedDecayEpsilon {
-			t.Fatalf("settled cap[%d] = %v, want below %v", i, got, pausedDecayEpsilon)
+		if got >= decaySettledEpsilon {
+			t.Fatalf("settled cap[%d] = %v, want below %v", i, got, decaySettledEpsilon)
 		}
 	}
-	if got := v.TickInterval(VisTickContext{Paused: true}); got != TickSlow {
-		t.Fatalf("TickInterval(paused) = %v, want %v", got, TickSlow)
+	if got := v.TickInterval(VisTickContext{}); got != TickSlow {
+		t.Fatalf("TickInterval(inactive) = %v, want %v", got, TickSlow)
+	}
+}
+
+func TestClassicPeakStoppedDecaySuspendsBeforeResume(t *testing.T) {
+	withPanelWidth(t, 8)
+
+	v := NewVisualizer(44100)
+	activateMode(t, v, VisClassicPeak)
+	v.Rows = 5
+	v.bands = uniformBands(0.6)
+	driver := classicPeakDriverFor(t, v)
+	driver.barPos = repeatedClassicPeakSlice(PanelWidth, 0.6)
+	driver.peakPos = repeatedClassicPeakSlice(PanelWidth, 0.82)
+	driver.peakVel = repeatedClassicPeakSlice(PanelWidth, 1.1)
+	driver.peakHold = repeatedClassicPeakSlice(PanelWidth, classicPeakApexHold)
+
+	t0 := time.Unix(1, 0)
+	driver.lastTick = t0
+	var settledAt time.Time
+	for i := 0; i < 240; i++ {
+		settledAt = t0.Add(time.Duration(i+1) * TickSlow)
+		v.Tick(VisTickContext{Now: settledAt})
+		if !v.DecayPending() {
+			break
+		}
+	}
+	if v.DecayPending() {
+		t.Fatal("classic peak never settled to rest while stopped")
+	}
+	if !driver.lastTick.IsZero() {
+		t.Fatalf("lastTick after stopped decay = %v, want suspended clock", driver.lastTick)
+	}
+
+	v.bands = uniformBands(0.95)
+	v.Tick(VisTickContext{Now: settledAt.Add(10 * time.Second), Playing: true})
+	if got := driver.peakVel[0]; got <= 0 {
+		t.Fatalf("resumed peak velocity = %v, want cap still rising", got)
 	}
 }
 

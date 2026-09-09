@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"math"
+	"slices"
 	"testing"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/bjarneo/cliamp/ipc"
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/ui"
 )
 
 type daemonV2Engine struct {
@@ -24,6 +27,19 @@ type daemonV2Engine struct {
 	speed    float64
 	mono     bool
 	eq       [10]float64
+}
+
+type daemonSpectrumEngine struct {
+	*daemonV2Engine
+	sampleCalls int
+}
+
+func (e *daemonSpectrumEngine) SamplesInto(dst []float64) int {
+	e.sampleCalls++
+	for i := range dst {
+		dst[i] = 0.8 * math.Sin(2*math.Pi*1000*float64(i)/44100)
+	}
+	return len(dst)
 }
 
 func (e *daemonV2Engine) Play(string, time.Duration) error {
@@ -106,6 +122,28 @@ func TestDaemonV2StateSnapshot(t *testing.T) {
 	}
 	if snapshot.Track == nil || snapshot.LogicalTrack == nil || snapshot.Track.Path != "https://example.com/one" || snapshot.LogicalTrack.Path != "https://example.com/one" {
 		t.Fatalf("tracks = %#v/%#v", snapshot.Track, snapshot.LogicalTrack)
+	}
+}
+
+func TestDaemonInactiveSpectrumDecaysWithoutSampling(t *testing.T) {
+	engine := &daemonSpectrumEngine{daemonV2Engine: &daemonV2Engine{playing: true}}
+	d := &daemon{player: engine, vis: ui.NewVisualizer(44100)}
+
+	active := d.bandsResponse()
+	if engine.sampleCalls != 1 {
+		t.Fatalf("SamplesInto calls while playing = %d, want 1", engine.sampleCalls)
+	}
+	if slices.Max(active.Bands) == 0 {
+		t.Fatal("playing spectrum was silent; test setup did not charge a band")
+	}
+
+	engine.paused = true
+	paused := d.bandsResponse()
+	if engine.sampleCalls != 1 {
+		t.Fatalf("SamplesInto calls while paused = %d, want retained samples ignored", engine.sampleCalls)
+	}
+	if got, was := slices.Max(paused.Bands), slices.Max(active.Bands); got >= was {
+		t.Fatalf("paused IPC peak = %v, want decay below playing level %v", got, was)
 	}
 }
 

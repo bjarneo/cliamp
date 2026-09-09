@@ -50,6 +50,107 @@ func TestClassicPeakAnalysisIntervalUsesFFTOverlapLimit(t *testing.T) {
 	}
 }
 
+func TestClassicPeakAnalysisCadenceKeepsItsPhase(t *testing.T) {
+	withPanelWidth(t, 80)
+
+	v := NewVisualizer(44100)
+	activateMode(t, v, VisClassicPeak)
+	driver := classicPeakDriverFor(t, v)
+	frame := driver.frameInterval(v)
+	analysis := driver.analysisInterval(v)
+	start := time.Unix(1, 0)
+	calls := 0
+	var elapsed time.Duration
+
+	for elapsed = 0; elapsed <= time.Second; elapsed += frame {
+		driver.Tick(v, VisTickContext{
+			Now:     start.Add(elapsed),
+			Playing: true,
+			Analyze: func(VisAnalysisSpec) []float64 {
+				calls++
+				return uniformBandsN(classicPeakSpectrumBands, 0.2)
+			},
+		})
+	}
+
+	lastTick := elapsed - frame
+	want := 1 + int(lastTick/analysis)
+	if calls != want {
+		t.Fatalf("Analyze() calls over %v = %d, want %d", lastTick, calls, want)
+	}
+}
+
+func TestClassicPeakAnalysisCadenceKeepsSampleFloor(t *testing.T) {
+	withPanelWidth(t, 80)
+
+	v := NewVisualizer(96000)
+	v.Rows = 24
+	activateMode(t, v, VisClassicPeak)
+	driver := classicPeakDriverFor(t, v)
+	frame := driver.frameInterval(v)
+	start := time.Unix(1, 0)
+	var analyzedAt []time.Time
+
+	for elapsed := time.Duration(0); elapsed <= time.Second; elapsed += frame {
+		now := start.Add(elapsed)
+		driver.Tick(v, VisTickContext{
+			Now:     now,
+			Playing: true,
+			Analyze: func(VisAnalysisSpec) []float64 {
+				analyzedAt = append(analyzedAt, now)
+				return uniformBandsN(classicPeakSpectrumBands, 0.2)
+			},
+		})
+	}
+
+	if len(analyzedAt) < 2 {
+		t.Fatalf("Analyze() calls = %d, want at least 2", len(analyzedAt))
+	}
+	for i := 1; i < len(analyzedAt); i++ {
+		if gap := analyzedAt[i].Sub(analyzedAt[i-1]); gap < classicPeakSampleFloor {
+			t.Fatalf("analysis gap = %v, want at least %v", gap, classicPeakSampleFloor)
+		}
+	}
+}
+
+func TestClassicPeakAnalysisFloorSurvivesIntervalChange(t *testing.T) {
+	withPanelWidth(t, 80)
+
+	v := NewVisualizer(192000)
+	activateMode(t, v, VisClassicPeak)
+	v.Rows = 5
+	driver := classicPeakDriverFor(t, v)
+	var analyzedAt []time.Time
+	tick := func(now time.Time) {
+		driver.Tick(v, VisTickContext{
+			Now:     now,
+			Playing: true,
+			Analyze: func(VisAnalysisSpec) []float64 {
+				analyzedAt = append(analyzedAt, now)
+				return uniformBandsN(classicPeakSpectrumBands, 0.2)
+			},
+		})
+	}
+
+	// A late tick leaves the hop phase behind the real analysis time; growing
+	// the panel then shortens the analysis interval before the next hop.
+	start := time.Unix(1, 0)
+	tick(start)
+	tick(start.Add(40 * time.Millisecond))
+	v.Rows = 10
+	tick(start.Add(52 * time.Millisecond))
+	tick(start.Add(60 * time.Millisecond))
+
+	if len(analyzedAt) != 3 {
+		t.Fatalf("Analyze() calls = %d, want 3", len(analyzedAt))
+	}
+	for i := 1; i < len(analyzedAt); i++ {
+		if gap := analyzedAt[i].Sub(analyzedAt[i-1]); gap < classicPeakSampleFloor {
+			t.Fatalf("analysis gap = %v after interval change, want at least %v", gap, classicPeakSampleFloor)
+		}
+	}
+}
+
 func TestTickClassicPeakStoppedDecayKeepsAnimatingTowardSilence(t *testing.T) {
 	v := NewVisualizer(44100)
 	activateMode(t, v, VisClassicPeak)
@@ -67,7 +168,7 @@ func TestTickClassicPeakStoppedDecayKeepsAnimatingTowardSilence(t *testing.T) {
 
 	calls := 0
 	driver.Tick(v, VisTickContext{
-		Now: time.Now(),
+		Now: time.Unix(1, 0),
 		Analyze: func(VisAnalysisSpec) []float64 {
 			calls++
 			return uniformBands(1)

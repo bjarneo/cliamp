@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+const flameVisibleHeat = 0.10
+
 // flameDriver renders a fire effect using the classic doom-fire propagation:
 // a heat field is fed at the bottom row from the spectrum, then each frame
 // every cell inherits its neighbour-below's heat with a small lateral wind
@@ -55,7 +57,9 @@ func (d *flameDriver) Tick(v *Visualizer, ctx VisTickContext) {
 
 	// Source (bottom) row: per-column heat seeded from a smooth spectrum sample
 	// plus a small per-column sparkle so the base shimmers even on quiet input.
-	if bandCount > 0 {
+	if !ctx.Playing {
+		clear(d.heat[:dotCols])
+	} else if bandCount > 0 {
 		last := float64(bandCount - 1)
 		for x := 0; x < dotCols; x++ {
 			pos := float64(x) / float64(max(1, dotCols-1)) * last
@@ -127,6 +131,15 @@ func (d *flameDriver) OnEnter(v *Visualizer) {
 
 func (*flameDriver) OnLeave(*Visualizer) {}
 
+func (d *flameDriver) decaySettled() bool {
+	for _, heat := range d.heat {
+		if heat >= flameVisibleHeat {
+			return false
+		}
+	}
+	return true
+}
+
 func (d *flameDriver) Render(v *Visualizer) string {
 	height := v.Rows
 	dotRows := height * 4
@@ -156,7 +169,7 @@ func (d *flameDriver) Render(v *Visualizer) string {
 					// Wispy tips: at low heat, only stochastically light the dot
 					// so the upper edge of the flame has a soft, broken silhouette
 					// instead of a hard cutoff.
-					if h < 0.10 {
+					if h < flameVisibleHeat {
 						continue
 					}
 					if h < 0.25 && scatterHash(0, y, x, d.frame) > h*4 {

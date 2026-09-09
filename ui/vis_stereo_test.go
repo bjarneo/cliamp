@@ -95,7 +95,45 @@ func TestStereoDriverReadsAndRendersStereoSamples(t *testing.T) {
 	}
 }
 
-func TestStereoPausedDecaysMetersToRest(t *testing.T) {
+func TestStereoSilentPlaybackClearsPeaksBeforeStopping(t *testing.T) {
+	v := NewVisualizer(44100)
+	v.Cols = 48
+	v.Rows = 5
+	v.Mode = VisStereo
+	now := time.Unix(1, 0)
+	samples := [][2]float64{{0.9, 0.9}, {-0.9, -0.9}}
+	for i := range 360 {
+		if i == 60 {
+			clear(samples)
+		}
+		now = now.Add(TickAnim)
+		v.Tick(VisTickContext{
+			Now:     now,
+			Playing: true,
+			StereoSamplesInto: func(dst [][2]float64) int {
+				return copy(dst, samples)
+			},
+		})
+		if i == 59 && !strings.Contains(v.Render(), "■") {
+			t.Fatal("loud playback did not produce peak markers")
+		}
+	}
+	if v.DecayPending() {
+		t.Fatal("stereo meters did not settle during silent playback")
+	}
+	if strings.Contains(v.Render(), "■") {
+		t.Error("silent playback left peak markers visible")
+	}
+	for range 300 {
+		now = now.Add(TickSlow)
+		v.Tick(VisTickContext{Now: now})
+	}
+	if strings.Contains(v.Render(), "■") {
+		t.Error("stopping after silent playback left peak markers visible")
+	}
+}
+
+func TestStereoInactiveDecaysMetersToRest(t *testing.T) {
 	v := NewVisualizer(44100)
 	v.Cols = 48
 	v.Rows = 5
@@ -120,30 +158,33 @@ func TestStereoPausedDecaysMetersToRest(t *testing.T) {
 		}
 	}
 
-	// Paused ticks empty both needles and peaks instead of freezing them.
+	// Inactive ticks empty both needles and peaks instead of freezing them.
 	settled := false
 	prevLevel := driver.level
 	prevPeak := driver.peak
 	for i := 0; i < 240; i++ {
-		v.Tick(VisTickContext{Now: t0.Add(time.Duration(i+1) * TickSlow), Paused: true})
+		v.Tick(VisTickContext{Now: t0.Add(time.Duration(i+1) * TickSlow)})
 		for c := range 2 {
 			if driver.level[c] > prevLevel[c]+1e-9 || driver.peak[c] > prevPeak[c]+1e-9 {
-				t.Fatalf("paused tick %d channel %d level %v->%v or peak %v->%v, want monotonic decay",
+				t.Fatalf("inactive tick %d channel %d level %v->%v or peak %v->%v, want monotonic decay",
 					i, c, prevLevel[c], driver.level[c], prevPeak[c], driver.peak[c])
 			}
 		}
 		prevLevel, prevPeak = driver.level, driver.peak
-		if !v.PausedDecayPending(VisTickContext{Paused: true}) {
+		if !v.DecayPending() {
 			settled = true
 			break
 		}
 	}
 	if !settled {
-		t.Fatal("stereo meters never settled to rest while paused")
+		t.Fatal("stereo meters never settled to rest while inactive")
 	}
 	for c := range 2 {
-		if driver.level[c] > stereoEpsilon || driver.peak[c] > stereoEpsilon {
-			t.Fatalf("settled channel %d level=%v peak=%v, want <= %v", c, driver.level[c], driver.peak[c], stereoEpsilon)
+		if driver.level[c] != 0 || driver.peak[c] != 0 {
+			t.Fatalf("settled channel %d level=%v peak=%v, want 0", c, driver.level[c], driver.peak[c])
 		}
+	}
+	if out := ansi.Strip(v.Render()); strings.Contains(out, "■") {
+		t.Fatalf("settled stereo render still shows peak markers:\n%s", out)
 	}
 }

@@ -1090,8 +1090,7 @@ func (d *daemon) bandsResponse() ipc.Response {
 	}
 	d.vis.Tick(ui.VisTickContext{
 		Now:     time.Now(),
-		Playing: d.player.IsPlaying(),
-		Paused:  d.player.IsPaused(),
+		Playing: d.player.IsPlaying() && !d.player.IsPaused(),
 		Analyze: func(spec ui.VisAnalysisSpec) []float64 {
 			samples := d.vis.SampleBuf()
 			n := d.player.SamplesInto(samples)

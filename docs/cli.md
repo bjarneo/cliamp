@@ -31,7 +31,7 @@ cliamp --eq-preset "Bass Boost" ~/Music
 cliamp --visualizer-60fps ~/Music            # smoother visualizer animation (higher CPU use)
 ```
 
-`--visualizer-60fps` renders a visible visualizer at about 60 FPS during playback. `Wave`, `Scope`, and `Heartbeat` already use this rate because they draw from audio samples. The flag does not affect overlays or low-power mode.
+`--visualizer-60fps` renders a visible visualizer at about 60 FPS during playback. `Wave`, `Scope`, and `Heartbeat` already use this rate because they draw from audio samples. Without the flag, `ClassicPeak` adapts between approximately 48 and 60 FPS based on panel height, and `ClassicLED` runs at 30 FPS. The flag does not affect overlays or low-power mode.
 
 ## Diagnostics
 

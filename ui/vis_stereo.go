@@ -87,6 +87,12 @@ func (d *stereoDriver) Tick(_ *Visualizer, ctx VisTickContext) {
 		d.samplesAt = time.Time{}
 	}
 	d.advance(ctx.Now)
+	if !d.animating() {
+		// At rest the meters still hold a sub-epsilon residual and the
+		// renderer marks any peak above zero. Zero them so the panel goes dark.
+		d.level = [2]float64{}
+		d.peak = [2]float64{}
+	}
 }
 
 func (d *stereoDriver) TickInterval(_ *Visualizer, ctx VisTickContext) time.Duration {
