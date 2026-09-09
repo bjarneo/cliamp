@@ -1035,7 +1035,9 @@ func (m *setupModel) resultKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "enter", "esc", "q", " ":
+	case "q":
+		return m, tea.Quit
+	case "enter", "esc", " ":
 		m.stage = stageMenu
 		return m, nil
 	}
