@@ -29,11 +29,14 @@ func (m *Model) quit() tea.Cmd {
 	if track, _ := m.currentPlaybackTrack(); track.Path != "" &&
 		(!playlist.IsYTDL(track.Path) || playlist.IsMixcloudURL(track.Path)) &&
 		!track.IsLive() &&
-		m.player.IsPlaying() {
+		m.player.IsPlaying() && !m.buffering && !m.player.GaplessAdvanced() {
 		if secs := int(m.player.Position().Seconds()); secs > 0 {
+			context, contextIndex := m.playbackContextFor(track)
 			m.exitResume.path = track.Path
 			m.exitResume.secs = secs
 			m.exitResume.playlist = m.loadedPlaylist
+			m.exitResume.context = cloneTracks(context)
+			m.exitResume.contextIndex = contextIndex
 		}
 	}
 

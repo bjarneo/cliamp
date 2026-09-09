@@ -58,6 +58,10 @@ type Track struct {
 	// ProviderMeta holds provider-specific key-value pairs.
 	// Keys are namespaced by provider, e.g. "navidrome.id", "jellyfin.id".
 	ProviderMeta map[string]string
+
+	// Runtime-only provenance shared by tracks selected from the same source.
+	playbackContext      []Track
+	playbackContextIndex int
 }
 
 // Meta returns the value for a provider-specific metadata key, or "" if unset.

@@ -16,7 +16,7 @@ https://github.com/user-attachments/assets/fbc33d20-e3ac-4a62-a991-8a2f0243c8ea
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/bjarneo/cliamp/HEAD/install.sh | sh
+curl -fsSL https://cliamp.stream/install.sh | sh
 ```
 
 **Homebrew**

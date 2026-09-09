@@ -21,6 +21,9 @@ type ConfigSaver interface {
 	Save(key, value string) error
 }
 
+// ResumeSaver persists the active track, timeline position, and source context.
+type ResumeSaver func(track playlist.Track, positionSec int, context []playlist.Track, contextIndex int)
+
 // saveConfigKey persists a top-level config key, surfacing a write failure in
 // the status line. It is a no-op when no saver is wired, so headless callers
 // and tests can toggle settings without touching the config file.
@@ -378,6 +381,13 @@ type Model struct {
 		secs int
 	}
 
+	// playbackContext is the complete list the active track was chosen from,
+	// such as every track in an album opened through provider navigation.
+	playbackContext      []playlist.Track
+	playbackContextIndex int
+	resumeSaver          ResumeSaver
+	lastResumeSave       time.Time
+
 	lastProgressReport time.Time // last interim provider progress report
 
 	loadedPlaylist string // name of the currently loaded local playlist (for resume)
@@ -390,9 +400,11 @@ type Model struct {
 	// exitResume holds the playback state captured just before player.Close()
 	// so ResumeState() can read it after the player is shut down.
 	exitResume struct {
-		path     string
-		secs     int
-		playlist string
+		path         string
+		secs         int
+		playlist     string
+		context      []playlist.Track
+		contextIndex int
 	}
 
 	// preloading is true while a preloadStreamCmd goroutine is in-flight.

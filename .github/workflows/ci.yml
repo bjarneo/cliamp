@@ -22,7 +22,7 @@ jobs:
       - run: make fmt-check vet staticcheck security
       - run: go test -count=1 -race ./...
       - run: make coverage
-      - run: shellcheck install.sh
+      - run: shellcheck site/install.sh
       - run: git diff --exit-code
 
   build:
