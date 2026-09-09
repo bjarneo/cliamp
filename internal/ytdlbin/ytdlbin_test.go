@@ -110,9 +110,9 @@ func TestNotFoundError(t *testing.T) {
 		want       string
 	}{
 		{name: "default lookup", want: "yt-dlp not found in PATH"},
-		{name: "config selection", configured: "/opt/yt-dlp", want: "yt-dlp not found at /opt/yt-dlp (selected by ytdlp_path)"},
-		{name: "env selection", env: "/opt/next/yt-dlp", want: "yt-dlp not found at /opt/next/yt-dlp (selected by " + EnvVar + ")"},
-		{name: "env selection wins over config", env: "/opt/next/yt-dlp", configured: "/opt/yt-dlp", want: "yt-dlp not found at /opt/next/yt-dlp (selected by " + EnvVar + ")"},
+		{name: "config selection", configured: "/opt/yt-dlp", want: "yt-dlp missing or not executable at /opt/yt-dlp (selected by ytdlp_path)"},
+		{name: "env selection", env: "/opt/next/yt-dlp", want: "yt-dlp missing or not executable at /opt/next/yt-dlp (selected by " + EnvVar + ")"},
+		{name: "env selection wins over config", env: "/opt/next/yt-dlp", configured: "/opt/yt-dlp", want: "yt-dlp missing or not executable at /opt/next/yt-dlp (selected by " + EnvVar + ")"},
 		// A selector holding a bare name still goes through PATH, but the
 		// message must not read like an unconfigured install.
 		{name: "config selection of the default name", configured: DefaultName, want: "yt-dlp not found in PATH (selected by ytdlp_path)"},
@@ -177,13 +177,13 @@ func TestNotFoundErrorWithAdvice(t *testing.T) {
 			name:       "config selection drops install advice",
 			configured: "/opt/yt-dlp",
 			advice:     "install: sudo pacman -S yt-dlp",
-			want:       "yt-dlp not found at /opt/yt-dlp (selected by ytdlp_path)",
+			want:       "yt-dlp missing or not executable at /opt/yt-dlp (selected by ytdlp_path)",
 		},
 		{
 			name:   "env selection drops install advice",
 			env:    "/opt/next/yt-dlp",
 			advice: "see https://github.com/yt-dlp/yt-dlp#installation",
-			want:   "yt-dlp not found at /opt/next/yt-dlp (selected by " + EnvVar + ")",
+			want:   "yt-dlp missing or not executable at /opt/next/yt-dlp (selected by " + EnvVar + ")",
 		},
 		{
 			// A selector naming the bare default still resolves through PATH,
@@ -203,6 +203,36 @@ func TestNotFoundErrorWithAdvice(t *testing.T) {
 
 			if got := NotFoundErrorWithAdvice(nil, tt.advice).Error(); got != tt.want {
 				t.Fatalf("NotFoundErrorWithAdvice(%q) = %q, want %q", tt.advice, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNotFoundErrorUnusableSelection(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX executable bits")
+	}
+	dir := t.TempDir()
+	nonExecutable := filepath.Join(dir, "non-executable")
+	if err := os.WriteFile(nonExecutable, []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{filepath.Join(dir, "missing"), nonExecutable, dir} {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			t.Setenv(EnvVar, path)
+			_, cause := LookPath()
+			if cause == nil {
+				t.Fatal("expected lookup failure")
+			}
+			err := NotFoundErrorWithAdvice(cause, "install yt-dlp")
+			if !strings.Contains(err.Error(), "missing or not executable") || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), EnvVar) {
+				t.Errorf("unusable selection: %v", err)
+			}
+			if strings.Contains(err.Error(), "install") {
+				t.Errorf("install advice for unusable selection: %v", err)
+			}
+			if !errors.Is(err, cause) {
+				t.Errorf("lost lookup cause: %v", err)
 			}
 		})
 	}

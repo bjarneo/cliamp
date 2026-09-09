@@ -32,7 +32,9 @@ In the TUI, press `Ctrl+F` to search the active provider. This searches YouTube 
 By default cliamp runs the first `yt-dlp` on your `PATH`. Some distributions
 ship a yt-dlp that is months behind upstream, and YouTube stops working with
 old versions quickly. Point cliamp at a current binary instead of shadowing the
-packaged one:
+packaged one.
+
+Place `ytdlp_path` at the top level, before the first `[section]` header:
 
 ```toml
 # ~/.config/cliamp/config.toml
@@ -48,9 +50,16 @@ CLIAMP_YTDLP=~/.local/bin/yt-dlp cliamp
 ## Playback fails with HTTP 403
 
 `HTTP Error 403: Forbidden` means the source rejected the media URL yt-dlp
-handed to cliamp. A single 403 is usually transient, and cliamp retries the
-track automatically. When every retry fails, cliamp shows yt-dlp's own output
-for the last attempt, including any warnings it printed. On YouTube, common
+handed to cliamp. cliamp retries a fatal 403 up to three attempts; a warning
+mentioning 403 does not trigger retries. The one-row TUI status prioritizes
+the last attempt's fatal diagnostic, clipped to the terminal width. Warnings
+and the full captured stderr from each failed attempt are written to
+`cliamp.log` in the configuration directory, even with `log_level = "error"`.
+The location is `$CLIAMP_CONFIG_DIR/cliamp.log` when that override is set,
+otherwise `$XDG_CONFIG_HOME/cliamp/cliamp.log` when set, or normally
+`~/.config/cliamp/cliamp.log`. Signal exits (including processes killed on stop
+or seek) are logged only at `debug` level. Capture is limited to 64 KiB per
+process, with a truncation marker for longer output. On YouTube, common
 causes include:
 
 - **Outdated yt-dlp.** yt-dlp warns when its version is more than 90 days old.
@@ -74,11 +83,17 @@ causes include:
 
 Run the diagnostics against the binary cliamp actually runs, not whichever
 `yt-dlp` your shell resolves first — with `ytdlp_path` set they can be
-different installs:
+different installs. The shell does not read cliamp's config. If you configured
+`ytdlp_path` and are not overriding it with `CLIAMP_YTDLP`, assign that path to
+`YTDLP` explicitly:
 
 ```sh
-# $CLIAMP_YTDLP, else the ytdlp_path from config.toml, else yt-dlp on PATH
-YTDLP="${CLIAMP_YTDLP:-yt-dlp}"   # or: YTDLP=~/.local/bin/yt-dlp
+# Uses the environment override, otherwise yt-dlp on PATH (not config.toml).
+YTDLP="${CLIAMP_YTDLP:-yt-dlp}"
+# With ytdlp_path configured and no environment override, use its value instead:
+# YTDLP="$HOME/.local/bin/yt-dlp"
+# Expand a literal ~/ prefix, including one supplied through CLIAMP_YTDLP.
+case "$YTDLP" in '~/'*) YTDLP="$HOME/${YTDLP#\~/}" ;; esac
 "$YTDLP" --version
 "$YTDLP" -v --simulate 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
 ```
@@ -94,8 +109,9 @@ proof-of-origin providers, if any, are plugged in:
 ```
 
 yt-dlp reports the outdated-version and missing-runtime cases as warnings on
-stderr, and cliamp passes them through, so they normally show up in the error
-without running this by hand.
+stderr. On playback failure, read these warnings in `cliamp.log`; the one-row
+status is reserved for the fatal diagnostic. cliamp does not run an automatic
+diagnostic probe.
 
 ## Disclaimer
 

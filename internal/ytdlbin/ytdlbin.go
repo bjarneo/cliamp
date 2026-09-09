@@ -102,7 +102,7 @@ func NotFoundError(cause error) error {
 		}
 	default:
 		return &notFoundError{
-			msg:   fmt.Sprintf("yt-dlp not found at %s (selected by %s)", name, source),
+			msg:   fmt.Sprintf("yt-dlp missing or not executable at %s (selected by %s)", name, source),
 			cause: cause,
 		}
 	}

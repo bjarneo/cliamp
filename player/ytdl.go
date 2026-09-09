@@ -3,6 +3,7 @@ package player
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/gopxl/beep/v2"
 
+	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/internal/ytdlbin"
 	"github.com/bjarneo/cliamp/internal/ytdlcookies"
 )
@@ -25,10 +27,10 @@ const pipeBufSize = 64 * 1024
 // ytdlPipeTimeout limits how long we wait for yt-dlp to produce initial audio.
 const ytdlPipeTimeout = 30 * time.Second
 
-// ytdlCauseGrace bounds how long buildYTDLPipeline waits, after the audio pipe
-// closes with no data, for yt-dlp or ffmpeg to report why. yt-dlp typically
-// exits quickly with a stderr message (bot wall, 404, DRM); this only matters
-// when the process is slow to flush and exit.
+// ytdlCauseGrace bounds how long prefill and streaming EOF wait for yt-dlp
+// or ffmpeg to report why the audio pipe closed. yt-dlp typically exits quickly
+// with a stderr message (bot wall, 404, DRM); this only matters when the process
+// is slow to flush and exit.
 const ytdlCauseGrace = 3 * time.Second
 
 const ytdlPipelineMaxAttempts = 3
@@ -177,10 +179,11 @@ type ytdlPipeStreamer struct {
 func (y *ytdlPipeStreamer) Stream(samples [][2]float64) (int, bool) {
 	n, ok := streamFromReader(y.reader, samples, &y.pcmBuf, y.f32, y.state)
 	y.state.pos.Add(int64(n))
-	// On EOF with no frames read, surface why the pipe closed (yt-dlp bot
-	// wall, 404, DRM, or undecodable ffmpeg input) instead of a bare EOF.
+	// PCM EOF can arrive before the exit monitors finish draining stderr.
+	// Allow the same bounded grace as prefill rather than treating a late
+	// process failure as a clean end of track.
 	if !ok && n == 0 && y.state.err.load() == nil {
-		if cause := y.waitCause(0); cause != nil {
+		if cause := y.waitCause(ytdlCauseGrace); cause != nil {
 			y.state.err.publish(cause)
 		}
 	}
@@ -265,19 +268,62 @@ func (y *ytdlPipeStreamer) Close() error {
 	return nil
 }
 
-// monitorExit waits for cmd to exit and reports the result on a buffered
-// channel: a wrapped error preferring captured stderr over the bare exit code
-// on failure, or nil on clean exit. The channel is buffered so the goroutine
-// always completes even with no receiver (e.g. after Close kills the process).
+// ytdlExitError keeps the fatal diagnostic separate from warning text so the
+// one-row status and retry classifier cannot mistake a warning for the failure.
+// The full captured stderr is written to the log by monitorExit.
+type ytdlExitError struct {
+	cause      error
+	diagnostic string
+}
+
+func (e *ytdlExitError) Error() string {
+	if e.diagnostic != "" {
+		return "yt-dlp: " + e.diagnostic
+	}
+	return fmt.Sprintf("yt-dlp: %v (see cliamp.log)", e.cause)
+}
+
+func (e *ytdlExitError) Unwrap() error { return e.cause }
+
+// ytdlFatalDiagnostic selects the final ERROR line, not WARNING lines or their
+// continuations. Without a fatal diagnostic, an exit status alone is not enough
+// evidence to retry. Earlier errors can describe failed extractor fallbacks.
+func ytdlFatalDiagnostic(stderr string) string {
+	var diagnostic string
+	for line := range strings.SplitSeq(stderr, "\n") {
+		if text, ok := strings.CutPrefix(line, "ERROR:"); ok {
+			diagnostic = strings.Join(strings.Fields(text), " ")
+		}
+	}
+	return diagnostic
+}
+
+// monitorExit waits for cmd to exit, logs captured stderr on failure and reports
+// a wrapped error (or nil on clean exit). The buffered channel lets the monitor
+// finish even with no receiver, including after Close kills the process.
 func monitorExit(cmd *exec.Cmd, stderr *limitedBuffer, name string) (<-chan error, <-chan struct{}) {
 	ch := make(chan error, 1)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		err := cmd.Wait()
-		switch trimmed := strings.TrimSpace(stderr.String()); {
-		case err == nil:
+		if err == nil {
 			ch <- nil
+			return
+		}
+		trimmed := strings.TrimSpace(stderr.String())
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() < 0 {
+			// Close kills both processes on stop/seek and abandoned retries.
+			// Signal exits remain available at debug level, not as playback
+			// failures every time the user changes tracks.
+			applog.Debug("%s: %v: %s", name, err, trimmed)
+		} else {
+			applog.Error("%s: %v: %s", name, err, trimmed)
+		}
+		switch {
+		case name == "yt-dlp":
+			ch <- &ytdlExitError{cause: err, diagnostic: ytdlFatalDiagnostic(trimmed)}
 		case trimmed != "":
 			ch <- fmt.Errorf("%s: %w: %s", name, err, trimmed)
 		default:
@@ -316,7 +362,7 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 		// --quiet drops progress chatter but keeps warnings on stderr. Do not
 		// add --no-warnings: yt-dlp's own "version is older than 90 days" and
 		// missing-JS-runtime warnings are what explain a persistent HTTP 403,
-		// and monitorExit surfaces this stderr in the failing error.
+		// and monitorExit logs them while prioritizing the fatal status line.
 		"--quiet",
 		"--socket-timeout", "15",
 		"-o", "-",
@@ -417,9 +463,8 @@ func (p *Player) buildYTDLPipeline(pageURL string, startSec int) (*trackPipeline
 				return nil, err
 			}
 			if attempt == ytdlPipelineMaxAttempts {
-				// The last attempt's error carries yt-dlp's own stderr, which
-				// includes its stale-version and missing-JS-runtime warnings:
-				// the usual reasons a 403 survives every retry.
+				// monitorExit logs warnings from every failed attempt; the
+				// status shows the last attempt's fatal diagnostic.
 				return nil, err
 			}
 			continue
@@ -471,6 +516,6 @@ func prefillYTDLPipe(decoder *ytdlPipeStreamer) error {
 }
 
 func isTransientYTDL403(err error) bool {
-	message := err.Error()
-	return strings.Contains(message, "yt-dlp:") && strings.Contains(message, "HTTP Error 403: Forbidden")
+	var exitErr *ytdlExitError
+	return errors.As(err, &exitErr) && strings.Contains(exitErr.diagnostic, "HTTP Error 403: Forbidden")
 }

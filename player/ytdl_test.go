@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -16,7 +17,9 @@ import (
 
 	"github.com/gopxl/beep/v2"
 
+	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/internal/ytdlbin"
+	"github.com/bjarneo/cliamp/ui"
 )
 
 // ytdlpWarning is what a real yt-dlp prints to stderr before failing with a
@@ -121,19 +124,26 @@ func TestBuildYTDLPipelineRetriesTransient403(t *testing.T) {
 }
 
 // TestBuildYTDLPipelineStopsAfterTransient403RetryBudget also covers the
-// common real-world cause of an unrecoverable 403 — a yt-dlp too old to sign
-// YouTube media URLs — by asserting that yt-dlp's own warning about it reaches
-// the error the UI shows.
+// warning diagnostics in the log without hiding the fatal status message.
 func TestBuildYTDLPipelineStopsAfterTransient403RetryBudget(t *testing.T) {
 	attemptsPath, _ := installYTDLRetryFixtures(t, "403-always")
+	logPath := captureYTDLLog(t)
 	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
 
 	_, err := p.buildYTDLPipeline("https://www.youtube.com/watch?v=retry", 0)
 	if err == nil || !strings.Contains(err.Error(), "HTTP Error 403: Forbidden") {
 		t.Fatalf("buildYTDLPipeline() error = %v, want yt-dlp 403 cause", err)
 	}
-	if !strings.Contains(err.Error(), ytdlpWarning) {
-		t.Errorf("buildYTDLPipeline() error = %q, want yt-dlp's own warning %q", err, ytdlpWarning)
+	row := ui.FitRect(fmt.Sprintf("ERR: %s", err), 78, 1)
+	if !strings.Contains(row, "HTTP Error 403: Forbidden") || strings.Contains(row, "WARNING:") {
+		t.Errorf("status row = %q, want fatal diagnostic without warnings", row)
+	}
+	logged, readErr := os.ReadFile(logPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !strings.Contains(string(logged), ytdlpWarning) || !strings.Contains(string(logged), "HTTP Error 403: Forbidden") {
+		t.Errorf("log = %q, want warning and fatal diagnostic", logged)
 	}
 	if got := fixtureLineCount(t, attemptsPath); got != 3 {
 		t.Fatalf("yt-dlp attempts = %d, want 3", got)
@@ -252,6 +262,7 @@ func TestYTDLPipeCloseReapsBothProcesses(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses POSIX process fixture")
 	}
+	logPath := captureYTDLLog(t)
 	ytdlCmd := exec.Command("sleep", "30")
 	ffmpegCmd := exec.Command("sleep", "30")
 	var ytdlStderr, ffmpegStderr limitedBuffer
@@ -291,5 +302,130 @@ func TestYTDLPipeCloseReapsBothProcesses(t *testing.T) {
 	case <-ffmpegDone:
 	default:
 		t.Fatal("FFmpeg process was not reaped")
+	}
+	logged, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(logged), "level=ERROR") {
+		t.Errorf("intentional Close logged as playback failure: %s", logged)
+	}
+}
+
+func captureYTDLLog(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "cliamp.log")
+	closeLog, err := applog.Init(path, applog.LevelError)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := closeLog(); err != nil {
+			t.Error(err)
+		}
+	})
+	return path
+}
+
+func TestBuildYTDLPipelineDoesNotRetryWarning403(t *testing.T) {
+	attemptsPath, _ := installYTDLRetryFixtures(t, "unavailable")
+	t.Setenv("YTDL_WARNING", "WARNING: extractor fallback: HTTP Error 403: Forbidden")
+	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
+	_, err := p.buildYTDLPipeline("https://www.youtube.com/watch?v=unavailable", 0)
+	if err == nil {
+		t.Fatal("expected permanent error")
+	}
+	row := ui.FitRect(fmt.Sprintf("ERR: %s", err), 78, 1)
+	if !strings.Contains(row, "Video unavailable") || strings.Contains(row, "WARNING:") {
+		t.Errorf("status row = %q, want fatal diagnostic", row)
+	}
+	if got := fixtureLineCount(t, attemptsPath); got != 1 {
+		t.Errorf("yt-dlp attempts = %d, want 1", got)
+	}
+}
+
+func TestMonitorExitYTDLDiagnostics(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX process fixture")
+	}
+	tests := []struct {
+		name, stderr, process, want string
+		retry                       bool
+	}{
+		{name: "warning before fatal 403", stderr: ytdlpWarning + "\nERROR: HTTP Error 403: Forbidden\n", want: "HTTP Error 403: Forbidden", retry: true},
+		{name: "warning 403 before permanent error", stderr: "WARNING: HTTP Error 403: Forbidden\nERROR: Video unavailable\n", want: "Video unavailable"},
+		{name: "warning 403 after permanent error", stderr: "ERROR: Video unavailable\nWARNING: HTTP Error 403: Forbidden\n", want: "Video unavailable"},
+		{name: "multiline warning 403", stderr: "WARNING: extractor fallback\nHTTP Error 403: Forbidden\nERROR: Video unavailable", want: "Video unavailable"},
+		{name: "indented warning continuation is not fatal", stderr: "ERROR: Video unavailable\nWARNING: extractor fallback\n    ERROR: HTTP Error 403: Forbidden", want: "Video unavailable"},
+		{name: "warning only", stderr: "WARNING: HTTP Error 403: Forbidden", want: "exit status 1"},
+		{name: "unmarked warning continuation", stderr: "WARNING: extractor fallback\nHTTP Error 403: Forbidden", want: "exit status 1"},
+		{name: "no stderr", want: "exit status 1"},
+		{name: "last fatal wins", stderr: "ERROR: HTTP Error 403: Forbidden\nERROR: Video unavailable", want: "Video unavailable"},
+		{name: "ffmpeg is not yt-dlp", stderr: "ERROR: yt-dlp: HTTP Error 403: Forbidden", process: "ffmpeg", want: "HTTP Error 403: Forbidden"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logPath := captureYTDLLog(t)
+			cmd := exec.Command("sh", "-c", `printf '%s' "$DIAGNOSTIC" >&2; exit 1`)
+			cmd.Env = append(os.Environ(), "DIAGNOSTIC="+tt.stderr)
+			var stderr limitedBuffer
+			cmd.Stderr = &stderr
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			process := tt.process
+			if process == "" {
+				process = "yt-dlp"
+			}
+			ch, done := monitorExit(cmd, &stderr, process)
+			err := <-ch
+			<-done
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+			if strings.ContainsAny(err.Error(), "\r\n") || strings.Contains(err.Error(), "WARNING:") {
+				t.Errorf("status diagnostic = %q, want one line without warnings", err)
+			}
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+				t.Errorf("error lost exit cause: %v", err)
+			}
+			if got := isTransientYTDL403(fmt.Errorf("playback: %w", err)); got != tt.retry {
+				t.Errorf("retry = %v, want %v", got, tt.retry)
+			}
+			logged, readErr := os.ReadFile(logPath)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			for _, line := range strings.Split(tt.stderr, "\n") {
+				if !strings.Contains(string(logged), line) {
+					t.Errorf("log missing %q: %s", line, logged)
+				}
+			}
+		})
+	}
+}
+
+// PCM EOF can precede cmd.Wait completing; polling once loses the failure and
+// treats a broken stream as a successful end of track.
+func TestYTDLPipeStreamWaitsForExitDiagnostic(t *testing.T) {
+	ytdlCh := make(chan error, 1)
+	ffmpegCh := make(chan error, 1)
+	cause := errors.New("yt-dlp: Video unavailable")
+	y := &ytdlPipeStreamer{
+		reader:  bufio.NewReader(strings.NewReader("")),
+		ytdlErr: ytdlCh, ffmpegErr: ffmpegCh, state: newPipeStreamState(0),
+	}
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		ffmpegCh <- errors.New("ffmpeg: Invalid data found when processing input")
+		ytdlCh <- cause
+	}()
+	n, ok := y.Stream(make([][2]float64, 1))
+	if n != 0 || ok {
+		t.Fatalf("Stream() = %d, %v, want EOF", n, ok)
+	}
+	if !errors.Is(y.Err(), cause) {
+		t.Errorf("Err() = %v, want yt-dlp cause", y.Err())
 	}
 }
