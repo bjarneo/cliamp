@@ -17,8 +17,10 @@ import (
 	"github.com/bjarneo/cliamp/external/qobuz"
 	"github.com/bjarneo/cliamp/external/spotify"
 	"github.com/bjarneo/cliamp/external/tidal"
+	"github.com/bjarneo/cliamp/internal/clipboard"
 	"github.com/bjarneo/cliamp/ipc"
 	"github.com/bjarneo/cliamp/player"
+	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/pluginmgr"
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
@@ -83,6 +85,7 @@ func buildApp() *cli.Command {
 			ipcSimpleCommand("prev", "previous track"),
 			ipcSimpleCommand("stop", "stop playback"),
 			statusCommand(),
+			shareCommand(),
 			volumeCommand(),
 			seekCommand(),
 			loadCommand(),
@@ -752,6 +755,36 @@ func statusCommand() *cli.Command {
 			if resp.EQPreset != "" {
 				fmt.Printf("EQ: %s\n", resp.EQPreset)
 			}
+			return nil
+		},
+	}
+}
+
+func shareCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "share",
+		Usage: "print a shareable link for the playing track",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "copy", Usage: "copy the link to the clipboard as well"},
+		},
+		Action: func(ctx context.Context, c *cli.Command) error {
+			snapshot, err := ipcState()
+			if err != nil {
+				return err
+			}
+			if snapshot.Track == nil || snapshot.Track.Path == "" {
+				return fmt.Errorf("nothing playing")
+			}
+			link, ok := playlist.ShareLink(snapshot.Track.Path)
+			if !ok {
+				return fmt.Errorf("no shareable link for the current track")
+			}
+			if c.Bool("copy") {
+				if err := clipboard.Copy(link); err != nil {
+					return fmt.Errorf("copy to clipboard: %w", err)
+				}
+			}
+			fmt.Println(link)
 			return nil
 		},
 	}

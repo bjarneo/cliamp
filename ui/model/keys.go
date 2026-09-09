@@ -14,6 +14,7 @@ import (
 
 	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/history"
+	"github.com/bjarneo/cliamp/internal/clipboard"
 	"github.com/bjarneo/cliamp/internal/fileutil"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
@@ -858,6 +859,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "ctrl+s":
 		return m.saveTrack()
+	case "ctrl+y":
+		return m.shareTrack()
 	case "S":
 		return m.switchToProvider("spotify")
 
@@ -1120,6 +1123,29 @@ func (m *Model) saveTrack() tea.Cmd {
 	}
 
 	m.status.Showf(statusTTLDefault, "Saved to ~/Music/cliamp/%s", name+ext)
+	return nil
+}
+
+// shareTrack copies a shareable link for the playing track to the clipboard.
+// Spotify URIs become open.spotify.com pages and plain URLs pass through;
+// anything without a public link (local files, search expressions) reports
+// why instead of copying.
+func (m *Model) shareTrack() tea.Cmd {
+	track, idx := m.currentPlaybackTrack()
+	if idx < 0 {
+		m.status.Warning("Nothing to share", statusTTLShort)
+		return nil
+	}
+	link, ok := playlist.ShareLink(track.Path)
+	if !ok {
+		m.status.Warning("No shareable link for this track", statusTTLShort)
+		return nil
+	}
+	if err := clipboard.Copy(link); err != nil {
+		m.status.Errorf(statusTTLShort, "Copy failed: %s", err)
+		return nil
+	}
+	m.status.Successf(statusTTLShort, "Link copied: %s", link)
 	return nil
 }
 
