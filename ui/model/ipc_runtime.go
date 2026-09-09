@@ -150,6 +150,11 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 		m.notifyAll()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return nil
+	case "quit":
+		// Answer before leaving: the client polls for this job on a fresh
+		// connection, and the socket goes away with the process.
+		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
+		return m.shutDown()
 	case "next":
 		m.scrobbleCurrent()
 		cmd := m.nextTrack()
@@ -757,6 +762,8 @@ func normalizeV2Operation(operation string) string {
 		return "toggle"
 	case "player.stop", "runtime.stop":
 		return "stop"
+	case "runtime.quit", "app.quit":
+		return "quit"
 	case "player.next", "runtime.next":
 		return "next"
 	case "player.prev", "player.previous", "runtime.prev":

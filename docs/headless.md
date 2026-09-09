@@ -17,11 +17,21 @@ cliamp attach                                # borrow this terminal to the sessi
 ```
 
 Press `q` in an attached terminal to hand it back: the session keeps playing.
-`ctrl+q` quits cliamp for real, session and playback included. `ctrl+\` also
-detaches, without asking the player, so it works even if the session stops
-responding.
+`ctrl+\` also detaches, without asking the player, so it works even if the
+session stops responding.
 
-Send `SIGINT` or `SIGTERM` to stop the session. cliamp saves the resume position on a graceful shutdown.
+No key ends a session. Its lifetime belongs to whatever started it -- a service
+manager, an autostart entry, a shell job -- so a keystroke in a borrowed
+terminal must not take it down. Stop it explicitly:
+
+```sh
+cliamp quit                      # from any terminal
+systemctl --user stop cliamp     # or through the service manager
+kill -TERM $(pgrep -f 'cliamp --daemon')
+```
+
+All three are the same graceful shutdown: cliamp flushes pending settings and
+saves the resume position.
 
 ## What works
 
@@ -32,6 +42,7 @@ hardware media keys on Windows, and the full runtime, library, job, and event
 IPC interface. See [Remote Control](remote-control.md) for the command list:
 
 - Playback: `play`, `pause`, `toggle`, `stop`, `next`, `prev`
+- Lifetime: `quit`
 - Position: `seek`, `volume`, `speed`
 - Playback modes: `shuffle`, `repeat`, `mono`
 - Library: `load "Name"`, `queue /path/to.mp3`
@@ -52,9 +63,9 @@ it -- resize the window and the session follows.
 - **Color depth is fixed for the session.** A session outlives its clients, so
   it renders truecolor and each client downsamples for its own terminal.
 - **The quit key detaches.** In a session `q` hands the terminal back rather
-  than stopping the music, and the keymap says so. `ctrl+q` is the one that
-  ends the session. Everywhere `q` already meant something else -- queueing a
-  track in the provider browser, typing in a search field -- it still does.
+  than stopping the music, and the keymap says so. Everywhere `q` already meant
+  something else -- queueing a track in the provider browser, typing in a
+  search field -- it still does.
 - **Your terminal comes back as you left it.** Attaching and detaching go
   through the player's own terminal setup and teardown, so the alternate
   screen, cursor, window title, and the colors a theme sets are restored on
@@ -81,6 +92,7 @@ cliamp toggle      # play/pause from anywhere
 cliamp next
 cliamp volume -3
 cliamp attach      # full UI in this terminal, q to leave it playing
+cliamp quit        # stop the session for good
 ```
 
 Use this minimal systemd user unit:

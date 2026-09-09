@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/ipc"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/ui"
 )
@@ -124,7 +125,7 @@ func TestDetachedSpectrumIsAnalyzedOnDemand(t *testing.T) {
 }
 
 // In a session the quit key hands the terminal back and the music keeps
-// playing; ctrl+q is what ends the session.
+// playing; only an explicit shutdown ends it.
 func TestQuitKeyDetachesInASession(t *testing.T) {
 	detached := 0
 	m := Model{
@@ -145,13 +146,13 @@ func TestQuitKeyDetachesInASession(t *testing.T) {
 	}
 
 	if cmd := m.shutDown(); cmd == nil {
-		t.Error("ctrl+q returned no command, want tea.Quit")
+		t.Error("the shutdown returned no command, want tea.Quit")
 	}
 	if !m.quitting {
-		t.Error("ctrl+q did not quit")
+		t.Error("the shutdown did not quit")
 	}
 	if detached != 1 {
-		t.Errorf("detach calls = %d after ctrl+q, want it left alone", detached)
+		t.Errorf("detach calls = %d after the shutdown, want it left alone", detached)
 	}
 }
 
@@ -171,25 +172,40 @@ func TestQuitKeyQuitsWithoutASession(t *testing.T) {
 	}
 }
 
-// ctrl+q has to reach the player from a text field too, or a session could
-// not be stopped from a search box.
-func TestCtrlQQuitsFromATextField(t *testing.T) {
+// Nothing on the keyboard ends a session -- under a service manager a
+// keystroke must not stop the unit -- so the quit operation is what does it,
+// and it answers before it goes.
+func TestQuitOperationShutsDownAndAnswersFirst(t *testing.T) {
 	m := Model{
 		player:   &playbackFakeEngine{playing: true},
 		playlist: playlist.New(),
 		vis:      ui.NewVisualizer(44100),
-		width:    80,
-		height:   24,
 	}
-	m.SetSessionDetach(func() { t.Error("ctrl+q detached instead of quitting") })
-	m.recomputeLayout()
-	m.search.active = true
+	m.SetSessionDetach(func() { t.Error("the quit operation detached instead of quitting") })
 
-	if cmd := m.handleKey(tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl}); cmd == nil {
-		t.Fatal("ctrl+q returned no command in a text field, want tea.Quit")
+	jobs := ipc.NewJobStore()
+	job, err := jobs.Create("quit")
+	if err != nil {
+		t.Fatal(err)
 	}
+	cmd := m.handleV2Request(V2RequestMsg{
+		Request: ipc.V2Request{Method: "operation.submit", Operation: "quit"},
+		Jobs:    jobs,
+		JobID:   job.ID,
+	})
+
 	if !m.quitting {
-		t.Error("ctrl+q did not quit from a text field")
+		t.Error("the quit operation did not quit")
+	}
+	if cmd == nil {
+		t.Fatal("the quit operation returned no command, want tea.Quit")
+	}
+	done, ok := jobs.Get(job.ID)
+	if !ok {
+		t.Fatal("the quit job is gone")
+	}
+	if done.State != ipc.JobSucceeded {
+		t.Errorf("job state = %q, want %q before the shutdown", done.State, ipc.JobSucceeded)
 	}
 }
 

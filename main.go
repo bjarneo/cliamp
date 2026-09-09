@@ -602,8 +602,9 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		if hostErr != nil {
 			return fmt.Errorf("session: %w", hostErr)
 		}
-		// The quit key hands the terminal back instead of stopping the music;
-		// ctrl+q still quits.
+		// The quit key hands the terminal back instead of stopping the music.
+		// Ending the session is `cliamp quit`, not a keystroke: its lifetime
+		// belongs to whatever started it.
 		m.SetSessionDetach(host.Detach)
 		defer host.Close()
 		progOpts = append(progOpts,
@@ -634,7 +635,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 				prog.Send(playback.QuitMsg{})
 			}
 		}()
-		fmt.Fprintf(os.Stderr, "cliamp: running detached (socket: %s)\ncliamp: attach with `cliamp attach`; q detaches, ctrl+q quits\n", ipc.DefaultSocketPath())
+		fmt.Fprintf(os.Stderr, "cliamp: running detached (socket: %s)\ncliamp: attach with `cliamp attach`; q detaches, `cliamp quit` stops it\n", ipc.DefaultSocketPath())
 		applog.Info("session: running detached")
 	}
 

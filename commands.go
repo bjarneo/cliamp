@@ -83,6 +83,7 @@ func buildApp() *cli.Command {
 			ipcSimpleCommand("next", "next track"),
 			ipcSimpleCommand("prev", "previous track"),
 			ipcSimpleCommand("stop", "stop playback"),
+			quitCommand(),
 			statusCommand(),
 			volumeCommand(),
 			seekCommand(),
@@ -698,10 +699,35 @@ func ipcSimpleCommand(name, usage string) *cli.Command {
 	}
 }
 
+func quitCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "quit",
+		Usage: "stop the running cliamp, playback included",
+		Action: func(ctx context.Context, c *cli.Command) error {
+			// Probe first so "nothing is running" reads the way it does for
+			// every other subcommand, rather than as a successful quit.
+			if !ipcRunning() {
+				return userIPCError(fmt.Errorf("quit: %w", ipc.ErrNotRunning))
+			}
+			if _, err := ipcSend("quit", ipc.Request{}); err != nil {
+				// The client polls for the job result on a new connection, and
+				// the socket leaves with the process, so the answer can lose
+				// the race to the shutdown it asked for. A cliamp that is gone
+				// did what was asked.
+				if !ipcRunning() {
+					return nil
+				}
+				return err
+			}
+			return nil
+		},
+	}
+}
+
 func attachCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "attach",
-		Usage: "lend this terminal to a detached cliamp (q detaches, ctrl+q quits)",
+		Usage: "lend this terminal to a detached cliamp (q detaches, leaving it playing)",
 		Action: func(ctx context.Context, c *cli.Command) error {
 			err := session.Attach(ipc.DefaultSocketPath(), session.ClientOptions{Client: "cliamp " + version})
 			return userIPCError(err)

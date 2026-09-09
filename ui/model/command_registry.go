@@ -166,7 +166,6 @@ var commandRegistry = []commandSpec{
 		}
 		return "Quit"
 	}, Keymap: true},
-	{Mode: commandModeAny, Keys: []string{"ctrl+q"}, KeyLabel: "Ctrl+Q", Label: "Quit cliamp", Enabled: func(m Model) bool { return m.sessionDetach != nil }, Keymap: true},
 	{Mode: commandModeAny, Keys: []string{"ctrl+z"}, KeyLabel: "Ctrl+Z", Label: "Undo latest playlist or queue mutation"},
 	{Mode: commandModeProvider, Keys: []string{"ctrl+r"}, KeyLabel: "Ctrl+R", Label: "Refresh provider", Keymap: true, ContextHelp: true},
 

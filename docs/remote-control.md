@@ -104,6 +104,7 @@ Run `cliamp remote capabilities` to get the current machine-readable list.
 | Group | Operations |
 | --- | --- |
 | Playback | `play`, `pause`, `toggle`, `stop`, `next`, `prev`, `volume`, `volume.adjust`, `seek`, `seek.absolute`, `speed`, `speed.adjust`, `shuffle`, `repeat`, `mono`, `eq`, `device` |
+| Lifetime | `quit` |
 | Appearance | `theme`, `vis` |
 | Live playlist | `queue`, `queue.list`, `queue.play`, `queue.enqueue`, `queue.remove`, `queue.move`, `queue.clear`, `track.play`, `track.queue` |
 | Play-next | `playnext.list`, `playnext.remove`, `playnext.move`, `playnext.clear` |

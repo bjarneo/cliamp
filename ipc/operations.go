@@ -123,6 +123,7 @@ func DefaultOperationRegistry() *OperationRegistry {
 		{Name: "pause", Description: "pause playback"},
 		{Name: "toggle", Description: "toggle playback"},
 		{Name: "stop", Description: "stop playback"},
+		{Name: "quit", Description: "stop the running cliamp"},
 		{Name: "next", Description: "skip to the next track"},
 		{Name: "prev", Description: "skip to the previous track"},
 		{Name: "volume", Description: "set volume", Parameters: []string{"value"}},
