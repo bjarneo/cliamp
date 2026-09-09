@@ -1022,6 +1022,8 @@ func (m *setupModel) persistAndDone(warn bool) tea.Cmd {
 func (m *setupModel) resultKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.awaitingSave {
 		switch strings.ToLower(msg.String()) {
+		case "q":
+			return m, tea.Quit
 		case "y":
 			m.persistAndDone(true)
 			return m, nil
@@ -1035,7 +1037,9 @@ func (m *setupModel) resultKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "enter", "esc", "q", " ":
+	case "q":
+		return m, tea.Quit
+	case "enter", "esc", " ":
 		m.stage = stageMenu
 		return m, nil
 	}
@@ -1242,7 +1246,7 @@ func (m *setupModel) viewResult() string {
 		b.WriteString("\n\n")
 		b.WriteString(hintStyle.Render("The config will still load on next launch — useful when the server is offline now."))
 		b.WriteString("\n\n")
-		b.WriteString(accentStyle.Render("Save anyway?  ") + "[y/N]")
+		b.WriteString(accentStyle.Render("Save anyway?  ") + "[y/N]  q quit")
 		return m.card(b.String())
 	}
 
@@ -1279,7 +1283,7 @@ func (m *setupModel) viewFooter() string {
 		keys = "ctrl+c cancel"
 	case stageResult:
 		if m.awaitingSave {
-			keys = "y save anyway   n cancel"
+			keys = "y save anyway   n cancel  q quit"
 		} else {
 			keys = "any key continue   q quit"
 		}
