@@ -113,6 +113,13 @@ WantedBy=default.target
 systemctl --user enable --now cliamp.service
 ```
 
+`Restart=on-failure` and not `Restart=always`: every graceful stop --
+`cliamp quit`, an MPRIS client's Quit, `systemctl --user stop cliamp` -- exits
+0, and `always` reads that as a reason to start the session again. The music
+would come back moments after you asked it to stop, and `systemctl stop` would
+be the only thing that could end it. `on-failure` restarts the session when it
+actually crashed, which is what you wanted the line for.
+
 ### Waybar / Polybar / i3blocks status modules
 
 Poll `cliamp status --json` at an interval. Render the fields that you need.
