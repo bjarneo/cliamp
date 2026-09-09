@@ -5,12 +5,19 @@
 package clipboard
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 )
+
+// copyTimeout bounds a single backend invocation. Backends normally exit
+// at once; the deadline only fires when one stalls (locked Wayland socket,
+// wedged X server), which must not freeze the TUI update path.
+const copyTimeout = 5 * time.Second
 
 // Copy writes text to the system clipboard. It returns an error when no
 // supported backend is installed; callers should fall back to showing the
@@ -18,14 +25,15 @@ import (
 func Copy(text string) error {
 	candidates, err := backends()
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve clipboard backends: %w", err)
 	}
 	var lastErr error
 	for _, c := range candidates {
 		if _, err := exec.LookPath(c.name); err != nil {
 			continue
 		}
-		cmd := exec.Command(c.name, c.args...)
+		ctx, cancel := context.WithTimeout(context.Background(), copyTimeout)
+		cmd := exec.CommandContext(ctx, c.name, c.args...)
 		cmd.Stdin = strings.NewReader(text)
 		// Clipboard backends daemonize (wl-copy and xclip fork to
 		// keep serving the selection). Capturing their output would
@@ -33,8 +41,14 @@ func Copy(text string) error {
 		// discarded output instead of CombinedOutput.
 		cmd.Stdout = nil
 		cmd.Stderr = nil
-		if err := cmd.Run(); err != nil {
-			lastErr = fmt.Errorf("%s: %w", c.name, err)
+		runErr := cmd.Run()
+		cancel()
+		if ctx.Err() == context.DeadlineExceeded {
+			lastErr = fmt.Errorf("%s: timed out after %s", c.name, copyTimeout)
+			continue
+		}
+		if runErr != nil {
+			lastErr = fmt.Errorf("%s: %w", c.name, runErr)
 			continue
 		}
 		return nil

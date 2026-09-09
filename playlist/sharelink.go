@@ -1,6 +1,9 @@
 package playlist
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 // ShareLink derives a shareable https URL for a track path.
 //
@@ -19,12 +22,12 @@ func ShareLink(path string) (string, bool) {
 	}
 	if rest, ok := strings.CutPrefix(path, "spotify:"); ok {
 		typ, id, ok := strings.Cut(rest, ":")
-		if !ok || typ == "" || id == "" || strings.Contains(id, ":") {
+		if !ok || typ == "" || id == "" || strings.ContainsAny(id, ":/?#") {
 			return "", false
 		}
 		switch typ {
 		case "track", "episode", "album", "playlist", "artist", "show":
-			return "https://open.spotify.com/" + typ + "/" + id, true
+			return "https://open.spotify.com/" + typ + "/" + url.PathEscape(id), true
 		default:
 			return "", false
 		}

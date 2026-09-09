@@ -40,6 +40,12 @@ func TestShareLink(t *testing.T) {
 			share: false,
 		},
 		{
+			name:  "spotify id with reserved chars rejected",
+			path:  "spotify:track:abc/def?x#y",
+			want:  "",
+			share: false,
+		},
+		{
 			name:  "https stream",
 			path:  "http://radio.cliamp.stream/lofi/stream",
 			want:  "http://radio.cliamp.stream/lofi/stream",

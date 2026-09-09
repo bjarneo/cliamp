@@ -781,6 +781,7 @@ func shareCommand() *cli.Command {
 			}
 			if c.Bool("copy") {
 				if err := clipboard.Copy(link); err != nil {
+					fmt.Println(link)
 					return fmt.Errorf("copy to clipboard: %w", err)
 				}
 			}

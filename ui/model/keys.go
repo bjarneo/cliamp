@@ -1142,7 +1142,7 @@ func (m *Model) shareTrack() tea.Cmd {
 		return nil
 	}
 	if err := clipboard.Copy(link); err != nil {
-		m.status.Errorf(statusTTLShort, "Copy failed: %s", err)
+		m.status.Errorf(statusTTLShort, "Copy failed, link: %s (%s)", link, err)
 		return nil
 	}
 	m.status.Successf(statusTTLShort, "Link copied: %s", link)
