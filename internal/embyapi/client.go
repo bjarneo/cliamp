@@ -224,8 +224,12 @@ func (c *Client) MusicLibraries() ([]Library, error) {
 	}
 
 	var resp itemsResponseDTO
-	if err := c.get("/Users/"+url.PathEscape(userID)+"/Views", nil, &resp); err != nil {
-		return nil, err
+	if err := c.get(
+			c.dialect.musicLibrariesPath(userID),
+			nil,
+			&resp,
+	); err != nil {
+			return nil, err
 	}
 
 	var libs []Library

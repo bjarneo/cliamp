@@ -3,6 +3,7 @@ package embyapi
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/bjarneo/cliamp/internal/appmeta"
@@ -17,6 +18,7 @@ type dialect interface {
 	metaKey() string                                             // playlist.Track ProviderMeta key
 	applyAuth(req *http.Request, token, userID, deviceID string) // set auth headers
 	discoverUserID(c *Client) (string, error)                    // user-id discovery strategy
+  musicLibrariesPath(userID string) string
 }
 
 // embyDialect speaks Emby's `Authorization: Emby ...` scheme and discovers the
@@ -66,6 +68,10 @@ func (embyDialect) discoverUserID(c *Client) (string, error) {
 	return "", fmt.Errorf("emby: could not discover user id — set user_id in config")
 }
 
+func (embyDialect) musicLibrariesPath(userID string) string {
+  return "/Users/" + url.PathEscape(userID) + "/Views"
+}
+
 // unauthHeader / authHeader build Emby's Authorization header values.
 func embyUnauthHeader(deviceID string) string {
 	return fmt.Sprintf(`Emby Client="%s", Device="%s", DeviceId="%s", Version="%s"`,
@@ -81,31 +87,25 @@ func embyAuthHeader(userID, token, deviceID string) string {
 		appmeta.ClientName(), appmeta.DeviceName(), deviceID, appmeta.Version(), token)
 }
 
-// jellyfinDialect speaks Jellyfin's `X-Emby-Authorization: MediaBrowser ...`
+// jellyfinDialect speaks Jellyfin's `Authorization: MediaBrowser ... Token="..."`
 // scheme and discovers the user id from /Users/Me only.
 type jellyfinDialect struct{}
 
 func (jellyfinDialect) name() string     { return "jellyfin" }
-func (jellyfinDialect) pingPath() string { return "/Users/Me" }
+func (jellyfinDialect) pingPath() string { return "/System/Info" }
 func (jellyfinDialect) metaKey() string  { return provider.MetaJellyfinID }
 
 func (jellyfinDialect) applyAuth(req *http.Request, token, _, deviceID string) {
-	if token != "" {
-		req.Header.Set("X-Emby-Token", token)
-	}
-	req.Header.Set("X-Emby-Authorization",
-		fmt.Sprintf(`MediaBrowser Client="%s", Device="%s", DeviceId="%s", Version="%s"`,
-			appmeta.ClientName(), appmeta.DeviceName(), deviceID, appmeta.Version()))
+	req.Header.Set("Authorization",
+		fmt.Sprintf(`MediaBrowser Client="%s", Device="%s", DeviceId="%s", Version="%s", Token="%s"`,
+			appmeta.ClientName(), appmeta.DeviceName(), deviceID, appmeta.Version(), token))
 }
 
 func (jellyfinDialect) discoverUserID(c *Client) (string, error) {
-	var u userDTO
-	if err := c.get("/Users/Me", nil, &u); err != nil {
-		return "", err
-	}
-	if u.ID == "" {
-		return "", fmt.Errorf("jellyfin: current user response missing id")
-	}
-	c.setUserID(u.ID)
-	return u.ID, nil
+	// jellyfin does not require a userId
+	return "", nil
+}
+
+func (jellyfinDialect) musicLibrariesPath(string) string {
+  return "/Library/MediaFolders"
 }
