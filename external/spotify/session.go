@@ -36,9 +36,17 @@ type storedCreds struct {
 	RefreshToken string `json:"refresh_token,omitempty"` // OAuth2 refresh token for silent re-auth
 }
 
-// CallbackPort is the fixed port for the OAuth2 callback server.
-// Must match the redirect URI registered in the Spotify Developer app.
-const CallbackPort = 19872
+const (
+	callbackHost = "127.0.0.1"
+
+	// CallbackPort is the fixed port for the OAuth2 callback server.
+	// Must match the redirect URI registered in the Spotify Developer app.
+	CallbackPort = 19872
+)
+
+func callbackAddress() string {
+	return net.JoinHostPort(callbackHost, fmt.Sprint(CallbackPort))
+}
 
 // authURLObserver is invoked with the OAuth URL when interactive auth begins.
 // Set via SetAuthURLObserver. Used by the TUI to show the URL when the
@@ -435,7 +443,7 @@ func performOAuth2PKCEFlows(ctx context.Context, flows []oauthFlow) ([]*oauth2.T
 		return nil, fmt.Errorf("no OAuth flows configured")
 	}
 
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", CallbackPort))
+	lis, err := net.Listen("tcp", callbackAddress())
 	if err != nil {
 		return nil, fmt.Errorf("listen on port %d: %w", CallbackPort, err)
 	}
