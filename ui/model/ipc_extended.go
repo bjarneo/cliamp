@@ -114,6 +114,7 @@ func (m *Model) handleIPCQueue(request ipc.QueueRequestMsg) tea.Cmd {
 		m.playlist.Replace(nil)
 		m.clearPlaybackTrack()
 		m.loadedPlaylist = ""
+		m.resetProviderQueueMirror()
 		request.Reply <- m.ipcQueueResponse()
 	case "track.play", "track.queue":
 		if request.Track == nil || request.Track.Path == "" {
@@ -440,6 +441,7 @@ func (m *Model) handleIPCProviderLoad(result ipcProviderLoadResult) tea.Cmd {
 	}
 	m.playlist.Replace(result.tracks)
 	m.loadedPlaylist = result.loaded
+	m.resetProviderQueueMirror()
 	m.setHeaderStateFromTracks(result.tracks)
 	m.playlist.SetIndex(0)
 	m.plCursor = 0

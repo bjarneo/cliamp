@@ -334,6 +334,32 @@ type Model struct {
 	// row in the provider browser. Empty when no provider playlist is active.
 	activeProviderPlaylistID string
 
+	// providerQueueLen is the number of leading queue rows that mirror the
+	// playlist named by activeProviderPlaylistID, in load order. It gates
+	// position-based remote writes (x remove). Zero = queue not mirroring.
+	providerQueueLen int
+
+	// providerQueueLastPath is the Path of the last mirroring queue row
+	// (providerQueueLen-1). removeSelectedRemote verifies it still matches
+	// before issuing a position-based remote remove.
+	providerQueueLastPath string
+
+	// trackPaging drives incremental loading of large provider playlists.
+	trackPaging trackPagingState
+
+	// Inline provider-pane write states (delete/unfollow confirm, rename).
+	provConfirm provConfirmState
+	provRename  provRenameState
+
+	// provListFixup carries the cursor adjustment to apply on the next
+	// playlistsLoadedMsg after a write-triggered list refresh.
+	provListFixup provListFixupState
+
+	// followState remembers the intended follow state of artists/playlists
+	// toggled this session, keyed "kind:provider:id". Provider interfaces
+	// expose no follow-state query, so the first toggle assumes unfollowed.
+	followState map[string]bool
+
 	// exitResume holds the playback state captured just before player.Close()
 	// so ResumeState() can read it after the player is shut down.
 	exitResume struct {

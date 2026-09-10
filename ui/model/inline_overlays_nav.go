@@ -6,10 +6,20 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/ui"
 )
 
 // — provider browser (nav) —
+
+// navArtistLabel renders a nav-browser artist row. The album count suffix is
+// hidden when the provider doesn't report one (Spotify reports 0).
+func navArtistLabel(a provider.ArtistInfo) string {
+	if a.AlbumCount > 0 {
+		return fmt.Sprintf("%s (%d albums)", a.Name, a.AlbumCount)
+	}
+	return a.Name
+}
 
 type navViewKind int
 
@@ -96,8 +106,7 @@ func (m Model) renderNavBody() string {
 			return bodyMessage("No artists found.", budget)
 		}
 		items := m.navScrollItems(len(m.navBrowser.artists), func(i int) string {
-			a := m.navBrowser.artists[i]
-			return truncate(fmt.Sprintf("%s (%d albums)", a.Name, a.AlbumCount), ui.PanelWidth-6)
+			return truncate(navArtistLabel(m.navBrowser.artists[i]), ui.PanelWidth-6)
 		})
 		return strings.Join(items, "\n")
 	case navViewAlbums:

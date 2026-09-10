@@ -319,6 +319,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	}
 
 	if m.focus == focusProvider {
+		// Inline provider-pane write states take precedence over navigation.
+		if m.provRename.active {
+			return m.handleProvRenameKey(msg)
+		}
+		if m.provConfirm.active {
+			return m.handleProvConfirmKey(msg)
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m.quit()
@@ -367,11 +374,17 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 				}
 				m.provLoading = true
 				m.activeProviderPlaylistID = ""
+				m.providerQueueLen = 0
+				m.providerQueueLastPath = ""
 				m.status.Showf(statusTTLShort, "Refreshing %s…", m.provider.Name())
 				return m.fetchProviderPlaylists()
 			}
 		case "f":
 			return m.toggleProviderFavorite()
+		case "D":
+			m.startProviderUnfollow()
+		case "r":
+			m.startProviderRename()
 		case "o":
 			m.openFileBrowser()
 		case "N":
@@ -546,6 +559,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.focus == focusPlaylist && m.plCursor > 0 {
 			if m.playlist.Move(m.plCursor, m.plCursor-1) {
 				m.plCursor--
+				m.providerQueueLen = 0 // reordered queue no longer mirrors the remote playlist
+				m.providerQueueLastPath = ""
 				m.persistLoadedPlaylistOrder()
 				m.adjustScroll()
 			}
@@ -555,6 +570,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.focus == focusPlaylist && m.plCursor < m.playlist.Len()-1 {
 			if m.playlist.Move(m.plCursor, m.plCursor+1) {
 				m.plCursor++
+				m.providerQueueLen = 0 // reordered queue no longer mirrors the remote playlist
+				m.providerQueueLastPath = ""
 				m.persistLoadedPlaylistOrder()
 				m.adjustScroll()
 			}
@@ -691,7 +708,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "w":
 		if m.focus == focusPlaylist && m.plCursor >= 0 && m.plCursor < m.playlist.Len() {
 			track := m.playlist.Tracks()[m.plCursor]
-			m.openPlaylistPicker([]playlist.Track{track}, "Track: "+track.DisplayName())
+			return m.openPlaylistPicker([]playlist.Track{track}, "Track: "+track.DisplayName())
 		}
 
 	case "A":
@@ -805,7 +822,17 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "x":
 		if m.focus == focusPlaylist {
+			// Remote provider playlist first (position-based remove), then the
+			// local queue/playlist removal.
+			if cmd, handled := m.removeSelectedRemote(); handled {
+				return cmd
+			}
 			m.removeSelectedFromPlaylist()
+		}
+
+	case "*":
+		if m.focus == focusPlaylist {
+			return m.likeSelectedTrack()
 		}
 
 	case "d":
@@ -962,7 +989,8 @@ func (m *Model) openProviderSearch() {
 }
 
 // openProviderSearchWith opens a search overlay against the given provider.
-// Falls back to YouTube net search when prov doesn't implement Searcher.
+// Falls back to YouTube net search when prov implements neither Searcher nor
+// MultiSearcher.
 func (m *Model) openProviderSearchWith(prov playlist.Provider) {
 	if _, ok := prov.(provider.Searcher); ok {
 		m.cancelSpotRequest()
@@ -973,6 +1001,19 @@ func (m *Model) openProviderSearchWith(prov playlist.Provider) {
 			prov:    prov,
 			visible: true,
 			screen:  spotSearchInput,
+		}
+		return
+	}
+	if _, ok := prov.(provider.MultiSearcher); ok {
+		m.cancelSpotRequest()
+		nextRequest(&m.requests.spotSearch)
+		nextRequest(&m.requests.spotLists)
+		nextRequest(&m.requests.spotMutation)
+		m.spotSearch = spotSearchState{
+			prov:    prov,
+			visible: true,
+			screen:  spotSearchInput,
+			multi:   true,
 		}
 		return
 	}
@@ -1247,6 +1288,12 @@ func (m *Model) handlePaste(content string) tea.Cmd {
 		m.navBrowser.cursor = 0
 		m.navBrowser.scroll = 0
 		m.navUpdateSearch()
+		return nil
+	}
+
+	// Provider pane rename input
+	if m.focus == focusProvider && m.provRename.active {
+		m.insertText("provider-rename", &m.provRename.name, content)
 		return nil
 	}
 
@@ -1880,7 +1927,7 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 			if len(tracks) > 1 {
 				title = fmt.Sprintf("%d tracks selected", len(tracks))
 			}
-			m.openPlaylistPicker(tracks, title)
+			return m.openPlaylistPicker(tracks, title)
 		}
 	case "o":
 		m.openFileBrowserForPlaylist(m.plManager.selPlaylist)

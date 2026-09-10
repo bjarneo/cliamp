@@ -5,6 +5,8 @@
 // via type assertions.
 package provider
 
+import "github.com/bjarneo/cliamp/playlist"
+
 // ArtistInfo describes an artist in a provider's catalog.
 type ArtistInfo struct {
 	ID         string
@@ -27,6 +29,14 @@ type AlbumInfo struct {
 type SortType struct {
 	ID    string // e.g. "alphabeticalByName"
 	Label string // e.g. "By Name"
+}
+
+// SearchResults carries multi-type search results from a MultiSearcher.
+type SearchResults struct {
+	Tracks    []playlist.Track
+	Albums    []AlbumInfo
+	Artists   []ArtistInfo
+	Playlists []playlist.PlaylistInfo
 }
 
 // ProviderMeta key constants used across providers and the UI.

@@ -81,7 +81,7 @@ active when the picker opened. While typing a filter, `Enter` finishes it and
 | `r` | Retry lyrics lookup while lyrics are open |
 | `i` | Show track metadata (`↑`/`↓` scrolls) |
 | `Ctrl+S` | Save track to `~/Music/cliamp` |
-| `w` | Write the highlighted track to a local playlist |
+| `w` | Write the highlighted track/selection to a playlist — local playlists always, plus the owning provider's playlists (a "Spotify Playlists" section, with new-playlist creation) when the tracks come from it; selections are added in batches |
 | `N` | Open the active provider browser when available |
 | `L` | Browse local playlists (with cliamp radio) |
 | `R` | Open radio provider |
@@ -100,7 +100,8 @@ active when the picker opened. While typing a filter, `Enter` finishes it and
 |---|---|
 | `a` | Toggle queue (play next) |
 | `A` | Queue manager |
-| `x` | Remove the highlighted track from the current playlist |
+| `x` | Remove the highlighted track from the current playlist — and from the remote playlist the queue mirrors (Spotify) |
+| `*` | Like/unlike the highlighted track on its provider (Spotify) |
 | `p` | Playlist manager |
 | `r` | Cycle repeat (Off / All / One) |
 | `z` | Toggle shuffle |
@@ -154,7 +155,9 @@ When you press `N` to drill into a provider (Navidrome, Plex, Jellyfin, Emby, Sp
 | `R` | Replace the queue with all visible tracks (start from the top, confirm when non-empty) |
 | `a` | Append all visible tracks to the queue |
 | `q` | Queue the highlighted track to play next |
+| `f` | Follow/unfollow the highlighted artist (artist list; Spotify) |
 | `s` | Cycle album sort (album list only) |
+| `*` | Like/unlike the highlighted track (track screen; Spotify) |
 | `S` `N` `P` `J` `E` `Y` `C` `M` `Q` `L` | Quick-switch to that provider without going back through the main pane. `R` replaces the queue on the track screen. |
 | `Esc` `b` | Walk back one level / close the browser |
 
@@ -172,11 +175,13 @@ The playlists pane (visible when focus is on a provider — Spotify, Navidrome, 
 | `/` | Filter the playlist list |
 | `Ctrl+F` | Online/server search (Spotify/Navidrome/NetEase/etc.'s own search) |
 | `Ctrl+R` | Refresh — re-pull the playlist list from the provider |
+| `D` | Delete (owned) / unfollow (followed) the highlighted playlist — inline confirm, `Enter`/`y` confirms (Spotify) |
+| `r` | Rename the highlighted playlist you own — inline input (Spotify) |
 | `S` `N` `P` `J` `E` `Y` `C` `M` `Q` `L` `R` | Switch to that provider |
 | `Tab` | Switch focus to EQ |
 | `Esc` `b` | Back to the playlist pane |
 
-Playlist rows show `Name · N tracks · 1h 23m` when the provider returns track counts and total duration. The header identifies the scope as `Provider / Playlists`. The currently loaded playlist is marked with a `▶` prefix. Spotify groups its playlists under section headers (`── library ──`, `── your playlists ──`, `── followed playlists ──`).
+Playlist rows show `Name · N tracks · 1h 23m` when the provider returns track counts and total duration. The header identifies the scope as `Provider / Playlists`. The currently loaded playlist is marked with a `▶` prefix. Spotify groups its playlists under section headers (`── library ──` with Your Music, Top Tracks, and Recently Played, `── your playlists ──`, `── followed playlists ──`). Large Spotify playlists load incrementally — the first 200 tracks appear immediately and the rest stream in behind a "Loading more tracks…" indicator.
 
 ## Search results overlays
 
@@ -186,11 +191,16 @@ When `Ctrl+F` opens provider search or YouTube/SoundCloud net search and you're 
 |---|---|
 | `↑` `↓` / `j` `k` / `Ctrl+N` `Ctrl+P` | Move cursor (single item) |
 | `Ctrl+U` `Ctrl+D` | Scroll results by page |
-| `Enter` | Play the selected track now |
+| `←` `→` / `Tab` `Shift+Tab` | Switch result tab — Tracks / Albums / Artists / Playlists, each with a count (multi-type provider search: Spotify) |
+| `Enter` | Play the selected track now · multi-type results: drill into the highlighted album (its tracks), artist (top tracks), or playlist (its tracks) |
 | `a` | Append the selected track to the playlist |
 | `q` | Queue the selected track to play next |
-| `p` | (Spotify only) Save the selected track to a Spotify playlist |
-| `Esc` `Backspace` | Back to the search input |
+| `p` | (Spotify only) Add the selected track to a Spotify playlist |
+| `S` | (Spotify only) Like/unlike the selected track (track tab) |
+| `f` | (Spotify only) Follow/unfollow the highlighted artist or playlist (Artists / Playlists tab) |
+| `Esc` `Backspace` | Back to the search input · from a drill-down list, up one level |
+
+Drill-down lists (album, artist, and playlist tracks) carry the same track actions as the track tab — `Enter` play, `a` append, `q` queue next, `p` add-to-playlist, `S` like — and show a breadcrumb of the drill path above the list. Backing out of the last drill level returns to the tab bar with the previous tab and cursor intact.
 
 ## Fuzzy search
 

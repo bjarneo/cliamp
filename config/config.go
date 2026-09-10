@@ -85,10 +85,11 @@ func (n NavidromeConfig) IsSet() bool {
 // who never registered their own developer app — see Spotify's Nov 27, 2024
 // dev-mode quota restriction.
 type SpotifyConfig struct {
-	Disabled bool   // true only when user explicitly sets enabled = false
-	Enabled  bool   // true when [spotify] section exists (even without client_id)
-	ClientID string // Spotify Developer app client ID (overrides built-in fallback)
-	Bitrate  int    // preferred Spotify stream bitrate in kbps
+	Disabled  bool   // true only when user explicitly sets enabled = false
+	Enabled   bool   // true when [spotify] section exists (even without client_id)
+	ClientID  string // Spotify Developer app client ID (overrides built-in fallback)
+	Bitrate   int    // preferred Spotify stream bitrate in kbps
+	AlbumSort string // album browse sort order
 }
 
 // IsSet reports whether the Spotify provider should be shown. Section presence
@@ -111,9 +112,10 @@ func (s SpotifyConfig) ResolveClientID(fallbackID string) string {
 // key are scraped automatically from the Qobuz web player, so no developer
 // credentials are needed. Sign-in is an interactive OAuth browser flow.
 type QobuzConfig struct {
-	Disabled bool // true only when user explicitly sets enabled = false
-	Enabled  bool // true when [qobuz] section exists
-	Quality  int  // preferred stream format_id: 5 (MP3 320), 6 (FLAC CD), 7 (Hi-Res <=96kHz), 27 (Hi-Res <=192kHz)
+	Disabled   bool   // true only when user explicitly sets enabled = false
+	Enabled    bool   // true when [qobuz] section exists
+	Quality    int    // preferred stream format_id: 5 (MP3 320), 6 (FLAC CD), 7 (Hi-Res <=96kHz), 27 (Hi-Res <=192kHz)
+	PrivateKey string // fallback OAuth private key when the web-player bundle scrape fails
 }
 
 // IsSet reports whether the Qobuz provider should be shown. Section presence
@@ -387,6 +389,8 @@ func Load() (Config, error) {
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.Spotify.Bitrate = v
 				}
+			case "album_sort":
+				cfg.Spotify.AlbumSort = parseString(val)
 			}
 		case "qobuz":
 			switch key {
@@ -396,6 +400,8 @@ func Load() (Config, error) {
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.Qobuz.Quality = v
 				}
+			case "private_key":
+				cfg.Qobuz.PrivateKey = parseString(val)
 			}
 		case "ytmusic":
 			switch key {
@@ -635,6 +641,21 @@ func Save(key, value string) error {
 // in-place, or appends it after the [navidrome] section if not present.
 // If no [navidrome] section exists, one is appended along with the key.
 func SaveNavidromeSort(sortType string) error {
+	return saveProviderSortKey("navidrome", "browse_sort", sortType)
+}
+
+// SaveSpotifySort persists the given album browse sort type to the
+// [spotify] section of the config file. It rewrites the album_sort key
+// in-place, or appends it after the [spotify] section if not present.
+// If no [spotify] section exists, one is appended along with the key.
+func SaveSpotifySort(sortType string) error {
+	return saveProviderSortKey("spotify", "album_sort", sortType)
+}
+
+// saveProviderSortKey persists a provider sort key to the named config
+// section. It rewrites the key in-place when present, appends it after the
+// section otherwise, and creates the section when missing.
+func saveProviderSortKey(section, key, value string) error {
 	path, err := configPath()
 	if err != nil {
 		return err
@@ -644,7 +665,7 @@ func SaveNavidromeSort(sortType string) error {
 		return err
 	}
 
-	line := fmt.Sprintf("browse_sort = %q", sortType)
+	line := fmt.Sprintf("%s = %q", key, value)
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -652,52 +673,52 @@ func SaveNavidromeSort(sortType string) error {
 			return err
 		}
 		// No file: create with section + key.
-		return fileutil.WriteFileAtomic(path, []byte("[navidrome]\n"+line+"\n"), 0o600)
+		return fileutil.WriteFileAtomic(path, []byte("["+section+"]\n"+line+"\n"), 0o600)
 	}
 
 	lines := strings.Split(string(data), "\n")
 
-	// Try to replace an existing browse_sort inside [navidrome].
-	inNavidrome := false
+	// Try to replace an existing key inside the section.
+	inSection := false
 	for i, l := range lines {
 		trimmed := strings.TrimSpace(l)
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			inNavidrome = strings.ToLower(trimmed[1:len(trimmed)-1]) == "navidrome"
+			inSection = strings.ToLower(trimmed[1:len(trimmed)-1]) == section
 			continue
 		}
-		if inNavidrome {
+		if inSection {
 			k, _, ok := strings.Cut(trimmed, "=")
-			if ok && strings.TrimSpace(k) == "browse_sort" {
+			if ok && strings.TrimSpace(k) == key {
 				lines[i] = line
 				return fileutil.WriteFileAtomic(path, []byte(strings.Join(lines, "\n")), 0o600)
 			}
 		}
 	}
 
-	// Key not found: append after the last line in the [navidrome] section,
-	// or append a new [navidrome] section at the end.
-	inNavidrome = false
+	// Key not found: append after the last line in the section, or append a
+	// new section at the end.
+	inSection = false
 	insertAt := -1
 	for i, l := range lines {
 		trimmed := strings.TrimSpace(l)
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			if inNavidrome && insertAt >= 0 {
-				break // we've moved past [navidrome]
+			if inSection && insertAt >= 0 {
+				break // we've moved past the section
 			}
-			inNavidrome = strings.ToLower(trimmed[1:len(trimmed)-1]) == "navidrome"
+			inSection = strings.ToLower(trimmed[1:len(trimmed)-1]) == section
 		}
-		if inNavidrome {
+		if inSection {
 			insertAt = i
 		}
 	}
 
 	if insertAt >= 0 {
-		// Insert after the last line we saw inside [navidrome].
+		// Insert after the last line we saw inside the section.
 		tail := append([]string{line}, lines[insertAt+1:]...)
 		lines = append(lines[:insertAt+1], tail...)
 	} else {
-		// No [navidrome] section found: append one.
-		lines = append(lines, "[navidrome]", line)
+		// No section found: append one.
+		lines = append(lines, "["+section+"]", line)
 	}
 
 	return fileutil.WriteFileAtomic(path, []byte(strings.Join(lines, "\n")), 0o600)

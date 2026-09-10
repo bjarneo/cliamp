@@ -57,7 +57,15 @@ cliamp falls back to a built-in `client_id` (the same one [librespot](https://gi
 
 Once authenticated, Spotify appears as a provider alongside Navidrome and local playlists. Press `Esc`/`b` to open the provider browser and select Spotify.
 
-Your Spotify playlists are listed in the provider panel. Navigate with the arrow keys and press `Enter` to load one. Tracks are streamed through cliamp's audio pipeline, so EQ, visualizer, mono, and all other effects work exactly as with local files.
+The provider panel groups your library under three headers:
+
+- **Library**: `Your Music` (liked songs), `Top Tracks` (roughly the last four weeks of listening, up to 200 tracks), and `Recently Played` (your last 50 plays, deduplicated).
+- **Your playlists**: playlists you own.
+- **Followed playlists**: playlists you've saved from other people.
+
+Navigate with the arrow keys and press `Enter` to load one. Tracks are streamed through cliamp's audio pipeline, so EQ, visualizer, mono, and all other effects work exactly as with local files.
+
+Large playlists load incrementally: the first 200 tracks appear immediately and playback can start right away, while the rest stream in behind a "Loading more tracks…" indicator. Editing the queue while more tracks are loading simply stops the background loading.
 
 ## Controls
 
@@ -67,14 +75,105 @@ When focused on the provider panel:
 |---|---|
 | `Up` `Down` / `j` `k` | Navigate playlists |
 | `Enter` | Load the selected playlist |
+| `/` | Filter the playlist list |
+| `Ctrl+R` | Refresh the playlist list |
+| `N` | Open the Spotify library browser |
+| `Ctrl+F` | Search Spotify |
+| `D` | Delete (owned) / unfollow (followed) the highlighted playlist, after an inline confirm |
+| `r` | Rename the highlighted playlist you own |
 | `Tab` | Switch between provider and playlist focus |
-| `Esc` / `b` | Open provider browser |
+| `Esc` / `b` | Back to the playlist pane |
 
 After loading a playlist you return to the standard playlist view with all the usual controls (seek, volume, EQ, shuffle, repeat, queue, search, lyrics).
+
+## Library Browser
+
+Press `N` at any time (or from the provider panel) to open the full-screen Spotify library browser. It lets you explore your library in three modes:
+
+- **By Album**: browse the albums saved in Your Music, then open any album to see its tracks.
+- **By Artist**: browse the artists you follow; selecting one loads every track across all their releases.
+- **By Artist / Album**: three-level drill-down: artist → album list → track list.
+
+Artist discographies include albums and singles only; "appears on" and compilation entries are not listed. Artist rows show no album count because Spotify doesn't report one.
+
+### Browser controls
+
+**Mode menu:**
+
+| Key | Action |
+|---|---|
+| `↑` `↓` / `j` `k` | Navigate |
+| `Enter` | Select mode |
+| `Esc` / `N` | Close browser |
+
+**Artist or album list:**
+
+| Key | Action |
+|---|---|
+| `↑` `↓` / `j` `k` | Navigate |
+| `Enter` / `→` | Drill in |
+| `s` | Cycle album sort order (saved-album list only) |
+| `f` | Follow/unfollow the highlighted artist |
+| `Esc` / `←` | Back |
+
+**Track list:**
+
+| Key | Action |
+|---|---|
+| `↑` `↓` / `j` `k` | Navigate |
+| `Enter` | Append selected track to playlist |
+| `a` | Append all tracks to playlist |
+| `R` | Replace playlist with all tracks and start playing |
+| `*` | Like/unlike the highlighted track |
+| `Esc` / `←` | Back |
+
+### Album sort order
+
+While viewing the saved-album list (By Album mode), press `s` to cycle through sort modes:
+
+| Value | Description |
+|---|---|
+| `recent` | Recently saved (default) |
+| `title` | A → Z by album title |
+| `artist` | A → Z by artist name, then title |
+| `year` | Release year, newest first |
+
+The chosen sort is saved automatically to `~/.config/cliamp/config.toml` under the `[spotify]` section as `album_sort` and is restored on the next launch.
+
+## Search
+
+Press `Ctrl+F` to search Spotify. Results are grouped into four tabs — **Tracks**, **Albums**, **Artists**, **Playlists** — each with a live count. Switch tabs with `←` `→` (or `Tab`/`Shift+Tab`); switching resets the cursor.
+
+Press `Enter` on a row to drill in: an album loads its tracks, an artist loads their top tracks (falling back to their album list when top tracks aren't available), and a playlist loads its tracks incrementally. A breadcrumb above the list shows the drill path, for example `Artist — Fleetwood Mac / Album — Rumours`. Drilled lists support the usual track actions: `Enter` to play, `a` to append, `q` to queue next, `p` to add to a playlist, `S` to like. `Esc`/`Backspace` (also `←`/`h`) pops one drill level; backing out of the last level returns to the tab bar with the previous tab and cursor intact.
+
+Each tab shows up to 20 results. Podcast episodes still merge into the track results alongside songs.
 
 ## Playlists
 
 Only playlists in your Spotify library are shown. This includes playlists you've created and playlists you've saved (followed). If a public playlist doesn't appear, open Spotify and click **Save** on it first. There's no need to copy tracks to a new playlist.
+
+### Write operations
+
+Write actions apply to your Spotify account and require the same Premium account as playback:
+
+| Key | Where | Action |
+|---|---|---|
+| `*` | Queue, library browser track list | Like/unlike the highlighted track |
+| `S` | Search results and drill lists | Like/unlike the highlighted track |
+| `x` | Queue mirroring a loaded Spotify playlist | Remove the track from the remote playlist |
+| `p` | Search results and drill lists | Add the track to a Spotify playlist |
+| `w` | Queue | Save tracks through the playlist picker, which offers a "Spotify Playlists" section (plus new-playlist creation) when the selected tracks are Spotify tracks; selections are added in batches |
+| `D` | Provider panel, playlist row | Delete an owned playlist / unfollow a followed one |
+| `r` | Provider panel, owned playlist row | Rename the playlist (inline input, prefilled) |
+| `f` | Library browser artist list, search Artists tab | Follow/unfollow the artist |
+| `f` | Search Playlists tab | Follow/unfollow the playlist |
+
+Notes:
+
+- Likes are for music tracks only; podcast episodes can't be liked from cliamp.
+- `x` refuses with a toast when the queue is shuffled or the row is outside the mirrored playlist; local playlists keep the plain remove behavior.
+- Spotify returns `403` for modifications to a followed playlist you don't own, so rename and track removal apply to playlists you own. Following and unfollowing work on any playlist.
+- **Unfollowing a playlist you own deletes it** — that's Spotify's semantics. The `D` confirm prompt says "Delete playlist" for owned rows and "Unfollow playlist" for followed ones; `Enter`/`y` confirms and any other key cancels.
 
 ## Podcasts
 

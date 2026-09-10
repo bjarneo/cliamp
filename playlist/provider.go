@@ -22,6 +22,10 @@ type PlaylistInfo struct {
 	TrackCount   int
 	DurationSecs int
 	Section      string
+
+	// Owned reports whether the current user owns this playlist (only
+	// meaningful for remote providers that expose ownership).
+	Owned bool
 }
 
 // Provider is the interface for playlist sources (radio, Navidrome, Spotify, etc.).

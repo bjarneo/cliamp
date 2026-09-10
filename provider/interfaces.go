@@ -138,3 +138,59 @@ type SectionedList interface {
 type Closer interface {
 	Close()
 }
+
+// TrackPager is implemented by providers that can serve playlist tracks in
+// pages, enabling incremental loading of large playlists.
+type TrackPager interface {
+	// TracksPage returns one page of tracks for the given playlist ID and
+	// the total number of tracks. offset and limit are hints; providers may
+	// clamp limit to their own page size.
+	TracksPage(id string, offset, limit int) (tracks []playlist.Track, total int, err error)
+}
+
+// MultiSearcher is implemented by providers that can search across multiple
+// entity types (tracks, albums, artists, playlists) in one query.
+type MultiSearcher interface {
+	SearchAll(ctx context.Context, query string, limit int) (SearchResults, error)
+}
+
+// ArtistTopTracksLoader is implemented by providers that can return an
+// artist's most popular tracks.
+type ArtistTopTracksLoader interface {
+	ArtistTopTracks(artistID string) ([]playlist.Track, error)
+}
+
+// TrackLiker is implemented by providers that support saving and removing
+// individual tracks in the user's library (e.g. Spotify liked songs).
+type TrackLiker interface {
+	// ToggleTrackLike flips the saved state of the track and returns the
+	// new state. Implementations resolve the current state themselves.
+	ToggleTrackLike(ctx context.Context, track playlist.Track) (liked bool, err error)
+}
+
+// PlaylistFollower is implemented by providers that support following and
+// unfollowing playlists by ID. For playlists owned by the user, unfollowing
+// typically deletes the playlist.
+type PlaylistFollower interface {
+	FollowPlaylistByID(ctx context.Context, playlistID string) error
+	UnfollowPlaylistByID(ctx context.Context, playlistID string) error
+}
+
+// ArtistFollower is implemented by providers that support following and
+// unfollowing artists by ID.
+type ArtistFollower interface {
+	FollowArtist(ctx context.Context, artistID string) error
+	UnfollowArtist(ctx context.Context, artistID string) error
+}
+
+// PlaylistTrackRemover is implemented by providers that support removing a
+// track from a playlist by zero-based position.
+type PlaylistTrackRemover interface {
+	RemoveTrackFromPlaylist(ctx context.Context, playlistID string, position int) error
+}
+
+// RemotePlaylistRenamer is implemented by providers that support renaming
+// playlists addressed by ID (as opposed to by name, like PlaylistRenamer).
+type RemotePlaylistRenamer interface {
+	RenamePlaylistByID(ctx context.Context, playlistID, newName string) error
+}

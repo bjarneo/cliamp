@@ -189,6 +189,14 @@ type playlistPickerState struct {
 	title     string
 	newName   string
 	inputErr  string
+
+	// Remote section (appended when every selected track belongs to a
+	// provider that implements provider.PlaylistWriter).
+	remoteProv    playlist.Provider
+	remoteName    string                  // provider display name; "" = no remote section
+	remote        []playlist.PlaylistInfo // remote playlists to write to
+	remoteLoading bool                    // remote list fetch in flight
+	newNameRemote bool                    // new-name screen targets the remote provider
 }
 
 // fileBrowserState holds state for the file browser overlay.
@@ -248,6 +256,9 @@ type requestState struct {
 	catalog      uint64
 	stream       uint64
 	preload      uint64
+	provMutation uint64 // provider playlist writes (delete/unfollow/rename/remove)
+	like         uint64 // track like/unlike toggles
+	follow       uint64 // artist/playlist follow toggles
 }
 
 func nextRequest(gen *uint64) uint64 {
@@ -265,21 +276,51 @@ const (
 	spotSearchNewName                              // typing new playlist name
 )
 
+// spotSearchTab identifies a result tab when the searched provider implements
+// provider.MultiSearcher.
+type spotSearchTab int
+
+const (
+	spotTabTracks spotSearchTab = iota
+	spotTabAlbums
+	spotTabArtists
+	spotTabPlaylists
+	spotTabCount
+)
+
+var spotTabLabels = [spotTabCount]string{"Tracks", "Albums", "Artists", "Playlists"}
+
+// spotDrillLevel is one drilled-in list inside the multi-type search results.
+// A level lists either albums or tracks; tracks levels carry the same row
+// actions as the search track tab.
+type spotDrillLevel struct {
+	crumb   string // one-line label of what was entered, e.g. "Album — Rumours"
+	albums  []provider.AlbumInfo
+	tracks  []playlist.Track
+	loading bool
+	cursor  int
+	scroll  int
+}
+
 // spotSearchState holds state for the provider search + add-to-playlist overlay.
 type spotSearchState struct {
-	prov      playlist.Provider // the provider being searched (may differ from active provider)
-	visible   bool
-	screen    spotSearchScreenType
-	query     string
-	results   []playlist.Track
-	cursor    int
-	scroll    int
-	loading   bool
-	playlists []playlist.PlaylistInfo // user's Spotify playlists for picker
-	selTrack  playlist.Track          // track selected to add
-	newName   string                  // new playlist name input
-	err       string
-	cancel    func()
+	prov       playlist.Provider // the provider being searched (may differ from active provider)
+	visible    bool
+	screen     spotSearchScreenType
+	query      string
+	results    []playlist.Track
+	cursor     int
+	scroll     int
+	loading    bool
+	playlists  []playlist.PlaylistInfo // user's Spotify playlists for picker
+	selTrack   playlist.Track          // track selected to add
+	newName    string                  // new playlist name input
+	err        string
+	cancel     func()
+	multi      bool                   // provider implements MultiSearcher
+	resultsAll provider.SearchResults // multi-type results backing the tab bar
+	tab        spotSearchTab          // active result tab (multi only)
+	drill      []spotDrillLevel       // drill-down stack (multi only)
 }
 
 // catalogBatchState holds state for lazy-loading catalog entries from a provider.CatalogLoader.
@@ -287,6 +328,42 @@ type catalogBatchState struct {
 	offset  int  // next offset to fetch
 	loading bool // true while a fetch is in flight
 	done    bool // true when all stations have been loaded
+}
+
+// trackPagingState tracks incremental loading of a provider playlist via
+// provider.TrackPager. Appends are only applied while the queue still mirrors
+// the pages loaded so far (same playlist, unmutated length and tail).
+type trackPagingState struct {
+	active     bool
+	playlistID string
+	offset     int    // tracks loaded so far
+	total      int    // total reported by the provider
+	loading    bool   // next page fetch in flight
+	lastPath   string // path of the last loaded track, for tail-identity checks
+}
+
+// provConfirmState holds the inline delete/unfollow confirmation on the
+// provider playlist pane.
+type provConfirmState struct {
+	active     bool
+	playlistID string
+	name       string
+	owned      bool
+}
+
+// provListFixupState names a cursor adjustment to apply when the next
+// playlistsLoadedMsg arrives from a write-triggered refresh.
+type provListFixupState struct {
+	clampCursor bool   // unfollow: keep provCursor in range after the list shrinks
+	selectID    string // rename: move provCursor onto this playlist row
+}
+
+// provRenameState holds the inline rename input on the provider playlist pane.
+type provRenameState struct {
+	active     bool
+	playlistID string
+	oldName    string
+	name       string
 }
 
 // ytdlBatchState holds state for incremental yt-dlp playlist loading.

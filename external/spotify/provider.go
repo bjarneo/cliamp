@@ -54,11 +54,23 @@ type SpotifyProvider struct {
 	meFetched  bool   // /v1/me has been attempted this session; suppresses retry on failure
 	mu         sync.Mutex
 	trackCache map[string]*playlistCache // playlist ID → cache entry
+	pagerCur   map[string]pagerPos       // playlist ID → TracksPage read cursor
 	authCancel context.CancelFunc        // cancels any in-progress OAuth flow
 
 	// Playlist list cache to avoid redundant API calls on provider switch.
 	listCache   []playlist.PlaylistInfo
 	listCacheAt time.Time
+
+	// Saved-album list cache backing AlbumList (browse.go).
+	browseSort   string // persisted album sort ID; empty until first read/save
+	albumCache   []provider.AlbumInfo
+	albumCacheAt time.Time
+
+	// Library-row track caches (pager.go).
+	topTracks      []playlist.Track
+	topTracksAt    time.Time
+	recentTracks   []playlist.Track
+	recentTracksAt time.Time
 }
 
 const playlistListCacheTTL = 5 * time.Minute
@@ -72,6 +84,7 @@ func New(session *Session, clientID string, bitrate int) *SpotifyProvider {
 		clientID:   clientID,
 		bitrate:    bitrate,
 		trackCache: make(map[string]*playlistCache),
+		pagerCur:   make(map[string]pagerPos),
 	}
 }
 
@@ -161,6 +174,13 @@ func (p *SpotifyProvider) Close() {
 func (p *SpotifyProvider) resetSessionScopedStateLocked() {
 	p.userID = ""
 	p.meFetched = false
+	p.albumCache = nil
+	p.albumCacheAt = time.Time{}
+	p.topTracks = nil
+	p.topTracksAt = time.Time{}
+	p.recentTracks = nil
+	p.recentTracksAt = time.Time{}
+	clear(p.pagerCur)
 }
 
 func (p *SpotifyProvider) Name() string { return "Spotify" }
@@ -233,11 +253,31 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 	// For the moment, "Your Music" must sufficice without adding a localization
 	// map.
 	all = append(all, playlist.PlaylistInfo{
-		ID:         "YOUR MUSIC",
+		ID:         yourMusicID,
 		Name:       "Your Music",
 		TrackCount: result.Total,
 		Section:    "Library",
 	})
+
+	// Synthetic Library rows backed by playback-history endpoints. Best-effort:
+	// when a probe fails (scope missing, network error) the row is silently
+	// omitted rather than failing the whole listing.
+	if n, ok := p.probeTopTracksCount(ctx); ok {
+		all = append(all, playlist.PlaylistInfo{
+			ID:         topTracksID,
+			Name:       "Top Tracks",
+			TrackCount: n,
+			Section:    "Library",
+		})
+	}
+	if n, ok := p.probeRecentlyPlayedCount(ctx); ok {
+		all = append(all, playlist.PlaylistInfo{
+			ID:         recentlyPlayedID,
+			Name:       "Recently Played",
+			TrackCount: n,
+			Section:    "Library",
+		})
+	}
 
 	for {
 		query := url.Values{
@@ -265,8 +305,9 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 			if item.Items != nil {
 				count = item.Items.Total
 			}
+			owned := userID != "" && item.Owner.ID == userID
 			section := "Followed playlists"
-			if userID != "" && item.Owner.ID == userID {
+			if owned {
 				section = "Your playlists"
 			}
 			all = append(all, playlist.PlaylistInfo{
@@ -274,11 +315,13 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 				Name:       item.Name,
 				TrackCount: count,
 				Section:    section,
+				Owned:      owned,
 			})
 			// Update snapshot_id in cache; if it changed, invalidate cached tracks.
 			if cached, ok := p.trackCache[item.ID]; ok {
 				if cached.snapshotID != item.SnapshotID {
 					delete(p.trackCache, item.ID)
+					delete(p.pagerCur, item.ID)
 				}
 			}
 			// Store snapshot_id for later cache checks in Tracks().
@@ -334,60 +377,17 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 
 	var all []playlist.Track
 	offset := 0
-	limit := spotifyTrackPageSize
 
 	for {
-		var (
-			resp *http.Response
-			err  error
-		)
-
-		if playlistID == "YOUR MUSIC" {
-			query := url.Values{
-				"limit":  {fmt.Sprintf("%d", limit)},
-				"offset": {fmt.Sprintf("%d", offset)},
-			}
-			resp, err = p.webAPI(ctx, "GET", "/v1/me/tracks", query)
-		} else {
-			query := url.Values{
-				"limit":  {fmt.Sprintf("%d", limit)},
-				"offset": {fmt.Sprintf("%d", offset)},
-				"fields": {"items(item(id,name,type,uri,artists(name),album(name,release_date),show(name),release_date,duration_ms,track_number,is_playable,restrictions(reason))),total"},
-			}
-			path := fmt.Sprintf("/v1/playlists/%s/items", playlistID)
-			resp, err = p.webAPI(ctx, "GET", path, query)
-		}
-
+		page, total, next, err := p.fetchTracksPage(ctx, playlistID, offset, spotifyTrackPageSize)
 		if err != nil {
-			return nil, fmt.Errorf("spotify: list tracks: %w", err)
+			return nil, err
 		}
-
-		var result struct {
-			Items []struct {
-				Item  *spotifyItem `json:"item"`
-				Track *spotifyItem `json:"track"`
-			} `json:"items"`
-			Total int `json:"total"`
-		}
-		if err := decodeBody(resp, &result); err != nil {
-			return nil, fmt.Errorf("spotify: parse tracks: %w", err)
-		}
-
-		for _, item := range result.Items {
-			t := item.Item
-			if t == nil {
-				t = item.Track
-			}
-			if t == nil || t.ID == "" {
-				continue // skip local/unavailable tracks
-			}
-			all = append(all, trackFromItem(t))
-		}
-
-		if offset+limit >= result.Total {
+		all = append(all, page...)
+		if len(page) == 0 || next >= total {
 			break
 		}
-		offset += limit
+		offset = next
 	}
 
 	// Cache the fetched tracks.
@@ -645,6 +645,7 @@ func (p *SpotifyProvider) AddTrackToPlaylist(ctx context.Context, playlistID str
 	// Invalidate caches for this playlist.
 	p.mu.Lock()
 	delete(p.trackCache, playlistID)
+	delete(p.pagerCur, playlistID)
 	p.listCache = nil
 	p.mu.Unlock()
 

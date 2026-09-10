@@ -220,6 +220,16 @@ func (m *Model) handleNavArtistListKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		m.navClearSearch()
 		return m.fetchNavArtistAllTracksCmd(ab, artist.ID)
+	case "f":
+		// Follow/unfollow the highlighted artist.
+		if _, ok := m.navBrowser.prov.(provider.ArtistFollower); !ok || listLen == 0 {
+			return nil
+		}
+		rawIdx := m.navBrowser.cursor
+		if m.navBrowser.search != "" && m.navBrowser.cursor < len(m.navBrowser.searchIdx) {
+			rawIdx = m.navBrowser.searchIdx[m.navBrowser.cursor]
+		}
+		return m.toggleFollowArtist(m.navBrowser.artists[rawIdx])
 	case "esc", "h", "left", "backspace":
 		// Back to menu.
 		m.navClearSearch()
@@ -451,6 +461,18 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 				return cmd
 			}
 		}
+	case "*":
+		// Like/unlike the highlighted track on its owning provider.
+		if listLen == 0 {
+			return nil
+		}
+		rawIdx := m.navBrowser.cursor
+		if m.navBrowser.search != "" && m.navBrowser.cursor < len(m.navBrowser.searchIdx) {
+			rawIdx = m.navBrowser.searchIdx[m.navBrowser.cursor]
+		}
+		if rawIdx < len(m.navBrowser.tracks) {
+			return m.likeTrack(m.navBrowser.tracks[rawIdx])
+		}
 	case "esc", "h", "left", "backspace":
 		// Navigate back one level depending on the mode and how we got here.
 		m.navClearSearch()
@@ -491,6 +513,7 @@ func (m *Model) replacePlaylistFromNav() tea.Cmd {
 	m.resetYTDLBatch()
 	m.playlist.Replace(tracks)
 	m.loadedPlaylist = ""
+	m.resetProviderQueueMirror()
 	m.setHeaderStateFromTracks(tracks)
 	m.plCursor = 0
 	m.plScroll = 0

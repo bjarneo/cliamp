@@ -5,6 +5,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/ui"
 )
 
@@ -97,6 +98,9 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"a"}, KeyLabel: "a", Label: "Toggle queue (play next)", Keymap: true, ContextHelp: true},
 	{Mode: commandModeMain, Keys: []string{"A"}, KeyLabel: "A", Label: "Queue manager", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"x"}, KeyLabel: "x", Label: "Remove selected track from playlist", Destructive: true, Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"*"}, KeyLabel: "*", Label: "Like/unlike track", Keymap: true, Enabled: func(m Model) bool {
+		return m.focus == focusPlaylist && m.playlist != nil && m.plCursor >= 0 && m.plCursor < m.playlist.Len() && m.likerForTrack(m.playlist.Tracks()[m.plCursor]) != nil
+	}},
 	{Mode: commandModeMain, Keys: []string{"w"}, KeyLabel: "w", Label: "Write selected track/selection to playlist", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"o"}, KeyLabel: "o", Label: "Open file browser", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"N"}, KeyLabel: "N", Label: "Provider browser", Keymap: true},
@@ -132,6 +136,18 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeAny, Keys: []string{"ctrl+c", "q"}, KeyLabel: "q", Label: "Quit", Keymap: true},
 	{Mode: commandModeAny, Keys: []string{"ctrl+z"}, KeyLabel: "Ctrl+Z", Label: "Undo latest playlist or queue mutation"},
 	{Mode: commandModeProvider, Keys: []string{"ctrl+r"}, KeyLabel: "Ctrl+R", Label: "Refresh provider"},
+	{Mode: commandModeProvider, Keys: []string{"D"}, KeyLabel: "D", Label: "Delete/unfollow playlist", Destructive: true, ContextHelp: true, Enabled: func(m Model) bool {
+		if _, ok := m.provider.(provider.PlaylistFollower); !ok {
+			return false
+		}
+		return m.provCursor >= 0 && m.provCursor < len(m.providerLists) && !isSyntheticProviderRow(m.providerLists[m.provCursor].ID)
+	}},
+	{Mode: commandModeProvider, Keys: []string{"r"}, KeyLabel: "r", Label: "Rename playlist", ContextHelp: true, Enabled: func(m Model) bool {
+		if _, ok := m.provider.(provider.RemotePlaylistRenamer); !ok {
+			return false
+		}
+		return m.provCursor >= 0 && m.provCursor < len(m.providerLists) && m.providerLists[m.provCursor].Owned
+	}},
 
 	// Shared text editing is reserved even though these are intentionally absent
 	// from the global keymap, where they would be misleading outside a field.
@@ -163,9 +179,39 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeQueue, Keys: []string{"c"}, KeyLabel: "c", Label: "Clear", Destructive: true, ContextHelp: true},
 	{Mode: commandModeFileBrowser, Keys: []string{"R"}, KeyLabel: "R", Label: "Replace queue", Destructive: true, ContextHelp: true},
 	{Mode: commandModeNavBrowser, Keys: []string{"R"}, KeyLabel: "R", Label: "Replace queue", Destructive: true, ContextHelp: true},
+	{Mode: commandModeNavBrowser, Keys: []string{"*"}, KeyLabel: "*", Label: "Like/unlike track", Keymap: true, Enabled: func(m Model) bool {
+		return m.navBrowser.visible && m.navBrowser.screen == navBrowseScreenTracks && m.navBrowser.prov != nil && m.navTrackLikerAvailable()
+	}},
+	{Mode: commandModeNavBrowser, Keys: []string{"f"}, KeyLabel: "f", Label: "Follow/unfollow artist", Keymap: true, Enabled: func(m Model) bool {
+		if !m.navBrowser.visible || m.navBrowser.screen != navBrowseScreenList {
+			return false
+		}
+		if m.navBrowser.mode != navBrowseModeByArtist && m.navBrowser.mode != navBrowseModeByArtistAlbum {
+			return false
+		}
+		_, ok := m.navBrowser.prov.(provider.ArtistFollower)
+		return ok
+	}},
 	{Mode: commandModeLyrics, Keys: []string{"r"}, KeyLabel: "r", Label: "Retry", ContextHelp: true, Primary: true, Enabled: func(m Model) bool { return !m.lyrics.loading && (m.lyrics.err != nil || len(m.lyrics.lines) == 0) }},
 	{Mode: commandModeLyrics, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Close", ContextHelp: true, Cancel: true},
 	{Mode: commandModeInfo, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Close", ContextHelp: true, Cancel: true},
+	{Mode: commandModeSpotSearch, Keys: []string{"left", "right", "tab", "shift+tab"}, KeyLabel: "Left Right / Tab", Label: "Switch result tab", Keymap: true, Enabled: func(m Model) bool {
+		return m.spotSearch.multi && m.spotSearch.screen == spotSearchResults
+	}},
+	{Mode: commandModeSpotSearch, Keys: []string{"S"}, KeyLabel: "S", Label: "Like/unlike track", Keymap: true, Enabled: func(m Model) bool {
+		return m.spotSearch.screen == spotSearchResults
+	}},
+	{Mode: commandModeSpotSearch, Keys: []string{"f"}, KeyLabel: "f", Label: "Follow/unfollow artist or playlist", Keymap: true, Enabled: func(m Model) bool {
+		if !m.spotSearch.multi || m.spotSearch.screen != spotSearchResults || m.spotSearch.tab == spotTabTracks {
+			return false
+		}
+		if m.spotSearch.tab == spotTabArtists {
+			_, ok := m.spotSearch.prov.(provider.ArtistFollower)
+			return ok
+		}
+		_, ok := m.spotSearch.prov.(provider.PlaylistFollower)
+		return ok
+	}},
 }
 
 func (m Model) commandHelp(mode commandMode) string {

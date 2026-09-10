@@ -464,7 +464,11 @@ func (m Model) renderNetSearchBody() string {
 func (m Model) spotSearchHeaderLine() string {
 	switch m.spotSearch.screen {
 	case spotSearchResults:
-		return sepHeaderN("Results", m.spotSearch.cursor+1, len(m.spotSearch.results))
+		if m.spotSearch.multi && len(m.spotSearch.drill) > 0 {
+			lvl := m.spotSearch.drill[len(m.spotSearch.drill)-1]
+			return sepHeaderN("Results", lvl.cursor+1, m.spotDrillCount(lvl))
+		}
+		return sepHeaderN("Results", m.spotSearch.cursor+1, m.spotResultsListLen())
 	case spotSearchPlaylist:
 		return sepHeaderN("Add to Playlist", m.spotSearch.cursor+1, len(m.spotSearch.playlists)+1)
 	case spotSearchNewName:
@@ -492,7 +496,13 @@ func (m Model) renderSpotSearchBody() string {
 	var body string
 	switch m.spotSearch.screen {
 	case spotSearchResults:
-		if len(m.spotSearch.results) == 0 {
+		if m.spotSearch.multi {
+			if len(m.spotSearch.drill) > 0 {
+				body = m.renderSpotDrillBody(budget)
+			} else {
+				body = m.renderSpotTabsBody(budget)
+			}
+		} else if len(m.spotSearch.results) == 0 {
 			body = bodyMessage("No results", budget)
 		} else {
 			items := make([]string, len(m.spotSearch.results))

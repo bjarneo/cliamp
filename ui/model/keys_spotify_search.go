@@ -21,6 +21,9 @@ func (m *Model) handleSpotSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 	case spotSearchInput:
 		return m.handleSpotSearchInputKey(msg)
 	case spotSearchResults:
+		if m.spotSearch.multi {
+			return m.handleSpotTabsKey(msg)
+		}
 		return m.handleSpotSearchResultsKey(msg)
 	case spotSearchPlaylist:
 		return m.handleSpotSearchPlaylistKey(msg)
@@ -41,6 +44,12 @@ func (m *Model) handleSpotSearchInputKey(msg tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 		if !m.spotSearch.loading {
+			if ms, ok := m.spotSearch.prov.(provider.MultiSearcher); ok {
+				m.spotSearch.multi = true
+				m.spotSearch.loading = true
+				m.spotSearch.err = ""
+				return fetchSpotSearchAllCmd(m.newSpotRequestContext(30*time.Second), ms, m.spotSearch.prov.Name(), m.spotSearch.query, 20, nextRequest(&m.requests.spotSearch))
+			}
 			s, ok := m.spotSearch.prov.(provider.Searcher)
 			if !ok {
 				return nil
@@ -58,7 +67,7 @@ func (m *Model) handleSpotSearchInputKey(msg tea.KeyPressMsg) tea.Cmd {
 }
 
 func (m *Model) spotSearchResultsMaybeAdjustScroll(visible int) {
-	clampScroll(&m.spotSearch.cursor, &m.spotSearch.scroll, len(m.spotSearch.results), visible)
+	clampScroll(&m.spotSearch.cursor, &m.spotSearch.scroll, m.spotResultsListLen(), visible)
 }
 
 // handleSpotSearchResultsKey handles navigation through search results.
@@ -107,6 +116,10 @@ func (m *Model) handleSpotSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.spotSearch.loading = true
 			m.spotSearch.err = ""
 			return fetchSpotPlaylistsCmd(m.spotSearch.prov, nextRequest(&m.requests.spotLists))
+		}
+	case "S":
+		if count > 0 && !m.spotSearch.loading {
+			return m.likeTrack(m.spotSearch.results[m.spotSearch.cursor])
 		}
 	case "esc", "backspace":
 		m.spotSearch.screen = spotSearchInput
@@ -174,8 +187,9 @@ func (m *Model) handleSpotSearchPlaylistKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.spotSearch.cursor < len(m.spotSearch.playlists) {
 			// Add to existing playlist.
 			pl := m.spotSearch.playlists[m.spotSearch.cursor]
-			// Skip "Your Music" — uses a different endpoint.
-			if pl.ID == "YOUR MUSIC" {
+			// Skip synthetic entries ("YOUR MUSIC", "TOP TRACKS", …) whose IDs
+			// are not real playlist IDs — they use different endpoints.
+			if isSyntheticProviderRow(pl.ID) {
 				return nil
 			}
 			m.spotSearch.loading = true

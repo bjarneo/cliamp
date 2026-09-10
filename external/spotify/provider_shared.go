@@ -20,6 +20,13 @@ const (
 	spotifyTrackPageSize = 50
 )
 
+// Synthetic playlist IDs for library rows that are not real playlists.
+const (
+	yourMusicID      = "YOUR MUSIC"
+	topTracksID      = "TOP TRACKS"
+	recentlyPlayedID = "RECENTLY PLAYED"
+)
+
 // spotifyPlaylistItem is the raw playlist object returned by /v1/me/playlists.
 type spotifyPlaylistItem struct {
 	ID         string `json:"id"`
@@ -33,6 +40,7 @@ type spotifyPlaylistItem struct {
 	} `json:"items"`
 }
 type spotifyArtist struct {
+	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
@@ -83,12 +91,7 @@ func trackFromItem(t *spotifyItem) playlist.Track {
 	if releaseDate == "" {
 		releaseDate = t.ReleaseDate
 	}
-	var year int
-	if len(releaseDate) >= 4 {
-		if y, err := strconv.Atoi(releaseDate[:4]); err == nil {
-			year = y
-		}
-	}
+	year := releaseYear(releaseDate)
 
 	path := t.URI
 	if path == "" {
@@ -106,4 +109,24 @@ func trackFromItem(t *spotifyItem) playlist.Track {
 		TrackNumber:  t.TrackNumber,
 		Unplayable:   (t.IsPlayable != nil && !*t.IsPlayable) || t.Restrictions.Reason != "",
 	}
+}
+
+// releaseYear parses the leading 4-digit year from a Spotify release_date
+// ("1994", "1994-03-29", "1994-03"); returns 0 when absent or non-numeric.
+func releaseYear(date string) int {
+	if len(date) >= 4 {
+		if y, err := strconv.Atoi(date[:4]); err == nil {
+			return y
+		}
+	}
+	return 0
+}
+
+// itemKey returns the dedupe/cache key for a track item: the canonical URI,
+// falling back to the ID when the URI is absent.
+func itemKey(t *spotifyItem) string {
+	if t.URI != "" {
+		return t.URI
+	}
+	return t.ID
 }

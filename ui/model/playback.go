@@ -259,6 +259,7 @@ func (m *Model) undoPlaylistMutation() {
 	}
 	m.playlist.Restore(undo.snapshot)
 	m.playlistUndo = playlistUndo{}
+	m.resetProviderQueueMirror()
 	if m.plCursor >= m.playlist.Len() {
 		m.plCursor = max(0, m.playlist.Len()-1)
 	}
