@@ -68,6 +68,70 @@ func TestJellyfinPingUsesUsersMe(t *testing.T) {
 	}
 }
 
+func TestJellyfinPingAPIKeyFallsBackToUsers(t *testing.T) {
+	// API keys aren't owned by a user, so /Users/Me returns 400; /Users must
+	// succeed to prove the key is valid.
+	c := mock(NewJellyfinClient("https://jf.example.com", "tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/Users/Me":
+			return &http.Response{StatusCode: 400, Status: "400 Bad Request", Body: io.NopCloser(bytes.NewBuffer([]byte("Token is not owned by a user.")))}, nil
+		case "/Users":
+			return jsonResponse(`[{"Id":"user-1","Name":"Alice"}]`), nil
+		default:
+			t.Fatalf("unexpected path %s", req.URL.Path)
+			return nil, nil
+		}
+	})
+	if err := c.Ping(); err != nil {
+		t.Fatalf("Ping() with API key error: %v", err)
+	}
+}
+
+func TestJellyfinPingAPIKeyBadTokenFails(t *testing.T) {
+	c := mock(NewJellyfinClient("https://jf.example.com", "bad-tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/Users/Me":
+			return &http.Response{StatusCode: 400, Status: "400 Bad Request", Body: io.NopCloser(bytes.NewBuffer(nil))}, nil
+		case "/Users":
+			return &http.Response{StatusCode: 401, Status: "401 Unauthorized", Body: io.NopCloser(bytes.NewBuffer(nil))}, nil
+		default:
+			t.Fatalf("unexpected path %s", req.URL.Path)
+			return nil, nil
+		}
+	})
+	if err := c.Ping(); err == nil {
+		t.Fatal("Ping() with invalid API key succeeded, want error")
+	}
+}
+
+func TestJellyfinUserIDAPIKeyFallback(t *testing.T) {
+	// /Users/Me returns 400 for API keys; fall back to /Users and pick the
+	// first user.
+	c := mock(NewJellyfinClient("https://jf.example.com", "tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/Users/Me":
+			return &http.Response{StatusCode: 400, Status: "400 Bad Request", Body: io.NopCloser(bytes.NewBuffer(nil))}, nil
+		case "/Users":
+			return jsonResponse(`[{"Id":"user-1","Name":"Alice"}]`), nil
+		case "/Users/user-1/Views":
+			return jsonResponse(`{"Items":[{"Id":"lib-1","Name":"Music","CollectionType":"music"}]}`), nil
+		default:
+			t.Fatalf("unexpected path %s", req.URL.Path)
+			return nil, nil
+		}
+	})
+	libs, err := c.MusicLibraries()
+	if err != nil {
+		t.Fatalf("MusicLibraries() error: %v", err)
+	}
+	if c.userID != "user-1" {
+		t.Fatalf("userID = %q after API key fallback, want user-1", c.userID)
+	}
+	if len(libs) != 1 || libs[0].ID != "lib-1" {
+		t.Fatalf("libraries = %+v", libs)
+	}
+}
+
 // --- Dialect-specific: Emby API-key user-id fallback ---
 
 func TestEmbyUserIDAPIKeyFallback(t *testing.T) {
@@ -341,6 +405,9 @@ func TestStreamURL(t *testing.T) {
 	if !strings.Contains(u, "api_key=tok") {
 		t.Fatalf("URL missing api_key: %q", u)
 	}
+	if !strings.Contains(u, "ApiKey=tok") {
+		t.Fatalf("URL missing ApiKey: %q", u)
+	}
 }
 
 func TestStreamURLFromCurrentAuth(t *testing.T) {
@@ -402,7 +469,7 @@ func TestResolveSourceAuthenticatesWithPassword(t *testing.T) {
 				if err != nil {
 					t.Fatalf("ResolveSource() error: %v", err)
 				}
-				if want := baseURL + "/Items/" + itemID + "/Download?api_key=new-token"; got != want {
+				if want := baseURL + "/Items/" + itemID + "/Download?ApiKey=new-token&api_key=new-token"; got != want {
 					t.Fatalf("ResolveSource() = %q, want %q", got, want)
 				}
 			}
@@ -439,7 +506,7 @@ func TestResolveSourceWithTokenDoesNotRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveSource() error: %v", err)
 	}
-	if want := "https://jf.example.com/media/Items/track-1/Download?api_key=new-token"; got != want {
+	if want := "https://jf.example.com/media/Items/track-1/Download?ApiKey=new-token&api_key=new-token"; got != want {
 		t.Fatalf("ResolveSource() = %q, want %q", got, want)
 	}
 }

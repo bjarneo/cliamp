@@ -188,7 +188,7 @@ func TestProviderRestoreTrackDefersAuthenticationUntilSourceResolution(t *testin
 	if err != nil {
 		t.Fatalf("ResolveSource() error: %v", err)
 	}
-	if want := "https://jf.example.com/Items/track-1/Download?api_key=new-token"; source != want {
+	if want := "https://jf.example.com/Items/track-1/Download?ApiKey=new-token&api_key=new-token"; source != want {
 		t.Fatalf("ResolveSource() = %q, want %q", source, want)
 	}
 	if got.Path != oldURL || got.Title != "Song" || got.Meta(provider.MetaJellyfinID) != "track-1" || !got.Stream {
