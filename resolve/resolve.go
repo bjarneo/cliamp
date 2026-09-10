@@ -609,7 +609,9 @@ func resolveYTDLRange(pageURL string, start, end int) ([]playlist.Track, error) 
 	if end > 0 {
 		args = append(args, "--playlist-end", strconv.Itoa(end))
 	}
-	args = append(args, pageURL)
+	// "--" marks the end of options so a URL starting with "-" is treated
+	// as the page URL, not as a yt-dlp flag.
+	args = append(args, "--", pageURL)
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -676,11 +678,13 @@ func DownloadYTDL(pageURL, saveDir string) (string, error) {
 	}
 
 	outTemplate := filepath.Join(saveDir, "%(artist,uploader)s - %(title)s.%(ext)s")
+	// "--" guards against pageURL being parsed as an option (see resolveYTDLRange).
 	cmd := exec.Command("yt-dlp",
 		"-f", "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio",
 		"--no-playlist",
 		"--print-json",
 		"-o", outTemplate,
+		"--",
 		pageURL)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr

@@ -22,7 +22,9 @@ func processAlive(pid int) (bool, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/FO", "CSV", "/NH").Output()
+	// All-literal argv (no /FI filter) so no value is composed into an
+	// argument; the PID is matched while parsing the CSV output below.
+	out, err := exec.CommandContext(ctx, "tasklist", "/FO", "CSV", "/NH").Output()
 	if err != nil {
 		return false, fmt.Errorf("probe process liveness: %w", err)
 	}

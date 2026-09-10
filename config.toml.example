@@ -101,6 +101,10 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 #   7  = FLAC 24-bit up to 96kHz
 #   27 = FLAC 24-bit up to 192kHz (Hi-Res)
 # quality = 6
+#
+# Fallback OAuth private key, used only when it cannot be scraped from the
+# Qobuz web player bundle.js (play.qobuz.com). Leave unset otherwise.
+# private_key = "..."
 
 # ---
 # Navidrome / Subsonic server (optional)

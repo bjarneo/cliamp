@@ -18,6 +18,15 @@ quality = 6
 
 No developer credentials are needed. The `app_id`, signing secrets, and OAuth private key are scraped automatically from the Qobuz web player.
 
+If the private key can no longer be scraped (Qobuz changed their bundle format), set it manually as a fallback — extract the current value from the web player's `bundle.js` at `play.qobuz.com`:
+
+```toml
+[qobuz]
+private_key = "..."
+```
+
+The scraped value always takes precedence; the config key is only consulted when scraping fails.
+
 Run `cliamp`, select Qobuz as a provider, and press `Enter` to sign in. A browser window opens for Qobuz's OAuth login. Once you authorize, credentials are cached at `~/.config/cliamp/qobuz_credentials.json` and subsequent launches refresh silently.
 
 > **Click "Back" to finish.** After you authorize, Qobuz shows a *"You are signed in, you can leave this page"* screen with a **Back** button rather than redirecting automatically. Click that **Back** button. It fires the redirect that hands the sign-in code to cliamp and completes authentication. cliamp waits (up to 5 minutes) for it.
@@ -73,6 +82,7 @@ After loading a playlist or album you return to the standard playlist view with 
 ## Troubleshooting
 
 - **"OAuth failed" / browser doesn't open**: cliamp opens a localhost redirect listener on a random port. Make sure nothing is blocking outbound access to `qobuz.com` and that a default browser is configured. The flow times out after 5 minutes.
+- **"OAuth private key not found in the web-player bundle"**: Qobuz changed their bundle format and the private key could not be scraped. Extract the current value from the web player's `bundle.js` at `play.qobuz.com`, set it as `[qobuz] private_key` (see [Setup](#setup)), and retry sign-in.
 - **Sign-in seems to hang / "you can leave this page"**: after authorizing, the Qobuz OAuth page shows a confirmation screen with a **Back** button instead of redirecting automatically. Click **Back** to complete sign-in. cliamp keeps waiting (up to 5 minutes) until the redirect arrives.
 - **Re-authenticate**: run `cliamp qobuz reset` to clear stored credentials, then relaunch cliamp and select Qobuz to sign in again. (Equivalent to deleting `~/.config/cliamp/qobuz_credentials.json` manually.)
 - **Track is unplayable / skipped**: the track may not be streamable on your subscription tier or in your region. cliamp marks such tracks unplayable and moves on.

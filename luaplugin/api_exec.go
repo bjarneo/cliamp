@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -237,13 +239,13 @@ func registerExecAPI(L *lua.LState, cliamp *lua.LTable, em *execManager, p *Plug
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		cmd := exec.CommandContext(ctx, path, argv...)
-		if cwd != "" {
-			cmd.Dir = cwd
+		cmd, err := newPluginCommand(ctx, path, argv, cwd)
+		if err != nil {
+			cancel()
+			L.Push(lua.LNil)
+			L.Push(lua.LString(err.Error()))
+			return 2
 		}
-		// Empty env by default — plugins should not inherit secrets like
-		// AWS_*, SSH_*, etc. yt-dlp and ffmpeg both run fine with a minimal env.
-		cmd.Env = minimalExecEnv()
 
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -364,6 +366,34 @@ func registerExecAPI(L *lua.LState, cliamp *lua.LTable, em *execManager, p *Plug
 	}))
 
 	L.SetField(cliamp, "exec", tbl)
+}
+
+// newPluginCommand builds the subprocess for a plugin exec.run() call.
+//
+// Safety: path must be the absolute path produced by exec.LookPath for an
+// allowlisted binary name, so the executed file is pinned at a fixed location
+// rather than re-resolved. argv entries are passed as direct exec arguments —
+// there is no shell, so argv values (including ones starting with "-", which
+// are legitimate flags) can only ever be arguments to that fixed binary, never
+// a new command. Empty argv entries are rejected: they are never legitimate
+// and only serve to confuse argument parsing downstream.
+func newPluginCommand(ctx context.Context, path string, argv []string, cwd string) (*exec.Cmd, error) {
+	if !filepath.IsAbs(path) {
+		return nil, fmt.Errorf("exec: resolved binary path must be absolute, got %q", path)
+	}
+	for _, arg := range argv {
+		if arg == "" {
+			return nil, errors.New("exec: args must not be empty strings")
+		}
+	}
+	cmd := exec.CommandContext(ctx, path, argv...)
+	if cwd != "" {
+		cmd.Dir = cwd
+	}
+	// Empty env by default — plugins should not inherit secrets like
+	// AWS_*, SSH_*, etc. yt-dlp and ffmpeg both run fine with a minimal env.
+	cmd.Env = minimalExecEnv()
+	return cmd, nil
 }
 
 // homeEnv returns the user's home directory for subprocess HOME, preferring

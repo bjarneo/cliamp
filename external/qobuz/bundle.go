@@ -9,16 +9,12 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/bjarneo/cliamp/config"
 )
 
 // bundleBaseURL is the Qobuz web player origin that ships the JS bundle.
 const bundleBaseURL = "https://play.qobuz.com"
-
-// fallbackPrivateKey is the static OAuth code-exchange private_key documented
-// for the production environment. It is used only when the value cannot be
-// scraped from the bundle (the in-bundle name has changed across releases).
-// Source: SofusA/qobine qobuz-api.md reverse-engineering notes.
-const fallbackPrivateKey = "6lz8C03UDIC7"
 
 // Regexes that scrape the app_id, signing secrets and OAuth private key from
 // the Qobuz web player's bundle.js. Adapted from DashLt's spoofbuz (via the
@@ -106,15 +102,23 @@ func (b *bundle) appID() (string, error) {
 	return m[reAppID.SubexpIndex("app_id")], nil
 }
 
-// privateKey extracts the OAuth private key, falling back to the documented
-// production value when the bundle pattern cannot be matched.
-func (b *bundle) privateKey() string {
+// privateKey extracts the OAuth private key. When the bundle pattern cannot
+// be matched (the in-bundle name has changed across releases), the
+// user-configured fallback is used; when that is unset too, the error names
+// the config key and where to find the current value.
+func (b *bundle) privateKey(fallback string) (string, error) {
 	for _, re := range rePrivateKeyPatterns {
 		if m := re.FindStringSubmatch(b.content); m != nil {
-			return m[re.SubexpIndex("key")]
+			return m[re.SubexpIndex("key")], nil
 		}
 	}
-	return fallbackPrivateKey
+	if fallback != "" {
+		return fallback, nil
+	}
+	return "", fmt.Errorf(
+		"qobuz: OAuth private key not found in the web-player bundle and no [qobuz] private_key configured; " +
+			"extract the current value from the Qobuz web player bundle.js (play.qobuz.com) and set it as [qobuz] private_key",
+	)
 }
 
 // capitalizeFirst upper-cases the first byte of s (timezone names are ASCII).
@@ -185,6 +189,19 @@ func (b *bundle) secrets() (map[string]string, error) {
 	return secrets, nil
 }
 
+// configuredPrivateKey returns the user-configured [qobuz] private_key
+// fallback. main.go wiring doesn't thread the config value in, so it is read
+// lazily here (mirroring external/spotify's lazy config reads) — but not
+// memoized, so a user who hits the missing-key error can set the config and
+// retry sign-in without restarting cliamp.
+func configuredPrivateKey() string {
+	cfg, err := config.Load()
+	if err != nil {
+		return ""
+	}
+	return cfg.Qobuz.PrivateKey
+}
+
 // scrapeCredentials fetches the bundle and returns the app_id, the list of
 // candidate signing secrets, and the OAuth private key.
 func scrapeCredentials(ctx context.Context) (string, []string, string, error) {
@@ -206,5 +223,9 @@ func scrapeCredentials(ctx context.Context) (string, []string, string, error) {
 			secrets = append(secrets, s)
 		}
 	}
-	return appID, secrets, b.privateKey(), nil
+	privateKey, err := b.privateKey(configuredPrivateKey())
+	if err != nil {
+		return "", nil, "", err
+	}
+	return appID, secrets, privateKey, nil
 }

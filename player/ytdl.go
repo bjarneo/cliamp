@@ -45,17 +45,23 @@ func YTDLPAvailable() bool {
 	return err == nil
 }
 
+// ytdlProbeArgs builds the yt-dlp argument list for probing a track's
+// duration. "--" ends option parsing so a pageURL beginning with "-" can't
+// be interpreted as a yt-dlp option.
+func ytdlProbeArgs(pageURL string) []string {
+	args := []string{"--skip-download", "--no-playlist", "--socket-timeout", "10", "--print", "duration"}
+	if ytdlCookiesFrom != "" {
+		args = append(args, "--cookies-from-browser", ytdlCookiesFrom)
+	}
+	return append(args, "--", pageURL)
+}
+
 // probeYTDLDuration runs a quick yt-dlp --print duration to obtain
 // the track duration when --flat-playlist didn't provide it.
 func probeYTDLDuration(pageURL string) time.Duration {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	args := []string{"--skip-download", "--no-playlist", "--socket-timeout", "10", "--print", "duration"}
-	if ytdlCookiesFrom != "" {
-		args = append(args, "--cookies-from-browser", ytdlCookiesFrom)
-	}
-	args = append(args, pageURL)
-	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+	cmd := exec.CommandContext(ctx, "yt-dlp", ytdlProbeArgs(pageURL)...)
 	// WaitDelay ensures cmd.Output() doesn't hang indefinitely if the
 	// process is killed but I/O pipe goroutines haven't drained. Without
 	// this, a zombie yt-dlp child keeping stdout open can block Output()
@@ -99,15 +105,16 @@ func InstallYTDLP() error {
 			return cmd.Run()
 		}
 	}
-	// Fallback: pip/pipx
-	if path, err := exec.LookPath("pipx"); err == nil {
-		cmd := exec.Command(path, "install", "yt-dlp")
+	// Fallback: pip/pipx. LookPath only gates availability; the command is
+	// invoked by literal name so the exec'd binary is never a variable.
+	if _, err := exec.LookPath("pipx"); err == nil {
+		cmd := exec.Command("pipx", "install", "yt-dlp")
 		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
 	}
-	if path, err := exec.LookPath("pip3"); err == nil {
-		cmd := exec.Command(path, "install", "yt-dlp")
+	if _, err := exec.LookPath("pip3"); err == nil {
+		cmd := exec.Command("pip3", "install", "yt-dlp")
 		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
@@ -269,6 +276,28 @@ func monitorExit(cmd *exec.Cmd, stderr *bytes.Buffer, name string) <-chan error 
 	return ch
 }
 
+// ytdlStreamArgs builds the yt-dlp argument list for downloading a page's
+// best audio to stdout. See ytdlProbeArgs for the "--" guard.
+// Prefer direct HTTPS/HTTP streams over HLS (m3u8). HLS requires segment
+// downloading and muxing which doesn't pipe cleanly to stdout.
+// Live streams (e.g. YouTube live) expose no audio-only formats at all,
+// only muxed video+audio over HLS, so fall back to "best" as a last
+// resort; the ffmpeg stage below outputs PCM audio and drops the video.
+func ytdlStreamArgs(pageURL string) []string {
+	args := []string{
+		"-f", "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio[protocol!=m3u8_native][protocol!=m3u8]/bestaudio/best",
+		"--no-playlist",
+		"--quiet",
+		"--no-warnings",
+		"--socket-timeout", "15",
+		"-o", "-",
+	}
+	if ytdlCookiesFrom != "" {
+		args = append(args, "--cookies-from-browser", ytdlCookiesFrom)
+	}
+	return append(args, "--", pageURL)
+}
+
 // decodeYTDLPipe starts a yt-dlp | ffmpeg pipe chain for the given page URL
 // and returns a streaming PCM decoder. If startSec > 0, ffmpeg -ss is used
 // to skip to the desired position in the input stream.
@@ -287,24 +316,7 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 	}
 
 	// Start yt-dlp: download best audio to stdout.
-	// Prefer direct HTTPS/HTTP streams over HLS (m3u8). HLS requires segment
-	// downloading and muxing which doesn't pipe cleanly to stdout.
-	// Live streams (e.g. YouTube live) expose no audio-only formats at all,
-	// only muxed video+audio over HLS, so fall back to "best" as a last
-	// resort; the ffmpeg stage below outputs PCM audio and drops the video.
-	ytdlArgs := []string{
-		"-f", "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio[protocol!=m3u8_native][protocol!=m3u8]/bestaudio/best",
-		"--no-playlist",
-		"--quiet",
-		"--no-warnings",
-		"--socket-timeout", "15",
-		"-o", "-",
-	}
-	if ytdlCookiesFrom != "" {
-		ytdlArgs = append(ytdlArgs, "--cookies-from-browser", ytdlCookiesFrom)
-	}
-	ytdlArgs = append(ytdlArgs, pageURL)
-	ytdlCmd := exec.Command("yt-dlp", ytdlArgs...)
+	ytdlCmd := exec.Command("yt-dlp", ytdlStreamArgs(pageURL)...)
 	ytdlCmd.Stdout = pw
 	var ytdlStderr bytes.Buffer
 	ytdlCmd.Stderr = &ytdlStderr

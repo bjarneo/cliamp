@@ -134,6 +134,47 @@ func TestCookieHeaderFromNetscapeFileFiltersNetEaseCookies(t *testing.T) {
 	}
 }
 
+func TestValidateCookieBrowser(t *testing.T) {
+	tests := []struct {
+		name    string
+		browser string
+		wantErr bool
+	}{
+		{name: "chrome", browser: "chrome"},
+		{name: "chromium", browser: "chromium"},
+		{name: "firefox", browser: "firefox"},
+		{name: "brave", browser: "brave"},
+		{name: "edge", browser: "edge"},
+		{name: "opera", browser: "opera"},
+		{name: "safari", browser: "safari"},
+		{name: "vivaldi", browser: "vivaldi"},
+		{name: "whale", browser: "whale"},
+		{name: "case insensitive", browser: "Firefox"},
+		{name: "empty", browser: "", wantErr: true},
+		{name: "unknown browser", browser: "netscape", wantErr: true},
+		{name: "option injection attempt", browser: "-chrome", wantErr: true},
+		{name: "subcommand attempt", browser: "chrome:./x", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateCookieBrowser(tt.browser)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateCookieBrowser(%q) error = %v, wantErr %v", tt.browser, err, tt.wantErr)
+			}
+			if tt.wantErr {
+				msg := err.Error()
+				if !strings.Contains(msg, "unsupported browser") {
+					t.Errorf("error = %q, want it to mention unsupported browser", msg)
+				}
+				if !strings.Contains(msg, "chrome, chromium, firefox") {
+					t.Errorf("error = %q, want it to list valid browsers", msg)
+				}
+			}
+		})
+	}
+}
+
 func TestExtractBrowserCookieHeaderMissingYTDLPShowsInstallHint(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	_, err := extractBrowserCookieHeader(context.Background(), "chrome")

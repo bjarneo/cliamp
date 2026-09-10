@@ -2,9 +2,6 @@ package navidrome
 
 import (
 	"context"
-	"crypto/md5"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -180,16 +177,7 @@ func checkSubsonicError(status string, apiErr *subsonicError) error {
 }
 
 func (c *NavidromeClient) buildURL(endpoint string, params url.Values) string {
-	// Use crypto/rand for the salt as recommended by the Subsonic API spec.
-	// MD5 is required by the protocol — not a choice.
-	saltBytes := make([]byte, 8)
-	if _, err := io.ReadFull(rand.Reader, saltBytes); err != nil {
-		// Fallback to timestamp if crypto/rand fails (should never happen).
-		saltBytes = fmt.Appendf(nil, "%d", time.Now().UnixNano())
-	}
-	salt := hex.EncodeToString(saltBytes)
-	hash := md5.Sum([]byte(c.password + salt))
-	token := hex.EncodeToString(hash[:])
+	salt, token := subsonicAuth(c.password)
 
 	if params == nil {
 		params = url.Values{}

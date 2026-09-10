@@ -1,0 +1,75 @@
+{
+  "project": "cliamp",
+  "branch": "spotify-library-parity",
+  "waves": [
+    {
+      "id": "wave1-contract-lock",
+      "goal": "Lock all shared contracts widened by this feature",
+      "tasks": ["W1C-1"],
+      "status": "pending"
+    },
+    {
+      "id": "wave2-core-impl",
+      "goal": "Parallel implementation: spotify provider core + ui/model",
+      "tasks": ["W2A-1", "W2B-1"],
+      "dependencies": ["wave1-contract-lock"],
+      "status": "pending"
+    },
+    {
+      "id": "wave3-features-docs",
+      "goal": "Spotify search/write suite + docs/site sync",
+      "tasks": ["W3A-1", "W3B-1"],
+      "dependencies": ["wave2-core-impl"],
+      "status": "pending"
+    },
+    {
+      "id": "wave4-integration-gate",
+      "goal": "make check, review pass, fixes, commits",
+      "tasks": ["W4G-1"],
+      "dependencies": ["wave3-features-docs"],
+      "status": "pending"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "W1C-1",
+      "wave": "wave1-contract-lock",
+      "owner_paths": ["provider/interfaces.go", "provider/types.go", "playlist/provider.go", "config/config.go"],
+      "verify": ["go build ./...", "go test ./..."],
+      "handoff": ".planning/execution/handoffs/wave1-contract-lock/W1C-1-contracts.md",
+      "status": "pending"
+    },
+    {
+      "id": "W2A-1",
+      "wave": "wave2-core-impl",
+      "owner_paths": ["external/spotify/**"],
+      "verify": ["go vet ./external/spotify/...", "go test ./external/spotify/..."],
+      "handoff": ".planning/execution/handoffs/wave2-core-impl/W2A-1-spotify-core.md",
+      "status": "pending"
+    },
+    {
+      "id": "W2B-1",
+      "wave": "wave2-core-impl",
+      "owner_paths": ["ui/model/**"],
+      "verify": ["go vet ./ui/...", "go test ./ui/..."],
+      "handoff": ".planning/execution/handoffs/wave2-core-impl/W2B-1-ui-model.md",
+      "status": "pending"
+    },
+    {
+      "id": "W3A-1",
+      "wave": "wave3-features-docs",
+      "owner_paths": ["external/spotify/**"],
+      "verify": ["go vet ./external/spotify/...", "go test ./external/spotify/..."],
+      "handoff": ".planning/execution/handoffs/wave3-features-docs/W3A-1-spotify-features.md",
+      "status": "pending"
+    },
+    {
+      "id": "W3B-1",
+      "wave": "wave3-features-docs",
+      "owner_paths": ["docs/spotify.md", "docs/keybindings.md", "docs/provider-development.md", "site/index.html"],
+      "verify": ["manual consistency check vs command_registry.go"],
+      "handoff": ".planning/execution/handoffs/wave3-features-docs/W3B-1-docs-site.md",
+      "status": "pending"
+    }
+  ]
+}

@@ -2,7 +2,6 @@ package qobuz
 
 import (
 	"context"
-	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -56,10 +55,6 @@ func newClient(appID string, secrets []string) *client {
 		secrets: secrets,
 		http:    &http.Client{Timeout: 30 * time.Second},
 	}
-}
-
-func md5hex(s string) string {
-	return fmt.Sprintf("%x", md5.Sum([]byte(s)))
 }
 
 // doRequest performs a Qobuz API request and returns the raw response body.
