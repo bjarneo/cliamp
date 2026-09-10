@@ -56,12 +56,12 @@ func TestEmbyPingUsesSystemInfo(t *testing.T) {
 	}
 }
 
-func TestJellyfinPingUsesUsersMe(t *testing.T) {
+func TestJellyfinPingUsesSystemInfo(t *testing.T) {
 	c := mock(NewJellyfinClient("https://jf.example.com", "tok", "user-1", "", ""), func(req *http.Request) (*http.Response, error) {
-		if req.URL.Path != "/Users/Me" {
-			t.Fatalf("Ping path = %s, want /Users/Me", req.URL.Path)
+		if req.URL.Path != "/System/Info" {
+			t.Fatalf("Ping path = %s, want /System/Info", req.URL.Path)
 		}
-		return jsonResponse(`{"Id":"user-1","Name":"Nomad"}`), nil
+		return jsonResponse(`{"ServerName":"My Jellyfin","Version":"10.11.0"}`), nil
 	})
 	if err := c.Ping(); err != nil {
 		t.Fatalf("Ping() error: %v", err)
@@ -124,21 +124,13 @@ func TestEmbyAuthHeaderScheme(t *testing.T) {
 
 func TestJellyfinAuthHeaderScheme(t *testing.T) {
 	c := mock(NewJellyfinClient("https://jf.example.com", "tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
-		switch req.URL.Path {
-		case "/Users/Me":
-			return jsonResponse(`{"Id":"user-1","Name":"Nomad"}`), nil
-		case "/Users/user-1/Views":
-			if got := req.Header.Get("X-Emby-Token"); got != "tok" {
-				t.Fatalf("X-Emby-Token = %q, want tok", got)
-			}
-			if got := req.Header.Get("X-Emby-Authorization"); !strings.HasPrefix(got, "MediaBrowser ") {
-				t.Fatalf("X-Emby-Authorization = %q, want MediaBrowser scheme", got)
-			}
-			return jsonResponse(`{"Items":[{"Id":"music-1","Name":"Music","CollectionType":"music"}]}`), nil
-		default:
-			t.Fatalf("unexpected path %s", req.URL.Path)
-			return nil, nil
+		if req.URL.Path != "/Library/MediaFolders" {
+			t.Fatalf("path = %s, want /Library/MediaFolders", req.URL.Path)
 		}
+		if got := req.Header.Get("Authorization"); !strings.HasPrefix(got, "MediaBrowser ") {
+			t.Fatalf("Authorization = %q, want MediaBrowser scheme", got)
+		}
+		return jsonResponse(`{"Items":[{"Id":"music-1","Name":"Music","CollectionType":"music"}]}`), nil
 	})
 	if _, err := c.MusicLibraries(); err != nil {
 		t.Fatalf("MusicLibraries() error: %v", err)
@@ -180,13 +172,13 @@ func TestJellyfinAuthenticatesWithPassword(t *testing.T) {
 	c := mock(NewJellyfinClient("https://jf.example.com", "", "", "finamp", "1qazxsw2"), func(req *http.Request) (*http.Response, error) {
 		switch req.URL.Path {
 		case "/Users/AuthenticateByName":
-			if got := req.Header.Get("X-Emby-Authorization"); !strings.HasPrefix(got, "MediaBrowser ") {
-				t.Fatalf("auth request X-Emby-Authorization = %q, want MediaBrowser scheme", got)
+			if got := req.Header.Get("Authorization"); !strings.HasPrefix(got, "MediaBrowser ") {
+				t.Fatalf("auth request Authorization = %q, want MediaBrowser scheme", got)
 			}
 			return jsonResponse(`{"User":{"Id":"user-1"},"AccessToken":"tok-1"}`), nil
-		case "/Users/user-1/Views":
-			if got := req.Header.Get("X-Emby-Token"); got != "tok-1" {
-				t.Fatalf("X-Emby-Token = %q, want tok-1", got)
+		case "/Library/MediaFolders":
+			if got := req.Header.Get("Authorization"); !strings.HasPrefix(got, "MediaBrowser ") || !strings.Contains(got, `Token="tok-1"`) {
+				t.Fatalf("Authorization = %q, want MediaBrowser scheme with token", got)
 			}
 			return jsonResponse(`{"Items":[{"Id":"music-1","Name":"Music","CollectionType":"music"}]}`), nil
 		default:
@@ -271,8 +263,8 @@ func TestJellyfinReportNowPlaying(t *testing.T) {
 		if req.URL.Path != "/Sessions/Playing" {
 			t.Fatalf("path = %s, want /Sessions/Playing", req.URL.Path)
 		}
-		if got := req.Header.Get("X-Emby-Token"); got != "tok" {
-			t.Fatalf("X-Emby-Token = %q, want tok", got)
+		if got := req.Header.Get("Authorization"); !strings.HasPrefix(got, "MediaBrowser ") || !strings.Contains(got, `Token="tok"`) {
+			t.Fatalf("Authorization = %q, want MediaBrowser scheme with token", got)
 		}
 		var payload playbackInfo
 		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
@@ -516,3 +508,4 @@ func TestIsStreamURL(t *testing.T) {
 		t.Fatal("non-download URL should not be a stream URL")
 	}
 }
+

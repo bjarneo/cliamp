@@ -1022,6 +1022,8 @@ func (m *setupModel) persistAndDone(warn bool) tea.Cmd {
 func (m *setupModel) resultKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.awaitingSave {
 		switch strings.ToLower(msg.String()) {
+		case "q":
+			return m, tea.Quit
 		case "y":
 			m.persistAndDone(true)
 			return m, nil
