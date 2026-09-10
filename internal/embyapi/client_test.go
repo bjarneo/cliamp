@@ -127,9 +127,9 @@ func TestJellyfinAuthHeaderScheme(t *testing.T) {
 		if req.URL.Path != "/Library/MediaFolders" {
 			t.Fatalf("path = %s, want /Library/MediaFolders", req.URL.Path)
 		}
-		if got := req.Header.Get("Authorization"); !strings.HasPrefix(got, "MediaBrowser ") {
-			t.Fatalf("Authorization = %q, want MediaBrowser scheme", got)
-		}
+		if got := req.Header.Get("Authorization"); !strings.HasPrefix(got, "MediaBrowser ") || !strings.Contains(got, `Token="tok"`) {
+			t.Fatalf("Authorization = %q, want MediaBrowser scheme with token", got)
+ 		}
 		return jsonResponse(`{"Items":[{"Id":"music-1","Name":"Music","CollectionType":"music"}]}`), nil
 	})
 	if _, err := c.MusicLibraries(); err != nil {
