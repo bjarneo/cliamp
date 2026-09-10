@@ -193,7 +193,15 @@ type playbackStopInfo struct {
 // Ping checks that the server is reachable and the token is accepted.
 func (c *Client) Ping() error {
 	var raw json.RawMessage
-	return c.get(c.dialect.pingPath(), nil, &raw)
+	if err := c.get(c.dialect.pingPath(), nil, &raw); err == nil {
+		return nil
+	} else if c.user == "" && c.password == "" {
+		// API keys aren't owned by a user, so /Users/Me returns 400.
+		// Fall back to listing /Users to prove the key is valid.
+		return c.get("/Users", nil, &raw)
+	} else {
+		return err
+	}
 }
 
 // UserID returns the active user id, discovering it lazily when needed.
@@ -529,7 +537,14 @@ func (c *Client) StreamURL(itemID string) string {
 }
 
 func (c *Client) streamURL(itemID, token string) string {
-	v := url.Values{"api_key": {token}}
+	// ApiKey is the auth query param Jellyfin reads on every version (including
+	// 10.12+/12 which disable legacy auth); api_key is the legacy alias that
+	// older servers still accept. Send both so buffered stream requests that
+	// carry no headers work on any server.
+	v := url.Values{
+		"ApiKey":  {token},
+		"api_key": {token},
+	}
 
 	// Use the direct item download route rather than the Audio controller.
 	// On the live servers used for validation, the Audio endpoints returned
