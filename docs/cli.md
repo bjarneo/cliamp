@@ -27,6 +27,7 @@ cliamp --bit-depth 32 track.m4a           # PCM bit depth: 16 (default) or 32 (l
 
 ```sh
 cliamp --simplified ~/Music                  # no visualizer or playlist
+cliamp --expanded ~/Music                    # start with the playlist expanded (Ctrl+X state)
 cliamp --eq-preset "Bass Boost" ~/Music
 cliamp --visualizer-60fps ~/Music            # smoother visualizer animation (higher CPU use)
 ```
@@ -127,6 +128,7 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--auto-play` / `--no-auto-play` | bool | false | |
 | `--simplified` / `--no-simplified` | bool | false | artist/title and time strip; no visualizer or playlist |
 | `--help-bar` / `--no-help-bar` | bool | true | show or hide the key-binding hint bar; `?` still opens the full keymap |
+| `--expanded` / `--no-expanded` | bool | false | start with the playlist expanded (the `Ctrl+X` state) |
 | `--visualizer-60fps` | bool | false | render a visible visualizer at about 60 FPS |
 | `--start-theme` | string | | theme name |
 | `--eq-preset` | string | | preset name |

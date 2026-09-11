@@ -604,3 +604,51 @@ func TestConfiguredVisualizerRows(t *testing.T) {
 		})
 	}
 }
+
+// Simplified mode drops its own layout as soon as the provider or an overlay
+// takes focus, and those screens do draw a list. SetExpanded must therefore
+// reach heightExpanded there exactly as Ctrl+X does, or --simplified --expanded
+// would do nothing on the only screens where it shows.
+func TestSetExpandedAppliesToSimplifiedProviderLists(t *testing.T) {
+	m := newLayoutTestModel(100, 50)
+	m.SetSimplified(true)
+	m.focus = focusProvider
+	m.recomputeLayout()
+
+	collapsed := m.plVisible
+	if collapsed == 0 {
+		t.Fatal("provider list rows = 0 in simplified mode, want the content-first list")
+	}
+
+	m.SetExpanded(true)
+	if !m.heightExpanded {
+		t.Fatal("SetExpanded did not set the expanded height in simplified mode")
+	}
+	if m.plVisible != m.layout.bodyRows {
+		t.Fatalf("expanded provider list rows = %d, want available body rows %d", m.plVisible, m.layout.bodyRows)
+	}
+	if m.plVisible <= collapsed {
+		t.Fatalf("expanded provider list rows = %d, want more than collapsed %d", m.plVisible, collapsed)
+	}
+
+	// And it matches what the key produces from the same state.
+	byKey := newLayoutTestModel(100, 50)
+	byKey.SetSimplified(true)
+	byKey.focus = focusProvider
+	byKey.recomputeLayout()
+	byKey.toggleExpandedView()
+	if byKey.plVisible != m.plVisible {
+		t.Fatalf("Ctrl+X rows = %d, SetExpanded rows = %d, want the same", byKey.plVisible, m.plVisible)
+	}
+}
+
+// The playback screen has no playlist in simplified mode, so the height is
+// carried but ignored rather than blocked.
+func TestSetExpandedIsInertOnTheSimplifiedPlaybackScreen(t *testing.T) {
+	m := newLayoutTestModel(100, 50)
+	m.SetSimplified(true)
+	m.SetExpanded(true)
+	if m.plVisible != 0 {
+		t.Fatalf("simplified playback playlist rows = %d, want 0", m.plVisible)
+	}
+}

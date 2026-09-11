@@ -583,6 +583,9 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if cfg.ShowMetadata {
 		m.SetShowMetadata(true)
 	}
+	if cfg.Expanded {
+		m.SetExpanded(true)
+	}
 
 	if resumeState.Path != "" && resumeState.PositionSec > 0 {
 		// Jellyfin resumes the restored context above. Mixcloud is also commonly

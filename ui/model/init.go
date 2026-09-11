@@ -146,6 +146,18 @@ func (m *Model) SetShowMetadata(v bool) {
 	m.refreshChrome()
 }
 
+// SetExpanded starts the UI in the expanded playlist height, the state the
+// Ctrl+X binding toggles. It sets the same field toggleExpandedView does and
+// takes no view into account: usesSimplifiedLayout() is transient (it drops as
+// soon as the provider or an overlay takes focus), and recomputeLayout already
+// ignores the height while it holds, so a guard here would only make the flag
+// differ from the key.
+func (m *Model) SetExpanded(v bool) {
+	m.heightExpanded = v
+	m.applyHeightMode()
+	m.adjustScroll()
+}
+
 // SetInitialDirectory sets the initial directory for the file browser.
 func (m *Model) SetInitialDirectory(dir string) { m.initialDir = dir }
 
