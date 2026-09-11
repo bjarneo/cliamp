@@ -536,6 +536,7 @@ func (c *Client) StreamURL(itemID string) string {
 	return c.streamURL(itemID, c.authToken())
 }
 
+// streamURL constructs a direct-download stream URL for the specified item and auth token.
 func (c *Client) streamURL(itemID, token string) string {
 	// ApiKey is the auth query param Jellyfin reads on every version (including
 	// 10.12+/12 which disable legacy auth); api_key is the legacy alias that

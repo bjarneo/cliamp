@@ -164,6 +164,8 @@ func TestProviderRestoreTrack(t *testing.T) {
 	}
 }
 
+// TestProviderRestoreTrackDefersAuthenticationUntilSourceResolution verifies that
+// restoring a track from history defers authentication until source resolution.
 func TestProviderRestoreTrackDefersAuthenticationUntilSourceResolution(t *testing.T) {
 	p := newProvider(NewClient("https://jf.example.com", "", "", "user", "password"))
 	p.client.SetHTTPClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {

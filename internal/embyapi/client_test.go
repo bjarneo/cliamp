@@ -68,6 +68,8 @@ func TestJellyfinPingUsesUsersMe(t *testing.T) {
 	}
 }
 
+// TestJellyfinPingAPIKeyFallsBackToUsers checks that Ping falls back to /Users when
+// /Users/Me returns 400 for server-level API keys.
 func TestJellyfinPingAPIKeyFallsBackToUsers(t *testing.T) {
 	// API keys aren't owned by a user, so /Users/Me returns 400; /Users must
 	// succeed to prove the key is valid.
@@ -87,6 +89,8 @@ func TestJellyfinPingAPIKeyFallsBackToUsers(t *testing.T) {
 	}
 }
 
+// TestJellyfinPingAPIKeyBadTokenFails verifies that Ping fails when an invalid API key
+// is rejected by both /Users/Me and /Users.
 func TestJellyfinPingAPIKeyBadTokenFails(t *testing.T) {
 	c := mock(NewJellyfinClient("https://jf.example.com", "bad-tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
 		switch req.URL.Path {
@@ -104,6 +108,8 @@ func TestJellyfinPingAPIKeyBadTokenFails(t *testing.T) {
 	}
 }
 
+// TestJellyfinUserIDAPIKeyFallback verifies that UserID falls back to /Users and picks the
+// first user when authenticated with an API key.
 func TestJellyfinUserIDAPIKeyFallback(t *testing.T) {
 	// /Users/Me returns 400 for API keys; fall back to /Users and pick the
 	// first user.
@@ -396,6 +402,8 @@ func TestTracksParsing(t *testing.T) {
 	}
 }
 
+// TestStreamURL verifies that StreamURL builds the download URL with both
+// legacy api_key and modern ApiKey query parameters.
 func TestStreamURL(t *testing.T) {
 	c := NewEmbyClient("https://emby.example.com", "tok", "user-1", "", "")
 	u := c.StreamURL("track-1")
@@ -445,6 +453,8 @@ func TestStreamItemID(t *testing.T) {
 	}
 }
 
+// TestResolveSourceAuthenticatesWithPassword verifies that source resolution
+// authenticates via password when no token is present and appends auth params.
 func TestResolveSourceAuthenticatesWithPassword(t *testing.T) {
 	for _, baseURL := range []string{"https://jf.example.com/media", "http://jf.lan:8096/media"} {
 		t.Run(baseURL, func(t *testing.T) {
@@ -497,6 +507,8 @@ func TestResolveSourceAuthenticationFailure(t *testing.T) {
 	}
 }
 
+// TestResolveSourceWithTokenDoesNotRequest ensures that resolving a source URL
+// when an auth token already exists does not send an extra authentication request.
 func TestResolveSourceWithTokenDoesNotRequest(t *testing.T) {
 	c := mock(NewJellyfinClient("https://jf.example.com/media", "new-token", "", "", ""), func(req *http.Request) (*http.Response, error) {
 		t.Fatalf("unexpected request with configured token: %s", req.URL)
