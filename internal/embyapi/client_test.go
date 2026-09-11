@@ -268,6 +268,31 @@ func TestJellyfinUserIDNon400ErrorNotMaskedByFallback(t *testing.T) {
 	}
 }
 
+// TestJellyfinUserIDEmptyMeResponseErrors verifies that a /Users/Me 200 with an
+// empty user id fails immediately instead of entering the /Users fallback.
+func TestJellyfinUserIDEmptyMeResponseErrors(t *testing.T) {
+	var requested []string
+	c := mock(NewJellyfinClient("https://jf.example.com", "tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
+		requested = append(requested, req.URL.Path)
+		switch req.URL.Path {
+		case "/Users/Me":
+			return jsonResponse(`{}`), nil
+		case "/Users":
+			t.Fatal("unexpected fallback to /Users on empty /Users/Me response")
+			return jsonResponse(`[{"Id":"user-1","Name":"Alice"}]`), nil
+		default:
+			t.Fatalf("unexpected path %s", req.URL.Path)
+			return nil, nil
+		}
+	})
+	if _, err := c.UserID(); err == nil {
+		t.Fatal("UserID() succeeded with empty /Users/Me id, want error")
+	}
+	if len(requested) != 1 || requested[0] != "/Users/Me" {
+		t.Fatalf("requested paths = %v, want [/Users/Me] only", requested)
+	}
+}
+
 // --- Dialect-specific: Emby API-key user-id fallback ---
 
 func TestEmbyUserIDAPIKeyFallback(t *testing.T) {

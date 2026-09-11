@@ -116,16 +116,19 @@ func (jellyfinDialect) discoverUserID(c *Client) (string, error) {
 	// Try /Users/Me first (works for session tokens from password auth).
 	var me userDTO
 	meErr := c.get("/Users/Me", nil, &me)
-	if meErr == nil && me.ID != "" {
-		c.setUserID(me.ID)
-		return me.ID, nil
+	if meErr == nil {
+		if me.ID != "" {
+			c.setUserID(me.ID)
+			return me.ID, nil
+		}
+		return "", fmt.Errorf("jellyfin: current user response missing id")
 	}
 
 	// API-key auth is the only case where /Users/Me legitimately fails (a key
 	// isn't owned by a user, so it returns 400). Preserve every other error so
 	// 401/403/5xx responses surface through UserID instead of being masked.
 	var httpErr *httpError
-	if meErr != nil && !(errors.As(meErr, &httpErr) && httpErr.statusCode == http.StatusBadRequest) {
+	if !(errors.As(meErr, &httpErr) && httpErr.statusCode == http.StatusBadRequest) {
 		return "", fmt.Errorf("jellyfin: could not discover user id: %w", meErr)
 	}
 
