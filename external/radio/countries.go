@@ -334,6 +334,12 @@ func stationTracks(stations []CatalogStation) []playlist.Track {
 	for _, s := range stations {
 		track := stationTrack(s)
 		track.Title = formatCatalogName(s)
+		if s.Homepage != "" {
+			if track.ProviderMeta == nil {
+				track.ProviderMeta = make(map[string]string, 1)
+			}
+			track.ProviderMeta["radio.homepage"] = s.Homepage
+		}
 		tracks = append(tracks, track)
 	}
 	return tracks

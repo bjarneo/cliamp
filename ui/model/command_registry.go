@@ -206,10 +206,23 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeFileBrowser | commandModeNavBrowser | commandModePlaylistManager | commandModePlaylistPicker | commandModeDevicePicker, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Select", ContextHelp: true, Primary: true},
 	{Mode: commandModeNavBrowser, Keys: []string{"/"}, KeyLabel: "/", Label: "Filter", ContextHelp: true, Enabled: func(m Model) bool { return m.navBrowser.mode != navBrowseModeMenu }},
 	{Mode: commandModeNavBrowser, Keys: []string{"f"}, KeyLabel: "f", Label: "Favorite", ContextHelp: true, Prominent: true, Enabled: func(m Model) bool {
-		_, ok := m.navBrowser.prov.(provider.FavoriteToggler)
-		idx := m.selectedNavRawIndex(len(m.navBrowser.albums))
-		return ok && m.navView() == navViewAlbums && !m.navBrowser.loading && !m.navBrowser.albumLoading &&
-			idx >= 0 && m.navBrowser.albums[idx].ID != ""
+		if m.navBrowser.loading || m.navBrowser.albumLoading {
+			return false
+		}
+		switch m.navView() {
+		case navViewAlbums:
+			_, ok := m.navBrowser.prov.(provider.FavoriteToggler)
+			idx := m.selectedNavRawIndex(len(m.navBrowser.albums))
+			return ok && idx >= 0 && m.navBrowser.albums[idx].ID != ""
+		case navViewTracks:
+			if _, ok := m.navBrowser.prov.(provider.TrackFavoriteToggler); !ok {
+				return false
+			}
+			track, selected := m.selectedNavTrack()
+			return selected && track.Path != ""
+		default:
+			return false
+		}
 	}},
 	{Mode: commandModeNavBrowser, Keys: []string{"f"}, KeyLabel: "f", Label: "Favorite genre", LabelFor: func(m Model) string {
 		if genre, ok := m.selectedNavGenre(); ok && genre.Favorite {

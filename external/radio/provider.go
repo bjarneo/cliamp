@@ -374,6 +374,52 @@ func (p *Provider) ToggleFavorite(id string) (added bool, name string, err error
 	return true, s.Name, p.favorites.Add(s)
 }
 
+// ToggleTrackFavorite toggles a station returned by the country or tag browser.
+func (p *Provider) ToggleTrackFavorite(track playlist.Track) (added bool, name string, err error) {
+	name = track.Title
+	if country := displayCountryName(track.Meta("radio.country")); country != "" {
+		name = strings.TrimSuffix(name, " · "+country)
+	}
+	if bitrate := track.Meta("radio.bitrate"); bitrate != "" {
+		name = strings.TrimSuffix(name, " ["+bitrate+"k]")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false, "", errors.New("radio: missing station metadata")
+	}
+
+	bitrate := 0
+	if raw := track.Meta("radio.bitrate"); raw != "" {
+		bitrate, _ = strconv.Atoi(raw)
+	}
+	station := CatalogStation{
+		Name:     name,
+		URL:      track.Path,
+		Country:  track.Meta("radio.country"),
+		State:    track.Meta("radio.state"),
+		Tags:     track.Genre,
+		Codec:    track.Meta("radio.codec"),
+		Bitrate:  bitrate,
+		Homepage: track.Meta("radio.homepage"),
+	}
+	if len(streamableStations([]CatalogStation{station})) != 1 {
+		return false, name, errors.New("radio: invalid station URL")
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.favorites.Contains(station.URL) {
+		if err := p.favorites.Remove(station.URL); err != nil {
+			return false, name, err
+		}
+		return false, name, nil
+	}
+	if err := p.favorites.Add(station); err != nil {
+		return false, name, err
+	}
+	return true, name, nil
+}
+
 // SetSearchResults activates search mode with the given results.
 // Playlists() will return search results instead of catalog stations.
 // Any pending search is invalidated.

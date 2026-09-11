@@ -604,6 +604,25 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 			}
 			return m.rearmPreload()
 		}
+	case "f":
+		favorites, ok := m.navBrowser.prov.(provider.TrackFavoriteToggler)
+		if !ok {
+			return nil
+		}
+		track, ok := m.selectedNavTrack()
+		if !ok {
+			return nil
+		}
+		added, name, err := favorites.ToggleTrackFavorite(track)
+		if err != nil {
+			m.status.Errorf(statusTTLDefault, "Favorite save failed: %s", err)
+			return nil
+		}
+		if added {
+			m.status.Showf(statusTTLMedium, "Favorited: %s", name)
+		} else {
+			m.status.Showf(statusTTLMedium, "Removed: %s", name)
+		}
 	case "esc", "h", "left", "backspace":
 		// Navigate back one level depending on the mode and how we got here.
 		m.navClearSearch()
@@ -632,6 +651,14 @@ func (m *Model) navDisplayedTracks() []playlist.Track {
 		tracks = append(tracks, m.navBrowser.tracks[i])
 	}
 	return tracks
+}
+
+func (m *Model) selectedNavTrack() (playlist.Track, bool) {
+	tracks := m.navDisplayedTracks()
+	if m.navBrowser.cursor < 0 || m.navBrowser.cursor >= len(tracks) {
+		return playlist.Track{}, false
+	}
+	return tracks[m.navBrowser.cursor], true
 }
 
 func (m *Model) navPlaybackTracks() []playlist.Track {

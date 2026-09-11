@@ -251,6 +251,12 @@ type FavoriteToggler interface {
 	ToggleFavorite(id string) (added bool, name string, err error)
 }
 
+// TrackFavoriteToggler is implemented by providers that can favorite tracks
+// returned by a hierarchical browser without a provider item ID.
+type TrackFavoriteToggler interface {
+	ToggleTrackFavorite(track playlist.Track) (added bool, name string, err error)
+}
+
 // CatalogLoader is implemented by providers that support lazy-loading
 // catalog pages from an external source (e.g. Radio Browser API).
 type CatalogLoader interface {
