@@ -74,6 +74,8 @@ func (c commandSpec) enabled(m Model) bool {
 	return c.Enabled == nil || c.Enabled(m)
 }
 
+// label is what the keymap shows for this command, which some commands
+// decide from the state the model is in.
 func (c commandSpec) label(m Model) string {
 	if c.LabelFor != nil {
 		return c.LabelFor(m)
@@ -160,7 +162,12 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"esc", "backspace", "b"}, KeyLabel: "Esc", Label: "Back to provider", Keymap: true, ContextHelp: true, Cancel: true},
 	{Mode: commandModeAny, Keys: []string{"ctrl+k"}, KeyLabel: "Ctrl+K", Label: "Help", Keymap: true, ContextHelp: true, Help: true},
 	{Mode: commandModeMain, Keys: []string{"?"}, KeyLabel: "?", Label: "Help", Keymap: true},
-	{Mode: commandModeAny, Keys: []string{"ctrl+c", "q"}, KeyLabel: "q", Label: "Quit", Keymap: true},
+	{Mode: commandModeAny, Keys: []string{"ctrl+c", "q"}, KeyLabel: "q", Label: "Quit", LabelFor: func(m Model) string {
+		if m.sessionDetach != nil {
+			return "Detach (the session keeps playing)"
+		}
+		return "Quit"
+	}, Keymap: true},
 	{Mode: commandModeAny, Keys: []string{"ctrl+z"}, KeyLabel: "Ctrl+Z", Label: "Undo latest playlist or queue mutation"},
 	{Mode: commandModeProvider, Keys: []string{"ctrl+r"}, KeyLabel: "Ctrl+R", Label: "Refresh provider", Keymap: true, ContextHelp: true},
 

@@ -6,11 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
 
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/config"
@@ -42,6 +45,7 @@ import (
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/resolve"
+	"github.com/bjarneo/cliamp/session"
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
 	"github.com/bjarneo/cliamp/ui/model"
@@ -53,6 +57,10 @@ var version string
 const (
 	defaultUIFPS  = 20
 	lowPowerUIFPS = 5
+	// Size of the virtual terminal a detached session renders into until a
+	// client attaches and reports its own.
+	detachedCols = 100
+	detachedRows = 30
 )
 
 // isBufferedProviderURL reports whether u is a provider stream endpoint that
@@ -101,6 +109,10 @@ func restoreJellyfinContext(state resume.State, prov *jellyfin.Provider) ([]play
 	return tracks, index, tracks[index].Path, true
 }
 
+// run starts the player: config and providers, the audio engine, the
+// Bubble Tea model, IPC, and media controls. With daemon set it renders into
+// a virtual terminal instead of this process's own, so `cliamp attach` can
+// lend it one later.
 func run(overrides config.Overrides, positional []string, daemon, visualizer60FPS bool) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -350,25 +362,13 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	restoredJellyfinChoice := false
 	restoredJellyfinIndex := 0
 	restoredResumePath := ""
-	if !daemon && defaultProvider == "jellyfin" && jellyProv != nil && cfg.Playlist == "" && len(positional) == 0 && len(resolved.Pending) == 0 && pl.Len() == 0 {
+	if defaultProvider == "jellyfin" && jellyProv != nil && cfg.Playlist == "" && len(positional) == 0 && len(resolved.Pending) == 0 && pl.Len() == 0 {
 		if tracks, index, activePath, ok := restoreJellyfinContext(resumeState, jellyProv); ok {
 			pl.Add(tracks...)
 			restoredJellyfinChoice = true
 			restoredJellyfinIndex = index
 			restoredResumePath = activePath
 		}
-	}
-
-	// Daemon mode has no UI loop to drain pending URLs (feeds, M3U, yt-dlp),
-	// so resolve them synchronously here. The TUI path does this in the
-	// background via m.SetPendingURLs.
-	if daemon && len(resolved.Pending) > 0 {
-		fmt.Fprintf(os.Stderr, "cliamp: resolving %d remote URL(s)...\n", len(resolved.Pending))
-		remote, err := resolve.Remote(resolved.Pending)
-		if err != nil {
-			return fmt.Errorf("resolve remote: %w", err)
-		}
-		pl.Add(remote...)
 	}
 
 	if cfg.AudioDevice != "" {
@@ -446,17 +446,6 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	cfg.ApplyPlayer(p)
 	cfg.ApplyPlaylist(pl)
 	ui.SetPadding(cfg.PaddingH, cfg.PaddingV)
-
-	if daemon {
-		if cfg.EQPreset != "" && cfg.EQPreset != "Custom" {
-			if preset, ok := model.EQPresetByName(cfg.EQPreset); ok {
-				for i, gain := range preset.Bands {
-					p.SetEQBand(i, gain)
-				}
-			}
-		}
-		return runDaemon(p, pl, localProv, providers, cfg.AutoPlay, cfg.EQPreset)
-	}
 
 	themes := theme.LoadAll()
 
@@ -600,7 +589,74 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if cfg.LowPower {
 		progOpts[0] = tea.WithFPS(lowPowerUIFPS)
 	}
-	prog := tea.NewProgram(m, progOpts...)
+
+	// Detached mode runs this same player against a virtual terminal instead
+	// of the one it was started from: playback, providers, plugins, and IPC
+	// are unchanged, and `cliamp attach` lends a terminal to the running
+	// program whenever somebody wants to look at it.
+	var prog *tea.Program
+	var host *session.Host
+	if daemon {
+		m.SetDetached(true)
+		var hostErr error
+		// These callbacks read prog, which is assigned below. Nothing can run
+		// them before that: the host only reaches them from an attach, and
+		// attaches only arrive once the IPC server has the host registered,
+		// which happens further down. Keep that order.
+		host, hostErr = session.New(session.Options{
+			OnAttach: func(int, int) { prog.Send(model.SetDetachedMsg{Detached: false}) },
+			OnDetach: func() { prog.Send(model.SetDetachedMsg{Detached: true}) },
+		})
+		if hostErr != nil {
+			return fmt.Errorf("session: %w", hostErr)
+		}
+		// The quit key hands the terminal back instead of stopping the music.
+		// Ending the session is `cliamp quit`, not a keystroke: its lifetime
+		// belongs to whatever started it.
+		m.SetSessionDetach(host.Detach)
+		defer host.Close()
+		progOpts = append(progOpts,
+			// A detached session is a service, so a signal has to quit it the
+			// way the quit key does -- flushing pending saves and storing the
+			// resume position. Bubble Tea's own handler kills the program with
+			// an error instead, which skips all of that.
+			tea.WithoutSignalHandler(),
+			tea.WithInput(host.Input()),
+			tea.WithOutput(host.Output()),
+			// A session outlives every client, so its color depth cannot be
+			// negotiated per attach: render truecolor and let each client
+			// downsample for its own terminal.
+			tea.WithColorProfile(colorprofile.TrueColor),
+			tea.WithEnvironment([]string{"TERM=xterm-256color", "COLORTERM=truecolor"}),
+			tea.WithWindowSize(detachedCols, detachedRows),
+		)
+	}
+	prog = tea.NewProgram(m, progOpts...)
+	if host != nil {
+		host.SetProgram(prog)
+		signals := make(chan os.Signal, 1)
+		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+		defer signal.Stop(signals)
+		go func() {
+			first := true
+			for signal := range signals {
+				if first {
+					applog.Info("session: signal received, shutting down")
+					prog.Send(playback.QuitMsg{})
+					first = false
+					continue
+				}
+				// Bubble Tea's own handler is off, so this is the only escape
+				// left if the graceful path stalls. Leave without it rather
+				// than making the operator reach for SIGKILL.
+				applog.Warn("session: %v while shutting down, exiting now", signal)
+				fmt.Fprintln(os.Stderr, "cliamp: second signal, exiting immediately")
+				os.Exit(1)
+			}
+		}()
+		fmt.Fprintf(os.Stderr, "cliamp: running detached (socket: %s)\ncliamp: attach with `cliamp attach`; q detaches, `cliamp quit` stops it\n", ipc.DefaultSocketPath())
+		applog.Info("session: running detached")
+	}
 
 	if spotifyProv != nil {
 		spotify.SetAuthURLObserver(func(u string) {
@@ -670,6 +726,9 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	} else {
 		defer ipcSrv.Close()
 		ipcSrv.SetV2Dispatcher(newTUIV2Dispatcher(prog, ipcSrv.JobStore(), luaMgr))
+		if host != nil {
+			ipcSrv.SetAttachHandler(host)
+		}
 		if luaMgr == nil {
 			operations := ipc.DefaultOperationRegistry()
 			operations.Unregister("plugin.call", "plugin.commands")
@@ -679,6 +738,11 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	}
 
 	finalModel, err := mediactl.Run(prog, svc)
+	if host != nil {
+		// Tell an attached client why its terminal is going away, before the
+		// deferred IPC shutdown closes the connection under it.
+		host.Close()
+	}
 	if err != nil {
 		return err
 	}

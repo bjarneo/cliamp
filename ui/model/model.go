@@ -185,6 +185,7 @@ const (
 	screenFullVisualizer
 )
 
+// label is the screen name the keymap header shows.
 func (s topLevelScreen) label() string {
 	switch s {
 	case screenKeymap:
@@ -419,6 +420,16 @@ type Model struct {
 	playingTrack       playlist.Track
 	playingTrackActive bool
 	playbackDetached   bool
+
+	// sessionDetach hands the client terminal back, leaving the session
+	// running. It is nil unless cliamp is hosting a detached session.
+	sessionDetach func()
+
+	// detached is true while no client terminal is attached to this session
+	// (see SetDetachedMsg). Rendering still happens, into a stream nobody
+	// reads, so the visualizer stays off and the tick drops to the cadence
+	// playback bookkeeping needs.
+	detached bool
 
 	notifier playback.Notifier
 

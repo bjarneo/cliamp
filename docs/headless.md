@@ -1,56 +1,105 @@
-# Headless Daemon Mode
+# Detached Mode
 
-Run cliamp without a TUI. The daemon listens on the same Unix socket as the
-interactive player. Playback, library, and V2 remote commands work, but cliamp
-does not render a terminal UI. Use this mode to control playback through IPC
-from a status bar, script, hotkey daemon, or cron job.
+Run cliamp without a terminal of its own. `--daemon` starts the whole player --
+the same playback, providers, plugins, keybindings, and visualizer as the
+interactive TUI -- and renders it into a virtual terminal instead of yours.
+Playback survives every terminal, IPC serves scripts and status bars, and
+`cliamp attach` lends a real terminal to the running player whenever you want
+to browse or search.
 
 ```sh
-cliamp --daemon                              # no TUI, IPC only
+cliamp --daemon                              # detached, IPC only until you attach
 cliamp -d                                    # short form
 cliamp --daemon --auto-play --playlist Lofi  # start playing on launch
 cliamp --daemon ~/Music --auto-play          # auto-play a directory
+
+cliamp attach                                # borrow this terminal to the session
 ```
 
-Send `SIGINT` or `SIGTERM` to stop the daemon. cliamp saves the resume position on a graceful shutdown.
+Press `q` in an attached terminal to hand it back: the session keeps playing.
+`ctrl+\` also detaches, without asking the player, so it works even if the
+session stops responding.
+
+No key ends a session. Its lifetime belongs to whatever started it -- a service
+manager, an autostart entry, a shell job -- so a keystroke in a borrowed
+terminal must not take it down. Stop it explicitly:
+
+```sh
+cliamp quit                      # from any terminal
+systemctl --user stop cliamp     # or through the service manager
+kill -TERM $(pgrep -f 'cliamp --daemon')
+```
+
+All three are the same graceful shutdown: cliamp flushes pending settings and
+saves the resume position.
 
 ## What works
 
-The daemon exposes the same runtime, library, job, and event IPC interface as the TUI. See [Remote Control](remote-control.md) for the list:
+Everything the interactive player does, because it is the interactive player.
+Detached, that includes playback, gapless preload, the playlist and provider
+browsers, saved playlists, Lua plugins, MPRIS on Linux, NowPlaying on macOS,
+hardware media keys on Windows, and the full runtime, library, job, and event
+IPC interface. See [Remote Control](remote-control.md) for the command list:
 
 - Playback: `play`, `pause`, `toggle`, `stop`, `next`, `prev`
+- Lifetime: `quit`
 - Position: `seek`, `volume`, `speed`
 - Playback modes: `shuffle`, `repeat`, `mono`
 - Library: `load "Name"`, `queue /path/to.mp3`
 - Audio: `eq <preset>`, `eq --band N <dB>`, `device <name|list>`
-- Status: `status`, `status --json`
+- Appearance: `theme <name>`, `vis <mode>`
+- Status: `status`, `status --json`, `vis --stream`
 
-## What doesn't
+`cliamp vis --stream` analyzes the spectrum on demand while detached, so a
+status bar gets live bands without a terminal attached.
 
-UI-only commands return an error in headless mode:
+## Attaching
 
-- `theme`: no UI is available for themes
-- `vis`: no visualizer is running
+`cliamp attach` needs a terminal on stdin and stdout, and takes the size from
+it -- resize the window and the session follows.
 
-The daemon still enables MPRIS on Linux, NowPlaying on macOS, and hardware media key hotkeys on Windows when the platform service is available. You can also bind media keys directly to `cliamp` subcommands. See [Hyprland](#hyprland).
+- **One terminal at a time.** One player has one renderer, so attaching from a
+  second terminal takes the session over and the first is told why.
+- **Color depth is fixed for the session.** A session outlives its clients, so
+  it renders truecolor and each client downsamples for its own terminal.
+- **The quit key detaches.** In a session `q` hands the terminal back rather
+  than stopping the music, and the keymap says so. Everywhere `q` already meant
+  something else -- queueing a track in the provider browser, typing in a
+  search field -- it still does.
+- **Your terminal comes back as you left it.** Attaching and detaching go
+  through the player's own terminal setup and teardown, so the alternate
+  screen, cursor, window title, and the colors a theme sets are restored on
+  detach exactly as they are when cliamp exits. The client repeats the
+  restore on its way out, so a session that dies without a teardown does not
+  leave your terminal in a strange state either.
+- **Attach only works against `--daemon`.** A cliamp that owns a real terminal
+  has no virtual one to lend and reports that.
+
+Over SSH, attach the session running on the other host:
+
+```sh
+ssh -t kitchen-pi cliamp attach
+```
 
 ## Use cases
 
-### Background music daemon
+### Background music session
 
-Start cliamp once at login, for example with `~/.config/systemd/user/cliamp.service` or desktop-environment autostart. Keep it running. Control it from any terminal:
+Start cliamp once at login, for example with `~/.config/systemd/user/cliamp.service` or desktop-environment autostart. Keep it running. Control it from any terminal, or attach to it:
 
 ```sh
 cliamp toggle      # play/pause from anywhere
 cliamp next
 cliamp volume -3
+cliamp attach      # full UI in this terminal, q to leave it playing
+cliamp quit        # stop the session for good
 ```
 
 Use this minimal systemd user unit:
 
 ```ini
 [Unit]
-Description=cliamp headless music player
+Description=cliamp music player session
 
 [Service]
 ExecStart=%h/.local/bin/cliamp --daemon --auto-play --playlist "Lofi"
@@ -63,6 +112,14 @@ WantedBy=default.target
 ```sh
 systemctl --user enable --now cliamp.service
 ```
+
+`Restart=on-failure` and not `Restart=always`: a graceful stop the session asks
+for itself -- `cliamp quit`, an MPRIS client's Quit, a SIGTERM you send by hand
+-- exits 0, and `always` reads that as a reason to start it again. The music
+would come back moments after you asked it to stop, leaving `systemctl --user
+stop` (which systemd does not restart after) as the only way to end it.
+`on-failure` restarts the session when it actually crashed, which is what you
+wanted the line for.
 
 ### Waybar / Polybar / i3blocks status modules
 
@@ -159,16 +216,17 @@ done
 
 ### Remote control over SSH
 
-The socket is at `~/.config/cliamp/cliamp.sock`, and the CLI accesses it locally. Get a shell on the host with SSH or tmux session attach to control playback:
+The socket is at `~/.config/cliamp/cliamp.sock`, and the CLI accesses it locally. Get a shell on the host with SSH to control playback, or attach to its UI:
 
 ```sh
 ssh kitchen-pi cliamp toggle
 ssh kitchen-pi cliamp status --json
+ssh -t kitchen-pi cliamp attach
 ```
 
 ### Embedded / kiosk audio
 
-Run this mode on a Pi or small Linux computer without a display. The daemon needs no terminal allocation. It needs working ALSA, PipeWire, or PulseAudio output.
+Run this mode on a Pi or small Linux computer without a display. A detached session needs no terminal allocation. It needs working ALSA, PipeWire, or PulseAudio output.
 
 ```sh
 cliamp --daemon --auto-play http://radio.cliamp.stream/lofi/stream
@@ -176,6 +234,8 @@ cliamp --daemon --auto-play http://radio.cliamp.stream/lofi/stream
 
 ## Notes
 
-- The daemon and TUI share one Unix socket. Only one cliamp instance can run for a user. A second instance cannot bind to the socket.
-- This version of headless mode does not load Lua plugins. They need UI hooks that this mode does not enable.
-- Headless mode does not preload the next track for gapless playback. Small gaps between tracks are expected.
+- One cliamp instance runs per user: it owns the Unix socket. Start it detached
+  and attach to it rather than starting a second one.
+- A detached session renders no frame and runs no visualizer until a client
+  attaches. It ticks only as often as playback bookkeeping needs, so an
+  idle-but-playing session costs about what the old headless mode did.
