@@ -67,6 +67,9 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Visualizer mode (leave empty for default Bars)
 # Options: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, Mirror, Omarchy, RedSector, None
 # Mirror draws tapered Braille bars around a persistent horizontal center axis.
+# ClassicPeak uses smooth bars and floating peak caps, with sampling aligned
+# to audible playback and adaptive redraws for smooth motion.
+# Neighboring bands are averaged into each bar.
 visualizer = "Bars"
 
 # Visualizer volume linking (default: true)

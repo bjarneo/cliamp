@@ -159,7 +159,26 @@ func (d *classicPeakDriver) animating(v *Visualizer) bool {
 
 func (d *classicPeakDriver) levels(v *Visualizer) []float64 {
 	activeCols := classicPeakColsForWidth(PanelWidth)
-	return resampleBandsLinear(v.bands, activeCols)
+	return classicPeakBands(v.bands, activeCols)
+}
+
+// Average all contributing bands when shrinking the spectrum. Point sampling
+// can skip narrow peaks entirely; fractional overlap keeps boundary bands from
+// jumping between columns as the panel is resized. Expansion still interpolates.
+func classicPeakBands(bands []float64, cols int) []float64 {
+	if cols <= 0 || cols >= len(bands) {
+		return resampleBandsLinear(bands, cols)
+	}
+	out := make([]float64, cols)
+	span := float64(len(bands)) / float64(cols)
+	for col := range out {
+		lo, hi := float64(col)*span, float64(col+1)*span
+		for b := int(lo); b < len(bands) && float64(b) < hi; b++ {
+			weight := min(hi, float64(b+1)) - max(lo, float64(b))
+			out[col] += bands[b] * weight / span
+		}
+	}
+	return out
 }
 
 func (d *classicPeakDriver) frameInterval(v *Visualizer) time.Duration {
