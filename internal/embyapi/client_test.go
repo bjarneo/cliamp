@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -69,12 +70,14 @@ func TestJellyfinPingUsesUsersMe(t *testing.T) {
 }
 
 func TestJellyfinPingAPIKeyFallsBackToUsers(t *testing.T) {
-	// API keys aren't owned by a user, so /Users/Me returns 400; /Users must
-	// succeed to prove the key is valid.
+	// API keys aren't owned by a user, so /Users/Me returns an empty-body 400;
+	// /Users must succeed to prove the key is valid.
+	var requested []string
 	c := mock(NewJellyfinClient("https://jf.example.com", "tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
+		requested = append(requested, req.URL.Path)
 		switch req.URL.Path {
 		case "/Users/Me":
-			return &http.Response{StatusCode: 400, Status: "400 Bad Request", Body: io.NopCloser(bytes.NewBuffer([]byte("Token is not owned by a user.")))}, nil
+			return &http.Response{StatusCode: 400, Status: "400 Bad Request", Body: io.NopCloser(bytes.NewBuffer(nil))}, nil
 		case "/Users":
 			return jsonResponse(`[{"Id":"user-1","Name":"Alice"}]`), nil
 		default:
@@ -85,10 +88,15 @@ func TestJellyfinPingAPIKeyFallsBackToUsers(t *testing.T) {
 	if err := c.Ping(); err != nil {
 		t.Fatalf("Ping() with API key error: %v", err)
 	}
+	if len(requested) != 2 || requested[0] != "/Users/Me" || requested[1] != "/Users" {
+		t.Fatalf("requested paths = %v, want [/Users/Me, /Users]", requested)
+	}
 }
 
 func TestJellyfinPingAPIKeyBadTokenFails(t *testing.T) {
+	var requested []string
 	c := mock(NewJellyfinClient("https://jf.example.com", "bad-tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
+		requested = append(requested, req.URL.Path)
 		switch req.URL.Path {
 		case "/Users/Me":
 			return &http.Response{StatusCode: 400, Status: "400 Bad Request", Body: io.NopCloser(bytes.NewBuffer(nil))}, nil
@@ -101,6 +109,67 @@ func TestJellyfinPingAPIKeyBadTokenFails(t *testing.T) {
 	})
 	if err := c.Ping(); err == nil {
 		t.Fatal("Ping() with invalid API key succeeded, want error")
+	}
+	if len(requested) != 2 || requested[0] != "/Users/Me" || requested[1] != "/Users" {
+		t.Fatalf("requested paths = %v, want [/Users/Me, /Users]", requested)
+	}
+}
+
+func TestJellyfinPingUnrelatedErrorDoesNotFallBackToUsers(t *testing.T) {
+	// /Users/Me failing with an error other than the API-key response must not
+	// trigger the /Users fallback.
+	c := mock(NewJellyfinClient("https://jf.example.com", "tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/Users/Me":
+			return &http.Response{StatusCode: 500, Status: "500 Internal Server Error", Body: io.NopCloser(bytes.NewBuffer([]byte("server error")))}, nil
+		case "/Users":
+			t.Fatal("unexpected fallback to /Users on server error")
+			return jsonResponse(`[{"Id":"user-1","Name":"Alice"}]`), nil
+		default:
+			t.Fatalf("unexpected path %s", req.URL.Path)
+			return nil, nil
+		}
+	})
+	if err := c.Ping(); err == nil {
+		t.Fatal("Ping() succeeded on 500 error, want error")
+	}
+}
+
+func TestJellyfinPingNon400WithTokenMessageDoesNotFallBackToUsers(t *testing.T) {
+	// A non-400 response carrying the API-key message must not fall back.
+	c := mock(NewJellyfinClient("https://jf.example.com", "tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/Users/Me":
+			return &http.Response{StatusCode: 401, Status: "401 Unauthorized", Body: io.NopCloser(bytes.NewBuffer([]byte("Token is not owned by a user.")))}, nil
+		case "/Users":
+			t.Fatal("unexpected fallback to /Users on non-400 response")
+			return jsonResponse(`[{"Id":"user-1","Name":"Alice"}]`), nil
+		default:
+			t.Fatalf("unexpected path %s", req.URL.Path)
+			return nil, nil
+		}
+	})
+	if err := c.Ping(); err == nil {
+		t.Fatal("Ping() succeeded on 401 error, want error")
+	}
+}
+
+func TestEmbyPingFailureDoesNotFallBackToUsers(t *testing.T) {
+	// Emby ping failures must return the original error, never fall back.
+	c := mock(NewEmbyClient("https://emby.example.com", "tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/System/Info":
+			return &http.Response{StatusCode: 401, Status: "401 Unauthorized", Body: io.NopCloser(bytes.NewBuffer(nil))}, nil
+		case "/Users":
+			t.Fatal("unexpected fallback to /Users on Emby ping failure")
+			return jsonResponse(`[{"Id":"user-1","Name":"Alice"}]`), nil
+		default:
+			t.Fatalf("unexpected path %s", req.URL.Path)
+			return nil, nil
+		}
+	})
+	if err := c.Ping(); err == nil {
+		t.Fatal("Ping() succeeded on Emby 401 error, want error")
 	}
 }
 
@@ -412,8 +481,20 @@ func TestStreamURL(t *testing.T) {
 
 func TestStreamURLFromCurrentAuth(t *testing.T) {
 	withToken := NewJellyfinClient("https://jf.example.com", "token", "user-1", "", "")
-	if got, ok := withToken.StreamURLFromCurrentAuth("track-1"); !ok || !strings.Contains(got, "api_key=token") {
-		t.Fatalf("StreamURLFromCurrentAuth() = (%q, %v), want current token", got, ok)
+	got, ok := withToken.StreamURLFromCurrentAuth("track-1")
+	if !ok {
+		t.Fatalf("StreamURLFromCurrentAuth() ok = false, want true")
+	}
+	u, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("StreamURLFromCurrentAuth() returned invalid URL %q: %v", got, err)
+	}
+	q := u.Query()
+	if q.Get("api_key") != "token" {
+		t.Fatalf("api_key = %q, want token (URL %q)", q.Get("api_key"), got)
+	}
+	if q.Get("ApiKey") != "token" {
+		t.Fatalf("ApiKey = %q, want token (URL %q)", q.Get("ApiKey"), got)
 	}
 
 	passwordOnly := NewJellyfinClient("https://jf.example.com", "", "", "user", "password")

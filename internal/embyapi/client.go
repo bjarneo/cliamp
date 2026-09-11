@@ -7,6 +7,7 @@ package embyapi
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -195,10 +196,15 @@ func (c *Client) Ping() error {
 	var raw json.RawMessage
 	if err := c.get(c.dialect.pingPath(), nil, &raw); err == nil {
 		return nil
-	} else if c.user == "" && c.password == "" {
-		// API keys aren't owned by a user, so /Users/Me returns 400.
-		// Fall back to listing /Users to prove the key is valid.
-		return c.get("/Users", nil, &raw)
+	} else if c.dialect.name() == "jellyfin" && c.user == "" && c.password == "" {
+		var httpErr *httpError
+		if errors.As(err, &httpErr) && httpErr.statusCode == http.StatusBadRequest {
+			// API keys aren't owned by a user, so /Users/Me returns a 400
+			// (documented as "Token is not owned by a user.", sent without a
+			// body). Fall back to listing /Users to prove the key is valid.
+			return c.get("/Users", nil, &raw)
+		}
+		return err
 	} else {
 		return err
 	}
@@ -587,6 +593,20 @@ func (c *Client) ReportScrobble(track playlist.Track, elapsed time.Duration, can
 	})
 }
 
+// httpError records an HTTP error response from an Emby or Jellyfin server.
+type httpError struct {
+	dialect    string
+	path       string
+	statusCode int
+	status     string
+	body       string
+}
+
+// Error returns the formatted error string without raw response bodies.
+func (e *httpError) Error() string {
+	return fmt.Sprintf("%s: %s: http status %s", e.dialect, e.path, e.status)
+}
+
 func (c *Client) get(p string, params url.Values, out any) error {
 	if err := c.ensureAuth(); err != nil {
 		return err
@@ -606,7 +626,18 @@ func (c *Client) get(p string, params url.Values, out any) error {
 	switch resp.StatusCode {
 	case http.StatusOK:
 	default:
-		return fmt.Errorf("%s: %s: http status %s", c.dialect.name(), p, resp.Status)
+		var bodyStr string
+		if resp.Body != nil {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			bodyStr = strings.TrimSpace(string(body))
+		}
+		return &httpError{
+			dialect:    c.dialect.name(),
+			path:       p,
+			statusCode: resp.StatusCode,
+			status:     resp.Status,
+			body:       bodyStr,
+		}
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
