@@ -73,6 +73,7 @@ const (
 	VisStereo                     // stereo L/R horizontal LED peak meters
 	VisMirror                     // Braille spectrum bars mirrored about a horizontal axis
 	VisOmarchy                    // dithered pixel field with the Omarchy mark (omarchy.org style)
+	VisRedSector                  // tumbling wireframe equalizer over a drifting starfield
 	VisNone                       // hidden — no visualizer
 	VisCount                      // sentinel for cycling
 )
@@ -223,6 +224,7 @@ func refreshSpecANSI() {
 	specLowPrefix, specLowSuffix = splitStyleAroundProbe(specLowStyle)
 	specMidPrefix, specMidSuffix = splitStyleAroundProbe(specMidStyle)
 	specHighPrefix, specHighSuffix = splitStyleAroundProbe(specHighStyle)
+	refreshRedSectorANSI()
 }
 
 // splitStyleAroundProbe renders a rare marker through the style and splits the
@@ -490,6 +492,7 @@ var visModes = [VisCount]visEntry{
 	VisStereo:      {"Stereo", newStereoDriver},
 	VisMirror:      {"Mirror", newFastRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), TickAnim, (*Visualizer).renderMirror)},
 	VisOmarchy:     {"Omarchy", newFastRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), TickAnim, (*Visualizer).renderOmarchy)},
+	VisRedSector:   {"RedSector", newRedSectorDriver},
 	VisNone:        {"None", newNoOpDriver},
 }
 

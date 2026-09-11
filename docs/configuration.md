@@ -65,8 +65,11 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # keeps it available, and both values are restored after restart.
 
 # Visualizer mode (leave empty for default Bars)
-# Options: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, Mirror, Omarchy, None
+# Options: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, Mirror, Omarchy, RedSector, None
 # Mirror draws tapered Braille bars around a persistent horizontal center axis.
+# ClassicPeak uses smooth bars and floating peak caps, with sampling aligned
+# to audible playback and adaptive redraws for smooth motion.
+# Neighboring bands are averaged into each bar.
 visualizer = "Bars"
 
 # Visualizer volume linking (default: true)
@@ -91,6 +94,10 @@ simplified = false
 
 # Hide the key-binding hint bar above the status line.
 hide_help_bar = false
+# Start with the playlist expanded, the state Ctrl+X toggles (default: false).
+# The simplified playback screen has no playlist, but its provider and overlay
+# lists do, and they start expanded too.
+expanded = false
 
 # Close the Settings pane beside the playlist (Ctrl+B toggles and saves).
 hide_settings_pane = false
@@ -168,6 +175,12 @@ bar comes back the way you left it. Use `cliamp --no-help-bar` to hide it for
 one session, or `cliamp --help-bar` to show it despite this setting. Simplified
 mode draws neither the hint bar nor a playlist, so it is unaffected by this
 setting.
+
+`expanded = true` starts with the playlist at the expanded height, so the list
+gets every body row the terminal has left instead of the shorter default, and
+`Ctrl+X` is not needed on every launch. The key keeps working and collapses the
+view as before. Start one session with `cliamp --expanded`, or `--no-expanded`
+to start collapsed despite this setting.
 
 List views such as provider browsing, file selection, queues, playlists, search
 results, themes, and keybindings use a content-first layout. This layout replaces
