@@ -1,6 +1,7 @@
 package embyapi
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -105,9 +106,18 @@ func (jellyfinDialect) applyAuth(req *http.Request, token, _, deviceID string) {
 func (jellyfinDialect) discoverUserID(c *Client) (string, error) {
 	// Try /Users/Me first (works for session tokens from password auth).
 	var me userDTO
-	if err := c.get("/Users/Me", nil, &me); err == nil && me.ID != "" {
+	meErr := c.get("/Users/Me", nil, &me)
+	if meErr == nil && me.ID != "" {
 		c.setUserID(me.ID)
 		return me.ID, nil
+	}
+
+	// API-key auth is the only case where /Users/Me legitimately fails (a key
+	// isn't owned by a user, so it returns 400). Preserve every other error so
+	// 401/403/5xx responses surface through UserID instead of being masked.
+	var httpErr *httpError
+	if meErr != nil && !(errors.As(meErr, &httpErr) && httpErr.statusCode == http.StatusBadRequest) {
+		return "", meErr
 	}
 
 	// Fall back to /Users for API key auth (a key isn't owned by a user, so

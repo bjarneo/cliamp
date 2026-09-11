@@ -93,6 +93,25 @@ func TestJellyfinPingAPIKeyFallsBackToUsers(t *testing.T) {
 	}
 }
 
+func TestJellyfinPingAPIKeyWithUsernameFallsBackToUsers(t *testing.T) {
+	// A username configured alongside an API key must not block the fallback:
+	// /Users/Me still returns 400 because the key isn't owned by a user.
+	c := mock(NewJellyfinClient("https://jf.example.com", "tok", "", "alice", ""), func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/Users/Me":
+			return &http.Response{StatusCode: 400, Status: "400 Bad Request", Body: io.NopCloser(bytes.NewBuffer(nil))}, nil
+		case "/Users":
+			return jsonResponse(`[{"Id":"user-1","Name":"Alice"}]`), nil
+		default:
+			t.Fatalf("unexpected path %s", req.URL.Path)
+			return nil, nil
+		}
+	})
+	if err := c.Ping(); err != nil {
+		t.Fatalf("Ping() with API key + username error: %v", err)
+	}
+}
+
 func TestJellyfinPingAPIKeyBadTokenFails(t *testing.T) {
 	var requested []string
 	c := mock(NewJellyfinClient("https://jf.example.com", "bad-tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
@@ -198,6 +217,31 @@ func TestJellyfinUserIDAPIKeyFallback(t *testing.T) {
 	}
 	if len(libs) != 1 || libs[0].ID != "lib-1" {
 		t.Fatalf("libraries = %+v", libs)
+	}
+}
+
+func TestJellyfinUserIDNon400ErrorNotMaskedByFallback(t *testing.T) {
+	// A non-400 failure of /Users/Me must surface through UserID instead of
+	// being masked by the /Users fallback.
+	var requested []string
+	c := mock(NewJellyfinClient("https://jf.example.com", "tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
+		requested = append(requested, req.URL.Path)
+		switch req.URL.Path {
+		case "/Users/Me":
+			return &http.Response{StatusCode: 401, Status: "401 Unauthorized", Body: io.NopCloser(bytes.NewBuffer(nil))}, nil
+		case "/Users":
+			t.Fatal("unexpected fallback to /Users on 401 response")
+			return jsonResponse(`[{"Id":"user-1","Name":"Alice"}]`), nil
+		default:
+			t.Fatalf("unexpected path %s", req.URL.Path)
+			return nil, nil
+		}
+	})
+	if _, err := c.UserID(); err == nil {
+		t.Fatal("UserID() succeeded on 401 error, want error")
+	}
+	if len(requested) != 1 || requested[0] != "/Users/Me" {
+		t.Fatalf("requested paths = %v, want [/Users/Me] only", requested)
 	}
 }
 

@@ -196,12 +196,13 @@ func (c *Client) Ping() error {
 	var raw json.RawMessage
 	if err := c.get(c.dialect.pingPath(), nil, &raw); err == nil {
 		return nil
-	} else if c.dialect.name() == "jellyfin" && c.user == "" && c.password == "" {
+	} else if c.dialect.name() == "jellyfin" && c.password == "" && c.token != "" {
 		var httpErr *httpError
 		if errors.As(err, &httpErr) && httpErr.statusCode == http.StatusBadRequest {
 			// API keys aren't owned by a user, so /Users/Me returns a 400
 			// (documented as "Token is not owned by a user.", sent without a
-			// body). Fall back to listing /Users to prove the key is valid.
+			// body), even when a username is configured alongside the key.
+			// Fall back to listing /Users to prove the key is valid.
 			return c.get("/Users", nil, &raw)
 		}
 		return err
