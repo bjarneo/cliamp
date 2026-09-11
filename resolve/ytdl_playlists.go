@@ -122,7 +122,10 @@ func FetchUserPlaylists(browser string) ([]playlist.PlaylistInfo, error) {
 		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
-			return nil, fmt.Errorf("yt-dlp: %s", msg)
+			if isCookieSecretStorageError(msg) {
+				return nil, fmt.Errorf("%w: %w: browser=%s: %s: %w", playlist.ErrNeedsAuth, ErrMissingSecretStorage, b, msg, err)
+			}
+			return nil, fmt.Errorf("yt-dlp: %s: %w", msg, err)
 		}
 		return nil, fmt.Errorf("yt-dlp: %w", err)
 	}

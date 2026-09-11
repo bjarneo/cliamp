@@ -62,6 +62,7 @@
                 mpg123
                 ffmpeg-headless
                 yt-dlp
+                python3Packages.secretstorage
               ]
               ++ lib.optionals stdenv.hostPlatform.isLinux [
                 alsa-lib
