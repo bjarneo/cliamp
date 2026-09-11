@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -267,6 +268,26 @@ var oauthScopes = []string{
 // August 2026, login5 rejects playback credentials minted by any other client.
 var playbackOAuthScopes = []string{"streaming"}
 
+// webAPIScopes returns the scopes to request from clientID for Web API access.
+//
+// Keymaster gets the full set, including "streaming", because it authorizes
+// playback in the same flow. Any other client gets everything except
+// "streaming": login5 rejects playback credentials it mints, so the grant would
+// be unusable, and asking the user to approve streaming for a client that
+// cannot stream is misleading.
+func webAPIScopes(clientID string) []string {
+	if clientID == PlaybackClientID {
+		return oauthScopes
+	}
+	scopes := make([]string, 0, len(oauthScopes))
+	for _, scope := range oauthScopes {
+		if !slices.Contains(playbackOAuthScopes, scope) {
+			scopes = append(scopes, scope)
+		}
+	}
+	return scopes
+}
+
 // spotifyOAuthConfig returns the OAuth2 config for the given client ID.
 func spotifyOAuthConfig(clientID string, scopes []string) *oauth2.Config {
 	return &oauth2.Config{
@@ -488,7 +509,7 @@ func performOAuth2PKCEFlows(ctx context.Context, flows []oauthFlow) ([]*oauth2.T
 // doWebAPIAuth performs an OAuth2 PKCE flow to get a fresh Web API access token.
 // Opens a browser for user consent, returns the full token (including refresh token).
 func doWebAPIAuth(ctx context.Context, clientID string) (*oauth2.Token, error) {
-	token, err := performOAuth2PKCE(ctx, clientID, oauthScopes)
+	token, err := performOAuth2PKCE(ctx, clientID, webAPIScopes(clientID))
 	if err != nil {
 		return nil, err
 	}
@@ -497,14 +518,16 @@ func doWebAPIAuth(ctx context.Context, clientID string) (*oauth2.Token, error) {
 }
 
 // interactiveOAuthFlows returns the authorization sequence for a new session.
-// The built-in client already is keymaster, so it needs only one flow.
+// Web API access and playback are separate grants on separate client IDs, so
+// the usual case is two flows. Only keymaster can serve both from one flow,
+// since it is already the playback identity.
 func interactiveOAuthFlows(clientID string) []oauthFlow {
-	if clientID == DefaultClientID {
+	if clientID == PlaybackClientID {
 		return []oauthFlow{{name: "web api and playback", clientID: clientID, scopes: oauthScopes}}
 	}
 	return []oauthFlow{
-		{name: "web api", clientID: clientID, scopes: oauthScopes},
-		{name: "playback", clientID: DefaultClientID, scopes: playbackOAuthScopes},
+		{name: "web api", clientID: clientID, scopes: webAPIScopes(clientID)},
+		{name: "playback", clientID: PlaybackClientID, scopes: playbackOAuthScopes},
 	}
 }
 
