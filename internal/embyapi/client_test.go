@@ -96,7 +96,9 @@ func TestJellyfinPingAPIKeyFallsBackToUsers(t *testing.T) {
 func TestJellyfinPingAPIKeyWithUsernameFallsBackToUsers(t *testing.T) {
 	// A username configured alongside an API key must not block the fallback:
 	// /Users/Me still returns 400 because the key isn't owned by a user.
+	var requested []string
 	c := mock(NewJellyfinClient("https://jf.example.com", "tok", "", "alice", ""), func(req *http.Request) (*http.Response, error) {
+		requested = append(requested, req.URL.Path)
 		switch req.URL.Path {
 		case "/Users/Me":
 			return &http.Response{StatusCode: 400, Status: "400 Bad Request", Body: io.NopCloser(bytes.NewBuffer(nil))}, nil
@@ -109,6 +111,9 @@ func TestJellyfinPingAPIKeyWithUsernameFallsBackToUsers(t *testing.T) {
 	})
 	if err := c.Ping(); err != nil {
 		t.Fatalf("Ping() with API key + username error: %v", err)
+	}
+	if len(requested) != 2 || requested[0] != "/Users/Me" || requested[1] != "/Users" {
+		t.Fatalf("requested paths = %v, want [/Users/Me, /Users]", requested)
 	}
 }
 

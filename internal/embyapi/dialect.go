@@ -117,7 +117,7 @@ func (jellyfinDialect) discoverUserID(c *Client) (string, error) {
 	// 401/403/5xx responses surface through UserID instead of being masked.
 	var httpErr *httpError
 	if meErr != nil && !(errors.As(meErr, &httpErr) && httpErr.statusCode == http.StatusBadRequest) {
-		return "", meErr
+		return "", fmt.Errorf("jellyfin: could not discover user id: %w", meErr)
 	}
 
 	// Fall back to /Users for API key auth (a key isn't owned by a user, so
