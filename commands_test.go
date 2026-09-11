@@ -25,6 +25,8 @@ func TestInverseBoolFlags(t *testing.T) {
 		{"--no-simplified", func(ov config.Overrides) *bool { return ov.Simplified }, false},
 		{"--help-bar", func(ov config.Overrides) *bool { return ov.HideHelpBar }, false},
 		{"--no-help-bar", func(ov config.Overrides) *bool { return ov.HideHelpBar }, true},
+		{"--expanded", func(ov config.Overrides) *bool { return ov.Expanded }, true},
+		{"--no-expanded", func(ov config.Overrides) *bool { return ov.Expanded }, false},
 		{"--expand-playlist", func(ov config.Overrides) *bool { return ov.ExpandPlaylist }, true},
 		{"--no-expand-playlist", func(ov config.Overrides) *bool { return ov.ExpandPlaylist }, false},
 		{"--low-power", func(ov config.Overrides) *bool { return ov.LowPower }, true},

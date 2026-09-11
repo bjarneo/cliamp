@@ -71,6 +71,11 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # section opens full info instead. Closing Settings preserves this preference.
 # show_metadata = false
 
+# Start with the playlist at the expanded height, the state Ctrl+X toggles: the
+# list gets every body row the terminal has left instead of the shorter default.
+# The key keeps working and collapses the view as before.
+# expanded = true
+
 # UI theme name (check ~/.config/cliamp/themes/ for available themes)
 # theme = "Tokyo Night"
 
