@@ -98,4 +98,6 @@ func rebuildModelStyles() {
 	seekDimStyle = lipgloss.NewStyle().Foreground(ui.ColorDim)
 	volBarStyle = lipgloss.NewStyle().Foreground(ui.ColorVolume)
 	activeToggle = lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true)
+	favMarkerStyle = lipgloss.NewStyle().Foreground(ui.ColorError)
+	favRemovedStyle = lipgloss.NewStyle().Foreground(ui.ColorDim)
 }

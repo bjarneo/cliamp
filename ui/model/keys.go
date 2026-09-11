@@ -697,9 +697,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			}
 			m.refreshFavSet()
 			if added {
-				m.status.Showf(statusTTLDefault, favAddedMark+" %s", track.DisplayName())
+				m.status.Showf(statusTTLDefault, favAddedMark()+" %s", track.DisplayName())
 			} else {
-				m.status.Showf(statusTTLDefault, favRemovedMark+" %s", track.DisplayName())
+				m.status.Showf(statusTTLDefault, favRemovedMark()+" %s", track.DisplayName())
 			}
 			// The provider pane renders Favorites counts from Playlists();
 			// re-pull so it reflects the toggle. The manager list refreshes
@@ -2153,9 +2153,9 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 				}
 				m.refreshFavSet()
 				if added {
-					m.status.Showf(statusTTLDefault, favAddedMark+" %s", track.DisplayName())
+					m.status.Showf(statusTTLDefault, favAddedMark()+" %s", track.DisplayName())
 				} else {
-					m.status.Showf(statusTTLDefault, favRemovedMark+" %s", track.DisplayName())
+					m.status.Showf(statusTTLDefault, favRemovedMark()+" %s", track.DisplayName())
 				}
 				// Inside the Favorites screen a toggle re-reads the store so
 				// the rows mirror it: an unfavorite drops the row, a
