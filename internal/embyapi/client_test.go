@@ -73,7 +73,9 @@ func TestJellyfinPingUsesUsersMe(t *testing.T) {
 func TestJellyfinPingAPIKeyFallsBackToUsers(t *testing.T) {
 	// API keys aren't owned by a user, so /Users/Me returns 400; /Users must
 	// succeed to prove the key is valid.
+	var requested []string
 	c := mock(NewJellyfinClient("https://jf.example.com", "tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
+		requested = append(requested, req.URL.Path)
 		switch req.URL.Path {
 		case "/Users/Me":
 			return &http.Response{StatusCode: 400, Status: "400 Bad Request", Body: io.NopCloser(bytes.NewBuffer([]byte("Token is not owned by a user.")))}, nil
@@ -87,12 +89,17 @@ func TestJellyfinPingAPIKeyFallsBackToUsers(t *testing.T) {
 	if err := c.Ping(); err != nil {
 		t.Fatalf("Ping() with API key error: %v", err)
 	}
+	if len(requested) != 2 || requested[0] != "/Users/Me" || requested[1] != "/Users" {
+		t.Fatalf("requested paths = %v, want [/Users/Me, /Users]", requested)
+	}
 }
 
 // TestJellyfinPingAPIKeyBadTokenFails verifies that Ping fails when an invalid API key
 // is rejected by both /Users/Me and /Users.
 func TestJellyfinPingAPIKeyBadTokenFails(t *testing.T) {
+	var requested []string
 	c := mock(NewJellyfinClient("https://jf.example.com", "bad-tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
+		requested = append(requested, req.URL.Path)
 		switch req.URL.Path {
 		case "/Users/Me":
 			return &http.Response{StatusCode: 400, Status: "400 Bad Request", Body: io.NopCloser(bytes.NewBuffer([]byte("Token is not owned by a user.")))}, nil
@@ -105,6 +112,9 @@ func TestJellyfinPingAPIKeyBadTokenFails(t *testing.T) {
 	})
 	if err := c.Ping(); err == nil {
 		t.Fatal("Ping() with invalid API key succeeded, want error")
+	}
+	if len(requested) != 2 || requested[0] != "/Users/Me" || requested[1] != "/Users" {
+		t.Fatalf("requested paths = %v, want [/Users/Me, /Users]", requested)
 	}
 }
 
@@ -125,6 +135,27 @@ func TestJellyfinPingUnrelatedErrorDoesNotFallBackToUsers(t *testing.T) {
 	})
 	if err := c.Ping(); err == nil {
 		t.Fatal("Ping() succeeded on 500 error, want error")
+	}
+}
+
+// TestJellyfinPingNon400WithTokenMessageDoesNotFallBackToUsers verifies that Ping does
+// not fall back to /Users when /Users/Me returns a non-400 status even if the body mentions
+// "Token is not owned by a user".
+func TestJellyfinPingNon400WithTokenMessageDoesNotFallBackToUsers(t *testing.T) {
+	c := mock(NewJellyfinClient("https://jf.example.com", "tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/Users/Me":
+			return &http.Response{StatusCode: 401, Status: "401 Unauthorized", Body: io.NopCloser(bytes.NewBuffer([]byte("Token is not owned by a user.")))}, nil
+		case "/Users":
+			t.Fatal("unexpected fallback to /Users on non-400 response")
+			return jsonResponse(`[{"Id":"user-1","Name":"Alice"}]`), nil
+		default:
+			t.Fatalf("unexpected path %s", req.URL.Path)
+			return nil, nil
+		}
+	})
+	if err := c.Ping(); err == nil {
+		t.Fatal("Ping() succeeded on 401 error, want error")
 	}
 }
 
