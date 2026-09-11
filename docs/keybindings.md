@@ -197,9 +197,14 @@ commits pending selections before it closes the browser.
 
 ## Provider browser (`N` key)
 
-Press `N` to open a provider. These providers use the same album, artist, and
-track screen keys: Navidrome, Lyrion, Plex, Jellyfin, Emby, Audiobookshelf,
-Spotify, Qobuz, Tidal, Mixcloud, Podcasts, and YouTube Music.
+Press `N` to open a provider. These providers share the browser keys below:
+Navidrome, Lyrion, Plex, Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz,
+Tidal, Mixcloud, Podcasts, and YouTube Music. Artist and album screens exist
+only where the provider implements them: Navidrome, Lyrion, Jellyfin, Emby,
+Audiobookshelf, Qobuz, Tidal, and Mixcloud. Podcasts reuses those screens for
+categories and shows. Plex, Spotify, and YouTube Music have no artist or album
+screens; their playlists — and, for Plex and Spotify, saved albums — appear in
+the provider pane.
 
 | Key | Action |
 |---|---|

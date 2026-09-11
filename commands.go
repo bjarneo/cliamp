@@ -779,7 +779,7 @@ func volumeCommand() *cli.Command {
 func seekCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "seek",
-		Usage:     "seek to position in seconds",
+		Usage:     "seek by a relative offset in seconds",
 		ArgsUsage: "<seconds>",
 		Action: func(ctx context.Context, c *cli.Command) error {
 			if c.Args().Len() == 0 {

@@ -205,7 +205,7 @@ entry. See [history.md](history.md).
 cliamp spotify reset                          # clear stored Spotify credentials
 ```
 
-Use `spotify reset` for persistent `rate-limited on /v1/me` warnings or stale authentication errors. Then restart cliamp and select Spotify to sign in again. See [spotify.md](spotify.md) for the setup guide.
+Use `spotify reset` for stale authentication errors, such as `401 Unauthorized` or a repeated sign-in prompt. Then restart cliamp and select Spotify to sign in again. It does not fix `rate-limited on /v1/me` warnings: those are `429` responses to an accepted token, so the app is out of quota rather than unauthorized. See [spotify.md](spotify.md) for the setup guide.
 
 ## cliamp:// Links
 
@@ -234,6 +234,7 @@ cliamp status                          # current state
 cliamp status --json                   # machine-readable state
 cliamp volume -5                       # adjust volume (dB)
 cliamp seek 30                         # seek relative to current position (seconds)
+cliamp remote call seek.absolute --params '{"value":90}'   # seek to 90s exactly
 cliamp load "Playlist Name"            # load a playlist
 cliamp queue /path/to/file.mp3         # queue a track
 cliamp shuffle [on|off|toggle]         # toggle or set shuffle
