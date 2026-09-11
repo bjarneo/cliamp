@@ -811,6 +811,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.saveConfigKey("shuffle", fmt.Sprintf("%v", m.playlist.Shuffled()))
 		return m.rearmPreload()
 
+	case "c":
+		m.toggleAutoplayRadio()
+
 	case "tab":
 		m.focus = m.nextMainFocus(m.focus)
 	case "shift+tab":
