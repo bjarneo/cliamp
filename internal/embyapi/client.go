@@ -195,7 +195,8 @@ func (c *Client) Ping() error {
 	var raw json.RawMessage
 	if err := c.get(c.dialect.pingPath(), nil, &raw); err == nil {
 		return nil
-	} else if c.user == "" && c.password == "" {
+	} else if c.dialect.name() == "jellyfin" && c.user == "" && c.password == "" &&
+		strings.Contains(err.Error(), "Token is not owned by a user") {
 		// API keys aren't owned by a user, so /Users/Me returns 400.
 		// Fall back to listing /Users to prove the key is valid.
 		return c.get("/Users", nil, &raw)
@@ -607,6 +608,12 @@ func (c *Client) get(p string, params url.Values, out any) error {
 	switch resp.StatusCode {
 	case http.StatusOK:
 	default:
+		if resp.Body != nil {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			if msg := strings.TrimSpace(string(body)); msg != "" {
+				return fmt.Errorf("%s: %s: http status %s: %s", c.dialect.name(), p, resp.Status, msg)
+			}
+		}
 		return fmt.Errorf("%s: %s: http status %s", c.dialect.name(), p, resp.Status)
 	}
 

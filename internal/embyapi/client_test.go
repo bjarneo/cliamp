@@ -95,7 +95,7 @@ func TestJellyfinPingAPIKeyBadTokenFails(t *testing.T) {
 	c := mock(NewJellyfinClient("https://jf.example.com", "bad-tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
 		switch req.URL.Path {
 		case "/Users/Me":
-			return &http.Response{StatusCode: 400, Status: "400 Bad Request", Body: io.NopCloser(bytes.NewBuffer(nil))}, nil
+			return &http.Response{StatusCode: 400, Status: "400 Bad Request", Body: io.NopCloser(bytes.NewBuffer([]byte("Token is not owned by a user.")))}, nil
 		case "/Users":
 			return &http.Response{StatusCode: 401, Status: "401 Unauthorized", Body: io.NopCloser(bytes.NewBuffer(nil))}, nil
 		default:
@@ -105,6 +105,46 @@ func TestJellyfinPingAPIKeyBadTokenFails(t *testing.T) {
 	})
 	if err := c.Ping(); err == nil {
 		t.Fatal("Ping() with invalid API key succeeded, want error")
+	}
+}
+
+// TestJellyfinPingUnrelatedErrorDoesNotFallBackToUsers verifies that Ping does not fall back
+// to /Users when /Users/Me fails with an error other than "Token is not owned by a user".
+func TestJellyfinPingUnrelatedErrorDoesNotFallBackToUsers(t *testing.T) {
+	c := mock(NewJellyfinClient("https://jf.example.com", "tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/Users/Me":
+			return &http.Response{StatusCode: 500, Status: "500 Internal Server Error", Body: io.NopCloser(bytes.NewBuffer([]byte("server error")))}, nil
+		case "/Users":
+			t.Fatal("unexpected fallback to /Users on server error")
+			return jsonResponse(`[{"Id":"user-1","Name":"Alice"}]`), nil
+		default:
+			t.Fatalf("unexpected path %s", req.URL.Path)
+			return nil, nil
+		}
+	})
+	if err := c.Ping(); err == nil {
+		t.Fatal("Ping() succeeded on 500 error, want error")
+	}
+}
+
+// TestEmbyPingFailureDoesNotFallBackToUsers verifies that Emby ping failures do not
+// fall back to /Users even when username and password are empty.
+func TestEmbyPingFailureDoesNotFallBackToUsers(t *testing.T) {
+	c := mock(NewEmbyClient("https://emby.example.com", "tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/System/Info":
+			return &http.Response{StatusCode: 401, Status: "401 Unauthorized", Body: io.NopCloser(bytes.NewBuffer(nil))}, nil
+		case "/Users":
+			t.Fatal("unexpected fallback to /Users on Emby ping failure")
+			return jsonResponse(`[{"Id":"user-1","Name":"Alice"}]`), nil
+		default:
+			t.Fatalf("unexpected path %s", req.URL.Path)
+			return nil, nil
+		}
+	})
+	if err := c.Ping(); err == nil {
+		t.Fatal("Ping() succeeded on Emby 401 error, want error")
 	}
 }
 
