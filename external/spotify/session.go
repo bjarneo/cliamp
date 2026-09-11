@@ -279,7 +279,7 @@ var playbackOAuthScopes = []string{"streaming"}
 func spotifyOAuthConfig(clientID string, scopes []string) *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:    clientID,
-		RedirectURL: fmt.Sprintf("http://127.0.0.1:%d/login", CallbackPort),
+		RedirectURL: fmt.Sprintf("http://%s/login", callbackAddress()),
 		Scopes:      scopes,
 		Endpoint:    spotifyoauth2.Endpoint,
 	}
