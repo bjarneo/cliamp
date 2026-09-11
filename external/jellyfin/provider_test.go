@@ -120,6 +120,8 @@ func TestProviderCanReportPlayback(t *testing.T) {
 	}
 }
 
+// TestProviderRestoreTrack verifies that restoring a saved Jellyfin stream URL
+// refreshes credentials and preserves track metadata.
 func TestProviderRestoreTrack(t *testing.T) {
 	p := newProvider(NewClient("https://jf.example.com/media", "new-token", "user-1", "", ""))
 	tests := []struct {

@@ -73,6 +73,8 @@ func embyUnauthHeader(deviceID string) string {
 		appmeta.ClientName(), appmeta.DeviceName(), deviceID, appmeta.Version())
 }
 
+// embyAuthHeader builds Emby's Authorization header value for the given
+// device, user, and token.
 func embyAuthHeader(userID, token, deviceID string) string {
 	if userID != "" {
 		return fmt.Sprintf(`Emby UserId="%s", Client="%s", Device="%s", DeviceId="%s", Version="%s", Token="%s"`,
@@ -90,7 +92,9 @@ type jellyfinDialect struct{}
 
 func (jellyfinDialect) name() string     { return "jellyfin" }
 func (jellyfinDialect) pingPath() string { return "/Users/Me" }
-func (jellyfinDialect) metaKey() string  { return provider.MetaJellyfinID }
+
+// metaKey returns the ProviderMeta key Jellyfin item ids are stored under.
+func (jellyfinDialect) metaKey() string { return provider.MetaJellyfinID }
 
 // applyAuth sets Jellyfin authorization headers on req, using both the
 // standard Authorization and legacy X-Emby-Authorization headers for

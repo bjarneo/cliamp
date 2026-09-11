@@ -566,6 +566,7 @@ func (c *Client) streamURL(itemID, token string) string {
 	return u
 }
 
+// ReportNowPlaying reports the currently playing track to the server.
 func (c *Client) ReportNowPlaying(track playlist.Track, position time.Duration, canSeek bool) error {
 	return c.postJSON("/Sessions/Playing", playbackInfo{
 		CanSeek:       canSeek,

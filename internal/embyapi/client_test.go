@@ -57,6 +57,8 @@ func TestEmbyPingUsesSystemInfo(t *testing.T) {
 	}
 }
 
+// TestJellyfinPingUsesUsersMe verifies that Ping hits the /Users/Me endpoint
+// for Jellyfin.
 func TestJellyfinPingUsesUsersMe(t *testing.T) {
 	c := mock(NewJellyfinClient("https://jf.example.com", "tok", "user-1", "", ""), func(req *http.Request) (*http.Response, error) {
 		if req.URL.Path != "/Users/Me" {
@@ -510,6 +512,8 @@ func TestAlbumsByLibrary(t *testing.T) {
 	}
 }
 
+// TestTracksParsing verifies that track dictionaries are parsed from the
+// server's Items response.
 func TestTracksParsing(t *testing.T) {
 	c := mock(NewJellyfinClient("https://jf.example.com", "tok", "user-1", "", ""), func(req *http.Request) (*http.Response, error) {
 		if req.URL.Path != "/Items" || req.URL.Query().Get("includeItemTypes") != "Audio" {
@@ -573,6 +577,8 @@ func TestStreamURLFromCurrentAuth(t *testing.T) {
 	}
 }
 
+// TestStreamItemID verifies that StreamItemID extracts the item id only from
+// URLs matching the configured server and download route.
 func TestStreamItemID(t *testing.T) {
 	c := NewJellyfinClient("https://jf.example.com/media", "new-token", "user-1", "", "")
 	tests := []struct {
@@ -633,6 +639,8 @@ func TestResolveSourceAuthenticatesWithPassword(t *testing.T) {
 	}
 }
 
+// TestResolveSourceAuthenticationFailure verifies that source resolution
+// returns no URL and surfaces the authentication error.
 func TestResolveSourceAuthenticationFailure(t *testing.T) {
 	c := mock(NewJellyfinClient("https://jf.example.com", "", "", "user", "password"), func(req *http.Request) (*http.Response, error) {
 		return &http.Response{
