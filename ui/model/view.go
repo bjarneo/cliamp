@@ -259,8 +259,11 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 			if !m.visualizerDisabled() {
 				sections = append(sections, m.renderSpectrum())
 			}
+			sections = append(sections, m.renderSeekBar())
+			if dial := m.renderRadioDial(); dial != "" {
+				sections = append(sections, dial)
+			}
 			sections = append(sections,
-				m.renderSeekBar(),
 				m.renderCompactControls(),
 				m.renderCompactSource(),
 				m.renderPlaylistHeader(),
@@ -283,6 +286,9 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 				sections = append(sections, m.renderSpectrum())
 			}
 			sections = append(sections, m.renderSeekBar())
+			if dial := m.renderRadioDial(); dial != "" {
+				sections = append(sections, dial)
+			}
 			switch {
 			case m.layout.twoColumn:
 				// EQ, volume, source, and speed move into the settings pane
