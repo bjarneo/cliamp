@@ -74,7 +74,7 @@ type NavidromeConfig struct {
 	URL              string // e.g. "https://music.example.com"
 	User             string
 	Password         string
-	Format           string
+	Format           string // requested stream format; empty lets the server decide, "raw" requests the original
 	BrowseSort       string // album browse sort order, e.g. "alphabeticalByName"
 	ScrobbleDisabled bool   // true only when "scrobble = false" is explicitly set
 }

@@ -427,6 +427,7 @@ footer a{color:var(--fg-2)}
       <div class="filters" id="filters" role="group" aria-label="Filter sources"></div>
     </div>
     <div class="grid g-sources" id="sources-grid"></div>
+    <p class="sub">Navidrome uses the player's transcoding settings, or streams the original file if none are configured. Set <code>format = "raw"</code> under <code>[navidrome]</code> to always request the original. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/navidrome.md#transcoding">Navidrome guide</a>.</p>
     <p class="sub">With Jellyfin as the default provider, reopen cliamp without files, URLs, or a playlist to restore the last track, position, and complete source list. Queued tracks keep their own album context. Press <kbd>Enter</kbd> to resume; restored sessions stay silent even with <code>auto_play</code>. Playback is checkpointed every two seconds and on normal exit, without saving unfinished seeks. Stream URLs use current API-key or password authentication when playback starts. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/jellyfin.md">Jellyfin guide</a>.</p>
   </section>
 

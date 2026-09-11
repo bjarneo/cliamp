@@ -134,7 +134,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	var navClient *navidrome.NavidromeClient
 	if c := navidrome.NewFromConfig(cfg.Navidrome); c != nil {
 		navClient = c
-	} else if c := navidrome.NewFromEnv(); c != nil {
+	} else if c := navidrome.NewFromEnv(cfg.Navidrome); c != nil {
 		navClient = c
 	}
 	if navClient != nil {

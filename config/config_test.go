@@ -913,3 +913,34 @@ func TestOverridesApplyExpanded(t *testing.T) {
 		t.Error("Expanded should be true after applying the override")
 	}
 }
+
+func TestLoadNavidromeFormat(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"absent", "[navidrome]\nurl = \"https://e.com\"\nuser = \"a\"\npassword = \"b\"\n", ""},
+		{"raw", "[navidrome]\nurl = \"https://e.com\"\nuser = \"a\"\npassword = \"b\"\nformat = \"raw\"\n", "raw"},
+		{"mp3", "[navidrome]\nurl = \"https://e.com\"\nuser = \"a\"\npassword = \"b\"\nformat = \"mp3\"\n", "mp3"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			if err := os.WriteFile(path, []byte(tt.body), 0o644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.Navidrome.Format != tt.want {
+				t.Errorf("Navidrome.Format = %q, want %q", cfg.Navidrome.Format, tt.want)
+			}
+		})
+	}
+}
