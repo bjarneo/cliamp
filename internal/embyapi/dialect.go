@@ -92,6 +92,9 @@ func (jellyfinDialect) name() string     { return "jellyfin" }
 func (jellyfinDialect) pingPath() string { return "/Users/Me" }
 func (jellyfinDialect) metaKey() string  { return provider.MetaJellyfinID }
 
+// applyAuth sets Jellyfin authorization headers on req, using both the
+// standard Authorization and legacy X-Emby-Authorization headers for
+// compatibility across server versions.
 func (jellyfinDialect) applyAuth(req *http.Request, token, _, deviceID string) {
 	auth := fmt.Sprintf(`MediaBrowser Client="%s", Device="%s", DeviceId="%s", Version="%s"`,
 		appmeta.ClientName(), appmeta.DeviceName(), deviceID, appmeta.Version())
@@ -103,6 +106,8 @@ func (jellyfinDialect) applyAuth(req *http.Request, token, _, deviceID string) {
 	req.Header.Set("X-Emby-Authorization", auth)
 }
 
+// discoverUserID resolves the user id via /Users/Me, falling back to the
+// /Users listing only for the API-key case where /Users/Me returns 400.
 func (jellyfinDialect) discoverUserID(c *Client) (string, error) {
 	// Try /Users/Me first (works for session tokens from password auth).
 	var me userDTO

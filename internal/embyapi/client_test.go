@@ -69,6 +69,8 @@ func TestJellyfinPingUsesUsersMe(t *testing.T) {
 	}
 }
 
+// TestJellyfinPingAPIKeyFallsBackToUsers verifies that Ping falls back to the
+// /Users listing when /Users/Me returns a 400 for a server-level API key.
 func TestJellyfinPingAPIKeyFallsBackToUsers(t *testing.T) {
 	// API keys aren't owned by a user, so /Users/Me returns an empty-body 400;
 	// /Users must succeed to prove the key is valid.
@@ -93,6 +95,8 @@ func TestJellyfinPingAPIKeyFallsBackToUsers(t *testing.T) {
 	}
 }
 
+// TestJellyfinPingAPIKeyWithUsernameFallsBackToUsers verifies that a username
+// configured alongside an API key still falls back to /Users.
 func TestJellyfinPingAPIKeyWithUsernameFallsBackToUsers(t *testing.T) {
 	// A username configured alongside an API key must not block the fallback:
 	// /Users/Me still returns 400 because the key isn't owned by a user.
@@ -117,6 +121,8 @@ func TestJellyfinPingAPIKeyWithUsernameFallsBackToUsers(t *testing.T) {
 	}
 }
 
+// TestJellyfinPingAPIKeyBadTokenFails verifies that Ping fails when an invalid
+// API key is rejected by both /Users/Me and /Users.
 func TestJellyfinPingAPIKeyBadTokenFails(t *testing.T) {
 	var requested []string
 	c := mock(NewJellyfinClient("https://jf.example.com", "bad-tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
@@ -139,6 +145,8 @@ func TestJellyfinPingAPIKeyBadTokenFails(t *testing.T) {
 	}
 }
 
+// TestJellyfinPingUnrelatedErrorDoesNotFallBackToUsers verifies that a ping
+// failure other than the API-key 400 does not trigger the /Users fallback.
 func TestJellyfinPingUnrelatedErrorDoesNotFallBackToUsers(t *testing.T) {
 	// /Users/Me failing with an error other than the API-key response must not
 	// trigger the /Users fallback.
@@ -159,6 +167,8 @@ func TestJellyfinPingUnrelatedErrorDoesNotFallBackToUsers(t *testing.T) {
 	}
 }
 
+// TestJellyfinPingNon400WithTokenMessageDoesNotFallBackToUsers verifies that a
+// non-400 response carrying the API-key message does not trigger the fallback.
 func TestJellyfinPingNon400WithTokenMessageDoesNotFallBackToUsers(t *testing.T) {
 	// A non-400 response carrying the API-key message must not fall back.
 	c := mock(NewJellyfinClient("https://jf.example.com", "tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
@@ -178,6 +188,8 @@ func TestJellyfinPingNon400WithTokenMessageDoesNotFallBackToUsers(t *testing.T) 
 	}
 }
 
+// TestEmbyPingFailureDoesNotFallBackToUsers verifies that Emby ping failures
+// never fall back to /Users.
 func TestEmbyPingFailureDoesNotFallBackToUsers(t *testing.T) {
 	// Emby ping failures must return the original error, never fall back.
 	c := mock(NewEmbyClient("https://emby.example.com", "tok", "", "", ""), func(req *http.Request) (*http.Response, error) {
@@ -197,6 +209,8 @@ func TestEmbyPingFailureDoesNotFallBackToUsers(t *testing.T) {
 	}
 }
 
+// TestJellyfinUserIDAPIKeyFallback verifies that user-id discovery falls back
+// to /Users and picks a user when authenticated with an API key.
 func TestJellyfinUserIDAPIKeyFallback(t *testing.T) {
 	// /Users/Me returns 400 for API keys; fall back to /Users and pick the
 	// first user.
@@ -225,6 +239,8 @@ func TestJellyfinUserIDAPIKeyFallback(t *testing.T) {
 	}
 }
 
+// TestJellyfinUserIDNon400ErrorNotMaskedByFallback verifies that a non-400
+// /Users/Me failure surfaces through UserID instead of the /Users fallback.
 func TestJellyfinUserIDNon400ErrorNotMaskedByFallback(t *testing.T) {
 	// A non-400 failure of /Users/Me must surface through UserID instead of
 	// being masked by the /Users fallback.
@@ -514,6 +530,8 @@ func TestTracksParsing(t *testing.T) {
 	}
 }
 
+// TestStreamURL verifies that StreamURL builds the download URL with both the
+// modern ApiKey and legacy api_key query parameters.
 func TestStreamURL(t *testing.T) {
 	c := NewEmbyClient("https://emby.example.com", "tok", "user-1", "", "")
 	u := c.StreamURL("track-1")
@@ -528,6 +546,9 @@ func TestStreamURL(t *testing.T) {
 	}
 }
 
+// TestStreamURLFromCurrentAuth verifies that StreamURLFromCurrentAuth embeds
+// the current token as both ApiKey and api_key, and returns no URL before
+// password authentication completes.
 func TestStreamURLFromCurrentAuth(t *testing.T) {
 	withToken := NewJellyfinClient("https://jf.example.com", "token", "user-1", "", "")
 	got, ok := withToken.StreamURLFromCurrentAuth("track-1")
@@ -575,6 +596,8 @@ func TestStreamItemID(t *testing.T) {
 	}
 }
 
+// TestResolveSourceAuthenticatesWithPassword verifies that source resolution
+// authenticates via password when no token is present and appends auth params.
 func TestResolveSourceAuthenticatesWithPassword(t *testing.T) {
 	for _, baseURL := range []string{"https://jf.example.com/media", "http://jf.lan:8096/media"} {
 		t.Run(baseURL, func(t *testing.T) {
@@ -627,6 +650,8 @@ func TestResolveSourceAuthenticationFailure(t *testing.T) {
 	}
 }
 
+// TestResolveSourceWithTokenDoesNotRequest ensures that resolving a stream URL
+// with a configured token sends no authentication request.
 func TestResolveSourceWithTokenDoesNotRequest(t *testing.T) {
 	c := mock(NewJellyfinClient("https://jf.example.com/media", "new-token", "", "", ""), func(req *http.Request) (*http.Response, error) {
 		t.Fatalf("unexpected request with configured token: %s", req.URL)

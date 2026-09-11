@@ -543,6 +543,8 @@ func (c *Client) StreamURL(itemID string) string {
 	return c.streamURL(itemID, c.authToken())
 }
 
+// streamURL builds a direct-download stream URL for an item, carrying both the
+// modern ApiKey and legacy api_key query parameters.
 func (c *Client) streamURL(itemID, token string) string {
 	// ApiKey is the auth query param Jellyfin reads on every version (including
 	// 10.12+/12 which disable legacy auth); api_key is the legacy alias that
@@ -575,6 +577,8 @@ func (c *Client) ReportNowPlaying(track playlist.Track, position time.Duration, 
 	})
 }
 
+// ReportScrobble reports playback progress and a stop event for the given
+// track to the server.
 func (c *Client) ReportScrobble(track playlist.Track, elapsed time.Duration, canSeek bool) error {
 	progress := playbackInfo{
 		CanSeek:       canSeek,
@@ -608,6 +612,8 @@ func (e *httpError) Error() string {
 	return fmt.Sprintf("%s: %s: http status %s", e.dialect, e.path, e.status)
 }
 
+// get executes a GET request against the endpoint, unmarshaling JSON into out
+// on success and returning a typed httpError for non-200 responses.
 func (c *Client) get(p string, params url.Values, out any) error {
 	if err := c.ensureAuth(); err != nil {
 		return err
