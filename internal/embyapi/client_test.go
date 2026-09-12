@@ -131,6 +131,9 @@ func TestJellyfinAuthHeaderScheme(t *testing.T) {
 			if got := req.Header.Get("X-Emby-Token"); got != "tok" {
 				t.Fatalf("X-Emby-Token = %q, want tok", got)
 			}
+			if got := req.Header.Get("Authorization"); !strings.HasPrefix(got, "MediaBrowser ") || !strings.Contains(got, `Token="tok"`) {
+				t.Fatalf("Authorization = %q, want MediaBrowser scheme with token", got)
+			}
 			if got := req.Header.Get("X-Emby-Authorization"); !strings.HasPrefix(got, "MediaBrowser ") {
 				t.Fatalf("X-Emby-Authorization = %q, want MediaBrowser scheme", got)
 			}
@@ -180,6 +183,9 @@ func TestJellyfinAuthenticatesWithPassword(t *testing.T) {
 	c := mock(NewJellyfinClient("https://jf.example.com", "", "", "finamp", "1qazxsw2"), func(req *http.Request) (*http.Response, error) {
 		switch req.URL.Path {
 		case "/Users/AuthenticateByName":
+			if got := req.Header.Get("Authorization"); !strings.HasPrefix(got, "MediaBrowser ") {
+				t.Fatalf("auth request Authorization = %q, want MediaBrowser scheme", got)
+			}
 			if got := req.Header.Get("X-Emby-Authorization"); !strings.HasPrefix(got, "MediaBrowser ") {
 				t.Fatalf("auth request X-Emby-Authorization = %q, want MediaBrowser scheme", got)
 			}
@@ -187,6 +193,9 @@ func TestJellyfinAuthenticatesWithPassword(t *testing.T) {
 		case "/Users/user-1/Views":
 			if got := req.Header.Get("X-Emby-Token"); got != "tok-1" {
 				t.Fatalf("X-Emby-Token = %q, want tok-1", got)
+			}
+			if got := req.Header.Get("Authorization"); !strings.HasPrefix(got, "MediaBrowser ") || !strings.Contains(got, `Token="tok-1"`) {
+				t.Fatalf("Authorization = %q, want MediaBrowser scheme with token", got)
 			}
 			return jsonResponse(`{"Items":[{"Id":"music-1","Name":"Music","CollectionType":"music"}]}`), nil
 		default:

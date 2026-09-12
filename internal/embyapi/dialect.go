@@ -81,8 +81,9 @@ func embyAuthHeader(userID, token, deviceID string) string {
 		appmeta.ClientName(), appmeta.DeviceName(), deviceID, appmeta.Version(), token)
 }
 
-// jellyfinDialect speaks Jellyfin's `X-Emby-Authorization: MediaBrowser ...`
-// scheme and discovers the user id from /Users/Me only.
+// jellyfinDialect speaks Jellyfin's `Authorization: MediaBrowser *** scheme
+// (with X-Emby-Authorization and X-Emby-Token for backward compatibility)
+// and discovers the user id from /Users/Me only.
 type jellyfinDialect struct{}
 
 func (jellyfinDialect) name() string     { return "jellyfin" }
@@ -91,7 +92,14 @@ func (jellyfinDialect) metaKey() string  { return provider.MetaJellyfinID }
 
 func (jellyfinDialect) applyAuth(req *http.Request, token, _, deviceID string) {
 	if token != "" {
+		req.Header.Set("Authorization",
+			fmt.Sprintf(`MediaBrowser Client="%s", Device="%s", DeviceId="%s", Version="%s", Token="%s"`,
+				appmeta.ClientName(), appmeta.DeviceName(), deviceID, appmeta.Version(), token))
 		req.Header.Set("X-Emby-Token", token)
+	} else {
+		req.Header.Set("Authorization",
+			fmt.Sprintf(`MediaBrowser Client="%s", Device="%s", DeviceId="%s", Version="%s"`,
+				appmeta.ClientName(), appmeta.DeviceName(), deviceID, appmeta.Version()))
 	}
 	req.Header.Set("X-Emby-Authorization",
 		fmt.Sprintf(`MediaBrowser Client="%s", Device="%s", DeviceId="%s", Version="%s"`,
