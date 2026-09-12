@@ -200,10 +200,11 @@ func averageSpectrumRangeLinear(magnitudes []float64, loPos, hiPos float64) floa
 }
 
 // Pre-built styles for spectrum bar colors to avoid per-frame allocation.
+// Built by ApplyThemeColors (styles.go), never here.
 var (
-	specLowStyle  = lipgloss.NewStyle().Foreground(SpectrumLow)
-	specMidStyle  = lipgloss.NewStyle().Foreground(SpectrumMid)
-	specHighStyle = lipgloss.NewStyle().Foreground(SpectrumHigh)
+	specLowStyle  lipgloss.Style
+	specMidStyle  lipgloss.Style
+	specHighStyle lipgloss.Style
 )
 
 // Raw ANSI wrappers for the spectrum styles. Caching these once lets every
@@ -215,10 +216,6 @@ var (
 	specMidPrefix, specMidSuffix   string
 	specHighPrefix, specHighSuffix string
 )
-
-func init() {
-	refreshSpecANSI()
-}
 
 func refreshSpecANSI() {
 	specLowPrefix, specLowSuffix = splitStyleAroundProbe(specLowStyle)

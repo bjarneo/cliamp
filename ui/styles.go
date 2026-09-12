@@ -11,27 +11,29 @@ import (
 	"github.com/bjarneo/cliamp/theme"
 )
 
-// CLIAMP color palette using standard ANSI terminal colors (0-15).
-// These adapt to the user's terminal theme for consistent appearance.
+// CLIAMP color palette. With no theme configured these are the standard ANSI
+// terminal colors (0-15), which adapt to the user's terminal theme. They have
+// no initializers: ApplyThemeColors is the single place that sets them, from
+// init for the default palette and again on every theme change.
 var (
 	ColorBackground color.Color
-	ColorTitle      color.Color = lipgloss.ANSIColor(10) // bright green
-	ColorText       color.Color = lipgloss.ANSIColor(15) // bright white
-	ColorDim        color.Color = lipgloss.ANSIColor(7)  // white (light gray)
-	ColorAccent     color.Color = lipgloss.ANSIColor(11) // bright yellow
-	ColorPlaying    color.Color = lipgloss.ANSIColor(10) // bright green
-	ColorSeekBar    color.Color = lipgloss.ANSIColor(11) // bright yellow
-	ColorVolume     color.Color = lipgloss.ANSIColor(2)  // green
-	ColorError      color.Color = lipgloss.ANSIColor(9)  // bright red
-	ColorWarning    color.Color = lipgloss.ANSIColor(11) // bright yellow
-	ColorKeyBG      color.Color = lipgloss.ANSIColor(8)  // bright black (dark gray)
-	ColorKeyFG      color.Color = lipgloss.ANSIColor(15) // bright white
-
-	// Spectrum gradient: green -> yellow -> red
-	SpectrumLow  color.Color = lipgloss.ANSIColor(10) // bright green
-	SpectrumMid  color.Color = lipgloss.ANSIColor(11) // bright yellow
-	SpectrumHigh color.Color = lipgloss.ANSIColor(9)  // bright red
+	ColorTitle      color.Color
+	ColorText       color.Color
+	ColorDim        color.Color
+	ColorAccent     color.Color
+	ColorPlaying    color.Color
+	ColorSeekBar    color.Color
+	ColorVolume     color.Color
+	ColorError      color.Color
+	ColorWarning    color.Color
+	ColorKeyBG      color.Color
+	ColorKeyFG      color.Color
+	SpectrumLow     color.Color
+	SpectrumMid     color.Color
+	SpectrumHigh    color.Color
 )
+
+func init() { ApplyThemeColors(theme.Default()) }
 
 // PaddingH is the horizontal padding inside the frame.
 var PaddingH = 3

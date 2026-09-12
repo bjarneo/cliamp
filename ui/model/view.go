@@ -26,21 +26,22 @@ const (
 	titleScrollInterval = 200 * time.Millisecond
 )
 
-// Pre-built styles for elements created per-render to avoid repeated allocation.
+// Pre-built styles for elements created per-render to avoid repeated
+// allocation. Built by rebuildModelStyles (styles.go), never here.
 var (
-	seekFillStyle = lipgloss.NewStyle().Foreground(ui.ColorSeekBar)
-	seekDimStyle  = lipgloss.NewStyle().Foreground(ui.ColorDim)
-	volBarStyle   = lipgloss.NewStyle().Foreground(ui.ColorVolume)
-	activeToggle  = lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true)
+	seekFillStyle lipgloss.Style
+	seekDimStyle  lipgloss.Style
+	volBarStyle   lipgloss.Style
+	activeToggle  lipgloss.Style
 	// favMarkerStyle paints the favorite heart in the theme's red so it
 	// reads as a deliberate accent instead of inheriting the dim/unavailable
 	// look. The glyph carries U+FE0E (text presentation) so terminals render
 	// it as a compact font glyph rather than a large color emoji.
-	favMarkerStyle = lipgloss.NewStyle().Foreground(ui.ColorError)
+	favMarkerStyle lipgloss.Style
 	// favRemovedStyle mutes the same filled heart for unfavorite feedback:
 	// identical attractive glyph, faded to signal the removed state instead
 	// of switching to a thin outline glyph.
-	favRemovedStyle = lipgloss.NewStyle().Foreground(ui.ColorDim)
+	favRemovedStyle lipgloss.Style
 )
 
 // favHeart is the small, text-presentation favorite heart used everywhere the
