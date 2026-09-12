@@ -56,11 +56,13 @@ const (
 	seekEmptyGlyph = "─"
 )
 
-// Pre-rendered toggle feedback marks for the status bar.
-var (
-	favAddedMark   = favMarkerStyle.Render(favHeart)
-	favRemovedMark = favRemovedStyle.Render(favHeart)
-)
+// Toggle feedback marks for the status bar. Rendered per call, not stored, so
+// they pick up favMarkerStyle/favRemovedStyle as rebuildModelStyles leaves
+// them after a theme change. Both call sites are key handlers, not the render
+// loop.
+func favAddedMark() string { return favMarkerStyle.Render(favHeart) }
+
+func favRemovedMark() string { return favRemovedStyle.Render(favHeart) }
 
 // providerEmptyStateHint, keyed by lowercase provider Name(), returns the
 // remediation hint shown under the generic "No playlists in X" message.
