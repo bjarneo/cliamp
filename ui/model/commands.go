@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/history"
+	"github.com/bjarneo/cliamp/internal/clipboard"
 	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/lyrics"
 	"github.com/bjarneo/cliamp/player"
@@ -134,6 +135,20 @@ type ytdlBatchMsg struct {
 type ytdlSavedMsg struct {
 	path string
 	err  error
+}
+
+// shareCopiedMsg carries the result of an async clipboard copy back to the
+// update loop, so a stalled backend never blocks input handling. The link
+// rides along so a failed copy still shows the usable result.
+type shareCopiedMsg struct {
+	link string
+	err  error
+}
+
+func shareCopyCmd(link string) tea.Cmd {
+	return func() tea.Msg {
+		return shareCopiedMsg{link: link, err: clipboard.Copy(link)}
+	}
 }
 
 // — Navidrome browser message types —

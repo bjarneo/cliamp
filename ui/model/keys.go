@@ -858,6 +858,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "ctrl+s":
 		return m.saveTrack()
+	case "ctrl+y":
+		return m.shareTrack()
 	case "S":
 		return m.switchToProvider("spotify")
 
@@ -1121,6 +1123,25 @@ func (m *Model) saveTrack() tea.Cmd {
 
 	m.status.Showf(statusTTLDefault, "Saved to ~/Music/cliamp/%s", name+ext)
 	return nil
+}
+
+// shareTrack copies a shareable link for the playing track to the clipboard.
+// Spotify URIs become open.spotify.com pages and plain URLs pass through;
+// anything without a public link (local files, search expressions) reports
+// why instead of copying.
+func (m *Model) shareTrack() tea.Cmd {
+	track, idx := m.currentPlaybackTrack()
+	if idx < 0 {
+		m.status.Warning("Nothing to share", statusTTLShort)
+		return nil
+	}
+	link, ok := playlist.ShareLink(track.Path)
+	if !ok {
+		m.status.Warning("No shareable link for this track", statusTTLShort)
+		return nil
+	}
+	m.status.Clear()
+	return shareCopyCmd(link)
 }
 
 func (m *Model) resetJumpInput() {

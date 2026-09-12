@@ -772,6 +772,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case shareCopiedMsg:
+		if msg.err != nil {
+			m.status.Errorf(statusTTLShort, "Copy failed, link: %s (%s)", msg.link, msg.err)
+		} else {
+			m.status.Successf(statusTTLShort, "Link copied: %s", msg.link)
+		}
+		return m, nil
+
 	case ytdlResolvedMsg:
 		m.buffering = false
 		if msg.err != nil {
