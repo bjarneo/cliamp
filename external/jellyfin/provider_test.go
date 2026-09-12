@@ -120,6 +120,8 @@ func TestProviderCanReportPlayback(t *testing.T) {
 	}
 }
 
+// TestProviderRestoreTrack verifies that restoring a saved Jellyfin stream URL
+// refreshes credentials and preserves track metadata.
 func TestProviderRestoreTrack(t *testing.T) {
 	p := newProvider(NewClient("https://jf.example.com/media", "new-token", "user-1", "", ""))
 	tests := []struct {
@@ -164,6 +166,9 @@ func TestProviderRestoreTrack(t *testing.T) {
 	}
 }
 
+// TestProviderRestoreTrackDefersAuthenticationUntilSourceResolution verifies
+// that restoring a saved stream URL performs no startup requests and defers
+// password authentication until source resolution.
 func TestProviderRestoreTrackDefersAuthenticationUntilSourceResolution(t *testing.T) {
 	p := newProvider(NewClient("https://jf.example.com", "", "", "user", "password"))
 	p.client.SetHTTPClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -188,7 +193,7 @@ func TestProviderRestoreTrackDefersAuthenticationUntilSourceResolution(t *testin
 	if err != nil {
 		t.Fatalf("ResolveSource() error: %v", err)
 	}
-	if want := "https://jf.example.com/Items/track-1/Download?api_key=new-token"; source != want {
+	if want := "https://jf.example.com/Items/track-1/Download?ApiKey=new-token&api_key=new-token"; source != want {
 		t.Fatalf("ResolveSource() = %q, want %q", source, want)
 	}
 	if got.Path != oldURL || got.Title != "Song" || got.Meta(provider.MetaJellyfinID) != "track-1" || !got.Stream {
