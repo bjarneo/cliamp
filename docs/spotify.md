@@ -36,7 +36,7 @@ Run `cliamp`, select Spotify, and press Enter to sign in. With your own `client_
 
 Spotify introduced the current Development Mode restrictions for new apps on February 11, 2026. It migrated existing Development Mode apps on March 9, 2026. Extended Quota Mode apps are not affected. See the Spotify [February 2026 migration guide](https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide) for the full timeline.
 
-Search remains available in Development Mode, but `/v1/search` accepts at most **10 results per request**. A larger request returns `400 "Invalid limit"`. This does not mean search is blocked. Cliamp uses `offset` to page results in groups of 10. <kbd>Ctrl+F</kbd> returns the full result set.
+Search remains available in Development Mode, but `/v1/search` accepts at most **10 results per request**. A larger request returns `400 "Invalid limit"`. This does not mean search is blocked. Cliamp uses `offset` to page results in groups of 10. <kbd>Ctrl+F</kbd> asks for 20 results of each kind — albums, tracks, and episodes — so a Development Mode app fetches them as two pages of 10.
 
 Other Development Mode changes remove endpoints such as `/v1/browse/new-releases`. They restrict playlist items to playlists the user owns or collaborates on. `/v1/search` remains available and does not require Extended Quota Mode.
 
@@ -89,8 +89,8 @@ Podcast episodes work as tracks. Press `Ctrl+F` to search Spotify. Matching epis
 - **Playlist not showing**: Save or follow the playlist in Spotify. The provider lists only library playlists.
 - **Playback issues**: Spotify integration needs a Premium account. Free accounts cannot stream.
 - **Re-authenticate**: Run `cliamp spotify reset` to clear stored credentials. Then restart cliamp, select Spotify, and sign in again. This is the same as deleting `~/.config/cliamp/spotify_credentials.json`.
-- **Persistent "rate-limited" errors on `/v1/me`**: Stored authorization has expired or been revoked. Cliamp usually detects this at startup and prompts for sign-in. If it does not, run `cliamp spotify reset` and authenticate again. This is *not* a Spotify rate limit. Waiting does not fix it.
-- **`429 Too Many Requests` on search or playlist loading (using the built-in fallback)**: The built-in `client_id` is shared with librespot- and spotify-player-based clients. When the global pool is busy, Spotify limits requests for every client that uses it. Cliamp retries with exponential backoff. If errors continue, register a developer app and set `client_id` in `[spotify]`. Your app has a separate quota.
+- **Expired or revoked authorization**: Web API calls fail with `401 Unauthorized`, and playback asks for a new sign-in. Cliamp usually detects this at startup and prompts. If it does not, run `cliamp spotify reset` and authenticate again.
+- **`429 Too Many Requests`, including `rate-limited on /v1/me`**: Spotify accepted the credentials and throttled the *app*, so re-authenticating does not help. With the built-in `client_id`, the quota is shared with librespot- and spotify-player-based clients worldwide, and a busy pool limits every client that uses it. Cliamp retries with exponential backoff, honoring `Retry-After`. A `Retry-After` of hours (for example `86400`) means the app has no quota left for that window: register a developer app and set `client_id` in `[spotify]`. Your app has a separate quota.
 - **`400 "Invalid limit"` on <kbd>Ctrl+F</kbd>**: Development Mode apps limit `/v1/search` to 10 results per request. Cliamp pages results automatically. This error means the limit is now less than 10. Open an issue.
 
 ## Requirements
