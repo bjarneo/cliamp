@@ -37,6 +37,7 @@ type playbackFakeEngine struct {
 	stopCalls           int
 	playGeneration      uint64
 	preloadGeneration   uint64
+	hasPreload          bool
 	eqBands             [eqBandCount]float64
 }
 
@@ -110,7 +111,7 @@ func (f *playbackFakeEngine) CancelSeekYTDL()    { f.cancelSeekYTDLCalls++ }
 func (f *playbackFakeEngine) IsPlaying() bool    { return f.playing }
 func (f *playbackFakeEngine) IsPaused() bool     { return f.paused }
 func (f *playbackFakeEngine) Drained() bool      { return f.drained }
-func (f *playbackFakeEngine) HasPreload() bool   { return false }
+func (f *playbackFakeEngine) HasPreload() bool   { return f.hasPreload }
 func (f *playbackFakeEngine) Seekable() bool     { return f.seekable }
 func (f *playbackFakeEngine) IsStreamSeek() bool { return false }
 func (f *playbackFakeEngine) IsYTDLSeek() bool   { return f.ytdlSeek }
