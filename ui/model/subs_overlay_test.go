@@ -394,3 +394,40 @@ func TestLoadLatestFromProviderListIgnoresSectionRows(t *testing.T) {
 		t.Error("a section row produced a load command")
 	}
 }
+
+func TestAppendShowFromProviderListAppendsEverything(t *testing.T) {
+	prov := &sectionedSubProv{
+		subProv: subProv{episodes: map[string][]playlist.Track{
+			"f:feed-a": {published("one", "2026-09-10"), published("two", "2026-09-01")},
+		}},
+		favoritable: map[string]bool{"f:feed-a": true},
+	}
+	m := &Model{
+		provider:      prov,
+		playlist:      playlist.New(),
+		providerLists: []playlist.PlaylistInfo{{ID: "f:feed-a", Name: "Show"}},
+	}
+	m.playlist.Add(playlist.Track{Path: "/already-here.mp3"})
+	m.playlist.Queue(0)
+
+	cmd := m.appendShowFromProviderList()
+	if cmd == nil {
+		t.Fatal("no command returned for a highlighted show")
+	}
+	msg := cmd().(subsEpisodesMsg)
+	if msg.mode != subsLoadAppend {
+		t.Errorf("mode = %v, want subsLoadAppend", msg.mode)
+	}
+	m.addSubscriptionEpisodes(msg.tracks, msg.mode, msg.name)
+
+	if got := m.playlist.Len(); got != 3 {
+		t.Errorf("playlist length = %d, want 3; the existing track must survive", got)
+	}
+	if got := m.playlist.QueueLen(); got != 1 {
+		t.Errorf("queue length = %d, want the existing queue entry to survive", got)
+	}
+	first, _ := m.playlist.Track(0)
+	if first.Path != "/already-here.mp3" {
+		t.Errorf("first track = %q, want the pre-existing one", first.Path)
+	}
+}

@@ -237,3 +237,14 @@ func (m *Model) loadLatestFromProviderList() tea.Cmd {
 	}
 	return m.loadShowEpisodes(id, name, subsLoadLatest)
 }
+
+// appendShowFromProviderList adds every episode of the highlighted show to the
+// playlist. Unlike Enter on the same row, it appends instead of replacing, so
+// the playlist and the queue survive.
+func (m *Model) appendShowFromProviderList() tea.Cmd {
+	id, name, ok := m.selectedProviderShow()
+	if !ok {
+		return nil
+	}
+	return m.loadShowEpisodes(id, name, subsLoadAppend)
+}

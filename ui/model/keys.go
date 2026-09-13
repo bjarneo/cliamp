@@ -383,6 +383,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.openSubsOverlay()
 		case "l":
 			return m.loadLatestFromProviderList()
+		case "a":
+			return m.appendShowFromProviderList()
 		case "p":
 			if m.isActiveProvider("Local") && m.localProvider != nil {
 				m.openPlaylistManager()

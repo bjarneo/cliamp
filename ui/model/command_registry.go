@@ -193,6 +193,10 @@ var commandRegistry = []commandSpec{
 		_, _, ok := m.selectedProviderShow()
 		return ok
 	}},
+	{Mode: commandModeProvider, Keys: []string{"a"}, KeyLabel: "a", Label: "Append every episode", Keymap: true, Enabled: func(m Model) bool {
+		_, _, ok := m.selectedProviderShow()
+		return ok
+	}},
 	{Mode: commandModeProvider, Keys: []string{"f"}, KeyLabel: "f", Label: "Favorite", ContextHelp: true, Prominent: true, Enabled: func(m Model) bool {
 		_, ok := m.provider.(provider.FavoriteToggler)
 		if !ok || m.provLoading || m.provCursor < 0 || m.provCursor >= len(m.providerLists) || m.selectedProviderListIsBrowseEntry() {
