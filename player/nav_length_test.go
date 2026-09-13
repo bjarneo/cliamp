@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/gopxl/beep/v2"
 )
@@ -104,39 +103,6 @@ func TestNavBufferCompletedPathOnTruncatedDownload(t *testing.T) {
 	if _, ok := b.completedPath(); ok {
 		t.Error("completedPath() = true for a download that stopped short")
 	}
-}
-
-// TestLivePodcastRealLength measures a real episode and compares it with the
-// feed's own itunes:duration. Set CLIAMP_LIVE_PODCAST=1, the URL, and the
-// declared length in seconds to run it.
-func TestLivePodcastRealLength(t *testing.T) {
-	if os.Getenv("CLIAMP_LIVE_PODCAST") != "1" {
-		t.Skip("set CLIAMP_LIVE_PODCAST=1 to run")
-	}
-	url := os.Getenv("CLIAMP_LIVE_PODCAST_URL")
-	if url == "" {
-		t.Skip("set CLIAMP_LIVE_PODCAST_URL to an episode enclosure URL")
-	}
-
-	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
-	p.RegisterBufferedURLMatcher(func(string) bool { return true })
-	tp, err := p.buildPipeline(url)
-	if err != nil {
-		t.Fatalf("buildPipeline() error = %v", err)
-	}
-	defer tp.close()
-
-	s, ok := tp.decoder.(*navFFmpegStreamer)
-	if !ok {
-		t.Fatalf("decoder type = %T, want *navFFmpegStreamer", tp.decoder)
-	}
-	s.probeDownloadedLength()
-
-	frames := s.probed.Load()
-	if frames <= 0 {
-		t.Fatal("probe produced no length")
-	}
-	t.Logf("measured length: %v", p.sr.D(int(frames)).Round(time.Second))
 }
 
 // A finite HTTP source must reach the seekable pipeline without being
