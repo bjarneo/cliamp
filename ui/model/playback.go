@@ -220,6 +220,18 @@ func (m *Model) removeSelectedFromPlaylist() {
 	if !m.playlist.Remove(idx) {
 		return
 	}
+	if idx < m.providerQueueLen {
+		// Local removal inside the mirrored range: the remote playlist still
+		// holds the track, so shrink the mirror rather than resetting it —
+		// remaining rows still correspond to remote members.
+		m.providerQueueLen--
+		if tracks := m.playlist.Tracks(); m.providerQueueLen > 0 && m.providerQueueLen <= len(tracks) {
+			m.providerQueueLastPath = tracks[m.providerQueueLen-1].Path
+		} else {
+			m.providerQueueLastPath = ""
+		}
+		m.trackPaging = trackPagingState{}
+	}
 	m.playlistUndo = playlistUndo{active: true, snapshot: snapshot, loaded: loaded, saved: saved, persisted: persisted}
 	if wasActive {
 		m.player.Stop()
@@ -315,9 +327,9 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 	}
 
 	if fetchCmd != nil {
-		return tea.Batch(m.preloadNext(), fetchCmd)
+		return tea.Batch(m.preloadNext(), fetchCmd, m.smartMaybeFetch())
 	}
-	return m.preloadNext()
+	return tea.Batch(m.preloadNext(), m.smartMaybeFetch())
 }
 
 func (m *Model) backfillLoadedPlaylistDuration(track playlist.Track) {

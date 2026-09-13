@@ -45,6 +45,7 @@ type Track struct {
 	Feed         bool // true for RSS/podcast feed URLs (resolved before playback)
 	DurationSecs int  // known duration in seconds (0 = unknown)
 	Bookmark     bool // user-bookmarked track
+	Smart        bool // injected by Smart Shuffle (provider recommendation)
 
 	Unplayable bool // true when the track is known not playable in the current playback context
 
@@ -310,6 +311,7 @@ type Playlist struct {
 	order     []int // indices into tracks, shuffled or sequential
 	pos       int   // current position in order
 	shuffle   bool
+	smart     bool // Smart Shuffle mode: provider recommendations are mixed in
 	repeat    RepeatMode
 	queue     []int // track indices queued to play next
 	queuedIdx int   // track index currently playing from queue, -1 if none
@@ -322,6 +324,7 @@ type Snapshot struct {
 	order     []int
 	pos       int
 	shuffle   bool
+	smart     bool
 	repeat    RepeatMode
 	queue     []int
 	queuedIdx int
@@ -729,6 +732,7 @@ func (p *Playlist) Snapshot() Snapshot {
 		order:     slices.Clone(p.order),
 		pos:       p.pos,
 		shuffle:   p.shuffle,
+		smart:     p.smart,
 		repeat:    p.repeat,
 		queue:     slices.Clone(p.queue),
 		queuedIdx: p.queuedIdx,
@@ -743,6 +747,7 @@ func (p *Playlist) Restore(snapshot Snapshot) {
 	p.order = slices.Clone(snapshot.order)
 	p.pos = snapshot.pos
 	p.shuffle = snapshot.shuffle
+	p.smart = snapshot.smart
 	p.repeat = snapshot.repeat
 	p.queue = slices.Clone(snapshot.queue)
 	p.queuedIdx = snapshot.queuedIdx
@@ -824,6 +829,11 @@ func (p *Playlist) Move(from, to int) bool {
 func (p *Playlist) Remove(idx int) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	return p.removeLocked(idx)
+}
+
+// removeLocked is Remove's body; p.mu must be held.
+func (p *Playlist) removeLocked(idx int) bool {
 	if idx < 0 || idx >= len(p.tracks) {
 		return false
 	}
@@ -912,6 +922,110 @@ func (p *Playlist) BookmarkCount() int {
 		}
 	}
 	return n
+}
+
+// Smart reports whether Smart Shuffle mode is enabled. The flag alone changes
+// nothing; callers pair it with shuffle and AddSmart injections.
+func (p *Playlist) Smart() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.smart
+}
+
+// EnableSmart turns the Smart Shuffle mode flag on.
+func (p *Playlist) EnableSmart() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.smart = true
+}
+
+// DisableSmart clears the Smart Shuffle mode flag and removes all unplayed
+// Smart rows: they are dropped from the upcoming playback order and from the
+// track list, with order/queue/position references fixed up like Remove.
+// Smart rows that already played (including the current one) stay.
+func (p *Playlist) DisableSmart() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.smart = false
+
+	// Smart rows sitting strictly after the current position are the unplayed
+	// ones. Collect their track indices and drop highest-first so the indices
+	// gathered earlier stay valid across removals.
+	var doomed []int
+	for _, idx := range p.order[min(p.pos+1, len(p.order)):] {
+		if p.tracks[idx].Smart {
+			doomed = append(doomed, idx)
+		}
+	}
+	slices.Sort(doomed)
+	for i := len(doomed) - 1; i >= 0; i-- {
+		p.removeLocked(doomed[i])
+	}
+}
+
+// SmartPending returns the number of Smart rows in the not-yet-played part of
+// the current playback order. Queue entries are never Smart, so only the
+// upcoming order tail after the current position is counted.
+func (p *Playlist) SmartPending() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := 0
+	for _, idx := range p.order[min(p.pos+1, len(p.order)):] {
+		if p.tracks[idx].Smart {
+			n++
+		}
+	}
+	return n
+}
+
+// Remaining returns how many tracks in the playback order follow the current
+// position — the unplayed order tail length, Smart and non-Smart alike.
+func (p *Playlist) Remaining() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return max(0, len(p.order)-p.pos-1)
+}
+
+// AddSmart appends recommended tracks as Smart rows and mixes them into the
+// upcoming playback order with the same tail reshuffle Add uses in shuffle
+// mode — never before the current position. It is a full no-op when shuffle
+// mode is off: nothing is appended or marked.
+func (p *Playlist) AddSmart(tracks ...Track) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.shuffle || len(tracks) == 0 {
+		return
+	}
+	for i := range tracks {
+		tracks[i].Smart = true
+	}
+	start := len(p.tracks)
+	p.tracks = append(p.tracks, tracks...)
+	for i := start; i < len(p.tracks); i++ {
+		p.order = append(p.order, i)
+	}
+	if start == 0 {
+		p.pos = 0
+		p.doShuffle()
+		return
+	}
+	if p.pos < 0 {
+		p.pos = 0
+	}
+	if p.pos >= len(p.order) {
+		// Inconsistent internal state; recover by re-shuffling so newly added
+		// tracks don't end up in sequential order.
+		p.pos = 0
+		p.doShuffle()
+		return
+	}
+	// tail is an alias into p.order's backing array; shuffling it
+	// directly reorders the upcoming entries in p.order in-place.
+	tail := p.order[p.pos+1:]
+	for i := len(tail) - 1; i > 0; i-- {
+		j := rand.Intn(i + 1)
+		tail[i], tail[j] = tail[j], tail[i]
+	}
 }
 
 // ToggleShuffle enables or disables shuffle mode.

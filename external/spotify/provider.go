@@ -574,7 +574,8 @@ func friendlySearchError(err error) error {
 // SearchTracks searches Spotify for tracks and podcast episodes, returning up
 // to limit results of each. Episodes (e.g. podcasts) are routed through their
 // spotify:episode: URI so they play correctly.
-// limit is clamped to Spotify's accepted range of 1..50.
+// limit is clamped to Spotify's accepted range of 1..10 (the server defaults
+// to 5 when omitted).
 func (p *SpotifyProvider) SearchTracks(ctx context.Context, query string, limit int) ([]playlist.Track, error) {
 	if err := p.ensureSession(); err != nil {
 		return nil, err
@@ -582,8 +583,8 @@ func (p *SpotifyProvider) SearchTracks(ctx context.Context, query string, limit 
 
 	if limit < 1 {
 		limit = 1
-	} else if limit > 50 {
-		limit = 50
+	} else if limit > 10 {
+		limit = 10
 	}
 
 	// No market parameter: when the request carries a user OAuth token, Spotify
@@ -634,7 +635,7 @@ func (p *SpotifyProvider) AddTrackToPlaylist(ctx context.Context, playlistID str
 	}
 
 	body, _ := json.Marshal(map[string]any{"uris": []string{trackURI}})
-	path := fmt.Sprintf("/v1/playlists/%s/tracks", playlistID)
+	path := fmt.Sprintf("/v1/playlists/%s/items", playlistID)
 
 	resp, err := p.webAPIWithBody(ctx, "POST", path, nil, bytes.NewReader(body), "application/json", http.StatusOK, http.StatusCreated)
 	if err != nil {
@@ -658,13 +659,8 @@ func (p *SpotifyProvider) CreatePlaylist(ctx context.Context, name string) (stri
 		return "", err
 	}
 
-	userID := p.currentUserID(ctx)
-	if userID == "" {
-		return "", fmt.Errorf("spotify: could not determine user ID")
-	}
-
 	body, _ := json.Marshal(map[string]any{"name": name, "public": false})
-	path := fmt.Sprintf("/v1/users/%s/playlists", userID)
+	const path = "/v1/me/playlists"
 
 	resp, err := p.webAPIWithBody(ctx, "POST", path, nil, bytes.NewReader(body), "application/json", http.StatusOK, http.StatusCreated)
 	if err != nil {

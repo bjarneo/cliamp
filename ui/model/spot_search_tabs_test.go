@@ -148,39 +148,8 @@ func TestSpotSearchAlbumDrillDown(t *testing.T) {
 	}
 }
 
-func TestSpotSearchArtistDrillTopTracks(t *testing.T) {
-	fake := &fakeSpotifyProvider{name: "Spotify", searchAll: spotSearchAllFixture()}
-	fake.artistTop = map[string][]playlist.Track{
-		"ar1": {{Path: "spotify:track:7", Title: "Landslide", Artist: "Fleetwood Mac"}},
-	}
-	m := newSpotifyTestModel(fake)
-	m = openSpotMultiSearch(t, m)
-
-	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
-	m = updated.(Model)
-	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	m = updated.(Model)
-	if m.spotSearch.tab != spotTabArtists {
-		t.Fatalf("tab = %d, want artists", m.spotSearch.tab)
-	}
-	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	m = updated.(Model)
-	msg, ok := cmd().(spotDrillLoadedMsg)
-	if !ok {
-		t.Fatalf("enter on artist produced %T", cmd())
-	}
-	updated, _ = m.Update(msg)
-	m = updated.(Model)
-	if len(m.spotSearch.drill) != 1 || len(m.spotSearch.drill[0].tracks) != 1 {
-		t.Fatalf("drill = %+v; want artist top tracks", m.spotSearch.drill)
-	}
-	if m.spotSearch.drill[0].crumb != "Artist — Fleetwood Mac" {
-		t.Fatalf("crumb = %q", m.spotSearch.drill[0].crumb)
-	}
-}
-
-// albumOnlyProvider implements MultiSearcher + ArtistBrowser + AlbumTrackLoader
-// but NOT ArtistTopTracksLoader, exercising the artist→albums fallback.
+// albumOnlyProvider implements MultiSearcher + ArtistBrowser +
+// AlbumTrackLoader, exercising the artist drill's album-list path.
 type albumOnlyProvider struct {
 	commandsTestProvider
 	searchAll    provider.SearchResults
@@ -205,7 +174,7 @@ func (p *albumOnlyProvider) AlbumTracks(albumID string) ([]playlist.Track, error
 	return p.albumTracks[albumID], nil
 }
 
-func TestSpotSearchArtistDrillFallsBackToAlbums(t *testing.T) {
+func TestSpotSearchArtistDrillLoadsAlbums(t *testing.T) {
 	sp := &albumOnlyProvider{
 		commandsTestProvider: commandsTestProvider{name: "Spotify"},
 		searchAll:            spotSearchAllFixture(),
@@ -260,7 +229,10 @@ func TestSpotSearchArtistDrillFallsBackToAlbums(t *testing.T) {
 	}
 }
 
-func TestSpotSearchPlaylistDrillUsesPager(t *testing.T) {
+// TestSpotSearchPlaylistDrillUsesTracks pins the drill path to Tracks(), not
+// TrackPager: a pager read would rewrite the provider's page cursor for the
+// playlist ID and corrupt an incremental queue load of it in flight.
+func TestSpotSearchPlaylistDrillUsesTracks(t *testing.T) {
 	fake := &fakeSpotifyProvider{name: "Spotify", searchAll: spotSearchAllFixture()}
 	fake.allTracks = spotifyTracks(3)
 	m := newSpotifyTestModel(fake)
@@ -279,13 +251,13 @@ func TestSpotSearchPlaylistDrillUsesPager(t *testing.T) {
 	if !ok {
 		t.Fatalf("enter on playlist produced %T", cmd())
 	}
-	if len(fake.pageCalls) == 0 || fake.pageCalls[0] != "pl1:0:200" {
-		t.Fatalf("pageCalls = %v; want TracksPage(pl1, 0, 200)", fake.pageCalls)
+	if len(fake.pageCalls) != 0 {
+		t.Fatalf("pageCalls = %v; want no pager reads from the drill path", fake.pageCalls)
 	}
 	updated, _ = m.Update(msg)
 	m = updated.(Model)
 	if len(m.spotSearch.drill) != 1 || len(m.spotSearch.drill[0].tracks) != 3 {
-		t.Fatalf("drill = %+v; want paged playlist tracks", m.spotSearch.drill)
+		t.Fatalf("drill = %+v; want playlist tracks", m.spotSearch.drill)
 	}
 }
 

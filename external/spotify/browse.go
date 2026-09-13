@@ -147,7 +147,7 @@ func (p *SpotifyProvider) ArtistAlbums(artistID string) ([]provider.AlbumInfo, e
 	for {
 		query := url.Values{
 			"include_groups": {"album,single"},
-			"limit":          {strconv.Itoa(spotifyPlaylistPageSize)},
+			"limit":          {strconv.Itoa(spotifyArtistAlbumsPageSize)},
 			"offset":         {strconv.Itoa(offset)},
 		}
 		path := fmt.Sprintf("/v1/artists/%s/albums", artistID)
@@ -167,10 +167,10 @@ func (p *SpotifyProvider) ArtistAlbums(artistID string) ([]provider.AlbumInfo, e
 			all = append(all, albumFromSpotify(a))
 		}
 
-		if len(result.Items) == 0 || offset+spotifyPlaylistPageSize >= result.Total {
+		if len(result.Items) == 0 || offset+spotifyArtistAlbumsPageSize >= result.Total {
 			break
 		}
-		offset += spotifyPlaylistPageSize
+		offset += spotifyArtistAlbumsPageSize
 	}
 	return all, nil
 }

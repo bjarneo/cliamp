@@ -78,6 +78,7 @@ When focused on the provider panel:
 | `/` | Filter the playlist list |
 | `Ctrl+R` | Refresh the playlist list |
 | `N` | Open the Spotify library browser |
+| `H` | Open the Home view |
 | `Ctrl+F` | Search Spotify |
 | `D` | Delete (owned) / unfollow (followed) the highlighted playlist, after an inline confirm |
 | `r` | Rename the highlighted playlist you own |
@@ -86,13 +87,21 @@ When focused on the provider panel:
 
 After loading a playlist you return to the standard playlist view with all the usual controls (seek, volume, EQ, shuffle, repeat, queue, search, lyrics).
 
+## Smart Shuffle
+
+Press `Z` in the main view to toggle Smart Shuffle; lowercase `z` remains plain shuffle. Smart Shuffle works on Spotify queues only — cliamp resolves the provider that owns the queue, and other providers get a toast.
+
+Turning it on also enables shuffle if it is off. Recommendations from your top tracks and your top artists' newest albums mix into the upcoming queue near its end: injected rows are marked ✚ and a `[Smart]` chip appears beside `[Shuffle]` in the header. Turning it off removes recommended rows that have not played yet; the current track and anything already played stay. A recommended track never repeats within a session, and recommendation failures back off quietly — playback is never interrupted.
+
+The setting is saved as `smart_shuffle` in `~/.config/cliamp/config.toml` (top level, beside `shuffle`) and restored on the next launch; like the `Z` key, it implies shuffle.
+
 ## Library Browser
 
 Press `N` at any time (or from the provider panel) to open the full-screen Spotify library browser. It lets you explore your library in three modes:
 
 - **By Album**: browse the albums saved in Your Music, then open any album to see its tracks.
-- **By Artist**: browse the artists you follow; selecting one loads every track across all their releases.
-- **By Artist / Album**: three-level drill-down: artist → album list → track list.
+- **By Artist**: browse the artists you follow; selecting one opens their artist page (see below).
+- **By Artist / Album**: same artist list — selecting one opens the artist page, whose Discography section replaces the album-list drill-down.
 
 Artist discographies include albums and singles only; "appears on" and compilation entries are not listed. Artist rows show no album count because Spotify doesn't report one.
 
@@ -111,7 +120,7 @@ Artist discographies include albums and singles only; "appears on" and compilati
 | Key | Action |
 |---|---|
 | `↑` `↓` / `j` `k` | Navigate |
-| `Enter` / `→` | Drill in |
+| `Enter` / `→` | Artist list: open the artist page · album list: drill in |
 | `s` | Cycle album sort order (saved-album list only) |
 | `f` | Follow/unfollow the highlighted artist |
 | `Esc` / `←` | Back |
@@ -140,17 +149,35 @@ While viewing the saved-album list (By Album mode), press `s` to cycle through s
 
 The chosen sort is saved automatically to `~/.config/cliamp/config.toml` under the `[spotify]` section as `album_sort` and is restored on the next launch.
 
+## Home
+
+Press `H` from the main view to open the Home view: a two-pane browser for your library. The sidebar is sectioned into **Playlists** (yours and followed), **Albums** (saved in Your Music), and **Artists** (followed), with a `+ New playlist` row at the top — `Enter` on it creates a playlist through an inline name prompt. `/` filters all three lists at once, and `s` cycles the sidebar order (recents / recently added / alphabetical). The `s` order is applied locally: "recently added" only reorders albums, reversing the saved order, because playlists and artists expose no added-at. `S` cycles the saved-albums sort and persists it — the same `album_sort` setting as the library browser's `s`.
+
+Press `Enter` on a playlist to open its tracks in the content pane (large playlists load incrementally, like the queue), on an album for its tracks, or on an artist for their artist page; `Esc` returns from the artist page to Home. `Tab` and `Ctrl+arrows` switch pane focus, a breadcrumb shows the drill path (`Home / Playlists / <name>`), and track rows carry the usual actions (`Enter` plays and enqueues the rest, `a`, `q`, `*`, `p` — in Home, liking is `*` only, since `S` is the album-sort cycle). `Esc` pops the content pane and then closes Home. The full key table is in [Keybindings](keybindings.md#home-view-h-key).
+
 ## Search
 
 Press `Ctrl+F` to search Spotify. Results are grouped into four tabs — **Tracks**, **Albums**, **Artists**, **Playlists** — each with a live count. Switch tabs with `←` `→` (or `Tab`/`Shift+Tab`); switching resets the cursor.
 
-Press `Enter` on a row to drill in: an album loads its tracks, an artist loads their top tracks (falling back to their album list when top tracks aren't available), and a playlist loads its tracks incrementally. A breadcrumb above the list shows the drill path, for example `Artist — Fleetwood Mac / Album — Rumours`. Drilled lists support the usual track actions: `Enter` to play, `a` to append, `q` to queue next, `p` to add to a playlist, `S` to like. `Esc`/`Backspace` (also `←`/`h`) pops one drill level; backing out of the last level returns to the tab bar with the previous tab and cursor intact.
+Press `Enter` on a row to drill in: an album loads its tracks, an artist opens their artist page, and a playlist loads its tracks incrementally. A breadcrumb above the list shows the drill path, for example `Album — Rumours`. Drilled lists support the usual track actions: `Enter` to play, `a` to append, `q` to queue next, `p` to add to a playlist, `S` to like. `Esc`/`Backspace` (also `←`/`h`) pops one drill level; backing out of the last level returns to the tab bar with the previous tab and cursor intact.
 
-Each tab shows up to 20 results. Podcast episodes still merge into the track results alongside songs.
+Each tab shows up to 10 results — Spotify's current API caps search at 10 results per type. Podcast episodes still merge into the track results alongside songs.
+
+## Artist page
+
+Selecting an artist — from the search Artists tab, the library browser's artist lists, or the Home view's Artists section — opens their artist page instead of a flat album list. The header shows follower count, genres, and a `Following` marker once you follow, and the body is sectioned into:
+
+- **Popular**: the artist's top tracks. `s` cycles the sort — popularity, recency, liked-first.
+- **Liked Songs**: liked tracks among the artist's popular picks (not your complete liked-songs-by-artist list).
+- **Discography**: albums and singles. `Enter` drills into an album's tracks; `Esc` returns.
+
+`Enter` on a track plays it and enqueues the rest of its section, `f` follows/unfollows the artist, and track rows carry the same `a`/`q`/`p`/`*`/`S` actions as the search drill lists. `Esc`/`Backspace` pops back to whatever opened the page. Spotify's API doesn't expose play counts, so the Popular ordering uses its popularity score instead, and follower and genre data come from fields Spotify has deprecated but still returns.
 
 ## Playlists
 
 Only playlists in your Spotify library are shown. This includes playlists you've created and playlists you've saved (followed). If a public playlist doesn't appear, open Spotify and click **Save** on it first. There's no need to copy tracks to a new playlist.
+
+Spotify's current API returns a playlist's items only for playlists you own or collaborate on. Opening any other playlist — one you follow, or one found in search results — may fail with an error.
 
 ### Write operations
 
@@ -158,20 +185,20 @@ Write actions apply to your Spotify account and require the same Premium account
 
 | Key | Where | Action |
 |---|---|---|
-| `*` | Queue, library browser track list | Like/unlike the highlighted track |
-| `S` | Search results and drill lists | Like/unlike the highlighted track |
+| `*` | Queue, library browser track list, artist page, Home view | Like/unlike the highlighted track |
+| `S` | Search results and drill lists, artist page | Like/unlike the highlighted track |
 | `x` | Queue mirroring a loaded Spotify playlist | Remove the track from the remote playlist |
-| `p` | Search results and drill lists | Add the track to a Spotify playlist |
+| `p` | Search results and drill lists, artist page, Home view | Add the track to a Spotify playlist |
 | `w` | Queue | Save tracks through the playlist picker, which offers a "Spotify Playlists" section (plus new-playlist creation) when the selected tracks are Spotify tracks; selections are added in batches |
 | `D` | Provider panel, playlist row | Delete an owned playlist / unfollow a followed one |
 | `r` | Provider panel, owned playlist row | Rename the playlist (inline input, prefilled) |
-| `f` | Library browser artist list, search Artists tab | Follow/unfollow the artist |
-| `f` | Search Playlists tab | Follow/unfollow the playlist |
+| `f` | Library browser artist list, search Artists tab, artist page | Follow/unfollow the artist |
+| `f` | Search Playlists tab | Follow/unfollow the playlist (followed playlists only — owned rows point you to `D` in the provider pane) |
 
 Notes:
 
 - Likes are for music tracks only; podcast episodes can't be liked from cliamp.
-- `x` refuses with a toast when the queue is shuffled or the row is outside the mirrored playlist; local playlists keep the plain remove behavior.
+- `x` refuses with a toast when the queue is shuffled or the row is outside the mirrored playlist; local playlists keep the plain remove behavior. Remote removal targets the track's URI rather than its position, so a track added to a playlist more than once is removed at every occurrence.
 - Spotify returns `403` for modifications to a followed playlist you don't own, so rename and track removal apply to playlists you own. Following and unfollowing work on any playlist.
 - **Unfollowing a playlist you own deletes it** — that's Spotify's semantics. The `D` confirm prompt says "Delete playlist" for owned rows and "Unfollow playlist" for followed ones; `Enter`/`y` confirms and any other key cancels.
 

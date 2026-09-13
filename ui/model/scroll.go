@@ -121,12 +121,20 @@ func (m *Model) clampActiveScrollState() {
 		} else if m.plManager.screen == plMgrScreenTracks {
 			m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
 		}
+	case screenArtist:
+		if len(m.artist.drill) > 0 {
+			m.artistDrillMaybeAdjustScroll(&m.artist.drill[len(m.artist.drill)-1])
+		} else {
+			m.artistMaybeAdjustScroll()
+		}
 	case screenSpotSearch:
 		if m.spotSearch.screen == spotSearchResults {
 			m.spotSearchResultsMaybeAdjustScroll(m.spotSearchResultsVisible())
 		} else if m.spotSearch.screen == spotSearchPlaylist {
 			m.spotSearchPlaylistMaybeAdjustScroll(m.spotSearchPlaylistVisible())
 		}
+	case screenHome:
+		m.homeMaybeAdjustScroll()
 	case screenQueue:
 		m.queueMaybeAdjustScroll(m.queueVisible())
 	case screenInfo:

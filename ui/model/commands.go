@@ -574,14 +574,10 @@ func fetchSpotAlbumTracksCmd(ctx context.Context, l provider.AlbumTrackLoader, p
 	}
 }
 
-// fetchSpotArtistCmd drills into an artist: top tracks when available,
-// otherwise the artist's albums (which drill into tracks in turn).
+// fetchSpotArtistCmd drills into an artist by loading their albums, which
+// drill into tracks in turn.
 func fetchSpotArtistCmd(ctx context.Context, prov playlist.Provider, providerName string, artist provider.ArtistInfo, crumb string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
-		if tt, ok := prov.(provider.ArtistTopTracksLoader); ok {
-			tracks, err := tt.ArtistTopTracks(artist.ID)
-			return spotDrillLoadedMsg{crumb: crumb, tracks: tracks, err: err, providerName: providerName, gen: gen}
-		}
 		ab, ok := prov.(provider.ArtistBrowser)
 		if !ok {
 			return spotDrillLoadedMsg{crumb: crumb, err: fmt.Errorf("artist drill-down not supported"), providerName: providerName, gen: gen}
@@ -593,14 +589,50 @@ func fetchSpotArtistCmd(ctx context.Context, prov playlist.Provider, providerNam
 
 func fetchSpotPlaylistTracksCmd(ctx context.Context, prov playlist.Provider, providerName, playlistID, crumb string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
-		var tracks []playlist.Track
-		var err error
-		if pager, ok := prov.(provider.TrackPager); ok {
-			tracks, _, err = pager.TracksPage(playlistID, 0, providerTrackPageSize)
-		} else {
-			tracks, err = prov.Tracks(playlistID)
-		}
+		// Deliberately Tracks(), not TrackPager: a pager read at offset 0
+		// would rewrite the provider's page cursor for this playlist ID and
+		// corrupt an incremental queue load of the same playlist in flight.
+		tracks, err := prov.Tracks(playlistID)
 		return spotDrillLoadedMsg{crumb: crumb, tracks: tracks, err: err, providerName: providerName, gen: gen}
+	}
+}
+
+// — Artist screen —
+
+// artistDetailMsg carries the ArtistDetail backing the artist screen. The
+// artistID is part of the guard identity so a second open supersedes the
+// first even when the provider name is unchanged.
+type artistDetailMsg struct {
+	artistID     string
+	detail       provider.ArtistDetail
+	err          error
+	providerName string
+	gen          uint64
+}
+
+func fetchArtistDetailCmd(ctx context.Context, l provider.ArtistDetailLoader, providerName, artistID string, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		detail, err := l.ArtistDetail(artistID)
+		return artistDetailMsg{artistID: artistID, detail: detail, err: err, providerName: providerName, gen: gen}
+	}
+}
+
+// artistAlbumTracksMsg carries the tracks of one album drilled into from the
+// artist screen's Discography section. crumb identifies the drill level it
+// fills, like spotDrillLoadedMsg does for the search tabs.
+type artistAlbumTracksMsg struct {
+	artistID     string
+	crumb        string
+	tracks       []playlist.Track
+	err          error
+	providerName string
+	gen          uint64
+}
+
+func fetchArtistAlbumTracksCmd(ctx context.Context, l provider.AlbumTrackLoader, providerName, artistID, albumID, crumb string, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		tracks, err := l.AlbumTracks(albumID)
+		return artistAlbumTracksMsg{artistID: artistID, crumb: crumb, tracks: tracks, err: err, providerName: providerName, gen: gen}
 	}
 }
 
@@ -656,7 +688,7 @@ func renamePlaylistCmd(ctx context.Context, r provider.RemotePlaylistRenamer, pr
 }
 
 // remoteTrackRemovedMsg carries the outcome of removing a track from a remote
-// playlist by position.
+// playlist.
 type remoteTrackRemovedMsg struct {
 	playlistID   string
 	position     int
@@ -667,10 +699,10 @@ type remoteTrackRemovedMsg struct {
 	gen          uint64
 }
 
-func removeRemoteTrackCmd(ctx context.Context, r provider.PlaylistTrackRemover, providerName, playlistID string, position int, trackName, trackPath string, gen uint64) tea.Cmd {
+func removeRemoteTrackCmd(ctx context.Context, r provider.PlaylistTrackRemover, providerName, playlistID string, position int, track playlist.Track, gen uint64) tea.Cmd {
 	return func() tea.Msg {
-		err := r.RemoveTrackFromPlaylist(ctx, playlistID, position)
-		return remoteTrackRemovedMsg{playlistID: playlistID, position: position, trackPath: trackPath, trackName: trackName, err: err, providerName: providerName, gen: gen}
+		err := r.RemoveTrackFromPlaylist(ctx, playlistID, position, track)
+		return remoteTrackRemovedMsg{playlistID: playlistID, position: position, trackPath: track.Path, trackName: track.DisplayName(), err: err, providerName: providerName, gen: gen}
 	}
 }
 

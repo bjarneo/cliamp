@@ -150,10 +150,17 @@ func TestValidateCookieBrowser(t *testing.T) {
 		{name: "vivaldi", browser: "vivaldi"},
 		{name: "whale", browser: "whale"},
 		{name: "case insensitive", browser: "Firefox"},
+		{name: "profile suffix", browser: "chrome:Profile 1"},
+		{name: "firefox profile", browser: "firefox:default-release"},
+		{name: "keyring suffix", browser: "chrome+gnomekeyring"},
+		{name: "container suffix", browser: "firefox:default::Personal"},
+		{name: "profile path", browser: "chrome:./x"},
 		{name: "empty", browser: "", wantErr: true},
+		{name: "empty browser part", browser: ":profile", wantErr: true},
 		{name: "unknown browser", browser: "netscape", wantErr: true},
+		{name: "unknown browser with profile", browser: "netscape:default", wantErr: true},
 		{name: "option injection attempt", browser: "-chrome", wantErr: true},
-		{name: "subcommand attempt", browser: "chrome:./x", wantErr: true},
+		{name: "leading-dash spec", browser: "--cookies", wantErr: true},
 	}
 
 	for _, tt := range tests {

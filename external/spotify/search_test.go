@@ -116,8 +116,9 @@ func TestSearchAllLimitClamp(t *testing.T) {
 		{name: "zero clamps to one", limit: 0, want: "1"},
 		{name: "negative clamps to one", limit: -3, want: "1"},
 		{name: "one stays one", limit: 1, want: "1"},
-		{name: "fifty stays fifty", limit: 50, want: "50"},
-		{name: "over fifty clamps to fifty", limit: 100, want: "50"},
+		{name: "ten stays ten", limit: 10, want: "10"},
+		{name: "over ten clamps to ten", limit: 50, want: "10"},
+		{name: "way over ten clamps to ten", limit: 100, want: "10"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -151,29 +152,5 @@ func TestSearchAllDevModeBlocked(t *testing.T) {
 	_, err := newTestProvider().SearchAll(t.Context(), "x", 10)
 	if err == nil || !strings.Contains(err.Error(), "search blocked") {
 		t.Fatalf("err = %v, want the dev-mode search-blocked rewrite", err)
-	}
-}
-
-func TestArtistTopTracks(t *testing.T) {
-	m := newMockAPI(t)
-	m.handlers["/v1/artists/art1/top-tracks"] = func(t *testing.T, query url.Values) string {
-		if got := len(query); got != 0 {
-			t.Errorf("query = %v, want none (no market parameter, like the other catalog calls)", query)
-		}
-		return `{"tracks":[null,` + trackJSON("t1") + `,` + trackJSON("t2") + `]}`
-	}
-
-	got, err := newTestProvider().ArtistTopTracks("art1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("ArtistTopTracks returned %d tracks, want 2 (null filtered)", len(got))
-	}
-	if got[0].Path != "spotify:track:t1" || got[1].Path != "spotify:track:t2" {
-		t.Errorf("paths = %v, want t1..t2", trackPaths(got))
-	}
-	if got[0].Title != "Track t1" || got[0].Artist != "Ringo, Guest" {
-		t.Errorf("first track = %q by %q, want Track t1 by Ringo, Guest", got[0].Title, got[0].Artist)
 	}
 }

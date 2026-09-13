@@ -7,10 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -29,7 +27,7 @@ var (
 )
 
 // maxAddTracksPerRequest is Spotify's cap on uris per POST to
-// /v1/playlists/{id}/tracks.
+// /v1/playlists/{id}/items.
 const maxAddTracksPerRequest = 100
 
 // spotifyTrackURI resolves the canonical spotify: URI for a track: the Path
@@ -76,7 +74,7 @@ func (p *SpotifyProvider) AddTracksToPlaylist(ctx context.Context, playlistID st
 		}
 	}
 
-	path := fmt.Sprintf("/v1/playlists/%s/tracks", playlistID)
+	path := fmt.Sprintf("/v1/playlists/%s/items", playlistID)
 	for len(uris) > 0 {
 		size := min(maxAddTracksPerRequest, len(uris))
 		chunk := uris[:size]
@@ -116,8 +114,10 @@ func (p *SpotifyProvider) AddTracksToPlaylist(ctx context.Context, playlistID st
 
 // ToggleTrackLike flips the track's saved state in the user's library and
 // returns the new state. The current state is learned from
-// /v1/me/tracks/contains, then PUT (save) or DELETE (remove) /v1/me/tracks
-// applies the flip. Implements provider.TrackLiker.
+// /v1/me/library/contains, then PUT (save) or DELETE (remove) /v1/me/library
+// applies the flip. Both calls address the item by its spotify:track: URI in
+// the uris query parameter — the endpoints take no request body. Implements
+// provider.TrackLiker.
 func (p *SpotifyProvider) ToggleTrackLike(ctx context.Context, track playlist.Track) (bool, error) {
 	if err := p.ensureSession(); err != nil {
 		return false, err
@@ -128,7 +128,8 @@ func (p *SpotifyProvider) ToggleTrackLike(ctx context.Context, track playlist.Tr
 		return false, fmt.Errorf("spotify: toggle like: track has no spotify track ID")
 	}
 
-	resp, err := p.webAPI(ctx, http.MethodGet, "/v1/me/tracks/contains", url.Values{"ids": {id}})
+	uri := "spotify:track:" + id
+	resp, err := p.webAPI(ctx, http.MethodGet, "/v1/me/library/contains", url.Values{"uris": {uri}})
 	if err != nil {
 		return false, fmt.Errorf("spotify: check liked: %w", err)
 	}
@@ -142,8 +143,7 @@ func (p *SpotifyProvider) ToggleTrackLike(ctx context.Context, track playlist.Tr
 	if liked {
 		method = http.MethodDelete // saved: remove it
 	}
-	body, _ := json.Marshal(map[string]any{"ids": []string{id}})
-	resp, err = p.webAPIWithBody(ctx, method, "/v1/me/tracks", nil, bytes.NewReader(body), "application/json", http.StatusOK)
+	resp, err = p.webAPIWithBody(ctx, method, "/v1/me/library", url.Values{"uris": {uri}}, nil, "", http.StatusOK, http.StatusNoContent)
 	if err != nil {
 		return false, fmt.Errorf("spotify: toggle like: %w", err)
 	}
@@ -162,8 +162,7 @@ func (p *SpotifyProvider) ToggleTrackLike(ctx context.Context, track playlist.Tr
 	return !liked, nil
 }
 
-// FollowPlaylistByID follows a playlist. Spotify rejects a follow without a
-// body, so an empty JSON object is sent. Implements provider.PlaylistFollower.
+// FollowPlaylistByID follows a playlist. Implements provider.PlaylistFollower.
 func (p *SpotifyProvider) FollowPlaylistByID(ctx context.Context, playlistID string) error {
 	return p.setPlaylistFollowed(ctx, playlistID, true)
 }
@@ -174,21 +173,20 @@ func (p *SpotifyProvider) UnfollowPlaylistByID(ctx context.Context, playlistID s
 	return p.setPlaylistFollowed(ctx, playlistID, false)
 }
 
+// setPlaylistFollowed saves or removes the playlist in the user's library via
+// PUT/DELETE /v1/me/library, addressed by its spotify:playlist: URI in the
+// uris query parameter (no request body).
 func (p *SpotifyProvider) setPlaylistFollowed(ctx context.Context, playlistID string, follow bool) error {
 	if err := p.ensureSession(); err != nil {
 		return err
 	}
 
 	method := http.MethodPut
-	var body io.Reader
-	if follow {
-		// Spotify requires a body here ("empty body" -> 400).
-		body = strings.NewReader("{}")
-	} else {
+	if !follow {
 		method = http.MethodDelete
 	}
-	path := fmt.Sprintf("/v1/playlists/%s/followers", playlistID)
-	resp, err := p.webAPIWithBody(ctx, method, path, nil, body, "application/json", http.StatusOK)
+	uri := "spotify:playlist:" + playlistID
+	resp, err := p.webAPIWithBody(ctx, method, "/v1/me/library", url.Values{"uris": {uri}}, nil, "", http.StatusOK, http.StatusNoContent)
 	if err != nil {
 		return fmt.Errorf("spotify: %s playlist: %w", followWord(follow), err)
 	}
@@ -210,6 +208,11 @@ func (p *SpotifyProvider) UnfollowArtist(ctx context.Context, artistID string) e
 	return p.setArtistFollowed(ctx, artistID, false)
 }
 
+// setArtistFollowed follows or unfollows the artist via PUT/DELETE
+// /v1/me/library, addressed by its spotify:artist: URI in the uris query
+// parameter (no request body). NOTE: the save-library-items docs omit artist
+// URIs from their supported list while library/contains includes them; if
+// Spotify rejects artist URIs here this is the place to revisit.
 func (p *SpotifyProvider) setArtistFollowed(ctx context.Context, artistID string, follow bool) error {
 	if err := p.ensureSession(); err != nil {
 		return err
@@ -219,9 +222,8 @@ func (p *SpotifyProvider) setArtistFollowed(ctx context.Context, artistID string
 	if !follow {
 		method = http.MethodDelete
 	}
-	body, _ := json.Marshal(map[string]any{"ids": []string{artistID}})
-	// Spotify answers 204 No Content here, unlike the playlist endpoints.
-	resp, err := p.webAPIWithBody(ctx, method, "/v1/me/following", url.Values{"type": {"artist"}}, bytes.NewReader(body), "application/json", http.StatusOK, http.StatusNoContent)
+	uri := "spotify:artist:" + artistID
+	resp, err := p.webAPIWithBody(ctx, method, "/v1/me/library", url.Values{"uris": {uri}}, nil, "", http.StatusOK, http.StatusNoContent)
 	if err != nil {
 		return fmt.Errorf("spotify: %s artist: %w", followWord(follow), err)
 	}
@@ -236,11 +238,12 @@ func followWord(follow bool) string {
 	return "unfollow"
 }
 
-// RemoveTrackFromPlaylist removes the track at zero-based position from a
-// playlist. The URI at that position is resolved from the cached track list
-// when present and long enough, else via a one-item
-// /v1/playlists/{id}/items fetch. Implements provider.PlaylistTrackRemover.
-func (p *SpotifyProvider) RemoveTrackFromPlaylist(ctx context.Context, playlistID string, position int) error {
+// RemoveTrackFromPlaylist removes every occurrence of the track's URI from a
+// playlist. The URI is resolved from the track itself — not from position —
+// because the caller's position indexes a filtered (playable-only) view while
+// the API's positions count raw items; sending a mismatched position could
+// target the wrong item. Implements provider.PlaylistTrackRemover.
+func (p *SpotifyProvider) RemoveTrackFromPlaylist(ctx context.Context, playlistID string, position int, track playlist.Track) error {
 	if err := p.ensureSession(); err != nil {
 		return err
 	}
@@ -248,22 +251,15 @@ func (p *SpotifyProvider) RemoveTrackFromPlaylist(ctx context.Context, playlistI
 		return fmt.Errorf("spotify: remove track: invalid position %d", position)
 	}
 
-	uri := p.cachedTrackURI(playlistID, position)
+	uri := spotifyTrackURI(track)
 	if uri == "" {
-		var err error
-		uri, err = p.fetchTrackURIAt(ctx, playlistID, position)
-		if err != nil {
-			return err
-		}
+		return fmt.Errorf("spotify: remove track: track has no spotify URI")
 	}
 
 	body, _ := json.Marshal(map[string]any{
-		"tracks": []map[string]any{{
-			"uri":       uri,
-			"positions": []int{position},
-		}},
+		"items": []map[string]any{{"uri": uri}},
 	})
-	path := fmt.Sprintf("/v1/playlists/%s/tracks", playlistID)
+	path := fmt.Sprintf("/v1/playlists/%s/items", playlistID)
 	resp, err := p.webAPIWithBody(ctx, http.MethodDelete, path, nil, bytes.NewReader(body), "application/json", http.StatusOK)
 	if err != nil {
 		return fmt.Errorf("spotify: remove track: %w", err)
@@ -278,53 +274,6 @@ func (p *SpotifyProvider) RemoveTrackFromPlaylist(ctx context.Context, playlistI
 	p.listCache = nil
 	p.mu.Unlock()
 	return nil
-}
-
-// cachedTrackURI returns the URI of the cached track at position, or "" when
-// the cache is absent or too short.
-func (p *SpotifyProvider) cachedTrackURI(playlistID string, position int) string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	cached, ok := p.trackCache[playlistID]
-	if !ok || position >= len(cached.tracks) {
-		return ""
-	}
-	return cached.tracks[position].Path
-}
-
-// fetchTrackURIAt fetches the URI of the playlist item at position via a
-// one-item page using the shared field projection from pager.go.
-func (p *SpotifyProvider) fetchTrackURIAt(ctx context.Context, playlistID string, position int) (string, error) {
-	query := url.Values{
-		"limit":  {"1"},
-		"offset": {strconv.Itoa(position)},
-		"fields": {playlistItemsFields},
-	}
-	path := fmt.Sprintf("/v1/playlists/%s/items", playlistID)
-	resp, err := p.webAPI(ctx, http.MethodGet, path, query)
-	if err != nil {
-		return "", fmt.Errorf("spotify: fetch playlist item: %w", err)
-	}
-	var result struct {
-		Items []struct {
-			Item  *spotifyItem `json:"item"`
-			Track *spotifyItem `json:"track"`
-		} `json:"items"`
-	}
-	if err := decodeBody(resp, &result); err != nil {
-		return "", fmt.Errorf("spotify: parse playlist item: %w", err)
-	}
-	if len(result.Items) == 0 {
-		return "", fmt.Errorf("spotify: remove track: no track at position %d", position)
-	}
-	t := result.Items[0].Item
-	if t == nil {
-		t = result.Items[0].Track
-	}
-	if t == nil || t.URI == "" {
-		return "", fmt.Errorf("spotify: remove track: no URI at position %d", position)
-	}
-	return t.URI, nil
 }
 
 // RenamePlaylistByID renames a playlist by ID. Implements

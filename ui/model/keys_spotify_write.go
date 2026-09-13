@@ -39,14 +39,17 @@ func trackScheme(path string) string {
 }
 
 // providerOwnsPath reports whether the provider's CustomStreamer covers the
-// given URI scheme.
+// given URI scheme. URISchemes entries are URI prefixes that may or may not
+// include the trailing colon (Spotify returns "spotify:"; tests use
+// "spotify"), so the scheme is normalized before comparing.
 func providerOwnsPath(p playlist.Provider, path string) bool {
 	cs, ok := p.(provider.CustomStreamer)
 	if !ok || path == "" {
 		return false
 	}
 	for _, s := range cs.URISchemes() {
-		if s != "" && (strings.HasPrefix(path, s+":") || path == s) {
+		scheme := strings.TrimSuffix(s, ":")
+		if scheme != "" && (strings.HasPrefix(path, scheme+":") || path == scheme) {
 			return true
 		}
 	}
@@ -95,8 +98,8 @@ func (m *Model) likeSelectedTrack() tea.Cmd {
 }
 
 // resetProviderQueueMirror marks the queue as no longer mirroring a remote
-// provider playlist. Position-based remote writes (x remove) must not fire
-// until a provider playlist is loaded again.
+// provider playlist. Remote writes (x remove) must not fire until a provider
+// playlist is loaded again.
 func (m *Model) resetProviderQueueMirror() {
 	m.activeProviderPlaylistID = ""
 	m.providerQueueLen = 0
@@ -108,7 +111,7 @@ func (m *Model) resetProviderQueueMirror() {
 // refusal toast) consumed the key; when false the caller falls back to the
 // local queue removal.
 func (m *Model) removeSelectedRemote() (cmd tea.Cmd, handled bool) {
-	if m.loadedPlaylist != "" || m.activeProviderPlaylistID == "" {
+	if m.loadedPlaylist != "" || m.activeProviderPlaylistID == "" || isSyntheticProviderRow(m.activeProviderPlaylistID) {
 		return nil, false
 	}
 	rem, ok := m.provider.(provider.PlaylistTrackRemover)
@@ -126,7 +129,7 @@ func (m *Model) removeSelectedRemote() (cmd tea.Cmd, handled bool) {
 	}
 	// Belt-and-braces: even when the mirror counters look right, verify the
 	// last mirrored row still holds the track it was loaded with — a queue
-	// replacement that slipped past the resets breaks position trust.
+	// replacement that slipped past the resets breaks mirror trust.
 	if tracks := m.playlist.Tracks(); m.providerQueueLen > 0 && m.providerQueueLastPath != "" &&
 		(m.providerQueueLen > len(tracks) || tracks[m.providerQueueLen-1].Path != m.providerQueueLastPath) {
 		return nil, false
@@ -134,10 +137,10 @@ func (m *Model) removeSelectedRemote() (cmd tea.Cmd, handled bool) {
 	track := m.playlist.Tracks()[idx]
 	if !providerOwnsPath(m.provider, track.Path) {
 		// The row came from somewhere else (user-appended or replaced queue);
-		// positions are no longer trustworthy for a remote remove.
+		// it is not remote-playlist content, so remote remove doesn't apply.
 		return nil, false
 	}
-	return removeRemoteTrackCmd(m.newLikeContext(), rem, m.provider.Name(), m.activeProviderPlaylistID, idx, track.DisplayName(), track.Path, nextRequest(&m.requests.provMutation)), true
+	return removeRemoteTrackCmd(m.newLikeContext(), rem, m.provider.Name(), m.activeProviderPlaylistID, idx, track, nextRequest(&m.requests.provMutation)), true
 }
 
 // — provider pane: delete/unfollow (D) and rename (r) —

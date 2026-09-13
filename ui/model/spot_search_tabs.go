@@ -154,8 +154,8 @@ func (m *Model) handleSpotTabsKey(msg tea.KeyPressMsg) tea.Cmd {
 }
 
 // spotDrillFromTab enters the row under the cursor on the active tab: albums
-// load their tracks, artists load top tracks or their album list, playlists
-// load their tracks.
+// load their tracks, artists load their album list, playlists load their
+// tracks.
 func (m *Model) spotDrillFromTab() tea.Cmd {
 	prov := m.spotSearch.prov
 	gen := nextRequest(&m.requests.spotSearch)
@@ -171,9 +171,13 @@ func (m *Model) spotDrillFromTab() tea.Cmd {
 		m.spotPushDrill(crumb)
 		return fetchSpotAlbumTracksCmd(m.newSpotRequestContext(30*time.Second), l, prov.Name(), album.ID, crumb, gen)
 	case spotTabArtists:
-		_, topTracks := prov.(provider.ArtistTopTracksLoader)
-		_, artistBrowser := prov.(provider.ArtistBrowser)
-		if !topTracks && !artistBrowser {
+		if _, ok := prov.(provider.ArtistDetailLoader); ok {
+			// The rich artist profile screen replaces the flat album
+			// drill-down for providers that support it.
+			artist := m.spotSearch.resultsAll.Artists[m.spotSearch.cursor]
+			return m.openArtistScreen(prov.Name(), artist)
+		}
+		if _, ok := prov.(provider.ArtistBrowser); !ok {
 			m.status.Show("Artist drill-down not supported", statusTTLDefault)
 			return nil
 		}
@@ -218,6 +222,12 @@ func (m *Model) spotFollowFromTab() tea.Cmd {
 			return nil
 		}
 		pl := m.spotSearch.resultsAll.Playlists[m.spotSearch.cursor]
+		if pl.Owned {
+			// Unfollowing an owned playlist deletes it server-side — route
+			// through the provider pane's D flow, which asks for confirmation.
+			m.status.Show("You own this playlist — delete it with D in the provider pane", statusTTLDefault)
+			return nil
+		}
 		follow := !m.followState[followKey("playlist", prov.Name(), pl.ID)]
 		return followPlaylistCmd(m.newLikeContext(), f, prov.Name(), pl.ID, pl.Name, follow, nextRequest(&m.requests.follow))
 	}

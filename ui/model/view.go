@@ -588,6 +588,9 @@ func (m Model) renderPlaylistHeader() string {
 	} else {
 		shuffle = dimStyle.Render("[") + trackStyle.Render("Shuffle") + dimStyle.Render("]")
 	}
+	if m.playlist.Smart() {
+		shuffle += " " + activeToggle.Render("[Smart]")
+	}
 
 	repeatVal := m.playlist.Repeat().String()
 	if m.playlist.Repeat() != 0 {
@@ -844,9 +847,14 @@ func (m Model) renderPlaylist() string {
 		if queuePosition > 0 {
 			queueMarker = "Q"
 		}
+		// The bookmark cell is shared: an explicit user bookmark (★) outranks
+		// the Smart Shuffle injected-track marker (✚) when both apply.
 		bookmarkMarker := " "
-		if t.Bookmark {
+		switch {
+		case t.Bookmark:
 			bookmarkMarker = "★"
+		case t.Smart:
+			bookmarkMarker = "✚"
 		}
 		unavailableMarker := " "
 		if t.Unplayable {

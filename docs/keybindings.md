@@ -43,8 +43,8 @@ opens the separate, visible provider-list view.
 
 ## Text Input
 
-Playlist and native-provider search, URL, playlist-name, keymap, and jump
-fields support these editor keys:
+Playlist and native-provider search, URL, playlist-name, keymap, jump, and
+Home filter/new-playlist fields support these editor keys:
 
 | Key | Action |
 |---|---|
@@ -83,6 +83,7 @@ active when the picker opened. While typing a filter, `Enter` finishes it and
 | `Ctrl+S` | Save track to `~/Music/cliamp` |
 | `w` | Write the highlighted track/selection to a playlist — local playlists always, plus the owning provider's playlists (a "Spotify Playlists" section, with new-playlist creation) when the tracks come from it; selections are added in batches |
 | `N` | Open the active provider browser when available |
+| `H` | Open the Home view — the active provider's library in a two-pane browser |
 | `L` | Browse local playlists (with cliamp radio) |
 | `R` | Open radio provider |
 | `S` | Open Spotify provider |
@@ -105,6 +106,7 @@ active when the picker opened. While typing a filter, `Enter` finishes it and
 | `p` | Playlist manager |
 | `r` | Cycle repeat (Off / All / One) |
 | `z` | Toggle shuffle |
+| `Z` | Toggle Smart Shuffle — recommended tracks mix into the end of the queue (Spotify queues; rows marked ✚) |
 
 ### Inside the playlist manager
 
@@ -151,7 +153,7 @@ When you press `N` to drill into a provider (Navidrome, Plex, Jellyfin, Emby, Sp
 | `↑` `↓` / `j` `k` | Move cursor (wraps top↔bottom) |
 | `←` `→` / `h` `l` | Back / drill in |
 | `/` | Filter the visible list (search bar appears under the title) |
-| `Enter` | Open (artists/albums) · play the highlighted track and queue the rest of the visible list |
+| `Enter` | Open the highlighted artist (artist page where supported — Spotify; otherwise their albums or tracks) or album · play the highlighted track and queue the rest of the visible list |
 | `R` | Replace the queue with all visible tracks (start from the top, confirm when non-empty) |
 | `a` | Append all visible tracks to the queue |
 | `q` | Queue the highlighted track to play next |
@@ -183,6 +185,28 @@ The playlists pane (visible when focus is on a provider — Spotify, Navidrome, 
 
 Playlist rows show `Name · N tracks · 1h 23m` when the provider returns track counts and total duration. The header identifies the scope as `Provider / Playlists`. The currently loaded playlist is marked with a `▶` prefix. Spotify groups its playlists under section headers (`── library ──` with Your Music, Top Tracks, and Recently Played, `── your playlists ──`, `── followed playlists ──`). Large Spotify playlists load incrementally — the first 200 tracks appear immediately and the rest stream in behind a "Loading more tracks…" indicator.
 
+## Home view (`H` key)
+
+Press `H` from the main view to open the Home overlay: a two-pane browser for the active provider's library. The sidebar is sectioned into Playlists, Albums, and Artists — sections appear only when the provider supports them (Spotify shows all three, plus a `+ New playlist` row). The content pane opens the highlighted row: a playlist's tracks (loaded incrementally), an album's tracks, or an artist's page. `H` closes Home again.
+
+| Key | Action |
+|---|---|
+| `↑` `↓` / `j` `k` / `Ctrl+N` `Ctrl+P` | Move the sidebar cursor (wraps; section headers are skipped) |
+| `Ctrl+U` `Ctrl+D` | Scroll by page |
+| `g` `G` / `Home` `End` | Top / end of the list |
+| `Enter` / `→` (`l`) | Open the highlighted row: playlist → its tracks in the content pane · album → its tracks · artist → their artist page (`Esc` returns) · `+ New playlist` → name input |
+| `Tab` `Shift+Tab` / `Ctrl+Arrows` | Switch pane focus (the content pane is focusable once a row is open) |
+| `/` | Filter every sidebar list by name · `Enter` commits, `Esc` cancels and clears, `/` on a committed filter clears it |
+| `s` | Cycle library order — recents / recently added / alphabetical |
+| `S` | Cycle the saved-albums sort and persist it (same setting as the provider browser's `s`) |
+| `H` | Close Home |
+| `Ctrl+X` | Expand/collapse view |
+| `Esc` `Backspace` `←` `h` | Close the content pane (focus returns to the sidebar), else close Home |
+
+`s` reorders locally: "recently added" only changes the Albums section (it reverses the saved order) — playlists and artists keep provider order because their APIs expose no added-at. `S` is the only server-side sort; it refetches the album list and saves the choice. Shift-letter provider quick-switches don't work inside Home; close it first.
+
+With the content pane focused, track rows carry the usual actions: `Enter`/`l` plays the highlighted track and enqueues the rest of the list, plus `a` (append), `q` (queue next), `*` (like), and `p` (add to playlist). Movement keys match the sidebar. `Esc`/`Backspace` (also `←`/`h`) pops back to the sidebar; `H` isn't bound there, so press `Esc` or `Tab` first.
+
 ## Search results overlays
 
 When `Ctrl+F` opens provider search or YouTube/SoundCloud net search and you're viewing the results list:
@@ -192,15 +216,36 @@ When `Ctrl+F` opens provider search or YouTube/SoundCloud net search and you're 
 | `↑` `↓` / `j` `k` / `Ctrl+N` `Ctrl+P` | Move cursor (single item) |
 | `Ctrl+U` `Ctrl+D` | Scroll results by page |
 | `←` `→` / `Tab` `Shift+Tab` | Switch result tab — Tracks / Albums / Artists / Playlists, each with a count (multi-type provider search: Spotify) |
-| `Enter` | Play the selected track now · multi-type results: drill into the highlighted album (its tracks), artist (top tracks), or playlist (its tracks) |
+| `Enter` | Play the selected track now · multi-type results: drill into the highlighted album (its tracks) or playlist (its tracks), or open the highlighted artist's page (Spotify; other providers load their album list) |
 | `a` | Append the selected track to the playlist |
 | `q` | Queue the selected track to play next |
 | `p` | (Spotify only) Add the selected track to a Spotify playlist |
 | `S` | (Spotify only) Like/unlike the selected track (track tab) |
-| `f` | (Spotify only) Follow/unfollow the highlighted artist or playlist (Artists / Playlists tab) |
+| `f` | (Spotify only) Follow/unfollow the highlighted artist or followed playlist (Artists / Playlists tab; owned playlists are deleted via `D` in the provider pane) |
 | `Esc` `Backspace` | Back to the search input · from a drill-down list, up one level |
 
 Drill-down lists (album, artist, and playlist tracks) carry the same track actions as the track tab — `Enter` play, `a` append, `q` queue next, `p` add-to-playlist, `S` like — and show a breadcrumb of the drill path above the list. Backing out of the last drill level returns to the tab bar with the previous tab and cursor intact.
+
+## Artist page
+
+Press `Enter` on an artist in the search results artist tab, the provider browser's artist list, or the Home view's Artists section to open their artist page (providers that support it — Spotify; others keep the album-list drill-down). The header shows follower count, genres, and follow state, and the body is sectioned into Popular, Liked Songs, and Discography.
+
+| Key | Action |
+|---|---|
+| `↑` `↓` / `j` `k` | Move cursor over the sectioned list (wraps; headers are skipped) |
+| `Ctrl+U` `Ctrl+D` | Scroll by page |
+| `g` `G` / `Home` `End` | Top / end of the list |
+| `Enter` / `l` | Popular or Liked row: play the track and enqueue the rest of its section · Discography row: drill into the album's tracks |
+| `s` | Cycle the Popular sort: popularity → recency → liked-first |
+| `f` | Follow/unfollow the artist |
+| `a` | Append the highlighted track to the playlist |
+| `q` | Queue the highlighted track to play next |
+| `p` | Add the highlighted track to a playlist |
+| `*` `S` | Like/unlike the highlighted track |
+| `Ctrl+X` | Expand/collapse playlist |
+| `Esc` `Backspace` (also `←` `h`) | Pop one level: album drill → artist sections, artist page → back to what opened it |
+
+Inside a Discography album drill, track rows carry the same actions as Popular rows, and `Esc` returns to the artist sections with the cursor preserved.
 
 ## Fuzzy search
 

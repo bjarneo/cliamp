@@ -120,6 +120,8 @@ const (
 	screenNavBrowser
 	screenPlaylistManager
 	screenSpotSearch
+	screenArtist
+	screenHome
 	screenQueue
 	screenInfo
 	screenSearch
@@ -157,6 +159,10 @@ func (s topLevelScreen) label() string {
 		return "Playlists"
 	case screenSpotSearch, screenNetSearch:
 		return "Search"
+	case screenArtist:
+		return "Artist"
+	case screenHome:
+		return "Home"
 	case screenQueue:
 		return "Queue"
 	case screenInfo:
@@ -286,6 +292,8 @@ type Model struct {
 	plManager      plManagerState
 	plPicker       playlistPickerState
 	spotSearch     spotSearchState
+	artist         artistScreenState
+	home           homeState
 	fileBrowser    fileBrowserState
 	navBrowser     navBrowserState
 	catalogBatch   catalogBatchState
@@ -336,12 +344,12 @@ type Model struct {
 
 	// providerQueueLen is the number of leading queue rows that mirror the
 	// playlist named by activeProviderPlaylistID, in load order. It gates
-	// position-based remote writes (x remove). Zero = queue not mirroring.
+	// remote writes (x remove). Zero = queue not mirroring.
 	providerQueueLen int
 
 	// providerQueueLastPath is the Path of the last mirroring queue row
 	// (providerQueueLen-1). removeSelectedRemote verifies it still matches
-	// before issuing a position-based remote remove.
+	// before issuing a remote remove.
 	providerQueueLastPath string
 
 	// trackPaging drives incremental loading of large provider playlists.
@@ -370,6 +378,16 @@ type Model struct {
 
 	// preloading is true while a preloadStreamCmd goroutine is in-flight.
 	preloading bool
+
+	// Smart Shuffle session state; the mode flag itself lives in the playlist.
+	// fetching guards against concurrent recommendation requests, retryAt
+	// backs off after a failed or empty batch, and injected is the session
+	// no-repeat set of already-injected track URIs (never persisted).
+	smart struct {
+		fetching bool
+		retryAt  time.Time
+		injected map[string]bool
+	}
 
 	// Live stream title from ICY metadata (e.g., "Artist - Song")
 	streamTitle string
@@ -443,10 +461,14 @@ func (m Model) activeScreen() topLevelScreen {
 		return screenPlaylistPicker
 	case m.fileBrowser.visible:
 		return screenFileBrowser
+	case m.artist.visible:
+		return screenArtist
 	case m.spotSearch.visible:
 		return screenSpotSearch
 	case m.navBrowser.visible:
 		return screenNavBrowser
+	case m.home.visible:
+		return screenHome
 	case m.themePicker.visible:
 		return screenThemePicker
 	case m.visPicker.visible:
@@ -487,8 +509,8 @@ func (m Model) usesContentFirstLayout() bool {
 		return true
 	}
 	if m.keymap.visible || m.devicePicker.visible || m.fileBrowser.visible ||
-		m.navBrowser.visible || m.themePicker.visible || m.queue.visible ||
-		m.search.active {
+		m.artist.visible || m.navBrowser.visible || m.themePicker.visible ||
+		m.queue.visible || m.search.active || m.home.visible {
 		return true
 	}
 	if m.plPicker.visible && m.plPicker.screen == plPickerChoose {

@@ -14,8 +14,7 @@ import (
 
 // Compile-time interface checks.
 var (
-	_ provider.MultiSearcher         = (*SpotifyProvider)(nil)
-	_ provider.ArtistTopTracksLoader = (*SpotifyProvider)(nil)
+	_ provider.MultiSearcher = (*SpotifyProvider)(nil)
 )
 
 // searchPlaylist is the simplified playlist object returned by /v1/search.
@@ -47,10 +46,11 @@ func (sp searchPlaylist) trackCount() int {
 
 // SearchAll searches tracks, episodes, albums, artists, and playlists in one
 // query. limit is the per-type result count, clamped to Spotify's accepted
-// range of 1..50. Episodes are merged into Tracks after music tracks with
-// their spotify:episode: URI preserved (same as SearchTracks). Playlist rows
-// leave Section empty (the UI's search tabs provide grouping) and set Owned
-// when the owner is the current user (best-effort, like Playlists()).
+// range of 1..10 (the server defaults to 5 when omitted). Episodes are merged
+// into Tracks after music tracks with their spotify:episode: URI preserved
+// (same as SearchTracks). Playlist rows leave Section empty (the UI's search
+// tabs provide grouping) and set Owned when the owner is the current user
+// (best-effort, like Playlists()).
 // Implements provider.MultiSearcher.
 func (p *SpotifyProvider) SearchAll(ctx context.Context, query string, limit int) (provider.SearchResults, error) {
 	if err := p.ensureSession(); err != nil {
@@ -59,8 +59,8 @@ func (p *SpotifyProvider) SearchAll(ctx context.Context, query string, limit int
 
 	if limit < 1 {
 		limit = 1
-	} else if limit > 50 {
-		limit = 50
+	} else if limit > 10 {
+		limit = 10
 	}
 
 	// No market parameter: with a user OAuth token Spotify implicitly scopes
@@ -122,37 +122,4 @@ func (p *SpotifyProvider) SearchAll(ctx context.Context, query string, limit int
 		})
 	}
 	return out, nil
-}
-
-// ArtistTopTracks returns an artist's most popular tracks. Like the other
-// catalog calls here, no market parameter is sent: with a user OAuth token
-// Spotify scopes results to the account's country.
-// Implements provider.ArtistTopTracksLoader.
-func (p *SpotifyProvider) ArtistTopTracks(artistID string) ([]playlist.Track, error) {
-	if err := p.ensureSession(); err != nil {
-		return nil, err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), webAPITimeout)
-	defer cancel()
-
-	resp, err := p.webAPI(ctx, "GET", fmt.Sprintf("/v1/artists/%s/top-tracks", artistID), nil)
-	if err != nil {
-		return nil, fmt.Errorf("spotify: artist top tracks: %w", err)
-	}
-	var result struct {
-		Tracks []*spotifyItem `json:"tracks"`
-	}
-	if err := decodeBody(resp, &result); err != nil {
-		return nil, fmt.Errorf("spotify: parse artist top tracks: %w", err)
-	}
-
-	var tracks []playlist.Track
-	for _, t := range result.Tracks {
-		if t == nil || t.ID == "" {
-			continue // skip unavailable results
-		}
-		tracks = append(tracks, trackFromItem(t))
-	}
-	return tracks, nil
 }

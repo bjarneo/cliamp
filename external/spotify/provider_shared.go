@@ -18,6 +18,9 @@ const (
 	// silently truncates larger limits; requesting more would cause the loop
 	// to skip items when offset advances by the requested limit.
 	spotifyTrackPageSize = 50
+	// spotifyArtistAlbumsPageSize is 10: the February 2026 API cut
+	// /v1/artists/{id}/albums to a maximum of 10 per request.
+	spotifyArtistAlbumsPageSize = 10
 )
 
 // Synthetic playlist IDs for library rows that are not real playlists.
@@ -62,6 +65,7 @@ type spotifyItem struct {
 	ReleaseDate  string `json:"release_date"` // episodes carry this at top level
 	DurationMs   int    `json:"duration_ms"`
 	TrackNumber  int    `json:"track_number"`
+	Popularity   int    `json:"popularity"` // 0-100; deprecated but present on full track objects
 	IsPlayable   *bool  `json:"is_playable"`
 	Restrictions struct {
 		Reason string `json:"reason"`

@@ -39,6 +39,18 @@ type SearchResults struct {
 	Playlists []playlist.PlaylistInfo
 }
 
+// ArtistDetail carries everything a provider can supply for an artist
+// profile page. Popular tracks carry ProviderMeta[MetaSpotifyPopularity]
+// ("0"-"100") and ProviderMeta[MetaSpotifyLiked] ("true" when saved)
+// where the provider supports them.
+type ArtistDetail struct {
+	Info        ArtistInfo
+	Genres      []string
+	Followers   int
+	Popular     []playlist.Track
+	Discography []AlbumInfo
+}
+
 // ProviderMeta key constants used across providers and the UI.
 const (
 	MetaNavidromeID = "navidrome.id"
@@ -46,4 +58,7 @@ const (
 	MetaEmbyID      = "emby.id"
 	MetaNetEaseID   = "netease.id"
 	MetaQobuzID     = "qobuz.id"
+
+	MetaSpotifyPopularity = "spotify.popularity"
+	MetaSpotifyLiked      = "spotify.liked"
 )

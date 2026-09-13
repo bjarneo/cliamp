@@ -17,6 +17,9 @@ repeat = "off"
 # Start with shuffle enabled
 shuffle = false
 
+# Start with Smart Shuffle (recommendations mixed into the queue; implies shuffle)
+smart_shuffle = false
+
 # Start with mono output (L+R downmix)
 mono = false
 
@@ -75,6 +78,11 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # [spotify]
 # client_id = "your-spotify-app-client-id"
 # bitrate = 320
+#
+# Album browse sort order for the library browser (press N to open):
+# "recent" (default), "title", "artist", "year". Updated automatically
+# when you press [s] on the saved-album list.
+# album_sort = "recent"
 #
 # Note: apps registered after Nov 27, 2024 in Development Mode can't use
 # /v1/search (Spotify returns "Invalid limit"). Playback is unaffected.

@@ -131,10 +131,14 @@ func (m Model) activeOverlay() (overlayView, bool) {
 		return overlayView{(*Model).plPickerHeaderLine, (*Model).plPickerHelpLine, (*Model).renderPlaylistPickerBody}, true
 	case m.fileBrowser.visible:
 		return overlayView{(*Model).fbHeaderLine, (*Model).fbHelpLine, (*Model).renderFileBrowserBody}, true
+	case m.artist.visible:
+		return overlayView{(*Model).artistHeaderLine, (*Model).artistHelpLine, (*Model).renderArtistBody}, true
 	case m.spotSearch.visible:
 		return overlayView{(*Model).spotSearchHeaderLine, (*Model).spotSearchHelpLine, (*Model).renderSpotSearchBody}, true
 	case m.navBrowser.visible:
 		return overlayView{(*Model).navHeaderLine, (*Model).navHelpLine, (*Model).renderNavBody}, true
+	case m.home.visible:
+		return overlayView{(*Model).homeHeaderLine, (*Model).homeHelpLine, (*Model).renderHomeBody}, true
 	case m.themePicker.visible:
 		return overlayView{(*Model).themePickerHeaderLine, (*Model).themePickerHelpLine, (*Model).renderThemeBody}, true
 	case m.visPicker.visible:

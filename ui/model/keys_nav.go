@@ -207,6 +207,12 @@ func (m *Model) handleNavArtistListKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		artist := m.navBrowser.artists[rawIdx]
 		m.navBrowser.selArtist = artist
+		if _, ok := m.navBrowser.prov.(provider.ArtistDetailLoader); ok {
+			// The rich artist profile screen replaces the flat track/album
+			// drill-down for providers that support it.
+			m.navClearSearch()
+			return m.openArtistScreen(m.navBrowser.prov.Name(), artist)
+		}
 		m.navBrowser.loading = true
 		if m.navBrowser.mode == navBrowseModeByArtistAlbum {
 			// Drill into album list for this artist.

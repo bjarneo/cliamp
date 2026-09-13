@@ -31,8 +31,9 @@ type fakeSpotifyProvider struct {
 
 	albumTracks  map[string][]playlist.Track
 	artistAlbums map[string][]provider.AlbumInfo
-	artistTop    map[string][]playlist.Track
 	artistsList  []provider.ArtistInfo
+
+	artistDetails map[string]provider.ArtistDetail
 
 	liked               []string
 	likeResult          bool
@@ -89,10 +90,6 @@ func (f *fakeSpotifyProvider) ArtistAlbums(artistID string) ([]provider.AlbumInf
 	return f.artistAlbums[artistID], f.err
 }
 
-func (f *fakeSpotifyProvider) ArtistTopTracks(artistID string) ([]playlist.Track, error) {
-	return f.artistTop[artistID], f.err
-}
-
 func (f *fakeSpotifyProvider) ToggleTrackLike(_ context.Context, track playlist.Track) (bool, error) {
 	f.liked = append(f.liked, track.Path)
 	return f.likeResult, f.err
@@ -125,7 +122,7 @@ func (f *fakeSpotifyProvider) UnfollowArtist(_ context.Context, artistID string)
 	return f.err
 }
 
-func (f *fakeSpotifyProvider) RemoveTrackFromPlaylist(_ context.Context, playlistID string, position int) error {
+func (f *fakeSpotifyProvider) RemoveTrackFromPlaylist(_ context.Context, playlistID string, position int, _ playlist.Track) error {
 	f.removedFrom = append(f.removedFrom, playlistID+":"+strconv.Itoa(position))
 	return f.err
 }
@@ -214,6 +211,60 @@ func loadFakePlaylist(t *testing.T, m Model, fake *fakeSpotifyProvider, playlist
 		m = updated.(Model)
 	}
 	return m
+}
+
+// colonSchemeProvider mimics the real SpotifyProvider: URISchemes() returns
+// "spotify:" (scheme prefix including the colon), unlike the bare "spotify"
+// declared by the other fakes.
+type colonSchemeProvider struct {
+	commandsTestProvider
+	liked []string
+}
+
+func (p *colonSchemeProvider) URISchemes() []string { return []string{"spotify:"} }
+
+func (p *colonSchemeProvider) NewStreamer(string) (beep.StreamSeekCloser, beep.Format, time.Duration, error) {
+	return nil, beep.Format{}, 0, nil
+}
+
+func (p *colonSchemeProvider) ToggleTrackLike(_ context.Context, track playlist.Track) (bool, error) {
+	p.liked = append(p.liked, track.Path)
+	return true, nil
+}
+
+// TestProviderOwnsPathColonScheme pins ownership detection against the real
+// Spotify URISchemes convention ("spotify:" with colon). A regression here
+// silently disables like/remove/write for real Spotify tracks while the
+// bare-scheme fakes keep the other tests green.
+func TestProviderOwnsPathColonScheme(t *testing.T) {
+	p := &colonSchemeProvider{commandsTestProvider: commandsTestProvider{name: "Spotify"}}
+	if !providerOwnsPath(p, "spotify:track:abc") {
+		t.Fatal("providerOwnsPath rejected a spotify:track path for a 'spotify:' scheme provider")
+	}
+	if providerOwnsPath(p, "spotifyevil:track:abc") {
+		t.Fatal("providerOwnsPath matched a different scheme sharing the 'spotify' prefix")
+	}
+	if providerOwnsPath(p, "/music/local.mp3") {
+		t.Fatal("providerOwnsPath matched a filesystem path")
+	}
+
+	// End to end: the queue like key must reach a colon-scheme provider.
+	m := newSpotifyTestModel(&fakeSpotifyProvider{name: "Other"})
+	m.provider = p
+	m.providers = []ProviderEntry{{Key: "spotify", Name: "Spotify", Provider: p}}
+	m.playlist.Add(spotifyTracks(1)...)
+	m.plCursor = 0
+	updated, cmd := m.Update(tea.KeyPressMsg{Text: "*"})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("* returned nil command for colon-scheme provider")
+	}
+	if _, ok := cmd().(trackLikeToggledMsg); !ok {
+		t.Fatal("like command produced wrong message type")
+	}
+	if len(p.liked) != 1 || p.liked[0] != "spotify:track:0" {
+		t.Fatalf("liked = %v, want the track toggled on the colon-scheme provider", p.liked)
+	}
 }
 
 func TestLikeTrackFromQueueUsesOwningProvider(t *testing.T) {
@@ -712,5 +763,61 @@ func TestRegistryCoversNewWriteKeys(t *testing.T) {
 		if !found {
 			t.Errorf("commandRegistry has no %q entry for mode %d", tt.key, tt.mode)
 		}
+	}
+}
+
+// TestRemoteXFallsBackForSyntheticRows covers x on a queue mirroring a
+// synthetic library row (e.g. "YOUR MUSIC"): the remote path must not fire
+// (the row ID is not a real playlist ID), so removal stays local and the
+// mirror bookkeeping shrinks rather than going stale.
+func TestRemoteXFallsBackForSyntheticRows(t *testing.T) {
+	fake := &fakeSpotifyProvider{name: "Spotify"}
+	m := newSpotifyTestModel(fake)
+	m.playlist.Add(spotifyTracks(3)...)
+	m.activeProviderPlaylistID = "YOUR MUSIC"
+	m.providerQueueLen = 3
+	m.providerQueueLastPath = "spotify:track:2"
+	m.plCursor = 1
+
+	updated, _ := m.Update(tea.KeyPressMsg{Text: "x"})
+	m = updated.(Model)
+
+	if len(fake.removedFrom) != 0 {
+		t.Fatalf("remote remove fired for synthetic row: %v", fake.removedFrom)
+	}
+	if m.playlist.Len() != 2 || m.playlist.Tracks()[1].Path != "spotify:track:2" {
+		t.Fatalf("queue = %+v; want middle track removed locally", trackPathsOf(m.playlist.Tracks()))
+	}
+	if m.providerQueueLen != 2 || m.providerQueueLastPath != "spotify:track:2" {
+		t.Fatalf("mirror = %d/%q; want shrunk to 2/spotify:track:2", m.providerQueueLen, m.providerQueueLastPath)
+	}
+}
+
+// TestSpotFollowOwnedPlaylistRefused covers f on an owned playlist row in the
+// search Playlists tab: unfollowing an owned playlist deletes it server-side,
+// so the key must refuse with a pointer to the provider-pane D flow.
+func TestSpotFollowOwnedPlaylistRefused(t *testing.T) {
+	fixture := spotSearchAllFixture()
+	fixture.Playlists = []playlist.PlaylistInfo{{ID: "mine", Name: "Mine", Owned: true}}
+	fake := &fakeSpotifyProvider{name: "Spotify", searchAll: fixture}
+	m := newSpotifyTestModel(fake)
+	m = openSpotMultiSearch(t, m)
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	m = updated.(Model)
+	if m.spotSearch.tab != spotTabPlaylists {
+		t.Fatalf("tab = %d, want playlists tab", m.spotSearch.tab)
+	}
+	updated, cmd := m.Update(tea.KeyPressMsg{Text: "f"})
+	m = updated.(Model)
+	if cmd != nil {
+		t.Fatalf("f on owned playlist produced %T; want nil", cmd)
+	}
+	if len(fake.followedPlaylists)+len(fake.unfollowedPlaylists) != 0 {
+		t.Fatalf("follow calls = %v/%v; want none on owned playlist",
+			fake.followedPlaylists, fake.unfollowedPlaylists)
+	}
+	if !strings.Contains(m.status.text, "own this playlist") {
+		t.Fatalf("status = %q, want owned-playlist pointer", m.status.text)
 	}
 }

@@ -43,6 +43,10 @@ const (
 	commandModeThemePickerFilter
 	commandModeVisPickerFilter
 	commandModeProviderSearch
+	commandModeArtist
+	commandModeHome
+	commandModeHomeFilter
+	commandModeHomeInput
 )
 
 const commandModeAny = ^commandMode(0)
@@ -82,6 +86,7 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"+", "=", "-"}, KeyLabel: "+ -", Label: "Volume up/down", Keymap: true},
 	{Mode: commandModeMain | commandModeSpeed, Keys: []string{"]", "["}, KeyLabel: "] [", Label: "Speed up/down (+/-0.25x)", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"z"}, KeyLabel: "z", Label: "Toggle shuffle", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"Z"}, KeyLabel: "Z", Label: "Toggle Smart Shuffle", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"r"}, KeyLabel: "r", Label: "Cycle repeat", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"m"}, KeyLabel: "m", Label: "Toggle mono", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"e"}, KeyLabel: "e", Label: "Cycle EQ preset", Keymap: true},
@@ -104,6 +109,7 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"w"}, KeyLabel: "w", Label: "Write selected track/selection to playlist", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"o"}, KeyLabel: "o", Label: "Open file browser", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"N"}, KeyLabel: "N", Label: "Provider browser", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"H"}, KeyLabel: "H", Label: "Home view", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"L"}, KeyLabel: "L", Label: "Browse local playlists", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"R"}, KeyLabel: "R", Label: "Open radio provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"S"}, KeyLabel: "S", Label: "Open Spotify provider", Keymap: true},
@@ -151,7 +157,7 @@ var commandRegistry = []commandSpec{
 
 	// Shared text editing is reserved even though these are intentionally absent
 	// from the global keymap, where they would be misleading outside a field.
-	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSpotSearch | commandModeJump | commandModeURL | commandModeThemePickerFilter | commandModeVisPickerFilter | commandModeProviderSearch, Keys: []string{"left", "right", "home", "end", "ctrl+a", "ctrl+e", "backspace", "delete", "ctrl+w", "ctrl+u"}, KeyLabel: "Text editor", Label: "Move cursor and delete text"},
+	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSpotSearch | commandModeJump | commandModeURL | commandModeThemePickerFilter | commandModeVisPickerFilter | commandModeProviderSearch | commandModeHomeFilter | commandModeHomeInput, Keys: []string{"left", "right", "home", "end", "ctrl+a", "ctrl+e", "backspace", "delete", "ctrl+w", "ctrl+u"}, KeyLabel: "Text editor", Label: "Move cursor and delete text"},
 
 	{Mode: commandModeProvider, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Load", ContextHelp: true, Primary: true},
 	{Mode: commandModeProvider, Keys: []string{"esc", "backspace", "b"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
@@ -160,8 +166,8 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeProviderPill, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Open", ContextHelp: true, Primary: true},
 	{Mode: commandModeProviderPill, Keys: []string{"esc", "backspace"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
 	{Mode: commandModeKeymap | commandModeFileBrowser | commandModeNavBrowser | commandModePlaylistManager | commandModePlaylistPicker | commandModeQueue | commandModeDevicePicker, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
-	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSpotSearch | commandModeJump | commandModeURL | commandModeProviderSearch, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Cancel", ContextHelp: true, Cancel: true},
-	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSpotSearch | commandModeJump | commandModeURL | commandModeProviderSearch, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Confirm", ContextHelp: true, Primary: true},
+	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSpotSearch | commandModeJump | commandModeURL | commandModeProviderSearch | commandModeHomeFilter | commandModeHomeInput, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Cancel", ContextHelp: true, Cancel: true},
+	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSpotSearch | commandModeJump | commandModeURL | commandModeProviderSearch | commandModeHomeFilter | commandModeHomeInput, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Confirm", ContextHelp: true, Primary: true},
 	{Mode: commandModeNavBrowser | commandModePlaylistManager | commandModePlaylistPicker | commandModeQueue | commandModeDevicePicker | commandModeProviderSearch, Keys: []string{"up", "down", "k", "j"}, KeyLabel: "Up Down", Label: "Navigate", ContextHelp: true},
 	{Mode: commandModeFileBrowser | commandModeNavBrowser | commandModePlaylistManager | commandModePlaylistPicker | commandModeDevicePicker, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Select", ContextHelp: true, Primary: true},
 	{Mode: commandModeKeymap, Keys: []string{"/"}, KeyLabel: "/", Label: "Filter", ContextHelp: true, Primary: true},
@@ -209,8 +215,58 @@ var commandRegistry = []commandSpec{
 			_, ok := m.spotSearch.prov.(provider.ArtistFollower)
 			return ok
 		}
-		_, ok := m.spotSearch.prov.(provider.PlaylistFollower)
+		if m.spotSearch.tab != spotTabPlaylists {
+			return false
+		}
+		if _, ok := m.spotSearch.prov.(provider.PlaylistFollower); !ok {
+			return false
+		}
+		// Owned playlists are excluded: unfollowing one deletes it, so the
+		// row is served by the provider pane's D confirm instead.
+		pls := m.spotSearch.resultsAll.Playlists
+		return m.spotSearch.cursor >= 0 && m.spotSearch.cursor < len(pls) && !pls[m.spotSearch.cursor].Owned
+	}},
+	{Mode: commandModeArtist, Keys: []string{"esc", "backspace"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
+	{Mode: commandModeArtist, Keys: []string{"up", "down", "k", "j"}, KeyLabel: "Up Down", Label: "Navigate", ContextHelp: true},
+	{Mode: commandModeArtist, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Play track / open album", ContextHelp: true, Primary: true},
+	{Mode: commandModeArtist, Keys: []string{"s"}, KeyLabel: "s", Label: "Cycle popular sort", Keymap: true, Enabled: func(m Model) bool {
+		return m.artist.visible && !m.artist.loading && len(m.artist.detail.Popular) > 0
+	}},
+	{Mode: commandModeArtist, Keys: []string{"f"}, KeyLabel: "f", Label: "Follow/unfollow artist", Keymap: true, Enabled: func(m Model) bool {
+		if !m.artist.visible || len(m.artist.drill) > 0 {
+			return false
+		}
+		_, ok := m.artist.prov.(provider.ArtistFollower)
 		return ok
+	}},
+	{Mode: commandModeArtist, Keys: []string{"*"}, KeyLabel: "*", Label: "Like/unlike track", Keymap: true, Enabled: func(m Model) bool {
+		return m.artistTrackLikerAvailable()
+	}},
+	{Mode: commandModeHome, Keys: []string{"esc", "backspace"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
+	{Mode: commandModeHome, Keys: []string{"up", "down", "k", "j"}, KeyLabel: "Up Down", Label: "Navigate", ContextHelp: true},
+	{Mode: commandModeHome, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Open row / play", ContextHelp: true, Primary: true},
+	{Mode: commandModeHome, Keys: []string{"tab", "shift+tab", "ctrl+left", "ctrl+right", "ctrl+up", "ctrl+down"}, KeyLabel: "Tab / Ctrl+Arrow", Label: "Switch pane", ContextHelp: true, Enabled: func(m Model) bool {
+		return m.home.visible && m.home.content.kind != homeContentNone
+	}},
+	{Mode: commandModeHome, Keys: []string{"/"}, KeyLabel: "/", Label: "Filter library", ContextHelp: true},
+	{Mode: commandModeHome, Keys: []string{"s"}, KeyLabel: "s", Label: "Cycle library order", Keymap: true},
+	{Mode: commandModeHome, Keys: []string{"S"}, KeyLabel: "S", Label: "Cycle album sort", Keymap: true, Enabled: func(m Model) bool {
+		_, ok := m.home.prov.(provider.AlbumBrowser)
+		return ok
+	}},
+	{Mode: commandModeHome, Keys: []string{"H"}, KeyLabel: "H", Label: "Close Home", Keymap: true},
+	{Mode: commandModeHome, Keys: []string{"a"}, KeyLabel: "a", Label: "Append track", Keymap: true, Enabled: func(m Model) bool {
+		return m.homeContentTrackReady()
+	}},
+	{Mode: commandModeHome, Keys: []string{"q"}, KeyLabel: "q", Label: "Queue next", Keymap: true, Enabled: func(m Model) bool {
+		return m.homeContentTrackReady()
+	}},
+	{Mode: commandModeHome, Keys: []string{"*"}, KeyLabel: "*", Label: "Like/unlike track", Keymap: true, Enabled: func(m Model) bool {
+		c := m.home.content
+		return m.homeContentTrackReady() && m.likerForTrack(c.tracks[c.cursor]) != nil
+	}},
+	{Mode: commandModeHome, Keys: []string{"p"}, KeyLabel: "p", Label: "Add to playlist", Keymap: true, Enabled: func(m Model) bool {
+		return m.homeContentTrackReady()
 	}},
 }
 

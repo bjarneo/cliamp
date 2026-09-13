@@ -40,14 +40,15 @@ interfaces are defined in `provider/interfaces.go`.
 | `ArtistBrowser` | Hierarchical artist browsing | `Artists()`, `ArtistAlbums(id)` |
 | `AlbumBrowser` | Paginated album browsing with sort | `AlbumList(sort, offset, size)`, `AlbumSortTypes()` |
 | `AlbumTrackLoader` | Album track listing | `AlbumTracks(albumID)` |
-| `ArtistTopTracksLoader` | Artist top-tracks drill-down | `ArtistTopTracks(artistID)` |
+| `Recommender` | Smart Shuffle recommendations from the current queue | `RecommendTracks(ctx, seed, limit)` |
+| `ArtistDetailLoader` | Rich artist profile page | `ArtistDetail(artistID)` returning `ArtistDetail` |
 | `Scrobbler` | Playback reporting | `Scrobble(track, submission)` |
 | `PlaylistWriter` | Add track to playlist | `AddTrackToPlaylist(ctx, playlistID, track)` |
 | `TrackPager` | Incremental loading of large playlists | `TracksPage(id, offset, limit)` |
 | `TrackLiker` | Like/unlike tracks in the user's library | `ToggleTrackLike(ctx, track)` |
 | `PlaylistFollower` | Follow/unfollow playlist by ID | `FollowPlaylistByID(ctx, id)`, `UnfollowPlaylistByID(ctx, id)` |
 | `ArtistFollower` | Follow/unfollow artist by ID | `FollowArtist(ctx, id)`, `UnfollowArtist(ctx, id)` |
-| `PlaylistTrackRemover` | Remove a track from a remote playlist | `RemoveTrackFromPlaylist(ctx, playlistID, position)` |
+| `PlaylistTrackRemover` | Remove a track from a remote playlist | `RemoveTrackFromPlaylist(ctx, playlistID, position, track)` |
 | `RemotePlaylistRenamer` | Rename a remote playlist by ID | `RenamePlaylistByID(ctx, playlistID, newName)` |
 | `PlaylistCreator` | Create new playlist | `CreatePlaylist(ctx, name)` |
 | `PlaylistDeleter` | Remove playlists/tracks | `DeletePlaylist(name)`, `RemoveTrack(name, index)` |
@@ -57,7 +58,7 @@ interfaces are defined in `provider/interfaces.go`.
 | `Authenticator` | Interactive sign-in flow | `Authenticate() error` (in `playlist` package) |
 
 `external/spotify/` is the reference implementation for `TrackPager`,
-`MultiSearcher`, `ArtistTopTracksLoader`, `TrackLiker`, `PlaylistFollower`,
+`MultiSearcher`, `TrackLiker`, `PlaylistFollower`,
 `ArtistFollower`, `PlaylistTrackRemover`, and `RemotePlaylistRenamer`.
 `SearchAll` returns a `SearchResults` (`provider/types.go`) carrying tracks,
 albums, artists, and playlists; the UI renders it as tabbed results with

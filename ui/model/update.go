@@ -275,6 +275,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Gapless advances without calling playTrack(), so emit now-playing here.
 			m.nowPlaying(newTrack)
 			cmds = append(cmds, m.preloadNext())
+			if cmd := m.smartMaybeFetch(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 			m.notifyAll()
 		}
 		// Check if gapless drained (end of playlist, no preloaded next).
@@ -306,6 +309,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// connection while the first preloadStreamCmd goroutine is still running.
 		if m.player.IsPlaying() && !m.player.IsPaused() && !m.buffering && !m.preloading && !m.player.HasPreload() {
 			if cmd := m.preloadNext(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		// Smart Shuffle: while playing, top up the queue when the upcoming
+		// smart cushion runs low (guarded dispatch; see smart.go).
+		if m.player.IsPlaying() && !m.player.IsPaused() {
+			if cmd := m.smartMaybeFetch(); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
 		}
@@ -370,7 +380,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loadedPlaylist = ""
 		}
 		// Remote provider load: the queue now mirrors the playlist in load
-		// order, enabling position-based writes (x remove) up to its length.
+		// order, enabling remote writes (x remove) up to its length.
 		if m.loadedPlaylist != "" {
 			m.providerQueueLen = 0
 			m.providerQueueLastPath = ""
@@ -452,6 +462,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.trackPaging.loading = true
 		return m, fetchTracksPageCmd(pager, msg.providerName, msg.playlistID, m.trackPaging.offset, providerTrackPageSize, msg.gen)
+
+	case smartRecommendsMsg:
+		m.handleSmartRecommends(msg)
+		return m, nil
 
 	case navArtistsLoadedMsg:
 		if !m.isCurrentNavRequest(msg.gen) {
@@ -893,6 +907,98 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clampActiveScrollState()
 		return m, nil
 
+	case artistDetailMsg:
+		if !m.isCurrentArtistRequest(msg.gen, msg.providerName) || msg.artistID != m.artist.info.ID {
+			return m, nil
+		}
+		m.cancelArtistRequest()
+		m.artist.loading = false
+		if msg.err != nil {
+			m.status.Showf(statusTTLDefault, "Artist load failed: %s", msg.err)
+			m.closeArtistScreen()
+			return m, nil
+		}
+		m.artist.detail = msg.detail
+		m.artist.cursor = 0
+		m.artist.scroll = 0
+		m.applyHeightMode()
+		m.clampActiveScrollState()
+		return m, nil
+
+	case artistAlbumTracksMsg:
+		if !m.isCurrentArtistRequest(msg.gen, msg.providerName) || msg.artistID != m.artist.info.ID || len(m.artist.drill) == 0 {
+			return m, nil
+		}
+		lvl := &m.artist.drill[len(m.artist.drill)-1]
+		if lvl.crumb != msg.crumb {
+			return m, nil
+		}
+		lvl.loading = false
+		if msg.err != nil {
+			m.artist.drill = m.artist.drill[:len(m.artist.drill)-1]
+			m.status.Showf(statusTTLDefault, "Album load failed: %s", msg.err)
+			return m, nil
+		}
+		lvl.tracks = msg.tracks
+		lvl.cursor = 0
+		lvl.scroll = 0
+		if len(lvl.tracks) == 0 {
+			m.status.Show("No tracks found", statusTTLDefault)
+		}
+		m.applyHeightMode()
+		m.clampActiveScrollState()
+		return m, nil
+
+	case homeListsMsg:
+		if !m.isCurrentHomeSectionRequest(msg.gen, msg.providerName, &m.requests.homeLists) {
+			return m, nil
+		}
+		m.handleHomeLists(msg)
+		return m, nil
+
+	case homeAlbumsMsg:
+		if !m.isCurrentHomeSectionRequest(msg.gen, msg.providerName, &m.requests.homeAlbums) {
+			return m, nil
+		}
+		m.handleHomeAlbums(msg)
+		return m, nil
+
+	case homeArtistsMsg:
+		if !m.isCurrentHomeSectionRequest(msg.gen, msg.providerName, &m.requests.homeArtists) {
+			return m, nil
+		}
+		m.handleHomeArtists(msg)
+		return m, nil
+
+	case homeContentMsg:
+		if !m.isCurrentHomeContentRequest(msg.gen, msg.providerName, msg.kind, msg.id) {
+			return m, nil
+		}
+		return m, m.handleHomeContent(msg)
+
+	case homePageMsg:
+		if !m.isCurrentHomeContentRequest(msg.gen, msg.providerName, homeContentPlaylist, msg.playlistID) {
+			return m, nil
+		}
+		return m, m.handleHomePage(msg)
+
+	case homeCreatedMsg:
+		if !m.isCurrentHomeSectionRequest(msg.gen, msg.providerName, &m.requests.homeCreate) {
+			return m, nil
+		}
+		m.home.creating = false
+		if msg.err != nil {
+			m.home.inputErr = "Create failed: " + msg.err.Error()
+			return m, nil
+		}
+		m.status.Showf(statusTTLDefault, "Created %q", msg.name)
+		m.home.screen = homeScreenLibrary
+		m.home.newName = ""
+		m.home.inputErr = ""
+		m.home.fixupID = msg.playlistID
+		m.home.loadingLists = true
+		return m, fetchHomeListsCmd(m.home.prov, msg.providerName, nextRequest(&m.requests.homeLists))
+
 	case trackLikeToggledMsg:
 		if msg.gen != m.requests.like {
 			return m, nil
@@ -988,7 +1094,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.adjustScroll()
 		} else if msg.gen == m.requests.provMutation {
 			// Freshest completion failed the mirror check: the queue no longer
-			// matches the remote playlist, so disarm position-based removes.
+			// matches the remote playlist, so disarm remote removes.
 			m.providerQueueLen = 0
 			m.providerQueueLastPath = ""
 		}

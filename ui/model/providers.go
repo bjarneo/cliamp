@@ -91,6 +91,18 @@ func (m *Model) fetchProviderTracks(playlistID string) tea.Cmd {
 	m.trackPaging = trackPagingState{}
 	m.provConfirm = provConfirmState{}
 	m.provRename = provRenameState{}
+	// The queue's TracksPage read rewrites the provider's page cursor for this
+	// playlist; cancel any Home content-pane paging of the same playlist first
+	// (Home checks the reverse direction before it starts paging). Residual
+	// race: a Home page read already in flight can still land after this
+	// offset-0 read (last-write-wins on the provider's pager cursor); the
+	// queue's next continuation then falls back to a raw API offset, which can
+	// skip filtered-out items on playlists that have them. Closing that fully
+	// needs per-caller cursors in the provider.
+	if m.homeContentPaging(playlistID) {
+		nextRequest(&m.requests.homeContent)
+		m.home.content.paging = homePagingState{}
+	}
 	if pager, ok := m.provider.(provider.TrackPager); ok {
 		return fetchTracksPageCmd(pager, m.provider.Name(), playlistID, 0, providerTrackPageSize, nextRequest(&m.requests.tracks))
 	}

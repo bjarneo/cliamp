@@ -154,10 +154,10 @@ type MultiSearcher interface {
 	SearchAll(ctx context.Context, query string, limit int) (SearchResults, error)
 }
 
-// ArtistTopTracksLoader is implemented by providers that can return an
-// artist's most popular tracks.
-type ArtistTopTracksLoader interface {
-	ArtistTopTracks(artistID string) ([]playlist.Track, error)
+// ArtistDetailLoader is implemented by providers that can return a rich
+// artist profile (header info plus popular tracks and discography).
+type ArtistDetailLoader interface {
+	ArtistDetail(artistID string) (ArtistDetail, error)
 }
 
 // TrackLiker is implemented by providers that support saving and removing
@@ -166,6 +166,12 @@ type TrackLiker interface {
 	// ToggleTrackLike flips the saved state of the track and returns the
 	// new state. Implementations resolve the current state themselves.
 	ToggleTrackLike(ctx context.Context, track playlist.Track) (liked bool, err error)
+}
+
+// Recommender is implemented by providers that can recommend additional
+// tracks related to the current queue (e.g. Smart Shuffle).
+type Recommender interface {
+	RecommendTracks(ctx context.Context, seed []playlist.Track, limit int) ([]playlist.Track, error)
 }
 
 // PlaylistFollower is implemented by providers that support following and
@@ -184,9 +190,13 @@ type ArtistFollower interface {
 }
 
 // PlaylistTrackRemover is implemented by providers that support removing a
-// track from a playlist by zero-based position.
+// track from a playlist. position is the zero-based index in the caller's
+// track list (used for caller-side bookkeeping); implementations should
+// resolve the track's remote identity from track itself rather than trusting
+// position, which may not match the provider's raw item positions when the
+// caller's list filters out unplayable items.
 type PlaylistTrackRemover interface {
-	RemoveTrackFromPlaylist(ctx context.Context, playlistID string, position int) error
+	RemoveTrackFromPlaylist(ctx context.Context, playlistID string, position int, track playlist.Track) error
 }
 
 // RemotePlaylistRenamer is implemented by providers that support renaming

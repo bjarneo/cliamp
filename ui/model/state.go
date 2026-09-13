@@ -259,6 +259,16 @@ type requestState struct {
 	provMutation uint64 // provider playlist writes (delete/unfollow/rename/remove)
 	like         uint64 // track like/unlike toggles
 	follow       uint64 // artist/playlist follow toggles
+	smart        uint64 // Smart Shuffle recommendation fetches
+	artist       uint64 // artist screen detail and discography drill fetches
+	// Home sidebar fetches use one generation per section so a lazy album
+	// page or creation refetch cannot make in-flight list/artist fetches
+	// stale (stale drops would leave their loading flags stuck on).
+	homeLists   uint64 // Home playlist-list fetches and creation refetches
+	homeAlbums  uint64 // Home album pages and sort refetches
+	homeArtists uint64 // Home artist-list fetches
+	homeCreate  uint64 // Home new-playlist creation
+	homeContent uint64 // Home content pane loads and incremental paging
 }
 
 func nextRequest(gen *uint64) uint64 {
@@ -321,6 +331,36 @@ type spotSearchState struct {
 	resultsAll provider.SearchResults // multi-type results backing the tab bar
 	tab        spotSearchTab          // active result tab (multi only)
 	drill      []spotDrillLevel       // drill-down stack (multi only)
+}
+
+// artistSortMode identifies the ordering of the artist screen's Popular
+// section; `s` cycles through them.
+type artistSortMode int
+
+const (
+	artistSortPopularity artistSortMode = iota // popularity score, descending
+	artistSortRecency                          // Track.Year, descending
+	artistSortLikedFirst                       // liked rows first, stable by popularity
+	artistSortCount
+)
+
+var artistSortLabels = [artistSortCount]string{"popularity", "recency", "liked"}
+
+// artistScreenState holds the artist profile overlay. It opens on top of
+// whichever surface drilled into it (search results, nav browser, later Home)
+// and owns its own album drill stack for Discography rows, reusing the
+// search drill machinery (spotDrillLevel crumbs; Esc pops one level).
+type artistScreenState struct {
+	prov    playlist.Provider // provider the artist belongs to
+	visible bool
+	info    provider.ArtistInfo // identity of the opened artist
+	loading bool                // ArtistDetail fetch in flight
+	detail  provider.ArtistDetail
+	sort    artistSortMode   // ordering of the Popular section
+	cursor  int              // index over selectable section rows (headers skipped)
+	scroll  int              // first visible selectable row
+	drill   []spotDrillLevel // Discography album drill stack
+	cancel  func()           // context cancel of the in-flight request
 }
 
 // catalogBatchState holds state for lazy-loading catalog entries from a provider.CatalogLoader.

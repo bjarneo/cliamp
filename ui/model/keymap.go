@@ -91,6 +91,16 @@ func (m Model) keymapContext() (commandMode, string) {
 		return commandModeFileBrowser, "Files"
 	case screenSpotSearch:
 		return commandModeSpotSearch, "Provider Search"
+	case screenArtist:
+		return commandModeArtist, "Artist"
+	case screenHome:
+		if m.home.filtering {
+			return commandModeHomeFilter, "Home Filter"
+		}
+		if m.home.screen == homeScreenNewName {
+			return commandModeHomeInput, "New Playlist"
+		}
+		return commandModeHome, "Home"
 	case screenNavBrowser:
 		if m.navBrowser.searching {
 			return commandModeNavSearch, "Browser Filter"

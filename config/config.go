@@ -245,6 +245,7 @@ type Config struct {
 	EQPreset         string      // preset name, or "" for custom
 	Repeat           string      // "off", "all", or "one"
 	Shuffle          bool
+	SmartShuffle     bool // start with Smart Shuffle on (implies shuffle)
 	Mono             bool
 	Speed            float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
 	AutoPlay         bool                         // start playback automatically on launch (radio streams, CLI tracks)
@@ -505,6 +506,8 @@ func Load() (Config, error) {
 				}
 			case "shuffle":
 				cfg.Shuffle = val == "true"
+			case "smart_shuffle":
+				cfg.SmartShuffle = val == "true"
 			case "mono":
 				cfg.Mono = val == "true"
 			case "auto_play":
@@ -737,6 +740,7 @@ type PlayerConfig interface {
 type PlaylistConfig interface {
 	CycleRepeat()
 	ToggleShuffle()
+	EnableSmart()
 }
 
 // ApplyPlayer applies audio-engine settings from the config.
@@ -765,8 +769,12 @@ func (c Config) ApplyPlaylist(pl PlaylistConfig) {
 		pl.CycleRepeat() // off -> all
 		pl.CycleRepeat() // all -> one
 	}
-	if c.Shuffle {
+	if c.Shuffle || c.SmartShuffle {
+		// Smart Shuffle implies shuffle: without it, smart injections no-op.
 		pl.ToggleShuffle()
+	}
+	if c.SmartShuffle {
+		pl.EnableSmart()
 	}
 }
 

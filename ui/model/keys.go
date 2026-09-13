@@ -220,6 +220,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handleFileBrowserKey(msg)
 	}
 
+	// Artist screen overlay sits on top of the search results and the nav
+	// browser, so it must claim keys first when both are visible.
+	if m.artist.visible {
+		return m.handleArtistKey(msg)
+	}
+
 	// Provider search overlay sits on top of the nav browser, so it must
 	// claim keys first when both are visible.
 	if m.spotSearch.visible {
@@ -229,6 +235,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	// Navidrome explore browser overlay
 	if m.navBrowser.visible {
 		return m.handleNavBrowserKey(msg)
+	}
+
+	// Home view overlay sits below the artist screen (which it opens), so the
+	// artist screen claims keys first when both are visible.
+	if m.home.visible {
+		return m.handleHomeKey(msg)
 	}
 
 	// Theme picker overlay — interactive navigation
@@ -387,6 +399,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.startProviderRename()
 		case "o":
 			m.openFileBrowser()
+		case "H":
+			return m.openHomeView()
 		case "N":
 			if prov := m.findBrowseProvider(); prov != nil {
 				m.openNavBrowserWith(prov)
@@ -664,7 +678,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
 		}
 		m.player.ClearPreload()
-		return m.preloadNext()
+		return tea.Batch(m.preloadNext(), m.smartMaybeFetch())
 
 	case "z":
 		m.playlist.ToggleShuffle()
@@ -672,7 +686,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
 		}
 		m.player.ClearPreload()
-		return m.preloadNext()
+		return tea.Batch(m.preloadNext(), m.smartMaybeFetch())
+
+	case "Z":
+		return m.toggleSmartShuffle()
 
 	case "tab":
 		m.focus = m.nextMainFocus(m.focus)
@@ -779,6 +796,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.openNavBrowserWith(prov)
 		}
 
+	case "H":
+		return m.openHomeView()
+
 	case "L":
 		return m.switchToProvider("local")
 	case "R":
@@ -822,8 +842,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "x":
 		if m.focus == focusPlaylist {
-			// Remote provider playlist first (position-based remove), then the
-			// local queue/playlist removal.
+			// Remote provider playlist first (remote remove by track URI), then
+			// the local queue/playlist removal.
 			if cmd, handled := m.removeSelectedRemote(); handled {
 				return cmd
 			}

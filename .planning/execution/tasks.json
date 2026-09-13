@@ -5,71 +5,453 @@
     {
       "id": "wave1-contract-lock",
       "goal": "Lock all shared contracts widened by this feature",
-      "tasks": ["W1C-1"],
-      "status": "pending"
+      "tasks": [
+        "W1C-1"
+      ],
+      "status": "done"
     },
     {
       "id": "wave2-core-impl",
       "goal": "Parallel implementation: spotify provider core + ui/model",
-      "tasks": ["W2A-1", "W2B-1"],
-      "dependencies": ["wave1-contract-lock"],
-      "status": "pending"
+      "tasks": [
+        "W2A-1",
+        "W2B-1"
+      ],
+      "dependencies": [
+        "wave1-contract-lock"
+      ],
+      "status": "done"
     },
     {
       "id": "wave3-features-docs",
       "goal": "Spotify search/write suite + docs/site sync",
-      "tasks": ["W3A-1", "W3B-1"],
-      "dependencies": ["wave2-core-impl"],
-      "status": "pending"
+      "tasks": [
+        "W3A-1",
+        "W3B-1"
+      ],
+      "dependencies": [
+        "wave2-core-impl"
+      ],
+      "status": "done"
     },
     {
       "id": "wave4-integration-gate",
       "goal": "make check, review pass, fixes, commits",
-      "tasks": ["W4G-1"],
-      "dependencies": ["wave3-features-docs"],
-      "status": "pending"
+      "tasks": [
+        "W4G-1"
+      ],
+      "dependencies": [
+        "wave3-features-docs"
+      ],
+      "status": "done"
+    },
+    {
+      "id": "wave5-security-fixes",
+      "goal": "Close Mimosa findings (exec hardening, md5 removal, qobuz key)",
+      "tasks": [
+        "W5A-1",
+        "W5B-1",
+        "W5C-1",
+        "W5D-1"
+      ],
+      "status": "done"
+    },
+    {
+      "id": "wave6-post-review-fixes",
+      "goal": "Post-commit correctness: URI-based remote remove, mirror bookkeeping, guards, doc refinements",
+      "tasks": [
+        "W6G-1"
+      ],
+      "dependencies": [
+        "wave5-security-fixes"
+      ],
+      "status": "done",
+      "note": "Verified 2026-09-12: make check green (41 pkgs ok). Uncommitted in working tree; commit from user terminal (Mimosa gate)."
+    },
+    {
+      "id": "ux1-api-migration",
+      "goal": "Migrate external/spotify to Feb-2026 Web API; lock Recommender + ArtistDetail contracts",
+      "tasks": [
+        "UX1R-1",
+        "UX1A-1",
+        "UX1B-1"
+      ],
+      "status": "done",
+      "note": "2026-09-12. Research corrected two plan assumptions: /me/library ops are query-param based (no body); playlist removal body is items not tracks. Scoped gates green."
+    },
+    {
+      "id": "ux2-smart-shuffle",
+      "goal": "Smart Shuffle: playlist pkg smart rows + spotify RecommendTracks + UI Z toggle/prefetch",
+      "tasks": [
+        "UX2A-1",
+        "UX2B-1",
+        "UX2C-1"
+      ],
+      "dependencies": [
+        "ux1-api-migration"
+      ],
+      "status": "done",
+      "note": "2026-09-12. Sequenced UX2A-1 before UX2B-1 (single worktree compile coupling, not parallel as plan suggested). Lead fixes: seed-artist name matching, Remaining()-based prefetch trigger."
+    },
+    {
+      "id": "ux3-artist-page",
+      "goal": "Artist screen: provider ArtistDetailLoader + ui/model sectioned overlay",
+      "tasks": [
+        "UX3A-1",
+        "UX3B-1",
+        "UX3C-1"
+      ],
+      "dependencies": [
+        "ux1-api-migration"
+      ],
+      "status": "done",
+      "note": "2026-09-12. Parallel provider/UI against frozen contract. Lead fix: ArtistAlbums paging 50->10 (Feb-2026 cap). Liked section scoped to popular pool (contract carries top-10)."
+    },
+    {
+      "id": "ux4-home-view",
+      "goal": "Home overlay: two-pane sidebar + content reusing artist/album/playlist views",
+      "tasks": [
+        "UX4A-1",
+        "UX4B-1"
+      ],
+      "dependencies": [
+        "ux3-artist-page"
+      ],
+      "status": "done",
+      "note": "2026-09-12. First two-list overlay, self-contained. TracksPage<->queue pager guard both directions."
+    },
+    {
+      "id": "ux5-final-gate",
+      "goal": "Integration review, full-tree make check, commit split for user",
+      "tasks": [
+        "UX5G-1"
+      ],
+      "dependencies": [
+        "ux4-home-view"
+      ],
+      "status": "done",
+      "note": "2026-09-12. Review: 2xP1 fixed with regression tests (smart accept-guard, Home per-section gens), 5xP2 fixed/documented, /v1/me/following verified live, H bound in content pane. make check green."
     }
   ],
   "tasks": [
     {
       "id": "W1C-1",
       "wave": "wave1-contract-lock",
-      "owner_paths": ["provider/interfaces.go", "provider/types.go", "playlist/provider.go", "config/config.go"],
-      "verify": ["go build ./...", "go test ./..."],
+      "owner_paths": [
+        "provider/interfaces.go",
+        "provider/types.go",
+        "playlist/provider.go",
+        "config/config.go"
+      ],
+      "verify": [
+        "go build ./...",
+        "go test ./..."
+      ],
       "handoff": ".planning/execution/handoffs/wave1-contract-lock/W1C-1-contracts.md",
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "W2A-1",
       "wave": "wave2-core-impl",
-      "owner_paths": ["external/spotify/**"],
-      "verify": ["go vet ./external/spotify/...", "go test ./external/spotify/..."],
+      "owner_paths": [
+        "external/spotify/**"
+      ],
+      "verify": [
+        "go vet ./external/spotify/...",
+        "go test ./external/spotify/..."
+      ],
       "handoff": ".planning/execution/handoffs/wave2-core-impl/W2A-1-spotify-core.md",
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "W2B-1",
       "wave": "wave2-core-impl",
-      "owner_paths": ["ui/model/**"],
-      "verify": ["go vet ./ui/...", "go test ./ui/..."],
+      "owner_paths": [
+        "ui/model/**"
+      ],
+      "verify": [
+        "go vet ./ui/...",
+        "go test ./ui/..."
+      ],
       "handoff": ".planning/execution/handoffs/wave2-core-impl/W2B-1-ui-model.md",
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "W3A-1",
       "wave": "wave3-features-docs",
-      "owner_paths": ["external/spotify/**"],
-      "verify": ["go vet ./external/spotify/...", "go test ./external/spotify/..."],
+      "owner_paths": [
+        "external/spotify/**"
+      ],
+      "verify": [
+        "go vet ./external/spotify/...",
+        "go test ./external/spotify/..."
+      ],
       "handoff": ".planning/execution/handoffs/wave3-features-docs/W3A-1-spotify-features.md",
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "W3B-1",
       "wave": "wave3-features-docs",
-      "owner_paths": ["docs/spotify.md", "docs/keybindings.md", "docs/provider-development.md", "site/index.html"],
-      "verify": ["manual consistency check vs command_registry.go"],
+      "owner_paths": [
+        "docs/spotify.md",
+        "docs/keybindings.md",
+        "docs/provider-development.md",
+        "site/index.html"
+      ],
+      "verify": [
+        "manual consistency check vs command_registry.go"
+      ],
       "handoff": ".planning/execution/handoffs/wave3-features-docs/W3B-1-docs-site.md",
-      "status": "pending"
+      "status": "done"
+    },
+    {
+      "id": "W4G-1",
+      "wave": "wave4-integration-gate",
+      "owner_paths": [
+        "(lead, all)"
+      ],
+      "verify": [
+        "make check"
+      ],
+      "handoff": ".planning/execution/handoffs/wave3-features-docs/W4G-1-fixes.md",
+      "status": "done"
+    },
+    {
+      "id": "W5A-1",
+      "wave": "wave5-security-fixes",
+      "owner_paths": [
+        "player/**"
+      ],
+      "verify": [
+        "go vet ./player/...",
+        "go test ./player/..."
+      ],
+      "handoff": ".planning/execution/handoffs/wave5-security-fixes/W5A-1-player.md",
+      "status": "done"
+    },
+    {
+      "id": "W5B-1",
+      "wave": "wave5-security-fixes",
+      "owner_paths": [
+        "resolve/**",
+        "ipc/**",
+        "external/netease/**"
+      ],
+      "verify": [
+        "go vet ./resolve/... ./ipc/... ./external/netease/...",
+        "go test ./resolve/... ./ipc/... ./external/netease/..."
+      ],
+      "handoff": ".planning/execution/handoffs/wave5-security-fixes/W5B-1-resolve-ipc-netease.md",
+      "status": "done"
+    },
+    {
+      "id": "W5C-1",
+      "wave": "wave5-security-fixes",
+      "owner_paths": [
+        "luaplugin/**"
+      ],
+      "verify": [
+        "go vet ./luaplugin/...",
+        "go test ./luaplugin/..."
+      ],
+      "handoff": ".planning/execution/handoffs/wave5-security-fixes/W5C-1-luaplugin.md",
+      "status": "done"
+    },
+    {
+      "id": "W5D-1",
+      "wave": "wave5-security-fixes",
+      "owner_paths": [
+        "external/qobuz/**",
+        "external/navidrome/**"
+      ],
+      "verify": [
+        "go vet ./external/qobuz/... ./external/navidrome/...",
+        "go test ./external/qobuz/... ./external/navidrome/..."
+      ],
+      "handoff": ".planning/execution/handoffs/wave5-security-fixes/W5D-1-qobuz-navidrome.md",
+      "status": "done"
+    },
+    {
+      "id": "W6G-1",
+      "wave": "wave6-post-review-fixes",
+      "owner_paths": [
+        "(lead, cross-cutting: provider/ external/spotify/ external/netease/ config.toml.example config/ ui/model/ docs/)"
+      ],
+      "verify": [
+        "make check",
+        "site sync check vs docs/"
+      ],
+      "handoff": ".planning/execution/handoffs/wave6-post-review-fixes/W6G-1-uri-remove-and-guards.md",
+      "status": "done",
+      "note": "Working tree only \u2014 commit belongs to the user (Mimosa gate)."
+    },
+    {
+      "id": "UX1R-1",
+      "wave": "ux1-api-migration",
+      "owner_paths": [
+        "(read-only web research; artifact only)"
+      ],
+      "verify": [
+        "artifact exists with per-endpoint shapes"
+      ],
+      "handoff": ".planning/execution/handoffs/ux1-api-migration/UX1R-1-api-shapes.md",
+      "status": "done"
+    },
+    {
+      "id": "UX1A-1",
+      "wave": "ux1-api-migration",
+      "owner_paths": [
+        "external/spotify/**",
+        "provider/interfaces.go",
+        "provider/types.go",
+        "ui/model/commands.go",
+        "ui/model/spot_search_tabs.go"
+      ],
+      "verify": [
+        "go vet ./external/spotify/... ./provider/... ./ui/...",
+        "go test ./external/spotify/... ./provider/... ./ui/...",
+        "go build ./..."
+      ],
+      "handoff": ".planning/execution/handoffs/ux1-api-migration/UX1A-1-api-migration.md",
+      "status": "done"
+    },
+    {
+      "id": "UX1B-1",
+      "wave": "ux1-api-migration",
+      "owner_paths": [
+        "docs/spotify.md",
+        "docs/keybindings.md",
+        "site/index.html"
+      ],
+      "verify": [
+        "manual consistency vs UX1R-1 artifact + plan"
+      ],
+      "handoff": ".planning/execution/handoffs/ux1-api-migration/UX1B-1-docs-site.md",
+      "status": "done"
+    },
+    {
+      "id": "UX2A-1",
+      "wave": "ux2-smart-shuffle",
+      "owner_paths": [
+        "playlist/**",
+        "external/spotify/recommend.go",
+        "external/spotify/*_test.go (recommend only)"
+      ],
+      "verify": [
+        "go vet ./playlist/... ./external/spotify/...",
+        "go test ./playlist/... ./external/spotify/..."
+      ],
+      "handoff": ".planning/execution/handoffs/ux2-smart-shuffle/UX2A-1-recommender.md",
+      "status": "done"
+    },
+    {
+      "id": "UX2B-1",
+      "wave": "ux2-smart-shuffle",
+      "owner_paths": [
+        "ui/model/**",
+        "config/**",
+        "config.toml.example"
+      ],
+      "verify": [
+        "go vet ./ui/... ./config/...",
+        "go test ./ui/... ./config/..."
+      ],
+      "handoff": ".planning/execution/handoffs/ux2-smart-shuffle/UX2B-1-ui-smart.md",
+      "status": "done"
+    },
+    {
+      "id": "UX2C-1",
+      "wave": "ux2-smart-shuffle",
+      "owner_paths": [
+        "docs/keybindings.md",
+        "docs/spotify.md",
+        "site/index.html"
+      ],
+      "verify": [
+        "manual consistency vs UX2A-1/UX2B-1 handoffs"
+      ],
+      "handoff": ".planning/execution/handoffs/ux2-smart-shuffle/UX2C-1-docs-site.md",
+      "status": "done"
+    },
+    {
+      "id": "UX3A-1",
+      "wave": "ux3-artist-page",
+      "owner_paths": [
+        "external/spotify/artist.go",
+        "external/spotify/artist_test.go"
+      ],
+      "verify": [
+        "go vet ./external/spotify/...",
+        "go test ./external/spotify/..."
+      ],
+      "handoff": ".planning/execution/handoffs/ux3-artist-page/UX3A-1-artist-provider.md",
+      "status": "done"
+    },
+    {
+      "id": "UX3B-1",
+      "wave": "ux3-artist-page",
+      "owner_paths": [
+        "ui/model/**"
+      ],
+      "verify": [
+        "go vet ./ui/...",
+        "go test ./ui/..."
+      ],
+      "handoff": ".planning/execution/handoffs/ux3-artist-page/UX3B-1-artist-screen.md",
+      "status": "done"
+    },
+    {
+      "id": "UX3C-1",
+      "wave": "ux3-artist-page",
+      "owner_paths": [
+        "docs/keybindings.md",
+        "docs/spotify.md",
+        "site/index.html"
+      ],
+      "verify": [
+        "manual consistency vs UX3A-1/UX3B-1 handoffs"
+      ],
+      "handoff": ".planning/execution/handoffs/ux3-artist-page/UX3C-1-docs-site.md",
+      "status": "done"
+    },
+    {
+      "id": "UX4A-1",
+      "wave": "ux4-home-view",
+      "owner_paths": [
+        "ui/model/**"
+      ],
+      "verify": [
+        "go vet ./ui/...",
+        "go test ./ui/..."
+      ],
+      "handoff": ".planning/execution/handoffs/ux4-home-view/UX4A-1-home-overlay.md",
+      "status": "done"
+    },
+    {
+      "id": "UX4B-1",
+      "wave": "ux4-home-view",
+      "owner_paths": [
+        "docs/keybindings.md",
+        "docs/spotify.md",
+        "site/index.html"
+      ],
+      "verify": [
+        "manual consistency vs UX4A-1 handoff + command_registry.go"
+      ],
+      "handoff": ".planning/execution/handoffs/ux4-home-view/UX4B-1-docs-site.md",
+      "status": "done"
+    },
+    {
+      "id": "UX5G-1",
+      "wave": "ux5-final-gate",
+      "owner_paths": [
+        "(lead, all \u2014 review + fixes)"
+      ],
+      "verify": [
+        "make check"
+      ],
+      "handoff": ".planning/execution/handoffs/ux5-final-gate/UX5G-1-review-gate.md",
+      "status": "done"
     }
   ]
 }
