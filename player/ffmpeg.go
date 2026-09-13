@@ -546,6 +546,9 @@ func decodeNavFFmpeg(nb *navBuffer, sr beep.SampleRate, bitDepth int, totalFrame
 		return nil, beep.Format{}, err
 	}
 	s.ffmpegPipe = fp
+	// The real length is only knowable once every byte has arrived, so measure
+	// it in the background rather than delaying playback for it.
+	go s.probeDownloadedLength()
 	format := beep.Format{
 		SampleRate:  sr,
 		NumChannels: 2,
@@ -561,6 +564,37 @@ type navFFmpegStreamer struct {
 	ffmpegPipe
 	nb *navBuffer
 	sr beep.SampleRate
+
+	// probed is the frame count measured from the downloaded bytes, or 0
+	// before the probe finishes. It is written by the probe goroutine and read
+	// by the UI and audio goroutines, so it must stay atomic.
+	probed atomic.Int64
+}
+
+// Len returns the measured frame count once the download has been probed,
+// falling back to the metadata hint until then.
+//
+// Podcast feeds routinely understate an episode's length, because
+// itunes:duration describes the master and the file served carries inserted
+// advertising on top of it. Measuring the bytes is the only way to get a seek
+// bar and an end-of-track that match what is playing.
+func (s *navFFmpegStreamer) Len() int {
+	if n := s.probed.Load(); n > 0 {
+		return int(n)
+	}
+	return s.ffmpegPipe.Len()
+}
+
+// probeDownloadedLength measures the finished download and stores the result.
+// A failed probe leaves the metadata hint in place.
+func (s *navFFmpegStreamer) probeDownloadedLength() {
+	path, ok := s.nb.completedPath()
+	if !ok {
+		return
+	}
+	if frames := probeFrames(path, s.sr); frames > 0 {
+		s.probed.Store(int64(frames))
+	}
 }
 
 type navFFmpegInput struct {
@@ -656,7 +690,7 @@ func (s *navFFmpegStreamer) Seek(targetFrame int) error {
 }
 
 func (s *navFFmpegStreamer) prepareSeek(pos int) (*preparedFFmpegSeek, error) {
-	pos = clampSeekPosition(pos, s.total)
+	pos = clampSeekPosition(pos, s.Len())
 	replacement, err := s.startPipe(pos, true)
 	if err != nil {
 		return nil, err
