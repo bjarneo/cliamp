@@ -251,6 +251,37 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open source: %w", err)
 	}
+
+	// A finite HTTP source is a file, not a broadcast, so it belongs on the
+	// buffered pipeline where it can be seeked. The response itself is the only
+	// reliable signal: podcast CDNs rewrite enclosure URLs per request, with
+	// tracking prefixes and signed parameters, so a URL cannot be recognized
+	// from one play to the next.
+	//
+	// The headers have arrived but no audio has been read, so closing here
+	// costs a connection setup and nothing more.
+	if isURL(path) && !src.live && src.contentLength > 0 && ffmpegAvailable() {
+		_ = src.body.Close()
+		nb, contentLen, err := newNavBuffer(path)
+		if err != nil {
+			return nil, fmt.Errorf("buffer source: %w", err)
+		}
+		decoder, format, err := decodeNavFFmpeg(nb, p.sr, p.bitDepth, 0)
+		if err != nil {
+			nb.Close()
+			return nil, fmt.Errorf("decode source: %w", err)
+		}
+		return &trackPipeline{
+			decoder:       decoder,
+			stream:        decoder,
+			format:        format,
+			seekable:      true,
+			path:          path,
+			bytesRead:     &nb.bytesIn,
+			contentLength: contentLen,
+		}, nil
+	}
+
 	rc := src.body
 
 	// Wrap HTTP streams with a counting reader for network stats.

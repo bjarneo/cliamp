@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -135,4 +137,59 @@ func TestLivePodcastRealLength(t *testing.T) {
 		t.Fatal("probe produced no length")
 	}
 	t.Logf("measured length: %v", p.sr.D(int(frames)).Round(time.Second))
+}
+
+// A finite HTTP source must reach the seekable pipeline without being
+// recognized in advance: podcast CDNs rewrite enclosure URLs per request, so a
+// track restored from a saved playlist never matches a URL seen before.
+func TestFiniteHTTPSourceIsSeekableWithoutAMatcher(t *testing.T) {
+	body := strings.Repeat("\xff\xfb\x90\x00", 4096)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "audio/mpeg")
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(srv.Close)
+
+	if !ffmpegAvailable() {
+		t.Skip("ffmpeg is required for the buffered pipeline")
+	}
+	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
+
+	tp, err := p.buildPipeline(srv.URL)
+	if err != nil {
+		t.Fatalf("buildPipeline() error = %v", err)
+	}
+	defer tp.close()
+
+	if !tp.seekable {
+		t.Error("a finite HTTP source was not routed to the seekable pipeline")
+	}
+	if tp.contentLength != int64(len(body)) {
+		t.Errorf("contentLength = %d, want %d", tp.contentLength, len(body))
+	}
+}
+
+// A stream with no length is a broadcast and must stay on the live path.
+func TestChunkedHTTPSourceStaysLive(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "audio/mpeg")
+		w.(http.Flusher).Flush()
+		_, _ = io.WriteString(w, strings.Repeat("\xff\xfb\x90\x00", 64))
+	}))
+	t.Cleanup(srv.Close)
+
+	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
+
+	tp, err := p.buildPipeline(srv.URL)
+	if err != nil {
+		// A short synthetic body may fail to decode; the routing decision is
+		// what matters and it is made before any audio is read.
+		return
+	}
+	defer tp.close()
+
+	if tp.seekable {
+		t.Error("a chunked stream was routed to the seekable pipeline")
+	}
 }

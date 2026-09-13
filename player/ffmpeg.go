@@ -535,6 +535,14 @@ func (s *localFFmpegStreamer) prepareSeek(pos int) (*preparedFFmpegSeek, error) 
 // navFFmpegStreamer that begins producing PCM immediately as bytes arrive.
 // Seeking kills ffmpeg and restarts decoding from byte zero with an FFmpeg time
 // offset, so no HTTP reconnect is required.
+// ffmpegAvailable reports whether ffmpeg is on PATH, caching the lookup. The
+// buffered pipeline decodes through it, so a source can only be routed there
+// when it is installed.
+var ffmpegAvailable = sync.OnceValue(func() bool {
+	_, err := exec.LookPath("ffmpeg")
+	return err == nil
+})
+
 func decodeNavFFmpeg(nb *navBuffer, sr beep.SampleRate, bitDepth int, totalFrames int) (*navFFmpegStreamer, beep.Format, error) {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		return nil, beep.Format{}, fmt.Errorf("ffmpeg is required to decode this format — install it with your package manager")
