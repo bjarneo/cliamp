@@ -27,6 +27,7 @@ import (
 var (
 	_ provider.PlaylistWriter           = (*Provider)(nil)
 	_ provider.PlaylistBatchWriter      = (*Provider)(nil)
+	_ provider.PlaylistPrepender        = (*Provider)(nil)
 	_ provider.PlaylistCreator          = (*Provider)(nil)
 	_ provider.PlaylistSaver            = (*Provider)(nil)
 	_ provider.PlaylistDeleter          = (*Provider)(nil)
@@ -303,6 +304,121 @@ func (p *Provider) AddTracks(playlistName string, tracks []playlist.Track) (adde
 		return 0, skipped, nil
 	}
 	return added, skipped, p.savePlaylist(playlistName, existing)
+}
+
+// PrependTracks inserts tracks at the front of a playlist, in the order given.
+//
+// A track the playlist already lists explicitly moves to the front instead of
+// being duplicated, because prepending is an ordering request: leaving the old
+// copy in place would ignore it. A track the playlist only holds through a
+// [[dir]] source cannot move, since the entry is generated at load time, so it
+// is skipped the way AddTracks skips it.
+func (p *Provider) PrependTracks(playlistName string, tracks []playlist.Track) (added, moved, skipped int, err error) {
+	if isHistoryName(playlistName) {
+		return 0, 0, 0, errReservedHistoryName
+	}
+	if isFavoritesName(playlistName) {
+		return 0, 0, 0, errReservedFavoritesName
+	}
+	if len(tracks) == 0 {
+		return 0, 0, 0, nil
+	}
+	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+		return 0, 0, 0, err
+	}
+	path, err := p.safePath(playlistName)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	doc, err := p.loadDoc(path)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return 0, 0, 0, err
+		}
+		if err := validateNewName(playlistName); err != nil {
+			return 0, 0, 0, err
+		}
+		doc = &playlistDoc{}
+	}
+
+	explicit := make(map[string]struct{}, len(doc.tracks))
+	for _, t := range doc.tracks {
+		explicit[t.Path] = struct{}{}
+	}
+	dirSourced := make(map[string]struct{})
+	for _, src := range doc.dirs {
+		files, err := resolve.AudioFiles(ExpandPath(src.Path), src.Recursive)
+		if err != nil {
+			continue
+		}
+		for _, f := range files {
+			dirSourced[f] = struct{}{}
+		}
+	}
+
+	front := make([]playlist.Track, 0, len(tracks))
+	relocated := make(map[string]struct{}, len(tracks))
+	for _, t := range tracks {
+		if _, ok := relocated[t.Path]; ok {
+			// The same track twice in one batch keeps its first position.
+			skipped++
+			continue
+		}
+		if _, ok := explicit[t.Path]; ok {
+			moved++
+		} else if _, ok := dirSourced[t.Path]; ok {
+			skipped++
+			continue
+		} else {
+			added++
+		}
+		// An incoming track may carry DirSourced from the playlist it came
+		// from. It must persist as an explicit entry here, since this document
+		// has no owning [[dir]] section for it.
+		t.DirSourced = false
+		relocated[t.Path] = struct{}{}
+		front = append(front, t)
+	}
+
+	if added == 0 && moved == 0 {
+		if _, statErr := os.Stat(path); errors.Is(statErr, fs.ErrNotExist) {
+			return 0, 0, skipped, p.saveDoc(playlistName, doc)
+		} else if statErr != nil {
+			return 0, 0, skipped, statErr
+		}
+		return 0, 0, skipped, nil
+	}
+
+	// saveDoc writes the given order verbatim. savePlaylist cannot be used
+	// here: it treats a pure addition as "keep the old positions and append",
+	// which is the opposite of what prepending asks for.
+	ordered := append([]playlist.Track(nil), front...)
+	order := make([]uint8, 0, len(doc.order)+len(front))
+	for range front {
+		order = append(order, itemTrack)
+	}
+	ti := 0
+	for _, kind := range doc.order {
+		if kind == itemDir {
+			order = append(order, itemDir)
+			continue
+		}
+		t := doc.tracks[ti]
+		ti++
+		if _, ok := relocated[t.Path]; ok {
+			// Already placed at the front; drop the old position.
+			continue
+		}
+		ordered = append(ordered, t)
+		order = append(order, itemTrack)
+	}
+	return added, moved, skipped, p.saveDoc(playlistName, &playlistDoc{tracks: ordered, dirs: doc.dirs, order: order})
+}
+
+// PrependTracksToPlaylist implements provider.PlaylistPrepender.
+func (p *Provider) PrependTracksToPlaylist(_ context.Context, playlistID string, tracks []playlist.Track) (int, int, int, error) {
+	return p.PrependTracks(playlistID, tracks)
 }
 
 // CreatePlaylist creates an empty playlist file.

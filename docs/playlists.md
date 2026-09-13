@@ -2,6 +2,20 @@
 
 cliamp supports local **TOML playlists** that you manage in the TUI or CLI. It also loads **M3U/M3U8/PLS playlists** from files and URLs.
 
+## Saving the Current List
+
+Press `p` for the playlist manager, then `w` on the list screen to save
+everything currently loaded. The picker offers your saved playlists plus a
+**New playlist** row.
+
+- `Enter` adds the tracks to the end of the chosen playlist, skipping any it
+  already holds.
+- `p` adds them to the start instead. A track already in the playlist moves to
+  the front rather than being skipped.
+
+From the main view, `w` writes only the highlighted track. In the playlist
+manager's track screen, `Space` marks tracks and `w` copies the marked ones.
+
 ## M3U and PLS Playlists
 
 Load local or remote `.m3u`, `.m3u8`, and `.pls` files:

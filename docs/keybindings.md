@@ -139,6 +139,22 @@ preference remains saved for a wider layout. See
 | `r` | Cycle repeat mode (Off / All / One) |
 | `z` | Toggle shuffle |
 
+### Inside the save-to-playlist picker
+
+Reached with `w`. The list shows your saved playlists plus a **New playlist**
+row at the end.
+
+| Key | Action |
+|---|---|
+| `Enter` | Add the tracks to the end of the selected playlist, or create a new one |
+| `p` | Add the tracks to the start of the selected playlist instead |
+| `Esc` `q` | Cancel |
+
+`Enter` skips tracks the playlist already holds. `p` moves them to the front
+instead, since putting a track first is an ordering request rather than a
+duplicate. Tracks the playlist only holds through a `[[dir]]` source cannot be
+reordered, so `p` leaves them alone and reports them as skipped.
+
 ### Inside the playlist manager
 
 | Key | Action |

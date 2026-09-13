@@ -163,6 +163,18 @@ func (m *Model) handlePlaylistPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.plPicker.cursor = count - 1
 		}
 		m.plPickerMaybeAdjustScroll(m.plPickerVisible())
+	case "p":
+		if m.plPicker.cursor < len(m.plPicker.playlists) {
+			if m.prependPickerTracks(m.plPicker.playlists[m.plPicker.cursor].Name) {
+				m.closePlaylistPicker()
+			}
+			return nil
+		}
+		// On the new-playlist row there is nothing to prepend to, so this is
+		// the same request as Enter.
+		m.plPicker.screen = plPickerNewName
+		m.plPicker.newName = ""
+		m.plPicker.cursor = 0
 	case "enter":
 		if m.plPicker.cursor < len(m.plPicker.playlists) {
 			if m.writePickerTracks(m.plPicker.playlists[m.plPicker.cursor].Name) {
@@ -238,6 +250,34 @@ func (m *Model) writePickerTracks(name string) bool {
 		m.status.Warningf(statusTTLDefault, "Skipped %d duplicates in %q", skipped, name)
 	default:
 		m.status.Warningf(statusTTLDefault, "Nothing added to %q", name)
+	}
+	m.refreshPlaylistManagerAfterWrite(name)
+	return true
+}
+
+// prependPickerTracks writes the picker's tracks to the front of a playlist.
+func (m *Model) prependPickerTracks(name string) bool {
+	pr, ok := m.localProvider.(provider.PlaylistPrepender)
+	if !ok {
+		m.plPicker.inputErr = "Adding to the start is not supported here"
+		return false
+	}
+	added, moved, skipped, err := pr.PrependTracksToPlaylist(context.Background(), name, m.plPicker.tracks)
+	if err != nil {
+		m.plPicker.inputErr = "Write failed: " + err.Error()
+		return false
+	}
+	switch {
+	case added+moved == 0:
+		m.status.Warningf(statusTTLDefault, "Nothing added to the start of %q", name)
+	case moved > 0 && skipped > 0:
+		m.status.Warningf(statusTTLBatch, "Put %d at the start of %q, moved %d up, skipped %d", added, name, moved, skipped)
+	case moved > 0:
+		m.status.Showf(statusTTLBatch, "Put %d at the start of %q, moved %d up", added, name, moved)
+	case skipped > 0:
+		m.status.Warningf(statusTTLBatch, "Put %d at the start of %q, skipped %d", added, name, skipped)
+	default:
+		m.status.Showf(statusTTLDefault, "Put %d at the start of %q", added, name)
 	}
 	m.refreshPlaylistManagerAfterWrite(name)
 	return true

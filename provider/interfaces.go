@@ -207,6 +207,17 @@ type PlaylistBatchWriter interface {
 	AddTracksToPlaylist(ctx context.Context, playlistID string, tracks []playlist.Track) (added, skipped int, err error)
 }
 
+// PlaylistPrepender is implemented by providers that can insert tracks at the
+// front of a saved playlist.
+type PlaylistPrepender interface {
+	// PrependTracksToPlaylist puts tracks at the start of the playlist, in the
+	// order given. A track already listed in the playlist moves to the front
+	// rather than being duplicated, and is counted in moved. A track that the
+	// playlist only holds through a directory source cannot be reordered, so
+	// it is counted in skipped and left alone.
+	PrependTracksToPlaylist(ctx context.Context, playlistID string, tracks []playlist.Track) (added, moved, skipped int, err error)
+}
+
 // PlaylistSaver is implemented by providers that can overwrite a playlist's
 // complete ordered track list.
 type PlaylistSaver interface {
