@@ -17,6 +17,10 @@ To open it by default, set the top-level `provider = "podcast"` in
 - In the main Podcasts provider list, press `/`, type a show name, and press `Enter` to search Apple for up to 100 shows. Typing alone does not send search requests. `Esc` clears the search and restores discovery and subscriptions.
 - Open **Browse Categories**, then choose a **Genre**, then a **Show**. The 19 categories use Apple's genre-name search, not genre charts. Inside these lists, `/` filters the visible entries.
 
+Press `l` on a show in the provider list to append only its newest episode and
+queue it next. The playlist and the queue are left intact, so this is the quick
+way to line up the latest from several shows.
+
 Press `Enter` on a show in the provider list or category browser to replace the
 main playlist with its episodes, without starting playback. Then select an
 episode and press `Enter` to play, or `a` to toggle its play-next queue entry.

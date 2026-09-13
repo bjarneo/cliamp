@@ -228,6 +228,7 @@ Spotify, Qobuz, Tidal, Mixcloud, Podcasts, and YouTube Music.
 | `←` `→` / `h` `l` | Go back; open the selected item |
 | `/` | Filter the visible list, including Radio's complete genre/tag index. In the Mixcloud Genres list, `Enter` searches the complete server-side genre/tag catalog. |
 | `f` | In the Mixcloud Genres list, favorite or unfavorite the selected genre locally. Update `[mixcloud].styles`. On a podcast show, subscribe or unsubscribe. |
+| `l` | On a podcast show, append its newest episode and queue it next, without replacing the playlist |
 | `Enter` | Open the selected artist or album. A Radio tag loads up to 200 matching stations; a selected track plays and queues the rest of the visible list. |
 | `R` | Replace the queue with all visible tracks (start from the top, confirm when non-empty) |
 | `a` | Append all visible tracks to the queue |

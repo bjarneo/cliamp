@@ -207,3 +207,33 @@ func (m *Model) appendSubscriptionTracks(tracks []playlist.Track, mode subsLoadM
 	m.normalizeQueueOverlay()
 	return m.rearmPreload()
 }
+
+// selectedProviderShow returns the ID and name of the show highlighted in the
+// provider list, and false when the row is a section entry, a browse entry, or
+// a provider that has no shows.
+func (m Model) selectedProviderShow() (id, name string, ok bool) {
+	if m.provLoading || m.provCursor < 0 || m.provCursor >= len(m.providerLists) {
+		return "", "", false
+	}
+	if m.selectedProviderListIsBrowseEntry() {
+		return "", "", false
+	}
+	entry := m.providerLists[m.provCursor]
+	if sl, ok := m.provider.(provider.SectionedList); ok && !sl.IsFavoritableID(entry.ID) {
+		return "", "", false
+	}
+	if _, ok := m.provider.(provider.AlbumTrackLoader); !ok {
+		return "", "", false
+	}
+	return entry.ID, entry.Name, true
+}
+
+// loadLatestFromProviderList queues the newest episode of the show highlighted
+// in the provider list.
+func (m *Model) loadLatestFromProviderList() tea.Cmd {
+	id, name, ok := m.selectedProviderShow()
+	if !ok {
+		return nil
+	}
+	return m.loadShowEpisodes(id, name, subsLoadLatest)
+}

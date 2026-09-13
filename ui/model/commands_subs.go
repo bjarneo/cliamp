@@ -76,22 +76,39 @@ func latestEpisode(tracks []playlist.Track) (playlist.Track, bool) {
 	return best, true
 }
 
-// loadSubscription fetches the highlighted show's episodes.
+// loadSubscription fetches the episodes of the show highlighted in the
+// subscriptions overlay.
 func (m *Model) loadSubscription(mode subsLoadMode) tea.Cmd {
 	show, ok := m.selectedSubscription()
-	if !ok || m.subs.loading {
+	if !ok {
+		return nil
+	}
+	return m.loadShowEpisodes(show.ID, show.Name, mode)
+}
+
+// loadShowEpisodes fetches one show's episodes by provider ID. It serves both
+// the subscriptions overlay and the provider list, which address a show the
+// same way.
+func (m *Model) loadShowEpisodes(id, name string, mode subsLoadMode) tea.Cmd {
+	if id == "" || m.subs.loading {
 		return nil
 	}
 	loader := m.episodeLoader()
 	if loader == nil {
 		m.subs.err = "No provider can load episodes."
+		m.status.Warning("No provider can load episodes.", statusTTLDefault)
 		return nil
 	}
 	m.subs.loading = true
 	m.subs.err = ""
-	m.subs.status = "Loading " + show.Name + "..."
+	m.subs.status = "Loading " + name + "..."
+	if !m.subs.visible {
+		// Outside the overlay there is no status line of its own, so the
+		// player's one has to carry the wait.
+		m.status.Activityf(statusTTLLong, "Loading the latest from %s...", name)
+	}
 	return func() tea.Msg {
-		tracks, err := loader.AlbumTracks(show.ID)
+		tracks, err := loader.AlbumTracks(id)
 		if err == nil && mode == subsLoadLatest {
 			if latest, ok := latestEpisode(tracks); ok {
 				tracks = []playlist.Track{latest}
@@ -99,7 +116,7 @@ func (m *Model) loadSubscription(mode subsLoadMode) tea.Cmd {
 				tracks = nil
 			}
 		}
-		return subsEpisodesMsg{mode: mode, name: show.Name, tracks: tracks, err: err}
+		return subsEpisodesMsg{mode: mode, name: name, tracks: tracks, err: err}
 	}
 }
 
@@ -169,6 +186,9 @@ func (m *Model) handleSubsEpisodes(msg subsEpisodesMsg) tea.Cmd {
 	m.subs.status = ""
 	if msg.err != nil {
 		m.subs.err = msg.err.Error()
+		if !m.subs.visible {
+			m.status.Errorf(statusTTLDefault, "%s: %s", msg.name, msg.err)
+		}
 		return nil
 	}
 	return m.appendSubscriptionTracks(msg.tracks, msg.mode, msg.name)

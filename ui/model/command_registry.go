@@ -189,6 +189,10 @@ var commandRegistry = []commandSpec{
 		return "Load"
 	}, ContextHelp: true, Primary: true},
 	{Mode: commandModeProvider, Keys: []string{"esc", "backspace", "b"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
+	{Mode: commandModeProvider, Keys: []string{"l"}, KeyLabel: "l", Label: "Latest episode, queued next", Keymap: true, ContextHelp: true, Enabled: func(m Model) bool {
+		_, _, ok := m.selectedProviderShow()
+		return ok
+	}},
 	{Mode: commandModeProvider, Keys: []string{"f"}, KeyLabel: "f", Label: "Favorite", ContextHelp: true, Prominent: true, Enabled: func(m Model) bool {
 		_, ok := m.provider.(provider.FavoriteToggler)
 		if !ok || m.provLoading || m.provCursor < 0 || m.provCursor >= len(m.providerLists) || m.selectedProviderListIsBrowseEntry() {

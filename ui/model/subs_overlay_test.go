@@ -296,3 +296,101 @@ func TestHandleSubsLatestAllAppendsWithoutQueueing(t *testing.T) {
 		t.Errorf("queue length = %d, want 0; the sweep builds a list, it does not queue", got)
 	}
 }
+
+// sectionedSubProv adds section semantics, so only real show rows are
+// actionable in the provider list.
+type sectionedSubProv struct {
+	subProv
+	favoritable map[string]bool
+}
+
+func (p *sectionedSubProv) IDPrefix(string) string { return "" }
+
+func (p *sectionedSubProv) IsFavoritableID(id string) bool { return p.favoritable[id] }
+
+func TestSelectedProviderShow(t *testing.T) {
+	prov := &sectionedSubProv{
+		subProv:     subProv{episodes: map[string][]playlist.Track{"f:feed-a": {published("a", "2026-09-10")}}},
+		favoritable: map[string]bool{"f:feed-a": true},
+	}
+	lists := []playlist.PlaylistInfo{
+		{ID: "browse:categories", Name: "Browse Categories"},
+		{ID: "f:feed-a", Name: "Part Of The Problem"},
+	}
+
+	tests := []struct {
+		name    string
+		cursor  int
+		loading bool
+		wantOK  bool
+		wantID  string
+	}{
+		{"a subscribed show", 1, false, true, "f:feed-a"},
+		{"a section entry", 0, false, false, ""},
+		{"cursor out of range", 5, false, false, ""},
+		{"while the provider is loading", 1, true, false, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{provider: prov, playlist: playlist.New(), providerLists: lists, provCursor: tt.cursor, provLoading: tt.loading}
+			id, _, ok := m.selectedProviderShow()
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
+			}
+			if id != tt.wantID {
+				t.Errorf("id = %q, want %q", id, tt.wantID)
+			}
+		})
+	}
+}
+
+func TestLoadLatestFromProviderListQueuesNewest(t *testing.T) {
+	prov := &sectionedSubProv{
+		subProv: subProv{episodes: map[string][]playlist.Track{
+			"f:feed-a": {published("old", "2026-01-01"), published("newest", "2026-09-10")},
+		}},
+		favoritable: map[string]bool{"f:feed-a": true},
+	}
+	m := &Model{
+		provider:      prov,
+		playlist:      playlist.New(),
+		providerLists: []playlist.PlaylistInfo{{ID: "f:feed-a", Name: "Show"}},
+	}
+
+	cmd := m.loadLatestFromProviderList()
+	if cmd == nil {
+		t.Fatal("no command returned for a highlighted show")
+	}
+	msg, ok := cmd().(subsEpisodesMsg)
+	if !ok {
+		t.Fatal("expected a subsEpisodesMsg")
+	}
+	if msg.mode != subsLoadLatest {
+		t.Errorf("mode = %v, want subsLoadLatest", msg.mode)
+	}
+	if len(msg.tracks) != 1 || msg.tracks[0].Title != "newest" {
+		t.Fatalf("tracks = %v, want just the newest episode", msg.tracks)
+	}
+
+	m.addSubscriptionEpisodes(msg.tracks, msg.mode, msg.name)
+
+	if got := m.playlist.Len(); got != 1 {
+		t.Errorf("playlist length = %d, want 1", got)
+	}
+	if got := m.playlist.QueueLen(); got != 1 {
+		t.Errorf("queue length = %d, want 1", got)
+	}
+}
+
+func TestLoadLatestFromProviderListIgnoresSectionRows(t *testing.T) {
+	prov := &sectionedSubProv{favoritable: map[string]bool{}}
+	m := &Model{
+		provider:      prov,
+		playlist:      playlist.New(),
+		providerLists: []playlist.PlaylistInfo{{ID: "browse:categories", Name: "Browse Categories"}},
+	}
+
+	if cmd := m.loadLatestFromProviderList(); cmd != nil {
+		t.Error("a section row produced a load command")
+	}
+}
