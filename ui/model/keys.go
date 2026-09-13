@@ -1890,6 +1890,8 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.plManager.screen = plMgrScreenNewName
 		m.plManager.newName = ""
 		m.plManager.inputErr = ""
+	case "A":
+		return m.plMgrAppendPlaylist()
 	case "D":
 		// Choose directories for the highlighted playlist: the file browser
 		// opens targeted at it, where D/Enter adds folders as [[dir]] sources.
@@ -2105,6 +2107,8 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	case "a":
 		m.plMgrToggleMarkAll()
+	case "A":
+		return m.plMgrAppendSelectedTracks()
 	case "s":
 		m.plMgrSortTracks()
 	case "w":
