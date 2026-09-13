@@ -500,6 +500,25 @@ func (r *navReader) Close() error {
 }
 
 // Close cancels the download, unblocks waiters, and removes the temporary file.
+// completedPath returns the temporary file's path once the whole download has
+// finished, and false when the buffer was closed, errored, or stopped short.
+// It blocks until the download goroutine exits.
+//
+// The path is only valid until Close removes the file, so a caller must treat
+// a vanished file as an ordinary failure rather than a bug.
+func (b *navBuffer) completedPath() (string, bool) {
+	<-b.downloadDone
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed || !b.done || b.err != nil || b.path == "" {
+		return "", false
+	}
+	if b.total >= 0 && b.downloaded < b.total {
+		return "", false
+	}
+	return b.path, true
+}
+
 func (b *navBuffer) Close() error {
 	b.closeOnce.Do(func() {
 		b.mu.Lock()

@@ -74,6 +74,25 @@ cliamp https://example.com/podcast/feed.xml
 See [Streaming](streaming.md#podcasts) and
 [RSS feed playlists](playlists.md#podcast--rss-feed-playlists).
 
+## Seeking and Episode Length
+
+Episodes are finite files, so cliamp plays them through its buffered pipeline
+and seeks inside them with the usual keys. The decision comes from the HTTP
+response, not the URL: a source with a finite `Content-Length` and no ICY
+headers is an episode, while a live station has neither.
+
+The feed's `itunes:duration` is used until the download completes, then the
+real length is measured from the file. Publishers routinely understate it,
+because the tag describes the master and the file served carries inserted
+advertising on top. Measuring keeps the seek bar and the end of the track
+honest.
+
+Both depend on `ffmpeg`: the buffered pipeline decodes through it, and the
+length is read with `ffprobe`. Without it, episodes play on the live path,
+unseekable, with the feed's duration. If the probe fails, the feed's duration
+stays. An enclosure served without a `Content-Length`, or with ICY headers, is
+treated as a live stream.
+
 ## Chart Country
 
 Optionally select another country's top chart in `config.toml`:
