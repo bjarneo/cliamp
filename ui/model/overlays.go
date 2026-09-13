@@ -53,11 +53,16 @@ func (m *Model) themePickerApply() bool {
 	return true
 }
 
-// themePickerSelect confirms the current selection and closes the picker.
+// themePickerSelect confirms the current selection, persists it, and closes the picker.
 func (m *Model) themePickerSelect() {
 	if !m.themePickerApply() {
 		return
 	}
+	themeName := m.ThemeName()
+	if themeName == theme.DefaultName {
+		themeName = ""
+	}
+	m.saveConfigKey("theme", fmt.Sprintf("%q", themeName))
 	m.themePicker.visible = false
 	m.themePicker.filtering = false
 	m.themePicker.filter = ""
