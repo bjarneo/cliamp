@@ -419,6 +419,10 @@ type Model struct {
 	playingTrack       playlist.Track
 	playingTrackActive bool
 	playbackDetached   bool
+	// playingProvider names the provider that was active when the playing
+	// track started, so a label for it stays right after the listener
+	// switches providers while it keeps playing.
+	playingProvider string
 
 	notifier playback.Notifier
 

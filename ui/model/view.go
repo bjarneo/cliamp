@@ -583,8 +583,10 @@ func (m Model) fullVisTopLine() string {
 	if !m.hideTrackInfo {
 		return m.renderTrackInfo()
 	}
-	name := ""
-	if m.provider != nil {
+	// The playing track may belong to a provider the listener has since
+	// switched away from, so prefer the one recorded when it started.
+	name := m.playingProvider
+	if name == "" && m.provider != nil {
 		name = m.provider.Name()
 	}
 	if name == "" {

@@ -405,7 +405,10 @@ func (m *Model) saveVisualizerChoice() error {
 	if m.configSaver == nil {
 		return nil
 	}
-	return m.configSaver.Save("visualizer", fmt.Sprintf("%q", m.vis.ModeName()))
+	if err := m.configSaver.Save("visualizer", fmt.Sprintf("%q", m.vis.ModeName())); err != nil {
+		return fmt.Errorf("saving visualizer %q: %w", m.vis.ModeName(), err)
+	}
+	return nil
 }
 
 func (m *Model) handleV2Device(jobs *ipc.JobStore, jobID string, request ipc.Request) tea.Cmd {

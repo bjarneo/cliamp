@@ -100,3 +100,27 @@ func TestTKeyStillOpensTheThemePickerOutsideFullVis(t *testing.T) {
 		t.Error("t no longer opens the theme picker in the normal view")
 	}
 }
+
+// The label names the provider the track came from, not whichever one the
+// listener has browsed to since.
+func TestFullVisTopLineKeepsThePlayingProvider(t *testing.T) {
+	m := fullVisModel(t)
+	m.hideTrackInfo = true
+	m.playingProvider = "Podcasts"
+	m.provider = &plainProv{} // switched to another provider while it plays
+
+	if got := stripAnsi(m.fullVisTopLine()); !strings.Contains(got, "[Podcasts]") {
+		t.Errorf("top line = %q, want the playing track's provider", got)
+	}
+}
+
+func TestClearPlaybackTrackForgetsTheProvider(t *testing.T) {
+	m := fullVisModel(t)
+	m.playingProvider = "Podcasts"
+
+	m.clearPlaybackTrack()
+
+	if m.playingProvider != "" {
+		t.Errorf("playingProvider = %q after clearing, want empty", m.playingProvider)
+	}
+}

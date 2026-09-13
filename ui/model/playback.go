@@ -440,6 +440,9 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		m.status.Activity("Loading feed...", statusTTLLong)
 		return resolveFeedTrackCmd(track.Path)
 	}
+	if m.provider != nil {
+		m.playingProvider = m.provider.Name()
+	}
 	track, fetchCmd := m.beginPlaybackTrack(track)
 
 	// Stream yt-dlp URLs (YouTube, SoundCloud, Bandcamp, etc.) via pipe chain.
