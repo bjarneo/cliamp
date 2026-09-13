@@ -32,7 +32,19 @@ type frameLayout struct {
 	// source and volume share one row and the EQ, speed, and download readouts
 	// are not drawn at all.
 	closedSettings bool
+	// minimalControls adds the compact tier's source and EQ/volume rows to the
+	// minimal tier once the terminal has the height to spare for them.
+	minimalControls bool
 }
+
+// minimalControlRows is what the minimal tier adds when it can afford the
+// compact tier's controls: one row for EQ and volume, one for the source.
+const minimalControlRows = 2
+
+// minimalBaseRows is the minimal tier's chrome: track line, time, seek bar,
+// playlist header, hint bar, and status line. Unlike the other tiers it has no
+// spacer above the footer, since at this height every row is a track.
+const minimalBaseRows = 6
 
 // chromeRowsFreed is how many stacked chrome rows the current layout does not
 // draw, and therefore hands to the playlist.
@@ -137,7 +149,7 @@ func (m *Model) recomputeLayout() {
 		layout.fixedRows = compactBaseRows + compactVisRows
 	default:
 		layout.tier = layoutMinimal
-		layout.fixedRows = 7
+		layout.fixedRows = minimalBaseRows
 	}
 	layout.baseVisualizerRows = layout.visualizerRows
 	contentFirst := m.usesContentFirstLayout()
@@ -158,6 +170,20 @@ func (m *Model) recomputeLayout() {
 			layout.fixedRows = 10
 		} else if layout.tier == layoutCompact {
 			layout.fixedRows = 9
+		}
+	}
+	// The minimal tier normally drops the controls to keep a row for tracks.
+	// It carries the compact tier's two rows whenever they fit with at least
+	// one track row left, so hiding the hint bar buys them a row sooner: 11
+	// rows with it hidden, 12 with it shown.
+	if layout.tier == layoutMinimal && !contentFirst && !simplified {
+		chrome := layout.fixedRows
+		if m.hideHelpBar {
+			chrome--
+		}
+		if spare := height - 2*paddingV - layout.footerRows - chrome; spare >= minimalControlRows+1 {
+			layout.minimalControls = true
+			layout.fixedRows += minimalControlRows
 		}
 	}
 	// The settings pane, open or closed, belongs to the full-tier playback

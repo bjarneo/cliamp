@@ -139,6 +139,15 @@ The title, track line, time, visualizer, seek bar, and hint bar stay full width.
 Narrower terminals, simplified mode, overlays, and list views keep the stacked
 single-column layout, with shuffle and repeat back in the header.
 
+Below 16 rows the minimal layout drops the controls to keep a row for tracks.
+It brings the compact `EQ · VOL` and `SRC` rows back as soon as they fit with
+one track row to spare: 12 rows, or 11 with the hint bar hidden. `Tab` reaches
+them when they are drawn, with the same ring as the compact layout, including
+the shuffle and repeat badges when the header has room and the speed readout on
+the status line. Below that only the playlist is focusable, but the
+provider keys still work: `Esc` focuses the provider list, and `O`, `L`, `R`,
+and the other uppercase provider letters switch source directly.
+
 In full and compact playback layouts, `Tab` cycles from Playlist through Source,
 Volume, EQ, Shuffle, Repeat, and Speed, then returns to Playlist. `Shift+Tab`
 reverses the order. Only visible controls participate; Source is skipped when

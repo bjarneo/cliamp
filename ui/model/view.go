@@ -273,8 +273,11 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 				m.renderTrackInfo(),
 				m.renderTimeStatus(),
 				m.renderSeekBar(),
-				m.renderPlaylistHeader(),
 			}
+			if m.layout.minimalControls {
+				sections = append(sections, m.renderCompactControls(), m.renderCompactSource())
+			}
+			sections = append(sections, m.renderPlaylistHeader())
 		default:
 			sections = []string{
 				m.renderTitle(),
@@ -311,10 +314,11 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 	if playlist != "" {
 		sections = append(sections, playlist)
 	}
-	if !m.layout.twoColumn && m.layout.tier != layoutCompact {
+	if !m.layout.twoColumn && m.layout.tier != layoutCompact && m.layout.tier != layoutMinimal {
 		// The two-column body needs no spacer above the hint bar: the settings
 		// pane's own blank tail already separates the footer from the columns.
-		// Compact chrome also omits it so the speed row stays on-screen.
+		// Compact chrome omits it so the speed row stays on-screen, and minimal
+		// omits it because a blank row there is a track row lost.
 		sections = append(sections, "")
 	}
 	if !m.hideHelpBar {

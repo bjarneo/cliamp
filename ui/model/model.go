@@ -83,7 +83,10 @@ func (f focusArea) label() string {
 // main playback screen and the provider playlist pane.
 func (m Model) mainFocusAreas() []focusArea {
 	areas := []focusArea{focusPlaylist}
-	if m.simplified || m.layout.tier == layoutMinimal || m.layout.tier == layoutTooSmall {
+	if m.simplified || m.layout.tier == layoutTooSmall {
+		return areas
+	}
+	if m.layout.tier == layoutMinimal && !m.layout.minimalControls {
 		return areas
 	}
 	if m.layout.twoColumn {
