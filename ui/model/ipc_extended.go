@@ -125,8 +125,7 @@ func (m *Model) handleIPCQueue(request ipc.QueueRequestMsg) tea.Cmd {
 		return m.rearmPreload()
 	case "queue.remove":
 		if request.Index == m.playlist.Index() {
-			m.player.Stop()
-			m.clearPlaybackTrack()
+			m.stopPlayback()
 		}
 		if !m.playlist.Remove(request.Index) {
 			request.Reply <- ipc.Response{OK: false, Error: "queue index out of range"}
@@ -144,9 +143,8 @@ func (m *Model) handleIPCQueue(request ipc.QueueRequestMsg) tea.Cmd {
 		request.Reply <- m.ipcQueueResponse()
 		return m.rearmPreload()
 	case "queue.clear":
-		m.player.Stop()
+		m.stopPlayback()
 		m.replacePlaylist(nil)
-		m.clearPlaybackTrack()
 		m.loadedPlaylist = ""
 		request.Reply <- m.ipcQueueResponse()
 	case "track.play", "track.queue":

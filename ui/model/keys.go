@@ -622,8 +622,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		// Stopping counts like skipping: if the track passed the 50%
 		// threshold, it lands in Recently Played before teardown.
 		refresh := m.scrobbleCurrent()
-		m.player.Stop()
-		m.clearPlaybackTrack()
+		m.stopPlayback()
 		m.notifyPlayback()
 		return refresh
 

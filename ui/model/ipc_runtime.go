@@ -145,8 +145,7 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return cmd
 	case "stop":
-		m.player.Stop()
-		m.clearPlaybackTrack()
+		m.stopPlayback()
 		m.notifyAll()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return nil
@@ -287,8 +286,7 @@ func (m *Model) handleV2QueueRequest(ctx context.Context, jobs *ipc.JobStore, jo
 			return nil
 		}
 		if request.Index == m.playlist.Index() {
-			m.player.Stop()
-			m.clearPlaybackTrack()
+			m.stopPlayback()
 		}
 		if !m.playlist.Remove(request.Index) {
 			m.failV2Job(jobs, jobID, v2InvalidParamsError())
@@ -304,9 +302,8 @@ func (m *Model) handleV2QueueRequest(ctx context.Context, jobs *ipc.JobStore, jo
 		m.setHeaderStateFromTracks(m.playlist.Tracks())
 		m.normalizeQueueOverlay()
 	case "queue.clear":
-		m.player.Stop()
+		m.stopPlayback()
 		m.replacePlaylist(nil)
-		m.clearPlaybackTrack()
 		m.loadedPlaylist = ""
 		m.setHeaderStateFromTracks(nil)
 	}

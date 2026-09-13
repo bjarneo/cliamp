@@ -98,8 +98,7 @@ func (m *Model) nextTrack() tea.Cmd {
 	if m.playbackDetached {
 		m.playbackDetached = false
 		if m.playlist.Len() == 0 {
-			m.player.Stop()
-			m.clearPlaybackTrack()
+			m.stopPlayback()
 			return nil
 		}
 		return m.playCurrentTrack()
@@ -107,8 +106,7 @@ func (m *Model) nextTrack() tea.Cmd {
 	track, ok := m.playlist.Next()
 	m.normalizeQueueOverlay()
 	if !ok {
-		m.player.Stop()
-		m.clearPlaybackTrack()
+		m.stopPlayback()
 		return nil
 	}
 	m.plCursor = m.playlist.Index()
@@ -162,8 +160,7 @@ func (m *Model) playCurrentTrack() tea.Cmd {
 	}
 	activation, ok := m.playlist.ActivateSelected()
 	if !ok {
-		m.player.Stop()
-		m.clearPlaybackTrack()
+		m.stopPlayback()
 		m.status.Warning("No available tracks", statusTTLDefault)
 		return nil
 	}
@@ -385,9 +382,8 @@ func (m *Model) removeSelectedFromPlaylist() {
 	m.normalizeQueueOverlay()
 	m.playlistUndo = playlistUndo{active: true, snapshot: snapshot, loaded: loaded, saved: saved, persisted: persisted}
 	if wasActive {
-		m.player.Stop()
+		m.stopPlayback()
 		m.player.ClearPreload()
-		m.clearPlaybackTrack()
 	}
 	if newLen := m.playlist.Len(); newLen == 0 {
 		m.plCursor = 0

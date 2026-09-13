@@ -304,8 +304,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.normalizeQueueOverlay()
 			}
 			if !ok {
-				m.player.Stop()
-				m.clearPlaybackTrack()
+				m.stopPlayback()
 				m.notifyAll()
 				cmds = append(cmds, tickCmdAt(m.tickInterval()))
 				return m, tea.Batch(cmds...)
@@ -983,8 +982,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case playback.StopMsg:
-		m.player.Stop()
-		m.clearPlaybackTrack()
+		m.stopPlayback()
 		m.notifyAll()
 		return m, nil
 
