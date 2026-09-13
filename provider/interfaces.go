@@ -155,6 +155,46 @@ type TrackPosition interface {
 	TrackPosition(track playlist.Track) time.Duration
 }
 
+// SubscriptionInfo names one show a provider is subscribed to.
+type SubscriptionInfo struct {
+	// ID addresses the show in AlbumTracks and Tracks.
+	ID string
+	// Name is the show title.
+	Name string
+	// Author is the publisher, or empty when the provider has none.
+	Author string
+}
+
+// SubscriptionLister is implemented by providers that keep a subscription list
+// locally and can return it without a network call.
+type SubscriptionLister interface {
+	// Subscriptions returns the subscribed shows, in the provider's own order.
+	Subscriptions() []SubscriptionInfo
+}
+
+// PlaybackState is a track's stored listening state.
+type PlaybackState struct {
+	// Played marks an episode listened to the end.
+	Played bool
+	// Position is where the listener stopped. It is zero for a played track.
+	Position time.Duration
+}
+
+// PlaybackStateReporter is implemented by providers that keep listening state
+// locally and can answer for it without I/O.
+//
+// The UI calls this while rendering every visible row, so an implementation
+// must not reach the network or the disk. A provider whose state lives on a
+// server implements TrackPosition instead.
+type PlaybackStateReporter interface {
+	// HasPlaybackState reports whether any state is stored at all, so the UI
+	// can decide whether to reserve a marker column.
+	HasPlaybackState() bool
+	// PlaybackState returns the stored state for track. ok is false when the
+	// track is not this provider's, or nothing is stored for it.
+	PlaybackState(track playlist.Track) (state PlaybackState, ok bool)
+}
+
 // ResumeTarget is implemented by providers that track listening position
 // server-side and can point the UI at where to continue.
 type ResumeTarget interface {

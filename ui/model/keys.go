@@ -269,6 +269,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handlePlaylistManagerKey(msg)
 	}
 
+	// Subscribed-shows overlay
+	if m.subs.visible {
+		return m.handleSubsKey(msg)
+	}
+
 	// Queue manager overlay
 	if m.queue.visible {
 		return m.handleQueueKey(msg)
@@ -374,6 +379,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m.quit()
+		case "F":
+			if !m.openSubsOverlay() && m.luaMgr != nil {
+				m.luaMgr.EmitKey(msg.String())
+			}
+		case "l":
+			return m.loadLatestFromProviderList()
+		case "a":
+			return m.appendShowFromProviderList()
 		case "p":
 			if m.isActiveProvider("Local") && m.localProvider != nil {
 				m.openPlaylistManager()
@@ -854,6 +867,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.queue.visible = true
 			m.queue.cursor = 0
 			m.queue.scroll = 0
+		}
+
+	case "F":
+		// Keep plugin key bindings working: when the overlay does not open,
+		// F is no longer an unhandled key here, so forward it explicitly.
+		if !m.openSubsOverlay() && m.luaMgr != nil {
+			m.luaMgr.EmitKey(msg.String())
 		}
 
 	case "ctrl+s":
