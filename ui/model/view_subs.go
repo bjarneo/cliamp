@@ -39,6 +39,10 @@ func (m Model) renderSubsBody() string {
 	}
 	if notice != "" {
 		budget--
+		if budget <= 0 {
+			// The notice is the only row there is room for.
+			return notice
+		}
 	}
 
 	visible := m.subsVisibleShows()

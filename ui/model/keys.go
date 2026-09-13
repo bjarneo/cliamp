@@ -380,7 +380,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		case "q", "ctrl+c":
 			return m.quit()
 		case "F":
-			m.openSubsOverlay()
+			if !m.openSubsOverlay() && m.luaMgr != nil {
+				m.luaMgr.EmitKey(msg.String())
+			}
 		case "l":
 			return m.loadLatestFromProviderList()
 		case "a":
@@ -868,7 +870,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 
 	case "F":
-		m.openSubsOverlay()
+		// Keep plugin key bindings working: when the overlay does not open,
+		// F is no longer an unhandled key here, so forward it explicitly.
+		if !m.openSubsOverlay() && m.luaMgr != nil {
+			m.luaMgr.EmitKey(msg.String())
+		}
 
 	case "ctrl+s":
 		return m.saveTrack()

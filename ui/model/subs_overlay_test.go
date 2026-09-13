@@ -1,6 +1,9 @@
 package model
 
 import (
+	"fmt"
+	"github.com/bjarneo/cliamp/ui"
+	"strings"
 	"testing"
 
 	"github.com/bjarneo/cliamp/playlist"
@@ -430,4 +433,69 @@ func TestAppendShowFromProviderListAppendsEverything(t *testing.T) {
 	if first.Path != "/already-here.mp3" {
 		t.Errorf("first track = %q, want the pre-existing one", first.Path)
 	}
+}
+
+// The overlay's episodes load through the provider that owns the subscription
+// list, not the active provider, which may be a different service whose
+// AlbumTracks would not know a podcast feed URL.
+func TestOverlayLoadsThroughTheSubscriptionProvider(t *testing.T) {
+	podcasts := &subProv{
+		subs:     []provider.SubscriptionInfo{{ID: "feed-a", Name: "Show"}},
+		episodes: map[string][]playlist.Track{"feed-a": {published("ep", "2026-09-10")}},
+	}
+	other := &albumOnlyProv{} // active, loads albums but keeps no subscriptions
+	m := &Model{
+		provider:  other,
+		providers: []ProviderEntry{{Name: "Other", Provider: other}, {Name: "Podcasts", Provider: podcasts}},
+		playlist:  playlist.New(),
+	}
+
+	if !m.openSubsOverlay() {
+		t.Fatal("overlay did not open")
+	}
+	cmd := m.loadSubscription(subsLoadAppend)
+	if cmd == nil {
+		t.Fatal("no load command")
+	}
+	msg := cmd().(subsEpisodesMsg)
+	if msg.err != nil || len(msg.tracks) != 1 {
+		t.Errorf("tracks = %v, err = %v; want the podcast provider's one episode", msg.tracks, msg.err)
+	}
+}
+
+func TestOpenSubsOverlayReportsWhetherItOpened(t *testing.T) {
+	if m := stubSubsModel(); !m.openSubsOverlay() {
+		t.Error("openSubsOverlay() = false with subscriptions present")
+	}
+	if m := (&Model{provider: &subProv{}, playlist: playlist.New()}); m.openSubsOverlay() {
+		t.Error("openSubsOverlay() = true with nothing to show")
+	}
+}
+
+// With one row of budget and a notice to show, the notice is all that fits.
+func TestRenderSubsBodyOneRowWithNotice(t *testing.T) {
+	old := ui.PanelWidth
+	ui.PanelWidth = 60
+	t.Cleanup(func() { ui.PanelWidth = old })
+	m := stubSubsModel()
+	m.openSubsOverlay()
+	m.plVisible = 1
+	m.subs.err = "feed failed"
+
+	body := m.renderSubsBody()
+
+	if got := strings.Count(body, "\n") + 1; got != 1 {
+		t.Errorf("body rows = %d, want 1\n%q", got, body)
+	}
+	if !strings.Contains(body, "feed failed") {
+		t.Errorf("body = %q, want the notice", body)
+	}
+}
+
+// albumOnlyProv is an active provider that can load albums but knows nothing
+// about podcast feeds, the shape that made the overlay pick the wrong loader.
+type albumOnlyProv struct{ plainProv }
+
+func (p *albumOnlyProv) AlbumTracks(id string) ([]playlist.Track, error) {
+	return nil, fmt.Errorf("unknown album %q", id)
 }

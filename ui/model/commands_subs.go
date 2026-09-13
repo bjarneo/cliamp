@@ -83,17 +83,20 @@ func (m *Model) loadSubscription(mode subsLoadMode) tea.Cmd {
 	if !ok {
 		return nil
 	}
-	return m.loadShowEpisodes(show.ID, show.Name, mode)
+	return m.loadShowEpisodesWith(m.subs.loader, show.ID, show.Name, mode)
 }
 
-// loadShowEpisodes fetches one show's episodes by provider ID. It serves both
-// the subscriptions overlay and the provider list, which address a show the
-// same way.
+// loadShowEpisodes fetches one show's episodes from the active provider, for
+// the provider list, where the highlighted row belongs to that provider.
 func (m *Model) loadShowEpisodes(id, name string, mode subsLoadMode) tea.Cmd {
+	return m.loadShowEpisodesWith(m.episodeLoader(), id, name, mode)
+}
+
+// loadShowEpisodesWith fetches one show's episodes through the given loader.
+func (m *Model) loadShowEpisodesWith(loader provider.AlbumTrackLoader, id, name string, mode subsLoadMode) tea.Cmd {
 	if id == "" || m.subs.loading {
 		return nil
 	}
-	loader := m.episodeLoader()
 	if loader == nil {
 		m.subs.err = "No provider can load episodes."
 		m.status.Warning("No provider can load episodes.", statusTTLDefault)
@@ -126,7 +129,7 @@ func (m *Model) loadLatestFromAllSubscriptions() tea.Cmd {
 	if m.subs.loading || len(m.subs.shows) == 0 {
 		return nil
 	}
-	loader := m.episodeLoader()
+	loader := m.subs.loader
 	if loader == nil {
 		m.subs.err = "No provider can load episodes."
 		return nil

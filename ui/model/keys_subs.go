@@ -31,19 +31,29 @@ func (m Model) hasSubscriptions() bool {
 	return sl != nil && len(sl.Subscriptions()) > 0
 }
 
-// openSubsOverlay loads the subscription list and shows the overlay.
-func (m *Model) openSubsOverlay() {
+// openSubsOverlay loads the subscription list and shows the overlay. It
+// reports whether it did, so a key that opened nothing can still reach plugins.
+func (m *Model) openSubsOverlay() bool {
 	sl := m.subscriptionProvider()
 	if sl == nil {
 		m.status.Warning("No provider keeps subscriptions.", statusTTLDefault)
-		return
+		return false
 	}
 	shows := sl.Subscriptions()
 	if len(shows) == 0 {
 		m.status.Warning("No subscribed shows. Press f on a show to subscribe.", statusTTLDefault)
-		return
+		return false
 	}
-	m.subs = subsOverlay{visible: true, shows: shows}
+	m.subs = subsOverlay{visible: true, shows: shows, loader: subscriptionLoader(sl)}
+	return true
+}
+
+// subscriptionLoader returns the provider that owns a subscription list as an
+// episode loader, when it is one. Subscription IDs are that provider's, so
+// another provider's AlbumTracks would not know what to do with them.
+func subscriptionLoader(sl provider.SubscriptionLister) provider.AlbumTrackLoader {
+	loader, _ := sl.(provider.AlbumTrackLoader)
+	return loader
 }
 
 // subsVisibleShows returns the show indices the filter admits, in display order.

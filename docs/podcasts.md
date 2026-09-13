@@ -18,7 +18,7 @@ To open it by default, set the top-level `provider = "podcast"` in
 - Open **Browse Categories**, then choose a **Genre**, then a **Show**. The 19 categories use Apple's genre-name search, not genre charts. Inside these lists, `/` filters the visible entries.
 
 Press `a` on a show in the provider list to append every episode, or `l` to
-append only its newest episode and queue it next. Both leave the playlist and the
+append only its newest episode and add it to the end of the queue. Both leave the playlist and the
 queue intact, which is what separates them from `Enter`.
 
 Press `Enter` on a show in the provider list or category browser to replace the
@@ -83,10 +83,10 @@ drops the queue, while this overlay adds to what you already have.
 | Key | Action |
 | --- | --- |
 | `/` | Filter by title or author |
-| `Enter` | Append the episodes and play the newest |
+| `Enter` | Append the episodes and play the first appended |
 | `a` | Append the episodes without disturbing playback |
 | `q` | Append the episodes and queue them in feed order |
-| `l` | Append the newest episode and queue it next |
+| `l` | Append the newest episode and add it to the end of the queue |
 | `L` | Append the newest episode of every subscribed show |
 
 `l` and `L` pick the newest episode by `podcast.published` when a feed supplies
