@@ -1047,6 +1047,15 @@ func writeTrack(w io.Writer, t playlist.Track) {
 	if t.TrackNumber != 0 {
 		fmt.Fprintf(w, "track_number = %d\n", t.TrackNumber)
 	}
+	// The podcast feed and GUID are what make an episode recognizable after a
+	// restart: the feed marks it as seekable, and the GUID keys its listening
+	// position. Nothing else in ProviderMeta survives a save.
+	if feed := t.Meta(provider.MetaPodcastFeed); feed != "" {
+		fmt.Fprintf(w, "podcast_feed = %q\n", feed)
+	}
+	if guid := t.Meta(provider.MetaPodcastGUID); guid != "" {
+		fmt.Fprintf(w, "podcast_guid = %q\n", guid)
+	}
 	if t.DurationSecs != 0 {
 		fmt.Fprintf(w, "duration_secs = %d\n", t.DurationSecs)
 	}
@@ -1089,6 +1098,12 @@ func parseTrackFields(f map[string]string) playlist.Track {
 	}
 	if n, err := strconv.Atoi(f["duration_secs"]); err == nil {
 		t.DurationSecs = n
+	}
+	if feed := f["podcast_feed"]; feed != "" {
+		t.ProviderMeta = map[string]string{provider.MetaPodcastFeed: feed}
+		if guid := f["podcast_guid"]; guid != "" {
+			t.ProviderMeta[provider.MetaPodcastGUID] = guid
+		}
 	}
 	return t
 }
