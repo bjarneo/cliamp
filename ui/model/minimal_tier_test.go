@@ -13,17 +13,24 @@ func TestMinimalTierRowBudget(t *testing.T) {
 	tests := []struct {
 		name         string
 		height       int
+		hideHelpBar  bool
 		wantControls bool
 	}{
-		{"10 rows, no room for controls", 10, false},
-		{"11 rows, still none", 11, false},
-		{"12 rows, controls appear", 12, true},
-		{"15 rows, controls stay", 15, true},
+		{"10 rows, no room for controls", 10, false, false},
+		{"11 rows, still none", 11, false, false},
+		{"12 rows, controls appear", 12, false, true},
+		{"15 rows, controls stay", 15, false, true},
+		// Hiding the hint bar frees a row, so the controls arrive one row sooner.
+		{"10 rows with the hint bar hidden, still none", 10, true, false},
+		{"11 rows with the hint bar hidden, controls appear", 11, true, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			withFrameWidth(t, 60)
 			m := newColumnTestModel(60, tt.height)
+			if tt.hideHelpBar {
+				m.SetHideHelpBar(true)
+			}
 
 			if m.layout.tier != layoutMinimal {
 				t.Fatalf("tier = %v, want minimal", m.layout.tier)

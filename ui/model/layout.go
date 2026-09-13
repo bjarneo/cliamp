@@ -37,9 +37,9 @@ type frameLayout struct {
 	minimalControls bool
 }
 
-// minimalControlsMinHeight is the terminal height at which the minimal tier
-// can afford the two control rows and still show a row of playlist.
-const minimalControlsMinHeight = 12
+// minimalControlRows is what the minimal tier adds when it can afford the
+// compact tier's controls: one row for EQ and volume, one for the source.
+const minimalControlRows = 2
 
 // minimalBaseRows is the minimal tier's chrome: track line, time, seek bar,
 // playlist header, hint bar, and status line. Unlike the other tiers it has no
@@ -173,11 +173,18 @@ func (m *Model) recomputeLayout() {
 		}
 	}
 	// The minimal tier normally drops the controls to keep a row for tracks.
-	// With a little more height it can carry the compact tier's two rows, so
-	// source, volume, and EQ stay in reach without growing the window.
-	if layout.tier == layoutMinimal && !contentFirst && !simplified && height >= minimalControlsMinHeight {
-		layout.minimalControls = true
-		layout.fixedRows += 2
+	// It carries the compact tier's two rows whenever they fit with at least
+	// one track row left, so hiding the hint bar buys them a row sooner: 11
+	// rows with it hidden, 12 with it shown.
+	if layout.tier == layoutMinimal && !contentFirst && !simplified {
+		chrome := layout.fixedRows
+		if m.hideHelpBar {
+			chrome--
+		}
+		if spare := height - 2*paddingV - layout.footerRows - chrome; spare >= minimalControlRows+1 {
+			layout.minimalControls = true
+			layout.fixedRows += minimalControlRows
+		}
 	}
 	// The settings pane, open or closed, belongs to the full-tier playback
 	// screen only: the denser tiers and the list-focused layouts have no room

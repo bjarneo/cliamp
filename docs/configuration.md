@@ -140,8 +140,11 @@ Narrower terminals, simplified mode, overlays, and list views keep the stacked
 single-column layout, with shuffle and repeat back in the header.
 
 Below 16 rows the minimal layout drops the controls to keep a row for tracks.
-From 12 rows it carries the compact `EQ · VOL` and `SRC` rows again, and `Tab`
-reaches them; at 10 or 11 rows only the playlist is focusable.
+It brings the compact `EQ · VOL` and `SRC` rows back as soon as they fit with
+one track row to spare: 12 rows, or 11 with the hint bar hidden. `Tab` reaches
+them when they are drawn. Below that only the playlist is focusable, but the
+provider keys still work: `Esc` focuses the provider list, and `O`, `L`, `R`,
+and the other uppercase provider letters switch source directly.
 
 In full and compact playback layouts, `Tab` cycles from Playlist through Source,
 Volume, EQ, Shuffle, Repeat, and Speed, then returns to Playlist. `Shift+Tab`
