@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -96,8 +97,9 @@ type Provider struct {
 }
 
 type station struct {
-	name string
-	url  string
+	name      string
+	url       string
+	frequency string // e.g. "88.3 FM", "1200 AM"; shown on the radio dial widget
 }
 
 // New creates a Provider with the built-in station plus any user-defined
@@ -256,9 +258,13 @@ func (p *Provider) Tracks(id string) ([]playlist.Track, error) {
 		if idx < 0 || idx >= len(p.stations) {
 			return nil, errors.New("invalid local station index")
 		}
-		return []playlist.Track{{
+		track := playlist.Track{
 			Path: p.stations[idx].url, Title: p.stations[idx].name, Stream: true, Realtime: true,
-		}}, nil
+		}
+		if freq := p.stations[idx].frequency; freq != "" {
+			track.ProviderMeta = map[string]string{"radio.frequency": freq}
+		}
+		return []playlist.Track{track}, nil
 	case "f":
 		favs := p.favorites.Stations()
 		if idx < 0 || idx >= len(favs) {
@@ -282,6 +288,24 @@ func (p *Provider) Tracks(id string) ([]playlist.Track, error) {
 	return []playlist.Track{stationTrack(s)}, nil
 }
 
+// freqPattern matches a decimal number in the FM range (80–110) within a
+// station name, e.g. "KEXP 90.3 Seattle" → "90.3 FM".
+var freqPattern = regexp.MustCompile(`\b(\d{2,3}\.\d)\b`)
+
+// extractFrequency tries to find an FM frequency in a station name.
+// Returns a string like "90.3 FM" or "" if none found.
+func extractFrequency(name string) string {
+	m := freqPattern.FindString(name)
+	if m == "" {
+		return ""
+	}
+	f, err := strconv.ParseFloat(m, 64)
+	if err != nil || f < 87.5 || f > 108.0 {
+		return ""
+	}
+	return m + " FM"
+}
+
 // stationTrack retains metadata already supplied by the directory or favorites.
 func stationTrack(s CatalogStation) playlist.Track {
 	track := playlist.Track{
@@ -299,6 +323,9 @@ func stationTrack(s CatalogStation) playlist.Track {
 	}
 	if s.State != "" {
 		meta["radio.state"] = s.State
+	}
+	if freq := extractFrequency(s.Name); freq != "" {
+		meta["radio.frequency"] = freq
 	}
 	if len(meta) > 0 {
 		track.ProviderMeta = meta
@@ -557,7 +584,7 @@ func loadStations(path string) ([]station, error) {
 
 	var stations []station
 	tomlutil.ParseSections(data, "station", func(f map[string]string) {
-		s := station{name: f["name"], url: f["url"]}
+		s := station{name: f["name"], url: f["url"], frequency: f["frequency"]}
 		if s.name != "" && s.url != "" {
 			stations = append(stations, s)
 		}
