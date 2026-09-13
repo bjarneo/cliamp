@@ -87,6 +87,12 @@ because the tag describes the master and the file served carries inserted
 advertising on top. Measuring keeps the seek bar and the end of the track
 honest.
 
+Both depend on `ffmpeg`: the buffered pipeline decodes through it, and the
+length is read with `ffprobe`. Without it, episodes play on the live path,
+unseekable, with the feed's duration. If the probe fails, the feed's duration
+stays. An enclosure served without a `Content-Length`, or with ICY headers, is
+treated as a live stream.
+
 ## Chart Country
 
 Optionally select another country's top chart in `config.toml`:

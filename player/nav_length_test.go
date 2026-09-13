@@ -5,8 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strconv"
-	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/gopxl/beep/v2"
@@ -108,12 +109,26 @@ func TestNavBufferCompletedPathOnTruncatedDownload(t *testing.T) {
 // A finite HTTP source must reach the seekable pipeline without being
 // recognized in advance: podcast CDNs rewrite enclosure URLs per request, so a
 // track restored from a saved playlist never matches a URL seen before.
+// fixtureMP3 returns the short MP3 shipped at the repository root, a real
+// encoded file both decoders accept, so routing tests exercise the same path
+// a podcast enclosure takes.
+func fixtureMP3(t *testing.T) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "cliamp_whips_terminal_ass.mp3"))
+	if err != nil {
+		t.Skipf("fixture unavailable: %v", err)
+	}
+	return data
+}
+
 func TestFiniteHTTPSourceIsSeekableWithoutAMatcher(t *testing.T) {
-	body := strings.Repeat("\xff\xfb\x90\x00", 4096)
+	body := fixtureMP3(t)
+	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
 		w.Header().Set("Content-Type", "audio/mpeg")
 		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
-		_, _ = io.WriteString(w, body)
+		_, _ = w.Write(body)
 	}))
 	t.Cleanup(srv.Close)
 
@@ -134,14 +149,21 @@ func TestFiniteHTTPSourceIsSeekableWithoutAMatcher(t *testing.T) {
 	if tp.contentLength != int64(len(body)) {
 		t.Errorf("contentLength = %d, want %d", tp.contentLength, len(body))
 	}
+	// The buffered path inspects the first response, closes it, and opens the
+	// URL again for the download, so the server sees two requests.
+	if got := requests.Load(); got != 2 {
+		t.Errorf("requests = %d, want 2 (probe, then buffered download)", got)
+	}
 }
 
 // A stream with no length is a broadcast and must stay on the live path.
 func TestChunkedHTTPSourceStaysLive(t *testing.T) {
+	body := fixtureMP3(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "audio/mpeg")
+		// No Content-Length: the response is chunked, the way Icecast serves.
 		w.(http.Flusher).Flush()
-		_, _ = io.WriteString(w, strings.Repeat("\xff\xfb\x90\x00", 64))
+		_, _ = w.Write(body)
 	}))
 	t.Cleanup(srv.Close)
 
@@ -149,13 +171,14 @@ func TestChunkedHTTPSourceStaysLive(t *testing.T) {
 
 	tp, err := p.buildPipeline(srv.URL)
 	if err != nil {
-		// A short synthetic body may fail to decode; the routing decision is
-		// what matters and it is made before any audio is read.
-		return
+		t.Fatalf("buildPipeline() error = %v", err)
 	}
 	defer tp.close()
 
 	if tp.seekable {
 		t.Error("a chunked stream was routed to the seekable pipeline")
+	}
+	if tp.contentLength >= 0 {
+		t.Errorf("contentLength = %d, want -1 for a chunked response", tp.contentLength)
 	}
 }

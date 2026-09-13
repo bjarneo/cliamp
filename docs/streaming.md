@@ -38,8 +38,9 @@ Live HLS uses timed metadata, not inline ICY. cliamp does not update the now-pla
 
 Discover shows with `cliamp --provider podcast`: browse Apple's top 100 chart
 and 19 categories, search shows with `/` then `Enter`, and subscribe with `f`.
-No account or API key is needed. Episodes are seekable, and their length is
-measured from the file rather than taken from the feed. See the
+No account or API key is needed. With `ffmpeg` installed, episodes served with
+a finite `Content-Length` are seekable, and their length is measured from the
+file rather than taken from the feed. See the
 [Podcasts guide](podcasts.md) for controls, subscriptions, direct RSS search,
 and chart-country configuration.
 
