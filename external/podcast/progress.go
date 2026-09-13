@@ -214,7 +214,9 @@ func (s *progressStore) record(track playlist.Track, position, duration time.Dur
 	if state.Feed == "" {
 		state.Feed = s.episodes[key].Feed
 	}
-	if duration > 0 && position >= duration-playedTail {
+	// An episode shorter than the tail would otherwise count as played from
+	// its first report, so a short one has to reach at least its midpoint.
+	if duration > 0 && position >= max(duration-playedTail, duration/2) {
 		state.Played = true
 		state.PositionSec = 0
 	}

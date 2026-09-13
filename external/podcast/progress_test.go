@@ -524,3 +524,41 @@ func TestScrobbleReportsAFailedWrite(t *testing.T) {
 		t.Errorf("error = %q, want it to name the store", err)
 	}
 }
+
+// A short episode must not count as played from its first report: with a
+// 45-second duration the tail rule alone would fire at zero seconds.
+func TestShortEpisodeNeedsHalfToCountAsPlayed(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+	s := newProgressStore()
+	track := episodeTrack("guid-1", "https://cdn.example.com/short.mp3")
+
+	s.record(track, 5*time.Second, 45*time.Second)
+	if state, _ := s.state(track); state.Played {
+		t.Error("a 45s episode was marked played at 5s")
+	}
+
+	s.record(track, 23*time.Second, 45*time.Second)
+	if state, _ := s.state(track); !state.Played {
+		t.Error("a 45s episode was not marked played past its midpoint")
+	}
+}
+
+// A file holding JSON null decodes to no entries, not to a nil map that the
+// next record would panic on.
+func TestProgressStoreTreatsNullAsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLIAMP_CONFIG_DIR", dir)
+	if err := os.WriteFile(filepath.Join(dir, "podcast_progress.json"), []byte("null\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := newProgressStore()
+	if s.loadErr != nil {
+		t.Fatalf("loadErr = %v, want null accepted as empty", s.loadErr)
+	}
+
+	s.record(episodeTrack("guid-1", "https://cdn.example.com/a.mp3"), 20*time.Minute, time.Hour)
+
+	if !s.has() {
+		t.Error("record after a null file stored nothing")
+	}
+}
