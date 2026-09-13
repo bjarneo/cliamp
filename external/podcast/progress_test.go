@@ -274,3 +274,124 @@ func TestProviderIgnoresForeignTracks(t *testing.T) {
 		t.Error("PlaybackState() claimed a track that is not a podcast episode")
 	}
 }
+
+func restoredTrack(show, title string) playlist.Track {
+	// What a saved playlist gives back: a URL, a show, a title, no metadata.
+	return playlist.Track{
+		Path:         "https://cdn.example.com/rewritten-" + title + ".mp3",
+		Title:        title,
+		Album:        show,
+		Stream:       true,
+		DurationSecs: 3600,
+	}
+}
+
+func TestTitleKey(t *testing.T) {
+	tests := []struct {
+		name  string
+		track playlist.Track
+		want  bool
+	}{
+		{"show and title", restoredTrack("Part Of The Problem", "Netanyahu Knew"), true},
+		{"no show", playlist.Track{Title: "Orphan"}, false},
+		{"no title", playlist.Track{Album: "Some Show"}, false},
+		{"blank both", playlist.Track{Album: "  ", Title: "\t"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := titleKey(tt.track) != ""; got != tt.want {
+				t.Errorf("titleKey(%+v) non-empty = %v, want %v", tt.track, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTitleKeyIgnoresCaseAndPadding(t *testing.T) {
+	a := titleKey(playlist.Track{Album: "Part Of The Problem", Title: "Netanyahu Knew"})
+	b := titleKey(playlist.Track{Album: "  part of the problem ", Title: "NETANYAHU KNEW"})
+	if a != b {
+		t.Errorf("keys differ across case and padding:\n%q\n%q", a, b)
+	}
+}
+
+// The whole point: an episode played from a feed must be found again after a
+// saved playlist strips its metadata and its URL has been rewritten.
+func TestPositionSurvivesLosingTheMetadata(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+	p := New("us")
+
+	fromFeed := episodeTrack("guid-1", "https://cdn.example.com/original.mp3")
+	fromFeed.Album = "Part Of The Problem"
+	fromFeed.Title = "Netanyahu Knew"
+	if err := p.ReportProgress(fromFeed, 20*time.Minute); err != nil {
+		t.Fatalf("ReportProgress: %v", err)
+	}
+
+	restored := restoredTrack("Part Of The Problem", "Netanyahu Knew")
+
+	if !p.CanTrackPosition(restored) {
+		t.Fatal("CanTrackPosition() = false for an episode the store already knows")
+	}
+	if got, want := p.TrackPosition(restored), 20*time.Minute-resumeRewind; got != want {
+		t.Errorf("TrackPosition() = %v, want %v", got, want)
+	}
+	state, ok := p.PlaybackState(restored)
+	if !ok || state.Position != 20*time.Minute {
+		t.Errorf("PlaybackState() = %+v, %v; want the stored 20m", state, ok)
+	}
+}
+
+// A track the store has never seen must not be claimed, so radio streams and
+// library tracks are never mistaken for episodes.
+func TestUnknownTracksAreNotClaimed(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+	p := New("us")
+
+	tests := []struct {
+		name  string
+		track playlist.Track
+	}{
+		{"a radio stream", playlist.Track{Path: "https://ice1.somafm.com/groovesalad", Title: "Groove Salad", Stream: true}},
+		{"a library track", playlist.Track{Path: "https://nas.local/stream/42", Title: "So What", Album: "Kind of Blue"}},
+		{"an unheard episode", restoredTrack("Some Show", "Never Played")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if p.CanReportPlayback(tt.track) || p.CanTrackPosition(tt.track) {
+				t.Error("provider claimed a track it has never recorded")
+			}
+			if err := p.ReportProgress(tt.track, 5*time.Minute); err != nil {
+				t.Fatalf("ReportProgress: %v", err)
+			}
+			if _, ok := p.PlaybackState(tt.track); ok {
+				t.Error("a position was recorded for a track the provider does not track")
+			}
+		})
+	}
+}
+
+// Once known by title, a restored episode keeps recording where it stopped.
+func TestRestoredEpisodeKeepsRecording(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+	p := New("us")
+	fromFeed := episodeTrack("guid-1", "https://cdn.example.com/original.mp3")
+	fromFeed.Album = "Part Of The Problem"
+	fromFeed.Title = "Netanyahu Knew"
+	if err := p.ReportProgress(fromFeed, 5*time.Minute); err != nil {
+		t.Fatalf("ReportProgress: %v", err)
+	}
+
+	restored := restoredTrack("Part Of The Problem", "Netanyahu Knew")
+	if err := p.ReportProgress(restored, 30*time.Minute); err != nil {
+		t.Fatalf("ReportProgress: %v", err)
+	}
+
+	state, ok := p.PlaybackState(restored)
+	if !ok || state.Position != 30*time.Minute {
+		t.Errorf("PlaybackState() = %+v, %v; want 30m", state, ok)
+	}
+	// The original identity must see the same advance, not a stale 5m.
+	if got, ok := p.PlaybackState(fromFeed); !ok || got.Position != 30*time.Minute {
+		t.Errorf("PlaybackState(fromFeed) = %+v, %v; want 30m", got, ok)
+	}
+}

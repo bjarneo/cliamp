@@ -42,6 +42,12 @@ type episodeState struct {
 	DurationSec int    `json:"duration_sec,omitempty"`
 	Played      bool   `json:"played,omitempty"`
 	UpdatedUnix int64  `json:"updated_unix"`
+
+	// seq orders writes within a session. UpdatedUnix has one-second
+	// resolution, too coarse to tell two keys of the same episode apart when
+	// both are written in the same moment. It is unexported, so it is not
+	// persisted and every reloaded entry starts equal.
+	seq uint64
 }
 
 // progressStore keeps per-episode listening state, persisted as a JSON object
@@ -58,6 +64,7 @@ type progressStore struct {
 	dirty     bool
 	lastFlush time.Time
 	loadErr   error
+	nextSeq   uint64
 }
 
 func newProgressStore() *progressStore {
@@ -93,11 +100,40 @@ func episodeKey(track playlist.Track) string {
 	return track.Path
 }
 
+// titleKey identifies an episode by show and title.
+//
+// A track restored from a saved playlist has lost its feed metadata, and its
+// URL is no help: podcast CDNs rewrite enclosure URLs per request, so the same
+// episode arrives under a different address every time. The show and the
+// episode title are what actually survive. It returns "" when either is
+// missing, since a key needs both to be worth trusting.
+func titleKey(track playlist.Track) string {
+	show := strings.ToLower(strings.TrimSpace(track.Album))
+	title := strings.ToLower(strings.TrimSpace(track.Title))
+	if show == "" || title == "" {
+		return ""
+	}
+	return "title:" + show + "\x00" + title
+}
+
+// episodeKeys returns every key an episode's state is written under: its own,
+// and the title key that lets it be found again once the metadata is gone.
+func episodeKeys(track playlist.Track) []string {
+	var keys []string
+	if key := episodeKey(track); key != "" {
+		keys = append(keys, key)
+	}
+	if key := titleKey(track); key != "" {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
 // record stores a position for an episode, marking it played when position
 // lands inside the last playedTail of a known duration.
 func (s *progressStore) record(track playlist.Track, position, duration time.Duration) {
-	key := episodeKey(track)
-	if key == "" || position < 0 {
+	keys := episodeKeys(track)
+	if len(keys) == 0 || position < 0 {
 		return
 	}
 	if duration <= 0 && track.DurationSecs > 0 {
@@ -119,28 +155,64 @@ func (s *progressStore) record(track playlist.Track, position, duration time.Dur
 	// Last write wins. Replaying a finished episode clears its played mark and
 	// tracks the new position, which is what a listener starting it again
 	// expects to see.
-	s.entries[key] = state
+	//
+	// The state is stored under every key so a later restore finds it whichever
+	// identity it still has. That costs a second entry per episode, halving how
+	// many the store holds before pruning.
+	s.nextSeq++
+	state.seq = s.nextSeq
+	for _, key := range keys {
+		s.entries[key] = state
+	}
 	s.prune()
 	s.dirty = true
 	s.flushLocked(false)
 }
 
-// state returns the stored state for an episode.
+// state returns the stored state for an episode, under whichever key it still
+// answers to.
 func (s *progressStore) state(track playlist.Track) (provider.PlaybackState, bool) {
-	key := episodeKey(track)
-	if key == "" {
+	keys := episodeKeys(track)
+	if len(keys) == 0 {
 		return provider.PlaybackState{}, false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	entry, ok := s.entries[key]
-	if !ok {
+	var newest episodeState
+	found := false
+	for _, key := range keys {
+		entry, ok := s.entries[key]
+		if !ok {
+			continue
+		}
+		// The keys can disagree: a restored track writes only its title key,
+		// leaving the GUID entry behind. The most recent write is the truth.
+		if !found || entry.seq > newest.seq || (entry.seq == newest.seq && entry.UpdatedUnix > newest.UpdatedUnix) {
+			newest, found = entry, true
+		}
+	}
+	if !found {
 		return provider.PlaybackState{}, false
 	}
 	return provider.PlaybackState{
-		Played:   entry.Played,
-		Position: time.Duration(entry.PositionSec) * time.Second,
+		Played:   newest.Played,
+		Position: time.Duration(newest.PositionSec) * time.Second,
 	}, true
+}
+
+// knows reports whether the store already holds state for a track. It is what
+// lets a track with no podcast metadata be claimed: only an episode this
+// listener has played before is recognized, so a radio stream or a library
+// track is never mistaken for one.
+func (s *progressStore) knows(track playlist.Track) bool {
+	key := titleKey(track)
+	if key == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.entries[key]
+	return ok
 }
 
 // resumeAt returns where an episode should start, or 0 to start over.
@@ -218,17 +290,31 @@ var (
 	_ provider.Closer                = (*Provider)(nil)
 )
 
-// CanReportPlayback reports whether track is a podcast episode.
-func (*Provider) CanReportPlayback(track playlist.Track) bool { return episodeKey(track) != "" }
+// CanReportPlayback reports whether track is an episode this provider tracks:
+// one carrying podcast metadata, or one already in the store under its show and
+// title, which is how an episode restored from a saved playlist is recognized.
+func (p *Provider) CanReportPlayback(track playlist.Track) bool {
+	return episodeKey(track) != "" || p.progress.knows(track)
+}
 
 // ReportNowPlaying records nothing. It fires at the start of a track, where
 // the position is either zero or the offset TrackPosition just supplied, and
 // storing that would overwrite the position it came from.
 func (*Provider) ReportNowPlaying(playlist.Track, time.Duration, bool) error { return nil }
 
+// recordable reports whether a position may be written for track. A track with
+// no podcast metadata is only tracked once the store already knows it, so
+// nothing new is recorded for a stream this provider cannot identify.
+func (p *Provider) recordable(track playlist.Track) bool {
+	return episodeKey(track) != "" || p.progress.knows(track)
+}
+
 // ReportProgress stores an interim listening position. The UI sends one every
 // 15 seconds, so a position can be up to that stale after an abrupt exit.
 func (p *Provider) ReportProgress(track playlist.Track, position time.Duration) error {
+	if !p.recordable(track) {
+		return nil
+	}
 	p.progress.record(track, position, 0)
 	return nil
 }
@@ -237,13 +323,18 @@ func (p *Provider) ReportProgress(track playlist.Track, position time.Duration) 
 // only calls it past half the duration, so shorter listens rely on the
 // interim reports above.
 func (p *Provider) ReportScrobble(track playlist.Track, elapsed, duration time.Duration, _ bool) error {
+	if !p.recordable(track) {
+		return nil
+	}
 	p.progress.record(track, elapsed, duration)
 	p.progress.flush()
 	return nil
 }
 
-// CanTrackPosition reports whether track is a podcast episode.
-func (*Provider) CanTrackPosition(track playlist.Track) bool { return episodeKey(track) != "" }
+// CanTrackPosition reports whether this provider has a position for track.
+func (p *Provider) CanTrackPosition(track playlist.Track) bool {
+	return episodeKey(track) != "" || p.progress.knows(track)
+}
 
 // TrackPosition returns where an episode should resume, or 0 to start over.
 func (p *Provider) TrackPosition(track playlist.Track) time.Duration {

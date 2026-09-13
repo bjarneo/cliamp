@@ -44,6 +44,21 @@ Its actions differ from opening a show in the main provider list:
 | `f` | Subscribe or unsubscribe |
 | `Esc` | Return to the search input; press again to close |
 
+## Listening Position
+
+Each episode's position is stored in `podcast_progress.json` in the
+[config directory](configuration.md#config-directory). Playing an episode again
+resumes a few seconds before where you stopped; finishing one marks it played,
+shown as a tick in the track list.
+
+State is keyed on the episode GUID, and also on the show and episode title.
+That second key matters because a track saved into a playlist loses its podcast
+metadata, and an enclosure URL cannot stand in for it: podcast CDNs rewrite
+those per request, so the same episode arrives under a different address every
+time. A track with no metadata is only recognized once the store already holds
+state for its show and title, so a radio stream or a library track is never
+mistaken for an episode.
+
 ## Subscriptions
 
 Press `f` on a show in the provider list, category show list, or `Ctrl+F` results
@@ -55,8 +70,7 @@ Subscriptions are saved atomically in `podcast_subscriptions.json` in the
 [config directory](configuration.md#config-directory), normally
 `~/.config/cliamp/podcast_subscriptions.json`. They remain available when Apple's
 directory is offline, but fetching feeds and playing episodes still requires
-access to the publisher. This provider has no offline episode download cache
-or per-episode progress, resume, or played-state tracking.
+access to the publisher. This provider has no offline episode download cache.
 
 ## Publisher RSS URLs
 
