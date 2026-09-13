@@ -50,6 +50,9 @@ type Provider struct {
 	searchResults    []show
 	searchGeneration uint64
 	generation       uint64
+
+	// progress guards its own state; it is not covered by mu.
+	progress *progressStore
 }
 
 // New creates an always-available provider. Country selects Apple's charts;
@@ -64,6 +67,7 @@ func New(country string) *Provider {
 		country:       country,
 		shows:         make(map[string]show),
 		categoryCache: make(map[string][]show),
+		progress:      newProgressStore(),
 	}
 	dir, err := appdir.Dir()
 	if err != nil {

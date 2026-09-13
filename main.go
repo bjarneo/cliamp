@@ -129,7 +129,10 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if localProv != nil {
 		providers = append(providers, model.ProviderEntry{Key: "local", Name: "Local", Provider: localProv})
 	}
-	providers = append(providers, model.ProviderEntry{Key: "podcast", Name: "Podcasts", Provider: podcast.New(cfg.Podcast.Country)})
+	podcastProv := podcast.New(cfg.Podcast.Country)
+	// Flush per-episode listening state that the throttled writer still holds.
+	defer podcastProv.Close()
+	providers = append(providers, model.ProviderEntry{Key: "podcast", Name: "Podcasts", Provider: podcastProv})
 
 	var navClient *navidrome.NavidromeClient
 	if c := navidrome.NewFromConfig(cfg.Navidrome); c != nil {

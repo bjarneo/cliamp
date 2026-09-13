@@ -48,6 +48,14 @@ var (
 // UI shows favorite state (track rows, header badge, status messages).
 const favHeart = "♥\uFE0E"
 
+// playedMarker and partialMarker flag an episode listened to the end and one
+// stopped part-way. Both carry the text variation selector so terminals render
+// them one cell wide, as favHeart does.
+const (
+	playedMarker  = "\u2713\uFE0E"
+	partialMarker = "\u25D1\uFE0E"
+)
+
 // Seek-bar glyphs. Played cells are heavy and the unplayed remainder light, so
 // the two differ in weight and not only in color, and a round head marks the
 // position outright instead of leaving it to the boundary between them.
@@ -1022,6 +1030,10 @@ func (m Model) renderPlaylist() string {
 	lines := make([]string, 0, budget)
 	numWidth := len(fmt.Sprintf("%d", trackCount))
 	cols := m.markerColumns()
+	var stateReporters []provider.PlaybackStateReporter
+	if cols.played {
+		stateReporters = m.playbackStateReporters()
+	}
 
 	for row := range m.playlistRows(tracks, localScroll, m.showAlbumHeaders) {
 		if row.Index < 0 {
@@ -1093,6 +1105,19 @@ func (m Model) renderPlaylist() string {
 			}
 			markers += mark
 			styledMarkers += favMarkerStyle.Render(mark)
+		}
+		if cols.played {
+			mark, markStyle := " ", dimStyle
+			if state, ok := playbackStateFrom(stateReporters, t); ok {
+				switch {
+				case state.Played:
+					mark, markStyle = playedMarker, activeToggle
+				case state.Position > 0:
+					mark, markStyle = partialMarker, dimStyle
+				}
+			}
+			markers += mark
+			styledMarkers += markStyle.Render(mark)
 		}
 		markers += " "
 		styledMarkers += " "
