@@ -48,16 +48,23 @@ Its actions differ from opening a show in the main provider list:
 
 Each episode's position is stored in `podcast_progress.json` in the
 [config directory](configuration.md#config-directory). Playing an episode again
-resumes a few seconds before where you stopped; finishing one marks it played,
-shown as a tick in the track list.
+resumes five seconds before where you stopped, unless you stopped inside the
+first fifteen seconds, in which case it starts over. Finishing one, or stopping
+within its last minute, marks it played, shown as a tick in the track list;
+playing it again clears the mark.
 
-State is keyed on the episode GUID, and also on the show and episode title.
-That second key matters because a track saved into a playlist loses its podcast
-metadata, and an enclosure URL cannot stand in for it: podcast CDNs rewrite
-those per request, so the same episode arrives under a different address every
-time. A track with no metadata is only recognized once the store already holds
-state for its show and title, so a radio stream or a library track is never
-mistaken for an episode.
+Each episode has one record, keyed by its feed and GUID. Playlists saved by
+this version keep both, so their tracks are recognized directly. A track that
+arrives without them, from a playlist saved by an older version or from any
+other source, is matched by show and episode title instead, and only when the
+store already holds an episode under that title. An enclosure URL cannot stand
+in for the metadata: podcast CDNs rewrite those per request, so the same
+episode arrives under a different address every time. A title that two
+episodes share identifies neither, and a radio stream or a library track is
+never mistaken for an episode.
+
+If the file cannot be read at startup, cliamp leaves it untouched and does not
+save positions for that session; the reason is in the log.
 
 ## Subscriptions
 
