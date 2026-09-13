@@ -32,6 +32,7 @@ var (
 	_ provider.BrowseLabeler       = (*Provider)(nil)
 	_ provider.BrowseEntryProvider = (*Provider)(nil)
 	_ provider.BrowseModeProvider  = (*Provider)(nil)
+	_ provider.SubscriptionLister  = (*Provider)(nil)
 )
 
 // Provider keeps subscriptions available without waiting for the directory.
@@ -342,6 +343,18 @@ func showFeedURL(id string) string {
 		return ""
 	}
 	return id
+}
+
+// Subscriptions returns the subscribed shows in stored order, without a
+// network call. The ID is the feed URL, which AlbumTracks accepts.
+func (p *Provider) Subscriptions() []provider.SubscriptionInfo {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	subs := make([]provider.SubscriptionInfo, 0, len(p.subscriptions))
+	for _, s := range p.subscriptions {
+		subs = append(subs, provider.SubscriptionInfo{ID: s.FeedURL, Name: s.Title, Author: s.Author})
+	}
+	return subs
 }
 
 func (p *Provider) subscribedLocked(feedURL string) bool {

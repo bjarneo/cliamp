@@ -269,6 +269,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handlePlaylistManagerKey(msg)
 	}
 
+	// Subscribed-shows overlay
+	if m.subs.visible {
+		return m.handleSubsKey(msg)
+	}
+
 	// Queue manager overlay
 	if m.queue.visible {
 		return m.handleQueueKey(msg)
@@ -374,6 +379,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m.quit()
+		case "F":
+			m.openSubsOverlay()
 		case "p":
 			if m.isActiveProvider("Local") && m.localProvider != nil {
 				m.openPlaylistManager()
@@ -855,6 +862,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.queue.cursor = 0
 			m.queue.scroll = 0
 		}
+
+	case "F":
+		m.openSubsOverlay()
 
 	case "ctrl+s":
 		return m.saveTrack()

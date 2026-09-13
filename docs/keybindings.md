@@ -134,10 +134,31 @@ preference remains saved for a wider layout. See
 |---|---|
 | `a` | Toggle the queue (play next) |
 | `A` | Queue manager |
+| `F` | Subscribed shows overlay (any provider that keeps subscriptions) |
 | `x` | Remove the highlighted track from the current playlist |
 | `p` | Playlist manager |
 | `r` | Cycle repeat mode (Off / All / One) |
 | `z` | Toggle shuffle |
+
+### Inside the subscribed shows overlay
+
+`F` lists the shows you subscribed to, without touching the network. Unlike
+`Enter` in the provider list, every action here appends, so the playlist and
+the queue survive.
+
+| Key | Action |
+|---|---|
+| `↑` `↓` / `j` `k` | Move cursor (wraps) |
+| `/` | Filter by show title or author; `Enter` applies, `Esc` clears |
+| `Enter` | Append the show's episodes and play the newest |
+| `a` | Append the show's episodes, leaving playback alone |
+| `q` | Append the show's episodes and queue them in feed order |
+| `l` | Append only the newest episode and queue it next |
+| `L` | Append the newest episode of every subscribed show |
+| `Esc` `F` | Close |
+
+`L` fetches feeds concurrently and keeps subscription order. Shows whose feed
+fails are counted in the overlay's error line rather than dropped silently.
 
 ### Inside the playlist manager
 

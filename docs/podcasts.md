@@ -66,6 +66,28 @@ never mistaken for an episode.
 If the file cannot be read at startup, cliamp leaves it untouched and does not
 save positions for that session; the reason is in the log.
 
+## Subscribed Shows Overlay
+
+Press `F` to list your subscriptions. The list comes from the local store, so
+it opens without a network call and works for shows Apple's directory does not
+carry.
+
+Every action appends rather than replacing, which is the difference that
+matters: `Enter` on a show in the provider list calls a playlist replace and
+drops the queue, while this overlay adds to what you already have.
+
+| Key | Action |
+| --- | --- |
+| `/` | Filter by title or author |
+| `Enter` | Append the episodes and play the newest |
+| `a` | Append the episodes without disturbing playback |
+| `q` | Append the episodes and queue them in feed order |
+| `l` | Append the newest episode and queue it next |
+| `L` | Append the newest episode of every subscribed show |
+
+`l` and `L` pick the newest episode by `podcast.published` when a feed supplies
+dates, falling back to feed order.
+
 ## Subscriptions
 
 Press `f` on a show in the provider list, category show list, or `Ctrl+F` results

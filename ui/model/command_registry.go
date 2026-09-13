@@ -47,6 +47,8 @@ const (
 	commandModeThemePickerFilter
 	commandModeVisPickerFilter
 	commandModeProviderSearch
+	commandModeSubs
+	commandModeSubsFilter
 )
 
 const commandModeAny = ^commandMode(0)
@@ -111,6 +113,18 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"f", "n"}, KeyLabel: "f/n", Label: "★/" + favHeart, Keymap: true, ContextHelp: true},
 	{Mode: commandModeMain, Keys: []string{"a"}, KeyLabel: "a", Label: "Toggle queue (play next)", Keymap: true, ContextHelp: true},
 	{Mode: commandModeMain, Keys: []string{"A"}, KeyLabel: "A", Label: "Queue manager", Keymap: true},
+	{Mode: commandModeMain | commandModeProvider, Keys: []string{"F"}, KeyLabel: "F", Label: "Subscribed shows", Enabled: func(m Model) bool { return m.hasSubscriptions() }, Keymap: true},
+
+	{Mode: commandModeSubs, Keys: []string{"up", "down", "j", "k"}, KeyLabel: "Up Down", Label: "Navigate", Keymap: true},
+	{Mode: commandModeSubs, Keys: []string{"/"}, KeyLabel: "/", Label: "Filter", Keymap: true, ContextHelp: true},
+	{Mode: commandModeSubs, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Append episodes and play first", Keymap: true, ContextHelp: true, Primary: true},
+	{Mode: commandModeSubs, Keys: []string{"a"}, KeyLabel: "a", Label: "Append episodes", Keymap: true, ContextHelp: true},
+	{Mode: commandModeSubs, Keys: []string{"q"}, KeyLabel: "q", Label: "Append and queue episodes", Keymap: true},
+	{Mode: commandModeSubs, Keys: []string{"l"}, KeyLabel: "l", Label: "Latest episode, queued next", Keymap: true, ContextHelp: true},
+	{Mode: commandModeSubs, Keys: []string{"L"}, KeyLabel: "L", Label: "Latest from every show", Keymap: true, ContextHelp: true},
+	{Mode: commandModeSubs, Keys: []string{"esc", "F"}, KeyLabel: "Esc", Label: "Close", Keymap: true},
+	{Mode: commandModeSubsFilter, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Apply filter", Keymap: true, Primary: true},
+	{Mode: commandModeSubsFilter, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Clear filter", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"x"}, KeyLabel: "x", Label: "Remove selected track from playlist", Destructive: true, Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"w"}, KeyLabel: "w", Label: "Write selected track/selection to playlist", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"o"}, KeyLabel: "o", Label: "Open file browser", Keymap: true},

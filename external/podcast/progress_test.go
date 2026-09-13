@@ -562,3 +562,43 @@ func TestProgressStoreTreatsNullAsEmpty(t *testing.T) {
 		t.Error("record after a null file stored nothing")
 	}
 }
+
+func TestProviderSubscriptions(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+	p := New("us")
+
+	if got := p.Subscriptions(); len(got) != 0 {
+		t.Fatalf("Subscriptions() = %v before subscribing, want empty", got)
+	}
+
+	first := show{Title: "Wading Through AI", FeedURL: "https://example.com/wtai", Author: "Casey Muratori"}
+	second := show{Title: "Part Of The Problem", FeedURL: "https://example.com/potp", Author: "GaS Digital Network"}
+	for _, s := range []show{first, second} {
+		p.shows[s.FeedURL] = s
+		if added, _, err := p.ToggleFavorite("c:" + s.FeedURL); err != nil || !added {
+			t.Fatalf("subscribe %q = %v, %v", s.Title, added, err)
+		}
+	}
+
+	subs := p.Subscriptions()
+	if len(subs) != 2 {
+		t.Fatalf("Subscriptions() = %d entries, want 2", len(subs))
+	}
+	// The provider stores subscriptions sorted by title, so assert by lookup
+	// rather than by the order they were added in.
+	byID := make(map[string]provider.SubscriptionInfo, len(subs))
+	for _, s := range subs {
+		byID[s.ID] = s
+	}
+	for _, want := range []show{first, second} {
+		got, ok := byID[want.FeedURL]
+		if !ok {
+			// The ID must be the feed URL, since that is what AlbumTracks takes.
+			t.Errorf("no subscription with ID %q", want.FeedURL)
+			continue
+		}
+		if got.Name != want.Title || got.Author != want.Author {
+			t.Errorf("subscription %q = %+v, want name %q and author %q", want.FeedURL, got, want.Title, want.Author)
+		}
+	}
+}

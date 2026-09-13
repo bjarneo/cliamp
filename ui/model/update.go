@@ -616,6 +616,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.notifyAll()
 		return m, playCmd
 
+	case subsEpisodesMsg:
+		return m, m.handleSubsEpisodes(msg)
+
+	case subsLatestAllMsg:
+		return m, m.handleSubsLatestAll(msg)
+
 	case feedsLoadedMsg:
 		m.feedLoading = false
 		if len(msg.tracks) > 0 {
