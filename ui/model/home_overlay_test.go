@@ -652,7 +652,7 @@ func TestHomeHelpLines(t *testing.T) {
 // TestRegistryCoversHomeKeys keeps the new mode's reserved keys in the
 // command registry so plugins cannot shadow them.
 func TestRegistryCoversHomeKeys(t *testing.T) {
-	for _, key := range []string{"H", "s", "S", "/", "tab", "esc", "enter", "*"} {
+	for _, key := range []string{"H", "s", "S", "/", "1", "2", "3", "tab", "esc", "enter", "*"} {
 		found := false
 		for _, c := range commandRegistry {
 			if c.Mode&commandModeHome == 0 {
@@ -680,6 +680,36 @@ func TestRegistryCoversHomeKeys(t *testing.T) {
 	}
 	if !found {
 		t.Error("commandRegistry has no H entry for commandModeMain")
+	}
+}
+
+// TestHomeSectionJumpKeys: 1/2/3 snap the sidebar cursor to the first row of
+// Playlists / Albums / Artists — the long-scroll fix for one-flat-list nav.
+func TestHomeSectionJumpKeys(t *testing.T) {
+	fake := homeFixture()
+	m := openHome(t, newHomeTestModel(fake))
+
+	rows := m.homeRows()
+	firstOf := func(kind homeRowKind) int {
+		for i, r := range rows {
+			if r.kind == kind {
+				return i
+			}
+		}
+		return -1
+	}
+
+	m = pressHomeKey(t, m, tea.KeyPressMsg{Text: "3"})
+	if want := firstOf(homeRowArtist); m.home.cursor != want {
+		t.Fatalf("cursor = %d; want first artist row %d", m.home.cursor, want)
+	}
+	m = pressHomeKey(t, m, tea.KeyPressMsg{Text: "1"})
+	if want := firstOf(homeRowPlaylist); m.home.cursor != want {
+		t.Fatalf("cursor = %d; want first playlist row %d", m.home.cursor, want)
+	}
+	m = pressHomeKey(t, m, tea.KeyPressMsg{Text: "2"})
+	if want := firstOf(homeRowAlbum); m.home.cursor != want {
+		t.Fatalf("cursor = %d; want first album row %d", m.home.cursor, want)
 	}
 }
 

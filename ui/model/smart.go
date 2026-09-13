@@ -93,13 +93,19 @@ func (m Model) recommenderForQueue() (provider.Recommender, string) {
 // toggleSmartShuffle handles the Z key. Enabling requires the queue-owning
 // provider to implement Recommender and implies shuffle (AddSmart no-ops
 // without it); disabling needs nothing and drops the unplayed smart rows.
+// Both directions announce what actually happened — counts, not just the
+// mode flip — so the feature is visibly doing something.
 func (m *Model) toggleSmartShuffle() tea.Cmd {
 	if m.playlist.Smart() {
-		m.playlist.DisableSmart()
+		removed := m.playlist.DisableSmart()
 		if err := m.configSaver.Save("smart_shuffle", fmt.Sprintf("%v", m.playlist.Smart())); err != nil {
 			m.status.Showf(statusTTLDefault, "Config save failed: %s", err)
 		}
-		m.status.Show("Smart Shuffle off", statusTTLDefault)
+		if removed > 0 {
+			m.status.Showf(statusTTLDefault, "Smart Shuffle off (-%d queued)", removed)
+		} else {
+			m.status.Show("Smart Shuffle off", statusTTLDefault)
+		}
 		m.player.ClearPreload()
 		return m.preloadNext()
 	}
@@ -119,7 +125,17 @@ func (m *Model) toggleSmartShuffle() tea.Cmd {
 	}
 	m.status.Show("Smart Shuffle on", statusTTLDefault)
 	m.player.ClearPreload()
-	return tea.Batch(m.preloadNext(), m.smartMaybeFetch())
+	// Top up immediately so enabling is visibly doing something — the
+	// drain-triggered prefetch alone would stay quiet until the queue
+	// tail runs low.
+	return tea.Batch(m.preloadNext(), m.smartMaybeFetchNow())
+}
+
+// smartMaybeFetchNow dispatches one recommendation request regardless of the
+// cushion level (all other smartMaybeFetch guards still apply). Used when the
+// user enables Smart Shuffle.
+func (m *Model) smartMaybeFetchNow() tea.Cmd {
+	return m.smartFetch(true)
 }
 
 // smartMaybeFetch dispatches one recommendation request when Smart Shuffle
@@ -131,6 +147,10 @@ func (m *Model) toggleSmartShuffle() tea.Cmd {
 // draining. Guards: mode + shuffle on, no request in flight, backoff
 // expired, and the queue-owning provider still a Recommender.
 func (m *Model) smartMaybeFetch() tea.Cmd {
+	return m.smartFetch(false)
+}
+
+func (m *Model) smartFetch(ignoreCushion bool) tea.Cmd {
 	if !m.playlist.Smart() || !m.playlist.Shuffled() || m.smart.fetching {
 		return nil
 	}
@@ -142,7 +162,7 @@ func (m *Model) smartMaybeFetch() tea.Cmd {
 		return nil
 	}
 	queueLen := m.playlist.Len()
-	if m.playlist.Remaining() > max(2, queueLen/10) {
+	if !ignoreCushion && m.playlist.Remaining() > max(2, queueLen/10) {
 		return nil
 	}
 	seed := append([]playlist.Track(nil), m.playlist.Tracks()...)
@@ -206,4 +226,5 @@ func (m *Model) handleSmartRecommends(msg smartRecommendsMsg) {
 	}
 	m.playlist.AddSmart(fresh...)
 	m.adjustScroll()
+	m.status.Showf(statusTTLDefault, "Smart Shuffle: +%d queued", len(fresh))
 }

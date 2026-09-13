@@ -91,7 +91,7 @@ After loading a playlist you return to the standard playlist view with all the u
 
 Press `Z` in the main view to toggle Smart Shuffle; lowercase `z` remains plain shuffle. Smart Shuffle works on Spotify queues only — cliamp resolves the provider that owns the queue, and other providers get a toast.
 
-Turning it on also enables shuffle if it is off. Recommendations from your top tracks and your top artists' newest albums mix into the upcoming queue near its end: injected rows are marked ✚ and a `[Smart]` chip appears beside `[Shuffle]` in the header. Turning it off removes recommended rows that have not played yet; the current track and anything already played stay. A recommended track never repeats within a session, and recommendation failures back off quietly — playback is never interrupted.
+Turning it on also enables shuffle if it is off, and immediately tops the queue up with recommendations so the effect is visible right away. Further recommendations mix in near the end of the queue as it drains: injected rows are marked ✚, a `[Smart N]` chip beside `[Shuffle]` shows how many are pending, and each injection announces itself (`Smart Shuffle: +N queued`). Turning it off removes recommended rows that have not played yet and reports how many went (`Smart Shuffle off (-N queued)`); the current track and anything already played stay. A recommended track never repeats within a session, and recommendation failures back off quietly — playback is never interrupted.
 
 The setting is saved as `smart_shuffle` in `~/.config/cliamp/config.toml` (top level, beside `shuffle`) and restored on the next launch; like the `Z` key, it implies shuffle.
 

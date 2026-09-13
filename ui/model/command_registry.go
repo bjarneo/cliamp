@@ -249,6 +249,7 @@ var commandRegistry = []commandSpec{
 		return m.home.visible && m.home.content.kind != homeContentNone
 	}},
 	{Mode: commandModeHome, Keys: []string{"/"}, KeyLabel: "/", Label: "Filter library", ContextHelp: true},
+	{Mode: commandModeHome, Keys: []string{"1", "2", "3"}, KeyLabel: "1 2 3", Label: "Jump: Playlists / Albums / Artists", ContextHelp: true},
 	{Mode: commandModeHome, Keys: []string{"s"}, KeyLabel: "s", Label: "Cycle library order", Keymap: true},
 	{Mode: commandModeHome, Keys: []string{"S"}, KeyLabel: "S", Label: "Cycle album sort", Keymap: true, Enabled: func(m Model) bool {
 		_, ok := m.home.prov.(provider.AlbumBrowser)

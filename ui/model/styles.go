@@ -72,6 +72,10 @@ var (
 
 	errorStyle = lipgloss.NewStyle().
 			Foreground(ui.ColorError)
+
+	// paneUnfocusedStyle dims a whole Home pane body so the focused pane
+	// reads at a glance, not just via the header glyph.
+	paneUnfocusedStyle = lipgloss.NewStyle().Faint(true)
 )
 
 // rebuildModelStyles reconstructs all model-specific lipgloss styles from current color variables.
@@ -99,4 +103,5 @@ func rebuildModelStyles() {
 	seekDimStyle = lipgloss.NewStyle().Foreground(ui.ColorDim)
 	volBarStyle = lipgloss.NewStyle().Foreground(ui.ColorVolume)
 	activeToggle = lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true)
+	paneUnfocusedStyle = lipgloss.NewStyle().Faint(true)
 }

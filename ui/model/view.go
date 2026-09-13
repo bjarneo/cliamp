@@ -589,7 +589,9 @@ func (m Model) renderPlaylistHeader() string {
 		shuffle = dimStyle.Render("[") + trackStyle.Render("Shuffle") + dimStyle.Render("]")
 	}
 	if m.playlist.Smart() {
-		shuffle += " " + activeToggle.Render("[Smart]")
+		// The pending count makes the mode visibly active: it moves as
+		// recommendations are injected and consumed.
+		shuffle += " " + activeToggle.Render(fmt.Sprintf("[Smart %d]", m.playlist.SmartPending()))
 	}
 
 	repeatVal := m.playlist.Repeat().String()

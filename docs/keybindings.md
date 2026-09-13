@@ -192,6 +192,7 @@ Press `H` from the main view to open the Home overlay: a two-pane browser for th
 | Key | Action |
 |---|---|
 | `↑` `↓` / `j` `k` / `Ctrl+N` `Ctrl+P` | Move the sidebar cursor (wraps; section headers are skipped) |
+| `1` `2` `3` | Jump to the first row of Playlists / Albums / Artists |
 | `Ctrl+U` `Ctrl+D` | Scroll by page |
 | `g` `G` / `Home` `End` | Top / end of the list |
 | `Enter` / `→` (`l`) | Open the highlighted row: playlist → its tracks in the content pane · album → its tracks · artist → their artist page (`Esc` returns) · `+ New playlist` → name input |
@@ -205,7 +206,7 @@ Press `H` from the main view to open the Home overlay: a two-pane browser for th
 
 `s` reorders locally: "recently added" only changes the Albums section (it reverses the saved order) — playlists and artists keep provider order because their APIs expose no added-at. `S` is the only server-side sort; it refetches the album list and saves the choice. Shift-letter provider quick-switches don't work inside Home; close it first.
 
-With the content pane focused, track rows carry the usual actions: `Enter`/`l` plays the highlighted track and enqueues the rest of the list, plus `a` (append), `q` (queue next), `*` (like), and `p` (add to playlist). Movement keys match the sidebar. `Esc`/`Backspace` (also `←`/`h`) pops back to the sidebar; `H` isn't bound there, so press `Esc` or `Tab` first.
+With the content pane focused, track rows carry the usual actions: `Enter`/`l` plays the highlighted track and enqueues the rest of the list, plus `a` (append), `q` (queue next), `*` (like), and `p` (add to playlist). Movement keys match the sidebar. `Esc`/`Backspace` (also `←`/`h`) pops back to the sidebar; `H` closes Home from either pane. The unfocused pane is dimmed so the active one reads at a glance.
 
 ## Search results overlays
 

@@ -66,6 +66,8 @@ func homeSidebarWidth(panelW int) int {
 }
 
 // renderHomeBody renders the two-pane body into the playlist-region budget.
+// The unfocused pane's whole body is fainted so the active pane reads at a
+// glance; the header glyphs alone were too easy to miss.
 func (m Model) renderHomeBody() string {
 	budget := m.effectivePlaylistVisible()
 	if budget <= 0 {
@@ -79,6 +81,11 @@ func (m Model) renderHomeBody() string {
 	contW := max(4, panelW-sideW-1)
 	sidebar := m.renderHomeSidebar(sideW, budget-1)
 	content := m.renderHomeContent(contW, budget-1)
+	if m.home.focus == homePaneSidebar {
+		content = paneUnfocusedStyle.Render(content)
+	} else {
+		sidebar = paneUnfocusedStyle.Render(sidebar)
+	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, " ", content)
 }
 
@@ -125,7 +132,10 @@ func (m Model) renderHomeContent(width, listBudget int) string {
 	case c.kind == homeContentNone:
 		lines = []string{
 			dimStyle.Render("  Select a playlist, album, or artist"),
-			dimStyle.Render("  from the library."),
+			dimStyle.Render("  from the library pane."),
+			"",
+			dimStyle.Render("  ↑↓ move · Enter open · / filter"),
+			dimStyle.Render("  1/2/3 jump · s order · S album sort"),
 		}
 	case c.loading && len(c.tracks) == 0:
 		lines = []string{loadingLine("Loading…")}

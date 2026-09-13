@@ -163,9 +163,58 @@ func TestSmartToggleOnOffWithRecommender(t *testing.T) {
 	if m.playlist.Len() != base-2 {
 		t.Fatalf("queue len = %d; want unplayed smart rows removed (%d)", m.playlist.Len(), base-2)
 	}
-	if m.status.text != "Smart Shuffle off" {
-		t.Fatalf("status = %q", m.status.text)
+	if m.status.text != "Smart Shuffle off (-2 queued)" {
+		t.Fatalf("status = %q; want removed-count feedback", m.status.text)
 	}
+}
+
+// TestSmartEnableTopsUpImmediately: enabling Smart Shuffle dispatches a
+// recommendation request right away — without waiting for the queue tail to
+// drain — and the landed batch announces itself with a count toast.
+func TestSmartEnableTopsUpImmediately(t *testing.T) {
+	fake := &fakeRecommenderProvider{recs: smartTracks("rec", 10)}
+	m := newSmartTestModel(fake, &recordingSaver{})
+
+	updated, cmd := m.Update(tea.KeyPressMsg{Text: "Z"})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("enable returned no command; want an immediate top-up fetch")
+	}
+
+	// Run the batch: preload + the immediate smart fetch.
+	msg := runCmdUntil[smartRecommendsMsg](t, cmd)
+	updated, _ = m.Update(msg)
+	m = updated.(Model)
+	if got := m.playlist.Len(); got != 6+3 {
+		t.Fatalf("queue len = %d; want immediate injection of smartVolume(6) = 3", got)
+	}
+	if !strings.Contains(m.status.text, "+3 queued") {
+		t.Fatalf("status = %q; want injection-count feedback", m.status.text)
+	}
+}
+
+// runCmdUntil unwraps command batches until it produces a msg of type T.
+func runCmdUntil[T tea.Msg](t *testing.T, cmd tea.Cmd) T {
+	t.Helper()
+	var zero T
+	queue := []tea.Cmd{cmd}
+	for len(queue) > 0 {
+		c := queue[0]
+		queue = queue[1:]
+		if c == nil {
+			continue
+		}
+		msg := c()
+		if batch, ok := msg.(tea.BatchMsg); ok {
+			queue = append(queue, batch...)
+			continue
+		}
+		if typed, ok := msg.(T); ok {
+			return typed
+		}
+	}
+	t.Fatalf("no %T in command batch", zero)
+	return zero
 }
 
 func TestSmartToggleOnKeepsExistingShuffle(t *testing.T) {
@@ -412,8 +461,8 @@ func TestSmartHeaderChipAndRowMarker(t *testing.T) {
 		t.Fatalf("header = %q; [Smart] chip must be hidden while mode is off", header)
 	}
 	m.playlist.EnableSmart()
-	if header := ansi.Strip(m.renderPlaylistHeader()); !strings.Contains(header, "[Smart]") {
-		t.Fatalf("header = %q; want [Smart] chip beside [Shuffle]", header)
+	if header := ansi.Strip(m.renderPlaylistHeader()); !strings.Contains(header, "[Smart 2]") {
+		t.Fatalf("header = %q; want [Smart 2] chip (pending count) beside [Shuffle]", header)
 	}
 
 	rows := ansi.Strip(m.renderPlaylist())

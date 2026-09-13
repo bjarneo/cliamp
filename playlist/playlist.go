@@ -942,8 +942,9 @@ func (p *Playlist) EnableSmart() {
 // DisableSmart clears the Smart Shuffle mode flag and removes all unplayed
 // Smart rows: they are dropped from the upcoming playback order and from the
 // track list, with order/queue/position references fixed up like Remove.
-// Smart rows that already played (including the current one) stay.
-func (p *Playlist) DisableSmart() {
+// Smart rows that already played (including the current one) stay. Returns
+// the number of rows removed.
+func (p *Playlist) DisableSmart() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.smart = false
@@ -961,6 +962,7 @@ func (p *Playlist) DisableSmart() {
 	for i := len(doomed) - 1; i >= 0; i-- {
 		p.removeLocked(doomed[i])
 	}
+	return len(doomed)
 }
 
 // SmartPending returns the number of Smart rows in the not-yet-played part of

@@ -833,6 +833,19 @@ func (m *Model) handleHomeKey(msg tea.KeyPressMsg) tea.Cmd {
 	return m.handleHomeSidebarKey(msg)
 }
 
+// homeJumpToSection moves the sidebar cursor to the first row of the given
+// section (the 1/2/3 quick jump). No-op when the section is absent.
+func (m *Model) homeJumpToSection(kind homeRowKind) {
+	rows := m.homeRows()
+	for i, row := range rows {
+		if row.kind == kind {
+			m.home.cursor = i
+			m.homeSidebarMaybeAdjustScroll()
+			return
+		}
+	}
+}
+
 func (m *Model) handleHomeSidebarKey(msg tea.KeyPressMsg) tea.Cmd {
 	count := len(m.homeRows())
 	move := func(delta int) {
@@ -877,6 +890,8 @@ func (m *Model) handleHomeSidebarKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "g", "home":
 		m.home.cursor = 0
 		m.homeSidebarMaybeAdjustScroll()
+	case "1", "2", "3":
+		m.homeJumpToSection([]homeRowKind{homeRowPlaylist, homeRowAlbum, homeRowArtist}[msg.String()[0]-'1'])
 	case "G", "end":
 		if count > 0 {
 			m.home.cursor = count - 1
