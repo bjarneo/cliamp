@@ -1057,6 +1057,10 @@ func (m *Model) handleFullVisualizerKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.vis.CycleMode()
 		m.vis.RequestRefresh()
 		m.refreshChrome()
+	case "t":
+		// Hide the episode name so the full-screen visualizer can be put on a
+		// shared screen without naming what is playing.
+		m.hideTrackInfo = !m.hideTrackInfo
 	case "ctrl+k", "?":
 		m.exitFullVisualizer()
 		m.openKeymap()

@@ -40,4 +40,5 @@ func (m *Model) clearPlaybackTrack() {
 	m.playingTrack = playlist.Track{}
 	m.playingTrackActive = false
 	m.playbackDetached = false
+	m.playingProvider = ""
 }

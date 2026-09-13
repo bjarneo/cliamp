@@ -564,16 +564,35 @@ func (m Model) renderSpectrum() string {
 // with minimal track info and a seek bar.
 func (m Model) renderFullVisualizer() string {
 	sections := []string{
-		m.renderTrackInfo(),
+		m.fullVisTopLine(),
 		m.renderTimeStatus(),
 		"",
 		m.renderSpectrum(),
 		m.renderSeekBar(),
 		"",
-		helpKey("V", "Exit ") + helpKey("v", "Mode:"+m.vis.ModeName()+" ") + helpKey("Spc", "▶❚❚ ") + helpKey("<>", "Trk ") + helpKey("+-", "Vol ") + helpKey("?", "Keys"),
+		helpKey("V", "Exit ") + helpKey("v", "Mode:"+m.vis.ModeName()+" ") + helpKey("Spc", "▶❚❚ ") + helpKey("<>", "Trk ") + helpKey("+-", "Vol ") + helpKey("t", "Title ") + helpKey("?", "Keys"),
 	}
 
 	return strings.Join(sections, "\n")
+}
+
+// fullVisTopLine names what is playing, or just the source when the track has
+// been hidden. The full-screen visualizer is the view most likely to be on a
+// shared screen, so naming the episode has to be optional.
+func (m Model) fullVisTopLine() string {
+	if !m.hideTrackInfo {
+		return m.renderTrackInfo()
+	}
+	// The playing track may belong to a provider the listener has since
+	// switched away from, so prefer the one recorded when it started.
+	name := m.playingProvider
+	if name == "" && m.provider != nil {
+		name = m.provider.Name()
+	}
+	if name == "" {
+		name = "Playing"
+	}
+	return dimStyle.Render("[" + name + "]")
 }
 
 func (m Model) renderSeekBar() string {

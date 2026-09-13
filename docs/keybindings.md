@@ -82,7 +82,7 @@ The Metadata shortcut is inactive while a text input is active.
 | `t` | Choose theme |
 | `v` | Cycle visualizer |
 | `Ctrl+V` | Pick visualizer from a list (live preview) |
-| `V` | Full screen visualizer |
+| `V` | Full screen visualizer. Inside it, `v` cycles modes, `<`/`>` change track, `+`/`-` change volume, and `t` hides the episode name, leaving only the bracketed source. |
 | `Ctrl+H` | Toggle album headers |
 | `Ctrl+G` | Toggle the key-binding hint bar (remembered in `hide_help_bar`) |
 | `Ctrl+B` | Open/close the settings pane (remembered in `hide_settings_pane`) |
