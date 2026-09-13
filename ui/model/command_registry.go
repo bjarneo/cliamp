@@ -204,6 +204,8 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSpotSearch | commandModeJump | commandModeURL | commandModeProviderSearch, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Confirm", ContextHelp: true, Primary: true},
 	{Mode: commandModeNavBrowser | commandModePlaylistManager | commandModePlaylistPicker | commandModeQueue | commandModeDevicePicker | commandModeProviderSearch, Keys: []string{"up", "down", "k", "j"}, KeyLabel: "Up Down", Label: "Navigate", ContextHelp: true},
 	{Mode: commandModeFileBrowser | commandModeNavBrowser | commandModePlaylistManager | commandModePlaylistPicker | commandModeDevicePicker, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Select", ContextHelp: true, Primary: true},
+	{Mode: commandModePlaylistPicker, Keys: []string{"p"}, KeyLabel: "p", Label: "Add to the start instead", Keymap: true, ContextHelp: true},
+	{Mode: commandModePlaylistManager, Keys: []string{"A"}, KeyLabel: "A", Label: "Add to the current playlist", Keymap: true, ContextHelp: true},
 	{Mode: commandModeNavBrowser, Keys: []string{"/"}, KeyLabel: "/", Label: "Filter", ContextHelp: true, Enabled: func(m Model) bool { return m.navBrowser.mode != navBrowseModeMenu }},
 	{Mode: commandModeNavBrowser, Keys: []string{"f"}, KeyLabel: "f", Label: "Favorite", ContextHelp: true, Prominent: true, Enabled: func(m Model) bool {
 		_, ok := m.navBrowser.prov.(provider.FavoriteToggler)

@@ -44,6 +44,28 @@ Its actions differ from opening a show in the main provider list:
 | `f` | Subscribe or unsubscribe |
 | `Esc` | Return to the search input; press again to close |
 
+## Listening Position
+
+Each episode's position is stored in `podcast_progress.json` in the
+[config directory](configuration.md#config-directory). Playing an episode again
+resumes five seconds before where you stopped, unless you stopped inside the
+first fifteen seconds, in which case it starts over. Finishing one, or stopping
+within its last minute, marks it played, shown as a tick in the track list;
+playing it again clears the mark.
+
+Each episode has one record, keyed by its feed and GUID. Playlists saved by
+this version keep both, so their tracks are recognized directly. A track that
+arrives without them, from a playlist saved by an older version or from any
+other source, is matched by show and episode title instead, and only when the
+store already holds an episode under that title. An enclosure URL cannot stand
+in for the metadata: podcast CDNs rewrite those per request, so the same
+episode arrives under a different address every time. A title that two
+episodes share identifies neither, and a radio stream or a library track is
+never mistaken for an episode.
+
+If the file cannot be read at startup, cliamp leaves it untouched and does not
+save positions for that session; the reason is in the log.
+
 ## Subscriptions
 
 Press `f` on a show in the provider list, category show list, or `Ctrl+F` results
@@ -55,8 +77,7 @@ Subscriptions are saved atomically in `podcast_subscriptions.json` in the
 [config directory](configuration.md#config-directory), normally
 `~/.config/cliamp/podcast_subscriptions.json`. They remain available when Apple's
 directory is offline, but fetching feeds and playing episodes still requires
-access to the publisher. This provider has no offline episode download cache
-or per-episode progress, resume, or played-state tracking.
+access to the publisher. This provider has no offline episode download cache.
 
 ## Publisher RSS URLs
 

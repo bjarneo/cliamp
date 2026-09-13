@@ -155,6 +155,29 @@ type TrackPosition interface {
 	TrackPosition(track playlist.Track) time.Duration
 }
 
+// PlaybackState is a track's stored listening state.
+type PlaybackState struct {
+	// Played marks an episode listened to the end.
+	Played bool
+	// Position is where the listener stopped. It is zero for a played track.
+	Position time.Duration
+}
+
+// PlaybackStateReporter is implemented by providers that keep listening state
+// locally and can answer for it without I/O.
+//
+// The UI calls this while rendering every visible row, so an implementation
+// must not reach the network or the disk. A provider whose state lives on a
+// server implements TrackPosition instead.
+type PlaybackStateReporter interface {
+	// HasPlaybackState reports whether any state is stored at all, so the UI
+	// can decide whether to reserve a marker column.
+	HasPlaybackState() bool
+	// PlaybackState returns the stored state for track. ok is false when the
+	// track is not this provider's, or nothing is stored for it.
+	PlaybackState(track playlist.Track) (state PlaybackState, ok bool)
+}
+
 // ResumeTarget is implemented by providers that track listening position
 // server-side and can point the UI at where to continue.
 type ResumeTarget interface {
@@ -182,6 +205,17 @@ type PlaylistWriter interface {
 // tracks to existing playlists in one operation.
 type PlaylistBatchWriter interface {
 	AddTracksToPlaylist(ctx context.Context, playlistID string, tracks []playlist.Track) (added, skipped int, err error)
+}
+
+// PlaylistPrepender is implemented by providers that can insert tracks at the
+// front of a saved playlist.
+type PlaylistPrepender interface {
+	// PrependTracksToPlaylist puts tracks at the start of the playlist, in the
+	// order given. A track already listed in the playlist moves to the front
+	// rather than being duplicated, and is counted in moved. A track that the
+	// playlist only holds through a directory source cannot be reordered, so
+	// it is counted in skipped and left alone.
+	PrependTracksToPlaylist(ctx context.Context, playlistID string, tracks []playlist.Track) (added, moved, skipped int, err error)
 }
 
 // PlaylistSaver is implemented by providers that can overwrite a playlist's

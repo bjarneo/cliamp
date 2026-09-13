@@ -139,6 +139,22 @@ preference remains saved for a wider layout. See
 | `r` | Cycle repeat mode (Off / All / One) |
 | `z` | Toggle shuffle |
 
+### Inside the save-to-playlist picker
+
+Reached with `w`. The list shows your saved playlists plus a **New playlist**
+row at the end.
+
+| Key | Action |
+|---|---|
+| `Enter` | Add the tracks to the end of the selected playlist, or create a new one |
+| `p` | Add the tracks to the start of the selected playlist instead |
+| `Esc` `q` | Cancel |
+
+`Enter` skips tracks the playlist already holds. `p` moves them to the front
+instead, since putting a track first is an ordering request rather than a
+duplicate. Tracks the playlist only holds through a `[[dir]]` source cannot be
+reordered, so `p` leaves them alone and reports them as skipped.
+
 ### Inside the playlist manager
 
 | Key | Action |
@@ -156,6 +172,7 @@ preference remains saved for a wider layout. See
 | `a` | List: create a playlist. After naming it, the file browser opens at `~`. Use `Enter` to enter a directory, `Space` to select folders or files, `Enter` to confirm, or `Esc` to finish. Tracks: mark or unmark all visible tracks. |
 | `r` | List: rename the playlist (`Recently Played` cannot be renamed) |
 | `d` | List: delete playlist (confirms; `Recently Played` cannot be deleted). Tracks: remove marked tracks, or highlighted track when none are marked |
+| `A` | List: append the selected playlist to the current one, keeping what is loaded. Tracks: append the marked tracks, or the highlighted one. |
 | `u` | Undo the last manager edit |
 | `←` `Backspace` `h` | Tracks screen: go back to the list |
 | `Esc` | Close the playlist manager or go back |
