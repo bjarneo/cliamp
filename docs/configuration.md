@@ -139,6 +139,10 @@ The title, track line, time, visualizer, seek bar, and hint bar stay full width.
 Narrower terminals, simplified mode, overlays, and list views keep the stacked
 single-column layout, with shuffle and repeat back in the header.
 
+Below 16 rows the minimal layout drops the controls to keep a row for tracks.
+From 12 rows it carries the compact `EQ · VOL` and `SRC` rows again, and `Tab`
+reaches them; at 10 or 11 rows only the playlist is focusable.
+
 In full and compact playback layouts, `Tab` cycles from Playlist through Source,
 Volume, EQ, Shuffle, Repeat, and Speed, then returns to Playlist. `Shift+Tab`
 reverses the order. Only visible controls participate; Source is skipped when
