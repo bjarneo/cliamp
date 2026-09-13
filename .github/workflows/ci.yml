@@ -19,11 +19,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev libflac-dev libvorbis-dev libogg-dev libmpg123-dev shellcheck
       - run: go install honnef.co/go/tools/cmd/staticcheck@v0.6.1
       - run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
-      - run: make fmt-check vet staticcheck security
-      - run: go test -count=1 -race ./...
-      - run: make coverage
-      - run: shellcheck site/install.sh
-      - run: git diff --exit-code
+      - run: make ci
 
   build:
     strategy:
