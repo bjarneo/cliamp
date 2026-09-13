@@ -1,6 +1,7 @@
 package model
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -53,8 +54,10 @@ func TestMinimalTierRowBudget(t *testing.T) {
 	}
 }
 
-// Drawing the control rows is only useful if they can be focused, so the
-// minimal tier's focus ring must open up with them.
+// Drawing the control rows is only useful if they can be focused. With them
+// drawn, the minimal tier's focus ring is the compact tier's: the settings
+// the rows show, the shuffle and repeat badges when the header has room for
+// them, and speed, which the status line shows and highlights in every tier.
 func TestMinimalTierFocusFollowsControls(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -62,7 +65,7 @@ func TestMinimalTierFocusFollowsControls(t *testing.T) {
 		want   []focusArea
 	}{
 		{"without controls", 10, []focusArea{focusPlaylist}},
-		{"with controls", 12, []focusArea{focusPlaylist, focusProvPill, focusVolume, focusEQ}},
+		{"with controls", 12, []focusArea{focusPlaylist, focusProvPill, focusVolume, focusEQ, focusShuffle, focusRepeat, focusSpeed}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -70,23 +73,24 @@ func TestMinimalTierFocusFollowsControls(t *testing.T) {
 			m := newColumnTestModel(60, tt.height)
 
 			got := m.mainFocusAreas()
-			for _, want := range tt.want {
-				if !m.mainFocusAllowed(want) {
-					t.Errorf("focus %v not allowed; areas = %v", want, got)
-				}
-			}
-			if !tt.want[len(tt.want)-1].equalsAny(focusEQ) && m.mainFocusAllowed(focusEQ) {
-				t.Errorf("EQ focus allowed without a row to show it; areas = %v", got)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("mainFocusAreas() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func (f focusArea) equalsAny(others ...focusArea) bool {
-	for _, o := range others {
-		if f == o {
-			return true
-		}
+// The ring with the controls drawn must be the compact tier's, so a Tab stop
+// added to one tier is not silently missing from the other.
+func TestMinimalTierWithControlsMatchesCompactFocusRing(t *testing.T) {
+	withFrameWidth(t, 60)
+	minimal := newColumnTestModel(60, 12)
+	compact := newColumnTestModel(60, 16)
+
+	if minimal.layout.tier != layoutMinimal || compact.layout.tier != layoutCompact {
+		t.Fatalf("tiers = %v, %v; want minimal and compact", minimal.layout.tier, compact.layout.tier)
 	}
-	return false
+	if got, want := minimal.mainFocusAreas(), compact.mainFocusAreas(); !slices.Equal(got, want) {
+		t.Errorf("minimal ring = %v, compact ring = %v", got, want)
+	}
 }
