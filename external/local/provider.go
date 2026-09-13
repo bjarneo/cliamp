@@ -324,17 +324,17 @@ func (p *Provider) PrependTracks(playlistName string, tracks []playlist.Track) (
 		return 0, 0, 0, nil
 	}
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, fmt.Errorf("creating playlist dir: %w", err)
 	}
 	path, err := p.safePath(playlistName)
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, fmt.Errorf("resolving playlist path: %w", err)
 	}
 
 	doc, err := p.loadDoc(path)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
-			return 0, 0, 0, err
+			return 0, 0, 0, fmt.Errorf("loading playlist %q: %w", playlistName, err)
 		}
 		if err := validateNewName(playlistName); err != nil {
 			return 0, 0, 0, err
@@ -342,9 +342,12 @@ func (p *Provider) PrependTracks(playlistName string, tracks []playlist.Track) (
 		doc = &playlistDoc{}
 	}
 
-	explicit := make(map[string]struct{}, len(doc.tracks))
+	// A track already in the playlist keeps its stored value when it moves:
+	// the incoming copy may carry less, and a move must not shed a bookmark
+	// or the podcast identity the file already holds.
+	explicit := make(map[string]playlist.Track, len(doc.tracks))
 	for _, t := range doc.tracks {
-		explicit[t.Path] = struct{}{}
+		explicit[t.Path] = t
 	}
 	dirSourced := make(map[string]struct{})
 	for _, src := range doc.dirs {
@@ -365,27 +368,31 @@ func (p *Provider) PrependTracks(playlistName string, tracks []playlist.Track) (
 			skipped++
 			continue
 		}
-		if _, ok := explicit[t.Path]; ok {
+		if stored, ok := explicit[t.Path]; ok {
 			moved++
+			t = stored
 		} else if _, ok := dirSourced[t.Path]; ok {
 			skipped++
 			continue
 		} else {
 			added++
+			// An incoming track may carry DirSourced from the playlist it
+			// came from. It must persist as an explicit entry here, since
+			// this document has no owning [[dir]] section for it.
+			t.DirSourced = false
 		}
-		// An incoming track may carry DirSourced from the playlist it came
-		// from. It must persist as an explicit entry here, since this document
-		// has no owning [[dir]] section for it.
-		t.DirSourced = false
 		relocated[t.Path] = struct{}{}
 		front = append(front, t)
 	}
 
 	if added == 0 && moved == 0 {
 		if _, statErr := os.Stat(path); errors.Is(statErr, fs.ErrNotExist) {
-			return 0, 0, skipped, p.saveDoc(playlistName, doc)
+			if err := p.saveDoc(playlistName, doc); err != nil {
+				return 0, 0, skipped, fmt.Errorf("saving playlist %q: %w", playlistName, err)
+			}
+			return 0, 0, skipped, nil
 		} else if statErr != nil {
-			return 0, 0, skipped, statErr
+			return 0, 0, skipped, fmt.Errorf("stat playlist %q: %w", playlistName, statErr)
 		}
 		return 0, 0, skipped, nil
 	}
@@ -413,7 +420,10 @@ func (p *Provider) PrependTracks(playlistName string, tracks []playlist.Track) (
 		ordered = append(ordered, t)
 		order = append(order, itemTrack)
 	}
-	return added, moved, skipped, p.saveDoc(playlistName, &playlistDoc{tracks: ordered, dirs: doc.dirs, order: order})
+	if err := p.saveDoc(playlistName, &playlistDoc{tracks: ordered, dirs: doc.dirs, order: order}); err != nil {
+		return added, moved, skipped, fmt.Errorf("saving playlist %q: %w", playlistName, err)
+	}
+	return added, moved, skipped, nil
 }
 
 // PrependTracksToPlaylist implements provider.PlaylistPrepender.

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 )
 
 func paths(tracks []playlist.Track) []string {
@@ -184,5 +185,47 @@ func TestPrependTracksKeepsDirSources(t *testing.T) {
 	tracks, _ := p.Tracks("mixed")
 	if len(tracks) == 0 || tracks[0].Path != "/first.mp3" {
 		t.Errorf("first track = %v, want /first.mp3", paths(tracks))
+	}
+}
+
+// Moving a track to the front keeps what the playlist already knows about it.
+// The incoming copy may be the bare path a picker hands over, and a move must
+// not shed the bookmark or the podcast identity the file holds.
+func TestPrependTracksKeepsTheStoredTrackOnMove(t *testing.T) {
+	p := newTestProvider(t)
+	stored := playlist.Track{
+		Path:     "/a.mp3",
+		Title:    "Full Title",
+		Bookmark: true,
+		ProviderMeta: map[string]string{
+			provider.MetaPodcastFeed: "https://example.com/feed",
+			provider.MetaPodcastGUID: "guid-1",
+		},
+	}
+	if _, _, err := p.AddTracks("show", []playlist.Track{{Path: "/first.mp3"}, stored}); err != nil {
+		t.Fatalf("AddTracks: %v", err)
+	}
+
+	_, moved, _, err := p.PrependTracks("show", []playlist.Track{{Path: "/a.mp3"}})
+	if err != nil {
+		t.Fatalf("PrependTracks: %v", err)
+	}
+	if moved != 1 {
+		t.Fatalf("moved = %d, want 1", moved)
+	}
+
+	tracks, _ := p.Tracks("show")
+	got := tracks[0]
+	if got.Path != "/a.mp3" {
+		t.Fatalf("first = %q, want /a.mp3", got.Path)
+	}
+	if got.Title != "Full Title" {
+		t.Errorf("title = %q, want the stored title kept", got.Title)
+	}
+	if !got.Bookmark {
+		t.Error("bookmark lost on move")
+	}
+	if got.Meta(provider.MetaPodcastGUID) != "guid-1" {
+		t.Errorf("guid = %q, want the stored identity kept", got.Meta(provider.MetaPodcastGUID))
 	}
 }

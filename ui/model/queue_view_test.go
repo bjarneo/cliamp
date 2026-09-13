@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -117,5 +118,37 @@ func TestQueueKeepsTheNormalLayout(t *testing.T) {
 				t.Errorf("usesContentFirstLayout() = %v, want %v", got, tt.wantContentFirst)
 			}
 		})
+	}
+}
+
+// Album headers take rows of their own, so with the cursor near the bottom of
+// a short budget the view has to scroll past a header to keep it visible.
+func TestRenderQueueBodyKeepsCursorVisiblePastHeaders(t *testing.T) {
+	old := ui.PanelWidth
+	ui.PanelWidth = 80
+	t.Cleanup(func() { ui.PanelWidth = old })
+	m := &Model{playlist: playlist.New(), plVisible: 5, showAlbumHeaders: true}
+	tracks := make([]playlist.Track, 6)
+	for i := range tracks {
+		tracks[i] = playlist.Track{Path: fmt.Sprintf("/t%d.mp3", i), Title: fmt.Sprintf("Track %d", i), Album: "One Album"}
+	}
+	m.playlist.Replace(tracks)
+	for i := range tracks {
+		m.playlist.Queue(i)
+	}
+	// Five rows of budget: one header plus four tracks. The cursor on track 4
+	// would be the fifth track row, off the bottom unless the view scrolls.
+	m.queue.cursor, m.queue.scroll = 4, 0
+
+	body := stripAnsi(m.renderQueueBody())
+
+	if !strings.Contains(body, "> ") {
+		t.Errorf("cursor row not rendered:\n%s", body)
+	}
+	if !strings.Contains(body, "5. Track 4") {
+		t.Errorf("track under the cursor is missing:\n%s", body)
+	}
+	if got := strings.Count(body, "\n") + 1; got > 5 {
+		t.Errorf("rows = %d, want at most the budget of 5\n%s", got, body)
 	}
 }

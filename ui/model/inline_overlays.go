@@ -299,6 +299,11 @@ func (m Model) renderQueueBody() string {
 	}
 	numWidth := len(fmt.Sprintf("%d", total))
 	scroll := clampedScroll(m.queue.scroll, m.queue.cursor, len(tracks), budget)
+	// clampedScroll counts tracks, but album headers take rows too. Advance
+	// past headers until the rows from scroll through the cursor fit.
+	for scroll < m.queue.cursor && m.albumSeparatorRows(tracks, scroll, m.queue.cursor, m.showAlbumHeaders) > budget {
+		scroll++
+	}
 
 	lines := make([]string, 0, budget)
 	for row := range m.playlistRows(tracks, scroll, m.showAlbumHeaders) {

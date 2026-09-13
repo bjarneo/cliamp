@@ -268,6 +268,8 @@ func (m *Model) prependPickerTracks(name string) bool {
 		return false
 	}
 	switch {
+	case added+moved == 0 && skipped > 0:
+		m.status.Warningf(statusTTLDefault, "Nothing added to the start of %q, skipped %d", name, skipped)
 	case added+moved == 0:
 		m.status.Warningf(statusTTLDefault, "Nothing added to the start of %q", name)
 	case moved > 0 && skipped > 0:
