@@ -474,6 +474,7 @@ type Model struct {
 	lowPower        bool // lower UI/render cadences in low-power mode
 	visualizer60FPS bool // render a visible visualizer at the animation cadence
 	simplified      bool // simplified playback view: track summary and time strip
+	hideTrackInfo   bool // full-screen visualizer: show the source instead of the track
 	hideHelpBar     bool // hide the key-binding hint bar above the status line
 	hideSettings    bool // close the two-column settings pane beside the playlist
 	showMetadata    bool // expand highlighted-track metadata below settings
