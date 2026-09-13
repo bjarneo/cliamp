@@ -397,3 +397,37 @@ url = "http://c/"
 		t.Errorf("expected only 'complete', got %+v", stations)
 	}
 }
+
+func TestProviderFavoritesTrackFromCountryOrTagBrowser(t *testing.T) {
+	p := newTestProvider(t)
+	toggler, ok := any(p).(interface {
+		ToggleTrackFavorite(playlist.Track) (bool, string, error)
+	})
+	if !ok {
+		t.Fatal("radio provider does not support favoriting browsed tracks")
+	}
+
+	station := CatalogStation{
+		Name: "NRK P3", URL: "https://nrk.example/p3", Country: "Norway",
+		State: "Oslo", Tags: "pop,rock", Codec: "MP3", Bitrate: 192,
+		Homepage: "https://nrk.example/",
+	}
+	track := stationTracks([]CatalogStation{station})[0]
+
+	added, name, err := toggler.ToggleTrackFavorite(track)
+	if err != nil || !added || name != station.Name {
+		t.Fatalf("first toggle = (%v, %q, %v), want added %q", added, name, err, station.Name)
+	}
+	favorites := p.favorites.Stations()
+	if len(favorites) != 1 || !reflect.DeepEqual(favorites[0], station) {
+		t.Fatalf("favorites = %+v, want exact station metadata %+v", favorites, station)
+	}
+
+	added, name, err = toggler.ToggleTrackFavorite(track)
+	if err != nil || added || name != station.Name {
+		t.Fatalf("second toggle = (%v, %q, %v), want removed %q", added, name, err, station.Name)
+	}
+	if favorites := p.favorites.Stations(); len(favorites) != 0 {
+		t.Fatalf("favorites after removal = %+v, want none", favorites)
+	}
+}

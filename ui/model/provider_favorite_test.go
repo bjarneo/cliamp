@@ -170,3 +170,47 @@ func TestFavoriteActionAndHelpGuardSelection(t *testing.T) {
 		})
 	}
 }
+
+type favoriteTrackTestProvider struct {
+	commandsTestProvider
+	toggled  []playlist.Track
+	favorite bool
+}
+
+func (p *favoriteTrackTestProvider) ToggleTrackFavorite(track playlist.Track) (bool, string, error) {
+	p.toggled = append(p.toggled, track)
+	p.favorite = !p.favorite
+	return p.favorite, track.Title, nil
+}
+
+func TestFavoriteTrackFromNavBrowser(t *testing.T) {
+	withFrameWidth(t, 100)
+	p := &favoriteTrackTestProvider{commandsTestProvider: commandsTestProvider{name: "Radio"}}
+	m := keybindingTestModel()
+	m.navBrowser = navBrowserState{
+		prov:    p,
+		visible: true,
+		mode:    navBrowseModeByGenre,
+		screen:  navBrowseScreenTracks,
+		tracks: []playlist.Track{
+			{Path: "https://radio.example/other", Title: "Other", Stream: true, Realtime: true},
+			{Path: "https://radio.example/target", Title: "Target", Stream: true, Realtime: true},
+		},
+		search:    "target",
+		searchIdx: []int{1},
+	}
+
+	mode, _ := m.keymapContext()
+	if help := m.commandHelp(mode); !strings.Contains(help, "Favorite") {
+		t.Fatalf("favoritable track has no command help: %q", help)
+	}
+	if cmd := m.handleKey(tea.KeyPressMsg{Text: "f"}); cmd != nil {
+		t.Fatal("track favorite returned an unexpected command")
+	}
+	if len(p.toggled) != 1 || p.toggled[0].Path != "https://radio.example/target" {
+		t.Fatalf("favorite tracks = %+v, want filtered target", p.toggled)
+	}
+	if m.status.text != "Favorited: Target" {
+		t.Fatalf("status = %q, want favorite confirmation", m.status.text)
+	}
+}

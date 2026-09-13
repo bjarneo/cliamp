@@ -55,6 +55,7 @@ are in `provider/interfaces.go`.
 | `PlaylistDeleter` | Remove playlists/tracks | `DeletePlaylist(name)`, `RemoveTrack(name, index)` |
 | `CustomStreamer` | Custom URI decode pipeline | `URISchemes()`, `NewStreamer(uri)` |
 | `FavoriteToggler` | Favorite toggling | `ToggleFavorite(id)` |
+| `TrackFavoriteToggler` | Favorite a track selected in a hierarchical browser | `ToggleTrackFavorite(track)` |
 | `Closer` | Cleanup on shutdown | `Close()` |
 | `Authenticator` | Interactive sign-in flow | `Authenticate() error` (in `playlist` package) |
 | `ResumeTarget` | Server-side resume position | `ResumeTarget(playlistID, tracks)` |
