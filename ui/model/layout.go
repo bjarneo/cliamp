@@ -163,7 +163,8 @@ func (m *Model) recomputeLayout() {
 	// The settings pane, open or closed, belongs to the full-tier playback
 	// screen only: the denser tiers and the list-focused layouts have no room
 	// for a column and draw their own controls.
-	if layout.tier == layoutFull && !contentFirst && !simplified && m.activeScreen() == screenMain {
+	screen := m.activeScreen()
+	if layout.tier == layoutFull && !contentFirst && !simplified && (screen == screenMain || screen == screenQueue) {
 		if m.hideSettings {
 			layout.closedSettings = true
 		} else {

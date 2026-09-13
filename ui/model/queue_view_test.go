@@ -97,3 +97,25 @@ func TestRenderQueueBodyEmpty(t *testing.T) {
 		t.Errorf("empty queue body = %q, want an (empty) message", got)
 	}
 }
+
+// The queue is a view of the playlist, so opening it must keep the playback
+// chrome and the settings pane rather than taking over the frame.
+func TestQueueKeepsTheNormalLayout(t *testing.T) {
+	tests := []struct {
+		name             string
+		setup            func(*Model)
+		wantContentFirst bool
+	}{
+		{"queue open", func(m *Model) { m.queue.visible = true }, false},
+		{"file browser open", func(m *Model) { m.fileBrowser.visible = true }, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{playlist: playlist.New()}
+			tt.setup(m)
+			if got := m.usesContentFirstLayout(); got != tt.wantContentFirst {
+				t.Errorf("usesContentFirstLayout() = %v, want %v", got, tt.wantContentFirst)
+			}
+		})
+	}
+}

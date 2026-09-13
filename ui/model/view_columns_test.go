@@ -39,7 +39,10 @@ func TestTwoColumnLayoutTiers(t *testing.T) {
 		{name: "minimal", width: 40, height: 10, want: false},
 		{name: "too small", width: 20, height: 5, want: false},
 		{name: "simplified", width: 80, height: 24, want: false, setup: func(m *Model) { m.simplified = true }},
-		{name: "overlay", width: 80, height: 24, want: false, setup: func(m *Model) { m.queue.visible = true }},
+		{name: "overlay", width: 80, height: 24, want: false, setup: func(m *Model) { m.fileBrowser.visible = true }},
+		// The queue is a view of the playlist, so it keeps the split and the
+		// settings pane rather than taking the frame.
+		{name: "queue", width: 80, height: 24, want: true, setup: func(m *Model) { m.queue.visible = true }},
 		{name: "full screen visualizer", width: 80, height: 24, want: false, setup: func(m *Model) { m.fullVis = true }},
 	}
 
