@@ -75,7 +75,7 @@ func New(session *Session, clientID string, bitrate int) *SpotifyProvider {
 
 // ensureSession tries to create a session using stored credentials only
 // (no browser). Returns playlist.ErrNeedsAuth if interactive sign-in is needed.
-func (p *SpotifyProvider) ensureSession() error {
+func (p *SpotifyProvider) ensureSession(ctx context.Context) error {
 	p.mu.Lock()
 	if p.session != nil {
 		p.mu.Unlock()
@@ -87,8 +87,11 @@ func (p *SpotifyProvider) ensureSession() error {
 	if clientID == "" {
 		return fmt.Errorf("spotify: no client ID available")
 	}
-	sess, err := NewSessionSilent(context.Background(), clientID)
+	sess, err := NewSessionSilent(ctx, clientID)
 	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return playlist.ErrNeedsAuth
 	}
 	p.mu.Lock()
@@ -191,7 +194,7 @@ func (p *SpotifyProvider) currentUserID(ctx context.Context) string {
 
 // Playlists returns all playlists in the authenticated user's Spotify library.
 func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
-	if err := p.ensureSession(); err != nil {
+	if err := p.ensureSession(context.Background()); err != nil {
 		return nil, err
 	}
 
@@ -384,7 +387,7 @@ func (p *SpotifyProvider) savedAlbums(ctx context.Context) ([]playlist.PlaylistI
 // Results are cached by snapshot_id; unchanged playlists skip the API call.
 // Saved-album entries (savedAlbumIDPrefix) are expanded via AlbumTracks.
 func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
-	if err := p.ensureSession(); err != nil {
+	if err := p.ensureSession(context.Background()); err != nil {
 		return nil, err
 	}
 
@@ -506,8 +509,8 @@ func (p *SpotifyProvider) URISchemes() []string { return []string{"spotify:"} }
 // browser tab popping up mid-skip.
 //
 // Implements provider.CustomStreamer.
-func (p *SpotifyProvider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error) {
-	if err := p.ensureSession(); err != nil {
+func (p *SpotifyProvider) NewStreamer(ctx context.Context, uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error) {
+	if err := p.ensureSession(ctx); err != nil {
 		return nil, beep.Format{}, 0, err
 	}
 	spotID, err := librespot.SpotifyIdFromUri(uri)
@@ -516,8 +519,6 @@ func (p *SpotifyProvider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.F
 	}
 
 	tryStream := func() (*spotifyStreamer, error) {
-		ctx, setupCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer setupCancel()
 		stream, streamCancel, err := p.session.NewStream(ctx, *spotID, p.bitrate)
 		if err != nil {
 			return nil, err
@@ -536,11 +537,14 @@ func (p *SpotifyProvider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.F
 	// Auth error — try a silent reconnect from cached credentials.
 	applog.UserWarn("spotify: stream auth error (%v), attempting silent reconnect...", err)
 
-	reconnCtx, reconnCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	reconnCtx, reconnCancel := context.WithTimeout(ctx, 30*time.Second)
 	reconnErr := p.session.Reconnect(reconnCtx)
 	reconnCancel()
 
 	if reconnErr != nil {
+		if ctx.Err() != nil {
+			return nil, beep.Format{}, 0, ctx.Err()
+		}
 		applog.UserWarn("spotify: silent reconnect failed (%v); sign-in required", reconnErr)
 		return nil, beep.Format{}, 0, fmt.Errorf("spotify: stream auth error, silent reconnect failed: %w", playlist.ErrNeedsAuth)
 	}
@@ -713,7 +717,7 @@ func (p *SpotifyProvider) searchPaged(ctx context.Context, query string, limit i
 // Apps in Development Mode cap /v1/search at devModeSearchLimit results per
 // request, so larger result sets always use offset pagination.
 func (p *SpotifyProvider) SearchTracks(ctx context.Context, query string, limit int) ([]playlist.Track, error) {
-	if err := p.ensureSession(); err != nil {
+	if err := p.ensureSession(ctx); err != nil {
 		return nil, err
 	}
 
@@ -772,7 +776,7 @@ func (p *SpotifyProvider) AlbumTracks(albumID string) ([]playlist.Track, error) 
 
 // AlbumTracksContext returns every track of a Spotify album with caller-controlled cancellation.
 func (p *SpotifyProvider) AlbumTracksContext(ctx context.Context, albumID string) ([]playlist.Track, error) {
-	if err := p.ensureSession(); err != nil {
+	if err := p.ensureSession(ctx); err != nil {
 		return nil, err
 	}
 	album, err := p.album(ctx, albumID)
@@ -847,7 +851,7 @@ func (p *SpotifyProvider) albumTracksPage(ctx context.Context, albumID string, o
 // Implements provider.PlaylistWriter.
 func (p *SpotifyProvider) AddTrackToPlaylist(ctx context.Context, playlistID string, track playlist.Track) error {
 	trackURI := track.Path
-	if err := p.ensureSession(); err != nil {
+	if err := p.ensureSession(ctx); err != nil {
 		return err
 	}
 
@@ -871,7 +875,7 @@ func (p *SpotifyProvider) AddTrackToPlaylist(ctx context.Context, playlistID str
 
 // CreatePlaylist creates a new private Spotify playlist and returns its ID.
 func (p *SpotifyProvider) CreatePlaylist(ctx context.Context, name string) (string, error) {
-	if err := p.ensureSession(); err != nil {
+	if err := p.ensureSession(ctx); err != nil {
 		return "", err
 	}
 

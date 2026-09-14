@@ -104,8 +104,8 @@ func (p *Provider) RestoreTrack(track playlist.Track) (playlist.Track, bool) {
 }
 
 // ResolveSource refreshes matching Jellyfin URLs when the engine opens them.
-func (p *Provider) ResolveSource(rawURL string) (string, error) {
-	return p.client.ResolveSource(rawURL)
+func (p *Provider) ResolveSource(ctx context.Context, rawURL string) (string, error) {
+	return p.client.ResolveSource(ctx, rawURL)
 }
 
 func (p *Provider) ReportNowPlaying(track playlist.Track, position time.Duration, canSeek bool) error {

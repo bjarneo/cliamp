@@ -22,8 +22,9 @@ type Quality struct {
 
 // StreamerFactory creates a beep.StreamSeekCloser for a custom URI scheme
 // (e.g., spotify:track:xxx). Returns the streamer, its format, the track
-// duration, and any error.
-type StreamerFactory func(uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error)
+// duration, and any error. The context owns setup and subsequent reads;
+// cancelling it must interrupt a blocked source.
+type StreamerFactory func(context.Context, string) (beep.StreamSeekCloser, beep.Format, time.Duration, error)
 
 // Player is the audio engine managing the playback pipeline:
 //
@@ -64,7 +65,6 @@ type Player struct {
 
 	lastPlayedDuration time.Duration // real duration of the track finished by the last gapless swap
 
-	streamTitle      atomic.Value               // stores string, set by ICY reader callback
 	customFactories  map[string]StreamerFactory // URI scheme prefix -> factory (e.g. "spotify:" -> fn)
 	bufferedURLMatch func(string) bool          // optional: returns true for URLs needing navBuffer pipeline
 	sourceResolvers  map[string]SourceResolver  // URI scheme prefix -> play-time source resolver (e.g. "tidal://")
@@ -205,7 +205,7 @@ func (p *Player) PlayAtForGeneration(path string, knownDuration, offset time.Dur
 }
 
 func (p *Player) playAt(path string, knownDuration, offset time.Duration, generation uint64, requireCurrent bool) error {
-	tp, err := p.buildPipeline(path)
+	tp, err := p.buildPipeline(context.Background(), path)
 	if err != nil {
 		return fmt.Errorf("play at %v: %w", offset, err)
 	}
@@ -238,9 +238,9 @@ func (p *Player) playYTDL(pageURL string, knownDuration time.Duration, generatio
 	// Probe duration concurrently with pipeline setup so it doesn't delay playback.
 	probeCh := make(chan time.Duration, 1)
 	if knownDuration == 0 {
-		go func() { probeCh <- probeYTDLDuration(pageURL) }()
+		go func() { probeCh <- probeYTDLDuration(context.Background(), pageURL) }()
 	}
-	tp, err := p.buildYTDLPipeline(pageURL, 0)
+	tp, err := p.buildYTDLPipeline(context.Background(), pageURL, 0)
 	if err != nil {
 		return err
 	}
@@ -356,7 +356,7 @@ func (p *Player) playPipelineForGeneration(tp *trackPipeline, generation uint64)
 // Preload builds a pipeline for the next track and queues it for gapless transition.
 // knownDuration is the metadata duration (use 0 if unknown).
 func (p *Player) Preload(path string, knownDuration time.Duration) error {
-	tp, err := p.buildPipeline(path)
+	tp, err := p.buildPipeline(context.Background(), path)
 	if err != nil {
 		return err
 	}
@@ -366,7 +366,7 @@ func (p *Player) Preload(path string, knownDuration time.Duration) error {
 
 // PreloadYTDL builds a yt-dlp pipe pipeline and queues it for gapless transition.
 func (p *Player) PreloadYTDL(pageURL string, knownDuration time.Duration) error {
-	tp, err := p.buildYTDLPipeline(pageURL, 0)
+	tp, err := p.buildYTDLPipeline(context.Background(), pageURL, 0)
 	if err != nil {
 		return err
 	}
@@ -381,7 +381,7 @@ func (p *Player) BeginPreload() uint64 {
 
 // PreloadForGeneration queues a stream only when generation is still current.
 func (p *Player) PreloadForGeneration(path string, knownDuration time.Duration, generation uint64) error {
-	tp, err := p.buildPipeline(path)
+	tp, err := p.buildPipeline(context.Background(), path)
 	if err != nil {
 		return err
 	}
@@ -391,7 +391,7 @@ func (p *Player) PreloadForGeneration(path string, knownDuration time.Duration, 
 
 // PreloadYTDLForGeneration queues a yt-dlp stream only when generation is still current.
 func (p *Player) PreloadYTDLForGeneration(pageURL string, knownDuration time.Duration, generation uint64) error {
-	tp, err := p.buildYTDLPipeline(pageURL, 0)
+	tp, err := p.buildYTDLPipeline(context.Background(), pageURL, 0)
 	if err != nil {
 		return err
 	}
@@ -674,7 +674,7 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 	startSec := int(newPos.Seconds())
 
 	// Build pipeline WITHOUT speaker lock (this is the slow part — spawns yt-dlp).
-	tp, err := p.buildYTDLPipeline(cur.path, startSec)
+	tp, err := p.buildYTDLPipeline(context.Background(), cur.path, startSec)
 	if err != nil {
 		p.restoreYTDLSeekSource(cur, gen)
 		return fmt.Errorf("yt-dlp seek: %w", err)
@@ -919,13 +919,14 @@ func (p *Player) HasPreload() bool {
 // StreamTitle returns the current ICY stream title (e.g., "Artist - Song").
 // Returns "" when no ICY metadata has been received.
 func (p *Player) StreamTitle() string {
-	v, _ := p.streamTitle.Load().(string)
-	return v
-}
-
-// setStreamTitle is the ICY onMeta callback, called from the reader goroutine.
-func (p *Player) setStreamTitle(title string) {
-	p.streamTitle.Store(title)
+	p.mu.Lock()
+	cur := p.current
+	p.mu.Unlock()
+	if cur == nil || cur.streamTitle == nil {
+		return ""
+	}
+	title, _ := cur.streamTitle.Load().(string)
+	return title
 }
 
 // RegisterStreamMetadataResolver installs a resolver used to pull now-playing
@@ -957,12 +958,16 @@ func (p *Player) startStreamMetadata(streamURL string) {
 		interval = 15 * time.Second
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
 	p.mu.Lock()
+	var title *atomic.Value
+	if p.current != nil {
+		title = p.current.streamTitle
+	}
+	ctx, cancel := context.WithCancel(context.Background())
 	p.metaCancel = cancel
 	p.mu.Unlock()
 
-	go p.pollStreamMetadata(ctx, fetch, interval)
+	go p.pollStreamMetadata(ctx, title, fetch, interval)
 }
 
 // stopStreamMetadata cancels the active metadata poller, if any.
@@ -977,10 +982,9 @@ func (p *Player) stopStreamMetadata() {
 }
 
 // pollStreamMetadata fetches the current title immediately and then on each
-// interval tick until ctx is cancelled, publishing non-empty titles via
-// setStreamTitle. A title fetched after cancellation is discarded so a stale
-// poller cannot clobber the next stream's metadata.
-func (p *Player) pollStreamMetadata(ctx context.Context, fetch func(context.Context) (string, error), interval time.Duration) {
+// interval tick until ctx is cancelled. Each poller writes only to the source
+// that created it, so a late fetch cannot change another track's metadata.
+func (p *Player) pollStreamMetadata(ctx context.Context, target *atomic.Value, fetch func(context.Context) (string, error), interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -988,8 +992,8 @@ func (p *Player) pollStreamMetadata(ctx context.Context, fetch func(context.Cont
 		if ctx.Err() != nil {
 			return
 		}
-		if err == nil && title != "" {
-			p.setStreamTitle(title)
+		if err == nil && title != "" && target != nil {
+			target.Store(title)
 		}
 		select {
 		case <-ctx.Done():
@@ -1117,7 +1121,7 @@ type ResolvedSource struct {
 // SourceResolver turns a custom URI (e.g. "tidal://track/123") into a
 // ResolvedSource when playback starts. Resolving at play time keeps
 // short-lived signed URLs fresh no matter how long a track sat in the queue.
-type SourceResolver func(uri string) (ResolvedSource, error)
+type SourceResolver func(context.Context, string) (ResolvedSource, error)
 
 // RegisterSourceResolver registers a resolver for a custom URI scheme prefix.
 // Unlike RegisterStreamerFactory, the provider only supplies bytes to fetch;

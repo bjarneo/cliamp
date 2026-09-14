@@ -2,6 +2,7 @@ package embyapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -460,7 +461,7 @@ func TestConcurrentJellyfinAuthenticationUsesSingleRequest(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			errs <- c.ensureAuth()
+			errs <- c.ensureAuth(context.Background())
 		}()
 	}
 	close(start)
@@ -469,7 +470,7 @@ func TestConcurrentJellyfinAuthenticationUsesSingleRequest(t *testing.T) {
 
 	for err := range errs {
 		if err != nil {
-			t.Errorf("ensureAuth() error: %v", err)
+			t.Errorf("ensureAuth(context.Background()) error: %v", err)
 		}
 	}
 	if got := authCalls.Load(); got != 1 {
@@ -662,7 +663,7 @@ func TestResolveSourceAuthenticatesWithPassword(t *testing.T) {
 			})
 			for _, itemID := range []string{"track-1", "track-2"} {
 				savedURL := baseURL + "/Items/" + itemID + "/Download?api_key=old-token"
-				got, err := c.ResolveSource(savedURL)
+				got, err := c.ResolveSource(context.Background(), savedURL)
 				if err != nil {
 					t.Fatalf("ResolveSource() error: %v", err)
 				}
@@ -687,7 +688,7 @@ func TestResolveSourceAuthenticationFailure(t *testing.T) {
 			Body:       io.NopCloser(strings.NewReader("")),
 		}, nil
 	})
-	got, err := c.ResolveSource("https://jf.example.com/Items/track-1/Download?api_key=old-token")
+	got, err := c.ResolveSource(context.Background(), "https://jf.example.com/Items/track-1/Download?api_key=old-token")
 	if err == nil || !strings.Contains(err.Error(), "jellyfin: auth: http status 401 Unauthorized") {
 		t.Fatalf("ResolveSource() error = %v, want authentication failure", err)
 	}
@@ -703,7 +704,7 @@ func TestResolveSourceWithTokenDoesNotRequest(t *testing.T) {
 		t.Fatalf("unexpected request with configured token: %s", req.URL)
 		return nil, nil
 	})
-	got, err := c.ResolveSource("https://jf.example.com/media/Items/track-1/Download?api_key=old-token")
+	got, err := c.ResolveSource(context.Background(), "https://jf.example.com/media/Items/track-1/Download?api_key=old-token")
 	if err != nil {
 		t.Fatalf("ResolveSource() error: %v", err)
 	}
@@ -733,7 +734,7 @@ func TestResolveSourcePassesThroughUnrelatedSources(t *testing.T) {
 				t.Fatalf("unexpected authentication for unrelated source: %s", req.URL)
 				return nil, nil
 			})
-			got, err := c.ResolveSource(tt.url)
+			got, err := c.ResolveSource(context.Background(), tt.url)
 			if err != nil || got != tt.url {
 				t.Fatalf("ResolveSource() = (%q, %v), want unchanged %q", got, err, tt.url)
 			}

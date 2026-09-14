@@ -620,12 +620,12 @@ func (p *Provider) ReportScrobble(track playlist.Track, elapsed, _ time.Duration
 
 // TrackPosition returns the server-side position for track, read live so a
 // revisited track reflects progress reported during this session.
-func (p *Provider) TrackPosition(track playlist.Track) time.Duration {
+func (p *Provider) TrackPosition(ctx context.Context, track playlist.Track) time.Duration {
 	itemID := track.Meta(provider.MetaAudiobookshelfID)
 	if itemID == "" {
 		return 0
 	}
-	list, err := p.client.Progress()
+	list, err := p.client.Progress(ctx)
 	if err != nil {
 		return 0
 	}
@@ -673,7 +673,7 @@ func (p *Provider) ResumeTarget(playlistID string, tracks []playlist.Track) (int
 		return 0, 0
 	}
 
-	list, err := p.client.Progress()
+	list, err := p.client.Progress(context.Background())
 	if err != nil {
 		return 0, 0
 	}

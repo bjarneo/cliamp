@@ -152,7 +152,7 @@ type TrackPosition interface {
 	// CanTrackPosition reports whether track belongs to this provider.
 	CanTrackPosition(track playlist.Track) bool
 	// TrackPosition returns the saved position for track, or 0 to start over.
-	TrackPosition(track playlist.Track) time.Duration
+	TrackPosition(ctx context.Context, track playlist.Track) time.Duration
 }
 
 // ResumeTarget is implemented by providers that track listening position
@@ -241,8 +241,9 @@ type PlaylistDirSourceManager interface {
 type CustomStreamer interface {
 	// URISchemes returns the URI prefixes this provider handles.
 	URISchemes() []string
-	// NewStreamer creates a decoder for the given URI.
-	NewStreamer(uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error)
+	// NewStreamer creates a decoder for the given URI. ctx owns setup and
+	// subsequent playback; cancellation must interrupt blocked source reads.
+	NewStreamer(ctx context.Context, uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error)
 }
 
 // FavoriteToggler is implemented by providers that support marking items

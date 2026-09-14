@@ -1,6 +1,7 @@
 package yandex
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -232,7 +233,7 @@ func TestResolveStreamURLCached(t *testing.T) {
 	p := New("test-token")
 	p.api.apiBase = ts.URL
 
-	u1, err := p.resolveStreamURL("77", false)
+	u1, err := p.resolveStreamURL(context.Background(), "77", false)
 	if err != nil {
 		t.Fatalf("resolveStreamURL error = %v", err)
 	}
@@ -240,7 +241,7 @@ func TestResolveStreamURLCached(t *testing.T) {
 		t.Fatal("resolveStreamURL returned empty URL")
 	}
 	// Second non-forced call must hit the cache.
-	if _, err := p.resolveStreamURL("77", false); err != nil {
+	if _, err := p.resolveStreamURL(context.Background(), "77", false); err != nil {
 		t.Fatalf("cached resolveStreamURL error = %v", err)
 	}
 	mu.Lock()
@@ -250,7 +251,7 @@ func TestResolveStreamURLCached(t *testing.T) {
 		t.Errorf("download-info called %d times, want 1", calls)
 	}
 	// Forced call must bypass the cache.
-	if _, err := p.resolveStreamURL("77", true); err != nil {
+	if _, err := p.resolveStreamURL(context.Background(), "77", true); err != nil {
 		t.Fatalf("forced resolveStreamURL error = %v", err)
 	}
 	mu.Lock()

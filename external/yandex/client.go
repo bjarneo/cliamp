@@ -3,6 +3,7 @@ package yandex
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -56,12 +57,12 @@ func newClient(token string) *client {
 
 // apiGet performs an authenticated GET against the Yandex Music API and
 // decodes the "result" envelope into out.
-func (c *client) apiGet(path string, params url.Values, out any) error {
+func (c *client) apiGet(ctx context.Context, path string, params url.Values, out any) error {
 	endpoint := c.apiBase + path
 	if params != nil {
 		endpoint += "?" + params.Encode()
 	}
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("yandex: build request %s: %w", path, err)
 	}
@@ -258,7 +259,7 @@ func (c *client) accountStatus() (uint64, error) {
 			UID uint64 `json:"uid"`
 		} `json:"account"`
 	}
-	if err := c.apiGet("/account/status", nil, &status); err != nil {
+	if err := c.apiGet(context.Background(), "/account/status", nil, &status); err != nil {
 		return 0, err
 	}
 	if status.Account.UID == 0 {
@@ -270,7 +271,7 @@ func (c *client) accountStatus() (uint64, error) {
 // playlists returns the signed-in user's playlists.
 func (c *client) playlists(userID uint64) ([]remotePlaylist, error) {
 	var lists []remotePlaylist
-	err := c.apiGet(fmt.Sprintf("/users/%d/playlists/list", userID), nil, &lists)
+	err := c.apiGet(context.Background(), fmt.Sprintf("/users/%d/playlists/list", userID), nil, &lists)
 	return lists, err
 }
 
@@ -282,7 +283,7 @@ func (c *client) playlistTracks(userID, kind uint64) ([]track, error) {
 		"rich-tracks": {"true"},
 	}
 	var lists []remotePlaylist
-	if err := c.apiGet(fmt.Sprintf("/users/%d/playlists", userID), params, &lists); err != nil {
+	if err := c.apiGet(context.Background(), fmt.Sprintf("/users/%d/playlists", userID), params, &lists); err != nil {
 		return nil, err
 	}
 	if len(lists) != 1 {
@@ -304,7 +305,7 @@ func (c *client) likedTracks(userID uint64) ([]string, error) {
 			} `json:"tracks"`
 		} `json:"library"`
 	}
-	if err := c.apiGet(fmt.Sprintf("/users/%d/likes/tracks", userID), nil, &desc); err != nil {
+	if err := c.apiGet(context.Background(), fmt.Sprintf("/users/%d/likes/tracks", userID), nil, &desc); err != nil {
 		return nil, err
 	}
 	ids := make([]string, 0, len(desc.Library.Tracks))
@@ -356,7 +357,7 @@ func (c *client) search(query string, limit int) ([]track, error) {
 			Results []track `json:"results"`
 		} `json:"tracks"`
 	}
-	if err := c.apiGet("/search", params, &result); err != nil {
+	if err := c.apiGet(context.Background(), "/search", params, &result); err != nil {
 		return nil, err
 	}
 	return result.Tracks.Results, nil
@@ -364,9 +365,9 @@ func (c *client) search(query string, limit int) ([]track, error) {
 
 // streamURL resolves a direct, signed CDN URL for one track. The returned URL
 // is self-authorizing and stays valid for a limited time.
-func (c *client) streamURL(trackID string) (string, error) {
+func (c *client) streamURL(ctx context.Context, trackID string) (string, error) {
 	var infos []downloadInfo
-	if err := c.apiGet("/tracks/"+trackID+"/download-info", nil, &infos); err != nil {
+	if err := c.apiGet(ctx, "/tracks/"+trackID+"/download-info", nil, &infos); err != nil {
 		return "", err
 	}
 	info, ok := bestDownloadInfo(infos)
@@ -374,7 +375,7 @@ func (c *client) streamURL(trackID string) (string, error) {
 		return "", fmt.Errorf("yandex: no suitable download info for track %s", trackID)
 	}
 
-	full, err := c.fullDownloadInfo(info.DownloadInfoURL)
+	full, err := c.fullDownloadInfo(ctx, info.DownloadInfoURL)
 	if err != nil {
 		return "", err
 	}
@@ -388,7 +389,7 @@ func buildStreamURL(info downloadInfo, full fullDownloadInfo) string {
 	return "https://" + full.Host + "/get-" + info.Codec + "/" + hash + "/" + full.Ts + full.Path
 }
 
-func (c *client) fullDownloadInfo(infoURL string) (fullDownloadInfo, error) {
+func (c *client) fullDownloadInfo(ctx context.Context, infoURL string) (fullDownloadInfo, error) {
 	var full fullDownloadInfo
 	// infoURL comes from the API response and may point at an unexpected
 	// host. The guard refuses non-Yandex HTTPS URLs; the request itself
@@ -396,7 +397,7 @@ func (c *client) fullDownloadInfo(infoURL string) (fullDownloadInfo, error) {
 	if err := fullDownloadInfoGuard(infoURL); err != nil {
 		return full, err
 	}
-	req, err := http.NewRequest(http.MethodGet, infoURL+"&format=json", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, infoURL+"&format=json", nil)
 	if err != nil {
 		return full, err
 	}
