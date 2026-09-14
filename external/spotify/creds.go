@@ -29,10 +29,16 @@ const PlaybackClientID = "65b708073fc0480ea92a077233ca87bd"
 // binds a random free port on every login.
 const DefaultClientID = "d420a117a32841c2b3474932e49fb54b"
 
-// isExtendedQuotaClient reports whether clientID is one of the built-in
-// identities known to carry an extended quota, and so can request a full page
-// of search results instead of paging around the Development Mode cap.
-func isExtendedQuotaClient(clientID string) bool {
+// allowsFullSearchPage reports whether clientID is a built-in identity that is
+// not in Development Mode, and so can ask /v1/search for a full page instead of
+// paging around the devModeSearchLimit cap.
+//
+// This is only about the per-request result cap. It says nothing about quota:
+// keymaster in particular is a heavily shared Web API identity that is far more
+// likely to return 429 than to return 400 "Invalid limit". Paging cannot help a
+// 429 — it would issue more requests, not fewer — so webAPI handles that case
+// with retry and backoff instead.
+func allowsFullSearchPage(clientID string) bool {
 	return clientID == DefaultClientID || clientID == PlaybackClientID
 }
 

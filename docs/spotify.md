@@ -61,6 +61,8 @@ cliamp then uses two built-in identities, the same split [ncspot](https://github
 Sign-in therefore completes two authorization steps in one browser tab.
 
 > **Shared quota:** Extended Quota Mode has a far higher rate limit than a Development Mode app, but it is still a pool shared with other ncspot and spotify-player users, and Spotify applies quota per `client_id` globally. Cliamp retries `429 Too Many Requests` with exponential backoff.
+>
+> **Borrowed identity:** neither built-in `client_id` belongs to cliamp. This is the same bet ncspot and spotify-player already make, but if Spotify clamps or revokes either one, every cliamp user on the default is affected at once. The fallback is to [register your own app](#advanced-bring-your-own-client-id) and set `client_id`, accepting the Development Mode restrictions.
 
 ## Usage
 

@@ -370,14 +370,14 @@ func TestBuiltInClientIDsAreDistinct(t *testing.T) {
 	if DefaultClientID == PlaybackClientID {
 		t.Fatal("web api and playback client IDs must stay distinct")
 	}
-	if !isExtendedQuotaClient(DefaultClientID) {
-		t.Error("built-in web api client ID should be treated as extended quota")
+	if !allowsFullSearchPage(DefaultClientID) {
+		t.Error("built-in web api client ID is not in Development Mode, want a full search page")
 	}
-	if !isExtendedQuotaClient(PlaybackClientID) {
-		t.Error("keymaster should be treated as extended quota")
+	if !allowsFullSearchPage(PlaybackClientID) {
+		t.Error("keymaster is not in Development Mode, want a full search page")
 	}
-	if isExtendedQuotaClient("custom-client") {
-		t.Error("a user-supplied client ID must not be assumed to have extended quota")
+	if allowsFullSearchPage("custom-client") {
+		t.Error("a user-supplied client ID must be assumed to be in Development Mode")
 	}
 }
 

@@ -106,7 +106,9 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Quota Mode client_id for the Web API and the librespot keymaster client_id
 # for playback, the same split ncspot and spotify-player use. First sign-in
 # completes two steps in one tab. Its quota is shared with other ncspot- and
-# spotify-player-based clients, so occasional 429s are possible.
+# spotify-player-based clients, so occasional 429s are possible, and cliamp
+# does not control that client_id: if Spotify ever clamps or revokes it, set
+# your own below and re-authenticate.
 #
 # Advanced: register your own Spotify Developer app at
 # developer.spotify.com/dashboard with redirect URI
