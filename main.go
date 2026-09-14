@@ -641,10 +641,10 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 			SetSpeed:    func(ratio float64) { p.SetSpeed(ratio) },
 			SetEQBand:   func(band int, db float64) { prog.Send(model.SetEQBandMsg{Band: band, Gain: db}) },
 			ToggleMono:  func() { p.ToggleMono() },
-			TogglePause: func() { p.TogglePause() },
-			Stop:        func() { p.Stop() },
+			TogglePause: func() { prog.Send(playback.PlayPauseMsg{}) },
+			Stop:        func() { prog.Send(playback.StopMsg{}) },
 			Seek: func(secs float64) {
-				_ = p.Seek(time.Duration(secs * float64(time.Second)))
+				prog.Send(playback.SeekMsg{Offset: time.Duration(secs * float64(time.Second))})
 			},
 			SetEQPreset: func(name string, bands *[10]float64) {
 				prog.Send(model.SetEQPresetMsg{Name: name, Bands: bands})
