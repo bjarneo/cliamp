@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bjarneo/cliamp/internal/httpclient"
 	"github.com/bjarneo/cliamp/internal/ytdlcookies"
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
@@ -45,7 +46,7 @@ func SetYTDLCookiesForHost(host, browser string) {
 // finite timeout to prevent hanging on unresponsive servers.
 var httpClient = &http.Client{
 	Timeout:   30 * time.Second,
-	Transport: &uaTransport{rt: http.DefaultTransport},
+	Transport: &uaTransport{rt: httpclient.Streaming.Transport},
 }
 
 // sniffClient probes content types during Args classification, which runs on
@@ -54,7 +55,7 @@ var httpClient = &http.Client{
 // than the 30s the feed/M3U client allows.
 var sniffClient = &http.Client{
 	Timeout:   5 * time.Second,
-	Transport: &uaTransport{rt: http.DefaultTransport},
+	Transport: &uaTransport{rt: httpclient.Streaming.Transport},
 }
 
 // uaTransport injects the cliamp User-Agent header into every request.

@@ -22,8 +22,9 @@ import (
 // support it — Go's default ALPN negotiation causes EOF.
 //
 // Proxy is read from the environment (HTTP_PROXY, HTTPS_PROXY, NO_PROXY)
-// so users behind corporate or local proxies aren't bypassed; the rest of
-// the codebase uses http.DefaultTransport, which already honors these vars.
+// so users behind corporate or local proxies aren't bypassed. resolve.go's
+// feed/M3U client reuses this same Transport for the same reason -- plain
+// http.DefaultTransport does not understand socks5(h):// proxy URLs either.
 var Streaming = &http.Client{Transport: &socks5RoundTripper{transport: newStreamingTransport()}}
 
 // resolveEnvProxy resolves the proxy that applies to a request for the
@@ -237,7 +238,6 @@ func newStreamingTransport() *http.Transport {
 		}
 		// Icecast and SHOUTcast servers only support HTTP/1.x.
 		config.NextProtos = nil
-
 		rawConn, err := dialWithDecision(ctx, network, addr)
 		if err != nil {
 			return nil, fmt.Errorf("dial TLS %s: %w", addr, err)
