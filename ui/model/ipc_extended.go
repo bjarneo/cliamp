@@ -71,9 +71,8 @@ func (m *Model) handleIPCURLResult(result ipcURLLoadResult) tea.Cmd {
 	m.addToHeaderState(result.tracks)
 	result.request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(result.tracks), Total: len(result.tracks)}
 	if result.request.Play {
-		m.player.Stop()
-		m.player.ClearPreload()
-		m.playlist.SetIndex(start)
+		m.clearPreload()
+		m.selectPlaybackIndex(start)
 		m.plCursor = start
 		m.adjustScroll()
 		return m.playCurrentTrack()
@@ -85,7 +84,7 @@ func (m *Model) handleIPCURLResult(result ipcURLLoadResult) tea.Cmd {
 }
 
 func (m *Model) handleIPCSave(request ipc.SaveRequestMsg) tea.Cmd {
-	track, index := m.currentPlaybackTrack()
+	track, index := m.displayedPlaybackTrack()
 	if index < 0 {
 		request.Reply <- ipc.Response{OK: false, Error: "nothing to save"}
 		return nil
@@ -110,7 +109,7 @@ func (m *Model) handleIPCQueue(request ipc.QueueRequestMsg) tea.Cmd {
 			request.Reply <- ipc.Response{OK: false, Error: "queue index out of range"}
 			return nil
 		}
-		m.playlist.SetIndex(request.Index)
+		m.selectPlaybackIndex(request.Index)
 		m.plCursor = request.Index
 		request.Reply <- m.ipcQueueResponse()
 		return m.playCurrentTrack()
@@ -603,7 +602,7 @@ func (m *Model) handleIPCProviderLoad(result ipcProviderLoadResult) tea.Cmd {
 	m.replacePlaylist(result.tracks)
 	m.loadedPlaylist = result.loaded
 	m.setHeaderStateFromTracks(result.tracks)
-	m.playlist.SetIndex(0)
+	m.selectPlaybackIndex(0)
 	m.plCursor = 0
 	result.request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(result.tracks), Playlist: result.request.Playlist, Total: len(result.tracks)}
 	return m.playCurrentTrack()
@@ -629,7 +628,7 @@ func ipcPage[T any](items []T, offset, limit, max int) ([]T, int) {
 }
 
 func (m *Model) handleIPCLyrics(request ipc.LyricsRequestMsg) tea.Cmd {
-	track, idx := m.currentPlaybackTrack()
+	track, idx := m.displayedPlaybackTrack()
 	if idx < 0 {
 		request.Reply <- ipc.Response{OK: false, Error: "no current track"}
 		return nil

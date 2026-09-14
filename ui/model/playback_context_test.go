@@ -32,6 +32,14 @@ func (s savedPlaybackContext) check(t *testing.T, tracks []playlist.Track, index
 
 func advancePlaybackContext(m Model, engine *playbackFakeEngine, gapless bool) Model {
 	if gapless {
+		track, ok := m.playlist.PeekNextWithContext()
+		if m.playbackDetached {
+			track, _ = m.playlist.Current()
+			ok = true
+		}
+		if ok {
+			seedGaplessPreload(&m, engine, track)
+		}
 		engine.gaplessAdvanced = true
 		updated, _ := m.Update(tickMsg(time.Now()))
 		return updated.(Model)
@@ -52,6 +60,7 @@ func TestPlaybackContextOverlappingReplacement(t *testing.T) {
 			var saved savedPlaybackContext
 			m.SetResumeSaver(saved.save)
 			m.playCurrentTrack()
+			engine.position = 19 * time.Second
 			saved.check(t, old, 0)
 
 			// Even an entry carrying the old source must get fresh replacement provenance.
@@ -71,8 +80,8 @@ func TestPlaybackContextOverlappingReplacement(t *testing.T) {
 			}
 
 			m = advancePlaybackContext(m, engine, gapless)
-			if m.playbackDetached || m.playingTrack.Path != "b.mp3" {
-				t.Fatalf("replacement activation = detached:%t track:%q", m.playbackDetached, m.playingTrack.Path)
+			if m.playbackDetached || m.playing.track.Path != "b.mp3" {
+				t.Fatalf("replacement activation = detached:%t track:%q", m.playbackDetached, m.playing.track.Path)
 			}
 			saved.check(t, []playlist.Track{old[1], {Path: "c.mp3"}}, 0)
 		})
@@ -111,8 +120,8 @@ func TestBrowserPlaybackContextSurvivesQueuedAlbum(t *testing.T) {
 			saved.check(t, otherAlbum, 1)
 			m = advancePlaybackContext(m, engine, gapless)
 			saved.check(t, album, 2)
-			if m.playingTrack.Path != "c.mp3" {
-				t.Fatalf("playing %q after interlude, want C", m.playingTrack.Path)
+			if m.playing.track.Path != "c.mp3" {
+				t.Fatalf("playing %q after interlude, want C", m.playing.track.Path)
 			}
 		})
 	}
@@ -263,10 +272,12 @@ func TestPlaybackContextSelectionWithoutSaver(t *testing.T) {
 	tracks := []playlist.Track{{Path: "a.mp3"}, {Path: "b.mp3"}, {Path: "a.mp3"}}
 	pl := playlist.New()
 	pl.Add(tracks...)
-	m := Model{player: &playbackFakeEngine{position: time.Second}, playlist: pl}
+	engine := &playbackFakeEngine{}
+	m := Model{player: engine, playlist: pl}
 	m.SetInitialTrack(2)
 	pl.SetIndex(0)
 	m.playCurrentTrack()
+	engine.position = time.Second
 	m.quit()
 	if context, index := m.ResumeContext(); index != 0 || !reflect.DeepEqual(context, tracks) {
 		t.Fatalf("quit context = (%+v, %d), want active duplicate at index 0", context, index)

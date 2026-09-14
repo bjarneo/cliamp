@@ -95,10 +95,10 @@ func TestTogglePlayPauseRestartsRuntimeLiveStationInPlace(t *testing.T) {
 	if got := p.Index(); got != 1 {
 		t.Fatalf("playlist index = %d, want current station 1", got)
 	}
-	if player.stopCalls != 1 {
-		t.Fatalf("Stop calls = %d, want 1 before reconnect", player.stopCalls)
+	if player.stopCalls != 0 || !player.playing || !player.paused {
+		t.Fatalf("reconnect interrupted existing source before replacement was ready: stop=%d playing=%t paused=%t", player.stopCalls, player.playing, player.paused)
 	}
-	if !m.buffering || m.playingTrack.Path != "https://radio.example.com/two" {
-		t.Fatalf("restart state = buffering %v, track %q; want station two buffering", m.buffering, m.playingTrack.Path)
+	if !m.buffering || m.pending.track.Path != "https://radio.example.com/two" {
+		t.Fatalf("restart state = buffering %v, track %q; want station two buffering", m.buffering, m.pending.track.Path)
 	}
 }

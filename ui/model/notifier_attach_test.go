@@ -36,6 +36,7 @@ func TestAttachNotifierPublishesCurrentPlaybackState(t *testing.T) {
 		playlist: pl,
 	}
 
+	m.setPlaybackTrack(pl.Tracks()[0])
 	next, _ := m.Update(AttachNotifier(notifier))
 	nextModel := next.(Model)
 	if nextModel.notifier != notifier {

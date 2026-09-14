@@ -69,10 +69,15 @@ func TestJellyfinSourceResolutionForPlayAndPreload(t *testing.T) {
 		open func() error
 	}{
 		{name: "play", open: func() error {
-			return engine.PlayAtForGeneration(tracks[0].Path, 3*time.Minute, 95*time.Second, 1)
+			ticket, _ := engine.BeginStart()
+			err := engine.Prepare(ticket, player.StartRequest{
+				Path: tracks[0].Path, KnownDuration: 3 * time.Minute, Offset: 95 * time.Second,
+			})
+			return err
 		}},
 		{name: "preload", open: func() error {
-			return engine.PreloadForGeneration(tracks[1].Path, 3*time.Minute, 1)
+			ticket, _ := engine.BeginPreload()
+			return engine.Prepare(ticket, player.StartRequest{Path: tracks[1].Path, KnownDuration: 3 * time.Minute})
 		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

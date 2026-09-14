@@ -14,6 +14,22 @@ cliamp local.mp3 https://example.com/remote.mp3   # mix local + remote
 
 For a non-seekable HTTP stream, the UI shows `● Streaming` and a static seek bar. Seek keys have no effect.
 
+While a new source loads, the player can show its title with a buffering
+indicator while the previous track continues playing. Media controls,
+playback events, progress reports, and saved listening positions continue to
+refer to the track that is actually playing. A failed replacement leaves
+that track intact, including after rapid skips or retries. Only a source
+that starts playing is added to listening history.
+
+If a replacement fails after the previous finite track has ended, playback
+stops instead of repeatedly retrying the queue. While another station loads,
+its buffering display shows the requested station's name; the previous
+station's song title remains associated with the audio still playing.
+
+Skipping or stopping cancels the abandoned source's resolution, connection,
+and decoder startup. Prepared sources and unused preloads are released too;
+cancelling a replacement does not cancel the track already playing.
+
 ## PLS Playlists
 
 cliamp supports PLS playlist files and M3U files:

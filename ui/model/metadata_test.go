@@ -112,7 +112,7 @@ func TestMetadataFollowsSelectionWithoutFetching(t *testing.T) {
 		if !m.showMetadata || m.showInfo || len(saver.values) != 0 || p.fetches != 0 {
 			t.Fatalf("render changed metadata state or performed I/O: shown=%v info=%v saves=%v fetches=%d", m.showMetadata, m.showInfo, saver.values, p.fetches)
 		}
-		if got, _ := m.currentPlaybackTrack(); got.Path != playing.Path {
+		if got, _ := m.displayedPlaybackTrack(); got.Path != playing.Path {
 			t.Fatalf("inspection changed playback to %q", got.Path)
 		}
 		m.handleKey(tea.KeyPressMsg{Code: tea.KeyDown})

@@ -808,27 +808,46 @@ func (p *Playlist) HasNext() bool {
 func (p *Playlist) PeekNext() (Track, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if len(p.tracks) == 0 {
-		return Track{}, false
-	}
-	if idx, _, ok := p.nextPlayableQueued(); ok {
-		return cloneTrack(p.tracks[idx]), true
-	}
-	if p.repeat == RepeatOne {
-		idx := p.currentOrderTrackIndex()
-		if p.isPlayable(idx) {
-			return cloneTrack(p.tracks[idx]), true
-		}
-		return Track{}, false
-	}
-	if p.atShuffleWrap() {
-		return Track{}, false
-	}
-	_, idx, ok := p.advanceFromOrder()
+	idx, ok := p.peekNextIndexLocked()
 	if !ok {
 		return Track{}, false
 	}
 	return cloneTrack(p.tracks[idx]), true
+}
+
+// PeekNextWithContext is PeekNext with the queue snapshot attached, so the
+// entry can be identified later even among repeated paths. It copies the
+// queue, so call it once per armed preload rather than on every poll.
+func (p *Playlist) PeekNextWithContext() (Track, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	idx, ok := p.peekNextIndexLocked()
+	if !ok {
+		return Track{}, false
+	}
+	track := cloneTrack(p.tracks[idx])
+	if len(track.playbackContext) == 0 {
+		track = WithPlaybackContext(p.tracks)[idx]
+	}
+	return track, true
+}
+
+func (p *Playlist) peekNextIndexLocked() (int, bool) {
+	if len(p.tracks) == 0 {
+		return -1, false
+	}
+	if idx, _, ok := p.nextPlayableQueued(); ok {
+		return idx, true
+	}
+	if p.repeat == RepeatOne {
+		idx := p.currentOrderTrackIndex()
+		return idx, p.isPlayable(idx)
+	}
+	if p.atShuffleWrap() {
+		return -1, false
+	}
+	_, idx, ok := p.advanceFromOrder()
+	return idx, ok
 }
 
 // Prev moves to the previous track, skipping unavailable tracks.

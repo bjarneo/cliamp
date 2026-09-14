@@ -84,3 +84,50 @@ func TestPlayerIgnoresStaleGaplessCallback(t *testing.T) {
 }
 
 var _ beep.Streamer = (*blockingEndStreamer)(nil)
+
+type blockingInterruptDecoder struct {
+	*playbackTestDecoder
+	interruptStarted chan struct{}
+	releaseInterrupt chan struct{}
+}
+
+func (d *blockingInterruptDecoder) Stream([][2]float64) (int, bool) { return 0, false }
+
+func (d *blockingInterruptDecoder) interrupt() {
+	close(d.interruptStarted)
+	<-d.releaseInterrupt
+}
+
+func TestGaplessSwapDoesNotWaitForInterruption(t *testing.T) {
+	old := &blockingInterruptDecoder{
+		playbackTestDecoder: newPlaybackTestDecoder(),
+		interruptStarted:    make(chan struct{}),
+		releaseInterrupt:    make(chan struct{}),
+	}
+	next := newPlaybackTestDecoder()
+	p := &Player{current: &trackPipeline{decoder: old, stream: old}}
+	g := &gaplessStreamer{onSwap: p.handleGaplessSwap}
+	g.Replace(old)
+	p.nextPipeline = &trackPipeline{decoder: next, stream: next, gaplessToken: g.SetNext(next)}
+	done := make(chan struct{})
+	go func() {
+		var samples [1][2]float64
+		g.Stream(samples[:])
+		close(done)
+	}()
+	t.Cleanup(func() {
+		close(old.releaseInterrupt)
+		<-done
+		p.work.Wait()
+	})
+	select {
+	case <-old.interruptStarted:
+	case <-time.After(time.Second):
+		t.Fatal("old source cleanup did not start")
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("audio callback waited for old source interruption")
+	}
+}

@@ -26,9 +26,7 @@ const ytdlPreloadLeadTime = 15 * time.Second
 // current playlist state. Call after any change that alters which track
 // plays next.
 func (m *Model) rearmPreload() tea.Cmd {
-	nextRequest(&m.requests.preload)
-	m.preloading = false
-	m.player.ClearPreload()
+	m.clearPreload()
 	return m.preloadNext()
 }
 
@@ -44,10 +42,13 @@ func (m *Model) rearmPreload() tea.Cmd {
 // When position has not yet reached the threshold, this function returns nil
 // and the tick loop will retry on the next pass.
 func (m *Model) preloadNext() tea.Cmd {
+	if m.pending != nil || m.preloaded != nil || !m.player.IsPlaying() {
+		return nil
+	}
 	// Live streams do not have a track boundary. Preloading another station
 	// would turn a transient EOF into a gapless switch instead of reconnecting
 	// the station the user selected.
-	current, currentIdx := m.currentPlaybackTrack()
+	current, currentIdx := m.activePlaybackTrack()
 	if currentIdx >= 0 && m.currentPlaybackIsLive(current) {
 		return nil
 	}
@@ -77,11 +78,7 @@ func (m *Model) preloadNext() tea.Cmd {
 				return nil
 			}
 		}
-		nextDur := time.Duration(next.DurationSecs) * time.Second
-		m.preloading = true
-		return preloadYTDLStreamCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload), m.player.BeginPreload())
-	}
-	if next.Stream {
+	} else if next.Stream {
 		// For streams, only arm gapless if we're within the lead-time window.
 		// Without a known boundary, opening the next connection now can leave it
 		// stale for the entire track or pause and turn one EOF into several skips.
@@ -95,13 +92,14 @@ func (m *Model) preloadNext() tea.Cmd {
 			// Too early — caller should retry from the tick loop.
 			return nil
 		}
-		nextDur := time.Duration(next.DurationSecs) * time.Second
-		// Mark in-flight so the tick loop doesn't dispatch a second concurrent
-		// preload before this goroutine has finished arming gapless.SetNext.
-		m.preloading = true
-		return preloadStreamCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload), m.player.BeginPreload())
 	}
-	nextDur := time.Duration(next.DurationSecs) * time.Second
-	m.preloading = true
-	return preloadLocalCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload), m.player.BeginPreload())
+	if !m.playbackDetached {
+		// Attach the queue snapshot only once the preload is armed. The tick
+		// loop polls this function while a stream preload is deferred, and the
+		// snapshot copies the whole queue.
+		if next, ok = m.playlist.PeekNextWithContext(); !ok {
+			return nil
+		}
+	}
+	return m.prepareNext(next)
 }

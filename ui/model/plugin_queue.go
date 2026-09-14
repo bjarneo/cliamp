@@ -33,11 +33,10 @@ func (m *Model) handlePluginQueue(msg PluginQueueMsg) tea.Cmd {
 		if msg.Index < 0 || msg.Index >= m.playlist.Len() {
 			return nil
 		}
-		refresh := m.scrobbleCurrent()
-		m.playlist.SetIndex(msg.Index)
+		m.selectPlaybackIndex(msg.Index)
 		cmd := m.playCurrentTrack()
 		m.notifyPlayback()
-		return tea.Batch(refresh, cmd)
+		return cmd
 
 	case "remove":
 		m.removeIndex(msg.Index)
@@ -66,7 +65,7 @@ func (m *Model) removeIndex(idx int) {
 	m.normalizeQueueOverlay()
 	if wasActive {
 		m.stopPlayback()
-		m.player.ClearPreload()
+		m.clearPreload()
 	}
 	if newLen := m.playlist.Len(); newLen == 0 {
 		m.plCursor = 0

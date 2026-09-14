@@ -1,42 +1,46 @@
 package player
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
-// Engine is the interface used by the TUI model to control audio playback.
-// It is satisfied by *Player and can be replaced with a mock for testing.
+// Engine is the interface used by the TUI model and the daemon to control
+// audio playback. It is satisfied by *Player and can be replaced with a mock
+// for testing.
+//
+// A start is a three-step protocol. BeginStart reserves a ticket and revokes
+// the previous pending start. Prepare opens the source on any goroutine and
+// stores it in the engine without touching audio. CommitStart, on the
+// controller's goroutine, swaps the prepared source into the speaker. Preloads
+// follow the same shape through BeginPreload and CommitPreload. A method given
+// a ticket that is no longer current fails with ErrRevoked or reports false.
 type Engine interface {
-	// Playback control
-	Play(path string, knownDuration time.Duration) error
-	PlayAt(path string, knownDuration, offset time.Duration) error
-	PlayYTDL(pageURL string, knownDuration time.Duration) error
-	SetPlaybackGeneration(generation uint64)
-	PlayAtForGeneration(path string, knownDuration, offset time.Duration, generation uint64) error
-	PlayYTDLForGeneration(pageURL string, knownDuration time.Duration, generation uint64) error
-	Preload(path string, knownDuration time.Duration) error
-	PreloadYTDL(pageURL string, knownDuration time.Duration) error
-	BeginPreload() uint64
-	PreloadForGeneration(path string, knownDuration time.Duration, generation uint64) error
-	PreloadYTDLForGeneration(pageURL string, knownDuration time.Duration, generation uint64) error
+	// Source setup is background work; only the caller commits prepared audio.
+	BeginStart() (ticket uint64, ctx context.Context)
+	BeginPreload() (ticket uint64, ctx context.Context)
+	Prepare(ticket uint64, req StartRequest) error
+	CommitStart(ticket uint64) (finished PlaybackStats, ok bool)
+	CommitPreload(ticket uint64) bool
 	ClearPreload()
-	Stop()
+	Stop() PlaybackStats
 	Close()
 	TogglePause()
 
 	// Seeking
-	Seek(d time.Duration) error
-	SeekYTDL(d time.Duration) error
+	Seek(ticket uint64, d time.Duration) error
+	SeekYTDL(ticket uint64, d time.Duration) error
 	CancelSeekYTDL()
 
 	// State queries
+	Snapshot() PlaybackStats
 	IsPlaying() bool
 	IsPaused() bool
 	Drained() bool
 	HasPreload() bool
 	Seekable() bool
-	IsStreamSeek() bool
 	IsYTDLSeek() bool
-	GaplessAdvanced() bool
-	LastPlayedDuration() time.Duration
+	TakeAdvance() (Advance, bool)
 
 	// Position and duration
 	Position() time.Duration
