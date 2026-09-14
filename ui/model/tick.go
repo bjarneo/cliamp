@@ -107,7 +107,7 @@ func (m *Model) visualizerTickContext(now time.Time) ui.VisTickContext {
 			}
 			buf := m.vis.EnsureSampleBuf(spec.FFTSize)
 			if !sampled || spec.FFTSize > sampledSize {
-				if spec.BandCount == 0 {
+				if spec.BandCount == 0 || m.vis.Mode == ui.VisClassicPeak {
 					samplesRead = m.player.WaveformSamplesInto(buf)
 				} else {
 					samplesRead = m.player.SamplesInto(buf)
@@ -187,6 +187,9 @@ func (m *Model) tickInterval() time.Duration {
 		}
 		if m.visualizerVisible() && (m.visualizer60FPS || m.vis.UsesRawSamples()) {
 			return ui.TickAnim
+		}
+		if m.visualizerVisible() && m.vis.Mode == ui.VisClassicPeak {
+			return min(d, ui.TickFast)
 		}
 		return ui.TickFast
 	}

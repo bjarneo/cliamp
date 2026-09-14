@@ -17,6 +17,7 @@ import (
 	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/internal/appdir"
+	"github.com/bjarneo/cliamp/internal/fileutil"
 	"github.com/bjarneo/cliamp/internal/fuzzy"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
@@ -598,12 +599,7 @@ func (p *Provider) saveDoc(name string, doc *playlistDoc) error {
 		sections++
 	}
 
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
-		return fmt.Errorf("writing playlist %q: %w", name, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
+	if err := fileutil.WriteFileAtomicInExistingDir(path, []byte(b.String()), 0o644); err != nil {
 		return fmt.Errorf("saving playlist %q: %w", name, err)
 	}
 	return nil
@@ -920,12 +916,7 @@ func (p *Provider) RestorePlaylistDocument(name string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("writing playlist %q: %w", name, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
+	if err := fileutil.WriteFileAtomicInExistingDir(path, data, 0o644); err != nil {
 		return fmt.Errorf("replacing playlist %q: %w", name, err)
 	}
 	return nil

@@ -12,7 +12,7 @@ import (
 const (
 	DefaultSpectrumBands = 10
 	defaultFFTSize       = 2048
-	DefaultVisRows       = 5
+	DefaultVisRows       = 7
 	minSpectrumHz        = 20.0
 	maxSpectrumHz        = 20000.0
 	// Cap on dt fed into smoothing easing — long gaps (sleep, paused, stalled
@@ -73,6 +73,7 @@ const (
 	VisStereo                     // stereo L/R horizontal LED peak meters
 	VisMirror                     // Braille spectrum bars mirrored about a horizontal axis
 	VisOmarchy                    // dithered pixel field with the Omarchy mark (omarchy.org style)
+	VisRedSector                  // tumbling wireframe equalizer over a drifting starfield
 	VisNone                       // hidden — no visualizer
 	VisCount                      // sentinel for cycling
 )
@@ -199,10 +200,11 @@ func averageSpectrumRangeLinear(magnitudes []float64, loPos, hiPos float64) floa
 }
 
 // Pre-built styles for spectrum bar colors to avoid per-frame allocation.
+// Built by ApplyThemeColors (styles.go), never here.
 var (
-	specLowStyle  = lipgloss.NewStyle().Foreground(SpectrumLow)
-	specMidStyle  = lipgloss.NewStyle().Foreground(SpectrumMid)
-	specHighStyle = lipgloss.NewStyle().Foreground(SpectrumHigh)
+	specLowStyle  lipgloss.Style
+	specMidStyle  lipgloss.Style
+	specHighStyle lipgloss.Style
 )
 
 // Raw ANSI wrappers for the spectrum styles. Caching these once lets every
@@ -215,14 +217,11 @@ var (
 	specHighPrefix, specHighSuffix string
 )
 
-func init() {
-	refreshSpecANSI()
-}
-
 func refreshSpecANSI() {
 	specLowPrefix, specLowSuffix = splitStyleAroundProbe(specLowStyle)
 	specMidPrefix, specMidSuffix = splitStyleAroundProbe(specMidStyle)
 	specHighPrefix, specHighSuffix = splitStyleAroundProbe(specHighStyle)
+	refreshRedSectorANSI()
 }
 
 // splitStyleAroundProbe renders a rare marker through the style and splits the
@@ -490,6 +489,7 @@ var visModes = [VisCount]visEntry{
 	VisStereo:      {"Stereo", newStereoDriver},
 	VisMirror:      {"Mirror", newFastRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), TickAnim, (*Visualizer).renderMirror)},
 	VisOmarchy:     {"Omarchy", newFastRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), TickAnim, (*Visualizer).renderOmarchy)},
+	VisRedSector:   {"RedSector", newRedSectorDriver},
 	VisNone:        {"None", newNoOpDriver},
 }
 

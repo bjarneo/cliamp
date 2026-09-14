@@ -69,14 +69,18 @@ func (m *Model) lyricsSyncable() bool {
 	if idx < 0 {
 		return false
 	}
+	// Live-stream position is not song-relative, regardless of provider metadata.
+	if m.currentPlaybackIsLive(track) {
+		return false
+	}
 	// yt-dlp pipe streams track position from decoded frames, so synced lyrics
 	// can follow them. Exclude streams without a known duration (e.g. YouTube
 	// Live), where the position is not relative to the song.
 	if playlist.IsYTDL(track.Path) {
 		return track.DurationSecs > 0
 	}
-	// ICY radio streams: position counts from stream connect, not song start.
-	// Provider streams with metadata (e.g. Navidrome) track position correctly.
+	// For unclassified streams, retain the conservative fallback: bare HTTP
+	// streams may be radio, while on-demand providers supply track metadata.
 	if track.Stream && len(track.ProviderMeta) == 0 {
 		return false
 	}

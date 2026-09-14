@@ -145,8 +145,7 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return cmd
 	case "stop":
-		m.player.Stop()
-		m.clearPlaybackTrack()
+		m.stopPlayback()
 		m.notifyAll()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return nil
@@ -198,7 +197,7 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true, Speed: m.player.Speed()})
 		return nil
 	case "queue", "track.play", "track.queue", "queue.play", "queue.enqueue", "queue.remove", "queue.move", "queue.clear", "queue.list":
-		return m.handleV2QueueRequest(msg.Jobs, msg.JobID, request)
+		return m.handleV2QueueRequest(ctx, msg.Jobs, msg.JobID, request)
 	case "playnext.list", "playnext.remove", "playnext.move", "playnext.clear":
 		return m.handleV2PlayNext(msg.Jobs, msg.JobID, request)
 	case "theme":
@@ -227,7 +226,7 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 	return nil
 }
 
-func (m *Model) handleV2QueueRequest(jobs *ipc.JobStore, jobID string, request ipc.Request) tea.Cmd {
+func (m *Model) handleV2QueueRequest(ctx context.Context, jobs *ipc.JobStore, jobID string, request ipc.Request) tea.Cmd {
 	if request.Cmd == "queue" {
 		if request.Path == "" {
 			m.failV2Job(jobs, jobID, v2InvalidParamsError())
@@ -250,6 +249,9 @@ func (m *Model) handleV2QueueRequest(jobs *ipc.JobStore, jobID string, request i
 			return nil
 		}
 		track := ipcTrackFromInfo(*request.Track)
+		if track.Feed {
+			return ipcFeedLoadCmd(ctx, ipc.QueueRequestMsg{Op: request.Cmd}, track, jobs, jobID, request.Revision)
+		}
 		if request.Cmd == "track.play" {
 			cmd := m.playTrackImmediate(track)
 			m.completeV2Job(jobs, jobID, m.v2PlaylistResponse())
@@ -284,8 +286,7 @@ func (m *Model) handleV2QueueRequest(jobs *ipc.JobStore, jobID string, request i
 			return nil
 		}
 		if request.Index == m.playlist.Index() {
-			m.player.Stop()
-			m.clearPlaybackTrack()
+			m.stopPlayback()
 		}
 		if !m.playlist.Remove(request.Index) {
 			m.failV2Job(jobs, jobID, v2InvalidParamsError())
@@ -301,9 +302,8 @@ func (m *Model) handleV2QueueRequest(jobs *ipc.JobStore, jobID string, request i
 		m.setHeaderStateFromTracks(m.playlist.Tracks())
 		m.normalizeQueueOverlay()
 	case "queue.clear":
-		m.player.Stop()
+		m.stopPlayback()
 		m.replacePlaylist(nil)
-		m.clearPlaybackTrack()
 		m.loadedPlaylist = ""
 		m.setHeaderStateFromTracks(nil)
 	}

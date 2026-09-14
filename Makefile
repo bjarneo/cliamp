@@ -34,7 +34,11 @@ security:
 	@command -v govulncheck >/dev/null 2>&1 || { echo "govulncheck is required"; exit 1; }
 	govulncheck ./...
 
-ci: fmt-check vet staticcheck test security
+ci: fmt-check vet staticcheck security
+	go test -count=1 -race ./...
+	$(MAKE) coverage
+	shellcheck site/install.sh
+	git diff --exit-code
 
 check: fmt vet test
 

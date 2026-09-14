@@ -162,7 +162,7 @@ func TestRefreshDropsCachedDirectoryData(t *testing.T) {
 func TestIsFavoritableIDExcludesPlaces(t *testing.T) {
 	p := newPlaceProvider(t, "")
 	for id, want := range map[string]bool{
-		"c:0": true, "f:0": true, "s:0": true,
+		"c:0": true, "f:https://radio.example/live": true, "s:0": true,
 		"p:0": false, "l:0": false, "browse:countries": false,
 	} {
 		if got := p.IsFavoritableID(id); got != want {

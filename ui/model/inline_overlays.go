@@ -303,25 +303,13 @@ func (m Model) renderInfoBody() string {
 }
 
 func (m Model) infoLines() []string {
-	track, _ := m.currentPlaybackTrack()
-
 	var lines []string
-	field := func(label, value string) {
-		if value != "" {
-			lines = append(lines, dimStyle.Render("  "+label+": ")+trackStyle.Render(value))
-		}
+	for _, field := range m.metadataFields() {
+		lines = append(lines, dimStyle.Render("  "+field.label+": ")+trackStyle.Render(field.value))
 	}
-	field("Title", track.Title)
-	field("Artist", track.Artist)
-	field("Album", track.Album)
-	field("Genre", track.Genre)
-	if track.Year != 0 {
-		field("Year", fmt.Sprintf("%d", track.Year))
+	if path := metadataText(m.selectedMetadataTrack().Path); path != "" {
+		lines = append(lines, dimStyle.Render("  Path: ")+trackStyle.Render(path))
 	}
-	if track.TrackNumber != 0 {
-		field("Track", fmt.Sprintf("%d", track.TrackNumber))
-	}
-	field("Path", track.Path)
 	if len(lines) == 0 {
 		lines = append(lines, dimStyle.Render("  No track metadata available."))
 	}

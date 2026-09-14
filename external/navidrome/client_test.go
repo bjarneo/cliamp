@@ -452,19 +452,19 @@ func TestNewFromEnv(t *testing.T) {
 	t.Setenv("NAVIDROME_URL", "")
 	t.Setenv("NAVIDROME_USER", "")
 	t.Setenv("NAVIDROME_PASS", "")
-	if c := NewFromEnv(); c != nil {
-		t.Error("NewFromEnv() should return nil when env vars are empty")
+	if c := NewFromEnv(config.NavidromeConfig{}); c != nil {
+		t.Error("NewFromEnv(config.NavidromeConfig{}) should return nil when env vars are empty")
 	}
 
 	t.Setenv("NAVIDROME_URL", "https://music.test")
 	t.Setenv("NAVIDROME_USER", "alice")
 	t.Setenv("NAVIDROME_PASS", "secret")
-	c := NewFromEnv()
+	c := NewFromEnv(config.NavidromeConfig{})
 	if c == nil {
-		t.Fatal("NewFromEnv() returned nil with all env vars set")
+		t.Fatal("NewFromEnv(config.NavidromeConfig{}) returned nil with all env vars set")
 	}
 	if c.url != "https://music.test" || c.user != "alice" || c.password != "secret" {
-		t.Errorf("NewFromEnv() = %+v", c)
+		t.Errorf("NewFromEnv(config.NavidromeConfig{}) = %+v", c)
 	}
 }
 
@@ -484,6 +484,78 @@ func TestNewFromConfig(t *testing.T) {
 			c := NewFromConfig(tt.cfg)
 			if (c == nil) != tt.wantNil {
 				t.Errorf("NewFromConfig(%+v) nil=%v, want nil=%v", tt.cfg, c == nil, tt.wantNil)
+			}
+		})
+	}
+}
+
+func TestNewFromEnv_ConfigSettings(t *testing.T) {
+	cfg := config.NavidromeConfig{
+		URL: "https://config.test", User: "config-user", Password: "config-password",
+		Format: " RAW ", BrowseSort: SortNewest, ScrobbleDisabled: true,
+	}
+	for _, missing := range []string{"", "NAVIDROME_URL", "NAVIDROME_USER", "NAVIDROME_PASS"} {
+		name := missing
+		if name == "" {
+			name = "complete credentials"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("NAVIDROME_URL", "https://env.test")
+			t.Setenv("NAVIDROME_USER", "env-user")
+			t.Setenv("NAVIDROME_PASS", "env-password")
+			if missing != "" {
+				t.Setenv(missing, "")
+			}
+			c := NewFromEnv(cfg)
+			if missing != "" {
+				if c != nil {
+					t.Fatal("expected nil when an environment credential is missing")
+				}
+				return
+			}
+			if c == nil {
+				t.Fatal("expected client with complete environment credentials")
+			}
+			if c.url != "https://env.test" || c.user != "env-user" || c.password != "env-password" {
+				t.Error("client did not use environment credentials")
+			}
+			u, err := url.Parse(c.streamURL("song-1"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := u.Query().Get("format"); got != "raw" {
+				t.Errorf("format = %q, want raw", got)
+			}
+			if got := c.DefaultAlbumSort(); got != SortNewest {
+				t.Errorf("browse sort = %q, want %q", got, SortNewest)
+			}
+			if c.CanReportPlayback(trackWithNavidromeMeta("song-1")) {
+				t.Error("scrobbling should be disabled")
+			}
+		})
+	}
+}
+
+func TestAPIUserAgent(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		call func(*NavidromeClient) error
+	}{
+		{"metadata", func(c *NavidromeClient) error { _, err := c.Playlists(); return err }},
+		{"now playing", func(c *NavidromeClient) error { return c.ReportNowPlaying(trackWithNavidromeMeta("song-1"), 0, false) }},
+		{"scrobble", func(c *NavidromeClient) error { return c.ReportScrobble(trackWithNavidromeMeta("song-1"), 0, 0, false) }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				const want = "cliamp/1.0 (https://github.com/bjarneo/cliamp)"
+				if got := r.UserAgent(); got != want {
+					t.Errorf("User-Agent = %q, want %q", got, want)
+				}
+				w.Write([]byte(`{"subsonic-response":{"status":"ok"}}`))
+			}))
+			defer srv.Close()
+			if err := tt.call(New(srv.URL, "u", "p")); err != nil {
+				t.Fatal(err)
 			}
 		})
 	}
@@ -678,5 +750,43 @@ func TestSubsonicGet_OversizeResponse(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "exceeds") {
 		t.Errorf("error = %q, want it to mention the size limit", err)
+	}
+}
+
+func TestStreamURLFormat(t *testing.T) {
+	tests := []struct {
+		name       string
+		format     string
+		wantFormat string
+	}{
+		{"default lets the server decide", "", ""},
+		{"raw requests the original file", "raw", "raw"},
+		{"explicit format is passed through", "mp3", "mp3"},
+		{"uppercase raw", "RAW", "raw"},
+		{"mixed case raw", "Raw", "raw"},
+		{"leading whitespace", " raw", "raw"},
+		{"surrounding whitespace and uppercase", " MP3 ", "mp3"},
+		{"whitespace only lets the server decide", " \t", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := NewFromConfig(config.NavidromeConfig{
+				URL: "https://music.example.com", User: "alice", Password: "secret", Format: tt.format,
+			})
+			parsed, err := url.Parse(c.streamURL("song-1"))
+			if err != nil {
+				t.Fatalf("streamURL() returned invalid URL: %v", err)
+			}
+			q := parsed.Query()
+			if q.Get("id") != "song-1" {
+				t.Errorf("id = %q, want song-1", q.Get("id"))
+			}
+			if _, present := q["format"]; present != (tt.wantFormat != "") {
+				t.Errorf("format param present = %v, want %v", present, tt.wantFormat != "")
+			}
+			if got := q.Get("format"); got != tt.wantFormat {
+				t.Errorf("format = %q, want %q", got, tt.wantFormat)
+			}
+		})
 	}
 }

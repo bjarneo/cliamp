@@ -7,6 +7,7 @@ package embyapi
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -193,7 +194,21 @@ type playbackStopInfo struct {
 // Ping checks that the server is reachable and the token is accepted.
 func (c *Client) Ping() error {
 	var raw json.RawMessage
-	return c.get(c.dialect.pingPath(), nil, &raw)
+	if err := c.get(c.dialect.pingPath(), nil, &raw); err == nil {
+		return nil
+	} else if c.dialect.name() == "jellyfin" && c.password == "" && c.token != "" {
+		var httpErr *httpError
+		if errors.As(err, &httpErr) && httpErr.statusCode == http.StatusBadRequest {
+			// API keys aren't owned by a user, so /Users/Me returns a 400
+			// (documented as "Token is not owned by a user.", sent without a
+			// body), even when a username is configured alongside the key.
+			// Fall back to listing /Users to prove the key is valid.
+			return c.get("/Users", nil, &raw)
+		}
+		return err
+	} else {
+		return err
+	}
 }
 
 // UserID returns the active user id, discovering it lazily when needed.
@@ -475,11 +490,69 @@ func IsStreamURL(path string) bool {
 	return strings.Contains(p, "/items/") && strings.HasSuffix(p, "/download")
 }
 
+// StreamItemID extracts an item ID from a download URL belonging to this
+// server. It rejects lookalike URLs from other Jellyfin or Emby servers.
+func (c *Client) StreamItemID(rawURL string) (string, bool) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", false
+	}
+	base, err := url.Parse(c.baseURL)
+	if err != nil || !strings.EqualFold(u.Scheme, base.Scheme) || !strings.EqualFold(u.Host, base.Host) {
+		return "", false
+	}
+
+	prefix := strings.TrimRight(base.Path, "/") + "/Items/"
+	if len(u.Path) < len(prefix) || !strings.EqualFold(u.Path[:len(prefix)], prefix) {
+		return "", false
+	}
+	rest := u.Path[len(prefix):]
+	itemID, suffix, ok := strings.Cut(rest, "/")
+	if !ok || itemID == "" || !strings.EqualFold(suffix, "Download") {
+		return "", false
+	}
+	return itemID, true
+}
+
+// ResolveSource refreshes this server's download URLs at play time. Other
+// sources pass through unchanged without authentication.
+func (c *Client) ResolveSource(rawURL string) (string, error) {
+	itemID, ok := c.StreamItemID(rawURL)
+	if !ok {
+		return rawURL, nil
+	}
+	if err := c.ensureAuth(); err != nil {
+		return "", err
+	}
+	return c.streamURL(itemID, c.authToken()), nil
+}
+
+// StreamURLFromCurrentAuth returns an authenticated stream URL without doing
+// network I/O. It reports false when password authentication has not run yet.
+func (c *Client) StreamURLFromCurrentAuth(itemID string) (string, bool) {
+	token := c.authToken()
+	if token == "" {
+		return "", false
+	}
+	return c.streamURL(itemID, token), true
+}
+
 // StreamURL returns an authenticated audio URL for a track item.
 func (c *Client) StreamURL(itemID string) string {
 	_ = c.ensureAuth()
+	return c.streamURL(itemID, c.authToken())
+}
+
+// streamURL builds a direct-download stream URL for an item, carrying both the
+// modern ApiKey and legacy api_key query parameters.
+func (c *Client) streamURL(itemID, token string) string {
+	// ApiKey is the auth query param Jellyfin reads on every version (including
+	// 10.12+/12 which disable legacy auth); api_key is the legacy alias that
+	// older servers still accept. Send both so buffered stream requests that
+	// carry no headers work on any server.
 	v := url.Values{
-		"api_key": {c.authToken()},
+		"ApiKey":  {token},
+		"api_key": {token},
 	}
 
 	// Use the direct item download route rather than the Audio controller.
@@ -493,6 +566,7 @@ func (c *Client) StreamURL(itemID string) string {
 	return u
 }
 
+// ReportNowPlaying reports the currently playing track to the server.
 func (c *Client) ReportNowPlaying(track playlist.Track, position time.Duration, canSeek bool) error {
 	return c.postJSON("/Sessions/Playing", playbackInfo{
 		CanSeek:       canSeek,
@@ -504,6 +578,8 @@ func (c *Client) ReportNowPlaying(track playlist.Track, position time.Duration, 
 	})
 }
 
+// ReportScrobble reports playback progress and a stop event for the given
+// track to the server.
 func (c *Client) ReportScrobble(track playlist.Track, elapsed time.Duration, canSeek bool) error {
 	progress := playbackInfo{
 		CanSeek:       canSeek,
@@ -523,6 +599,22 @@ func (c *Client) ReportScrobble(track playlist.Track, elapsed time.Duration, can
 	})
 }
 
+// httpError records an HTTP error response from an Emby or Jellyfin server.
+type httpError struct {
+	dialect    string
+	path       string
+	statusCode int
+	status     string
+	body       string
+}
+
+// Error returns the formatted error string without raw response bodies.
+func (e *httpError) Error() string {
+	return fmt.Sprintf("%s: %s: http status %s", e.dialect, e.path, e.status)
+}
+
+// get executes a GET request against the endpoint, unmarshaling JSON into out
+// on success and returning a typed httpError for non-200 responses.
 func (c *Client) get(p string, params url.Values, out any) error {
 	if err := c.ensureAuth(); err != nil {
 		return err
@@ -542,7 +634,18 @@ func (c *Client) get(p string, params url.Values, out any) error {
 	switch resp.StatusCode {
 	case http.StatusOK:
 	default:
-		return fmt.Errorf("%s: %s: http status %s", c.dialect.name(), p, resp.Status)
+		var bodyStr string
+		if resp.Body != nil {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			bodyStr = strings.TrimSpace(string(body))
+		}
+		return &httpError{
+			dialect:    c.dialect.name(),
+			path:       p,
+			statusCode: resp.StatusCode,
+			status:     resp.Status,
+			body:       bodyStr,
+		}
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))

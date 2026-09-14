@@ -47,7 +47,7 @@ Press `t` to show the theme in the list immediately.
 | `fg`        | Muted text, help bar, inactive elements     |
 | `green`     | Playing, success, volume, spectrum low      |
 | `yellow`    | Warnings and spectrum middle               |
-| `red`       | Errors and spectrum top                    |
+| `red`       | Errors, favorite heart, and spectrum top    |
 
 All values are six-digit hex strings, for example `"#ff5733"`. Help-key pill
 text switches between black and white for readable contrast.

@@ -3,10 +3,12 @@ package model
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/external/radio"
 	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/lyrics"
@@ -210,7 +212,14 @@ func authenticateProviderCmd(auth playlist.Authenticator, providerName string, g
 	}
 }
 
+// radioListsRefreshMsg requests a projection of current in-memory Radio state.
+// Unlike remote provider results it never carries a potentially stale row snapshot.
+type radioListsRefreshMsg struct{ gen uint64 }
+
 func fetchPlaylistsCmd(prov playlist.Provider, gen uint64) tea.Cmd {
+	if _, ok := prov.(*radio.Provider); ok {
+		return func() tea.Msg { return radioListsRefreshMsg{gen: gen} }
+	}
 	return func() tea.Msg {
 		pls, err := prov.Playlists()
 		return playlistsLoadedMsg{playlists: pls, providerName: prov.Name(), gen: gen, err: err}
@@ -350,8 +359,14 @@ func resolveWrapperURLs(tracks []playlist.Track) ([]playlist.Track, bool) {
 			resolved, err := resolve.Remote([]string{t.Path})
 			if err == nil && len(resolved) > 0 {
 				expanded = true
-				// Preserve the original title/artist on resolved tracks.
+				// Preserve station identity separately from the resolved playback
+				// URL. Do not turn arbitrary provider wrappers into radio stations.
+				_, radioStation := radio.StationFromTrack(t)
 				for i := range resolved {
+					if radioStation {
+						resolved[i].ProviderMeta = maps.Clone(t.ProviderMeta)
+						resolved[i].Genre = t.Genre
+					}
 					if resolved[i].Title == "" || resolved[i].Title == resolved[i].Path {
 						resolved[i].Title = t.Title
 					}

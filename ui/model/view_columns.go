@@ -72,8 +72,9 @@ const settingsPaneMaxRows = 9
 // paneRow is one settings-pane line together with how readily it is given up
 // when the body cannot hold every row. Lower ranks are kept longer.
 type paneRow struct {
-	line string
-	rank int
+	line  string
+	rank  int
+	focus focusArea // focusPlaylist marks non-focusable detail/info rows
 }
 
 const (
@@ -94,34 +95,44 @@ const (
 // EQ curve, or shuffle without repeat, would read as a rendering bug rather
 // than a compromise, so the pane can end up a row shorter than it was given.
 func (m Model) renderSettingsPane(rows int) string {
+	metadataRows := m.metadataPaneRows(rows)
+	pane := m.settingsPaneRows(rows - metadataRows)
+	lines := make([]string, 0, len(pane))
+	for _, r := range pane {
+		lines = append(lines, r.line)
+	}
+	lines = append(lines, m.renderMetadataPane(metadataRows)...)
+	return bodyLines(lines, rows)
+}
+
+// settingsPaneRows returns the visible settings rows in display/Tab order,
+// without padding. Rendering and focus must use the same row budget.
+func (m Model) settingsPaneRows(rows int) []paneRow {
 	w := m.layout.settingsWidth
 
 	pane := make([]paneRow, 0, settingsPaneMaxRows)
-	add := func(rank int, lines ...string) {
+	add := func(rank int, focus focusArea, lines ...string) {
 		for _, line := range lines {
 			if line != "" {
-				pane = append(pane, paneRow{line: line, rank: rank})
+				pane = append(pane, paneRow{line: line, rank: rank, focus: focus})
 			}
 		}
 	}
 
-	add(rankControl, m.settingsSource(w))
-	add(rankControl, m.settingsVolume(w))
-	add(rankControl, m.settingsEQPreset())
-	add(rankDetail, m.settingsEQBands()...)
-	add(rankMode, m.settingsShuffle(), m.settingsRepeat())
-	add(rankControl, m.settingsSpeed())
-	add(rankInfo, m.settingsNetwork(w))
+	add(rankControl, focusProvPill, m.settingsSource(w))
+	add(rankControl, focusVolume, m.settingsVolume(w))
+	add(rankControl, focusEQ, m.settingsEQPreset())
+	add(rankDetail, focusPlaylist, m.settingsEQBands()...)
+	add(rankMode, focusShuffle, m.settingsShuffle())
+	add(rankMode, focusRepeat, m.settingsRepeat())
+	add(rankControl, focusSpeed, m.settingsSpeed())
+	add(rankInfo, focusPlaylist, m.settingsNetwork(w))
 
 	for rank := rankInfo; rank > rankControl && len(pane) > rows; rank-- {
 		pane = slices.DeleteFunc(pane, func(r paneRow) bool { return r.rank == rank })
 	}
 
-	lines := make([]string, 0, len(pane))
-	for _, r := range pane {
-		lines = append(lines, r.line)
-	}
-	return bodyLines(lines, rows)
+	return pane[:min(len(pane), max(0, rows))]
 }
 
 // settingsNetwork renders the live stream counters, or "" for local playback
@@ -140,6 +151,10 @@ func (m Model) settingsEQPreset() string {
 	label := labelStyle.Render("EQ  ")
 	if m.focus == focusEQ {
 		label = activeToggle.Render("EQ ▸ ")
+		// The band rows may be shed for space; editing must still show which
+		// band changes and its gain before the lower-priority preset name.
+		bands := m.player.EQBands()
+		label += eqActiveStyle.Render(fmt.Sprintf("%s %+.0fdB ", eqBandLabels[m.eqCursor], bands[m.eqCursor]))
 	}
 	return label + dimStyle.Render("[") + activeToggle.Render(m.EQPresetName()) + dimStyle.Render("]")
 }
@@ -192,6 +207,9 @@ func (m Model) settingsVolume(w int) string {
 	}
 
 	label := labelStyle.Render("VOL ")
+	if m.focus == focusVolume {
+		label = activeToggle.Render("VOL ▸ ")
+	}
 	barW := max(6, w-lipgloss.Width(label)-lipgloss.Width(dbStr)-lipgloss.Width(mono))
 	filled := int(frac * float64(barW))
 
@@ -244,17 +262,20 @@ func (m Model) settingsShuffle() string {
 	if m.playlist.Shuffled() {
 		value = "On"
 	}
-	return settingsRow("SHF ", value, m.playlist.Shuffled())
+	return settingsRow("SHF ", value, m.playlist.Shuffled(), m.focus == focusShuffle)
 }
 
 func (m Model) settingsRepeat() string {
 	mode := m.playlist.Repeat()
-	return settingsRow("RPT ", mode.String(), mode != 0)
+	return settingsRow("RPT ", mode.String(), mode != 0, m.focus == focusRepeat)
 }
 
 // settingsRow renders one "LBL [value]" pane row, highlighting the value when
-// it is away from its default.
-func settingsRow(label, value string, active bool) string {
+// it is away from its default and marking the focused control.
+func settingsRow(label, value string, active, focused bool) string {
+	if focused {
+		return activeToggle.Render(label+"▸ ") + activeToggle.Render("["+value+"]")
+	}
 	if active {
 		return labelStyle.Render(label) + activeToggle.Render("["+value+"]")
 	}

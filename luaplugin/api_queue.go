@@ -4,7 +4,7 @@ import lua "github.com/yuin/gopher-lua"
 
 // registerQueueAPI adds cliamp.queue.* to the cliamp table.
 //
-// Reads (list/count/current) need no permission and pull from the StateProvider.
+// Reads need no permission and pull from the StateProvider.
 // Mutators (add/jump/remove/move) require permissions = {"control"} and route
 // through the ControlProvider, which dispatches them onto the UI loop.
 //
@@ -48,6 +48,16 @@ func registerQueueAPI(L *lua.LState, cliamp *lua.LTable, state *StateProvider, c
 			idx = state.CurrentIndex()
 		}
 		L.Push(lua.LNumber(idx))
+		return 1
+	}))
+
+	// cliamp.queue.has_next() -> whether a playable track follows the current one
+	L.SetField(tbl, "has_next", L.NewFunction(func(L *lua.LState) int {
+		if state.HasNext != nil {
+			L.Push(lua.LBool(state.HasNext()))
+		} else {
+			L.Push(lua.LFalse)
+		}
 		return 1
 	}))
 

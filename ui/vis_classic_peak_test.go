@@ -2,6 +2,7 @@ package ui
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,43 @@ import (
 
 const classicPeakTestGlyphs = "⎺⎻⎼⎽"
 const classicPeakTestEpsilon = 1e-9
+
+func TestClassicPeakBandAveraging(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		bands []float64
+		cols  int
+		want  []float64
+	}{
+		{"pairs", []float64{0, 1, 0.4, 0.8}, 2, []float64{0.5, 0.6}},
+		{"fractional boundary", []float64{0, 0, 1, 0, 0}, 2, []float64{0.2, 0.2}},
+		{"one column", []float64{1, 0, 0, 0}, 1, []float64{0.25}},
+		{"same width", []float64{0.2, 0.7}, 2, []float64{0.2, 0.7}},
+		{"expanded", []float64{0, 1}, 3, []float64{0, 0.5, 1}},
+		{"empty", nil, 3, nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := classicPeakBands(tt.bands, tt.cols)
+			if !slices.EqualFunc(got, tt.want, func(a, b float64) bool { return math.Abs(a-b) < 1e-9 }) {
+				t.Fatalf("bands = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClassicPeakBandAveragingNeverSkipsNarrowPeaks(t *testing.T) {
+	for peak := range 64 {
+		bands := make([]float64, 64)
+		bands[peak] = 1
+		var total float64
+		for _, level := range classicPeakBands(bands, 19) {
+			total += level
+		}
+		if math.Abs(total-19.0/64) > 1e-9 {
+			t.Fatalf("peak at band %d: total %v, want preserved contribution %v", peak, total, 19.0/64)
+		}
+	}
+}
 
 func withPanelWidth(t *testing.T, width int) {
 	t.Helper()

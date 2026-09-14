@@ -29,21 +29,22 @@ const (
 	titleScrollInterval = 200 * time.Millisecond
 )
 
-// Pre-built styles for elements created per-render to avoid repeated allocation.
+// Pre-built styles for elements created per-render to avoid repeated
+// allocation. Built by rebuildModelStyles (styles.go), never here.
 var (
-	seekFillStyle = lipgloss.NewStyle().Foreground(ui.ColorSeekBar)
-	seekDimStyle  = lipgloss.NewStyle().Foreground(ui.ColorDim)
-	volBarStyle   = lipgloss.NewStyle().Foreground(ui.ColorVolume)
-	activeToggle  = lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true)
+	seekFillStyle lipgloss.Style
+	seekDimStyle  lipgloss.Style
+	volBarStyle   lipgloss.Style
+	activeToggle  lipgloss.Style
 	// favMarkerStyle paints the favorite heart in the theme's red so it
 	// reads as a deliberate accent instead of inheriting the dim/unavailable
 	// look. The glyph carries U+FE0E (text presentation) so terminals render
 	// it as a compact font glyph rather than a large color emoji.
-	favMarkerStyle = lipgloss.NewStyle().Foreground(ui.ColorError)
+	favMarkerStyle lipgloss.Style
 	// favRemovedStyle mutes the same filled heart for unfavorite feedback:
 	// identical attractive glyph, faded to signal the removed state instead
 	// of switching to a thin outline glyph.
-	favRemovedStyle = lipgloss.NewStyle().Foreground(ui.ColorDim)
+	favRemovedStyle lipgloss.Style
 )
 
 // favHeart is the small, text-presentation favorite heart used everywhere the
@@ -59,11 +60,13 @@ const (
 	seekEmptyGlyph = "─"
 )
 
-// Pre-rendered toggle feedback marks for the status bar.
-var (
-	favAddedMark   = favMarkerStyle.Render(favHeart)
-	favRemovedMark = favRemovedStyle.Render(favHeart)
-)
+// Toggle feedback marks for the status bar. Rendered per call, not stored, so
+// they pick up favMarkerStyle/favRemovedStyle as rebuildModelStyles leaves
+// them after a theme change. Both call sites are key handlers, not the render
+// loop.
+func favAddedMark() string { return favMarkerStyle.Render(favHeart) }
+
+func favRemovedMark() string { return favRemovedStyle.Render(favHeart) }
 
 // providerEmptyStateHint, keyed by lowercase provider Name(), returns the
 // remediation hint shown under the generic "No playlists in X" message.
@@ -94,7 +97,10 @@ func (m Model) renderProviderEmptyState(budget int) string {
 		dimStyle.Render(fmt.Sprintf("  No playlists in %s.", name)),
 		"",
 	}
-	if _, searchable := m.provider.(provider.Searcher); searchable {
+	if _, searchable := m.provider.(provider.CatalogSearcher); searchable {
+		lines = append(lines,
+			dimStyle.Render("  Press ")+helpKeyStyle.Render(" / ")+dimStyle.Render(" to search."))
+	} else if _, searchable := m.provider.(provider.Searcher); searchable {
 		lines = append(lines,
 			dimStyle.Render("  Press ")+helpKeyStyle.Render(" Ctrl+F ")+dimStyle.Render(" to search."))
 	}
@@ -308,9 +314,10 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 	if playlist != "" {
 		sections = append(sections, playlist)
 	}
-	if !m.layout.twoColumn {
+	if !m.layout.twoColumn && m.layout.tier != layoutCompact {
 		// The two-column body needs no spacer above the hint bar: the settings
 		// pane's own blank tail already separates the footer from the columns.
+		// Compact chrome also omits it so the speed row stays on-screen.
 		sections = append(sections, "")
 	}
 	if !m.hideHelpBar {
@@ -467,19 +474,15 @@ func (m Model) renderCompactControls() string {
 		bands := m.player.EQBands()
 		eqValue += " " + eqActiveStyle.Render(fmt.Sprintf("%s %+.0fdB", eqBandLabels[m.eqCursor], bands[m.eqCursor]))
 	}
-	return eqLabel + eqValue +
-		" " + labelStyle.Render("VOL ") + fmt.Sprintf("%+.0fdB", m.player.Volume()) + mono
+	volLabel := labelStyle.Render("VOL ")
+	if m.focus == focusVolume {
+		volLabel = activeToggle.Render("VOL ▸ ")
+	}
+	return eqLabel + eqValue + " " + volLabel + fmt.Sprintf("%+.0fdB", m.player.Volume()) + mono
 }
 
 func (m Model) renderCompactSource() string {
-	if len(m.providers) <= 1 {
-		return ""
-	}
-	name := "Unknown"
-	if m.provider != nil {
-		name = m.provider.Name()
-	}
-	return labelStyle.Render("SRC ") + trackStyle.Render("["+name+"]") + dimStyle.Render(fmt.Sprintf(" %d/%d", m.provPillIdx+1, len(m.providers)))
+	return m.settingsSource(ui.PanelWidth)
 }
 
 // centerFrame centers a pre-rendered frame in the terminal.
@@ -667,6 +670,9 @@ func (m Model) renderControls() string {
 
 	leftW := lipgloss.Width(left)
 	volLabel := labelStyle.Render("VOL ")
+	if m.focus == focusVolume {
+		volLabel = activeToggle.Render("VOL ▸ ")
+	}
 	volSuffix := dimStyle.Render(dbStr) + monoStr
 	volLabelW := lipgloss.Width(volLabel)
 	volSuffixW := lipgloss.Width(volSuffix)
@@ -704,6 +710,9 @@ func (m Model) renderSourceVolume() string {
 		mono = " " + activeToggle.Render("[M]")
 	}
 	label := labelStyle.Render("VOL ")
+	if m.focus == focusVolume {
+		label = activeToggle.Render("VOL ▸ ")
+	}
 
 	leftW := lipgloss.Width(left)
 	fixedW := lipgloss.Width(label) + lipgloss.Width(dbStr) + lipgloss.Width(mono)
@@ -766,7 +775,11 @@ func (m Model) renderPlaylistHeader() string {
 		}
 		return dimStyle.Render(labeledSeparator("", label))
 	}
+	return m.renderPlaybackHeader()
+}
 
+// renderPlaybackHeader is also used to probe playback focus beneath overlays.
+func (m Model) renderPlaybackHeader() string {
 	// Badges in display order. A narrow pane drops whole badges off the tail
 	// rather than letting the separator slice one mid-token.
 	badges := make([]string, 0, 6)
@@ -774,14 +787,22 @@ func (m Model) renderPlaylistHeader() string {
 	// The two-column body carries shuffle and repeat in its settings pane, so
 	// the header only shows them when there is no pane to hold them.
 	if !m.layout.twoColumn {
-		if m.playlist.Shuffled() {
+		if m.focus == focusShuffle {
+			value := "Off"
+			if m.playlist.Shuffled() {
+				value = "On"
+			}
+			badges = append(badges, activeToggle.Render("[Shuffle ▸ "+value+"]"))
+		} else if m.playlist.Shuffled() {
 			badges = append(badges, activeToggle.Render("[Shuffle]"))
 		} else {
 			badges = append(badges, dimStyle.Render("[")+trackStyle.Render("Shuffle")+dimStyle.Render("]"))
 		}
 
 		repeatVal := m.playlist.Repeat().String()
-		if m.playlist.Repeat() != 0 {
+		if m.focus == focusRepeat {
+			badges = append(badges, activeToggle.Render(fmt.Sprintf("[Repeat ▸ %s]", repeatVal)))
+		} else if m.playlist.Repeat() != 0 {
 			badges = append(badges, activeToggle.Render(fmt.Sprintf("[Repeat: %s]", repeatVal)))
 		} else {
 			badges = append(badges, dimStyle.Render("[")+trackStyle.Render("Repeat")+dimStyle.Render(": ")+dimStyle.Render(repeatVal)+dimStyle.Render("]"))
@@ -791,8 +812,8 @@ func (m Model) renderPlaylistHeader() string {
 	if qLen := m.playlist.QueueLen(); qLen > 0 {
 		badges = append(badges, activeToggle.Render(fmt.Sprintf("[Queue: %d]", qLen)))
 	}
-	if bookmarkCount := m.playlist.BookmarkCount(); bookmarkCount > 0 {
-		badges = append(badges, activeToggle.Render(fmt.Sprintf("[★ %d]", bookmarkCount)))
+	if starCount := m.playlistStarCount(); starCount > 0 {
+		badges = append(badges, activeToggle.Render(fmt.Sprintf("[★ %d]", starCount)))
 	}
 	// Render from the cached favSet: the render path must not hit disk.
 	if count := len(m.favSet); count > 0 {
@@ -837,7 +858,7 @@ func (m Model) renderProviderList() string {
 	if m.provSignIn {
 		return dimStyle.Render(fmt.Sprintf("  Sign in to %s. Press Enter to continue.", m.provider.Name()))
 	}
-	if m.provLoading && len(m.providerLists) == 0 {
+	if m.provLoading && len(m.providerLists) == 0 && !m.provSearch.active {
 		lines := []string{loadingLine(fmt.Sprintf("Loading %s…", m.provider.Name()))}
 		if m.provAuthURL != "" {
 			lines = append(lines,
@@ -854,19 +875,19 @@ func (m Model) renderProviderList() string {
 	if m.provAskLoc {
 		return m.renderLocationPrompt(visibleBudget)
 	}
-	if len(m.providerLists) == 0 {
+	if len(m.providerLists) == 0 && !m.provSearch.active && !m.catalogBatch.loading {
 		return m.renderProviderEmptyState(visibleBudget)
 	}
 
-	sl, isRadio := m.provider.(provider.SectionedList)
+	sl, sectioned := m.provider.(provider.SectionedList)
 	var lines []string
 
 	if m.provSearch.active {
 		lines = append(lines, playlistSelectedStyle.Render("  / "+m.provSearch.query+"_"))
 
-		if isRadio {
+		if _, searchable := m.provider.(provider.CatalogSearcher); searchable {
 			if m.provSearch.query == "" {
-				lines = append(lines, dimStyle.Render("  Type a station name, Enter to search…"))
+				lines = append(lines, dimStyle.Render("  Type a query, Enter to search..."))
 			} else {
 				lines = append(lines, dimStyle.Render("  Press Enter to search"))
 			}
@@ -896,11 +917,11 @@ func (m Model) renderProviderList() string {
 			scroll = m.provCursor
 		}
 
-		hasSections := !isRadio && slices.ContainsFunc(m.providerLists, func(p playlist.PlaylistInfo) bool {
+		hasSections := !sectioned && slices.ContainsFunc(m.providerLists, func(p playlist.PlaylistInfo) bool {
 			return p.Section != ""
 		})
 
-		if isRadio {
+		if sectioned {
 			for scroll < len(m.providerLists)-1 && m.providerRowsFromScroll(scroll, m.provCursor) > visibleBudget {
 				scroll++
 			}
@@ -912,7 +933,7 @@ func (m Model) renderProviderList() string {
 		// distinct prefixes can share one heading (the country browse shortcut
 		// sits under the same "Countries" heading as the pinned places).
 		prevTitle := ""
-		if isRadio && scroll > 0 {
+		if sectioned && scroll > 0 {
 			prevTitle = m.providerSectionTitle(sl.IDPrefix(m.providerLists[scroll-1].ID))
 		}
 		prevSection := ""
@@ -923,7 +944,7 @@ func (m Model) renderProviderList() string {
 		for j := scroll; j < len(m.providerLists) && len(lines) < visibleBudget; j++ {
 			p := m.providerLists[j]
 
-			if isRadio {
+			if sectioned {
 				title := m.providerSectionTitle(sl.IDPrefix(p.ID))
 				if title != prevTitle {
 					if title != "" && len(lines) < visibleBudget {
@@ -949,8 +970,8 @@ func (m Model) renderProviderList() string {
 	}
 
 	// Loading indicator for catalog batch (never displace selected row if full).
-	if isRadio && m.catalogBatch.loading && len(lines) < visibleBudget {
-		lines = append(lines, loadingLine("Loading more stations…"))
+	if m.catalogBatch.loading && len(lines) < visibleBudget {
+		lines = append(lines, loadingLine("Loading more entries..."))
 	}
 
 	return strings.Join(fitLines(lines, visibleBudget), "\n")
@@ -1075,7 +1096,7 @@ func (m Model) renderPlaylist() string {
 		}
 		if cols.bookmark {
 			mark := " "
-			if t.Bookmark {
+			if m.playlistTrackStarred(t) {
 				mark = "★"
 			}
 			markers += mark
@@ -1157,6 +1178,12 @@ func (m Model) renderHelp() string {
 		return m.commandHelp(commandModeSpeed)
 	case focusEQ:
 		return m.commandHelp(commandModeEQ)
+	case focusVolume:
+		return m.commandHelp(commandModeVolume)
+	case focusShuffle:
+		return m.commandHelp(commandModeShuffle)
+	case focusRepeat:
+		return m.commandHelp(commandModeRepeat)
 	default:
 		return m.commandHelp(commandModeMain)
 	}

@@ -332,12 +332,9 @@ func countryName(countries []Country, code string) string {
 func stationTracks(stations []CatalogStation) []playlist.Track {
 	tracks := make([]playlist.Track, 0, len(stations))
 	for _, s := range stations {
-		tracks = append(tracks, playlist.Track{
-			Path:     s.URL,
-			Title:    formatCatalogName(s),
-			Stream:   true,
-			Realtime: true,
-		})
+		track := stationTrack(s)
+		track.Title = formatCatalogName(s)
+		tracks = append(tracks, track)
 	}
 	return tracks
 }

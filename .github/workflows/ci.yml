@@ -7,23 +7,26 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   go:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
           cache: true
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev libflac-dev libvorbis-dev libogg-dev libmpg123-dev shellcheck
       - run: go install honnef.co/go/tools/cmd/staticcheck@v0.6.1
       - run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
-      - run: make fmt-check vet staticcheck security
-      - run: go test -count=1 -race ./...
-      - run: make coverage
-      - run: shellcheck install.sh
-      - run: git diff --exit-code
+      - run: make ci
 
   build:
     strategy:
@@ -35,14 +38,32 @@ jobs:
           - os: windows-2025
             goos: windows
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
       - name: Install codec libs (macOS)
         if: matrix.goos == 'darwin'
-        run: brew install flac libvorbis libogg mpg123 pkg-config
+        run: |
+          brew install flac libvorbis libogg mpg123 pkg-config
+          # Make sure pkg-config resolves the version just poured rather than
+          # a leftover symlink into an older Cellar directory.
+          brew link --overwrite flac libvorbis libogg mpg123
+          pkg-config --libs libmpg123 flac vorbis ogg
+      - name: Discard cached cgo objects (macOS)
+        if: matrix.goos == 'darwin'
+        # cgo records the -L paths pkg-config returned when a package was
+        # compiled, and Homebrew's paths carry the exact codec version. The
+        # restored build cache is keyed on go.sum alone, so once the runner
+        # image moves mpg123 to a new version those cached objects keep
+        # linking against a Cellar directory that no longer exists. Dropping
+        # the build cache costs a cold cgo build; the module cache is
+        # untouched.
+        run: go clean -cache
       - name: Set up MinGW toolchain (Windows)
         if: matrix.goos == 'windows'
         uses: msys2/setup-msys2@v2

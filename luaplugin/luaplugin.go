@@ -58,6 +58,7 @@ type StateProvider struct {
 	TrackDuration func() int // seconds
 	PlaylistCount func() int
 	CurrentIndex  func() int          // 0-based
+	HasNext       func() bool         // a track follows in play order (queue, repeat, shuffle)
 	QueueList     func() []QueueEntry // full playlist in play order
 }
 

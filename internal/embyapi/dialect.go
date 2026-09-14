@@ -1,6 +1,7 @@
 package embyapi
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -72,6 +73,8 @@ func embyUnauthHeader(deviceID string) string {
 		appmeta.ClientName(), appmeta.DeviceName(), deviceID, appmeta.Version())
 }
 
+// embyAuthHeader builds Emby's Authorization header value for the given
+// device, user, and token.
 func embyAuthHeader(userID, token, deviceID string) string {
 	if userID != "" {
 		return fmt.Sprintf(`Emby UserId="%s", Client="%s", Device="%s", DeviceId="%s", Version="%s", Token="%s"`,
@@ -81,31 +84,73 @@ func embyAuthHeader(userID, token, deviceID string) string {
 		appmeta.ClientName(), appmeta.DeviceName(), deviceID, appmeta.Version(), token)
 }
 
-// jellyfinDialect speaks Jellyfin's `X-Emby-Authorization: MediaBrowser ...`
-// scheme and discovers the user id from /Users/Me only.
+// jellyfinDialect speaks Jellyfin's `MediaBrowser ...` auth scheme. Newer
+// servers (10.11.2+, 10.12) read the client from the standard Authorization
+// header on /Users/AuthenticateByName; older servers read X-Emby-Authorization.
+// We send both.
 type jellyfinDialect struct{}
 
 func (jellyfinDialect) name() string     { return "jellyfin" }
 func (jellyfinDialect) pingPath() string { return "/Users/Me" }
-func (jellyfinDialect) metaKey() string  { return provider.MetaJellyfinID }
 
+// metaKey returns the ProviderMeta key Jellyfin item ids are stored under.
+func (jellyfinDialect) metaKey() string { return provider.MetaJellyfinID }
+
+// applyAuth sets Jellyfin authorization headers on req, using both the
+// standard Authorization and legacy X-Emby-Authorization headers for
+// compatibility across server versions.
 func (jellyfinDialect) applyAuth(req *http.Request, token, _, deviceID string) {
+	auth := fmt.Sprintf(`MediaBrowser Client="%s", Device="%s", DeviceId="%s", Version="%s"`,
+		appmeta.ClientName(), appmeta.DeviceName(), deviceID, appmeta.Version())
 	if token != "" {
+		auth += fmt.Sprintf(`, Token="%s"`, token)
 		req.Header.Set("X-Emby-Token", token)
 	}
-	req.Header.Set("X-Emby-Authorization",
-		fmt.Sprintf(`MediaBrowser Client="%s", Device="%s", DeviceId="%s", Version="%s"`,
-			appmeta.ClientName(), appmeta.DeviceName(), deviceID, appmeta.Version()))
+	req.Header.Set("Authorization", auth)
+	req.Header.Set("X-Emby-Authorization", auth)
 }
 
+// discoverUserID resolves the user id via /Users/Me, falling back to the
+// /Users listing only for the API-key case where /Users/Me returns 400.
 func (jellyfinDialect) discoverUserID(c *Client) (string, error) {
-	var u userDTO
-	if err := c.get("/Users/Me", nil, &u); err != nil {
-		return "", err
-	}
-	if u.ID == "" {
+	// Try /Users/Me first (works for session tokens from password auth).
+	var me userDTO
+	meErr := c.get("/Users/Me", nil, &me)
+	if meErr == nil {
+		if me.ID != "" {
+			c.setUserID(me.ID)
+			return me.ID, nil
+		}
 		return "", fmt.Errorf("jellyfin: current user response missing id")
 	}
-	c.setUserID(u.ID)
-	return u.ID, nil
+
+	// API-key auth is the only case where /Users/Me legitimately fails (a key
+	// isn't owned by a user, so it returns 400). Preserve every other error so
+	// 401/403/5xx responses surface through UserID instead of being masked.
+	var httpErr *httpError
+	if !(errors.As(meErr, &httpErr) && httpErr.statusCode == http.StatusBadRequest) {
+		return "", fmt.Errorf("jellyfin: could not discover user id: %w", meErr)
+	}
+
+	// Fall back to /Users for API key auth (a key isn't owned by a user, so
+	// /Users/Me returns 400).
+	var users []userDTO
+	if err := c.get("/Users", nil, &users); err != nil {
+		return "", fmt.Errorf("jellyfin: could not discover user id (set user_id in config): %w", err)
+	}
+	// Prefer user matching the configured username; otherwise take first entry.
+	for _, user := range users {
+		if strings.EqualFold(user.Name, c.user) {
+			c.setUserID(user.ID)
+			return user.ID, nil
+		}
+	}
+	if c.user != "" {
+		return "", fmt.Errorf("jellyfin: user %q not found — check the user name in config", c.user)
+	}
+	if len(users) > 0 && users[0].ID != "" {
+		c.setUserID(users[0].ID)
+		return users[0].ID, nil
+	}
+	return "", fmt.Errorf("jellyfin: could not discover user id — set user_id in config")
 }

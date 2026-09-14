@@ -213,7 +213,7 @@ Use `p:on(event, callback)` to subscribe to events. Callbacks run in goroutines 
 
 | Event | Callback argument | When |
 |-------|-------------------|------|
-| `track.change` | `{title, artist, album, genre, year, path, duration, stream}` | New track starts |
+| `track.change` | `{title, artist, album, genre, year, path, duration, stream}` | New track starts successfully |
 | `track.scrobble` | Same + `{played_secs}` | Track played >= 50% or >= 4 min |
 | `playback.state` | `{status, title, artist, album, path, duration, stream, position}` | Any playback state change (play, pause, stop, seek, volume, track transition) |
 | `player.seek` | `{position, duration}` (seconds) | A seek completes |
@@ -225,6 +225,8 @@ Use `p:on(event, callback)` to subscribe to events. Callbacks run in goroutines 
 | `app.quit` | `{}` | Before shutdown |
 
 In `playback.state`, `status` is `"playing"`, `"paused"`, or `"stopped"`. In `player.mode`, `repeat` is `"Off"`, `"All"`, or `"One"`, matching `cliamp.player.repeat_mode()`. In `player.eq`, `bands` is an array of 10 dB values.
+
+`track.change` fires after playback starts successfully for all sources, including YouTube and SoundCloud. A stream that is still buffering, fails to start, or is superseded before it starts does not emit this event. Gapless transitions also emit `track.change`.
 
 cliamp sends `player.*` and `queue.change` events by comparing state after each UI update. They cover every source, including a keypress, IPC, MPRIS, or another plugin.
 
@@ -310,6 +312,7 @@ You can read the playlist without permission. To change it, declare `permissions
 cliamp.queue.list()        --> array of {title, artist, album, path, index, queued}
 cliamp.queue.count()       --> number of tracks
 cliamp.queue.current()     --> 0-based index of the current track
+cliamp.queue.has_next()    --> true when a playable track follows in play order (play-next queue, repeat, shuffle)
 
 -- mutate (requires "control")
 cliamp.queue.add(path)         -- resolve a file/dir/URL and append

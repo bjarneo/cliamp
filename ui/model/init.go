@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/external/radio"
 	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/luaplugin"
@@ -140,6 +141,24 @@ func (m *Model) SetHideSettingsPane(v bool) {
 	m.refreshChrome()
 }
 
+// SetShowMetadata expands the highlighted-track details below Settings.
+func (m *Model) SetShowMetadata(v bool) {
+	m.showMetadata = v
+	m.refreshChrome()
+}
+
+// SetExpanded starts the UI in the expanded playlist height, the state the
+// Ctrl+X binding toggles. It sets the same field toggleExpandedView does and
+// takes no view into account: usesSimplifiedLayout() is transient (it drops as
+// soon as the provider or an overlay takes focus), and recomputeLayout already
+// ignores the height while it holds, so a guard here would only make the flag
+// differ from the key.
+func (m *Model) SetExpanded(v bool) {
+	m.heightExpanded = v
+	m.applyHeightMode()
+	m.adjustScroll()
+}
+
 // SetInitialDirectory sets the initial directory for the file browser.
 func (m *Model) SetInitialDirectory(dir string) { m.initialDir = dir }
 
@@ -208,6 +227,29 @@ func (m *Model) SetResume(path string, secs int) {
 	m.resume.secs = secs
 }
 
+// SetResumeSaver enables continuous playback-context persistence.
+func (m *Model) SetResumeSaver(save ResumeSaver) {
+	m.resumeSaver = save
+	if save != nil && m.playlist != nil {
+		// Updating entries preserves selection, shuffle order, and queued playback.
+		for i, track := range playlist.WithPlaybackContext(m.playlist.Tracks()) {
+			m.playlist.SetTrack(i, track)
+		}
+	}
+}
+
+// SetInitialTrack selects the restored track without starting playback.
+func (m *Model) SetInitialTrack(index int) {
+	if m.playlist == nil || index < 0 || index >= m.playlist.Len() {
+		return
+	}
+	m.playlist.SetIndex(index)
+	m.plCursor = index
+	tracks := m.playlist.Tracks()
+	m.setPlaybackContext(tracks, index)
+	m.setHeaderStateFromTracks(tracks)
+}
+
 // ResumePlaylist loads a playlist into the model for session resume.
 func (m *Model) ResumePlaylist(name string, tracks []playlist.Track) {
 	m.replacePlaylist(tracks)
@@ -219,6 +261,11 @@ func (m *Model) ResumePlaylist(name string, tracks []playlist.Track) {
 // Called after prog.Run() returns (player already closed).
 func (m Model) ResumeState() (path string, secs int, playlist string) {
 	return m.exitResume.path, m.exitResume.secs, m.exitResume.playlist
+}
+
+// ResumeContext returns the complete list the active track was selected from.
+func (m Model) ResumeContext() ([]playlist.Track, int) {
+	return cloneTracks(m.exitResume.context), m.exitResume.contextIndex
 }
 
 // ThemeName returns the current theme name.
@@ -269,4 +316,10 @@ func (m *Model) refreshFavSet() {
 	for _, t := range tracks {
 		m.favSet[t.Path] = struct{}{}
 	}
+}
+
+// SetRadioFavorites shares the Radio provider's local station favorites store.
+func (m *Model) SetRadioFavorites(favorites *radio.Favorites) {
+	m.radioFavorites = favorites
+	m.radioMarkers = &radioMarkerCache{}
 }

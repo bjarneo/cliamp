@@ -188,6 +188,28 @@ func TestTickIntervalVisualizer60FPS(t *testing.T) {
 	}
 }
 
+func TestClassicPeakPlaybackHonorsDriverCadence(t *testing.T) {
+	p := &playbackFakeEngine{playing: true}
+	m := Model{
+		player: p, vis: ui.NewVisualizer(float64(p.SampleRate())),
+		playlist: playlist.New(), width: 80, height: 24,
+	}
+	m.recomputeLayout()
+	m.SetVisualizer("ClassicPeak")
+	want := m.vis.TickInterval(m.visualizerTickContext(time.Time{}))
+	if got := m.tickInterval(); got != want || got >= ui.TickFast {
+		t.Fatalf("ClassicPeak playback tick = %v, want driver cadence %v faster than %v", got, want, ui.TickFast)
+	}
+	m.SetVisualizer60FPS(true)
+	if got := m.tickInterval(); got != ui.TickAnim {
+		t.Fatalf("ClassicPeak 60fps tick = %v, want %v", got, ui.TickAnim)
+	}
+	m.SetLowPower(true)
+	if got := m.tickInterval(); got != ui.TickLowPowerPlaying {
+		t.Fatalf("ClassicPeak low-power tick = %v, want %v", got, ui.TickLowPowerPlaying)
+	}
+}
+
 func TestTickIntervalRawSampleVisualizerUsesWaveCadence(t *testing.T) {
 	p := &playbackFakeEngine{playing: true}
 	m := Model{
@@ -210,24 +232,28 @@ func TestTickIntervalRawSampleVisualizerUsesWaveCadence(t *testing.T) {
 	}
 }
 
-func TestRawSampleVisualizerUsesWaveformTap(t *testing.T) {
-	p := &samplingFakeEngine{playbackFakeEngine: &playbackFakeEngine{playing: true}}
-	m := Model{
-		player:   p,
-		vis:      ui.NewVisualizer(float64(p.SampleRate())),
-		playlist: playlist.New(),
-		width:    80,
-		height:   24,
-	}
-	m.recomputeLayout()
-	m.SetVisualizer("Wave")
-	m.tickVisualizer(time.Unix(1, 0))
-
-	if p.waveformSampleCalls != 1 {
-		t.Fatalf("WaveformSamplesInto calls = %d, want 1", p.waveformSampleCalls)
-	}
-	if p.sampleCalls != 0 {
-		t.Fatalf("SamplesInto calls = %d, want 0", p.sampleCalls)
+func TestVisualizerSelectsAudibleTap(t *testing.T) {
+	for _, mode := range []string{"Wave", "ClassicPeak", "ClassicLED", "Bars"} {
+		t.Run(mode, func(t *testing.T) {
+			p := &samplingFakeEngine{playbackFakeEngine: &playbackFakeEngine{playing: true}}
+			m := Model{
+				player:   p,
+				vis:      ui.NewVisualizer(float64(p.SampleRate())),
+				playlist: playlist.New(),
+				width:    80,
+				height:   24,
+			}
+			m.recomputeLayout()
+			m.SetVisualizer(mode)
+			m.tickVisualizer(time.Unix(1, 0))
+			wantAudible := 0
+			if mode == "Wave" || mode == "ClassicPeak" {
+				wantAudible = 1
+			}
+			if p.waveformSampleCalls != wantAudible || p.sampleCalls != 1-wantAudible {
+				t.Fatalf("tap calls audible/latest = %d/%d, want %d/%d", p.waveformSampleCalls, p.sampleCalls, wantAudible, 1-wantAudible)
+			}
+		})
 	}
 }
 

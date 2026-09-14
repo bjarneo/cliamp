@@ -443,6 +443,8 @@ func TestProviderKeyForShortcut(t *testing.T) {
 		"X": "mixcloud",
 		"L": "local",
 		"R": "radio",
+		"O": "podcast",
+		"o": "",
 		"x": "",
 		"":  "",
 	}

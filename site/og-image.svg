@@ -1,134 +1,170 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-  <style>
-    text { font-family: "SFMono-Regular", "Liberation Mono", Menlo, Consolas, monospace; }
-    .micro { font-size: 11px; font-weight: 700; letter-spacing: 2px; }
-    .small { font-size: 13px; }
-    .label { font-size: 12px; font-weight: 700; letter-spacing: 1px; }
-  </style>
-
-  <rect width="1200" height="630" fill="#050806"/>
-  <rect width="1200" height="6" fill="#42ff88"/>
-  <path d="M60 6V630M1140 6V630" stroke="#101812"/>
-
-  <g transform="translate(80 16)">
-    <rect width="30" height="30" rx="4" fill="#050505" stroke="#fff" stroke-opacity=".1"/>
-    <rect x="3.6" y="11.7" width="2.4" height="6.6" fill="#00ff41"/>
-    <rect x="8.7" y="8.1" width="2.4" height="13.8" fill="#ff9500"/>
-    <rect x="13.8" y="5.4" width="2.4" height="19.2" fill="#ff3b1f"/>
-    <rect x="18.9" y="10.2" width="2.4" height="9.6" fill="#00ff41"/>
-    <rect x="24" y="8.7" width="2.4" height="12.6" fill="#ffe000"/>
-    <text x="42" y="20" class="micro" fill="#d9e3da">CLI</text>
-    <text x="68" y="20" class="micro" fill="#42ff88">AMP</text>
-    <text x="106" y="20" font-size="10" fill="#405046">/usr/bin</text>
-  </g>
-  <g transform="translate(880 28)" class="micro">
-    <text x="0" y="9" fill="#667568">[music]</text>
-    <text x="84" y="9" fill="#667568">[tui]</text>
-    <text x="144" y="9" fill="#4bdbff">[github]</text>
-  </g>
-  <path d="M0 54H1200" stroke="#385342"/>
-
-  <g transform="translate(82 106)">
-    <rect width="4" height="350" fill="#42ff88"/>
-    <text x="24" y="15" class="micro" fill="#667568">ROOT@LOCALHOST:</text>
-    <rect x="154" y="6" width="8" height="8" fill="#42ff88"/>
-    <text x="174" y="15" class="micro" fill="#42ff88">~/AUDIO/CLIAMP</text>
-
-    <g transform="translate(24 54)">
-      <rect width="72" height="72" rx="9" fill="#050505" stroke="#fff" stroke-opacity=".1"/>
-      <rect x="7.2" y="30.96" width="2.88" height="10.08" fill="#00ff41"/>
-      <rect x="14.4" y="23.76" width="2.88" height="24.48" fill="#ffe000"/>
-      <rect x="21.6" y="16.56" width="2.88" height="38.88" fill="#ff9500"/>
-      <rect x="28.8" y="26.64" width="2.88" height="18.72" fill="#00ff41"/>
-      <rect x="36" y="13.68" width="2.88" height="44.64" fill="#ff3b1f"/>
-      <rect x="43.2" y="25.2" width="2.88" height="21.6" fill="#00ff41"/>
-      <rect x="50.4" y="19.44" width="2.88" height="33.12" fill="#ff9500"/>
-      <rect x="57.6" y="29.52" width="2.88" height="12.96" fill="#00ff41"/>
-    </g>
-    <text x="112" y="132" font-size="106" font-weight="800" letter-spacing="-7" fill="#f4fff5">cli</text>
-    <text x="298" y="132" font-size="106" font-weight="800" letter-spacing="-7" fill="#42ff88">amp</text>
-
-    <text x="24" y="181" font-size="18" font-weight="700" fill="#ffb000">Winamp for the shell.</text>
-    <text x="24" y="218" class="small" fill="#aab7ac">Local files, streaming services, radio,</text>
-    <text x="24" y="241" class="small" fill="#aab7ac">playlists, EQ, lyrics, and Lua plugins.</text>
-
-    <rect x="24" y="276" width="112" height="38" fill="#42ff88"/>
-    <text x="49" y="300" class="micro" fill="#050806">INSTALL</text>
-    <rect x="146" y="276" width="134" height="38" fill="none" stroke="#385342"/>
-    <text x="166" y="300" class="micro" fill="#d9e3da">VIEW SOURCE</text>
-
-    <text x="24" y="344" font-size="10" font-weight="700" letter-spacing="1" fill="#ffb000">MIT</text>
-    <text x="55" y="344" font-size="10" letter-spacing="1" fill="#667568">LICENSED</text>
-    <text x="127" y="344" font-size="10" font-weight="700" letter-spacing="1" fill="#ffb000">GO 1.26</text>
-    <text x="206" y="344" font-size="10" font-weight="700" letter-spacing="1" fill="#ffb000">LINUX / MACOS / WINDOWS</text>
-  </g>
-
-  <g transform="translate(584 88)">
-    <rect width="534" height="394" fill="#080c09" stroke="#385342"/>
-    <rect width="534" height="42" fill="#42ff88"/>
-    <text x="16" y="27" font-size="13" font-weight="700" fill="#050806">$ cliamp</text>
-    <text x="88" y="27" font-size="12" fill="#385342">--provider radio</text>
-    <rect x="467" y="9" width="28" height="24" fill="#050806"/>
-    <path d="M478 16L487 21L478 26Z" fill="#42ff88"/>
-    <text x="504" y="27" font-size="11" fill="#385342">tty1</text>
-
-    <text x="20" y="74" class="micro" fill="#42ff88">C L I A M P</text>
-    <text x="419" y="74" class="small" fill="#667568">[Playlist]</text>
-    <text x="20" y="99" class="label" fill="#42ff88">#</text>
-    <text x="38" y="99" class="label" fill="#d9e3da">Lofi Hip Hop Radio</text>
-    <text x="20" y="120" class="small" fill="#667568">00:00 / 00:00</text>
-    <rect x="407" y="111" width="7" height="7" fill="#667568"/>
-    <text x="423" y="120" font-size="11" fill="#667568">Stopped</text>
-
-    <g transform="translate(66 146)">
-      <g fill="#42ff88">
-        <rect x="0" y="55" width="10" height="17"/><rect x="15" y="42" width="10" height="30"/>
-        <rect x="30" y="20" width="10" height="52"/><rect x="45" y="38" width="10" height="34"/>
-        <rect x="60" y="31" width="10" height="41"/><rect x="75" y="12" width="10" height="60"/>
-        <rect x="90" y="27" width="10" height="45"/><rect x="105" y="45" width="10" height="27"/>
-        <rect x="120" y="22" width="10" height="50"/><rect x="135" y="5" width="10" height="67"/>
-        <rect x="150" y="34" width="10" height="38"/><rect x="165" y="17" width="10" height="55"/>
-        <rect x="180" y="29" width="10" height="43"/><rect x="195" y="9" width="10" height="63"/>
-        <rect x="210" y="38" width="10" height="34"/><rect x="225" y="25" width="10" height="47"/>
-        <rect x="240" y="16" width="10" height="56"/><rect x="255" y="41" width="10" height="31"/>
-        <rect x="270" y="31" width="10" height="41"/><rect x="285" y="20" width="10" height="52"/>
-        <rect x="300" y="47" width="10" height="25"/><rect x="315" y="36" width="10" height="36"/>
-        <rect x="330" y="53" width="10" height="19"/><rect x="345" y="43" width="10" height="29"/>
-      </g>
-      <g fill="#ffb000">
-        <rect x="30" y="20" width="10" height="14"/><rect x="75" y="12" width="10" height="16"/>
-        <rect x="135" y="5" width="10" height="18"/><rect x="165" y="17" width="10" height="14"/>
-        <rect x="195" y="9" width="10" height="17"/><rect x="240" y="16" width="10" height="15"/>
-        <rect x="285" y="20" width="10" height="14"/>
-      </g>
-      <g fill="#ff4260">
-        <rect x="135" y="5" width="10" height="6"/><rect x="195" y="9" width="10" height="6"/>
-      </g>
-    </g>
-
-    <path d="M86 240H240M292 240H446" stroke="#ffb000" stroke-width="2"/>
-    <text x="246" y="236" font-size="10" font-weight="700" letter-spacing="2" fill="#ffb000">STREAMING</text>
-    <text x="20" y="258" class="small" fill="#667568">EQ [</text>
-    <text x="51" y="258" class="small" font-weight="700" fill="#ffb000">Rock</text>
-    <text x="82" y="258" class="small" fill="#667568">]  VOL</text>
-    <path d="M134 254H278" stroke="#385342" stroke-width="8" stroke-dasharray="2 2"/>
-    <path d="M134 254H236" stroke="#42ff88" stroke-width="8" stroke-dasharray="2 2"/>
-
-    <text x="20" y="289" class="label" fill="#ffb000">&gt;- Playlist -- [Shuffle]</text>
-    <text x="20" y="314" class="label" fill="#42ff88">&gt; 1.</text>
-    <text x="61" y="314" class="label" fill="#d9e3da">Lofi Hip Hop Radio</text>
-    <text x="28" y="338" class="small" fill="#667568">2. EDM Pulse</text>
-    <text x="28" y="360" class="small" fill="#667568">3. Synthwave Nights</text>
-
-    <path d="M18 374H516" stroke="#203026"/>
-    <text x="20" y="389" font-size="10" fill="#667568">[Enter] play  [Spc] pause  [Tab] focus  [?] keys</text>
-  </g>
-
-  <g transform="translate(0 530)">
-    <path d="M0 0H1200M0 48H1200" stroke="#ffb000"/>
-    <text x="600" y="29" text-anchor="middle" font-size="11" font-weight="700" letter-spacing="1" fill="#ffb000">MP3 | FLAC | SPOTIFY | QOBUZ | TIDAL | YOUTUBE | RADIO | PLEX | JELLYFIN | NAVIDROME | LUA</text>
-  </g>
-
-  <text x="80" y="608" class="micro" fill="#42ff88">cliamp.stream</text>
-  <text x="1120" y="608" text-anchor="end" class="micro" fill="#667568">TERMINAL MUSIC PLAYER</text>
+<defs>
+  <pattern id="grid" width="46" height="46" patternUnits="userSpaceOnUse">
+    <path d="M46 0H0V46" fill="none" stroke="#74e08c" stroke-opacity=".055" stroke-width="1"/>
+  </pattern>
+  <radialGradient id="glowA" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(250 130) scale(470)">
+    <stop offset="0" stop-color="#74e08c" stop-opacity=".22"/><stop offset="1" stop-color="#74e08c" stop-opacity="0"/>
+  </radialGradient>
+  <radialGradient id="glowB" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(980 540) scale(420)">
+    <stop offset="0" stop-color="#e9b455" stop-opacity=".10"/><stop offset="1" stop-color="#e9b455" stop-opacity="0"/>
+  </radialGradient>
+  <linearGradient id="bar" x1="0" y1="1" x2="0" y2="0">
+    <stop offset="0" stop-color="#74e08c"/><stop offset="1" stop-color="#e9b455"/>
+  </linearGradient>
+  <clipPath id="card"><rect x="660" y="112" width="484" height="494" rx="10"/></clipPath>
+</defs>
+<rect width="1200" height="630" fill="#0b0c0d"/>
+<rect width="1200" height="630" fill="url(#glowA)"/>
+<rect width="1200" height="630" fill="url(#glowB)"/>
+<rect width="1200" height="630" fill="url(#grid)"/>
+<g transform="translate(56 26)">
+<rect width="48" height="48" rx="7.2" fill="#74e08c"/>
+<rect x="5" y="20" width="5" height="8" fill="#0b0c0d"/>
+<rect x="12" y="12" width="5" height="24" fill="#0b0c0d"/>
+<rect x="19" y="4" width="5" height="40" fill="#0b0c0d"/>
+<rect x="26" y="14" width="5" height="20" fill="#0b0c0d"/>
+<rect x="33" y="18" width="5" height="12" fill="#0b0c0d"/>
+<rect x="40" y="22" width="3" height="4" fill="#0b0c0d"/>
+</g>
+<text x="120" y="59" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="21" letter-spacing="3.5" fill="#e9ece9">CLI<tspan fill="#74e08c" font-weight="600">AMP</tspan></text>
+<text x="1144" y="59" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="17" font-weight="400" fill="#6a7273" text-anchor="end">cliamp.stream</text>
+<path d="M56 92H1144" stroke="#23282b" stroke-width="1"/>
+<text x="56" y="162" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="14" font-weight="400" fill="#6a7273" text-anchor="start" letter-spacing="3.6">~/AUDIO/CLIAMP</text>
+<text x="50" y="318" font-family="'Space Grotesk', system-ui, sans-serif" font-size="164" font-weight="500" fill="#e9ece9" text-anchor="start" letter-spacing="-7">cliamp</text>
+<text x="56" y="376" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="26" fill="#e9ece9">A full <tspan fill="#e9b455" font-style="italic">music player</tspan> that</text>
+<text x="56" y="412" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="26" font-weight="400" fill="#e9ece9" text-anchor="start">lives in your terminal.</text>
+<text x="56" y="462" font-family="'Space Grotesk', system-ui, sans-serif" font-size="19" font-weight="400" fill="#98a09f" text-anchor="start">Spotify, Qobuz, Tidal, YouTube Music, Plex, Jellyfin,</text>
+<text x="56" y="490" font-family="'Space Grotesk', system-ui, sans-serif" font-size="19" font-weight="400" fill="#98a09f" text-anchor="start">Navidrome, Lyrion, podcasts and 58,000 radio stations.</text>
+<rect x="56" y="524" width="566" height="46" rx="6" fill="#74e08c"/>
+<text x="76" y="554" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="17" font-weight="600" fill="#0b0c0d" text-anchor="start">$ curl -fsSL https://cliamp.stream/install.sh | sh</text>
+<rect x="56" y="586" width="204" height="26" rx="3" fill="none" stroke="#23282b"/>
+<text x="158.0" y="604" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12.5" font-weight="400" fill="#6a7273" text-anchor="middle">Linux · macOS · Windows</text>
+<rect x="268" y="586" width="112" height="26" rx="3" fill="none" stroke="#23282b"/>
+<text x="324.0" y="604" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12.5" font-weight="400" fill="#6a7273" text-anchor="middle">MIT licensed</text>
+<rect x="388" y="586" width="76" height="26" rx="3" fill="none" stroke="#23282b"/>
+<text x="426.0" y="604" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12.5" font-weight="400" fill="#6a7273" text-anchor="middle">Go 1.26</text>
+<rect x="660" y="112" width="484" height="494" rx="10" fill="#0e1012" stroke="#23282b"/>
+<g clip-path="url(#card)">
+<rect x="660" y="112" width="484" height="40" fill="#121517"/>
+<path d="M660 152H1144" stroke="#1c2124"/>
+</g>
+<circle cx="684" cy="132" r="4.5" fill="#2b3134"/>
+<circle cx="699" cy="132" r="4.5" fill="#2b3134"/>
+<circle cx="714" cy="132" r="4.5" fill="#2b3134"/>
+<text x="734" y="136.5" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12" font-weight="400" fill="#6a7273" text-anchor="start">tty1</text>
+<text x="1122" y="136.5" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12" font-weight="400" fill="#74e08c" text-anchor="end" letter-spacing="3">C L I A M P</text>
+<text x="684" y="194" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="18" font-weight="400" fill="#e9b455" text-anchor="start">♫</text>
+<text x="710" y="194" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="23" font-weight="400" fill="#e9ece9" text-anchor="start">Lofi</text>
+<text x="684" y="220" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="13" font-weight="400" fill="#98a09f" text-anchor="start">lofi / chillhop · live stream</text>
+<text x="684" y="252" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="13" font-weight="400" fill="#74e08c" text-anchor="start">00:42</text>
+<rect x="742" y="236" width="88" height="24" rx="3" fill="none" stroke="#23282b"/>
+<text x="786" y="252.5" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12.5" font-weight="400" fill="#74e08c" text-anchor="middle">▶ playing</text>
+<text x="1122" y="252" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="13" font-weight="400" fill="#74e08c" text-anchor="end">● 99 listening</text>
+<rect x="684" y="272" width="438" height="112" rx="4" fill="#0a0c0d" stroke="#1c2124"/>
+<rect x="686.0" y="301.4" width="8.9" height="79.6" fill="url(#bar)"/>
+<rect x="686.0" y="295.4" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="698.9" y="286.7" width="8.9" height="94.3" fill="url(#bar)"/>
+<rect x="698.9" y="280.7" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="711.8" y="298.3" width="8.9" height="82.7" fill="url(#bar)"/>
+<rect x="711.8" y="292.3" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="724.6" y="313.5" width="8.9" height="67.5" fill="url(#bar)"/>
+<rect x="724.6" y="307.5" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="737.5" y="317.3" width="8.9" height="63.7" fill="url(#bar)"/>
+<rect x="737.5" y="311.3" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="750.4" y="330.5" width="8.9" height="50.5" fill="url(#bar)"/>
+<rect x="750.4" y="324.5" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="763.3" y="354.1" width="8.9" height="26.9" fill="url(#bar)"/>
+<rect x="763.3" y="348.1" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="776.2" y="358.4" width="8.9" height="22.6" fill="url(#bar)"/>
+<rect x="776.2" y="352.4" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="789.1" y="343.7" width="8.9" height="37.3" fill="url(#bar)"/>
+<rect x="789.1" y="337.7" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="801.9" y="337.7" width="8.9" height="43.3" fill="url(#bar)"/>
+<rect x="801.9" y="331.7" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="814.8" y="335.2" width="8.9" height="45.8" fill="url(#bar)"/>
+<rect x="814.8" y="329.2" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="827.7" y="316.3" width="8.9" height="64.7" fill="url(#bar)"/>
+<rect x="827.7" y="310.3" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="840.6" y="299.2" width="8.9" height="81.8" fill="url(#bar)"/>
+<rect x="840.6" y="293.2" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="853.5" y="306.5" width="8.9" height="74.5" fill="url(#bar)"/>
+<rect x="853.5" y="300.5" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="866.4" y="318.9" width="8.9" height="62.1" fill="url(#bar)"/>
+<rect x="866.4" y="312.9" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="879.2" y="319.3" width="8.9" height="61.7" fill="url(#bar)"/>
+<rect x="879.2" y="313.3" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="892.1" y="328.1" width="8.9" height="52.9" fill="url(#bar)"/>
+<rect x="892.1" y="322.1" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="905.0" y="350.7" width="8.9" height="30.3" fill="url(#bar)"/>
+<rect x="905.0" y="344.7" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="917.9" y="358.3" width="8.9" height="22.7" fill="url(#bar)"/>
+<rect x="917.9" y="352.3" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="930.8" y="346.8" width="8.9" height="34.2" fill="url(#bar)"/>
+<rect x="930.8" y="340.8" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="943.6" y="343.1" width="8.9" height="37.9" fill="url(#bar)"/>
+<rect x="943.6" y="337.1" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="956.5" y="344.9" width="8.9" height="36.1" fill="url(#bar)"/>
+<rect x="956.5" y="338.9" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="969.4" y="329.9" width="8.9" height="51.1" fill="url(#bar)"/>
+<rect x="969.4" y="323.9" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="982.3" y="312.0" width="8.9" height="69.0" fill="url(#bar)"/>
+<rect x="982.3" y="306.0" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="995.2" y="316.2" width="8.9" height="64.8" fill="url(#bar)"/>
+<rect x="995.2" y="310.2" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="1008.1" y="326.7" width="8.9" height="54.3" fill="url(#bar)"/>
+<rect x="1008.1" y="320.7" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="1020.9" y="324.2" width="8.9" height="56.8" fill="url(#bar)"/>
+<rect x="1020.9" y="318.2" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="1033.8" y="328.1" width="8.9" height="52.9" fill="url(#bar)"/>
+<rect x="1033.8" y="322.1" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="1046.7" y="348.4" width="8.9" height="32.6" fill="url(#bar)"/>
+<rect x="1046.7" y="342.4" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="1059.6" y="357.8" width="8.9" height="23.2" fill="url(#bar)"/>
+<rect x="1059.6" y="351.8" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="1072.5" y="348.3" width="8.9" height="32.7" fill="url(#bar)"/>
+<rect x="1072.5" y="342.3" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="1085.4" y="346.1" width="8.9" height="34.9" fill="url(#bar)"/>
+<rect x="1085.4" y="340.1" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="1098.2" y="351.8" width="8.9" height="29.2" fill="url(#bar)"/>
+<rect x="1098.2" y="345.8" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<rect x="1111.1" y="341.4" width="8.9" height="39.6" fill="url(#bar)"/>
+<rect x="1111.1" y="335.4" width="8.9" height="2.5" fill="#74e08c" fill-opacity=".18"/>
+<text x="684" y="416" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12" fill="#6a7273">EQ <tspan fill="#e9b455">[Rock]</tspan></text>
+<rect x="766" y="398.2" width="5" height="20.8" rx="1" fill="#74e08c"/>
+<rect x="774" y="399.8" width="5" height="19.200000000000003" rx="1" fill="#74e08c"/>
+<rect x="782" y="403.0" width="5" height="16.0" rx="1" fill="#74e08c"/>
+<rect x="790" y="407.8" width="5" height="11.200000000000001" rx="1" fill="#3a4145"/>
+<rect x="798" y="409.4" width="5" height="9.600000000000001" rx="1" fill="#3a4145"/>
+<rect x="806" y="403.0" width="5" height="16.0" rx="1" fill="#74e08c"/>
+<rect x="814" y="399.8" width="5" height="19.200000000000003" rx="1" fill="#74e08c"/>
+<rect x="822" y="398.2" width="5" height="20.8" rx="1" fill="#74e08c"/>
+<rect x="830" y="398.2" width="5" height="20.8" rx="1" fill="#74e08c"/>
+<rect x="838" y="398.2" width="5" height="20.8" rx="1" fill="#74e08c"/>
+<text x="1122" y="416" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12" font-weight="400" fill="#6a7273" text-anchor="end">VOL ━━━━━━━━●───  80</text>
+<rect x="684" y="436" width="46" height="32" rx="4" fill="#15181a" stroke="#23282b"/>
+<text x="707" y="457" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12" font-weight="400" fill="#98a09f" text-anchor="middle">◀◀</text>
+<rect x="738" y="434" width="100" height="36" rx="4" fill="#74e08c"/>
+<text x="788" y="458" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="14" font-weight="600" fill="#0b0c0d" text-anchor="middle">■ stop</text>
+<rect x="846" y="436" width="46" height="32" rx="4" fill="#15181a" stroke="#23282b"/>
+<text x="869" y="457" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12" font-weight="400" fill="#98a09f" text-anchor="middle">▶▶</text>
+<text x="1122" y="457" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12" fill="#6a7273" text-anchor="end">SRC <tspan fill="#98a09f">[Radio]</tspan> 1/14</text>
+<path d="M684 488H1122" stroke="#1c2124"/>
+<text x="684" y="510" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12" font-weight="400" fill="#6a7273" text-anchor="start">▸─ Playlist   [Shuffle: Off]   [Repeat: All]</text>
+<rect x="676" y="524" width="454" height="26" rx="3" fill="#15181a"/>
+<text x="686" y="542" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="13" font-weight="400" fill="#74e08c" text-anchor="start">▶</text>
+<text x="704" y="542" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="13" font-weight="400" fill="#8a9291" text-anchor="start">1.</text>
+<text x="732" y="542" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="13.5" font-weight="400" fill="#e9ece9" text-anchor="start">Lofi</text>
+<text x="777.6" y="542" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12" font-weight="400" fill="#98a09f" text-anchor="start">lofi / chillhop</text>
+<text x="1118" y="542" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12" font-weight="400" fill="#74e08c" text-anchor="end">● 99</text>
+<text x="686" y="569" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="13" font-weight="400" fill="#8a9291" text-anchor="start">▸</text>
+<text x="704" y="569" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="13" font-weight="400" fill="#8a9291" text-anchor="start">2.</text>
+<text x="732" y="569" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="13.5" font-weight="400" fill="#98a09f" text-anchor="start">Synthwave</text>
+<text x="819.6" y="569" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12" font-weight="400" fill="#98a09f" text-anchor="start">retrowave</text>
+<text x="1118" y="569" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12" font-weight="400" fill="#74e08c" text-anchor="end">● 26</text>
+<text x="686" y="596" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="13" font-weight="400" fill="#8a9291" text-anchor="start">▸</text>
+<text x="704" y="596" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="13" font-weight="400" fill="#8a9291" text-anchor="start">3.</text>
+<text x="732" y="596" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="13.5" font-weight="400" fill="#98a09f" text-anchor="start">EDM</text>
+<text x="769.2" y="596" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12" font-weight="400" fill="#98a09f" text-anchor="start">electronic</text>
+<text x="1118" y="596" font-family="'JetBrains Mono', ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12" font-weight="400" fill="#74e08c" text-anchor="end">● 13</text>
 </svg>

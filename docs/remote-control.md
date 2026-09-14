@@ -115,6 +115,10 @@ Run `cliamp remote capabilities` to get the current machine-readable list.
 `queue.*` applies to the live playlist. `playnext.*` applies only to the
 play-next list. They use separate zero-based indexes.
 
+Use IDs returned by `provider.playlists` for subsequent provider operations.
+Radio favorite IDs are stable `f:<station URL>` values, not positional
+`f:<index>` values.
+
 Request provider list responses with `offset` and `limit` when the provider
 supports paging. Use `playlist.replace` to save a GUI-created order, sort, or
 deduplication result as one operation when the provider supports playlist saving.

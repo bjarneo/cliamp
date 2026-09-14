@@ -50,7 +50,11 @@ provider = "jellyfin"
 
 Jellyfin opens directly in **By Artist / Album** mode. Artists are listed alphabetically; selecting one opens their albums, and selecting an album opens its songs.
 
-Press `N` while browsing Jellyfin to temporarily switch to **By Album** or **By Artist**. These alternate modes apply only to the current session; the next launch always returns to **By Artist / Album**.
+When Jellyfin is the default provider, cliamp remembers the most recently played Jellyfin track, its playback position, and the complete album or track list it was chosen from. Queued tracks retain their own source context, including duplicate entries. State is saved when a track starts, every two seconds during confirmed playback, and during a normal exit. `q` and `Ctrl+C` save the current position; terminal closure or an abrupt exit restores the last checkpoint. Buffering and unfinished seeks do not overwrite it with an unconfirmed position.
+
+On the next launch with no explicit files, URLs, or playlist, cliamp restores that context with the last track selected. Press `Enter` to continue from the saved position. An explicitly configured `auto_play` setting is ignored for restored context so reopening cliamp stays silent. Saved stream URLs use current authentication when playback or preloading starts, including username-and-password sessions, without waiting for authentication during restoration.
+
+Press `N` while browsing Jellyfin to temporarily switch to **By Album** or **By Artist**. These alternate modes apply only to the current session; the next launch without a remembered track returns to **By Artist / Album**.
 
 ## How it works
 

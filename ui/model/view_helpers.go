@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/bjarneo/cliamp/external/radio"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/ui"
@@ -169,9 +170,55 @@ type markerColumns struct {
 func (m Model) markerColumns() markerColumns {
 	return markerColumns{
 		queue:    m.playlist.QueueLen() > 0,
-		bookmark: m.playlist.BookmarkCount() > 0,
+		bookmark: m.playlistStarCount() > 0,
 		favorite: len(m.favSet) > 0,
 	}
+}
+
+// playlistStarCount uses the same meaning of a star as the individual rows.
+func (m Model) playlistStarCount() int {
+	if m.radioFavorites == nil {
+		return m.playlist.BookmarkCount()
+	}
+	return m.radioMarkers.starCount(m)
+}
+
+// radioMarkerCache memoizes the whole-playlist star count without copying tracks
+// every frame. Input revisions also cover mutations made outside key handlers.
+type radioMarkerCache struct {
+	key   radioMarkerKey
+	count int
+}
+
+type radioMarkerKey struct {
+	playlist          *playlist.Playlist
+	playlistRevision  uint64
+	favorites         *radio.Favorites
+	favoritesRevision uint64
+	savedPlaylist     bool
+}
+
+func (c *radioMarkerCache) starCount(m Model) int {
+	key := radioMarkerKey{
+		playlist: m.playlist, playlistRevision: m.playlist.Revision(),
+		favorites: m.radioFavorites, favoritesRevision: m.radioFavorites.Revision(),
+		savedPlaylist: m.loadedPlaylist != "",
+	}
+	if c.key == key {
+		return c.count
+	}
+	count := m.playlist.BookmarkCount()
+	if !key.savedPlaylist && (count > 0 || m.radioFavorites.Count() > 0) {
+		count = 0
+		for i := range m.playlist.Len() {
+			track, ok := m.playlist.Track(i)
+			if ok && m.playlistTrackStarred(track) {
+				count++
+			}
+		}
+	}
+	c.key, c.count = key, count
+	return count
 }
 
 // cursorLine renders a list item with "> " prefix when active, "  " otherwise.

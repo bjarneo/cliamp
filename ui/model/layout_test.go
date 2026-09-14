@@ -46,7 +46,7 @@ func TestFrameLayoutTiers(t *testing.T) {
 	}{
 		{name: "too small", width: 39, height: 9, wantTier: layoutTooSmall},
 		{name: "minimal", width: 40, height: 10, wantTier: layoutMinimal},
-		{name: "compact", width: 56, height: 16, wantTier: layoutCompact, wantVisRows: 3},
+		{name: "compact", width: 56, height: 16, wantTier: layoutCompact, wantVisRows: compactVisRows},
 		{name: "full", width: 80, height: 24, wantTier: layoutFull, wantVisRows: ui.DefaultVisRows},
 	}
 
@@ -76,6 +76,19 @@ func TestFrameLayoutTiers(t *testing.T) {
 }
 
 func TestResponsiveViewsFitTerminal(t *testing.T) {
+	// Provider count matters: the source row is only drawn with more than one,
+	// so a single-provider model never exercises the tallest chrome. Pane
+	// state matters for the same reason at the full tier.
+	variants := []struct {
+		name      string
+		providers []ProviderEntry
+		hidePane  bool
+	}{
+		{name: "one provider", providers: []ProviderEntry{{Name: "Local"}}},
+		{name: "many providers", providers: []ProviderEntry{{Name: "Local"}, {Name: "Radio"}, {Name: "Navidrome"}}},
+		{name: "many providers, pane closed", providers: []ProviderEntry{{Name: "Local"}, {Name: "Radio"}}, hidePane: true},
+	}
+
 	for _, size := range []struct{ width, height int }{
 		{39, 9},
 		{40, 10},
@@ -84,19 +97,24 @@ func TestResponsiveViewsFitTerminal(t *testing.T) {
 		{80, 24},
 		{120, 40},
 	} {
-		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
-			m := newLayoutTestModel(size.width, size.height)
-			m.status.text = "a status message\nthat must not create another row"
-			out := m.View().Content
-			if got := lipgloss.Height(out); got > size.height {
-				t.Fatalf("view height = %d, want <= %d\n%s", got, size.height, out)
-			}
-			for _, line := range strings.Split(out, "\n") {
-				if got := lipgloss.Width(line); got > size.width {
-					t.Fatalf("line width = %d, want <= %d: %q", got, size.width, line)
+		for _, v := range variants {
+			t.Run(fmt.Sprintf("%dx%d/%s", size.width, size.height, v.name), func(t *testing.T) {
+				m := newLayoutTestModel(size.width, size.height)
+				m.providers = v.providers
+				m.hideSettings = v.hidePane
+				m.recomputeLayout()
+				m.status.text = "a status message\nthat must not create another row"
+				out := m.View().Content
+				if got := lipgloss.Height(out); got > size.height {
+					t.Fatalf("view height = %d, want <= %d\n%s", got, size.height, out)
 				}
-			}
-		})
+				for _, line := range strings.Split(out, "\n") {
+					if got := lipgloss.Width(line); got > size.width {
+						t.Fatalf("line width = %d, want <= %d: %q", got, size.width, line)
+					}
+				}
+			})
+		}
 	}
 }
 
@@ -127,9 +145,11 @@ func TestExpandedPlaylistWithoutVisualizerFillsTerminal(t *testing.T) {
 		wantFixed     int
 		extraBodyRows int
 	}{
-		{width: 80, height: 50, wantFixed: 10, extraBodyRows: 6},
-		{width: 80, height: 24, wantFixed: 10, extraBodyRows: 6},
-		{width: 56, height: 20, wantFixed: 9, extraBodyRows: 3},
+		// extraBodyRows is what turning the visualizer off gives back: its
+		// height plus the blank row that framed it at the full tier.
+		{width: 80, height: 50, wantFixed: 10, extraBodyRows: ui.DefaultVisRows + 1},
+		{width: 80, height: 24, wantFixed: 10, extraBodyRows: ui.DefaultVisRows + 1},
+		{width: 56, height: 20, wantFixed: 9, extraBodyRows: compactVisRows},
 	} {
 		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
 			mWithVis := newLayoutTestModel(size.width, size.height)
@@ -275,8 +295,8 @@ func TestResizeHidesMinimalVisualizerAndRestoresCanvas(t *testing.T) {
 	if !m.visualizerVisible() {
 		t.Fatal("visualizerVisible() = false after compact resize, want true")
 	}
-	if m.vis.Rows != 3 {
-		t.Fatalf("restored visualizer rows = %d, want 3", m.vis.Rows)
+	if m.vis.Rows != compactVisRows {
+		t.Fatalf("restored visualizer rows = %d, want %d", m.vis.Rows, compactVisRows)
 	}
 	m.tickVisualizer(t0.Add(2 * time.Second))
 	if got := m.vis.Frame(); got != before+1 {
@@ -564,7 +584,7 @@ func TestConfiguredVisualizerRows(t *testing.T) {
 		{name: "taller than the default", width: 120, height: 50, visRows: 20, want: 20},
 		{name: "shorter than the default", width: 120, height: 50, visRows: 2, want: 2},
 		{name: "capped by a short terminal", width: 120, height: 24, visRows: 40, want: 9},
-		{name: "compact tier is unaffected", width: 60, height: 16, visRows: 20, want: 3},
+		{name: "compact tier is unaffected", width: 60, height: 16, visRows: 20, want: compactVisRows},
 	}
 
 	for _, tt := range tests {
@@ -582,5 +602,53 @@ func TestConfiguredVisualizerRows(t *testing.T) {
 				t.Fatalf("view height = %d, want <= %d", got, tt.height)
 			}
 		})
+	}
+}
+
+// Simplified mode drops its own layout as soon as the provider or an overlay
+// takes focus, and those screens do draw a list. SetExpanded must therefore
+// reach heightExpanded there exactly as Ctrl+X does, or --simplified --expanded
+// would do nothing on the only screens where it shows.
+func TestSetExpandedAppliesToSimplifiedProviderLists(t *testing.T) {
+	m := newLayoutTestModel(100, 50)
+	m.SetSimplified(true)
+	m.focus = focusProvider
+	m.recomputeLayout()
+
+	collapsed := m.plVisible
+	if collapsed == 0 {
+		t.Fatal("provider list rows = 0 in simplified mode, want the content-first list")
+	}
+
+	m.SetExpanded(true)
+	if !m.heightExpanded {
+		t.Fatal("SetExpanded did not set the expanded height in simplified mode")
+	}
+	if m.plVisible != m.layout.bodyRows {
+		t.Fatalf("expanded provider list rows = %d, want available body rows %d", m.plVisible, m.layout.bodyRows)
+	}
+	if m.plVisible <= collapsed {
+		t.Fatalf("expanded provider list rows = %d, want more than collapsed %d", m.plVisible, collapsed)
+	}
+
+	// And it matches what the key produces from the same state.
+	byKey := newLayoutTestModel(100, 50)
+	byKey.SetSimplified(true)
+	byKey.focus = focusProvider
+	byKey.recomputeLayout()
+	byKey.toggleExpandedView()
+	if byKey.plVisible != m.plVisible {
+		t.Fatalf("Ctrl+X rows = %d, SetExpanded rows = %d, want the same", byKey.plVisible, m.plVisible)
+	}
+}
+
+// The playback screen has no playlist in simplified mode, so the height is
+// carried but ignored rather than blocked.
+func TestSetExpandedIsInertOnTheSimplifiedPlaybackScreen(t *testing.T) {
+	m := newLayoutTestModel(100, 50)
+	m.SetSimplified(true)
+	m.SetExpanded(true)
+	if m.plVisible != 0 {
+		t.Fatalf("simplified playback playlist rows = %d, want 0", m.plVisible)
 	}
 }

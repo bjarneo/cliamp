@@ -22,6 +22,12 @@ type tokenSourceFunc func() (*oauth2.Token, error)
 
 func (f tokenSourceFunc) Token() (*oauth2.Token, error) { return f() }
 
+func TestCallbackAddressUsesIPv4Loopback(t *testing.T) {
+	if got, want := callbackAddress(), "127.0.0.1:19872"; got != want {
+		t.Fatalf("callbackAddress() = %q, want %q", got, want)
+	}
+}
+
 func TestAwaitSpotifyStreamTimeoutCancelsTransportAndReleasesReadLock(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		const timeout = 10 * time.Millisecond

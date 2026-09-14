@@ -276,6 +276,85 @@ func TestAddTrack(t *testing.T) {
 	}
 }
 
+func TestPlaylistWritesPreserveSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating symlinks may require elevated privileges on Windows")
+	}
+
+	root := t.TempDir()
+	p := &Provider{dir: filepath.Join(root, "playlists")}
+	managedDir := filepath.Join(root, "managed")
+	dirs := []string{p.dir, managedDir}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	checkDirModes := func() {
+		t.Helper()
+		for _, dir := range dirs {
+			info, err := os.Stat(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := info.Mode().Perm(); got != 0o755 {
+				t.Errorf("directory %q mode = %o, want unchanged mode 755", dir, got)
+			}
+		}
+	}
+	target := filepath.Join(managedDir, "radio.toml")
+	initial := []byte("[[track]]\npath = \"https://example.com/one\"\ntitle = \"One\"\n")
+	if err := os.WriteFile(target, initial, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(p.dir, "radio.toml")
+	if err := os.Symlink(filepath.Join("..", "managed", "radio.toml"), link); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.AddTrack("radio", playlist.Track{Path: "https://example.com/two", Title: "Two"}); err != nil {
+		t.Fatal(err)
+	}
+	checkDirModes()
+	info, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("playlist symlink was replaced")
+	}
+	tracks, err := p.Tracks("radio")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tracks) != 2 || tracks[1].Title != "Two" {
+		t.Fatalf("Tracks = %+v, want appended track", tracks)
+	}
+
+	restored := []byte("[[track]]\npath = \"https://example.com/restored\"\ntitle = \"Restored\"\n")
+	if err := p.RestorePlaylistDocument("radio", restored); err != nil {
+		t.Fatal(err)
+	}
+	info, err = os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("playlist symlink was replaced during restore")
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(data, restored) {
+		t.Fatalf("restored target contents = %q, want %q", data, restored)
+	}
+	checkDirModes()
+}
+
 func TestCreatePlaylistCreatesEmptyFile(t *testing.T) {
 	p := newTestProvider(t)
 

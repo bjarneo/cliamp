@@ -3,6 +3,8 @@ package model
 import (
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/external/radio"
+	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
 
@@ -13,7 +15,7 @@ func (m *Model) maybeLoadCatalogBatch() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	if m.catalogBatch.loading || m.catalogBatch.done {
+	if m.catalogBatch.loading || m.catalogBatch.done || m.provSearch.active || m.provSearch.loading {
 		return nil
 	}
 	if cs, ok := m.provider.(provider.CatalogSearcher); ok && cs.IsSearching() {
@@ -55,10 +57,9 @@ func (m *Model) answerLocationPrompt(allowed bool) tea.Cmd {
 }
 
 // toggleProviderFavorite toggles favorite status for the current entry in the
-// provider list (only works for providers implementing FavoriteToggler + SectionedList).
+// provider list when the provider supports it.
 func (m *Model) toggleProviderFavorite() tea.Cmd {
-	ft, ok := m.provider.(provider.FavoriteToggler)
-	if !ok || len(m.providerLists) == 0 {
+	if m.provLoading || m.provCursor < 0 || m.provCursor >= len(m.providerLists) || m.selectedProviderListIsBrowseEntry() {
 		return nil
 	}
 	id := m.providerLists[m.provCursor].ID
@@ -67,28 +68,110 @@ func (m *Model) toggleProviderFavorite() tea.Cmd {
 			return nil
 		}
 	}
+	if !m.toggleFavorite(m.provider, id) {
+		return nil
+	}
+
+	m.refreshProviderListsAfterMutation()
+	return nil
+}
+
+// toggleFavorite shares persistence feedback without decorating item metadata.
+func (m *Model) toggleFavorite(prov playlist.Provider, id string) bool {
+	ft, ok := prov.(provider.FavoriteToggler)
+	if !ok || id == "" {
+		return false
+	}
 	added, name, err := ft.ToggleFavorite(id)
 	if err != nil {
-		return nil
+		m.status.Errorf(statusTTLDefault, "Favorite save failed: %s", err)
+		return false
 	}
 	if added {
 		m.status.Showf(statusTTLMedium, "Favorited: %s", name)
 	} else {
 		m.status.Showf(statusTTLMedium, "Removed: %s", name)
 	}
+	return true
+}
 
-	prevID := id
-	if lists, err := m.provider.Playlists(); err == nil {
-		m.providerLists = providerListsWithBrowse(m.provider, lists)
-		for i, p := range m.providerLists {
-			if p.ID == prevID {
-				m.provCursor = i
-				return nil
-			}
+// playlistStarAction keeps the key handler and its help scoped to the same
+// selection. Saved local playlists retain their per-playlist bookmark meaning.
+type playlistStarAction uint8
+
+const (
+	starUnavailable playlistStarAction = iota
+	starBookmark
+	starRadioFavorite
+)
+
+func (m Model) selectedPlaylistStarAction() playlistStarAction {
+	if m.playlist == nil || m.focus != focusPlaylist || m.plCursor < 0 || m.plCursor >= m.playlist.Len() {
+		return starUnavailable
+	}
+	if m.loadedPlaylist != "" {
+		if _, ok := m.localProvider.(provider.BookmarkSetter); ok {
+			return starBookmark
 		}
-		if m.provCursor >= len(m.providerLists) {
-			m.provCursor = max(0, len(m.providerLists)-1)
+		return starUnavailable
+	}
+	if m.radioFavorites != nil {
+		track, _ := m.playlist.Track(m.plCursor)
+		if _, ok := radio.StationFromTrack(track); ok {
+			return starRadioFavorite
+		}
+	}
+	return starUnavailable
+}
+
+func (m *Model) togglePlaylistStar() tea.Cmd {
+	action := m.selectedPlaylistStarAction()
+	if action == starUnavailable {
+		return nil
+	}
+	track, _ := m.playlist.Track(m.plCursor)
+	switch action {
+	case starBookmark:
+		bs := m.localProvider.(provider.BookmarkSetter)
+		if err := bs.SetBookmarkByPath(m.loadedPlaylist, track.Path); err != nil {
+			m.status.Errorf(statusTTLDefault, "Save failed: %s", err)
+			return nil
+		}
+		m.playlist.ToggleBookmark(m.plCursor)
+		track, _ = m.playlist.Track(m.plCursor)
+		if track.Bookmark {
+			m.status.Showf(statusTTLDefault, "★ %s", track.DisplayName())
+		} else {
+			m.status.Showf(statusTTLDefault, "☆ %s", track.DisplayName())
+		}
+	case starRadioFavorite:
+		station, _ := radio.StationFromTrack(track)
+		added, err := m.radioFavorites.Toggle(station)
+		if err != nil {
+			m.status.Errorf(statusTTLDefault, "Favorite save failed: %s", err)
+			return nil
+		}
+		if added {
+			m.status.Showf(statusTTLMedium, "Favorited station: %s", station.Name)
+		} else {
+			m.status.Showf(statusTTLMedium, "Removed station: %s", station.Name)
+		}
+		// Only the displayed Radio pane needs refreshing. Switching back from
+		// another provider fetches its list normally; never replace that provider's
+		// list with Radio's results.
+		if m.isActiveProvider("Radio") {
+			m.refreshProviderListsAfterMutation()
 		}
 	}
 	return nil
+}
+
+// playlistTrackStarred does not reuse Track.Bookmark for radio favorites.
+func (m Model) playlistTrackStarred(track playlist.Track) bool {
+	if m.loadedPlaylist == "" && m.radioFavorites != nil {
+		if station, ok := radio.StationFromTrack(track); ok {
+			return m.radioFavorites.Contains(station.URL)
+		}
+	}
+	return track.Bookmark
 }

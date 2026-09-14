@@ -97,7 +97,7 @@ When focused on the provider panel:
 |---|---|
 | `Up` `Down` / `j` `k` | Navigate playlists |
 | `Enter` | Load the selected playlist |
-| `Tab` | Switch between provider and playlist focus |
+| `Tab` | Return to playback controls, starting at Source when visible ([navigation](keybindings.md#navigation)) |
 | `Ctrl+R` | Refresh playlists from YouTube |
 | `Esc` / `b` | Open provider browser |
 

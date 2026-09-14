@@ -72,6 +72,25 @@ const (
 	closedSettingsChromeRows = 2
 )
 
+// Chrome heights are counted as "everything but the visualizer" plus the
+// visualizer, so changing a visualizer height cannot leave the row budget
+// disagreeing with what is drawn.
+const (
+	// fullBaseRows is the full tier's chrome without the visualizer: title,
+	// track line, time, a blank, the seek bar, the EQ/volume row, the source
+	// row, the playlist header, a blank, the hint bar, and the status line.
+	fullBaseRows = 11
+	// compactBaseRows is the same count for the compact tier, which drops the
+	// blank spacers and uses one-line controls.
+	compactBaseRows = 9
+	// compactVisRows is the compact tier's fixed visualizer height.
+	compactVisRows = 5
+)
+
+// fullChromeRows is the full tier's chrome height at the default visualizer
+// size, the baseline the configurable vis_rows is measured against.
+func fullChromeRows() int { return fullBaseRows + ui.DefaultVisRows }
+
 func (l frameLayout) tooSmall() bool {
 	return l.tier == layoutTooSmall
 }
@@ -103,19 +122,19 @@ func (m *Model) recomputeLayout() {
 		layout.tier = layoutTooSmall
 	case width >= 80 && height >= 24:
 		layout.tier = layoutFull
-		// fixedRows counts the five default visualizer rows, so extra rows come
+		// fixedRows counts the default visualizer height, so extra rows come
 		// straight out of the playlist below.
 		rows := m.visualizerRowsSetting()
-		bodyAtDefault := height - 2*paddingV - 16 - layout.footerRows
+		bodyAtDefault := height - 2*paddingV - fullChromeRows() - layout.footerRows
 		if extra := rows - ui.DefaultVisRows; extra > 0 {
 			rows = ui.DefaultVisRows + min(extra, max(0, bodyAtDefault-1))
 		}
 		layout.visualizerRows = rows
-		layout.fixedRows = 16 + rows - ui.DefaultVisRows
+		layout.fixedRows = fullBaseRows + rows
 	case width >= 56 && height >= 16:
 		layout.tier = layoutCompact
-		layout.visualizerRows = 3
-		layout.fixedRows = 12
+		layout.visualizerRows = compactVisRows
+		layout.fixedRows = compactBaseRows + compactVisRows
 	default:
 		layout.tier = layoutMinimal
 		layout.fixedRows = 7
@@ -163,6 +182,18 @@ func (m *Model) recomputeLayout() {
 	// does not include that row and must not be reduced here.
 	if m.hideHelpBar && !simplified {
 		layout.fixedRows = max(0, layout.fixedRows-1)
+	}
+	if layout.twoColumn && m.showMetadata && !m.visualizerDisabled() {
+		// Opening details can borrow visualizer rows, never hide direct settings.
+		// The configured height stays intact and returns when details close.
+		bodyRows := height - 2*paddingV - layout.fixedRows - layout.footerRows
+		needed := 5 + metadataPaneMaxRows
+		if len(m.providers) > 1 {
+			needed++
+		}
+		freed := min(max(0, needed-bodyRows), max(0, layout.visualizerRows-1))
+		layout.visualizerRows -= freed
+		layout.fixedRows -= freed
 	}
 
 	layout.fullVisualizerRows = max(1, height-6-2*paddingV)

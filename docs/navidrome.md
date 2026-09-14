@@ -30,7 +30,7 @@ NAVIDROME_URL=http://localhost:4533 NAVIDROME_USER=admin NAVIDROME_PASS=secret c
 
 When these environment variables are set, Cliamp authenticates with the Navidrome server through the Subsonic API. At startup, it gets playlists and shows them in the TUI.
 
-Use the arrow keys to browse playlists. Press Enter to load one. Cliamp adds its tracks to the local playlist and starts playback. The server streams audio as MP3.
+Use the arrow keys to browse playlists. Press Enter to load one. Cliamp adds its tracks to the local playlist and starts playback. Navidrome streams the original file or a transcode, depending on its [transcoding settings](#transcoding).
 
 ## Controls
 
@@ -40,7 +40,7 @@ When focused on the provider panel:
 |---|---|
 | `Up` `Down` / `j` `k` | Navigate playlists |
 | `Enter` | Load the selected playlist |
-| `Tab` | Switch between provider and playlist focus |
+| `Tab` | Return to playback controls, starting at Source when visible ([navigation](keybindings.md#navigation)) |
 | `N` | Open the Navidrome browser |
 
 After you load a playlist, Cliamp returns to the standard playlist view. Use the usual controls for seek, volume, EQ, shuffle, repeat, queue, and search.
@@ -116,6 +116,19 @@ The Navidrome client (`external/navidrome/client.go`) implements this interface.
 Bubbletea commands get playlists and tracks asynchronously. The UI remains responsive while the server responds.
 
 To support another Subsonic-compatible server, such as Airsonic or Gonic, implement the same `Provider` interface for that server API.
+
+## Transcoding
+
+By default, Navidrome decides which format to stream. If you configure transcoding for the cliamp player in Navidrome's web UI, that setting applies. Otherwise, Navidrome sends the original file.
+
+To always request the original file, add `format = "raw"` to your existing `[navidrome]` section in `~/.config/cliamp/config.toml`. If you use environment variables for credentials, you can create the section with just this setting:
+
+```toml
+[navidrome]
+format = "raw"
+```
+
+Other values, such as `"mp3"`, `"aac"`, or `"opus"`, are sent as the requested format, but transcoding configured for the player in Navidrome takes precedence. Only `"raw"` bypasses that server setting. Format values are case-insensitive; surrounding whitespace is ignored.
 
 ## Requirements
 

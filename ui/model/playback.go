@@ -12,11 +12,84 @@ import (
 	"github.com/bjarneo/cliamp/provider"
 )
 
-const ytdlReconnectPauseThreshold = 45 * time.Second
+const (
+	ytdlReconnectPauseThreshold = 45 * time.Second
+	resumeSaveInterval          = 2 * time.Second
+)
 
 func (m *Model) replacePlaylist(tracks []playlist.Track) {
+	if m.resumeSaver != nil {
+		tracks = playlist.WithPlaybackContext(tracks)
+	}
 	m.playlist.Replace(tracks)
 	m.normalizeQueueOverlay()
+}
+
+func trackIndexByPath(tracks []playlist.Track, path string) int {
+	for i, track := range tracks {
+		if track.Path == path {
+			return i
+		}
+	}
+	return -1
+}
+
+func (m *Model) setPlaybackContext(tracks []playlist.Track, index int) {
+	m.playbackContext = cloneTracks(tracks)
+	m.playbackContextIndex = index
+}
+
+func (m *Model) playbackContextFor(track playlist.Track) ([]playlist.Track, int) {
+	if context, index := track.PlaybackContext(); index >= 0 {
+		return context, index
+	}
+	context := m.playbackContext
+	index := m.playbackContextIndex
+	if index >= 0 && index < len(context) && context[index].Path == track.Path {
+		return context, index
+	}
+	if m.playlist != nil {
+		context = m.playlist.Tracks()
+		index = m.playlist.Index()
+		if index >= 0 && index < len(context) && context[index].Path == track.Path {
+			return context, index
+		}
+	}
+	// Path lookup is only a fallback when the source entry's index is unknown.
+	if index := trackIndexByPath(m.playbackContext, track.Path); index >= 0 {
+		return m.playbackContext, index
+	}
+	return context, trackIndexByPath(context, track.Path)
+}
+
+func (m *Model) persistPlaybackContext(track playlist.Track, positionSec int, now time.Time) {
+	if m.resumeSaver == nil {
+		return
+	}
+	context, index := m.playbackContextFor(track)
+	if index < 0 {
+		return
+	}
+	m.resumeSaver(track, positionSec, cloneTracks(context), index)
+	m.lastResumeSave = now
+}
+
+func (m *Model) tickResumeSave(now time.Time) {
+	if m.resumeSaver == nil || m.player == nil || !m.player.IsPlaying() {
+		return
+	}
+	if m.buffering || m.seek.active || m.seek.inFlight || m.seek.pending {
+		return
+	}
+	if !m.lastResumeSave.IsZero() && now.Sub(m.lastResumeSave) < resumeSaveInterval {
+		return
+	}
+	track, index := m.currentPlaybackTrack()
+	if index < 0 {
+		return
+	}
+	// cachedPos can still contain a seek preview rather than decoder progress.
+	m.persistPlaybackContext(track, max(0, int(m.player.Position().Seconds())), now)
 }
 
 // nextTrack advances to the next playlist track and starts playing it.
@@ -25,8 +98,7 @@ func (m *Model) nextTrack() tea.Cmd {
 	if m.playbackDetached {
 		m.playbackDetached = false
 		if m.playlist.Len() == 0 {
-			m.player.Stop()
-			m.clearPlaybackTrack()
+			m.stopPlayback()
 			return nil
 		}
 		return m.playCurrentTrack()
@@ -34,8 +106,7 @@ func (m *Model) nextTrack() tea.Cmd {
 	track, ok := m.playlist.Next()
 	m.normalizeQueueOverlay()
 	if !ok {
-		m.player.Stop()
-		m.clearPlaybackTrack()
+		m.stopPlayback()
 		return nil
 	}
 	m.plCursor = m.playlist.Index()
@@ -89,8 +160,7 @@ func (m *Model) playCurrentTrack() tea.Cmd {
 	}
 	activation, ok := m.playlist.ActivateSelected()
 	if !ok {
-		m.player.Stop()
-		m.clearPlaybackTrack()
+		m.stopPlayback()
 		m.status.Warning("No available tracks", statusTTLDefault)
 		return nil
 	}
@@ -312,9 +382,8 @@ func (m *Model) removeSelectedFromPlaylist() {
 	m.normalizeQueueOverlay()
 	m.playlistUndo = playlistUndo{active: true, snapshot: snapshot, loaded: loaded, saved: saved, persisted: persisted}
 	if wasActive {
-		m.player.Stop()
+		m.stopPlayback()
 		m.player.ClearPreload()
-		m.clearPlaybackTrack()
 	}
 	if newLen := m.playlist.Len(); newLen == 0 {
 		m.plCursor = 0
@@ -380,8 +449,6 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		}
 		return playYTDLStreamCmd(m.player, track.Path, dur, m.requests.stream)
 	}
-	// Fire now-playing notification for Navidrome tracks.
-	m.nowPlaying(track)
 	dur := time.Duration(track.DurationSecs) * time.Second
 	if track.Stream {
 		m.buffering = true
@@ -404,6 +471,7 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		// yt-dlp streams resume after streamPlayedMsg; local playback reaches
 		// this branch, where applyResume performs the seek synchronously.
 		m.applyResume()
+		m.nowPlaying(track)
 		m.backfillLoadedPlaylistDuration(track)
 		if fetchCmd != nil {
 			return tea.Batch(m.preloadNext(), fetchCmd)
@@ -467,7 +535,21 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	m.preloading = false
 	nextRequest(&m.requests.lyrics)
 	track = playlist.RefreshEmbeddedMetadata(track)
+	context, index := track.PlaybackContext()
+	if index < 0 && m.playlist != nil {
+		context = m.playlist.Tracks()
+		index = m.playlist.Index()
+		if index < 0 || index >= len(context) || context[index].Path != track.Path {
+			index = trackIndexByPath(context, track.Path)
+		}
+	}
+	m.setPlaybackContext(context, index)
 	m.setPlaybackTrack(track)
+	positionSec := 0
+	if m.resume.path == track.Path {
+		positionSec = m.resume.secs
+	}
+	m.persistPlaybackContext(track, positionSec, time.Now())
 	historyCmd := m.recordListenedTrack(track)
 	m.reconnect.attempts = 0
 	m.reconnect.at = time.Time{}

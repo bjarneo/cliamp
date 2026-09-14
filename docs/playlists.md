@@ -256,7 +256,7 @@ Run `cliamp` without arguments to connect to the built-in radio channel. If you 
 To browse local playlists, press `Esc` or `b` during playback to open the
 provider browser. Use `Up`/`Down` or `j`/`k` to navigate. Press `Enter` to load
 a playlist. Its tracks replace the current playlist and start playback. Press
-`Tab` to return to the now-playing playlist without loading it again.
+`Esc` or `b` to return to the now-playing playlist without loading it again.
 
 If you also configure Navidrome, both sources appear in one list with provider
 labels, such as `[Navidrome] Jazz` and `[Local Playlists] favorites`.
@@ -368,7 +368,7 @@ title = "My Radio"
 |-----|--------|
 | `Up` `Down` / `j` `k` | Navigate playlists |
 | `Enter` | Load the selected playlist |
-| `Tab` | Switch to the now-playing playlist |
+| `Tab` | Return to playback controls, starting at Source when visible ([navigation](keybindings.md#navigation)) |
 | `Esc` `b` | Open browser (from playlist view) |
 
 **Playlist manager (`p` key):**

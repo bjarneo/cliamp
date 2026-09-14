@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
 func TestNavBufferProgressiveReadAndSeek(t *testing.T) {
@@ -19,7 +21,10 @@ func TestNavBufferProgressiveReadAndSeek(t *testing.T) {
 	release := make(chan struct{})
 	var releaseOnce sync.Once
 	releaseDownload := func() { releaseOnce.Do(func() { close(release) }) }
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.UserAgent(); got != httpclient.UserAgent {
+			t.Errorf("User-Agent = %q, want %q", got, httpclient.UserAgent)
+		}
 		w.Header().Set("Content-Length", "10")
 		w.Header().Set("Content-Type", "audio/test")
 		_, _ = io.WriteString(w, "abcd")

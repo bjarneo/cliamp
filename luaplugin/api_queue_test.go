@@ -23,6 +23,7 @@ func TestQueueReads(t *testing.T) {
 	state := &StateProvider{
 		PlaylistCount: func() int { return 3 },
 		CurrentIndex:  func() int { return 1 },
+		HasNext:       func() bool { return true },
 		QueueList: func() []QueueEntry {
 			return []QueueEntry{
 				{Title: "A", Artist: "X", Path: "/a.mp3", Index: 0, Queued: false},
@@ -35,6 +36,7 @@ func TestQueueReads(t *testing.T) {
 	if err := L.DoString(`
 		_G.count = cliamp.queue.count()
 		_G.cur = cliamp.queue.current()
+		_G.hasnext = cliamp.queue.has_next()
 		local list = cliamp.queue.list()
 		_G.n = #list
 		_G.title2 = list[2].title
@@ -50,6 +52,9 @@ func TestQueueReads(t *testing.T) {
 	if got := float64(L.GetGlobal("cur").(lua.LNumber)); got != 1 {
 		t.Errorf("current = %v", got)
 	}
+	if got := bool(L.GetGlobal("hasnext").(lua.LBool)); !got {
+		t.Errorf("has_next = %v, want true", got)
+	}
 	if got := float64(L.GetGlobal("n").(lua.LNumber)); got != 2 {
 		t.Errorf("list len = %v", got)
 	}
@@ -61,6 +66,16 @@ func TestQueueReads(t *testing.T) {
 	}
 	if got := float64(L.GetGlobal("idx1").(lua.LNumber)); got != 0 {
 		t.Errorf("list[1].index = %v (want 0-based)", got)
+	}
+}
+
+func TestQueueHasNextDefaultsFalse(t *testing.T) {
+	L := newQueueState(t, &StateProvider{}, &ControlProvider{}, nil)
+	if err := L.DoString(`_G.hasnext = cliamp.queue.has_next()`); err != nil {
+		t.Fatal(err)
+	}
+	if got := bool(L.GetGlobal("hasnext").(lua.LBool)); got {
+		t.Errorf("has_next without a provider = %v, want false", got)
 	}
 }
 

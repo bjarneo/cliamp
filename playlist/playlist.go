@@ -58,6 +58,10 @@ type Track struct {
 	// ProviderMeta holds provider-specific key-value pairs.
 	// Keys are namespaced by provider, e.g. "navidrome.id", "jellyfin.id".
 	ProviderMeta map[string]string
+
+	// Runtime-only provenance shared by tracks selected from the same source.
+	playbackContext      []Track
+	playbackContextIndex int
 }
 
 // Meta returns the value for a provider-specific metadata key, or "" if unset.
@@ -770,6 +774,33 @@ func (p *Playlist) Next() (Track, bool) {
 		p.revision++
 	}
 	return cloneTrack(p.tracks[idx]), true
+}
+
+// HasNext reports whether a playable track follows the current one in play
+// order: the play-next queue first, then repeat-one, then the shuffled or
+// sequential order, wrapping to the start when repeat-all is on. Unlike
+// PeekNext it answers existence, so it stays true at a shuffle wrap where the
+// next track is not decided yet.
+func (p *Playlist) HasNext() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.tracks) == 0 {
+		return false
+	}
+	if _, _, ok := p.nextPlayableQueued(); ok {
+		return true
+	}
+	if p.repeat == RepeatOne {
+		return p.isPlayable(p.currentOrderTrackIndex())
+	}
+	if _, _, ok := p.firstPlayableOrderSlot(p.pos+1, len(p.order)); ok {
+		return true
+	}
+	if p.repeat != RepeatAll {
+		return false
+	}
+	_, _, ok := p.firstPlayableOrderSlot(0, len(p.order))
+	return ok
 }
 
 // PeekNext returns the next track without advancing the playlist position.

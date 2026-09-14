@@ -57,6 +57,7 @@ type netSearchState struct {
 // provSearchState holds state for filtering the provider playlist list.
 type provSearchState struct {
 	active  bool
+	loading bool // catalog search in flight, before IsSearching reports results
 	query   string
 	results []int // indices into providerLists
 	cursor  int

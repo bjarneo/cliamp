@@ -136,6 +136,12 @@ func (m Model) keymapContext() (commandMode, string) {
 		return commandModeProvider, "Provider"
 	case focusEQ:
 		return commandModeEQ, "Equalizer"
+	case focusVolume:
+		return commandModeVolume, "Volume"
+	case focusShuffle:
+		return commandModeShuffle, "Shuffle"
+	case focusRepeat:
+		return commandModeRepeat, "Repeat"
 	case focusSpeed:
 		return commandModeSpeed, "Speed"
 	case focusProvPill:
