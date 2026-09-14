@@ -18,4 +18,8 @@ const (
 	// the tick at this cadence only services time-based self-changes
 	// (status-message expiry, log-line aging) — those tolerate the latency.
 	TickIdle = 1500 * time.Millisecond // ~0.7 Hz — fully idle, minimal CPU
+	// TickDetached is the cadence of a session nobody is watching: no client
+	// terminal is attached, so the tick only has to keep playback bookkeeping
+	// (drain detection, gapless transitions, preload, resume saves) prompt.
+	TickDetached = 250 * time.Millisecond // 4 Hz — detached playback bookkeeping
 )

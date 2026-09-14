@@ -27,6 +27,7 @@ type Server struct {
 
 	v2Mu       sync.RWMutex
 	v2         V2Dispatcher
+	attach     AttachHandler
 	operations *OperationRegistry
 	jobs       *JobStore
 	context    context.Context
@@ -280,6 +281,10 @@ func (s *Server) handleConn(conn net.Conn) {
 		}
 		if isV2Subscribe(req) {
 			s.streamV2Subscription(conn, req)
+			return
+		}
+		if isV2Attach(req) {
+			s.handleV2Attach(conn, req)
 			return
 		}
 

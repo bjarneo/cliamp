@@ -37,7 +37,8 @@ Top-level layout (each subdirectory below is a Go package):
 | `luaplugin/` | Gopher-Lua VM wrapper + sandbox + plugin APIs (`api_player.go`, `api_fs.go`, `api_http.go`, `api_message.go`, `api_crypto.go`, …). Plugin visualizers live here too |
 | `plugins/` | First-party bundled Lua plugins (`now-playing.lua`, `auto-eq.lua`, …) |
 | `pluginmgr/` | `cliamp plugins install/remove/list` CLI: resolves GitHub/GitLab/Codeberg sources and a direct URL |
-| `ipc/` | Unix-socket IPC: `server.go` listens; `client.go` + `protocol.go` drive subcommands like `cliamp pause` from outside the TUI |
+| `ipc/` | Unix-socket IPC: `server.go` listens; `client.go` + `protocol.go` drive subcommands like `cliamp pause` from outside the TUI. `attach.go` hands a connection over to the session host |
+| `session/` | Detached mode (`--daemon`): `host.go` is the virtual terminal the TUI renders into with no client attached, `client.go` is `cliamp attach`, `protocol.go` the frame stream between them |
 | `mediactl/` | MPRIS (Linux, dbus) + NowPlaying (macOS) integration. `service_linux.go`, `service_darwin.go`, `service_stub.go` for other OSes |
 | `lyrics/` | LRC parsing / fetching |
 | `theme/` | Theme loading, default theme, `themes/` subfolder |
@@ -138,6 +139,7 @@ Golden path for a non-trivial change:
 | "How do keybindings work?" | `ui/model/keymap.go`, `ui/model/keys*.go`, user-facing `docs/keybindings.md` |
 | "How do I add a provider?" | `provider/interfaces.go` → copy `external/navidrome/` as a template |
 | "How does IPC work?" | `ipc/protocol.go` (request/response types), `ipc/server.go`, `ipc/client.go` |
+| "How do `--daemon` and `cliamp attach` work?" | `session/host.go`, `session/client.go`, the detached branch in `main.go` `run(...)`, `docs/headless.md` |
 | "How are Lua plugins sandboxed?" | `luaplugin/sandbox.go`, `luaplugin/luaplugin.go` |
 | "Where are bundled plugins?" | `plugins/` (first-party) |
 | "What visualizers exist?" | `ui/vis_*.go` |
