@@ -567,8 +567,8 @@ p:<span class="k">on</span>(<span class="s">"track.change"</span>, <span class="
       </div>
       <div class="api">
         <div class="api-i">
-          <div class="sig">track.change · playback.state · queue.change</div>
-          <div class="d">Ten events to subscribe to: track changes, scrobbles, seeks, volume, EQ, shuffle and repeat, queue edits, start and quit. Track-change events fire after playback starts successfully, including YouTube, SoundCloud, and gapless transitions. Buffering, failed, or superseded starts do not emit a track change.</div>
+          <div class="sig">track.change · playback.state · queue.end</div>
+          <div class="d">Eleven events to subscribe to: track changes, scrobbles, seeks, volume, EQ, shuffle and repeat, queue edits, end of queue, start and quit. Track-change events fire after playback starts successfully, including YouTube, SoundCloud, and gapless transitions. Buffering, failed, or superseded starts do not emit a track change. End-of-queue events report the last track that started playing, including when a later replacement failed and left it playing. A track still loading when the queue runs out is not reported.</div>
         </div>
         <div class="api-i">
           <div class="sig">cliamp.queue.has_next()</div>
