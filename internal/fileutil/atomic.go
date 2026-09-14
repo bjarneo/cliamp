@@ -8,7 +8,7 @@ import (
 )
 
 // WriteFileAtomic replaces path only after data has been written and synced.
-// Preserves destination symlinks; dangling links fail.
+// Preserves destination symlinks, creating missing target files.
 func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	return replaceFileAtomic(path, data, perm, true)
 }
@@ -21,15 +21,6 @@ func WriteFileAtomicInExistingDir(path string, data []byte, perm os.FileMode) er
 
 func replaceFileAtomic(path string, data []byte, perm os.FileMode, secureDir bool) (err error) {
 	originalDir := filepath.Dir(path)
-	info, err := os.Lstat(path)
-	if err == nil && info.Mode()&os.ModeSymlink != 0 {
-		path, err = filepath.EvalSymlinks(path)
-		if err != nil {
-			return fmt.Errorf("resolve destination symlink: %w", err)
-		}
-	} else if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("inspect destination: %w", err)
-	}
 
 	// Harden only the original directory, not an external symlink target's parent.
 	if secureDir {
@@ -39,6 +30,10 @@ func replaceFileAtomic(path string, data []byte, perm os.FileMode, secureDir boo
 		if err := os.Chmod(originalDir, 0o700); err != nil {
 			return fmt.Errorf("secure directory: %w", err)
 		}
+	}
+	path, err = resolveAtomicDestination(path)
+	if err != nil {
+		return err
 	}
 	dir := filepath.Dir(path)
 	respectUmask := false
@@ -94,4 +89,41 @@ func replaceFileAtomic(path string, data []byte, perm os.FileMode, secureDir boo
 		return fmt.Errorf("sync parent directory: %w", err)
 	}
 	return nil
+}
+
+func resolveAtomicDestination(path string) (string, error) {
+	for links := 0; ; links++ {
+		dir, name := filepath.Split(path)
+		if dir == "" {
+			dir = "."
+		}
+		dir, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			return "", fmt.Errorf("resolve destination directory: %w", err)
+		}
+		path = filepath.Join(dir, name)
+
+		info, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			return path, nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("inspect destination: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			return path, nil
+		}
+		if links >= 255 {
+			return "", fmt.Errorf("resolve destination: too many symbolic links")
+		}
+		target, err := os.Readlink(path)
+		if err != nil {
+			return "", fmt.Errorf("read destination symlink: %w", err)
+		}
+		path = target
+		if !filepath.IsAbs(target) {
+			// Resolve directory symlinks before cleaning any ".." components.
+			path = dir + string(os.PathSeparator) + target
+		}
+	}
 }

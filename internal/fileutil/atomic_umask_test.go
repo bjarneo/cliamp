@@ -36,18 +36,21 @@ func TestWriteFileAtomicInExistingDirUmask(t *testing.T) {
 	defer syscall.Umask(previous)
 
 	for _, tc := range []struct {
-		name string
-		want os.FileMode
+		name     string
+		want     os.FileMode
+		existing bool
+		symlink  bool
 	}{
 		{name: "new", want: 0o644 &^ os.FileMode(mask)},
-		{name: "existing", want: 0o640},
-		{name: "symlink", want: 0o640},
+		{name: "existing", want: 0o640, existing: true},
+		{name: "symlink", want: 0o640, existing: true, symlink: true},
+		{name: "missing-symlink-target", want: 0o644 &^ os.FileMode(mask), symlink: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			target := filepath.Join(dir, "playlist.toml")
 			path := target
-			if tc.name != "new" {
+			if tc.existing {
 				if err := os.WriteFile(target, []byte("old"), 0o640); err != nil {
 					t.Fatal(err)
 				}
@@ -55,7 +58,7 @@ func TestWriteFileAtomicInExistingDirUmask(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if tc.name == "symlink" {
+			if tc.symlink {
 				path = filepath.Join(dir, "link.toml")
 				if err := os.Symlink("playlist.toml", path); err != nil {
 					t.Fatal(err)
