@@ -221,12 +221,15 @@ Use `p:on(event, callback)` to subscribe to events. Callbacks run in goroutines 
 | `player.eq` | `{bands, preset}` | An EQ band or preset changes |
 | `player.mode` | `{shuffle, repeat}` | Shuffle toggled or repeat mode cycled |
 | `queue.change` | `{count, index, queued}` | Playlist or play-next queue changes |
+| `queue.end` | Same as `track.change`, for the finished track | Advancing past the last track stopped playback, whether the track ended or the user skipped. A manual stop does not fire this |
 | `app.start` | `{}` | After all plugins loaded |
 | `app.quit` | `{}` | Before shutdown |
 
 In `playback.state`, `status` is `"playing"`, `"paused"`, or `"stopped"`. In `player.mode`, `repeat` is `"Off"`, `"All"`, or `"One"`, matching `cliamp.player.repeat_mode()`. In `player.eq`, `bands` is an array of 10 dB values.
 
 `track.change` fires after playback starts successfully for all sources, including YouTube and SoundCloud. A stream that is still buffering, fails to start, or is superseded before it starts does not emit this event. Gapless transitions also emit `track.change`. While a replacement buffers, `playback.state` continues to describe the active audio, including its position. A failed replacement does not emit `track.change` or scrobble the track that continues playing.
+
+`queue.end` reports the last track that started playing. A track still loading when the queue runs out is not reported, and a failed initial start emits nothing. When a replacement fails while the previous track keeps playing, reaching the end of the queue later reports that previous track. A replacement that fails after the previous track already finished stops playback without `queue.end`: the queue did not run out, a track failed.
 
 cliamp sends `player.*` and `queue.change` events by comparing state after each UI update. They cover every source, including a keypress, IPC, MPRIS, or another plugin.
 

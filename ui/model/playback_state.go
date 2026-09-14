@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/luaplugin"
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 )
@@ -127,12 +128,27 @@ func (m *Model) finishPlayback(stats player.PlaybackStats) {
 	m.maybeScrobble(m.playing.track, stats.Position, stats.Duration, stats.Seekable)
 }
 
-func (m *Model) stopPlayback() {
+// stopPlayback stops audio and clears playback state. It returns the source
+// that was playing, after adopting a gapless promotion that raced the stop, so
+// callers can report what finished.
+func (m *Model) stopPlayback() *playbackTrack {
 	stats := m.player.Stop()
 	m.consumeGaplessAdvance(&stats)
+	finished := m.playing
 	m.finishPlayback(stats)
 	m.clearPlaybackTrack()
 	m.preloading = false
+	return finished
+}
+
+// endQueue stops playback because nothing follows the current track and tells
+// plugins which track finished, so they can tell the end of the queue apart
+// from a manual stop. Only a source that started playing is reported: a
+// request still loading, a failed start, or an empty player only stops.
+func (m *Model) endQueue() {
+	if finished := m.stopPlayback(); finished != nil {
+		m.emitPlugin(luaplugin.EventQueueEnd, trackToMap(finished.track))
+	}
 }
 
 func (m *Model) applyPreparedSource(msg sourcePreparedMsg) tea.Cmd {

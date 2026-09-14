@@ -23,6 +23,7 @@ const (
 	EventPlayerEQ      = "player.eq"     // data: bands (10-array), preset
 	EventPlayerMode    = "player.mode"   // data: shuffle (bool), repeat ("Off"/"All"/"One")
 	EventQueueChange   = "queue.change"  // data: count, index, queued
+	EventQueueEnd      = "queue.end"     // data: the finished track (same shape as track.change)
 )
 
 // Permission strings declared via plugin.register({ permissions = {...} }).
