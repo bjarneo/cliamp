@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bjarneo/cliamp/internal/sshurl"
@@ -57,28 +58,37 @@ func isSSH(path string) bool {
 // sshReadCloser wraps an SSH subprocess stdout pipe as an io.ReadCloser.
 // Closing it kills the SSH process and reaps the child.
 type sshReadCloser struct {
-	pipe io.ReadCloser // cmd.StdoutPipe()
-	cmd  *exec.Cmd
+	pipe     io.ReadCloser // cmd.StdoutPipe()
+	cmd      *exec.Cmd
+	waitOnce sync.Once
+	waitErr  error
+	unlink   func() bool
 }
 
 func (s *sshReadCloser) Read(p []byte) (int, error) {
 	return s.pipe.Read(p)
 }
 
-func (s *sshReadCloser) Close() error {
-	// Kill the SSH process if still running.
+func (s *sshReadCloser) interrupt() {
 	if s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
 	}
 	_ = s.pipe.Close()
-	waitErr := s.cmd.Wait() // reap zombie
-	// Process.Kill causes Wait to return "signal: killed" — that's expected.
-	if waitErr != nil {
-		if exitErr, ok := waitErr.(*exec.ExitError); ok && exitErr.ExitCode() != -1 {
-			return fmt.Errorf("ssh: %w", waitErr)
-		}
+}
+
+func (s *sshReadCloser) Close() error {
+	if s.unlink != nil {
+		s.unlink()
 	}
-	return nil
+	s.interrupt()
+	s.waitOnce.Do(func() {
+		if err := s.cmd.Wait(); err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != -1 {
+				s.waitErr = fmt.Errorf("ssh: %w", err)
+			}
+		}
+	})
+	return s.waitErr
 }
 
 // shellQuoteSSH wraps a string in single quotes for safe use in a remote shell command.
@@ -90,7 +100,7 @@ func shellQuoteSSH(s string) string {
 // openSSHSource opens a remote file via SSH by running "ssh host cat remotePath"
 // and returning the stdout pipe as an io.ReadCloser.
 // Path format: ssh://hostname/absolute/path/to/file
-func openSSHSource(path string) (sourceResult, error) {
+func openSSHSource(ctx context.Context, path string) (sourceResult, error) {
 	parsed, err := sshurl.Parse(path)
 	if err != nil {
 		return sourceResult{}, err
@@ -105,7 +115,7 @@ func openSSHSource(path string) (sourceResult, error) {
 	catCmd := "cat -- " + shellQuoteSSH(parsed.Path)
 	args := parsed.SSHArgs()
 	args = append(args, catCmd)
-	cmd := exec.Command("ssh", args...)
+	cmd := exec.CommandContext(ctx, "ssh", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return sourceResult{}, fmt.Errorf("ssh stdout pipe: %w", err)
@@ -114,6 +124,7 @@ func openSSHSource(path string) (sourceResult, error) {
 		return sourceResult{}, fmt.Errorf("ssh start: %w", err)
 	}
 	rc := &sshReadCloser{pipe: stdout, cmd: cmd}
+	rc.unlink = context.AfterFunc(ctx, rc.interrupt)
 	return sourceResult{body: rc, contentLength: -1}, nil
 }
 
@@ -187,9 +198,10 @@ func (s *stallReader) Close() error {
 
 // openSource opens a ReadCloser for the given path, handling local files,
 // HTTP URLs, and SSH paths.
-func openSource(path string, onMeta func(string)) (sourceResult, error) {
+// ctx owns the remote source for its entire lifetime, including body reads.
+func openSource(ctx context.Context, path string, onMeta func(string)) (sourceResult, error) {
 	if isSSH(path) {
-		return openSSHSource(path)
+		return openSSHSource(ctx, path)
 	}
 	if !isURL(path) {
 		f, err := os.Open(path)
@@ -197,8 +209,8 @@ func openSource(path string, onMeta func(string)) (sourceResult, error) {
 	}
 	// A cancellable request context lets the stallReader below abort a
 	// half-open live connection whose Read has hung (see streamStallTimeout).
-	ctx, cancel := context.WithCancel(context.Background())
-	req, err := http.NewRequestWithContext(ctx, "GET", path, nil)
+	reqCtx, cancel := context.WithCancel(ctx)
+	req, err := http.NewRequestWithContext(reqCtx, "GET", path, nil)
 	if err != nil {
 		cancel()
 		return sourceResult{}, fmt.Errorf("http request: %w", err)
@@ -320,9 +332,11 @@ func (p *Player) isBufferedURL(path string) bool {
 }
 
 // decodeWithExt selects the decoder using an explicit extension.
-func decodeWithExt(rc io.ReadCloser, ext, path string, sr beep.SampleRate, bitDepth int) (beep.StreamSeekCloser, beep.Format, error) {
+func decodeWithExt(ctx context.Context, rc io.ReadCloser, ext, path string, sr beep.SampleRate, bitDepth int) (beep.StreamSeekCloser, beep.Format, error) {
+	unlink := context.AfterFunc(ctx, func() { _ = rc.Close() })
+	defer unlink()
 	if needsFFmpeg(ext) {
-		return decodeFFmpegLocal(path, sr, bitDepth)
+		return decodeFFmpegLocal(ctx, path, sr, bitDepth)
 	}
 	switch ext {
 	case ".wav":

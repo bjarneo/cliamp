@@ -354,3 +354,76 @@ func TestCredsPath(t *testing.T) {
 		t.Errorf("CredsPath() = %q, want %q", got, want)
 	}
 }
+
+func TestAwaitSpotifyStreamCancellationJoinsLateSuccess(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		setupCtx, setupCancel := context.WithCancel(t.Context())
+		defer setupCancel()
+		streamCtx, streamCancel := context.WithCancel(t.Context())
+		defer streamCancel()
+		opened := make(chan struct{})
+		release := make(chan struct{})
+		returned := make(chan struct{})
+		source := &closeErrorSource{}
+		var session Session
+		var gotStream *librespotPlayer.Stream
+		var gotCancel context.CancelFunc
+		var gotErr error
+		go func() {
+			gotStream, gotCancel, gotErr = awaitSpotifyStream(setupCtx, streamCancel, func() (*librespotPlayer.Stream, error) {
+				session.mu.RLock()
+				defer session.mu.RUnlock()
+				close(opened)
+				<-streamCtx.Done()
+				<-release
+				return &librespotPlayer.Stream{Source: source}, nil
+			})
+			close(returned)
+		}()
+		<-opened
+		setupCancel()
+		synctest.Wait()
+		if !errors.Is(streamCtx.Err(), context.Canceled) {
+			t.Fatal("setup cancellation did not cancel the stream transport")
+		}
+		select {
+		case <-returned:
+			t.Fatal("canceled setup returned before the SDK released its source and session lock")
+		default:
+		}
+		close(release)
+		<-returned
+		if gotStream != nil || gotCancel != nil || !errors.Is(gotErr, context.Canceled) {
+			t.Fatalf("late successful stream escaped cancellation: stream=%v cancel=%v err=%v", gotStream, gotCancel, gotErr)
+		}
+		if !session.mu.TryLock() {
+			t.Fatal("canceled setup retained the session read lock")
+		}
+		session.mu.Unlock()
+		if source.closeCalls != 0 {
+			t.Fatal("setup cleanup called an unsupported concrete AudioSource.Close")
+		}
+	})
+}
+
+func TestAwaitSpotifyStreamSuccessfulOpenRetainsStreamLifetime(t *testing.T) {
+	setupCtx, setupCancel := context.WithCancel(t.Context())
+	defer setupCancel()
+	streamCtx, streamCancel := context.WithCancel(t.Context())
+	defer streamCancel()
+	want := &librespotPlayer.Stream{Source: &noCloseSource{}}
+	stream, cancel, err := awaitSpotifyStream(setupCtx, streamCancel, func() (*librespotPlayer.Stream, error) {
+		return want, nil
+	})
+	if err != nil || stream != want || cancel == nil {
+		t.Fatalf("open = (%v, %v, %v), want usable stream and cancel", stream, cancel, err)
+	}
+	setupCancel()
+	if streamCtx.Err() != nil {
+		t.Fatal("successful stream remained attached to its setup timeout")
+	}
+	cancel()
+	if !errors.Is(streamCtx.Err(), context.Canceled) {
+		t.Fatal("returned cancellation did not release stream transport")
+	}
+}

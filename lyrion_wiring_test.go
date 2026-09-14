@@ -17,7 +17,7 @@ func TestIsBufferedProviderURLIncludesLyrion(t *testing.T) {
 		lyrion.New("http://nas.local:9000", "", ""),
 		lyrion.New("http://nas.local:9000", "bob", "pw"),
 	} {
-		u, _, err := c.ResolveSource(lyrion.TrackURIPrefix + "77")
+		u, _, err := c.ResolveSource(context.Background(), lyrion.TrackURIPrefix+"77")
 		if err != nil {
 			t.Fatalf("ResolveSource: %v", err)
 		}

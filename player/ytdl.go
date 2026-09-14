@@ -47,8 +47,8 @@ func appendYTDLCookieArgs(args []string, pageURL string) []string {
 
 // probeYTDLDuration runs a quick yt-dlp --print duration to obtain
 // the track duration when --flat-playlist didn't provide it.
-func probeYTDLDuration(pageURL string) time.Duration {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func probeYTDLDuration(ctx context.Context, pageURL string) time.Duration {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	args := []string{"--skip-download", "--no-playlist", "--socket-timeout", "10", "--print", "duration"}
 	args = appendYTDLCookieArgs(args, pageURL)
@@ -160,6 +160,8 @@ func ffmpegInstallHint() string {
 // yt-dlp downloads the best audio and writes raw data to stdout; ffmpeg reads
 // that via a pipe and converts it to PCM on its stdout, which we consume.
 type ytdlPipeStreamer struct {
+	ctx        context.Context
+	unlink     func() bool
 	ytdlCmd    *exec.Cmd
 	ffmpegCmd  *exec.Cmd
 	pipe       io.ReadCloser // ffmpeg stdout (PCM output)
@@ -193,6 +195,10 @@ func (y *ytdlPipeStreamer) Stream(samples [][2]float64) (int, bool) {
 // waits up to d for a process to report. Returns nil if neither reported an
 // error, leaving the caller to surface the bare EOF.
 func (y *ytdlPipeStreamer) waitCause(d time.Duration) error {
+	ctx := y.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if d <= 0 {
 		select {
 		case e := <-y.ytdlErr:
@@ -223,6 +229,8 @@ func (y *ytdlPipeStreamer) waitCause(d time.Duration) error {
 			ffErr = e
 		case <-deadline:
 			return ffErr
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
 	return ffErr
@@ -243,18 +251,27 @@ func (y *ytdlPipeStreamer) Position() int {
 }
 func (y *ytdlPipeStreamer) Seek(int) error { return nil }
 
+// interrupt releases the PCM read and kills the children without joining
+// process monitors. The controller can call it before acquiring speaker.Lock.
+func (y *ytdlPipeStreamer) interrupt() {
+	if y.unlink != nil {
+		y.unlink()
+	}
+	if y.ytdlCmd != nil && y.ytdlCmd.Process != nil {
+		_ = y.ytdlCmd.Process.Kill()
+	}
+	if y.ffmpegCmd != nil && y.ffmpegCmd.Process != nil {
+		_ = y.ffmpegCmd.Process.Kill()
+	}
+	if y.pipe != nil {
+		_ = y.pipe.Close()
+	}
+}
+
 func (y *ytdlPipeStreamer) Close() error {
 	y.closeOnce.Do(func() {
-		// Kill both processes to stop downloading/decoding.
-		if y.ytdlCmd.Process != nil {
-			y.ytdlCmd.Process.Kill()
-		}
-		if y.ffmpegCmd.Process != nil {
-			y.ffmpegCmd.Process.Kill()
-		}
-		y.pipe.Close()
-		// The monitor goroutines own Wait. Killing both children and waiting
-		// for their done signals guarantees Close does not leave zombies.
+		y.interrupt()
+		// The monitor goroutines are the sole owners of Wait.
 		if y.ytdlDone != nil {
 			<-y.ytdlDone
 		}
@@ -290,7 +307,7 @@ func monitorExit(cmd *exec.Cmd, stderr *limitedBuffer, name string) (<-chan erro
 // decodeYTDLPipe starts a yt-dlp | ffmpeg pipe chain for the given page URL
 // and returns a streaming PCM decoder. If startSec > 0, ffmpeg -ss is used
 // to skip to the desired position in the input stream.
-func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) (*ytdlPipeStreamer, beep.Format, error) {
+func decodeYTDLPipe(ctx context.Context, pageURL string, sr beep.SampleRate, bitDepth, startSec int) (*ytdlPipeStreamer, beep.Format, error) {
 	if _, err := exec.LookPath("yt-dlp"); err != nil {
 		return nil, beep.Format{}, fmt.Errorf("yt-dlp is required — install: %s", YtdlpInstallHint())
 	}
@@ -320,7 +337,8 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 	}
 	ytdlArgs = appendYTDLCookieArgs(ytdlArgs, pageURL)
 	ytdlArgs = append(ytdlArgs, "--", pageURL)
-	ytdlCmd := exec.Command("yt-dlp", ytdlArgs...)
+	ytdlCmd := exec.CommandContext(ctx, "yt-dlp", ytdlArgs...)
+	ytdlCmd.WaitDelay = time.Second
 	ytdlCmd.Stdout = pw
 	var ytdlStderr limitedBuffer
 	ytdlCmd.Stderr = &ytdlStderr
@@ -346,7 +364,8 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 		"-loglevel", "error",
 		"pipe:1",
 	)
-	ffmpegCmd := exec.Command("ffmpeg", ffmpegArgs...)
+	ffmpegCmd := exec.CommandContext(ctx, "ffmpeg", ffmpegArgs...)
+	ffmpegCmd.WaitDelay = time.Second
 	ffmpegCmd.Stdin = pr
 	var ffmpegStderr limitedBuffer
 	ffmpegCmd.Stderr = &ffmpegStderr
@@ -384,7 +403,8 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 		Precision:   precision,
 	}
 
-	return &ytdlPipeStreamer{
+	decoder := &ytdlPipeStreamer{
+		ctx:        ctx,
 		ytdlCmd:    ytdlCmd,
 		ffmpegCmd:  ffmpegCmd,
 		pipe:       ffmpegPipe,
@@ -395,28 +415,35 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 		ffmpegDone: ffmpegDone,
 		state:      newPipeStreamState(0),
 		f32:        bitDepth == 32,
-	}, format, nil
+	}
+	// Capture resources directly: cancellation may race with installing unlink.
+	decoder.unlink = context.AfterFunc(ctx, func() {
+		_ = ytdlCmd.Process.Kill()
+		_ = ffmpegCmd.Process.Kill()
+		_ = ffmpegPipe.Close()
+	})
+	return decoder, format, nil
 }
 
 // buildYTDLPipeline creates a trackPipeline for a yt-dlp URL.
 // If startSec > 0, playback begins at that offset (seek-by-restart).
-func (p *Player) buildYTDLPipeline(pageURL string, startSec int) (*trackPipeline, error) {
-	p.streamTitle.Store("")
-
+// ctx owns the entire chain, including playback after initial audio arrives.
+func (p *Player) buildYTDLPipeline(ctx context.Context, pageURL string, startSec int) (*trackPipeline, error) {
 	for attempt := 1; ; attempt++ {
-		decoder, format, err := decodeYTDLPipe(pageURL, p.sr, p.bitDepth, startSec)
+		decoder, format, err := decodeYTDLPipe(ctx, pageURL, p.sr, p.bitDepth, startSec)
 		if err != nil {
 			return nil, err
 		}
 
-		if err := prefillYTDLPipe(decoder); err != nil {
-			if attempt == ytdlPipelineMaxAttempts || !isTransientYTDL403(err) {
+		if err := prefillYTDLPipe(ctx, decoder); err != nil {
+			if ctx.Err() != nil || attempt == ytdlPipelineMaxAttempts || !isTransientYTDL403(err) {
 				return nil, err
 			}
 			continue
 		}
 
 		return &trackPipeline{
+			ctx:          ctx,
 			decoder:      decoder,
 			stream:       decoder,
 			format:       format,
@@ -428,7 +455,7 @@ func (p *Player) buildYTDLPipeline(pageURL string, startSec int) (*trackPipeline
 	}
 }
 
-func prefillYTDLPipe(decoder *ytdlPipeStreamer) error {
+func prefillYTDLPipe(ctx context.Context, decoder *ytdlPipeStreamer) error {
 	// Pre-fill: block until yt-dlp + ffmpeg produce initial audio data.
 	// This runs in a tea.Cmd goroutine (not the UI thread), ensuring the
 	// speaker goroutine won't block on an empty pipe and hold its lock
@@ -441,6 +468,10 @@ func prefillYTDLPipe(decoder *ytdlPipeStreamer) error {
 	}()
 	select {
 	case err := <-peekErr:
+		if ctx.Err() != nil {
+			decoder.Close()
+			return ctx.Err()
+		}
 		if err != nil {
 			// The audio pipe closed before producing a byte. Prefer the real
 			// cause from yt-dlp (e.g. "Sign in to confirm you're not a bot",
@@ -453,6 +484,10 @@ func prefillYTDLPipe(decoder *ytdlPipeStreamer) error {
 			}
 			return fmt.Errorf("waiting for audio data: %w", err)
 		}
+	case <-ctx.Done():
+		decoder.Close()
+		<-peekErr // drain goroutine after Close() unblocks the pipe
+		return ctx.Err()
 	case <-time.After(ytdlPipeTimeout):
 		decoder.Close()
 		<-peekErr // drain goroutine after Close() unblocks the pipe
