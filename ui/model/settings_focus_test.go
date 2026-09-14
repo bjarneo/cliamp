@@ -272,6 +272,9 @@ func TestSettingsFocusActions(t *testing.T) {
 				saver := &recordingConfigSaver{}
 				m.player, m.notifier, m.configSaver, m.focus = p, notifier, saver, focus
 				m.plCursor = 2
+				p.playing = true
+				m.setPlaybackTrack(m.playlist.Tracks()[0])
+				seedGaplessPreload(&m, &p.playbackFakeEngine, m.playlist.Tracks()[1])
 				cmd := m.handleKey(key)
 				s := key.String()
 				back := slices.Contains([]string{"left", "down", "h", "j"}, s)

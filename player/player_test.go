@@ -3,6 +3,7 @@ package player
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
 	"math"
 	"os"
@@ -50,43 +51,12 @@ func TestSetVolumeClamps(t *testing.T) {
 	}
 }
 
-func TestRestoreYTDLSeekSource(t *testing.T) {
-	original := newPlaybackTestDecoder()
-	replacement := newPlaybackTestDecoder()
-	cur := &trackPipeline{decoder: original, stream: original, ytdlSeek: true}
-	p := &Player{gapless: &gaplessStreamer{}, current: cur}
-	p.gapless.Replace(nil) // SeekYTDL mutes playback while rebuilding.
-	p.gaplessAdvance.Store(true)
-
-	p.restoreYTDLSeekSource(cur, 0)
-
-	p.gapless.mu.Lock()
-	got := p.gapless.current
-	p.gapless.mu.Unlock()
-	if got != original {
-		t.Fatal("failed seek did not restore the original stream")
-	}
-	if p.GaplessAdvanced() {
-		t.Fatal("failed seek retained a stale gapless-advance notification")
-	}
-
-	p.gapless.Replace(replacement)
-	p.seekGen.Add(1)
-	p.restoreYTDLSeekSource(cur, 0)
-	p.gapless.mu.Lock()
-	got = p.gapless.current
-	p.gapless.mu.Unlock()
-	if got != replacement {
-		t.Fatal("stale failed seek overwrote a newer stream")
-	}
-}
-
 func TestCommitYTDLSeekDoesNotReplaceNewTrack(t *testing.T) {
 	old := &trackPipeline{}
 	current := &trackPipeline{}
 	p := &Player{gapless: &gaplessStreamer{}, current: current}
 
-	if p.commitYTDLSeek(old, &trackPipeline{}, 0) {
+	if p.commitYTDLSeek(old, &trackPipeline{}, 0, func() bool { return true }) {
 		t.Fatal("commitYTDLSeek() = true, want false for replaced track")
 	}
 	if p.current != current {
@@ -94,26 +64,27 @@ func TestCommitYTDLSeekDoesNotReplaceNewTrack(t *testing.T) {
 	}
 }
 
-func TestPlayPipelineForGenerationDiscardsStaleStart(t *testing.T) {
+func TestCommitStartRefusesRevokedTicket(t *testing.T) {
 	p := newTestPlayer()
-	p.SetPlaybackGeneration(2)
+	revoked, _ := p.BeginStart()
+	p.BeginStart()
 
-	if err := p.playPipelineForGeneration(&trackPipeline{}, 1); err != nil {
-		t.Fatalf("playPipelineForGeneration: %v", err)
+	if _, ok := p.CommitStart(revoked); ok {
+		t.Fatal("commitStart() = true for a revoked ticket")
 	}
 	if p.current != nil {
-		t.Fatal("stale playback start replaced the current pipeline")
+		t.Fatal("revoked start replaced the current pipeline")
 	}
 }
 
 func TestPreloadPipelineForGenerationDiscardsStalePreload(t *testing.T) {
 	p := newTestPlayer()
 	p.gapless = &gaplessStreamer{}
-	stale := p.BeginPreload()
+	stale, _ := p.BeginPreload()
 	p.BeginPreload()
 
-	if err := p.preloadPipelineForGeneration(&trackPipeline{}, stale); err != nil {
-		t.Fatalf("preloadPipelineForGeneration: %v", err)
+	if p.CommitPreload(stale) {
+		t.Fatal("stale preload committed")
 	}
 	if p.nextPipeline != nil {
 		t.Fatal("stale preload replaced the next pipeline")
@@ -403,7 +374,13 @@ func TestPlayerBlockedNavStreamCanBeInterruptedBeforeSpeakerLock(t *testing.T) {
 					stream:  decoder,
 					format:  beep.Format{SampleRate: 100, NumChannels: 2, Precision: 2},
 				}
-				return p.playPipeline(tp)
+				ticket, ctx := p.BeginStart()
+				tp.ctx, tp.cancel, tp.ticket = ctx, p.pendingStart.cancel, ticket
+				p.pendingStart.ready = tp
+				if _, ok := p.CommitStart(ticket); !ok {
+					return errors.New("commitStart refused a current ticket")
+				}
+				return nil
 			},
 		},
 	}
@@ -551,7 +528,7 @@ printf '10\n'
 
 			speaker.Lock()
 			seekDone := make(chan error, 1)
-			go func() { seekDone <- p.Seek(time.Second) }()
+			go func() { seekDone <- p.Seek(0, time.Second) }()
 			if !waitForPath(readyPath) {
 				speaker.Unlock()
 				t.Fatalf("timed out waiting for %s", readyPath)

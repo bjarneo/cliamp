@@ -378,7 +378,7 @@ func (m Model) renderLyricsBody() string {
 		artist, title := m.lyricsArtistTitle()
 		if artist == "" && title == "" {
 			lines = append(lines, dimStyle.Render("  No artist/title metadata available."))
-			if track, idx := m.currentPlaybackTrack(); idx >= 0 && track.Stream {
+			if track, idx := m.displayedPlaybackTrack(); idx >= 0 && track.Stream {
 				lines = append(lines, dimStyle.Render("  Waiting for stream metadata..."))
 			}
 		} else {

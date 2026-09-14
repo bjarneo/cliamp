@@ -15,28 +15,42 @@ import (
 type daemonV2Engine struct {
 	player.Engine
 
-	playing  bool
-	paused   bool
-	position time.Duration
-	duration time.Duration
-	seekable bool
-	volume   float64
-	speed    float64
-	mono     bool
-	eq       [10]float64
+	playing      bool
+	paused       bool
+	position     time.Duration
+	duration     time.Duration
+	seekable     bool
+	volume       float64
+	speed        float64
+	mono         bool
+	eq           [10]float64
+	ticket       uint64
+	activeTicket uint64
 }
 
-func (e *daemonV2Engine) Play(string, time.Duration) error {
-	e.playing = true
-	e.paused = false
-	return nil
+func (e *daemonV2Engine) BeginStart() (uint64, context.Context) {
+	e.ticket++
+	return e.ticket, context.Background()
 }
-
-func (e *daemonV2Engine) PlayYTDL(path string, duration time.Duration) error {
-	return e.Play(path, duration)
+func (e *daemonV2Engine) Prepare(uint64, player.StartRequest) error { return nil }
+func (e *daemonV2Engine) CommitStart(ticket uint64) (player.PlaybackStats, bool) {
+	if ticket != e.ticket {
+		return player.PlaybackStats{}, false
+	}
+	e.playing, e.paused = true, false
+	e.activeTicket = ticket
+	return player.PlaybackStats{}, true
 }
-
-func (e *daemonV2Engine) Stop()                   { e.playing, e.paused = false, false }
+func (e *daemonV2Engine) Stop() player.PlaybackStats {
+	e.ticket++
+	finished := e.Snapshot()
+	e.playing, e.paused = false, false
+	e.activeTicket = 0
+	return finished
+}
+func (e *daemonV2Engine) Snapshot() player.PlaybackStats {
+	return player.PlaybackStats{Ticket: e.activeTicket, Position: e.position, Duration: e.duration, Seekable: e.seekable, Playing: e.playing, Paused: e.paused}
+}
 func (e *daemonV2Engine) TogglePause()            { e.paused = !e.paused }
 func (e *daemonV2Engine) IsPlaying() bool         { return e.playing }
 func (e *daemonV2Engine) IsPaused() bool          { return e.paused }
@@ -61,19 +75,24 @@ func (e *daemonV2Engine) SetEQBand(band int, value float64) {
 		e.eq[band] = value
 	}
 }
-func (e *daemonV2Engine) Seek(offset time.Duration) error {
+func (e *daemonV2Engine) Seek(ticket uint64, offset time.Duration) error {
+	if ticket != e.activeTicket {
+		return player.ErrRevoked
+	}
 	e.position += offset
 	return nil
 }
 
 func newDaemonV2TestDaemon() (*daemon, *daemonV2Engine) {
 	engine := &daemonV2Engine{
-		playing:  true,
-		position: 12 * time.Second,
-		duration: 3 * time.Minute,
-		seekable: true,
-		volume:   -6,
-		speed:    1,
+		ticket:       1,
+		activeTicket: 1,
+		playing:      true,
+		position:     12 * time.Second,
+		duration:     3 * time.Minute,
+		seekable:     true,
+		volume:       -6,
+		speed:        1,
 	}
 	pl := playlist.New()
 	pl.Add(
@@ -81,7 +100,7 @@ func newDaemonV2TestDaemon() (*daemon, *daemonV2Engine) {
 		playlist.Track{Path: "https://example.com/two", Title: "Two", Stream: true},
 	)
 	pl.Queue(1)
-	return &daemon{player: engine, playlist: pl, eqPreset: "Custom", runtimeRevision: 9}, engine
+	return &daemon{player: engine, playbackTicket: 1, playlist: pl, eqPreset: "Custom", runtimeRevision: 9}, engine
 }
 
 func TestDaemonV2StateSnapshot(t *testing.T) {

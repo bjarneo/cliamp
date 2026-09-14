@@ -11,6 +11,7 @@ import (
 
 	"github.com/bjarneo/cliamp/internal/plugintrust"
 	"github.com/bjarneo/cliamp/luaplugin"
+	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 )
 
@@ -76,15 +77,11 @@ func (p *nowPlayingEngine) PlayAt(path string, duration, offset time.Duration) e
 	return p.playbackFakeEngine.PlayAt(path, duration, offset)
 }
 
-func (p *nowPlayingEngine) PlayAtForGeneration(path string, duration, offset time.Duration, gen uint64) error {
-	if gen != p.playGeneration {
-		return nil
+func (p *nowPlayingEngine) Prepare(ticket uint64, req player.StartRequest) error {
+	if p.startErr != nil {
+		return p.startErr
 	}
-	return p.PlayAt(path, duration, offset)
-}
-
-func (p *nowPlayingEngine) PlayYTDLForGeneration(path string, duration time.Duration, gen uint64) error {
-	return p.PlayAtForGeneration(path, duration, 0, gen)
+	return p.playbackFakeEngine.Prepare(ticket, req)
 }
 
 func TestPlayTrackEmitsPluginTrackChange(t *testing.T) {
@@ -123,9 +120,9 @@ func TestPlayTrackEmitsPluginTrackChange(t *testing.T) {
 						if cmd == nil {
 							t.Fatal("missing stream playback command")
 						}
-						msg, ok := cmd().(streamPlayedMsg)
+						msg, ok := cmd().(sourcePreparedMsg)
 						if !ok {
-							t.Fatal("playback command did not return streamPlayedMsg")
+							t.Fatal("playback command did not return sourcePreparedMsg")
 						}
 						updated, _ := m.Update(msg)
 						m = updated.(Model)

@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/ui"
 )
@@ -131,7 +133,9 @@ func TestStaleSeekCompletionIgnored(t *testing.T) {
 	msg := stale()
 
 	// The track changes while that seek is still running.
-	m.beginPlaybackTrack(playlist.Track{Path: "https://nav/other", Stream: true})
+	prepare := m.playTrack(playlist.Track{Path: "https://nav/other", Stream: true})
+	updatedSource, _ := m.Update(prepare())
+	m = updatedSource.(Model)
 	m.seek.active = true
 	m.seek.targetPos = 42 * time.Second
 
@@ -269,5 +273,61 @@ func TestSeekBarSeparatesFillFromRemainder(t *testing.T) {
 		if !strings.Contains(bar, want) {
 			t.Fatalf("half-played bar should show %q: %q", want, bar)
 		}
+	}
+}
+
+// A command can wait in Bubble Tea's queue while another track is committed.
+// Reject it at the engine boundary, before it can seek the new source.
+func TestDeferredSeekCannotTargetReplacementSource(t *testing.T) {
+	for _, ytdl := range []bool{false, true} {
+		t.Run(fmt.Sprintf("ytdl=%t", ytdl), func(t *testing.T) {
+			engine := &playbackFakeEngine{playing: true, seekable: true, ytdlSeek: ytdl, duration: time.Hour}
+			m := streamSeekModel(engine)
+			stale := m.seekAbsolute(30 * time.Second)
+			if stale == nil {
+				t.Fatal("missing deferred seek")
+			}
+
+			m.playTrack(playlist.Track{Path: "replacement.mp3"})
+			replacementTicket := m.playbackTicket()
+			if replacementTicket == 0 || engine.currentTicket != replacementTicket {
+				t.Fatal("replacement did not commit")
+			}
+			engine.position = 7 * time.Second
+
+			msg := stale().(seekTickMsg)
+			if !errors.Is(msg.err, player.ErrRevoked) {
+				t.Fatalf("stale seek error = %v, want canceled", msg.err)
+			}
+			if len(engine.seekCalls) != 0 || len(engine.seekYTDLCalls) != 0 {
+				t.Fatalf("stale command sought replacement: regular=%v yt-dlp=%v", engine.seekCalls, engine.seekYTDLCalls)
+			}
+			if engine.Snapshot().Ticket != replacementTicket || engine.position != 7*time.Second {
+				t.Fatal("stale seek changed replacement state")
+			}
+		})
+	}
+}
+
+func TestStaleUnpauseReconnectCannotToggleReplacement(t *testing.T) {
+	for _, preparedFirst := range []bool{false, true} {
+		t.Run(fmt.Sprintf("prepared-first=%t", preparedFirst), func(t *testing.T) {
+			engine := &playbackFakeEngine{playing: true, paused: true, ytdlSeek: true}
+			m := streamSeekModel(engine)
+			reconnect := m.reconnectYTDLOnUnpause()
+			var msg ytdlUnpauseReconnectMsg
+			if preparedFirst {
+				msg = reconnect().(ytdlUnpauseReconnectMsg)
+			}
+			m.playTrack(playlist.Track{Path: "replacement.mp3"})
+			if !preparedFirst {
+				msg = reconnect().(ytdlUnpauseReconnectMsg)
+			}
+			updated, _ := m.Update(msg)
+			m = updated.(Model)
+			if engine.paused || m.err != nil {
+				t.Fatalf("stale reconnect changed replacement: paused=%t err=%v", engine.paused, m.err)
+			}
+		})
 	}
 }

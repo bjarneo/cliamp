@@ -467,6 +467,9 @@ footer a{color:var(--fg-2)}
       <div class="feat">
         <div class="feat-k">GAPLESS &amp; STREAMS</div>
         <p>Preloads the next track for seamless transitions. Plays URLs, HLS (.m3u8) and internet radio with jitter buffering and live ICY metadata, and <b>cliamp://</b> links from a browser or chat.</p>
+        <p>While a new source buffers, the previous track keeps playing. Media controls, playback events, progress reports, and saved listening positions describe the active audio. A failed replacement leaves it intact, even after rapid skips or retries; only sources that start playing enter listening history.</p>
+        <p>If a replacement fails after the previous finite track has ended, playback stops instead of repeatedly retrying the queue. While another station loads, its buffering display shows the requested station's name; the previous station's song title remains associated with the audio still playing.</p>
+        <p>Skipping or stopping cancels abandoned source resolution, connections, and decoder startup, and releases prepared sources and unused preloads. Cancelling a replacement does not cancel the track already playing.</p>
       </div>
     </div>
   </section>

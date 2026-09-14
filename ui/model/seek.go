@@ -21,7 +21,10 @@ type seekTickMsg struct {
 	gen    uint64
 }
 
-type ytdlUnpauseReconnectMsg struct{ err error }
+type ytdlUnpauseReconnectMsg struct {
+	ticket uint64
+	err    error
+}
 
 // doSeek handles a seek keypress. Seeks that restart a decoder accumulate into
 // one target and debounce; local files seek immediately.
@@ -29,32 +32,13 @@ func (m *Model) doSeek(d time.Duration) tea.Cmd {
 	return m.seekRelative(d, seekDebounceTicks)
 }
 
-func (m *Model) streamSeekRelative(delta time.Duration) tea.Cmd {
-	p := m.player
-	gen := m.seek.gen
-	return func() tea.Msg {
-		err := p.Seek(delta)
-		return seekTickMsg{err: err, gen: gen}
-	}
-}
-
-func (m *Model) streamSeekAbsolute(target time.Duration) tea.Cmd {
-	p := m.player
-	gen := m.seek.gen
-	return func() tea.Msg {
-		err := p.Seek(target - p.Position())
-		return seekTickMsg{err: err, target: target, gen: gen}
-	}
-}
-
 func (m *Model) seekRelative(d time.Duration, debounceTicks int) tea.Cmd {
-	if m.player.IsStreamSeek() {
-		return m.streamSeekRelative(d)
-	}
 	if !m.needsDebouncedSeek() {
-		m.player.Seek(d)
+		if err := m.player.Seek(m.playbackTicket(), d); err != nil {
+			return nil
+		}
 		m.finishSeek()
-		return nil
+		return m.rearmPreload()
 	}
 
 	target := m.player.Position()
@@ -70,18 +54,17 @@ func (m *Model) needsDebouncedSeek() bool {
 	if m.player.IsYTDLSeek() {
 		return true
 	}
-	track, _ := m.currentPlaybackTrack()
+	track, _ := m.displayedPlaybackTrack()
 	return track.Stream && m.player.Seekable()
 }
 
 func (m *Model) seekAbsolute(target time.Duration) tea.Cmd {
-	if m.player.IsStreamSeek() {
-		return m.streamSeekAbsolute(target)
-	}
 	if !m.needsDebouncedSeek() {
-		m.player.Seek(target - m.player.Position())
+		if err := m.player.Seek(m.playbackTicket(), target-m.player.Position()); err != nil {
+			return nil
+		}
 		m.finishSeek()
-		return nil
+		return m.rearmPreload()
 	}
 	return m.queueSeekTarget(target, 0)
 }
@@ -132,17 +115,19 @@ func (m *Model) commitPendingSeek() tea.Cmd {
 }
 
 // seekCmd performs the decoder-restarting seek to target asynchronously.
-// Position and pipeline kind are read inside the command so playback progress
-// and track changes between queueing and execution are respected.
+// The source ticket is captured before scheduling. Position is read when the
+// command runs; the engine rejects a seek if that source has since changed.
 func (m *Model) seekCmd(target time.Duration, resume bool) tea.Cmd {
 	p := m.player
+	ticket := m.playbackTicket()
+	ytdl := p.IsYTDLSeek()
 	gen := m.seek.gen
 	return func() tea.Msg {
 		var err error
-		if p.IsYTDLSeek() {
-			err = p.SeekYTDL(target - p.Position())
+		if ytdl {
+			err = p.SeekYTDL(ticket, target-p.Position())
 		} else {
-			err = p.Seek(target - p.Position())
+			err = p.Seek(ticket, target-p.Position())
 		}
 		return seekTickMsg{err: err, resume: resume, target: target, gen: gen}
 	}

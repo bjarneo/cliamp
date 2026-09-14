@@ -23,6 +23,7 @@ func TestV2StateRequestReturnsRetainedGUIState(t *testing.T) {
 		playlist: pl,
 		vis:      ui.NewVisualizer(float64(engine.SampleRate())),
 	}
+	m.setPlaybackTrack(pl.Tracks()[0])
 	m.SetIPCBroker(broker)
 
 	reply := make(chan V2RequestResult, 1)

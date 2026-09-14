@@ -189,11 +189,10 @@ func (p *progressProv) ReportProgress(_ playlist.Track, position time.Duration) 
 func TestTickProgressReportThrottles(t *testing.T) {
 	prov := &progressProv{reports: make(chan time.Duration, 4)}
 	m := Model{
-		player:             &playbackFakeEngine{playing: true, position: 42 * time.Second},
-		provider:           prov,
-		providers:          []ProviderEntry{{Key: "stub", Name: "Plain", Provider: prov}},
-		playingTrack:       stubTracks()[0],
-		playingTrackActive: true,
+		player:    &playbackFakeEngine{playing: true, position: 42 * time.Second},
+		provider:  prov,
+		providers: []ProviderEntry{{Key: "stub", Name: "Plain", Provider: prov}},
+		playing:   &playbackTrack{track: stubTracks()[0]},
 	}
 
 	now := time.Now()
@@ -222,11 +221,10 @@ func TestTickProgressReportThrottles(t *testing.T) {
 func TestTickProgressReportSkipsWhenPaused(t *testing.T) {
 	prov := &progressProv{reports: make(chan time.Duration, 1)}
 	m := Model{
-		player:             &playbackFakeEngine{playing: true, paused: true},
-		provider:           prov,
-		providers:          []ProviderEntry{{Key: "stub", Name: "Plain", Provider: prov}},
-		playingTrack:       stubTracks()[0],
-		playingTrackActive: true,
+		player:    &playbackFakeEngine{playing: true, paused: true},
+		provider:  prov,
+		providers: []ProviderEntry{{Key: "stub", Name: "Plain", Provider: prov}},
+		playing:   &playbackTrack{track: stubTracks()[0]},
 	}
 
 	m.tickProgressReport(time.Now())

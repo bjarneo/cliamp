@@ -184,7 +184,7 @@ func TestStaleAsyncResponsesDoNotChangeCurrentState(t *testing.T) {
 	m.requests.nav = 2
 	m.requests.netSearch = 2
 	m.requests.lyrics = 2
-	m.requests.stream = 2
+	m.pending = m.capturePlaybackTrack(playlist.Track{Path: "current.mp3", Title: "Current"}, 2)
 
 	updates := []tea.Msg{
 		tracksLoadedMsg{
@@ -206,10 +206,9 @@ func TestStaleAsyncResponsesDoNotChangeCurrentState(t *testing.T) {
 			query: "Artist\nStale",
 			gen:   1,
 		},
-		streamPlayedMsg{
-			path: "current.mp3",
-			gen:  1,
-			err:  errors.New("stale failure"),
+		sourcePreparedMsg{
+			ticket: 1,
+			err:    errors.New("stale failure"),
 		},
 	}
 	for _, msg := range updates {

@@ -12,7 +12,7 @@ import (
 // For streams with ICY metadata ("Artist - Song"), it parses the stream title.
 // For regular tracks, it uses the track's metadata fields.
 func (m *Model) lyricsArtistTitle() (artist, title string) {
-	track, idx := m.currentPlaybackTrack()
+	track, idx := m.activePlaybackTrack()
 	if idx < 0 {
 		return "", ""
 	}
@@ -45,7 +45,7 @@ func (m *Model) retryLyrics() tea.Cmd {
 	if m.lyrics.loading {
 		return nil
 	}
-	track, _ := m.currentPlaybackTrack()
+	track, _ := m.activePlaybackTrack()
 	artist, title := m.lyricsArtistTitle()
 	q := lyricsLookupKey(track, artist, title)
 	if q == "" {
@@ -65,7 +65,7 @@ func (m *Model) retryLyrics() tea.Cmd {
 // position is from stream start, not song start) and for live streams with no
 // finite duration, where the position doesn't map to song time.
 func (m *Model) lyricsSyncable() bool {
-	track, idx := m.currentPlaybackTrack()
+	track, idx := m.activePlaybackTrack()
 	if idx < 0 {
 		return false
 	}
