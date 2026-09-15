@@ -814,6 +814,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.preloading = false
 		return m, nil
 
+	case providerSavedMsg:
+		if m.downloadCancel != nil {
+			m.downloadCancel()
+			m.downloadCancel = nil
+		}
+		m.save.finishDownload()
+		if msg.err != nil {
+			m.status.Errorf(statusTTLMedium, "Download failed: %s", msg.err)
+		} else {
+			m.status.Showf(statusTTLMedium, "Saved to %s", msg.path)
+		}
+		return m, nil
+
 	case ytdlSavedMsg:
 		m.save.finishDownload()
 		if msg.err != nil {

@@ -90,9 +90,20 @@ func (m *Model) handleIPCSave(request ipc.SaveRequestMsg) tea.Cmd {
 		request.Reply <- ipc.Response{OK: false, Error: "nothing to save"}
 		return nil
 	}
+	downloader := m.trackDownloader(track)
 	directory := m.downloadsDirectory
 	return func() tea.Msg {
-		path, err := tracksave.SaveTo(track, directory)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		dir, err := tracksave.Directory(directory)
+		var path string
+		if err == nil {
+			if downloader != nil {
+				path, err = downloader.DownloadTrack(ctx, track, dir)
+			} else {
+				path, err = tracksave.SaveTo(track, dir)
+			}
+		}
 		if err != nil {
 			request.Reply <- ipc.Response{OK: false, Error: err.Error()}
 		} else {

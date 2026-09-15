@@ -358,6 +358,13 @@ func (p *Provider) ResolveSource(uri string) (string, error) {
 // resolveStreamURL returns a signed CDN URL for a track, caching entries for
 // urlTTL. force bypasses the cache, for example after the URL expired.
 func (p *Provider) resolveStreamURL(trackID string, force bool) (string, error) {
+	return p.resolveStreamURLContext(context.Background(), trackID, force)
+}
+
+func (p *Provider) resolveStreamURLContext(ctx context.Context, trackID string, force bool) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	p.mu.Lock()
 	if !force {
 		if e, ok := p.urlCache[trackID]; ok && time.Since(e.at) < urlTTL {
@@ -367,7 +374,7 @@ func (p *Provider) resolveStreamURL(trackID string, force bool) (string, error) 
 	}
 	p.mu.Unlock()
 
-	u, err := p.api.streamURL(trackID)
+	u, err := p.api.streamURLContext(ctx, trackID)
 	if err != nil {
 		return "", err
 	}

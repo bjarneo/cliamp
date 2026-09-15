@@ -3,6 +3,7 @@ package yandex
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -57,11 +58,15 @@ func newClient(token string) *client {
 // apiGet performs an authenticated GET against the Yandex Music API and
 // decodes the "result" envelope into out.
 func (c *client) apiGet(path string, params url.Values, out any) error {
+	return c.apiGetContext(context.Background(), path, params, out)
+}
+
+func (c *client) apiGetContext(ctx context.Context, path string, params url.Values, out any) error {
 	endpoint := c.apiBase + path
 	if params != nil {
 		endpoint += "?" + params.Encode()
 	}
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("yandex: build request %s: %w", path, err)
 	}
@@ -362,11 +367,11 @@ func (c *client) search(query string, limit int) ([]track, error) {
 	return result.Tracks.Results, nil
 }
 
-// streamURL resolves a direct, signed CDN URL for one track. The returned URL
+// streamURLContext resolves a direct, signed CDN URL for one track. The returned URL
 // is self-authorizing and stays valid for a limited time.
-func (c *client) streamURL(trackID string) (string, error) {
+func (c *client) streamURLContext(ctx context.Context, trackID string) (string, error) {
 	var infos []downloadInfo
-	if err := c.apiGet("/tracks/"+trackID+"/download-info", nil, &infos); err != nil {
+	if err := c.apiGetContext(ctx, "/tracks/"+trackID+"/download-info", nil, &infos); err != nil {
 		return "", err
 	}
 	info, ok := bestDownloadInfo(infos)
@@ -374,7 +379,7 @@ func (c *client) streamURL(trackID string) (string, error) {
 		return "", fmt.Errorf("yandex: no suitable download info for track %s", trackID)
 	}
 
-	full, err := c.fullDownloadInfo(info.DownloadInfoURL)
+	full, err := c.fullDownloadInfoContext(ctx, info.DownloadInfoURL)
 	if err != nil {
 		return "", err
 	}
@@ -388,7 +393,7 @@ func buildStreamURL(info downloadInfo, full fullDownloadInfo) string {
 	return "https://" + full.Host + "/get-" + info.Codec + "/" + hash + "/" + full.Ts + full.Path
 }
 
-func (c *client) fullDownloadInfo(infoURL string) (fullDownloadInfo, error) {
+func (c *client) fullDownloadInfoContext(ctx context.Context, infoURL string) (fullDownloadInfo, error) {
 	var full fullDownloadInfo
 	// infoURL comes from the API response and may point at an unexpected
 	// host. The guard refuses non-Yandex HTTPS URLs; the request itself
@@ -396,7 +401,7 @@ func (c *client) fullDownloadInfo(infoURL string) (fullDownloadInfo, error) {
 	if err := fullDownloadInfoGuard(infoURL); err != nil {
 		return full, err
 	}
-	req, err := http.NewRequest(http.MethodGet, infoURL+"&format=json", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, infoURL+"&format=json", nil)
 	if err != nil {
 		return full, err
 	}
