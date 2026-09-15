@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -11,6 +12,86 @@ import (
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/ui"
 )
+
+func TestFailedReplacementPreservesPlaybackContext(t *testing.T) {
+	for _, path := range []string{"b.mp3", "https://example.com/b.mp3"} {
+		t.Run(path, func(t *testing.T) {
+			tracks := []playlist.Track{{Path: "a.mp3"}, {Path: "x.mp3"}, {Path: "a.mp3"}, {Path: path, Stream: playlist.IsURL(path)}}
+			pl := playlist.New()
+			pl.Add(tracks...)
+			pl.SetIndex(2)
+			engine := &nowPlayingEngine{}
+			m := Model{player: engine, playlist: pl}
+			var saved savedPlaybackContext
+			m.SetResumeSaver(saved.save)
+			m.playCurrentTrack()
+			saved.check(t, tracks, 2)
+			engine.position = 17 * time.Second
+			m.togglePlayerPause()
+			pausedAt := m.pausedAt
+			engine.startErr = errors.New("replacement failed")
+			cmd := m.nextTrack()
+			saved.check(t, tracks, 2)
+			if playlist.IsURL(path) {
+				updated, _ := m.Update(cmd())
+				m = updated.(Model)
+			}
+			if !errors.Is(m.err, engine.startErr) || !m.pausedAt.Equal(pausedAt) {
+				t.Fatalf("replacement error=%v, pausedAt=%v; want error and previous pause state", m.err, m.pausedAt)
+			}
+			m.tickResumeSave(m.lastResumeSave.Add(resumeSaveInterval))
+			saved.check(t, tracks, 2)
+			if saved.position != 17 {
+				t.Fatalf("saved position=%d, want retained track at 17s", saved.position)
+			}
+		})
+	}
+}
+
+func TestPendingPlaybackSurvivesPlaylistReplacement(t *testing.T) {
+	for _, complete := range []bool{false, true} {
+		t.Run(fmt.Sprintf("complete=%t", complete), func(t *testing.T) {
+			tracks := []playlist.Track{{Path: "https://example.com/a.mp3", Stream: true}, {Path: "b.mp3"}, {Path: "https://example.com/a.mp3", Stream: true}}
+			pl := playlist.New()
+			pl.Add(tracks...)
+			pl.SetIndex(2)
+			engine := &nowPlayingEngine{}
+			m := Model{player: engine, playlist: pl}
+			cmd := m.playCurrentTrack()
+			m.replacePlayerPlaylist([]playlist.Track{{Path: "new-first.mp3"}, {Path: "new-last.mp3"}})
+			if m.playingTrackActive {
+				t.Fatal("browsing promoted pending playback to active")
+			}
+			if complete {
+				updated, _ := m.Update(cmd())
+				m = updated.(Model)
+				if !m.playbackDetached || m.playbackContextIndex != 2 || !reflect.DeepEqual(m.playbackContext, tracks) {
+					t.Fatalf("started stream lost source context: detached=%t, index=%d, context=%+v", m.playbackDetached, m.playbackContextIndex, m.playbackContext)
+				}
+			}
+			m.nextTrack()
+			if m.playingTrack.Path != "new-first.mp3" {
+				t.Fatalf("next started %q, want first track of replacement", m.playingTrack.Path)
+			}
+		})
+	}
+}
+
+func TestNewPlaybackRequestCancelsScheduledReconnect(t *testing.T) {
+	engine := &nowPlayingEngine{}
+	pl := playlist.New()
+	pl.Add(playlist.Track{Path: "a.mp3"}, playlist.Track{Path: "https://example.com/b.mp3", Stream: true})
+	m := Model{player: engine, playlist: pl}
+	m.playCurrentTrack()
+	now := time.Now()
+	m.reconnect.at = now.Add(time.Second)
+	m.nextTrack()
+	updated, _ := m.Update(tickMsg(now.Add(2 * time.Second)))
+	m = updated.(Model)
+	if engine.stopCalls != 0 || !m.buffering || m.playingTrack.Path != "a.mp3" {
+		t.Fatalf("old reconnect interrupted replacement: stops=%d, buffering=%t, track=%q", engine.stopCalls, m.buffering, m.playingTrack.Path)
+	}
+}
 
 type savedPlaybackContext struct {
 	track    playlist.Track

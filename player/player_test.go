@@ -651,3 +651,62 @@ func TestAudioOutputHint(t *testing.T) {
 		}
 	}
 }
+
+func TestPlaybackGenerationReportsCommittedSource(t *testing.T) {
+	p := &Player{gapless: &gaplessStreamer{}, started: true, ctrl: &beep.Ctrl{}}
+	t.Cleanup(func() {
+		p.suspended = true // Avoid opening a real speaker context.
+		p.Stop()
+	})
+	pipeline := func() *trackPipeline {
+		decoder := newPlaybackTestDecoder()
+		return &trackPipeline{decoder: decoder, stream: decoder}
+	}
+	if got := p.SetPlaybackGeneration(1); got != 0 {
+		t.Fatalf("initial committed generation = %d, want 0", got)
+	}
+	if err := p.playPipelineForGeneration(pipeline(), 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.SetPlaybackGeneration(2); got != 1 {
+		t.Fatalf("invalidation lost committed generation: %d, want 1", got)
+	}
+	if err := p.PlayAtForGeneration(filepath.Join(t.TempDir(), "missing.flac"), 0, 0, 2); err == nil {
+		t.Fatal("missing source unexpectedly started")
+	}
+	if err := p.playPipelineForGeneration(pipeline(), 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.SetPlaybackGeneration(3); got != 1 {
+		t.Fatalf("failed or stale start changed committed generation: %d, want 1", got)
+	}
+	if err := p.playPipelineForGeneration(pipeline(), 3); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.SetPlaybackGeneration(4); got != 3 {
+		t.Fatalf("replacement committed generation = %d, want 3", got)
+	}
+	p.suspended = true
+	p.Stop()
+	if got := p.SetPlaybackGeneration(5); got != 0 {
+		t.Fatalf("stopped committed generation = %d, want 0", got)
+	}
+}
+
+func TestGaplessSwapClearsCommittedPlaybackGeneration(t *testing.T) {
+	decoder := newPlaybackTestDecoder()
+	p := &Player{
+		current:          &trackPipeline{decoder: newPlaybackTestDecoder()},
+		nextPipeline:     &trackPipeline{decoder: decoder, gaplessToken: 7},
+		committedPlayGen: 2,
+	}
+	t.Cleanup(func() { p.current.close() })
+	p.handleGaplessSwap(6)
+	if got := p.SetPlaybackGeneration(3); got != 2 {
+		t.Fatalf("stale swap changed committed generation: %d, want 2", got)
+	}
+	p.handleGaplessSwap(7)
+	if got := p.SetPlaybackGeneration(4); got != 0 {
+		t.Fatalf("gapless committed generation = %d, want 0", got)
+	}
+}

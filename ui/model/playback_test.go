@@ -36,6 +36,7 @@ type playbackFakeEngine struct {
 	cancelSeekYTDLCalls int
 	stopCalls           int
 	playGeneration      uint64
+	startedGeneration   uint64
 	preloadGeneration   uint64
 	eqBands             [eqBandCount]float64
 }
@@ -43,6 +44,7 @@ type playbackFakeEngine struct {
 func (f *playbackFakeEngine) Play(path string, _ time.Duration) error {
 	f.playing = true
 	f.paused = false
+	f.startedGeneration = 0
 	f.playCalls = append(f.playCalls, path)
 	return nil
 }
@@ -51,19 +53,25 @@ func (f *playbackFakeEngine) PlayAt(path string, dur, offset time.Duration) erro
 	return f.Play(path, dur)
 }
 func (f *playbackFakeEngine) PlayYTDL(string, time.Duration) error { return nil }
-func (f *playbackFakeEngine) SetPlaybackGeneration(generation uint64) {
+func (f *playbackFakeEngine) SetPlaybackGeneration(generation uint64) uint64 {
 	f.playGeneration = generation
+	return f.startedGeneration
 }
 func (f *playbackFakeEngine) PlayAtForGeneration(path string, dur, offset time.Duration, generation uint64) error {
 	if f.playGeneration != generation {
 		return nil
 	}
-	return f.PlayAt(path, dur, offset)
+	err := f.PlayAt(path, dur, offset)
+	if err == nil {
+		f.startedGeneration = generation
+	}
+	return err
 }
 func (f *playbackFakeEngine) PlayYTDLForGeneration(_ string, _ time.Duration, generation uint64) error {
 	if f.playGeneration != generation {
 		return nil
 	}
+	f.startedGeneration = generation
 	return nil
 }
 func (f *playbackFakeEngine) Preload(path string, _ time.Duration) error {
@@ -95,6 +103,7 @@ func (f *playbackFakeEngine) ClearPreload() {
 func (f *playbackFakeEngine) Stop() {
 	f.stopCalls++
 	f.playing, f.paused = false, false
+	f.startedGeneration = 0
 }
 func (f *playbackFakeEngine) Close()       {}
 func (f *playbackFakeEngine) TogglePause() { f.paused = !f.paused }
@@ -120,6 +129,7 @@ func (f *playbackFakeEngine) GaplessAdvanced() bool {
 		return false
 	}
 	f.gaplessAdvanced = false
+	f.startedGeneration = 0
 	return true
 }
 func (f *playbackFakeEngine) LastPlayedDuration() time.Duration { return f.lastPlayedDuration }
@@ -196,6 +206,7 @@ func TestStreamPlayedNotifiesOnceWithoutResume(t *testing.T) {
 		notifier:  notifier,
 		buffering: true,
 	}
+	m.pendingTrack = &track
 	m.requests.stream = 1
 
 	updated, _ := m.Update(streamPlayedMsg{path: track.Path, gen: 1})
@@ -250,6 +261,7 @@ func TestStreamPlayedResumeKeepsNextTrackPreload(t *testing.T) {
 	notifier := &fakeNotifier{}
 	m := Model{player: player, playlist: pl, notifier: notifier, buffering: true}
 	m.SetResume(current.Path, 90)
+	m.pendingTrack = &current
 	m.requests.stream = 1
 
 	updated, cmd := m.Update(streamPlayedMsg{path: current.Path, gen: 1})
@@ -341,9 +353,15 @@ func TestNavTrackPlaybackKeepsCompleteAlbumContext(t *testing.T) {
 	}
 	m.SetResumeSaver(func(playlist.Track, int, []playlist.Track, int) {})
 
-	if cmd := m.handleNavTrackListKey(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil {
+	cmd := m.handleNavTrackListKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
 		t.Fatal("handleNavTrackListKey(Enter) = nil, want playback command")
 	}
+	if len(m.playbackContext) != 0 || m.playingTrackActive {
+		t.Fatal("buffering track committed playback before it started")
+	}
+	updated, _ := m.Update(cmd())
+	m = updated.(Model)
 	if len(m.playbackContext) != 3 || m.playbackContext[0].Title != "One" || m.playbackContext[2].Title != "Three" {
 		t.Fatalf("playback context = %+v, want complete album", m.playbackContext)
 	}
@@ -843,10 +861,10 @@ func TestBeginPlaybackTrackFetchesEmbeddedLyricsWithoutNetworkMetadata(t *testin
 	}
 }
 
-func TestBeginPlaybackTrackCancelsPendingYTDLSeek(t *testing.T) {
+func TestPreparePlaybackTrackCancelsPendingYTDLSeek(t *testing.T) {
 	player := &playbackFakeEngine{}
 	m := Model{player: player, playlist: playlist.New()}
-	m.beginPlaybackTrack(playlist.Track{Path: "https://example.com/track", Stream: true})
+	m.preparePlaybackTrack(playlist.Track{Path: "https://example.com/track", Stream: true})
 	if player.cancelSeekYTDLCalls != 1 {
 		t.Fatalf("CancelSeekYTDL calls = %d, want 1", player.cancelSeekYTDLCalls)
 	}

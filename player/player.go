@@ -62,6 +62,8 @@ type Player struct {
 	playGen        atomic.Uint64 // current UI playback request; rejects stale asynchronous starts
 	preloadGen     atomic.Uint64 // current preload request; rejects stale background preloads
 
+	committedPlayGen uint64 // current source request generation; guarded by mu
+
 	lastPlayedDuration time.Duration // real duration of the track finished by the last gapless swap
 
 	streamTitle      atomic.Value               // stores string, set by ICY reader callback
@@ -149,6 +151,7 @@ func (p *Player) handleGaplessSwap(token uint64) {
 	}
 	old := p.current
 	p.current = next
+	p.committedPlayGen = 0
 	p.nextPipeline = nil
 	if old != nil {
 		// Stash the finished track's real duration before closing its
@@ -192,11 +195,16 @@ func (p *Player) PlayAt(path string, knownDuration, offset time.Duration) error 
 
 // SetPlaybackGeneration invalidates asynchronous playback starts from older
 // UI requests. It waits for an in-progress source commit to finish so a new
-// generation cannot race its final ownership check.
-func (p *Player) SetPlaybackGeneration(generation uint64) {
+// generation cannot race its final ownership check. It returns the generation
+// that owns the current source, or zero for synchronous/gapless playback or no source.
+func (p *Player) SetPlaybackGeneration(generation uint64) uint64 {
 	p.lifecycleMu.Lock()
 	p.playGen.Store(generation)
+	p.mu.Lock()
+	committed := p.committedPlayGen
+	p.mu.Unlock()
 	p.lifecycleMu.Unlock()
+	return committed
 }
 
 // PlayAtForGeneration starts a stream only when generation is still current.
@@ -310,6 +318,7 @@ func (p *Player) playPipelineForGeneration(tp *trackPipeline, generation uint64)
 		oldCurrent = p.current
 		oldNext = p.nextPipeline
 		p.current = tp
+		p.committedPlayGen = generation
 		p.nextPipeline = nil
 		p.playing.Store(true)
 		p.paused.Store(false)
@@ -333,6 +342,7 @@ func (p *Player) playPipelineForGeneration(tp *trackPipeline, generation uint64)
 		p.ctrl = &beep.Ctrl{Streamer: s}
 		p.started = true
 		p.current = tp
+		p.committedPlayGen = generation
 		p.nextPipeline = nil
 		p.playing.Store(true)
 		p.paused.Store(false)
@@ -499,6 +509,7 @@ func (p *Player) Stop() {
 	oldCurrent := p.current
 	oldNext := p.nextPipeline
 	p.current = nil
+	p.committedPlayGen = 0
 	p.nextPipeline = nil
 	p.playing.Store(false)
 	p.paused.Store(false)

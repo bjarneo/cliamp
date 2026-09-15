@@ -420,6 +420,9 @@ type Model struct {
 	playingTrack       playlist.Track
 	playingTrackActive bool
 	playbackDetached   bool
+	// Pending metadata is displayed while buffering, but does not own playback.
+	pendingTrack    *playlist.Track
+	pendingDetached bool
 
 	notifier playback.Notifier
 

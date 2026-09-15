@@ -95,8 +95,9 @@ func (m *Model) tickResumeSave(now time.Time) {
 // nextTrack advances to the next playlist track and starts playing it.
 // Unplayable tracks are skipped automatically.
 func (m *Model) nextTrack() tea.Cmd {
-	if m.playbackDetached {
+	if m.playbackDetached || m.pendingDetached {
 		m.playbackDetached = false
+		m.pendingDetached = false
 		if m.playlist.Len() == 0 {
 			m.stopPlayback()
 			return nil
@@ -430,13 +431,12 @@ func (m *Model) undoPlaylistMutation() tea.Cmd {
 // playTrack plays a track, using async HTTP for streams and sync I/O for local files.
 // yt-dlp URLs are streamed via a piped yt-dlp | ffmpeg chain for instant playback.
 func (m *Model) playTrack(track playlist.Track) tea.Cmd {
-	m.pausedAt = time.Time{}
 	if track.Feed || playlist.IsFeed(track.Path) {
 		m.feedLoading = true
 		m.status.Activity("Loading feed...", statusTTLLong)
 		return resolveFeedTrackCmd(track.Path)
 	}
-	track, fetchCmd := m.beginPlaybackTrack(track)
+	track, priorCmd := m.preparePlaybackTrack(track)
 
 	// Stream yt-dlp URLs (YouTube, SoundCloud, Bandcamp, etc.) via pipe chain.
 	if playlist.IsYTDL(track.Path) {
@@ -444,19 +444,17 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		m.bufferingAt = time.Now()
 		m.err = nil
 		dur := time.Duration(track.DurationSecs) * time.Second
-		if fetchCmd != nil {
-			return tea.Batch(playYTDLStreamCmd(m.player, track.Path, dur, m.requests.stream), fetchCmd)
-		}
-		return playYTDLStreamCmd(m.player, track.Path, dur, m.requests.stream)
+		return tea.Batch(priorCmd, playYTDLStreamCmd(m.player, track.Path, dur, m.requests.stream))
 	}
 	dur := time.Duration(track.DurationSecs) * time.Second
 	if track.Stream {
 		m.buffering = true
 		m.bufferingAt = time.Now()
 		m.err = nil
-		return tea.Batch(playStreamCmd(m.player, track.Path, dur, m.startPosition(track), m.requests.stream), fetchCmd)
+		return tea.Batch(priorCmd, playStreamCmd(m.player, track.Path, dur, m.startPosition(track), m.requests.stream))
 	}
 	if err := m.player.PlayAt(track.Path, dur, m.startPosition(track)()); err != nil {
+		m.failPlaybackTrack()
 		// Provider session went stale (e.g. Spotify auth expired and
 		// silent reconnect failed). Surface the standard sign-in
 		// overlay rather than the raw stream error.
@@ -467,22 +465,18 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 			m.err = err
 		}
 	} else {
+		var fetchCmd tea.Cmd
+		track, fetchCmd = m.beginPlaybackTrack(track)
 		m.err = nil
 		// yt-dlp streams resume after streamPlayedMsg; local playback reaches
 		// this branch, where applyResume performs the seek synchronously.
 		m.applyResume()
 		m.nowPlaying(track)
 		m.backfillLoadedPlaylistDuration(track)
-		if fetchCmd != nil {
-			return tea.Batch(m.preloadNext(), fetchCmd)
-		}
-		return m.preloadNext()
+		return tea.Batch(priorCmd, m.preloadNext(), fetchCmd)
 	}
 
-	if fetchCmd != nil {
-		return tea.Batch(m.preloadNext(), fetchCmd)
-	}
-	return m.preloadNext()
+	return tea.Batch(priorCmd, m.preloadNext())
 }
 
 func (m *Model) backfillLoadedPlaylistDuration(track playlist.Track) {
@@ -520,21 +514,49 @@ func (m *Model) backfillLoadedPlaylistDuration(track playlist.Track) {
 	}
 }
 
-// beginPlaybackTrack centralizes metadata refresh and model state reset for a
-// new active track. It is used both by explicit playback and by gapless
-// transitions, which advance audio without calling playTrack.
-func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cmd) {
-	m.resetTitleScroll()
-	nextRequest(&m.requests.stream)
+// preparePlaybackTrack invalidates older work without replacing the track
+// still owned by the engine. Capture the source context before browsing can
+// replace the playlist while an asynchronous start is in flight.
+func (m *Model) preparePlaybackTrack(track playlist.Track) (playlist.Track, tea.Cmd) {
+	priorCmd := m.invalidatePlaybackRequest()
 	if m.player != nil {
 		m.player.CancelSeekYTDL()
-		m.player.SetPlaybackGeneration(m.requests.stream)
 		m.player.ClearPreload()
 	}
 	nextRequest(&m.requests.preload)
 	m.preloading = false
-	nextRequest(&m.requests.lyrics)
+	m.buffering = false
+	m.reconnect.at = time.Time{}
+	if m.player != nil && !m.player.IsPlaying() {
+		m.clearPlaybackTrack()
+	}
 	track = playlist.RefreshEmbeddedMetadata(track)
+	if _, index := track.PlaybackContext(); index < 0 && m.playlist != nil {
+		context := m.playlist.Tracks()
+		index = m.playlist.Index()
+		if index < 0 || index >= len(context) || context[index].Path != track.Path {
+			index = trackIndexByPath(context, track.Path)
+		}
+		if index >= 0 {
+			context[index] = track
+			track = playlist.WithPlaybackContext(context)[index]
+		}
+	}
+	m.pendingTrack = &track
+	m.pendingDetached = false
+	m.seek.active = false
+	m.seek.inFlight = false
+	m.seek.pending = false
+	m.seek.gen++
+	return track, priorCmd
+}
+
+// beginPlaybackTrack commits a successfully started track, including gapless
+// transitions, and refreshes its metadata, history, and resume context.
+func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cmd) {
+	m.pausedAt = time.Time{}
+	m.resetTitleScroll()
+	nextRequest(&m.requests.lyrics)
 	context, index := track.PlaybackContext()
 	if index < 0 && m.playlist != nil {
 		context = m.playlist.Tracks()
@@ -545,6 +567,10 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	}
 	m.setPlaybackContext(context, index)
 	m.setPlaybackTrack(track)
+	m.playbackDetached = m.pendingDetached
+	m.pendingTrack = nil
+	m.pendingDetached = false
+	m.buffering = false
 	positionSec := 0
 	if m.resume.path == track.Path {
 		positionSec = m.resume.secs

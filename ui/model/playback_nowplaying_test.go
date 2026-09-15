@@ -80,7 +80,11 @@ func (p *nowPlayingEngine) PlayAtForGeneration(path string, duration, offset tim
 	if gen != p.playGeneration {
 		return nil
 	}
-	return p.PlayAt(path, duration, offset)
+	err := p.PlayAt(path, duration, offset)
+	if err == nil {
+		p.startedGeneration = gen
+	}
+	return err
 }
 
 func (p *nowPlayingEngine) PlayYTDLForGeneration(path string, duration time.Duration, gen uint64) error {
