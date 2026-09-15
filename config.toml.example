@@ -321,3 +321,8 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 #
 # Restrict to specific libraries (default: all).
 # libraries = ["Audiobooks", "Podcasts"]
+
+# Destination for TUI Ctrl+S saves. Empty uses ~/Music/cliamp.
+# Use an absolute path; mount external drives before saving.
+[downloads]
+directory = ""

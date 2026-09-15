@@ -17,6 +17,7 @@ import (
 	"github.com/bjarneo/cliamp/internal/fileutil"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
+	"github.com/bjarneo/cliamp/tracksave"
 )
 
 // quit shuts down the player and signals the TUI to exit.
@@ -1077,7 +1078,7 @@ func (m *Model) handleFullVisualizerKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-// saveTrack copies the current track to ~/Music/cliamp/ with a clean filename.
+// saveTrack saves the current track in the configured downloads directory.
 // For yt-dlp tracks (piped streams), triggers an async download via yt-dlp.
 // For local temp files, copies synchronously.
 func (m *Model) saveTrack() tea.Cmd {
@@ -1087,19 +1088,18 @@ func (m *Model) saveTrack() tea.Cmd {
 		return nil
 	}
 
-	home, err := os.UserHomeDir()
+	saveDir, err := tracksave.Directory(m.downloadsDirectory)
 	if err != nil {
 		m.status.Errorf(statusTTLShort, "Save failed: %s", err)
 		return nil
 	}
 
-	saveDir := filepath.Join(home, "Music", "cliamp")
 	if err := os.MkdirAll(saveDir, 0o755); err != nil {
 		m.status.Errorf(statusTTLShort, "Save failed: %s", err)
 		return nil
 	}
 
-	// YouTube/yt-dlp tracks: async download directly to ~/Music/cliamp/.
+	// YouTube/yt-dlp tracks: download asynchronously into the selected directory.
 	if playlist.IsYouTubeURL(track.Path) || playlist.IsYTDL(track.Path) {
 		m.status.Clear()
 		m.save.startDownload()
@@ -1132,7 +1132,7 @@ func (m *Model) saveTrack() tea.Cmd {
 		return nil
 	}
 
-	m.status.Showf(statusTTLDefault, "Saved to ~/Music/cliamp/%s", name+ext)
+	m.status.Showf(statusTTLDefault, "Saved to %s", dest)
 	return nil
 }
 

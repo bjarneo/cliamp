@@ -473,3 +473,19 @@ brew install ffmpeg
 ```
 
 MP3, WAV, FLAC, and OGG work without ffmpeg.
+
+## Download directory
+
+By default, TUI `Ctrl+S` saves yt-dlp downloads and temporary audio files in
+`~/Music/cliamp`. To use another directory, add this setting and restart cliamp:
+
+```toml
+[downloads]
+directory = "/media/usb/CLAPt/Music"
+```
+
+An empty value keeps the default. Relative paths are rejected; literal `~` is not
+expanded. Missing directories are created. Mount external drives first because
+cliamp does not check mount status. This also applies to IPC Save handled by the
+TUI; headless daemon saving is unchanged. Files remain ordinary local audio
+files and are not automatically substituted into online playlists.

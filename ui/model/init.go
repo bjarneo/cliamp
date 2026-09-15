@@ -324,3 +324,6 @@ func (m *Model) SetRadioFavorites(favorites *radio.Favorites) {
 	m.radioFavorites = favorites
 	m.radioMarkers = &radioMarkerCache{}
 }
+
+// SetDownloadsDirectory selects the destination for saved tracks.
+func (m *Model) SetDownloadsDirectory(dir string) { m.downloadsDirectory = dir }

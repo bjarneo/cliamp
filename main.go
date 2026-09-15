@@ -557,6 +557,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	m.SetSeekStepLarge(cfg.SeekStepLargeDuration())
 	m.SetLyricsOffset(cfg.LyricsOffsetMs)
 	m.SetInitialDirectory(cfg.InitialDirectory)
+	m.SetDownloadsDirectory(cfg.Downloads.Directory)
 	m.SetPendingURLs(resolved.Pending)
 	if cfg.Playlist != "" && len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 {
 		m.SetLoadedPlaylist(cfg.Playlist)

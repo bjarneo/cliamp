@@ -339,8 +339,14 @@ func (a AudiobookshelfConfig) IsSet() bool {
 	return a.URL != "" && (a.Token != "" || (a.User != "" && a.Password != ""))
 }
 
+// DownloadsConfig selects the directory for saved audio. Empty uses ~/Music/cliamp.
+type DownloadsConfig struct {
+	Directory string
+}
+
 // Config holds user preferences loaded from the config file.
 type Config struct {
+	Downloads        DownloadsConfig
 	Volume           float64     // dB, clamped at runtime to [VolumeMin, +6]
 	VolumeMin        float64     // dB floor, range [-90, 0]; default -50
 	VisVolumeLinked  bool        // when true, visualizer bar height follows volume; default true
@@ -483,6 +489,10 @@ func Load() (Config, error) {
 		val = strings.TrimSpace(val)
 
 		switch section {
+		case "downloads":
+			if key == "directory" {
+				cfg.Downloads.Directory = parseString(val)
+			}
 		case "navidrome":
 			switch key {
 			case "url":
