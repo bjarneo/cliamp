@@ -306,7 +306,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.normalizeQueueOverlay()
 			}
 			if !ok {
-				m.stopPlayback()
+				m.endQueue()
 				m.notifyAll()
 				cmds = append(cmds, tickCmdAt(m.tickInterval()))
 				return m, tea.Batch(cmds...)

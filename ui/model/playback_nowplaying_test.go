@@ -21,7 +21,9 @@ type nowPlayingProv struct {
 	reports chan playlist.Track
 }
 
-func newTrackChangeTestPlugin(t *testing.T) (*luaplugin.Manager, <-chan string, func()) {
+// newEventTestPlugin loads a plugin that reports the track carried by event
+// through cliamp.message as "path\nartist\ntitle".
+func newEventTestPlugin(t *testing.T, event string) (*luaplugin.Manager, <-chan string, func()) {
 	t.Helper()
 	configDir := t.TempDir()
 	t.Setenv("CLIAMP_CONFIG_DIR", configDir)
@@ -29,17 +31,17 @@ func newTrackChangeTestPlugin(t *testing.T) (*luaplugin.Manager, <-chan string, 
 	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	pluginPath := filepath.Join(pluginDir, "track-change.lua")
-	const script = `
-local p = plugin.register({name = "track-change", type = "hook"})
-p:on("track.change", function(track)
+	pluginPath := filepath.Join(pluginDir, "event-spy.lua")
+	script := fmt.Sprintf(`
+local p = plugin.register({name = "event-spy", type = "hook"})
+p:on(%q, function(track)
     cliamp.message(track.path .. "\n" .. track.artist .. "\n" .. track.title)
 end)
-`
+`, event)
 	if err := os.WriteFile(pluginPath, []byte(script), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := plugintrust.Approve(pluginDir, "track-change", pluginPath); err != nil {
+	if _, err := plugintrust.Approve(pluginDir, "event-spy", pluginPath); err != nil {
 		t.Fatal(err)
 	}
 	mgr, err := luaplugin.New(nil, nil)
@@ -48,8 +50,8 @@ end)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !mgr.HasHook(luaplugin.EventTrackChange) {
-		t.Fatal("test plugin did not register track.change")
+	if !mgr.HasHook(event) {
+		t.Fatalf("test plugin did not register %s", event)
 	}
 	messages := make(chan string, 4)
 	ctx := t.Context()
@@ -105,7 +107,7 @@ func TestPlayTrackEmitsPluginTrackChange(t *testing.T) {
 			}
 			for _, reporter := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/%s/reporter=%t", path, outcome, reporter), func(t *testing.T) {
-					mgr, messages, closePlugins := newTrackChangeTestPlugin(t)
+					mgr, messages, closePlugins := newEventTestPlugin(t, luaplugin.EventTrackChange)
 					track := playlist.Track{Path: path, Title: "Title", Artist: "Artist", Stream: playlist.IsURL(path)}
 					pl := playlist.New()
 					pl.Add(track)

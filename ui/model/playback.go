@@ -99,7 +99,7 @@ func (m *Model) nextTrack() tea.Cmd {
 		m.playbackDetached = false
 		m.pendingDetached = false
 		if m.playlist.Len() == 0 {
-			m.stopPlayback()
+			m.endQueue()
 			return nil
 		}
 		return m.playCurrentTrack()
@@ -107,7 +107,7 @@ func (m *Model) nextTrack() tea.Cmd {
 	track, ok := m.playlist.Next()
 	m.normalizeQueueOverlay()
 	if !ok {
-		m.stopPlayback()
+		m.endQueue()
 		return nil
 	}
 	m.plCursor = m.playlist.Index()

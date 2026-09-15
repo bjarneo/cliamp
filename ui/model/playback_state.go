@@ -3,6 +3,7 @@ package model
 import (
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/luaplugin"
 	"github.com/bjarneo/cliamp/playlist"
 )
 
@@ -87,13 +88,28 @@ func (m *Model) invalidatePlaybackRequest() tea.Cmd {
 // stopPlayback stops audio and clears the active track. It also advances the
 // stream generation so a yt-dlp or HTTP stream still spinning up for the
 // previous track is refused when it becomes ready, instead of starting to play
-// seconds after the user stopped or ran past the end of the queue.
-func (m *Model) stopPlayback() {
+// seconds after the user stopped or ran past the end of the queue. It returns
+// the last successfully started track before clearing ownership.
+func (m *Model) stopPlayback() (playlist.Track, bool) {
 	m.invalidatePlaybackRequest()
+	finished, active := m.playingTrack, m.playingTrackActive
 	m.player.Stop()
 	// The refused stream result would have cleared this; nothing else will.
 	m.buffering = false
 	m.pendingTrack = nil
 	m.pendingDetached = false
 	m.clearPlaybackTrack()
+	return finished, active
+}
+
+// endQueue stops playback because nothing follows the current track and tells
+// plugins which track finished, so they can tell the end of the queue apart
+// from a manual stop. Advancing when nothing is loaded, such as pressing next
+// after playback already stopped, after a start failed, or on an empty
+// playlist, only stops.
+func (m *Model) endQueue() {
+	finished, active := m.stopPlayback()
+	if active {
+		m.emitPlugin(luaplugin.EventQueueEnd, trackToMap(finished))
+	}
 }
