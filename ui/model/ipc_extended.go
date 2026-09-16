@@ -365,13 +365,19 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 		return ipcMutationCmd(request.Context, request.Reply, func() error { return bookmarks.SetBookmarkByPath(request.Playlist, request.Track.Path) })
 	case "provider.playlists":
 		return func() tea.Msg {
-			items, err := ipcProviderPlaylistInfos(entry)
-			if err != nil {
+			items, err := ProviderPlaylistInfos(entry)
+			if err != nil && len(items) == 0 {
 				request.Reply <- ipc.Response{OK: false, Error: err.Error()}
 				return nil
 			}
 			page, total := ipcPage(items, request.Offset, request.Limit, 200)
-			request.Reply <- ipc.Response{OK: true, Playlists: page, Total: total}
+			// Rows with an error means a partial list: send the rows, and
+			// carry the reason so a client can tell it is not the whole set.
+			resp := ipc.Response{OK: true, Playlists: page, Total: total}
+			if err != nil {
+				resp.Error = err.Error()
+			}
+			request.Reply <- resp
 			return nil
 		}
 	case "provider.catalog":
@@ -390,7 +396,7 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 				request.Reply <- ipcResponseError(err)
 				return nil
 			}
-			items, err := ipcProviderPlaylistInfos(entry)
+			items, err := ProviderPlaylistInfos(entry)
 			if err != nil {
 				request.Reply <- ipcResponseError(err)
 				return nil
@@ -529,20 +535,26 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 	}
 }
 
-func ipcProviderPlaylistInfos(entry ProviderEntry) ([]ipc.PlaylistInfo, error) {
+// ProviderPlaylistInfos lists a provider's playlists in IPC form; shared by
+// the TUI dispatcher and the headless daemon.
+func ProviderPlaylistInfos(entry ProviderEntry) ([]ipc.PlaylistInfo, error) {
 	lists, err := entry.Provider.Playlists()
-	if err != nil {
+	// A provider may degrade to a usable subset (Bandcamp's Library rows
+	// when the playlist endpoint is down) by returning rows and an error
+	// together. Hand back both: callers give the rows to the client and
+	// report the error as a warning, the way the TUI renders them.
+	if err != nil && len(lists) == 0 {
 		return nil, err
 	}
 	items := make([]ipc.PlaylistInfo, len(lists))
 	for i, list := range lists {
-		items[i] = ipc.PlaylistInfo{ID: list.ID, Name: list.Name, Provider: entry.Key, Section: list.Section, TrackCount: list.TrackCount, DurationSecs: list.DurationSecs}
+		items[i] = ipc.PlaylistInfo{ID: list.ID, Name: list.Name, Provider: entry.Key, Section: list.Section, TrackCount: list.TrackCount, DurationSecs: list.DurationSecs, ReadOnly: list.ReadOnly}
 		if sectioned, ok := entry.Provider.(provider.SectionedList); ok {
 			items[i].Favoritable = sectioned.IsFavoritableID(list.ID)
 			items[i].Favorite = strings.HasPrefix(list.ID, "f:")
 		}
 	}
-	return items, nil
+	return items, err
 }
 
 func ipcMutationCmd(ctx context.Context, reply chan ipc.Response, mutate func() error) tea.Cmd {

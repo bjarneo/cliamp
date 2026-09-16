@@ -509,6 +509,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.switchToProvider("qobuz")
 		case "T":
 			return m.switchToProvider("tidal")
+		case "K":
+			return m.switchToProvider("bandcamp")
 		case "L":
 			return m.switchToProvider("local")
 		case "R":
@@ -947,6 +949,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.switchToProvider("qobuz")
 	case "T":
 		return m.switchToProvider("tidal")
+	case "K":
+		return m.switchToProvider("bandcamp")
 
 	case "ctrl+h":
 		m.toggleAlbumHeadersManual()

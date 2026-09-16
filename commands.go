@@ -14,6 +14,7 @@ import (
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/cmd"
 	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/external/bandcamp"
 	"github.com/bjarneo/cliamp/external/qobuz"
 	"github.com/bjarneo/cliamp/external/spotify"
 	"github.com/bjarneo/cliamp/external/tidal"
@@ -35,7 +36,7 @@ func buildApp() *cli.Command {
 		&cli.BoolWithInverseFlag{Name: "simplified", Usage: "simplified playback view (no visualizer or playlist)"},
 		&cli.BoolWithInverseFlag{Name: "help-bar", Usage: "show the key-binding hint bar (? still opens the full keymap)", Value: true},
 		&cli.BoolWithInverseFlag{Name: "expanded", Usage: "start with the playlist expanded (the Ctrl+X state)"},
-		&cli.StringFlag{Name: "provider", Usage: "default provider: radio, podcast, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, soundcloud, mixcloud, netease, yandex, audiobookshelf, abs, yt, youtube, ytmusic"},
+		&cli.StringFlag{Name: "provider", Usage: "default provider: radio, podcast, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, bandcamp, soundcloud, mixcloud, netease, yandex, audiobookshelf, abs, yt, youtube, ytmusic"},
 		&cli.StringFlag{Name: "start-theme", Usage: "UI theme name"},
 		&cli.StringFlag{Name: "visualizer", Usage: "visualizer mode"},
 		&cli.BoolFlag{Name: "visualizer-60fps", Usage: "render visualizer at 60 FPS (higher CPU use)"},
@@ -78,6 +79,7 @@ func buildApp() *cli.Command {
 			spotifyCommand(),
 			qobuzCommand(),
 			tidalCommand(),
+			bandcampCommand(),
 			ipcSimpleCommand("play", "resume playback"),
 			ipcSimpleCommand("pause", "pause playback"),
 			ipcSimpleCommand("toggle", "play/pause toggle"),
@@ -169,10 +171,10 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 			v = "audiobookshelf"
 		}
 		switch v {
-		case "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "mixcloud", "netease", "yandex", "yt", "youtube", "ytmusic":
+		case "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "bandcamp", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "mixcloud", "netease", "yandex", "yt", "youtube", "ytmusic":
 			ov.Provider = &v
 		default:
-			return ov, fmt.Errorf("--provider must be radio, podcast, navidrome, lyrion, spotify, qobuz, tidal, plex, jellyfin, emby, audiobookshelf, soundcloud, mixcloud, netease, yandex, yt, youtube, or ytmusic (got %q)", v)
+			return ov, fmt.Errorf("--provider must be radio, podcast, navidrome, lyrion, spotify, qobuz, tidal, bandcamp, plex, jellyfin, emby, audiobookshelf, soundcloud, mixcloud, netease, yandex, yt, youtube, or ytmusic (got %q)", v)
 		}
 	}
 	if c.IsSet("start-theme") {
@@ -408,9 +410,10 @@ func setupCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "setup",
 		Usage: "interactive wizard to configure remote providers",
-		Description: "Walks through configuring Navidrome, Plex, Jellyfin, Spotify,\n" +
-			"Qobuz, Tidal, NetEase, Audiobookshelf, and YouTube Music. Validates\n" +
-			"connections and writes ~/.config/cliamp/config.toml.",
+		Description: "Walks through configuring Navidrome, Lyrion, Bandcamp, Plex,\n" +
+			"Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz, Tidal, NetEase,\n" +
+			"Mixcloud, and YouTube Music. Validates connections and writes\n" +
+			"~/.config/cliamp/config.toml.",
 
 		Action: func(ctx context.Context, c *cli.Command) error {
 			return cmd.Setup()
@@ -447,6 +450,28 @@ func tidalCommand() *cli.Command {
 		},
 	})
 	return cmd
+}
+
+func bandcampCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "bandcamp",
+		Usage: "manage Bandcamp integration",
+		Commands: []*cli.Command{
+			{
+				Name:  "probe",
+				Usage: "print sanitized Subsonic API diagnostics (no tokens or signed URLs)",
+				Action: func(ctx context.Context, c *cli.Command) error {
+					cfg, err := config.Load()
+					if err != nil {
+						return fmt.Errorf("config: %w", err)
+					}
+					probeCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+					defer cancel()
+					return bandcamp.Probe(probeCtx, os.Stdout, cfg.Bandcamp)
+				},
+			},
+		},
+	}
 }
 
 // providerCredsCommand builds the `cliamp <provider> reset` subcommand shared

@@ -52,7 +52,7 @@ eq_preset = "Flat"
 # Saved Custom curve; applied when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-# Default provider on startup: "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "soundcloud", "mixcloud", "netease", "audiobookshelf", or a YouTube provider
+# Default provider on startup: "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "bandcamp", "plex", "jellyfin", "emby", "soundcloud", "mixcloud", "netease", "audiobookshelf", or a YouTube provider
 # provider = "radio"
 
 # Simplified mode: artist/title and time strip without a visualizer or playlist.
@@ -168,6 +168,25 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # fresh pair here without waiting for a cliamp release.
 # client_id = ""
 # client_secret = ""
+
+# ---
+# Bandcamp (optional)
+# Streams your purchased Bandcamp collection via Bandcamp's official
+# Subsonic API (open beta). Generate dedicated Subsonic credentials on
+# bandcamp.com: Fan Settings -> Subsonic -> generate username/password.
+# These are NOT your Bandcamp login. No developer registration needed.
+# See docs/bandcamp.md. Run "cliamp bandcamp probe" for diagnostics.
+# [bandcamp]
+# user = "your-subsonic-username"
+# password = "your-subsonic-password"
+#
+# Optional: API endpoint override (default shown; the beta URL may move).
+# url = "https://bandcamp.com/api/subsonic"
+#
+# Optional: default album browse sort (persisted automatically when you
+# cycle sort with `s` in the browser): "newest", "alphabeticalByName",
+# "alphabeticalByArtist".
+# browse_sort = "newest"
 
 # ---
 # Navidrome / Subsonic server (optional)

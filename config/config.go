@@ -102,6 +102,22 @@ func (l LyrionConfig) IsSet() bool {
 	return l.URL != ""
 }
 
+// BandcampConfig holds credentials for Bandcamp's official Subsonic API
+// (open beta). The user and password are the dedicated Subsonic credentials
+// generated in Bandcamp Fan Settings — never the Bandcamp account login.
+type BandcampConfig struct {
+	URL        string // API endpoint override; empty uses the official default
+	User       string
+	Password   string
+	BrowseSort string // album browse sort order, e.g. "newest"
+}
+
+// IsSet reports whether the Bandcamp Subsonic credentials are present.
+// The URL is optional (it defaults to the official endpoint).
+func (b BandcampConfig) IsSet() bool {
+	return b.User != "" && b.Password != ""
+}
+
 // SpotifyConfig holds settings for the Spotify provider. Requires a Spotify
 // Premium account. If client_id is empty, a built-in fallback (the librespot
 // keymaster ID) is used so search and catalog endpoints work even for users
@@ -352,7 +368,7 @@ type Config struct {
 	Speed            float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
 	AutoPlay         bool                         // start playback automatically on launch (radio streams, CLI tracks)
 	SeekStepLarge    int                          // seconds for Shift+Left/Right seek jumps
-	Provider         string                       // default provider: "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "mixcloud", "netease", "yandex", "ytmusic" (default "radio")
+	Provider         string                       // default provider: "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "bandcamp", "soundcloud", "mixcloud", "netease", "yandex", "ytmusic" (default "radio")
 	Theme            string                       // theme name, or "" for ANSI default
 	Visualizer       string                       // visualizer mode name, or "" for default (Bars)
 	VisRows          int                          // visualizer height in rows at the full layout tier, or 0 for the built-in default
@@ -373,6 +389,7 @@ type Config struct {
 	LyricsOffsetMs   int                          // lyric timestamp adjustment in ms (-10000..10000), applied to all sources
 	Navidrome        NavidromeConfig              // optional Navidrome/Subsonic server credentials
 	Lyrion           LyrionConfig                 // optional Lyrion Music Server (LMS) instance
+	Bandcamp         BandcampConfig               // optional Bandcamp Subsonic API credentials
 	Spotify          SpotifyConfig                // optional Spotify provider (requires Premium)
 	Qobuz            QobuzConfig                  // optional Qobuz provider (requires subscription)
 	Tidal            TidalConfig                  // optional Tidal provider (requires subscription)
@@ -509,6 +526,22 @@ func Load() (Config, error) {
 				cfg.Lyrion.Password = parseString(val)
 			case "show_unplayable":
 				cfg.Lyrion.ShowUnplayable = strings.ToLower(val) == "true"
+			}
+		case "bandcamp":
+			switch key {
+			case "url":
+				cfg.Bandcamp.URL = strings.TrimSpace(parseString(val))
+			case "user":
+				// TrimSpace: Bandcamp's Fan Settings UI copies credentials
+				// with a stray leading space that breaks auth.
+				cfg.Bandcamp.User = strings.TrimSpace(parseString(val))
+			case "password":
+				cfg.Bandcamp.Password = strings.TrimSpace(parseString(val))
+			case "browse_sort":
+				// Trimmed like the keys above: the dialect's sort list is
+				// exhaustive, so a stray space would silently drop the
+				// saved choice back to the default.
+				cfg.Bandcamp.BrowseSort = strings.TrimSpace(parseString(val))
 			}
 		case "spotify":
 			switch key {
@@ -842,11 +875,15 @@ func Save(key, value string) error {
 }
 
 // SaveNavidromeSort persists the given album browse sort type to the
-// [navidrome] section of the config file. It rewrites the browse_sort key
-// in-place, or appends it after the [navidrome] section if not present.
-// If no [navidrome] section exists, one is appended along with the key.
+// [navidrome] section of the config file.
 func SaveNavidromeSort(sortType string) error {
 	return saveSectionValue("navidrome", "browse_sort", strconv.Quote(sortType))
+}
+
+// SaveBandcampSort persists the given album browse sort type to the
+// [bandcamp] section of the config file.
+func SaveBandcampSort(sortType string) error {
+	return saveSectionValue("bandcamp", "browse_sort", strconv.Quote(sortType))
 }
 
 // SaveRadioCountry persists the listener's home country in the [radio] section

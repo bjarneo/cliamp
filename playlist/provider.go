@@ -32,6 +32,9 @@ type PlaylistInfo struct {
 	DurationSecs   int
 	Section        string
 	DirSourceCount int
+	// ReadOnly marks rows that cannot be written to (synthetic library
+	// views); pickers for playlist mutation skip them.
+	ReadOnly bool
 }
 
 // Provider is the interface for playlist sources (radio, Navidrome, Spotify, etc.).

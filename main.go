@@ -15,6 +15,7 @@ import (
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/external/audiobookshelf"
+	"github.com/bjarneo/cliamp/external/bandcamp"
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
 	"github.com/bjarneo/cliamp/external/local"
@@ -144,6 +145,10 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	}
 	if navClient != nil {
 		providers = append(providers, model.ProviderEntry{Key: "navidrome", Name: "Navidrome", Provider: navClient})
+	}
+
+	if bcProv := bandcamp.NewFromConfig(cfg.Bandcamp); bcProv != nil {
+		providers = append(providers, model.ProviderEntry{Key: "bandcamp", Name: "Bandcamp", Provider: bcProv})
 	}
 
 	var lyrionClient *lyrion.Client
