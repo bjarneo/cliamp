@@ -53,7 +53,7 @@ func TestSetTrackFavorite(t *testing.T) {
 			}))
 			defer srv.Close()
 			c := New(srv.URL, "user", "pass")
-			track := playlist.Track{Path: c.streamURL("song-1"), ProviderMeta: map[string]string{provider.MetaNavidromeID: "song-1"}}
+			track := playlist.Track{Path: srv.URL + "/rest/stream?id=song-1", ProviderMeta: map[string]string{provider.MetaNavidromeID: "song-1"}}
 
 			err := c.SetTrackFavorite(context.Background(), track, tc.favorite)
 			if tc.wantErr != "" {
