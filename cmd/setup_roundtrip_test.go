@@ -53,6 +53,15 @@ func TestSetupBodyRoundTrip(t *testing.T) {
 			want: []string{"http://nas:9000", backslash + `\`, nbsp},
 		},
 		{
+			// Leading and trailing spaces are trimmed; inner ones stay.
+			section: "bandcamp",
+			values:  map[string]string{"user": " " + single, "password": mixed + " "},
+			got: func(c config.Config) []string {
+				return []string{c.Bandcamp.User, c.Bandcamp.Password}
+			},
+			want: []string{single, mixed},
+		},
+		{
 			section: "plex",
 			values:  map[string]string{"url": "http://plex:32400", "token": mixed, "libraries": `Mus"ic, Ja\zz`},
 			got: func(c config.Config) []string {

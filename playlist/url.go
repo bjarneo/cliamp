@@ -141,8 +141,14 @@ func IsYTDL(path string) bool {
 	if IsYTSearch(path) {
 		return true
 	}
-	host, _, ok := hostOf(path)
+	host, u, ok := hostOf(path)
 	if !ok {
+		return false
+	}
+	// Subsonic stream endpoints (the Navidrome and Bandcamp providers) are
+	// plain HTTP audio for the buffered pipeline, not yt-dlp pages —
+	// whatever host they live on.
+	if isSubsonicStreamPath(u.Path) {
 		return false
 	}
 	switch host {
