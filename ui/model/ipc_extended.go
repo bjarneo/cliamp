@@ -339,12 +339,18 @@ func (m *Model) handleIPCLibrary(request ipcLibraryRequest) tea.Cmd {
 	case "provider.playlists":
 		return func() tea.Msg {
 			items, err := ipcProviderPlaylistInfos(entry)
-			if err != nil {
+			if err != nil && len(items) == 0 {
 				request.Reply <- ipc.Response{OK: false, Error: err.Error()}
 				return nil
 			}
 			page, total := ipcPage(items, request.Offset, request.Limit, 200)
-			request.Reply <- ipc.Response{OK: true, Playlists: page, Total: total}
+			// Rows with an error means a partial list: send the rows, and
+			// carry the reason so a client can tell it is not the whole set.
+			resp := ipc.Response{OK: true, Playlists: page, Total: total}
+			if err != nil {
+				resp.Error = err.Error()
+			}
+			request.Reply <- resp
 			return nil
 		}
 	case "provider.catalog":
@@ -526,9 +532,14 @@ func (m *Model) handleIPCLibrary(request ipcLibraryRequest) tea.Cmd {
 	}
 }
 
+// ipcProviderPlaylistInfos lists a provider's playlists in IPC form.
 func ipcProviderPlaylistInfos(entry provider.Entry) ([]ipc.PlaylistInfo, error) {
 	lists, err := entry.Provider.Playlists()
-	if err != nil {
+	// A provider may degrade to a usable subset (Bandcamp's Library rows
+	// when the playlist endpoint is down) by returning rows and an error
+	// together. Hand back both: callers give the rows to the client and
+	// report the error as a warning, the way the TUI renders them.
+	if err != nil && len(lists) == 0 {
 		return nil, err
 	}
 	items := make([]ipc.PlaylistInfo, len(lists))
@@ -538,7 +549,7 @@ func ipcProviderPlaylistInfos(entry provider.Entry) ([]ipc.PlaylistInfo, error) 
 			items[i].Favoritable = sectioned.IsFavoritableID(list.ID)
 		}
 	}
-	return items, nil
+	return items, err
 }
 
 func ipcMutationCmd(ctx context.Context, reply chan ipc.Response, mutate func() error) tea.Cmd {

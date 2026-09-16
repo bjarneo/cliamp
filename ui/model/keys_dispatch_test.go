@@ -20,7 +20,7 @@ func shortcutTestModel() Model {
 	m.provider = other
 	m.providers = []provider.Entry{{Key: "other", Name: "Other", Provider: other}}
 	for _, key := range []string{"navidrome", "spotify", "plex", "jellyfin", "emby", "audiobookshelf",
-		"yt", "soundcloud", "mixcloud", "netease", "qobuz", "tidal", "local", "radio", "podcast"} {
+		"yt", "soundcloud", "mixcloud", "netease", "qobuz", "tidal", "bandcamp", "local", "radio", "podcast"} {
 		m.providers = append(m.providers, provider.Entry{Key: key, Name: key, Provider: commandsTestProvider{name: key}})
 	}
 	return m
@@ -39,7 +39,7 @@ func TestProviderShortcutsSwitchFromEveryFocus(t *testing.T) {
 	shortcuts := map[string]string{
 		"S": "spotify", "P": "plex", "J": "jellyfin", "E": "emby", "B": "audiobookshelf",
 		"Y": "yt", "C": "soundcloud", "X": "mixcloud", "M": "netease", "Q": "qobuz",
-		"T": "tidal", "L": "local", "R": "radio", "O": "podcast",
+		"T": "tidal", "K": "bandcamp", "L": "local", "R": "radio", "O": "podcast",
 	}
 	for _, f := range focuses {
 		for key, want := range shortcuts {

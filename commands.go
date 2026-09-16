@@ -16,6 +16,7 @@ import (
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/cmd"
 	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/external/bandcamp"
 	"github.com/bjarneo/cliamp/external/qobuz"
 	"github.com/bjarneo/cliamp/external/spotify"
 	"github.com/bjarneo/cliamp/external/tidal"
@@ -83,6 +84,7 @@ func buildApp() *cli.Command {
 			spotifyCommand(),
 			qobuzCommand(),
 			tidalCommand(),
+			bandcampCommand(),
 			ytmusicCommand(),
 			ipcSimpleCommand("play", "resume playback"),
 			ipcSimpleCommand("pause", "pause playback"),
@@ -410,9 +412,10 @@ func setupCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "setup",
 		Usage: "interactive wizard to configure remote providers",
-		Description: "Walks through configuring Navidrome, Plex, Jellyfin, Spotify,\n" +
-			"Qobuz, Tidal, NetEase, Audiobookshelf, and YouTube Music. Validates\n" +
-			"connections and writes ~/.config/cliamp/config.toml.",
+		Description: "Walks through configuring Navidrome, Lyrion, Bandcamp, Plex,\n" +
+			"Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz, Tidal, NetEase,\n" +
+			"Mixcloud, and YouTube Music. Validates connections and writes\n" +
+			"~/.config/cliamp/config.toml.",
 
 		Action: func(ctx context.Context, c *cli.Command) error {
 			return cmd.Setup()
@@ -449,6 +452,28 @@ func tidalCommand() *cli.Command {
 		},
 	})
 	return cmd
+}
+
+func bandcampCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "bandcamp",
+		Usage: "manage Bandcamp integration",
+		Commands: []*cli.Command{
+			{
+				Name:  "probe",
+				Usage: "print sanitized Subsonic API diagnostics (no tokens or signed URLs)",
+				Action: func(ctx context.Context, c *cli.Command) error {
+					cfg, err := config.Load()
+					if err != nil {
+						return fmt.Errorf("config: %w", err)
+					}
+					probeCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+					defer cancel()
+					return bandcamp.Probe(probeCtx, os.Stdout, cfg.Bandcamp)
+				},
+			},
+		},
+	}
 }
 
 func ytmusicCommand() *cli.Command {

@@ -63,6 +63,12 @@ user = 'bob'
 password = "lyr#ion"
 show_unplayable = true
 
+[bandcamp]
+url = "https://example.test/api/subsonic"
+user = " fan"
+password = "band#camp "
+browse_sort = " alphabeticalByArtist "
+
 [spotify]
 client_id = "spotify-client"
 bitrate = 160
@@ -222,6 +228,12 @@ func TestLoadGolden(t *testing.T) {
 		ScrobbleDisabled: true,
 	}
 	sectionsWant.Lyrion = LyrionConfig{URL: "http://nas.local:9000", User: "bob", Password: "lyr#ion", ShowUnplayable: true}
+	sectionsWant.Bandcamp = BandcampConfig{
+		URL:        "https://example.test/api/subsonic",
+		User:       "fan",
+		Password:   "band#camp",
+		BrowseSort: "alphabeticalByArtist",
+	}
 	sectionsWant.Spotify = SpotifyConfig{Enabled: true, ClientID: "spotify-client", Bitrate: 160}
 	sectionsWant.Qobuz = QobuzConfig{Enabled: true, Quality: 27}
 	sectionsWant.Tidal = TidalConfig{Enabled: true, ClientID: "tidal-id", ClientSecret: "tidal-secret", Quality: "hires"}
@@ -335,6 +347,12 @@ func TestLoadGolden(t *testing.T) {
 		BrowseSort: "alphabeticalByName",
 	}
 	allWant.Lyrion = LyrionConfig{URL: "http://nas.local:9000", User: "alice", Password: "secret", ShowUnplayable: true}
+	allWant.Bandcamp = BandcampConfig{
+		URL:        "https://bandcamp.com/api/subsonic",
+		User:       "your-subsonic-username",
+		Password:   "your-subsonic-password",
+		BrowseSort: "newest",
+	}
 	allWant.SoundCloud = SoundCloudConfig{Enabled: true, User: "yourname", CookiesFrom: "firefox"}
 	allWant.Mixcloud = MixcloudConfig{
 		Enabled:        true,

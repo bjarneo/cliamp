@@ -483,6 +483,7 @@ func TestProviderKeyForShortcut(t *testing.T) {
 		"J": "jellyfin",
 		"Y": "yt",
 		"X": "mixcloud",
+		"K": "bandcamp",
 		"L": "local",
 		"R": "radio",
 		"O": "podcast",
