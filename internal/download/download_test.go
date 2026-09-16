@@ -20,10 +20,10 @@ func TestSave(t *testing.T) {
 		length  string
 		success bool
 	}{
-		{"success", 200, "fake audio", "", true},
-		{"http error", 403, "secret response", "", false},
-		{"truncated", 200, "short", "100", false},
-		{"empty", 200, "", "", false},
+		{"success", http.StatusOK, "fake audio", "", true},
+		{"http error", http.StatusForbidden, "secret response", "", false},
+		{"truncated", http.StatusOK, "short", "100", false},
+		{"empty", http.StatusOK, "", "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()

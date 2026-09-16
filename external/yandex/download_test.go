@@ -66,7 +66,9 @@ func TestDownloadTrackResolutionCancellation(t *testing.T) {
 }
 
 func TestDownloadTrackRedactsResolutionError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "signed-secret private-token", 403) }))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "signed-secret private-token", http.StatusForbidden)
+	}))
 	defer server.Close()
 	p := New("private-token")
 	p.api.apiBase = server.URL
