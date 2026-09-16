@@ -7,7 +7,8 @@ uses type assertions at run time to detect capabilities and enable features.
 
 Use these providers as examples:
 
-- `external/navidrome/`: Subsonic API, browsing, scrobbling
+- `external/navidrome/`: Subsonic API, browsing, scrobbling (shared client in `internal/subsonicapi`, dialect pattern)
+- `external/bandcamp/`: Bandcamp's Subsonic API, synthetic Library rows, playlist editing
 - `external/plex/`: Plex Media Server, search, album tracks
 - `external/spotify/`: Spotify, search, playlist management, custom streaming
 - `external/mixcloud/`: public catalog, browse-entry shortcuts, creator jumps,

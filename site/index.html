@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>cliamp — terminal music player</title>
-<meta name="description" content="A full music player that lives in your terminal. Play local files, podcasts, Spotify, Qobuz, Tidal, YouTube Music, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, Yandex Music, and about 58,000 radio stations, with a 10-band equalizer, visualizers, synced lyrics, and Lua plugins.">
+<meta name="description" content="A full music player that lives in your terminal. Play local files, podcasts, Spotify, Qobuz, Tidal, Bandcamp, YouTube Music, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, Yandex Music, and about 58,000 radio stations, with a 10-band equalizer, visualizers, synced lyrics, and Lua plugins.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg" id="favicon">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#0b0c0d">
@@ -338,7 +338,7 @@ footer a{color:var(--fg-2)}
       <div class="eyebrow">~/audio/cliamp</div>
       <h1>cliamp</h1>
       <p class="tagline">A full <em>music player</em> that lives in your terminal. No browser tab required.</p>
-      <p class="lede">Playlists, a 10-band equalizer, 31 visualizers, synced lyrics, podcasts, remote control, and Lua plugins. Stream from <b>Spotify, Qobuz, Tidal, YouTube Music, Plex, Jellyfin, Emby, Navidrome, Lyrion, Yandex Music</b> — plus podcast feeds and about 58,000 internet radio stations.</p>
+      <p class="lede">Playlists, a 10-band equalizer, 31 visualizers, synced lyrics, podcasts, remote control, and Lua plugins. Stream from <b>Spotify, Qobuz, Tidal, Bandcamp, YouTube Music, Plex, Jellyfin, Emby, Navidrome, Lyrion, Yandex Music</b> — plus podcast feeds and about 58,000 internet radio stations.</p>
       <div class="btns">
         <a href="#install" class="btn go">$ install</a>
         <a href="https://github.com/bjarneo/cliamp" class="btn">view source</a>
@@ -658,7 +658,7 @@ var SOURCES=[
   {name:"Mixcloud",kind:"streaming",note:"shows & creators · yt-dlp"},
   {name:"NetEase Cloud Music",kind:"streaming",note:"browser session · yt-dlp"},
   {name:"Yandex Music",kind:"streaming",note:"OAuth token"},
-  {name:"Bandcamp",kind:"streaming",note:"paste a URL · yt-dlp"},
+  {name:"Bandcamp",kind:"streaming",note:"your purchases · Subsonic API"},
   {name:"Bilibili",kind:"streaming",note:"video audio · yt-dlp"},
   {name:"Plex",kind:"self-hosted",note:"server token"},
   {name:"Jellyfin",kind:"self-hosted",note:"API key / password, gapless, resume"},
