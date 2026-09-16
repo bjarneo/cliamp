@@ -32,6 +32,8 @@ When these environment variables are set, Cliamp authenticates with the Navidrom
 
 Use the arrow keys to browse playlists. Press Enter to load one. Cliamp adds its tracks to the local playlist and starts playback. Navidrome streams the original file or a transcode, depending on its [transcoding settings](#transcoding).
 
+From the native search overlay (`Ctrl+F`) you can also add tracks to your server playlists or create new ones with the `p` key — changes are written back to Navidrome via the Subsonic `createPlaylist`/`updatePlaylist` endpoints.
+
 ## Controls
 
 When focused on the provider panel:

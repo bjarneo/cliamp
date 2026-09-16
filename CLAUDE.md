@@ -12,7 +12,7 @@
 
 ## What cliamp is
 
-A TUI music player inspired by Winamp. It plays local files, `ssh://` paths, HTTP streams, HLS, podcasts and internet radio. It also plays from these providers: Spotify, Qobuz, Tidal, YouTube, YouTube Music, SoundCloud, Mixcloud, NetEase Cloud Music, Yandex Music, Navidrome, Lyrion, Plex, Jellyfin, Emby and Audiobookshelf. yt-dlp adds Bandcamp and Bilibili URLs. `resolve/` plays Xiaoyuzhou episode URLs. cliamp has built-in visualizers, a 10-band parametric EQ, synced lyrics, Lua plugins, V2 IPC remote control and a headless mode. Media controls use MPRIS on Linux, NowPlaying on macOS and media-key hotkeys on Windows.
+A TUI music player inspired by Winamp. It plays local files, `ssh://` paths, HTTP streams, HLS, podcasts and internet radio. It also plays from these providers: Spotify, Qobuz, Tidal, Bandcamp, YouTube, YouTube Music, SoundCloud, Mixcloud, NetEase Cloud Music, Yandex Music, Navidrome, Lyrion, Plex, Jellyfin, Emby and Audiobookshelf. yt-dlp adds Bandcamp and Bilibili URLs. `resolve/` plays Xiaoyuzhou episode URLs. cliamp has built-in visualizers, a 10-band parametric EQ, synced lyrics, Lua plugins, V2 IPC remote control and a headless mode. Media controls use MPRIS on Linux, NowPlaying on macOS and media-key hotkeys on Windows.
 
 - Site: https://cliamp.stream
 - Install: `curl -fsSL https://cliamp.stream/install.sh | sh`
@@ -44,7 +44,7 @@ Each directory below is a Go package:
 | `player/` | The audio engine: decoding, FFmpeg and yt-dlp pipelines, the buffered provider pipeline, gapless, the 10-band EQ, volume, speed, ICY and the visualizer tap. `audio_device_*.go` holds the platform audio devices |
 | `playlist/` | The `Track` model, the queue with shuffle, repeat and play-next, M3U and PLS, the track TOML format, and the base `playlist.Provider` interface in `provider.go` |
 | `provider/` | The optional capability interfaces in `interfaces.go`, `Entry`, the `ProviderMeta` keys in `types.go`, and `AddTracks` |
-| `external/<name>/` | One package per provider: `audiobookshelf`, `emby`, `jellyfin`, `local`, `lyrion`, `mixcloud`, `navidrome`, `netease`, `plex`, `podcast`, `qobuz`, `radio`, `soundcloud`, `spotify`, `tidal`, `yandex`, `ytmusic`. `radio` also serves the cliamp radio channels. `radiometa` is not a provider. It reads the now-playing data of stations that send no ICY metadata |
+| `external/<name>/` | One package per provider: `audiobookshelf`, `bandcamp`, `emby`, `jellyfin`, `local`, `lyrion`, `mixcloud`, `navidrome`, `netease`, `plex`, `podcast`, `qobuz`, `radio`, `soundcloud`, `spotify`, `tidal`, `yandex`, `ytmusic`. `radio` also serves the cliamp radio channels. `radiometa` is not a provider. It reads the now-playing data of stations that send no ICY metadata |
 | `favorites/`, `history/` | The ♥ favorites and Recently Played stores in the config directory. `buildProviders` makes one of each and shares them with the local provider and the Model |
 | `resolve/` | Turns the user arguments into tracks: files, directories, globs, URLs, M3U, PLS, feeds, yt-dlp playlists and Xiaoyuzhou |
 | `tracksave/` | Saves a downloaded track in the download directory |
@@ -60,7 +60,7 @@ Each directory below is a Go package:
 | `cmd/` | The bodies of the `setup`, `playlist`, `history`, `radio` and `protocol` subcommands |
 | `applog/` | The log file `cliamp.log` in the config directory |
 | `upgrade/` | Self-update for `cliamp upgrade` |
-| `internal/` | Private helpers: `appdir` for the config, data and plugin directories, `appmeta` for the version, `authurl` for sign-in URLs, `browser`, `credstore` for provider credential files, `deeplink` for `cliamp://` parsing, `embyapi` for the shared Emby and Jellyfin client, `fileutil`, `fuzzy`, `globe` and `worldmap` for `cliamp radio --globe`, `httpclient` for the stream client and `NewAPI`, `netdiag`, `playback` for the shared messages and `Notifier`, `plugintrust`, `resume`, `sshurl`, `tomlutil` for `[[section]]` files, and `ytdlcookies` |
+| `internal/` | Private helpers: `appdir` for the config, data and plugin directories, `appmeta` for the version, `authurl` for sign-in URLs, `browser`, `credstore` for provider credential files, `deeplink` for `cliamp://` parsing, `embyapi` for the shared Emby and Jellyfin client, `subsonicapi` for the shared Navidrome and Bandcamp client, `fileutil`, `fuzzy`, `globe` and `worldmap` for `cliamp radio --globe`, `httpclient` for the stream client and `NewAPI`, `netdiag`, `playback` for the shared messages and `Notifier`, `plugintrust`, `resume`, `sshurl`, `tomlutil` for `[[section]]` files, and `ytdlcookies` |
 
 Other directories: `docs/` holds the user docs, one `.md` per feature. `site/` is the static website for cliamp.stream. **Keep it synced with `docs/` on user-facing changes.** `nix/package.nix` and `flake.nix` build the Nix package. `.github/workflows/` holds CI, release, AUR, Nix and Pages.
 
