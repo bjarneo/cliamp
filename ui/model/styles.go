@@ -47,7 +47,7 @@ func rebuildModelStyles() {
 	eqInactiveStyle = lipgloss.NewStyle().Foreground(ui.ColorDim)
 	playlistActiveStyle = lipgloss.NewStyle().Foreground(ui.ColorPlaying).Bold(true)
 	playlistItemStyle = lipgloss.NewStyle().Foreground(ui.ColorText)
-	playlistSelectedStyle = lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true)
+	playlistSelectedStyle = lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true).Underline(ui.SelectionUnderline)
 	playlistUnavailableStyle = lipgloss.NewStyle().Foreground(ui.ColorDim)
 	helpStyle = lipgloss.NewStyle().Foreground(ui.ColorDim)
 	helpKeyStyle = lipgloss.NewStyle().Foreground(ui.ColorKeyFG).Background(ui.ColorKeyBG).Bold(true)

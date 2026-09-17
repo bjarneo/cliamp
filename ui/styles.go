@@ -33,6 +33,12 @@ var (
 	SpectrumHigh    color.Color
 )
 
+// SelectionUnderline reports whether selected rows are underlined as well as
+// drawn in the accent. It is set for themes whose accent differs from the text
+// only in lightness: a gray accent on a light theme reads as a dimmed row, not
+// a selected one.
+var SelectionUnderline bool
+
 func init() { ApplyThemeColors(theme.Default()) }
 
 // PaddingH is the horizontal padding inside the frame.
@@ -91,6 +97,7 @@ func ApplyThemeColors(t theme.Theme) {
 		SpectrumLow = lipgloss.ANSIColor(10)
 		SpectrumMid = lipgloss.ANSIColor(11)
 		SpectrumHigh = lipgloss.ANSIColor(9)
+		SelectionUnderline = false
 	} else {
 		if t.BG == "" {
 			ColorBackground = nil
@@ -111,6 +118,7 @@ func ApplyThemeColors(t theme.Theme) {
 		SpectrumLow = lipgloss.Color(t.Green)
 		SpectrumMid = lipgloss.Color(t.Yellow)
 		SpectrumHigh = lipgloss.Color(t.Red)
+		SelectionUnderline = accentLacksHue(t.Accent, t.BrightFG)
 	}
 
 	// Rebuild visualizer spectrum styles.
@@ -121,9 +129,54 @@ func ApplyThemeColors(t theme.Theme) {
 }
 
 func contrastingTextColor(hex string) string {
+	r, g, b, ok := linearRGB(hex)
+	if !ok {
+		return "#ffffff"
+	}
+	luminance := 0.2126*r + 0.7152*g + 0.0722*b
+	// This is the crossover where black provides more contrast than white.
+	if luminance > 0.179 {
+		return "#000000"
+	}
+	return "#ffffff"
+}
+
+// minAccentHueDistance is how far apart the accent and the text must sit in
+// OKLab's a/b plane -- hue and saturation, lightness left out -- for color
+// alone to mark a selected row. The built-in themes split cleanly around it:
+// vantablack (0) and nord (0.043) fall below, miasma (0.067) and every other
+// theme sit above.
+const minAccentHueDistance = 0.05
+
+// accentLacksHue reports whether accent and text differ too little in hue for
+// the accent to set a selected row apart without a second cue.
+func accentLacksHue(accent, text string) bool {
+	a1, b1, ok1 := oklabAB(accent)
+	a2, b2, ok2 := oklabAB(text)
+	if !ok1 || !ok2 {
+		return false
+	}
+	return math.Hypot(a1-a2, b1-b2) < minAccentHueDistance
+}
+
+// oklabAB returns the a and b coordinates of a #RRGGBB color in OKLab.
+func oklabAB(hex string) (a, b float64, ok bool) {
+	r, g, bl, ok := linearRGB(hex)
+	if !ok {
+		return 0, 0, false
+	}
+	l := math.Cbrt(0.4122214708*r + 0.5363325363*g + 0.0514459929*bl)
+	m := math.Cbrt(0.2119034982*r + 0.6806995451*g + 0.1073969566*bl)
+	s := math.Cbrt(0.0883024619*r + 0.2817188376*g + 0.6299787005*bl)
+	return 1.9779984951*l - 2.4285922050*m + 0.4505937099*s,
+		0.0259040371*l + 0.7827717662*m - 0.8086757660*s, true
+}
+
+// linearRGB decodes a #RRGGBB color into linear-light sRGB channels.
+func linearRGB(hex string) (r, g, b float64, ok bool) {
 	value, err := strconv.ParseUint(strings.TrimPrefix(hex, "#"), 16, 24)
 	if err != nil {
-		return "#ffffff"
+		return 0, 0, 0, false
 	}
 	linear := func(channel uint64) float64 {
 		component := float64(channel) / 255
@@ -132,10 +185,5 @@ func contrastingTextColor(hex string) string {
 		}
 		return math.Pow((component+0.055)/1.055, 2.4)
 	}
-	luminance := 0.2126*linear(value>>16) + 0.7152*linear((value>>8)&0xff) + 0.0722*linear(value&0xff)
-	// This is the crossover where black provides more contrast than white.
-	if luminance > 0.179 {
-		return "#000000"
-	}
-	return "#ffffff"
+	return linear(value >> 16), linear((value >> 8) & 0xff), linear(value & 0xff), true
 }

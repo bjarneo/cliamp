@@ -50,7 +50,9 @@ Press `t` to show the theme in the list immediately.
 | `red`       | Errors, favorite heart, and spectrum top    |
 
 All values are six-digit hex strings, for example `"#ff5733"`. Help-key pill
-text switches between black and white for readable contrast.
+text switches between black and white for readable contrast. When `accent`
+differs from `bright_fg` only in lightness, as a gray accent does, selected
+items are underlined as well, so color is not the only thing marking them.
 
 Important UI states also use stable text markers: `>`, `Q`, `★`, `!`, `WARN:`,
 and `ERR:`. These markers keep state and feedback distinct in monochrome

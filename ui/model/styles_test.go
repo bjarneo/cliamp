@@ -90,3 +90,46 @@ func TestFavoriteMarksFollowThemeChange(t *testing.T) {
 		})
 	}
 }
+
+// TestSelectedRowUnderlinedWhenAccentLacksHue covers themes whose accent is a
+// shade of the text color: the selected row is underlined there, and only
+// there, since color alone no longer sets it apart.
+func TestSelectedRowUnderlinedWhenAccentLacksHue(t *testing.T) {
+	gray := theme.Theme{
+		Name:     "gray",
+		Accent:   "#6e6e6e",
+		BrightFG: "#000000",
+		FG:       "#595959",
+		Green:    "#3a3a3a",
+		Yellow:   "#4a4a4a",
+		Red:      "#2a2a2a",
+	}
+	blue := theme.Theme{
+		Name:     "blue",
+		Accent:   "#89b4fa",
+		BrightFG: "#cdd6f4",
+		FG:       "#9399b2",
+		Green:    "#a6e3a1",
+		Yellow:   "#f9e2af",
+		Red:      "#f38ba8",
+	}
+	m := Model{themes: []theme.Theme{gray, blue}}
+	t.Cleanup(func() { applyThemeAll(theme.Default()) })
+
+	for _, tc := range []struct {
+		theme string
+		want  bool
+	}{
+		{"gray", true},
+		{"blue", false},
+		{"gray", true},
+		{"default", false},
+	} {
+		if !m.SetTheme(tc.theme) {
+			t.Fatalf("SetTheme(%q) = false, want the theme to be found", tc.theme)
+		}
+		if got := playlistSelectedStyle.GetUnderline(); got != tc.want {
+			t.Errorf("selected row underline under %s = %v, want %v", tc.theme, got, tc.want)
+		}
+	}
+}
