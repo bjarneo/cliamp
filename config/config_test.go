@@ -710,6 +710,7 @@ func TestStripInlineComment(t *testing.T) {
 		{"hash inside double-quoted value preserved", `"http://x#frag"`, `"http://x#frag"`},
 		{"hash inside single-quoted value preserved", `'a#b'   # trailing`, `'a#b'`},
 		{"no trailing space before comment", `abc123#note`, `abc123`},
+		{"escaped quote inside double-quoted value doesn't end the string early", `"a\"#b"   # trailing`, `"a\"#b"`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

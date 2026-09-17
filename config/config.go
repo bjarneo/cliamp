@@ -54,11 +54,16 @@ func parseString(s string) string {
 // stripInlineComment removes a trailing, unquoted '#' comment from a raw
 // config value, e.g. `"http://x"   # note` -> `"http://x"`. A '#' that
 // appears inside a quoted string is left alone, since that's valid TOML.
+// Inside a double-quoted string, a backslash escapes the next character
+// (so `\"` doesn't end the string early), matching TOML basic-string rules;
+// single-quoted literal strings have no escapes.
 func stripInlineComment(s string) string {
 	var quote byte
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		switch {
+		case quote == '"' && c == '\\':
+			i++
 		case quote != 0:
 			if c == quote {
 				quote = 0
