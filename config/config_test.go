@@ -698,6 +698,60 @@ cookies_from = "   "
 	}
 }
 
+func TestStripInlineComment(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"no comment", `"http://x"`, `"http://x"`},
+		{"trailing comment after quoted value", `"http://192.0.2.10:32400"   # inline comment`, `"http://192.0.2.10:32400"`},
+		{"trailing comment after bare value", `abc123   # note`, `abc123`},
+		{"hash inside double-quoted value preserved", `"http://x#frag"`, `"http://x#frag"`},
+		{"hash inside single-quoted value preserved", `'a#b'   # trailing`, `'a#b'`},
+		{"no trailing space before comment", `abc123#note`, `abc123`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := stripInlineComment(tc.in); got != tc.want {
+				t.Errorf("stripInlineComment(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadPlexInlineComment(t *testing.T) {
+	// Regression for #366: an inline comment after a config value (valid TOML)
+	// was parsed as part of the value, so `url = "..." # note` produced a
+	// broken URL still containing the trailing quote and comment text.
+	t.Setenv("HOME", t.TempDir())
+
+	path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	data := []byte(`
+[plex]
+url   = "http://192.0.2.10:32400"   # inline comment
+token = "secret-token"   # another comment
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Plex.URL != "http://192.0.2.10:32400" {
+		t.Errorf("Plex.URL = %q, want %q", cfg.Plex.URL, "http://192.0.2.10:32400")
+	}
+	if cfg.Plex.Token != "secret-token" {
+		t.Errorf("Plex.Token = %q, want %q", cfg.Plex.Token, "secret-token")
+	}
+}
+
 func TestOverridesApply(t *testing.T) {
 	cfg := defaultConfig()
 
