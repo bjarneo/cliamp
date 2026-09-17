@@ -306,11 +306,6 @@ func needsFFmpeg(ext string) bool {
 	return false
 }
 
-// errGoMP3LowRateUnreliable signals that go-mp3 successfully parsed a stream
-// but produced audibly garbled/distorted PCM, so the caller should discard
-// its output and fall back to decoding with ffmpeg instead.
-var errGoMP3LowRateUnreliable = fmt.Errorf("go-mp3 does not reliably decode MPEG-2/2.5 (low sample rate) MP3 streams")
-
 // isLowRateMP3 reports whether an MP3 stream is MPEG-2 or MPEG-2.5 Layer III
 // (sample rate below the MPEG-1 floor of 32000Hz — i.e. 24000/22050/16000Hz
 // for MPEG-2, or 12000/11025/8000Hz for MPEG-2.5). go-mp3 (the pure-Go
