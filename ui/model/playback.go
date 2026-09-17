@@ -18,6 +18,7 @@ const (
 )
 
 func (m *Model) replacePlaylist(tracks []playlist.Track) {
+	m.clearContinuation()
 	if m.resumeSaver != nil {
 		tracks = playlist.WithPlaybackContext(tracks)
 	}
@@ -102,6 +103,12 @@ func (m *Model) nextTrack() tea.Cmd {
 			return nil
 		}
 		return m.playCurrentTrack()
+	}
+	if m.atContinuationBoundary() {
+		cmd := m.extendTracks(true)
+		if m.continuation.waiting {
+			return cmd
+		}
 	}
 	track, ok := m.playlist.Next()
 	m.normalizeQueueOverlay()
@@ -430,6 +437,7 @@ func (m *Model) undoPlaylistMutation() tea.Cmd {
 // playTrack plays a track, using async HTTP for streams and sync I/O for local files.
 // yt-dlp URLs are streamed via a piped yt-dlp | ffmpeg chain for instant playback.
 func (m *Model) playTrack(track playlist.Track) tea.Cmd {
+	m.continuation.waiting = false
 	m.pausedAt = time.Time{}
 	if track.Feed || playlist.IsFeed(track.Path) {
 		m.feedLoading = true

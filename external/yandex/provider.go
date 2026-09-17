@@ -44,17 +44,21 @@ func (c Config) IsSet() bool {
 // waveState holds the ongoing "Моя волна" radio session so playback reports
 // can be fed back and later batches can be fetched for the same session.
 type waveState struct {
+	exhausted bool
+	batchIDs  map[string]string
+	keysByID  map[string]string
 	sessionID string
-	batchID   string
 	tracks    []playlist.Track
 	keys      []string // "trackId:albumId" keys for continuation requests
 }
 
 // Provider implements playlist.Provider and provider.Searcher for Yandex Music.
 type Provider struct {
-	api    *client
-	mu     sync.Mutex
-	userID uint64
+	waveLoadMu     sync.Mutex
+	waveGeneration uint64
+	api            *client
+	mu             sync.Mutex
+	userID         uint64
 
 	playlistCache []playlist.PlaylistInfo
 	wave          *waveState
@@ -92,6 +96,7 @@ func (p *Provider) Refresh() {
 	p.userID = 0
 	p.playlistCache = nil
 	p.wave = nil
+	p.waveGeneration++
 	p.urlCache = map[string]urlEntry{}
 }
 
@@ -241,21 +246,23 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 // continuation batches, so one load gives roughly fifteen tracks. Refresh()
 // discards the session; the next load starts a fresh wave.
 func (p *Provider) loadWave() ([]playlist.Track, error) {
+	p.waveLoadMu.Lock()
+	defer p.waveLoadMu.Unlock()
 	p.mu.Lock()
 	if p.wave != nil {
 		out := append([]playlist.Track(nil), p.wave.tracks...)
 		p.mu.Unlock()
 		return out, nil
 	}
+	generation := p.waveGeneration
 	p.mu.Unlock()
 
 	initial, sessionID, batchID, err := p.api.rotorStartWave()
 	if err != nil {
 		return nil, err
 	}
-	w := &waveState{sessionID: sessionID, batchID: batchID}
-	w.tracks = p.toPlaylistTracks(initial)
-	w.keys = trackKeys(initial)
+	w := &waveState{sessionID: sessionID, batchIDs: map[string]string{}, keysByID: map[string]string{}}
+	p.appendWaveTracks(w, initial, batchID)
 
 	const extraBatches = 2
 	for range extraBatches {
@@ -264,12 +271,14 @@ func (p *Provider) loadWave() ([]playlist.Track, error) {
 			// Continuation is best-effort; keep whatever was loaded.
 			break
 		}
-		w.batchID = bid
-		w.tracks = append(w.tracks, p.toPlaylistTracks(batch)...)
-		w.keys = append(w.keys, trackKeys(batch)...)
+		p.appendWaveTracks(w, batch, bid)
 	}
 
 	p.mu.Lock()
+	if generation != p.waveGeneration {
+		p.mu.Unlock()
+		return nil, playlist.ErrListChanged
+	}
 	if p.wave == nil {
 		p.wave = w
 	}
@@ -336,15 +345,6 @@ func trackKeys(ts []track) []string {
 	return keys
 }
 
-func waveKeyFor(keys []string, id string) string {
-	for _, k := range keys {
-		if plainID(k) == id {
-			return k
-		}
-	}
-	return id
-}
-
 // ResolveSource resolves a yandex:track: URI to a fresh signed stream URL at
 // play time. Registered as a player.SourceResolver in main.go.
 func (p *Provider) ResolveSource(uri string) (string, error) {
@@ -401,14 +401,11 @@ func (p *Provider) report(track playlist.Track, playedSeconds int, waveEvent str
 	}
 	p.mu.Lock()
 	uid := p.userID
-	var wave *waveState
-	if p.wave != nil {
-		for _, k := range p.wave.keys {
-			if plainID(k) == id {
-				wave = p.wave
-				break
-			}
-		}
+	var sessionID, batchID, trackKey string
+	if w := p.wave; w != nil && w.keysByID[id] != "" {
+		sessionID = w.sessionID
+		batchID = w.batchIDs[id]
+		trackKey = w.keysByID[id]
 	}
 	p.mu.Unlock()
 	if uid == 0 {
@@ -417,12 +414,12 @@ func (p *Provider) report(track playlist.Track, playedSeconds int, waveEvent str
 	if err := p.api.reportPlayback(uid, id, track.DurationSecs, playedSeconds); err != nil {
 		return fmt.Errorf("report playback: %w", err)
 	}
-	if wave == nil {
+	if sessionID == "" {
 		return nil
 	}
 	return p.api.rotorWaveFeedback(
-		wave.sessionID, wave.batchID, waveEvent,
-		waveKeyFor(wave.keys, id),
+		sessionID, batchID, waveEvent,
+		trackKey,
 		float64(track.DurationSecs), float64(playedSeconds),
 	)
 }

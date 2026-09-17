@@ -283,6 +283,7 @@ const (
 
 // Model is the Bubbletea model for the CLIAMP TUI.
 type Model struct {
+	continuation       continuationState
 	downloadsDirectory string
 	// Core playback
 	player        player.Engine

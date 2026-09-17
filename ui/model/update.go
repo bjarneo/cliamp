@@ -54,12 +54,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tea.KeyPressMsg:
+		wasPlaylist := m.activeScreen() == screenMain && m.focus == focusPlaylist
 		cmd := m.handleKey(msg)
 		if m.quitting {
 			return m, tea.Quit
 		}
 		m.applyHeightMode()
 		m.adjustScroll()
+		if wasPlaylist {
+			cmd = tea.Batch(cmd, m.extendAtCursor(msg.String()))
+		}
 		return m, cmd
 
 	case autoPlayMsg:
@@ -332,6 +336,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.preloadNext())
 			m.notifyAll()
 		}
+		// Fetch the next batch while the final loaded track is still playing.
+		if m.player.IsPlaying() && !m.player.IsPaused() && !m.playbackDetached && m.playlist.Repeat() != playlist.RepeatOne &&
+			(m.playlist.Index() == m.playlist.Len()-1 || !m.playlist.HasNext()) {
+			cmds = append(cmds, m.extendTracks(false))
+		}
 		m.tickResumeSave(now)
 		// Check if gapless drained (end of playlist, no preloaded next).
 		// Skip if already buffering a yt-dlp download to avoid advancing
@@ -417,6 +426,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.startCatalogLoading()
 		return m, cmd
 
+	case tracksExtendedMsg:
+		cmd := m.applyExtendedTracks(msg)
+		return m, cmd
+
 	case tracksLoadedMsg:
 		if msg.gen != m.requests.tracks || !m.isActiveProvider(msg.providerName) {
 			return m, nil
@@ -456,6 +469,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			m.replacePlayerPlaylist(msg.tracks)
+			m.startContinuation(msg)
 			if msg.playlistExact && m.localProvider != nil && msg.providerName == m.localProvider.Name() && msg.playlistID != history.PlaylistName {
 				m.loadedPlaylist = msg.playlistID
 			}
