@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 
@@ -103,6 +104,14 @@ func awaitSpotifyStream(ctx context.Context, cancel context.CancelFunc, open fun
 	// The worker must be able to release Session's read lock after a timeout.
 	results := make(chan result, 1)
 	go func() {
+		// A panic in librespot's stream setup would otherwise take down the
+		// whole process and leave the terminal in raw mode; fail the track instead.
+		defer func() {
+			if r := recover(); r != nil {
+				applog.Error("spotify: stream setup panicked: %v\n%s", r, debug.Stack())
+				results <- result{err: fmt.Errorf("spotify: stream setup failed: %v", r)}
+			}
+		}()
 		stream, err := open()
 		results <- result{stream: stream, err: err}
 	}()

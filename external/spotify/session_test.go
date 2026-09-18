@@ -96,6 +96,33 @@ func TestAwaitSpotifyStreamTimeoutCancelsTransportAndReleasesReadLock(t *testing
 	})
 }
 
+func TestAwaitSpotifyStreamRecoversSetupPanic(t *testing.T) {
+	streamCtx, streamCancel := context.WithCancel(context.Background())
+	var session Session
+
+	stream, cancel, err := awaitSpotifyStream(t.Context(), streamCancel, func() (*librespotPlayer.Stream, error) {
+		session.mu.RLock()
+		defer session.mu.RUnlock()
+		var params *struct{ LoudnessDb float32 }
+		_ = params.LoudnessDb // nil dereference, as in librespot v0.9.0 normalisation
+		return nil, nil
+	})
+
+	if stream != nil || cancel != nil {
+		t.Fatalf("awaitSpotifyStream() = (%v, %v), want nil stream and cancel", stream, cancel)
+	}
+	if err == nil {
+		t.Fatal("awaitSpotifyStream() error = nil, want recovered panic")
+	}
+	if streamCtx.Err() == nil {
+		t.Error("stream context was not canceled")
+	}
+	if !session.mu.TryLock() {
+		t.Fatal("stream setup retained the session read lock")
+	}
+	session.mu.Unlock()
+}
+
 func TestIsInvalidGrant(t *testing.T) {
 	tests := []struct {
 		name string
