@@ -24,6 +24,9 @@ func Probe(ctx context.Context, w io.Writer, cfg config.BandcampConfig) error {
 	if !cfg.IsSet() {
 		return fmt.Errorf("bandcamp: no credentials — add user/password to [bandcamp] in config.toml (Fan Settings -> Subsonic)")
 	}
+	if _, err := endpoint(cfg); err != nil {
+		fmt.Fprintf(w, "config: %v — probing %s instead\n", err, DefaultURL)
+	}
 	c := newClient(cfg)
 
 	fmt.Fprintf(w, "Endpoint: %s\n", redactURL(c.BaseURL()))

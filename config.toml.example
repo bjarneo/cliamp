@@ -181,6 +181,8 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # password = "your-subsonic-password"
 #
 # Optional: API endpoint override (default shown; the beta URL may move).
+# Must be https (plain http only for localhost): credentials travel in the
+# query string of every request.
 # url = "https://bandcamp.com/api/subsonic"
 #
 # Optional: default album browse sort (persisted automatically when you

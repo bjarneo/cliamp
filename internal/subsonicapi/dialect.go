@@ -138,13 +138,17 @@ func (bandcampDialect) httpError(endpoint string, status int, statusText string)
 }
 
 func (bandcampDialect) missingEnvelope(endpoint string, body []byte) error {
-	// Only Bandcamp's generic fall-through ({"error":true,...}) marks an
-	// endpoint unimplemented; any other envelope-less JSON is treated as a
-	// transient oddity and passed through un-memoized.
+	// Only the exact fall-through the beta sends for an unimplemented route
+	// ({"error":true,"error_message":"bad version"}, verified live
+	// 2026-08-25) marks an endpoint unimplemented. The verdict is memoized
+	// until Refresh, so a different error body — a maintenance page, a
+	// transient backend fault — must not qualify: it is still reported, but
+	// as a one-off the next call retries.
 	var generic struct {
-		Error bool `json:"error"`
+		Error        bool   `json:"error"`
+		ErrorMessage string `json:"error_message"`
 	}
-	if json.Unmarshal(body, &generic) != nil || !generic.Error {
+	if json.Unmarshal(body, &generic) != nil || !generic.Error || generic.ErrorMessage != "bad version" {
 		return nil
 	}
 	return fmt.Errorf("bandcamp: Bandcamp's Subsonic API (beta) doesn't support %s yet — refresh to retry later", endpoint)

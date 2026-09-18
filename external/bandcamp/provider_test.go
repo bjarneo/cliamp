@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/internal/subsonicapi"
 	"github.com/bjarneo/cliamp/playlist"
@@ -629,5 +630,96 @@ func TestTracks_AllPurchasesRestartsAfterRefresh(t *testing.T) {
 	}
 	if _, err := p.Tracks(allPurchasesID); err != nil || calls.Load() != 6 {
 		t.Errorf("post-refresh crawl not cached (calls=%d, err=%v)", calls.Load(), err)
+	}
+}
+
+func TestEndpointRequiresTLS(t *testing.T) {
+	// Every request carries the Subsonic token and salt in its query string,
+	// so the url override may not route them over a cleartext link — except
+	// to loopback, where the traffic never leaves the machine.
+	tests := []struct {
+		url    string
+		want   string
+		wantOK bool
+	}{
+		{"", DefaultURL, true},
+		{"https://bandcamp.com/api/subsonic2", "https://bandcamp.com/api/subsonic2", true},
+		{"http://localhost:8080/api/subsonic", "http://localhost:8080/api/subsonic", true},
+		{"http://127.0.0.1:8080/api/subsonic", "http://127.0.0.1:8080/api/subsonic", true},
+		{"http://[::1]:8080/api/subsonic", "http://[::1]:8080/api/subsonic", true},
+		{"http://bandcamp.com/api/subsonic", "", false},
+		{"http://192.168.1.10/api/subsonic", "", false},
+		{"ftp://bandcamp.com/api/subsonic", "", false},
+		{"bandcamp.com/api/subsonic", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			got, err := endpoint(config.BandcampConfig{URL: tt.url})
+			if (err == nil) != tt.wantOK {
+				t.Fatalf("endpoint(%q) error = %v, want ok=%v", tt.url, err, tt.wantOK)
+			}
+			if got != tt.want {
+				t.Errorf("endpoint(%q) = %q, want %q", tt.url, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestInsecureURLNeverReceivesCredentials(t *testing.T) {
+	// Bandcamp credentials only work at Bandcamp, so an insecure override
+	// falls back to the official endpoint rather than being used, and the
+	// setup wizard refuses it outright instead of validating elsewhere.
+	cfg := config.BandcampConfig{URL: "http://fan:hunter2@example.com/api/subsonic", User: "u", Password: "p"}
+	if got := newClient(cfg).BaseURL(); got != DefaultURL {
+		t.Errorf("client base = %q, want the %q fallback", got, DefaultURL)
+	}
+	err := Validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "https") {
+		t.Fatalf("Validate() = %v, want an https requirement error", err)
+	}
+	if strings.Contains(err.Error(), "hunter2") {
+		t.Errorf("error leaks the url's userinfo: %v", err)
+	}
+}
+
+func TestTruncationWarnsOncePerOpen(t *testing.T) {
+	// The crawl records the notice and the opened row announces it, so a
+	// fresh crawl and a later cache hit each produce exactly one warning.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var sb strings.Builder
+		sb.WriteString(`{"subsonic-response":{"status":"ok","searchResult3":{"song":[`)
+		for i := range allPageSize {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			fmt.Fprintf(&sb, `{"id":"s-%d","title":"T","artist":"A","album":"LP","track":%d,"duration":1}`, i, i)
+		}
+		sb.WriteString(`]}}}`)
+		w.Write([]byte(sb.String()))
+	}))
+	defer srv.Close()
+
+	count := func() int {
+		n := 0
+		for _, e := range applog.Drain() {
+			if strings.Contains(e.Text, "not the whole collection") {
+				n++
+			}
+		}
+		return n
+	}
+	p := newTestProvider(srv.URL)
+	applog.Drain()
+	if _, err := p.Tracks(allPurchasesID); err != nil {
+		t.Fatalf("Tracks(all) error: %v", err)
+	}
+	if n := count(); n != 1 {
+		t.Errorf("first open warned %d times, want 1", n)
+	}
+	if _, err := p.Tracks(allPurchasesID); err != nil {
+		t.Fatalf("Tracks(all) error: %v", err)
+	}
+	if n := count(); n != 1 {
+		t.Errorf("cached open warned %d times, want 1", n)
 	}
 }

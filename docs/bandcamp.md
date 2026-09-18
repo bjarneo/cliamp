@@ -25,7 +25,10 @@ Both values support `$ENV_VAR` indirection if you prefer to keep secrets out of 
 Optional keys:
 
 ```toml
-# API endpoint override (escape hatch while the beta moves; default shown)
+# API endpoint override (escape hatch while the beta moves; default shown).
+# Must be https: every request carries your Subsonic token in its query
+# string. Plain http is accepted only for localhost (a local debugging proxy);
+# anything else falls back to the default endpoint with a warning.
 url = "https://bandcamp.com/api/subsonic"
 # Default album browse sort, persisted when you cycle sort with `s`
 browse_sort = "newest"

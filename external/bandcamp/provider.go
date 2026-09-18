@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -34,11 +36,10 @@ import (
 )
 
 // Compile-time checks for the interfaces Provider overrides. The browse,
-// search, sort, and playlist-mutation interfaces are promoted from the
-// embedded *subsonicapi.Client, which asserts them itself.
-// The playlist-mutation interfaces are asserted explicitly even though the
-// embedded client also satisfies them: promotion is shadowed by name, not by
-// signature, so without these a drift in either interface would silently
+// search, and sort interfaces are promoted from the embedded
+// *subsonicapi.Client, which asserts them itself. The playlist-mutation
+// interfaces are asserted here as well: promotion is shadowed by name, not
+// by signature, so without these a drift in either interface would silently
 // drop Provider's override — and with it the guard that keeps the read-only
 // Library rows from being written to.
 var (
@@ -137,12 +138,48 @@ func NewFromConfig(cfg config.BandcampConfig) *Provider {
 	if !cfg.IsSet() {
 		return nil
 	}
+	if _, err := endpoint(cfg); err != nil {
+		applog.UserWarn("%v; using %s instead", err, DefaultURL)
+	}
 	return &Provider{Client: newClient(cfg)}
 }
 
+// endpoint returns the API base URL to talk to: the configured override, or
+// DefaultURL when none is set. Every request carries the Subsonic token and
+// salt in its query string, and a token/salt pair can be replayed, so an
+// override must use https. Plain http is allowed only to a loopback address,
+// where the traffic never leaves the machine (a local debugging proxy).
+func endpoint(cfg config.BandcampConfig) (string, error) {
+	if cfg.URL == "" {
+		return DefaultURL, nil
+	}
+	u, err := url.Parse(cfg.URL)
+	if err != nil || u.Host == "" {
+		return "", errors.New("bandcamp: the configured url is not a valid absolute URL")
+	}
+	if u.Scheme == "https" || (u.Scheme == "http" && isLoopback(u.Hostname())) {
+		return cfg.URL, nil
+	}
+	return "", fmt.Errorf("bandcamp: the configured url must use https, not %s://%s — Subsonic credentials travel in its query string", u.Scheme, u.Host)
+}
+
+func isLoopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func newClient(cfg config.BandcampConfig) *subsonicapi.Client {
+	base, err := endpoint(cfg)
+	if err != nil {
+		// Bandcamp credentials only work at Bandcamp anyway, so the safe
+		// fallback is the official endpoint rather than the insecure one.
+		base = DefaultURL
+	}
 	return subsonicapi.NewBandcampClient(subsonicapi.Config{
-		BaseURL:    cmp.Or(cfg.URL, DefaultURL),
+		BaseURL:    base,
 		User:       cfg.User,
 		Password:   cfg.Password,
 		BrowseSort: cfg.BrowseSort,
@@ -154,6 +191,9 @@ func newClient(cfg config.BandcampConfig) *subsonicapi.Client {
 // authenticated call. Bandcamp's ping answers ok even with bad credentials,
 // so the setup wizard must use this instead of Ping.
 func Validate(cfg config.BandcampConfig) error {
+	if _, err := endpoint(cfg); err != nil {
+		return err
+	}
 	return newClient(cfg).ValidateAuth()
 }
 
@@ -462,7 +502,8 @@ func (p *Provider) fetchAll(gen uint64) ([]playlist.Track, bool, error) {
 		cutShort = fmt.Sprintf("the %d-page limit was reached", maxAllPages)
 	}
 	// Caching a short list beats re-crawling hundreds of pages on every open,
-	// so keep it — but never silently. Tracks re-announces this on each open.
+	// so keep it — but never silently. Recorded here, announced by the row
+	// that was opened, so a fresh crawl and a cache hit warn exactly once.
 	p.mu.Lock()
 	if cutShort == "" {
 		p.allTruncated = ""
@@ -470,7 +511,6 @@ func (p *Provider) fetchAll(gen uint64) ([]playlist.Track, bool, error) {
 		p.allTruncated = fmt.Sprintf("bandcamp: showing %d purchases, not the whole collection — %s; press Ctrl+R to retry", len(tracks), cutShort)
 	}
 	p.mu.Unlock()
-	p.warnIfTruncated()
 	slices.SortStableFunc(tracks, func(a, b playlist.Track) int {
 		return cmp.Or(
 			strings.Compare(strings.ToLower(a.Artist), strings.ToLower(b.Artist)),

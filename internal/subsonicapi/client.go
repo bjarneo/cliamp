@@ -61,9 +61,9 @@ var after = time.After
 var ErrBadCredentials = errors.New("bad credentials")
 
 // pingEndpoint is the connectivity check; authProbeEndpoint is the
-// authenticated call that proves credentials. A dialect that infers rejected
-// credentials from an ambiguous HTTP status keys on the latter, so the two
-// must name the same endpoint.
+// authenticated call that proves credentials. ValidateAuth calls the latter
+// and a dialect may attach a credentials hint to its failures (Bandcamp's
+// bare 500), so both refer to this one constant.
 const (
 	pingEndpoint      = "ping.view"
 	authProbeEndpoint = "getPlaylists"
@@ -332,8 +332,8 @@ func (c *Client) subsonicGet(ctx context.Context, endpoint string, params url.Va
 	// dialect recognizes by a route-level signature; parameters do not
 	// change that verdict (Bandcamp answers bad parameters with a proper ok
 	// envelope, verified live 2026-08-25). The ping health check is the one
-	// exclusion: it doubles as the outage detector, so a single transient
-	// answer must not disable it until Refresh.
+	// exclusion: its whole job is to report the server's current state, so
+	// a single transient answer must not freeze it until Refresh.
 	memoizable := endpoint != pingEndpoint
 	if memoizable {
 		c.mu.Lock()

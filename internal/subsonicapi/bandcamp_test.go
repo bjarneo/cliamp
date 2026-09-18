@@ -204,8 +204,8 @@ func TestNoEnvelopeMemoOnlyForBandcamp(t *testing.T) {
 }
 
 func TestPingNeverMemoized(t *testing.T) {
-	// Ping doubles as the outage-vs-credentials disambiguator: one
-	// envelope-less answer must not disable it until Refresh.
+	// Ping is a health check, so it must always report the server's current
+	// state: one envelope-less answer must not freeze it until Refresh.
 	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -658,5 +658,28 @@ func TestBrowseSortValidation(t *testing.T) {
 				t.Errorf("DefaultAlbumSort() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestUnrecognizedErrorBodyIsNotMemoized(t *testing.T) {
+	// Only the beta's exact unimplemented-route body is memoized. Any other
+	// {"error":true} body — a maintenance page, a transient fault — is still
+	// an error, but the next call must reach the server again.
+	var calls atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"error":true,"error_message":"down for maintenance"}`))
+	}))
+	defer srv.Close()
+
+	c := newBandcampTestClient(srv)
+	for range 2 {
+		if _, err := c.Artists(); err == nil {
+			t.Fatal("expected an error for the maintenance body")
+		}
+	}
+	if got := calls.Load(); got != 2 {
+		t.Errorf("getArtists hit %d times, want 2 (a non-matching body must not be memoized)", got)
 	}
 }
