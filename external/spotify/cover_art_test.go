@@ -36,6 +36,11 @@ func TestPickCoverImage(t *testing.T) {
 			want:   "ok",
 		},
 		{
+			name:   "an image without a width still counts",
+			images: []spotifyImage{{URL: "unsized"}},
+			want:   "unsized",
+		},
+		{
 			name:   "exact target is taken",
 			images: []spotifyImage{{URL: "exact", Width: 300}},
 			want:   "exact",

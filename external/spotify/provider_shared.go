@@ -108,7 +108,9 @@ type spotifyImage struct {
 func pickCoverImage(images []spotifyImage) string {
 	const coverTargetPx = 300
 
-	best, bestW := "", 0
+	// bestW starts below zero so an image whose width Spotify omitted (decoded
+	// as 0) still counts as a fallback.
+	best, bestW := "", -1
 	smallestOK, smallestOKW := "", 0
 	for _, img := range images {
 		if img.URL == "" {

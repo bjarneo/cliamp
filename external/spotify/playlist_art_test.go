@@ -25,15 +25,24 @@ func TestPlaylistTracksRequestAlbumArt(t *testing.T) {
 		fields = req.URL.Query().Get("fields")
 		payload := map[string]any{
 			"total": 1,
-			"items": []map[string]any{{
-				"item": map[string]any{
+			"items": []map[string]any{
+				{"item": map[string]any{
 					"id": "t1", "name": "Song", "type": "track", "uri": "spotify:track:t1",
 					"album": map[string]any{
 						"name":   "Album",
 						"images": []map[string]any{{"url": "https://i.scdn.co/300", "width": 300, "height": 300}},
 					},
-				},
-			}},
+				}},
+				{"item": map[string]any{
+					"id": "e1", "name": "Episode", "type": "episode", "uri": "spotify:episode:e1",
+					"images": []map[string]any{{"url": "https://i.scdn.co/episode", "width": 300}},
+					"show":   map[string]any{"name": "Show", "images": []map[string]any{{"url": "https://i.scdn.co/show", "width": 300}}},
+				}},
+				{"item": map[string]any{
+					"id": "e2", "name": "Episode 2", "type": "episode", "uri": "spotify:episode:e2",
+					"show": map[string]any{"name": "Show", "images": []map[string]any{{"url": "https://i.scdn.co/show", "width": 300}}},
+				}},
+			},
 		}
 		body, _ := json.Marshal(payload)
 		return &http.Response{
@@ -54,11 +63,24 @@ func TestPlaylistTracksRequestAlbumArt(t *testing.T) {
 		t.Fatalf("fetchTracksPage: %v", err)
 	}
 
-	album := regexp.MustCompile(`album\(([^)]*)\)`).FindStringSubmatch(fields)
-	if album == nil || !strings.Contains(album[1], "images") {
-		t.Errorf("fields = %q, want album(...) to request images", fields)
+	for _, group := range []string{"album", "show"} {
+		m := regexp.MustCompile(group + `\(([^)]*)\)`).FindStringSubmatch(fields)
+		if m == nil || !strings.Contains(m[1], "images") {
+			t.Errorf("fields = %q, want %s(...) to request images", fields, group)
+		}
 	}
-	if len(tracks) != 1 || tracks[0].AlbumArtURL != "https://i.scdn.co/300" {
-		t.Errorf("tracks = %+v, want one track with the album art", tracks)
+	// Episodes carry their own images at the item's top level.
+	if !regexp.MustCompile(`item\([^()]*(\([^)]*\)[^()]*)*[,(]images[,)]`).MatchString(fields) {
+		t.Errorf("fields = %q, want the item's own images", fields)
+	}
+
+	want := []string{"https://i.scdn.co/300", "https://i.scdn.co/episode", "https://i.scdn.co/show"}
+	if len(tracks) != len(want) {
+		t.Fatalf("got %d tracks, want %d", len(tracks), len(want))
+	}
+	for i, w := range want {
+		if tracks[i].AlbumArtURL != w {
+			t.Errorf("track %d (%s) art = %q, want %q", i, tracks[i].Title, tracks[i].AlbumArtURL, w)
+		}
 	}
 }
