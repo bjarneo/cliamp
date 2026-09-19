@@ -116,6 +116,7 @@ and `Esc` clears it.
 | `J` | Open Jellyfin provider |
 | `E` | Open Emby provider |
 | `Y` | Open YouTube provider |
+| `U` | Open YouTube Music provider |
 | `C` | Open SoundCloud provider |
 | `X` | Open Mixcloud provider |
 | `M` | Open NetEase provider |
