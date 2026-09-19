@@ -51,6 +51,9 @@ func (m *Manager) EmitKey(key string) bool {
 	if m.closing {
 		return false
 	}
+	// bind() stores under the normalized form, so dispatch must normalize too,
+	// or no binding is ever found.
+	key = normalizeKey(key)
 	hooks := m.keyBinds[key]
 	if len(hooks) == 0 {
 		return false
@@ -69,10 +72,19 @@ func (m *Manager) EmitKey(key string) bool {
 	return true
 }
 
-// normalizeKey lowercases and strips whitespace so "Ctrl+X" and "ctrl+x"
-// collide at registration and dispatch.
+// normalizeKey canonicalizes a key string so registration and dispatch agree.
+//
+// Case is significant for a bare single character: Bubbletea reports shift+f
+// as "F", and the core keymap treats "f" and "F" as different commands, so
+// lowercasing here would both mis-target the binding and make it collide with
+// the reserved lowercase key. Modified and named keys ("Ctrl+X", "Left") are
+// lowercased, matching the convention the core registry uses.
 func normalizeKey(key string) string {
-	return strings.ToLower(strings.TrimSpace(key))
+	key = strings.TrimSpace(key)
+	if !strings.Contains(key, "+") && len([]rune(key)) == 1 {
+		return key
+	}
+	return strings.ToLower(key)
 }
 
 // registerKeymapAPI attaches :bind() / :unbind() to the plugin object returned

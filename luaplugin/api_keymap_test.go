@@ -29,10 +29,42 @@ func TestPluginBindAndEmit(t *testing.T) {
 	}))
 	p.mu.Unlock()
 
-	if ok := m.EmitKey("x"); !ok {
+	// Case is significant for a bare letter: Bubbletea reports shift+x as "X",
+	// and the core owns "x" separately. Binding "X" must fire on "X" only,
+	// otherwise an uppercase plugin key can never be reached.
+	if ok := m.EmitKey("x"); ok {
+		t.Fatal(`EmitKey("x") fired a binding registered for "X"`)
+	}
+	if ok := m.EmitKey("X"); !ok {
 		t.Fatal("EmitKey returned false for bound key")
 	}
 
+	waitAtomic(t, &fired, 1, 2*time.Second)
+}
+
+// Modified and named keys stay case-insensitive, matching the lowercase form
+// the core registry and Bubbletea both use.
+func TestPluginBindNormalizesModifiedKeys(t *testing.T) {
+	m := newTestManager()
+
+	var fired atomic.Int64
+	p := loadTestPlugin(t, m, "kb", `
+		local p = plugin.register({name = "kb", type = "hook", permissions = {"keymap"}})
+		p:bind("Ctrl+E", function(key) bump() end)
+	`)
+	if p == nil {
+		t.Fatal("plugin failed to load")
+	}
+	p.mu.Lock()
+	p.L.SetGlobal("bump", p.L.NewFunction(func(L *lua.LState) int {
+		fired.Add(1)
+		return 0
+	}))
+	p.mu.Unlock()
+
+	if ok := m.EmitKey("ctrl+e"); !ok {
+		t.Fatal(`EmitKey("ctrl+e") did not fire a binding registered as "Ctrl+E"`)
+	}
 	waitAtomic(t, &fired, 1, 2*time.Second)
 }
 
