@@ -13,6 +13,7 @@ import (
 
 // resetProviderNav resets provider navigation and search state to the top.
 func (m *Model) resetProviderNav() {
+	m.clearContinuation()
 	nextRequest(&m.requests.provider)
 	nextRequest(&m.requests.tracks)
 	nextRequest(&m.requests.auth)
@@ -155,6 +156,7 @@ func (m *Model) retireTracksPaging() {
 }
 
 func (m *Model) fetchProviderTracks(playlistID string) tea.Cmd {
+	m.clearContinuation()
 	if m.provider == nil {
 		return nil
 	}

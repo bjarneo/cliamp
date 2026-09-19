@@ -408,3 +408,13 @@ type FavoritesManager interface {
 type TrackPager interface {
 	TracksPage(playlistID string, offset int) (tracks []playlist.Track, next int, err error)
 }
+
+// TrackExtender supplies on-demand batches for open-ended playlists. Unlike
+// TrackPager, callers request another batch only when browsing or playback
+// reaches the loaded tail. Offset counts tracks already delivered by Tracks
+// and ExtendTracks; repeated offsets must return cached results. An empty batch
+// ends continuation until the playlist is reloaded.
+type TrackExtender interface {
+	CanExtendPlaylist(playlistID string) bool
+	ExtendTracks(playlistID string, offset int) ([]playlist.Track, error)
+}

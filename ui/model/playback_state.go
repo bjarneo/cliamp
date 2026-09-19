@@ -48,6 +48,7 @@ func (m *Model) clearPlaybackTrack() {
 // previous track is refused when it becomes ready, instead of starting to play
 // seconds after the user stopped or ran past the end of the queue.
 func (m *Model) stopPlayback() {
+	m.continuation.waiting = false
 	nextRequest(&m.requests.stream)
 	m.player.SetPlaybackGeneration(m.requests.stream)
 	m.player.Stop()

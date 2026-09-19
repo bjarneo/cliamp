@@ -44,6 +44,9 @@ func (m *Model) rearmPreload() tea.Cmd {
 // When position has not yet reached the threshold, this function returns nil
 // and the tick loop will retry on the next pass.
 func (m *Model) preloadNext() tea.Cmd {
+	if m.continuation.loading {
+		return nil
+	}
 	// Live streams do not have a track boundary. Preloading another station
 	// would turn a transient EOF into a gapless switch instead of reconnecting
 	// the station the user selected.
