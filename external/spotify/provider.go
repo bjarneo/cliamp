@@ -472,7 +472,7 @@ func (p *SpotifyProvider) fetchTracksPage(ctx context.Context, playlistID string
 	}
 	path := "/v1/me/tracks"
 	if playlistID != savedTracksPlaylistID {
-		query.Set("fields", "items(item(id,name,type,uri,artists(name),album(name,release_date),show(name),release_date,duration_ms,track_number,is_playable,restrictions(reason))),total")
+		query.Set("fields", "items(item(id,name,type,uri,artists(name),album(name,release_date,images),show(name,images),images,release_date,duration_ms,track_number,is_playable,restrictions(reason))),total")
 		path = fmt.Sprintf("/v1/playlists/%s/items", playlistID)
 	}
 	resp, err := p.webAPI(ctx, "GET", path, query)
