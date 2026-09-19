@@ -29,8 +29,14 @@ local p = plugin.register({
 })
 
 local function cfg(key, fallback)
-    local v = tonumber(p:config(key))
-    if not v or v <= 0 then return fallback end
+    local raw = p:config(key)
+    if raw == nil or raw == "" then return fallback end
+    local v = tonumber(raw)
+    if not v or v <= 0 then
+        cliamp.log.warn(string.format("pomodoro: %s = %q is not a positive number; using %g",
+            key, tostring(raw), fallback))
+        return fallback
+    end
     return v
 end
 
@@ -405,6 +411,19 @@ local function progressLine(fraction, cells, width)
         "\27[2m" .. string.rep("─", cells - filled) .. "\27[22m", cells, width)
 end
 
+-- faceWidth returns the exact cell width renderFace will produce for text at
+-- digitW, including its per-glyph and per-gap minimums.
+local function faceWidth(text, digitW)
+    local gap = math.max(1, floor(digitW * 0.14))
+    local total = 0
+    for i = 1, #text do
+        local ch = text:sub(i, i)
+        total = total + math.max(2, floor(digitW * (ADVANCE[ch] or 1)))
+        if i > 1 then total = total + gap end
+    end
+    return total
+end
+
 -- renderFace lays the glyphs onto one canvas and returns the packed rows.
 local function renderFace(text, digitW, h)
     local gap = math.max(1, floor(digitW * 0.14))
@@ -456,17 +475,10 @@ function p:render(bands, frame, rows, cols)
     local wantBar = rows >= 6
     local wantSpacer = rows >= 12
     local avail = rows - (wantBar and 1 or 0) - (wantSpacer and 1 or 0)
-    if avail < 2 then
-        local out = {}
-        local mid = floor(rows / 2) + 1
-        for i = 1, rows do
-            out[i] = (i == mid) and padTo(text, #text, cols) or ""
-        end
-        return table.concat(out, "\n")
-    end
 
-    -- Size from the height available, then shrink if that would overflow the
-    -- width. Digits are about 0.62 as wide as they are tall.
+    -- Size from the height available, then shrink until the face really fits
+    -- the width. faceWidth counts the same per-glyph minimums renderFace
+    -- applies, which an estimate from digitW alone undershoots.
     local h = avail * 2
     local digitW = floor(0.72 * h * pixelAspect)
     local estimate = floor(digitW * 4.42 + digitW * 0.14 * 4)
@@ -475,6 +487,22 @@ function p:render(bands, frame, rows, cols)
         digitW = math.max(2, floor(digitW * factor))
         h = math.max(2, floor(h * factor))
         if h % 2 == 1 then h = h - 1 end
+    end
+    while digitW > 2 and faceWidth(text, digitW) > cols do
+        h = math.max(2, floor(h * (digitW - 1) / digitW))
+        if h % 2 == 1 then h = h - 1 end
+        digitW = digitW - 1
+    end
+
+    -- Too short or too narrow for even the smallest face: plain text, clipped.
+    if avail < 2 or faceWidth(text, digitW) > cols then
+        local shown = text:sub(1, cols)
+        local out = {}
+        local mid = floor(rows / 2) + 1
+        for i = 1, rows do
+            out[i] = (i == mid) and padTo(shown, #shown, cols) or ""
+        end
+        return table.concat(out, "\n")
     end
 
     local key = text .. "|" .. rows .. "x" .. cols
