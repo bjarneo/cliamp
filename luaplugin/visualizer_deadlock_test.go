@@ -17,6 +17,7 @@ func newManagerWithPlugin(t *testing.T, name, src string) *Manager {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CLIAMP_CONFIG_DIR", "")
+	t.Setenv("XDG_CONFIG_HOME", "") // appdir checks it before HOME
 	dir := filepath.Join(home, ".config", "cliamp", "plugins")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
