@@ -139,6 +139,7 @@ func New(pluginCfg map[string]map[string]string, publisher EventPublisher) (*Man
 	m := &Manager{
 		hooks:        make(map[string][]*luaHook),
 		keyBinds:     make(map[string][]*luaHook),
+		reservedKeys: initialReservedKeys(),
 		keyBindDescs: make(map[string]KeyBinding),
 		commands:     make(map[string]map[string]*luaHook),
 		visMap:       make(map[string]*luaVis),

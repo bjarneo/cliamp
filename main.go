@@ -468,6 +468,10 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	pluginBroker := ipc.NewBroker()
 	defer pluginBroker.Close()
 
+	// Plugins bind keys while New() loads them, so the reserved set has to be
+	// in place before that, not only afterwards.
+	luaplugin.SetDefaultReservedKeys(model.ReservedKeys())
+
 	luaMgr, luaErr := luaplugin.New(cfg.Plugins, pluginBroker)
 	if luaErr != nil {
 		fmt.Fprintf(os.Stderr, "lua plugins: %v\n", luaErr)
