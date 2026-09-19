@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -126,10 +127,19 @@ func TestBuildPipelineLowRateMP3HTTPPreservesICYMetadata(t *testing.T) {
 	metaBlock := make([]byte, metaBlockLen)
 	copy(metaBlock, meta)
 
+	// Only the reopened (second) request carries ICY metadata. The first
+	// request is the discarded go-mp3 probe; if it carried metadata, the title
+	// could arrive from that connection and mask a fallback that loses ICY.
+	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "audio/mpeg")
-		w.Header().Set("Icy-Metaint", strconv.Itoa(metaInt))
 		w.Header().Set("Icy-Name", "Test Radio")
+		if requests.Add(1) < 2 {
+			w.WriteHeader(http.StatusOK)
+			w.Write(audio)
+			return
+		}
+		w.Header().Set("Icy-Metaint", strconv.Itoa(metaInt))
 		w.WriteHeader(http.StatusOK)
 
 		w.Write(audio[:metaInt])
