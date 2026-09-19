@@ -1,6 +1,8 @@
 package luaplugin
 
 import (
+	"time"
+
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -57,6 +59,24 @@ func (m *Manager) Visualizers() []string {
 	return names
 }
 
+// lockPluginBounded waits briefly for a plugin's Lua state instead of forever.
+// InitVis and DestroyVis run on the UI loop, and a hook goroutine can be
+// holding this lock while blocked on a call back into that same loop, so an
+// unbounded wait would freeze the program. These are one-shot on a mode
+// switch, so a short wait almost always succeeds; giving up merely skips
+// optional setup or teardown.
+func lockPluginBounded(v *luaVis) bool {
+	const deadline = 100 * time.Millisecond
+	const step = 2 * time.Millisecond
+	for waited := time.Duration(0); waited < deadline; waited += step {
+		if v.plugin.mu.TryLock() {
+			return true
+		}
+		time.Sleep(step)
+	}
+	return false
+}
+
 // InitVis calls a Lua visualizer's init(rows, cols) if it exists.
 func (m *Manager) InitVis(name string, rows, cols int) {
 	m.mu.RLock()
@@ -66,7 +86,9 @@ func (m *Manager) InitVis(name string, rows, cols int) {
 		return
 	}
 
-	vis.plugin.mu.Lock()
+	if !lockPluginBounded(vis) {
+		return
+	}
 	defer vis.plugin.mu.Unlock()
 
 	_ = vis.plugin.callBounded(0, vis.init, vis.obj, lua.LNumber(rows), lua.LNumber(cols))
@@ -81,7 +103,9 @@ func (m *Manager) DestroyVis(name string) {
 		return
 	}
 
-	vis.plugin.mu.Lock()
+	if !lockPluginBounded(vis) {
+		return
+	}
 	defer vis.plugin.mu.Unlock()
 
 	_ = vis.plugin.callBounded(0, vis.destroy, vis.obj)
@@ -97,7 +121,15 @@ func (m *Manager) RenderVis(name string, bands [10]float64, rows, cols int, fram
 		return ""
 	}
 
-	vis.plugin.mu.Lock()
+	// Never block the UI loop on the plugin's Lua state. A hook running in its
+	// own goroutine holds this lock while it calls back into the UI, and those
+	// calls block until the UI loop consumes them — so waiting here deadlocks
+	// the program whenever a plugin is both the active visualizer and handling
+	// an event. Reusing the previous frame is already how a slow render is
+	// handled, so a busy plugin simply holds its last frame for a tick.
+	if !vis.plugin.mu.TryLock() {
+		return vis.last
+	}
 	defer vis.plugin.mu.Unlock()
 
 	L := vis.plugin.L
