@@ -1,6 +1,7 @@
 package yandex
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -213,16 +214,16 @@ func TestTrackKeys(t *testing.T) {
 
 func TestResolveSourceRejects(t *testing.T) {
 	p := New("token")
-	if _, err := p.ResolveSource("other://1"); err == nil {
+	if _, err := p.ResolveSource(context.Background(), "other://1"); err == nil {
 		t.Error("ResolveSource should reject foreign URIs")
 	}
-	if _, err := p.ResolveSource("spotify:track:abc"); err == nil {
+	if _, err := p.ResolveSource(context.Background(), "spotify:track:abc"); err == nil {
 		t.Error("ResolveSource should reject foreign prefixed URIs")
 	}
-	if _, err := p.ResolveSource(TrackURIPrefix); err == nil {
+	if _, err := p.ResolveSource(context.Background(), TrackURIPrefix); err == nil {
 		t.Error("ResolveSource should reject empty track ids")
 	}
-	if _, err := p.ResolveSource(TrackURIPrefix + "1/2"); err == nil {
+	if _, err := p.ResolveSource(context.Background(), TrackURIPrefix+"1/2"); err == nil {
 		t.Error("ResolveSource should reject ids with path characters")
 	}
 }

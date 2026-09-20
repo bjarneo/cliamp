@@ -1,6 +1,7 @@
 package player
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"sync/atomic"
@@ -11,6 +12,10 @@ import (
 
 // trackPipeline bundles a decoded track's resources.
 type trackPipeline struct {
+	ctx         context.Context
+	cancel      context.CancelFunc
+	streamTitle *atomic.Value
+
 	decoder         beep.StreamSeekCloser // raw decoder (for Position/Duration/Seek)
 	stream          beep.Streamer         // decoder + optional resample (fed to gapless)
 	format          beep.Format
@@ -59,6 +64,7 @@ func (cr *countingReader) Close() error {
 
 // close releases the pipeline's resources.
 func (tp *trackPipeline) close() {
+	tp.interrupt()
 	if tp.livePrefetch != nil {
 		tp.livePrefetch.Close()
 	}
@@ -73,6 +79,9 @@ func (tp *trackPipeline) close() {
 // interrupt unblocks a pipe decoder without waiting for its process. It is
 // safe to call before speaker.Lock; close reaps the interrupted process later.
 func (tp *trackPipeline) interrupt() {
+	if tp.cancel != nil {
+		tp.cancel()
+	}
 	if decoder, ok := tp.decoder.(interface{ interrupt() }); ok {
 		decoder.interrupt()
 	}
@@ -123,8 +132,8 @@ func (p *Player) prefetchNetworkPipeline(tp *trackPipeline, enabled bool) *track
 	return tp
 }
 
-func (p *Player) decodeFFmpegURLStream(path string) (*ffmpegPipeStreamer, beep.Format, error) {
-	decoder, format, err := decodeFFmpegStream(path, p.sr, p.bitDepth)
+func (p *Player) decodeFFmpegURLStream(ctx context.Context, path string) (*ffmpegPipeStreamer, beep.Format, error) {
+	decoder, format, err := decodeFFmpegStream(ctx, path, p.sr, p.bitDepth)
 	if err != nil {
 		return nil, beep.Format{}, err
 	}
@@ -135,14 +144,28 @@ func (p *Player) decodeFFmpegURLStream(path string) (*ffmpegPipeStreamer, beep.F
 }
 
 // buildPipeline opens and decodes a track, returning a ready-to-play pipeline.
-func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
-	// Clear stream title on each new pipeline build.
-	p.streamTitle.Store("")
+// ctx owns source reads and subprocesses until the pipeline is released.
+func (p *Player) buildPipeline(ctx context.Context, path string) (pipeline *trackPipeline, err error) {
+	title := new(atomic.Value)
+	title.Store("")
+	defer func() {
+		if ctx.Err() != nil {
+			if pipeline != nil {
+				pipeline.close()
+				pipeline = nil
+			}
+			err = ctx.Err()
+		}
+		if pipeline != nil {
+			pipeline.ctx = ctx
+			pipeline.streamTitle = title
+		}
+	}()
 
 	// Custom URI schemes (e.g., spotify:track:xxx) are handled by a
 	// registered StreamerFactory, bypassing normal file/HTTP decoding.
 	if factory := p.matchCustomURI(path); factory != nil {
-		decoder, format, dur, err := factory(path)
+		decoder, format, dur, err := factory(ctx, path)
 		if err != nil {
 			return nil, fmt.Errorf("custom streamer: %w", err)
 		}
@@ -161,16 +184,16 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	// are always fresh. Segment lists get a concatenating navBuffer; direct
 	// URLs fall through to the normal HTTP handling below.
 	if resolver := p.matchSourceResolver(path); resolver != nil {
-		src, err := resolver(path)
+		src, err := resolver(ctx, path)
 		if err != nil {
 			return nil, fmt.Errorf("resolve source: %w", err)
 		}
 		if len(src.Segments) > 0 {
-			nb, contentLen, err := newNavBufferSegments(src.Segments)
+			nb, contentLen, err := newNavBufferSegments(ctx, src.Segments)
 			if err != nil {
 				return nil, fmt.Errorf("segment buffer: %w", err)
 			}
-			decoder, format, err := decodeNavFFmpeg(nb, p.sr, p.bitDepth, 0)
+			decoder, format, err := decodeNavFFmpeg(ctx, nb, p.sr, p.bitDepth, 0)
 			if err != nil {
 				nb.Close()
 				return nil, fmt.Errorf("decode segments: %w", err)
@@ -194,7 +217,7 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	// For HTTP URLs, pass the ICY metadata callback; for local files, nil.
 	var onMeta func(string)
 	if isURL(path) {
-		onMeta = p.setStreamTitle
+		onMeta = func(value string) { title.Store(value) }
 	}
 
 	// Buffered HTTP tracks (e.g. Subsonic streams): buffer-while-playing via
@@ -204,12 +227,12 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	// Seek() through navFFmpegStreamer, which restarts FFmpeg from the buffered
 	// header with a time offset and no HTTP reconnect.
 	if isURL(path) && p.isBufferedURL(path) {
-		nb, contentLen, err := newNavBuffer(path)
+		nb, contentLen, err := newNavBuffer(ctx, path)
 		if err != nil {
 			return nil, fmt.Errorf("navidrome buffer: %w", err)
 		}
 
-		decoder, format, err := decodeNavFFmpeg(nb, p.sr, p.bitDepth, 0)
+		decoder, format, err := decodeNavFFmpeg(ctx, nb, p.sr, p.bitDepth, 0)
 		if err != nil {
 			nb.Close()
 			return nil, fmt.Errorf("decode navidrome: %w", err)
@@ -232,7 +255,7 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	// window. Feeding the playlist bytes via stdin (the needsFFmpeg path below)
 	// would strip the base URL and break relative segment resolution.
 	if isURL(path) && isHLS(ext) {
-		decoder, format, err := p.decodeFFmpegURLStream(path)
+		decoder, format, err := p.decodeFFmpegURLStream(ctx, path)
 		if err != nil {
 			return nil, fmt.Errorf("open hls: %w", err)
 		}
@@ -244,7 +267,7 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 		}, true), nil
 	}
 
-	src, err := openSource(path, onMeta)
+	src, err := openSource(ctx, path, onMeta)
 	if err != nil {
 		return nil, fmt.Errorf("open source: %w", err)
 	}
@@ -259,11 +282,11 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	// costs a connection setup and nothing more.
 	if isURL(path) && !src.live && src.contentLength > 0 && ffmpegAvailable() {
 		_ = src.body.Close()
-		nb, contentLen, err := newNavBuffer(path)
+		nb, contentLen, err := newNavBuffer(ctx, path)
 		if err != nil {
 			return nil, fmt.Errorf("buffer source: %w", err)
 		}
-		decoder, format, err := decodeNavFFmpeg(nb, p.sr, p.bitDepth, 0)
+		decoder, format, err := decodeNavFFmpeg(ctx, nb, p.sr, p.bitDepth, 0)
 		if err != nil {
 			nb.Close()
 			return nil, fmt.Errorf("decode source: %w", err)
@@ -302,7 +325,7 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 		tp, err := p.buildChainedOggPipeline(rc, onMeta)
 		if err != nil {
 			rc.Close()
-			decoder, fmt2, err2 := p.decodeFFmpegURLStream(path)
+			decoder, fmt2, err2 := p.decodeFFmpegURLStream(ctx, path)
 			if err2 != nil {
 				return nil, fmt.Errorf("decode: %w", err2)
 			}
@@ -328,7 +351,7 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	// ICY metadata reader attached so live radio StreamTitle parsing works for
 	// ffmpeg-only codecs (AAC, AAC+, Opus, ...).
 	if isURL(path) && needsFFmpeg(ext) {
-		decoder, format, err := decodeFFmpegPipeStream(rc, p.sr, p.bitDepth, src.live)
+		decoder, format, err := decodeFFmpegPipeStream(ctx, rc, p.sr, p.bitDepth, src.live)
 		if err != nil {
 			rc.Close()
 			return nil, fmt.Errorf("decode: %w", err)
@@ -359,7 +382,7 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	// file to memory. Seeking is supported via ffmpeg -ss restart.
 	if !isURL(path) && needsFFmpeg(ext) {
 		rc.Close()
-		decoder, format, err := decodeFFmpegLocal(path, p.sr, p.bitDepth)
+		decoder, format, err := decodeFFmpegLocal(ctx, path, p.sr, p.bitDepth)
 		if err != nil {
 			return nil, fmt.Errorf("decode: %w", err)
 		}
@@ -372,7 +395,7 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 		}, nil
 	}
 
-	decoder, format, err := decodeWithExt(rc, ext, path, p.sr, p.bitDepth)
+	decoder, format, err := decodeWithExt(ctx, rc, ext, path, p.sr, p.bitDepth)
 	if err != nil {
 		rc.Close()
 		// If the format already required ffmpeg (e.g., .m4a), decodeWithExt already
@@ -381,7 +404,7 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 			return nil, fmt.Errorf("decode: %w", err)
 		}
 		if isURL(path) {
-			decoder, format, err := p.decodeFFmpegURLStream(path)
+			decoder, format, err := p.decodeFFmpegURLStream(ctx, path)
 			if err != nil {
 				return nil, fmt.Errorf("decode: %w", err)
 			}
@@ -396,7 +419,7 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 		// Native local decoder failed (e.g., IEEE float WAV). Fall back to a
 		// streaming ffmpeg process, which handles more formats without buffering
 		// the whole decoded track in memory.
-		decoder, format, err = decodeFFmpegLocal(path, p.sr, p.bitDepth)
+		decoder, format, err = decodeFFmpegLocal(ctx, path, p.sr, p.bitDepth)
 		if err != nil {
 			return nil, fmt.Errorf("decode: %w", err)
 		}

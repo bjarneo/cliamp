@@ -2,6 +2,7 @@ package player
 
 import (
 	"bufio"
+	"context"
 	"io"
 	"math"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -294,7 +296,8 @@ func TestStreamTitleEmpty(t *testing.T) {
 
 func TestSetStreamTitle(t *testing.T) {
 	p := newTestPlayer()
-	p.setStreamTitle("Artist - Song")
+	p.current = &trackPipeline{streamTitle: new(atomic.Value)}
+	p.current.streamTitle.Store("Artist - Song")
 	if got := p.StreamTitle(); got != "Artist - Song" {
 		t.Errorf("StreamTitle() = %q, want 'Artist - Song'", got)
 	}
@@ -523,10 +526,10 @@ printf '10\n'
 			var err error
 			switch kind {
 			case "local":
-				decoder, _, err = decodeFFmpegLocal(filepath.Join(dir, "track.m4a"), 100, 16)
+				decoder, _, err = decodeFFmpegLocal(context.Background(), filepath.Join(dir, "track.m4a"), 100, 16)
 			case "nav":
 				nb := newCompletedTestNavBuffer(t, []byte("HEADpayload"))
-				decoder, _, err = decodeNavFFmpeg(nb, 100, 16, 1000)
+				decoder, _, err = decodeNavFFmpeg(context.Background(), nb, 100, 16, 1000)
 				waitForFileValue(t, countPath, "1")
 			}
 			if err != nil {

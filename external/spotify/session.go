@@ -14,6 +14,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/internal/browser"
@@ -95,29 +96,22 @@ func newSpotifyStreamHTTPClient(ctx context.Context, transport http.RoundTripper
 }
 
 func awaitSpotifyStream(ctx context.Context, cancel context.CancelFunc, open func() (*librespotPlayer.Stream, error)) (*librespotPlayer.Stream, context.CancelFunc, error) {
-	type result struct {
-		stream *librespotPlayer.Stream
-		err    error
-	}
-
-	// The worker must be able to release Session's read lock after a timeout.
-	results := make(chan result, 1)
-	go func() {
-		stream, err := open()
-		results <- result{stream: stream, err: err}
-	}()
-
-	select {
-	case res := <-results:
-		if res.err != nil {
-			cancel()
-			return nil, nil, res.err
-		}
-		return res.stream, cancel, nil
-	case <-ctx.Done():
+	// SDK metadata requests use ctx; its chunk transport uses the separate
+	// stream lifetime. Cancel both during setup, then detach the setup timer
+	// before handing a successful stream to playback. Opening synchronously
+	// keeps canceled work owned by the caller until its session lock is released.
+	unlink := context.AfterFunc(ctx, cancel)
+	stream, err := open()
+	unlink()
+	if ctx.Err() != nil {
 		cancel()
 		return nil, nil, ctx.Err()
 	}
+	if err != nil {
+		cancel()
+		return nil, nil, err
+	}
+	return stream, cancel, nil
 }
 
 // NewSession creates a go-librespot session, using stored credentials if
@@ -173,12 +167,16 @@ func newSessionFromStored(ctx context.Context, clientID string, creds *storedCre
 	var oauthToken *oauth2.Token
 	var refreshErr error
 	if creds.RefreshToken != "" {
-		token, err := silentTokenRefresh(clientID, creds.RefreshToken)
+		token, err := silentTokenRefresh(ctx, clientID, creds.RefreshToken)
 		if err == nil {
 			oauthToken = token
 		} else {
 			refreshErr = err
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		sess.Close()
+		return nil, err
 	}
 	// Dead refresh tokens (invalid_grant) never recover — clear so we don't
 	// repeat the same failure on every launch.
@@ -287,9 +285,9 @@ func spotifyOAuthConfig(clientID string, scopes []string) *oauth2.Config {
 
 // silentTokenRefresh uses a stored refresh token to get a new access token
 // without opening a browser.
-func silentTokenRefresh(clientID, refreshToken string) (*oauth2.Token, error) {
+func silentTokenRefresh(ctx context.Context, clientID, refreshToken string) (*oauth2.Token, error) {
 	conf := spotifyOAuthConfig(clientID, oauthScopes)
-	src := conf.TokenSource(context.Background(), &oauth2.Token{RefreshToken: refreshToken})
+	src := conf.TokenSource(ctx, &oauth2.Token{RefreshToken: refreshToken})
 	return src.Token()
 }
 
@@ -592,8 +590,8 @@ func (s *Session) initPlayer() error {
 }
 
 // NewStream creates a decoded audio stream for the given Spotify track ID. The
-// caller must retain and invoke the returned cancel function for the lifetime
-// of a successful stream. ctx bounds setup independently of that lifetime.
+// caller must retain and invoke the returned cancel function to release a
+// successful stream. ctx owns its whole lifetime; setup has a separate timeout.
 //
 // Holds s.mu.RLock() across the librespot network call. Multiple concurrent
 // NewStream / webApi callers can run in parallel (RLock is shared), so rapid
@@ -602,19 +600,21 @@ func (s *Session) initPlayer() error {
 // player — without this, the swap could call oldPlayer.Close() while we are
 // still reading from it.
 func (s *Session) NewStream(ctx context.Context, spotID librespot.SpotifyId, bitrate int) (*librespotPlayer.Stream, context.CancelFunc, error) {
-	streamCtx, cancel := context.WithCancel(context.Background())
+	streamCtx, cancel := context.WithCancel(ctx)
 	client := newSpotifyStreamHTTPClient(streamCtx, http.DefaultTransport)
 
-	return awaitSpotifyStream(ctx, cancel, func() (*librespotPlayer.Stream, error) {
+	setupCtx, setupCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer setupCancel()
+	return awaitSpotifyStream(setupCtx, cancel, func() (*librespotPlayer.Stream, error) {
 		s.mu.RLock()
 		defer s.mu.RUnlock()
-		if err := ctx.Err(); err != nil {
+		if err := setupCtx.Err(); err != nil {
 			return nil, err
 		}
 		if s.player == nil {
 			return nil, fmt.Errorf("spotify: session closed")
 		}
-		return s.player.NewStream(ctx, client, spotID, bitrate, 0)
+		return s.player.NewStream(setupCtx, client, spotID, bitrate, 0)
 	})
 }
 

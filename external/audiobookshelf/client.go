@@ -4,6 +4,7 @@ package audiobookshelf
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -75,7 +76,7 @@ func (c *Client) Libraries() ([]Library, error) {
 	}
 
 	var resp librariesResponse
-	if err := c.get("/api/libraries", nil, &resp); err != nil {
+	if err := c.get(context.Background(), "/api/libraries", nil, &resp); err != nil {
 		return nil, err
 	}
 
@@ -106,7 +107,7 @@ func (c *Client) allowed(name string) bool {
 
 // StreamURL returns an authenticated audio URL for one file of an item.
 func (c *Client) StreamURL(itemID, ino string) string {
-	_ = c.ensureAuth()
+	_ = c.ensureAuth(context.Background())
 	u := c.baseURL + "/api/items/" + url.PathEscape(itemID) + "/file/" + url.PathEscape(ino)
 	if token := c.authToken(); token != "" {
 		u += "?" + url.Values{"token": {token}}.Encode()
@@ -134,11 +135,11 @@ func (c *Client) authToken() string {
 // get issues a GET, retrying once with a fresh login when the server rejects
 // the cached token and credentials are configured. Password logins hand back a
 // token that can expire, so a 401 is recoverable without user action.
-func (c *Client) get(p string, params url.Values, out any) error {
-	code, err := c.getOnce(p, params, out)
+func (c *Client) get(ctx context.Context, p string, params url.Values, out any) error {
+	code, err := c.getOnce(ctx, p, params, out)
 	if code == http.StatusUnauthorized && c.canRelogin() {
 		c.clearToken()
-		_, err = c.getOnce(p, params, out)
+		_, err = c.getOnce(ctx, p, params, out)
 	}
 	return err
 }
@@ -153,8 +154,8 @@ func (c *Client) clearToken() {
 	c.mu.Unlock()
 }
 
-func (c *Client) getOnce(p string, params url.Values, out any) (int, error) {
-	if err := c.ensureAuth(); err != nil {
+func (c *Client) getOnce(ctx context.Context, p string, params url.Values, out any) (int, error) {
+	if err := c.ensureAuth(ctx); err != nil {
 		return 0, err
 	}
 
@@ -162,7 +163,7 @@ func (c *Client) getOnce(p string, params url.Values, out any) (int, error) {
 	if len(params) > 0 {
 		u += "?" + params.Encode()
 	}
-	req, err := http.NewRequest(http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", p, err)
 	}
@@ -201,7 +202,7 @@ func (c *Client) sendJSON(method, p string, payload any) error {
 }
 
 func (c *Client) sendJSONOnce(method, p string, payload any) (int, error) {
-	if err := c.ensureAuth(); err != nil {
+	if err := c.ensureAuth(context.Background()); err != nil {
 		return 0, err
 	}
 
@@ -245,7 +246,7 @@ func (c *Client) Items(libraryID string) ([]LibraryItem, error) {
 			"sort":  {"media.metadata.title"},
 		}
 		var resp itemsResponse
-		if err := c.get(p, params, &resp); err != nil {
+		if err := c.get(context.Background(), p, params, &resp); err != nil {
 			return nil, err
 		}
 		out = append(out, resp.Results...)
@@ -265,7 +266,7 @@ func (c *Client) Items(libraryID string) ([]LibraryItem, error) {
 func (c *Client) Item(itemID string) (LibraryItem, error) {
 	var item LibraryItem
 	params := url.Values{"expanded": {"1"}}
-	if err := c.get("/api/items/"+url.PathEscape(itemID), params, &item); err != nil {
+	if err := c.get(context.Background(), "/api/items/"+url.PathEscape(itemID), params, &item); err != nil {
 		return LibraryItem{}, err
 	}
 	return item, nil
@@ -274,7 +275,7 @@ func (c *Client) Item(itemID string) (LibraryItem, error) {
 // Authors returns the authors in a book library.
 func (c *Client) Authors(libraryID string) ([]Author, error) {
 	var resp authorsResponse
-	if err := c.get("/api/libraries/"+url.PathEscape(libraryID)+"/authors", nil, &resp); err != nil {
+	if err := c.get(context.Background(), "/api/libraries/"+url.PathEscape(libraryID)+"/authors", nil, &resp); err != nil {
 		return nil, err
 	}
 	return resp.Authors, nil
@@ -284,7 +285,7 @@ func (c *Client) Authors(libraryID string) ([]Author, error) {
 func (c *Client) Author(authorID string) (Author, error) {
 	var a Author
 	params := url.Values{"include": {"items"}}
-	if err := c.get("/api/authors/"+url.PathEscape(authorID), params, &a); err != nil {
+	if err := c.get(context.Background(), "/api/authors/"+url.PathEscape(authorID), params, &a); err != nil {
 		return Author{}, err
 	}
 	return a, nil
@@ -297,7 +298,7 @@ func (c *Client) Search(libraryID, query string, limit int) ([]LibraryItem, erro
 	}
 	params := url.Values{"q": {query}, "limit": {strconv.Itoa(limit)}}
 	var resp searchResponse
-	if err := c.get("/api/libraries/"+url.PathEscape(libraryID)+"/search", params, &resp); err != nil {
+	if err := c.get(context.Background(), "/api/libraries/"+url.PathEscape(libraryID)+"/search", params, &resp); err != nil {
 		return nil, err
 	}
 	out := make([]LibraryItem, 0, len(resp.Book)+len(resp.Podcast))
@@ -311,9 +312,9 @@ func (c *Client) Search(libraryID, query string, limit int) ([]LibraryItem, erro
 }
 
 // Progress returns every stored listening position for the current user.
-func (c *Client) Progress() ([]MediaProgress, error) {
+func (c *Client) Progress(ctx context.Context) ([]MediaProgress, error) {
 	var me meResponse
-	if err := c.get("/api/me", nil, &me); err != nil {
+	if err := c.get(ctx, "/api/me", nil, &me); err != nil {
 		return nil, err
 	}
 	return me.MediaProgress, nil
@@ -337,7 +338,7 @@ func (c *Client) UpdateProgress(itemID, episodeID string, currentTime, duration 
 	return c.sendJSON(http.MethodPatch, p, payload)
 }
 
-func (c *Client) ensureAuth() error {
+func (c *Client) ensureAuth(ctx context.Context) error {
 	c.mu.Lock()
 	have := c.token != ""
 	c.mu.Unlock()
@@ -353,7 +354,7 @@ func (c *Client) ensureAuth() error {
 		return fmt.Errorf("login: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/login", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/login", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("login: %w", err)
 	}

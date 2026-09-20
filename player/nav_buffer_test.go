@@ -1,7 +1,9 @@
 package player
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -35,7 +37,7 @@ func TestNavBufferProgressiveReadAndSeek(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	b, total, err := newNavBuffer(server.URL)
+	b, total, err := newNavBuffer(context.Background(), server.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +139,7 @@ func TestNavBufferSeekEndWaitsForUnknownLength(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	b, total, err := newNavBuffer(server.URL)
+	b, total, err := newNavBuffer(context.Background(), server.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +202,7 @@ func TestNavBufferCloseCancelsAndUnblocks(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	b, _, err := newNavBuffer(server.URL)
+	b, _, err := newNavBuffer(context.Background(), server.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +309,7 @@ func TestNavBufferStalls(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 
-			b, _, err := newNavBuffer(server.URL)
+			b, _, err := newNavBuffer(context.Background(), server.URL)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -342,7 +344,7 @@ func TestNavBufferTempfileInitializationErrorCancelsRequest(t *testing.T) {
 	t.Cleanup(server.Close)
 	t.Cleanup(func() { stopOnce.Do(func() { close(stop) }) })
 
-	if b, _, err := newNavBuffer(server.URL); err == nil {
+	if b, _, err := newNavBuffer(context.Background(), server.URL); err == nil {
 		_ = b.Close()
 		t.Fatal("newNavBuffer() error = nil, want tempfile error")
 	}
@@ -382,7 +384,7 @@ func TestNavBufferSegmentsConcatenatesInOrder(t *testing.T) {
 	}))
 	defer server.Close()
 
-	nb, contentLen, err := newNavBufferSegments([]string{
+	nb, contentLen, err := newNavBufferSegments(context.Background(), []string{
 		server.URL + "/init.mp4",
 		server.URL + "/seg1.m4s",
 		server.URL + "/seg2.m4s",
@@ -418,7 +420,7 @@ func TestNavBufferSegmentsSurfacesMidStreamError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	nb, _, err := newNavBufferSegments([]string{server.URL + "/init.mp4", server.URL + "/gone.m4s"})
+	nb, _, err := newNavBufferSegments(context.Background(), []string{server.URL + "/init.mp4", server.URL + "/gone.m4s"})
 	if err != nil {
 		t.Fatalf("newNavBufferSegments: %v", err)
 	}
@@ -430,7 +432,54 @@ func TestNavBufferSegmentsSurfacesMidStreamError(t *testing.T) {
 }
 
 func TestNavBufferSegmentsRejectsEmptyList(t *testing.T) {
-	if _, _, err := newNavBufferSegments(nil); err == nil {
+	if _, _, err := newNavBufferSegments(context.Background(), nil); err == nil {
 		t.Fatal("expected error for empty segment list")
+	}
+}
+
+func TestNavBufferParentCancellationAfterOpen(t *testing.T) {
+	for _, segmented := range []bool{false, true} {
+		t.Run(fmt.Sprint("segments=", segmented), func(t *testing.T) {
+			requestCanceled := make(chan struct{})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.(http.Flusher).Flush()
+				<-r.Context().Done()
+				close(requestCanceled)
+			}))
+			defer server.Close()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var nb *navBuffer
+			var err error
+			if segmented {
+				nb, _, err = newNavBufferSegments(ctx, []string{server.URL, server.URL + "/next"})
+			} else {
+				nb, _, err = newNavBuffer(ctx, server.URL)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer nb.Close()
+			readDone := make(chan error, 1)
+			go func() {
+				_, err := nb.Read(make([]byte, 1))
+				readDone <- err
+			}()
+			cancel()
+			select {
+			case err := <-readDone:
+				if err == nil {
+					t.Fatal("canceled download returned no error")
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("source cancellation left progressive read blocked")
+			}
+			select {
+			case <-requestCanceled:
+			case <-time.After(2 * time.Second):
+				t.Fatal("source cancellation did not close HTTP request")
+			}
+		})
 	}
 }

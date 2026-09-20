@@ -1,6 +1,7 @@
 package podcast
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -365,13 +366,13 @@ func TestProviderProgressRoundTrip(t *testing.T) {
 	if !p.CanReportPlayback(track) || !p.CanTrackPosition(track) {
 		t.Fatal("provider does not claim a podcast episode")
 	}
-	if got := p.TrackPosition(track); got != 0 {
+	if got := p.TrackPosition(context.Background(), track); got != 0 {
 		t.Errorf("TrackPosition() = %v before anything was reported, want 0", got)
 	}
 	if err := p.ReportProgress(track, 20*time.Minute); err != nil {
 		t.Fatalf("ReportProgress: %v", err)
 	}
-	if got, want := p.TrackPosition(track), 20*time.Minute-resumeRewind; got != want {
+	if got, want := p.TrackPosition(context.Background(), track), 20*time.Minute-resumeRewind; got != want {
 		t.Errorf("TrackPosition() = %v, want %v", got, want)
 	}
 	if !p.HasPlaybackState() {
@@ -442,7 +443,7 @@ func TestProviderScrobbleMarksPlayed(t *testing.T) {
 	if !ok || !state.Played {
 		t.Errorf("PlaybackState() = %+v, %v; want played", state, ok)
 	}
-	if got := p.TrackPosition(track); got != 0 {
+	if got := p.TrackPosition(context.Background(), track); got != 0 {
 		t.Errorf("TrackPosition() = %v for a played episode, want 0", got)
 	}
 }
@@ -517,7 +518,7 @@ func TestPositionSurvivesLosingTheMetadata(t *testing.T) {
 	if !p.CanTrackPosition(restored) {
 		t.Fatal("CanTrackPosition() = false for an episode the store already knows")
 	}
-	if got, want := p.TrackPosition(restored), 20*time.Minute-resumeRewind; got != want {
+	if got, want := p.TrackPosition(context.Background(), restored), 20*time.Minute-resumeRewind; got != want {
 		t.Errorf("TrackPosition() = %v, want %v", got, want)
 	}
 	state, ok := p.PlaybackState(restored)

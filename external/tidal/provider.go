@@ -101,7 +101,7 @@ func (p *TidalProvider) Name() string { return "Tidal" }
 
 // ensureClient builds an authenticated client from stored credentials only
 // (no browser). Returns playlist.ErrNeedsAuth if interactive sign-in is needed.
-func (p *TidalProvider) ensureClient() (*client, error) {
+func (p *TidalProvider) ensureClient(ctx context.Context) (*client, error) {
 	p.mu.Lock()
 	if p.client != nil {
 		c := p.client
@@ -110,10 +110,13 @@ func (p *TidalProvider) ensureClient() (*client, error) {
 	}
 	p.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	c, err := newClientSilent(ctx)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		applog.Debug("tidal: silent auth failed, prompting sign-in: %v", err)
 		return nil, playlist.ErrNeedsAuth
 	}
@@ -199,7 +202,7 @@ func (p *TidalProvider) mapErr(err error) error {
 // Playlists returns the user's Tidal playlists plus a synthetic Favorite
 // Tracks entry.
 func (p *TidalProvider) Playlists() ([]playlist.PlaylistInfo, error) {
-	c, err := p.ensureClient()
+	c, err := p.ensureClient(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +268,7 @@ func (p *TidalProvider) BrowseEntries() []provider.BrowseEntry {
 // Tracks returns the tracks of a playlist (or the synthetic Favorite Tracks
 // entry). Tracks carry tidal:// URIs; stream URLs resolve at play time.
 func (p *TidalProvider) Tracks(playlistID string) ([]playlist.Track, error) {
-	c, err := p.ensureClient()
+	c, err := p.ensureClient(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +308,7 @@ func (p *TidalProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 // answer; the UI expands the chosen one with AlbumTracks. Implements
 // provider.Searcher.
 func (p *TidalProvider) SearchTracks(ctx context.Context, query string, limit int) ([]playlist.Track, error) {
-	c, err := p.ensureClient()
+	c, err := p.ensureClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -348,7 +351,7 @@ func (p *TidalProvider) SearchTracks(ctx context.Context, query string, limit in
 
 // Artists returns the user's favorite artists. Implements provider.ArtistBrowser.
 func (p *TidalProvider) Artists() ([]provider.ArtistInfo, error) {
-	c, err := p.ensureClient()
+	c, err := p.ensureClient(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -371,7 +374,7 @@ func (p *TidalProvider) Artists() ([]provider.ArtistInfo, error) {
 
 // ArtistAlbums returns the albums of an artist. Implements provider.ArtistBrowser.
 func (p *TidalProvider) ArtistAlbums(artistID string) ([]provider.AlbumInfo, error) {
-	c, err := p.ensureClient()
+	c, err := p.ensureClient(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -392,7 +395,7 @@ func (p *TidalProvider) ArtistAlbums(artistID string) ([]provider.AlbumInfo, err
 // AlbumList returns the user's favorite albums (the private API has no global
 // album catalog to browse). Implements provider.AlbumBrowser.
 func (p *TidalProvider) AlbumList(_ string, offset, size int) ([]provider.AlbumInfo, error) {
-	c, err := p.ensureClient()
+	c, err := p.ensureClient(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -416,7 +419,7 @@ func (p *TidalProvider) DefaultAlbumSort() string { return "favorites" }
 
 // AlbumTracks returns the tracks of an album. Implements provider.AlbumTrackLoader.
 func (p *TidalProvider) AlbumTracks(albumID string) ([]playlist.Track, error) {
-	c, err := p.ensureClient()
+	c, err := p.ensureClient(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -494,17 +497,17 @@ func trackFromAPI(t apiTrack, albumFallback *apiAlbum) playlist.Track {
 // segment list for FLAC. Resolving at play time keeps signed URLs fresh no
 // matter how long the track sat in a queue, and reports server-side quality
 // downgrades. It is registered as the player's SourceResolver in main.go.
-func (p *TidalProvider) ResolveSource(uri string) (streamURL string, segments []string, err error) {
+func (p *TidalProvider) ResolveSource(ctx context.Context, uri string) (streamURL string, segments []string, err error) {
 	trackID := strings.TrimPrefix(uri, TrackURIPrefix)
 	if trackID == "" || trackID == uri {
 		return "", nil, fmt.Errorf("tidal: invalid track URI %q", uri)
 	}
-	c, err := p.ensureClient()
+	c, err := p.ensureClient(ctx)
 	if err != nil {
 		return "", nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	requested := requestQuality(p.quality)

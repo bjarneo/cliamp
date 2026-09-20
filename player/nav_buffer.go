@@ -60,8 +60,8 @@ type navBuffer struct {
 //
 // Returns (buffer, contentLength, error). contentLength is -1 when the server
 // does not send a Content-Length header (e.g. chunked transfer encoding).
-func newNavBuffer(rawURL string) (*navBuffer, int64, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+func newNavBuffer(ctx context.Context, rawURL string) (*navBuffer, int64, error) {
+	ctx, cancel := context.WithCancel(ctx)
 	resp, err := navBufferGet(ctx, rawURL)
 	if err != nil {
 		cancel()
@@ -82,11 +82,11 @@ func newNavBuffer(rawURL string) (*navBuffer, int64, error) {
 // URLs whose concatenated bytes form one progressive stream (e.g. an fMP4
 // init segment followed by unencrypted media segments). The total length is
 // unknown up front, so the returned contentLength is always -1.
-func newNavBufferSegments(urls []string) (*navBuffer, int64, error) {
+func newNavBufferSegments(ctx context.Context, urls []string) (*navBuffer, int64, error) {
 	if len(urls) == 0 {
 		return nil, 0, fmt.Errorf("nav buffer: no segment urls")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	resp, err := navBufferGet(ctx, urls[0])
 	if err != nil {
 		cancel()

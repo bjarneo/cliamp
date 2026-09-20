@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -79,8 +80,8 @@ type zeroPositionProv struct {
 	ownsTrack bool
 }
 
-func (p *zeroPositionProv) CanTrackPosition(playlist.Track) bool       { return p.ownsTrack }
-func (p *zeroPositionProv) TrackPosition(playlist.Track) time.Duration { return 0 }
+func (p *zeroPositionProv) CanTrackPosition(playlist.Track) bool                        { return p.ownsTrack }
+func (p *zeroPositionProv) TrackPosition(context.Context, playlist.Track) time.Duration { return 0 }
 
 // A provider's 0 means "start over", so it must win over a stale startup hint
 // rather than being read as "no answer".

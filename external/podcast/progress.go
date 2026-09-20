@@ -1,6 +1,7 @@
 package podcast
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -503,7 +504,7 @@ func (p *Provider) CanTrackPosition(track playlist.Track) bool {
 }
 
 // TrackPosition returns where an episode should resume, or 0 to start over.
-func (p *Provider) TrackPosition(track playlist.Track) time.Duration {
+func (p *Provider) TrackPosition(_ context.Context, track playlist.Track) time.Duration {
 	return p.progress.resumeAt(track)
 }
 

@@ -461,7 +461,7 @@ func (c *Client) StreamURL(trackID string) string {
 
 // ResolveSource turns a lyrion://track/<id> URI into a playable URL when
 // playback starts, applying credentials only at that moment.
-func (c *Client) ResolveSource(uri string) (streamURL string, segments []string, err error) {
+func (c *Client) ResolveSource(ctx context.Context, uri string) (streamURL string, segments []string, err error) {
 	id := strings.TrimPrefix(uri, TrackURIPrefix)
 	if id == "" || id == uri {
 		return "", nil, fmt.Errorf("lyrion: not a track URI: %q", uri)
