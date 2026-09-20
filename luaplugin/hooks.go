@@ -24,6 +24,7 @@ const (
 	EventPlayerMode    = "player.mode"   // data: shuffle (bool), repeat ("Off"/"All"/"One")
 	EventQueueChange   = "queue.change"  // data: count, index, queued
 	EventQueueEnd      = "queue.end"     // data: the finished track (same shape as track.change)
+	EventPlaybackStop  = "playback.stop" // data: none; an explicit stop by the user, never a queue running out
 )
 
 // Permission strings declared via plugin.register({ permissions = {...} }).

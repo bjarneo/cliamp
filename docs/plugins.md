@@ -222,6 +222,7 @@ Use `p:on(event, callback)` to subscribe to events. Callbacks run in goroutines 
 | `player.mode` | `{shuffle, repeat}` | Shuffle toggled or repeat mode cycled |
 | `queue.change` | `{count, index, queued}` | Playlist or play-next queue changes |
 | `queue.end` | Same as `track.change`, for the finished track | Advancing past the last track stopped playback, whether the track ended or the user skipped. A manual stop does not fire this |
+| `playback.stop` | `{}` | The user stopped playback with a key, IPC, or media controls. The queue running out does not fire this |
 | `app.start` | `{}` | After all plugins loaded |
 | `app.quit` | `{}` | Before shutdown |
 
