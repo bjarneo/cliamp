@@ -72,7 +72,8 @@ func TestLyricsSyncable(t *testing.T) {
 			p := playlist.New()
 			p.Replace([]playlist.Track{tt.track})
 			p.SetIndex(0)
-			m := Model{playlist: p}
+			m := Model{playlist: p, player: &playbackFakeEngine{playing: true}}
+			m.setPlaybackTrack(tt.track)
 			if got := m.lyricsSyncable(); got != tt.want {
 				t.Fatalf("lyricsSyncable() = %v, want %v", got, tt.want)
 			}

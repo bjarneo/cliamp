@@ -1,55 +1,52 @@
 package model
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/internal/playback"
+	"github.com/bjarneo/cliamp/player"
+	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/ui"
 )
 
 type fakeEngine struct {
-	streamSeek bool
-	seekCalls  []time.Duration
-	position   time.Duration
+	seekable  bool
+	seekCalls []time.Duration
+	position  time.Duration
+	startSeq  uint64
 }
 
-func (f *fakeEngine) Play(string, time.Duration) error                  { return nil }
-func (f *fakeEngine) PlayAt(string, time.Duration, time.Duration) error { return nil }
-func (f *fakeEngine) PlayYTDL(string, time.Duration) error              { return nil }
-func (f *fakeEngine) SetPlaybackGeneration(uint64)                      {}
-func (f *fakeEngine) PlayAtForGeneration(path string, dur, offset time.Duration, _ uint64) error {
-	return f.PlayAt(path, dur, offset)
+func (f *fakeEngine) BeginStart() (uint64, context.Context) {
+	f.startSeq++
+	return f.startSeq, context.Background()
 }
-func (f *fakeEngine) PlayYTDLForGeneration(path string, dur time.Duration, _ uint64) error {
-	return f.PlayYTDL(path, dur)
+func (f *fakeEngine) Prepare(uint64, player.StartRequest) error { return nil }
+func (f *fakeEngine) CommitStart(uint64) (player.PlaybackStats, bool) {
+	return player.PlaybackStats{}, true
 }
-func (f *fakeEngine) Preload(string, time.Duration) error     { return nil }
-func (f *fakeEngine) PreloadYTDL(string, time.Duration) error { return nil }
-func (f *fakeEngine) BeginPreload() uint64                    { return 0 }
-func (f *fakeEngine) PreloadForGeneration(path string, dur time.Duration, _ uint64) error {
-	return f.Preload(path, dur)
+func (f *fakeEngine) BeginPreload() (uint64, context.Context) { return f.BeginStart() }
+func (f *fakeEngine) CommitPreload(uint64) bool               { return true }
+func (f *fakeEngine) TakeAdvance() (player.Advance, bool)     { return player.Advance{}, false }
+func (f *fakeEngine) ClearPreload()                           {}
+func (f *fakeEngine) Stop() player.PlaybackStats              { return player.PlaybackStats{Position: f.position} }
+func (f *fakeEngine) Close()                                  {}
+func (f *fakeEngine) TogglePause()                            {}
+func (f *fakeEngine) Seek(_ uint64, d time.Duration) error {
+	f.seekCalls = append(f.seekCalls, d)
+	return nil
 }
-func (f *fakeEngine) PreloadYTDLForGeneration(path string, dur time.Duration, _ uint64) error {
-	return f.PreloadYTDL(path, dur)
-}
-func (f *fakeEngine) ClearPreload()                                       {}
-func (f *fakeEngine) Stop()                                               {}
-func (f *fakeEngine) Close()                                              {}
-func (f *fakeEngine) TogglePause()                                        {}
-func (f *fakeEngine) Seek(d time.Duration) error                          { f.seekCalls = append(f.seekCalls, d); return nil }
-func (f *fakeEngine) SeekYTDL(time.Duration) error                        { return nil }
+func (f *fakeEngine) SeekYTDL(uint64, time.Duration) error                { return nil }
 func (f *fakeEngine) CancelSeekYTDL()                                     {}
 func (f *fakeEngine) IsPlaying() bool                                     { return true }
 func (f *fakeEngine) IsPaused() bool                                      { return false }
 func (f *fakeEngine) Drained() bool                                       { return false }
 func (f *fakeEngine) HasPreload() bool                                    { return false }
-func (f *fakeEngine) Seekable() bool                                      { return f.streamSeek }
-func (f *fakeEngine) IsStreamSeek() bool                                  { return f.streamSeek }
+func (f *fakeEngine) Seekable() bool                                      { return f.seekable }
 func (f *fakeEngine) IsYTDLSeek() bool                                    { return false }
-func (f *fakeEngine) GaplessAdvanced() bool                               { return false }
-func (f *fakeEngine) LastPlayedDuration() time.Duration                   { return 0 }
 func (f *fakeEngine) Position() time.Duration                             { return f.position }
 func (f *fakeEngine) Duration() time.Duration                             { return time.Hour }
 func (f *fakeEngine) PositionAndDuration() (time.Duration, time.Duration) { return 0, time.Hour }
@@ -125,11 +122,13 @@ func TestDeferredHTTPStreamSeek(t *testing.T) {
 		invoke     func(*Model) tea.Cmd
 	}{
 		{
-			name:      "right key",
-			settlePos: 8 * time.Second,
-			want:      5 * time.Second,
+			name:       "right key",
+			initialPos: 3 * time.Second,
+			settlePos:  5 * time.Second,
+			want:       3 * time.Second,
 			invoke: func(m *Model) tea.Cmd {
-				return m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+				m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+				return m.tickSeek(time.Duration(seekDebounceTicks) * ui.TickFast)
 			},
 		},
 		{
@@ -138,7 +137,8 @@ func TestDeferredHTTPStreamSeek(t *testing.T) {
 			settlePos:  5 * time.Second,
 			want:       5 * time.Second,
 			invoke: func(m *Model) tea.Cmd {
-				_, cmd := m.Update(playback.SetPositionMsg{Position: 10 * time.Second})
+				updated, cmd := m.Update(playback.SetPositionMsg{Position: 10 * time.Second})
+				*m = updated.(Model)
 				return cmd
 			},
 		},
@@ -146,8 +146,9 @@ func TestDeferredHTTPStreamSeek(t *testing.T) {
 
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			eng := &fakeEngine{streamSeek: true, position: tt.initialPos}
-			m := Model{player: eng}
+			eng := &fakeEngine{seekable: true, position: tt.initialPos}
+			m := Model{player: eng, playlist: playlist.New()}
+			m.setPlaybackTrack(playlist.Track{Path: "https://nav/stream", Stream: true})
 
 			cmd := tt.invoke(&m)
 			assertDeferredStreamSeek(t, eng, cmd, tt.settlePos, tt.want)
@@ -192,8 +193,9 @@ func TestImmediateHTTPStreamSeek(t *testing.T) {
 
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			eng := &fakeEngine{streamSeek: true, position: 3 * time.Second}
-			m := Model{player: eng}
+			eng := &fakeEngine{seekable: true, position: 3 * time.Second}
+			m := Model{player: eng, playlist: playlist.New()}
+			m.setPlaybackTrack(playlist.Track{Path: "https://nav/stream", Stream: true})
 
 			cmd := tt.invoke(&m)
 			if tt.check != nil {
@@ -202,4 +204,8 @@ func TestImmediateHTTPStreamSeek(t *testing.T) {
 			assertImmediateStreamSeek(t, eng, cmd, tt.want)
 		})
 	}
+}
+
+func (f *fakeEngine) Snapshot() player.PlaybackStats {
+	return player.PlaybackStats{Position: f.position, Duration: time.Hour, Seekable: f.seekable, Playing: true}
 }

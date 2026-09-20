@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/bjarneo/cliamp/history"
+	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/ui"
 )
@@ -35,8 +37,14 @@ type playbackFakeEngine struct {
 	clearPreloadCalls   int
 	cancelSeekYTDLCalls int
 	stopCalls           int
-	playGeneration      uint64
+	startSeq            uint64
+	currentTicket       uint64
 	preloadGeneration   uint64
+	prepared            map[uint64]player.StartRequest
+	nextTicket          uint64
+	retainedAdvance     *player.Advance
+	startCancel         context.CancelFunc
+	preloadCancel       context.CancelFunc
 	hasPreload          bool
 	eqBands             [eqBandCount]float64
 }
@@ -49,83 +57,129 @@ func (f *playbackFakeEngine) Play(path string, _ time.Duration) error {
 }
 func (f *playbackFakeEngine) PlayAt(path string, dur, offset time.Duration) error {
 	f.playAtOffsets = append(f.playAtOffsets, offset)
+	f.position = offset
 	return f.Play(path, dur)
 }
-func (f *playbackFakeEngine) PlayYTDL(string, time.Duration) error { return nil }
-func (f *playbackFakeEngine) SetPlaybackGeneration(generation uint64) {
-	f.playGeneration = generation
-}
-func (f *playbackFakeEngine) PlayAtForGeneration(path string, dur, offset time.Duration, generation uint64) error {
-	if f.playGeneration != generation {
-		return nil
+func (f *playbackFakeEngine) BeginStart() (uint64, context.Context) {
+	if f.startCancel != nil {
+		f.startCancel()
 	}
-	return f.PlayAt(path, dur, offset)
+	f.startSeq++
+	ctx, cancel := context.WithCancel(context.Background())
+	f.startCancel = cancel
+	return f.startSeq, ctx
 }
-func (f *playbackFakeEngine) PlayYTDLForGeneration(_ string, _ time.Duration, generation uint64) error {
-	if f.playGeneration != generation {
-		return nil
+func (f *playbackFakeEngine) Prepare(ticket uint64, req player.StartRequest) error {
+	if ticket != f.startSeq && (ticket != f.preloadGeneration || f.preloadCancel == nil) {
+		return player.ErrRevoked
 	}
+	if f.prepared == nil {
+		f.prepared = make(map[uint64]player.StartRequest)
+	}
+	f.prepared[ticket] = req
 	return nil
 }
-func (f *playbackFakeEngine) Preload(path string, _ time.Duration) error {
-	f.preloadCalls = append(f.preloadCalls, path)
-	return nil
+func (f *playbackFakeEngine) CommitStart(ticket uint64) (player.PlaybackStats, bool) {
+	req, ok := f.prepared[ticket]
+	if ticket != f.startSeq || !ok {
+		return player.PlaybackStats{}, false
+	}
+	delete(f.prepared, ticket)
+	stats := f.Snapshot()
+	_ = f.PlayAt(req.Path, req.KnownDuration, req.Offset)
+	f.currentTicket = ticket
+	f.preloadGeneration = 0
+	f.nextTicket = 0
+	return stats, true
 }
-func (f *playbackFakeEngine) PreloadYTDL(string, time.Duration) error { return nil }
-func (f *playbackFakeEngine) BeginPreload() uint64 {
+func (f *playbackFakeEngine) BeginPreload() (uint64, context.Context) {
+	if f.preloadCancel != nil {
+		f.preloadCancel()
+	}
+	// Separate values keep a preload reservation from superseding an active start.
+	if f.preloadGeneration < 1000000 {
+		f.preloadGeneration = 1000000
+	}
 	f.preloadGeneration++
-	return f.preloadGeneration
+	ctx, cancel := context.WithCancel(context.Background())
+	f.preloadCancel = cancel
+	return f.preloadGeneration, ctx
 }
-func (f *playbackFakeEngine) PreloadForGeneration(path string, dur time.Duration, generation uint64) error {
-	if f.preloadGeneration != generation {
-		return nil
+func (f *playbackFakeEngine) CommitPreload(ticket uint64) bool {
+	req, ok := f.prepared[ticket]
+	if ticket != f.preloadGeneration || !ok {
+		return false
 	}
-	return f.Preload(path, dur)
+	delete(f.prepared, ticket)
+	f.preloadCalls = append(f.preloadCalls, req.Path)
+	f.nextTicket = ticket
+	return true
 }
-func (f *playbackFakeEngine) PreloadYTDLForGeneration(path string, _ time.Duration, generation uint64) error {
-	if f.preloadGeneration != generation {
-		return nil
+func (f *playbackFakeEngine) TakeAdvance() (player.Advance, bool) {
+	if f.retainedAdvance != nil {
+		advance := *f.retainedAdvance
+		f.retainedAdvance = nil
+		return advance, true
 	}
-	f.preloadCalls = append(f.preloadCalls, path)
-	return nil
+	if !f.gaplessAdvanced {
+		return player.Advance{}, false
+	}
+	f.gaplessAdvanced = false
+	finished := player.PlaybackStats{Ticket: f.currentTicket, Position: f.lastPlayedDuration, Duration: f.lastPlayedDuration, Seekable: f.seekable, Playing: true}
+	f.currentTicket = f.nextTicket
+	return player.Advance{Ticket: f.nextTicket, Finished: finished}, true
 }
 func (f *playbackFakeEngine) ClearPreload() {
+	f.retainAdvance()
 	f.clearPreloadCalls++
 	f.preloadGeneration++
+	if f.preloadCancel != nil {
+		f.preloadCancel()
+	}
+	f.nextTicket = 0
 }
-func (f *playbackFakeEngine) Stop() {
+func (f *playbackFakeEngine) Stop() player.PlaybackStats {
+	f.retainAdvance()
+	stats := f.Snapshot()
 	f.stopCalls++
+	if f.startCancel != nil {
+		f.startCancel()
+	}
+	if f.preloadCancel != nil {
+		f.preloadCancel()
+	}
+	f.preloadGeneration++
+	f.nextTicket = 0
+	f.startSeq++ // like the engine, Stop revokes a start still opening
 	f.playing, f.paused = false, false
+	return stats
 }
 func (f *playbackFakeEngine) Close()       {}
 func (f *playbackFakeEngine) TogglePause() { f.paused = !f.paused }
-func (f *playbackFakeEngine) Seek(d time.Duration) error {
+func (f *playbackFakeEngine) Seek(ticket uint64, d time.Duration) error {
+	if ticket != f.currentTicket {
+		return player.ErrRevoked
+	}
 	f.seekCalls = append(f.seekCalls, d)
 	return nil
 }
-func (f *playbackFakeEngine) SeekYTDL(d time.Duration) error {
+func (f *playbackFakeEngine) SeekYTDL(ticket uint64, d time.Duration) error {
+	if ticket != f.currentTicket {
+		return player.ErrRevoked
+	}
 	f.seekYTDLCalls = append(f.seekYTDLCalls, d)
 	return f.seekYTDLErr
 }
-func (f *playbackFakeEngine) CancelSeekYTDL()    { f.cancelSeekYTDLCalls++ }
-func (f *playbackFakeEngine) IsPlaying() bool    { return f.playing }
-func (f *playbackFakeEngine) IsPaused() bool     { return f.paused }
-func (f *playbackFakeEngine) Drained() bool      { return f.drained }
-func (f *playbackFakeEngine) HasPreload() bool   { return f.hasPreload }
-func (f *playbackFakeEngine) Seekable() bool     { return f.seekable }
-func (f *playbackFakeEngine) IsStreamSeek() bool { return false }
-func (f *playbackFakeEngine) IsYTDLSeek() bool   { return f.ytdlSeek }
-func (f *playbackFakeEngine) IsLiveStream() bool { return f.live }
-func (f *playbackFakeEngine) GaplessAdvanced() bool {
-	if !f.gaplessAdvanced {
-		return false
-	}
-	f.gaplessAdvanced = false
-	return true
-}
-func (f *playbackFakeEngine) LastPlayedDuration() time.Duration { return f.lastPlayedDuration }
-func (f *playbackFakeEngine) Position() time.Duration           { return f.position }
-func (f *playbackFakeEngine) Duration() time.Duration           { return f.duration }
+func (f *playbackFakeEngine) CancelSeekYTDL()         { f.cancelSeekYTDLCalls++ }
+func (f *playbackFakeEngine) IsPlaying() bool         { return f.playing }
+func (f *playbackFakeEngine) IsPaused() bool          { return f.paused }
+func (f *playbackFakeEngine) Drained() bool           { return f.drained }
+func (f *playbackFakeEngine) HasPreload() bool        { return f.hasPreload }
+func (f *playbackFakeEngine) Seekable() bool          { return f.seekable }
+func (f *playbackFakeEngine) IsYTDLSeek() bool        { return f.ytdlSeek }
+func (f *playbackFakeEngine) IsLiveStream() bool      { return f.live }
+func (f *playbackFakeEngine) Position() time.Duration { return f.position }
+func (f *playbackFakeEngine) Duration() time.Duration { return f.duration }
 func (f *playbackFakeEngine) PositionAndDuration() (time.Duration, time.Duration) {
 	return f.position, f.duration
 }
@@ -161,7 +215,7 @@ func TestApplyResumeRestartsMixcloudAtSavedPosition(t *testing.T) {
 		position: 5 * time.Second,
 		duration: time.Hour,
 	}
-	m := Model{player: player, playlist: playlist.New(), playingTrack: track, playingTrackActive: true}
+	m := Model{player: player, playlist: playlist.New(), playing: &playbackTrack{track: track}}
 	m.SetResume(track.Path, 90)
 
 	cmd := m.applyResume()
@@ -197,46 +251,58 @@ func TestStreamPlayedNotifiesOnceWithoutResume(t *testing.T) {
 		notifier:  notifier,
 		buffering: true,
 	}
-	m.requests.stream = 1
+	ticket, _ := m.player.BeginStart()
+	m.pending = m.capturePlaybackTrack(track, ticket)
+	_ = m.player.Prepare(ticket, player.StartRequest{Path: track.Path})
 
-	updated, _ := m.Update(streamPlayedMsg{path: track.Path, gen: 1})
+	updated, _ := m.Update(sourcePreparedMsg{ticket: ticket, track: track})
 	m = updated.(Model)
 	if len(notifier.updates) != 1 {
 		t.Fatalf("notifier updates = %d, want exactly 1", len(notifier.updates))
 	}
 }
 
-func TestPlayStreamCmdSkipsSupersededGeneration(t *testing.T) {
-	player := &playbackFakeEngine{}
-	player.SetPlaybackGeneration(1)
+func TestPrepareSourceCmdReportsRevokedTicket(t *testing.T) {
+	engine := &playbackFakeEngine{}
+	track := playlist.Track{Path: "https://example.com/stream", Stream: true}
+	ticket, _ := engine.BeginStart()
 	started := make(chan struct{})
 	continueStart := make(chan struct{})
-	cmd := playStreamCmd(player, "https://example.com/stream", 0, func() time.Duration {
+	cmd := prepareSourceCmd(engine, ticket, track, func() time.Duration {
 		close(started)
 		<-continueStart
 		return 0
-	}, 1)
+	})
 	finished := make(chan tea.Msg, 1)
 	go func() { finished <- cmd() }()
 	<-started
 
-	player.SetPlaybackGeneration(2)
+	engine.BeginStart()
 	close(continueStart)
-	<-finished
-	if len(player.playCalls) != 0 {
-		t.Fatalf("Play calls = %v, want none", player.playCalls)
+	msg, ok := (<-finished).(sourcePreparedMsg)
+	if !ok || !errors.Is(msg.err, player.ErrRevoked) || msg.ticket != ticket {
+		t.Fatalf("start outcome = %+v, want ticket %d cancelled for %s", msg, ticket, track.Path)
+	}
+	if len(engine.playCalls) != 0 {
+		t.Fatalf("Play calls = %v, want none", engine.playCalls)
 	}
 }
 
-func TestPreloadStreamCmdSkipsSupersededGeneration(t *testing.T) {
-	player := &playbackFakeEngine{}
-	preloadGen := player.BeginPreload()
-	cmd := preloadStreamCmd(player, "https://example.com/stream", 0, 1, preloadGen)
-	player.BeginPreload()
+func TestPreparePreloadCmdRejectsSupersededTicket(t *testing.T) {
+	engine := &playbackFakeEngine{}
+	preloadGen, _ := engine.BeginPreload()
+	cmd := prepareSourceCmd(engine, preloadGen, playlist.Track{Path: "https://example.com/stream"}, nil)
+	engine.BeginPreload()
 
-	_ = cmd()
-	if len(player.preloadCalls) != 0 {
-		t.Fatalf("Preload calls = %v, want none", player.preloadCalls)
+	msg := cmd().(sourcePreparedMsg)
+	if msg.ticket != preloadGen || !errors.Is(msg.err, player.ErrRevoked) {
+		t.Fatalf("prepared result = %+v, want revoked ticket", msg)
+	}
+	if engine.CommitPreload(preloadGen) {
+		t.Fatal("revoked preload committed")
+	}
+	if len(engine.preloadCalls) != 0 {
+		t.Fatalf("Preload calls = %v, want none", engine.preloadCalls)
 	}
 }
 
@@ -247,20 +313,22 @@ func TestStreamPlayedResumeKeepsNextTrackPreload(t *testing.T) {
 	next := playlist.Track{Title: "Next", Path: "/tmp/next.mp3", DurationSecs: 180}
 	pl := playlist.New()
 	pl.Add(current, next)
-	player := &playbackFakeEngine{playing: true, ytdlSeek: true, seekable: true, duration: time.Hour}
+	engine := &playbackFakeEngine{playing: true, ytdlSeek: true, seekable: true, duration: time.Hour}
 	notifier := &fakeNotifier{}
-	m := Model{player: player, playlist: pl, notifier: notifier, buffering: true}
+	m := Model{player: engine, playlist: pl, notifier: notifier, buffering: true}
 	m.SetResume(current.Path, 90)
-	m.requests.stream = 1
+	ticket, _ := engine.BeginStart()
+	m.pending = m.capturePlaybackTrack(current, ticket)
+	_ = engine.Prepare(ticket, player.StartRequest{Path: current.Path, YTDL: true})
 
-	updated, cmd := m.Update(streamPlayedMsg{path: current.Path, gen: 1})
+	updated, cmd := m.Update(sourcePreparedMsg{ticket: ticket, track: current})
 	m = updated.(Model)
 	if cmd == nil {
-		t.Fatal("streamPlayedMsg command = nil, want resume and preload batch")
+		t.Fatal("start outcome command = nil, want resume and preload batch")
 	}
 	batch, ok := cmd().(tea.BatchMsg)
 	if !ok || len(batch) != 2 {
-		t.Fatalf("streamPlayedMsg command = %T len=%d, want two-command batch", batch, len(batch))
+		t.Fatalf("start outcome command = %T len=%d, want two-command batch", batch, len(batch))
 	}
 	if !m.preloading {
 		t.Fatal("next track preload was not armed while resuming")
@@ -284,7 +352,7 @@ func TestApplyResumeFailureKeepsMixcloudPlayable(t *testing.T) {
 		duration:    time.Hour,
 		seekYTDLErr: errors.New("seek not permitted"),
 	}
-	m := Model{player: player, playlist: playlist.New(), playingTrack: track, playingTrackActive: true}
+	m := Model{player: player, playlist: playlist.New(), playing: &playbackTrack{track: track}}
 	m.SetResume(track.Path, 90)
 
 	msg := m.applyResume()().(seekTickMsg)
@@ -311,7 +379,7 @@ func TestQuitCapturesMixcloudResumePosition(t *testing.T) {
 		{Title: "Later", Path: "https://www.mixcloud.com/creator/later/", Stream: true},
 	}
 	player := &playbackFakeEngine{playing: true, position: 12*time.Minute + 34*time.Second}
-	m := Model{player: player, playingTrack: track, playingTrackActive: true, playbackContext: context}
+	m := Model{player: player, playing: &playbackTrack{track: track}, playbackContext: context}
 
 	m.quit()
 	if m.exitResume.path != track.Path || m.exitResume.secs != 754 {
@@ -342,9 +410,12 @@ func TestNavTrackPlaybackKeepsCompleteAlbumContext(t *testing.T) {
 	}
 	m.SetResumeSaver(func(playlist.Track, int, []playlist.Track, int) {})
 
-	if cmd := m.handleNavTrackListKey(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil {
+	cmd := m.handleNavTrackListKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
 		t.Fatal("handleNavTrackListKey(Enter) = nil, want playback command")
 	}
+	updated, _ := m.Update(cmd())
+	m = updated.(Model)
 	if len(m.playbackContext) != 3 || m.playbackContext[0].Title != "One" || m.playbackContext[2].Title != "Three" {
 		t.Fatalf("playback context = %+v, want complete album", m.playbackContext)
 	}
@@ -373,7 +444,7 @@ func TestBeginPlaybackPersistsActualTrackAndCompleteContextImmediately(t *testin
 	album = playlist.WithPlaybackContext(album)
 	pl.Add(album[11])
 
-	m.beginPlaybackTrack(album[11])
+	m.activatePlaybackTrack(m.capturePlaybackTrack(album[11], 1), testPlaybackStats(m.player))
 
 	if savedTrack.Title != "Track 12" || savedIndex != 11 || savedPosition != 0 {
 		t.Fatalf("saved playback = track:%q index:%d position:%d", savedTrack.Title, savedIndex, savedPosition)
@@ -388,7 +459,7 @@ func TestTickResumeSavePersistsPositionAndThrottlesWrites(t *testing.T) {
 	player := &playbackFakeEngine{playing: true}
 	pl := playlist.New()
 	pl.Add(track)
-	m := Model{player: player, playlist: pl, playingTrack: track, playingTrackActive: true, playbackContext: []playlist.Track{track}}
+	m := Model{player: player, playlist: pl, playing: &playbackTrack{track: track}, playbackContext: []playlist.Track{track}}
 	var positions []int
 	m.SetResumeSaver(func(_ playlist.Track, positionSec int, _ []playlist.Track, _ int) {
 		positions = append(positions, positionSec)
@@ -499,6 +570,7 @@ func TestTogglePlayPauseReconnectsLongPausedYTDLAtCurrentPosition(t *testing.T) 
 		pausedAt: time.Now().Add(-ytdlReconnectPauseThreshold),
 	}
 
+	m.setPlaybackTrack(p.Tracks()[0])
 	cmd := m.togglePlayPause()
 	if cmd == nil {
 		t.Fatal("togglePlayPause() = nil, want reconnect command")
@@ -510,12 +582,21 @@ func TestTogglePlayPauseReconnectsLongPausedYTDLAtCurrentPosition(t *testing.T) 
 	if len(player.seekYTDLCalls) != 1 || player.seekYTDLCalls[0] != 0 {
 		t.Fatalf("seekYTDLCalls = %v, want [0]", player.seekYTDLCalls)
 	}
-	if player.paused {
-		t.Fatal("player stayed paused after reconnect command")
+	if !player.paused {
+		t.Fatal("background reconnect unpaused before the model accepted it")
 	}
 	if !m.seek.active || m.seek.targetPos != 90*time.Second {
 		t.Fatalf("seek state = active:%v target:%s, want active target 1m30s", m.seek.active, m.seek.targetPos)
 	}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+	if player.paused {
+		t.Fatal("player stayed paused after accepting reconnect")
+	}
+	if m.seek.active {
+		t.Fatal("reconnect completion left seek active")
+	}
+
 }
 
 func TestPlayCurrentTrackUnplayableUsesSelectionOrder(t *testing.T) {
@@ -609,6 +690,9 @@ func modelAfterProviderPlaylistLoadWhilePlaying(t *testing.T) (Model, *playbackF
 		provider: commandsTestProvider{name: "Test"},
 		vis:      ui.NewVisualizer(float64(player.SampleRate())),
 	}
+	m.setPlaybackTrack(p.Tracks()[0])
+	seedGaplessPreload(&m, player, playlist.Track{Path: "old-next.mp3"})
+	player.preloadCalls = nil
 	m.requests.tracks = 1
 
 	updated, _ := m.Update(tracksLoadedMsg{
@@ -627,9 +711,9 @@ func modelAfterProviderPlaylistLoadWhilePlaying(t *testing.T) (Model, *playbackF
 func TestProviderPlaylistLoadWhilePlayingKeepsNowPlayingTrack(t *testing.T) {
 	m, player := modelAfterProviderPlaylistLoadWhilePlaying(t)
 
-	track, idx := m.currentPlaybackTrack()
+	track, idx := m.displayedPlaybackTrack()
 	if idx < 0 || track.Title != "Old" {
-		t.Fatalf("currentPlaybackTrack() = (%q,%d), want old playing track", track.Title, idx)
+		t.Fatalf("displayedPlaybackTrack() = (%q,%d), want old playing track", track.Title, idx)
 	}
 	if !m.playbackDetached {
 		t.Fatal("playbackDetached = false, want true")
@@ -660,9 +744,9 @@ func TestNextAfterProviderPlaylistLoadStartsFirstNewTrack(t *testing.T) {
 	if m.playbackDetached {
 		t.Fatal("playbackDetached = true, want false")
 	}
-	track, _ := m.currentPlaybackTrack()
+	track, _ := m.displayedPlaybackTrack()
 	if track.Title != "New 1" {
-		t.Fatalf("currentPlaybackTrack() = %q, want New 1", track.Title)
+		t.Fatalf("displayedPlaybackTrack() = %q, want New 1", track.Title)
 	}
 }
 
@@ -673,7 +757,8 @@ func TestPreloadAfterProviderPlaylistLoadUsesFirstNewTrack(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("preloadNext() = nil, want preload command")
 	}
-	_ = cmd()
+	updated, _ := m.Update(cmd())
+	m = updated.(Model)
 
 	if len(player.preloadCalls) != 1 || player.preloadCalls[0] != "new1.mp3" {
 		t.Fatalf("preloadCalls = %v, want first new track", player.preloadCalls)
@@ -689,6 +774,7 @@ func TestPreloadNextSkipsCurrentYTDLTrackInRepeatOne(t *testing.T) {
 	p.SetRepeat(playlist.RepeatOne)
 
 	m := Model{player: player, playlist: p}
+	m.setPlaybackTrack(p.Tracks()[0])
 	if cmd := m.preloadNext(); cmd != nil {
 		t.Fatal("preloadNext() returned a command for the current repeat-one yt-dlp track")
 	}
@@ -714,7 +800,8 @@ func TestPreloadNextKeepsDistinctYTDLTrack(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("preloadNext() = nil, want distinct yt-dlp preload command")
 	}
-	_ = cmd()
+	updated, _ := m.Update(cmd())
+	m = updated.(Model)
 	if len(player.preloadCalls) != 1 || player.preloadCalls[0] != "https://www.youtube.com/watch?v=next" {
 		t.Fatalf("preloadCalls = %v, want distinct next URL", player.preloadCalls)
 	}
@@ -811,6 +898,7 @@ func TestGaplessAdvanceDoesNotAlsoDrainNextTrack(t *testing.T) {
 		playlist: p,
 		vis:      ui.NewVisualizer(float64(player.SampleRate())),
 	}
+	seedGaplessPreload(&m, player, p.Tracks()[1])
 	m.SetVisualizer("none")
 
 	updated, _ := m.Update(tickMsg(time.Now()))
@@ -821,10 +909,11 @@ func TestGaplessAdvanceDoesNotAlsoDrainNextTrack(t *testing.T) {
 }
 
 func TestBeginPlaybackTrackFetchesEmbeddedLyricsWithoutNetworkMetadata(t *testing.T) {
-	m := Model{lyrics: lyricsState{visible: true}}
+	m := Model{player: &playbackFakeEngine{}, lyrics: lyricsState{visible: true}}
 	track := playlist.Track{Title: "Local", EmbeddedLyrics: "Line one\nLine two"}
 
-	_, cmd := m.beginPlaybackTrack(track)
+	m.activatePlaybackTrack(m.capturePlaybackTrack(track, 1), testPlaybackStats(m.player))
+	_, cmd := m.Update(nil)
 	if cmd == nil {
 		t.Fatal("beginPlaybackTrack() command = nil, want embedded lyrics command")
 	}
@@ -847,7 +936,7 @@ func TestBeginPlaybackTrackFetchesEmbeddedLyricsWithoutNetworkMetadata(t *testin
 func TestBeginPlaybackTrackCancelsPendingYTDLSeek(t *testing.T) {
 	player := &playbackFakeEngine{}
 	m := Model{player: player, playlist: playlist.New()}
-	m.beginPlaybackTrack(playlist.Track{Path: "https://example.com/track", Stream: true})
+	m.playTrack(playlist.Track{Path: "https://example.com/track", Stream: true})
 	if player.cancelSeekYTDLCalls != 1 {
 		t.Fatalf("CancelSeekYTDL calls = %d, want 1", player.cancelSeekYTDLCalls)
 	}
@@ -871,6 +960,7 @@ func TestGaplessAdvanceRefreshesLyricsAndArtwork(t *testing.T) {
 			query:   "Artist\nOld",
 		},
 	}
+	seedGaplessPreload(&m, player, p.Tracks()[1])
 	m.setPlaybackTrack(p.Tracks()[0])
 	m.lyrics.lines = nil
 
@@ -880,7 +970,7 @@ func TestGaplessAdvanceRefreshesLyricsAndArtwork(t *testing.T) {
 		t.Fatal("Update() command = nil, want lyric/preload/tick batch")
 	}
 
-	track, _ := m2.currentPlaybackTrack()
+	track, _ := m2.displayedPlaybackTrack()
 	if track.Title != "New" {
 		t.Fatalf("current track = %q, want New", track.Title)
 	}
@@ -945,6 +1035,7 @@ func TestGaplessAdvanceRecordsNewTrackAtStart(t *testing.T) {
 		historyStore: store,
 		vis:          ui.NewVisualizer(float64(player.SampleRate())),
 	}
+	seedGaplessPreload(&m, player, p.Tracks()[1])
 	m.SetVisualizer("none")
 
 	m.Update(tickMsg(time.Now()))
@@ -977,6 +1068,7 @@ func TestGaplessAdvanceRecordsNewTrackEvenWithoutDuration(t *testing.T) {
 		historyStore: store,
 		vis:          ui.NewVisualizer(float64(player.SampleRate())),
 	}
+	seedGaplessPreload(&m, player, p.Tracks()[1])
 	m.SetVisualizer("none")
 
 	m.Update(tickMsg(time.Now()))
@@ -1007,6 +1099,9 @@ func TestQueueToggleRearmsGaplessPreload(t *testing.T) {
 		plCursor: 2,
 	}
 
+	m.setPlaybackTrack(p.Tracks()[0])
+	seedGaplessPreload(&m, player, p.Tracks()[1])
+	player.preloadCalls = nil
 	cmd := m.handleKey(tea.KeyPressMsg{Text: "a"})
 	if cmd == nil {
 		t.Fatal("handleKey(a) = nil, want preload command")
@@ -1017,8 +1112,36 @@ func TestQueueToggleRearmsGaplessPreload(t *testing.T) {
 	if player.clearPreloadCalls != 1 {
 		t.Fatalf("ClearPreload calls = %d, want 1", player.clearPreloadCalls)
 	}
-	cmd()
+	updated, _ := m.Update(cmd())
+	m = updated.(Model)
 	if len(player.preloadCalls) != 1 || player.preloadCalls[0] != "c.mp3" {
 		t.Fatalf("preloadCalls = %v, want [c.mp3] (queued track, not order-next b.mp3)", player.preloadCalls)
 	}
+}
+
+// seedGaplessPreload represents the source that was prepared before the engine transitioned.
+func seedGaplessPreload(m *Model, engine *playbackFakeEngine, track playlist.Track) {
+	ticket, _ := engine.BeginPreload()
+	m.preloaded = m.capturePlaybackTrack(track, ticket)
+	_ = engine.Prepare(ticket, player.StartRequest{Path: track.Path})
+	engine.CommitPreload(ticket)
+}
+
+func (f *playbackFakeEngine) retainAdvance() {
+	if f.gaplessAdvanced {
+		advance, _ := f.TakeAdvance()
+		f.retainedAdvance = &advance
+	}
+}
+
+func testPlaybackStats(engine player.Engine) player.PlaybackStats {
+	return player.PlaybackStats{Position: engine.Position(), Duration: engine.Duration(), Seekable: engine.Seekable()}
+}
+
+func (f *playbackFakeEngine) Snapshot() player.PlaybackStats {
+	ticket := f.currentTicket
+	if f.gaplessAdvanced {
+		ticket = f.nextTicket
+	}
+	return player.PlaybackStats{Ticket: ticket, Position: f.position, Duration: f.duration, Seekable: f.seekable, Playing: f.playing, Paused: f.paused}
 }

@@ -109,7 +109,7 @@ func (m Model) renderPlMgrFormBody() string {
 		return bodyMessage("Enter a new name for the playlist above.", budget)
 	}
 	label := "Create the playlist (nothing playing to add)."
-	if track, idx := m.currentPlaybackTrack(); idx >= 0 && track.Path != "" {
+	if track, idx := m.displayedPlaybackTrack(); idx >= 0 && track.Path != "" {
 		label = "Create & add: " + truncate(trackViewName(track), max(1, ui.PanelWidth-16))
 	}
 	lines := []string{dimStyle.Render("  " + label)}

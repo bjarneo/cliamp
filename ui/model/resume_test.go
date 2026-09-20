@@ -63,12 +63,12 @@ func TestStartPosition(t *testing.T) {
 			m := Model{}
 			m.resume.path = tc.resumePath
 			m.resume.secs = tc.resumeSecs
-			if got := m.startPosition(tc.track)(); got != tc.want {
+			if got := m.startPosition(context.Background(), tc.track)(); got != tc.want {
 				t.Fatalf("startPosition() = %v, want %v", got, tc.want)
 			}
 			// applyResume clears the hint once playback starts, so a failed
 			// PlayAt can still be retried at the same position.
-			if again := m.startPosition(tc.track)(); again != tc.want {
+			if again := m.startPosition(context.Background(), tc.track)(); again != tc.want {
 				t.Errorf("second startPosition() = %v, want %v", again, tc.want)
 			}
 		})
@@ -91,7 +91,7 @@ func TestStartPositionProviderZeroWins(t *testing.T) {
 	m.resume.path = track.Path
 	m.resume.secs = 95
 
-	if got := m.startPosition(track)(); got != 0 {
+	if got := m.startPosition(context.Background(), track)(); got != 0 {
 		t.Errorf("startPosition() = %v, want 0", got)
 	}
 }
@@ -104,7 +104,7 @@ func TestStartPositionKeepsHintUntilPlaybackStarts(t *testing.T) {
 	m.resume.path = track.Path
 	m.resume.secs = 95
 
-	m.startPosition(track)()
+	m.startPosition(context.Background(), track)()
 
 	if m.resume.secs != 95 {
 		t.Errorf("resume.secs = %d, want 95", m.resume.secs)
@@ -117,7 +117,7 @@ func TestStartPositionIgnoresUnrelatedPositionProvider(t *testing.T) {
 	m.resume.path = track.Path
 	m.resume.secs = 95
 
-	if got := m.startPosition(track)(); got != 95*time.Second {
+	if got := m.startPosition(context.Background(), track)(); got != 95*time.Second {
 		t.Errorf("startPosition() = %v, want 1m35s", got)
 	}
 }

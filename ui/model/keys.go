@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/internal/fileutil"
+	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/tracksave"
@@ -22,24 +24,24 @@ import (
 
 // quit shuts down the player and signals the TUI to exit.
 func (m *Model) quit() tea.Cmd {
-	// Only save resume for seekable tracks:
-	// - local files (not stream)
-	// - HTTP streams with known duration (podcast MP3s, seek-by-reconnect)
-	// - finite Mixcloud shows (yt-dlp tracks with a counted PCM position)
-	// Other yt-dlp sites and real-time live streams remain excluded.
-	if track, _ := m.currentPlaybackTrack(); track.Path != "" &&
-		(!playlist.IsYTDL(track.Path) || playlist.IsMixcloudURL(track.Path)) &&
-		!track.IsLive() &&
-		m.player.IsPlaying() && !m.buffering && !m.player.GaplessAdvanced() {
-		if secs := int(m.player.Position().Seconds()); secs > 0 {
-			context, contextIndex := m.playbackContextFor(track)
-			m.exitResume.path = track.Path
-			m.exitResume.secs = secs
-			m.exitResume.playlist = m.loadedPlaylist
-			m.exitResume.context = cloneTracks(context)
-			m.exitResume.contextIndex = contextIndex
+	stats := m.player.Stop()
+	m.consumeGaplessAdvance(&stats)
+	// Use the final source snapshot, including a gapless promotion that raced
+	// with quit. Pending requests never supply the saved track or position.
+	if m.playing != nil {
+		track := m.playing.track
+		if track.Path != "" && (!playlist.IsYTDL(track.Path) || playlist.IsMixcloudURL(track.Path)) && !track.IsLive() {
+			if secs := int(stats.Position.Seconds()); secs > 0 {
+				tracks, index := m.playbackContextFor(track)
+				m.exitResume.path = track.Path
+				m.exitResume.secs = secs
+				m.exitResume.playlist = m.loadedPlaylist
+				m.exitResume.context = cloneTracks(tracks)
+				m.exitResume.contextIndex = index
+			}
 		}
 	}
+	m.finishPlayback(stats)
 
 	m.flushPendingSpeedSave()
 	m.flushPendingEQSave()
@@ -47,16 +49,6 @@ func (m *Model) quit() tea.Cmd {
 	m.clearPlaybackTrack()
 	m.quitting = true
 	return tea.Quit
-}
-
-// scrobbleCurrent fires a scrobble for the currently playing track if
-// applicable. Returns the Recently Played refresh command when one was
-// recorded.
-func (m *Model) scrobbleCurrent() tea.Cmd {
-	if track, idx := m.currentPlaybackTrack(); idx >= 0 {
-		return m.maybeScrobble(track, m.player.Position(), m.player.Duration())
-	}
-	return nil
 }
 
 func (m *Model) handleSpeedKey(msg tea.KeyPressMsg) tea.Cmd {
@@ -643,22 +635,19 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "s":
 		// Stopping counts like skipping: if the track passed the 50%
 		// threshold, it lands in Recently Played before teardown.
-		refresh := m.scrobbleCurrent()
 		m.stopPlayback()
 		m.notifyPlayback()
-		return refresh
+		return nil
 
 	case ">", ".":
-		refresh := m.scrobbleCurrent()
 		cmd := m.nextTrack()
 		m.notifyPlayback()
-		return tea.Batch(refresh, cmd)
+		return cmd
 
 	case "<", ",":
-		refresh := m.scrobbleCurrent()
 		cmd := m.prevTrack()
 		m.notifyPlayback()
-		return tea.Batch(refresh, cmd)
+		return cmd
 
 	case "left":
 		if m.focus == focusEQ {
@@ -788,11 +777,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			if m.buffering && m.plCursor == m.playlist.Index() {
 				break
 			}
-			refresh := m.scrobbleCurrent()
-			m.playlist.SetIndex(m.plCursor)
+			m.selectPlaybackIndex(m.plCursor)
 			cmd := m.playCurrentTrack()
 			m.notifyPlayback()
-			return tea.Batch(refresh, cmd)
+			return cmd
 		}
 
 	case "+", "=":
@@ -1040,15 +1028,13 @@ func (m *Model) handleFullVisualizerKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.notifyPlayback()
 		return cmd
 	case ">", ".":
-		refresh := m.scrobbleCurrent()
 		cmd := m.nextTrack()
 		m.notifyPlayback()
-		return tea.Batch(refresh, cmd)
+		return cmd
 	case "<", ",":
-		refresh := m.scrobbleCurrent()
 		cmd := m.prevTrack()
 		m.notifyPlayback()
-		return tea.Batch(refresh, cmd)
+		return cmd
 	case "left":
 		return m.doSeek(-5 * time.Second)
 	case "shift+left":
@@ -1082,7 +1068,7 @@ func (m *Model) handleFullVisualizerKey(msg tea.KeyPressMsg) tea.Cmd {
 // For yt-dlp tracks (piped streams), triggers an async download via yt-dlp.
 // For local temp files, copies synchronously.
 func (m *Model) saveTrack() tea.Cmd {
-	track, idx := m.currentPlaybackTrack()
+	track, idx := m.displayedPlaybackTrack()
 	if idx < 0 {
 		m.status.Warning("Nothing to save", statusTTLShort)
 		return nil
@@ -1211,7 +1197,11 @@ func (m *Model) handleJumpKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.status.Warning(m.jumpErr, statusTTLDefault)
 			return nil
 		}
-		if err := m.player.Seek(target - m.player.Position()); err != nil {
+		if err := m.player.Seek(m.playbackTicket(), target-m.player.Position()); err != nil {
+			if errors.Is(err, player.ErrRevoked) {
+				m.closeJumpMode()
+				return nil
+			}
 			m.jumpErr = "Seek failed: " + err.Error()
 			m.status.Warning(m.jumpErr, statusTTLDefault)
 			return nil
@@ -1220,7 +1210,7 @@ func (m *Model) handleJumpKey(msg tea.KeyPressMsg) tea.Cmd {
 		// completed seek; the previous manual block skipped Lua plugins.
 		m.finishSeek()
 		m.closeJumpMode()
-		return nil
+		return m.rearmPreload()
 	}
 
 	if m.editText("jump", &m.jumpInput, msg) {
@@ -1555,7 +1545,7 @@ func (m *Model) handleSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 		var cmd tea.Cmd
 		if len(m.search.results) > 0 {
 			idx := m.search.results[m.search.cursor]
-			m.playlist.SetIndex(idx)
+			m.selectPlaybackIndex(idx)
 			m.plCursor = idx
 			cmd = m.playCurrentTrack()
 			m.notifyPlayback()
@@ -2214,8 +2204,8 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 // plMgrLoadAndPlay replaces the live playlist with the manager's tracks and
 // starts playback at startIdx.
 func (m *Model) plMgrLoadAndPlay(startIdx int) tea.Cmd {
-	m.player.Stop()
-	m.player.ClearPreload()
+	m.clearPreload()
+	m.detachPlaybackTrack()
 	m.resetYTDLBatch()
 	m.retireTracksPaging()
 	m.replacePlaylist(m.plManager.tracks)
@@ -2225,7 +2215,7 @@ func (m *Model) plMgrLoadAndPlay(startIdx int) tea.Cmd {
 		startIdx = 0
 	}
 	m.plCursor = startIdx
-	m.playlist.SetIndex(startIdx)
+	m.selectPlaybackIndex(startIdx)
 	m.adjustScroll()
 	m.plManager.visible = false
 	m.plMgrResetFilter()

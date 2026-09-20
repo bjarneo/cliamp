@@ -10,14 +10,29 @@ import (
 	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/luaplugin"
+	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
 
-// notifyAll sends the current playback state to both OS media controls and Lua plugins.
+// notifyAll sends one playback snapshot to both OS media controls and Lua
+// plugins, so the two cannot disagree on the source and the speaker lock is
+// taken once per update.
 func (m *Model) notifyAll() {
-	m.notifyPlayback()
-	m.notifyPlugins()
+	wantPlayback, wantPlugins := m.notifier != nil, m.wantsPluginState()
+	if !wantPlayback && !wantPlugins {
+		return
+	}
+	track, stats, ok := m.playbackSnapshot()
+	if !ok {
+		return
+	}
+	if wantPlayback {
+		m.notifyPlaybackWith(track, stats)
+	}
+	if wantPlugins {
+		m.notifyPluginsWith(track, stats)
+	}
 }
 
 func (m *Model) attachNotifier(notifier playback.Notifier) {
@@ -25,16 +40,16 @@ func (m *Model) attachNotifier(notifier playback.Notifier) {
 	m.notifyAll()
 }
 
-// notifyPlugins emits a playback state event to Lua plugins.
-func (m *Model) notifyPlugins() {
-	if m.luaMgr == nil || !m.luaMgr.HasHooks() {
-		return
-	}
-	track, _ := m.currentPlaybackTrack()
+func (m *Model) wantsPluginState() bool {
+	return m.luaMgr != nil && m.luaMgr.HasHooks()
+}
+
+// notifyPluginsWith emits a playback state event to Lua plugins.
+func (m *Model) notifyPluginsWith(track playlist.Track, stats player.PlaybackStats) {
 	artist, title := m.resolveTrackDisplay(track)
 	status := "stopped"
-	if m.player.IsPlaying() {
-		if m.player.IsPaused() {
+	if stats.Playing {
+		if stats.Paused {
 			status = "paused"
 		} else {
 			status = "playing"
@@ -44,7 +59,7 @@ func (m *Model) notifyPlugins() {
 	data["status"] = status
 	data["title"] = title
 	data["artist"] = artist
-	data["position"] = m.player.Position().Seconds()
+	data["position"] = stats.Position.Seconds()
 	m.luaMgr.Emit(luaplugin.EventPlaybackState, data)
 }
 
@@ -52,7 +67,7 @@ func (m *Model) notifyPlugins() {
 // stream title override for radio streams.
 func (m *Model) resolveTrackDisplay(track playlist.Track) (artist, title string) {
 	artist, title = track.Artist, track.Title
-	if m.streamTitle != "" && track.Stream {
+	if m.streamTitle != "" && track.Stream && (m.pending == nil || (m.playing != nil && track.Path == m.playing.track.Path)) {
 		if a, t, ok := strings.Cut(m.streamTitle, " - "); ok {
 			if t != "" {
 				artist, title = a, t
@@ -82,15 +97,20 @@ func (m *Model) notifyPlayback() {
 	if m.notifier == nil {
 		return
 	}
+	if track, stats, ok := m.playbackSnapshot(); ok {
+		m.notifyPlaybackWith(track, stats)
+	}
+}
+
+func (m *Model) notifyPlaybackWith(track playlist.Track, stats player.PlaybackStats) {
 	status := playback.StatusStopped
-	if m.player.IsPlaying() {
-		if m.player.IsPaused() {
+	if stats.Playing {
+		if stats.Paused {
 			status = playback.StatusPaused
 		} else {
 			status = playback.StatusPlaying
 		}
 	}
-	track, _ := m.currentPlaybackTrack()
 	artist, title := m.resolveTrackDisplay(track)
 	m.notifier.Update(playback.State{
 		Status: status,
@@ -102,16 +122,16 @@ func (m *Model) notifyPlayback() {
 			TrackNumber: track.TrackNumber,
 			URL:         track.Path,
 			ArtURL:      track.AlbumArtURL,
-			Duration:    m.player.Duration(),
+			Duration:    stats.Duration,
 		},
 		VolumeDB: m.player.Volume(),
-		Position: m.player.Position(),
-		Seekable: m.player.Seekable(),
+		Position: stats.Position,
+		Seekable: stats.Seekable,
 	})
 }
 
 // nowPlaying fires a now-playing notification for the given track if configured.
-func (m *Model) nowPlaying(track playlist.Track) {
+func (m *Model) nowPlaying(track playlist.Track, position time.Duration, canSeek bool) {
 	if m.luaMgr != nil && m.luaMgr.HasHooks() {
 		m.luaMgr.Emit(luaplugin.EventTrackChange, trackToMap(track))
 	}
@@ -120,8 +140,6 @@ func (m *Model) nowPlaying(track playlist.Track) {
 	if reporter == nil {
 		return
 	}
-	canSeek := m.player.Seekable()
-	position := m.player.Position()
 	go func() {
 		if err := reporter.ReportNowPlaying(track, position, canSeek); err != nil {
 			applog.Warn("now-playing report failed for %q: %v", track.Title, err)
@@ -157,43 +175,25 @@ func (m *Model) recordListenedTrack(track playlist.Track) tea.Cmd {
 // is left (skip, stop, natural end) and past 50% of its known duration,
 // matching Last.fm-style play-count conventions. Local history is recorded
 // separately at track start via recordListenedTrack.
-func (m *Model) maybeScrobble(track playlist.Track, elapsed, duration time.Duration) tea.Cmd {
-	dur := duration
-	if dur <= 0 {
-		dur = time.Duration(track.DurationSecs) * time.Second
+func (m *Model) maybeScrobble(track playlist.Track, elapsed, duration time.Duration, canSeek bool) {
+	if duration <= 0 {
+		duration = time.Duration(track.DurationSecs) * time.Second
 	}
-	pastThreshold := dur > 0 && elapsed >= dur/2
-
-	var refresh tea.Cmd
-
-	// Emit scrobble event to Lua plugins for all tracks (not just Navidrome).
-	if m.luaMgr != nil && m.luaMgr.HasHooks() && pastThreshold {
+	if duration <= 0 || elapsed < duration/2 {
+		return
+	}
+	if m.luaMgr != nil && m.luaMgr.HasHooks() {
 		data := trackToMap(track)
 		data["played_secs"] = elapsed.Seconds()
 		m.luaMgr.Emit(luaplugin.EventTrackScrobble, data)
 	}
-
-	reporter := m.findPlaybackReporter(track)
-	if reporter == nil {
-		return refresh
+	if reporter := m.findPlaybackReporter(track); reporter != nil {
+		go func() {
+			if err := reporter.ReportScrobble(track, elapsed, duration, canSeek); err != nil {
+				applog.Warn("scrobble failed for %q: %v", track.Title, err)
+			}
+		}()
 	}
-	if duration <= 0 {
-		// Unknown duration: use DurationSecs metadata as fallback.
-		duration = time.Duration(track.DurationSecs) * time.Second
-	}
-	if duration <= 0 {
-		return refresh // still unknown — skip
-	}
-	if elapsed < duration/2 {
-		return refresh // less than 50% played
-	}
-	canSeek := m.player.Seekable()
-	go func() {
-		if err := reporter.ReportScrobble(track, elapsed, duration, canSeek); err != nil {
-			applog.Warn("scrobble failed for %q: %v", track.Title, err)
-		}
-	}()
-	return refresh
 }
 
 // findTrackPosition returns the provider that can report track's saved
@@ -262,8 +262,8 @@ func (m *Model) tickProgressReport(now time.Time) {
 	if !m.lastProgressReport.IsZero() && now.Sub(m.lastProgressReport) < progressReportInterval {
 		return
 	}
-	track, idx := m.currentPlaybackTrack()
-	if idx < 0 {
+	track, stats, current := m.playbackSnapshot()
+	if !current || !stats.Playing || stats.Paused {
 		return
 	}
 	reporter, ok := m.findPlaybackReporter(track).(provider.ProgressReporter)
@@ -271,7 +271,7 @@ func (m *Model) tickProgressReport(now time.Time) {
 		return
 	}
 	m.lastProgressReport = now
-	position := m.player.Position()
+	position := stats.Position
 	go func() {
 		if err := reporter.ReportProgress(track, position); err != nil {
 			applog.Warn("progress report failed for %q: %v", track.Title, err)

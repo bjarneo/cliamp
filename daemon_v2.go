@@ -534,10 +534,11 @@ func (d *daemon) runtimeSnapshotLocked() ipc.RuntimeSnapshot {
 	if d.player == nil {
 		return snapshot
 	}
+	stats := d.player.Snapshot()
 	switch {
-	case d.player.IsPlaying() && !d.player.IsPaused():
+	case stats.Playing && !stats.Paused:
 		snapshot.State = "playing"
-	case d.player.IsPaused():
+	case stats.Paused:
 		snapshot.State = "paused"
 	default:
 		snapshot.State = "stopped"
@@ -556,10 +557,9 @@ func (d *daemon) runtimeSnapshotLocked() ipc.RuntimeSnapshot {
 			snapshot.PlaybackDetached = actual.Path != snapshot.LogicalTrack.Path
 		}
 	}
-	position, duration := d.player.PositionAndDuration()
-	snapshot.Position = position.Seconds()
-	snapshot.Duration = duration.Seconds()
-	snapshot.Seekable = d.player.Seekable()
+	snapshot.Position = stats.Position.Seconds()
+	snapshot.Duration = stats.Duration.Seconds()
+	snapshot.Seekable = stats.Seekable
 	snapshot.Volume = d.player.Volume()
 	mono := d.player.Mono()
 	snapshot.Mono = &mono
@@ -635,9 +635,10 @@ func (d *daemon) runtimeFingerprintLocked() daemonRuntimeFingerprint {
 	if logical, _ := d.playlist.Current(); logical.Path != "" {
 		fingerprint.logicalPath = logical.Path
 	}
-	if d.player.IsPlaying() && !d.player.IsPaused() {
+	stats := d.player.Snapshot()
+	if stats.Playing && !stats.Paused {
 		fingerprint.state = "playing"
-	} else if d.player.IsPaused() {
+	} else if stats.Paused {
 		fingerprint.state = "paused"
 	} else {
 		fingerprint.state = "stopped"

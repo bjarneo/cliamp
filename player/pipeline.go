@@ -14,6 +14,7 @@ import (
 type trackPipeline struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
+	ticket      uint64
 	streamTitle *atomic.Value
 
 	decoder         beep.StreamSeekCloser // raw decoder (for Position/Duration/Seek)

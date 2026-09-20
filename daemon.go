@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -50,7 +51,9 @@ func runDaemon(p *player.Player, pl *playlist.Playlist, localProv *local.Provide
 		// All external control surfaces feed this bounded queue. The daemon loop
 		// is the sole owner of command ordering and playlist mutations.
 		control: make(chan any, daemonControlQueueCapacity),
+		done:    make(chan struct{}),
 	}
+	defer close(d.done)
 	if d.eqPreset == "" {
 		d.eqPreset = "Custom"
 	}
@@ -112,7 +115,7 @@ func runDaemon(p *player.Player, pl *playlist.Playlist, localProv *local.Provide
 
 // daemon implements ipc.Dispatcher for headless mode. The mutex covers
 // playlist state and "what plays next" decisions; the player itself is
-// internally thread-safe so blocking I/O (Play, PlayYTDL) runs without it.
+// internally thread-safe; source preparation runs outside the control loop.
 type daemon struct {
 	mu              sync.Mutex
 	player          player.Engine
@@ -128,8 +131,13 @@ type daemon struct {
 	notifier        playback.Notifier
 	quit            chan struct{}
 	control         chan any
+	done            chan struct{}
+	pendingStart    uint64
+	seekInFlight    bool
+	pendingSeek     *daemonSeek
 	broker          *ipc.Broker
 
+	playbackTicket   uint64
 	playbackTrack    playlist.Track
 	hasPlaybackTrack bool
 	device           string
@@ -161,6 +169,19 @@ func (d *daemon) handleMessage(msg any) {
 	defer d.publishRuntimeState()
 
 	switch m := msg.(type) {
+	case daemonSeekFinished:
+		d.mu.Lock()
+		d.seekInFlight = false
+		d.startPendingSeek()
+		d.mu.Unlock()
+		return
+
+	case daemonSourcePrepared:
+		d.mu.Lock()
+		d.commitPrepared(m)
+		d.mu.Unlock()
+		return
+
 	case ipc.LibraryRequestMsg:
 		d.handleLibrary(m)
 		return
@@ -198,8 +219,7 @@ func (d *daemon) handleMessage(msg any) {
 		d.toggle()
 
 	case playback.StopMsg:
-		d.player.Stop()
-		d.clearPlaybackTrack()
+		d.stopPlayback()
 
 	case playback.NextMsg:
 		d.nextTrack()
@@ -217,11 +237,10 @@ func (d *daemon) handleMessage(msg any) {
 		d.player.SetVolume(m.VolumeDB)
 
 	case playback.SeekMsg:
-		_ = d.player.Seek(m.Offset)
+		d.seek(m.Offset)
 
 	case playback.SetPositionMsg:
-		cur := d.player.Position()
-		_ = d.player.Seek(m.Position - cur)
+		d.queueSeek(m.Position, true)
 
 	case ipc.LoadMsg:
 		d.handleLoad(m)
@@ -310,10 +329,10 @@ func (d *daemon) handleSave(m ipc.SaveRequestMsg) {
 // skips gapless preloading; small inter-track gaps are fine.
 func (d *daemon) tick() {
 	d.mu.Lock()
-	if d.player.IsPlaying() && !d.player.IsPaused() && d.player.Drained() {
-		track, idx := d.playlist.Current()
-		if idx >= 0 && d.playbackIsLive(track) {
-			d.player.Stop()
+	if d.pendingStart == 0 && d.player.IsPlaying() && !d.player.IsPaused() && d.player.Drained() {
+		track, _, ok := d.currentPlaybackTrackLocked()
+		if ok && d.playbackIsLive(track) {
+			d.stopPlayback()
 			d.playTrack(track)
 		} else {
 			d.nextTrack()
@@ -331,15 +350,16 @@ func (d *daemon) tick() {
 // snapshotState builds a playback.State for OS media-control notifiers.
 // Caller must hold d.mu.
 func (d *daemon) snapshotState() playback.State {
+	snapshot := d.player.Snapshot()
 	status := playback.StatusStopped
-	if d.player.IsPlaying() {
-		if d.player.IsPaused() {
+	if snapshot.Playing {
+		if snapshot.Paused {
 			status = playback.StatusPaused
 		} else {
 			status = playback.StatusPlaying
 		}
 	}
-	track, _ := d.playlist.Current()
+	track, _, _ := d.currentPlaybackTrackLocked()
 	return playback.State{
 		Status: status,
 		Track: playback.Track{
@@ -349,11 +369,11 @@ func (d *daemon) snapshotState() playback.State {
 			Genre:       track.Genre,
 			TrackNumber: track.TrackNumber,
 			URL:         track.Path,
-			Duration:    d.player.Duration(),
+			Duration:    snapshot.Duration,
 		},
 		VolumeDB: d.player.Volume(),
-		Position: d.player.Position(),
-		Seekable: d.player.Seekable(),
+		Position: snapshot.Position,
+		Seekable: snapshot.Seekable,
 	}
 }
 
@@ -365,28 +385,67 @@ func (d *daemon) playCurrent() {
 	d.playTrack(track)
 }
 
-// playTrack runs while d.mu is held so playback decisions commit in request
-// order. Releasing it during setup lets a slow older request overwrite a newer
-// next/load request after that request has already updated the playlist.
+type daemonSourcePrepared struct {
+	ticket uint64
+	track  playlist.Track
+	err    error
+}
+
+// playTrack reserves authority on the controller; preparation cannot change audio.
 func (d *daemon) playTrack(track playlist.Track) {
-	dur := time.Duration(track.DurationSecs) * time.Second
-	var err error
-	if playlist.IsYTDL(track.Path) {
-		err = d.player.PlayYTDL(track.Path, dur)
-	} else {
-		err = d.player.Play(track.Path, dur)
-	}
-	if err != nil {
-		applog.Warn("daemon: play %q: %v", track.Path, err)
-		d.player.Stop()
-		d.clearPlaybackTrack()
+	ticket, _ := d.player.BeginStart()
+	d.pendingStart = ticket
+	req := player.StartRequest{Path: track.Path, KnownDuration: time.Duration(track.DurationSecs) * time.Second, YTDL: playlist.IsYTDL(track.Path)}
+	if d.control == nil {
+		d.commitPrepared(daemonSourcePrepared{ticket, track, d.player.Prepare(ticket, req)})
 		return
 	}
-	d.playbackTrack = track
+	go func() {
+		msg := daemonSourcePrepared{ticket, track, d.player.Prepare(ticket, req)}
+		select {
+		case d.control <- msg:
+		case <-d.done:
+		}
+	}()
+}
+
+func (d *daemon) commitPrepared(msg daemonSourcePrepared) {
+	if msg.ticket != d.pendingStart {
+		return
+	}
+	d.pendingStart = 0
+	if msg.err != nil {
+		if !errors.Is(msg.err, player.ErrRevoked) {
+			applog.Warn("daemon: play %q: %v", msg.track.Path, msg.err)
+		}
+		if d.player.Drained() {
+			d.stopPlayback()
+		}
+		return
+	}
+	finished, ok := d.player.CommitStart(msg.ticket)
+	if !ok {
+		return
+	}
+	d.recordHistoryAt(finished.Position, finished.Duration)
+	d.historyTrack = ""
+	d.historyRecorded = false
+	d.pendingSeek = nil
+	d.playbackTicket = msg.ticket
+	d.playbackTrack = msg.track
 	d.hasPlaybackTrack = true
 }
 
+func (d *daemon) stopPlayback() {
+	finished := d.player.Stop()
+	d.recordHistoryAt(finished.Position, finished.Duration)
+	d.clearPlaybackTrack()
+}
+
 func (d *daemon) clearPlaybackTrack() {
+	d.pendingStart = 0
+	d.pendingSeek = nil
+	d.playbackTicket = 0
 	d.playbackTrack = playlist.Track{}
 	d.hasPlaybackTrack = false
 }
@@ -400,9 +459,9 @@ func (d *daemon) playbackIsLive(track playlist.Track) bool {
 }
 
 func (d *daemon) resume() {
-	track, idx := d.playlist.Current()
-	if idx >= 0 && d.playbackIsLive(track) {
-		d.player.Stop()
+	track, _, ok := d.currentPlaybackTrackLocked()
+	if ok && d.playbackIsLive(track) {
+		d.stopPlayback()
 		d.playTrack(track)
 		return
 	}
@@ -426,21 +485,74 @@ func (d *daemon) toggle() {
 func (d *daemon) nextTrack() {
 	track, ok := d.playlist.Next()
 	if !ok {
-		d.player.Stop()
-		d.clearPlaybackTrack()
+		d.stopPlayback()
 		return
 	}
 	d.playTrack(track)
 }
 
-func (d *daemon) prevTrack() {
-	if d.player.Position() > 3*time.Second {
-		track, idx := d.playlist.Current()
-		if idx < 0 {
+type daemonSeek struct {
+	ticket   uint64
+	value    time.Duration
+	absolute bool
+}
+
+type daemonSeekFinished struct{}
+
+func (d *daemon) seek(offset time.Duration) {
+	d.queueSeek(offset, false)
+}
+
+// Keep one operation in flight and combine subsequent input on the controller.
+// Absolute positions are converted only when the preceding seek has finished.
+func (d *daemon) queueSeek(value time.Duration, absolute bool) {
+	if d.playbackTicket == 0 {
+		return
+	}
+	if d.pendingSeek == nil || d.pendingSeek.ticket != d.playbackTicket || absolute {
+		d.pendingSeek = &daemonSeek{d.playbackTicket, value, absolute}
+	} else {
+		d.pendingSeek.value += value
+	}
+	d.startPendingSeek()
+}
+
+func (d *daemon) startPendingSeek() {
+	if d.seekInFlight || d.pendingSeek == nil {
+		return
+	}
+	request := *d.pendingSeek
+	d.pendingSeek = nil
+	if request.ticket != d.playbackTicket {
+		return
+	}
+	if request.absolute {
+		request.value -= d.player.Snapshot().Position
+	}
+	d.seekInFlight = true
+	engine := d.player
+	go func() {
+		_ = engine.Seek(request.ticket, request.value)
+		if d.control == nil {
+			d.handleMessage(daemonSeekFinished{})
 			return
 		}
-		if d.player.Seekable() {
-			_ = d.player.Seek(-d.player.Position())
+		select {
+		case d.control <- daemonSeekFinished{}:
+		case <-d.done:
+		}
+	}()
+}
+
+func (d *daemon) prevTrack() {
+	snapshot := d.player.Snapshot()
+	if snapshot.Position > 3*time.Second {
+		track, _, ok := d.currentPlaybackTrackLocked()
+		if !ok {
+			return
+		}
+		if snapshot.Seekable {
+			d.queueSeek(0, true)
 			return
 		}
 		d.playTrack(track)
@@ -590,8 +702,7 @@ func (d *daemon) handleQueue(m ipc.QueueRequestMsg) {
 		reply(m.Reply, d.queueResponse())
 	case "queue.remove":
 		if m.Index == d.playlist.Index() {
-			d.player.Stop()
-			d.clearPlaybackTrack()
+			d.stopPlayback()
 		}
 		if !d.playlist.Remove(m.Index) {
 			reply(m.Reply, ipc.Response{OK: false, Error: "queue index out of range"})
@@ -605,8 +716,7 @@ func (d *daemon) handleQueue(m ipc.QueueRequestMsg) {
 		}
 		reply(m.Reply, d.queueResponse())
 	case "queue.clear":
-		d.player.Stop()
-		d.clearPlaybackTrack()
+		d.stopPlayback()
 		d.playlist.Replace(nil)
 		d.loadedPlaylist = ""
 		reply(m.Reply, d.queueResponse())
@@ -1031,8 +1141,18 @@ func (d *daemon) handleHistory(m ipc.HistoryRequestMsg) {
 }
 
 func (d *daemon) recordHistory() {
-	track, idx := d.playlist.Current()
-	if idx < 0 || track.Path == "" {
+	if !d.hasPlaybackTrack {
+		return
+	}
+	snapshot := d.player.Snapshot()
+	if snapshot.Ticket == d.playbackTicket {
+		d.recordHistoryAt(snapshot.Position, snapshot.Duration)
+	}
+}
+
+func (d *daemon) recordHistoryAt(pos, dur time.Duration) {
+	track := d.playbackTrack
+	if !d.hasPlaybackTrack || track.Path == "" {
 		return
 	}
 	if track.Path != d.historyTrack {
@@ -1042,7 +1162,6 @@ func (d *daemon) recordHistory() {
 	if d.historyRecorded || d.historyStore == nil {
 		return
 	}
-	pos, dur := d.player.PositionAndDuration()
 	if dur <= 0 && track.DurationSecs > 0 {
 		dur = time.Duration(track.DurationSecs) * time.Second
 	}
@@ -1125,11 +1244,15 @@ func applyStreamTitle(info *ipc.TrackInfo, cur playlist.Track, streamTitle strin
 func (d *daemon) saveResume() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	track, idx := d.playlist.Current()
-	if idx < 0 || track.Path == "" {
+	track := d.playbackTrack
+	if !d.hasPlaybackTrack || track.Path == "" {
 		return
 	}
-	pos := int(d.player.Position().Seconds())
+	snapshot := d.player.Snapshot()
+	if snapshot.Ticket != d.playbackTicket {
+		return
+	}
+	pos := int(snapshot.Position.Seconds())
 	if pos <= 0 {
 		return
 	}

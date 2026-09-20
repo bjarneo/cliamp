@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/bjarneo/cliamp/external/radio"
 	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/internal/playback"
@@ -419,12 +421,15 @@ type Model struct {
 	// Live stream title from ICY metadata (e.g., "Artist - Song")
 	streamTitle string
 
-	// playingTrack is the track currently owned by the audio engine. It can differ
-	// from playlist.Current() after browsing loads a new provider playlist while
-	// the old track keeps playing.
-	playingTrack       playlist.Track
-	playingTrackActive bool
-	playbackDetached   bool
+	// Each source carries the playlist context captured when it was requested.
+	// Only a controller commit or a reported gapless advance changes playing.
+	playing          *playbackTrack
+	pending          *playbackTrack
+	preloaded        *playbackTrack
+	playbackDetached bool
+	// playbackEffects collects commands from transitions settled inside helpers
+	// that have no command return path (see queueEffect). Update drains it.
+	playbackEffects tea.Cmd
 	// playingProvider names the provider that was active when the playing
 	// track started, so a label for it stays right after the listener
 	// switches providers while it keeps playing.

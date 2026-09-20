@@ -779,7 +779,9 @@ func TestBeginPlaybackTrackRecordsHistoryImmediately(t *testing.T) {
 
 	// Starting a track records it right away: after pressing next, the
 	// current song — not the previous one — tops Recently Played.
-	_, cmd := m.beginPlaybackTrack(playlist.Track{Path: "/now.mp3", Title: "Now"})
+	m.player = &playbackFakeEngine{}
+	m.activatePlaybackTrack(m.capturePlaybackTrack(playlist.Track{Path: "/now.mp3", Title: "Now"}, 1), testPlaybackStats(m.player))
+	_, cmd := m.Update(nil)
 	if cmd == nil {
 		t.Fatal("expected a provider-playlist refresh command when history records")
 	}
@@ -805,9 +807,7 @@ func TestMaybeScrobbleLeavesHistoryToTrackStart(t *testing.T) {
 
 	// Leaving a track (skip/finish) only handles provider scrobbles; the
 	// history entry was already written when playback started.
-	if cmd := m.maybeScrobble(playlist.Track{Path: "/song.mp3", DurationSecs: 120}, 120*time.Second, 120*time.Second); cmd != nil {
-		t.Fatal("scrobble must not schedule a history refresh")
-	}
+	m.maybeScrobble(playlist.Track{Path: "/song.mp3", DurationSecs: 120}, 120*time.Second, 120*time.Second, true)
 	entries, err := m.historyStore.Recent(10)
 	if err != nil {
 		t.Fatal(err)
@@ -831,7 +831,9 @@ func TestMaybeScrobbleReloadsOpenHistoryTracks(t *testing.T) {
 		{Path: "/new2.mp3", Title: "New2"},
 	}
 
-	if _, cmd := m.beginPlaybackTrack(playlist.Track{Path: "/song.mp3", Title: "Song"}); cmd == nil {
+	m.player = &playbackFakeEngine{}
+	m.activatePlaybackTrack(m.capturePlaybackTrack(playlist.Track{Path: "/song.mp3", Title: "Song"}, 1), testPlaybackStats(m.player))
+	if _, cmd := m.Update(nil); cmd == nil {
 		t.Fatal("expected a provider-playlist refresh command when a track starts")
 	}
 	if len(m.plManager.tracks) != 2 || m.plManager.tracks[0].Path != "/new1.mp3" {

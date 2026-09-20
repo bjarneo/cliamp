@@ -2,12 +2,12 @@ package model
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
@@ -78,23 +78,24 @@ func (m *Model) tickResumeSave(now time.Time) {
 	if m.resumeSaver == nil || m.player == nil || !m.player.IsPlaying() {
 		return
 	}
-	if m.buffering || m.seek.active || m.seek.inFlight || m.seek.pending {
+	if m.seek.active || m.seek.inFlight || m.seek.pending {
 		return
 	}
 	if !m.lastResumeSave.IsZero() && now.Sub(m.lastResumeSave) < resumeSaveInterval {
 		return
 	}
-	track, index := m.currentPlaybackTrack()
-	if index < 0 {
+	track, stats, current := m.playbackSnapshot()
+	if !current || !stats.Playing {
 		return
 	}
 	// cachedPos can still contain a seek preview rather than decoder progress.
-	m.persistPlaybackContext(track, max(0, int(m.player.Position().Seconds())), now)
+	m.persistPlaybackContext(track, max(0, int(stats.Position.Seconds())), now)
 }
 
 // nextTrack advances to the next playlist track and starts playing it.
 // Unplayable tracks are skipped automatically.
 func (m *Model) nextTrack() tea.Cmd {
+	m.clearPreload()
 	if m.playbackDetached {
 		m.playbackDetached = false
 		if m.playlist.Len() == 0 {
@@ -117,13 +118,16 @@ func (m *Model) nextTrack() tea.Cmd {
 // prevTrack goes to the previous track, or restarts if >3s into the current one.
 // Unplayable tracks are skipped automatically.
 func (m *Model) prevTrack() tea.Cmd {
+	m.clearPreload()
 	if m.player.Position() > 3*time.Second {
 		if m.player.Seekable() {
 			// Seekable media rewinds in place; non-seekable streams must be restarted.
-			m.player.Seek(-m.player.Position())
+			m.player.Seek(m.playbackTicket(), -m.player.Position())
 			return nil
 		}
-		track, idx := m.currentPlaybackTrack()
+		// The position belongs to the audible source, so restart that one rather
+		// than a replacement that is still loading.
+		track, idx := m.activePlaybackTrack()
 		if idx >= 0 {
 			return m.playTrack(track)
 		}
@@ -141,6 +145,7 @@ func (m *Model) prevTrack() tea.Cmd {
 // playCurrentLogicalTrack starts playback from the playlist's active logical
 // track, preserving queued playback state.
 func (m *Model) playCurrentLogicalTrack() tea.Cmd {
+	m.clearPreload()
 	track, idx := m.playlist.Current()
 	if idx < 0 {
 		return nil
@@ -154,6 +159,7 @@ func (m *Model) playCurrentLogicalTrack() tea.Cmd {
 // playCurrentTrack starts playing the selected track, skipping forward in
 // playlist order if the selection is unplayable.
 func (m *Model) playCurrentTrack() tea.Cmd {
+	m.clearPreload()
 	m.resetTitleScroll()
 	if m.playlist.Len() == 0 {
 		return nil
@@ -175,13 +181,12 @@ func (m *Model) playCurrentTrack() tea.Cmd {
 // playTrackImmediate appends a track to the playlist and starts playing it now,
 // stopping any current playback. Used by search-result "Play now" actions.
 func (m *Model) playTrackImmediate(track playlist.Track) tea.Cmd {
-	m.player.Stop()
-	m.player.ClearPreload()
+	m.clearPreload()
 	m.playlist.Add(track)
 	m.loadedPlaylist = ""
 	m.addToHeaderState([]playlist.Track{track})
 	idx := m.playlist.Len() - 1
-	m.playlist.SetIndex(idx)
+	m.selectPlaybackIndex(idx)
 	m.plCursor = idx
 	m.adjustScroll()
 	m.status.Showf(statusTTLMedium, "Playing: %s", track.DisplayName())
@@ -199,7 +204,7 @@ func (m *Model) appendTrack(track playlist.Track) tea.Cmd {
 	idx := m.playlist.Len() - 1
 	m.status.Showf(statusTTLMedium, "Added: %s", track.DisplayName())
 	if wasEmpty || !m.player.IsPlaying() {
-		m.playlist.SetIndex(idx)
+		m.selectPlaybackIndex(idx)
 		m.plCursor = idx
 		m.adjustScroll()
 		cmd := m.playCurrentTrack()
@@ -213,13 +218,12 @@ func (m *Model) appendTrack(track playlist.Track) tea.Cmd {
 // its first track. Like playTrackImmediate it adds rather than replaces, so a
 // queue built up over an evening survives picking an album from search.
 func (m *Model) playAlbumImmediate(album playlist.Track, tracks []playlist.Track) tea.Cmd {
-	m.player.Stop()
-	m.player.ClearPreload()
+	m.clearPreload()
 	idx := m.playlist.Len()
 	m.playlist.Add(tracks...)
 	m.loadedPlaylist = ""
 	m.addToHeaderState(tracks)
-	m.playlist.SetIndex(idx)
+	m.selectPlaybackIndex(idx)
 	m.plCursor = idx
 	m.adjustScroll()
 	m.status.Showf(statusTTLMedium, "Playing album: %s (%d tracks)", album.Title, len(tracks))
@@ -238,7 +242,7 @@ func (m *Model) appendAlbum(album playlist.Track, tracks []playlist.Track) tea.C
 	m.addToHeaderState(tracks)
 	m.status.Showf(statusTTLMedium, "Added album: %s (%d tracks)", album.Title, len(tracks))
 	if wasEmpty || !m.player.IsPlaying() {
-		m.playlist.SetIndex(idx)
+		m.selectPlaybackIndex(idx)
 		m.plCursor = idx
 		m.adjustScroll()
 		cmd := m.playCurrentTrack()
@@ -383,7 +387,7 @@ func (m *Model) removeSelectedFromPlaylist() {
 	m.playlistUndo = playlistUndo{active: true, snapshot: snapshot, loaded: loaded, saved: saved, persisted: persisted}
 	if wasActive {
 		m.stopPlayback()
-		m.player.ClearPreload()
+		m.clearPreload()
 	}
 	if newLen := m.playlist.Len(); newLen == 0 {
 		m.plCursor = 0
@@ -431,61 +435,39 @@ func (m *Model) undoPlaylistMutation() tea.Cmd {
 // yt-dlp URLs are streamed via a piped yt-dlp | ffmpeg chain for instant playback.
 func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 	m.pausedAt = time.Time{}
+	m.player.CancelSeekYTDL()
+	m.clearPreload()
+	ticket, ctx := m.player.BeginStart()
+	m.pending = m.capturePlaybackTrack(track, ticket)
+	m.playbackDetached = false
+	m.err = nil
 	if track.Feed || playlist.IsFeed(track.Path) {
-		m.feedLoading = true
+		m.buffering = true
+		m.bufferingAt = time.Now()
 		m.status.Activity("Loading feed...", statusTTLLong)
-		return resolveFeedTrackCmd(track.Path)
+		return resolveFeedTrackCmd(ticket, track.Path)
 	}
 	if m.provider != nil {
 		m.playingProvider = m.provider.Name()
 	}
-	track, fetchCmd := m.beginPlaybackTrack(track)
-
-	// Stream yt-dlp URLs (YouTube, SoundCloud, Bandcamp, etc.) via pipe chain.
-	if playlist.IsYTDL(track.Path) {
+	startAt := m.startPosition(ctx, track)
+	if needsAsyncPrepare(track) {
 		m.buffering = true
 		m.bufferingAt = time.Now()
-		m.err = nil
-		dur := time.Duration(track.DurationSecs) * time.Second
-		if fetchCmd != nil {
-			return tea.Batch(playYTDLStreamCmd(m.player, track.Path, dur, m.requests.stream), fetchCmd)
-		}
-		return playYTDLStreamCmd(m.player, track.Path, dur, m.requests.stream)
+		return prepareSourceCmd(m.player, ticket, track, startAt)
 	}
-	dur := time.Duration(track.DurationSecs) * time.Second
-	if track.Stream {
-		m.buffering = true
-		m.bufferingAt = time.Now()
-		m.err = nil
-		return tea.Batch(playStreamCmd(m.player, track.Path, dur, m.startPosition(track), m.requests.stream), fetchCmd)
-	}
-	if err := m.player.PlayAt(track.Path, dur, m.startPosition(track)()); err != nil {
-		// Provider session went stale (e.g. Spotify auth expired and
-		// silent reconnect failed). Surface the standard sign-in
-		// overlay rather than the raw stream error.
-		if errors.Is(err, playlist.ErrNeedsAuth) {
-			m.provSignIn = true
-			m.err = nil
-		} else {
-			m.err = err
-		}
-	} else {
-		m.err = nil
-		// yt-dlp streams resume after streamPlayedMsg; local playback reaches
-		// this branch, where applyResume performs the seek synchronously.
-		m.applyResume()
-		m.nowPlaying(track)
-		m.backfillLoadedPlaylistDuration(track)
-		if fetchCmd != nil {
-			return tea.Batch(m.preloadNext(), fetchCmd)
-		}
-		return m.preloadNext()
-	}
+	// A local file opens without network work, so prepare it here and commit
+	// through the same path the asynchronous message takes.
+	return m.applyPreparedSource(prepareSource(m.player, ticket, track, startAt))
+}
 
-	if fetchCmd != nil {
-		return tea.Batch(m.preloadNext(), fetchCmd)
-	}
-	return m.preloadNext()
+// needsAsyncPrepare reports whether opening track may block on the network or
+// a subprocess. Such sources prepare on a command goroutine and show as
+// buffering. The Stream flag is the primary signal; the path checks cover
+// remote tracks constructed without it.
+func needsAsyncPrepare(track playlist.Track) bool {
+	return track.Stream || playlist.IsYTDL(track.Path) || playlist.IsURL(track.Path) ||
+		strings.Contains(track.Path, "://") || strings.HasPrefix(track.Path, "spotify:")
 }
 
 func (m *Model) backfillLoadedPlaylistDuration(track playlist.Track) {
@@ -523,37 +505,17 @@ func (m *Model) backfillLoadedPlaylistDuration(track playlist.Track) {
 	}
 }
 
-// beginPlaybackTrack centralizes metadata refresh and model state reset for a
-// new active track. It is used both by explicit playback and by gapless
-// transitions, which advance audio without calling playTrack.
-func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cmd) {
+// activatePlaybackTrack applies effects only once the source reached the engine.
+func (m *Model) activatePlaybackTrack(source *playbackTrack, stats player.PlaybackStats) {
+	track := source.track
+	m.playing = source
+	m.playbackDetached = source.detached
+	m.setPlaybackContext(source.context, source.index)
 	m.resetTitleScroll()
-	nextRequest(&m.requests.stream)
-	if m.player != nil {
-		m.player.CancelSeekYTDL()
-		m.player.SetPlaybackGeneration(m.requests.stream)
-		m.player.ClearPreload()
-	}
-	nextRequest(&m.requests.preload)
-	m.preloading = false
 	nextRequest(&m.requests.lyrics)
-	track = playlist.RefreshEmbeddedMetadata(track)
-	context, index := track.PlaybackContext()
-	if index < 0 && m.playlist != nil {
-		context = m.playlist.Tracks()
-		index = m.playlist.Index()
-		if index < 0 || index >= len(context) || context[index].Path != track.Path {
-			index = trackIndexByPath(context, track.Path)
-		}
-	}
-	m.setPlaybackContext(context, index)
-	m.setPlaybackTrack(track)
-	positionSec := 0
-	if m.resume.path == track.Path {
-		positionSec = m.resume.secs
-	}
-	m.persistPlaybackContext(track, positionSec, time.Now())
-	historyCmd := m.recordListenedTrack(track)
+	m.persistPlaybackContext(track, max(0, int(stats.Position.Seconds())), time.Now())
+	m.lastProgressReport = time.Time{}
+	m.queueEffect(m.recordListenedTrack(track))
 	m.reconnect.attempts = 0
 	m.reconnect.at = time.Time{}
 	m.streamTitle = ""
@@ -561,25 +523,29 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	m.lyrics.err = nil
 	m.lyrics.query = ""
 	m.lyrics.scroll = 0
-	m.seek.active = false
-	m.seek.inFlight = false
-	m.seek.pending = false
-	m.seek.gen++
-	m.seek.timer = 0
-	m.seek.timerFor = 0
-	m.seek.grace = 0
-	m.seek.graceFor = 0
+	m.lyrics.loading = false
+	m.seek = seekState{gen: m.seek.gen + 1}
 	if m.lyrics.visible {
 		q := lyricsLookupKey(track, track.Artist, track.Title)
 		if q == "" {
-			return track, historyCmd
+			return
 		}
 		m.lyrics.loading = true
 		m.lyrics.query = q
-		return track, tea.Batch(historyCmd, m.fetchLyricsForTrack(track, track.Artist, track.Title))
+		m.queueEffect(m.fetchLyricsForTrack(track, track.Artist, track.Title))
+		return
 	}
-	m.lyrics.loading = false
-	return track, historyCmd
+}
+
+// queueEffect defers a command produced while settling a transition. Helpers
+// such as clearPreload adopt a gapless promotion from call sites that have no
+// command return path, so Update drains the queue after every message instead
+// of each caller threading commands through.
+func (m *Model) queueEffect(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	m.playbackEffects = tea.Batch(m.playbackEffects, cmd)
 }
 
 func (m *Model) fetchLyricsForTrack(track playlist.Track, artist, title string) tea.Cmd {
@@ -600,7 +566,7 @@ func (m *Model) togglePlayPause() tea.Cmd {
 		return m.playCurrentTrack()
 	}
 	if m.player.IsPaused() {
-		track, idx := m.currentPlaybackTrack()
+		track, idx := m.displayedPlaybackTrack()
 		pausedFor := time.Duration(0)
 		if !m.pausedAt.IsZero() {
 			pausedFor = time.Since(m.pausedAt)
@@ -610,7 +576,6 @@ func (m *Model) togglePlayPause() tea.Cmd {
 				return m.reconnectYTDLOnUnpause()
 			}
 			m.pausedAt = time.Time{}
-			m.player.Stop()
 			return m.playTrack(track)
 		}
 	}
@@ -638,12 +603,10 @@ func (m *Model) reconnectYTDLOnUnpause() tea.Cmd {
 	m.status.Activity("Reconnecting stream...", statusTTLMedium)
 
 	p := m.player
+	ticket := m.playbackTicket()
 	return func() tea.Msg {
-		err := p.SeekYTDL(0)
-		if err == nil {
-			p.TogglePause()
-		}
-		return ytdlUnpauseReconnectMsg{err: err}
+		err := p.SeekYTDL(ticket, 0)
+		return ytdlUnpauseReconnectMsg{ticket: ticket, err: err}
 	}
 }
 
@@ -661,7 +624,7 @@ func shouldReconnectOnUnpause(track playlist.Track, idx int, pausedFor time.Dura
 
 // startPosition returns where track should begin. The returned func may make a
 // provider HTTP call, so callers run it on their own goroutine.
-func (m *Model) startPosition(track playlist.Track) func() time.Duration {
+func (m *Model) startPosition(ctx context.Context, track playlist.Track) func() time.Duration {
 	// Only remote tracks have a server-side position, so a local file never
 	// reaches the provider and the synchronous caller cannot block on HTTP.
 	var positioner provider.TrackPosition
@@ -675,7 +638,7 @@ func (m *Model) startPosition(track playlist.Track) func() time.Duration {
 	if positioner == nil {
 		return func() time.Duration { return hint }
 	}
-	return func() time.Duration { return positioner.TrackPosition(context.Background(), track) }
+	return func() time.Duration { return positioner.TrackPosition(ctx, track) }
 }
 
 // clearResume drops the startup hint for track.
@@ -693,7 +656,7 @@ func (m *Model) applyResume() tea.Cmd {
 	if m.resume.path == "" || m.resume.secs <= 0 {
 		return nil
 	}
-	track, _ := m.currentPlaybackTrack()
+	track, _ := m.displayedPlaybackTrack()
 	if track.Path != m.resume.path {
 		return nil
 	}
@@ -720,7 +683,7 @@ func (m *Model) applyResume() tea.Cmd {
 		m.status.Activityf(statusTTLLong, "Resuming at %s…", formatJumpClock(target))
 		return m.seekCmd(target, true)
 	}
-	if err := m.player.Seek(target - m.player.Position()); err == nil {
+	if err := m.player.Seek(m.playbackTicket(), target-m.player.Position()); err == nil {
 		m.resume.path = ""
 		m.resume.secs = 0
 	}

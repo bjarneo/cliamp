@@ -150,13 +150,11 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return nil
 	case "next":
-		m.scrobbleCurrent()
 		cmd := m.nextTrack()
 		m.notifyAll()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return cmd
 	case "prev":
-		m.scrobbleCurrent()
 		cmd := m.prevTrack()
 		m.notifyAll()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
@@ -172,13 +170,13 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true, Volume: m.player.Volume()})
 		return nil
 	case "seek":
-		_ = m.player.Seek(secondsDuration(request.Value))
+		_ = m.player.Seek(m.playbackTicket(), secondsDuration(request.Value))
 		m.notifyAll()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return nil
 	case "seek.absolute":
 		position, _ := m.player.PositionAndDuration()
-		_ = m.player.Seek(secondsDuration(request.Value) - position)
+		_ = m.player.Seek(m.playbackTicket(), secondsDuration(request.Value)-position)
 		m.notifyAll()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return nil
@@ -268,7 +266,7 @@ func (m *Model) handleV2QueueRequest(ctx context.Context, jobs *ipc.JobStore, jo
 			m.failV2Job(jobs, jobID, v2InvalidParamsError())
 			return nil
 		}
-		m.playlist.SetIndex(request.Index)
+		m.selectPlaybackIndex(request.Index)
 		m.plCursor = request.Index
 		cmd := m.playCurrentTrack()
 		m.completeV2Job(jobs, jobID, m.v2PlaylistResponse())
@@ -460,7 +458,7 @@ func (m *Model) handleV2Mode(jobs *ipc.JobStore, jobID string, request ipc.Reque
 		}
 		value := m.playlist.Shuffled()
 		_ = m.configSaver.Save("shuffle", fmt.Sprintf("%v", value))
-		m.player.ClearPreload()
+		m.clearPreload()
 		m.completeV2Job(jobs, jobID, ipc.Response{OK: true, Shuffle: &value})
 	case "repeat":
 		switch name {
@@ -474,7 +472,7 @@ func (m *Model) handleV2Mode(jobs *ipc.JobStore, jobID string, request ipc.Reque
 			m.playlist.CycleRepeat()
 		}
 		_ = m.configSaver.Save("repeat", fmt.Sprintf("%q", m.playlist.Repeat().String()))
-		m.player.ClearPreload()
+		m.clearPreload()
 		m.completeV2Job(jobs, jobID, ipc.Response{OK: true, Repeat: m.playlist.Repeat().String()})
 	case "mono":
 		if (name == "on" && !m.player.Mono()) || (name == "off" && m.player.Mono()) || (name != "on" && name != "off") {
@@ -569,15 +567,16 @@ func (m *Model) runtimeSnapshot() ipc.RuntimeSnapshot {
 	if m.player == nil {
 		return snapshot
 	}
+	track, stats, current := m.playbackSnapshot()
 	switch {
-	case m.player.IsPlaying() && !m.player.IsPaused():
+	case stats.Playing && !stats.Paused:
 		snapshot.State = "playing"
-	case m.player.IsPaused():
+	case stats.Paused:
 		snapshot.State = "paused"
 	default:
 		snapshot.State = "stopped"
 	}
-	if track, _ := m.currentPlaybackTrack(); track.Path != "" {
+	if current && track.Path != "" {
 		index := snapshot.Index
 		queuePosition := 0
 		if m.playlist != nil && index >= 0 {
@@ -597,10 +596,9 @@ func (m *Model) runtimeSnapshot() ipc.RuntimeSnapshot {
 		snapshot.Track = &info
 	}
 	snapshot.PlaybackDetached = m.playbackDetached
-	position, duration := m.player.PositionAndDuration()
-	snapshot.Position = position.Seconds()
-	snapshot.Duration = duration.Seconds()
-	snapshot.Seekable = m.player.Seekable()
+	snapshot.Position = stats.Position.Seconds()
+	snapshot.Duration = stats.Duration.Seconds()
+	snapshot.Seekable = stats.Seekable
 	snapshot.Volume = m.player.Volume()
 	mono := m.player.Mono()
 	snapshot.Mono = &mono
@@ -666,7 +664,7 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 	} else {
 		fingerprint.state = "stopped"
 	}
-	if track, _ := m.currentPlaybackTrack(); track.Path != "" {
+	if track, _ := m.activePlaybackTrack(); track.Path != "" {
 		fingerprint.trackPath = track.Path
 	}
 	if track, _ := m.playlist.Current(); track.Path != "" {

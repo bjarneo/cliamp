@@ -30,6 +30,17 @@ func (m *Model) scheduleReconnect(now time.Time) {
 
 // Update handles messages: key presses, ticks, and window resizes.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	advanced := m.consumeGaplessAdvance(nil)
+	if advanced {
+		m.notifyAll()
+	}
+	m, cmd := m.update(msg, advanced)
+	effects := m.playbackEffects
+	m.playbackEffects = nil
+	return m, tea.Batch(effects, cmd)
+}
+
+func (m Model) update(msg tea.Msg, gaplessAdvanced bool) (Model, tea.Cmd) {
 	wasScreen := m.activeScreen()
 	wasVisualizerVisible := m.visualizerVisible()
 	wasMode := ui.VisNone
@@ -114,23 +125,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.resume.secs = 0
 		}
 		if msg.err != nil {
+			if errors.Is(msg.err, player.ErrRevoked) {
+				return m, m.rearmPreload()
+			}
 			if msg.resume {
 				m.status.Warningf(statusTTLLong, "Couldn't resume this show; playing from the previous position: %s", msg.err)
 			} else {
 				m.status.Warningf(statusTTLMedium, "Seek failed; playback continues from the previous position: %s", msg.err)
 			}
 			m.notifyAll()
-			cmd := m.preloadNext()
+			cmd := m.rearmPreload()
 			return m, cmd
 		}
 		if msg.resume {
 			m.status.Showf(statusTTLDefault, "Resumed at %s", formatJumpClock(msg.target))
 		}
 		m.finishSeek()
-		cmd := m.preloadNext()
+		cmd := m.rearmPreload()
 		return m, cmd
 
 	case ytdlUnpauseReconnectMsg:
+		if msg.ticket != m.playbackTicket() {
+			return m, nil
+		}
 		m.seek.active = false
 		m.seek.timer = 0
 		m.seek.timerFor = 0
@@ -139,6 +156,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.err = msg.err
 		} else {
+			m.player.TogglePause()
 			m.err = nil
 			m.pausedAt = time.Time{}
 		}
@@ -160,13 +178,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cachedPos, m.cachedDur = m.player.PositionAndDuration()
 				// Piped SSH streams report 0 duration — use metadata fallback.
 				if m.cachedDur == 0 {
-					if track, _ := m.currentPlaybackTrack(); track.DurationSecs > 0 && strings.HasPrefix(track.Path, "ssh://") {
+					if track, _ := m.displayedPlaybackTrack(); track.DurationSecs > 0 && strings.HasPrefix(track.Path, "ssh://") {
 						m.cachedDur = time.Duration(track.DurationSecs) * time.Second
 					}
 				}
 			}
 		} else {
-			track, _ := m.currentPlaybackTrack()
+			track, _ := m.displayedPlaybackTrack()
 			m.cachedDur = time.Duration(track.DurationSecs) * time.Second
 			m.cachedPos = 0
 		}
@@ -200,8 +218,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Surface stream errors (e.g., connection drops) and auto-reconnect streams.
 		// Suppress during yt-dlp seek and grace period — killing the old pipeline
 		// triggers a transient error that can persist for a few ticks.
-		if err := m.player.StreamErr(); err != nil && !m.seek.active && m.seek.grace == 0 {
-			track, idx := m.currentPlaybackTrack()
+		if err := m.player.StreamErr(); err != nil && m.pending == nil && !m.seek.active && m.seek.grace == 0 {
+			track, idx := m.displayedPlaybackTrack()
 			isStream := idx >= 0 && (track.Stream || playlist.IsYouTubeURL(track.Path) || playlist.IsYTDL(track.Path))
 			if isStream && m.reconnect.attempts < 5 {
 				m.scheduleReconnect(now)
@@ -255,10 +273,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.network.sampleFor = 0
 		}
 		// Fire scheduled reconnect when the timer expires.
-		if !m.reconnect.at.IsZero() && now.After(m.reconnect.at) {
+		if m.pending == nil && !m.reconnect.at.IsZero() && now.After(m.reconnect.at) {
 			m.reconnect.at = time.Time{}
-			track, idx := m.currentPlaybackTrack()
-			m.player.Stop()
+			track, idx := m.displayedPlaybackTrack()
 			if idx >= 0 {
 				// Preserve any seek/lyric commands already queued this tick
 				// rather than dropping them on the early return.
@@ -279,85 +296,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if lyricCmd != nil {
 			cmds = append(cmds, lyricCmd)
 		}
-		// Check gapless transition (audio already playing next track)
-		gaplessAdvanced := m.player.GaplessAdvanced()
-		if gaplessAdvanced {
-			// Capture the track that just finished before advancing the playlist.
-			// For gapless, the track played fully (100% ≥ 50%), so elapsed = duration.
-			// The player stashed the finished pipeline's real duration at swap
-			// time; metadata is only a fallback for tracks without it.
-			finishedTrack, _ := m.currentPlaybackTrack()
-			fullDur := m.player.LastPlayedDuration()
-			if fullDur <= 0 {
-				fullDur = time.Duration(finishedTrack.DurationSecs) * time.Second
-			}
-			if refresh := m.maybeScrobble(finishedTrack, fullDur, fullDur); refresh != nil {
-				cmds = append(cmds, refresh)
-			}
-
-			var newTrack playlist.Track
-			var ok bool
-			if m.playbackDetached {
-				var idx int
-				newTrack, idx = m.playlist.Current()
-				ok = idx >= 0
-				m.playbackDetached = false
-			} else {
-				newTrack, ok = m.playlist.Next()
-				m.normalizeQueueOverlay()
-			}
-			if !ok {
-				m.stopPlayback()
-				m.notifyAll()
-				cmds = append(cmds, tickCmdAt(m.tickInterval()))
-				return m, tea.Batch(cmds...)
-			}
-			m.plCursor = m.playlist.Index()
-			m.adjustScroll()
-			var gaplessLyricCmd tea.Cmd
-			newTrack, gaplessLyricCmd = m.beginPlaybackTrack(newTrack)
-			if gaplessLyricCmd != nil {
-				cmds = append(cmds, gaplessLyricCmd)
-			}
-			// The preload that just fired is consumed — clear the in-flight flag
-			// so the next track can be preloaded.
-			m.preloading = false
-			// A stream decoder error at the track boundary (e.g., server closing
-			// the connection when the preload HTTP request opens) is expected and
-			// not a user-visible problem. Clear any pending error so the red
-			// message doesn't flash at every track transition.
-			m.err = nil
-			// Gapless advances without calling playTrack(), so emit now-playing here.
-			m.nowPlaying(newTrack)
-			cmds = append(cmds, m.preloadNext())
-			m.notifyAll()
-		}
 		m.tickResumeSave(now)
 		// Check if gapless drained (end of playlist, no preloaded next).
 		// Skip if already buffering a yt-dlp download to avoid advancing
 		// the playlist on every tick while waiting for the resolve.
 		if !gaplessAdvanced && m.player.IsPlaying() && !m.player.IsPaused() && m.player.Drained() && !m.buffering && m.reconnect.at.IsZero() {
-			finishedTrack, idx := m.currentPlaybackTrack()
+			finishedTrack, idx := m.displayedPlaybackTrack()
 			if idx >= 0 && m.currentPlaybackIsLive(finishedTrack) {
 				// A live stream has no natural end. A clean decoder EOF is a
 				// disconnect, so retry this station instead of advancing.
 				m.scheduleReconnect(now)
 			} else {
-				// Track drained to end — always ≥ 50%. The player is still on
-				// the finished track here, so its live duration is authoritative
-				// even when playlist metadata (DurationSecs) is unknown.
-				drainDur := m.player.Duration()
-				if drainDur <= 0 {
-					drainDur = time.Duration(finishedTrack.DurationSecs) * time.Second
-				}
-				if refresh := m.maybeScrobble(finishedTrack, drainDur, drainDur); refresh != nil {
-					cmds = append(cmds, refresh)
-				}
-
-				// Stop the player before dispatching the async nextTrack command.
-				// This clears the gapless streamer so the finished track cannot
-				// replay while waiting for a yt-dlp pipe chain to spin up.
-				m.player.Stop()
 				cmds = append(cmds, m.nextTrack())
 			}
 			m.notifyAll()
@@ -639,10 +588,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, fetchYTDLBatchCmd(m.ytdlBatch.gen, m.ytdlBatch.url, m.ytdlBatch.offset, ytdlBatchSize)
 
 	case feedTrackResolvedMsg:
-		m.feedLoading = false
-		if len(msg.tracks) == 0 {
-			m.status.Warning("No episodes found in feed.", statusTTLDefault)
+		if m.pending == nil || msg.ticket != m.pending.ticket {
 			return m, nil
+		}
+		if msg.err != nil {
+			return m, m.applyPreparedSource(sourcePreparedMsg{ticket: msg.ticket, err: msg.err})
+		}
+		if len(msg.tracks) == 0 {
+			cmd := m.applyPreparedSource(sourcePreparedMsg{ticket: msg.ticket, err: errors.New("no episodes found in feed")})
+			m.status.Warning("No episodes found in feed.", statusTTLDefault)
+			return m, cmd
 		}
 		m.retireTracksPaging()
 		m.replacePlaylist(msg.tracks)
@@ -752,8 +707,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.replace {
-			m.player.Stop()
-			m.player.ClearPreload()
+			m.clearPreload()
+			m.detachPlaybackTrack()
 			m.resetYTDLBatch()
 			m.retireTracksPaging()
 			m.replacePlaylist(msg.tracks)
@@ -776,7 +731,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if !m.player.IsPlaying() && m.playlist.Len() > 0 {
 			if msg.replace {
-				m.playlist.SetIndex(0)
+				m.selectPlaybackIndex(0)
 			}
 			cmd := m.playCurrentTrack()
 			m.notifyAll()
@@ -784,35 +739,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case streamPlayedMsg:
-		track, _ := m.currentPlaybackTrack()
-		if msg.gen != m.requests.stream || msg.path != track.Path {
-			return m, nil
-		}
-		m.buffering = false
-		var resumeCmd tea.Cmd
-		if msg.err != nil {
-			m.err = msg.err
-			if track, idx := m.currentPlaybackTrack(); idx >= 0 {
-				m.status.Errorf(statusTTLLong, "Couldn't play %s — track is gated, restricted, or unavailable.", track.DisplayName())
+	case sourcePreparedMsg:
+		if m.preloaded != nil && msg.ticket == m.preloaded.ticket {
+			m.preloading = false
+			if msg.err != nil || !m.player.CommitPreload(msg.ticket) {
+				m.preloaded = nil
+			} else {
+				m.preloaded.track = msg.track
 			}
-		} else {
-			m.err = nil
-			m.reconnect.attempts = 0
-			m.reconnect.at = time.Time{}
-			resumeCmd = m.applyResume()
-			m.nowPlaying(track)
-		}
-		m.notifyAll()
-		preloadCmd := m.preloadNext()
-		return m, tea.Batch(resumeCmd, preloadCmd)
-
-	case streamPreloadedMsg:
-		if msg.gen != m.requests.preload {
 			return m, nil
 		}
-		m.preloading = false
-		return m, nil
+		settles := m.pending != nil && msg.ticket == m.pending.ticket
+		cmd := m.applyPreparedSource(msg)
+		if settles {
+			m.notifyAll()
+		}
+		return m, cmd
 
 	case ytdlSavedMsg:
 		m.save.finishDownload()
@@ -1012,19 +954,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case playback.NextMsg:
-		refresh := m.scrobbleCurrent()
 		cmd := m.nextTrack()
 		m.notifyAll()
-		return m, tea.Batch(refresh, cmd)
+		return m, cmd
 
 	case playback.PrevMsg:
-		refresh := m.scrobbleCurrent()
 		cmd := m.prevTrack()
 		m.notifyAll()
-		return m, tea.Batch(refresh, cmd)
+		return m, cmd
 
 	case playback.SeekMsg:
-		_ = m.player.Seek(msg.Offset)
+		_ = m.player.Seek(m.playbackTicket(), msg.Offset)
 		m.notifyAll()
 		return m, nil
 

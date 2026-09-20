@@ -84,7 +84,9 @@ type feedsLoadedMsg struct {
 
 // feedTrackResolvedMsg carries episodes resolved from a feed track in the playlist.
 type feedTrackResolvedMsg struct {
+	ticket uint64
 	tracks []playlist.Track
+	err    error
 }
 
 // lyricsLoadedMsg carries parsed LRC output.
@@ -104,17 +106,11 @@ type netSearchResultsMsg struct {
 	gen    uint64
 }
 
-// streamPlayedMsg signals that async stream Play() completed.
-type streamPlayedMsg struct {
-	path string
-	gen  uint64
-	err  error
-}
-
-// streamPreloadedMsg signals that async stream Preload() completed.
-type streamPreloadedMsg struct {
-	path string
-	gen  uint64
+// sourcePreparedMsg reports preparation, never an audio transition.
+type sourcePreparedMsg struct {
+	ticket uint64
+	track  playlist.Track
+	err    error
 }
 
 type attachNotifierMsg struct{ notifier playback.Notifier }
@@ -236,13 +232,10 @@ func fetchYTDLBatchCmd(gen uint64, pageURL string, start, count int) tea.Cmd {
 	}
 }
 
-func resolveFeedTrackCmd(feedURL string) tea.Cmd {
+func resolveFeedTrackCmd(ticket uint64, feedURL string) tea.Cmd {
 	return func() tea.Msg {
 		tracks, err := resolve.Remote([]string{feedURL})
-		if err != nil {
-			return err
-		}
-		return feedTrackResolvedMsg{tracks: tracks}
+		return feedTrackResolvedMsg{ticket: ticket, tracks: tracks, err: err}
 	}
 }
 
@@ -303,37 +296,27 @@ func fetchNetSearchCmd(query string, gen uint64) tea.Cmd {
 	}
 }
 
-func playStreamCmd(p player.Engine, path string, knownDuration time.Duration, startAt func() time.Duration, gen uint64) tea.Cmd {
-	return func() tea.Msg {
-		return streamPlayedMsg{path: path, gen: gen, err: p.PlayAtForGeneration(path, knownDuration, startAt(), gen)}
+// prepareSource opens the source reserved under ticket and reports the outcome.
+// It never commits audio; the model does that when it handles the message.
+func prepareSource(p player.Engine, ticket uint64, track playlist.Track, startAt func() time.Duration) sourcePreparedMsg {
+	req := player.StartRequest{
+		Path:          track.Path,
+		KnownDuration: time.Duration(track.DurationSecs) * time.Second,
+		YTDL:          playlist.IsYTDL(track.Path),
 	}
+	if startAt != nil {
+		req.Offset = startAt()
+	}
+	err := p.Prepare(ticket, req)
+	if err == nil {
+		track = playlist.RefreshEmbeddedMetadata(track)
+	}
+	return sourcePreparedMsg{ticket: ticket, track: track, err: err}
 }
 
-func preloadStreamCmd(p player.Engine, path string, knownDuration time.Duration, gen, preloadGen uint64) tea.Cmd {
-	return func() tea.Msg {
-		p.PreloadForGeneration(path, knownDuration, preloadGen) // errors silently ignored
-		return streamPreloadedMsg{path: path, gen: gen}
-	}
-}
-
-func preloadLocalCmd(p player.Engine, path string, knownDuration time.Duration, gen, preloadGen uint64) tea.Cmd {
-	return func() tea.Msg {
-		p.PreloadForGeneration(path, knownDuration, preloadGen)
-		return streamPreloadedMsg{path: path, gen: gen}
-	}
-}
-
-func playYTDLStreamCmd(p player.Engine, pageURL string, knownDuration time.Duration, gen uint64) tea.Cmd {
-	return func() tea.Msg {
-		return streamPlayedMsg{path: pageURL, gen: gen, err: p.PlayYTDLForGeneration(pageURL, knownDuration, gen)}
-	}
-}
-
-func preloadYTDLStreamCmd(p player.Engine, pageURL string, knownDuration time.Duration, gen, preloadGen uint64) tea.Cmd {
-	return func() tea.Msg {
-		p.PreloadYTDLForGeneration(pageURL, knownDuration, preloadGen) // errors silently ignored
-		return streamPreloadedMsg{path: pageURL, gen: gen}
-	}
+// prepareSourceCmd runs prepareSource on a command goroutine.
+func prepareSourceCmd(p player.Engine, ticket uint64, track playlist.Track, startAt func() time.Duration) tea.Cmd {
+	return func() tea.Msg { return prepareSource(p, ticket, track, startAt) }
 }
 
 func saveYTDLCmd(pageURL string, saveDir string) tea.Cmd {

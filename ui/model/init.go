@@ -243,7 +243,7 @@ func (m *Model) SetInitialTrack(index int) {
 	if m.playlist == nil || index < 0 || index >= m.playlist.Len() {
 		return
 	}
-	m.playlist.SetIndex(index)
+	m.selectPlaybackIndex(index)
 	m.plCursor = index
 	tracks := m.playlist.Tracks()
 	m.setPlaybackContext(tracks, index)

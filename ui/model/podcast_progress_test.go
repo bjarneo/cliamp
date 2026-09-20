@@ -49,10 +49,10 @@ func TestStartPositionUsesStoredEpisodePosition(t *testing.T) {
 	}}
 	m := Model{provider: prov}
 
-	if got := m.startPosition(episodeTrack("https://cdn/ep1.mp3"))(); got != 12*time.Minute {
+	if got := m.startPosition(context.Background(), episodeTrack("https://cdn/ep1.mp3"))(); got != 12*time.Minute {
 		t.Errorf("startPosition() = %v, want 12m0s", got)
 	}
-	if got := m.startPosition(episodeTrack("https://cdn/unknown.mp3"))(); got != 0 {
+	if got := m.startPosition(context.Background(), episodeTrack("https://cdn/unknown.mp3"))(); got != 0 {
 		t.Errorf("startPosition() = %v for an unknown episode, want 0", got)
 	}
 }

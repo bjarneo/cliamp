@@ -344,8 +344,8 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 }
 
 func (m Model) renderSimplifiedTrackInfo() string {
-	track, _ := m.currentPlaybackTrack()
-	name := trackInfoName(track, m.streamTitle)
+	track, _ := m.displayedPlaybackTrack()
+	name := trackInfoName(track, m.presentationStreamTitle())
 
 	duration := formatTrackTime(int(m.cachedDur.Seconds()))
 	if duration == "" {
@@ -511,8 +511,8 @@ func (m Model) renderTitle() string {
 }
 
 func (m Model) renderTrackInfo() string {
-	track, _ := m.currentPlaybackTrack()
-	name := trackInfoName(track, m.streamTitle)
+	track, _ := m.displayedPlaybackTrack()
+	name := trackInfoName(track, m.presentationStreamTitle())
 	// The "♫ " prefix takes two cells; the rest of the row is the marquee's,
 	// so a name only scrolls once it genuinely cannot fit.
 	return trackStyle.Render("♫ " + scrollTrackName(name, ui.PanelWidth-2, m.titleOff))
@@ -530,7 +530,7 @@ func (m Model) renderTimeStatus() string {
 
 	timeStr := fmt.Sprintf("%02d:%02d / %02d:%02d", posMin, posSec, durMin, durSec)
 
-	track, _ := m.currentPlaybackTrack()
+	track, _ := m.displayedPlaybackTrack()
 	if track.Stream && !m.player.Seekable() {
 		timeStr = fmt.Sprintf("%02d:%02d / LIVE", posMin, posSec)
 	}

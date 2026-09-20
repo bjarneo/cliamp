@@ -21,7 +21,7 @@ type gaplessStreamer struct {
 	nextToken      uint64        // identifies the pipeline represented by next
 	nextTokenSeq   uint64
 	drained        atomic.Bool  // true when current exhausts with no next
-	onSwap         func(uint64) // called (in goroutine) on a valid gapless transition
+	onSwap         func(uint64) // called on the audio goroutine on a valid gapless transition
 }
 
 // Stream reads samples from the current track. On exhaustion, it seamlessly
@@ -61,15 +61,15 @@ func (g *gaplessStreamer) Stream(samples [][2]float64) (int, bool) {
 		g.mu.Unlock()
 
 		if next != nil {
-			// Fill remaining buffer from next track — zero gap
+			// Publish ownership before reading the new source. A blocked read
+			// must already be identifiable as active by Stop and replacement.
+			if swapFn != nil {
+				swapFn(nextToken)
+			}
+			// Fill remaining buffer from next track — zero gap.
 			if n < len(samples) {
 				filled, _ := next.Stream(samples[n:])
 				n += filled
-			}
-			// Publish the transition before the UI can observe the new stream as
-			// drained. Resource cleanup is dispatched by the callback.
-			if swapFn != nil {
-				swapFn(nextToken)
 			}
 			g.drained.Store(false)
 		} else {
@@ -100,6 +100,16 @@ func (g *gaplessStreamer) SetNext(s beep.Streamer) uint64 {
 	g.nextTokenSeq++
 	g.nextToken = g.nextTokenSeq
 	return g.nextToken
+}
+
+// RemoveNext detaches only a source that has not crossed the gapless boundary.
+// A zero token means the audio goroutine has already consumed it or none exists.
+func (g *gaplessStreamer) RemoveNext() uint64 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	token := g.nextToken
+	g.next, g.nextToken = nil, 0
+	return token
 }
 
 // Replace interrupts the current track and starts a new one immediately.

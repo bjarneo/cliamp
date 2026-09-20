@@ -846,12 +846,14 @@ func TestLyricsRetryStartsNewRequest(t *testing.T) {
 	p.Add(playlist.Track{Artist: "Artist", Title: "Title"})
 	m := Model{
 		playlist: p,
+		player:   &playbackFakeEngine{playing: true},
 		lyrics: lyricsState{
 			visible: true,
 			err:     errors.New("temporary failure"),
 		},
 	}
 
+	m.setPlaybackTrack(p.Tracks()[0])
 	if cmd := m.handleKey(tea.KeyPressMsg{Text: "r"}); cmd == nil {
 		t.Fatal("lyrics retry command is nil")
 	}
