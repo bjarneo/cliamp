@@ -116,6 +116,20 @@ end)
 url = "https://example.com/hook"
 ```
 
+### Autoplay related YouTube tracks
+
+The bundled `plugins/autoplay.lua` keeps the music going when the queue runs out. When the last track in play order is a YouTube video and repeat is off, it fetches the YouTube Mix for that video with `yt-dlp`, drops entries already in the queue, and appends the next few. If the queue ends before they arrive, playback resumes when they do. Copy the file to `~/.config/cliamp/plugins/`, approve it with `cliamp plugins trust autoplay`, and configure it:
+
+```toml
+# config.toml
+[plugins.autoplay]
+enabled_on_start = true   # default false; the toggle key persists your choice
+count = 5                 # tracks appended per refill
+key = "ctrl+a"            # toggle in the main view
+```
+
+`cliamp plugins call autoplay toggle` and `cliamp plugins call autoplay status` work from the shell. The plugin is a worked example of `queue.end`, `cliamp.queue.has_next()`, `cliamp.track.is_live()`, and `cliamp.exec`.
+
 ## Plugin structure
 
 ### Single file
