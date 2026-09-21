@@ -500,6 +500,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.switchToProvider("plex")
 		case "Y":
 			return m.switchToProvider("yt")
+		case "U":
+			return m.switchToProvider("ytmusic")
 		case "C":
 			return m.switchToProvider("soundcloud")
 		case "X":
@@ -938,6 +940,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.switchToProvider("plex")
 	case "Y":
 		return m.switchToProvider("yt")
+	case "U":
+		return m.switchToProvider("ytmusic")
 	case "C":
 		return m.switchToProvider("soundcloud")
 	case "X":

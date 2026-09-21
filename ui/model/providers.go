@@ -251,9 +251,7 @@ func (m *Model) fetchCatalogBatch(loader provider.CatalogLoader) tea.Cmd {
 }
 
 // quickSwitchProvider closes any browser overlays and jumps to the provider
-// matched by key. Use the same Shift+letter shortcuts that switch providers
-// from the main pane (S, N, P, J, E, B, Y, C, X, M, Q, T, R, L, O). Returns nil when the key doesn't
-// match a known provider.
+// matched by key. Returns nil when the key doesn't match a known provider.
 func (m *Model) quickSwitchProvider(key string) tea.Cmd {
 	provKey := providerKeyForShortcut(key)
 	if provKey == "" {
@@ -285,6 +283,8 @@ func providerKeyForShortcut(key string) string {
 		return "audiobookshelf"
 	case "Y":
 		return "yt"
+	case "U":
+		return "ytmusic"
 	case "C":
 		return "soundcloud"
 	case "X":

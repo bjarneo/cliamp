@@ -90,6 +90,18 @@ func TestMixcloudShortcutRegistryEntry(t *testing.T) {
 	t.Fatal("Mixcloud shortcut is missing from the command registry")
 }
 
+func TestYouTubeMusicShortcutRegistryEntry(t *testing.T) {
+	for _, command := range commandRegistry {
+		if len(command.Keys) == 1 && command.Keys[0] == "U" && command.Mode&commandModeMain != 0 {
+			if command.KeyLabel != "U" || command.Label != "Open YouTube Music provider" || !command.Keymap {
+				t.Fatalf("YouTube Music command = %+v", command)
+			}
+			return
+		}
+	}
+	t.Fatal("YouTube Music shortcut is missing from the command registry")
+}
+
 func TestContextHelpAdvertisesProviderBrowsing(t *testing.T) {
 	oldPanelWidth := ui.PanelWidth
 	ui.PanelWidth = 80

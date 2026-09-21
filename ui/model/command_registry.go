@@ -148,6 +148,7 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"S"}, KeyLabel: "S", Label: "Open Spotify provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"P"}, KeyLabel: "P", Label: "Open Plex provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"Y"}, KeyLabel: "Y", Label: "Open YouTube provider", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"U"}, KeyLabel: "U", Label: "Open YouTube Music provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"C"}, KeyLabel: "C", Label: "Open SoundCloud provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"X"}, KeyLabel: "X", Label: "Open Mixcloud provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"M"}, KeyLabel: "M", Label: "Open NetEase provider", Keymap: true},

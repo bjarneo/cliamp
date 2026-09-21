@@ -192,6 +192,19 @@ func TestHandleKeyEnhancedShiftYSelectsYouTubeProvider(t *testing.T) {
 	}
 }
 
+func TestHandleKeyEnhancedShiftUSelectsYouTubeMusicProvider(t *testing.T) {
+	m := keybindingTestModel()
+	music := commandsTestProvider{name: "YouTube Music"}
+	m.providers = append(m.providers, ProviderEntry{Key: "ytmusic", Name: "YouTube Music", Provider: music})
+	msg := tea.KeyPressMsg{Code: 'u', ShiftedCode: 'U', Mod: tea.ModShift}
+
+	m.handleKey(msg)
+
+	if got := m.provider.Name(); got != "YouTube Music" {
+		t.Fatalf("active provider = %q, want YouTube Music", got)
+	}
+}
+
 func TestHandleKeyEnhancedShiftNOpensProviderBrowser(t *testing.T) {
 	browse := interactionBrowseProvider{commandsTestProvider{name: "Navidrome"}}
 	m := keybindingTestModel()
