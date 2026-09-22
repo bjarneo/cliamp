@@ -22,6 +22,9 @@ import (
 
 // quit shuts down the player and signals the TUI to exit.
 func (m *Model) quit() tea.Cmd {
+	if m.downloadCancel != nil {
+		m.downloadCancel()
+	}
 	// Only save resume for seekable tracks:
 	// - local files (not stream)
 	// - HTTP streams with known duration (podcast MP3s, seek-by-reconnect)
@@ -1091,6 +1094,26 @@ func (m *Model) saveTrack() tea.Cmd {
 	saveDir, err := tracksave.Directory(m.downloadsDirectory)
 	if err != nil {
 		m.status.Errorf(statusTTLShort, "Save failed: %s", err)
+		return nil
+	}
+
+	if downloader := m.trackDownloader(track); downloader != nil {
+		if m.downloadCancel != nil {
+			m.status.Warning("A provider download is already running", statusTTLShort)
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		m.downloadCancel = cancel
+		m.status.Clear()
+		m.save.startDownload()
+		return func() tea.Msg {
+			defer cancel()
+			path, err := downloader.DownloadTrack(ctx, track, saveDir)
+			return providerSavedMsg{path: path, err: err}
+		}
+	}
+	if track.Stream && !playlist.IsYouTubeURL(track.Path) && !playlist.IsYTDL(track.Path) {
+		m.status.Warning("This provider does not support downloads", statusTTLShort)
 		return nil
 	}
 
@@ -3155,6 +3178,18 @@ func (m *Model) handleDeviceKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	case "esc", "d":
 		m.devicePicker.visible = false
+	}
+	return nil
+}
+
+func (m *Model) trackDownloader(track playlist.Track) provider.Downloader {
+	if d, ok := m.provider.(provider.Downloader); ok && d.CanDownload(track) {
+		return d
+	}
+	for _, entry := range m.providers {
+		if d, ok := entry.Provider.(provider.Downloader); ok && d.CanDownload(track) {
+			return d
+		}
 	}
 	return nil
 }

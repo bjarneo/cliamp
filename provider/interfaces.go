@@ -399,6 +399,14 @@ type FavoritesManager interface {
 	FavoritesCount() int
 }
 
+// Downloader optionally saves a provider-owned track as a normal local audio file.
+// CanDownload identifies ownership; DownloadTrack must reject unavailable tracks,
+// honor cancellation, and return a path only after the file is complete.
+type Downloader interface {
+	CanDownload(track playlist.Track) bool
+	DownloadTrack(ctx context.Context, track playlist.Track, directory string) (string, error)
+}
+
 // TrackPager is implemented by providers that can return a playlist's tracks
 // one page at a time so the UI can populate the queue progressively. Pages are
 // requested sequentially: the caller feeds each returned next back in until it
