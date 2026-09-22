@@ -125,8 +125,14 @@ For cookie-backed providers (`cookies_from`), cliamp adds all custom playlists t
 
   ```toml
   [ytmusic]
-  cookies_from = "chromium+gnomekeyring"  # or "chrome+gnomekeyring", "brave+kwallet"
+  cookies_from = "chromium+gnomekeyring"  # or "chrome+gnomekeyring", "brave+gnomekeyring", "brave+kwallet"
   ```
+
+  If yt-dlp reports `ERROR: secretstorage not available` when using `+gnomekeyring`,
+  install the optional `secretstorage` Python package for the Python environment
+  running yt-dlp. On Arch Linux, run `sudo pacman -S python-secretstorage`.
+  Then restart cliamp and refresh the provider with `Ctrl+R`. The GNOME Keyring
+  service must also be running and unlocked.
 
 - **"ERR: waiting for audio data: EOF" / playback stops immediately**: yt-dlp did not produce a stream. cliamp shows the yt-dlp message, such as "Sign in to confirm you're not a bot", instead of only EOF. Read the full error. Common causes follow:
   - **Outdated yt-dlp**: Update it with `yt-dlp -U`, or reinstall from the [official repo](https://github.com/yt-dlp/yt-dlp). Distro and winget builds are often stale and can fail when YouTube changes.
