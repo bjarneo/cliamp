@@ -143,6 +143,12 @@ works regardless of which window has focus, without needing a visible window
 of its own — `RegisterHotKey` ties the hotkeys to a message queue owned by a
 dedicated OS thread rather than to an `HWND`.
 
+Each key is registered twice: once with no modifiers, and once with the Win
+key added. `RegisterHotKey` only fires when its exact modifier set matches
+what's currently held, so a plain hardware media key (no modifiers) and a
+media key sent while Win is held (e.g. a keyboard remapper using a held
+Win/Super layer to reach media keys) both reach cliamp.
+
 cliamp does not publish now-playing metadata to the Windows shell (no
 System Media Transport Controls integration), so there is no track info in
 the volume flyout or lock screen on Windows. Only the transport keys work.

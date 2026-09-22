@@ -21,6 +21,10 @@ func TestHotkeyMsg(t *testing.T) {
 		{"next", hotkeyIDNext, playback.NextMsg{}, true},
 		{"previous", hotkeyIDPrev, playback.PrevMsg{}, true},
 		{"stop", hotkeyIDStop, playback.StopMsg{}, true},
+		{"play/pause win-held", hotkeyIDPlayPauseWin, playback.PlayPauseMsg{}, true},
+		{"next win-held", hotkeyIDNextWin, playback.NextMsg{}, true},
+		{"previous win-held", hotkeyIDPrevWin, playback.PrevMsg{}, true},
+		{"stop win-held", hotkeyIDStopWin, playback.StopMsg{}, true},
 		{"unknown id", 99, nil, false},
 	}
 
@@ -34,6 +38,26 @@ func TestHotkeyMsg(t *testing.T) {
 				t.Fatalf("hotkeyMsg(%d) = %#v, want %#v", tt.id, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestHotkeyModifiers(t *testing.T) {
+	winHeldIDs := map[int]bool{
+		hotkeyIDPlayPauseWin: true,
+		hotkeyIDNextWin:      true,
+		hotkeyIDPrevWin:      true,
+		hotkeyIDStopWin:      true,
+	}
+
+	for id := range hotkeyVKs {
+		got := hotkeyModifiers(id)
+		want := uint32(modNoRepeat)
+		if winHeldIDs[id] {
+			want |= modWin
+		}
+		if got != want {
+			t.Errorf("hotkeyModifiers(%d) = %#x, want %#x", id, got, want)
+		}
 	}
 }
 
