@@ -659,7 +659,9 @@ func ExpandImageClock(out string, rows, cols int) string {
 	text := rest[:end]
 	fallback := rest[end+len(ClockMarker):]
 
-	if !ClockGraphicsAvailable() || rows <= 0 || cols <= 0 {
+	// A terminal that cannot say how big a cell is cannot be drawn into
+	// accurately, so it keeps the plugin's own rendering.
+	if !ClockGraphicsAvailable() || rows <= 0 || cols <= 0 || clockAspect() <= 0 {
 		return styleClockFallback(fallback)
 	}
 	return renderImageClock(text, rows, cols, fallback)
@@ -745,27 +747,38 @@ func renderImageClock(text string, rows, cols int, fallback string) string {
 
 // clockCellAspect is the terminal's cell height divided by its width, used to
 // keep the digits from being stretched. Zero means measure it.
-var (
-	clockCellAspect   = 0.0
-	clockAspectOnce   sync.Once
-	clockAspectCached = 2.0
-)
+var clockCellAspect = 0.0
 
 // clockAspect is the cell aspect the clock sizes itself by: an explicit
 // setting if there is one, otherwise the terminal's own, which the window
-// size ioctl reports. Falling back to a constant is a last resort — a guessed
-// aspect is what makes big digits come out stretched — so it only applies
-// where the terminal does not report its size in pixels, as over plain ssh.
+// size ioctl reports. It returns 0 when neither is available.
+//
+// A guessed aspect is what makes big digits come out stretched, and a
+// stretched clock is worse than the plugin's own rendering, so an unmeasured
+// terminal does not get images — unless the override says to draw them
+// anyway, which is the whole point of the override. Then a square-ish default
+// is better than refusing.
 func clockAspect() float64 {
 	if clockCellAspect > 0 {
 		return clockCellAspect
 	}
-	clockAspectOnce.Do(func() {
-		if a := terminalCellAspect(); a > 0 {
-			clockAspectCached = a
-		}
-	})
-	return clockAspectCached
+	if a := terminalCellAspect(); a > 0 {
+		return a
+	}
+	if clockGraphicsForced() {
+		return defaultClockCellAspect
+	}
+	return 0
+}
+
+// defaultClockCellAspect is a typical terminal cell: twice as tall as wide.
+const defaultClockCellAspect = 2.0
+
+// clockGraphicsForced reports whether CLIAMP_CLOCK_GRAPHICS turned the images
+// on explicitly, as opposed to the terminal being recognized.
+func clockGraphicsForced() bool {
+	v, ok := os.LookupEnv("CLIAMP_CLOCK_GRAPHICS")
+	return ok && (v == "1" || strings.EqualFold(v, "true"))
 }
 
 // SetClockCellAspect overrides the measured cell aspect. Out-of-range values

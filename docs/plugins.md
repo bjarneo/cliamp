@@ -624,9 +624,10 @@ protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/). The digits come
 out as smooth as any other type on screen, at any size, and they take the
 theme's accent colour.
 
-The `fallback` is required, and is what cliamp draws when it cannot do the above: a terminal without
-graphics support, one that does not report its cell size, or a panel too small
-for the images to be worth it. Plugins should keep rendering it — it is the
+The `fallback` is required, and is what cliamp draws when it cannot do the
+above: a terminal without graphics support, one that does not report its cell
+size — sizing type for a cell of unknown pixel dimensions would stretch it —
+or a panel too small for the images to be worth it. Plugins should keep rendering it — it is the
 plugin's own output, unchanged, and on those terminals it is the whole clock.
 
 `cliamp.clock` is nil on versions of cliamp without this, which is how the
@@ -638,8 +639,9 @@ A frame containing a clock face also keeps the UI at its active refresh rate,
 so a countdown does not skip seconds while playback is stopped.
 
 Set `CLIAMP_CLOCK_GRAPHICS=1` to force the images on for a terminal cliamp
-does not recognize, or `CLIAMP_CLOCK_GRAPHICS=0` to turn them off and always
-draw the plugin's own fallback.
+does not recognize — that also accepts a default cell aspect where the
+terminal will not report one — or `CLIAMP_CLOCK_GRAPHICS=0` to turn them off
+and always draw the plugin's own fallback.
 
 ### Visualizer callbacks
 

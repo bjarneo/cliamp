@@ -75,6 +75,20 @@ func TestExpandImageClockFallsBackWhenTiny(t *testing.T) {
 
 // resetTransmit lets a test observe the transmission, which another test may
 // already have consumed.
+// withCellAspect sets the clock's cell aspect for one test and puts the
+// previous value back. It is a package-level setting, so a test leaving its
+// own value behind quietly changes the geometry every later test measures.
+func withCellAspect(t *testing.T, a float64) {
+	t.Helper()
+	previous := clockCellAspect
+	if a == 0 {
+		clockCellAspect = 0
+	} else {
+		SetClockCellAspect(a)
+	}
+	t.Cleanup(func() { clockCellAspect = previous })
+}
+
 func resetTransmit(t *testing.T) {
 	t.Helper()
 	// A sync.Once cannot be copied, so these are re-zeroed rather than saved
@@ -362,7 +376,7 @@ func TestSetClockFontIgnoresUnknown(t *testing.T) {
 func TestClockUsesMostOfThePanelHeight(t *testing.T) {
 	t.Setenv("CLIAMP_CLOCK_GRAPHICS", "1")
 	capturePlacements(t)
-	SetClockCellAspect(3.0)
+	withCellAspect(t, 3.0)
 
 	for _, rows := range []int{18, 24, 28} {
 		out := ExpandImageClock("\x0000:00\x00fb", rows, 164)
@@ -423,7 +437,7 @@ var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 func TestClockFitsWidthWhileFillingHeight(t *testing.T) {
 	t.Setenv("CLIAMP_CLOCK_GRAPHICS", "1")
 	capturePlacements(t)
-	SetClockCellAspect(3.0)
+	withCellAspect(t, 3.0)
 
 	const cols = 164
 	for _, rows := range []int{18, 24, 26} {
@@ -651,5 +665,31 @@ func TestClockBoxStaysWithinTheAddressableCells(t *testing.T) {
 		if cells := strings.Count(l, string(rune(0x10EEEE))); cells > len(rowColumnDiacritics)*len([]rune("12:34")) {
 			t.Fatalf("a row carries %d placeholder cells, beyond the addressable width", cells)
 		}
+	}
+}
+
+// A terminal whose cell size cannot be measured gets the plugin's own
+// rendering rather than digits sized by a guess: the images would be visibly
+// stretched, which is worse than blocks. The override is the exception — it
+// exists to say "draw them anyway".
+func TestClockNeedsAMeasurableCellUnlessForced(t *testing.T) {
+	resetTransmit(t)
+	withCellAspect(t, 0)
+	var sink bytes.Buffer
+	defer SetGraphicsOutput(&sink)()
+
+	t.Setenv("TERM", "xterm-kitty")
+	os.Unsetenv("CLIAMP_CLOCK_GRAPHICS")
+	if terminalCellAspect() > 0 {
+		t.Skip("this terminal reports its cell size, so there is nothing to test")
+	}
+
+	if out := ExpandImageClock("\x0012:34\x00blocks", 12, 80); out != "blocks" {
+		t.Fatalf("drew images without a measurable cell: %q", out)
+	}
+
+	t.Setenv("CLIAMP_CLOCK_GRAPHICS", "1")
+	if out := ExpandImageClock("\x0012:34\x00blocks", 12, 80); out == "blocks" {
+		t.Fatal("the override should draw the images anyway")
 	}
 }
