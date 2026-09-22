@@ -464,6 +464,7 @@ func (m *Manager) registerCliampAPI(L *lua.LState, p *Plugin) {
 	registerControlAPI(L, cliamp, &m.control, p, m.logger)
 	registerMessageAPI(L, cliamp, &m.ui)
 	registerSleepAPI(L, cliamp)
+	registerClockAPI(L, cliamp)
 	registerExecAPI(L, cliamp, m.execs, p, m.logger)
 	L.SetGlobal("cliamp", cliamp)
 }

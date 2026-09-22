@@ -31,6 +31,13 @@ var (
 	SpectrumLow     color.Color
 	SpectrumMid     color.Color
 	SpectrumHigh    color.Color
+
+	// ColorClock is the image clock's colour: the theme's accent, or nil on
+	// the default theme, where the digits stay white and the character
+	// fallback keeps the terminal's own foreground. The default palette is
+	// the terminal's ANSI colours, which say nothing dependable about what
+	// will read well as a shape the size of the whole panel.
+	ColorClock color.Color
 )
 
 func init() { ApplyThemeColors(theme.Default()) }
@@ -91,6 +98,7 @@ func ApplyThemeColors(t theme.Theme) {
 		SpectrumLow = lipgloss.ANSIColor(10)
 		SpectrumMid = lipgloss.ANSIColor(11)
 		SpectrumHigh = lipgloss.ANSIColor(9)
+		ColorClock = nil
 	} else {
 		if t.BG == "" {
 			ColorBackground = nil
@@ -111,6 +119,7 @@ func ApplyThemeColors(t theme.Theme) {
 		SpectrumLow = lipgloss.Color(t.Green)
 		SpectrumMid = lipgloss.Color(t.Yellow)
 		SpectrumHigh = lipgloss.Color(t.Red)
+		ColorClock = lipgloss.Color(t.Accent)
 	}
 
 	// Rebuild visualizer spectrum styles.
@@ -118,6 +127,10 @@ func ApplyThemeColors(t theme.Theme) {
 	specMidStyle = lipgloss.NewStyle().Foreground(SpectrumMid)
 	specHighStyle = lipgloss.NewStyle().Foreground(SpectrumHigh)
 	refreshSpecANSI()
+
+	// The image clock is drawn from pixels, so its colour has to be baked
+	// into the glyphs rather than applied by a style.
+	applyClockTheme(ColorClock)
 }
 
 func contrastingTextColor(hex string) string {

@@ -604,6 +604,39 @@ function p:render(bands, frame, rows, cols)
 end
 ```
 
+### Clock faces drawn as type
+
+A visualizer that shows a large time — a countdown, a sleep timer, a clock —
+can have cliamp draw it as real type instead of block characters:
+
+```lua
+function p:render(bands, frame, rows, cols)
+    local text = "05:23"
+    local face = my_block_rendering(text, rows, cols)   -- the fallback
+    return cliamp.clock and cliamp.clock(text, face) or face
+end
+```
+
+`cliamp.clock(text, [fallback])` marks `text` as a clock face. cliamp
+rasterizes it from an embedded typeface, sized to the panel, and sends the
+glyphs to the terminal as images through the [kitty graphics
+protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/). The digits come
+out as smooth as any other type on screen, at any size, and they take the
+theme's accent colour.
+
+The `fallback` is what cliamp draws when it cannot do that: a terminal without
+graphics support, one that does not report its cell size, or a panel too small
+for the images to be worth it. Plugins should keep rendering it — it is the
+plugin's own output, unchanged, and on those terminals it is the whole clock.
+
+`cliamp.clock` is nil on versions of cliamp without this, which is how the
+example above asks. Digits and `-` are drawn; any other character in the text,
+`:` included, takes a glyph's width as blank space — a clock reads clearly
+without a colon at this size.
+
+A frame containing a clock face also keeps the UI at its active refresh rate,
+so a countdown does not skip seconds while playback is stopped.
+
 ### Visualizer callbacks
 
 | Callback | Signature | Required |

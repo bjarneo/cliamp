@@ -218,6 +218,11 @@ func (m *Model) isFullyIdle() bool {
 	if m.visualizerSettlingPaused() {
 		return false
 	}
+	// A clock counts down whether or not anything is playing. At the idle
+	// cadence of 1.5s it would visibly skip seconds.
+	if m.vis.SelfAnimating() {
+		return false
+	}
 	if m.isOverlayActive() || m.buffering || m.termTitle.introActive {
 		return false
 	}

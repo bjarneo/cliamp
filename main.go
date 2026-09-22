@@ -117,6 +117,12 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		applog.Info("cliamp starting (version=%s level=%s)", appmeta.Version(), appliedLevel)
 	}
 
+	// Rasterizing the image-clock glyphs takes a few hundred milliseconds, so
+	// start it now and let it run while providers and audio are set up.
+	if ui.ClockGraphicsAvailable() {
+		ui.PrepareClockGlyphs()
+	}
+
 	// Public providers are always available; account providers register when configured.
 	radioFavorites := radio.LoadFavorites()
 	radioProv := radio.New(radio.Options{
