@@ -1074,6 +1074,15 @@ func (m *Model) handleFullVisualizerKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "ctrl+k", "?":
 		m.exitFullVisualizer()
 		m.openKeymap()
+
+	default:
+		// Plugin bindings are global: a pomodoro or sleep-timer key is about
+		// the session, not about which screen happens to be open. Without
+		// this, every plugin key is dead in the full-screen visualizer —
+		// which is exactly where a plugin visualizer is being watched.
+		if m.luaMgr != nil {
+			m.luaMgr.EmitKey(msg.String())
+		}
 	}
 	return nil
 }
