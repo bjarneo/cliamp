@@ -1,6 +1,8 @@
 package luaplugin
 
 import (
+	"strings"
+
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -26,7 +28,16 @@ const clockMarker = "\x00"
 func registerClockAPI(L *lua.LState, cliamp *lua.LTable) {
 	L.SetField(cliamp, "clock", L.NewFunction(func(L *lua.LState) int {
 		text := L.CheckString(1)
-		fallback := L.OptString(2, "")
+		// The fallback is required, not optional. Without one, every terminal
+		// that cannot show images draws an empty panel — and a plugin written
+		// in a terminal that can show them would never see that happen.
+		fallback := L.CheckString(2)
+		// The marker delimits the text, so text carrying one would split the
+		// frame in the wrong place and spill into the fallback.
+		if strings.Contains(text, clockMarker) {
+			L.RaiseError("cliamp.clock: the clock text cannot contain a zero byte")
+			return 0
+		}
 		L.Push(lua.LString(clockMarker + text + clockMarker + fallback))
 		return 1
 	}))

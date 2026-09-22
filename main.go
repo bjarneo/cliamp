@@ -614,7 +614,14 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		}
 	}
 
-	progOpts := []tea.ProgramOption{tea.WithFPS(defaultUIFPS)}
+	// One writer for the terminal, shared by Bubbletea's renderer and the
+	// graphics escapes this program writes for a plugin's clock, so the two
+	// cannot interleave and tear a frame.
+	termOut := ui.NewSyncWriter(os.Stdout)
+	restoreGraphicsOut := ui.SetGraphicsOutput(termOut)
+	defer restoreGraphicsOut()
+
+	progOpts := []tea.ProgramOption{tea.WithFPS(defaultUIFPS), tea.WithOutput(termOut)}
 	if cfg.LowPower {
 		progOpts[0] = tea.WithFPS(lowPowerUIFPS)
 	}

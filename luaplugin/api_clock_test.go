@@ -33,14 +33,31 @@ func TestClockWrapsTheTimeAndKeepsTheFallback(t *testing.T) {
 	}
 }
 
-func TestClockFallbackIsOptional(t *testing.T) {
+// A clock face with no fallback would render as an empty panel on every
+// terminal that cannot show images, and a plugin author working in one that
+// can would never see it. Better to fail at the call.
+func TestClockRequiresAFallback(t *testing.T) {
 	m := newTestManager()
 	loadTestPlugin(t, m, "clock-bare", `
 		local p = plugin.register({name = "clock-bare", type = "visualizer"})
-		out = cliamp.clock("05:23")
+		ok = pcall(function() return cliamp.clock("05:23") end)
 	`)
 
-	if got := m.plugins[0].L.GetGlobal("out").String(); got != clockMarker+"05:23"+clockMarker {
-		t.Fatalf("clock() = %q", got)
+	if v := m.plugins[0].L.GetGlobal("ok"); v.String() != "false" {
+		t.Fatalf("clock() without a fallback returned %s, want an error", v.String())
+	}
+}
+
+// The marker delimits the text, so a zero byte inside it would split the
+// frame in the wrong place.
+func TestClockRejectsAMarkerInTheText(t *testing.T) {
+	m := newTestManager()
+	loadTestPlugin(t, m, "clock-nul", `
+		local p = plugin.register({name = "clock-nul", type = "visualizer"})
+		ok = pcall(function() return cliamp.clock("05:23\0oops", "face") end)
+	`)
+
+	if v := m.plugins[0].L.GetGlobal("ok"); v.String() != "false" {
+		t.Fatalf("clock() accepted a zero byte in the text (%s)", v.String())
 	}
 }

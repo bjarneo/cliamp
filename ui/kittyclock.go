@@ -91,8 +91,31 @@ var clockFontChoice = "semicondensed"
 func SetClockFont(name string) {
 	switch name {
 	case "bold", "semicondensed", "condensed":
+		if name == clockFontChoice {
+			return
+		}
 		clockFontChoice = name
+		resetClockGlyphs()
 	}
+}
+
+// resetClockGlyphs throws away everything derived from the face: the parsed
+// font, the rasterized masks and the record of what the terminal is holding.
+// Changing the face or the stretch without this leaves the terminal showing
+// glyphs rasterized from the old one while the layout measures the new one,
+// which draws a stretched clock.
+func resetClockGlyphs() {
+	resetClockFont()
+	prepareOnce = sync.Once{}
+	masksReady = make(chan []*image.RGBA, 1)
+	cachedMasks = nil
+	sentTint = color.RGBA{}
+	tintBuilding = color.RGBA{}
+	select {
+	case <-tintEncoded:
+	default:
+	}
+	forgetPlacements(clockGlyphIDs()...)
 }
 
 // resetClockFont clears the parsed face so a different width takes effect.
@@ -138,9 +161,9 @@ var clockMaxStretch = 1.35
 // SetClockStretch overrides how far the clock may stretch beyond the font's
 // proportions. 1.0 keeps them exactly; values outside 1.0–2.5 are ignored.
 func SetClockStretch(v float64) {
-	if v >= 1.0 && v <= 2.5 {
+	if v >= 1.0 && v <= 2.5 && v != clockMaxStretch {
 		clockMaxStretch = v
-		resetClockFont()
+		resetClockGlyphs()
 	}
 }
 
@@ -438,10 +461,21 @@ func TransmitClockGlyphs(w io.Writer) {
 	// Collect a finished encode, if one is waiting.
 	select {
 	case done := <-tintEncoded:
-		tintBuilding = color.RGBA{}
-		_, _ = w.Write(done.data)
-		forgetPlacements(clockGlyphIDs()...)
-		sentTint = done.tint
+		// Only the colour actually awaited stops being awaited. Stepping
+		// through the theme picker can leave two encodes in flight, and
+		// clearing this on the first result to arrive made the next frame
+		// start a third encode of a colour already being worked on.
+		if tintBuilding == done.tint {
+			tintBuilding = color.RGBA{}
+		}
+		// A result the theme has already moved past is dropped rather than
+		// written: it is a full re-transmit of every glyph for a colour that
+		// is about to be replaced by the encode still running behind it.
+		if done.tint == currentClockTint() {
+			_, _ = w.Write(done.data)
+			forgetPlacements(clockGlyphIDs()...)
+			sentTint = done.tint
+		}
 	default:
 	}
 
@@ -645,14 +679,18 @@ func renderImageClock(text string, rows, cols int, fallback string) string {
 	}
 	gaps := float64(max(0, len([]rune(text))-1))
 
-	glyphRows := rows
+	// A placeholder cell carries its row and column as diacritics, and only
+	// as many of those are listed as a panel can need. Beyond that the glyph
+	// would be drawn with its bottom and right edges missing, so cap the box
+	// and let an enormous panel simply use a smaller clock.
+	glyphRows := min(rows, len(rowColumnDiacritics))
 	glyphCols := 0
 	for glyphRows > 0 {
 		initClockFont()
 		width := clockDigitAspect * float64(glyphRows) * clockAspect()
 		gap := max(1.0, width*clockGapFraction)
 		if width*units+gap*gaps <= float64(cols) {
-			glyphCols = int(width)
+			glyphCols = min(int(width), len(rowColumnDiacritics))
 			break
 		}
 		glyphRows--

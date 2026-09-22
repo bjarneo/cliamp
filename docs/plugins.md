@@ -617,14 +617,14 @@ function p:render(bands, frame, rows, cols)
 end
 ```
 
-`cliamp.clock(text, [fallback])` marks `text` as a clock face. cliamp
+`cliamp.clock(text, fallback)` marks `text` as a clock face. cliamp
 rasterizes it from an embedded typeface, sized to the panel, and sends the
 glyphs to the terminal as images through the [kitty graphics
 protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/). The digits come
 out as smooth as any other type on screen, at any size, and they take the
 theme's accent colour.
 
-The `fallback` is what cliamp draws when it cannot do that: a terminal without
+The `fallback` is required, and is what cliamp draws when it cannot do the above: a terminal without
 graphics support, one that does not report its cell size, or a panel too small
 for the images to be worth it. Plugins should keep rendering it — it is the
 plugin's own output, unchanged, and on those terminals it is the whole clock.

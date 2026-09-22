@@ -578,3 +578,78 @@ func TestThemeChangeReplacesPlacements(t *testing.T) {
 		t.Error("glyphs were re-sent (deleting their placements) but not placed again")
 	}
 }
+
+// The flag behind SelfAnimating has to go down again, or the UI never returns
+// to its idle cadence once a clock has been drawn: a permanent wakeup loop
+// with nothing playing and nothing moving. The driver only runs while a
+// visualizer is on screen, so clearing it there is not enough.
+func TestClockStopsBeingSelfAnimatingWhenTheVisualizerIsOff(t *testing.T) {
+	t.Setenv("CLIAMP_CLOCK_GRAPHICS", "0")
+	v := NewVisualizer(44100)
+	v.Rows, v.Cols = 12, 100
+	v.RegisterLuaVisualizers([]string{"clock"}, func(string, [DefaultSpectrumBands]float64, int, int, uint64) string {
+		return "\x0005:23\x00fallback rows"
+	})
+	v.SetMode(VisCount)
+	v.Render()
+	if !v.SelfAnimating() {
+		t.Fatal("a clock frame should mark the visualizer self-animating")
+	}
+
+	v.SetMode(VisNone)
+	v.Render()
+	if v.SelfAnimating() {
+		t.Fatal("still self-animating after the visualizer was turned off")
+	}
+}
+
+// Same for a built-in mode: its driver never touches the flag, so a stale
+// true would survive the switch.
+func TestClockStopsBeingSelfAnimatingOnABuiltInMode(t *testing.T) {
+	t.Setenv("CLIAMP_CLOCK_GRAPHICS", "0")
+	v := NewVisualizer(44100)
+	v.Rows, v.Cols = 12, 100
+	v.RegisterLuaVisualizers([]string{"clock"}, func(string, [DefaultSpectrumBands]float64, int, int, uint64) string {
+		return "\x0005:23\x00fallback rows"
+	})
+	v.SetMode(VisCount)
+	v.Render()
+
+	v.SetMode(VisBars)
+	v.Render()
+	if v.SelfAnimating() {
+		t.Fatal("still self-animating after switching to a built-in mode")
+	}
+}
+
+// A placeholder cell can only name 64 rows and columns, so an enormous panel
+// has to draw a smaller clock rather than one missing its bottom-right.
+func TestClockBoxStaysWithinTheAddressableCells(t *testing.T) {
+	t.Setenv("CLIAMP_CLOCK_GRAPHICS", "1")
+	resetTransmit(t)
+	var sink bytes.Buffer
+	defer SetGraphicsOutput(&sink)()
+
+	out := ExpandImageClock("\x0012:34\x00fallback", 400, 4000)
+	if out == "fallback" {
+		t.Skip("images unavailable in this environment")
+	}
+	lines := strings.Split(out, "\n")
+	glyphLines := 0
+	for _, l := range lines {
+		if strings.ContainsRune(l, 0x10EEEE) {
+			glyphLines++
+		}
+	}
+	if glyphLines == 0 {
+		t.Fatal("no placeholder rows drawn")
+	}
+	if glyphLines > len(rowColumnDiacritics) {
+		t.Fatalf("clock is %d rows tall, beyond the %d addressable", glyphLines, len(rowColumnDiacritics))
+	}
+	for _, l := range lines {
+		if cells := strings.Count(l, string(rune(0x10EEEE))); cells > len(rowColumnDiacritics)*len([]rune("12:34")) {
+			t.Fatalf("a row carries %d placeholder cells, beyond the addressable width", cells)
+		}
+	}
+}

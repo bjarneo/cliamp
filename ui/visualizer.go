@@ -775,7 +775,16 @@ func (v *Visualizer) Analyze(samples []float64, spec VisAnalysisSpec) []float64 
 
 // Render dispatches to the active visualizer mode.
 func (v *Visualizer) Render() string {
-	if v == nil || v.Mode == VisNone || v.Rows <= 0 {
+	if v == nil {
+		return ""
+	}
+	// Cleared before every frame and set again only by a frame that actually
+	// carries a clock. Left standing, it would hold the UI at its active
+	// refresh rate for the rest of the session once a clock had been on
+	// screen — including after the visualizer is switched away or turned off,
+	// which return below without reaching any driver.
+	v.clockTicking = false
+	if v.Mode == VisNone || v.Rows <= 0 {
 		return ""
 	}
 	cols := v.columns()
