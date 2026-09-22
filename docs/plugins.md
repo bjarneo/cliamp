@@ -637,6 +637,10 @@ without a colon at this size.
 A frame containing a clock face also keeps the UI at its active refresh rate,
 so a countdown does not skip seconds while playback is stopped.
 
+Set `CLIAMP_CLOCK_GRAPHICS=1` to force the images on for a terminal cliamp
+does not recognize, or `CLIAMP_CLOCK_GRAPHICS=0` to turn them off and always
+draw the plugin's own fallback.
+
 ### Visualizer callbacks
 
 | Callback | Signature | Required |

@@ -25,7 +25,7 @@ func TestExpandImageClockPassesThroughUnmarked(t *testing.T) {
 // Without graphics support the plugin's own block rendering must come through
 // untouched, marker removed.
 func TestExpandImageClockFallsBackWithoutGraphics(t *testing.T) {
-	t.Setenv("GRBFY_CLOCK_GRAPHICS", "0")
+	t.Setenv("CLIAMP_CLOCK_GRAPHICS", "0")
 	t.Setenv("KITTY_WINDOW_ID", "")
 	t.Setenv("TERM", "xterm-256color")
 	t.Setenv("TERM_PROGRAM", "")
@@ -41,7 +41,7 @@ func TestExpandImageClockFallsBackWithoutGraphics(t *testing.T) {
 }
 
 func TestExpandImageClockEmitsPlaceholders(t *testing.T) {
-	t.Setenv("GRBFY_CLOCK_GRAPHICS", "1")
+	t.Setenv("CLIAMP_CLOCK_GRAPHICS", "1")
 	placements := capturePlacements(t)
 
 	out := ExpandImageClock("\x0005:23\x00fallback", 12, 120)
@@ -67,7 +67,7 @@ func TestExpandImageClockEmitsPlaceholders(t *testing.T) {
 
 // A panel too small for a legible clock must not emit a broken placement.
 func TestExpandImageClockFallsBackWhenTiny(t *testing.T) {
-	t.Setenv("GRBFY_CLOCK_GRAPHICS", "1")
+	t.Setenv("CLIAMP_CLOCK_GRAPHICS", "1")
 	if got := ExpandImageClock("\x0005:23\x00tiny", 1, 4); got != "tiny" {
 		t.Errorf("got %q, want the fallback on a tiny panel", got)
 	}
@@ -131,12 +131,12 @@ func TestClockGraphicsDetection(t *testing.T) {
 		{name: "override on", term: "xterm-256color", override: "1", want: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			os.Unsetenv("GRBFY_CLOCK_GRAPHICS")
+			os.Unsetenv("CLIAMP_CLOCK_GRAPHICS")
 			t.Setenv("TERM", tc.term)
 			t.Setenv("TERM_PROGRAM", tc.prog)
 			t.Setenv("KITTY_WINDOW_ID", tc.kitty)
 			if tc.override != "" {
-				t.Setenv("GRBFY_CLOCK_GRAPHICS", tc.override)
+				t.Setenv("CLIAMP_CLOCK_GRAPHICS", tc.override)
 			}
 			if got := ClockGraphicsAvailable(); got != tc.want {
 				t.Errorf("ClockGraphicsAvailable() = %v, want %v", got, tc.want)
@@ -191,7 +191,7 @@ func capturePlacements(t *testing.T) *bytes.Buffer {
 
 // A placement is created once per image and size, not on every frame.
 func TestPlacementsAreNotResentEveryFrame(t *testing.T) {
-	t.Setenv("GRBFY_CLOCK_GRAPHICS", "1")
+	t.Setenv("CLIAMP_CLOCK_GRAPHICS", "1")
 	placements := capturePlacements(t)
 
 	ExpandImageClock("\x0005:23\x00fallback", 12, 120)
@@ -280,7 +280,7 @@ func TestGlyphImageMatchesLayoutAspect(t *testing.T) {
 // appears: a placement issued mid-stream can land after the frame that already
 // references it, and that digit shows blank for a tick.
 func TestAllGlyphsArePlacedUpFront(t *testing.T) {
-	t.Setenv("GRBFY_CLOCK_GRAPHICS", "1")
+	t.Setenv("CLIAMP_CLOCK_GRAPHICS", "1")
 	placements := capturePlacements(t)
 
 	ExpandImageClock("\x0012:34\x00fallback", 14, 100)
@@ -298,7 +298,7 @@ func TestAllGlyphsArePlacedUpFront(t *testing.T) {
 // placeholder cell is measured as anything but one column, the line is clipped
 // and digits vanish.
 func TestClockSurvivesFrameFitting(t *testing.T) {
-	t.Setenv("GRBFY_CLOCK_GRAPHICS", "1")
+	t.Setenv("CLIAMP_CLOCK_GRAPHICS", "1")
 	capturePlacements(t)
 
 	const rows, cols = 14, 90
@@ -360,7 +360,7 @@ func TestSetClockFontIgnoresUnknown(t *testing.T) {
 // exactly leaves a width-limited clock stranded in the middle of a tall panel,
 // which is the blank space this trades away.
 func TestClockUsesMostOfThePanelHeight(t *testing.T) {
-	t.Setenv("GRBFY_CLOCK_GRAPHICS", "1")
+	t.Setenv("CLIAMP_CLOCK_GRAPHICS", "1")
 	capturePlacements(t)
 	SetClockCellAspect(3.0)
 
@@ -421,7 +421,7 @@ func TestTransmitDeletesStaleImagesFirst(t *testing.T) {
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func TestClockFitsWidthWhileFillingHeight(t *testing.T) {
-	t.Setenv("GRBFY_CLOCK_GRAPHICS", "1")
+	t.Setenv("CLIAMP_CLOCK_GRAPHICS", "1")
 	capturePlacements(t)
 	SetClockCellAspect(3.0)
 
@@ -553,7 +553,7 @@ func TestClockGlyphsAreResentOnThemeChange(t *testing.T) {
 // placements included. The digits must be placed again afterwards, or the
 // clock goes blank after the first theme switch.
 func TestThemeChangeReplacesPlacements(t *testing.T) {
-	t.Setenv("GRBFY_CLOCK_GRAPHICS", "1")
+	t.Setenv("CLIAMP_CLOCK_GRAPHICS", "1")
 	resetTransmit(t)
 	out := capturePlacements(t)
 

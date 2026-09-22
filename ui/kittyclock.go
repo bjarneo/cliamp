@@ -263,7 +263,7 @@ func drawClockGlyph(ch rune, w, h int) *image.RGBA {
 // clock. Only terminals known to implement the protocol's Unicode placeholders
 // are accepted; guessing wrong would print a screen of stray characters.
 func ClockGraphicsAvailable() bool {
-	if v, ok := os.LookupEnv("GRBFY_CLOCK_GRAPHICS"); ok {
+	if v, ok := os.LookupEnv("CLIAMP_CLOCK_GRAPHICS"); ok {
 		return v == "1" || strings.EqualFold(v, "true")
 	}
 	if os.Getenv("KITTY_WINDOW_ID") != "" {
