@@ -8,8 +8,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/bjarneo/cliamp/luaplugin"
 	"github.com/bjarneo/cliamp/internal/plugintrust"
+	"github.com/bjarneo/cliamp/luaplugin"
 )
 
 // newKeyTestPlugin loads a plugin that reports the key it was given.
@@ -19,7 +19,7 @@ func newKeyTestPlugin(t *testing.T, key string) (*luaplugin.Manager, <-chan stri
 	t.Setenv("CLIAMP_CONFIG_DIR", configDir)
 	pluginDir := filepath.Join(configDir, "plugins")
 	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
-		t.Fatal(err)
+		t.Fatalf("creating the plugin directory: %v", err)
 	}
 	pluginPath := filepath.Join(pluginDir, "key-spy.lua")
 	script := `
@@ -27,14 +27,14 @@ local p = plugin.register({name = "key-spy", type = "hook", permissions = {"keym
 p:bind("` + key + `", "spy", function() cliamp.message("pressed") end)
 `
 	if err := os.WriteFile(pluginPath, []byte(script), 0o644); err != nil {
-		t.Fatal(err)
+		t.Fatalf("writing the test plugin: %v", err)
 	}
 	if _, err := plugintrust.Approve(pluginDir, "key-spy", pluginPath); err != nil {
-		t.Fatal(err)
+		t.Fatalf("approving the test plugin: %v", err)
 	}
 	mgr, err := luaplugin.New(nil, nil)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("loading plugins: %v", err)
 	}
 	t.Cleanup(sync.OnceFunc(mgr.Close))
 
