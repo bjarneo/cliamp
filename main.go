@@ -302,6 +302,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if tidalProv != nil {
 		defer tidalProv.Close()
 	}
+
 	if closeYouTube != nil {
 		defer closeYouTube()
 	}
@@ -423,6 +424,13 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		p.RegisterSourceResolver(tidal.TrackURIPrefix, func(uri string) (player.ResolvedSource, error) {
 			u, segments, err := tidalProv.ResolveSource(uri)
 			return player.ResolvedSource{URL: u, Segments: segments}, err
+		})
+	}
+
+	if qobuzProv != nil {
+		p.RegisterSourceResolver(qobuz.TrackURIPrefix, func(uri string) (player.ResolvedSource, error) {
+			data, err := qobuzProv.ResolveSource(uri)
+			return player.ResolvedSource{Data: data}, err
 		})
 	}
 

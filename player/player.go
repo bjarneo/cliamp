@@ -1112,6 +1112,7 @@ func (p *Player) RegisterBufferedURLMatcher(match func(string) bool) {
 type ResolvedSource struct {
 	URL      string
 	Segments []string
+	Data     []byte
 }
 
 // SourceResolver turns a custom URI (e.g. "tidal://track/123") into a

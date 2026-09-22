@@ -2,11 +2,9 @@
 //
 // It authenticates via the interactive OAuth browser flow, scrapes the
 // app_id / signing secrets / OAuth private key from the Qobuz web player
-// bundle.js, and resolves signed CDN stream URLs through the legacy
-// track/getFileUrl endpoint. Those URLs are routed through cliamp's
-// buffer-while-playing + ffmpeg pipeline (see IsStreamURL and
-// RegisterBufferedURLMatcher in main.go), the same path used by the
-// Navidrome, Jellyfin, Emby and Plex providers.
+// bundle.js, and resolves streams through Qobuz's session-based qbz-1 CMAF
+// API. Encrypted segments are decrypted and reconstructed into FLAC bytes
+// before they are passed to cliamp's ffmpeg pipeline.
 //
 // Source material consulted for the reverse-engineered API surface:
 //

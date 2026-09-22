@@ -1,6 +1,7 @@
 package player
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"sync/atomic"
@@ -164,6 +165,17 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 		src, err := resolver(path)
 		if err != nil {
 			return nil, fmt.Errorf("resolve source: %w", err)
+		}
+		if len(src.Data) > 0 {
+			decoder, format, err := decodeFFmpegPipeStream(io.NopCloser(bytes.NewReader(src.Data)), p.sr, p.bitDepth, false)
+			if err != nil {
+				return nil, fmt.Errorf("decode resolved source: %w", err)
+			}
+			if err := decoder.waitForInitialAudio(ffmpegPipeTimeout); err != nil {
+				_ = decoder.Close()
+				return nil, fmt.Errorf("decode resolved source: %w", err)
+			}
+			return &trackPipeline{decoder: decoder, stream: decoder, format: format, path: path}, nil
 		}
 		if len(src.Segments) > 0 {
 			nb, contentLen, err := newNavBufferSegments(src.Segments)

@@ -2,7 +2,9 @@
 
 Use cliamp to stream your [Qobuz](https://www.qobuz.com/) library through its audio pipeline. EQ, the visualizer, and other effects apply. You need an active Qobuz subscription.
 
-Qobuz delivers lossless FLAC. cliamp uses the same buffer-while-playing and `ffmpeg` pipeline as other lossless providers. Put `ffmpeg` on `PATH`.
+Qobuz delivers lossless FLAC. cliamp downloads and decrypts Qobuz's current
+session-based segmented stream, then sends the reconstructed audio to `ffmpeg`.
+Put `ffmpeg` on `PATH`.
 
 ## Setup
 
@@ -77,7 +79,7 @@ After you load a playlist or album, cliamp returns to the standard playlist view
 - **Re-authenticate**: Run `cliamp qobuz reset` to clear stored credentials. Then restart cliamp, select Qobuz, and sign in again. This is the same as deleting `~/.config/cliamp/qobuz_credentials.json`.
 - **Track is unplayable / skipped**: The track may not be available for the subscription tier or region. cliamp marks the track unplayable and continues.
 - **Hi-Res not delivered**: `quality = 27` does not add Hi-Res to a plan that lacks it. Qobuz returns the best quality allowed by the plan.
-- **Stalls after a long idle session**: Signed stream URLs expire. Press `Ctrl+R` to refresh and resolve the URLs again.
+- **Stalls after a long idle session**: Qobuz sessions and segment URLs expire. Press `Ctrl+R` to refresh, or restart playback to create a new session.
 
 ## Requirements
 

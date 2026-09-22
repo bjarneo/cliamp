@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -68,6 +69,25 @@ type QobuzProvider struct {
 
 	listCache  []playlist.PlaylistInfo
 	trackCache map[string][]playlist.Track
+}
+
+const TrackURIPrefix = "qobuz://track/"
+
+// ResolveSource downloads and decrypts a fresh qbz-1 stream at playback time.
+// Qobuz's current API returns encrypted CMAF segments rather than a playable
+// file URL, so the result is handed to the player's ffmpeg pipe as bytes.
+func (p *QobuzProvider) ResolveSource(uri string) ([]byte, error) {
+	id := strings.TrimPrefix(uri, TrackURIPrefix)
+	if id == "" || id == uri {
+		return nil, fmt.Errorf("qobuz: invalid track URI %q", uri)
+	}
+	c, err := p.ensureClient()
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	return c.cmafFile(ctx, id, p.quality)
 }
 
 // New creates a QobuzProvider. Authentication is deferred until the user first
@@ -488,16 +508,7 @@ func (p *QobuzProvider) buildTrack(ctx context.Context, c *client, t apiTrack, a
 		return track
 	}
 
-	file, err := c.trackFileURL(ctx, t.ID.String(), p.quality, "")
-	if err != nil || file.URL == "" {
-		if err != nil {
-			applog.Debug("qobuz: resolve stream url for track %s: %v", t.ID.String(), err)
-		}
-		track.Unplayable = true
-		return track
-	}
-	registerStreamURL(file.URL)
-	track.Path = file.URL
+	track.Path = TrackURIPrefix + t.ID.String()
 	return track
 }
 
