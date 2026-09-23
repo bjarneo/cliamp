@@ -4,18 +4,21 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"crypto/sha256"
 	"golang.org/x/crypto/hkdf"
 )
 
@@ -38,6 +41,8 @@ type cmafSessionResponse struct {
 	Infos     string `json:"infos"`
 }
 
+var errAuthRequired = errors.New("qobuz: authentication required")
+
 func b64url(s string) ([]byte, error) {
 	return base64.RawURLEncoding.DecodeString(s)
 }
@@ -47,7 +52,7 @@ func cmafSignature(method string, params url.Values, ts, secret string) string {
 	for k := range params {
 		keys = append(keys, k)
 	}
-	sortStrings(keys)
+	slices.Sort(keys)
 	raw := method
 	for _, k := range keys {
 		raw += k + params.Get(k)
@@ -56,40 +61,33 @@ func cmafSignature(method string, params url.Values, ts, secret string) string {
 	return md5hex(raw)
 }
 
-func sortStrings(v []string) {
-	for i := 1; i < len(v); i++ {
-		for j := i; j > 0 && v[j] < v[j-1]; j-- {
-			v[j], v[j-1] = v[j-1], v[j]
-		}
-	}
-}
-
-func (c *client) cmafRequest(ctx context.Context, method, endpoint string, params url.Values, body bool, out any) error {
+func (c *client) cmafRequest(ctx context.Context, method, endpoint string, params url.Values, sessionID string, out any) error {
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	signParams := make(url.Values, len(params))
+	signParams := make(url.Values, len(params)+1)
 	for k, v := range params {
-		signParams[k] = v
+		signParams[k] = append([]string(nil), v...)
 	}
 	signParams.Set("request_ts", ts)
-	signatureParams := make(url.Values, len(params))
-	for k, v := range params {
-		signatureParams[k] = v
+	signatureParams := make(url.Values, len(signParams))
+	for k, v := range signParams {
+		signatureParams[k] = append([]string(nil), v...)
 	}
-	signParams.Set("request_sig", cmafSignature(strings.ReplaceAll(endpoint, "/", ""), signatureParams, ts, cmafSeed))
+	signParams.Set("request_sig", cmafSignature(method, signatureParams, ts, cmafSeed))
+
 	var reqBody io.Reader
-	if body {
+	if method == http.MethodPost {
 		reqBody = strings.NewReader(signParams.Encode())
 	}
-	req, err := http.NewRequestWithContext(ctx, map[bool]string{true: http.MethodPost, false: http.MethodGet}[body], apiBaseURL+endpoint, reqBody)
+	req, err := http.NewRequestWithContext(ctx, method, apiBaseURL+endpoint, reqBody)
 	if err != nil {
 		return fmt.Errorf("qobuz: %s: build request: %w", endpoint, err)
 	}
 	req.Header.Set("X-App-Id", c.appID)
 	req.Header.Set("X-User-Auth-Token", c.uat)
-	if c.sessionID != "" {
-		req.Header.Set("X-Session-Id", c.sessionID)
+	if sessionID != "" {
+		req.Header.Set("X-Session-Id", sessionID)
 	}
-	if body {
+	if method == http.MethodPost {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	} else {
 		req.URL.RawQuery = signParams.Encode()
@@ -104,6 +102,9 @@ func (c *client) cmafRequest(ctx context.Context, method, endpoint string, param
 		return fmt.Errorf("qobuz: %s: read response: %w", endpoint, err)
 	}
 	if resp.StatusCode >= 400 {
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return fmt.Errorf("%w: %s", errAuthRequired, strings.TrimSpace(string(data)))
+		}
 		return fmt.Errorf("qobuz: %s: HTTP %d: %s", endpoint, resp.StatusCode, strings.TrimSpace(string(data)))
 	}
 	if err := json.Unmarshal(data, out); err != nil {
@@ -114,7 +115,7 @@ func (c *client) cmafRequest(ctx context.Context, method, endpoint string, param
 
 func (c *client) cmafSession(ctx context.Context) (string, string, error) {
 	var out cmafSessionResponse
-	if err := c.cmafRequest(ctx, http.MethodPost, "session/start", url.Values{"profile": {"qbz-1"}}, true, &out); err != nil {
+	if err := c.cmafRequest(ctx, http.MethodPost, "session/start", url.Values{"profile": {"qbz-1"}}, "", &out); err != nil {
 		return "", "", err
 	}
 	if out.SessionID == "" || out.Infos == "" {
@@ -137,11 +138,9 @@ func deriveSessionKey(infos string) ([16]byte, error) {
 	if err != nil {
 		return out, fmt.Errorf("qobuz: decode CMAF info: %w", err)
 	}
-	ikm := make([]byte, len(cmafSeed)/2)
-	for i := range ikm {
-		if _, err := fmt.Sscanf(cmafSeed[i*2:i*2+2], "%02x", &ikm[i]); err != nil {
-			return out, err
-		}
+	ikm, err := hex.DecodeString(cmafSeed)
+	if err != nil {
+		return out, fmt.Errorf("qobuz: decode CMAF seed: %w", err)
 	}
 	r := hkdf.New(sha256.New, ikm, salt, info)
 	if _, err := io.ReadFull(r, out[:]); err != nil {
@@ -274,6 +273,9 @@ func decryptSegment(data []byte, key [16]byte) ([]byte, error) {
 	if audioStart < 0 || audioStart > len(data) {
 		return nil, fmt.Errorf("qobuz: invalid CMAF audio offset")
 	}
+	if mdatEnd == 0 || mdatEnd < audioStart {
+		return nil, fmt.Errorf("qobuz: invalid CMAF mdat boundary")
+	}
 	out := make([]byte, 0, mdatEnd-audioStart)
 	for i := 0; i < count; i++ {
 		if at+8+ivSize > len(p) {
@@ -302,7 +304,7 @@ func decryptSegment(data []byte, key [16]byte) ([]byte, error) {
 	return out, nil
 }
 
-func (c *client) cmafFile(ctx context.Context, trackID string, formatID int) ([]byte, error) {
+func (c *client) cmafFile(ctx context.Context, trackID string, formatID int) (io.ReadCloser, error) {
 	sid, infos, err := c.cmafSession(ctx)
 	if err != nil {
 		return nil, err
@@ -311,12 +313,9 @@ func (c *client) cmafFile(ctx context.Context, trackID string, formatID int) ([]
 	if err != nil {
 		return nil, err
 	}
-	old := c.sessionID
-	c.sessionID = sid
-	defer func() { c.sessionID = old }()
 	var file fileURLResponse
 	params := url.Values{"track_id": {trackID}, "format_id": {strconv.Itoa(formatID)}, "intent": {"stream"}}
-	if err := c.cmafRequest(ctx, http.MethodGet, "file/url", params, false, &file); err != nil {
+	if err := c.cmafRequest(ctx, http.MethodGet, "file/url", params, sid, &file); err != nil {
 		return nil, err
 	}
 	if file.URLTemplate == "" || file.Key == "" {
@@ -338,19 +337,33 @@ func (c *client) cmafFile(ctx context.Context, trackID string, formatID int) ([]
 	if err != nil {
 		return nil, err
 	}
-	result := header
-	for i := 1; i <= file.Segments; i++ {
-		seg, err := c.fetchBytes(ctx, strings.Replace(file.URLTemplate, "$SEGMENT$", strconv.Itoa(i), 1))
-		if err != nil {
-			return nil, err
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		if _, err := pw.Write(header); err != nil {
+			pw.CloseWithError(err)
+			return
 		}
-		plain, err := decryptSegment(seg, key)
-		if err != nil {
-			return nil, err
+		for i := 1; i <= file.Segments; i++ {
+			segCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			seg, err := c.fetchBytes(segCtx, strings.Replace(file.URLTemplate, "$SEGMENT$", strconv.Itoa(i), 1))
+			cancel()
+			if err != nil {
+				pw.CloseWithError(err)
+				return
+			}
+			plain, err := decryptSegment(seg, key)
+			if err != nil {
+				pw.CloseWithError(err)
+				return
+			}
+			if _, err := pw.Write(plain); err != nil {
+				pw.CloseWithError(err)
+				return
+			}
 		}
-		result = append(result, plain...)
-	}
-	return result, nil
+	}()
+	return pr, nil
 }
 
 func (c *client) fetchBytes(ctx context.Context, raw string) ([]byte, error) {

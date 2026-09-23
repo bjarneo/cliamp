@@ -83,9 +83,9 @@ func newClientInteractive(ctx context.Context) (*client, error) {
 
 	c := newClient(appID, secrets)
 
-	// OAuth first: the secret-validation probe (track/getFileUrl) is an
-	// authenticated endpoint and fails without a user_auth_token, so the
-	// browser sign-in must complete before validateSecret runs.
+	// OAuth first: the secret-validation request is signed with the candidate
+	// secret and requires a valid user_auth_token, so the browser sign-in must
+	// complete before validateSecret runs.
 	result, err := captureOAuthRedirect(ctx, appID)
 	if err != nil {
 		return nil, err
