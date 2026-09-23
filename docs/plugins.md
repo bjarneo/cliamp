@@ -255,7 +255,7 @@ p:bind("ctrl+e", function(key) ... end)
 
 Returns `true` on success. Returns `false, reason` when cliamp's core UI owns the key or the plugin lacks the `keymap` permission. Pass a description as the middle argument to show the binding in the `Ctrl+K` keymap overlay. Omit it for an internal-only binding.
 
-Use Bubbletea's `msg.String()` form for key strings: lowercase letters and the `ctrl+`, `shift+`, or `alt+` prefixes. For example: `"x"`, `"ctrl+e"`, and `"shift+f1"`. Key strings are case-insensitive.
+Use Bubbletea's `msg.String()` form for key strings: lowercase letters and the `ctrl+`, `shift+`, or `alt+` prefixes. For example: `"x"`, `"ctrl+e"`, and `"shift+f1"`. Key strings are case-insensitive when registering and dispatching bindings: `"H"` and `"h"` match the same binding. The callback receives the original dispatched key string.
 
 Plugin keys work only in the main view. Overlays such as the file browser, theme picker, and keymap capture their own input. The core reserves every key in `docs/keybindings.md`. Trying to bind one logs a warning and returns `false`.
 

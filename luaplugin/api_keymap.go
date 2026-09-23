@@ -51,7 +51,7 @@ func (m *Manager) EmitKey(key string) bool {
 	if m.closing {
 		return false
 	}
-	hooks := m.keyBinds[key]
+	hooks := m.keyBinds[normalizeKey(key)]
 	if len(hooks) == 0 {
 		return false
 	}

@@ -36,6 +36,42 @@ func TestPluginBindAndEmit(t *testing.T) {
 	waitAtomic(t, &fired, 1, 2*time.Second)
 }
 
+func TestEmitKeyNormalizesLookup(t *testing.T) {
+	for _, key := range []string{"h", "H", " H "} {
+		t.Run(key, func(t *testing.T) {
+			m := newTestManager()
+			t.Cleanup(m.Close)
+			p := loadTestPlugin(t, m, "kb", `
+				local p = plugin.register({name = "kb", type = "hook", permissions = {"keymap"}})
+				p:bind("H", function(key) report(key) end)
+			`)
+			if p == nil {
+				t.Fatal("plugin failed to load")
+			}
+
+			received := make(chan string, 1)
+			p.mu.Lock()
+			p.L.SetGlobal("report", p.L.NewFunction(func(L *lua.LState) int {
+				received <- L.CheckString(1)
+				return 0
+			}))
+			p.mu.Unlock()
+
+			if !m.EmitKey(key) {
+				t.Fatalf("EmitKey(%q) returned false for bound key", key)
+			}
+			select {
+			case got := <-received:
+				if got != key {
+					t.Fatalf("callback received %q, want original key %q", got, key)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("key callback did not run")
+			}
+		})
+	}
+}
+
 func TestPluginBindRejectsReservedKey(t *testing.T) {
 	m := newTestManager()
 	m.SetReservedKeys(map[string]bool{"q": true})
