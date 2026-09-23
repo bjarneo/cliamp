@@ -12,6 +12,15 @@ import (
 
 // — provider browser (nav) —
 
+// navArtistLabel renders a nav-browser artist row. The album count suffix is
+// hidden when the provider doesn't report one (Spotify reports 0).
+func navArtistLabel(a provider.ArtistInfo) string {
+	if a.AlbumCount > 0 {
+		return fmt.Sprintf("%s (%d albums)", a.Name, a.AlbumCount)
+	}
+	return a.Name
+}
+
 type navViewKind int
 
 const (

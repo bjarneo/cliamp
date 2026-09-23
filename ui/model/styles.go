@@ -28,6 +28,9 @@ var (
 	helpStyle                lipgloss.Style
 	helpKeyStyle             lipgloss.Style
 	errorStyle               lipgloss.Style
+	// paneUnfocusedStyle dims a whole Home pane body so the focused pane
+	// reads at a glance, not just via the header glyph.
+	paneUnfocusedStyle lipgloss.Style
 )
 
 func init() { rebuildModelStyles() }
@@ -59,4 +62,5 @@ func rebuildModelStyles() {
 	activeToggle = lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true)
 	favMarkerStyle = lipgloss.NewStyle().Foreground(ui.ColorError)
 	favRemovedStyle = lipgloss.NewStyle().Foreground(ui.ColorDim)
+	paneUnfocusedStyle = lipgloss.NewStyle().Faint(true)
 }

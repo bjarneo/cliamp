@@ -22,6 +22,9 @@ repeat = "off"
 # Start with shuffle enabled
 shuffle = false
 
+# Start with Smart Shuffle (recommendations mixed into the queue; implies shuffle)
+smart_shuffle = false
+
 # Start with mono output (L+R downmix)
 mono = false
 
@@ -116,6 +119,11 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # client_id = "your-spotify-app-client-id"
 # bitrate = 320
 #
+# Album browse sort order for the library browser (press N to open):
+# "recent" (default), "title", "artist", "year". Updated automatically
+# when you press [s] on the saved-album list.
+# album_sort = "recent"
+#
 # Development Mode limits /v1/search to 10 results per request. cliamp pages
 # automatically with offset, so search works with your own client_id.
 #
@@ -140,6 +148,10 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 #   7  = FLAC 24-bit up to 96kHz
 #   27 = FLAC 24-bit up to 192kHz (Hi-Res)
 # quality = 6
+#
+# Fallback OAuth private key, used only when it cannot be scraped from the
+# Qobuz web player bundle.js (play.qobuz.com). Leave unset otherwise.
+# private_key = "..."
 
 # ---
 # Tidal (optional)

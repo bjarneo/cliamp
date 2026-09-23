@@ -54,10 +54,12 @@ p:bind("` + key + `", "spy", function() cliamp.message("pressed") end)
 // The full-screen visualizer is where a plugin visualizer is actually
 // watched, so the plugin's own keys have to keep working there.
 func TestFullVisualizerForwardsUnhandledKeysToPlugins(t *testing.T) {
-	mgr, pressed := newKeyTestPlugin(t, "H")
+	// Lowercase: bind() normalizes keys to lowercase (the uppercase-bind
+	// support was reverted), so an uppercase key here would never fire.
+	mgr, pressed := newKeyTestPlugin(t, "p")
 	m := Model{luaMgr: mgr}
 
-	m.handleFullVisualizerKey(tea.KeyPressMsg{Code: 'H', Text: "H", Mod: tea.ModShift})
+	m.handleFullVisualizerKey(tea.KeyPressMsg{Code: 'p', Text: "p"})
 
 	select {
 	case <-pressed:

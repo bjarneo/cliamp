@@ -9,7 +9,7 @@ Use these providers as examples:
 
 - `external/navidrome/`: Subsonic API, browsing, scrobbling
 - `external/plex/`: Plex Media Server, search, album tracks
-- `external/spotify/`: Spotify, search, playlist management, custom streaming
+- `external/spotify/`: Spotify, library browse, multi-type search, playlist and library writes, custom streaming
 - `external/mixcloud/`: public catalog, browse-entry shortcuts, creator jumps,
   genre search and local genre favorites
 - `external/radio/`: internet radio, favorites
@@ -39,6 +39,7 @@ are in `provider/interfaces.go`.
 | Interface | What it enables | Methods |
 |---|---|---|
 | `Searcher` | Track search overlay | `SearchTracks(ctx, query, limit)` |
+| `MultiSearcher` | Tabbed multi-type search results | `SearchAll(ctx, query, limit)` returning `SearchResults` |
 | `ArtistBrowser` | Hierarchical artist browsing | `Artists()`, `ArtistAlbums(id)` |
 | `TrackArtistResolver` | Jump from a highlighted provider track to its artist/creator with `N` | `ArtistForTrack(track)` |
 | `BrowseEntryProvider` | Add non-playable shortcuts into the provider playlist pane | `BrowseEntries()`; each entry can set `AfterID`, `AfterSection`, and `OpenInPlaylist` |
@@ -50,7 +51,15 @@ are in `provider/interfaces.go`.
 | `AlbumBrowser` | Paginated album browsing with sort | `AlbumList(sort, offset, size)`, `AlbumSortTypes()` |
 | `AlbumTrackLoader` | Album track listing | `AlbumTracks(albumID)` |
 | `PlaybackReporter` | Playback reporting at track start and finish | `CanReportPlayback(track)`, `ReportNowPlaying(track, position, canSeek) error`, `ReportScrobble(track, elapsed, duration, canSeek) error` |
+| `Recommender` | Smart Shuffle recommendations from the current queue | `RecommendTracks(ctx, seed, limit)` |
+| `ArtistDetailLoader` | Rich artist profile page | `ArtistDetail(artistID)` returning `ArtistDetail` |
 | `PlaylistWriter` | Add track to playlist | `AddTrackToPlaylist(ctx, playlistID, track)` |
+| `TrackPager` | Incremental loading of large playlists | `TracksPage(id, offset, limit)` |
+| `TrackLiker` | Like/unlike tracks in the user's library | `ToggleTrackLike(ctx, track)` |
+| `PlaylistFollower` | Follow/unfollow playlist by ID | `FollowPlaylistByID(ctx, id)`, `UnfollowPlaylistByID(ctx, id)` |
+| `ArtistFollower` | Follow/unfollow artist by ID | `FollowArtist(ctx, id)`, `UnfollowArtist(ctx, id)` |
+| `PlaylistTrackRemover` | Remove a track from a remote playlist | `RemoveTrackFromPlaylist(ctx, playlistID, position, track)` |
+| `RemotePlaylistRenamer` | Rename a remote playlist by ID | `RenamePlaylistByID(ctx, playlistID, newName)` |
 | `PlaylistCreator` | Create new playlist | `CreatePlaylist(ctx, name)` |
 | `PlaylistDeleter` | Remove playlists/tracks | `DeletePlaylist(name)`, `RemoveTrack(name, index)` |
 | `CustomStreamer` | Custom URI decode pipeline | `URISchemes()`, `NewStreamer(uri)` |
@@ -61,6 +70,15 @@ are in `provider/interfaces.go`.
 | `TrackPosition` | Server-side position for one track, read on every play | `CanTrackPosition(track)`, `TrackPosition(track)` |
 | `ProgressReporter` | Interim position updates while playing, in addition to `PlaybackReporter`'s start/finish reports | `ReportProgress(track, position) error` |
 | `BrowseLabeler` | Relabel the browse overlay's two levels (e.g. Authors/Books instead of Artists/Albums) | `BrowseLabels()` |
+
+`external/spotify/` is the reference implementation for `TrackPager`,
+`MultiSearcher`, `TrackLiker`, `PlaylistFollower`,
+`ArtistFollower`, `PlaylistTrackRemover`, and `RemotePlaylistRenamer`.
+`SearchAll` returns a `SearchResults` (`provider/types.go`) carrying tracks,
+albums, artists, and playlists; the UI renders it as tabbed results with
+drill-down. Set `PlaylistInfo.Owned` on playlists the current user owns —
+the provider pane uses it to offer rename/delete on owned rows and plain
+unfollow on followed ones.
 
 ## Steps
 

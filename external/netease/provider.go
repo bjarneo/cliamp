@@ -433,7 +433,42 @@ func (p *Provider) ensureCookieHeader(ctx context.Context) (string, error) {
 	return header, nil
 }
 
+// supportedCookieBrowsers lists the browser names yt-dlp's
+// --cookies-from-browser flag accepts.
+var supportedCookieBrowsers = []string{
+	"chrome", "chromium", "firefox", "brave", "edge", "opera", "safari", "vivaldi", "whale",
+}
+
+// validateCookieBrowser rejects browser specs yt-dlp cannot load cookies from
+// before they reach an exec call site. yt-dlp accepts
+// BROWSER[+KEYRING][:PROFILE][::CONTAINER]; only the browser name is checked
+// against the allowlist (case-insensitive, matching yt-dlp's own handling) —
+// profile and container parts (e.g. "firefox:default-release",
+// "chrome:Profile 1") are passed through untouched.
+func validateCookieBrowser(spec string) error {
+	browser := spec
+	if i := strings.Index(browser, "::"); i >= 0 {
+		browser = browser[:i]
+	}
+	if i := strings.IndexByte(browser, ':'); i >= 0 {
+		browser = browser[:i]
+	}
+	if i := strings.IndexByte(browser, '+'); i >= 0 {
+		browser = browser[:i]
+	}
+	for _, b := range supportedCookieBrowsers {
+		if strings.EqualFold(browser, b) {
+			return nil
+		}
+	}
+	return fmt.Errorf("netease: unsupported browser %q for cookies_from_browser (valid: %s)",
+		spec, strings.Join(supportedCookieBrowsers, ", "))
+}
+
 func extractBrowserCookieHeader(ctx context.Context, browser string) (string, error) {
+	if err := validateCookieBrowser(browser); err != nil {
+		return "", err
+	}
 	if _, err := exec.LookPath("yt-dlp"); err != nil {
 		return "", fmt.Errorf("yt-dlp not found. Install with: %s", ytDLPInstallHint())
 	}

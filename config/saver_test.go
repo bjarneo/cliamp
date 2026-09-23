@@ -185,6 +185,30 @@ func TestSaveNavidromeSortAppendsKeyInExistingSection(t *testing.T) {
 	}
 }
 
+func TestSaveSpotifySortWritesSpotifySection(t *testing.T) {
+	home := withHome(t)
+	dir := filepath.Join(home, ".config", "cliamp")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	initial := "[navidrome]\nbrowse_sort = \"old\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(initial), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if err := SaveSpotifySort("title"); err != nil {
+		t.Fatalf("SaveSpotifySort: %v", err)
+	}
+
+	got := readConfig(t, home)
+	if !strings.Contains(got, "[spotify]\nalbum_sort = \"title\"") {
+		t.Errorf("config should append a [spotify] section with album_sort:\n%s", got)
+	}
+	if !strings.Contains(got, `browse_sort = "old"`) {
+		t.Errorf("navidrome section should be untouched:\n%s", got)
+	}
+}
+
 func TestSaveFuncDelegates(t *testing.T) {
 	home := withHome(t)
 
@@ -230,5 +254,34 @@ func TestSaveMixcloudStylesCreatesSection(t *testing.T) {
 	got := readConfig(t, home)
 	if !strings.Contains(got, "[mixcloud]") || !strings.Contains(got, `styles = ["house"]`) {
 		t.Fatalf("Mixcloud section missing:\n%s", got)
+	}
+}
+
+// TestSaveSmartShuffleRoundtrip pins the Z-key persistence path: the saved
+// key must land in the top-level scope and parse back on the next start.
+func TestSaveSmartShuffleRoundtrip(t *testing.T) {
+	home := withHome(t)
+	dir := filepath.Join(home, ".config", "cliamp")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	initial := "shuffle = false\n[spotify]\nenabled = true\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(initial), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if err := Save("smart_shuffle", "true"); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.SmartShuffle {
+		t.Errorf("SmartShuffle = %v after roundtrip, want true", cfg.SmartShuffle)
+	}
+	if cfg.Shuffle {
+		t.Errorf("Shuffle = %v, want untouched false", cfg.Shuffle)
 	}
 }

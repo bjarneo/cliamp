@@ -58,6 +58,8 @@ type tracksLoadedMsg struct {
 	playlistID    string
 	providerName  string
 	playlistExact bool
+	paged         bool // first page of a provider.TrackPager load
+	total         int  // total tracks reported by the pager (paged only)
 	gen           uint64
 	resumeIdx     int
 	resumeOffset  time.Duration
@@ -628,4 +630,292 @@ func createSpotPlaylistCmd(ctx context.Context, c provider.PlaylistCreator, w pr
 		err = w.AddTrackToPlaylist(ctx, id, track)
 		return spotCreatedMsg{name: name, err: err, providerName: providerName, gen: gen}
 	}
+}
+
+// — Multi-type provider search —
+
+// spotSearchAllMsg carries provider.MultiSearcher.SearchAll results.
+type spotSearchAllMsg struct {
+	results      provider.SearchResults
+	err          error
+	providerName string
+	query        string
+	gen          uint64
+}
+
+func fetchSpotSearchAllCmd(ctx context.Context, s provider.MultiSearcher, providerName, query string, limit int, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		results, err := s.SearchAll(ctx, query, limit)
+		return spotSearchAllMsg{results: results, err: err, providerName: providerName, query: query, gen: gen}
+	}
+}
+
+// spotDrillLoadedMsg carries the album/artist/playlist list drilled into from
+// the multi-type search results. crumb identifies the drill level it fills.
+type spotDrillLoadedMsg struct {
+	crumb        string
+	albums       []provider.AlbumInfo
+	tracks       []playlist.Track
+	err          error
+	providerName string
+	gen          uint64
+}
+
+func fetchSpotDrillAlbumTracksCmd(ctx context.Context, l provider.AlbumTrackLoader, providerName, albumID, crumb string, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		tracks, err := l.AlbumTracks(albumID)
+		return spotDrillLoadedMsg{crumb: crumb, tracks: tracks, err: err, providerName: providerName, gen: gen}
+	}
+}
+
+// fetchSpotArtistCmd drills into an artist by loading their albums, which
+// drill into tracks in turn.
+func fetchSpotArtistCmd(ctx context.Context, prov playlist.Provider, providerName string, artist provider.ArtistInfo, crumb string, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		ab, ok := prov.(provider.ArtistBrowser)
+		if !ok {
+			return spotDrillLoadedMsg{crumb: crumb, err: fmt.Errorf("artist drill-down not supported"), providerName: providerName, gen: gen}
+		}
+		albums, err := ab.ArtistAlbums(artist.ID)
+		return spotDrillLoadedMsg{crumb: crumb, albums: albums, err: err, providerName: providerName, gen: gen}
+	}
+}
+
+func fetchSpotPlaylistTracksCmd(ctx context.Context, prov playlist.Provider, providerName, playlistID, crumb string, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		// Deliberately Tracks(), not TrackPager: a pager read at offset 0
+		// would rewrite the provider's page cursor for this playlist ID and
+		// corrupt an incremental queue load of the same playlist in flight.
+		tracks, err := prov.Tracks(playlistID)
+		return spotDrillLoadedMsg{crumb: crumb, tracks: tracks, err: err, providerName: providerName, gen: gen}
+	}
+}
+
+// — Artist screen —
+
+// artistDetailMsg carries the ArtistDetail backing the artist screen. The
+// artistID is part of the guard identity so a second open supersedes the
+// first even when the provider name is unchanged.
+type artistDetailMsg struct {
+	artistID     string
+	detail       provider.ArtistDetail
+	err          error
+	providerName string
+	gen          uint64
+}
+
+func fetchArtistDetailCmd(ctx context.Context, l provider.ArtistDetailLoader, providerName, artistID string, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		detail, err := l.ArtistDetail(artistID)
+		return artistDetailMsg{artistID: artistID, detail: detail, err: err, providerName: providerName, gen: gen}
+	}
+}
+
+// artistAlbumTracksMsg carries the tracks of one album drilled into from the
+// artist screen's Discography section. crumb identifies the drill level it
+// fills, like spotDrillLoadedMsg does for the search tabs.
+type artistAlbumTracksMsg struct {
+	artistID     string
+	crumb        string
+	tracks       []playlist.Track
+	err          error
+	providerName string
+	gen          uint64
+}
+
+func fetchArtistAlbumTracksCmd(ctx context.Context, l provider.AlbumTrackLoader, providerName, artistID, albumID, crumb string, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		tracks, err := l.AlbumTracks(albumID)
+		return artistAlbumTracksMsg{artistID: artistID, crumb: crumb, tracks: tracks, err: err, providerName: providerName, gen: gen}
+	}
+}
+
+// — Provider write operations —
+
+// trackLikeToggledMsg carries the outcome of a provider.TrackLiker toggle.
+type trackLikeToggledMsg struct {
+	liked bool
+	err   error
+	gen   uint64
+}
+
+func toggleTrackLikeCmd(ctx context.Context, l provider.TrackLiker, track playlist.Track, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		liked, err := l.ToggleTrackLike(ctx, track)
+		return trackLikeToggledMsg{liked: liked, err: err, gen: gen}
+	}
+}
+
+// playlistUnfollowedMsg carries the outcome of a provider.PlaylistFollower
+// unfollow (which deletes owned playlists on most providers).
+type playlistUnfollowedMsg struct {
+	playlistID   string
+	name         string
+	owned        bool
+	err          error
+	providerName string
+	gen          uint64
+}
+
+func unfollowPlaylistCmd(ctx context.Context, f provider.PlaylistFollower, providerName, playlistID, name string, owned bool, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		err := f.UnfollowPlaylistByID(ctx, playlistID)
+		return playlistUnfollowedMsg{playlistID: playlistID, name: name, owned: owned, err: err, providerName: providerName, gen: gen}
+	}
+}
+
+// playlistRenamedMsg carries the outcome of a provider.RemotePlaylistRenamer
+// rename.
+type playlistRenamedMsg struct {
+	playlistID   string
+	newName      string
+	err          error
+	providerName string
+	gen          uint64
+}
+
+func renamePlaylistCmd(ctx context.Context, r provider.RemotePlaylistRenamer, providerName, playlistID, newName string, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		err := r.RenamePlaylistByID(ctx, playlistID, newName)
+		return playlistRenamedMsg{playlistID: playlistID, newName: newName, err: err, providerName: providerName, gen: gen}
+	}
+}
+
+// remoteTrackRemovedMsg carries the outcome of removing a track from a remote
+// playlist.
+type remoteTrackRemovedMsg struct {
+	playlistID   string
+	position     int
+	trackPath    string
+	trackName    string
+	err          error
+	providerName string
+	gen          uint64
+}
+
+func removeRemoteTrackCmd(ctx context.Context, r provider.PlaylistTrackRemover, providerName, playlistID string, position int, track playlist.Track, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		err := r.RemoveTrackFromPlaylist(ctx, playlistID, position, track)
+		return remoteTrackRemovedMsg{playlistID: playlistID, position: position, trackPath: track.Path, trackName: track.DisplayName(), err: err, providerName: providerName, gen: gen}
+	}
+}
+
+// artistFollowedMsg carries the outcome of a provider.ArtistFollower toggle.
+type artistFollowedMsg struct {
+	artistID     string
+	artistName   string
+	follow       bool
+	err          error
+	providerName string
+	gen          uint64
+}
+
+func followArtistCmd(ctx context.Context, f provider.ArtistFollower, providerName, artistID, artistName string, follow bool, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		var err error
+		if follow {
+			err = f.FollowArtist(ctx, artistID)
+		} else {
+			err = f.UnfollowArtist(ctx, artistID)
+		}
+		return artistFollowedMsg{artistID: artistID, artistName: artistName, follow: follow, err: err, providerName: providerName, gen: gen}
+	}
+}
+
+// playlistFollowedMsg carries the outcome of a provider.PlaylistFollower
+// follow toggle from the search results.
+type playlistFollowedMsg struct {
+	playlistID   string
+	playlistName string
+	follow       bool
+	err          error
+	providerName string
+	gen          uint64
+}
+
+func followPlaylistCmd(ctx context.Context, f provider.PlaylistFollower, providerName, playlistID, playlistName string, follow bool, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		var err error
+		if follow {
+			err = f.FollowPlaylistByID(ctx, playlistID)
+		} else {
+			err = f.UnfollowPlaylistByID(ctx, playlistID)
+		}
+		return playlistFollowedMsg{playlistID: playlistID, playlistName: playlistName, follow: follow, err: err, providerName: providerName, gen: gen}
+	}
+}
+
+// — Remote section of the write-to-playlist picker —
+
+// plPickerRemoteMsg carries the playlist list of a remote write target so the
+// picker can append a second section without blocking openPlaylistPicker.
+type plPickerRemoteMsg struct {
+	playlists    []playlist.PlaylistInfo
+	err          error
+	providerName string
+}
+
+func fetchPlPickerRemoteCmd(prov playlist.Provider) tea.Cmd {
+	return func() tea.Msg {
+		playlists, err := prov.Playlists()
+		return plPickerRemoteMsg{playlists: playlists, err: err, providerName: prov.Name()}
+	}
+}
+
+// pickerRemoteWriteMsg carries the outcome of an async write into a remote
+// provider playlist (existing or newly created).
+type pickerRemoteWriteMsg struct {
+	providerName string
+	name         string
+	created      bool
+	added        int
+	skipped      int
+	err          error
+}
+
+// addRemotePickerTracksCmd writes tracks into an existing remote playlist.
+func addRemotePickerTracksCmd(ctx context.Context, prov playlist.Provider, playlistID, name string, tracks []playlist.Track) tea.Cmd {
+	return func() tea.Msg {
+		added, skipped, err := writeRemoteTracks(ctx, prov, playlistID, tracks)
+		return pickerRemoteWriteMsg{providerName: prov.Name(), name: name, added: added, skipped: skipped, err: err}
+	}
+}
+
+// createRemotePickerPlaylistCmd creates a remote playlist and writes tracks
+// into it in one operation.
+func createRemotePickerPlaylistCmd(ctx context.Context, prov playlist.Provider, name string, tracks []playlist.Track) tea.Cmd {
+	return func() tea.Msg {
+		c, ok := prov.(provider.PlaylistCreator)
+		if !ok {
+			return pickerRemoteWriteMsg{providerName: prov.Name(), name: name, err: fmt.Errorf("playlist creation is not supported")}
+		}
+		id, err := c.CreatePlaylist(ctx, name)
+		if err != nil {
+			return pickerRemoteWriteMsg{providerName: prov.Name(), name: name, err: err}
+		}
+		added, skipped, err := writeRemoteTracks(ctx, prov, id, tracks)
+		return pickerRemoteWriteMsg{providerName: prov.Name(), name: name, created: true, added: added, skipped: skipped, err: err}
+	}
+}
+
+// writeRemoteTracks adds tracks to a remote playlist, preferring the batch
+// writer when the provider implements it.
+func writeRemoteTracks(ctx context.Context, prov playlist.Provider, playlistID string, tracks []playlist.Track) (added, skipped int, err error) {
+	if len(tracks) == 0 {
+		return 0, 0, nil
+	}
+	if bw, ok := prov.(provider.PlaylistBatchWriter); ok {
+		return bw.AddTracksToPlaylist(ctx, playlistID, tracks)
+	}
+	w, ok := prov.(provider.PlaylistWriter)
+	if !ok {
+		return 0, 0, fmt.Errorf("playlist writes are not supported")
+	}
+	for _, track := range tracks {
+		if err := w.AddTrackToPlaylist(ctx, playlistID, track); err != nil {
+			return added, skipped, err
+		}
+		added++
+	}
+	return added, skipped, nil
 }

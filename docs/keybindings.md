@@ -62,8 +62,8 @@ message is shown.
 
 ## Text Input
 
-Playlist search, native-provider search, URL, playlist-name, keymap, and jump
-fields support these editor keys:
+Playlist and native-provider search, URL, playlist-name, keymap, jump, and
+Home filter/new-playlist fields support these editor keys:
 
 | Key | Action |
 |---|---|
@@ -106,8 +106,9 @@ and `Esc` clears it.
 | `i` | From the playlist, open full info for the highlighted item, including Path (`Up`/`Down` or `j`/`k` scroll; `i`/`Esc` closes) |
 | `Ctrl+I` | Toggle Metadata below Settings for the highlighted playlist item (remembered in `show_metadata`; requires a terminal that distinguishes Ctrl+I from Tab) |
 | `Ctrl+S` | Save track to `[downloads].directory` (default `~/Music/cliamp`) |
-| `w` | Write the highlighted track to a local playlist |
+| `w` | Write the highlighted track/selection to a playlist — local playlists always, plus the owning provider's playlists (a "Spotify Playlists" section, with new-playlist creation) when the tracks come from it; selections are added in batches |
 | `N` | Open the active provider browser. On a selected Mixcloud show, open that creator's Uploads/Favorites. In the radio pane, open the country browser. |
+| `H` | Open the Home view — the active provider's library in a two-pane browser |
 | `L` | Browse local playlists (with cliamp radio) |
 | `R` | Open radio provider |
 | `O` (`Shift+O`) | Open Podcasts provider |
@@ -136,10 +137,12 @@ preference remains saved for a wider layout. See
 | `a` | Toggle the queue (play next) |
 | `A` | Queue manager |
 | `F` | Subscribed shows overlay (any provider that keeps subscriptions) |
-| `x` | Remove the highlighted track from the current playlist |
+| `x` | Remove the highlighted track from the current playlist — and from the remote playlist the queue mirrors (Spotify) |
+| `*` | Like/unlike the highlighted track on its provider (Spotify) |
 | `p` | Playlist manager |
 | `r` | Cycle repeat mode (Off / All / One) |
 | `z` | Toggle shuffle |
+| `Z` | Toggle Smart Shuffle — recommended tracks mix into the end of the queue (Spotify queues; rows marked ✚) |
 
 ### Inside the subscribed shows overlay
 
@@ -252,10 +255,12 @@ the provider pane.
 | `f` | In the Mixcloud Genres list, favorite or unfavorite the selected genre locally. Update `[mixcloud].styles`. On a podcast show, subscribe or unsubscribe. |
 | `l` | Provider list, on a podcast show row only: append its newest episode and add it to the end of the queue, without replacing the playlist. Elsewhere in the browser `l` opens the selected item. |
 | `a` | Append all visible tracks to the queue. Provider list, on a podcast show row only: append every episode without replacing the playlist. |
-| `Enter` | Open the selected artist or album. A Radio tag loads up to 200 matching stations; a selected track plays and queues the rest of the visible list. |
+| `Enter` | Open the selected artist (artist page where supported — Spotify; otherwise their albums or tracks) or album. A Radio tag loads up to 200 matching stations; a selected track plays and queues the rest of the visible list. |
 | `R` | Replace the queue with all visible tracks (start from the top, confirm when non-empty) |
 | `q` | Queue the highlighted track to play next |
+| `f` | Follow/unfollow the highlighted artist (artist list; Spotify) |
 | `s` | Cycle album sort (album list only) |
+| `*` | Like/unlike the highlighted track (track screen; Spotify) |
 | `S` `N` `P` `J` `E` `Y` `C` `X` `M` `Q` `T` `L` `O` | Switch to that provider without opening the main pane. `R` replaces the queue on the track screen. |
 | `Esc` `b` | Go back one level; close the browser |
 
@@ -289,6 +294,8 @@ Navidrome, Podcasts, or Local Playlists:
 | `Ctrl+F` | Run the provider online or server search (Spotify, Navidrome, NetEase, and others). |
 | `Ctrl+R` | Refresh the provider: reload the currently open playlist or starting wave in place (e.g. a fresh Yandex "Моя волна" batch), or return to the playlist list. For Mixcloud, also clear the cached `/me/` identity. |
 | `p` | Open the playlist manager (Local pane only; create, rename, delete, add dirs/tracks) |
+| `D` | Delete (owned) / unfollow (followed) the highlighted playlist — inline confirm, `Enter`/`y` confirms (Spotify) |
+| `r` | Rename the highlighted playlist you own — inline input (Spotify) |
 | `S` `N` `P` `J` `E` `Y` `C` `X` `M` `Q` `L` `R` `O` | Switch to that provider |
 | `Tab` | Leave the provider pane and focus Source, or the first visible playback control |
 | `Shift+Tab` | Leave the provider pane and focus the last visible playback control (Speed, or Repeat with Settings closed) |
@@ -296,16 +303,7 @@ Navidrome, Podcasts, or Local Playlists:
 
 Playlist rows show `Name · N tracks · 1h 23m` when the provider returns track
 counts and total duration. The header shows `Provider / Playlists`. The loaded
-playlist has a `▶` prefix. Spotify groups playlists under section headers (`── library ──`, `── your playlists ──`, `── followed playlists ──`). For configured accounts, Mixcloud shows Your Mixcloud first: Stream, then Favorites. It then
-shows Browse shortcuts, public collections, Discover charts, and a
-Latest/Popular pair for each locally favorited genre under Music Styles. Leaving
-a provider-pane Browse shortcut returns to the provider pane.
-
-Podcasts lists subscriptions and Apple's top shows. `/` searches up to 100 shows;
-`Enter` on a show replaces the playlist without playing. `Ctrl+R` reloads a show
-opened from this list or the category browser; reopen `Ctrl+F` shows to fetch
-those feeds again. See [podcasts.md](podcasts.md) for startup and country settings.
-
+playlist has a `▶` prefix. Spotify groups playlists under section headers (`── library ──` with Your Music, Top Tracks, and Recently Played, `── your playlists ──`, `── followed playlists ──`, and `── saved albums ──`). Large Spotify playlists load incrementally: the first tracks appear immediately and the rest stream in behind a "Loading more tracks…" indicator. For configured accounts, Mixcloud shows Your Mixcloud first: Stream, then Favorites. It then
 ## Search results overlays
 
 Use these keys when `Ctrl+F` opens provider search or YouTube/SoundCloud network
@@ -315,13 +313,16 @@ search and the results list is open:
 |---|---|
 | `↑` `↓` / `j` `k` / `Ctrl+N` `Ctrl+P` | Move cursor (single item) |
 | `Ctrl+U` `Ctrl+D` | Scroll results by page |
-| `Enter` | Play the selected track now |
+| `←` `→` / `Tab` `Shift+Tab` | Switch result tab — Tracks / Albums / Artists / Playlists, each with a count (multi-type provider search: Spotify) |
+| `Enter` | Play the selected track now · multi-type results: drill into the highlighted album (its tracks) or playlist (its tracks), or open the highlighted artist's page (Spotify; other providers load their album list) |
 | `a` | Append the selected track to the playlist |
 | `q` | Queue the selected track to play next |
-| `f` | Subscribe or unsubscribe from the selected podcast show |
-| `p` | (Spotify only) Save the selected track to a Spotify playlist |
-| `Esc` `Backspace` | Back to the search input |
+| `f` | In Podcasts, subscribe or unsubscribe from the selected show. On the Artists / Playlists tabs (Spotify), follow/unfollow the highlighted artist or followed playlist — owned playlists are deleted via `D` in the provider pane. |
+| `p` | (Spotify only) Add the selected track to a Spotify playlist |
+| `S` | (Spotify only) Like/unlike the selected track (track tab) |
+| `Esc` `Backspace` | Back to the search input · from a drill-down list, up one level |
 
+Drill-down lists (album, artist, and playlist tracks) carry the same track actions as the track tab — `Enter` play, `a` append, `q` queue next, `p` add-to-playlist, `S` like — and show a breadcrumb of the drill path above the list. Backing out of the last drill level returns to the tab bar with the previous tab and cursor intact.
 Podcasts returns show collections (up to 20), not episodes. `Enter` appends the
 feed's episodes and starts the first; `a` appends them and starts the first if
 the playlist was empty or nothing is playing. `q` appends and queues the

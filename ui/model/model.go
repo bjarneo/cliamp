@@ -176,6 +176,8 @@ const (
 	screenNavBrowser
 	screenPlaylistManager
 	screenSpotSearch
+	screenArtist
+	screenHome
 	screenQueue
 	screenSubs
 	screenInfo
@@ -207,6 +209,10 @@ func (s topLevelScreen) label() string {
 		return "Playlists"
 	case screenSpotSearch, screenNetSearch:
 		return "Search"
+	case screenArtist:
+		return "Artist"
+	case screenHome:
+		return "Home"
 	case screenQueue:
 		return "Queue"
 	case screenSubs:
@@ -345,6 +351,8 @@ type Model struct {
 	plManager      plManagerState
 	plPicker       playlistPickerState
 	spotSearch     spotSearchState
+	artist         artistScreenState
+	home           homeState
 	fileBrowser    fileBrowserState
 	navBrowser     navBrowserState
 	catalogBatch   catalogBatchState
@@ -403,6 +411,29 @@ type Model struct {
 	// row in the provider browser. Empty when no provider playlist is active.
 	activeProviderPlaylistID string
 
+	// providerQueueLen is the number of leading queue rows that mirror the
+	// playlist named by activeProviderPlaylistID, in load order. It gates
+	// remote writes (x remove). Zero = queue not mirroring.
+	providerQueueLen int
+
+	// providerQueueLastPath is the Path of the last mirroring queue row
+	// (providerQueueLen-1). removeSelectedRemote verifies it still matches
+	// before issuing a remote remove.
+	providerQueueLastPath string
+
+	// Inline provider-pane write states (delete/unfollow confirm, rename).
+	provConfirm provConfirmState
+	provRename  provRenameState
+
+	// provListFixup carries the cursor adjustment to apply on the next
+	// playlistsLoadedMsg after a write-triggered list refresh.
+	provListFixup provListFixupState
+
+	// followState remembers the intended follow state of artists/playlists
+	// toggled this session, keyed "kind:provider:id". Provider interfaces
+	// expose no follow-state query, so the first toggle assumes unfollowed.
+	followState map[string]bool
+
 	// exitResume holds the playback state captured just before player.Close()
 	// so ResumeState() can read it after the player is shut down.
 	exitResume struct {
@@ -415,6 +446,16 @@ type Model struct {
 
 	// preloading is true while a preloadStreamCmd goroutine is in-flight.
 	preloading bool
+
+	// Smart Shuffle session state; the mode flag itself lives in the playlist.
+	// fetching guards against concurrent recommendation requests, retryAt
+	// backs off after a failed or empty batch, and injected is the session
+	// no-repeat set of already-injected track URIs (never persisted).
+	smart struct {
+		fetching bool
+		retryAt  time.Time
+		injected map[string]bool
+	}
 
 	// Live stream title from ICY metadata (e.g., "Artist - Song")
 	streamTitle string
@@ -522,10 +563,14 @@ func (m Model) activeScreen() topLevelScreen {
 		return screenPlaylistPicker
 	case m.fileBrowser.visible:
 		return screenFileBrowser
+	case m.artist.visible:
+		return screenArtist
 	case m.spotSearch.visible:
 		return screenSpotSearch
 	case m.navBrowser.visible:
 		return screenNavBrowser
+	case m.home.visible:
+		return screenHome
 	case m.themePicker.visible:
 		return screenThemePicker
 	case m.visPicker.visible:
@@ -571,7 +616,8 @@ func (m Model) usesContentFirstLayout() bool {
 	// playlist and reads as a view of it, so it keeps the playback chrome and
 	// the settings pane rather than taking the frame.
 	if m.keymap.visible || m.devicePicker.visible || m.fileBrowser.visible ||
-		m.navBrowser.visible || m.themePicker.visible || m.subs.visible || m.search.active {
+		m.artist.visible || m.navBrowser.visible || m.themePicker.visible ||
+		m.subs.visible || m.search.active || m.home.visible {
 		return true
 	}
 	if m.plPicker.visible && m.plPicker.screen == plPickerChoose {

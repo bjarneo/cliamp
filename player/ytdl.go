@@ -100,15 +100,16 @@ func InstallYTDLP() error {
 			return cmd.Run()
 		}
 	}
-	// Fallback: pip/pipx
-	if path, err := exec.LookPath("pipx"); err == nil {
-		cmd := exec.Command(path, "install", "yt-dlp")
+	// Fallback: pip/pipx. LookPath only gates availability; the command is
+	// invoked by literal name so the exec'd binary is never a variable.
+	if _, err := exec.LookPath("pipx"); err == nil {
+		cmd := exec.Command("pipx", "install", "yt-dlp")
 		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
 	}
-	if path, err := exec.LookPath("pip3"); err == nil {
-		cmd := exec.Command(path, "install", "yt-dlp")
+	if _, err := exec.LookPath("pip3"); err == nil {
+		cmd := exec.Command("pip3", "install", "yt-dlp")
 		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
@@ -285,6 +286,25 @@ func monitorExit(cmd *exec.Cmd, stderr *limitedBuffer, name string) (<-chan erro
 		}
 	}()
 	return ch, done
+}
+
+// ytdlStreamArgs builds the yt-dlp argument list for downloading a page's
+// best audio to stdout. See ytdlProbeArgs for the "--" guard.
+// Prefer direct HTTPS/HTTP streams over HLS (m3u8). HLS requires segment
+// downloading and muxing which doesn't pipe cleanly to stdout.
+// Live streams (e.g. YouTube live) expose no audio-only formats at all,
+// only muxed video+audio over HLS, so fall back to "best" as a last
+// resort; the ffmpeg stage below outputs PCM audio and drops the video.
+func ytdlStreamArgs(pageURL string) []string {
+	args := []string{
+		"-f", "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio[protocol!=m3u8_native][protocol!=m3u8]/bestaudio/best",
+		"--no-playlist",
+		"--quiet",
+		"--no-warnings",
+		"--socket-timeout", "15",
+		"-o", "-",
+	}
+	return append(args, "--", pageURL)
 }
 
 // decodeYTDLPipe starts a yt-dlp | ffmpeg pipe chain for the given page URL

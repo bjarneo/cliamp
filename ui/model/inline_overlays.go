@@ -156,10 +156,14 @@ func (m Model) activeOverlay() (overlayView, bool) {
 		return overlayView{(*Model).plPickerHeaderLine, (*Model).plPickerHelpLine, (*Model).renderPlaylistPickerBody}, true
 	case m.fileBrowser.visible:
 		return overlayView{(*Model).fbHeaderLine, (*Model).fbHelpLine, (*Model).renderFileBrowserBody}, true
+	case m.artist.visible:
+		return overlayView{(*Model).artistHeaderLine, (*Model).artistHelpLine, (*Model).renderArtistBody}, true
 	case m.spotSearch.visible:
 		return overlayView{(*Model).spotSearchHeaderLine, (*Model).spotSearchHelpLine, (*Model).renderSpotSearchBody}, true
 	case m.navBrowser.visible:
 		return overlayView{(*Model).navHeaderLine, (*Model).navHelpLine, (*Model).renderNavBody}, true
+	case m.home.visible:
+		return overlayView{(*Model).homeHeaderLine, (*Model).homeHelpLine, (*Model).renderHomeBody}, true
 	case m.themePicker.visible:
 		return overlayView{(*Model).themePickerHeaderLine, (*Model).themePickerHelpLine, (*Model).renderThemeBody}, true
 	case m.visPicker.visible:
@@ -580,7 +584,11 @@ func (m Model) renderNetSearchBody() string {
 func (m Model) spotSearchHeaderLine() string {
 	switch m.spotSearch.screen {
 	case spotSearchResults:
-		return sepHeaderN("Results", m.spotSearch.cursor+1, len(m.spotSearch.results))
+		if m.spotSearch.multi && len(m.spotSearch.drill) > 0 {
+			lvl := m.spotSearch.drill[len(m.spotSearch.drill)-1]
+			return sepHeaderN("Results", lvl.cursor+1, m.spotDrillCount(lvl))
+		}
+		return sepHeaderN("Results", m.spotSearch.cursor+1, m.spotResultsListLen())
 	case spotSearchPlaylist:
 		return sepHeaderN("Add to Playlist", m.spotSearch.cursor+1, len(m.spotSearch.playlists)+1)
 	case spotSearchNewName:
@@ -614,6 +622,12 @@ func (m Model) renderSpotSearchBody() string {
 	switch m.spotSearch.screen {
 	case spotSearchResults:
 		switch {
+		case m.spotSearch.multi:
+			if len(m.spotSearch.drill) > 0 {
+				body = m.renderSpotDrillBody(bodyBudget)
+			} else {
+				body = m.renderSpotTabsBody(bodyBudget)
+			}
 		case m.spotSearch.albumLoading:
 			body = bodyLines([]string{loadingLine("Loading album…")}, bodyBudget)
 		case len(m.spotSearch.results) == 0:

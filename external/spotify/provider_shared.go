@@ -20,6 +20,15 @@ const (
 	spotifyTrackPageSize = 50
 	// spotifyAlbumPageSize is the maximum /v1/me/albums accepts per request.
 	spotifyAlbumPageSize = 50
+	// spotifyArtistAlbumsPageSize is 10: the February 2026 API cut
+	// /v1/artists/{id}/albums to a maximum of 10 per request.
+	spotifyArtistAlbumsPageSize = 10
+)
+
+// Synthetic playlist IDs for library rows that are not real playlists.
+const (
+	topTracksID      = "TOP TRACKS"
+	recentlyPlayedID = "RECENTLY PLAYED"
 )
 
 // savedAlbumIDPrefix marks a PlaylistInfo.ID as a saved album rather than a
@@ -54,6 +63,7 @@ type spotifyPlaylistItem struct {
 	} `json:"items"`
 }
 type spotifyArtist struct {
+	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
@@ -87,6 +97,7 @@ type spotifyItem struct {
 	ReleaseDate  string         `json:"release_date"` // episodes carry this at top level
 	DurationMs   int            `json:"duration_ms"`
 	TrackNumber  int            `json:"track_number"`
+	Popularity   int            `json:"popularity"` // 0-100; deprecated but present on full track objects
 	IsPlayable   *bool          `json:"is_playable"`
 	Restrictions struct {
 		Reason string `json:"reason"`
@@ -139,6 +150,7 @@ type spotifyAlbumItem struct {
 	TotalTracks int             `json:"total_tracks"`
 	ReleaseDate string          `json:"release_date"`
 	Artists     []spotifyArtist `json:"artists"`
+	Images      []spotifyImage  `json:"images"`
 }
 
 // albumFromItem converts an album search hit into an album placeholder Track.
@@ -200,12 +212,7 @@ func trackFromItem(t *spotifyItem) playlist.Track {
 	if releaseDate == "" {
 		releaseDate = t.ReleaseDate
 	}
-	var year int
-	if len(releaseDate) >= 4 {
-		if y, err := strconv.Atoi(releaseDate[:4]); err == nil {
-			year = y
-		}
-	}
+	year := releaseYear(releaseDate)
 
 	path := t.URI
 	if path == "" {
@@ -224,4 +231,24 @@ func trackFromItem(t *spotifyItem) playlist.Track {
 		TrackNumber:  t.TrackNumber,
 		Unplayable:   (t.IsPlayable != nil && !*t.IsPlayable) || t.Restrictions.Reason != "",
 	}
+}
+
+// releaseYear parses the leading 4-digit year from a Spotify release_date
+// ("1994", "1994-03-29", "1994-03"); returns 0 when absent or non-numeric.
+func releaseYear(date string) int {
+	if len(date) >= 4 {
+		if y, err := strconv.Atoi(date[:4]); err == nil {
+			return y
+		}
+	}
+	return 0
+}
+
+// itemKey returns the dedupe/cache key for a track item: the canonical URI,
+// falling back to the ID when the URI is absent.
+func itemKey(t *spotifyItem) string {
+	if t.URI != "" {
+		return t.URI
+	}
+	return t.ID
 }

@@ -1,8 +1,10 @@
 package luaplugin
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -401,5 +403,79 @@ func TestExecBinaryNotOnPath(t *testing.T) {
 	}
 	if s := L.GetGlobal("err").String(); !strings.Contains(s, "PATH") {
 		t.Fatalf("err = %q, want PATH mention", s)
+	}
+}
+
+func TestNewPluginCommand(t *testing.T) {
+	bin := "/usr/bin/some-binary"
+	if runtime.GOOS == "windows" {
+		bin = `C:\bin\some-binary.exe`
+	}
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		path    string
+		argv    []string
+		cwd     string
+		wantErr string
+	}{
+		{
+			name: "absolute path pins the binary",
+			path: bin,
+			argv: []string{"-flag", "value", "--flag=value"},
+			cwd:  "",
+		},
+		{
+			name:    "relative path rejected",
+			path:    "bin/some-binary",
+			argv:    []string{"arg"},
+			cwd:     "",
+			wantErr: "absolute",
+		},
+		{
+			name:    "bare name rejected",
+			path:    "some-binary",
+			argv:    []string{"arg"},
+			cwd:     "",
+			wantErr: "absolute",
+		},
+		{
+			name:    "empty argv entry rejected",
+			path:    bin,
+			argv:    []string{"a", "", "b"},
+			cwd:     "",
+			wantErr: "empty",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd, err := newPluginCommand(ctx, tt.path, tt.argv, tt.cwd)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("newPluginCommand(%q, %v) = cmd, want error", tt.path, tt.argv)
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("err = %q, want %q mention", err.Error(), tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("newPluginCommand(%q, %v): %v", tt.path, tt.argv, err)
+			}
+			if cmd.Path != tt.path {
+				t.Fatalf("cmd.Path = %q, want pinned %q", cmd.Path, tt.path)
+			}
+			wantArgs := append([]string{tt.path}, tt.argv...)
+			if !reflect.DeepEqual(cmd.Args, wantArgs) {
+				t.Fatalf("cmd.Args = %v, want %v", cmd.Args, wantArgs)
+			}
+			if tt.cwd != "" && cmd.Dir != tt.cwd {
+				t.Fatalf("cmd.Dir = %q, want %q", cmd.Dir, tt.cwd)
+			}
+			if len(cmd.Env) == 0 {
+				t.Fatal("cmd.Env = empty, want minimal env")
+			}
+		})
 	}
 }

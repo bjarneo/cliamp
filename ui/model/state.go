@@ -217,6 +217,14 @@ type playlistPickerState struct {
 	title     string
 	newName   string
 	inputErr  string
+
+	// Remote section (appended when every selected track belongs to a
+	// provider that implements provider.PlaylistWriter).
+	remoteProv    playlist.Provider
+	remoteName    string                  // provider display name; "" = no remote section
+	remote        []playlist.PlaylistInfo // remote playlists to write to
+	remoteLoading bool                    // remote list fetch in flight
+	newNameRemote bool                    // new-name screen targets the remote provider
 }
 
 // fileBrowserState holds state for the file browser overlay.
@@ -286,6 +294,19 @@ type requestState struct {
 	catalog      uint64
 	stream       uint64
 	preload      uint64
+	provMutation uint64 // provider playlist writes (delete/unfollow/rename/remove)
+	like         uint64 // track like/unlike toggles
+	follow       uint64 // artist/playlist follow toggles
+	smart        uint64 // Smart Shuffle recommendation fetches
+	artist       uint64 // artist screen detail and discography drill fetches
+	// Home sidebar fetches use one generation per section so a lazy album
+	// page or creation refetch cannot make in-flight list/artist fetches
+	// stale (stale drops would leave their loading flags stuck on).
+	homeLists   uint64 // Home playlist-list fetches and creation refetches
+	homeAlbums  uint64 // Home album pages and sort refetches
+	homeArtists uint64 // Home artist-list fetches
+	homeCreate  uint64 // Home new-playlist creation
+	homeContent uint64 // Home content pane loads and incremental paging
 }
 
 func nextRequest(gen *uint64) uint64 {
@@ -302,6 +323,32 @@ const (
 	spotSearchPlaylist                             // picking a playlist to add to
 	spotSearchNewName                              // typing new playlist name
 )
+
+// spotSearchTab identifies a result tab when the searched provider implements
+// provider.MultiSearcher.
+type spotSearchTab int
+
+const (
+	spotTabTracks spotSearchTab = iota
+	spotTabAlbums
+	spotTabArtists
+	spotTabPlaylists
+	spotTabCount
+)
+
+var spotTabLabels = [spotTabCount]string{"Tracks", "Albums", "Artists", "Playlists"}
+
+// spotDrillLevel is one drilled-in list inside the multi-type search results.
+// A level lists either albums or tracks; tracks levels carry the same row
+// actions as the search track tab.
+type spotDrillLevel struct {
+	crumb   string // one-line label of what was entered, e.g. "Album — Rumours"
+	albums  []provider.AlbumInfo
+	tracks  []playlist.Track
+	loading bool
+	cursor  int
+	scroll  int
+}
 
 // spotSearchState holds state for the provider search + add-to-playlist overlay.
 type spotSearchState struct {
@@ -321,6 +368,40 @@ type spotSearchState struct {
 	newName      string                  // new playlist name input
 	err          string
 	cancel       func()
+	multi        bool                   // provider implements MultiSearcher
+	resultsAll   provider.SearchResults // multi-type results backing the tab bar
+	tab          spotSearchTab          // active result tab (multi only)
+	drill        []spotDrillLevel       // drill-down stack (multi only)
+}
+
+// artistSortMode identifies the ordering of the artist screen's Popular
+// section; `s` cycles through them.
+type artistSortMode int
+
+const (
+	artistSortPopularity artistSortMode = iota // popularity score, descending
+	artistSortRecency                          // Track.Year, descending
+	artistSortLikedFirst                       // liked rows first, stable by popularity
+	artistSortCount
+)
+
+var artistSortLabels = [artistSortCount]string{"popularity", "recency", "liked"}
+
+// artistScreenState holds the artist profile overlay. It opens on top of
+// whichever surface drilled into it (search results, nav browser, later Home)
+// and owns its own album drill stack for Discography rows, reusing the
+// search drill machinery (spotDrillLevel crumbs; Esc pops one level).
+type artistScreenState struct {
+	prov    playlist.Provider // provider the artist belongs to
+	visible bool
+	info    provider.ArtistInfo // identity of the opened artist
+	loading bool                // ArtistDetail fetch in flight
+	detail  provider.ArtistDetail
+	sort    artistSortMode   // ordering of the Popular section
+	cursor  int              // index over selectable section rows (headers skipped)
+	scroll  int              // first visible selectable row
+	drill   []spotDrillLevel // Discography album drill stack
+	cancel  func()           // context cancel of the in-flight request
 }
 
 // catalogBatchState holds state for lazy-loading catalog entries from a provider.CatalogLoader.
@@ -328,6 +409,30 @@ type catalogBatchState struct {
 	offset  int  // next offset to fetch
 	loading bool // true while a fetch is in flight
 	done    bool // true when all stations have been loaded
+}
+
+// provConfirmState holds the inline delete/unfollow confirmation on the
+// provider playlist pane.
+type provConfirmState struct {
+	active     bool
+	playlistID string
+	name       string
+	owned      bool
+}
+
+// provListFixupState names a cursor adjustment to apply when the next
+// playlistsLoadedMsg arrives from a write-triggered refresh.
+type provListFixupState struct {
+	clampCursor bool   // unfollow: keep provCursor in range after the list shrinks
+	selectID    string // rename: move provCursor onto this playlist row
+}
+
+// provRenameState holds the inline rename input on the provider playlist pane.
+type provRenameState struct {
+	active     bool
+	playlistID string
+	oldName    string
+	name       string
 }
 
 // ytdlBatchState holds state for incremental yt-dlp playlist loading.

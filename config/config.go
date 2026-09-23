@@ -108,10 +108,11 @@ func (l LyrionConfig) IsSet() bool {
 // who never registered their own developer app — see Spotify's Nov 27, 2024
 // dev-mode quota restriction.
 type SpotifyConfig struct {
-	Disabled bool   // true only when user explicitly sets enabled = false
-	Enabled  bool   // true when [spotify] section exists (even without client_id)
-	ClientID string // Spotify Developer app client ID (overrides built-in fallback)
-	Bitrate  int    // preferred Spotify stream bitrate in kbps
+	Disabled  bool   // true only when user explicitly sets enabled = false
+	Enabled   bool   // true when [spotify] section exists (even without client_id)
+	ClientID  string // Spotify Developer app client ID (overrides built-in fallback)
+	Bitrate   int    // preferred Spotify stream bitrate in kbps
+	AlbumSort string // album browse sort order
 }
 
 // IsSet reports whether the Spotify provider should be shown. Section presence
@@ -134,9 +135,10 @@ func (s SpotifyConfig) ResolveClientID(fallbackID string) string {
 // key are scraped automatically from the Qobuz web player, so no developer
 // credentials are needed. Sign-in is an interactive OAuth browser flow.
 type QobuzConfig struct {
-	Disabled bool // true only when user explicitly sets enabled = false
-	Enabled  bool // true when [qobuz] section exists
-	Quality  int  // preferred stream format_id: 5 (MP3 320), 6 (FLAC CD), 7 (Hi-Res <=96kHz), 27 (Hi-Res <=192kHz)
+	Disabled   bool   // true only when user explicitly sets enabled = false
+	Enabled    bool   // true when [qobuz] section exists
+	Quality    int    // preferred stream format_id: 5 (MP3 320), 6 (FLAC CD), 7 (Hi-Res <=96kHz), 27 (Hi-Res <=192kHz)
+	PrivateKey string // fallback OAuth private key when the web-player bundle scrape fails
 }
 
 // IsSet reports whether the Qobuz provider should be shown. Section presence
@@ -354,6 +356,7 @@ type Config struct {
 	EQPreset         string      // preset name, or "" for custom
 	Repeat           string      // "off", "all", or "one"
 	Shuffle          bool
+	SmartShuffle     bool // start with Smart Shuffle on (implies shuffle)
 	Mono             bool
 	Speed            float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
 	AutoPlay         bool                         // start playback automatically on launch (radio streams, CLI tracks)
@@ -530,6 +533,8 @@ func Load() (Config, error) {
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.Spotify.Bitrate = v
 				}
+			case "album_sort":
+				cfg.Spotify.AlbumSort = parseString(val)
 			}
 		case "qobuz":
 			switch key {
@@ -539,6 +544,8 @@ func Load() (Config, error) {
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.Qobuz.Quality = v
 				}
+			case "private_key":
+				cfg.Qobuz.PrivateKey = parseString(val)
 			}
 		case "tidal":
 			switch key {
@@ -704,6 +711,8 @@ func Load() (Config, error) {
 				}
 			case "shuffle":
 				cfg.Shuffle = val == "true"
+			case "smart_shuffle":
+				cfg.SmartShuffle = val == "true"
 			case "mono":
 				cfg.Mono = val == "true"
 			case "auto_play":
@@ -859,6 +868,14 @@ func SaveNavidromeSort(sortType string) error {
 	return saveSectionValue("navidrome", "browse_sort", strconv.Quote(sortType))
 }
 
+// SaveSpotifySort persists the given album browse sort type to the
+// [spotify] section of the config file. It rewrites the album_sort key
+// in-place, or appends it after the [spotify] section if not present.
+// If no [spotify] section exists, one is appended along with the key.
+func SaveSpotifySort(sortType string) error {
+	return saveSectionValue("spotify", "album_sort", strconv.Quote(sortType))
+}
+
 // SaveRadioCountry persists the listener's home country in the [radio] section
 // so the choice survives a restart. Pass "" to record that detection should be
 // turned off.
@@ -968,6 +985,7 @@ type PlayerConfig interface {
 type PlaylistConfig interface {
 	CycleRepeat()
 	ToggleShuffle()
+	EnableSmart()
 }
 
 // ApplyPlayer applies audio-engine settings from the config.
@@ -996,8 +1014,12 @@ func (c Config) ApplyPlaylist(pl PlaylistConfig) {
 		pl.CycleRepeat() // off -> all
 		pl.CycleRepeat() // all -> one
 	}
-	if c.Shuffle {
+	if c.Shuffle || c.SmartShuffle {
+		// Smart Shuffle implies shuffle: without it, smart injections no-op.
 		pl.ToggleShuffle()
+	}
+	if c.SmartShuffle {
+		pl.EnableSmart()
 	}
 }
 

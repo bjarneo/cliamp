@@ -57,7 +57,14 @@ cliamp uses a built-in `client_id`. [librespot](https://github.com/librespot-org
 
 After authentication, Spotify appears in the provider list. Press `Esc`/`b` to open the provider browser and select Spotify.
 
-The provider panel lists your Spotify playlists and saved albums. Use the arrow keys to select one and press `Enter` to load it. Tracks stream through the cliamp audio pipeline. EQ, the visualizer, mono, and other effects work as they do for local files.
+The provider panel groups your library under four headers:
+
+- **Library**: `Your Music` (liked songs), `Top Tracks` (roughly the last four weeks of listening, up to 200 tracks), and `Recently Played` (your last 50 plays, deduplicated).
+- **Your playlists**: playlists you own.
+- **Followed playlists**: playlists you've saved from other people.
+- **Saved albums**: albums in your library; each one expands to its track list.
+
+Navigate with the arrow keys and press `Enter` to load one. Tracks are streamed through cliamp's audio pipeline, so EQ, visualizer, mono, and all other effects work exactly as with local files.
 
 ## Controls
 
@@ -67,6 +74,13 @@ When focused on the provider panel:
 |---|---|
 | `Up` `Down` / `j` `k` | Navigate playlists |
 | `Enter` | Load the selected playlist |
+| `/` | Filter the playlist list |
+| `Ctrl+R` | Refresh the playlist list |
+| `N` | Open the library browser (Spotify: artists, albums, and the artist page) |
+| `H` | Open the Home view |
+| `Ctrl+F` | Search Spotify |
+| `D` | Delete (owned) / unfollow (followed) the highlighted playlist, after an inline confirm |
+| `r` | Rename the highlighted playlist you own |
 | `Tab` | Return to playback controls, starting at Source when visible ([navigation](keybindings.md#navigation)) |
 | `Esc` / `b` | Open provider browser |
 
@@ -74,11 +88,55 @@ After you load a playlist, Cliamp returns to the standard playlist view. Use the
 
 Large playlists fill in as they load. Cliamp shows the first tracks, appends the remaining pages in the background, and stays usable while the list arrives.
 
+## Smart Shuffle
+
+Press `Z` in the main view to toggle Smart Shuffle; lowercase `z` remains plain shuffle. Smart Shuffle works on Spotify queues only — cliamp resolves the provider that owns the queue, and other providers get a toast.
+
+Turning it on also enables shuffle if it is off, and immediately tops the queue up with recommendations so the effect is visible right away. Further recommendations mix in near the end of the queue as it drains: injected rows are marked ✚, a `[Smart N]` chip beside `[Shuffle]` shows how many are pending, and each injection announces itself (`Smart Shuffle: +N queued`). Turning it off removes recommended rows that have not played yet and reports how many went (`Smart Shuffle off (-N queued)`); the current track and anything already played stay. A recommended track never repeats within a session, and recommendation failures back off quietly — playback is never interrupted.
+
+The setting is saved as `smart_shuffle` in `~/.config/cliamp/config.toml` (top level, beside `shuffle`) and restored on the next launch; like the `Z` key, it implies shuffle.
+
+## Library Browser
+
+Press `N` at any time (or from the provider panel) to open the full-screen Spotify library browser. It lets you explore your library in three modes:
+
+- **By Album**: browse the albums saved in Your Music, then open any album to see its tracks.
+- **By Artist**: browse the artists you follow; selecting one opens their artist page (see below).
+- **By Artist / Album**: same artist list — selecting one opens the artist page, whose Discography section replaces the album-list drill-down.
+
+Artist discographies include albums and singles only; "appears on" and compilation entries are not listed. Artist rows show no album count because Spotify doesn't report one.
+
+### Browser controls
 ## Playlists and albums
 
 The provider lists both playlists and saved albums in the Spotify library. Playlists include those you created and saved, or followed. If a public playlist is missing, open Spotify and click **Save** first. You do not need to copy tracks to a new playlist.
 
 Saved albums appear under a **Saved albums** section, labelled `Artist - Album` and sorted alphabetically by artist. These are the albums in **Your Library**. To add one, open the album in Spotify and click **Save**. Selecting a saved album loads all of its tracks in disc and track order.
+
+Spotify's current API returns a playlist's items only for playlists you own or collaborate on. Opening any other playlist — one you follow, or one found in search results — may fail with an error.
+
+### Write operations
+
+Write actions apply to your Spotify account and require the same Premium account as playback:
+
+| Key | Where | Action |
+|---|---|---|
+| `*` | Queue, library browser track list, artist page, Home view | Like/unlike the highlighted track |
+| `S` | Search results and drill lists, artist page | Like/unlike the highlighted track |
+| `x` | Queue mirroring a loaded Spotify playlist | Remove the track from the remote playlist |
+| `p` | Search results and drill lists, artist page, Home view | Add the track to a Spotify playlist |
+| `w` | Queue | Save tracks through the playlist picker, which offers a "Spotify Playlists" section (plus new-playlist creation) when the selected tracks are Spotify tracks; selections are added in batches |
+| `D` | Provider panel, playlist row | Delete an owned playlist / unfollow a followed one |
+| `r` | Provider panel, owned playlist row | Rename the playlist (inline input, prefilled) |
+| `f` | Library browser artist list, search Artists tab, artist page | Follow/unfollow the artist |
+| `f` | Search Playlists tab | Follow/unfollow the playlist (followed playlists only — owned rows point you to `D` in the provider pane) |
+
+Notes:
+
+- Likes are for music tracks only; podcast episodes can't be liked from cliamp.
+- `x` refuses with a toast when the queue is shuffled or the row is outside the mirrored playlist; local playlists keep the plain remove behavior. Remote removal targets the track's URI rather than its position, so a track added to a playlist more than once is removed at every occurrence.
+- Spotify returns `403` for modifications to a followed playlist you don't own, so rename and track removal apply to playlists you own. Following and unfollowing work on any playlist.
+- **Unfollowing a playlist you own deletes it** — that's Spotify's semantics. The `D` confirm prompt says "Delete playlist" for owned rows and "Unfollow playlist" for followed ones; `Enter`/`y` confirms and any other key cancels.
 
 ## Podcasts
 

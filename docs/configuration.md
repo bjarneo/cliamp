@@ -42,6 +42,9 @@ repeat = "off"
 # Start with shuffle enabled
 shuffle = false
 
+# Start with Smart Shuffle enabled (Spotify; implies shuffle)
+smart_shuffle = false
+
 # Start with mono output (L+R downmix)
 mono = false
 

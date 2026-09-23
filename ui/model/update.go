@@ -330,6 +330,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Gapless advances without calling playTrack(), so emit now-playing here.
 			m.nowPlaying(newTrack)
 			cmds = append(cmds, m.preloadNext())
+			if cmd := m.smartMaybeFetch(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 			m.notifyAll()
 		}
 		m.tickResumeSave(now)
@@ -375,6 +378,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		}
+		// Smart Shuffle: while playing, top up the queue when the upcoming
+		// smart cushion runs low (guarded dispatch; see smart.go).
+		if m.player.IsPlaying() && !m.player.IsPaused() {
+			if cmd := m.smartMaybeFetch(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
 
 		m.advanceTerminalTitle()
 		cmds = append(cmds, tickCmdAt(m.tickInterval()))
@@ -401,6 +411,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.provLoading = m.provSearch.loading
 		if msg.err != nil {
+			m.provListFixup = provListFixupState{}
 			if errors.Is(msg.err, playlist.ErrNeedsAuth) {
 				m.provSignIn = true
 				m.err = nil
@@ -471,8 +482,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			msg.tracks = m.playlist.Tracks()
 		}
 		m.applyTracksResume(msg)
+		// Remote provider load: the queue mirrors the playlist in load order,
+		// enabling remote writes (x remove) up to its length. On continuation
+		// pages msg.tracks is the accumulated list, so the mirror tracks each
+		// page as it lands.
+		if m.loadedPlaylist != "" {
+			m.providerQueueLen = 0
+			m.providerQueueLastPath = ""
+		} else {
+			m.providerQueueLen = len(msg.tracks)
+			m.providerQueueLastPath = ""
+			if len(msg.tracks) > 0 {
+				m.providerQueueLastPath = msg.tracks[len(msg.tracks)-1].Path
+			}
+		}
 		m.adjustScroll()
 		m.notifyAll()
+
+	case smartRecommendsMsg:
+		m.handleSmartRecommends(msg)
 		return m, nil
 
 	case navArtistsLoadedMsg:
@@ -647,6 +675,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.retireTracksPaging()
 		m.replacePlaylist(msg.tracks)
 		m.loadedPlaylist = ""
+		m.resetProviderQueueMirror()
 		m.setHeaderStateFromTracks(msg.tracks)
 		m.plCursor = 0
 		m.plScroll = 0
@@ -748,8 +777,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		if msg.toPlaylist {
-			m.openPlaylistPicker(msg.tracks, fmt.Sprintf("%d tracks selected", len(msg.tracks)))
-			return m, nil
+			return m, m.openPlaylistPicker(msg.tracks, fmt.Sprintf("%d tracks selected", len(msg.tracks)))
 		}
 		if msg.replace {
 			m.player.Stop()
@@ -758,6 +786,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.retireTracksPaging()
 			m.replacePlaylist(msg.tracks)
 			m.loadedPlaylist = ""
+			m.resetProviderQueueMirror()
 			m.setHeaderStateFromTracks(msg.tracks)
 			m.plCursor = 0
 			m.plScroll = 0
@@ -943,6 +972,324 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.closeSpotSearch()
 		return m, nil
 
+	case spotSearchAllMsg:
+		if !m.isCurrentSpotRequest(msg.gen, msg.providerName) || m.spotSearch.query != msg.query {
+			return m, nil
+		}
+		m.cancelSpotRequest()
+		m.spotSearch.loading = false
+		m.spotSearch.cursor = 0
+		m.spotSearch.scroll = 0
+		m.spotSearch.tab = spotTabTracks
+		m.spotSearch.drill = nil
+		if msg.err != nil {
+			m.spotSearch.err = msg.err.Error()
+			return m, nil
+		}
+		m.spotSearch.resultsAll = msg.results
+		m.spotSearch.screen = spotSearchResults
+		if m.spotSearch.resultsAllCount() == 0 {
+			m.spotSearch.err = "No results found"
+		}
+		m.applyHeightMode()
+		m.clampActiveScrollState()
+		return m, nil
+
+	case spotDrillLoadedMsg:
+		if !m.isCurrentSpotRequest(msg.gen, msg.providerName) || len(m.spotSearch.drill) == 0 {
+			return m, nil
+		}
+		lvl := &m.spotSearch.drill[len(m.spotSearch.drill)-1]
+		if lvl.crumb != msg.crumb {
+			return m, nil
+		}
+		lvl.loading = false
+		if msg.err != nil {
+			m.spotSearch.drill = m.spotSearch.drill[:len(m.spotSearch.drill)-1]
+			m.spotSearch.err = "Load failed: " + msg.err.Error()
+			return m, nil
+		}
+		lvl.albums = msg.albums
+		lvl.tracks = msg.tracks
+		lvl.cursor = 0
+		lvl.scroll = 0
+		if m.spotDrillCount(*lvl) == 0 {
+			m.spotSearch.err = "No tracks found"
+		}
+		m.applyHeightMode()
+		m.clampActiveScrollState()
+		return m, nil
+
+	case artistDetailMsg:
+		if !m.isCurrentArtistRequest(msg.gen, msg.providerName) || msg.artistID != m.artist.info.ID {
+			return m, nil
+		}
+		m.cancelArtistRequest()
+		m.artist.loading = false
+		if msg.err != nil {
+			m.status.Showf(statusTTLDefault, "Artist load failed: %s", msg.err)
+			m.closeArtistScreen()
+			return m, nil
+		}
+		m.artist.detail = msg.detail
+		m.artist.cursor = 0
+		m.artist.scroll = 0
+		m.applyHeightMode()
+		m.clampActiveScrollState()
+		return m, nil
+
+	case artistAlbumTracksMsg:
+		if !m.isCurrentArtistRequest(msg.gen, msg.providerName) || msg.artistID != m.artist.info.ID || len(m.artist.drill) == 0 {
+			return m, nil
+		}
+		lvl := &m.artist.drill[len(m.artist.drill)-1]
+		if lvl.crumb != msg.crumb {
+			return m, nil
+		}
+		lvl.loading = false
+		if msg.err != nil {
+			m.artist.drill = m.artist.drill[:len(m.artist.drill)-1]
+			m.status.Showf(statusTTLDefault, "Album load failed: %s", msg.err)
+			return m, nil
+		}
+		lvl.tracks = msg.tracks
+		lvl.cursor = 0
+		lvl.scroll = 0
+		if len(lvl.tracks) == 0 {
+			m.status.Show("No tracks found", statusTTLDefault)
+		}
+		m.applyHeightMode()
+		m.clampActiveScrollState()
+		return m, nil
+
+	case homeListsMsg:
+		if !m.isCurrentHomeSectionRequest(msg.gen, msg.providerName, &m.requests.homeLists) {
+			return m, nil
+		}
+		m.handleHomeLists(msg)
+		return m, nil
+
+	case homeAlbumsMsg:
+		if !m.isCurrentHomeSectionRequest(msg.gen, msg.providerName, &m.requests.homeAlbums) {
+			return m, nil
+		}
+		m.handleHomeAlbums(msg)
+		return m, nil
+
+	case homeArtistsMsg:
+		if !m.isCurrentHomeSectionRequest(msg.gen, msg.providerName, &m.requests.homeArtists) {
+			return m, nil
+		}
+		m.handleHomeArtists(msg)
+		return m, nil
+
+	case homeContentMsg:
+		if !m.isCurrentHomeContentRequest(msg.gen, msg.providerName, msg.kind, msg.id) {
+			return m, nil
+		}
+		return m, m.handleHomeContent(msg)
+
+	case homePageMsg:
+		if !m.isCurrentHomeContentRequest(msg.gen, msg.providerName, homeContentPlaylist, msg.playlistID) {
+			return m, nil
+		}
+		return m, m.handleHomePage(msg)
+
+	case homeCreatedMsg:
+		if !m.isCurrentHomeSectionRequest(msg.gen, msg.providerName, &m.requests.homeCreate) {
+			return m, nil
+		}
+		m.home.creating = false
+		if msg.err != nil {
+			m.home.inputErr = "Create failed: " + msg.err.Error()
+			return m, nil
+		}
+		m.status.Showf(statusTTLDefault, "Created %q", msg.name)
+		m.home.screen = homeScreenLibrary
+		m.home.newName = ""
+		m.home.inputErr = ""
+		m.home.fixupID = msg.playlistID
+		m.home.loadingLists = true
+		return m, fetchHomeListsCmd(m.home.prov, msg.providerName, nextRequest(&m.requests.homeLists))
+
+	case trackLikeToggledMsg:
+		if msg.gen != m.requests.like {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.status.Showf(statusTTLDefault, "Like failed: %s", msg.err)
+			return m, nil
+		}
+		if msg.liked {
+			m.status.Success("Added to liked tracks", statusTTLDefault)
+		} else {
+			m.status.Success("Removed from liked tracks", statusTTLDefault)
+		}
+		return m, nil
+
+	case playlistUnfollowedMsg:
+		if msg.gen != m.requests.provMutation || !m.isActiveProvider(msg.providerName) {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.status.Showf(statusTTLDefault, "Delete failed: %s", msg.err)
+			return m, nil
+		}
+		if msg.owned {
+			m.status.Showf(statusTTLDefault, "Deleted %q", msg.name)
+		} else {
+			m.status.Showf(statusTTLDefault, "Unfollowed %q", msg.name)
+		}
+		if msg.playlistID == m.activeProviderPlaylistID {
+			m.resetProviderQueueMirror()
+		}
+		// Refresh the list off the Update goroutine; the resulting
+		// playlistsLoadedMsg clamps the cursor to the shrunken list.
+		m.provListFixup = provListFixupState{clampCursor: true}
+		return m, m.fetchProviderPlaylists()
+
+	case playlistRenamedMsg:
+		if msg.gen != m.requests.provMutation || !m.isActiveProvider(msg.providerName) {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.status.Showf(statusTTLDefault, "Rename failed: %s", msg.err)
+			return m, nil
+		}
+		m.status.Showf(statusTTLDefault, "Renamed to %q", msg.newName)
+		// Refresh the list off the Update goroutine; the resulting
+		// playlistsLoadedMsg reselects the renamed row.
+		m.provListFixup = provListFixupState{selectID: msg.playlistID}
+		return m, m.fetchProviderPlaylists()
+
+	case remoteTrackRemovedMsg:
+		// Removes are matched against the queue mirror (playlist + position +
+		// track) rather than only the mutation generation: a second remove
+		// issued while one is in flight bumps the generation and would
+		// otherwise discard the first completion after the remote removal
+		// already succeeded.
+		if !m.isActiveProvider(msg.providerName) {
+			return m, nil
+		}
+		if msg.err != nil {
+			if msg.gen == m.requests.provMutation {
+				m.status.Showf(statusTTLDefault, "Remove failed: %s", msg.err)
+			}
+			return m, nil
+		}
+		if msg.gen == m.requests.provMutation {
+			m.status.Successf(statusTTLDefault, "Removed from playlist: %s", msg.trackName)
+		}
+		wasActive := msg.position == m.playlist.Index()
+		if tracks := m.playlist.Tracks(); msg.playlistID == m.activeProviderPlaylistID &&
+			msg.position >= 0 && msg.position < len(tracks) && tracks[msg.position].Path == msg.trackPath {
+			m.playlist.Remove(msg.position)
+			if m.providerQueueLen > msg.position {
+				m.providerQueueLen--
+			}
+			if tracks := m.playlist.Tracks(); m.providerQueueLen > 0 && m.providerQueueLen <= len(tracks) {
+				m.providerQueueLastPath = tracks[m.providerQueueLen-1].Path
+			} else {
+				m.providerQueueLastPath = ""
+			}
+			if newLen := m.playlist.Len(); newLen == 0 {
+				m.plCursor = 0
+			} else if m.plCursor >= newLen {
+				m.plCursor = newLen - 1
+			}
+			if wasActive {
+				m.player.Stop()
+				m.player.ClearPreload()
+				m.clearPlaybackTrack()
+			}
+			m.adjustScroll()
+		} else if msg.gen == m.requests.provMutation {
+			// Freshest completion failed the mirror check: the queue no longer
+			// matches the remote playlist, so disarm remote removes.
+			m.providerQueueLen = 0
+			m.providerQueueLastPath = ""
+		}
+		for i := range m.providerLists {
+			if m.providerLists[i].ID == msg.playlistID && m.providerLists[i].TrackCount > 0 {
+				m.providerLists[i].TrackCount--
+			}
+		}
+		return m, nil
+
+	case artistFollowedMsg:
+		if msg.gen != m.requests.follow {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.status.Showf(statusTTLDefault, "Follow failed: %s", msg.err)
+			return m, nil
+		}
+		m.setFollowed(followKey("artist", msg.providerName, msg.artistID), msg.follow)
+		if msg.follow {
+			m.status.Showf(statusTTLDefault, "Following %s", msg.artistName)
+		} else {
+			m.status.Showf(statusTTLDefault, "Unfollowed %s", msg.artistName)
+		}
+		// Refresh the nav artist list when it is showing this provider's artists.
+		if ab, ok := m.navArtistBrowserFor(msg.providerName); ok {
+			return m, fetchNavArtistsCmd(ab, m.nextNavRequest())
+		}
+		return m, nil
+
+	case playlistFollowedMsg:
+		if msg.gen != m.requests.follow {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.status.Showf(statusTTLDefault, "Follow failed: %s", msg.err)
+			return m, nil
+		}
+		m.setFollowed(followKey("playlist", msg.providerName, msg.playlistID), msg.follow)
+		if msg.follow {
+			m.status.Showf(statusTTLDefault, "Followed playlist %q", msg.playlistName)
+		} else {
+			m.status.Showf(statusTTLDefault, "Unfollowed playlist %q", msg.playlistName)
+		}
+		if m.provider != nil && m.provider.Name() == msg.providerName {
+			return m, m.fetchProviderPlaylists()
+		}
+		return m, nil
+
+	case plPickerRemoteMsg:
+		if !m.plPicker.visible || m.plPicker.remoteName != msg.providerName || !m.plPicker.remoteLoading {
+			return m, nil
+		}
+		m.plPicker.remoteLoading = false
+		if msg.err != nil {
+			m.status.Showf(statusTTLDefault, "%s playlists unavailable: %s", msg.providerName, msg.err)
+			return m, nil
+		}
+		m.plPicker.remote = filterRemotePickerPlaylists(msg.playlists)
+		m.plPickerMaybeAdjustScroll(m.plPickerVisible())
+		return m, nil
+
+	case pickerRemoteWriteMsg:
+		if msg.err != nil {
+			m.status.Showf(statusTTLDefault, "Add failed: %s", msg.err)
+			return m, nil
+		}
+		switch {
+		case msg.created && msg.added > 0:
+			m.status.Showf(statusTTLBatch, "Created %q & added %d tracks", msg.name, msg.added)
+		case msg.created:
+			m.status.Showf(statusTTLDefault, "Created %q", msg.name)
+		case msg.added > 0 && msg.skipped > 0:
+			m.status.Showf(statusTTLBatch, "Added %d to %q, skipped %d duplicates", msg.added, msg.name, msg.skipped)
+		case msg.added > 0:
+			m.status.Showf(statusTTLDefault, "Added %d to %q", msg.added, msg.name)
+		default:
+			m.status.Showf(statusTTLDefault, "Nothing added to %q", msg.name)
+		}
+		if m.provider != nil && m.provider.Name() == msg.providerName {
+			return m, m.fetchProviderPlaylists()
+		}
+		return m, nil
+
 	case provAuthDoneMsg:
 		if msg.gen != m.requests.auth || !m.isActiveProvider(msg.providerName) {
 			return m, nil
@@ -1089,6 +1436,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.retireTracksPaging()
 		m.replacePlaylist(tracks)
+		m.resetProviderQueueMirror()
 		m.setHeaderStateFromTracks(tracks)
 		if msg.Playlist != history.PlaylistName {
 			m.loadedPlaylist = msg.Playlist

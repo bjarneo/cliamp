@@ -74,6 +74,17 @@ type SpotifyProvider struct {
 	// Playlist list cache to avoid redundant API calls on provider switch.
 	listCache   []playlist.PlaylistInfo
 	listCacheAt time.Time
+
+	// Saved-album list cache backing AlbumList (browse.go).
+	browseSort   string // persisted album sort ID; empty until first read/save
+	albumCache   []provider.AlbumInfo
+	albumCacheAt time.Time
+
+	// Library-row track caches (pager.go).
+	topTracks      []playlist.Track
+	topTracksAt    time.Time
+	recentTracks   []playlist.Track
+	recentTracksAt time.Time
 }
 
 const playlistListCacheTTL = 5 * time.Minute
@@ -177,6 +188,12 @@ func (p *SpotifyProvider) Close() {
 func (p *SpotifyProvider) resetSessionScopedStateLocked() {
 	p.userID = ""
 	p.meFetched = false
+	p.albumCache = nil
+	p.albumCacheAt = time.Time{}
+	p.topTracks = nil
+	p.topTracksAt = time.Time{}
+	p.recentTracks = nil
+	p.recentTracksAt = time.Time{}
 }
 
 func (p *SpotifyProvider) Name() string { return "Spotify" }
@@ -255,6 +272,26 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 		Section:    "Library",
 	})
 
+	// Synthetic Library rows backed by playback-history endpoints. Best-effort:
+	// when a probe fails (scope missing, network error) the row is silently
+	// omitted rather than failing the whole listing.
+	if n, ok := p.probeTopTracksCount(ctx); ok {
+		all = append(all, playlist.PlaylistInfo{
+			ID:         topTracksID,
+			Name:       "Top Tracks",
+			TrackCount: n,
+			Section:    "Library",
+		})
+	}
+	if n, ok := p.probeRecentlyPlayedCount(ctx); ok {
+		all = append(all, playlist.PlaylistInfo{
+			ID:         recentlyPlayedID,
+			Name:       "Recently Played",
+			TrackCount: n,
+			Section:    "Library",
+		})
+	}
+
 	for {
 		query := url.Values{
 			"limit":  {fmt.Sprintf("%d", limit)},
@@ -281,8 +318,9 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 			if item.Items != nil {
 				count = item.Items.Total
 			}
+			owned := userID != "" && item.Owner.ID == userID
 			section := "Followed playlists"
-			if userID != "" && item.Owner.ID == userID {
+			if owned {
 				section = "Your playlists"
 			}
 			all = append(all, playlist.PlaylistInfo{
@@ -290,6 +328,7 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 				Name:       item.Name,
 				TrackCount: count,
 				Section:    section,
+				Owned:      owned,
 			})
 			// Update snapshot_id in cache; if it changed, invalidate cached tracks.
 			if cached, ok := p.trackCache[item.ID]; ok {
@@ -408,6 +447,9 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 
 	if albumID, ok := isSavedAlbumID(playlistID); ok {
 		return p.AlbumTracks(albumID)
+	}
+	if isLibraryRowID(playlistID) {
+		return p.libraryRowTracks(playlistID)
 	}
 	// Check cache — if we have tracks and the snapshot_id hasn't changed, return cached.
 	p.mu.Lock()
@@ -604,6 +646,11 @@ func (p *SpotifyProvider) TracksPage(playlistID string, offset int) ([]playlist.
 	if albumID, ok := isSavedAlbumID(playlistID); ok {
 		tracks, err := p.AlbumTracks(albumID)
 		return tracks, 0, err
+	}
+	// Synthetic library rows (top tracks, recently played) are cached wholes
+	// served in windows; no playlist-items endpoint sits behind them.
+	if isLibraryRowID(playlistID) {
+		return p.libraryRowPage(playlistID, offset)
 	}
 	p.mu.Lock()
 	var tracks []playlist.Track
@@ -1014,6 +1061,13 @@ func (p *SpotifyProvider) AlbumTracksContext(ctx context.Context, albumID string
 			if track.Artist == "" {
 				track.Artist = placeholder.Artist
 			}
+			// Simplified album-track items carry no art or stable ID of their
+			// own; the album fetch supplies the cover and metaSpotifyID keys
+			// remote writes (like/unlike, playlist removes) resolve against.
+			if track.AlbumArtURL == "" {
+				track.AlbumArtURL = pickCoverImage(album.Images)
+			}
+			track.ProviderMeta = map[string]string{metaSpotifyID: item.ID}
 			tracks = append(tracks, track)
 		}
 		if len(page) < spotifyTrackPageSize {
