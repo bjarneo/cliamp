@@ -10,6 +10,8 @@ import (
 	"github.com/bjarneo/cliamp/internal/playback"
 )
 
+// TestHotkeyMsg checks that each hotkey ID, including its Win-held twin,
+// maps to the right playback message, and that an unknown ID is rejected.
 func TestHotkeyMsg(t *testing.T) {
 	tests := []struct {
 		name string
@@ -41,6 +43,8 @@ func TestHotkeyMsg(t *testing.T) {
 	}
 }
 
+// TestHotkeyModifiers checks that the Win-held hotkey IDs register with
+// MOD_WIN added, and every other ID stays modNoRepeat-only.
 func TestHotkeyModifiers(t *testing.T) {
 	winHeldIDs := map[int]bool{
 		hotkeyIDPlayPauseWin: true,
@@ -61,6 +65,8 @@ func TestHotkeyModifiers(t *testing.T) {
 	}
 }
 
+// TestServiceUpdateAndSeekedAreNoOps checks that Update and Seeked never
+// send a playback message, since Windows has no now-playing metadata to report.
 func TestServiceUpdateAndSeekedAreNoOps(t *testing.T) {
 	svc, err := New(func(tea.Msg) { t.Fatal("send() should not be called by Update/Seeked") })
 	if err != nil {
@@ -72,6 +78,8 @@ func TestServiceUpdateAndSeekedAreNoOps(t *testing.T) {
 	svc.Seeked(0)
 }
 
+// TestNewRegistersHotkeysBeforeReturning checks that New doesn't return
+// until the message loop has registered its hotkeys and reported its thread ID.
 func TestNewRegistersHotkeysBeforeReturning(t *testing.T) {
 	svc, err := New(func(tea.Msg) {})
 	if err != nil {
@@ -84,6 +92,8 @@ func TestNewRegistersHotkeysBeforeReturning(t *testing.T) {
 	}
 }
 
+// TestServiceCloseStopsMessageLoopAndIsIdempotent checks that Close stops
+// the message loop goroutine and is safe to call a second time.
 func TestServiceCloseStopsMessageLoopAndIsIdempotent(t *testing.T) {
 	svc, err := New(func(tea.Msg) {})
 	if err != nil {
