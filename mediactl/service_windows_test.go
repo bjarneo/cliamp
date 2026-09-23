@@ -10,8 +10,9 @@ import (
 	"github.com/bjarneo/cliamp/internal/playback"
 )
 
-// TestHotkeyMsg checks that each hotkey ID, including its Win-held twin,
-// maps to the right playback message, and that an unknown ID is rejected.
+// A Win-held ID exists only so RegisterHotKey matches when Win happens to
+// be down; it must still collapse to the exact same playback message as
+// its plain counterpart, or the two registrations would diverge in effect.
 func TestHotkeyMsg(t *testing.T) {
 	tests := []struct {
 		name string
@@ -43,8 +44,9 @@ func TestHotkeyMsg(t *testing.T) {
 	}
 }
 
-// TestHotkeyModifiers checks that the Win-held hotkey IDs register with
-// MOD_WIN added, and every other ID stays modNoRepeat-only.
+// Guards against a future hotkey ID being added to hotkeyVKs without a
+// matching case here: it would silently fall through to modNoRepeat only,
+// the same bug this file exists to fix.
 func TestHotkeyModifiers(t *testing.T) {
 	winHeldIDs := map[int]bool{
 		hotkeyIDPlayPauseWin: true,
@@ -78,8 +80,9 @@ func TestServiceUpdateAndSeekedAreNoOps(t *testing.T) {
 	svc.Seeked(0)
 }
 
-// TestNewRegistersHotkeysBeforeReturning checks that New doesn't return
-// until the message loop has registered its hotkeys and reported its thread ID.
+// The headless daemon never calls Run, so New is the only point where it
+// can be sure the hotkeys are live; a caller racing ahead of registration
+// would have a window where media keys silently do nothing.
 func TestNewRegistersHotkeysBeforeReturning(t *testing.T) {
 	svc, err := New(func(tea.Msg) {})
 	if err != nil {
@@ -92,8 +95,9 @@ func TestNewRegistersHotkeysBeforeReturning(t *testing.T) {
 	}
 }
 
-// TestServiceCloseStopsMessageLoopAndIsIdempotent checks that Close stops
-// the message loop goroutine and is safe to call a second time.
+// Close can end up called from more than one shutdown path (an explicit
+// close alongside a deferred one, say), so a second call must not panic
+// or block waiting on a message loop that already exited.
 func TestServiceCloseStopsMessageLoopAndIsIdempotent(t *testing.T) {
 	svc, err := New(func(tea.Msg) {})
 	if err != nil {
