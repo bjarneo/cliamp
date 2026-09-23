@@ -9,6 +9,8 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// TestPluginBindAndEmit verifies that an uppercase binding matches lowercase input
+// and invokes its registered callback.
 func TestPluginBindAndEmit(t *testing.T) {
 	m := newTestManager()
 	m.SetReservedKeys(map[string]bool{"q": true, "ctrl+c": true})
@@ -40,6 +42,7 @@ func TestPluginBindAndEmit(t *testing.T) {
 // variants while preserving the original key string passed to callbacks.
 func TestEmitKeyNormalizesLookup(t *testing.T) {
 	for _, key := range []string{"h", "H", " H "} {
+		// Each subtest checks lookup and callback input with an isolated plugin.
 		t.Run(key, func(t *testing.T) {
 			m := newTestManager()
 			t.Cleanup(m.Close)
@@ -53,6 +56,7 @@ func TestEmitKeyNormalizesLookup(t *testing.T) {
 
 			received := make(chan string, 1)
 			p.mu.Lock()
+			// report captures the original key delivered to the Lua callback.
 			p.L.SetGlobal("report", p.L.NewFunction(func(L *lua.LState) int {
 				received <- L.CheckString(1)
 				return 0
@@ -74,6 +78,8 @@ func TestEmitKeyNormalizesLookup(t *testing.T) {
 	}
 }
 
+// TestPluginBindRejectsReservedKey verifies that plugins cannot bind keys reserved
+// by the core UI and receive an explanatory error.
 func TestPluginBindRejectsReservedKey(t *testing.T) {
 	m := newTestManager()
 	m.SetReservedKeys(map[string]bool{"q": true})
