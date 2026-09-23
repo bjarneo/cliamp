@@ -42,9 +42,9 @@ func (m *Manager) KeyBindings() []KeyBinding {
 	return out
 }
 
-// EmitKey invokes every plugin callback registered for the given key string.
-// Returns true if at least one callback fired. Called by the UI's main key
-// dispatcher for keys the core doesn't handle.
+// EmitKey asynchronously invokes callbacks registered for the normalized key.
+// Matching ignores case and surrounding whitespace; callbacks receive the
+// original key string. It returns true if at least one callback was scheduled.
 func (m *Manager) EmitKey(key string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

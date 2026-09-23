@@ -36,6 +36,8 @@ func TestPluginBindAndEmit(t *testing.T) {
 	waitAtomic(t, &fired, 1, 2*time.Second)
 }
 
+// TestEmitKeyNormalizesLookup verifies that dispatch matches case and whitespace
+// variants while preserving the original key string passed to callbacks.
 func TestEmitKeyNormalizesLookup(t *testing.T) {
 	for _, key := range []string{"h", "H", " H "} {
 		t.Run(key, func(t *testing.T) {
