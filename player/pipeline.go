@@ -1,9 +1,9 @@
 package player
 
 import (
+	"bytes"
 	"fmt"
 	"io"
-	"os"
 	"sync/atomic"
 	"time"
 
@@ -111,37 +111,6 @@ func closePipelines(ps ...*trackPipeline) {
 	}
 }
 
-func newInMemoryNavBuffer(data []byte) (*navBuffer, error) {
-	file, err := os.CreateTemp("", "cliamp-resolved-*")
-	if err != nil {
-		return nil, fmt.Errorf("memory nav buffer: %w", err)
-	}
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		_ = os.Remove(file.Name())
-		return nil, fmt.Errorf("memory nav buffer write: %w", err)
-	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		_ = file.Close()
-		_ = os.Remove(file.Name())
-		return nil, fmt.Errorf("memory nav buffer seek: %w", err)
-	}
-
-	b := &navBuffer{
-		file:         file,
-		path:         file.Name(),
-		total:        int64(len(data)),
-		wait:         make(chan struct{}),
-		downloadDone: make(chan struct{}),
-		downloaded:   int64(len(data)),
-		done:         true,
-		stallTimeout: readStallTimeout,
-	}
-	b.bytesIn.Store(int64(len(data)))
-	close(b.downloadDone)
-	return b, nil
-}
-
 func (p *Player) prefetchNetworkPipeline(tp *trackPipeline, enabled bool) *trackPipeline {
 	if !enabled {
 		return tp
@@ -198,24 +167,15 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 			return nil, fmt.Errorf("resolve source: %w", err)
 		}
 		if len(src.Data) > 0 {
-			nb, err := newInMemoryNavBuffer(src.Data)
+			decoder, format, err := decodeFFmpegPipeStream(io.NopCloser(bytes.NewReader(src.Data)), p.sr, p.bitDepth, false)
 			if err != nil {
-				return nil, fmt.Errorf("memory resolved source: %w", err)
-			}
-			decoder, format, err := decodeNavFFmpeg(nb, p.sr, p.bitDepth, 0)
-			if err != nil {
-				nb.Close()
 				return nil, fmt.Errorf("decode resolved source: %w", err)
 			}
-			return &trackPipeline{
-				decoder:       decoder,
-				stream:        decoder,
-				format:        format,
-				seekable:      true,
-				path:          path,
-				bytesRead:     &nb.bytesIn,
-				contentLength: int64(len(src.Data)),
-			}, nil
+			if err := decoder.waitForInitialAudio(ffmpegPipeTimeout); err != nil {
+				_ = decoder.Close()
+				return nil, fmt.Errorf("decode resolved source: %w", err)
+			}
+			return &trackPipeline{decoder: decoder, stream: decoder, format: format, path: path}, nil
 		}
 		if len(src.Segments) > 0 {
 			nb, contentLen, err := newNavBufferSegments(src.Segments)

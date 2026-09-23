@@ -42,13 +42,14 @@ const maxResponseBody = 20 << 20
 // client is a Qobuz API client. It is safe for concurrent use once
 // authenticated (its fields are not mutated after login).
 type client struct {
-	appID   string
-	secrets []string // candidate signing secrets to validate
-	secret  string   // validated signing secret (set by validateSecret)
-	uat     string   // user_auth_token
-	userID  string
-	label   string // subscription tier short label
-	http    *http.Client
+	appID     string
+	secrets   []string // candidate signing secrets to validate
+	secret    string   // validated signing secret (set by validateSecret)
+	uat       string   // user_auth_token
+	userID    string
+	label     string // subscription tier short label
+	sessionID string
+	http      *http.Client
 }
 
 func newClient(appID string, secrets []string) *client {
@@ -251,24 +252,21 @@ func (c *client) loadOAuthUserInfo(ctx context.Context, phase string) error {
 }
 
 // validateSecret picks the first signing secret that the API accepts and stores
-// it on the client. It must be called before any signed request (favorites,
-// streaming checks). The legacy track/getFileUrl probe is retired, so we test a
-// currently supported signed request instead.
+// it on the client. It must be called before any signed request (getFileUrl,
+// favorites).
 func (c *client) validateSecret(ctx context.Context) error {
 	if c.secret != "" {
 		return nil
 	}
+	// The legacy stream probe is no longer usable now that Qobuz has retired
+	// track/getFileUrl. The first bundle secret remains sufficient for the
+	// older library endpoints such as favorite/getUserFavorites.
 	for _, secret := range c.secrets {
 		if secret == "" {
 			continue
 		}
-		candidate := *c
-		candidate.secret = secret
-		var out struct{}
-		if err := candidate.doGet(ctx, "favorite/getUserFavorites", candidate.favoriteParams("tracks", 0, 1), &out); err == nil {
-			c.secret = secret
-			return nil
-		}
+		c.secret = secret
+		return nil
 	}
 	return fmt.Errorf("qobuz: no valid signing secret found")
 }

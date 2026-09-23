@@ -2,9 +2,7 @@ package qobuz
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"math/rand/v2"
 	"slices"
 	"strings"
@@ -83,40 +81,13 @@ func (p *QobuzProvider) ResolveSource(uri string) ([]byte, error) {
 	if id == "" || id == uri {
 		return nil, fmt.Errorf("qobuz: invalid track URI %q", uri)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
 	c, err := p.ensureClient()
 	if err != nil {
 		return nil, err
 	}
-	data, err := c.cmafFile(ctx, id, p.quality)
-	if err == nil {
-		defer data.Close()
-		return io.ReadAll(data)
-	}
-	if errors.Is(err, errAuthRequired) {
-		p.mu.Lock()
-		p.client = nil
-		p.mu.Unlock()
-		c, err = newClientSilent(ctx)
-		if err != nil {
-			if errors.Is(err, playlist.ErrNeedsAuth) {
-				return nil, playlist.ErrNeedsAuth
-			}
-			return nil, err
-		}
-		p.mu.Lock()
-		p.client = c
-		p.mu.Unlock()
-		data, err = c.cmafFile(ctx, id, p.quality)
-		if err != nil {
-			return nil, err
-		}
-		defer data.Close()
-		return io.ReadAll(data)
-	}
-	return nil, err
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	return c.cmafFile(ctx, id, p.quality)
 }
 
 // New creates a QobuzProvider. Authentication is deferred until the user first
