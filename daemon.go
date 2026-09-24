@@ -393,7 +393,9 @@ func (d *daemon) clearPlaybackTrack() {
 
 func (d *daemon) playbackIsLive(track playlist.Track) bool {
 	if track.IsLive() {
-		return true
+		// A yt-dlp live flag goes stale when the broadcast ends; the recording
+		// at the same URL plays with a known duration.
+		return !playlist.IsYTDL(track.Path) || d.player.Duration() <= 0
 	}
 	reporter, ok := d.player.(interface{ IsLiveStream() bool })
 	return ok && reporter.IsLiveStream()

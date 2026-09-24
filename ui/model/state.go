@@ -340,9 +340,20 @@ type ytdlBatchState struct {
 }
 
 // reconnectState holds state for stream auto-reconnect with exponential backoff.
+// ytdlLiveDrainRestarts bounds the backed-off restarts (1s, 2s, 4s) of a
+// drained yt-dlp live stream before playback advances.
+const ytdlLiveDrainRestarts = 3
+
 type reconnectState struct {
 	attempts int
 	at       time.Time
+	// ytdlLiveDrain marks restarts scheduled because a yt-dlp live stream
+	// drained. Once ytdlLiveDrainRestarts of them have failed the stream is
+	// taken to be over or unreachable, and playback advances instead of
+	// stopping on it.
+	ytdlLiveDrain bool
+	// notice is the "reconnecting in" error shown while a restart waits.
+	notice error
 }
 
 // devicePickerState holds state for the audio device picker overlay.

@@ -55,6 +55,11 @@ func TestMetadataFields(t *testing.T) {
 			want:  []metadataField{{"Title", "Station"}, {"Type", "Live radio"}},
 		},
 		{
+			name:  "yt-dlp live stream is not called radio",
+			track: playlist.Track{Title: "Lofi", Path: "https://music.youtube.com/watch?v=live1", Stream: true, Realtime: true},
+			want:  []metadataField{{"Title", "Lofi"}, {"Type", "Live stream"}},
+		},
+		{
 			name:  "empty and unknown fields omitted",
 			track: playlist.Track{Title: "\x1b[32m\x1b[0m\r\n", Artist: "\t\x00", Year: -1, TrackNumber: -1, DurationSecs: -1},
 		},

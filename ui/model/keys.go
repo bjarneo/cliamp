@@ -693,17 +693,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			if !ok {
 				return nil
 			}
-			added, err := m.favMgr.ToggleFavorite(track)
-			if err != nil {
+			if _, err := m.favMgr.ToggleFavorite(track); err != nil {
 				m.status.Errorf(statusTTLDefault, "Favorite failed: %s", err)
 				return nil
 			}
 			m.refreshFavSet()
-			if added {
-				m.status.Showf(statusTTLDefault, favAddedMark()+" %s", track.DisplayName())
-			} else {
-				m.status.Showf(statusTTLDefault, favRemovedMark()+" %s", track.DisplayName())
-			}
 			// The provider pane renders Favorites counts from Playlists();
 			// re-pull so it reflects the toggle. The manager list refreshes
 			// itself on open.
@@ -1074,6 +1068,15 @@ func (m *Model) handleFullVisualizerKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "ctrl+k", "?":
 		m.exitFullVisualizer()
 		m.openKeymap()
+
+	default:
+		// Plugin bindings are global: a pomodoro or sleep-timer key is about
+		// the session, not about which screen happens to be open. Without
+		// this, every plugin key is dead in the full-screen visualizer —
+		// which is exactly where a plugin visualizer is being watched.
+		if m.luaMgr != nil {
+			m.luaMgr.EmitKey(msg.String())
+		}
 	}
 	return nil
 }
@@ -2163,17 +2166,11 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 			realIdx := m.plMgrTrackRealIndex(m.plManager.cursor)
 			if realIdx >= 0 && realIdx < len(m.plManager.tracks) {
 				track := m.plManager.tracks[realIdx]
-				added, err := m.favMgr.ToggleFavorite(track)
-				if err != nil {
+				if _, err := m.favMgr.ToggleFavorite(track); err != nil {
 					m.status.Errorf(statusTTLDefault, "Favorite failed: %s", err)
 					return nil
 				}
 				m.refreshFavSet()
-				if added {
-					m.status.Showf(statusTTLDefault, favAddedMark()+" %s", track.DisplayName())
-				} else {
-					m.status.Showf(statusTTLDefault, favRemovedMark()+" %s", track.DisplayName())
-				}
 				// Inside the Favorites screen a toggle re-reads the store so
 				// the rows mirror it: an unfavorite drops the row, a
 				// re-favorite restores it.

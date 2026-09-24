@@ -16,6 +16,7 @@ type daemonPlaybackFake struct {
 	paused      bool
 	drained     bool
 	runtimeLive bool
+	duration    time.Duration
 	playErr     error
 	playCalls   []string
 	stopCalls   int
@@ -52,7 +53,7 @@ func (f *daemonPlaybackFake) IsPlaying() bool         { return f.playing }
 func (f *daemonPlaybackFake) IsPaused() bool          { return f.paused }
 func (f *daemonPlaybackFake) Drained() bool           { return f.drained }
 func (f *daemonPlaybackFake) IsLiveStream() bool      { return f.runtimeLive }
-func (f *daemonPlaybackFake) Duration() time.Duration { return 0 }
+func (f *daemonPlaybackFake) Duration() time.Duration { return f.duration }
 func (f *daemonPlaybackFake) Position() time.Duration { return 0 }
 func (f *daemonPlaybackFake) PositionAndDuration() (time.Duration, time.Duration) {
 	return 0, 0
@@ -118,6 +119,38 @@ func TestDaemonDrainedLiveStationDoesNotAdvance(t *testing.T) {
 			}
 			if tt.playErr != nil && fake.playing {
 				t.Fatal("player remains active after failed live restart")
+			}
+		})
+	}
+}
+
+// A yt-dlp live flag is set at listing time. While the stream is live the
+// player has no duration and a drain restarts it; once the URL serves the
+// finished recording the player reports a duration and the drain advances.
+func TestDaemonDrainedYTDLLiveFlagFollowsPlayerDuration(t *testing.T) {
+	tests := []struct {
+		name      string
+		duration  time.Duration
+		wantIndex int
+	}{
+		{name: "still live restarts in place", wantIndex: 0},
+		{name: "ended recording advances", duration: 90 * time.Minute, wantIndex: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := &daemonPlaybackFake{playing: true, drained: true, duration: tt.duration}
+			pl := playlist.New()
+			pl.Add(
+				playlist.Track{Path: "https://music.youtube.com/watch?v=live1", Stream: true, Realtime: true},
+				playlist.Track{Path: "https://music.youtube.com/watch?v=next1", Stream: true, DurationSecs: 100},
+			)
+			pl.SetIndex(0)
+			d := &daemon{player: fake, playlist: pl}
+
+			d.tick()
+
+			if got := pl.Index(); got != tt.wantIndex {
+				t.Fatalf("playlist index = %d, want %d", got, tt.wantIndex)
 			}
 		})
 	}
