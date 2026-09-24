@@ -85,6 +85,7 @@ jobs:
           update: true
           install: >-
             zip
+            unzip
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-libogg
@@ -165,7 +166,15 @@ jobs:
           GOOS: windows
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "1"
-          CGO_LDFLAGS: "-Wl,-Bstatic -logg -Wl,-Bdynamic"
+          # Single-file release: statically link every non-system library
+          # (codecs, MinGW runtime) so the exe imports only Windows system
+          # DLLs and runs on a stock install. -static alone is not enough
+          # on MinGW: -DFLAC__NO_DLL stops FLAC's headers declaring
+          # dllimport refs that libFLAC.a cannot satisfy, and -lshlwapi
+          # covers libmpg123.a's Windows system dependency.
+          CGO_CFLAGS: "-DFLAC__NO_DLL"
+          CGO_LDFLAGS: "-static -lshlwapi"
+          GH_TOKEN: ${{ github.token }}
         shell: msys2 {0}
         run: |
           BINARY="cliamp-windows-${GOARCH}.exe"
@@ -173,15 +182,39 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/}"
           windres -i cliamp_windows.rc -o cliamp_windows.syso -O coff
           go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "$BINARY" .
+          # Import-table gate: the release must be one exe with zero
+          # MinGW/codec DLL imports. Denylist rather than an allowlist of
+          # system DLLs — system imports may change with the toolchain, a
+          # leaked MinGW/codec DLL is always a failure.
+          ldd "$BINARY"
+          ls -l "$BINARY"
+          if ldd "$BINARY" | grep -Ei '/mingw64/bin/.*\.dll|libogg|libvorbis|libFLAC|libmpg123|libssp|libgcc|libwinpthread|libstdc\+\+'; then
+            echo "::error::Windows exe imports MinGW/codec DLLs; static linking regressed" >&2
+            exit 1
+          fi
+          SIZE_BYTES=$(wc -c < "$BINARY")
+          echo "SIZE_BYTES=${SIZE_BYTES}"
+          # Soft size budget: warn (never fail) when the exe alone grows
+          # more than 15% over the previous stable release's exe.
+          PREV_TAG=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name 2>/dev/null) || PREV_TAG=""
+          if [ -n "$PREV_TAG" ]; then
+            rm -rf prev_release
+            mkdir prev_release
+            if gh release download "$PREV_TAG" --repo "$GITHUB_REPOSITORY" --pattern 'cliamp-windows-amd64.zip' --dir prev_release >/dev/null 2>&1 \
+              && unzip -oq "prev_release/cliamp-windows-amd64.zip" -d prev_release \
+              && [ -f "prev_release/${PACKAGE}/cliamp.exe" ]; then
+              PREV_BYTES=$(wc -c < "prev_release/${PACKAGE}/cliamp.exe")
+              echo "PREV_EXE_BYTES=${PREV_BYTES} (${PREV_TAG})"
+              if awk -v cur="$SIZE_BYTES" -v prev="$PREV_BYTES" 'BEGIN { exit !(prev > 0 && cur > prev * 1.15) }'; then
+                echo "::warning::cliamp.exe is ${SIZE_BYTES} bytes, more than 15% larger than ${PREV_TAG}'s cliamp.exe (${PREV_BYTES} bytes)"
+              fi
+            else
+              echo "previous Windows release not found; skipping size budget check"
+            fi
+            rm -rf prev_release
+          fi
           mkdir "$PACKAGE"
           cp "$BINARY" "$PACKAGE/cliamp.exe"
-          ldd "$PACKAGE/cliamp.exe" | while read -r _ _ path _; do
-            case "$path" in
-              /mingw64/bin/*.dll) cp "$path" "$PACKAGE/" ;;
-            esac
-          done
-          set -- "$PACKAGE"/*.dll
-          test -e "$1"
           zip -r "$PACKAGE.zip" "$PACKAGE"
           rm -rf "$PACKAGE"
 

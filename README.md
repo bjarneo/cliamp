@@ -173,7 +173,7 @@ brew install flac libvorbis libogg mpg123 pkg-config
 
 **Windows:** The core player needs no extra SDKs. It uses pure-Go audio decoding. `ffmpeg.exe` and `yt-dlp.exe` remain optional runtime dependencies for the same formats and providers as other platforms.
 
-Spotify support uses `go-librespot`. It needs CGO and a MinGW toolchain:
+Spotify support uses `go-librespot`. It needs CGO and a MinGW toolchain, and links every non-system library statically into a single `cliamp.exe`:
 
 1. Install [MSYS2](https://www.msys2.org/).
 2. Open the **MSYS2 MinGW64** terminal, not the standard MSYS2 terminal. Install the toolchain and codec libraries:
@@ -199,19 +199,15 @@ Spotify support uses `go-librespot`. It needs CGO and a MinGW toolchain:
    ```
 
    Now, when running `go env GOROOT`, the output should be: `<mtsys2-install-folder>/mingw64/lib/go`
-3. In that MinGW64 terminal, build with CGO enabled. This keeps `gcc` and `pkg-config` on `PATH`:
+3. In that MinGW64 terminal, build with CGO enabled and static linking. This keeps `gcc` and `pkg-config` on `PATH`:
 
    ```sh
-   CGO_ENABLED=1 go build -o cliamp.exe .
+   CGO_CFLAGS="-DFLAC__NO_DLL" CGO_LDFLAGS="-static -lshlwapi" CGO_ENABLED=1 go build -o cliamp.exe .
    ```
 
-   Some MSYS2 `libogg` builds provide `libogg-0.dll` without `ogg_stream_iovecin` in its export table. The static `libogg.a` has this symbol. If linking fails with `undefined reference to 'ogg_stream_iovecin'`, use static linking for this library only:
+   `-static` alone is not enough on MinGW: `-DFLAC__NO_DLL` stops FLAC's headers declaring `dllimport` references that `libFLAC.a` cannot satisfy, and `-lshlwapi` covers `libmpg123.a`'s Windows system dependency. If linking still fails with undefined references from one codec library, link just that library statically (`-Wl,-Bstatic -l<lib> -Wl,-Bdynamic` in `CGO_LDFLAGS`).
 
-   ```sh
-   CGO_LDFLAGS="-Wl,-Bstatic -logg -Wl,-Bdynamic" CGO_ENABLED=1 go build -o cliamp.exe .
-   ```
-
-4. `cliamp.exe` links dynamically to codec and MinGW runtime DLLs. Keep `C:\msys64\mingw64\bin` on `PATH` at runtime, or copy each `/mingw64/bin/*.dll` that `ldd cliamp.exe` shows next to `cliamp.exe`.
+4. The finished `cliamp.exe` imports only Windows system DLLs. Copy it anywhere and run it — no MinGW or codec DLLs, and no `PATH` changes, are needed on the machine that runs it.
 
 **Clone and build:**
 

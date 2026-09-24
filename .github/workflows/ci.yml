@@ -83,10 +83,14 @@ jobs:
         shell: msys2 {0}
         env:
           CGO_ENABLED: "1"
-          # Some MSYS2 libogg builds ship a libogg-0.dll whose export table is
-          # missing ogg_stream_iovecin, even though it's present in the static
-          # libogg.a. Force just that library to link statically.
-          CGO_LDFLAGS: "-Wl,-Bstatic -logg -Wl,-Bdynamic"
+          # Link every non-system library statically so the exe runs on a
+          # stock Windows install with no MinGW/codec DLLs (mirrors the
+          # release build). -static alone is not enough on MinGW:
+          # -DFLAC__NO_DLL stops FLAC's headers declaring dllimport refs
+          # that libFLAC.a cannot satisfy, and -lshlwapi covers
+          # libmpg123.a's Windows system dependency.
+          CGO_CFLAGS: "-DFLAC__NO_DLL"
+          CGO_LDFLAGS: "-static -lshlwapi"
         run: |
           go test -count=1 ./...
           go build -trimpath ./...
