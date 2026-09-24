@@ -4,6 +4,10 @@ Use Cliamp to stream your [Spotify](https://www.spotify.com/) library through it
 
 > **Windows:** The pre-built Windows binaries from Releases include Spotify support as a single `cliamp.exe` — unzip and run, no DLLs or extra installs. To build from source you need CGO with a MinGW toolchain; see [Building from source](../README.md#building-from-source) in the README.
 >
+> **Windows:** Stored Spotify credentials are encrypted with Windows DPAPI bound to your user account; existing plaintext spotify_credentials.json files are migrated automatically on first load.
+>
+> Sign-in listens for the OAuth callback on an ephemeral 127.0.0.1 port and falls back to port 19872 if needed. Custom Spotify apps should register a loopback redirect URI such as http://127.0.0.1:19872/login - Spotify allows any port on loopback redirect URIs.
+>
 > **Quick start:** Run `cliamp setup`, select Spotify, and follow the prompts. Register a Spotify Developer app and enter its `client_id` to get a private Web API rate-limit quota, including for search. Cliamp authorizes playback separately with the built-in Spotify identity. You can instead use the built-in shared `client_id` without registering an app.
 
 ## Setup
