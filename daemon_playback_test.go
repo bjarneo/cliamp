@@ -155,3 +155,28 @@ func TestDaemonDrainedYTDLLiveFlagFollowsPlayerDuration(t *testing.T) {
 		})
 	}
 }
+
+// cliamp.track.is_live() and the daemon share this rule, so a plugin sees a
+// finished recording with a stale yt-dlp live flag as the finite track it is.
+func TestPlaysLive(t *testing.T) {
+	ytdl := "https://music.youtube.com/watch?v=live1"
+	tests := []struct {
+		name  string
+		track playlist.Track
+		fake  daemonPlaybackFake
+		want  bool
+	}{
+		{"yt-dlp live stream", playlist.Track{Path: ytdl, Stream: true, Realtime: true}, daemonPlaybackFake{}, true},
+		{"yt-dlp recording with a stale live flag", playlist.Track{Path: ytdl, Stream: true, Realtime: true}, daemonPlaybackFake{duration: 90 * time.Minute}, false},
+		{"radio station", playlist.Track{Path: "https://example.com/radio", Stream: true, Realtime: true}, daemonPlaybackFake{duration: time.Minute}, true},
+		{"stream the player detected as live", playlist.Track{Path: "https://example.com/stream", Stream: true}, daemonPlaybackFake{runtimeLive: true}, true},
+		{"ordinary track", playlist.Track{Path: "/music/song.flac"}, daemonPlaybackFake{duration: 3 * time.Minute}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := playsLive(tt.track, &tt.fake); got != tt.want {
+				t.Fatalf("playsLive() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

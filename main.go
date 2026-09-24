@@ -526,7 +526,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 			TrackNumber:   func() int { t, _ := pl.Current(); return t.TrackNumber },
 			TrackPath:     func() string { t, _ := pl.Current(); return t.Path },
 			TrackIsStream: func() bool { t, _ := pl.Current(); return t.Stream },
-			TrackIsLive:   func() bool { t, _ := pl.Current(); return t.IsLive() || p.IsLiveStream() },
+			TrackIsLive:   func() bool { t, _ := pl.Current(); return playsLive(t, p) },
 			TrackDuration: func() int { t, _ := pl.Current(); return t.DurationSecs },
 			PlaylistCount: func() int { return pl.Len() },
 			CurrentIndex:  func() int { return pl.Index() },

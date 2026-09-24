@@ -303,7 +303,7 @@ cliamp.track.year()           --> number
 cliamp.track.track_number()   --> number
 cliamp.track.path()           --> string
 cliamp.track.is_stream()      --> boolean
-cliamp.track.is_live()        --> boolean (no track boundary: radio, or a track the resolver flagged live)
+cliamp.track.is_live()        --> boolean (no track boundary: radio, or a stream that is live now)
 cliamp.track.duration_secs()  --> number
 ```
 
