@@ -112,6 +112,7 @@ func (m *Model) notifyPlayback() {
 
 // nowPlaying fires a now-playing notification for the given track if configured.
 func (m *Model) nowPlaying(track playlist.Track) {
+	m.playingTrackStarted = true
 	if m.luaMgr != nil && m.luaMgr.HasHooks() {
 		m.luaMgr.Emit(luaplugin.EventTrackChange, trackToMap(track))
 	}
@@ -277,4 +278,46 @@ func (m *Model) tickProgressReport(now time.Time) {
 			applog.Warn("progress report failed for %q: %v", track.Title, err)
 		}
 	}()
+}
+
+// hasPlaybackState reports whether any provider stores local listening state,
+// so a render pass can decide whether to reserve the played-marker column.
+func (m Model) hasPlaybackState() bool {
+	for _, p := range m.playbackStateReporters() {
+		if p.HasPlaybackState() {
+			return true
+		}
+	}
+	return false
+}
+
+// playbackStateReporters returns the providers that keep listening state
+// locally. Implementations answer without I/O, so a render pass may call them
+// for every visible row.
+func (m Model) playbackStateReporters() []provider.PlaybackStateReporter {
+	var reporters []provider.PlaybackStateReporter
+	if r, ok := m.provider.(provider.PlaybackStateReporter); ok {
+		reporters = append(reporters, r)
+	}
+	for _, pe := range m.providers {
+		if pe.Provider == nil || pe.Provider == m.provider {
+			continue
+		}
+		if r, ok := pe.Provider.(provider.PlaybackStateReporter); ok {
+			reporters = append(reporters, r)
+		}
+	}
+	return reporters
+}
+
+// playbackStateFrom returns the stored listening state for track, from the
+// first reporter that claims it. A render pass resolves the reporters once and
+// passes them in for every row.
+func playbackStateFrom(reporters []provider.PlaybackStateReporter, track playlist.Track) (provider.PlaybackState, bool) {
+	for _, r := range reporters {
+		if state, ok := r.PlaybackState(track); ok {
+			return state, true
+		}
+	}
+	return provider.PlaybackState{}, false
 }

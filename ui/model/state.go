@@ -112,6 +112,7 @@ type lyricsState struct {
 	err     error
 	query   string // "artist\ntitle" of the last fetch
 	scroll  int
+	offset  time.Duration // synced-lyrics timestamp adjustment (persisted as lyrics_offset_ms)
 }
 
 // keymapOverlay holds state for the keybindings overlay.
@@ -132,6 +133,25 @@ type queueOverlay struct {
 	visible bool
 	cursor  int
 	scroll  int
+}
+
+// subsOverlay holds state for the subscribed-shows overlay. Subscriptions come
+// from the provider's local store, so the list itself needs no network call;
+// only the episode fetches triggered from it do.
+type subsOverlay struct {
+	visible bool
+	cursor  int
+	scroll  int
+	shows   []provider.SubscriptionInfo
+	// loader fetches episodes for shows in the list. It is the provider the
+	// list came from, not the active one, which may be a different service.
+	loader    provider.AlbumTrackLoader
+	filtering bool
+	filter    string
+	filtered  []int // indices into shows; nil when filter is empty
+	loading   bool
+	status    string
+	err       string
 }
 
 // plManagerState holds state for the playlist manager overlay.
@@ -320,9 +340,20 @@ type ytdlBatchState struct {
 }
 
 // reconnectState holds state for stream auto-reconnect with exponential backoff.
+// ytdlLiveDrainRestarts bounds the backed-off restarts (1s, 2s, 4s) of a
+// drained yt-dlp live stream before playback advances.
+const ytdlLiveDrainRestarts = 3
+
 type reconnectState struct {
 	attempts int
 	at       time.Time
+	// ytdlLiveDrain marks restarts scheduled because a yt-dlp live stream
+	// drained. Once ytdlLiveDrainRestarts of them have failed the stream is
+	// taken to be over or unreachable, and playback advances instead of
+	// stopping on it.
+	ytdlLiveDrain bool
+	// notice is the "reconnecting in" error shown while a restart waits.
+	notice error
 }
 
 // devicePickerState holds state for the audio device picker overlay.

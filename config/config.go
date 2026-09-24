@@ -339,8 +339,14 @@ func (a AudiobookshelfConfig) IsSet() bool {
 	return a.URL != "" && (a.Token != "" || (a.User != "" && a.Password != ""))
 }
 
+// DownloadsConfig selects the directory for saved audio. Empty uses ~/Music/cliamp.
+type DownloadsConfig struct {
+	Directory string
+}
+
 // Config holds user preferences loaded from the config file.
 type Config struct {
+	Downloads        DownloadsConfig
 	Volume           float64     // dB, clamped at runtime to [VolumeMin, +6]
 	VolumeMin        float64     // dB floor, range [-90, 0]; default -50
 	VisVolumeLinked  bool        // when true, visualizer bar height follows volume; default true
@@ -370,6 +376,7 @@ type Config struct {
 	AudioDevice      string                       // preferred audio output device name (empty = system default)
 	Playlist         string                       // local TOML playlist name to load on startup
 	InitialDirectory string                       // initial directory for the file browser
+	LyricsOffsetMs   int                          // lyric timestamp adjustment in ms (-10000..10000), applied to all sources
 	Navidrome        NavidromeConfig              // optional Navidrome/Subsonic server credentials
 	Lyrion           LyrionConfig                 // optional Lyrion Music Server (LMS) instance
 	Spotify          SpotifyConfig                // optional Spotify provider (requires Premium)
@@ -482,6 +489,10 @@ func Load() (Config, error) {
 		val = strings.TrimSpace(val)
 
 		switch section {
+		case "downloads":
+			if key == "directory" {
+				cfg.Downloads.Directory = parseString(val)
+			}
 		case "navidrome":
 			switch key {
 			case "url":
@@ -700,6 +711,10 @@ func Load() (Config, error) {
 			case "seek_large_step_sec":
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.SeekStepLarge = v
+				}
+			case "lyrics_offset_ms":
+				if v, err := strconv.Atoi(val); err == nil {
+					cfg.LyricsOffsetMs = v
 				}
 			case "eq":
 				cfg.EQ = parseEQ(val)
@@ -999,6 +1014,7 @@ func (c *Config) clamp() {
 		c.Speed = 1.0
 	}
 	c.SeekStepLarge = max(min(c.SeekStepLarge, 600), 6)
+	c.LyricsOffsetMs = max(min(c.LyricsOffsetMs, 10000), -10000)
 	c.SampleRate = clampSampleRate(c.SampleRate)
 	c.BufferMs = max(min(c.BufferMs, 5000), 50)
 	c.ResampleQuality = max(min(c.ResampleQuality, 4), 1)

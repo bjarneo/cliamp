@@ -29,9 +29,11 @@ var (
 	_ provider.SectionTitler       = (*Provider)(nil)
 	_ provider.ArtistBrowser       = (*Provider)(nil)
 	_ provider.AlbumTrackLoader    = (*Provider)(nil)
+	_ provider.ShowLister          = (*Provider)(nil)
 	_ provider.BrowseLabeler       = (*Provider)(nil)
 	_ provider.BrowseEntryProvider = (*Provider)(nil)
 	_ provider.BrowseModeProvider  = (*Provider)(nil)
+	_ provider.SubscriptionLister  = (*Provider)(nil)
 )
 
 // Provider keeps subscriptions available without waiting for the directory.
@@ -50,6 +52,9 @@ type Provider struct {
 	searchResults    []show
 	searchGeneration uint64
 	generation       uint64
+
+	// progress guards its own state; it is not covered by mu.
+	progress *progressStore
 }
 
 // New creates an always-available provider. Country selects Apple's charts;
@@ -64,6 +69,7 @@ func New(country string) *Provider {
 		country:       country,
 		shows:         make(map[string]show),
 		categoryCache: make(map[string][]show),
+		progress:      newProgressStore(),
 	}
 	dir, err := appdir.Dir()
 	if err != nil {
@@ -340,6 +346,18 @@ func showFeedURL(id string) string {
 	return id
 }
 
+// Subscriptions returns the subscribed shows in stored order, without a
+// network call. The ID is the feed URL, which AlbumTracks accepts.
+func (p *Provider) Subscriptions() []provider.SubscriptionInfo {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	subs := make([]provider.SubscriptionInfo, 0, len(p.subscriptions))
+	for _, s := range p.subscriptions {
+		subs = append(subs, provider.SubscriptionInfo{ID: s.FeedURL, Name: s.Title, Author: s.Author})
+	}
+	return subs
+}
+
 func (p *Provider) subscribedLocked(feedURL string) bool {
 	return slices.ContainsFunc(p.subscriptions, func(s show) bool { return s.FeedURL == feedURL })
 }
@@ -380,6 +398,10 @@ func (*Provider) IDPrefix(id string) string {
 }
 
 func (*Provider) IsFavoritableID(id string) bool { return showFeedURL(id) != "" }
+
+// IsShowID reports whether id names a show; those are the rows whose
+// AlbumTracks are episodes.
+func (*Provider) IsShowID(id string) bool { return showFeedURL(id) != "" }
 
 func (p *Provider) SectionTitle(prefix string) string {
 	switch prefix {

@@ -563,8 +563,8 @@ func (f *flexString) UnmarshalJSON(data []byte) error {
 }
 
 type artist struct {
-	ID   uint64 `json:"id"`
-	Name string `json:"name"`
+	ID   flexString `json:"id"`
+	Name string     `json:"name"`
 }
 
 type album struct {

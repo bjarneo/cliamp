@@ -1,12 +1,36 @@
 package model
 
 import (
+	"context"
+	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/lyrics"
 	"github.com/bjarneo/cliamp/playlist"
 )
+
+// spotifyLyricFetcher matches providers that can fetch synced lyrics for a
+// track by its Spotify ID (satisfied by *spotify.SpotifyProvider).
+type spotifyLyricFetcher interface {
+	TrackLyrics(ctx context.Context, trackID string) ([]lyrics.Line, error)
+}
+
+// spotifyLyricFetcher returns the configured Spotify provider, or nil when it
+// is not configured or does not implement lyric lookups.
+func (m *Model) spotifyLyricFetcher() spotifyLyricFetcher {
+	for _, entry := range m.providers {
+		if entry.Key != "spotify" || entry.Provider == nil {
+			continue
+		}
+		f, _ := entry.Provider.(spotifyLyricFetcher)
+		return f
+	}
+	return nil
+}
 
 // lyricsArtistTitle resolves the best artist and title for a lyrics lookup.
 // For streams with ICY metadata ("Artist - Song"), it parses the stream title.
@@ -96,4 +120,56 @@ func (m *Model) lyricsHaveTimestamps() bool {
 		}
 	}
 	return false
+}
+
+// maxLyricsOffset bounds the user-adjustable synced-lyrics drift correction.
+const maxLyricsOffset = 10 * time.Second
+
+// lyricsPlaybackPosition returns the playback position adjusted by the
+// user's synced-lyrics offset. A positive offset advances the position, so
+// a later lyric line becomes active sooner.
+func (m Model) lyricsPlaybackPosition() time.Duration {
+	return m.player.Position() + m.lyrics.offset
+}
+
+// SetLyricsOffset loads a persisted lyric timestamp offset (ms) at startup.
+func (m *Model) SetLyricsOffset(ms int) {
+	d := time.Duration(ms) * time.Millisecond
+	if d > maxLyricsOffset {
+		d = maxLyricsOffset
+	}
+	if d < -maxLyricsOffset {
+		d = -maxLyricsOffset
+	}
+	m.lyrics.offset = d
+}
+
+// nudgeLyricsOffset shifts the synced-lyrics position by delta and persists
+// the result. A positive offset advances the active lyric line, correcting
+// timestamps that run late; a negative offset delays it. Spotify and
+// Musixmatch timestamps are often offset from the master by a constant
+// amount per track.
+func (m *Model) nudgeLyricsOffset(delta time.Duration) tea.Cmd {
+	offset := m.lyrics.offset + delta
+	if offset > maxLyricsOffset {
+		offset = maxLyricsOffset
+	}
+	if offset < -maxLyricsOffset {
+		offset = -maxLyricsOffset
+	}
+	m.lyrics.offset = offset
+	m.status.Warningf(statusTTLDefault, "Lyrics offset: %s", formatLyricsOffset(offset))
+	m.saveConfigKey("lyrics_offset_ms", strconv.Itoa(int(offset.Milliseconds())))
+	return nil
+}
+
+// formatLyricsOffset renders a lyric offset with an explicit sign, e.g. "+0.5s".
+func formatLyricsOffset(d time.Duration) string {
+	ms := d.Milliseconds()
+	sign := "+"
+	if ms < 0 {
+		sign = "-"
+		ms = -ms
+	}
+	return fmt.Sprintf("%s%.1fs", sign, float64(ms)/1000)
 }

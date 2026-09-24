@@ -72,6 +72,8 @@ When focused on the provider panel:
 
 After you load a playlist, Cliamp returns to the standard playlist view. Use the usual controls for seek, volume, EQ, shuffle, repeat, queue, search, and lyrics.
 
+Large playlists fill in as they load. Cliamp shows the first tracks, appends the remaining pages in the background, and stays usable while the list arrives.
+
 ## Playlists and albums
 
 The provider lists both playlists and saved albums in the Spotify library. Playlists include those you created and saved, or followed. If a public playlist is missing, open Spotify and click **Save** first. You do not need to copy tracks to a new playlist.

@@ -39,7 +39,10 @@ func TestTwoColumnLayoutTiers(t *testing.T) {
 		{name: "minimal", width: 40, height: 10, want: false},
 		{name: "too small", width: 20, height: 5, want: false},
 		{name: "simplified", width: 80, height: 24, want: false, setup: func(m *Model) { m.simplified = true }},
-		{name: "overlay", width: 80, height: 24, want: false, setup: func(m *Model) { m.queue.visible = true }},
+		{name: "overlay", width: 80, height: 24, want: false, setup: func(m *Model) { m.fileBrowser.visible = true }},
+		// The queue is a view of the playlist, so it keeps the split and the
+		// settings pane rather than taking the frame.
+		{name: "queue", width: 80, height: 24, want: true, setup: func(m *Model) { m.queue.visible = true }},
 		{name: "full screen visualizer", width: 80, height: 24, want: false, setup: func(m *Model) { m.fullVis = true }},
 	}
 
@@ -234,23 +237,25 @@ func TestTwoColumnPlaylistRendersAtColumnWidth(t *testing.T) {
 
 // TestMarkerColumnsReserveOnlyWhatIsUsed checks that the playlist reserves a
 // state column only once something can appear in it, which is what lets the
-// titles start further left on a plain playlist.
+// titles start further left on a plain playlist. The favorite column is the
+// exception: it stays pinned so toggling the first/last favorite never shifts
+// the titles.
 func TestMarkerColumnsReserveOnlyWhatIsUsed(t *testing.T) {
 	tests := []struct {
 		name  string
 		setup func(*Model)
 		want  markerColumns
 	}{
-		{name: "plain playlist", setup: func(*Model) {}},
+		{name: "plain playlist", setup: func(*Model) {}, want: markerColumns{favorite: true}},
 		{
 			name:  "queued track",
 			setup: func(m *Model) { m.playlist.Queue(1) },
-			want:  markerColumns{queue: true},
+			want:  markerColumns{queue: true, favorite: true},
 		},
 		{
 			name:  "bookmarked track",
 			setup: func(m *Model) { m.playlist.ToggleBookmark(1) },
-			want:  markerColumns{bookmark: true},
+			want:  markerColumns{bookmark: true, favorite: true},
 		},
 		{
 			name:  "favorite track",
@@ -280,8 +285,9 @@ func TestMarkerColumnsReserveOnlyWhatIsUsed(t *testing.T) {
 }
 
 // TestPlaylistTitleColumnTightensWhenUnused checks the payoff: an untouched
-// playlist starts its track numbers further left than one using every state
-// column, and rows stay aligned with each other either way.
+// playlist starts its track numbers further left than one using every dynamic
+// state column, and rows stay aligned with each other either way. The favorite
+// column stays pinned, so it is excluded from the reclaimed width.
 func TestPlaylistTitleColumnTightensWhenUnused(t *testing.T) {
 	// The fixture titles are the only run of letters in a row, so their start
 	// column is the title column. Every row must share it.
@@ -321,8 +327,34 @@ func TestPlaylistTitleColumnTightensWhenUnused(t *testing.T) {
 	if plain >= used {
 		t.Fatalf("plain playlist starts at column %d, want left of the used one at %d", plain, used)
 	}
-	if want := used - 3; plain != want {
-		t.Fatalf("plain playlist starts at column %d, want %d (three columns reclaimed)", plain, want)
+	if want := used - 2; plain != want {
+		t.Fatalf("plain playlist starts at column %d, want %d (two columns reclaimed)", plain, want)
+	}
+}
+
+// TestFavoriteToggleKeepsTitleColumnStable checks the layout-shift fix: adding
+// or removing the only favorite must not move the title column, since the
+// favorite cell is always reserved.
+func TestFavoriteToggleKeepsTitleColumnStable(t *testing.T) {
+	const fixtureTitle = "A very long"
+	titleColumn := func(m Model) int {
+		rows := strings.Split(ansi.Strip(m.renderPlaylist()), "\n")
+		for _, row := range rows {
+			if byteAt := strings.Index(row, fixtureTitle); byteAt >= 0 {
+				return lipgloss.Width(row[:byteAt])
+			}
+		}
+		t.Fatalf("no titled row rendered:\n%s", strings.Join(rows, "\n"))
+		return -1
+	}
+
+	plain := newLayoutTestModel(100, 30)
+	plainCol := titleColumn(plain)
+
+	faved := newLayoutTestModel(100, 30)
+	faved.favSet = map[string]struct{}{"/tmp/track-1.mp3": {}}
+	if got := titleColumn(faved); got != plainCol {
+		t.Fatalf("favorited title at column %d, want stable column %d", got, plainCol)
 	}
 }
 

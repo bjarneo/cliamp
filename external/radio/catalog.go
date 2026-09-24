@@ -3,6 +3,7 @@
 package radio
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -261,21 +262,30 @@ func fetchJSON(u string, out any) error {
 // getJSON performs one GET and decodes the response body. Callers wrap the
 // error with the name of the service they were talking to.
 func getJSON(client *http.Client, u string, out any) error {
-	req, err := http.NewRequest(http.MethodGet, u, nil)
+	resp, err := get(context.Background(), client, u)
 	if err != nil {
 		return err
+	}
+	defer resp.Body.Close()
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// get performs one GET as cliamp and fails on any status but 200. Callers
+// close the body.
+func get(ctx context.Context, client *http.Client, u string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
 	}
 	req.Header.Set("User-Agent", "cliamp/1.0")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+		resp.Body.Close()
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-
-	return json.NewDecoder(resp.Body).Decode(out)
+	return resp, nil
 }

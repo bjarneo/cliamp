@@ -57,9 +57,9 @@ func (m Model) renderPlaylistColumn() string {
 // stays open from the header down.
 func (m Model) renderColumnHeaders() string {
 	// Both headers are fitted to their own column below, so neither needs
-	// ui.PanelWidth narrowed first: the playlist header never reads it in this
-	// layout (an overlay or provider focus would have turned the split off),
-	// and the settings separator is re-fitted either way.
+	// ui.PanelWidth narrowed first: the headers that reach this layout render
+	// against their own column width, and the settings separator is re-fitted
+	// either way. The queue's header arrives here when it is toggled on.
 	return fillSeparator(m.renderPlaylistHeader(), m.layout.playlistWidth) +
 		columnGutter +
 		fillSeparator(sepHeader("Settings"), m.layout.settingsWidth)

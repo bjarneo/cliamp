@@ -652,6 +652,7 @@ func (m *Model) replacePlaylistFromNav() tea.Cmd {
 	m.player.Stop()
 	m.player.ClearPreload()
 	m.resetYTDLBatch()
+	m.retireTracksPaging()
 	m.replacePlaylist(tracks)
 	m.loadedPlaylist = ""
 	m.setHeaderStateFromTracks(tracks)

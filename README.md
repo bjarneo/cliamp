@@ -2,7 +2,9 @@
 
 A retro terminal music player inspired by Winamp. Play local files, streams, podcasts, YouTube, YouTube Music, SoundCloud, Mixcloud, Bilibili, Spotify, NetEase Cloud Music, Yandex Music, Xiaoyuzhou (小宇宙), Navidrome, Lyrion, Plex, Jellyfin, and Audiobookshelf. Use the spectrum visualizer, parametric EQ, and playlist manager.
 
-**[cliamp.stream](https://cliamp.stream)** | **[docs](https://whiterose.org.contextowl.co/docs/cliamp)**
+**[cliamp.stream](https://cliamp.stream)** | **[docs](https://whiterose.org.contextowl.co/docs/cliamp)** | **[android](https://github.com/cliamp/cliamp-mobile)** | **[discord](https://discord.gg/4VpCzXPuj2)**
+
+On a phone, run [cliamp mobile](https://github.com/cliamp/cliamp-mobile). It is a native Android client for radio, podcasts, and the same servers this player talks to.
 
 cliamp uses [Bubbletea](https://github.com/charmbracelet/bubbletea), [Lip Gloss](https://github.com/charmbracelet/lipgloss), [Beep](https://github.com/gopxl/beep), and [go-librespot](https://github.com/devgianlu/go-librespot).
 
@@ -164,7 +166,11 @@ sudo dnf install alsa-lib-devel flac-devel libvorbis-devel libogg-devel mpg123-d
 sudo pacman -S alsa-lib flac libvorbis libogg mpg123
 ```
 
-**macOS:** `brew install flac libvorbis libogg mpg123 pkg-config`
+**macOS:**
+
+```sh
+brew install flac libvorbis libogg mpg123 pkg-config
+```
 
 **Windows:** The core player needs no extra SDKs. It uses pure-Go audio decoding. `ffmpeg.exe` and `yt-dlp.exe` remain optional runtime dependencies for the same formats and providers as other platforms.
 
@@ -172,19 +178,40 @@ Spotify support uses `go-librespot`. It needs CGO and a MinGW toolchain:
 
 1. Install [MSYS2](https://www.msys2.org/).
 2. Open the **MSYS2 MinGW64** terminal, not the standard MSYS2 terminal. Install the toolchain and codec libraries:
+
    ```sh
-   pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-pkg-config \
+   pacman -S make \
+     mingw-w64-x86_64-gcc mingw-w64-x86_64-go mingw-w64-x86_64-pkg-config \
      mingw-w64-x86_64-libogg mingw-w64-x86_64-libvorbis \
      mingw-w64-x86_64-flac mingw-w64-x86_64-mpg123
    ```
+
+   To check if Go was installed correctly, run
+
+   ```sh
+   go env GOROOT
+   ```
+
+   If the command causes the error `go: cannot find GOROOT directory: 'go' binary is trimmed and GOROOT is not set`,
+   it means that the enviroment `GOROOT` variable has to be manually set:
+
+   ```sh
+   export GOROOT=/mingw64/lib/go
+   ```
+
+   Now, when running `go env GOROOT`, the output should be: `<mtsys2-install-folder>/mingw64/lib/go`
 3. In that MinGW64 terminal, build with CGO enabled. This keeps `gcc` and `pkg-config` on `PATH`:
+
    ```sh
    CGO_ENABLED=1 go build -o cliamp.exe .
    ```
+
    Some MSYS2 `libogg` builds provide `libogg-0.dll` without `ogg_stream_iovecin` in its export table. The static `libogg.a` has this symbol. If linking fails with `undefined reference to 'ogg_stream_iovecin'`, use static linking for this library only:
+
    ```sh
    CGO_LDFLAGS="-Wl,-Bstatic -logg -Wl,-Bdynamic" CGO_ENABLED=1 go build -o cliamp.exe .
    ```
+
 4. `cliamp.exe` links dynamically to codec and MinGW runtime DLLs. Keep `C:\msys64\mingw64\bin` on `PATH` at runtime, or copy each `/mingw64/bin/*.dll` that `ldd cliamp.exe` shows next to `cliamp.exe`.
 
 **Clone and build:**

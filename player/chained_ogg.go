@@ -78,11 +78,7 @@ func (cs *chainedOggStreamer) initDecoder(reader *oggvorbis.Reader) {
 		right:  right,
 	}
 
-	var s beep.Streamer = cs.raw
-	if cs.format.SampleRate != cs.targetSR {
-		s = beep.Resample(cs.resampleQuality, cs.format.SampleRate, cs.targetSR, s)
-	}
-	cs.stream = s
+	cs.stream = resampleWithHeadroom(cs.resampleQuality, cs.format.SampleRate, cs.targetSR, cs.raw)
 }
 
 // notifyMeta extracts ARTIST/TITLE from Vorbis comments and fires onMeta.

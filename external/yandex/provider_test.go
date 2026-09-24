@@ -148,7 +148,7 @@ func TestTrackConversion(t *testing.T) {
 			Version:    "Remix",
 			Available:  true,
 			DurationMs: 215500,
-			Artists:    []artist{{ID: 1, Name: "Alpha"}, {Name: "Beta"}},
+			Artists:    []artist{{ID: "1", Name: "Alpha"}, {Name: "Beta"}},
 			Albums:     []album{{ID: 10, Title: "Album One", Year: 2020}},
 		},
 		{ID: "", Title: "no id"},

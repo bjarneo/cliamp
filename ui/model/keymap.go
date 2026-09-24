@@ -114,6 +114,11 @@ func (m Model) keymapContext() (commandMode, string) {
 		return commandModePlaylistManager, "Playlists"
 	case screenQueue:
 		return commandModeQueue, "Queue"
+	case screenSubs:
+		if m.subs.filtering {
+			return commandModeSubsFilter, "Subscription Filter"
+		}
+		return commandModeSubs, "Subscriptions"
 	case screenInfo:
 		return commandModeInfo, "Track Info"
 	case screenSearch:

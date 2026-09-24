@@ -51,6 +51,14 @@ var (
 // UI shows favorite state (track rows, header badge, status messages).
 const favHeart = "♥\uFE0E"
 
+// playedMarker and partialMarker flag an episode listened to the end and one
+// stopped part-way. Both carry the text variation selector so terminals render
+// them one cell wide, as favHeart does.
+const (
+	playedMarker  = "\u2713\uFE0E"
+	partialMarker = "\u25D1\uFE0E"
+)
+
 // Seek-bar glyphs. Played cells are heavy and the unplayed remainder light, so
 // the two differ in weight and not only in color, and a round head marks the
 // position outright instead of leaving it to the boundary between them.
@@ -580,16 +588,35 @@ func (m Model) renderSpectrum() string {
 // with minimal track info and a seek bar.
 func (m Model) renderFullVisualizer() string {
 	sections := []string{
-		m.renderTrackInfo(),
+		m.fullVisTopLine(),
 		m.renderTimeStatus(),
 		"",
 		m.renderSpectrum(),
 		m.renderSeekBar(),
 		"",
-		helpKey("V", "Exit ") + helpKey("v", "Mode:"+m.vis.ModeName()+" ") + helpKey("Spc", "▶❚❚ ") + helpKey("<>", "Trk ") + helpKey("+-", "Vol ") + helpKey("?", "Keys"),
+		helpKey("V", "Exit ") + helpKey("v", "Mode:"+m.vis.ModeName()+" ") + helpKey("Spc", "▶❚❚ ") + helpKey("<>", "Trk ") + helpKey("+-", "Vol ") + helpKey("t", "Title ") + helpKey("?", "Keys"),
 	}
 
 	return strings.Join(sections, "\n")
+}
+
+// fullVisTopLine names what is playing, or just the source when the track has
+// been hidden. The full-screen visualizer is the view most likely to be on a
+// shared screen, so naming the episode has to be optional.
+func (m Model) fullVisTopLine() string {
+	if !m.hideTrackInfo {
+		return m.renderTrackInfo()
+	}
+	// The playing track may belong to a provider the listener has since
+	// switched away from, so prefer the one recorded when it started.
+	name := m.playingProvider
+	if name == "" && m.provider != nil {
+		name = m.provider.Name()
+	}
+	if name == "" {
+		name = "Playing"
+	}
+	return dimStyle.Render("[" + name + "]")
 }
 
 func (m Model) renderSeekBar() string {
@@ -1038,6 +1065,10 @@ func (m Model) renderPlaylist() string {
 	lines := make([]string, 0, budget)
 	numWidth := len(fmt.Sprintf("%d", trackCount))
 	cols := m.markerColumns()
+	var stateReporters []provider.PlaybackStateReporter
+	if cols.played {
+		stateReporters = m.playbackStateReporters()
+	}
 
 	for row := range m.playlistRows(tracks, localScroll, m.showAlbumHeaders) {
 		if row.Index < 0 {
@@ -1109,6 +1140,19 @@ func (m Model) renderPlaylist() string {
 			}
 			markers += mark
 			styledMarkers += favMarkerStyle.Render(mark)
+		}
+		if cols.played {
+			mark, markStyle := " ", dimStyle
+			if state, ok := playbackStateFrom(stateReporters, t); ok {
+				switch {
+				case state.Played:
+					mark, markStyle = playedMarker, activeToggle
+				case state.Position > 0:
+					mark, markStyle = partialMarker, dimStyle
+				}
+			}
+			markers += mark
+			styledMarkers += markStyle.Render(mark)
 		}
 		markers += " "
 		styledMarkers += " "

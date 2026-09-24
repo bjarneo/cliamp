@@ -493,6 +493,7 @@ type ytdlFlatEntry struct {
 	PlaylistUploader   string  `json:"playlist_uploader"`
 	WebpageURLBasename string  `json:"webpage_url_basename"`
 	Duration           float64 `json:"duration"`
+	LiveStatus         string  `json:"live_status"` // "is_live" for streams that are live now
 }
 
 // ytdlFullEntry holds JSON fields from yt-dlp --print-json output (download mode).
@@ -710,6 +711,7 @@ func parseYTDLTracks(r io.Reader) ([]playlist.Track, int, error) {
 			Title:        title,
 			Artist:       artist,
 			Stream:       true,
+			Realtime:     e.LiveStatus == "is_live",
 			DurationSecs: int(e.Duration),
 		})
 	}

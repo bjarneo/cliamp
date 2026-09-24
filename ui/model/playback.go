@@ -98,7 +98,7 @@ func (m *Model) nextTrack() tea.Cmd {
 	if m.playbackDetached {
 		m.playbackDetached = false
 		if m.playlist.Len() == 0 {
-			m.stopPlayback()
+			m.endQueue()
 			return nil
 		}
 		return m.playCurrentTrack()
@@ -106,7 +106,7 @@ func (m *Model) nextTrack() tea.Cmd {
 	track, ok := m.playlist.Next()
 	m.normalizeQueueOverlay()
 	if !ok {
-		m.stopPlayback()
+		m.endQueue()
 		return nil
 	}
 	m.plCursor = m.playlist.Index()
@@ -436,6 +436,9 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		m.status.Activity("Loading feed...", statusTTLLong)
 		return resolveFeedTrackCmd(track.Path)
 	}
+	if m.provider != nil {
+		m.playingProvider = m.provider.Name()
+	}
 	track, fetchCmd := m.beginPlaybackTrack(track)
 
 	// Stream yt-dlp URLs (YouTube, SoundCloud, Bandcamp, etc.) via pipe chain.
@@ -553,6 +556,7 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	historyCmd := m.recordListenedTrack(track)
 	m.reconnect.attempts = 0
 	m.reconnect.at = time.Time{}
+	m.reconnect.ytdlLiveDrain = false
 	m.streamTitle = ""
 	m.lyrics.lines = nil
 	m.lyrics.err = nil
@@ -580,7 +584,7 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 }
 
 func (m *Model) fetchLyricsForTrack(track playlist.Track, artist, title string) tea.Cmd {
-	return fetchTrackLyricsCmd(track, artist, title, m.lyrics.query, nextRequest(&m.requests.lyrics))
+	return fetchTrackLyricsCmd(track, artist, title, m.lyrics.query, nextRequest(&m.requests.lyrics), m.spotifyLyricFetcher())
 }
 
 // togglePlayPause starts playback if stopped, or toggles pause if playing.
@@ -650,7 +654,9 @@ func shouldReconnectOnUnpause(track playlist.Track, idx int, pausedFor time.Dura
 	if idx < 0 {
 		return false
 	}
-	if track.IsLive() {
+	// Whether a flagged yt-dlp track is still live depends on the player, so
+	// the caller decides that through currentPlaybackIsLive.
+	if track.IsLive() && !playlist.IsYTDL(track.Path) {
 		return true
 	}
 	return pausedFor >= ytdlReconnectPauseThreshold && playlist.IsYTDL(track.Path)

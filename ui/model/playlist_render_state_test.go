@@ -27,10 +27,12 @@ func TestRenderQueueBodyPreservesVisibleQueuePositions(t *testing.T) {
 	}
 
 	got := strings.Split(stripAnsi(m.renderQueueBody()), "\n")
+	// The rows reserve a cursor column and a state column, matching how the
+	// playlist pane renders the same tracks.
 	want := []string{
-		"  5. Track 5",
-		"> 6. Track 6",
-		"  7. Track 7",
+		"    5. Track 5",
+		">   6. Track 6",
+		"    7. Track 7",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("renderQueueBody() rows = %d, want %d: %q", len(got), len(want), got)

@@ -79,4 +79,14 @@ const (
 	MetaAudiobookshelfEpisode = "audiobookshelf.episode"
 	MetaAudiobookshelfOffset  = "audiobookshelf.offset"
 	MetaAudiobookshelfTotal   = "audiobookshelf.total"
+
+	// MetaPodcastFeed is the RSS feed URL an episode came from, and marks a
+	// track as a podcast episode.
+	MetaPodcastFeed = "podcast.feed"
+	// MetaPodcastGUID is the episode's RSS GUID, falling back to its audio
+	// URL when the feed omits one. It identifies an episode across feed
+	// reloads, so listening state is keyed on it.
+	MetaPodcastGUID = "podcast.guid"
+	// MetaPodcastPublished is the episode publication date as YYYY-MM-DD.
+	MetaPodcastPublished = "podcast.published"
 )

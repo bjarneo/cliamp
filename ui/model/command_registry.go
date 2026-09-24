@@ -47,6 +47,8 @@ const (
 	commandModeThemePickerFilter
 	commandModeVisPickerFilter
 	commandModeProviderSearch
+	commandModeSubs
+	commandModeSubsFilter
 )
 
 const commandModeAny = ^commandMode(0)
@@ -119,6 +121,18 @@ var commandRegistry = []commandSpec{
 	}, Keymap: true, ContextHelp: true},
 	{Mode: commandModeMain, Keys: []string{"a"}, KeyLabel: "a", Label: "Toggle queue (play next)", Keymap: true, ContextHelp: true},
 	{Mode: commandModeMain, Keys: []string{"A"}, KeyLabel: "A", Label: "Queue manager", Keymap: true},
+	{Mode: commandModeMain | commandModeProvider, Keys: []string{"F"}, KeyLabel: "F", Label: "Subscribed shows", Enabled: func(m Model) bool { return m.hasSubscriptions() }, Keymap: true},
+
+	{Mode: commandModeSubs, Keys: []string{"up", "down", "j", "k"}, KeyLabel: "Up Down", Label: "Navigate", Keymap: true},
+	{Mode: commandModeSubs, Keys: []string{"/"}, KeyLabel: "/", Label: "Filter", Keymap: true, ContextHelp: true},
+	{Mode: commandModeSubs, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Append episodes and play first", Keymap: true, ContextHelp: true, Primary: true},
+	{Mode: commandModeSubs, Keys: []string{"a"}, KeyLabel: "a", Label: "Append episodes", Keymap: true, ContextHelp: true},
+	{Mode: commandModeSubs, Keys: []string{"q"}, KeyLabel: "q", Label: "Append and queue episodes", Keymap: true},
+	{Mode: commandModeSubs, Keys: []string{"l"}, KeyLabel: "l", Label: "Latest episode, added to the queue", Keymap: true, ContextHelp: true},
+	{Mode: commandModeSubs, Keys: []string{"L"}, KeyLabel: "L", Label: "Latest from every show", Keymap: true, ContextHelp: true},
+	{Mode: commandModeSubs, Keys: []string{"esc", "F"}, KeyLabel: "Esc", Label: "Close", Keymap: true},
+	{Mode: commandModeSubsFilter, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Apply filter", Keymap: true, Primary: true},
+	{Mode: commandModeSubsFilter, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Clear filter", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"x"}, KeyLabel: "x", Label: "Remove selected track from playlist", Destructive: true, Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"w"}, KeyLabel: "w", Label: "Write selected track/selection to playlist", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"o"}, KeyLabel: "o", Label: "Open file browser", Keymap: true},
@@ -154,7 +168,7 @@ var commandRegistry = []commandSpec{
 	}, Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"i"}, KeyLabel: "i", Label: "Track info / metadata", Keymap: true, ContextHelp: true},
 	{Mode: commandModeMain | commandModeInfo, Keys: []string{"ctrl+i"}, KeyLabel: "Ctrl+I", Label: "Metadata", Keymap: true, ContextHelp: true},
-	{Mode: commandModeMain, Keys: []string{"ctrl+s"}, KeyLabel: "Ctrl+S", Label: "Save/download track to ~/Music/cliamp", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"ctrl+s"}, KeyLabel: "Ctrl+S", Label: "Save/download current track", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+x"}, KeyLabel: "Ctrl+X", Label: "Expand/collapse view", Enabled: func(m Model) bool { return !m.simplified }, Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+x"}, KeyLabel: "Ctrl+X", Label: "Expand", Enabled: func(m Model) bool {
 		return !m.simplified && !m.heightExpanded && m.layout.bodyRows > m.plVisible
@@ -168,7 +182,10 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"esc", "backspace", "b"}, KeyLabel: "Esc", Label: "Back to provider", Keymap: true, ContextHelp: true, Cancel: true},
 	{Mode: commandModeAny, Keys: []string{"ctrl+k"}, KeyLabel: "Ctrl+K", Label: "Help", Keymap: true, ContextHelp: true, Help: true},
 	{Mode: commandModeMain, Keys: []string{"?"}, KeyLabel: "?", Label: "Help", Keymap: true},
-	{Mode: commandModeAny, Keys: []string{"ctrl+c", "q"}, KeyLabel: "q", Label: "Quit", Keymap: true},
+	{Mode: commandModeAny, Keys: []string{"ctrl+c"}, KeyLabel: "Ctrl+C", Label: "Quit", Keymap: true},
+	// q queues inside the subscriptions overlay, so the keymap must not list
+	// it as quit there.
+	{Mode: commandModeAny, Keys: []string{"q"}, KeyLabel: "q", Label: "Quit", Keymap: true, Enabled: func(m Model) bool { return !m.subs.visible }},
 	{Mode: commandModeAny, Keys: []string{"ctrl+z"}, KeyLabel: "Ctrl+Z", Label: "Undo latest playlist or queue mutation"},
 	{Mode: commandModeProvider, Keys: []string{"ctrl+r"}, KeyLabel: "Ctrl+R", Label: "Refresh provider", Keymap: true, ContextHelp: true},
 
@@ -183,6 +200,14 @@ var commandRegistry = []commandSpec{
 		return "Load"
 	}, ContextHelp: true, Primary: true},
 	{Mode: commandModeProvider, Keys: []string{"esc", "backspace", "b"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
+	{Mode: commandModeProvider, Keys: []string{"l"}, KeyLabel: "l", Label: "Latest episode, added to the queue", Keymap: true, ContextHelp: true, Enabled: func(m Model) bool {
+		_, _, ok := m.selectedProviderShow()
+		return ok
+	}},
+	{Mode: commandModeProvider, Keys: []string{"a"}, KeyLabel: "a", Label: "Append every episode", Keymap: true, Enabled: func(m Model) bool {
+		_, _, ok := m.selectedProviderShow()
+		return ok
+	}},
 	{Mode: commandModeProvider, Keys: []string{"f"}, KeyLabel: "f", Label: "Favorite", ContextHelp: true, Prominent: true, Enabled: func(m Model) bool {
 		_, ok := m.provider.(provider.FavoriteToggler)
 		if !ok || m.provLoading || m.provCursor < 0 || m.provCursor >= len(m.providerLists) || m.selectedProviderListIsBrowseEntry() {
@@ -212,6 +237,8 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSpotSearch | commandModeJump | commandModeURL | commandModeProviderSearch, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Confirm", ContextHelp: true, Primary: true},
 	{Mode: commandModeNavBrowser | commandModePlaylistManager | commandModePlaylistPicker | commandModeQueue | commandModeDevicePicker | commandModeProviderSearch, Keys: []string{"up", "down", "k", "j"}, KeyLabel: "Up Down", Label: "Navigate", ContextHelp: true},
 	{Mode: commandModeFileBrowser | commandModeNavBrowser | commandModePlaylistManager | commandModePlaylistPicker | commandModeDevicePicker, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Select", ContextHelp: true, Primary: true},
+	{Mode: commandModePlaylistPicker, Keys: []string{"p"}, KeyLabel: "p", Label: "Add to the start instead", Keymap: true, ContextHelp: true},
+	{Mode: commandModePlaylistManager, Keys: []string{"A"}, KeyLabel: "A", Label: "Add to the current playlist", Keymap: true, ContextHelp: true},
 	{Mode: commandModeNavBrowser, Keys: []string{"/"}, KeyLabel: "/", Label: "Filter", ContextHelp: true, Enabled: func(m Model) bool { return m.navBrowser.mode != navBrowseModeMenu }},
 	{Mode: commandModeNavBrowser, Keys: []string{"f"}, KeyLabel: "f", Label: "Favorite", ContextHelp: true, Prominent: true, Enabled: func(m Model) bool {
 		_, ok := m.navBrowser.prov.(provider.FavoriteToggler)
@@ -244,6 +271,7 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeFileBrowser, Keys: []string{"R"}, KeyLabel: "R", Label: "Replace queue", Destructive: true, ContextHelp: true},
 	{Mode: commandModeNavBrowser, Keys: []string{"R"}, KeyLabel: "R", Label: "Replace queue", Destructive: true, ContextHelp: true, Enabled: func(m Model) bool { return m.navView() == navViewTracks }},
 	{Mode: commandModeLyrics, Keys: []string{"r"}, KeyLabel: "r", Label: "Retry", ContextHelp: true, Primary: true, Enabled: func(m Model) bool { return !m.lyrics.loading && (m.lyrics.err != nil || len(m.lyrics.lines) == 0) }},
+	{Mode: commandModeLyrics, Keys: []string{"[", "]"}, KeyLabel: "[ ]", Label: "Sync offset (−/+250 ms)", ContextHelp: true, Keymap: true, Enabled: func(m Model) bool { return m.lyricsSyncable() && m.lyricsHaveTimestamps() }},
 	{Mode: commandModeLyrics, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Close", ContextHelp: true, Cancel: true},
 	{Mode: commandModeInfo, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Close", ContextHelp: true, Cancel: true},
 	{Mode: commandModePlaylistManager, Keys: []string{"a"}, KeyLabel: "a", Label: "New playlist", ContextHelp: true, Primary: true, Enabled: func(m Model) bool {

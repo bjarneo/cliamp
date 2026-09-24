@@ -131,7 +131,10 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if localProv != nil {
 		providers = append(providers, model.ProviderEntry{Key: "local", Name: "Local", Provider: localProv})
 	}
-	providers = append(providers, model.ProviderEntry{Key: "podcast", Name: "Podcasts", Provider: podcast.New(cfg.Podcast.Country)})
+	podcastProv := podcast.New(cfg.Podcast.Country)
+	// Flush per-episode listening state that the throttled writer still holds.
+	defer podcastProv.Close()
+	providers = append(providers, model.ProviderEntry{Key: "podcast", Name: "Podcasts", Provider: podcastProv})
 
 	var navClient *navidrome.NavidromeClient
 	if c := navidrome.NewFromConfig(cfg.Navidrome); c != nil {
@@ -552,7 +555,9 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	}
 
 	m.SetSeekStepLarge(cfg.SeekStepLargeDuration())
+	m.SetLyricsOffset(cfg.LyricsOffsetMs)
 	m.SetInitialDirectory(cfg.InitialDirectory)
+	m.SetDownloadsDirectory(cfg.Downloads.Directory)
 	m.SetPendingURLs(resolved.Pending)
 	if cfg.Playlist != "" && len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 {
 		m.SetLoadedPlaylist(cfg.Playlist)
@@ -641,10 +646,10 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 			SetSpeed:    func(ratio float64) { p.SetSpeed(ratio) },
 			SetEQBand:   func(band int, db float64) { prog.Send(model.SetEQBandMsg{Band: band, Gain: db}) },
 			ToggleMono:  func() { p.ToggleMono() },
-			TogglePause: func() { p.TogglePause() },
-			Stop:        func() { p.Stop() },
+			TogglePause: func() { prog.Send(playback.PlayPauseMsg{}) },
+			Stop:        func() { prog.Send(playback.StopMsg{}) },
 			Seek: func(secs float64) {
-				_ = p.Seek(time.Duration(secs * float64(time.Second)))
+				prog.Send(playback.SeekMsg{Offset: time.Duration(secs * float64(time.Second))})
 			},
 			SetEQPreset: func(name string, bands *[10]float64) {
 				prog.Send(model.SetEQPresetMsg{Name: name, Bands: bands})

@@ -27,6 +27,10 @@ const (
 // are bare base62, so the "spotify:album:" prefix never collides with one.
 const savedAlbumIDPrefix = "spotify:album:"
 
+// savedTracksPlaylistID is the synthetic list ID standing in for Liked Songs,
+// which Spotify does not expose through /v1/me/playlists.
+const savedTracksPlaylistID = "YOUR MUSIC"
+
 // savedAlbumSection is the UI section header for the user's saved albums.
 const savedAlbumSection = "Saved albums"
 
@@ -71,19 +75,58 @@ type spotifyItem struct {
 	URI     string          `json:"uri"`  // canonical spotify:track:... / spotify:episode:...
 	Artists []spotifyArtist `json:"artists"`
 	Album   struct {
-		Name        string `json:"name"`
-		ReleaseDate string `json:"release_date"`
+		Name        string         `json:"name"`
+		ReleaseDate string         `json:"release_date"`
+		Images      []spotifyImage `json:"images"`
 	} `json:"album"`
 	Show struct {
-		Name string `json:"name"`
+		Name   string         `json:"name"`
+		Images []spotifyImage `json:"images"`
 	} `json:"show"`
-	ReleaseDate  string `json:"release_date"` // episodes carry this at top level
-	DurationMs   int    `json:"duration_ms"`
-	TrackNumber  int    `json:"track_number"`
-	IsPlayable   *bool  `json:"is_playable"`
+	Images       []spotifyImage `json:"images"`       // episodes carry their own
+	ReleaseDate  string         `json:"release_date"` // episodes carry this at top level
+	DurationMs   int            `json:"duration_ms"`
+	TrackNumber  int            `json:"track_number"`
+	IsPlayable   *bool          `json:"is_playable"`
 	Restrictions struct {
 		Reason string `json:"reason"`
 	} `json:"restrictions"`
+}
+
+// spotifyImage is one cover-art size from the Spotify Web API. Track objects
+// already carry these, so album art costs no extra request.
+type spotifyImage struct {
+	URL    string `json:"url"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+}
+
+// pickCoverImage chooses the smallest image at least coverTargetPx wide,
+// falling back to the largest available. Spotify typically offers 640/300/64:
+// the huge one wastes bandwidth for a notification icon or media-control
+// thumbnail, and the 64px one is too coarse once scaled.
+func pickCoverImage(images []spotifyImage) string {
+	const coverTargetPx = 300
+
+	// bestW starts below zero so an image whose width Spotify omitted (decoded
+	// as 0) still counts as a fallback.
+	best, bestW := "", -1
+	smallestOK, smallestOKW := "", 0
+	for _, img := range images {
+		if img.URL == "" {
+			continue
+		}
+		if img.Width > bestW {
+			best, bestW = img.URL, img.Width
+		}
+		if img.Width >= coverTargetPx && (smallestOKW == 0 || img.Width < smallestOKW) {
+			smallestOK, smallestOKW = img.URL, img.Width
+		}
+	}
+	if smallestOK != "" {
+		return smallestOK
+	}
+	return best
 }
 
 // spotifyAlbumItem is a simplified album object from the Spotify Web API, as
@@ -144,9 +187,13 @@ func trackFromItem(t *spotifyItem) playlist.Track {
 	}
 	artist := strings.Join(artists, ", ")
 	album := t.Album.Name
+	art := pickCoverImage(t.Album.Images)
 	if t.Type == "episode" {
 		artist = t.Show.Name
 		album = t.Show.Name
+		if art = pickCoverImage(t.Images); art == "" {
+			art = pickCoverImage(t.Show.Images)
+		}
 	}
 
 	releaseDate := t.Album.ReleaseDate
@@ -170,6 +217,7 @@ func trackFromItem(t *spotifyItem) playlist.Track {
 		Title:        t.Name,
 		Artist:       artist,
 		Album:        album,
+		AlbumArtURL:  art,
 		Year:         year,
 		Stream:       false, // must be false: true causes togglePlayPause to stop+restart instead of pause/resume
 		DurationSecs: t.DurationMs / 1000,

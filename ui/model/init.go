@@ -252,6 +252,7 @@ func (m *Model) SetInitialTrack(index int) {
 
 // ResumePlaylist loads a playlist into the model for session resume.
 func (m *Model) ResumePlaylist(name string, tracks []playlist.Track) {
+	m.retireTracksPaging()
 	m.replacePlaylist(tracks)
 	m.setHeaderStateFromTracks(tracks)
 	m.loadedPlaylist = name
@@ -323,3 +324,6 @@ func (m *Model) SetRadioFavorites(favorites *radio.Favorites) {
 	m.radioFavorites = favorites
 	m.radioMarkers = &radioMarkerCache{}
 }
+
+// SetDownloadsDirectory selects the destination for saved tracks.
+func (m *Model) SetDownloadsDirectory(dir string) { m.downloadsDirectory = dir }

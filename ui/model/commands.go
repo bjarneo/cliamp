@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/external/radio"
+	"github.com/bjarneo/cliamp/external/spotify"
 	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/lyrics"
@@ -60,6 +61,8 @@ type tracksLoadedMsg struct {
 	gen           uint64
 	resumeIdx     int
 	resumeOffset  time.Duration
+	offset        int // TrackPager: offset this page was fetched at
+	next          int // TrackPager: next offset to fetch, 0 when fully loaded
 	err           error
 }
 
@@ -273,10 +276,20 @@ func fetchLyricsCmd(artist, title, query string, gen uint64) tea.Cmd {
 	}
 }
 
-func fetchTrackLyricsCmd(track playlist.Track, artist, title, query string, gen uint64) tea.Cmd {
+func fetchTrackLyricsCmd(track playlist.Track, artist, title, query string, gen uint64, sp spotifyLyricFetcher) tea.Cmd {
 	return func() tea.Msg {
 		if lines := lyrics.ParseEmbedded(track.EmbeddedLyrics); len(lines) > 0 {
 			return lyricsLoadedMsg{lines: lines, query: query, gen: gen}
+		}
+		// Spotify tracks: synced lyrics straight from Spotify before the
+		// generic artist/title lookup. Failures fall through silently.
+		if id := spotify.TrackIDFromPath(track.Path); sp != nil && id != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			lines, err := sp.TrackLyrics(ctx, id)
+			cancel()
+			if err == nil && len(lines) > 0 {
+				return lyricsLoadedMsg{lines: lines, query: query, gen: gen}
+			}
 		}
 		lines, err := lyrics.Fetch(artist, title)
 		return lyricsLoadedMsg{lines: lines, err: err, query: query, gen: gen}
@@ -327,6 +340,18 @@ func saveYTDLCmd(pageURL string, saveDir string) tea.Cmd {
 	return func() tea.Msg {
 		path, err := resolve.DownloadYTDL(pageURL, saveDir)
 		return ytdlSavedMsg{path: path, err: err}
+	}
+}
+
+// fetchTracksPageCmd fetches one page of a paged provider's tracks. The chain is
+// driven from the message loop rather than from a goroutine: the handler for the
+// resulting message issues the command for the next offset, so pages stay
+// strictly sequential and a superseded load stops as soon as one of its messages
+// is dropped by the generation guard.
+func fetchTracksPageCmd(pager provider.TrackPager, name, playlistID string, offset int, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		tracks, next, err := pager.TracksPage(playlistID, offset)
+		return tracksLoadedMsg{tracks: tracks, playlistID: playlistID, providerName: name, offset: offset, next: next, gen: gen, err: err}
 	}
 }
 

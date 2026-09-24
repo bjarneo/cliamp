@@ -177,6 +177,7 @@ const (
 	screenPlaylistManager
 	screenSpotSearch
 	screenQueue
+	screenSubs
 	screenInfo
 	screenSearch
 	screenNetSearch
@@ -208,6 +209,8 @@ func (s topLevelScreen) label() string {
 		return "Search"
 	case screenQueue:
 		return "Queue"
+	case screenSubs:
+		return "Subscriptions"
 	case screenInfo:
 		return "Track Info"
 	case screenSearch:
@@ -280,6 +283,7 @@ const (
 
 // Model is the Bubbletea model for the CLIAMP TUI.
 type Model struct {
+	downloadsDirectory string
 	// Core playback
 	player        player.Engine
 	playlist      *playlist.Playlist
@@ -337,6 +341,7 @@ type Model struct {
 	lyrics         lyricsState
 	keymap         keymapOverlay
 	queue          queueOverlay
+	subs           subsOverlay
 	plManager      plManagerState
 	plPicker       playlistPickerState
 	spotSearch     spotSearchState
@@ -419,7 +424,15 @@ type Model struct {
 	// the old track keeps playing.
 	playingTrack       playlist.Track
 	playingTrackActive bool
-	playbackDetached   bool
+	// playingTrackStarted is set once the engine has started playingTrack and
+	// track.change has fired. It stays false while a stream buffers or after a
+	// start failed, so those never count as a finished track.
+	playingTrackStarted bool
+	playbackDetached    bool
+	// playingProvider names the provider that was active when the playing
+	// track started, so a label for it stays right after the listener
+	// switches providers while it keeps playing.
+	playingProvider string
 
 	notifier playback.Notifier
 
@@ -464,6 +477,10 @@ type Model struct {
 
 	showAlbumHeaders bool
 	headerManual     bool
+	// tracksPaging is true while a progressive track load still has pages in
+	// flight. Each page remixes the upcoming order, so preloading is held off
+	// until the order settles. A frontier-EOF deferral would use this too.
+	tracksPaging bool
 	// Running counters for the cohesion heuristic so Add can update header
 	// visibility in O(k) instead of walking the whole playlist on each call.
 	headerLastAlbum string
@@ -480,6 +497,7 @@ type Model struct {
 	lowPower        bool // lower UI/render cadences in low-power mode
 	visualizer60FPS bool // render a visible visualizer at the animation cadence
 	simplified      bool // simplified playback view: track summary and time strip
+	hideTrackInfo   bool // full-screen visualizer: show the source instead of the track
 	hideHelpBar     bool // hide the key-binding hint bar above the status line
 	hideSettings    bool // close the two-column settings pane beside the playlist
 	showMetadata    bool // expand highlighted-track metadata below settings
@@ -516,6 +534,8 @@ func (m Model) activeScreen() topLevelScreen {
 		return screenPlaylistManager
 	case m.queue.visible:
 		return screenQueue
+	case m.subs.visible:
+		return screenSubs
 	case m.showInfo:
 		return screenInfo
 	case m.lyrics.visible:
@@ -547,8 +567,11 @@ func (m Model) usesContentFirstLayout() bool {
 	if m.activeScreen() == screenMain && m.focus == focusProvider {
 		return true
 	}
+	// The queue is deliberately absent: it holds the same tracks as the
+	// playlist and reads as a view of it, so it keeps the playback chrome and
+	// the settings pane rather than taking the frame.
 	if m.keymap.visible || m.devicePicker.visible || m.fileBrowser.visible ||
-		m.navBrowser.visible || m.themePicker.visible || m.queue.visible || m.search.active {
+		m.navBrowser.visible || m.themePicker.visible || m.subs.visible || m.search.active {
 		return true
 	}
 	if m.plPicker.visible && m.plPicker.screen == plPickerChoose {

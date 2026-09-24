@@ -16,6 +16,7 @@ import (
 
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 	"golang.org/x/net/html/charset"
 )
 
@@ -174,7 +175,7 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 							Stream:       true,
 							DurationSecs: parseItunesDuration(item.Duration),
 							TrackNumber:  number,
-							ProviderMeta: map[string]string{"podcast.feed": feedURL, "podcast.guid": guid},
+							ProviderMeta: map[string]string{provider.MetaPodcastFeed: feedURL, provider.MetaPodcastGUID: guid},
 						}
 						pubDate := strings.TrimSpace(item.PubDate)
 						published, err := mail.ParseDate(pubDate)
@@ -182,7 +183,7 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 							published, err = time.Parse(time.RFC3339, pubDate)
 						}
 						if err == nil {
-							track.ProviderMeta["podcast.published"] = published.Format(time.DateOnly)
+							track.ProviderMeta[provider.MetaPodcastPublished] = published.Format(time.DateOnly)
 						}
 						for _, image := range item.Images {
 							if art := feedHTTPURL(image.Href); art != nil {

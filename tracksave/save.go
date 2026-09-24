@@ -14,11 +14,34 @@ import (
 
 // Save downloads or copies track into ~/Music/cliamp and returns its path.
 func Save(track playlist.Track) (string, error) {
+	return SaveTo(track, "")
+}
+
+// Directory resolves the configured directory, falling back to ~/Music/cliamp.
+func Directory(directory string) (string, error) {
+	if directory != "" {
+		if !filepath.IsAbs(directory) {
+			return "", fmt.Errorf("download directory must be an absolute path")
+		}
+		resolved, err := filepath.Abs(directory)
+		if err != nil {
+			return "", fmt.Errorf("resolve download directory: %w", err)
+		}
+		return resolved, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	saveDir := filepath.Join(home, "Music", "cliamp")
+	return filepath.Join(home, "Music", "cliamp"), nil
+}
+
+// SaveTo downloads or copies a track to the configured directory.
+func SaveTo(track playlist.Track, directory string) (string, error) {
+	saveDir, err := Directory(directory)
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(saveDir, 0o755); err != nil {
 		return "", err
 	}

@@ -208,8 +208,9 @@ Available fields are Title, Artist (Show for podcast episodes), Album, Genre
 (Tags for live radio), Date or Year, Track or Episode, and Length. Album is
 omitted when it duplicates the artist/show. A podcast publication Date takes
 precedence over Year. Radio can also show Country, Region, Codec, Bitrate in
-kbps, and Type: Live radio. Live now-playing text appears as Playing only when
-the selected stream is the one playing. Unknown fields are omitted.
+kbps, and Type: Live radio. A yt-dlp stream that is live shows Type: Live
+stream. Live now-playing text appears as Playing only when the selected stream
+is the one playing. Unknown fields are omitted.
 
 In the full two-column layout, opening Metadata can borrow visualizer rows,
 keeping at least one row when the visualizer is enabled. It does not overwrite
@@ -473,3 +474,19 @@ brew install ffmpeg
 ```
 
 MP3, WAV, FLAC, and OGG work without ffmpeg.
+
+## Download directory
+
+By default, TUI `Ctrl+S` saves yt-dlp downloads and temporary audio files in
+`~/Music/cliamp`. To use another directory, add this setting and restart cliamp:
+
+```toml
+[downloads]
+directory = "/media/usb/CLAPt/Music"
+```
+
+An empty value keeps the default. Relative paths are rejected; literal `~` is not
+expanded. Missing directories are created. Mount external drives first because
+cliamp does not check mount status. This also applies to IPC Save handled by the
+TUI; headless daemon saving is unchanged. Files remain ordinary local audio
+files and are not automatically substituted into online playlists.

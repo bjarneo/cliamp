@@ -407,6 +407,42 @@ func TestSpotifyResolveClientID(t *testing.T) {
 	}
 }
 
+func TestLoadLyricsOffsetMs(t *testing.T) {
+	tests := []struct {
+		name string
+		val  string
+		want int
+	}{
+		{"unset defaults to zero", "", 0},
+		{"positive value", "lyrics_offset_ms = 1500", 1500},
+		{"negative value", "lyrics_offset_ms = -500", -500},
+		{"out of range clamped", "lyrics_offset_ms = 20000", 10000},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+
+			path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			if tt.val != "" {
+				if err := os.WriteFile(path, []byte(tt.val+"\n"), 0o644); err != nil {
+					t.Fatalf("WriteFile: %v", err)
+				}
+			}
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.LyricsOffsetMs != tt.want {
+				t.Fatalf("LyricsOffsetMs = %d, want %d", cfg.LyricsOffsetMs, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoadSpotifyBitrate(t *testing.T) {
 	tests := []struct {
 		name    string

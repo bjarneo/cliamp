@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/bjarneo/cliamp/lyrics"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
 )
@@ -167,6 +170,8 @@ func (m Model) activeOverlay() (overlayView, bool) {
 		return overlayView{
 			func(m *Model) string { return sepHeaderN("Queue", m.queue.cursor+1, m.playlist.QueueLen()) },
 			(*Model).queueHelpLine, (*Model).renderQueueBody}, true
+	case m.subs.visible:
+		return overlayView{(*Model).subsHeaderLine, (*Model).subsHelpLine, (*Model).renderSubsBody}, true
 	case m.showInfo:
 		return overlayView{
 			func(*Model) string { return sepHeader("Track Info") },
@@ -275,21 +280,118 @@ func (m Model) renderDeviceBody() string {
 
 // — queue —
 
+// renderQueueBody lists the queued tracks the way the playlist pane lists its
+// own: grouped under a show or album header, with played markers and durations.
+// The queue holds the same tracks, so reading it should not feel like reading a
+// different kind of list.
 func (m Model) renderQueueBody() string {
 	budget := m.effectivePlaylistVisible()
 	if budget <= 0 {
 		return ""
 	}
-	if m.playlist.QueueLen() == 0 {
+	total := m.playlist.QueueLen()
+	if total == 0 {
 		return bodyMessage("(empty)", budget)
 	}
-	start := max(0, m.queue.scroll)
-	tracks := m.playlist.QueueWindow(start, budget)
-	items := make([]string, len(tracks))
-	for i, t := range tracks {
-		items[i] = fmt.Sprintf("%d. %s", start+i+1, truncate(trackViewName(t), ui.PanelWidth-8))
+
+	var stateReporters []provider.PlaybackStateReporter
+	if m.hasPlaybackState() {
+		stateReporters = m.playbackStateReporters()
 	}
-	return windowList(items, m.queue.cursor-start, 0, budget)
+	numWidth := len(fmt.Sprintf("%d", total))
+	scroll := clampedScroll(m.queue.scroll, m.queue.cursor, total, budget)
+	// The window only needs the tracks around the cursor, so a long queue is
+	// not cloned on every frame.
+	windowStart := max(0, scroll-1)
+	tracks := m.playlist.QueueWindow(windowStart, 2*budget+2)
+	localScroll, localCursor := scroll-windowStart, m.queue.cursor-windowStart
+	// clampedScroll counts tracks, but album headers take rows too. Advance
+	// past headers until the rows from scroll through the cursor fit.
+	for localScroll < localCursor && m.albumSeparatorRows(tracks, localScroll, localCursor, m.showAlbumHeaders) > budget {
+		localScroll++
+	}
+
+	lines := make([]string, 0, budget)
+	for row := range m.playlistRows(tracks, localScroll, m.showAlbumHeaders) {
+		if len(lines) >= budget {
+			break
+		}
+		if row.Index < 0 {
+			// A header on the last row would hide the track under it, and the
+			// track is what the row is for.
+			if len(lines)+1 < budget {
+				lines = append(lines, m.albumSeparator(row.Album, row.Year))
+			}
+			continue
+		}
+		lines = append(lines, m.queueRow(row.Track, windowStart+row.Index, numWidth, stateReporters))
+	}
+	return strings.Join(padLines(lines, budget, len(lines)), "\n")
+}
+
+// queueRow renders one queued track: cursor, played marker, position, title,
+// and a right-aligned duration.
+func (m Model) queueRow(t playlist.Track, idx, numWidth int, reporters []provider.PlaybackStateReporter) string {
+	style := playlistItemStyle
+	selected := idx == m.queue.cursor
+	if selected {
+		style = playlistSelectedStyle
+	}
+	if t.Unplayable {
+		style = playlistUnavailableStyle
+		if selected {
+			style = dimStyle
+		}
+	}
+
+	cursorMarker := " "
+	if selected {
+		cursorMarker = ">"
+	}
+	stateMarker, stateStyle := " ", playlistActiveStyle
+	if t.Unplayable {
+		stateMarker, stateStyle = "!", playlistUnavailableStyle
+	} else if state, ok := playbackStateFrom(reporters, t); ok {
+		switch {
+		case state.Played:
+			stateMarker, stateStyle = playedMarker, activeToggle
+		case state.Position > 0:
+			stateMarker, stateStyle = partialMarker, dimStyle
+		}
+	}
+	markers := cursorMarker + stateMarker + " "
+	styled := dimStyle.Render(cursorMarker) + stateStyle.Render(stateMarker) + " "
+
+	duration := formatTrackTime(t.DurationSecs)
+	durationGap := 0
+	if duration != "" {
+		durationGap = lipgloss.Width(duration) + 1
+	}
+	prefixWidth := lipgloss.Width(markers) + numWidth + 2 // 2 for ". "
+	name := truncate(trackViewName(t), ui.PanelWidth-prefixWidth-durationGap)
+
+	line := styled + style.Render(fmt.Sprintf("%*d. ", numWidth, idx+1)) + style.Render(name)
+	if duration != "" {
+		padding := max(1, ui.PanelWidth-lipgloss.Width(line)-lipgloss.Width(duration))
+		line += strings.Repeat(" ", padding) + dimStyle.Render(duration)
+	}
+	return line
+}
+
+// clampedScroll keeps the cursor inside the visible window without mutating
+// the overlay's stored scroll, which the key handler owns.
+func clampedScroll(scroll, cursor, count, budget int) int {
+	if count <= budget {
+		return 0
+	}
+	scroll = min(max(0, scroll), max(0, count-budget))
+	if cursor < scroll {
+		return cursor
+	}
+	if cursor >= scroll+budget {
+		return min(cursor-budget+1, count-budget)
+	}
+	return scroll
 }
 
 // — track info —
@@ -385,7 +487,7 @@ func (m Model) renderLyricsBody() string {
 			lines = append(lines, dimStyle.Render("  No lyrics loaded. Press r to retry."))
 		}
 	case m.lyricsSyncable() && m.lyricsHaveTimestamps():
-		pos := m.player.Position()
+		pos := m.lyricsPlaybackPosition()
 		activeIdx := -1
 		for i, line := range m.lyrics.lines {
 			if line.Start <= pos {

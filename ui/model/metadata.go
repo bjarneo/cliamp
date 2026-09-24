@@ -77,7 +77,11 @@ func (m Model) metadataFields() []metadataField {
 		add("Bitrate", bitrate+" kbps")
 	}
 	if track.IsLive() {
-		add("Type", "Live radio")
+		if playlist.IsYTDL(track.Path) {
+			add("Type", "Live stream")
+		} else {
+			add("Type", "Live radio")
+		}
 		if playing, _ := m.currentPlaybackTrack(); m.player != nil && m.player.IsPlaying() && track.Path != "" && track.Path == playing.Path {
 			add("Playing", m.streamTitle)
 		}

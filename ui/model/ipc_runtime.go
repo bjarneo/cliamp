@@ -303,6 +303,7 @@ func (m *Model) handleV2QueueRequest(ctx context.Context, jobs *ipc.JobStore, jo
 		m.normalizeQueueOverlay()
 	case "queue.clear":
 		m.stopPlayback()
+		m.retireTracksPaging()
 		m.replacePlaylist(nil)
 		m.loadedPlaylist = ""
 		m.setHeaderStateFromTracks(nil)
@@ -375,6 +376,10 @@ func (m *Model) handleV2Visualizer(jobs *ipc.JobStore, jobID string, request ipc
 		m.vis.CycleMode()
 		m.vis.RequestRefresh()
 		m.refreshChrome()
+		if err := m.saveVisualizerChoice(); err != nil {
+			m.failV2Job(jobs, jobID, v2InternalError())
+			return nil
+		}
 		m.completeV2Job(jobs, jobID, ipc.Response{OK: true, Visualizer: m.vis.ModeName()})
 		return nil
 	}
@@ -382,7 +387,25 @@ func (m *Model) handleV2Visualizer(jobs *ipc.JobStore, jobID string, request ipc
 		m.failV2Job(jobs, jobID, v2NotFoundError())
 		return nil
 	}
+	if err := m.saveVisualizerChoice(); err != nil {
+		m.failV2Job(jobs, jobID, v2InternalError())
+		return nil
+	}
 	m.completeV2Job(jobs, jobID, ipc.Response{OK: true, Visualizer: m.vis.ModeName()})
+	return nil
+}
+
+// saveVisualizerChoice persists the current visualizer, the way the picker and
+// the `v` key already do. Without it a mode set over IPC applied to the running
+// player and was then lost on the next launch, unlike the theme operation
+// beside it, which has always persisted its choice.
+func (m *Model) saveVisualizerChoice() error {
+	if m.configSaver == nil {
+		return nil
+	}
+	if err := m.configSaver.Save("visualizer", fmt.Sprintf("%q", m.vis.ModeName())); err != nil {
+		return fmt.Errorf("saving visualizer %q: %w", m.vis.ModeName(), err)
+	}
 	return nil
 }
 

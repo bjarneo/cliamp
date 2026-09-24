@@ -322,6 +322,8 @@ footer a{color:var(--fg-2)}
       <a href="#keys" class="opt">keys</a>
       <a href="#plugins" class="opt">plugins</a>
       <a href="https://docs.cliamp.stream">docs ↗</a>
+      <a href="https://github.com/cliamp/cliamp-mobile">android ↗</a>
+      <a href="https://discord.gg/4VpCzXPuj2">discord ↗</a>
       <a href="https://github.com/bjarneo/cliamp" class="cta">github ↗</a>
     </nav>
   </div>
@@ -344,6 +346,7 @@ footer a{color:var(--fg-2)}
       </div>
       <div class="chips" aria-label="Project details">
         <span>Linux · macOS · Windows</span>
+        <span><a href="https://github.com/cliamp/cliamp-mobile">Android ↗ cliamp mobile</a></span>
         <span>MIT licensed</span>
         <span>Go 1.26</span>
       </div>
@@ -428,8 +431,10 @@ footer a{color:var(--fg-2)}
     </div>
     <div class="grid g-sources" id="sources-grid"></div>
     <p class="sub">Radio favorites follow the station: press <kbd>f</kbd> in Catalog, search results, or the playback playlist after browsing countries or genres. Stations are saved locally under Radio → Favorites by URL, using the station name rather than the current song and retaining station details, including the region, after restart. The header’s star badge counts all starred rows, including offscreen rows, with the same meaning as the row markers. Radio favorites do not reserve a star column in playlists containing no favorited stations. M3U/PLS wrappers keep their original station URL after playback resolution. Toggling a favorite preserves the selected station and completed catalog pages, including during loading. Favoriting does not fetch more catalog stations or interrupt an in-progress station load. IPC clients use the stable URL-based favorite IDs returned by provider.playlists; positional favorite IDs are not supported. On Linux and macOS, favorite mutations preserve other cliamp instances’ changes through a shared file lock. The action follows the displayed star: it favorites an unstarred station or unfavorites a starred station, without reversing the same change already made by another instance. Other instances’ changes become visible in another open player on its next favorite mutation or restart, not through live refresh. Windows assumes one writer per config directory. Press <kbd>f</kbd> again to remove one. In saved local playlists, <kbd>f</kbd> still bookmarks the track; <kbd>n</kbd> remains the separate heart favorite, available when the playback playlist has focus. Remote account favorites are unchanged. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/radio.md#station-favorites">Radio favorites guide</a>.</p>
+    <p class="sub">Choose where TUI <kbd>Ctrl+S</kbd> saves yt-dlp downloads and temporary audio files: set <code>directory = "/media/usb/CLAPt/Music"</code> under <code>[downloads]</code> in config.toml and restart cliamp. Empty uses <code>~/Music/cliamp</code>. Relative paths are rejected (literal ~ is not expanded). Mount external drives first; missing directories are created without checking mount status. The setting also applies to IPC Save in the TUI; headless daemon saving is unchanged. Saved files can be opened locally and are not automatically substituted into online playlists.</p>
     <p class="sub">Navidrome uses the player's transcoding settings, or streams the original file if none are configured. Set <code>format = "raw"</code> under <code>[navidrome]</code> to always request the original. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/navidrome.md#transcoding">Navidrome guide</a>.</p>
     <p class="sub">With Jellyfin as the default provider, reopen cliamp without files, URLs, or a playlist to restore the last track, position, and complete source list. Queued tracks keep their own album context. Press <kbd>Enter</kbd> to resume; restored sessions stay silent even with <code>auto_play</code>. Playback is checkpointed every two seconds and on normal exit, without saving unfinished seeks. Stream URLs use current API-key or password authentication when playback starts. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/jellyfin.md">Jellyfin guide</a>.</p>
+    <p class="sub">Large Spotify playlists fill in as they load: the first tracks appear right away, later pages append in the background, and playback works while the list is still arriving. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/spotify.md">Spotify guide</a>.</p>
   </section>
 
   <!-- ═══ FEATURES ═══ -->
@@ -446,11 +451,11 @@ footer a{color:var(--fg-2)}
       </div>
       <div class="feat">
         <div class="feat-k">SYNCED LYRICS</div>
-        <p>Embedded LRC first, then LRCLIB and NetEase. Time-aligned lines scroll with song playback. Live radio refreshes on every ICY track change and uses manual scrolling, even with timestamped lyrics. Press <kbd>y</kbd>.</p>
+        <p>Embedded LRC first, then Spotify for signed-in Spotify tracks, with LRCLIB and NetEase fallback. Time-aligned lines scroll with song playback; fine-tune timing with <kbd>[</kbd>/<kbd>]</kbd> if a source is slightly off. Live radio refreshes on every ICY track change and uses manual scrolling, even with timestamped lyrics. Press <kbd>y</kbd>.</p>
       </div>
       <div class="feat">
         <div class="feat-k">PLAYLISTS &amp; QUEUE</div>
-        <p>TOML playlists with live <b>[[dir]]</b> folder sources, M3U/M3U8/PLS import and export, cross-playlist favorites, a play-next queue you edit while the music keeps playing, and undo.</p>
+        <p>TOML playlists with live <b>[[dir]]</b> folder sources, M3U/M3U8/PLS import and export, cross-playlist favorites, a play-next queue that reads like the playlist and toggles in place with <kbd>A</kbd>, saved playlists you can append to what is playing or put the current track at the front of, and undo.</p>
       </div>
       <div class="feat">
         <div class="feat-k">REMOTE CONTROL</div>
@@ -466,7 +471,7 @@ footer a{color:var(--fg-2)}
       </div>
       <div class="feat">
         <div class="feat-k alt">PODCASTS</div>
-        <p>Apple's top charts and 19 genre categories, or any RSS feed. Browse episodes, subscribe locally with <kbd>f</kbd>, and, with ffmpeg installed, seek anywhere in an episode; the real length is measured from the file, not the feed. No account or API key.</p>
+        <p>Apple's top charts and 19 genre categories, or any RSS feed. Browse episodes, subscribe locally with <kbd>f</kbd>, and, with ffmpeg installed, seek anywhere in an episode; the real length is measured from the file, not the feed. Episodes resume where you left off and are ticked once finished. <kbd>F</kbd> lists your subscriptions and pulls the newest episode of any show, or of all of them, without replacing the queue. No account or API key.</p>
       </div>
       <div class="feat">
         <div class="feat-k">GAPLESS &amp; STREAMS</div>
@@ -568,8 +573,8 @@ p:<span class="k">on</span>(<span class="s">"track.change"</span>, <span class="
       </div>
       <div class="api">
         <div class="api-i">
-          <div class="sig">track.change · playback.state · queue.change</div>
-          <div class="d">Ten events to subscribe to: track changes, scrobbles, seeks, volume, EQ, shuffle and repeat, queue edits, start and quit. Track-change events fire after playback starts successfully, including YouTube, SoundCloud, and gapless transitions. Buffering, failed, or superseded starts do not emit a track change.</div>
+          <div class="sig">track.change · playback.state · queue.end</div>
+          <div class="d">Eleven events to subscribe to: track changes, scrobbles, seeks, volume, EQ, shuffle and repeat, queue edits, end of queue, start and quit. Track-change events fire after playback starts successfully, including YouTube, SoundCloud, and gapless transitions. Buffering, failed, or superseded starts do not emit a track change. End-of-queue events report the last track that started playing; a manual stop, a stream still buffering, or a failed start does not emit one.</div>
         </div>
         <div class="api-i">
           <div class="sig">cliamp.queue.has_next()</div>
@@ -678,7 +683,7 @@ var KIND={streaming:"var(--accent)","self-hosted":"var(--warm)",local:"var(--blu
 
 var KEYS=[
   ["Space","play / pause"],["> / <","next / prev"],["+ / -","volume"],["← / →","seek 5s"],
-  ["e","EQ preset"],["v / V","visualizer / full screen"],["y","lyrics"],["t","theme"],
+  ["e","EQ preset"],["v / V","visualizer / full screen"],["t","theme, or hide the title in full screen"],["y","lyrics"],
   ["/","search playlist"],["Ctrl+F","search provider"],["z / r","shuffle / repeat"],["a","queue next"],
   ["o","file browser"],["R / O","radio / podcasts"],["?","all keybindings"]
 ];

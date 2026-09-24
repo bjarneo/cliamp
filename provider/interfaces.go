@@ -155,6 +155,58 @@ type TrackPosition interface {
 	TrackPosition(track playlist.Track) time.Duration
 }
 
+// SubscriptionInfo names one show a provider is subscribed to.
+type SubscriptionInfo struct {
+	// ID addresses the show in AlbumTracks and Tracks.
+	ID string
+	// Name is the show title.
+	Name string
+	// Author is the publisher, or empty when the provider has none.
+	Author string
+}
+
+// SubscriptionLister is implemented by providers that keep a subscription list
+// locally and can return it without a network call.
+type SubscriptionLister interface {
+	// Subscriptions returns the subscribed shows, in the provider's own order.
+	Subscriptions() []SubscriptionInfo
+}
+
+// ShowLister is implemented by providers whose list rows are shows: the
+// tracks AlbumTracks returns for such a row are episodes, dated by
+// MetaPodcastPublished, so the newest of them is a meaningful thing to ask
+// for. An album's first track is not, which is why AlbumTrackLoader alone
+// does not qualify.
+type ShowLister interface {
+	AlbumTrackLoader
+	// IsShowID reports whether id names a show in the provider's list, as
+	// opposed to a section heading or a browse entry.
+	IsShowID(id string) bool
+}
+
+// PlaybackState is a track's stored listening state.
+type PlaybackState struct {
+	// Played marks an episode listened to the end.
+	Played bool
+	// Position is where the listener stopped. It is zero for a played track.
+	Position time.Duration
+}
+
+// PlaybackStateReporter is implemented by providers that keep listening state
+// locally and can answer for it without I/O.
+//
+// The UI calls this while rendering every visible row, so an implementation
+// must not reach the network or the disk. A provider whose state lives on a
+// server implements TrackPosition instead.
+type PlaybackStateReporter interface {
+	// HasPlaybackState reports whether any state is stored at all, so the UI
+	// can decide whether to reserve a marker column.
+	HasPlaybackState() bool
+	// PlaybackState returns the stored state for track. ok is false when the
+	// track is not this provider's, or nothing is stored for it.
+	PlaybackState(track playlist.Track) (state PlaybackState, ok bool)
+}
+
 // ResumeTarget is implemented by providers that track listening position
 // server-side and can point the UI at where to continue.
 type ResumeTarget interface {
@@ -182,6 +234,17 @@ type PlaylistWriter interface {
 // tracks to existing playlists in one operation.
 type PlaylistBatchWriter interface {
 	AddTracksToPlaylist(ctx context.Context, playlistID string, tracks []playlist.Track) (added, skipped int, err error)
+}
+
+// PlaylistPrepender is implemented by providers that can insert tracks at the
+// front of a saved playlist.
+type PlaylistPrepender interface {
+	// PrependTracksToPlaylist puts tracks at the start of the playlist, in the
+	// order given. A track already listed in the playlist moves to the front
+	// rather than being duplicated, and is counted in moved. A track that the
+	// playlist only holds through a directory source cannot be reordered, so
+	// it is counted in skipped and left alone.
+	PrependTracksToPlaylist(ctx context.Context, playlistID string, tracks []playlist.Track) (added, moved, skipped int, err error)
 }
 
 // PlaylistSaver is implemented by providers that can overwrite a playlist's
@@ -334,4 +397,14 @@ type FavoritesManager interface {
 	IsFavorited(path string) bool
 	// FavoritesCount returns the number of favorited tracks.
 	FavoritesCount() int
+}
+
+// TrackPager is implemented by providers that can return a playlist's tracks
+// one page at a time so the UI can populate the queue progressively. Pages are
+// requested sequentially: the caller feeds each returned next back in until it
+// is 0. Unlike the Tracks path, paged results are not run through PLS/M3U
+// wrapper resolution and skip the ResumeTarget probe, so only implement this
+// for providers returning direct, already-resolved track URIs.
+type TrackPager interface {
+	TracksPage(playlistID string, offset int) (tracks []playlist.Track, next int, err error)
 }

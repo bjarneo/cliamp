@@ -15,3 +15,5 @@ These plugins are maintained by the community. To add a plugin, open a PR.
 | [cliamp-plugin-gpodder-sync](https://github.com/sollymay/cliamp-plugin-gpodder-sync) | gpodder.net subscription, progress and download sync | [@sollymay](https://github.com/sollymay) |
 | [cliamp-plugin-discord-rpc](https://github.com/fazaimron27/cliamp-plugin-discord-rpc) | Discord Rich Presence | [@fazaimron27](https://github.com/fazaimron27) |
 | [herdr-cliamp](https://github.com/coryshaw1/herdr-cliamp) | Floating cliamp for the [herdr](https://herdr.dev) multiplexer that keeps playing when hidden, with now-playing and transport keybinds | [@coryshaw1](https://github.com/coryshaw1) |
+| [cliamp-plugin-autoplay](https://github.com/gaurabxkc/cliamp-plugin-autoplay) | Endless similar-track playback: Last.fm similarity, played from Spotify | [@gaurabxkc](https://github.com/gaurabxkc) |
+| [cliamp-plugin-pomodoro](https://github.com/gaurabxkc/cliamp-plugin-pomodoro) | Focus timer that pauses playback during breaks, with a countdown clock visualizer | [@gaurabxkc](https://github.com/gaurabxkc) |
