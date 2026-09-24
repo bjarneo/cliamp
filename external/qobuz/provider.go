@@ -3,6 +3,7 @@ package qobuz
 import (
 	"context"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"slices"
 	"strings"
@@ -88,6 +89,26 @@ func (p *QobuzProvider) ResolveSource(uri string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	return c.cmafFile(ctx, id, p.quality)
+}
+
+// ResolveStream prepares a Qobuz stream without downloading the complete
+// track. CMAF segments are fetched and decrypted as the player consumes them.
+func (p *QobuzProvider) ResolveStream(uri string) (io.ReadCloser, error) {
+	id := strings.TrimPrefix(uri, TrackURIPrefix)
+	if id == "" || id == uri {
+		return nil, fmt.Errorf("qobuz: invalid track URI %q", uri)
+	}
+	c, err := p.ensureClient()
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	stream, err := c.cmafStream(ctx, id, p.quality)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	return stream, nil
 }
 
 // New creates a QobuzProvider. Authentication is deferred until the user first

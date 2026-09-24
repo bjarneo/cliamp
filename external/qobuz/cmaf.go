@@ -1,6 +1,7 @@
 package qobuz
 
 import (
+	"bytes"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -18,6 +19,50 @@ import (
 	"crypto/sha256"
 	"golang.org/x/crypto/hkdf"
 )
+
+type cmafStreamReader struct {
+	ctx      context.Context
+	cancel   context.CancelFunc
+	client   *client
+	template string
+	key      [16]byte
+	segments int
+	next     int
+	pending  *bytes.Reader
+}
+
+func (r *cmafStreamReader) Read(p []byte) (int, error) {
+	for {
+		if r.pending != nil {
+			n, err := r.pending.Read(p)
+			if n > 0 {
+				return n, nil
+			}
+			r.pending = nil
+			if err != nil && err != io.EOF {
+				return 0, err
+			}
+		}
+		if r.next > r.segments {
+			return 0, io.EOF
+		}
+		data, err := r.client.fetchBytes(r.ctx, strings.Replace(r.template, "$SEGMENT$", strconv.Itoa(r.next), 1))
+		if err != nil {
+			return 0, err
+		}
+		plain, err := decryptSegment(data, r.key)
+		if err != nil {
+			return 0, err
+		}
+		r.next++
+		r.pending = bytes.NewReader(plain)
+	}
+}
+
+func (r *cmafStreamReader) Close() error {
+	r.cancel()
+	return nil
+}
 
 const (
 	initUUID    = "c7c75df0fdd951e98fc22971e4acf8d2"
@@ -64,7 +109,7 @@ func sortStrings(v []string) {
 	}
 }
 
-func (c *client) cmafRequest(ctx context.Context, method, endpoint string, params url.Values, body bool, out any) error {
+func (c *client) cmafRequest(ctx context.Context, method, endpoint, sessionID string, params url.Values, body bool, out any) error {
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	signParams := make(url.Values, len(params))
 	for k, v := range params {
@@ -86,8 +131,8 @@ func (c *client) cmafRequest(ctx context.Context, method, endpoint string, param
 	}
 	req.Header.Set("X-App-Id", c.appID)
 	req.Header.Set("X-User-Auth-Token", c.uat)
-	if c.sessionID != "" {
-		req.Header.Set("X-Session-Id", c.sessionID)
+	if sessionID != "" {
+		req.Header.Set("X-Session-Id", sessionID)
 	}
 	if body {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -114,7 +159,7 @@ func (c *client) cmafRequest(ctx context.Context, method, endpoint string, param
 
 func (c *client) cmafSession(ctx context.Context) (string, string, error) {
 	var out cmafSessionResponse
-	if err := c.cmafRequest(ctx, http.MethodPost, "session/start", url.Values{"profile": {"qbz-1"}}, true, &out); err != nil {
+	if err := c.cmafRequest(ctx, http.MethodPost, "session/start", "", url.Values{"profile": {"qbz-1"}}, true, &out); err != nil {
 		return "", "", err
 	}
 	if out.SessionID == "" || out.Infos == "" {
@@ -303,6 +348,15 @@ func decryptSegment(data []byte, key [16]byte) ([]byte, error) {
 }
 
 func (c *client) cmafFile(ctx context.Context, trackID string, formatID int) ([]byte, error) {
+	stream, err := c.cmafStream(ctx, trackID, formatID)
+	if err != nil {
+		return nil, err
+	}
+	defer stream.Close()
+	return io.ReadAll(stream)
+}
+
+func (c *client) cmafStream(ctx context.Context, trackID string, formatID int) (io.ReadCloser, error) {
 	sid, infos, err := c.cmafSession(ctx)
 	if err != nil {
 		return nil, err
@@ -311,12 +365,9 @@ func (c *client) cmafFile(ctx context.Context, trackID string, formatID int) ([]
 	if err != nil {
 		return nil, err
 	}
-	old := c.sessionID
-	c.sessionID = sid
-	defer func() { c.sessionID = old }()
 	var file fileURLResponse
 	params := url.Values{"track_id": {trackID}, "format_id": {strconv.Itoa(formatID)}, "intent": {"stream"}}
-	if err := c.cmafRequest(ctx, http.MethodGet, "file/url", params, false, &file); err != nil {
+	if err := c.cmafRequest(ctx, http.MethodGet, "file/url", sid, params, false, &file); err != nil {
 		return nil, err
 	}
 	if file.URLTemplate == "" || file.Key == "" {
@@ -338,19 +389,20 @@ func (c *client) cmafFile(ctx context.Context, trackID string, formatID int) ([]
 	if err != nil {
 		return nil, err
 	}
-	result := header
-	for i := 1; i <= file.Segments; i++ {
-		seg, err := c.fetchBytes(ctx, strings.Replace(file.URLTemplate, "$SEGMENT$", strconv.Itoa(i), 1))
-		if err != nil {
-			return nil, err
-		}
-		plain, err := decryptSegment(seg, key)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, plain...)
+	if file.Segments < 1 {
+		return nil, fmt.Errorf("qobuz: file/url returned no segments")
 	}
-	return result, nil
+	streamCtx, cancel := context.WithCancel(ctx)
+	return &cmafStreamReader{
+		ctx:      streamCtx,
+		cancel:   cancel,
+		client:   c,
+		template: file.URLTemplate,
+		key:      key,
+		segments: file.Segments,
+		next:     1,
+		pending:  bytes.NewReader(header),
+	}, nil
 }
 
 func (c *client) fetchBytes(ctx context.Context, raw string) ([]byte, error) {

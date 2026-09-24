@@ -3,6 +3,7 @@ package player
 import (
 	"context"
 	"fmt"
+	"io"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -1106,13 +1107,14 @@ func (p *Player) RegisterBufferedURLMatcher(match func(string) bool) {
 }
 
 // ResolvedSource is a playable source produced by a SourceResolver at play
-// time: either a direct HTTP URL, or an ordered list of media segment URLs
-// whose concatenated bytes form one progressive stream (e.g. unencrypted
-// DASH fMP4 segments).
+// time: either a direct HTTP URL, an ordered list of media segment URLs whose
+// concatenated bytes form one progressive stream, or a reader that produces
+// the source bytes on demand.
 type ResolvedSource struct {
 	URL      string
 	Segments []string
 	Data     []byte
+	Reader   io.ReadCloser
 }
 
 // SourceResolver turns a custom URI (e.g. "tidal://track/123") into a

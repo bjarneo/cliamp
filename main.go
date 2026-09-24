@@ -429,8 +429,8 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 
 	if qobuzProv != nil {
 		p.RegisterSourceResolver(qobuz.TrackURIPrefix, func(uri string) (player.ResolvedSource, error) {
-			data, err := qobuzProv.ResolveSource(uri)
-			return player.ResolvedSource{Data: data}, err
+			reader, err := qobuzProv.ResolveStream(uri)
+			return player.ResolvedSource{Reader: reader}, err
 		})
 	}
 
