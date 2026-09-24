@@ -350,27 +350,35 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 	ffmpegCmd.Stdin = pr
 	var ffmpegStderr limitedBuffer
 	ffmpegCmd.Stderr = &ffmpegStderr
-	ffmpegPipe, err := ffmpegCmd.StdoutPipe()
+	// An owned pipe carries ffmpeg's PCM, like the yt-dlp → ffmpeg hop above.
+	// StdoutPipe would tie the read end to cmd.Wait, which monitorExit runs
+	// during playback: Wait closes it as soon as ffmpeg exits, dropping PCM
+	// still in the pipe and failing the next read instead of reaching EOF.
+	pcmR, pcmW, err := os.Pipe()
 	if err != nil {
 		pw.Close()
 		pr.Close()
 		ytdlCmd.Process.Kill()
 		ytdlCmd.Wait()
-		return nil, beep.Format{}, fmt.Errorf("ffmpeg stdout pipe: %w", err)
+		return nil, beep.Format{}, fmt.Errorf("os.Pipe: %w", err)
 	}
+	ffmpegCmd.Stdout = pcmW
 	if err := ffmpegCmd.Start(); err != nil {
 		pw.Close()
 		pr.Close()
+		pcmR.Close()
+		pcmW.Close()
 		ytdlCmd.Process.Kill()
 		ytdlCmd.Wait()
 		return nil, beep.Format{}, fmt.Errorf("ffmpeg start: %w", err)
 	}
 
-	// Close parent's copies of pipe ends. yt-dlp owns pw (write end) and
-	// ffmpeg owns pr (read end). If the parent keeps these open, EOF won't
-	// propagate when the owning process exits.
+	// Close parent's copies of pipe ends. yt-dlp owns pw (write end), ffmpeg
+	// owns pr (read end) and pcmW (PCM write end). If the parent keeps these
+	// open, EOF won't propagate when the owning process exits.
 	pw.Close()
 	pr.Close()
+	pcmW.Close()
 
 	// Monitor each process's exit so we can surface why the pipe closed. A
 	// process's stderr is only safe to read after Wait() returns, so the
@@ -387,8 +395,8 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 	return &ytdlPipeStreamer{
 		ytdlCmd:    ytdlCmd,
 		ffmpegCmd:  ffmpegCmd,
-		pipe:       ffmpegPipe,
-		reader:     bufio.NewReaderSize(ffmpegPipe, pipeBufSize),
+		pipe:       pcmR,
+		reader:     bufio.NewReaderSize(pcmR, pipeBufSize),
 		ytdlErr:    ytdlErrCh,
 		ffmpegErr:  ffmpegErrCh,
 		ytdlDone:   ytdlDone,
