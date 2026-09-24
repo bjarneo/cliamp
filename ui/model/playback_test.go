@@ -1212,3 +1212,69 @@ func TestQueueToggleRearmsGaplessPreload(t *testing.T) {
 		t.Fatalf("preloadCalls = %v, want [c.mp3] (queued track, not order-next b.mp3)", player.preloadCalls)
 	}
 }
+
+// A reconnect already scheduled when the user stops must not start playback
+// again once its timer fires.
+func TestStopCancelsScheduledReconnect(t *testing.T) {
+	player := &playbackFakeEngine{playing: true, drained: true}
+	p := playlist.New()
+	p.Replace([]playlist.Track{
+		{Title: "Station 1", Path: "https://example.com/one", Stream: true, Realtime: true},
+		{Title: "Station 2", Path: "https://example.com/two", Stream: true, Realtime: true},
+	})
+	p.SetIndex(0)
+
+	m := Model{
+		player:   player,
+		playlist: p,
+		vis:      ui.NewVisualizer(float64(player.SampleRate())),
+	}
+	m.SetVisualizer("none")
+
+	updated, _ := m.Update(tickMsg(time.Now()))
+	m = updated.(Model)
+	retryAt := m.reconnect.at
+	if retryAt.IsZero() {
+		t.Fatal("no reconnect scheduled after the live stream drained")
+	}
+	m.handleKey(tea.KeyPressMsg{Text: "s"})
+	player.drained = false
+	updated, _ = m.Update(tickMsg(retryAt.Add(time.Millisecond)))
+	m = updated.(Model)
+
+	if len(player.playCalls) != 0 || m.buffering {
+		t.Fatalf("play calls = %v, buffering = %v after stop; want nothing started", player.playCalls, m.buffering)
+	}
+	if m.err != nil {
+		t.Fatalf("err = %v after stop, want the pending reconnect message cleared", m.err)
+	}
+}
+
+// Stopping while a drained yt-dlp live stream waits to retry ends the retries
+// instead of letting them restart it or advance to the next track.
+func TestStopCancelsYTDLLiveRestartRetries(t *testing.T) {
+	player := &playbackFakeEngine{playing: true, drained: true}
+	m := newYTDLLiveDrainModel(player)
+	livePath := m.playlist.Tracks()[0].Path
+
+	updated, _ := m.Update(tickMsg(time.Now()))
+	m = updated.(Model)
+	player.drained = false
+	m = failYTDLLiveRestart(t, m, livePath)
+	retryAt := m.reconnect.at
+	playsBeforeStop := len(player.playCalls)
+
+	m.handleKey(tea.KeyPressMsg{Text: "s"})
+	updated, _ = m.Update(tickMsg(retryAt.Add(time.Millisecond)))
+	m = updated.(Model)
+
+	if got := m.playlist.Index(); got != 0 {
+		t.Fatalf("playlist index = %d after stop, want 0", got)
+	}
+	if len(player.playCalls) != playsBeforeStop || m.buffering {
+		t.Fatalf("play calls = %v, buffering = %v after stop; want nothing started", player.playCalls, m.buffering)
+	}
+	if m.reconnect != (reconnectState{}) {
+		t.Fatalf("reconnect state = %+v after stop, want cleared", m.reconnect)
+	}
+}

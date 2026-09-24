@@ -62,6 +62,12 @@ func (m *Model) stopPlayback() (playlist.Track, bool) {
 	m.player.Stop()
 	// The refused stream result would have cleared this; nothing else will.
 	m.buffering = false
+	// A pending reconnect would restart the playlist's current track when its
+	// timer fires, and its "reconnecting in" message would stay up.
+	if !m.reconnect.at.IsZero() {
+		m.err = nil
+	}
+	m.reconnect = reconnectState{}
 	finished, started := m.playingTrack, m.playingTrackActive && m.playingTrackStarted
 	m.clearPlaybackTrack()
 	return finished, started
