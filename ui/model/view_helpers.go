@@ -154,9 +154,11 @@ func wrapText(s string, maxW int) []string {
 }
 
 // markerColumns says which optional state columns the playlist rows reserve.
-// The cursor and playing/unavailable cells are always drawn; the rest cost a
-// column of title width each, so they are reserved only once the playlist has
-// something to put in them.
+// The cursor and playing/unavailable cells are always drawn. Queue, bookmark,
+// and played cost a column of title width each, so they are reserved only once
+// the playlist has something to put in them. The favorite column is always
+// reserved: toggling the first/last favorite would otherwise shift every title
+// by one cell.
 type markerColumns struct {
 	queue    bool
 	bookmark bool
@@ -166,13 +168,14 @@ type markerColumns struct {
 
 // markerColumns decides the reserved marker columns for one render pass. It is
 // a per-pass decision, not a per-row one: a row-by-row choice would shift the
-// title column as you scrolled. With no queue, bookmarks, or favorites the
-// titles start four columns further left.
+// title column as you scrolled. With no queue, bookmarks, or playback state
+// the titles start three columns further left; the favorite cell stays put so
+// favoriting never moves the titles.
 func (m Model) markerColumns() markerColumns {
 	return markerColumns{
 		queue:    m.playlist.QueueLen() > 0,
 		bookmark: m.playlistStarCount() > 0,
-		favorite: len(m.favSet) > 0,
+		favorite: true,
 		played:   m.hasPlaybackState(),
 	}
 }

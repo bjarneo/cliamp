@@ -556,6 +556,7 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	historyCmd := m.recordListenedTrack(track)
 	m.reconnect.attempts = 0
 	m.reconnect.at = time.Time{}
+	m.reconnect.ytdlLiveDrain = false
 	m.streamTitle = ""
 	m.lyrics.lines = nil
 	m.lyrics.err = nil
@@ -653,7 +654,9 @@ func shouldReconnectOnUnpause(track playlist.Track, idx int, pausedFor time.Dura
 	if idx < 0 {
 		return false
 	}
-	if track.IsLive() {
+	// Whether a flagged yt-dlp track is still live depends on the player, so
+	// the caller decides that through currentPlaybackIsLive.
+	if track.IsLive() && !playlist.IsYTDL(track.Path) {
 		return true
 	}
 	return pausedFor >= ytdlReconnectPauseThreshold && playlist.IsYTDL(track.Path)
