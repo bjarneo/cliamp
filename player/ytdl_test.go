@@ -247,9 +247,9 @@ func TestYTDLPipeDrainsOutputAfterFFmpegExits(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses POSIX process fixtures")
 	}
-	const frames = 4096 // s16le stereo: 4 bytes a frame, well under a pipe buffer
+	const frames = 256 // s16le stereo: 4 bytes a frame; fits a two-page pipe
 	dir := t.TempDir()
-	writeExecutable(t, filepath.Join(dir, "yt-dlp"), "#!/bin/sh\nhead -c 16384 /dev/zero\n")
+	writeExecutable(t, filepath.Join(dir, "yt-dlp"), "#!/bin/sh\nhead -c 1024 /dev/zero\n")
 	writeExecutable(t, filepath.Join(dir, "ffmpeg"), "#!/bin/sh\ncat\n")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
