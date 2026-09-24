@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/internal/plugintrust"
+	"github.com/bjarneo/cliamp/ipc"
 	"github.com/bjarneo/cliamp/luaplugin"
 	"github.com/bjarneo/cliamp/playlist"
 )
@@ -25,8 +27,8 @@ func (c *stopSpyPublisher) Publish(topic string, data json.RawMessage, _ bool) e
 func (c *stopSpyPublisher) ClearPrefix(string) {}
 
 // TestExplicitStopEmitsPlaybackStop loads a real plugin that republishes the
-// playback.stop event and checks that an explicit stop delivers it, while
-// running past the last track does not.
+// playback.stop event and checks that each explicit stop path delivers it,
+// while running past the last track does not.
 func TestExplicitStopEmitsPlaybackStop(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLIAMP_CONFIG_DIR", dir)
@@ -54,27 +56,50 @@ p:on("playback.stop", function() p:publish("stopped", {}) end)`
 	}
 
 	last := playlist.Track{Path: "https://www.youtube.com/watch?v=abc", Title: "Last"}
-	pl := playlist.New()
-	pl.Add(playlist.Track{Path: "/music/first.flac"}, last)
-	pl.SetIndex(1)
-	m := Model{player: &playbackFakeEngine{playing: true}, playlist: pl, luaMgr: mgr}
-	m.setPlaybackTrack(last)
+	newModel := func() Model {
+		pl := playlist.New()
+		pl.Add(playlist.Track{Path: "/music/first.flac"}, last)
+		pl.SetIndex(1)
+		m := Model{player: &playbackFakeEngine{playing: true}, playlist: pl, luaMgr: mgr}
+		m.setPlaybackTrack(last)
+		return m
+	}
 
-	// An explicit stop through the real handler reports playback.stop.
-	updated, _ := m.Update(playback.StopMsg{})
-	m = updated.(Model)
-	select {
-	case got := <-pub.published:
-		if !strings.HasPrefix(got, "plugin.") || !strings.Contains(got, ".stopped ") {
-			t.Fatalf("explicit stop published %q, want a stopped topic", got)
+	stops := []struct {
+		name string
+		stop func(*Model)
+	}{
+		{"media controls", func(m *Model) {
+			updated, _ := m.Update(playback.StopMsg{})
+			*m = updated.(Model)
+		}},
+		{"stop key", func(m *Model) { m.handleKey(tea.KeyPressMsg{Text: "s"}) }},
+		{"IPC", func(m *Model) {
+			jobs := ipc.NewJobStore()
+			job, err := jobs.Create("stop")
+			if err != nil {
+				t.Fatal(err)
+			}
+			updated, _ := m.Update(V2RequestMsg{Request: ipc.V2Request{Operation: "stop"}, Jobs: jobs, JobID: job.ID})
+			*m = updated.(Model)
+		}},
+	}
+	for _, tc := range stops {
+		m := newModel()
+		tc.stop(&m)
+		select {
+		case got := <-pub.published:
+			if !strings.HasPrefix(got, "plugin.") || !strings.Contains(got, ".stopped ") {
+				t.Fatalf("%s: published %q, want a stopped topic", tc.name, got)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("%s: playback.stop was not delivered to the plugin", tc.name)
 		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("playback.stop was not delivered to the plugin")
 	}
 
 	// Running past the last track stops playback too, but that is the queue
 	// ending, not the user stopping, so nothing is published.
-	m.setPlaybackTrack(last)
+	m := newModel()
 	if cmd := m.nextTrack(); cmd != nil {
 		t.Fatal("nextTrack past the last track returned a command, want nil")
 	}
