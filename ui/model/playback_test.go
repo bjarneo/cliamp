@@ -957,6 +957,35 @@ func TestYTDLLiveStreamFailedFirstStartDoesNotAdvance(t *testing.T) {
 	}
 }
 
+// Playing another track while a drained live stream waits to restart ends the
+// retries, so that track's own failed start stays put like any other.
+func TestPlayDuringYTDLLiveRestartWaitDoesNotInheritRetries(t *testing.T) {
+	player := &playbackFakeEngine{playing: true, drained: true}
+	m := newYTDLLiveDrainModel(player)
+	livePath := m.playlist.Tracks()[0].Path
+
+	updated, _ := m.Update(tickMsg(time.Now()))
+	m = updated.(Model)
+	player.drained = false
+	m = failYTDLLiveRestart(t, m, livePath)
+
+	m.playlist.SetIndex(1)
+	next, _ := m.playlist.Current()
+	m.playTrack(next)
+	updated, _ = m.Update(streamPlayedMsg{path: next.Path, gen: m.requests.stream, err: errors.New("unavailable")})
+	m = updated.(Model)
+
+	if got := m.playlist.Index(); got != 1 {
+		t.Fatalf("playlist index = %d, want 1 after the chosen track failed to start", got)
+	}
+	if m.reconnect.ytdlLiveDrain || !m.reconnect.at.IsZero() {
+		t.Fatalf("reconnect state = %+v, want no retry for a track the user started", m.reconnect)
+	}
+	if m.err == nil {
+		t.Fatal("err = nil, want the failed start reported")
+	}
+}
+
 func TestGaplessAdvanceDoesNotAlsoDrainNextTrack(t *testing.T) {
 	player := &playbackFakeEngine{playing: true, gaplessAdvanced: true, drained: true}
 	p := playlist.New()
