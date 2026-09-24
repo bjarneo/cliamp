@@ -3,10 +3,14 @@ package player
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -323,7 +327,7 @@ printf '2.5\n'
 		t.Fatal(err)
 	}
 	p := &Player{sr: beep.SampleRate(100), bitDepth: 16}
-	tp, err := p.buildPipeline(path)
+	tp, err := p.buildPipeline(context.Background(), path)
 	if err != nil {
 		t.Fatalf("buildPipeline() error = %v", err)
 	}
@@ -391,7 +395,7 @@ printf '0\n'
 `)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	_, _, err := decodeFFmpegLocal(filepath.Join(dir, "bad.wav"), beep.SampleRate(44100), 16)
+	_, _, err := decodeFFmpegLocal(context.Background(), filepath.Join(dir, "bad.wav"), beep.SampleRate(44100), 16)
 	if err == nil {
 		t.Fatal("decodeFFmpegLocal() error = nil, want process error")
 	}
@@ -415,7 +419,7 @@ printf '1\n'
 `)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	decoder, _, err := decodeFFmpegLocal(filepath.Join(dir, "partial.wav"), beep.SampleRate(100), 16)
+	decoder, _, err := decodeFFmpegLocal(context.Background(), filepath.Join(dir, "partial.wav"), beep.SampleRate(100), 16)
 	if err != nil {
 		t.Fatalf("decodeFFmpegLocal() error = %v", err)
 	}
@@ -464,7 +468,7 @@ printf '10\n'
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("FFMPEG_COUNT", countPath)
 
-	decoder, _, err := decodeFFmpegLocal(filepath.Join(dir, "track.m4a"), beep.SampleRate(100), 16)
+	decoder, _, err := decodeFFmpegLocal(context.Background(), filepath.Join(dir, "track.m4a"), beep.SampleRate(100), 16)
 	if err != nil {
 		t.Fatalf("decodeFFmpegLocal() error = %v", err)
 	}
@@ -506,7 +510,7 @@ exec sleep 30
 	t.Setenv("FFMPEG_COUNT", countPath)
 
 	nb := newCompletedTestNavBuffer(t, []byte("HEADpayload"))
-	decoder, _, err := decodeNavFFmpeg(nb, beep.SampleRate(100), 16, 1000)
+	decoder, _, err := decodeNavFFmpeg(context.Background(), nb, beep.SampleRate(100), 16, 1000)
 	if err != nil {
 		t.Fatalf("decodeNavFFmpeg() error = %v", err)
 	}
@@ -544,7 +548,7 @@ printf '\000\100\000\300'
 	t.Setenv("FFMPEG_INPUTS", inputsPath)
 
 	nb := newCompletedTestNavBuffer(t, []byte("HEADpayload"))
-	decoder, _, err := decodeNavFFmpeg(nb, beep.SampleRate(100), 16, 1000)
+	decoder, _, err := decodeNavFFmpeg(context.Background(), nb, beep.SampleRate(100), 16, 1000)
 	if err != nil {
 		t.Fatalf("decodeNavFFmpeg() error = %v", err)
 	}
@@ -588,12 +592,13 @@ func TestNavFFmpegBlockedInputCloseIsPrompt(t *testing.T) {
 	}
 	dir := t.TempDir()
 	writeExecutable(t, filepath.Join(dir, "ffmpeg"), `#!/bin/sh
+printf '\000\100\000\300'
 exec sleep 30
 `)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	nb := newStalledTestNavBuffer(t)
-	decoder, _, err := decodeNavFFmpeg(nb, beep.SampleRate(100), 16, 1000)
+	decoder, _, err := decodeNavFFmpeg(context.Background(), nb, beep.SampleRate(100), 16, 1000)
 	if err != nil {
 		t.Fatalf("decodeNavFFmpeg() error = %v", err)
 	}
@@ -730,5 +735,112 @@ func BenchmarkStreamFromReader(b *testing.B) {
 				streamFromReader(reader, samples, &pcmBuf, f32, state)
 			}
 		})
+	}
+}
+
+func TestFFmpegSourceCancellation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX shell fixtures")
+	}
+	for _, initialAudio := range []bool{false, true} {
+		t.Run(fmt.Sprint("initialAudio=", initialAudio), func(t *testing.T) {
+			dir := t.TempDir()
+			ready := filepath.Join(dir, "ready")
+			script := "#!/bin/sh\nprintf ready > \"$FFMPEG_READY\"\n"
+			if initialAudio {
+				script += "printf '\\000\\100\\000\\300'\n"
+			}
+			script += "exec sleep 30\n"
+			writeExecutable(t, filepath.Join(dir, "ffmpeg"), script)
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("FFMPEG_READY", ready)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			decoder, _, err := decodeFFmpegStream(ctx, "https://example.test/radio.m3u8", 44100, 16)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer decoder.Close()
+			waitForFileValue(t, ready, "ready")
+			if initialAudio {
+				if err := decoder.waitForInitialAudio(time.Second); err != nil {
+					t.Fatal(err)
+				}
+				if n, _ := decoder.Stream(make([][2]float64, 1)); n != 1 {
+					t.Fatalf("initial audio frames = %d, want 1", n)
+				}
+			}
+			waitDone := make(chan error, 1)
+			go func() { waitDone <- decoder.waitForInitialAudio(time.Minute) }()
+			cancel()
+			select {
+			case err := <-waitDone:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("audio wait = %v, want context cancellation", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("source cancellation left PCM wait blocked")
+			}
+			decoder.Close()
+			if decoder.proc.cmd.ProcessState == nil {
+				t.Fatal("canceled FFmpeg was not reaped")
+			}
+		})
+	}
+}
+
+func TestNavFFmpegSeekPreservesSourceDownload(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX shell fixture")
+	}
+	dir := t.TempDir()
+	writeExecutable(t, filepath.Join(dir, "ffmpeg"), "#!/bin/sh\nprintf '\\000\\100\\000\\300'\nexec sleep 30\n")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	sendData := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		select {
+		case <-sendData:
+			_, _ = w.Write([]byte("data"))
+			w.(http.Flusher).Flush()
+		case <-r.Context().Done():
+			return
+		}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	nb, _, err := newNavBuffer(ctx, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nb.Close()
+	decoder, _, err := decodeNavFFmpeg(ctx, nb, 100, 16, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer decoder.Close()
+	if err := decoder.Seek(100); err != nil {
+		t.Fatal(err)
+	}
+	close(sendData)
+	got := make(chan error, 1)
+	go func() {
+		data := make([]byte, 4)
+		_, err := io.ReadFull(nb, data)
+		if err == nil && string(data) != "data" {
+			err = fmt.Errorf("downloaded %q, want data", data)
+		}
+		got <- err
+	}()
+	select {
+	case err := <-got:
+		if err != nil {
+			t.Fatalf("seek interrupted shared progressive download: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("download stopped after seek")
 	}
 }

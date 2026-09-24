@@ -2,6 +2,7 @@ package jellyfin
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -189,7 +190,7 @@ func TestProviderRestoreTrackDefersAuthenticationUntilSourceResolution(t *testin
 		}
 		return jsonResponse(`{"User":{"Id":"user-1"},"AccessToken":"new-token"}`), nil
 	})})
-	source, err := p.ResolveSource(got.Path)
+	source, err := p.ResolveSource(context.Background(), got.Path)
 	if err != nil {
 		t.Fatalf("ResolveSource() error: %v", err)
 	}
@@ -207,7 +208,7 @@ func TestProviderResolveSourcePropagatesAuthenticationFailure(t *testing.T) {
 	p.client.SetHTTPClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return nil, authErr
 	})})
-	got, err := p.ResolveSource("https://jf.example.com/Items/track-1/Download?api_key=old-token")
+	got, err := p.ResolveSource(context.Background(), "https://jf.example.com/Items/track-1/Download?api_key=old-token")
 	if !errors.Is(err, authErr) || got != "" {
 		t.Fatalf("ResolveSource() = (%q, %v), want no source and authentication error", got, err)
 	}

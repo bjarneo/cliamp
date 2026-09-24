@@ -347,17 +347,17 @@ func waveKeyFor(keys []string, id string) string {
 
 // ResolveSource resolves a yandex:track: URI to a fresh signed stream URL at
 // play time. Registered as a player.SourceResolver in main.go.
-func (p *Provider) ResolveSource(uri string) (string, error) {
+func (p *Provider) ResolveSource(ctx context.Context, uri string) (string, error) {
 	id, ok := strings.CutPrefix(uri, TrackURIPrefix)
 	if !ok || id == "" || strings.ContainsAny(id, "/?#") {
 		return "", fmt.Errorf("yandex: invalid track uri %q", uri)
 	}
-	return p.resolveStreamURL(id, false)
+	return p.resolveStreamURL(ctx, id, false)
 }
 
 // resolveStreamURL returns a signed CDN URL for a track, caching entries for
 // urlTTL. force bypasses the cache, for example after the URL expired.
-func (p *Provider) resolveStreamURL(trackID string, force bool) (string, error) {
+func (p *Provider) resolveStreamURL(ctx context.Context, trackID string, force bool) (string, error) {
 	p.mu.Lock()
 	if !force {
 		if e, ok := p.urlCache[trackID]; ok && time.Since(e.at) < urlTTL {
@@ -367,7 +367,7 @@ func (p *Provider) resolveStreamURL(trackID string, force bool) (string, error) 
 	}
 	p.mu.Unlock()
 
-	u, err := p.api.streamURL(trackID)
+	u, err := p.api.streamURL(ctx, trackID)
 	if err != nil {
 		return "", err
 	}

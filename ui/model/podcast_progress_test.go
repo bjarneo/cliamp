@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -25,7 +26,7 @@ func (p *stateProv) CanTrackPosition(track playlist.Track) bool {
 	return ok
 }
 
-func (p *stateProv) TrackPosition(track playlist.Track) time.Duration {
+func (p *stateProv) TrackPosition(_ context.Context, track playlist.Track) time.Duration {
 	return p.states[track.Path].Position
 }
 

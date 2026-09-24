@@ -408,8 +408,8 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if yaProv != nil {
 		// Yandex tracks carry yandex:track: URIs; the provider resolves them
 		// to a fresh signed stream URL when playback starts.
-		p.RegisterSourceResolver(yandex.TrackURIPrefix, func(uri string) (player.ResolvedSource, error) {
-			u, err := yaProv.ResolveSource(uri)
+		p.RegisterSourceResolver(yandex.TrackURIPrefix, func(ctx context.Context, uri string) (player.ResolvedSource, error) {
+			u, err := yaProv.ResolveSource(ctx, uri)
 			if err != nil {
 				return player.ResolvedSource{}, fmt.Errorf("resolve Yandex source: %w", err)
 			}
@@ -420,15 +420,15 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if tidalProv != nil {
 		// Tidal tracks carry tidal:// URIs; the provider resolves them to a
 		// fresh signed URL or DASH segment list when playback starts.
-		p.RegisterSourceResolver(tidal.TrackURIPrefix, func(uri string) (player.ResolvedSource, error) {
-			u, segments, err := tidalProv.ResolveSource(uri)
+		p.RegisterSourceResolver(tidal.TrackURIPrefix, func(ctx context.Context, uri string) (player.ResolvedSource, error) {
+			u, segments, err := tidalProv.ResolveSource(ctx, uri)
 			return player.ResolvedSource{URL: u, Segments: segments}, err
 		})
 	}
 
 	if lyrionClient != nil {
-		p.RegisterSourceResolver(lyrion.TrackURIPrefix, func(uri string) (player.ResolvedSource, error) {
-			u, segments, err := lyrionClient.ResolveSource(uri)
+		p.RegisterSourceResolver(lyrion.TrackURIPrefix, func(ctx context.Context, uri string) (player.ResolvedSource, error) {
+			u, segments, err := lyrionClient.ResolveSource(ctx, uri)
 			return player.ResolvedSource{URL: u, Segments: segments}, err
 		})
 	}
@@ -436,8 +436,8 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if jellyProv != nil {
 		// Refresh restored Jellyfin URLs without changing logical playlist paths.
 		for _, scheme := range []string{"http://", "https://"} {
-			p.RegisterSourceResolver(scheme, func(rawURL string) (player.ResolvedSource, error) {
-				u, err := jellyProv.ResolveSource(rawURL)
+			p.RegisterSourceResolver(scheme, func(ctx context.Context, rawURL string) (player.ResolvedSource, error) {
+				u, err := jellyProv.ResolveSource(ctx, rawURL)
 				return player.ResolvedSource{URL: u}, err
 			})
 		}

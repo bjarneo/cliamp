@@ -2,6 +2,7 @@ package audiobookshelf
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -366,7 +367,7 @@ func TestProgressAndUpdateProgress(t *testing.T) {
 		}
 	})
 
-	list, err := c.Progress()
+	list, err := c.Progress(context.Background())
 	if err != nil {
 		t.Fatalf("Progress() error: %v", err)
 	}

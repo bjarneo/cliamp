@@ -3,7 +3,9 @@ package player
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -82,7 +84,7 @@ func TestBuildYTDLPipelineRetriesTransient403(t *testing.T) {
 	attemptsPath, ffmpegDonePath := installYTDLRetryFixtures(t, "403-once")
 	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
 
-	pipeline, err := p.buildYTDLPipeline("https://www.youtube.com/watch?v=retry", 0)
+	pipeline, err := p.buildYTDLPipeline(context.Background(), "https://www.youtube.com/watch?v=retry", 0)
 	if err != nil {
 		t.Fatalf("buildYTDLPipeline() error = %v", err)
 	}
@@ -99,7 +101,7 @@ func TestBuildYTDLPipelineStopsAfterTransient403RetryBudget(t *testing.T) {
 	attemptsPath, _ := installYTDLRetryFixtures(t, "403-always")
 	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
 
-	_, err := p.buildYTDLPipeline("https://www.youtube.com/watch?v=retry", 0)
+	_, err := p.buildYTDLPipeline(context.Background(), "https://www.youtube.com/watch?v=retry", 0)
 	if err == nil || !strings.Contains(err.Error(), "HTTP Error 403: Forbidden") {
 		t.Fatalf("buildYTDLPipeline() error = %v, want yt-dlp 403 cause", err)
 	}
@@ -112,7 +114,7 @@ func TestBuildYTDLPipelineDoesNotRetryPermanentYTDLError(t *testing.T) {
 	attemptsPath, _ := installYTDLRetryFixtures(t, "unavailable")
 	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
 
-	_, err := p.buildYTDLPipeline("https://www.youtube.com/watch?v=unavailable", 0)
+	_, err := p.buildYTDLPipeline(context.Background(), "https://www.youtube.com/watch?v=unavailable", 0)
 	if err == nil || !strings.Contains(err.Error(), "Video unavailable") {
 		t.Fatalf("buildYTDLPipeline() error = %v, want unavailable-video cause", err)
 	}
@@ -236,5 +238,85 @@ func TestYTDLPipeCloseReapsBothProcesses(t *testing.T) {
 	case <-ffmpegDone:
 	default:
 		t.Fatal("FFmpeg process was not reaped")
+	}
+}
+
+func TestYTDLSourceCancellation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX shell fixtures")
+	}
+	for _, initialAudio := range []bool{false, true} {
+		t.Run(fmt.Sprint("initialAudio=", initialAudio), func(t *testing.T) {
+			dir := t.TempDir()
+			ready := filepath.Join(dir, "ready")
+			writeExecutable(t, filepath.Join(dir, "yt-dlp"), "#!/bin/sh\nexec sleep 30\n")
+			script := "#!/bin/sh\nprintf ready > \"$FFMPEG_READY\"\n"
+			if initialAudio {
+				script += "printf '\\000\\100\\000\\300'\n"
+			}
+			script += "exec sleep 30\n"
+			writeExecutable(t, filepath.Join(dir, "ffmpeg"), script)
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("FFMPEG_READY", ready)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			decoder, _, err := decodeYTDLPipe(ctx, "https://example.test/track", 44100, 16, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer decoder.Close()
+			waitForFileValue(t, ready, "ready")
+			if initialAudio {
+				if err := prefillYTDLPipe(ctx, decoder); err != nil {
+					t.Fatal(err)
+				}
+				if n, _ := decoder.Stream(make([][2]float64, 1)); n != 1 {
+					t.Fatalf("initial audio frames = %d, want 1", n)
+				}
+			}
+			waitDone := make(chan error, 1)
+			go func() { waitDone <- prefillYTDLPipe(ctx, decoder) }()
+			cancel()
+			select {
+			case err := <-waitDone:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("audio wait = %v, want context cancellation", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("source cancellation left yt-dlp audio wait blocked")
+			}
+			for _, done := range []<-chan struct{}{decoder.ytdlDone, decoder.ffmpegDone} {
+				select {
+				case <-done:
+				case <-time.After(2 * time.Second):
+					t.Fatal("source cancellation did not reap a process")
+				}
+			}
+		})
+	}
+}
+
+func TestYTDLDurationProbeCancellation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX shell fixtures")
+	}
+	dir := t.TempDir()
+	ready := filepath.Join(dir, "ready")
+	writeExecutable(t, filepath.Join(dir, "yt-dlp"), "#!/bin/sh\nprintf ready > \"$YTDL_READY\"\nexec sleep 30\n")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("YTDL_READY", ready)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan time.Duration, 1)
+	go func() { done <- probeYTDLDuration(ctx, "https://example.test/track") }()
+	waitForFileValue(t, ready, "ready")
+	cancel()
+	select {
+	case duration := <-done:
+		if duration != 0 {
+			t.Fatalf("canceled duration probe = %v, want zero", duration)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("duration probe ignored source cancellation")
 	}
 }

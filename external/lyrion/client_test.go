@@ -566,7 +566,7 @@ func TestTrackPathCarriesNoCredentials(t *testing.T) {
 func TestResolveSource(t *testing.T) {
 	c := New("http://nas:9000", "bob", "hunter2")
 
-	got, segments, err := c.ResolveSource(TrackURIPrefix + "77")
+	got, segments, err := c.ResolveSource(context.Background(), TrackURIPrefix+"77")
 	if err != nil {
 		t.Fatalf("ResolveSource: %v", err)
 	}
@@ -582,7 +582,7 @@ func TestResolveSource(t *testing.T) {
 	}
 
 	for _, bad := range []string{"", "tidal://track/77", "lyrion://track/", "nonsense"} {
-		if _, _, err := c.ResolveSource(bad); err == nil {
+		if _, _, err := c.ResolveSource(context.Background(), bad); err == nil {
 			t.Errorf("ResolveSource(%q) = nil error, want a rejection", bad)
 		}
 	}

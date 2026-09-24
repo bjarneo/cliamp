@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -57,8 +58,8 @@ func TestJellyfinSourceResolutionForPlayAndPreload(t *testing.T) {
 
 	engine := &player.Player{}
 	for _, scheme := range []string{"http://", "https://"} {
-		engine.RegisterSourceResolver(scheme, func(rawURL string) (player.ResolvedSource, error) {
-			u, err := prov.ResolveSource(rawURL)
+		engine.RegisterSourceResolver(scheme, func(ctx context.Context, rawURL string) (player.ResolvedSource, error) {
+			u, err := prov.ResolveSource(ctx, rawURL)
 			return player.ResolvedSource{URL: u}, err
 		})
 	}

@@ -2,6 +2,7 @@ package player
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os/exec"
 	"strings"
@@ -113,7 +114,7 @@ func TestFFmpegPipeStreamCloseUnblocks(t *testing.T) {
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { pw.Close() })
 
-	dec, _, err := decodeFFmpegPipeStream(pr, beep.SampleRate(44100), 16, true)
+	dec, _, err := decodeFFmpegPipeStream(context.Background(), pr, beep.SampleRate(44100), 16, true)
 	if err != nil {
 		t.Fatalf("decodeFFmpegPipeStream: %v", err)
 	}
@@ -139,7 +140,7 @@ func TestFFmpegPipeStreamInitialAudioTimeoutCloses(t *testing.T) {
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { pw.Close() })
 
-	dec, _, err := decodeFFmpegPipeStream(pr, beep.SampleRate(44100), 16, true)
+	dec, _, err := decodeFFmpegPipeStream(context.Background(), pr, beep.SampleRate(44100), 16, true)
 	if err != nil {
 		t.Fatalf("decodeFFmpegPipeStream: %v", err)
 	}

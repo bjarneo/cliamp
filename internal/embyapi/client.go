@@ -6,6 +6,7 @@ package embyapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,9 +38,9 @@ type Client struct {
 	dialect    dialect
 	httpClient *http.Client
 
-	// authMu serializes password authentication. Startup may fetch playlists and
+	// authGate serializes password authentication. Startup may fetch playlists and
 	// artists concurrently, and Jellyfin can reject overlapping login requests.
-	authMu sync.Mutex
+	authGate chan struct{}
 
 	// mu guards the lazily-populated fields below, which are read and written
 	// from concurrent tea.Cmd goroutines. It is never held across network I/O.
@@ -62,6 +63,7 @@ func NewJellyfinClient(baseURL, token, userID, user, password string) *Client {
 func newClient(baseURL, token, userID, user, password string, d dialect) *Client {
 	return &Client{
 		baseURL:    strings.TrimRight(baseURL, "/"),
+		authGate:   make(chan struct{}, 1),
 		token:      token,
 		userID:     userID,
 		user:       user,
@@ -219,7 +221,7 @@ func (c *Client) UserID() (string, error) {
 	if id != "" {
 		return id, nil
 	}
-	if err := c.ensureAuth(); err != nil {
+	if err := c.ensureAuth(context.Background()); err != nil {
 		return "", err
 	}
 	c.mu.Lock()
@@ -516,12 +518,12 @@ func (c *Client) StreamItemID(rawURL string) (string, bool) {
 
 // ResolveSource refreshes this server's download URLs at play time. Other
 // sources pass through unchanged without authentication.
-func (c *Client) ResolveSource(rawURL string) (string, error) {
+func (c *Client) ResolveSource(ctx context.Context, rawURL string) (string, error) {
 	itemID, ok := c.StreamItemID(rawURL)
 	if !ok {
 		return rawURL, nil
 	}
-	if err := c.ensureAuth(); err != nil {
+	if err := c.ensureAuth(ctx); err != nil {
 		return "", err
 	}
 	return c.streamURL(itemID, c.authToken()), nil
@@ -539,7 +541,7 @@ func (c *Client) StreamURLFromCurrentAuth(itemID string) (string, bool) {
 
 // StreamURL returns an authenticated audio URL for a track item.
 func (c *Client) StreamURL(itemID string) string {
-	_ = c.ensureAuth()
+	_ = c.ensureAuth(context.Background())
 	return c.streamURL(itemID, c.authToken())
 }
 
@@ -616,7 +618,7 @@ func (e *httpError) Error() string {
 // get executes a GET request against the endpoint, unmarshaling JSON into out
 // on success and returning a typed httpError for non-200 responses.
 func (c *Client) get(p string, params url.Values, out any) error {
-	if err := c.ensureAuth(); err != nil {
+	if err := c.ensureAuth(context.Background()); err != nil {
 		return err
 	}
 
@@ -659,7 +661,7 @@ func (c *Client) get(p string, params url.Values, out any) error {
 }
 
 func (c *Client) postJSON(p string, payload any) error {
-	if err := c.ensureAuth(); err != nil {
+	if err := c.ensureAuth(context.Background()); err != nil {
 		return fmt.Errorf("%s: %s: %w", c.dialect.name(), p, err)
 	}
 
@@ -687,13 +689,17 @@ func (c *Client) postJSON(p string, payload any) error {
 	return nil
 }
 
-func (c *Client) ensureAuth() error {
+func (c *Client) ensureAuth(ctx context.Context) error {
 	if c.authToken() != "" {
 		return nil
 	}
 
-	c.authMu.Lock()
-	defer c.authMu.Unlock()
+	select {
+	case c.authGate <- struct{}{}:
+		defer func() { <-c.authGate }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	if c.authToken() != "" {
 		return nil
 	}
@@ -709,7 +715,7 @@ func (c *Client) ensureAuth() error {
 		return fmt.Errorf("%s: auth: %w", c.dialect.name(), err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/Users/AuthenticateByName", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/Users/AuthenticateByName", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("%s: auth: %w", c.dialect.name(), err)
 	}

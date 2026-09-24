@@ -678,7 +678,7 @@ func (m *Model) startPosition(track playlist.Track) func() time.Duration {
 	if positioner == nil {
 		return func() time.Duration { return hint }
 	}
-	return func() time.Duration { return positioner.TrackPosition(track) }
+	return func() time.Duration { return positioner.TrackPosition(context.Background(), track) }
 }
 
 // clearResume drops the startup hint for track.

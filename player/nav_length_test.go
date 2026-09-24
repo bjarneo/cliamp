@@ -1,6 +1,7 @@
 package player
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -51,7 +52,7 @@ func serveBody(t *testing.T, body string) string {
 }
 
 func TestNavBufferCompletedPath(t *testing.T) {
-	b, _, err := newNavBuffer(serveBody(t, "abcdefghij"))
+	b, _, err := newNavBuffer(context.Background(), serveBody(t, "abcdefghij"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +72,7 @@ func TestNavBufferCompletedPath(t *testing.T) {
 }
 
 func TestNavBufferCompletedPathAfterClose(t *testing.T) {
-	b, _, err := newNavBuffer(serveBody(t, "abcdefghij"))
+	b, _, err := newNavBuffer(context.Background(), serveBody(t, "abcdefghij"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +96,7 @@ func TestNavBufferCompletedPathOnTruncatedDownload(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	b, _, err := newNavBuffer(srv.URL)
+	b, _, err := newNavBuffer(context.Background(), srv.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +138,7 @@ func TestFiniteHTTPSourceIsSeekableWithoutAMatcher(t *testing.T) {
 	}
 	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
 
-	tp, err := p.buildPipeline(srv.URL)
+	tp, err := p.buildPipeline(context.Background(), srv.URL)
 	if err != nil {
 		t.Fatalf("buildPipeline() error = %v", err)
 	}
@@ -169,7 +170,7 @@ func TestChunkedHTTPSourceStaysLive(t *testing.T) {
 
 	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
 
-	tp, err := p.buildPipeline(srv.URL)
+	tp, err := p.buildPipeline(context.Background(), srv.URL)
 	if err != nil {
 		t.Fatalf("buildPipeline() error = %v", err)
 	}
