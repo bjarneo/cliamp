@@ -1278,3 +1278,35 @@ func TestStopCancelsYTDLLiveRestartRetries(t *testing.T) {
 		t.Fatalf("reconnect state = %+v after stop, want cleared", m.reconnect)
 	}
 }
+
+// Stop clears only the reconnect's own message, not an error shown after it.
+func TestStopKeepsErrorShownDuringReconnect(t *testing.T) {
+	player := &playbackFakeEngine{playing: true, drained: true}
+	p := playlist.New()
+	p.Replace([]playlist.Track{
+		{Title: "Station 1", Path: "https://example.com/one", Stream: true, Realtime: true},
+	})
+	p.SetIndex(0)
+
+	m := Model{
+		player:   player,
+		playlist: p,
+		vis:      ui.NewVisualizer(float64(player.SampleRate())),
+	}
+	m.SetVisualizer("none")
+
+	updated, _ := m.Update(tickMsg(time.Now()))
+	m = updated.(Model)
+	if m.reconnect.at.IsZero() {
+		t.Fatal("no reconnect scheduled after the live stream drained")
+	}
+	player.drained = false
+	failure := errors.New("provider failed")
+	updated, _ = m.Update(failure)
+	m = updated.(Model)
+	m.handleKey(tea.KeyPressMsg{Text: "s"})
+
+	if m.err != failure {
+		t.Fatalf("err = %v after stop, want %v kept", m.err, failure)
+	}
+}

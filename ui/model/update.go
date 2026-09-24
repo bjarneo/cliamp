@@ -25,7 +25,8 @@ func (m *Model) scheduleReconnect(now time.Time) {
 	delay := time.Second << m.reconnect.attempts
 	m.reconnect.at = now.Add(delay)
 	m.reconnect.attempts++
-	m.err = fmt.Errorf("reconnecting in %s", delay)
+	m.reconnect.notice = fmt.Errorf("reconnecting in %s", delay)
+	m.err = m.reconnect.notice
 }
 
 // Update handles messages: key presses, ticks, and window resizes.

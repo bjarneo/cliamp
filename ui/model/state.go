@@ -352,6 +352,8 @@ type reconnectState struct {
 	// taken to be over or unreachable, and playback advances instead of
 	// stopping on it.
 	ytdlLiveDrain bool
+	// notice is the "reconnecting in" error shown while a restart waits.
+	notice error
 }
 
 // devicePickerState holds state for the audio device picker overlay.
