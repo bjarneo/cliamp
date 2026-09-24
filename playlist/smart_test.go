@@ -5,11 +5,6 @@ import (
 	"testing"
 )
 
-// orderPosOf returns the order slot holding track index idx, or -1.
-func orderPosOf(p *Playlist, idx int) int {
-	return slices.Index(p.order, idx)
-}
-
 func TestSmartFlagToggle(t *testing.T) {
 	p := makePlaylist(3, false)
 

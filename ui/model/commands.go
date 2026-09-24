@@ -58,8 +58,6 @@ type tracksLoadedMsg struct {
 	playlistID    string
 	providerName  string
 	playlistExact bool
-	paged         bool // first page of a provider.TrackPager load
-	total         int  // total tracks reported by the pager (paged only)
 	gen           uint64
 	resumeIdx     int
 	resumeOffset  time.Duration

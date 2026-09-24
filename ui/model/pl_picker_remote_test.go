@@ -112,13 +112,13 @@ func TestPlaylistPickerRemoteCreate(t *testing.T) {
 	if !item.isNew || !item.remote {
 		t.Fatalf("last item = %+v; want remote +New", item)
 	}
-	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 	if !m.plPicker.visible || m.plPicker.screen != plPickerNewName || !m.plPicker.newNameRemote {
 		t.Fatalf("picker = visible=%v screen=%d remoteName=%v", m.plPicker.visible, m.plPicker.screen, m.plPicker.newNameRemote)
 	}
 	m.plPicker.newName = "Mixtape"
-	updated, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 	msg, ok := cmd().(pickerRemoteWriteMsg)
 	if !ok || !msg.created {

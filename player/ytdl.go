@@ -288,25 +288,6 @@ func monitorExit(cmd *exec.Cmd, stderr *limitedBuffer, name string) (<-chan erro
 	return ch, done
 }
 
-// ytdlStreamArgs builds the yt-dlp argument list for downloading a page's
-// best audio to stdout. See ytdlProbeArgs for the "--" guard.
-// Prefer direct HTTPS/HTTP streams over HLS (m3u8). HLS requires segment
-// downloading and muxing which doesn't pipe cleanly to stdout.
-// Live streams (e.g. YouTube live) expose no audio-only formats at all,
-// only muxed video+audio over HLS, so fall back to "best" as a last
-// resort; the ffmpeg stage below outputs PCM audio and drops the video.
-func ytdlStreamArgs(pageURL string) []string {
-	args := []string{
-		"-f", "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio[protocol!=m3u8_native][protocol!=m3u8]/bestaudio/best",
-		"--no-playlist",
-		"--quiet",
-		"--no-warnings",
-		"--socket-timeout", "15",
-		"-o", "-",
-	}
-	return append(args, "--", pageURL)
-}
-
 // decodeYTDLPipe starts a yt-dlp | ffmpeg pipe chain for the given page URL
 // and returns a streaming PCM decoder. If startSec > 0, ffmpeg -ss is used
 // to skip to the desired position in the input stream.

@@ -159,27 +159,6 @@ func (m *Model) retireTracksPaging() {
 	m.tracksPaging = false
 }
 
-// applyProvListFixup applies and clears the pending post-write list
-// adjustment (cursor clamping or reselection) after a playlists refresh.
-func (m *Model) applyProvListFixup() {
-	fix := m.provListFixup
-	m.provListFixup = provListFixupState{}
-	if fix.selectID != "" {
-		for i, pl := range m.providerLists {
-			if pl.ID == fix.selectID {
-				m.provCursor = i
-				break
-			}
-		}
-		m.providerMaybeAdjustScroll()
-		return
-	}
-	if fix.clampCursor && m.provCursor >= len(m.providerLists) {
-		m.provCursor = max(0, len(m.providerLists)-1)
-		m.providerMaybeAdjustScroll()
-	}
-}
-
 func (m *Model) fetchProviderTracks(playlistID string) tea.Cmd {
 	if m.provider == nil {
 		return nil
