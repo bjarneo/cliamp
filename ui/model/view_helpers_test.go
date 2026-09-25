@@ -97,6 +97,20 @@ func TestPodcastEpisodeViewNameTrimsPublisherPrefix(t *testing.T) {
 	}
 }
 
+func TestPodcastNowPlayingKeepsShowName(t *testing.T) {
+	track := playlist.Track{
+		Title: "The Example Podcast - Episode 42", Artist: "The Example Podcast",
+		Album:        "The Example Podcast",
+		ProviderMeta: map[string]string{provider.MetaPodcastFeed: "https://example.com/feed.xml"},
+	}
+	if got := trackViewName(track); got != "Episode 42" {
+		t.Fatalf("playlist row = %q, want episode only", got)
+	}
+	if got, want := trackInfoName(track, ""), track.DisplayName()+" · "+track.Album; got != want {
+		t.Errorf("now-playing name = %q, want %q", got, want)
+	}
+}
+
 func TestFormatTrackTime(t *testing.T) {
 	tests := []struct {
 		secs int

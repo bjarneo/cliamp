@@ -369,6 +369,9 @@ func trackInfoName(track playlist.Track, streamTitle string) string {
 	}
 
 	name := trackViewName(track)
+	if track.Meta(provider.MetaPodcastFeed) != "" {
+		name = track.DisplayName()
+	}
 	if name == "" {
 		name = "No track loaded"
 	}
