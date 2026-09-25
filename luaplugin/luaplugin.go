@@ -55,7 +55,8 @@ type StateProvider struct {
 	TrackNumber   func() int
 	TrackPath     func() string
 	TrackIsStream func() bool
-	TrackDuration func() int // seconds
+	TrackIsLive   func() bool // live stream with no track boundary
+	TrackDuration func() int  // seconds
 	PlaylistCount func() int
 	CurrentIndex  func() int          // 0-based
 	HasNext       func() bool         // a track follows in play order (queue, repeat, shuffle)

@@ -392,10 +392,18 @@ func (d *daemon) clearPlaybackTrack() {
 }
 
 func (d *daemon) playbackIsLive(track playlist.Track) bool {
+	return playsLive(track, d.player)
+}
+
+// playsLive reports whether track, playing on player, is a live stream with
+// no track boundary.
+func playsLive(track playlist.Track, player interface{ Duration() time.Duration }) bool {
 	if track.IsLive() {
-		return true
+		// A yt-dlp live flag goes stale when the broadcast ends; the recording
+		// at the same URL plays with a known duration.
+		return !playlist.IsYTDL(track.Path) || player.Duration() <= 0
 	}
-	reporter, ok := d.player.(interface{ IsLiveStream() bool })
+	reporter, ok := player.(interface{ IsLiveStream() bool })
 	return ok && reporter.IsLiveStream()
 }
 

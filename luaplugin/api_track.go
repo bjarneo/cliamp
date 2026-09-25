@@ -78,6 +78,19 @@ func registerTrackAPI(L *lua.LState, cliamp *lua.LTable, state *StateProvider) {
 		return 1
 	}))
 
+	// cliamp.track.is_live() -> true for live streams, which have no track
+	// boundary and never advance on their own: radio stations, and streams
+	// that are live now. A yt-dlp track flagged live stops counting once the
+	// player knows its duration, as the broadcast has become a recording.
+	L.SetField(tbl, "is_live", L.NewFunction(func(L *lua.LState) int {
+		if state.TrackIsLive != nil {
+			L.Push(lua.LBool(state.TrackIsLive()))
+		} else {
+			L.Push(lua.LFalse)
+		}
+		return 1
+	}))
+
 	L.SetField(tbl, "duration_secs", L.NewFunction(func(L *lua.LState) int {
 		if state.TrackDuration != nil {
 			L.Push(lua.LNumber(state.TrackDuration()))

@@ -238,3 +238,45 @@ func TestYTDLPipeCloseReapsBothProcesses(t *testing.T) {
 		t.Fatal("FFmpeg process was not reaped")
 	}
 }
+
+// When ffmpeg exits before playback has read all of its output, the rest of
+// the PCM is still in the pipe and must play out, ending in a clean EOF. The
+// last track in a queue ends exactly this way; a read error here would be
+// taken for a dropped connection and restart the track.
+func TestYTDLPipeDrainsOutputAfterFFmpegExits(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX process fixtures")
+	}
+	const frames = 256 // s16le stereo: 4 bytes a frame; fits a two-page pipe
+	dir := t.TempDir()
+	writeExecutable(t, filepath.Join(dir, "yt-dlp"), "#!/bin/sh\nhead -c 1024 /dev/zero\n")
+	writeExecutable(t, filepath.Join(dir, "ffmpeg"), "#!/bin/sh\ncat\n")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	y, _, err := decodeYTDLPipe("https://www.youtube.com/watch?v=end", beep.SampleRate(44100), 16, 0)
+	if err != nil {
+		t.Fatalf("decodeYTDLPipe() error = %v", err)
+	}
+	defer y.Close()
+	select {
+	case <-y.ffmpegDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ffmpeg fixture did not exit")
+	}
+
+	got := 0
+	buf := make([][2]float64, 512)
+	for {
+		n, ok := y.Stream(buf)
+		got += n
+		if !ok {
+			break
+		}
+	}
+	if got != frames {
+		t.Fatalf("streamed %d frames, want %d", got, frames)
+	}
+	if err := y.Err(); err != nil {
+		t.Fatalf("Err() = %v after the output was read, want nil", err)
+	}
+}

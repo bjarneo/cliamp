@@ -25,7 +25,8 @@ func (m *Model) scheduleReconnect(now time.Time) {
 	delay := time.Second << m.reconnect.attempts
 	m.reconnect.at = now.Add(delay)
 	m.reconnect.attempts++
-	m.err = fmt.Errorf("reconnecting in %s", delay)
+	m.reconnect.notice = fmt.Errorf("reconnecting in %s", delay)
+	m.err = m.reconnect.notice
 }
 
 // Update handles messages: key presses, ticks, and window resizes.
@@ -260,9 +261,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			track, idx := m.currentPlaybackTrack()
 			m.player.Stop()
 			if idx >= 0 {
+				// playTrack resets reconnect state for every new start, so carry
+				// the live-drain marker and its attempt count across this restart.
+				ytdlLiveDrain, attempts := m.reconnect.ytdlLiveDrain, m.reconnect.attempts
+				playCmd := m.playTrack(track)
+				if ytdlLiveDrain {
+					m.reconnect.ytdlLiveDrain, m.reconnect.attempts = true, attempts
+				}
 				// Preserve any seek/lyric commands already queued this tick
 				// rather than dropping them on the early return.
-				batch := []tea.Cmd{m.playTrack(track), tickCmdAt(ui.TickFast)}
+				batch := []tea.Cmd{playCmd, tickCmdAt(ui.TickFast)}
 				if seekCmd != nil {
 					batch = append(batch, seekCmd)
 				}
@@ -345,6 +353,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// A live stream has no natural end. A clean decoder EOF is a
 				// disconnect, so retry this station instead of advancing.
 				m.scheduleReconnect(now)
+				m.reconnect.ytdlLiveDrain = playlist.IsYTDL(finishedTrack.Path)
 			} else {
 				// Track drained to end — always ≥ 50%. The player is still on
 				// the finished track here, so its live duration is authoritative
@@ -819,6 +828,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.buffering = false
+		ytdlLiveDrain := m.reconnect.ytdlLiveDrain
+		m.reconnect.ytdlLiveDrain = false
+		if msg.err != nil && ytdlLiveDrain {
+			// The drained live stream did not restart. The cause may be a
+			// network outage or the end of the broadcast, so retry with
+			// backoff before giving up on it and advancing.
+			m.player.Stop()
+			if m.reconnect.attempts < ytdlLiveDrainRestarts {
+				m.scheduleReconnect(time.Now())
+				m.reconnect.ytdlLiveDrain = true
+				m.notifyAll()
+				return m, nil
+			}
+			m.reconnect.attempts = 0
+			cmd := m.nextTrack()
+			m.notifyAll()
+			return m, cmd
+		}
 		var resumeCmd tea.Cmd
 		if msg.err != nil {
 			m.err = msg.err
