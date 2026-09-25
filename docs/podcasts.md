@@ -29,6 +29,8 @@ episode and press `Enter` to play, or `a` to toggle its play-next queue entry.
 Feeds load the first 300 playable episodes in feed order. Episode titles, show
 names, durations, artwork, and episode numbers are retained when available.
 Items without playable audio are skipped.
+The playlist shows podcast episode titles without repeating the show name on
+every row. The show name remains in the album header and track metadata.
 
 `Ctrl+R` reloads a show opened from the provider list or category browser. In
 the provider list with no show open, it refreshes the top chart. Reopen a show

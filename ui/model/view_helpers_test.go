@@ -52,6 +52,24 @@ func TestRestrictedMarkersAreViewOnly(t *testing.T) {
 	}
 }
 
+func TestPodcastEpisodeViewNameOmitsShow(t *testing.T) {
+	track := playlist.Track{
+		Title: "#494 — A Coin Toss for the Future", Artist: "Making Sense with Sam Harris",
+		Album:        "Making Sense with Sam Harris",
+		ProviderMeta: map[string]string{provider.MetaPodcastFeed: "https://example.com/feed.xml"},
+	}
+	if got := trackViewName(track); got != "#494 — A Coin Toss for the Future" {
+		t.Errorf("podcast row = %q", got)
+	}
+	if track.Title != "#494 — A Coin Toss for the Future" || track.Artist != track.Album {
+		t.Errorf("podcast metadata changed: %+v", track)
+	}
+	track.ProviderMeta = nil
+	if got := trackViewName(track); got != "Making Sense with Sam Harris - #494 — A Coin Toss for the Future" {
+		t.Errorf("other track row = %q", got)
+	}
+}
+
 func TestFormatTrackTime(t *testing.T) {
 	tests := []struct {
 		secs int
