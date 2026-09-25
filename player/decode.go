@@ -25,6 +25,8 @@ import (
 )
 
 // SupportedExts is the set of file extensions the player can decode.
+// Tracker module extensions (.mod, .xm, .it, ...) are added to this map by
+// player/decode_openmpt.go's init — see openmptExts there.
 var SupportedExts = map[string]bool{
 	".mp3":  true,
 	".wav":  true,
@@ -306,6 +308,16 @@ func needsFFmpeg(ext string) bool {
 	return false
 }
 
+// unsuitableForFFmpegFallback reports whether ext's native decoder failing
+// should be treated as terminal rather than retried through ffmpeg: either
+// decodeWithExt already tried ffmpeg for this ext (needsFFmpeg), or ffmpeg
+// has no demuxer for the format at all (the tracker modules openmpt
+// handles), so a retry could only replace a clear error with a confusing
+// one.
+func unsuitableForFFmpegFallback(ext string) bool {
+	return needsFFmpeg(ext) || openmptExts[ext]
+}
+
 // isHLS reports whether the extension denotes an HLS playlist that ffmpeg must
 // open by URL (so it can fetch and demux the segments itself).
 func isHLS(ext string) bool { return ext == ".m3u8" }
@@ -323,6 +335,9 @@ func (p *Player) isBufferedURL(path string) bool {
 func decodeWithExt(rc io.ReadCloser, ext, path string, sr beep.SampleRate, bitDepth int) (beep.StreamSeekCloser, beep.Format, error) {
 	if needsFFmpeg(ext) {
 		return decodeFFmpegLocal(path, sr, bitDepth)
+	}
+	if openmptExts[ext] {
+		return decodeOpenmpt(rc, path, sr)
 	}
 	switch ext {
 	case ".wav":
