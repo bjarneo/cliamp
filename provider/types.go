@@ -5,7 +5,11 @@
 // via type assertions.
 package provider
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/bjarneo/cliamp/playlist"
+)
 
 // ArtistInfo describes an artist in a provider's catalog.
 type ArtistInfo struct {
@@ -57,6 +61,26 @@ func YearFromDate(date string) int {
 	return y
 }
 
+// SearchResults carries multi-type search results from a MultiSearcher.
+type SearchResults struct {
+	Tracks    []playlist.Track
+	Albums    []AlbumInfo
+	Artists   []ArtistInfo
+	Playlists []playlist.PlaylistInfo
+}
+
+// ArtistDetail carries everything a provider can supply for an artist
+// profile page. Popular tracks carry ProviderMeta[MetaSpotifyPopularity]
+// ("0"-"100") and ProviderMeta[MetaSpotifyLiked] ("true" when saved)
+// where the provider supports them.
+type ArtistDetail struct {
+	Info        ArtistInfo
+	Genres      []string
+	Followers   int
+	Popular     []playlist.Track
+	Discography []AlbumInfo
+}
+
 // ProviderMeta key constants used across providers and the UI.
 const (
 	MetaNavidromeID = "navidrome.id"
@@ -89,4 +113,7 @@ const (
 	MetaPodcastGUID = "podcast.guid"
 	// MetaPodcastPublished is the episode publication date as YYYY-MM-DD.
 	MetaPodcastPublished = "podcast.published"
+
+	MetaSpotifyPopularity = "spotify.popularity"
+	MetaSpotifyLiked      = "spotify.liked"
 )

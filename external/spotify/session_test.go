@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -25,6 +28,104 @@ func (f tokenSourceFunc) Token() (*oauth2.Token, error) { return f() }
 func TestCallbackAddressUsesIPv4Loopback(t *testing.T) {
 	if got, want := callbackAddress(), "127.0.0.1:19872"; got != want {
 		t.Fatalf("callbackAddress() = %q, want %q", got, want)
+	}
+}
+
+func TestListenOAuthCallbackUsesEphemeralPort(t *testing.T) {
+	// A squatter on the fixed callback port must not block sign-in: the
+	// ephemeral primary binds even while callbackAddress() is occupied.
+	blocker, err := net.Listen("tcp", callbackAddress())
+	if err != nil {
+		t.Fatalf("bind blocker on %s: %v", callbackAddress(), err)
+	}
+	defer blocker.Close()
+
+	lis, err := listenOAuthCallback(net.JoinHostPort(callbackHost, "0"), callbackAddress())
+	if err != nil {
+		t.Fatalf("listenOAuthCallback() = %v, want ephemeral listener", err)
+	}
+	defer lis.Close()
+
+	addr := lis.Addr().String()
+	if addr == callbackAddress() {
+		t.Fatal("listenOAuthCallback bound the blocked fixed port, want ephemeral")
+	}
+	if got, want := callbackRedirectURI(lis), "http://"+addr+"/login"; got != want {
+		t.Errorf("callbackRedirectURI() = %q, want %q", got, want)
+	}
+	if !strings.HasPrefix(callbackRedirectURI(lis), "http://127.0.0.1:") || !strings.HasSuffix(callbackRedirectURI(lis), "/login") {
+		t.Errorf("callbackRedirectURI() = %q, want http://127.0.0.1:<port>/login", callbackRedirectURI(lis))
+	}
+}
+
+func TestListenOAuthCallbackFallsBackOnListenFailure(t *testing.T) {
+	// Bind a blocker socket first so the primary listen fails deterministically.
+	blocker, err := net.Listen("tcp", net.JoinHostPort(callbackHost, "0"))
+	if err != nil {
+		t.Fatalf("bind blocker: %v", err)
+	}
+	defer blocker.Close()
+
+	lis, err := listenOAuthCallback(blocker.Addr().String(), callbackAddress())
+	if err != nil {
+		t.Fatalf("listenOAuthCallback() = %v, want fallback listener on %s", err, callbackAddress())
+	}
+	defer lis.Close()
+	if got, want := lis.Addr().String(), callbackAddress(); got != want {
+		t.Errorf("fallback listener addr = %q, want %q", got, want)
+	}
+}
+
+func TestListenOAuthCallbackFailsWhenAllCandidatesBusy(t *testing.T) {
+	b1, err := net.Listen("tcp", net.JoinHostPort(callbackHost, "0"))
+	if err != nil {
+		t.Fatalf("bind blocker 1: %v", err)
+	}
+	defer b1.Close()
+	b2, err := net.Listen("tcp", net.JoinHostPort(callbackHost, "0"))
+	if err != nil {
+		t.Fatalf("bind blocker 2: %v", err)
+	}
+	defer b2.Close()
+
+	if lis, err := listenOAuthCallback(b1.Addr().String(), b2.Addr().String()); err == nil {
+		lis.Close()
+		t.Fatal("listenOAuthCallback() succeeded with both candidates occupied, want error")
+	}
+}
+
+func TestPerformOAuth2PKCEFlowsNotifiesAuthURLObserver(t *testing.T) {
+	oldOpen := openBrowser
+	openBrowser = func(string) error { return nil }
+	defer func() { openBrowser = oldOpen }()
+
+	got := make(chan string, 1)
+	SetAuthURLObserver(func(u string) { got <- u })
+	defer SetAuthURLObserver(nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := performOAuth2PKCEFlows(ctx, []oauthFlow{{name: "web api", clientID: "test-client", scopes: []string{"scope"}}})
+		errCh <- err
+	}()
+
+	var authURL string
+	select {
+	case authURL = <-got:
+		cancel()
+	case <-time.After(10 * time.Second):
+		t.Fatal("authURLObserver was not notified")
+	}
+	<-errCh
+
+	u, err := url.Parse(authURL)
+	if err != nil {
+		t.Fatalf("auth URL does not parse: %v", err)
+	}
+	redirect := u.Query().Get("redirect_uri")
+	if !strings.HasPrefix(redirect, "http://127.0.0.1:") || !strings.HasSuffix(redirect, "/login") {
+		t.Errorf("redirect_uri = %q, want http://127.0.0.1:<port>/login", redirect)
 	}
 }
 

@@ -50,6 +50,11 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	m.provSignIn = false
 	m.catalogBatch = catalogBatchState{}
 	m.activeProviderPlaylistID = ""
+	m.providerQueueLen = 0
+	m.providerQueueLastPath = ""
+	m.provConfirm = provConfirmState{}
+	m.provRename = provRenameState{}
+	m.provListFixup = provListFixupState{}
 	m.resetProviderNav()
 	m.focus = focusProvider
 	listsCmd := m.fetchProviderPlaylists()
@@ -161,6 +166,15 @@ func (m *Model) fetchProviderTracks(playlistID string) tea.Cmd {
 	gen := nextRequest(&m.requests.tracks)
 	pager, paged := m.provider.(provider.TrackPager)
 	m.tracksPaging = paged
+	m.provConfirm = provConfirmState{}
+	m.provRename = provRenameState{}
+	// The Home content pane may be paging this same playlist; a queue load
+	// supersedes it, so stop the pane's chain before both append pages into
+	// two views of one list.
+	if m.homeContentPaging(playlistID) {
+		nextRequest(&m.requests.homeContent)
+		m.home.content.paging = homePagingState{}
+	}
 	if paged {
 		return fetchTracksPageCmd(pager, m.provider.Name(), playlistID, 0, gen)
 	}

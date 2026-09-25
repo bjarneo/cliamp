@@ -1,18 +1,45 @@
 package qobuz
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestBundlePrivateKeyScraped(t *testing.T) {
 	b := &bundle{content: `foo privateKey: "scrapedKey123" bar`}
-	if got := b.privateKey(); got != "scrapedKey123" {
-		t.Fatalf("privateKey() = %q, want scraped value", got)
+	// A configured fallback must not shadow the scraped value.
+	got, err := b.privateKey("fromConfig456")
+	if err != nil {
+		t.Fatalf("privateKey() error = %v", err)
+	}
+	if got != "scrapedKey123" {
+		t.Fatalf("privateKey() = %q, want scraped value %q", got, "scrapedKey123")
 	}
 }
 
-func TestBundlePrivateKeyFallback(t *testing.T) {
+func TestBundlePrivateKeyConfigFallback(t *testing.T) {
 	b := &bundle{content: `no key here at all`}
-	if got := b.privateKey(); got != fallbackPrivateKey {
-		t.Fatalf("privateKey() = %q, want fallback %q", got, fallbackPrivateKey)
+	got, err := b.privateKey("fromConfig456")
+	if err != nil {
+		t.Fatalf("privateKey() error = %v", err)
+	}
+	if got != "fromConfig456" {
+		t.Fatalf("privateKey() = %q, want fallback %q", got, "fromConfig456")
+	}
+}
+
+func TestBundlePrivateKeyMissing(t *testing.T) {
+	b := &bundle{content: `no key here at all`}
+	_, err := b.privateKey("")
+	if err == nil {
+		t.Fatal("privateKey() = nil error, want error when nothing scraped and no fallback")
+	}
+	// The error must tell the user which config key to set and where the
+	// value comes from.
+	for _, want := range []string{"[qobuz] private_key", "play.qobuz.com"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing %q", err.Error(), want)
+		}
 	}
 }
 

@@ -100,15 +100,16 @@ func InstallYTDLP() error {
 			return cmd.Run()
 		}
 	}
-	// Fallback: pip/pipx
-	if path, err := exec.LookPath("pipx"); err == nil {
-		cmd := exec.Command(path, "install", "yt-dlp")
+	// Fallback: pip/pipx. LookPath only gates availability; the command is
+	// invoked by literal name so the exec'd binary is never a variable.
+	if _, err := exec.LookPath("pipx"); err == nil {
+		cmd := exec.Command("pipx", "install", "yt-dlp")
 		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
 	}
-	if path, err := exec.LookPath("pip3"); err == nil {
-		cmd := exec.Command(path, "install", "yt-dlp")
+	if _, err := exec.LookPath("pip3"); err == nil {
+		cmd := exec.Command("pip3", "install", "yt-dlp")
 		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
 		return cmd.Run()

@@ -11,6 +11,7 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - goos: linux
@@ -71,10 +72,41 @@ jobs:
       - name: Install deps (macOS amd64 cross)
         if: matrix.goos == 'darwin' && matrix.goarch == 'amd64'
         run: |
-          # Install x86_64 Homebrew under /usr/local via Rosetta 2
-          NONINTERACTIVE=1 arch -x86_64 /bin/bash -c \
-            "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          arch -x86_64 /usr/local/bin/brew install flac libvorbis libogg mpg123 pkg-config
+          # x86_64 Homebrew under Rosetta is no longer supported on macOS
+          # runners; build the codec libraries for x86_64 from source into
+          # ${RUNNER_TEMP}/codec-x86_64 (mirrors the Linux mpg123 step).
+          brew install pkg-config
+          PREFIX="${RUNNER_TEMP}/codec-x86_64"
+          export CC="clang -arch x86_64"
+          export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig"
+          cd "${RUNNER_TEMP}"
+
+          OGG=libogg-1.3.5
+          curl -fsSL "https://downloads.xiph.org/releases/ogg/${OGG}.tar.xz" -o "${OGG}.tar.xz"
+          echo "c4d91be36fc8e54deae7575241e03f4211eb102afb3fc0775fbbc1b740016705  ${OGG}.tar.xz" | shasum -a 256 -c -
+          tar -xf "${OGG}.tar.xz"
+          (cd "${OGG}" && ./configure --host=x86_64-apple-darwin --disable-shared --enable-static --prefix="$PREFIX" && make -j2 && make install)
+
+          VORBIS=libvorbis-1.3.7
+          curl -fsSL "https://downloads.xiph.org/releases/vorbis/${VORBIS}.tar.xz" -o "${VORBIS}.tar.xz"
+          echo "b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b  ${VORBIS}.tar.xz" | shasum -a 256 -c -
+          tar -xf "${VORBIS}.tar.xz"
+          # CFLAGS override goes to make, not configure: libvorbis' configure
+          # force-appends obsolete -force_cpusubtype_ALL on Darwin, which
+          # modern Apple ld rejects.
+          (cd "${VORBIS}" && ./configure --host=x86_64-apple-darwin --disable-shared --enable-static --prefix="$PREFIX" && make -j2 CFLAGS="-O2" && make install CFLAGS="-O2")
+
+          FLAC=flac-1.5.0
+          curl -fsSL "https://downloads.xiph.org/releases/flac/${FLAC}.tar.xz" -o "${FLAC}.tar.xz"
+          echo "f2c1c76592a82ffff8413ba3c4a1299b6c7ab06c734dee03fd88630485c2b920  ${FLAC}.tar.xz" | shasum -a 256 -c -
+          tar -xf "${FLAC}.tar.xz"
+          (cd "${FLAC}" && ./configure --host=x86_64-apple-darwin --disable-shared --enable-static --disable-cpplibs --disable-programs --disable-examples --disable-doxygen-docs --with-ogg="$PREFIX" --prefix="$PREFIX" && make -j2 && make install)
+
+          MPG=mpg123-1.32.6
+          curl -fsSL "https://www.mpg123.de/download/${MPG}.tar.bz2" -o "${MPG}.tar.bz2"
+          echo "ccdd1d0abc31d73d8b435fc658c79049d0a905b30669b6a42a03ad169dc609e6  ${MPG}.tar.bz2" | shasum -a 256 -c -
+          tar -xf "${MPG}.tar.bz2"
+          (cd "${MPG}" && ./configure --host=x86_64-apple-darwin --with-cpu=x86-64 --disable-shared --enable-static --disable-components --enable-libmpg123 --disable-network --prefix="$PREFIX" && make -j2 && make install)
 
       - name: Set up MinGW toolchain (Windows)
         if: matrix.goos == 'windows'
@@ -85,6 +117,7 @@ jobs:
           update: true
           install: >-
             zip
+            unzip
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-libogg
@@ -165,7 +198,15 @@ jobs:
           GOOS: windows
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "1"
-          CGO_LDFLAGS: "-Wl,-Bstatic -logg -Wl,-Bdynamic"
+          # Single-file release: statically link every non-system library
+          # (codecs, MinGW runtime) so the exe imports only Windows system
+          # DLLs and runs on a stock install. -static alone is not enough
+          # on MinGW: -DFLAC__NO_DLL stops FLAC's headers declaring
+          # dllimport refs that libFLAC.a cannot satisfy, and -lshlwapi
+          # covers libmpg123.a's Windows system dependency.
+          CGO_CFLAGS: "-DFLAC__NO_DLL"
+          CGO_LDFLAGS: "-static -lshlwapi"
+          GH_TOKEN: ${{ github.token }}
         shell: msys2 {0}
         run: |
           BINARY="cliamp-windows-${GOARCH}.exe"
@@ -173,15 +214,39 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/}"
           windres -i cliamp_windows.rc -o cliamp_windows.syso -O coff
           go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "$BINARY" .
+          # Import-table gate: the release must be one exe with zero
+          # MinGW/codec DLL imports. Denylist rather than an allowlist of
+          # system DLLs — system imports may change with the toolchain, a
+          # leaked MinGW/codec DLL is always a failure.
+          ldd "$BINARY"
+          ls -l "$BINARY"
+          if ldd "$BINARY" | grep -Ei '/mingw64/bin/.*\.dll|libogg|libvorbis|libFLAC|libmpg123|libssp|libgcc|libwinpthread|libstdc\+\+'; then
+            echo "::error::Windows exe imports MinGW/codec DLLs; static linking regressed" >&2
+            exit 1
+          fi
+          SIZE_BYTES=$(wc -c < "$BINARY")
+          echo "SIZE_BYTES=${SIZE_BYTES}"
+          # Soft size budget: warn (never fail) when the exe alone grows
+          # more than 15% over the previous stable release's exe.
+          PREV_TAG=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name 2>/dev/null) || PREV_TAG=""
+          if [ -n "$PREV_TAG" ]; then
+            rm -rf prev_release
+            mkdir prev_release
+            if gh release download "$PREV_TAG" --repo "$GITHUB_REPOSITORY" --pattern 'cliamp-windows-amd64.zip' --dir prev_release >/dev/null 2>&1 \
+              && unzip -oq "prev_release/cliamp-windows-amd64.zip" -d prev_release \
+              && [ -f "prev_release/${PACKAGE}/cliamp.exe" ]; then
+              PREV_BYTES=$(wc -c < "prev_release/${PACKAGE}/cliamp.exe")
+              echo "PREV_EXE_BYTES=${PREV_BYTES} (${PREV_TAG})"
+              if awk -v cur="$SIZE_BYTES" -v prev="$PREV_BYTES" 'BEGIN { exit !(prev > 0 && cur > prev * 1.15) }'; then
+                echo "::warning::cliamp.exe is ${SIZE_BYTES} bytes, more than 15% larger than ${PREV_TAG}'s cliamp.exe (${PREV_BYTES} bytes)"
+              fi
+            else
+              echo "previous Windows release not found; skipping size budget check"
+            fi
+            rm -rf prev_release
+          fi
           mkdir "$PACKAGE"
           cp "$BINARY" "$PACKAGE/cliamp.exe"
-          ldd "$PACKAGE/cliamp.exe" | while read -r _ _ path _; do
-            case "$path" in
-              /mingw64/bin/*.dll) cp "$path" "$PACKAGE/" ;;
-            esac
-          done
-          set -- "$PACKAGE"/*.dll
-          test -e "$1"
           zip -r "$PACKAGE.zip" "$PACKAGE"
           rm -rf "$PACKAGE"
 
@@ -192,15 +257,21 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           if [ "$GOARCH" = "amd64" ]; then
-            # Cross-compile for x86_64 using Rosetta 2 installed libs
+            # Cross-compile for x86_64 against the codec libs built from source
+            CODEC_PREFIX="${RUNNER_TEMP}/codec-x86_64"
             export CC="clang -arch x86_64"
-            export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig"
-            export CGO_CFLAGS="-I/usr/local/include"
-            export CGO_LDFLAGS="-L/usr/local/lib"
+            export PKG_CONFIG_PATH="${CODEC_PREFIX}/lib/pkgconfig"
+            export CGO_CFLAGS="-I${CODEC_PREFIX}/include"
+            export CGO_LDFLAGS="-L${CODEC_PREFIX}/lib"
           fi
           BINARY="cliamp-darwin-${GOARCH}"
           VERSION="${GITHUB_REF#refs/tags/}"
           go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "$BINARY" .
+          # amd64 links our static archives; arm64 uses Homebrew dylibs
+          if [ "$GOARCH" = "amd64" ] && otool -L "$BINARY" | grep -E '(FLAC|vorbis|ogg|mpg123)'; then
+            echo "codec libraries must be statically linked" >&2
+            exit 1
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7.0.1
@@ -313,7 +384,8 @@ jobs:
 
   update-homebrew:
     needs: release
-    if: needs.release.outputs.prerelease != 'true'
+    # Only upstream publishes the tap; forks lack HOMEBREW_TAP_TOKEN
+    if: github.repository == 'bjarneo/cliamp' && needs.release.outputs.prerelease != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Download checksums

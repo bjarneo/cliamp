@@ -13,15 +13,15 @@ import (
 	"github.com/bjarneo/cliamp/ui"
 )
 
-func (m *Model) openPlaylistPicker(tracks []playlist.Track, title string) {
+func (m *Model) openPlaylistPicker(tracks []playlist.Track, title string) tea.Cmd {
 	if m.localProvider == nil {
 		m.status.Warning("Local playlists are unavailable", statusTTLDefault)
-		return
+		return nil
 	}
 	lists, err := m.localProvider.Playlists()
 	if err != nil {
 		m.status.Errorf(statusTTLDefault, "Playlist list failed: %s", err)
-		return
+		return nil
 	}
 	playlists := make([]playlist.PlaylistInfo, 0, len(lists))
 	for _, pl := range lists {
@@ -36,9 +36,71 @@ func (m *Model) openPlaylistPicker(tracks []playlist.Track, title string) {
 		tracks:    append([]playlist.Track(nil), tracks...),
 		title:     title,
 	}
+	// Append a remote section when every selected track belongs to one
+	// provider that can write playlists.
+	var cmd tea.Cmd
+	if prov := m.playlistWriterForTracks(tracks); prov != nil {
+		m.plPicker.remoteProv = prov
+		m.plPicker.remoteName = prov.Name()
+		if m.provider == prov && len(m.providerLists) > 0 {
+			m.plPicker.remote = filterRemotePickerPlaylists(m.providerLists)
+		} else {
+			m.plPicker.remoteLoading = true
+			cmd = fetchPlPickerRemoteCmd(prov)
+		}
+	}
 	m.refreshChrome()
 	m.applyHeightMode()
 	m.plPickerMaybeAdjustScroll(m.plPickerVisible())
+	return cmd
+}
+
+// playlistWriterForTracks returns the provider that owns every track's URI
+// scheme and implements provider.PlaylistWriter, or nil.
+func (m *Model) playlistWriterForTracks(tracks []playlist.Track) playlist.Provider {
+	if len(tracks) == 0 || trackScheme(tracks[0].Path) == "" {
+		return nil
+	}
+	for _, t := range tracks[1:] {
+		if trackScheme(t.Path) != trackScheme(tracks[0].Path) {
+			return nil
+		}
+	}
+	ownsAndWrites := func(p playlist.Provider) bool {
+		if p == nil || !providerOwnsPath(p, tracks[0].Path) {
+			return false
+		}
+		_, ok := p.(provider.PlaylistWriter)
+		return ok
+	}
+	if ownsAndWrites(m.provider) {
+		return m.provider
+	}
+	for _, pe := range m.providers {
+		if ownsAndWrites(pe.Provider) {
+			return pe.Provider
+		}
+	}
+	return nil
+}
+
+// isSyntheticProviderRow reports whether a provider list ID belongs to a
+// synthetic Library row ("YOUR MUSIC", "TOP TRACKS", … — any ID containing a
+// space) rather than a real playlist ID that write endpoints accept.
+func isSyntheticProviderRow(id string) bool {
+	return strings.Contains(id, " ")
+}
+
+// filterRemotePickerPlaylists drops synthetic entries whose IDs are not real
+// playlist IDs ("YOUR MUSIC", "TOP TRACKS", …).
+func filterRemotePickerPlaylists(lists []playlist.PlaylistInfo) []playlist.PlaylistInfo {
+	filtered := make([]playlist.PlaylistInfo, 0, len(lists))
+	for _, pl := range lists {
+		if !isSyntheticProviderRow(pl.ID) {
+			filtered = append(filtered, pl)
+		}
+	}
+	return filtered
 }
 
 func (m *Model) closePlaylistPicker() {
@@ -47,8 +109,64 @@ func (m *Model) closePlaylistPicker() {
 	m.applyHeightMode()
 }
 
+// plPickerItem is one rendered row of the picker. Headers and the loading row
+// are not selectable.
+type plPickerItem struct {
+	header   bool
+	label    string
+	playlist playlist.PlaylistInfo
+	isNew    bool
+	remote   bool
+}
+
+// plPickerItems builds the rendered rows: local playlists and "+ New" first,
+// then the remote section when one was appended.
+func (m Model) plPickerItems() []plPickerItem {
+	var items []plPickerItem
+	if m.plPicker.remoteName != "" {
+		items = append(items, plPickerItem{header: true, label: "Local Playlists"})
+	}
+	for _, pl := range m.plPicker.playlists {
+		items = append(items, plPickerItem{label: playlistLabel("", pl), playlist: pl})
+	}
+	items = append(items, plPickerItem{isNew: true, label: "+ New Playlist..."})
+	if m.plPicker.remoteName != "" {
+		items = append(items, plPickerItem{header: true, label: m.plPicker.remoteName + " Playlists"})
+		if m.plPicker.remoteLoading {
+			items = append(items, plPickerItem{header: true, label: "Loading " + m.plPicker.remoteName + " playlists…"})
+		} else {
+			for _, pl := range m.plPicker.remote {
+				items = append(items, plPickerItem{label: playlistLabel("", pl), playlist: pl, remote: true})
+			}
+			items = append(items, plPickerItem{isNew: true, remote: true, label: "+ New " + m.plPicker.remoteName + " Playlist..."})
+		}
+	}
+	return items
+}
+
+// plPickerItemAt maps the cursor (an index over selectable rows) to its item.
+func (m Model) plPickerItemAt(cursor int) (plPickerItem, bool) {
+	ord := 0
+	for _, item := range m.plPickerItems() {
+		if item.header {
+			continue
+		}
+		if ord == cursor {
+			return item, true
+		}
+		ord++
+	}
+	return plPickerItem{}, false
+}
+
 func (m *Model) plPickerCount() int {
-	return len(m.plPicker.playlists) + 1
+	count := 0
+	for _, item := range m.plPickerItems() {
+		if !item.header {
+			count++
+		}
+	}
+	return count
 }
 
 func (m *Model) plPickerVisible() int {
@@ -92,11 +210,19 @@ func (m Model) renderPlaylistPickerBody() string {
 		return bodyLines(lines, budget)
 	}
 
-	items := make([]string, len(m.plPicker.playlists)+1)
-	for i, pl := range m.plPicker.playlists {
-		items[i] = playlistLabel("", pl)
+	var lines []string
+	ord := 0
+	for _, item := range m.plPickerItems() {
+		if len(lines) >= budget {
+			break
+		}
+		if item.header {
+			lines = append(lines, dimStyle.Render(labeledSeparator("  ", item.label)))
+			continue
+		}
+		lines = append(lines, cursorLine(item.label, ord == m.plPicker.cursor))
+		ord++
 	}
-	items[len(items)-1] = "+ New Playlist..."
 
 	var head string
 	switch n := len(m.plPicker.tracks); {
@@ -110,7 +236,7 @@ func (m Model) renderPlaylistPickerBody() string {
 		head = fmt.Sprintf("%d tracks selected", n)
 	}
 	head = dimStyle.Render("  " + truncate(head, max(1, ui.PanelWidth-2)))
-	list := windowList(items, m.plPicker.cursor, m.plPicker.scroll, max(0, budget-1))
+	list := strings.Join(fitLines(lines, max(0, budget-1)), "\n")
 	return strings.Join([]string{head, list}, "\n")
 }
 
@@ -176,16 +302,28 @@ func (m *Model) handlePlaylistPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.plPicker.newName = ""
 		m.plPicker.cursor = 0
 	case "enter":
-		if m.plPicker.cursor < len(m.plPicker.playlists) {
-			if m.writePickerTracks(m.plPicker.playlists[m.plPicker.cursor].Name) {
-				m.closePlaylistPicker()
-			}
+		item, ok := m.plPickerItemAt(m.plPicker.cursor)
+		if !ok {
 			return nil
 		}
-		m.plPicker.screen = plPickerNewName
-		m.plPicker.newName = ""
-		m.plPicker.cursor = 0
-		m.plPicker.scroll = 0
+		if item.isNew {
+			m.plPicker.screen = plPickerNewName
+			m.plPicker.newNameRemote = item.remote
+			m.plPicker.newName = ""
+			m.plPicker.cursor = 0
+			m.plPicker.scroll = 0
+			return nil
+		}
+		if item.remote {
+			// Optimistic close; the result arrives via pickerRemoteWriteMsg.
+			prov, tracks := m.plPicker.remoteProv, m.plPicker.tracks
+			m.closePlaylistPicker()
+			return addRemotePickerTracksCmd(m.newLikeContext(), prov, item.playlist.ID, item.playlist.Name, tracks)
+		}
+		if m.writePickerTracks(item.playlist.Name) {
+			m.closePlaylistPicker()
+		}
+		return nil
 	}
 	return nil
 }
@@ -194,13 +332,26 @@ func (m *Model) handlePlaylistPickerNewNameKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.Code {
 	case tea.KeyEscape:
 		m.plPicker.screen = plPickerChoose
-		m.plPicker.cursor = len(m.plPicker.playlists)
+		// Back to the "+ New ..." row that opened this input: the local row
+		// sits right after the local playlists; the remote row is last.
+		if m.plPicker.newNameRemote {
+			m.plPicker.cursor = max(0, m.plPickerCount()-1)
+		} else {
+			m.plPicker.cursor = len(m.plPicker.playlists)
+		}
 		m.plPickerMaybeAdjustScroll(m.plPickerVisible())
 	case tea.KeyEnter:
 		name := strings.TrimSpace(m.plPicker.newName)
 		if name == "" {
 			m.plPicker.inputErr = "Playlist name is required."
 			return nil
+		}
+		if m.plPicker.newNameRemote {
+			// Optimistic close; the result arrives via pickerRemoteWriteMsg.
+			tracks := m.plPicker.tracks
+			prov := m.plPicker.remoteProv
+			m.closePlaylistPicker()
+			return createRemotePickerPlaylistCmd(m.newLikeContext(), prov, name, tracks)
 		}
 		if m.createPickerPlaylist(name) {
 			m.closePlaylistPicker()

@@ -403,7 +403,6 @@ cliamp.store.set("counts", counts)
 ### cliamp.crypto
 
 ```lua
-cliamp.crypto.md5("hello")                  --> hex string
 cliamp.crypto.sha256("hello")               --> hex string
 cliamp.crypto.hmac_sha256("secret", "msg")  --> hex string
 ```

@@ -46,6 +46,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Shuffle {
 		t.Error("Shuffle should be false by default")
 	}
+	if cfg.SmartShuffle {
+		t.Error("SmartShuffle should be false by default")
+	}
 	if cfg.Mono {
 		t.Error("Mono should be false by default")
 	}
@@ -498,15 +501,17 @@ func TestQobuzIsSet(t *testing.T) {
 
 func TestLoadQobuz(t *testing.T) {
 	tests := []struct {
-		name        string
-		body        string
-		wantIsSet   bool
-		wantQuality int
+		name           string
+		body           string
+		wantIsSet      bool
+		wantQuality    int
+		wantPrivateKey string
 	}{
-		{"section enables, default quality", "[qobuz]\n", true, 6},
-		{"explicit quality", "[qobuz]\nquality = 27\n", true, 27},
-		{"disabled", "[qobuz]\nenabled = false\n", false, 6},
-		{"absent", "", false, 6},
+		{"section enables, default quality", "[qobuz]\n", true, 6, ""},
+		{"explicit quality", "[qobuz]\nquality = 27\n", true, 27, ""},
+		{"private key", "[qobuz]\nprivate_key = \"cfgKey789\"\n", true, 6, "cfgKey789"},
+		{"disabled", "[qobuz]\nenabled = false\n", false, 6, ""},
+		{"absent", "", false, 6, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -527,6 +532,9 @@ func TestLoadQobuz(t *testing.T) {
 			}
 			if cfg.Qobuz.Quality != tt.wantQuality {
 				t.Errorf("Qobuz.Quality = %d, want %d", cfg.Qobuz.Quality, tt.wantQuality)
+			}
+			if cfg.Qobuz.PrivateKey != tt.wantPrivateKey {
+				t.Errorf("Qobuz.PrivateKey = %q, want %q", cfg.Qobuz.PrivateKey, tt.wantPrivateKey)
 			}
 		})
 	}
@@ -870,30 +878,37 @@ func TestApplyPlayerWithPreset(t *testing.T) {
 type mockPlaylist struct {
 	repeatCycles int
 	shuffled     bool
+	smart        bool
 }
 
 func (m *mockPlaylist) CycleRepeat()   { m.repeatCycles++ }
 func (m *mockPlaylist) ToggleShuffle() { m.shuffled = !m.shuffled }
+func (m *mockPlaylist) EnableSmart()   { m.smart = true }
 
 func TestApplyPlaylist(t *testing.T) {
 	tests := []struct {
 		name        string
 		repeat      string
 		shuffle     bool
+		smart       bool
 		wantCycles  int
 		wantShuffle bool
+		wantSmart   bool
 	}{
-		{"off no shuffle", "off", false, 0, false},
-		{"all", "all", false, 1, false},
-		{"one", "one", false, 2, false},
-		{"shuffle", "off", true, 0, true},
-		{"all + shuffle", "all", true, 1, true},
+		{"off no shuffle", "off", false, false, 0, false, false},
+		{"all", "all", false, false, 1, false, false},
+		{"one", "one", false, false, 2, false, false},
+		{"shuffle", "off", true, false, 0, true, false},
+		{"all + shuffle", "all", true, false, 1, true, false},
+		{"smart implies shuffle", "off", false, true, 0, true, true},
+		{"smart + shuffle", "off", true, true, 0, true, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := defaultConfig()
 			cfg.Repeat = tt.repeat
 			cfg.Shuffle = tt.shuffle
+			cfg.SmartShuffle = tt.smart
 
 			pl := &mockPlaylist{}
 			cfg.ApplyPlaylist(pl)
@@ -903,6 +918,42 @@ func TestApplyPlaylist(t *testing.T) {
 			}
 			if pl.shuffled != tt.wantShuffle {
 				t.Errorf("shuffled = %v, want %v", pl.shuffled, tt.wantShuffle)
+			}
+			if pl.smart != tt.wantSmart {
+				t.Errorf("smart = %v, want %v", pl.smart, tt.wantSmart)
+			}
+		})
+	}
+}
+
+func TestLoadSmartShuffle(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"enabled", "smart_shuffle = true\n", true},
+		{"disabled", "smart_shuffle = false\n", false},
+		{"absent", "shuffle = false\n", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+
+			path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			if err := os.WriteFile(path, []byte(tt.body), 0o644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.SmartShuffle != tt.want {
+				t.Fatalf("SmartShuffle = %v, want %v", cfg.SmartShuffle, tt.want)
 			}
 		})
 	}

@@ -825,6 +825,11 @@ func (m Model) renderPlaybackHeader() string {
 			badges = append(badges, dimStyle.Render("[")+trackStyle.Render("Repeat")+dimStyle.Render(": ")+dimStyle.Render(repeatVal)+dimStyle.Render("]"))
 		}
 	}
+	if m.playlist.Smart() {
+		// The pending count makes the mode visibly active: it moves as
+		// recommendations are injected and consumed.
+		badges = append(badges, activeToggle.Render(fmt.Sprintf("[Smart %d]", m.playlist.SmartPending())))
+	}
 
 	if qLen := m.playlist.QueueLen(); qLen > 0 {
 		badges = append(badges, activeToggle.Render(fmt.Sprintf("[Queue: %d]", qLen)))
@@ -875,6 +880,17 @@ func (m Model) renderProviderList() string {
 	if m.provSignIn {
 		return dimStyle.Render(fmt.Sprintf("  Sign in to %s. Press Enter to continue.", m.provider.Name()))
 	}
+	if m.provConfirm.active {
+		verb := "Unfollow"
+		if m.provConfirm.owned {
+			verb = "Delete"
+		}
+		lines := []string{
+			dimStyle.Render(fmt.Sprintf("  %s playlist %q?", verb, m.provConfirm.name)),
+			dimStyle.Render("  Enter confirms · Esc cancels"),
+		}
+		return strings.Join(fitLines(lines, visibleBudget), "\n")
+	}
 	if m.provLoading && len(m.providerLists) == 0 && !m.provSearch.active {
 		lines := []string{loadingLine(fmt.Sprintf("Loading %s…", m.provider.Name()))}
 		if m.provAuthURL != "" {
@@ -898,6 +914,10 @@ func (m Model) renderProviderList() string {
 
 	sl, sectioned := m.provider.(provider.SectionedList)
 	var lines []string
+
+	if m.provRename.active {
+		lines = append(lines, playlistSelectedStyle.Render(truncate("  Rename: "+m.textWithCursor("provider-rename", m.provRename.name), max(1, ui.PanelWidth-2))))
+	}
 
 	if m.provSearch.active {
 		lines = append(lines, playlistSelectedStyle.Render("  / "+m.provSearch.query+"_"))
@@ -1119,6 +1139,10 @@ func (m Model) renderPlaylist() string {
 			mark := " "
 			if m.playlistTrackStarred(t) {
 				mark = "★"
+			} else if t.Smart {
+				// The bookmark cell is shared: an explicit user bookmark (★)
+				// outranks the Smart Shuffle injected-track marker (✚).
+				mark = "✚"
 			}
 			markers += mark
 			styledMarkers += activeToggle.Render(mark)
@@ -1194,6 +1218,12 @@ func (m Model) renderPlaylist() string {
 			line += strings.Repeat(" ", padding) + dimStyle.Render(duration)
 		}
 		lines = append(lines, line)
+	}
+
+	// Subtle indicator while more pages of a large provider playlist are
+	// still arriving (mirrors the radio catalog "loading more" line).
+	if m.tracksPaging && len(lines) < budget {
+		lines = append(lines, loadingLine("Loading more tracks…"))
 	}
 
 	return strings.Join(padLines(lines, budget, len(lines)), "\n")

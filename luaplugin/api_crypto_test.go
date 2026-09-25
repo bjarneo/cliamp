@@ -6,21 +6,17 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-func TestCryptoMD5(t *testing.T) {
+// md5 was removed from the plugin API (weak crypto); guard against it
+// creeping back in.
+func TestCryptoMD5Removed(t *testing.T) {
 	L := lua.NewState()
 	defer L.Close()
 	cliamp := L.NewTable()
 	registerCryptoAPI(L, cliamp)
 	L.SetGlobal("cliamp", cliamp)
 
-	err := L.DoString(`_G.hash = cliamp.crypto.md5("hello")`)
-	if err != nil {
+	if err := L.DoString(`assert(cliamp.crypto.md5 == nil)`); err != nil {
 		t.Fatal(err)
-	}
-
-	want := "5d41402abc4b2a76b9719d911017c592"
-	if got := L.GetGlobal("hash").String(); got != want {
-		t.Fatalf("md5('hello') = %q, want %q", got, want)
 	}
 }
 
