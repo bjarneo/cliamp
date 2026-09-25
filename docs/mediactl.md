@@ -23,9 +23,26 @@ cliamp registers this name:
 org.mpris.MediaPlayer2.cliamp
 ```
 
-Only one instance can hold this name. If a second cliamp process starts, its
-MPRIS registration fails without an error message. That instance runs without
-D-Bus integration.
+Only one process can hold that name. A second cliamp, for example a TUI
+started while a `--daemon` is already running, takes the instance name the
+MPRIS specification reserves for this case:
+
+```
+org.mpris.MediaPlayer2.cliamp.instance<pid>
+```
+
+Both instances therefore answer media keys and publish metadata. `playerctl`
+lists them separately:
+
+```sh
+playerctl --list-all
+# cliamp
+# cliamp.instance48213
+playerctl --player=cliamp.instance48213 metadata title
+```
+
+`--player=cliamp` addresses the first one only. Without the flag, `playerctl`
+follows the most recently active player, which is usually the one you want.
 
 ### Playback Control
 

@@ -4,6 +4,7 @@ package mediactl
 
 import (
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -129,21 +130,52 @@ func (p playerIface) SetPosition(trackID dbus.ObjectPath, position int64) *dbus.
 	return nil
 }
 
+// busName is the well known name one cliamp owns.
+const busName = "org.mpris.MediaPlayer2.cliamp"
+
+// instanceName is the name a second cliamp takes. The MPRIS specification
+// reserves the well known name for a single player and tells an application
+// that can run more than once to append ".instance<pid>".
+func instanceName(pid int) string {
+	return fmt.Sprintf("%s.instance%d", busName, pid)
+}
+
+// nameClaimer is the part of *dbus.Conn that claiming a name needs, so the
+// fallback below can be exercised without a session bus.
+type nameClaimer interface {
+	RequestName(name string, flags dbus.RequestNameFlags) (dbus.RequestNameReply, error)
+}
+
+// requestName claims the well known name, falling back to this process's own
+// instance name when another cliamp already holds it.
+//
+// D-Bus gives the well known name to whoever asks first, so a daemon already
+// running left a second cliamp with no media controls at all: no media keys,
+// and nothing for a desktop's media widget to read. Taking the instance name
+// instead is what the specification asks for and what every MPRIS client
+// already looks for.
+func requestName(conn nameClaimer) (string, error) {
+	for _, name := range []string{busName, instanceName(os.Getpid())} {
+		reply, err := conn.RequestName(name, dbus.NameFlagDoNotQueue)
+		if err != nil {
+			return "", fmt.Errorf("mpris: request name: %w", err)
+		}
+		if reply == dbus.RequestNameReplyPrimaryOwner {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("mpris: name already taken")
+}
+
 func New(send func(tea.Msg)) (*Service, error) {
 	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
 		return nil, fmt.Errorf("mpris: session bus: %w", err)
 	}
 
-	reply, err := conn.RequestName("org.mpris.MediaPlayer2.cliamp",
-		dbus.NameFlagDoNotQueue)
-	if err != nil {
+	if _, err := requestName(conn); err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("mpris: request name: %w", err)
-	}
-	if reply != dbus.RequestNameReplyPrimaryOwner {
-		conn.Close()
-		return nil, fmt.Errorf("mpris: name already taken")
+		return nil, err
 	}
 
 	svc := &Service{conn: conn, send: send, trackSeq: 1, trackID: trackPath(1)}
