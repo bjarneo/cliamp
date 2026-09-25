@@ -1,0 +1,74 @@
+name: Windows QA build
+
+# Manual QA builds: produces the release-equivalent Windows exe as a run
+# artifact WITHOUT creating a tag or a public release. Trigger from the
+# Actions tab ("Run workflow") or via `gh workflow run build-windows-qa.yml`.
+# Download the exe from the run summary page (requires repo access).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Set up MinGW toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          path-type: inherit
+          update: true
+          install: >-
+            zip
+            unzip
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-libogg
+            mingw-w64-x86_64-libvorbis
+            mingw-w64-x86_64-flac
+            mingw-w64-x86_64-mpg123
+
+      - name: Build static exe (release-equivalent)
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "1"
+          # Same single-file recipe as release.yml: statically link every
+          # non-system library so the exe imports only Windows system DLLs.
+          # -static alone is not enough on MinGW: -DFLAC__NO_DLL stops
+          # FLAC's headers declaring dllimport refs that libFLAC.a cannot
+          # satisfy, and -lshlwapi covers libmpg123.a's Windows system
+          # dependency.
+          CGO_CFLAGS: "-DFLAC__NO_DLL"
+          CGO_LDFLAGS: "-static -lshlwapi"
+        shell: msys2 {0}
+        run: |
+          VERSION="qa-${GITHUB_SHA:0:7}-run${GITHUB_RUN_NUMBER}"
+          windres -i cliamp_windows.rc -o cliamp_windows.syso -O coff
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o cliamp.exe .
+          # Import-table gate (same denylist as release.yml): fail on any
+          # MinGW/codec DLL import.
+          ldd cliamp.exe
+          ls -l cliamp.exe
+          if ldd cliamp.exe | grep -Ei '/mingw64/bin/.*\.dll|libogg|libvorbis|libFLAC|libmpg123|libssp|libgcc|libwinpthread|libstdc\+\+'; then
+            echo "::error::Windows exe imports MinGW/codec DLLs; static linking regressed" >&2
+            exit 1
+          fi
+
+      - name: Upload exe artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: cliamp-windows-amd64-qa
+          path: cliamp.exe
+          retention-days: 14
