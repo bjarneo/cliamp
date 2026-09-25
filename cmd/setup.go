@@ -26,7 +26,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/external/audiobookshelf"
+	"github.com/bjarneo/cliamp/external/bandcamp"
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
 	"github.com/bjarneo/cliamp/external/lyrion"
@@ -151,6 +153,45 @@ func providers() []providerSpec {
 					fmt.Sprintf("user     = %q", v["user"]),
 					fmt.Sprintf("password = %q", v["password"]),
 				}, "\n")
+			},
+		},
+		{
+			key:     "bandcamp",
+			name:    "Bandcamp",
+			section: "bandcamp",
+			intro: []string{
+				"Stream your purchased Bandcamp collection (official Subsonic API, open beta).",
+				"Generate dedicated credentials on bandcamp.com: Fan Settings → Subsonic.",
+				"These are NOT your Bandcamp login. Docs: cliamp.stream → docs/bandcamp.md",
+			},
+			fields: []fieldSpec{
+				{key: "user", label: "Subsonic username", required: true},
+				{key: "password", label: "Subsonic password", required: true, secret: true},
+			},
+			validate: func(v map[string]string) error {
+				// Bandcamp's ping answers ok even with bad credentials, so
+				// validation uses an authenticated call. Fan Settings copies
+				// credentials with a stray space, so trim before probing.
+				bc := config.BandcampConfig{User: strings.TrimSpace(v["user"]), Password: strings.TrimSpace(v["password"])}
+				// Validate against the same url override the saved block
+				// carries forward, not the default endpoint.
+				if cfg, err := config.Load(); err == nil {
+					bc.URL = cfg.Bandcamp.URL
+				}
+				return bandcamp.Validate(bc)
+			},
+			body: func(v map[string]string) string {
+				lines := []string{
+					fmt.Sprintf("user     = %q", strings.TrimSpace(v["user"])),
+					fmt.Sprintf("password = %q", strings.TrimSpace(v["password"])),
+				}
+				// saveSection replaces the whole [bandcamp] block — carry
+				// forward the url escape hatch and the app-persisted
+				// browse_sort so re-running setup doesn't drop them. Raw
+				// lines, not parsed values: config.Load expands $ENV
+				// indirection, which must not be materialized into the file.
+				lines = append(lines, rawSectionLines("bandcamp", "url", "browse_sort")...)
+				return strings.Join(lines, "\n")
 			},
 		},
 		{
@@ -1323,6 +1364,41 @@ func removeLastRune(s string) string {
 		return s[:len(s)-size]
 	}
 	return s
+}
+
+// rawSectionLines returns the raw config-file lines from the first block of
+// the named section whose keys match one of keep — verbatim, so quoting and
+// $ENV indirection survive a wizard rewrite of the section.
+func rawSectionLines(section string, keep ...string) []string {
+	path, err := configFilePath()
+	if err != nil {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(string(data), "\n")
+	start, end := findSection(lines, section)
+	if start < 0 {
+		return nil
+	}
+	var out []string
+	for _, line := range lines[start+1 : end] {
+		trimmed := strings.TrimSpace(line)
+		key, _, ok := strings.Cut(trimmed, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		for _, k := range keep {
+			if key == k {
+				out = append(out, trimmed)
+				break
+			}
+		}
+	}
+	return out
 }
 
 // saveSection rewrites or appends a [section] block in config.toml. The

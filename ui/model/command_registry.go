@@ -156,6 +156,7 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"B"}, KeyLabel: "B", Label: "Open Audiobookshelf provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"Q"}, KeyLabel: "Q", Label: "Open Qobuz provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"T"}, KeyLabel: "T", Label: "Open Tidal provider", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"K"}, KeyLabel: "K", Label: "Open Bandcamp provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+j"}, KeyLabel: "Ctrl+J", Label: "Jump to time", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"p"}, KeyLabel: "p", Label: "Playlist manager", Keymap: true},
 	{Mode: commandModeProvider, Keys: []string{"p"}, KeyLabel: "p", Label: "Playlist manager", Keymap: true, ContextHelp: true, Enabled: func(m Model) bool {

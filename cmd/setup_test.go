@@ -224,6 +224,64 @@ func TestPasteIntoActiveField(t *testing.T) {
 	}
 }
 
+func TestBandcampSetupBody(t *testing.T) {
+	// body() reads the config file for carry-forward keys — isolate it from
+	// the developer's real config.
+	t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+	spec := providerSpec{}
+	for _, p := range providers() {
+		if p.section == "bandcamp" {
+			spec = p
+			break
+		}
+	}
+	if spec.section == "" {
+		t.Fatal("bandcamp spec missing")
+	}
+
+	// Fan Settings copies credentials with a stray space; the Bandcamp spec
+	// trims them itself (the wizard stores other providers' values verbatim).
+	body := spec.body(map[string]string{"user": " fan", "password": "secret "})
+	for _, want := range []string{`user     = "fan"`, `password = "secret"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q: %q", want, body)
+		}
+	}
+
+	// Bandcamp's ping does not validate credentials, so the spec must define
+	// a live validate probe (it uses an authenticated call instead).
+	if spec.validate == nil {
+		t.Fatal("bandcamp spec must define a validate probe")
+	}
+}
+
+func TestBandcampSetupBody_CarriesForwardRawKeys(t *testing.T) {
+	// The wizard rewrites the whole [bandcamp] block; url/browse_sort must
+	// be carried forward as RAW lines so $ENV indirection is not
+	// materialized (or dropped when the variable is unset).
+	dir := t.TempDir()
+	t.Setenv("CLIAMP_CONFIG_DIR", dir)
+	cfgBody := "[bandcamp]\nuser = \"old\"\npassword = \"old\"\nurl = \"$BC_URL\"\nbrowse_sort = \"newest\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(cfgBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	spec := providerSpec{}
+	for _, p := range providers() {
+		if p.section == "bandcamp" {
+			spec = p
+			break
+		}
+	}
+	body := spec.body(map[string]string{"user": "fan", "password": "secret"})
+	if !strings.Contains(body, `url = "$BC_URL"`) {
+		t.Errorf("body dropped or expanded the raw url line: %q", body)
+	}
+	if !strings.Contains(body, `browse_sort = "newest"`) {
+		t.Errorf("body dropped browse_sort: %q", body)
+	}
+}
+
 func TestNetEaseSetupBody(t *testing.T) {
 	spec := providerSpec{}
 	for _, p := range providers() {

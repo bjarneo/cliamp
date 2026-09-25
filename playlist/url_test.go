@@ -191,6 +191,9 @@ func TestIsYTDL(t *testing.T) {
 		// Bandcamp
 		{"https://bandcamp.com/album", true},
 		{"https://artist.bandcamp.com/album/name", true},
+		// Bandcamp's Subsonic API serves plain audio for the buffered pipeline.
+		{"https://bandcamp.com/api/subsonic/rest/stream.view?id=t%3A1&u=fan", false},
+		{"https://bandcamp.com/api/subsonic2/rest/stream?id=1", false}, // url override, any path
 		// Bilibili
 		{"https://bilibili.com/video/BV123", true},
 		{"https://www.bilibili.com/video/BV123", true},

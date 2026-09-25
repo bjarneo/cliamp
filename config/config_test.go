@@ -573,6 +573,87 @@ func TestLoadTidal(t *testing.T) {
 	}
 }
 
+func TestLoadBandcamp(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		wantIsSet bool
+		wantCfg   BandcampConfig
+	}{
+		{
+			"full config",
+			"[bandcamp]\nuser = \"fan\"\npassword = \"secret\"\nurl = \"https://example.test/api/subsonic\"\nbrowse_sort = \"newest\"\n",
+			true,
+			BandcampConfig{URL: "https://example.test/api/subsonic", User: "fan", Password: "secret", BrowseSort: "newest"},
+		},
+		{
+			"minimal config",
+			"[bandcamp]\nuser = \"fan\"\npassword = \"secret\"\n",
+			true,
+			BandcampConfig{User: "fan", Password: "secret"},
+		},
+		{
+			// Fan Settings copies credentials with a stray leading space.
+			"whitespace trimmed",
+			"[bandcamp]\nuser = \" fan\"\npassword = \"secret \"\n",
+			true,
+			BandcampConfig{User: "fan", Password: "secret"},
+		},
+		{"missing password", "[bandcamp]\nuser = \"fan\"\n", false, BandcampConfig{User: "fan"}},
+		{"section only", "[bandcamp]\n", false, BandcampConfig{}},
+		{"absent", "", false, BandcampConfig{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			if err := os.WriteFile(path, []byte(tt.body), 0o644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if got := cfg.Bandcamp.IsSet(); got != tt.wantIsSet {
+				t.Errorf("Bandcamp.IsSet() = %v, want %v", got, tt.wantIsSet)
+			}
+			if cfg.Bandcamp != tt.wantCfg {
+				t.Errorf("Bandcamp = %+v, want %+v", cfg.Bandcamp, tt.wantCfg)
+			}
+		})
+	}
+}
+
+func TestSaveBandcampSort(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	body := "[bandcamp]\nuser = \"fan\"\npassword = \"secret\"\n\n[navidrome]\nbrowse_sort = \"recent\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if err := SaveBandcampSort("newest"); err != nil {
+		t.Fatalf("SaveBandcampSort() error: %v", err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Bandcamp.BrowseSort != "newest" {
+		t.Errorf("Bandcamp.BrowseSort = %q, want newest", cfg.Bandcamp.BrowseSort)
+	}
+	// The [navidrome] section must be untouched.
+	if cfg.Navidrome.BrowseSort != "recent" {
+		t.Errorf("Navidrome.BrowseSort = %q, want recent (clobbered by bandcamp save)", cfg.Navidrome.BrowseSort)
+	}
+}
+
 func TestPlexIsSet(t *testing.T) {
 	tests := []struct {
 		name string

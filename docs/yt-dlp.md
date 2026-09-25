@@ -7,12 +7,14 @@ cliamp https://www.youtube.com/watch?v=dQw4w9WgXcQ
 cliamp https://soundcloud.com/artist/track
 cliamp https://www.mixcloud.com/creator/show-name/
 cliamp 'https://music.163.com/#/song?id=1973665667'
-cliamp https://artist.bandcamp.com/album/name
+cliamp https://artist.bandcamp.com/album/name   # public quality; see note below
 cliamp https://www.bilibili.com/video/BV1xxxxxxxxx
 cliamp https://space.bilibili.com/uid/lists/id  # season/series playlists
 ```
 
 You can play playlists and albums. Press `S` to save a downloaded track to `~/Music/cliamp/`.
+
+> **Bandcamp note:** pasted Bandcamp URLs play at public stream quality through yt-dlp. To browse and stream your *purchased* Bandcamp collection, use the dedicated [Bandcamp provider](bandcamp.md) instead — it uses Bandcamp's official Subsonic API and needs no yt-dlp.
 
 You can also play live streams, such as 24/7 YouTube lofi radios. They have no audio-only formats. cliamp uses the best muxed stream and plays only its audio track. This also applies to live-stream URLs used as stations in `radios.toml`.
 

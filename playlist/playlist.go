@@ -224,6 +224,12 @@ func IsYTDL(path string) bool {
 	host := strings.ToLower(u.Hostname())
 	host = strings.TrimPrefix(host, "www.")
 	host = strings.TrimPrefix(host, "m.")
+	// Subsonic stream endpoints (the Navidrome and Bandcamp providers) are
+	// plain HTTP audio for the buffered pipeline, not yt-dlp pages —
+	// whatever host they live on.
+	if isSubsonicStreamPath(u.Path) {
+		return false
+	}
 	switch host {
 	case "soundcloud.com",
 		"mixcloud.com",

@@ -1,7 +1,6 @@
 package navidrome
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -9,244 +8,19 @@ import (
 	"testing"
 
 	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/internal/subsonicapi"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
 
-// subsonicHandler serves fake Subsonic API responses for testing.
-func subsonicHandler(t *testing.T) http.HandlerFunc {
+// Protocol-level tests live in internal/subsonicapi; these cover only the
+// adapter surface: constructor gating and Navidrome-specific wiring.
+
+// oneTrackServer answers getPlaylist with a single track so tests can inspect
+// the stream URL the adapter produces.
+func oneTrackServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		path := r.URL.Path
-		switch {
-		case strings.HasSuffix(path, "/rest/getPlaylists"):
-			w.Write([]byte(`{
-				"subsonic-response": {
-					"status": "ok",
-					"playlists": {
-						"playlist": [
-							{"id":"pl-1","name":"Jazz Classics","songCount":12},
-							{"id":"pl-2","name":"Late Night","songCount":8}
-						]
-					}
-				}
-			}`))
-		case strings.HasSuffix(path, "/rest/getPlaylist"):
-			w.Write([]byte(`{
-				"subsonic-response": {
-					"status": "ok",
-					"playlist": {
-						"entry": [
-							{
-								"id":"song-1","title":"So What","artist":"Miles Davis",
-								"album":"Kind of Blue","year":1959,"track":1,"genre":"Jazz","duration":565
-							},
-							{
-								"id":"song-2","title":"Blue in Green","artist":"Miles Davis",
-								"album":"Kind of Blue","year":1959,"track":3,"genre":"Jazz","duration":327
-							}
-						]
-					}
-				}
-			}`))
-		case strings.HasSuffix(path, "/rest/getArtists"):
-			w.Write([]byte(`{
-				"subsonic-response": {
-					"status": "ok",
-					"artists": {
-						"index": [
-							{
-								"artist": [
-									{"id":"ar-1","name":"Miles Davis","albumCount":5},
-									{"id":"ar-2","name":"Mingus","albumCount":3}
-								]
-							},
-							{
-								"artist": [
-									{"id":"ar-3","name":"Thelonious Monk","albumCount":4}
-								]
-							}
-						]
-					}
-				}
-			}`))
-		case strings.HasSuffix(path, "/rest/getArtist"):
-			w.Write([]byte(`{
-				"subsonic-response": {
-					"status": "ok",
-					"artist": {
-						"album": [
-							{"id":"al-1","name":"Kind of Blue","artist":"Miles Davis","artistId":"ar-1","year":1959,"songCount":5,"genre":"Jazz"},
-							{"id":"al-2","name":"Bitches Brew","artist":"Miles Davis","artistId":"ar-1","year":1970,"songCount":4,"genre":"Jazz"}
-						]
-					}
-				}
-			}`))
-		case strings.HasSuffix(path, "/rest/getAlbumList2"):
-			w.Write([]byte(`{
-				"subsonic-response": {
-					"status": "ok",
-					"albumList2": {
-						"album": [
-							{"id":"al-1","name":"Kind of Blue","artist":"Miles Davis","artistId":"ar-1","year":1959,"songCount":5,"genre":"Jazz"}
-						]
-					}
-				}
-			}`))
-		case strings.HasSuffix(path, "/rest/getAlbum"):
-			w.Write([]byte(`{
-				"subsonic-response": {
-					"status": "ok",
-					"album": {
-						"song": [
-							{
-								"id":"song-1","title":"So What","artist":"Miles Davis",
-								"album":"Kind of Blue","year":1959,"track":1,"genre":"Jazz","duration":565
-							}
-						]
-					}
-				}
-			}`))
-		case strings.HasSuffix(path, "/rest/search3"):
-			w.Write([]byte(`{
-				"subsonic-response": {
-					"status": "ok",
-					"searchResult3": {
-						"song": [
-							{
-								"id":"song-1","title":"So What","artist":"Miles Davis",
-								"album":"Kind of Blue","year":1959,"track":1,"genre":"Jazz","duration":565
-							},
-							{
-								"id":"song-7","title":"What'd I Say","artist":"Ray Charles",
-								"album":"What'd I Say","year":1959,"track":1,"genre":"Soul","duration":380
-							}
-						]
-					}
-				}
-			}`))
-		case strings.HasSuffix(path, "/rest/scrobble"):
-			w.Write([]byte(`{"subsonic-response":{"status":"ok"}}`))
-		default:
-			t.Errorf("unexpected path: %s", r.URL.Path)
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}
-}
-
-func newTestClient(t *testing.T) (*NavidromeClient, *httptest.Server) {
-	t.Helper()
-	srv := httptest.NewServer(subsonicHandler(t))
-	c := New(srv.URL, "testuser", "testpass")
-	return c, srv
-}
-
-func TestName(t *testing.T) {
-	c := New("http://localhost", "u", "p")
-	if c.Name() != "Navidrome" {
-		t.Errorf("Name() = %q, want %q", c.Name(), "Navidrome")
-	}
-}
-
-func TestPlaylists(t *testing.T) {
-	c, srv := newTestClient(t)
-	defer srv.Close()
-
-	lists, err := c.Playlists()
-	if err != nil {
-		t.Fatalf("Playlists() error: %v", err)
-	}
-	if len(lists) != 2 {
-		t.Fatalf("expected 2 playlists, got %d", len(lists))
-	}
-	if lists[0].ID != "pl-1" || lists[0].Name != "Jazz Classics" || lists[0].TrackCount != 12 {
-		t.Errorf("lists[0] = %+v", lists[0])
-	}
-	if lists[1].ID != "pl-2" || lists[1].Name != "Late Night" || lists[1].TrackCount != 8 {
-		t.Errorf("lists[1] = %+v", lists[1])
-	}
-}
-
-func TestPlaylists_Cached(t *testing.T) {
-	callCount := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/rest/getPlaylists") {
-			callCount++
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{
-			"subsonic-response": {
-				"status": "ok",
-				"playlists": {"playlist": [{"id":"1","name":"P","songCount":1}]}
-			}
-		}`))
-	}))
-	defer srv.Close()
-
-	c := New(srv.URL, "u", "p")
-	if _, err := c.Playlists(); err != nil {
-		t.Fatalf("first Playlists() error: %v", err)
-	}
-	if _, err := c.Playlists(); err != nil {
-		t.Fatalf("second Playlists() error: %v", err)
-	}
-	if callCount != 1 {
-		t.Errorf("expected getPlaylists called once, called %d times", callCount)
-	}
-}
-
-func TestTracks(t *testing.T) {
-	c, srv := newTestClient(t)
-	defer srv.Close()
-
-	tracks, err := c.Tracks("pl-1")
-	if err != nil {
-		t.Fatalf("Tracks() error: %v", err)
-	}
-	if len(tracks) != 2 {
-		t.Fatalf("expected 2 tracks, got %d", len(tracks))
-	}
-
-	tr := tracks[0]
-	if tr.Title != "So What" {
-		t.Errorf("Title = %q, want %q", tr.Title, "So What")
-	}
-	if tr.Artist != "Miles Davis" {
-		t.Errorf("Artist = %q, want %q", tr.Artist, "Miles Davis")
-	}
-	if tr.Album != "Kind of Blue" {
-		t.Errorf("Album = %q, want %q", tr.Album, "Kind of Blue")
-	}
-	if tr.Year != 1959 {
-		t.Errorf("Year = %d, want 1959", tr.Year)
-	}
-	if tr.TrackNumber != 1 {
-		t.Errorf("TrackNumber = %d, want 1", tr.TrackNumber)
-	}
-	if tr.Genre != "Jazz" {
-		t.Errorf("Genre = %q, want %q", tr.Genre, "Jazz")
-	}
-	if tr.DurationSecs != 565 {
-		t.Errorf("DurationSecs = %d, want 565", tr.DurationSecs)
-	}
-	if !tr.Stream {
-		t.Error("Stream = false, want true")
-	}
-	if got := tr.Meta(provider.MetaNavidromeID); got != "song-1" {
-		t.Errorf("Meta(NavidromeID) = %q, want %q", got, "song-1")
-	}
-	if !strings.Contains(tr.Path, "/rest/stream") {
-		t.Errorf("Path %q missing /rest/stream", tr.Path)
-	}
-}
-
-func TestTracks_Cached(t *testing.T) {
-	callCount := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/rest/getPlaylist") {
-			callCount++
-		}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{
 			"subsonic-response": {
@@ -255,196 +29,31 @@ func TestTracks_Cached(t *testing.T) {
 			}
 		}`))
 	}))
-	defer srv.Close()
-
-	c := New(srv.URL, "u", "p")
-	if _, err := c.Tracks("pl-1"); err != nil {
-		t.Fatalf("first Tracks() error: %v", err)
-	}
-	if _, err := c.Tracks("pl-1"); err != nil {
-		t.Fatalf("second Tracks() error: %v", err)
-	}
-	if callCount != 1 {
-		t.Errorf("expected getPlaylist called once, called %d times", callCount)
-	}
 }
 
-func TestArtists(t *testing.T) {
-	c, srv := newTestClient(t)
-	defer srv.Close()
-
-	artists, err := c.Artists()
+func streamQuery(t *testing.T, c *NavidromeClient) url.Values {
+	t.Helper()
+	tracks, err := c.Tracks("pl-1")
 	if err != nil {
-		t.Fatalf("Artists() error: %v", err)
-	}
-	if len(artists) != 3 {
-		t.Fatalf("expected 3 artists (across 2 indexes), got %d", len(artists))
-	}
-	if artists[0].ID != "ar-1" || artists[0].Name != "Miles Davis" || artists[0].AlbumCount != 5 {
-		t.Errorf("artists[0] = %+v", artists[0])
-	}
-	if artists[2].ID != "ar-3" || artists[2].Name != "Thelonious Monk" {
-		t.Errorf("artists[2] = %+v", artists[2])
-	}
-}
-
-func TestArtistAlbums(t *testing.T) {
-	c, srv := newTestClient(t)
-	defer srv.Close()
-
-	albums, err := c.ArtistAlbums("ar-1")
-	if err != nil {
-		t.Fatalf("ArtistAlbums() error: %v", err)
-	}
-	if len(albums) != 2 {
-		t.Fatalf("expected 2 albums, got %d", len(albums))
-	}
-	if albums[0].ID != "al-1" || albums[0].Name != "Kind of Blue" || albums[0].Year != 1959 {
-		t.Errorf("albums[0] = %+v", albums[0])
-	}
-	if albums[1].ID != "al-2" || albums[1].Name != "Bitches Brew" || albums[1].Year != 1970 {
-		t.Errorf("albums[1] = %+v", albums[1])
-	}
-}
-
-func TestAlbumList(t *testing.T) {
-	c, srv := newTestClient(t)
-	defer srv.Close()
-
-	albums, err := c.AlbumList(SortAlphabeticalByName, 0, 50)
-	if err != nil {
-		t.Fatalf("AlbumList() error: %v", err)
-	}
-	if len(albums) != 1 {
-		t.Fatalf("expected 1 album, got %d", len(albums))
-	}
-	if albums[0].ID != "al-1" || albums[0].Name != "Kind of Blue" {
-		t.Errorf("albums[0] = %+v", albums[0])
-	}
-}
-
-func TestAlbumTracks(t *testing.T) {
-	c, srv := newTestClient(t)
-	defer srv.Close()
-
-	tracks, err := c.AlbumTracks("al-1")
-	if err != nil {
-		t.Fatalf("AlbumTracks() error: %v", err)
+		t.Fatalf("Tracks() error: %v", err)
 	}
 	if len(tracks) != 1 {
 		t.Fatalf("expected 1 track, got %d", len(tracks))
 	}
-	if tracks[0].Title != "So What" || tracks[0].DurationSecs != 565 {
-		t.Errorf("tracks[0] = %+v", tracks[0])
-	}
-}
-
-func TestSearchTracks(t *testing.T) {
-	c, srv := newTestClient(t)
-	defer srv.Close()
-
-	tracks, err := c.SearchTracks(t.Context(), "what", 20)
+	u, err := url.Parse(tracks[0].Path)
 	if err != nil {
-		t.Fatalf("SearchTracks() error: %v", err)
+		t.Fatalf("stream URL invalid: %v", err)
 	}
-	if len(tracks) != 2 {
-		t.Fatalf("expected 2 tracks, got %d", len(tracks))
+	if !IsSubsonicStreamURL(tracks[0].Path) {
+		t.Errorf("IsSubsonicStreamURL(%q) = false, want true", tracks[0].Path)
 	}
-	if tracks[0].Title != "So What" {
-		t.Errorf("tracks[0].Title = %q, want %q", tracks[0].Title, "So What")
-	}
-	if !tracks[0].Stream {
-		t.Error("tracks[0].Stream should be true")
-	}
-	if tracks[0].Meta(provider.MetaNavidromeID) != "song-1" {
-		t.Errorf("tracks[0] meta navidrome id = %q, want song-1", tracks[0].Meta(provider.MetaNavidromeID))
-	}
+	return u.Query()
 }
 
-func TestSubsonicError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{
-			"subsonic-response": {
-				"status": "failed",
-				"error": {"code": 40, "message": "Wrong username or password"}
-			}
-		}`))
-	}))
-	defer srv.Close()
-
-	c := New(srv.URL, "bad", "creds")
-	_, err := c.Playlists()
-	if err == nil {
-		t.Fatal("expected error for bad credentials, got nil")
-	}
-	if !strings.Contains(err.Error(), "Wrong username or password") {
-		t.Errorf("error = %q, expected credential error", err.Error())
-	}
-}
-
-func TestHTTPError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv.Close()
-
-	c := New(srv.URL, "u", "p")
-	_, err := c.Playlists()
-	if err == nil {
-		t.Fatal("expected error for HTTP 500, got nil")
-	}
-}
-
-func TestBuildURL_AuthParams(t *testing.T) {
-	c := New("https://music.example.com", "alice", "secret123")
-	u := c.buildURL("ping", nil)
-
-	parsed, err := url.Parse(u)
-	if err != nil {
-		t.Fatalf("buildURL() returned invalid URL: %v", err)
-	}
-	q := parsed.Query()
-	if q.Get("u") != "alice" {
-		t.Errorf("user = %q, want alice", q.Get("u"))
-	}
-	if q.Get("t") == "" {
-		t.Error("token (t) is empty")
-	}
-	if q.Get("s") == "" {
-		t.Error("salt (s) is empty")
-	}
-	if q.Get("v") != "1.0.0" {
-		t.Errorf("version = %q, want 1.0.0", q.Get("v"))
-	}
-	if q.Get("c") != "cliamp" {
-		t.Errorf("client = %q, want cliamp", q.Get("c"))
-	}
-	if q.Get("f") != "json" {
-		t.Errorf("format = %q, want json", q.Get("f"))
-	}
-	if !strings.HasPrefix(u, "https://music.example.com/rest/ping?") {
-		t.Errorf("URL = %q, missing expected prefix", u)
-	}
-}
-
-func TestIsSubsonicStreamURL(t *testing.T) {
-	tests := []struct {
-		url  string
-		want bool
-	}{
-		{"https://music.example.com/rest/stream?id=1", true},
-		{"https://music.example.com/rest/stream.view?id=1", true},
-		{"https://music.example.com/rest/download?id=1", true},
-		{"https://music.example.com/rest/download.view?id=1", true},
-		{"https://music.example.com/rest/getPlaylists", false},
-		{"https://example.com/song.mp3", false},
-		{"", false},
-	}
-	for _, tt := range tests {
-		if got := IsSubsonicStreamURL(tt.url); got != tt.want {
-			t.Errorf("IsSubsonicStreamURL(%q) = %v, want %v", tt.url, got, tt.want)
-		}
+func TestName(t *testing.T) {
+	c := New("http://localhost", "u", "p")
+	if c.Name() != "Navidrome" {
+		t.Errorf("Name() = %q, want %q", c.Name(), "Navidrome")
 	}
 }
 
@@ -463,8 +72,8 @@ func TestNewFromEnv(t *testing.T) {
 	if c == nil {
 		t.Fatal("NewFromEnv(config.NavidromeConfig{}) returned nil with all env vars set")
 	}
-	if c.url != "https://music.test" || c.user != "alice" || c.password != "secret" {
-		t.Errorf("NewFromEnv(config.NavidromeConfig{}) = %+v", c)
+	if c.BaseURL() != "https://music.test" {
+		t.Errorf("BaseURL() = %q, want the NAVIDROME_URL value", c.BaseURL())
 	}
 }
 
@@ -490,9 +99,12 @@ func TestNewFromConfig(t *testing.T) {
 }
 
 func TestNewFromEnv_ConfigSettings(t *testing.T) {
+	srv := oneTrackServer(t)
+	defer srv.Close()
+
 	cfg := config.NavidromeConfig{
 		URL: "https://config.test", User: "config-user", Password: "config-password",
-		Format: " RAW ", BrowseSort: SortNewest, ScrobbleDisabled: true,
+		Format: " RAW ", BrowseSort: subsonicapi.SortNewest, ScrobbleDisabled: true,
 	}
 	for _, missing := range []string{"", "NAVIDROME_URL", "NAVIDROME_USER", "NAVIDROME_PASS"} {
 		name := missing
@@ -500,7 +112,7 @@ func TestNewFromEnv_ConfigSettings(t *testing.T) {
 			name = "complete credentials"
 		}
 		t.Run(name, func(t *testing.T) {
-			t.Setenv("NAVIDROME_URL", "https://env.test")
+			t.Setenv("NAVIDROME_URL", srv.URL)
 			t.Setenv("NAVIDROME_USER", "env-user")
 			t.Setenv("NAVIDROME_PASS", "env-password")
 			if missing != "" {
@@ -516,46 +128,21 @@ func TestNewFromEnv_ConfigSettings(t *testing.T) {
 			if c == nil {
 				t.Fatal("expected client with complete environment credentials")
 			}
-			if c.url != "https://env.test" || c.user != "env-user" || c.password != "env-password" {
+			if c.BaseURL() != srv.URL {
 				t.Error("client did not use environment credentials")
 			}
-			u, err := url.Parse(c.streamURL("song-1"))
-			if err != nil {
-				t.Fatal(err)
+			q := streamQuery(t, c)
+			if got := q.Get("u"); got != "env-user" {
+				t.Errorf("user = %q, want env-user", got)
 			}
-			if got := u.Query().Get("format"); got != "raw" {
+			if got := q.Get("format"); got != "raw" {
 				t.Errorf("format = %q, want raw", got)
 			}
-			if got := c.DefaultAlbumSort(); got != SortNewest {
-				t.Errorf("browse sort = %q, want %q", got, SortNewest)
+			if got := c.DefaultAlbumSort(); got != subsonicapi.SortNewest {
+				t.Errorf("browse sort = %q, want %q", got, subsonicapi.SortNewest)
 			}
-			if c.CanReportPlayback(trackWithNavidromeMeta("song-1")) {
-				t.Error("scrobbling should be disabled")
-			}
-		})
-	}
-}
-
-func TestAPIUserAgent(t *testing.T) {
-	for _, tt := range []struct {
-		name string
-		call func(*NavidromeClient) error
-	}{
-		{"metadata", func(c *NavidromeClient) error { _, err := c.Playlists(); return err }},
-		{"now playing", func(c *NavidromeClient) error { return c.ReportNowPlaying(trackWithNavidromeMeta("song-1"), 0, false) }},
-		{"scrobble", func(c *NavidromeClient) error { return c.ReportScrobble(trackWithNavidromeMeta("song-1"), 0, 0, false) }},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				const want = "cliamp/1.0 (https://github.com/bjarneo/cliamp)"
-				if got := r.UserAgent(); got != want {
-					t.Errorf("User-Agent = %q, want %q", got, want)
-				}
-				w.Write([]byte(`{"subsonic-response":{"status":"ok"}}`))
-			}))
-			defer srv.Close()
-			if err := tt.call(New(srv.URL, "u", "p")); err != nil {
-				t.Fatal(err)
+			if c.CanReportPlayback(trackWithMeta("song-1")) {
+				t.Error("scrobbling should stay disabled from config")
 			}
 		})
 	}
@@ -564,11 +151,11 @@ func TestAPIUserAgent(t *testing.T) {
 func TestNewFromConfig_BrowseSort(t *testing.T) {
 	cfg := config.NavidromeConfig{
 		URL: "http://localhost", User: "u", Password: "p",
-		BrowseSort: SortNewest,
+		BrowseSort: subsonicapi.SortNewest,
 	}
 	c := NewFromConfig(cfg)
-	if c.browseSort != SortNewest {
-		t.Errorf("browseSort = %q, want %q", c.browseSort, SortNewest)
+	if c.DefaultAlbumSort() != subsonicapi.SortNewest {
+		t.Errorf("DefaultAlbumSort() = %q, want %q", c.DefaultAlbumSort(), subsonicapi.SortNewest)
 	}
 }
 
@@ -578,182 +165,15 @@ func TestNewFromConfig_ScrobbleDisabled(t *testing.T) {
 		ScrobbleDisabled: true,
 	}
 	c := NewFromConfig(cfg)
-	if !c.scrobbleDisabled {
-		t.Error("scrobbleDisabled = false, want true")
-	}
-}
-
-func TestAlbumSortTypes(t *testing.T) {
-	c := New("http://localhost", "u", "p")
-	sorts := c.AlbumSortTypes()
-	if len(sorts) != 8 {
-		t.Fatalf("expected 8 sort types, got %d", len(sorts))
-	}
-}
-
-func TestDefaultAlbumSort(t *testing.T) {
-	c := New("http://localhost", "u", "p")
-	if c.DefaultAlbumSort() != SortAlphabeticalByName {
-		t.Errorf("DefaultAlbumSort() = %q, want %q", c.DefaultAlbumSort(), SortAlphabeticalByName)
-	}
-	c.browseSort = SortNewest
-	if c.DefaultAlbumSort() != SortNewest {
-		t.Errorf("DefaultAlbumSort() = %q, want %q", c.DefaultAlbumSort(), SortNewest)
-	}
-}
-
-func TestCanReportPlayback(t *testing.T) {
-	c := New("http://localhost", "u", "p")
-	track := trackWithNavidromeMeta("song-1")
-	if !c.CanReportPlayback(track) {
-		t.Error("CanReportPlayback() = false for track with navidrome ID")
-	}
-
-	c.scrobbleDisabled = true
-	if c.CanReportPlayback(track) {
+	if c.CanReportPlayback(trackWithMeta("song-1")) {
 		t.Error("CanReportPlayback() = true when scrobbling is disabled")
 	}
 }
 
-func TestCanReportPlayback_NoMeta(t *testing.T) {
-	c := New("http://localhost", "u", "p")
-	track := trackWithNavidromeMeta("")
-	if c.CanReportPlayback(track) {
-		t.Error("CanReportPlayback() = true for track without navidrome ID")
-	}
-}
-
-func TestScrobble(t *testing.T) {
-	var gotSubmission string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/rest/scrobble") {
-			gotSubmission = r.URL.Query().Get("submission")
-		}
-		w.Write([]byte(`{"subsonic-response":{"status":"ok"}}`))
-	}))
-	defer srv.Close()
-
-	c := New(srv.URL, "u", "p")
-
-	c.ReportNowPlaying(trackWithNavidromeMeta("song-1"), 0, false)
-	if gotSubmission != "false" {
-		t.Errorf("ReportNowPlaying submission = %q, want false", gotSubmission)
-	}
-
-	c.ReportScrobble(trackWithNavidromeMeta("song-1"), 0, 0, false)
-	if gotSubmission != "true" {
-		t.Errorf("ReportScrobble submission = %q, want true", gotSubmission)
-	}
-}
-
-func TestCheckSubsonicError(t *testing.T) {
-	if err := checkSubsonicError("ok", nil); err != nil {
-		t.Errorf("expected nil for status ok, got %v", err)
-	}
-	if err := checkSubsonicError("", nil); err != nil {
-		t.Errorf("expected nil for empty status, got %v", err)
-	}
-
-	err := checkSubsonicError("failed", &subsonicError{Code: 40, Message: "Wrong password"})
-	if err == nil {
-		t.Fatal("expected error for failed status")
-	}
-	if !strings.Contains(err.Error(), "Wrong password") {
-		t.Errorf("error = %q, missing message", err.Error())
-	}
-
-	err = checkSubsonicError("failed", nil)
-	if err == nil {
-		t.Fatal("expected error for failed status with nil error body")
-	}
-}
-
-func trackWithNavidromeMeta(id string) playlist.Track {
-	meta := map[string]string{}
-	if id != "" {
-		meta[provider.MetaNavidromeID] = id
-	}
-	return playlist.Track{ProviderMeta: meta}
-}
-
-// largePlaylistBody builds a valid getPlaylist response whose encoded size
-// exceeds sizeBytes, mimicking a Navidrome playlist with many thousands of
-// entries. Each entry is padded so the test stays cheap to generate. It
-// returns the body and the number of entries written.
-func largePlaylistBody(sizeBytes int) ([]byte, int) {
-	pad := strings.Repeat("x", 4000)
-	var b strings.Builder
-	b.WriteString(`{"subsonic-response":{"status":"ok","playlist":{"entry":[`)
-	n := 0
-	for ; b.Len() < sizeBytes; n++ {
-		if n > 0 {
-			b.WriteString(",")
-		}
-		fmt.Fprintf(&b, `{"id":"song-%d","title":"Track %d","artist":"A","album":"%s","year":2020,"track":%d,"genre":"G","duration":180}`, n, n, pad, n)
-	}
-	b.WriteString(`]}}}`)
-	return []byte(b.String()), n
-}
-
-// TestTracks_LargePlaylist guards against silently truncating the response
-// body. A playlist bigger than the read cap must not be cut mid-JSON and
-// surfaced as "unexpected end of JSON input".
-func TestTracks_LargePlaylist(t *testing.T) {
-	// 16 MB mirrors a real ~13k-track Navidrome playlist, which used to be
-	// truncated by the read cap. Fixed size, not derived from the cap, so the
-	// test keeps its meaning if the cap moves.
-	body, want := largePlaylistBody(16 << 20)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(body)
-	}))
-	defer srv.Close()
-
-	c := New(srv.URL, "u", "p")
-	tracks, err := c.Tracks("pl-big")
-	if err != nil {
-		t.Fatalf("Tracks() on %d-byte playlist: %v", len(body), err)
-	}
-	// Assert the exact count and the last entry, not just a non-empty slice:
-	// a decoder that stopped early would otherwise pass.
-	if len(tracks) != want {
-		t.Fatalf("len(tracks) = %d, want %d", len(tracks), want)
-	}
-	if tracks[0].Title != "Track 0" {
-		t.Errorf("tracks[0].Title = %q, want %q", tracks[0].Title, "Track 0")
-	}
-	if lastTitle := fmt.Sprintf("Track %d", want-1); tracks[want-1].Title != lastTitle {
-		t.Errorf("tracks[%d].Title = %q, want %q", want-1, tracks[want-1].Title, lastTitle)
-	}
-}
-
-// TestSubsonicGet_OversizeResponse checks that a response too large to read
-// fails with an explicit size error instead of a confusing JSON parse error.
-func TestSubsonicGet_OversizeResponse(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"subsonic-response":{"status":"ok","playlist":{"entry":[`))
-		chunk := strings.Repeat("x", 1<<20)
-		for written := 0; written < maxResponseBody+(1<<20); written += len(chunk) {
-			w.Write([]byte(chunk))
-		}
-	}))
-	defer srv.Close()
-
-	c := New(srv.URL, "u", "p")
-	_, err := c.Tracks("pl-huge")
-	if err == nil {
-		t.Fatal("expected an error for an oversize response, got nil")
-	}
-	if strings.Contains(err.Error(), "unexpected end of JSON input") {
-		t.Errorf("got opaque truncation error %q, want an explicit size error", err)
-	}
-	if !strings.Contains(err.Error(), "exceeds") {
-		t.Errorf("error = %q, want it to mention the size limit", err)
-	}
-}
-
 func TestStreamURLFormat(t *testing.T) {
+	srv := oneTrackServer(t)
+	defer srv.Close()
+
 	tests := []struct {
 		name       string
 		format     string
@@ -763,23 +183,15 @@ func TestStreamURLFormat(t *testing.T) {
 		{"raw requests the original file", "raw", "raw"},
 		{"explicit format is passed through", "mp3", "mp3"},
 		{"uppercase raw", "RAW", "raw"},
-		{"mixed case raw", "Raw", "raw"},
-		{"leading whitespace", " raw", "raw"},
 		{"surrounding whitespace and uppercase", " MP3 ", "mp3"},
 		{"whitespace only lets the server decide", " \t", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := NewFromConfig(config.NavidromeConfig{
-				URL: "https://music.example.com", User: "alice", Password: "secret", Format: tt.format,
-			})
-			parsed, err := url.Parse(c.streamURL("song-1"))
-			if err != nil {
-				t.Fatalf("streamURL() returned invalid URL: %v", err)
-			}
-			q := parsed.Query()
-			if q.Get("id") != "song-1" {
-				t.Errorf("id = %q, want song-1", q.Get("id"))
+			c := NewFromConfig(config.NavidromeConfig{URL: srv.URL, User: "alice", Password: "secret", Format: tt.format})
+			q := streamQuery(t, c)
+			if !strings.HasSuffix(q.Get("id"), "1") {
+				t.Errorf("id = %q, want 1", q.Get("id"))
 			}
 			if _, present := q["format"]; present != (tt.wantFormat != "") {
 				t.Errorf("format param present = %v, want %v", present, tt.wantFormat != "")
@@ -789,4 +201,8 @@ func TestStreamURLFormat(t *testing.T) {
 			}
 		})
 	}
+}
+
+func trackWithMeta(id string) playlist.Track {
+	return playlist.Track{ProviderMeta: map[string]string{provider.MetaNavidromeID: id}}
 }

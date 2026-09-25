@@ -765,13 +765,19 @@ func (d *daemon) handleLibrary(m ipc.LibraryRequestMsg) {
 		}
 		replyError(m.Reply, bookmarks.SetBookmarkByPath(m.Playlist, m.Track.Path))
 	case "provider.playlists":
-		items, err := providerPlaylistInfos(entry)
-		if err != nil {
+		items, err := model.ProviderPlaylistInfos(entry)
+		if err != nil && len(items) == 0 {
 			reply(m.Reply, ipc.Response{OK: false, Error: err.Error()})
 			return
 		}
 		page, total := daemonPage(items, m.Offset, m.Limit, 200)
-		reply(m.Reply, ipc.Response{OK: true, Playlists: page, Total: total})
+		// Rows with an error means a partial list: send the rows, and carry
+		// the reason so a client can tell it is not the whole set.
+		resp := ipc.Response{OK: true, Playlists: page, Total: total}
+		if err != nil {
+			resp.Error = err.Error()
+		}
+		reply(m.Reply, resp)
 	case "provider.catalog":
 		loader, ok := entry.Provider.(providerapi.CatalogLoader)
 		if !ok {
@@ -787,8 +793,8 @@ func (d *daemon) handleLibrary(m ipc.LibraryRequestMsg) {
 			replyError(m.Reply, err)
 			return
 		}
-		items, err := providerPlaylistInfos(entry)
-		if err != nil {
+		items, err := model.ProviderPlaylistInfos(entry)
+		if err != nil && len(items) == 0 {
 			replyError(m.Reply, err)
 			return
 		}
@@ -928,22 +934,6 @@ func daemonPage[T any](items []T, offset, limit, max int) ([]T, int) {
 	}
 	end := min(total, offset+limit)
 	return items[offset:end], total
-}
-
-func providerPlaylistInfos(entry model.ProviderEntry) ([]ipc.PlaylistInfo, error) {
-	lists, err := entry.Provider.Playlists()
-	if err != nil {
-		return nil, err
-	}
-	items := make([]ipc.PlaylistInfo, len(lists))
-	for i, list := range lists {
-		items[i] = ipc.PlaylistInfo{ID: list.ID, Name: list.Name, Provider: entry.Key, Section: list.Section, TrackCount: list.TrackCount, DurationSecs: list.DurationSecs}
-		if sectioned, ok := entry.Provider.(providerapi.SectionedList); ok {
-			items[i].Favoritable = sectioned.IsFavoritableID(list.ID)
-			items[i].Favorite = strings.HasPrefix(list.ID, "f:")
-		}
-	}
-	return items, nil
 }
 
 func ipcAlbumInfos(albums []providerapi.AlbumInfo) []ipc.AlbumInfo {

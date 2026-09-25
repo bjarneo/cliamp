@@ -599,15 +599,25 @@ func fetchSpotSearchCmd(ctx context.Context, s provider.Searcher, providerName, 
 func fetchSpotPlaylistsCmd(prov playlist.Provider, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		playlists, err := prov.Playlists()
-		if err == nil && prov.Name() == "Local" {
-			filtered := playlists[:0]
-			for _, pl := range playlists {
-				if pl.Name != history.PlaylistName {
-					filtered = append(filtered, pl)
-				}
+		// Filter whatever came back, error or not. The consumer drops the
+		// rows when err is set, so today this only matters on the success
+		// path — but a provider can return rows alongside a partial-failure
+		// error, and filtering unconditionally means a read-only row can
+		// never reach the add-to-playlist picker if that changes. Fresh
+		// slice: several providers return their live cache slice uncloned,
+		// so in-place compaction would write into it from this goroutine.
+		isLocal := prov.Name() == "Local"
+		filtered := make([]playlist.PlaylistInfo, 0, len(playlists))
+		for _, pl := range playlists {
+			if pl.ReadOnly {
+				continue
 			}
-			playlists = filtered
+			if isLocal && pl.Name == history.PlaylistName {
+				continue
+			}
+			filtered = append(filtered, pl)
 		}
+		playlists = filtered
 		return spotPlaylistsMsg{playlists: playlists, err: err, providerName: prov.Name(), gen: gen}
 	}
 }

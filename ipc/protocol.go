@@ -113,6 +113,7 @@ type PlaylistInfo struct {
 	Name         string `json:"name"`
 	Provider     string `json:"provider"`
 	Section      string `json:"section,omitempty"`
+	ReadOnly     bool   `json:"read_only,omitempty"`
 	TrackCount   int    `json:"track_count,omitempty"`
 	DurationSecs int    `json:"duration_secs,omitempty"`
 	Favoritable  bool   `json:"favoritable,omitempty"`
