@@ -103,6 +103,7 @@ func (b *bundle) appID() (string, error) {
 	if m == nil {
 		return "", fmt.Errorf("qobuz: app_id not found in bundle")
 	}
+
 	return m[reAppID.SubexpIndex("app_id")], nil
 }
 

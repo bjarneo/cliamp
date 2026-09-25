@@ -59,14 +59,14 @@ func newClientSilent(ctx context.Context) (*client, error) {
 	c.uat = creds.UserAuthToken
 	c.userID = creds.UserID
 	c.label = creds.Label
-
-	if err := c.authWithToken(ctx, creds.UserID, creds.UserAuthToken); err != nil {
-		return nil, fmt.Errorf("qobuz: stored token rejected: %w", err)
-	}
 	if c.secret == "" {
 		if err := c.validateSecret(ctx); err != nil {
 			return nil, err
 		}
+	}
+
+	if err := c.authWithToken(ctx, creds.UserID, creds.UserAuthToken); err != nil {
+		return nil, fmt.Errorf("qobuz: stored token rejected: %w", err)
 	}
 	// Re-persist in case the validated secret or label changed.
 	_ = saveCreds(credsFromClient(c, creds.PrivateKey))
@@ -93,7 +93,6 @@ func newClientInteractive(ctx context.Context) (*client, error) {
 	if err := c.loginWithOAuth(ctx, result, privateKey); err != nil {
 		return nil, fmt.Errorf("qobuz: OAuth login: %w", err)
 	}
-
 	if err := c.validateSecret(ctx); err != nil {
 		return nil, err
 	}
