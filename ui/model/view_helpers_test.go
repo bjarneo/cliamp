@@ -109,6 +109,10 @@ func TestPodcastNowPlayingKeepsShowName(t *testing.T) {
 	if got, want := trackInfoName(track, ""), track.DisplayName()+" · "+track.Album; got != want {
 		t.Errorf("now-playing name = %q, want %q", got, want)
 	}
+	track.ProviderMeta[provider.MetaMixcloudExclusive] = "true"
+	if got, want := trackInfoName(track, ""), track.DisplayName()+restrictedViewSuffix+" · "+track.Album; got != want {
+		t.Errorf("restricted now-playing name = %q, want %q", got, want)
+	}
 }
 
 func TestFormatTrackTime(t *testing.T) {
