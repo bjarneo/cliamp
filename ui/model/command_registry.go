@@ -116,6 +116,13 @@ var commandRegistry = []commandSpec{
 		}
 		return "Bookmark track"
 	}, Enabled: func(m Model) bool { return m.selectedPlaylistStarAction() != starUnavailable }, Keymap: true, ContextHelp: true, Prominent: true},
+	{Mode: commandModeMain, Keys: []string{"W"}, KeyLabel: "W", Label: "Start radio from track", Enabled: func(m Model) bool {
+		if m.focus != focusPlaylist || m.playlist == nil || m.plCursor < 0 || m.plCursor >= m.playlist.Len() {
+			return false
+		}
+		_, ok := m.provider.(provider.RadioStarter)
+		return ok
+	}, Keymap: true, ContextHelp: true},
 	{Mode: commandModeMain, Keys: []string{"n"}, KeyLabel: "n", Label: "Favorite track", Enabled: func(m Model) bool {
 		return m.focus == focusPlaylist && m.playlist != nil && m.favMgr != nil && m.plCursor >= 0 && m.plCursor < m.playlist.Len()
 	}, Keymap: true, ContextHelp: true},

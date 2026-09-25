@@ -11,6 +11,11 @@ var ErrNeedsAuth = errors.New("sign-in required")
 // into one coherent result. Reopening the list starts a clean load.
 var ErrListChanged = errors.New("list changed while loading")
 
+// ErrRateLimited is returned when a provider is refusing requests for a while
+// rather than failing them. Callers should report the wait rather than retry:
+// asking again during the cooldown is what makes services extend it.
+var ErrRateLimited = errors.New("rate limited")
+
 // PlaylistInfo describes a playlist with its name and track count.
 //
 // DurationSecs is optional: providers that can compute it cheaply should

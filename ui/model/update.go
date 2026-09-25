@@ -410,6 +410,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.provLoading = m.provSearch.loading
 		if msg.err != nil {
+			if errors.Is(msg.err, playlist.ErrRateLimited) {
+				// A cooldown passes on its own, so it does not belong in the
+				// slot that has no expiry and hides every later status.
+				m.status.Warningf(statusTTLDefault, "Spotify is rate limiting — %s", msg.err)
+				return m, nil
+			}
 			if errors.Is(msg.err, playlist.ErrNeedsAuth) {
 				m.provSignIn = true
 				m.err = nil
@@ -426,6 +432,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.startCatalogLoading()
 		return m, cmd
 
+	case trackRadioMsg:
+		// Whatever became of it, this request is over, so W is free again --
+		// including when it was superseded, or the key would stay locked.
+		m.trackRadio.starting = false
+		if msg.gen != m.requests.tracks || !m.isActiveProvider(msg.providerName) {
+			return m, nil
+		}
+		m.provLoading = false
+		m.tracksPaging = false
+		if msg.err != nil {
+			m.status.Errorf(statusTTLDefault, "Radio failed: %s", msg.err)
+			return m, nil
+		}
+		if len(msg.tracks) == 0 {
+			m.status.Warningf(statusTTLDefault, "Radio came back empty")
+			return m, nil
+		}
+		// Only a station that actually starts spends the interval: one that
+		// failed or came back empty opened no tracks, so retrying costs nothing.
+		m.trackRadio.lastStart = time.Now()
+		// A station is a fresh queue rather than an addition: the point is to
+		// leave what you were listening to and follow the seed instead.
+		m.replacePlayerPlaylist(msg.tracks)
+		// The queue is a station now, not the playlist that was loaded.
+		m.activeProviderPlaylistID = ""
+		m.playlist.SetIndex(0)
+		m.plCursor = 0
+		m.adjustScroll()
+		m.status.Successf(statusTTLDefault, "Radio from %s — %d tracks", trackViewName(msg.seed), len(msg.tracks))
+		cmd := m.playCurrentTrack()
+		m.notifyAll()
+		return m, cmd
+
 	case tracksLoadedMsg:
 		if msg.gen != m.requests.tracks || !m.isActiveProvider(msg.providerName) {
 			return m, nil
@@ -436,6 +475,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if errors.Is(msg.err, playlist.ErrNeedsAuth) {
 				m.provSignIn = true
 				m.err = nil
+				return m, nil
+			}
+			if errors.Is(msg.err, playlist.ErrRateLimited) {
+				// A cooldown passes on its own, and the message says how long.
+				// Keeping it in the permanent slot would sit in front of every
+				// later status for the rest of the session.
+				m.status.Warningf(statusTTLDefault, "Spotify is rate limiting — %s", msg.err)
 				return m, nil
 			}
 			if errors.Is(msg.err, playlist.ErrListChanged) {

@@ -1,6 +1,8 @@
 package model
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/external/radio"
@@ -174,4 +176,61 @@ func (m Model) playlistTrackStarred(track playlist.Track) bool {
 		}
 	}
 	return track.Bookmark
+}
+
+// radioInterval is the least time between two stations starting. Starting one
+// is the expensive action: it asks for the station, then opens its first track
+// and preloads the second straight away, and Spotify refuses audio keys when
+// track opens come too fast for too long -- as few as twenty in a minute after
+// sustained use. Moving through a station that is already playing costs one
+// open per track and is not limited. The interval is held in memory, so it
+// restarts with cliamp.
+const radioInterval = 10 * time.Second
+
+// trackRadioState keeps a station request from overlapping another, and
+// spaces out how often a new one can start.
+type trackRadioState struct {
+	starting  bool      // a station request is in flight
+	lastStart time.Time // when the last station began playing
+}
+
+// startTrackRadio replaces the queue with the station the provider builds from
+// the selected track -- the endless mix a service generates from one song.
+// Providers that cannot do it simply say so rather than failing quietly.
+func (m *Model) startTrackRadio() tea.Cmd {
+	starter, ok := m.provider.(provider.RadioStarter)
+	if !ok {
+		m.status.Warningf(statusTTLDefault, "%s cannot start a radio", providerLabel(m.provider))
+		return nil
+	}
+	if m.focus != focusPlaylist || m.plCursor < 0 || m.plCursor >= m.playlist.Len() {
+		m.status.Warningf(statusTTLDefault, "Select a track to start its radio")
+		return nil
+	}
+	// A held key repeats, and nothing upstream filters that, so without this
+	// every repeat would be a request of its own.
+	if m.trackRadio.starting {
+		m.status.Activityf(statusTTLDefault, "Radio is still starting…")
+		return nil
+	}
+	if wait := radioInterval - time.Since(m.trackRadio.lastStart); wait > 0 {
+		m.status.Showf(statusTTLDefault, "Next radio available in %ds", int(wait.Round(time.Second).Seconds()))
+		return nil
+	}
+	track, ok := m.playlist.Track(m.plCursor)
+	if !ok {
+		return nil
+	}
+
+	m.trackRadio.starting = true
+	m.status.Activityf(statusTTLDefault, "Starting radio from %s…", trackViewName(track))
+	return startTrackRadioCmd(starter, m.provider.Name(), track, nextRequest(&m.requests.tracks))
+}
+
+// providerLabel names the active provider for a status line.
+func providerLabel(prov playlist.Provider) string {
+	if prov == nil {
+		return "This provider"
+	}
+	return prov.Name()
 }

@@ -629,3 +629,24 @@ func createSpotPlaylistCmd(ctx context.Context, c provider.PlaylistCreator, w pr
 		return spotCreatedMsg{name: name, err: err, providerName: providerName, gen: gen}
 	}
 }
+
+// trackRadioMsg carries a station built from a track back to the model.
+type trackRadioMsg struct {
+	seed         playlist.Track
+	tracks       []playlist.Track
+	providerName string
+	gen          uint64
+	err          error
+}
+
+// startTrackRadioCmd asks the provider for the station a track seeds. The
+// deadline is its own: a station is one resolve plus its metadata, so it should
+// answer quickly or not at all.
+func startTrackRadioCmd(starter provider.RadioStarter, name string, seed playlist.Track, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		tracks, err := starter.TrackRadio(ctx, seed.Path)
+		return trackRadioMsg{seed: seed, tracks: tracks, providerName: name, gen: gen, err: err}
+	}
+}

@@ -18,6 +18,22 @@ const (
 	// silently truncates larger limits; requesting more would cause the loop
 	// to skip items when offset advances by the requested limit.
 	spotifyTrackPageSize = 50
+
+	// spotifyMetadataBatch caps how many tracks one extended-metadata request
+	// asks the client protocol to describe. The endpoint is batched rather than
+	// paged and scales well past this, but go-librespot -- which cliamp already
+	// uses to speak the same protocol -- settled on the same hundred, and there
+	// is no published limit to reason from:
+	//
+	//	https://github.com/devgianlu/go-librespot/blob/master/daemon/track_meta_cache.go
+	//	  // maxMetaBatch caps how many tracks a single extended-metadata
+	//	  // request asks for [...]
+	//	  maxMetaBatch = 100
+	//
+	// Matching it keeps cliamp's traffic shaped like every other client
+	// speaking this protocol, which matters more than the seconds a larger
+	// batch would save.
+	spotifyMetadataBatch = 100
 	// spotifyAlbumPageSize is the maximum /v1/me/albums accepts per request.
 	spotifyAlbumPageSize = 50
 )

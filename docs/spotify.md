@@ -72,17 +72,41 @@ When focused on the provider panel:
 
 After you load a playlist, Cliamp returns to the standard playlist view. Use the usual controls for seek, volume, EQ, shuffle, repeat, queue, search, and lyrics.
 
+With the playlist in focus, press `W` on a track to start its Spotify radio: the station Spotify builds from that song. It replaces the queue and starts playing. A new station can start at most once every 10 seconds, because starting one opens its first tracks straight away, and Spotify briefly refuses playback when tracks are opened too quickly for too long. Moving through a station that is already playing is not limited. If playback is refused, it recovers by itself once you slow down, usually within seconds to a few minutes.
+
 Large playlists fill in as they load. Cliamp shows the first tracks, appends the remaining pages in the background, and stays usable while the list arrives.
 
 ## Playlists and albums
 
 The provider lists both playlists and saved albums in the Spotify library. Playlists include those you created and saved, or followed. If a public playlist is missing, open Spotify and click **Save** first. You do not need to copy tracks to a new playlist.
 
+Playlists are grouped by the folders you keep them in, in the order Spotify stores them, with a folder inside another shown as `Parent / Child`. Playlists outside any folder are grouped by owner instead.
+
 Saved albums appear under a **Saved albums** section, labelled `Artist - Album` and sorted alphabetically by artist. These are the albums in **Your Library**. To add one, open the album in Spotify and click **Save**. Selecting a saved album loads all of its tracks in disc and track order.
 
 ## Podcasts
 
-Podcast episodes work as tracks. Press `Ctrl+F` to search Spotify. Matching episodes, such as "Joe Rogan", appear with songs. Press `Enter` to play. Playlists can load and play both songs and episodes.
+Podcast episodes work as tracks. Press `Ctrl+F` to search Spotify. Matching episodes, such as "Joe Rogan", appear with songs. Press `Enter` to play. Playlists can load and play both songs and episodes, except when a playlist is read through the client protocol -- see below -- which serves songs only.
+
+## How Cliamp reads your library
+
+Cliamp reads Spotify two ways. The Web API is the documented one and serves most things. The client protocol is the one Cliamp already speaks to play audio, and it reaches what the Web API will not: playlist folders, saved radios, Spotify's own mixes, and playlists owned by someone else, all of which a Development Mode app is refused.
+
+By default the Web API is tried first and the client protocol only picks up what it declines, so ordinary use is unchanged. Two reads are the exception, both because the Web API does not fail there and so a fallback could never reach them: the library listing, which it answers with less (no folders, and none of the playlists it will not serve), and Liked Songs, which it serves fifty tracks per request. A library of several thousand tracks is over a hundred requests that way, which is how a day-long throttle is earned, so the client protocol leads and the Web API is the fallback.
+
+Set `CLIAMP_SPOTIFY_API` to change this:
+
+| Value | Behaviour |
+|---|---|
+| `auto` | Default. Web API first, client protocol for what it refuses. |
+| `client` | Never fall back to the Web API for a read the client protocol can serve, so a broken internal endpoint surfaces instead of being masked. Saved albums, album tracks, search and the Liked Songs count have no client-protocol equivalent and still use the Web API in this mode. |
+| `web` | Web API only. Cliamp's behaviour before the client protocol was added; folders, saved radios and other people's playlists are unavailable. |
+
+Track counts beside folder-grouped playlists come from Spotify's own library listing and are a cached figure, so one can sit a track or two off what the playlist actually holds. The list itself is always read fresh.
+
+A playlist read through the client protocol serves songs only: podcast episodes and your own local files ride in the same list but cannot be played from there, so they are skipped. In `auto` this affects only playlists the Web API refused, which previously showed nothing at all.
+
+The client protocol is undocumented and can change without notice, which is why `auto` falls back to the Web API wherever it can and why `web` exists as an escape hatch. `client` deliberately does not fall back.
 
 ## Troubleshooting
 
