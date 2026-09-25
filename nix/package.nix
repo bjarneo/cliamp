@@ -8,12 +8,13 @@
   libogg,
   libvorbis,
   makeWrapper,
-  mpg123,
+  libmpg123,
   pipewire,
   pkg-config,
   stdenv,
   symlinkJoin,
   version ? "dev",
+  versionCheckHook,
   yt-dlp,
 }:
 
@@ -45,17 +46,26 @@ buildGoModule {
     pkg-config
   ];
 
+  doInstallCheck = true;
+  nativeInstallCheckInputs = [ versionCheckHook ];
+
   buildInputs = [
     flac
     libogg
     libvorbis
-    mpg123
+    libmpg123
   ]
   ++ lib.optionals stdenv.hostPlatform.isLinux [
     alsa-lib
   ];
   # On darwin the CoreAudio/MediaPlayer/AppKit frameworks referenced by the
   # cgo files come from the Apple SDK that stdenv provides by default.
+
+  # macOS limits Unix socket paths to 104 bytes. Keep the temporary build
+  # directory short so IPC tests can bind their sockets successfully.
+  preCheck = lib.optionalString stdenv.hostPlatform.isDarwin ''
+    export TMPDIR="$(mktemp -d /tmp/cliamp-XXXXXX)"
+  '';
 
   ldflags = [
     "-s"
