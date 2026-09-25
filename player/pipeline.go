@@ -134,6 +134,54 @@ func (p *Player) decodeFFmpegURLStream(path string) (*ffmpegPipeStreamer, beep.F
 	return decoder, format, nil
 }
 
+// buildLowRateMP3FFmpegPipeline re-decodes a low-rate MPEG-2/2.5 MP3 stream
+// with ffmpeg instead of go-mp3 (see isLowRateMP3). Local files go through
+// decodeFFmpegLocal like any other local-decode fallback. HTTP URLs reopen
+// the source through the normal ICY-aware reader chain and feed ffmpeg via
+// stdin (decodeFFmpegPipeStream) rather than letting ffmpeg fetch the URL
+// itself, so StreamTitle keeps updating for the low-bitrate radio streams
+// this fallback mainly exists for.
+func (p *Player) buildLowRateMP3FFmpegPipeline(path string) (*trackPipeline, error) {
+	if !isURL(path) {
+		decoder, format, err := decodeFFmpegLocal(path, p.sr, p.bitDepth)
+		if err != nil {
+			return nil, fmt.Errorf("decode: %w", err)
+		}
+		return &trackPipeline{
+			decoder:  decoder,
+			stream:   decoder, // decodeFFmpegLocal outputs at target sample rate
+			format:   format,
+			seekable: true,
+			path:     path,
+		}, nil
+	}
+
+	src, err := openSource(path, p.setStreamTitle)
+	if err != nil {
+		return nil, fmt.Errorf("open source: %w", err)
+	}
+	byteCounter := new(atomic.Int64)
+	rc := &countingReader{inner: src.body, count: byteCounter}
+
+	decoder, format, err := decodeFFmpegPipeStream(rc, p.sr, p.bitDepth, src.live)
+	if err != nil {
+		rc.Close()
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	if err := decoder.waitForInitialAudio(ffmpegPipeTimeout); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	return p.prefetchNetworkPipeline(&trackPipeline{
+		decoder:       decoder,
+		stream:        decoder,
+		format:        format,
+		path:          path,
+		bytesRead:     byteCounter,
+		contentLength: src.contentLength,
+		live:          src.live,
+	}, src.prefetch), nil
+}
+
 // buildPipeline opens and decodes a track, returning a ready-to-play pipeline.
 func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	// Clear stream title on each new pipeline build.
@@ -373,6 +421,17 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	}
 
 	decoder, format, err := decodeWithExt(rc, ext, path, p.sr, p.bitDepth)
+	if err == nil && isLowRateMP3(ext, format.SampleRate) {
+		// go-mp3 parsed this MPEG-2/2.5 stream without error but produces
+		// garbled audio for it (see isLowRateMP3) — this is not a decode
+		// failure, so it gets its own path rather than falling into the
+		// generic error fallback below, which would let ffmpeg open HTTP
+		// URLs itself and drop ICY StreamTitle updates for what is this
+		// fix's main use case (low-bitrate HTTP radio).
+		decoder.Close()
+		rc.Close()
+		return p.buildLowRateMP3FFmpegPipeline(path)
+	}
 	if err != nil {
 		rc.Close()
 		// If the format already required ffmpeg (e.g., .m4a), decodeWithExt already
