@@ -338,7 +338,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Fetch the next batch while the final loaded track is still playing.
 		if m.player.IsPlaying() && !m.player.IsPaused() && !m.playbackDetached && m.playlist.Repeat() != playlist.RepeatOne &&
-			(m.playlist.Index() == m.playlist.Len()-1 || !m.playlist.HasNext()) {
+			m.atContinuationBoundary() {
 			cmds = append(cmds, m.extendTracks(false))
 		}
 		m.tickResumeSave(now)

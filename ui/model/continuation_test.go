@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -261,5 +262,27 @@ func TestDrainedLastTrackContinuesThroughTick(t *testing.T) {
 	m = next.(Model)
 	if m.playlist.Index() != 2 || len(engine.playCalls) != 1 || engine.playCalls[0] != "c.mp3" {
 		t.Fatalf("index=%d plays=%v", m.playlist.Index(), engine.playCalls)
+	}
+}
+
+func TestTickPreservesPriorityPreload(t *testing.T) {
+	for _, repeat := range []playlist.RepeatMode{playlist.RepeatOff, playlist.RepeatAll, playlist.RepeatOne} {
+		t.Run(fmt.Sprint(repeat), func(t *testing.T) {
+			m, _, engine := newContinuationModel(t)
+			m.playlist.SetIndex(1)
+			m.playlist.SetRepeat(repeat)
+			if repeat != playlist.RepeatOne {
+				m.playlist.Queue(0)
+			}
+			engine.playing = true
+			engine.duration = time.Minute
+			engine.hasPreload = true
+			before := engine.clearPreloadCalls
+			next, _ := m.Update(tickMsg(time.Now()))
+			m = next.(Model)
+			if m.continuation.loading || engine.clearPreloadCalls != before || !engine.hasPreload {
+				t.Fatal("tick continuation discarded priority preload")
+			}
+		})
 	}
 }

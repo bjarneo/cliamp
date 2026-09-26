@@ -155,6 +155,7 @@ func (m *Model) retireTracksPaging() {
 	m.tracksPaging = false
 }
 
+// fetchProviderTracks starts a fresh track load and retires previous continuation results.
 func (m *Model) fetchProviderTracks(playlistID string) tea.Cmd {
 	m.clearContinuation()
 	if m.provider == nil {

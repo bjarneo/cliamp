@@ -9,6 +9,7 @@ import (
 
 var _ provider.TrackExtender = (*Provider)(nil)
 
+// CanExtendPlaylist reports whether the playlist supports radio continuation.
 func (p *Provider) CanExtendPlaylist(id string) bool { return id == wavePlaylistID }
 
 // ExtendTracks continues the existing radio session. The offset lets concurrent
@@ -47,7 +48,12 @@ func (p *Provider) ExtendTracks(id string, offset int) ([]playlist.Track, error)
 		return nil, playlist.ErrListChanged
 	}
 	p.appendWaveTracks(w, batch, batchID)
-	w.exhausted = len(w.tracks) == offset
+	w.exhausted = len(batch) == 0
+	if !w.exhausted && len(w.tracks) == offset {
+		// An empty successful result means exhaustion to TrackExtender callers.
+		// Let their retry backoff handle batches containing no new playable tracks.
+		return nil, fmt.Errorf("yandex: wave batch contains no new playable tracks")
+	}
 	return append([]playlist.Track(nil), w.tracks[offset:]...), nil
 }
 

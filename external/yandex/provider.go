@@ -267,8 +267,12 @@ func (p *Provider) loadWave() ([]playlist.Track, error) {
 	const extraBatches = 2
 	for range extraBatches {
 		batch, bid, err := p.api.rotorWaveTracks(sessionID, nil, w.keys)
-		if err != nil || len(batch) == 0 {
+		if err != nil {
 			// Continuation is best-effort; keep whatever was loaded.
+			break
+		}
+		if len(batch) == 0 {
+			w.exhausted = true
 			break
 		}
 		p.appendWaveTracks(w, batch, bid)

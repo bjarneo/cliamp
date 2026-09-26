@@ -54,6 +54,8 @@ place. This on-demand behavior applies to the wave, not liked tracks or ordinary
 playlists.
 
 Only one continuation request runs at a time. Duplicate track IDs are skipped.
+A non-empty batch with no new playable tracks can be retried after five seconds;
+it does not end the wave.
 A failed request keeps the existing queue and shows a status message; retries
 are limited to once every five seconds. While the last track is still playing,
 retry is automatic; after playback has stopped, press Next or move the cursor
@@ -63,7 +65,7 @@ switching providers or refreshing discards stale results.
 
 Playback feedback keeps each track's original batch ID, so later batches can
 adapt to what you actually listen to. Repeat-one and explicit queued tracks keep
-their usual priority; a sequential repeat-all wave requests new tracks before
+their usual priority, including gapless preloads; a sequential repeat-all wave requests new tracks before
 wrapping. Press `Ctrl+R` while the wave is open to discard the session and start
 a fresh batch in place.
 

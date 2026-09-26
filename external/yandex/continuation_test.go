@@ -117,10 +117,17 @@ func TestWaveExtensionEmptyAndInvalid(t *testing.T) {
 	if _, err := p.Tracks(wavePlaylistID); err != nil {
 		t.Fatal(err)
 	}
+	if !p.wave.exhausted {
+		t.Fatal("initial empty continuation did not exhaust wave")
+	}
+	initialCalls := log.count("/rotor/session/session-1/tracks")
 	if tracks, err := p.ExtendTracks(wavePlaylistID, 1); err != nil || len(tracks) != 0 {
 		t.Fatalf("tracks=%v err=%v", tracks, err)
 	}
 	calls := log.count("/rotor/session/session-1/tracks")
+	if calls != initialCalls {
+		t.Fatal("requested after initial exhaustion")
+	}
 	if tracks, err := p.ExtendTracks(wavePlaylistID, 1); err != nil || len(tracks) != 0 {
 		t.Fatalf("repeat empty: %v %v", tracks, err)
 	}
@@ -164,4 +171,47 @@ func TestWaveFeedbackUsesOriginalKeyForRealID(t *testing.T) {
 		}
 	}
 	t.Fatal("missing alias track feedback")
+}
+
+func TestWaveExtensionSkipsNonproductiveBatches(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		batch []track
+	}{
+		{"duplicates", []track{{ID: "1", Available: true}}},
+		{"duplicate real ID", []track{{ID: "alias", RealID: "1", Available: true}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, log := newTestProvider(t, [][]track{
+				{{ID: "1", Available: true}}, {{ID: "2", Available: true}}, {{ID: "3", Available: true}},
+				tc.batch, {{ID: "5", Available: true}},
+			})
+			if _, err := p.Tracks(wavePlaylistID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := p.ExtendTracks(wavePlaylistID, 3); err == nil {
+				t.Fatal("nonproductive batch must remain retryable for callers")
+			}
+			if p.wave.exhausted {
+				t.Fatal("non-empty batch exhausted wave")
+			}
+			tracks, err := p.ExtendTracks(wavePlaylistID, 3)
+			if err != nil || len(tracks) != 1 || tracks[0].Path != TrackURIPrefix+"5" {
+				t.Fatalf("tracks=%v err=%v", tracks, err)
+			}
+			if _, err := p.ExtendTracks(wavePlaylistID, 4); err != nil {
+				t.Fatal(err)
+			}
+			calls := log.count("/rotor/session/session-1/tracks")
+			if !p.wave.exhausted {
+				t.Fatal("empty batch did not exhaust wave")
+			}
+			if _, err := p.ExtendTracks(wavePlaylistID, 4); err != nil {
+				t.Fatal(err)
+			}
+			if log.count("/rotor/session/session-1/tracks") != calls {
+				t.Fatal("requested after exhaustion")
+			}
+		})
+	}
 }

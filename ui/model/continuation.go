@@ -24,10 +24,12 @@ type tracksExtendedMsg struct {
 	err        error
 }
 
+// clearContinuation invalidates pending results and clears the continuation source.
 func (m *Model) clearContinuation() {
 	m.continuation = continuationState{generation: m.continuation.generation + 1}
 }
 
+// startContinuation attaches continuation support to the loaded playlist.
 func (m *Model) startContinuation(msg tracksLoadedMsg) {
 	if source, ok := m.provider.(provider.TrackExtender); ok && source.CanExtendPlaylist(msg.playlistID) {
 		m.continuation.source = source
@@ -36,6 +38,7 @@ func (m *Model) startContinuation(msg tracksLoadedMsg) {
 	}
 }
 
+// extendTracks requests one batch and optionally resumes playback on completion.
 func (m *Model) extendTracks(wait bool) tea.Cmd {
 	s := &m.continuation
 	if s.source == nil || s.exhausted || time.Now().Before(s.retryAt) {
@@ -59,6 +62,7 @@ func (m *Model) extendTracks(wait bool) tea.Cmd {
 	}
 }
 
+// extendAtCursor requests more tracks when navigation reaches the last row.
 func (m *Model) extendAtCursor(key string) tea.Cmd {
 	if m.activeScreen() != screenMain || m.focus != focusPlaylist || m.playlist.Len() == 0 || m.plCursor != m.playlist.Len()-1 {
 		return nil
@@ -70,6 +74,7 @@ func (m *Model) extendAtCursor(key string) tea.Cmd {
 	return nil
 }
 
+// applyExtendedTracks appends a current result or handles exhaustion and retries.
 func (m *Model) applyExtendedTracks(msg tracksExtendedMsg) tea.Cmd {
 	s := &m.continuation
 	if msg.generation != s.generation || !s.loading {
@@ -112,6 +117,7 @@ func (m *Model) applyExtendedTracks(msg tracksExtendedMsg) tea.Cmd {
 	return nil
 }
 
+// atContinuationBoundary reports whether playback should request more tracks.
 // A finite repeat-all list wraps, but an extensible sequential list should
 // first ask for new tracks. Explicit queued tracks and repeat-one keep priority.
 func (m Model) atContinuationBoundary() bool {

@@ -17,6 +17,7 @@ const (
 	resumeSaveInterval          = 2 * time.Second
 )
 
+// replacePlaylist replaces the active list and invalidates continuation state.
 func (m *Model) replacePlaylist(tracks []playlist.Track) {
 	m.clearContinuation()
 	if m.resumeSaver != nil {
