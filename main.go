@@ -660,6 +660,12 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 			QueueAdd: func(path string) {
 				prog.Send(model.PluginQueueMsg{Op: "add", Path: path})
 			},
+			QueueAddTrack: func(t luaplugin.QueueTrack) {
+				prog.Send(model.PluginQueueMsg{Op: "add_track", Track: playlist.Track{
+					Path: t.Path, Title: t.Title, Artist: t.Artist, Album: t.Album,
+					Genre: t.Genre, Year: t.Year, DurationSecs: t.Duration, Stream: t.Stream,
+				}})
+			},
 			QueueJump: func(index int) {
 				prog.Send(model.PluginQueueMsg{Op: "jump", Index: index})
 			},

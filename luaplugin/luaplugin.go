@@ -90,10 +90,25 @@ type ControlProvider struct {
 	Prev        func()                                // injected via prog.Send
 	// Queue mutators, all injected via prog.Send so the model's Update loop
 	// applies them and keeps derived state (cursor, current index) consistent.
-	QueueAdd    func(path string)  // resolve path/URL and append
-	QueueJump   func(index int)    // make index current and play it
-	QueueRemove func(index int)    // remove track at index
-	QueueMove   func(from, to int) // reorder
+	QueueAdd      func(path string)      // resolve path/URL and append
+	QueueAddTrack func(track QueueTrack) // append a described track as given
+	QueueJump     func(index int)        // make index current and play it
+	QueueRemove   func(index int)        // remove track at index
+	QueueMove     func(from, to int)     // reorder
+}
+
+// QueueTrack is a track a plugin describes with a table passed to
+// cliamp.queue.add. Its fields mirror the track tables plugins receive in
+// events, and it is queued as given, without resolving the path.
+type QueueTrack struct {
+	Path     string
+	Title    string
+	Artist   string
+	Album    string
+	Genre    string
+	Year     int
+	Duration int // seconds
+	Stream   bool
 }
 
 // UIProvider supplies callbacks that surface plugin output in the TUI.

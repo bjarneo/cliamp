@@ -577,6 +577,10 @@ p:<span class="k">on</span>(<span class="s">"track.change"</span>, <span class="
           <div class="d">Reports whether another playable track exists, honoring the play-next queue, repeat, and shuffle.</div>
         </div>
         <div class="api-i">
+          <div class="sig">cliamp.queue.add({ path, title, artist, … })</div>
+          <div class="d">Queue a track exactly as described, such as a Spotify track with its title and artist, without resolving its path.</div>
+        </div>
+        <div class="api-i">
           <div class="sig">p:bind("ctrl+n", fn) · p:command("name", fn)</div>
           <div class="d">Register your own key bindings and shell-invokable commands.</div>
         </div>

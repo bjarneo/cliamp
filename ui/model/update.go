@@ -1091,11 +1091,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case pluginQueueAddedMsg:
-		if len(msg.tracks) > 0 {
-			m.playlist.Add(msg.tracks...)
-			m.loadedPlaylist = ""
-			m.notifyPlayback()
-		}
+		m.appendPluginTracks(msg.tracks...)
 		return m, nil
 
 	case ShowStatusMsg:

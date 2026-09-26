@@ -12,10 +12,11 @@ import (
 // from the plugin goroutine so the model's derived state (cursor, current
 // index, playback) stays consistent. Indices are 0-based.
 type PluginQueueMsg struct {
-	Op    string // "add" | "jump" | "remove" | "move"
-	Path  string // add
-	Index int    // jump, remove, move (from)
-	To    int    // move (to)
+	Op    string         // "add" | "add_track" | "jump" | "remove" | "move"
+	Path  string         // add
+	Track playlist.Track // add_track
+	Index int            // jump, remove, move (from)
+	To    int            // move (to)
 }
 
 // pluginQueueAddedMsg carries tracks resolved for a cliamp.queue.add() call
@@ -28,6 +29,13 @@ func (m *Model) handlePluginQueue(msg PluginQueueMsg) tea.Cmd {
 	switch msg.Op {
 	case "add":
 		return resolvePluginAddCmd(msg.Path)
+
+	case "add_track":
+		// Queued as described, like IPC track.queue: the path is not resolved.
+		track := msg.Track
+		track.Stream = track.Stream || playlist.IsURL(track.Path)
+		m.appendPluginTracks(track)
+		return nil
 
 	case "jump":
 		if msg.Index < 0 || msg.Index >= m.playlist.Len() {
@@ -50,6 +58,16 @@ func (m *Model) handlePluginQueue(msg PluginQueueMsg) tea.Cmd {
 		return nil
 	}
 	return nil
+}
+
+// appendPluginTracks appends tracks a plugin added to the end of the playlist.
+func (m *Model) appendPluginTracks(tracks ...playlist.Track) {
+	if len(tracks) == 0 {
+		return
+	}
+	m.playlist.Add(tracks...)
+	m.loadedPlaylist = ""
+	m.notifyPlayback()
 }
 
 // removeIndex removes the track at idx, mirroring the side effects of the
