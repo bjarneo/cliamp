@@ -142,6 +142,33 @@ Notes:
 - Spotify returns `403` for modifications to a followed playlist you don't own, so rename and track removal apply to playlists you own. Following and unfollowing work on any playlist.
 - **Unfollowing a playlist you own deletes it** — that's Spotify's semantics. The `D` confirm prompt says "Delete playlist" for owned rows and "Unfollow playlist" for followed ones; `Enter`/`y` confirms and any other key cancels.
 
+## Spotify Connect
+
+cliamp can run as a Spotify Connect receiver: it registers itself with Spotify and advertises on the local network (`_spotify-connect._tcp` via Zeroconf), so the official Spotify apps list it under **Connect to a device** on the same network — the same way they list speakers and other computers. This is Spotify's own device-control protocol, not Bluetooth.
+
+Enable it in `~/.config/cliamp/config.toml`:
+
+```toml
+[spotify]
+connect_enabled = true
+connect_name = "cliamp"   # name shown in the Connect device picker
+connect_port = 0          # zeroconf HTTP port; 0 picks an ephemeral port
+```
+
+Connect requires the same signed-in Premium session as the rest of the provider. With `connect_enabled` on, launch cliamp, open Spotify on your phone or desktop, and pick your `connect_name` under "Connect to a device". From the Spotify app you can then:
+
+- Play, pause, resume, seek, and skip tracks
+- Transfer the current playback (playlist/album/context and queue) to cliamp
+- Change the volume, toggle shuffle and repeat, add tracks to the queue, and set a sleep timer
+
+cliamp reports its state (current track, position, volume, shuffle/repeat, sleep timer) back to Spotify, so the app's UI stays in sync — including state changes you make inside cliamp itself. Starting playback from another Spotify client transfers it away: cliamp pauses and the remote device takes over.
+
+Notes:
+
+- The device registers with Spotify's backend even when mDNS advertisement fails (e.g. in containers or networks that block multicast) — cloud control still works, though the local-network picker may not list it.
+- Incoming "add device" requests over zeroconf are declined; sign-in stays inside cliamp's own OAuth flow.
+- Playback of non-Spotify sources keeps working while the receiver is enabled; when a local track is playing, the device reports itself as active without a Spotify track.
+
 ## Podcasts
 
 Podcast episodes work as tracks. Press `Ctrl+F` to search Spotify. Matching episodes, such as "Joe Rogan", appear with songs. Press `Enter` to play. Playlists can load and play both songs and episodes.

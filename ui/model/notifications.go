@@ -21,7 +21,12 @@ func (m *Model) notifyAll() {
 }
 
 func (m *Model) attachNotifier(notifier playback.Notifier) {
-	m.notifier = notifier
+	for _, n := range m.notifiers {
+		if n == notifier {
+			return
+		}
+	}
+	m.notifiers = append(m.notifiers, notifier)
 	m.notifyAll()
 }
 
@@ -79,7 +84,7 @@ func trackToMap(track playlist.Track) map[string]any {
 }
 
 func (m *Model) notifyPlayback() {
-	if m.notifier == nil {
+	if len(m.notifiers) == 0 {
 		return
 	}
 	status := playback.StatusStopped
@@ -92,7 +97,7 @@ func (m *Model) notifyPlayback() {
 	}
 	track, _ := m.currentPlaybackTrack()
 	artist, title := m.resolveTrackDisplay(track)
-	m.notifier.Update(playback.State{
+	state := playback.State{
 		Status: status,
 		Track: playback.Track{
 			Title:       title,
@@ -107,7 +112,17 @@ func (m *Model) notifyPlayback() {
 		VolumeDB: m.player.Volume(),
 		Position: m.player.Position(),
 		Seekable: m.player.Seekable(),
-	})
+	}
+	if m.playlist != nil {
+		state.Shuffle = m.playlist.Shuffled()
+		state.Repeat = m.playlist.Repeat()
+		if next, ok := m.playlist.PeekNext(); ok {
+			state.NextURL = next.Path
+		}
+	}
+	for _, n := range m.notifiers {
+		n.Update(state)
+	}
 }
 
 // stopByUser is an explicit stop from a key, IPC, or media controls. Besides

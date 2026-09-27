@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/ui"
 )
@@ -270,7 +271,7 @@ func TestSettingsFocusActions(t *testing.T) {
 				p := &settingsFocusEngine{}
 				notifier := &fakeNotifier{}
 				saver := &recordingConfigSaver{}
-				m.player, m.notifier, m.configSaver, m.focus = p, notifier, saver, focus
+				m.player, m.notifiers, m.configSaver, m.focus = p, []playback.Notifier{notifier}, saver, focus
 				m.plCursor = 2
 				cmd := m.handleKey(key)
 				s := key.String()

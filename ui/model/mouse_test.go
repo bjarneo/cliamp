@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/ui"
 )
 
 // mouseTestModel builds a Model whose mouse geometry points at a 10-row body
@@ -145,6 +146,36 @@ func TestMouseClickOnEmptyRowNoop(t *testing.T) {
 	m.handleMouseClick(tea.MouseClickMsg{X: m.mouse.bodyX + 1, Y: m.mouse.bodyRow + 9, Button: tea.MouseRight})
 	if m.trackMenu.visible {
 		t.Fatal("right click on empty row opened the menu")
+	}
+}
+
+// TestFullVisSeekBarClickSeeks: the fullscreen visualizer draws the same
+// seek bar as the main screen, so its clicks must seek too (geometry used
+// to be skipped for that screen, leaving the bar dead).
+func TestFullVisSeekBarClickSeeks(t *testing.T) {
+	oldPanelWidth := ui.PanelWidth
+	ui.PanelWidth = 60
+	t.Cleanup(func() { ui.PanelWidth = oldPanelWidth })
+
+	m := mouseTestModel(1)
+	m.mouse = &mouseState{seekRow: -1, bodyRow: -1}
+	m.fullVis = true
+	m.width, m.height = 120, 40
+	m.cachedDur = 4 * time.Minute
+	m.vis = ui.NewVisualizer(float64(m.player.(*playbackFakeEngine).SampleRate()))
+
+	m.View()
+	if m.mouse.seekRow < 0 {
+		t.Fatal("fullscreen visualizer did not register seek geometry")
+	}
+	if m.mouse.bodyRow >= 0 {
+		t.Fatalf("fullscreen visualizer registered body row %d, want none", m.mouse.bodyRow)
+	}
+
+	fake := m.player.(*playbackFakeEngine)
+	m.handleMouseClick(tea.MouseClickMsg{X: m.mouse.seekX + 10, Y: m.mouse.seekRow, Button: tea.MouseLeft})
+	if len(fake.seekCalls) != 1 {
+		t.Fatalf("seek calls = %v, want 1", fake.seekCalls)
 	}
 }
 

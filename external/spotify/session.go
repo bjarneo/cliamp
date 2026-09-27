@@ -13,6 +13,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/internal/browser"
@@ -24,6 +25,8 @@ import (
 	"github.com/devgianlu/go-librespot/session"
 	"golang.org/x/oauth2"
 	spotifyoauth2 "golang.org/x/oauth2/spotify"
+
+	"github.com/bjarneo/cliamp/internal/playback"
 )
 
 const (
@@ -69,6 +72,12 @@ type Session struct {
 	devID       string
 	clientID    string             // Spotify Developer app client ID
 	tokenSource oauth2.TokenSource // auto-refreshing OAuth2 token source
+
+	// connect is the Spotify Connect receiver; nil unless StartConnect ran.
+	// sessCh is closed and replaced whenever sess is swapped (reconnect) or
+	// cleared (Close) so the receiver can rebind to the new dealer.
+	connect *connectReceiver
+	sessCh  chan struct{}
 }
 
 type streamContextTransport struct {
@@ -680,10 +689,89 @@ func (s *Session) webApiWithBody(ctx context.Context, method, path string, query
 	return http.DefaultClient.Do(req)
 }
 
+// innerSession returns the wrapped go-librespot session (nil before connect).
+func (s *Session) innerSession() *session.Session {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sess
+}
+
+// deviceID returns the Spotify device ID this session advertises.
+func (s *Session) deviceID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.devID
+}
+
+// sessionSwap returns the current inner session plus a channel that is closed
+// when it is replaced (reconnect) or torn down (Close).
+func (s *Session) sessionSwap() (<-chan struct{}, *session.Session) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sessCh == nil {
+		s.sessCh = make(chan struct{})
+	}
+	return s.sessCh, s.sess
+}
+
+// StartConnect launches the Spotify Connect receiver, replacing a stopped
+// one. Called by the provider once EnableConnect is configured; the receiver
+// rebinds itself across session reconnects.
+func (s *Session) StartConnect(cfg ConnectConfig) {
+	s.mu.Lock()
+	if s.connect != nil {
+		s.mu.Unlock()
+		return
+	}
+	r := newConnectReceiver(s, cfg)
+	s.connect = r
+	s.mu.Unlock()
+	r.start()
+}
+
+// StopConnect stops the receiver (logout command or shutdown).
+func (s *Session) StopConnect() {
+	s.mu.Lock()
+	r := s.connect
+	s.connect = nil
+	s.mu.Unlock()
+	if r != nil {
+		r.stop()
+	}
+}
+
+// notifyConnect forwards a TUI playback snapshot to the receiver.
+func (s *Session) notifyConnect(st playback.State) {
+	s.mu.RLock()
+	r := s.connect
+	s.mu.RUnlock()
+	if r != nil {
+		r.notifyUpdate(st)
+	}
+}
+
+// connectSeeked forwards a completed seek to the receiver.
+func (s *Session) connectSeeked(pos time.Duration) {
+	s.mu.RLock()
+	r := s.connect
+	s.mu.RUnlock()
+	if r != nil {
+		r.notifySeek(pos)
+	}
+}
+
 // Close releases all session and player resources.
 func (s *Session) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.connect != nil {
+		s.connect.stop()
+		s.connect = nil
+	}
+	if s.sessCh != nil {
+		close(s.sessCh)
+		s.sessCh = nil
+	}
 	if s.player != nil {
 		s.player.Close()
 	}
@@ -733,6 +821,10 @@ func (s *Session) reconnect(ctx context.Context, build func(context.Context, str
 	s.player = newSess.player
 	s.devID = newSess.devID
 	s.tokenSource = newSess.tokenSource
+	if s.sessCh != nil {
+		close(s.sessCh)
+		s.sessCh = make(chan struct{})
+	}
 	if oldPlayer != nil {
 		oldPlayer.Close()
 	}
