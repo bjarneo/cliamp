@@ -329,6 +329,15 @@ Press `w` on a track in the main playlist to open the local playlist picker.
 Select an existing playlist or `+ New Playlist...`. cliamp skips and reports
 exact duplicate paths.
 
+For a single track, a green check marks the playlists (and Favorites) that
+already hold it. `Enter` on a checked playlist removes the track from it;
+`Enter` on Favorites toggles the favorite. A dim check means a `[[dir]]`
+source supplies the track, so it cannot be removed on its own; edit the
+playlist's folders instead.
+
+`Ctrl+L` lists the same memberships below Settings for the highlighted track,
+in the slot Metadata uses. See [Playlists pane](configuration.md#playlists-pane).
+
 In the file browser, use `Space` to select files. Use `a` to select all visible
 audio files. Press `w` to write the selection to a playlist instead of loading
 it into the current queue.

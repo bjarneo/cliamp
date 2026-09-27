@@ -92,7 +92,7 @@ func (m Model) metadataFields() []metadataField {
 // metadataPaneRows reserves details only after every direct setting can fit.
 // This budget is shared by rendering and Tab navigation.
 func (m Model) metadataPaneRows(rows int) int {
-	if !m.showMetadata {
+	if !m.showMetadata && !m.showPlaylists {
 		return 0
 	}
 	controls := 5
@@ -131,6 +131,7 @@ func (m Model) renderMetadataPane(rows int) []string {
 }
 
 func (m *Model) toggleMetadata() {
+	m.hidePlaylistsPane()
 	m.SetShowMetadata(!m.showMetadata)
 	m.saveConfigKey("show_metadata", strconv.FormatBool(m.showMetadata))
 	if m.showMetadata && (!m.layout.twoColumn || m.metadataPaneRows(m.effectivePlaylistVisible()) == 0) {

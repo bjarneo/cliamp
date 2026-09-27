@@ -370,6 +370,7 @@ type Config struct {
 	HideHelpBar      bool                         // hide the key-binding hint bar above the status line
 	HideSettingsPane bool                         // close the settings pane beside the playlist
 	ShowMetadata     bool                         // expand highlighted-track metadata below settings (default false)
+	ShowPlaylists    bool                         // list the highlighted track's playlists below settings (default false)
 	Expanded         bool                         // start with the playlist expanded (the Ctrl+X state)
 	PaddingH         int                          // horizontal padding for the UI frame (default 3)
 	PaddingV         int                          // vertical padding for the UI frame (default 1)
@@ -758,6 +759,8 @@ func Load() (Config, error) {
 				cfg.HideSettingsPane = val == "true"
 			case "show_metadata":
 				cfg.ShowMetadata = val == "true"
+			case "show_playlists":
+				cfg.ShowPlaylists = val == "true"
 			case "expanded":
 				cfg.Expanded = strings.ToLower(val) == "true"
 			case "audio_device":

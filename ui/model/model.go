@@ -459,6 +459,8 @@ type Model struct {
 	radioFavorites *radio.Favorites
 	// Shared across Model value copies; keyed by input revisions, not handlers.
 	radioMarkers *radioMarkerCache
+	// Shared across Model value copies so the render path can memoize.
+	plMembers *playlistMembershipCache
 
 	// favSet is a cached set of favorited paths for O(1) lookup during
 	// rendering. Refreshed on init and after every toggle.
@@ -501,6 +503,7 @@ type Model struct {
 	hideHelpBar     bool // hide the key-binding hint bar above the status line
 	hideSettings    bool // close the two-column settings pane beside the playlist
 	showMetadata    bool // expand highlighted-track metadata below settings
+	showPlaylists   bool // list the highlighted track's playlists below settings
 	heightExpanded  bool // tracks whether manual 'x' expansion is active
 
 	// Cached per-tick to avoid repeated speaker.Lock() calls in View().

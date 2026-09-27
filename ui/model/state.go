@@ -217,6 +217,7 @@ type playlistPickerState struct {
 	title     string
 	newName   string
 	inputErr  string
+	member    map[string]bool // single-track membership; nil for batches
 }
 
 // fileBrowserState holds state for the file browser overlay.

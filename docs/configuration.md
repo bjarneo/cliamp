@@ -105,6 +105,10 @@ hide_settings_pane = false
 # Show highlighted-playlist metadata below Settings (Ctrl+I toggles and saves).
 show_metadata = false
 
+# List the local playlists holding the highlighted track below Settings
+# (Ctrl+L toggles and saves; replaces Metadata).
+show_playlists = false
+
 # UI theme name (see available themes in ~/.config/cliamp/themes/)
 theme = "Tokyo Night"
 
@@ -228,6 +232,18 @@ When enabling Metadata in a narrow or simplified layout, with Settings closed,
 or with a sidebar too short for details, `Ctrl+I` opens that full info overlay
 instead. The preference remains saved so the section appears when you return
 to a wide playback layout with enough room and Settings open.
+
+### Playlists pane
+
+`Ctrl+L` swaps the Metadata section for `Playlists`: the local playlists,
+including Favorites, that hold the highlighted playlist item. It saves the
+top-level `show_playlists` preference (default `false`). The two sections share
+one slot and row budget, so showing one hides the other.
+
+A green check marks a playlist you can remove the track from; a dim check
+means a `[[dir]]` source supplies it. When the list exceeds the section,
+it ends with `w: edit`. Press `w` to add or remove the track in the playlist
+picker. Without room for the section, `Ctrl+L` opens that picker instead.
 
 ## Secrets from Environment Variables
 

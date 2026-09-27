@@ -184,7 +184,7 @@ func (m *Model) recomputeLayout() {
 	if m.hideHelpBar && !simplified {
 		layout.fixedRows = max(0, layout.fixedRows-1)
 	}
-	if layout.twoColumn && m.showMetadata && !m.visualizerDisabled() {
+	if layout.twoColumn && (m.showMetadata || m.showPlaylists) && !m.visualizerDisabled() {
 		// Opening details can borrow visualizer rows, never hide direct settings.
 		// The configured height stays intact and returns when details close.
 		bodyRows := height - 2*paddingV - layout.fixedRows - layout.footerRows
