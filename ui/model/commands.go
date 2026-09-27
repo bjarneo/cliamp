@@ -629,3 +629,9 @@ func createSpotPlaylistCmd(ctx context.Context, c provider.PlaylistCreator, w pr
 		return spotCreatedMsg{name: name, err: err, providerName: providerName, gen: gen}
 	}
 }
+
+// providerSavedMsg signals completion of a provider capability download.
+type providerSavedMsg struct {
+	path string
+	err  error
+}

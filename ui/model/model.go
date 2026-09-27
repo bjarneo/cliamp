@@ -2,6 +2,7 @@
 package model
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -283,6 +284,7 @@ const (
 
 // Model is the Bubbletea model for the CLIAMP TUI.
 type Model struct {
+	downloadCancel     context.CancelFunc
 	downloadsDirectory string
 	// Core playback
 	player        player.Engine
