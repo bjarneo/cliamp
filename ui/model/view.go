@@ -191,7 +191,9 @@ func (m Model) View() tea.View {
 	var content string
 	switch screen {
 	case screenFullVisualizer:
-		content = m.renderFullVisualizer()
+		sections := m.fullVisualizerSections()
+		content = strings.Join(sections, "\n")
+		m.recordMouseGeometry(content, sections, "")
 	default:
 		// Overlays render in the playlist region (renderMainBody), with their
 		// header/help supplied by renderPlaylistHeader / renderHelp. List-heavy
@@ -579,10 +581,10 @@ func (m Model) renderSpectrum() string {
 	return m.vis.Render()
 }
 
-// renderFullVisualizer renders a full-screen view showing only the visualizer
-// with minimal track info and a seek bar.
-func (m Model) renderFullVisualizer() string {
-	sections := []string{
+// fullVisualizerSections builds the fullscreen visualizer screen: the
+// visualizer with minimal track info and a seek bar.
+func (m Model) fullVisualizerSections() []string {
+	return []string{
 		m.fullVisTopLine(),
 		m.renderTimeStatus(),
 		"",
@@ -591,8 +593,6 @@ func (m Model) renderFullVisualizer() string {
 		"",
 		helpKey("V", "Exit ") + helpKey("v", "Mode:"+m.vis.ModeName()+" ") + helpKey("Spc", "▶❚❚ ") + helpKey("<>", "Trk ") + helpKey("+-", "Vol ") + helpKey("t", "Title ") + helpKey("?", "Keys"),
 	}
-
-	return strings.Join(sections, "\n")
 }
 
 // fullVisTopLine names what is playing, or just the source when the track has

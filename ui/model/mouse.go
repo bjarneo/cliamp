@@ -22,8 +22,9 @@ import (
 
 // mouseState is the per-frame hit geometry of the interactive regions:
 // where the progress bar and the playlist-region body were drawn on screen.
-// seekRow/bodyRow are -1 when the region is absent this frame (simplified
-// layout, fullscreen visualizer, too-small terminal).
+// seekRow/bodyRow are -1 when the region is absent this frame (too-small
+// terminal; body is also absent in the fullscreen visualizer, which keeps
+// its seek bar interactive).
 type mouseState struct {
 	seekRow int // screen row of the seek bar
 	seekX   int // first cell of the seek bar
@@ -48,7 +49,7 @@ func (m *Model) recordMouseGeometry(content string, sections []string, body stri
 	}
 	ms := m.mouse
 	ms.seekRow, ms.bodyRow = -1, -1
-	if m.fullVis || m.layout.tooSmall() {
+	if m.layout.tooSmall() {
 		return
 	}
 	frame := ui.FrameStyle.Render(content)
