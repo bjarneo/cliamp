@@ -145,6 +145,9 @@ func (m *Model) handleImmersiveClick(msg tea.MouseClickMsg) tea.Cmd {
 	if im == nil || !im.valid {
 		return nil
 	}
+	if msg.Button != tea.MouseLeft && msg.Button != tea.MouseRight {
+		return nil
+	}
 	cx, cy := msg.X-im.frameX, msg.Y-im.topRow
 	if cx < 0 || cx >= im.w {
 		return nil
@@ -259,7 +262,7 @@ func (m *Model) immClickRail(r int, right bool) tea.Cmd {
 	}
 	var idx int
 	if m.immersive.railCollapsed {
-		if r < immRailRowsSmall {
+		if r < immRailRowsSmall || r-immRailRowsSmall >= im.bodyRows-immRailRowsSmall {
 			return nil
 		}
 		idx = r - immRailRowsSmall
@@ -269,6 +272,15 @@ func (m *Model) immClickRail(r int, right bool) tea.Cmd {
 		}
 		budget := max(1, (im.bodyRows-immRailRowsTop)/2)
 		scroll := clampedScroll(m.immersive.railScroll, m.immersive.railCursor, len(rows), budget)
+		// Count drawn rows exactly like the renderer so clicks on the
+		// blank rows under a short list fall through.
+		drawn := 0
+		for i := scroll; i < len(rows) && immRailRowsTop+2*drawn < im.bodyRows; i++ {
+			drawn++
+		}
+		if (r-immRailRowsTop)/2 >= drawn {
+			return nil
+		}
 		idx = scroll + (r-immRailRowsTop)/2
 	}
 	if idx < 0 || idx >= len(rows) {

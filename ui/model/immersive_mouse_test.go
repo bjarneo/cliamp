@@ -301,6 +301,32 @@ func TestImmersiveClickOutsideFrameNoop(t *testing.T) {
 	}
 }
 
+func TestImmersiveMiddleClickNoop(t *testing.T) {
+	m := immersiveMouseModel(t)
+
+	immClick(m, 2, immRailRowsTop, "rail", tea.MouseMiddle)
+
+	if m.immersive.view != immViewHome || m.immersive.focus != immPaneCenter {
+		t.Fatal("middle click acted like a left click")
+	}
+	if m.mouse.dragging {
+		t.Fatal("middle click started a seek drag")
+	}
+}
+
+func TestImmersiveRailBlankAreaNoop(t *testing.T) {
+	m := immersiveMouseModel(t) // 3 rows; the rail pane is much taller
+
+	immClick(m, 2, m.immMouse.bodyRows-1, "rail", tea.MouseLeft)
+
+	if m.immersive.view != immViewHome {
+		t.Fatalf("view = %d, want home (blank click must not open)", m.immersive.view)
+	}
+	if m.immersive.focus != immPaneCenter || m.immersive.railCursor != 0 {
+		t.Fatal("blank rail click moved the cursor")
+	}
+}
+
 func TestImmersiveSpinnerAdvancesWhileLoading(t *testing.T) {
 	m := immersiveModel(t)
 	m.immersive.tracksLoading = true
