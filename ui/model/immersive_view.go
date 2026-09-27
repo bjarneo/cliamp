@@ -83,21 +83,7 @@ func (m Model) renderImmersive() string {
 
 	// Pane widths: rail collapses to an icon strip on `c`; the right rail
 	// drops first on narrow terminals, then the rail hides entirely.
-	railW, rightW := m.immersiveRailWidth(w), m.immersiveRightWidth(w)
-	centerW := w - railW - rightW
-	if railW > 0 {
-		centerW -= immPaneSep
-	}
-	if rightW > 0 {
-		centerW -= immPaneSep
-	}
-	if centerW < 20 {
-		rightW = 0
-		centerW = w - railW
-		if railW > 0 {
-			centerW -= immPaneSep
-		}
-	}
+	railW, centerW, rightW := m.immersivePaneWidths(w)
 
 	sep := padPane([]string{""}, immPaneSep, bodyRows)
 	var columns []string
@@ -236,15 +222,15 @@ func (m Model) renderImmRail(w, rows int) []string {
 	switch m.immersive.railSection {
 	case immSectionPlaylists:
 		if m.immersive.loadingLists {
-			return append(lines, dimStyle.Render("  loading…"))
+			return append(lines, m.immLoadingLine("playlists"))
 		}
 	case immSectionAlbums:
 		if m.immersive.loadingAlbums {
-			return append(lines, dimStyle.Render("  loading…"))
+			return append(lines, m.immLoadingLine("albums"))
 		}
 	case immSectionArtists:
 		if m.immersive.loadingArtists {
-			return append(lines, dimStyle.Render("  loading…"))
+			return append(lines, m.immLoadingLine("artists"))
 		}
 	}
 	if len(railRows) == 0 {
@@ -338,7 +324,7 @@ func (m Model) renderImmRolodexStrip(w int) []string {
 	items := m.roloItems()
 	if len(items) == 0 {
 		if m.immersive.loadingLists || m.immersive.loadingAlbums || m.immersive.loadingArtists {
-			return []string{dimStyle.Render("  loading library…")}
+			return []string{m.immLoadingLine("library")}
 		}
 		return []string{dimStyle.Render("  nothing to browse yet — pick a provider with the library")}
 	}
@@ -467,43 +453,27 @@ func (m Model) renderImmRolodexBig(w, rows int) []string {
 	if len(items) == 0 {
 		return []string{dimStyle.Render("  empty deck")}
 	}
-	focusW := clampInt(w/3, 16, 30)
 	artRows := clampInt(rows/3, immRoloArtRows, 9)
 	cur := wrapIndex(m.immersive.roloCursor, len(items))
+	layout, pad, topPad := m.immRoloBigLayout(w, rows)
 
 	type col struct {
 		lines []string
 		w     int
 	}
-	cols := make([]col, 0, 7)
-	for off := -3; off <= 3; off++ {
-		idx := wrapIndex(cur+off, len(items))
-		depth := off
+	cols := make([]col, 0, len(layout))
+	for _, lc := range layout {
+		idx := wrapIndex(cur+lc.off, len(items))
+		depth := lc.off
 		if depth < 0 {
 			depth = -depth
 		}
-		cw := focusW - 4*depth
-		if cw < 6 {
-			continue
-		}
 		style := dimStyle
-		if off == 0 {
+		if lc.off == 0 {
 			style = playlistSelectedStyle
 		}
-		cols = append(cols, col{lines: roloCard(items[idx], cw, artRows, style, off == 0, depth), w: cw})
+		cols = append(cols, col{lines: roloCard(items[idx], lc.w, artRows, style, lc.off == 0, depth), w: lc.w})
 	}
-	totalW := 0
-	for _, c := range cols {
-		totalW += c.w + 1
-	}
-	// Drop outermost pairs until the wheel fits the pane; columns are
-	// symmetric around the focused card, so this never clips one side.
-	for len(cols) > 1 && totalW > w {
-		totalW -= cols[0].w + 1 + cols[len(cols)-1].w + 1
-		cols = cols[1 : len(cols)-1]
-	}
-	pad := max(0, (w-totalW)/2)
-	topPad := max(0, (rows-artRows-4)/2)
 	var merged []string
 	for i := 0; i < topPad; i++ {
 		merged = append(merged, "")
@@ -653,7 +623,11 @@ func (m Model) renderImmTrackView(w, rows int, circleArt bool) []string {
 		"")
 
 	if m.immersive.tracksLoading || m.immersive.artistLoading {
-		return append(lines, dimStyle.Render("  loading…"))
+		what := m.immersive.ctxName
+		if what == "" {
+			what = "tracks"
+		}
+		return append(lines, m.immLoadingLine(what))
 	}
 	tracks := m.sortedTracks()
 	if len(tracks) == 0 {
@@ -778,7 +752,7 @@ func (m Model) renderImmNowPlaying(w, rows int) []string {
 		dimStyle.Render(ansi.Truncate(track.Artist, max(1, w), "…")),
 		"")
 	if m.immersive.artistLoading {
-		lines = append(lines, dimStyle.Render("About the artist"), dimStyle.Render("  loading…"))
+		lines = append(lines, dimStyle.Render("About the artist"), m.immLoadingLine("artist"))
 	} else if d := m.immersive.artistMeta; d.Info.Name != "" {
 		lines = append(lines, labelStyle.Render("About the artist"), "")
 		lines = append(lines, immArtBlock(d.Info.Name, w-4, 3, false)...)
@@ -857,7 +831,8 @@ func (m Model) playingContextName() string {
 
 // — player bar —
 
-func (m Model) renderImmPlayerBar(w int) string {
+// immPlayerLeft is the truncated now-playing label on the player bar's left.
+func (m Model) immPlayerLeft() string {
 	track, _ := m.currentPlaybackTrack()
 	name := trackViewName(track)
 	if name == "" {
@@ -874,7 +849,25 @@ func (m Model) renderImmPlayerBar(w int) string {
 		left += dimStyle.Render(" — " + track.Artist)
 	}
 	left += liked
-	left = ansi.Truncate(left, max(1, w/3), "…")
+	w := m.layout.panelWidth
+	if w <= 0 {
+		w = 74
+	}
+	return ansi.Truncate(left, max(1, w/3), "…")
+}
+
+// immTransportGlyphs are the player-bar transport buttons in draw order with
+// the key each one acts as when clicked.
+func (m Model) immTransportGlyphs() (glyphs []string, keys []string) {
+	play := "▶"
+	if m.isPlaying() {
+		play = "⏸"
+	}
+	return []string{"≀", "⏮", play, "⏭", "↻"}, []string{"z", "<", " ", ">", "r"}
+}
+
+func (m Model) renderImmPlayerBar(w int) string {
+	left := m.immPlayerLeft()
 
 	shufStyle, repStyle := dimStyle, dimStyle
 	if m.playlist != nil && m.playlist.Shuffled() {
@@ -883,12 +876,9 @@ func (m Model) renderImmPlayerBar(w int) string {
 	if m.playlist != nil && m.playlist.Repeat() != 0 {
 		repStyle = playlistActiveStyle
 	}
-	play := "▶"
-	if m.isPlaying() {
-		play = "⏸"
-	}
-	transport := shufStyle.Render("≀") + "  " + dimStyle.Render("⏮") + "  " +
-		statusStyle.Render(play) + "  " + dimStyle.Render("⏭") + "  " + repStyle.Render("↻")
+	glyphs, _ := m.immTransportGlyphs()
+	transport := shufStyle.Render(glyphs[0]) + "  " + dimStyle.Render(glyphs[1]) + "  " +
+		statusStyle.Render(glyphs[2]) + "  " + dimStyle.Render(glyphs[3]) + "  " + repStyle.Render(glyphs[4])
 
 	var vol float64
 	volMin := -60.0
@@ -940,8 +930,13 @@ func (m Model) renderImmStatusLine(w int) string {
 	if line := m.renderTransient(); line != "" {
 		return fitCell(line, w)
 	}
-	hints := "I exit · tab panes · hjkl move · ⏎ open/play · / search · o rolodex · q queue · V vis"
+	hints := "I exit · tab panes · hjkl move · ⏎ open/play · / search · o rolodex · q queue · V vis · click open/play · drag seek"
 	return fitCell(dimStyle.Render(hints), w)
+}
+
+// immLoadingLine renders an animated loading indicator naming what is coming.
+func (m Model) immLoadingLine(what string) string {
+	return dimStyle.Render("  " + m.immSpin() + " loading " + what + "…")
 }
 
 // commaNum renders 1234567 as 1,234,567 for artist follower counts.

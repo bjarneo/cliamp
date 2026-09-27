@@ -194,6 +194,7 @@ func (m Model) View() tea.View {
 		content = m.renderFullVisualizer()
 	case screenImmersive:
 		content = m.renderImmersive()
+		m.recordImmersiveMouseGeometry(content)
 	default:
 		// Overlays render in the playlist region (renderMainBody), with their
 		// header/help supplied by renderPlaylistHeader / renderHelp. List-heavy

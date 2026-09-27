@@ -190,6 +190,25 @@ type immersiveState struct {
 	searchQuery   string
 	searchResults []playlist.Track
 	searchLoading bool
+
+	// spin advances on every tick while any immersive fetch is in
+	// flight, driving the loading indicators.
+	spin int
+}
+
+// immSpinFrames is the braille spinner cycled by loading indicators.
+var immSpinFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// immSpin returns the current spinner frame for a loading indicator.
+func (m Model) immSpin() string {
+	return immSpinFrames[m.immersive.spin%len(immSpinFrames)]
+}
+
+// immLoadingActive reports whether any immersive fetch is in flight.
+func (m Model) immLoadingActive() bool {
+	im := m.immersive
+	return im.loadingLists || im.loadingAlbums || im.loadingArtists ||
+		im.tracksLoading || im.artistLoading || im.searchLoading
 }
 
 // — messages —
@@ -557,7 +576,13 @@ func wrapIndex(i, n int) int {
 
 // tickImmersive advances the rolodex spin at the fast tick quantum.
 func (m *Model) tickImmersive(dt time.Duration) {
-	if !m.immersive.active || m.immersive.roloSpin == 0 {
+	if !m.immersive.active {
+		return
+	}
+	if m.immLoadingActive() {
+		m.immersive.spin++
+	}
+	if m.immersive.roloSpin == 0 {
 		return
 	}
 	m.immersive.roloSpinFor += dt

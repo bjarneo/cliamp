@@ -85,6 +85,9 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 	if m.mouse == nil {
 		return nil
 	}
+	if m.immersive.active && !m.fullVis {
+		return m.handleImmersiveClick(msg)
+	}
 	ms := m.mouse
 	x, y := msg.X, msg.Y
 	switch {

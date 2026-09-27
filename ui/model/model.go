@@ -368,6 +368,7 @@ type Model struct {
 	trackMenu      trackMenuState
 	credits        creditsState
 	mouse          *mouseState
+	immMouse       *immMouseGeom
 	catalogBatch   catalogBatchState
 	ytdlBatch      ytdlBatchState
 	reconnect      reconnectState
