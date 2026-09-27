@@ -227,6 +227,18 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handleKeymapKey(msg)
 	}
 
+	// The track context menu and the credits viewer stack above every
+	// surface they were opened from, so they claim keys first.
+	if m.credits.visible {
+		return m.handleCreditsKey(msg)
+	}
+	if m.trackMenu.visible {
+		return m.handleTrackMenuKey(msg)
+	}
+	if cmd, handled := m.handleTrackHotkeys(msg); handled {
+		return cmd
+	}
+
 	// Audio device picker overlay
 	if m.devicePicker.visible {
 		return m.handleDeviceKey(msg)

@@ -198,7 +198,9 @@ func (m Model) View() tea.View {
 		// tasks collapse to a compact now-playing summary so they can use the
 		// reclaimed rows for browsing.
 		body := m.renderBodyRegion()
-		content = strings.Join(m.mainSections(body, true, contentFirst), "\n")
+		sections := m.mainSections(body, true, contentFirst)
+		content = strings.Join(sections, "\n")
+		m.recordMouseGeometry(content, sections, body)
 	}
 
 	// Every screen now renders within the main frame, so frame and center
@@ -207,6 +209,9 @@ func (m Model) View() tea.View {
 	rendered = ui.FitRect(rendered, m.layout.frameWidth, max(1, m.height))
 
 	view := tea.NewView(rendered)
+	// Mouse cell-motion reporting delivers clicks, releases, the wheel, and
+	// drag motion; terminals without mouse support simply send nothing.
+	view.MouseMode = tea.MouseModeCellMotion
 	view.BackgroundColor = ui.ColorBackground
 	if ui.ColorBackground != nil {
 		view.ForegroundColor = ui.ColorText

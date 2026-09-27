@@ -148,6 +148,10 @@ type overlayView struct {
 // and renderMainBody each call this and invoke the piece they need with &m.
 func (m Model) activeOverlay() (overlayView, bool) {
 	switch {
+	case m.credits.visible:
+		return overlayView{(*Model).creditsHeaderLine, (*Model).creditsHelpLine, (*Model).renderCreditsBody}, true
+	case m.trackMenu.visible:
+		return overlayView{(*Model).trackMenuHeaderLine, (*Model).trackMenuHelpLine, (*Model).renderTrackMenuBody}, true
 	case m.keymap.visible:
 		return overlayView{(*Model).keymapHeaderLine, (*Model).keymapHelpLine, (*Model).renderKeymapList}, true
 	case m.devicePicker.visible:

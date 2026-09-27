@@ -63,6 +63,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.adjustScroll()
 		return m, cmd
 
+	case tea.MouseClickMsg:
+		return m, m.handleMouseClick(msg)
+
+	case tea.MouseReleaseMsg:
+		return m, m.handleMouseRelease()
+
+	case tea.MouseMotionMsg:
+		return m, m.handleMouseMotion(msg)
+
+	case tea.MouseWheelMsg:
+		return m, m.handleMouseWheel(msg)
+
+	case trackRadioMsg:
+		return m, m.handleTrackRadio(msg)
+
+	case menuArtistMsg:
+		if msg.gen != m.requests.trackMenu {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.status.Errorf(statusTTLDefault, "Artist lookup failed: %s", msg.err)
+			return m, nil
+		}
+		return m, m.openArtistScreen(msg.providerName, msg.artist)
+
+	case menuAlbumMsg:
+		if msg.gen != m.requests.trackMenu {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.status.Errorf(statusTTLDefault, "Album lookup failed: %s", msg.err)
+			return m, nil
+		}
+		return m, m.openResolvedAlbum(msg)
+
 	case autoPlayMsg:
 		if m.playlist.Len() > 0 && !m.player.IsPlaying() {
 			cmd := m.playCurrentTrack()

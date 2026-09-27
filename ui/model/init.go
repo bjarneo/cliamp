@@ -55,6 +55,7 @@ func New(p player.Engine, pl *playlist.Playlist, providers []ProviderEntry, defa
 	if luaMgr != nil {
 		m.pluginEmit = &pluginEmitState{}
 	}
+	m.mouse = &mouseState{seekRow: -1, bodyRow: -1}
 	m.termTitle = initialTerminalTitleState()
 	// Select the default provider pill.
 	for i, pe := range providers {

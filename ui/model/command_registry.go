@@ -53,6 +53,8 @@ const (
 	commandModeHome
 	commandModeHomeFilter
 	commandModeHomeInput
+	commandModeTrackMenu
+	commandModeCredits
 )
 
 const commandModeAny = ^commandMode(0)
@@ -165,6 +167,32 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"B"}, KeyLabel: "B", Label: "Open Audiobookshelf provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"Q"}, KeyLabel: "Q", Label: "Open Qobuz provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"T"}, KeyLabel: "T", Label: "Open Tidal provider", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{";"}, KeyLabel: ";", Label: "Track context menu", Keymap: true, ContextHelp: true, Enabled: func(m Model) bool {
+		_, _, _, ok := m.hotkeyTrack()
+		return ok
+	}},
+	{Mode: commandModeMain, Keys: []string{"W"}, KeyLabel: "W", Label: "Go to song radio", Keymap: true, Enabled: func(m Model) bool {
+		t, _, _, ok := m.hotkeyTrack()
+		if !ok {
+			return false
+		}
+		rec, _ := m.recommenderForTrack(t)
+		return rec != nil
+	}},
+	{Mode: commandModeMain, Keys: []string{"ctrl+a"}, KeyLabel: "Ctrl+A", Label: "Go to album", Keymap: true, Enabled: func(m Model) bool {
+		t, _, _, ok := m.hotkeyTrack()
+		return ok && t.Album != ""
+	}},
+	{Mode: commandModeMain, Keys: []string{"ctrl+t"}, KeyLabel: "Ctrl+T", Label: "Go to artist", Keymap: true, Enabled: func(m Model) bool {
+		t, _, _, ok := m.hotkeyTrack()
+		return ok && t.Artist != ""
+	}},
+	{Mode: commandModeTrackMenu, Keys: []string{"up", "down", "j", "k"}, KeyLabel: "Up Down", Label: "Navigate", ContextHelp: true},
+	{Mode: commandModeTrackMenu, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Run menu item", ContextHelp: true, Primary: true},
+	{Mode: commandModeTrackMenu, Keys: []string{"w", "r", "a", "l", "t", "x", "i"}, KeyLabel: "letter", Label: "Run the matching menu item", ContextHelp: true},
+	{Mode: commandModeTrackMenu, Keys: []string{"esc", ";", "q"}, KeyLabel: "Esc", Label: "Close", ContextHelp: true, Cancel: true},
+	{Mode: commandModeCredits, Keys: []string{"up", "down", "j", "k", "ctrl+u", "ctrl+d"}, KeyLabel: "Up Down", Label: "Scroll", ContextHelp: true},
+	{Mode: commandModeCredits, Keys: []string{"esc", "i", "q"}, KeyLabel: "Esc", Label: "Close", ContextHelp: true, Cancel: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+j"}, KeyLabel: "Ctrl+J", Label: "Jump to time", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"p"}, KeyLabel: "p", Label: "Playlist manager", Keymap: true},
 	{Mode: commandModeProvider, Keys: []string{"p"}, KeyLabel: "p", Label: "Playlist manager", Keymap: true, ContextHelp: true, Enabled: func(m Model) bool {

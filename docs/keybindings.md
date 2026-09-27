@@ -100,6 +100,10 @@ and `Esc` clears it.
 | `n` | Toggle favorite ♥ on the selected track while the playback playlist has focus. Favorited tracks appear in the cross-playlist "Favorites" virtual playlist. |
 | `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, Local), or search YouTube. Available in playlist and provider-browser views. |
 | `u` | Load URL (stream/playlist) |
+| `;` | Open the track context menu on the highlighted track |
+| `W` (`Shift+W`) | Go to song radio: queue recommendations seeded from the highlighted track (providers with recommendation support, e.g. Spotify) |
+| `Ctrl+A` | Go to the highlighted track's album |
+| `Ctrl+T` | Go to the highlighted track's artist |
 | `y` | Show or close lyrics |
 | `r` | Retry lyrics lookup while lyrics are open |
 | `[` / `]` | Adjust synced-lyrics timing offset (−/+250 ms) while lyrics show timestamped lines |
@@ -129,6 +133,46 @@ the highlighted playlist row even when another item is playing. Enabling it
 without a usable Settings sidebar opens the full info overlay instead; the
 preference remains saved for a wider layout. See
 [Metadata](configuration.md#metadata) for fields and layout behavior.
+
+### Track context menu
+
+Opened with `;` on the highlighted track, or by right-clicking a track row
+(see [Mouse](#mouse)). Items act on the track under the cursor or click, not
+the playing one. Availability follows the provider: "Go to song radio" needs
+recommendation support (Spotify), album/artist navigation needs the track to
+name them, and "Remove from this playlist" only appears on playlist, queue,
+and playlist-manager rows.
+
+| Key | Action |
+|---|---|
+| `w` | Add the track to a playlist (the same picker as `w` in the playlist) |
+| `r` | Go to song radio (recommendations seeded from this track) |
+| `a` | Add to queue — toggles the play-next slot for playlist rows, queues elsewhere |
+| `l` | Go to the track's album |
+| `t` | Go to the track's artist |
+| `x` | Remove from this playlist (or queue) — playlist/queue/manager rows only |
+| `i` | View credits — composer/producer/label metadata where the provider exposes it, plus the track's standard metadata; reports when no credits are exposed (Spotify has no credits endpoint) |
+| `Enter` | Run the highlighted item |
+| `j` `k` / `Up` `Down` | Move between items (wraps) |
+| `;` `q` `Esc` | Close |
+
+Inside the credits view: `Up`/`Down` (`j`/`k`) or `Ctrl+U`/`Ctrl+D` scroll;
+`i`/`q`/`Esc` closes.
+
+### Mouse
+
+On terminals with mouse reporting enabled:
+
+| Pointer | Action |
+|---|---|
+| Left click on the progress bar | Seek to that position |
+| Left drag on the progress bar | Scrub — the seek lands where the button is released |
+| Left click on a track row | Move that surface's cursor to the row |
+| Right click on a track row | Open the track context menu (above) for the row |
+| Wheel | Scroll the active list |
+
+Terminals that do not support mouse reporting behave exactly as before —
+every action here also has a keyboard equivalent.
 
 ## Playlist and Queue
 

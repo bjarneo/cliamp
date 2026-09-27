@@ -187,6 +187,8 @@ const (
 	screenLyrics
 	screenJump
 	screenFullVisualizer
+	screenTrackMenu
+	screenCredits
 )
 
 func (s topLevelScreen) label() string {
@@ -229,6 +231,10 @@ func (s topLevelScreen) label() string {
 		return "Jump to Time"
 	case screenFullVisualizer:
 		return "Visualizer"
+	case screenTrackMenu:
+		return "Track Menu"
+	case screenCredits:
+		return "Credits"
 	default:
 		return ""
 	}
@@ -355,6 +361,9 @@ type Model struct {
 	home           homeState
 	fileBrowser    fileBrowserState
 	navBrowser     navBrowserState
+	trackMenu      trackMenuState
+	credits        creditsState
+	mouse          *mouseState
 	catalogBatch   catalogBatchState
 	ytdlBatch      ytdlBatchState
 	reconnect      reconnectState
@@ -555,6 +564,10 @@ func (m Model) activeScreen() topLevelScreen {
 	switch {
 	case m.fullVis:
 		return screenFullVisualizer
+	case m.credits.visible:
+		return screenCredits
+	case m.trackMenu.visible:
+		return screenTrackMenu
 	case m.keymap.visible:
 		return screenKeymap
 	case m.devicePicker.visible:
