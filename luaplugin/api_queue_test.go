@@ -239,3 +239,28 @@ func TestQueueAddTrackTableRequiresControl(t *testing.T) {
 		t.Fatal("track queued without control permission")
 	}
 }
+
+// A queue.list() row carries the event-table track fields, so passing it back
+// to queue.add keeps the stream flag and metadata of provider tracks such as
+// Tidal, whose non-HTTP paths would otherwise be queued as non-streams.
+func TestQueueListRowRoundTripsThroughAdd(t *testing.T) {
+	state := &StateProvider{QueueList: func() []QueueEntry {
+		return []QueueEntry{{
+			Title: "Song", Artist: "X", Album: "Y", Genre: "Jazz", Year: 1959,
+			Path: "tidal://track/1", Duration: 200, Stream: true, Index: 0,
+		}}
+	}}
+	var got []QueueTrack
+	ctrl := &ControlProvider{QueueAddTrack: func(tr QueueTrack) { got = append(got, tr) }}
+	L := newQueueState(t, state, ctrl, map[string]bool{PermControl: true})
+	if err := L.DoString(`_G.ok, _G.err = cliamp.queue.add(cliamp.queue.list()[1])`); err != nil {
+		t.Fatal(err)
+	}
+	if L.GetGlobal("ok") != lua.LTrue {
+		t.Fatalf("add(list row) = %v, %v", L.GetGlobal("ok"), L.GetGlobal("err"))
+	}
+	want := QueueTrack{Path: "tidal://track/1", Title: "Song", Artist: "X", Album: "Y", Genre: "Jazz", Year: 1959, Duration: 200, Stream: true}
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("queued %+v, want %+v", got, want)
+	}
+}

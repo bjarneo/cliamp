@@ -1091,8 +1091,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case pluginQueueAddedMsg:
-		m.appendPluginTracks(msg.tracks...)
-		return m, nil
+		return m, m.appendPluginTracks(msg.tracks...)
 
 	case ShowStatusMsg:
 		ttl := statusTTLDefault

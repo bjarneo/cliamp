@@ -34,8 +34,7 @@ func (m *Model) handlePluginQueue(msg PluginQueueMsg) tea.Cmd {
 		// Queued as described, like IPC track.queue: the path is not resolved.
 		track := msg.Track
 		track.Stream = track.Stream || playlist.IsURL(track.Path)
-		m.appendPluginTracks(track)
-		return nil
+		return m.appendPluginTracks(track)
 
 	case "jump":
 		if msg.Index < 0 || msg.Index >= m.playlist.Len() {
@@ -60,14 +59,17 @@ func (m *Model) handlePluginQueue(msg PluginQueueMsg) tea.Cmd {
 	return nil
 }
 
-// appendPluginTracks appends tracks a plugin added to the end of the playlist.
-func (m *Model) appendPluginTracks(tracks ...playlist.Track) {
+// appendPluginTracks appends tracks a plugin added to the end of the playlist
+// and re-arms the gapless preload, since an append can change the next track
+// (repeat-all on the last track, or a shuffle of the upcoming order).
+func (m *Model) appendPluginTracks(tracks ...playlist.Track) tea.Cmd {
 	if len(tracks) == 0 {
-		return
+		return nil
 	}
 	m.playlist.Add(tracks...)
 	m.loadedPlaylist = ""
 	m.notifyPlayback()
+	return m.rearmPreload()
 }
 
 // removeIndex removes the track at idx, mirroring the side effects of the

@@ -536,12 +536,16 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 				out := make([]luaplugin.QueueEntry, len(tracks))
 				for i, t := range tracks {
 					out[i] = luaplugin.QueueEntry{
-						Title:  t.Title,
-						Artist: t.Artist,
-						Album:  t.Album,
-						Path:   t.Path,
-						Index:  i,
-						Queued: pl.QueuePosition(i) > 0, // 1-based; 0 means not queued
+						Title:    t.Title,
+						Artist:   t.Artist,
+						Album:    t.Album,
+						Genre:    t.Genre,
+						Year:     t.Year,
+						Path:     t.Path,
+						Duration: t.DurationSecs,
+						Stream:   t.Stream,
+						Index:    i,
+						Queued:   pl.QueuePosition(i) > 0, // 1-based; 0 means not queued
 					}
 				}
 				return out

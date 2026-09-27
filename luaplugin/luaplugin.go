@@ -65,14 +65,19 @@ type StateProvider struct {
 
 // QueueEntry is one track in the playlist as exposed to plugins via
 // cliamp.queue.list(). Index is 0-based and matches CurrentIndex; Queued is
-// true when the track sits in the explicit play-next queue.
+// true when the track sits in the explicit play-next queue. The track fields
+// match event track tables, so a row can be passed back to cliamp.queue.add.
 type QueueEntry struct {
-	Title  string
-	Artist string
-	Album  string
-	Path   string
-	Index  int
-	Queued bool
+	Title    string
+	Artist   string
+	Album    string
+	Genre    string
+	Year     int
+	Path     string
+	Duration int // seconds
+	Stream   bool
+	Index    int
+	Queued   bool
 }
 
 // ControlProvider supplies write access to player controls.

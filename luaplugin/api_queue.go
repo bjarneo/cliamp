@@ -18,7 +18,8 @@ import (
 func registerQueueAPI(L *lua.LState, cliamp *lua.LTable, state *StateProvider, ctrl *ControlProvider, p *Plugin, logger *pluginLogger) {
 	tbl := L.NewTable()
 
-	// cliamp.queue.list() -> array of {title, artist, album, path, index, queued}
+	// cliamp.queue.list() -> array of {title, artist, album, genre, year, path,
+	// duration, stream, index, queued}
 	L.SetField(tbl, "list", L.NewFunction(func(L *lua.LState) int {
 		out := L.NewTable()
 		if state.QueueList != nil {
@@ -27,7 +28,11 @@ func registerQueueAPI(L *lua.LState, cliamp *lua.LTable, state *StateProvider, c
 				row.RawSetString("title", lua.LString(e.Title))
 				row.RawSetString("artist", lua.LString(e.Artist))
 				row.RawSetString("album", lua.LString(e.Album))
+				row.RawSetString("genre", lua.LString(e.Genre))
+				row.RawSetString("year", lua.LNumber(e.Year))
 				row.RawSetString("path", lua.LString(e.Path))
+				row.RawSetString("duration", lua.LNumber(e.Duration))
+				row.RawSetString("stream", lua.LBool(e.Stream))
 				row.RawSetString("index", lua.LNumber(e.Index))
 				row.RawSetString("queued", lua.LBool(e.Queued))
 				out.RawSetInt(i+1, row)

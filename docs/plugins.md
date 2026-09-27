@@ -314,7 +314,7 @@ You can read the playlist without permission. To change it, declare `permissions
 
 ```lua
 -- read (no permission)
-cliamp.queue.list()        --> array of {title, artist, album, path, index, queued}
+cliamp.queue.list()        --> array of {title, artist, album, genre, year, path, duration, stream, index, queued}
 cliamp.queue.count()       --> number of tracks
 cliamp.queue.current()     --> 0-based index of the current track
 cliamp.queue.has_next()    --> true when a playable track follows in play order (play-next queue, repeat, shuffle)
@@ -348,8 +348,7 @@ if not ok then cliamp.log.warn(err) end
 
 It returns `true`, or `nil` and an error message when the table is invalid (for
 example, a missing path or a title that is not a string) or when the plugin
-lacks the `control` permission. An HTTP URL is marked as a stream even when
-`stream` is omitted.
+lacks the `control` permission. An HTTP URL is always marked as a stream.
 
 ### cliamp.http
 
