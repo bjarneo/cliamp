@@ -1490,7 +1490,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case playback.StopMsg:
-		m.stopPlayback()
+		m.stopByUser()
 		m.notifyAll()
 		return m, nil
 

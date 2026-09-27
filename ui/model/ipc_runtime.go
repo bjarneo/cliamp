@@ -145,7 +145,7 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return cmd
 	case "stop":
-		m.stopPlayback()
+		m.stopByUser()
 		m.notifyAll()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return nil

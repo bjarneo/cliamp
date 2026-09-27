@@ -52,6 +52,69 @@ func TestRestrictedMarkersAreViewOnly(t *testing.T) {
 	}
 }
 
+func TestPodcastEpisodeViewNameOmitsShow(t *testing.T) {
+	track := playlist.Track{
+		Title: "#42 — A Better Episode", Artist: "The Example Podcast",
+		Album:        "The Example Podcast",
+		ProviderMeta: map[string]string{provider.MetaPodcastFeed: "https://example.com/feed.xml"},
+	}
+	if got := trackViewName(track); got != "#42 — A Better Episode" {
+		t.Errorf("podcast row = %q", got)
+	}
+	if track.Title != "#42 — A Better Episode" || track.Artist != track.Album {
+		t.Errorf("podcast metadata changed: %+v", track)
+	}
+	track.ProviderMeta = nil
+	if got := trackViewName(track); got != "The Example Podcast - #42 — A Better Episode" {
+		t.Errorf("other track row = %q", got)
+	}
+}
+
+func TestPodcastEpisodeViewNameTrimsPublisherPrefix(t *testing.T) {
+	for _, tt := range []struct {
+		name, title, album, artist, want string
+	}{
+		{"hyphen", "The Example Podcast - #42 — A Better Episode", "The Example Podcast", "The Example Podcast", "#42 — A Better Episode"},
+		{"em dash", "The Long Show — An Episode", "The Long Show", "The Long Show", "An Episode"},
+		{"album name", "Feed Name: An Episode", "Feed Name", "Directory Name", "An Episode"},
+		{"artist fallback", "Feed Name | An Episode", "", "Feed Name", "An Episode"},
+		{"no show prefix", "#42 — A Better Episode", "The Example Podcast", "The Example Podcast", "#42 — A Better Episode"},
+		{"partial show name", "The Example Podcasts - Episode", "The Example Podcast", "The Example Podcast", "The Example Podcasts - Episode"},
+		{"no suffix", "The Long Show - ", "The Long Show", "The Long Show", "The Long Show - "},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			track := playlist.Track{
+				Title: tt.title, Album: tt.album, Artist: tt.artist,
+				ProviderMeta: map[string]string{provider.MetaPodcastFeed: "https://example.com/feed.xml"},
+			}
+			if got := trackViewName(track); got != tt.want {
+				t.Errorf("trackViewName = %q, want %q", got, tt.want)
+			}
+			if track.Title != tt.title {
+				t.Errorf("publisher title changed to %q", track.Title)
+			}
+		})
+	}
+}
+
+func TestPodcastNowPlayingKeepsShowName(t *testing.T) {
+	track := playlist.Track{
+		Title: "The Example Podcast - Episode 42", Artist: "The Example Podcast",
+		Album:        "The Example Podcast",
+		ProviderMeta: map[string]string{provider.MetaPodcastFeed: "https://example.com/feed.xml"},
+	}
+	if got := trackViewName(track); got != "Episode 42" {
+		t.Fatalf("playlist row = %q, want episode only", got)
+	}
+	if got, want := trackInfoName(track, ""), track.DisplayName()+" · "+track.Album; got != want {
+		t.Errorf("now-playing name = %q, want %q", got, want)
+	}
+	track.ProviderMeta[provider.MetaMixcloudExclusive] = "true"
+	if got, want := trackInfoName(track, ""), track.DisplayName()+restrictedViewSuffix+" · "+track.Album; got != want {
+		t.Errorf("restricted now-playing name = %q, want %q", got, want)
+	}
+}
+
 func TestFormatTrackTime(t *testing.T) {
 	tests := []struct {
 		secs int

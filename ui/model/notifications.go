@@ -110,6 +110,14 @@ func (m *Model) notifyPlayback() {
 	})
 }
 
+// stopByUser is an explicit stop from a key, IPC, or media controls. Besides
+// stopping, it tells plugins so they can drop any continuation they planned.
+// A queue running out never comes through here.
+func (m *Model) stopByUser() {
+	m.stopPlayback()
+	m.emitPlugin(luaplugin.EventPlaybackStop, nil)
+}
+
 // nowPlaying fires a now-playing notification for the given track if configured.
 func (m *Model) nowPlaying(track playlist.Track) {
 	m.playingTrackStarted = true
