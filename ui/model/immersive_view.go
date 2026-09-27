@@ -496,6 +496,12 @@ func (m Model) renderImmRolodexBig(w, rows int) []string {
 	for _, c := range cols {
 		totalW += c.w + 1
 	}
+	// Drop outermost pairs until the wheel fits the pane; columns are
+	// symmetric around the focused card, so this never clips one side.
+	for len(cols) > 1 && totalW > w {
+		totalW -= cols[0].w + 1 + cols[len(cols)-1].w + 1
+		cols = cols[1 : len(cols)-1]
+	}
 	pad := max(0, (w-totalW)/2)
 	topPad := max(0, (rows-artRows-4)/2)
 	var merged []string
