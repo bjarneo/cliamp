@@ -26,6 +26,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/external/audiobookshelf"
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
@@ -348,13 +349,18 @@ func providers() []providerSpec {
 					help:   "from developer.spotify.com/dashboard; redirect URI http://127.0.0.1:19872/login",
 					onlyIf: func(v map[string]string) bool { return v[keySpotifyMode] == "custom" }},
 				{key: "bitrate", label: "Bitrate", help: "96, 160, or 320 kbps", defaultV: "320"},
+				{key: "connect_enabled", label: "Spotify Connect", help: "true to advertise this device to Spotify apps", defaultV: "false"},
+				{key: "connect_name", label: "Connect device name", help: "name shown in the Spotify Connect picker", defaultV: "cliamp"},
+				{key: "connect_port", label: "Connect port", help: "zeroconf listener port; 0 picks an ephemeral port", defaultV: "0"},
 			},
 			extraValidate: func(v map[string]string) error {
-				if v["bitrate"] == "" {
-					return nil
-				}
-				if _, err := strconv.Atoi(v["bitrate"]); err != nil {
-					return fmt.Errorf("bitrate must be a number")
+				for _, key := range []string{"bitrate", "connect_port"} {
+					if v[key] == "" {
+						continue
+					}
+					if _, err := strconv.Atoi(v[key]); err != nil {
+						return fmt.Errorf("%s must be a number", key)
+					}
 				}
 				return nil
 			},
@@ -363,11 +369,27 @@ func providers() []providerSpec {
 				if br == "" {
 					br = "320"
 				}
+				name := strings.TrimSpace(v["connect_name"])
+				if name == "" {
+					name = "cliamp"
+				}
+				port := strings.TrimSpace(v["connect_port"])
+				if port == "" {
+					port = "0"
+				}
 				lines := []string{}
 				if v[keySpotifyMode] == "custom" && v["client_id"] != "" {
 					lines = append(lines, fmt.Sprintf("client_id = %q", v["client_id"]))
 				}
 				lines = append(lines, fmt.Sprintf("bitrate   = %s", br))
+				// The connect keys must round-trip: saveSection replaces the
+				// whole [spotify] block, so omitting them would silently
+				// delete an existing Connect setup.
+				lines = append(lines,
+					fmt.Sprintf("connect_enabled = %t", strings.ToLower(strings.TrimSpace(v["connect_enabled"])) == "true"),
+					fmt.Sprintf("connect_name = %q", name),
+					fmt.Sprintf("connect_port = %s", port),
+				)
 				return strings.Join(lines, "\n")
 			},
 		},
@@ -633,6 +655,19 @@ func netEaseCookiesFrom(v map[string]string) string {
 	return picked
 }
 
+// prefillSpotifyConnect seeds the Connect form values from the existing
+// config so re-running setup keeps the current Connect setup instead of
+// resetting it to defaults when the [spotify] block is rewritten.
+func prefillSpotifyConnect(values map[string]string) {
+	cfg, err := config.Load()
+	if err != nil || !cfg.Spotify.Enabled {
+		return
+	}
+	values["connect_enabled"] = strconv.FormatBool(cfg.Spotify.ConnectEnabled)
+	values["connect_name"] = cfg.Spotify.ConnectName
+	values["connect_port"] = strconv.Itoa(cfg.Spotify.ConnectPort)
+}
+
 func mixcloudCookiesFrom(v map[string]string) string {
 	picked := strings.TrimSpace(v[keyMixcloudBrowser])
 	if picked == "" || picked == "none" {
@@ -840,6 +875,9 @@ func (m *setupModel) menuKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *setupModel) startProvider(idx int) {
 	m.pidx = idx
 	m.values = map[string]string{}
+	if m.provs[idx].section == "spotify" {
+		prefillSpotifyConnect(m.values)
+	}
 	m.fcursor = 0
 	m.pickerCursor = 0
 	m.resultErr = nil
