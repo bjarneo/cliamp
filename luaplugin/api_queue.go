@@ -141,6 +141,10 @@ func registerQueueAPI(L *lua.LState, cliamp *lua.LTable, state *StateProvider, c
 	L.SetField(cliamp, "queue", tbl)
 }
 
+// maxTrackNumber caps year and duration in a track table. It fits an int on
+// every platform, and a duration this long still fits a time.Duration.
+const maxTrackNumber = math.MaxInt32
+
 // queueTrackFromTable reads a track table in the shape plugins receive in
 // events ({title, artist, album, genre, year, path, duration, stream}).
 // Only path is required. Other keys are ignored, so a table from an event or
@@ -172,8 +176,8 @@ func queueTrackFromTable(t *lua.LTable) (QueueTrack, error) {
 		case *lua.LNilType:
 		case lua.LNumber:
 			n := float64(v)
-			if n < 0 || math.IsNaN(n) || math.IsInf(n, 0) {
-				return track, fmt.Errorf("%s must be a non-negative number", f.key)
+			if !(n >= 0 && n <= maxTrackNumber) {
+				return track, fmt.Errorf("%s must be a number from 0 to %d", f.key, maxTrackNumber)
 			}
 			*f.dst = int(n)
 		default:

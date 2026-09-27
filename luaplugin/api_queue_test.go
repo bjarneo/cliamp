@@ -198,6 +198,9 @@ func TestQueueAddTrackTableRejectsBadInput(t *testing.T) {
 		"title type":     `{ path = "/a.mp3", title = 5 }`,
 		"year type":      `{ path = "/a.mp3", year = "2013" }`,
 		"negative dur":   `{ path = "/a.mp3", duration = -1 }`,
+		"huge year":      `{ path = "/a.mp3", year = 1e100 }`,
+		"huge duration":  `{ path = "/a.mp3", duration = 1e10 }`,
+		"NaN duration":   `{ path = "/a.mp3", duration = 0/0 }`,
 		"stream type":    `{ path = "/a.mp3", stream = "yes" }`,
 		"artist is list": `{ path = "/a.mp3", artist = { "a" } }`,
 	}
