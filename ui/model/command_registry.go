@@ -104,6 +104,7 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"Z"}, KeyLabel: "Z", Label: "Toggle Smart Shuffle", Keymap: true},
 	{Mode: commandModeMain | commandModeVolume | commandModeShuffle | commandModeRepeat, Keys: []string{"r"}, KeyLabel: "r", Label: "Cycle repeat", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"m"}, KeyLabel: "m", Label: "Toggle mono", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"I"}, KeyLabel: "I", Label: "Immersive Spotify mode (prototype)", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"e"}, KeyLabel: "e", Label: "Cycle EQ preset", Enabled: func(m Model) bool { return !m.simplified }, Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"t"}, KeyLabel: "t", Label: "Choose theme", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"v"}, KeyLabel: "v", Label: "Cycle visualizer", Enabled: func(m Model) bool { return !m.simplified }, Keymap: true},

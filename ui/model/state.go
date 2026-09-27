@@ -307,6 +307,14 @@ type requestState struct {
 	homeArtists uint64 // Home artist-list fetches
 	homeCreate  uint64 // Home new-playlist creation
 	homeContent uint64 // Home content pane loads and incremental paging
+	// Immersive-mode fetches use one generation per pane so a slow section
+	// cannot make in-flight fetches for another section stale.
+	immersiveLists   uint64 // rail playlist-list fetches
+	immersiveAlbums  uint64 // rail album-list fetches
+	immersiveArtists uint64 // rail artist-list fetches
+	immersiveContent uint64 // center playlist/album track loads
+	immersiveArtist  uint64 // artist-detail fetches (view + right rail)
+	immersiveSearch  uint64 // top-bar track searches
 }
 
 func nextRequest(gen *uint64) uint64 {

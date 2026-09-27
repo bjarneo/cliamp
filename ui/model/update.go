@@ -192,6 +192,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.tickPendingSpeedSave(dt)
 		m.tickPendingEQSave(dt)
+		m.tickImmersive(dt)
 		if m.pendingSeekActive && !m.pendingSeekExpiresAt.IsZero() && !now.Before(m.pendingSeekExpiresAt) {
 			m.pendingSeekActive = false
 			m.pendingSeekExpiresAt = time.Time{}
@@ -1138,6 +1139,83 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.home.fixupID = msg.playlistID
 		m.home.loadingLists = true
 		return m, fetchHomeListsCmd(m.home.prov, msg.providerName, nextRequest(&m.requests.homeLists))
+
+	case immersiveListsMsg:
+		if !m.isCurrentImmersiveRequest(msg.gen, msg.providerName, m.requests.immersiveLists) {
+			return m, nil
+		}
+		m.immersive.loadingLists = false
+		if msg.err == nil {
+			m.immersive.lists = m.filterImmersivePlaylists(msg.lists)
+		}
+		return m, nil
+
+	case immersiveAlbumsMsg:
+		if !m.isCurrentImmersiveRequest(msg.gen, msg.providerName, m.requests.immersiveAlbums) {
+			return m, nil
+		}
+		m.immersive.loadingAlbums = false
+		if msg.err == nil {
+			m.immersive.albums = msg.albums
+		}
+		return m, nil
+
+	case immersiveArtistsMsg:
+		if !m.isCurrentImmersiveRequest(msg.gen, msg.providerName, m.requests.immersiveArtists) {
+			return m, nil
+		}
+		m.immersive.loadingArtists = false
+		if msg.err == nil {
+			m.immersive.artists = msg.artists
+		}
+		return m, nil
+
+	case immersiveContentMsg:
+		if !m.isCurrentImmersiveRequest(msg.gen, msg.providerName, m.requests.immersiveContent) {
+			return m, nil
+		}
+		m.immersive.tracksLoading = false
+		m.immersive.ctxID, m.immersive.ctxName, m.immersive.ctxSub = msg.id, msg.name, msg.sub
+		if msg.err != nil {
+			m.status.Errorf(statusTTLDefault, "Load failed: %s", msg.err)
+			return m, nil
+		}
+		m.immersive.tracks = msg.tracks
+		return m, nil
+
+	case immersiveArtistMsg:
+		if !m.isCurrentImmersiveRequest(msg.gen, msg.providerName, m.requests.immersiveArtist) {
+			return m, nil
+		}
+		m.immersive.artistLoading = false
+		if msg.err != nil {
+			if !msg.forPanel {
+				m.status.Errorf(statusTTLDefault, "Artist load failed: %s", msg.err)
+			}
+			return m, nil
+		}
+		if msg.forPanel {
+			m.immersive.artistMeta = msg.detail
+			return m, nil
+		}
+		m.immersive.artistMeta = msg.detail
+		m.immersive.tracks = msg.detail.Popular
+		m.immersive.ctxSub = msg.detail.Info.Name
+		return m, nil
+
+	case immersiveSearchMsg:
+		if !m.isCurrentImmersiveRequest(msg.gen, msg.providerName, m.requests.immersiveSearch) {
+			return m, nil
+		}
+		m.immersive.searchLoading = false
+		m.immersive.tracksLoading = false
+		if msg.err != nil {
+			m.status.Errorf(statusTTLDefault, "Search failed: %s", msg.err)
+			return m, nil
+		}
+		m.immersive.searchResults = msg.tracks
+		m.immersive.tracks = msg.tracks
+		return m, nil
 
 	case trackLikeToggledMsg:
 		if msg.gen != m.requests.like {

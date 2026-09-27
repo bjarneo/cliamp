@@ -187,6 +187,7 @@ const (
 	screenLyrics
 	screenJump
 	screenFullVisualizer
+	screenImmersive
 )
 
 func (s topLevelScreen) label() string {
@@ -229,6 +230,8 @@ func (s topLevelScreen) label() string {
 		return "Jump to Time"
 	case screenFullVisualizer:
 		return "Visualizer"
+	case screenImmersive:
+		return "Immersive"
 	default:
 		return ""
 	}
@@ -355,6 +358,7 @@ type Model struct {
 	home           homeState
 	fileBrowser    fileBrowserState
 	navBrowser     navBrowserState
+	immersive      immersiveState
 	catalogBatch   catalogBatchState
 	ytdlBatch      ytdlBatchState
 	reconnect      reconnectState
@@ -555,6 +559,8 @@ func (m Model) activeScreen() topLevelScreen {
 	switch {
 	case m.fullVis:
 		return screenFullVisualizer
+	case m.immersive.active:
+		return screenImmersive
 	case m.keymap.visible:
 		return screenKeymap
 	case m.devicePicker.visible:

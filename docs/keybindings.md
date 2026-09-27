@@ -109,6 +109,7 @@ and `Esc` clears it.
 | `w` | Write the highlighted track/selection to a playlist — local playlists always, plus the owning provider's playlists (a "Spotify Playlists" section, with new-playlist creation) when the tracks come from it; selections are added in batches |
 | `N` | Open the active provider browser. On a selected Mixcloud show, open that creator's Uploads/Favorites. In the radio pane, open the country browser. |
 | `H` | Open the Home view — the active provider's library in a two-pane browser |
+| `I` (`Shift+I`) | Toggle the immersive Spotify-style mode (prototype): three-pane layout with a library rail, rolodex selector, queue/now-playing panel, and player bar; `I` or `Esc` exits back |
 | `L` | Browse local playlists (with cliamp radio) |
 | `R` | Open radio provider |
 | `O` (`Shift+O`) | Open Podcasts provider |

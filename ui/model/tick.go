@@ -221,6 +221,11 @@ func (m *Model) isFullyIdle() bool {
 	if m.isOverlayActive() || m.buffering || m.termTitle.introActive {
 		return false
 	}
+	// A mid-spin rolodex keeps animating while paused, so the deck cannot
+	// sit half-rolled on a 1.5s idle tick.
+	if m.immersive.roloSpin > 0 {
+		return false
+	}
 	if !m.status.expiresAt.IsZero() || len(m.logLines) > 0 {
 		return false
 	}

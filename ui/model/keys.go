@@ -207,6 +207,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	if msg.String() == "ctrl+z" {
 		return m.undoPlaylistMutation()
 	}
+	// Immersive mode owns the whole frame: it claims keys before the keymap
+	// and every overlay so normal-mode dispatch is untouched when it is off.
+	if m.immersive.active {
+		return m.handleImmersiveKey(msg)
+	}
 	if msg.String() == "ctrl+k" && !m.keymap.visible {
 		if m.fullVis {
 			m.exitFullVisualizer()
@@ -548,6 +553,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.toggleExpandedView()
 		case "ctrl+f":
 			m.openProviderSearch()
+		case "I":
+			return m.enterImmersive()
 		}
 		return nil
 	}
@@ -940,6 +947,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.lyrics.visible {
 			return m.retryLyrics()
 		}
+
+	case "I":
+		return m.enterImmersive()
 
 	case "o":
 		m.openFileBrowser()

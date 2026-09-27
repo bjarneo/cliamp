@@ -33,6 +33,12 @@ func (m *Model) handleNavBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 
+	// I toggles immersive mode from the provider browser; skipped while the
+	// filter field is open so users can type the letter into a query.
+	if !m.navBrowser.searching && key == "I" {
+		return m.enterImmersive()
+	}
+
 	// Shift+letter quick-switch to another provider — only when not typing
 	// into the filter, so users can still type capital letters in queries.
 	if !m.navBrowser.searching && (key != "R" || m.navBrowser.screen != navBrowseScreenTracks) {

@@ -192,6 +192,8 @@ func (m Model) View() tea.View {
 	switch screen {
 	case screenFullVisualizer:
 		content = m.renderFullVisualizer()
+	case screenImmersive:
+		content = m.renderImmersive()
 	default:
 		// Overlays render in the playlist region (renderMainBody), with their
 		// header/help supplied by renderPlaylistHeader / renderHelp. List-heavy

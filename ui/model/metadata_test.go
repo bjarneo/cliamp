@@ -227,8 +227,11 @@ func TestMetadataToggleDefaultsAndPersistence(t *testing.T) {
 			t.Errorf("metadata key %q is not reserved", key)
 		}
 	}
-	if ReservedKeys()["I"] {
-		t.Error("the removed Shift+I shortcut is still reserved")
+	// The old Shift+I metadata shortcut was removed, and I is now bound to
+	// immersive Spotify mode instead — it must stay reserved so plugins
+	// cannot shadow it.
+	if !ReservedKeys()["I"] {
+		t.Error("immersive mode key I is not reserved")
 	}
 }
 
