@@ -21,10 +21,29 @@ const restrictedViewSuffix = " [E]"
 // mutating the title used by playlist export, IPC, or media-session metadata.
 func trackViewName(track playlist.Track) string {
 	name := track.DisplayName()
+	if track.Meta(provider.MetaPodcastFeed) != "" && track.Title != "" {
+		name = podcastEpisodeViewName(track)
+	}
 	if track.Meta(provider.MetaMixcloudExclusive) == "true" {
 		return strings.TrimSpace(name) + restrictedViewSuffix
 	}
 	return name
+}
+
+// podcastEpisodeViewName avoids repeating the show name in episode rows. Some
+// publishers also include it in the RSS title, so trim that prefix as well.
+func podcastEpisodeViewName(track playlist.Track) string {
+	for _, show := range []string{track.Album, track.Artist} {
+		if show == "" {
+			continue
+		}
+		for _, separator := range []string{" - ", " — ", " – ", ": ", " | "} {
+			if suffix, ok := strings.CutPrefix(track.Title, show+separator); ok && strings.TrimSpace(suffix) != "" {
+				return strings.TrimSpace(suffix)
+			}
+		}
+	}
+	return track.Title
 }
 
 func albumViewName(album provider.AlbumInfo) string {
