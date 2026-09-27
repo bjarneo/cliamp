@@ -327,6 +327,13 @@ cliamp.queue.remove(index)     -- remove the track at index
 cliamp.queue.move(from, to)    -- reorder a track
 ```
 
+The mutators only request a change. cliamp applies it on the UI loop after the
+call returns, so `list()`, `count()`, and `current()` may not show it yet, even
+later in the same callback. To act on the result, subscribe to `queue.change`.
+It fires once the track count, current index, or play-next count changes, so a
+`move` that changes none of them fires no event. An index out of range is
+ignored without an error.
+
 `add` accepts every input that the CLI accepts: a local file or directory, an
 HTTP stream, an M3U/PLS URL, or a YouTube/yt-dlp URL. cliamp resolves it off the
 UI thread. A slow URL does not block playback.
@@ -346,9 +353,10 @@ local ok, err = cliamp.queue.add({
 if not ok then cliamp.log.warn(err) end
 ```
 
-It returns `true`, or `nil` and an error message when the table is invalid (for
-example, a missing path or a title that is not a string) or when the plugin
-lacks the `control` permission. An HTTP URL is always marked as a stream.
+It returns `true` when cliamp accepts the track, or `nil` and an error message
+when the table is invalid (for example, a missing path or a title that is not a
+string) or when the plugin lacks the `control` permission. An HTTP URL is
+always marked as a stream.
 
 ### cliamp.http
 
