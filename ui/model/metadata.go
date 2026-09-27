@@ -39,7 +39,12 @@ func metadataText(value string) string {
 }
 
 func (m Model) metadataFields() []metadataField {
-	track := m.selectedMetadataTrack()
+	return m.metadataFieldsFor(m.selectedMetadataTrack())
+}
+
+// metadataFieldsFor is metadataFields parameterized by track, so the credits
+// overlay can describe the menu's target rather than the playlist cursor.
+func (m Model) metadataFieldsFor(track playlist.Track) []metadataField {
 	var fields []metadataField
 	add := func(label, value string) {
 		if value = metadataText(value); value != "" {

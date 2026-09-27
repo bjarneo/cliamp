@@ -135,6 +135,25 @@ type queueOverlay struct {
 	scroll  int
 }
 
+// trackMenuState holds the track context menu: the resolved target track,
+// which surface it came from (via remove), and the list cursor.
+type trackMenuState struct {
+	visible   bool
+	cursor    int
+	track     playlist.Track
+	remove    menuRemoveKind
+	removeIdx int
+}
+
+// creditsState holds the "View credits" overlay: the resolved field list
+// (computed once at open) and its scroll position.
+type creditsState struct {
+	visible bool
+	track   playlist.Track
+	fields  []metadataField
+	scroll  int
+}
+
 // subsOverlay holds state for the subscribed-shows overlay. Subscriptions come
 // from the provider's local store, so the list itself needs no network call;
 // only the episode fetches triggered from it do.
@@ -299,6 +318,7 @@ type requestState struct {
 	follow       uint64 // artist/playlist follow toggles
 	smart        uint64 // Smart Shuffle recommendation fetches
 	artist       uint64 // artist screen detail and discography drill fetches
+	trackMenu    uint64 // context-menu fetches (song radio, artist/album search)
 	// Home sidebar fetches use one generation per section so a lazy album
 	// page or creation refetch cannot make in-flight list/artist fetches
 	// stale (stale drops would leave their loading flags stuck on).

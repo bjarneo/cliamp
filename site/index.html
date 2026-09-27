@@ -473,6 +473,10 @@ footer a{color:var(--fg-2)}
         <div class="feat-k">GAPLESS &amp; STREAMS</div>
         <p>Preloads the next track for seamless transitions. Plays URLs, HLS (.m3u8) and internet radio with jitter buffering and live ICY metadata, and <b>cliamp://</b> links from a browser or chat.</p>
       </div>
+      <div class="feat">
+        <div class="feat-k">MOUSE &amp; CONTEXT MENU</div>
+        <p>Click or drag on the progress bar to seek. Right-click any track — playlist, queue, search results, artist pages, provider browsers — for a context menu: add to a playlist, start a song radio, queue it, jump to its album or artist, remove it, or view credits. Every item has a keyboard equivalent (<kbd>;</kbd> opens the menu), and terminals without mouse reporting work exactly as before.</p>
+      </div>
     </div>
   </section>
 
@@ -533,7 +537,7 @@ footer a{color:var(--fg-2)}
   <section id="keys" class="keys">
     <div>
       <h2>Keyboard first</h2>
-      <p class="sub">Everything is one keystroke away — no mouse, no menus. Vim-style <code>j</code>/<code>k</code> movement, <kbd>Tab</kbd> cycles the controls, and <kbd>?</kbd> or <kbd>Ctrl+K</kbd> shows the full keymap for the screen you are on. <a href="https://docs.cliamp.stream/docs/cliamp/keybindings">All keybindings ↗</a></p>
+      <p class="sub">Everything is one keystroke away — with an optional mouse for seek and right-click menus. Vim-style <code>j</code>/<code>k</code> movement, <kbd>Tab</kbd> cycles the controls, and <kbd>?</kbd> or <kbd>Ctrl+K</kbd> shows the full keymap for the screen you are on. <a href="https://docs.cliamp.stream/docs/cliamp/keybindings">All keybindings ↗</a></p>
     </div>
     <div id="keys-grid" class="keys-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;align-content:start"></div>
   </section>
@@ -759,6 +763,7 @@ user_id = "your-account-user-id"</code></pre>
       <div class="feature"><div class="feature-icon">↔</div><div class="feature-name">Responsive TUI</div><p>Full, compact, and minimal layouts keep playback usable in terminal splits and small SSH sessions.</p></div>
       <div class="feature"><div class="feature-icon">⟲</div><div class="feature-name">Undo Queue Edits</div><p>Restore the last playlist removal or queue clear with <kbd>Ctrl+Z</kbd>.</p></div>
       <div class="feature"><div class="feature-icon">⌨</div><div class="feature-name">Consistent Keyboard Input</div><p>Search, URLs, playlist names, and jump prompts support cursor movement, paste, word deletion, and clear-line editing.</p></div>
+      <div class="feature"><div class="feature-icon">☰</div><div class="feature-name">Mouse &amp; Context Menu</div><p>Click or drag on the progress bar to seek; right-click any track for a context menu (add to playlist, song radio, queue, album, artist, remove, credits) — every item has a keyboard equivalent.</p></div>
     </div>
   </div>
 </section>

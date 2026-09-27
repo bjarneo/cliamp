@@ -78,6 +78,10 @@ func (m Model) buildKeymapEntries() []keymapEntry {
 
 func (m Model) keymapContext() (commandMode, string) {
 	switch m.activeScreen() {
+	case screenTrackMenu:
+		return commandModeTrackMenu, "Track Menu"
+	case screenCredits:
+		return commandModeCredits, "Credits"
 	case screenDevicePicker:
 		return commandModeDevicePicker, "Audio Device"
 	case screenPlaylistPicker:
