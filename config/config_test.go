@@ -480,6 +480,52 @@ func TestLoadSpotifyBitrate(t *testing.T) {
 	}
 }
 
+func TestLoadSpotifyConnect(t *testing.T) {
+	tests := []struct {
+		name     string
+		toml     string
+		enabled  bool
+		wantName string
+		wantPort int
+	}{
+		{"off by default", "[spotify]\n", false, "cliamp", 0},
+		{"enabled with defaults", "[spotify]\nconnect_enabled = true\n", true, "cliamp", 0},
+		{"enabled with custom name and port", "[spotify]\nconnect_enabled = true\nconnect_name = \"Living Room\"\nconnect_port = 46325\n", true, "Living Room", 46325},
+		{"explicit off", "[spotify]\nconnect_enabled = false\nconnect_name = \"x\"\n", false, "x", 0},
+		{"negative port ignored", "[spotify]\nconnect_enabled = true\nconnect_port = -1\n", true, "cliamp", 0},
+		{"max port accepted", "[spotify]\nconnect_enabled = true\nconnect_port = 65535\n", true, "cliamp", 65535},
+		{"port above max ignored", "[spotify]\nconnect_enabled = true\nconnect_port = 65536\n", true, "cliamp", 0},
+		{"non-numeric port ignored", "[spotify]\nconnect_enabled = true\nconnect_port = \"lotsofports\"\n", true, "cliamp", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+
+			path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			if err := os.WriteFile(path, []byte(tt.toml), 0o644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.Spotify.ConnectEnabled != tt.enabled {
+				t.Fatalf("ConnectEnabled = %v, want %v", cfg.Spotify.ConnectEnabled, tt.enabled)
+			}
+			if cfg.Spotify.ConnectName != tt.wantName {
+				t.Fatalf("ConnectName = %q, want %q", cfg.Spotify.ConnectName, tt.wantName)
+			}
+			if cfg.Spotify.ConnectPort != tt.wantPort {
+				t.Fatalf("ConnectPort = %d, want %d", cfg.Spotify.ConnectPort, tt.wantPort)
+			}
+		})
+	}
+}
+
 func TestQobuzIsSet(t *testing.T) {
 	tests := []struct {
 		name string

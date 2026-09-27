@@ -85,6 +85,10 @@ type SpotifyProvider struct {
 	topTracksAt    time.Time
 	recentTracks   []playlist.Track
 	recentTracksAt time.Time
+
+	// connectCfg is non-nil once EnableConnect ran; sessions created after
+	// that point start the Connect receiver automatically.
+	connectCfg *ConnectConfig
 }
 
 const playlistListCacheTTL = 5 * time.Minute
@@ -123,6 +127,7 @@ func (p *SpotifyProvider) ensureSession() error {
 	p.mu.Lock()
 	p.session = sess
 	p.resetSessionScopedStateLocked()
+	p.startConnectLocked(sess)
 	p.mu.Unlock()
 	return nil
 }
@@ -164,8 +169,17 @@ func (p *SpotifyProvider) Authenticate() error {
 	p.mu.Lock()
 	p.session = sess
 	p.resetSessionScopedStateLocked()
+	p.startConnectLocked(sess)
 	p.mu.Unlock()
 	return nil
+}
+
+// startConnectLocked boots the Connect receiver on a fresh session when
+// EnableConnect was called. p.mu must be held.
+func (p *SpotifyProvider) startConnectLocked(sess *Session) {
+	if p.connectCfg != nil && sess != nil {
+		sess.StartConnect(*p.connectCfg)
+	}
 }
 
 // Close releases the session if one was created.

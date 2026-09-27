@@ -195,7 +195,7 @@ func TestStreamPlayedNotifiesOnceWithoutResume(t *testing.T) {
 	m := Model{
 		player:    &playbackFakeEngine{playing: true},
 		playlist:  pl,
-		notifier:  notifier,
+		notifiers: []playback.Notifier{notifier},
 		buffering: true,
 	}
 	m.requests.stream = 1
@@ -250,7 +250,7 @@ func TestStreamPlayedResumeKeepsNextTrackPreload(t *testing.T) {
 	pl.Add(current, next)
 	player := &playbackFakeEngine{playing: true, ytdlSeek: true, seekable: true, duration: time.Hour}
 	notifier := &fakeNotifier{}
-	m := Model{player: player, playlist: pl, notifier: notifier, buffering: true}
+	m := Model{player: player, playlist: pl, notifiers: []playback.Notifier{notifier}, buffering: true}
 	m.SetResume(current.Path, 90)
 	m.requests.stream = 1
 
@@ -922,7 +922,7 @@ func TestYTDLLiveStreamThatEndsTheQueueNotifiesStopped(t *testing.T) {
 	m.playlist.Replace(m.playlist.Tracks()[:1])
 	m.playlist.SetIndex(0)
 	notifier := &fakeNotifier{}
-	m.notifier = notifier
+	m.notifiers = []playback.Notifier{notifier}
 	livePath := m.playlist.Tracks()[0].Path
 
 	updated, _ := m.Update(tickMsg(time.Now()))
@@ -1308,5 +1308,279 @@ func TestStopKeepsErrorShownDuringReconnect(t *testing.T) {
 
 	if m.err != failure {
 		t.Fatalf("err = %v after stop, want %v kept", m.err, failure)
+	}
+}
+
+func TestPlayRemoteTracks(t *testing.T) {
+	boolPtr := func(b bool) *bool { return &b }
+	repeatPtr := func(r playlist.RepeatMode) *playlist.RepeatMode { return &r }
+	localTracks := func(paths ...string) []playlist.Track {
+		tracks := make([]playlist.Track, len(paths))
+		for i, p := range paths {
+			tracks[i] = playlist.Track{Title: p, Path: p, DurationSecs: 180}
+		}
+		return tracks
+	}
+	newRemoteModel := func() (Model, *playbackFakeEngine) {
+		player := &playbackFakeEngine{}
+		return Model{
+			player:   player,
+			playlist: playlist.New(),
+			vis:      ui.NewVisualizer(float64(player.SampleRate())),
+		}, player
+	}
+
+	tests := []struct {
+		name      string
+		setup     func(*Model)
+		msg       playback.PlayTracksMsg
+		wantIndex int // -1 skips index/play assertions (no-op)
+		wantPlay  string
+		check     func(t *testing.T, m *Model, player *playbackFakeEngine)
+	}{
+		{
+			name:      "empty tracks is a no-op",
+			msg:       playback.PlayTracksMsg{},
+			wantIndex: -1,
+			check: func(t *testing.T, m *Model, player *playbackFakeEngine) {
+				t.Helper()
+				if m.playlist.Len() != 0 {
+					t.Fatalf("playlist len = %d, want 0", m.playlist.Len())
+				}
+				if player.IsPlaying() {
+					t.Fatal("player started with no tracks")
+				}
+			},
+		},
+		{
+			name:      "negative index clamps to first",
+			msg:       playback.PlayTracksMsg{Tracks: localTracks("a.mp3", "b.mp3", "c.mp3"), Index: -5},
+			wantIndex: 0,
+			wantPlay:  "a.mp3",
+		},
+		{
+			name:      "huge index clamps to last",
+			msg:       playback.PlayTracksMsg{Tracks: localTracks("a.mp3", "b.mp3", "c.mp3"), Index: 99},
+			wantIndex: 2,
+			wantPlay:  "c.mp3",
+		},
+		{
+			name:      "index selects track",
+			msg:       playback.PlayTracksMsg{Tracks: localTracks("a.mp3", "b.mp3", "c.mp3"), Index: 1},
+			wantIndex: 1,
+			wantPlay:  "b.mp3",
+		},
+		{
+			name:      "shuffle enabled",
+			msg:       playback.PlayTracksMsg{Tracks: localTracks("a.mp3", "b.mp3", "c.mp3"), Index: 1, Shuffle: boolPtr(true)},
+			wantIndex: 1,
+			wantPlay:  "b.mp3",
+			check: func(t *testing.T, m *Model, _ *playbackFakeEngine) {
+				t.Helper()
+				if !m.playlist.Shuffled() {
+					t.Fatal("Shuffled() = false, want true")
+				}
+			},
+		},
+		{
+			name:      "shuffle disabled",
+			setup:     func(m *Model) { m.playlist.ToggleShuffle() },
+			msg:       playback.PlayTracksMsg{Tracks: localTracks("a.mp3", "b.mp3"), Shuffle: boolPtr(false)},
+			wantIndex: 0,
+			wantPlay:  "a.mp3",
+			check: func(t *testing.T, m *Model, _ *playbackFakeEngine) {
+				t.Helper()
+				if m.playlist.Shuffled() {
+					t.Fatal("Shuffled() = true, want false")
+				}
+			},
+		},
+		{
+			name:      "shuffle nil leaves enabled mode alone",
+			setup:     func(m *Model) { m.playlist.ToggleShuffle() },
+			msg:       playback.PlayTracksMsg{Tracks: localTracks("a.mp3", "b.mp3")},
+			wantIndex: 0,
+			wantPlay:  "a.mp3",
+			check: func(t *testing.T, m *Model, _ *playbackFakeEngine) {
+				t.Helper()
+				if !m.playlist.Shuffled() {
+					t.Fatal("Shuffled() = false, want true")
+				}
+			},
+		},
+		{
+			name:      "shuffle nil leaves disabled mode alone",
+			msg:       playback.PlayTracksMsg{Tracks: localTracks("a.mp3", "b.mp3")},
+			wantIndex: 0,
+			wantPlay:  "a.mp3",
+			check: func(t *testing.T, m *Model, _ *playbackFakeEngine) {
+				t.Helper()
+				if m.playlist.Shuffled() {
+					t.Fatal("Shuffled() = true, want false")
+				}
+			},
+		},
+		{
+			name:      "repeat applied",
+			msg:       playback.PlayTracksMsg{Tracks: localTracks("a.mp3", "b.mp3"), Repeat: repeatPtr(playlist.RepeatAll)},
+			wantIndex: 0,
+			wantPlay:  "a.mp3",
+			check: func(t *testing.T, m *Model, _ *playbackFakeEngine) {
+				t.Helper()
+				if got := m.playlist.Repeat(); got != playlist.RepeatAll {
+					t.Fatalf("Repeat() = %v, want %v", got, playlist.RepeatAll)
+				}
+			},
+		},
+		{
+			name:      "repeat nil leaves mode alone",
+			setup:     func(m *Model) { m.playlist.SetRepeat(playlist.RepeatOne) },
+			msg:       playback.PlayTracksMsg{Tracks: localTracks("a.mp3", "b.mp3")},
+			wantIndex: 0,
+			wantPlay:  "a.mp3",
+			check: func(t *testing.T, m *Model, _ *playbackFakeEngine) {
+				t.Helper()
+				if got := m.playlist.Repeat(); got != playlist.RepeatOne {
+					t.Fatalf("Repeat() = %v, want %v", got, playlist.RepeatOne)
+				}
+			},
+		},
+		{
+			name: "queue appended and queued",
+			msg: playback.PlayTracksMsg{
+				Tracks: localTracks("a.mp3", "b.mp3"),
+				Queue:  localTracks("q.mp3"),
+			},
+			wantIndex: 0,
+			wantPlay:  "a.mp3",
+			check: func(t *testing.T, m *Model, _ *playbackFakeEngine) {
+				t.Helper()
+				if m.playlist.Len() != 3 {
+					t.Fatalf("playlist len = %d, want 3", m.playlist.Len())
+				}
+				if m.playlist.QueueLen() != 1 {
+					t.Fatalf("QueueLen() = %d, want 1", m.playlist.QueueLen())
+				}
+				queued := m.playlist.QueueTracks()
+				if len(queued) != 1 || queued[0].Path != "q.mp3" {
+					t.Fatalf("QueueTracks() = %+v, want [q.mp3]", queued)
+				}
+				if next, ok := m.playlist.PeekNext(); !ok || next.Path != "q.mp3" {
+					t.Fatalf("PeekNext() = (%q,%t), want (q.mp3,true)", next.Path, ok)
+				}
+			},
+		},
+		{
+			name:      "position resumes at offset",
+			msg:       playback.PlayTracksMsg{Tracks: localTracks("a.mp3", "b.mp3"), Index: 1, Position: 90 * time.Second},
+			wantIndex: 1,
+			wantPlay:  "b.mp3",
+			check: func(t *testing.T, m *Model, player *playbackFakeEngine) {
+				t.Helper()
+				if len(player.playAtOffsets) != 1 || player.playAtOffsets[0] != 90*time.Second {
+					t.Fatalf("playAtOffsets = %v, want [1m30s]", player.playAtOffsets)
+				}
+				if m.resume.path != "b.mp3" || m.resume.secs != 90 {
+					t.Fatalf("resume = (%q,%d), want (b.mp3,90)", m.resume.path, m.resume.secs)
+				}
+			},
+		},
+		{
+			name:      "zero position sets no resume",
+			msg:       playback.PlayTracksMsg{Tracks: localTracks("a.mp3", "b.mp3")},
+			wantIndex: 0,
+			wantPlay:  "a.mp3",
+			check: func(t *testing.T, m *Model, player *playbackFakeEngine) {
+				t.Helper()
+				if len(player.playAtOffsets) != 1 || player.playAtOffsets[0] != 0 {
+					t.Fatalf("playAtOffsets = %v, want [0s]", player.playAtOffsets)
+				}
+				if m.resume.path != "" || m.resume.secs != 0 {
+					t.Fatalf("resume = (%q,%d), want empty", m.resume.path, m.resume.secs)
+				}
+			},
+		},
+		{
+			name:      "paused stays paused",
+			msg:       playback.PlayTracksMsg{Tracks: localTracks("a.mp3", "b.mp3"), Paused: true},
+			wantIndex: 0,
+			wantPlay:  "a.mp3",
+			check: func(t *testing.T, _ *Model, player *playbackFakeEngine) {
+				t.Helper()
+				if !player.IsPlaying() || !player.IsPaused() {
+					t.Fatalf("playing=%v paused=%v, want playing paused", player.IsPlaying(), player.IsPaused())
+				}
+			},
+		},
+		{
+			name:      "unpaused plays",
+			msg:       playback.PlayTracksMsg{Tracks: localTracks("a.mp3", "b.mp3")},
+			wantIndex: 0,
+			wantPlay:  "a.mp3",
+			check: func(t *testing.T, _ *Model, player *playbackFakeEngine) {
+				t.Helper()
+				if !player.IsPlaying() || player.IsPaused() {
+					t.Fatalf("playing=%v paused=%v, want playing unpaused", player.IsPlaying(), player.IsPaused())
+				}
+			},
+		},
+		{
+			name: "replaces existing playlist",
+			setup: func(m *Model) {
+				m.playlist.Replace(localTracks("old.mp3"))
+				m.playlist.SetIndex(0)
+				m.loadedPlaylist = "Old"
+				m.activeProviderPlaylistID = "pid"
+				m.providerQueueLen = 1
+				m.providerQueueLastPath = "old.mp3"
+			},
+			msg:       playback.PlayTracksMsg{Tracks: localTracks("a.mp3", "b.mp3"), Index: 1},
+			wantIndex: 1,
+			wantPlay:  "b.mp3",
+			check: func(t *testing.T, m *Model, _ *playbackFakeEngine) {
+				t.Helper()
+				tracks := m.playlist.Tracks()
+				if len(tracks) != 2 || tracks[0].Path != "a.mp3" || tracks[1].Path != "b.mp3" {
+					t.Fatalf("playlist tracks = %+v, want [a.mp3 b.mp3]", tracks)
+				}
+				if m.loadedPlaylist != "" {
+					t.Fatalf("loadedPlaylist = %q, want empty", m.loadedPlaylist)
+				}
+				if m.providerQueueLen != 0 || m.providerQueueLastPath != "" || m.activeProviderPlaylistID != "" {
+					t.Fatalf("provider mirror = (%d,%q,%q), want cleared",
+						m.providerQueueLen, m.providerQueueLastPath, m.activeProviderPlaylistID)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, player := newRemoteModel()
+			if tt.setup != nil {
+				tt.setup(&m)
+			}
+			cmd := m.playRemoteTracks(tt.msg)
+			if tt.wantIndex < 0 {
+				if cmd != nil {
+					t.Fatal("playRemoteTracks() returned a command, want nil")
+				}
+			} else if !player.IsPlaying() {
+				t.Fatal("player is not playing after playRemoteTracks")
+			} else {
+				if idx := m.playlist.Index(); idx != tt.wantIndex {
+					t.Fatalf("playlist.Index() = %d, want %d", idx, tt.wantIndex)
+				}
+				if m.plCursor != tt.wantIndex {
+					t.Fatalf("plCursor = %d, want %d", m.plCursor, tt.wantIndex)
+				}
+				if len(player.playCalls) != 1 || player.playCalls[0] != tt.wantPlay {
+					t.Fatalf("playCalls = %v, want [%s]", player.playCalls, tt.wantPlay)
+				}
+			}
+			if tt.check != nil {
+				tt.check(t, &m, player)
+			}
+		})
 	}
 }

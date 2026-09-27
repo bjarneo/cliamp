@@ -620,6 +620,14 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 			prog.Send(model.ProvAuthURLMsg{ProviderName: spotifyProv.Name(), URL: u})
 		})
 		defer spotify.SetAuthURLObserver(nil)
+		if cfg.Spotify.ConnectEnabled {
+			notifier := spotifyProv.EnableConnect(spotify.ConnectConfig{
+				Name: cfg.Spotify.ConnectName,
+				Port: cfg.Spotify.ConnectPort,
+				Send: func(m any) { prog.Send(m) },
+			})
+			go prog.Send(model.AttachNotifier(notifier))
+		}
 	}
 	if qobuzProv != nil {
 		qobuz.SetAuthURLObserver(func(u string) {

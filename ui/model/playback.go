@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
@@ -170,6 +171,48 @@ func (m *Model) playCurrentTrack() tea.Cmd {
 	m.plCursor = activation.Index
 	m.adjustScroll()
 	return m.playTrack(activation.Track)
+}
+
+// playRemoteTracks loads a remote-supplied context (Spotify Connect transfer or
+// play command): the playlist is replaced, shuffle/repeat/queue applied, and
+// playback starts at the given index and position — or stays paused.
+func (m *Model) playRemoteTracks(msg playback.PlayTracksMsg) tea.Cmd {
+	if len(msg.Tracks) == 0 || m.player == nil {
+		return nil
+	}
+	m.retireTracksPaging()
+	m.replacePlaylist(msg.Tracks)
+	m.resetProviderQueueMirror()
+	m.loadedPlaylist = ""
+	m.setHeaderStateFromTracks(msg.Tracks)
+
+	idx := min(max(msg.Index, 0), len(msg.Tracks)-1)
+	m.playlist.SetIndex(idx)
+	if msg.Shuffle != nil && *msg.Shuffle != m.playlist.Shuffled() {
+		m.playlist.ToggleShuffle()
+	}
+	if msg.Repeat != nil {
+		m.playlist.SetRepeat(*msg.Repeat)
+	}
+	for _, qt := range msg.Queue {
+		m.playlist.Add(qt)
+		m.playlist.Queue(m.playlist.Len() - 1)
+	}
+	m.normalizeQueueOverlay()
+	m.plCursor = m.playlist.Index()
+	m.adjustScroll()
+
+	if msg.Position > 0 {
+		m.SetResume(msg.Tracks[idx].Path, int(msg.Position.Seconds()))
+	}
+	cmd := m.playCurrentTrack()
+	if msg.Paused && m.player.IsPlaying() && !m.player.IsPaused() {
+		m.togglePlayerPause()
+	}
+	if msg.ContextName != "" {
+		m.status.Showf(statusTTLMedium, "Playing %s", msg.ContextName)
+	}
+	return cmd
 }
 
 // playTrackImmediate appends a track to the playlist and starts playing it now,

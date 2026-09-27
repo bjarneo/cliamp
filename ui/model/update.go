@@ -1451,6 +1451,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.notifyAll()
 		return m, nil
 
+	case playback.SetShuffleMsg:
+		if msg.On != m.playlist.Shuffled() {
+			m.playlist.ToggleShuffle()
+		}
+		m.notifyAll()
+		return m, m.rearmPreload()
+
+	case playback.SetRepeatMsg:
+		m.playlist.SetRepeat(msg.Mode)
+		m.notifyAll()
+		return m, m.rearmPreload()
+
+	case playback.EnqueueMsg:
+		cmd := m.queueTrackNext(msg.Track)
+		m.notifyAll()
+		return m, cmd
+
+	case playback.PlayTracksMsg:
+		cmd := m.playRemoteTracks(msg)
+		m.notifyAll()
+		return m, cmd
+
 	case playback.QuitMsg:
 		m.flushPendingSpeedSave()
 		m.flushPendingEQSave()

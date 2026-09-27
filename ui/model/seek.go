@@ -107,8 +107,8 @@ func (m *Model) queueSeekTarget(target time.Duration, debounceTicks int) tea.Cmd
 
 func (m *Model) finishSeek() {
 	m.notifyAll()
-	if m.notifier != nil {
-		m.notifier.Seeked(m.player.Position())
+	for _, n := range m.notifiers {
+		n.Seeked(m.player.Position())
 	}
 	m.emitPlugin(luaplugin.EventPlayerSeek, map[string]any{
 		"position": m.player.Position().Seconds(),
