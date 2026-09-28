@@ -93,6 +93,7 @@ func (f *playbackFakeEngine) PreloadYTDLForGeneration(path string, _ time.Durati
 func (f *playbackFakeEngine) ClearPreload() {
 	f.clearPreloadCalls++
 	f.preloadGeneration++
+	f.hasPreload = false
 }
 func (f *playbackFakeEngine) Stop() {
 	f.stopCalls++

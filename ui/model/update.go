@@ -29,8 +29,19 @@ func (m *Model) scheduleReconnect(now time.Time) {
 	m.err = m.reconnect.notice
 }
 
-// Update handles messages: key presses, ticks, and window resizes.
+// Update handles messages: key presses, ticks, and window resizes. After each
+// message it drops a gapless preload that no longer matches the next track.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	if nm, ok := next.(Model); ok {
+		nm.dropStalePreload()
+		next = nm
+	}
+	return next, cmd
+}
+
+// update is Update without the stale preload check.
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	wasScreen := m.activeScreen()
 	wasVisualizerVisible := m.visualizerVisible()
 	wasMode := ui.VisNone

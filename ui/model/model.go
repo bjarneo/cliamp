@@ -415,6 +415,8 @@ type Model struct {
 
 	// preloading is true while a preloadStreamCmd goroutine is in-flight.
 	preloading bool
+	// preloadFor is the path of the armed or in-flight preload.
+	preloadFor string
 
 	// Live stream title from ICY metadata (e.g., "Artist - Song")
 	streamTitle string
