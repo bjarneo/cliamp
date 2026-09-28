@@ -38,7 +38,7 @@ jobs:
           arch=('x86_64' 'aarch64')
           url='https://github.com/bjarneo/cliamp'
           license=('MIT')
-          depends=('alsa-lib' 'flac' 'libvorbis' 'libogg' 'mpg123' 'ffmpeg' 'yt-dlp')
+          depends=('alsa-lib' 'flac' 'libvorbis' 'libogg' 'mpg123' 'ffmpeg' 'yt-dlp' 'libopenmpt')
           optdepends=('pipewire-alsa: audio output on PipeWire systems'
                       'pulseaudio-alsa: audio output on PulseAudio systems')
           makedepends=('go')

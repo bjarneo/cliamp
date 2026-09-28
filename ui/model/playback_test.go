@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/internal/playback"
+	"github.com/bjarneo/cliamp/player/openmpt"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/ui"
 )
@@ -1210,6 +1211,19 @@ func TestQueueToggleRearmsGaplessPreload(t *testing.T) {
 	cmd()
 	if len(player.preloadCalls) != 1 || player.preloadCalls[0] != "c.mp3" {
 		t.Fatalf("preloadCalls = %v, want [c.mp3] (queued track, not order-next b.mp3)", player.preloadCalls)
+	}
+}
+
+func TestPlaybackErrTextAddsOpenmptInstallHint(t *testing.T) {
+	err := fmt.Errorf("play dope.mod: %w", openmpt.ErrUnavailable)
+	got := playbackErrText(err)
+	if !strings.Contains(got, openmpt.ErrUnavailable.Error()) || !strings.Contains(got, "install:") {
+		t.Errorf("playbackErrText(openmpt unavailable) = %q, want the typed error plus an install hint", got)
+	}
+
+	other := errors.New("some other decode failure")
+	if got := playbackErrText(other); got != other.Error() {
+		t.Errorf("playbackErrText(other) = %q, want the error text unchanged", got)
 	}
 }
 

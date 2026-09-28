@@ -6,6 +6,7 @@
   flac,
   lib,
   libogg,
+  libopenmpt,
   libvorbis,
   makeWrapper,
   mpg123,
@@ -74,6 +75,9 @@ buildGoModule {
       --prefix PATH : ${lib.makeBinPath [
         ffmpeg-headless
         yt-dlp
+      ]} \
+      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [
+        libopenmpt
       ]} \
       ${lib.optionalString stdenv.hostPlatform.isLinux "--set-default ALSA_PLUGIN_DIR ${alsaPluginDir}"}
   ''
