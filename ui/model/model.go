@@ -332,32 +332,33 @@ type Model struct {
 	eqCustomBands           [eqBandCount]float64
 
 	// Overlay / feature state (see state.go for struct definitions)
-	search         searchState
-	netSearch      netSearchState
-	provSearch     provSearchState
-	seek           seekState
-	themePicker    themePickerState
-	visPicker      visPickerState
-	lyrics         lyricsState
-	keymap         keymapOverlay
-	queue          queueOverlay
-	subs           subsOverlay
-	plManager      plManagerState
-	plPicker       playlistPickerState
-	spotSearch     spotSearchState
-	fileBrowser    fileBrowserState
-	navBrowser     navBrowserState
-	catalogBatch   catalogBatchState
-	ytdlBatch      ytdlBatchState
-	reconnect      reconnectState
-	save           saveState
-	status         statusMsg
-	logLines       []logLine
-	network        networkStats
-	requests       requestState
-	speedSaveAfter time.Duration
-	eqSaveAfter    time.Duration
-	termTitle      terminalTitleState
+	search          searchState
+	netSearch       netSearchState
+	provSearch      provSearchState
+	seek            seekState
+	themePicker     themePickerState
+	visPicker       visPickerState
+	lyrics          lyricsState
+	keymap          keymapOverlay
+	queue           queueOverlay
+	subs            subsOverlay
+	plManager       plManagerState
+	plPicker        playlistPickerState
+	spotSearch      spotSearchState
+	fileBrowser     fileBrowserState
+	navBrowser      navBrowserState
+	catalogBatch    catalogBatchState
+	ytdlBatch       ytdlBatchState
+	reconnect       reconnectState
+	save            saveState
+	status          statusMsg
+	logLines        []logLine
+	network         networkStats
+	requests        requestState
+	speedSaveAfter  time.Duration
+	eqSaveAfter     time.Duration
+	volumeSaveAfter time.Duration
+	termTitle       terminalTitleState
 
 	// Jump to time mode
 	jumping   bool

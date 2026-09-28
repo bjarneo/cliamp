@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	speedSaveDebounce = time.Second
-	eqSaveDebounce    = time.Second
+	speedSaveDebounce  = time.Second
+	eqSaveDebounce     = time.Second
+	volumeSaveDebounce = time.Second
 )
 
 // SetEQPreset sets a built-in preset by name. Supplying bands selects the
@@ -104,6 +105,40 @@ func (m *Model) saveEQ() {
 	if err := m.configSaver.Save("eq", eqVal); err != nil {
 		m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
 	}
+}
+
+// saveVolume persists the current volume to the config file.
+func (m *Model) saveVolume() {
+	vol := m.player.Volume()
+	if err := m.configSaver.Save("volume", strconv.FormatFloat(vol, 'f', -1, 64)); err != nil {
+		m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
+	}
+}
+
+// scheduleVolumeSave mirrors speed persistence: audio changes immediately while
+// repeated key adjustments collapse into one config write.
+func (m *Model) scheduleVolumeSave() {
+	m.volumeSaveAfter = volumeSaveDebounce
+}
+
+func (m *Model) tickPendingVolumeSave(dt time.Duration) {
+	if m.volumeSaveAfter <= 0 {
+		return
+	}
+	m.volumeSaveAfter -= dt
+	if m.volumeSaveAfter > 0 {
+		return
+	}
+	m.volumeSaveAfter = 0
+	m.saveVolume()
+}
+
+func (m *Model) flushPendingVolumeSave() {
+	if m.volumeSaveAfter <= 0 {
+		return
+	}
+	m.volumeSaveAfter = 0
+	m.saveVolume()
 }
 
 // saveSpeed persists the current playback speed to the config file.

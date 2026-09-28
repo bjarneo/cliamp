@@ -163,11 +163,13 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 		return cmd
 	case "volume":
 		m.player.SetVolume(request.Value)
+		m.scheduleVolumeSave()
 		m.notifyAll()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true, Volume: m.player.Volume()})
 		return nil
 	case "volume.adjust":
 		m.player.SetVolume(m.player.Volume() + request.Value)
+		m.scheduleVolumeSave()
 		m.notifyAll()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true, Volume: m.player.Volume()})
 		return nil

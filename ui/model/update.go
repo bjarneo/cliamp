@@ -192,6 +192,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.tickPendingSpeedSave(dt)
 		m.tickPendingEQSave(dt)
+		m.tickPendingVolumeSave(dt)
 		if m.pendingSeekActive && !m.pendingSeekExpiresAt.IsZero() && !now.Before(m.pendingSeekExpiresAt) {
 			m.pendingSeekActive = false
 			m.pendingSeekExpiresAt = time.Time{}
@@ -1061,6 +1062,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case playback.SetVolumeMsg:
 		m.player.SetVolume(msg.VolumeDB)
+		m.scheduleVolumeSave()
 		m.notifyAll()
 		return m, nil
 
@@ -1072,6 +1074,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case playback.QuitMsg:
 		m.flushPendingSpeedSave()
 		m.flushPendingEQSave()
+		m.flushPendingVolumeSave()
 		m.player.Close()
 		m.clearPlaybackTrack()
 		m.quitting = true

@@ -43,6 +43,7 @@ func (m *Model) quit() tea.Cmd {
 
 	m.flushPendingSpeedSave()
 	m.flushPendingEQSave()
+	m.flushPendingVolumeSave()
 	m.player.Close()
 	m.clearPlaybackTrack()
 	m.quitting = true
@@ -791,10 +792,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "+", "=":
 		m.player.SetVolume(m.player.Volume() + 1)
+		m.scheduleVolumeSave()
 		m.notifyPlayback()
 
 	case "-":
 		m.player.SetVolume(m.player.Volume() - 1)
+		m.scheduleVolumeSave()
 		m.notifyPlayback()
 
 	case "r":
@@ -1053,9 +1056,11 @@ func (m *Model) handleFullVisualizerKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.doSeek(m.seekStepLarge)
 	case "+", "=":
 		m.player.SetVolume(m.player.Volume() + 1)
+		m.scheduleVolumeSave()
 		m.notifyPlayback()
 	case "-":
 		m.player.SetVolume(m.player.Volume() - 1)
+		m.scheduleVolumeSave()
 		m.notifyPlayback()
 	case "v":
 		m.vis.CycleMode()
