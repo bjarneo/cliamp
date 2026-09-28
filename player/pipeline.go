@@ -1,6 +1,7 @@
 package player
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"sync/atomic"
@@ -157,13 +158,37 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	}
 
 	// Custom URIs with a registered SourceResolver (e.g. tidal://track/123)
-	// resolve to their actual bytes at play time, so short-lived signed URLs
-	// are always fresh. Segment lists get a concatenating navBuffer; direct
-	// URLs fall through to the normal HTTP handling below.
+	// resolve to a fresh source at play time, so short-lived signed URLs are
+	// always fresh. Reader sources are decoded incrementally; segment lists
+	// get a concatenating navBuffer; direct URLs fall through to normal HTTP
+	// handling below.
 	if resolver := p.matchSourceResolver(path); resolver != nil {
 		src, err := resolver(path)
 		if err != nil {
 			return nil, fmt.Errorf("resolve source: %w", err)
+		}
+		if src.Reader != nil {
+			decoder, format, err := decodeFFmpegPipeStream(src.Reader, p.sr, p.bitDepth, false)
+			if err != nil {
+				_ = src.Reader.Close()
+				return nil, fmt.Errorf("decode resolved source: %w", err)
+			}
+			if err := decoder.waitForInitialAudio(ffmpegPipeTimeout); err != nil {
+				_ = decoder.Close()
+				return nil, fmt.Errorf("decode resolved source: %w", err)
+			}
+			return &trackPipeline{decoder: decoder, stream: decoder, format: format, path: path}, nil
+		}
+		if len(src.Data) > 0 {
+			decoder, format, err := decodeFFmpegPipeStream(io.NopCloser(bytes.NewReader(src.Data)), p.sr, p.bitDepth, false)
+			if err != nil {
+				return nil, fmt.Errorf("decode resolved source: %w", err)
+			}
+			if err := decoder.waitForInitialAudio(ffmpegPipeTimeout); err != nil {
+				_ = decoder.Close()
+				return nil, fmt.Errorf("decode resolved source: %w", err)
+			}
+			return &trackPipeline{decoder: decoder, stream: decoder, format: format, path: path}, nil
 		}
 		if len(src.Segments) > 0 {
 			nb, contentLen, err := newNavBufferSegments(src.Segments)

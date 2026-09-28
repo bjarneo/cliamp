@@ -17,6 +17,7 @@ const (
 	apiBaseURL     = "https://www.qobuz.com/api.json/0.2/"
 	apiUA          = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:83.0) Gecko/20100101 Firefox/83.0"
 	defaultQuality = 6
+	cmafSeed       = "abb21364945c0583309667d13ca3d93a"
 )
 
 // validQuality reports whether quality is one of the Qobuz format_id values
@@ -41,13 +42,14 @@ const maxResponseBody = 20 << 20
 // client is a Qobuz API client. It is safe for concurrent use once
 // authenticated (its fields are not mutated after login).
 type client struct {
-	appID   string
-	secrets []string // candidate signing secrets to validate
-	secret  string   // validated signing secret (set by validateSecret)
-	uat     string   // user_auth_token
-	userID  string
-	label   string // subscription tier short label
-	http    *http.Client
+	appID     string
+	secrets   []string // candidate signing secrets to validate
+	secret    string   // validated signing secret (set by validateSecret)
+	uat       string   // user_auth_token
+	userID    string
+	label     string // subscription tier short label
+	sessionID string
+	http      *http.Client
 }
 
 func newClient(appID string, secrets []string) *client {
@@ -256,15 +258,15 @@ func (c *client) validateSecret(ctx context.Context) error {
 	if c.secret != "" {
 		return nil
 	}
+	// The legacy stream probe is no longer usable now that Qobuz has retired
+	// track/getFileUrl. The first bundle secret remains sufficient for the
+	// older library endpoints such as favorite/getUserFavorites.
 	for _, secret := range c.secrets {
 		if secret == "" {
 			continue
 		}
-		// 5966783 is a known public track id used purely to probe the secret.
-		if _, err := c.trackFileURL(ctx, "5966783", 5, secret); err == nil {
-			c.secret = secret
-			return nil
-		}
+		c.secret = secret
+		return nil
 	}
 	return fmt.Errorf("qobuz: no valid signing secret found")
 }
