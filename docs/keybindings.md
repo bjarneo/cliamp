@@ -135,11 +135,29 @@ preference remains saved for a wider layout. See
 |---|---|
 | `a` | Toggle the queue (play next) |
 | `A` | Queue manager |
+| `c` | Song radio: replace the queue with the highlighted song and related songs, and play it from the top. Spotify and YouTube songs only; see [Song radio](#song-radio) |
 | `F` | Subscribed shows overlay (any provider that keeps subscriptions) |
 | `x` | Remove the highlighted track from the current playlist |
 | `p` | Playlist manager |
 | `r` | Cycle repeat mode (Off / All / One) |
 | `z` | Toggle shuffle |
+
+### Song radio
+
+Press `c` on a Spotify or YouTube song, in the playlist or in `Ctrl+F` search
+results, to start a song radio. cliamp looks up related songs (Spotify's
+autoplay station, or the YouTube Mix through yt-dlp) while the status line
+shows "Finding songs like …". When they arrive, the queue becomes the chosen
+song followed by the related songs, and the chosen song plays from the start,
+even if it was already playing.
+
+- If the lookup fails or finds nothing, the queue and playback stay as they were.
+- Pressing `c` again before the songs arrive replaces the earlier request.
+- The old queue is replaced like loading a playlist: `Ctrl+Z` does not bring it back.
+- `song_radio_size` in `config.toml` sets how many related songs are added
+  (default 30, 1–100).
+- The key is only offered on songs that support it: not local files, other
+  providers, or albums in search results.
 
 ### Inside the subscribed shows overlay
 
@@ -318,6 +336,7 @@ search and the results list is open:
 | `Enter` | Play the selected track now |
 | `a` | Append the selected track to the playlist |
 | `q` | Queue the selected track to play next |
+| `c` | Song radio from the selected song (Spotify and YouTube songs, not albums) |
 | `f` | Subscribe or unsubscribe from the selected podcast show |
 | `p` | (Spotify only) Save the selected track to a Spotify playlist |
 | `Esc` `Backspace` | Back to the search input |

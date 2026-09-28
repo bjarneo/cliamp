@@ -345,6 +345,7 @@ type Model struct {
 	plManager      plManagerState
 	plPicker       playlistPickerState
 	spotSearch     spotSearchState
+	songRadio      songRadioState
 	fileBrowser    fileBrowserState
 	navBrowser     navBrowserState
 	catalogBatch   catalogBatchState

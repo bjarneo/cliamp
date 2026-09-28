@@ -567,6 +567,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	}
 
 	m.SetSeekStepLarge(cfg.SeekStepLargeDuration())
+	m.SetSongRadioSize(cfg.SongRadioSize)
 	m.SetLyricsOffset(cfg.LyricsOffsetMs)
 	m.SetInitialDirectory(cfg.InitialDirectory)
 	m.SetDownloadsDirectory(cfg.Downloads.Directory)

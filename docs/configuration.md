@@ -51,6 +51,9 @@ initial_directory = "~/Music"
 # Shift+Left/Right seek jump in seconds
 seek_large_step_sec = 30
 
+# Related songs a song radio (c) adds after the chosen song (1-100)
+song_radio_size = 30
+
 # EQ preset: "Flat", "Rock", "Pop", "Jazz", "Classical",
 #             "Bass Boost", "Treble Boost", "Vocal", "Electronic", "Acoustic"
 # Leave empty or "Custom" to use manual eq values below
