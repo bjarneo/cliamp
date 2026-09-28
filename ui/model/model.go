@@ -417,6 +417,9 @@ type Model struct {
 	preloading bool
 	// preloadFor is the path of the armed or in-flight preload.
 	preloadFor string
+	// preloadFailed is the path of a track whose preload failed. It is not
+	// retried until a new track starts.
+	preloadFailed string
 
 	// Live stream title from ICY metadata (e.g., "Artist - Song")
 	streamTitle string

@@ -33,8 +33,8 @@ func (m *Model) rearmPreload() tea.Cmd {
 }
 
 // preloadNext looks ahead in the playlist and preloads the next track for
-// gapless transition. Errors are silently ignored — playback falls back to
-// non-gapless if preloading fails.
+// gapless transition. A track whose preload failed is not retried until a new
+// track starts; playback falls back to non-gapless for it.
 //
 // For HTTP streams with a known duration, preloading is deferred until the
 // current track is within streamPreloadLeadTime of its end. This prevents the
@@ -45,7 +45,7 @@ func (m *Model) rearmPreload() tea.Cmd {
 // and the tick loop will retry on the next pass.
 func (m *Model) preloadNext() tea.Cmd {
 	next, ok := m.preloadTarget()
-	if !ok {
+	if !ok || next.Path == m.preloadFailed {
 		return nil
 	}
 	isYTDL := playlist.IsYTDL(next.Path)

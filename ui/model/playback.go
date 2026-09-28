@@ -536,6 +536,7 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	}
 	nextRequest(&m.requests.preload)
 	m.preloading = false
+	m.preloadFailed = ""
 	nextRequest(&m.requests.lyrics)
 	track = playlist.RefreshEmbeddedMetadata(track)
 	context, index := track.PlaybackContext()
