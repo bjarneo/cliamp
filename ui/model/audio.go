@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	speedSaveDebounce = time.Second
-	eqSaveDebounce    = time.Second
+	speedSaveDebounce  = time.Second
+	eqSaveDebounce     = time.Second
+	volumeSaveDebounce = time.Second
 )
 
 // SetEQPreset sets a built-in preset by name. Supplying bands selects the
@@ -104,6 +105,48 @@ func (m *Model) saveEQ() {
 	if err := m.configSaver.Save("eq", eqVal); err != nil {
 		m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
 	}
+}
+
+// saveVolume persists the current volume to the config file.
+// It reports the write error so callers can keep the save pending.
+func (m *Model) saveVolume() error {
+	vol := m.player.Volume()
+	if err := m.configSaver.Save("volume", strconv.FormatFloat(vol, 'f', -1, 64)); err != nil {
+		m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
+		return err
+	}
+	return nil
+}
+
+// scheduleVolumeSave mirrors speed persistence: audio changes immediately while
+// repeated key adjustments collapse into one config write.
+func (m *Model) scheduleVolumeSave() {
+	m.volumeSaveAfter = volumeSaveDebounce
+}
+
+func (m *Model) tickPendingVolumeSave(dt time.Duration) {
+	if m.volumeSaveAfter <= 0 {
+		return
+	}
+	m.volumeSaveAfter -= dt
+	if m.volumeSaveAfter > 0 {
+		return
+	}
+	m.volumeSaveAfter = 0
+	// A failed write stays pending: re-arm the debounce so a later tick
+	// retries instead of silently dropping the volume change.
+	if err := m.saveVolume(); err != nil {
+		m.volumeSaveAfter = volumeSaveDebounce
+	}
+}
+
+func (m *Model) flushPendingVolumeSave() {
+	if m.volumeSaveAfter <= 0 {
+		return
+	}
+	m.volumeSaveAfter = 0
+	// Best effort: the app is quitting, so there is no later tick to retry.
+	_ = m.saveVolume()
 }
 
 // saveSpeed persists the current playback speed to the config file.

@@ -654,7 +654,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 
 	if luaMgr != nil {
 		luaMgr.SetControlProvider(luaplugin.ControlProvider{
-			SetVolume:   func(db float64) { p.SetVolume(db) },
+			SetVolume:   func(db float64) { prog.Send(playback.SetVolumeMsg{VolumeDB: db}) },
 			SetSpeed:    func(ratio float64) { p.SetSpeed(ratio) },
 			SetEQBand:   func(band int, db float64) { prog.Send(model.SetEQBandMsg{Band: band, Gain: db}) },
 			ToggleMono:  func() { p.ToggleMono() },
