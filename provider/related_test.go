@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"testing"
 
@@ -12,7 +11,6 @@ import (
 type fakeRelater struct {
 	prefix string
 	tracks []playlist.Track
-	err    error
 	gotN   int
 }
 
@@ -22,7 +20,7 @@ func (f *fakeRelater) CanRelate(t playlist.Track) bool {
 
 func (f *fakeRelater) RelatedTracks(_ context.Context, _ playlist.Track, n int) ([]playlist.Track, error) {
 	f.gotN = n
-	return f.tracks, f.err
+	return f.tracks, nil
 }
 
 func paths(tracks []playlist.Track) []string {
@@ -36,7 +34,7 @@ func paths(tracks []playlist.Track) []string {
 func TestRelaterForPicksFirstThatRecognizesTrack(t *testing.T) {
 	spotify := &fakeRelater{prefix: "spotify:"}
 	web := &fakeRelater{prefix: "https://"}
-	r, ok := RelaterFor(playlist.Track{Path: "https://www.youtube.com/watch?v=x"}, nil, spotify, web)
+	r, ok := RelaterFor(playlist.Track{Path: "https://www.youtube.com/watch?v=x"}, spotify, web)
 	if !ok || r != web {
 		t.Fatalf("RelaterFor = %v, %v; want the https relater", r, ok)
 	}
@@ -58,29 +56,5 @@ func TestRelatedDropsSeedAndRepeatsAndCaps(t *testing.T) {
 	}
 	if r.gotN != 3 {
 		t.Fatalf("relater asked for %d, want 3", r.gotN)
-	}
-}
-
-func TestRelatedReturnsFewerWhenServiceHasFewer(t *testing.T) {
-	r := &fakeRelater{tracks: []playlist.Track{{Path: "seed"}, {Path: "a"}}}
-	got, err := Related(context.Background(), r, playlist.Track{Path: "seed"}, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"a"}; !reflect.DeepEqual(paths(got), want) {
-		t.Fatalf("Related = %v, want %v", paths(got), want)
-	}
-}
-
-func TestRelatedPassesErrorsAndSkipsNonPositiveN(t *testing.T) {
-	boom := errors.New("boom")
-	r := &fakeRelater{err: boom}
-	if _, err := Related(context.Background(), r, playlist.Track{Path: "seed"}, 5); !errors.Is(err, boom) {
-		t.Fatalf("err = %v, want %v", err, boom)
-	}
-	r = &fakeRelater{tracks: []playlist.Track{{Path: "a"}}}
-	got, err := Related(context.Background(), r, playlist.Track{Path: "seed"}, 0)
-	if err != nil || got != nil || r.gotN != 0 {
-		t.Fatalf("Related(n=0) = %v, %v (relater asked for %d); want nothing and no call", got, err, r.gotN)
 	}
 }

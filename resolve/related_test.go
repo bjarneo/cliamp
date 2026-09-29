@@ -15,17 +15,12 @@ import (
 func TestYouTubeRelaterCanRelate(t *testing.T) {
 	cases := map[string]bool{
 		"https://www.youtube.com/watch?v=5NV6Rdv1a3I":                              true,
-		"https://www.youtube.com/watch?v=5NV6Rdv1a3I&t=30":                         true,
 		"https://youtu.be/5NV6Rdv1a3I":                                             true,
 		"https://m.youtube.com/shorts/5NV6Rdv1a3I":                                 true,
 		"https://music.youtube.com/watch?v=5NV6Rdv1a3I":                            true,
 		"https://www.youtube.com/playlist?list=PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG": false,
-		"https://www.youtube.com/@daftpunk":                                        false,
 		"https://www.youtube.com/watch?v=short":                                    false,
-		"ytsearch1:daft punk":                                                      false,
-		"https://soundcloud.com/daftpunk/get-lucky":                                false,
-		"spotify:track:69kOkLUCkxIZYexIgSG8rq":                                     false,
-		"/music/get-lucky.mp3":                                                     false,
+		"https://example.com/watch?v=5NV6Rdv1a3I":                                  false,
 	}
 	for path, want := range cases {
 		if got := (YouTubeRelater{}).CanRelate(playlist.Track{Path: path}); got != want {

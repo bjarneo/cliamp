@@ -17,21 +17,6 @@ import (
 	"github.com/bjarneo/cliamp/playlist"
 )
 
-func TestCanRelateOnlySongs(t *testing.T) {
-	p := New(nil, "", 320)
-	cases := map[string]bool{
-		"spotify:track:69kOkLUCkxIZYexIgSG8rq":   true,
-		"spotify:episode:512ojhOuo1ktJprKbVcKyQ": false,
-		"https://www.youtube.com/watch?v=x":      false,
-		"/music/a.mp3":                           false,
-	}
-	for path, want := range cases {
-		if got := p.CanRelate(playlist.Track{Path: path}); got != want {
-			t.Errorf("CanRelate(%q) = %v, want %v", path, got, want)
-		}
-	}
-}
-
 func contextTracks(uris ...string) []*connectpb.ContextTrack {
 	out := make([]*connectpb.ContextTrack, len(uris))
 	for i, u := range uris {

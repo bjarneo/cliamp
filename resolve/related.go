@@ -26,7 +26,7 @@ func (YouTubeRelater) CanRelate(track playlist.Track) bool {
 // with the seed and differs on every call.
 func (YouTubeRelater) RelatedTracks(ctx context.Context, seed playlist.Track, n int) ([]playlist.Track, error) {
 	mixURL, seedID, ok := youTubeMix(seed.Path)
-	if !ok || n <= 0 {
+	if !ok {
 		return nil, nil
 	}
 	tracks, err := ResolveYTDLBatchContext(ctx, mixURL, 0, n+1, "")
