@@ -34,7 +34,7 @@ library commands.
 | `Enter` | Play selected track |
 | `/` | Search playlist (navigate results with `↑` `↓` / `Ctrl+N` `Ctrl+P`; `Ctrl+U` clears the query) |
 | `Ctrl+X` | Expand/collapse playlist |
-| `Ctrl+Z` | Undo the last playlist removal or queue clear |
+| `Ctrl+Z` | Undo the last playlist removal, queue clear, or song radio |
 | `o` | Open file browser |
 | `b` `Esc` | Back to provider |
 
@@ -152,10 +152,11 @@ song followed by the related songs, and the chosen song plays from the start,
 even if it was already playing.
 
 - If the lookup fails or finds nothing, the queue and playback stay as they were.
-- Pressing `c` again before the songs arrive replaces the earlier request, and
-  loading another playlist cancels it. Moving to another song in the queue
-  does not.
-- `Ctrl+Z` brings the old queue back; the chosen song keeps playing.
+- Pressing `c` again, or loading or opening another playlist, before the songs
+  arrive cancels the radio. Moving to another song in the queue does not.
+- `Ctrl+Z` brings the old queue back; the chosen song keeps playing, and the
+  old current song plays after it. The restored queue is no longer tied to
+  the playlist it came from.
 - `song_radio_size` in `config.toml` sets how many related songs are added
   (default 30, 1–100).
 - The key is only offered on songs that support it: not local files, other

@@ -16,17 +16,19 @@ import (
 
 // fakeRelater finds related songs for "fake:" paths.
 type fakeRelater struct {
-	tracks []playlist.Track
-	err    error
-	asked  []int // n of each request
+	tracks  []playlist.Track
+	err     error
+	asked   []int   // n of each request
+	stopped []error // each request's context error when it ran
 }
 
 func (*fakeRelater) Name() string                                { return "Fake" }
 func (*fakeRelater) Playlists() ([]playlist.PlaylistInfo, error) { return nil, nil }
 func (*fakeRelater) Tracks(string) ([]playlist.Track, error)     { return nil, nil }
 func (*fakeRelater) CanRelate(t playlist.Track) bool             { return strings.HasPrefix(t.Path, "fake:") }
-func (f *fakeRelater) RelatedTracks(_ context.Context, _ playlist.Track, n int) ([]playlist.Track, error) {
+func (f *fakeRelater) RelatedTracks(ctx context.Context, _ playlist.Track, n int) ([]playlist.Track, error) {
 	f.asked = append(f.asked, n)
+	f.stopped = append(f.stopped, ctx.Err())
 	return f.tracks, f.err
 }
 
@@ -166,10 +168,10 @@ func TestSongRadioFailureKeepsQueue(t *testing.T) {
 	}
 }
 
-// A newer c press replaces a lookup still in flight: the older answer is
-// ignored.
+// A newer c press replaces a lookup still in flight: the older lookup is
+// stopped and its answer ignored.
 func TestSongRadioNewerRequestWins(t *testing.T) {
-	m, player, _ := songRadioModel()
+	m, player, relater := songRadioModel()
 	m.playlist.Replace(append(m.playlist.Tracks(), playlist.Track{Title: "Seed 2", Path: "fake:seed2"}))
 
 	next, first := m.Update(songRadioKey)
@@ -186,10 +188,13 @@ func TestSongRadioNewerRequestWins(t *testing.T) {
 	if m = next.(Model); m.playlist.Tracks()[0].Path != "fake:seed2" {
 		t.Fatalf("queue starts with %s, want the newer seed", m.playlist.Tracks()[0].Path)
 	}
+	if relater.stopped[0] == nil || relater.stopped[1] != nil {
+		t.Fatalf("lookup context errors = %v, want only the older lookup stopped", relater.stopped)
+	}
 }
 
-// Ctrl+Z after a song radio brings back the old queue and where it came from,
-// while the seed keeps playing.
+// Ctrl+Z after a song radio brings back the old queue, unlinked, while the seed
+// keeps playing outside it. When the seed ends, the old current song plays.
 func TestSongRadioUndoRestoresOldQueue(t *testing.T) {
 	m, player, _ := songRadioModel()
 	m.loadedPlaylist, m.activeProviderPlaylistID = "mine", "p1"
@@ -209,11 +214,18 @@ func TestSongRadioUndoRestoresOldQueue(t *testing.T) {
 	if got := paths(m.playlist.Tracks()); strings.Join(got, " ") != "a.mp3 fake:seed b.mp3" {
 		t.Fatalf("queue after Ctrl+Z = %v, want the old queue", got)
 	}
-	if m.loadedPlaylist != "mine" || m.activeProviderPlaylistID != "p1" {
-		t.Fatalf("links after Ctrl+Z = %q / %q, want mine / p1", m.loadedPlaylist, m.activeProviderPlaylistID)
+	if m.loadedPlaylist != "" || m.activeProviderPlaylistID != "" {
+		t.Fatalf("links after Ctrl+Z = %q / %q, want none", m.loadedPlaylist, m.activeProviderPlaylistID)
 	}
 	if player.stopCalls != 1 {
 		t.Fatalf("Stop %d, want the seed left playing", player.stopCalls)
+	}
+	if !m.playbackDetached {
+		t.Fatal("the old current row is shown as playing while the seed plays")
+	}
+	runCmds(m.nextTrack())
+	if got := player.playCalls[len(player.playCalls)-1]; got != "a.mp3" {
+		t.Fatalf("after the seed, %s plays, want the old current song a.mp3", got)
 	}
 }
 
@@ -224,9 +236,16 @@ func (*fakeLocalPlaylists) Tracks(string) ([]playlist.Track, error) {
 	return []playlist.Track{{Title: "X", Path: "x.mp3"}, {Title: "Y", Path: "y.mp3"}}, nil
 }
 
-// A queue loaded while the songs are being looked up wins: the radio's late
-// answer is ignored. Moving to another song in the same queue does not cancel
-// it.
+// pagedPlaylists serves one provider playlist in pages.
+type pagedPlaylists struct{ fakeRelater }
+
+func (*pagedPlaylists) TracksPage(string, int) ([]playlist.Track, int, error) {
+	return []playlist.Track{{Title: "P1", Path: "p1.mp3"}, {Title: "P2", Path: "p2.mp3"}}, 0, nil
+}
+
+// A queue loaded or opened while the songs are being looked up wins: the
+// radio's late answer is ignored. Moving to another song in the same queue does
+// not cancel it.
 func TestSongRadioSupersededByNewQueue(t *testing.T) {
 	t.Run("new queue", func(t *testing.T) {
 		m, _, _ := songRadioModel()
@@ -236,6 +255,22 @@ func TestSongRadioSupersededByNewQueue(t *testing.T) {
 		next, _ = next.(Model).Update(lookup())
 		if got := paths(next.(Model).playlist.Tracks()); strings.Join(got, " ") != "x.mp3 y.mp3" {
 			t.Fatalf("queue = %v, want the playlist loaded after c", got)
+		}
+	})
+	t.Run("provider playlist opened", func(t *testing.T) {
+		m, _, _ := songRadioModel()
+		pager := &pagedPlaylists{}
+		m.providers = append(m.providers, ProviderEntry{Name: "Paged", Provider: pager})
+		m.provider = pager
+		m.providerLists = []playlist.PlaylistInfo{{ID: "pl1", Name: "PL"}}
+		next, lookup := m.Update(songRadioKey)
+		m = next.(Model)
+		open := m.openProviderList(0)
+		next, _ = m.Update(lookup()) // the radio answers before the first page
+		next, _ = next.(Model).Update(open())
+		m = next.(Model)
+		if got := paths(m.playlist.Tracks()); strings.Join(got, " ") != "p1.mp3 p2.mp3" || m.provLoading {
+			t.Fatalf("queue = %v, loading %v; want the playlist opened after c", got, m.provLoading)
 		}
 	})
 	t.Run("same queue", func(t *testing.T) {

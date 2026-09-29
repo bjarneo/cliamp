@@ -159,6 +159,7 @@ func (m *Model) fetchProviderTracks(playlistID string) tea.Cmd {
 		return nil
 	}
 	gen := nextRequest(&m.requests.tracks)
+	nextRequest(&m.requests.queueReplace)
 	pager, paged := m.provider.(provider.TrackPager)
 	m.tracksPaging = paged
 	if paged {

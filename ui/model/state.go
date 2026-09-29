@@ -25,14 +25,11 @@ type searchState struct {
 }
 
 type playlistUndo struct {
-	active   bool
-	snapshot playlist.Snapshot
-	// loaded and providerPlaylistID are where the queue came from; undo
-	// restores them with the queue.
-	loaded             string
-	providerPlaylistID string
-	saved              []playlist.Track
-	persisted          bool
+	active    bool
+	snapshot  playlist.Snapshot
+	loaded    string
+	saved     []playlist.Track
+	persisted bool
 }
 
 // netSearchScreenType identifies which screen of the net search overlay is active.
@@ -289,7 +286,9 @@ type requestState struct {
 	catalog      uint64
 	stream       uint64
 	preload      uint64
-	songRadio    uint64
+	// queueReplace identifies the newest queue asked for or loaded. A queue
+	// that arrives in the background is dropped once a newer one exists.
+	queueReplace uint64
 }
 
 func nextRequest(gen *uint64) uint64 {

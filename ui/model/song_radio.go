@@ -86,21 +86,25 @@ func (m Model) selectedSearchResult() (playlist.Track, bool) {
 }
 
 // startSongRadio looks up songs related to seed. The queue is left alone until
-// they arrive. A newer request, or any new queue, replaces this one: the older
-// lookup still runs to completion or its timeout, but its answer is ignored.
+// they arrive. A newer request stops this lookup; any newer queue makes its
+// answer stale.
 func (m *Model) startSongRadio(seed playlist.Track) tea.Cmd {
 	r, ok := m.songRadioRelater(seed)
 	if !ok {
 		return nil
 	}
-	id := nextRequest(&m.requests.songRadio)
+	if m.songRadioCancel != nil {
+		m.songRadioCancel()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), songRadioTimeout)
+	m.songRadioCancel = cancel
+	id := nextRequest(&m.requests.queueReplace)
 	n := m.songRadioSize
 	if n <= 0 {
 		n = defaultSongRadioSize
 	}
 	m.status.Activityf(statusTTLLong, "Finding songs like %s...", seed.DisplayName())
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), songRadioTimeout)
 		defer cancel()
 		tracks, err := provider.Related(ctx, r, seed, n)
 		return songRadioMsg{id: id, seed: seed, tracks: tracks, err: err}
@@ -108,11 +112,12 @@ func (m *Model) startSongRadio(seed playlist.Track) tea.Cmd {
 }
 
 // handleSongRadio replaces the queue with the seed and its related songs and
-// plays the seed from the top. Ctrl+Z brings the old queue back. The new queue
-// comes from no playlist, so it keeps no link to the old one. On failure the
-// queue and playback are left alone.
+// plays the seed from the top. Ctrl+Z brings the old queue back, unlinked from
+// the playlist it came from. The new queue comes from no playlist, so it keeps
+// no link to the old one either. On failure the queue and playback are left
+// alone.
 func (m *Model) handleSongRadio(msg songRadioMsg) tea.Cmd {
-	if msg.id != m.requests.songRadio {
+	if msg.id != m.requests.queueReplace {
 		return nil
 	}
 	if msg.err != nil {
@@ -124,7 +129,7 @@ func (m *Model) handleSongRadio(msg songRadioMsg) tea.Cmd {
 		return nil
 	}
 	tracks := append([]playlist.Track{msg.seed}, msg.tracks...)
-	undo := m.newPlaylistUndo()
+	undo := playlistUndo{active: true, snapshot: m.playlist.Snapshot()}
 	m.player.Stop()
 	m.player.ClearPreload()
 	m.resetYTDLBatch()
