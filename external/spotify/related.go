@@ -39,7 +39,7 @@ func (p *SpotifyProvider) CanRelate(track playlist.Track) bool {
 // titles, artists and albums are looked up before returning; songs Spotify
 // has no metadata for are left out. Implements provider.Relater.
 func (p *SpotifyProvider) RelatedTracks(ctx context.Context, seed playlist.Track, n int) ([]playlist.Track, error) {
-	if !p.CanRelate(seed) || n <= 0 {
+	if !p.CanRelate(seed) {
 		return nil, nil
 	}
 	if err := p.ensureSession(); err != nil {
