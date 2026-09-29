@@ -121,7 +121,12 @@ For cookie-backed providers (`cookies_from`), cliamp adds all custom playlists t
 
 ## Troubleshooting
 
-- **Linux Keyring / Cookie Decryption (`cannot decrypt v11 cookies: no key found`)**: On Linux desktops or window managers, such as Hyprland, Sway, and i3, Chromium/Chrome can encrypt cookies with GNOME Keyring or KWallet. Append the keyring name to `cookies_from`:
+- **Linux Keyring / Cookie Decryption (`cannot decrypt v11 cookies: no key found` or `secretstorage not available`)**: On Linux desktops or window managers, such as Hyprland, Sway, and i3, Chromium/Chrome can encrypt cookies with GNOME Keyring or KWallet. Install the Python keyring backend and append the keyring name to `cookies_from`:
+
+  ```sh
+  sudo pacman -S python-secretstorage  # Arch
+  # Debian/Ubuntu: sudo apt install python3-secretstorage
+  ```
 
   ```toml
   [ytmusic]
