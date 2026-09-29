@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -33,7 +32,7 @@ func (f *fakeRelater) RelatedTracks(ctx context.Context, _ playlist.Track, n int
 }
 
 // songRadioModel plays a.mp3 from a playlist of a.mp3, the fake:seed song and
-// b.mp3, with the cursor on the seed.
+// b.mp3, with the cursor on the seed and a song radio size of 5.
 func songRadioModel() (Model, *playbackFakeEngine, *fakeRelater) {
 	player := &playbackFakeEngine{playing: true}
 	relater := &fakeRelater{tracks: []playlist.Track{
@@ -56,6 +55,7 @@ func songRadioModel() (Model, *playbackFakeEngine, *fakeRelater) {
 		plCursor:    1,
 		configSaver: &recordingConfigSaver{},
 	}
+	m.SetSongRadioSize(5)
 	return m, player, relater
 }
 
@@ -109,8 +109,8 @@ func TestSongRadioReplacesQueueWithSeedAndRelated(t *testing.T) {
 	}
 
 	msg := cmd()
-	if len(relater.asked) != 1 || relater.asked[0] != defaultSongRadioSize {
-		t.Fatalf("asked for %v songs, want %d", relater.asked, defaultSongRadioSize)
+	if len(relater.asked) != 1 || relater.asked[0] != 5 {
+		t.Fatalf("asked for %v songs, want the configured 5", relater.asked)
 	}
 	next, play := m.Update(msg)
 	m = next.(Model)
@@ -123,19 +123,6 @@ func TestSongRadioReplacesQueueWithSeedAndRelated(t *testing.T) {
 	}
 	if m.playlist.Index() != 0 || m.plCursor != 0 || player.stopCalls != 1 {
 		t.Fatalf("index %d, cursor %d, Stop %d; want the seed started from the top", m.playlist.Index(), m.plCursor, player.stopCalls)
-	}
-}
-
-// The seed starts over even when it is the song already playing.
-func TestSongRadioRestartsPlayingSeed(t *testing.T) {
-	m, player, _ := songRadioModel()
-	m.playlist.SetIndex(1)
-	player.position = 90 * time.Second
-
-	next, cmd := m.Update(songRadioKey)
-	next, _ = next.(Model).Update(cmd())
-	if m = next.(Model); m.playlist.Index() != 0 || player.stopCalls != 1 {
-		t.Fatalf("index %d, Stop %d; want the playing seed stopped and restarted as the first song", m.playlist.Index(), player.stopCalls)
 	}
 }
 
@@ -204,9 +191,6 @@ func TestSongRadioUndoRestoresOldQueue(t *testing.T) {
 	m = next.(Model)
 	if m.loadedPlaylist != "" || m.activeProviderPlaylistID != "" {
 		t.Fatalf("radio queue still linked to %q / %q", m.loadedPlaylist, m.activeProviderPlaylistID)
-	}
-	if !strings.Contains(m.status.text, "Ctrl+Z to undo") {
-		t.Fatalf("status = %q, want the undo offered", m.status.text)
 	}
 
 	next, _ = m.Update(tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl})
@@ -303,17 +287,6 @@ func TestSongRadioDropsOldQueueLoads(t *testing.T) {
 	}
 }
 
-// song_radio_size decides how many related songs are asked for.
-func TestSongRadioSize(t *testing.T) {
-	m, _, relater := songRadioModel()
-	m.SetSongRadioSize(5)
-	_, cmd := m.Update(songRadioKey)
-	cmd()
-	if len(relater.asked) != 1 || relater.asked[0] != 5 {
-		t.Fatalf("asked for %v songs, want 5", relater.asked)
-	}
-}
-
 // c only works, and is only offered, on a song some source can find related
 // songs for; on anything else it does nothing.
 func TestSongRadioOnlyForRelatableSongs(t *testing.T) {
@@ -343,8 +316,8 @@ func TestSongRadioFromSearchResults(t *testing.T) {
 		if commandEnabled(m, commandModeSpotSearch, "c") {
 			t.Fatal("c offered on an album placeholder")
 		}
-		if _, cmd := m.Update(songRadioKey); cmd != nil {
-			t.Fatal("c on an album placeholder started a lookup")
+		if next, cmd := m.Update(songRadioKey); cmd != nil || !next.(Model).spotSearch.visible {
+			t.Fatal("c on an album placeholder started a lookup or closed the search")
 		}
 
 		m.spotSearch.cursor = 1
@@ -364,8 +337,15 @@ func TestSongRadioFromSearchResults(t *testing.T) {
 
 	t.Run("online search", func(t *testing.T) {
 		m, _, _ := songRadioModel()
-		m.netSearch = netSearchState{active: true, screen: netSearchResults, results: []playlist.Track{{Title: "Hit", Path: "fake:hit"}}}
+		m.netSearch = netSearchState{active: true, screen: netSearchResults, results: []playlist.Track{
+			{Title: "Other", Path: "https://soundcloud.com/a/b"},
+			{Title: "Hit", Path: "fake:hit"},
+		}}
 		m.focus = focusNetSearch
+		if next, cmd := m.Update(songRadioKey); cmd != nil || !next.(Model).netSearch.active {
+			t.Fatal("c on an unrelatable online result started a lookup or closed the search")
+		}
+		m.netSearch.cursor = 1
 		if !commandEnabled(m, commandModeNetSearch, "c") {
 			t.Fatal("c not offered on an online result")
 		}

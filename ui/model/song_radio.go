@@ -11,10 +11,6 @@ import (
 	"github.com/bjarneo/cliamp/resolve"
 )
 
-// defaultSongRadioSize is how many related songs a song radio adds after the
-// seed when the config does not say.
-const defaultSongRadioSize = 30
-
 // songRadioTimeout bounds one lookup of related songs.
 const songRadioTimeout = 30 * time.Second
 
@@ -27,11 +23,9 @@ type songRadioMsg struct {
 }
 
 // SetSongRadioSize sets how many related songs a song radio adds after the
-// seed. A non-positive size keeps the default.
+// seed. The config keeps it between 1 and 100.
 func (m *Model) SetSongRadioSize(n int) {
-	if n > 0 {
-		m.songRadioSize = n
-	}
+	m.songRadioSize = n
 }
 
 // relaters returns every source that can find songs related to a track: the
@@ -100,9 +94,6 @@ func (m *Model) startSongRadio(seed playlist.Track) tea.Cmd {
 	m.songRadioCancel = cancel
 	id := nextRequest(&m.requests.queueReplace)
 	n := m.songRadioSize
-	if n <= 0 {
-		n = defaultSongRadioSize
-	}
 	m.status.Activityf(statusTTLLong, "Finding songs like %s...", seed.DisplayName())
 	return func() tea.Msg {
 		defer cancel()
@@ -139,9 +130,6 @@ func (m *Model) handleSongRadio(msg songRadioMsg) tea.Cmd {
 	m.loadedPlaylist = ""
 	m.activeProviderPlaylistID = ""
 	m.setHeaderStateFromTracks(tracks)
-	m.plCursor = 0
-	m.plScroll = 0
-	m.playlist.SetIndex(0)
 	m.focus = focusPlaylist
 	m.status.Successf(statusTTLDefault, "Song radio: %s and %d related songs (Ctrl+Z to undo)", msg.seed.DisplayName(), len(msg.tracks))
 	cmd := m.playCurrentTrack()
