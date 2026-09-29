@@ -27,6 +27,7 @@ type fbEntry struct {
 type fbTracksResolvedMsg struct {
 	tracks         []playlist.Track
 	replace        bool
+	replaceID      uint64 // requests.queueReplace when replace was asked for
 	toPlaylist     bool
 	targetPlaylist string
 }
@@ -546,12 +547,16 @@ func (m *Model) fbConfirm(replace bool) tea.Cmd {
 		}
 	}
 
+	var replaceID uint64
+	if replace {
+		replaceID = nextRequest(&m.requests.queueReplace)
+	}
 	return func() tea.Msg {
 		r, err := resolve.Args(paths)
 		if err != nil {
 			return err
 		}
-		return fbTracksResolvedMsg{tracks: r.Tracks, replace: replace, targetPlaylist: target}
+		return fbTracksResolvedMsg{tracks: r.Tracks, replace: replace, replaceID: replaceID, targetPlaylist: target}
 	}
 }
 

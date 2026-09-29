@@ -660,6 +660,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case feedTrackResolvedMsg:
 		m.feedLoading = false
+		if msg.id != m.requests.queueReplace {
+			return m, nil
+		}
 		if len(msg.tracks) == 0 {
 			m.status.Warning("No episodes found in feed.", statusTTLDefault)
 			return m, nil
@@ -746,6 +749,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case fbTracksResolvedMsg:
+		if msg.replace && msg.replaceID != m.requests.queueReplace {
+			return m, nil
+		}
 		if len(msg.tracks) == 0 {
 			m.status.Warning("No audio files found", statusTTLDefault)
 			return m, nil

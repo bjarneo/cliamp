@@ -85,6 +85,7 @@ type feedsLoadedMsg struct {
 // feedTrackResolvedMsg carries episodes resolved from a feed track in the playlist.
 type feedTrackResolvedMsg struct {
 	tracks []playlist.Track
+	id     uint64 // requests.queueReplace when the feed was opened
 }
 
 // lyricsLoadedMsg carries parsed LRC output.
@@ -237,13 +238,13 @@ func fetchYTDLBatchCmd(gen uint64, pageURL string, start, count int) tea.Cmd {
 	}
 }
 
-func resolveFeedTrackCmd(feedURL string) tea.Cmd {
+func resolveFeedTrackCmd(feedURL string, id uint64) tea.Cmd {
 	return func() tea.Msg {
 		tracks, err := resolve.Remote([]string{feedURL})
 		if err != nil {
 			return err
 		}
-		return feedTrackResolvedMsg{tracks: tracks}
+		return feedTrackResolvedMsg{tracks: tracks, id: id}
 	}
 }
 
