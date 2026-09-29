@@ -286,9 +286,8 @@ type requestState struct {
 	catalog      uint64
 	stream       uint64
 	preload      uint64
-	// queueReplace identifies the latest queue replacement. One that
-	// resolves in the background (file-browser R, a feed) is dropped when
-	// the queue was replaced again before it arrived.
+	// queueReplace identifies the newest queue asked for or loaded. A queue
+	// that arrives in the background is dropped once a newer one exists.
 	queueReplace uint64
 }
 
