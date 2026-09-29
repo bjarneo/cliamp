@@ -73,3 +73,10 @@ JSON
 		}
 	}
 }
+
+func TestYouTubeMixURL(t *testing.T) {
+	got, _, _ := youTubeMix("https://youtu.be/5NV6Rdv1a3I")
+	if want := "https://www.youtube.com/watch?v=5NV6Rdv1a3I&list=RD5NV6Rdv1a3I"; got != want {
+		t.Fatalf("youTubeMix = %q, want %q", got, want)
+	}
+}

@@ -58,3 +58,13 @@ func TestRelatedDropsSeedAndRepeatsAndCaps(t *testing.T) {
 		t.Fatalf("relater asked for %d, want 3", r.gotN)
 	}
 }
+
+func TestRelatedAsksForNothingBelowOne(t *testing.T) {
+	for _, n := range []int{0, -1} {
+		r := &fakeRelater{tracks: []playlist.Track{{Path: "a"}}}
+		got, err := Related(context.Background(), r, playlist.Track{Path: "seed"}, n)
+		if err != nil || len(got) != 0 || r.gotN != 0 {
+			t.Fatalf("Related(n=%d) = %v, %v after asking for %d; want nothing, unasked", n, paths(got), err, r.gotN)
+		}
+	}
+}
