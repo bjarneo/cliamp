@@ -911,6 +911,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clampActiveScrollState()
 		return m, nil
 
+	case songRadioMsg:
+		return m, m.handleSongRadio(msg)
+
 	case spotAlbumTracksMsg:
 		if msg.gen != m.requests.spotAlbum {
 			return m, nil

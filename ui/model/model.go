@@ -2,6 +2,7 @@
 package model
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -358,6 +359,10 @@ type Model struct {
 	speedSaveAfter time.Duration
 	eqSaveAfter    time.Duration
 	termTitle      terminalTitleState
+
+	// Song radio: how many related songs it adds, and the lookup in flight.
+	songRadioSize   int
+	songRadioCancel context.CancelFunc
 
 	// Jump to time mode
 	jumping   bool

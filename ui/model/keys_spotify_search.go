@@ -117,6 +117,11 @@ func (m *Model) handleSpotSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.closeSpotSearch()
 			return m.queueTrackNext(track)
 		}
+	case "c":
+		if track, ok := m.selectedSearchResult(); ok && m.canSongRadio(track) {
+			m.closeSpotSearch()
+			return m.startSongRadio(track)
+		}
 	case "p":
 		if count > 0 && !m.spotSearchBusy() {
 			track := m.spotSearch.results[m.spotSearch.cursor]

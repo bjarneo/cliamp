@@ -839,6 +839,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.rearmPreload()
 		}
 
+	case "c":
+		if track, ok := m.selectedPlaylistTrack(); ok {
+			return m.startSongRadio(track)
+		}
+
 	case "w":
 		if m.focus == focusPlaylist && m.plCursor >= 0 && m.plCursor < m.playlist.Len() {
 			if track, ok := m.playlist.Track(m.plCursor); ok {
@@ -1693,6 +1698,11 @@ func (m *Model) handleNetSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 			track := m.netSearch.results[m.netSearch.cursor]
 			m.closeNetSearch()
 			return m.queueTrackNext(track)
+		}
+	case "c":
+		if track, ok := m.selectedSearchResult(); ok && m.canSongRadio(track) {
+			m.closeNetSearch()
+			return m.startSongRadio(track)
 		}
 	case "esc", "backspace":
 		m.netSearch.screen = netSearchInput

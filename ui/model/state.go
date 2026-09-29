@@ -286,6 +286,9 @@ type requestState struct {
 	catalog      uint64
 	stream       uint64
 	preload      uint64
+	// queueReplace identifies the newest queue asked for or loaded. A queue
+	// that arrives in the background is dropped once a newer one exists.
+	queueReplace uint64
 }
 
 func nextRequest(gen *uint64) uint64 {

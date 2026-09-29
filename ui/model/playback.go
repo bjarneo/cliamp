@@ -18,6 +18,7 @@ const (
 )
 
 func (m *Model) replacePlaylist(tracks []playlist.Track) {
+	nextRequest(&m.requests.queueReplace)
 	if m.resumeSaver != nil {
 		tracks = playlist.WithPlaybackContext(tracks)
 	}
@@ -417,6 +418,14 @@ func (m *Model) undoPlaylistMutation() tea.Cmd {
 		}
 	}
 	m.playlist.Restore(undo.snapshot)
+	// After a song radio the restored queue need not hold the playing song
+	// at its current row. Playback then goes on detached, and the queue
+	// resumes from its current row when the song ends.
+	if m.playingTrackActive {
+		if cur, idx := m.playlist.Current(); idx < 0 || cur.Path != m.playingTrack.Path {
+			m.playbackDetached = true
+		}
+	}
 	m.normalizeQueueOverlay()
 	m.playlistUndo = playlistUndo{}
 	if m.plCursor >= m.playlist.Len() {
