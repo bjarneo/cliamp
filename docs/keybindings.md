@@ -152,8 +152,10 @@ song followed by the related songs, and the chosen song plays from the start,
 even if it was already playing.
 
 - If the lookup fails or finds nothing, the queue and playback stay as they were.
-- Pressing `c` again before the songs arrive replaces the earlier request.
-- The old queue is replaced like loading a playlist: `Ctrl+Z` does not bring it back.
+- Pressing `c` again before the songs arrive replaces the earlier request, and
+  loading another playlist cancels it. Moving to another song in the queue
+  does not.
+- `Ctrl+Z` brings the old queue back; the chosen song keeps playing.
 - `song_radio_size` in `config.toml` sets how many related songs are added
   (default 30, 1–100).
 - The key is only offered on songs that support it: not local files, other

@@ -332,20 +332,21 @@ type Model struct {
 	eqCustomBands           [eqBandCount]float64
 
 	// Overlay / feature state (see state.go for struct definitions)
-	search         searchState
-	netSearch      netSearchState
-	provSearch     provSearchState
-	seek           seekState
-	themePicker    themePickerState
-	visPicker      visPickerState
-	lyrics         lyricsState
-	keymap         keymapOverlay
-	queue          queueOverlay
-	subs           subsOverlay
-	plManager      plManagerState
-	plPicker       playlistPickerState
-	spotSearch     spotSearchState
-	songRadio      songRadioState
+	search      searchState
+	netSearch   netSearchState
+	provSearch  provSearchState
+	seek        seekState
+	themePicker themePickerState
+	visPicker   visPickerState
+	lyrics      lyricsState
+	keymap      keymapOverlay
+	queue       queueOverlay
+	subs        subsOverlay
+	plManager   plManagerState
+	plPicker    playlistPickerState
+	spotSearch  spotSearchState
+	// songRadioSize is how many related songs a song radio adds.
+	songRadioSize  int
 	fileBrowser    fileBrowserState
 	navBrowser     navBrowserState
 	catalogBatch   catalogBatchState

@@ -18,6 +18,8 @@ const (
 )
 
 func (m *Model) replacePlaylist(tracks []playlist.Track) {
+	// A new queue supersedes a song radio still looking for songs.
+	nextRequest(&m.requests.songRadio)
 	if m.resumeSaver != nil {
 		tracks = playlist.WithPlaybackContext(tracks)
 	}
@@ -380,7 +382,7 @@ func (m *Model) removeSelectedFromPlaylist() {
 		return
 	}
 	m.normalizeQueueOverlay()
-	m.playlistUndo = playlistUndo{active: true, snapshot: snapshot, loaded: loaded, saved: saved, persisted: persisted}
+	m.playlistUndo = playlistUndo{active: true, snapshot: snapshot, loaded: loaded, providerPlaylistID: m.activeProviderPlaylistID, saved: saved, persisted: persisted}
 	if wasActive {
 		m.stopPlayback()
 		m.player.ClearPreload()
@@ -397,6 +399,16 @@ func (m *Model) removeSelectedFromPlaylist() {
 		m.status.Showf(statusTTLDefault, "Removed from queue: %s (Ctrl+Z to undo)", track.DisplayName())
 	}
 	m.notifyPlayback()
+}
+
+// newPlaylistUndo records the queue and where it came from, for Ctrl+Z.
+func (m *Model) newPlaylistUndo() playlistUndo {
+	return playlistUndo{
+		active:             true,
+		snapshot:           m.playlist.Snapshot(),
+		loaded:             m.loadedPlaylist,
+		providerPlaylistID: m.activeProviderPlaylistID,
+	}
 }
 
 func (m *Model) undoPlaylistMutation() tea.Cmd {
@@ -417,6 +429,8 @@ func (m *Model) undoPlaylistMutation() tea.Cmd {
 		}
 	}
 	m.playlist.Restore(undo.snapshot)
+	m.loadedPlaylist = undo.loaded
+	m.activeProviderPlaylistID = undo.providerPlaylistID
 	m.normalizeQueueOverlay()
 	m.playlistUndo = playlistUndo{}
 	if m.plCursor >= m.playlist.Len() {

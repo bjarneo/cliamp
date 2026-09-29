@@ -25,11 +25,14 @@ type searchState struct {
 }
 
 type playlistUndo struct {
-	active    bool
-	snapshot  playlist.Snapshot
-	loaded    string
-	saved     []playlist.Track
-	persisted bool
+	active   bool
+	snapshot playlist.Snapshot
+	// loaded and providerPlaylistID are where the queue came from; undo
+	// restores them with the queue.
+	loaded             string
+	providerPlaylistID string
+	saved              []playlist.Track
+	persisted          bool
 }
 
 // netSearchScreenType identifies which screen of the net search overlay is active.

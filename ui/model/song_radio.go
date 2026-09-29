@@ -18,12 +18,6 @@ const defaultSongRadioSize = 30
 // songRadioTimeout bounds one lookup of related songs.
 const songRadioTimeout = 30 * time.Second
 
-// songRadioState tracks the song radio lookup in flight.
-type songRadioState struct {
-	size   int
-	cancel context.CancelFunc
-}
-
 // songRadioMsg carries the songs found for a song radio back to Update.
 type songRadioMsg struct {
 	id     uint64
@@ -36,7 +30,7 @@ type songRadioMsg struct {
 // seed. A non-positive size keeps the default.
 func (m *Model) SetSongRadioSize(n int) {
 	if n > 0 {
-		m.songRadio.size = n
+		m.songRadioSize = n
 	}
 }
 
@@ -92,44 +86,35 @@ func (m Model) selectedSearchResult() (playlist.Track, bool) {
 }
 
 // startSongRadio looks up songs related to seed. The queue is left alone until
-// they arrive; a newer request replaces this one.
+// they arrive. A newer request, or any new queue, replaces this one: the older
+// lookup still runs to completion or its timeout, but its answer is ignored.
 func (m *Model) startSongRadio(seed playlist.Track) tea.Cmd {
 	r, ok := m.songRadioRelater(seed)
 	if !ok {
 		return nil
 	}
-	m.cancelSongRadio()
-	ctx, cancel := context.WithTimeout(context.Background(), songRadioTimeout)
-	m.songRadio.cancel = cancel
 	id := nextRequest(&m.requests.songRadio)
-	n := m.songRadio.size
+	n := m.songRadioSize
 	if n <= 0 {
 		n = defaultSongRadioSize
 	}
 	m.status.Activityf(statusTTLLong, "Finding songs like %s...", seed.DisplayName())
 	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), songRadioTimeout)
 		defer cancel()
 		tracks, err := provider.Related(ctx, r, seed, n)
 		return songRadioMsg{id: id, seed: seed, tracks: tracks, err: err}
 	}
 }
 
-func (m *Model) cancelSongRadio() {
-	if m.songRadio.cancel != nil {
-		m.songRadio.cancel()
-		m.songRadio.cancel = nil
-	}
-}
-
 // handleSongRadio replaces the queue with the seed and its related songs and
-// plays the seed from the top. The replacement has no undo, so an older undo
-// snapshot is dropped rather than restored over it. On failure the queue and
-// playback are left alone.
+// plays the seed from the top. Ctrl+Z brings the old queue back. The new queue
+// comes from no playlist, so it keeps no link to the old one. On failure the
+// queue and playback are left alone.
 func (m *Model) handleSongRadio(msg songRadioMsg) tea.Cmd {
 	if msg.id != m.requests.songRadio {
 		return nil
 	}
-	m.songRadio.cancel = nil
 	if msg.err != nil {
 		m.status.Errorf(statusTTLMedium, "Song radio failed for %s: %s", msg.seed.DisplayName(), msg.err)
 		return nil
@@ -139,19 +124,21 @@ func (m *Model) handleSongRadio(msg songRadioMsg) tea.Cmd {
 		return nil
 	}
 	tracks := append([]playlist.Track{msg.seed}, msg.tracks...)
+	undo := m.newPlaylistUndo()
 	m.player.Stop()
 	m.player.ClearPreload()
 	m.resetYTDLBatch()
 	m.retireTracksPaging()
 	m.replacePlaylist(tracks)
-	m.playlistUndo = playlistUndo{}
+	m.playlistUndo = undo
 	m.loadedPlaylist = ""
+	m.activeProviderPlaylistID = ""
 	m.setHeaderStateFromTracks(tracks)
 	m.plCursor = 0
 	m.plScroll = 0
 	m.playlist.SetIndex(0)
 	m.focus = focusPlaylist
-	m.status.Successf(statusTTLDefault, "Song radio: %s and %d related songs", msg.seed.DisplayName(), len(msg.tracks))
+	m.status.Successf(statusTTLDefault, "Song radio: %s and %d related songs (Ctrl+Z to undo)", msg.seed.DisplayName(), len(msg.tracks))
 	cmd := m.playCurrentTrack()
 	m.notifyPlayback()
 	return cmd

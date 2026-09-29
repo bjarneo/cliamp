@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/ipc"
 	"github.com/bjarneo/cliamp/playlist"
 )
 
@@ -187,22 +188,83 @@ func TestSongRadioNewerRequestWins(t *testing.T) {
 	}
 }
 
-// Ctrl+Z after a song radio does not bring back a queue from before it.
-func TestSongRadioDropsOlderUndo(t *testing.T) {
-	m, _, _ := songRadioModel()
-	m.plCursor = 2
-	next, _ := m.Update(tea.KeyPressMsg{Text: "x", Code: 'x'}) // remove b.mp3
-	m = next.(Model)
-	if !m.playlistUndo.active {
-		t.Fatal("setup: removing a track left nothing to undo")
-	}
-	m.plCursor = 1
+// Ctrl+Z after a song radio brings back the old queue and where it came from,
+// while the seed keeps playing.
+func TestSongRadioUndoRestoresOldQueue(t *testing.T) {
+	m, player, _ := songRadioModel()
+	m.loadedPlaylist, m.activeProviderPlaylistID = "mine", "p1"
 
 	next, cmd := m.Update(songRadioKey)
 	next, _ = next.(Model).Update(cmd())
-	next, _ = next.(Model).Update(tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl})
+	m = next.(Model)
+	if m.loadedPlaylist != "" || m.activeProviderPlaylistID != "" {
+		t.Fatalf("radio queue still linked to %q / %q", m.loadedPlaylist, m.activeProviderPlaylistID)
+	}
+	if !strings.Contains(m.status.text, "Ctrl+Z to undo") {
+		t.Fatalf("status = %q, want the undo offered", m.status.text)
+	}
+
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl})
+	m = next.(Model)
+	if got := paths(m.playlist.Tracks()); strings.Join(got, " ") != "a.mp3 fake:seed b.mp3" {
+		t.Fatalf("queue after Ctrl+Z = %v, want the old queue", got)
+	}
+	if m.loadedPlaylist != "mine" || m.activeProviderPlaylistID != "p1" {
+		t.Fatalf("links after Ctrl+Z = %q / %q, want mine / p1", m.loadedPlaylist, m.activeProviderPlaylistID)
+	}
+	if player.stopCalls != 1 {
+		t.Fatalf("Stop %d, want the seed left playing", player.stopCalls)
+	}
+}
+
+// fakeLocalPlaylists serves saved playlists for IPC load.
+type fakeLocalPlaylists struct{ fakeRelater }
+
+func (*fakeLocalPlaylists) Tracks(string) ([]playlist.Track, error) {
+	return []playlist.Track{{Title: "X", Path: "x.mp3"}, {Title: "Y", Path: "y.mp3"}}, nil
+}
+
+// A queue loaded while the songs are being looked up wins: the radio's late
+// answer is ignored. Moving to another song in the same queue does not cancel
+// it.
+func TestSongRadioSupersededByNewQueue(t *testing.T) {
+	t.Run("new queue", func(t *testing.T) {
+		m, _, _ := songRadioModel()
+		m.localProvider = &fakeLocalPlaylists{}
+		next, lookup := m.Update(songRadioKey)
+		next, _ = next.(Model).Update(ipc.LoadMsg{Playlist: "mine"})
+		next, _ = next.(Model).Update(lookup())
+		if got := paths(next.(Model).playlist.Tracks()); strings.Join(got, " ") != "x.mp3 y.mp3" {
+			t.Fatalf("queue = %v, want the playlist loaded after c", got)
+		}
+	})
+	t.Run("same queue", func(t *testing.T) {
+		m, _, _ := songRadioModel()
+		next, lookup := m.Update(songRadioKey)
+		next, _ = next.(Model).Update(PluginQueueMsg{Op: "jump", Index: 2})
+		next, _ = next.(Model).Update(lookup())
+		if got := next.(Model).playlist.Tracks()[0].Path; got != "fake:seed" {
+			t.Fatalf("queue starts with %s, want the radio applied", got)
+		}
+	})
+}
+
+// Late pages or batches of the old queue's loads do not land on the radio.
+func TestSongRadioDropsOldQueueLoads(t *testing.T) {
+	m, _, relater := songRadioModel()
+	m.provider = relater
+	m.tracksPaging = true
+	pageGen := nextRequest(&m.requests.tracks)
+	m.ytdlBatch.loading = true
+	batchGen := m.ytdlBatch.gen
+
+	next, lookup := m.Update(songRadioKey)
+	next, _ = next.(Model).Update(lookup())
+	late := []playlist.Track{{Title: "Late", Path: "late.mp3"}}
+	next, _ = next.(Model).Update(tracksLoadedMsg{tracks: late, providerName: relater.Name(), gen: pageGen, offset: 3})
+	next, _ = next.(Model).Update(ytdlBatchMsg{gen: batchGen, tracks: late})
 	if got := paths(next.(Model).playlist.Tracks()); strings.Join(got, " ") != "fake:seed fake:r1 fake:r2" {
-		t.Fatalf("queue after Ctrl+Z = %v, want the song radio kept", got)
+		t.Fatalf("queue = %v, want the radio without the old loads' songs", got)
 	}
 }
 
