@@ -306,6 +306,16 @@ func needsFFmpeg(ext string) bool {
 	return false
 }
 
+// isLowRateMP3 reports whether an MP3 stream is MPEG-2 or MPEG-2.5 Layer III
+// (sample rate below the MPEG-1 floor of 32000Hz — i.e. 24000/22050/16000Hz
+// for MPEG-2, or 12000/11025/8000Hz for MPEG-2.5). go-mp3 (the pure-Go
+// decoder beep's mp3 package wraps) parses these without error but produces
+// garbled/distorted audio; ffmpeg decodes them correctly. This rate range is
+// common for low-bitrate Icecast/Shoutcast radio streams.
+func isLowRateMP3(ext string, sr beep.SampleRate) bool {
+	return ext == ".mp3" && sr > 0 && sr < 32000
+}
+
 // isHLS reports whether the extension denotes an HLS playlist that ffmpeg must
 // open by URL (so it can fetch and demux the segments itself).
 func isHLS(ext string) bool { return ext == ".m3u8" }
