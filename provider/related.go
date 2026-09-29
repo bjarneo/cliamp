@@ -17,8 +17,12 @@ func RelaterFor(track playlist.Track, relaters ...Relater) (Relater, bool) {
 }
 
 // Related asks r for up to n songs related to seed. The seed and repeated
-// songs are dropped, so fewer than n may come back. n must be at least 1.
+// songs are dropped, so fewer than n may come back. An n below 1 asks for
+// nothing.
 func Related(ctx context.Context, r Relater, seed playlist.Track, n int) ([]playlist.Track, error) {
+	if n < 1 {
+		return nil, nil
+	}
 	tracks, err := r.RelatedTracks(ctx, seed, n)
 	if err != nil {
 		return nil, err

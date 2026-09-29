@@ -156,7 +156,9 @@ func tracksMetadata(ctx context.Context, fetch func(context.Context, *extmetadat
 }
 
 // trackFromMetadata converts extended metadata into a playlist track, filling
-// the same fields as trackFromItem does from the Web API.
+// the same fields as trackFromItem does from the Web API except Unplayable:
+// go-librespot plays a restricted song through an unrestricted alternative,
+// so the original's restrictions don't mean it won't play.
 func trackFromMetadata(uri string, t *metadatapb.Track) playlist.Track {
 	artists := make([]string, 0, len(t.GetArtist()))
 	for _, a := range t.GetArtist() {

@@ -20,8 +20,10 @@ type Relater interface {
 	// CanRelate reports whether track is one this provider can find related
 	// songs for. It must answer without network access.
 	CanRelate(track playlist.Track) bool
-	// RelatedTracks returns up to n songs related to seed. The results may
-	// include the seed or repeats; Related removes them.
+	// RelatedTracks returns about n songs related to seed. The results may
+	// include the seed, repeats or an extra song; Related removes the first
+	// two and caps the rest at n. A lookup may retry until ctx ends, so pass
+	// a deadline.
 	RelatedTracks(ctx context.Context, seed playlist.Track, n int) ([]playlist.Track, error)
 }
 

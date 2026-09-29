@@ -22,8 +22,9 @@ func (YouTubeRelater) CanRelate(track playlist.Track) bool {
 	return ok
 }
 
-// RelatedTracks returns up to n songs from the seed video's Mix. A Mix starts
-// with the seed and differs on every call.
+// RelatedTracks returns about n songs from the seed video's Mix: it lists n+1
+// entries because a Mix starts with the seed, and drops the seed. A Mix
+// differs on every call.
 func (YouTubeRelater) RelatedTracks(ctx context.Context, seed playlist.Track, n int) ([]playlist.Track, error) {
 	mixURL, seedID, ok := youTubeMix(seed.Path)
 	if !ok {
