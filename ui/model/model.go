@@ -355,6 +355,7 @@ type Model struct {
 	logLines       []logLine
 	network        networkStats
 	requests       requestState
+	trackRadio     trackRadioState
 	speedSaveAfter time.Duration
 	eqSaveAfter    time.Duration
 	termTitle      terminalTitleState

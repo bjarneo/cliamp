@@ -26,6 +26,11 @@ mkdir -p ~/.config/cliamp
 cp config.toml.example ~/.config/cliamp/config.toml
 ```
 
+## Environment variables
+
+- `CLIAMP_CONFIG_DIR` — overrides where the config directory is found, as above.
+- `CLIAMP_SPOTIFY_API` — which path Spotify is read through: `auto` (default), `client`, or `web`. See [Spotify](spotify.md#how-cliamp-reads-your-library).
+
 ## Options
 
 ```toml

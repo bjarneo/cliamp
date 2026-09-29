@@ -58,10 +58,11 @@ func TestPlaylistTracksRequestAlbumArt(t *testing.T) {
 	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
 	p := New(sess, "client", 320)
 
-	tracks, _, err := p.fetchTracksPage(context.Background(), "playlist-id", 0)
+	page, err := p.fetchTracksPage(context.Background(), "playlist-id", 0, nil)
 	if err != nil {
 		t.Fatalf("fetchTracksPage: %v", err)
 	}
+	tracks := page.tracks
 
 	for _, group := range []string{"album", "show"} {
 		m := regexp.MustCompile(group + `\(([^)]*)\)`).FindStringSubmatch(fields)

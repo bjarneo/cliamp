@@ -687,6 +687,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "f":
 		return m.togglePlaylistStar()
 
+	case "W":
+		return m.startTrackRadio()
+
 	case "n":
 		if m.focus == focusPlaylist && m.plCursor >= 0 && m.plCursor < m.playlist.Len() && m.favMgr != nil {
 			track, ok := m.playlist.Track(m.plCursor)
