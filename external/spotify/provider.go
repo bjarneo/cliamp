@@ -33,6 +33,7 @@ var (
 	_ provider.CustomStreamer  = (*SpotifyProvider)(nil)
 	_ provider.Closer          = (*SpotifyProvider)(nil)
 	_ provider.TrackPager      = (*SpotifyProvider)(nil)
+	_ provider.Relater         = (*SpotifyProvider)(nil)
 )
 
 // maxResponseBody limits JSON API responses to 10 MB.

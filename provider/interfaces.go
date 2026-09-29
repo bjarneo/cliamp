@@ -14,6 +14,19 @@ type Searcher interface {
 	SearchTracks(ctx context.Context, query string, limit int) ([]playlist.Track, error)
 }
 
+// Relater is implemented by providers that can suggest songs related to one of
+// their own tracks, like Spotify's song radio. Use Related to call it.
+type Relater interface {
+	// CanRelate reports whether track is one this provider can find related
+	// songs for. It must answer without network access.
+	CanRelate(track playlist.Track) bool
+	// RelatedTracks returns about n songs related to seed. The results may
+	// include the seed, repeats or an extra song; Related removes the first
+	// two and caps the rest at n. A lookup may retry until ctx ends, so pass
+	// a deadline.
+	RelatedTracks(ctx context.Context, seed playlist.Track, n int) ([]playlist.Track, error)
+}
+
 // ArtistBrowser is implemented by providers that support listing artists
 // and their albums.
 type ArtistBrowser interface {
