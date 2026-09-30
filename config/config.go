@@ -112,6 +112,12 @@ type SpotifyConfig struct {
 	Enabled  bool   // true when [spotify] section exists (even without client_id)
 	ClientID string // Spotify Developer app client ID (overrides built-in fallback)
 	Bitrate  int    // preferred Spotify stream bitrate in kbps
+	// ConnectEnabled advertises cliamp as a Spotify Connect receiver
+	// (Zeroconf _spotify-connect._tcp + cloud command channel), letting the
+	// official Spotify apps discover and control playback remotely.
+	ConnectEnabled bool
+	ConnectName    string // device name shown in the Connect picker (default "cliamp")
+	ConnectPort    int    // zeroconf listener port (0 = ephemeral)
 }
 
 // IsSet reports whether the Spotify provider should be shown. Section presence
@@ -416,7 +422,7 @@ func defaultConfig() Config {
 		BitDepth:        16,
 		PaddingH:        3,
 		PaddingV:        1,
-		Spotify:         SpotifyConfig{Bitrate: 320},
+		Spotify:         SpotifyConfig{Bitrate: 320, ConnectName: "cliamp"},
 		Qobuz:           QobuzConfig{Quality: 6},
 		LogLevel:        "info",
 	}
@@ -529,6 +535,14 @@ func Load() (Config, error) {
 			case "bitrate":
 				if v, err := strconv.Atoi(val); err == nil {
 					cfg.Spotify.Bitrate = v
+				}
+			case "connect_enabled":
+				cfg.Spotify.ConnectEnabled = strings.ToLower(val) == "true"
+			case "connect_name":
+				cfg.Spotify.ConnectName = parseString(val)
+			case "connect_port":
+				if v, err := strconv.Atoi(val); err == nil && v >= 0 && v <= 65535 {
+					cfg.Spotify.ConnectPort = v
 				}
 			}
 		case "qobuz":

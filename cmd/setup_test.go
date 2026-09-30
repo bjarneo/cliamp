@@ -617,3 +617,128 @@ func TestSaveSection(t *testing.T) {
 		t.Fatalf("replace clobbered ytmusic: %q", s)
 	}
 }
+
+// TestSpotifySetupBodyConnect verifies the [spotify] block round-trips the
+// Connect keys: saveSection replaces the whole section, so body() must emit
+// them or re-running setup would silently delete an existing Connect setup.
+func TestSpotifySetupBodyConnect(t *testing.T) {
+	var spec providerSpec
+	for _, p := range providers() {
+		if p.section == "spotify" {
+			spec = p
+			break
+		}
+	}
+	if spec.section == "" {
+		t.Fatal("spotify spec missing")
+	}
+
+	tests := []struct {
+		name   string
+		values map[string]string
+		want   []string
+	}{
+		{
+			name:   "defaults",
+			values: map[string]string{},
+			want: []string{
+				"bitrate   = 320",
+				"connect_enabled = false",
+				`connect_name = "cliamp"`,
+				"connect_port = 0",
+			},
+		},
+		{
+			name: "custom connect setup preserved",
+			values: map[string]string{
+				keySpotifyMode:    "custom",
+				"client_id":       "id123",
+				"bitrate":         "160",
+				"connect_enabled": "true",
+				"connect_name":    "Living Room",
+				"connect_port":    "46325",
+			},
+			want: []string{
+				`client_id = "id123"`,
+				"bitrate   = 160",
+				"connect_enabled = true",
+				`connect_name = "Living Room"`,
+				"connect_port = 46325",
+			},
+		},
+		{
+			name:   "enabled normalizes to bool",
+			values: map[string]string{"connect_enabled": "TRUE"},
+			want:   []string{"connect_enabled = true"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := spec.body(tt.values)
+			for _, want := range tt.want {
+				if !strings.Contains(body, want) {
+					t.Errorf("body missing %q\ngot:\n%s", want, body)
+				}
+			}
+		})
+	}
+
+	if err := spec.extraValidate(map[string]string{"bitrate": "fast"}); err == nil {
+		t.Error("extraValidate(bitrate=fast) = nil, want error")
+	}
+	if err := spec.extraValidate(map[string]string{"connect_port": "many"}); err == nil {
+		t.Error("extraValidate(connect_port=many) = nil, want error")
+	}
+	if err := spec.extraValidate(map[string]string{"bitrate": "160", "connect_port": "46325"}); err != nil {
+		t.Errorf("extraValidate(valid) = %v, want nil", err)
+	}
+}
+
+// TestSpotifyConnectPrefillSeedsExistingValues: opening the Spotify step with
+// an existing [spotify] block pre-fills the Connect fields so saving keeps
+// them instead of resetting them to defaults.
+func TestSpotifyConnectPrefillSeedsExistingValues(t *testing.T) {
+	configDir := filepath.Join(t.TempDir(), "config")
+	t.Setenv("CLIAMP_CONFIG_DIR", configDir)
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	existing := "[spotify]\nclient_id = \"id123\"\nbitrate = 160\n" +
+		"connect_enabled = true\nconnect_name = \"Living Room\"\nconnect_port = 46325\n"
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(existing), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	m := newSetupModel()
+	spotifyIdx := -1
+	for i, p := range m.provs {
+		if p.section == "spotify" {
+			spotifyIdx = i
+			break
+		}
+	}
+	if spotifyIdx < 0 {
+		t.Fatal("spotify spec missing")
+	}
+	m.startProvider(spotifyIdx)
+	for key, want := range map[string]string{
+		"connect_enabled": "true",
+		"connect_name":    "Living Room",
+		"connect_port":    "46325",
+	} {
+		if got := m.values[key]; got != want {
+			t.Errorf("values[%q] = %q, want %q", key, got, want)
+		}
+	}
+
+	// Without an existing [spotify] block nothing is pre-filled; the field
+	// defaults apply at submit time instead.
+	t.Setenv("CLIAMP_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	m2 := newSetupModel()
+	m2.startProvider(spotifyIdx)
+	for _, key := range []string{"connect_enabled", "connect_name", "connect_port"} {
+		if got := m2.values[key]; got != "" {
+			t.Errorf("values[%q] = %q, want empty without existing config", key, got)
+		}
+	}
+}

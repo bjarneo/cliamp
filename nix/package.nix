@@ -38,7 +38,7 @@ buildGoModule {
   inherit version;
 
   src = lib.cleanSource ../.;
-  vendorHash = "sha256-cythuV9J/Iu+ibRVza8dQ6RHjYKa0hVllc2t6dh3hhs=";
+  vendorHash = "sha256-AuFmYdBFvUNgA+3DROqFDVjQN98TTxXJ+RZl5j03LVI=";
 
   nativeBuildInputs = [
     makeWrapper

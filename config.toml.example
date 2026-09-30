@@ -116,6 +116,13 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # client_id = "your-spotify-app-client-id"
 # bitrate = 320
 #
+# Spotify Connect receiver (optional, Premium required): advertises cliamp
+# as a Connect device so the official Spotify apps can discover it on the
+# local network (_spotify-connect._tcp) and control playback remotely.
+# connect_enabled = false
+# connect_name = "cliamp"   # name shown in the Connect device picker
+# connect_port = 0          # zeroconf HTTP port; 0 = ephemeral
+#
 # Development Mode limits /v1/search to 10 results per request. cliamp pages
 # automatically with offset, so search works with your own client_id.
 #

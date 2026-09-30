@@ -441,7 +441,7 @@ type Model struct {
 	// switches providers while it keeps playing.
 	playingProvider string
 
-	notifier playback.Notifier
+	notifiers []playback.Notifier
 
 	// Lua plugin manager (nil if no plugins loaded)
 	luaMgr *luaplugin.Manager

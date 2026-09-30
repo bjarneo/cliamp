@@ -1,6 +1,10 @@
 package playback
 
-import "time"
+import (
+	"time"
+
+	"github.com/bjarneo/cliamp/playlist"
+)
 
 type (
 	PlayPauseMsg   struct{}
@@ -14,7 +18,30 @@ type (
 	SetPositionMsg struct {
 		Position time.Duration
 	}
-	SetVolumeMsg struct{ VolumeDB float64 }
+	SetVolumeMsg  struct{ VolumeDB float64 }
+	SetShuffleMsg struct{ On bool }
+	SetRepeatMsg  struct{ Mode playlist.RepeatMode }
+
+	// EnqueueMsg appends a track to the playlist and marks it queued
+	// (plays next), matching the UI's "queue next" action.
+	EnqueueMsg struct{ Track playlist.Track }
+
+	// PlayTracksMsg replaces the playlist and starts playing Tracks[Index],
+	// optionally at Position, optionally paused. It is how remote controllers
+	// (Spotify Connect) hand a resolved context to the player.
+	// Shuffle and Repeat are nil to leave the playlist's current mode alone.
+	// Queue holds Spotify's queue: tracks appended after Tracks and queued.
+	// ContextName is the remote context label, shown in the status line.
+	PlayTracksMsg struct {
+		Tracks      []playlist.Track
+		Index       int
+		Position    time.Duration
+		Paused      bool
+		Shuffle     *bool
+		Repeat      *playlist.RepeatMode
+		Queue       []playlist.Track
+		ContextName string
+	}
 )
 
 type Status string
@@ -42,6 +69,11 @@ type State struct {
 	VolumeDB float64
 	Position time.Duration
 	Seekable bool
+	// Shuffle and Repeat mirror the playlist's modes; NextURL is the path of
+	// the track queued to play next, if any.
+	Shuffle bool
+	Repeat  playlist.RepeatMode
+	NextURL string
 }
 
 type Notifier interface {
