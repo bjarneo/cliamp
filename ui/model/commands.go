@@ -115,6 +115,7 @@ type streamPlayedMsg struct {
 type streamPreloadedMsg struct {
 	path string
 	gen  uint64
+	err  error
 }
 
 type attachNotifierMsg struct{ notifier playback.Notifier }
@@ -311,15 +312,15 @@ func playStreamCmd(p player.Engine, path string, knownDuration time.Duration, st
 
 func preloadStreamCmd(p player.Engine, path string, knownDuration time.Duration, gen, preloadGen uint64) tea.Cmd {
 	return func() tea.Msg {
-		p.PreloadForGeneration(path, knownDuration, preloadGen) // errors silently ignored
-		return streamPreloadedMsg{path: path, gen: gen}
+		err := p.PreloadForGeneration(path, knownDuration, preloadGen)
+		return streamPreloadedMsg{path: path, gen: gen, err: err}
 	}
 }
 
 func preloadLocalCmd(p player.Engine, path string, knownDuration time.Duration, gen, preloadGen uint64) tea.Cmd {
 	return func() tea.Msg {
-		p.PreloadForGeneration(path, knownDuration, preloadGen)
-		return streamPreloadedMsg{path: path, gen: gen}
+		err := p.PreloadForGeneration(path, knownDuration, preloadGen)
+		return streamPreloadedMsg{path: path, gen: gen, err: err}
 	}
 }
 
@@ -331,8 +332,8 @@ func playYTDLStreamCmd(p player.Engine, pageURL string, knownDuration time.Durat
 
 func preloadYTDLStreamCmd(p player.Engine, pageURL string, knownDuration time.Duration, gen, preloadGen uint64) tea.Cmd {
 	return func() tea.Msg {
-		p.PreloadYTDLForGeneration(pageURL, knownDuration, preloadGen) // errors silently ignored
-		return streamPreloadedMsg{path: pageURL, gen: gen}
+		err := p.PreloadYTDLForGeneration(pageURL, knownDuration, preloadGen)
+		return streamPreloadedMsg{path: pageURL, gen: gen, err: err}
 	}
 }
 
@@ -599,12 +600,22 @@ func fetchSpotSearchCmd(ctx context.Context, s provider.Searcher, providerName, 
 func fetchSpotPlaylistsCmd(prov playlist.Provider, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		playlists, err := prov.Playlists()
-		if err == nil && prov.Name() == "Local" {
+		if err != nil && len(playlists) > 0 {
+			// A partial list, such as playlists without saved albums, still
+			// holds every target the picker needs.
+			err = nil
+		}
+		targets, canFilter := prov.(provider.PlaylistTargetFilter)
+		if err == nil && (canFilter || prov.Name() == "Local") {
 			filtered := playlists[:0]
 			for _, pl := range playlists {
-				if pl.Name != history.PlaylistName {
-					filtered = append(filtered, pl)
+				if pl.Name == history.PlaylistName && prov.Name() == "Local" {
+					continue
 				}
+				if canFilter && !targets.CanAddToPlaylist(pl) {
+					continue
+				}
+				filtered = append(filtered, pl)
 			}
 			playlists = filtered
 		}

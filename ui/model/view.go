@@ -78,7 +78,7 @@ func favRemovedMark() string { return favRemovedStyle.Render(favHeart) }
 var providerEmptyStateHint = map[string]string{
 	"local playlists":     "Add .toml playlists to ~/.config/cliamp/playlists/.",
 	"local":               "Add .toml playlists to ~/.config/cliamp/playlists/.",
-	"spotify":             "Sign in via Spotify, or check SPOTIFY_REFRESH_TOKEN.",
+	"spotify":             "Press Ctrl+R to reload, or run `cliamp spotify reset` to sign in again.",
 	"navidrome":           "Verify [navidrome] url/username/password in config.toml.",
 	"jellyfin":            "Verify [jellyfin] url and token in config.toml.",
 	"emby":                "Verify [emby] url and token or username/password in config.toml.",
@@ -88,6 +88,13 @@ var providerEmptyStateHint = map[string]string{
 	"ytmusic":             "Run `cliamp ytmusic-login` to authorize, then refresh.",
 	"soundcloud":          "Set [soundcloud] user in config.toml to browse a profile.",
 	"netease cloud music": "Run `cliamp setup` and configure NetEase browser cookies.",
+	"qobuz":               "Press Ctrl+R to retry, or run `cliamp qobuz reset`.",
+	"tidal":               "Press Ctrl+R to retry, or run `cliamp tidal reset`.",
+	"mixcloud":            "Set [mixcloud] username in config.toml for account views.",
+	"lyrion":              "Only saved server playlists show here. Press N to browse.",
+	"yandex music":        "Verify [yandex] token in config.toml.",
+	"radio":               "Press Ctrl+R to reload the station directory.",
+	"podcasts":            "Press Ctrl+R to reload the top shows.",
 }
 
 // renderProviderEmptyState explains why the playlists pane is empty for the
@@ -97,6 +104,14 @@ func (m Model) renderProviderEmptyState(budget int) string {
 	name := "this provider"
 	if m.provider != nil {
 		name = m.provider.Name()
+	}
+	if m.providerCatalogSearching() {
+		found := "  No results."
+		if m.provSearch.query != "" {
+			found = fmt.Sprintf("  No results for %q.", m.provSearch.query)
+		}
+		lines := []string{dimStyle.Render(found), "", m.pressKeyHint(commandModeProvider, "esc", "to clear the search.")}
+		return strings.Join(fitLines(lines, budget), "\n")
 	}
 	lines := []string{
 		dimStyle.Render(fmt.Sprintf("  No playlists in %s.", name)),
@@ -792,8 +807,14 @@ func (m Model) renderPlaylistHeader() string {
 	}
 	if m.focus == focusProvider {
 		label := m.provider.Name() + " / Playlists"
-		if m.provSearch.active {
+		_, catalog := m.provider.(provider.CatalogSearcher)
+		switch {
+		case m.provSearch.active && catalog:
+			label += " / Search"
+		case m.provSearch.active:
 			label += " / Filter"
+		case m.providerCatalogSearching():
+			label += " / Search results"
 		}
 		return dimStyle.Render(labeledSeparator("", label))
 	}
@@ -896,8 +917,12 @@ func (m Model) renderProviderList() string {
 		}
 		return strings.Join(fitLines(lines, visibleBudget), "\n")
 	}
-	if m.provLoading && len(m.providerLists) == 0 && !m.provSearch.active {
-		lines := []string{loadingLine(fmt.Sprintf("Loading %s…", m.provider.Name()))}
+	if m.provLoading && (len(m.providerLists) == 0 || m.provSearch.loading) && !m.provSearch.active {
+		label := fmt.Sprintf("Loading %s…", m.provider.Name())
+		if m.provSearch.loading {
+			label = fmt.Sprintf("Searching %s…", m.provider.Name())
+		}
+		lines := []string{loadingLine(label)}
 		if m.provAuthURL != "" {
 			lines = append(lines,
 				"",
@@ -925,9 +950,14 @@ func (m Model) renderProviderList() string {
 	}
 
 	if m.provSearch.active {
-		lines = append(lines, playlistSelectedStyle.Render("  / "+m.provSearch.query+"_"))
+		_, searchable := m.provider.(provider.CatalogSearcher)
+		mode := "Filter: "
+		if searchable {
+			mode = "Search: "
+		}
+		lines = append(lines, m.filterHeader(mode+m.provider.Name(), "provider-search", m.provSearch.query, ""))
 
-		if _, searchable := m.provider.(provider.CatalogSearcher); searchable {
+		if searchable {
 			if m.provSearch.query == "" {
 				lines = append(lines, dimStyle.Render("  Type a query, Enter to search..."))
 			} else {
@@ -1066,7 +1096,12 @@ func (m Model) renderPlaylist() string {
 		if m.feedLoading {
 			lines = append(lines, loadingLine("Loading feed…"))
 		} else {
-			lines = append(lines, dimStyle.Render("  No tracks loaded"))
+			lines = append(lines, dimStyle.Render("  No tracks loaded."), dimStyle.Render("  To add music, press one of these keys:"), "")
+			for _, key := range []string{"esc", "o", "u", "ctrl+f"} {
+				if hint := m.commandHint(commandModeMain, key); hint != "" {
+					lines = append(lines, hint)
+				}
+			}
 		}
 		return strings.Join(fitLines(lines, budget), "\n")
 	}
@@ -1074,7 +1109,7 @@ func (m Model) renderPlaylist() string {
 	currentIdx := m.playlist.Index()
 	scroll := m.playlistScroll(budget)
 	windowStart := max(0, scroll-1)
-	tracks := m.playlist.TrackWindow(windowStart, budget+1)
+	indices, tracks := m.playlist.OrderWindow(windowStart, budget+1)
 	localScroll := scroll - windowStart
 
 	lines := make([]string, 0, budget)
@@ -1098,7 +1133,7 @@ func (m Model) renderPlaylist() string {
 			break
 		}
 
-		i, t := windowStart+row.Index, row.Track
+		i, t := indices[row.Index], row.Track
 		style := playlistItemStyle
 		selected := m.focus == focusPlaylist && i == m.plCursor
 		playing := !m.playbackDetached && i == currentIdx && m.player.IsPlaying()
@@ -1240,6 +1275,9 @@ func (m Model) renderHelp() string {
 	}
 	switch m.focus {
 	case focusProvider:
+		if m.provSearch.active {
+			return m.commandHelp(commandModeProviderSearch)
+		}
 		return m.commandHelp(commandModeProvider)
 	case focusProvPill:
 		return m.commandHelp(commandModeProviderPill)

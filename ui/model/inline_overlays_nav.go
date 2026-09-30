@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"charm.land/lipgloss/v2"
-
 	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/ui"
 )
@@ -74,12 +72,7 @@ func (m Model) navHeaderLine() string {
 		return sepHeader("Replace current queue?")
 	}
 	if m.navBrowser.searching {
-		input := m.textWithCursor("nav-search", m.navBrowser.search)
-		prefix := "  / "
-		input = truncate(input, max(1, ui.PanelWidth-lipgloss.Width(prefix)-4))
-		suffix := " / " + input
-		pathWidth := max(1, ui.PanelWidth-lipgloss.Width(prefix)-lipgloss.Width(suffix))
-		return playlistSelectedStyle.Render(prefix + truncate(m.navBreadcrumb(), pathWidth) + suffix)
+		return m.filterHeader("Filter: "+m.navBreadcrumb(), "nav-search", m.navBrowser.search, "")
 	}
 	switch m.navView() {
 	case navViewArtists:
@@ -227,7 +220,7 @@ func (m Model) fbHeaderLine() string {
 		return sepHeader("Replace current queue?")
 	}
 	if m.fileBrowser.searching {
-		return m.filterPromptHeader("file-browser-search", m.fileBrowser.search)
+		return m.filterHeader("Filter: Files", "file-browser-search", m.fileBrowser.search, "")
 	}
 	label := "Files: " + m.fileBrowser.dir
 	if n := len(m.fileBrowser.selected); n > 0 {

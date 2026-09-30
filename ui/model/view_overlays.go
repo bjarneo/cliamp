@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/ui"
 )
@@ -40,7 +41,7 @@ func (m Model) renderVisPickerList() string {
 
 func (m Model) visPickerHeaderLine() string {
 	if m.visPicker.filtering || m.visPicker.filter != "" {
-		return m.filterCountHeader("visualizer-picker-filter", m.visPicker.filter, fmt.Sprintf("%d/%d", m.visPickerViewCount(), len(m.visPicker.modes)))
+		return m.filterHeader("Filter: Visualizers", "visualizer-picker-filter", m.visPicker.filter, fmt.Sprintf("%d/%d", m.visPickerViewCount(), len(m.visPicker.modes)))
 	}
 	return sepHeaderN("Visualizers", m.visPicker.cursor+1, m.visPickerViewCount())
 }
@@ -49,7 +50,11 @@ func (m Model) visPickerHeaderLine() string {
 
 func (m Model) plMgrHeaderLine() string {
 	if m.plManager.filtering {
-		return m.filterPromptHeader("playlist-manager-filter", m.plManager.filter)
+		label := "Filter: Playlists"
+		if m.plManager.screen == plMgrScreenTracks {
+			label = "Filter: Tracks"
+		}
+		return m.filterHeader(label, "playlist-manager-filter", m.plManager.filter, "")
 	}
 	switch m.plManager.screen {
 	case plMgrScreenTracks:
@@ -108,11 +113,7 @@ func (m Model) renderPlMgrFormBody() string {
 	if m.plManager.screen == plMgrScreenRename {
 		return bodyMessage("Enter a new name for the playlist above.", budget)
 	}
-	label := "Create the playlist (nothing playing to add)."
-	if track, idx := m.currentPlaybackTrack(); idx >= 0 && track.Path != "" {
-		label = "Create & add: " + truncate(trackViewName(track), max(1, ui.PanelWidth-16))
-	}
-	lines := []string{dimStyle.Render("  " + label)}
+	lines := []string{dimStyle.Render("  Enter creates an empty playlist, then opens the file browser.")}
 	if m.plManager.inputErr != "" {
 		lines = append(lines, errorStyle.Render("  "+m.plManager.inputErr))
 	}
@@ -131,8 +132,8 @@ func (m Model) renderPlMgrListBody() string {
 	if len(m.plManager.playlists) == 0 {
 		return bodyLines([]string{
 			dimStyle.Render("  No playlists yet."),
-			dimStyle.Render("  Press Enter on \"+ New Playlist…\" below,"),
-			dimStyle.Render("  or `a` to save the now-playing track."),
+			dimStyle.Render("  Press Enter or a to create one."),
+			dimStyle.Render("  Press w to save the loaded tracks to a new playlist."),
 			"",
 			playlistSelectedStyle.Render("> + New Playlist..."),
 		}, budget)
@@ -217,9 +218,16 @@ func (m Model) renderPlMgrTracksBody() string {
 	budget := m.effectivePlaylistVisible()
 
 	if len(m.plManager.tracks) == 0 {
+		hint := "Press o to add files, or D to add directory sources."
+		switch m.plManager.selPlaylist {
+		case favorites.PlaylistName:
+			hint = "Press n on a track in the playlist to add it here."
+		case history.PlaylistName:
+			hint = "Tracks show here after you play them."
+		}
 		return bodyLines([]string{
 			dimStyle.Render("  This playlist is empty."),
-			dimStyle.Render("  Press `a` to add the now-playing track."),
+			dimStyle.Render("  " + hint),
 		}, budget)
 	}
 

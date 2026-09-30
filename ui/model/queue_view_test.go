@@ -94,8 +94,11 @@ func TestRenderQueueBodyEmpty(t *testing.T) {
 	t.Cleanup(func() { ui.PanelWidth = old })
 	m := &Model{playlist: playlist.New(), plVisible: 12}
 
-	if got := stripAnsi(m.renderQueueBody()); !strings.Contains(got, "(empty)") {
-		t.Errorf("empty queue body = %q, want an (empty) message", got)
+	got := stripAnsi(m.renderQueueBody())
+	for _, want := range []string{"The queue is empty.", "Press  a  on a playlist track to play it next."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("empty queue body = %q, want %q", got, want)
+		}
 	}
 }
 

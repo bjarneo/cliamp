@@ -5,6 +5,27 @@ cliamp ships with the [Radio Browser](https://www.radio-browser.info/) directory
 A list that long is only useful if you can cut it down. Browse it by location,
 filter the directory's genres and tags, or search for a station by name.
 
+## cliamp radio
+
+cliamp opens on the cliamp radio view: the channels cliamp runs on radio.cliamp.stream, and nothing else. The Radio Browser directory stays in the Radio provider.
+
+```
+── cliamp radio ───────────────────
+  Omarchy · 33 tracks
+  Chiptunes · 108 tracks
+  Amiga · 68 tracks
+  Lofi · live
+  Synthwave · live
+```
+
+- A channel that shows a track count opens as a playlist of its songs. Each song is a file, so you can seek, skip with `>` and `<`, and let the next song start without a gap.
+- A channel marked `live` has no song library. It plays the live stream.
+- Channels with songs come first, so the cursor starts on a playlist.
+- `Ctrl+R` reloads the channel list and its track counts.
+- `R` opens the Radio provider. To come back, `Tab` to Source (`SRC`) and choose "cliamp radio" with `Left` and `Right`.
+
+cliamp loads the channel list from `https://radio.cliamp.stream/stations`. The view is the default provider, `cliamp`. With `auto_play = true`, cliamp starts the live channel streams instead, so the music starts without a keypress. The daemon also starts with the live streams.
+
 ## Quick start
 
 | Do this | To get |

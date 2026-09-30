@@ -45,7 +45,8 @@ type netSearchState struct {
 	active     bool
 	screen     netSearchScreenType
 	query      string
-	soundcloud bool // true = SoundCloud (scsearch), false = YouTube (ytsearch)
+	soundcloud bool   // true = SoundCloud (scsearch), false = YouTube (ytsearch)
+	from       string // provider without a Ctrl+F search that fell back here
 	loading    bool
 	results    []playlist.Track
 	cursor     int

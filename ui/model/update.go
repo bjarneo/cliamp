@@ -29,8 +29,33 @@ func (m *Model) scheduleReconnect(now time.Time) {
 	m.err = m.reconnect.notice
 }
 
-// Update handles messages: key presses, ticks, and window resizes.
+// Update handles messages: key presses, ticks, and window resizes. After each
+// message it drops a gapless preload that no longer matches the next track.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if _, ok := msg.(spinnerTickMsg); ok {
+		m.spinnerTicking = m.spinnerVisible()
+		if !m.spinnerTicking {
+			return m, nil
+		}
+		return m, spinnerTickCmd()
+	}
+	spinning := m.spinnerVisible()
+	next, cmd := m.update(msg)
+	if nm, ok := next.(Model); ok {
+		nm.dropStalePreload()
+		// A load that starts now gets its own redraws at once. The main tick
+		// can still wait up to ui.TickIdle before it runs at the spinner rate.
+		if !spinning && !nm.spinnerTicking && nm.spinnerVisible() {
+			nm.spinnerTicking = true
+			cmd = tea.Batch(cmd, spinnerTickCmd())
+		}
+		next = nm
+	}
+	return next, cmd
+}
+
+// update is Update without the stale preload check.
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	wasScreen := m.activeScreen()
 	wasVisualizerVisible := m.visualizerVisible()
 	wasMode := ui.VisNone
@@ -882,7 +907,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		var resumeCmd tea.Cmd
-		if msg.err != nil {
+		if errors.Is(msg.err, playlist.ErrNeedsAuth) {
+			// The provider session went stale, for example after Spotify
+			// rejected the stream keys. Ask for sign-in, not a raw error.
+			m.provSignIn = true
+			m.err = nil
+			m.status.Warningf(statusTTLLong, "Sign-in required to play %s.", track.DisplayName())
+		} else if msg.err != nil {
 			m.err = msg.err
 			if track, idx := m.currentPlaybackTrack(); idx >= 0 {
 				m.status.Errorf(statusTTLLong, "Couldn't play %s — track is gated, restricted, or unavailable.", track.DisplayName())
@@ -903,6 +934,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.preloading = false
+		if msg.err != nil {
+			// Playback falls back to a non-gapless start for this track.
+			// Retrying on the next tick would rebuild the failing pipeline.
+			m.preloadFailed = msg.path
+		}
 		return m, nil
 
 	case ytdlSavedMsg:
@@ -1358,11 +1394,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.provAuthURL = ""
 		if msg.err != nil {
+			// Keep the sign-in prompt, so Enter retries without a restart.
 			m.err = msg.err
 			m.provLoading = false
-			m.provSignIn = false
+			m.provSignIn = true
 			return m, nil
 		}
+		m.err = nil
 		m.provSignIn = false
 		m.provLoading = true
 		cmd := m.fetchProviderPlaylists()
@@ -1495,12 +1533,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case pluginQueueAddedMsg:
-		if len(msg.tracks) > 0 {
-			m.playlist.Add(msg.tracks...)
-			m.loadedPlaylist = ""
-			m.notifyPlayback()
-		}
-		return m, nil
+		return m, m.appendPluginTracks(msg.tracks...)
 
 	case ShowStatusMsg:
 		ttl := statusTTLDefault

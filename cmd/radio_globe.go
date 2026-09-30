@@ -118,6 +118,7 @@ type globeModel struct {
 	width     int
 	height    int
 	stats     radio.Statistics
+	playlists radio.TrackStatistics
 	summary   radio.Summary
 	names     map[string]string
 	fetchedAt time.Time // zero until the first statistics arrive
@@ -129,8 +130,9 @@ type globeModel struct {
 }
 
 type globeStatsMsg struct {
-	stats radio.Statistics
-	err   error
+	stats     radio.Statistics
+	playlists radio.TrackStatistics
+	err       error
 }
 
 type globeNamesMsg map[string]string
@@ -153,8 +155,10 @@ func (m *globeModel) Init() tea.Cmd {
 func fetchGlobeStats() tea.Msg {
 	ctx, cancel := context.WithTimeout(context.Background(), statsTimeout)
 	defer cancel()
+	playlists := make(chan radio.TrackStatistics, 1)
+	go func() { playlists <- fetchPlaylistStats(ctx) }()
 	stats, _, err := radio.FetchStatistics(ctx)
-	return globeStatsMsg{stats: stats, err: err}
+	return globeStatsMsg{stats: stats, playlists: <-playlists, err: err}
 }
 
 func fetchGlobeNames() tea.Msg {
@@ -191,6 +195,7 @@ func (m *globeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		if msg.err == nil {
 			m.stats = msg.stats
+			m.playlists = msg.playlists
 			m.fetchedAt = time.Now()
 			m.summarize()
 		}
@@ -228,7 +233,7 @@ func (m *globeModel) loaded() bool { return !m.fetchedAt.IsZero() }
 
 // summarize rebuilds everything derived from the last statistics document.
 func (m *globeModel) summarize() {
-	m.apply(m.stats.Summarize(m.names))
+	m.apply(m.stats.Summarize(m.names).WithPlaylists(m.playlists, m.names))
 }
 
 // apply installs a summary: the lit countries on the globe and the side
@@ -391,6 +396,7 @@ func (m *globeModel) renderStrip() string {
 	s := m.summary
 	parts := []string{
 		m.styles.text.Render(commas(s.Listeners)) + m.styles.dim.Render(" listening"),
+		m.styles.text.Render(commas(s.Playlists)) + m.styles.dim.Render(" on playlists"),
 		m.styles.text.Render(commas(len(s.Countries))) + m.styles.dim.Render(" countries"),
 	}
 	if len(s.Channels) > 0 && s.Channels[0].Listeners > 0 {
@@ -414,6 +420,7 @@ func (m *globeModel) renderSide(width, height int) []string {
 	head := []string{
 		pair(dim("LISTENERS"), dim("COUNTRIES")),
 		pair(text(commas(s.Listeners)), text(commas(len(s.Countries)))),
+		dim(commas(s.Playlists) + " on playlists"),
 		"",
 	}
 	if live {

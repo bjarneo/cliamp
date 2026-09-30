@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -12,6 +13,57 @@ import (
 type keymapEntry struct {
 	key, action string
 	divider     bool
+	// run is the key that Enter sends to run the entry. When run is empty,
+	// Enter shows hint instead.
+	run, hint string
+}
+
+// keyCodes holds the named keys that commands and plugins bind.
+var keyCodes = map[string]rune{
+	"enter": tea.KeyEnter, "esc": tea.KeyEscape, "tab": tea.KeyTab, "space": tea.KeySpace,
+	"backspace": tea.KeyBackspace, "delete": tea.KeyDelete, "insert": tea.KeyInsert,
+	"up": tea.KeyUp, "down": tea.KeyDown, "left": tea.KeyLeft, "right": tea.KeyRight,
+	"home": tea.KeyHome, "end": tea.KeyEnd, "pgup": tea.KeyPgUp, "pgdown": tea.KeyPgDown,
+	"f1": tea.KeyF1, "f2": tea.KeyF2, "f3": tea.KeyF3, "f4": tea.KeyF4, "f5": tea.KeyF5, "f6": tea.KeyF6,
+	"f7": tea.KeyF7, "f8": tea.KeyF8, "f9": tea.KeyF9, "f10": tea.KeyF10, "f11": tea.KeyF11, "f12": tea.KeyF12,
+}
+
+// keyPressFor builds a key press whose String value is key, such as "a",
+// "ctrl+x" or "shift+left". It returns false when it cannot build one.
+func keyPressFor(key string) (tea.KeyPressMsg, bool) {
+	var msg tea.KeyPressMsg
+	name := key
+	for {
+		mod, rest, found := strings.Cut(name, "+")
+		if !found || mod == "" || rest == "" {
+			break
+		}
+		switch mod {
+		case "ctrl":
+			msg.Mod |= tea.ModCtrl
+		case "alt":
+			msg.Mod |= tea.ModAlt
+		case "shift":
+			msg.Mod |= tea.ModShift
+		default:
+			return tea.KeyPressMsg{}, false
+		}
+		name = rest
+	}
+	if code, ok := keyCodes[name]; ok {
+		msg.Code = code
+		if code == tea.KeySpace && msg.Mod == 0 {
+			msg.Text = " "
+		}
+	} else if r, size := utf8.DecodeRuneInString(name); r != utf8.RuneError && size == len(name) {
+		msg.Code = r
+		if msg.Mod == 0 {
+			msg.Text = name
+		}
+	} else {
+		return tea.KeyPressMsg{}, false
+	}
+	return msg, msg.String() == key
 }
 
 // ReservedKeys returns a fresh copy of every key described by commandRegistry.
@@ -33,6 +85,7 @@ func ReservedKeys() map[string]bool {
 func (m Model) buildKeymapEntries() []keymapEntry {
 	out := make([]keymapEntry, 0, len(commandRegistry)+6)
 	seen := make(map[string]bool)
+	mode, screen := m.keymapContext()
 	add := func(command commandSpec) {
 		label := command.label(m)
 		id := command.KeyLabel + "\x00" + label
@@ -40,12 +93,20 @@ func (m Model) buildKeymapEntries() []keymapEntry {
 			return
 		}
 		seen[id] = true
-		out = append(out, keymapEntry{key: command.KeyLabel, action: label})
+		entry := keymapEntry{key: command.KeyLabel, action: label}
+		switch run := command.runKey(); {
+		case run == "":
+			entry.hint = "Close the keymap. Then press " + command.KeyLabel + "."
+		case command.Mode&mode == 0:
+			entry.hint = label + " is not available in " + screen + "."
+		default:
+			entry.run = run
+		}
+		out = append(out, entry)
 	}
 
-	mode, label := m.keymapContext()
 	if mode != commandModeMain {
-		out = append(out, keymapEntry{action: "— current: " + label + " —", divider: true})
+		out = append(out, keymapEntry{action: "— current: " + screen + " —", divider: true})
 		for _, command := range commandRegistry {
 			if command.Mode != commandModeAny && (command.Keymap || command.ContextHelp) && command.enabled(m) && command.Mode&mode != 0 {
 				add(command)
@@ -71,7 +132,7 @@ func (m Model) buildKeymapEntries() []keymapEntry {
 		if b.Plugin != "" {
 			label += "  (" + b.Plugin + ")"
 		}
-		out = append(out, keymapEntry{key: b.Key, action: label})
+		out = append(out, keymapEntry{key: b.Key, action: label, run: b.Key})
 	}
 	return out
 }
@@ -189,7 +250,7 @@ func (m *Model) keymapHelpLine() string {
 // separator with the match count.
 func (m Model) keymapHeaderLine() string {
 	if m.keymap.searching || m.keymap.search != "" {
-		return m.filterCountHeader("keymap", m.keymap.search, fmt.Sprintf("%d/%d", m.keymapCount(), len(m.keymap.entries)))
+		return m.filterHeader("Filter: Keymap", "keymap", m.keymap.search, fmt.Sprintf("%d/%d", m.keymapCount(), len(m.keymap.entries)))
 	}
 	return sepHeaderN("Keymap", m.keymap.cursor+1, len(m.keymap.entries))
 }
@@ -356,10 +417,47 @@ func (m *Model) handleKeymapKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 
 	case "enter", "l":
-		m.closeKeymap()
+		return m.runKeymapEntry()
 	}
 
 	return nil
+}
+
+// selectedKeymapEntry returns the entry under the keymap cursor.
+func (m *Model) selectedKeymapEntry() (keymapEntry, bool) {
+	idx := m.keymap.cursor
+	if m.keymap.search != "" {
+		if idx < 0 || idx >= len(m.keymap.filtered) {
+			return keymapEntry{}, false
+		}
+		idx = m.keymap.filtered[idx]
+	}
+	if idx < 0 || idx >= len(m.keymap.entries) {
+		return keymapEntry{}, false
+	}
+	return m.keymap.entries[idx], true
+}
+
+// runKeymapEntry runs the selected command. It closes the keymap and sends
+// the command key to handleKey, so the command acts as if the user pressed
+// the key on the screen that opened the keymap. An entry that one key press
+// cannot run keeps the keymap open and shows its hint.
+func (m *Model) runKeymapEntry() tea.Cmd {
+	entry, ok := m.selectedKeymapEntry()
+	if !ok || entry.divider {
+		return nil
+	}
+	msg, ok := keyPressFor(entry.run)
+	if !ok {
+		hint := entry.hint
+		if hint == "" {
+			hint = "Close the keymap. Then press " + entry.key + "."
+		}
+		m.status.Warning(hint, statusTTLMedium)
+		return nil
+	}
+	m.closeKeymap()
+	return m.handleKey(msg)
 }
 
 // updateKeymapFilter rebuilds the filtered indices and clamps the cursor.

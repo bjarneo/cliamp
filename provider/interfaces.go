@@ -230,6 +230,13 @@ type PlaylistWriter interface {
 	AddTrackToPlaylist(ctx context.Context, playlistID string, track playlist.Track) error
 }
 
+// PlaylistTargetFilter is implemented by PlaylistWriters whose playlist list
+// includes entries that cannot take new tracks, such as saved albums or
+// playlists that another user owns.
+type PlaylistTargetFilter interface {
+	CanAddToPlaylist(pl playlist.PlaylistInfo) bool
+}
+
 // PlaylistBatchWriter is implemented by providers that support adding multiple
 // tracks to existing playlists in one operation.
 type PlaylistBatchWriter interface {

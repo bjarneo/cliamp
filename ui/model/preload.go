@@ -33,8 +33,8 @@ func (m *Model) rearmPreload() tea.Cmd {
 }
 
 // preloadNext looks ahead in the playlist and preloads the next track for
-// gapless transition. Errors are silently ignored — playback falls back to
-// non-gapless if preloading fails.
+// gapless transition. A track whose preload failed is not retried until a new
+// track starts; playback falls back to non-gapless for it.
 //
 // For HTTP streams with a known duration, preloading is deferred until the
 // current track is within streamPreloadLeadTime of its end. This prevents the
@@ -44,30 +44,11 @@ func (m *Model) rearmPreload() tea.Cmd {
 // When position has not yet reached the threshold, this function returns nil
 // and the tick loop will retry on the next pass.
 func (m *Model) preloadNext() tea.Cmd {
-	// Live streams do not have a track boundary. Preloading another station
-	// would turn a transient EOF into a gapless switch instead of reconnecting
-	// the station the user selected.
-	current, currentIdx := m.currentPlaybackTrack()
-	if currentIdx >= 0 && m.currentPlaybackIsLive(current) {
-		return nil
-	}
-
-	var next playlist.Track
-	var ok bool
-	if m.playbackDetached {
-		var idx int
-		next, idx = m.playlist.Current()
-		ok = idx >= 0
-	} else {
-		next, ok = m.playlist.PeekNext()
-	}
-	if !ok {
+	next, ok := m.preloadTarget()
+	if !ok || next.Path == m.preloadFailed {
 		return nil
 	}
 	isYTDL := playlist.IsYTDL(next.Path)
-	if isYTDL && currentIdx >= 0 && next.Path == current.Path {
-		return nil
-	}
 	// Preload yt-dlp tracks with the same lead-time deferral as HTTP streams.
 	if isYTDL {
 		dur := m.player.Duration()
@@ -78,7 +59,7 @@ func (m *Model) preloadNext() tea.Cmd {
 			}
 		}
 		nextDur := time.Duration(next.DurationSecs) * time.Second
-		m.preloading = true
+		m.preloading, m.preloadFor = true, next.Path
 		return preloadYTDLStreamCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload), m.player.BeginPreload())
 	}
 	if next.Stream {
@@ -98,10 +79,51 @@ func (m *Model) preloadNext() tea.Cmd {
 		nextDur := time.Duration(next.DurationSecs) * time.Second
 		// Mark in-flight so the tick loop doesn't dispatch a second concurrent
 		// preload before this goroutine has finished arming gapless.SetNext.
-		m.preloading = true
+		m.preloading, m.preloadFor = true, next.Path
 		return preloadStreamCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload), m.player.BeginPreload())
 	}
 	nextDur := time.Duration(next.DurationSecs) * time.Second
-	m.preloading = true
+	m.preloading, m.preloadFor = true, next.Path
 	return preloadLocalCmd(m.player, next.Path, nextDur, nextRequest(&m.requests.preload), m.player.BeginPreload())
+}
+
+// preloadTarget returns the track the gapless pipeline should hold next. It is
+// false when nothing should be armed: a live stream is playing, the queue ends
+// here, or the next yt-dlp track is the one already playing.
+func (m *Model) preloadTarget() (playlist.Track, bool) {
+	// Live streams do not have a track boundary. Preloading another station
+	// would turn a transient EOF into a gapless switch instead of reconnecting
+	// the station the user selected.
+	current, currentIdx := m.currentPlaybackTrack()
+	if currentIdx >= 0 && m.currentPlaybackIsLive(current) {
+		return playlist.Track{}, false
+	}
+	var next playlist.Track
+	var ok bool
+	if m.playbackDetached {
+		var idx int
+		next, idx = m.playlist.Current()
+		ok = idx >= 0
+	} else {
+		next, ok = m.playlist.PeekNext()
+	}
+	if !ok || (playlist.IsYTDL(next.Path) && currentIdx >= 0 && next.Path == current.Path) {
+		return playlist.Track{}, false
+	}
+	return next, true
+}
+
+// dropStalePreload discards an armed or in-flight preload that is no longer
+// for the track that plays next, so a queue change can never play the old
+// one. Update runs it after every message; the tick loop then arms the new
+// next track.
+func (m *Model) dropStalePreload() {
+	if m.player == nil || m.playlist == nil || (!m.preloading && !m.player.HasPreload()) {
+		return
+	}
+	if next, ok := m.preloadTarget(); ok && next.Path == m.preloadFor {
+		return
+	}
+	m.preloading = false
+	m.player.ClearPreload()
 }

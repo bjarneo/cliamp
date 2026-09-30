@@ -48,16 +48,36 @@ func (m Model) promptHeader(field, label, value string) string {
 	return playlistSelectedStyle.Render(truncate("  "+label+": "+m.textWithCursor(field, value), ui.PanelWidth))
 }
 
-// filterPromptHeader renders a `/` filter input as the header line.
-func (m Model) filterPromptHeader(field, query string) string {
-	return playlistSelectedStyle.Render(truncate("  / "+m.textWithCursor(field, query), ui.PanelWidth))
-}
-
-// filterCountHeader renders a `/` filter prompt with a trailing match count,
-// kept to one panel-wide row by clipping the query to leave room for the count.
-func (m Model) filterCountHeader(field, query, count string) string {
-	maxPrompt := max(1, ui.PanelWidth-len(count)-2)
-	return playlistSelectedStyle.Render(truncate("  / "+m.textWithCursor(field, query), maxPrompt)) + dimStyle.Render("  "+count)
+// filterHeader renders the line of an open search or filter input. Every
+// input uses it, so each one shows the same mode badge, such as
+// "[Search: Spotify]", then the query with the editor cursor, an optional
+// count, and the key that exits the mode. The line stays one panel wide. On a
+// narrow panel it drops the count first and then the exit hint. The help line
+// still shows Esc.
+func (m Model) filterHeader(label, field, query, count string) string {
+	const minInput, minLabel = 8, 12
+	input := m.textWithCursor(field, query)
+	exit := "  " + helpKey("Esc", "Exit")
+	tail := exit
+	if count != "" {
+		tail = dimStyle.Render("  "+count) + exit
+	}
+	if ui.PanelWidth <= 0 {
+		return activeToggle.Render("  ["+label+"]") + " " + playlistSelectedStyle.Render(input) + tail
+	}
+	// The badge adds five columns: two spaces, two brackets, and one space.
+	labelRoom := func() int {
+		return ui.PanelWidth - lipgloss.Width(tail) - 5 - min(lipgloss.Width(input), minInput)
+	}
+	for _, shorter := range []string{exit, ""} {
+		if labelRoom() >= min(lipgloss.Width(label), minLabel) {
+			break
+		}
+		tail = shorter
+	}
+	label = truncate(label, max(1, labelRoom()))
+	inputRoom := ui.PanelWidth - lipgloss.Width(tail) - 5 - lipgloss.Width(label)
+	return activeToggle.Render("  ["+label+"]") + " " + playlistSelectedStyle.Render(truncate(input, max(1, inputRoom))) + tail
 }
 
 // windowList renders items[scroll:] into at most budget rows, applying the
@@ -219,7 +239,7 @@ func (m Model) renderMainBody() string {
 // — search —
 
 func (m Model) searchHeaderLine() string {
-	return m.filterCountHeader("playlist-search", m.search.query, m.formatListMatchCount(len(m.search.results), m.playlist.Len()))
+	return m.filterHeader("Filter: Playlist", "playlist-search", m.search.query, m.formatListMatchCount(len(m.search.results), m.playlist.Len()))
 }
 
 // — theme picker —
@@ -228,7 +248,7 @@ func (m Model) themeCount() int { return len(m.themes) + 1 }
 
 func (m Model) themePickerHeaderLine() string {
 	if m.themePicker.filtering || m.themePicker.filter != "" {
-		return m.filterCountHeader("theme-picker-filter", m.themePicker.filter, fmt.Sprintf("%d/%d", m.themePickerViewCount(), m.themeCount()))
+		return m.filterHeader("Filter: Themes", "theme-picker-filter", m.themePicker.filter, fmt.Sprintf("%d/%d", m.themePickerViewCount(), m.themeCount()))
 	}
 	return sepHeaderN("Themes", m.themePicker.cursor+1, m.themePickerViewCount())
 }
@@ -299,7 +319,10 @@ func (m Model) renderQueueBody() string {
 	}
 	total := m.playlist.QueueLen()
 	if total == 0 {
-		return bodyMessage("(empty)", budget)
+		return bodyLines([]string{
+			dimStyle.Render("  The queue is empty."),
+			m.pressKeyHint(commandModeMain, "a", "on a playlist track to play it next."),
+		}, budget)
 	}
 
 	var stateReporters []provider.PlaybackStateReporter
@@ -477,7 +500,7 @@ func (m Model) renderLyricsBody() string {
 	var lines []string
 	switch {
 	case m.lyrics.loading:
-		lines = append(lines, dimStyle.Render("  Searching for lyrics..."))
+		lines = append(lines, loadingLine("Searching for lyrics..."))
 	case m.lyrics.err != nil:
 		if errors.Is(m.lyrics.err, lyrics.ErrNotFound) {
 			lines = append(lines, dimStyle.Render("  No lyrics found for this track."))
@@ -537,6 +560,14 @@ func (m Model) renderLyricsBody() string {
 
 // — online (net) search —
 
+// providerName returns the name of prov, or "" when prov is nil.
+func providerName(prov playlist.Provider) string {
+	if prov == nil {
+		return ""
+	}
+	return prov.Name()
+}
+
 func (m Model) netSearchSource() string {
 	if m.netSearch.soundcloud {
 		return "SoundCloud"
@@ -546,9 +577,9 @@ func (m Model) netSearchSource() string {
 
 func (m Model) netSearchHeaderLine() string {
 	if m.netSearch.screen == netSearchResults {
-		return sepHeaderN("Online Results", m.netSearch.cursor+1, len(m.netSearch.results))
+		return sepHeaderN(m.netSearchSource()+" Results", m.netSearch.cursor+1, len(m.netSearch.results))
 	}
-	return m.promptHeader("net-search", m.netSearchSource()+" search", m.netSearch.query)
+	return m.filterHeader("Search: "+m.netSearchSource(), "net-search", m.netSearch.query, "")
 }
 
 func (m Model) netSearchHelpLine() string {
@@ -562,8 +593,11 @@ func (m Model) renderNetSearchBody() string {
 	budget := m.effectivePlaylistVisible()
 	if m.netSearch.screen == netSearchInput {
 		var lines []string
+		if m.netSearch.from != "" {
+			lines = append(lines, dimStyle.Render(fmt.Sprintf("  %s has no Ctrl+F search. This searches %s.", m.netSearch.from, m.netSearchSource())))
+		}
 		if m.netSearch.loading {
-			lines = append(lines, dimStyle.Render("  Searching "+m.netSearchSource()+"..."))
+			lines = append(lines, loadingLine("Searching "+m.netSearchSource()+"..."))
 		} else {
 			lines = append(lines, dimStyle.Render("  Type a query and press Enter to search "+m.netSearchSource()+"."))
 		}
@@ -598,7 +632,7 @@ func (m Model) spotSearchHeaderLine() string {
 	case spotSearchNewName:
 		return m.promptHeader("spot-playlist-name", "New Playlist", m.spotSearch.newName)
 	default:
-		return m.promptHeader("spot-search", "Search", m.spotSearch.query)
+		return m.filterHeader("Search: "+providerName(m.spotSearch.prov), "spot-search", m.spotSearch.query, "")
 	}
 }
 
@@ -617,7 +651,7 @@ func (m Model) spotSearchHelpLine() string {
 
 func (m Model) renderSpotSearchBody() string {
 	budget := m.effectivePlaylistVisible()
-	showError := m.spotSearch.err != "" && m.spotSearch.screen != spotSearchPlaylist
+	showError := m.spotSearch.err != ""
 	bodyBudget := budget
 	if showError {
 		bodyBudget = max(0, bodyBudget-1)
@@ -641,7 +675,7 @@ func (m Model) renderSpotSearchBody() string {
 		}
 	case spotSearchPlaylist:
 		if m.spotSearch.loading {
-			body = bodyLines([]string{loadingLine("Loading playlists…")}, budget)
+			body = bodyLines([]string{loadingLine("Loading playlists…")}, bodyBudget)
 			break
 		}
 		track := m.spotSearch.selTrack
@@ -655,14 +689,14 @@ func (m Model) renderSpotSearchBody() string {
 				items[i] = "+ New Playlist..."
 			}
 		}
-		list := windowList(items, m.spotSearch.cursor, m.spotSearch.scroll, max(0, budget-1))
+		list := windowList(items, m.spotSearch.cursor, m.spotSearch.scroll, max(0, bodyBudget-1))
 		body = strings.Join([]string{head, list}, "\n")
 	case spotSearchNewName:
 		body = bodyMessage("Enter a name for the new playlist above.", bodyBudget)
 	default:
 		var lines []string
 		if m.spotSearch.loading {
-			lines = append(lines, dimStyle.Render("  Searching..."))
+			lines = append(lines, loadingLine("Searching "+providerName(m.spotSearch.prov)+"..."))
 		} else {
 			lines = append(lines, dimStyle.Render("  Type a query and press Enter to search."))
 		}

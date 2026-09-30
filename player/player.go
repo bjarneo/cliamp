@@ -477,6 +477,9 @@ func (p *Player) TogglePause() {
 // the ALSA audio callback goroutine blocks (zero CPU) instead of streaming
 // silence. Resume is called automatically on the next Play().
 func (p *Player) Stop() {
+	// Reject a preload still loading in the background, as ClearPreload does,
+	// so it cannot arm a next track on the stopped player.
+	p.preloadGen.Add(1)
 	p.lifecycleMu.Lock()
 	p.mu.Lock()
 	active := p.current

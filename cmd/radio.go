@@ -26,14 +26,17 @@ const statsTimeout = 20 * time.Second
 // reportCountries caps the country table in the text report.
 const reportCountries = 15
 
-// RadioStats prints who is listening to the cliamp radio channels. With
-// jsonOutput the upstream statistics document is printed as-is, indented.
+// RadioStats prints who is listening to the cliamp radio channels, on the
+// live streams and on the channel playlists. With jsonOutput the upstream
+// statistics document of the live streams is printed as-is, indented.
 func RadioStats(ctx context.Context, w io.Writer, jsonOutput bool) error {
 	ctx, cancel := context.WithTimeout(ctx, statsTimeout)
 	defer cancel()
 	names := make(chan map[string]string, 1)
+	playlists := make(chan radio.TrackStatistics, 1)
 	if !jsonOutput {
 		go func() { names <- channelNames() }()
+		go func() { playlists <- fetchPlaylistStats(ctx) }()
 	}
 	stats, raw, err := radio.FetchStatistics(ctx)
 	if err != nil {
@@ -48,8 +51,20 @@ func RadioStats(ctx context.Context, w io.Writer, jsonOutput bool) error {
 		_, err = w.Write(buf.Bytes())
 		return err
 	}
-	_, err = io.WriteString(w, statsReport(stats.Summarize(<-names)))
+	channels := <-names
+	_, err = io.WriteString(w, statsReport(stats.Summarize(channels).WithPlaylists(<-playlists, channels)))
 	return err
+}
+
+// fetchPlaylistStats downloads the channel playlist statistics. They add to
+// the live stream numbers, so a failed request counts as nobody on the
+// playlists instead of failing the whole view.
+func fetchPlaylistStats(ctx context.Context) radio.TrackStatistics {
+	stats, err := radio.FetchTrackStatistics(ctx)
+	if err != nil {
+		return radio.TrackStatistics{}
+	}
+	return stats
 }
 
 // channelNames maps channel slugs to display names by reading the channel
@@ -108,6 +123,7 @@ func statsReport(s radio.Summary) string {
 		}
 	}
 	fmt.Fprintf(&b, "  %-16s %10s\n", "listening now", commas(s.Listeners))
+	fmt.Fprintf(&b, "  %-16s %10s\n", "on playlists", commas(s.Playlists))
 	fmt.Fprintf(&b, "  %-16s %10s\n", "countries", commas(len(s.Countries)))
 	fmt.Fprintf(&b, "  %-16s %s\n", "busiest channel", busiest)
 	fmt.Fprintf(&b, "  %-16s %10s\n", "all-time high", commas(s.Peak))

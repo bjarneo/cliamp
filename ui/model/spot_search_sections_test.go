@@ -189,3 +189,23 @@ func TestSpotSearchResultsScrollKeepsCursorVisible(t *testing.T) {
 		t.Errorf("cursor sits %d rows below scroll %d, window is %d", rows, m.spotSearch.scroll, visible)
 	}
 }
+
+func TestSpotSearchPickerShowsAddError(t *testing.T) {
+	m := newLayoutTestModel(80, 24)
+	m.spotSearch = spotSearchState{
+		visible:   true,
+		screen:    spotSearchPlaylist,
+		selTrack:  playlist.Track{Artist: "NOFX", Title: "Linoleum"},
+		playlists: []playlist.PlaylistInfo{{ID: "mine", Name: "Mine"}},
+		err:       "Add failed: http status 403: Forbidden",
+	}
+	m.recomputeLayout()
+
+	body := stripAnsi(m.renderSpotSearchBody())
+	if !strings.Contains(body, m.spotSearch.err) {
+		t.Fatalf("body = %q, want visible add error", body)
+	}
+	if got, want := len(strings.Split(body, "\n")), m.effectivePlaylistVisible(); got > want {
+		t.Fatalf("body rows = %d, want at most %d", got, want)
+	}
+}

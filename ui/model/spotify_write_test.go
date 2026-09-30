@@ -321,10 +321,7 @@ func TestLikeTrackFromSearchResults(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("Enter returned nil search command")
 	}
-	resultsMsg, ok := cmd().(spotSearchResultsMsg)
-	if !ok {
-		t.Fatalf("search produced %T", cmd())
-	}
+	resultsMsg := runCmdUntil[spotSearchResultsMsg](t, cmd)
 	updated, _ = m.Update(resultsMsg)
 	m = updated.(Model)
 	if m.spotSearch.screen != spotSearchResults || m.spotSearch.multi {

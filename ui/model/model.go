@@ -390,6 +390,8 @@ type Model struct {
 	pendingURLs []string
 	feedLoading bool
 
+	spinnerTicking bool // a spinnerTickMsg is pending
+
 	visVolumeLinked bool // when true, visualizer samples are scaled by volume gain
 	visRows         int  // configured visualizer height at the full tier; 0 uses ui.DefaultVisRows
 
@@ -455,6 +457,11 @@ type Model struct {
 
 	// preloading is true while a preloadStreamCmd goroutine is in-flight.
 	preloading bool
+	// preloadFor is the path of the armed or in-flight preload.
+	preloadFor string
+	// preloadFailed is the path of a track whose preload failed. It is not
+	// retried until a new track starts.
+	preloadFailed string
 
 	// Smart Shuffle session state; the mode flag itself lives in the playlist.
 	// fetching guards against concurrent recommendation requests, retryAt

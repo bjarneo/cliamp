@@ -12,6 +12,15 @@ import (
 type tickMsg time.Time
 type autoPlayMsg struct{}
 
+// spinnerTickMsg redraws the view so that a loading spinner advances. It runs
+// beside the main tick, which can still wait up to ui.TickIdle when a load
+// starts.
+type spinnerTickMsg struct{}
+
+func spinnerTickCmd() tea.Cmd {
+	return teaTick(spinnerInterval, func(time.Time) tea.Msg { return spinnerTickMsg{} })
+}
+
 var teaTick = tea.Tick
 
 func tickCmd() tea.Cmd {
@@ -176,6 +185,9 @@ func (m *Model) tickInterval() time.Duration {
 	if m.visualizerVisible() {
 		d = m.vis.TickInterval(m.visualizerTickContext(time.Time{}))
 	}
+	if m.spinnerVisible() {
+		d = min(d, spinnerInterval)
+	}
 	// Keep the seek bar / time counter smooth while audio is playing, even
 	// when the visualizer driver wants a slow cadence (VisNone, classic peak
 	// idle, etc.). Overlays, paused, and stopped playback keep the slower
@@ -218,7 +230,7 @@ func (m *Model) isFullyIdle() bool {
 	if m.visualizerSettlingPaused() {
 		return false
 	}
-	if m.isOverlayActive() || m.buffering || m.termTitle.introActive {
+	if m.isOverlayActive() || m.buffering || m.termTitle.introActive || m.spinnerVisible() {
 		return false
 	}
 	if !m.status.expiresAt.IsZero() || len(m.logLines) > 0 {
@@ -228,6 +240,18 @@ func (m *Model) isFullyIdle() bool {
 		return false
 	}
 	return true
+}
+
+// spinnerVisible reports whether a loading spinner is on the screen. The tick
+// then redraws at least every spinnerInterval so that the frames advance.
+func (m *Model) spinnerVisible() bool {
+	return m.provLoading || m.provSearch.loading || m.catalogBatch.loading || m.feedLoading ||
+		(m.lyrics.visible && m.lyrics.loading) ||
+		(m.netSearch.active && m.netSearch.loading) ||
+		(m.spotSearch.visible && (m.spotSearch.loading || m.spotSearch.albumLoading)) ||
+		(m.navBrowser.visible && (m.navBrowser.loading || m.navBrowser.albumLoading)) ||
+		(m.devicePicker.visible && m.devicePicker.loading) ||
+		(m.subs.visible && m.subs.loading)
 }
 
 func (m *Model) tickVisualizer(now time.Time) {

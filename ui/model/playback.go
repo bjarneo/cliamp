@@ -508,7 +508,9 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		return playYTDLStreamCmd(m.player, track.Path, dur, m.requests.stream)
 	}
 	dur := time.Duration(track.DurationSecs) * time.Second
-	if track.Stream {
+	// Custom URIs such as spotify: open over the network, which can take
+	// seconds. Start them off the Update goroutine like streams.
+	if track.Stream || m.isCustomStreamURI(track.Path) {
 		m.buffering = true
 		m.bufferingAt = time.Now()
 		m.err = nil
@@ -541,6 +543,23 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		return tea.Batch(m.preloadNext(), fetchCmd, m.smartMaybeFetch())
 	}
 	return tea.Batch(m.preloadNext(), m.smartMaybeFetch())
+}
+
+// isCustomStreamURI reports whether a provider decodes path itself, as the
+// Spotify provider does for spotify: URIs.
+func (m *Model) isCustomStreamURI(path string) bool {
+	for _, pe := range m.providers {
+		cs, ok := pe.Provider.(provider.CustomStreamer)
+		if !ok {
+			continue
+		}
+		for _, scheme := range cs.URISchemes() {
+			if strings.HasPrefix(path, scheme) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (m *Model) backfillLoadedPlaylistDuration(track playlist.Track) {
@@ -591,6 +610,7 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	}
 	nextRequest(&m.requests.preload)
 	m.preloading = false
+	m.preloadFailed = ""
 	nextRequest(&m.requests.lyrics)
 	track = playlist.RefreshEmbeddedMetadata(track)
 	context, index := track.PlaybackContext()
