@@ -4,6 +4,12 @@ Press `Ctrl+K` in any mode, or `?` in the player, to view keybindings. The
 keymap first shows commands for the active screen. It then shows player and
 library commands.
 
+To run a command, select it and press `Enter`. The command acts as if you
+pressed its key on the screen that opened the keymap. Press `/` to filter the
+list first. The keymap cannot run key pairs such as `Left` `Right`, the `N`
+then `j` seek, or a player command while another screen is open. For these
+entries, a status message tells you which key to press.
+
 ## Playback
 
 | Key | Action |
@@ -29,12 +35,12 @@ library commands.
 | `j` `k` / `Up` `Down` | Move playlist cursor (wraps); see focused settings below for control actions |
 | `PageUp` `PageDown` / `Ctrl+U` `Ctrl+D` | Scroll playlist/file browser by page (outside text input) |
 | `Home` `End` / `g` `G` | Go to top/end of playlist/file browser |
-| `Shift+Up` `Shift+Down` | Move track up/down in playlist/queue |
+| `Shift+Up` `Shift+Down` | Move track up/down in playlist/queue. Turn off shuffle to move a playlist track. |
 | `h` `l` | Adjust the focused setting (EQ: select band) |
 | `Enter` | Play selected track |
-| `/` | Search playlist (navigate results with `↑` `↓` / `Ctrl+N` `Ctrl+P`; `Ctrl+U` clears the query) |
+| `/` | Filter the playlist (navigate results with `↑` `↓` / `Ctrl+N` `Ctrl+P`; `Ctrl+U` clears the query; `Tab` toggles the queue for the selected result) |
 | `Ctrl+X` | Expand/collapse playlist |
-| `Ctrl+Z` | Undo the last playlist removal or queue clear |
+| `Ctrl+Z` | Undo the last playlist or queue change |
 | `o` | Open file browser |
 | `b` `Esc` | Back to provider |
 
@@ -74,6 +80,24 @@ Home filter/new-playlist fields support these editor keys:
 
 The Metadata shortcut is inactive while a text input is active.
 
+### Search and filter modes
+
+`/` filters the list on the screen. `Ctrl+F` searches the active provider. In
+Radio and Podcasts, `/` sends the query to the provider when you press
+`Enter`.
+
+While a search or filter input is open, its line starts with a badge that
+names the mode and the source, such as `[Filter: Playlist]`, `[Filter: Files]`,
+`[Search: Spotify]` or `[Search: Radio]`. The line ends with `Esc Exit`. Press
+`Esc` to leave the input. On a narrow panel, the hint bar still shows `Esc`.
+
+If the active provider has no `Ctrl+F` search, `Ctrl+F` searches YouTube. The
+overlay shows `[Search: YouTube]` and names the provider that has no search.
+
+After a Radio or Podcasts search, the provider header shows `Search results`
+and the hint bar shows `Esc Clear search`. Press `Esc` to go back to the full
+list.
+
 ## EQ and Appearance
 
 | Key | Action |
@@ -98,12 +122,13 @@ and `Esc` clears it.
 |---|---|
 | `f` | Toggle bookmark ★ on the selected track. For directory radio stations outside saved local playlists, toggle Radio Favorites from the browser or playback playlist, including country and genre results. In the country browser, pin the selected country or region. On a podcast show, subscribe or unsubscribe. |
 | `n` | Toggle favorite ♥ on the selected track while the playback playlist has focus. Favorited tracks appear in the cross-playlist "Favorites" virtual playlist. |
-| `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, Local), or search YouTube. Available in playlist and provider-browser views. |
+| `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, Local), or search YouTube. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
 | `u` | Load URL (stream/playlist) |
 | `;` | Open the track context menu on the highlighted track |
 | `W` (`Shift+W`) | Go to song radio: queue recommendations seeded from the highlighted track (providers with recommendation support, e.g. Spotify) |
 | `Ctrl+A` | Go to the highlighted track's album |
 | `Ctrl+T` | Go to the highlighted track's artist |
+| `d` | Open the audio device picker |
 | `y` | Show or close lyrics |
 | `r` | Retry lyrics lookup while lyrics are open |
 | `[` / `]` | Adjust synced-lyrics timing offset (−/+250 ms) while lyrics show timestamped lines |
@@ -187,6 +212,12 @@ every action here also has a keyboard equivalent.
 | `r` | Cycle repeat mode (Off / All / One) |
 | `z` | Toggle shuffle |
 | `Z` | Toggle Smart Shuffle — recommended tracks mix into the end of the queue (Spotify queues; rows marked ✚) |
+
+While shuffle is on, the playlist lists tracks in play order. The tracks that
+played before the current track are above it. The tracks that play next are
+below it. Each row keeps its original track number. When you turn off shuffle,
+the playlist returns to the original order and the cursor stays on the same
+track.
 
 ### Inside the subscribed shows overlay
 
@@ -393,5 +424,5 @@ query to their search API. Their services control matching rules.
 
 | Key | Action |
 |---|---|
-| `?` / `Ctrl+K` | Show keymap |
-| `q` | Quit |
+| `?` / `Ctrl+K` | Show keymap. `Enter` runs the selected command. |
+| `q` / `Ctrl+C` | Quit |

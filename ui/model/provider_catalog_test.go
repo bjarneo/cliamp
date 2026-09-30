@@ -96,14 +96,14 @@ func TestProviderSearchRenderingUsesCatalogCapability(t *testing.T) {
 				m := Model{provider: prov, plVisible: 6, provLoading: loading,
 					provSearch: provSearchState{active: true, query: query}}
 				body := stripAnsi(m.renderProviderList())
-				want := "Type to filter"
+				want, mode := "Type to filter", "[Filter: "
 				if query != "" {
 					want = "No matches"
 				}
 				if _, ok := prov.(provider.CatalogSearcher); ok {
-					want = "Enter to search"
+					want, mode = "Enter to search", "[Search: "
 				}
-				if !strings.Contains(body, "/ "+query+"_") || !strings.Contains(body, want) || strings.Contains(body, "station") {
+				if !strings.Contains(body, mode+prov.Name()+"] "+query+"_") || !strings.Contains(body, "Esc") || !strings.Contains(body, want) || strings.Contains(body, "station") {
 					t.Fatalf("%T query=%q loading=%t: body = %q, want visible input and %q", prov, query, loading, body, want)
 				}
 			}

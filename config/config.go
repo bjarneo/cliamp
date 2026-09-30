@@ -367,7 +367,7 @@ type Config struct {
 	Speed            float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
 	AutoPlay         bool                         // start playback automatically on launch (radio streams, CLI tracks)
 	SeekStepLarge    int                          // seconds for Shift+Left/Right seek jumps
-	Provider         string                       // default provider: "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "mixcloud", "netease", "yandex", "ytmusic" (default "radio")
+	Provider         string                       // default provider: "cliamp", "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "mixcloud", "netease", "yandex", "ytmusic" (default "cliamp")
 	Theme            string                       // theme name, or "" for ANSI default
 	Visualizer       string                       // visualizer mode name, or "" for default (Bars)
 	VisRows          int                          // visualizer height in rows at the full layout tier, or 0 for the built-in default

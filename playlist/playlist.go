@@ -465,9 +465,9 @@ func windowBounds(length, start, limit int) (int, int) {
 	return start, end
 }
 
-func (p *Playlist) cloneQueuedTracks(queue []int) []Track {
-	tracks := make([]Track, len(queue))
-	for i, idx := range queue {
+func (p *Playlist) cloneTracksAt(indices []int) []Track {
+	tracks := make([]Track, len(indices))
+	for i, idx := range indices {
 		tracks[i] = cloneTrack(p.tracks[idx])
 	}
 	return tracks
@@ -939,7 +939,7 @@ func (p *Playlist) QueueLen() int {
 func (p *Playlist) QueueTracks() []Track {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.cloneQueuedTracks(p.queue)
+	return p.cloneTracksAt(p.queue)
 }
 
 // QueueEntries returns copies of play-next entries in their playback order.
@@ -961,7 +961,7 @@ func (p *Playlist) QueueWindow(start, limit int) []Track {
 	if start == end {
 		return nil
 	}
-	return p.cloneQueuedTracks(p.queue[start:end])
+	return p.cloneTracksAt(p.queue[start:end])
 }
 
 // ClearQueue removes all entries from the play-next queue.
@@ -1192,7 +1192,7 @@ func (p *Playlist) SetTrack(i int, t Track) {
 }
 
 // Tracks returns an independent snapshot of all tracks in the playlist.
-// Render paths should use TrackWindow to avoid copying the full playlist.
+// Render paths should use OrderWindow to avoid copying the full playlist.
 func (p *Playlist) Tracks() []Track {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -1209,16 +1209,34 @@ func (p *Playlist) Track(index int) (Track, bool) {
 	return cloneTrack(p.tracks[index]), true
 }
 
-// TrackWindow returns independent copies of at most limit tracks starting at
-// start. It is intended for bounded render windows.
-func (p *Playlist) TrackWindow(start, limit int) []Track {
+// OrderWindow returns the track indices and independent track copies at no
+// more than limit play order positions from position start. While shuffle is
+// on, the play order is the shuffle order. Otherwise, it is the track order.
+// It is intended for bounded render windows.
+func (p *Playlist) OrderWindow(start, limit int) ([]int, []Track) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	start, end := windowBounds(len(p.tracks), start, limit)
+	start, end := windowBounds(len(p.order), start, limit)
 	if start == end {
-		return nil
+		return nil, nil
 	}
-	return cloneTracks(p.tracks[start:end])
+	indices := slices.Clone(p.order[start:end])
+	return indices, p.cloneTracksAt(indices)
+}
+
+// OrderPosition returns the play order position of the track at index idx.
+// It returns -1 if idx is out of range.
+func (p *Playlist) OrderPosition(idx int) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if idx < 0 || idx >= len(p.tracks) {
+		return -1
+	}
+	if !p.shuffle {
+		// Without shuffle, the play order is the track order.
+		return idx
+	}
+	return slices.Index(p.order, idx)
 }
 
 // ToggleBookmark flips the Bookmark flag on the track at the given index.

@@ -188,3 +188,69 @@ func TestSummarizeDailyWindow(t *testing.T) {
 		t.Errorf("window = %s .. %s", sum.Daily[0].Date, sum.Daily[DailyWindow-1].Date)
 	}
 }
+
+func TestSummaryWithPlaylists(t *testing.T) {
+	radioStats := Statistics{Stations: map[string]StationStats{
+		"edm": {
+			ActiveListeners: 2, TotalSessions: 10,
+			ActiveListenerCountries: []CountryStats{{Country: "United States", CountryCode: "US", Sessions: 2}},
+		},
+	}}
+	playlists := TrackStatistics{Stations: map[string]TrackStationStats{
+		"omarchy": {
+			ActiveListeners: 3,
+			ActiveListenerCountries: []TrackListenerCountry{
+				{Country: "United States", CountryCode: "US", Listeners: 2},
+				{Country: "Norway", CountryCode: "no", Listeners: 1},
+			},
+		},
+		"edm": {ActiveListeners: 1, ActiveListenerCountries: []TrackListenerCountry{{Country: "Germany", CountryCode: "DE", Listeners: 1}}},
+	}}
+	names := map[string]string{"edm": "EDM", "omarchy": "Omarchy"}
+
+	radioOnly := radioStats.Summarize(names)
+	sum := radioOnly.WithPlaylists(playlists, names)
+
+	if sum.Listeners != 6 || sum.Playlists != 4 {
+		t.Errorf("listeners = %d, playlists = %d, want 6 and 4", sum.Listeners, sum.Playlists)
+	}
+	wantCountries := []CountryCount{{"US", "United States", 4}, {"DE", "Germany", 1}, {"NO", "Norway", 1}}
+	if len(sum.Countries) != len(wantCountries) {
+		t.Fatalf("countries = %+v, want %+v", sum.Countries, wantCountries)
+	}
+	for i, want := range wantCountries {
+		if sum.Countries[i] != want {
+			t.Errorf("countries[%d] = %+v, want %+v", i, sum.Countries[i], want)
+		}
+	}
+	if len(sum.Channels) != 2 || sum.Channels[0].Name != "EDM" || sum.Channels[0].Listeners != 3 ||
+		sum.Channels[1].Name != "Omarchy" || sum.Channels[1].Listeners != 3 {
+		t.Errorf("channels = %+v, want EDM and Omarchy with 3 listeners each", sum.Channels)
+	}
+	if radioOnly.Listeners != 2 || len(radioOnly.Countries) != 1 || radioOnly.Channels[0].Listeners != 2 {
+		t.Errorf("WithPlaylists changed the summary it was called on: %+v", radioOnly)
+	}
+}
+
+func TestFetchTrackStatistics(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/tracks/statistics" {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprint(w, `{"total_plays":345,"peak_listeners":4,"stations":{"omarchy":{"total_plays":321,"active_listeners":2,
+			"active_listener_countries":[{"country":"Norway","country_code":"NO","listeners":2}]}}}`)
+	}))
+	defer srv.Close()
+	installCatalogClient(t, srv.URL)
+
+	stats, err := FetchTrackStatistics(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	omarchy := stats.Stations["omarchy"]
+	if stats.TotalPlays != 345 || omarchy.ActiveListeners != 2 || len(omarchy.ActiveListenerCountries) != 1 ||
+		omarchy.ActiveListenerCountries[0].Listeners != 2 {
+		t.Errorf("stats = %+v", stats)
+	}
+}

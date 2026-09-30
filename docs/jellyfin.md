@@ -62,5 +62,6 @@ cliamp authenticates with a configured token or the supplied username and passwo
 
 ## Known limitations
 
-- **No scrobbling/write-back**: cliamp does not report plays to Jellyfin.
+- **Playback reporting**: cliamp reports now-playing status, progress, and stop
+  events to Jellyfin, so the server can track play activity and history.
 - **Token-based access**: Store the API token safely.

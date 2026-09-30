@@ -22,7 +22,7 @@ import (
 func (m Model) homeHeaderLine() string {
 	if m.home.filtering || m.home.filter != "" {
 		rows := m.homeRows()
-		return m.filterCountHeader("home-filter", m.home.filter, fmt.Sprintf("%d/%d", len(rows), m.homeRowsTotal()))
+		return m.filterHeader("Filter: Home", "home-filter", m.home.filter, fmt.Sprintf("%d/%d", len(rows), m.homeRowsTotal()))
 	}
 	if m.home.screen == homeScreenNewName {
 		return m.promptHeader("home-new-name", "New Playlist", m.home.newName)

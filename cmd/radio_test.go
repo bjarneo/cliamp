@@ -17,6 +17,7 @@ import (
 func sampleSummary() radio.Summary {
 	return radio.Summary{
 		Listeners: 197,
+		Playlists: 12,
 		Countries: []radio.CountryCount{
 			{Code: "US", Name: "United States", Count: 48},
 			{Code: "DE", Name: "Germany", Count: 22},
@@ -43,6 +44,7 @@ func TestStatsReport(t *testing.T) {
 	for _, want := range []string{
 		"who's listening right now",
 		"listening now           197",
+		"on playlists             12",
 		"countries                 4",
 		"busiest channel  EDM (52 listening)",
 		"all-time high           280",
@@ -174,7 +176,7 @@ func TestGlobeModelView(t *testing.T) {
 			t.Errorf("line %d is %d cells wide, want <= %d", i, w, m.width)
 		}
 	}
-	for _, want := range []string{"cliamp radio", "LISTENERS", "United States", "EDM", "783,681", "LISTENING HOURS · LAST 31 DAYS", "q quit", "● live"} {
+	for _, want := range []string{"cliamp radio", "LISTENERS", "12 on playlists", "United States", "EDM", "783,681", "LISTENING HOURS · LAST 31 DAYS", "q quit", "● live"} {
 		if !strings.Contains(view.Content, want) {
 			t.Errorf("view lacks %q", want)
 		}
@@ -190,7 +192,7 @@ func TestGlobeModelView(t *testing.T) {
 	}
 
 	m.Update(tea.WindowSizeMsg{Width: 70, Height: 30})
-	if content := ansi.Strip(m.View().Content); !strings.Contains(content, "197 listening") || strings.Contains(content, "LISTENING HOURS") {
+	if content := ansi.Strip(m.View().Content); !strings.Contains(content, "197 listening") || !strings.Contains(content, "12 on playlists") || strings.Contains(content, "LISTENING HOURS") {
 		t.Errorf("narrow view should swap the panel for the strip:\n%s", content)
 	}
 	if lines := strings.Split(m.View().Content, "\n"); len(lines) != 30 {

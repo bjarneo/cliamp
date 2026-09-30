@@ -52,10 +52,11 @@ func isSavedAlbumID(id string) (albumID string, ok bool) {
 
 // spotifyPlaylistItem is the raw playlist object returned by /v1/me/playlists.
 type spotifyPlaylistItem struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	SnapshotID string `json:"snapshot_id"`
-	Owner      struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	SnapshotID    string `json:"snapshot_id"`
+	Collaborative bool   `json:"collaborative"`
+	Owner         struct {
 		ID string `json:"id"`
 	} `json:"owner"`
 	Items *struct {

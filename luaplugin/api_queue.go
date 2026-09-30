@@ -1,6 +1,12 @@
 package luaplugin
 
-import lua "github.com/yuin/gopher-lua"
+import (
+	"fmt"
+	"math"
+	"strings"
+
+	lua "github.com/yuin/gopher-lua"
+)
 
 // registerQueueAPI adds cliamp.queue.* to the cliamp table.
 //
@@ -12,7 +18,8 @@ import lua "github.com/yuin/gopher-lua"
 func registerQueueAPI(L *lua.LState, cliamp *lua.LTable, state *StateProvider, ctrl *ControlProvider, p *Plugin, logger *pluginLogger) {
 	tbl := L.NewTable()
 
-	// cliamp.queue.list() -> array of {title, artist, album, path, index, queued}
+	// cliamp.queue.list() -> array of {title, artist, album, genre, year, path,
+	// duration, stream, index, queued}
 	L.SetField(tbl, "list", L.NewFunction(func(L *lua.LState) int {
 		out := L.NewTable()
 		if state.QueueList != nil {
@@ -21,7 +28,11 @@ func registerQueueAPI(L *lua.LState, cliamp *lua.LTable, state *StateProvider, c
 				row.RawSetString("title", lua.LString(e.Title))
 				row.RawSetString("artist", lua.LString(e.Artist))
 				row.RawSetString("album", lua.LString(e.Album))
+				row.RawSetString("genre", lua.LString(e.Genre))
+				row.RawSetString("year", lua.LNumber(e.Year))
 				row.RawSetString("path", lua.LString(e.Path))
+				row.RawSetString("duration", lua.LNumber(e.Duration))
+				row.RawSetString("stream", lua.LBool(e.Stream))
 				row.RawSetString("index", lua.LNumber(e.Index))
 				row.RawSetString("queued", lua.LBool(e.Queued))
 				out.RawSetInt(i+1, row)
@@ -74,7 +85,29 @@ func registerQueueAPI(L *lua.LState, cliamp *lua.LTable, state *StateProvider, c
 	}
 
 	// cliamp.queue.add(path) — resolve a file/dir/URL and append to the playlist.
+	// cliamp.queue.add(track) -> true | nil, err — append the track a table
+	// describes, as given, without resolving its path.
 	L.SetField(tbl, "add", L.NewFunction(func(L *lua.LState) int {
+		if t, ok := L.Get(1).(*lua.LTable); ok {
+			var track QueueTrack
+			var err error
+			switch {
+			case !guard("add"):
+				err = fmt.Errorf("requires permissions = {\"control\"}")
+			case ctrl.QueueAddTrack == nil:
+				err = fmt.Errorf("unavailable")
+			default:
+				track, err = queueTrackFromTable(t)
+			}
+			if err != nil {
+				L.Push(lua.LNil)
+				L.Push(lua.LString("queue.add: " + err.Error()))
+				return 2
+			}
+			ctrl.QueueAddTrack(track)
+			L.Push(lua.LTrue)
+			return 1
+		}
 		path := L.CheckString(1)
 		if guard("add") && ctrl.QueueAdd != nil {
 			ctrl.QueueAdd(path)
@@ -111,4 +144,57 @@ func registerQueueAPI(L *lua.LState, cliamp *lua.LTable, state *StateProvider, c
 	}))
 
 	L.SetField(cliamp, "queue", tbl)
+}
+
+// maxTrackNumber caps year and duration in a track table. It fits an int on
+// every platform, and a duration this long still fits a time.Duration.
+const maxTrackNumber = math.MaxInt32
+
+// queueTrackFromTable reads a track table in the shape plugins receive in
+// events ({title, artist, album, genre, year, path, duration, stream}).
+// Only path is required. Other keys are ignored, so a table from an event or
+// from queue.list can be passed straight back.
+func queueTrackFromTable(t *lua.LTable) (QueueTrack, error) {
+	var track QueueTrack
+	path, ok := t.RawGetString("path").(lua.LString)
+	if !ok || strings.TrimSpace(string(path)) == "" {
+		return track, fmt.Errorf("path must be a non-empty string")
+	}
+	track.Path = string(path)
+	for _, f := range []struct {
+		key string
+		dst *string
+	}{{"title", &track.Title}, {"artist", &track.Artist}, {"album", &track.Album}, {"genre", &track.Genre}} {
+		switch v := t.RawGetString(f.key).(type) {
+		case *lua.LNilType:
+		case lua.LString:
+			*f.dst = string(v)
+		default:
+			return track, fmt.Errorf("%s must be a string, got %s", f.key, v.Type())
+		}
+	}
+	for _, f := range []struct {
+		key string
+		dst *int
+	}{{"year", &track.Year}, {"duration", &track.Duration}} {
+		switch v := t.RawGetString(f.key).(type) {
+		case *lua.LNilType:
+		case lua.LNumber:
+			n := float64(v)
+			if !(n >= 0 && n <= maxTrackNumber) {
+				return track, fmt.Errorf("%s must be a number from 0 to %d", f.key, maxTrackNumber)
+			}
+			*f.dst = int(n)
+		default:
+			return track, fmt.Errorf("%s must be a number, got %s", f.key, v.Type())
+		}
+	}
+	switch v := t.RawGetString("stream").(type) {
+	case *lua.LNilType:
+	case lua.LBool:
+		track.Stream = bool(v)
+	default:
+		return track, fmt.Errorf("stream must be a boolean, got %s", v.Type())
+	}
+	return track, nil
 }

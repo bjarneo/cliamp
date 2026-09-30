@@ -278,7 +278,7 @@ do not need `feed = true` for these URLs.
 
 ### Browsing and Loading Playlists
 
-Run `cliamp` without arguments to connect to the built-in radio channel. If you configure Navidrome, cliamp opens the provider browser instead.
+Run `cliamp` without arguments to open the provider browser of your default provider. The default provider, `cliamp`, lists the cliamp radio channels. See [radio.md](radio.md#cliamp-radio).
 
 To browse local playlists, press `Esc` or `b` during playback to open the
 provider browser. Use `Up`/`Down` or `j`/`k` to navigate. Press `Enter` to load

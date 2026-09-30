@@ -10,7 +10,7 @@ import (
 // otherwise the show count.
 func (m *Model) subsHeaderLine() string {
 	if m.subs.filtering {
-		return m.filterCountHeader("subs-filter", m.subs.filter, fmt.Sprintf("%d shows", len(m.subsVisibleShows())))
+		return m.filterHeader("Filter: Shows", "subs-filter", m.subs.filter, fmt.Sprintf("%d shows", len(m.subsVisibleShows())))
 	}
 	return sepHeaderN("Subscriptions", m.subs.cursor+1, len(m.subsVisibleShows()))
 }

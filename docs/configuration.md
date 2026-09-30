@@ -81,11 +81,11 @@ visualizer = "Bars"
 # even at very low volume levels.
 vis_volume_linked = true
 
-# Visualizer height in rows (default: 5), used at the full layout tier.
+# Visualizer height in rows (default: 7), used at the full layout tier.
 # Extra rows are taken from the playlist below, and the layout caps the value
 # at what the terminal can spare, always leaving one playlist row. Range 1-40.
 # The full screen visualizer (V) is unaffected: it always fills the terminal.
-vis_rows = 5
+vis_rows = 7
 
 # Reduce CPU usage by lowering UI cadence and disabling visualization.
 # This has the same effect as starting with --low-power.
@@ -286,10 +286,12 @@ Rules:
 Set the provider that cliamp opens at start:
 
 ```toml
-provider = "radio"
+provider = "cliamp"
 ```
 
-Valid values: `radio` (default), `podcast`, `navidrome`, `lyrion`, `spotify`, `plex`, `jellyfin`, `emby`, `qobuz`, `tidal`, `soundcloud`, `mixcloud`, `netease`, `audiobookshelf`, `yt`, `youtube`, `ytmusic`.
+The default, `cliamp`, opens on the cliamp radio channels. See [radio.md](radio.md#cliamp-radio).
+
+Valid values: `cliamp` (default), `radio`, `podcast`, `navidrome`, `lyrion`, `spotify`, `plex`, `jellyfin`, `emby`, `qobuz`, `tidal`, `soundcloud`, `mixcloud`, `netease`, `audiobookshelf`, `yt`, `youtube`, `ytmusic`.
 
 You can also override this setting on the CLI: `cliamp --provider jellyfin`.
 

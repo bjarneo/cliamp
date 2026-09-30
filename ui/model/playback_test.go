@@ -33,6 +33,7 @@ type playbackFakeEngine struct {
 	seekYTDLCalls       []time.Duration
 	playAtOffsets       []time.Duration
 	preloadCalls        []string
+	preloadErr          error
 	clearPreloadCalls   int
 	cancelSeekYTDLCalls int
 	stopCalls           int
@@ -81,6 +82,10 @@ func (f *playbackFakeEngine) PreloadForGeneration(path string, dur time.Duration
 	if f.preloadGeneration != generation {
 		return nil
 	}
+	if f.preloadErr != nil {
+		f.preloadCalls = append(f.preloadCalls, path)
+		return f.preloadErr
+	}
 	return f.Preload(path, dur)
 }
 func (f *playbackFakeEngine) PreloadYTDLForGeneration(path string, _ time.Duration, generation uint64) error {
@@ -93,6 +98,7 @@ func (f *playbackFakeEngine) PreloadYTDLForGeneration(path string, _ time.Durati
 func (f *playbackFakeEngine) ClearPreload() {
 	f.clearPreloadCalls++
 	f.preloadGeneration++
+	f.hasPreload = false
 }
 func (f *playbackFakeEngine) Stop() {
 	f.stopCalls++
@@ -1211,6 +1217,61 @@ func TestQueueToggleRearmsGaplessPreload(t *testing.T) {
 	if len(player.preloadCalls) != 1 || player.preloadCalls[0] != "c.mp3" {
 		t.Fatalf("preloadCalls = %v, want [c.mp3] (queued track, not order-next b.mp3)", player.preloadCalls)
 	}
+}
+
+// A preload that fails is not retried on every tick. A new track starting gives
+// it another try, and a different next track is still armed.
+func TestFailedPreloadIsNotRetriedEveryTick(t *testing.T) {
+	failed := func(t *testing.T) (Model, *playbackFakeEngine) {
+		t.Helper()
+		player := &playbackFakeEngine{playing: true, preloadErr: errors.New("decode failed")}
+		p := playlist.New()
+		p.Replace([]playlist.Track{
+			{Title: "A", Path: "a.mp3", DurationSecs: 180},
+			{Title: "B", Path: "b.mp3", DurationSecs: 180},
+			{Title: "C", Path: "c.mp3", DurationSecs: 180},
+		})
+		p.SetIndex(0)
+		m := Model{player: player, playlist: p, vis: ui.NewVisualizer(float64(player.SampleRate()))}
+		m.SetVisualizer("none")
+		m.setPlaybackTrack(p.Tracks()[0])
+
+		cmd := m.preloadNext()
+		if cmd == nil {
+			t.Fatal("preloadNext() = nil, want b.mp3 preload")
+		}
+		updated, _ := m.Update(cmd())
+		m = updated.(Model)
+		for range 3 {
+			updated, _ = m.Update(tickMsg(time.Now()))
+			m = updated.(Model)
+			if m.preloading {
+				t.Fatal("tick started the failed b.mp3 preload again")
+			}
+		}
+		if len(player.preloadCalls) != 1 || player.preloadCalls[0] != "b.mp3" {
+			t.Fatalf("preloadCalls = %v, want one failed attempt for b.mp3", player.preloadCalls)
+		}
+		return m, player
+	}
+
+	t.Run("new track retries", func(t *testing.T) {
+		m, _ := failed(t)
+		updated, _ := m.Update(PluginQueueMsg{Op: "jump", Index: 0})
+		if !updated.(Model).preloading {
+			t.Fatal("b.mp3 was not preloaded again after a new track started")
+		}
+	})
+
+	t.Run("different next track is armed", func(t *testing.T) {
+		m, player := failed(t)
+		player.preloadErr = nil
+		updated, _ := m.Update(PluginQueueMsg{Op: "remove", Index: 1})
+		updated, _ = updated.(Model).Update(tickMsg(time.Now()))
+		if !updated.(Model).preloading {
+			t.Fatal("tick did not arm c.mp3 after the failed b.mp3 was removed")
+		}
+	})
 }
 
 // A reconnect already scheduled when the user stops must not start playback

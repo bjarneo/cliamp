@@ -1,6 +1,8 @@
 package model
 
 import (
+	"errors"
+	"slices"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -157,5 +159,61 @@ func TestURLOverlayLoadsRawStream(t *testing.T) {
 	}
 	if !loaded.autoPlay {
 		t.Fatal("autoPlay = false, want true")
+	}
+}
+
+// targetFilterTestProvider accepts only the IDs in writable, like Spotify
+// accepts only playlists the user owns or collaborates on.
+type targetFilterTestProvider struct {
+	commandsTestProvider
+	writable map[string]bool
+	err      error
+}
+
+func (p targetFilterTestProvider) Playlists() ([]playlist.PlaylistInfo, error) {
+	return append([]playlist.PlaylistInfo(nil), p.lists...), p.err
+}
+
+func (p targetFilterTestProvider) CanAddToPlaylist(pl playlist.PlaylistInfo) bool {
+	return p.writable[pl.ID]
+}
+
+func TestFetchSpotPlaylistsOffersOnlyWritableTargets(t *testing.T) {
+	lists := []playlist.PlaylistInfo{
+		{ID: "YOUR MUSIC", Name: "Your Music"},
+		{ID: "mine", Name: "Mine"},
+		{ID: "followed", Name: "Followed"},
+		{ID: "spotify:album:1", Name: "Artist - Album"},
+	}
+	tests := []struct {
+		name    string
+		err     error
+		lists   []playlist.PlaylistInfo
+		want    []string
+		wantErr bool
+	}{
+		{name: "complete list", lists: lists, want: []string{"mine"}},
+		{name: "partial list", lists: lists, err: errors.New("saved albums"), want: []string{"mine"}},
+		{name: "failed list", err: errors.New("offline"), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prov := targetFilterTestProvider{
+				commandsTestProvider: commandsTestProvider{name: "Spotify", lists: tt.lists},
+				writable:             map[string]bool{"mine": true},
+				err:                  tt.err,
+			}
+			msg := fetchSpotPlaylistsCmd(prov, 1)().(spotPlaylistsMsg)
+			if (msg.err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, want error %v", msg.err, tt.wantErr)
+			}
+			var got []string
+			for _, pl := range msg.playlists {
+				got = append(got, pl.ID)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("targets = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

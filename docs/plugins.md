@@ -314,13 +314,14 @@ You can read the playlist without permission. To change it, declare `permissions
 
 ```lua
 -- read (no permission)
-cliamp.queue.list()        --> array of {title, artist, album, path, index, queued}
+cliamp.queue.list()        --> array of {title, artist, album, genre, year, path, duration, stream, index, queued}
 cliamp.queue.count()       --> number of tracks
 cliamp.queue.current()     --> 0-based index of the current track
 cliamp.queue.has_next()    --> true when a playable track follows in play order (play-next queue, repeat, shuffle)
 
 -- mutate (requires "control")
 cliamp.queue.add(path)         -- resolve a file/dir/URL and append
+cliamp.queue.add(track)        --> true | nil, err  -- append a track table as given
 cliamp.queue.jump(index)       -- make index current and play it
 cliamp.queue.remove(index)     -- remove the track at index
 cliamp.queue.move(from, to)    -- reorder a track
@@ -329,6 +330,25 @@ cliamp.queue.move(from, to)    -- reorder a track
 `add` accepts every input that the CLI accepts: a local file or directory, an
 HTTP stream, an M3U/PLS URL, or a YouTube/yt-dlp URL. cliamp resolves it off the
 UI thread. A slow URL does not block playback.
+
+`add` also takes a track table with the same keys as the track tables in
+events: `{path, title, artist, album, genre, year, duration, stream}`. Only
+`path` is required, and other keys are ignored, so a track from an event or from
+`queue.list()` can be passed back as it is. cliamp appends the track exactly as
+described, without resolving the path. Use it for tracks a path alone can't
+describe, such as a provider track from another service:
+
+```lua
+local ok, err = cliamp.queue.add({
+    path = "spotify:track:69kOkLUCkxIZYexIgSG8rq",
+    title = "Get Lucky", artist = "Daft Punk", duration = 369,
+})
+if not ok then cliamp.log.warn(err) end
+```
+
+It returns `true`, or `nil` and an error message when the table is invalid (for
+example, a missing path or a title that is not a string) or when the plugin
+lacks the `control` permission. An HTTP URL is always marked as a stream.
 
 ### cliamp.http
 

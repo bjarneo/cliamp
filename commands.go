@@ -35,7 +35,7 @@ func buildApp() *cli.Command {
 		&cli.BoolWithInverseFlag{Name: "simplified", Usage: "simplified playback view (no visualizer or playlist)"},
 		&cli.BoolWithInverseFlag{Name: "help-bar", Usage: "show the key-binding hint bar (? still opens the full keymap)", Value: true},
 		&cli.BoolWithInverseFlag{Name: "expanded", Usage: "start with the playlist expanded (the Ctrl+X state)"},
-		&cli.StringFlag{Name: "provider", Usage: "default provider: radio, podcast, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, soundcloud, mixcloud, netease, yandex, audiobookshelf, abs, yt, youtube, ytmusic"},
+		&cli.StringFlag{Name: "provider", Usage: "default provider: cliamp, radio, podcast, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, soundcloud, mixcloud, netease, yandex, audiobookshelf, abs, yt, youtube, ytmusic"},
 		&cli.StringFlag{Name: "start-theme", Usage: "UI theme name"},
 		&cli.StringFlag{Name: "visualizer", Usage: "visualizer mode"},
 		&cli.BoolFlag{Name: "visualizer-60fps", Usage: "render visualizer at 60 FPS (higher CPU use)"},
@@ -169,10 +169,10 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 			v = "audiobookshelf"
 		}
 		switch v {
-		case "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "mixcloud", "netease", "yandex", "yt", "youtube", "ytmusic":
+		case "cliamp", "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "mixcloud", "netease", "yandex", "yt", "youtube", "ytmusic":
 			ov.Provider = &v
 		default:
-			return ov, fmt.Errorf("--provider must be radio, podcast, navidrome, lyrion, spotify, qobuz, tidal, plex, jellyfin, emby, audiobookshelf, soundcloud, mixcloud, netease, yandex, yt, youtube, or ytmusic (got %q)", v)
+			return ov, fmt.Errorf("--provider must be cliamp, radio, podcast, navidrome, lyrion, spotify, qobuz, tidal, plex, jellyfin, emby, audiobookshelf, soundcloud, mixcloud, netease, yandex, yt, youtube, or ytmusic (got %q)", v)
 		}
 	}
 	if c.IsSet("start-theme") {
@@ -381,13 +381,14 @@ func radioCommand() *cli.Command {
 		Usage:  "who is listening to the cliamp radio channels",
 		Hidden: true,
 		Description: "Shows live listener statistics for the cliamp radio channels from\n" +
-			"radio.cliamp.stream: listeners now, by country and by channel, plus the\n" +
-			"all-time totals. --globe draws them on a spinning globe, like the one\n" +
-			"on cliamp.stream.",
+			"radio.cliamp.stream: listeners now on the live streams and the channel\n" +
+			"playlists, by country and by channel, plus the all-time totals of the\n" +
+			"live streams. --globe draws them on a spinning globe, like the one on\n" +
+			"cliamp.stream.",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{Name: "stats", Usage: "print live listener statistics"},
 			&cli.BoolFlag{Name: "globe", Usage: "show the statistics on an animated globe (implies --stats)"},
-			&cli.BoolFlag{Name: "json", Usage: "print the raw statistics document (implies --stats)"},
+			&cli.BoolFlag{Name: "json", Usage: "print the raw statistics document of the live streams (implies --stats)"},
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
 			switch {

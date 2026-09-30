@@ -37,10 +37,7 @@ func openSpotMultiSearch(t *testing.T, m Model) Model {
 	if cmd == nil {
 		t.Fatal("Enter returned nil search command")
 	}
-	msg, ok := cmd().(spotSearchAllMsg)
-	if !ok {
-		t.Fatalf("search produced %T; want spotSearchAllMsg", cmd())
-	}
+	msg := runCmdUntil[spotSearchAllMsg](t, cmd)
 	updated, _ = m.Update(msg)
 	m = updated.(Model)
 	if m.spotSearch.screen != spotSearchResults || !m.spotSearch.multi {

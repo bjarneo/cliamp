@@ -98,7 +98,7 @@ func (m *Model) selectTrackRow(row, col int) {
 	}
 }
 
-// hitPlaylistRow replays renderPlaylist: TrackWindow + playlistRows with
+// hitPlaylistRow replays renderPlaylist: OrderWindow + playlistRows with
 // the same scroll/header math, returning the global playlist index.
 func (m Model) hitPlaylistRow(row int) trackHit {
 	if m.focus == focusProvider || m.playlist.Len() == 0 {
@@ -110,7 +110,7 @@ func (m Model) hitPlaylistRow(row int) trackHit {
 	}
 	scroll := m.playlistScroll(budget)
 	windowStart := max(0, scroll-1)
-	tracks := m.playlist.TrackWindow(windowStart, budget+1)
+	indices, tracks := m.playlist.OrderWindow(windowStart, budget+1)
 	localScroll := scroll - windowStart
 	i := 0
 	for r := range m.playlistRows(tracks, localScroll, m.showAlbumHeaders) {
@@ -128,7 +128,7 @@ func (m Model) hitPlaylistRow(row int) trackHit {
 			break
 		}
 		if i == row {
-			idx := windowStart + r.Index
+			idx := indices[r.Index]
 			return trackHit{track: r.Track, cursor: idx, remove: menuRemovePlaylist, removeIdx: idx}
 		}
 		i++

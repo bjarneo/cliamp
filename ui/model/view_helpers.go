@@ -257,10 +257,14 @@ func cursorLine(label string, active bool) string {
 // view re-renders on the model tick so the spinner advances on its own.
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
+// spinnerInterval is how long each spinner frame stays on the screen. While
+// a spinner shows, the view redraws at least this often.
+const spinnerInterval = 100 * time.Millisecond
+
 // spinnerFrame returns the current animation frame, time-driven so the caller
 // doesn't need to track an animation index.
 func spinnerFrame() string {
-	idx := (time.Now().UnixMilli() / 100) % int64(len(spinnerFrames))
+	idx := (time.Now().UnixMilli() / spinnerInterval.Milliseconds()) % int64(len(spinnerFrames))
 	return spinnerFrames[idx]
 }
 

@@ -118,6 +118,23 @@ func TestPreloadPipelineForGenerationDiscardsStalePreload(t *testing.T) {
 	}
 }
 
+// A preload still loading when playback stops must not arm a next track on the
+// stopped player.
+func TestStopDiscardsInFlightPreload(t *testing.T) {
+	p := newTestPlayer()
+	p.gapless = &gaplessStreamer{}
+	p.suspended = true // Avoid a real speaker context.
+	inFlight := p.BeginPreload()
+	p.Stop()
+
+	if err := p.preloadPipelineForGeneration(&trackPipeline{}, inFlight); err != nil {
+		t.Fatalf("preloadPipelineForGeneration: %v", err)
+	}
+	if p.nextPipeline != nil {
+		t.Fatal("preload started before Stop armed the stopped player")
+	}
+}
+
 func TestSetVolumeMinClamps(t *testing.T) {
 	p := newTestPlayer()
 
