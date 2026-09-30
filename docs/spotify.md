@@ -23,14 +23,14 @@ To register an app:
 1. Go to [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) and sign in.
 2. Click **Create app**.
 3. Enter a name, such as "cliamp", and a description.
-4. Add `http://127.0.0.1:19872/login` as a **Redirect URI**.
+4. Add `http://127.0.0.1:19872/login` as a **Redirect URI**. Also add `http://127.0.0.1/login`, without a port. Cliamp uses a random port when 19872 is unavailable, for example when Hyper-V on Windows reserves it.
 5. Select **Web API** under "Which API/SDKs are you planning to use?".
 6. Click **Save**.
 7. Open the app **Settings** and copy the **Client ID**.
 
 `bitrate` is optional. If omitted, cliamp uses `320`. Supported values are `96`, `160`, and `320`. Values less than or equal to zero use `320`. cliamp rounds other positive values to the nearest supported bitrate.
 
-Run `cliamp`, select Spotify, and press Enter to sign in. With your own `client_id`, the browser completes two authorization steps in one tab: one for Web API access and one for playback. The built-in client path needs one step. cliamp stores credentials in `~/.config/cliamp/spotify_credentials.json`. Later launches refresh them without a message.
+Run `cliamp`, select Spotify, and press Enter to sign in. With your own `client_id`, the browser completes two authorization steps in one tab: one for Web API access and one for playback. The built-in client path needs one step. cliamp stores credentials in `~/.config/cliamp/spotify_credentials.json`. Later launches refresh them without a message. On Windows, the file is encrypted with DPAPI for your Windows user account. Cliamp encrypts an existing unencrypted file the first time it loads it.
 
 ### Development Mode search page size
 
@@ -95,7 +95,7 @@ Podcast episodes work as tracks. Press `Ctrl+F` to search Spotify. Matching epis
 
 ## Troubleshooting
 
-- **"OAuth failed"**: Ensure the Spotify dashboard redirect URI is exactly `http://127.0.0.1:19872/login`, without a trailing slash. The temporary callback server listens only on this local address and does not accept connections from the network.
+- **"OAuth failed"**: Ensure the Spotify dashboard redirect URI is exactly `http://127.0.0.1:19872/login`, without a trailing slash. The temporary callback server listens only on this local address and does not accept connections from the network. If port 19872 is unavailable, cliamp listens on a random port instead, which needs `http://127.0.0.1/login` (no port) registered as well.
 - **Two authorization steps**: This is expected with your own `client_id`. After you approve Web API access, the same browser tab redirects to create a playback credential with the required Spotify built-in identity.
 - **Playlist not showing**: Save or follow the playlist in Spotify. The provider lists only library playlists.
 - **Playback issues**: Spotify integration needs a Premium account. Free accounts cannot stream.

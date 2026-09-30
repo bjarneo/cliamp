@@ -3,6 +3,7 @@ package spotify
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"runtime"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	librespotPlayer "github.com/devgianlu/go-librespot/player"
+	"github.com/gopxl/beep/v2"
 )
 
 type closeErrorSource struct {
@@ -354,5 +356,99 @@ func TestSpotifyStreamerStreamAllocations(t *testing.T) {
 		}
 	}); allocs != 0 {
 		t.Errorf("Stream() allocations = %v, want 0", allocs)
+	}
+}
+
+// pairSource is a finite librespot.AudioSource emitting `pairs` stereo pairs,
+// at most `chunk` interleaved float32 values per Read, then io.EOF. Pair i
+// carries (i+1, -(i+1)) so the streamed sequence is self-verifying: a dropped
+// or duplicated pair — or one emitted out of order — breaks the 1..N
+// progression on both channels.
+//
+// chunk must stay even: go-librespot sources emit interleaved stereo, and
+// spotifyStreamer drops a trailing odd float32 by design.
+type pairSource struct {
+	pairs int
+	chunk int
+	pos   int // interleaved float32 index already emitted
+}
+
+func (s *pairSource) Read(p []float32) (int, error) {
+	total := s.pairs * spotifyChannels
+	if s.pos >= total {
+		return 0, io.EOF
+	}
+	n := min(len(p), s.chunk, total-s.pos)
+	for i := range n {
+		v := float32((s.pos+i)/2 + 1)
+		if (s.pos+i)%2 == 1 {
+			v = -v
+		}
+		p[i] = v
+	}
+	s.pos += n
+	return n, nil
+}
+
+func (*pairSource) SetPositionMs(int64) error { return nil }
+func (*pairSource) PositionMs() int64         { return 0 }
+
+// TestSpotifyStreamerGaplessSeqTransition locks the contract the player's
+// gapless handoff relies on: when two Spotify streamers are sequenced with
+// beep.Seq (the same fill-remaining semantics gaplessStreamer uses), the
+// boundary must emit every pair of the outgoing track followed by every pair
+// of the incoming one — no dropped or duplicated sample pairs at the seam,
+// whatever the chunk/buffer alignment.
+func TestSpotifyStreamerGaplessSeqTransition(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		aPairs  int
+		bPairs  int
+		aChunk  int // float32 values returned per Read by streamer A
+		bChunk  int // float32 values returned per Read by streamer B
+		bufSize int // stereo pairs requested per Stream call
+	}{
+		{"seam mid-buffer", 1000, 777, 512, 512, 512},
+		{"seam at buffer edge", 1024, 300, 1024, 512, 512},
+		{"tiny chunked reads", 33, 21, 2, 4, 7},
+		{"unaligned chunks", 300, 222, 250, 62, 129},
+		{"single oversized buffer", 500, 700, 512, 512, 4096},
+		{"empty outgoing", 0, 128, 512, 512, 256},
+		{"empty incoming", 128, 0, 512, 512, 256},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newSpotifyStreamer(&librespotPlayer.Stream{
+				Source: &pairSource{pairs: tc.aPairs, chunk: tc.aChunk},
+			}, nil)
+			b := newSpotifyStreamer(&librespotPlayer.Stream{
+				Source: &pairSource{pairs: tc.bPairs, chunk: tc.bChunk},
+			}, nil)
+
+			var got [][2]float64
+			buf := make([][2]float64, tc.bufSize)
+			seq := beep.Seq(a, b)
+			for {
+				n, ok := seq.Stream(buf)
+				got = append(got, buf[:n]...)
+				if !ok {
+					break
+				}
+			}
+
+			if want := tc.aPairs + tc.bPairs; len(got) != want {
+				t.Fatalf("Seq emitted %d pairs, want %d", len(got), want)
+			}
+			for i, fr := range got {
+				track, pair := 'A', i+1
+				if i >= tc.aPairs {
+					track, pair = 'B', i-tc.aPairs+1
+				}
+				want := [2]float64{float64(pair), -float64(pair)}
+				if fr != want {
+					t.Fatalf("output[%d] (track %c) = %v, want %v — dropped or duplicated pair at the seam",
+						i, track, fr, want)
+				}
+			}
+		})
 	}
 }

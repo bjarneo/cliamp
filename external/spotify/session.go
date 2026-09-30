@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,7 +17,6 @@ import (
 
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/internal/browser"
-	"github.com/bjarneo/cliamp/internal/fileutil"
 	"github.com/bjarneo/cliamp/playlist"
 
 	librespot "github.com/devgianlu/go-librespot"
@@ -29,19 +27,12 @@ import (
 	spotifyoauth2 "golang.org/x/oauth2/spotify"
 )
 
-// storedCreds holds persisted Spotify credentials for re-authentication.
-type storedCreds struct {
-	Username     string `json:"username"`
-	Data         []byte `json:"data"`
-	DeviceID     string `json:"device_id"`
-	RefreshToken string `json:"refresh_token,omitempty"` // OAuth2 refresh token for silent re-auth
-}
-
 const (
 	callbackHost = "127.0.0.1"
 
-	// CallbackPort is the fixed port for the OAuth2 callback server.
-	// Must match the redirect URI registered in the Spotify Developer app.
+	// CallbackPort is the fixed port for the OAuth2 callback server. A
+	// redirect URI on it must be registered in the Spotify Developer app.
+	// When it can't be bound, sign-in falls back to an ephemeral port.
 	CallbackPort = 19872
 )
 
@@ -285,10 +276,13 @@ var oauthScopes = []string{
 var playbackOAuthScopes = []string{"streaming"}
 
 // spotifyOAuthConfig returns the OAuth2 config for the given client ID.
-func spotifyOAuthConfig(clientID string, scopes []string) *oauth2.Config {
+// redirectURL is the loopback URI the interactive flow actually listens on;
+// refresh-only configs (TokenSource never issues AuthCodeURL or Exchange with
+// a redirect) may pass any valid registered URI.
+func spotifyOAuthConfig(clientID, redirectURL string, scopes []string) *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:    clientID,
-		RedirectURL: fmt.Sprintf("http://%s/login", callbackAddress()),
+		RedirectURL: redirectURL,
 		Scopes:      scopes,
 		Endpoint:    spotifyoauth2.Endpoint,
 	}
@@ -297,7 +291,7 @@ func spotifyOAuthConfig(clientID string, scopes []string) *oauth2.Config {
 // silentTokenRefresh uses a stored refresh token to get a new access token
 // without opening a browser.
 func silentTokenRefresh(clientID, refreshToken string) (*oauth2.Token, error) {
-	conf := spotifyOAuthConfig(clientID, oauthScopes)
+	conf := spotifyOAuthConfig(clientID, fmt.Sprintf("http://%s/login", callbackAddress()), oauthScopes)
 	src := conf.TokenSource(context.Background(), &oauth2.Token{RefreshToken: refreshToken})
 	return src.Token()
 }
@@ -333,7 +327,7 @@ func (s *persistingTokenSource) Token() (*oauth2.Token, error) {
 }
 
 func webAPITokenSource(clientID string, token *oauth2.Token, creds storedCreds) oauth2.TokenSource {
-	conf := spotifyOAuthConfig(clientID, oauthScopes)
+	conf := spotifyOAuthConfig(clientID, fmt.Sprintf("http://%s/login", callbackAddress()), oauthScopes)
 	source := conf.TokenSource(context.Background(), token)
 	return &persistingTokenSource{
 		source:       source,
@@ -384,6 +378,33 @@ type oauthCallback struct {
 	flow int
 	code string
 	err  error
+}
+
+// openBrowser is browser.Open, indirected so tests never launch a real browser.
+var openBrowser = browser.Open
+
+// listenOAuthCallback binds the loopback callback listener: primary first,
+// then a single retry on fallback when the primary bind fails. Sign-in binds
+// the fixed callbackAddress() port first, so redirect URIs registered with
+// that port keep working. When the port is taken (on Windows, Hyper-V and
+// WinNAT can reserve it), it falls back to an ephemeral port: Spotify accepts
+// any port on a loopback redirect URI registered without one (RFC 8252). A
+// token exchange failure never re-listens: it means the registered redirect
+// URI is wrong, and a second browser journey would only mask the dashboard
+// misconfiguration.
+func listenOAuthCallback(primary, fallback string) (net.Listener, error) {
+	lis, err := net.Listen("tcp", primary)
+	if err == nil {
+		return lis, nil
+	}
+	applog.Warn("spotify: oauth callback listen on %s failed: %v; trying %s", primary, err, fallback)
+	return net.Listen("tcp", fallback)
+}
+
+// callbackRedirectURI builds the flow's redirect URI from the listener's
+// actual bound address, e.g. http://127.0.0.1:<port>/login.
+func callbackRedirectURI(lis net.Listener) string {
+	return "http://" + lis.Addr().String() + "/login"
 }
 
 func oauthCallbackHandler(pending []pendingOAuthFlow, callbackCh chan<- oauthCallback) http.Handler {
@@ -452,15 +473,17 @@ func performOAuth2PKCEFlows(ctx context.Context, flows []oauthFlow) ([]*oauth2.T
 		return nil, fmt.Errorf("no OAuth flows configured")
 	}
 
-	lis, err := net.Listen("tcp", callbackAddress())
+	lis, err := listenOAuthCallback(callbackAddress(), net.JoinHostPort(callbackHost, "0"))
 	if err != nil {
-		return nil, fmt.Errorf("listen on port %d: %w", CallbackPort, err)
+		return nil, fmt.Errorf("oauth callback listen: %w", err)
 	}
 	defer lis.Close() // always release the port
 
+	redirectURI := callbackRedirectURI(lis)
+
 	pending := make([]pendingOAuthFlow, len(flows))
 	for i, flow := range flows {
-		conf := spotifyOAuthConfig(flow.clientID, flow.scopes)
+		conf := spotifyOAuthConfig(flow.clientID, redirectURI, flow.scopes)
 		verifier := oauth2.GenerateVerifier()
 		state := oauth2.GenerateVerifier()
 		pending[i] = pendingOAuthFlow{
@@ -480,7 +503,7 @@ func performOAuth2PKCEFlows(ctx context.Context, flows []oauthFlow) ([]*oauth2.T
 	}()
 
 	notifyAuthURL(pending[0].authURL)
-	_ = browser.Open(pending[0].authURL) // best-effort — user can open the URL manually if this fails
+	_ = openBrowser(pending[0].authURL) // best-effort — user can open the URL manually if this fails
 
 	tokens := make([]*oauth2.Token, len(pending))
 	for remaining := len(pending); remaining > 0; remaining-- {
@@ -492,7 +515,7 @@ func performOAuth2PKCEFlows(ctx context.Context, flows []oauthFlow) ([]*oauth2.T
 			}
 			token, err := flow.config.Exchange(ctx, result.code, oauth2.VerifierOption(flow.verifier))
 			if err != nil {
-				return nil, fmt.Errorf("%s token exchange: %w", flow.name, err)
+				return nil, fmt.Errorf("%s token exchange (redirect_uri %s): %w", flow.name, flow.config.RedirectURL, err)
 			}
 			tokens[result.flow] = token
 		case <-ctx.Done():
@@ -745,32 +768,4 @@ func generateDeviceID() string {
 	b := make([]byte, 20)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
-}
-
-func loadCreds() (*storedCreds, error) {
-	path, err := CredsPath()
-	if err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var creds storedCreds
-	if err := json.Unmarshal(data, &creds); err != nil {
-		return nil, err
-	}
-	return &creds, nil
-}
-
-func saveCreds(creds *storedCreds) error {
-	path, err := CredsPath()
-	if err != nil {
-		return err
-	}
-	data, err := json.Marshal(creds)
-	if err != nil {
-		return err
-	}
-	return fileutil.WriteFileAtomic(path, data, 0o600)
 }

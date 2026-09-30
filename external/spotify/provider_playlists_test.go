@@ -10,12 +10,6 @@ import (
 	"golang.org/x/oauth2"
 )
 
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f(req)
-}
-
 func TestPlaylistsIncludesFollowedPlaylists(t *testing.T) {
 	originalTransport := http.DefaultTransport
 	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
