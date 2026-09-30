@@ -561,6 +561,16 @@ func Listening(sockPath string) (bool, error) {
 // cleanStaleSocket removes a leftover socket and PID file from a dead process.
 // A connect probe always runs before deleting either path, so a live server is
 // never displaced because its PID file is missing, stale, or malformed.
+//
+// The probe is the sole authority on whether a server is live: when nothing
+// accepts a connection on sockPath, any socket and PID file there are stale by
+// definition. The PID file is deliberately not consulted as a second gate. It
+// records only a PID, and PIDs are reused, so "is this PID alive" does not
+// imply "is this cliamp alive" — it only implies that some process holds the
+// number. Gating on it strands the daemon: a PID file left behind by an
+// unclean exit keeps matching whichever unrelated process later inherits that
+// PID, so the daemon refuses to bind and every IPC command reports that cliamp
+// is not running while the daemon itself is running. See #591.
 func cleanStaleSocket(sockPath string) error {
 	listening, err := Listening(sockPath)
 	if err != nil {
@@ -570,32 +580,8 @@ func cleanStaleSocket(sockPath string) error {
 		return fmt.Errorf("ipc: cliamp is already running")
 	}
 
-	pidPath := sockPath + ".pid"
-	pidData, err := os.ReadFile(pidPath)
-	if err != nil {
-		// No PID file — remove socket if it exists (orphan from crash).
-		os.Remove(sockPath)
-		return nil
-	}
-
-	pid, err := strconv.Atoi(strings.TrimSpace(string(pidData)))
-	if err != nil {
-		// Corrupt PID file — clean up.
-		os.Remove(pidPath)
-		os.Remove(sockPath)
-		return nil
-	}
-
-	alive, err := processAlive(pid)
-	if err != nil {
-		return fmt.Errorf("ipc: checking process liveness for socket %s: %w", sockPath, err)
-	}
-	if !alive {
-		// Process is dead — clean up stale files.
-		os.Remove(pidPath)
-		os.Remove(sockPath)
-		return nil
-	}
-
-	return fmt.Errorf("ipc: cliamp is already running (pid %d)", pid)
+	// Nothing is serving this path, so both files are stale.
+	os.Remove(sockPath + ".pid")
+	os.Remove(sockPath)
+	return nil
 }

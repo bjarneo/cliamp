@@ -73,14 +73,53 @@ func TestNewServerSocketLifecycle(t *testing.T) {
 	}
 }
 
-func TestNewServerRejectsLivePID(t *testing.T) {
-	dir := shortTempDir(t)
-	sock := filepath.Join(dir, "cliamp.sock")
+// A live server holding the socket must never be displaced. This is the
+// protection that actually matters, and it comes from the connect probe.
+func TestNewServerRejectsLiveServer(t *testing.T) {
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+	server, err := NewServer(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+
+	if _, err := NewServer(sock); err == nil || !strings.Contains(err.Error(), "already running") {
+		t.Fatalf("NewServer() against a live server = %v, want already running", err)
+	}
+}
+
+// A PID file left behind by an unclean exit can name a live process that is not
+// cliamp, because PIDs are reused. That must not stop the daemon from binding,
+// or it never recovers without manual cleanup. See #591.
+func TestNewServerIgnoresStalePIDOfUnrelatedProcess(t *testing.T) {
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+	// A leftover socket inode with no listener, plus a PID file pointing at a
+	// live process that is not this one.
+	stale, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(sock+".pid", []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewServer(sock); err == nil || !strings.Contains(err.Error(), "already running") {
-		t.Fatalf("NewServer() error = %v", err)
+	// Close without removing the socket file, as a killed daemon would.
+	stale.(*net.UnixListener).SetUnlinkOnClose(false)
+	if err := stale.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	server, err := NewServer(sock)
+	if err != nil {
+		t.Fatalf("NewServer() with a stale PID file = %v, want it to start", err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+
+	pid, err := os.ReadFile(sock + ".pid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(string(pid)), strconv.Itoa(os.Getpid()); got != want {
+		t.Fatalf("PID file = %q, want %q", got, want)
 	}
 }
 
