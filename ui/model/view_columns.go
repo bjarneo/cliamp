@@ -101,7 +101,11 @@ func (m Model) renderSettingsPane(rows int) string {
 	for _, r := range pane {
 		lines = append(lines, r.line)
 	}
-	lines = append(lines, m.renderMetadataPane(metadataRows)...)
+	if m.showPlaylists {
+		lines = append(lines, m.renderPlaylistsPane(metadataRows)...)
+	} else {
+		lines = append(lines, m.renderMetadataPane(metadataRows)...)
+	}
 	return bodyLines(lines, rows)
 }
 

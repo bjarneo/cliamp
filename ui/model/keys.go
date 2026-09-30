@@ -364,6 +364,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		case "ctrl+i":
 			m.toggleMetadata()
 			return nil
+		case "ctrl+l":
+			m.togglePlaylistsPane()
+			return nil
 		case "i":
 			m.showInfo = true
 			m.infoScroll = 0

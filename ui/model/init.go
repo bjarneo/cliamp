@@ -47,6 +47,7 @@ func New(p player.Engine, pl *playlist.Playlist, providers []ProviderEntry, defa
 		luaMgr:           luaMgr,
 		historyStore:     history.New(),
 		showAlbumHeaders: false,
+		plMembers:        &playlistMembershipCache{},
 	}
 	if fm, ok := localProv.(provider.FavoritesManager); ok {
 		m.favMgr = fm
@@ -144,6 +145,12 @@ func (m *Model) SetHideSettingsPane(v bool) {
 // SetShowMetadata expands the highlighted-track details below Settings.
 func (m *Model) SetShowMetadata(v bool) {
 	m.showMetadata = v
+	m.refreshChrome()
+}
+
+// SetShowPlaylists lists the highlighted track's playlists below Settings.
+func (m *Model) SetShowPlaylists(v bool) {
+	m.showPlaylists = v
 	m.refreshChrome()
 }
 

@@ -36,6 +36,9 @@ func (m *Model) openPlaylistPicker(tracks []playlist.Track, title string) {
 		tracks:    append([]playlist.Track(nil), tracks...),
 		title:     title,
 	}
+	if len(tracks) == 1 {
+		m.plPicker.member = m.membershipFor(tracks[0])
+	}
 	m.refreshChrome()
 	m.applyHeightMode()
 	m.plPickerMaybeAdjustScroll(m.plPickerVisible())
@@ -110,7 +113,7 @@ func (m Model) renderPlaylistPickerBody() string {
 		head = fmt.Sprintf("%d tracks selected", n)
 	}
 	head = dimStyle.Render("  " + truncate(head, max(1, ui.PanelWidth-2)))
-	list := windowList(items, m.plPicker.cursor, m.plPicker.scroll, max(0, budget-1))
+	list := m.plPickerList(items, max(0, budget-1))
 	return strings.Join([]string{head, list}, "\n")
 }
 
@@ -177,7 +180,12 @@ func (m *Model) handlePlaylistPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.plPicker.cursor = 0
 	case "enter":
 		if m.plPicker.cursor < len(m.plPicker.playlists) {
-			if m.writePickerTracks(m.plPicker.playlists[m.plPicker.cursor].Name) {
+			name := m.plPicker.playlists[m.plPicker.cursor].Name
+			if handled, cmd := m.togglePickerMembership(name); handled {
+				m.closePlaylistPicker()
+				return cmd
+			}
+			if m.writePickerTracks(name) {
 				m.closePlaylistPicker()
 			}
 			return nil
@@ -306,6 +314,7 @@ func (m *Model) writeTracksToPlaylist(name string, tracks []playlist.Track) (add
 }
 
 func (m *Model) refreshPlaylistManagerAfterWrite(name string) {
+	m.plMembers.invalidate()
 	if !m.plManager.visible {
 		return
 	}
