@@ -56,6 +56,7 @@ func New(p player.Engine, pl *playlist.Playlist, providers []ProviderEntry, defa
 		m.pluginEmit = &pluginEmitState{}
 	}
 	m.mouse = &mouseState{seekRow: -1, bodyRow: -1}
+	m.immMouse = &immMouseGeom{}
 	m.termTitle = initialTerminalTitleState()
 	// Select the default provider pill.
 	for i, pe := range providers {
@@ -125,6 +126,27 @@ func (m *Model) SetSimplified(v bool) {
 	}
 	m.refreshChrome()
 	m.normalizeMainFocus()
+}
+
+// SetImmersive enters the immersive frame once the program starts (the
+// "immersive" config key). The classic layout still takes over when the
+// terminal is too small.
+func (m *Model) SetImmersive(v bool) {
+	m.openImmersiveOnce = v
+}
+
+// SetNerdFontGlyphs switches immersive transport glyphs to the Nerd Font set
+// (the "nerd_font_glyphs" config key).
+func (m *Model) SetNerdFontGlyphs(v bool) { m.nerdFontGlyphs = v }
+
+// SetImmersiveView sets the canvas view immersive opens in (the
+// "immersive_view" config key: list, rows or grid). `c` saves it back.
+func (m *Model) SetImmersiveView(name string) {
+	for i, n := range immCanvasModeNames {
+		if strings.EqualFold(strings.TrimSpace(name), n) {
+			m.immCanvasPref = immCanvasMode(i)
+		}
+	}
 }
 
 // SetHideHelpBar hides the key-binding hint bar and gives the row back to the
@@ -292,6 +314,9 @@ func (m Model) Init() tea.Cmd {
 	}
 	if m.openDefaultProviderOnce {
 		cmds = append(cmds, func() tea.Msg { return openDefaultProviderBrowserMsg{} })
+	}
+	if m.openImmersiveOnce {
+		cmds = append(cmds, func() tea.Msg { return openImmersiveMsg{} })
 	}
 	if len(m.pendingURLs) > 0 {
 		cmds = append(cmds, resolveRemoteCmd(m.pendingURLs, m.autoPlay))

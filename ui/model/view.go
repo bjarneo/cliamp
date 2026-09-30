@@ -183,10 +183,12 @@ func playlistLabel(prefix string, p playlist.PlaylistInfo) string {
 // View renders the full TUI frame.
 func (m Model) View() tea.View {
 	if m.quitting {
+		m.clearImages()
 		return tea.NewView("")
 	}
 	m.recomputeLayout()
 	if m.layout.tooSmall() {
+		m.clearImages()
 		content := fmt.Sprintf("Terminal too small. Resize to at least 40x10 (current: %dx%d).", m.width, m.height)
 		view := tea.NewView(ui.FitRect(content, max(1, m.width), max(1, m.height)))
 		view.BackgroundColor = ui.ColorBackground
@@ -209,6 +211,9 @@ func (m Model) View() tea.View {
 		sections := m.fullVisualizerSections()
 		content = strings.Join(sections, "\n")
 		m.recordMouseGeometry(content, sections, "")
+	case screenImmersive:
+		content = m.renderImmersive()
+		m.recordImmersiveMouseGeometry(content)
 	default:
 		// Overlays render in the playlist region (renderMainBody), with their
 		// header/help supplied by renderPlaylistHeader / renderHelp. List-heavy
@@ -221,9 +226,19 @@ func (m Model) View() tea.View {
 	}
 
 	// Every screen now renders within the main frame, so frame and center
-	// uniformly.
-	rendered := m.centerFrame(ui.FrameStyle.Render(content))
-	rendered = ui.FitRect(rendered, m.layout.frameWidth, max(1, m.height))
+	// uniformly. The immersive frame is already cut to the panel size, so it
+	// only needs its padding added, not a full re-measure.
+	var rendered string
+	if screen == screenImmersive {
+		rendered = m.immPadFrame(content)
+		m.imgLayer.Set(m.immArtPlacements())
+		m.touchChangedRows(rendered)
+		m.feedPixelVis()
+	} else {
+		m.clearImages()
+		rendered = m.centerFrame(ui.FrameStyle.Render(content))
+		rendered = ui.FitRect(rendered, m.layout.frameWidth, max(1, m.height))
+	}
 
 	view := tea.NewView(rendered)
 	// Mouse cell-motion reporting delivers clicks, releases, the wheel, and

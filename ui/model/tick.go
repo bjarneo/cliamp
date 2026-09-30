@@ -40,7 +40,7 @@ func (m Model) visualizerVisible() bool {
 	if m.fullVis {
 		return true
 	}
-	return m.layout.visualizerRows > 0 && !m.usesContentFirstLayout()
+	return (m.layout.visualizerRows > 0 && !m.usesContentFirstLayout()) || m.immersiveShown()
 }
 
 func (m *Model) visualizerPlaying() bool {

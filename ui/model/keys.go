@@ -209,6 +209,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.keepPlCursorRow(func() { cmd = m.undoPlaylistMutation() })
 		return cmd
 	}
+	// Immersive mode owns the whole frame while it is the visible screen; the
+	// pickers it opens (keymap, track menu, credits, playlist picker) stack
+	// above it and take their keys through the normal dispatch below.
+	if m.activeScreen() == screenImmersive {
+		return m.handleImmersiveKey(msg)
+	}
 	if msg.String() == "ctrl+k" && !m.keymap.visible {
 		if m.fullVis {
 			m.exitFullVisualizer()
@@ -563,6 +569,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.toggleExpandedView()
 		case "ctrl+f":
 			m.openProviderSearch()
+		case "I":
+			return m.toggleImmersive()
 		}
 		return nil
 	}
@@ -954,6 +962,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.lyrics.visible {
 			return m.retryLyrics()
 		}
+
+	case "I":
+		return m.toggleImmersive()
 
 	case "o":
 		m.openFileBrowser()

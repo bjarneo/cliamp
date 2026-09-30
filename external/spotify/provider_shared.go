@@ -62,10 +62,12 @@ type spotifyPlaylistItem struct {
 	Items *struct {
 		Total int `json:"total"`
 	} `json:"items"`
+	Images []spotifyImage `json:"images"`
 }
 type spotifyArtist struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID     string         `json:"id"`
+	Name   string         `json:"name"`
+	Images []spotifyImage `json:"images"` // full artist objects only
 }
 
 // artistNames joins the artist display names with ", ".
@@ -174,11 +176,12 @@ func albumFromItem(a *spotifyAlbumItem) playlist.Track {
 	}
 
 	return playlist.Track{
-		Path:   uri,
-		Title:  a.Name,
-		Artist: artistNames(a.Artists),
-		Album:  a.Name,
-		Year:   year,
+		Path:        uri,
+		Title:       a.Name,
+		Artist:      artistNames(a.Artists),
+		Album:       a.Name,
+		Year:        year,
+		AlbumArtURL: pickCoverImage(a.Images),
 		ProviderMeta: map[string]string{
 			playlist.MetaKind:    playlist.MetaKindAlbum,
 			playlist.MetaAlbumID: a.ID,

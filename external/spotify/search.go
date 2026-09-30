@@ -31,6 +31,7 @@ type searchPlaylist struct {
 	Items *struct {
 		Total int `json:"total"`
 	} `json:"items"`
+	Images []spotifyImage `json:"images"`
 }
 
 func (sp searchPlaylist) trackCount() int {
@@ -109,7 +110,7 @@ func (p *SpotifyProvider) SearchAll(ctx context.Context, query string, limit int
 		out.Albums = append(out.Albums, albumFromSpotify(a))
 	}
 	for _, a := range result.Artists.Items {
-		out.Artists = append(out.Artists, provider.ArtistInfo{ID: a.ID, Name: a.Name})
+		out.Artists = append(out.Artists, provider.ArtistInfo{ID: a.ID, Name: a.Name, ImageURL: pickCoverImage(a.Images)})
 	}
 	userID := p.currentUserID(ctx)
 	for _, pl := range result.Playlists.Items {
@@ -118,6 +119,7 @@ func (p *SpotifyProvider) SearchAll(ctx context.Context, query string, limit int
 			Name:       pl.Name,
 			TrackCount: pl.trackCount(),
 			Owned:      userID != "" && pl.Owner.ID == userID,
+			ImageURL:   pickCoverImage(pl.Images),
 		})
 	}
 	return out, nil

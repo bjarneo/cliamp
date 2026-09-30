@@ -70,6 +70,7 @@ func albumFromSpotify(a spotifyAlbum) provider.AlbumInfo {
 		Name:       a.Name,
 		Year:       releaseYear(a.ReleaseDate),
 		TrackCount: a.TotalTracks,
+		ImageURL:   pickCoverImage(a.Images),
 	}
 	if len(a.Artists) > 0 {
 		info.Artist = a.Artists[0].Name
@@ -112,7 +113,7 @@ func (p *SpotifyProvider) Artists() ([]provider.ArtistInfo, error) {
 		}
 
 		for _, a := range result.Artists.Items {
-			all = append(all, provider.ArtistInfo{ID: a.ID, Name: a.Name})
+			all = append(all, provider.ArtistInfo{ID: a.ID, Name: a.Name, ImageURL: pickCoverImage(a.Images)})
 		}
 
 		if len(result.Artists.Items) == 0 || offset+spotifyPlaylistPageSize >= result.Artists.Total {

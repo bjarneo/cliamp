@@ -224,6 +224,8 @@ func (m *Model) recomputeLayout() {
 			m.vis.Rows = 0
 		} else if m.fullVis {
 			m.vis.Rows = layout.fullVisualizerRows
+		} else if m.immersiveShown() {
+			m.vis.Rows = immVisRowsFor(m.immFrameRows())
 		} else {
 			rows := layout.visualizerRows
 			if contentFirst || m.visualizerDisabled() {

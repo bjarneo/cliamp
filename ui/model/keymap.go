@@ -139,6 +139,8 @@ func (m Model) buildKeymapEntries() []keymapEntry {
 
 func (m Model) keymapContext() (commandMode, string) {
 	switch m.activeScreen() {
+	case screenImmersive:
+		return commandModeImmersive, "Immersive"
 	case screenTrackMenu:
 		return commandModeTrackMenu, "Track Menu"
 	case screenCredits:

@@ -111,6 +111,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 			}
 			lists = append(lists, playlist.PlaylistInfo{
 				ID: prefix + ":" + s.FeedURL, Name: name, TrackCount: s.EpisodeCount, Section: section,
+				ImageURL: s.Artwork,
 			})
 		}
 	}
@@ -300,6 +301,7 @@ func (p *Provider) ArtistAlbums(id string) ([]provider.AlbumInfo, error) {
 		p.shows[s.FeedURL] = s
 		albums = append(albums, provider.AlbumInfo{
 			ID: s.FeedURL, Name: s.Title, Artist: s.Author, Genre: s.Genre, TrackCount: s.EpisodeCount,
+			ImageURL: s.Artwork,
 		})
 	}
 	return albums, nil

@@ -62,6 +62,25 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # No visualizer or playback controls are shown.
 # simplified = true
 
+# Start in the immersive layout (full-width visualizer band, nav pills,
+# two-column canvas). Toggle anytime with I; falls back to the classic
+# layout when the terminal is under 80x24.
+# immersive = true
+
+# Use Nerd Font glyphs in the immersive transport controls (requires a
+# Nerd Font patched font in your terminal). Default is Unicode glyphs.
+# nerd_font_glyphs = true
+
+# Cover art in the immersive layout: "auto" uses Sixel images where the
+# terminal supports them (Windows Terminal, foot, WezTerm, xterm -ti vt340)
+# and colored half-block text elsewhere; "sixel" or "blocks" forces one;
+# "off" keeps the text placeholders.
+# images = "auto"
+
+# Canvas view the immersive layout opens in: "list", "rows" or "grid".
+# Pressing c in immersive cycles it and saves the choice here.
+# immersive_view = "list"
+
 # Hide the key-binding hint bar above the status line. The row is given back to
 # the playlist. Press "?" for the full keymap, or Ctrl+G to toggle the bar.
 # Simplified mode has no hint bar or playlist, so it is unaffected.

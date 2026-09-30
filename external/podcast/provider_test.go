@@ -158,8 +158,8 @@ func TestProviderCatalogPaginationAndRefresh(t *testing.T) {
 				checkProviderPlaylists(t, p, nil)
 			}
 			want := []playlist.PlaylistInfo{
-				{ID: "c:https://example.com/first", Name: "First Show", TrackCount: 12, Section: "Top Shows (US)"},
-				{ID: "c:https://example.com/second", Name: "Second Show", TrackCount: 8, Section: "Top Shows (US)"},
+				{ID: "c:https://example.com/first", Name: "First Show", TrackCount: 12, Section: "Top Shows (US)", ImageURL: "https://example.com/first.jpg"},
+				{ID: "c:https://example.com/second", Name: "Second Show", TrackCount: 8, Section: "Top Shows (US)", ImageURL: "https://example.com/second.jpg"},
 			}
 			if tt.emptyChart || tt.emptyLookup {
 				want = nil
@@ -237,8 +237,8 @@ func TestProviderSearchCatalog(t *testing.T) {
 		{ID: "c:" + s.FeedURL, Name: "[subscribed] First Show", TrackCount: 12, Section: "Top Shows (US)"},
 	}
 	results := []playlist.PlaylistInfo{
-		{ID: "s:" + s.FeedURL, Name: "[subscribed] First Show", TrackCount: 12, Section: "Search Results"},
-		{ID: "s:https://example.com/second", Name: "Second Show", TrackCount: 8, Section: "Search Results"},
+		{ID: "s:" + s.FeedURL, Name: "[subscribed] First Show", TrackCount: 12, Section: "Search Results", ImageURL: "https://example.com/first.jpg"},
+		{ID: "s:https://example.com/second", Name: "Second Show", TrackCount: 8, Section: "Search Results", ImageURL: "https://example.com/second.jpg"},
 	}
 	checkProviderPlaylists(t, p, base)
 	for _, tt := range []struct {
@@ -306,6 +306,7 @@ func TestProviderSearchCatalogManualFeedTitle(t *testing.T) {
 			}
 			checkProviderPlaylists(t, p, []playlist.PlaylistInfo{{
 				ID: "s:" + feedURL, Name: title, TrackCount: tt.count, Section: "Search Results",
+				ImageURL: "https://example.com/episode.jpg",
 			}})
 			if !p.IsSearching() || calls.Load() != 1 {
 				t.Errorf("searching = %v, requests = %d; want true and one feed GET", p.IsSearching(), calls.Load())
@@ -543,8 +544,8 @@ func TestProviderCategoriesCache(t *testing.T) {
 				wantCalls++
 			}
 			want := []provider.AlbumInfo{
-				{ID: "https://example.com/first", Name: "First Show", Artist: "Author", Genre: "Science", TrackCount: 12},
-				{ID: "https://example.com/second", Name: "Second Show", Artist: "Other", Genre: "News", TrackCount: 8},
+				{ID: "https://example.com/first", Name: "First Show", Artist: "Author", Genre: "Science", TrackCount: 12, ImageURL: "https://example.com/first.jpg"},
+				{ID: "https://example.com/second", Name: "Second Show", Artist: "Other", Genre: "News", TrackCount: 8, ImageURL: "https://example.com/second.jpg"},
 			}
 			if mode == "empty" {
 				want = nil
@@ -708,7 +709,7 @@ func TestProviderSubscriptionPersistence(t *testing.T) {
 		p.Refresh()
 		var wantLists []playlist.PlaylistInfo
 		for _, s := range tt.want {
-			wantLists = append(wantLists, playlist.PlaylistInfo{ID: "f:" + s.FeedURL, Name: "[subscribed] " + s.Title, TrackCount: s.EpisodeCount, Section: "Subscriptions"})
+			wantLists = append(wantLists, playlist.PlaylistInfo{ID: "f:" + s.FeedURL, Name: "[subscribed] " + s.Title, TrackCount: s.EpisodeCount, Section: "Subscriptions", ImageURL: s.Artwork})
 			if restored.shows[s.FeedURL] != s {
 				t.Errorf("restored metadata = %+v, want %+v", restored.shows[s.FeedURL], s)
 			}

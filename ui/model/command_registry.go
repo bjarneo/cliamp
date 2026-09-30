@@ -56,6 +56,7 @@ const (
 	commandModeHomeInput
 	commandModeTrackMenu
 	commandModeCredits
+	commandModeImmersive
 )
 
 const commandModeAny = ^commandMode(0)
@@ -123,6 +124,7 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"Z"}, KeyLabel: "Z", Label: "Toggle Smart Shuffle", Keymap: true},
 	{Mode: commandModeMain | commandModeVolume | commandModeShuffle | commandModeRepeat, Keys: []string{"r"}, KeyLabel: "r", Label: "Cycle repeat", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"m"}, KeyLabel: "m", Label: "Toggle mono", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"I"}, KeyLabel: "I", Label: "Immersive layout (prototype)", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"e"}, KeyLabel: "e", Label: "Cycle EQ preset", Enabled: func(m Model) bool { return !m.simplified }, Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"t"}, KeyLabel: "t", Label: "Choose theme", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"v"}, KeyLabel: "v", Label: "Cycle visualizer", Enabled: func(m Model) bool { return !m.simplified }, Keymap: true},
@@ -206,8 +208,32 @@ var commandRegistry = []commandSpec{
 	}},
 	{Mode: commandModeTrackMenu, Keys: []string{"up", "down", "j", "k"}, KeyLabel: "Up Down", Label: "Navigate", ContextHelp: true},
 	{Mode: commandModeTrackMenu, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Run menu item", ContextHelp: true, Primary: true},
-	{Mode: commandModeTrackMenu, Keys: []string{"w", "r", "a", "l", "t", "x", "i"}, KeyLabel: "letter", Label: "Run the matching menu item", ContextHelp: true},
+	{Mode: commandModeTrackMenu, Keys: []string{"w", "r", "a", "l", "t", "x", "s", "i", "y"}, KeyLabel: "letter", Label: "Run the matching menu item", ContextHelp: true},
 	{Mode: commandModeTrackMenu, Keys: []string{"esc", ";", "q"}, KeyLabel: "Esc", Label: "Close", ContextHelp: true, Cancel: true},
+	{Mode: commandModeImmersive, Keys: []string{"space"}, KeyLabel: "Space", Label: "Play / Pause", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{">", "."}, KeyLabel: "> <", Label: "Next / previous track", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"z"}, KeyLabel: "z", Label: "Shuffle: off / shuffle / Smart Shuffle", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"Z"}, KeyLabel: "Z", Label: "Toggle Smart Shuffle", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"r"}, KeyLabel: "r", Label: "Cycle repeat", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"+", "-"}, KeyLabel: "+ -", Label: "Volume", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"1", "2", "3", "4", "5"}, KeyLabel: "1-5", Label: "Playlists / Artists / Search / Albums / Podcasts", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"/", "ctrl+f"}, KeyLabel: "/", Label: "Search", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"c"}, KeyLabel: "c", Label: "Canvas view: list / rows / grid", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"v"}, KeyLabel: "v", Label: "Cycle visualizer", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"V"}, KeyLabel: "V", Label: "Full-screen visualizer", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"backspace", "alt+left"}, KeyLabel: "Bksp Alt+Left", Label: "Back", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"alt+right"}, KeyLabel: "Alt+Right", Label: "Forward", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{";"}, KeyLabel: ";", Label: "Track menu (also right-click)", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Open / play", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"p"}, KeyLabel: "p", Label: "Play the open list", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"a"}, KeyLabel: "a", Label: "Add track to queue", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"n"}, KeyLabel: "n", Label: "Toggle cliamp favorite", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"f"}, KeyLabel: "f", Label: "Filter the list", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"s", "t"}, KeyLabel: "s t", Label: "Sort collections / tracks", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"e"}, KeyLabel: "e", Label: "Settings and EQ", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"tab", "shift+tab"}, KeyLabel: "Tab", Label: "Move focus", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"q"}, KeyLabel: "q", Label: "Focus the queue", ContextHelp: true},
+	{Mode: commandModeImmersive, Keys: []string{"I"}, KeyLabel: "I", Label: "Leave immersive", ContextHelp: true},
 	{Mode: commandModeCredits, Keys: []string{"up", "down", "j", "k", "ctrl+u", "ctrl+d"}, KeyLabel: "Up Down", Label: "Scroll", ContextHelp: true},
 	{Mode: commandModeCredits, Keys: []string{"esc", "i", "q"}, KeyLabel: "Esc", Label: "Close", ContextHelp: true, Cancel: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+j"}, KeyLabel: "Ctrl+J", Label: "Jump to time", Keymap: true},

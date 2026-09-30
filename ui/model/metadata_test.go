@@ -227,20 +227,26 @@ func TestMetadataToggleDefaultsAndPersistence(t *testing.T) {
 			t.Errorf("metadata key %q is not reserved", key)
 		}
 	}
-	if ReservedKeys()["I"] {
-		t.Error("the removed Shift+I shortcut is still reserved")
+	// The old Shift+I metadata shortcut was removed, and I is now bound to
+	// immersive Spotify mode instead — it must stay reserved so plugins
+	// cannot shadow it.
+	if !ReservedKeys()["I"] {
+		t.Error("immersive mode key I is not reserved")
 	}
 }
 
+// Tab keeps cycling focus, and I (at 80x24, exactly the immersive minimum)
+// enters immersive; none of them open metadata or save config.
 func TestMetadataShortcutLeavesTabNavigationIntact(t *testing.T) {
 	for _, tt := range []struct {
-		key  tea.KeyPressMsg
-		want focusArea
+		key       tea.KeyPressMsg
+		want      focusArea
+		immersive bool
 	}{
-		{tea.KeyPressMsg{Code: tea.KeyTab}, focusProvPill},
-		{tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}, focusSpeed},
-		{tea.KeyPressMsg{Text: "I"}, focusPlaylist},
-		{tea.KeyPressMsg{Code: 'i', ShiftedCode: 'I', Mod: tea.ModShift}, focusPlaylist},
+		{tea.KeyPressMsg{Code: tea.KeyTab}, focusProvPill, false},
+		{tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}, focusSpeed, false},
+		{tea.KeyPressMsg{Text: "I"}, focusPlaylist, true},
+		{tea.KeyPressMsg{Code: 'i', ShiftedCode: 'I', Mod: tea.ModShift}, focusPlaylist, true},
 	} {
 		t.Run(tt.key.String(), func(t *testing.T) {
 			m := newColumnTestModel(80, 24)
@@ -248,8 +254,8 @@ func TestMetadataShortcutLeavesTabNavigationIntact(t *testing.T) {
 			m.configSaver = saver
 			updated, _ := m.Update(tt.key)
 			m = updated.(Model)
-			if m.focus != tt.want || m.showMetadata || m.showInfo || len(saver.values) != 0 {
-				t.Fatalf("%s: focus=%s metadata=%v info=%v saves=%v", tt.key.String(), m.focus.label(), m.showMetadata, m.showInfo, saver.values)
+			if m.focus != tt.want || m.showMetadata || m.showInfo || len(saver.values) != 0 || m.immersive.active != tt.immersive {
+				t.Fatalf("%s: focus=%s metadata=%v info=%v saves=%v immersive=%v", tt.key.String(), m.focus.label(), m.showMetadata, m.showInfo, saver.values, m.immersive.active)
 			}
 		})
 	}

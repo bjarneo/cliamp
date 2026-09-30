@@ -351,7 +351,7 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 		query := url.Values{
 			"limit":  {fmt.Sprintf("%d", limit)},
 			"offset": {fmt.Sprintf("%d", offset)},
-			"fields": {"items(id,name,snapshot_id,collaborative,owner(id),items.total),total"},
+			"fields": {"items(id,name,snapshot_id,collaborative,owner(id),items.total,images),total"},
 		}
 
 		resp, err := p.webAPI(ctx, "GET", "/v1/me/playlists", query)
@@ -386,6 +386,7 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 				TrackCount: count,
 				Section:    section,
 				Owned:      owned,
+				ImageURL:   pickCoverImage(item.Images),
 			})
 			// Update snapshot_id in cache; if it changed, invalidate cached tracks.
 			if cached, ok := p.trackCache[item.ID]; ok {
@@ -478,6 +479,7 @@ func (p *SpotifyProvider) savedAlbums(ctx context.Context) ([]playlist.PlaylistI
 				Name:       name,
 				TrackCount: a.TotalTracks,
 				Section:    savedAlbumSection,
+				ImageURL:   pickCoverImage(a.Images),
 			})
 		}
 

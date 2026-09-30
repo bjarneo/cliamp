@@ -247,3 +247,40 @@ func TestQueueBoundsCheck(t *testing.T) {
 		t.Fatalf("QueueLen() = %d, want 0 (invalid indices ignored)", p.QueueLen())
 	}
 }
+
+func TestUpcoming(t *testing.T) {
+	tests := []struct {
+		name       string
+		index      int
+		unplayable []int
+		limit      int
+		want       []int
+	}{
+		{"from start", 0, nil, 3, []int{1, 2, 3}},
+		{"limit past end", 3, nil, 5, []int{4}},
+		{"at last track", 4, nil, 3, nil},
+		{"skips unplayable", 0, []int{1, 3}, 3, []int{2, 4}},
+		{"zero limit", 0, nil, 0, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := makePlaylist(5, false)
+			for _, i := range tt.unplayable {
+				p.tracks[i].Unplayable = true
+			}
+			p.SetIndex(tt.index)
+			var got []int
+			for _, e := range p.Upcoming(tt.limit) {
+				got = append(got, e.TrackIndex)
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("Upcoming = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("Upcoming = %v, want %v", got, tt.want)
+				}
+			}
+		})
+	}
+}

@@ -45,6 +45,7 @@ import (
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
 	"github.com/bjarneo/cliamp/ui/model"
+	"github.com/bjarneo/cliamp/ui/termimg"
 )
 
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z".
@@ -659,6 +660,16 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if cfg.Simplified {
 		m.SetSimplified(true)
 	}
+	if cfg.Immersive {
+		m.SetImmersive(true)
+	}
+	if cfg.NerdFontGlyphs {
+		m.SetNerdFontGlyphs(true)
+	}
+	m.SetImageMode(cfg.Images)
+	m.SetImmersiveView(cfg.ImmersiveView)
+	imgLayer := termimg.NewLayer()
+	m.SetImageLayer(imgLayer)
 	if cfg.HideHelpBar {
 		m.SetHideHelpBar(true)
 	}
@@ -684,7 +695,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		}
 	}
 
-	progOpts := []tea.ProgramOption{tea.WithFPS(defaultUIFPS)}
+	progOpts := []tea.ProgramOption{tea.WithFPS(defaultUIFPS), tea.WithOutput(termimg.NewWriter(os.Stdout, imgLayer))}
 	if cfg.LowPower {
 		progOpts[0] = tea.WithFPS(lowPowerUIFPS)
 	}

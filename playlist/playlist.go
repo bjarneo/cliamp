@@ -953,6 +953,21 @@ func (p *Playlist) QueueEntries() []QueueEntry {
 	return entries
 }
 
+// Upcoming returns up to limit play-order entries after the current position
+// (shuffled order when shuffle is on), skipping unplayable tracks. The
+// play-next queue is not included; it plays first, see QueueEntries.
+func (p *Playlist) Upcoming(limit int) []QueueEntry {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var out []QueueEntry
+	for i := p.pos + 1; i < len(p.order) && len(out) < limit; i++ {
+		if idx := p.order[i]; p.isPlayable(idx) {
+			out = append(out, QueueEntry{TrackIndex: idx, Track: cloneTrack(p.tracks[idx])})
+		}
+	}
+	return out
+}
+
 // QueueWindow returns copies of at most limit queued tracks starting at start.
 func (p *Playlist) QueueWindow(start, limit int) []Track {
 	p.mu.Lock()

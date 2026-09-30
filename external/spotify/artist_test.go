@@ -135,7 +135,7 @@ func TestArtistDetailHappyPath(t *testing.T) {
 	if len(detail.Discography) != 12 {
 		t.Fatalf("Discography has %d albums, want 12", len(detail.Discography))
 	}
-	wantFirst := provider.AlbumInfo{ID: "al1", Name: "Album al1", Artist: "Artist a1", ArtistID: "a1", Year: 2001, TrackCount: 2}
+	wantFirst := provider.AlbumInfo{ID: "al1", Name: "Album al1", Artist: "Artist a1", ArtistID: "a1", Year: 2001, TrackCount: 2, ImageURL: "https://img/al1"}
 	if detail.Discography[0] != wantFirst {
 		t.Errorf("Discography[0] = %+v, want %+v", detail.Discography[0], wantFirst)
 	}

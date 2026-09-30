@@ -56,6 +56,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // update is Update without the stale preload check.
 func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.handleTermImageEvent(msg) {
+		return m, nil
+	}
+	if cmd, ok := m.handleArtMsg(msg); ok {
+		return m, cmd
+	}
 	wasScreen := m.activeScreen()
 	wasVisualizerVisible := m.visualizerVisible()
 	wasMode := ui.VisNone
@@ -111,6 +117,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status.Errorf(statusTTLDefault, "Artist lookup failed: %s", msg.err)
 			return m, nil
 		}
+		if m.immersiveOwns(msg.providerName) {
+			return m, m.openImmersiveItem(immItem{kind: immKindArtist, id: msg.artist.ID, title: msg.artist.Name, sub: "Artist", art: msg.artist.ImageURL})
+		}
+		if m.immersiveShown() {
+			m.status.Showf(statusTTLDefault, "That %s is on %s: leave immersive (I) to open it", "artist", msg.providerName)
+			return m, nil
+		}
 		return m, m.openArtistScreen(msg.providerName, msg.artist)
 
 	case menuAlbumMsg:
@@ -119,6 +132,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.err != nil {
 			m.status.Errorf(statusTTLDefault, "Album lookup failed: %s", msg.err)
+			return m, nil
+		}
+		if m.immersiveOwns(msg.providerName) {
+			a := msg.album
+			return m, m.openImmersiveItem(immItem{kind: immKindAlbum, id: a.ID, title: a.Name, sub: firstNonEmpty(a.Artist, "Album"), art: a.ImageURL})
+		}
+		if m.immersiveShown() {
+			m.status.Showf(statusTTLDefault, "That %s is on %s: leave immersive (I) to open it", "album", msg.providerName)
 			return m, nil
 		}
 		return m, m.openResolvedAlbum(msg)
@@ -137,6 +158,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.recomputeLayout()
 		m.normalizeMainFocus()
 		m.clampActiveScrollState()
+		if m.art != nil && m.immersive.active {
+			// A font zoom arrives as a size change; re-ask the cell size so
+			// covers and the pixel visualizer are encoded for the new one.
+			return m, tea.Raw("\x1b[16t")
+		}
 		return m, nil
 
 	case seekTickMsg:
@@ -252,6 +278,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.tickPendingSpeedSave(dt)
 		m.tickPendingEQSave(dt)
+		m.tickImmersive()
 		if m.pendingSeekActive && !m.pendingSeekExpiresAt.IsZero() && !now.Before(m.pendingSeekExpiresAt) {
 			m.pendingSeekActive = false
 			m.pendingSeekExpiresAt = time.Time{}
@@ -466,6 +493,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.openDefaultProviderOnce = false
 		cmd := m.openDefaultProviderBrowser()
 		return m, cmd
+
+	case openImmersiveMsg:
+		if !m.openImmersiveOnce {
+			return m, nil
+		}
+		m.openImmersiveOnce = false
+		// Start regardless of the current size: the first WindowSizeMsg may
+		// not have arrived yet, and a too-small terminal only hides the frame
+		// until it grows (immersiveShown).
+		return m, m.startImmersive()
 
 	case radioListsRefreshMsg:
 		if msg.gen != m.requests.provider || !m.isActiveProvider("Radio") {
@@ -1210,6 +1247,78 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.home.loadingLists = true
 		return m, fetchHomeListsCmd(m.home.prov, msg.providerName, nextRequest(&m.requests.homeLists))
 
+	case immersiveListsMsg:
+		if !m.isCurrentImmersiveRequest(msg.gen, msg.providerName, m.requests.immersiveLists) {
+			return m, nil
+		}
+		m.immersive.loadingLists = false
+		m.noteImmersiveLoadErr("Playlists", msg.err)
+		if msg.err == nil {
+			m.immersive.lists = m.filterImmersivePlaylists(msg.lists)
+		}
+		return m, nil
+
+	case immersiveAlbumsMsg:
+		if !m.isCurrentImmersiveRequest(msg.gen, msg.providerName, m.requests.immersiveAlbums) {
+			return m, nil
+		}
+		m.immersive.loadingAlbums = false
+		m.noteImmersiveLoadErr("Albums", msg.err)
+		if msg.err == nil {
+			m.immersive.albums = msg.albums
+		}
+		return m, nil
+
+	case immersiveArtistsMsg:
+		if !m.isCurrentImmersiveRequest(msg.gen, msg.providerName, m.requests.immersiveArtists) {
+			return m, nil
+		}
+		m.immersive.loadingArtists = false
+		m.noteImmersiveLoadErr("Artists", msg.err)
+		if msg.err == nil {
+			m.immersive.artists = msg.artists
+		}
+		return m, nil
+
+	case immersiveContentMsg:
+		if !m.isCurrentImmersiveRequest(msg.gen, msg.providerName, m.requests.immersiveContent) {
+			return m, nil
+		}
+		m.immersive.tracksLoading = false
+		m.immersive.ctxID, m.immersive.ctxName, m.immersive.ctxSub = msg.id, msg.name, msg.sub
+		if msg.err != nil {
+			m.status.Errorf(statusTTLDefault, "Load failed: %s", msg.err)
+			return m, nil
+		}
+		m.immersive.tracks = msg.tracks
+		return m, nil
+
+	case immersiveArtistMsg:
+		if !m.isCurrentImmersiveRequest(msg.gen, msg.providerName, m.requests.immersiveArtist) {
+			return m, nil
+		}
+		m.immersive.tracksLoading = false
+		if msg.err != nil {
+			m.status.Errorf(statusTTLDefault, "Artist load failed: %s", msg.err)
+			return m, nil
+		}
+		m.immersive.tracks = msg.detail.Popular
+		m.immersive.ctxSub = msg.detail.Info.Name
+		return m, nil
+
+	case immersiveSearchMsg:
+		if !m.isCurrentImmersiveRequest(msg.gen, msg.providerName, m.requests.immersiveSearch) {
+			return m, nil
+		}
+		m.immersive.searchLoading = false
+		m.immersive.tracksLoading = false
+		if msg.err != nil {
+			m.status.Errorf(statusTTLDefault, "Search failed: %s", msg.err)
+			return m, nil
+		}
+		m.immersive.tracks = msg.tracks
+		return m, nil
+
 	case trackLikeToggledMsg:
 		if msg.gen != m.requests.like {
 			return m, nil
@@ -1404,6 +1513,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.provSignIn = false
 		m.provLoading = true
 		cmd := m.fetchProviderPlaylists()
+		if m.immersive.active && m.immersive.needsAuth {
+			// Signed in from the immersive prompt: reload its sections too.
+			cmd = tea.Batch(cmd, m.startImmersive())
+		}
 		return m, cmd
 
 	case ProvAuthURLMsg:

@@ -318,7 +318,12 @@ func (p *Provider) Artists() ([]provider.ArtistInfo, error) {
 		if name == "" {
 			name = user.Username
 		}
-		artists = append(artists, provider.ArtistInfo{ID: user.Username, Name: name, AlbumCount: user.CloudcastCount})
+		artists = append(artists, provider.ArtistInfo{
+			ID:         user.Username,
+			Name:       name,
+			AlbumCount: user.CloudcastCount,
+			ImageURL:   bestPicture(user.Pictures),
+		})
 	}
 	return dedupeArtists(artists), nil
 }
@@ -784,6 +789,7 @@ func albumsFromCloudcasts(shows []apiCloudcast) []provider.AlbumInfo {
 			Year:       year,
 			TrackCount: 1,
 			Genre:      tagNames(show.Tags),
+			ImageURL:   bestPicture(show.Pictures),
 			Restricted: show.IsExclusive,
 		})
 	}

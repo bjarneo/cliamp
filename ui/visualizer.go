@@ -74,6 +74,8 @@ const (
 	VisMirror                     // Braille spectrum bars mirrored about a horizontal axis
 	VisOmarchy                    // dithered pixel field with the Omarchy mark (omarchy.org style)
 	VisRedSector                  // tumbling wireframe equalizer over a drifting starfield
+	VisAurora                     // pixel spectrum ridge with glow and reflection (Sixel where supported)
+	VisPhosphor                   // pixel oscilloscope with CRT glow and persistence (Sixel where supported)
 	VisNone                       // hidden — no visualizer
 	VisCount                      // sentinel for cycling
 )
@@ -418,6 +420,7 @@ type Visualizer struct {
 	sampleBuf       []float64 // reusable buffer for reading audio tap samples
 	drivers         [VisCount]visModeDriver
 	activeMode      VisMode
+	pixelText       *PixelVis // text-resolution renderer for the pixel modes
 	activeModeSet   bool
 	refreshPending  bool
 	luaVisNames     []string
@@ -490,6 +493,8 @@ var visModes = [VisCount]visEntry{
 	VisMirror:      {"Mirror", newFastRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), TickAnim, (*Visualizer).renderMirror)},
 	VisOmarchy:     {"Omarchy", newFastRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), TickAnim, (*Visualizer).renderOmarchy)},
 	VisRedSector:   {"RedSector", newRedSectorDriver},
+	VisAurora:      {"Aurora", newFastRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), TickAnim, func(v *Visualizer, _ []float64) string { return v.renderPixelText(VisAurora) })},
+	VisPhosphor:    {"Phosphor", newFastRenderOnlyDriver(spectrumAnalysisSpec(0), TickWave, func(v *Visualizer, _ []float64) string { return v.renderPixelText(VisPhosphor) })},
 	VisNone:        {"None", newNoOpDriver},
 }
 

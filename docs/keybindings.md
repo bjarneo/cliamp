@@ -138,6 +138,7 @@ and `Esc` clears it.
 | `w` | Write the highlighted track/selection to a playlist — local playlists always, plus the owning provider's playlists (a "Spotify Playlists" section, with new-playlist creation) when the tracks come from it; selections are added in batches |
 | `N` | Open the active provider browser. On a selected Mixcloud show, open that creator's Uploads/Favorites. In the radio pane, open the country browser. |
 | `H` | Open the Home view — the active provider's library in a two-pane browser |
+| `I` (`Shift+I`) | Toggle the immersive layout (prototype): visualizer band, nav pills, Now Playing + Queue column, canvas with list/rows/grid views, transport row and seek bar; `I` or `Esc` exits back. See [Immersive mode](#immersive-mode-prototype) |
 | `L` | Browse local playlists (with cliamp radio) |
 | `R` | Open radio provider |
 | `O` (`Shift+O`) | Open Podcasts provider |
@@ -176,7 +177,9 @@ and playlist-manager rows.
 | `l` | Go to the track's album |
 | `t` | Go to the track's artist |
 | `x` | Remove from this playlist (or queue) — playlist/queue/manager rows only |
+| `s` | Like / unlike on the owning provider (e.g. Spotify Liked Songs) — providers with likes only |
 | `i` | View credits — composer/producer/label metadata where the provider exposes it, plus the track's standard metadata; reports when no credits are exposed (Spotify has no credits endpoint) |
+| `y` | Copy a share link to the clipboard: the open.spotify.com link for Spotify tracks, or a `cliamp://play` link for web streams |
 | `Enter` | Run the highlighted item |
 | `j` `k` / `Up` `Down` | Move between items (wraps) |
 | `;` `q` `Esc` | Close |
@@ -426,3 +429,44 @@ query to their search API. Their services control matching rules.
 |---|---|
 | `?` / `Ctrl+K` | Show keymap. `Enter` runs the selected command. |
 | `q` / `Ctrl+C` | Quit |
+
+## Immersive mode (prototype)
+
+`I` opens the immersive layout (or start in it with `immersive = true` in the
+config). It falls back to the classic layout when the terminal is under
+80x24. Transport keys keep their normal bindings (`Space`, `>`/`<`, `r`, `Z`,
+`+`/`-`, `Shift+Left`/`Shift+Right`, `v` to cycle visualizers); `Ctrl+K` or
+`?` lists everything below. The immersive-only keys:
+
+| Key | Action |
+|---|---|
+| `1`..`5` | Switch nav pill: Playlists, Artists, Search, Albums, Podcasts |
+| `Tab` / `Shift+Tab` | Cycle focus between nav row, canvas, and queue |
+| `h`/`l` or `Left`/`Right` | Move cursor horizontally (nav pills, grid tiles, settings values) |
+| `j`/`k` or `Up`/`Down` | Move cursor vertically (one row or tile row per step) |
+| `PgUp` / `PgDn` | Page the canvas |
+| `Enter` | Open the focused collection, play the focused track, or adjust a setting |
+| `Backspace` or `Alt+Left` | Back through the canvas history (the ◀ button) |
+| `Alt+Right` | Forward again (the ▶ button) |
+| `Esc` | Leave the settings tab or an opened collection; exits at the root |
+| `g` or `Home` | Jump back to the canvas root |
+| `c` | Cycle the canvas view: list, rows, grid |
+| `z` | Shuffle button: off, shuffle, Smart Shuffle (✦), off |
+| `;` | Track menu for the focused track (also right-click) |
+| `e` | Toggle the settings tab in the canvas (EQ preset/bands, volume, speed, visualizer) |
+| `t` | Cycle track sort: order, title, album, duration |
+| `s` | Toggle browse sort: recents vs alphabetical |
+| `f` | Filter the current browse list |
+| `/` or `Ctrl+F` | Search tracks into the canvas |
+| `p` | Play the open collection from the cursor |
+| `a` | Queue the focused track |
+| `n` | Toggle favorite on the focused track |
+| `q` | Focus the Queue panel (queue clicks jump the live queue there) |
+| `V` | Full-screen visualizer |
+| `I` or `Esc` | Exit immersive mode |
+
+Mouse: click pills to switch, click canvas items to open/play, right-click a
+track, queue row, or Now Playing for the track menu (add to playlist, song
+radio, queue, go to album/artist, like, credits, copy share link), click the
+transport buttons, drag the seek bar, and wheel over the canvas or queue to
+snap-scroll. Search results open albums on Enter and play tracks.

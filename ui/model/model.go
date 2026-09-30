@@ -14,6 +14,7 @@ import (
 	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
+	"github.com/bjarneo/cliamp/ui/termimg"
 )
 
 // ConfigSaver persists individual config key-value pairs.
@@ -187,6 +188,7 @@ const (
 	screenLyrics
 	screenJump
 	screenFullVisualizer
+	screenImmersive
 	screenTrackMenu
 	screenCredits
 )
@@ -231,6 +233,8 @@ func (s topLevelScreen) label() string {
 		return "Jump to Time"
 	case screenFullVisualizer:
 		return "Visualizer"
+	case screenImmersive:
+		return "Immersive"
 	case screenTrackMenu:
 		return "Track Menu"
 	case screenCredits:
@@ -337,6 +341,17 @@ type Model struct {
 	provAskLoc              bool            // true while the location question is on screen
 	provAuthURL             string          // OAuth URL to display while interactive auth is in flight
 	openDefaultProviderOnce bool            // open the provider's preferred hierarchy after Init
+	openImmersiveOnce       bool            // enter immersive mode after Init (immersive config)
+	nerdFontGlyphs          bool            // nerd_font_glyphs config: Nerd Font transport glyphs
+	immCanvasPref           immCanvasMode   // immersive_view config: canvas view immersive opens in
+	imgMode                 imageMode       // images config: how covers are drawn
+	imgLayer                *termimg.Layer  // Sixel output layer (nil in tests)
+	art                     *artStore       // decoded/encoded cover cache
+	pixVis                  *pixVisWorker   // Sixel pixel-visualizer renderer (nil in tests)
+	frameMemo               *frameMemo      // previous view's lines, for image redraw after text rewrites
+	artPolling              bool            // the cover request loop is running
+	termSixel               bool            // the terminal reported Sixel support (DA1 attribute 4)
+	cellW, cellH            int             // terminal cell size in pixels (CSI 16 t), 0 until known
 	providers               []ProviderEntry // all available providers
 	provPillIdx             int             // selected pill index
 	eqPresetIdx             int             // -1 = custom, 0+ = index into eqPresets
@@ -361,9 +376,11 @@ type Model struct {
 	home           homeState
 	fileBrowser    fileBrowserState
 	navBrowser     navBrowserState
+	immersive      immersiveState
 	trackMenu      trackMenuState
 	credits        creditsState
 	mouse          *mouseState
+	immMouse       *immMouseGeom
 	catalogBatch   catalogBatchState
 	ytdlBatch      ytdlBatchState
 	reconnect      reconnectState
@@ -581,6 +598,10 @@ func (m Model) activeScreen() topLevelScreen {
 		return screenDevicePicker
 	case m.plPicker.visible:
 		return screenPlaylistPicker
+	// Immersive sits under the transient pickers it opens (keymap, track
+	// menu, credits, playlist picker) and over the classic browse overlays.
+	case m.immersiveShown():
+		return screenImmersive
 	case m.fileBrowser.visible:
 		return screenFileBrowser
 	case m.artist.visible:

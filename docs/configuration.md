@@ -68,11 +68,13 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # keeps it available, and both values are restored after restart.
 
 # Visualizer mode (leave empty for default Bars)
-# Options: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, Mirror, Omarchy, RedSector, None
+# Options: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, Mirror, Omarchy, RedSector, Aurora, Phosphor, None
 # Mirror draws tapered Braille bars around a persistent horizontal center axis.
 # ClassicPeak uses smooth bars and floating peak caps, with sampling aligned
 # to audible playback and adaptive redraws for smooth motion.
 # Neighboring bands are averaged into each bar.
+# Aurora and Phosphor are pixel visualizers: real Sixel images in the immersive
+# band on terminals that support it, half-block text everywhere else.
 visualizer = "Bars"
 
 # Visualizer volume linking (default: true)
@@ -170,6 +172,26 @@ badges drops whole badges off the tail rather than clipping one mid-word.
 artist/title, time, and seek-progress strip. It hides the visualizer, playback
 controls, and playlist. Provider browsing and overlays keep their list-focused
 layout. Start one session with `cliamp --simplified`.
+
+`immersive = true` starts cliamp in the immersive layout (prototype):
+a visualizer band on top, nav pills, a Now Playing + Queue column beside a
+browseable canvas, transport controls, and a thin-line seek bar. Toggle
+anytime with `I`; terminals under 80x24 fall back to the classic layout.
+
+`nerd_font_glyphs = true` swaps the immersive transport controls for a Nerd
+Font glyph set; the default is plain Unicode. Only set it on terminals with a
+Nerd Font patched font.
+
+`images` controls cover art in the immersive layout (Now Playing and the
+rows/grid canvas thumbnails). `"auto"` (the default) draws real images with
+Sixel on terminals that report support (Windows Terminal, WezTerm, foot, xterm
+with Sixel enabled) and colored half-block text on the rest; `"sixel"` or
+`"blocks"` forces one, and `"off"` keeps the text placeholders. Covers come from
+the track's album art or the provider's playlist/album/artist image.
+
+`immersive_view` is the canvas view immersive opens in: `"list"` (default),
+`"rows"` or `"grid"`. Pressing `c` in immersive cycles the view and saves it
+here.
 
 `hide_help_bar = true` removes the key-binding hint bar above the status line
 and gives that row back to the playlist. The full keymap stays available with

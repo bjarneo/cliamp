@@ -32,6 +32,7 @@ type PlaylistInfo struct {
 	DurationSecs   int
 	Section        string
 	DirSourceCount int
+	ImageURL       string // cover/avatar image URL, "" when the provider has none
 
 	// Owned reports whether the current user owns this playlist (only
 	// meaningful for remote providers that expose ownership).

@@ -8,6 +8,7 @@ package model
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -70,11 +71,43 @@ func (m Model) trackMenuItems() []trackMenuItem {
 			return m.menuRemoveTrack()
 		}})
 	}
+	if m.likerForTrack(t) != nil {
+		items = append(items, trackMenuItem{"s", "Like / unlike (" + m.providerForTrack(t.Path).Name() + ")", func(m *Model) tea.Cmd {
+			return m.likeTrack(t)
+		}})
+	}
 	items = append(items, trackMenuItem{"i", "View credits", func(m *Model) tea.Cmd {
 		m.openCredits(t)
 		return nil
 	}})
+	if link := shareLink(t); link != "" {
+		items = append(items, trackMenuItem{"y", "Copy share link", func(m *Model) tea.Cmd {
+			m.status.Show("Copied "+link, statusTTLDefault)
+			return tea.SetClipboard(link)
+		}})
+	}
 	return items
+}
+
+// shareLink is the link the menu's Share item copies: the Spotify web URL
+// for Spotify tracks, or a cliamp:// link that plays a plain http(s) stream
+// in anyone's cliamp. URLs with a query string are never shared: media
+// servers (Navidrome, Plex, Jellyfin) put credentials there. Local files
+// and provider-internal paths have nothing shareable.
+func shareLink(t playlist.Track) string {
+	switch {
+	case strings.HasPrefix(t.Path, "spotify:track:"):
+		return "https://open.spotify.com/track/" + strings.TrimPrefix(t.Path, "spotify:track:")
+	case strings.HasPrefix(t.Path, "spotify:episode:"):
+		return "https://open.spotify.com/episode/" + strings.TrimPrefix(t.Path, "spotify:episode:")
+	case strings.HasPrefix(t.Path, "http://"), strings.HasPrefix(t.Path, "https://"):
+		u, err := url.Parse(t.Path)
+		if err != nil || u.RawQuery != "" || u.User != nil {
+			return ""
+		}
+		return "cliamp://play?url=" + url.QueryEscape(t.Path)
+	}
+	return ""
 }
 
 // openTrackMenuAt opens the menu for the track under body row/col, moving
@@ -338,7 +371,13 @@ func (m Model) trackArtistTarget(track playlist.Track) (selectedTrackArtistTarge
 // screen when the provider can load one, the album list otherwise, and a
 // provider-side search when nothing resolves the track directly.
 func (m *Model) goToTrackArtist(t playlist.Track) tea.Cmd {
-	if target, ok := m.trackArtistTarget(t); ok {
+	if target, ok := m.trackArtistTarget(t); ok && m.immersiveOwns(target.prov.Name()) {
+		if _, ok := target.prov.(provider.ArtistDetailLoader); ok {
+			a := target.artist
+			return m.openImmersiveItem(immItem{kind: immKindArtist, id: a.ID, title: a.Name, sub: "Artist", art: a.ImageURL})
+		}
+	}
+	if target, ok := m.trackArtistTarget(t); ok && !m.immersiveShown() {
 		if _, ok := target.prov.(provider.ArtistDetailLoader); ok {
 			return m.openArtistScreen(target.prov.Name(), target.artist)
 		}
@@ -360,6 +399,14 @@ func (m *Model) goToTrackArtist(t playlist.Track) tea.Cmd {
 	}
 	m.status.Show("No artist info available", statusTTLDefault)
 	return nil
+}
+
+// immersiveOwns reports whether immersive is on screen for the named
+// provider, so a go-to result opens in its canvas instead of a classic
+// screen that would sit hidden under it. While the terminal is too small
+// for immersive, the classic screens are the ones showing.
+func (m Model) immersiveOwns(providerName string) bool {
+	return m.immersiveShown() && m.immersive.prov != nil && m.immersive.prov.Name() == providerName
 }
 
 // menuArtistMsg carries a resolved artist from the MultiSearcher fallback.
@@ -394,7 +441,12 @@ func searchArtistCmd(s provider.MultiSearcher, providerName, query string, gen u
 // the track knows its album ID, otherwise the artist's album list, and
 // otherwise a provider-side search for the album title.
 func (m *Model) goToTrackAlbum(t playlist.Track) tea.Cmd {
-	if id := t.AlbumID(); id != "" {
+	if id := t.AlbumID(); id != "" && m.immersiveShown() {
+		if prov := m.providerForTrack(t.Path); prov != nil && m.immersiveOwns(prov.Name()) {
+			return m.openImmersiveItem(immItem{kind: immKindAlbum, id: id, title: t.Album, sub: firstNonEmpty(t.Artist, "Album"), art: t.AlbumArtURL})
+		}
+	}
+	if id := t.AlbumID(); id != "" && !m.immersiveShown() {
 		if prov := m.providerForTrack(t.Path); prov != nil {
 			if l, ok := prov.(provider.AlbumTrackLoader); ok {
 				m.openNavBrowserWith(prov)
@@ -407,7 +459,7 @@ func (m *Model) goToTrackAlbum(t playlist.Track) tea.Cmd {
 			}
 		}
 	}
-	if target, ok := m.trackArtistTarget(t); ok {
+	if target, ok := m.trackArtistTarget(t); ok && !m.immersiveShown() {
 		m.openNavBrowserWith(target.prov)
 		m.navBrowser.mode = navBrowseModeByArtistAlbum
 		m.navBrowser.screen = navBrowseScreenAlbums

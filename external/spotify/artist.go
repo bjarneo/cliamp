@@ -39,6 +39,7 @@ type spotifyArtistFull struct {
 	Followers struct {
 		Total int `json:"total"`
 	} `json:"followers"`
+	Images []spotifyImage `json:"images"`
 }
 
 // artistPoolTrack is one candidate for the artist's synthesized popular
@@ -95,7 +96,12 @@ func (p *SpotifyProvider) ArtistDetail(artistID string) (provider.ArtistDetail, 
 	}
 
 	return provider.ArtistDetail{
-		Info:        provider.ArtistInfo{ID: header.ID, Name: header.Name, AlbumCount: len(discography)},
+		Info: provider.ArtistInfo{
+			ID:         header.ID,
+			Name:       header.Name,
+			AlbumCount: len(discography),
+			ImageURL:   pickCoverImage(header.Images),
+		},
 		Genres:      header.Genres,
 		Followers:   header.Followers.Total,
 		Popular:     tracks,
