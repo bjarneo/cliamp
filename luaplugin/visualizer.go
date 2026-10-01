@@ -1,8 +1,6 @@
 package luaplugin
 
 import (
-	"time"
-
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -59,24 +57,6 @@ func (m *Manager) Visualizers() []string {
 	return names
 }
 
-// lockPluginBounded waits briefly for a plugin's Lua state instead of forever.
-// InitVis and DestroyVis run on the UI loop, and a hook goroutine can be
-// holding this lock while blocked on a call back into that same loop, so an
-// unbounded wait would freeze the program. These are one-shot on a mode
-// switch, so a short wait almost always succeeds; giving up merely skips
-// optional setup or teardown.
-func lockPluginBounded(v *luaVis) bool {
-	const deadline = 100 * time.Millisecond
-	const step = 2 * time.Millisecond
-	for waited := time.Duration(0); waited < deadline; waited += step {
-		if v.plugin.mu.TryLock() {
-			return true
-		}
-		time.Sleep(step)
-	}
-	return false
-}
-
 // InitVis calls a Lua visualizer's init(rows, cols) if it exists.
 func (m *Manager) InitVis(name string, rows, cols int) {
 	m.mu.RLock()
@@ -86,9 +66,7 @@ func (m *Manager) InitVis(name string, rows, cols int) {
 		return
 	}
 
-	if !lockPluginBounded(vis) {
-		return
-	}
+	vis.plugin.mu.Lock()
 	defer vis.plugin.mu.Unlock()
 
 	_ = vis.plugin.callBounded(0, vis.init, vis.obj, lua.LNumber(rows), lua.LNumber(cols))
@@ -103,9 +81,7 @@ func (m *Manager) DestroyVis(name string) {
 		return
 	}
 
-	if !lockPluginBounded(vis) {
-		return
-	}
+	vis.plugin.mu.Lock()
 	defer vis.plugin.mu.Unlock()
 
 	_ = vis.plugin.callBounded(0, vis.destroy, vis.obj)
