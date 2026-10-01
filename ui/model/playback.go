@@ -18,6 +18,7 @@ const (
 )
 
 func (m *Model) replacePlaylist(tracks []playlist.Track) {
+	nextRequest(&m.requests.queueReplace)
 	if m.resumeSaver != nil {
 		tracks = playlist.WithPlaybackContext(tracks)
 	}
@@ -434,7 +435,7 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 	if track.Feed || playlist.IsFeed(track.Path) {
 		m.feedLoading = true
 		m.status.Activity("Loading feed...", statusTTLLong)
-		return resolveFeedTrackCmd(track.Path)
+		return resolveFeedTrackCmd(track.Path, nextRequest(&m.requests.queueReplace))
 	}
 	if m.provider != nil {
 		m.playingProvider = m.provider.Name()
