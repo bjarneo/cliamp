@@ -18,6 +18,9 @@ const (
 )
 
 func (m *Model) replacePlaylist(tracks []playlist.Track) {
+	// The new queue no longer holds the provider playlist loaded before it.
+	// A provider load sets its own after replacing.
+	m.activeProviderPlaylistID = ""
 	if m.resumeSaver != nil {
 		tracks = playlist.WithPlaybackContext(tracks)
 	}

@@ -490,6 +490,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			m.replacePlayerPlaylist(msg.tracks)
+			m.activeProviderPlaylistID = msg.playlistID
 			if msg.playlistExact && m.localProvider != nil && msg.providerName == m.localProvider.Name() && msg.playlistID != history.PlaylistName {
 				m.loadedPlaylist = msg.playlistID
 			}
@@ -585,7 +586,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.retireTracksPaging()
 			m.replacePlayerPlaylist(msg.tracks)
-			m.activeProviderPlaylistID = ""
 			if pr, ok := m.navBrowser.prov.(playlist.RefreshablePlaylist); ok &&
 				m.isActiveProvider(m.navBrowser.prov.Name()) && pr.CanRefreshPlaylist(m.navBrowser.selAlbum.ID) {
 				m.activeProviderPlaylistID = m.navBrowser.selAlbum.ID
