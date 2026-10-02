@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bjarneo/cliamp/applog"
+	"github.com/bjarneo/cliamp/internal/fileutil"
 )
 
 const ipcRequestReadTimeout = 60 * time.Second
@@ -562,15 +563,13 @@ const listenStaleSocketAttempts = 3
 // listenExclusive binds sockPath, clearing a socket inode left behind by a
 // process that died without cleaning up.
 //
-// The bind is the arbiter, not a probe performed beforehand. net.Listen fails
-// with EADDRINUSE while any inode occupies the path, so the probe runs only to
-// explain a bind that already failed: a path is removed only once the bind has
-// failed *and* the probe confirms no server accepts connections on it.
-//
-// Deciding from a probe taken before the bind is what let two starting daemons
-// delete each other's socket. Process A could probe "nothing listening" while
-// process B bound and published its PID file, after which A removed B's live
-// socket, leaving B running on an unlinked inode and unreachable.
+// The bind is the arbiter: net.Listen fails with EADDRINUSE while any inode
+// occupies the path. The probe therefore runs only to explain a bind that
+// already failed, and the whole revalidate-remove-rebind sequence runs under
+// the same cross-process lock the config writers use, so two starters cannot
+// interleave there. Probing first and removing afterwards let starter A delete
+// the socket starter B had just bound, leaving B running on an unlinked inode
+// that no client can reach.
 //
 // The PID file is not consulted at all. It records only a PID, and PIDs are
 // reused, so "is this PID alive" does not imply "is this cliamp alive" — it only
@@ -586,17 +585,58 @@ func listenExclusive(sockPath string) (net.Listener, error) {
 		if !isAddrInUse(err) {
 			return nil, err
 		}
-		listening, probeErr := Listening(sockPath)
-		if probeErr != nil {
-			return nil, probeErr
+
+		unlock, lockErr := lockSocketStale(sockPath)
+		if lockErr != nil {
+			return nil, lockErr
 		}
-		if listening {
-			return nil, fmt.Errorf("ipc: cliamp is already running")
+		ln, err = listenStaleLocked(sockPath, unlock)
+		if err != nil {
+			return nil, err
 		}
-		// Nothing is serving this path, so the inode is stale.
-		if rmErr := os.Remove(sockPath); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
-			return nil, rmErr
+		if ln != nil {
+			return ln, nil
 		}
 	}
 	return nil, fmt.Errorf("ipc: could not acquire socket %s", sockPath)
+}
+
+// lockSocketStale takes the cross-process lock guarding stale-socket
+// replacement. It reuses fileutil.LockFile, the same primitive the config,
+// favorites, history, and radio writers serialize on.
+func lockSocketStale(sockPath string) (func() error, error) {
+	return fileutil.LockFile(sockPath + ".lock")
+}
+
+// listenStaleLocked runs under the stale-socket lock. It returns a listener
+// when this caller now owns the path, or (nil, nil) when it does not and the
+// caller should retry.
+func listenStaleLocked(sockPath string, unlock func() error) (net.Listener, error) {
+	defer func() { _ = unlock() }()
+
+	listening, err := Listening(sockPath)
+	if err != nil {
+		return nil, err
+	}
+	if listening {
+		return nil, fmt.Errorf("ipc: cliamp is already running")
+	}
+
+	// Re-check the bind under the lock: another starter may have bound between
+	// our failed attempt and acquiring the lock, in which case the path is live
+	// and must not be removed.
+	if ln, err := listenSocket(sockPath); err == nil {
+		return ln, nil
+	}
+
+	// Nothing is serving this path, so the inode is stale.
+	if err := os.Remove(sockPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	ln, err := listenSocket(sockPath)
+	if err != nil {
+		// The retry loop decides whether this is worth another attempt.
+		return nil, nil
+	}
+	return ln, nil
 }

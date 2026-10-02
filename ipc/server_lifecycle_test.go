@@ -15,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/bjarneo/cliamp/internal/fileutil"
 )
 
 func shortTempDir(t *testing.T) string {
@@ -286,5 +288,44 @@ func TestListening(t *testing.T) {
 				t.Fatalf("Listening = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// The probe-remove-rebind sequence must run under the cross-process lock, or a
+// starter can delete a socket another starter just bound. This asserts the lock
+// is genuinely held for that sequence: while a competing holder owns it,
+// listenExclusive cannot proceed past its failed bind.
+func TestListenExclusiveHoldsLockAcrossStaleReplacement(t *testing.T) {
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+	leaveStaleSocket(t, sock)
+
+	hold, err := fileutil.LockFile(sock + ".lock")
+	if err != nil {
+		t.Fatalf("take competing lock: %v", err)
+	}
+
+	acquired := make(chan struct{})
+	go func() {
+		server, err := NewServer(sock)
+		if err == nil {
+			_ = server.Close()
+		}
+		close(acquired)
+	}()
+
+	select {
+	case <-acquired:
+		t.Fatal("listenExclusive proceeded while another holder owned the lock")
+	case <-time.After(250 * time.Millisecond):
+	}
+
+	if err := hold(); err != nil {
+		t.Fatalf("release competing lock: %v", err)
+	}
+
+	select {
+	case <-acquired:
+	case <-time.After(5 * time.Second):
+		t.Fatal("listenExclusive did not proceed after the lock was released")
 	}
 }
