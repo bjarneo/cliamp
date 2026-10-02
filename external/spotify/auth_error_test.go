@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"testing"
 
+	librespot "github.com/devgianlu/go-librespot"
+	"github.com/devgianlu/go-librespot/ap"
 	"github.com/devgianlu/go-librespot/audio"
 )
 
@@ -43,5 +45,28 @@ func TestIsAuthError(t *testing.T) {
 				t.Fatalf("isAuthError(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestClosedAccesspointIsSessionLost drives go-librespot's real key provider
+// over a closed access point, the state it leaves after giving up on a dropped
+// connection, so a library change to that error breaks this test rather than
+// leaving playback dead until restart.
+func TestClosedAccesspointIsSessionLost(t *testing.T) {
+	accesspoint := ap.NewAccesspoint(&librespot.NullLogger{}, func(context.Context) string { return "127.0.0.1:1" }, "test-device")
+	accesspoint.Close()
+	keys := audio.NewAudioKeyProvider(&librespot.NullLogger{}, accesspoint)
+
+	_, err := keys.Request(context.Background(), make([]byte, 16), make([]byte, 20))
+	if err == nil {
+		t.Fatal("key request on a closed access point succeeded")
+	}
+	// Wrapped the way go-librespot's player.NewStream wraps it.
+	err = fmt.Errorf("failed retrieving audio key: %w", err)
+	if !isSessionLost(err) {
+		t.Fatalf("isSessionLost(%v) = false, want true", err)
+	}
+	if isSessionLost(fmt.Errorf("failed retrieving audio key: %w", context.DeadlineExceeded)) {
+		t.Fatal("a key request timeout must not rebuild the session")
 	}
 }
