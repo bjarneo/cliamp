@@ -296,6 +296,9 @@ func TestListening(t *testing.T) {
 // is genuinely held for that sequence: while a competing holder owns it,
 // listenExclusive cannot proceed past its failed bind.
 func TestListenExclusiveHoldsLockAcrossStaleReplacement(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fileutil.LockFile takes no lock on Windows")
+	}
 	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
 	leaveStaleSocket(t, sock)
 
@@ -304,18 +307,20 @@ func TestListenExclusiveHoldsLockAcrossStaleReplacement(t *testing.T) {
 		t.Fatalf("take competing lock: %v", err)
 	}
 
-	acquired := make(chan struct{})
+	// The worker reports the startup error, so a startup that fails after the
+	// lock is released cannot be mistaken for a successful one.
+	result := make(chan error, 1)
 	go func() {
 		server, err := NewServer(sock)
 		if err == nil {
 			_ = server.Close()
 		}
-		close(acquired)
+		result <- err
 	}()
 
 	select {
-	case <-acquired:
-		t.Fatal("listenExclusive proceeded while another holder owned the lock")
+	case err := <-result:
+		t.Fatalf("listenExclusive proceeded while another holder owned the lock: %v", err)
 	case <-time.After(250 * time.Millisecond):
 	}
 
@@ -324,7 +329,10 @@ func TestListenExclusiveHoldsLockAcrossStaleReplacement(t *testing.T) {
 	}
 
 	select {
-	case <-acquired:
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("listenExclusive did not acquire the socket after the lock was released: %v", err)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("listenExclusive did not proceed after the lock was released")
 	}
