@@ -196,7 +196,8 @@ and gives that row back to the playlist. The full keymap stays available with
 bar comes back the way you left it. Use `cliamp --no-help-bar` to hide it for
 one session, or `cliamp --help-bar` to show it despite this setting. Simplified
 mode draws neither the hint bar nor a playlist, so it is unaffected by this
-setting.
+setting. The full-screen visualizer never draws shortcut hints either, so there
+is no separate option for that line.
 
 `expanded = true` starts with the playlist at the expanded height, so the list
 gets every body row the terminal has left instead of the shorter default, and

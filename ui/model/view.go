@@ -564,7 +564,8 @@ func (m Model) renderSpectrum() string {
 }
 
 // renderFullVisualizer renders a full-screen view showing only the visualizer
-// with minimal track info and a seek bar.
+// with minimal track info and a seek bar. Shortcut hints stay off so the
+// canvas can use the row; ? still opens the keymap.
 func (m Model) renderFullVisualizer() string {
 	sections := []string{
 		m.fullVisTopLine(),
@@ -572,8 +573,6 @@ func (m Model) renderFullVisualizer() string {
 		"",
 		m.renderSpectrum(),
 		m.renderSeekBar(),
-		"",
-		helpKey("V", "Exit ") + helpKey("v", "Mode:"+m.vis.ModeName()+" ") + helpKey("Spc", "▶❚❚ ") + helpKey("<>", "Trk ") + helpKey("+-", "Vol ") + helpKey("t", "Title ") + helpKey("?", "Keys"),
 	}
 
 	return strings.Join(sections, "\n")

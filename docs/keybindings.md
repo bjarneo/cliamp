@@ -107,7 +107,7 @@ list.
 | `t` | Choose theme |
 | `v` | Cycle visualizer and save the choice in `config.toml` |
 | `Ctrl+V` | Pick visualizer from a list (live preview) |
-| `V` | Full screen visualizer. Inside it, `v` cycles modes and saves the choice, `<`/`>` change track, `+`/`-` change volume, and `t` hides the episode name, leaving only the bracketed source. |
+| `V` | Full screen visualizer. It does not show shortcut hints; `?` still opens the keymap. Inside it, `v` cycles modes and saves the choice, `<`/`>` change track, `+`/`-` change volume, and `t` hides the episode name, leaving only the bracketed source. |
 | `Ctrl+H` | Toggle album headers |
 | `Ctrl+G` | Toggle the key-binding hint bar (remembered in `hide_help_bar`) |
 | `Ctrl+B` | Open/close the settings pane (remembered in `hide_settings_pane`) |
