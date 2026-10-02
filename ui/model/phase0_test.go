@@ -76,6 +76,24 @@ func TestFullVisualizerBlocksHiddenPlaylistMutations(t *testing.T) {
 	}
 }
 
+func TestFullVisualizerQuestionMarkOpensKeymap(t *testing.T) {
+	m := Model{
+		player:   &playbackFakeEngine{},
+		playlist: playlist.New(),
+		vis:      ui.NewVisualizer(44100),
+		fullVis:  true,
+	}
+
+	m.handleKey(tea.KeyPressMsg{Text: "?"})
+
+	if m.fullVis {
+		t.Fatal("fullVis = true after ?, want false")
+	}
+	if !m.keymap.visible {
+		t.Fatal("keymap.visible = false after ?, want true")
+	}
+}
+
 func TestClosingProviderSearchCancelsItsRequest(t *testing.T) {
 	canceled := false
 	m := Model{searchOverlay: searchOverlayState{
