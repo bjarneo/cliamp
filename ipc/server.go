@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/bjarneo/cliamp/applog"
@@ -584,7 +583,7 @@ func listenExclusive(sockPath string) (net.Listener, error) {
 		if err == nil {
 			return ln, nil
 		}
-		if !errors.Is(err, syscall.EADDRINUSE) {
+		if !isAddrInUse(err) {
 			return nil, err
 		}
 		listening, probeErr := Listening(sockPath)
