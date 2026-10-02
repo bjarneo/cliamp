@@ -10,18 +10,16 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	"golang.org/x/oauth2"
 )
 
 // Playlist items are fetched with a fields filter, and Spotify drops anything
 // the filter does not name. The cover has to be asked for explicitly, or every
 // playlist track arrives without art even though saved tracks have it.
 func TestPlaylistTracksRequestAlbumArt(t *testing.T) {
+	t.Parallel()
 	var fields string
 
-	originalTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		fields = req.URL.Query().Get("fields")
 		payload := map[string]any{
 			"total": 1,
@@ -53,9 +51,8 @@ func TestPlaylistTracksRequestAlbumArt(t *testing.T) {
 			Request:    req,
 		}, nil
 	})
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 
-	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
+	sess := stubSession(rt)
 	p := New(sess, "client", 320)
 
 	tracks, _, err := p.fetchTracksPage(context.Background(), "playlist-id", 0)

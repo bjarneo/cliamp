@@ -55,7 +55,8 @@ type Pins struct {
 }
 
 // LoadPins reads pinned places from ~/.config/cliamp/radio_countries.toml.
-// A missing or unreadable file yields an empty, still-usable set.
+// A missing or unreadable file yields an empty set. Toggle does not replace
+// an unreadable file.
 func LoadPins() *Pins {
 	p := &Pins{}
 	dir, err := appdir.Dir()
@@ -85,8 +86,11 @@ func (p *Pins) Contains(id string) bool {
 	return slices.ContainsFunc(p.places, func(place Place) bool { return place.ID() == id })
 }
 
-// Toggle adds place when absent and removes it when present, persisting either
-// way. It reports whether the place is pinned after the call.
+// Toggle applies the opposite of this instance's pin state for place to the
+// latest file contents, under a file lock shared with other cliamp instances.
+// An intent that another instance already applied is a successful no-op on
+// disk. Toggle reports whether the place is pinned after the call. A failed
+// read or save leaves the pins and the file unchanged.
 //
 // Pins carries its own lock so that the write, which fsyncs the file and its
 // directory, never runs under the provider mutex the renderer reads through.
@@ -95,25 +99,46 @@ func (p *Pins) Toggle(place Place) (pinned bool, err error) {
 	defer p.mu.Unlock()
 
 	id := place.ID()
-	if i := slices.IndexFunc(p.places, func(c Place) bool { return c.ID() == id }); i >= 0 {
-		p.places = slices.Delete(p.places, i, i+1)
-		return false, p.save()
-	}
-	p.places = append(p.places, place)
-	return true, p.save()
-}
-
-// save persists the pin list. p.mu must be held.
-func (p *Pins) save() error {
+	match := func(c Place) bool { return c.ID() == id }
+	wasPinned := slices.ContainsFunc(p.places, match)
 	if p.path == "" {
 		dir, err := appdir.Dir()
 		if err != nil {
-			return err
+			return wasPinned, fmt.Errorf("resolve radio pins directory: %w", err)
 		}
 		p.path = filepath.Join(dir, pinsFile)
 	}
+	if err := os.MkdirAll(filepath.Dir(p.path), 0o700); err != nil {
+		return wasPinned, fmt.Errorf("create radio pins directory: %w", err)
+	}
+	unlock, err := fileutil.LockFile(p.path + ".lock")
+	if err != nil {
+		return wasPinned, fmt.Errorf("lock radio pins: %w", err)
+	}
+	defer func() { _ = unlock() }()
+
+	places, err := loadPlaces(p.path)
+	if err != nil {
+		return wasPinned, fmt.Errorf("load radio pins: %w", err)
+	}
+	if slices.ContainsFunc(places, match) == wasPinned {
+		if wasPinned {
+			places = slices.DeleteFunc(places, match)
+		} else {
+			places = append(places, place)
+		}
+		if err := p.save(places); err != nil {
+			return wasPinned, fmt.Errorf("save radio pins: %w", err)
+		}
+	}
+	p.places = places
+	return !wasPinned, nil
+}
+
+// save persists places as the pin list. p.mu and the file lock must be held.
+func (p *Pins) save(places []Place) error {
 	var b strings.Builder
-	for i, place := range p.places {
+	for i, place := range places {
 		if i > 0 {
 			fmt.Fprintln(&b)
 		}

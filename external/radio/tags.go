@@ -122,7 +122,7 @@ func sanitizeTagLabel(name string) string {
 func (p *Provider) tagIndex() ([]Tag, error) {
 	p.mu.Lock()
 	cached := p.tags
-	generation := p.tagGeneration
+	generation := p.indexGeneration
 	p.mu.Unlock()
 	if cached != nil {
 		return cached, nil
@@ -136,7 +136,7 @@ func (p *Provider) tagIndex() ([]Tag, error) {
 		tags = []Tag{}
 	}
 	p.mu.Lock()
-	if p.tagGeneration == generation && p.tags == nil {
+	if p.indexGeneration == generation && p.tags == nil {
 		p.tags = tags
 	}
 	p.mu.Unlock()

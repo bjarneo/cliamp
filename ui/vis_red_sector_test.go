@@ -177,7 +177,7 @@ func TestRedSectorBarsOutrankStars(t *testing.T) {
 	}
 
 	// A star drawn into a cell a bar already owns leaves it alone.
-	var g redSectorGrid
+	g := newRedSectorGrid()
 	g.ensure(4, 4)
 	g.set(0, 0, redSectorTagLow)
 	g.set(0, 0, redSectorStarTags)
@@ -333,7 +333,7 @@ func abs(n int) int {
 	return n
 }
 
-func equalGrids(a, b redSectorGrid) bool {
+func equalGrids(a, b brailleGrid) bool {
 	if len(a.cells) != len(b.cells) {
 		return false
 	}
@@ -348,9 +348,8 @@ func equalGrids(a, b redSectorGrid) bool {
 // A panel too narrow to draw into still has to return the exact number of
 // lines the layout reserved, or the frame below it shifts.
 func TestRedSectorNarrowPanelKeepsRowCount(t *testing.T) {
-	defer WithPanelWidth(4)()
-
 	v := NewVisualizer(44100)
+	v.Cols = 4
 	v.Rows = 5
 	v.Mode = VisRedSector
 

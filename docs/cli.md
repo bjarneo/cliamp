@@ -5,23 +5,30 @@ Override a config option for one session without editing `~/.config/cliamp/confi
 ## Playback
 
 ```sh
-cliamp --vol -5 track.mp3             # volume in dB [-30, +6]
+cliamp --vol -5 track.mp3             # startup volume in dB [volume_min, +6]
 cliamp --shuffle ~/Music              # enable shuffle
 cliamp --repeat all ~/Music           # repeat mode: off, all, one
 cliamp --mono track.mp3               # downmix to mono
 cliamp --no-mono track.mp3            # force stereo
 cliamp --auto-play ~/Music            # start playback immediately
 cliamp --playlist "Blade Runner"      # load a local TOML playlist (add --auto-play to start playback)
+cliamp --provider podcast             # open on one provider for this session
 ```
+
+`--provider` overrides `provider` in config.toml. It accepts the values in [Default Provider](configuration.md#default-provider), plus `abs` for `audiobookshelf`. Run `cliamp --help` to see the list.
 
 ## Audio engine
 
 ```sh
-cliamp --sample-rate 48000 track.mp3      # output sample rate (22050, 44100, 48000, 96000, 192000)
+cliamp --sample-rate 48000 track.mp3      # output sample rate (0=auto, 22050, 44100, 48000, 96000, 192000)
 cliamp --buffer-ms 2000 track.mp3         # speaker buffer in ms (50-5000; useful for unstable radio)
 cliamp --resample-quality 1 track.mp3     # resample quality factor (1–4)
 cliamp --bit-depth 32 track.m4a           # PCM bit depth: 16 (default) or 32 (lossless)
+cliamp --audio-device list                # print the output devices, then exit
+cliamp --audio-device NAME track.mp3      # use one output device for this session
 ```
+
+`--audio-device` overrides `audio_device` in config.toml. See [Audio output device](configuration.md#audio-output-device) for the platform rules.
 
 ## Appearance
 
@@ -29,10 +36,11 @@ cliamp --bit-depth 32 track.m4a           # PCM bit depth: 16 (default) or 32 (l
 cliamp --simplified ~/Music                  # no visualizer or playlist
 cliamp --expanded ~/Music                    # start with the playlist expanded (Ctrl+X state)
 cliamp --eq-preset "Bass Boost" ~/Music
+cliamp --visualizer Wave ~/Music             # start with one visualizer mode
 cliamp --visualizer-60fps ~/Music            # smoother visualizer animation (higher CPU use)
 ```
 
-`--visualizer-60fps` renders a visible visualizer at about 60 FPS during playback. `Wave`, `Scope`, and `Heartbeat` already use this rate because they draw from audio samples. The flag does not affect overlays or low-power mode.
+`--visualizer-60fps` renders a visible visualizer at about 60 FPS during playback. `Wave`, `Scope`, `Heartbeat`, and `Stereo` already use this rate because they draw from audio samples. The flag does not affect overlays or low-power mode.
 
 ## Diagnostics
 
@@ -64,7 +72,7 @@ cliamp --daemon --auto-play --playlist Lofi  # start playing on launch
 cliamp -d ~/Music --auto-play                # short flag form
 ```
 
-Run cliamp without a UI. It listens on the Unix socket that the TUI uses. All `cliamp <subcommand>` IPC clients work. UI-only commands (`theme`, `vis`) return an error. See [Headless Daemon Mode](headless.md) for use cases and configuration examples for Waybar, Hyprland, systemd, and cron.
+Run cliamp without a UI. It runs the same player as the TUI and listens on the Unix socket that the TUI uses. All `cliamp <subcommand>` IPC clients work. Plugins, scrobbling, and Recently Played work as in the TUI. `cliamp theme <name>` and `cliamp vis <name|next>` return an error. The `list` forms still work. See [Headless Daemon Mode](headless.md) for use cases and configuration examples for Waybar, Hyprland, systemd, and cron.
 
 ## Search
 
@@ -75,16 +83,22 @@ cliamp search "never gonna give you up"       # search YouTube
 cliamp search-sc "lofi beats"                  # search SoundCloud
 ```
 
+To play only one video of a YouTube URL with a `list=` parameter, add `--no-expand-playlist`. `--expand-playlist` loads the whole playlist, which is the default. See [YouTube Music](youtube-music.md).
+
+```sh
+cliamp --no-expand-playlist 'https://www.youtube.com/watch?v=VIDEO&list=PLAYLIST'
+```
+
 Press `Ctrl+F` in the player for context-aware search. cliamp uses the active provider search when available. Otherwise, it searches YouTube.
 
 ## Updates
 
 ```sh
 cliamp upgrade                # latest stable release
-cliamp upgrade --prerelease   # latest beta or release candidate
+cliamp upgrade --prerelease   # newest release, betas and release candidates included
 ```
 
-Select prerelease updates for each upgrade. Normal installs, package-manager updates, and `cliamp upgrade` use stable releases only.
+Select prerelease updates for each upgrade. `--prerelease` installs the release with the highest SemVer version, stable or prerelease. It never installs a version older than the one you run. Normal installs, package-manager updates, and `cliamp upgrade` use stable releases only.
 
 Maintainers publish a prerelease by tagging the release commit with a SemVer prerelease tag such as `v1.5.0-beta.1` or `v1.5.0-rc.1`. The release workflow builds binaries for all platforms and creates a GitHub prerelease. It does not update Homebrew, AUR, or the public changelog.
 
@@ -113,7 +127,7 @@ Source the generated script directly or install it as your shell documentation d
 Put flags before, after, or between positional arguments:
 
 ```sh
-cliamp --shuffle track.mp3 --volume -5
+cliamp --shuffle track.mp3 --vol -5
 cliamp track.mp3 --repeat all --mono ~/Music
 ```
 
@@ -121,7 +135,7 @@ cliamp track.mp3 --repeat all --mono ~/Music
 
 | Flag | Type | Default | Range / Values |
 |------|------|---------|----------------|
-| `--vol` | float | 0 | -30 to +6 dB |
+| `--vol` | float | 0 | `volume_min` (default -50) to +6 dB |
 | `--shuffle` / `--no-shuffle` | bool | false | |
 | `--repeat` | string | off | off, all, one |
 | `--mono` / `--no-mono` | bool | false | |
@@ -129,15 +143,19 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--simplified` / `--no-simplified` | bool | false | artist/title and time strip; no visualizer or playlist |
 | `--help-bar` / `--no-help-bar` | bool | true | show or hide the key-binding hint bar; `?` still opens the full keymap |
 | `--expanded` / `--no-expanded` | bool | false | start with the playlist expanded (the `Ctrl+X` state) |
+| `--provider` | string | cliamp | provider to open at start: cliamp, radio, podcast, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, soundcloud, mixcloud, netease, yandex, audiobookshelf (or abs), yt, youtube, ytmusic |
+| `--visualizer` | string | Bars | visualizer mode, such as Bars, Wave or None. See [configuration.md](configuration.md#options) for all modes. |
 | `--visualizer-60fps` | bool | false | render a visible visualizer at about 60 FPS |
 | `--start-theme` | string | | theme name |
 | `--eq-preset` | string | | preset name |
-| `--sample-rate` | int | 44100 | 22050, 44100, 48000, 96000, 192000 |
+| `--sample-rate` | int | 0 | 0, 22050, 44100, 48000, 96000, 192000. 0 reads the rate of the default output device on macOS and uses 44100 on other platforms. |
 | `--buffer-ms` | int | 250 | 50-5000 |
 | `--resample-quality` | int | 4 | 1-4 |
 | `--bit-depth` | int | 16 | 16, 32 |
+| `--audio-device` | string | | a device name from `--audio-device list`. `list` prints the devices and exits. |
 | `--playlist` | string | | local TOML playlist name |
 | `--log-level` | string | info | debug, info, warn, error |
+| `--expand-playlist` / `--no-expand-playlist` | bool | true | expand YouTube and YouTube Music `list=` URLs to the full playlist. `--no-expand-playlist` plays only the video. |
 | `--low-power` / `--no-low-power` | bool | false | lower UI cadence; disable visualization |
 | `--daemon` / `-d` | bool | false | run headless; IPC only, no TUI |
 
@@ -145,13 +163,13 @@ CLI flags override config file values for the current session only. Persisted bo
 
 ## Setup wizard
 
-Configure remote providers through a small TUI. Supported providers are Navidrome, Lyrion, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, Mixcloud, NetEase, Audiobookshelf, and YouTube Music. Each provider page links to its required credentials. The wizard writes the `[provider]` block to `~/.config/cliamp/config.toml` and leaves the rest of the file unchanged. It validates supported server connections during setup. OAuth providers (Spotify, Qobuz, Tidal) authenticate later in the player. Mixcloud checks optional browser-session or OAuth credentials when you use them.
+Configure remote providers through a small TUI. Supported providers are Navidrome, Lyrion, Plex, Jellyfin, Emby, Spotify, Qobuz, Tidal, Mixcloud, NetEase, Audiobookshelf, and YouTube Music. Each provider page links to its required credentials. The wizard writes the provider keys into the `[provider]` section of `~/.config/cliamp/config.toml` and leaves the rest of the file unchanged. For YouTube Music, it edits an existing `[youtube]` or `[yt]` section. It checks the server connection during setup for Navidrome, Lyrion, Plex, Jellyfin, Emby, and Audiobookshelf, and the browser session for NetEase. OAuth providers (Spotify, Qobuz, Tidal) authenticate later in the player. Setup does not check Mixcloud credentials.
 
 ```sh
 cliamp setup
 ```
 
-Use `↑/↓` to navigate. Use `Enter` to confirm or submit. Use `Esc` to go back. Use `q` in the menu to quit. Passwords and tokens are masked. Running setup again for a configured provider replaces its section.
+Use `↑/↓` to navigate. Use `Enter` to confirm or submit. Use `Esc` to go back. Use `q` in the menu to quit. Passwords and tokens are masked. Running setup again for a configured provider updates the keys that setup manages. It keeps the other keys and comments in the section, such as `browse_sort`. It drops the comment at the end of a key line that it rewrites. It removes a managed key that the new choice does not use, such as `token` after a switch to password login.
 
 ## Playlist Management
 
@@ -177,8 +195,8 @@ cliamp playlist doctor "Name" --fix            # prune missing local files
 cliamp playlist export "Name" -o mix.m3u       # export as M3U
 cliamp playlist export "Name" --format pls     # export as PLS to stdout
 cliamp playlist import mix.m3u --name "Name"   # import local M3U/M3U8/PLS
-cliamp playlist bookmark "Name" --index 3      # toggle bookmark flag
-cliamp playlist bookmarks                       # list bookmarked tracks
+cliamp playlist favorite "Name" --index 3      # toggle the favorite of a track
+cliamp playlist favorites                       # list favorite tracks
 cliamp playlist enrich "Name"                   # probe duration/album 
 cliamp playlist enrich "Name" --source metadata   # probe duration/album (forces to use the file's metadata as source)
 cliamp playlist delete "Name"                   # delete entire playlist
@@ -186,28 +204,38 @@ cliamp playlist delete "Name"                   # delete entire playlist
 
 Sort keys: `track`, `title`, `artist`, `album`, `artist+album`, `path`.
 
+`playlist doctor --fix` prunes only playlist files. It reports a missing favorite and keeps it. To remove a favorite, run `cliamp playlist favorite Favorites --index N`.
+
+`--ssh` takes `host`, `user@host`, or `host:port`. `playlist enrich` connects to the port in each `ssh://` track path.
+
 See [playlists.md](playlists.md) for the TOML format. See [ssh-streaming.md](ssh-streaming.md) for remote playback.
 
 ## Recently Played
 
 ```sh
 cliamp history                                # show the 50 most recent plays
-cliamp history --limit 200                    # change the cap
+cliamp history --limit 200                    # show the 200 most recent
+cliamp history --limit 0                      # show all (capped at 200 entries on disk)
 cliamp history --json                         # machine-readable output
 cliamp history clear                          # wipe ~/.config/cliamp/history.toml
 ```
 
-cliamp records a play after you listen to at least 50% of a track. In the TUI,
-the Local Playlists provider shows this data in the virtual "Recently Played"
-entry. See [history.md](history.md).
+cliamp adds a track to the history when the track starts. In the TUI, the Local
+Playlists provider shows this data in the virtual "Recently Played" entry. See
+[history.md](history.md).
 
-## Spotify
+## Provider credentials
 
 ```sh
 cliamp spotify reset                          # clear stored Spotify credentials
+cliamp qobuz reset                            # clear stored Qobuz credentials
+cliamp tidal reset                            # clear stored Tidal credentials
+cliamp ytmusic reset                          # clear stored YouTube Music credentials
 ```
 
 Use `spotify reset` for stale authentication errors, such as `401 Unauthorized` or a repeated sign-in prompt. Then restart cliamp and select Spotify to sign in again. It does not fix `rate-limited on /v1/me` warnings: those are `429` responses to an accepted token, so the app is out of quota rather than unauthorized. See [spotify.md](spotify.md) for the setup guide.
+
+`qobuz reset`, `tidal reset` and `ytmusic reset` work the same way for their providers. See [qobuz.md](qobuz.md), [tidal.md](tidal.md) and [youtube-music.md](youtube-music.md).
 
 ## cliamp:// Links
 
@@ -234,7 +262,8 @@ cliamp play / pause / toggle / stop    # playback control
 cliamp next / prev                     # track navigation
 cliamp status                          # current state
 cliamp status --json                   # machine-readable state
-cliamp volume -5                       # adjust volume (dB)
+cliamp volume -5                       # set the volume to -5 dB
+cliamp remote call volume.adjust --params '{"value":3}'    # raise the volume by 3 dB
 cliamp seek 30                         # seek relative to current position (seconds)
 cliamp remote call seek.absolute --params '{"value":90}'   # seek to 90s exactly
 cliamp load "Playlist Name"            # load a playlist
@@ -247,9 +276,20 @@ cliamp eq Rock                         # set EQ preset by name
 cliamp eq --band 0 6.0                 # set EQ band 0 to +6 dB
 cliamp device list                     # list audio output devices
 cliamp device "My DAC"                 # switch audio output device
+cliamp theme list                      # list the themes, terminal colors first
 cliamp remote state                     # v2 GUI-ready runtime snapshot
 cliamp remote capabilities              # v2 operation list
 cliamp remote events runtime.state      # v2 event stream
 ```
+
+`cliamp volume` sets an absolute level. A sign does not make the value relative, so `cliamp volume +3` sets the volume to +3 dB. To step the volume up or down, submit `volume.adjust` with `cliamp remote call`. A negative value lowers the volume. Both forms clamp the result to the range `volume_min` to +6 dB.
+
+Each command waits up to 30 seconds for its result. `cliamp load` waits up to 5 minutes and `cliamp plugins call` up to 6 minutes. After that time the command fails with an error, and cliamp continues the operation. `cliamp remote call --wait` waits until the job ends.
+
+`cliamp shuffle`, `cliamp repeat` and `cliamp mono` accept only the values in brackets, in any letter case. Another value gives an error and changes nothing.
+
+`cliamp queue` accepts a relative path. It sends the absolute path of a local file, because the running cliamp has its own working directory. A URL or another URI, such as `spotify:track:...`, goes unchanged. A missing file or a directory gives an error.
+
+`cliamp theme list` reads the theme files itself, so it works when cliamp is not running. It prints each theme file that it skips on stderr.
 
 See [remote-control.md](remote-control.md) for the protocol specification.

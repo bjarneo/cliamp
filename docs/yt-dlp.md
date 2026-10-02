@@ -12,7 +12,7 @@ cliamp https://www.bilibili.com/video/BV1xxxxxxxxx
 cliamp https://space.bilibili.com/uid/lists/id  # season/series playlists
 ```
 
-You can play playlists and albums. Press `S` to save a downloaded track to `~/Music/cliamp/`.
+You can play playlists and albums. Press `Ctrl+S` to download the current track to the [download directory](configuration.md#download-directory), `~/Music/cliamp` by default.
 
 You can also play live streams, such as 24/7 YouTube lofi radios. They have no audio-only formats. cliamp uses the best muxed stream and plays only its audio track. This also applies to live-stream URLs used as stations in `radios.toml`.
 

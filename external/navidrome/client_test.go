@@ -1,14 +1,20 @@
 package navidrome
 
 import (
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/internal/netdiag"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
@@ -786,6 +792,89 @@ func TestStreamURLFormat(t *testing.T) {
 			}
 			if got := q.Get("format"); got != tt.wantFormat {
 				t.Errorf("format = %q, want %q", got, tt.wantFormat)
+			}
+		})
+	}
+}
+
+// roundTripFunc lets a test answer requests without a server.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+// TestDialErrorGetsNetdiagHint verifies that the API and scrobble paths pass a
+// dial failure through netdiag.Explain. On macOS the error then carries the
+// Local Network hint. On other systems it stays the same.
+func TestDialErrorGetsNetdiagHint(t *testing.T) {
+	dialErr := &net.OpError{
+		Op:   "dial",
+		Net:  "tcp",
+		Addr: &net.TCPAddr{IP: net.ParseIP("192.168.1.20"), Port: 4533},
+		Err:  os.NewSyscallError("connect", syscall.EHOSTUNREACH),
+	}
+	want := netdiag.Explain(dialErr).Error()
+	old := httpClient
+	httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, dialErr
+	})}
+	t.Cleanup(func() { httpClient = old })
+
+	song := playlist.Track{ProviderMeta: map[string]string{provider.MetaNavidromeID: "song-1"}}
+	tests := []struct {
+		name string
+		call func(*NavidromeClient) error
+	}{
+		{"api", (*NavidromeClient).Ping},
+		{"scrobble", func(c *NavidromeClient) error { return c.ReportNowPlaying(song, 0, false) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.call(New("http://192.168.1.20:4533", "user", "pw"))
+			if !errors.Is(err, syscall.EHOSTUNREACH) {
+				t.Fatalf("error = %v, want the dial error in the chain", err)
+			}
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error = %q, want it to contain %q", err, want)
+			}
+		})
+	}
+}
+
+// SaveAlbumSort keeps the pick for this session and saves it through
+// SaveSort. An empty pick selects the alphabetical sort. With no SaveSort, the
+// pick is not saved.
+func TestSaveAlbumSort(t *testing.T) {
+	saveErr := errors.New("disk full")
+	for _, tt := range []struct {
+		name      string
+		sort      string
+		noSaver   bool
+		saverErr  error
+		wantSort  string
+		wantSaved []string
+	}{
+		{name: "named sort", sort: SortNewest, wantSort: SortNewest, wantSaved: []string{SortNewest}},
+		{name: "empty sort", sort: "", wantSort: SortAlphabeticalByName, wantSaved: []string{SortAlphabeticalByName}},
+		{name: "no saver", sort: SortStarred, noSaver: true, wantSort: SortStarred},
+		{name: "save error", sort: SortByYear, saverErr: saveErr, wantSort: SortByYear, wantSaved: []string{SortByYear}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := New("https://music.test", "alice", "secret")
+			var saved []string
+			if !tt.noSaver {
+				c.SaveSort = func(sort string) error {
+					saved = append(saved, sort)
+					return tt.saverErr
+				}
+			}
+			if err := c.SaveAlbumSort(tt.sort); !errors.Is(err, tt.saverErr) {
+				t.Fatalf("SaveAlbumSort error = %v, want %v", err, tt.saverErr)
+			}
+			if got := c.DefaultAlbumSort(); got != tt.wantSort {
+				t.Errorf("DefaultAlbumSort() = %q, want %q", got, tt.wantSort)
+			}
+			if !slices.Equal(saved, tt.wantSaved) {
+				t.Errorf("saved = %v, want %v", saved, tt.wantSaved)
 			}
 		})
 	}

@@ -216,3 +216,78 @@ func TestSocks5DialerForSchemeSpecificTakesPrecedenceOverALLProxy(t *testing.T) 
 		t.Fatal("want nil: HTTPS_PROXY (a plain http proxy) should be used, not fall back to ALL_PROXY")
 	}
 }
+
+// TestStreamingAndAPIProxyRules pins where the proxy rules of Streaming and
+// NewAPI differ. Streams use ALL_PROXY only for a SOCKS5 proxy, and API
+// requests also use an http proxy from ALL_PROXY.
+func TestStreamingAndAPIProxyRules(t *testing.T) {
+	tests := []struct {
+		name         string
+		env          map[string]string
+		url          string
+		wantStream   string // the proxy that transportProxy gives net/http
+		wantStreamS5 bool   // streams dial through a SOCKS5 dialer
+		wantAPI      string
+	}{
+		{
+			name:       "HTTP_PROXY http proxy",
+			env:        map[string]string{"HTTP_PROXY": "http://proxy.example:3128"},
+			url:        "http://stream.example/live",
+			wantStream: "http://proxy.example:3128",
+			wantAPI:    "http://proxy.example:3128",
+		},
+		{
+			name:    "ALL_PROXY http proxy",
+			env:     map[string]string{"ALL_PROXY": "http://proxy.example:3128"},
+			url:     "https://stream.example/live",
+			wantAPI: "http://proxy.example:3128",
+		},
+		{
+			name:         "ALL_PROXY socks5h proxy",
+			env:          map[string]string{"ALL_PROXY": "socks5h://proxy.example:1080"},
+			url:          "https://stream.example/live",
+			wantStreamS5: true,
+			wantAPI:      "socks5h://proxy.example:1080",
+		},
+		{
+			name:         "HTTPS_PROXY socks5 proxy",
+			env:          map[string]string{"HTTPS_PROXY": "socks5://proxy.example:1080"},
+			url:          "https://stream.example/live",
+			wantStreamS5: true,
+			wantAPI:      "socks5://proxy.example:1080",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearProxyEnv(t)
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			req, err := http.NewRequest(http.MethodGet, tt.url, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stream, err := transportProxy(req)
+			if err != nil {
+				t.Fatalf("transportProxy: %v", err)
+			}
+			if got := urlString(stream); got != tt.wantStream {
+				t.Errorf("transportProxy = %q, want %q", got, tt.wantStream)
+			}
+			d, err := socks5DialerFor(req.URL.Scheme, canonicalAddr(req.URL))
+			if err != nil {
+				t.Fatalf("socks5DialerFor: %v", err)
+			}
+			if got := d != nil; got != tt.wantStreamS5 {
+				t.Errorf("SOCKS5 dialer = %v, want %v", got, tt.wantStreamS5)
+			}
+			api, err := apiProxy(req)
+			if err != nil {
+				t.Fatalf("apiProxy: %v", err)
+			}
+			if got := urlString(api); got != tt.wantAPI {
+				t.Errorf("apiProxy = %q, want %q", got, tt.wantAPI)
+			}
+		})
+	}
+}

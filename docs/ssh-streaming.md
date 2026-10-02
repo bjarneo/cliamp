@@ -14,14 +14,15 @@ The player runs `ssh hostname cat /path/to/file.mp3` and sends the output to the
 
 ## Creating SSH Playlists
 
-Use `--ssh HOST` with `playlist create` to scan a remote directory:
+Use `--ssh HOST` with `playlist create` to scan a remote directory. HOST can be `host`, `user@host`, or `host:port`:
 
 ```sh
 cliamp playlist create "Blade Runner" --ssh nas "/Volumes/Music/Blade Runner/"
 # Created playlist "Blade Runner" (31 tracks, ssh://nas)
+cliamp playlist create "Live" --ssh music@nas:2222 /srv/music/live/
 ```
 
-This runs `ssh nas find /path -type f -name '*.mp3' ...` to find audio files. It then creates a TOML playlist with `ssh://` path prefixes.
+This runs `ssh nas find /path -type f -name '*.mp3' ...` to find audio files. It then creates a TOML playlist with `ssh://` path prefixes. Each path keeps the user and the port, such as `ssh://music@nas:2222/srv/music/live/01.flac`. Playback and `cliamp playlist enrich` connect to the port in each path.
 
 ## TOML Format
 

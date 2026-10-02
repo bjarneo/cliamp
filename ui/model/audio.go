@@ -1,8 +1,6 @@
 package model
 
 import (
-	"fmt"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -91,31 +89,23 @@ func (m *Model) cycleEQPreset() {
 
 // saveEQ persists the current EQ state (preset name and band values) to config.
 func (m *Model) saveEQ() {
-	name := m.EQPresetName()
-	if err := m.configSaver.Save("eq_preset", fmt.Sprintf("%q", name)); err != nil {
-		m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
-	}
-	bands := m.eqCustomBands
-	parts := make([]string, len(bands))
-	for i, g := range bands {
-		parts[i] = strconv.FormatFloat(g, 'f', -1, 64)
-	}
-	eqVal := "[" + strings.Join(parts, ", ") + "]"
-	if err := m.configSaver.Save("eq", eqVal); err != nil {
-		m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
-	}
+	_ = m.saveConfigString("eq_preset", m.EQPresetName())
+	_ = m.saveConfigFloats("eq", m.eqCustomBands[:])
 }
 
 // saveSpeed persists the current playback speed to the config file.
 func (m *Model) saveSpeed() {
-	speed := m.player.Speed()
-	if err := m.configSaver.Save("speed", fmt.Sprintf("%.2f", speed)); err != nil {
-		m.status.Errorf(statusTTLDefault, "Config save failed: %s", err)
-	}
+	_ = m.saveConfigFloat("speed", m.player.Speed(), 2)
 }
 
 func (m *Model) changeSpeed(delta float64) {
-	m.player.SetSpeed(m.player.Speed() + delta)
+	m.setSpeed(m.player.Speed() + delta)
+}
+
+// setSpeed changes the playback speed now and saves it after
+// speedSaveDebounce, so a run of changes writes the config once.
+func (m *Model) setSpeed(ratio float64) {
+	m.player.SetSpeed(ratio)
 	m.speedSaveAfter = speedSaveDebounce
 }
 

@@ -7,15 +7,12 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"golang.org/x/oauth2"
 )
 
 // stubSavedTracks serves /v1/me/tracks pages rendered by body and counts requests.
 func stubSavedTracks(t *testing.T, calls *int, body func(offset, limit int) string) *SpotifyProvider {
 	t.Helper()
-	originalTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.URL.Path != "/v1/me/tracks" {
 			return nil, fmt.Errorf("unexpected Spotify API path %q", req.URL.Path)
 		}
@@ -30,8 +27,7 @@ func stubSavedTracks(t *testing.T, calls *int, body func(offset, limit int) stri
 			Request:    req,
 		}, nil
 	})
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
-	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
+	sess := stubSession(rt)
 	return New(sess, "client", 320)
 }
 
@@ -48,6 +44,7 @@ func drainSavedTracks(t *testing.T, p *SpotifyProvider) int {
 }
 
 func TestTracksPagePagesThroughSavedTracks(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name      string
 		total     int
@@ -72,6 +69,7 @@ func TestTracksPagePagesThroughSavedTracks(t *testing.T) {
 }
 
 func TestTracksPageRevalidatesCachedSavedTracks(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	p := savedTracksProvider(t, 120, &calls)
 	if got := drainSavedTracks(t, p); got != 120 {
@@ -88,6 +86,7 @@ func TestTracksPageRevalidatesCachedSavedTracks(t *testing.T) {
 }
 
 func TestTracksPageRefetchesWhenSavedTracksChanged(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	p := savedTracksProvider(t, 120, &calls)
 	if got := drainSavedTracks(t, p); got != 120 {
@@ -108,6 +107,7 @@ func TestTracksPageRefetchesWhenSavedTracksChanged(t *testing.T) {
 // A same-size library whose newest entry changed is the case the total check
 // alone cannot see; only the newest-URI comparison catches it.
 func TestTracksPageRefetchesWhenNewestSavedTrackChanged(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	p := savedTracksProvider(t, 60, &calls)
 	if got := drainSavedTracks(t, p); got != 60 {
@@ -127,6 +127,7 @@ func TestTracksPageRefetchesWhenNewestSavedTrackChanged(t *testing.T) {
 }
 
 func TestTracksPageIgnoresNonContiguousPages(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	p := savedTracksProvider(t, 200, &calls)
 	if _, next, err := p.TracksPage("YOUR MUSIC", 0); err != nil || next != 50 {
@@ -145,6 +146,7 @@ func TestTracksPageIgnoresNonContiguousPages(t *testing.T) {
 }
 
 func TestTracksPageAbortedLoadDoesNotCache(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	p := savedTracksProvider(t, 120, &calls)
 	if _, next, err := p.TracksPage("YOUR MUSIC", 0); err != nil || next != 50 {
@@ -196,6 +198,7 @@ func mutatingSavedTracks(t *testing.T, start, bumps int, calls *int) *SpotifyPro
 // revalidation probe cannot see that, so the load must refuse to commit -- and
 // must stop, since every later page would mismatch the pinned snapshot too.
 func TestTracksPageAbandonsLoadWhenLibraryChangesMidLoad(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	total := 120
 	p := stubSavedTracks(t, &calls, func(offset, limit int) string {
@@ -230,6 +233,7 @@ func TestTracksPageAbandonsLoadWhenLibraryChangesMidLoad(t *testing.T) {
 // it can ever be accumulated. Continuing would spend the rest of the library's
 // pages on a result already destined to be discarded.
 func TestTracksPageStopsSpendingRequestsAfterDrift(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	total := 1000
 	p := stubSavedTracks(t, &calls, func(offset, limit int) string {
@@ -255,6 +259,7 @@ func TestTracksPageStopsSpendingRequestsAfterDrift(t *testing.T) {
 }
 
 func TestTracksRestartsWhenLibraryChangesMidLoad(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	p := mutatingSavedTracks(t, 120, 1, &calls)
 
@@ -281,6 +286,7 @@ func TestTracksRestartsWhenLibraryChangesMidLoad(t *testing.T) {
 }
 
 func TestTracksGivesUpOnAContinuouslyChangingLibrary(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	p := mutatingSavedTracks(t, 120, 99, &calls)
 
@@ -295,6 +301,7 @@ func TestTracksGivesUpOnAContinuouslyChangingLibrary(t *testing.T) {
 // Backing out of a still-loading list and re-entering must not refetch the
 // pages already paid for; the accumulation resumes where it stopped.
 func TestTracksPageResumesAnAbandonedLoad(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	p := savedTracksProvider(t, 200, &calls)
 
@@ -331,6 +338,7 @@ func TestTracksPageResumesAnAbandonedLoad(t *testing.T) {
 // A library that changed while the user was away must discard the abandoned
 // accumulation rather than resuming onto a different snapshot.
 func TestTracksPageDiscardsAbandonedLoadWhenLibraryChanged(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	p := savedTracksProvider(t, 200, &calls)
 
@@ -376,6 +384,7 @@ func drainFrom(t *testing.T, p *SpotifyProvider, offset int) int {
 // accumulation would splice the old ordering onto a new suffix, so the head
 // comparison must discard it even though the total still matches.
 func TestTracksPageDiscardsAbandonedLoadWhenHeadChangedAtSameTotal(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	shift := 0
 	p := stubSavedTracks(t, &calls, func(offset, limit int) string {
@@ -410,8 +419,7 @@ func TestTracksPageDiscardsAbandonedLoadWhenHeadChangedAtSameTotal(t *testing.T)
 // move the playlist underneath a load without changing its length.
 func playlistStub(t *testing.T, id string, total int, snapshot, prefix *string, calls *int) *SpotifyProvider {
 	t.Helper()
-	originalTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		*calls++
 		switch req.URL.Path {
 		case "/v1/playlists/" + id:
@@ -429,8 +437,7 @@ func playlistStub(t *testing.T, id string, total int, snapshot, prefix *string, 
 		}
 		return nil, fmt.Errorf("unexpected Spotify API path %q", req.URL.Path)
 	})
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
-	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
+	sess := stubSession(rt)
 	p := New(sess, "client", 320)
 	p.trackCache[id] = &playlistCache{snapshotID: *snapshot}
 	return p
@@ -444,6 +451,7 @@ func jsonResponse(req *http.Request, body string) (*http.Response, error) {
 // An unchanged snapshot_id is Spotify's own proof that a playlist has not been
 // touched, so the pages already read can be trusted and the load resumes.
 func TestTracksPageResumesPlaylistOnUnchangedSnapshot(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	snapshot, prefix := "snap-1", "p"
 	p := playlistStub(t, "alpha", 200, &snapshot, &prefix, &calls)
@@ -473,6 +481,7 @@ func TestTracksPageResumesPlaylistOnUnchangedSnapshot(t *testing.T) {
 // can be edited anywhere -- a same-total edit below the head would shift every
 // later offset and stitch the halves together a track short. Restart instead.
 func TestTracksPageRestartsPlaylistOnChangedSnapshot(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	snapshot, prefix := "snap-1", "p"
 	p := playlistStub(t, "alpha", 200, &snapshot, &prefix, &calls)
@@ -503,9 +512,9 @@ func TestTracksPageRestartsPlaylistOnChangedSnapshot(t *testing.T) {
 // endpoint. Every Spotify list opens through TracksPage now, so without a guard
 // here an album ID would be spliced into a playlist URL.
 func TestTracksPageServesSavedAlbumsWholly(t *testing.T) {
+	t.Parallel()
 	var paths []string
-	originalTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		paths = append(paths, req.URL.Path)
 		var body string
 		switch {
@@ -520,9 +529,8 @@ func TestTracksPageServesSavedAlbumsWholly(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
 			Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
 	})
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 
-	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
+	sess := stubSession(rt)
 	p := New(sess, "client", 320)
 
 	tracks, next, err := p.TracksPage(savedAlbumIDPrefix+"alb", 0)

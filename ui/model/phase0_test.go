@@ -15,9 +15,9 @@ import (
 
 func TestProviderSearchTakesPrecedenceOverNavigationBrowser(t *testing.T) {
 	m := Model{
-		spotSearch: spotSearchState{
+		searchOverlay: searchOverlayState{
 			visible: true,
-			screen:  spotSearchInput,
+			screen:  searchOverlayInput,
 		},
 		navBrowser: navBrowserState{
 			visible:   true,
@@ -25,7 +25,7 @@ func TestProviderSearchTakesPrecedenceOverNavigationBrowser(t *testing.T) {
 		},
 	}
 
-	if screen := m.activeScreen(); screen != screenSpotSearch {
+	if screen := m.activeScreen(); screen != screenSearchOverlay {
 		t.Fatalf("activeScreen() = %v, want provider search", screen)
 	}
 	if _, ok := m.activeOverlay(); !ok {
@@ -33,21 +33,21 @@ func TestProviderSearchTakesPrecedenceOverNavigationBrowser(t *testing.T) {
 	}
 
 	m.handleKey(tea.KeyPressMsg{Text: "x"})
-	if m.spotSearch.query != "x" {
-		t.Fatalf("provider search query = %q, want x", m.spotSearch.query)
+	if m.searchOverlay.query != "x" {
+		t.Fatalf("provider search query = %q, want x", m.searchOverlay.query)
 	}
 	if m.navBrowser.search != "" {
 		t.Fatalf("navigation filter = %q, want empty", m.navBrowser.search)
 	}
 
 	m.handlePaste("y")
-	if m.spotSearch.query != "xy" {
-		t.Fatalf("provider search query after paste = %q, want xy", m.spotSearch.query)
+	if m.searchOverlay.query != "xy" {
+		t.Fatalf("provider search query after paste = %q, want xy", m.searchOverlay.query)
 	}
 
 	m.handleKey(tea.KeyPressMsg{Code: tea.KeyEscape})
-	if m.spotSearch.visible || !m.navBrowser.visible || m.activeScreen() != screenNavBrowser {
-		t.Fatalf("nested close state = spot:%t nav:%t screen:%v, want navigation browser", m.spotSearch.visible, m.navBrowser.visible, m.activeScreen())
+	if m.searchOverlay.visible || !m.navBrowser.visible || m.activeScreen() != screenNavBrowser {
+		t.Fatalf("nested close state = search:%t nav:%t screen:%v, want navigation browser", m.searchOverlay.visible, m.navBrowser.visible, m.activeScreen())
 	}
 }
 
@@ -78,12 +78,12 @@ func TestFullVisualizerBlocksHiddenPlaylistMutations(t *testing.T) {
 
 func TestClosingProviderSearchCancelsItsRequest(t *testing.T) {
 	canceled := false
-	m := Model{spotSearch: spotSearchState{
+	m := Model{searchOverlay: searchOverlayState{
 		visible: true,
 		cancel:  func() { canceled = true },
 	}}
 
-	m.closeSpotSearch()
+	m.closeSearchOverlay()
 	if !canceled {
 		t.Fatal("provider search request was not canceled")
 	}
@@ -129,7 +129,7 @@ func TestNavigationTrackReplaceWinsOverRadioShortcut(t *testing.T) {
 		playlist: p,
 		provider: current,
 		vis:      ui.NewVisualizer(float64(player.SampleRate())),
-		providers: []ProviderEntry{
+		providers: []provider.Entry{
 			{Key: "radio", Name: "Radio", Provider: commandsTestProvider{name: "Radio"}},
 		},
 		navBrowser: navBrowserState{
@@ -158,11 +158,13 @@ func TestNavigationTrackReplaceWinsOverRadioShortcut(t *testing.T) {
 func TestStaleAsyncResponsesDoNotChangeCurrentState(t *testing.T) {
 	current := commandsTestProvider{name: "Current"}
 	m := Model{
-		player:        &playbackFakeEngine{},
-		playlist:      playlist.New(),
-		provider:      current,
-		providerLists: []playlist.PlaylistInfo{{ID: "current", Name: "Current"}},
-		provLoading:   true,
+		player:   &playbackFakeEngine{},
+		playlist: playlist.New(),
+		provider: current,
+		provPane: providerPane{
+			lists:   []playlist.PlaylistInfo{{ID: "current", Name: "Current"}},
+			loading: true,
+		},
 		navBrowser: navBrowserState{
 			visible: true,
 			loading: true,
@@ -238,10 +240,10 @@ func TestProviderRefreshFailureKeepsExistingLists(t *testing.T) {
 	current := commandsTestProvider{name: "Current"}
 	m := Model{
 		provider: current,
-		providerLists: []playlist.PlaylistInfo{
-			{ID: "mix", Name: "Mix"},
+		provPane: providerPane{
+			lists:   []playlist.PlaylistInfo{{ID: "mix", Name: "Mix"}},
+			loading: true,
 		},
-		provLoading: true,
 	}
 	m.requests.provider = 1
 
@@ -252,17 +254,17 @@ func TestProviderRefreshFailureKeepsExistingLists(t *testing.T) {
 	})
 	m = updated.(Model)
 
-	if len(m.providerLists) != 1 || m.providerLists[0].Name != "Mix" {
-		t.Fatalf("provider lists after refresh failure = %+v, want prior Mix list", m.providerLists)
+	if len(m.provPane.lists) != 1 || m.provPane.lists[0].Name != "Mix" {
+		t.Fatalf("provider lists after refresh failure = %+v, want prior Mix list", m.provPane.lists)
 	}
-	if m.provLoading {
-		t.Fatal("provLoading = true after failed refresh, want false")
+	if m.provPane.loading {
+		t.Fatal("provPane.loading = true after failed refresh, want false")
 	}
 }
 
 func TestProviderPartialRefreshShowsPublicListsAndWarning(t *testing.T) {
 	current := providerPaneBrowseProvider{interactionBrowseProvider{commandsTestProvider{name: "Mixcloud"}}}
-	m := Model{provider: current, provLoading: true}
+	m := Model{provider: current, provPane: providerPane{loading: true}}
 	m.requests.provider = 1
 
 	updated, _ := m.Update(playlistsLoadedMsg{
@@ -273,11 +275,11 @@ func TestProviderPartialRefreshShowsPublicListsAndWarning(t *testing.T) {
 	})
 	m = updated.(Model)
 
-	if got := len(m.providerLists); got != 4 {
-		t.Fatalf("provider lists = %+v, want three browse entries and public discovery", m.providerLists)
+	if got := len(m.provPane.lists); got != 4 {
+		t.Fatalf("provider lists = %+v, want three browse entries and public discovery", m.provPane.lists)
 	}
-	if m.providerLists[0].Name != "Shows" || m.providerLists[1].Name != "Creators" || m.providerLists[2].Name != "Genres" || m.providerLists[3].Name != "Recent Releases" {
-		t.Fatalf("provider lists = %+v", m.providerLists)
+	if m.provPane.lists[0].Name != "Shows" || m.provPane.lists[1].Name != "Creators" || m.provPane.lists[2].Name != "Genres" || m.provPane.lists[3].Name != "Recent Releases" {
+		t.Fatalf("provider lists = %+v", m.provPane.lists)
 	}
 	if m.err != nil || m.status.kind != feedbackWarning || !strings.Contains(m.status.text, "account views unavailable") {
 		t.Fatalf("partial refresh state = err:%v status:%+v", m.err, m.status)

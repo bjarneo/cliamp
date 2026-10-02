@@ -101,7 +101,7 @@ func (p *Provider) pinnedIDs() map[string]bool {
 // so they sort and read as one block at the top of the list. A directory that
 // knows no regions for the country contributes nothing.
 func (p *Provider) homeRegionGenres(home Place, pinned map[string]bool) []provider.GenreInfo {
-	states, err := p.stateIndex(home.Name)
+	states, err := p.stateIndex(home)
 	if err != nil || len(states) == 0 {
 		// Regions are a convenience; losing them must not cost the country list.
 		return nil
@@ -274,10 +274,12 @@ func (p *Provider) homeLocked() Place {
 }
 
 // countryIndex returns the directory's country list, fetching it once per
-// process. Refresh drops the cache.
+// process. Refresh drops the cache. A generation check prevents an in-flight
+// request from undoing Refresh.
 func (p *Provider) countryIndex() ([]Country, error) {
 	p.mu.Lock()
 	cached := p.countries
+	generation := p.indexGeneration
 	p.mu.Unlock()
 	if cached != nil {
 		return cached, nil
@@ -289,22 +291,29 @@ func (p *Provider) countryIndex() ([]Country, error) {
 	}
 
 	p.mu.Lock()
-	p.countries = countries
+	if p.indexGeneration == generation && p.countries == nil {
+		p.countries = countries
+	}
 	p.mu.Unlock()
 	return countries, nil
 }
 
-// stateIndex returns the home country's regions, fetching them once per
-// process. Refresh drops the cache.
-func (p *Provider) stateIndex(country string) ([]State, error) {
+// stateIndex returns the regions of the home country, fetching them once per
+// process and country. Refresh drops the cache. A generation check prevents
+// an in-flight request from undoing Refresh.
+func (p *Provider) stateIndex(home Place) ([]State, error) {
 	p.mu.Lock()
 	cached := p.states
+	if p.statesCode != home.Code {
+		cached = nil
+	}
+	generation := p.indexGeneration
 	p.mu.Unlock()
 	if cached != nil {
 		return cached, nil
 	}
 
-	states, err := FetchStates(country)
+	states, err := FetchStates(home.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +324,9 @@ func (p *Provider) stateIndex(country string) ([]State, error) {
 	}
 
 	p.mu.Lock()
-	p.states = states
+	if p.indexGeneration == generation {
+		p.states, p.statesCode = states, home.Code
+	}
 	p.mu.Unlock()
 	return states, nil
 }
@@ -361,8 +372,8 @@ func (p *Provider) Refresh() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.countries = nil
-	p.states = nil
+	p.states, p.statesCode = nil, ""
 	p.tags = nil
-	p.tagGeneration++
+	p.indexGeneration++
 	p.catalog = nil
 }

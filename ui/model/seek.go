@@ -21,7 +21,13 @@ type seekTickMsg struct {
 	gen    uint64
 }
 
-type ytdlUnpauseReconnectMsg struct{ err error }
+// ytdlUnpauseReconnectMsg reports a yt-dlp reconnect on unpause. gen holds
+// the stream generation and seekGen holds the seek generation at its start.
+type ytdlUnpauseReconnectMsg struct {
+	err     error
+	gen     uint64
+	seekGen uint64
+}
 
 // doSeek handles a seek keypress. Seeks that restart a decoder accumulate into
 // one target and debounce; local files seek immediately.
@@ -29,61 +35,51 @@ func (m *Model) doSeek(d time.Duration) tea.Cmd {
 	return m.seekRelative(d, seekDebounceTicks)
 }
 
-func (m *Model) streamSeekRelative(delta time.Duration) tea.Cmd {
-	p := m.player
-	gen := m.seek.gen
-	return func() tea.Msg {
-		err := p.Seek(delta)
-		return seekTickMsg{err: err, gen: gen}
-	}
-}
-
-func (m *Model) streamSeekAbsolute(target time.Duration) tea.Cmd {
-	p := m.player
-	gen := m.seek.gen
-	return func() tea.Msg {
-		err := p.Seek(target - p.Position())
-		return seekTickMsg{err: err, target: target, gen: gen}
-	}
-}
-
 func (m *Model) seekRelative(d time.Duration, debounceTicks int) tea.Cmd {
-	if m.player.IsStreamSeek() {
-		return m.streamSeekRelative(d)
-	}
 	if !m.needsDebouncedSeek() {
 		m.player.Seek(d)
 		m.finishSeek()
 		return nil
 	}
 
+	// A pending or running seek has not moved Position yet, so build on its
+	// target or back-to-back relative seeks overwrite each other.
 	target := m.player.Position()
-	if m.seek.active && debounceTicks > 0 {
+	if m.seek.active {
 		target = m.seek.targetPos
 	}
 	return m.queueSeekTarget(target+d, debounceTicks)
 }
 
 // needsDebouncedSeek reports whether seeking restarts a decoder, making a burst
-// of keypresses worth summing into one.
+// of keypresses worth summing into one. A provider URI that the player
+// resolves at play time is a stream, also when an older favorites, history
+// or playlist file reloaded it without the stream flag.
 func (m *Model) needsDebouncedSeek() bool {
 	if m.player.IsYTDLSeek() {
 		return true
 	}
 	track, _ := m.currentPlaybackTrack()
-	return track.Stream && m.player.Seekable()
+	return (track.Stream || m.hasSourceResolver(track.Path)) && m.player.Seekable()
 }
 
 func (m *Model) seekAbsolute(target time.Duration) tea.Cmd {
-	if m.player.IsStreamSeek() {
-		return m.streamSeekAbsolute(target)
-	}
+	cmd, _ := m.trySeekAbsolute(target)
+	return cmd
+}
+
+// trySeekAbsolute is seekAbsolute that also returns the error of an in-place
+// seek. A seek that restarts a decoder runs in the returned Cmd and reports
+// its error through seekTickMsg.
+func (m *Model) trySeekAbsolute(target time.Duration) (tea.Cmd, error) {
 	if !m.needsDebouncedSeek() {
-		m.player.Seek(target - m.player.Position())
+		if err := m.player.Seek(target - m.player.Position()); err != nil {
+			return nil, err
+		}
 		m.finishSeek()
-		return nil
+		return nil, nil
 	}
-	return m.queueSeekTarget(target, 0)
+	return m.queueSeekTarget(target, 0), nil
 }
 
 func (m *Model) queueSeekTarget(target time.Duration, debounceTicks int) tea.Cmd {
@@ -105,8 +101,19 @@ func (m *Model) queueSeekTarget(target time.Duration, debounceTicks int) tea.Cmd
 	return m.commitPendingSeek()
 }
 
+// finishSeek tells the media controls and plugins that a seek landed. The
+// media controls get the new state before the MPRIS Seeked signal, also for
+// a seek within the same second, so a client that reads Position on the
+// signal sees the new value. A rewind with previous that lands reports the
+// play before it and starts a replay, which can scrobble again.
 func (m *Model) finishSeek() {
-	m.notifyAll()
+	if m.seek.rewind {
+		m.seek.rewind = false
+		m.leaveTrack(m.seek.rewindAt, m.seek.rewindDur)
+		m.playingTrackLeft = false
+	}
+	m.notice.sent = false
+	m.notifyPlaybackChange()
 	if m.notifier != nil {
 		m.notifier.Seeked(m.player.Position())
 	}
@@ -146,6 +153,21 @@ func (m *Model) seekCmd(target time.Duration, resume bool) tea.Cmd {
 		}
 		return seekTickMsg{err: err, resume: resume, target: target, gen: gen}
 	}
+}
+
+// resetSeek drops a seek that waits for its debounce or still runs, for a
+// new track or a stop. The seek generation moves on, so a seek that lands
+// later is ignored.
+func (m *Model) resetSeek() {
+	m.seek.active = false
+	m.seek.inFlight = false
+	m.seek.pending = false
+	m.seek.gen++
+	m.seek.timer = 0
+	m.seek.timerFor = 0
+	m.seek.grace = 0
+	m.seek.graceFor = 0
+	m.seek.rewind = false
 }
 
 func (m *Model) clampPosition(pos time.Duration) time.Duration {

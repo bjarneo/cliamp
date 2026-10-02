@@ -31,18 +31,18 @@ func (m Model) hasSubscriptions() bool {
 	return sl != nil && len(sl.Subscriptions()) > 0
 }
 
-// openSubsOverlay loads the subscription list and shows the overlay. It
-// reports whether it did, so a key that opened nothing can still reach plugins.
-func (m *Model) openSubsOverlay() bool {
+// openSubsOverlay loads the subscription list and shows the overlay. With no
+// subscribed shows, it shows a warning instead.
+func (m *Model) openSubsOverlay() {
 	sl := m.subscriptionProvider()
 	if sl == nil {
 		m.status.Warning("No provider keeps subscriptions.", statusTTLDefault)
-		return false
+		return
 	}
 	shows := sl.Subscriptions()
 	if len(shows) == 0 {
 		m.status.Warning("No subscribed shows. Press f on a show to subscribe.", statusTTLDefault)
-		return false
+		return
 	}
 	// A load started before the overlay was closed is still running; keep
 	// its state so the guards refuse a second request until it lands.
@@ -53,7 +53,6 @@ func (m *Model) openSubsOverlay() bool {
 		loading: m.subs.loading,
 		status:  m.subs.status,
 	}
-	return true
 }
 
 // subscriptionLoader returns the provider that owns a subscription list as an
@@ -126,10 +125,7 @@ func (m *Model) handleSubsKey(msg tea.KeyPressMsg) tea.Cmd {
 	}
 
 	switch msg.String() {
-	case "ctrl+c":
-		m.subs.visible = false
-		return m.quit()
-	case "ctrl+k", "?":
+	case "?":
 		m.openKeymap()
 	case "ctrl+x":
 		m.toggleExpandedView()
@@ -191,10 +187,7 @@ func (m *Model) addSubscriptionEpisodes(tracks []playlist.Track, mode subsLoadMo
 		}
 		return -1
 	}
-	start := m.playlist.Len()
-	m.playlist.Add(tracks...)
-	m.loadedPlaylist = ""
-	m.addToHeaderState(tracks)
+	start := m.appendTracks(tracks...)
 
 	switch mode {
 	case subsLoadQueue:
@@ -223,19 +216,17 @@ func (m *Model) appendSubscriptionTracks(tracks []playlist.Track, mode subsLoadM
 		m.playlist.SetIndex(start)
 		m.plCursor = start
 		m.adjustScroll()
-		cmd := m.playCurrentTrack()
-		m.notifyPlayback()
-		return cmd
+		return m.playCurrentTrack()
 	}
 	m.normalizeQueueOverlay()
-	return m.rearmPreload()
+	return m.rearmStalePreload()
 }
 
 // selectedProviderShow returns the ID and name of the show highlighted in the
 // provider list, and false when the row is a section entry, a browse entry, or
 // the provider lists albums rather than shows.
 func (m Model) selectedProviderShow() (id, name string, ok bool) {
-	if m.provLoading || m.provCursor < 0 || m.provCursor >= len(m.providerLists) {
+	if m.provPane.loading || m.provPane.cursor < 0 || m.provPane.cursor >= len(m.provPane.lists) {
 		return "", "", false
 	}
 	if m.selectedProviderListIsBrowseEntry() {
@@ -245,7 +236,7 @@ func (m Model) selectedProviderShow() (id, name string, ok bool) {
 	if !ok {
 		return "", "", false
 	}
-	entry := m.providerLists[m.provCursor]
+	entry := m.provPane.lists[m.provPane.cursor]
 	if !sl.IsShowID(entry.ID) {
 		return "", "", false
 	}

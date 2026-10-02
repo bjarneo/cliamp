@@ -80,7 +80,19 @@ Press `N` at any time, or from the provider panel, to open the full-screen Navid
 | `Enter` | Append selected track to playlist |
 | `a` | Append all tracks to playlist |
 | `R` | Replace playlist with all tracks and start playing |
+| `f` | Toggle the favorite ♥ on the selected track |
 | `Esc` / `←` | Back |
+
+### Favorites and stars
+
+Press `f` on a Navidrome track to toggle its favorite ♥. cliamp saves the
+favorite locally and also stars the song on the server with the Subsonic `star`
+call. Press `f` again to remove the favorite and unstar the song. The key works
+in the playlist, the playlist manager, and the browser track list.
+
+The local favorite is the source of truth. If the server rejects the call, the
+local favorite stays and the status bar shows a warning. A song that you star in
+the Navidrome web UI does not appear as a favorite in cliamp.
 
 ### Album sort order
 
@@ -133,3 +145,11 @@ Other values, such as `"mp3"`, `"aac"`, or `"opus"`, are sent as the requested f
 ## Requirements
 
 You need only a running Navidrome instance. The client uses the Go standard `net/http` and `crypto/md5` packages. The Navidrome server must have the Subsonic API enabled. This is the default.
+
+## Troubleshooting
+
+### macOS: `dial tcp ... connect: no route to host`
+
+If cliamp reports `no route to host` for a Navidrome server on the LAN, but `curl` works with the same URL, macOS likely denies Local Network access to the app. cliamp then adds a hint to the error.
+
+Fix: Open **System Settings > Privacy & Security > Local Network**. Enable access for the terminal app, then restart cliamp. For more steps, see [Plex troubleshooting](plex.md#troubleshooting).

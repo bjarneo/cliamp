@@ -145,6 +145,9 @@ func TestThemeValidate(t *testing.T) {
 	if err := (Theme{Name: "partial", Accent: "#112233"}).Validate(); err == nil {
 		t.Fatal("Validate() accepted incomplete custom theme")
 	}
+	if err := (Theme{Name: "empty", FG: "#334455", Yellow: "#556677", Red: "#667788"}).Validate(); err == nil {
+		t.Fatal("Validate() accepted a theme with no accent, bright_fg or green")
+	}
 	valid.Red = "red"
 	if err := valid.Validate(); err == nil {
 		t.Fatal("Validate() accepted invalid color")
@@ -153,6 +156,26 @@ func TestThemeValidate(t *testing.T) {
 	valid.BG = "black"
 	if err := valid.Validate(); err == nil {
 		t.Fatal("Validate() accepted invalid background color")
+	}
+}
+
+func TestIsDefaultName(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		want bool
+	}{
+		{"", true},
+		{"default", true},
+		{"DEFAULT", true},
+		{DefaultName, true},
+		{strings.ToLower(DefaultName), true},
+		{"dracula", false},
+		{"default ", false},
+		{"Default - Terminal", false},
+	} {
+		if got := IsDefaultName(tt.name); got != tt.want {
+			t.Errorf("IsDefaultName(%q) = %t, want %t", tt.name, got, tt.want)
+		}
 	}
 }
 
@@ -175,5 +198,39 @@ func TestFind(t *testing.T) {
 	}
 	if _, ok := Find("no such theme"); ok {
 		t.Error("Find of an unknown theme reported ok")
+	}
+}
+
+func TestParseValues(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want string
+	}{
+		{"double quotes", `accent = "#e8609a"`, "#e8609a"},
+		{"single quotes", `accent = '#e8609a'`, "#e8609a"},
+		{"unquoted hex", `accent = #e8609a`, "#e8609a"},
+		{"comment after double quotes", `accent = "#e8609a" # pink`, "#e8609a"},
+		{"comment after single quotes", `accent = '#e8609a'   # pink`, "#e8609a"},
+		{"comment right after quotes", `accent = "#e8609a"# pink`, "#e8609a"},
+		{"comment after unquoted hex", `accent = #e8609a # pink`, "#e8609a"},
+		{"comment after tab", "accent = #e8609a\t# pink", "#e8609a"},
+		{"comment holds quotes and equals", `accent = "#e8609a" # "old" = '#000000'`, "#e8609a"},
+		{"hash inside quotes stays", `accent = "a # b"`, "a # b"},
+		{"hash without space stays", `accent = #e8609a#pink`, "#e8609a#pink"},
+		{"text after quotes stays invalid", `accent = "#e8609a" pink`, `#e8609a" pink`},
+		{"unclosed quote", `accent = "#e8609a`, "#e8609a"},
+		{"empty quotes", `accent = ""`, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			th, err := Parse("test", strings.NewReader(tt.line))
+			if err != nil {
+				t.Fatalf("Parse error: %v", err)
+			}
+			if th.Accent != tt.want {
+				t.Errorf("Accent = %q, want %q", th.Accent, tt.want)
+			}
+		})
 	}
 }

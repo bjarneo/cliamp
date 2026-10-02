@@ -54,17 +54,19 @@ func pageOf(paths ...string) []playlist.Track {
 
 func newPagingModel(prov *pagerProv) Model {
 	m := Model{
-		player:        &playbackFakeEngine{},
-		playlist:      playlist.New(),
-		provider:      prov,
-		providerLists: []playlist.PlaylistInfo{{ID: "list", Name: "List"}},
-		provLoading:   true,
+		player:   &playbackFakeEngine{},
+		playlist: playlist.New(),
+		provider: prov,
+		provPane: providerPane{
+			lists:   []playlist.PlaylistInfo{{ID: "list", Name: "List"}},
+			loading: true,
+		},
 	}
 	m.requests.tracks = 1
 	return m
 }
 
-// The provider pane gates Enter on !provLoading, so holding it across the whole
+// The provider pane gates Enter on !provPane.loading, so holding it across the whole
 // page chain locks the user out of re-entering a list that is still filling.
 func TestFirstPageClearsProvLoading(t *testing.T) {
 	prov := &pagerProv{name: "Pager", pages: [][]playlist.Track{
@@ -78,8 +80,8 @@ func TestFirstPageClearsProvLoading(t *testing.T) {
 	})
 	m = updated.(Model)
 
-	if m.provLoading {
-		t.Error("provLoading still set after the first page; Enter stays blocked while loading")
+	if m.provPane.loading {
+		t.Error("provPane.loading still set after the first page; Enter stays blocked while loading")
 	}
 	if cmd == nil {
 		t.Fatal("no command returned for the next page; the chain stopped early")
@@ -110,8 +112,8 @@ func TestLaterPagesAppendWithoutReplacing(t *testing.T) {
 	if got := m.playlist.Len(); got != 4 {
 		t.Errorf("playlist has %d tracks after both pages, want 4 (later pages must append)", got)
 	}
-	if m.provLoading {
-		t.Error("provLoading set after the terminal page")
+	if m.provPane.loading {
+		t.Error("provPane.loading set after the terminal page")
 	}
 }
 
@@ -297,7 +299,7 @@ func TestIPCProviderLoadRetiresAnInFlightPagedLoad(t *testing.T) {
 
 	reply := make(chan ipc.Response, 1)
 	m.handleIPCProviderLoad(ipcProviderLoadResult{
-		request: ipc.LibraryRequestMsg{Reply: reply},
+		request: ipcLibraryRequest{Reply: reply},
 		tracks:  pageOf("ipc-1", "ipc-2"),
 		loaded:  "other",
 	})
@@ -366,7 +368,7 @@ func TestListChangedReportsThroughTheStatusLine(t *testing.T) {
 	if m.status.text == "" {
 		t.Error("no status message shown for a list that changed mid-load")
 	}
-	if m.provLoading || m.tracksPaging {
+	if m.provPane.loading || m.tracksPaging {
 		t.Error("the load was not retired after the list changed")
 	}
 }

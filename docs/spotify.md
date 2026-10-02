@@ -59,6 +59,8 @@ After authentication, Spotify appears in the provider list. Press `Esc`/`b` to o
 
 The provider panel lists your Spotify playlists and saved albums. Use the arrow keys to select one and press `Enter` to load it. Tracks stream through the cliamp audio pipeline. EQ, the visualizer, mono, and other effects work as they do for local files.
 
+Cliamp opens each Spotify stream in the background and shows `Buffering...` until audio starts. The UI stays responsive while it waits. If the connection drops mid-track, cliamp plays silence, reconnects, and resumes at the same position. After 5 failed attempts, it moves to the next track.
+
 ## Controls
 
 When focused on the provider panel:
@@ -66,7 +68,8 @@ When focused on the provider panel:
 | Key | Action |
 |---|---|
 | `Up` `Down` / `j` `k` | Navigate playlists |
-| `Enter` | Load the selected playlist |
+| `Enter` | Load the selected playlist. On the sign-in prompt, sign in. |
+| `Ctrl+R` | Reload playlists and tracks from Spotify |
 | `Tab` | Return to playback controls, starting at Source when visible ([navigation](keybindings.md#navigation)) |
 | `Esc` / `b` | Open provider browser |
 
@@ -76,9 +79,29 @@ Large playlists fill in as they load. Cliamp shows the first tracks, appends the
 
 ## Playlists and albums
 
-The provider lists both playlists and saved albums in the Spotify library. Playlists include those you created and saved, or followed. If a public playlist is missing, open Spotify and click **Save** first. You do not need to copy tracks to a new playlist.
+The provider lists both playlists and saved albums in the Spotify library. Playlists include those you created and saved, or followed. If a public playlist is missing, open Spotify and click **Save** first.
+
+Spotify lets apps read the tracks of only the playlists that you own or collaborate on. A followed playlist can fail to open with `403`. To play it, add its tracks to your own playlist in Spotify.
 
 Saved albums appear under a **Saved albums** section, labelled `Artist - Album` and sorted alphabetically by artist. These are the albums in **Your Library**. To add one, open the album in Spotify and click **Save**. Selecting a saved album loads all of its tracks in disc and track order.
+
+## Add tracks to a playlist
+
+In the <kbd>Ctrl+F</kbd> results, select a track and press `p`. The picker lists only the playlists that you own or collaborate on. Select `+ New Playlist...` to create a private playlist. If the add fails, the error shows on the picker.
+
+## Favorites and Liked Songs
+
+Press `f` on a Spotify track to toggle its favorite ♥. cliamp saves the favorite
+locally and also saves the track to **Liked Songs**. Press `f` again to remove
+the favorite and remove the track from Liked Songs. The key works in the
+playlist, the playlist manager, and `Ctrl+F` results.
+
+cliamp calls `PUT` and `DELETE /v1/me/library` with the `user-library-modify`
+scope, which cliamp requests at sign-in. The local favorite is the source of
+truth. If Spotify rejects the call, the local favorite stays and the status bar
+shows a warning. To fix a scope error, run `cliamp spotify reset` and sign in
+again. A like that you add in the Spotify app does not appear as a favorite in
+cliamp. Episodes stay local favorites only.
 
 ## Podcasts
 
@@ -90,9 +113,10 @@ Podcast episodes work as tracks. Press `Ctrl+F` to search Spotify. Matching epis
 - **Two authorization steps**: This is expected with your own `client_id`. After you approve Web API access, the same browser tab redirects to create a playback credential with the required Spotify built-in identity.
 - **Playlist not showing**: Save or follow the playlist in Spotify. The provider lists only library playlists.
 - **Playback issues**: Spotify integration needs a Premium account. Free accounts cannot stream.
-- **Re-authenticate**: Run `cliamp spotify reset` to clear stored credentials. Then restart cliamp, select Spotify, and sign in again. This is the same as deleting `~/.config/cliamp/spotify_credentials.json`.
-- **Expired or revoked authorization**: Web API calls fail with `401 Unauthorized`, and playback asks for a new sign-in. Cliamp usually detects this at startup and prompts. If it does not, run `cliamp spotify reset` and authenticate again.
-- **`429 Too Many Requests`, including `rate-limited on /v1/me`**: Spotify accepted the credentials and throttled the *app*, so re-authenticating does not help. With the built-in `client_id`, the quota is shared with librespot- and spotify-player-based clients worldwide, and a busy pool limits every client that uses it. Cliamp retries with exponential backoff, honoring `Retry-After`. A `Retry-After` of hours (for example `86400`) means the app has no quota left for that window: register a developer app and set `client_id` in `[spotify]`. Your app has a separate quota.
+- **Re-authenticate**: When cliamp asks you to sign in, select Spotify and press `Enter`. If the sign-in fails, the prompt stays, so press `Enter` again to retry. To clear stored credentials, run `cliamp spotify reset`. This is the same as deleting `~/.config/cliamp/spotify_credentials.json`.
+- **Expired or revoked authorization**: When Spotify rejects the access token with `401 Unauthorized` or revokes the refresh token, cliamp asks for a new sign-in. The provider list and playback both show the prompt. Press `Enter` on the prompt to sign in again. You do not need to restart cliamp.
+- **`403` when you open a followed playlist**: Spotify lets apps read only the playlists that you own or collaborate on. Add the tracks to your own playlist in Spotify, then open that playlist.
+- **`429 Too Many Requests`, including `rate-limited on /v1/me`**: Spotify accepted the credentials and throttled the *app*, so re-authenticating does not help. With the built-in `client_id`, the quota is shared with librespot- and spotify-player-based clients worldwide, and a busy pool limits every client that uses it. Cliamp retries with exponential backoff, honoring `Retry-After`. If `Retry-After` is longer than 1 minute, cliamp shows the error at once and does not wait. A `Retry-After` of hours (for example `86400`) means the app has no quota left for that window: register a developer app and set `client_id` in `[spotify]`. Your app has a separate quota.
 - **`400 "Invalid limit"` on <kbd>Ctrl+F</kbd>**: Development Mode apps limit `/v1/search` to 10 results per request. Cliamp pages results automatically. This error means the limit is now less than 10. Open an issue.
 
 ## Requirements

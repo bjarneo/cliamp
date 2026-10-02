@@ -40,10 +40,11 @@ func (d *stereoDriver) Render(v *Visualizer) string {
 	if height <= 0 {
 		return ""
 	}
+	width := v.columns()
 	lines := make([]string, height)
 
 	if height == 1 {
-		lines[0] = renderStereoMeter("L ", d.level[0], d.peak[0], PanelWidth)
+		lines[0] = renderStereoMeter("L ", d.level[0], d.peak[0], width)
 		return strings.Join(lines, "\n")
 	}
 
@@ -55,7 +56,7 @@ func (d *stereoDriver) Render(v *Visualizer) string {
 		if i == thickness/2 {
 			label = "L "
 		}
-		lines[row+i] = renderStereoMeter(label, d.level[0], d.peak[0], PanelWidth)
+		lines[row+i] = renderStereoMeter(label, d.level[0], d.peak[0], width)
 	}
 	row += thickness
 	if height%2 != 0 {
@@ -66,7 +67,7 @@ func (d *stereoDriver) Render(v *Visualizer) string {
 		if i == thickness/2 {
 			label = "R "
 		}
-		lines[row+i] = renderStereoMeter(label, d.level[1], d.peak[1], PanelWidth)
+		lines[row+i] = renderStereoMeter(label, d.level[1], d.peak[1], width)
 	}
 
 	return strings.Join(lines, "\n")
@@ -123,22 +124,12 @@ func (d *stereoDriver) sample(ctx VisTickContext) {
 }
 
 func (d *stereoDriver) advance(now time.Time) {
-	dt := TickAnim
-	if !now.IsZero() && !d.lastTick.IsZero() {
-		dt = now.Sub(d.lastTick)
-	}
-	if dt <= 0 || dt > maxSmoothDtFrames*TickAnim {
-		dt = TickAnim
-	}
+	dt := clampFrameDT(now, d.lastTick, TickAnim)
 	d.lastTick = now
 	dtSeconds := dt.Seconds()
 
 	for channel := range 2 {
-		rate := stereoFallRate
-		if d.targetLevel[channel] > d.level[channel] {
-			rate = stereoRiseRate
-		}
-		d.level[channel] += (d.targetLevel[channel] - d.level[channel]) * (1 - math.Exp(-rate*dtSeconds))
+		d.level[channel] = easeToward(d.level[channel], d.targetLevel[channel], stereoRiseRate, stereoFallRate, dtSeconds)
 
 		switch {
 		case d.targetPeak[channel] > d.peak[channel]:

@@ -2,10 +2,6 @@
 // The protocol is newline-delimited JSON over a Unix domain socket.
 package ipc
 
-import (
-	"context"
-)
-
 // Request is the parameter object decoded from a V2 operation's params field.
 // It is an in-process adapter while runtime owners migrate to narrower typed
 // operation structs; it is never sent as a top-level protocol envelope.
@@ -101,6 +97,7 @@ type TrackInfo struct {
 	StreamTitle   string            `json:"stream_title,omitempty"`
 	Station       string            `json:"station,omitempty"`
 	Realtime      bool              `json:"realtime,omitempty"`
+	Restricted    bool              `json:"restricted,omitempty"`
 	Feed          bool              `json:"feed,omitempty"`
 	Bookmark      bool              `json:"bookmark,omitempty"`
 	Unplayable    bool              `json:"unplayable,omitempty"`
@@ -162,122 +159,4 @@ type HistoryInfo struct {
 type DeviceInfo struct {
 	Name   string `json:"name"`
 	Active bool   `json:"active"`
-}
-
-// LoadMsg requests loading a playlist by name.
-// Reply receives the result so the client can report errors.
-type LoadMsg struct {
-	Playlist string
-	Reply    chan Response
-}
-
-// QueueMsg requests queuing a file path for playback.
-type QueueMsg struct{ Path string }
-
-// ThemeMsg requests changing the TUI theme by name.
-// Reply receives confirmation or error if theme not found.
-type ThemeMsg struct {
-	Name  string
-	Reply chan Response
-}
-
-// VisMsg requests changing the active visualizer by name.
-// If Name is "next", the visualizer cycles to the next mode.
-// Reply receives confirmation or error if mode not found.
-type VisMsg struct {
-	Name  string
-	Reply chan Response
-}
-
-// ShuffleMsg requests toggling or setting shuffle mode.
-// If Name is "on"/"off", it sets the mode explicitly; "toggle" toggles.
-type ShuffleMsg struct {
-	Name  string
-	Reply chan Response
-}
-
-// RepeatMsg requests setting or cycling the repeat mode.
-// Name is "off", "all", "one", or "cycle".
-type RepeatMsg struct {
-	Name  string
-	Reply chan Response
-}
-
-// MonoMsg requests toggling or setting mono mode.
-// If Name is "on"/"off", it sets the mode explicitly; "toggle" toggles.
-type MonoMsg struct {
-	Name  string
-	Reply chan Response
-}
-
-// SpeedMsg requests setting the playback speed.
-type SpeedMsg struct {
-	Speed float64
-	Reply chan Response
-}
-
-// EQMsg requests setting EQ preset by name or a single band's gain.
-// If Band >= 0, sets that band to Value dB. Otherwise applies preset Name.
-type EQMsg struct {
-	Name  string
-	Band  int
-	Value float64
-	Reply chan Response
-}
-
-// DeviceMsg requests switching the audio output device or listing devices.
-// If Name is "list", returns available devices. Otherwise switches to named device.
-type DeviceMsg struct {
-	Name  string
-	Reply chan Response
-}
-
-type QueueRequestMsg struct {
-	Op    string
-	Index int
-	To    int
-	Track *TrackInfo
-	Reply chan Response
-}
-
-type LibraryRequestMsg struct {
-	Op       string
-	Provider string
-	Playlist string
-	Query    string
-	Artist   string
-	Album    string
-	Sort     string
-	Offset   int
-	Limit    int
-	Index    int
-	NewName  string
-	Track    *TrackInfo
-	Tracks   []TrackInfo
-	Context  context.Context
-	Reply    chan Response
-}
-
-type LyricsRequestMsg struct {
-	Reply chan Response
-}
-
-type HistoryRequestMsg struct {
-	Op    string
-	Limit int
-	Reply chan Response
-}
-
-type URLRequestMsg struct {
-	URL string
-	// Play starts the first newly added track even when something is already
-	// playing. Without it the URL is appended and only auto-plays when the
-	// player was idle.
-	Play    bool
-	Context context.Context
-	Reply   chan Response
-}
-
-type SaveRequestMsg struct {
-	Reply chan Response
 }

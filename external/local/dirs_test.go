@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -470,7 +471,7 @@ func TestPlaylistsCountIncludesDirTracks(t *testing.T) {
 	}
 }
 
-func TestSetBookmarkMaterializesDirTrack(t *testing.T) {
+func TestSavePlaylistMaterializesDirTrack(t *testing.T) {
 	p := newTestProvider(t)
 	audio := t.TempDir()
 	writeAudioFile(t, filepath.Join(audio, "a.mp3"))
@@ -478,10 +479,16 @@ func TestSetBookmarkMaterializesDirTrack(t *testing.T) {
 		t.Fatalf("CreateDirPlaylist: %v", err)
 	}
 
-	if err := p.SetBookmark("music", 0); err != nil {
-		t.Fatalf("SetBookmark: %v", err)
-	}
 	tracks, err := p.Tracks("music")
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	tracks[0].Bookmark = true
+	tracks[0].DirSourced = false
+	if err := p.SavePlaylist("music", tracks); err != nil {
+		t.Fatalf("SavePlaylist: %v", err)
+	}
+	tracks, err = p.Tracks("music")
 	if err != nil {
 		t.Fatalf("Tracks: %v", err)
 	}
@@ -515,8 +522,9 @@ func TestSavePlaylistReadErrorAbortsRewrite(t *testing.T) {
 	}
 	// A failed read must abort the rewrite instead of replacing the playlist
 	// with a copy missing its [[dir]] sections.
-	if err := p.SetBookmark("music", 0); err == nil {
-		t.Fatal("SetBookmark should fail when the playlist cannot be read")
+	track := playlist.Track{Path: filepath.Join(audio, "a.mp3"), Title: "A"}
+	if err := p.SavePlaylist("music", []playlist.Track{track}); err == nil {
+		t.Fatal("SavePlaylist should fail when the playlist cannot be read")
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -524,26 +532,6 @@ func TestSavePlaylistReadErrorAbortsRewrite(t *testing.T) {
 	}
 	if !info.IsDir() {
 		t.Fatal("playlist was rewritten despite read failure")
-	}
-}
-
-func TestSetBookmarkByPathMaterializesDirTrack(t *testing.T) {
-	p := newTestProvider(t)
-	audio := t.TempDir()
-	writeAudioFile(t, filepath.Join(audio, "a.mp3"))
-	if err := p.CreateDirPlaylist("music", []string{audio}); err != nil {
-		t.Fatalf("CreateDirPlaylist: %v", err)
-	}
-	trackPath := filepath.Join(audio, "a.mp3")
-	if err := p.SetBookmarkByPath("music", trackPath); err != nil {
-		t.Fatalf("SetBookmarkByPath: %v", err)
-	}
-	tracks, err := p.Tracks("music")
-	if err != nil {
-		t.Fatalf("Tracks: %v", err)
-	}
-	if len(tracks) != 1 || !tracks[0].Bookmark || tracks[0].DirSourced {
-		t.Fatalf("materialized bookmark failed: %+v", tracks)
 	}
 }
 
@@ -761,7 +749,7 @@ func TestSavePlaylistPreservesSectionOrder(t *testing.T) {
 	}
 }
 
-func TestSetBookmarkKeepsDirPosition(t *testing.T) {
+func TestSavePlaylistMaterializedKeepsDirPosition(t *testing.T) {
 	p := newTestProvider(t)
 	dirA := t.TempDir()
 	writeAudioFile(t, filepath.Join(dirA, "a.mp3"))
@@ -774,11 +762,17 @@ func TestSetBookmarkKeepsDirPosition(t *testing.T) {
 	writeAudioFile(t, y)
 	writeInterleavedDoc(t, p, x, dirA, y, dirB)
 
-	// Expanded: x, a, y, b, c. Bookmark b (index 3).
-	if err := p.SetBookmark("mix", 3); err != nil {
-		t.Fatalf("SetBookmark: %v", err)
-	}
+	// Expanded: x, a, y, b, c. Materialize b (index 3) with a flag set.
 	tracks, err := p.Tracks("mix")
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	tracks[3].Bookmark = true
+	tracks[3].DirSourced = false
+	if err := p.SavePlaylist("mix", tracks); err != nil {
+		t.Fatalf("SavePlaylist: %v", err)
+	}
+	tracks, err = p.Tracks("mix")
 	if err != nil {
 		t.Fatalf("Tracks: %v", err)
 	}
@@ -1015,57 +1009,142 @@ func TestRestorePlaylistDocumentRejectsHistory(t *testing.T) {
 	}
 }
 
-func TestPlaylistsMigratesLegacyFavoritesToml(t *testing.T) {
-	p := newTestProvider(t)
-	src := filepath.Join(p.dir, "Favorites.toml")
-	if err := os.WriteFile(src, []byte("[[track]]\npath = \"/a.mp3\"\n"), 0o644); err != nil {
-		t.Fatal(err)
+// MigrateFavoritesFile moves a playlist file named Favorites.toml to the
+// legacy name, because the virtual Favorites playlist reserves the name. It
+// keeps a legacy file that exists. Playlists never renames a file. It lists
+// the legacy file once, from its own entry, and hides Favorites.toml. A search
+// finds only the tracks of listed playlists.
+func TestMigrateFavoritesFile(t *testing.T) {
+	const two = "[[track]]\npath = \"/a.mp3\"\ntitle = \"Song A\"\n\n[[track]]\npath = \"/b.mp3\"\ntitle = \"Song B\"\n"
+	const one = "[[track]]\npath = \"/c.mp3\"\ntitle = \"Song C\"\n"
+	tests := []struct {
+		name       string
+		source     bool   // Favorites.toml exists before the migration
+		legacy     string // content of the legacy file before the migration, if any
+		migrate    bool   // MigrateFavoritesFile runs before the listing
+		wantTracks int    // track count of the listed legacy playlist, -1 when not listed
+		wantSource bool   // Favorites.toml is still on disk after the listing
+		wantSearch []string
+	}{
+		{name: "only Favorites.toml", source: true, migrate: true, wantTracks: 2, wantSearch: []string{"/a.mp3", "/b.mp3"}},
+		{name: "both files", source: true, legacy: one, migrate: true, wantTracks: 1, wantSource: true, wantSearch: []string{"/c.mp3"}},
+		{name: "no Favorites.toml", migrate: true, wantTracks: -1},
+		{name: "listing without the migration", source: true, wantTracks: -1, wantSource: true},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newTestProvider(t)
+			src := filepath.Join(p.dir, "Favorites.toml")
+			if tt.source {
+				if err := os.WriteFile(src, []byte(two), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tt.legacy != "" {
+				dst := filepath.Join(p.dir, favoritesLegacyName+".toml")
+				if err := os.WriteFile(dst, []byte(tt.legacy), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tt.migrate {
+				if err := p.MigrateFavoritesFile(); err != nil {
+					t.Fatalf("MigrateFavoritesFile: %v", err)
+				}
+			}
 
-	lists, err := p.Playlists()
-	if err != nil {
-		t.Fatalf("Playlists: %v", err)
-	}
-
-	// Original must be gone.
-	if _, err := os.Stat(src); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatal("Favorites.toml should have been migrated away")
-	}
-
-	// Renamed file must appear.
-	dst := filepath.Join(p.dir, favoritesLegacyName+".toml")
-	if _, err := os.Stat(dst); err != nil {
-		t.Fatalf("migrated file missing: %v", err)
-	}
-
-	found := false
-	for _, l := range lists {
-		if l.ID == favoritesLegacyName {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("migrated playlist not listed; got %v", lists)
+			lists, err := p.Playlists()
+			if err != nil {
+				t.Fatalf("Playlists: %v", err)
+			}
+			var legacy []playlist.PlaylistInfo
+			for _, l := range lists {
+				if l.ID == favorites.PlaylistName {
+					t.Fatalf("Favorites.toml listed under the reserved name: %+v", lists)
+				}
+				if l.ID == favoritesLegacyName {
+					legacy = append(legacy, l)
+				}
+			}
+			switch {
+			case tt.wantTracks < 0 && len(legacy) != 0:
+				t.Fatalf("legacy playlist listed: %+v", lists)
+			case tt.wantTracks >= 0 && len(legacy) != 1:
+				t.Fatalf("legacy playlist listed %d times, want 1: %+v", len(legacy), lists)
+			case tt.wantTracks >= 0 && legacy[0].TrackCount != tt.wantTracks:
+				t.Errorf("legacy TrackCount = %d, want %d", legacy[0].TrackCount, tt.wantTracks)
+			}
+			if _, err := os.Stat(src); (err == nil) != tt.wantSource {
+				t.Errorf("Favorites.toml on disk = %v, want %v", err == nil, tt.wantSource)
+			}
+			found, err := p.SearchTracks(context.Background(), "song", 0)
+			if err != nil {
+				t.Fatalf("SearchTracks: %v", err)
+			}
+			if got := slices.Sorted(slices.Values(paths(found))); !slices.Equal(got, tt.wantSearch) {
+				t.Errorf("search found %v, want %v", got, tt.wantSearch)
+			}
+			if !tt.source {
+				if _, err := os.Stat(p.dir + ".lock"); !errors.Is(err, fs.ErrNotExist) {
+					t.Errorf("the migration took the playlist lock with no file to move: %v", err)
+				}
+			}
+		})
 	}
 }
 
-func TestPlaylistsSkipsMigrationWhenDestExists(t *testing.T) {
-	p := newTestProvider(t)
-	src := filepath.Join(p.dir, "Favorites.toml")
-	dst := filepath.Join(p.dir, favoritesLegacyName+".toml")
-	if err := os.WriteFile(src, []byte("[[track]]\npath = \"/a.mp3\"\n"), 0o644); err != nil {
-		t.Fatal(err)
+// TestRebuildDocDuplicatePaths verifies that rebuildDoc matches the caller's
+// tracks onto the original slots by occurrence, so a path that the document
+// lists more than once keeps every copy. Titles tell the copies apart.
+func TestRebuildDocDuplicatePaths(t *testing.T) {
+	a1 := playlist.Track{Path: "/x/a.mp3", Title: "a1"}
+	a2 := playlist.Track{Path: "/x/a.mp3", Title: "a2"}
+	b := playlist.Track{Path: "/x/b.mp3", Title: "b"}
+	c := playlist.Track{Path: "/x/c.mp3", Title: "c"}
+	music := playlist.DirSource{Path: "/music", Recursive: true}
+	plain := &playlistDoc{tracks: []playlist.Track{a1, b, a2}, order: []uint8{itemTrack, itemTrack, itemTrack}}
+	withDir := &playlistDoc{
+		tracks: []playlist.Track{a1, b, a2},
+		dirs:   []playlist.DirSource{music},
+		order:  []uint8{itemTrack, itemDir, itemTrack, itemTrack},
 	}
-	if err := os.WriteFile(dst, []byte("[[track]]\npath = \"/b.mp3\"\n"), 0o644); err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name     string
+		doc      *playlistDoc
+		explicit []playlist.Track
+		want     []string // track titles, or "dir" for a [[dir]] section
+	}{
+		{name: "no-op", doc: plain, explicit: []playlist.Track{a1, b, a2}, want: []string{"a1", "b", "a2"}},
+		{name: "add at the end", doc: plain, explicit: []playlist.Track{a1, b, a2, c}, want: []string{"a1", "b", "a2", "c"}},
+		{name: "add between the copies", doc: plain, explicit: []playlist.Track{a1, b, c, a2}, want: []string{"a1", "b", "c", "a2"}},
+		{name: "add a third copy", doc: plain, explicit: []playlist.Track{a1, b, a2, a1}, want: []string{"a1", "b", "a2", "a1"}},
+		{name: "remove the other track", doc: plain, explicit: []playlist.Track{a1, a2}, want: []string{"a1", "a2"}},
+		{name: "remove the first copy", doc: plain, explicit: []playlist.Track{b, a2}, want: []string{"b", "a2"}},
+		{name: "remove the second copy", doc: plain, explicit: []playlist.Track{a1, b}, want: []string{"a1", "b"}},
+		{name: "reorder", doc: plain, explicit: []playlist.Track{b, a1, a2}, want: []string{"b", "a1", "a2"}},
+		{name: "dir stays anchored on a no-op", doc: withDir, explicit: []playlist.Track{a1, b, a2}, want: []string{"a1", "dir", "b", "a2"}},
+		{name: "dir stays anchored on a removal", doc: withDir, explicit: []playlist.Track{a1, a2}, want: []string{"a1", "dir", "a2"}},
+		{name: "dir stays anchored on an addition", doc: withDir, explicit: []playlist.Track{a1, b, c, a2}, want: []string{"a1", "dir", "b", "c", "a2"}},
 	}
-
-	if _, err := p.Playlists(); err != nil {
-		t.Fatalf("Playlists: %v", err)
-	}
-	// Source must NOT be clobbered when destination already exists.
-	if _, err := os.Stat(src); err != nil {
-		t.Fatalf("Favorites.toml should remain when dest already exists: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tracks, dirs, order := rebuildDoc(tt.doc, tt.explicit)
+			var got []string
+			ti, di := 0, 0
+			for _, kind := range order {
+				if kind == itemDir {
+					got = append(got, "dir")
+					di++
+					continue
+				}
+				got = append(got, tracks[ti].Title)
+				ti++
+			}
+			if ti != len(tracks) || di != len(dirs) {
+				t.Fatalf("order has %d tracks and %d dirs, want %d and %d", ti, di, len(tracks), len(dirs))
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("sections = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

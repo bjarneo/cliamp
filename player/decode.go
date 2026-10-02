@@ -24,22 +24,6 @@ import (
 	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
-// SupportedExts is the set of file extensions the player can decode.
-var SupportedExts = map[string]bool{
-	".mp3":  true,
-	".wav":  true,
-	".flac": true,
-	".ogg":  true,
-	".m4a":  true,
-	".aac":  true,
-	".aacp": true,
-	".m4b":  true,
-	".alac": true,
-	".wma":  true,
-	".opus": true,
-	".webm": true,
-}
-
 // httpClient is the shared streaming HTTP client. See internal/httpclient
 // for configuration rationale (no overall timeout, HTTP/2 disabled for Icecast).
 var httpClient = httpclient.Streaming
@@ -120,6 +104,8 @@ func openSSHSource(path string) (sourceResult, error) {
 // matchCustomURI returns the StreamerFactory for the given path if it matches
 // a registered custom URI scheme prefix, or nil if no scheme matches.
 func (p *Player) matchCustomURI(path string) StreamerFactory {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	for scheme, factory := range p.customFactories {
 		if strings.HasPrefix(path, scheme) {
 			return factory
@@ -131,6 +117,8 @@ func (p *Player) matchCustomURI(path string) StreamerFactory {
 // matchSourceResolver returns the SourceResolver for the given path if it
 // matches a registered scheme prefix, or nil if no scheme matches.
 func (p *Player) matchSourceResolver(path string) SourceResolver {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	for scheme, r := range p.sourceResolvers {
 		if strings.HasPrefix(path, scheme) {
 			return r
@@ -203,7 +191,7 @@ func openSource(path string, onMeta func(string)) (sourceResult, error) {
 		cancel()
 		return sourceResult{}, fmt.Errorf("http request: %w", err)
 	}
-	req.Header.Set("User-Agent", "cliamp/1.0 (https://github.com/bjarneo/cliamp)")
+	req.Header.Set("User-Agent", httpclient.UserAgent)
 	// Request ICY metadata — servers that don't support it simply ignore this header.
 	req.Header.Set("Icy-MetaData", "1")
 	resp, err := httpClient.Do(req)
@@ -306,6 +294,14 @@ func needsFFmpeg(ext string) bool {
 	return false
 }
 
+// UsesLocalFFmpeg reports whether PlayAt decodes the local file at path
+// through ffmpeg. Such a start runs ffprobe and waits up to
+// ffmpegPipeTimeout for the first audio, so a UI caller starts it off its
+// event loop.
+func UsesLocalFFmpeg(path string) bool {
+	return !isURL(path) && !isSSH(path) && needsFFmpeg(formatExt(path))
+}
+
 // isHLS reports whether the extension denotes an HLS playlist that ffmpeg must
 // open by URL (so it can fetch and demux the segments itself).
 func isHLS(ext string) bool { return ext == ".m3u8" }
@@ -313,17 +309,24 @@ func isHLS(ext string) bool { return ext == ".m3u8" }
 // isBufferedURL reports whether the given URL requires the buffered download
 // + ffmpeg pipeline. Returns true if a registered matcher matches the URL.
 func (p *Player) isBufferedURL(path string) bool {
-	if p.bufferedURLMatch == nil {
-		return false
-	}
-	return p.bufferedURLMatch(path)
+	p.mu.Lock()
+	match := p.bufferedURLMatch
+	p.mu.Unlock()
+	return match != nil && match(path)
 }
 
-// decodeWithExt selects the decoder using an explicit extension.
-func decodeWithExt(rc io.ReadCloser, ext, path string, sr beep.SampleRate, bitDepth int) (beep.StreamSeekCloser, beep.Format, error) {
-	if needsFFmpeg(ext) {
-		return decodeFFmpegLocal(path, sr, bitDepth)
-	}
+// isYTDLURL reports whether a registered matcher sends path to the yt-dlp
+// pipe chain.
+func (p *Player) isYTDLURL(path string) bool {
+	p.mu.Lock()
+	match := p.ytdlURLMatch
+	p.mu.Unlock()
+	return match != nil && match(path)
+}
+
+// decodeWithExt selects the native decoder using an explicit extension.
+// Extensions that need ffmpeg never reach it.
+func decodeWithExt(rc io.ReadCloser, ext string) (beep.StreamSeekCloser, beep.Format, error) {
 	switch ext {
 	case ".wav":
 		return wav.Decode(rc)

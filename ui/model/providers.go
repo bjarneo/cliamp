@@ -7,6 +7,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/external/radio"
+	"github.com/bjarneo/cliamp/favorites"
+	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
@@ -18,9 +20,9 @@ func (m *Model) resetProviderNav() {
 	nextRequest(&m.requests.auth)
 	nextRequest(&m.requests.catalog)
 	m.tracksPaging = false
-	m.provCursor = 0
-	m.provScroll = 0
-	m.provLoading = true
+	m.provPane.cursor = 0
+	m.provPane.scroll = 0
+	m.provPane.loading = true
 	m.provSearch.active = false
 	m.provSearch.loading = false
 	m.provSearch.query = ""
@@ -36,6 +38,7 @@ func (m *Model) StartInProvider() {
 		m.focus = focusProvider
 		m.resetProviderNav()
 		_, m.openDefaultProviderOnce = m.provider.(provider.DefaultBrowseModeProvider)
+		m.recomputeLayout()
 	}
 }
 
@@ -46,8 +49,8 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	}
 	m.provPillIdx = idx
 	m.provider = m.providers[idx].Provider
-	m.providerLists = nil
-	m.provSignIn = false
+	m.provPane.lists = nil
+	m.provPane.signIn = false
 	m.catalogBatch = catalogBatchState{}
 	m.activeProviderPlaylistID = ""
 	m.resetProviderNav()
@@ -59,8 +62,10 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	return listsCmd
 }
 
+// fetchProviderPlaylists reloads the rows of the provider pane. A headless
+// Model has no pane, so it skips the provider call.
 func (m *Model) fetchProviderPlaylists() tea.Cmd {
-	if m.provider == nil {
+	if m.provider == nil || m.headless {
 		return nil
 	}
 	gen := nextRequest(&m.requests.provider)
@@ -73,7 +78,7 @@ func (m *Model) fetchProviderPlaylists() tea.Cmd {
 // refreshRadioLists projects local Radio state on the Update owner. Only
 // directory loading is asynchronous; row snapshots never cross that boundary.
 func (m *Model) refreshRadioLists() tea.Cmd {
-	m.provLoading = m.provSearch.loading
+	m.provPane.loading = m.provSearch.loading
 	if err := m.refreshProviderListsNow(); err != nil {
 		m.err = err
 		return nil
@@ -116,15 +121,15 @@ func (m *Model) startCatalogLoading() tea.Cmd {
 // inserting favorites or other rows can change its numeric position.
 func (m *Model) replaceProviderLists(lists []playlist.PlaylistInfo) {
 	selectedID := ""
-	if m.provCursor >= 0 && m.provCursor < len(m.providerLists) {
-		selectedID = m.providerLists[m.provCursor].ID
+	if m.provPane.cursor >= 0 && m.provPane.cursor < len(m.provPane.lists) {
+		selectedID = m.provPane.lists[m.provPane.cursor].ID
 	}
-	m.providerLists = providerListsWithBrowse(m.provider, lists)
-	m.provCursor = max(0, min(m.provCursor, len(m.providerLists)-1))
+	m.provPane.lists = providerListsWithBrowse(m.provider, lists)
+	m.provPane.cursor = max(0, min(m.provPane.cursor, len(m.provPane.lists)-1))
 	if selectedID != "" {
-		for i, item := range m.providerLists {
+		for i, item := range m.provPane.lists {
 			if item.ID == selectedID {
-				m.provCursor = i
+				m.provPane.cursor = i
 				break
 			}
 		}
@@ -137,7 +142,7 @@ func (m *Model) replaceProviderLists(lists []playlist.PlaylistInfo) {
 // remote provider's pane must not receive an unrelated fetch (or surface an
 // unrelated fetch error) because of a local write.
 func (m *Model) refreshPaneAfterLocalWrite() tea.Cmd {
-	if !m.isActiveProvider("Local") {
+	if m.activeProviderKey() != providerKeyLocal {
 		return nil
 	}
 	return m.fetchProviderPlaylists()
@@ -165,6 +170,41 @@ func (m *Model) fetchProviderTracks(playlistID string) tea.Cmd {
 		return fetchTracksPageCmd(pager, m.provider.Name(), playlistID, 0, gen)
 	}
 	return fetchTracksCmd(m.provider, playlistID, gen)
+}
+
+// refreshesInPlace reports whether the active provider keeps the ID of the
+// open provider playlist valid across Refresh, such as the Yandex "Моя волна"
+// session. Positional IDs, such as radio catalog indexes, do not stay valid.
+func (m *Model) refreshesInPlace() bool {
+	id := m.activeProviderPlaylistID
+	pr, ok := m.provider.(playlist.RefreshablePlaylist)
+	return ok && id != "" && pr.CanRefreshPlaylist(id)
+}
+
+// refreshActiveProvider drops the cached data of the active provider and
+// reloads it. It reopens the open provider playlist when refreshesInPlace
+// allows it. Otherwise it reloads the playlist list, or with tracksOnly it
+// reloads nothing. It does nothing while the provider loads.
+func (m *Model) refreshActiveProvider(tracksOnly bool) tea.Cmd {
+	if m.provider == nil || m.provPane.loading {
+		return nil
+	}
+	inPlace := m.refreshesInPlace()
+	if tracksOnly && !inPlace {
+		return nil
+	}
+	if r, ok := m.provider.(playlist.Refresher); ok {
+		r.Refresh()
+	}
+	nextRequest(&m.requests.catalog)
+	m.catalogBatch = catalogBatchState{}
+	m.provPane.loading = true
+	m.status.Activityf(statusTTLShort, "Refreshing %s…", m.provider.Name())
+	if inPlace {
+		return m.fetchProviderTracks(m.activeProviderPlaylistID)
+	}
+	m.activeProviderPlaylistID = ""
+	return m.fetchProviderPlaylists()
 }
 
 // applyTracksResume positions the cursor on the in-progress track and arms the
@@ -204,10 +244,9 @@ func (m *Model) replacePlayerPlaylist(tracks []playlist.Track) {
 		m.player.ClearPreload()
 		m.clearPlaybackTrack()
 	}
-	m.resetYTDLBatch()
 	m.replacePlaylist(tracks)
 	m.setHeaderStateFromTracks(tracks)
-	m.loadedPlaylist = ""
+	m.clearLoadedPlaylist()
 	m.plCursor = 0
 	m.plScroll = 0
 	m.focus = focusPlaylist
@@ -219,28 +258,45 @@ func (m Model) isActiveProvider(name string) bool {
 	return m.provider != nil && m.provider.Name() == name
 }
 
+// Provider keys of the sources that have their own UI rules. buildProviders
+// in the main package registers the providers under these keys.
+const (
+	providerKeyLocal = "local"
+	providerKeyRadio = "radio"
+)
+
+// activeProviderKey returns the config key of the active provider pill, such
+// as providerKeyLocal. A display name can change, so the special rules for a
+// source check this key. It returns "" when no provider is active.
+func (m Model) activeProviderKey() string {
+	if m.provider == nil || m.provPillIdx < 0 || m.provPillIdx >= len(m.providers) {
+		return ""
+	}
+	return m.providers[m.provPillIdx].Key
+}
+
 func (m Model) isCurrentNavRequest(gen uint64) bool {
 	return m.navBrowser.visible && gen == m.requests.nav
 }
 
-func (m Model) isCurrentSpotProvider(providerName string) bool {
-	return m.spotSearch.visible &&
-		m.spotSearch.prov != nil &&
-		m.spotSearch.prov.Name() == providerName
+func (m Model) isCurrentSearchOverlayProvider(providerName string) bool {
+	return m.searchOverlay.visible &&
+		m.searchOverlay.prov != nil &&
+		m.searchOverlay.prov.Name() == providerName
 }
 
-func (m Model) isCurrentSpotRequest(gen uint64, providerName string) bool {
-	return m.isCurrentSpotProvider(providerName) && gen == m.requests.spotSearch
+func (m Model) isCurrentSearchOverlayRequest(gen uint64, providerName string) bool {
+	return m.isCurrentSearchOverlayProvider(providerName) && gen == m.requests.searchOverlay
 }
 
-func (m Model) isCurrentSpotListRequest(gen uint64, providerName string) bool {
-	return m.spotSearch.screen == spotSearchResults &&
-		m.isCurrentSpotProvider(providerName) &&
-		gen == m.requests.spotLists
+func (m Model) isCurrentSearchOverlayListRequest(gen uint64, providerName string) bool {
+	return m.searchOverlay.screen == searchOverlayResults &&
+		m.isCurrentSearchOverlayProvider(providerName) &&
+		gen == m.requests.searchOverlayLists
 }
 
-func (m Model) isCurrentSpotMutation(gen uint64, providerName string) bool {
-	return m.isCurrentSpotProvider(providerName) && gen == m.requests.spotMutation
+func (m Model) isCurrentSearchOverlayMutation(gen uint64, providerName string) bool {
+	return m.isCurrentSearchOverlayProvider(providerName) && gen == m.requests.searchOverlayMutation
 }
 
 func (m *Model) fetchCatalogBatch(loader provider.CatalogLoader) tea.Cmd {
@@ -251,20 +307,34 @@ func (m *Model) fetchCatalogBatch(loader provider.CatalogLoader) tea.Cmd {
 }
 
 // quickSwitchProvider closes any browser overlays and jumps to the provider
-// matched by key. Use the same Shift+letter shortcuts that switch providers
-// from the main pane (S, N, P, J, E, B, Y, C, X, M, Q, T, R, L, O). Returns nil when the key doesn't
-// match a known provider.
-func (m *Model) quickSwitchProvider(key string) tea.Cmd {
+// matched by key. It takes every key of providerKeyForShortcut, N included.
+// ok is false when key is no shortcut. A shortcut of a provider that is not
+// configured still closes the overlays, and cmd is nil then.
+func (m *Model) quickSwitchProvider(key string) (cmd tea.Cmd, ok bool) {
 	provKey := providerKeyForShortcut(key)
 	if provKey == "" {
-		return nil
+		return nil, false
 	}
 	// Close any open overlays so the user lands on the provider pane.
 	m.cancelNavRequests()
 	m.navBrowser.visible = false
 	m.plManager.visible = false
 	m.fileBrowser.visible = false
-	return m.switchToProvider(provKey)
+	return m.switchToProvider(provKey), true
+}
+
+// providerShortcut switches to the provider that a Shift+letter shortcut
+// names. The playlist and the provider pane use N to browse, so N is no
+// shortcut there. ok is false when key is no shortcut.
+func (m *Model) providerShortcut(key string) (cmd tea.Cmd, ok bool) {
+	if key == "N" {
+		return nil, false
+	}
+	provKey := providerKeyForShortcut(key)
+	if provKey == "" {
+		return nil, false
+	}
+	return m.switchToProvider(provKey), true
 }
 
 // providerKeyForShortcut maps the Shift+letter provider shortcuts to the
@@ -450,26 +520,26 @@ func providerBrowseEntryForMode(prov playlist.Provider, mode provider.BrowseMode
 }
 
 func (m Model) selectedProviderListIsBrowseEntry() bool {
-	if m.provCursor < 0 || m.provCursor >= len(m.providerLists) {
+	if m.provPane.cursor < 0 || m.provPane.cursor >= len(m.provPane.lists) {
 		return false
 	}
-	_, ok := providerBrowseEntryForID(m.provider, m.providerLists[m.provCursor].ID)
+	_, ok := providerBrowseEntryForID(m.provider, m.provPane.lists[m.provPane.cursor].ID)
 	return ok
 }
 
 // openProviderList activates either a playable provider list or a UI-only
 // hierarchical browse entry contributed by the provider.
 func (m *Model) openProviderList(index int) tea.Cmd {
-	if index < 0 || index >= len(m.providerLists) || m.provider == nil {
+	if index < 0 || index >= len(m.provPane.lists) || m.provider == nil {
 		return nil
 	}
-	item := m.providerLists[index]
+	item := m.provPane.lists[index]
 	// The location offer is a question, not a list. Selecting it raises the
 	// question; nothing about the listener's location is worked out until they
 	// answer it.
 	if consenter, ok := m.provider.(provider.LocationConsenter); ok {
 		if id := consenter.LocationConsentID(); id != "" && id == item.ID {
-			m.provAskLoc = true
+			m.provPane.askLoc = true
 			return nil
 		}
 	}
@@ -481,7 +551,7 @@ func (m *Model) openProviderList(index int) tea.Cmd {
 		}
 		return cmd
 	}
-	m.provLoading = true
+	m.provPane.loading = true
 	m.activeProviderPlaylistID = item.ID
 	return m.fetchProviderTracks(item.ID)
 }
@@ -496,6 +566,50 @@ func (m *Model) SetPendingURLs(urls []string) {
 // playlist, allowing path-based write-backs such as bookmarks and removals.
 func (m *Model) SetLoadedPlaylist(name string) {
 	m.loadedPlaylist = name
+	m.playlistSource = ""
+}
+
+// renameLoadedPlaylist follows a rename of the local playlist oldName to
+// newName, so queue edits and their undo write to the renamed file.
+func (m *Model) renameLoadedPlaylist(oldName, newName string) {
+	if m.loadedPlaylist != oldName {
+		return
+	}
+	m.loadedPlaylist = newName
+	if m.playlistUndo.loaded == oldName {
+		m.playlistUndo.loaded = newName
+	}
+}
+
+// clearLoadedPlaylist records that the queue mirrors no list. The undo of
+// the last queue edit goes, because it can write to the list.
+func (m *Model) clearLoadedPlaylist() {
+	m.loadedPlaylist = ""
+	m.playlistSource = ""
+	m.playlistUndo = playlistUndo{}
+}
+
+// setLoadedLocalPlaylist records the list that a provider load put in the
+// queue. Only a saved list of the local provider counts, so the name is never
+// a remote ID. History is excluded as well. The key path, the playlist
+// manager and the IPC provider.load path all use it.
+func (m *Model) setLoadedLocalPlaylist(providerName, id string) {
+	m.clearLoadedPlaylist()
+	if m.localProvider != nil && providerName == m.localProvider.Name() && id != history.PlaylistName {
+		m.loadedPlaylist = id
+	}
+}
+
+// writableLoadedPlaylist returns the local playlist file that queue edits and
+// duration backfills write to, or "" when there is none. loadedPlaylist can
+// also name Favorites, which the ♥ rule reads as a saved list. Favorites and
+// History are virtual lists with their own stores, so they are never written.
+func (m Model) writableLoadedPlaylist() string {
+	switch m.loadedPlaylist {
+	case favorites.PlaylistName, history.PlaylistName:
+		return ""
+	}
+	return m.loadedPlaylist
 }
 
 // findBrowseProvider returns the first provider that supports artist, album,

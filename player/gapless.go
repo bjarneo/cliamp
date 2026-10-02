@@ -9,7 +9,7 @@ import (
 
 // gaplessStreamer is a beep.Streamer that sequences tracks with zero-gap
 // transitions. It sits at the bottom of the audio pipeline and manages
-// track sources while the EQ/volume/tap/ctrl chain above it lives forever.
+// track sources while the speed/EQ/tap/volume/ctrl chain above it lives forever.
 //
 // It always returns (len(samples), true) — it never stops the speaker.
 // When no audio is available, it fills silence.
@@ -21,7 +21,7 @@ type gaplessStreamer struct {
 	nextToken      uint64        // identifies the pipeline represented by next
 	nextTokenSeq   uint64
 	drained        atomic.Bool  // true when current exhausts with no next
-	onSwap         func(uint64) // called (in goroutine) on a valid gapless transition
+	onSwap         func(uint64) // called on the audio goroutine, under the speaker lock, on a valid gapless transition
 }
 
 // Stream reads samples from the current track. On exhaustion, it seamlessly

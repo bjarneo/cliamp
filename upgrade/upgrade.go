@@ -3,9 +3,9 @@
 package upgrade
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,16 +15,39 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
 const repo = "bjarneo/cliamp"
 
-var httpClient = &http.Client{Timeout: 30 * time.Second}
+// httpClient serves the GitHub API and checksum requests.
+var httpClient = httpclient.NewAPI(30 * time.Second)
+
+// downloadClient fetches the release binary. A client timeout also covers the
+// body read, so this client has none and a slow connection can finish the
+// download. downloadIdleTimeout ends a download that stops sending.
+var downloadClient = httpclient.NewAPI(0)
+
+// downloadIdleTimeout is the longest wait of the binary download for the
+// response headers or for the next body bytes.
+var downloadIdleTimeout = 30 * time.Second
+
+// errDownloadStalled ends a binary download that got no data within
+// downloadIdleTimeout.
+var errDownloadStalled = errors.New("download stalled")
+
+// releaseMaxBytes limits the releases/latest response. releaseListMaxBytes
+// limits the list of up to 100 releases. Each release lists its assets, so
+// the list is larger than 1 MiB.
+const (
+	releaseMaxBytes     = 1 << 20
+	releaseListMaxBytes = 16 << 20
+)
 
 type release struct {
-	TagName    string `json:"tag_name"`
-	Prerelease bool   `json:"prerelease"`
-	Draft      bool   `json:"draft"`
+	TagName string `json:"tag_name"`
+	Draft   bool   `json:"draft"`
 }
 
 // Run checks for a newer release and replaces the current binary if one is found.
@@ -34,7 +57,9 @@ func Run(currentVersion string, prerelease bool) error {
 		return fmt.Errorf("checking latest version: %w", err)
 	}
 
-	if currentVersion != "" && currentVersion == latest {
+	// With prerelease, the user can run a build newer than every listed
+	// release. An older release must not replace it.
+	if currentVersion != "" && (currentVersion == latest || prerelease && notNewer(latest, currentVersion)) {
 		fmt.Printf("Already up to date (%s)\n", currentVersion)
 		return nil
 	}
@@ -99,23 +124,39 @@ func latestVersion(prerelease bool) (string, error) {
 
 	if !prerelease {
 		var r release
-		// Limit response body to 1 MB to prevent unbounded memory usage.
-		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&r); err != nil {
+		if err := httpclient.ReadJSON(resp.Body, releaseMaxBytes, &r); err != nil {
 			return "", fmt.Errorf("parsing response: %w", err)
 		}
 		return validTag(r.TagName)
 	}
 
 	var releases []release
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&releases); err != nil {
+	if err := httpclient.ReadJSON(resp.Body, releaseListMaxBytes, &releases); err != nil {
 		return "", fmt.Errorf("parsing response: %w", err)
 	}
+	return newestRelease(releases)
+}
+
+// newestRelease returns the tag of the release with the highest SemVer
+// version that is not a draft. Stable releases count too, so a stable release
+// that follows a prerelease wins over it. Tags that are not SemVer versions
+// are skipped.
+func newestRelease(releases []release) (string, error) {
+	var best string
+	var bestVersion version
 	for _, r := range releases {
-		if r.Prerelease && !r.Draft {
-			return validTag(r.TagName)
+		v, ok := parseVersion(r.TagName)
+		if r.Draft || !ok {
+			continue
+		}
+		if best == "" || v.compare(bestVersion) > 0 {
+			best, bestVersion = r.TagName, v
 		}
 	}
-	return "", errors.New("no prerelease releases found")
+	if best == "" {
+		return "", errors.New("no releases found")
+	}
+	return validTag(best)
 }
 
 func validTag(tag string) (string, error) {
@@ -161,11 +202,26 @@ func downloadAndReplace(url, destPath, expectedHash string) error {
 	if len(expectedHash) != sha256.Size*2 {
 		return errors.New("valid expected SHA-256 is required")
 	}
-	resp, err := httpClient.Get(url)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	idle := time.AfterFunc(downloadIdleTimeout, func() {
+		cancel(fmt.Errorf("%w: no data for %s", errDownloadStalled, downloadIdleTimeout))
+	})
+	defer idle.Stop()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("downloading: %w", err)
 	}
+	resp, err := downloadClient.Do(req)
+	if err != nil {
+		if stall := stallError(ctx); stall != nil {
+			err = stall
+		}
+		return fmt.Errorf("downloading: %w", err)
+	}
 	defer resp.Body.Close()
+	// The headers arrived, so the first body bytes get a full idle window.
+	idle.Reset(downloadIdleTimeout)
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download failed: %s", resp.Status)
@@ -184,10 +240,14 @@ func downloadAndReplace(url, destPath, expectedHash string) error {
 	// rogue redirect or compromised CDN.
 	const maxBinarySize = 200 << 20
 	h := sha256.New()
-	written, err := io.Copy(io.MultiWriter(tmp, h), io.LimitReader(resp.Body, maxBinarySize+1))
+	body := &idleReader{r: resp.Body, timer: idle, timeout: downloadIdleTimeout}
+	written, err := io.Copy(io.MultiWriter(tmp, h), io.LimitReader(body, maxBinarySize+1))
 	if err != nil {
 		tmp.Close()
 		os.Remove(tmpPath)
+		if stall := stallError(ctx); stall != nil {
+			return fmt.Errorf("downloading: %w", stall)
+		}
 		return fmt.Errorf("writing binary: %w", err)
 	}
 	if written == 0 || written > maxBinarySize {
@@ -228,6 +288,31 @@ func downloadAndReplace(url, destPath, expectedHash string) error {
 		return fmt.Errorf("replacing binary: %w", err)
 	}
 
+	return nil
+}
+
+// idleReader restarts timer each time a read returns data, so the timer
+// fires only when the body stops sending for timeout.
+type idleReader struct {
+	r       io.Reader
+	timer   *time.Timer
+	timeout time.Duration
+}
+
+func (r *idleReader) Read(p []byte) (int, error) {
+	n, err := r.r.Read(p)
+	if n > 0 {
+		r.timer.Reset(r.timeout)
+	}
+	return n, err
+}
+
+// stallError returns the stall error when the idle timer canceled ctx, and
+// nil otherwise. The canceled request reports only a generic context error.
+func stallError(ctx context.Context) error {
+	if cause := context.Cause(ctx); errors.Is(cause, errDownloadStalled) {
+		return cause
+	}
 	return nil
 }
 

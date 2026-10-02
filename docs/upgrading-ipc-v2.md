@@ -83,8 +83,8 @@ and response at a time on each connection.
 - Use `state.get` for direct state reads.
 - Use `operation.submit` plus jobs for control, library, and provider work.
 - Subscribe to `runtime.job` instead of assuming an operation has finished.
-- Query `capabilities` at startup, especially in daemon mode where theme,
-  visualizer selection, and plugins are unavailable.
+- Query `capabilities` at startup, especially in daemon mode where theme and
+  visualizer selection are unavailable.
 
 See [Remote Control](remote-control.md) for the full V2 operation list and error
 contract.

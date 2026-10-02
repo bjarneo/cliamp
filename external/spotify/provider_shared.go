@@ -2,10 +2,10 @@ package spotify
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 )
 
 // maxResponseBody limits JSON API responses to 10 MB.
@@ -43,10 +43,11 @@ func isSavedAlbumID(id string) (albumID string, ok bool) {
 
 // spotifyPlaylistItem is the raw playlist object returned by /v1/me/playlists.
 type spotifyPlaylistItem struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	SnapshotID string `json:"snapshot_id"`
-	Owner      struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	SnapshotID    string `json:"snapshot_id"`
+	Collaborative bool   `json:"collaborative"`
+	Owner         struct {
 		ID string `json:"id"`
 	} `json:"owner"`
 	Items *struct {
@@ -148,13 +149,6 @@ type spotifyAlbumItem struct {
 // Callers must expand it through SearchTracks' companion AlbumTracks before
 // queueing it, which playlist.Track.IsAlbum signals to the UI.
 func albumFromItem(a *spotifyAlbumItem) playlist.Track {
-	var year int
-	if len(a.ReleaseDate) >= 4 {
-		if y, err := strconv.Atoi(a.ReleaseDate[:4]); err == nil {
-			year = y
-		}
-	}
-
 	uri := a.URI
 	if uri == "" {
 		uri = fmt.Sprintf("spotify:album:%s", a.ID)
@@ -165,7 +159,7 @@ func albumFromItem(a *spotifyAlbumItem) playlist.Track {
 		Title:  a.Name,
 		Artist: artistNames(a.Artists),
 		Album:  a.Name,
-		Year:   year,
+		Year:   provider.YearFromDate(a.ReleaseDate),
 		ProviderMeta: map[string]string{
 			playlist.MetaKind:    playlist.MetaKindAlbum,
 			playlist.MetaAlbumID: a.ID,
@@ -200,16 +194,10 @@ func trackFromItem(t *spotifyItem) playlist.Track {
 	if releaseDate == "" {
 		releaseDate = t.ReleaseDate
 	}
-	var year int
-	if len(releaseDate) >= 4 {
-		if y, err := strconv.Atoi(releaseDate[:4]); err == nil {
-			year = y
-		}
-	}
 
 	path := t.URI
 	if path == "" {
-		path = fmt.Sprintf("spotify:track:%s", t.ID) // fallback if uri is absent
+		path = trackURIPrefix + t.ID // fallback if uri is absent
 	}
 
 	return playlist.Track{
@@ -218,7 +206,7 @@ func trackFromItem(t *spotifyItem) playlist.Track {
 		Artist:       artist,
 		Album:        album,
 		AlbumArtURL:  art,
-		Year:         year,
+		Year:         provider.YearFromDate(releaseDate),
 		Stream:       false, // must be false: true causes togglePlayPause to stop+restart instead of pause/resume
 		DurationSecs: t.DurationMs / 1000,
 		TrackNumber:  t.TrackNumber,

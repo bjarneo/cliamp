@@ -2,6 +2,7 @@
 package tracksave
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,11 +12,6 @@ import (
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/resolve"
 )
-
-// Save downloads or copies track into ~/Music/cliamp and returns its path.
-func Save(track playlist.Track) (string, error) {
-	return SaveTo(track, "")
-}
 
 // Directory resolves the configured directory, falling back to ~/Music/cliamp.
 func Directory(directory string) (string, error) {
@@ -36,8 +32,9 @@ func Directory(directory string) (string, error) {
 	return filepath.Join(home, "Music", "cliamp"), nil
 }
 
-// SaveTo downloads or copies a track to the configured directory.
-func SaveTo(track playlist.Track, directory string) (string, error) {
+// SaveTo downloads or copies a track to the configured directory. A cancel of
+// ctx stops a yt-dlp download.
+func SaveTo(ctx context.Context, track playlist.Track, directory string) (string, error) {
 	saveDir, err := Directory(directory)
 	if err != nil {
 		return "", err
@@ -45,8 +42,8 @@ func SaveTo(track playlist.Track, directory string) (string, error) {
 	if err := os.MkdirAll(saveDir, 0o755); err != nil {
 		return "", err
 	}
-	if playlist.IsYouTubeURL(track.Path) || playlist.IsYTDL(track.Path) {
-		return resolve.DownloadYTDL(track.Path, saveDir)
+	if NeedsDownload(track) {
+		return resolve.DownloadYTDLContext(ctx, track.Path, saveDir)
 	}
 	if track.Stream || !insideTempDir(track.Path) {
 		return "", fmt.Errorf("only downloaded tracks can be saved")
@@ -69,6 +66,12 @@ func SaveTo(track playlist.Track, directory string) (string, error) {
 		return "", err
 	}
 	return destination, nil
+}
+
+// NeedsDownload reports whether SaveTo downloads track with yt-dlp, which can
+// take minutes. SaveTo copies every other track that it can save.
+func NeedsDownload(track playlist.Track) bool {
+	return playlist.IsYouTubeURL(track.Path) || playlist.IsYTDL(track.Path)
 }
 
 func insideTempDir(path string) bool {

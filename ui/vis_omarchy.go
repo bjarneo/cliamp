@@ -159,8 +159,7 @@ func init() {
 	}
 	s := uint64(0x9E3779B97F4A7C15)
 	for i := range omarchyNoise {
-		s = s*6364136223846793005 + 1442695040888963407
-		omarchyNoise[i] = float64((s>>33)%100000) / 100000.0
+		omarchyNoise[i] = float64(lcgNext(&s)%100000) / 100000.0
 	}
 }
 
@@ -223,11 +222,11 @@ func omarchyMarkFor(pxRows, pxCols int) (omarchyGlyph, int) {
 // renderOmarchy draws the field. Half blocks give two pixels per character
 // cell; a lit pixel takes its tier from how hard the music is pushing it.
 func (v *Visualizer) renderOmarchy(bands []float64) string {
-	rows := v.Rows
-	if rows <= 0 || PanelWidth <= 0 {
+	rows, cols := v.Rows, v.columns()
+	if rows <= 0 || cols <= 0 {
 		return strings.Repeat("\n", max(0, rows-1))
 	}
-	pxRows, pxCols := rows*2, PanelWidth
+	pxRows, pxCols := rows*2, cols
 
 	t := float64(v.frame) * 0.03
 

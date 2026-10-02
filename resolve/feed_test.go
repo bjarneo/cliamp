@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bjarneo/cliamp/internal/httpclient"
 	"github.com/bjarneo/cliamp/playlist"
 )
 
@@ -44,8 +45,8 @@ func TestFeedMetadata(t *testing.T) {
 		if r.Method != http.MethodGet {
 			t.Errorf("method = %s, want GET without classification probes", r.Method)
 		}
-		if got := r.UserAgent(); got != "cliamp/1.0 (https://github.com/bjarneo/cliamp)" {
-			t.Errorf("User-Agent = %q", got)
+		if got := r.UserAgent(); got != httpclient.UserAgent {
+			t.Errorf("User-Agent = %q, want %q", got, httpclient.UserAgent)
 		}
 		if r.URL.Path == "/show" {
 			http.Redirect(w, r, "/publisher", http.StatusFound)
@@ -82,7 +83,7 @@ func TestFeedMetadata(t *testing.T) {
 		call func(string) ([]playlist.Track, error)
 	}{
 		{"Feed", func(u string) ([]playlist.Track, error) { return Feed(context.Background(), u) }},
-		{"resolveFeed", resolveFeed},
+		{"Remote", func(u string) ([]playlist.Track, error) { return Remote([]string{u}) }},
 	} {
 		t.Run(resolve.name, func(t *testing.T) {
 			got, err := resolve.call(feedURL)
@@ -377,7 +378,7 @@ func TestFeedHTTPSErrorsAndRedirectLimit(t *testing.T) {
 	defer srv.Close()
 	oldClient := httpClient
 	client := *httpClient
-	client.Transport = &uaTransport{rt: srv.Client().Transport}
+	client.Transport = srv.Client().Transport
 	httpClient = &client
 	defer func() { httpClient = oldClient }()
 	if client.Timeout != 30*time.Second {

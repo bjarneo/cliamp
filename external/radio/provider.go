@@ -5,6 +5,7 @@
 package radio
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -89,9 +90,10 @@ type Provider struct {
 	searchResults    []CatalogStation // non-nil when API search is active
 	searchGeneration uint64           // invalidates pending searches when search state changes
 	countries        []Country        // cached country index, nil until first browse
-	states           []State          // cached regions of the home country
+	states           []State          // cached regions of the country statesCode names
+	statesCode       string           // country code that states belongs to
 	tags             []Tag            // cached tag index, nil until first browse
-	tagGeneration    uint64           // incremented when Refresh invalidates a tag fetch
+	indexGeneration  uint64           // incremented when Refresh invalidates a country, region or tag fetch
 	// locationSettled is false only until the listener answers the location
 	// question. It gates whether to ask, not whether p.home may be used.
 	locationSettled bool
@@ -177,6 +179,8 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	}
 
 	// Places: the listener's own country first, then whatever they pinned.
+	// Place IDs use the place, not its position, so a pin change cannot change
+	// another row's identity. Favorites follow the same rule with URLs.
 	for i, place := range p.placesLocked() {
 		name := place.Name
 		if i == 0 && place.ID() == p.homeLocked().ID() {
@@ -185,7 +189,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 			name = "★ " + name
 		}
 		out = append(out, playlist.PlaylistInfo{
-			ID:   fmt.Sprintf("p:%d", i),
+			ID:   "p:" + place.ID(),
 			Name: name,
 		})
 	}
@@ -202,8 +206,9 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	// identity (including selections and in-flight track requests).
 	for _, s := range p.favorites.Stations() {
 		out = append(out, playlist.PlaylistInfo{
-			ID:   "f:" + s.URL,
-			Name: "★ " + formatCatalogName(s),
+			ID:       "f:" + s.URL,
+			Name:     "★ " + formatCatalogName(s),
+			Favorite: true,
 		})
 	}
 
@@ -245,20 +250,16 @@ func (p *Provider) Tracks(id string) ([]playlist.Track, error) {
 		return []playlist.Track{stationTrack(station)}, nil
 	}
 
-	prefix, idx, err := parseStationID(id)
-	if err != nil {
-		return nil, err
-	}
-
 	// A place is not a station: it expands to that country's or region's
 	// stations, so next and previous scan through them. The directory call
 	// runs off the provider lock, which the UI needs to render the pane.
-	if prefix == "p" {
-		place, ok := p.placeAt(idx)
-		if !ok {
-			return nil, errors.New("invalid place index")
-		}
-		return p.GenreTracks(place.ID(), SortVotes)
+	if placeID, ok := strings.CutPrefix(id, "p:"); ok {
+		return p.GenreTracks(placeID, SortVotes)
+	}
+
+	prefix, idx, err := parseStationID(id)
+	if err != nil {
+		return nil, err
 	}
 
 	p.mu.Lock()
@@ -340,17 +341,6 @@ func StationFromTrack(track playlist.Track) (CatalogStation, bool) {
 	}, true
 }
 
-// placeAt returns the place at index idx of the pane's Countries section.
-func (p *Provider) placeAt(idx int) (Place, bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	places := p.placesLocked()
-	if idx < 0 || idx >= len(places) {
-		return Place{}, false
-	}
-	return places[idx], true
-}
-
 // AppendCatalog adds catalog stations fetched from the Radio Browser API.
 func (p *Provider) AppendCatalog(stations []CatalogStation) {
 	stations = streamableStations(stations)
@@ -372,41 +362,45 @@ func (p *Provider) AppendCatalog(stations []CatalogStation) {
 // ToggleFavorite toggles the favorite status of a catalog or favorite entry.
 // Returns (true, name) if added, (false, name) if removed.
 func (p *Provider) ToggleFavorite(id string) (added bool, name string, err error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	s, err := p.favoriteTarget(id)
+	if err != nil {
+		return false, "", err
+	}
+	// The store takes a file lock and fsyncs, so it runs off the provider
+	// lock. Readers of the provider lock, such as IPC, Lua and list fetches,
+	// then wait only when they also read the favorites. The caller still
+	// waits for the write.
+	added, err = p.favorites.Toggle(s)
+	return added, s.Name, err
+}
 
+// favoriteTarget resolves the station behind a catalog, search or favorite ID.
+func (p *Provider) favoriteTarget(id string) (CatalogStation, error) {
 	if strings.HasPrefix(id, "f:") {
-		station, err := p.favoriteStation(id)
-		if err != nil {
-			return false, "", err
-		}
-		added, err := p.favorites.Toggle(station)
-		return added, station.Name, err
+		return p.favoriteStation(id)
 	}
 
 	prefix, idx, err := parseStationID(id)
 	if err != nil {
-		return false, "", err
+		return CatalogStation{}, err
 	}
 
-	var s CatalogStation
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	switch prefix {
 	case "c":
 		if idx < 0 || idx >= len(p.catalog) {
-			return false, "", errors.New("invalid catalog index")
+			return CatalogStation{}, errors.New("invalid catalog index")
 		}
-		s = p.catalog[idx]
+		return p.catalog[idx], nil
 	case "s":
 		if p.searchResults == nil || idx < 0 || idx >= len(p.searchResults) {
-			return false, "", errors.New("invalid search result index")
+			return CatalogStation{}, errors.New("invalid search result index")
 		}
-		s = p.searchResults[idx]
+		return p.searchResults[idx], nil
 	default:
-		return false, "", errors.New("cannot favorite local stations")
+		return CatalogStation{}, errors.New("cannot favorite local stations")
 	}
-
-	added, err = p.favorites.Toggle(s)
-	return added, s.Name, err
 }
 
 // favoriteStation resolves a stable favorite ID from a snapshot of the store.
@@ -514,6 +508,27 @@ func (p *Provider) SearchCatalog(query string) (int, error) {
 
 // searchLimit caps how many results one catalog search returns.
 const searchLimit = 200
+
+// SearchStations returns up to limit stations that match query, most votes
+// first, as playable tracks. A limit of 0 or less returns up to searchLimit
+// stations. It runs the same directory query as SearchCatalog but keeps no
+// state, so the pane search stays as it is. ctx cancels the directory
+// request.
+func (p *Provider) SearchStations(ctx context.Context, query string, limit int) ([]playlist.Track, error) {
+	stations, err := stationsContext(ctx, StationQuery{Name: query, Order: SortVotes, Limit: searchLimit})
+	if err != nil {
+		return nil, err
+	}
+	stations = streamableStations(stations)
+	if limit > 0 && len(stations) > limit {
+		stations = stations[:limit]
+	}
+	tracks := make([]playlist.Track, len(stations))
+	for i, s := range stations {
+		tracks[i] = stationTrack(s)
+	}
+	return tracks, nil
+}
 
 // SectionTitle names the pane section for an ID prefix. The provider owns this
 // wording because only it knows what its prefixes mean.

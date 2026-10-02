@@ -7,12 +7,12 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
-	"github.com/bjarneo/cliamp/ui"
 	"github.com/charmbracelet/x/ansi"
 )
 
 func TestNavHeaderIncludesSourceBreadcrumb(t *testing.T) {
 	m := Model{
+		layout: frameLayout{panelWidth: 80},
 		navBrowser: navBrowserState{
 			prov:      commandsTestProvider{name: "Navidrome"},
 			mode:      navBrowseModeByArtistAlbum,
@@ -42,11 +42,8 @@ func TestKeymapStartsWithCurrentScreenCommands(t *testing.T) {
 }
 
 func TestNavFilterHeaderKeepsInputVisible(t *testing.T) {
-	oldPanelWidth := ui.PanelWidth
-	ui.PanelWidth = 40
-	t.Cleanup(func() { ui.PanelWidth = oldPanelWidth })
-
 	m := Model{
+		layout: frameLayout{panelWidth: 40},
 		navBrowser: navBrowserState{
 			prov:      commandsTestProvider{name: "A very long provider name"},
 			mode:      navBrowseModeByArtistAlbum,
@@ -62,8 +59,8 @@ func TestNavFilterHeaderKeepsInputVisible(t *testing.T) {
 	if !strings.Contains(plain, "find_") {
 		t.Fatalf("nav filter header = %q, want visible query cursor", plain)
 	}
-	if width := lipgloss.Width(plain); width > ui.PanelWidth {
-		t.Fatalf("nav filter width = %d, want <= %d", width, ui.PanelWidth)
+	if width := lipgloss.Width(plain); width > m.layout.panelWidth {
+		t.Fatalf("nav filter width = %d, want <= %d", width, m.layout.panelWidth)
 	}
 }
 

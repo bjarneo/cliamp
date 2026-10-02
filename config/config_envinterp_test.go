@@ -29,6 +29,28 @@ func TestParseStringEnvInterpolation(t *testing.T) {
 		{"only dollar", `"$"`, "$"},
 		{"interpolation only on whole value", `"prefix-$CLIAMP_TEST_VAR"`, "prefix-$CLIAMP_TEST_VAR"},
 		{"underscore-leading name", `"$_CLIAMP_TEST"`, ""},
+		{"strips one quote pair only", `"'quoted'"`, "'quoted'"},
+		{"single quotes keep inner double quotes", `'"x"'`, `"x"`},
+		{"escaped backslash", `"a\\b"`, `a\b`},
+		{"escaped quote", `"p\"w"`, `p"w`},
+		{"escaped trailing backslash", `"abc\\"`, `abc\`},
+		{"other escapes stay literal", `"D:\new\tab"`, `D:\new\tab`},
+		{"single quotes are literal", `'a\\b'`, `a\\b`},
+		{"path ending in backslash", `"C:\path\"`, `C:\path\`},
+		{"text after closing quote", `"abc"def"`, `abc"def`},
+		{"unclosed double quote stripped", `"Tokyo Night`, "Tokyo Night"},
+		{"unclosed single quote stripped", `'abc`, "abc"},
+		{"mismatched quotes stripped", `'abc"`, "abc"},
+		{"unclosed quote before #", `"abc # x`, "abc # x"},
+		{"unquoted value keeps #", `pa#ss word`, `pa#ss word`},
+		{"unquoted value keeps spaced #", `pa #ss`, `pa #ss`},
+		{"comment after double quotes", `"abc" # mine`, "abc"},
+		{"comment after tab", "\"abc\"\t# mine", "abc"},
+		{"comment after single quotes", `'abc'  # mine`, "abc"},
+		{"# inside quotes kept", `"a # b"`, "a # b"},
+		{"escaped quote before #", `"x\" # y"`, `x" # y`},
+		{"comment without whitespace after the quote", `"abc"# mine`, "abc"},
+		{"comment after env reference", `"${CLIAMP_TEST_VAR}" # from env`, "from-env"},
 	}
 
 	for _, tt := range tests {
@@ -36,6 +58,34 @@ func TestParseStringEnvInterpolation(t *testing.T) {
 			got := parseString(tt.in)
 			if got != tt.want {
 				t.Fatalf("parseString(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEnvRef(t *testing.T) {
+	tests := []struct {
+		in       string
+		wantName string
+		wantOK   bool
+	}{
+		{"$Secret1", "Secret1", true},
+		{"${NAVI_PASS}", "NAVI_PASS", true},
+		{"$_x", "_x", true},
+		{"$", "", false},
+		{"${}", "", false},
+		{"${UNCLOSED", "", false},
+		{"$1abc", "", false},
+		{"p@$$w0rd", "", false},
+		{"prefix-$NAME", "", false},
+		{"$NAME suffix", "", false},
+		{"", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			name, ok := EnvRef(tt.in)
+			if name != tt.wantName || ok != tt.wantOK {
+				t.Fatalf("EnvRef(%q) = %q, %v, want %q, %v", tt.in, name, ok, tt.wantName, tt.wantOK)
 			}
 		})
 	}

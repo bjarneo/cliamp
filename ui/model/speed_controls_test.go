@@ -12,19 +12,9 @@ import (
 )
 
 func TestHandleSpeedKeyUsesArrowKeysWhenSpeedFocused(t *testing.T) {
-	if sharedPlayer == nil {
-		t.Skip("audio hardware unavailable")
-	}
-
-	sharedPlayer.Stop()
-	origSpeed := sharedPlayer.Speed()
-	sharedPlayer.SetSpeed(1.0)
-	t.Cleanup(func() {
-		sharedPlayer.SetSpeed(origSpeed)
-	})
-
+	p := &playbackFakeEngine{}
 	m := Model{
-		player:      sharedPlayer,
+		player:      p,
 		configSaver: config.SaveFunc{},
 		focus:       focusSpeed,
 	}
@@ -32,7 +22,7 @@ func TestHandleSpeedKeyUsesArrowKeysWhenSpeedFocused(t *testing.T) {
 	if cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight}); cmd != nil {
 		t.Fatalf("handleKey(right) cmd = %v, want nil", cmd)
 	}
-	if got := sharedPlayer.Speed(); got != 1.25 {
+	if got := p.Speed(); got != 1.25 {
 		t.Fatalf("speed after right = %.2f, want 1.25", got)
 	}
 	if got := m.speedSaveAfter; got != speedSaveDebounce {
@@ -42,7 +32,7 @@ func TestHandleSpeedKeyUsesArrowKeysWhenSpeedFocused(t *testing.T) {
 	if cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft}); cmd != nil {
 		t.Fatalf("handleKey(left) cmd = %v, want nil", cmd)
 	}
-	if got := sharedPlayer.Speed(); got != 1.0 {
+	if got := p.Speed(); got != 1.0 {
 		t.Fatalf("speed after left = %.2f, want 1.00", got)
 	}
 	if got := m.speedSaveAfter; got != speedSaveDebounce {
@@ -51,22 +41,11 @@ func TestHandleSpeedKeyUsesArrowKeysWhenSpeedFocused(t *testing.T) {
 }
 
 func TestTickPendingSpeedSaveUsesElapsedTime(t *testing.T) {
-	if sharedPlayer == nil {
-		t.Skip("audio hardware unavailable")
-	}
-
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", home)
 
-	sharedPlayer.Stop()
-	origSpeed := sharedPlayer.Speed()
-	sharedPlayer.SetSpeed(1.0)
-	t.Cleanup(func() {
-		sharedPlayer.SetSpeed(origSpeed)
-	})
-
-	m := Model{player: sharedPlayer, configSaver: config.SaveFunc{}}
+	m := Model{player: &playbackFakeEngine{}, configSaver: config.SaveFunc{}}
 	m.changeSpeed(0.5)
 
 	configPath := filepath.Join(home, ".config", "cliamp", "config.toml")
@@ -92,22 +71,11 @@ func TestTickPendingSpeedSaveUsesElapsedTime(t *testing.T) {
 }
 
 func TestFlushPendingSpeedSavePersistsImmediately(t *testing.T) {
-	if sharedPlayer == nil {
-		t.Skip("audio hardware unavailable")
-	}
-
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", home)
 
-	sharedPlayer.Stop()
-	origSpeed := sharedPlayer.Speed()
-	sharedPlayer.SetSpeed(1.0)
-	t.Cleanup(func() {
-		sharedPlayer.SetSpeed(origSpeed)
-	})
-
-	m := Model{player: sharedPlayer, configSaver: config.SaveFunc{}}
+	m := Model{player: &playbackFakeEngine{}, configSaver: config.SaveFunc{}}
 	m.changeSpeed(0.25)
 	m.flushPendingSpeedSave()
 

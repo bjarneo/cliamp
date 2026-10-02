@@ -7,16 +7,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/playlist"
-	"github.com/bjarneo/cliamp/ui"
 )
 
 func fullVisModel(t *testing.T) *Model {
 	t.Helper()
-	old := ui.PanelWidth
-	ui.PanelWidth = 80
-	t.Cleanup(func() { ui.PanelWidth = old })
-
 	m := &Model{
+		layout:   frameLayout{panelWidth: 80},
 		playlist: playlist.New(),
 		provider: &plainProv{},
 		fullVis:  true,

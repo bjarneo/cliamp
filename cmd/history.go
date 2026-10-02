@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -21,18 +22,25 @@ func HistoryShow(limit int, jsonOutput bool) error {
 	if err != nil {
 		return fmt.Errorf("read history: %w", err)
 	}
+	return writeHistory(os.Stdout, entries, jsonOutput, time.Now())
+}
 
+// writeHistory writes entries to w as the text list or, when jsonOutput is
+// true, as a JSON array. now is the reference time of the relative times.
+func writeHistory(w io.Writer, entries []history.Entry, jsonOutput bool, now time.Time) error {
 	if jsonOutput {
 		type jsonEntry struct {
-			PlayedAt     string `json:"played_at"`
-			Path         string `json:"path"`
-			Title        string `json:"title"`
-			Artist       string `json:"artist,omitempty"`
-			Album        string `json:"album,omitempty"`
-			Genre        string `json:"genre,omitempty"`
-			Year         int    `json:"year,omitempty"`
-			TrackNumber  int    `json:"track_number,omitempty"`
-			DurationSecs int    `json:"duration_secs,omitempty"`
+			PlayedAt     string            `json:"played_at"`
+			Path         string            `json:"path"`
+			Title        string            `json:"title"`
+			Artist       string            `json:"artist,omitempty"`
+			Album        string            `json:"album,omitempty"`
+			Genre        string            `json:"genre,omitempty"`
+			Year         int               `json:"year,omitempty"`
+			TrackNumber  int               `json:"track_number,omitempty"`
+			DurationSecs int               `json:"duration_secs,omitempty"`
+			ProviderMeta map[string]string `json:"provider_meta,omitempty"`
+			Restricted   bool              `json:"restricted,omitempty"`
 		}
 		out := make([]jsonEntry, len(entries))
 		for i, e := range entries {
@@ -46,22 +54,27 @@ func HistoryShow(limit int, jsonOutput bool) error {
 				Year:         e.Track.Year,
 				TrackNumber:  e.Track.TrackNumber,
 				DurationSecs: e.Track.DurationSecs,
+				ProviderMeta: e.Track.ProviderMeta,
+				Restricted:   e.Track.Restricted,
 			}
 		}
-		enc := json.NewEncoder(os.Stdout)
+		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(out)
 	}
 
 	if len(entries) == 0 {
-		fmt.Println("No history yet — listen to a track for at least 50% of its duration to record it.")
-		return nil
+		_, err := fmt.Fprintln(w, "No history yet. cliamp records a track when it starts to play.")
+		return err
 	}
 
-	fmt.Printf("Recently Played (%d tracks)\n\n", len(entries))
-	now := time.Now()
+	if _, err := fmt.Fprintf(w, "Recently Played (%d tracks)\n\n", len(entries)); err != nil {
+		return err
+	}
 	for i, e := range entries {
-		fmt.Printf("  %3d. %s  (%s)\n", i+1, e.Track.DisplayName(), formatRelative(now, e.PlayedAt))
+		if _, err := fmt.Fprintf(w, "  %3d. %s  (%s)\n", i+1, e.Track.DisplayName(), formatRelative(now, e.PlayedAt)); err != nil {
+			return err
+		}
 	}
 	return nil
 }

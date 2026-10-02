@@ -1,4 +1,6 @@
-// Package httpclient provides a shared HTTP client configured for audio streaming.
+// Package httpclient provides a shared HTTP client configured for audio
+// streaming, a constructor for API clients that read the same proxy
+// variables, and helpers that read API response bodies.
 package httpclient
 
 import (
@@ -25,9 +27,12 @@ const UserAgent = "cliamp/1.0 (https://github.com/bjarneo/cliamp)"
 // disabled via TLSNextProto because Icecast/SHOUTcast servers don't
 // support it — Go's default ALPN negotiation causes EOF.
 //
-// Proxy is read from the environment (HTTP_PROXY, HTTPS_PROXY, NO_PROXY)
-// so users behind corporate or local proxies aren't bypassed; the rest of
-// the codebase uses http.DefaultTransport, which already honors these vars.
+// Proxy is read from the environment (HTTP_PROXY, HTTPS_PROXY, ALL_PROXY,
+// NO_PROXY) so users behind corporate or local proxies aren't bypassed.
+// ALL_PROXY applies to streams only when it names a socks5 or socks5h
+// proxy. With an http proxy in ALL_PROXY, a stream dials its server
+// directly. NewAPI clients use that http proxy. http.DefaultTransport
+// ignores ALL_PROXY.
 var Streaming = &http.Client{Transport: &socks5RoundTripper{transport: newStreamingTransport()}}
 
 // resolveEnvProxy resolves the proxy that applies to a request for the
@@ -188,36 +193,36 @@ func socks5DialerFor(scheme, addr string) (proxy.Dialer, error) {
 	return d, nil
 }
 
+// transportProxy delegates to the environment exactly like
+// http.ProxyFromEnvironment, EXCEPT when the resolved proxy is
+// socks5/socks5h. net/http.Transport can dial a SOCKS5 proxy itself, but it
+// then runs the SOCKS5 handshake through the icyConn of the Streaming
+// DialContext and adds TLS without the Streaming DialTLSContext, so icyConn
+// never sees the ICY status line.
+// Returning nil here for that case tells Transport "no proxy, dial the
+// target directly" -- the transport's dial functions then do the actual
+// SOCKS5 dial themselves through dialWithDecision, re-resolving per request
+// so NO_PROXY and the scheme-specific *_PROXY variable are both honored,
+// not just baked in once at transport-construction time.
+func transportProxy(req *http.Request) (*url.URL, error) {
+	u, err := httpproxy.FromEnvironment().ProxyFunc()(req.URL)
+	if err != nil {
+		return nil, fmt.Errorf("resolve proxy for %s: %w", req.URL, err)
+	}
+	if u == nil {
+		return nil, nil
+	}
+	if u.Scheme == "socks5" || u.Scheme == "socks5h" {
+		return nil, nil
+	}
+	return u, nil
+}
+
 func newStreamingTransport() *http.Transport {
 	tr := &http.Transport{
 		ResponseHeaderTimeout: 30 * time.Second,
 		TLSNextProto:          make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
-	}
-
-	// Delegate to the environment exactly like http.ProxyFromEnvironment,
-	// EXCEPT when the resolved proxy is socks5/socks5h: net/http.Transport
-	// only understands plain HTTP proxying and HTTP CONNECT tunneling
-	// against an http(s):// proxy, nothing else. If HTTPS_PROXY/HTTP_PROXY
-	// is set to a socks5:// URL, Transport would dial the proxy's address
-	// and write an HTTP request/CONNECT at it; a SOCKS5 server doesn't
-	// understand either, so the connection hangs forever with no error.
-	// Returning nil here for that case tells Transport "no proxy, dial
-	// the target directly" -- DialContext/DialTLSContext below then do
-	// the actual SOCKS5 dial themselves, re-resolving per request so
-	// NO_PROXY and the scheme-specific *_PROXY variable are both honored,
-	// not just baked in once at transport-construction time.
-	tr.Proxy = func(req *http.Request) (*url.URL, error) {
-		u, err := httpproxy.FromEnvironment().ProxyFunc()(req.URL)
-		if err != nil {
-			return nil, fmt.Errorf("resolve proxy for %s: %w", req.URL, err)
-		}
-		if u == nil {
-			return nil, nil
-		}
-		if u.Scheme == "socks5" || u.Scheme == "socks5h" {
-			return nil, nil
-		}
-		return u, nil
+		Proxy:                 transportProxy,
 	}
 
 	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {

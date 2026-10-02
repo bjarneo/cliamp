@@ -9,10 +9,10 @@ import (
 // Moving the FFT window across an unchanged bass tone must not make it pulse.
 // This exercises real analysis plus motion, rather than injecting fixed bands.
 func TestClassicPeakSteadyBassDoesNotFlicker(t *testing.T) {
-	withPanelWidth(t, 40)
 	for _, hz := range []float64{41.2, 55, 82.4, 110} {
 		for _, interval := range []time.Duration{16 * time.Millisecond, 32 * time.Millisecond, 50 * time.Millisecond} {
 			v := NewVisualizer(44100)
+			v.Cols = 40
 			activateMode(t, v, VisClassicPeak)
 			d := classicPeakDriverFor(t, v)
 			spec := d.AnalysisSpec(v)

@@ -12,6 +12,7 @@ import (
 	"github.com/bjarneo/cliamp/internal/plugintrust"
 	"github.com/bjarneo/cliamp/luaplugin"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 )
 
 // nowPlayingProv records ReportNowPlaying calls, which nowPlaying issues
@@ -25,6 +26,13 @@ type nowPlayingProv struct {
 // through cliamp.message as "path\nartist\ntitle".
 func newEventTestPlugin(t *testing.T, event string) (*luaplugin.Manager, <-chan string, func()) {
 	t.Helper()
+	return newReportTestPlugin(t, event, `ev.path .. "\n" .. ev.artist .. "\n" .. ev.title`)
+}
+
+// newReportTestPlugin loads a plugin whose hook for event sends report, a Lua
+// expression over the event data ev, through cliamp.message.
+func newReportTestPlugin(t *testing.T, event, report string) (*luaplugin.Manager, <-chan string, func()) {
+	t.Helper()
 	configDir := t.TempDir()
 	t.Setenv("CLIAMP_CONFIG_DIR", configDir)
 	pluginDir := filepath.Join(configDir, "plugins")
@@ -34,17 +42,17 @@ func newEventTestPlugin(t *testing.T, event string) (*luaplugin.Manager, <-chan 
 	pluginPath := filepath.Join(pluginDir, "event-spy.lua")
 	script := fmt.Sprintf(`
 local p = plugin.register({name = "event-spy", type = "hook"})
-p:on(%q, function(track)
-    cliamp.message(track.path .. "\n" .. track.artist .. "\n" .. track.title)
+p:on(%q, function(ev)
+    cliamp.message(%s)
 end)
-`, event)
+`, event, report)
 	if err := os.WriteFile(pluginPath, []byte(script), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := plugintrust.Approve(pluginDir, "event-spy", pluginPath); err != nil {
 		t.Fatal(err)
 	}
-	mgr, err := luaplugin.New(nil, nil)
+	mgr, err := luaplugin.New(nil, nil, nil)
 	closePlugins := sync.OnceFunc(mgr.Close)
 	t.Cleanup(closePlugins)
 	if err != nil {
@@ -66,29 +74,6 @@ end)
 	return mgr, messages, closePlugins
 }
 
-type nowPlayingEngine struct {
-	playbackFakeEngine
-	startErr error
-}
-
-func (p *nowPlayingEngine) PlayAt(path string, duration, offset time.Duration) error {
-	if p.startErr != nil {
-		return p.startErr
-	}
-	return p.playbackFakeEngine.PlayAt(path, duration, offset)
-}
-
-func (p *nowPlayingEngine) PlayAtForGeneration(path string, duration, offset time.Duration, gen uint64) error {
-	if gen != p.playGeneration {
-		return nil
-	}
-	return p.PlayAt(path, duration, offset)
-}
-
-func (p *nowPlayingEngine) PlayYTDLForGeneration(path string, duration time.Duration, gen uint64) error {
-	return p.PlayAtForGeneration(path, duration, 0, gen)
-}
-
 func TestPlayTrackEmitsPluginTrackChange(t *testing.T) {
 	for _, path := range []string{
 		"/music/local.flac",
@@ -107,14 +92,14 @@ func TestPlayTrackEmitsPluginTrackChange(t *testing.T) {
 					track := playlist.Track{Path: path, Title: "Title", Artist: "Artist", Stream: playlist.IsURL(path)}
 					pl := playlist.New()
 					pl.Add(track)
-					engine := &nowPlayingEngine{}
+					engine := &playbackFakeEngine{}
 					if outcome == "failed" {
-						engine.startErr = errors.New("playback startup failed")
+						engine.playErr = errors.New("playback startup failed")
 					}
 					m := Model{player: engine, playlist: pl, luaMgr: mgr}
 					if reporter {
 						prov := &nowPlayingProv{reports: make(chan playlist.Track, 1)}
-						m.providers = []ProviderEntry{{Key: "p", Name: "P", Provider: prov}}
+						m.providers = []provider.Entry{{Key: "p", Name: "P", Provider: prov}}
 					}
 					cmd := m.playTrack(track)
 					if track.Stream && outcome != "buffering" {
@@ -132,8 +117,8 @@ func TestPlayTrackEmitsPluginTrackChange(t *testing.T) {
 						updated, _ := m.Update(msg)
 						m = updated.(Model)
 					}
-					if outcome == "failed" && !errors.Is(m.err, engine.startErr) {
-						t.Fatalf("playback error = %v, want %v", m.err, engine.startErr)
+					if outcome == "failed" && !errors.Is(m.err, engine.playErr) {
+						t.Fatalf("playback error = %v, want %v", m.err, engine.playErr)
 					}
 					// Close waits for every asynchronous Lua callback before assertions.
 					closePlugins()
@@ -187,7 +172,7 @@ func TestPlayTrackFiresNowPlayingForEverySource(t *testing.T) {
 			m := Model{
 				player:    &playbackFakeEngine{},
 				playlist:  pl,
-				providers: []ProviderEntry{{Key: "p", Name: "P", Provider: prov}},
+				providers: []provider.Entry{{Key: "p", Name: "P", Provider: prov}},
 			}
 			cmd := m.playTrack(track)
 			if track.Stream {

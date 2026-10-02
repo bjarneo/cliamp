@@ -1,24 +1,19 @@
 package ui
 
-import (
-	"strings"
-	"time"
-)
+import "strings"
 
 // terrainDriver draws a scrolling side-view landscape where terrain height
 // is the current spectrum energy. New data enters from the right and scrolls
 // left, creating a moving mountain range silhouette. Braille dots give smooth
 // sub-cell edges; spectrum coloring paints green valleys, yellow slopes, red peaks.
 type terrainDriver struct {
+	spectrumDriverBase
+
 	buf []float64
 }
 
 func newTerrainDriver() visModeDriver {
 	return &terrainDriver{}
-}
-
-func (*terrainDriver) AnalysisSpec(*Visualizer) VisAnalysisSpec {
-	return spectrumAnalysisSpec(DefaultSpectrumBands)
 }
 
 func resizeTerrainBuf(buf []float64, dotCols int) []float64 {
@@ -38,14 +33,14 @@ func resizeTerrainBuf(buf []float64, dotCols int) []float64 {
 func (d *terrainDriver) Render(v *Visualizer) string {
 	height := v.Rows
 	dotRows := height * 4
-	dotCols := PanelWidth * 2
+	dotCols := v.columns() * 2
 	buf := resizeTerrainBuf(d.buf, dotCols)
 
 	// Render: each dot column is filled from its terrain height down to the bottom.
 	lines := make([]string, height)
 	for row := range height {
 		var content strings.Builder
-		for ch := range PanelWidth {
+		for ch := range v.columns() {
 			var braille rune = '\u2800'
 			for dc := range 2 {
 				x := ch*2 + dc
@@ -74,7 +69,7 @@ func (d *terrainDriver) Tick(v *Visualizer, ctx VisTickContext) {
 		return
 	}
 
-	dotCols := PanelWidth * 2
+	dotCols := v.columns() * 2
 	d.buf = resizeTerrainBuf(d.buf, dotCols)
 	if len(d.buf) < 2 {
 		return
@@ -97,10 +92,4 @@ func (d *terrainDriver) Tick(v *Visualizer, ctx VisTickContext) {
 	d.buf[dotCols-1] = min(1.0, avg+scatterHash(0, 0, 1, v.frame)*0.12)
 }
 
-func (*terrainDriver) TickInterval(_ *Visualizer, ctx VisTickContext) time.Duration {
-	return defaultDriverTickInterval(ctx)
-}
-
 func (*terrainDriver) OnEnter(*Visualizer) {}
-
-func (*terrainDriver) OnLeave(*Visualizer) {}

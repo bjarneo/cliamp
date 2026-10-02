@@ -29,6 +29,12 @@ const execMaxPerPlugin = 4
 // Hard timeout cap. Plugins may pass a smaller value; larger values clamp.
 const execMaxTimeout = 30 * time.Minute
 
+// execPipeGrace is the time that the output pipes stay open after a cancel or
+// a timeout. A process that left the process group of the binary can hold
+// them open. Then the exec manager closes them, so the readers end and
+// stopAll does not wait for that process.
+const execPipeGrace = 500 * time.Millisecond
+
 // execEntry tracks a single running subprocess.
 type execEntry struct {
 	id     int64
@@ -140,26 +146,14 @@ func (em *execManager) stopAll() {
 // registerExecAPI adds cliamp.exec.run(binary, args, opts?) -> handle, err.
 // The exec API is only functional for plugins declaring permissions = {"exec"}.
 // Without the permission, cliamp.exec is a no-op table that logs once.
-func registerExecAPI(L *lua.LState, cliamp *lua.LTable, em *execManager, p *Plugin, logger *pluginLogger) {
+// The output and exit callbacks go through m.call.
+func (m *Manager) registerExecAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin) {
+	em := m.execs
 	tbl := L.NewTable()
 
-	warned := false
-	guard := func() bool {
-		if p.perms[PermExec] {
-			return true
-		}
-		if !warned {
-			logger.log(p.Name, "warn", "cliamp.exec requires permissions = {\"exec\"} — further warnings suppressed")
-			warned = true
-		}
-		return false
-	}
-
 	L.SetField(tbl, "run", L.NewFunction(func(L *lua.LState) int {
-		if !guard() {
-			L.Push(lua.LNil)
-			L.Push(lua.LString("exec permission required"))
-			return 2
+		if !p.permitted(PermExec, "cliamp.exec.run") {
+			return pushErr(L, "exec permission required")
 		}
 
 		binary := L.CheckString(1)
@@ -167,16 +161,12 @@ func registerExecAPI(L *lua.LState, cliamp *lua.LTable, em *execManager, p *Plug
 		optsTbl := L.OptTable(3, nil)
 
 		if !em.isAllowed(binary) {
-			L.Push(lua.LNil)
-			L.Push(lua.LString("binary not in allowlist: " + binary))
-			return 2
+			return pushErr(L, "binary not in allowlist: "+binary)
 		}
 
 		path, err := exec.LookPath(binary)
 		if err != nil {
-			L.Push(lua.LNil)
-			L.Push(lua.LString("binary not found on PATH: " + binary))
-			return 2
+			return pushErr(L, "binary not found on PATH: "+binary)
 		}
 
 		// Flatten argv. Every entry must be a string; reject non-strings rather
@@ -194,9 +184,7 @@ func registerExecAPI(L *lua.LState, cliamp *lua.LTable, em *execManager, p *Plug
 			argv = append(argv, v.String())
 		})
 		if argErr != nil {
-			L.Push(lua.LNil)
-			L.Push(lua.LString(argErr.Error()))
-			return 2
+			return pushErr(L, argErr.Error())
 		}
 
 		var onStdout, onStderr, onExit *lua.LFunction
@@ -225,15 +213,11 @@ func registerExecAPI(L *lua.LState, cliamp *lua.LTable, em *execManager, p *Plug
 		}
 
 		if cwd != "" && !isWriteAllowed(cwd) {
-			L.Push(lua.LNil)
-			L.Push(lua.LString("cwd not in write allowlist"))
-			return 2
+			return pushErr(L, "cwd not in write allowlist")
 		}
 
 		if !em.canStart(p) {
-			L.Push(lua.LNil)
-			L.Push(lua.LString("per-plugin exec concurrency cap reached"))
-			return 2
+			return pushErr(L, "per-plugin exec concurrency cap reached")
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -241,29 +225,27 @@ func registerExecAPI(L *lua.LState, cliamp *lua.LTable, em *execManager, p *Plug
 		if cwd != "" {
 			cmd.Dir = cwd
 		}
-		// Empty env by default — plugins should not inherit secrets like
-		// AWS_*, SSH_*, etc. yt-dlp and ffmpeg both run fine with a minimal env.
+		// A minimal env gives each binary the same known environment, so
+		// variables of the user's shell, such as LD_PRELOAD, do not change
+		// how it runs. It does not hide secrets from the plugin, which can
+		// read any variable with os.getenv and pass it in argv. yt-dlp and
+		// ffmpeg both run fine with a minimal env.
 		cmd.Env = minimalExecEnv()
+		killProcessGroup(cmd)
 
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
 			cancel()
-			L.Push(lua.LNil)
-			L.Push(lua.LString(err.Error()))
-			return 2
+			return pushErr(L, err.Error())
 		}
 		stderr, err := cmd.StderrPipe()
 		if err != nil {
 			cancel()
-			L.Push(lua.LNil)
-			L.Push(lua.LString(err.Error()))
-			return 2
+			return pushErr(L, err.Error())
 		}
 		if err := cmd.Start(); err != nil {
 			cancel()
-			L.Push(lua.LNil)
-			L.Push(lua.LString(err.Error()))
-			return 2
+			return pushErr(L, err.Error())
 		}
 
 		id := em.nextID.Add(1)
@@ -279,38 +261,50 @@ func registerExecAPI(L *lua.LState, cliamp *lua.LTable, em *execManager, p *Plug
 		// Shared output budget across stdout+stderr.
 		var outUsed atomic.Int64
 
-		pipeStream := func(r io.Reader, fn *lua.LFunction) {
+		pipeStream := func(r io.Reader, fn *lua.LFunction, label string) {
+			// Drain what the scan leaves: the rest after the output budget
+			// ends, or after a line longer than the buffer stops the scan.
+			// A pipe that is not drained blocks the process until its
+			// timeout.
+			defer io.Copy(io.Discard, r)
 			scanner := bufio.NewScanner(r)
 			// Allow longer lines than default 64KiB for noisy tools like ffmpeg.
 			scanner.Buffer(make([]byte, 64*1024), 1<<20)
 			for scanner.Scan() {
 				line := scanner.Text()
 				if outUsed.Add(int64(len(line)+1)) > execMaxOutputBytes {
-					// Budget exhausted — drain silently.
-					for scanner.Scan() {
-					}
-					return
+					return // The budget is used up. Drop the rest silently.
 				}
 				if fn == nil {
 					continue
 				}
-				p.mu.Lock()
-				_ = p.L.CallByParam(lua.P{
-					Fn:      fn,
-					NRet:    0,
-					Protect: true,
-				}, lua.LString(line))
-				p.mu.Unlock()
+				m.call(p, label, hookTimeout, 0, fixedArgs(fn, lua.LString(line)))
 			}
 		}
 
 		var wg sync.WaitGroup
 		wg.Add(2)
-		go func() { defer wg.Done(); pipeStream(stdout, onStdout) }()
-		go func() { defer wg.Done(); pipeStream(stderr, onStderr) }()
+		go func() { defer wg.Done(); pipeStream(stdout, onStdout, "exec on_stdout") }()
+		go func() { defer wg.Done(); pipeStream(stderr, onStderr, "exec on_stderr") }()
+
+		readersDone := make(chan struct{})
+		go func() {
+			select {
+			case <-ctx.Done():
+			case <-readersDone:
+				return
+			}
+			select {
+			case <-time.After(execPipeGrace):
+				stdout.Close()
+				stderr.Close()
+			case <-readersDone:
+			}
+		}()
 
 		go func() {
 			wg.Wait()
+			close(readersDone)
 			waitErr := cmd.Wait()
 			ctxErr := ctx.Err()
 			cancel()
@@ -331,13 +325,7 @@ func registerExecAPI(L *lua.LState, cliamp *lua.LTable, em *execManager, p *Plug
 			}
 
 			if onExit != nil {
-				p.mu.Lock()
-				_ = p.L.CallByParam(lua.P{
-					Fn:      onExit,
-					NRet:    0,
-					Protect: true,
-				}, lua.LNumber(code))
-				p.mu.Unlock()
+				m.call(p, "exec on_exit", hookTimeout, 0, fixedArgs(onExit, lua.LNumber(code)))
 			}
 			close(entry.done)
 		}()

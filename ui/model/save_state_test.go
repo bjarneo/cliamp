@@ -1,6 +1,9 @@
 package model
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestSaveStateActivityTextTracksPendingDownloads(t *testing.T) {
 	var save saveState
@@ -30,29 +33,39 @@ func TestSaveStateActivityTextTracksPendingDownloads(t *testing.T) {
 	}
 }
 
-func TestYTDLSavedMsgKeepsSaveActivityWhileDownloadsRemain(t *testing.T) {
-	m := Model{
-		save: saveState{
-			pendingDownloads: 2,
-		},
-	}
+// Only a yt-dlp save counts as a pending download, so only its result
+// finishes one.
+func TestTrackSavedMsgKeepsSaveActivityWhileDownloadsRemain(t *testing.T) {
+	boom := errors.New("boom")
+	for _, tc := range []struct {
+		name        string
+		msg         trackSavedMsg
+		wantPending int
+		wantKind    feedbackKind
+		wantStatus  string
+	}{
+		{name: "download saved", msg: trackSavedMsg{path: "/tmp/song.mp3", download: true}, wantPending: 1, wantKind: feedbackSuccess, wantStatus: "Saved to /tmp/song.mp3"},
+		{name: "download failed", msg: trackSavedMsg{err: boom, download: true}, wantPending: 1, wantKind: feedbackError, wantStatus: "Download failed: boom"},
+		{name: "copy saved", msg: trackSavedMsg{path: "/music/song.mp3"}, wantPending: 2, wantKind: feedbackSuccess, wantStatus: "Saved to /music/song.mp3"},
+		{name: "copy failed", msg: trackSavedMsg{err: boom}, wantPending: 2, wantKind: feedbackError, wantStatus: "Save failed: boom"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := Model{save: saveState{pendingDownloads: 2}}
 
-	nextModel, cmd := m.Update(ytdlSavedMsg{path: "/tmp/song.mp3"})
-	if cmd != nil {
-		t.Fatalf("Update() cmd = %v, want nil", cmd)
-	}
-
-	next, ok := nextModel.(Model)
-	if !ok {
-		t.Fatalf("Update() model = %T, want ui.Model", nextModel)
-	}
-	if next.save.pendingDownloads != 1 {
-		t.Fatalf("pendingDownloads after ytdlSavedMsg = %d, want 1", next.save.pendingDownloads)
-	}
-	if got := next.save.activityText(); got != "Downloading..." {
-		t.Fatalf("activityText() after ytdlSavedMsg = %q, want %q", got, "Downloading...")
-	}
-	if got := next.status.text; got != "Saved to /tmp/song.mp3" {
-		t.Fatalf("status.text after ytdlSavedMsg = %q, want %q", got, "Saved to /tmp/song.mp3")
+			nextModel, cmd := m.Update(tc.msg)
+			if cmd != nil {
+				t.Fatalf("Update() cmd = %v, want nil", cmd)
+			}
+			next, ok := nextModel.(Model)
+			if !ok {
+				t.Fatalf("Update() model = %T, want ui.Model", nextModel)
+			}
+			if next.save.pendingDownloads != tc.wantPending {
+				t.Fatalf("pendingDownloads = %d, want %d", next.save.pendingDownloads, tc.wantPending)
+			}
+			if next.status.kind != tc.wantKind || next.status.text != tc.wantStatus {
+				t.Fatalf("status = %v %q, want %v %q", next.status.kind, next.status.text, tc.wantKind, tc.wantStatus)
+			}
+		})
 	}
 }

@@ -24,7 +24,7 @@ import (
 func filterRemoteEntries(tracks []playlist.Track) []playlist.Track {
 	filtered := make([]playlist.Track, 0, len(tracks))
 	for _, t := range tracks {
-		switch uriScheme(t.Path) {
+		switch URIScheme(t.Path) {
 		case "", "http", "https":
 			filtered = append(filtered, t)
 		}
@@ -32,10 +32,10 @@ func filterRemoteEntries(tracks []playlist.Track) []playlist.Track {
 	return filtered
 }
 
-// uriScheme returns the lowercased scheme of s, or "" when s does not begin
+// URIScheme returns the lowercased scheme of s, or "" when s does not begin
 // with one. Schemes shorter than two characters are reported as absent so a
 // Windows drive letter is not mistaken for one.
-func uriScheme(s string) string {
+func URIScheme(s string) string {
 	for i, r := range s {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':

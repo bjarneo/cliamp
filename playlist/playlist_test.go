@@ -649,6 +649,45 @@ func TestActivateSelectedWrapsWithRepeatAll(t *testing.T) {
 	}
 }
 
+// TestPeekSelectedMatchesActivateSelected checks that PeekSelected names the
+// track that ActivateSelected then activates, and that it changes nothing.
+func TestPeekSelectedMatchesActivateSelected(t *testing.T) {
+	tests := []struct {
+		name     string
+		tracks   []Track
+		selected int
+		repeat   RepeatMode
+		want     string // the activated title, or "" when none can play
+	}{
+		{name: "playable selected row", tracks: []Track{{Title: "A"}, {Title: "B"}}, selected: 1, want: "B"},
+		{name: "unplayable selected row", tracks: []Track{{Title: "A"}, {Title: "Missing", Unplayable: true}, {Title: "C"}}, selected: 1, want: "C"},
+		{name: "wrap with repeat all", tracks: []Track{{Title: "A"}, {Title: "Missing", Unplayable: true}}, selected: 1, repeat: RepeatAll, want: "A"},
+		{name: "nothing playable after the row", tracks: []Track{{Title: "A"}, {Title: "Missing", Unplayable: true}}, selected: 1},
+		{name: "empty list"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := New()
+			p.repeat = tt.repeat
+			p.Replace(tt.tracks)
+			p.SetIndex(tt.selected)
+			revision := p.Revision()
+
+			peeked, ok := p.PeekSelected()
+			if got := peeked.Title; got != tt.want || ok != (tt.want != "") {
+				t.Fatalf("PeekSelected() = (%q,%t), want %q", got, ok, tt.want)
+			}
+			if p.Revision() != revision {
+				t.Fatalf("PeekSelected changed the playlist: revision %d -> %d", revision, p.Revision())
+			}
+			activation, ok := p.ActivateSelected()
+			if activation.Track.Title != peeked.Title || ok != (tt.want != "") {
+				t.Fatalf("ActivateSelected() = (%q,%t), PeekSelected() named %q", activation.Track.Title, ok, peeked.Title)
+			}
+		})
+	}
+}
+
 func TestActivateSelectedFailureKeepsQueuedCurrentTrack(t *testing.T) {
 	p := New()
 	p.Replace([]Track{

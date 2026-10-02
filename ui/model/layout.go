@@ -1,6 +1,10 @@
 package model
 
-import "github.com/bjarneo/cliamp/ui"
+import (
+	"charm.land/lipgloss/v2"
+
+	"github.com/bjarneo/cliamp/ui"
+)
 
 type layoutTier int
 
@@ -87,12 +91,24 @@ const (
 	compactVisRows = 5
 )
 
+// The frame padding of a Model that SetPadding did not configure. These
+// match the defaults of padding_horizontal and padding_vertical in the config.
+const (
+	defaultPaddingH = 3
+	defaultPaddingV = 1
+)
+
 // fullChromeRows is the full tier's chrome height at the default visualizer
 // size, the baseline the configurable vis_rows is measured against.
 func fullChromeRows() int { return fullBaseRows + ui.DefaultVisRows }
 
 func (l frameLayout) tooSmall() bool {
 	return l.tier == layoutTooSmall
+}
+
+// frameStyle pads the frame and gives it the terminal width.
+func (l frameLayout) frameStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Padding(l.paddingV, l.paddingH).Width(l.frameWidth)
 }
 
 // recomputeLayout picks the layout tier for the current terminal size and
@@ -107,8 +123,12 @@ func (m *Model) recomputeLayout() {
 		height = 24
 	}
 
-	paddingH := min(ui.PaddingH, max(0, (width-1)/2))
-	paddingV := min(ui.VerticalPadding(), max(0, (height-1)/2))
+	paddingH, paddingV := defaultPaddingH, defaultPaddingV
+	if m.paddingSet {
+		paddingH, paddingV = m.paddingH, m.paddingV
+	}
+	paddingH = min(paddingH, max(0, (width-1)/2))
+	paddingV = min(paddingV, max(0, (height-1)/2))
 
 	layout := frameLayout{
 		frameWidth: width,
@@ -216,10 +236,14 @@ func (m *Model) recomputeLayout() {
 	}
 
 	m.layout = layout
-	ui.FrameStyle = ui.FrameStyle.Padding(paddingV, paddingH).Width(width)
-	ui.PanelWidth = layout.panelWidth
 	if m.vis != nil {
 		m.vis.Cols = layout.panelWidth
+		if m.width <= 0 && !m.headless {
+			// Bubbletea draws a frame before the first WindowSizeMsg. The
+			// visualizer stays unsized until then, so a mode never starts at
+			// the placeholder size. Headless mode keeps it for spectrum.get.
+			m.vis.Cols = 0
+		}
 		if m.simplified {
 			m.vis.Rows = 0
 		} else if m.fullVis {

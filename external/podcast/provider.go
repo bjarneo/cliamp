@@ -111,6 +111,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 			}
 			lists = append(lists, playlist.PlaylistInfo{
 				ID: prefix + ":" + s.FeedURL, Name: name, TrackCount: s.EpisodeCount, Section: section,
+				Favorite: prefix == "f",
 			})
 		}
 	}

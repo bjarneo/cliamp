@@ -93,17 +93,17 @@ func TestProviderSearchRenderingUsesCatalogCapability(t *testing.T) {
 	for _, prov := range []playlist.Provider{p, sectioned, sectionedOnly} {
 		for _, query := range []string{"", "science"} {
 			for _, loading := range []bool{false, true} {
-				m := Model{provider: prov, plVisible: 6, provLoading: loading,
+				m := Model{provider: prov, plVisible: 6, provPane: providerPane{loading: loading},
 					provSearch: provSearchState{active: true, query: query}}
 				body := stripAnsi(m.renderProviderList())
-				want := "Type to filter"
+				want, mode := "Type to filter", "[Filter: "
 				if query != "" {
 					want = "No matches"
 				}
 				if _, ok := prov.(provider.CatalogSearcher); ok {
-					want = "Enter to search"
+					want, mode = "Enter to search", "[Search: "
 				}
-				if !strings.Contains(body, "/ "+query+"_") || !strings.Contains(body, want) || strings.Contains(body, "station") {
+				if !strings.Contains(body, mode+prov.Name()+"] "+query+"_") || !strings.Contains(body, "Esc") || !strings.Contains(body, want) || strings.Contains(body, "station") {
 					t.Fatalf("%T query=%q loading=%t: body = %q, want visible input and %q", prov, query, loading, body, want)
 				}
 			}
@@ -129,7 +129,7 @@ func TestCatalogSearchCancelBeforeCompletion(t *testing.T) {
 			release := sync.OnceFunc(func() { close(p.release) })
 			t.Cleanup(release)
 			m := keybindingTestModel()
-			m.provider, m.providerLists, m.focus = p, p.lists, focusProvider
+			m.provider, m.provPane.lists, m.focus = p, p.lists, focusProvider
 			m.catalogBatch.loading = true
 			m.handleKey(tea.KeyPressMsg{Text: "/"})
 			m.handlePaste("science")
@@ -155,18 +155,18 @@ func TestCatalogSearchCancelBeforeCompletion(t *testing.T) {
 			if restore == nil || p.playlistsCalls != 0 {
 				t.Fatal("cancel before results must restore playlists asynchronously")
 			}
-			if p.clearCalls != 1 || m.requests.catalog == gen || !m.provLoading || m.provSearch.loading || m.catalogBatch.loading {
+			if p.clearCalls != 1 || m.requests.catalog == gen || !m.provPane.loading || m.provSearch.loading || m.catalogBatch.loading {
 				t.Fatalf("cancel state: clears=%d search=%+v batch=%+v", p.clearCalls, m.provSearch, m.catalogBatch)
 			}
 			release()
 			updated, next := m.Update(<-result)
 			m = updated.(Model)
-			if next != nil || p.IsSearching() || m.status.text != "" || len(m.providerLists) != 1 || m.providerLists[0].ID != "c:keep" {
-				t.Fatalf("late search changed catalog: searching=%t status=%q lists=%+v", p.IsSearching(), m.status.text, m.providerLists)
+			if next != nil || p.IsSearching() || m.status.text != "" || len(m.provPane.lists) != 1 || m.provPane.lists[0].ID != "c:keep" {
+				t.Fatalf("late search changed catalog: searching=%t status=%q lists=%+v", p.IsSearching(), m.status.text, m.provPane.lists)
 			}
 			updated, next = m.Update(restore())
 			m = updated.(Model)
-			if next == nil || !m.catalogBatch.loading || m.provLoading {
+			if next == nil || !m.catalogBatch.loading || m.provPane.loading {
 				t.Fatal("cancel did not restart unfinished catalog loading")
 			}
 		})
@@ -183,7 +183,7 @@ func TestCatalogCancelDuringInitialLoadRestoresLists(t *testing.T) {
 	}
 	next, cmd := m.Update(restore())
 	m = next.(Model)
-	if len(m.providerLists) != 1 || m.providerLists[0].ID != "f:subscription" || cmd == nil || !m.catalogBatch.loading {
+	if len(m.provPane.lists) != 1 || m.provPane.lists[0].ID != "f:subscription" || cmd == nil || !m.catalogBatch.loading {
 		t.Fatal("cancel lost subscriptions or did not restart the catalog")
 	}
 	next, _ = m.Update(catalogBatchMsg{providerName: p.Name(), gen: oldGeneration, added: 100})
@@ -198,21 +198,21 @@ func TestCatalogSearchEmptyResultsAndRestore(t *testing.T) {
 		commandsTestProvider: commandsTestProvider{name: "Catalog", lists: []playlist.PlaylistInfo{{ID: "c:keep"}}},
 		results:              []playlist.PlaylistInfo{},
 	}
-	m := Model{provider: p, provLoading: true, provSearch: provSearchState{loading: true}}
+	m := Model{provider: p, provPane: providerPane{loading: true}, provSearch: provSearchState{loading: true}}
 	updated, _ := m.Update(catalogSearchMsg{providerName: p.Name()})
 	m = updated.(Model)
-	if m.status.text != "No results found" || m.status.kind != feedbackWarning || m.provLoading || m.provSearch.loading {
+	if m.status.text != "No results found" || m.status.kind != feedbackWarning || m.provPane.loading || m.provSearch.loading {
 		t.Fatalf("empty search state = status:%+v search:%+v", m.status, m.provSearch)
 	}
 	reads := p.playlistsCalls
 	cmd := m.restoreCatalog(p)
-	if cmd == nil || p.playlistsCalls != reads || p.IsSearching() || !m.provLoading {
+	if cmd == nil || p.playlistsCalls != reads || p.IsSearching() || !m.provPane.loading {
 		t.Fatal("restore must clear immediately and fetch playlists asynchronously")
 	}
 	updated, _ = m.Update(cmd())
 	m = updated.(Model)
-	if m.provLoading || len(m.providerLists) != 1 || m.providerLists[0].ID != "c:keep" {
-		t.Fatalf("restored lists = %+v", m.providerLists)
+	if m.provPane.loading || len(m.provPane.lists) != 1 || m.provPane.lists[0].ID != "c:keep" {
+		t.Fatalf("restored lists = %+v", m.provPane.lists)
 	}
 }
 
@@ -226,8 +226,8 @@ func TestNewCatalogSearchSupersedesRestore(t *testing.T) {
 	m = updated.(Model)
 	updated, next := m.Update(stale)
 	m = updated.(Model)
-	if next != nil || len(m.providerLists) != 1 || m.providerLists[0].ID != "s:late" {
-		t.Fatalf("stale restoration overwrote new search results: %+v", m.providerLists)
+	if next != nil || len(m.provPane.lists) != 1 || m.provPane.lists[0].ID != "s:late" {
+		t.Fatalf("stale restoration overwrote new search results: %+v", m.provPane.lists)
 	}
 }
 
@@ -244,7 +244,7 @@ func TestCatalogRefreshDoesNotLoadPagesDuringSearch(t *testing.T) {
 			if cmd != nil || m.catalogBatch.loading || m.requests.catalog != 0 {
 				t.Fatal("playlist refresh started catalog pagination during search")
 			}
-			if m.provLoading != m.provSearch.loading {
+			if m.provPane.loading != m.provSearch.loading {
 				t.Fatal("playlist refresh cleared the pending search's loading state")
 			}
 		})

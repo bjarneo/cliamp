@@ -306,3 +306,53 @@ http://example.invalid/mike/stream
 		}
 	}
 }
+
+// TestArgsLiteralPathWithGlobMetacharacters checks that a path which exists
+// on disk resolves to itself, even when its brackets also match a sibling
+// as a glob character class.
+func TestArgsLiteralPathWithGlobMetacharacters(t *testing.T) {
+	dir := t.TempDir()
+	for _, p := range []string{
+		"Song [Live].mp3",
+		"Song L.mp3",
+		filepath.Join("Album [2001]", "a.mp3"),
+		filepath.Join("Album 2", "b.mp3"),
+	} {
+		full := filepath.Join(dir, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		if err := os.WriteFile(full, []byte(""), 0o644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+	}
+
+	tests := []struct {
+		name string
+		arg  string
+		want []string
+	}{
+		{"bracketed file", "Song [Live].mp3", []string{"Song [Live].mp3"}},
+		{"bracketed folder", "Album [2001]", []string{filepath.Join("Album [2001]", "a.mp3")}},
+		{"pattern still globs", "Song*.mp3", []string{"Song L.mp3", "Song [Live].mp3"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Args([]string{filepath.Join(dir, tt.arg)})
+			if err != nil {
+				t.Fatalf("Args: %v", err)
+			}
+			var paths []string
+			for _, tr := range got.Tracks {
+				rel, err := filepath.Rel(dir, tr.Path)
+				if err != nil {
+					t.Fatalf("Rel: %v", err)
+				}
+				paths = append(paths, rel)
+			}
+			if !slices.Equal(paths, tt.want) {
+				t.Errorf("tracks = %q, want %q", paths, tt.want)
+			}
+		})
+	}
+}

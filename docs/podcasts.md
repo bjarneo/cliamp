@@ -29,6 +29,10 @@ episode and press `Enter` to play, or `a` to toggle its play-next queue entry.
 Feeds load the first 300 playable episodes in feed order. Episode titles, show
 names, durations, artwork, and episode numbers are retained when available.
 Items without playable audio are skipped.
+The playlist shows podcast episode titles without repeating the show name on
+every row. If a publisher also puts the show name at the start of each episode
+title (for example, `Show Name - Episode`), that prefix is hidden too. The show
+name and original episode title remain in the track metadata.
 
 `Ctrl+R` reloads a show opened from the provider list or category browser. In
 the provider list with no show open, it refreshes the top chart. Reopen a show
@@ -103,7 +107,7 @@ dates, falling back to feed order.
 Press `f` on a show in the provider list, category show list, or `Ctrl+F` results
 to subscribe or unsubscribe. Subscribed shows appear under **Subscriptions**
 and are marked `[subscribed]` in the provider list. On an episode in the main
-playlist, `f` still toggles a bookmark, not a subscription.
+playlist, `f` toggles the favorite ♥ of the episode, not a subscription.
 
 Subscriptions are saved atomically in `podcast_subscriptions.json` in the
 [config directory](configuration.md#config-directory), normally

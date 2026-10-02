@@ -50,8 +50,8 @@ func TestMetadataConfigSaveRoundTrip(t *testing.T) {
 	}
 	for _, want := range []bool{true, false} {
 		value := strconv.FormatBool(want)
-		if err := Save("show_metadata", value); err != nil {
-			t.Fatalf("Save(%s): %v", value, err)
+		if err := save("show_metadata", value); err != nil {
+			t.Fatalf("save(%s): %v", value, err)
 		}
 		cfg, err := Load()
 		if err != nil {

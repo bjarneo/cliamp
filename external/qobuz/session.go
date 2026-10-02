@@ -7,34 +7,19 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"sync/atomic"
 	"time"
 
 	"github.com/bjarneo/cliamp/applog"
+	"github.com/bjarneo/cliamp/internal/authurl"
 	"github.com/bjarneo/cliamp/internal/browser"
 )
 
-// authURLObserver is invoked with the OAuth URL when interactive auth begins.
-// Used by the TUI to display the URL when the launched browser does not reach
-// the user (containers, headless environments).
-var authURLObserver atomic.Pointer[func(string)]
+// authURLObserver receives the OAuth URL when interactive auth begins.
+var authURLObserver authurl.Observer
 
 // SetAuthURLObserver registers a callback invoked once with the OAuth URL at
 // the start of an interactive sign-in. Pass nil to remove.
-func SetAuthURLObserver(fn func(string)) {
-	if fn == nil {
-		authURLObserver.Store(nil)
-		return
-	}
-	authURLObserver.Store(&fn)
-}
-
-func notifyAuthURL(u string) {
-	applog.Info("qobuz: sign-in URL: %s", u)
-	if p := authURLObserver.Load(); p != nil {
-		(*p)(u)
-	}
-}
+func SetAuthURLObserver(fn func(string)) { authURLObserver.Set(fn) }
 
 // oauthResult holds the data captured from a Qobuz OAuth redirect.
 type oauthResult struct {
@@ -43,10 +28,11 @@ type oauthResult struct {
 	Code   string
 }
 
-// newClientSilent builds an authenticated client from stored credentials only.
-// It never opens a browser; if no usable credentials exist it returns an error.
-func newClientSilent(ctx context.Context) (*client, error) {
-	creds, err := loadCreds()
+// newClientSilent builds an authenticated client for the API at baseURL from
+// stored credentials only. It never opens a browser; if no usable credentials
+// exist it returns an error.
+func newClientSilent(ctx context.Context, baseURL string) (*client, error) {
+	creds, err := credsFile.Load()
 	if err != nil {
 		return nil, fmt.Errorf("qobuz: no stored credentials: %w", err)
 	}
@@ -55,6 +41,7 @@ func newClientSilent(ctx context.Context) (*client, error) {
 	}
 
 	c := newClient(creds.AppID, creds.Secrets)
+	c.baseURL = baseURL
 	c.secret = creds.Secret
 	c.uat = creds.UserAuthToken
 	c.userID = creds.UserID
@@ -69,14 +56,14 @@ func newClientSilent(ctx context.Context) (*client, error) {
 		}
 	}
 	// Re-persist in case the validated secret or label changed.
-	_ = saveCreds(credsFromClient(c, creds.PrivateKey))
+	_ = credsFile.Save(credsFromClient(c, creds.PrivateKey))
 	return c, nil
 }
 
 // newClientInteractive scrapes fresh credentials from the Qobuz web player and
 // runs the interactive OAuth browser flow, persisting the result on success.
 func newClientInteractive(ctx context.Context) (*client, error) {
-	appID, secrets, privateKey, err := scrapeCredentials(ctx)
+	appID, secrets, privateKey, err := scrapeCredentials(ctx, bundleBaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("qobuz: scrape credentials: %w", err)
 	}
@@ -98,7 +85,7 @@ func newClientInteractive(ctx context.Context) (*client, error) {
 		return nil, err
 	}
 
-	if err := saveCreds(credsFromClient(c, privateKey)); err != nil {
+	if err := credsFile.Save(credsFromClient(c, privateKey)); err != nil {
 		applog.UserError("qobuz: failed to save credentials: %v", err)
 	}
 	return c, nil
@@ -151,7 +138,7 @@ func captureOAuthRedirect(ctx context.Context, appID string) (oauthResult, error
 		"https://www.qobuz.com/signin/oauth?ext_app_id=%s&redirect_url=http://localhost:%d",
 		appID, port,
 	)
-	notifyAuthURL(authURL)
+	authURLObserver.Notify("qobuz", authURL)
 
 	resultCh := make(chan oauthResult, 1)
 	srv := &http.Server{

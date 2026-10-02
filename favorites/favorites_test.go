@@ -3,7 +3,10 @@ package favorites
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/bjarneo/cliamp/internal/fileutil"
 	"github.com/bjarneo/cliamp/playlist"
@@ -53,34 +56,6 @@ func TestToggleRemove(t *testing.T) {
 	}
 }
 
-func TestFavoriteIdempotent(t *testing.T) {
-	s := newTestStore(t)
-	track := playlist.Track{Path: "/a.mp3", Title: "A"}
-
-	added, _ := s.Favorite(track)
-	if !added {
-		t.Fatal("first Favorite should return true")
-	}
-	added, _ = s.Favorite(track)
-	if added {
-		t.Fatal("second Favorite should return false (already present)")
-	}
-	if s.Count() != 1 {
-		t.Fatalf("count = %d, want 1", s.Count())
-	}
-}
-
-func TestRemoveNonexistent(t *testing.T) {
-	s := newTestStore(t)
-	removed, err := s.Remove("/nope.mp3")
-	if err != nil {
-		t.Fatalf("Remove: %v", err)
-	}
-	if removed {
-		t.Fatal("Remove of nonexistent track should return false")
-	}
-}
-
 func TestTracksOrdering(t *testing.T) {
 	s := newTestStore(t)
 
@@ -123,27 +98,6 @@ func TestPersistAcrossInstances(t *testing.T) {
 	}
 	if tr.Year != 2026 || tr.DurationSecs != 180 {
 		t.Errorf("numeric meta lost: year=%d dur=%d", tr.Year, tr.DurationSecs)
-	}
-}
-
-func TestClearRemovesFile(t *testing.T) {
-	s := newTestStore(t)
-	s.Toggle(playlist.Track{Path: "/a.mp3", Title: "A"})
-	if err := s.Clear(); err != nil {
-		t.Fatalf("Clear: %v", err)
-	}
-	if _, err := os.Stat(s.Path()); !os.IsNotExist(err) {
-		t.Fatalf("file should be gone after Clear, err = %v", err)
-	}
-	if s.Count() != 0 {
-		t.Fatalf("count after Clear = %d, want 0", s.Count())
-	}
-}
-
-func TestClearMissingFileNoError(t *testing.T) {
-	s := newTestStore(t)
-	if err := s.Clear(); err != nil {
-		t.Fatalf("Clear on missing file: %v", err)
 	}
 }
 
@@ -213,9 +167,6 @@ func TestNilStoreSafe(t *testing.T) {
 	if s.Count() != 0 {
 		t.Errorf("nil Count = %d, want 0", s.Count())
 	}
-	if err := s.Clear(); err != nil {
-		t.Errorf("nil Clear: %v", err)
-	}
 }
 
 func TestToggleIgnoresEmptyPath(t *testing.T) {
@@ -268,5 +219,201 @@ func TestRealtimeAndProviderMetaPersistAcrossReload(t *testing.T) {
 	}
 	if tracks[0].ProviderMeta["provider"] != "navidrome" {
 		t.Fatalf("ProviderMeta provider lost on reload: %+v", tracks[0].ProviderMeta)
+	}
+}
+
+func TestImport(t *testing.T) {
+	tests := []struct {
+		name      string
+		existing  []playlist.Track
+		imported  []playlist.Track
+		wantAdded int
+		wantPaths []string
+	}{
+		{
+			name:      "empty store",
+			imported:  []playlist.Track{{Path: "/a.mp3"}, {Path: "/b.mp3"}},
+			wantAdded: 2,
+			wantPaths: []string{"/a.mp3", "/b.mp3"},
+		},
+		{
+			name:      "keeps existing favorites first",
+			existing:  []playlist.Track{{Path: "/old.mp3"}},
+			imported:  []playlist.Track{{Path: "/a.mp3"}},
+			wantAdded: 1,
+			wantPaths: []string{"/old.mp3", "/a.mp3"},
+		},
+		{
+			name:      "skips favorites that exist",
+			existing:  []playlist.Track{{Path: "/a.mp3", Title: "Kept"}},
+			imported:  []playlist.Track{{Path: "/a.mp3", Title: "New"}},
+			wantPaths: []string{"/a.mp3"},
+		},
+		{
+			name:      "skips repeated and empty paths",
+			imported:  []playlist.Track{{Path: "/a.mp3"}, {Path: " "}, {Path: "/a.mp3"}},
+			wantAdded: 1,
+			wantPaths: []string{"/a.mp3"},
+		},
+		{
+			name: "no tracks",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestStore(t)
+			for _, track := range tt.existing {
+				if _, err := s.Toggle(track); err != nil {
+					t.Fatal(err)
+				}
+			}
+			added, err := s.Import(tt.imported)
+			if err != nil {
+				t.Fatalf("Import: %v", err)
+			}
+			if added != tt.wantAdded {
+				t.Fatalf("added = %d, want %d", added, tt.wantAdded)
+			}
+			tracks, err := s.Tracks()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var paths []string
+			for _, track := range tracks {
+				paths = append(paths, track.Path)
+			}
+			if !slices.Equal(paths, tt.wantPaths) {
+				t.Fatalf("paths = %v, want %v", paths, tt.wantPaths)
+			}
+			if len(tt.existing) > 0 && tracks[0].Title != tt.existing[0].Title {
+				t.Fatalf("existing entry changed: %+v", tracks[0])
+			}
+		})
+	}
+}
+
+// Files written before the shared track codec must load unchanged.
+func TestParseLoadsExistingFiles(t *testing.T) {
+	at := time.Date(2026, 5, 6, 22, 9, 11, 0, time.UTC)
+	tests := []struct {
+		name string
+		data string
+		want []Entry
+	}{
+		{
+			name: "entry with unsorted meta and unknown keys",
+			data: `# comment
+[[entry]]
+favorited_at = "2026-05-06T22:09:11Z"
+path = "https://radio.example.com/stream"
+title = "Live"
+realtime = true
+provider_meta.radio.url = "https://radio.example.com/stream"
+provider_meta.radio.name = "Station"
+future_key = "ignored"
+`,
+			want: []Entry{{
+				FavoritedAt: at,
+				Track: playlist.Track{
+					Path:     "https://radio.example.com/stream",
+					Title:    "Live",
+					Stream:   true,
+					Realtime: true,
+					ProviderMeta: map[string]string{
+						"radio.url":  "https://radio.example.com/stream",
+						"radio.name": "Station",
+					},
+				},
+			}},
+		},
+		{
+			name: "entry without a path is dropped",
+			data: `[[entry]]
+title = "No path"
+
+[[entry]]
+path = "/a.mp3"
+title = "A"
+year = 1979
+`,
+			want: []Entry{{Track: playlist.Track{Path: "/a.mp3", Title: "A", Year: 1979}}},
+		},
+		{
+			name: "bad timestamp keeps the track",
+			data: `[[entry]]
+favorited_at = "yesterday"
+path = "/a.mp3"
+title = "A"
+`,
+			want: []Entry{{Track: playlist.Track{Path: "/a.mp3", Title: "A"}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parse([]byte(tt.data)); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("parse:\n got %+v\nwant %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSaveWritesStableBytes(t *testing.T) {
+	s := newTestStore(t)
+	at := time.Date(2026, 5, 6, 22, 9, 11, 0, time.UTC)
+	entries := []Entry{
+		{FavoritedAt: at, Track: playlist.Track{
+			Path:         "https://nd.example.com/rest/stream?id=42",
+			Title:        "Song",
+			Artist:       "Artist",
+			DurationSecs: 208,
+			ProviderMeta: map[string]string{"navidrome.id": "42", "jellyfin.id": "7"},
+		}},
+		{FavoritedAt: at, Track: playlist.Track{Path: "/a.mp3", Title: "A"}},
+	}
+	const want = `[[entry]]
+favorited_at = "2026-05-06T22:09:11Z"
+path = "https://nd.example.com/rest/stream?id=42"
+title = "Song"
+artist = "Artist"
+duration_secs = 208
+provider_meta.jellyfin.id = "7"
+provider_meta.navidrome.id = "42"
+
+[[entry]]
+favorited_at = "2026-05-06T22:09:11Z"
+path = "/a.mp3"
+title = "A"
+`
+	if err := s.saveLocked(entries); err != nil {
+		t.Fatalf("saveLocked: %v", err)
+	}
+	data, err := os.ReadFile(s.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != want {
+		t.Fatalf("favorites.toml:\n got:\n%s\nwant:\n%s", data, want)
+	}
+}
+
+// A write must work before the config directory exists, as in the
+// `cliamp playlist` CLI on a new machine. The file lock is taken first, so
+// it must create the directory.
+func TestWritesCreateMissingConfigDir(t *testing.T) {
+	track := playlist.Track{Path: "/a.mp3"}
+	tests := []struct {
+		name string
+		fn   func(s *Store) error
+	}{
+		{"Toggle", func(s *Store) error { _, err := s.Toggle(track); return err }},
+		{"Import", func(s *Store) error { _, err := s.Import([]playlist.Track{track}); return err }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewAt(filepath.Join(t.TempDir(), "missing", "favorites.toml"))
+			if err := tt.fn(s); err != nil {
+				t.Fatalf("%s: %v", tt.name, err)
+			}
+		})
 	}
 }

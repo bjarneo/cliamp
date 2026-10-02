@@ -24,12 +24,19 @@ type searchState struct {
 	scroll  int
 }
 
+// playlistUndo is the Ctrl+Z undo of the last queue edit. snapshot holds the
+// queue before the edit. revision and loaded hold the playlist revision and
+// the loaded playlist right after the edit. When either changes, the snapshot
+// is stale and the undo is refused. When persisted, the edit took the track
+// removed from index savedIdx of the loaded playlist file.
 type playlistUndo struct {
 	active    bool
 	snapshot  playlist.Snapshot
+	revision  uint64
 	loaded    string
-	saved     []playlist.Track
 	persisted bool
+	removed   playlist.Track
+	savedIdx  int
 }
 
 // netSearchScreenType identifies which screen of the net search overlay is active.
@@ -45,7 +52,8 @@ type netSearchState struct {
 	active     bool
 	screen     netSearchScreenType
 	query      string
-	soundcloud bool // true = SoundCloud (scsearch), false = YouTube (ytsearch)
+	soundcloud bool   // true = SoundCloud (scsearch), false = YouTube (ytsearch)
+	from       string // provider without a Ctrl+F search that fell back here
 	loading    bool
 	results    []playlist.Track
 	cursor     int
@@ -59,7 +67,7 @@ type provSearchState struct {
 	active  bool
 	loading bool // catalog search in flight, before IsSearching reports results
 	query   string
-	results []int // indices into providerLists
+	results []int // indices into provPane.lists
 	cursor  int
 	scroll  int
 }
@@ -73,35 +81,61 @@ type seekState struct {
 	targetPos time.Duration // absolute target position
 	timer     int           // tick countdown for debounce (0 = idle)
 	grace     int           // ticks to suppress reconnect after seek completes
+	rewind    bool          // a rewind with previous waits to land and start a replay
+	rewindAt  time.Duration // position of the play that a landed rewind reports
+	rewindDur time.Duration // duration of the play that a landed rewind reports
 	timerFor  time.Duration
 	graceFor  time.Duration
 }
 
-// themePickerState holds state for the theme picker overlay.
-type themePickerState struct {
-	visible     bool
-	cursor      int // view index into filtered when filter != "", otherwise raw theme index
-	scroll      int
-	savedName   string // theme name before opening picker, for cancel/restore after reload
-	filtering   bool
-	filter      string
-	filtered    []int // raw indices into [Default, themes...]
-	savedCursor int
-	savedScroll int
+// providerPane holds the playlist list of the active provider on the left
+// of the main screen.
+type providerPane struct {
+	lists   []playlist.PlaylistInfo
+	cursor  int
+	scroll  int
+	loading bool
+	signIn  bool   // true when provider needs interactive sign-in
+	askLoc  bool   // true while the location question is on screen
+	authURL string // OAuth URL to display while interactive auth is in flight
 }
 
-// visPickerState holds state for the visualizer picker overlay.
+// jumpState holds the jump-to-time input.
+type jumpState struct {
+	active bool
+	input  string
+	err    string
+}
+
+// urlInputState holds the input that loads a playlist or stream URL at
+// runtime.
+type urlInputState struct {
+	active bool
+	input  string
+	err    string
+}
+
+// infoOverlay holds state for the track info overlay.
+type infoOverlay struct {
+	visible bool
+	scroll  int
+}
+
+// themePickerState holds state for the theme picker overlay. The raw rows
+// are [Default, themes...].
+type themePickerState struct {
+	filterList
+	visible   bool
+	savedName string // theme name before opening picker, for cancel/restore after reload
+}
+
+// visPickerState holds state for the visualizer picker overlay. The raw rows
+// are the modes.
 type visPickerState struct {
-	visible     bool
-	cursor      int // view index into filtered when filter != "", otherwise raw visualizer mode
-	scroll      int
-	savedMode   int      // vis.Mode before opening, for cancel/restore
-	modes       []string // mode names captured at open (stable while open)
-	filtering   bool
-	filter      string
-	filtered    []int // raw indices into modes
-	savedCursor int
-	savedScroll int
+	filterList
+	visible   bool
+	savedMode int      // vis.Mode before opening, for cancel/restore
+	modes     []string // mode names captured at open (stable while open)
 }
 
 // lyricsState holds state for the lyrics display overlay.
@@ -115,17 +149,12 @@ type lyricsState struct {
 	offset  time.Duration // synced-lyrics timestamp adjustment (persisted as lyrics_offset_ms)
 }
 
-// keymapOverlay holds state for the keybindings overlay.
+// keymapOverlay holds state for the keybindings overlay. The raw rows are the
+// entries.
 type keymapOverlay struct {
-	visible     bool
-	cursor      int
-	scroll      int
-	savedCursor int
-	savedScroll int
-	searching   bool
-	search      string
-	filtered    []int         // indices into entries
-	entries     []keymapEntry // core keys + plugin keys, rebuilt on openKeymap
+	filterList
+	visible bool
+	entries []keymapEntry // core keys + plugin keys, rebuilt on openKeymap
 }
 
 // queueOverlay holds state for the queue manager overlay.
@@ -219,20 +248,15 @@ type playlistPickerState struct {
 	inputErr  string
 }
 
-// fileBrowserState holds state for the file browser overlay.
+// fileBrowserState holds state for the file browser overlay. The raw rows
+// are the entries.
 type fileBrowserState struct {
+	filterList
 	visible        bool
 	dir            string
 	entries        []fbEntry
-	cursor         int
-	scroll         int
-	savedCursor    int
-	savedScroll    int
 	selected       map[string]bool
 	err            string
-	searching      bool
-	search         string
-	filtered       []int // indices into entries
 	targetPlaylist string
 	confirmReplace bool
 }
@@ -273,19 +297,20 @@ type navBrowserState struct {
 // domain. Completion messages must match their generation before they can
 // change the current screen.
 type requestState struct {
-	provider     uint64
-	tracks       uint64
-	nav          uint64
-	lyrics       uint64
-	netSearch    uint64
-	spotSearch   uint64
-	spotAlbum    uint64
-	spotLists    uint64
-	spotMutation uint64
-	auth         uint64
-	catalog      uint64
-	stream       uint64
-	preload      uint64
+	provider              uint64
+	tracks                uint64
+	nav                   uint64
+	lyrics                uint64
+	netSearch             uint64
+	searchOverlay         uint64
+	searchOverlayAlbum    uint64
+	searchOverlayLists    uint64
+	searchOverlayMutation uint64
+	auth                  uint64
+	catalog               uint64
+	stream                uint64
+	preload               uint64
+	queue                 uint64
 }
 
 func nextRequest(gen *uint64) uint64 {
@@ -293,21 +318,21 @@ func nextRequest(gen *uint64) uint64 {
 	return *gen
 }
 
-// spotSearchScreenType identifies which screen of the Spotify search overlay is active.
-type spotSearchScreenType int
+// searchOverlayScreenType identifies which screen of the provider search overlay is active.
+type searchOverlayScreenType int
 
 const (
-	spotSearchInput    spotSearchScreenType = iota // typing search query
-	spotSearchResults                              // browsing search results
-	spotSearchPlaylist                             // picking a playlist to add to
-	spotSearchNewName                              // typing new playlist name
+	searchOverlayInput    searchOverlayScreenType = iota // typing search query
+	searchOverlayResults                                 // browsing search results
+	searchOverlayPlaylist                                // picking a playlist to add to
+	searchOverlayNewName                                 // typing new playlist name
 )
 
-// spotSearchState holds state for the provider search + add-to-playlist overlay.
-type spotSearchState struct {
+// searchOverlayState holds state for the provider search + add-to-playlist overlay.
+type searchOverlayState struct {
 	prov    playlist.Provider // the provider being searched (may differ from active provider)
 	visible bool
-	screen  spotSearchScreenType
+	screen  searchOverlayScreenType
 	query   string
 	results []playlist.Track
 	cursor  int
@@ -316,7 +341,7 @@ type spotSearchState struct {
 	// albumLoading is separate from loading so the results screen can say an
 	// album is being expanded without claiming so during the playlist fetch.
 	albumLoading bool
-	playlists    []playlist.PlaylistInfo // user's Spotify playlists for picker
+	playlists    []playlist.PlaylistInfo // playlists of the searched provider for the picker
 	selTrack     playlist.Track          // track selected to add
 	newName      string                  // new playlist name input
 	err          string
@@ -340,9 +365,20 @@ type ytdlBatchState struct {
 }
 
 // reconnectState holds state for stream auto-reconnect with exponential backoff.
+// ytdlLiveDrainRestarts bounds the backed-off restarts (1s, 2s, 4s) of a
+// drained yt-dlp live stream before playback advances.
+const ytdlLiveDrainRestarts = 3
+
 type reconnectState struct {
 	attempts int
 	at       time.Time
+	// ytdlLiveDrain marks restarts scheduled because a yt-dlp live stream
+	// drained. Once ytdlLiveDrainRestarts of them have failed the stream is
+	// taken to be over or unreachable, and playback advances instead of
+	// stopping on it.
+	ytdlLiveDrain bool
+	// notice is the "reconnecting in" error shown while a restart waits.
+	notice error
 }
 
 // devicePickerState holds state for the audio device picker overlay.

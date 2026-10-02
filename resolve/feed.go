@@ -9,12 +9,10 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
-	"path"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 	"golang.org/x/net/html/charset"
@@ -150,7 +148,7 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 						}
 						switch {
 						case mediaType == "", mediaType == "application/octet-stream", mediaType == "binary/octet-stream":
-							if !player.SupportedExts[strings.ToLower(path.Ext(audio.Path))] {
+							if !playlist.IsAudioFile(audio.Path) {
 								continue
 							}
 						case strings.HasPrefix(mediaType, "audio/"), mediaType == "application/ogg":

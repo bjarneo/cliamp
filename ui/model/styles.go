@@ -28,6 +28,20 @@ var (
 	helpStyle                lipgloss.Style
 	helpKeyStyle             lipgloss.Style
 	errorStyle               lipgloss.Style
+
+	seekFillStyle lipgloss.Style
+	seekDimStyle  lipgloss.Style
+	volBarStyle   lipgloss.Style
+	activeToggle  lipgloss.Style
+	// favMarkerStyle paints the favorite heart in the theme's red so it
+	// reads as a deliberate accent instead of inheriting the dim/unavailable
+	// look. The glyph carries U+FE0E (text presentation) so terminals render
+	// it as a compact font glyph rather than a large color emoji.
+	favMarkerStyle lipgloss.Style
+	// favRemovedStyle mutes the same filled heart for unfavorite feedback:
+	// identical attractive glyph, faded to signal the removed state instead
+	// of switching to a thin outline glyph.
+	favRemovedStyle lipgloss.Style
 )
 
 func init() { rebuildModelStyles() }

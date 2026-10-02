@@ -3,6 +3,7 @@ package audiobookshelf
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -91,11 +92,12 @@ func (p *Provider) Refresh() {
 }
 
 // Playlists returns every book, then every podcast show, each tagged with its
-// section. Results are cached after the first successful call.
+// section. Results are cached after the first successful call. Callers get a
+// copy, so a change to the returned slice does not change the cache.
 func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	p.mu.Lock()
 	if p.playlistCache != nil {
-		cached := p.playlistCache
+		cached := slices.Clone(p.playlistCache)
 		p.mu.Unlock()
 		return cached, nil
 	}
@@ -139,16 +141,16 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	p.mu.Lock()
 	p.playlistCache = out
 	p.mu.Unlock()
-	return out, nil
+	return slices.Clone(out), nil
 }
 
 // Tracks returns a book's audio files or a podcast show's episodes.
-// Results are cached per playlist id.
+// Results are cached per playlist id. Callers get a copy of the cached slice.
 func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	p.mu.Lock()
 	if cached, ok := p.trackCache[playlistID]; ok {
 		p.mu.Unlock()
-		return cached, nil
+		return slices.Clone(cached), nil
 	}
 	p.mu.Unlock()
 
@@ -175,7 +177,7 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	}
 	p.trackCache[playlistID] = out
 	p.mu.Unlock()
-	return out, nil
+	return slices.Clone(out), nil
 }
 
 func (p *Provider) bookTracks(item LibraryItem) []playlist.Track {

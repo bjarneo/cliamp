@@ -3,11 +3,15 @@ package luaplugin
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
 )
+
+// pluginLogName is the plugin log file in the config dir.
+const pluginLogName = "plugins.log"
 
 // pluginLogger writes plugin log messages to ~/.config/cliamp/plugins.log.
 type pluginLogger struct {
@@ -51,14 +55,25 @@ func (l *pluginLogger) close() {
 }
 
 // registerLogAPI adds cliamp.log.{info,warn,error,debug} to the cliamp table.
-func registerLogAPI(L *lua.LState, cliamp *lua.LTable, logger *pluginLogger, pluginName string) {
+// It also makes print write its arguments to plugins.log at the info level,
+// joined by tabs as the base print joins them.
+func registerLogAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin) {
 	tbl := L.NewTable()
 	for _, level := range []string{"info", "warn", "error", "debug"} {
 		L.SetField(tbl, level, L.NewFunction(func(L *lua.LState) int {
 			msg := L.CheckString(1)
-			logger.log(pluginName, level, "%s", msg)
+			p.logger.log(p.installName, level, "%s", msg)
 			return 0
 		}))
 	}
 	L.SetField(cliamp, "log", tbl)
+
+	L.SetGlobal("print", L.NewFunction(func(L *lua.LState) int {
+		parts := make([]string, L.GetTop())
+		for i := range parts {
+			parts[i] = L.ToStringMeta(L.Get(i + 1)).String()
+		}
+		p.logger.log(p.installName, "info", "%s", strings.Join(parts, "\t"))
+		return 0
+	}))
 }

@@ -25,7 +25,7 @@ func shadeBlock(level, rowBottom, rowTop float64) string {
 // using the same dense 1-wide/1-gap layout as ClassicPeak.
 func (v *Visualizer) renderAscii(bands []float64) string {
 	height := v.Rows
-	activeCols := classicPeakColsForWidth(PanelWidth)
+	activeCols := classicPeakColsForWidth(v.columns())
 	cols := resampleBandsLinear(bands, activeCols)
 	lines := make([]string, height)
 

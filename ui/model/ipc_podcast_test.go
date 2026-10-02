@@ -47,170 +47,125 @@ func TestIPCPodcastTrackActions(t *testing.T) {
 		{name: "not RSS", body: `<html>Not a feed</html>`, wantError: "parsing feed"},
 		{name: "HTTP error", status: http.StatusBadGateway, wantError: "502"},
 	}
-	for _, transport := range []string{"legacy", "v2"} {
-		for _, op := range []string{"track.queue", "track.play"} {
-			for _, tt := range tests {
-				t.Run(transport+"/"+op+"/"+tt.name, func(t *testing.T) {
-					srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-						if r.Method != http.MethodGet || r.URL.Path != "/show" {
-							t.Errorf("feed request = %s %s, want GET /show", r.Method, r.URL.Path)
-						}
-						if tt.status != 0 {
-							w.WriteHeader(tt.status)
-						}
-						io.WriteString(w, tt.body)
-					}))
-					defer srv.Close()
-					feedURL := srv.URL + "/show"
-					info := ipcTrackInfo(playlist.Track{
-						Path: feedURL, Title: "Podcast", Feed: true,
-						ProviderMeta: map[string]string{"kind": "album", "albumID": feedURL},
-					}, 0, 0)
-					params, err := json.Marshal(ipc.Request{Track: &info})
-					if err != nil {
+	for _, op := range []string{"track.queue", "track.play"} {
+		for _, tt := range tests {
+			t.Run(op+"/"+tt.name, func(t *testing.T) {
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method != http.MethodGet || r.URL.Path != "/show" {
+						t.Errorf("feed request = %s %s, want GET /show", r.Method, r.URL.Path)
+					}
+					if tt.status != 0 {
+						w.WriteHeader(tt.status)
+					}
+					io.WriteString(w, tt.body)
+				}))
+				defer srv.Close()
+				feedURL := srv.URL + "/show"
+				info := ipcTrackInfo(playlist.Track{
+					Path: feedURL, Title: "Podcast", Feed: true,
+					ProviderMeta: map[string]string{"kind": "album", "albumID": feedURL},
+				}, 0, 0, false)
+				m, engine := ipcPodcastTestModel()
+				before, revision, engineBefore := m.playlist.Snapshot(), m.playlist.Revision(), *engine
+				original := m.playlist.Tracks()
+				queued := m.playlist.QueueTracks()
+				msg := v2Request(t, op, ipc.Request{Track: &info})
+				updated, cmd := m.Update(msg)
+				m = updated.(Model)
+				if cmd == nil {
+					t.Fatal("feed action did not return an async command")
+				}
+				message := cmd()
+				result, ok := message.(ipcFeedLoadResult)
+				if !ok {
+					t.Fatalf("command result = %T, want ipcFeedLoadResult", message)
+				}
+				if pending, _ := msg.Jobs.Get(msg.JobID); pending.State != ipc.JobRunning {
+					t.Fatalf("job completed before expansion: %+v", pending)
+				}
+				if !reflect.DeepEqual(m.playlist.Snapshot(), before) || m.playlist.Revision() != revision || !reflect.DeepEqual(*engine, engineBefore) {
+					t.Fatal("feed command mutated playback before its result was applied")
+				}
+				updated, playbackCmd := m.Update(result)
+				m = updated.(Model)
+				var response ipc.Response
+				completed, _ := msg.Jobs.Get(msg.JobID)
+				wantState := ipc.JobSucceeded
+				if tt.wantError != "" {
+					wantState = ipc.JobFailed
+					if completed.Error == nil || !strings.Contains(completed.Error.Detail, tt.wantError) {
+						t.Fatalf("job error = %+v, want %q", completed.Error, tt.wantError)
+					}
+					response.Error = completed.Error.Detail
+				}
+				if completed.State != wantState {
+					t.Fatalf("job state = %s, want %s", completed.State, wantState)
+				}
+				if wantState == ipc.JobSucceeded {
+					if err := json.Unmarshal(completed.Result, &response); err != nil {
 						t.Fatal(err)
 					}
-					m, engine := ipcPodcastTestModel()
-					before, revision, engineBefore := m.playlist.Snapshot(), m.playlist.Revision(), *engine
-					original := m.playlist.Tracks()
-					queued := m.playlist.QueueTracks()
-					var cmd tea.Cmd
-					var jobs *ipc.JobStore
-					var job ipc.Job
-					if transport == "legacy" {
-						var request ipc.Request
-						if err := json.Unmarshal(params, &request); err != nil {
-							t.Fatal(err)
-						}
-						reply := make(chan ipc.Response, 1)
-						updated, command := m.Update(ipc.QueueRequestMsg{Op: op, Track: request.Track, Reply: reply})
-						m, cmd = updated.(Model), command
-						if len(reply) != 0 {
-							t.Fatal("replied before resolving the feed")
-						}
-					} else {
-						jobs = ipc.NewJobStore()
-						defer jobs.CancelAll()
-						job, err = jobs.Create(op)
-						if err != nil {
-							t.Fatal(err)
-						}
-						updated, command := m.Update(V2RequestMsg{
-							Request: ipc.V2Request{Operation: op, Params: params}, Jobs: jobs, JobID: job.ID,
-						})
-						m, cmd = updated.(Model), command
+				}
+				if tt.wantError != "" {
+					if response.OK || !strings.Contains(response.Error, tt.wantError) {
+						t.Fatalf("response = %+v, want error containing %q", response, tt.wantError)
 					}
-					if cmd == nil {
-						t.Fatal("feed action did not return an async command")
+					if playbackCmd != nil || !reflect.DeepEqual(m.playlist.Snapshot(), before) || m.playlist.Revision() != revision || !reflect.DeepEqual(*engine, engineBefore) || m.loadedPlaylist != "Saved" {
+						t.Fatal("invalid feed changed the playlist, queue, or playback")
 					}
-					message := cmd()
-					result, ok := message.(ipcFeedLoadResult)
-					if !ok {
-						t.Fatalf("command result = %T, want ipcFeedLoadResult", message)
+					return
+				}
+				if !response.OK || response.Error != "" || response.Total != len(original)+2 || len(response.Tracks) != response.Total {
+					t.Fatalf("response = %+v, want expanded playlist", response)
+				}
+				wantEpisodes := []playlist.Track{
+					{Path: "https://example.com/z.mp3", Title: "Zulu", Artist: "Podcast", Album: "Podcast", Stream: true, ProviderMeta: map[string]string{"podcast.feed": feedURL, "podcast.guid": "z"}},
+					{Path: "https://example.com/a.mp3", Title: "Alpha", Artist: "Podcast", Album: "Podcast", Stream: true, ProviderMeta: map[string]string{"podcast.feed": feedURL, "podcast.guid": "a"}},
+				}
+				wantTracks := append(original, wantEpisodes...)
+				wantIndex := 0
+				if op == "track.queue" {
+					queued = append(queued, wantEpisodes...)
+				} else {
+					wantIndex = len(original)
+				}
+				if !reflect.DeepEqual(m.playlist.Tracks(), wantTracks) || !reflect.DeepEqual(m.playlist.QueueTracks(), queued) || m.playlist.Index() != wantIndex {
+					t.Fatalf("playlist = %+v, queue = %+v, index = %d; want original tracks/queue plus feed-order episodes at index %d", m.playlist.Tracks(), m.playlist.QueueTracks(), m.playlist.Index(), wantIndex)
+				}
+				for _, track := range response.Tracks {
+					if track.Feed || track.Path == feedURL || track.ProviderMeta["kind"] == "album" {
+						t.Fatalf("reply still contains a feed placeholder: %+v", track)
 					}
-					if len(result.request.Reply) != 0 {
-						t.Fatal("replied before applying the feed result")
+				}
+				if playbackCmd != nil {
+					message := playbackCmd()
+					if _, ok := message.(feedTrackResolvedMsg); ok {
+						t.Fatal("playback invoked the legacy playlist-replacing feed resolver")
 					}
-					if jobs != nil {
-						pending, _ := jobs.Get(job.ID)
-						if pending.State != ipc.JobRunning {
-							t.Fatalf("job completed before expansion: %+v", pending)
-						}
-					}
-					if !reflect.DeepEqual(m.playlist.Snapshot(), before) || m.playlist.Revision() != revision || !reflect.DeepEqual(*engine, engineBefore) {
-						t.Fatal("feed command mutated playback before its result was applied")
-					}
-					updated, playbackCmd := m.Update(result)
+					updated, _ = m.Update(message)
 					m = updated.(Model)
-					var response ipc.Response
-					if jobs == nil {
-						if len(result.request.Reply) != 1 {
-							t.Fatal("feed result did not send exactly one reply")
+				}
+				if op == "track.play" && !reflect.DeepEqual(engine.playCalls, []string{wantEpisodes[0].Path}) {
+					t.Fatalf("played = %v, want first episode", engine.playCalls)
+				}
+				if m.feedLoading || !reflect.DeepEqual(m.playlist.Tracks(), wantTracks) || !reflect.DeepEqual(m.playlist.QueueTracks(), queued) {
+					t.Fatal("episode playback changed the existing playlist or queue")
+				}
+				if op == "track.queue" {
+					for _, track := range queued {
+						if next := m.nextTrack(); next != nil {
+							updated, _ = m.Update(next())
+							m = updated.(Model)
 						}
-						response = <-result.request.Reply
-					} else {
-						if result.request.Reply != nil {
-							t.Fatal("V2 feed result uses a deferred reply channel")
-						}
-						completed, _ := jobs.Get(job.ID)
-						wantState := ipc.JobSucceeded
-						if tt.wantError != "" {
-							wantState = ipc.JobFailed
-							if completed.Error == nil || !strings.Contains(completed.Error.Detail, tt.wantError) {
-								t.Fatalf("job error = %+v, want %q", completed.Error, tt.wantError)
-							}
-							response.Error = completed.Error.Detail
-						}
-						if completed.State != wantState {
-							t.Fatalf("job state = %s, want %s", completed.State, wantState)
-						}
-						if wantState == ipc.JobSucceeded {
-							if err := json.Unmarshal(completed.Result, &response); err != nil {
-								t.Fatal(err)
-							}
+						if len(engine.playCalls) == 0 || engine.playCalls[len(engine.playCalls)-1] != track.Path {
+							t.Fatalf("played = %v, want next queued track %q", engine.playCalls, track.Path)
 						}
 					}
-					if tt.wantError != "" {
-						if response.OK || !strings.Contains(response.Error, tt.wantError) {
-							t.Fatalf("response = %+v, want error containing %q", response, tt.wantError)
-						}
-						if playbackCmd != nil || !reflect.DeepEqual(m.playlist.Snapshot(), before) || m.playlist.Revision() != revision || !reflect.DeepEqual(*engine, engineBefore) || m.loadedPlaylist != "Saved" {
-							t.Fatal("invalid feed changed the playlist, queue, or playback")
-						}
-						return
+					if m.feedLoading || !reflect.DeepEqual(m.playlist.Tracks(), wantTracks) || m.playlist.QueueLen() != 0 {
+						t.Fatal("playing queued episodes replaced the playlist or lost queue order")
 					}
-					if !response.OK || response.Error != "" || response.Total != len(original)+2 || len(response.Tracks) != response.Total {
-						t.Fatalf("response = %+v, want expanded playlist", response)
-					}
-					wantEpisodes := []playlist.Track{
-						{Path: "https://example.com/z.mp3", Title: "Zulu", Artist: "Podcast", Album: "Podcast", Stream: true, ProviderMeta: map[string]string{"podcast.feed": feedURL, "podcast.guid": "z"}},
-						{Path: "https://example.com/a.mp3", Title: "Alpha", Artist: "Podcast", Album: "Podcast", Stream: true, ProviderMeta: map[string]string{"podcast.feed": feedURL, "podcast.guid": "a"}},
-					}
-					wantTracks := append(original, wantEpisodes...)
-					wantIndex := 0
-					if op == "track.queue" {
-						queued = append(queued, wantEpisodes...)
-					} else {
-						wantIndex = len(original)
-					}
-					if !reflect.DeepEqual(m.playlist.Tracks(), wantTracks) || !reflect.DeepEqual(m.playlist.QueueTracks(), queued) || m.playlist.Index() != wantIndex {
-						t.Fatalf("playlist = %+v, queue = %+v, index = %d; want original tracks/queue plus feed-order episodes at index %d", m.playlist.Tracks(), m.playlist.QueueTracks(), m.playlist.Index(), wantIndex)
-					}
-					for _, track := range response.Tracks {
-						if track.Feed || track.Path == feedURL || track.ProviderMeta["kind"] == "album" {
-							t.Fatalf("reply still contains a feed placeholder: %+v", track)
-						}
-					}
-					if playbackCmd != nil {
-						message := playbackCmd()
-						if _, ok := message.(feedTrackResolvedMsg); ok {
-							t.Fatal("playback invoked the legacy playlist-replacing feed resolver")
-						}
-						updated, _ = m.Update(message)
-						m = updated.(Model)
-					}
-					if op == "track.play" && !reflect.DeepEqual(engine.playCalls, []string{wantEpisodes[0].Path}) {
-						t.Fatalf("played = %v, want first episode", engine.playCalls)
-					}
-					if m.feedLoading || !reflect.DeepEqual(m.playlist.Tracks(), wantTracks) || !reflect.DeepEqual(m.playlist.QueueTracks(), queued) {
-						t.Fatal("episode playback changed the existing playlist or queue")
-					}
-					if op == "track.queue" {
-						for _, track := range queued {
-							if next := m.nextTrack(); next != nil {
-								updated, _ = m.Update(next())
-								m = updated.(Model)
-							}
-							if len(engine.playCalls) == 0 || engine.playCalls[len(engine.playCalls)-1] != track.Path {
-								t.Fatalf("played = %v, want next queued track %q", engine.playCalls, track.Path)
-							}
-						}
-						if m.feedLoading || !reflect.DeepEqual(m.playlist.Tracks(), wantTracks) || m.playlist.QueueLen() != 0 {
-							t.Fatal("playing queued episodes replaced the playlist or lost queue order")
-						}
-					}
-				})
-			}
+				}
+			})
 		}
 	}
 }
@@ -452,20 +407,23 @@ func TestIPCPodcastResolutionContextErrors(t *testing.T) {
 			defer cancel()
 			m, engine := ipcPodcastTestModel()
 			before, engineBefore := m.playlist.Snapshot(), *engine
-			reply := make(chan ipc.Response, 1)
-			result := ipcFeedLoadCmd(ctx, ipc.QueueRequestMsg{Op: "track.play", Reply: reply}, playlist.Track{Path: srv.URL, Feed: true}, nil, "", 0)().(ipcFeedLoadResult)
+			jobs := ipc.NewJobStore()
+			defer jobs.CancelAll()
+			job, err := jobs.Create("track.play")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := jobs.Start(job.ID); err != nil {
+				t.Fatal(err)
+			}
+			result := ipcFeedLoadCmd(ctx, "track.play", playlist.Track{Path: srv.URL, Feed: true}, jobs, job.ID, 0)().(ipcFeedLoadResult)
 			if !errors.Is(result.err, wantErr) {
 				t.Fatalf("resolution error = %v, want %v", result.err, wantErr)
 			}
 			updated, cmd := m.Update(result)
 			m = updated.(Model)
-			select {
-			case response := <-reply:
-				if response.OK || !strings.Contains(response.Error, wantErr.Error()) {
-					t.Fatalf("response = %+v, want %v", response, wantErr)
-				}
-			default:
-				t.Fatal("missing context error reply")
+			if completed, _ := jobs.Get(job.ID); completed.State != ipc.JobFailed || completed.Error == nil || !strings.Contains(completed.Error.Detail, wantErr.Error()) {
+				t.Fatalf("job = %+v, want failure with %v", completed, wantErr)
 			}
 			if cmd != nil || !reflect.DeepEqual(m.playlist.Snapshot(), before) || !reflect.DeepEqual(*engine, engineBefore) {
 				t.Fatal("context error mutated playback")
@@ -475,57 +433,31 @@ func TestIPCPodcastResolutionContextErrors(t *testing.T) {
 }
 
 func TestIPCTrackActionsNonFeed(t *testing.T) {
-	for _, transport := range []string{"legacy", "v2"} {
-		for _, op := range []string{"track.queue", "track.play"} {
-			for _, info := range []ipc.TrackInfo{
-				{Title: "Single track", Path: "/music/new.flac"},
-				{Title: "Episode", Path: "https://example.com/episode.mp3", ProviderMeta: map[string]string{"podcast.feed": "https://example.com/feed"}},
-				{Title: "Non-feed album", Path: "https://example.com/album", ProviderMeta: map[string]string{"kind": "album", "albumID": "album-id"}},
-			} {
-				t.Run(transport+"/"+op+"/"+info.Title, func(t *testing.T) {
-					m, _ := ipcPodcastTestModel()
-					original, queued := m.playlist.Tracks(), m.playlist.QueueTracks()
-					if transport == "legacy" {
-						reply := make(chan ipc.Response, 1)
-						updated, _ := m.Update(ipc.QueueRequestMsg{Op: op, Track: &info, Reply: reply})
-						m = updated.(Model)
-						select {
-						case response := <-reply:
-							if !response.OK {
-								t.Fatalf("response = %+v", response)
-							}
-						default:
-							t.Fatal("non-feed action did not reply immediately")
-						}
-					} else {
-						jobs := ipc.NewJobStore()
-						defer jobs.CancelAll()
-						job, err := jobs.Create(op)
-						if err != nil {
-							t.Fatal(err)
-						}
-						params, err := json.Marshal(ipc.Request{Track: &info})
-						if err != nil {
-							t.Fatal(err)
-						}
-						updated, _ := m.Update(V2RequestMsg{Request: ipc.V2Request{Operation: op, Params: params}, Jobs: jobs, JobID: job.ID})
-						m = updated.(Model)
-						completed, _ := jobs.Get(job.ID)
-						if completed.State != ipc.JobSucceeded {
-							t.Fatalf("job = %+v, want immediate success", completed)
-						}
-					}
-					track := ipcTrackFromInfo(info)
-					wantIndex := len(original)
-					if op == "track.queue" {
-						queued = append(queued, track)
-						wantIndex = 0
-					}
-					if !reflect.DeepEqual(m.playlist.Tracks(), append(original, track)) || !reflect.DeepEqual(m.playlist.QueueTracks(), queued) || m.playlist.Index() != wantIndex {
-						t.Fatal("non-feed single-track behavior changed")
-					}
-				})
-			}
+	for _, op := range []string{"track.queue", "track.play"} {
+		for _, info := range []ipc.TrackInfo{
+			{Title: "Single track", Path: "/music/new.flac"},
+			{Title: "Episode", Path: "https://example.com/episode.mp3", ProviderMeta: map[string]string{"podcast.feed": "https://example.com/feed"}},
+			{Title: "Non-feed album", Path: "https://example.com/album", ProviderMeta: map[string]string{"kind": "album", "albumID": "album-id"}},
+		} {
+			t.Run(op+"/"+info.Title, func(t *testing.T) {
+				m, _ := ipcPodcastTestModel()
+				original, queued := m.playlist.Tracks(), m.playlist.QueueTracks()
+				msg := v2Request(t, op, ipc.Request{Track: &info})
+				updated, _ := m.Update(msg)
+				m = updated.(Model)
+				if completed, _ := msg.Jobs.Get(msg.JobID); completed.State != ipc.JobSucceeded {
+					t.Fatalf("job = %+v, want immediate success", completed)
+				}
+				track := ipcTrackFromInfo(info)
+				wantIndex := len(original)
+				if op == "track.queue" {
+					queued = append(queued, track)
+					wantIndex = 0
+				}
+				if !reflect.DeepEqual(m.playlist.Tracks(), append(original, track)) || !reflect.DeepEqual(m.playlist.QueueTracks(), queued) || m.playlist.Index() != wantIndex {
+					t.Fatal("non-feed single-track behavior changed")
+				}
+			})
 		}
 	}
 }

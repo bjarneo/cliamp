@@ -3,7 +3,7 @@ package model
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"math"
 	"strings"
 	"time"
@@ -39,22 +39,30 @@ type ipcRuntimeFingerprint struct {
 	playlistRevision uint64
 	state            string
 	trackPath        string
+	favorite         bool // ♥ state of the playing track
 	logicalPath      string
 	detached         bool
 	index            int
 	total            int
 	playNextTotal    int
 	volume           float64
+	playlist         string
 	shuffle          bool
 	repeat           string
 	mono             bool
 	speed            float64
 	eq               [10]float64
 	eqPreset         string
+	device           string
 	visualizer       string
 	theme            string
 	streamTitle      string
 	streamError      string
+	// buffering, durationSecs and seekable change when a buffering track
+	// starts, so the new clock gets its own event.
+	buffering    bool
+	durationSecs int64
+	seekable     bool
 }
 
 // SetIPCBroker enables GUI-facing V2 state events. It must be called before
@@ -129,59 +137,46 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 		if !m.player.IsPlaying() || m.player.IsPaused() {
 			cmd = m.togglePlayPause()
 		}
-		m.notifyAll()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return cmd
 	case "pause":
 		if m.player.IsPlaying() && !m.player.IsPaused() {
 			m.togglePlayerPause()
-			m.notifyAll()
 		}
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return nil
 	case "toggle":
 		cmd := m.togglePlayPause()
-		m.notifyAll()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return cmd
 	case "stop":
-		m.stopPlayback()
-		m.notifyAll()
+		m.stopByUser()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return nil
 	case "next":
-		m.scrobbleCurrent()
-		cmd := m.nextTrack()
-		m.notifyAll()
+		cmd := m.skipNext()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return cmd
 	case "prev":
-		m.scrobbleCurrent()
-		cmd := m.prevTrack()
-		m.notifyAll()
+		cmd := m.skipPrev()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return cmd
 	case "volume":
-		m.player.SetVolume(request.Value)
-		m.notifyAll()
+		m.setVolume(request.Value)
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true, Volume: m.player.Volume()})
 		return nil
 	case "volume.adjust":
-		m.player.SetVolume(m.player.Volume() + request.Value)
-		m.notifyAll()
+		m.adjustVolume(request.Value)
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true, Volume: m.player.Volume()})
 		return nil
 	case "seek":
-		_ = m.player.Seek(secondsDuration(request.Value))
-		m.notifyAll()
+		cmd := m.seekRelative(secondsDuration(request.Value), 0)
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
-		return nil
+		return cmd
 	case "seek.absolute":
-		position, _ := m.player.PositionAndDuration()
-		_ = m.player.Seek(secondsDuration(request.Value) - position)
-		m.notifyAll()
+		cmd := m.seekAbsolute(secondsDuration(request.Value))
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
-		return nil
+		return cmd
 	case "speed":
 		if request.Value <= 0 || math.IsNaN(request.Value) || math.IsInf(request.Value, 0) {
 			m.failV2Job(msg.Jobs, msg.JobID, v2InvalidParamsError())
@@ -232,12 +227,9 @@ func (m *Model) handleV2QueueRequest(ctx context.Context, jobs *ipc.JobStore, jo
 			m.failV2Job(jobs, jobID, v2InvalidParamsError())
 			return nil
 		}
-		track := playlist.TrackFromPath(request.Path)
-		m.playlist.Add(track)
-		m.loadedPlaylist = ""
-		m.addToHeaderState([]playlist.Track{track})
+		m.appendTracks(playlist.TrackFromPath(request.Path))
 		m.completeV2Job(jobs, jobID, m.v2PlaylistResponse())
-		return nil
+		return m.rearmStalePreload()
 	}
 	if request.Cmd == "queue.list" {
 		m.completeV2Job(jobs, jobID, m.v2PlaylistResponsePage(request.Offset, request.Limit))
@@ -250,7 +242,7 @@ func (m *Model) handleV2QueueRequest(ctx context.Context, jobs *ipc.JobStore, jo
 		}
 		track := ipcTrackFromInfo(*request.Track)
 		if track.Feed {
-			return ipcFeedLoadCmd(ctx, ipc.QueueRequestMsg{Op: request.Cmd}, track, jobs, jobID, request.Revision)
+			return ipcFeedLoadCmd(ctx, request.Cmd, track, jobs, jobID, request.Revision)
 		}
 		if request.Cmd == "track.play" {
 			cmd := m.playTrackImmediate(track)
@@ -268,9 +260,7 @@ func (m *Model) handleV2QueueRequest(ctx context.Context, jobs *ipc.JobStore, jo
 			m.failV2Job(jobs, jobID, v2InvalidParamsError())
 			return nil
 		}
-		m.playlist.SetIndex(request.Index)
-		m.plCursor = request.Index
-		cmd := m.playCurrentTrack()
+		cmd := m.playIndex(request.Index)
 		m.completeV2Job(jobs, jobID, m.v2PlaylistResponse())
 		return cmd
 	case "queue.enqueue":
@@ -280,33 +270,29 @@ func (m *Model) handleV2QueueRequest(ctx context.Context, jobs *ipc.JobStore, jo
 		}
 		m.playlist.Queue(request.Index)
 		m.normalizeQueueOverlay()
-	case "queue.remove":
-		if request.Index < 0 || request.Index >= m.playlist.Len() {
-			m.failV2Job(jobs, jobID, v2InvalidParamsError())
+		m.completeV2Job(jobs, jobID, m.v2PlaylistResponse())
+		return m.rearmStalePreload()
+	case "queue.remove", "queue.move":
+		var cmd tea.Cmd
+		var err error
+		if request.Cmd == "queue.remove" {
+			cmd, err = m.removeTrack(request.Index, false)
+		} else {
+			cmd, err = m.moveTrack(request.Index, request.To)
+		}
+		if err != nil {
+			m.failV2Job(jobs, jobID, v2QueueEditError(err))
 			return nil
 		}
-		if request.Index == m.playlist.Index() {
-			m.stopPlayback()
-		}
-		if !m.playlist.Remove(request.Index) {
-			m.failV2Job(jobs, jobID, v2InvalidParamsError())
-			return nil
-		}
-		m.setHeaderStateFromTracks(m.playlist.Tracks())
-		m.normalizeQueueOverlay()
-	case "queue.move":
-		if !m.playlist.Move(request.Index, request.To) {
-			m.failV2Job(jobs, jobID, v2InvalidParamsError())
-			return nil
-		}
-		m.setHeaderStateFromTracks(m.playlist.Tracks())
-		m.normalizeQueueOverlay()
+		m.completeV2Job(jobs, jobID, m.v2PlaylistResponse())
+		return cmd
 	case "queue.clear":
 		m.stopPlayback()
 		m.retireTracksPaging()
 		m.replacePlaylist(nil)
-		m.loadedPlaylist = ""
+		m.clearLoadedPlaylist()
 		m.setHeaderStateFromTracks(nil)
+		m.plCursor, m.plScroll = 0, 0
 	}
 	m.completeV2Job(jobs, jobID, m.v2PlaylistResponse())
 	return nil
@@ -333,7 +319,7 @@ func (m *Model) handleV2PlayNext(jobs *ipc.JobStore, jobID string, request ipc.R
 	}
 	m.normalizeQueueOverlay()
 	m.completeV2Job(jobs, jobID, m.v2PlayNextResponse())
-	return nil
+	return m.rearmStalePreload()
 }
 
 func (m *Model) handleV2Theme(jobs *ipc.JobStore, jobID string, request ipc.Request) tea.Cmd {
@@ -352,10 +338,10 @@ func (m *Model) handleV2Theme(jobs *ipc.JobStore, jobID string, request ipc.Requ
 		return nil
 	}
 	themeName := request.Name
-	if strings.EqualFold(themeName, theme.DefaultName) {
+	if theme.IsDefaultName(themeName) {
 		themeName = ""
 	}
-	if err := m.configSaver.Save("theme", fmt.Sprintf("%q", themeName)); err != nil {
+	if err := m.saveConfigString("theme", themeName); err != nil {
 		m.failV2Job(jobs, jobID, v2InternalError())
 		return nil
 	}
@@ -365,7 +351,15 @@ func (m *Model) handleV2Theme(jobs *ipc.JobStore, jobID string, request ipc.Requ
 
 func (m *Model) handleV2Visualizer(jobs *ipc.JobStore, jobID string, request ipc.Request) tea.Cmd {
 	if strings.EqualFold(request.Name, "list") {
-		m.completeV2Job(jobs, jobID, ipc.Response{OK: true, Items: ui.VisModeNames()})
+		resp := ipc.Response{OK: true, Items: ui.VisModeNames()}
+		if m.vis != nil {
+			// A Lua mode can have the name of a built-in mode, so the
+			// index names the active row.
+			resp.Items = m.vis.AllModeNames()
+			resp.Visualizer = m.vis.ModeName()
+			resp.Index = int(m.vis.Mode)
+		}
+		m.completeV2Job(jobs, jobID, resp)
 		return nil
 	}
 	if m.vis == nil {
@@ -373,10 +367,7 @@ func (m *Model) handleV2Visualizer(jobs *ipc.JobStore, jobID string, request ipc
 		return nil
 	}
 	if strings.EqualFold(request.Name, "next") {
-		m.vis.CycleMode()
-		m.vis.RequestRefresh()
-		m.refreshChrome()
-		if err := m.saveVisualizerChoice(); err != nil {
+		if err := m.cycleVisualizer(); err != nil {
 			m.failV2Job(jobs, jobID, v2InternalError())
 			return nil
 		}
@@ -400,13 +391,7 @@ func (m *Model) handleV2Visualizer(jobs *ipc.JobStore, jobID string, request ipc
 // player and was then lost on the next launch, unlike the theme operation
 // beside it, which has always persisted its choice.
 func (m *Model) saveVisualizerChoice() error {
-	if m.configSaver == nil {
-		return nil
-	}
-	if err := m.configSaver.Save("visualizer", fmt.Sprintf("%q", m.vis.ModeName())); err != nil {
-		return fmt.Errorf("saving visualizer %q: %w", m.vis.ModeName(), err)
-	}
-	return nil
+	return m.saveConfigString("visualizer", m.vis.ModeName())
 }
 
 func (m *Model) handleV2Device(jobs *ipc.JobStore, jobID string, request ipc.Request) tea.Cmd {
@@ -416,11 +401,7 @@ func (m *Model) handleV2Device(jobs *ipc.JobStore, jobID string, request ipc.Req
 			if err != nil {
 				return ipcV2ResponseMsg{Jobs: jobs, JobID: jobID, Operation: "device", Response: ipc.Response{OK: false, Error: err.Error()}}
 			}
-			items := make([]ipc.DeviceInfo, len(devices))
-			for i, device := range devices {
-				items[i] = ipc.DeviceInfo{Name: device.Name, Active: device.Active}
-			}
-			return ipcV2ResponseMsg{Jobs: jobs, JobID: jobID, Operation: "device", Response: ipc.Response{OK: true, Devices: items}}
+			return ipcV2ResponseMsg{Jobs: jobs, JobID: jobID, Operation: "device", Response: deviceListResponse(devices)}
 		}
 	}
 	return func() tea.Msg {
@@ -433,6 +414,40 @@ func (m *Model) handleV2Device(jobs *ipc.JobStore, jobID string, request ipc.Req
 	}
 }
 
+// deviceListResponse lists the output devices. Device holds one line for
+// each device, with "* " before the active one, for cliamp device list.
+func deviceListResponse(devices []player.AudioDevice) ipc.Response {
+	items := make([]ipc.DeviceInfo, len(devices))
+	lines := make([]string, len(devices))
+	for i, device := range devices {
+		items[i] = ipc.DeviceInfo{Name: device.Name, Active: device.Active}
+		marker := "  "
+		if device.Active {
+			marker = "* "
+		}
+		lines[i] = marker + device.Name
+	}
+	return ipc.Response{OK: true, Device: strings.Join(lines, "\n"), Devices: items}
+}
+
+// applyV2DeviceResponse records the output device that a device job
+// reports. A switch also saves the device in the config.
+func (m *Model) applyV2DeviceResponse(response ipc.Response) {
+	if len(response.Devices) > 0 {
+		for _, device := range response.Devices {
+			if device.Active {
+				m.audioDevice = device.Name
+			}
+		}
+		return
+	}
+	if response.Device != "" {
+		m.audioDevice = response.Device
+		_ = m.saveConfigString("audio_device", response.Device)
+		m.devicePicker.devices = nil
+	}
+}
+
 func (m *Model) handleV2EQ(jobs *ipc.JobStore, jobID string, request ipc.Request) tea.Cmd {
 	if request.Band > 0 || (request.Band == 0 && request.Name == "") {
 		if request.Band >= eqBandCount {
@@ -441,6 +456,12 @@ func (m *Model) handleV2EQ(jobs *ipc.JobStore, jobID string, request ipc.Request
 		}
 		m.setCustomEQBand(request.Band, request.Value)
 	} else if request.Name != "" {
+		// Only plugins may name a curve. An IPC name must be a built-in
+		// preset or Custom.
+		if _, ok := EQPresetByName(request.Name); !ok && !strings.EqualFold(request.Name, "Custom") {
+			m.failV2Job(jobs, jobID, v2NotFoundError())
+			return nil
+		}
 		m.SetEQPreset(request.Name, nil)
 		m.scheduleEQSave()
 	} else {
@@ -451,33 +472,47 @@ func (m *Model) handleV2EQ(jobs *ipc.JobStore, jobID string, request ipc.Request
 	return nil
 }
 
+// handleV2Mode sets shuffle, repeat or mono. Shuffle and mono take on, off
+// or toggle, and repeat takes off, all, one or cycle. No name toggles or
+// cycles. Any other name is an error and changes nothing.
 func (m *Model) handleV2Mode(jobs *ipc.JobStore, jobID string, request ipc.Request) tea.Cmd {
 	name := strings.ToLower(request.Name)
 	switch request.Cmd {
 	case "shuffle":
-		if (name == "on" && !m.playlist.Shuffled()) || (name == "off" && m.playlist.Shuffled()) || (name != "on" && name != "off") {
-			m.playlist.ToggleShuffle()
+		on, ok := switchValue(name, m.playlist.Shuffled())
+		if !ok {
+			m.failV2Job(jobs, jobID, v2InvalidParamsError())
+			return nil
 		}
+		cmd := m.setShuffle(on)
 		value := m.playlist.Shuffled()
-		_ = m.configSaver.Save("shuffle", fmt.Sprintf("%v", value))
-		m.player.ClearPreload()
 		m.completeV2Job(jobs, jobID, ipc.Response{OK: true, Shuffle: &value})
+		return cmd
 	case "repeat":
+		var mode playlist.RepeatMode
 		switch name {
+		case "", "cycle":
+			mode = (m.playlist.Repeat() + 1) % (playlist.RepeatOne + 1)
 		case "off":
-			m.playlist.SetRepeat(playlist.RepeatOff)
+			mode = playlist.RepeatOff
 		case "all":
-			m.playlist.SetRepeat(playlist.RepeatAll)
+			mode = playlist.RepeatAll
 		case "one":
-			m.playlist.SetRepeat(playlist.RepeatOne)
+			mode = playlist.RepeatOne
 		default:
-			m.playlist.CycleRepeat()
+			m.failV2Job(jobs, jobID, v2InvalidParamsError())
+			return nil
 		}
-		_ = m.configSaver.Save("repeat", fmt.Sprintf("%q", m.playlist.Repeat().String()))
-		m.player.ClearPreload()
+		cmd := m.setRepeat(mode)
 		m.completeV2Job(jobs, jobID, ipc.Response{OK: true, Repeat: m.playlist.Repeat().String()})
+		return cmd
 	case "mono":
-		if (name == "on" && !m.player.Mono()) || (name == "off" && m.player.Mono()) || (name != "on" && name != "off") {
+		on, ok := switchValue(name, m.player.Mono())
+		if !ok {
+			m.failV2Job(jobs, jobID, v2InvalidParamsError())
+			return nil
+		}
+		if on != m.player.Mono() {
 			m.player.ToggleMono()
 		}
 		value := m.player.Mono()
@@ -486,9 +521,24 @@ func (m *Model) handleV2Mode(jobs *ipc.JobStore, jobID string, request ipc.Reque
 	return nil
 }
 
+// switchValue returns the new state of an on and off setting that is now
+// current. name is on, off, toggle or empty, in lower case. ok is false for
+// any other name.
+func switchValue(name string, current bool) (on, ok bool) {
+	switch name {
+	case "on":
+		return true, true
+	case "off":
+		return false, true
+	case "", "toggle":
+		return !current, true
+	}
+	return false, false
+}
+
 func (m *Model) handleV2LibraryRequest(ctx context.Context, jobs *ipc.JobStore, jobID string, request ipc.Request) tea.Cmd {
 	reply := make(chan ipc.Response, 1)
-	cmd := m.handleIPCLibrary(ipc.LibraryRequestMsg{
+	cmd := m.handleIPCLibrary(ipcLibraryRequest{
 		Op: request.Cmd, Provider: request.Provider, Playlist: request.Playlist, Query: request.Query,
 		Artist: request.Artist, Album: request.Album, Sort: request.Sort, Offset: request.Offset,
 		Limit: request.Limit, Index: request.Index, NewName: request.NewName, Track: request.Track, Tracks: request.Tracks, Context: ctx, Reply: reply,
@@ -501,13 +551,13 @@ func (m *Model) handleV2DeferredRequest(ctx context.Context, jobs *ipc.JobStore,
 	var cmd tea.Cmd
 	switch request.Cmd {
 	case "url.load":
-		cmd = m.handleIPCURL(ipc.URLRequestMsg{URL: request.Path, Play: request.Play, Context: ctx, Reply: reply})
+		cmd = m.handleIPCURL(ipcURLRequest{URL: request.Path, Play: request.Play, Context: ctx, Reply: reply})
 	case "save":
-		cmd = m.handleIPCSave(ipc.SaveRequestMsg{Reply: reply})
+		cmd = m.handleIPCSave(ipcSaveRequest{Context: ctx, Reply: reply})
 	case "lyrics":
-		cmd = m.handleIPCLyrics(ipc.LyricsRequestMsg{Reply: reply})
+		cmd = m.handleIPCLyrics(ipcLyricsRequest{Context: ctx, Reply: reply})
 	default:
-		cmd = m.handleIPCHistory(ipc.HistoryRequestMsg{Op: request.Cmd, Limit: request.Limit, Reply: reply})
+		cmd = m.handleIPCHistory(ipcHistoryRequest{Op: request.Cmd, Limit: request.Limit, Reply: reply})
 	}
 	return tea.Batch(cmd, waitV2ResponseCmd(ctx, jobs, jobID, reply))
 }
@@ -520,6 +570,20 @@ func waitV2ResponseCmd(ctx context.Context, jobs *ipc.JobStore, jobID string, re
 		case <-ctx.Done():
 			return nil
 		}
+	}
+}
+
+// handleV2Response finishes a V2 job with the response of its async work.
+func (m *Model) handleV2Response(msg ipcV2ResponseMsg) {
+	if msg.Response.OK {
+		if msg.Operation == "device" {
+			m.applyV2DeviceResponse(msg.Response)
+		}
+		m.completeV2Job(msg.Jobs, msg.JobID, msg.Response)
+	} else {
+		err := v2InternalError()
+		err.Detail = msg.Response.Error
+		m.failV2Job(msg.Jobs, msg.JobID, err)
 	}
 }
 
@@ -548,8 +612,17 @@ func (m *Model) replyV2(reply chan V2RequestResult, result ipc.V2Result, err *ip
 	}
 }
 
+// runtimePlaylist names the list in the queue for the runtime snapshot: the
+// loaded local list, or else the provider list of the last IPC load.
+func (m *Model) runtimePlaylist() string {
+	if m.loadedPlaylist != "" {
+		return m.loadedPlaylist
+	}
+	return m.playlistSource
+}
+
 func (m *Model) runtimeSnapshot() ipc.RuntimeSnapshot {
-	snapshot := ipc.RuntimeSnapshot{}
+	snapshot := ipc.RuntimeSnapshot{Playlist: m.runtimePlaylist(), Device: m.audioDevice}
 	if m.ipcRuntime != nil {
 		snapshot.Revision = m.ipcRuntime.revision
 	}
@@ -562,7 +635,7 @@ func (m *Model) runtimeSnapshot() ipc.RuntimeSnapshot {
 		snapshot.Shuffle = &shuffled
 		snapshot.Repeat = m.playlist.Repeat().String()
 		if track, index := m.playlist.Current(); index >= 0 {
-			info := ipcTrackInfo(track, index, m.playlist.QueuePosition(index))
+			info := ipcTrackInfo(track, index, m.playlist.QueuePosition(index), m.playlistTrackFavorited(track))
 			snapshot.LogicalTrack = &info
 		}
 	}
@@ -583,7 +656,7 @@ func (m *Model) runtimeSnapshot() ipc.RuntimeSnapshot {
 		if m.playlist != nil && index >= 0 {
 			queuePosition = m.playlist.QueuePosition(index)
 		}
-		info := ipcTrackInfo(track, index, queuePosition)
+		info := ipcTrackInfo(track, index, queuePosition, m.playlistTrackFavorited(track))
 		artist, title := m.resolveTrackDisplay(track)
 		if title != "" {
 			if track.Stream && title != track.Title {
@@ -597,7 +670,7 @@ func (m *Model) runtimeSnapshot() ipc.RuntimeSnapshot {
 		snapshot.Track = &info
 	}
 	snapshot.PlaybackDetached = m.playbackDetached
-	position, duration := m.player.PositionAndDuration()
+	position, duration := m.playbackClock()
 	snapshot.Position = position.Seconds()
 	snapshot.Duration = duration.Seconds()
 	snapshot.Seekable = m.player.Seekable()
@@ -645,7 +718,7 @@ func (m *Model) publishIPCRuntimeState() {
 }
 
 func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
-	var fingerprint ipcRuntimeFingerprint
+	fingerprint := ipcRuntimeFingerprint{playlist: m.runtimePlaylist(), device: m.audioDevice}
 	fingerprint.playlistRevision = m.playlist.Revision()
 	fingerprint.index = m.playlist.Index()
 	fingerprint.total = m.playlist.Len()
@@ -659,6 +732,10 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 	fingerprint.eqPreset = m.EQPresetName()
 	fingerprint.detached = m.playbackDetached
 	fingerprint.streamTitle = m.streamTitle
+	fingerprint.buffering = m.buffering
+	_, duration := m.playbackClock()
+	fingerprint.durationSecs = int64(duration / time.Second)
+	fingerprint.seekable = m.player.Seekable()
 	if m.player.IsPlaying() && !m.player.IsPaused() {
 		fingerprint.state = "playing"
 	} else if m.player.IsPaused() {
@@ -668,6 +745,7 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 	}
 	if track, _ := m.currentPlaybackTrack(); track.Path != "" {
 		fingerprint.trackPath = track.Path
+		fingerprint.favorite = m.playlistTrackFavorited(track)
 	}
 	if track, _ := m.playlist.Current(); track.Path != "" {
 		fingerprint.logicalPath = track.Path
@@ -684,6 +762,11 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 
 func (m *Model) v2BandsResponse() ipc.Response {
 	response := ipc.Response{OK: true}
+	if m.headless {
+		// The low-power tick is too slow for a spectrum client, so each
+		// request analyzes the audio that plays now.
+		m.tickVisualizer(time.Now())
+	}
 	if m.vis != nil {
 		response.Visualizer = m.vis.ModeName()
 		response.Bands = append([]float64(nil), m.vis.SmoothedBands()...)
@@ -708,7 +791,7 @@ func (m *Model) v2PlaylistResponsePage(offset, limit int) ipc.Response {
 	items := make([]ipc.TrackInfo, end-offset)
 	for i, track := range tracks[offset:end] {
 		index := offset + i
-		items[i] = ipcTrackInfo(track, index, m.playlist.QueuePosition(index))
+		items[i] = ipcTrackInfo(track, index, m.playlist.QueuePosition(index), m.playlistTrackFavorited(track))
 	}
 	return ipc.Response{OK: true, Tracks: items, Index: m.playlist.Index(), Total: total}
 }
@@ -729,7 +812,7 @@ func (m *Model) v2PlayNextResponsePage(offset, limit int) ipc.Response {
 	end := min(total, offset+limit)
 	items := make([]ipc.TrackInfo, end-offset)
 	for i, entry := range entries[offset:end] {
-		items[i] = ipcTrackInfo(entry.Track, entry.TrackIndex, offset+i+1)
+		items[i] = ipcTrackInfo(entry.Track, entry.TrackIndex, offset+i+1, m.playlistTrackFavorited(entry.Track))
 	}
 	return ipc.Response{OK: true, Tracks: items, Total: total}
 }
@@ -748,55 +831,32 @@ func v2OperationRequest(request ipc.V2Request) (ipc.Request, *ipc.V2Error) {
 	return result, nil
 }
 
+// normalizeV2Operation maps the runtime.* aliases of the operation registry
+// to the operations that handleV2Request serves. The server passes on only
+// registered names, in the case of the registry.
 func normalizeV2Operation(operation string) string {
-	operation = strings.ToLower(strings.TrimSpace(operation))
 	switch operation {
-	case "player.play", "runtime.play":
+	case "runtime.play":
 		return "play"
-	case "player.pause", "runtime.pause":
+	case "runtime.pause":
 		return "pause"
-	case "player.toggle", "runtime.toggle":
+	case "runtime.toggle":
 		return "toggle"
-	case "player.stop", "runtime.stop":
+	case "runtime.stop":
 		return "stop"
-	case "player.next", "runtime.next":
+	case "runtime.next":
 		return "next"
-	case "player.prev", "player.previous", "runtime.prev":
+	case "runtime.prev":
 		return "prev"
-	case "player.volume.set", "runtime.volume":
+	case "runtime.volume":
 		return "volume"
-	case "player.volume.adjust":
-		return "volume.adjust"
-	case "player.seek.relative", "runtime.seek":
+	case "runtime.seek":
 		return "seek"
-	case "player.seek.absolute":
-		return "seek.absolute"
-	case "player.speed.set", "runtime.speed":
+	case "runtime.speed":
 		return "speed"
-	case "player.speed.adjust":
-		return "speed.adjust"
-	case "runtime.playlist.get":
-		return "queue.list"
-	case "runtime.playlist.play":
-		return "queue.play"
-	case "runtime.playlist.remove":
-		return "queue.remove"
-	case "runtime.playlist.move":
-		return "queue.move"
-	case "runtime.playlist.clear":
-		return "queue.clear"
-	case "runtime.queue.list":
-		return "queue.list"
-	case "runtime.queue.play":
-		return "queue.play"
-	case "runtime.queue.enqueue":
-		return "queue.enqueue"
-	case "runtime.queue.remove":
-		return "queue.remove"
-	case "runtime.queue.move":
-		return "queue.move"
-	case "runtime.queue.clear":
-		return "queue.clear"
+	case "runtime.queue.list", "runtime.queue.play", "runtime.queue.enqueue",
+		"runtime.queue.remove", "runtime.queue.move", "runtime.queue.clear":
+		return strings.TrimPrefix(operation, "runtime.")
 	case "runtime.library.search":
 		return "provider.search"
 	case "runtime.history":
@@ -849,4 +909,21 @@ func v2UnavailableError() *ipc.V2Error {
 
 func v2InternalError() *ipc.V2Error {
 	return &ipc.V2Error{Code: ipc.V2ErrorCodeInternal, Message: ipc.V2MessageInternal}
+}
+
+// v2QueueEditError returns the V2 error for a refused queue edit. A bad
+// index is invalid_params. A move under shuffle and a track from a
+// directory source are a conflict. A failed save is internal_error.
+func v2QueueEditError(err error) *ipc.V2Error {
+	var v2Err *ipc.V2Error
+	switch {
+	case errors.Is(err, errQueueIndex):
+		return v2InvalidParamsError()
+	case errors.Is(err, errQueueShuffled), errors.Is(err, errQueueDirTrack):
+		v2Err = v2ConflictError()
+	default:
+		v2Err = v2InternalError()
+	}
+	v2Err.Detail = err.Error()
+	return v2Err
 }

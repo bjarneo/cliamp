@@ -15,29 +15,29 @@ func TestStopRefusesPendingStreamStart(t *testing.T) {
 
 	tests := []struct {
 		name string
-		stop func(m Model) Model
+		stop func(t *testing.T, m Model) Model
 	}{
-		{name: "next past the end of the queue", stop: func(m Model) Model {
+		{name: "next past the end of the queue", stop: func(_ *testing.T, m Model) Model {
 			m.nextTrack()
 			return m
 		}},
-		{name: "stop message", stop: func(m Model) Model {
+		{name: "stop message", stop: func(_ *testing.T, m Model) Model {
 			updated, _ := m.Update(playback.StopMsg{})
 			return updated.(Model)
 		}},
-		{name: "remove the playing track from the playlist", stop: func(m Model) Model {
-			m.plCursor = 0
-			m.removeSelectedFromPlaylist()
+		{name: "remove the playing track from the playlist", stop: func(_ *testing.T, m Model) Model {
+			m.removeTrack(0, true)
 			return m
 		}},
-		{name: "plugin removes the playing track", stop: func(m Model) Model {
-			m.removeIndex(0)
-			return m
-		}},
-		{name: "IPC queue.clear", stop: func(m Model) Model {
-			reply := make(chan ipc.Response, 1)
-			updated, _ := m.Update(ipc.QueueRequestMsg{Op: "queue.clear", Reply: reply})
+		{name: "plugin removes the playing track", stop: func(_ *testing.T, m Model) Model {
+			updated, _ := m.Update(PluginQueueMsg{Op: "remove", Index: 0})
 			return updated.(Model)
+		}},
+		{name: "IPC queue.clear", stop: func(t *testing.T, m Model) Model {
+			if response := runV2(t, &m, "queue.clear", ipc.Request{}); !response.OK {
+				t.Fatalf("queue.clear response = %+v", response)
+			}
+			return m
 		}},
 	}
 	for _, tt := range tests {
@@ -57,7 +57,7 @@ func TestStopRefusesPendingStreamStart(t *testing.T) {
 				t.Fatal("stream start should leave the model buffering until the pipeline is ready")
 			}
 
-			m = tt.stop(m)
+			m = tt.stop(t, m)
 			if engine.playGeneration == pending {
 				t.Fatal("stopping did not advance the playback generation")
 			}

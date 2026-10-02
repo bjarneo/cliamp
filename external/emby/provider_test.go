@@ -1,33 +1,15 @@
 package emby
 
 import (
-	"bytes"
-	"io"
-	"net/http"
 	"testing"
 
+	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
 
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
-
-func jsonResponse(body string) *http.Response {
-	return &http.Response{
-		StatusCode: http.StatusOK,
-		Status:     "200 OK",
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(bytes.NewBufferString(body)),
-	}
-}
-
-func mockProvider(userID string, fn roundTripFunc) *Provider {
-	c := NewClient("https://emby.example.com", "tok", userID, "", "")
-	c.SetHTTPClient(&http.Client{Transport: fn})
-	return newProvider(c)
-}
+// The shared provider body is tested in internal/embyapi. These tests cover
+// what the Emby package adds.
 
 func TestProviderName(t *testing.T) {
 	p := newProvider(NewClient("https://emby.example.com", "tok", "user-1", "", ""))
@@ -36,91 +18,50 @@ func TestProviderName(t *testing.T) {
 	}
 }
 
-func TestProviderPlaylists(t *testing.T) {
-	p := mockProvider("", func(req *http.Request) (*http.Response, error) {
-		switch req.URL.Path {
-		case "/Users/Me":
-			return jsonResponse(`{"Id":"user-1","Name":"Nomad"}`), nil
-		case "/Users/user-1/Views":
-			return jsonResponse(`{"Items":[{"Id":"lib-1","Name":"Music","CollectionType":"music"}]}`), nil
-		case "/Items":
-			return jsonResponse(`{"Items":[{"Id":"album-1","Name":"Kind of Blue","AlbumArtist":"Miles Davis","ProductionYear":1959,"ChildCount":5}]}`), nil
-		default:
-			t.Fatalf("unexpected path %s", req.URL.Path)
-			return nil, nil
-		}
-	})
-
-	lists, err := p.Playlists()
-	if err != nil {
-		t.Fatalf("Playlists() error: %v", err)
-	}
-	if len(lists) != 1 {
-		t.Fatalf("expected 1 playlist, got %d", len(lists))
-	}
-	if lists[0].ID != "album-1" || lists[0].TrackCount != 5 {
-		t.Fatalf("playlist = %+v", lists[0])
-	}
-	if lists[0].Name != "Miles Davis — Kind of Blue (1959)" {
-		t.Fatalf("playlist name = %q", lists[0].Name)
-	}
-}
-
-func TestProviderTracks(t *testing.T) {
-	p := mockProvider("user-1", func(req *http.Request) (*http.Response, error) {
-		if req.URL.Path != "/Items" {
-			t.Fatalf("unexpected path %s", req.URL.Path)
-		}
-		return jsonResponse(`{
-			"Items": [
-				{
-					"Id":"track-1",
-					"Name":"So What",
-					"Album":"Kind of Blue",
-					"Artists":["Miles Davis"],
-					"ProductionYear":1959,
-					"IndexNumber":1,
-					"RunTimeTicks":5650000000
-				}
-			]
-		}`), nil
-	})
-
-	tracks, err := p.Tracks("album-1")
-	if err != nil {
-		t.Fatalf("Tracks() error: %v", err)
-	}
-	if len(tracks) != 1 {
-		t.Fatalf("expected 1 track, got %d", len(tracks))
-	}
-	tr := tracks[0]
-	if tr.Title != "So What" || tr.Artist != "Miles Davis" || tr.Album != "Kind of Blue" || tr.TrackNumber != 1 || !tr.Stream {
-		t.Fatalf("track = %+v", tr)
-	}
-	if got := tr.Meta(provider.MetaEmbyID); got != "track-1" {
-		t.Fatalf("track meta emby id = %q, want track-1", got)
+// Emby opens as a flat album list. A default browse mode would open the
+// artist browser on switch and take the N key for the mode chooser.
+func TestProviderHasNoDefaultBrowseMode(t *testing.T) {
+	var p any = newProvider(NewClient("https://emby.example.com", "tok", "user-1", "", ""))
+	if _, ok := p.(provider.DefaultBrowseModeProvider); ok {
+		t.Fatal("Emby implements DefaultBrowseModeProvider, want a flat album list")
 	}
 }
 
 func TestProviderCanReportPlayback(t *testing.T) {
 	p := newProvider(NewClient("https://emby.example.com", "tok", "user-1", "", ""))
 	tests := []struct {
-		name  string
-		track playlist.Track
-		want  bool
+		key  string
+		want bool
 	}{
-		{"emby track", trackWithMeta(provider.MetaEmbyID, "track-1"), true},
-		{"non-emby track", trackWithMeta(provider.MetaNavidromeID, "nav-1"), false},
+		{provider.MetaEmbyID, true},
+		{provider.MetaJellyfinID, false},
+		{provider.MetaNavidromeID, false},
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := p.CanReportPlayback(tc.track); got != tc.want {
-				t.Fatalf("CanReportPlayback() = %v, want %v", got, tc.want)
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			track := playlist.Track{ProviderMeta: map[string]string{tt.key: "track-1"}}
+			if got := p.CanReportPlayback(track); got != tt.want {
+				t.Fatalf("CanReportPlayback() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func trackWithMeta(key, value string) playlist.Track {
-	return playlist.Track{ProviderMeta: map[string]string{key: value}}
+func TestNewFromConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  config.EmbyConfig
+		want bool
+	}{
+		{"empty", config.EmbyConfig{}, false},
+		{"token", config.EmbyConfig{URL: "https://emby.example.com", Token: "tok"}, true},
+		{"password", config.EmbyConfig{URL: "https://emby.example.com", User: "u", Password: "p"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NewFromConfig(tt.cfg) != nil; got != tt.want {
+				t.Fatalf("NewFromConfig() returned a provider = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

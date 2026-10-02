@@ -1,9 +1,6 @@
 package ui
 
-import (
-	"strings"
-	"time"
-)
+import "strings"
 
 // sandDriver runs a falling-sand cellular automaton on the dot grid. Each
 // frame, new grains drop from the top — colored by which spectrum band
@@ -12,10 +9,11 @@ import (
 // nudging a row sideways, which destabilises slopes and triggers little
 // avalanches; loud passages keep the panel actively pouring.
 type sandDriver struct {
-	grid             []int8 // 0 = empty; 1 = green tier; 2 = yellow; 3 = red
-	dotRows, dotCols int
-	rng              uint64
-	prevBass         float64 // for detecting bass transients that bump the bed
+	spectrumDriverBase
+
+	grid     brailleGrid // tiers 1, 2 and 3 are green, yellow and red
+	rng      uint64
+	prevBass float64 // for detecting bass transients that bump the bed
 
 	// Explosion phase: when triggered, all grains become ballistic particles
 	// for a few dozen frames. While particles exist, normal spawning, bumping,
@@ -38,36 +36,18 @@ func newSandDriver() visModeDriver {
 	return &sandDriver{rng: 0x5A4D5A4D5A4D}
 }
 
-func (*sandDriver) AnalysisSpec(*Visualizer) VisAnalysisSpec {
-	return spectrumAnalysisSpec(DefaultSpectrumBands)
-}
-
-func (d *sandDriver) ensure(rows, cols int) {
-	if rows == d.dotRows && cols == d.dotCols && len(d.grid) == rows*cols {
-		return
-	}
-	d.grid = make([]int8, rows*cols)
-	d.dotRows = rows
-	d.dotCols = cols
-}
-
-// rand01 returns a deterministic pseudo-random float in [0,1).
-func (d *sandDriver) rand01() float64 {
-	d.rng = d.rng*6364136223846793005 + 1442695040888963407
-	return float64((d.rng>>33)%1000) / 1000.0
-}
-
 func (d *sandDriver) Tick(v *Visualizer, ctx VisTickContext) {
 	defaultDriverTick(v, ctx, d.AnalysisSpec(v))
 	if ctx.OverlayActive {
 		return
 	}
 	dotRows := v.Rows * 4
-	dotCols := PanelWidth * 2
+	dotCols := v.columns() * 2
 	if dotRows < 4 || dotCols < 4 {
 		return
 	}
-	d.ensure(dotRows, dotCols)
+	d.grid.resize(dotRows, dotCols)
+	grid := d.grid.cells
 
 	bands := v.SmoothedBands()
 	bass := bandAvg(bands, 0, max(1, len(bands)/3))
@@ -92,7 +72,7 @@ func (d *sandDriver) Tick(v *Visualizer, ctx VisTickContext) {
 				continue
 			}
 			// Probability of emitting this frame scales with band level.
-			if d.rand01() > level*0.85 {
+			if rng64(&d.rng) > level*0.85 {
 				continue
 			}
 			centre := (b*2 + 1) * dotCols / (2 * bandCount)
@@ -100,7 +80,7 @@ func (d *sandDriver) Tick(v *Visualizer, ctx VisTickContext) {
 			if spread < 1 {
 				spread = 1
 			}
-			x := centre + int(d.rand01()*float64(2*spread)) - spread
+			x := centre + int(rng64(&d.rng)*float64(2*spread)) - spread
 			if x < 0 {
 				x = 0
 			}
@@ -117,8 +97,8 @@ func (d *sandDriver) Tick(v *Visualizer, ctx VisTickContext) {
 			default:
 				tier = 1 // green
 			}
-			if d.grid[0*dotCols+x] == 0 {
-				d.grid[0*dotCols+x] = tier
+			if grid[0*dotCols+x] == 0 {
+				grid[0*dotCols+x] = tier
 			}
 		}
 	}
@@ -144,12 +124,12 @@ func (d *sandDriver) Tick(v *Visualizer, ctx VisTickContext) {
 	// grid is cleared *instead* of being merely shaken when overfilled.
 	if delta > 0.06 && bass > 0.15 {
 		fill := 0
-		for _, g := range d.grid {
+		for _, g := range grid {
 			if g != 0 {
 				fill++
 			}
 		}
-		if float64(fill)/float64(len(d.grid)) > 0.30 {
+		if float64(fill)/float64(len(grid)) > 0.30 {
 			// Convert every grain into a ballistic particle and enter the
 			// explosion phase. The simulation will animate the burst over
 			// the next few dozen frames, then resume.
@@ -180,15 +160,15 @@ func (d *sandDriver) Tick(v *Visualizer, ctx VisTickContext) {
 			// Lateral spread also scales — sand sprays out, not just up.
 			jitterRange := 1 + int(strength*5.0)
 			for x := 0; x < dotCols; x++ {
-				g := d.grid[y*dotCols+x]
+				g := grid[y*dotCols+x]
 				if g == 0 {
 					continue
 				}
-				if d.rand01() > liftProb {
+				if rng64(&d.rng) > liftProb {
 					continue
 				}
-				lift := 1 + int(d.rand01()*float64(liftMax))
-				jitter := int(d.rand01()*float64(2*jitterRange+1)) - jitterRange
+				lift := 1 + int(rng64(&d.rng)*float64(liftMax))
+				jitter := int(rng64(&d.rng)*float64(2*jitterRange+1)) - jitterRange
 				ny := y - lift
 				nx := x + jitter
 				if ny < 0 {
@@ -200,9 +180,9 @@ func (d *sandDriver) Tick(v *Visualizer, ctx VisTickContext) {
 				if nx >= dotCols {
 					nx = dotCols - 1
 				}
-				if d.grid[ny*dotCols+nx] == 0 {
-					d.grid[ny*dotCols+nx] = g
-					d.grid[y*dotCols+x] = 0
+				if grid[ny*dotCols+nx] == 0 {
+					grid[ny*dotCols+nx] = g
+					grid[y*dotCols+x] = 0
 				}
 			}
 		}
@@ -223,15 +203,15 @@ func (d *sandDriver) Tick(v *Visualizer, ctx VisTickContext) {
 			depthFrac := float64(y-minY) / float64(max(1, dotRows-1-minY))
 			prob := rumble * (0.15 + 0.55*depthFrac)
 			for x := 0; x < dotCols; x++ {
-				g := d.grid[y*dotCols+x]
+				g := grid[y*dotCols+x]
 				if g == 0 {
 					continue
 				}
-				if d.rand01() > prob {
+				if rng64(&d.rng) > prob {
 					continue
 				}
-				lift := 1 + int(d.rand01()*2.0) // 1..2
-				jitter := int(d.rand01()*5) - 2 // -2..+2
+				lift := 1 + int(rng64(&d.rng)*2.0) // 1..2
+				jitter := int(rng64(&d.rng)*5) - 2 // -2..+2
 				ny := y - lift
 				nx := x + jitter
 				if ny < 0 {
@@ -243,9 +223,9 @@ func (d *sandDriver) Tick(v *Visualizer, ctx VisTickContext) {
 				if nx >= dotCols {
 					nx = dotCols - 1
 				}
-				if d.grid[ny*dotCols+nx] == 0 {
-					d.grid[ny*dotCols+nx] = g
-					d.grid[y*dotCols+x] = 0
+				if grid[ny*dotCols+nx] == 0 {
+					grid[ny*dotCols+nx] = g
+					grid[y*dotCols+x] = 0
 				}
 			}
 		}
@@ -262,19 +242,19 @@ func (d *sandDriver) Tick(v *Visualizer, ctx VisTickContext) {
 			startX, endX, stepX = dotCols-1, -1, -1
 		}
 		for x := startX; x != endX; x += stepX {
-			g := d.grid[y*dotCols+x]
+			g := grid[y*dotCols+x]
 			if g == 0 {
 				continue
 			}
 			// Try straight down.
-			if d.grid[(y+1)*dotCols+x] == 0 {
-				d.grid[(y+1)*dotCols+x] = g
-				d.grid[y*dotCols+x] = 0
+			if grid[(y+1)*dotCols+x] == 0 {
+				grid[(y+1)*dotCols+x] = g
+				grid[y*dotCols+x] = 0
 				continue
 			}
 			// Diagonal: pick left or right first based on parity for symmetry.
 			diag1, diag2 := -1, 1
-			if d.rand01() < 0.5 {
+			if rng64(&d.rng) < 0.5 {
 				diag1, diag2 = 1, -1
 			}
 			for _, dx := range [2]int{diag1, diag2} {
@@ -282,9 +262,9 @@ func (d *sandDriver) Tick(v *Visualizer, ctx VisTickContext) {
 				if nx < 0 || nx >= dotCols {
 					continue
 				}
-				if d.grid[(y+1)*dotCols+nx] == 0 {
-					d.grid[(y+1)*dotCols+nx] = g
-					d.grid[y*dotCols+x] = 0
+				if grid[(y+1)*dotCols+nx] == 0 {
+					grid[(y+1)*dotCols+nx] = g
+					grid[y*dotCols+x] = 0
 					break
 				}
 			}
@@ -295,14 +275,10 @@ func (d *sandDriver) Tick(v *Visualizer, ctx VisTickContext) {
 	// the grid doesn't fill up over time. Without this, a long-running session
 	// gradually packs every cell.
 	for x := 0; x < dotCols; x++ {
-		if d.grid[(dotRows-1)*dotCols+x] != 0 && d.rand01() < 0.04 {
-			d.grid[(dotRows-1)*dotCols+x] = 0
+		if grid[(dotRows-1)*dotCols+x] != 0 && rng64(&d.rng) < 0.04 {
+			grid[(dotRows-1)*dotCols+x] = 0
 		}
 	}
-}
-
-func (*sandDriver) TickInterval(_ *Visualizer, ctx VisTickContext) time.Duration {
-	return defaultDriverTickInterval(ctx)
 }
 
 func (d *sandDriver) pauseSettled() bool {
@@ -310,35 +286,32 @@ func (d *sandDriver) pauseSettled() bool {
 }
 
 func (d *sandDriver) OnEnter(*Visualizer) {
-	d.grid = nil
-	d.dotRows = 0
-	d.dotCols = 0
+	d.grid = brailleGrid{}
 	d.prevBass = 0
 	d.particles = nil
 	d.explosionTTL = 0
 }
-
-func (*sandDriver) OnLeave(*Visualizer) {}
 
 // startExplosion converts every grain on the grid into a ballistic particle
 // with a random outward velocity, then enters the multi-frame explosion
 // phase. Bottom grains carry slightly more upward energy (they're closer to
 // the speaker cone), so the burst peaks naturally from below.
 func (d *sandDriver) startExplosion() {
-	dotRows, dotCols := d.dotRows, d.dotCols
+	dotRows, dotCols := d.grid.dotRows, d.grid.dotCols
+	grid := d.grid.cells
 	d.particles = d.particles[:0]
 	for y := 0; y < dotRows; y++ {
 		depthFrac := float64(y) / float64(max(1, dotRows-1)) // 0=top, 1=bottom
 		for x := 0; x < dotCols; x++ {
-			g := d.grid[y*dotCols+x]
+			g := grid[y*dotCols+x]
 			if g == 0 {
 				continue
 			}
-			d.grid[y*dotCols+x] = 0
+			grid[y*dotCols+x] = 0
 			// Vertical: -3..-9 dot/frame upward, biased so bottom grains fly
 			// fastest. Lateral: ±4 dot/frame for a wide spray.
-			vy := -(2.0 + d.rand01()*5.0 + depthFrac*2.0)
-			vx := (d.rand01() - 0.5) * 8.0
+			vy := -(2.0 + rng64(&d.rng)*5.0 + depthFrac*2.0)
+			vx := (rng64(&d.rng) - 0.5) * 8.0
 			d.particles = append(d.particles, sandParticle{
 				x:    float64(x),
 				y:    float64(y),
@@ -360,11 +333,10 @@ func (d *sandDriver) startExplosion() {
 func (d *sandDriver) tickExplosion() {
 	const gravity = 0.50
 	const drag = 0.985
-	dotRows, dotCols := d.dotRows, d.dotCols
+	dotRows, dotCols := d.grid.dotRows, d.grid.dotCols
+	grid := d.grid.cells
 
-	for i := range d.grid {
-		d.grid[i] = 0
-	}
+	d.grid.clear()
 
 	live := d.particles[:0]
 	for _, p := range d.particles {
@@ -379,7 +351,7 @@ func (d *sandDriver) tickExplosion() {
 			// our viewport doesn't matter visually).
 			continue
 		}
-		d.grid[iy*dotCols+ix] = p.tier
+		grid[iy*dotCols+ix] = p.tier
 		live = append(live, p)
 	}
 	d.particles = live
@@ -395,48 +367,10 @@ func (d *sandDriver) tickExplosion() {
 func (d *sandDriver) Render(v *Visualizer) string {
 	height := v.Rows
 	dotRows := height * 4
-	dotCols := PanelWidth * 2
+	dotCols := v.columns() * 2
 	if dotRows < 4 || dotCols < 4 {
 		return strings.Repeat("\n", max(0, height-1))
 	}
-	if d.dotRows != dotRows || d.dotCols != dotCols || len(d.grid) != dotRows*dotCols {
-		d.ensure(dotRows, dotCols)
-	}
-
-	lines := make([]string, height)
-	for row := 0; row < height; row++ {
-		var sb, run strings.Builder
-		tag := -1
-		for col := 0; col < PanelWidth; col++ {
-			var braille rune = '⠀'
-			cellTag := -1
-			for dr := 0; dr < 4; dr++ {
-				for dc := 0; dc < 2; dc++ {
-					y := row*4 + dr
-					x := col*2 + dc
-					g := d.grid[y*dotCols+x]
-					if g == 0 {
-						continue
-					}
-					// Tier: 1=green(0), 2=yellow(1), 3=red(2)
-					t := int(g) - 1
-					braille |= brailleBit[dr][dc]
-					if t > cellTag {
-						cellTag = t
-					}
-				}
-			}
-			if cellTag < 0 {
-				cellTag = 0
-			}
-			if cellTag != tag {
-				flushStyleRun(&sb, &run, tag)
-				tag = cellTag
-			}
-			run.WriteRune(braille)
-		}
-		flushStyleRun(&sb, &run, tag)
-		lines[row] = sb.String()
-	}
-	return strings.Join(lines, "\n")
+	d.grid.resize(dotRows, dotCols)
+	return d.grid.render(height, v.columns())
 }

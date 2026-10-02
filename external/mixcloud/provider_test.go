@@ -281,8 +281,8 @@ func TestExclusiveShowsKeepCleanMetadataAndAreNotSkipped(t *testing.T) {
 	if track.Unplayable {
 		t.Fatal("exclusive show was marked unplayable before session entitlement was checked")
 	}
-	if track.Meta(provider.MetaMixcloudExclusive) != "true" {
-		t.Fatalf("exclusive metadata = %q", track.Meta(provider.MetaMixcloudExclusive))
+	if !track.Restricted {
+		t.Fatal("exclusive show is not marked restricted")
 	}
 	albums := albumsFromCloudcasts([]apiCloudcast{show})
 	if len(albums) != 1 || albums[0].Name != "Members Only" || !albums[0].Restricted {

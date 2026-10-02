@@ -1,6 +1,7 @@
 package tracksave
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,7 +9,7 @@ import (
 	"github.com/bjarneo/cliamp/playlist"
 )
 
-func TestSaveCopiesTemporaryDownload(t *testing.T) {
+func TestSaveToCopiesTemporaryDownload(t *testing.T) {
 	home := setTestHome(t)
 	source, err := os.CreateTemp("", "cliamp-save-*.flac")
 	if err != nil {
@@ -23,7 +24,7 @@ func TestSaveCopiesTemporaryDownload(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	destination, err := Save(playlist.Track{Path: sourcePath, Title: "Song", Artist: "Artist"})
+	destination, err := SaveTo(context.Background(), playlist.Track{Path: sourcePath, Title: "Song", Artist: "Artist"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,10 +37,10 @@ func TestSaveCopiesTemporaryDownload(t *testing.T) {
 	}
 }
 
-func TestSaveRejectsUserLibraryFile(t *testing.T) {
+func TestSaveToRejectsUserLibraryFile(t *testing.T) {
 	setTestHome(t)
-	if _, err := Save(playlist.Track{Path: "/var/lib/music/song.flac"}); err == nil {
-		t.Fatal("Save accepted a non-temporary library file")
+	if _, err := SaveTo(context.Background(), playlist.Track{Path: "/var/lib/music/song.flac"}, ""); err == nil {
+		t.Fatal("SaveTo accepted a non-temporary library file")
 	}
 }
 
@@ -70,6 +71,27 @@ func TestDirectoryRejectsRelativePaths(t *testing.T) {
 			got, err := Directory(directory)
 			if err == nil || got != "" {
 				t.Fatalf("Directory(%q) = %q, %v; want empty path and error", directory, got, err)
+			}
+		})
+	}
+}
+
+func TestNeedsDownload(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"https://www.youtube.com/watch?v=abc", true},
+		{"https://youtu.be/abc", true},
+		{"https://soundcloud.com/artist/track", true},
+		{"ytsearch1:lofi", true},
+		{"https://radio.example/live.mp3", false},
+		{"/tmp/cliamp-download/track.m4a", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			if got := NeedsDownload(playlist.Track{Path: tt.path}); got != tt.want {
+				t.Errorf("NeedsDownload(%q) = %v, want %v", tt.path, got, tt.want)
 			}
 		})
 	}

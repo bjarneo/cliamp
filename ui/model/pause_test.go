@@ -102,3 +102,38 @@ func TestTogglePlayPauseRestartsRuntimeLiveStationInPlace(t *testing.T) {
 		t.Fatalf("restart state = buffering %v, track %q; want station two buffering", m.buffering, m.playingTrack.Path)
 	}
 }
+
+// A flagged yt-dlp track whose player reports a duration is a finished
+// recording: a short pause resumes it instead of reconnecting.
+func TestTogglePlayPauseYTDLLiveFlagFollowsPlayerDuration(t *testing.T) {
+	tests := []struct {
+		name         string
+		duration     time.Duration
+		wantResume   bool
+		wantSeekYTDL int
+	}{
+		{name: "still live reconnects", wantSeekYTDL: 1},
+		{name: "finished recording resumes", duration: 90 * time.Minute, wantResume: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			player := &playbackFakeEngine{playing: true, paused: true, ytdlSeek: true, duration: tt.duration}
+			p := playlist.New()
+			p.Add(playlist.Track{Title: "Live", Path: "https://music.youtube.com/watch?v=live1", Stream: true, Realtime: true})
+			p.SetIndex(0)
+			m := Model{player: player, playlist: p, pausedAt: time.Now().Add(-time.Second)}
+
+			cmd := m.togglePlayPause()
+			if cmd != nil {
+				cmd()
+			}
+
+			if got := len(player.seekYTDLCalls); got != tt.wantSeekYTDL {
+				t.Fatalf("SeekYTDL calls = %d, want %d", got, tt.wantSeekYTDL)
+			}
+			if tt.wantResume && player.paused {
+				t.Fatal("player still paused, want buffered audio resumed")
+			}
+		})
+	}
+}

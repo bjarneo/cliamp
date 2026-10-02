@@ -9,14 +9,14 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/bjarneo/cliamp/ui"
+	"github.com/bjarneo/cliamp/provider"
 )
 
 // newColumnTestModel builds a full-tier model with several providers so the
 // settings pane renders every row it can.
 func newColumnTestModel(width, height int) Model {
 	m := newLayoutTestModel(width, height)
-	m.providers = []ProviderEntry{{Name: "Local"}, {Name: "Navidrome"}, {Name: "Radio"}}
+	m.providers = []provider.Entry{{Name: "Local"}, {Name: "Navidrome"}, {Name: "Radio"}}
 	m.eqPresetIdx = 1
 	m.applyEQPreset()
 	m.recomputeLayout()
@@ -123,18 +123,18 @@ func TestTwoColumnBodyRowsMatch(t *testing.T) {
 func TestSettingsPaneRows(t *testing.T) {
 	tests := []struct {
 		name      string
-		providers []ProviderEntry
+		providers []provider.Entry
 		want      []string
 		absent    []string
 	}{
 		{
 			name:      "multiple providers",
-			providers: []ProviderEntry{{Name: "Local"}, {Name: "Navidrome"}},
+			providers: []provider.Entry{{Name: "Local"}, {Name: "Navidrome"}},
 			want:      []string{"EQ", "[Rock]", "VOL", "+0dB", "SRC", "[Local] 1/2", "SPD", "[1x]", "SHF", "RPT"},
 		},
 		{
 			name:      "single provider",
-			providers: []ProviderEntry{{Name: "Local"}},
+			providers: []provider.Entry{{Name: "Local"}},
 			want:      []string{"EQ", "VOL", "SPD", "SHF", "RPT"},
 			absent:    []string{"SRC"},
 		},
@@ -219,41 +219,47 @@ func TestTwoColumnPlaylistUsesReclaimedRows(t *testing.T) {
 }
 
 // TestTwoColumnPlaylistRendersAtColumnWidth checks that the playlist lays out
-// inside its column rather than at the full panel width, and that the global
-// panel width is restored afterwards for the full-width chrome.
+// inside its column rather than at the full panel width, and that the panel
+// width stays whole for the full-width chrome.
 func TestTwoColumnPlaylistRendersAtColumnWidth(t *testing.T) {
 	m := newColumnTestModel(100, 30)
-	before := ui.PanelWidth
+	before := m.layout.panelWidth
 
 	for _, line := range strings.Split(m.renderBodyRegion(), "\n") {
 		if got, want := lipgloss.Width(line), m.layout.panelWidth; got != want {
 			t.Fatalf("body row width = %d, want %d: %q", got, want, ansi.Strip(line))
 		}
 	}
-	if ui.PanelWidth != before {
-		t.Fatalf("panel width left at %d, want %d restored", ui.PanelWidth, before)
+	if m.layout.panelWidth != before {
+		t.Fatalf("panel width left at %d, want %d", m.layout.panelWidth, before)
 	}
 }
 
 // TestMarkerColumnsReserveOnlyWhatIsUsed checks that the playlist reserves a
 // state column only once something can appear in it, which is what lets the
-// titles start further left on a plain playlist.
+// titles start further left on a plain playlist. The favorite column is the
+// exception: it stays pinned so toggling the first/last favorite never shifts
+// the titles.
 func TestMarkerColumnsReserveOnlyWhatIsUsed(t *testing.T) {
 	tests := []struct {
 		name  string
 		setup func(*Model)
 		want  markerColumns
 	}{
-		{name: "plain playlist", setup: func(*Model) {}},
+		{name: "plain playlist", setup: func(*Model) {}, want: markerColumns{favorite: true}},
 		{
 			name:  "queued track",
 			setup: func(m *Model) { m.playlist.Queue(1) },
-			want:  markerColumns{queue: true},
+			want:  markerColumns{queue: true, favorite: true},
 		},
 		{
-			name:  "bookmarked track",
-			setup: func(m *Model) { m.playlist.ToggleBookmark(1) },
-			want:  markerColumns{bookmark: true},
+			name: "legacy bookmark reserves nothing",
+			setup: func(m *Model) {
+				track, _ := m.playlist.Track(1)
+				track.Bookmark = true
+				m.playlist.SetTrack(1, track)
+			},
+			want: markerColumns{favorite: true},
 		},
 		{
 			name:  "favorite track",
@@ -261,13 +267,12 @@ func TestMarkerColumnsReserveOnlyWhatIsUsed(t *testing.T) {
 			want:  markerColumns{favorite: true},
 		},
 		{
-			name: "all three",
+			name: "queue and favorite",
 			setup: func(m *Model) {
 				m.playlist.Queue(1)
-				m.playlist.ToggleBookmark(2)
 				m.favSet = map[string]struct{}{"/tmp/track-3.mp3": {}}
 			},
-			want: markerColumns{queue: true, bookmark: true, favorite: true},
+			want: markerColumns{queue: true, favorite: true},
 		},
 	}
 
@@ -283,8 +288,9 @@ func TestMarkerColumnsReserveOnlyWhatIsUsed(t *testing.T) {
 }
 
 // TestPlaylistTitleColumnTightensWhenUnused checks the payoff: an untouched
-// playlist starts its track numbers further left than one using every state
-// column, and rows stay aligned with each other either way.
+// playlist starts its track numbers further left than one using every dynamic
+// state column, and rows stay aligned with each other either way. The favorite
+// column stays pinned, so it is excluded from the reclaimed width.
 func TestPlaylistTitleColumnTightensWhenUnused(t *testing.T) {
 	// The fixture titles are the only run of letters in a row, so their start
 	// column is the title column. Every row must share it.
@@ -317,31 +323,60 @@ func TestPlaylistTitleColumnTightensWhenUnused(t *testing.T) {
 
 	full := newLayoutTestModel(100, 30)
 	full.playlist.Queue(1)
-	full.playlist.ToggleBookmark(2)
 	full.favSet = map[string]struct{}{"/tmp/track-3.mp3": {}}
 	used := titleColumn(full)
 
 	if plain >= used {
 		t.Fatalf("plain playlist starts at column %d, want left of the used one at %d", plain, used)
 	}
-	if want := used - 3; plain != want {
-		t.Fatalf("plain playlist starts at column %d, want %d (three columns reclaimed)", plain, want)
+	if want := used - 1; plain != want {
+		t.Fatalf("plain playlist starts at column %d, want %d (one column reclaimed)", plain, want)
+	}
+}
+
+// TestFavoriteToggleKeepsTitleColumnStable checks the layout-shift fix: adding
+// or removing the only favorite must not move the title column, since the
+// favorite cell is always reserved.
+func TestFavoriteToggleKeepsTitleColumnStable(t *testing.T) {
+	const fixtureTitle = "A very long"
+	titleColumn := func(m Model) int {
+		rows := strings.Split(ansi.Strip(m.renderPlaylist()), "\n")
+		for _, row := range rows {
+			if byteAt := strings.Index(row, fixtureTitle); byteAt >= 0 {
+				return lipgloss.Width(row[:byteAt])
+			}
+		}
+		t.Fatalf("no titled row rendered:\n%s", strings.Join(rows, "\n"))
+		return -1
+	}
+
+	plain := newLayoutTestModel(100, 30)
+	plainCol := titleColumn(plain)
+
+	faved := newLayoutTestModel(100, 30)
+	faved.favSet = map[string]struct{}{"/tmp/track-1.mp3": {}}
+	if got := titleColumn(faved); got != plainCol {
+		t.Fatalf("favorited title at column %d, want stable column %d", got, plainCol)
 	}
 }
 
 // TestPlaylistHeaderDropsBadgesThatDoNotFit checks that a narrow pane sheds
 // whole badges off the tail instead of letting one be sliced mid-token.
 func TestPlaylistHeaderDropsBadgesThatDoNotFit(t *testing.T) {
-	// Enough badges that they cannot all fit a 45-column playlist pane.
+	// Enough badges that they cannot all fit a 45-column playlist pane. A
+	// six-digit favorite count makes the heart badge wide.
+	favSet := make(map[string]struct{}, 100000)
+	for i := range 100000 {
+		favSet[fmt.Sprintf("/tmp/fav-%d.mp3", i)] = struct{}{}
+	}
 	withBadges := func(width, height int) Model {
 		m := newColumnTestModel(width, height)
 		m.playlist.Queue(1)
-		m.playlist.ToggleBookmark(2)
-		m.favSet = map[string]struct{}{"/tmp/track-3.mp3": {}}
+		m.favSet = favSet
 		return m
 	}
 	headerAt := func(m Model, width int) string {
-		defer ui.WithPanelWidth(width)()
+		m.layout.panelWidth = width
 		return ansi.Strip(m.renderPlaylistHeader())
 	}
 
@@ -451,7 +486,7 @@ func TestSettingsPaneShedsRankGroupsWhole(t *testing.T) {
 // through the main key path and that it round-trips the layout.
 func TestSettingsPaneToggleClosesAndReopens(t *testing.T) {
 	m := newColumnTestModel(80, 24)
-	m.configSaver = &recordingConfigSaver{}
+	m.configSaver = &recordingSaver{}
 	if !m.layout.twoColumn {
 		t.Fatal("expected the pane open at 80x24")
 	}
@@ -469,16 +504,16 @@ func TestSettingsPaneToggleClosesAndReopens(t *testing.T) {
 // TestSettingsPaneTogglePersists checks that the choice is written to config so
 // the pane comes back the way it was left.
 func TestSettingsPaneTogglePersists(t *testing.T) {
-	saver := &recordingConfigSaver{}
+	saver := &recordingSaver{}
 	m := newColumnTestModel(80, 24)
 	m.configSaver = saver
 
 	m.toggleSettingsPane()
-	if got := saver.values["hide_settings_pane"]; got != "true" {
+	if got := saver.saved["hide_settings_pane"]; got != "true" {
 		t.Fatalf("saved hide_settings_pane = %q, want %q", got, "true")
 	}
 	m.toggleSettingsPane()
-	if got := saver.values["hide_settings_pane"]; got != "false" {
+	if got := saver.saved["hide_settings_pane"]; got != "false" {
 		t.Fatalf("saved hide_settings_pane = %q, want %q", got, "false")
 	}
 }

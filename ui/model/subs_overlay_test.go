@@ -2,7 +2,6 @@ package model
 
 import (
 	"fmt"
-	"github.com/bjarneo/cliamp/ui"
 	"strings"
 	"testing"
 
@@ -374,7 +373,7 @@ func TestSelectedProviderShow(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := Model{provider: prov, playlist: playlist.New(), providerLists: lists, provCursor: tt.cursor, provLoading: tt.loading}
+			m := Model{provider: prov, playlist: playlist.New(), provPane: providerPane{lists: lists, cursor: tt.cursor, loading: tt.loading}}
 			id, _, ok := m.selectedProviderShow()
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
@@ -394,9 +393,9 @@ func TestLoadLatestFromProviderListQueuesNewest(t *testing.T) {
 		favoritable: map[string]bool{"f:feed-a": true},
 	}
 	m := &Model{
-		provider:      prov,
-		playlist:      playlist.New(),
-		providerLists: []playlist.PlaylistInfo{{ID: "f:feed-a", Name: "Show"}},
+		provider: prov,
+		playlist: playlist.New(),
+		provPane: providerPane{lists: []playlist.PlaylistInfo{{ID: "f:feed-a", Name: "Show"}}},
 	}
 
 	cmd := m.loadLatestFromProviderList()
@@ -427,9 +426,9 @@ func TestLoadLatestFromProviderListQueuesNewest(t *testing.T) {
 func TestLoadLatestFromProviderListIgnoresSectionRows(t *testing.T) {
 	prov := &sectionedSubProv{favoritable: map[string]bool{}}
 	m := &Model{
-		provider:      prov,
-		playlist:      playlist.New(),
-		providerLists: []playlist.PlaylistInfo{{ID: "browse:categories", Name: "Browse Categories"}},
+		provider: prov,
+		playlist: playlist.New(),
+		provPane: providerPane{lists: []playlist.PlaylistInfo{{ID: "browse:categories", Name: "Browse Categories"}}},
 	}
 
 	if cmd := m.loadLatestFromProviderList(); cmd != nil {
@@ -445,9 +444,9 @@ func TestProviderListShowActionsNeedAShowLister(t *testing.T) {
 		t.Fatal("albumOnlyProv must load albums for this test to mean anything")
 	}
 	m := &Model{
-		provider:      prov,
-		playlist:      playlist.New(),
-		providerLists: []playlist.PlaylistInfo{{ID: "album-1", Name: "An Album"}},
+		provider: prov,
+		playlist: playlist.New(),
+		provPane: providerPane{lists: []playlist.PlaylistInfo{{ID: "album-1", Name: "An Album"}}},
 	}
 
 	if _, _, ok := m.selectedProviderShow(); ok {
@@ -469,9 +468,9 @@ func TestAppendShowFromProviderListAppendsEverything(t *testing.T) {
 		favoritable: map[string]bool{"f:feed-a": true},
 	}
 	m := &Model{
-		provider:      prov,
-		playlist:      playlist.New(),
-		providerLists: []playlist.PlaylistInfo{{ID: "f:feed-a", Name: "Show"}},
+		provider: prov,
+		playlist: playlist.New(),
+		provPane: providerPane{lists: []playlist.PlaylistInfo{{ID: "f:feed-a", Name: "Show"}}},
 	}
 	m.playlist.Add(playlist.Track{Path: "/already-here.mp3"})
 	m.playlist.Queue(0)
@@ -509,11 +508,11 @@ func TestOverlayLoadsThroughTheSubscriptionProvider(t *testing.T) {
 	other := &albumOnlyProv{} // active, loads albums but keeps no subscriptions
 	m := &Model{
 		provider:  other,
-		providers: []ProviderEntry{{Name: "Other", Provider: other}, {Name: "Podcasts", Provider: podcasts}},
+		providers: []provider.Entry{{Name: "Other", Provider: other}, {Name: "Podcasts", Provider: podcasts}},
 		playlist:  playlist.New(),
 	}
 
-	if !m.openSubsOverlay() {
+	if m.openSubsOverlay(); !m.subs.visible {
 		t.Fatal("overlay did not open")
 	}
 	cmd := m.loadSubscription(subsLoadAppend)
@@ -526,21 +525,21 @@ func TestOverlayLoadsThroughTheSubscriptionProvider(t *testing.T) {
 	}
 }
 
-func TestOpenSubsOverlayReportsWhetherItOpened(t *testing.T) {
-	if m := stubSubsModel(); !m.openSubsOverlay() {
-		t.Error("openSubsOverlay() = false with subscriptions present")
+func TestOpenSubsOverlayOpensOnlyWithShows(t *testing.T) {
+	m := stubSubsModel()
+	if m.openSubsOverlay(); !m.subs.visible {
+		t.Error("overlay stayed closed with subscriptions present")
 	}
-	if m := (&Model{provider: &subProv{}, playlist: playlist.New()}); m.openSubsOverlay() {
-		t.Error("openSubsOverlay() = true with nothing to show")
+	empty := &Model{provider: &subProv{}, playlist: playlist.New()}
+	if empty.openSubsOverlay(); empty.subs.visible {
+		t.Error("overlay opened with nothing to show")
 	}
 }
 
 // With one row of budget and a notice to show, the notice is all that fits.
 func TestRenderSubsBodyOneRowWithNotice(t *testing.T) {
-	old := ui.PanelWidth
-	ui.PanelWidth = 60
-	t.Cleanup(func() { ui.PanelWidth = old })
 	m := stubSubsModel()
+	m.layout.panelWidth = 60
 	m.openSubsOverlay()
 	m.plVisible = 1
 	m.subs.err = "feed failed"

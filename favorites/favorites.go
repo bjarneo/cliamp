@@ -15,7 +15,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -97,64 +96,45 @@ func (s *Store) Toggle(track playlist.Track) (bool, error) {
 	return true, s.saveLocked(entries)
 }
 
-// Favorite adds a track to favorites. No-op if already present.
-// Returns true when the track was newly added.
-func (s *Store) Favorite(track playlist.Track) (bool, error) {
-	if s == nil || strings.TrimSpace(track.Path) == "" {
-		return false, nil
+// Import adds each track that is not yet a favorite and writes the file once.
+// The new entries go after the existing ones, in the order given. Tracks with
+// an empty path and repeated paths are skipped. Returns the number of tracks
+// added.
+func (s *Store) Import(tracks []playlist.Track) (int, error) {
+	if s == nil || len(tracks) == 0 {
+		return 0, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	unlock, err := s.lockFile()
 	if err != nil {
-		return false, err
+		return 0, err
 	}
 	defer func() { _ = unlock() }()
 
 	entries, err := s.loadLocked()
 	if err != nil {
-		return false, fmt.Errorf("load favorites: %w", err)
+		return 0, fmt.Errorf("load favorites: %w", err)
 	}
-
-	if slices.ContainsFunc(entries, func(e Entry) bool {
-		return e.Track.Path == track.Path
-	}) {
-		return false, nil
+	seen := make(map[string]bool, len(entries)+len(tracks))
+	for _, e := range entries {
+		seen[e.Track.Path] = true
 	}
-
-	entry := Entry{Track: track, FavoritedAt: time.Now()}
-	entries = append([]Entry{entry}, entries...)
-	return true, s.saveLocked(entries)
-}
-
-// Remove unfavorites a track by path. Returns true when the track was present
-// and removed.
-func (s *Store) Remove(path string) (bool, error) {
-	if s == nil || strings.TrimSpace(path) == "" {
-		return false, nil
+	now := time.Now()
+	added := 0
+	for _, track := range tracks {
+		if strings.TrimSpace(track.Path) == "" || seen[track.Path] {
+			continue
+		}
+		seen[track.Path] = true
+		entries = append(entries, Entry{Track: track, FavoritedAt: now})
+		added++
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	unlock, err := s.lockFile()
-	if err != nil {
-		return false, err
+	if added == 0 {
+		return 0, nil
 	}
-	defer func() { _ = unlock() }()
-
-	entries, err := s.loadLocked()
-	if err != nil {
-		return false, fmt.Errorf("load favorites: %w", err)
-	}
-
-	idx := slices.IndexFunc(entries, func(e Entry) bool {
-		return e.Track.Path == path
-	})
-	if idx < 0 {
-		return false, nil
-	}
-
-	entries = slices.Delete(entries, idx, idx+1)
-	return true, s.saveLocked(entries)
+	return added, s.saveLocked(entries)
 }
 
 // IsFavorited reports whether the given path is in the favorites store.
@@ -211,31 +191,14 @@ func (s *Store) Tracks() ([]playlist.Track, error) {
 	return out, nil
 }
 
-// Clear deletes the favorites file. Returns nil if the file does not exist.
-func (s *Store) Clear() error {
-	if s == nil {
-		return nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	unlock, err := s.lockFile()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = unlock() }()
-	err = os.Remove(s.path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("remove favorites: %w", err)
-	}
-	return nil
-}
-
 // lockFile serializes writers across cliamp processes: the per-instance
-// mutex alone cannot stop two processes from rewriting the same file.
+// mutex alone cannot stop two processes from rewriting the same file. It
+// creates the config directory first, because a write can run before the
+// directory exists.
 func (s *Store) lockFile() (func() error, error) {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+		return nil, fmt.Errorf("create favorites dir: %w", err)
+	}
 	return fileutil.LockFile(s.path + ".lock")
 }
 
@@ -267,113 +230,22 @@ func (s *Store) saveLocked(entries []Entry) error {
 func writeEntry(w io.Writer, e Entry) {
 	fmt.Fprintln(w, "[[entry]]")
 	fmt.Fprintf(w, "favorited_at = %q\n", e.FavoritedAt.UTC().Format(time.RFC3339))
-	fmt.Fprintf(w, "path = %q\n", e.Track.Path)
-	fmt.Fprintf(w, "title = %q\n", e.Track.Title)
-	if e.Track.Artist != "" {
-		fmt.Fprintf(w, "artist = %q\n", e.Track.Artist)
-	}
-	if e.Track.Album != "" {
-		fmt.Fprintf(w, "album = %q\n", e.Track.Album)
-	}
-	if e.Track.Genre != "" {
-		fmt.Fprintf(w, "genre = %q\n", e.Track.Genre)
-	}
-	if e.Track.Year != 0 {
-		fmt.Fprintf(w, "year = %d\n", e.Track.Year)
-	}
-	if e.Track.TrackNumber != 0 {
-		fmt.Fprintf(w, "track_number = %d\n", e.Track.TrackNumber)
-	}
-	if e.Track.DurationSecs != 0 {
-		fmt.Fprintf(w, "duration_secs = %d\n", e.Track.DurationSecs)
-	}
-	if e.Track.Feed {
-		fmt.Fprintln(w, "feed = true")
-	}
-	if e.Track.Realtime {
-		fmt.Fprintln(w, "realtime = true")
-	}
-	for k, v := range e.Track.ProviderMeta {
-		fmt.Fprintf(w, "provider_meta.%s = %q\n", k, v)
-	}
+	playlist.WriteTrackTOML(w, e.Track)
 }
 
 // parse skips unknown keys to keep the on-disk format forward-compatible.
+// It drops entries without a path, the only required field.
 func parse(data []byte) []Entry {
 	var entries []Entry
-	var cur *Entry
-
-	flush := func() {
-		if cur != nil {
-			entries = append(entries, *cur)
+	tomlutil.ParseSections(data, "entry", func(f map[string]string) {
+		e := Entry{Track: playlist.TrackFromTOML(f)}
+		if strings.TrimSpace(e.Track.Path) == "" {
+			return
 		}
-	}
-
-	for rawLine := range strings.SplitSeq(string(data), "\n") {
-		line := strings.TrimSpace(rawLine)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+		if t, err := time.Parse(time.RFC3339, f["favorited_at"]); err == nil {
+			e.FavoritedAt = t
 		}
-		if line == "[[entry]]" {
-			flush()
-			cur = &Entry{}
-			continue
-		}
-		if cur == nil {
-			continue
-		}
-		key, val, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		key = strings.TrimSpace(key)
-		val = tomlutil.Unquote(strings.TrimSpace(val))
-		switch key {
-		case "favorited_at":
-			if t, err := time.Parse(time.RFC3339, val); err == nil {
-				cur.FavoritedAt = t
-			}
-		case "path":
-			cur.Track.Path = val
-			cur.Track.Stream = playlist.IsURL(val)
-		case "title":
-			cur.Track.Title = val
-		case "artist":
-			cur.Track.Artist = val
-		case "album":
-			cur.Track.Album = val
-		case "genre":
-			cur.Track.Genre = val
-		case "year":
-			if n, err := strconv.Atoi(val); err == nil {
-				cur.Track.Year = n
-			}
-		case "track_number":
-			if n, err := strconv.Atoi(val); err == nil {
-				cur.Track.TrackNumber = n
-			}
-		case "duration_secs":
-			if n, err := strconv.Atoi(val); err == nil {
-				cur.Track.DurationSecs = n
-			}
-		case "feed":
-			cur.Track.Feed = val == "true"
-		case "realtime":
-			cur.Track.Realtime = val == "true"
-		default:
-			if metaKey, ok := strings.CutPrefix(key, "provider_meta."); ok {
-				if cur.Track.ProviderMeta == nil {
-					cur.Track.ProviderMeta = make(map[string]string)
-				}
-				cur.Track.ProviderMeta[metaKey] = val
-			}
-		}
-	}
-	flush()
-
-	// Drop entries that failed to parse a path (the only required field).
-	entries = slices.DeleteFunc(entries, func(e Entry) bool {
-		return strings.TrimSpace(e.Track.Path) == ""
+		entries = append(entries, e)
 	})
 	return entries
 }

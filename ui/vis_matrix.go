@@ -17,13 +17,14 @@ func (v *Visualizer) renderMatrix(bands []float64) string {
 	height := v.Rows
 	lines := make([]string, height)
 	bandCount := len(bands)
+	width := v.columns()
 
 	for row := range height {
 		var sb, run strings.Builder
 		tag := -1
 		col := 0
 		for b := range bandCount {
-			w := visBandWidth(bandCount, b)
+			w := visBandWidth(bandCount, b, width)
 			for range w {
 				energy := bands[b]
 				seed := uint64(col)*7919 + 104729
@@ -80,7 +81,7 @@ func (v *Visualizer) renderMatrix(bands []float64) string {
 				}
 				col++
 			}
-			if b < bandCount-1 {
+			if bandGapAfter(bandCount, b, width) {
 				if tag != -1 {
 					flushStyleRun(&sb, &run, tag)
 					tag = -1

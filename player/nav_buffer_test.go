@@ -7,8 +7,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -16,7 +14,36 @@ import (
 	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
-func TestNavBufferProgressiveReadAndSeek(t *testing.T) {
+// startNavRead reads n bytes from r in a goroutine. started closes before the
+// read begins, and result receives the bytes and the error.
+func startNavRead(r io.Reader, n int) (<-chan struct{}, <-chan navReadResult) {
+	started := make(chan struct{})
+	result := make(chan navReadResult, 1)
+	go func() {
+		close(started)
+		buf := make([]byte, n)
+		got, err := io.ReadFull(r, buf)
+		result <- navReadResult{data: string(buf[:got]), err: err}
+	}()
+	return started, result
+}
+
+type navReadResult struct {
+	data string
+	err  error
+}
+
+// assertNavReadBlocked fails when the read returns before the test lets it.
+func assertNavReadBlocked(t *testing.T, result <-chan navReadResult) {
+	t.Helper()
+	select {
+	case r := <-result:
+		t.Fatalf("read returned before its data arrived: (%q, %v)", r.data, r.err)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestNavBufferProgressiveRead(t *testing.T) {
 	firstSent := make(chan struct{})
 	release := make(chan struct{})
 	var releaseOnce sync.Once
@@ -26,7 +53,6 @@ func TestNavBufferProgressiveReadAndSeek(t *testing.T) {
 			t.Errorf("User-Agent = %q, want %q", got, httpclient.UserAgent)
 		}
 		w.Header().Set("Content-Length", "10")
-		w.Header().Set("Content-Type", "audio/test")
 		_, _ = io.WriteString(w, "abcd")
 		w.(http.Flusher).Flush()
 		close(firstSent)
@@ -46,63 +72,41 @@ func TestNavBufferProgressiveReadAndSeek(t *testing.T) {
 	if total != 10 {
 		t.Fatalf("newNavBuffer() total = %d, want 10", total)
 	}
-	if got := b.ContentType(); got != "audio/test" {
-		t.Fatalf("ContentType() = %q, want %q", got, "audio/test")
-	}
 	<-firstSent
 
+	reader := b.newReader()
 	first := make([]byte, 4)
-	if _, err := io.ReadFull(b, first); err != nil {
+	if _, err := io.ReadFull(reader, first); err != nil {
 		t.Fatalf("read first chunk: %v", err)
 	}
 	if got := string(first); got != "abcd" {
 		t.Fatalf("first chunk = %q, want %q", got, "abcd")
 	}
 
-	seekStarted := make(chan struct{})
-	seekResult := make(chan error, 1)
-	go func() {
-		close(seekStarted)
-		pos, err := b.Seek(-2, io.SeekEnd)
-		if err == nil && pos != 8 {
-			err = errors.New("seek returned wrong position")
-		}
-		seekResult <- err
-	}()
-	<-seekStarted
-	waitForNavBufferCursorLock(t, b)
-	select {
-	case err := <-seekResult:
-		t.Fatalf("Seek returned before requested data arrived: %v", err)
-	default:
-	}
+	started, result := startNavRead(reader, 6)
+	<-started
+	assertNavReadBlocked(t, result)
 
 	releaseDownload()
 	select {
-	case err := <-seekResult:
-		if err != nil {
-			t.Fatalf("Seek(-2, SeekEnd): %v", err)
+	case r := <-result:
+		if r.err != nil {
+			t.Fatalf("read after the download continued: %v", r.err)
+		}
+		if r.data != "efghij" {
+			t.Fatalf("read after the download continued = %q, want %q", r.data, "efghij")
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Seek did not unblock after requested data arrived")
+		t.Fatal("read did not unblock after requested data arrived")
 	}
 
-	last := make([]byte, 2)
-	if _, err := io.ReadFull(b, last); err != nil {
-		t.Fatalf("read after progressive seek: %v", err)
+	// A seek starts a new reader, which replays the buffer from byte 0.
+	replay := make([]byte, 2)
+	if _, err := io.ReadFull(b.newReader(), replay); err != nil {
+		t.Fatalf("read from a second reader: %v", err)
 	}
-	if got := string(last); got != "ij" {
-		t.Fatalf("read after progressive seek = %q, want %q", got, "ij")
-	}
-	if _, err := b.Seek(1, io.SeekStart); err != nil {
-		t.Fatalf("seek backward: %v", err)
-	}
-	backward := make([]byte, 2)
-	if _, err := io.ReadFull(b, backward); err != nil {
-		t.Fatalf("read after backward seek: %v", err)
-	}
-	if got := string(backward); got != "bc" {
-		t.Fatalf("read after backward seek = %q, want %q", got, "bc")
+	if got := string(replay); got != "ab" {
+		t.Fatalf("second reader = %q, want %q", got, "ab")
 	}
 	if got := b.bytesIn.Load(); got != 10 {
 		t.Fatalf("bytesIn = %d, want 10", got)
@@ -123,7 +127,7 @@ func TestNavBufferProgressiveReadAndSeek(t *testing.T) {
 	}
 }
 
-func TestNavBufferSeekEndWaitsForUnknownLength(t *testing.T) {
+func TestNavBufferReadsUnknownLengthToEOF(t *testing.T) {
 	firstSent := make(chan struct{})
 	release := make(chan struct{})
 	var releaseOnce sync.Once
@@ -148,43 +152,24 @@ func TestNavBufferSeekEndWaitsForUnknownLength(t *testing.T) {
 	}
 	<-firstSent
 
-	seekResult := make(chan struct {
-		pos int64
-		err error
-	}, 1)
+	result := make(chan navReadResult, 1)
 	go func() {
-		pos, err := b.Seek(-2, io.SeekEnd)
-		seekResult <- struct {
-			pos int64
-			err error
-		}{pos: pos, err: err}
+		data, err := io.ReadAll(b.newReader())
+		result <- navReadResult{data: string(data), err: err}
 	}()
-	waitForNavBufferCursorLock(t, b)
-	select {
-	case result := <-seekResult:
-		t.Fatalf("SeekEnd returned before unknown-length download completed: (%d, %v)", result.pos, result.err)
-	default:
-	}
+	assertNavReadBlocked(t, result)
 
 	releaseDownload()
 	select {
-	case result := <-seekResult:
-		if result.err != nil {
-			t.Fatalf("Seek(-2, SeekEnd): %v", result.err)
+	case r := <-result:
+		if r.err != nil {
+			t.Fatalf("ReadAll: %v", r.err)
 		}
-		if result.pos != 4 {
-			t.Fatalf("Seek(-2, SeekEnd) = %d, want 4", result.pos)
+		if r.data != "abcdef" {
+			t.Fatalf("ReadAll = %q, want %q", r.data, "abcdef")
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("SeekEnd did not unblock after download completed")
-	}
-
-	last := make([]byte, 2)
-	if _, err := io.ReadFull(b, last); err != nil {
-		t.Fatalf("read after SeekEnd: %v", err)
-	}
-	if got := string(last); got != "ef" {
-		t.Fatalf("read after SeekEnd = %q, want %q", got, "ef")
+		t.Fatal("read did not reach EOF after the download completed")
 	}
 }
 
@@ -207,21 +192,16 @@ func TestNavBufferCloseCancelsAndUnblocks(t *testing.T) {
 	path := b.path
 	<-requestStarted
 
-	readStarted := make(chan struct{})
-	readResult := make(chan error, 1)
-	go func() {
-		close(readStarted)
-		_, err := b.Read(make([]byte, 1))
-		readResult <- err
-	}()
-	<-readStarted
-	waitForNavBufferCursorLock(t, b)
-
-	seekResult := make(chan error, 1)
-	go func() {
-		_, err := b.Seek(1, io.SeekStart)
-		seekResult <- err
-	}()
+	// 2 readers stand for the old and the replacement ffmpeg of a seek.
+	var results []<-chan navReadResult
+	for range 2 {
+		started, result := startNavRead(b.newReader(), 1)
+		<-started
+		results = append(results, result)
+	}
+	for _, result := range results {
+		assertNavReadBlocked(t, result)
+	}
 
 	const closeCallers = 8
 	closeErrs := make(chan error, closeCallers)
@@ -243,21 +223,15 @@ func TestNavBufferCloseCancelsAndUnblocks(t *testing.T) {
 	if err := b.Close(); err != nil {
 		t.Fatalf("Close after concurrent calls: %v", err)
 	}
-	select {
-	case err := <-readResult:
-		if !errors.Is(err, errNavBufferClosed) {
-			t.Fatalf("blocked Read error = %v, want %v", err, errNavBufferClosed)
+	for i, result := range results {
+		select {
+		case r := <-result:
+			if !errors.Is(r.err, errNavBufferClosed) {
+				t.Fatalf("blocked read %d error = %v, want %v", i, r.err, errNavBufferClosed)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("Close did not unblock read %d", i)
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("Close did not unblock Read")
-	}
-	select {
-	case err := <-seekResult:
-		if !errors.Is(err, errNavBufferClosed) {
-			t.Fatalf("blocked Seek error = %v, want %v", err, errNavBufferClosed)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("Close did not unblock Seek")
 	}
 	select {
 	case <-requestCanceled:
@@ -277,31 +251,17 @@ func TestNavBufferCloseCancelsAndUnblocks(t *testing.T) {
 func TestNavBufferStalls(t *testing.T) {
 	tests := []struct {
 		name string
-		wait func(*navBuffer) error
-		want string
+		sent string // bytes the server sends before it stalls
 	}{
-		{
-			name: "read",
-			wait: func(b *navBuffer) error {
-				_, err := b.Read(make([]byte, 1))
-				return err
-			},
-			want: "read stalled waiting for data",
-		},
-		{
-			name: "seek",
-			wait: func(b *navBuffer) error {
-				_, err := b.Seek(1, io.SeekStart)
-				return err
-			},
-			want: "seek stalled waiting for data",
-		},
+		{name: "before any data"},
+		{name: "after partial data", sent: "ab"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, tt.sent)
 				w.(http.Flusher).Flush()
 				<-r.Context().Done()
 			}))
@@ -314,8 +274,12 @@ func TestNavBufferStalls(t *testing.T) {
 			t.Cleanup(func() { _ = b.Close() })
 			b.stallTimeout = 25 * time.Millisecond
 
-			if err := tt.wait(b); err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("wait error = %v, want containing %q", err, tt.want)
+			got, err := io.ReadAll(b.newReader())
+			if !errors.Is(err, errNavBufferReadStalled) {
+				t.Fatalf("read error = %v, want %v", err, errNavBufferReadStalled)
+			}
+			if string(got) != tt.sent {
+				t.Fatalf("read before the stall = %q, want %q", got, tt.sent)
 			}
 		})
 	}
@@ -353,18 +317,6 @@ func TestNavBufferTempfileInitializationErrorCancelsRequest(t *testing.T) {
 	}
 }
 
-func waitForNavBufferCursorLock(t *testing.T, b *navBuffer) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for b.readMu.TryLock() {
-		b.readMu.Unlock()
-		if time.Now().After(deadline) {
-			t.Fatal("cursor operation did not start")
-		}
-		runtime.Gosched()
-	}
-}
-
 func TestNavBufferSegmentsConcatenatesInOrder(t *testing.T) {
 	segments := map[string]string{
 		"/init.mp4": "INIT",
@@ -394,9 +346,6 @@ func TestNavBufferSegmentsConcatenatesInOrder(t *testing.T) {
 
 	if contentLen != -1 {
 		t.Errorf("contentLength = %d, want -1 (unknown)", contentLen)
-	}
-	if got := nb.ContentType(); got != "audio/mp4" {
-		t.Errorf("ContentType = %q, want audio/mp4", got)
 	}
 
 	got, err := io.ReadAll(nb.newReader())

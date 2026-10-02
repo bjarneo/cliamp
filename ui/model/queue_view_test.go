@@ -8,7 +8,6 @@ import (
 
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
-	"github.com/bjarneo/cliamp/ui"
 )
 
 func TestClampedScroll(t *testing.T) {
@@ -36,15 +35,11 @@ func TestClampedScroll(t *testing.T) {
 
 func queueViewModel(t *testing.T) *Model {
 	t.Helper()
-	old := ui.PanelWidth
-	ui.PanelWidth = 80
-	t.Cleanup(func() { ui.PanelWidth = old })
-
 	prov := &stateProv{states: map[string]provider.PlaybackState{
 		"https://cdn/done.mp3": {Played: true},
 		"https://cdn/half.mp3": {Position: 5 * time.Minute},
 	}}
-	m := &Model{provider: prov, playlist: playlist.New(), plVisible: 12, showAlbumHeaders: true}
+	m := &Model{layout: frameLayout{panelWidth: 80}, provider: prov, playlist: playlist.New(), plVisible: 12, showAlbumHeaders: true}
 	m.playlist.Replace([]playlist.Track{
 		{Path: "https://cdn/done.mp3", Title: "Finished One", Album: "Part Of The Problem", DurationSecs: 3768},
 		{Path: "https://cdn/half.mp3", Title: "Half Heard", Album: "Wading Through AI", DurationSecs: 6751},
@@ -89,13 +84,13 @@ func TestRenderQueueBodyNumbersByQueuePosition(t *testing.T) {
 }
 
 func TestRenderQueueBodyEmpty(t *testing.T) {
-	old := ui.PanelWidth
-	ui.PanelWidth = 80
-	t.Cleanup(func() { ui.PanelWidth = old })
-	m := &Model{playlist: playlist.New(), plVisible: 12}
+	m := &Model{layout: frameLayout{panelWidth: 80}, playlist: playlist.New(), plVisible: 12}
 
-	if got := stripAnsi(m.renderQueueBody()); !strings.Contains(got, "(empty)") {
-		t.Errorf("empty queue body = %q, want an (empty) message", got)
+	got := stripAnsi(m.renderQueueBody())
+	for _, want := range []string{"The queue is empty.", "Press  a  on a playlist track to play it next."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("empty queue body = %q, want %q", got, want)
+		}
 	}
 }
 
@@ -126,10 +121,7 @@ func TestQueueKeepsTheNormalLayout(t *testing.T) {
 // With one row of budget, an album header would take it and leave the selected
 // track unrendered. The track wins.
 func TestRenderQueueBodyOneRowShowsTheTrackNotTheHeader(t *testing.T) {
-	old := ui.PanelWidth
-	ui.PanelWidth = 80
-	t.Cleanup(func() { ui.PanelWidth = old })
-	m := &Model{playlist: playlist.New(), plVisible: 1, showAlbumHeaders: true}
+	m := &Model{layout: frameLayout{panelWidth: 80}, playlist: playlist.New(), plVisible: 1, showAlbumHeaders: true}
 	m.playlist.Replace([]playlist.Track{{Path: "/t0.mp3", Title: "Track 0", Album: "One Album"}})
 	m.playlist.Queue(0)
 
@@ -144,10 +136,7 @@ func TestRenderQueueBodyOneRowShowsTheTrackNotTheHeader(t *testing.T) {
 }
 
 func TestRenderQueueBodyScrollsALongQueue(t *testing.T) {
-	old := ui.PanelWidth
-	ui.PanelWidth = 80
-	t.Cleanup(func() { ui.PanelWidth = old })
-	m := &Model{playlist: playlist.New(), plVisible: 8, showAlbumHeaders: true}
+	m := &Model{layout: frameLayout{panelWidth: 80}, playlist: playlist.New(), plVisible: 8, showAlbumHeaders: true}
 	tracks := make([]playlist.Track, 1000)
 	for i := range tracks {
 		tracks[i] = playlist.Track{Path: fmt.Sprintf("/t%d.mp3", i), Title: fmt.Sprintf("Track %d", i), Album: "One Album"}
@@ -169,10 +158,7 @@ func TestRenderQueueBodyScrollsALongQueue(t *testing.T) {
 }
 
 func TestRenderQueueBodyKeepsCursorVisiblePastHeaders(t *testing.T) {
-	old := ui.PanelWidth
-	ui.PanelWidth = 80
-	t.Cleanup(func() { ui.PanelWidth = old })
-	m := &Model{playlist: playlist.New(), plVisible: 5, showAlbumHeaders: true}
+	m := &Model{layout: frameLayout{panelWidth: 80}, playlist: playlist.New(), plVisible: 5, showAlbumHeaders: true}
 	tracks := make([]playlist.Track, 6)
 	for i := range tracks {
 		tracks[i] = playlist.Track{Path: fmt.Sprintf("/t%d.mp3", i), Title: fmt.Sprintf("Track %d", i), Album: "One Album"}

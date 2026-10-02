@@ -1,6 +1,6 @@
 [![Docs on contextowl.co](https://contextowl.co/uploads/_brand/badge-docs.svg)](https://contextowl.co)
 
-A retro terminal music player inspired by Winamp. Play local files, streams, podcasts, YouTube, YouTube Music, SoundCloud, Mixcloud, Bilibili, Spotify, NetEase Cloud Music, Yandex Music, Xiaoyuzhou (小宇宙), Navidrome, Lyrion, Plex, Jellyfin, and Audiobookshelf. Use the spectrum visualizer, parametric EQ, and playlist manager.
+A retro terminal music player inspired by Winamp. Play local files, streams, podcasts, YouTube, YouTube Music, SoundCloud, Mixcloud, Bilibili, Spotify, Qobuz, Tidal, NetEase Cloud Music, Yandex Music, Xiaoyuzhou (小宇宙), Navidrome, Lyrion, Plex, Jellyfin, Emby, and Audiobookshelf. Use the spectrum visualizer, parametric EQ, and playlist manager.
 
 **[cliamp.stream](https://cliamp.stream)** | **[docs](https://whiterose.org.contextowl.co/docs/cliamp)** | **[android](https://github.com/cliamp/cliamp-mobile)** | **[discord](https://discord.gg/4VpCzXPuj2)**
 
@@ -8,8 +8,7 @@ On a phone, run [cliamp mobile](https://github.com/cliamp/cliamp-mobile). It is 
 
 cliamp uses [Bubbletea](https://github.com/charmbracelet/bubbletea), [Lip Gloss](https://github.com/charmbracelet/lipgloss), [Beep](https://github.com/gopxl/beep), and [go-librespot](https://github.com/devgianlu/go-librespot).
 
-
-https://github.com/user-attachments/assets/fbc33d20-e3ac-4a62-a991-8a2f0243c8ea
+https://github.com/user-attachments/assets/55e251f2-e13b-43d9-bb6a-7b1960e7d7d0
 
 <div align="center">
   <a href="https://contextowl.co"><img src="https://contextowl.co/uploads/_brand/sponsor-dark.svg" alt="Proudly sponsored by contextowl.co" width="400"></a>
@@ -108,13 +107,13 @@ cliamp https://example.com/stream  # play a URL
 
 Press `Ctrl+K` to see all keybindings.
 
-**Configure remote providers** such as Navidrome, Lyrion, Plex, Jellyfin, Audiobookshelf, Spotify, Mixcloud, YouTube Music, and NetEase Cloud Music with the interactive wizard:
+**Configure remote providers** such as Navidrome, Lyrion, Plex, Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz, Tidal, Mixcloud, YouTube Music, and NetEase Cloud Music with the interactive wizard:
 
 ```sh
 cliamp setup
 ```
 
-The wizard guides you through each provider. It writes the required block to your config file (`~/.config/cliamp/config.toml`, or `%APPDATA%\cliamp\config.toml` on Windows when `HOME` is unset). It validates supported server connections during setup. It checks optional Mixcloud browser-session or OAuth credentials when you use them. See [docs/cli.md](docs/cli.md#setup-wizard) for details.
+The wizard guides you through each provider. It writes the provider keys into the section of that provider in your config file (`~/.config/cliamp/config.toml`, or `%APPDATA%\cliamp\config.toml` on Windows when `HOME` is unset). It keeps your other keys and comments. It validates supported server connections during setup. The OAuth providers Spotify, Qobuz and Tidal sign in later in the player. Mixcloud checks optional browser-session or OAuth credentials when you use them. See [docs/cli.md](docs/cli.md#setup-wizard) for details.
 
 See the [Mixcloud provider guide](docs/mixcloud.md) for discovery, account,
 creator/show, genre search, local genre favorites, authentication, signed-in
@@ -124,6 +123,26 @@ For podcast discovery and subscriptions, run `cliamp --provider podcast`.
 Browse Apple's top 100 shows and 19 categories, search with `/` then `Enter`,
 and subscribe with `f`. No account or API key is needed.
 See the [Podcasts guide](docs/podcasts.md).
+
+## Remote Control
+
+Control a running cliamp from a script, a status bar, or a key binding:
+
+```sh
+cliamp toggle
+cliamp next
+cliamp status --json
+```
+
+Media keys work through MPRIS on Linux, Now Playing on macOS, and global
+hotkeys on Windows.
+
+Run `cliamp --daemon` to play without a TUI. Headless mode runs the same
+player as the TUI. It loads your Lua plugins, reports plays to Navidrome,
+Jellyfin, and the other providers that take play reports, and adds each track
+to Recently Played when the track starts. See
+[docs/headless.md](docs/headless.md) and
+[docs/remote-control.md](docs/remote-control.md).
 
 ## Radio
 
@@ -144,7 +163,7 @@ To host a radio station, use [cliamp-server](https://github.com/bjarneo/cliamp-s
 
 **Prerequisites:**
 
-- [Go](https://go.dev/dl/) 1.25.5 or later
+- [Go](https://go.dev/dl/) 1.26.6 or later
 - ALSA development headers (Linux only, required by the audio backend)
 
 **Linux (Debian/Ubuntu):**
@@ -225,10 +244,7 @@ Or without Make: `go build -o cliamp .`
 
 `make install` places the binary in `~/.local/bin/`.
 
-**Optional runtime dependencies:**
-
-- [ffmpeg](https://ffmpeg.org/) for AAC, ALAC, Opus, and WMA playback
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) for YouTube, SoundCloud, Mixcloud, Bandcamp, Bilibili, and NetEase Cloud Music
+A source build uses the same optional runtime dependencies as the other install methods. See [Install](#install).
 
 ## Docs
 

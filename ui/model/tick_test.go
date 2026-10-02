@@ -6,28 +6,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/ui"
 
 	tea "charm.land/bubbletea/v2"
 )
 
-var sharedPlayer player.Engine
-
 type stereoFakeEngine struct {
 	*playbackFakeEngine
 	samples [][2]float64
-	volume  float64
-	mono    bool
 }
 
 func (f *stereoFakeEngine) StereoSamplesInto(dst [][2]float64) int {
 	return copy(dst, f.samples)
 }
-
-func (f *stereoFakeEngine) Volume() float64 { return f.volume }
-func (f *stereoFakeEngine) Mono() bool      { return f.mono }
 
 type samplingFakeEngine struct {
 	*playbackFakeEngine
@@ -69,16 +61,6 @@ func (f *samplingFakeEngine) StereoSamplesInto(dst [][2]float64) int {
 func TestMain(m *testing.M) {
 	os.Unsetenv("CLIAMP_CONFIG_DIR")
 	os.Unsetenv("XDG_CONFIG_HOME")
-
-	sr := player.DeviceSampleRate()
-	if sr <= 0 {
-		sr = 44100
-	}
-	p, err := player.New(player.Quality{SampleRate: sr, BufferMs: 100, ResampleQuality: 1})
-	if err == nil {
-		sharedPlayer = p
-		defer p.Close()
-	}
 	os.Exit(m.Run())
 }
 
@@ -87,17 +69,15 @@ func TestMain(m *testing.M) {
 // rather than ui.TickSlow / ui.TickFast. This is what lets the CPU sit in a
 // low P-state between user actions (issue #92 and follow-ups).
 func TestTickIntervalStoppedUsesIdle(t *testing.T) {
-	if sharedPlayer == nil {
-		t.Skip("audio hardware unavailable")
-	}
+	p := &playbackFakeEngine{}
 	m := Model{
-		player:    sharedPlayer,
-		vis:       ui.NewVisualizer(float64(sharedPlayer.SampleRate())),
+		player:    p,
+		vis:       ui.NewVisualizer(float64(p.SampleRate())),
 		playlist:  playlist.New(),
 		termTitle: terminalTitleState{},
 	}
 
-	if sharedPlayer.IsPlaying() {
+	if p.IsPlaying() {
 		t.Fatal("expected player to be stopped")
 	}
 	if !m.isFullyIdle() {
@@ -112,12 +92,10 @@ func TestTickIntervalStoppedUsesIdle(t *testing.T) {
 // message keeps us off the idle cadence — otherwise the message would linger
 // up to TickIdle past its expiry.
 func TestTickIntervalPendingStatusUsesSlow(t *testing.T) {
-	if sharedPlayer == nil {
-		t.Skip("audio hardware unavailable")
-	}
+	p := &playbackFakeEngine{}
 	m := Model{
-		player:   sharedPlayer,
-		vis:      ui.NewVisualizer(float64(sharedPlayer.SampleRate())),
+		player:   p,
+		vis:      ui.NewVisualizer(float64(p.SampleRate())),
 		playlist: playlist.New(),
 	}
 	m.status.Show("hello", statusTTL(2*time.Second))
@@ -188,47 +166,55 @@ func TestTickIntervalVisualizer60FPS(t *testing.T) {
 	}
 }
 
-func TestClassicPeakPlaybackHonorsDriverCadence(t *testing.T) {
-	p := &playbackFakeEngine{playing: true}
-	m := Model{
-		player: p, vis: ui.NewVisualizer(float64(p.SampleRate())),
-		playlist: playlist.New(), width: 80, height: 24,
-	}
-	m.recomputeLayout()
-	m.SetVisualizer("ClassicPeak")
-	want := m.vis.TickInterval(m.visualizerTickContext(time.Time{}))
-	if got := m.tickInterval(); got != want || got >= ui.TickFast {
-		t.Fatalf("ClassicPeak playback tick = %v, want driver cadence %v faster than %v", got, want, ui.TickFast)
-	}
-	m.SetVisualizer60FPS(true)
-	if got := m.tickInterval(); got != ui.TickAnim {
-		t.Fatalf("ClassicPeak 60fps tick = %v, want %v", got, ui.TickAnim)
-	}
-	m.SetLowPower(true)
-	if got := m.tickInterval(); got != ui.TickLowPowerPlaying {
-		t.Fatalf("ClassicPeak low-power tick = %v, want %v", got, ui.TickLowPowerPlaying)
+func TestCadenceOwnerPlaybackHonorsDriverCadence(t *testing.T) {
+	for _, mode := range []string{"ClassicPeak", "ClassicLED"} {
+		t.Run(mode, func(t *testing.T) {
+			p := &playbackFakeEngine{playing: true}
+			m := Model{
+				player: p, vis: ui.NewVisualizer(float64(p.SampleRate())),
+				playlist: playlist.New(), width: 80, height: 24,
+			}
+			m.recomputeLayout()
+			m.SetVisualizer(mode)
+			want := m.vis.TickInterval(m.visualizerTickContext(time.Time{}))
+			if got := m.tickInterval(); got != want || got >= ui.TickFast {
+				t.Fatalf("%s playback tick = %v, want driver cadence %v faster than %v", mode, got, want, ui.TickFast)
+			}
+			m.SetVisualizer60FPS(true)
+			if got := m.tickInterval(); got != ui.TickAnim {
+				t.Fatalf("%s 60fps tick = %v, want %v", mode, got, ui.TickAnim)
+			}
+			m.SetLowPower(true)
+			if got := m.tickInterval(); got != ui.TickLowPowerPlaying {
+				t.Fatalf("%s low-power tick = %v, want %v", mode, got, ui.TickLowPowerPlaying)
+			}
+		})
 	}
 }
 
+// The raw-sample modes run at about 60 FPS during playback without the
+// 60 FPS setting. docs/cli.md names the same modes.
 func TestTickIntervalRawSampleVisualizerUsesWaveCadence(t *testing.T) {
-	p := &playbackFakeEngine{playing: true}
-	m := Model{
-		player:   p,
-		vis:      ui.NewVisualizer(float64(p.SampleRate())),
-		playlist: playlist.New(),
-		width:    80,
-		height:   24,
-	}
-	m.recomputeLayout()
-	m.SetVisualizer("Wave")
+	for _, mode := range []string{"Wave", "Scope", "Heartbeat", "Stereo"} {
+		t.Run(mode, func(t *testing.T) {
+			p := &playbackFakeEngine{playing: true}
+			m := Model{
+				player:   p,
+				vis:      ui.NewVisualizer(float64(p.SampleRate())),
+				playlist: playlist.New(),
+				width:    80,
+				height:   24,
+			}
+			m.recomputeLayout()
+			m.SetVisualizer(mode)
 
-	if got := m.tickInterval(); got != ui.TickWave {
-		t.Fatalf("Wave tickInterval() = %v, want %v", got, ui.TickWave)
-	}
-
-	m.SetVisualizer("Heartbeat")
-	if got := m.tickInterval(); got != ui.TickWave {
-		t.Fatalf("Heartbeat tickInterval() = %v, want %v", got, ui.TickWave)
+			if !m.vis.UsesRawSamples() {
+				t.Fatalf("%s UsesRawSamples() = false, want true", mode)
+			}
+			if got := m.tickInterval(); got != ui.TickWave {
+				t.Fatalf("%s tickInterval() = %v, want %v", mode, got, ui.TickWave)
+			}
+		})
 	}
 }
 
@@ -301,7 +287,7 @@ func chargedPausedModel(t *testing.T) (Model, *samplingFakeEngine) {
 func TestTickIntervalPausedSettlingVisualizerUsesFast(t *testing.T) {
 	m, _ := chargedPausedModel(t)
 
-	if !m.isOverlayActive() && !m.visualizerSettlingPaused() {
+	if !m.visualizerSettlingPaused() {
 		t.Fatal("visualizerSettlingPaused() = false with charged paused bars, want true")
 	}
 	if m.isFullyIdle() {
@@ -440,10 +426,8 @@ func TestInitialTickUsesFastCadence(t *testing.T) {
 
 func TestVisualizerTickContextProcessesStereoOutput(t *testing.T) {
 	player := &stereoFakeEngine{
-		playbackFakeEngine: &playbackFakeEngine{playing: true},
+		playbackFakeEngine: &playbackFakeEngine{playing: true, volume: -6.020599913279624, mono: true},
 		samples:            [][2]float64{{0.8, 0.4}},
-		volume:             -6.020599913279624,
-		mono:               true,
 	}
 	m := Model{
 		player:          player,
@@ -503,11 +487,8 @@ func TestLyricsScreenKeepsVisualizerLive(t *testing.T) {
 	if got := m.activeScreen(); got != screenLyrics {
 		t.Fatalf("activeScreen() = %v, want %v", got, screenLyrics)
 	}
-	// Overlays now render inline over the live main view, so the visualizer is
+	// Overlays render inline over the live main view, so the visualizer is
 	// never treated as hidden.
-	if m.isOverlayActive() {
-		t.Fatal("isOverlayActive() = true, want false: overlays render inline")
-	}
 	if m.visualizerTickContext(time.Now()).OverlayActive {
 		t.Fatal("visualizerTickContext(...).OverlayActive = true, want false for inline lyrics")
 	}
@@ -585,5 +566,53 @@ func TestAdvanceTickUnitsClearsElapsedWhenCounterCompletes(t *testing.T) {
 	}
 	if elapsed != 0 {
 		t.Fatalf("elapsed after completion = %v, want 0", elapsed)
+	}
+}
+
+// TestTickReconnect checks when the scheduled reconnect restarts the track
+// and ends the tick early, and that only a yt-dlp live drain keeps its
+// attempt count across the restart.
+func TestTickReconnect(t *testing.T) {
+	now := time.Now()
+	station := playlist.Track{Title: "Station", Path: "https://example.com/one", Stream: true, Realtime: true}
+	tests := []struct {
+		name          string
+		at            time.Time
+		tracks        []playlist.Track
+		ytdlLiveDrain bool
+		wantRestarted bool
+		wantStopped   bool
+		wantAttempts  int
+	}{
+		{name: "nothing scheduled", tracks: []playlist.Track{station}},
+		{name: "scheduled later", at: now.Add(time.Second), tracks: []playlist.Track{station}},
+		{name: "due with a track", at: now.Add(-time.Millisecond), tracks: []playlist.Track{station}, wantRestarted: true, wantStopped: true},
+		{name: "due with a yt-dlp live drain", at: now.Add(-time.Millisecond), tracks: []playlist.Track{station}, ytdlLiveDrain: true, wantRestarted: true, wantStopped: true, wantAttempts: 2},
+		{name: "due with no track", at: now.Add(-time.Millisecond), wantStopped: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := &playbackFakeEngine{playing: true}
+			p := playlist.New()
+			p.Replace(tt.tracks)
+			m := Model{player: engine, playlist: p}
+			m.reconnect.at = tt.at
+			m.reconnect.attempts = 2
+			m.reconnect.ytdlLiveDrain = tt.ytdlLiveDrain
+
+			playCmd, restarted := m.tickReconnect(now)
+			if restarted != tt.wantRestarted || (playCmd != nil) != tt.wantRestarted {
+				t.Fatalf("tickReconnect = (cmd %t, %t), want restarted %t", playCmd != nil, restarted, tt.wantRestarted)
+			}
+			if stopped := engine.stopCalls > 0; stopped != tt.wantStopped {
+				t.Errorf("player stopped = %t, want %t", stopped, tt.wantStopped)
+			}
+			if tt.wantStopped && !m.reconnect.at.IsZero() {
+				t.Errorf("reconnect.at = %v after the due time, want cleared", m.reconnect.at)
+			}
+			if tt.wantRestarted && m.reconnect.attempts != tt.wantAttempts {
+				t.Errorf("reconnect.attempts = %d after the restart, want %d", m.reconnect.attempts, tt.wantAttempts)
+			}
+		})
 	}
 }

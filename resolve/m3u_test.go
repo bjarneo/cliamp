@@ -1,9 +1,12 @@
 package resolve
 
 import (
+	"errors"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/iotest"
 )
 
 func TestParseM3UBasic(t *testing.T) {
@@ -240,4 +243,38 @@ func TestResolveM3UPathWindows(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHasHLSEndList(t *testing.T) {
+	const tag = "#EXT-X-ENDLIST"
+	tests := []struct {
+		name string
+		head string
+		rest io.Reader
+		want bool
+	}{
+		{name: "tag in the head", head: "#EXTM3U\n" + tag + "\n", rest: strings.NewReader(""), want: true},
+		{name: "tag in the rest", head: "#EXTM3U\n", rest: strings.NewReader("seg.ts\n" + tag + "\n"), want: true},
+		{name: "tag split between head and rest", head: "#EXTM3U\n#EXT-X-END", rest: strings.NewReader("LIST\n"), want: true},
+		{name: "tag split across one-byte reads", head: "#EXTM3U\n", rest: iotest.OneByteReader(strings.NewReader("seg.ts\n" + tag)), want: true},
+		{name: "tag past a full read buffer", head: "#EXTM3U\n", rest: strings.NewReader(strings.Repeat("x", 40<<10) + tag), want: true},
+		{name: "no tag", head: "#EXTM3U\n", rest: strings.NewReader("seg.ts\n"), want: false},
+		{name: "tag past the scan limit", head: "#EXTM3U\n", rest: io.MultiReader(io.LimitReader(zeroReader{}, maxHLSScan), strings.NewReader(tag)), want: false},
+		{name: "read error ends the scan", head: "#EXTM3U\n", rest: io.MultiReader(strings.NewReader("seg.ts\n"), iotest.ErrReader(errors.New("reset")), strings.NewReader(tag)), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasHLSEndList([]byte(tt.head), tt.rest); got != tt.want {
+				t.Errorf("hasHLSEndList() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// zeroReader returns zero bytes without end.
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
 }

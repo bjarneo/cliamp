@@ -3,10 +3,13 @@ package luaplugin
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -28,12 +31,13 @@ func newExecTestState(t *testing.T, perms []string) (*lua.LState, *Plugin, *exec
 		}
 	}
 
-	em := newExecManager(execTestAllowedBinaries())
+	m := newManager(execTestAllowedBinaries(), nil)
+	m.logger = newPluginLogger("")
 	cliamp := L.NewTable()
-	registerExecAPI(L, cliamp, em, p, newPluginLogger(""))
+	m.registerExecAPI(L, cliamp, p)
 	L.SetGlobal("cliamp", cliamp)
 
-	return L, p, em, func() { em.stopAll(); L.Close() }
+	return L, p, m.execs, func() { m.execs.stopAll(); L.Close() }
 }
 
 func execTestAllowedBinaries() []string {
@@ -213,6 +217,51 @@ func TestExecPropagatesExitCode(t *testing.T) {
 	}
 }
 
+// A line longer than the scanner buffer stops the scan. The pipe must still
+// drain, or the process blocks on a full pipe until its timeout.
+func TestExecDrainsOverlongLine(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh")
+	}
+	tests := []struct {
+		name   string
+		script string
+	}{
+		{"stdout", `printf "%2097152s" x`},
+		{"stderr", `printf "%2097152s" x >&2`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			L, p, _, cleanup := newExecTestState(t, []string{"exec"})
+			defer cleanup()
+
+			p.mu.Lock()
+			err := L.DoString(fmt.Sprintf(`
+				_G.exit_code = nil
+				cliamp.exec.run("sh", {"-c", %q}, {
+					on_stdout = function() end,
+					on_stderr = function() end,
+					on_exit = function(code) _G.exit_code = code end,
+					timeout = 10,
+				})
+			`, tt.script))
+			p.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// The process timeout is 10 s, so an exit before 8 s shows that
+			// the pipe drained.
+			waitExec(t, p, L, "exit_code", 8*time.Second)
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			if code := L.GetGlobal("exit_code").(lua.LNumber); code != 0 {
+				t.Fatalf("exit_code = %v, want 0", code)
+			}
+		})
+	}
+}
+
 func TestExecCancel(t *testing.T) {
 	L, p, _, cleanup := newExecTestState(t, []string{"exec"})
 	defer cleanup()
@@ -327,6 +376,79 @@ func TestExecStopPluginKillsChildren(t *testing.T) {
 	}
 }
 
+// A background child of the binary inherits its output pipes. stopAll must
+// not wait for that child. Before, the readers waited for the child to close
+// the pipes, and stopAll and Close waited for the readers.
+func TestExecStopAllWithBackgroundChild(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs sh")
+	}
+	tests := []struct {
+		name   string
+		script string // starts a child that writes its PID to $1 and runs for 5 s
+		need   string // a binary that the script needs
+		killed bool   // the group kill stops the child
+	}{
+		{"child in the process group", `sh -c 'echo $$ > "$1"; exec sleep 5' sh "$1" &`, "", true},
+		{"child in its own session", `setsid sh -c 'echo $$ > "$1"; exec sleep 5' sh "$1" &`, "setsid", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.need != "" {
+				if _, err := exec.LookPath(tt.need); err != nil {
+					t.Skipf("%s is not available", tt.need)
+				}
+			}
+			pidFile := filepath.Join(t.TempDir(), "pid")
+			L, p, em, cleanup := newExecTestState(t, []string{"exec"})
+			defer cleanup()
+
+			p.mu.Lock()
+			err := L.DoString(fmt.Sprintf(`
+				_G.started = nil
+				local h, err = cliamp.exec.run("sh", {"-c", %q, "sh", %q}, {
+					on_stdout = function(line) _G.started = line end,
+				})
+				assert(h, tostring(err))
+			`, tt.script+" echo started", pidFile))
+			p.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitExec(t, p, L, "started", 5*time.Second)
+			var pid int
+			for deadline := time.Now().Add(5 * time.Second); pid == 0; {
+				data, _ := os.ReadFile(pidFile)
+				pid, _ = strconv.Atoi(strings.TrimSpace(string(data)))
+				if pid == 0 && time.Now().After(deadline) {
+					t.Fatal("the child did not write its PID")
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			child, err := os.FindProcess(pid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { child.Kill() })
+
+			start := time.Now()
+			em.stopAll()
+			if elapsed := time.Since(start); elapsed > time.Second {
+				t.Errorf("stopAll() took %v, want less than 1s", elapsed)
+			}
+			if !tt.killed {
+				return
+			}
+			for deadline := time.Now().Add(2 * time.Second); child.Signal(syscall.Signal(0)) == nil; {
+				if time.Now().After(deadline) {
+					t.Fatal("the child still runs after stopAll")
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+		})
+	}
+}
+
 func TestResolveAllowedBinaries(t *testing.T) {
 	tests := []struct {
 		name string
@@ -383,9 +505,10 @@ func TestExecBinaryNotOnPath(t *testing.T) {
 	L := lua.NewState()
 	defer L.Close()
 	p := &Plugin{Name: "test", L: L, perms: map[string]bool{"exec": true}}
-	em := newExecManager([]string{"definitely-not-a-real-binary-xyz"})
+	m := newManager([]string{"definitely-not-a-real-binary-xyz"}, nil)
+	m.logger = newPluginLogger("")
 	cliamp := L.NewTable()
-	registerExecAPI(L, cliamp, em, p, newPluginLogger(""))
+	m.registerExecAPI(L, cliamp, p)
 	L.SetGlobal("cliamp", cliamp)
 
 	err := L.DoString(`

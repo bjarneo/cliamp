@@ -138,8 +138,9 @@ type V2Result struct {
 	Job      *Job
 }
 
-// V2Dispatcher is implemented by the runtime owner (the model or a future
-// daemon). The context is cancelled when the server shuts down.
+// V2Dispatcher is implemented by the runtime owner, the Model of ui/model in
+// the TUI and in headless mode. The context is cancelled when the server
+// shuts down.
 type V2Dispatcher interface {
 	DispatchV2(ctx context.Context, request V2Request) (V2Result, *V2Error)
 }
