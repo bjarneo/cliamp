@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/bjarneo/cliamp/applog"
@@ -120,16 +121,12 @@ func NewServerWithBroker(sockPath string, broker *Broker) (*Server, error) {
 }
 
 func newServer(sockPath string, broker *Broker, brokerOwned bool) (*Server, error) {
-	if err := cleanStaleSocket(sockPath); err != nil {
-		return nil, err
-	}
-
 	// Ensure the parent directory exists.
 	if err := os.MkdirAll(filepath.Dir(sockPath), 0700); err != nil {
 		return nil, fmt.Errorf("ipc: mkdir: %w", err)
 	}
 
-	ln, err := listenSocket(sockPath)
+	ln, err := listenExclusive(sockPath)
 	if err != nil {
 		return nil, fmt.Errorf("ipc: listen: %w", err)
 	}
@@ -558,30 +555,49 @@ func Listening(sockPath string) (bool, error) {
 	return false, fmt.Errorf("ipc: probe socket %s: %w", sockPath, err)
 }
 
-// cleanStaleSocket removes a leftover socket and PID file from a dead process.
-// A connect probe always runs before deleting either path, so a live server is
-// never displaced because its PID file is missing, stale, or malformed.
-//
-// The probe is the sole authority on whether a server is live: when nothing
-// accepts a connection on sockPath, any socket and PID file there are stale by
-// definition. The PID file is deliberately not consulted as a second gate. It
-// records only a PID, and PIDs are reused, so "is this PID alive" does not
-// imply "is this cliamp alive" — it only implies that some process holds the
-// number. Gating on it strands the daemon: a PID file left behind by an
-// unclean exit keeps matching whichever unrelated process later inherits that
-// PID, so the daemon refuses to bind and every IPC command reports that cliamp
-// is not running while the daemon itself is running. See #591.
-func cleanStaleSocket(sockPath string) error {
-	listening, err := Listening(sockPath)
-	if err != nil {
-		return err
-	}
-	if listening {
-		return fmt.Errorf("ipc: cliamp is already running")
-	}
+// listenStaleSocketAttempts bounds the stale-socket retries in listenExclusive.
+// One retry clears a socket inode left by a dead process; the extra attempt
+// covers a competing starter that bound between our probe and our unlink.
+const listenStaleSocketAttempts = 3
 
-	// Nothing is serving this path, so both files are stale.
-	os.Remove(sockPath + ".pid")
-	os.Remove(sockPath)
-	return nil
+// listenExclusive binds sockPath, clearing a socket inode left behind by a
+// process that died without cleaning up.
+//
+// The bind is the arbiter, not a probe performed beforehand. net.Listen fails
+// with EADDRINUSE while any inode occupies the path, so the probe runs only to
+// explain a bind that already failed: a path is removed only once the bind has
+// failed *and* the probe confirms no server accepts connections on it.
+//
+// Deciding from a probe taken before the bind is what let two starting daemons
+// delete each other's socket. Process A could probe "nothing listening" while
+// process B bound and published its PID file, after which A removed B's live
+// socket, leaving B running on an unlinked inode and unreachable.
+//
+// The PID file is not consulted at all. It records only a PID, and PIDs are
+// reused, so "is this PID alive" does not imply "is this cliamp alive" — it only
+// implies that some process holds the number. Gating on it stranded the daemon
+// after a reboot, when a stale PID file kept matching whichever unrelated
+// process inherited that PID. See #591.
+func listenExclusive(sockPath string) (net.Listener, error) {
+	for attempt := 0; attempt < listenStaleSocketAttempts; attempt++ {
+		ln, err := listenSocket(sockPath)
+		if err == nil {
+			return ln, nil
+		}
+		if !errors.Is(err, syscall.EADDRINUSE) {
+			return nil, err
+		}
+		listening, probeErr := Listening(sockPath)
+		if probeErr != nil {
+			return nil, probeErr
+		}
+		if listening {
+			return nil, fmt.Errorf("ipc: cliamp is already running")
+		}
+		// Nothing is serving this path, so the inode is stale.
+		if rmErr := os.Remove(sockPath); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+			return nil, rmErr
+		}
+	}
+	return nil, fmt.Errorf("ipc: could not acquire socket %s", sockPath)
 }

@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -73,8 +74,22 @@ func TestNewServerSocketLifecycle(t *testing.T) {
 	}
 }
 
+// leaveStaleSocket leaves a socket inode at sock with no listener behind, the
+// way a killed daemon does.
+func leaveStaleSocket(t *testing.T, sock string) {
+	t.Helper()
+	stale, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale.(*net.UnixListener).SetUnlinkOnClose(false)
+	if err := stale.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A live server holding the socket must never be displaced. This is the
-// protection that actually matters, and it comes from the connect probe.
+// protection that actually matters, and it comes from the failed bind.
 func TestNewServerRejectsLiveServer(t *testing.T) {
 	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
 	server, err := NewServer(sock)
@@ -95,16 +110,8 @@ func TestNewServerIgnoresStalePIDOfUnrelatedProcess(t *testing.T) {
 	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
 	// A leftover socket inode with no listener, plus a PID file pointing at a
 	// live process that is not this one.
-	stale, err := net.Listen("unix", sock)
-	if err != nil {
-		t.Fatal(err)
-	}
+	leaveStaleSocket(t, sock)
 	if err := os.WriteFile(sock+".pid", []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// Close without removing the socket file, as a killed daemon would.
-	stale.(*net.UnixListener).SetUnlinkOnClose(false)
-	if err := stale.Close(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -120,6 +127,57 @@ func TestNewServerIgnoresStalePIDOfUnrelatedProcess(t *testing.T) {
 	}
 	if got, want := strings.TrimSpace(string(pid)), strconv.Itoa(os.Getpid()); got != want {
 		t.Fatalf("PID file = %q, want %q", got, want)
+	}
+}
+
+// Two daemons starting at once must not both succeed, and the loser must not
+// leave the winner unreachable on an unlinked socket.
+func TestNewServerConcurrentStartsYieldOneServer(t *testing.T) {
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+
+	const starters = 8
+	var (
+		wg        sync.WaitGroup
+		mu        sync.Mutex
+		succeeded []*Server
+	)
+	start := make(chan struct{})
+	for i := 0; i < starters; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			server, err := NewServer(sock)
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			succeeded = append(succeeded, server)
+			mu.Unlock()
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if len(succeeded) == 0 {
+		t.Fatal("no server acquired the socket")
+	}
+	t.Cleanup(func() {
+		for _, server := range succeeded {
+			_ = server.Close()
+		}
+	})
+	if len(succeeded) != 1 {
+		t.Fatalf("%d of %d starters acquired %s, want exactly 1", len(succeeded), starters, sock)
+	}
+
+	// The winner must still be reachable at the published path.
+	listening, err := Listening(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !listening {
+		t.Fatal("socket is not accepting connections after a concurrent start")
 	}
 }
 
