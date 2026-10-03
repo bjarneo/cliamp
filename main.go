@@ -140,6 +140,7 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 	defer closePlayer()
 	providers.registerPlayerHooks(p)
 	cfg.ApplyPlayer(p)
+	p.SetReplayGain(cfg.ReplayGain, cfg.ReplayGainPreamp)
 	cfg.ApplyPlaylist(pl)
 
 	pluginBroker := ipc.NewBroker()

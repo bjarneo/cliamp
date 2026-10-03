@@ -70,6 +70,7 @@ func (m Model) metadataFields() []metadataField {
 	if track.DurationSecs > 0 {
 		add("Length", formatTrackTime(track.DurationSecs))
 	}
+	add("ReplayGain", m.replayGainText(track))
 	add("Country", track.Meta("radio.country"))
 	add("Region", track.Meta("radio.state"))
 	add("Codec", track.Meta("radio.codec"))
