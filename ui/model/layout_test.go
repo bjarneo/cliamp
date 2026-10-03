@@ -434,8 +434,7 @@ func TestAsyncSearchResultLayoutUsesContentFirstRows(t *testing.T) {
 }
 
 // The frame padding belongs to the Model. A Model that nobody configured
-// uses the config defaults. A headless Model keeps the padding for the
-// width of its visualizer.
+// uses the config defaults.
 func TestSetPadding(t *testing.T) {
 	tests := []struct {
 		name               string
@@ -445,11 +444,6 @@ func TestSetPadding(t *testing.T) {
 		{name: "unset", setup: func(*Model) {}, wantH: 3, wantV: 1, cols: 74},
 		{name: "zero", setup: func(m *Model) { m.SetPadding(0, 0) }, wantH: 0, wantV: 0, cols: 80},
 		{name: "configured", setup: func(m *Model) { m.SetPadding(5, 2) }, wantH: 5, wantV: 2, cols: 70},
-		{name: "headless", setup: func(m *Model) {
-			m.width, m.height = 0, 0
-			m.SetPadding(5, 2)
-			m.SetHeadless(true)
-		}, wantH: 5, wantV: 2, cols: 70},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

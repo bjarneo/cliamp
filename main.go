@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -189,7 +188,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if cfg.AutoPlay && !restoredContext {
 		m.SetAutoPlay(true)
 	}
-	configureModel(&m, cfg, false, visualizer60FPS)
+	configureModel(&m, cfg, visualizer60FPS)
 
 	if resumeState.Path != "" && resumeState.PositionSec > 0 {
 		// Jellyfin and Emby resume the restored context above. Mixcloud is also commonly
@@ -207,7 +206,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	// of the one it was started from: playback, providers, plugins, and IPC
 	// are unchanged, and `cliamp attach` lends a terminal to the running
 	// program whenever somebody wants to look at it.
-	progOpts := programOptions(false, cfg.LowPower)
+	progOpts := programOptions(cfg.LowPower)
 	var prog *tea.Program
 	var host *session.Host
 	if daemon {
@@ -256,7 +255,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if host != nil {
 		attach = host
 	}
-	stopIPC, err := startIPC(prog.Send, pluginBroker, luaMgr, false, attach)
+	stopIPC, err := startIPC(prog.Send, pluginBroker, luaMgr, attach)
 	if err != nil {
 		return err
 	}
@@ -275,7 +274,7 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if err != nil {
 		return err
 	}
-	saveOnExit(finalModel, false, resumeServer)
+	saveOnExit(finalModel, resumeServer)
 	if fm, ok := finalModel.(model.Model); ok {
 		fm.WaitReports(reportsExitWait)
 	}
@@ -287,8 +286,8 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 const reportsExitWait = 3 * time.Second
 
 // checkNotRunning returns an error when another instance serves the socket.
-// Headless mode calls it before it builds the providers, opens the audio
-// device or loads the plugins. The app.quit hooks of the plugins could
+// A detached session calls it before it builds the providers, opens the
+// audio device or loads the plugins. The app.quit hooks of the plugins could
 // otherwise change the files of the running instance. startIPC still
 // catches an instance that starts after the check.
 func checkNotRunning() error {
@@ -353,9 +352,8 @@ func newPlayer(cfg config.Config) (p *player.Player, closePlayer func(), err err
 	}, nil
 }
 
-// configureModel applies the settings of cfg to m. Headless mode has no
-// screen, so the view settings do not apply there.
-func configureModel(m *model.Model, cfg config.Config, headless, visualizer60FPS bool) {
+// configureModel applies the settings of cfg to m.
+func configureModel(m *model.Model, cfg config.Config, visualizer60FPS bool) {
 	m.SetCustomEQBands(cfg.EQ)
 	m.SetPadding(cfg.PaddingH, cfg.PaddingV)
 	m.SetVisVolumeLinked(cfg.VisVolumeLinked)
@@ -368,11 +366,6 @@ func configureModel(m *model.Model, cfg config.Config, headless, visualizer60FPS
 	}
 	if cfg.Theme != "" {
 		m.SetTheme(cfg.Theme)
-	}
-	if headless {
-		// The default visualizer stays, because it serves spectrum.get.
-		m.SetHeadless(true)
-		return
 	}
 	m.SetVisRows(cfg.VisRows)
 	m.SetVisualizer60FPS(visualizer60FPS)
@@ -400,14 +393,14 @@ func configureModel(m *model.Model, cfg config.Config, headless, visualizer60FPS
 }
 
 // startIPC serves the socket and sends its requests to the program through
-// send. Headless mode and a detached session are controlled only through the
-// socket, so there a failure is an error. The TUI reports the failure and runs
-// without the socket. A non-nil attach takes over the attach requests.
-func startIPC(send func(tea.Msg), broker *ipc.Broker, plugins *luaplugin.Manager, headless bool, attach ipc.AttachHandler) (stop func(), err error) {
+// send. A non-nil attach takes over the attach requests: that is a detached
+// session, controlled only through the socket, so there a failure is an
+// error. The TUI reports the failure and runs without the socket.
+func startIPC(send func(tea.Msg), broker *ipc.Broker, plugins *luaplugin.Manager, attach ipc.AttachHandler) (stop func(), err error) {
 	srv, err := ipc.NewServerWithBroker(ipc.DefaultSocketPath(), broker)
 	if err != nil {
 		// The errors of the ipc package already start with "ipc: ".
-		if headless || attach != nil {
+		if attach != nil {
 			return nil, err
 		}
 		fmt.Fprintln(os.Stderr, err)
@@ -417,7 +410,7 @@ func startIPC(send func(tea.Msg), broker *ipc.Broker, plugins *luaplugin.Manager
 	// an ordered queue and the socket can acknowledge a job at once.
 	queue, stopQueue := newOrderedSender(send)
 	srv.SetV2Dispatcher(newV2Dispatcher(queue, srv.JobStore(), plugins))
-	srv.SetOperationRegistry(v2Operations(headless, plugins != nil))
+	srv.SetOperationRegistry(v2Operations(plugins != nil))
 	if attach != nil {
 		srv.SetAttachHandler(attach)
 	}
@@ -431,19 +424,16 @@ func startIPC(send func(tea.Msg), broker *ipc.Broker, plugins *luaplugin.Manager
 // saveOnExit keeps the theme and the resume position of the final Model.
 // When a Jellyfin or Emby server is the default provider, it also keeps the
 // list that the track played from.
-func saveOnExit(final tea.Model, headless bool, resumeServer *embyapi.Provider) {
+func saveOnExit(final tea.Model, resumeServer *embyapi.Provider) {
 	fm, ok := final.(model.Model)
 	if !ok {
 		return
 	}
-	// Headless mode has no theme keys, so it keeps the saved theme.
-	if !headless {
-		themeName := fm.ThemeName()
-		if theme.IsDefaultName(themeName) {
-			themeName = ""
-		}
-		_ = config.SaveString("theme", themeName)
+	themeName := fm.ThemeName()
+	if theme.IsDefaultName(themeName) {
+		themeName = ""
 	}
+	_ = config.SaveString("theme", themeName)
 
 	path, secs, playlistName := fm.ResumeState()
 	saveExitResume(path, secs, playlistName, fm.ResumeContext, resumeServer)
@@ -468,28 +458,13 @@ func saveExitResume(path string, secs int, playlistName string, resumeContext fu
 	resume.Save(path, secs, playlistName)
 }
 
-// programOptions returns the Bubbletea options of the TUI, or of headless
-// mode. run handles the signals itself in both modes, see quitOnSignals.
-func programOptions(headless, lowPower bool) []tea.ProgramOption {
-	switch {
-	case headless:
-		return headlessProgramOptions()
-	case lowPower:
+// programOptions returns the Bubbletea options of the TUI. run handles the
+// signals itself, see quitOnSignals.
+func programOptions(lowPower bool) []tea.ProgramOption {
+	if lowPower {
 		return []tea.ProgramOption{tea.WithFPS(lowPowerUIFPS), tea.WithoutSignalHandler()}
 	}
 	return []tea.ProgramOption{tea.WithFPS(defaultUIFPS), tea.WithoutSignalHandler()}
-}
-
-// headlessProgramOptions build a program with no terminal: no renderer, no
-// input and no output. The frame ticker runs at its lowest rate.
-func headlessProgramOptions() []tea.ProgramOption {
-	return []tea.ProgramOption{
-		tea.WithoutRenderer(),
-		tea.WithInput(nil),
-		tea.WithOutput(io.Discard),
-		tea.WithFPS(1),
-		tea.WithoutSignalHandler(),
-	}
 }
 
 // sessionProgramOptions render the program into host, the virtual terminal of
@@ -532,14 +507,10 @@ func quitOnSignal(signals chan os.Signal, send func(tea.Msg)) {
 	}
 }
 
-// v2Operations returns the V2 operations that this runtime serves. Headless
-// mode has no theme or visualizer to change. The plugin operations need the
-// plugin manager.
-func v2Operations(headless, plugins bool) *ipc.OperationRegistry {
+// v2Operations returns the V2 operations that this runtime serves. The
+// plugin operations need the plugin manager.
+func v2Operations(plugins bool) *ipc.OperationRegistry {
 	operations := ipc.DefaultOperationRegistry()
-	if headless {
-		operations.Unregister("theme", "vis")
-	}
 	if !plugins {
 		operations.Unregister("plugin.call", "plugin.commands")
 	}
@@ -550,7 +521,7 @@ func v2Operations(headless, plugins bool) *ipc.OperationRegistry {
 // spectrum.get.
 var v2ReplyTimeout = 3 * time.Second
 
-// newV2Dispatcher answers the V2 requests of the TUI and of headless mode.
+// newV2Dispatcher answers the V2 requests of the TUI and of a detached session.
 // send delivers a request to the Model. It must return at once and keep the
 // order of the requests, as the queue of newOrderedSender does, so a job is
 // acknowledged before the Model reads it and jobs run in the order they came

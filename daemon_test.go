@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -21,27 +22,22 @@ import (
 	"github.com/bjarneo/cliamp/luaplugin"
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
-	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui/model"
 )
 
 func TestV2Operations(t *testing.T) {
-	appearance := []string{"theme", "vis"}
 	plugins := []string{"plugin.call", "plugin.commands"}
 	for _, tc := range []struct {
-		name     string
-		headless bool
-		plugins  bool
-		missing  []string
+		name    string
+		plugins bool
+		missing []string
 	}{
-		{name: "TUI with plugins", plugins: true},
-		{name: "TUI without plugins", missing: plugins},
-		{name: "headless with plugins", headless: true, plugins: true, missing: appearance},
-		{name: "headless without plugins", headless: true, missing: append(slices.Clone(appearance), plugins...)},
+		{name: "with plugins", plugins: true},
+		{name: "without plugins", missing: plugins},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			operations := v2Operations(tc.headless, tc.plugins)
-			for _, name := range append(append([]string{"play", "queue.list", "provider.search"}, appearance...), plugins...) {
+			operations := v2Operations(tc.plugins)
+			for _, name := range append([]string{"play", "queue.list", "provider.search", "theme", "vis"}, plugins...) {
 				_, ok := operations.Lookup(name)
 				if want := !slices.Contains(tc.missing, name); ok != want {
 					t.Errorf("%s registered = %v, want %v", name, ok, want)
@@ -374,15 +370,20 @@ func captureStderr(t *testing.T, fn func()) string {
 	return string(data)
 }
 
-// When another instance holds the socket, headless mode cannot start, so
-// startIPC returns an error. The TUI prints the error and runs without the
-// socket. The message has one ipc: prefix.
+// stubAttach stands in for the session host.
+type stubAttach struct{}
+
+func (stubAttach) HandleAttach(net.Conn, ipc.V2Request) {}
+
+// When another instance holds the socket, a detached session cannot start,
+// so startIPC returns an error. The TUI prints the error and runs without
+// the socket. The message has one ipc: prefix.
 func TestStartIPCWithTheSocketInUse(t *testing.T) {
 	for _, tt := range []struct {
-		name     string
-		headless bool
+		name   string
+		attach ipc.AttachHandler
 	}{
-		{name: "headless", headless: true},
+		{name: "session", attach: stubAttach{}},
 		{name: "TUI"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -390,10 +391,10 @@ func TestStartIPCWithTheSocketInUse(t *testing.T) {
 			var stop func()
 			var err error
 			printed := captureStderr(t, func() {
-				stop, err = startIPC(func(tea.Msg) {}, ipc.NewBroker(), nil, tt.headless, nil)
+				stop, err = startIPC(func(tea.Msg) {}, ipc.NewBroker(), nil, tt.attach)
 			})
 			message := printed
-			if tt.headless {
+			if tt.attach != nil {
 				if err == nil || stop != nil {
 					t.Fatalf("startIPC = %v, want an error", err)
 				}
@@ -407,132 +408,66 @@ func TestStartIPCWithTheSocketInUse(t *testing.T) {
 			if !strings.HasPrefix(message, "ipc: ") || strings.Count(message, "ipc:") != 1 {
 				t.Fatalf("message = %q, want one ipc: prefix", message)
 			}
-			if tt.headless && printed != "" {
+			if tt.attach != nil && printed != "" {
 				t.Fatalf("stderr = %q, want nothing", printed)
 			}
 		})
 	}
 }
 
-// startIPC serves the V2 requests through send and the operations of the
-// mode. stop removes the socket.
+// startIPC serves the V2 requests through send, appearance operations
+// included. stop removes the socket.
 func TestStartIPCServesTheModel(t *testing.T) {
-	for _, tt := range []struct {
-		name     string
-		headless bool
-	}{
-		{name: "headless", headless: true},
-		{name: "TUI"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("CLIAMP_CONFIG_DIR", socketDir(t))
-			send := func(msg tea.Msg) {
-				if request, ok := msg.(model.V2RequestMsg); ok && request.Reply != nil {
-					request.Reply <- model.V2RequestResult{Result: ipc.V2Result{Snapshot: &ipc.RuntimeSnapshot{State: "paused"}}}
-				}
-			}
-			stop, err := startIPC(send, ipc.NewBroker(), nil, tt.headless, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			socket := ipc.DefaultSocketPath()
-
-			response, err := ipc.SendV2(socket, ipc.V2Request{ID: json.RawMessage(`1`), Method: "state.get"})
-			if err != nil {
-				stop()
-				t.Fatal(err)
-			}
-			if response.Snapshot == nil || response.Snapshot.State != "paused" {
-				stop()
-				t.Fatalf("state.get = %+v, want the snapshot of the Model", response)
-			}
-			response, err = ipc.SendV2(socket, ipc.V2Request{ID: json.RawMessage(`2`), Operation: "theme", Params: json.RawMessage(`{"name":"x"}`)})
-			if err != nil {
-				stop()
-				t.Fatal(err)
-			}
-			if unknown := response.Error != nil && response.Error.Code == ipc.V2ErrorCodeUnknownOperation; unknown != tt.headless {
-				stop()
-				t.Fatalf("theme error = %+v, want unknown operation %v", response.Error, tt.headless)
-			}
-
-			stop()
-			if _, err := os.Stat(socket); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("socket after stop: %v, want it removed", err)
-			}
-		})
-	}
-}
-
-// A headless cliamp fails cliamp theme <name> and cliamp vis <name|next>.
-// The list forms still work, as headless.md says.
-func TestHeadlessAppearanceCommands(t *testing.T) {
 	t.Setenv("CLIAMP_CONFIG_DIR", socketDir(t))
 	send := func(msg tea.Msg) {
 		if request, ok := msg.(model.V2RequestMsg); ok && request.Reply != nil {
-			request.Reply <- model.V2RequestResult{Result: ipc.V2Result{Snapshot: &ipc.RuntimeSnapshot{State: "paused", Visualizer: "Wave"}}}
+			request.Reply <- model.V2RequestResult{Result: ipc.V2Result{Snapshot: &ipc.RuntimeSnapshot{State: "paused"}}}
 		}
 	}
-	stop, err := startIPC(send, ipc.NewBroker(), nil, true, nil)
+	stop, err := startIPC(send, ipc.NewBroker(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(stop)
+	socket := ipc.DefaultSocketPath()
 
-	for _, tt := range []struct {
-		args    []string
-		wantErr bool
-		want    string // a line of the output
-	}{
-		{args: []string{"theme", "list"}, want: "  " + theme.DefaultName},
-		{args: []string{"theme", "Nord"}, wantErr: true},
-		{args: []string{"vis", "list"}, want: "* Wave"},
-		{args: []string{"vis", "Bars"}, wantErr: true},
-		{args: []string{"vis", "next"}, wantErr: true},
-	} {
-		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
-			var runErr error
-			stdout, _ := captureOutput(t, func() {
-				runErr = buildApp().Run(t.Context(), append([]string{"cliamp"}, tt.args...))
-			})
-			switch {
-			case tt.wantErr && (runErr == nil || !strings.Contains(runErr.Error(), "unknown operation")):
-				t.Fatalf("error = %v, want unknown operation", runErr)
-			case !tt.wantErr && runErr != nil:
-				t.Fatal(runErr)
-			}
-			if tt.want != "" && !slices.Contains(strings.Split(stdout, "\n"), tt.want) {
-				t.Errorf("output = %q, want the line %q", stdout, tt.want)
-			}
-		})
+	response, err := ipc.SendV2(socket, ipc.V2Request{ID: json.RawMessage(`1`), Method: "state.get"})
+	if err != nil {
+		stop()
+		t.Fatal(err)
+	}
+	if response.Snapshot == nil || response.Snapshot.State != "paused" {
+		stop()
+		t.Fatalf("state.get = %+v, want the snapshot of the Model", response)
+	}
+	response, err = ipc.SendV2(socket, ipc.V2Request{ID: json.RawMessage(`2`), Operation: "theme", Params: json.RawMessage(`{"name":"x"}`)})
+	if err != nil {
+		stop()
+		t.Fatal(err)
+	}
+	if response.Error != nil && response.Error.Code == ipc.V2ErrorCodeUnknownOperation {
+		stop()
+		t.Fatalf("theme error = %+v, want a known operation", response.Error)
+	}
+
+	stop()
+	if _, err := os.Stat(socket); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("socket after stop: %v, want it removed", err)
 	}
 }
 
-// Headless mode has no screen, so it keeps the default visualizer that
-// spectrum.get uses. The TUI applies the configured visualizer.
+// configureModel applies the configured visualizer.
 func TestConfigureModel(t *testing.T) {
-	for _, tt := range []struct {
-		name     string
-		headless bool
-		want     string
-	}{
-		{name: "headless", headless: true, want: "Bars"},
-		{name: "TUI", want: "Wave"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			m := model.New(&player.Player{}, playlist.New(), nil, "cliamp", nil, nil, nil, nil, nil, config.SaveFunc{})
-			configureModel(&m, config.Config{Visualizer: "Wave"}, tt.headless, false)
-			if got := m.VisualizerName(); got != tt.want {
-				t.Fatalf("visualizer = %q, want %q", got, tt.want)
-			}
-		})
+	m := model.New(&player.Player{}, playlist.New(), nil, "cliamp", nil, nil, nil, nil, nil, config.SaveFunc{})
+	configureModel(&m, config.Config{Visualizer: "Wave"}, false)
+	if got := m.VisualizerName(); got != "Wave" {
+		t.Fatalf("visualizer = %q, want %q", got, "Wave")
 	}
 }
 
-// A second headless instance stops before it builds the providers, opens
+// A second detached session stops before it builds the providers, opens
 // the audio device or loads the plugins. The app.quit hook of a plugin
 // would otherwise change the files of the running instance.
-func TestHeadlessSecondInstance(t *testing.T) {
+func TestDaemonSecondInstance(t *testing.T) {
 	startTestIPC(t, ipc.RuntimeSnapshot{}, func(*ipc.JobStore, string, ipc.V2Request) {})
 	dir := os.Getenv("CLIAMP_CONFIG_DIR")
 	home := t.TempDir()

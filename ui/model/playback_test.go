@@ -355,7 +355,7 @@ func TestQuitResumeSkipsLiveStreams(t *testing.T) {
 	}
 }
 
-// The quit message of media controls and headless signals keeps the resume
+// The quit message of media controls and signals keeps the resume
 // position, as the q key does.
 func TestQuitMsgCapturesResumePosition(t *testing.T) {
 	track := playlist.Track{Title: "Song", Path: "/music/song.flac", DurationSecs: 240}

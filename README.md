@@ -137,8 +137,9 @@ cliamp status --json
 Media keys work through MPRIS on Linux, Now Playing on macOS, and global
 hotkeys on Windows.
 
-Run `cliamp --daemon` to play without a TUI. Headless mode runs the same
-player as the TUI. It loads your Lua plugins, reports plays to Navidrome,
+Run `cliamp --daemon` to keep playing with no terminal of its own, and
+`cliamp attach` to bring the UI into any terminal; `q` detaches and leaves it
+playing. A detached session is the same player as the TUI. It loads your Lua plugins, reports plays to Navidrome,
 Jellyfin, and the other providers that take play reports, and adds each track
 to Recently Played when the track starts. See
 [docs/headless.md](docs/headless.md) and

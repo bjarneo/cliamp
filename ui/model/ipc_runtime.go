@@ -771,12 +771,7 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 // bands.
 func (m *Model) v2BandsResponse() ipc.Response {
 	response := ipc.Response{OK: true}
-	switch {
-	case m.headless:
-		// The low-power tick is too slow for a spectrum client, so each
-		// request analyzes the audio that plays now.
-		m.tickVisualizer(time.Now())
-	case m.detached && m.vis != nil && m.player != nil:
+	if m.detached && m.vis != nil && m.player != nil {
 		// A detached session runs no visualizer of its own: nothing would
 		// refresh these bands, and a status bar asking for a spectrum would
 		// get the frame that was current when the last client left. Analyze

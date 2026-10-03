@@ -266,5 +266,5 @@ cliamp --daemon --auto-play http://radio.cliamp.stream/lofi/stream
   the socket.
 - A detached session renders no frame and runs no visualizer until a client
   attaches. It ticks only as often as playback bookkeeping needs, so an
-  idle-but-playing session costs about what the old headless mode did.
+  idle-but-playing session costs little more than playback itself.
 - cliamp resolves feed, M3U, PLS, and yt-dlp arguments in the background after start. If one of these URLs fails, cliamp adds none of them. The session keeps running with the local files and the direct stream URLs. Check `cliamp status`, and look in `~/.config/cliamp/cliamp.log` for the error.

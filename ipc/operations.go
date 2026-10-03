@@ -53,7 +53,7 @@ func (r *OperationRegistry) Register(operation Operation) {
 }
 
 // Unregister removes local capabilities that are unavailable in a particular
-// runtime, such as the appearance controls in headless mode.
+// runtime, such as the plugin operations without a plugin manager.
 func (r *OperationRegistry) Unregister(names ...string) {
 	r.mu.Lock()
 	for _, name := range names {

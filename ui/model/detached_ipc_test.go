@@ -21,8 +21,8 @@ import (
 	"github.com/bjarneo/cliamp/provider"
 )
 
-// The tests in this file drive a headless Model with no WindowSizeMsg. They
-// replace the tests of the headless daemon that the Model took over.
+// The tests in this file drive a detached session over IPC, the way scripts
+// and status bars do.
 
 // libraryTestProvider serves one playlist, a search, artists and albums.
 type libraryTestProvider struct{ commandsTestProvider }
@@ -80,11 +80,11 @@ func (p *stationCatalogProvider) ToggleFavorite(id string) (bool, string, error)
 	return true, "Station", nil
 }
 
-func TestHeadlessStateSnapshot(t *testing.T) {
-	engine := &headlessEngine{}
+func TestDetachedStateSnapshot(t *testing.T) {
+	engine := &detachedEngine{}
 	engine.playing, engine.seekable = true, true
 	engine.position, engine.duration = 12*time.Second, 3*time.Minute
-	m := newHeadlessModel(t, engine, nil,
+	m := newDetachedModel(t, engine, nil,
 		playlist.Track{Path: "https://example.com/one", Title: "One", Stream: true},
 		playlist.Track{Path: "https://example.com/two", Title: "Two", Stream: true},
 	)
@@ -112,9 +112,9 @@ func TestHeadlessStateSnapshot(t *testing.T) {
 }
 
 // A job reports its result and the snapshot of the state that it committed.
-func TestHeadlessVolumeJobCarriesSnapshot(t *testing.T) {
-	engine := &headlessEngine{playbackFakeEngine: playbackFakeEngine{volume: -6}}
-	m := newHeadlessModel(t, engine, nil, playlist.Track{Path: "/music/one.flac", Title: "One"})
+func TestDetachedVolumeJobCarriesSnapshot(t *testing.T) {
+	engine := &detachedEngine{playbackFakeEngine: playbackFakeEngine{volume: -6}}
+	m := newDetachedModel(t, engine, nil, playlist.Track{Path: "/music/one.flac", Title: "One"})
 
 	msg := v2Request(t, "volume", ipc.Request{Value: -18})
 	m.Update(msg)
@@ -127,8 +127,8 @@ func TestHeadlessVolumeJobCarriesSnapshot(t *testing.T) {
 	}
 }
 
-func TestHeadlessQueueAndPlayNextAreSeparate(t *testing.T) {
-	m := newHeadlessModel(t, &headlessEngine{}, nil)
+func TestDetachedQueueAndPlayNextAreSeparate(t *testing.T) {
+	m := newDetachedModel(t, &detachedEngine{}, nil)
 
 	if response := runV2(t, &m, "queue", ipc.Request{Path: "https://example.com/queued"}); !response.OK || m.playlist.Len() != 1 || m.playlist.QueueLen() != 0 {
 		t.Fatalf("queue = %+v, playlist %d, play-next %d", response, m.playlist.Len(), m.playlist.QueueLen())
@@ -148,9 +148,9 @@ func TestHeadlessQueueAndPlayNextAreSeparate(t *testing.T) {
 
 // The scripted playlist recipe of docs/headless.md: queue appends to an idle
 // daemon and starts nothing. play then starts the first queued track.
-func TestHeadlessScriptedQueueStartsWithPlay(t *testing.T) {
-	engine := &headlessEngine{}
-	m := newHeadlessModel(t, engine, nil)
+func TestDetachedScriptedQueueStartsWithPlay(t *testing.T) {
+	engine := &detachedEngine{}
+	m := newDetachedModel(t, engine, nil)
 	for _, path := range []string{"/music/one.flac", "/music/two.flac"} {
 		if response := runV2(t, &m, "queue", ipc.Request{Path: path}); !response.OK {
 			t.Fatalf("queue %s = %+v", path, response)
@@ -167,8 +167,8 @@ func TestHeadlessScriptedQueueStartsWithPlay(t *testing.T) {
 	}
 }
 
-func TestHeadlessQueueListIncludesMetadata(t *testing.T) {
-	m := newHeadlessModel(t, &headlessEngine{}, nil,
+func TestDetachedQueueListIncludesMetadata(t *testing.T) {
+	m := newDetachedModel(t, &detachedEngine{}, nil,
 		playlist.Track{Path: "/one.flac", Title: "One", Album: "Album", DurationSecs: 60},
 		playlist.Track{Path: "/two.flac", Title: "Two"},
 	)
@@ -181,9 +181,9 @@ func TestHeadlessQueueListIncludesMetadata(t *testing.T) {
 }
 
 // Media-control messages apply in the order that they arrive.
-func TestHeadlessMediaControlsApplyInOrder(t *testing.T) {
-	engine := &headlessEngine{playbackFakeEngine: playbackFakeEngine{volume: -6}}
-	m := newHeadlessModel(t, engine, nil)
+func TestDetachedMediaControlsApplyInOrder(t *testing.T) {
+	engine := &detachedEngine{playbackFakeEngine: playbackFakeEngine{volume: -6}}
+	m := newDetachedModel(t, engine, nil)
 	for _, want := range []float64{-10, -20} {
 		updated, _ := m.Update(playback.SetVolumeMsg{VolumeDB: want})
 		m = updated.(Model)
@@ -195,10 +195,10 @@ func TestHeadlessMediaControlsApplyInOrder(t *testing.T) {
 
 // play on a paused live station connects again to the station that plays. It
 // does not resume the stale buffer, and it does not advance.
-func TestHeadlessPlayRestartsLiveStation(t *testing.T) {
-	engine := &headlessEngine{}
+func TestDetachedPlayRestartsLiveStation(t *testing.T) {
+	engine := &detachedEngine{}
 	engine.playing, engine.paused, engine.live = true, true, true
-	m := newHeadlessModel(t, engine, nil,
+	m := newDetachedModel(t, engine, nil,
 		playlist.Track{Path: "https://radio.example.com/one", Title: "One", Stream: true},
 		playlist.Track{Path: "https://radio.example.com/two", Title: "Two", Stream: true},
 	)
@@ -216,7 +216,7 @@ func TestHeadlessPlayRestartsLiveStation(t *testing.T) {
 
 // A drained live stream connects again in place. A yt-dlp recording with a
 // stale live flag has a duration, so its drain advances.
-func TestHeadlessDrainedLiveStream(t *testing.T) {
+func TestDetachedDrainedLiveStream(t *testing.T) {
 	ytdlLive := playlist.Track{Path: "https://music.youtube.com/watch?v=live1", Title: "Live", Stream: true, Realtime: true}
 	ytdlNext := playlist.Track{Path: "https://music.youtube.com/watch?v=next1", Title: "Next", Stream: true, DurationSecs: 100}
 	for _, tc := range []struct {
@@ -240,9 +240,9 @@ func TestHeadlessDrainedLiveStream(t *testing.T) {
 		{name: "yt-dlp recording that ended", tracks: []playlist.Track{ytdlLive, ytdlNext}, duration: 90 * time.Minute, wantIndex: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			engine := &headlessEngine{}
+			engine := &detachedEngine{}
 			engine.playing, engine.drained, engine.live, engine.duration = true, true, tc.runtimeLive, tc.duration
-			m := newHeadlessModel(t, engine, nil, tc.tracks...)
+			m := newDetachedModel(t, engine, nil, tc.tracks...)
 
 			updated, _ := m.Update(tickMsg(time.Now()))
 			m = updated.(Model)
@@ -258,7 +258,7 @@ func TestHeadlessDrainedLiveStream(t *testing.T) {
 
 // The snapshot splits ICY metadata into artist and title and names the
 // station, the same way the TUI shows it.
-func TestHeadlessStreamTitleFields(t *testing.T) {
+func TestDetachedStreamTitleFields(t *testing.T) {
 	tests := []struct {
 		name        string
 		streamTitle string
@@ -307,9 +307,9 @@ func TestHeadlessStreamTitleFields(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			engine := &headlessEngine{playbackFakeEngine: playbackFakeEngine{streamTitle: tc.streamTitle}}
+			engine := &detachedEngine{playbackFakeEngine: playbackFakeEngine{streamTitle: tc.streamTitle}}
 			engine.playing = true
-			m := newHeadlessModel(t, engine, nil, tc.track)
+			m := newDetachedModel(t, engine, nil, tc.track)
 
 			// The tick reads the ICY title from the player.
 			updated, _ := m.Update(tickMsg(time.Now()))
@@ -332,7 +332,7 @@ func TestHeadlessStreamTitleFields(t *testing.T) {
 	}
 }
 
-func TestHeadlessLibraryRequests(t *testing.T) {
+func TestDetachedLibraryRequests(t *testing.T) {
 	providers := []provider.Entry{{Key: "test", Name: "Test", Provider: libraryTestProvider{commandsTestProvider{name: "Test"}}}}
 	for _, tc := range []struct {
 		op     string
@@ -365,7 +365,7 @@ func TestHeadlessLibraryRequests(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.op, func(t *testing.T) {
-			m := newHeadlessModel(t, &headlessEngine{}, providers)
+			m := newDetachedModel(t, &detachedEngine{}, providers)
 			if response := runV2(t, &m, tc.op, tc.params); !response.OK || !tc.ok(response) {
 				t.Fatalf("%s = %+v", tc.op, response)
 			}
@@ -536,7 +536,7 @@ func TestIPCProviderSearchKeepsThePaneSearch(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			counts := &countingCatalogProvider{stationCatalogProvider: stationCatalogProvider{commandsTestProvider: commandsTestProvider{name: "Radio"}}}
-			m := newHeadlessModel(t, &headlessEngine{}, []provider.Entry{{Key: "radio", Name: "Radio", Provider: tc.wrap(counts)}})
+			m := newDetachedModel(t, &detachedEngine{}, []provider.Entry{{Key: "radio", Name: "Radio", Provider: tc.wrap(counts)}})
 			counts.searching = true
 			m.provSearch.query = "rock"
 			m.provPane.lists = []playlist.PlaylistInfo{{ID: "s:0", Name: "Rock FM"}}
@@ -598,9 +598,9 @@ func TestIPCRadioSearchKeepsThePaneSearch(t *testing.T) {
 	}
 }
 
-func TestHeadlessProviderFavoriteAndCatalog(t *testing.T) {
+func TestDetachedProviderFavoriteAndCatalog(t *testing.T) {
 	prov := &stationCatalogProvider{commandsTestProvider: commandsTestProvider{name: "Catalog"}}
-	m := newHeadlessModel(t, &headlessEngine{}, []provider.Entry{{Key: "radio", Name: "Radio", Provider: prov}})
+	m := newDetachedModel(t, &detachedEngine{}, []provider.Entry{{Key: "radio", Name: "Radio", Provider: prov}})
 
 	if response := runV2(t, &m, "provider.favorite", ipc.Request{Provider: "radio", Playlist: "c:station"}); !response.OK || prov.favorite != "c:station" {
 		t.Fatalf("provider.favorite = %+v, provider favorite %q", response, prov.favorite)
@@ -629,7 +629,7 @@ func (favoriteRowsProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 // row. It does not read the f: prefix of the ID.
 func TestIPCPlaylistsReportTheProviderFavoriteMark(t *testing.T) {
 	prov := favoriteRowsProvider{commandsTestProvider{name: "Rows"}}
-	m := newHeadlessModel(t, &headlessEngine{}, []provider.Entry{{Key: "rows", Name: "Rows", Provider: prov}})
+	m := newDetachedModel(t, &detachedEngine{}, []provider.Entry{{Key: "rows", Name: "Rows", Provider: prov}})
 	response := runV2(t, &m, "provider.playlists", ipc.Request{Provider: "rows"})
 	if !response.OK || len(response.Playlists) != 3 {
 		t.Fatalf("provider.playlists = %+v", response)
@@ -641,9 +641,9 @@ func TestIPCPlaylistsReportTheProviderFavoriteMark(t *testing.T) {
 	}
 }
 
-func TestHeadlessPlaylistMutations(t *testing.T) {
+func TestDetachedPlaylistMutations(t *testing.T) {
 	prov := &writableTestProvider{commandsTestProvider: commandsTestProvider{name: "Writable"}, removed: -1}
-	m := newHeadlessModel(t, &headlessEngine{}, []provider.Entry{{Key: "local", Name: "Local", Provider: prov}})
+	m := newDetachedModel(t, &detachedEngine{}, []provider.Entry{{Key: "local", Name: "Local", Provider: prov}})
 	track := ipc.TrackInfo{Path: "/song.flac"}
 	for _, tc := range []struct {
 		op     string
@@ -666,7 +666,7 @@ func TestHeadlessPlaylistMutations(t *testing.T) {
 
 // playlist.bookmark toggles the ♥ favorite and copies the change to the
 // provider that owns the track. That provider ends with the last state.
-func TestHeadlessBookmarkSyncsOwningProvider(t *testing.T) {
+func TestDetachedBookmarkSyncsOwningProvider(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		path      string
@@ -678,9 +678,13 @@ func TestHeadlessBookmarkSyncsOwningProvider(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &dirSourceTestProvider{commandsTestProvider: commandsTestProvider{name: "Local"}}
 			fake := &fakeTrackFavoriter{commandsTestProvider: commandsTestProvider{name: "Fake"}, prefix: "fake:"}
-			m := newHeadlessModel(t, &headlessEngine{}, []provider.Entry{
-				{Key: "local", Name: "Local", Provider: store},
+			// Fake comes first, so the active pane is not Local. A write
+			// with Local active also refreshes its pane, and runV2 stops
+			// running commands once the job ends, before the sync in that
+			// batch would run.
+			m := newDetachedModel(t, &detachedEngine{}, []provider.Entry{
 				{Key: "fake", Name: "Fake", Provider: fake},
+				{Key: "local", Name: "Local", Provider: store},
 			})
 			m.localProvider, m.favStore = store, store.useFavorites(t)
 			track := ipc.TrackInfo{Path: tc.path, Title: "Song"}
@@ -715,8 +719,8 @@ func TestHeadlessBookmarkSyncsOwningProvider(t *testing.T) {
 	}
 }
 
-func TestHeadlessClearsHistory(t *testing.T) {
-	m := newHeadlessModel(t, &headlessEngine{}, nil)
+func TestDetachedClearsHistory(t *testing.T) {
+	m := newDetachedModel(t, &detachedEngine{}, nil)
 	store := history.New()
 	if err := store.Record(playlist.Track{Path: "/song.flac"}, time.Now()); err != nil {
 		t.Fatal(err)
@@ -735,7 +739,7 @@ func TestHeadlessClearsHistory(t *testing.T) {
 // IPC history.clear refreshes the surfaces that list Recently Played, as a
 // history write does: the playlist manager rows and its open track list.
 func TestIPCHistoryClearRefreshesTheManager(t *testing.T) {
-	m := newHeadlessModel(t, &headlessEngine{}, nil)
+	m := newDetachedModel(t, &detachedEngine{}, nil)
 	store := history.New()
 	for _, path := range []string{"/one.flac", "/two.flac"} {
 		if err := store.Record(playlist.Track{Path: path}, time.Now()); err != nil {

@@ -558,7 +558,6 @@ type Model struct {
 
 	autoPlay        bool // start playing immediately on launch
 	lowPower        bool // lower UI/render cadences in low-power mode
-	headless        bool // no screen: cliamp --daemon runs without a renderer
 	visualizer60FPS bool // render a visible visualizer at the animation cadence
 	simplified      bool // simplified playback view: track summary and time strip
 	hideTrackInfo   bool // full-screen visualizer: show the source instead of the track

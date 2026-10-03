@@ -238,10 +238,10 @@ func (m *Model) recomputeLayout() {
 	m.layout = layout
 	if m.vis != nil {
 		m.vis.Cols = layout.panelWidth
-		if m.width <= 0 && !m.headless {
+		if m.width <= 0 {
 			// Bubbletea draws a frame before the first WindowSizeMsg. The
 			// visualizer stays unsized until then, so a mode never starts at
-			// the placeholder size. Headless mode keeps it for spectrum.get.
+			// the placeholder size.
 			m.vis.Cols = 0
 		}
 		if m.simplified {

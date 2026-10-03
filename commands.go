@@ -998,8 +998,7 @@ func visStreamCommand() *cli.Command {
 // active mode, or -1. A running cliamp lists its Lua visualizers too and
 // gives the active row, because a Lua mode can have the name of a built-in
 // mode. A cliamp that gives no row marks the first row with the active
-// name. With no running cliamp, or in headless mode, it lists the built-in
-// modes.
+// name. With no running cliamp, it lists the built-in modes.
 func visModes() (names []string, active int, running bool) {
 	names = ui.VisModeNames()
 	snapshot, err := ipcState()
