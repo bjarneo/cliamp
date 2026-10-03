@@ -5,7 +5,19 @@
 // via type assertions.
 package provider
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/bjarneo/cliamp/playlist"
+)
+
+// Entry pairs a display name with a key and provider implementation. The
+// provider list of the UI is a slice of entries in display order.
+type Entry struct {
+	Key      string            // config key: "radio", "navidrome", "spotify"
+	Name     string            // display name: "Radio", "Navidrome", "Spotify"
+	Provider playlist.Provider // nil if not configured
+}
 
 // ArtistInfo describes an artist in a provider's catalog.
 type ArtistInfo struct {
@@ -70,13 +82,19 @@ const (
 	MetaMixcloudKey = "mixcloud.key"
 	// MetaMixcloudCreator is the profile username that owns a Mixcloud show.
 	MetaMixcloudCreator = "mixcloud.creator"
-	// MetaMixcloudExclusive marks a show that Mixcloud may restrict to
-	// signed-in users or subscribers. The viewer's entitlement is resolved
-	// only during playback, so it is informational rather than Unplayable.
-	MetaMixcloudExclusive = "mixcloud.exclusive"
 
 	MetaAudiobookshelfID      = "audiobookshelf.id"
 	MetaAudiobookshelfEpisode = "audiobookshelf.episode"
 	MetaAudiobookshelfOffset  = "audiobookshelf.offset"
 	MetaAudiobookshelfTotal   = "audiobookshelf.total"
+
+	// MetaPodcastFeed is the RSS feed URL an episode came from, and marks a
+	// track as a podcast episode.
+	MetaPodcastFeed = "podcast.feed"
+	// MetaPodcastGUID is the episode's RSS GUID, falling back to its audio
+	// URL when the feed omits one. It identifies an episode across feed
+	// reloads, so listening state is keyed on it.
+	MetaPodcastGUID = "podcast.guid"
+	// MetaPodcastPublished is the episode publication date as YYYY-MM-DD.
+	MetaPodcastPublished = "podcast.published"
 )

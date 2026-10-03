@@ -12,12 +12,12 @@ import (
 func (v *Visualizer) renderFirework(bands []float64) string {
 	height := v.Rows
 	dotRows := height * 4
-	dotCols := PanelWidth * 2
+	dotCols := v.columns() * 2
 	if dotRows < 4 || dotCols < 4 {
 		return strings.Repeat("\n", max(0, height-1))
 	}
 
-	grid := make([]bool, dotRows*dotCols)
+	grid := v.dotMaskFor(dotRows * dotCols)
 
 	var totalEnergy float64
 	for _, e := range bands {
@@ -91,24 +91,6 @@ func (v *Visualizer) renderFirework(bands []float64) string {
 		}
 	}
 
-	// Convert dot grid to Braille characters with row-based spectrum color.
-	lines := make([]string, height)
-	for row := range height {
-		var content strings.Builder
-		for ch := range PanelWidth {
-			var braille rune = '\u2800'
-			for dr := range 4 {
-				for dc := range 2 {
-					if grid[(row*4+dr)*dotCols+ch*2+dc] {
-						braille |= brailleBit[dr][dc]
-					}
-				}
-			}
-			content.WriteRune(braille)
-		}
-		// Top rows bright (red), bottom dimmer (green) — fireworks in a night sky.
-		lines[row] = specWrap(float64(height-1-row)/float64(height), content.String())
-	}
-
-	return strings.Join(lines, "\n")
+	// Top rows bright (red), bottom dimmer (green) — fireworks in a night sky.
+	return packBraille(grid, dotCols, height, v.columns(), specRowLevel)
 }

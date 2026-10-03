@@ -1,14 +1,20 @@
 package navidrome
 
 import (
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/internal/netdiag"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
@@ -452,19 +458,19 @@ func TestNewFromEnv(t *testing.T) {
 	t.Setenv("NAVIDROME_URL", "")
 	t.Setenv("NAVIDROME_USER", "")
 	t.Setenv("NAVIDROME_PASS", "")
-	if c := NewFromEnv(); c != nil {
-		t.Error("NewFromEnv() should return nil when env vars are empty")
+	if c := NewFromEnv(config.NavidromeConfig{}); c != nil {
+		t.Error("NewFromEnv(config.NavidromeConfig{}) should return nil when env vars are empty")
 	}
 
 	t.Setenv("NAVIDROME_URL", "https://music.test")
 	t.Setenv("NAVIDROME_USER", "alice")
 	t.Setenv("NAVIDROME_PASS", "secret")
-	c := NewFromEnv()
+	c := NewFromEnv(config.NavidromeConfig{})
 	if c == nil {
-		t.Fatal("NewFromEnv() returned nil with all env vars set")
+		t.Fatal("NewFromEnv(config.NavidromeConfig{}) returned nil with all env vars set")
 	}
 	if c.url != "https://music.test" || c.user != "alice" || c.password != "secret" {
-		t.Errorf("NewFromEnv() = %+v", c)
+		t.Errorf("NewFromEnv(config.NavidromeConfig{}) = %+v", c)
 	}
 }
 
@@ -484,6 +490,78 @@ func TestNewFromConfig(t *testing.T) {
 			c := NewFromConfig(tt.cfg)
 			if (c == nil) != tt.wantNil {
 				t.Errorf("NewFromConfig(%+v) nil=%v, want nil=%v", tt.cfg, c == nil, tt.wantNil)
+			}
+		})
+	}
+}
+
+func TestNewFromEnv_ConfigSettings(t *testing.T) {
+	cfg := config.NavidromeConfig{
+		URL: "https://config.test", User: "config-user", Password: "config-password",
+		Format: " RAW ", BrowseSort: SortNewest, ScrobbleDisabled: true,
+	}
+	for _, missing := range []string{"", "NAVIDROME_URL", "NAVIDROME_USER", "NAVIDROME_PASS"} {
+		name := missing
+		if name == "" {
+			name = "complete credentials"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("NAVIDROME_URL", "https://env.test")
+			t.Setenv("NAVIDROME_USER", "env-user")
+			t.Setenv("NAVIDROME_PASS", "env-password")
+			if missing != "" {
+				t.Setenv(missing, "")
+			}
+			c := NewFromEnv(cfg)
+			if missing != "" {
+				if c != nil {
+					t.Fatal("expected nil when an environment credential is missing")
+				}
+				return
+			}
+			if c == nil {
+				t.Fatal("expected client with complete environment credentials")
+			}
+			if c.url != "https://env.test" || c.user != "env-user" || c.password != "env-password" {
+				t.Error("client did not use environment credentials")
+			}
+			u, err := url.Parse(c.streamURL("song-1"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := u.Query().Get("format"); got != "raw" {
+				t.Errorf("format = %q, want raw", got)
+			}
+			if got := c.DefaultAlbumSort(); got != SortNewest {
+				t.Errorf("browse sort = %q, want %q", got, SortNewest)
+			}
+			if c.CanReportPlayback(trackWithNavidromeMeta("song-1")) {
+				t.Error("scrobbling should be disabled")
+			}
+		})
+	}
+}
+
+func TestAPIUserAgent(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		call func(*NavidromeClient) error
+	}{
+		{"metadata", func(c *NavidromeClient) error { _, err := c.Playlists(); return err }},
+		{"now playing", func(c *NavidromeClient) error { return c.ReportNowPlaying(trackWithNavidromeMeta("song-1"), 0, false) }},
+		{"scrobble", func(c *NavidromeClient) error { return c.ReportScrobble(trackWithNavidromeMeta("song-1"), 0, 0, false) }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				const want = "cliamp/1.0 (https://github.com/bjarneo/cliamp)"
+				if got := r.UserAgent(); got != want {
+					t.Errorf("User-Agent = %q, want %q", got, want)
+				}
+				w.Write([]byte(`{"subsonic-response":{"status":"ok"}}`))
+			}))
+			defer srv.Close()
+			if err := tt.call(New(srv.URL, "u", "p")); err != nil {
+				t.Fatal(err)
 			}
 		})
 	}
@@ -678,5 +756,126 @@ func TestSubsonicGet_OversizeResponse(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "exceeds") {
 		t.Errorf("error = %q, want it to mention the size limit", err)
+	}
+}
+
+func TestStreamURLFormat(t *testing.T) {
+	tests := []struct {
+		name       string
+		format     string
+		wantFormat string
+	}{
+		{"default lets the server decide", "", ""},
+		{"raw requests the original file", "raw", "raw"},
+		{"explicit format is passed through", "mp3", "mp3"},
+		{"uppercase raw", "RAW", "raw"},
+		{"mixed case raw", "Raw", "raw"},
+		{"leading whitespace", " raw", "raw"},
+		{"surrounding whitespace and uppercase", " MP3 ", "mp3"},
+		{"whitespace only lets the server decide", " \t", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := NewFromConfig(config.NavidromeConfig{
+				URL: "https://music.example.com", User: "alice", Password: "secret", Format: tt.format,
+			})
+			parsed, err := url.Parse(c.streamURL("song-1"))
+			if err != nil {
+				t.Fatalf("streamURL() returned invalid URL: %v", err)
+			}
+			q := parsed.Query()
+			if q.Get("id") != "song-1" {
+				t.Errorf("id = %q, want song-1", q.Get("id"))
+			}
+			if _, present := q["format"]; present != (tt.wantFormat != "") {
+				t.Errorf("format param present = %v, want %v", present, tt.wantFormat != "")
+			}
+			if got := q.Get("format"); got != tt.wantFormat {
+				t.Errorf("format = %q, want %q", got, tt.wantFormat)
+			}
+		})
+	}
+}
+
+// roundTripFunc lets a test answer requests without a server.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+// TestDialErrorGetsNetdiagHint verifies that the API and scrobble paths pass a
+// dial failure through netdiag.Explain. On macOS the error then carries the
+// Local Network hint. On other systems it stays the same.
+func TestDialErrorGetsNetdiagHint(t *testing.T) {
+	dialErr := &net.OpError{
+		Op:   "dial",
+		Net:  "tcp",
+		Addr: &net.TCPAddr{IP: net.ParseIP("192.168.1.20"), Port: 4533},
+		Err:  os.NewSyscallError("connect", syscall.EHOSTUNREACH),
+	}
+	want := netdiag.Explain(dialErr).Error()
+	old := httpClient
+	httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, dialErr
+	})}
+	t.Cleanup(func() { httpClient = old })
+
+	song := playlist.Track{ProviderMeta: map[string]string{provider.MetaNavidromeID: "song-1"}}
+	tests := []struct {
+		name string
+		call func(*NavidromeClient) error
+	}{
+		{"api", (*NavidromeClient).Ping},
+		{"scrobble", func(c *NavidromeClient) error { return c.ReportNowPlaying(song, 0, false) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.call(New("http://192.168.1.20:4533", "user", "pw"))
+			if !errors.Is(err, syscall.EHOSTUNREACH) {
+				t.Fatalf("error = %v, want the dial error in the chain", err)
+			}
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error = %q, want it to contain %q", err, want)
+			}
+		})
+	}
+}
+
+// SaveAlbumSort keeps the pick for this session and saves it through
+// SaveSort. An empty pick selects the alphabetical sort. With no SaveSort, the
+// pick is not saved.
+func TestSaveAlbumSort(t *testing.T) {
+	saveErr := errors.New("disk full")
+	for _, tt := range []struct {
+		name      string
+		sort      string
+		noSaver   bool
+		saverErr  error
+		wantSort  string
+		wantSaved []string
+	}{
+		{name: "named sort", sort: SortNewest, wantSort: SortNewest, wantSaved: []string{SortNewest}},
+		{name: "empty sort", sort: "", wantSort: SortAlphabeticalByName, wantSaved: []string{SortAlphabeticalByName}},
+		{name: "no saver", sort: SortStarred, noSaver: true, wantSort: SortStarred},
+		{name: "save error", sort: SortByYear, saverErr: saveErr, wantSort: SortByYear, wantSaved: []string{SortByYear}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := New("https://music.test", "alice", "secret")
+			var saved []string
+			if !tt.noSaver {
+				c.SaveSort = func(sort string) error {
+					saved = append(saved, sort)
+					return tt.saverErr
+				}
+			}
+			if err := c.SaveAlbumSort(tt.sort); !errors.Is(err, tt.saverErr) {
+				t.Fatalf("SaveAlbumSort error = %v, want %v", err, tt.saverErr)
+			}
+			if got := c.DefaultAlbumSort(); got != tt.wantSort {
+				t.Errorf("DefaultAlbumSort() = %q, want %q", got, tt.wantSort)
+			}
+			if !slices.Equal(saved, tt.wantSaved) {
+				t.Errorf("saved = %v, want %v", saved, tt.wantSaved)
+			}
+		})
 	}
 }

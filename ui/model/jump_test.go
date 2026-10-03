@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -61,17 +62,35 @@ func TestParseJumpTarget(t *testing.T) {
 }
 
 func TestInvalidJumpKeepsInputOpen(t *testing.T) {
-	m := Model{jumping: true, jumpInput: "1:99"}
+	m := Model{jump: jumpState{active: true, input: "1:99"}}
 
 	m.handleJumpKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if !m.jumping {
-		t.Fatal("jumping = false after invalid target, want input to remain open")
+	if !m.jump.active {
+		t.Fatal("jump.active = false after invalid target, want input to remain open")
 	}
-	if m.jumpInput != "1:99" {
-		t.Fatalf("jump input = %q, want preserved value", m.jumpInput)
+	if m.jump.input != "1:99" {
+		t.Fatalf("jump input = %q, want preserved value", m.jump.input)
 	}
 	if m.status.text == "" {
 		t.Fatal("status is empty after invalid target")
+	}
+}
+
+func TestJumpSeekFailureKeepsInputOpen(t *testing.T) {
+	eng := &playbackFakeEngine{playing: true, seekable: true, duration: time.Hour, seekErr: errors.New("decoder refused")}
+	m := Model{player: eng, jump: jumpState{active: true, input: "1:00"}}
+
+	if cmd := m.handleJumpKey(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd != nil {
+		t.Fatalf("cmd = %v, want nil for an in-place seek", cmd)
+	}
+	if len(eng.seekCalls) != 1 || eng.seekCalls[0] != time.Minute {
+		t.Fatalf("Seek calls = %v, want [1m0s]", eng.seekCalls)
+	}
+	if !m.jump.active || m.jump.input != "1:00" {
+		t.Fatalf("jump mode = %v with input %q, want it open with the input kept", m.jump.active, m.jump.input)
+	}
+	if m.jump.err != "Seek failed: decoder refused" {
+		t.Fatalf("jump.err = %q, want the seek error", m.jump.err)
 	}
 }
 
@@ -111,5 +130,57 @@ func TestFormatJumpPlaceholder(t *testing.T) {
 		if got := formatJumpPlaceholder(tt.in); got != tt.want {
 			t.Fatalf("formatJumpPlaceholder(%v) = %q want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+// TestOpeningAnInputClearsItsLastState checks that the jump input, the URL
+// input and the track info overlay open empty, whatever an earlier use left
+// in their state.
+func TestOpeningAnInputClearsItsLastState(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   tea.KeyPressMsg
+		stale func(*Model)
+		check func(*testing.T, Model)
+	}{
+		{
+			name:  "jump",
+			key:   tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl},
+			stale: func(m *Model) { m.jump = jumpState{input: "9:99", err: "Invalid jump"} },
+			check: func(t *testing.T, m Model) {
+				if m.jump != (jumpState{active: true}) {
+					t.Fatalf("jump = %+v, want an empty open input", m.jump)
+				}
+			},
+		},
+		{
+			name:  "URL input",
+			key:   tea.KeyPressMsg{Code: 'u', Text: "u"},
+			stale: func(m *Model) { m.urlInput = urlInputState{input: "http://old", err: "Enter a stream"} },
+			check: func(t *testing.T, m Model) {
+				if m.urlInput != (urlInputState{active: true}) {
+					t.Fatalf("urlInput = %+v, want an empty open input", m.urlInput)
+				}
+			},
+		},
+		{
+			name:  "track info",
+			key:   tea.KeyPressMsg{Code: 'i', Text: "i"},
+			stale: func(m *Model) { m.info.scroll = 4 },
+			check: func(t *testing.T, m Model) {
+				if m.info != (infoOverlay{visible: true}) {
+					t.Fatalf("info = %+v, want the overlay open at the top", m.info)
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := keybindingTestModel()
+			m.focus = focusPlaylist
+			tt.stale(&m)
+			m.handleKey(tt.key)
+			tt.check(t, m)
+		})
 	}
 }

@@ -1,9 +1,6 @@
 package ui
 
-import (
-	"math"
-	"strings"
-)
+import "math"
 
 // renderButterfly draws a symmetric Rorschach/butterfly pattern using Braille
 // dots. The spectrum bands are mirrored horizontally from the center, and
@@ -12,11 +9,11 @@ import (
 func (v *Visualizer) renderButterfly(bands []float64) string {
 	height := v.Rows
 	dotRows := height * 4
-	dotCols := PanelWidth * 2
+	dotCols := v.columns() * 2
 	centerX := dotCols / 2
 	bandCount := len(bands)
 
-	grid := make([]bool, dotRows*dotCols)
+	grid := v.dotMaskFor(dotRows * dotCols)
 
 	for dy := range dotRows {
 		// Map vertical position to a band index.
@@ -69,25 +66,8 @@ func (v *Visualizer) renderButterfly(bands []float64) string {
 		}
 	}
 
-	// Render braille with row-based coloring.
-	lines := make([]string, height)
-	for row := range height {
-		var content strings.Builder
-		for ch := range PanelWidth {
-			var braille rune = '\u2800'
-			for dr := range 4 {
-				for dc := range 2 {
-					if grid[(row*4+dr)*dotCols+ch*2+dc] {
-						braille |= brailleBit[dr][dc]
-					}
-				}
-			}
-			content.WriteRune(braille)
-		}
-		// Color gradient from top to bottom.
-		norm := float64(row) / float64(max(1, height-1))
-		lines[row] = specWrap(norm, content.String())
-	}
-
-	return strings.Join(lines, "\n")
+	// Color gradient from top to bottom.
+	return packBraille(grid, dotCols, height, v.columns(), func(row, rows int) float64 {
+		return float64(row) / float64(max(1, rows-1))
+	})
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/bjarneo/cliamp/ipc"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/ui"
 )
 
@@ -110,8 +111,11 @@ func TestDetachedSpectrumIsAnalyzedOnDemand(t *testing.T) {
 		player:   engine,
 		playlist: playlist.New(),
 		vis:      ui.NewVisualizer(float64(engine.SampleRate())),
+		width:    80,
+		height:   24,
 		detached: true,
 	}
+	m.recomputeLayout()
 
 	response := m.v2BandsResponse()
 	if !response.OK {
@@ -219,7 +223,7 @@ func TestKeymapLabelsDetachInASession(t *testing.T) {
 	m := Model{player: &playbackFakeEngine{}, playlist: playlist.New()}
 	var quit commandSpec
 	for _, command := range commandRegistry {
-		if command.KeyLabel == "q" {
+		if command.KeyLabel == "q" && command.Label == "Quit" {
 			quit = command
 			break
 		}
@@ -247,7 +251,7 @@ func TestDetachedSessionReportsListeningProgress(t *testing.T) {
 		playlist:           playlist.New(),
 		vis:                ui.NewVisualizer(float64(engine.SampleRate())),
 		provider:           prov,
-		providers:          []ProviderEntry{{Key: "stub", Name: "Plain", Provider: prov}},
+		providers:          []provider.Entry{{Key: "stub", Name: "Plain", Provider: prov}},
 		playingTrack:       stubTracks()[0],
 		playingTrackActive: true,
 		detached:           true,

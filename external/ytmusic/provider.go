@@ -10,8 +10,15 @@ import (
 	"time"
 
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 
 	"google.golang.org/api/youtube/v3"
+)
+
+var (
+	_ provider.Closer = (*YouTubeMusicProvider)(nil)
+	_ provider.Closer = (*YouTubeProvider)(nil)
+	_ provider.Closer = (*YouTubeAllProvider)(nil)
 )
 
 // itemInfo holds metadata for a single video in a playlist.
@@ -38,6 +45,7 @@ type baseProvider struct {
 	disk         *ytCache                    // lazy-loaded disk cache
 	cacheScope   string                      // immutable identity of the active OAuth account
 	authCancel   context.CancelFunc          // cancels any in-progress OAuth flow
+	authGen      uint64                      // counts sign-ins, so a call clears only its own authCancel
 }
 
 func newBase(session *Session, clientID, clientSecret string, hasCookies bool) *baseProvider {
@@ -63,46 +71,60 @@ func (b *baseProvider) ensureDiskCache() *ytCache {
 	return b.disk
 }
 
+// signIn runs the interactive sign-in. Tests replace it.
+var signIn = NewSession
+
 // initSession creates a session if one doesn't exist yet. If interactive is
 // false, only stored credentials are tried (returning ErrNeedsAuth on failure).
 // If interactive is true, a browser-based OAuth flow is started. Any previous
 // in-progress OAuth flow is cancelled first to free the callback port.
 func (b *baseProvider) initSession(interactive bool) error {
+	timeout := 30 * time.Second
+	if interactive {
+		timeout = 5 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
 	b.mu.Lock()
 	if b.session != nil {
 		b.mu.Unlock()
 		return nil
 	}
-	// Cancel any previous in-progress auth attempt so the old listener
-	// on CallbackPort is released before we try to bind again.
-	if b.authCancel != nil {
-		b.authCancel()
-		b.authCancel = nil
-	}
 	clientID := b.clientID
 	clientSecret := b.clientSecret
-	b.mu.Unlock()
-
 	if clientID == "" {
+		b.mu.Unlock()
 		return fmt.Errorf("ytmusic: no client ID available")
 	}
+	// An interactive call cancels any previous in-progress auth attempt so
+	// the old listener on CallbackPort is released before it binds again.
+	// It registers its own flow in the same lock hold, so a newer call or
+	// close always finds the flow that runs. A silent call leaves a running
+	// browser flow alone.
+	var gen uint64
+	if interactive {
+		if b.authCancel != nil {
+			b.authCancel()
+		}
+		b.authGen++
+		gen = b.authGen
+		b.authCancel = cancel
+	}
+	b.mu.Unlock()
 
 	var sess *Session
 	var err error
 	if interactive {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		b.mu.Lock()
-		b.authCancel = cancel
-		b.mu.Unlock()
-
-		sess, err = NewSession(ctx, clientID, clientSecret)
+		sess, err = signIn(ctx, clientID, clientSecret)
 
 		b.mu.Lock()
-		b.authCancel = nil
+		if b.authGen == gen {
+			b.authCancel = nil
+		}
 		b.mu.Unlock()
-		cancel()
 	} else {
-		sess, err = NewSessionSilent(context.Background(), clientID, clientSecret)
+		sess, err = NewSessionSilent(ctx, clientID, clientSecret)
 	}
 	if err != nil {
 		if !interactive {
@@ -145,6 +167,9 @@ func (b *baseProvider) refresh() {
 	saveSnapshot(snap)
 }
 
+// close ends a sign-in in progress and drops the session. The three
+// providers share one base, and the Close of each one calls close, so close
+// must be safe to call more than once.
 func (b *baseProvider) close() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -504,7 +529,7 @@ type YouTubeProvider struct {
 
 func (p *YouTubeProvider) Name() string        { return "YouTube" }
 func (p *YouTubeProvider) Authenticate() error { return p.base.authenticate() }
-func (p *YouTubeProvider) Close()              { /* shared base; closed via music provider */ }
+func (p *YouTubeProvider) Close()              { p.base.close() }
 func (p *YouTubeProvider) Refresh()            { p.base.refresh() }
 func (p *YouTubeProvider) Tracks(id string) ([]playlist.Track, error) {
 	return p.base.tracks(id)
@@ -534,7 +559,7 @@ type YouTubeAllProvider struct {
 
 func (p *YouTubeAllProvider) Name() string        { return "YouTube (All)" }
 func (p *YouTubeAllProvider) Authenticate() error { return p.base.authenticate() }
-func (p *YouTubeAllProvider) Close()              { /* shared base; closed via music provider */ }
+func (p *YouTubeAllProvider) Close()              { p.base.close() }
 func (p *YouTubeAllProvider) Refresh()            { p.base.refresh() }
 func (p *YouTubeAllProvider) Tracks(id string) ([]playlist.Track, error) {
 	return p.base.tracks(id)

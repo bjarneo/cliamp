@@ -155,6 +155,58 @@ type TrackPosition interface {
 	TrackPosition(track playlist.Track) time.Duration
 }
 
+// SubscriptionInfo names one show a provider is subscribed to.
+type SubscriptionInfo struct {
+	// ID addresses the show in AlbumTracks and Tracks.
+	ID string
+	// Name is the show title.
+	Name string
+	// Author is the publisher, or empty when the provider has none.
+	Author string
+}
+
+// SubscriptionLister is implemented by providers that keep a subscription list
+// locally and can return it without a network call.
+type SubscriptionLister interface {
+	// Subscriptions returns the subscribed shows, in the provider's own order.
+	Subscriptions() []SubscriptionInfo
+}
+
+// ShowLister is implemented by providers whose list rows are shows: the
+// tracks AlbumTracks returns for such a row are episodes, dated by
+// MetaPodcastPublished, so the newest of them is a meaningful thing to ask
+// for. An album's first track is not, which is why AlbumTrackLoader alone
+// does not qualify.
+type ShowLister interface {
+	AlbumTrackLoader
+	// IsShowID reports whether id names a show in the provider's list, as
+	// opposed to a section heading or a browse entry.
+	IsShowID(id string) bool
+}
+
+// PlaybackState is a track's stored listening state.
+type PlaybackState struct {
+	// Played marks an episode listened to the end.
+	Played bool
+	// Position is where the listener stopped. It is zero for a played track.
+	Position time.Duration
+}
+
+// PlaybackStateReporter is implemented by providers that keep listening state
+// locally and can answer for it without I/O.
+//
+// The UI calls this while rendering every visible row, so an implementation
+// must not reach the network or the disk. A provider whose state lives on a
+// server implements TrackPosition instead.
+type PlaybackStateReporter interface {
+	// HasPlaybackState reports whether any state is stored at all, so the UI
+	// can decide whether to reserve a marker column.
+	HasPlaybackState() bool
+	// PlaybackState returns the stored state for track. ok is false when the
+	// track is not this provider's, or nothing is stored for it.
+	PlaybackState(track playlist.Track) (state PlaybackState, ok bool)
+}
+
 // ResumeTarget is implemented by providers that track listening position
 // server-side and can point the UI at where to continue.
 type ResumeTarget interface {
@@ -178,10 +230,28 @@ type PlaylistWriter interface {
 	AddTrackToPlaylist(ctx context.Context, playlistID string, track playlist.Track) error
 }
 
+// PlaylistTargetFilter is implemented by PlaylistWriters whose playlist list
+// includes entries that cannot take new tracks, such as saved albums or
+// playlists that another user owns.
+type PlaylistTargetFilter interface {
+	CanAddToPlaylist(pl playlist.PlaylistInfo) bool
+}
+
 // PlaylistBatchWriter is implemented by providers that support adding multiple
 // tracks to existing playlists in one operation.
 type PlaylistBatchWriter interface {
 	AddTracksToPlaylist(ctx context.Context, playlistID string, tracks []playlist.Track) (added, skipped int, err error)
+}
+
+// PlaylistPrepender is implemented by providers that can insert tracks at the
+// front of a saved playlist.
+type PlaylistPrepender interface {
+	// PrependTracksToPlaylist puts tracks at the start of the playlist, in the
+	// order given. A track already listed in the playlist moves to the front
+	// rather than being duplicated, and is counted in moved. A track that the
+	// playlist only holds through a directory source cannot be reordered, so
+	// it is counted in skipped and left alone.
+	PrependTracksToPlaylist(ctx context.Context, playlistID string, tracks []playlist.Track) (added, moved, skipped int, err error)
 }
 
 // PlaylistSaver is implemented by providers that can overwrite a playlist's
@@ -218,13 +288,6 @@ type PlaylistDocumenter interface {
 	RestorePlaylistDocument(name string, data []byte) error
 }
 
-// BookmarkSetter is implemented by providers that support toggling
-// track bookmarks and persisting them.
-type BookmarkSetter interface {
-	SetBookmark(playlistName string, idx int) error
-	SetBookmarkByPath(playlistName string, path string) error
-}
-
 // PlaylistDirSourceManager is implemented by providers whose playlists can
 // reference directory sources that are re-scanned on each load. The local
 // TOML provider implements this for its [[dir]] sections; other providers
@@ -243,6 +306,19 @@ type CustomStreamer interface {
 	URISchemes() []string
 	// NewStreamer creates a decoder for the given URI.
 	NewStreamer(uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error)
+}
+
+// TrackFavoriter is implemented by providers that keep a favorite state for
+// tracks on their own service, such as liked or starred songs. The local
+// favorites store stays the source of truth. The UI copies each change to the
+// provider that owns the track.
+type TrackFavoriter interface {
+	// CanFavoriteTrack reports whether track belongs to this provider. It must
+	// not do I/O because the UI calls it on the Update goroutine.
+	CanFavoriteTrack(track playlist.Track) bool
+	// SetTrackFavorite sets or clears the favorite state of track on the
+	// provider's service.
+	SetTrackFavorite(ctx context.Context, track playlist.Track, favorite bool) error
 }
 
 // FavoriteToggler is implemented by providers that support marking items
@@ -323,15 +399,12 @@ type Closer interface {
 	Close()
 }
 
-// FavoritesManager is implemented by providers that support a cross-playlist
-// favorites virtual playlist. The UI uses this to toggle favorites from the
-// track list without going through the per-playlist write path.
-type FavoritesManager interface {
-	// ToggleFavorite toggles the given track in the favorites store.
-	// Returns true when the track is now favorited after the call.
-	ToggleFavorite(track playlist.Track) (bool, error)
-	// IsFavorited reports whether the given path is in the favorites store.
-	IsFavorited(path string) bool
-	// FavoritesCount returns the number of favorited tracks.
-	FavoritesCount() int
+// TrackPager is implemented by providers that can return a playlist's tracks
+// one page at a time so the UI can populate the queue progressively. Pages are
+// requested sequentially: the caller feeds each returned next back in until it
+// is 0. Unlike the Tracks path, paged results are not run through PLS/M3U
+// wrapper resolution and skip the ResumeTarget probe, so only implement this
+// for providers returning direct, already-resolved track URIs.
+type TrackPager interface {
+	TracksPage(playlistID string, offset int) (tracks []playlist.Track, next int, err error)
 }

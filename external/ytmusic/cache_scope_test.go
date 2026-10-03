@@ -9,7 +9,7 @@ import (
 func TestYTCacheRejectsDifferentOAuthAccount(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
-	if err := saveCreds(&storedCreds{RefreshToken: "account-a"}); err != nil {
+	if err := credsFile.Save(&storedCreds{RefreshToken: "account-a"}); err != nil {
 		t.Fatal(err)
 	}
 	scopeA := storedOAuthCacheScope("client")
@@ -23,7 +23,7 @@ func TestYTCacheRejectsDifferentOAuthAccount(t *testing.T) {
 		t.Fatal("matching cache scope was not loaded")
 	}
 
-	if err := saveCreds(&storedCreds{RefreshToken: "account-b"}); err != nil {
+	if err := credsFile.Save(&storedCreds{RefreshToken: "account-b"}); err != nil {
 		t.Fatal(err)
 	}
 	scopeB := storedOAuthCacheScope("client")
@@ -52,13 +52,13 @@ func TestYTCacheRejectsLegacyUnscopedData(t *testing.T) {
 func TestOAuthCacheScopeBoundToProvider(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
-	if err := saveCreds(&storedCreds{RefreshToken: "account-a"}); err != nil {
+	if err := credsFile.Save(&storedCreds{RefreshToken: "account-a"}); err != nil {
 		t.Fatal(err)
 	}
 	b := newBase(nil, "client", "secret", false)
 	scopeA := b.cacheScope
 
-	if err := saveCreds(&storedCreds{RefreshToken: "account-b"}); err != nil {
+	if err := credsFile.Save(&storedCreds{RefreshToken: "account-b"}); err != nil {
 		t.Fatal(err)
 	}
 	b.mu.Lock()

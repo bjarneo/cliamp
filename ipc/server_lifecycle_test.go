@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -17,10 +18,17 @@ import (
 
 func shortTempDir(t *testing.T) string {
 	t.Helper()
-	if runtime.GOOS != "darwin" {
+	// The temp dirs of the macOS and Windows runners make a socket path
+	// longer than the Unix socket limit.
+	base := ""
+	switch runtime.GOOS {
+	case "darwin":
+		base = "/tmp"
+	case "windows":
+	default:
 		return t.TempDir()
 	}
-	dir, err := os.MkdirTemp("/tmp", "c")
+	dir, err := os.MkdirTemp(base, "c")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,5 +128,66 @@ func TestStreamBandsUsesV2SpectrumMethod(t *testing.T) {
 	}
 	if got := output.String(); !strings.Contains(got, `"visualizer":"Bars"`) || !strings.Contains(got, `"bands":[0.5]`) {
 		t.Fatalf("stream output = %q", got)
+	}
+}
+
+// Listening finds a live server. A missing socket, a stale socket and a
+// file that is not a socket are free. A path that no socket can have is an
+// error.
+func TestListening(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		setup   func(t *testing.T, sock string)
+		sock    func(dir string) string
+		want    bool
+		wantErr bool
+	}{
+		{name: "no socket"},
+		{name: "server", want: true, setup: func(t *testing.T, sock string) {
+			server, err := NewServer(sock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = server.Close() })
+		}},
+		{name: "stale socket", setup: func(t *testing.T, sock string) {
+			ln, err := net.Listen("unix", sock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ln.(*net.UnixListener).SetUnlinkOnClose(false)
+			_ = ln.Close()
+		}},
+		{name: "regular file", setup: func(t *testing.T, sock string) {
+			if err := os.WriteFile(sock, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{
+			name:    "path too long",
+			sock:    func(dir string) string { return filepath.Join(dir, strings.Repeat("s", 120)) },
+			wantErr: true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := shortTempDir(t)
+			sock := filepath.Join(dir, "cliamp.sock")
+			if tt.sock != nil {
+				sock = tt.sock(dir)
+			}
+			if tt.setup != nil {
+				tt.setup(t, sock)
+			}
+			got, err := Listening(sock)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Listening error = %v, want error %v", err, tt.wantErr)
+			}
+			if err != nil && !strings.HasPrefix(err.Error(), "ipc: probe socket ") {
+				t.Fatalf("Listening error = %q, want the probe context", err)
+			}
+			if got != tt.want {
+				t.Fatalf("Listening = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

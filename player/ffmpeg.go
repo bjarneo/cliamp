@@ -3,12 +3,12 @@ package player
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -107,6 +107,29 @@ type pipeStreamState struct {
 	pos atomic.Int64
 }
 
+// pipeReport answers Err, Len and Position for a pipe-based streamer from
+// the state that its Stream updates. ffmpegPipe and ytdlPipeStreamer embed it.
+type pipeReport struct {
+	state *pipeStreamState
+	total int // total frames (0 if unknown/unbounded)
+}
+
+func (r *pipeReport) Err() error {
+	if r.state == nil {
+		return nil
+	}
+	return r.state.err.load()
+}
+
+func (r *pipeReport) Len() int { return r.total }
+
+func (r *pipeReport) Position() int {
+	if r.state == nil {
+		return 0
+	}
+	return int(r.state.pos.Load())
+}
+
 func newPipeStreamState(pos int) *pipeStreamState {
 	state := &pipeStreamState{}
 	state.pos.Store(int64(pos))
@@ -188,9 +211,8 @@ func (p *ffmpegProcess) kill() {
 // incrementally from its stdout pipe without waiting for the entire input.
 // It is suitable for live/infinite streams.
 func decodeFFmpegStream(path string, sr beep.SampleRate, bitDepth int) (*ffmpegPipeStreamer, beep.Format, error) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		ext := filepath.Ext(path)
-		return nil, beep.Format{}, fmt.Errorf("ffmpeg is required to play %s files — install it with your package manager", ext)
+	if err := requireFFmpeg(); err != nil {
+		return nil, beep.Format{}, err
 	}
 	fp, format, err := startFFmpegPipe(path, nil, sr, bitDepth)
 	if err != nil {
@@ -210,16 +232,8 @@ func decodeFFmpegStream(path string, sr beep.SampleRate, bitDepth int) (*ffmpegP
 // wired to the process. Callers add the concrete Seek behavior by embedding the
 // returned ffmpegPipe in a streamer type.
 func startFFmpegPipe(input string, stdin io.ReadCloser, sr beep.SampleRate, bitDepth int) (ffmpegPipe, beep.Format, error) {
-	pcmFmt, codec, precision := ffmpegPCMArgs(bitDepth)
-	cmd := exec.Command("ffmpeg",
-		"-i", input,
-		"-f", pcmFmt,
-		"-acodec", codec,
-		"-ar", strconv.Itoa(int(sr)),
-		"-ac", "2",
-		"-loglevel", "error",
-		"pipe:1",
-	)
+	_, _, precision := ffmpegPCMArgs(bitDepth)
+	cmd := exec.Command("ffmpeg", append([]string{"-i", input}, pcmOutputArgs(sr, bitDepth)...)...)
 	cmd.Stdin = stdin
 	proc := newFFmpegProcess(cmd)
 
@@ -233,12 +247,12 @@ func startFFmpegPipe(input string, stdin io.ReadCloser, sr beep.SampleRate, bitD
 	}
 
 	fp := ffmpegPipe{
-		proc:   proc,
-		reader: bufio.NewReaderSize(pipe, pipeBufSize),
-		pipe:   pipe,
-		input:  stdin,
-		state:  newPipeStreamState(0),
-		f32:    bitDepth == 32,
+		pipeReport: pipeReport{state: newPipeStreamState(0)},
+		proc:       proc,
+		reader:     bufio.NewReaderSize(pipe, pipeBufSize),
+		pipe:       pipe,
+		input:      stdin,
+		f32:        bitDepth == 32,
 	}
 	format := beep.Format{SampleRate: sr, NumChannels: 2, Precision: precision}
 	return fp, format, nil
@@ -248,15 +262,14 @@ func startFFmpegPipe(input string, stdin io.ReadCloser, sr beep.SampleRate, bitD
 // ffmpeg streamers. Each concrete streamer embeds this and adds its own
 // Seek (and optionally start) implementation.
 type ffmpegPipe struct {
+	pipeReport
 	proc   *ffmpegProcess
 	reader *bufio.Reader
 	pipe   io.ReadCloser
 	input  io.Closer // optional stdin source or owned stdin pump; interrupted before Wait
 	pcmBuf []byte    // reusable block buffer for decoded PCM bytes
-	state  *pipeStreamState
-	f32    bool // true = f32le, false = s16le
-	live   bool // true for infinite radio streams: EOF means the upstream died
-	total  int  // total frames (0 if unknown/unbounded)
+	f32    bool      // true = f32le, false = s16le
+	live   bool      // true for infinite radio streams: EOF means the upstream died
 }
 
 func (f *ffmpegPipe) Stream(samples [][2]float64) (int, bool) {
@@ -278,20 +291,6 @@ func (f *ffmpegPipe) Stream(samples [][2]float64) (int, bool) {
 		f.state.err.publish(io.ErrUnexpectedEOF)
 	}
 	return n, ok
-}
-
-func (f *ffmpegPipe) Err() error {
-	if f.state == nil {
-		return nil
-	}
-	return f.state.err.load()
-}
-func (f *ffmpegPipe) Len() int { return f.total }
-func (f *ffmpegPipe) Position() int {
-	if f.state == nil {
-		return 0
-	}
-	return int(f.state.pos.Load())
 }
 
 // interrupt releases any blocked PCM or stdin read without waiting for FFmpeg.
@@ -337,9 +336,26 @@ func (f *ffmpegPipe) waitForInitialAudio(timeout time.Duration) error {
 }
 
 func (f *ffmpegPipe) waitForAudioBytes(n int, timeout time.Duration) error {
+	stop := func() { _ = f.stop() }
+	return peekWithTimeout(f.reader, n, timeout, stop, func(err error) error {
+		if f.input != nil {
+			_ = f.input.Close()
+		}
+		if waitErr := f.proc.wait(); waitErr != nil {
+			return waitErr
+		}
+		return fmt.Errorf("waiting for audio data: %w", err)
+	})
+}
+
+// peekWithTimeout waits until reader holds n bytes. When timeout passes
+// first, it calls stop, which must unblock the read, and returns a timeout
+// error. When the pipe closes first, it returns closed for the read error,
+// so the caller can report why its process ended.
+func peekWithTimeout(reader *bufio.Reader, n int, timeout time.Duration, stop func(), closed func(error) error) error {
 	peekErr := make(chan error, 1)
 	go func() {
-		_, err := f.reader.Peek(n)
+		_, err := reader.Peek(n)
 		peekErr <- err
 	}()
 
@@ -349,17 +365,11 @@ func (f *ffmpegPipe) waitForAudioBytes(n int, timeout time.Duration) error {
 	select {
 	case err := <-peekErr:
 		if err != nil {
-			if f.input != nil {
-				_ = f.input.Close()
-			}
-			if waitErr := f.proc.wait(); waitErr != nil {
-				return waitErr
-			}
-			return fmt.Errorf("waiting for audio data: %w", err)
+			return closed(err)
 		}
 		return nil
 	case <-timer.C:
-		_ = f.stop()
+		stop()
 		<-peekErr // drain after stop unblocks the pipe reader
 		return fmt.Errorf("timed out waiting for audio data (%v)", timeout)
 	}
@@ -379,8 +389,8 @@ func (f *ffmpegPipeStreamer) Seek(int) error { return nil }
 // radio StreamTitle parsing keeps working for ffmpeg-only codecs (AAC, AAC+,
 // Opus, ...). src is closed when the stream stops; seeking is not supported.
 func decodeFFmpegPipeStream(src io.ReadCloser, sr beep.SampleRate, bitDepth int, live bool) (*ffmpegPipeStreamer, beep.Format, error) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		return nil, beep.Format{}, fmt.Errorf("ffmpeg is required to play this stream — install it with your package manager")
+	if err := requireFFmpeg(); err != nil {
+		return nil, beep.Format{}, err
 	}
 	fp, format, err := startFFmpegPipe("pipe:0", src, sr, bitDepth)
 	if err != nil {
@@ -395,15 +405,14 @@ func decodeFFmpegPipeStream(src io.ReadCloser, sr beep.SampleRate, bitDepth int,
 // Seeking is supported by killing and restarting ffmpeg with a -ss offset.
 // Duration is probed via ffprobe so the seek bar works.
 func decodeFFmpegLocal(path string, sr beep.SampleRate, bitDepth int) (*localFFmpegStreamer, beep.Format, error) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		ext := filepath.Ext(path)
-		return nil, beep.Format{}, fmt.Errorf("ffmpeg is required to play %s files — install it with your package manager", ext)
+	if err := requireFFmpeg(); err != nil {
+		return nil, beep.Format{}, err
 	}
 
 	_, _, precision := ffmpegPCMArgs(bitDepth)
 	total := probeFrames(path, sr)
 
-	s := &localFFmpegStreamer{ffmpegPipe: ffmpegPipe{total: total, f32: bitDepth == 32}, path: path, sr: sr}
+	s := &localFFmpegStreamer{ffmpegPipe: ffmpegPipe{pipeReport: pipeReport{total: total}, f32: bitDepth == 32}, path: path, sr: sr}
 	fp, err := s.startPipe(0)
 	if err != nil {
 		return nil, beep.Format{}, err
@@ -433,16 +442,8 @@ func (s *localFFmpegStreamer) startPipe(seekPos int) (ffmpegPipe, error) {
 		secs := float64(seekPos) / float64(s.sr)
 		args = append(args, "-ss", strconv.FormatFloat(secs, 'f', 3, 64))
 	}
-	pcmFmt, codec, _ := ffmpegPCMArgs(s.bitDepth())
-	args = append(args,
-		"-i", s.path,
-		"-f", pcmFmt,
-		"-acodec", codec,
-		"-ar", strconv.Itoa(int(s.sr)),
-		"-ac", "2",
-		"-loglevel", "error",
-		"pipe:1",
-	)
+	args = append(args, "-i", s.path)
+	args = append(args, pcmOutputArgs(s.sr, s.bitDepth())...)
 
 	cmd := exec.Command("ffmpeg", args...)
 	proc := newFFmpegProcess(cmd)
@@ -456,12 +457,11 @@ func (s *localFFmpegStreamer) startPipe(seekPos int) (ffmpegPipe, error) {
 	}
 
 	fp := ffmpegPipe{
-		proc:   proc,
-		reader: bufio.NewReaderSize(pipe, pipeBufSize),
-		pipe:   pipe,
-		state:  newPipeStreamState(seekPos),
-		f32:    s.f32,
-		total:  s.total,
+		pipeReport: pipeReport{state: newPipeStreamState(seekPos), total: s.total},
+		proc:       proc,
+		reader:     bufio.NewReaderSize(pipe, pipeBufSize),
+		pipe:       pipe,
+		f32:        s.f32,
 	}
 	if err := fp.waitForAudioBytes(pcmFrameSize(fp.f32), ffmpegPipeTimeout); err != nil {
 		_ = fp.stop()
@@ -531,21 +531,42 @@ func (s *localFFmpegStreamer) prepareSeek(pos int) (*preparedFFmpegSeek, error) 
 	return &preparedFFmpegSeek{expected: s.state, replacement: replacement}, nil
 }
 
+// ffmpegAvailable reports whether ffmpeg is on PATH. The buffered pipeline
+// decodes through it, so a source can only be routed there when it is
+// installed. It looks up PATH on each call, so an ffmpeg installed while
+// cliamp runs is found.
+func ffmpegAvailable() bool {
+	_, err := exec.LookPath("ffmpeg")
+	return err == nil
+}
+
+// requireFFmpeg returns an error with a platform install hint when ffmpeg is
+// not on PATH. Every ffmpeg decoder calls it first.
+func requireFFmpeg() error {
+	if !ffmpegAvailable() {
+		return fmt.Errorf("ffmpeg is required: %s", ffmpegInstallHint())
+	}
+	return nil
+}
+
 // decodeNavFFmpeg starts ffmpeg from a per-process navBuffer reader, returning a
 // navFFmpegStreamer that begins producing PCM immediately as bytes arrive.
 // Seeking kills ffmpeg and restarts decoding from byte zero with an FFmpeg time
 // offset, so no HTTP reconnect is required.
-func decodeNavFFmpeg(nb *navBuffer, sr beep.SampleRate, bitDepth int, totalFrames int) (*navFFmpegStreamer, beep.Format, error) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		return nil, beep.Format{}, fmt.Errorf("ffmpeg is required to decode this format — install it with your package manager")
+func decodeNavFFmpeg(nb *navBuffer, sr beep.SampleRate, bitDepth int) (*navFFmpegStreamer, beep.Format, error) {
+	if err := requireFFmpeg(); err != nil {
+		return nil, beep.Format{}, err
 	}
 	_, _, precision := ffmpegPCMArgs(bitDepth)
-	s := &navFFmpegStreamer{ffmpegPipe: ffmpegPipe{total: totalFrames, f32: bitDepth == 32}, nb: nb, sr: sr}
+	s := &navFFmpegStreamer{ffmpegPipe: ffmpegPipe{f32: bitDepth == 32}, nb: nb, sr: sr}
 	fp, err := s.startPipe(0, false)
 	if err != nil {
 		return nil, beep.Format{}, err
 	}
 	s.ffmpegPipe = fp
+	// The real length is only knowable once every byte has arrived, so measure
+	// it in the background rather than delaying playback for it.
+	go s.probeDownloadedLength()
 	format := beep.Format{
 		SampleRate:  sr,
 		NumChannels: 2,
@@ -561,6 +582,37 @@ type navFFmpegStreamer struct {
 	ffmpegPipe
 	nb *navBuffer
 	sr beep.SampleRate
+
+	// probed is the frame count measured from the downloaded bytes, or 0
+	// before the probe finishes. It is written by the probe goroutine and read
+	// by the UI and audio goroutines, so it must stay atomic.
+	probed atomic.Int64
+}
+
+// Len returns the measured frame count once the download has been probed,
+// falling back to the metadata hint until then.
+//
+// Podcast feeds routinely understate an episode's length, because
+// itunes:duration describes the master and the file served carries inserted
+// advertising on top of it. Measuring the bytes is the only way to get a seek
+// bar and an end-of-track that match what is playing.
+func (s *navFFmpegStreamer) Len() int {
+	if n := s.probed.Load(); n > 0 {
+		return int(n)
+	}
+	return s.ffmpegPipe.Len()
+}
+
+// probeDownloadedLength measures the finished download and stores the result.
+// A failed probe leaves the metadata hint in place.
+func (s *navFFmpegStreamer) probeDownloadedLength() {
+	path, ok := s.nb.completedPath()
+	if !ok {
+		return
+	}
+	if frames := probeFrames(path, s.sr); frames > 0 {
+		s.probed.Store(int64(frames))
+	}
 }
 
 type navFFmpegInput struct {
@@ -590,7 +642,6 @@ func (in *navFFmpegInput) Close() error {
 }
 
 func (s *navFFmpegStreamer) startPipe(seekPos int, validate bool) (ffmpegPipe, error) {
-	pcmFmt, codec, _ := ffmpegPCMArgs(s.bitDepth())
 	args := []string{"-i", "pipe:0"}
 	if seekPos > 0 {
 		secs := float64(seekPos) / float64(s.sr)
@@ -598,14 +649,7 @@ func (s *navFFmpegStreamer) startPipe(seekPos int, validate bool) (ffmpegPipe, e
 		// preserving container headers and giving sample-accurate VBR seeks.
 		args = append(args, "-ss", strconv.FormatFloat(secs, 'f', 3, 64))
 	}
-	args = append(args,
-		"-f", pcmFmt,
-		"-acodec", codec,
-		"-ar", strconv.Itoa(int(s.sr)),
-		"-ac", "2",
-		"-loglevel", "error",
-		"pipe:1",
-	)
+	args = append(args, pcmOutputArgs(s.sr, s.bitDepth())...)
 	cmd := exec.Command("ffmpeg", args...)
 	proc := newFFmpegProcess(cmd)
 
@@ -625,13 +669,12 @@ func (s *navFFmpegStreamer) startPipe(seekPos int, validate bool) (ffmpegPipe, e
 	}
 
 	fp := ffmpegPipe{
-		proc:   proc,
-		pipe:   pipe,
-		reader: bufio.NewReaderSize(pipe, pipeBufSize),
-		input:  startNavFFmpegInput(s.nb.newReader(), stdin),
-		state:  newPipeStreamState(seekPos),
-		f32:    s.f32,
-		total:  s.total,
+		pipeReport: pipeReport{state: newPipeStreamState(seekPos), total: s.total},
+		proc:       proc,
+		pipe:       pipe,
+		reader:     bufio.NewReaderSize(pipe, pipeBufSize),
+		input:      startNavFFmpegInput(s.nb.newReader(), stdin),
+		f32:        s.f32,
 	}
 	if validate {
 		if err := fp.waitForAudioBytes(pcmFrameSize(fp.f32), ffmpegPipeTimeout); err != nil {
@@ -656,7 +699,7 @@ func (s *navFFmpegStreamer) Seek(targetFrame int) error {
 }
 
 func (s *navFFmpegStreamer) prepareSeek(pos int) (*preparedFFmpegSeek, error) {
-	pos = clampSeekPosition(pos, s.total)
+	pos = clampSeekPosition(pos, s.Len())
 	replacement, err := s.startPipe(pos, true)
 	if err != nil {
 		return nil, err
@@ -694,16 +737,45 @@ func ffmpegPCMArgs(bitDepth int) (format, codec string, precision int) {
 	return "s16le", "pcm_s16le", 2
 }
 
+// pcmOutputArgs returns the ffmpeg output arguments that write stereo PCM at
+// sr to stdout, in the sample format for bitDepth. Every ffmpeg decoder uses
+// them after its input arguments.
+func pcmOutputArgs(sr beep.SampleRate, bitDepth int) []string {
+	pcmFmt, codec, _ := ffmpegPCMArgs(bitDepth)
+	return []string{
+		"-f", pcmFmt,
+		"-acodec", codec,
+		"-ar", strconv.Itoa(int(sr)),
+		"-ac", "2",
+		"-loglevel", "error",
+		"pipe:1",
+	}
+}
+
+// ffprobeTimeout bounds one ffprobe run. ffprobe reads only the container
+// header, so a longer run means a stalled mount or a hung process.
+const ffprobeTimeout = 5 * time.Second
+
 // probeFrames uses ffprobe to quickly read file duration from metadata and
 // converts it to sample frames. This only reads the container header, so it
-// returns almost instantly even for very large files.
+// returns almost instantly even for very large files. It returns 0 when
+// ffprobe fails or runs longer than ffprobeTimeout.
 func probeFrames(path string, sr beep.SampleRate) int {
-	out, err := exec.Command("ffprobe",
+	return probeFramesWithin(path, sr, ffprobeTimeout)
+}
+
+func probeFramesWithin(path string, sr beep.SampleRate, timeout time.Duration) int {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffprobe",
 		"-v", "error",
 		"-show_entries", "format=duration",
 		"-of", "default=noprint_wrappers=1:nokey=1",
 		path,
-	).Output()
+	)
+	// A child that keeps stdout open must not hold Output after the kill.
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
 	if err != nil {
 		return 0
 	}

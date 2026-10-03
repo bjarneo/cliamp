@@ -6,7 +6,9 @@ Use the interactive wizard to configure remote providers. Supported providers ar
 cliamp setup
 ```
 
-The wizard writes the required TOML block and leaves the rest of your config unchanged. It validates server credentials during setup when the provider supports it: Navidrome, Lyrion, Plex, Jellyfin, and Emby. OAuth providers such as Spotify, Qobuz, and Tidal sign in later in the player. Tidal uses a `link.tidal.com` device code. Mixcloud checks optional browser-session or OAuth credentials when you use them. See [cli.md](cli.md#setup-wizard) for details.
+The wizard writes the provider keys into their section. It keeps your other keys and comments, and it leaves the rest of your config unchanged. The wizard drops the comment at the end of a key line that it rewrites.
+
+The wizard checks the server connection during setup for Navidrome, Lyrion, Plex, Jellyfin, Emby, and Audiobookshelf. For NetEase, it checks the browser session. OAuth providers such as Spotify, Qobuz, and Tidal sign in later in the player. Tidal uses a `link.tidal.com` device code. The wizard does not check Mixcloud credentials. See [cli.md](cli.md#setup-wizard) for details.
 
 ## Config directory
 
@@ -45,6 +47,11 @@ shuffle = false
 # Start with mono output (L+R downmix)
 mono = false
 
+# Audio output device name. Empty uses the system default output.
+# Run cliamp --audio-device list and copy a name from the second column.
+# See "Audio output device" below.
+audio_device = ""
+
 # Initial directory for the file browser ('o' key)
 initial_directory = "~/Music"
 
@@ -52,7 +59,9 @@ initial_directory = "~/Music"
 seek_large_step_sec = 30
 
 # EQ preset: "Flat", "Rock", "Pop", "Jazz", "Classical",
-#             "Bass Boost", "Treble Boost", "Vocal", "Electronic", "Acoustic"
+#             "Bass Boost", "Treble Boost", "Vocal", "Electronic", "Acoustic",
+#             "Hip-Hop", "R&B", "Loudness", "Late Night", "Podcast",
+#             "Small Speakers"
 # Leave empty or "Custom" to use manual eq values below
 eq_preset = "Flat"
 
@@ -65,8 +74,15 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # keeps it available, and both values are restored after restart.
 
 # Visualizer mode (leave empty for default Bars)
-# Options: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, Mirror, Omarchy, None
+# Options: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, Mirror, Omarchy, RedSector, YinYang, None
 # Mirror draws tapered Braille bars around a persistent horizontal center axis.
+# ClassicPeak uses smooth bars and floating peak caps, with sampling aligned
+# to audible playback and adaptive redraws for smooth motion.
+# ClassicLED redraws at 30 FPS during playback, like the Winamp LED meter.
+# Neighboring bands are averaged into each bar.
+# YinYang koi chase each other across a wide strip, leaving on the right and
+# coming back on the left. Taller panels have them circle a lily pad whose
+# lotus follows recent bass levels, including after silence or time in the strip.
 visualizer = "Bars"
 
 # Visualizer volume linking (default: true)
@@ -75,11 +91,11 @@ visualizer = "Bars"
 # even at very low volume levels.
 vis_volume_linked = true
 
-# Visualizer height in rows (default: 5), used at the full layout tier.
+# Visualizer height in rows (default: 7), used at the full layout tier.
 # Extra rows are taken from the playlist below, and the layout caps the value
 # at what the terminal can spare, always leaving one playlist row. Range 1-40.
 # The full screen visualizer (V) is unaffected: it always fills the terminal.
-vis_rows = 5
+vis_rows = 7
 
 # Reduce CPU usage by lowering UI cadence and disabling visualization.
 # This has the same effect as starting with --low-power.
@@ -91,12 +107,21 @@ simplified = false
 
 # Hide the key-binding hint bar above the status line.
 hide_help_bar = false
+# Start with the playlist expanded, the state Ctrl+X toggles (default: false).
+# The simplified playback screen has no playlist, but its provider and overlay
+# lists do, and they start expanded too.
+expanded = false
 
 # Close the Settings pane beside the playlist (Ctrl+B toggles and saves).
 hide_settings_pane = false
 
 # Show highlighted-playlist metadata below Settings (Ctrl+I toggles and saves).
 show_metadata = false
+
+# Empty space around the UI: columns on the left and right (0-10, default 3)
+# and rows above and below (0-5, default 1).
+padding_horizontal = 3
+padding_vertical = 1
 
 # UI theme name (see available themes in ~/.config/cliamp/themes/)
 theme = "Tokyo Night"
@@ -120,13 +145,20 @@ cliamp adapts its playback screen to the terminal size:
 | At least `40x10` | Minimal playback, list, seek bar, and help layout |
 | Smaller than `40x10` | Resize message only |
 
+The tiers use the full terminal size. `padding_horizontal` and
+`padding_vertical` set the empty space between the terminal edge and the UI,
+in columns and rows. The defaults are 3 and 1. cliamp clamps
+`padding_horizontal` to 0-10 and `padding_vertical` to 0-5. On a small
+terminal, cliamp reduces the padding so that the UI keeps at least one column
+and one row.
+
 At the full tier the playback screen splits below the seek bar: the playlist
 fills the left column and a `Settings` pane fills the right one. The pane reads
 as a signal chain: the source (`SRC`), then volume (`VOL`) and the EQ preset
 with its ten bands, then how the list plays — shuffle (`SHF`), repeat (`RPT`),
 and speed (`SPD`) — and last the live network counters for a stream (`NET`).
 Shuffle and repeat move out of the playlist header here, which keeps its
-counts: queue, bookmarks, favorites, and position. The rows those
+counts: queue, favorites, and position. The rows those
 controls used to occupy above and below the playlist go to the playlist itself.
 The title, track line, time, visualizer, seek bar, and hint bar stay full width.
 Narrower terminals, simplified mode, overlays, and list views keep the stacked
@@ -169,6 +201,12 @@ one session, or `cliamp --help-bar` to show it despite this setting. Simplified
 mode draws neither the hint bar nor a playlist, so it is unaffected by this
 setting.
 
+`expanded = true` starts with the playlist at the expanded height, so the list
+gets every body row the terminal has left instead of the shorter default, and
+`Ctrl+X` is not needed on every launch. The key keeps working and collapses the
+view as before. Start one session with `cliamp --expanded`, or `--no-expanded`
+to start collapsed despite this setting.
+
 List views such as provider browsing, file selection, queues, playlists, search
 results, themes, and keybindings use a content-first layout. This layout replaces
 the visualizer and detailed controls with a compact now-playing summary. It leaves
@@ -195,8 +233,9 @@ Available fields are Title, Artist (Show for podcast episodes), Album, Genre
 (Tags for live radio), Date or Year, Track or Episode, and Length. Album is
 omitted when it duplicates the artist/show. A podcast publication Date takes
 precedence over Year. Radio can also show Country, Region, Codec, Bitrate in
-kbps, and Type: Live radio. Live now-playing text appears as Playing only when
-the selected stream is the one playing. Unknown fields are omitted.
+kbps, and Type: Live radio. A yt-dlp stream that is live shows Type: Live
+stream. Live now-playing text appears as Playing only when the selected stream
+is the one playing. Unknown fields are omitted.
 
 In the full two-column layout, opening Metadata can borrow visualizer rows,
 keeping at least one row when the visualizer is enabled. It does not overwrite
@@ -214,6 +253,59 @@ When enabling Metadata in a narrow or simplified layout, with Settings closed,
 or with a sidebar too short for details, `Ctrl+I` opens that full info overlay
 instead. The preference remains saved so the section appears when you return
 to a wide playback layout with enough room and Settings open.
+
+## Audio output device
+
+`audio_device` selects the output device when cliamp starts. Leave it empty to
+use the system default output. To find the device names, run this command:
+
+```sh
+cliamp --audio-device list
+```
+
+The command prints the description and the name of each device, then exits.
+A `*` marks the active device. Put the name in `audio_device`:
+
+```toml
+audio_device = "alsa_output.usb-FiiO_K5_Pro-00.analog-stereo"
+```
+
+- On Linux, cliamp sets `PIPEWIRE_NODE` to the name before it opens the audio
+  output. PipeWire then sends the cliamp stream to that device. Without
+  PipeWire, the key has no effect.
+- On macOS, cliamp makes the device the system default output while it runs.
+  It restores the previous default output when it exits. The value can be the
+  name or the description.
+- On Windows, the key has no effect at startup. The `d` device picker changes
+  the system default output instead.
+
+When you select a device with `d` or `cliamp device <name>`, the TUI saves it to
+`audio_device`. To use a different device for one session, run
+`cliamp --audio-device <name>`.
+
+## Value syntax
+
+cliamp reads a subset of TOML. These rules apply to every key:
+
+- Put a string in double quotes or single quotes. cliamp removes one pair of quotes.
+- Inside double quotes, write `\\` for a backslash and `\"` for a double quote. cliamp keeps every other backslash as you type it, so `"D:\new"` stays a Windows path.
+- Single quotes are literal. cliamp decodes no escapes inside them.
+- An unquoted string also works. cliamp keeps all of its text, including a `#`.
+- A bool is `true`, `false`, `t` or `f` in any letter case. `1` and `0` also work. cliamp ignores any other value and keeps the default.
+- A number such as `volume`, `speed` or an `eq` band must be finite. cliamp ignores `nan`, `inf` and any other text and keeps the default.
+- In a list, a comma inside a quoted item stays part of the item, as in `libraries = ["Rock, Pop", "Jazz"]`.
+- To add a comment at the end of a line, put whitespace and then `#`. This works after a quoted string, a number, a bool, a list in square brackets such as `eq` or `libraries`, or a section header such as `[navidrome]`. After a closing quote or a closing square bracket, the whitespace is optional. After an unquoted string, the `#` and the text after it stay part of the value. This rule also applies to an unquoted last string item of a list without square brackets, such as `libraries = Music, Jazz # x`.
+- A plugin gets each key of its `[plugins.<name>]` section as a string. cliamp reads `enabled`, and the `disabled` and `allowed_binaries` lists of `[plugins]`, with these rules.
+
+```toml
+volume = -6                       # quieter start
+shuffle = True                    # any letter case
+eq = [3, 2, 0, 0, 0, 0, 0, 0, 1, 2]  # custom curve
+initial_directory = 'D:\Music'    # single quotes keep backslashes
+
+[navidrome]                       # home server
+password = "back\\slash\"quote"   # reads as back\slash"quote
+```
 
 ## Secrets from Environment Variables
 
@@ -262,17 +354,42 @@ Rules:
 - Interpolation occurs only when the **entire** value is `$NAME` or `${NAME}`. cliamp keeps mixed values such as `"p@$$word"` literally. No escaping is required.
 - Variable names match `[A-Za-z_][A-Za-z0-9_]*`.
 - If the variable is unset, the value is empty (the same as if you had left it blank).
+- cliamp always reads a whole `$NAME` or `${NAME}` value from the environment. A password such as `$Secret1` cannot be stored as literal text.
+- `cliamp setup` accepts a `$NAME` or `${NAME}` value and writes it as you type it. It checks the server with the value of the variable. It rejects a reference to an unset or empty variable.
 - Works for any string field, including plugin config under `[plugins.<name>]`.
+
+## Provider enable rules
+
+Each provider section turns on its provider in one of three ways:
+
+| Rule | Providers | The provider starts when |
+| --- | --- | --- |
+| Credentials | Navidrome, Lyrion, Plex, Jellyfin, Emby, Audiobookshelf | The section holds the required credentials. Lyrion needs only `url`. |
+| Section | Spotify, Qobuz, Tidal, YouTube Music | The section header exists. Set `enabled = false` to turn the provider off. |
+| Opt-in | SoundCloud, Mixcloud, NetEase, Yandex | The section sets `enabled = true`. Yandex also needs `token`. |
+
+Radio and podcasts are always on. Their sections only tune them.
+
+```toml
+# Section rule: the header alone turns on Tidal.
+[tidal]
+
+# Opt-in rule: SoundCloud needs the enabled line.
+[soundcloud]
+enabled = true
+```
 
 ## Default Provider
 
 Set the provider that cliamp opens at start:
 
 ```toml
-provider = "radio"
+provider = "cliamp"
 ```
 
-Valid values: `radio` (default), `podcast`, `navidrome`, `lyrion`, `spotify`, `plex`, `jellyfin`, `emby`, `qobuz`, `tidal`, `soundcloud`, `mixcloud`, `netease`, `audiobookshelf`, `yt`, `youtube`, `ytmusic`.
+The default, `cliamp`, opens on the cliamp radio channels. See [radio.md](radio.md#cliamp-radio).
+
+Valid values: `cliamp` (default), `radio`, `podcast`, `navidrome`, `lyrion`, `plex`, `jellyfin`, `emby`, `spotify`, `qobuz`, `tidal`, `soundcloud`, `mixcloud`, `netease`, `yandex`, `audiobookshelf`, `yt`, `youtube`, `ytmusic`. The `--provider` flag also accepts `abs` for `audiobookshelf`.
 
 You can also override this setting on the CLI: `cliamp --provider jellyfin`.
 
@@ -460,3 +577,58 @@ brew install ffmpeg
 ```
 
 MP3, WAV, FLAC, and OGG work without ffmpeg.
+
+cliamp starts a local file that ffmpeg decodes in the background and shows
+`Buffering...` until ffmpeg sends audio. The UI stays responsive on a slow
+disk or network mount.
+
+## Download directory
+
+By default, TUI `Ctrl+S` saves yt-dlp downloads and temporary audio files in
+`~/Music/cliamp`. To use another directory, add this setting and restart cliamp:
+
+```toml
+[downloads]
+directory = "/media/usb/CLAPt/Music"
+```
+
+An empty value keeps the default. Relative paths are rejected; literal `~` is not
+expanded. Missing directories are created. Mount external drives first because
+cliamp does not check mount status. The IPC `save` operation uses the same
+directory, in the TUI and in a detached session. Files remain ordinary local audio
+files and are not automatically substituted into online playlists.
+
+## Proxy
+
+cliamp reads the proxy variables `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and
+`NO_PROXY`. The lowercase names also work. Audio streams, provider API and
+sign-in requests, lyrics, radio and podcast directories, feeds, remote
+playlists, plugin installs and `cliamp upgrade` use them.
+
+```sh
+ALL_PROXY=socks5h://127.0.0.1:1080 cliamp
+HTTPS_PROXY=http://proxy.example:3128 cliamp
+```
+
+- `HTTP_PROXY` applies to `http://` requests, and `HTTPS_PROXY` applies to
+  `https://` requests.
+- `ALL_PROXY` applies when the variable for the scheme is not set. Audio
+  streams use `ALL_PROXY` only for a `socks5://` or `socks5h://` proxy.
+- `NO_PROXY` lists the hosts that cliamp connects to directly. cliamp does not
+  send a request for `localhost` or a loopback address through a proxy.
+- API requests accept a user and password in a SOCKS5 proxy URL, such as
+  `socks5h://user:pass@proxy.example:1080`. Audio streams refuse a SOCKS5 proxy
+  URL with a user and password, because SOCKS5 sends them as clear text.
+- yt-dlp reads these variables itself.
+- ffmpeg opens HLS streams, and remote streams in a format that cliamp does
+  not decode itself. ffmpeg reads only the lowercase `http_proxy` and
+  `no_proxy` variables. It uses only an `http://` proxy, and it ignores
+  `HTTPS_PROXY`, `ALL_PROXY` and SOCKS5 proxies.
+- The Spotify playback connection and the `cliamp.http` Lua plugin API do not
+  follow these rules.
+
+To send the ffmpeg streams through a proxy too, also set `http_proxy`:
+
+```sh
+HTTPS_PROXY=http://proxy.example:3128 http_proxy=http://proxy.example:3128 cliamp
+```

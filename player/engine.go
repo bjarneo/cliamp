@@ -5,18 +5,12 @@ import "time"
 // Engine is the interface used by the TUI model to control audio playback.
 // It is satisfied by *Player and can be replaced with a mock for testing.
 type Engine interface {
-	// Playback control
-	Play(path string, knownDuration time.Duration) error
+	// Playback control. The player picks the pipeline for each path.
 	PlayAt(path string, knownDuration, offset time.Duration) error
-	PlayYTDL(pageURL string, knownDuration time.Duration) error
 	SetPlaybackGeneration(generation uint64)
 	PlayAtForGeneration(path string, knownDuration, offset time.Duration, generation uint64) error
-	PlayYTDLForGeneration(pageURL string, knownDuration time.Duration, generation uint64) error
-	Preload(path string, knownDuration time.Duration) error
-	PreloadYTDL(pageURL string, knownDuration time.Duration) error
 	BeginPreload() uint64
 	PreloadForGeneration(path string, knownDuration time.Duration, generation uint64) error
-	PreloadYTDLForGeneration(pageURL string, knownDuration time.Duration, generation uint64) error
 	ClearPreload()
 	Stop()
 	Close()
@@ -33,8 +27,8 @@ type Engine interface {
 	Drained() bool
 	HasPreload() bool
 	Seekable() bool
-	IsStreamSeek() bool
 	IsYTDLSeek() bool
+	IsLiveStream() bool
 	GaplessAdvanced() bool
 	LastPlayedDuration() time.Duration
 

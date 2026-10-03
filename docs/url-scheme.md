@@ -57,11 +57,17 @@ cliamp://play?url=https%3A%2F%2Fexample.com%2Fs.mp3%3Ft%3D30
 ## Running vs Not Running
 
 When cliamp is already running, `cliamp open` sends the action over the IPC
-socket and exits immediately.
+socket, waits for the result, and exits.
 
 When nothing is running, it starts the player in the current terminal and
 performs the action once the player is up. The desktop entry sets
 `Terminal=true` so a link clicked from a browser has somewhere to draw.
+
+A link waits up to 5 minutes for a URL, album or playlist to load. A `q` link
+waits up to 60 seconds for the search and up to 30 seconds to play or queue
+the top match. After that time the link reports an error, and cliamp
+continues the operation. On a cold start, the error shows in the footer and
+goes to the log.
 
 ## Registration
 

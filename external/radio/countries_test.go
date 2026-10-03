@@ -8,7 +8,10 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/bjarneo/cliamp/playlist"
 )
@@ -314,7 +317,7 @@ func TestGenreTracksQueriesOnePlace(t *testing.T) {
 	}
 	want := playlist.Track{
 		Path: "https://nrk.example/p3", Title: "NRK P3 [192k] · Norway", Genre: "pop,rock", Stream: true, Realtime: true,
-		ProviderMeta: map[string]string{"radio.country": "Norway", "radio.codec": "MP3", "radio.bitrate": "192", "radio.state": "Oslo"},
+		ProviderMeta: map[string]string{"radio.name": "NRK P3", "radio.url": "https://nrk.example/p3", "radio.country": "Norway", "radio.codec": "MP3", "radio.bitrate": "192", "radio.state": "Oslo"},
 	}
 	if !reflect.DeepEqual(tracks[0], want) {
 		t.Errorf("track = %+v, want %+v", tracks[0], want)
@@ -360,6 +363,132 @@ func TestGenreSortTypesAreAcceptedByTheQueryBuilder(t *testing.T) {
 		}
 		if sort.Label == "" {
 			t.Errorf("sort %+v has no label", sort)
+		}
+	}
+}
+
+// A Refresh during a country or region fetch must not let that fetch store
+// its stale result, as the tag index already guarantees.
+func TestRefreshDoesNotRestoreAnInFlightPlaceIndex(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		match func(path string) bool
+		stale string
+		fresh string
+	}{
+		{
+			name:  "countries",
+			match: func(path string) bool { return strings.HasSuffix(path, "/countries") },
+			stale: `[{"name":"Norway","iso_3166_1":"NO","stationcount":1}]`,
+			fresh: `[{"name":"Norway","iso_3166_1":"NO","stationcount":2}]`,
+		},
+		{
+			name:  "regions",
+			match: func(path string) bool { return strings.Contains(path, "/states/") },
+			stale: `[{"name":"Stale","country":"Norway","stationcount":1}]`,
+			fresh: `[{"name":"Fresh","country":"Norway","stationcount":2}]`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			firstStarted := make(chan struct{})
+			releaseFirst := make(chan struct{})
+			var releaseOnce sync.Once
+			release := func() { releaseOnce.Do(func() { close(releaseFirst) }) }
+			t.Cleanup(release)
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case !tc.match(r.URL.Path) && strings.HasSuffix(r.URL.Path, "/countries"):
+					_, _ = w.Write([]byte(`[{"name":"Norway","iso_3166_1":"NO","stationcount":2}]`))
+				case !tc.match(r.URL.Path):
+					_, _ = w.Write([]byte(`[{"name":"Fresh","country":"Norway","stationcount":2}]`))
+				case calls.Add(1) == 1:
+					close(firstStarted)
+					<-releaseFirst
+					_, _ = w.Write([]byte(tc.stale))
+				default:
+					_, _ = w.Write([]byte(tc.fresh))
+				}
+			}))
+			t.Cleanup(srv.Close)
+			installCatalogClient(t, srv.URL)
+
+			p := newPlaceProvider(t, "NO")
+			firstDone := make(chan error, 1)
+			go func() {
+				_, err := p.Genres()
+				firstDone <- err
+			}()
+			select {
+			case <-firstStarted:
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out waiting for the first request")
+			}
+			p.Refresh()
+			release()
+			if err := <-firstDone; err != nil {
+				t.Fatalf("first Genres: %v", err)
+			}
+
+			genres, err := p.Genres()
+			if err != nil {
+				t.Fatalf("second Genres: %v", err)
+			}
+			names := make([]string, 0, len(genres))
+			for _, g := range genres {
+				names = append(names, g.Name)
+			}
+			if want := []string{"Fresh (2)", "Norway (2)"}; !slices.Equal(names, want) {
+				t.Errorf("genres after Refresh = %q, want %q", names, want)
+			}
+			if got := calls.Load(); got != 2 {
+				t.Errorf("requests = %d, want 2", got)
+			}
+		})
+	}
+}
+
+// The region cache belongs to one country. When the home country changes, the
+// next browse must fetch the regions of the new country.
+func TestHomeRegionsFollowTheHomeCountry(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/countries"):
+			_, _ = w.Write([]byte(`[{"name":"Norway","iso_3166_1":"NO","stationcount":247},` +
+				`{"name":"Germany","iso_3166_1":"DE","stationcount":6233}]`))
+		case strings.HasSuffix(r.URL.Path, "/states/Norway/"):
+			_, _ = w.Write([]byte(`[{"name":"Oslo","country":"Norway","stationcount":11}]`))
+		case strings.HasSuffix(r.URL.Path, "/states/Germany/"):
+			_, _ = w.Write([]byte(`[{"name":"Bavaria","country":"Germany","stationcount":90}]`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	installCatalogClient(t, srv.URL)
+
+	p := newPlaceProvider(t, "NO")
+	for _, tc := range []struct {
+		zone string
+		want string
+	}{
+		{zone: "Europe/Oslo", want: "NO/Oslo"},
+		{zone: "Europe/Berlin", want: "DE/Bavaria"},
+		{zone: "Europe/Oslo", want: "NO/Oslo"},
+	} {
+		t.Setenv("TZ", tc.zone)
+		if _, err := p.SetLocationConsent(true); err != nil {
+			t.Fatalf("SetLocationConsent: %v", err)
+		}
+		genres, err := p.Genres()
+		if err != nil {
+			t.Fatalf("Genres: %v", err)
+		}
+		if len(genres) == 0 || genres[0].ID != tc.want {
+			t.Errorf("home %s: genres = %+v, want %s first", tc.zone, genres, tc.want)
 		}
 	}
 }

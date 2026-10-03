@@ -5,10 +5,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/bjarneo/cliamp/internal/tomlutil"
-	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/resolve"
 )
@@ -26,6 +26,14 @@ func ExpandPath(p string) string {
 	}
 	return expanded
 }
+
+// scanDir lists the audio files of a [[dir]] source and readTags reads their
+// tags. Tests replace them to check that a write does not do this work while
+// it holds the playlist lock.
+var (
+	scanDir  = resolve.AudioFiles
+	readTags = resolve.TracksFromPaths
+)
 
 // Section kinds tracked in playlistDoc.order.
 const (
@@ -89,13 +97,13 @@ func (d *playlistDoc) expand(withTags bool) []playlist.Track {
 		}
 		src := d.dirs[di]
 		di++
-		files, err := resolve.AudioFiles(ExpandPath(src.Path), src.Recursive)
+		files, err := scanDir(ExpandPath(src.Path), src.Recursive)
 		if err != nil {
 			continue
 		}
 		var dirTracks []playlist.Track
 		if withTags {
-			dirTracks = resolve.TracksFromPaths(files)
+			dirTracks = readTags(files)
 		} else {
 			dirTracks = make([]playlist.Track, len(files))
 			for i, f := range files {
@@ -125,46 +133,55 @@ func writeDir(w io.Writer, src playlist.DirSource) {
 
 // playlistSection is one [[track]] or [[dir]] section in a rewritten document.
 type playlistSection struct {
-	kind  uint8 // itemTrack or itemDir
-	track playlist.Track
-	dir   playlist.DirSource
+	kind   uint8 // itemTrack or itemDir
+	track  playlist.Track
+	dir    playlist.DirSource
+	caller int // index of track in the caller's list, for a track section
 }
 
 // rebuildDoc merges the caller's explicit tracks back into an existing parsed
 // document, preserving the interleaving of [[track]] and [[dir]] sections.
 //
 // Directory sections keep their slots. Explicit tracks are matched back onto
-// their original slots by path, so removals drop the slot (without shifting
-// siblings) and metadata updates (e.g. enrichment) stay in place. When the
-// caller reordered the explicit tracks, the caller's order wins for the track
-// slots while directories stay anchored. Explicit tracks without an original
-// slot — additions and bookmark materializations — are inserted directly
-// before the directory section that would otherwise supply them, so a
-// materialized track keeps its position among the directory's tracks; tracks
-// no directory provides are appended at the end.
+// their original slots by path and occurrence, so removals drop the slot
+// (without shifting siblings), metadata updates (e.g. enrichment) stay in
+// place, and a path that the document lists more than once keeps each copy.
+// When the caller reordered the explicit tracks, the caller's order wins for
+// the track slots while directories stay anchored. Explicit tracks without an
+// original slot — additions and bookmark materializations — are inserted
+// directly before the directory section that would otherwise supply them, so
+// a materialized track keeps its position among the directory's tracks;
+// tracks no directory provides go before the next caller track that kept its
+// slot, or at the end when none follows.
 func rebuildDoc(existing *playlistDoc, explicit []playlist.Track) (tracks []playlist.Track, dirs []playlist.DirSource, order []uint8) {
-	origPaths := make([]string, len(existing.tracks))
-	for i, t := range existing.tracks {
-		origPaths[i] = t.Path
+	// A caller track can take an original slot while the document has a copy
+	// of its path left. A copy beyond that count is an addition.
+	remaining := make(map[string]int, len(existing.tracks))
+	for _, t := range existing.tracks {
+		remaining[t.Path]++
 	}
-	origSet := make(map[string]struct{}, len(origPaths))
-	for _, p := range origPaths {
-		origSet[p] = struct{}{}
-	}
-	var callerSubseq []string
-	for _, t := range explicit {
-		if _, ok := origSet[t.Path]; ok {
-			callerSubseq = append(callerSubseq, t.Path)
+	var matchable []int
+	for i, t := range explicit {
+		if remaining[t.Path] > 0 {
+			remaining[t.Path]--
+			matchable = append(matchable, i)
 		}
 	}
-	reordered := !isSubsequence(origPaths, callerSubseq)
-
-	byPath := make(map[string]playlist.Track, len(explicit))
-	placed := make(map[string]struct{}, len(explicit))
-	for _, t := range explicit {
-		byPath[t.Path] = t
+	// slotOf maps each original track slot to the caller track that keeps
+	// it, or -1 when the caller removed it. The caller reordered the tracks
+	// when the matchable tracks are not a subsequence of the original slots.
+	slotOf := make([]int, len(existing.tracks))
+	matched := 0
+	for ti, orig := range existing.tracks {
+		slotOf[ti] = -1
+		if matched < len(matchable) && explicit[matchable[matched]].Path == orig.Path {
+			slotOf[ti] = matchable[matched]
+			matched++
+		}
 	}
+	reordered := matched < len(matchable)
 
+	placed := make([]bool, len(explicit))
 	ti, di, used := 0, 0, 0
 	var sections []playlistSection
 	for _, kind := range existing.order {
@@ -173,28 +190,26 @@ func rebuildDoc(existing *playlistDoc, explicit []playlist.Track) (tracks []play
 			di++
 			continue
 		}
-		orig := existing.tracks[ti]
+		keep := slotOf[ti]
 		ti++
 		if reordered {
 			if used < len(explicit) {
-				t := explicit[used]
-				sections = append(sections, playlistSection{kind: itemTrack, track: t})
-				placed[t.Path] = struct{}{}
+				sections = append(sections, playlistSection{kind: itemTrack, track: explicit[used], caller: used})
+				placed[used] = true
 				used++
 			}
 			continue
 		}
-		if t, ok := byPath[orig.Path]; ok {
-			sections = append(sections, playlistSection{kind: itemTrack, track: t})
-			placed[orig.Path] = struct{}{}
-			delete(byPath, orig.Path)
+		if keep >= 0 {
+			sections = append(sections, playlistSection{kind: itemTrack, track: explicit[keep], caller: keep})
+			placed[keep] = true
 		}
 	}
 
-	var leftovers []playlist.Track
-	for _, t := range explicit {
-		if _, ok := placed[t.Path]; !ok {
-			leftovers = append(leftovers, t)
+	var leftovers []int
+	for i := range explicit {
+		if !placed[i] {
+			leftovers = append(leftovers, i)
 		}
 	}
 	if len(leftovers) > 0 {
@@ -223,12 +238,12 @@ func rebuildDoc(existing *playlistDoc, explicit []playlist.Track) (tracks []play
 		// Insert before-dir leftovers in reverse so several targeting the same
 		// directory keep their caller order.
 		for i := len(leftovers) - 1; i >= 0; i-- {
-			t := leftovers[i]
-			if d, ok := supplierOf(t.Path); ok {
+			ci := leftovers[i]
+			if d, ok := supplierOf(explicit[ci].Path); ok {
 				pos := dirPos[d]
 				sections = append(sections, playlistSection{})
 				copy(sections[pos+1:], sections[pos:])
-				sections[pos] = playlistSection{kind: itemTrack, track: t}
+				sections[pos] = playlistSection{kind: itemTrack, track: explicit[ci], caller: ci}
 				// The insertion shifted every later section by one; re-align
 				// the map so the next leftover lands in the right slot.
 				for dd, p := range dirPos {
@@ -238,11 +253,32 @@ func rebuildDoc(existing *playlistDoc, explicit []playlist.Track) (tracks []play
 				}
 			}
 		}
-		// Leftovers no directory supplies are appended in caller order.
-		for _, t := range leftovers {
-			if _, ok := supplierOf(t.Path); !ok {
-				sections = append(sections, playlistSection{kind: itemTrack, track: t})
+		// A leftover that no directory supplies goes directly before the
+		// next track in caller order that kept its slot, so a track put
+		// between saved tracks stays there. Without such a track, it is
+		// appended in caller order.
+		following := make([]int, len(explicit))
+		next := -1
+		for i := len(explicit) - 1; i >= 0; i-- {
+			following[i] = next
+			if placed[i] {
+				next = i
 			}
+		}
+		for _, ci := range leftovers {
+			if _, ok := supplierOf(explicit[ci].Path); ok {
+				continue
+			}
+			pos := -1
+			if next := following[ci]; next >= 0 {
+				pos = slices.IndexFunc(sections, func(sec playlistSection) bool {
+					return sec.kind == itemTrack && sec.caller == next
+				})
+			}
+			if pos < 0 {
+				pos = len(sections)
+			}
+			sections = slices.Insert(sections, pos, playlistSection{kind: itemTrack, track: explicit[ci], caller: ci})
 		}
 	}
 
@@ -258,21 +294,6 @@ func rebuildDoc(existing *playlistDoc, explicit []playlist.Track) (tracks []play
 	return tracks, dirs, order
 }
 
-// isSubsequence reports whether sub appears in orig in the same relative order.
-func isSubsequence(orig, sub []string) bool {
-	i := 0
-	for _, p := range sub {
-		for i < len(orig) && orig[i] != p {
-			i++
-		}
-		if i == len(orig) {
-			return false
-		}
-		i++
-	}
-	return true
-}
-
 // validateDirSource expands dir and verifies it exists and is a directory.
 func validateDirSource(dir string) error {
 	info, err := os.Stat(ExpandPath(dir))
@@ -285,13 +306,24 @@ func validateDirSource(dir string) error {
 	return nil
 }
 
+// suppliesFile reports whether a [[dir]] source of d supplies file. It checks
+// the path against each source and stats the file, so a write that holds the
+// playlist lock does not walk the directories.
+func (d *playlistDoc) suppliesFile(file string) bool {
+	if !slices.ContainsFunc(d.dirs, func(src playlist.DirSource) bool { return dirSuppliesFile(src, file) }) {
+		return false
+	}
+	info, err := os.Stat(file)
+	return err == nil && !info.IsDir()
+}
+
 // dirSuppliesFile reports whether a scan of dir would include file: the path
 // has a supported audio extension, lives under the expanded directory and, for
 // non-recursive sources, not below an immediate subdirectory. The check is
 // path-only so save-time rewrites do not repeat the filesystem walk done at
 // load.
 func dirSuppliesFile(dir playlist.DirSource, file string) bool {
-	if !player.SupportedExts[strings.ToLower(filepath.Ext(file))] {
+	if !playlist.IsAudioFile(file) {
 		return false
 	}
 	root := ExpandPath(dir.Path)

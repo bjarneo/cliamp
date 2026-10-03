@@ -10,12 +10,14 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
-// readStallTimeout is how long Read/Seek wait for new data before returning
-// an error. The deadline resets whenever the download goroutine delivers new
-// bytes, so slow-but-progressing downloads are not affected. Only a true
-// stall (no new data for this duration) triggers the timeout.
+// readStallTimeout is how long a navReader waits for new data before it
+// returns an error. The deadline resets whenever the download goroutine
+// delivers new bytes, so slow-but-progressing downloads are not affected.
+// Only a true stall (no new data for this duration) triggers the timeout.
 const readStallTimeout = 5 * time.Second
 
 var (
@@ -25,27 +27,26 @@ var (
 
 const navBufferChunkSize = 32 * 1024
 
-// navBuffer is an io.ReadSeekCloser backed by a background HTTP download.
-// Bytes are written to a temporary file as they arrive. Read and Seek block
-// if the requested position has not yet been downloaded.
+// navBuffer is a progressive download backed by a temporary file. Bytes are
+// written to the file as they arrive. Each ffmpeg process reads through its
+// own navReader from newReader, and a read blocks until the requested
+// position has been downloaded.
 //
 // Lock ordering: navBuffer.mu is a leaf lock. It must never be acquired
 // while holding speaker.Lock() or player.mu.
 type navBuffer struct {
 	mu           sync.Mutex
-	readMu       sync.Mutex // serializes cursor operations without blocking downloads
+	readMu       sync.Mutex // serializes file reads against Close without blocking downloads
 	wait         chan struct{}
 	downloadDone chan struct{}
 	file         *os.File
 	path         string
 	downloaded   int64 // bytes available in file
 	total        int64 // Content-Length from HTTP response (-1 if unknown)
-	pos          int64 // current read cursor, guarded by readMu
 	done         bool  // true when download goroutine has finished
 	err          error // first error from download goroutine
 	closed       bool
 	cancel       context.CancelFunc
-	contentType  string       // HTTP Content-Type header value
 	bytesIn      atomic.Int64 // mirrors downloaded; safe for unsynchronised UI reads
 	stallTimeout time.Duration
 	closeOnce    sync.Once
@@ -108,7 +109,7 @@ func navBufferGet(ctx context.Context, rawURL string) (*http.Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("nav buffer request: %w", err)
 	}
-	req.Header.Set("User-Agent", "cliamp/1.0 (https://github.com/bjarneo/cliamp)")
+	req.Header.Set("User-Agent", httpclient.UserAgent)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -134,7 +135,6 @@ func newNavBufferFor(resp *http.Response, cancel context.CancelFunc) (*navBuffer
 	return &navBuffer{
 		total:        resp.ContentLength, // -1 if unknown
 		cancel:       cancel,
-		contentType:  resp.Header.Get("Content-Type"),
 		wait:         make(chan struct{}),
 		downloadDone: make(chan struct{}),
 		file:         file,
@@ -144,7 +144,7 @@ func newNavBufferFor(resp *http.Response, cancel context.CancelFunc) (*navBuffer
 }
 
 // download reads the HTTP response body in bounded chunks and appends them to
-// the temporary file. It signals blocked Read/Seek calls after each write.
+// the temporary file. It signals blocked readers after each write.
 func (b *navBuffer) download(body io.ReadCloser) {
 	defer close(b.downloadDone)
 	if _, ok := b.copyBody(body, 0); ok {
@@ -254,9 +254,9 @@ func (b *navBuffer) signalLocked() {
 	b.wait = make(chan struct{})
 }
 
-// waitFor blocks until target bytes are available or, when complete is true,
-// until the download finishes. The stall timer resets only on byte progress.
-func (b *navBuffer) waitFor(target int64, complete bool, stallErr error, cancel <-chan struct{}) error {
+// waitFor blocks until target bytes are available or the download finishes.
+// The stall timer resets only on byte progress.
+func (b *navBuffer) waitFor(target int64, cancel <-chan struct{}) error {
 	stallTimeout := b.stallTimeout
 	if stallTimeout <= 0 {
 		stallTimeout = readStallTimeout
@@ -278,7 +278,7 @@ func (b *navBuffer) waitFor(target int64, complete bool, stallErr error, cancel 
 			b.mu.Unlock()
 			return errNavBufferClosed
 		}
-		if !complete && b.downloaded >= target {
+		if b.downloaded >= target {
 			b.mu.Unlock()
 			return nil
 		}
@@ -302,7 +302,7 @@ func (b *navBuffer) waitFor(target int64, complete bool, stallErr error, cancel 
 			expired = false
 		}
 		if expired {
-			return stallErr
+			return errNavBufferReadStalled
 		}
 
 		select {
@@ -344,81 +344,6 @@ func stopTimer(timer *time.Timer) {
 		default:
 		}
 	}
-}
-
-// Read implements io.Reader.
-// Blocks until at least one byte at pos is available or the download ends.
-// Returns an error if the download stalls (no new data for readStallTimeout).
-func (b *navBuffer) Read(p []byte) (int, error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-
-	b.readMu.Lock()
-	defer b.readMu.Unlock()
-
-	if err := b.waitFor(b.pos+1, false, errNavBufferReadStalled, nil); err != nil {
-		return 0, err
-	}
-	n, err := b.readAt(p, b.pos, nil)
-	b.pos += int64(n)
-	return n, err
-}
-
-// Seek implements io.Seeker.
-// If the target position is beyond what has been downloaded, blocks until
-// the download reaches it. Returns an error if the download stalls.
-func (b *navBuffer) Seek(offset int64, whence int) (int64, error) {
-	b.readMu.Lock()
-	defer b.readMu.Unlock()
-
-	var target int64
-	switch whence {
-	case io.SeekStart:
-		target = offset
-	case io.SeekCurrent:
-		target = b.pos + offset
-	case io.SeekEnd:
-		// If Content-Length is known, use it immediately — no need to wait for
-		// the full download. This is the common case with format=raw, and avoids
-		// blocking the FLAC decoder which seeks to SeekEnd during header parsing
-		// just to determine the file size.
-		if b.total >= 0 {
-			target = b.total + offset
-		} else {
-			// Content-Length unknown (chunked): must wait for the full download.
-			if err := b.waitFor(0, true, fmt.Errorf("nav buffer: seek stalled waiting for download"), nil); err != nil {
-				return 0, err
-			}
-			b.mu.Lock()
-			target = b.downloaded + offset
-			b.mu.Unlock()
-		}
-	default:
-		return 0, fmt.Errorf("nav buffer: invalid whence %d", whence)
-	}
-
-	if target < 0 {
-		target = 0
-	}
-
-	// Block until the buffer reaches the target position.
-	if err := b.waitFor(target, false, fmt.Errorf("nav buffer: seek stalled waiting for data at offset %d", target), nil); err != nil {
-		return 0, err
-	}
-
-	b.mu.Lock()
-	downloaded := b.downloaded
-	closed := b.closed
-	b.mu.Unlock()
-	if closed {
-		return 0, errNavBufferClosed
-	}
-	if target > downloaded {
-		target = downloaded
-	}
-	b.pos = target
-	return b.pos, nil
 }
 
 // navReader is a per-FFmpeg cursor over a navBuffer. Closing it interrupts a
@@ -477,7 +402,7 @@ func (r *navReader) Read(p []byte) (int, error) {
 	}
 
 	b := r.buffer
-	if err := b.waitFor(r.pos+1, false, errNavBufferReadStalled, r.cancel); err != nil {
+	if err := b.waitFor(r.pos+1, r.cancel); err != nil {
 		return 0, err
 	}
 
@@ -494,6 +419,25 @@ func (r *navReader) Read(p []byte) (int, error) {
 func (r *navReader) Close() error {
 	r.closeOnce.Do(func() { close(r.cancel) })
 	return nil
+}
+
+// completedPath returns the temporary file's path once the whole download has
+// finished, and false when the buffer was closed, errored, or stopped short.
+// It blocks until the download goroutine exits.
+//
+// The path is only valid until Close removes the file, so a caller must treat
+// a vanished file as an ordinary failure rather than a bug.
+func (b *navBuffer) completedPath() (string, bool) {
+	<-b.downloadDone
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed || !b.done || b.err != nil || b.path == "" {
+		return "", false
+	}
+	if b.total >= 0 && b.downloaded < b.total {
+		return "", false
+	}
+	return b.path, true
 }
 
 // Close cancels the download, unblocks waiters, and removes the temporary file.
@@ -538,9 +482,4 @@ func (b *navBuffer) Close() error {
 		b.readMu.Unlock()
 	})
 	return b.closeErr
-}
-
-// ContentType returns the HTTP Content-Type from the server response.
-func (b *navBuffer) ContentType() string {
-	return b.contentType
 }

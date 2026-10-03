@@ -78,7 +78,7 @@ When focused on the provider panel:
 | `Up` `Down` / `j` `k` | Navigate |
 | `Enter` | Load the selected playlist/album or play the selected track |
 | `Ctrl+F` | Search Tidal (tracks and albums) |
-| `Ctrl+R` | Refresh (re-resolves stream URLs) |
+| `Ctrl+R` | Refresh playlists and tracks |
 | `Tab` | Return to playback controls, starting at Source when visible ([navigation](keybindings.md#navigation)) |
 | `Esc` / `b` | Open provider browser |
 

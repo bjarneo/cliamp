@@ -1,9 +1,16 @@
 package radiometa
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
 func TestResolverMatching(t *testing.T) {
@@ -139,5 +146,45 @@ func TestFormatTrack(t *testing.T) {
 		if got := formatTrack(tt.artist, tt.title); got != tt.want {
 			t.Errorf("formatTrack(%q, %q) = %q, want %q", tt.artist, tt.title, got, tt.want)
 		}
+	}
+}
+
+func TestGetJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  int
+		body    string
+		want    string
+		wantErr bool
+	}{
+		{name: "decodes a 200 body", status: http.StatusOK, body: `{"title":"Song"}`, want: "Song"},
+		{name: "fails on a non-200 status", status: http.StatusServiceUnavailable, body: `{}`, wantErr: true},
+		{name: "fails on a body over the limit", status: http.StatusOK, body: `{"title":"` + strings.Repeat("x", maxMetaBody) + `"}`, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if ua := r.UserAgent(); ua != httpclient.UserAgent {
+					t.Errorf("User-Agent = %q, want %q", ua, httpclient.UserAgent)
+				}
+				w.WriteHeader(tt.status)
+				w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+
+			var got struct {
+				Title string `json:"title"`
+			}
+			err := getJSON(context.Background(), srv.URL, &got)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("getJSON() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.status == http.StatusOK && tt.wantErr && !errors.Is(err, httpclient.ErrTooLarge) {
+				t.Errorf("getJSON() error = %v, want httpclient.ErrTooLarge", err)
+			}
+			if got.Title != tt.want {
+				t.Errorf("Title = %q, want %q", got.Title, tt.want)
+			}
+		})
 	}
 }

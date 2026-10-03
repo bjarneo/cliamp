@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -65,12 +66,39 @@ type providerTestTransport func(*http.Request) (*http.Response, error)
 func (f providerTestTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestProviderNewOffline(t *testing.T) {
-	oldTransport := http.DefaultTransport
-	http.DefaultTransport = providerTestTransport(func(r *http.Request) (*http.Response, error) {
-		t.Errorf("constructor or local operation attempted HTTP: %s", r.URL)
-		return nil, errors.New("network disabled")
-	})
-	t.Cleanup(func() { http.DefaultTransport = oldTransport })
+	errNetworkDisabled := errors.New("network disabled")
+	var mu sync.Mutex
+	var requests []string
+	takeRequests := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		got := requests
+		requests = nil
+		return got
+	}
+	// The API transport is a clone of http.DefaultTransport, so a swap of
+	// DefaultTransport does not reach it. Replace the client instead.
+	oldClient := defaultHTTPClient
+	defaultHTTPClient = &http.Client{Transport: providerTestTransport(func(r *http.Request) (*http.Response, error) {
+		mu.Lock()
+		requests = append(requests, r.URL.String())
+		mu.Unlock()
+		return nil, errNetworkDisabled
+	})}
+	t.Cleanup(func() { defaultHTTPClient = oldClient })
+
+	// A request through a new client must reach the guard.
+	resp, err := newClient().http.Get("https://example.com/probe")
+	if err == nil {
+		resp.Body.Close()
+	}
+	if !errors.Is(err, errNetworkDisabled) {
+		t.Fatalf("probe request error = %v, want %v", err, errNetworkDisabled)
+	}
+	if got := takeRequests(); !slices.Equal(got, []string{"https://example.com/probe"}) {
+		t.Fatalf("guard saw %q, want the probe request", got)
+	}
+
 	for _, tt := range []struct{ country, want string }{
 		{"", "us"}, {" \t", "us"}, {" NO\n", "no"}, {"gB", "gb"},
 		{"USA", "us"}, {"u", "us"}, {"1a", "us"}, {"a1", "us"}, {"\u00e9", "us"},
@@ -97,10 +125,13 @@ func TestProviderNewOffline(t *testing.T) {
 			p = New(tt.country)
 			p.Refresh()
 			checkProviderPlaylists(t, p, []playlist.PlaylistInfo{{
-				ID: "f:" + s.FeedURL, Name: "[subscribed] Offline Show", TrackCount: 4, Section: "Subscriptions",
+				ID: "f:" + s.FeedURL, Name: "[subscribed] Offline Show", TrackCount: 4, Section: "Subscriptions", Favorite: true,
 			}})
 			if added, _, err := p.ToggleFavorite("f:" + s.FeedURL); err != nil || added {
 				t.Fatalf("unsubscribe = %v, %v", added, err)
+			}
+			if got := takeRequests(); len(got) > 0 {
+				t.Errorf("constructor or local operation attempted HTTP: %q", got)
 			}
 		})
 	}
@@ -233,7 +264,7 @@ func TestProviderSearchCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := []playlist.PlaylistInfo{
-		{ID: "f:" + s.FeedURL, Name: "[subscribed] First Show", TrackCount: 12, Section: "Subscriptions"},
+		{ID: "f:" + s.FeedURL, Name: "[subscribed] First Show", TrackCount: 12, Section: "Subscriptions", Favorite: true},
 		{ID: "c:" + s.FeedURL, Name: "[subscribed] First Show", TrackCount: 12, Section: "Top Shows (US)"},
 	}
 	results := []playlist.PlaylistInfo{
@@ -708,7 +739,7 @@ func TestProviderSubscriptionPersistence(t *testing.T) {
 		p.Refresh()
 		var wantLists []playlist.PlaylistInfo
 		for _, s := range tt.want {
-			wantLists = append(wantLists, playlist.PlaylistInfo{ID: "f:" + s.FeedURL, Name: "[subscribed] " + s.Title, TrackCount: s.EpisodeCount, Section: "Subscriptions"})
+			wantLists = append(wantLists, playlist.PlaylistInfo{ID: "f:" + s.FeedURL, Name: "[subscribed] " + s.Title, TrackCount: s.EpisodeCount, Section: "Subscriptions", Favorite: true})
 			if restored.shows[s.FeedURL] != s {
 				t.Errorf("restored metadata = %+v, want %+v", restored.shows[s.FeedURL], s)
 			}
@@ -745,8 +776,8 @@ func TestProviderSubscriptionStoreValidation(t *testing.T) {
 					t.Errorf("loaded store = %+v, %v", restored.shows, restored.storeErr)
 				}
 				checkProviderPlaylists(t, restored, []playlist.PlaylistInfo{
-					{ID: "f:https://example.com/first", Name: "[subscribed] First", Section: "Subscriptions"},
-					{ID: "f:https://example.com/second", Name: "[subscribed] Second", Section: "Subscriptions"},
+					{ID: "f:https://example.com/first", Name: "[subscribed] First", Section: "Subscriptions", Favorite: true},
+					{ID: "f:https://example.com/second", Name: "[subscribed] Second", Section: "Subscriptions", Favorite: true},
 				})
 			} else {
 				checkProviderPlaylists(t, restored, nil)
@@ -789,7 +820,7 @@ func TestProviderSubscriptionWriteRollback(t *testing.T) {
 			if added, title, err := p.ToggleFavorite(target.FeedURL); added || title != target.Title || err == nil || !strings.Contains(err.Error(), "save podcast subscriptions:") {
 				t.Errorf("failed toggle = %v, %q, %v", added, title, err)
 			}
-			checkProviderPlaylists(t, p, []playlist.PlaylistInfo{{ID: "f:" + first.FeedURL, Name: "[subscribed] First", Section: "Subscriptions"}})
+			checkProviderPlaylists(t, p, []playlist.PlaylistInfo{{ID: "f:" + first.FeedURL, Name: "[subscribed] First", Section: "Subscriptions", Favorite: true}})
 			if after, err := os.ReadFile(path); err != nil || string(after) != string(before) {
 				t.Errorf("failed toggle changed persisted store: %s, %v", after, err)
 			}

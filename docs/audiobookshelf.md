@@ -90,3 +90,4 @@ The buffered pipeline downloads the full stream into memory during playback. It 
 - **Empty provider pane**: Check `url` and either `token` or `user`/`password` in `[audiobookshelf]`.
 - **No audio**: Confirm that the server serves the item file endpoint. A proxy or reverse-proxy configuration error is a common cause.
 - **Missing chapter titles**: This is expected when a file covers several chapters. cliamp then uses the embedded title or file name.
+- **macOS `no route to host`**: If `curl` works with the same URL, macOS likely denies Local Network access to the app. cliamp then adds a hint to the error. Open **System Settings > Privacy & Security > Local Network**, enable access for the terminal app, and restart cliamp. For more steps, see [Plex troubleshooting](plex.md#troubleshooting).

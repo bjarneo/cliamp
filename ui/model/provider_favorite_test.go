@@ -40,8 +40,8 @@ func favoriteAlbumTestModel(view string) (Model, *favoriteAlbumTestProvider) {
 	}}}}
 	m := keybindingTestModel()
 	m.provider, m.focus = p, focusProvider
-	m.providerLists = providerListsWithBrowse(p, p.lists)
-	m.provCursor = len(m.providerLists) - 1
+	m.provPane.lists = providerListsWithBrowse(p, p.lists)
+	m.provPane.cursor = len(m.provPane.lists) - 1
 	m.navBrowser = navBrowserState{
 		prov: p, visible: view == "category" || view == "albums", mode: navBrowseModeByArtistAlbum,
 		screen: navBrowseScreenAlbums, search: "target",
@@ -55,13 +55,12 @@ func favoriteAlbumTestModel(view string) (Model, *favoriteAlbumTestProvider) {
 	show.Feed = true
 	show.Path = "https://example.com/feed"
 	show.ProviderMeta[playlist.MetaAlbumID] = "target"
-	m.spotSearch = spotSearchState{prov: p, visible: view == "results", screen: spotSearchResults,
+	m.searchOverlay = searchOverlayState{prov: p, visible: view == "results", screen: searchOverlayResults,
 		results: []playlist.Track{trackResult("Episode"), show}, cursor: 1}
 	return m, p
 }
 
 func TestFavoriteFromProviderAlbumsAndSearch(t *testing.T) {
-	withFrameWidth(t, 100)
 	for _, view := range []string{"pane", "category", "albums", "results"} {
 		for _, outcome := range []string{"add", "remove", "error", "inactive provider"} {
 			t.Run(view+"/"+outcome, func(t *testing.T) {
@@ -122,10 +121,10 @@ func TestFavoriteFromProviderAlbumsAndSearch(t *testing.T) {
 				if p.playlistsCalls != wantReads {
 					t.Fatalf("playlist reads = %d, want %d", p.playlistsCalls, wantReads)
 				}
-				if wantRefresh && m.provCursor >= len(m.providerLists) {
-					t.Fatalf("provider cursor = %d after refresh of %d rows", m.provCursor, len(m.providerLists))
+				if wantRefresh && m.provPane.cursor >= len(m.provPane.lists) {
+					t.Fatalf("provider cursor = %d after refresh of %d rows", m.provPane.cursor, len(m.provPane.lists))
 				}
-				if !slices.Equal(m.navBrowser.albums, albums) || m.spotSearch.results[1].Title != "Target Show" {
+				if !slices.Equal(m.navBrowser.albums, albums) || m.searchOverlay.results[1].Title != "Target Show" {
 					t.Fatal("favorite decorated album metadata")
 				}
 			})
@@ -134,13 +133,12 @@ func TestFavoriteFromProviderAlbumsAndSearch(t *testing.T) {
 }
 
 func TestFavoriteActionAndHelpGuardSelection(t *testing.T) {
-	withFrameWidth(t, 100)
 	for _, tt := range []struct {
 		name, view string
 		setup      func(*Model)
 	}{
-		{"pane loading", "pane", func(m *Model) { m.provLoading = true }},
-		{"browse entry", "pane", func(m *Model) { m.provCursor = 0 }},
+		{"pane loading", "pane", func(m *Model) { m.provPane.loading = true }},
+		{"browse entry", "pane", func(m *Model) { m.provPane.cursor = 0 }},
 		{"pane read-only", "pane", func(m *Model) { m.provider = commandsTestProvider{} }},
 		{"category loading", "category", func(m *Model) { m.navBrowser.loading = true }},
 		{"album pagination", "albums", func(m *Model) { m.navBrowser.albumLoading = true }},
@@ -150,12 +148,12 @@ func TestFavoriteActionAndHelpGuardSelection(t *testing.T) {
 		{"empty filter", "category", func(m *Model) { m.navBrowser.searchIdx = nil }},
 		{"typing filter", "category", func(m *Model) { m.navBrowser.searching = true }},
 		{"category read-only", "category", func(m *Model) { m.navBrowser.prov = commandsTestProvider{} }},
-		{"results loading", "results", func(m *Model) { m.spotSearch.loading = true }},
-		{"show expanding", "results", func(m *Model) { m.spotSearch.albumLoading = true }},
-		{"result episode", "results", func(m *Model) { m.spotSearch.cursor = 0 }},
-		{"missing album ID", "results", func(m *Model) { delete(m.spotSearch.results[1].ProviderMeta, playlist.MetaAlbumID) }},
-		{"results read-only", "results", func(m *Model) { m.spotSearch.prov = commandsTestProvider{} }},
-		{"typing query", "results", func(m *Model) { m.spotSearch.screen = spotSearchInput }},
+		{"results loading", "results", func(m *Model) { m.searchOverlay.loading = true }},
+		{"show expanding", "results", func(m *Model) { m.searchOverlay.albumLoading = true }},
+		{"result episode", "results", func(m *Model) { m.searchOverlay.cursor = 0 }},
+		{"missing album ID", "results", func(m *Model) { delete(m.searchOverlay.results[1].ProviderMeta, playlist.MetaAlbumID) }},
+		{"results read-only", "results", func(m *Model) { m.searchOverlay.prov = commandsTestProvider{} }},
+		{"typing query", "results", func(m *Model) { m.searchOverlay.screen = searchOverlayInput }},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			m, p := favoriteAlbumTestModel(tt.view)

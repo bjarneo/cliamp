@@ -4,6 +4,8 @@ Use cliamp to stream your [Qobuz](https://www.qobuz.com/) library through its au
 
 Qobuz delivers lossless FLAC. cliamp uses the same buffer-while-playing and `ffmpeg` pipeline as other lossless providers. Put `ffmpeg` on `PATH`.
 
+cliamp gets the signed stream URL of a track when the track starts. Lists open without a stream URL request for each track, and queued tracks do not expire.
+
 ## Setup
 
 Run `cliamp setup` for the fastest setup. Select **Qobuz**, select a stream quality, and let the wizard write the `[qobuz]` block.
@@ -64,7 +66,7 @@ When focused on the provider panel:
 | `Up` `Down` / `j` `k` | Navigate |
 | `Enter` | Load the selected playlist/album or play the selected track |
 | `Ctrl+F` | Search Qobuz tracks |
-| `Ctrl+R` | Refresh (re-resolves stream URLs) |
+| `Ctrl+R` | Refresh playlists and tracks |
 | `Tab` | Return to playback controls, starting at Source when visible ([navigation](keybindings.md#navigation)) |
 | `Esc` / `b` | Open provider browser |
 
@@ -75,9 +77,11 @@ After you load a playlist or album, cliamp returns to the standard playlist view
 - **"OAuth failed" / browser doesn't open**: cliamp opens a localhost redirect listener on a random port. Ensure that nothing blocks outbound access to `qobuz.com` and that a default browser is set. The flow times out after 5 minutes.
 - **Sign-in seems to hang / "you can leave this page"**: The Qobuz OAuth page shows a confirmation screen with a **Back** button after authorization. It does not redirect automatically. Click **Back** to complete sign-in. cliamp waits for the redirect for up to 5 minutes.
 - **Re-authenticate**: Run `cliamp qobuz reset` to clear stored credentials. Then restart cliamp, select Qobuz, and sign in again. This is the same as deleting `~/.config/cliamp/qobuz_credentials.json`.
-- **Track is unplayable / skipped**: The track may not be available for the subscription tier or region. cliamp marks the track unplayable and continues.
+- **"session expired, sign in again"**: Qobuz rejected the stored sign-in with HTTP 401. The provider panel shows `Sign in to Qobuz. Press Enter to continue.` If this happens when a track starts, the status line shows `Sign-in required to play <track>.` Press `Enter` to sign in again. You do not need to restart cliamp.
+- **Track is unplayable / skipped**: Qobuz marks the track as not streamable, so cliamp marks it unplayable and continues.
+- **"Couldn't play" error on a track**: Qobuz refused the stream URL when the track started. The track may not be available for the subscription tier or region.
 - **Hi-Res not delivered**: `quality = 27` does not add Hi-Res to a plan that lacks it. Qobuz returns the best quality allowed by the plan.
-- **Stalls after a long idle session**: Signed stream URLs expire. Press `Ctrl+R` to refresh and resolve the URLs again.
+- **Long-idle sessions**: cliamp resolves stream URLs when each track starts. Queued tracks continue after an idle period without manual refresh. `Ctrl+R` gets playlists and tracks again.
 
 ## Requirements
 

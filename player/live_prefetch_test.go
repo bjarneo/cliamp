@@ -142,25 +142,29 @@ func TestLivePrefetchBuffersBeforeResuming(t *testing.T) {
 	}
 }
 
-func TestLivePrefetchReportsSourceErrorAfterDrain(t *testing.T) {
-	wantErr := errors.New("stream failed")
-	src := &gatedLiveStreamer{samples: [][2]float64{{1, 1}}, err: wantErr}
-	p := newLivePrefetchStreamer(src, 1000)
-	defer p.Close()
-
+func waitForLiveDone(t *testing.T, p *livePrefetchStreamer) {
+	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		p.mu.Lock()
 		done := p.done
 		p.mu.Unlock()
 		if done {
-			break
+			return
 		}
 		if time.Now().After(deadline) {
 			t.Fatal("source did not complete")
 		}
 		time.Sleep(time.Millisecond)
 	}
+}
+
+func TestLivePrefetchReportsSourceErrorAfterDrain(t *testing.T) {
+	wantErr := errors.New("stream failed")
+	src := &gatedLiveStreamer{samples: [][2]float64{{1, 1}}, err: wantErr}
+	p := newLivePrefetchStreamer(src, 1000)
+	defer p.Close()
+	waitForLiveDone(t, p)
 
 	if _, ok := p.Stream(make([][2]float64, 4)); !ok {
 		t.Fatal("Stream reported completion before draining buffered samples")
@@ -173,6 +177,57 @@ func TestLivePrefetchReportsSourceErrorAfterDrain(t *testing.T) {
 	}
 	if err := p.Err(); !errors.Is(err, wantErr) {
 		t.Fatalf("Err() = %v, want %v", err, wantErr)
+	}
+}
+
+// A source that ends cleanly hands the rest of the last read to the gapless
+// next track, so the track boundary has no gap and no fade. A failed source
+// still fades out into silence before the next read moves on.
+func TestLivePrefetchEndOfSource(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantNext int // samples of the read that the next track fills
+	}{
+		{name: "clean end", wantNext: 6},
+		{name: "failed source", err: errors.New("stream failed")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			samples := make([][2]float64, 10)
+			for i := range samples {
+				samples[i] = [2]float64{1, 1}
+			}
+			p := newLivePrefetchStreamer(&gatedLiveStreamer{samples: samples, err: tt.err}, 1000)
+			defer p.Close()
+			waitForLiveDone(t, p)
+
+			next := [2]float64{0.5, 0.5}
+			g := &gaplessStreamer{}
+			g.Replace(p)
+			g.SetNext(beep.StreamerFunc(func(s [][2]float64) (int, bool) {
+				for i := range s {
+					s[i] = next
+				}
+				return len(s), true
+			}))
+			out := make([][2]float64, 16)
+			g.Stream(out)
+
+			gotNext := 0
+			for _, sample := range out[len(samples):] {
+				if sample == next {
+					gotNext++
+				}
+			}
+			if gotNext != tt.wantNext {
+				t.Fatalf("next track filled %d samples of the read, want %d: %v", gotNext, tt.wantNext, out)
+			}
+			last := out[len(samples)-1]
+			if faded := last != samples[0]; faded != (tt.err != nil) {
+				t.Fatalf("last sample of the source = %v, faded = %v, want faded = %v", last, faded, tt.err != nil)
+			}
+		})
 	}
 }
 

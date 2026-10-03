@@ -1,15 +1,9 @@
 package tidal
 
 import (
-	"encoding/json"
-	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
-	"github.com/bjarneo/cliamp/internal/appdir"
-	"github.com/bjarneo/cliamp/internal/fileutil"
+	"github.com/bjarneo/cliamp/internal/credstore"
 )
 
 // Built-in fallback OAuth client credentials: the device ("TV") client pair
@@ -36,60 +30,14 @@ type storedCreds struct {
 	CountryCode  string    `json:"country_code"`
 }
 
+// credsFile holds the stored Tidal credentials. Tidal rotates tokens, so
+// cliamp rewrites this file during normal use. credstore writes it atomically,
+// so a torn write cannot force a fresh device-flow sign-in.
+var credsFile = credstore.File[storedCreds]{Name: "tidal_credentials.json"}
+
 // CredsPath returns the absolute path to the stored Tidal credentials file.
-func CredsPath() (string, error) {
-	dir, err := appdir.Dir()
-	if err != nil {
-		return "", fmt.Errorf("tidal: config dir: %w", err)
-	}
-	return filepath.Join(dir, "tidal_credentials.json"), nil
-}
+func CredsPath() (string, error) { return credsFile.Path() }
 
 // DeleteCreds removes the stored Tidal credentials file. Returns true if a
 // file was removed, false if it did not exist.
-func DeleteCreds() (bool, error) {
-	path, err := CredsPath()
-	if err != nil {
-		return false, err
-	}
-	if err := os.Remove(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		return false, fmt.Errorf("tidal: remove credentials: %w", err)
-	}
-	return true, nil
-}
-
-func loadCreds() (*storedCreds, error) {
-	path, err := CredsPath()
-	if err != nil {
-		return nil, fmt.Errorf("tidal: credentials path: %w", err)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("tidal: read credentials: %w", err)
-	}
-	var creds storedCreds
-	if err := json.Unmarshal(data, &creds); err != nil {
-		return nil, fmt.Errorf("tidal: parse credentials: %w", err)
-	}
-	return &creds, nil
-}
-
-func saveCreds(creds *storedCreds) error {
-	path, err := CredsPath()
-	if err != nil {
-		return fmt.Errorf("tidal: credentials path: %w", err)
-	}
-	data, err := json.Marshal(creds)
-	if err != nil {
-		return fmt.Errorf("tidal: encode credentials: %w", err)
-	}
-	// Atomic write: Tidal rotates tokens, so this file is rewritten during
-	// normal use — a torn write would force a fresh device-flow sign-in.
-	if err := fileutil.WriteFileAtomic(path, data, 0o600); err != nil {
-		return fmt.Errorf("tidal: write credentials: %w", err)
-	}
-	return nil
-}
+func DeleteCreds() (bool, error) { return credsFile.Delete() }

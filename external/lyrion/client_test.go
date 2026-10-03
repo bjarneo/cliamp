@@ -3,15 +3,21 @@ package lyrion
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/internal/httpclient"
+	"github.com/bjarneo/cliamp/internal/netdiag"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
@@ -21,6 +27,7 @@ type capture struct {
 	Command []any
 	Player  string
 	Auth    string
+	UA      string
 }
 
 // newServer returns a Client pointed at a test server that replies with body
@@ -30,6 +37,7 @@ func newServer(t *testing.T, body string) (*Client, *capture) {
 	got := &capture{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got.Auth = r.Header.Get("Authorization")
+		got.UA = r.UserAgent()
 		raw, _ := io.ReadAll(r.Body)
 		var env struct {
 			Method string `json:"method"`
@@ -72,8 +80,18 @@ func jsonScalar(v any) string {
 // --- 2.1 construction -------------------------------------------------------
 
 func TestName(t *testing.T) {
-	if got := New("http://nas:9000", "", "").Name(); got != "lyrion" {
-		t.Errorf("Name() = %q, want lyrion", got)
+	if got := New("http://nas:9000", "", "").Name(); got != "Lyrion" {
+		t.Errorf("Name() = %q, want Lyrion", got)
+	}
+}
+
+func TestRequestSendsUserAgent(t *testing.T) {
+	c, got := newServer(t, `{"result":{"_version":"9.0.0"}}`)
+	if err := c.Ping(); err != nil {
+		t.Fatalf("Ping() error: %v", err)
+	}
+	if got.UA != httpclient.UserAgent {
+		t.Errorf("User-Agent = %q, want %q", got.UA, httpclient.UserAgent)
 	}
 }
 
@@ -98,20 +116,46 @@ func TestNewFromConfig(t *testing.T) {
 	}
 }
 
+// NewFromEnv takes the server and the credentials from the environment and
+// keeps show_unplayable from the [lyrion] block, as navidrome.NewFromEnv
+// keeps its settings. LYRION_SHOW_UNPLAYABLE=true also sets it.
 func TestNewFromEnv(t *testing.T) {
-	t.Setenv("LYRION_URL", "")
-	if c := NewFromEnv(); c != nil {
-		t.Error("NewFromEnv with no LYRION_URL should return nil")
-	}
-	t.Setenv("LYRION_URL", "http://nas:9000")
-	t.Setenv("LYRION_USER", "bob")
-	t.Setenv("LYRION_PASS", "pw")
-	c := NewFromEnv()
-	if c == nil {
-		t.Fatal("NewFromEnv returned nil with LYRION_URL set")
-	}
-	if c.url != "http://nas:9000" || c.user != "bob" {
-		t.Errorf("NewFromEnv = %+v", c)
+	for _, tt := range []struct {
+		name           string
+		url, showEnv   string
+		cfg            config.LyrionConfig
+		wantNil        bool
+		wantUnplayable bool
+	}{
+		{name: "no url", wantNil: true},
+		{name: "no url with a config block", cfg: config.LyrionConfig{ShowUnplayable: true}, wantNil: true},
+		{name: "url", url: "http://nas:9000"},
+		{name: "config show_unplayable", url: "http://nas:9000", cfg: config.LyrionConfig{ShowUnplayable: true}, wantUnplayable: true},
+		{name: "env show_unplayable", url: "http://nas:9000", showEnv: "TRUE", wantUnplayable: true},
+		{name: "env ignores the config url", url: "http://nas:9000", cfg: config.LyrionConfig{URL: "http://other:9000", User: "eve"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("LYRION_URL", tt.url)
+			t.Setenv("LYRION_USER", "bob")
+			t.Setenv("LYRION_PASS", "pw")
+			t.Setenv("LYRION_SHOW_UNPLAYABLE", tt.showEnv)
+			c := NewFromEnv(tt.cfg)
+			if tt.wantNil {
+				if c != nil {
+					t.Fatalf("NewFromEnv = %+v, want nil", c)
+				}
+				return
+			}
+			if c == nil {
+				t.Fatal("NewFromEnv returned nil with LYRION_URL set")
+			}
+			if c.url != "http://nas:9000" || c.user != "bob" || c.password != "pw" {
+				t.Errorf("NewFromEnv = %+v, want the environment server and credentials", c)
+			}
+			if c.showUnplayable != tt.wantUnplayable {
+				t.Errorf("showUnplayable = %v, want %v", c.showUnplayable, tt.wantUnplayable)
+			}
+		})
 	}
 }
 
@@ -812,5 +856,43 @@ func TestUntaggedResultsSurviveTheFilter(t *testing.T) {
 	}
 	if len(pls) != 1 {
 		t.Errorf("got %d playlists, want the untagged playlist kept", len(pls))
+	}
+}
+
+// roundTripFunc lets a test answer requests without a server.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+// TestDialErrorGetsNetdiagHint verifies that a request passes a dial failure
+// through netdiag.Explain. On macOS the error then carries the Local Network
+// hint. On other systems it stays the same.
+func TestDialErrorGetsNetdiagHint(t *testing.T) {
+	dialErr := &net.OpError{
+		Op:   "dial",
+		Net:  "tcp",
+		Addr: &net.TCPAddr{IP: net.ParseIP("192.168.1.20"), Port: 9000},
+		Err:  os.NewSyscallError("connect", syscall.EHOSTUNREACH),
+	}
+	want := netdiag.Explain(dialErr).Error()
+	old := httpClient
+	httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, dialErr
+	})}
+	t.Cleanup(func() { httpClient = old })
+
+	err := New("http://192.168.1.20:9000", "", "").Ping()
+	if !errors.Is(err, syscall.EHOSTUNREACH) {
+		t.Fatalf("error = %v, want the dial error in the chain", err)
+	}
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to contain %q", err, want)
+	}
+}
+
+func TestPingRejectsOversizedBody(t *testing.T) {
+	c, _ := newServer(t, `{"result":{"_version":"`+strings.Repeat("9", maxResponseBody)+`"}}`)
+	if err := c.Ping(); !errors.Is(err, httpclient.ErrTooLarge) {
+		t.Fatalf("Ping() error = %v, want httpclient.ErrTooLarge", err)
 	}
 }

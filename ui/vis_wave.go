@@ -2,11 +2,22 @@ package ui
 
 import "strings"
 
+// traceYs returns the per-frame y position buffer that the wave and heartbeat
+// traces share, sized to n dot columns. Callers overwrite every entry.
+func (v *Visualizer) traceYs(n int) []int {
+	if cap(v.traceYBuf) >= n {
+		v.traceYBuf = v.traceYBuf[:n]
+	} else {
+		v.traceYBuf = make([]int, n)
+	}
+	return v.traceYBuf
+}
+
 // renderWave draws a Braille-character oscilloscope waveform from raw audio samples.
 // Each Braille character covers a 2×4 dot grid, giving smooth sub-cell resolution.
 func (v *Visualizer) renderWave() string {
 	height := v.Rows
-	charCols := PanelWidth
+	charCols := v.columns()
 	dotRows := height * 4
 	dotCols := charCols * 2
 
@@ -14,12 +25,7 @@ func (v *Visualizer) renderWave() string {
 	n := len(samples)
 
 	// Downsample audio to one y-position per horizontal dot column.
-	if cap(v.waveYBuf) >= dotCols {
-		v.waveYBuf = v.waveYBuf[:dotCols]
-	} else {
-		v.waveYBuf = make([]int, dotCols)
-	}
-	ypos := v.waveYBuf
+	ypos := v.traceYs(dotCols)
 	for x := range dotCols {
 		var sample float64
 		if n > 0 {

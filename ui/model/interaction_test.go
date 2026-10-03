@@ -168,7 +168,7 @@ func keybindingTestModel() Model {
 		playlist: playlist.New(),
 		player:   &playbackFakeEngine{},
 		provider: local,
-		providers: []ProviderEntry{
+		providers: []provider.Entry{
 			{Key: "local", Name: "Local", Provider: local},
 			{Key: "yt", Name: "YouTube", Provider: commandsTestProvider{name: "YouTube"}},
 		},
@@ -196,7 +196,7 @@ func TestHandleKeyEnhancedShiftNOpensProviderBrowser(t *testing.T) {
 	browse := interactionBrowseProvider{commandsTestProvider{name: "Navidrome"}}
 	m := keybindingTestModel()
 	m.provider = browse
-	m.providers = append(m.providers, ProviderEntry{Key: "navidrome", Name: "Navidrome", Provider: browse})
+	m.providers = append(m.providers, provider.Entry{Key: "navidrome", Name: "Navidrome", Provider: browse})
 	msg := tea.KeyPressMsg{Code: 'n', ShiftedCode: 'N', Mod: tea.ModShift}
 
 	m.handleKey(msg)
@@ -216,7 +216,7 @@ func TestSwitchProviderOpensPreferredBrowseMode(t *testing.T) {
 		},
 	}
 	m := keybindingTestModel()
-	m.providers = append(m.providers, ProviderEntry{Key: "jellyfin", Name: "Jellyfin", Provider: jellyfin})
+	m.providers = append(m.providers, provider.Entry{Key: "jellyfin", Name: "Jellyfin", Provider: jellyfin})
 
 	cmd := m.switchToProvider("jellyfin")
 
@@ -298,8 +298,8 @@ func TestProviderPaneShiftNDoesNotOpenAnotherProviderBrowser(t *testing.T) {
 	m.focus = focusProvider
 	m.provider = spotify
 	m.providers = append(m.providers,
-		ProviderEntry{Key: "spotify", Name: "Spotify", Provider: spotify},
-		ProviderEntry{Key: "mixcloud", Name: "Mixcloud", Provider: mixcloud},
+		provider.Entry{Key: "spotify", Name: "Spotify", Provider: spotify},
+		provider.Entry{Key: "mixcloud", Name: "Mixcloud", Provider: mixcloud},
 	)
 
 	m.handleKey(tea.KeyPressMsg{Code: 'n', ShiftedCode: 'N', Mod: tea.ModShift})
@@ -325,7 +325,7 @@ func TestShiftNOnProviderTrackJumpsToItsArtist(t *testing.T) {
 	browse := trackArtistBrowseProvider{interactionBrowseProvider{commandsTestProvider{name: "Mixcloud"}}}
 	m := keybindingTestModel()
 	m.provider = browse
-	m.providers = append(m.providers, ProviderEntry{Key: "mixcloud", Name: "Mixcloud", Provider: browse})
+	m.providers = append(m.providers, provider.Entry{Key: "mixcloud", Name: "Mixcloud", Provider: browse})
 	m.focus = focusPlaylist
 	m.playlist.Add(playlist.Track{
 		Title: "A Show", Artist: "Creator Name",
@@ -356,7 +356,7 @@ func TestEscFromDirectTrackCreatorReturnsToPlaylist(t *testing.T) {
 	browse := trackArtistBrowseProvider{interactionBrowseProvider{commandsTestProvider{name: "Mixcloud"}}}
 	m := keybindingTestModel()
 	m.provider = browse
-	m.providers = append(m.providers, ProviderEntry{Key: "mixcloud", Name: "Mixcloud", Provider: browse})
+	m.providers = append(m.providers, provider.Entry{Key: "mixcloud", Name: "Mixcloud", Provider: browse})
 	m.focus = focusPlaylist
 	m.playlist.Add(playlist.Track{
 		Title: "A Show", Artist: "Creator Name",
@@ -385,7 +385,7 @@ func TestProviderPaneBrowseEntryOpensCreatorHierarchy(t *testing.T) {
 
 	m := keybindingTestModel()
 	m.provider = browse
-	m.providerLists = lists
+	m.provPane.lists = lists
 	cmd := m.openProviderList(1)
 	if cmd == nil {
 		t.Fatal("Creators entry returned no artist-load command")
@@ -414,7 +414,7 @@ func TestProviderPaneBrowseEntryBackReturnsToProviderList(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m := keybindingTestModel()
 			m.provider = browse
-			m.providerLists = lists
+			m.provPane.lists = lists
 
 			if cmd := m.openProviderList(tt.index); cmd == nil {
 				t.Fatalf("openProviderList(%d) returned no load command", tt.index)
@@ -435,7 +435,7 @@ func TestProviderPaneCreatorMultiLevelBackReturnsToProviderList(t *testing.T) {
 	browse := providerPaneBrowseProvider{interactionBrowseProvider{commandsTestProvider{name: "Mixcloud"}}}
 	m := keybindingTestModel()
 	m.provider = browse
-	m.providerLists = providerListsWithBrowse(browse, nil)
+	m.provPane.lists = providerListsWithBrowse(browse, nil)
 
 	if cmd := m.openProviderList(1); cmd == nil {
 		t.Fatal("Creators entry returned no artist-load command")
@@ -552,7 +552,7 @@ func TestBrowsePlayableLeavesOpenInMainPlaylist(t *testing.T) {
 			}
 			m := keybindingTestModel()
 			m.provider = browse
-			m.providerLists = lists
+			m.provPane.lists = lists
 			if cmd := m.openProviderList(index); cmd == nil {
 				t.Fatalf("openProviderList(%q) returned no load command", id)
 			}
@@ -580,7 +580,7 @@ func TestProviderPaneUsesExactBrowseEntryLeafBehavior(t *testing.T) {
 	lists := providerListsWithBrowse(browse, nil)
 	m := keybindingTestModel()
 	m.provider = browse
-	m.providerLists = lists
+	m.provPane.lists = lists
 
 	if cmd := m.openProviderList(1); cmd == nil {
 		t.Fatal("second same-mode browse entry returned no load command")
@@ -596,7 +596,7 @@ func TestProviderPaneRoutesSameModeEntriesToDistinctGenreBrowsers(t *testing.T) 
 	}}
 	m := keybindingTestModel()
 	m.provider = browse
-	m.providerLists = providerListsWithBrowse(browse, nil)
+	m.provPane.lists = providerListsWithBrowse(browse, nil)
 
 	cmd := m.openProviderList(1)
 	if cmd == nil {
@@ -711,6 +711,7 @@ func TestAlbumLeafKeepsSelectedRowHighlightedWhileLoading(t *testing.T) {
 
 func TestUnknownArtistItemCountIsOmitted(t *testing.T) {
 	m := keybindingTestModel()
+	m.layout.panelWidth = 80
 	m.plVisible = 5
 	m.navBrowser = navBrowserState{
 		prov:    &labelProv{},
@@ -734,18 +735,17 @@ func TestUnknownArtistItemCountIsOmitted(t *testing.T) {
 func TestProviderFavoriteRefreshKeepsBrowseEntries(t *testing.T) {
 	p := favoriteBrowseProvider{commandsTestProvider{name: "Both", lists: []playlist.PlaylistInfo{{ID: "recent", Name: "Recent Releases"}}}}
 	m := Model{
-		provider:      p,
-		providerLists: providerListsWithBrowse(p, p.lists),
-		provCursor:    1,
+		provider: p,
+		provPane: providerPane{lists: providerListsWithBrowse(p, p.lists), cursor: 1},
 	}
 
 	m.toggleProviderFavorite()
 
-	if len(m.providerLists) != 2 || m.providerLists[0].ID != "browse:shows" || m.providerLists[1].ID != "recent" {
-		t.Fatalf("provider lists after favorite refresh = %+v", m.providerLists)
+	if len(m.provPane.lists) != 2 || m.provPane.lists[0].ID != "browse:shows" || m.provPane.lists[1].ID != "recent" {
+		t.Fatalf("provider lists after favorite refresh = %+v", m.provPane.lists)
 	}
-	if m.provCursor != 1 {
-		t.Fatalf("provider cursor = %d, want refreshed item at 1", m.provCursor)
+	if m.provPane.cursor != 1 {
+		t.Fatalf("provider cursor = %d, want refreshed item at 1", m.provPane.cursor)
 	}
 }
 
@@ -908,6 +908,7 @@ func TestNextTrackNormalizesQueueAfterSkippingUnavailableEntry(t *testing.T) {
 	m := Model{
 		player:    &playbackFakeEngine{},
 		playlist:  p,
+		layout:    frameLayout{panelWidth: 80},
 		plVisible: 2,
 		queue:     queueOverlay{visible: true, cursor: 2, scroll: 2},
 	}
@@ -940,21 +941,26 @@ func TestIPCQueueMutationNormalizesOverlay(t *testing.T) {
 		player:    &playbackFakeEngine{},
 		playlist:  p,
 		plVisible: 2,
+		plCursor:  2,
+		plScroll:  1,
 		queue:     queueOverlay{visible: true, cursor: 2, scroll: 2},
 	}
 
-	reply := make(chan ipc.Response, 1)
-	m.handleIPCQueue(ipc.QueueRequestMsg{Op: "queue.remove", Index: 2, Reply: reply})
-	<-reply
+	if response := runV2(t, &m, "queue.remove", ipc.Request{Index: 2}); !response.OK {
+		t.Fatalf("queue.remove response = %+v", response)
+	}
 	if m.queue.cursor != 1 || m.queue.scroll != 0 {
 		t.Fatalf("queue state after IPC remove = cursor %d, scroll %d; want 1, 0", m.queue.cursor, m.queue.scroll)
 	}
 
-	reply = make(chan ipc.Response, 1)
-	m.handleIPCQueue(ipc.QueueRequestMsg{Op: "queue.clear", Reply: reply})
-	<-reply
+	if response := runV2(t, &m, "queue.clear", ipc.Request{}); !response.OK {
+		t.Fatalf("queue.clear response = %+v", response)
+	}
 	if m.queue.cursor != 0 || m.queue.scroll != 0 {
 		t.Fatalf("queue state after IPC clear = cursor %d, scroll %d; want 0, 0", m.queue.cursor, m.queue.scroll)
+	}
+	if m.plCursor != 0 || m.plScroll != 0 {
+		t.Fatalf("playlist state after IPC clear = cursor %d, scroll %d; want 0, 0", m.plCursor, m.plScroll)
 	}
 	view, ok := m.activeOverlay()
 	if !ok {

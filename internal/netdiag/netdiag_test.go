@@ -2,6 +2,7 @@ package netdiag
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -25,6 +26,17 @@ func dialErr(ip string, errno syscall.Errno) error {
 	}
 }
 
+// wrappedDialErr builds the chain of an httpclient.Streaming request.
+// dialWithDecision and the transport dial function each wrap the
+// *net.OpError before http.Client.Do wraps it. A NewAPI client has no such
+// wrapper and gives the chain of dialErr.
+func wrappedDialErr(ip string, errno syscall.Errno) error {
+	u := dialErr(ip, errno).(*url.Error)
+	addr := net.JoinHostPort(ip, "32400")
+	u.Err = fmt.Errorf("dial %s: %w", addr, fmt.Errorf("dial %s directly: %w", addr, u.Err))
+	return u
+}
+
 func TestExplain(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -36,6 +48,12 @@ func TestExplain(t *testing.T) {
 			name:     "darwin private ip ehostunreach gets hint",
 			goos:     "darwin",
 			err:      dialErr("192.168.7.238", syscall.EHOSTUNREACH),
+			wantHint: true,
+		},
+		{
+			name:     "darwin private ip ehostunreach behind a dial wrapper gets hint",
+			goos:     "darwin",
+			err:      wrappedDialErr("192.168.7.238", syscall.EHOSTUNREACH),
 			wantHint: true,
 		},
 		{

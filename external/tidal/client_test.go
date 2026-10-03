@@ -200,32 +200,51 @@ func TestDoRequestRefreshesOn401(t *testing.T) {
 }
 
 func TestRevokedRefreshTokenDropsClientAndAsksForAuth(t *testing.T) {
-	t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+	for _, tt := range []struct {
+		name   string
+		signIn bool // a sign-in installs a new client while the refresh runs
+	}{
+		{name: "drops the client"},
+		{name: "keeps a newer client", signIn: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprint(w, `{"error":"invalid_grant","error_description":"revoked"}`)
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
+			p := New("lossless", "", "")
+			fresh := newClient("id", "secret")
+			mux := http.NewServeMux()
+			mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+				if tt.signIn {
+					p.mu.Lock()
+					p.client = fresh
+					p.mu.Unlock()
+				}
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprint(w, `{"error":"invalid_grant","error_description":"revoked"}`)
+			})
+			srv := httptest.NewServer(mux)
+			defer srv.Close()
 
-	c := testClient(srv)
-	c.tokenURL = srv.URL + "/token"
-	c.expiresAt = time.Now().Add(-time.Hour) // force a refresh attempt
+			c := testClient(srv)
+			c.tokenURL = srv.URL + "/token"
+			c.expiresAt = time.Now().Add(-time.Hour) // force a refresh attempt
+			p.client = c
 
-	p := New("lossless", "", "")
-	p.client = c
-
-	_, err := p.Tracks(favoriteTracksID)
-	if !errors.Is(err, playlist.ErrNeedsAuth) {
-		t.Fatalf("err = %v, want playlist.ErrNeedsAuth", err)
-	}
-	p.mu.Lock()
-	dropped := p.client == nil
-	p.mu.Unlock()
-	if !dropped {
-		t.Error("client not dropped after revoked refresh token")
+			_, err := p.Tracks(favoriteTracksID)
+			if !errors.Is(err, playlist.ErrNeedsAuth) {
+				t.Fatalf("err = %v, want playlist.ErrNeedsAuth", err)
+			}
+			p.mu.Lock()
+			got := p.client
+			p.mu.Unlock()
+			want := (*client)(nil)
+			if tt.signIn {
+				want = fresh
+			}
+			if got != want {
+				t.Errorf("client after revoked refresh token = %p, want %p", got, want)
+			}
+		})
 	}
 }
 

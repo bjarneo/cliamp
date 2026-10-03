@@ -12,10 +12,11 @@ import (
 // from the plugin goroutine so the model's derived state (cursor, current
 // index, playback) stays consistent. Indices are 0-based.
 type PluginQueueMsg struct {
-	Op    string // "add" | "jump" | "remove" | "move"
-	Path  string // add
-	Index int    // jump, remove, move (from)
-	To    int    // move (to)
+	Op    string         // "add" | "add_track" | "jump" | "remove" | "move"
+	Path  string         // add
+	Track playlist.Track // add_track
+	Index int            // jump, remove, move (from)
+	To    int            // move (to)
 }
 
 // pluginQueueAddedMsg carries tracks resolved for a cliamp.queue.add() call
@@ -29,53 +30,38 @@ func (m *Model) handlePluginQueue(msg PluginQueueMsg) tea.Cmd {
 	case "add":
 		return resolvePluginAddCmd(msg.Path)
 
+	case "add_track":
+		// Queued as described, like IPC track.queue: the path is not resolved.
+		track := msg.Track
+		track.Stream = track.Stream || playlist.IsURL(track.Path)
+		return m.appendPluginTracks(track)
+
 	case "jump":
 		if msg.Index < 0 || msg.Index >= m.playlist.Len() {
 			return nil
 		}
-		refresh := m.scrobbleCurrent()
-		m.playlist.SetIndex(msg.Index)
-		cmd := m.playCurrentTrack()
-		m.notifyPlayback()
-		return tea.Batch(refresh, cmd)
+		return m.playIndex(msg.Index)
 
 	case "remove":
-		m.removeIndex(msg.Index)
-		return nil
+		cmd, _ := m.removeTrack(msg.Index, false)
+		return cmd
 
 	case "move":
-		if m.playlist.Move(msg.Index, msg.To) {
-			m.adjustScroll()
-		}
-		return nil
+		cmd, _ := m.moveTrack(msg.Index, msg.To)
+		return cmd
 	}
 	return nil
 }
 
-// removeIndex removes the track at idx, mirroring the side effects of the
-// interactive delete: stop playback if the active track was removed and clamp
-// the playlist cursor.
-func (m *Model) removeIndex(idx int) {
-	if idx < 0 || idx >= m.playlist.Len() {
-		return
+// appendPluginTracks appends tracks a plugin added to the end of the playlist
+// and re-arms the gapless preload, since an append can change the next track
+// (repeat-all on the last track, or a shuffle of the upcoming order).
+func (m *Model) appendPluginTracks(tracks ...playlist.Track) tea.Cmd {
+	if len(tracks) == 0 {
+		return nil
 	}
-	wasActive := idx == m.playlist.Index()
-	if !m.playlist.Remove(idx) {
-		return
-	}
-	m.normalizeQueueOverlay()
-	if wasActive {
-		m.player.Stop()
-		m.player.ClearPreload()
-		m.clearPlaybackTrack()
-	}
-	if newLen := m.playlist.Len(); newLen == 0 {
-		m.plCursor = 0
-	} else if m.plCursor >= newLen {
-		m.plCursor = newLen - 1
-	}
-	m.adjustScroll()
-	m.notifyPlayback()
+	m.appendTracks(tracks...)
+	return m.rearmStalePreload()
 }
 
 // resolvePluginAddCmd resolves a plugin-supplied path/URL off the UI thread,

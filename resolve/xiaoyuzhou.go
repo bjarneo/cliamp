@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -20,8 +21,8 @@ var (
 	metaAttrRe               = regexp.MustCompile(`(\w+)="([^"]+)"`)
 )
 
-func resolveXiaoyuzhouEpisode(pageURL string) ([]playlist.Track, error) {
-	resp, err := httpClient.Get(pageURL)
+func resolveXiaoyuzhouEpisode(ctx context.Context, pageURL string) ([]playlist.Track, error) {
+	resp, err := httpGet(ctx, pageURL)
 	if err != nil {
 		return nil, err
 	}

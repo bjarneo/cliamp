@@ -60,7 +60,16 @@ Press `N` while browsing Jellyfin to temporarily switch to **By Album** or **By 
 
 cliamp authenticates with a configured token or the supplied username and password. It resolves the active Jellyfin user, lists music library views, derives an alphabetical artist index from the album catalog, then gets tracks for the selected album. Playback uses Jellyfin's authenticated audio endpoint and streams through the cliamp HTTP pipeline.
 
+## Troubleshooting
+
+### macOS: `dial tcp ... connect: no route to host`
+
+If cliamp reports `no route to host` for a Jellyfin server on the LAN, but `curl` works with the same URL, macOS likely denies Local Network access to the app. cliamp then adds a hint to the error.
+
+Fix: Open **System Settings > Privacy & Security > Local Network**. Enable access for the terminal app, then restart cliamp. For more steps, see [Plex troubleshooting](plex.md#troubleshooting).
+
 ## Known limitations
 
-- **No scrobbling/write-back**: cliamp does not report plays to Jellyfin.
+- **Playback reporting**: cliamp reports now-playing status, progress, and stop
+  events to Jellyfin, so the server can track play activity and history.
 - **Token-based access**: Store the API token safely.

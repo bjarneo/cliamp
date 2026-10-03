@@ -123,3 +123,52 @@ func TestStoreKeysAndClear(t *testing.T) {
 		t.Errorf("after clear = %v, want 0", got)
 	}
 }
+
+// JSON cannot hold NaN or an infinity. set rejects such a value, and the
+// store keeps working. Before, the value stayed in the map, and each later
+// set failed to save.
+func TestStoreRejectsValuesThatJSONCannotHold(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{"NaN", "0/0"},
+		{"Inf", "1/0"},
+		{"-Inf", "-1/0"},
+		{"NaN in a table", "{avg = 0/0}"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			L := newStoreState(t, "nan")
+			if err := L.DoString(`
+				_G.bad_ok, _G.bad_err = cliamp.store.set("avg", ` + tt.value + `)
+				_G.good_ok, _G.good_err = cliamp.store.set("name", "x")
+				_G.avg = cliamp.store.get("avg")
+			`); err != nil {
+				t.Fatal(err)
+			}
+			if got := L.GetGlobal("bad_ok"); got != lua.LNil {
+				t.Errorf("set(%s) = %v, want nil and an error", tt.value, got)
+			}
+			if got := L.GetGlobal("bad_err"); got == lua.LNil {
+				t.Errorf("set(%s) error = nil, want an error", tt.value)
+			}
+			if got := L.GetGlobal("good_ok"); got != lua.LTrue {
+				t.Errorf("set after the bad value = %v, %v, want true", got, L.GetGlobal("good_err"))
+			}
+			if got := L.GetGlobal("avg"); got != lua.LNil {
+				t.Errorf("get(avg) = %v, want nil", got)
+			}
+
+			// The valid value reached the disk.
+			L2 := newStoreState(t, "nan")
+			if err := L2.DoString(`_G.v = cliamp.store.get("name")`); err != nil {
+				t.Fatal(err)
+			}
+			if got := L2.GetGlobal("v"); got != lua.LString("x") {
+				t.Errorf("persisted name = %v, want x", got)
+			}
+		})
+	}
+}

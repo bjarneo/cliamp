@@ -69,14 +69,12 @@ func TestOmarchyMarkFor(t *testing.T) {
 // from the bitmap every frame, whatever the music is doing. Silence is the case
 // worth pinning, because every other pixel is free to go dark there.
 func TestOmarchyMarkSurvivesSilence(t *testing.T) {
-	defer restorePanelWidth(PanelWidth)
-	PanelWidth = 100
-
 	v := NewVisualizer(44100)
+	v.Cols = 100
 	v.Rows = 14
 	silent := make([]float64, DefaultSpectrumBands)
 
-	pxRows, pxCols := v.Rows*2, PanelWidth
+	pxRows, pxCols := v.Rows*2, v.Cols
 	mark, scale := omarchyMarkFor(pxRows, pxCols)
 	if scale == 0 {
 		t.Fatalf("panel %dx%d should be large enough for a mark", pxRows, pxCols)
@@ -113,10 +111,8 @@ func TestOmarchyMarkSurvivesSilence(t *testing.T) {
 }
 
 func TestOmarchyRowCountMatchesPanel(t *testing.T) {
-	defer restorePanelWidth(PanelWidth)
-	PanelWidth = 40
-
 	v := NewVisualizer(44100)
+	v.Cols = 40
 	bands := make([]float64, DefaultSpectrumBands)
 	for i := range bands {
 		bands[i] = 0.5
@@ -129,8 +125,6 @@ func TestOmarchyRowCountMatchesPanel(t *testing.T) {
 		}
 	}
 }
-
-func restorePanelWidth(w int) { PanelWidth = w }
 
 // stripSGR removes the colour runs so a test can look at the shape alone.
 func stripSGR(s string) string {

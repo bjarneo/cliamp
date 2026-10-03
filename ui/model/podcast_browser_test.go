@@ -91,7 +91,7 @@ func TestPodcastShortcut(t *testing.T) {
 			current := commandsTestProvider{name: "Other"}
 			m := keybindingTestModel()
 			m.provider = current
-			m.providers = []ProviderEntry{{Key: "other", Provider: current}, {Key: "podcast", Name: p.Name(), Provider: p}}
+			m.providers = []provider.Entry{{Key: "other", Provider: current}, {Key: "podcast", Name: p.Name(), Provider: p}}
 			m.focus = focusPlaylist
 			if view == "provider" {
 				m.focus = focusProvider

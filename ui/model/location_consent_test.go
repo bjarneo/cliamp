@@ -67,7 +67,7 @@ var (
 func newLocationModel(p *locationProvider) Model {
 	m := Model{provider: p, playlist: playlist.New(), plVisible: 10, focus: focusProvider}
 	lists, _ := p.Playlists()
-	m.providerLists = providerListsWithBrowse(p, lists)
+	m.provPane.lists = providerListsWithBrowse(p, lists)
 	return m
 }
 
@@ -77,19 +77,19 @@ func TestSelectingTheLocationRowAsksFirst(t *testing.T) {
 	p := &locationProvider{asking: true, detected: "Norway"}
 	m := newLocationModel(p)
 
-	if got := m.providerLists[0].ID; got != testConsentID {
+	if got := m.provPane.lists[0].ID; got != testConsentID {
 		t.Fatalf("first row = %q, want the location offer", got)
 	}
 	if cmd := m.openProviderList(0); cmd != nil {
 		t.Error("selecting the offer should ask, not fetch")
 	}
-	if !m.provAskLoc {
+	if !m.provPane.askLoc {
 		t.Fatal("the location question was not raised")
 	}
 	if p.consent != nil {
 		t.Error("consent was recorded before the listener answered")
 	}
-	if m.provLoading {
+	if m.provPane.loading {
 		t.Error("a load was started for a row that is a question")
 	}
 }
@@ -102,7 +102,7 @@ func TestLocationPromptAnsweredYes(t *testing.T) {
 	if cmd := m.answerLocationPrompt(true); cmd == nil {
 		t.Error("agreeing should refresh the pane")
 	}
-	if m.provAskLoc {
+	if m.provPane.askLoc {
 		t.Error("the question is still on screen")
 	}
 	if p.consent == nil || !*p.consent {
@@ -121,7 +121,7 @@ func TestLocationPromptAnsweredNo(t *testing.T) {
 
 	m.answerLocationPrompt(false)
 
-	if m.provAskLoc {
+	if m.provPane.askLoc {
 		t.Error("the question is still on screen")
 	}
 	if p.consent == nil || *p.consent {
@@ -166,8 +166,8 @@ func TestLocationPromptKeys(t *testing.T) {
 			case tc.wantAnswer != nil && *p.consent != *tc.wantAnswer:
 				t.Errorf("%s answered %v, want %v", tc.name, *p.consent, *tc.wantAnswer)
 			}
-			if m.provAskLoc != tc.wantOnScreen {
-				t.Errorf("%s left the question on screen = %v, want %v", tc.name, m.provAskLoc, tc.wantOnScreen)
+			if m.provPane.askLoc != tc.wantOnScreen {
+				t.Errorf("%s left the question on screen = %v, want %v", tc.name, m.provPane.askLoc, tc.wantOnScreen)
 			}
 		})
 	}
@@ -179,7 +179,7 @@ func TestProviderWithoutLocationConsentIsUnaffected(t *testing.T) {
 	if cmd := m.answerLocationPrompt(true); cmd != nil {
 		t.Error("answering should be inert for a provider that never asked")
 	}
-	if m.provAskLoc {
+	if m.provPane.askLoc {
 		t.Error("no question should be on screen")
 	}
 }

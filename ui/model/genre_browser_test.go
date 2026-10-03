@@ -270,7 +270,7 @@ func TestGenreBrowseEntriesAreUniqueAndGenreOnlyProvidersCanBrowse(t *testing.T)
 	if !providerSupportsBrowse(readOnly) {
 		t.Fatal("genre-only provider was not recognized as browsable")
 	}
-	m := Model{provider: readOnly, providers: []ProviderEntry{{Provider: readOnly}}}
+	m := Model{provider: readOnly, providers: []provider.Entry{{Provider: readOnly}}}
 	if got := m.findBrowseProvider(); got != readOnly {
 		t.Fatalf("findBrowseProvider() = %T, want read-only genre provider", got)
 	}

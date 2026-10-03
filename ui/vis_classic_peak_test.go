@@ -2,6 +2,7 @@ package ui
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -12,13 +13,41 @@ import (
 const classicPeakTestGlyphs = "⎺⎻⎼⎽"
 const classicPeakTestEpsilon = 1e-9
 
-func withPanelWidth(t *testing.T, width int) {
-	t.Helper()
-	prevWidth := PanelWidth
-	PanelWidth = width
-	t.Cleanup(func() {
-		PanelWidth = prevWidth
-	})
+func TestClassicPeakBandAveraging(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		bands []float64
+		cols  int
+		want  []float64
+	}{
+		{"pairs", []float64{0, 1, 0.4, 0.8}, 2, []float64{0.5, 0.6}},
+		{"fractional boundary", []float64{0, 0, 1, 0, 0}, 2, []float64{0.2, 0.2}},
+		{"one column", []float64{1, 0, 0, 0}, 1, []float64{0.25}},
+		{"same width", []float64{0.2, 0.7}, 2, []float64{0.2, 0.7}},
+		{"expanded", []float64{0, 1}, 3, []float64{0, 0.5, 1}},
+		{"empty", nil, 3, nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := classicPeakBands(tt.bands, tt.cols)
+			if !slices.EqualFunc(got, tt.want, func(a, b float64) bool { return math.Abs(a-b) < 1e-9 }) {
+				t.Fatalf("bands = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClassicPeakBandAveragingNeverSkipsNarrowPeaks(t *testing.T) {
+	for peak := range 64 {
+		bands := make([]float64, 64)
+		bands[peak] = 1
+		var total float64
+		for _, level := range classicPeakBands(bands, 19) {
+			total += level
+		}
+		if math.Abs(total-19.0/64) > 1e-9 {
+			t.Fatalf("peak at band %d: total %v, want preserved contribution %v", peak, total, 19.0/64)
+		}
+	}
 }
 
 func uniformBands(level float64) []float64 {
@@ -85,6 +114,7 @@ func TestClassicPeakModeLookup(t *testing.T) {
 
 func TestVisualizerFrameAdvancesOnTickNotRender(t *testing.T) {
 	v := NewVisualizer(44100)
+	v.Cols = 74
 
 	v.Analyze(make([]float64, defaultFFTSize), spectrumAnalysisSpec(DefaultSpectrumBands))
 	if v.frame != 0 {
@@ -110,10 +140,9 @@ func TestVisualizerFrameAdvancesOnTickNotRender(t *testing.T) {
 }
 
 func TestClassicPeakLaunchAndSettle(t *testing.T) {
-	withPanelWidth(t, 8)
-	cols := classicPeakColsForWidth(PanelWidth)
-
 	v := NewVisualizer(44100)
+	v.Cols = 8
+	cols := classicPeakColsForWidth(v.Cols)
 	activateMode(t, v, VisClassicPeak)
 	driver := classicPeakDriverFor(t, v)
 	v.bands = uniformBands(0.2)
@@ -215,9 +244,8 @@ func TestClassicPeakLaunchAndSettle(t *testing.T) {
 }
 
 func TestClassicPeakHangsBrieflyAtApex(t *testing.T) {
-	withPanelWidth(t, 8)
-
 	v := NewVisualizer(44100)
+	v.Cols = 8
 	activateMode(t, v, VisClassicPeak)
 	driver := classicPeakDriverFor(t, v)
 	v.bands = uniformBands(0.2)
@@ -259,9 +287,8 @@ func TestClassicPeakHangsBrieflyAtApex(t *testing.T) {
 }
 
 func TestClassicPeakDoesNotRelaunchWhileAirborne(t *testing.T) {
-	withPanelWidth(t, 8)
-
 	v := NewVisualizer(44100)
+	v.Cols = 8
 	activateMode(t, v, VisClassicPeak)
 	driver := classicPeakDriverFor(t, v)
 	v.bands = uniformBands(0.2)
@@ -287,10 +314,9 @@ func TestClassicPeakDoesNotRelaunchWhileAirborne(t *testing.T) {
 }
 
 func TestClassicPeakResetsOnModeSwitchAndWidthChange(t *testing.T) {
-	withPanelWidth(t, 6)
-	cols6 := classicPeakColsForWidth(PanelWidth)
-
 	v := NewVisualizer(44100)
+	v.Cols = 6
+	cols6 := classicPeakColsForWidth(v.Cols)
 	activateMode(t, v, VisClassicPeak)
 	driver := classicPeakDriverFor(t, v)
 	v.bands = uniformBands(0.4)
@@ -326,8 +352,8 @@ func TestClassicPeakResetsOnModeSwitchAndWidthChange(t *testing.T) {
 		}
 	}
 
-	PanelWidth = 8
-	cols8 := classicPeakColsForWidth(PanelWidth)
+	v.Cols = 8
+	cols8 := classicPeakColsForWidth(v.Cols)
 	driver.sync(v)
 	if len(driver.barPos) != cols8 {
 		t.Fatalf("resize bar len = %d, want %d", len(driver.barPos), cols8)
@@ -354,15 +380,14 @@ func TestClassicPeakResetsOnModeSwitchAndWidthChange(t *testing.T) {
 }
 
 func TestClassicPeakAnimatingWhenCapIsAboveBar(t *testing.T) {
-	withPanelWidth(t, 8)
-
 	v := NewVisualizer(44100)
+	v.Cols = 8
 	activateMode(t, v, VisClassicPeak)
 	driver := classicPeakDriverFor(t, v)
 	v.bands = uniformBands(0.3)
-	driver.barPos = repeatedClassicPeakSlice(PanelWidth, 0.3)
-	driver.peakPos = repeatedClassicPeakSlice(PanelWidth, 0.5)
-	driver.peakVel = repeatedClassicPeakSlice(PanelWidth, 0)
+	driver.barPos = repeatedClassicPeakSlice(v.Cols, 0.3)
+	driver.peakPos = repeatedClassicPeakSlice(v.Cols, 0.5)
+	driver.peakVel = repeatedClassicPeakSlice(v.Cols, 0)
 
 	if !driver.animating(v) {
 		t.Fatal("animating() = false, want true when caps are still above the bar")
@@ -370,15 +395,14 @@ func TestClassicPeakAnimatingWhenCapIsAboveBar(t *testing.T) {
 }
 
 func TestClassicPeakAnimatingWhenBarsAreSettling(t *testing.T) {
-	withPanelWidth(t, 8)
-
 	v := NewVisualizer(44100)
+	v.Cols = 8
 	activateMode(t, v, VisClassicPeak)
 	driver := classicPeakDriverFor(t, v)
 	v.bands = uniformBands(0.7)
-	driver.barPos = repeatedClassicPeakSlice(PanelWidth, 0.5)
-	driver.peakPos = repeatedClassicPeakSlice(PanelWidth, 0.5)
-	driver.peakVel = repeatedClassicPeakSlice(PanelWidth, 0)
+	driver.barPos = repeatedClassicPeakSlice(v.Cols, 0.5)
+	driver.peakPos = repeatedClassicPeakSlice(v.Cols, 0.5)
+	driver.peakVel = repeatedClassicPeakSlice(v.Cols, 0)
 
 	if !driver.animating(v) {
 		t.Fatal("animating() = false, want true while bars are still easing to target")
@@ -387,6 +411,7 @@ func TestClassicPeakAnimatingWhenBarsAreSettling(t *testing.T) {
 
 func TestClassicPeakRetainsDetailAtRightEdge(t *testing.T) {
 	v := NewVisualizer(44100)
+	v.Cols = 74
 	activateMode(t, v, VisClassicPeak)
 	driver := classicPeakDriverFor(t, v)
 
@@ -412,9 +437,8 @@ func TestClassicPeakRetainsDetailAtRightEdge(t *testing.T) {
 }
 
 func TestClassicPeakRenderHidesLandedCaps(t *testing.T) {
-	withPanelWidth(t, 8)
-
 	v := NewVisualizer(44100)
+	v.Cols = 8
 	activateMode(t, v, VisClassicPeak)
 	v.Rows = 5
 	v.bands = uniformBands(0.6)
@@ -426,16 +450,15 @@ func TestClassicPeakRenderHidesLandedCaps(t *testing.T) {
 }
 
 func TestClassicPeakRenderShowsAttachedCapWhileSettling(t *testing.T) {
-	withPanelWidth(t, 8)
-
 	v := NewVisualizer(44100)
+	v.Cols = 8
 	activateMode(t, v, VisClassicPeak)
 	driver := classicPeakDriverFor(t, v)
 	v.Rows = 5
 	v.bands = uniformBands(0.61)
-	driver.barPos = repeatedClassicPeakSlice(PanelWidth, 0.61)
-	driver.peakPos = repeatedClassicPeakSlice(PanelWidth, 0.68)
-	driver.peakVel = repeatedClassicPeakSlice(PanelWidth, 0)
+	driver.barPos = repeatedClassicPeakSlice(v.Cols, 0.61)
+	driver.peakPos = repeatedClassicPeakSlice(v.Cols, 0.68)
+	driver.peakVel = repeatedClassicPeakSlice(v.Cols, 0)
 
 	out := v.Render()
 	if !strings.ContainsAny(out, classicPeakTestGlyphs) {
@@ -444,17 +467,16 @@ func TestClassicPeakRenderShowsAttachedCapWhileSettling(t *testing.T) {
 }
 
 func TestClassicPeakPausedDecaysBarsAndCapsToRest(t *testing.T) {
-	withPanelWidth(t, 8)
-
 	v := NewVisualizer(44100)
+	v.Cols = 8
 	activateMode(t, v, VisClassicPeak)
 	driver := classicPeakDriverFor(t, v)
 	v.Rows = 5
 	v.bands = uniformBands(0.6)
-	driver.barPos = repeatedClassicPeakSlice(PanelWidth, 0.6)
-	driver.peakPos = repeatedClassicPeakSlice(PanelWidth, 0.82)
-	driver.peakVel = repeatedClassicPeakSlice(PanelWidth, 1.1)
-	driver.peakHold = repeatedClassicPeakSlice(PanelWidth, classicPeakApexHold)
+	driver.barPos = repeatedClassicPeakSlice(v.Cols, 0.6)
+	driver.peakPos = repeatedClassicPeakSlice(v.Cols, 0.82)
+	driver.peakVel = repeatedClassicPeakSlice(v.Cols, 1.1)
+	driver.peakHold = repeatedClassicPeakSlice(v.Cols, classicPeakApexHold)
 
 	snapshotBar := append([]float64(nil), driver.barPos...)
 
@@ -498,17 +520,16 @@ func TestClassicPeakPausedDecaysBarsAndCapsToRest(t *testing.T) {
 }
 
 func TestClassicPeakOverlayFreezesStateAndClearsAnimationClock(t *testing.T) {
-	withPanelWidth(t, 8)
-
 	v := NewVisualizer(44100)
+	v.Cols = 8
 	activateMode(t, v, VisClassicPeak)
 	driver := classicPeakDriverFor(t, v)
 	v.Rows = 5
 	v.bands = uniformBands(0.6)
-	driver.barPos = repeatedClassicPeakSlice(PanelWidth, 0.6)
-	driver.peakPos = repeatedClassicPeakSlice(PanelWidth, 0.82)
-	driver.peakVel = repeatedClassicPeakSlice(PanelWidth, 1.1)
-	driver.peakHold = repeatedClassicPeakSlice(PanelWidth, classicPeakApexHold)
+	driver.barPos = repeatedClassicPeakSlice(v.Cols, 0.6)
+	driver.peakPos = repeatedClassicPeakSlice(v.Cols, 0.82)
+	driver.peakVel = repeatedClassicPeakSlice(v.Cols, 1.1)
+	driver.peakHold = repeatedClassicPeakSlice(v.Cols, classicPeakApexHold)
 
 	snapshotPeak := append([]float64(nil), driver.peakPos...)
 	snapshotVel := append([]float64(nil), driver.peakVel...)
@@ -540,25 +561,23 @@ func TestClassicPeakOverlayFreezesStateAndClearsAnimationClock(t *testing.T) {
 }
 
 func TestClassicPeakRenderFillsEvenWidthPanels(t *testing.T) {
-	withPanelWidth(t, 8)
-
 	v := NewVisualizer(44100)
+	v.Cols = 8
 	activateMode(t, v, VisClassicPeak)
 	v.Rows = 5
 	v.bands = uniformBands(0.6)
 
 	out := v.Render()
 	for line := range strings.SplitSeq(out, "\n") {
-		if got := lipgloss.Width(line); got != PanelWidth {
-			t.Fatalf("Render() line width = %d, want %d for even panel width: %q", got, PanelWidth, line)
+		if got := lipgloss.Width(line); got != v.Cols {
+			t.Fatalf("Render() line width = %d, want %d for even panel width: %q", got, v.Cols, line)
 		}
 	}
 }
 
 func TestClassicPeakEvenWidthKeepsBarsSeparated(t *testing.T) {
-	withPanelWidth(t, 8)
-
 	v := NewVisualizer(44100)
+	v.Cols = 8
 	activateMode(t, v, VisClassicPeak)
 	v.Rows = 5
 	v.bands = uniformBands(0.6)

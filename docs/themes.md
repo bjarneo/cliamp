@@ -19,9 +19,20 @@ mkdir -p ~/.config/cliamp/themes
 ```
 
 Each file needs all six foreground colors as `#RRGGBB` hex values. Add `bg` to
-set a background. Omit it to keep the terminal background. cliamp ignores
-incomplete or malformed custom themes. The file name without `.toml` is the
-theme name.
+set a background. Omit it to keep the terminal background. The file name
+without `.toml` is the theme name. The name `default` selects the terminal
+colors, so you cannot use it for a custom theme.
+
+cliamp skips an incomplete or malformed custom theme, and a theme named
+`default`. It writes the file name and the reason to
+`~/.config/cliamp/cliamp.log` once per run, for example:
+
+```
+time=2026-09-29T21:00:00.000+02:00 level=WARN msg="theme: skip mytheme.toml in /home/you/.config/cliamp/themes: theme \"mytheme\": accent must be #RRGGBB"
+```
+
+cliamp writes this line at the warn level. With `log_level = "error"`, the log
+does not show it.
 
 ### Example: `~/.config/cliamp/themes/solarized.toml`
 
@@ -47,12 +58,15 @@ Press `t` to show the theme in the list immediately.
 | `fg`        | Muted text, help bar, inactive elements     |
 | `green`     | Playing, success, volume, spectrum low      |
 | `yellow`    | Warnings and spectrum middle               |
-| `red`       | Errors and spectrum top                    |
+| `red`       | Errors, favorite heart, and spectrum top    |
 
 All values are six-digit hex strings, for example `"#ff5733"`. Help-key pill
 text switches between black and white for readable contrast.
 
-Important UI states also use stable text markers: `>`, `Q`, `★`, `!`, `WARN:`,
+A line that starts with `#` is a comment. A `#` after a value and a space also
+starts a comment, for example `red = "#dc322f" # errors`.
+
+Important UI states also use stable text markers: `>`, `Q`, `♥`, `!`, `WARN:`,
 and `ERR:`. These markers keep state and feedback distinct in monochrome
 terminals.
 

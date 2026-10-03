@@ -5,81 +5,89 @@ import lua "github.com/yuin/gopher-lua"
 // registerControlAPI adds cliamp.player control methods (next, prev, play_pause,
 // stop, set_volume, set_speed, seek, toggle_mono, set_eq_band) to the cliamp table.
 // These are only functional if the plugin declared permissions = {"control"}.
-func registerControlAPI(L *lua.LState, cliamp *lua.LTable, ctrl *ControlProvider, p *Plugin, logger *pluginLogger) {
+// Before main sets the ControlProvider, such as in the top-level chunk, each
+// control does nothing.
+func registerControlAPI(L *lua.LState, cliamp *lua.LTable, loadCtrl func() *ControlProvider, p *Plugin) {
 	playerTbl := L.GetField(cliamp, "player")
 	tbl, ok := playerTbl.(*lua.LTable)
 	if !ok {
 		return
 	}
 
-	warned := false
-	guard := func(name string) bool {
-		if !p.perms[PermControl] {
-			if !warned {
-				logger.log(p.Name, "warn", "%s requires permissions = {\"control\"} — further warnings suppressed", name)
-				warned = true
-			}
-			return false
-		}
-		return true
-	}
+	guard := func(name string) bool { return p.permitted(PermControl, "cliamp.player."+name) }
 
 	L.SetField(tbl, "next", L.NewFunction(func(L *lua.LState) int {
-		if guard("next") {
+		ctrl := loadCtrl()
+		if guard("next") && ctrl.Next != nil {
 			ctrl.Next()
 		}
 		return 0
 	}))
 
 	L.SetField(tbl, "prev", L.NewFunction(func(L *lua.LState) int {
-		if guard("prev") {
+		ctrl := loadCtrl()
+		if guard("prev") && ctrl.Prev != nil {
 			ctrl.Prev()
 		}
 		return 0
 	}))
 
 	L.SetField(tbl, "play_pause", L.NewFunction(func(L *lua.LState) int {
-		if guard("play_pause") {
+		ctrl := loadCtrl()
+		if guard("play_pause") && ctrl.TogglePause != nil {
 			ctrl.TogglePause()
 		}
 		return 0
 	}))
 
 	L.SetField(tbl, "stop", L.NewFunction(func(L *lua.LState) int {
-		if guard("stop") {
+		ctrl := loadCtrl()
+		if guard("stop") && ctrl.Stop != nil {
 			ctrl.Stop()
 		}
 		return 0
 	}))
 
 	L.SetField(tbl, "set_volume", L.NewFunction(func(L *lua.LState) int {
+		ctrl := loadCtrl()
 		if !guard("set_volume") {
 			return 0
 		}
 		db := float64(L.CheckNumber(1))
-		ctrl.SetVolume(max(min(db, 6), -30))
+		// The player clamps the low end to its volume_min floor.
+		if ctrl.SetVolume != nil {
+			ctrl.SetVolume(min(db, 6))
+		}
 		return 0
 	}))
 
 	L.SetField(tbl, "set_speed", L.NewFunction(func(L *lua.LState) int {
+		ctrl := loadCtrl()
 		if !guard("set_speed") {
 			return 0
 		}
 		ratio := float64(L.CheckNumber(1))
-		ctrl.SetSpeed(max(min(ratio, 2.0), 0.25))
+		if ctrl.SetSpeed != nil {
+			ctrl.SetSpeed(max(min(ratio, 2.0), 0.25))
+		}
 		return 0
 	}))
 
 	L.SetField(tbl, "seek", L.NewFunction(func(L *lua.LState) int {
+		ctrl := loadCtrl()
 		if !guard("seek") {
 			return 0
 		}
-		ctrl.Seek(float64(L.CheckNumber(1)))
+		secs := float64(L.CheckNumber(1))
+		if ctrl.Seek != nil {
+			ctrl.Seek(secs)
+		}
 		return 0
 	}))
 
 	L.SetField(tbl, "toggle_mono", L.NewFunction(func(L *lua.LState) int {
-		if guard("toggle_mono") {
+		ctrl := loadCtrl()
+		if guard("toggle_mono") && ctrl.ToggleMono != nil {
 			ctrl.ToggleMono()
 		}
 		return 0
@@ -87,6 +95,7 @@ func registerControlAPI(L *lua.LState, cliamp *lua.LTable, ctrl *ControlProvider
 
 	// set_eq_preset("name") or set_eq_preset("name", {band1, band2, ..., band10})
 	L.SetField(tbl, "set_eq_preset", L.NewFunction(func(L *lua.LState) int {
+		ctrl := loadCtrl()
 		if !guard("set_eq_preset") {
 			return 0
 		}
@@ -106,11 +115,14 @@ func registerControlAPI(L *lua.LState, cliamp *lua.LTable, ctrl *ControlProvider
 			}
 			bands = &b
 		}
-		ctrl.SetEQPreset(name, bands)
+		if ctrl.SetEQPreset != nil {
+			ctrl.SetEQPreset(name, bands)
+		}
 		return 0
 	}))
 
 	L.SetField(tbl, "set_eq_band", L.NewFunction(func(L *lua.LState) int {
+		ctrl := loadCtrl()
 		if !guard("set_eq_band") {
 			return 0
 		}
@@ -120,7 +132,9 @@ func registerControlAPI(L *lua.LState, cliamp *lua.LTable, ctrl *ControlProvider
 			return 0
 		}
 		db := float64(L.CheckNumber(2))
-		ctrl.SetEQBand(band, max(min(db, 12), -12))
+		if ctrl.SetEQBand != nil {
+			ctrl.SetEQBand(band, max(min(db, 12), -12))
+		}
 		return 0
 	}))
 }

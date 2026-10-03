@@ -4,23 +4,34 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
 
 	librespotPlayer "github.com/devgianlu/go-librespot/player"
 	"golang.org/x/oauth2"
+
+	"github.com/bjarneo/cliamp/playlist"
 )
 
 type tokenSourceFunc func() (*oauth2.Token, error)
 
 func (f tokenSourceFunc) Token() (*oauth2.Token, error) { return f() }
+
+func TestCallbackAddressUsesIPv4Loopback(t *testing.T) {
+	if got, want := callbackAddress(), "127.0.0.1:19872"; got != want {
+		t.Fatalf("callbackAddress() = %q, want %q", got, want)
+	}
+}
 
 func TestAwaitSpotifyStreamTimeoutCancelsTransportAndReleasesReadLock(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
@@ -88,6 +99,33 @@ func TestAwaitSpotifyStreamTimeoutCancelsTransportAndReleasesReadLock(t *testing
 		}
 		session.mu.Unlock()
 	})
+}
+
+func TestAwaitSpotifyStreamRecoversSetupPanic(t *testing.T) {
+	streamCtx, streamCancel := context.WithCancel(context.Background())
+	var session Session
+
+	stream, cancel, err := awaitSpotifyStream(t.Context(), streamCancel, func() (*librespotPlayer.Stream, error) {
+		session.mu.RLock()
+		defer session.mu.RUnlock()
+		var params *struct{ LoudnessDb float32 }
+		_ = params.LoudnessDb // nil dereference, as in librespot v0.9.0 normalisation
+		return nil, nil
+	})
+
+	if stream != nil || cancel != nil {
+		t.Fatalf("awaitSpotifyStream() = (%v, %v), want nil stream and cancel", stream, cancel)
+	}
+	if err == nil {
+		t.Fatal("awaitSpotifyStream() error = nil, want recovered panic")
+	}
+	if streamCtx.Err() == nil {
+		t.Error("stream context was not canceled")
+	}
+	if !session.mu.TryLock() {
+		t.Fatal("stream setup retained the session read lock")
+	}
+	session.mu.Unlock()
 }
 
 func TestIsInvalidGrant(t *testing.T) {
@@ -260,7 +298,7 @@ func TestWebAPITokenSourcePersistsRotatedRefreshToken(t *testing.T) {
 		DeviceID:     "device",
 		RefreshToken: "old",
 	}
-	if err := saveCreds(&stored); err != nil {
+	if err := credsFile.Save(&stored); err != nil {
 		t.Fatal(err)
 	}
 
@@ -273,7 +311,7 @@ func TestWebAPITokenSourcePersistsRotatedRefreshToken(t *testing.T) {
 		t.Fatalf("Token() error = %v", err)
 	}
 
-	got, err := loadCreds()
+	got, err := credsFile.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,5 +384,140 @@ func TestCredsPath(t *testing.T) {
 	want := filepath.Join(home, ".config", "cliamp", "spotify_credentials.json")
 	if got != want {
 		t.Errorf("CredsPath() = %q, want %q", got, want)
+	}
+}
+
+// TestLoadStoredCredsFile checks that credentials an earlier release wrote
+// still load, so an upgrade keeps the user signed in.
+func TestLoadStoredCredsFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLIAMP_CONFIG_DIR", dir)
+	data := `{"username":"user","data":"cGxheQ==","device_id":"device","refresh_token":"refresh"}`
+	if err := os.WriteFile(filepath.Join(dir, "spotify_credentials.json"), []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := credsFile.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	want := storedCreds{Username: "user", Data: []byte("play"), DeviceID: "device", RefreshToken: "refresh"}
+	if got.Username != want.Username || !slices.Equal(got.Data, want.Data) || got.DeviceID != want.DeviceID || got.RefreshToken != want.RefreshToken {
+		t.Errorf("Load() = %+v, want %+v", got, want)
+	}
+}
+
+func TestSessionBearer(t *testing.T) {
+	t.Parallel()
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	refreshErr := errors.New("token endpoint down")
+	tests := []struct {
+		name      string
+		ctx       context.Context
+		source    func() (*oauth2.Token, error) // nil means no token source
+		want      string
+		wantErr   error
+		wantCalls int
+	}{
+		{
+			name:      "token",
+			ctx:       context.Background(),
+			source:    func() (*oauth2.Token, error) { return &oauth2.Token{AccessToken: "token"}, nil },
+			want:      "token",
+			wantCalls: 1,
+		},
+		{name: "no token source", ctx: context.Background(), wantErr: playlist.ErrNeedsAuth},
+		{
+			name:      "refresh fails",
+			ctx:       context.Background(),
+			source:    func() (*oauth2.Token, error) { return nil, refreshErr },
+			wantErr:   refreshErr,
+			wantCalls: 1,
+		},
+		{
+			name:      "refresh token revoked",
+			ctx:       context.Background(),
+			source:    func() (*oauth2.Token, error) { return nil, &oauth2.RetrieveError{ErrorCode: "invalid_grant"} },
+			wantErr:   playlist.ErrNeedsAuth,
+			wantCalls: 1,
+		},
+		{
+			name:    "ended context sends no refresh",
+			ctx:     cancelled,
+			source:  func() (*oauth2.Token, error) { return &oauth2.Token{AccessToken: "token"}, nil },
+			wantErr: context.Canceled,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			s := &Session{}
+			if tt.source != nil {
+				s.tokenSource = tokenSourceFunc(func() (*oauth2.Token, error) {
+					calls++
+					return tt.source()
+				})
+			}
+			got, err := s.bearer(tt.ctx)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("bearer() error = %v, want %v", err, tt.wantErr)
+			}
+			if got != tt.want || calls != tt.wantCalls {
+				t.Errorf("bearer() = %q after %d token calls, want %q after %d", got, calls, tt.want, tt.wantCalls)
+			}
+		})
+	}
+}
+
+// TestPerformOAuthReturnsAuthorizationError checks that a denied sign-in
+// ends the wait at once. The retry reuses the HTTP client, as a browser
+// does, so a kept-alive connection to the first callback server must not
+// swallow the second callback.
+func TestPerformOAuthReturnsAuthorizationError(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // keep browser.Open from starting a real browser
+	urls := make(chan string, 1)
+	SetAuthURLObserver(func(u string) { urls <- u })
+	t.Cleanup(func() { SetAuthURLObserver(nil) })
+	client := &http.Client{}
+	flows := []oauthFlow{{name: "web api", clientID: "client", scopes: oauthScopes}}
+
+	for _, attempt := range []string{"first sign-in", "retry after a denial"} {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		t.Cleanup(cancel)
+		errCh := make(chan error, 1)
+		go func() {
+			_, err := performOAuth2PKCEFlows(ctx, flows)
+			errCh <- err
+		}()
+
+		var authURL string
+		select {
+		case authURL = <-urls:
+		case err := <-errCh:
+			t.Skipf("%s: callback port unavailable: %v", attempt, err)
+		}
+		parsed, err := url.Parse(authURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		callback := fmt.Sprintf("http://%s/login?state=%s&error=access_denied",
+			callbackAddress(), url.QueryEscape(parsed.Query().Get("state")))
+		resp, err := client.Get(callback)
+		if err != nil {
+			t.Fatalf("%s: %v", attempt, err)
+		}
+		// Read the whole body, so the client can keep the connection.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+
+		select {
+		case err := <-errCh:
+			if err == nil || !strings.Contains(err.Error(), "access_denied") {
+				t.Fatalf("%s: performOAuth2PKCEFlows() error = %v, want access_denied", attempt, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: performOAuth2PKCEFlows() still waits after the error callback", attempt)
+		}
 	}
 }

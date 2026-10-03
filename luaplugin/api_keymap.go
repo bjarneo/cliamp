@@ -9,20 +9,12 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// SetReservedKeys records the set of keys owned by cliamp's core UI. Plugins
-// attempting to bind one of these keys get a logged warning and their bind
-// call returns false. Called once during startup from main.go.
-func (m *Manager) SetReservedKeys(keys map[string]bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.reservedKeys = keys
-}
-
 // KeyBinding describes a plugin-registered keybinding for the Ctrl+K overlay.
 type KeyBinding struct {
 	Key         string
-	Plugin      string
+	Plugin      string // display name of the plugin
 	Description string
+	owner       *Plugin
 }
 
 // KeyBindings returns a snapshot of every plugin-registered keybinding that
@@ -42,9 +34,10 @@ func (m *Manager) KeyBindings() []KeyBinding {
 	return out
 }
 
-// EmitKey invokes every plugin callback registered for the given key string.
-// Returns true if at least one callback fired. Called by the UI's main key
-// dispatcher for keys the core doesn't handle.
+// EmitKey queues every plugin callback registered for the given key string,
+// in the same queue as the events of each plugin. Returns true if at least one
+// plugin bound the key. Called by the UI's main key dispatcher for keys the
+// core doesn't handle.
 func (m *Manager) EmitKey(key string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -58,13 +51,9 @@ func (m *Manager) EmitKey(key string) bool {
 
 	label := "keybind " + key
 	for _, h := range hooks {
-		// Tracked in wg and gated on closing (same as Emit) so a keypress
-		// during shutdown can't call into a closed LState.
-		m.wg.Add(1)
-		go func(h *luaHook) {
-			defer m.wg.Done()
-			m.invokeHook(h, label, lua.LString(key))
-		}(h)
+		m.enqueue(h.plugin, label, func() {
+			m.call(h.plugin, label, hookTimeout, 0, fixedArgs(h.fn, lua.LString(key)))
+		})
 	}
 	return true
 }
@@ -78,18 +67,6 @@ func normalizeKey(key string) string {
 // registerKeymapAPI attaches :bind() / :unbind() to the plugin object returned
 // by plugin.register(). Gated on permissions = {"keymap"}.
 func (m *Manager) registerKeymapAPI(L *lua.LState, obj *lua.LTable, p *Plugin) {
-	warned := false
-	guard := func() bool {
-		if p.perms[PermKeymap] {
-			return true
-		}
-		if !warned && m.logger != nil {
-			m.logger.log(p.Name, "warn", "plugin:bind requires permissions = {\"keymap\"} — further warnings suppressed")
-			warned = true
-		}
-		return false
-	}
-
 	// p:bind(key, fn)                     → no entry in Ctrl+K overlay
 	// p:bind(key, description, fn)        → with description (shown in overlay)
 	// Returns true on success; false, reason on failure.
@@ -107,7 +84,7 @@ func (m *Manager) registerKeymapAPI(L *lua.LState, obj *lua.LTable, p *Plugin) {
 			fn = L.CheckFunction(4)
 		}
 
-		if !guard() {
+		if !p.permitted(PermKeymap, "p:bind") {
 			L.Push(lua.LFalse)
 			L.Push(lua.LString("keymap permission required"))
 			return 2
@@ -121,16 +98,14 @@ func (m *Manager) registerKeymapAPI(L *lua.LState, obj *lua.LTable, p *Plugin) {
 		m.mu.Lock()
 		if m.reservedKeys[key] {
 			m.mu.Unlock()
-			if m.logger != nil {
-				m.logger.log(p.Name, "warn", "refusing to bind %q: reserved by cliamp core", key)
-			}
+			p.logger.log(p.installName, "warn", "refusing to bind %q: reserved by cliamp core", key)
 			L.Push(lua.LFalse)
 			L.Push(lua.LString("key reserved by cliamp: " + key))
 			return 2
 		}
 		m.keyBinds[key] = append(m.keyBinds[key], &luaHook{plugin: p, fn: fn})
 		if description != "" {
-			m.keyBindDescs[key] = KeyBinding{Key: key, Plugin: p.Name, Description: description}
+			m.keyBindDescs[key] = KeyBinding{Key: key, Plugin: p.Name, Description: description, owner: p}
 		}
 		m.mu.Unlock()
 
@@ -146,7 +121,7 @@ func (m *Manager) registerKeymapAPI(L *lua.LState, obj *lua.LTable, p *Plugin) {
 		if len(m.keyBinds[key]) == 0 {
 			delete(m.keyBinds, key)
 		}
-		if desc, ok := m.keyBindDescs[key]; ok && desc.Plugin == p.Name {
+		if desc, ok := m.keyBindDescs[key]; ok && desc.owner == p {
 			delete(m.keyBindDescs, key)
 		}
 		m.mu.Unlock()
@@ -158,18 +133,27 @@ func (m *Manager) registerKeymapAPI(L *lua.LState, obj *lua.LTable, p *Plugin) {
 // commandTimeout for the handler to return a result. A missing plugin/command
 // returns ("", err); a handler error returns ("", err); success returns
 // (result, nil). The result is whatever the handler returned as a string
-// (nil or false stringifies to "").
-func (m *Manager) EmitCommand(pluginName, cmdName string, args []string) (string, error) {
+// (nil or false stringifies to ""). When ctx ends, the handler stops and
+// EmitCommand returns the cause of ctx. When Close starts, the handler stops
+// and EmitCommand returns errClosed.
+func (m *Manager) EmitCommand(ctx context.Context, pluginName, cmdName string, args []string) (string, error) {
 	m.mu.RLock()
-	plugCmds, ok := m.commands[pluginName]
+	if m.closing {
+		m.mu.RUnlock()
+		return "", errClosed
+	}
 	var hook *luaHook
-	if ok {
+	if plugCmds, ok := m.commands[pluginName]; ok {
 		hook = plugCmds[cmdName]
 	}
-	m.mu.RUnlock()
 	if hook == nil {
+		m.mu.RUnlock()
 		return "", errCommandNotFound(pluginName, cmdName)
 	}
+	// Add under RLock, as Emit does, so Close waits for this goroutine
+	// before it closes the VM.
+	m.wg.Add(1)
+	m.mu.RUnlock()
 
 	type result struct {
 		out string
@@ -178,36 +162,32 @@ func (m *Manager) EmitCommand(pluginName, cmdName string, args []string) (string
 	done := make(chan result, 1)
 
 	go func() {
-		hook.plugin.mu.Lock()
-		defer hook.plugin.mu.Unlock()
-
-		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
-		defer cancel()
-		hook.plugin.L.SetContext(ctx)
-		defer hook.plugin.L.RemoveContext()
-
-		argsTbl := hook.plugin.L.NewTable()
-		for i, a := range args {
-			argsTbl.RawSetInt(i+1, lua.LString(a))
-		}
-
-		err := hook.plugin.L.CallByParam(lua.P{
-			Fn:      hook.fn,
-			NRet:    1,
-			Protect: true,
-		}, argsTbl)
-		if err != nil {
-			done <- result{err: err}
-			return
-		}
-		ret := hook.plugin.L.Get(-1)
-		hook.plugin.L.Pop(1)
-		done <- result{out: luaValueToString(ret)}
+		defer m.wg.Done()
+		// The call stops when Close cancels m.cmdCtx or when ctx ends.
+		callCtx, cancel := context.WithCancelCause(m.cmdCtx)
+		defer cancel(nil)
+		stop := context.AfterFunc(ctx, func() { cancel(context.Cause(ctx)) })
+		defer stop()
+		p := hook.plugin
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		ret, err := m.callLocked(callCtx, p, "command "+cmdName, commandTimeout, 1, func(L *lua.LState) (*lua.LFunction, []lua.LValue) {
+			argsTbl := L.NewTable()
+			for i, a := range args {
+				argsTbl.RawSetInt(i+1, lua.LString(a))
+			}
+			return hook.fn, []lua.LValue{argsTbl}
+		})
+		done <- result{out: luaValueToString(ret), err: err}
 	}()
 
 	select {
 	case r := <-done:
 		return r.out, r.err
+	case <-ctx.Done():
+		// The handler may still wait for the plugin lock. It sees the end
+		// of ctx when it gets the lock and returns without a call.
+		return "", context.Cause(ctx)
 	case <-time.After(commandTimeout + time.Second):
 		return "", errCommandTimeout(pluginName, cmdName)
 	}

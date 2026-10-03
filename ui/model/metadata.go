@@ -77,7 +77,11 @@ func (m Model) metadataFields() []metadataField {
 		add("Bitrate", bitrate+" kbps")
 	}
 	if track.IsLive() {
-		add("Type", "Live radio")
+		if playlist.IsYTDL(track.Path) {
+			add("Type", "Live stream")
+		} else {
+			add("Type", "Live radio")
+		}
 		if playing, _ := m.currentPlaybackTrack(); m.player != nil && m.player.IsPlaying() && track.Path != "" && track.Path == playing.Path {
 			add("Playing", m.streamTitle)
 		}
@@ -107,7 +111,7 @@ func (m Model) renderMetadataPane(rows int) []string {
 		return nil
 	}
 	w := m.layout.settingsWidth
-	lines := []string{fillSeparator(sepHeader("Metadata [Ctrl+I]"), w)}
+	lines := []string{fillSeparator(sepHeader("Metadata [Ctrl+I]", m.layout.panelWidth), w)}
 	fields := m.metadataFields()
 	if len(fields) == 0 {
 		return append(lines, dimStyle.Render(truncate("No metadata available", w)))
@@ -128,10 +132,9 @@ func (m Model) renderMetadataPane(rows int) []string {
 
 func (m *Model) toggleMetadata() {
 	m.SetShowMetadata(!m.showMetadata)
-	m.saveConfigKey("show_metadata", strconv.FormatBool(m.showMetadata))
+	_ = m.saveConfigBool("show_metadata", m.showMetadata)
 	if m.showMetadata && (!m.layout.twoColumn || m.metadataPaneRows(m.effectivePlaylistVisible()) == 0) {
-		m.showInfo = true
-		m.infoScroll = 0
+		m.info = infoOverlay{visible: true}
 		m.refreshChrome()
 	}
 }

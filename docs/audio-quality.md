@@ -7,8 +7,8 @@ Set the output sample rate, speaker buffer size, resample quality, and bit depth
 Add these settings to your config file as needed:
 
 ```toml
-# Output sample rate in Hz (22050, 44100, 48000, 96000, 192000)
-sample_rate = 44100
+# Output sample rate in Hz: 0 (auto), 22050, 44100, 48000, 96000, 192000
+sample_rate = 0
 
 # Speaker buffer in milliseconds (50-5000)
 buffer_ms = 250
@@ -26,7 +26,7 @@ All settings are optional. The defaults are shown above.
 
 | Setting            | Effect                                                                 |
 |--------------------|------------------------------------------------------------------------|
-| `sample_rate`      | Output rate sent to the sound card. 48000 matches most modern DACs. |
+| `sample_rate`      | Output rate sent to the sound card. 0 reads the rate of the default output device on macOS and uses 44100 on other platforms. 48000 matches most modern DACs. |
 | `buffer_ms`        | Lower values reduce latency. Higher values reduce glitches. Try 200 if audio pops, or 2000 for unstable radio streams. |
 | `resample_quality` | Sinc interpolation quality when a file rate differs from the output rate. 4 gives the best quality; 1 is fastest. |
 | `bit_depth`        | PCM precision for FFmpeg-decoded formats (m4a, aac, alac, opus, wma, webm). 32 uses float PCM and preserves up to 24-bit audio without truncation. Native formats (mp3, flac, wav, ogg) always decode at full precision. This setting does not affect them. |

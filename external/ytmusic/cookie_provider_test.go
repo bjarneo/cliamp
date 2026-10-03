@@ -256,13 +256,13 @@ func TestCookieProviderTracksLoadsInBatches(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	base := newCookieBase("firefox")
 	var starts []int
-	base.resolveFn = func(_ context.Context, _ string, start, count int, browser ...string) ([]playlist.Track, int, error) {
+	base.resolveFn = func(_ context.Context, _ string, start, count int, browser string) ([]playlist.Track, int, error) {
 		starts = append(starts, start)
 		if count != cookiePlaylistBatchSize {
 			t.Fatalf("count = %d, want %d", count, cookiePlaylistBatchSize)
 		}
-		if len(browser) != 1 || browser[0] != "firefox" {
-			t.Fatalf("browser = %v, want firefox", browser)
+		if browser != "firefox" {
+			t.Fatalf("browser = %q, want firefox", browser)
 		}
 		n := cookiePlaylistBatchSize
 		if start > 0 {
@@ -309,7 +309,7 @@ func TestCookieProviderStopsTrackLoad(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			base := newCookieBase("firefox")
 			started := make(chan struct{})
-			base.resolveFn = func(ctx context.Context, _ string, _, _ int, _ ...string) ([]playlist.Track, int, error) {
+			base.resolveFn = func(ctx context.Context, _ string, _, _ int, _ string) ([]playlist.Track, int, error) {
 				close(started)
 				<-ctx.Done()
 				return nil, 0, ctx.Err()
@@ -366,7 +366,7 @@ func TestCookieProviderRefreshRejectsStaleResults(t *testing.T) {
 		base := newCookieBase("firefox")
 		started := make(chan struct{})
 		release := make(chan struct{})
-		base.resolveFn = func(context.Context, string, int, int, ...string) ([]playlist.Track, int, error) {
+		base.resolveFn = func(context.Context, string, int, int, string) ([]playlist.Track, int, error) {
 			close(started)
 			<-release
 			return []playlist.Track{{Title: "Private"}}, 1, nil
@@ -432,7 +432,7 @@ func TestNewCookieProvidersDoesNotMutateOtherHostCookies(t *testing.T) {
 	_ = NewCookieProviders("chrome")
 	_ = NewCookieProvider("chrome", KindMusic)
 
-	_, _ = resolve.ResolveYTDLBatch("https://soundcloud.com/user/tracks", 0, 0)
+	_, _ = resolve.ResolveYTDLBatch("https://soundcloud.com/user/tracks", 0, 0, "")
 	logged, err := os.ReadFile(logFile)
 	if err != nil {
 		t.Fatal(err)

@@ -37,8 +37,25 @@ buildGoModule {
   pname = "cliamp";
   inherit version;
 
-  src = lib.cleanSource ../.;
-  vendorHash = "sha256-rtwUWbft5XGEbuBCn0OMCn4TS5Ul+UXJNIqNOzXfU+M=";
+  # Leave out the local media, scratch data and secrets that sit in a working
+  # tree. A flake copies only the files that git tracks, but callPackage on a
+  # checkout copies the whole directory.
+  src =
+    let
+      root = toString ../.;
+      excluded = map (name: "${root}/${name}") [
+        ".claude"
+        ".env"
+        "config.backup.toml"
+        "mp3"
+        "navdata"
+      ];
+    in
+    lib.cleanSourceWith {
+      src = lib.cleanSource ../.;
+      filter = path: _type: !(builtins.elem path excluded);
+    };
+  vendorHash = "sha256-cKMGAVLRs6FwX9Gqq6wj11OPwK1TsTuVMR7uwI6Mwfg=";
 
   nativeBuildInputs = [
     makeWrapper

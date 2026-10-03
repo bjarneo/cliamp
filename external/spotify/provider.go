@@ -1,49 +1,30 @@
 package spotify
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"slices"
-	"sort"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
-	librespot "github.com/devgianlu/go-librespot"
-	"github.com/devgianlu/go-librespot/audio"
-	"github.com/gopxl/beep/v2"
-
-	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
 
 // Compile-time interface checks.
 var (
-	_ provider.Searcher        = (*SpotifyProvider)(nil)
-	_ provider.PlaylistWriter  = (*SpotifyProvider)(nil)
-	_ provider.PlaylistCreator = (*SpotifyProvider)(nil)
-	_ provider.CustomStreamer  = (*SpotifyProvider)(nil)
-	_ provider.Closer          = (*SpotifyProvider)(nil)
+	_ provider.Searcher             = (*SpotifyProvider)(nil)
+	_ provider.PlaylistWriter       = (*SpotifyProvider)(nil)
+	_ provider.PlaylistCreator      = (*SpotifyProvider)(nil)
+	_ provider.CustomStreamer       = (*SpotifyProvider)(nil)
+	_ provider.Closer               = (*SpotifyProvider)(nil)
+	_ provider.TrackPager           = (*SpotifyProvider)(nil)
+	_ playlist.Refresher            = (*SpotifyProvider)(nil)
+	_ provider.PlaylistTargetFilter = (*SpotifyProvider)(nil)
+	_ playlist.Authenticator        = (*SpotifyProvider)(nil)
 )
 
-// maxResponseBody limits JSON API responses to 10 MB.
 // SpotifyProvider implements playlist.Provider using the Spotify Web API
 // for playlist/track metadata and go-librespot for audio streaming.
-// playlistCache holds a snapshot_id and the fetched tracks for a playlist,
-// allowing us to skip re-fetching playlists that haven't changed.
-type playlistCache struct {
-	snapshotID string
-	tracks     []playlist.Track
-}
-
 type SpotifyProvider struct {
 	session    *Session
 	clientID   string
@@ -52,14 +33,15 @@ type SpotifyProvider struct {
 	meFetched  bool   // /v1/me has been attempted this session; suppresses retry on failure
 	mu         sync.Mutex
 	trackCache map[string]*playlistCache // playlist ID → cache entry
-	authCancel context.CancelFunc        // cancels any in-progress OAuth flow
+	pending    map[string]*pendingTracks
+	authCancel context.CancelFunc // cancels any in-progress OAuth flow
+	authGen    uint64             // counts sign-ins, so a call clears only its own authCancel
 
 	// Playlist list cache to avoid redundant API calls on provider switch.
 	listCache   []playlist.PlaylistInfo
 	listCacheAt time.Time
+	writable    map[string]bool // playlist IDs the user owns or collaborates on
 }
-
-const playlistListCacheTTL = 5 * time.Minute
 
 // New creates a SpotifyProvider. If session is nil, authentication is
 // deferred until the user first selects the Spotify provider.
@@ -70,6 +52,8 @@ func New(session *Session, clientID string, bitrate int) *SpotifyProvider {
 		clientID:   clientID,
 		bitrate:    bitrate,
 		trackCache: make(map[string]*playlistCache),
+		pending:    make(map[string]*pendingTracks),
+		writable:   make(map[string]bool),
 	}
 }
 
@@ -87,7 +71,9 @@ func (p *SpotifyProvider) ensureSession() error {
 	if clientID == "" {
 		return fmt.Errorf("spotify: no client ID available")
 	}
-	sess, err := NewSessionSilent(context.Background(), clientID)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	sess, err := NewSessionSilent(ctx, clientID)
 	if err != nil {
 		return playlist.ErrNeedsAuth
 	}
@@ -98,42 +84,57 @@ func (p *SpotifyProvider) ensureSession() error {
 	return nil
 }
 
+// signIn runs the interactive sign-in. It reconnects existing when it is not
+// nil and then returns no new session. Tests replace it.
+var signIn = func(ctx context.Context, clientID string, existing *Session) (*Session, error) {
+	if existing != nil {
+		return nil, existing.ReconnectInteractive(ctx)
+	}
+	return NewSession(ctx, clientID)
+}
+
 // Authenticate runs the interactive sign-in flow (opens browser, waits for callback).
 // Any previous in-progress OAuth flow is cancelled first to free the callback port.
+//
+// The UI asks for sign-in only after a call returned ErrNeedsAuth. When a
+// session already exists at that point, its Web API token is missing or its
+// stream keys were rejected, so the session is rebuilt through the browser.
 func (p *SpotifyProvider) Authenticate() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	// Cancel the old flow and register this one in one lock hold, so a
+	// newer call or Close always finds the flow that runs.
 	p.mu.Lock()
-	if p.session != nil {
+	clientID := p.clientID
+	if clientID == "" {
 		p.mu.Unlock()
-		return nil
+		return fmt.Errorf("spotify: no client ID available")
 	}
 	if p.authCancel != nil {
 		p.authCancel()
+	}
+	p.authGen++
+	gen := p.authGen
+	p.authCancel = cancel
+	existing := p.session
+	p.mu.Unlock()
+
+	sess, err := signIn(ctx, clientID, existing)
+
+	p.mu.Lock()
+	if p.authGen == gen {
 		p.authCancel = nil
 	}
-	clientID := p.clientID
 	p.mu.Unlock()
-
-	if clientID == "" {
-		return fmt.Errorf("spotify: no client ID available")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	p.mu.Lock()
-	p.authCancel = cancel
-	p.mu.Unlock()
-
-	sess, err := NewSession(ctx, clientID)
-
-	p.mu.Lock()
-	p.authCancel = nil
-	p.mu.Unlock()
-	cancel()
 
 	if err != nil {
 		return err
 	}
 	p.mu.Lock()
-	p.session = sess
+	if sess != nil {
+		p.session = sess
+	}
 	p.resetSessionScopedStateLocked()
 	p.mu.Unlock()
 	return nil
@@ -154,751 +155,24 @@ func (p *SpotifyProvider) Close() {
 	}
 }
 
+// Refresh drops the cached playlist list and track lists, so the next load
+// reads them from Spotify. Implements playlist.Refresher.
+func (p *SpotifyProvider) Refresh() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.listCache = nil
+	p.trackCache = make(map[string]*playlistCache)
+	clear(p.writable)
+}
+
 // resetSessionScopedStateLocked clears /v1/me-derived caches when the session
-// changes. p.mu must be held.
+// changes. The playlist list goes too, because playlist ownership decides
+// which playlists are writable. p.mu must be held.
 func (p *SpotifyProvider) resetSessionScopedStateLocked() {
 	p.userID = ""
 	p.meFetched = false
+	p.listCache = nil
+	clear(p.writable)
 }
 
 func (p *SpotifyProvider) Name() string { return "Spotify" }
-
-// currentUserID returns the authenticated user's Spotify ID, fetched from
-// /v1/me at most once per session. Failures are remembered so a network blip
-// during the first call doesn't trigger a request on every later use.
-func (p *SpotifyProvider) currentUserID(ctx context.Context) string {
-	p.mu.Lock()
-	if p.meFetched {
-		id := p.userID
-		p.mu.Unlock()
-		return id
-	}
-	p.mu.Unlock()
-
-	var me struct {
-		ID string `json:"id"`
-	}
-	if resp, err := p.webAPI(ctx, "GET", "/v1/me", nil); err == nil {
-		_ = decodeBody(resp, &me)
-	}
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.userID = me.ID
-	p.meFetched = true
-	return p.userID
-}
-
-// Playlists returns all playlists in the authenticated user's Spotify library.
-func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
-	if err := p.ensureSession(); err != nil {
-		return nil, err
-	}
-
-	p.mu.Lock()
-	if p.listCache != nil && time.Since(p.listCacheAt) < playlistListCacheTTL {
-		cached := slices.Clone(p.listCache)
-		p.mu.Unlock()
-		return cached, nil
-	}
-	p.mu.Unlock()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	userID := p.currentUserID(ctx)
-
-	var all []playlist.PlaylistInfo
-	offset := 0
-	limit := spotifyPlaylistPageSize
-
-	// List of Playlists only includes created playlists by the User.
-	// This doesn't include the 'Liked Songs' playlist.
-	resp, err := p.webAPI(ctx, "GET", "/v1/me/tracks", nil)
-	if err != nil {
-		return nil, fmt.Errorf("spotify: your music: %w", err)
-	}
-
-	var result struct {
-		Total int `json:"total"`
-	}
-	if err := decodeBody(resp, &result); err != nil {
-		return nil, fmt.Errorf("spotify: parse playlists: %w", err)
-	}
-
-	// Unfortunately, the Spotify API doesn't expose the localized display name.
-	// i.e. 'Liked Songs' or 'Lieblingssongs' etc.
-	// For the moment, "Your Music" must sufficice without adding a localization
-	// map.
-	all = append(all, playlist.PlaylistInfo{
-		ID:         "YOUR MUSIC",
-		Name:       "Your Music",
-		TrackCount: result.Total,
-		Section:    "Library",
-	})
-
-	for {
-		query := url.Values{
-			"limit":  {fmt.Sprintf("%d", limit)},
-			"offset": {fmt.Sprintf("%d", offset)},
-			"fields": {"items(id,name,snapshot_id,owner(id),items.total),total"},
-		}
-
-		resp, err := p.webAPI(ctx, "GET", "/v1/me/playlists", query)
-		if err != nil {
-			return nil, fmt.Errorf("spotify: list playlists: %w", err)
-		}
-
-		var result struct {
-			Items []spotifyPlaylistItem `json:"items"`
-			Total int                   `json:"total"`
-		}
-		if err := decodeBody(resp, &result); err != nil {
-			return nil, fmt.Errorf("spotify: parse playlists: %w", err)
-		}
-
-		p.mu.Lock()
-		for _, item := range result.Items {
-			count := 0
-			if item.Items != nil {
-				count = item.Items.Total
-			}
-			section := "Followed playlists"
-			if userID != "" && item.Owner.ID == userID {
-				section = "Your playlists"
-			}
-			all = append(all, playlist.PlaylistInfo{
-				ID:         item.ID,
-				Name:       item.Name,
-				TrackCount: count,
-				Section:    section,
-			})
-			// Update snapshot_id in cache; if it changed, invalidate cached tracks.
-			if cached, ok := p.trackCache[item.ID]; ok {
-				if cached.snapshotID != item.SnapshotID {
-					delete(p.trackCache, item.ID)
-				}
-			}
-			// Store snapshot_id for later cache checks in Tracks().
-			if _, ok := p.trackCache[item.ID]; !ok && item.SnapshotID != "" {
-				p.trackCache[item.ID] = &playlistCache{snapshotID: item.SnapshotID}
-			}
-		}
-		p.mu.Unlock()
-
-		if offset+limit >= result.Total {
-			break
-		}
-		offset += limit
-	}
-
-	albums, err := p.savedAlbums(ctx)
-	if err != nil {
-		return nil, err
-	}
-	all = append(all, albums...)
-
-	// Group playlists by section so the UI can emit one header per group.
-	// Library first, then owned, then followed, then saved albums; preserve
-	// API order within each section.
-	sectionOrder := map[string]int{
-		"Library":            0,
-		"Your playlists":     1,
-		"Followed playlists": 2,
-		savedAlbumSection:    3,
-	}
-	sort.SliceStable(all, func(i, j int) bool {
-		return sectionOrder[all[i].Section] < sectionOrder[all[j].Section]
-	})
-
-	p.mu.Lock()
-	p.listCache = all
-	p.listCacheAt = time.Now()
-	p.mu.Unlock()
-
-	return slices.Clone(all), nil
-}
-
-// savedAlbums returns the authenticated user's saved albums from
-// /v1/me/albums, paginated. Each is surfaced as a playlist entry whose ID
-// carries the savedAlbumIDPrefix, so Tracks() expands it via AlbumTracks.
-func (p *SpotifyProvider) savedAlbums(ctx context.Context) ([]playlist.PlaylistInfo, error) {
-	var all []playlist.PlaylistInfo
-	offset := 0
-
-	for {
-		query := url.Values{
-			"limit":  {strconv.Itoa(spotifyAlbumPageSize)},
-			"offset": {strconv.Itoa(offset)},
-		}
-
-		resp, err := p.webAPI(ctx, "GET", "/v1/me/albums", query)
-		if err != nil {
-			return nil, fmt.Errorf("spotify: list saved albums: %w", err)
-		}
-
-		var result struct {
-			Items []struct {
-				Album spotifyAlbumItem `json:"album"`
-			} `json:"items"`
-			Total int `json:"total"`
-		}
-		if err := decodeBody(resp, &result); err != nil {
-			return nil, fmt.Errorf("spotify: parse saved albums: %w", err)
-		}
-
-		for _, item := range result.Items {
-			a := item.Album
-			if a.ID == "" {
-				continue // skip unavailable albums
-			}
-			name := a.Name
-			if artist := artistNames(a.Artists); artist != "" {
-				name = artist + " - " + a.Name
-			}
-			all = append(all, playlist.PlaylistInfo{
-				ID:         savedAlbumIDPrefix + a.ID,
-				Name:       name,
-				TrackCount: a.TotalTracks,
-				Section:    savedAlbumSection,
-			})
-		}
-
-		if offset+spotifyAlbumPageSize >= result.Total {
-			break
-		}
-		offset += spotifyAlbumPageSize
-	}
-
-	// Spotify returns saved albums most-recently-added first; sort by the
-	// "Artist - Album" display name so the list reads alphabetically by artist.
-	sort.SliceStable(all, func(i, j int) bool {
-		return strings.ToLower(all[i].Name) < strings.ToLower(all[j].Name)
-	})
-
-	return all, nil
-}
-
-// Tracks returns all tracks for the given Spotify playlist ID.
-// Track.Path is set to the canonical spotify: URI for the player to resolve.
-// Results are cached by snapshot_id; unchanged playlists skip the API call.
-// Saved-album entries (savedAlbumIDPrefix) are expanded via AlbumTracks.
-func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
-	if err := p.ensureSession(); err != nil {
-		return nil, err
-	}
-
-	if albumID, ok := isSavedAlbumID(playlistID); ok {
-		return p.AlbumTracks(albumID)
-	}
-	// Check cache — if we have tracks and the snapshot_id hasn't changed, return cached.
-	p.mu.Lock()
-	if cached, ok := p.trackCache[playlistID]; ok && cached.tracks != nil {
-		tracks := slices.Clone(cached.tracks)
-		p.mu.Unlock()
-		return tracks, nil
-	}
-	p.mu.Unlock()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	var all []playlist.Track
-	offset := 0
-	limit := spotifyTrackPageSize
-
-	for {
-		var (
-			resp *http.Response
-			err  error
-		)
-
-		if playlistID == "YOUR MUSIC" {
-			query := url.Values{
-				"limit":  {fmt.Sprintf("%d", limit)},
-				"offset": {fmt.Sprintf("%d", offset)},
-			}
-			resp, err = p.webAPI(ctx, "GET", "/v1/me/tracks", query)
-		} else {
-			query := url.Values{
-				"limit":  {fmt.Sprintf("%d", limit)},
-				"offset": {fmt.Sprintf("%d", offset)},
-				"fields": {"items(item(id,name,type,uri,artists(name),album(name,release_date),show(name),release_date,duration_ms,track_number,is_playable,restrictions(reason))),total"},
-			}
-			path := fmt.Sprintf("/v1/playlists/%s/items", playlistID)
-			resp, err = p.webAPI(ctx, "GET", path, query)
-		}
-
-		if err != nil {
-			return nil, fmt.Errorf("spotify: list tracks: %w", err)
-		}
-
-		var result struct {
-			Items []struct {
-				Item  *spotifyItem `json:"item"`
-				Track *spotifyItem `json:"track"`
-			} `json:"items"`
-			Total int `json:"total"`
-		}
-		if err := decodeBody(resp, &result); err != nil {
-			return nil, fmt.Errorf("spotify: parse tracks: %w", err)
-		}
-
-		for _, item := range result.Items {
-			t := item.Item
-			if t == nil {
-				t = item.Track
-			}
-			if t == nil || t.ID == "" {
-				continue // skip local/unavailable tracks
-			}
-			all = append(all, trackFromItem(t))
-		}
-
-		if offset+limit >= result.Total {
-			break
-		}
-		offset += limit
-	}
-
-	// Cache the fetched tracks.
-	p.mu.Lock()
-	if cached, ok := p.trackCache[playlistID]; ok {
-		cached.tracks = all
-	} else {
-		p.trackCache[playlistID] = &playlistCache{tracks: all}
-	}
-	p.mu.Unlock()
-
-	return slices.Clone(all), nil
-}
-
-// isAuthError returns true if the error is an authentication/session-related
-// failure that can be resolved by re-authenticating.
-func isAuthError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	// context.DeadlineExceeded and context.Canceled are NOT auth errors.
-	// They commonly fire during rapid track skipping when a previous NewStream's
-	// network fetch is interrupted, and previously caused spurious re-auth
-	// attempts (which then escalated to opening a browser tab mid-skip).
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return false
-	}
-	var keyErr *audio.KeyProviderError
-	return errors.As(err, &keyErr)
-}
-
-// URISchemes returns the URI prefixes handled by this provider.
-// Implements provider.CustomStreamer.
-func (p *SpotifyProvider) URISchemes() []string { return []string{"spotify:"} }
-
-// NewStreamer creates a SpotifyStreamer for the given spotify: URI (track or
-// episode).
-// If the stream fails due to an auth error (e.g. expired session, AES key
-// rejection), the player tries a silent reconnect from cached credentials.
-// If that fails — or the retry still hits an auth error — the streamer
-// surfaces playlist.ErrNeedsAuth so the UI can prompt the user to sign in.
-// We deliberately do NOT auto-launch a browser-based OAuth flow from this
-// path: rapid track skipping can produce transient stream errors and a
-// browser tab popping up mid-skip.
-//
-// Implements provider.CustomStreamer.
-func (p *SpotifyProvider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error) {
-	if err := p.ensureSession(); err != nil {
-		return nil, beep.Format{}, 0, err
-	}
-	spotID, err := librespot.SpotifyIdFromUri(uri)
-	if err != nil {
-		return nil, beep.Format{}, 0, fmt.Errorf("spotify: invalid URI %q: %w", uri, err)
-	}
-
-	tryStream := func() (*spotifyStreamer, error) {
-		ctx, setupCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer setupCancel()
-		stream, streamCancel, err := p.session.NewStream(ctx, *spotID, p.bitrate)
-		if err != nil {
-			return nil, err
-		}
-		return newSpotifyStreamer(stream, streamCancel), nil
-	}
-
-	s, err := tryStream()
-	if err == nil {
-		return s, s.Format(), s.Duration(), nil
-	}
-	if !isAuthError(err) {
-		return nil, beep.Format{}, 0, fmt.Errorf("spotify: new stream: %w", err)
-	}
-
-	// Auth error — try a silent reconnect from cached credentials.
-	applog.UserWarn("spotify: stream auth error (%v), attempting silent reconnect...", err)
-
-	reconnCtx, reconnCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	reconnErr := p.session.Reconnect(reconnCtx)
-	reconnCancel()
-
-	if reconnErr != nil {
-		applog.UserWarn("spotify: silent reconnect failed (%v); sign-in required", reconnErr)
-		return nil, beep.Format{}, 0, fmt.Errorf("spotify: stream auth error, silent reconnect failed: %w", playlist.ErrNeedsAuth)
-	}
-
-	s, err = tryStream()
-	if err == nil {
-		return s, s.Format(), s.Duration(), nil
-	}
-	if !isAuthError(err) {
-		return nil, beep.Format{}, 0, fmt.Errorf("spotify: new stream after silent reconnect: %w", err)
-	}
-
-	// Still failing after a silent reconnect — surface ErrNeedsAuth so the
-	// UI can prompt the user to sign in. Do NOT open a browser from here.
-	applog.UserWarn("spotify: stream still failing after silent reconnect (%v); sign-in required", err)
-	return nil, beep.Format{}, 0, fmt.Errorf("spotify: stream auth error after silent reconnect: %w", playlist.ErrNeedsAuth)
-}
-
-// webAPI calls the Spotify Web API via the session with retry on 429.
-func (p *SpotifyProvider) webAPI(ctx context.Context, method, path string, query url.Values) (*http.Response, error) {
-	return p.webAPIWithBody(ctx, method, path, query, nil, "", http.StatusOK)
-}
-
-// webAPIWithBody is like webAPI but accepts an optional request body, content type,
-// and a set of acceptable HTTP status codes (e.g. 200, 201). Retries 429 with
-// exponential backoff (honoring Retry-After when present).
-func (p *SpotifyProvider) webAPIWithBody(ctx context.Context, method, path string, query url.Values, body io.Reader, contentType string, acceptStatus ...int) (*http.Response, error) {
-	const maxRetries = 8
-
-	// Buffer the body so it can be replayed on retry.
-	var bodyBytes []byte
-	if body != nil {
-		var err error
-		bodyBytes, err = io.ReadAll(body)
-		if err != nil {
-			return nil, fmt.Errorf("read request body: %w", err)
-		}
-	}
-
-	for attempt := range maxRetries {
-		var reqBody io.Reader
-		if bodyBytes != nil {
-			reqBody = bytes.NewReader(bodyBytes)
-		}
-
-		resp, err := p.session.webApiWithBody(ctx, method, path, query, reqBody, contentType)
-		if err != nil {
-			return nil, err
-		}
-		if resp.StatusCode == http.StatusTooManyRequests {
-			resp.Body.Close()
-			// On the last attempt there's no retry after the wait, so don't
-			// sleep (up to 128s) just to give up; fail now.
-			if attempt == maxRetries-1 {
-				break
-			}
-			wait := time.Duration(1<<uint(attempt)) * time.Second
-			if ra := resp.Header.Get("Retry-After"); ra != "" {
-				if secs, err := strconv.Atoi(ra); err == nil && secs > 0 {
-					wait = time.Duration(secs) * time.Second
-				}
-			}
-			applog.UserWarn("spotify: web api rate-limited on %s, retrying in %v (attempt %d/%d)", path, wait, attempt+1, maxRetries)
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(wait):
-				continue
-			}
-		}
-
-		ok := slices.Contains(acceptStatus, resp.StatusCode)
-		if !ok {
-			respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 512))
-			resp.Body.Close()
-			if readErr != nil {
-				return nil, fmt.Errorf("http status %s (failed to read body: %v)", resp.Status, readErr)
-			}
-			return nil, fmt.Errorf("http status %s: %s", resp.Status, string(respBody))
-		}
-		return resp, nil
-	}
-	return nil, fmt.Errorf("spotify: web api rate-limited on %s after %d retries (try re-authenticating)", path, maxRetries)
-}
-
-// devModeSearchLimit is the largest per-request limit /v1/search accepts for an
-// app in Spotify's Development Mode. SearchTracks uses it for every request so
-// personal client IDs never need a rejected probe before pagination starts.
-const devModeSearchLimit = 10
-
-func isInvalidLimit(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "400") && strings.Contains(msg, "Invalid limit")
-}
-
-// spotifySearchPage is one page of /v1/search results.
-type spotifySearchPage struct {
-	Albums struct {
-		Items []*spotifyAlbumItem `json:"items"`
-	} `json:"albums"`
-	Tracks struct {
-		Items []*spotifyItem `json:"items"`
-	} `json:"tracks"`
-	Episodes struct {
-		Items []*spotifyItem `json:"items"`
-	} `json:"episodes"`
-}
-
-// searchPage runs a single /v1/search request.
-//
-// No market parameter: when the request carries a user OAuth token, Spotify
-// implicitly scopes results to the account's country.
-func (p *SpotifyProvider) searchPage(ctx context.Context, query string, limit, offset int) (*spotifySearchPage, error) {
-	q := url.Values{
-		"q":     {query},
-		"type":  {"album,track,episode"},
-		"limit": {strconv.Itoa(limit)},
-	}
-	if offset > 0 {
-		q.Set("offset", strconv.Itoa(offset))
-	}
-
-	resp, err := p.webAPI(ctx, "GET", "/v1/search", q)
-	if err != nil {
-		return nil, err
-	}
-
-	var page spotifySearchPage
-	if err := decodeBody(resp, &page); err != nil {
-		return nil, fmt.Errorf("spotify: parse search: %w", err)
-	}
-	return &page, nil
-}
-
-// searchPaged collects up to limit results in pages of devModeSearchLimit, for
-// apps that cannot ask for more in one go. Any page failure aborts the search so
-// callers never mistake partial results for a complete response.
-func (p *SpotifyProvider) searchPaged(ctx context.Context, query string, limit int) (*spotifySearchPage, error) {
-	combined := &spotifySearchPage{}
-	for offset := 0; offset < limit; offset += devModeSearchLimit {
-		size := min(devModeSearchLimit, limit-offset)
-		page, err := p.searchPage(ctx, query, size, offset)
-		if err != nil {
-			return nil, fmt.Errorf("page at offset %d: %w", offset, err)
-		}
-		combined.Albums.Items = append(combined.Albums.Items, page.Albums.Items...)
-		combined.Tracks.Items = append(combined.Tracks.Items, page.Tracks.Items...)
-		combined.Episodes.Items = append(combined.Episodes.Items, page.Episodes.Items...)
-		// Every result kind exhausted, so further pages are empty.
-		if len(page.Albums.Items) < size && len(page.Tracks.Items) < size && len(page.Episodes.Items) < size {
-			break
-		}
-	}
-	return combined, nil
-}
-
-// SearchTracks searches Spotify for albums, tracks and podcast episodes,
-// returning up to limit results of each. Episodes (e.g. podcasts) are routed
-// through their spotify:episode: URI so they play correctly.
-// limit is clamped to Spotify's accepted range of 1..50.
-//
-// Album hits lead the results as album placeholders (playlist.Track.IsAlbum),
-// because a query is usually an artist or record name and the album is the
-// more useful answer than whichever of its tracks Spotify ranks highest. They
-// are not playable as-is: the caller expands the chosen one with AlbumTracks.
-//
-// Apps in Development Mode cap /v1/search at devModeSearchLimit results per
-// request, so larger result sets always use offset pagination.
-func (p *SpotifyProvider) SearchTracks(ctx context.Context, query string, limit int) ([]playlist.Track, error) {
-	if err := p.ensureSession(); err != nil {
-		return nil, err
-	}
-
-	if limit < 1 {
-		limit = 1
-	} else if limit > 50 {
-		limit = 50
-	}
-
-	var result *spotifySearchPage
-	var err error
-	if p.clientID == DefaultClientID {
-		// Preserve one-request searches for the shared legacy client. Fall back
-		// to Development Mode pages if Spotify applies the new cap to it later.
-		result, err = p.searchPage(ctx, query, limit, 0)
-		if err != nil && isInvalidLimit(err) && limit > devModeSearchLimit {
-			result, err = p.searchPaged(ctx, query, limit)
-		}
-	} else {
-		result, err = p.searchPaged(ctx, query, limit)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("spotify: search: %w", err)
-	}
-
-	var tracks []playlist.Track
-	for _, a := range result.Albums.Items {
-		if a == nil || a.ID == "" {
-			continue // skip null/unavailable results
-		}
-		tracks = append(tracks, albumFromItem(a))
-	}
-	for _, items := range [][]*spotifyItem{result.Tracks.Items, result.Episodes.Items} {
-		for _, t := range items {
-			if t == nil || t.ID == "" {
-				continue // skip null/unavailable results
-			}
-			tracks = append(tracks, trackFromItem(t))
-		}
-	}
-	return tracks, nil
-}
-
-// AlbumTracks returns every track of a Spotify album, in disc and track order.
-// Implements provider.AlbumTrackLoader, so an album placeholder from
-// SearchTracks can be expanded into a playable list.
-//
-// /v1/albums/{id}/tracks returns simplified track objects that omit the album
-// they belong to, so the album's own name, artist and release year are fetched
-// once and filled in on every track for display.
-func (p *SpotifyProvider) AlbumTracks(albumID string) ([]playlist.Track, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return p.AlbumTracksContext(ctx, albumID)
-}
-
-// AlbumTracksContext returns every track of a Spotify album with caller-controlled cancellation.
-func (p *SpotifyProvider) AlbumTracksContext(ctx context.Context, albumID string) ([]playlist.Track, error) {
-	if err := p.ensureSession(); err != nil {
-		return nil, err
-	}
-	album, err := p.album(ctx, albumID)
-	if err != nil {
-		return nil, err
-	}
-	placeholder := albumFromItem(album)
-
-	var tracks []playlist.Track
-	for offset := 0; ; offset += spotifyTrackPageSize {
-		page, err := p.albumTracksPage(ctx, albumID, offset)
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range page {
-			if item == nil || item.ID == "" {
-				continue // skip null/unavailable results
-			}
-			track := trackFromItem(item)
-			track.Album = placeholder.Album
-			track.Year = placeholder.Year
-			if track.Artist == "" {
-				track.Artist = placeholder.Artist
-			}
-			tracks = append(tracks, track)
-		}
-		if len(page) < spotifyTrackPageSize {
-			break
-		}
-	}
-	return tracks, nil
-}
-
-// album fetches an album's own metadata.
-func (p *SpotifyProvider) album(ctx context.Context, albumID string) (*spotifyAlbumItem, error) {
-	resp, err := p.webAPI(ctx, "GET", "/v1/albums/"+url.PathEscape(albumID), nil)
-	if err != nil {
-		return nil, fmt.Errorf("spotify: album %s: %w", albumID, err)
-	}
-	var album spotifyAlbumItem
-	if err := decodeBody(resp, &album); err != nil {
-		return nil, fmt.Errorf("spotify: parse album %s: %w", albumID, err)
-	}
-	return &album, nil
-}
-
-// albumTracksPage fetches one page of an album's track list.
-func (p *SpotifyProvider) albumTracksPage(ctx context.Context, albumID string, offset int) ([]*spotifyItem, error) {
-	q := url.Values{
-		"limit": {strconv.Itoa(spotifyTrackPageSize)},
-	}
-	if offset > 0 {
-		q.Set("offset", strconv.Itoa(offset))
-	}
-
-	resp, err := p.webAPI(ctx, "GET", "/v1/albums/"+url.PathEscape(albumID)+"/tracks", q)
-	if err != nil {
-		return nil, fmt.Errorf("spotify: album %s tracks: %w", albumID, err)
-	}
-	var page struct {
-		Items []*spotifyItem `json:"items"`
-	}
-	if err := decodeBody(resp, &page); err != nil {
-		return nil, fmt.Errorf("spotify: parse album %s tracks: %w", albumID, err)
-	}
-	return page.Items, nil
-}
-
-// AddTrackToPlaylist adds a track to an existing Spotify playlist.
-// The track's Path is used as the Spotify URI (e.g. "spotify:track:..." or
-// "spotify:episode:..."); the Spotify API accepts either.
-// Implements provider.PlaylistWriter.
-func (p *SpotifyProvider) AddTrackToPlaylist(ctx context.Context, playlistID string, track playlist.Track) error {
-	trackURI := track.Path
-	if err := p.ensureSession(); err != nil {
-		return err
-	}
-
-	body, _ := json.Marshal(map[string]any{"uris": []string{trackURI}})
-	path := fmt.Sprintf("/v1/playlists/%s/items", playlistID)
-
-	resp, err := p.webAPIWithBody(ctx, "POST", path, nil, bytes.NewReader(body), "application/json", http.StatusOK, http.StatusCreated)
-	if err != nil {
-		return fmt.Errorf("spotify: add track: %w", err)
-	}
-	resp.Body.Close()
-
-	// Invalidate caches for this playlist.
-	p.mu.Lock()
-	delete(p.trackCache, playlistID)
-	p.listCache = nil
-	p.mu.Unlock()
-
-	return nil
-}
-
-// CreatePlaylist creates a new private Spotify playlist and returns its ID.
-func (p *SpotifyProvider) CreatePlaylist(ctx context.Context, name string) (string, error) {
-	if err := p.ensureSession(); err != nil {
-		return "", err
-	}
-
-	body, _ := json.Marshal(map[string]any{"name": name, "public": false})
-
-	resp, err := p.webAPIWithBody(ctx, "POST", "/v1/me/playlists", nil, bytes.NewReader(body), "application/json", http.StatusOK, http.StatusCreated)
-	if err != nil {
-		return "", fmt.Errorf("spotify: create playlist: %w", err)
-	}
-
-	var result struct {
-		ID string `json:"id"`
-	}
-	if err := decodeBody(resp, &result); err != nil {
-		return "", fmt.Errorf("spotify: parse created playlist: %w", err)
-	}
-
-	// Invalidate playlist list cache.
-	p.mu.Lock()
-	p.listCache = nil
-	p.mu.Unlock()
-
-	return result.ID, nil
-}
-
-// decodeBody reads and decodes a JSON response body, then closes it.
-func decodeBody(resp *http.Response, v any) error {
-	defer resp.Body.Close()
-	return json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(v)
-}

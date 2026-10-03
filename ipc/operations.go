@@ -15,7 +15,7 @@ const (
 )
 
 // Operation describes a runtime capability exposed through V2. Validation is
-// deliberately protocol-only; the model or daemon supplies the behavior.
+// deliberately protocol-only. The runtime owner supplies the behavior.
 type Operation struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description,omitempty"`
@@ -53,7 +53,7 @@ func (r *OperationRegistry) Register(operation Operation) {
 }
 
 // Unregister removes local capabilities that are unavailable in a particular
-// runtime, such as TUI-only appearance controls in daemon mode.
+// runtime, such as the appearance controls in headless mode.
 func (r *OperationRegistry) Unregister(names ...string) {
 	r.mu.Lock()
 	for _, name := range names {
@@ -174,7 +174,7 @@ func DefaultOperationRegistry() *OperationRegistry {
 		{Name: "playlist.add_many", Description: "add tracks to a saved playlist", Async: true, Parameters: []string{"provider", "playlist", "tracks"}},
 		{Name: "playlist.replace", Description: "replace ordered saved playlist tracks", Async: true, Parameters: []string{"provider", "playlist", "tracks"}},
 		{Name: "playlist.remove", Description: "remove a saved playlist track", Async: true, Parameters: []string{"provider", "playlist", "index"}},
-		{Name: "playlist.bookmark", Description: "toggle a saved track bookmark", Async: true, Parameters: []string{"provider", "playlist", "track"}},
+		{Name: "playlist.bookmark", Description: "toggle a track favorite (legacy name)", Async: true, Parameters: []string{"provider", "playlist", "track"}},
 		{Name: "lyrics", Description: "fetch lyrics", Async: true},
 		{Name: "history", Description: "read history", Async: true, Parameters: []string{"limit"}},
 		{Name: "history.clear", Description: "clear history", Async: true},

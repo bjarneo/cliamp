@@ -44,7 +44,7 @@ func newYTCache(scope string) *ytCache {
 
 func storedOAuthCacheScope(clientID string) string {
 	identity := ""
-	if creds, err := loadCreds(); err == nil && creds.RefreshToken != "" {
+	if creds, err := credsFile.Load(); err == nil && creds.RefreshToken != "" {
 		identity = creds.RefreshToken
 	}
 	return oauthCacheScope(clientID, identity)

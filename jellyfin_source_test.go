@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 )
 
 func TestJellyfinSourceResolutionForPlayAndPreload(t *testing.T) {
@@ -56,13 +58,8 @@ func TestJellyfinSourceResolutionForPlayAndPreload(t *testing.T) {
 	}
 
 	engine := &player.Player{}
-	for _, scheme := range []string{"http://", "https://"} {
-		engine.RegisterSourceResolver(scheme, func(rawURL string) (player.ResolvedSource, error) {
-			u, err := prov.ResolveSource(rawURL)
-			return player.ResolvedSource{URL: u}, err
-		})
-	}
-	engine.RegisterBufferedURLMatcher(jellyfin.IsStreamURL)
+	set := &providerSet{entries: []provider.Entry{{Key: "jellyfin", Name: "Jellyfin", Provider: prov}}}
+	set.registerPlayerHooks(engine)
 	for _, tt := range []struct {
 		name string
 		open func() error
@@ -87,5 +84,51 @@ func TestJellyfinSourceResolutionForPlayAndPreload(t *testing.T) {
 		if track.Path != savedPaths[i] {
 			t.Fatalf("logical path changed to %q, want %q", track.Path, savedPaths[i])
 		}
+	}
+}
+
+// With Jellyfin and Emby both configured, the player refreshes a saved
+// download URL with the token of the server that owns it. A URL of another
+// host plays as saved.
+func TestServerSourceResolutionPicksOwner(t *testing.T) {
+	newServer := func(t *testing.T) (*httptest.Server, *atomic.Value) {
+		t.Helper()
+		var token atomic.Value
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			token.Store(r.URL.Query().Get("api_key"))
+			http.Error(w, "stop before decoding", http.StatusServiceUnavailable)
+		}))
+		t.Cleanup(srv.Close)
+		return srv, &token
+	}
+	jf, jfToken := newServer(t)
+	em, emToken := newServer(t)
+	other, otherToken := newServer(t)
+
+	set := &providerSet{entries: []provider.Entry{
+		{Key: "jellyfin", Name: "Jellyfin", Provider: jellyfin.NewFromConfig(config.JellyfinConfig{URL: jf.URL, Token: "jf-token", UserID: "user-1"})},
+		{Key: "emby", Name: "Emby", Provider: emby.NewFromConfig(config.EmbyConfig{URL: em.URL, Token: "emby-token", UserID: "user-2"})},
+	}}
+	engine := &player.Player{}
+	set.registerPlayerHooks(engine)
+
+	for _, tt := range []struct {
+		name  string
+		path  string
+		token *atomic.Value
+		want  string
+	}{
+		{name: "jellyfin", path: jf.URL + "/Items/one/Download?api_key=old", token: jfToken, want: "jf-token"},
+		{name: "emby", path: em.URL + "/Items/two/Download?api_key=old", token: emToken, want: "emby-token"},
+		{name: "other host", path: other.URL + "/Items/three/Download?api_key=old", token: otherToken, want: "old"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := engine.PlayAtForGeneration(tt.path, time.Minute, 0, 1); err == nil {
+				t.Fatal("engine opened the stream, want the deliberate rejection")
+			}
+			if got, _ := tt.token.Load().(string); got != tt.want {
+				t.Fatalf("server got token %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

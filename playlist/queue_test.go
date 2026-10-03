@@ -1,6 +1,9 @@
 package playlist
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestQueueAndDequeue(t *testing.T) {
 	p := makePlaylist(5, false)
@@ -61,6 +64,25 @@ func TestQueueTracks(t *testing.T) {
 	if qt[0].Title != "A" || qt[1].Title != "C" || qt[2].Title != "E" {
 		t.Errorf("QueueTracks = [%s, %s, %s], want [A, C, E]",
 			qt[0].Title, qt[1].Title, qt[2].Title)
+	}
+}
+
+func TestTracksAndQueue(t *testing.T) {
+	p := makePlaylist(3, false)
+	p.Queue(2)
+	p.Queue(0)
+
+	tracks, queue := p.TracksAndQueue()
+	if len(tracks) != 3 || tracks[0].Title != "A" || tracks[2].Title != "C" {
+		t.Fatalf("tracks = %+v, want A, B, C", tracks)
+	}
+	if !slices.Equal(queue, []int{2, 0}) {
+		t.Fatalf("queue = %v, want [2 0]", queue)
+	}
+	tracks[0].Title = "Changed"
+	queue[0] = 1
+	if tracks, queue := p.TracksAndQueue(); tracks[0].Title != "A" || queue[0] != 2 {
+		t.Fatalf("after a change to the returned slices: tracks[0] = %q, queue[0] = %d; want A, 2", tracks[0].Title, queue[0])
 	}
 }
 

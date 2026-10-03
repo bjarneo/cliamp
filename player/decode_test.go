@@ -3,7 +3,11 @@ package player
 import (
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
+	"github.com/bjarneo/cliamp/playlist"
 )
 
 func TestIsHLS(t *testing.T) {
@@ -36,9 +40,36 @@ func TestNeedsFFmpeg(t *testing.T) {
 	}
 }
 
-func TestSupportedExtsIncludesAACP(t *testing.T) {
-	if !SupportedExts[".aacp"] {
-		t.Fatal("SupportedExts[.aacp] = false, want true")
+func TestUsesLocalFFmpeg(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: "/music/track.m4a", want: true},
+		{path: "/music/Track.OPUS", want: true},
+		{path: "relative/track.wma", want: true},
+		{path: "/music/track.mp3", want: false},
+		{path: "/music/track.flac", want: false},
+		{path: "https://example.com/track.m4a", want: false},
+		{path: "ssh://host/music/track.m4a", want: false},
+		{path: "spotify:track:abc", want: false},
+	}
+	for _, tt := range tests {
+		if got := UsesLocalFFmpeg(tt.path); got != tt.want {
+			t.Errorf("UsesLocalFFmpeg(%q) = %v, want %v", tt.path, got, tt.want)
+		}
+	}
+}
+
+// TestAudioExtensionsHaveADecoder checks that each extension that the
+// playlist package accepts has a decoder route: a native decoder in
+// decodeWithExt or the ffmpeg route in needsFFmpeg.
+func TestAudioExtensionsHaveADecoder(t *testing.T) {
+	native := []string{".mp3", ".wav", ".flac", ".ogg"}
+	for _, ext := range playlist.AudioExtensions() {
+		if !needsFFmpeg(ext) && !slices.Contains(native, ext) {
+			t.Errorf("%s has no decoder route: add it to needsFFmpeg or decodeWithExt", ext)
+		}
 	}
 }
 
@@ -58,6 +89,9 @@ func TestOpenSourceClassifiesHTTPResponse(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if got := r.UserAgent(); got != httpclient.UserAgent {
+					t.Errorf("User-Agent = %q, want %q", got, httpclient.UserAgent)
+				}
 				w.Header().Set("Content-Type", "audio/mpeg")
 				if tt.icy {
 					w.Header().Set("Icy-Name", "Test Radio")

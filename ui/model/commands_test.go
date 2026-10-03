@@ -1,12 +1,16 @@
 package model
 
 import (
+	"errors"
+	"slices"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/ui"
 )
 
@@ -23,6 +27,7 @@ func (p commandsTestProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 
 func (p commandsTestProvider) Tracks(string) ([]playlist.Track, error) { return nil, nil }
 
+// playlistManagerTestProvider keeps one saved playlist in saved.
 type playlistManagerTestProvider struct {
 	commandsTestProvider
 	saveName string
@@ -35,21 +40,62 @@ func (p *playlistManagerTestProvider) SavePlaylist(name string, tracks []playlis
 	return nil
 }
 
-func TestFetchSpotPlaylistsFiltersHistoryOnlyForLocal(t *testing.T) {
+func (p *playlistManagerTestProvider) UpdatePlaylist(name string, fn func([]playlist.Track) ([]playlist.Track, error)) error {
+	tracks, err := fn(append([]playlist.Track(nil), p.saved...))
+	if errors.Is(err, playlist.ErrPlaylistUnchanged) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return p.SavePlaylist(name, tracks)
+}
+
+// Both add-to-playlist pickers offer only the lists that the provider accepts
+// through provider.PlaylistTargetFilter. The local provider rejects its
+// virtual Favorites and Recently Played lists that way. No list is hidden by
+// its name, so a provider without a filter keeps a list named Recently Played.
+func TestPlaylistPickersOfferOnlyAddTargets(t *testing.T) {
 	lists := []playlist.PlaylistInfo{
-		{ID: "recent", Name: history.PlaylistName},
+		{ID: favorites.PlaylistName, Name: favorites.PlaylistName},
+		{ID: history.PlaylistName, Name: history.PlaylistName},
 		{ID: "mix", Name: "Mix"},
 	}
-
-	msg := fetchSpotPlaylistsCmd(commandsTestProvider{name: "Spotify", lists: lists}, 1)().(spotPlaylistsMsg)
-	if len(msg.playlists) != 2 {
-		t.Fatalf("Spotify playlists = %d, want 2", len(msg.playlists))
+	local := targetFilterTestProvider{
+		commandsTestProvider: commandsTestProvider{name: "Local", lists: lists},
+		writable:             map[string]bool{"mix": true},
+	}
+	ids := func(lists []playlist.PlaylistInfo) []string {
+		var out []string
+		for _, pl := range lists {
+			out = append(out, pl.ID)
+		}
+		return out
 	}
 
-	msg = fetchSpotPlaylistsCmd(commandsTestProvider{name: "Local", lists: lists}, 2)().(spotPlaylistsMsg)
-	if len(msg.playlists) != 1 || msg.playlists[0].Name != "Mix" {
-		t.Fatalf("Local playlists = %+v, want only Mix", msg.playlists)
-	}
+	t.Run("search picker", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			prov playlist.Provider
+			want []string
+		}{
+			{name: "local", prov: local, want: []string{"mix"}},
+			{name: "no filter", prov: commandsTestProvider{name: "Local", lists: lists}, want: ids(lists)},
+		} {
+			msg := fetchSearchOverlayPlaylistsCmd(tc.prov, 1)().(searchOverlayPlaylistsMsg)
+			if got := ids(msg.playlists); !slices.Equal(got, tc.want) {
+				t.Errorf("%s: targets = %v, want %v", tc.name, got, tc.want)
+			}
+		}
+	})
+
+	t.Run("track picker", func(t *testing.T) {
+		m := Model{localProvider: local, playlist: playlist.New()}
+		m.openPlaylistPicker([]playlist.Track{{Path: "/a.mp3"}}, "Track: A")
+		if got := ids(m.plPicker.playlists); !slices.Equal(got, []string{"mix"}) {
+			t.Fatalf("targets = %v, want [mix]", got)
+		}
+	})
 }
 
 func TestTracksLoadedMsgMarksOnlyExactLocalPlaylist(t *testing.T) {
@@ -90,13 +136,17 @@ func TestTracksLoadedMsgMarksOnlyExactLocalPlaylist(t *testing.T) {
 
 func TestPlaylistManagerTrackSortUsesLowercaseKey(t *testing.T) {
 	player := &playbackFakeEngine{}
-	local := &playlistManagerTestProvider{commandsTestProvider: commandsTestProvider{name: "Local"}}
+	tracks := []playlist.Track{
+		{Path: "/b.mp3", Title: "B"},
+		{Path: "/a.mp3", Title: "A"},
+	}
+	local := &playlistManagerTestProvider{commandsTestProvider: commandsTestProvider{name: "Local"}, saved: tracks}
 	m := Model{
 		player:        player,
 		playlist:      playlist.New(),
 		localProvider: local,
 		provider:      local,
-		providers: []ProviderEntry{
+		providers: []provider.Entry{
 			{Key: "spotify", Name: "Spotify", Provider: commandsTestProvider{name: "Spotify"}},
 		},
 		vis: ui.NewVisualizer(float64(player.SampleRate())),
@@ -104,10 +154,7 @@ func TestPlaylistManagerTrackSortUsesLowercaseKey(t *testing.T) {
 			visible:     true,
 			screen:      plMgrScreenTracks,
 			selPlaylist: "mix",
-			tracks: []playlist.Track{
-				{Path: "/b.mp3", Title: "B"},
-				{Path: "/a.mp3", Title: "A"},
-			},
+			tracks:      slices.Clone(tracks),
 		},
 	}
 
@@ -134,7 +181,7 @@ func TestPlaylistManagerTrackSortUsesLowercaseKey(t *testing.T) {
 func TestURLOverlayLoadsRawStream(t *testing.T) {
 	const raw = "https://example.com/live.mp3"
 
-	m := Model{urlInputting: true, urlInput: raw}
+	m := Model{urlInput: urlInputState{active: true, input: raw}}
 
 	cmd := m.handleURLInputKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
@@ -157,5 +204,61 @@ func TestURLOverlayLoadsRawStream(t *testing.T) {
 	}
 	if !loaded.autoPlay {
 		t.Fatal("autoPlay = false, want true")
+	}
+}
+
+// targetFilterTestProvider accepts only the IDs in writable, like Spotify
+// accepts only playlists the user owns or collaborates on.
+type targetFilterTestProvider struct {
+	commandsTestProvider
+	writable map[string]bool
+	err      error
+}
+
+func (p targetFilterTestProvider) Playlists() ([]playlist.PlaylistInfo, error) {
+	return append([]playlist.PlaylistInfo(nil), p.lists...), p.err
+}
+
+func (p targetFilterTestProvider) CanAddToPlaylist(pl playlist.PlaylistInfo) bool {
+	return p.writable[pl.ID]
+}
+
+func TestFetchSearchOverlayPlaylistsOffersOnlyWritableTargets(t *testing.T) {
+	lists := []playlist.PlaylistInfo{
+		{ID: "YOUR MUSIC", Name: "Your Music"},
+		{ID: "mine", Name: "Mine"},
+		{ID: "followed", Name: "Followed"},
+		{ID: "spotify:album:1", Name: "Artist - Album"},
+	}
+	tests := []struct {
+		name    string
+		err     error
+		lists   []playlist.PlaylistInfo
+		want    []string
+		wantErr bool
+	}{
+		{name: "complete list", lists: lists, want: []string{"mine"}},
+		{name: "partial list", lists: lists, err: errors.New("saved albums"), want: []string{"mine"}},
+		{name: "failed list", err: errors.New("offline"), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prov := targetFilterTestProvider{
+				commandsTestProvider: commandsTestProvider{name: "Spotify", lists: tt.lists},
+				writable:             map[string]bool{"mine": true},
+				err:                  tt.err,
+			}
+			msg := fetchSearchOverlayPlaylistsCmd(prov, 1)().(searchOverlayPlaylistsMsg)
+			if (msg.err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, want error %v", msg.err, tt.wantErr)
+			}
+			var got []string
+			for _, pl := range msg.playlists {
+				got = append(got, pl.ID)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("targets = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

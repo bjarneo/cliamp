@@ -1,6 +1,7 @@
 package model
 
 import (
+	"slices"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -60,7 +61,7 @@ func TestHideHelpBarOmitsHelpSection(t *testing.T) {
 	hidden := newLayoutTestModel(80, 24)
 	hidden.SetHideHelpBar(true)
 
-	help := shown.renderTierHelp()
+	help := shown.renderHelp()
 	if help == "" {
 		t.Fatal("expected the test model to render a hint bar")
 	}
@@ -118,17 +119,58 @@ func TestToggleHelpBar(t *testing.T) {
 // TestToggleHelpBarPersists checks that the runtime toggle writes the choice to
 // the config, so the hint bar comes back the way it was left.
 func TestToggleHelpBarPersists(t *testing.T) {
-	saver := &recordingConfigSaver{}
+	saver := &recordingSaver{}
 	m := newColumnTestModel(80, 24)
 	m.configSaver = saver
 
 	m.toggleHelpBar()
-	if got := saver.values["hide_help_bar"]; got != "true" {
+	if got := saver.saved["hide_help_bar"]; got != "true" {
 		t.Fatalf("saved hide_help_bar = %q, want %q", got, "true")
 	}
 
 	m.toggleHelpBar()
-	if got := saver.values["hide_help_bar"]; got != "false" {
+	if got := saver.saved["hide_help_bar"]; got != "false" {
 		t.Fatalf("saved hide_help_bar = %q, want %q", got, "false")
+	}
+}
+
+// TestHintBarFollowsFocusOnEveryTier checks that the hint bar shows the keys
+// of what owns them on each tier that draws it. On the minimal tier the
+// provider list owns the keys after Esc, so the bar shows the provider hints.
+func TestHintBarFollowsFocusOnEveryTier(t *testing.T) {
+	tiers := []struct {
+		name          string
+		width, height int
+	}{
+		{"minimal", 40, 10},
+		{"compact", 56, 16},
+		{"full", 80, 24},
+	}
+	focuses := []struct {
+		name       string
+		focus      focusArea
+		provSearch bool
+		want       commandMode
+	}{
+		{"playlist", focusPlaylist, false, commandModeMain},
+		{"provider", focusProvider, false, commandModeProvider},
+		{"provider filter", focusProvider, true, commandModeProviderSearch},
+	}
+	for _, tier := range tiers {
+		for _, tc := range focuses {
+			t.Run(tier.name+" "+tc.name, func(t *testing.T) {
+				m := newLayoutTestModel(tier.width, tier.height)
+				m.provider = &readOnlyGenreProvider{}
+				m.focus = tc.focus
+				m.provSearch.active = tc.provSearch
+				want := m.commandHelp(tc.want)
+				if tc.want != commandModeMain && want == m.commandHelp(commandModeMain) {
+					t.Fatalf("the %s hints equal the main hints, so the test proves nothing", tc.name)
+				}
+				if !slices.Contains(m.mainSections("", false, false), want) {
+					t.Errorf("hint bar does not show the %s hints %q", tc.name, want)
+				}
+			})
+		}
 	}
 }

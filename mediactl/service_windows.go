@@ -70,8 +70,8 @@ type Service struct {
 // New registers the media-key hotkeys and starts pumping their Win32 message
 // loop on a dedicated background goroutine, then returns once that loop is
 // ready. This mirrors service_linux.go's New(), which synchronously connects
-// to D-Bus and exports MPRIS — callers (including the headless daemon, which
-// never calls Run) only need New for OS media-key integration to be live.
+// to D-Bus and exports MPRIS. OS media-key integration is live once New
+// returns. Run only runs the program on Windows.
 func New(send func(tea.Msg)) (*Service, error) {
 	svc := &Service{send: send, stopped: make(chan struct{})}
 

@@ -3,7 +3,7 @@
 package radio
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
 const radioBrowserBase = "https://de1.api.radio-browser.info/json"
@@ -52,7 +54,7 @@ type Tag struct {
 	StationCount int    `json:"stationcount"`
 }
 
-var catalogClient = &http.Client{Timeout: 10 * time.Second}
+var catalogClient = httpclient.NewAPI(10 * time.Second)
 
 // StationQuery narrows a station listing. The zero value lists everything.
 //
@@ -123,8 +125,13 @@ func (q StationQuery) values() url.Values {
 // endpoint subsumes the directory's /topvote and /byname shortcuts: with no
 // name and no country it returns the same top-voted feed, in the same order.
 func Stations(q StationQuery) ([]CatalogStation, error) {
+	return stationsContext(context.Background(), q)
+}
+
+// stationsContext is Stations with caller-controlled cancellation.
+func stationsContext(ctx context.Context, q StationQuery) ([]CatalogStation, error) {
 	var stations []CatalogStation
-	if err := fetchJSON(radioBrowserBase+"/stations/search?"+q.values().Encode(), &stations); err != nil {
+	if err := fetchJSON(ctx, radioBrowserBase+"/stations/search?"+q.values().Encode(), &stations); err != nil {
 		return nil, err
 	}
 	return stations, nil
@@ -135,7 +142,7 @@ func Stations(q StationQuery) ([]CatalogStation, error) {
 // of lowercase duplicates ("de" beside "DE") are folded into one another.
 func FetchCountries() ([]Country, error) {
 	var raw []Country
-	if err := fetchJSON(radioBrowserBase+"/countries", &raw); err != nil {
+	if err := fetchJSON(context.Background(), radioBrowserBase+"/countries", &raw); err != nil {
 		return nil, err
 	}
 
@@ -175,7 +182,7 @@ func FetchStates(country string) ([]State, error) {
 		return nil, nil
 	}
 	var raw []State
-	if err := fetchJSON(radioBrowserBase+"/states/"+url.PathEscape(country)+"/", &raw); err != nil {
+	if err := fetchJSON(context.Background(), radioBrowserBase+"/states/"+url.PathEscape(country)+"/", &raw); err != nil {
 		return nil, err
 	}
 
@@ -222,7 +229,7 @@ func FetchTags() ([]Tag, error) {
 	v.Set("limit", "100000")
 
 	var raw []Tag
-	if err := fetchJSON(radioBrowserBase+"/tags?"+v.Encode(), &raw); err != nil {
+	if err := fetchJSON(context.Background(), radioBrowserBase+"/tags?"+v.Encode(), &raw); err != nil {
 		return nil, fmt.Errorf("fetch tags: %w", err)
 	}
 
@@ -250,32 +257,46 @@ func FetchTags() ([]Tag, error) {
 	return tags, nil
 }
 
-// fetchJSON reads a JSON document from the Radio Browser API.
-func fetchJSON(u string, out any) error {
-	if err := getJSON(catalogClient, u, out); err != nil {
+// fetchJSON reads a JSON document from the Radio Browser API under ctx.
+func fetchJSON(ctx context.Context, u string, out any) error {
+	if err := getJSON(ctx, catalogClient, u, maxCatalogBody, out); err != nil {
 		return fmt.Errorf("radio-browser: %w", err)
 	}
 	return nil
 }
 
-// getJSON performs one GET and decodes the response body. Callers wrap the
-// error with the name of the service they were talking to.
-func getJSON(client *http.Client, u string, out any) error {
-	req, err := http.NewRequest(http.MethodGet, u, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", "cliamp/1.0")
+// maxCatalogBody limits a Radio Browser response. The full tag index is the
+// largest one.
+const maxCatalogBody = 16 << 20
 
-	resp, err := client.Do(req)
+// getJSON performs one GET under ctx and decodes the response body. A body
+// over limit bytes returns httpclient.ErrTooLarge. Callers wrap the error
+// with the name of the service they were talking to.
+func getJSON(ctx context.Context, client *http.Client, u string, limit int64, out any) error {
+	resp, err := get(ctx, client, u)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+	return httpclient.ReadJSON(resp.Body, limit, out)
+}
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+// get performs one GET as cliamp and fails on any status but 200. Callers
+// close the body.
+func get(ctx context.Context, client *http.Client, u string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
 	}
+	req.Header.Set("User-Agent", httpclient.UserAgent)
 
-	return json.NewDecoder(resp.Body).Decode(out)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return resp, nil
 }

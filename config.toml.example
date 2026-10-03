@@ -11,10 +11,10 @@ volume = 0
 # Set to false to keep bars visible at low volumes.
 # vis_volume_linked = true
 
-# Visualizer height in rows on a terminal of at least 80x24 (default: 5).
+# Visualizer height in rows on a terminal of at least 80x24 (default: 7).
 # Extra rows come out of the playlist below, and the layout shrinks the value
 # when the terminal cannot spare them. Range 1-40.
-# vis_rows = 5
+# vis_rows = 7
 
 # Repeat mode: "off", "all", or "one"
 repeat = "off"
@@ -32,14 +32,26 @@ mono = false
 # Shift+Left/Right seek jump in seconds (6-600)
 seek_large_step_sec = 30
 
+# Lyric timestamp adjustment in milliseconds (-10000 to 10000).
+# Tune with [ and ] while the lyrics overlay is open. Default 0.
+# lyrics_offset_ms = 0
+
 # Advanced audio settings (most users don't need to change these)
 # sample_rate = 0          # 0=auto-detect, or 22050/44100/48000/96000/192000
 # buffer_ms = 250          # speaker buffer in ms (50-5000; try 2000 for unstable radio streams)
 # resample_quality = 4     # 1-4, where 4 is best
 # bit_depth = 16           # 16 or 32 (for FFmpeg-decoded formats)
 
+# Audio output device name. Empty uses the system default output.
+# Run "cliamp --audio-device list" and copy a name from the second column.
+# Linux sends the stream to it through PipeWire. macOS makes it the default
+# output while cliamp runs. Windows does not use it at startup.
+# audio_device = "alsa_output.usb-FiiO_K5_Pro-00.analog-stereo"
+
 # EQ preset: "Flat", "Rock", "Pop", "Jazz", "Classical",
-#             "Bass Boost", "Treble Boost", "Vocal", "Electronic", "Acoustic"
+#             "Bass Boost", "Treble Boost", "Vocal", "Electronic", "Acoustic",
+#             "Hip-Hop", "R&B", "Loudness", "Late Night", "Podcast",
+#             "Small Speakers"
 # Leave empty or "Custom" to use manual eq values below
 eq_preset = "Flat"
 
@@ -48,8 +60,8 @@ eq_preset = "Flat"
 # Saved Custom curve; applied when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-# Default provider on startup: "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "soundcloud", "mixcloud", "netease", "audiobookshelf", or a YouTube provider
-# provider = "radio"
+# Default provider on startup: "cliamp" (the cliamp radio channels), "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "soundcloud", "mixcloud", "netease", "yandex", "audiobookshelf", or a YouTube provider
+# provider = "cliamp"
 
 # Simplified mode: artist/title and time strip without a visualizer or playlist.
 # No visualizer or playback controls are shown.
@@ -71,11 +83,24 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # section opens full info instead. Closing Settings preserves this preference.
 # show_metadata = false
 
+# Start with the playlist at the expanded height, the state Ctrl+X toggles: the
+# list gets every body row the terminal has left instead of the shorter default.
+# The key keeps working and collapses the view as before.
+# expanded = true
+
+# Empty space around the UI: columns on the left and right (0-10, default 3)
+# and rows above and below (0-5, default 1).
+# padding_horizontal = 3
+# padding_vertical = 1
+
 # UI theme name (check ~/.config/cliamp/themes/ for available themes)
 # theme = "Tokyo Night"
 
-# Visualizer mode: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, Mirror, or None
+# Visualizer mode: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, Mirror, Omarchy, RedSector, YinYang, or None
 # Mirror draws tapered Braille bars around a persistent horizontal center axis.
+# YinYang koi chase each other across a wide strip, leaving on the right
+# and coming back on the left; taller panels have them circle a lily pad
+# whose lotus opens with the music.
 # visualizer = "Bars"
 
 # Reduce CPU usage by lowering UI cadence and disabling visualization.
@@ -176,6 +201,11 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 #               frequent, starred, byYear, byGenre
 # This is updated automatically when you press [s] inside the browser.
 # browse_sort = alphabeticalByName
+#
+# Stream format: unset lets Navidrome use its per-player transcoding if
+# configured, otherwise the original file. "raw" always requests the original.
+# Other requested formats do not override per-player transcoding.
+# format = "raw"
 
 # ---
 # Lyrion Music Server / LMS (optional)
@@ -307,3 +337,8 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 #
 # Restrict to specific libraries (default: all).
 # libraries = ["Audiobooks", "Podcasts"]
+
+# Destination for TUI Ctrl+S saves. Empty uses ~/Music/cliamp.
+# Use an absolute path; mount external drives before saving.
+[downloads]
+directory = ""

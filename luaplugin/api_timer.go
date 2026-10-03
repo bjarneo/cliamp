@@ -1,6 +1,7 @@
 package luaplugin
 
 import (
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -101,8 +102,9 @@ func (tm *timerManager) active(id int64) bool {
 }
 
 // registerTimerAPI adds cliamp.timer.{after,every,cancel} to the cliamp table.
-// p is the owning plugin whose mutex protects all LState calls.
-func registerTimerAPI(L *lua.LState, cliamp *lua.LTable, tm *timerManager, p *Plugin) {
+// p is the owning plugin. Each callback goes through m.call.
+func (m *Manager) registerTimerAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin) {
+	tm := m.timers
 	tbl := L.NewTable()
 
 	// cliamp.timer.after(secs, callback) -> id
@@ -118,13 +120,14 @@ func registerTimerAPI(L *lua.LState, cliamp *lua.LTable, tm *timerManager, p *Pl
 		go func() {
 			select {
 			case <-t.C:
-				p.mu.Lock()
-				if !tm.take(id) {
-					p.mu.Unlock()
-					return
-				}
-				_ = p.callBounded(0, fn)
-				p.mu.Unlock()
+				// take runs under p.mu, so a cancel from another callback
+				// of this plugin always wins.
+				m.call(p, "timer", hookTimeout, 0, func(*lua.LState) (*lua.LFunction, []lua.LValue) {
+					if !tm.take(id) {
+						return nil, nil
+					}
+					return fn, nil
+				})
 			case <-e.done:
 			}
 		}()
@@ -147,13 +150,15 @@ func registerTimerAPI(L *lua.LState, cliamp *lua.LTable, tm *timerManager, p *Pl
 			for {
 				select {
 				case <-ticker.C:
-					p.mu.Lock()
-					if !tm.active(id) {
-						p.mu.Unlock()
+					_, err := m.call(p, "timer", hookTimeout, 0, func(*lua.LState) (*lua.LFunction, []lua.LValue) {
+						if !tm.active(id) {
+							return nil, nil
+						}
+						return fn, nil
+					})
+					if errors.Is(err, errClosed) {
 						return
 					}
-					_ = p.callBounded(0, fn)
-					p.mu.Unlock()
 				case <-e.done:
 					return
 				}
@@ -177,11 +182,23 @@ func registerTimerAPI(L *lua.LState, cliamp *lua.LTable, tm *timerManager, p *Pl
 // registerSleepAPI adds cliamp.sleep(secs) — a blocking sleep.
 // Note: this blocks the plugin's Lua VM, so other hooks for the same
 // plugin will be queued until the sleep completes. Max 10 seconds.
+// The sleep ends early when the time limit of the running callback or of the
+// plugin load ends.
 func registerSleepAPI(L *lua.LState, cliamp *lua.LTable) {
 	L.SetField(cliamp, "sleep", L.NewFunction(func(L *lua.LState) int {
 		secs := float64(L.CheckNumber(1))
-		if secs > 0 && secs <= 10 {
-			time.Sleep(time.Duration(secs * float64(time.Second)))
+		if secs <= 0 || secs > 10 {
+			return 0
+		}
+		t := time.NewTimer(time.Duration(secs * float64(time.Second)))
+		defer t.Stop()
+		var limit <-chan struct{} // nil blocks: no limit outside a callback
+		if ctx := L.Context(); ctx != nil {
+			limit = ctx.Done()
+		}
+		select {
+		case <-t.C:
+		case <-limit:
 		}
 		return 0
 	}))

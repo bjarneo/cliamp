@@ -6,8 +6,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/bjarneo/cliamp/internal/appdir"
 	"github.com/bjarneo/cliamp/internal/fileutil"
@@ -18,6 +20,8 @@ const favoritesFile = "radio_favorites.toml"
 
 // Favorites manages a persistent set of favorite radio stations.
 type Favorites struct {
+	mu       sync.RWMutex
+	revision uint64
 	stations []CatalogStation
 	byURL    map[string]struct{}
 	path     string
@@ -44,57 +48,92 @@ func LoadFavorites() *Favorites {
 
 // Stations returns all favorite stations.
 func (f *Favorites) Stations() []CatalogStation {
-	return f.stations
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return slices.Clone(f.stations)
 }
 
 // Contains returns true if the station URL is in favorites.
 func (f *Favorites) Contains(url string) bool {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	_, ok := f.byURL[url]
 	return ok
 }
 
-// Add adds a station to favorites and saves to disk.
-func (f *Favorites) Add(s CatalogStation) error {
-	if f.Contains(s.URL) {
-		return nil
-	}
-	f.stations = append(f.stations, s)
-	f.byURL[s.URL] = struct{}{}
-	return f.save()
+// Count returns the number of saved stations.
+func (f *Favorites) Count() int {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return len(f.stations)
 }
 
-// Remove removes a station by URL from favorites and saves to disk.
-func (f *Favorites) Remove(url string) error {
-	if !f.Contains(url) {
-		return nil
-	}
-	for i, s := range f.stations {
-		if s.URL == url {
-			f.stations = append(f.stations[:i], f.stations[i+1:]...)
-			break
-		}
-	}
-	delete(f.byURL, url)
-	return f.save()
+// Revision changes when a successful toggle publishes a new local snapshot.
+func (f *Favorites) Revision() uint64 {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.revision
 }
 
-func (f *Favorites) save() error {
+// Toggle applies the opposite of this instance's displayed membership to the
+// latest file contents. An intent already applied by another instance is a
+// successful no-op on disk, not a second toggle. The result is the new favorite
+// state. Failed persistence leaves the local snapshot unchanged.
+func (f *Favorites) Toggle(s CatalogStation) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, wasFavorite := f.byURL[s.URL]
+	favorite := !wasFavorite
 	if f.path == "" {
 		dir, err := appdir.Dir()
 		if err != nil {
-			return err
+			return false, fmt.Errorf("resolve radio favorites directory: %w", err)
 		}
 		f.path = filepath.Join(dir, favoritesFile)
 	}
-	if err := os.MkdirAll(filepath.Dir(f.path), 0o755); err != nil {
-		return err
+	if err := os.MkdirAll(filepath.Dir(f.path), 0o700); err != nil {
+		return false, fmt.Errorf("create radio favorites directory: %w", err)
 	}
+	unlock, err := fileutil.LockFile(f.path + ".lock")
+	if err != nil {
+		return false, fmt.Errorf("lock radio favorites: %w", err)
+	}
+	defer func() { _ = unlock() }()
 
+	stations, err := loadFavoriteStations(f.path)
+	if err != nil {
+		return false, fmt.Errorf("load radio favorites: %w", err)
+	}
+	exists := slices.ContainsFunc(stations, func(station CatalogStation) bool {
+		return station.URL == s.URL
+	})
+	if exists != favorite {
+		if favorite {
+			stations = append(stations, s)
+		} else {
+			stations = slices.DeleteFunc(stations, func(station CatalogStation) bool {
+				return station.URL == s.URL
+			})
+		}
+		if err := f.save(stations); err != nil {
+			return false, fmt.Errorf("save radio favorites: %w", err)
+		}
+	}
+	f.stations = stations
+	f.byURL = make(map[string]struct{}, len(stations))
+	for _, station := range stations {
+		f.byURL[station.URL] = struct{}{}
+	}
+	f.revision++
+	return favorite, nil
+}
+
+func (f *Favorites) save(stations []CatalogStation) error {
 	// Build the full content in memory (writes to a Builder can't fail), then
 	// hand it to WriteFileAtomic so a partial or failed write can never
 	// truncate or corrupt the existing favorites file.
 	var b strings.Builder
-	for i, s := range f.stations {
+	for i, s := range stations {
 		if i > 0 {
 			fmt.Fprintln(&b)
 		}
@@ -103,6 +142,9 @@ func (f *Favorites) save() error {
 		fmt.Fprintf(&b, "url = %q\n", s.URL)
 		if s.Country != "" {
 			fmt.Fprintf(&b, "country = %q\n", s.Country)
+		}
+		if s.State != "" {
+			fmt.Fprintf(&b, "state = %q\n", s.State)
 		}
 		if s.Bitrate > 0 {
 			fmt.Fprintf(&b, "bitrate = %d\n", s.Bitrate)
@@ -137,6 +179,7 @@ func loadFavoriteStations(path string) ([]CatalogStation, error) {
 			Name:     f["name"],
 			URL:      f["url"],
 			Country:  f["country"],
+			State:    f["state"],
 			Codec:    f["codec"],
 			Tags:     f["tags"],
 			Homepage: f["homepage"],

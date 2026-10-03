@@ -13,9 +13,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
+	"github.com/bjarneo/cliamp/internal/netdiag"
 )
 
-var defaultHTTPClient = &http.Client{Timeout: 30 * time.Second}
+var defaultHTTPClient = httpclient.NewAPI(30 * time.Second)
 
 const maxResponseBody = 10 << 20
 
@@ -171,7 +174,7 @@ func (c *Client) getOnce(p string, params url.Values, out any) (int, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", p, err)
+		return 0, fmt.Errorf("%s: %w", p, netdiag.Explain(err))
 	}
 	defer resp.Body.Close()
 
@@ -179,11 +182,7 @@ func (c *Client) getOnce(p string, params url.Values, out any) (int, error) {
 		return resp.StatusCode, fmt.Errorf("%s: http status %s", p, resp.Status)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
-	if err != nil {
-		return resp.StatusCode, fmt.Errorf("%s: %w", p, err)
-	}
-	if err := json.Unmarshal(body, out); err != nil {
+	if err := httpclient.ReadJSON(resp.Body, maxResponseBody, out); err != nil {
 		return resp.StatusCode, fmt.Errorf("%s: %w", p, err)
 	}
 	return resp.StatusCode, nil
@@ -220,7 +219,7 @@ func (c *Client) sendJSONOnce(method, p string, payload any) (int, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", p, err)
+		return 0, fmt.Errorf("%s: %w", p, netdiag.Explain(err))
 	}
 	defer resp.Body.Close()
 
@@ -362,7 +361,7 @@ func (c *Client) ensureAuth() error {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("login: %w", err)
+		return fmt.Errorf("login: %w", netdiag.Explain(err))
 	}
 	defer resp.Body.Close()
 
@@ -370,13 +369,8 @@ func (c *Client) ensureAuth() error {
 		return fmt.Errorf("login: http status %s", resp.Status)
 	}
 
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
-	if err != nil {
-		return fmt.Errorf("login: %w", err)
-	}
-
 	var out loginResponse
-	if err := json.Unmarshal(data, &out); err != nil {
+	if err := httpclient.ReadJSON(resp.Body, maxResponseBody, &out); err != nil {
 		return fmt.Errorf("login: %w", err)
 	}
 	token := out.User.Token

@@ -32,7 +32,7 @@ const (
 type cookieBase struct {
 	browser     string
 	fetchFn     func(browser string) ([]playlist.PlaylistInfo, error)
-	resolveFn   func(ctx context.Context, pageURL string, start, count int, browser ...string) ([]playlist.Track, int, error)
+	resolveFn   func(ctx context.Context, pageURL string, start, count int, browser string) ([]playlist.Track, int, error)
 	mu          sync.Mutex
 	playlists   []playlist.PlaylistInfo
 	trackCache  map[string][]playlist.Track
@@ -146,6 +146,9 @@ func (b *cookieBase) refresh() {
 	b.mu.Unlock()
 }
 
+// close cancels the playlist loads in progress. The three cookie providers
+// share one base, and the Close of each one calls close, so close must be
+// safe to call more than once.
 func (b *cookieBase) close() {
 	b.mu.Lock()
 	b.generation++

@@ -386,6 +386,8 @@ func (s *Server) dispatchV2(req V2Request) V2Response {
 	s.v2Mu.RUnlock()
 	operation := strings.TrimSpace(req.Operation)
 	if operation == "" && (method == "state.get" || method == "spectrum.get") {
+		// The owner matches the canonical read method exactly.
+		req.Method = method
 		return s.dispatchV2ToOwner(response, req)
 	}
 	if operation == "" && operations != nil {
@@ -406,11 +408,9 @@ func (s *Server) dispatchV2(req V2Request) V2Response {
 	case "job.cancel":
 		return s.v2CancelJob(response, req.JobID)
 	case "state.get", "spectrum.get":
-		if operation != "" {
-			response.Error = invalidV2Request()
-			return response
-		}
-		return s.dispatchV2ToOwner(response, req)
+		// A read method with an operation. The branch above serves the rest.
+		response.Error = invalidV2Request()
+		return response
 	}
 	if operation == "capabilities" {
 		return s.v2Capabilities(response)
@@ -549,17 +549,30 @@ func writeJSONLine(conn net.Conn, value any) bool {
 	return true
 }
 
+// Listening reports whether a server accepts connections on sockPath. A
+// missing socket, or one that refuses the connection, is not an error.
+func Listening(sockPath string) (bool, error) {
+	conn, err := dialSocket(sockPath, 200*time.Millisecond)
+	if err == nil {
+		_ = conn.Close()
+		return true, nil
+	}
+	if isSocketUnavailable(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("ipc: probe socket %s: %w", sockPath, err)
+}
+
 // cleanStaleSocket removes a leftover socket and PID file from a dead process.
 // A connect probe always runs before deleting either path, so a live server is
 // never displaced because its PID file is missing, stale, or malformed.
 func cleanStaleSocket(sockPath string) error {
-	conn, err := dialSocket(sockPath, 200*time.Millisecond)
-	if err == nil {
-		_ = conn.Close()
-		return fmt.Errorf("ipc: cliamp is already running")
+	listening, err := Listening(sockPath)
+	if err != nil {
+		return err
 	}
-	if !isSocketUnavailable(err) {
-		return fmt.Errorf("ipc: probe socket %s: %w", sockPath, err)
+	if listening {
+		return fmt.Errorf("ipc: cliamp is already running")
 	}
 
 	pidPath := sockPath + ".pid"
@@ -580,7 +593,7 @@ func cleanStaleSocket(sockPath string) error {
 
 	alive, err := processAlive(pid)
 	if err != nil {
-		return fmt.Errorf("checking process liveness for socket %s: %w", sockPath, err)
+		return fmt.Errorf("ipc: checking process liveness for socket %s: %w", sockPath, err)
 	}
 	if !alive {
 		// Process is dead — clean up stale files.

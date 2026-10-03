@@ -91,12 +91,12 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	if playlistID == "" {
 		return nil, fmt.Errorf("soundcloud: empty playlist id")
 	}
-	return resolve.ResolveYTDLBatch(playlistID, 0, 0)
+	return resolve.ResolveYTDLBatch(playlistID, 0, 0, "")
 }
 
 // SearchTracks runs `yt-dlp scsearch{limit}:{query}` and returns matched
 // tracks. Implements provider.Searcher.
-func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]playlist.Track, error) {
+func (p *Provider) SearchTracks(ctx context.Context, query string, limit int) ([]playlist.Track, error) {
 	q := strings.TrimSpace(query)
 	if q == "" {
 		return nil, nil
@@ -104,5 +104,5 @@ func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]p
 	if limit <= 0 {
 		limit = 10
 	}
-	return resolve.ResolveYTDLBatch(fmt.Sprintf("scsearch%d:%s", limit, q), 0, 0)
+	return resolve.ResolveYTDLBatchContext(ctx, fmt.Sprintf("scsearch%d:%s", limit, q), 0, 0, "")
 }

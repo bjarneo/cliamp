@@ -31,7 +31,10 @@ kill -TERM $(pgrep -f 'cliamp --daemon')
 ```
 
 All three are the same graceful shutdown: cliamp flushes pending settings and
-saves the resume position.
+saves the resume position. `SIGINT` and `SIGHUP` do the same; the shell sends
+`SIGHUP` to a background session when its terminal closes, so start one with
+`setsid` or a service manager if it must outlive that terminal. A second signal
+stops a session that does not exit.
 
 ## What works
 
@@ -49,9 +52,13 @@ IPC interface. See [Remote Control](remote-control.md) for the command list:
 - Audio: `eq <preset>`, `eq --band N <dB>`, `device <name|list>`
 - Appearance: `theme <name>`, `vis <mode>`
 - Status: `status`, `status --json`, `vis --stream`
+- Plugins: `plugins call`, and the hooks of the plugins in `~/.config/cliamp/plugins/`
 
 `cliamp vis --stream` analyzes the spectrum on demand while detached, so a
 status bar gets live bands without a terminal attached.
+
+You can also bind media keys directly to `cliamp` subcommands. See
+[Hotkeys](#hotkeys-window-manager--sxhkd--hyprland).
 
 ## Attaching
 
@@ -80,6 +87,18 @@ Over SSH, attach the session running on the other host:
 ```sh
 ssh -t kitchen-pi cliamp attach
 ```
+
+## Same behavior as the TUI
+
+A session is the same player as the TUI, so these work the same way whether
+or not a terminal is attached:
+
+- Lua plugins load from `~/.config/cliamp/plugins/`. Their hooks see playback events.
+- Navidrome, Jellyfin, Emby, Audiobookshelf, and Yandex Music get now-playing and scrobble reports. Plex gets none.
+- A track enters Recently Played when it starts. See [Recently Played](history.md).
+- The IPC `save` operation, for example `cliamp remote call save --wait`, writes to the `[downloads]` directory. See [configuration.md](configuration.md#download-directory).
+- The next track preloads, so playback is gapless.
+- cliamp saves shuffle, repeat, speed, EQ, and output device changes to `config.toml`. A device switch saves `audio_device`.
 
 ## Use cases
 
@@ -121,6 +140,8 @@ stop` (which systemd does not restart after) as the only way to end it.
 `on-failure` restarts the session when it actually crashed, which is what you
 wanted the line for.
 
+A detached session never offers to install yt-dlp. If you configured YouTube, install yt-dlp before you start the service.
+
 ### Waybar / Polybar / i3blocks status modules
 
 Poll `cliamp status --json` at an interval. Render the fields that you need.
@@ -133,10 +154,12 @@ Poll `cliamp status --json` at an interval. Render the fields that you need.
   "interval": 2,
   "on-click": "cliamp toggle",
   "on-click-right": "cliamp next",
-  "on-scroll-up": "cliamp volume +3",
-  "on-scroll-down": "cliamp volume -3"
+  "on-scroll-up": "cliamp remote call volume.adjust --params '{\"value\":3}'",
+  "on-scroll-down": "cliamp remote call volume.adjust --params '{\"value\":-3}'"
 }
 ```
+
+The scroll actions submit `volume.adjust`, which changes the volume by the given number of dB. Do not use `cliamp volume +3` for a step. It sets the volume to +3 dB.
 
 **Polybar**:
 
@@ -157,8 +180,8 @@ inline as SHOUTcast/Icecast ICY metadata:
 
 | Field | Description |
 |-------|-------------|
-| `title` | Current song from the ICY tag. Before it arrives, this is the station name. |
-| `artist` | Current artist when the ICY tag uses `"Artist - Title"` |
+| `title` | Current song from the ICY tag. A tag without the ` - ` separator is the whole title. Before a tag arrives, and while the tag has an empty artist or title part, this is the station name. |
+| `artist` | Current artist when the ICY tag uses `"Artist - Title"` and both parts are set. cliamp trims both parts. |
 | `station` | Station name. Present only after a song replaces `title`. |
 | `stream_title` | Raw, unsplit ICY value |
 
@@ -178,8 +201,8 @@ Bind media keys directly to IPC subcommands.
 bind = , XF86AudioPlay,  exec, cliamp toggle
 bind = , XF86AudioNext,  exec, cliamp next
 bind = , XF86AudioPrev,  exec, cliamp prev
-bind = , XF86AudioRaiseVolume, exec, cliamp volume +3
-bind = , XF86AudioLowerVolume, exec, cliamp volume -3
+bind = , XF86AudioRaiseVolume, exec, cliamp remote call volume.adjust --params '{"value":3}'
+bind = , XF86AudioLowerVolume, exec, cliamp remote call volume.adjust --params '{"value":-3}'
 ```
 
 **sxhkd**:
@@ -204,14 +227,16 @@ XF86AudioNext
 
 ### Scripted playlists
 
-Build a queue from a script:
+Build a queue from a script, then start it with `cliamp play`. `--auto-play`
+starts only a queue that holds tracks at startup, so it does not help here.
 
 ```sh
-cliamp --daemon --auto-play &
+cliamp --daemon &
 sleep 1                                  # let the socket bind
 for f in $(find ~/Music/Albums/Daft\ Punk -name '*.flac' | sort); do
   cliamp queue "$f"
 done
+cliamp play                              # start the first track
 ```
 
 ### Remote control over SSH
@@ -234,8 +259,12 @@ cliamp --daemon --auto-play http://radio.cliamp.stream/lofi/stream
 
 ## Notes
 
-- One cliamp instance runs per user: it owns the Unix socket. Start it detached
-  and attach to it rather than starting a second one.
+- One cliamp instance runs per user: it owns the Unix socket. A second
+  `--daemon` exits with the error `cliamp is already running` before it opens
+  the audio device or loads the plugins, so it does not change the running
+  instance. Attach to the running session instead. A second TUI runs without
+  the socket.
 - A detached session renders no frame and runs no visualizer until a client
   attaches. It ticks only as often as playback bookkeeping needs, so an
   idle-but-playing session costs about what the old headless mode did.
+- cliamp resolves feed, M3U, PLS, and yt-dlp arguments in the background after start. If one of these URLs fails, cliamp adds none of them. The session keeps running with the local files and the direct stream URLs. Check `cliamp status`, and look in `~/.config/cliamp/cliamp.log` for the error.

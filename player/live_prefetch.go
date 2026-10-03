@@ -17,6 +17,8 @@ const (
 // callback. Its Stream method never waits for network data: it returns buffered
 // samples or silence, then waits for a small refill before resuming after an
 // underrun so slow chunk delivery does not alternate rapidly between both.
+// When the source ends cleanly, the last read returns a short count, as a
+// direct decoder does, so a gapless transition has no gap.
 type livePrefetchStreamer struct {
 	src beep.Streamer
 
@@ -173,6 +175,11 @@ func (p *livePrefetchStreamer) Stream(samples [][2]float64) (int, bool) {
 	}
 
 	short := len(samples) - n
+	if short > 0 && p.done && p.sourceErr == nil {
+		// The source ended cleanly. The short count ends the stream, so the
+		// gapless next track fills the rest of samples with no gap.
+		return n, true
+	}
 	if short > 0 && n > 0 {
 		fadeLen := min(n, livePrefetchFadeSamples)
 		for i := range fadeLen {

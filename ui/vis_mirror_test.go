@@ -23,27 +23,27 @@ func TestMirrorMode(t *testing.T) {
 }
 
 func TestRenderMirrorHasPersistentAxisAndSymmetricBars(t *testing.T) {
-	withPanelWidth(t, 24)
 	v := NewVisualizer(44100)
+	v.Cols = 24
 	v.Rows = 5
 	v.Mode = VisMirror
 
 	frame := []rune(ansi.Strip(v.Render()))
 	dotRows := v.Rows * 4
-	dotCols := PanelWidth * 2
+	dotCols := v.Cols * 2
 	span := dotCols * mirrorSpanPercent / 100
 	span = min(dotCols, span-span%2)
 	x0 := (dotCols - span) / 2
 	axisY := dotRows / 2
 
 	for x := x0; x < x0+span; x++ {
-		if !mirrorDotAt(frame, PanelWidth, x, axisY) {
+		if !mirrorDotAt(frame, v.Cols, x, axisY) {
 			t.Fatalf("axis missing at x=%d", x)
 		}
 	}
 	for x := range dotCols {
 		for offset := 1; axisY-offset >= 0 && axisY+offset < dotRows; offset++ {
-			if mirrorDotAt(frame, PanelWidth, x, axisY-offset) != mirrorDotAt(frame, PanelWidth, x, axisY+offset) {
+			if mirrorDotAt(frame, v.Cols, x, axisY-offset) != mirrorDotAt(frame, v.Cols, x, axisY+offset) {
 				t.Fatalf("bar is not vertically symmetric at x=%d, offset=%d", x, offset)
 			}
 		}

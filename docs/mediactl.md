@@ -40,6 +40,9 @@ The `org.mpris.MediaPlayer2.Player` interface supports all standard transport co
 | `playerctl next` | Skip to the next track |
 | `playerctl previous` | Go to the previous track (or restart if more than 3 seconds in) |
 
+A client can also call the MPRIS `Quit` method. cliamp then exits and saves the
+resume position, as the `q` key does.
+
 ### Seeking
 
 You can seek by an absolute or relative value:
@@ -55,7 +58,10 @@ Desktop widgets with a progress bar receive `Seeked` signals and stay in sync.
 ### Volume
 
 Volume is available as a linear value from 0.0 to 1.0. Internally, cliamp uses
-a decibel scale from -30 dB to +6 dB. It converts the values automatically.
+a decibel scale from `volume_min` to +6 dB. The default `volume_min` is -50 dB.
+See [configuration.md](configuration.md). cliamp converts the values
+automatically. A value of 0.0 sets the volume to `volume_min`. A value of 1.0
+sets the volume to +6 dB.
 
 ```sh
 playerctl volume               # print current volume (0.0 to 1.0)
@@ -66,13 +72,19 @@ Setting volume through `playerctl` updates the player immediately. When you
 change volume with the TUI `+` and `-` keys, D-Bus clients receive the new value
 on the next tick.
 
+cliamp clamps a value below 0.0 or above 1.0 to that range. A value whose
+decibel level is below `volume_min` sets the volume to `volume_min`. In each
+case, Volume then reports the clamped value. A NaN value returns the D-Bus
+error `org.freedesktop.DBus.Properties.Error.InvalidArg` and does not change
+the volume.
+
 ### Metadata
 
 cliamp publishes track metadata with standard MPRIS keys:
 
 | Key | Description |
 |---|---|
-| `mpris:trackid` | D-Bus object path for the current track |
+| `mpris:trackid` | D-Bus object path for the current track. It stays the same when only the length or the art URL of the track changes |
 | `xesam:title` | Track title |
 | `xesam:artist` | Artist name as a list with one entry |
 | `xesam:album` | Album name, when available |
@@ -166,6 +178,9 @@ Platform-specific `Service` implementations:
 - `mediactl/service_stub.go`: no-op implementation for unsupported platforms.
 
 The model sends playback state through the playback notifier when state changes.
+After each message, it compares the state with the last state that it sent. It
+compares the position in whole seconds, so a playing track sends a new state
+once per second. A seek sends the state and then the MPRIS `Seeked` signal.
 On Linux, `mediactl` uses `SetMust`, not `Set`, to bypass property-library
 writable checks and callback triggers. These checks and triggers apply to
 external D-Bus writes. For writable properties such as Volume, `mediactl`
@@ -179,3 +194,7 @@ shuffle and repeat locally. External tools cannot view or control these states.
 
 On Linux, `HasTrackList` is false. cliamp does not implement the optional
 `org.mpris.MediaPlayer2.TrackList` interface.
+
+On Linux, cliamp does not reconnect to the session bus. If the bus connection
+drops while cliamp runs, playback continues without MPRIS. To register again,
+restart cliamp.

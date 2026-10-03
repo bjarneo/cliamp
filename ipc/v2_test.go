@@ -178,6 +178,42 @@ func TestServerRoutesV2(t *testing.T) {
 
 }
 
+// The runtime owner matches the read methods exactly, so the server hands it
+// the canonical name whatever the case and spaces of the request.
+func TestServerCanonicalizesReadMethods(t *testing.T) {
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+	server, err := NewServer(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	server.SetV2Dispatcher(V2DispatcherFunc(func(_ context.Context, request V2Request) (V2Result, *V2Error) {
+		return V2Result{Snapshot: &RuntimeSnapshot{State: request.Method + "|" + request.Operation}}, nil
+	}))
+
+	for _, tc := range []struct{ method, operation, want, wantErr string }{
+		{method: "state.get", want: "state.get|"},
+		{method: "STATE.GET", want: "state.get|"},
+		{method: "spectrum.get", want: "spectrum.get|"},
+		{method: " spectrum.get ", want: "spectrum.get|"},
+		{method: "Spectrum.Get", want: "spectrum.get|"},
+		{method: "STATE.GET", operation: "play", wantErr: V2ErrorCodeInvalidRequest},
+	} {
+		t.Run(tc.method+" "+tc.operation, func(t *testing.T) {
+			response := sendV2Request(t, sock, V2Request{ID: json.RawMessage(`1`), Method: tc.method, Operation: tc.operation})
+			if tc.wantErr != "" {
+				if response.OK || errorCode(response.Error) != tc.wantErr {
+					t.Fatalf("response = %#v, want error %q", response, tc.wantErr)
+				}
+				return
+			}
+			if !response.OK || response.Snapshot == nil || response.Snapshot.State != tc.want {
+				t.Fatalf("response = %#v, want the owner to get %q", response, tc.want)
+			}
+		})
+	}
+}
+
 func TestServerCanonicalizesMethodOperation(t *testing.T) {
 	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
 	server, err := NewServer(sock)
@@ -199,22 +235,26 @@ func TestServerCanonicalizesMethodOperation(t *testing.T) {
 }
 
 func TestServerRoutesRuntimeSnapshotAliasToV2State(t *testing.T) {
-	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
-	server, err := NewServer(sock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = server.Close() })
-	server.SetV2Dispatcher(V2DispatcherFunc(func(_ context.Context, request V2Request) (V2Result, *V2Error) {
-		if request.Method != "state.get" || request.Operation != "" {
-			t.Fatalf("request = %#v", request)
-		}
-		return V2Result{Snapshot: &RuntimeSnapshot{State: "paused"}}, nil
-	}))
+	for _, operation := range []string{"runtime.snapshot", "runtime.status"} {
+		t.Run(operation, func(t *testing.T) {
+			sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+			server, err := NewServer(sock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = server.Close() })
+			server.SetV2Dispatcher(V2DispatcherFunc(func(_ context.Context, request V2Request) (V2Result, *V2Error) {
+				if request.Method != "state.get" || request.Operation != "" {
+					return V2Result{}, &V2Error{Code: V2ErrorCodeInvalidParams, Message: V2MessageInvalidParams, Detail: request.Method + " " + request.Operation}
+				}
+				return V2Result{Snapshot: &RuntimeSnapshot{State: "paused"}}, nil
+			}))
 
-	response := sendV2Request(t, sock, V2Request{ID: json.RawMessage(`"snapshot"`), Method: "operation.submit", Operation: "runtime.snapshot"})
-	if !response.OK || response.Job != nil || response.Snapshot == nil || response.Snapshot.State != "paused" {
-		t.Fatalf("response = %#v", response)
+			response := sendV2Request(t, sock, V2Request{ID: json.RawMessage(`"snapshot"`), Method: "operation.submit", Operation: operation})
+			if !response.OK || response.Job != nil || response.Snapshot == nil || response.Snapshot.State != "paused" {
+				t.Fatalf("response = %#v", response)
+			}
+		})
 	}
 }
 

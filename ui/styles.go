@@ -11,111 +11,116 @@ import (
 	"github.com/bjarneo/cliamp/theme"
 )
 
-// CLIAMP color palette using standard ANSI terminal colors (0-15).
-// These adapt to the user's terminal theme for consistent appearance.
+// CLIAMP color palette. With no theme configured these are the standard ANSI
+// terminal colors (0-15), which adapt to the user's terminal theme. They have
+// no initializers: ApplyThemeColors is the single place that sets them, from
+// init for the default palette and again on every theme change.
 var (
 	ColorBackground color.Color
-	ColorTitle      color.Color = lipgloss.ANSIColor(10) // bright green
-	ColorText       color.Color = lipgloss.ANSIColor(15) // bright white
-	ColorDim        color.Color = lipgloss.ANSIColor(7)  // white (light gray)
-	ColorAccent     color.Color = lipgloss.ANSIColor(11) // bright yellow
-	ColorPlaying    color.Color = lipgloss.ANSIColor(10) // bright green
-	ColorSeekBar    color.Color = lipgloss.ANSIColor(11) // bright yellow
-	ColorVolume     color.Color = lipgloss.ANSIColor(2)  // green
-	ColorError      color.Color = lipgloss.ANSIColor(9)  // bright red
-	ColorWarning    color.Color = lipgloss.ANSIColor(11) // bright yellow
-	ColorKeyBG      color.Color = lipgloss.ANSIColor(8)  // bright black (dark gray)
-	ColorKeyFG      color.Color = lipgloss.ANSIColor(15) // bright white
-
-	// Spectrum gradient: green -> yellow -> red
-	SpectrumLow  color.Color = lipgloss.ANSIColor(10) // bright green
-	SpectrumMid  color.Color = lipgloss.ANSIColor(11) // bright yellow
-	SpectrumHigh color.Color = lipgloss.ANSIColor(9)  // bright red
+	ColorTitle      color.Color
+	ColorText       color.Color
+	ColorDim        color.Color
+	ColorAccent     color.Color
+	ColorPlaying    color.Color
+	ColorSeekBar    color.Color
+	ColorVolume     color.Color
+	ColorError      color.Color
+	ColorWarning    color.Color
+	ColorKeyBG      color.Color
+	ColorKeyFG      color.Color
+	SpectrumLow     color.Color
+	SpectrumMid     color.Color
+	SpectrumHigh    color.Color
 )
 
-// PaddingH is the horizontal padding inside the frame.
-var PaddingH = 3
+func init() { ApplyThemeColors(theme.Default()) }
 
-// paddingV is the vertical padding inside the frame.
-var paddingV = 1
-
-// PanelWidth is the usable inner width of the frame.
-// Updated dynamically in WindowSizeMsg based on terminal width.
-var PanelWidth = 80 - 2*PaddingH
-
-// SetPadding updates the frame padding and derived styles.
-func SetPadding(h, v int) {
-	PaddingH = h
-	paddingV = v
-	PanelWidth = 80 - 2*PaddingH
-	FrameStyle = FrameStyle.Padding(paddingV, PaddingH)
+// Palette holds the colors that a theme gives the UI. A nil Background keeps
+// the terminal background.
+type Palette struct {
+	Background   color.Color
+	Title        color.Color
+	Text         color.Color
+	Dim          color.Color
+	Accent       color.Color
+	Playing      color.Color
+	SeekBar      color.Color
+	Volume       color.Color
+	Error        color.Color
+	Warning      color.Color
+	KeyBG        color.Color
+	KeyFG        color.Color
+	SpectrumLow  color.Color
+	SpectrumMid  color.Color
+	SpectrumHigh color.Color
 }
 
-// WithPanelWidth narrows PanelWidth for a scope and returns the restore func,
-// so callers rendering into a sub-width column can `defer WithPanelWidth(w)()`
-// and be sure the frame width comes back even if the call panics.
-func WithPanelWidth(w int) func() {
-	previous := PanelWidth
-	PanelWidth = w
-	return func() { PanelWidth = previous }
-}
-
-// VerticalPadding returns the current frame padding above and below content.
-func VerticalPadding() int {
-	return paddingV
-}
-
-// FrameStyle is the outer frame style for the TUI.
-var FrameStyle = lipgloss.NewStyle().
-	Padding(paddingV, PaddingH).
-	Width(80)
-
-// ApplyThemeColors updates all color variables and rebuilds spectrum styles.
-// If the theme is the default (empty hex values), ANSI fallback colors are restored.
-func ApplyThemeColors(t theme.Theme) {
+// PaletteFor returns the colors of t and changes no UI state. The default
+// theme, with empty hex values, maps to the standard ANSI terminal colors.
+func PaletteFor(t theme.Theme) Palette {
 	if t.IsDefault() {
-		ColorBackground = nil
-		ColorTitle = lipgloss.ANSIColor(10)
-		ColorText = lipgloss.ANSIColor(15)
-		ColorDim = lipgloss.ANSIColor(7)
-		ColorAccent = lipgloss.ANSIColor(11)
-		ColorPlaying = lipgloss.ANSIColor(10)
-		ColorSeekBar = lipgloss.ANSIColor(11)
-		ColorVolume = lipgloss.ANSIColor(2)
-		ColorError = lipgloss.ANSIColor(9)
-		ColorWarning = lipgloss.ANSIColor(11)
-		ColorKeyBG = lipgloss.ANSIColor(8)
-		ColorKeyFG = lipgloss.ANSIColor(15)
-		SpectrumLow = lipgloss.ANSIColor(10)
-		SpectrumMid = lipgloss.ANSIColor(11)
-		SpectrumHigh = lipgloss.ANSIColor(9)
-	} else {
-		if t.BG == "" {
-			ColorBackground = nil
-		} else {
-			ColorBackground = lipgloss.Color(t.BG)
+		return Palette{
+			Title:        lipgloss.ANSIColor(10),
+			Text:         lipgloss.ANSIColor(15),
+			Dim:          lipgloss.ANSIColor(7),
+			Accent:       lipgloss.ANSIColor(11),
+			Playing:      lipgloss.ANSIColor(10),
+			SeekBar:      lipgloss.ANSIColor(11),
+			Volume:       lipgloss.ANSIColor(2),
+			Error:        lipgloss.ANSIColor(9),
+			Warning:      lipgloss.ANSIColor(11),
+			KeyBG:        lipgloss.ANSIColor(8),
+			KeyFG:        lipgloss.ANSIColor(15),
+			SpectrumLow:  lipgloss.ANSIColor(10),
+			SpectrumMid:  lipgloss.ANSIColor(11),
+			SpectrumHigh: lipgloss.ANSIColor(9),
 		}
-		ColorTitle = lipgloss.Color(t.Accent)
-		ColorText = lipgloss.Color(t.BrightFG)
-		ColorDim = lipgloss.Color(t.FG)
-		ColorAccent = lipgloss.Color(t.Accent)
-		ColorPlaying = lipgloss.Color(t.Green)
-		ColorSeekBar = lipgloss.Color(t.Accent)
-		ColorVolume = lipgloss.Color(t.Green)
-		ColorError = lipgloss.Color(t.Red)
-		ColorWarning = lipgloss.Color(t.Yellow)
-		ColorKeyBG = lipgloss.Color(t.Accent)
-		ColorKeyFG = lipgloss.Color(contrastingTextColor(t.Accent))
-		SpectrumLow = lipgloss.Color(t.Green)
-		SpectrumMid = lipgloss.Color(t.Yellow)
-		SpectrumHigh = lipgloss.Color(t.Red)
 	}
+	p := Palette{
+		Title:        lipgloss.Color(t.Accent),
+		Text:         lipgloss.Color(t.BrightFG),
+		Dim:          lipgloss.Color(t.FG),
+		Accent:       lipgloss.Color(t.Accent),
+		Playing:      lipgloss.Color(t.Green),
+		SeekBar:      lipgloss.Color(t.Accent),
+		Volume:       lipgloss.Color(t.Green),
+		Error:        lipgloss.Color(t.Red),
+		Warning:      lipgloss.Color(t.Yellow),
+		KeyBG:        lipgloss.Color(t.Accent),
+		KeyFG:        lipgloss.Color(contrastingTextColor(t.Accent)),
+		SpectrumLow:  lipgloss.Color(t.Green),
+		SpectrumMid:  lipgloss.Color(t.Yellow),
+		SpectrumHigh: lipgloss.Color(t.Red),
+	}
+	if t.BG != "" {
+		p.Background = lipgloss.Color(t.BG)
+	}
+	return p
+}
 
-	// Rebuild visualizer spectrum styles.
-	specLowStyle = lipgloss.NewStyle().Foreground(SpectrumLow)
-	specMidStyle = lipgloss.NewStyle().Foreground(SpectrumMid)
-	specHighStyle = lipgloss.NewStyle().Foreground(SpectrumHigh)
+// ApplyThemeColors sets the color variables to the palette of t and rebuilds
+// the visualizer ANSI that derives from them.
+func ApplyThemeColors(t theme.Theme) {
+	p := PaletteFor(t)
+	ColorBackground = p.Background
+	ColorTitle = p.Title
+	ColorText = p.Text
+	ColorDim = p.Dim
+	ColorAccent = p.Accent
+	ColorPlaying = p.Playing
+	ColorSeekBar = p.SeekBar
+	ColorVolume = p.Volume
+	ColorError = p.Error
+	ColorWarning = p.Warning
+	ColorKeyBG = p.KeyBG
+	ColorKeyFG = p.KeyFG
+	SpectrumLow = p.SpectrumLow
+	SpectrumMid = p.SpectrumMid
+	SpectrumHigh = p.SpectrumHigh
+
 	refreshSpecANSI()
+	refreshRedSectorANSI()
+	refreshYinYangANSI()
 }
 
 func contrastingTextColor(hex string) string {

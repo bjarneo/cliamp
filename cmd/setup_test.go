@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -184,6 +183,100 @@ func TestRequiredFieldBlocksSubmit(t *testing.T) {
 	}
 }
 
+// TestSubmitFormEnvRef checks that setup rejects a $NAME value that names
+// an unset or empty variable, which config.Load reads as empty. It also
+// checks that the probe gets the value of a set variable and that the form
+// keeps the reference for the save. The URL check reads a url variable.
+func TestSubmitFormEnvRef(t *testing.T) {
+	t.Setenv("CLIAMP_TEST_SETUP_PASS", "from-env")
+	t.Setenv("CLIAMP_TEST_SETUP_EMPTY", "")
+	t.Setenv("CLIAMP_TEST_SETUP_URL", "https://env.example.com/")
+	t.Setenv("CLIAMP_TEST_SETUP_BAD_URL", "env.example.com")
+	t.Setenv("Secret1", "")
+	os.Unsetenv("Secret1")
+
+	const typedURL = "https://music.example.com/"
+	tests := []struct {
+		name         string
+		url          string // "" means typedURL
+		password     string
+		wantErr      string
+		wantProbe    string
+		wantProbeURL string
+		wantURL      string // url that the form keeps for the save
+	}{
+		{name: "unset variable", password: "$Secret1", wantErr: "environment variable"},
+		{name: "unset variable in braces", password: "${CLIAMP_TEST_SETUP_UNSET}", wantErr: "environment variable"},
+		{name: "empty variable", password: "$CLIAMP_TEST_SETUP_EMPTY", wantErr: "environment variable"},
+		{name: "set variable", password: "${CLIAMP_TEST_SETUP_PASS}", wantProbe: "from-env",
+			wantProbeURL: "https://music.example.com", wantURL: "https://music.example.com"},
+		{name: "literal dollar", password: "p@$$w0rd", wantProbe: "p@$$w0rd",
+			wantProbeURL: "https://music.example.com", wantURL: "https://music.example.com"},
+		{name: "url from a variable", url: "${CLIAMP_TEST_SETUP_URL}", password: "pw", wantProbe: "pw",
+			wantProbeURL: "https://env.example.com/", wantURL: "${CLIAMP_TEST_SETUP_URL}"},
+		{name: "url variable without a scheme", url: "$CLIAMP_TEST_SETUP_BAD_URL", password: "pw", wantErr: "http://"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newSetupModel()
+			for i, p := range m.provs {
+				if p.section == "navidrome" {
+					m.menuCursor = i
+					break
+				}
+			}
+			m.handleKey(keyPress(tea.KeyEnter, "")) // open form (no picker)
+			probed, probedURL := "not probed", ""
+			m.provs[m.pidx].validate = func(v map[string]string) error {
+				probed, probedURL = v["password"], v["url"]
+				return nil
+			}
+			m.values["url"] = typedURL
+			if tt.url != "" {
+				m.values["url"] = tt.url
+			}
+			m.values["user"] = "alice"
+			m.values["password"] = tt.password
+
+			_, cmd := m.submitForm()
+			if tt.wantErr != "" {
+				if m.stage != stageResult || m.resultErr == nil || !strings.Contains(m.resultErr.Error(), tt.wantErr) {
+					t.Fatalf("stage = %v, resultErr = %v, want an error with %q", m.stage, m.resultErr, tt.wantErr)
+				}
+				if tt.wantErr == "environment variable" {
+					if key := m.provs[m.pidx].fields[m.visible[m.fcursor]].key; key != "password" {
+						t.Errorf("cursor on %q, want password", key)
+					}
+				}
+				if cmd != nil {
+					t.Error("submitForm started a probe")
+				}
+				return
+			}
+			if m.stage != stageValidating {
+				t.Fatalf("stage = %v, want stageValidating; resultErr = %v", m.stage, m.resultErr)
+			}
+			for _, c := range cmd().(tea.BatchMsg) {
+				if msg, ok := c().(validateDoneMsg); ok && msg.err != nil {
+					t.Fatalf("probe error: %v", msg.err)
+				}
+			}
+			if probed != tt.wantProbe {
+				t.Errorf("probe got password %q, want %q", probed, tt.wantProbe)
+			}
+			if probedURL != tt.wantProbeURL {
+				t.Errorf("probe got url %q, want %q", probedURL, tt.wantProbeURL)
+			}
+			if m.values["password"] != tt.password {
+				t.Errorf("form password = %q, want %q for the save", m.values["password"], tt.password)
+			}
+			if m.values["url"] != tt.wantURL {
+				t.Errorf("form url = %q, want %q for the save", m.values["url"], tt.wantURL)
+			}
+		})
+	}
+}
+
 // TestPasteIntoActiveField checks that bracketed-paste content lands in
 // the focused field, with newlines stripped (Spotify Client IDs sometimes
 // arrive with a trailing newline from the source app).
@@ -239,15 +332,7 @@ func TestNetEaseSetupBody(t *testing.T) {
 		keyNetEaseBrowser: "chrome",
 		"user_id":         "42",
 	})
-	for _, want := range []string{
-		"enabled      = true",
-		`cookies_from = "chrome"`,
-		`user_id      = "42"`,
-	} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("body missing %q: %q", want, body)
-		}
-	}
+	checkBody(t, body, map[string]string{"enabled": "true", "cookies_from": `"chrome"`, "user_id": `"42"`})
 }
 
 // TestSaveAnywayClearsStaleValidationError covers a regression where
@@ -271,7 +356,7 @@ func TestSaveAnywayClearsStaleValidationError(t *testing.T) {
 	}
 	m.values = map[string]string{"url": "http://example.com", "user": "alice", "password": "secret"}
 
-	m.onValidateDone(errors.New("dial tcp: connection refused"))
+	m.onValidateDone(errors.New("dial tcp: connection refused"), nil)
 	if !m.awaitingSave || m.resultErr == nil {
 		t.Fatalf("onValidateDone(err) should prompt to save anyway; awaitingSave=%v resultErr=%v", m.awaitingSave, m.resultErr)
 	}
@@ -299,49 +384,6 @@ func TestSaveAnywayClearsStaleValidationError(t *testing.T) {
 	}
 }
 
-func TestSaveSectionSecuresConfigFile(t *testing.T) {
-	configDir := filepath.Join(t.TempDir(), "config")
-	t.Setenv("CLIAMP_CONFIG_DIR", configDir)
-
-	if err := saveSection("mixcloud", "access_token = \"secret\""); err != nil {
-		t.Fatalf("saveSection: %v", err)
-	}
-	if runtime.GOOS == "windows" {
-		return // Windows does not expose Unix permission bits.
-	}
-
-	dirInfo, err := os.Stat(configDir)
-	if err != nil {
-		t.Fatalf("Stat(%q): %v", configDir, err)
-	}
-	if got, want := dirInfo.Mode().Perm(), os.FileMode(0o700); got != want {
-		t.Errorf("mode for %q = %o, want %o", configDir, got, want)
-	}
-
-	path := filepath.Join(configDir, "config.toml")
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat(%q): %v", path, err)
-	}
-	if got, want := info.Mode().Perm(), os.FileMode(0o600); got != want {
-		t.Errorf("mode for %q = %o, want %o", path, got, want)
-	}
-
-	if err := os.Chmod(path, 0o644); err != nil {
-		t.Fatalf("Chmod(%q): %v", path, err)
-	}
-	if err := saveSection("mixcloud", "access_token = \"secret\""); err != nil {
-		t.Fatalf("rewrite saveSection: %v", err)
-	}
-	info, err = os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat(%q): %v", path, err)
-	}
-	if got, want := info.Mode().Perm(), os.FileMode(0o600); got != want {
-		t.Errorf("rewritten mode for %q = %o, want %o", path, got, want)
-	}
-}
-
 func TestQobuzSetupBody(t *testing.T) {
 	spec := providerSpec{}
 	for _, p := range providers() {
@@ -355,17 +397,10 @@ func TestQobuzSetupBody(t *testing.T) {
 	}
 
 	// Explicit quality selection.
-	body := spec.body(map[string]string{keyQobuzQuality: "27"})
-	for _, want := range []string{"enabled = true", "quality = 27"} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("body missing %q: %q", want, body)
-		}
-	}
+	checkBody(t, spec.body(map[string]string{keyQobuzQuality: "27"}), map[string]string{"enabled": "true", "quality": "27"})
 
 	// Default quality when none picked.
-	if got := spec.body(map[string]string{}); !strings.Contains(got, "quality = 6") {
-		t.Fatalf("default quality not 6: %q", got)
-	}
+	checkBody(t, spec.body(map[string]string{}), map[string]string{"quality": "6"})
 
 	// No live probe (auth happens interactively in the TUI).
 	if spec.validate != nil {
@@ -386,17 +421,10 @@ func TestTidalSetupBody(t *testing.T) {
 	}
 
 	// Explicit quality selection.
-	body := spec.body(map[string]string{keyTidalQuality: "hires"})
-	for _, want := range []string{"enabled = true", `quality = "hires"`} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("body missing %q: %q", want, body)
-		}
-	}
+	checkBody(t, spec.body(map[string]string{keyTidalQuality: "hires"}), map[string]string{"enabled": "true", "quality": `"hires"`})
 
 	// Default quality when none picked.
-	if got := spec.body(map[string]string{}); !strings.Contains(got, `quality = "lossless"`) {
-		t.Fatalf("default quality not lossless: %q", got)
-	}
+	checkBody(t, spec.body(map[string]string{}), map[string]string{"quality": `"lossless"`})
 
 	// No live probe (auth happens interactively in the TUI).
 	if spec.validate != nil {
@@ -421,17 +449,13 @@ func TestPlexSetupBody(t *testing.T) {
 		"token":     "tok",
 		"libraries": "Music, Jazz",
 	})
-	for _, want := range []string{
-		`url   = "http://192.168.1.10:32400"`, `token = "tok"`,
-		`libraries = ["Music", "Jazz"]`,
-	} {
-		if !strings.Contains(withLibraries, want) {
-			t.Fatalf("body missing %q: %q", want, withLibraries)
-		}
-	}
+	checkBody(t, withLibraries, map[string]string{
+		"url": `"http://192.168.1.10:32400"`, "token": `"tok"`,
+		"libraries": `["Music", "Jazz"]`,
+	})
 
 	noFilter := spec.body(map[string]string{"url": "http://x", "token": "tok"})
-	if strings.Contains(noFilter, "libraries") {
+	if _, ok := bodyValues(noFilter)["libraries"]; ok {
 		t.Fatalf("blank libraries field must not write a libraries key: %q", noFilter)
 	}
 }
@@ -458,22 +482,17 @@ func TestMixcloudSetupBody(t *testing.T) {
 	if err := spec.extraValidate(values); err != nil {
 		t.Fatalf("extraValidate: %v", err)
 	}
-	body := spec.body(values)
-	for _, want := range []string{
-		"enabled = true", `username = "alice"`, `access_token = "token"`,
-		`cookies_from = "firefox"`, `styles = ["ambient", "deep-house"]`,
-		"max_items = 75", "stream_creators = 15",
-	} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("body missing %q: %q", want, body)
-		}
-	}
+	checkBody(t, spec.body(values), map[string]string{
+		"enabled": "true", "username": `"alice"`, "access_token": `"token"`,
+		"cookies_from": `"firefox"`, "styles": `["ambient", "deep-house"]`,
+		"max_items": "75", "stream_creators": "15",
+	})
 	publicOnly := spec.body(map[string]string{
 		keyMixcloudBrowser: "none",
 		"max_items":        "100",
 		"stream_creators":  "20",
 	})
-	if strings.Contains(publicOnly, "cookies_from") {
+	if _, ok := bodyValues(publicOnly)["cookies_from"]; ok {
 		t.Fatalf("public-only session must not write cookies_from: %q", publicOnly)
 	}
 	custom := spec.body(map[string]string{
@@ -482,9 +501,7 @@ func TestMixcloudSetupBody(t *testing.T) {
 		"max_items":        "100",
 		"stream_creators":  "20",
 	})
-	if !strings.Contains(custom, `cookies_from = "chrome:Profile 1"`) {
-		t.Fatalf("custom browser/profile was not written: %q", custom)
-	}
+	checkBody(t, custom, map[string]string{"cookies_from": `"chrome:Profile 1"`})
 	if spec.validate != nil {
 		t.Fatal("mixcloud setup should not claim a live validation probe")
 	}
@@ -492,6 +509,32 @@ func TestMixcloudSetupBody(t *testing.T) {
 	err := spec.extraValidate(map[string]string{"max_items": "bad", "stream_creators": "also bad"})
 	if err == nil || !strings.Contains(err.Error(), "items per view") {
 		t.Fatalf("validation order error = %v, want items per view first", err)
+	}
+}
+
+// TestSetupValidateMatchesDocs checks the providers that docs/configuration.md
+// and docs/cli.md name as checked during setup.
+func TestSetupValidateMatchesDocs(t *testing.T) {
+	want := map[string]bool{
+		"navidrome": true, "lyrion": true, "plex": true, "jellyfin": true,
+		"emby": true, "audiobookshelf": true, "netease": true,
+		"spotify": false, "qobuz": false, "tidal": false, "mixcloud": false,
+		"ytmusic": false,
+	}
+	specs := providers()
+	if len(specs) != len(want) {
+		t.Fatalf("setup has %d providers, the table has %d", len(specs), len(want))
+	}
+	for _, spec := range specs {
+		t.Run(spec.section, func(t *testing.T) {
+			wantValidate, ok := want[spec.section]
+			if !ok {
+				t.Fatalf("section %q is missing from the table", spec.section)
+			}
+			if got := spec.validate != nil; got != wantValidate {
+				t.Fatalf("validate set = %v, want %v", got, wantValidate)
+			}
+		})
 	}
 }
 
@@ -566,54 +609,5 @@ func TestYTMusicCustomModeIncludesOptionalCookies(t *testing.T) {
 		}
 	}
 
-	body := spec.body(values)
-	if !strings.Contains(body, `cookies_from  = "firefox"`) {
-		t.Fatalf("custom mode body omits cookies: %q", body)
-	}
-}
-
-// TestSaveSection covers the three write paths: new file, append, replace.
-func TestSaveSection(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-
-	cfg := filepath.Join(dir, ".config", "cliamp", "config.toml")
-
-	// 1. New file.
-	if err := saveSection("plex", "url   = \"http://x\"\ntoken = \"t\""); err != nil {
-		t.Fatalf("first save: %v", err)
-	}
-	got, err := os.ReadFile(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(string(got), "[plex]\n") {
-		t.Fatalf("new file: %q", got)
-	}
-
-	// 2. Append a new section.
-	if err := saveSection("ytmusic", "enabled = true"); err != nil {
-		t.Fatalf("append: %v", err)
-	}
-	got, _ = os.ReadFile(cfg)
-	if !strings.Contains(string(got), "[plex]") || !strings.Contains(string(got), "[ytmusic]") {
-		t.Fatalf("append: missing one of the sections: %q", got)
-	}
-
-	// 3. Replace the plex section in place.
-	if err := saveSection("plex", "url   = \"http://NEW\"\ntoken = \"t2\""); err != nil {
-		t.Fatalf("replace: %v", err)
-	}
-	got, _ = os.ReadFile(cfg)
-	s := string(got)
-	if !strings.Contains(s, "http://NEW") {
-		t.Fatalf("replace did not write new value: %q", s)
-	}
-	if strings.Contains(s, "http://x") {
-		t.Fatalf("replace left old value: %q", s)
-	}
-	// Ytmusic must still be present.
-	if !strings.Contains(s, "[ytmusic]") {
-		t.Fatalf("replace clobbered ytmusic: %q", s)
-	}
+	checkBody(t, spec.body(values), map[string]string{"cookies_from": `"firefox"`})
 }

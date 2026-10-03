@@ -6,6 +6,15 @@ import "errors"
 // before they can be used.
 var ErrNeedsAuth = errors.New("sign-in required")
 
+// ErrListChanged is returned when a list changed underneath a load that was
+// reading it in pages, so the pages already read can no longer be combined
+// into one coherent result. Reopening the list starts a clean load.
+var ErrListChanged = errors.New("list changed while loading")
+
+// ErrPlaylistUnchanged is returned by the fn of an UpdatePlaylist call when fn
+// made no change. UpdatePlaylist then saves nothing and returns nil.
+var ErrPlaylistUnchanged = errors.New("playlist unchanged")
+
 // PlaylistInfo describes a playlist with its name and track count.
 //
 // DurationSecs is optional: providers that can compute it cheaply should
@@ -20,6 +29,11 @@ var ErrNeedsAuth = errors.New("sign-in required")
 // DirSourceCount is optional: providers that back playlists with [[dir]]
 // directory sources set it so the UI can flag them in the list. A zero value
 // means "none/unknown" and the UI hides the indicator.
+//
+// Favorite is optional: a provider sets it on a row of its favorites
+// section, such as a favorite radio station or a subscribed podcast show.
+// Other rows of the same station or show do not set it. The IPC playlist
+// list reports it.
 type PlaylistInfo struct {
 	ID             string
 	Name           string
@@ -27,6 +41,7 @@ type PlaylistInfo struct {
 	DurationSecs   int
 	Section        string
 	DirSourceCount int
+	Favorite       bool
 }
 
 // Provider is the interface for playlist sources (radio, Navidrome, Spotify, etc.).

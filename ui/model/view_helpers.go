@@ -11,7 +11,6 @@ import (
 
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
-	"github.com/bjarneo/cliamp/ui"
 )
 
 const restrictedViewSuffix = " [E]"
@@ -20,10 +19,29 @@ const restrictedViewSuffix = " [E]"
 // mutating the title used by playlist export, IPC, or media-session metadata.
 func trackViewName(track playlist.Track) string {
 	name := track.DisplayName()
-	if track.Meta(provider.MetaMixcloudExclusive) == "true" {
+	if track.Meta(provider.MetaPodcastFeed) != "" && track.Title != "" {
+		name = podcastEpisodeViewName(track)
+	}
+	if track.Restricted {
 		return strings.TrimSpace(name) + restrictedViewSuffix
 	}
 	return name
+}
+
+// podcastEpisodeViewName avoids repeating the show name in episode rows. Some
+// publishers also include it in the RSS title, so trim that prefix as well.
+func podcastEpisodeViewName(track playlist.Track) string {
+	for _, show := range []string{track.Album, track.Artist} {
+		if show == "" {
+			continue
+		}
+		for _, separator := range []string{" - ", " — ", " – ", ": ", " | "} {
+			if suffix, ok := strings.CutPrefix(track.Title, show+separator); ok && strings.TrimSpace(suffix) != "" {
+				return strings.TrimSpace(suffix)
+			}
+		}
+	}
+	return track.Title
 }
 
 func albumViewName(album provider.AlbumInfo) string {
@@ -84,17 +102,17 @@ func formatPlaylistDuration(secs int) string {
 //
 //	"01. Title · Album         3:42"
 //
-// with the duration right-aligned at ui.PanelWidth - 4 (to leave space for
+// with the duration right-aligned at width - 4 (to leave space for
 // the cursor prefix the caller adds). The title column is truncated as
 // needed; the duration is hidden when secs is 0.
-func formatTrackRow(num int, name string, secs int) string {
+func formatTrackRow(num int, name string, secs, width int) string {
 	const prefixOverhead = 4 // leaves room for "  " / "> " caller prefix
 	dur := formatTrackTime(secs)
 	numStr := fmt.Sprintf("%d. ", num)
 	numLen := lipgloss.Width(numStr)
 	durLen := lipgloss.Width(dur)
 
-	titleBudget := ui.PanelWidth - prefixOverhead - numLen
+	titleBudget := width - prefixOverhead - numLen
 	if dur != "" {
 		titleBudget -= durLen + 1 // +1 for spacing gap
 	}
@@ -106,7 +124,7 @@ func formatTrackRow(num int, name string, secs int) string {
 		return numStr + title
 	}
 
-	pad := ui.PanelWidth - prefixOverhead - durLen - numLen - lipgloss.Width(title)
+	pad := width - prefixOverhead - durLen - numLen - lipgloss.Width(title)
 	if pad < 1 {
 		pad = 1
 	}
@@ -153,24 +171,27 @@ func wrapText(s string, maxW int) []string {
 }
 
 // markerColumns says which optional state columns the playlist rows reserve.
-// The cursor and playing/unavailable cells are always drawn; the rest cost a
-// column of title width each, so they are reserved only once the playlist has
-// something to put in them.
+// The cursor and playing/unavailable cells are always drawn. Queue and played
+// cost a column of title width each, so they are reserved only once the
+// playlist has something to put in them. The favorite column is always
+// reserved: toggling the first/last favorite would otherwise shift every title
+// by one cell.
 type markerColumns struct {
 	queue    bool
-	bookmark bool
 	favorite bool
+	played   bool
 }
 
 // markerColumns decides the reserved marker columns for one render pass. It is
 // a per-pass decision, not a per-row one: a row-by-row choice would shift the
-// title column as you scrolled. With no queue, bookmarks, or favorites the
-// titles start four columns further left.
+// title column as you scrolled. With no queue or playback state the titles
+// start two columns further left; the favorite cell stays put so favoriting
+// never moves the titles.
 func (m Model) markerColumns() markerColumns {
 	return markerColumns{
 		queue:    m.playlist.QueueLen() > 0,
-		bookmark: m.playlist.BookmarkCount() > 0,
-		favorite: len(m.favSet) > 0,
+		favorite: true,
+		played:   m.hasPlaybackState(),
 	}
 }
 
@@ -186,10 +207,14 @@ func cursorLine(label string, active bool) string {
 // view re-renders on the model tick so the spinner advances on its own.
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
+// spinnerInterval is how long each spinner frame stays on the screen. While
+// a spinner shows, the view redraws at least this often.
+const spinnerInterval = 100 * time.Millisecond
+
 // spinnerFrame returns the current animation frame, time-driven so the caller
 // doesn't need to track an animation index.
 func spinnerFrame() string {
-	idx := (time.Now().UnixMilli() / 100) % int64(len(spinnerFrames))
+	idx := (time.Now().UnixMilli() / spinnerInterval.Milliseconds()) % int64(len(spinnerFrames))
 	return spinnerFrames[idx]
 }
 
@@ -220,14 +245,14 @@ func helpKey(key, label string) string {
 	return helpKeyStyle.Render(" "+key+" ") + helpStyle.Render(" "+label)
 }
 
-// fitHelpLine keeps a help line to a single panel-wide row. Overlay help lines
-// are fixed strings that can exceed the panel width and wrap to two rows, which
-// would shift the layout height; this clips them (ANSI-aware) to one row.
-func fitHelpLine(s string) string {
-	if ui.PanelWidth <= 0 || lipgloss.Width(s) <= ui.PanelWidth {
+// fitHelpLine keeps a hint line to a single row width cells wide. A longer
+// line would wrap to two rows and shift the layout height, so this clips it
+// (ANSI-aware) to one row.
+func fitHelpLine(s string, width int) string {
+	if width <= 0 || lipgloss.Width(s) <= width {
 		return s
 	}
-	return ansi.Truncate(s, ui.PanelWidth, "")
+	return ansi.Truncate(s, width, "")
 }
 
 // toggleAlbumHeadersManual flips header visibility and pins the choice so
@@ -242,7 +267,7 @@ func (m *Model) toggleAlbumHeadersManual() {
 // listener left it on the next launch.
 func (m *Model) toggleHelpBar() {
 	m.SetHideHelpBar(!m.hideHelpBar)
-	m.saveConfigKey("hide_help_bar", fmt.Sprintf("%v", m.hideHelpBar))
+	_ = m.saveConfigBool("hide_help_bar", m.hideHelpBar)
 }
 
 // toggleSettingsPane opens or closes the settings pane beside the playlist and
@@ -251,7 +276,7 @@ func (m *Model) toggleHelpBar() {
 // and keeps a source and volume row above it.
 func (m *Model) toggleSettingsPane() {
 	m.SetHideSettingsPane(!m.hideSettings)
-	m.saveConfigKey("hide_settings_pane", fmt.Sprintf("%v", m.hideSettings))
+	_ = m.saveConfigBool("hide_settings_pane", m.hideSettings)
 }
 
 // minTracksPerAlbum is the threshold at which a list is considered cohesive
@@ -263,6 +288,12 @@ const minTracksPerAlbum = 3.0
 // cohesion heuristic. A fresh load also clears any manual override.
 func (m *Model) setHeaderStateFromTracks(tracks []playlist.Track) {
 	m.headerManual = false
+	m.recountHeaderState(tracks)
+}
+
+// recountHeaderState resets the running counters and counts tracks again,
+// after a queue edit that moved or removed tracks. A manual override stays.
+func (m *Model) recountHeaderState(tracks []playlist.Track) {
 	m.headerLastAlbum = ""
 	m.headerSegments = 0
 	m.headerTracks = 0
@@ -349,42 +380,42 @@ func (m Model) playlistRows(tracks []playlist.Track, scroll int, showHeaders boo
 	}
 }
 
-// spotSearchRow is one rendered row of the provider search results: a section
+// searchOverlayRow is one rendered row of the provider search results: a section
 // separator when Index is negative, otherwise the result at Index.
-type spotSearchRow struct {
+type searchOverlayRow struct {
 	Index   int
 	Track   playlist.Track
 	Section string
 }
 
-// spotSearchSection names the section a search result belongs to. Albums are
+// searchOverlaySection names the section a search result belongs to. Albums are
 // placeholders that expand into a record; everything else plays as-is.
-func spotSearchSection(t playlist.Track) string {
+func searchOverlaySection(t playlist.Track) string {
 	if t.IsAlbum() {
 		return "Albums"
 	}
 	return "Tracks"
 }
 
-// spotSearchRows walks the search results from scroll, emitting a separator
+// searchOverlayRows walks the search results from scroll, emitting a separator
 // whenever the section changes. The provider returns albums first, so this
 // yields at most two headers, plus a sticky one at the top of the viewport so
 // the section stays named while scrolling through a long run of results.
-func spotSearchRows(results []playlist.Track, scroll int) iter.Seq[spotSearchRow] {
-	return func(yield func(spotSearchRow) bool) {
+func searchOverlayRows(results []playlist.Track, scroll int) iter.Seq[searchOverlayRow] {
+	return func(yield func(searchOverlayRow) bool) {
 		if len(results) == 0 || scroll < 0 || scroll >= len(results) {
 			return
 		}
 
 		prev := ""
 		for i := scroll; i < len(results); i++ {
-			section := spotSearchSection(results[i])
+			section := searchOverlaySection(results[i])
 			if section != prev {
-				if !yield(spotSearchRow{Index: -1, Section: section}) {
+				if !yield(searchOverlayRow{Index: -1, Section: section}) {
 					return
 				}
 			}
-			if !yield(spotSearchRow{Index: i, Track: results[i]}) {
+			if !yield(searchOverlayRow{Index: i, Track: results[i]}) {
 				return
 			}
 			prev = section
@@ -392,14 +423,14 @@ func spotSearchRows(results []playlist.Track, scroll int) iter.Seq[spotSearchRow
 	}
 }
 
-// spotSearchRowsToCursor counts rendered rows from scroll to cursor inclusive,
+// searchOverlayRowsToCursor counts rendered rows from scroll to cursor inclusive,
 // separators included, so scrolling can account for the space they take.
-func spotSearchRowsToCursor(results []playlist.Track, scroll, cursor int) int {
+func searchOverlayRowsToCursor(results []playlist.Track, scroll, cursor int) int {
 	if len(results) == 0 || scroll < 0 || cursor < scroll || cursor >= len(results) {
 		return 0
 	}
 	rows := 0
-	for row := range spotSearchRows(results, scroll) {
+	for row := range searchOverlayRows(results, scroll) {
 		rows++
 		if row.Index == cursor {
 			break
@@ -430,18 +461,18 @@ func (m Model) albumSeparatorRows(tracks []playlist.Track, scroll, cursor int, s
 	return rows
 }
 
-// separatorLine pads or truncates an unstyled separator to exactly fill the
-// playlist pane width. The caller styles the result, so the "─" fill is added
-// bare; use fillSeparator for a line that is already rendered.
-func separatorLine(line string) string {
-	if ui.PanelWidth <= 0 {
+// separatorLine pads or truncates an unstyled separator to exactly width
+// cells. The caller styles the result, so the "─" fill is added bare; use
+// fillSeparator for a line that is already rendered.
+func separatorLine(line string, width int) string {
+	if width <= 0 {
 		return ""
 	}
 	switch w := lipgloss.Width(line); {
-	case w < ui.PanelWidth:
-		return line + strings.Repeat("─", ui.PanelWidth-w)
-	case w > ui.PanelWidth:
-		return ansi.Truncate(line, ui.PanelWidth, "")
+	case w < width:
+		return line + strings.Repeat("─", width-w)
+	case w > width:
+		return ansi.Truncate(line, width, "")
 	default:
 		return line
 	}
@@ -462,26 +493,26 @@ func fillSeparator(line string, width int) string {
 	return ansi.Truncate(line, width, "")
 }
 
-// labeledSeparator builds a labeled separator line.
-func labeledSeparator(indent, label string) string {
-	return separatorLine(indent + "── " + label + " ")
+// labeledSeparator builds a labeled separator line width cells wide.
+func labeledSeparator(indent, label string, width int) string {
+	return separatorLine(indent+"── "+label+" ", width)
 }
 
 // albumSeparator builds an album separator line.
 func (m Model) albumSeparator(album string, year int) string {
 	if album == "" {
-		return dimStyle.Render(strings.Repeat("─", ui.PanelWidth))
+		return dimStyle.Render(strings.Repeat("─", m.layout.panelWidth))
 	}
 	label := album
 	if year != 0 {
 		label += fmt.Sprintf(" (%d)", year)
 	}
-	return dimStyle.Render(labeledSeparator("", label))
+	return dimStyle.Render(labeledSeparator("", label, m.layout.panelWidth))
 }
 
 // navScrollItems renders a filtered or unfiltered scrolled list for nav browsers.
 func (m Model) navScrollItems(total int, labelFn func(int) string) []string {
-	maxVisible := m.navVisible()
+	maxVisible := m.effectivePlaylistVisible()
 
 	useFilter := len(m.navBrowser.searchIdx) > 0 || m.navBrowser.search != ""
 	scroll := m.navBrowser.scroll

@@ -137,7 +137,7 @@ func TestTagBrowserLoadsExactTagWithSelectedSort(t *testing.T) {
 	}
 	want := []playlist.Track{{
 		Path: "https://jazz.example/stream", Title: "Jazz FM [128k] · UK", Genre: "jazz,smooth jazz", Stream: true, Realtime: true,
-		ProviderMeta: map[string]string{"radio.country": "UK", "radio.codec": "AAC", "radio.bitrate": "128", "radio.state": "London"},
+		ProviderMeta: map[string]string{"radio.name": "Jazz FM", "radio.url": "https://jazz.example/stream", "radio.country": "UK", "radio.codec": "AAC", "radio.bitrate": "128", "radio.state": "London"},
 	}}
 	if !reflect.DeepEqual(tracks, want) {
 		t.Fatalf("tracks = %+v, want %+v", tracks, want)

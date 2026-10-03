@@ -44,7 +44,7 @@ const favoriteTracksLimit = 500
 // TrackURIPrefix is the custom URI scheme for Tidal tracks. Track paths are
 // "tidal://track/<id>"; the player resolves them to a fresh signed URL (or
 // DASH segment list) at play time via the SourceResolver registered in
-// main.go, so queue entries never hold expirable URLs.
+// providers.go, so queue entries never hold expirable URLs.
 const TrackURIPrefix = "tidal://track/"
 
 // albumSortTypes is the static sort list for Tidal album browsing. The private
@@ -55,7 +55,8 @@ var albumSortTypes = []provider.SortType{
 
 // TidalProvider implements playlist.Provider backed by Tidal's private client
 // API. Tracks carry tidal:// URIs; ResolveSource turns them into playable
-// sources when playback starts (see stream.go for the URL registry).
+// sources when playback starts. providers.go marks the resolved URL as
+// Buffered.
 type TidalProvider struct {
 	quality      string // normalized Tidal audioquality value
 	clientID     string
@@ -68,6 +69,7 @@ type TidalProvider struct {
 	mu         sync.Mutex
 	client     *client
 	authCancel context.CancelFunc
+	authGen    uint64 // counts sign-ins, so a call clears only its own authCancel
 
 	listCache  []playlist.PlaylistInfo
 	trackCache map[string][]playlist.Track
@@ -124,9 +126,17 @@ func (p *TidalProvider) ensureClient() (*client, error) {
 	return c, nil
 }
 
+// signIn runs the interactive sign-in. Tests replace it.
+var signIn = newClientInteractive
+
 // Authenticate runs the interactive device-flow sign-in (shows a
 // link.tidal.com URL, waits for approval). Implements playlist.Authenticator.
 func (p *TidalProvider) Authenticate() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	// Cancel the old flow and register this one in one lock hold, so a
+	// newer call or Close always finds the flow that runs.
 	p.mu.Lock()
 	if p.client != nil {
 		p.mu.Unlock()
@@ -134,21 +144,19 @@ func (p *TidalProvider) Authenticate() error {
 	}
 	if p.authCancel != nil {
 		p.authCancel()
-		p.authCancel = nil
 	}
-	p.mu.Unlock()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	p.mu.Lock()
+	p.authGen++
+	gen := p.authGen
 	p.authCancel = cancel
 	p.mu.Unlock()
 
-	c, err := newClientInteractive(ctx, p.clientID, p.clientSecret)
+	c, err := signIn(ctx, p.clientID, p.clientSecret)
 
 	p.mu.Lock()
-	p.authCancel = nil
+	if p.authGen == gen {
+		p.authCancel = nil
+	}
 	p.mu.Unlock()
-	cancel()
 
 	if err != nil {
 		return err
@@ -179,17 +187,20 @@ func (p *TidalProvider) Refresh() {
 	p.mu.Unlock()
 }
 
-// mapErr translates client errors into provider-level errors: a revoked
+// mapErr translates errors of client c into provider-level errors: a revoked
 // refresh token drops the cached client so the next access runs the
-// interactive sign-in instead of failing forever.
-func (p *TidalProvider) mapErr(err error) error {
+// interactive sign-in instead of failing forever. It drops the client only
+// when it is still c, so a slow request keeps the client of a newer sign-in.
+func (p *TidalProvider) mapErr(c *client, err error) error {
 	if err == nil {
 		return nil
 	}
 	if errors.Is(err, errAuthRevoked) {
-		applog.UserWarn("tidal: session revoked, sign in again")
 		p.mu.Lock()
-		p.client = nil
+		if p.client == c {
+			p.client = nil
+			applog.UserWarn("tidal: session revoked, sign in again")
+		}
 		p.mu.Unlock()
 		return playlist.ErrNeedsAuth
 	}
@@ -217,7 +228,7 @@ func (p *TidalProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 
 	pls, err := c.userPlaylists(ctx)
 	if err != nil {
-		return nil, p.mapErr(err)
+		return nil, p.mapErr(c, err)
 	}
 
 	lists := []playlist.PlaylistInfo{
@@ -288,7 +299,7 @@ func (p *TidalProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 		apiTracks, err = c.playlistTracks(ctx, playlistID)
 	}
 	if err != nil {
-		return nil, p.mapErr(err)
+		return nil, p.mapErr(c, err)
 	}
 
 	tracks := tracksFromAPI(apiTracks, nil)
@@ -329,7 +340,7 @@ func (p *TidalProvider) SearchTracks(ctx context.Context, query string, limit in
 	}()
 	wg.Wait()
 	if trackErr != nil {
-		return nil, p.mapErr(trackErr)
+		return nil, p.mapErr(c, trackErr)
 	}
 	if albumErr != nil {
 		// Tracks still answer the query; degrade to a track-only result.
@@ -357,7 +368,7 @@ func (p *TidalProvider) Artists() ([]provider.ArtistInfo, error) {
 
 	artists, err := c.favoriteArtists(ctx)
 	if err != nil {
-		return nil, p.mapErr(err)
+		return nil, p.mapErr(c, err)
 	}
 	out := make([]provider.ArtistInfo, 0, len(artists))
 	for _, a := range artists {
@@ -380,7 +391,7 @@ func (p *TidalProvider) ArtistAlbums(artistID string) ([]provider.AlbumInfo, err
 
 	albums, err := c.artistAlbums(ctx, artistID)
 	if err != nil {
-		return nil, p.mapErr(err)
+		return nil, p.mapErr(c, err)
 	}
 	out := make([]provider.AlbumInfo, 0, len(albums))
 	for _, a := range albums {
@@ -401,7 +412,7 @@ func (p *TidalProvider) AlbumList(_ string, offset, size int) ([]provider.AlbumI
 
 	albums, err := c.favoriteAlbums(ctx, offset, size)
 	if err != nil {
-		return nil, p.mapErr(err)
+		return nil, p.mapErr(c, err)
 	}
 	out := make([]provider.AlbumInfo, 0, len(albums))
 	for _, a := range albums {
@@ -443,10 +454,10 @@ func (p *TidalProvider) AlbumTracks(albumID string) ([]playlist.Track, error) {
 	}()
 	wg.Wait()
 	if albumErr != nil {
-		return nil, p.mapErr(albumErr)
+		return nil, p.mapErr(c, albumErr)
 	}
 	if tracksErr != nil {
-		return nil, p.mapErr(tracksErr)
+		return nil, p.mapErr(c, tracksErr)
 	}
 	return tracksFromAPI(tracks, &album), nil
 }
@@ -493,7 +504,8 @@ func trackFromAPI(t apiTrack, albumFallback *apiAlbum) playlist.Track {
 // playback starts: a direct CDN URL for BTS (AAC) deliveries, or the DASH
 // segment list for FLAC. Resolving at play time keeps signed URLs fresh no
 // matter how long the track sat in a queue, and reports server-side quality
-// downgrades. It is registered as the player's SourceResolver in main.go.
+// downgrades. It is registered as the player's SourceResolver in
+// providers.go.
 func (p *TidalProvider) ResolveSource(uri string) (streamURL string, segments []string, err error) {
 	trackID := strings.TrimPrefix(uri, TrackURIPrefix)
 	if trackID == "" || trackID == uri {
@@ -510,7 +522,7 @@ func (p *TidalProvider) ResolveSource(uri string) (streamURL string, segments []
 	requested := requestQuality(p.quality)
 	pi, err := c.playbackInfo(ctx, trackID, requested)
 	if err != nil {
-		return "", nil, p.mapErr(err)
+		return "", nil, p.mapErr(c, err)
 	}
 	src, err := streamSourceFromManifest(pi)
 	if err != nil {
@@ -528,7 +540,6 @@ func (p *TidalProvider) ResolveSource(uri string) (streamURL string, segments []
 		return "", src.segments, nil
 	}
 	applog.Info("tidal: track %s delivered %s via direct URL (AAC)", trackID, src.quality)
-	streamURLs.register(trackID, src.url)
 	return src.url, nil, nil
 }
 

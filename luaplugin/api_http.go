@@ -65,9 +65,7 @@ const maxResponseBody = 1 << 20 // 1MB
 func doHTTP(L *lua.LState, method string) int {
 	rawURL := L.CheckString(1)
 	if u, err := url.Parse(rawURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-		L.Push(lua.LNil)
-		L.Push(lua.LString("only http and https URLs are allowed"))
-		return 2
+		return pushErr(L, "only http and https URLs are allowed")
 	}
 	opts := L.OptTable(2, nil)
 
@@ -78,9 +76,7 @@ func doHTTP(L *lua.LState, method string) int {
 			goVal := luaToGo(jsonVal)
 			data, err := json.Marshal(goVal)
 			if err != nil {
-				L.Push(lua.LNil)
-				L.Push(lua.LString(err.Error()))
-				return 2
+				return pushErr(L, err.Error())
 			}
 			bodyReader = strings.NewReader(string(data))
 		}
@@ -91,11 +87,9 @@ func doHTTP(L *lua.LState, method string) int {
 		}
 	}
 
-	req, err := http.NewRequest(method, rawURL, bodyReader)
+	req, err := http.NewRequestWithContext(callContext(L), method, rawURL, bodyReader)
 	if err != nil {
-		L.Push(lua.LNil)
-		L.Push(lua.LString(err.Error()))
-		return 2
+		return pushErr(L, err.Error())
 	}
 
 	// Apply headers from opts.
@@ -115,17 +109,13 @@ func doHTTP(L *lua.LState, method string) int {
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		L.Push(lua.LNil)
-		L.Push(lua.LString(err.Error()))
-		return 2
+		return pushErr(L, err.Error())
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if err != nil {
-		L.Push(lua.LNil)
-		L.Push(lua.LString(err.Error()))
-		return 2
+		return pushErr(L, err.Error())
 	}
 
 	L.Push(lua.LString(string(body)))

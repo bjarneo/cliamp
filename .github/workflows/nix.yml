@@ -1,0 +1,62 @@
+name: Nix
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer commit makes the older Nix result obsolete for the same PR or branch.
+concurrency:
+  group: nix-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nix:
+    name: build (ubuntu-24.04, linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - uses: DeterminateSystems/magic-nix-cache-action@6221693898146dc97e38ad0e013488a16477a4c4 # v15
+        with:
+          use-gha-cache: enabled
+          use-flakehub: disabled
+      # Validate the flake outputs for every declared system before building.
+      - name: Evaluate flake
+        run: nix flake check --all-systems --no-build --show-trace
+      # This builds the native x86_64-linux package.
+      - name: Build package
+        run: nix build .#default --print-build-logs --show-trace
+      - name: Run package
+        run: nix run .#default -- --version
+
+  nix-darwin:
+    name: build (macos-26, darwin)
+    runs-on: macos-26
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - uses: DeterminateSystems/magic-nix-cache-action@6221693898146dc97e38ad0e013488a16477a4c4 # v15
+        with:
+          use-gha-cache: enabled
+          use-flakehub: disabled
+      # Build the declared aarch64-darwin package on a native macOS runner.
+      - name: Build package
+        run: nix build .#default --print-build-logs --show-trace
+      - name: Run package
+        run: nix run .#default -- --version

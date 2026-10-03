@@ -19,11 +19,14 @@ type pluginEmitState struct {
 }
 
 // emitPlugin sends a single event to plugins, guarding the nil/has-hooks case
-// so callers don't repeat it. Safe to call when no plugins are loaded.
+// so callers don't repeat it. Safe to call when no plugins are loaded. It
+// publishes the plugin state first, so a hook that reads cliamp.* sees the
+// change that the event reports.
 func (m *Model) emitPlugin(event string, data map[string]any) {
 	if m.luaMgr == nil || !m.luaMgr.HasHook(event) {
 		return
 	}
+	m.publishPluginState()
 	m.luaMgr.Emit(event, data)
 }
 
@@ -59,7 +62,7 @@ func (m *Model) emitPluginEvents() {
 		repeat := m.playlist.Repeat().String()
 		if shuffle != pe.shuffle || repeat != pe.repeat {
 			pe.shuffle, pe.repeat = shuffle, repeat
-			m.luaMgr.Emit(luaplugin.EventPlayerMode, map[string]any{
+			m.emitPlugin(luaplugin.EventPlayerMode, map[string]any{
 				"shuffle": shuffle,
 				"repeat":  repeat,
 			})
@@ -69,14 +72,14 @@ func (m *Model) emitPluginEvents() {
 	if m.luaMgr.HasHook(luaplugin.EventPlayerVolume) {
 		if v := m.player.Volume(); v != pe.volume {
 			pe.volume = v
-			m.luaMgr.Emit(luaplugin.EventPlayerVolume, map[string]any{"db": v})
+			m.emitPlugin(luaplugin.EventPlayerVolume, map[string]any{"db": v})
 		}
 	}
 
 	if m.luaMgr.HasHook(luaplugin.EventPlayerEQ) {
 		if bands := m.player.EQBands(); bands != pe.eqBands {
 			pe.eqBands = bands
-			m.luaMgr.Emit(luaplugin.EventPlayerEQ, map[string]any{
+			m.emitPlugin(luaplugin.EventPlayerEQ, map[string]any{
 				"bands":  bands[:],
 				"preset": m.EQPresetName(),
 			})
@@ -87,7 +90,7 @@ func (m *Model) emitPluginEvents() {
 		count, index, qlen := m.playlist.Len(), m.playlist.Index(), m.playlist.QueueLen()
 		if count != pe.plCount || index != pe.plIndex || qlen != pe.queueLen {
 			pe.plCount, pe.plIndex, pe.queueLen = count, index, qlen
-			m.luaMgr.Emit(luaplugin.EventQueueChange, map[string]any{
+			m.emitPlugin(luaplugin.EventQueueChange, map[string]any{
 				"count":  count,
 				"index":  index,
 				"queued": qlen,

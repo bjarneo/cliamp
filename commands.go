@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -17,9 +19,12 @@ import (
 	"github.com/bjarneo/cliamp/external/qobuz"
 	"github.com/bjarneo/cliamp/external/spotify"
 	"github.com/bjarneo/cliamp/external/tidal"
+	"github.com/bjarneo/cliamp/external/ytmusic"
 	"github.com/bjarneo/cliamp/ipc"
 	"github.com/bjarneo/cliamp/player"
+	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/pluginmgr"
+	"github.com/bjarneo/cliamp/resolve"
 	"github.com/bjarneo/cliamp/session"
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
@@ -30,14 +35,15 @@ import (
 // subcommands, most of which are thin IPC clients for a running instance.
 func buildApp() *cli.Command {
 	rootFlags := []cli.Flag{
-		&cli.Float64Flag{Name: "vol", Usage: "startup volume in dB [-30, +6]"},
+		&cli.Float64Flag{Name: "vol", Usage: "startup volume in dB [volume_min, +6]"},
 		&cli.BoolWithInverseFlag{Name: "shuffle", Usage: "shuffle playback"},
 		&cli.StringFlag{Name: "repeat", Usage: "repeat mode: off, all, one"},
 		&cli.BoolWithInverseFlag{Name: "mono", Usage: "mono output"},
 		&cli.BoolWithInverseFlag{Name: "auto-play", Usage: "start playback immediately"},
 		&cli.BoolWithInverseFlag{Name: "simplified", Usage: "simplified playback view (no visualizer or playlist)"},
 		&cli.BoolWithInverseFlag{Name: "help-bar", Usage: "show the key-binding hint bar (? still opens the full keymap)", Value: true},
-		&cli.StringFlag{Name: "provider", Usage: "default provider: radio, podcast, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, soundcloud, mixcloud, netease, yandex, audiobookshelf, abs, yt, youtube, ytmusic"},
+		&cli.BoolWithInverseFlag{Name: "expanded", Usage: "start with the playlist expanded (the Ctrl+X state)"},
+		&cli.StringFlag{Name: "provider", Usage: providerFlagUsage()},
 		&cli.StringFlag{Name: "start-theme", Usage: "UI theme name"},
 		&cli.StringFlag{Name: "visualizer", Usage: "visualizer mode"},
 		&cli.BoolFlag{Name: "visualizer-60fps", Usage: "render visualizer at 60 FPS (higher CPU use)"},
@@ -49,7 +55,7 @@ func buildApp() *cli.Command {
 		&cli.StringFlag{Name: "audio-device", Usage: "audio output device (use 'list' to show)"},
 		&cli.StringFlag{Name: "playlist", Usage: "load a local TOML playlist by name and start playing"},
 		&cli.StringFlag{Name: "log-level", Usage: "log level: debug, info, warn, error"},
-		&cli.BoolWithInverseFlag{Name: "expand-playlist", Usage: "expand YouTube Music playlists from list= URLs"},
+		&cli.BoolWithInverseFlag{Name: "expand-playlist", Usage: "expand YouTube and YouTube Music list= URLs to the full playlist", Value: true},
 		&cli.BoolWithInverseFlag{Name: "low-power", Usage: "low-power mode: reduce CPU by lowering UI cadence and disabling visualization"},
 		&cli.BoolFlag{Name: "daemon", Aliases: []string{"d"}, Usage: "run detached: no terminal of its own, serving IPC and `cliamp attach`"},
 	}
@@ -57,7 +63,7 @@ func buildApp() *cli.Command {
 	return &cli.Command{
 		Name:                  "cliamp",
 		Usage:                 "retro terminal music player",
-		Version:               version,
+		Version:               buildVersion(),
 		EnableShellCompletion: true,
 		Flags:                 rootFlags,
 		Action: func(ctx context.Context, c *cli.Command) error {
@@ -75,10 +81,12 @@ func buildApp() *cli.Command {
 			pluginsCommand(),
 			playlistCommand(),
 			historyCommand(),
+			radioCommand(),
 			setupCommand(),
 			spotifyCommand(),
 			qobuzCommand(),
 			tidalCommand(),
+			ytmusicCommand(),
 			ipcSimpleCommand("play", "resume playback"),
 			ipcSimpleCommand("pause", "pause playback"),
 			ipcSimpleCommand("toggle", "play/pause toggle"),
@@ -162,17 +170,16 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 		v := !c.Bool("help-bar")
 		ov.HideHelpBar = &v
 	}
+	if c.IsSet("expanded") {
+		v := c.Bool("expanded")
+		ov.Expanded = &v
+	}
 	if c.IsSet("provider") {
-		v := strings.ToLower(c.String("provider"))
-		if v == "abs" {
-			v = "audiobookshelf"
+		v, err := parseProviderKey(c.String("provider"))
+		if err != nil {
+			return ov, err
 		}
-		switch v {
-		case "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "audiobookshelf", "soundcloud", "mixcloud", "netease", "yandex", "yt", "youtube", "ytmusic":
-			ov.Provider = &v
-		default:
-			return ov, fmt.Errorf("--provider must be radio, podcast, navidrome, lyrion, spotify, qobuz, tidal, plex, jellyfin, emby, audiobookshelf, soundcloud, mixcloud, netease, yandex, yt, youtube, or ytmusic (got %q)", v)
-		}
+		ov.Provider = &v
 	}
 	if c.IsSet("start-theme") {
 		v := c.String("start-theme")
@@ -233,7 +240,7 @@ func upgradeCommand() *cli.Command {
 		Name:  "upgrade",
 		Usage: "upgrade cliamp to the latest stable release",
 		Flags: []cli.Flag{
-			&cli.BoolFlag{Name: "prerelease", Usage: "upgrade to the latest prerelease"},
+			&cli.BoolFlag{Name: "prerelease", Usage: "upgrade to the newest release, prereleases included"},
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
 			return upgrade.Run(version, c.Bool("prerelease"))
@@ -301,7 +308,7 @@ func pluginsCommand() *cli.Command {
 					if len(args) < 2 {
 						return fmt.Errorf("usage: cliamp plugins call <plugin> <command> [args...]")
 					}
-					resp, err := ipcSendLong("plugin.call", ipc.Request{
+					resp, err := ipcSendWithin("plugin.call", ipc.Request{
 						Name: args[0],
 						Sub:  args[1],
 						Args: args[2:],
@@ -371,6 +378,39 @@ func protocolCommand() *cli.Command {
 	}
 }
 
+// radioCommand is an easter egg: the "who's listening" globe from
+// cliamp.stream, in the terminal. The website's stats card shows the command
+// as a prompt; it is left out of the help listing so that stays the only hint.
+func radioCommand() *cli.Command {
+	return &cli.Command{
+		Name:   "radio",
+		Usage:  "who is listening to the cliamp radio channels",
+		Hidden: true,
+		Description: "Shows live listener statistics for the cliamp radio channels from\n" +
+			"radio.cliamp.stream: listeners now on the live streams and the channel\n" +
+			"playlists, by country and by channel, plus the all-time totals of the\n" +
+			"live streams. --globe draws them on a spinning globe, like the one on\n" +
+			"cliamp.stream.",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "stats", Usage: "print live listener statistics"},
+			&cli.BoolFlag{Name: "globe", Usage: "show the statistics on an animated globe (implies --stats)"},
+			&cli.BoolFlag{Name: "json", Usage: "print the raw statistics document of the live streams (implies --stats)"},
+		},
+		Action: func(ctx context.Context, c *cli.Command) error {
+			switch {
+			case c.Bool("globe") && c.Bool("json"):
+				return fmt.Errorf("--globe and --json cannot be combined")
+			case c.Bool("globe"):
+				return cmd.RadioGlobe(ctx, c.Root().String("start-theme"))
+			case c.Bool("stats") || c.Bool("json"):
+				return cmd.RadioStats(ctx, os.Stdout, c.Bool("json"))
+			default:
+				return cli.ShowSubcommandHelp(c)
+			}
+		},
+	}
+}
+
 func setupCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "setup",
@@ -414,6 +454,10 @@ func tidalCommand() *cli.Command {
 		},
 	})
 	return cmd
+}
+
+func ytmusicCommand() *cli.Command {
+	return providerCredsCommand("ytmusic", "YouTube Music", ytmusic.CredsPath, ytmusic.DeleteCreds)
 }
 
 // providerCredsCommand builds the `cliamp <provider> reset` subcommand shared
@@ -625,24 +669,26 @@ func playlistCommand() *cli.Command {
 				},
 			},
 			{
-				Name:      "bookmark",
-				Usage:     "toggle bookmark on a track by index",
+				Name:      "favorite",
+				Aliases:   []string{"bookmark"},
+				Usage:     "toggle the favorite of a track by index",
 				ArgsUsage: "\"Name\"",
 				Flags: []cli.Flag{
 					&cli.IntFlag{Name: "index", Usage: "track index (1-based)", Required: true},
 				},
 				Action: func(ctx context.Context, c *cli.Command) error {
 					if c.Args().Len() == 0 {
-						return fmt.Errorf("usage: cliamp playlist bookmark \"Name\" --index N")
+						return fmt.Errorf("usage: cliamp playlist favorite \"Name\" --index N")
 					}
-					return cmd.PlaylistBookmark(c.Args().First(), int(c.Int("index")))
+					return cmd.PlaylistFavorite(c.Args().First(), int(c.Int("index")))
 				},
 			},
 			{
-				Name:  "bookmarks",
-				Usage: "list all bookmarked tracks across playlists",
+				Name:    "favorites",
+				Aliases: []string{"bookmarks"},
+				Usage:   "list all favorite tracks",
 				Action: func(ctx context.Context, c *cli.Command) error {
-					return cmd.PlaylistBookmarks()
+					return cmd.PlaylistFavorites()
 				},
 			},
 			{
@@ -667,7 +713,7 @@ func historyCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "history",
 		Usage: "show recently played tracks",
-		Description: "Lists tracks that have been played past the scrobble threshold.\n" +
+		Description: "Lists recently played tracks. A track is recorded when it starts to play.\n" +
 			"Browse the same data inside the TUI under Local Playlists →\n" +
 			"\"Recently Played\".",
 		Flags: []cli.Flag{
@@ -756,7 +802,7 @@ func statusCommand() *cli.Command {
 			if c.Bool("json") {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
-				return enc.Encode(resp)
+				return enc.Encode(newStatusJSON(resp))
 			}
 			state := resp.State
 			if state == "" {
@@ -804,8 +850,12 @@ func statusCommand() *cli.Command {
 func volumeCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "volume",
-		Usage:     "adjust volume in dB",
+		Usage:     "set the volume to an absolute level in dB",
 		ArgsUsage: "<dB>",
+		Description: "Sets the volume to <dB>. A sign does not make the value relative:\n" +
+			"cliamp volume -3 sets the volume to -3 dB. cliamp clamps the value to\n" +
+			"the range volume_min to +6 dB. To step the volume, run\n" +
+			"cliamp remote call volume.adjust --params '{\"value\":3}'.",
 		Action: func(ctx context.Context, c *cli.Command) error {
 			if c.Args().Len() == 0 {
 				return fmt.Errorf("usage: cliamp volume <dB>")
@@ -823,7 +873,7 @@ func volumeCommand() *cli.Command {
 func seekCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "seek",
-		Usage:     "seek to position in seconds",
+		Usage:     "seek by a relative offset in seconds",
 		ArgsUsage: "<seconds>",
 		Action: func(ctx context.Context, c *cli.Command) error {
 			if c.Args().Len() == 0 {
@@ -848,7 +898,7 @@ func loadCommand() *cli.Command {
 			if c.Args().Len() == 0 {
 				return fmt.Errorf("usage: cliamp load \"Playlist Name\"")
 			}
-			_, err := ipcSend("load", ipc.Request{Playlist: c.Args().First()})
+			_, err := ipcSendWithin("load", ipc.Request{Playlist: c.Args().First()}, ipcLoadWait)
 			return err
 		},
 	}
@@ -863,10 +913,31 @@ func queueCommand() *cli.Command {
 			if c.Args().Len() == 0 {
 				return fmt.Errorf("usage: cliamp queue /path/to/file.mp3")
 			}
-			_, err := ipcSend("queue", ipc.Request{Path: c.Args().First()})
+			path, err := queuePath(c.Args().First())
+			if err != nil {
+				return err
+			}
+			_, err = ipcSend("queue", ipc.Request{Path: path})
 			return err
 		},
 	}
+}
+
+// queuePath returns the path that cliamp queue sends for arg. A local file
+// gets an absolute path, because the running cliamp has its own working
+// directory. A URL or another URI, such as spotify:track:..., goes as it is.
+// A missing file or a directory is an error.
+func queuePath(arg string) (string, error) {
+	info, err := os.Stat(arg)
+	switch {
+	case err == nil && info.IsDir():
+		return "", fmt.Errorf("queue: %s is a directory", arg)
+	case err == nil:
+		return filepath.Abs(arg)
+	case playlist.IsURL(arg) || resolve.URIScheme(arg) != "":
+		return arg, nil
+	}
+	return "", fmt.Errorf("queue: %w", err)
 }
 
 func themeCommand() *cli.Command {
@@ -879,7 +950,15 @@ func themeCommand() *cli.Command {
 				return fmt.Errorf("usage: cliamp theme <name|list>")
 			}
 			if strings.EqualFold(c.Args().First(), "list") {
-				themes := theme.LoadAll()
+				// The list is read here, so it works when cliamp is not
+				// running. It starts with the terminal colors, as the IPC
+				// theme list does. No log file is open yet, so the skipped
+				// theme files go to stderr.
+				themes, errs := theme.LoadAllWithErrors()
+				for _, err := range errs {
+					fmt.Fprintln(os.Stderr, err)
+				}
+				fmt.Printf("  %s\n", theme.DefaultName)
 				for _, t := range themes {
 					fmt.Printf("  %s\n", t.Name)
 				}
@@ -915,6 +994,28 @@ func visStreamCommand() *cli.Command {
 	}
 }
 
+// visModes returns the modes that cliamp vis list prints and the row of the
+// active mode, or -1. A running cliamp lists its Lua visualizers too and
+// gives the active row, because a Lua mode can have the name of a built-in
+// mode. A cliamp that gives no row marks the first row with the active
+// name. With no running cliamp, or in headless mode, it lists the built-in
+// modes.
+func visModes() (names []string, active int, running bool) {
+	names = ui.VisModeNames()
+	snapshot, err := ipcState()
+	if err != nil {
+		return names, -1, false
+	}
+	if resp, err := ipcSend("vis", ipc.Request{Name: "list"}); err == nil && len(resp.Items) > 0 {
+		names = resp.Items
+		if resp.Visualizer != "" && resp.Index >= 0 && resp.Index < len(names) {
+			return names, resp.Index, true
+		}
+	}
+	active = slices.IndexFunc(names, func(name string) bool { return strings.EqualFold(name, snapshot.Visualizer) })
+	return names, active, true
+}
+
 func visCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "vis",
@@ -925,15 +1026,13 @@ func visCommand() *cli.Command {
 				return fmt.Errorf("usage: cliamp vis <name|next|list>")
 			}
 			if strings.EqualFold(c.Args().First(), "list") {
-				var active string
-				if snapshot, err := ipcState(); err == nil {
-					active = snapshot.Visualizer
-				} else {
+				names, active, running := visModes()
+				if !running {
 					fmt.Fprintln(os.Stderr, "(cliamp not running — active marker unavailable)")
 				}
-				for _, name := range ui.VisModeNames() {
+				for i, name := range names {
 					marker := "  "
-					if strings.EqualFold(name, active) {
+					if i == active {
 						marker = "* "
 					}
 					fmt.Printf("%s%s\n", marker, name)
@@ -951,27 +1050,7 @@ func visCommand() *cli.Command {
 }
 
 func shuffleCommand() *cli.Command {
-	return &cli.Command{
-		Name:      "shuffle",
-		Usage:     "toggle or set shuffle mode",
-		ArgsUsage: "[on|off|toggle]",
-		Action: func(ctx context.Context, c *cli.Command) error {
-			name := "toggle"
-			if c.Args().Len() > 0 {
-				name = strings.ToLower(c.Args().First())
-			}
-			resp, err := ipcSend("shuffle", ipc.Request{Name: name})
-			if err != nil {
-				return err
-			}
-			if resp.Shuffle != nil && *resp.Shuffle {
-				fmt.Println("Shuffle: on")
-			} else {
-				fmt.Println("Shuffle: off")
-			}
-			return nil
-		},
-	}
+	return switchCommand("shuffle", "toggle or set shuffle mode", "Shuffle", func(r ipc.Response) *bool { return r.Shuffle })
 }
 
 func repeatCommand() *cli.Command {
@@ -995,23 +1074,29 @@ func repeatCommand() *cli.Command {
 }
 
 func monoCommand() *cli.Command {
+	return switchCommand("mono", "toggle or set mono output", "Mono", func(r ipc.Response) *bool { return r.Mono })
+}
+
+// switchCommand builds a command that toggles an on and off setting, or sets
+// it to on or off. It prints the new state from the result.
+func switchCommand(name, usage, label string, state func(ipc.Response) *bool) *cli.Command {
 	return &cli.Command{
-		Name:      "mono",
-		Usage:     "toggle or set mono output",
+		Name:      name,
+		Usage:     usage,
 		ArgsUsage: "[on|off|toggle]",
 		Action: func(ctx context.Context, c *cli.Command) error {
-			name := "toggle"
+			value := "toggle"
 			if c.Args().Len() > 0 {
-				name = strings.ToLower(c.Args().First())
+				value = strings.ToLower(c.Args().First())
 			}
-			resp, err := ipcSend("mono", ipc.Request{Name: name})
+			resp, err := ipcSend(name, ipc.Request{Name: value})
 			if err != nil {
 				return err
 			}
-			if resp.Mono != nil && *resp.Mono {
-				fmt.Println("Mono: on")
+			if on := state(resp); on != nil && *on {
+				fmt.Printf("%s: on\n", label)
 			} else {
-				fmt.Println("Mono: off")
+				fmt.Printf("%s: off\n", label)
 			}
 			return nil
 		},
@@ -1117,9 +1202,9 @@ func remoteCommand() *cli.Command {
 				Name:  "state",
 				Usage: "print the complete runtime snapshot as JSON",
 				Action: func(ctx context.Context, c *cli.Command) error {
-					response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{ID: json.RawMessage(`"cliamp"`), Method: "state.get"})
+					response, err := sendV2(ipc.V2Request{Method: "state.get"})
 					if err != nil {
-						return userIPCError(err)
+						return err
 					}
 					return printV2Response(response)
 				},
@@ -1128,9 +1213,9 @@ func remoteCommand() *cli.Command {
 				Name:  "capabilities",
 				Usage: "print available v2 operations as JSON",
 				Action: func(ctx context.Context, c *cli.Command) error {
-					response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{ID: json.RawMessage(`"cliamp"`), Method: "capabilities"})
+					response, err := sendV2(ipc.V2Request{Method: "capabilities"})
 					if err != nil {
-						return userIPCError(err)
+						return err
 					}
 					return printV2Response(response)
 				},
@@ -1151,14 +1236,13 @@ func remoteCommand() *cli.Command {
 					if !json.Valid(params) {
 						return fmt.Errorf("--params must be a JSON value")
 					}
-					response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{
-						ID:        json.RawMessage(`"cliamp"`),
+					response, err := sendV2(ipc.V2Request{
 						Method:    "operation.submit",
 						Operation: c.Args().First(),
 						Params:    params,
 					})
 					if err != nil {
-						return userIPCError(err)
+						return err
 					}
 					if err := v2ResponseError(response); err != nil {
 						return err
@@ -1180,9 +1264,9 @@ func remoteCommand() *cli.Command {
 					if c.Args().Len() == 0 {
 						return fmt.Errorf("usage: cliamp remote job <job-id>")
 					}
-					response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{ID: json.RawMessage(`"cliamp"`), Method: "job.get", JobID: c.Args().First()})
+					response, err := sendV2(ipc.V2Request{Method: "job.get", JobID: c.Args().First()})
 					if err != nil {
-						return userIPCError(err)
+						return err
 					}
 					return printV2Response(response)
 				},
@@ -1195,9 +1279,9 @@ func remoteCommand() *cli.Command {
 					if c.Args().Len() == 0 {
 						return fmt.Errorf("usage: cliamp remote cancel <job-id>")
 					}
-					response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{ID: json.RawMessage(`"cliamp"`), Method: "job.cancel", JobID: c.Args().First()})
+					response, err := sendV2(ipc.V2Request{Method: "job.cancel", JobID: c.Args().First()})
 					if err != nil {
-						return userIPCError(err)
+						return err
 					}
 					return printV2Response(response)
 				},
@@ -1210,7 +1294,7 @@ func remoteCommand() *cli.Command {
 					if c.Args().Len() == 0 {
 						return fmt.Errorf("usage: cliamp remote events runtime.state [runtime.job]")
 					}
-					stream, err := ipc.SubscribeV2(ipc.DefaultSocketPath(), json.RawMessage(`"cliamp"`), c.Args().Slice())
+					stream, err := ipc.SubscribeV2(ipc.DefaultSocketPath(), json.RawMessage(cliRequestID), c.Args().Slice())
 					if err != nil {
 						return userIPCError(err)
 					}
@@ -1233,58 +1317,5 @@ func remoteCommand() *cli.Command {
 				},
 			},
 		},
-	}
-}
-
-func printV2Response(response ipc.V2Response) error {
-	if err := v2ResponseError(response); err != nil {
-		return err
-	}
-	return json.NewEncoder(os.Stdout).Encode(response)
-}
-
-func v2ResponseError(response ipc.V2Response) error {
-	if response.OK {
-		return nil
-	}
-	if response.Error == nil {
-		return fmt.Errorf("remote operation failed")
-	}
-	if response.Error.Detail != "" {
-		return fmt.Errorf("remote operation failed (%s): %s (%s)", response.Error.Code, response.Error.Message, response.Error.Detail)
-	}
-	return fmt.Errorf("remote operation failed (%s): %s", response.Error.Code, response.Error.Message)
-}
-
-func waitForV2Job(ctx context.Context, jobID string) (ipc.V2Response, error) {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{ID: json.RawMessage(`"cliamp"`), Method: "job.get", JobID: jobID})
-		if err != nil {
-			return ipc.V2Response{}, userIPCError(err)
-		}
-		if err := v2ResponseError(response); err != nil {
-			return ipc.V2Response{}, err
-		}
-		if response.Job != nil {
-			switch response.Job.State {
-			case ipc.JobSucceeded:
-				return response, nil
-			case ipc.JobFailed, ipc.JobCanceled:
-				if response.Job.Error != nil {
-					if response.Job.Error.Detail != "" {
-						return ipc.V2Response{}, fmt.Errorf("job %s (%s): %s (%s)", response.Job.State, response.Job.Error.Code, response.Job.Error.Message, response.Job.Error.Detail)
-					}
-					return ipc.V2Response{}, fmt.Errorf("job %s (%s): %s", response.Job.State, response.Job.Error.Code, response.Job.Error.Message)
-				}
-				return ipc.V2Response{}, fmt.Errorf("job %s", response.Job.State)
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return ipc.V2Response{}, ctx.Err()
-		case <-ticker.C:
-		}
 	}
 }

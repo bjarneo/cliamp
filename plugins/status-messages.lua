@@ -22,7 +22,7 @@ p:on("track.change", function(track)
     cliamp.message("Now playing: " .. text, 3)
 end)
 
--- playback.state fires on every tick (~1Hz) during playback, not just on
+-- playback.state fires once per second while a track plays, not just on
 -- state transitions. Track the last status locally so the status bar is
 -- only updated when it actually changes.
 local last_status = nil

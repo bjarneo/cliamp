@@ -18,7 +18,7 @@ type pulseCoords struct {
 
 func (v *Visualizer) pulseCoords() *pulseCoords {
 	height := v.Rows
-	width := PanelWidth
+	width := v.columns()
 	if c := v.pulseCoordCache; c != nil && c.width == width && c.height == height {
 		return c
 	}
@@ -70,7 +70,7 @@ func pulseDotIndex(row, col, dr, dc, width int) int {
 func (v *Visualizer) renderPulse(bands []float64) string {
 	coords := v.pulseCoords()
 	height := v.Rows
-	width := PanelWidth
+	width := v.columns()
 	bandCount := len(bands)
 	maxR := coords.maxR
 

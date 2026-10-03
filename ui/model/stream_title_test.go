@@ -33,11 +33,24 @@ func TestResolveTrackDisplayStreamTitle(t *testing.T) {
 		},
 		{
 			// "Artist - " cuts to an empty title; keep the stored one rather than
-			// blanking it. The daemon guards the same case.
+			// blanking it or showing the broken tag.
 			name:        "icy value with an empty title keeps the station name",
 			streamTitle: "Tycho - ",
 			track:       playlist.Track{Title: "Lofi Stream", Stream: true},
 			wantTitle:   "Lofi Stream",
+		},
+		{
+			name:        "icy value with an empty artist keeps the station name",
+			streamTitle: " - Awake",
+			track:       playlist.Track{Title: "Lofi Stream", Stream: true},
+			wantTitle:   "Lofi Stream",
+		},
+		{
+			name:        "icy parts are trimmed",
+			streamTitle: "Tycho  -  Awake ",
+			track:       playlist.Track{Title: "Lofi Stream", Stream: true},
+			wantArtist:  "Tycho",
+			wantTitle:   "Awake",
 		},
 		{
 			name:      "no icy metadata keeps the station name",
@@ -87,6 +100,65 @@ func TestResolveTrackDisplayStreamTitle(t *testing.T) {
 	}
 }
 
+// Every surface splits an ICY stream title with one rule: both parts are
+// trimmed, and both must be set.
+func TestSplitStreamTitle(t *testing.T) {
+	tests := []struct {
+		in                    string
+		wantArtist, wantTitle string
+		wantOK                bool
+	}{
+		{"Tycho - Awake", "Tycho", "Awake", true},
+		{" Tycho  -  Awake ", "Tycho", "Awake", true},
+		{"Tycho - Awake - Live", "Tycho", "Awake - Live", true},
+		{"Tycho - ", "", "", false},
+		{" - Awake", "", "", false},
+		{"   -   ", "", "", false},
+		{"Morning Session", "", "", false},
+		{"Tycho-Awake", "", "", false},
+		{"", "", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			artist, title, ok := splitStreamTitle(tt.in)
+			if artist != tt.wantArtist || title != tt.wantTitle || ok != tt.wantOK {
+				t.Fatalf("splitStreamTitle(%q) = (%q, %q, %v), want (%q, %q, %v)",
+					tt.in, artist, title, ok, tt.wantArtist, tt.wantTitle, tt.wantOK)
+			}
+		})
+	}
+}
+
+// The lyrics lookup, the media controls and the terminal title read the same
+// artist and title from one stream title.
+func TestStreamTitleSurfacesAgree(t *testing.T) {
+	track := playlist.Track{Title: "Lofi Stream", Stream: true, Path: "https://radio.example/stream"}
+	for _, streamTitle := range []string{"Tycho - Awake", " Tycho  -  Awake ", "Tycho - ", " - Awake", "Morning Session"} {
+		t.Run(streamTitle, func(t *testing.T) {
+			m := Model{
+				streamTitle:        streamTitle,
+				player:             &playbackFakeEngine{playing: true},
+				playingTrack:       track,
+				playingTrackActive: true,
+			}
+			displayArtist, displayTitle := m.resolveTrackDisplay(track)
+			terminal := terminalTitleValuesForTrack(track, streamTitle, true, false)
+			if terminal.artist != displayArtist || terminal.title != displayTitle {
+				t.Fatalf("terminal title (%q, %q), media controls (%q, %q), want the same",
+					terminal.artist, terminal.title, displayArtist, displayTitle)
+			}
+			artist, title, ok := splitStreamTitle(streamTitle)
+			lyricsArtist, lyricsTitle := m.lyricsArtistTitle()
+			if ok && (lyricsArtist != artist || lyricsTitle != title) {
+				t.Fatalf("lyrics query (%q, %q), want the split (%q, %q)", lyricsArtist, lyricsTitle, artist, title)
+			}
+			if !ok && (lyricsArtist != track.Artist || lyricsTitle != track.Title) {
+				t.Fatalf("lyrics query (%q, %q), want the track (%q, %q)", lyricsArtist, lyricsTitle, track.Artist, track.Title)
+			}
+		})
+	}
+}
+
 // TestIPCTrackInfoKeepsAlbum pins the show/book name a podcast or audiobook
 // carries in Album: the stream branch rewrites Title and Artist, so Album has to
 // come through ipcTrackInfo untouched for a client to render "Bad Friends".
@@ -118,7 +190,7 @@ func TestIPCTrackInfoKeepsAlbum(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			info := ipcTrackInfo(tc.track, 0, 0)
+			info := ipcTrackInfo(tc.track, 0, 0, false)
 			for _, f := range []struct{ field, got, want string }{
 				{"Title", info.Title, tc.track.Title},
 				{"Artist", info.Artist, tc.track.Artist},

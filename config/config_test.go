@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"testing"
 )
@@ -336,12 +337,66 @@ func TestParseEQ(t *testing.T) {
 			val:  "[]",
 			want: [10]float64{},
 		},
+		{
+			name: "comment after the list",
+			val:  "[1, 2, 3] # bass up",
+			want: [10]float64{1, 2, 3, 0, 0, 0, 0, 0, 0, 0},
+		},
+		{
+			name: "tab before the comment",
+			val:  "[1, 2]\t# bass up",
+			want: [10]float64{1, 2, 0, 0, 0, 0, 0, 0, 0, 0},
+		},
+		{
+			name: "comment with a bracket and commas",
+			val:  "[1, 2] # see [3], 4",
+			want: [10]float64{1, 2, 0, 0, 0, 0, 0, 0, 0, 0},
+		},
+		{
+			name: "comment after a list without brackets",
+			val:  "1, 2, 3 # bass up",
+			want: [10]float64{1, 2, 3, 0, 0, 0, 0, 0, 0, 0},
+		},
+		{
+			name: "comment without whitespace after the bracket",
+			val:  "[1, 2]#x",
+			want: [10]float64{1, 2, 0, 0, 0, 0, 0, 0, 0, 0},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := parseEQ(tt.val)
 			if got != tt.want {
 				t.Errorf("parseEQ(%q) = %v, want %v", tt.val, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseStringSlice(t *testing.T) {
+	tests := []struct {
+		name string
+		val  string
+		want []string
+	}{
+		{name: "brackets and quotes", val: `["Music", "Jazz"]`, want: []string{"Music", "Jazz"}},
+		{name: "no brackets", val: `Music, Jazz`, want: []string{"Music", "Jazz"}},
+		{name: "empty", val: `[]`, want: []string{}},
+		{name: "comment after the list", val: `["Music", "Jazz"] # two`, want: []string{"Music", "Jazz"}},
+		{name: "tab before the comment", val: "['Music']\t# one", want: []string{"Music"}},
+		{name: "hash inside a quoted item", val: `["Jazz # Blues"] # one`, want: []string{"Jazz # Blues"}},
+		{name: "bracket inside a quoted item", val: `["a]b", "c"] # two`, want: []string{"a]b", "c"}},
+		{name: "escaped quote inside an item", val: `["a\"]", "c"] # two`, want: []string{`a"]`, "c"}},
+		{name: "comment after a quoted last item", val: `Music, "Jazz" # two`, want: []string{"Music", "Jazz"}},
+		{name: "unquoted last item keeps its hash", val: `Music, Jazz # two`, want: []string{"Music", "Jazz # two"}},
+		{name: "comment without whitespace after the bracket", val: `["Music"]#x`, want: []string{"Music"}},
+		{name: "unquoted last item keeps a hash without whitespace", val: `Music, Jazz#x`, want: []string{"Music", "Jazz#x"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseStringSlice(tt.val)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("parseStringSlice(%q) = %q, want %q", tt.val, got, tt.want)
 			}
 		})
 	}
@@ -402,6 +457,42 @@ func TestSpotifyResolveClientID(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.cfg.ResolveClientID(fallback); got != tt.want {
 				t.Errorf("ResolveClientID() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadLyricsOffsetMs(t *testing.T) {
+	tests := []struct {
+		name string
+		val  string
+		want int
+	}{
+		{"unset defaults to zero", "", 0},
+		{"positive value", "lyrics_offset_ms = 1500", 1500},
+		{"negative value", "lyrics_offset_ms = -500", -500},
+		{"out of range clamped", "lyrics_offset_ms = 20000", 10000},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+
+			path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			if tt.val != "" {
+				if err := os.WriteFile(path, []byte(tt.val+"\n"), 0o644); err != nil {
+					t.Fatalf("WriteFile: %v", err)
+				}
+			}
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.LyricsOffsetMs != tt.want {
+				t.Fatalf("LyricsOffsetMs = %d, want %d", cfg.LyricsOffsetMs, tt.want)
 			}
 		})
 	}
@@ -579,59 +670,24 @@ func TestJellyfinIsSet(t *testing.T) {
 	}
 }
 
-func TestYouTubeMusicIsSetOrFallback(t *testing.T) {
-	hasFallback := func() (string, string) { return "id", "secret" }
-	noFallback := func() (string, string) { return "", "" }
-
+func TestYouTubeMusicIsSet(t *testing.T) {
 	tests := []struct {
-		name       string
-		cfg        YouTubeMusicConfig
-		fallbackFn func() (string, string)
-		want       bool
+		name string
+		cfg  YouTubeMusicConfig
+		want bool
 	}{
-		{"enabled section", YouTubeMusicConfig{Enabled: true}, nil, true},
-		{"cookies_from set", YouTubeMusicConfig{CookiesFrom: "chrome"}, nil, true},
-		{"cookies_from whitespace only", YouTubeMusicConfig{CookiesFrom: "   "}, nil, false},
-		{"cookies_from whitespace only with fallback", YouTubeMusicConfig{CookiesFrom: "   \t\n"}, hasFallback, true},
-		{"cookies_from with disabled", YouTubeMusicConfig{Disabled: true, CookiesFrom: "chrome"}, nil, false},
-		{"disabled", YouTubeMusicConfig{Disabled: true}, hasFallback, false},
-		{"fallback available", YouTubeMusicConfig{}, hasFallback, true},
-		{"no fallback", YouTubeMusicConfig{}, noFallback, false},
-		{"nil fallback", YouTubeMusicConfig{}, nil, false},
+		{"enabled section", YouTubeMusicConfig{Enabled: true}, true},
+		{"cookies_from set", YouTubeMusicConfig{CookiesFrom: "chrome"}, true},
+		{"cookies_from whitespace only", YouTubeMusicConfig{CookiesFrom: "   \t\n"}, false},
+		{"cookies_from with disabled", YouTubeMusicConfig{Disabled: true, CookiesFrom: "chrome"}, false},
+		{"disabled", YouTubeMusicConfig{Disabled: true}, false},
+		{"credentials without section", YouTubeMusicConfig{ClientID: "id", ClientSecret: "secret"}, false},
+		{"not configured", YouTubeMusicConfig{}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.cfg.IsSetOrFallback(tt.fallbackFn); got != tt.want {
-				t.Errorf("IsSetOrFallback() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestYouTubeMusicResolveCredentials(t *testing.T) {
-	fallback := func() (string, string) { return "fb_id", "fb_secret" }
-
-	tests := []struct {
-		name       string
-		cfg        YouTubeMusicConfig
-		fallbackFn func() (string, string)
-		wantID     string
-		wantSecret string
-	}{
-		{"user credentials take priority", YouTubeMusicConfig{ClientID: "my_id", ClientSecret: "my_secret"}, fallback, "my_id", "my_secret"},
-		{"whitespace credentials fall back", YouTubeMusicConfig{ClientID: "  ", ClientSecret: "\t"}, fallback, "fb_id", "fb_secret"},
-		{"valid configured credentials with whitespace are trimmed", YouTubeMusicConfig{ClientID: "  my_id  ", ClientSecret: "  my_secret \t"}, fallback, "my_id", "my_secret"},
-		{"incomplete client secret falls back", YouTubeMusicConfig{ClientID: "my_id", ClientSecret: "   "}, fallback, "fb_id", "fb_secret"},
-		{"incomplete client id falls back", YouTubeMusicConfig{ClientID: "   ", ClientSecret: "my_secret"}, fallback, "fb_id", "fb_secret"},
-		{"whitespace in fallback credentials is trimmed", YouTubeMusicConfig{}, func() (string, string) { return "  fb_id  ", " \tfb_secret\n" }, "fb_id", "fb_secret"},
-		{"falls back when empty", YouTubeMusicConfig{}, fallback, "fb_id", "fb_secret"},
-		{"nil fallback returns empty", YouTubeMusicConfig{}, nil, "", ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			id, secret := tt.cfg.ResolveCredentials(tt.fallbackFn)
-			if id != tt.wantID || secret != tt.wantSecret {
-				t.Errorf("got (%q, %q), want (%q, %q)", id, secret, tt.wantID, tt.wantSecret)
+			if got := tt.cfg.IsSet(); got != tt.want {
+				t.Errorf("IsSet() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -867,6 +923,111 @@ func TestApplyPlaylist(t *testing.T) {
 			}
 			if pl.shuffled != tt.wantShuffle {
 				t.Errorf("shuffled = %v, want %v", pl.shuffled, tt.wantShuffle)
+			}
+		})
+	}
+}
+
+func TestLoadExpanded(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "true", body: "expanded = true\n", want: true},
+		{name: "mixed case", body: "expanded = True\n", want: true},
+		{name: "false", body: "expanded = false\n", want: false},
+		{name: "absent", body: "visualizer = \"Wave\"\n", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+
+			path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			if err := os.WriteFile(path, []byte(tc.body), 0o644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.Expanded != tc.want {
+				t.Errorf("Expanded = %v, want %v", cfg.Expanded, tc.want)
+			}
+		})
+	}
+}
+
+func TestOverridesApplyExpanded(t *testing.T) {
+	cfg := defaultConfig()
+	expanded := true
+	Overrides{Expanded: &expanded}.Apply(&cfg)
+	if !cfg.Expanded {
+		t.Error("Expanded should be true after applying the override")
+	}
+}
+
+func TestLoadNavidromeFormat(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"absent", "[navidrome]\nurl = \"https://e.com\"\nuser = \"a\"\npassword = \"b\"\n", ""},
+		{"raw", "[navidrome]\nurl = \"https://e.com\"\nuser = \"a\"\npassword = \"b\"\nformat = \"raw\"\n", "raw"},
+		{"mp3", "[navidrome]\nurl = \"https://e.com\"\nuser = \"a\"\npassword = \"b\"\nformat = \"mp3\"\n", "mp3"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			path := filepath.Join(os.Getenv("HOME"), ".config", "cliamp", "config.toml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			if err := os.WriteFile(path, []byte(tt.body), 0o644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.Navidrome.Format != tt.want {
+				t.Errorf("Navidrome.Format = %q, want %q", cfg.Navidrome.Format, tt.want)
+			}
+		})
+	}
+}
+
+// TestLoadPluginKeysThatCliampReads checks that the plugin keys cliamp reads
+// itself follow the value rules: a bool in any letter case with a comment,
+// and a list in square brackets. Other plugin keys stay strings.
+func TestLoadPluginKeysThatCliampReads(t *testing.T) {
+	tests := []struct {
+		name   string
+		body   string
+		plugin string
+		key    string
+		want   string
+	}{
+		{"enabled with a comment", "[plugins.webhook]\nenabled = false   # too noisy\n", "webhook", "enabled", "false"},
+		{"enabled in capitals", "[plugins.lastfm]\nenabled = False\n", "lastfm", "enabled", "false"},
+		{"enabled as a quoted string", "[plugins.lastfm]\nenabled = \"false\"\n", "lastfm", "enabled", "false"},
+		{"enabled with another value", "[plugins.lastfm]\nenabled = no\n", "lastfm", "enabled", "no"},
+		{"disabled in square brackets", "[plugins]\ndisabled = [\"webhook\", 'x'] # two\n", "", "disabled", "webhook,x"},
+		{"disabled without brackets", "[plugins]\ndisabled = webhook, discord-rpc\n", "", "disabled", "webhook, discord-rpc"},
+		{"disabled as a quoted string", "[plugins]\ndisabled = \"webhook, x\" # two\n", "", "disabled", "webhook, x"},
+		{"allowed_binaries in square brackets", "[plugins]\nallowed_binaries = [\"ffprobe\", \"curl\"]\n", "", "allowed_binaries", "ffprobe,curl"},
+		{"other plugin key keeps the brackets", "[plugins.lastfm]\ntags = [\"a\", \"b\"]\n", "lastfm", "tags", `["a", "b"]`},
+		{"disabled in a plugin section stays a string", "[plugins.lastfm]\ndisabled = [\"a\"]\n", "lastfm", "disabled", `["a"]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := loadConfigText(t, tt.body)
+			if got := cfg.Plugins[tt.plugin][tt.key]; got != tt.want {
+				t.Errorf("Plugins[%q][%q] = %q, want %q", tt.plugin, tt.key, got, tt.want)
 			}
 		})
 	}

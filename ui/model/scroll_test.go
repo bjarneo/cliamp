@@ -178,3 +178,67 @@ func fullSpanPlaylistScroll(m Model, tracks []playlist.Track, visible int) int {
 	}
 	return scroll
 }
+
+func TestFitHeaderScroll(t *testing.T) {
+	// With headers, the rows are: A header, 0, 1, 2, B header, 3, 4.
+	tracks := []playlist.Track{{Album: "A"}, {Album: "A"}, {Album: "A"}, {Album: "B"}, {Album: "B"}}
+	tests := []struct {
+		name        string
+		scroll      int
+		visible     int
+		showHeaders bool
+		want        int
+	}{
+		{name: "every row fits", visible: 7, showHeaders: true, want: 0},
+		{name: "sticky header takes a row", visible: 5, showHeaders: true, want: 2},
+		{name: "skips to the album boundary", visible: 4, showHeaders: true, want: 3},
+		{name: "stops at the cursor", visible: 1, showHeaders: true, want: 4},
+		{name: "no headers counts tracks", visible: 3, want: 2},
+		{name: "keeps a scroll that fits", scroll: 3, visible: 4, showHeaders: true, want: 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := (Model{}).fitHeaderScroll(tracks, tt.scroll, 4, tt.visible, tt.showHeaders); got != tt.want {
+				t.Fatalf("fitHeaderScroll(scroll %d, visible %d) = %d, want %d", tt.scroll, tt.visible, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStepListCursor(t *testing.T) {
+	tests := []struct {
+		key         string
+		cursor      int
+		count, page int
+		want        int
+		wantHandled bool
+	}{
+		{key: "up", cursor: 2, count: 5, page: 3, want: 1, wantHandled: true},
+		{key: "k", cursor: 0, count: 5, page: 3, want: 4, wantHandled: true},
+		{key: "up", cursor: 0, count: 0, page: 3, want: 0, wantHandled: true},
+		{key: "down", cursor: 2, count: 5, page: 3, want: 3, wantHandled: true},
+		{key: "j", cursor: 4, count: 5, page: 3, want: 0, wantHandled: true},
+		{key: "down", cursor: 0, count: 0, page: 3, want: 0, wantHandled: true},
+		{key: "pgup", cursor: 4, count: 5, page: 3, want: 1, wantHandled: true},
+		{key: "ctrl+u", cursor: 2, count: 5, page: 3, want: 0, wantHandled: true},
+		{key: "pgup", cursor: 0, count: 5, page: 3, want: 0, wantHandled: true},
+		{key: "pgdown", cursor: 0, count: 5, page: 3, want: 3, wantHandled: true},
+		{key: "ctrl+d", cursor: 3, count: 5, page: 3, want: 4, wantHandled: true},
+		{key: "pgdown", cursor: 4, count: 5, page: 3, want: 4, wantHandled: true},
+		{key: "pgdown", cursor: 0, count: 0, page: 3, want: 0, wantHandled: true},
+		{key: "home", cursor: 3, count: 5, page: 3, want: 0, wantHandled: true},
+		{key: "g", cursor: 3, count: 5, page: 3, want: 0, wantHandled: true},
+		{key: "end", cursor: 1, count: 5, page: 3, want: 4, wantHandled: true},
+		{key: "G", cursor: 1, count: 0, page: 3, want: 1, wantHandled: true},
+		{key: "enter", cursor: 1, count: 5, page: 3, want: 1},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%s from %d of %d", tt.key, tt.cursor, tt.count), func(t *testing.T) {
+			cursor := tt.cursor
+			handled := stepListCursor(tt.key, &cursor, tt.count, tt.page)
+			if handled != tt.wantHandled || cursor != tt.want {
+				t.Fatalf("stepListCursor = %t, cursor %d; want %t, cursor %d", handled, cursor, tt.wantHandled, tt.want)
+			}
+		})
+	}
+}

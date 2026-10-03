@@ -1,7 +1,5 @@
 package ui
 
-import "time"
-
 // geyserDriver draws a particle fountain rooted at the bottom of the panel.
 // Sustained loudness keeps a steady column of mist, bass transients launch
 // strong vertical jets, and every particle then arcs back down under gravity
@@ -9,6 +7,8 @@ import "time"
 // produced them, so dense bass passages paint the column red and treble
 // embellishments add green sparkles to the canopy.
 type geyserDriver struct {
+	spectrumDriverBase
+
 	grid      brailleGrid
 	particles []geyserParticle
 	rng       uint64
@@ -24,16 +24,12 @@ type geyserParticle struct {
 
 func newGeyserDriver() visModeDriver { return &geyserDriver{rng: 0xFEED5EED} }
 
-func (*geyserDriver) AnalysisSpec(*Visualizer) VisAnalysisSpec {
-	return spectrumAnalysisSpec(DefaultSpectrumBands)
-}
-
 func (d *geyserDriver) Tick(v *Visualizer, ctx VisTickContext) {
 	defaultDriverTick(v, ctx, d.AnalysisSpec(v))
 	if ctx.OverlayActive {
 		return
 	}
-	dotRows, dotCols := v.Rows*4, PanelWidth*2
+	dotRows, dotCols := v.Rows*4, v.columns()*2
 	if dotRows < 4 || dotCols < 4 {
 		return
 	}
@@ -58,7 +54,7 @@ func (d *geyserDriver) Tick(v *Visualizer, ctx VisTickContext) {
 	// most heavily so a heavy bassline alone keeps the column flowing.
 	steady := bass*0.85 + mid*0.25 + high*0.08
 	for i := 0; i < int(steady*6); i++ {
-		d.spawn(jetX, dotRows-1, jetSpread, 1.5+steady*4.5, &bass, &mid, &high)
+		d.spawn(jetX, dotRows-1, jetSpread, 1.5+steady*4.5, bass, mid)
 	}
 
 	// Transient kick: shoot a thick burst. Triggers on smaller deltas now so
@@ -66,7 +62,7 @@ func (d *geyserDriver) Tick(v *Visualizer, ctx VisTickContext) {
 	if delta > 0.06 && bass > 0.15 {
 		burst := 40 + int(delta*180)
 		for i := 0; i < burst; i++ {
-			d.spawn(jetX, dotRows-1, jetSpread*2, 4.5+delta*10.0+bass*4.0, &bass, &mid, &high)
+			d.spawn(jetX, dotRows-1, jetSpread*2, 4.5+delta*10.0+bass*4.0, bass, mid)
 		}
 	}
 
@@ -93,19 +89,19 @@ func (d *geyserDriver) Tick(v *Visualizer, ctx VisTickContext) {
 	d.particles = live
 }
 
-func (d *geyserDriver) spawn(x, y, spread int, vy float64, bass, mid, high *float64) {
+// spawn launches one particle. Its tier is drawn from the bass and mid shares,
+// and the rest of the draws stay on the low tier.
+func (d *geyserDriver) spawn(x, y, spread int, vy, bass, mid float64) {
 	jx := x + int(rng64(&d.rng)*float64(2*spread+1)) - spread
 	vyJitter := vy * (0.6 + rng64(&d.rng)*0.5)
 	vxJitter := (rng64(&d.rng) - 0.5) * (1.0 + vy*0.4)
 	r := rng64(&d.rng)
 	var tier int8 = 1
 	switch {
-	case r < *bass:
+	case r < bass:
 		tier = 3
-	case r < *bass+*mid:
+	case r < bass+mid:
 		tier = 2
-	default:
-		_ = high
 	}
 	d.particles = append(d.particles, geyserParticle{
 		x: float64(jx), y: float64(y),
@@ -114,16 +110,12 @@ func (d *geyserDriver) spawn(x, y, spread int, vy float64, bass, mid, high *floa
 	})
 }
 
-func (*geyserDriver) TickInterval(_ *Visualizer, ctx VisTickContext) time.Duration {
-	return defaultDriverTickInterval(ctx)
-}
 func (d *geyserDriver) pauseSettled() bool { return len(d.particles) == 0 }
 func (d *geyserDriver) OnEnter(*Visualizer) {
 	d.grid = brailleGrid{}
 	d.particles = nil
 	d.prevBass = 0
 }
-func (*geyserDriver) OnLeave(*Visualizer) {}
 func (d *geyserDriver) Render(v *Visualizer) string {
-	return d.grid.render(v.Rows)
+	return d.grid.render(v.Rows, v.columns())
 }

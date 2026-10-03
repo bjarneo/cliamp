@@ -187,7 +187,7 @@ Mixcloud has several similarly named concepts:
 
 - **Your Mixcloud / Favorites** reads shows that the configured account favorited.
 - **Creator / Favorites** reads public show favorites for a selected creator.
-- `f` on a show in the cliamp main playlist changes a local cliamp track bookmark.
+- `f` on a show in the cliamp main playlist toggles the local cliamp favorite ♥ of the track.
 - `f` in **Genres** changes a local Mixcloud style in `[mixcloud].styles`.
 
 None of these controls writes a show favorite to Mixcloud.
@@ -261,8 +261,11 @@ browser or profile from SoundCloud, NetEase, or YouTube. One provider does not
 override another provider session.
 
 Shows that Mixcloud flags as exclusive have an `[E]` suffix in the cliamp UI.
-This presentation marker is not written to exported playlists, IPC output, or
-Now Playing metadata. It is a warning, not an automatic skip. A signed-in user
+cliamp saves the flag as `restricted = true` in playlists, Favorites and
+Recently Played. IPC track output and `cliamp history --json` report it as
+`restricted`. The suffix
+is not added to titles in exported playlists, IPC output, or Now Playing
+metadata. It is a warning, not an automatic skip. A signed-in user
 may have access through a subscription. Another account gets the Mixcloud
 restricted-show error when playback starts. cliamp cannot determine access from
 public metadata, so it does not filter these rows.

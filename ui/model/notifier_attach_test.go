@@ -32,7 +32,7 @@ func TestAttachNotifierPublishesCurrentPlaybackState(t *testing.T) {
 
 	notifier := &fakeNotifier{}
 	m := Model{
-		player:   &fakeEngine{},
+		player:   &playbackFakeEngine{playing: true, duration: time.Hour},
 		playlist: pl,
 	}
 
@@ -54,6 +54,7 @@ func TestAttachNotifierPublishesCurrentPlaybackState(t *testing.T) {
 			URL:      "/tmp/song.mp3",
 			Duration: time.Hour,
 		},
+		VolumeMinDB: -50,
 	}
 	if got := notifier.updates[0]; got != want {
 		t.Fatalf("notifier update = %#v, want %#v", got, want)

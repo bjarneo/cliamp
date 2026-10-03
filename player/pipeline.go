@@ -37,8 +37,29 @@ type trackPipeline struct {
 	live bool
 
 	// livePrefetch is set when stream is wrapped in a livePrefetchStreamer
-	// (live/non-seekable HTTP sources). close() stops its fill goroutine.
+	// (non-seekable HTTP sources and yt-dlp pages). close() stops its fill
+	// goroutine.
 	livePrefetch *livePrefetchStreamer
+}
+
+// positionAndDuration is the clock of the pipeline. The caller holds the
+// speaker lock, so the audio goroutine cannot move the decoder during the
+// read. A live prefetch reports the audio that the speaker took from it, and
+// the duration that the decoder had before the prefetch started when no
+// metadata duration is known.
+func (tp *trackPipeline) positionAndDuration() (time.Duration, time.Duration) {
+	if tp.livePrefetch != nil {
+		dur := tp.knownDuration
+		if dur <= 0 {
+			dur = tp.decodedDuration
+		}
+		return tp.livePrefetch.Position() + tp.streamOffset, dur
+	}
+	pos := tp.format.SampleRate.D(tp.decoder.Position()) + tp.streamOffset
+	if n := tp.decoder.Len(); n > 0 {
+		return pos, tp.format.SampleRate.D(n)
+	}
+	return pos, tp.knownDuration
 }
 
 // countingReader wraps an io.ReadCloser and atomically counts bytes read.
@@ -79,17 +100,13 @@ func (tp *trackPipeline) interrupt() {
 }
 
 // setKnownDuration stores the metadata duration hint and fills missing frame
-// counts on streaming ffmpeg decoders so Len() and seeking keep working.
+// counts on seekable ffmpeg decoders so Len() and seeking keep working.
 func (tp *trackPipeline) setKnownDuration(d time.Duration) {
 	tp.knownDuration = d
 	if d <= 0 {
 		return
 	}
 	switch s := tp.decoder.(type) {
-	case *ffmpegPipeStreamer:
-		// A duration identifies a finite HTTP source even when the server also
-		// sends ICY headers. Its clean EOF must remain an ordinary track end.
-		s.live = false
 	case *navFFmpegStreamer:
 		if s.total == 0 {
 			s.total = int(s.sr.N(d))
@@ -123,19 +140,95 @@ func (p *Player) prefetchNetworkPipeline(tp *trackPipeline, enabled bool) *track
 	return tp
 }
 
-func (p *Player) decodeFFmpegURLStream(path string) (*ffmpegPipeStreamer, beep.Format, error) {
+// bufferedPipeline decodes a progressive navBuffer download through ffmpeg.
+// ffmpeg reads from the buffer through stdin and produces PCM as soon as the
+// first frames arrive, so playback does not wait for the full download.
+// navFFmpegStreamer.Seek restarts ffmpeg from the buffered header with a time
+// offset, so a seek needs no HTTP reconnect.
+func (p *Player) bufferedPipeline(path string, nb *navBuffer, contentLen int64) (*trackPipeline, error) {
+	decoder, format, err := decodeNavFFmpeg(nb, p.sr, p.bitDepth)
+	if err != nil {
+		nb.Close()
+		return nil, fmt.Errorf("decode source: %w", err)
+	}
+	return &trackPipeline{
+		decoder:       decoder,
+		stream:        decoder,
+		format:        format,
+		seekable:      true,
+		path:          path,
+		bytesRead:     &nb.bytesIn,
+		contentLength: contentLen,
+	}, nil
+}
+
+// ffmpegURLPipeline lets ffmpeg open path by URL and waits for the first PCM.
+// The pipeline cannot seek. live marks an ICY radio response, and prefetch
+// keeps network decoding off the speaker callback.
+func (p *Player) ffmpegURLPipeline(path string, live, prefetch bool) (*trackPipeline, error) {
 	decoder, format, err := decodeFFmpegStream(path, p.sr, p.bitDepth)
 	if err != nil {
-		return nil, beep.Format{}, err
+		return nil, err
 	}
 	if err := decoder.waitForInitialAudio(ffmpegPipeTimeout); err != nil {
-		return nil, beep.Format{}, err
+		return nil, err
 	}
-	return decoder, format, nil
+	return p.prefetchNetworkPipeline(&trackPipeline{
+		decoder: decoder,
+		stream:  decoder,
+		format:  format,
+		path:    path,
+		live:    live,
+	}, prefetch), nil
+}
+
+// localFFmpegPipeline streams a local file through ffmpeg, so playback starts
+// at once instead of after the whole file is decoded to memory. A seek
+// restarts ffmpeg with -ss.
+func (p *Player) localFFmpegPipeline(path string) (*trackPipeline, error) {
+	decoder, format, err := decodeFFmpegLocal(path, p.sr, p.bitDepth)
+	if err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	return &trackPipeline{
+		decoder:  decoder,
+		stream:   decoder, // decodeFFmpegLocal outputs at the target sample rate
+		format:   format,
+		seekable: true,
+		path:     path,
+	}, nil
+}
+
+// buildSource opens path on the pipeline that its source needs. It is the one
+// place that routes a path. A page URL that the yt-dlp matcher claims plays
+// through the yt-dlp | ffmpeg chain, which starts at 0. Any other path goes
+// through buildPipeline and starts at offset when its decoder can seek.
+// knownDuration is the metadata duration (use 0 if unknown). With
+// probeDuration, a yt-dlp source with no known duration asks yt-dlp for one.
+func (p *Player) buildSource(path string, knownDuration, offset time.Duration, probeDuration bool) (*trackPipeline, error) {
+	if p.isYTDLURL(path) {
+		return p.buildYTDLSource(path, knownDuration, probeDuration)
+	}
+	tp, err := p.buildPipeline(path, knownDuration)
+	if err != nil {
+		return nil, fmt.Errorf("play at %v: %w", offset, err)
+	}
+	tp.setKnownDuration(knownDuration)
+	if offset > 0 && tp.seekable {
+		if sample := relativeSeekSample(tp, offset); sample > 0 {
+			// Ignored deliberately: a failed seek should start the track from
+			// the beginning, not refuse to play it.
+			_ = tp.decoder.Seek(sample)
+		}
+	}
+	return tp, nil
 }
 
 // buildPipeline opens and decodes a track, returning a ready-to-play pipeline.
-func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
+// bufferedPipeline, ffmpegURLPipeline and localFFmpegPipeline build the
+// routes that more than one source type shares. knownDuration is the metadata
+// duration (use 0 if unknown).
+func (p *Player) buildPipeline(path string, knownDuration time.Duration) (*trackPipeline, error) {
 	// Clear stream title on each new pipeline build.
 	p.streamTitle.Store("")
 
@@ -146,10 +239,7 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 		if err != nil {
 			return nil, fmt.Errorf("custom streamer: %w", err)
 		}
-		var s beep.Streamer = decoder
-		if format.SampleRate != p.sr {
-			s = beep.Resample(p.resampleQuality, format.SampleRate, p.sr, s)
-		}
+		s := resampleWithHeadroom(p.resampleQuality, format.SampleRate, p.sr, decoder)
 		return &trackPipeline{
 			decoder:       decoder,
 			stream:        s,
@@ -162,7 +252,9 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	// Custom URIs with a registered SourceResolver (e.g. tidal://track/123)
 	// resolve to their actual bytes at play time, so short-lived signed URLs
 	// are always fresh. Segment lists get a concatenating navBuffer; direct
-	// URLs fall through to the normal HTTP handling below.
+	// URLs fall through to the normal HTTP handling below. A Buffered URL
+	// takes the buffered route there without a URL matcher.
+	buffered := false
 	if resolver := p.matchSourceResolver(path); resolver != nil {
 		src, err := resolver(path)
 		if err != nil {
@@ -173,59 +265,25 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 			if err != nil {
 				return nil, fmt.Errorf("segment buffer: %w", err)
 			}
-			decoder, format, err := decodeNavFFmpeg(nb, p.sr, p.bitDepth, 0)
-			if err != nil {
-				nb.Close()
-				return nil, fmt.Errorf("decode segments: %w", err)
-			}
-			return &trackPipeline{
-				decoder:       decoder,
-				stream:        decoder,
-				format:        format,
-				seekable:      true, // navFFmpegStreamer.Seek() handles seeking without reconnect
-				path:          path,
-				bytesRead:     &nb.bytesIn,
-				contentLength: contentLen,
-			}, nil
+			return p.bufferedPipeline(path, nb, contentLen)
 		}
 		if src.URL == "" {
 			return nil, fmt.Errorf("resolve source: empty result for %s", path)
 		}
 		path = src.URL
+		buffered = src.Buffered
 	}
 
-	// For HTTP URLs, pass the ICY metadata callback; for local files, nil.
-	var onMeta func(string)
-	if isURL(path) {
-		onMeta = p.setStreamTitle
-	}
+	remote := isURL(path)
 
-	// Buffered HTTP tracks (e.g. Subsonic streams): buffer-while-playing via
-	// navBuffer + ffmpeg pipe. The navBuffer downloads in the background; ffmpeg
-	// reads from it via stdin and starts producing PCM as soon as the first
-	// frames arrive — no waiting for the full download. seekable=true routes
-	// Seek() through navFFmpegStreamer, which restarts FFmpeg from the buffered
-	// header with a time offset and no HTTP reconnect.
-	if isURL(path) && p.isBufferedURL(path) {
+	// Buffered HTTP tracks (e.g. Subsonic streams) download in the background
+	// while they play.
+	if remote && (buffered || p.isBufferedURL(path)) {
 		nb, contentLen, err := newNavBuffer(path)
 		if err != nil {
-			return nil, fmt.Errorf("navidrome buffer: %w", err)
+			return nil, fmt.Errorf("buffer source: %w", err)
 		}
-
-		decoder, format, err := decodeNavFFmpeg(nb, p.sr, p.bitDepth, 0)
-		if err != nil {
-			nb.Close()
-			return nil, fmt.Errorf("decode navidrome: %w", err)
-		}
-		return &trackPipeline{
-			decoder:       decoder,
-			stream:        decoder,
-			format:        format,
-			seekable:      true, // navFFmpegStreamer.Seek() handles seeking without reconnect
-			path:          path,
-			bytesRead:     &nb.bytesIn,
-			contentLength: contentLen,
-		}, nil
+		return p.bufferedPipeline(path, nb, contentLen)
 	}
 
 	ext := formatExt(path)
@@ -234,34 +292,52 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	// resolve relative chunklist/segment URIs and follow the live segment
 	// window. Feeding the playlist bytes via stdin (the needsFFmpeg path below)
 	// would strip the base URL and break relative segment resolution.
-	if isURL(path) && isHLS(ext) {
-		decoder, format, err := p.decodeFFmpegURLStream(path)
+	if remote && isHLS(ext) {
+		tp, err := p.ffmpegURLPipeline(path, false, true)
 		if err != nil {
 			return nil, fmt.Errorf("open hls: %w", err)
 		}
-		return p.prefetchNetworkPipeline(&trackPipeline{
-			decoder: decoder,
-			stream:  decoder,
-			format:  format,
-			path:    path,
-		}, true), nil
+		return tp, nil
 	}
 
+	// For HTTP URLs, pass the ICY metadata callback; for local files, nil.
+	var onMeta func(string)
+	if remote {
+		onMeta = p.setStreamTitle
+	}
 	src, err := openSource(path, onMeta)
 	if err != nil {
 		return nil, fmt.Errorf("open source: %w", err)
 	}
+
+	// A finite HTTP source is a file, not a broadcast, so it belongs on the
+	// buffered pipeline where it can be seeked. The response itself is the only
+	// reliable signal: podcast CDNs rewrite enclosure URLs per request, with
+	// tracking prefixes and signed parameters, so a URL cannot be recognized
+	// from one play to the next.
+	//
+	// The headers have arrived but no audio has been read, so closing here
+	// costs a connection setup and nothing more.
+	if remote && !src.live && src.contentLength > 0 && ffmpegAvailable() {
+		_ = src.body.Close()
+		nb, contentLen, err := newNavBuffer(path)
+		if err != nil {
+			return nil, fmt.Errorf("buffer source: %w", err)
+		}
+		return p.bufferedPipeline(path, nb, contentLen)
+	}
+
 	rc := src.body
 
 	// Wrap HTTP streams with a counting reader for network stats.
 	var byteCounter *atomic.Int64
-	if isURL(path) {
+	if remote {
 		byteCounter = new(atomic.Int64)
 		rc = &countingReader{inner: rc, count: byteCounter}
 	}
 
 	// Determine format: prefer URL extension, fall back to Content-Type.
-	if isURL(path) && ext == ".mp3" && src.contentType != "" {
+	if remote && ext == ".mp3" && src.contentType != "" {
 		if ctExt := extFromContentType(src.contentType); ctExt != "" {
 			ext = ctExt
 		}
@@ -270,21 +346,15 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	// For OGG HTTP streams, use the chained decoder so Icecast radio
 	// continues across song boundaries instead of stopping at EOS.
 	// If Vorbis init fails (e.g. OggFLAC or OggOpus), fall back to ffmpeg.
-	if isURL(path) && ext == ".ogg" {
+	if remote && ext == ".ogg" {
 		tp, err := p.buildChainedOggPipeline(rc, onMeta)
 		if err != nil {
-			rc.Close()
-			decoder, fmt2, err2 := p.decodeFFmpegURLStream(path)
-			if err2 != nil {
-				return nil, fmt.Errorf("decode: %w", err2)
+			// buildChainedOggPipeline has closed rc.
+			tp, err := p.ffmpegURLPipeline(path, src.live, src.prefetch)
+			if err != nil {
+				return nil, fmt.Errorf("decode: %w", err)
 			}
-			return p.prefetchNetworkPipeline(&trackPipeline{
-				decoder: decoder,
-				stream:  decoder,
-				format:  fmt2,
-				path:    path,
-				live:    src.live,
-			}, src.prefetch), nil
+			return tp, nil
 		}
 		tp.bytesRead = byteCounter
 		tp.contentLength = src.contentLength
@@ -299,8 +369,11 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 	// reader chain via stdin rather than handing it the URL: this keeps the
 	// ICY metadata reader attached so live radio StreamTitle parsing works for
 	// ffmpeg-only codecs (AAC, AAC+, Opus, ...).
-	if isURL(path) && needsFFmpeg(ext) {
-		decoder, format, err := decodeFFmpegPipeStream(rc, p.sr, p.bitDepth, src.live)
+	if remote && needsFFmpeg(ext) {
+		// A duration identifies a finite HTTP source even when the server also
+		// sends ICY headers. Its clean EOF must remain an ordinary track end.
+		// The decoder gets this before the prefetch starts to read it.
+		decoder, format, err := decodeFFmpegPipeStream(rc, p.sr, p.bitDepth, src.live && knownDuration <= 0)
 		if err != nil {
 			rc.Close()
 			return nil, fmt.Errorf("decode: %w", err)
@@ -319,75 +392,36 @@ func (p *Player) buildPipeline(path string) (*trackPipeline, error) {
 		}, src.prefetch), nil
 	}
 
-	// SSH streams with ffmpeg-required formats cannot be decoded: ffmpeg
-	// expects a local file path or HTTP URL, not ssh:// pipes.
-	if isSSH(path) && needsFFmpeg(ext) {
+	if needsFFmpeg(ext) {
 		rc.Close()
-		return nil, fmt.Errorf("SSH streaming does not support %s format (requires ffmpeg)", ext)
-	}
-
-	// For local files that need ffmpeg (e.g. webm, m4a, opus), stream from
-	// a pipe so playback starts instantly instead of buffering the entire
-	// file to memory. Seeking is supported via ffmpeg -ss restart.
-	if !isURL(path) && needsFFmpeg(ext) {
-		rc.Close()
-		decoder, format, err := decodeFFmpegLocal(path, p.sr, p.bitDepth)
-		if err != nil {
-			return nil, fmt.Errorf("decode: %w", err)
+		// SSH streams with ffmpeg-required formats cannot be decoded: ffmpeg
+		// expects a local file path or HTTP URL, not ssh:// pipes.
+		if isSSH(path) {
+			return nil, fmt.Errorf("SSH streaming does not support %s format (requires ffmpeg)", ext)
 		}
-		return &trackPipeline{
-			decoder:  decoder,
-			stream:   decoder, // outputs at target sample rate
-			format:   format,
-			seekable: true,
-			path:     path,
-		}, nil
+		return p.localFFmpegPipeline(path)
 	}
 
-	decoder, format, err := decodeWithExt(rc, ext, path, p.sr, p.bitDepth)
+	decoder, format, err := decodeWithExt(rc, ext)
 	if err != nil {
 		rc.Close()
-		// If the format already required ffmpeg (e.g., .m4a), decodeWithExt already
-		// tried it — don't invoke ffmpeg a second time.
-		if needsFFmpeg(ext) {
-			return nil, fmt.Errorf("decode: %w", err)
-		}
-		if isURL(path) {
-			decoder, format, err := p.decodeFFmpegURLStream(path)
+		if remote {
+			tp, err := p.ffmpegURLPipeline(path, src.live, src.prefetch)
 			if err != nil {
 				return nil, fmt.Errorf("decode: %w", err)
 			}
-			return p.prefetchNetworkPipeline(&trackPipeline{
-				decoder: decoder,
-				stream:  decoder,
-				format:  format,
-				path:    path,
-				live:    src.live,
-			}, src.prefetch), nil
+			return tp, nil
 		}
 		// Native local decoder failed (e.g., IEEE float WAV). Fall back to a
 		// streaming ffmpeg process, which handles more formats without buffering
 		// the whole decoded track in memory.
-		decoder, format, err = decodeFFmpegLocal(path, p.sr, p.bitDepth)
-		if err != nil {
-			return nil, fmt.Errorf("decode: %w", err)
-		}
-		return &trackPipeline{
-			decoder:  decoder,
-			stream:   decoder, // decodeFFmpegLocal outputs at target sample rate
-			format:   format,
-			seekable: true,
-			path:     path,
-		}, nil
+		return p.localFFmpegPipeline(path)
 	}
 
 	// HTTP streams decoded natively read from a non-seekable http.Response.Body.
-	seekable := !isURL(path)
+	seekable := !remote
 
-	var s beep.Streamer = decoder
-	if format.SampleRate != p.sr {
-		s = beep.Resample(p.resampleQuality, format.SampleRate, p.sr, s)
-	}
+	s := resampleWithHeadroom(p.resampleQuality, format.SampleRate, p.sr, decoder)
 
 	tp := &trackPipeline{
 		decoder:       decoder,

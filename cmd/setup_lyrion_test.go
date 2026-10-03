@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -23,11 +22,7 @@ func TestLyrionSetupWritesSection(t *testing.T) {
 		"user":     "bob",
 		"password": "pw",
 	})
-	for _, want := range []string{`url      = "http://nas.local:9000"`, `user     = "bob"`, `password = "pw"`} {
-		if !strings.Contains(body, want) {
-			t.Errorf("body missing %q\ngot:\n%s", want, body)
-		}
-	}
+	checkBody(t, body, map[string]string{"url": `"http://nas.local:9000"`, "user": `"bob"`, "password": `"pw"`})
 }
 
 // Only the URL is required: LMS servers without password protection are the

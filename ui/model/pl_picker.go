@@ -7,10 +7,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
-	"github.com/bjarneo/cliamp/ui"
 )
 
 func (m *Model) openPlaylistPicker(tracks []playlist.Track, title string) {
@@ -23,22 +21,34 @@ func (m *Model) openPlaylistPicker(tracks []playlist.Track, title string) {
 		m.status.Errorf(statusTTLDefault, "Playlist list failed: %s", err)
 		return
 	}
-	playlists := make([]playlist.PlaylistInfo, 0, len(lists))
-	for _, pl := range lists {
-		if pl.Name != history.PlaylistName {
-			playlists = append(playlists, pl)
-		}
-	}
 	m.plPicker = playlistPickerState{
 		visible:   true,
 		screen:    plPickerChoose,
-		playlists: playlists,
+		playlists: playlistTargets(m.localProvider, lists),
 		tracks:    append([]playlist.Track(nil), tracks...),
 		title:     title,
 	}
 	m.refreshChrome()
 	m.applyHeightMode()
 	m.plPickerMaybeAdjustScroll(m.plPickerVisible())
+}
+
+// playlistTargets returns the lists of prov that can take new tracks. A
+// provider whose list holds entries that reject adds reports them through
+// provider.PlaylistTargetFilter. The local provider rejects its virtual
+// Favorites and Recently Played lists this way.
+func playlistTargets(prov playlist.Provider, lists []playlist.PlaylistInfo) []playlist.PlaylistInfo {
+	targets, ok := prov.(provider.PlaylistTargetFilter)
+	if !ok {
+		return lists
+	}
+	filtered := make([]playlist.PlaylistInfo, 0, len(lists))
+	for _, pl := range lists {
+		if targets.CanAddToPlaylist(pl) {
+			filtered = append(filtered, pl)
+		}
+	}
+	return filtered
 }
 
 func (m *Model) closePlaylistPicker() {
@@ -66,14 +76,7 @@ func (m Model) plPickerHeaderLine() string {
 	if m.plPicker.screen == plPickerNewName {
 		return m.promptHeader("playlist-picker-name", "New Playlist", m.plPicker.newName)
 	}
-	return sepHeaderN("Write to Playlist", m.plPicker.cursor+1, m.plPickerCount())
-}
-
-func (m Model) plPickerHelpLine() string {
-	if m.plPicker.screen == plPickerNewName {
-		return m.commandHelp(commandModePlaylistPickerInput)
-	}
-	return m.commandHelp(commandModePlaylistPicker)
+	return sepHeaderN("Write to Playlist", m.plPicker.cursor+1, m.plPickerCount(), m.layout.panelWidth)
 }
 
 func (m Model) renderPlaylistPickerBody() string {
@@ -81,7 +84,7 @@ func (m Model) renderPlaylistPickerBody() string {
 	if m.plPicker.screen == plPickerNewName {
 		msg := "Create an empty playlist."
 		if n := len(m.plPicker.tracks); n == 1 {
-			msg = "Create and add: " + truncate(m.plPicker.tracks[0].DisplayName(), max(1, ui.PanelWidth-18))
+			msg = "Create and add: " + truncate(m.plPicker.tracks[0].DisplayName(), max(1, m.layout.panelWidth-18))
 		} else if n > 1 {
 			msg = fmt.Sprintf("Create and add %d tracks.", n)
 		}
@@ -109,7 +112,7 @@ func (m Model) renderPlaylistPickerBody() string {
 	default:
 		head = fmt.Sprintf("%d tracks selected", n)
 	}
-	head = dimStyle.Render("  " + truncate(head, max(1, ui.PanelWidth-2)))
+	head = dimStyle.Render("  " + truncate(head, max(1, m.layout.panelWidth-2)))
 	list := windowList(items, m.plPicker.cursor, m.plPicker.scroll, max(0, budget-1))
 	return strings.Join([]string{head, list}, "\n")
 }
@@ -121,9 +124,6 @@ func (m *Model) handlePlaylistPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	count := m.plPickerCount()
 	switch msg.String() {
-	case "ctrl+c":
-		m.closePlaylistPicker()
-		return m.quit()
 	case "esc", "backspace", "q":
 		m.closePlaylistPicker()
 	case "ctrl+x":
@@ -163,6 +163,18 @@ func (m *Model) handlePlaylistPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.plPicker.cursor = count - 1
 		}
 		m.plPickerMaybeAdjustScroll(m.plPickerVisible())
+	case "p":
+		if m.plPicker.cursor < len(m.plPicker.playlists) {
+			if m.prependPickerTracks(m.plPicker.playlists[m.plPicker.cursor].Name) {
+				m.closePlaylistPicker()
+			}
+			return nil
+		}
+		// On the new-playlist row there is nothing to prepend to, so this is
+		// the same request as Enter.
+		m.plPicker.screen = plPickerNewName
+		m.plPicker.newName = ""
+		m.plPicker.cursor = 0
 	case "enter":
 		if m.plPicker.cursor < len(m.plPicker.playlists) {
 			if m.writePickerTracks(m.plPicker.playlists[m.plPicker.cursor].Name) {
@@ -243,24 +255,41 @@ func (m *Model) writePickerTracks(name string) bool {
 	return true
 }
 
+// prependPickerTracks writes the picker's tracks to the front of a playlist.
+func (m *Model) prependPickerTracks(name string) bool {
+	pr, ok := m.localProvider.(provider.PlaylistPrepender)
+	if !ok {
+		m.plPicker.inputErr = "Adding to the start is not supported here"
+		return false
+	}
+	added, moved, skipped, err := pr.PrependTracksToPlaylist(context.Background(), name, m.plPicker.tracks)
+	if err != nil {
+		m.plPicker.inputErr = "Write failed: " + err.Error()
+		return false
+	}
+	switch {
+	case added+moved == 0 && skipped > 0:
+		m.status.Warningf(statusTTLDefault, "Nothing added to the start of %q, skipped %d", name, skipped)
+	case added+moved == 0:
+		m.status.Warningf(statusTTLDefault, "Nothing added to the start of %q", name)
+	case moved > 0 && skipped > 0:
+		m.status.Warningf(statusTTLBatch, "Put %d at the start of %q, moved %d up, skipped %d", added, name, moved, skipped)
+	case moved > 0:
+		m.status.Showf(statusTTLBatch, "Put %d at the start of %q, moved %d up", added, name, moved)
+	case skipped > 0:
+		m.status.Warningf(statusTTLBatch, "Put %d at the start of %q, skipped %d", added, name, skipped)
+	default:
+		m.status.Showf(statusTTLDefault, "Put %d at the start of %q", added, name)
+	}
+	m.refreshPlaylistManagerAfterWrite(name)
+	return true
+}
+
 func (m *Model) writeTracksToPlaylist(name string, tracks []playlist.Track) (added, skipped int, err error) {
 	if len(tracks) == 0 {
 		return 0, 0, nil
 	}
-	if bw, ok := m.localProvider.(provider.PlaylistBatchWriter); ok {
-		return bw.AddTracksToPlaylist(context.Background(), name, tracks)
-	}
-	w, ok := m.localProvider.(provider.PlaylistWriter)
-	if !ok {
-		return 0, 0, fmt.Errorf("playlist writes are not supported")
-	}
-	for _, track := range tracks {
-		if err := w.AddTrackToPlaylist(context.Background(), name, track); err != nil {
-			return added, skipped, err
-		}
-		added++
-	}
-	return added, skipped, nil
+	return provider.AddTracks(context.Background(), m.localProvider, name, tracks)
 }
 
 func (m *Model) refreshPlaylistManagerAfterWrite(name string) {
@@ -272,7 +301,7 @@ func (m *Model) refreshPlaylistManagerAfterWrite(name string) {
 		if tracks, err := m.localProvider.Tracks(name); err == nil {
 			m.plMgrLoadTracks(tracks)
 			m.plMgrRecomputeFilter()
-			m.plMgrTracksMaybeAdjustScroll(m.plMgrTracksVisible())
+			m.plMgrTracksMaybeAdjustScroll(m.effectivePlaylistVisible())
 		}
 	}
 }

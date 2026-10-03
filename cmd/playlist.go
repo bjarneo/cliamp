@@ -10,12 +10,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/bjarneo/cliamp/external/local"
+	"github.com/bjarneo/cliamp/favorites"
+	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/internal/sshurl"
-	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/resolve"
 )
@@ -363,30 +365,34 @@ func PlaylistDedupe(name string) error {
 	if err != nil {
 		return err
 	}
-	tracks, err := prov.Tracks(name)
-	if err != nil {
-		return fmt.Errorf("loading playlist %q: %w", name, err)
-	}
-	seen := make(map[string]struct{}, len(tracks))
-	kept := tracks[:0]
-	removed := 0
-	for _, t := range tracks {
-		if _, ok := seen[t.Path]; ok {
-			removed++
-			fmt.Printf("  removed duplicate: %s\n", t.Path)
-			continue
+	var removed []string
+	err = prov.UpdatePlaylist(name, func(tracks []playlist.Track) ([]playlist.Track, error) {
+		seen := make(map[string]struct{}, len(tracks))
+		kept := tracks[:0]
+		for _, t := range tracks {
+			if _, ok := seen[t.Path]; ok {
+				removed = append(removed, t.Path)
+				continue
+			}
+			seen[t.Path] = struct{}{}
+			kept = append(kept, t)
 		}
-		seen[t.Path] = struct{}{}
-		kept = append(kept, t)
+		if len(removed) == 0 {
+			return nil, playlist.ErrPlaylistUnchanged
+		}
+		return kept, nil
+	})
+	if err != nil {
+		return fmt.Errorf("deduplicating playlist %q: %w", name, err)
 	}
-	if removed == 0 {
+	if len(removed) == 0 {
 		fmt.Printf("No duplicates found in %q.\n", name)
 		return nil
 	}
-	if err := prov.SavePlaylist(name, kept); err != nil {
-		return fmt.Errorf("saving playlist %q: %w", name, err)
+	for _, path := range removed {
+		fmt.Printf("  removed duplicate: %s\n", path)
 	}
-	fmt.Printf("Removed %d duplicate tracks from %q.\n", removed, name)
+	fmt.Printf("Removed %d duplicate tracks from %q.\n", len(removed), name)
 	return nil
 }
 
@@ -396,15 +402,16 @@ func PlaylistSort(name, by string) error {
 	if err != nil {
 		return err
 	}
-	tracks, err := prov.Tracks(name)
+	var sortErr error
+	err = prov.UpdatePlaylist(name, func(tracks []playlist.Track) ([]playlist.Track, error) {
+		sortErr = sortTracks(tracks, by)
+		return tracks, sortErr
+	})
+	if sortErr != nil {
+		return sortErr
+	}
 	if err != nil {
-		return fmt.Errorf("loading playlist %q: %w", name, err)
-	}
-	if err := sortTracks(tracks, by); err != nil {
-		return err
-	}
-	if err := prov.SavePlaylist(name, tracks); err != nil {
-		return fmt.Errorf("saving playlist %q: %w", name, err)
+		return fmt.Errorf("sorting playlist %q: %w", name, err)
 	}
 	fmt.Printf("Sorted %q by %s.\n", name, normalizeSortKey(by))
 	if dirs, _ := prov.DirSources(name); len(dirs) > 0 {
@@ -414,6 +421,8 @@ func PlaylistSort(name, by string) error {
 }
 
 // PlaylistDoctor reports missing local files and optionally prunes them.
+// fix prunes only playlist files. It reports a missing favorite and keeps
+// it, because Favorites is a virtual playlist.
 func PlaylistDoctor(name string, fix bool) error {
 	prov, err := newProvider()
 	if err != nil {
@@ -427,7 +436,7 @@ func PlaylistDoctor(name string, fix bool) error {
 		}
 		names = names[:0]
 		for _, pl := range lists {
-			if pl.Name != "Recently Played" {
+			if pl.Name != history.PlaylistName {
 				names = append(names, pl.Name)
 			}
 		}
@@ -439,21 +448,25 @@ func PlaylistDoctor(name string, fix bool) error {
 		if err != nil {
 			return fmt.Errorf("loading playlist %q: %w", plName, err)
 		}
-		kept := tracks[:0]
 		missing := 0
 		for _, t := range tracks {
 			if missingLocalFile(t) {
 				missing++
 				totalMissing++
 				fmt.Printf("  [%s] missing: %s\n", plName, t.Path)
-				if fix {
-					continue
-				}
 			}
-			kept = append(kept, t)
+		}
+		if fix && missing > 0 && plName == favorites.PlaylistName {
+			fmt.Println("Kept the missing favorites. To remove one, press f on it in the player or run cliamp playlist favorite Favorites --index N.")
+			continue
 		}
 		if fix && missing > 0 {
-			if err := prov.SavePlaylist(plName, kept); err != nil {
+			// Prune the tracks that are missing now, so a track that another
+			// writer added after the check above is kept.
+			err := prov.UpdatePlaylist(plName, func(tracks []playlist.Track) ([]playlist.Track, error) {
+				return slices.DeleteFunc(tracks, missingLocalFile), nil
+			})
+			if err != nil {
 				return fmt.Errorf("saving playlist %q: %w", plName, err)
 			}
 			fmt.Printf("Pruned %d missing tracks from %q.\n", missing, plName)
@@ -532,9 +545,10 @@ func PlaylistImport(path, name string) error {
 	return nil
 }
 
-// PlaylistBookmark toggles the bookmark flag on a track by index.
-func PlaylistBookmark(name string, index int) error {
-	prov, err := newProvider()
+// PlaylistFavorite toggles the ♥ favorite of a track by index. The
+// "playlist bookmark" command is an alias of this command.
+func PlaylistFavorite(name string, index int) error {
+	prov, favs, err := newFavoritesProvider()
 	if err != nil {
 		return err
 	}
@@ -546,64 +560,55 @@ func PlaylistBookmark(name string, index int) error {
 	if index-1 < 0 || index-1 >= len(tracks) {
 		return fmt.Errorf("track index %d out of range (playlist has %d tracks)", index, len(tracks))
 	}
-	original := tracks[index-1]
+	track := tracks[index-1]
 
-	if err := prov.SetBookmark(name, index-1); err != nil {
-		return fmt.Errorf("toggling bookmark: %w", err)
-	}
-
-	// Reload and report the toggled track. Bookmarking a directory-sourced
-	// track materializes it, which can move it within the expanded list, so
-	// match by path rather than by index.
-	tracks, err = prov.Tracks(name)
+	favorite, err := favs.Toggle(track)
 	if err != nil {
-		return fmt.Errorf("reloading playlist %q: %w", name, err)
+		return fmt.Errorf("toggling favorite: %w", err)
 	}
-	for _, t := range tracks {
-		if t.Path == original.Path {
-			if t.Bookmark {
-				fmt.Printf("★ %s\n", t.DisplayName())
-			} else {
-				fmt.Printf("☆ %s\n", t.DisplayName())
-			}
-			return nil
-		}
+	if favorite {
+		fmt.Printf("♥ %s\n", track.DisplayName())
+	} else {
+		fmt.Printf("Removed ♥ %s\n", track.DisplayName())
 	}
-	return fmt.Errorf("track %d no longer exists in playlist (now has %d tracks)", index, len(tracks))
+	return nil
 }
 
-// PlaylistBookmarks lists all bookmarked tracks across all playlists.
-func PlaylistBookmarks() error {
-	prov, err := newProvider()
+// PlaylistFavorites lists the ♥ favorites. The "playlist bookmarks" command
+// is an alias of this command.
+func PlaylistFavorites() error {
+	_, favs, err := newFavoritesProvider()
 	if err != nil {
 		return err
 	}
 
-	lists, err := prov.Playlists()
+	tracks, err := favs.Tracks()
 	if err != nil {
-		return fmt.Errorf("listing playlists: %w", err)
+		return fmt.Errorf("loading favorites: %w", err)
 	}
-
-	total := 0
-	for _, pl := range lists {
-		tracks, err := prov.Tracks(pl.Name)
-		if err != nil {
-			continue
-		}
-		for i, t := range tracks {
-			if t.Bookmark {
-				fmt.Printf("  ★ [%s] %d. %s\n", pl.Name, i+1, t.DisplayName())
-				total++
-			}
-		}
+	if len(tracks) == 0 {
+		fmt.Println("No favorites yet. Press f on a track to favorite it.")
+		return nil
 	}
-
-	if total == 0 {
-		fmt.Println("No bookmarks yet. Press f on a track to bookmark it.")
-	} else {
-		fmt.Printf("\n  %d bookmarks across %d playlists.\n", total, len(lists))
+	for i, t := range tracks {
+		fmt.Printf("  ♥ %d. %s\n", i+1, t.DisplayName())
 	}
+	fmt.Printf("\n  %d favorites.\n", len(tracks))
 	return nil
+}
+
+// newFavoritesProvider returns the local provider and the favorites store
+// that it lists, after the one-time copy of old bookmarks into favorites.
+func newFavoritesProvider() (*local.Provider, *favorites.Store, error) {
+	favs := favorites.New()
+	prov, err := newProviderWith(favs)
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, err := prov.MigrateBookmarks(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+	}
+	return prov, favs, nil
 }
 
 // PlaylistEnrich probes duration and derives album metadata for SSH tracks.
@@ -619,13 +624,20 @@ func PlaylistEnrich(name string, source string) error {
 	if err != nil {
 		return err
 	}
+	// The save fails for a virtual playlist such as Favorites. Stop before
+	// the probes.
+	if !prov.CanAddToPlaylist(playlist.PlaylistInfo{ID: name}) {
+		return fmt.Errorf("enriching playlist %q: a virtual playlist cannot be modified", name)
+	}
 
 	tracks, err := prov.Tracks(name)
 	if err != nil {
 		return fmt.Errorf("loading playlist %q: %w", name, err)
 	}
 
-	updated := 0
+	// The probes can take long, so they run before the locked update. found
+	// holds each enriched track by path.
+	found := make(map[string]playlist.Track)
 	dirSourced := 0
 	for i, t := range tracks {
 		if t.DirSourced {
@@ -665,10 +677,11 @@ func PlaylistEnrich(name string, source string) error {
 		}
 
 		if changed {
-			updated++
+			found[t.Path] = tracks[i]
 		}
 	}
 
+	updated := len(found)
 	if updated == 0 {
 		if dirSourced > 0 {
 			fmt.Println("All explicit tracks already enriched; directory-sourced tracks are read from their files at load time.")
@@ -678,7 +691,27 @@ func PlaylistEnrich(name string, source string) error {
 		return nil
 	}
 
-	if err := prov.SavePlaylist(name, tracks); err != nil {
+	// Fill only the fields that are still empty, so a change that another
+	// writer made during the probes is kept.
+	err = prov.UpdatePlaylist(name, func(current []playlist.Track) ([]playlist.Track, error) {
+		for i := range current {
+			e, ok := found[current[i].Path]
+			if !ok || current[i].DirSourced {
+				continue
+			}
+			if current[i].DurationSecs == 0 {
+				current[i].DurationSecs = e.DurationSecs
+			}
+			if current[i].Album == "" {
+				current[i].Album = e.Album
+			}
+			if current[i].Year == 0 {
+				current[i].Year = e.Year
+			}
+		}
+		return current, nil
+	})
+	if err != nil {
 		return fmt.Errorf("saving playlist %q: %w", name, err)
 	}
 
@@ -690,16 +723,16 @@ func PlaylistEnrich(name string, source string) error {
 	return nil
 }
 
-func probeRemoteDuration(host, remotePath string) int {
+// sshCommand returns an ssh command that runs remoteCmd on the host of parsed,
+// with the same options and port that playback uses.
+func sshCommand(parsed sshurl.Parsed, remoteCmd string) *exec.Cmd {
+	return exec.Command("ssh", append(parsed.SSHArgs(), remoteCmd)...)
+}
+
+func probeRemoteDuration(parsed sshurl.Parsed) int {
 	// Use ffprobe over SSH for cross-platform compatibility (works on Linux and macOS remotes).
-	probeCmd := fmt.Sprintf("ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 %s 2>/dev/null", shellQuote(remotePath))
-	cmd := exec.Command("ssh",
-		"-o", "BatchMode=yes",
-		"-o", "StrictHostKeyChecking=yes",
-		"-o", "ConnectTimeout=5",
-		host, probeCmd,
-	)
-	out, err := cmd.Output()
+	probeCmd := fmt.Sprintf("ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 %s 2>/dev/null", shellQuote(parsed.Path))
+	out, err := sshCommand(parsed, probeCmd).Output()
 	if err != nil {
 		return 0
 	}
@@ -712,7 +745,7 @@ func probeDuration(path string) int {
 		if err != nil {
 			return 0
 		}
-		return probeRemoteDuration(parsed.Host, parsed.Path)
+		return probeRemoteDuration(parsed)
 	}
 	if playlist.IsURL(path) || path == "" {
 		return 0
@@ -911,10 +944,25 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
+// parseSSHHost reads a --ssh value such as nas, me@nas or nas:2222 with the
+// rules that playback uses for the ssh:// track paths built from it.
+func parseSSHHost(host string) (sshurl.Parsed, error) {
+	parsed, err := sshurl.Parse("ssh://" + host + "/")
+	if err != nil || parsed.Host == "" || parsed.Path != "/" {
+		return sshurl.Parsed{}, fmt.Errorf("invalid --ssh host %q: use host, user@host or host:port", host)
+	}
+	return parsed, nil
+}
+
 func sshFindAudio(host string, paths []string) ([]string, error) {
+	parsed, err := parseSSHHost(host)
+	if err != nil {
+		return nil, err
+	}
+
 	var nameArgs []string
 	first := true
-	for ext := range player.SupportedExts {
+	for _, ext := range playlist.AudioExtensions() {
 		if !first {
 			nameArgs = append(nameArgs, "-o")
 		}
@@ -927,9 +975,7 @@ func sshFindAudio(host string, paths []string) ([]string, error) {
 		findCmd := fmt.Sprintf("find %s -type f \\( %s \\) | sort",
 			shellQuote(p), strings.Join(nameArgs, " "))
 
-		sshArgs := []string{"-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=5", host, findCmd}
-		cmd := exec.Command("ssh", sshArgs...)
-		out, err := cmd.Output()
+		out, err := sshCommand(parsed, findCmd).Output()
 		if err != nil {
 			return nil, fmt.Errorf("ssh find on %s:%s: %w", host, p, err)
 		}
@@ -946,10 +992,20 @@ func sshFindAudio(host string, paths []string) ([]string, error) {
 	return allFiles, nil
 }
 
+// newProvider returns the local provider. It lists Favorites and Recently
+// Played from their stores, as the player does.
 func newProvider() (*local.Provider, error) {
-	p := local.New()
+	return newProviderWith(favorites.New())
+}
+
+// newProviderWith returns the local provider that lists favs as Favorites.
+func newProviderWith(favs *favorites.Store) (*local.Provider, error) {
+	p := local.New(favs, history.New())
 	if p == nil {
 		return nil, fmt.Errorf("failed to initialize local playlist provider")
+	}
+	if err := p.MigrateFavoritesFile(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
 	}
 	return p, nil
 }

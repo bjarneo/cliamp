@@ -63,17 +63,20 @@ func newClassicPeakDriver() visModeDriver {
 	return &classicPeakDriver{}
 }
 
+// AnalysisSpec reads the audible tap, so the bars and caps line up with the
+// audio that plays now.
 func (*classicPeakDriver) AnalysisSpec(*Visualizer) VisAnalysisSpec {
 	return VisAnalysisSpec{
 		BandCount: classicPeakSpectrumBands,
 		FFTSize:   classicPeakFFTSize,
+		Tap:       VisTapAudible,
 	}
 }
 
 func (d *classicPeakDriver) Render(v *Visualizer) string {
 	height := v.Rows
 	cols, peaks := d.renderState(v)
-	rowPad := max(0, PanelWidth-classicPeakRenderWidth(len(cols)))
+	rowPad := max(0, v.columns()-classicPeakRenderWidth(len(cols)))
 
 	lines := make([]string, height)
 	for row := range height {
@@ -141,6 +144,10 @@ func (d *classicPeakDriver) OnEnter(*Visualizer) {
 	*d = classicPeakDriver{}
 }
 
+// ownsCadence lets the model redraw ClassicPeak at frameInterval. That rate
+// adapts to the panel height, from 24 to 60 FPS.
+func (*classicPeakDriver) ownsCadence() {}
+
 func (d *classicPeakDriver) OnLeave(*Visualizer) {}
 
 func (d *classicPeakDriver) animating(v *Visualizer) bool {
@@ -158,8 +165,27 @@ func (d *classicPeakDriver) animating(v *Visualizer) bool {
 }
 
 func (d *classicPeakDriver) levels(v *Visualizer) []float64 {
-	activeCols := classicPeakColsForWidth(PanelWidth)
-	return resampleBandsLinear(v.bands, activeCols)
+	activeCols := classicPeakColsForWidth(v.columns())
+	return classicPeakBands(v.bands, activeCols)
+}
+
+// Average all contributing bands when shrinking the spectrum. Point sampling
+// can skip narrow peaks entirely; fractional overlap keeps boundary bands from
+// jumping between columns as the panel is resized. Expansion still interpolates.
+func classicPeakBands(bands []float64, cols int) []float64 {
+	if cols <= 0 || cols >= len(bands) {
+		return resampleBandsLinear(bands, cols)
+	}
+	out := make([]float64, cols)
+	span := float64(len(bands)) / float64(cols)
+	for col := range out {
+		lo, hi := float64(col)*span, float64(col+1)*span
+		for b := int(lo); b < len(bands) && float64(b) < hi; b++ {
+			weight := min(hi, float64(b+1)) - max(lo, float64(b))
+			out[col] += bands[b] * weight / span
+		}
+	}
+	return out
 }
 
 func (d *classicPeakDriver) frameInterval(v *Visualizer) time.Duration {
@@ -211,11 +237,7 @@ func classicPeakRenderWidth(cols int) int {
 }
 
 func classicPeakStep(current, target, dt float64) float64 {
-	rate := classicPeakBarFallRate
-	if target > current {
-		rate = classicPeakBarRiseRate
-	}
-	return current + (target-current)*(1-math.Exp(-rate*dt))
+	return easeToward(current, target, classicPeakBarRiseRate, classicPeakBarFallRate, dt)
 }
 
 func (d *classicPeakDriver) landed(i int) bool {
@@ -265,15 +287,7 @@ func (d *classicPeakDriver) advance(v *Visualizer, now time.Time) {
 		return
 	}
 
-	dtSeconds := tickClassicPeak.Seconds()
-	if !now.IsZero() && !d.lastTick.IsZero() {
-		dtSeconds = now.Sub(d.lastTick).Seconds()
-	}
-	// Clamp dt so long gaps (pause, sleep, stalled frame) step like one frame
-	// instead of integrating physics over a huge interval.
-	if dtSeconds <= 0 || dtSeconds > 10*tickClassicPeak.Seconds() {
-		dtSeconds = tickClassicPeak.Seconds()
-	}
+	dtSeconds := clampFrameDT(now, d.lastTick, tickClassicPeak).Seconds()
 	d.lastTick = now
 
 	for i, level := range levels {

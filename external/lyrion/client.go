@@ -12,7 +12,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,6 +20,8 @@ import (
 	"time"
 
 	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/internal/httpclient"
+	"github.com/bjarneo/cliamp/internal/netdiag"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
@@ -50,7 +51,7 @@ const (
 // revocable token. ResolveSource expands it at play time.
 const TrackURIPrefix = "lyrion://track/"
 
-var httpClient = &http.Client{Timeout: 30 * time.Second}
+var httpClient = httpclient.NewAPI(30 * time.Second)
 
 // Album sort orders. The IDs are passed to LMS as its `sort:` parameter.
 const (
@@ -110,18 +111,21 @@ func NewFromConfig(cfg config.LyrionConfig) *Client {
 }
 
 // NewFromEnv creates a Client from LYRION_URL, LYRION_USER, and LYRION_PASS.
-// It returns nil when LYRION_URL is unset; the credentials are optional.
-func NewFromEnv() *Client {
-	u := os.Getenv("LYRION_URL")
-	if u == "" {
-		return nil
+// It keeps the settings of cfg that are not credentials, as
+// navidrome.NewFromEnv does. LYRION_SHOW_UNPLAYABLE=true also sets
+// show_unplayable. It returns nil when LYRION_URL is unset; the credentials
+// are optional.
+func NewFromEnv(cfg config.LyrionConfig) *Client {
+	cfg.URL = os.Getenv("LYRION_URL")
+	cfg.User = os.Getenv("LYRION_USER")
+	cfg.Password = os.Getenv("LYRION_PASS")
+	if strings.EqualFold(os.Getenv("LYRION_SHOW_UNPLAYABLE"), "true") {
+		cfg.ShowUnplayable = true
 	}
-	c := New(u, os.Getenv("LYRION_USER"), os.Getenv("LYRION_PASS"))
-	c.showUnplayable = strings.EqualFold(os.Getenv("LYRION_SHOW_UNPLAYABLE"), "true")
-	return c
+	return NewFromConfig(cfg)
 }
 
-func (c *Client) Name() string { return "lyrion" }
+func (c *Client) Name() string { return "Lyrion" }
 
 // Ping verifies the server is reachable and speaking JSON-RPC.
 func (c *Client) Ping() error {
@@ -151,14 +155,14 @@ func (c *Client) request(ctx context.Context, command []any, out any) error {
 		return fmt.Errorf("lyrion: %s: %w", c.url, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "cliamp/1.0 (https://github.com/bjarneo/cliamp)")
+	req.Header.Set("User-Agent", httpclient.UserAgent)
 	if c.user != "" || c.password != "" {
 		req.SetBasicAuth(c.user, c.password)
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("lyrion: %s: %w", c.url, err)
+		return fmt.Errorf("lyrion: %s: %w", c.url, netdiag.Explain(err))
 	}
 	defer resp.Body.Close()
 
@@ -169,16 +173,11 @@ func (c *Client) request(ctx context.Context, command []any, out any) error {
 		return fmt.Errorf("lyrion: %s: http status %s", c.url, resp.Status)
 	}
 
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
-	if err != nil {
-		return fmt.Errorf("lyrion: %s: %w", c.url, err)
-	}
-
 	var env struct {
 		Result json.RawMessage `json:"result"`
 		Error  any             `json:"error"`
 	}
-	if err := json.Unmarshal(raw, &env); err != nil {
+	if err := httpclient.ReadJSON(resp.Body, maxResponseBody, &env); err != nil {
 		return fmt.Errorf("lyrion: %s: decode response: %w", c.url, err)
 	}
 	if env.Error != nil {

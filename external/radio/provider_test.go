@@ -124,10 +124,14 @@ func TestProviderTracksMetadata(t *testing.T) {
 			if _, _, err := p.ToggleFavorite("c:0"); err != nil {
 				t.Fatalf("ToggleFavorite: %v", err)
 			}
+			if tt.meta == nil {
+				tt.meta = make(map[string]string)
+			}
+			tt.meta["radio.name"], tt.meta["radio.url"] = s.Name, s.URL
 			want := []playlist.Track{{
 				Path: s.URL, Title: s.Name, Genre: s.Tags, Stream: true, Realtime: true, ProviderMeta: tt.meta,
 			}}
-			for _, id := range []string{"c:0", "f:0", "s:0"} {
+			for _, id := range []string{"c:0", "f:" + s.URL, "s:0"} {
 				tracks, err := p.Tracks(id)
 				if err != nil {
 					t.Fatalf("Tracks(%q): %v", id, err)
@@ -268,7 +272,7 @@ func TestIsCatalogOrFavID(t *testing.T) {
 		want bool
 	}{
 		{"c:0", true},
-		{"f:3", true},
+		{"f:https://radio.example/live", true},
 		{"s:1", true},
 		{"l:0", false},
 		{"123", false},
@@ -289,7 +293,7 @@ func TestProviderIDPrefix(t *testing.T) {
 	}{
 		{"c:0", "c"},
 		{"l:5", "l"},
-		{"f:3", "f"},
+		{"f:https://radio.example/live", "f"},
 		{"s:0", "s"},
 		{"noprefix", ""},
 	}
@@ -396,4 +400,72 @@ url = "http://c/"
 	if len(stations) != 1 || stations[0].name != "complete" {
 		t.Errorf("expected only 'complete', got %+v", stations)
 	}
+}
+
+func TestFavoriteIDsRemainStableAfterRemovalAndReload(t *testing.T) {
+	p := newTestProvider(t)
+	stations := []CatalogStation{
+		{Name: "Same name", URL: "https://radio.example/first"},
+		{Name: "Same name", URL: "https://radio.example/second?source=a:b&format=aac"},
+		{Name: "Same name", URL: "https://radio.example/third"},
+	}
+	for _, station := range stations {
+		if added, err := p.favorites.Toggle(station); err != nil || !added {
+			t.Fatalf("toggle = %v, %v", added, err)
+		}
+	}
+	ids := make([]string, 0, len(stations))
+	lists, err := p.Playlists()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, list := range lists {
+		if strings.HasPrefix(list.ID, "f:") {
+			ids = append(ids, list.ID)
+			if !p.IsFavoritableID(list.ID) || p.IDPrefix(list.ID) != "f" {
+				t.Fatalf("favorite ID lost its section or action: %q", list.ID)
+			}
+		}
+	}
+	if len(ids) != len(stations) {
+		t.Fatalf("favorite IDs = %v", ids)
+	}
+	if added, _, err := p.ToggleFavorite(ids[0]); err != nil || added {
+		t.Fatalf("remove first favorite = %v, %v", added, err)
+	}
+	if _, err := p.Tracks(ids[0]); err == nil {
+		t.Fatal("deleted favorite ID resolved to another station")
+	}
+	// A stale removal must not toggle whichever station moved into its old slot.
+	if _, _, err := p.ToggleFavorite(ids[0]); err == nil {
+		t.Fatal("deleted favorite ID toggled another station")
+	}
+	reloaded := New(Options{Country: CountryDeclined})
+	for _, prov := range []*Provider{p, reloaded} {
+		lists, err := prov.Playlists()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 1; i < len(stations); i++ {
+			tracks, err := prov.Tracks(ids[i])
+			if err != nil || len(tracks) != 1 || tracks[0].Path != stations[i].URL {
+				t.Fatalf("stable ID %q resolved to %v, %v", ids[i], tracks, err)
+			}
+			found := false
+			for _, list := range lists {
+				found = found || list.ID == ids[i]
+			}
+			if !found {
+				t.Fatalf("surviving ID %q disappeared", ids[i])
+			}
+		}
+	}
+	// Positional favorite IDs are not supported; callers use listed stable IDs.
+	if _, err := reloaded.Tracks("f:0"); err == nil {
+		t.Fatal("numeric favorite ID was accepted")
+	}
+	if _, _, err := reloaded.ToggleFavorite("f:0"); err == nil {
+		t.Fatal("numeric favorite toggle was accepted")
+	}
+
 }

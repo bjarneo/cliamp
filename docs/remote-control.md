@@ -6,6 +6,10 @@ cliamp listens on `~/.config/cliamp/cliamp.sock` with `0600` permissions. It
 uses newline-delimited JSON over a local Unix socket. To use SSH, run the client
 command on the host that owns the socket.
 
+The socket path can have at most 107 bytes on Linux and Windows and 103 bytes
+on macOS. When the path is longer, cliamp and its client commands stop with
+`socket path is too long`. Set `CLIAMP_CONFIG_DIR` to a shorter directory.
+
 ## Quick Start
 
 ```sh
@@ -14,6 +18,10 @@ cliamp next
 cliamp remote state
 cliamp remote events runtime.state runtime.job
 ```
+
+`cliamp status --json` always includes `position`, `volume` and `index`,
+because 0 is a valid value of each. It leaves out other fields that have no
+value. `index` is `-1` when the playlist is empty.
 
 IPC supports version 2 only. Clients must send a V2 envelope with each request.
 See [Upgrading IPC Clients To V2](upgrading-ipc-v2.md) when you migrate a raw
@@ -66,7 +74,11 @@ writes, remains asynchronous.
 
 `state.get` returns a snapshot with the active audio track, logical playlist
 track, playback state, position, duration, seekability, modes, EQ, visualizer,
-theme, stream error, and two revisions.
+theme, stream error, and two revisions. `playlist` names the loaded saved
+playlist. After `provider.load` or `provider.load_album` of another list,
+`playlist` holds the provider key and the ID, for example `navidrome:42` or
+`navidrome:album:7`. `device` names the output device that the last `device`
+operation reported.
 
 ```json
 {
@@ -92,10 +104,17 @@ changes when the live playlist or play-next list changes. Position-only playback
 ticks do not create events. Send `if_revision` with destructive live-playlist or
 play-next operations to reject stale GUI actions with the `conflict` error code.
 
-`track` keeps `provider_meta`, embedded playback flags, bookmark state, and
-directory-source state. A GUI can send a provider result through `track.play`,
+`track` keeps `provider_meta`, embedded playback flags, and directory-source
+state. A GUI can send a provider result through `track.play`,
 `track.queue`, `playlist.add`, `playlist.add_many`, or `playlist.replace`
-without losing provider identity.
+without losing provider identity. When cliamp saves such a track to a local
+playlist, Favorites or Recently Played, it keeps only the `provider_meta` keys
+that hold letters, digits, `.`, `_` and `-`.
+
+The `bookmark` field of `track` keeps its name for existing scripts. It reports
+the favorite ♥ state of the track, the same state as the playlist row marker.
+`cliamp status --json` shows it for the current track. cliamp ignores the field
+when a client sends a track, so use `playlist.bookmark` to change a favorite.
 
 ## Operations
 
@@ -115,6 +134,63 @@ Run `cliamp remote capabilities` to get the current machine-readable list.
 
 `queue.*` applies to the live playlist. `playnext.*` applies only to the
 play-next list. They use separate zero-based indexes.
+
+`queue`, `queue.move`, and `queue.remove` follow the rules of the
+`Shift+Up`, `Shift+Down`, and `x` keys. The Lua `cliamp.queue` functions
+follow the same rules:
+
+- `queue.move` swaps the tracks at `index` and `to`. While shuffle is on,
+  it fails with `conflict` and changes nothing.
+- When the live playlist mirrors a saved local playlist, `queue.move` saves
+  the new order to that playlist. `queue.remove` removes the track from it
+  too. When that save fails, the edit fails with `internal_error` and
+  changes nothing. Favorites is not a playlist file, so an edit of a loaded
+  Favorites list changes only the live playlist.
+- `queue`, `queue.move`, and `queue.remove` record no undo. After one of
+  them, `Ctrl+Z` does not undo the last TUI edit, because that undo would
+  drop the new change.
+- While the live playlist mirrors a saved local playlist, `queue.remove`
+  fails with `conflict` for a track that a directory source of that playlist
+  supplies. A removal of the playing track stops playback.
+- `queue` appends a track. The live playlist then mirrors no saved playlist.
+- When an edit changes the next track, cliamp re-arms the gapless preload.
+
+`vis` with the name `list` returns every mode in the order of the `v` key
+cycle: the built-in modes, then the visualizers of Lua plugins. `cliamp vis
+list` prints the same list when cliamp runs.
+
+The `list` result also names the active mode in `visualizer` and gives its
+zero-based position in `items` as `index`. The result leaves out `index` when
+it is 0. A Lua visualizer can have the name of a built-in mode, so use `index`
+to find the active mode. `cliamp vis list` marks only that row.
+
+```sh
+cliamp remote call vis --params '{"name":"list"}' --wait
+```
+
+`theme list` and `cliamp theme list` return `Default - Terminal colors` as
+the first item. `theme` accepts that name or `default` to select the terminal
+colors.
+
+`eq` takes a built-in preset name, such as `Rock`, or a `band` and a `value`.
+It also accepts `Custom` to restore the saved custom curve. An unknown
+preset name fails the job and does not change the EQ.
+
+`shuffle` and `mono` take the `name` `on`, `off` or `toggle`. `repeat` takes
+`off`, `all`, `one` or `cycle`. With no `name`, they toggle or cycle. Any
+other name fails the job with `invalid_params` and changes nothing.
+
+`playlist.bookmark` keeps its name for existing scripts. It toggles the favorite
+♥ of `track`, as `f` does in the TUI. It needs a known `provider` key, but it
+does not change the playlist. A radio station toggles its station favorite,
+and its `bookmark` field in provider lists changes too. A station
+that is a row of a loaded saved playlist toggles the favorites store instead.
+The `bookmark` field of that row in `queue.list` changes. cliamp matches the
+row by path.
+
+Use IDs returned by `provider.playlists` for subsequent provider operations.
+Radio favorite IDs are stable `f:<station URL>` values, not positional
+`f:<index>` values.
 
 Request provider list responses with `offset` and `limit` when the provider
 supports paging. Use `playlist.replace` to save a GUI-created order, sort, or

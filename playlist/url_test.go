@@ -278,3 +278,54 @@ func TestIsXiaoyuzhouEpisode(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeHost(t *testing.T) {
+	tests := []struct {
+		host string
+		want string
+	}{
+		{"youtube.com", "youtube.com"},
+		{" WWW.YouTube.COM ", "youtube.com"},
+		{"m.youtube.com", "youtube.com"},
+		{"www.m.example.com", "example.com"},
+		{"m.www.example.com", "www.example.com"},
+		{"music.163.com", "music.163.com"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			if got := NormalizeHost(tt.host); got != tt.want {
+				t.Errorf("NormalizeHost(%q) = %q, want %q", tt.host, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHostOf(t *testing.T) {
+	tests := []struct {
+		path   string
+		want   string
+		wantOK bool
+	}{
+		{"https://youtube.com/watch?v=a", "youtube.com", true},
+		{"https://WWW.YouTube.COM/watch?v=a", "youtube.com", true},
+		{"https://m.youtube.com/watch?v=a", "youtube.com", true},
+		{"https://www.music.youtube.com/watch?v=a", "music.youtube.com", true},
+		{"http://example.com:8000/live", "example.com", true},
+		// Only one www. and one m. prefix go, in that order.
+		{"https://m.www.example.com/", "www.example.com", true},
+		// A search expression is a URL with no host.
+		{"ytsearch:lofi", "", true},
+		{"https://[::1/stream", "", false},
+		{"/local/youtube.com.mp3", "", false},
+		{"", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			got, _, ok := hostOf(tt.path)
+			if got != tt.want || ok != tt.wantOK {
+				t.Errorf("hostOf(%q) = %q, %v, want %q, %v", tt.path, got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}

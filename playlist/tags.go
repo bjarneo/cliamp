@@ -47,8 +47,8 @@ func RefreshEmbeddedMetadata(track Track) Track {
 	return track
 }
 
-// readTags reads embedded metadata (ID3v2, Vorbis comments, MP4 atoms) from
-// a local audio file and returns a Track. Falls back to filename parsing if
+// readTags reads embedded metadata (ID3v2, Vorbis comments, MP4 atoms, WAV
+// INFO lists) from a local audio file and returns a Track. Falls back to filename parsing if
 // tag reading fails or the tags contain no title.
 func readTags(path string) Track {
 	t, _ := readTagsWithOptions(path, false)
@@ -64,6 +64,9 @@ func readTagsWithOptions(path string, cacheArt bool) (Track, bool) {
 
 	m, err := tag.ReadFrom(f)
 	if err != nil || m == nil {
+		if t, ok := readWAVInfo(f, path); ok {
+			return t, true
+		}
 		return TrackFromFilename(path), true
 	}
 

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -68,4 +70,55 @@ func TestIsSocketUnavailable(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A socket path that does not fit in sun_path gives an error that says so,
+// from the server, the probe and the client. The longest path that fits
+// still works.
+func TestSocketPathTooLong(t *testing.T) {
+	dir := shortTempDir(t)
+	pathOfLen := func(n int) string {
+		prefix := dir + string(filepath.Separator)
+		return prefix + strings.Repeat("s", n-len(prefix))
+	}
+	long := pathOfLen(maxSocketPathLen + 1)
+	for _, tt := range []struct {
+		name string
+		run  func() error
+	}{
+		{name: "server", run: func() error {
+			server, err := NewServer(long)
+			if err == nil {
+				_ = server.Close()
+			}
+			return err
+		}},
+		{name: "probe", run: func() error {
+			_, err := Listening(long)
+			return err
+		}},
+		{name: "client", run: func() error {
+			_, err := SendV2(long, V2Request{Method: "state.get"})
+			return err
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.run()
+			if !errors.Is(err, errSocketPathTooLong) {
+				t.Fatalf("error = %v, want errSocketPathTooLong", err)
+			}
+			if !strings.Contains(err.Error(), "CLIAMP_CONFIG_DIR") {
+				t.Fatalf("error = %q, want the CLIAMP_CONFIG_DIR hint", err)
+			}
+		})
+	}
+
+	t.Run("longest path", func(t *testing.T) {
+		sock := pathOfLen(maxSocketPathLen)
+		server, err := NewServer(sock)
+		if err != nil {
+			t.Fatalf("NewServer with %d bytes: %v", len(sock), err)
+		}
+		_ = server.Close()
+	})
 }

@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"golang.org/x/oauth2"
 )
 
 // albumSpotify fakes the album endpoints plus a search that returns both albums
@@ -22,8 +20,7 @@ func albumSpotify(t *testing.T, albumHits, trackHits, albumTracks int) (*Spotify
 	t.Helper()
 	var searchType string
 
-	originalTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		var payload map[string]any
 
 		switch path := req.URL.Path; {
@@ -93,13 +90,13 @@ func albumSpotify(t *testing.T, albumHits, trackHits, albumTracks int) (*Spotify
 			Request:    req,
 		}, nil
 	})
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 
-	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
+	sess := stubSession(rt)
 	return New(sess, "client", 320), &searchType
 }
 
 func TestSearchTracksLeadsWithAlbums(t *testing.T) {
+	t.Parallel()
 	p, searchType := albumSpotify(t, 2, 3, 0)
 
 	got, err := p.SearchTracks(context.Background(), "nofx", 10)
@@ -131,6 +128,7 @@ func TestSearchTracksLeadsWithAlbums(t *testing.T) {
 // TestTracksExpandsSavedAlbum verifies a saved-album playlist entry is routed
 // through AlbumTracks rather than the playlist items endpoint.
 func TestTracksExpandsSavedAlbum(t *testing.T) {
+	t.Parallel()
 	p, _ := albumSpotify(t, 0, 0, 3)
 
 	got, err := p.Tracks(savedAlbumIDPrefix + "al0")
@@ -149,6 +147,7 @@ func TestTracksExpandsSavedAlbum(t *testing.T) {
 }
 
 func TestAlbumTracksPagesAndFillsAlbumMetadata(t *testing.T) {
+	t.Parallel()
 	const total = spotifyTrackPageSize + 3
 	p, _ := albumSpotify(t, 0, 0, total)
 

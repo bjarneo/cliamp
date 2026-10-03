@@ -7,11 +7,12 @@ import "strings"
 func (v *Visualizer) renderColumns(bands []float64) string {
 	height := v.Rows
 	bandCount := len(bands)
+	width := v.columns()
 
 	// Compute per-band column counts; cols below is a flat level per display column.
 	bandCols := make([]int, bandCount)
 	for b := range bandCount {
-		bandCols[b] = visBandWidth(bandCount, b)
+		bandCols[b] = visBandWidth(bandCount, b, width)
 	}
 
 	cols := interpolateBandColumns(bands, bandCols)
@@ -29,7 +30,7 @@ func (v *Visualizer) renderColumns(bands []float64) string {
 				content.WriteString(fracBlock(level, rowBottom, rowTop))
 			}
 			offset += bandCols[b]
-			if b < bandCount-1 {
+			if bandGapAfter(bandCount, b, width) {
 				content.WriteByte(' ')
 			}
 		}
