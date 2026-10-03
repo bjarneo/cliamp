@@ -38,6 +38,7 @@ const (
 	VisMirror                     // Braille spectrum bars mirrored about a horizontal axis
 	VisOmarchy                    // dithered pixel field with the Omarchy mark (omarchy.org style)
 	VisRedSector                  // tumbling wireframe equalizer over a drifting starfield
+	VisYinYang                    // two koi chasing round a lily pad, flicking their tails to the drums
 	VisNone                       // hidden — no visualizer
 	VisCount                      // sentinel for cycling
 )
@@ -83,6 +84,7 @@ var visModes = [VisCount]visEntry{
 	VisMirror:      {"Mirror", newFastRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), TickAnim, (*Visualizer).renderMirror)},
 	VisOmarchy:     {"Omarchy", newFastRenderOnlyDriver(spectrumAnalysisSpec(DefaultSpectrumBands), TickAnim, (*Visualizer).renderOmarchy)},
 	VisRedSector:   {"RedSector", newRedSectorDriver},
+	VisYinYang:     {"YinYang", newYinYangDriver},
 	VisNone:        {"None", newNoOpDriver},
 }
 

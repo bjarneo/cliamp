@@ -204,7 +204,7 @@ func init() {
 				case plMgrScreenDirs:
 					return commandModePlaylistManagerDirs, "Directory Sources"
 				}
-				return commandModePlaylistManager, "Playlists"
+				return commandModePlaylistManager, "Playlist"
 			},
 			view: overlayView{(*Model).plMgrHeaderLine, (*Model).renderPlMgrBody},
 		},

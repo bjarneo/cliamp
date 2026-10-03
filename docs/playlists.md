@@ -4,7 +4,12 @@ cliamp supports local **TOML playlists** that you manage in the TUI or CLI. It a
 
 ## Loading a Saved Playlist
 
-In the playlist manager (`p`):
+Select the **Local** source to manage playlists. It shows the playlist
+directly with its full add, remove, rename and edit actions — there is no
+separate read-only Local list. `Esc` there leaves the playlist for the live
+queue; `Esc` from the queue returns to the playlist.
+
+In the playlist (`p`):
 
 - `Enter` opens a playlist, and `p` on its track screen plays it from the top.
   Both **replace** what is loaded, which clears the queue.
@@ -17,7 +22,7 @@ In the playlist manager (`p`):
 
 ## Saving the Current List
 
-Press `p` for the playlist manager, then `w` on the list screen to save
+Press `p` for the playlist, then `w` on the list screen to save
 everything currently loaded. The picker offers your saved playlists plus a
 **New playlist** row.
 
@@ -26,8 +31,8 @@ everything currently loaded. The picker offers your saved playlists plus a
 - `p` adds them to the start instead. A track already in the playlist moves to
   the front rather than being skipped.
 
-From the main view, `w` writes only the highlighted track. In the playlist
-manager's track screen, `Space` marks tracks and `w` copies the marked ones.
+From the main view, `w` writes only the highlighted track. In the playlist's
+track screen, `Space` marks tracks and `w` copies the marked ones.
 
 ## M3U and PLS Playlists
 
@@ -307,7 +312,8 @@ cliamp song.mp3                    # starts playing, Esc opens browser
 
 ### Managing Playlists
 
-Press `p` in any view to open the playlist manager:
+The **Local** source opens the playlist in place. Press `p` in any
+other view to open it as an overlay:
 
 1. **Browse**: View all playlists and their track counts.
 2. **Filter**: Press `/` to filter the list as you type. This works on the playlists and tracks screens. `Esc` clears the filter.
@@ -327,7 +333,7 @@ Press `p` in any view to open the playlist manager:
 16. **New playlist**: Select "+ New Playlist...", enter a name, and press `Enter`. The file browser opens so you can add tracks immediately. If a `/` filter is active, cliamp fills the new playlist name with the filter text.
 
 Tracks with an `album` field are grouped by album with separator headers in the
-playlist manager and the main player view. Album grouping is hidden while a
+playlist and the main player view. Album grouping is hidden while a
 filter is active.
 
 cliamp creates `~/.config/cliamp/playlists/` on first use. Removing the last
@@ -411,11 +417,11 @@ title = "My Radio"
 | `Tab` | Return to playback controls, starting at Source when visible ([navigation](keybindings.md#navigation)) |
 | `Esc` `b` | Open browser (from playlist view) |
 
-**Playlist manager (`p` key):**
+**Playlist (`p` key):**
 
 | Key | Action |
 |-----|--------|
-| `p` / `Esc` | Open or close the playlist manager. `Esc` on the tracks screen goes back. |
+| `p` / `Esc` | Open or close the playlist. `Esc` on the tracks screen goes back. |
 | `Up` `Down` / `j` `k` | Navigate |
 | `/` | Filter playlists or tracks; `Esc` clears |
 | `Enter` / `→` | List screen: open a playlist. Tracks screen: play the **selected** track. |
@@ -429,7 +435,7 @@ title = "My Radio"
 | `D` | List: open the file browser to add `[[dir]]` sources to the selected playlist. Tracks: open the directory-sources screen for the open playlist. |
 | `[` `]` | Move track up/down and save (tracks screen) |
 | `d` | Delete a playlist after confirmation. `Recently Played` cannot be deleted. In tracks, remove marked tracks or the selected track if none are marked. |
-| `u` | Undo the last playlist-manager edit |
+| `u` | Undo the last playlist edit |
 | `←` / `Backspace` | Go back from tracks screen to list |
 
 The playlist list marks playlists with `[[dir]]` sources with a `· N dir(s)`
@@ -454,7 +460,7 @@ list screen. cliamp skips and reports directories that are already referenced.
 ## Favorites
 
 Press `f` on a track to toggle its favorite state. The key works in the
-playback playlist, the playlist manager, a provider browser track list, and
+queue, the playlist, a provider browser track list, and
 search results. cliamp collects favorite tracks in the virtual **"Favorites"**
 playlist. This playlist always appears at the top of the playlist list, even
 when empty and regardless of the source playlist.
@@ -462,7 +468,7 @@ when empty and regardless of the source playlist.
 Favorites apply across playlists. A track that you favorite in "gym" appears in
 "Favorites", and the reverse is also true. `~/.config/cliamp/favorites.toml`
 stores the "Favorites" playlist. Like "Recently Played", it is a virtual
-playlist that you cannot rename, delete, or change in the playlist manager. Use
+playlist that you cannot rename, delete, or change in the playlist. Use
 `f` again to remove a favorite.
 
 Favorite tracks show a small red `♥` marker in the track list. The marker

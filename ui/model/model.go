@@ -239,7 +239,7 @@ func (s topLevelScreen) label() string {
 	case screenNavBrowser:
 		return "Browse"
 	case screenPlaylistManager:
-		return "Playlists"
+		return "Playlist"
 	case screenSearchOverlay, screenNetSearch:
 		return "Search"
 	case screenQueue:

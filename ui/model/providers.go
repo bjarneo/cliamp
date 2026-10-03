@@ -38,6 +38,7 @@ func (m *Model) StartInProvider() {
 		m.focus = focusProvider
 		m.resetProviderNav()
 		_, m.openDefaultProviderOnce = m.provider.(provider.DefaultBrowseModeProvider)
+		m.ensureLocalManager()
 		m.recomputeLayout()
 	}
 }
@@ -55,6 +56,9 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	m.activeProviderPlaylistID = ""
 	m.resetProviderNav()
 	m.focus = focusProvider
+	// The Local source shows the playlist manager instead of the old
+	// read-only provider pane list.
+	m.ensureLocalManager()
 	listsCmd := m.fetchProviderPlaylists()
 	if _, ok := m.provider.(provider.DefaultBrowseModeProvider); ok {
 		return tea.Batch(listsCmd, m.openDefaultProviderBrowser())
@@ -553,7 +557,18 @@ func (m *Model) openProviderList(index int) tea.Cmd {
 	}
 	m.provPane.loading = true
 	m.activeProviderPlaylistID = item.ID
-	return m.fetchProviderTracks(item.ID)
+	cmd := m.fetchProviderTracks(item.ID)
+	if _, ok := m.provider.(*radio.ChannelProvider); ok {
+		// Jump to the playlist immediately and render the feed loading
+		// state there, instead of waiting on the channel list for the
+		// song list to arrive.
+		m.focus = focusPlaylist
+		m.applyHeightMode()
+		m.adjustScroll()
+		m.recomputeLayout()
+		m.status.Activityf(statusTTLShort, "Loading %s…", item.Name)
+	}
+	return cmd
 }
 
 // SetPendingURLs stores remote URLs (feeds, M3U) for async resolution after Init.

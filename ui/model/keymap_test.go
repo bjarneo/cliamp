@@ -217,8 +217,8 @@ func TestKeymapContextFollowsPlaylistManagerScreen(t *testing.T) {
 		wantRuns    []string
 		wantMissing []string
 	}{
-		{name: "list", screen: plMgrScreenList, wantMode: commandModePlaylistManager, wantLabel: "Playlists", wantRuns: []string{"Select"}},
-		{name: "tracks", screen: plMgrScreenTracks, wantMode: commandModePlaylistManager, wantLabel: "Playlists", wantRuns: []string{"Select"}},
+		{name: "list", screen: plMgrScreenList, wantMode: commandModePlaylistManager, wantLabel: "Playlist", wantRuns: []string{"Select"}},
+		{name: "tracks", screen: plMgrScreenTracks, wantMode: commandModePlaylistManager, wantLabel: "Playlist", wantRuns: []string{"Select"}},
 		{
 			name: "dirs", screen: plMgrScreenDirs,
 			wantMode: commandModePlaylistManagerDirs, wantLabel: "Directory Sources",

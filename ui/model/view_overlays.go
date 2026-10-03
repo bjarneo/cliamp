@@ -27,11 +27,11 @@ func (m Model) visPickerHeaderLine() string {
 	return sepHeaderN("Visualizers", m.visPicker.cursor+1, m.visPickerViewCount(), m.layout.panelWidth)
 }
 
-// — playlist manager (inline) —
+// — playlist (inline) —
 
 func (m Model) plMgrHeaderLine() string {
 	if m.plManager.filtering {
-		label := "Filter: Playlists"
+		label := "Filter: Playlist"
 		if m.plManager.screen == plMgrScreenTracks {
 			label = "Filter: Tracks"
 		}
@@ -57,7 +57,7 @@ func (m Model) plMgrHeaderLine() string {
 		if m.plManager.filter != "" {
 			total = len(m.plManager.filtered)
 		}
-		return sepHeaderN("Playlists", m.plManager.cursor+1, total, m.layout.panelWidth)
+		return sepHeaderN("Playlist", m.plManager.cursor+1, total, m.layout.panelWidth)
 	}
 }
 

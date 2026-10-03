@@ -1038,7 +1038,7 @@ func (m Model) renderPlaylist() string {
 	trackCount := m.playlist.Len()
 	if trackCount == 0 {
 		var lines []string
-		if m.feedLoading {
+		if m.feedLoading || (m.provPane.loading && m.activeProviderPlaylistID != "") {
 			lines = append(lines, loadingLine("Loading feed…"))
 		} else {
 			lines = append(lines, dimStyle.Render("  No tracks loaded."), dimStyle.Render("  To add music, press one of these keys:"), "")

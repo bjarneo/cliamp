@@ -20,8 +20,13 @@ type styleANSI struct{ prefix, suffix string }
 // and splits the output around it. Borders or padding would invalidate the
 // split, so the style carries the colour only.
 func foregroundANSI(c color.Color) styleANSI {
+	return colorANSI(lipgloss.NewStyle().Foreground(c))
+}
+
+// colorANSI splits the output of a colour-only style around a rare marker.
+func colorANSI(style lipgloss.Style) styleANSI {
 	const probe = "\uFFFC"
-	rendered := lipgloss.NewStyle().Foreground(c).Render(probe)
+	rendered := style.Render(probe)
 	idx := strings.Index(rendered, probe)
 	if idx < 0 {
 		return styleANSI{}

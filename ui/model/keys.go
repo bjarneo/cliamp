@@ -455,6 +455,8 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.focus == focusPlaylist {
 			// Keep current expanded/collapsed height mode when switching focus.
 			m.focus = focusProvider
+			// The Local source has no provider pane list; show its manager.
+			m.ensureLocalManager()
 		} else {
 			m.focus = m.previousMainFocus(m.focus)
 		}

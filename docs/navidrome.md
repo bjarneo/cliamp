@@ -88,7 +88,7 @@ Press `N` at any time, or from the provider panel, to open the full-screen Navid
 Press `f` on a Navidrome track to toggle its favorite ♥. cliamp saves the
 favorite locally and also stars the song on the server with the Subsonic `star`
 call. Press `f` again to remove the favorite and unstar the song. The key works
-in the playlist, the playlist manager, and the browser track list.
+in the playlist, the Local playlists, and the browser track list.
 
 The local favorite is the source of truth. If the server rejects the call, the
 local favorite stays and the status bar shows a warning. A song that you star in

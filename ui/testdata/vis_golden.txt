@@ -128,6 +128,10 @@ RedSector 48x9 c7183335fd18ea17
 RedSector 13x3 3da965a0378f9654
 RedSector 40x1 2b4a07034dd6f397
 RedSector 140x16 271e800614adb779
+YinYang 48x9 02df638de81d1c0f
+YinYang 13x3 f4eeb3b12f247c6b
+YinYang 40x1 04a9cc2059f93746
+YinYang 140x16 f70549104a2bc058
 None 48x9 a09d945a1cd8d6e5
 None 13x3 a09d945a1cd8d6e5
 None 40x1 a09d945a1cd8d6e5

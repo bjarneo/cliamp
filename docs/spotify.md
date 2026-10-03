@@ -94,7 +94,7 @@ In the <kbd>Ctrl+F</kbd> results, select a track and press `p`. The picker lists
 Press `f` on a Spotify track to toggle its favorite ♥. cliamp saves the favorite
 locally and also saves the track to **Liked Songs**. Press `f` again to remove
 the favorite and remove the track from Liked Songs. The key works in the
-playlist, the playlist manager, and `Ctrl+F` results.
+playlist, the Local playlists, and `Ctrl+F` results.
 
 cliamp calls `PUT` and `DELETE /v1/me/library` with the `user-library-modify`
 scope, which cliamp requests at sign-in. The local favorite is the source of

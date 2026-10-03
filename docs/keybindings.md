@@ -162,7 +162,7 @@ preference remains saved for a wider layout. See
 | `A` | Queue manager |
 | `F` | Subscribed shows overlay (any provider that keeps subscriptions) |
 | `x` | Remove the highlighted track from the current playlist |
-| `p` | Playlist manager |
+| `p` | Playlist |
 | `r` | Cycle repeat mode (Off / All / One) |
 | `z` | Toggle shuffle |
 
@@ -207,7 +207,7 @@ instead, since putting a track first is an ordering request rather than a
 duplicate. Tracks the playlist only holds through a `[[dir]]` source cannot be
 reordered, so `p` leaves them alone and reports them as skipped.
 
-### Inside the playlist manager
+### Inside the playlist
 
 | Key | Action |
 |---|---|
@@ -228,7 +228,7 @@ reordered, so `p` leaves them alone and reports them as skipped.
 | `A` | List: append the selected playlist to the current one, keeping what is loaded. Tracks: append the marked tracks, or the highlighted one. |
 | `u` | Undo the last manager edit |
 | `←` `Backspace` `h` | Tracks screen: go back to the list |
-| `Esc` | Close the playlist manager or go back |
+| `Esc` | Close the playlist or go back |
 
 Shift-letter keys switch providers. Playlist-manager track actions use lowercase
 or punctuation keys. `D` is the exception. It opens the directory-sources
@@ -325,7 +325,7 @@ Navidrome, Podcasts, or Local Playlists:
 | `f` | In Podcasts, subscribe or unsubscribe from the selected show |
 | `Ctrl+F` | Run the provider online or server search (Spotify, Navidrome, NetEase, and others). |
 | `Ctrl+R` | Refresh the provider: reload the currently open playlist or starting wave in place (e.g. a fresh Yandex "Моя волна" batch), or return to the playlist list. For Mixcloud, also clear the cached `/me/` identity. |
-| `p` | Open the playlist manager (Local pane only; create, rename, delete, add dirs/tracks) |
+| `p` | Open the playlist as an overlay (the Local source shows it directly; create, rename, delete, add dirs/tracks) |
 | `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `L` `R` `O` | Switch to that provider |
 | `N` | Open the browser of the provider on screen |
 | `Tab` | Leave the provider pane and focus Source, or the first visible playback control |
