@@ -45,9 +45,33 @@ func (p *Player) applyReplayGain(tp *trackPipeline) {
 	case !isURL(tp.path):
 		v = replaygain.ReadFile(tp.path)
 	}
-	if db, _, ok := v.GainFrom(mode, preamp); ok && db != 0 {
+	db, used, ok := v.GainFrom(mode, preamp)
+	if !ok {
+		return
+	}
+	tp.replayGainDB, tp.replayGainFrom = db, used
+	if db != 0 {
 		tp.stream = &gainStreamer{s: tp.stream, gain: math.Pow(10, db/20)}
 	}
+}
+
+// ReplayGainMode returns the normalisation mode.
+func (p *Player) ReplayGainMode() string {
+	p.replayGain.mu.Lock()
+	defer p.replayGain.mu.Unlock()
+	return p.replayGain.mode
+}
+
+// ReplayGainApplied reports the gain applied to the current track and the
+// value it came from, ModeTrack or ModeAlbum; used is "" when the track plays
+// without one.
+func (p *Player) ReplayGainApplied() (db float64, used string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.current == nil {
+		return 0, ""
+	}
+	return p.current.replayGainDB, p.current.replayGainFrom
 }
 
 // gainStreamer applies a fixed linear gain.

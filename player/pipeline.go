@@ -36,6 +36,11 @@ type trackPipeline struct {
 
 	live bool
 
+	// replayGainDB is the gain applied to this track, and replayGainFrom the
+	// value it came from; "" when none was applied.
+	replayGainDB   float64
+	replayGainFrom string
+
 	// download is the buffered HTTP download behind the pipeline, nil for
 	// other sources. applyReplayGain reads the stream's tags from it.
 	download *navBuffer

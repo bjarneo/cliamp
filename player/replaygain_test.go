@@ -74,3 +74,20 @@ func TestApplyReplayGain(t *testing.T) {
 		})
 	}
 }
+
+// The player reports the gain it applied to the current track, and which value
+// it came from.
+func TestReplayGainApplied(t *testing.T) {
+	p := &Player{}
+	p.SetReplayGain(replaygain.ModeAlbum, 0)
+	tp := &trackPipeline{path: taggedFile(t, id3TXXX("REPLAYGAIN_TRACK_GAIN", "-6 dB")), stream: constStreamer(1)}
+	p.applyReplayGain(tp)
+	p.current = tp
+	if db, used := p.ReplayGainApplied(); db != -6 || used != replaygain.ModeTrack {
+		t.Errorf("ReplayGainApplied = %v, %q; want -6, track (album mode fell back)", db, used)
+	}
+	p.current = &trackPipeline{path: "/music/untagged.mp3"}
+	if _, used := p.ReplayGainApplied(); used != "" {
+		t.Errorf("a track without gain reports %q", used)
+	}
+}

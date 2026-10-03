@@ -423,8 +423,10 @@ replaygain_preamp = 0     # dB added on top, -15 to 15
 `album` keeps the level differences within an album; `track` levels every track
 on its own. Each mode falls back to the other value when a track has only one.
 The adjustment is lowered where needed so a track's peak never clips, and a
-track with no values plays unchanged. The gain belongs to the track, so a
-gapless transition switches it on the first sample of the next one.
+track with no values plays unchanged. Track Info (`i`) and the Metadata section
+show the gain applied to the playing track, or `none` when it has no values.
+The gain belongs to the track, so a gapless transition switches it on the
+first sample of the next one.
 
 ## Podcasts
 
