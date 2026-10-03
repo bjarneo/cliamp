@@ -43,6 +43,7 @@ type StreamerFactory func(uri string) (beep.StreamSeekCloser, beep.Format, time.
 // lock held or with only lifecycleMu held. navBuffer.mu is a leaf lock.
 // Close pipelines and wait for processes only after these locks are released.
 type Player struct {
+	replayGain      replayGainState
 	mu              sync.Mutex
 	lifecycleMu     sync.Mutex // serializes source commits without covering setup or process waits
 	sr              beep.SampleRate
