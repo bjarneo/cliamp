@@ -314,9 +314,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case playback.QuitMsg:
-		// Media controls and the signals of headless mode quit like the q
-		// key, so the resume position is kept too.
-		cmd := m.quit()
+		// Media controls and signals quit like the q key, so the resume
+		// position is kept too. In a session the q key only detaches, so
+		// these shut down directly.
+		cmd := m.shutDown()
 		return m, cmd
 
 	case SetEQPresetMsg:
@@ -338,6 +339,23 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case trackFavoriteSyncedMsg:
 		m.handleTrackFavoriteSynced(msg)
+		return m, nil
+
+	case SetDetachedMsg:
+		if m.detached == msg.Detached {
+			return m, nil
+		}
+		m.detached = msg.Detached
+		// No tick is scheduled here. Each tick schedules the next one, so a
+		// tick started from anywhere else runs forever beside the first, and
+		// every attach and detach would leave another one behind. The next
+		// tick picks up the new cadence on its own, and rendering does not
+		// wait for it: the host follows this message with the client's size
+		// and a repaint.
+		if !m.detached {
+			m.applyHeightMode()
+			m.adjustScroll()
+		}
 		return m, nil
 
 	case ShowStatusMsg:

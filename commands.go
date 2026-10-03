@@ -25,11 +25,14 @@ import (
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/pluginmgr"
 	"github.com/bjarneo/cliamp/resolve"
+	"github.com/bjarneo/cliamp/session"
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
 	"github.com/bjarneo/cliamp/upgrade"
 )
 
+// buildApp defines the CLI: the root command that runs the player, and the
+// subcommands, most of which are thin IPC clients for a running instance.
 func buildApp() *cli.Command {
 	rootFlags := []cli.Flag{
 		&cli.Float64Flag{Name: "vol", Usage: "startup volume in dB [volume_min, +6]"},
@@ -54,7 +57,7 @@ func buildApp() *cli.Command {
 		&cli.StringFlag{Name: "log-level", Usage: "log level: debug, info, warn, error"},
 		&cli.BoolWithInverseFlag{Name: "expand-playlist", Usage: "expand YouTube and YouTube Music list= URLs to the full playlist", Value: true},
 		&cli.BoolWithInverseFlag{Name: "low-power", Usage: "low-power mode: reduce CPU by lowering UI cadence and disabling visualization"},
-		&cli.BoolFlag{Name: "daemon", Aliases: []string{"d"}, Usage: "run headless (no TUI), serving IPC for scripts/Waybar"},
+		&cli.BoolFlag{Name: "daemon", Aliases: []string{"d"}, Usage: "run detached: no terminal of its own, serving IPC and `cliamp attach`"},
 	}
 
 	return &cli.Command{
@@ -90,6 +93,7 @@ func buildApp() *cli.Command {
 			ipcSimpleCommand("next", "next track"),
 			ipcSimpleCommand("prev", "previous track"),
 			ipcSimpleCommand("stop", "stop playback"),
+			quitCommand(),
 			statusCommand(),
 			volumeCommand(),
 			seekCommand(),
@@ -105,6 +109,7 @@ func buildApp() *cli.Command {
 			eqCommand(),
 			deviceCommand(),
 			remoteCommand(),
+			attachCommand(),
 			openCommand(),
 			protocolCommand(),
 		},
@@ -742,6 +747,45 @@ func ipcSimpleCommand(name, usage string) *cli.Command {
 	}
 }
 
+// quitCommand stops the running cliamp. Detaching leaves a session playing,
+// so ending one is deliberate and has a command of its own.
+func quitCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "quit",
+		Usage: "stop the running cliamp, playback included",
+		Action: func(ctx context.Context, c *cli.Command) error {
+			// Probe first so "nothing is running" reads the way it does for
+			// every other subcommand, rather than as a successful quit.
+			if !ipcRunning() {
+				return userIPCError(fmt.Errorf("quit: %w", ipc.ErrNotRunning))
+			}
+			if _, err := ipcSend("quit", ipc.Request{}); err != nil {
+				// The client polls for the job result on a new connection, and
+				// the socket leaves with the process, so the answer can lose
+				// the race to the shutdown it asked for. A cliamp that is gone
+				// did what was asked.
+				if !ipcRunning() {
+					return nil
+				}
+				return err
+			}
+			return nil
+		},
+	}
+}
+
+// attachCommand lends this terminal to a session started with --daemon.
+func attachCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "attach",
+		Usage: "lend this terminal to a detached cliamp (q detaches, leaving it playing)",
+		Action: func(ctx context.Context, c *cli.Command) error {
+			err := session.Attach(ipc.DefaultSocketPath(), session.ClientOptions{Client: "cliamp " + version})
+			return userIPCError(err)
+		},
+	}
+}
+
 func statusCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "status",
@@ -954,8 +998,7 @@ func visStreamCommand() *cli.Command {
 // active mode, or -1. A running cliamp lists its Lua visualizers too and
 // gives the active row, because a Lua mode can have the name of a built-in
 // mode. A cliamp that gives no row marks the first row with the active
-// name. With no running cliamp, or in headless mode, it lists the built-in
-// modes.
+// name. With no running cliamp, it lists the built-in modes.
 func visModes() (names []string, active int, running bool) {
 	names = ui.VisModeNames()
 	snapshot, err := ipcState()

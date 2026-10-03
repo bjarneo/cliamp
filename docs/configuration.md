@@ -595,7 +595,7 @@ directory = "/media/usb/CLAPt/Music"
 An empty value keeps the default. Relative paths are rejected; literal `~` is not
 expanded. Missing directories are created. Mount external drives first because
 cliamp does not check mount status. The IPC `save` operation uses the same
-directory, in the TUI and in headless mode. Files remain ordinary local audio
+directory, in the TUI and in a detached session. Files remain ordinary local audio
 files and are not automatically substituted into online playlists.
 
 ## Proxy

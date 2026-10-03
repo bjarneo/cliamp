@@ -163,9 +163,11 @@ func playlistLabel(prefix string, p playlist.PlaylistInfo) string {
 }
 
 // View renders the full TUI frame from the layout that Update keeps current.
-// A headless Model renders nothing.
+// A detached session renders nothing: it has no terminal to paint. Attaching flips that back, and the repaint the
+// host then asks for is also what takes the client's terminal into the
+// alternate screen.
 func (m Model) View() tea.View {
-	if m.quitting || m.headless {
+	if m.quitting || m.detached {
 		return tea.NewView("")
 	}
 	if m.layout.tooSmall() {

@@ -199,8 +199,7 @@ func TestV2ResponseError(t *testing.T) {
 
 // cliamp vis list prints the modes of the running cliamp, with its Lua
 // visualizers, and marks the row of the active mode. When cliamp does not
-// run, or has no vis operation as in headless mode, it prints the built-in
-// modes.
+// run, or its vis list fails, it prints the built-in modes.
 func TestVisModes(t *testing.T) {
 	builtIn := ui.VisModeNames()
 	withLua := append(slices.Clone(builtIn), "plugin-vis")
@@ -235,7 +234,7 @@ func TestVisModes(t *testing.T) {
 			list:      &ipc.Response{OK: true, Items: withLua},
 			wantNames: withLua, wantActive: luaRow, wantRunning: true,
 		},
-		{name: "headless", serve: true, wantNames: builtIn, wantActive: -1, wantRunning: true},
+		{name: "vis list fails", serve: true, wantNames: builtIn, wantActive: -1, wantRunning: true},
 		{name: "not running", wantNames: builtIn, wantActive: -1},
 	}
 	for _, tt := range tests {

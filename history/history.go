@@ -1,6 +1,6 @@
 // Package history persists the user's recently played tracks to a TOML file
 // in the cliamp config directory. cliamp records a track when the track
-// starts to play, in the TUI and in headless mode. Skipped tracks and live
+// starts to play, in the TUI and in a detached session. Skipped tracks and live
 // streams also enter the list. The list holds each path one time only.
 //
 // The store is safe for concurrent callers. Writers also take a file lock, so

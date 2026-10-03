@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
 
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/config"
@@ -29,6 +29,7 @@ import (
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/resolve"
+	"github.com/bjarneo/cliamp/session"
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui/model"
 )
@@ -52,9 +53,17 @@ func buildVersion() string {
 const (
 	defaultUIFPS  = 20
 	lowPowerUIFPS = 5
+	// Size of the virtual terminal a detached session renders into until a
+	// client attaches and reports its own.
+	detachedCols = 100
+	detachedRows = 30
 )
 
-func run(overrides config.Overrides, positional []string, headless, visualizer60FPS bool) error {
+// run starts the player: config and providers, the audio engine, the
+// Bubble Tea model, IPC, and media controls. With daemon set it renders into
+// a virtual terminal instead of this process's own, so `cliamp attach` can
+// lend it one later.
+func run(overrides config.Overrides, positional []string, daemon, visualizer60FPS bool) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -69,13 +78,13 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 	} else {
 		applog.Info("cliamp starting (version=%s level=%s)", appmeta.Version(), appliedLevel)
 	}
-	if headless {
+	if daemon {
 		if err := checkNotRunning(); err != nil {
 			return err
 		}
 	}
 
-	providers := buildProviders(cfg, !headless && isCharDevice(os.Stdin))
+	providers := buildProviders(cfg, !daemon && isCharDevice(os.Stdin))
 	defer providers.Close()
 
 	positional, err = searchArgs(positional)
@@ -95,11 +104,12 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 		defaultProvider = "cliamp"
 	}
 	defaultRadio := len(positional) == 0 && defaultProvider == "radio"
-	// The cliamp radio view waits for the listener to pick a channel. Headless
-	// mode has no view, and auto-play expects sound without a keypress, so
-	// both start with the live channel streams instead.
+	// The cliamp radio view waits for the listener to pick a channel. A
+	// detached session has nobody looking at the view, and auto-play expects
+	// sound without a keypress, so both start with the live channel streams
+	// instead.
 	liveChannels := defaultRadio ||
-		(len(positional) == 0 && defaultProvider == "cliamp" && (headless || cfg.AutoPlay))
+		(len(positional) == 0 && defaultProvider == "cliamp" && (daemon || cfg.AutoPlay))
 	resumeState := resume.Load()
 
 	pl := playlist.New()
@@ -124,7 +134,7 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 	restoredContext := false
 	restoredIndex := 0
 	restoredResumePath := ""
-	if !headless && resumeServer != nil && cfg.Playlist == "" && len(positional) == 0 && len(resolved.Pending) == 0 && pl.Len() == 0 {
+	if resumeServer != nil && cfg.Playlist == "" && len(positional) == 0 && len(resolved.Pending) == 0 && pl.Len() == 0 {
 		if tracks, index, activePath, ok := restoreServerContext(resumeState, resumeServer); ok {
 			pl.Add(tracks...)
 			restoredContext = true
@@ -172,13 +182,13 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 	if cfg.Playlist != "" && len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 {
 		m.SetLoadedPlaylist(cfg.Playlist)
 	}
-	if !headless && len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 && pl.Len() == 0 {
+	if len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 && pl.Len() == 0 {
 		m.StartInProvider()
 	}
 	if cfg.AutoPlay && !restoredContext {
 		m.SetAutoPlay(true)
 	}
-	configureModel(&m, cfg, headless, visualizer60FPS)
+	configureModel(&m, cfg, visualizer60FPS)
 
 	if resumeState.Path != "" && resumeState.PositionSec > 0 {
 		// Jellyfin and Emby resume the restored context above. Mixcloud is also commonly
@@ -192,7 +202,37 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 		}
 	}
 
-	prog := tea.NewProgram(m, programOptions(headless, cfg.LowPower)...)
+	// Detached mode runs this same player against a virtual terminal instead
+	// of the one it was started from: playback, providers, plugins, and IPC
+	// are unchanged, and `cliamp attach` lends a terminal to the running
+	// program whenever somebody wants to look at it.
+	progOpts := programOptions(cfg.LowPower)
+	var prog *tea.Program
+	var host *session.Host
+	if daemon {
+		m.SetDetached(true)
+		// These callbacks read prog, which is assigned below. Nothing can run
+		// them before that: the host only reaches them from an attach, and
+		// attaches only arrive once the IPC server has the host registered,
+		// which happens further down. Keep that order.
+		host, err = session.New(session.Options{
+			OnAttach: func(int, int) { prog.Send(model.SetDetachedMsg{Detached: false}) },
+			OnDetach: func() { prog.Send(model.SetDetachedMsg{Detached: true}) },
+		})
+		if err != nil {
+			return fmt.Errorf("session: %w", err)
+		}
+		// The quit key hands the terminal back instead of stopping the music.
+		// Ending the session is `cliamp quit`, not a keystroke: its lifetime
+		// belongs to whatever started it.
+		m.SetSessionDetach(host.Detach)
+		defer host.Close()
+		progOpts = append(progOpts, sessionProgramOptions(host)...)
+	}
+	prog = tea.NewProgram(m, progOpts...)
+	if host != nil {
+		host.SetProgram(prog)
+	}
 	stopSignals := quitOnSignals(prog.Send)
 	defer stopSignals()
 	defer providers.observeAuthURLs(prog.Send)()
@@ -211,21 +251,30 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 		luaMgr.SetUIProvider(luaUIProvider(luaSend))
 	}
 
-	stopIPC, err := startIPC(prog.Send, pluginBroker, luaMgr, headless)
+	var attach ipc.AttachHandler
+	if host != nil {
+		attach = host
+	}
+	stopIPC, err := startIPC(prog.Send, pluginBroker, luaMgr, attach)
 	if err != nil {
 		return err
 	}
 	defer stopIPC()
-	if headless {
-		fmt.Fprintf(os.Stderr, "cliamp: running headless (socket: %s)\n", ipc.DefaultSocketPath())
-		applog.Info("running headless")
+	if daemon {
+		fmt.Fprintf(os.Stderr, "cliamp: running detached (socket: %s)\ncliamp: attach with `cliamp attach`; q detaches, `cliamp quit` stops it\n", ipc.DefaultSocketPath())
+		applog.Info("session: running detached")
 	}
 
 	finalModel, err := mediactl.Run(prog, svc)
+	if host != nil {
+		// Tell an attached client why its terminal is going away, before the
+		// deferred IPC shutdown closes the connection under it.
+		host.Close()
+	}
 	if err != nil {
 		return err
 	}
-	saveOnExit(finalModel, headless, resumeServer)
+	saveOnExit(finalModel, resumeServer)
 	if fm, ok := finalModel.(model.Model); ok {
 		fm.WaitReports(reportsExitWait)
 	}
@@ -237,8 +286,8 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 const reportsExitWait = 3 * time.Second
 
 // checkNotRunning returns an error when another instance serves the socket.
-// Headless mode calls it before it builds the providers, opens the audio
-// device or loads the plugins. The app.quit hooks of the plugins could
+// A detached session calls it before it builds the providers, opens the
+// audio device or loads the plugins. The app.quit hooks of the plugins could
 // otherwise change the files of the running instance. startIPC still
 // catches an instance that starts after the check.
 func checkNotRunning() error {
@@ -303,9 +352,8 @@ func newPlayer(cfg config.Config) (p *player.Player, closePlayer func(), err err
 	}, nil
 }
 
-// configureModel applies the settings of cfg to m. Headless mode has no
-// screen, so the view settings do not apply there.
-func configureModel(m *model.Model, cfg config.Config, headless, visualizer60FPS bool) {
+// configureModel applies the settings of cfg to m.
+func configureModel(m *model.Model, cfg config.Config, visualizer60FPS bool) {
 	m.SetCustomEQBands(cfg.EQ)
 	m.SetPadding(cfg.PaddingH, cfg.PaddingV)
 	m.SetVisVolumeLinked(cfg.VisVolumeLinked)
@@ -318,11 +366,6 @@ func configureModel(m *model.Model, cfg config.Config, headless, visualizer60FPS
 	}
 	if cfg.Theme != "" {
 		m.SetTheme(cfg.Theme)
-	}
-	if headless {
-		// The default visualizer stays, because it serves spectrum.get.
-		m.SetHeadless(true)
-		return
 	}
 	m.SetVisRows(cfg.VisRows)
 	m.SetVisualizer60FPS(visualizer60FPS)
@@ -350,14 +393,14 @@ func configureModel(m *model.Model, cfg config.Config, headless, visualizer60FPS
 }
 
 // startIPC serves the socket and sends its requests to the program through
-// send. Headless mode is controlled only through the socket, so there a
-// failure is an error. The TUI reports the failure and runs without the
-// socket.
-func startIPC(send func(tea.Msg), broker *ipc.Broker, plugins *luaplugin.Manager, headless bool) (stop func(), err error) {
+// send. A non-nil attach takes over the attach requests: that is a detached
+// session, controlled only through the socket, so there a failure is an
+// error. The TUI reports the failure and runs without the socket.
+func startIPC(send func(tea.Msg), broker *ipc.Broker, plugins *luaplugin.Manager, attach ipc.AttachHandler) (stop func(), err error) {
 	srv, err := ipc.NewServerWithBroker(ipc.DefaultSocketPath(), broker)
 	if err != nil {
 		// The errors of the ipc package already start with "ipc: ".
-		if headless {
+		if attach != nil {
 			return nil, err
 		}
 		fmt.Fprintln(os.Stderr, err)
@@ -367,7 +410,10 @@ func startIPC(send func(tea.Msg), broker *ipc.Broker, plugins *luaplugin.Manager
 	// an ordered queue and the socket can acknowledge a job at once.
 	queue, stopQueue := newOrderedSender(send)
 	srv.SetV2Dispatcher(newV2Dispatcher(queue, srv.JobStore(), plugins))
-	srv.SetOperationRegistry(v2Operations(headless, plugins != nil))
+	srv.SetOperationRegistry(v2Operations(plugins != nil))
+	if attach != nil {
+		srv.SetAttachHandler(attach)
+	}
 	go publishV2JobEvents(srv.Done(), srv.JobStore(), broker)
 	return func() {
 		_ = srv.Close()
@@ -378,19 +424,16 @@ func startIPC(send func(tea.Msg), broker *ipc.Broker, plugins *luaplugin.Manager
 // saveOnExit keeps the theme and the resume position of the final Model.
 // When a Jellyfin or Emby server is the default provider, it also keeps the
 // list that the track played from.
-func saveOnExit(final tea.Model, headless bool, resumeServer *embyapi.Provider) {
+func saveOnExit(final tea.Model, resumeServer *embyapi.Provider) {
 	fm, ok := final.(model.Model)
 	if !ok {
 		return
 	}
-	// Headless mode has no theme keys, so it keeps the saved theme.
-	if !headless {
-		themeName := fm.ThemeName()
-		if theme.IsDefaultName(themeName) {
-			themeName = ""
-		}
-		_ = config.SaveString("theme", themeName)
+	themeName := fm.ThemeName()
+	if theme.IsDefaultName(themeName) {
+		themeName = ""
 	}
+	_ = config.SaveString("theme", themeName)
 
 	path, secs, playlistName := fm.ResumeState()
 	saveExitResume(path, secs, playlistName, fm.ResumeContext, resumeServer)
@@ -415,27 +458,27 @@ func saveExitResume(path string, secs int, playlistName string, resumeContext fu
 	resume.Save(path, secs, playlistName)
 }
 
-// programOptions returns the Bubbletea options of the TUI, or of headless
-// mode. run handles the signals itself in both modes, see quitOnSignals.
-func programOptions(headless, lowPower bool) []tea.ProgramOption {
-	switch {
-	case headless:
-		return headlessProgramOptions()
-	case lowPower:
+// programOptions returns the Bubbletea options of the TUI. run handles the
+// signals itself, see quitOnSignals.
+func programOptions(lowPower bool) []tea.ProgramOption {
+	if lowPower {
 		return []tea.ProgramOption{tea.WithFPS(lowPowerUIFPS), tea.WithoutSignalHandler()}
 	}
 	return []tea.ProgramOption{tea.WithFPS(defaultUIFPS), tea.WithoutSignalHandler()}
 }
 
-// headlessProgramOptions build a program with no terminal: no renderer, no
-// input and no output. The frame ticker runs at its lowest rate.
-func headlessProgramOptions() []tea.ProgramOption {
+// sessionProgramOptions render the program into host, the virtual terminal of
+// a detached session, instead of this process's own terminal.
+func sessionProgramOptions(host *session.Host) []tea.ProgramOption {
 	return []tea.ProgramOption{
-		tea.WithoutRenderer(),
-		tea.WithInput(nil),
-		tea.WithOutput(io.Discard),
-		tea.WithFPS(1),
-		tea.WithoutSignalHandler(),
+		tea.WithInput(host.Input()),
+		tea.WithOutput(host.Output()),
+		// A session outlives every client, so its color depth cannot be
+		// negotiated per attach: render truecolor and let each client
+		// downsample for its own terminal.
+		tea.WithColorProfile(colorprofile.TrueColor),
+		tea.WithEnvironment([]string{"TERM=xterm-256color", "COLORTERM=truecolor"}),
+		tea.WithWindowSize(detachedCols, detachedRows),
 	}
 }
 
@@ -464,14 +507,10 @@ func quitOnSignal(signals chan os.Signal, send func(tea.Msg)) {
 	}
 }
 
-// v2Operations returns the V2 operations that this runtime serves. Headless
-// mode has no theme or visualizer to change. The plugin operations need the
-// plugin manager.
-func v2Operations(headless, plugins bool) *ipc.OperationRegistry {
+// v2Operations returns the V2 operations that this runtime serves. The
+// plugin operations need the plugin manager.
+func v2Operations(plugins bool) *ipc.OperationRegistry {
 	operations := ipc.DefaultOperationRegistry()
-	if headless {
-		operations.Unregister("theme", "vis")
-	}
 	if !plugins {
 		operations.Unregister("plugin.call", "plugin.commands")
 	}
@@ -482,7 +521,7 @@ func v2Operations(headless, plugins bool) *ipc.OperationRegistry {
 // spectrum.get.
 var v2ReplyTimeout = 3 * time.Second
 
-// newV2Dispatcher answers the V2 requests of the TUI and of headless mode.
+// newV2Dispatcher answers the V2 requests of the TUI and of a detached session.
 // send delivers a request to the Model. It must return at once and keep the
 // order of the requests, as the queue of newOrderedSender does, so a job is
 // acknowledged before the Model reads it and jobs run in the order they came

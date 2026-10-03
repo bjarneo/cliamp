@@ -423,7 +423,7 @@ provider implements to do the following:
   `Searcher`, `Ctrl+F` searches YouTube
 - Enable add-to-playlist in search results when the searched provider implements `PlaylistWriter`
 - Report playback at track start and finish when `PlaybackReporter` is
-  implemented, in the TUI and in headless mode. Log failures that the
+  implemented, in the TUI and in a detached session. Log failures that the
   provider returns.
 - Run interactive authentication on first use when `Authenticator` is implemented
 - Put the cursor on the active track and start at its stored position when `ResumeTarget` is implemented

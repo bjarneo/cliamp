@@ -139,7 +139,7 @@ type V2Result struct {
 }
 
 // V2Dispatcher is implemented by the runtime owner, the Model of ui/model in
-// the TUI and in headless mode. The context is cancelled when the server
+// the TUI and in a detached session. The context is cancelled when the server
 // shuts down.
 type V2Dispatcher interface {
 	DispatchV2(ctx context.Context, request V2Request) (V2Result, *V2Error)

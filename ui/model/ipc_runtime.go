@@ -97,6 +97,8 @@ type ipcV2ResponseMsg struct {
 	Response  ipc.Response
 }
 
+// handleV2Request serves one IPC request from the update loop: reads answer
+// immediately, everything else runs as a job.
 func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 	switch strings.ToLower(strings.TrimSpace(msg.Request.Method)) {
 	case "state.get":
@@ -153,6 +155,11 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 		m.stopByUser()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return nil
+	case "quit":
+		// Answer before leaving: the client polls for this job on a fresh
+		// connection, and the socket goes away with the process.
+		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
+		return m.shutDown()
 	case "next":
 		cmd := m.skipNext()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
@@ -760,12 +767,19 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 	return fingerprint
 }
 
+// v2BandsResponse answers a spectrum request with the visualizer's current
+// bands.
 func (m *Model) v2BandsResponse() ipc.Response {
 	response := ipc.Response{OK: true}
-	if m.headless {
-		// The low-power tick is too slow for a spectrum client, so each
-		// request analyzes the audio that plays now.
-		m.tickVisualizer(time.Now())
+	if m.detached && m.vis != nil && m.player != nil {
+		// A detached session runs no visualizer of its own: nothing would
+		// refresh these bands, and a status bar asking for a spectrum would
+		// get the frame that was current when the last client left. Analyze
+		// on demand instead, from the same audio tap an attached UI reads.
+		ctx := m.visualizerTickContext(time.Now())
+		ctx.Playing = m.player.IsPlaying() && !m.player.IsPaused()
+		ctx.Paused = m.player.IsPlaying() && m.player.IsPaused()
+		m.vis.Tick(ctx)
 	}
 	if m.vis != nil {
 		response.Visualizer = m.vis.ModeName()

@@ -13,8 +13,21 @@ import (
 	"github.com/bjarneo/cliamp/tracksave"
 )
 
-// quit shuts down the player and signals the TUI to exit.
+// quit ends what the user started. In a detached session that is the terminal,
+// not the music: the quit key hands the terminal back and the session keeps
+// playing. Nothing on the keyboard ends a session -- its lifetime belongs to
+// whatever started it, a service manager included -- so stopping one is an
+// explicit `cliamp quit`.
 func (m *Model) quit() tea.Cmd {
+	if m.sessionDetach != nil {
+		m.sessionDetach()
+		return nil
+	}
+	return m.shutDown()
+}
+
+// shutDown stops the player and signals the TUI to exit.
+func (m *Model) shutDown() tea.Cmd {
 	// Only save resume for seekable tracks:
 	// - local files (not stream)
 	// - HTTP streams with known duration (podcast MP3s)
