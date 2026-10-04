@@ -70,6 +70,7 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Hide the key-binding hint bar above the status line. The row is given back to
 # the playlist. Press "?" for the full keymap, or Ctrl+G to toggle the bar.
 # Simplified mode has no hint bar or playlist, so it is unaffected.
+# The full-screen visualizer never draws shortcut hints either.
 # hide_help_bar = true
 
 # Close the settings pane beside the playlist at the 80x24-and-up layout. The
