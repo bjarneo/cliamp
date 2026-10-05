@@ -32,6 +32,7 @@ cp config.toml.example ~/.config/cliamp/config.toml
 
 ```toml
 # Default volume in dB (range: volume_min to 6)
+# Changing it with + / - in the player saves the new value here automatically.
 volume = 0
 
 # Minimum volume floor in dB (range: -90 to 0, default: -50)
