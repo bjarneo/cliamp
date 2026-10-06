@@ -185,8 +185,9 @@ song followed by the related songs, and the chosen song plays from the start,
 even if it was already playing.
 
 - If the lookup fails or finds nothing, the queue and playback stay as they were.
-- Pressing `c` again, or loading or opening another playlist, before the songs
-  arrive cancels the radio. Moving to another song in the queue does not.
+- Pressing `c` again, or loading, opening or refreshing a playlist, before the
+  songs arrive cancels the radio. Moving to another song in the queue does
+  not.
 - While the chosen song is still playing and the queue is unchanged, `Ctrl+Z`
   brings the old queue back; the chosen song keeps playing, and the old
   current song plays after it. The restored queue is no longer tied to the
