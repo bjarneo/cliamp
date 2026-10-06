@@ -130,7 +130,8 @@ For cookie-backed providers (`cookies_from`), cliamp adds all custom playlists t
 
   If yt-dlp reports `ERROR: secretstorage not available` when using `+gnomekeyring`,
   install the optional `secretstorage` Python package for the Python environment
-  running yt-dlp. On Arch Linux, run `sudo pacman -S python-secretstorage`.
+  running yt-dlp. On Arch Linux, run `sudo pacman -S python-secretstorage`;
+  on Debian and Ubuntu, run `sudo apt install python3-secretstorage`.
   Then restart cliamp and refresh the provider with `Ctrl+R`. The GNOME Keyring
   service must also be running and unlocked.
 
