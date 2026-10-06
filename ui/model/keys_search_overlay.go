@@ -135,6 +135,11 @@ func (m *Model) handleSearchOverlayResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 				return m.fetchProviderPlaylists()
 			}
 		}
+	case "c":
+		if track, ok := m.selectedSearchResult(); ok && m.canSongRadio(track) {
+			m.closeSearchOverlay()
+			return m.startSongRadio(track)
+		}
 	case "esc", "backspace":
 		m.invalidateSearchOverlayAlbumRequest()
 		nextRequest(&m.requests.searchOverlayLists)

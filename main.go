@@ -310,6 +310,7 @@ func configureModel(m *model.Model, cfg config.Config, headless, visualizer60FPS
 	m.SetPadding(cfg.PaddingH, cfg.PaddingV)
 	m.SetVisVolumeLinked(cfg.VisVolumeLinked)
 	m.SetSeekStepLarge(cfg.SeekStepLargeDuration())
+	m.SetSongRadioSize(cfg.SongRadioSize)
 	m.SetLyricsOffset(cfg.LyricsOffsetMs)
 	m.SetInitialDirectory(cfg.InitialDirectory)
 	m.SetDownloadsDirectory(cfg.Downloads.Directory)

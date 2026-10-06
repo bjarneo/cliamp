@@ -191,6 +191,9 @@ func (m *Model) fetchProviderTracks(playlistID string) tea.Cmd {
 		return nil
 	}
 	gen := nextRequest(&m.requests.tracks)
+	// Opening a provider playlist asks for a new queue, so a song radio
+	// still looking up songs is dropped.
+	nextRequest(&m.requests.queue)
 	pager, paged := m.provider.(provider.TrackPager)
 	m.tracksPaging = paged
 	if paged {
