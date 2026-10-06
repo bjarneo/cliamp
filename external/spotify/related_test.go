@@ -60,6 +60,7 @@ func TestStationTrackURIsPagesUntilEnoughSongs(t *testing.T) {
 	}
 }
 
+// A failing page fails the lookup, even after earlier pages gave songs.
 func TestStationTrackURIsFailingPage(t *testing.T) {
 	boom := errors.New("radio-router 500")
 	failSecond := func(_ context.Context, idx int) ([]*connectpb.ContextTrack, error) {
@@ -68,13 +69,20 @@ func TestStationTrackURIsFailingPage(t *testing.T) {
 		}
 		return nil, boom
 	}
-	got, err := stationTrackURIs(context.Background(), failSecond, "spotify:track:seed", 10)
-	if err != nil || !reflect.DeepEqual(got, []string{"spotify:track:a"}) {
-		t.Fatalf("later page failing: got %v, %v; want the first page's songs", got, err)
+	if got, err := stationTrackURIs(context.Background(), failSecond, "spotify:track:seed", 10); !errors.Is(err, boom) {
+		t.Fatalf("later page failing: got %v, %v; want %v", got, err, boom)
 	}
-	failFirst := func(context.Context, int) ([]*connectpb.ContextTrack, error) { return nil, boom }
-	if _, err := stationTrackURIs(context.Background(), failFirst, "spotify:track:seed", 10); !errors.Is(err, boom) {
-		t.Fatalf("first page failing: err = %v, want %v", err, boom)
+}
+
+// Below one song, the provider asks Spotify for nothing. This provider has no
+// session or client ID, so any lookup would fail.
+func TestRelatedTracksAsksForNothingBelowOne(t *testing.T) {
+	p := New(nil, "", 0)
+	seed := playlist.Track{Path: "spotify:track:69kOkLUCkxIZYexIgSG8rq"}
+	for _, n := range []int{0, -1} {
+		if got, err := p.RelatedTracks(context.Background(), seed, n); err != nil || len(got) != 0 {
+			t.Fatalf("RelatedTracks(n=%d) = %v, %v; want nothing", n, got, err)
+		}
 	}
 }
 

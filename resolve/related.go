@@ -11,7 +11,7 @@ import (
 
 // YouTubeRelater finds songs related to a YouTube or YouTube Music video from
 // the video's Mix playlist, which yt-dlp can list. YouTube URLs belong to no
-// provider, so this covers them for provider.RelaterFor.
+// provider, so callers check this relater after the providers.
 type YouTubeRelater struct{}
 
 var _ provider.Relater = YouTubeRelater{}
@@ -22,15 +22,15 @@ func (YouTubeRelater) CanRelate(track playlist.Track) bool {
 	return ok
 }
 
-// RelatedTracks returns about n songs from the seed video's Mix: it lists n+1
+// RelatedTracks returns up to n songs from the seed video's Mix: it lists n+1
 // entries because a Mix starts with the seed, and drops the seed. A Mix
 // differs on every call.
 func (YouTubeRelater) RelatedTracks(ctx context.Context, seed playlist.Track, n int) ([]playlist.Track, error) {
 	mixURL, seedID, ok := youTubeMix(seed.Path)
-	if !ok {
+	if !ok || n < 1 {
 		return nil, nil
 	}
-	tracks, err := ResolveYTDLBatchContext(ctx, mixURL, 0, n+1, "")
+	tracks, err := resolveYTDL(ctx, mixURL, n+1)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func (YouTubeRelater) RelatedTracks(ctx context.Context, seed playlist.Track, n 
 		}
 		out = append(out, t)
 	}
-	return out, nil
+	return out[:min(len(out), n)], nil
 }
 
 // youTubeMix returns the Mix playlist URL for a single-video YouTube or

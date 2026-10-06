@@ -37,7 +37,7 @@ func (p *SpotifyProvider) CanRelate(track playlist.Track) bool {
 // titles, artists and albums are looked up before returning; songs Spotify
 // has no metadata for are left out. Implements provider.Relater.
 func (p *SpotifyProvider) RelatedTracks(ctx context.Context, seed playlist.Track, n int) ([]playlist.Track, error) {
-	if !p.CanRelate(seed) {
+	if !p.CanRelate(seed) || n < 1 {
 		return nil, nil
 	}
 	if err := p.ensureSession(); err != nil {
@@ -49,15 +49,18 @@ func (p *SpotifyProvider) RelatedTracks(ctx context.Context, seed playlist.Track
 	return sess.relatedTracks(ctx, seed.Path, n)
 }
 
-// relatedTracks holds the read lock for the whole lookup, like NewStream, so a
-// reconnect waits for it instead of closing the session underneath it.
+// relatedTracks makes its requests without holding s.mu, so a reconnect or
+// Close does not wait for the lookup. Closing a session closes its AP, dealer
+// and event connections but not its spclient, so a lookup in flight finishes
+// on the session it started with.
 func (s *Session) relatedTracks(ctx context.Context, seedURI string, n int) ([]playlist.Track, error) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.sess == nil {
+	sess := s.sess
+	s.mu.RUnlock()
+	if sess == nil {
 		return nil, fmt.Errorf("spotify: session closed")
 	}
-	sp := s.sess.Spclient()
+	sp := sess.Spclient()
 
 	station, err := sp.ContextResolveAutoplay(ctx, &playerpb.AutoplayContextRequest{
 		ContextUri:     proto.String(seedURI),
@@ -88,8 +91,7 @@ func (s *Session) relatedTracks(ctx context.Context, seedURI string, n int) ([]p
 }
 
 // stationTrackURIs collects up to n song URIs from a station's pages, skipping
-// the seed, repeats and anything that is not a song. A page that fails after
-// some songs were collected ends the station early rather than failing it.
+// the seed, repeats and anything that is not a song.
 func stationTrackURIs(ctx context.Context, page func(context.Context, int) ([]*connectpb.ContextTrack, error), seedURI string, n int) ([]string, error) {
 	seen := map[string]bool{seedURI: true}
 	var uris []string
@@ -99,9 +101,6 @@ func stationTrackURIs(ctx context.Context, page func(context.Context, int) ([]*c
 			break
 		}
 		if err != nil {
-			if len(uris) > 0 {
-				break
-			}
 			return nil, err
 		}
 		for _, t := range tracks {
