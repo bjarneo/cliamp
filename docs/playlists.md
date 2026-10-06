@@ -4,7 +4,12 @@ cliamp supports local **TOML playlists** that you manage in the TUI or CLI. It a
 
 ## Loading a Saved Playlist
 
-In the playlist manager (`p`):
+Select the **Local** source to manage playlists. It shows the playlist
+directly with its full add, remove, rename and edit actions — there is no
+separate read-only Local list. `Esc` there leaves the playlist for the live
+queue; `Esc` from the queue returns to the playlist.
+
+In the playlist (`p`):
 
 - `Enter` opens a playlist, and `p` on its track screen plays it from the top.
   Both **replace** what is loaded, which clears the queue.
@@ -17,7 +22,7 @@ In the playlist manager (`p`):
 
 ## Saving the Current List
 
-Press `p` for the playlist manager, then `w` on the list screen to save
+Press `p` for the playlist, then `w` on the list screen to save
 everything currently loaded. The picker offers your saved playlists plus a
 **New playlist** row.
 
@@ -26,8 +31,8 @@ everything currently loaded. The picker offers your saved playlists plus a
 - `p` adds them to the start instead. A track already in the playlist moves to
   the front rather than being skipped.
 
-From the main view, `w` writes only the highlighted track. In the playlist
-manager's track screen, `Space` marks tracks and `w` copies the marked ones.
+From the main view, `w` writes only the highlighted track. In the playlist's
+track screen, `Space` marks tracks and `w` copies the marked ones.
 
 ## M3U and PLS Playlists
 
@@ -125,13 +130,25 @@ Each `[[track]]` section supports these keys:
 | `year` | No | Release year |
 | `track_number` | No | Track number |
 | `duration_secs` | No | Duration in seconds |
+| `stream` | No | Treat a provider URI, such as `qobuz://track/42`, as a network stream. cliamp writes it for provider tracks. HTTP and HTTPS paths are always streams. |
 | `realtime` | No | Treat an HTTP URL as live radio. Reconnect after pause or disconnect. |
+| `restricted` | No | Mark a track that its provider may refuse to play, such as an exclusive Mixcloud show. cliamp shows an `[E]` suffix and still tries to play it. |
+| `feed` | No | Treat the URL as an RSS or podcast feed. cliamp resolves it before playback. |
+| `provider_meta.<key>` | No | Provider data, such as `provider_meta.navidrome.id` or `provider_meta.podcast.guid`. cliamp uses it to scrobble, to sync favorites, and to recognize stations and podcast episodes. The `<key>` holds only letters, digits, `.`, `_` and `-`. cliamp does not save a key with other characters. |
 | `embedded_lyrics` | No | Lyrics from local file tags |
-| `album_art_url` | No | Cached file URL for embedded album art |
-| `bookmark` | No | Bookmark flag |
+| `album_art_url` | No | Album art URL: a cached file URL for embedded art, or the cover URL of a provider track. The media controls show it. |
+| `bookmark` | No | Legacy bookmark flag. cliamp reads it one time and copies the track into favorites. See [Favorites](#favorites). |
 
 cliamp treats HTTP/HTTPS paths as streams. Set `realtime = true` for live radio.
 cliamp keeps this flag when it saves the playlist.
+
+`favorites.toml` and `history.toml` use the same track keys, except
+`embedded_lyrics` and `bookmark`. Older versions saved a
+podcast episode with `podcast_feed` and `podcast_guid`. cliamp still reads
+these keys and writes `provider_meta` keys on the next save. Older versions
+also marked an exclusive Mixcloud show with
+`provider_meta.mixcloud.exclusive = "true"`. cliamp reads it as
+`restricted = true` and writes `restricted` on the next save.
 
 ### Directory Sources (`[[dir]]`)
 
@@ -159,10 +176,9 @@ Each `[[dir]]` section supports these keys:
 
 cliamp returns directory tracks in document order and sorts each directory by
 path. An explicit `[[track]]` with the same path overrides a directory scan. Use
-this to save a bookmark or custom metadata for a file. When you bookmark a
-directory track with TUI `f` or `cliamp playlist bookmark`, cliamp writes an
-explicit `[[track]]` entry so the bookmark remains. Unreadable or missing
-directories add no tracks.
+this to save custom metadata for a file. A favorite needs no explicit entry,
+because favorites.toml stores it. Unreadable or missing directories add no
+tracks.
 
 Use `--dir` to create or extend these playlists on the CLI:
 
@@ -278,7 +294,7 @@ do not need `feed = true` for these URLs.
 
 ### Browsing and Loading Playlists
 
-Run `cliamp` without arguments to connect to the built-in radio channel. If you configure Navidrome, cliamp opens the provider browser instead.
+Run `cliamp` without arguments to open the provider browser of your default provider. The default provider, `cliamp`, lists the cliamp radio channels. See [radio.md](radio.md#cliamp-radio).
 
 To browse local playlists, press `Esc` or `b` during playback to open the
 provider browser. Use `Up`/`Down` or `j`/`k` to navigate. Press `Enter` to load
@@ -296,7 +312,8 @@ cliamp song.mp3                    # starts playing, Esc opens browser
 
 ### Managing Playlists
 
-Press `p` in any view to open the playlist manager:
+The **Local** source opens the playlist in place. Press `p` in any
+other view to open it as an overlay:
 
 1. **Browse**: View all playlists and their track counts.
 2. **Filter**: Press `/` to filter the list as you type. This works on the playlists and tracks screens. `Esc` clears the filter.
@@ -304,7 +321,7 @@ Press `p` in any view to open the playlist manager:
 4. **Create playlist**: Press `a`, enter a name, and press `Enter`. The file browser opens at `~` for the new playlist. Use `Space` to select folders or files. Folders become live `[[dir]]` sources. Press `Enter` to confirm or `Esc` to finish.
 5. **Rename playlist**: Press `r` on the list screen.
 6. **Delete playlist**: Press `d`, then `y` to confirm.
-7. **Mark tracks**: Open a playlist. Press `Space` to mark a track and advance, or `a` to mark or unmark all visible tracks.
+7. **Mark tracks**: Open a playlist. Press `Space` to mark a track and advance, or unmark it and stay on the row. Press `a` to mark or unmark all visible tracks.
 8. **Move tracks**: Press `[` or `]`. cliamp saves the playlist immediately.
 9. **Sort tracks**: Press `s` to cycle `track`, `title`, `artist`, `album`, `artist+album`, and `path`.
 10. **Remove tracks**: Press `d` to remove marked tracks, or the selected track when none are marked.
@@ -316,7 +333,7 @@ Press `p` in any view to open the playlist manager:
 16. **New playlist**: Select "+ New Playlist...", enter a name, and press `Enter`. The file browser opens so you can add tracks immediately. If a `/` filter is active, cliamp fills the new playlist name with the filter text.
 
 Tracks with an `album` field are grouped by album with separator headers in the
-playlist manager and the main player view. Album grouping is hidden while a
+playlist and the main player view. Album grouping is hidden while a
 filter is active.
 
 cliamp creates `~/.config/cliamp/playlists/` on first use. Removing the last
@@ -354,13 +371,15 @@ cliamp playlist export "Name" --format m3u -o mix.m3u
 cliamp playlist import mix.pls --name "Imported"
 cliamp playlist show "Name" --json
 cliamp playlist remove "Name" --index 3
-cliamp playlist bookmark "Name" --index 3       # toggle bookmark flag
-cliamp playlist bookmarks                        # list all bookmarked tracks
+cliamp playlist favorite "Name" --index 3       # toggle the favorite of a track
+cliamp playlist favorites                        # list all favorite tracks
 cliamp playlist enrich "Name"                    # backfill duration/album metadata
 cliamp playlist delete "Name"
 ```
 
 Use `track`, `title`, `artist`, `album`, `artist+album`, or `path` as sort keys.
+
+`playlist doctor --fix` prunes only playlist files. It reports a missing favorite and keeps it. To remove a favorite, run `cliamp playlist favorite Favorites --index N`.
 
 New playlist names reject path separators and non-portable file name characters.
 cliamp can still read and write existing playlist files with older Unix-only
@@ -398,11 +417,11 @@ title = "My Radio"
 | `Tab` | Return to playback controls, starting at Source when visible ([navigation](keybindings.md#navigation)) |
 | `Esc` `b` | Open browser (from playlist view) |
 
-**Playlist manager (`p` key):**
+**Playlist (`p` key):**
 
 | Key | Action |
 |-----|--------|
-| `p` / `Esc` | Open or close the playlist manager. `Esc` on the tracks screen goes back. |
+| `p` / `Esc` | Open or close the playlist. `Esc` on the tracks screen goes back. |
 | `Up` `Down` / `j` `k` | Navigate |
 | `/` | Filter playlists or tracks; `Esc` clears |
 | `Enter` / `→` | List screen: open a playlist. Tracks screen: play the **selected** track. |
@@ -416,7 +435,7 @@ title = "My Radio"
 | `D` | List: open the file browser to add `[[dir]]` sources to the selected playlist. Tracks: open the directory-sources screen for the open playlist. |
 | `[` `]` | Move track up/down and save (tracks screen) |
 | `d` | Delete a playlist after confirmation. `Recently Played` cannot be deleted. In tracks, remove marked tracks or the selected track if none are marked. |
-| `u` | Undo the last playlist-manager edit |
+| `u` | Undo the last playlist edit |
 | `←` / `Backspace` | Go back from tracks screen to list |
 
 The playlist list marks playlists with `[[dir]]` sources with a `· N dir(s)`
@@ -440,17 +459,48 @@ list screen. cliamp skips and reports directories that are already referenced.
 
 ## Favorites
 
-Press `n` on a track in the track list to toggle its favorite state. cliamp
-collects favorited tracks in the virtual **"Favorites"** playlist. This playlist
-always appears at the top of the playlist list, even when empty and regardless
-of the source playlist.
+Press `f` on a track to toggle its favorite state. The key works in the
+queue, the playlist, a provider browser track list, and
+search results. cliamp collects favorite tracks in the virtual **"Favorites"**
+playlist. This playlist always appears at the top of the playlist list, even
+when empty and regardless of the source playlist.
 
 Favorites apply across playlists. A track that you favorite in "gym" appears in
 "Favorites", and the reverse is also true. `~/.config/cliamp/favorites.toml`
 stores the "Favorites" playlist. Like "Recently Played", it is a virtual
-playlist that you cannot rename, delete, or change in the playlist manager. Use
-`n` again to remove a favorite.
+playlist that you cannot rename, delete, or change in the playlist. Use
+`f` again to remove a favorite.
 
-Favorited tracks show a small red `♥` marker in the track list. The bookmark
-system is separate: it uses the `f` key and `★` marker. Bookmarks apply to one
-playlist. Favorites apply to all playlists.
+Favorite tracks show a small red `♥` marker in the track list. The marker
+column is always reserved, so a toggle does not move the titles.
+
+When the track comes from Spotify or Navidrome, cliamp also saves the favorite
+on that service. Spotify adds the track to Liked Songs. Navidrome stars the
+song. The local file stays the source of truth. If the service call fails, the
+local favorite stays and the status bar shows a warning with the provider
+name. See [spotify.md](spotify.md) and [navidrome.md](navidrome.md).
+
+On a radio station, `f` toggles the station favorite. On a podcast show, `f`
+subscribes or unsubscribes. In the country browser, `f` pins a country.
+
+### Bookmarks became favorites
+
+Older versions had a separate per-playlist bookmark on `f` with a `★` marker,
+and the favorite was on `n`. Now `f` is the only favorite key, and `n` has no
+action.
+
+The first time cliamp starts after the update, it copies each bookmarked track
+into favorites. It does this one time. It writes the favorites first, then
+creates `~/.config/cliamp/bookmarks_migrated`. Delete that file to copy the
+bookmarks again. cliamp does not rewrite your playlist files. Files that
+contain `bookmark = true` still load.
+
+`cliamp playlist bookmark` and `cliamp playlist bookmarks` still work. They
+are aliases of `cliamp playlist favorite` and `cliamp playlist favorites`.
+These CLI commands change only the local favorites. They do not call Spotify
+or Navidrome:
+
+```sh
+cliamp playlist favorite "gym" --index 3
+cliamp playlist bookmarks
+```

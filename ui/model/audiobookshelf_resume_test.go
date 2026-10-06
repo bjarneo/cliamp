@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 )
 
 // resumeProv is a stub provider that reports a fixed resume target.
@@ -191,7 +192,7 @@ func TestTickProgressReportThrottles(t *testing.T) {
 	m := Model{
 		player:             &playbackFakeEngine{playing: true, position: 42 * time.Second},
 		provider:           prov,
-		providers:          []ProviderEntry{{Key: "stub", Name: "Plain", Provider: prov}},
+		providers:          []provider.Entry{{Key: "stub", Name: "Plain", Provider: prov}},
 		playingTrack:       stubTracks()[0],
 		playingTrackActive: true,
 	}
@@ -224,7 +225,7 @@ func TestTickProgressReportSkipsWhenPaused(t *testing.T) {
 	m := Model{
 		player:             &playbackFakeEngine{playing: true, paused: true},
 		provider:           prov,
-		providers:          []ProviderEntry{{Key: "stub", Name: "Plain", Provider: prov}},
+		providers:          []provider.Entry{{Key: "stub", Name: "Plain", Provider: prov}},
 		playingTrack:       stubTracks()[0],
 		playingTrackActive: true,
 	}

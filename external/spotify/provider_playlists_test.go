@@ -16,9 +16,19 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
+// stubSession returns a signed-in Session that sends its Web API and lyrics
+// requests to rt. The test changes no global client, so it can run in
+// parallel.
+func stubSession(rt roundTripFunc) *Session {
+	return &Session{
+		tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"}),
+		web:         &http.Client{Transport: rt},
+	}
+}
+
 func TestPlaylistsIncludesFollowedPlaylists(t *testing.T) {
-	originalTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	t.Parallel()
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		var body string
 		switch req.URL.Path {
 		case "/v1/me":
@@ -47,9 +57,8 @@ func TestPlaylistsIncludesFollowedPlaylists(t *testing.T) {
 			Request:    req,
 		}, nil
 	})
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 
-	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
+	sess := stubSession(rt)
 	got, err := New(sess, "client", 320).Playlists()
 	if err != nil {
 		t.Fatal(err)

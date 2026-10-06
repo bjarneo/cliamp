@@ -78,7 +78,9 @@ expand_playlist = false
 
 When `expand_playlist` is `true` (default), cliamp expands URLs with a `list=` parameter. This includes auto-generated mixes (RDAMVM, RDMM), album playlists (OLAK), and custom playlists (PL). cliamp loads the first 20 tracks immediately, then gets the remaining tracks in background batches. Set it to `false`, or pass `--no-expand-playlist`, to remove the playlist parameter and resolve only one video.
 
-Run `cliamp`, `cliamp --provider ytmusic`, or `cliamp --provider youtube`. Select a provider and press Enter to sign in. cliamp stores credentials in `~/.config/cliamp/ytmusic_credentials.json`. Later launches refresh them without a message.
+Run `cliamp`, `cliamp --provider ytmusic`, or `cliamp --provider youtube`. Select a provider and press Enter to sign in. cliamp stores credentials in `~/.config/cliamp/ytmusic_credentials.json`. Later launches refresh them without a message. To sign in with a different Google account, run `cliamp ytmusic reset`.
+
+If no browser opens, the provider view shows the sign-in URL. Open it in a browser on the same machine. Google sends the sign-in result to `http://127.0.0.1:19873/callback`.
 
 ## Usage
 
@@ -119,6 +121,16 @@ For OAuth setups, cliamp samples a video from each playlist and checks its YouTu
 
 For cookie-backed providers (`cookies_from`), cliamp adds all custom playlists to both YouTube Music and YouTube results without category classification. It does not create `ytmusic_classification.json`. It stores results and tracks in memory for the current session. Press `Ctrl+R` to refresh them.
 
+## Favorites
+
+Press `f` on a YouTube or YouTube Music track to toggle its favorite ♥. cliamp
+keeps the favorite in its local "Favorites" playlist only. It does not like the
+video on YouTube, so the track does not appear in **Liked Music**.
+
+The OAuth client asks only for the `youtube.readonly` scope, which cannot set a
+like. The cookie mode reads playlists through yt-dlp, which also cannot set a
+like. See issue [#541](https://github.com/bjarneo/cliamp/issues/541).
+
 ## Troubleshooting
 
 - **Linux Keyring / Cookie Decryption (`cannot decrypt v11 cookies: no key found`)**: On Linux desktops or window managers, such as Hyprland, Sway, and i3, Chromium/Chrome can encrypt cookies with GNOME Keyring or KWallet. Append the keyring name to `cookies_from`:
@@ -142,7 +154,8 @@ For cookie-backed providers (`cookies_from`), cliamp adds all custom playlists t
 - **"OAuth failed"**: Ensure that the Google Cloud project has YouTube Data API v3 enabled and uses OAuth client type "Desktop app".
 - **"Access blocked"**: While the app is in "Testing" status, only added test users can sign in. Add the Google account as a test user in OAuth consent screen settings.
 - **Playlist not showing**: The provider lists only library playlists. Save or follow a playlist in YouTube Music for it to appear.
-- **Re-authenticate / Reset Cache**: Delete `~/.config/cliamp/ytmusic_credentials.json` for OAuth. Or press `Ctrl+R` in the TUI or remove `~/.config/cliamp/ytmusic_cache.json`.
+- **Re-authenticate**: Run `cliamp ytmusic reset` to clear stored OAuth credentials. Then restart cliamp, select YouTube Music, and sign in again. This is the same as deleting `~/.config/cliamp/ytmusic_credentials.json`. Cookie mode stores no credentials, so it needs no reset.
+- **Reset Cache**: Press `Ctrl+R` in the TUI, or remove `~/.config/cliamp/ytmusic_cache.json`.
 - **Private/deleted videos**: cliamp automatically skips these when it loads a playlist.
 
 ## Requirements
@@ -150,3 +163,5 @@ For cookie-backed providers (`cookies_from`), cliamp adds all custom playlists t
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) installed and on `PATH` for audio playback
 - Browser cookies (`cookies_from = "browser"`, no Google Cloud setup) or a Google Cloud project with YouTube Data API v3 enabled for OAuth
 - No Spotify Premium or other paid subscription is required. The YouTube Music free tier works.
+
+If yt-dlp is missing when cliamp starts with YouTube configured, cliamp offers to install it. To install it, press `Enter`, or type `y` or `yes` and press `Enter`. To skip, type `n` and press `Enter`. Any other answer also skips the install, and the YouTube providers stay disabled for that start. In `--daemon` mode, or when stdin is a pipe or a file, cliamp does not ask. When stdin is `/dev/null`, cliamp asks, but the end of input skips the install. In these cases, cliamp does not install yt-dlp.

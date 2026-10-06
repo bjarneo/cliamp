@@ -16,7 +16,7 @@ import (
 // A measured length always beats the metadata hint, because feeds understate
 // an episode's length by however much advertising was inserted.
 func TestNavStreamerLenPrefersProbedLength(t *testing.T) {
-	s := &navFFmpegStreamer{ffmpegPipe: ffmpegPipe{total: 1000}}
+	s := &navFFmpegStreamer{ffmpegPipe: ffmpegPipe{pipeReport: pipeReport{total: 1000}}}
 
 	if got := s.Len(); got != 1000 {
 		t.Errorf("Len() = %d before probing, want the metadata hint 1000", got)
@@ -30,7 +30,7 @@ func TestNavStreamerLenPrefersProbedLength(t *testing.T) {
 }
 
 func TestNavStreamerLenIgnoresFailedProbe(t *testing.T) {
-	s := &navFFmpegStreamer{ffmpegPipe: ffmpegPipe{total: 1000}}
+	s := &navFFmpegStreamer{ffmpegPipe: ffmpegPipe{pipeReport: pipeReport{total: 1000}}}
 
 	// probeFrames returns 0 when ffprobe is missing or the file is gone.
 	s.probed.Store(0)
@@ -109,14 +109,14 @@ func TestNavBufferCompletedPathOnTruncatedDownload(t *testing.T) {
 // A finite HTTP source must reach the seekable pipeline without being
 // recognized in advance: podcast CDNs rewrite enclosure URLs per request, so a
 // track restored from a saved playlist never matches a URL seen before.
-// fixtureMP3 returns the short MP3 shipped at the repository root, a real
+// fixtureMP3 returns the short MP3 shipped in testdata, a real
 // encoded file both decoders accept, so routing tests exercise the same path
 // a podcast enclosure takes.
 func fixtureMP3(t *testing.T) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "cliamp_whips_terminal_ass.mp3"))
+	data, err := os.ReadFile(filepath.Join("testdata", "cliamp_whips_terminal_ass.mp3"))
 	if err != nil {
-		t.Skipf("fixture unavailable: %v", err)
+		t.Fatalf("fixture unavailable: %v", err)
 	}
 	return data
 }
@@ -137,7 +137,7 @@ func TestFiniteHTTPSourceIsSeekableWithoutAMatcher(t *testing.T) {
 	}
 	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
 
-	tp, err := p.buildPipeline(srv.URL)
+	tp, err := p.buildPipeline(srv.URL, 0)
 	if err != nil {
 		t.Fatalf("buildPipeline() error = %v", err)
 	}
@@ -169,7 +169,7 @@ func TestChunkedHTTPSourceStaysLive(t *testing.T) {
 
 	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
 
-	tp, err := p.buildPipeline(srv.URL)
+	tp, err := p.buildPipeline(srv.URL, 0)
 	if err != nil {
 		t.Fatalf("buildPipeline() error = %v", err)
 	}

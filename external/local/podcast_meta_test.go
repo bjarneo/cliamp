@@ -1,6 +1,7 @@
 package local
 
 import (
+	"maps"
 	"testing"
 
 	"github.com/bjarneo/cliamp/playlist"
@@ -61,21 +62,47 @@ func TestPlaylistRoundTripWithoutPodcastMeta(t *testing.T) {
 	}
 }
 
-// A GUID without a feed is not enough to identify an episode, so it is not
-// carried alone.
-func TestPlaylistRoundTripIgnoresAGuidWithoutAFeed(t *testing.T) {
-	p := newTestProvider(t)
-	track := playlist.Track{
-		Path:         "https://cdn.example.com/ep1.mp3",
-		Title:        "Orphan",
-		ProviderMeta: map[string]string{provider.MetaPodcastGUID: "guid-1"},
+// Playlists written before the shared track codec keep the feed and GUID as
+// podcast_feed and podcast_guid. They must still load.
+func TestParseTrackFieldsReadsLegacyPodcastKeys(t *testing.T) {
+	const feed, guid = "https://rss.example.com/show", "guid-1"
+	tests := []struct {
+		name   string
+		fields map[string]string
+		want   map[string]string
+	}{
+		{
+			name:   "feed and guid",
+			fields: map[string]string{"podcast_feed": feed, "podcast_guid": guid},
+			want:   map[string]string{provider.MetaPodcastFeed: feed, provider.MetaPodcastGUID: guid},
+		},
+		{
+			name:   "feed only",
+			fields: map[string]string{"podcast_feed": feed},
+			want:   map[string]string{provider.MetaPodcastFeed: feed},
+		},
+		{
+			name:   "guid without a feed is not read",
+			fields: map[string]string{"podcast_guid": guid},
+		},
+		{
+			name: "provider_meta keys win",
+			fields: map[string]string{
+				"podcast_feed":               "https://old.example.com/rss",
+				"podcast_guid":               "old-guid",
+				"provider_meta.podcast.feed": feed,
+				"provider_meta.podcast.guid": guid,
+			},
+			want: map[string]string{provider.MetaPodcastFeed: feed, provider.MetaPodcastGUID: guid},
+		},
 	}
-	if _, _, err := p.AddTracks("saved", []playlist.Track{track}); err != nil {
-		t.Fatalf("AddTracks: %v", err)
-	}
-
-	tracks, _ := p.Tracks("saved")
-	if got := tracks[0].Meta(provider.MetaPodcastGUID); got != "" {
-		t.Errorf("guid = %q, want it dropped without a feed", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.fields["path"] = "https://cdn.example.com/ep1.mp3"
+			got := parseTrackFields(tt.fields).ProviderMeta
+			if !maps.Equal(got, tt.want) || (got == nil) != (tt.want == nil) {
+				t.Errorf("ProviderMeta = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

@@ -3,37 +3,24 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/config"
-	"github.com/bjarneo/cliamp/external/audiobookshelf"
-	"github.com/bjarneo/cliamp/external/emby"
-	"github.com/bjarneo/cliamp/external/jellyfin"
-	"github.com/bjarneo/cliamp/external/local"
-	"github.com/bjarneo/cliamp/external/lyrion"
-	"github.com/bjarneo/cliamp/external/mixcloud"
-	"github.com/bjarneo/cliamp/external/navidrome"
-	"github.com/bjarneo/cliamp/external/netease"
-	"github.com/bjarneo/cliamp/external/plex"
-	"github.com/bjarneo/cliamp/external/podcast"
-	"github.com/bjarneo/cliamp/external/qobuz"
 	"github.com/bjarneo/cliamp/external/radio"
-	"github.com/bjarneo/cliamp/external/radiometa"
-	"github.com/bjarneo/cliamp/external/soundcloud"
-	"github.com/bjarneo/cliamp/external/spotify"
-	"github.com/bjarneo/cliamp/external/tidal"
-	"github.com/bjarneo/cliamp/external/yandex"
-	"github.com/bjarneo/cliamp/external/ytmusic"
 	"github.com/bjarneo/cliamp/internal/appdir"
 	"github.com/bjarneo/cliamp/internal/appmeta"
+	"github.com/bjarneo/cliamp/internal/embyapi"
 	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/internal/resume"
 	"github.com/bjarneo/cliamp/ipc"
@@ -43,65 +30,31 @@ import (
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/resolve"
 	"github.com/bjarneo/cliamp/theme"
-	"github.com/bjarneo/cliamp/ui"
 	"github.com/bjarneo/cliamp/ui/model"
 )
 
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z".
 var version string
 
+// buildVersion returns version when -ldflags set it. go install and go
+// build set none, so it falls back to the module version that go records,
+// and then to "dev". The result is never empty, so --version always works.
+func buildVersion() string {
+	if version != "" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return "dev"
+}
+
 const (
 	defaultUIFPS  = 20
 	lowPowerUIFPS = 5
 )
 
-// isBufferedProviderURL reports whether u is a provider stream endpoint that
-// needs the buffered download pipeline rather than the live-stream one. These
-// are finite files with a known length, so buffering gives seeking and gapless
-// playback.
-func isBufferedProviderURL(u string) bool {
-	return navidrome.IsSubsonicStreamURL(u) ||
-		jellyfin.IsStreamURL(u) ||
-		emby.IsStreamURL(u) ||
-		plex.IsStreamURL(u) ||
-		qobuz.IsStreamURL(u) ||
-		tidal.IsStreamURL(u) ||
-		audiobookshelf.IsStreamURL(u) ||
-		lyrion.IsStreamURL(u) ||
-		yandex.IsStreamURL(u)
-}
-
-func restoreJellyfinContext(state resume.State, prov *jellyfin.Provider) ([]playlist.Track, int, string, bool) {
-	if prov == nil || len(state.Context) == 0 {
-		return nil, 0, "", false
-	}
-	index := state.ContextIndex
-	if index < 0 || index >= len(state.Context) || state.Context[index].Path != state.Path {
-		index = -1
-		for i, track := range state.Context {
-			if track.Path == state.Path {
-				index = i
-				break
-			}
-		}
-	}
-	if index < 0 {
-		return nil, 0, "", false
-	}
-	if _, ok := prov.RestoreTrack(state.Context[index]); !ok {
-		return nil, 0, "", false
-	}
-
-	tracks := append([]playlist.Track(nil), state.Context...)
-	for i, track := range tracks {
-		if restored, ok := prov.RestoreTrack(track); ok {
-			tracks[i] = restored
-		}
-	}
-	return tracks, index, tracks[index].Path, true
-}
-
-func run(overrides config.Overrides, positional []string, daemon, visualizer60FPS bool) error {
+func run(overrides config.Overrides, positional []string, headless, visualizer60FPS bool) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -116,212 +69,22 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	} else {
 		applog.Info("cliamp starting (version=%s level=%s)", appmeta.Version(), appliedLevel)
 	}
-
-	// Public providers are always available; account providers register when configured.
-	radioFavorites := radio.LoadFavorites()
-	radioProv := radio.New(radio.Options{
-		Favorites:   radioFavorites,
-		Country:     cfg.Radio.Country,
-		SaveCountry: config.SaveRadioCountry,
-	})
-	localProv := local.New()
-
-	var providers []model.ProviderEntry
-	providers = append(providers, model.ProviderEntry{Key: "radio", Name: "Radio", Provider: radioProv})
-	if localProv != nil {
-		providers = append(providers, model.ProviderEntry{Key: "local", Name: "Local", Provider: localProv})
-	}
-	podcastProv := podcast.New(cfg.Podcast.Country)
-	// Flush per-episode listening state that the throttled writer still holds.
-	defer podcastProv.Close()
-	providers = append(providers, model.ProviderEntry{Key: "podcast", Name: "Podcasts", Provider: podcastProv})
-
-	var navClient *navidrome.NavidromeClient
-	if c := navidrome.NewFromConfig(cfg.Navidrome); c != nil {
-		navClient = c
-	} else if c := navidrome.NewFromEnv(cfg.Navidrome); c != nil {
-		navClient = c
-	}
-	if navClient != nil {
-		providers = append(providers, model.ProviderEntry{Key: "navidrome", Name: "Navidrome", Provider: navClient})
-	}
-
-	var lyrionClient *lyrion.Client
-	if c := lyrion.NewFromConfig(cfg.Lyrion); c != nil {
-		lyrionClient = c
-	} else if c := lyrion.NewFromEnv(); c != nil {
-		lyrionClient = c
-	}
-	if lyrionClient != nil {
-		providers = append(providers, model.ProviderEntry{Key: "lyrion", Name: "Lyrion", Provider: lyrionClient})
-	}
-
-	if plexProv := plex.NewFromConfig(cfg.Plex); plexProv != nil {
-		providers = append(providers, model.ProviderEntry{Key: "plex", Name: "Plex", Provider: plexProv})
-	}
-
-	var jellyProv *jellyfin.Provider
-	if p := jellyfin.NewFromConfig(cfg.Jellyfin); p != nil {
-		jellyProv = p
-		providers = append(providers, model.ProviderEntry{Key: "jellyfin", Name: "Jellyfin", Provider: jellyProv})
-	}
-
-	if embyProv := emby.NewFromConfig(cfg.Emby); embyProv != nil {
-		providers = append(providers, model.ProviderEntry{Key: "emby", Name: "Emby", Provider: embyProv})
-	}
-
-	if absProv := audiobookshelf.NewFromConfig(cfg.Audiobookshelf); absProv != nil {
-		providers = append(providers, model.ProviderEntry{Key: "audiobookshelf", Name: "Audiobookshelf", Provider: absProv})
-	}
-
-	var spotifyProv *spotify.SpotifyProvider
-	if cfg.Spotify.IsSet() {
-		clientID := cfg.Spotify.ResolveClientID(spotify.DefaultClientID)
-		spotifyProv = spotify.New(nil, clientID, cfg.Spotify.Bitrate)
-		providers = append(providers, model.ProviderEntry{Key: "spotify", Name: "Spotify", Provider: spotifyProv})
-	}
-
-	var qobuzProv *qobuz.QobuzProvider
-	if cfg.Qobuz.IsSet() {
-		qobuzProv = qobuz.New(cfg.Qobuz.Quality)
-		providers = append(providers, model.ProviderEntry{Key: "qobuz", Name: "Qobuz", Provider: qobuzProv})
-	}
-
-	var tidalProv *tidal.TidalProvider
-	if cfg.Tidal.IsSet() {
-		tidalProv = tidal.New(cfg.Tidal.Quality, cfg.Tidal.ClientID, cfg.Tidal.ClientSecret)
-		providers = append(providers, model.ProviderEntry{Key: "tidal", Name: "Tidal", Provider: tidalProv})
-	}
-
-	if scProv := soundcloud.NewFromConfig(soundcloud.Config{
-		Enabled:     cfg.SoundCloud.Enabled,
-		User:        cfg.SoundCloud.User,
-		CookiesFrom: cfg.SoundCloud.CookiesFrom,
-	}); scProv != nil {
-		providers = append(providers, model.ProviderEntry{Key: "soundcloud", Name: "SoundCloud", Provider: scProv})
-	}
-
-	if mcProv := mixcloud.NewFromConfig(mixcloud.Config{
-		Enabled:        cfg.Mixcloud.Enabled,
-		Username:       cfg.Mixcloud.Username,
-		AccessToken:    cfg.Mixcloud.AccessToken,
-		CookiesFrom:    cfg.Mixcloud.CookiesFrom,
-		Styles:         cfg.Mixcloud.Styles,
-		StylesSet:      cfg.Mixcloud.StylesSet,
-		MaxItems:       cfg.Mixcloud.MaxItems,
-		StreamCreators: cfg.Mixcloud.StreamCreators,
-		SaveStyles:     config.SaveMixcloudStyles,
-	}); mcProv != nil {
-		providers = append(providers, model.ProviderEntry{Key: "mixcloud", Name: "Mixcloud", Provider: mcProv})
-	}
-
-	if neProv := netease.NewFromConfig(netease.Config{
-		Enabled:     cfg.NetEase.Enabled,
-		CookiesFrom: cfg.NetEase.CookiesFrom,
-		UserID:      cfg.NetEase.UserID,
-	}); neProv != nil {
-		providers = append(providers, model.ProviderEntry{Key: "netease", Name: "NetEase", Provider: neProv})
-	}
-
-	yaProv := yandex.NewFromConfig(yandex.Config{
-		Enabled: cfg.Yandex.Enabled,
-		Token:   cfg.Yandex.Token,
-	})
-	if yaProv != nil {
-		providers = append(providers, model.ProviderEntry{Key: "yandex", Name: "Yandex Music", Provider: yaProv})
-	}
-
-	var closeYouTube func()
-	ytWanted := cfg.YouTubeMusic.IsSetOrFallback(ytmusic.FallbackCredentials)
-	if !ytWanted {
-		switch cfg.Provider {
-		case "yt", "youtube", "ytmusic":
-			ytWanted = true
-		}
-	}
-	if ytWanted {
-		explicitOAuth := strings.TrimSpace(cfg.YouTubeMusic.ClientID) != "" && strings.TrimSpace(cfg.YouTubeMusic.ClientSecret) != ""
-		hasCookies := strings.TrimSpace(cfg.YouTubeMusic.CookiesFrom) != ""
-		if hasCookies {
-			for _, host := range []string{"youtube.com", "youtu.be", "music.youtube.com"} {
-				resolve.SetYTDLCookiesForHost(host, cfg.YouTubeMusic.CookiesFrom)
-			}
-		}
-
-		ytClientID, ytClientSecret := cfg.YouTubeMusic.ResolveCredentials(ytmusic.FallbackCredentials)
-		hasFallbackOAuth := !explicitOAuth && ytClientID != "" && ytClientSecret != ""
-
-		if !explicitOAuth && !hasCookies && !hasFallbackOAuth {
-			fmt.Fprintf(os.Stderr, "YouTube: no credentials available (configure client_id/client_secret or cookies_from in config.toml)\n")
-		} else {
-			if !player.YTDLPAvailable() {
-				fmt.Fprintf(os.Stderr, "\nYouTube requires yt-dlp for audio playback.\n")
-				fmt.Fprintf(os.Stderr, "Install command: %s\n\n", player.YtdlpInstallHint())
-				fmt.Fprintf(os.Stderr, "Press Enter to install automatically, or Ctrl+C to skip... ")
-				fmt.Scanln()
-				fmt.Fprintf(os.Stderr, "Installing yt-dlp...\n")
-				if err := player.InstallYTDLP(); err != nil {
-					fmt.Fprintf(os.Stderr, "Installation failed: %v\n", err)
-					fmt.Fprintf(os.Stderr, "YouTube providers disabled. Install manually and restart.\n\n")
-				} else {
-					fmt.Fprintf(os.Stderr, "yt-dlp installed successfully!\n\n")
-				}
-			}
-			if player.YTDLPAvailable() {
-				var all, video, music playlist.Provider
-				if explicitOAuth {
-					oauthProviders := ytmusic.New(nil, ytClientID, ytClientSecret, hasCookies)
-					all, video, music = oauthProviders.All, oauthProviders.Video, oauthProviders.Music
-					closeYouTube = oauthProviders.Music.Close
-				} else if hasCookies {
-					cookieProviders := ytmusic.NewCookieProviders(cfg.YouTubeMusic.CookiesFrom)
-					all, video, music = cookieProviders.All, cookieProviders.Video, cookieProviders.Music
-					closeYouTube = cookieProviders.Music.Close
-				} else if hasFallbackOAuth {
-					oauthProviders := ytmusic.New(nil, ytClientID, ytClientSecret, false)
-					all, video, music = oauthProviders.All, oauthProviders.Video, oauthProviders.Music
-					closeYouTube = oauthProviders.Music.Close
-				}
-				if all != nil {
-					providers = append(providers,
-						model.ProviderEntry{Key: "yt", Name: "YouTube (All)", Provider: all},
-						model.ProviderEntry{Key: "youtube", Name: "YouTube", Provider: video},
-						model.ProviderEntry{Key: "ytmusic", Name: "YouTube Music", Provider: music},
-					)
-				}
-			}
+	if headless {
+		if err := checkNotRunning(); err != nil {
+			return err
 		}
 	}
 
-	if spotifyProv != nil {
-		defer spotifyProv.Close()
-	}
-	if qobuzProv != nil {
-		defer qobuzProv.Close()
-	}
-	if tidalProv != nil {
-		defer tidalProv.Close()
-	}
-	if closeYouTube != nil {
-		defer closeYouTube()
-	}
+	providers := buildProviders(cfg, !headless && isCharDevice(os.Stdin))
+	defer providers.Close()
 
-	if len(positional) > 0 && (positional[0] == "search" || positional[0] == "search-sc") {
-		if len(positional) == 1 {
-			return fmt.Errorf("search requires a query string (e.g. cliamp search \"never gonna give you up\")")
-		}
-		prefix := "ytsearch1:"
-		if positional[0] == "search-sc" {
-			prefix = "scsearch1:"
-		}
-		query := strings.Join(positional[1:], " ")
-		positional = []string{prefix + query}
+	positional, err = searchArgs(positional)
+	if err != nil {
+		return err
 	}
-
 	if cfg.YouTubeMusic.ExpandPlaylist != nil {
 		resolve.ExpandYTPlaylist = *cfg.YouTubeMusic.ExpandPlaylist
 	}
-
 	resolved, err := resolve.Args(positional)
 	if err != nil {
 		return err
@@ -329,19 +92,24 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 
 	defaultProvider := cfg.Provider
 	if defaultProvider == "" {
-		defaultProvider = "radio"
+		defaultProvider = "cliamp"
 	}
 	defaultRadio := len(positional) == 0 && defaultProvider == "radio"
+	// The cliamp radio view waits for the listener to pick a channel. Headless
+	// mode has no view, and auto-play expects sound without a keypress, so
+	// both start with the live channel streams instead.
+	liveChannels := defaultRadio ||
+		(len(positional) == 0 && defaultProvider == "cliamp" && (headless || cfg.AutoPlay))
 	resumeState := resume.Load()
 
 	pl := playlist.New()
-	if cfg.Playlist != "" && localProv != nil {
-		tracks, err := localProv.Tracks(cfg.Playlist)
+	if cfg.Playlist != "" && providers.local != nil {
+		tracks, err := providers.local.Tracks(cfg.Playlist)
 		if err != nil {
 			return fmt.Errorf("playlist %q: %w", cfg.Playlist, err)
 		}
 		pl.Add(tracks...)
-	} else if defaultRadio {
+	} else if liveChannels {
 		// The channel list lives in the M3U the radio provider already serves,
 		// so resolve that instead of restating it here: the startup playlist
 		// then matches what browsing "cliamp radio" shows -- same channels,
@@ -352,33 +120,162 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	}
 	pl.Add(resolved.Tracks...)
 
-	restoredJellyfinChoice := false
-	restoredJellyfinIndex := 0
+	resumeServer := providers.resumeServer(defaultProvider)
+	restoredContext := false
+	restoredIndex := 0
 	restoredResumePath := ""
-	if !daemon && defaultProvider == "jellyfin" && jellyProv != nil && cfg.Playlist == "" && len(positional) == 0 && len(resolved.Pending) == 0 && pl.Len() == 0 {
-		if tracks, index, activePath, ok := restoreJellyfinContext(resumeState, jellyProv); ok {
+	if !headless && resumeServer != nil && cfg.Playlist == "" && len(positional) == 0 && len(resolved.Pending) == 0 && pl.Len() == 0 {
+		if tracks, index, activePath, ok := restoreServerContext(resumeState, resumeServer); ok {
 			pl.Add(tracks...)
-			restoredJellyfinChoice = true
-			restoredJellyfinIndex = index
+			restoredContext = true
+			restoredIndex = index
 			restoredResumePath = activePath
 		}
 	}
 
-	// Daemon mode has no UI loop to drain pending URLs (feeds, M3U, yt-dlp),
-	// so resolve them synchronously here. The TUI path does this in the
-	// background via m.SetPendingURLs.
-	if daemon && len(resolved.Pending) > 0 {
-		fmt.Fprintf(os.Stderr, "cliamp: resolving %d remote URL(s)...\n", len(resolved.Pending))
-		remote, err := resolve.Remote(resolved.Pending)
-		if err != nil {
-			return fmt.Errorf("resolve remote: %w", err)
-		}
-		pl.Add(remote...)
+	p, closePlayer, err := newPlayer(cfg)
+	if err != nil {
+		return err
+	}
+	defer closePlayer()
+	providers.registerPlayerHooks(p)
+	cfg.ApplyPlayer(p)
+	cfg.ApplyPlaylist(pl)
+
+	pluginBroker := ipc.NewBroker()
+	defer pluginBroker.Close()
+
+	luaMgr, luaErr := luaplugin.New(cfg.Plugins, pluginBroker, model.ReservedKeys())
+	if luaErr != nil {
+		fmt.Fprintf(os.Stderr, "lua plugins: %v\n", luaErr)
+	}
+	if luaMgr != nil {
+		defer luaMgr.Close()
 	}
 
+	m := model.New(p, pl, providers.entries, defaultProvider, providers.localPlaylists(), providers.favorites, providers.history, theme.LoadAll(), luaMgr, config.SaveFunc{})
+	m.SetRadioFavorites(providers.radioFavorites)
+	if resumeServer != nil {
+		m.SetResumeSaver(serverResumeSaver(resumeServer))
+	}
+	if restoredContext {
+		m.SetInitialTrack(restoredIndex)
+	}
+	m.SetIPCBroker(pluginBroker)
+	if luaMgr != nil {
+		luaMgr.SetStateProvider(luaStateProvider(p, m.PluginStateLoader()))
+		if names := luaMgr.Visualizers(); len(names) > 0 {
+			m.RegisterLuaVisualizers(names, luaMgr)
+		}
+	}
+	m.SetPendingURLs(resolved.Pending)
+	if cfg.Playlist != "" && len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 {
+		m.SetLoadedPlaylist(cfg.Playlist)
+	}
+	if !headless && len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 && pl.Len() == 0 {
+		m.StartInProvider()
+	}
+	if cfg.AutoPlay && !restoredContext {
+		m.SetAutoPlay(true)
+	}
+	configureModel(&m, cfg, headless, visualizer60FPS)
+
+	if resumeState.Path != "" && resumeState.PositionSec > 0 {
+		// Jellyfin and Emby resume the restored context above. Mixcloud is also commonly
+		// opened from its provider browser rather than a positional URL; preserve
+		// cliamp's existing positional-file behavior for other providers.
+		switch {
+		case restoredResumePath != "":
+			m.SetResume(restoredResumePath, resumeState.PositionSec)
+		case playlist.IsMixcloudURL(resumeState.Path) || (!defaultRadio && len(positional) > 0):
+			m.SetResume(resumeState.Path, resumeState.PositionSec)
+		}
+	}
+
+	prog := tea.NewProgram(m, programOptions(headless, cfg.LowPower)...)
+	stopSignals := quitOnSignals(prog.Send)
+	defer stopSignals()
+	defer providers.observeAuthURLs(prog.Send)()
+
+	svc, svcErr := wireMediaCtl(prog)
+	if svcErr != nil {
+		applog.Warn("media control (MPRIS/NowPlaying) unavailable: %v", svcErr)
+	} else if svc != nil {
+		defer svc.Close()
+	}
+
+	if luaMgr != nil {
+		luaSend, stopLuaSend := newOrderedSender(prog.Send)
+		defer stopLuaSend()
+		luaMgr.SetControlProvider(luaControlProvider(luaSend))
+		luaMgr.SetUIProvider(luaUIProvider(luaSend))
+	}
+
+	stopIPC, err := startIPC(prog.Send, pluginBroker, luaMgr, headless)
+	if err != nil {
+		return err
+	}
+	defer stopIPC()
+	if headless {
+		fmt.Fprintf(os.Stderr, "cliamp: running headless (socket: %s)\n", ipc.DefaultSocketPath())
+		applog.Info("running headless")
+	}
+
+	finalModel, err := mediactl.Run(prog, svc)
+	if err != nil {
+		return err
+	}
+	saveOnExit(finalModel, headless, resumeServer)
+	if fm, ok := finalModel.(model.Model); ok {
+		fm.WaitReports(reportsExitWait)
+	}
+	return nil
+}
+
+// reportsExitWait bounds the wait at exit for the playback reports that the
+// Model queued, such as the scrobble of the track that played at quit.
+const reportsExitWait = 3 * time.Second
+
+// checkNotRunning returns an error when another instance serves the socket.
+// Headless mode calls it before it builds the providers, opens the audio
+// device or loads the plugins. The app.quit hooks of the plugins could
+// otherwise change the files of the running instance. startIPC still
+// catches an instance that starts after the check.
+func checkNotRunning() error {
+	socket := ipc.DefaultSocketPath()
+	running, err := ipc.Listening(socket)
+	if err != nil {
+		return err
+	}
+	if running {
+		return fmt.Errorf("cliamp is already running (socket %s)", socket)
+	}
+	return nil
+}
+
+// searchArgs turns cliamp search and cliamp search-sc into one argument that
+// plays the first match on YouTube or SoundCloud. It returns other arguments
+// as they are.
+func searchArgs(positional []string) ([]string, error) {
+	if len(positional) == 0 || (positional[0] != "search" && positional[0] != "search-sc") {
+		return positional, nil
+	}
+	if len(positional) == 1 {
+		return nil, fmt.Errorf("search requires a query string (e.g. cliamp search \"never gonna give you up\")")
+	}
+	prefix := "ytsearch1:"
+	if positional[0] == "search-sc" {
+		prefix = "scsearch1:"
+	}
+	return []string{prefix + strings.Join(positional[1:], " ")}, nil
+}
+
+// newPlayer opens the audio output that cfg selects. closePlayer releases
+// the player and then the audio device.
+func newPlayer(cfg config.Config) (p *player.Player, closePlayer func(), err error) {
+	releaseDevice := func() {}
 	if cfg.AudioDevice != "" {
-		cleanup := player.PrepareAudioDevice(cfg.AudioDevice)
-		defer cleanup()
+		releaseDevice = player.PrepareAudioDevice(cfg.AudioDevice)
 	}
 
 	sampleRate := cfg.SampleRate
@@ -390,192 +287,47 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 		}
 	}
 
-	p, err := player.New(player.Quality{
+	p, err = player.New(player.Quality{
 		SampleRate:      sampleRate,
 		BufferMs:        cfg.BufferMs,
 		ResampleQuality: cfg.ResampleQuality,
 		BitDepth:        cfg.BitDepth,
 	})
 	if err != nil {
-		return fmt.Errorf("player: %w", err)
+		releaseDevice()
+		return nil, nil, fmt.Errorf("player: %w", err)
 	}
-	defer p.Close()
+	return p, func() {
+		p.Close()
+		releaseDevice()
+	}, nil
+}
 
-	if spotifyProv != nil {
-		p.RegisterStreamerFactory("spotify:", spotifyProv.NewStreamer)
-	}
-
-	if yaProv != nil {
-		// Yandex tracks carry yandex:track: URIs; the provider resolves them
-		// to a fresh signed stream URL when playback starts.
-		p.RegisterSourceResolver(yandex.TrackURIPrefix, func(uri string) (player.ResolvedSource, error) {
-			u, err := yaProv.ResolveSource(uri)
-			if err != nil {
-				return player.ResolvedSource{}, fmt.Errorf("resolve Yandex source: %w", err)
-			}
-			return player.ResolvedSource{URL: u}, nil
-		})
-	}
-
-	if tidalProv != nil {
-		// Tidal tracks carry tidal:// URIs; the provider resolves them to a
-		// fresh signed URL or DASH segment list when playback starts.
-		p.RegisterSourceResolver(tidal.TrackURIPrefix, func(uri string) (player.ResolvedSource, error) {
-			u, segments, err := tidalProv.ResolveSource(uri)
-			return player.ResolvedSource{URL: u, Segments: segments}, err
-		})
-	}
-
-	if lyrionClient != nil {
-		p.RegisterSourceResolver(lyrion.TrackURIPrefix, func(uri string) (player.ResolvedSource, error) {
-			u, segments, err := lyrionClient.ResolveSource(uri)
-			return player.ResolvedSource{URL: u, Segments: segments}, err
-		})
-	}
-
-	if jellyProv != nil {
-		// Refresh restored Jellyfin URLs without changing logical playlist paths.
-		for _, scheme := range []string{"http://", "https://"} {
-			p.RegisterSourceResolver(scheme, func(rawURL string) (player.ResolvedSource, error) {
-				u, err := jellyProv.ResolveSource(rawURL)
-				return player.ResolvedSource{URL: u}, err
-			})
-		}
-	}
-
-	p.RegisterBufferedURLMatcher(isBufferedProviderURL)
-
-	// Pull now-playing for stations that carry no inline ICY metadata (NTS, FIP).
-	p.RegisterStreamMetadataResolver(radiometa.Resolver)
-
-	cfg.ApplyPlayer(p)
-	cfg.ApplyPlaylist(pl)
-	ui.SetPadding(cfg.PaddingH, cfg.PaddingV)
-
-	if daemon {
-		if cfg.EQPreset != "" && cfg.EQPreset != "Custom" {
-			if preset, ok := model.EQPresetByName(cfg.EQPreset); ok {
-				for i, gain := range preset.Bands {
-					p.SetEQBand(i, gain)
-				}
-			}
-		}
-		return runDaemon(p, pl, localProv, providers, cfg.AutoPlay, cfg.EQPreset)
-	}
-
-	themes := theme.LoadAll()
-
-	pluginBroker := ipc.NewBroker()
-	defer pluginBroker.Close()
-
-	luaMgr, luaErr := luaplugin.New(cfg.Plugins, pluginBroker)
-	if luaErr != nil {
-		fmt.Fprintf(os.Stderr, "lua plugins: %v\n", luaErr)
-	}
-	if luaMgr != nil {
-		luaMgr.SetReservedKeys(model.ReservedKeys())
-		defer luaMgr.Close()
-	}
-
-	m := model.New(p, pl, providers, defaultProvider, localProv, themes, luaMgr, config.SaveFunc{})
-	m.SetRadioFavorites(radioFavorites)
-	if defaultProvider == "jellyfin" && jellyProv != nil {
-		m.SetResumeSaver(func(track playlist.Track, positionSec int, context []playlist.Track, contextIndex int) {
-			if _, ok := jellyProv.RestoreTrack(track); !ok {
-				return
-			}
-			resume.SaveState(resume.State{
-				Path: track.Path, PositionSec: positionSec,
-				Context: context, ContextIndex: contextIndex,
-			})
-		})
-	}
-	if restoredJellyfinChoice {
-		m.SetInitialTrack(restoredJellyfinIndex)
-	}
-	m.SetIPCBroker(pluginBroker)
+// configureModel applies the settings of cfg to m. Headless mode has no
+// screen, so the view settings do not apply there.
+func configureModel(m *model.Model, cfg config.Config, headless, visualizer60FPS bool) {
 	m.SetCustomEQBands(cfg.EQ)
+	m.SetPadding(cfg.PaddingH, cfg.PaddingV)
 	m.SetVisVolumeLinked(cfg.VisVolumeLinked)
-	m.SetVisRows(cfg.VisRows)
-	m.SetVisualizer60FPS(visualizer60FPS)
-
-	if luaMgr != nil {
-		luaMgr.SetStateProvider(luaplugin.StateProvider{
-			PlayerState: func() string {
-				if !p.IsPlaying() {
-					return "stopped"
-				}
-				if p.IsPaused() {
-					return "paused"
-				}
-				return "playing"
-			},
-			Position:      func() float64 { return p.Position().Seconds() },
-			Duration:      func() float64 { return p.Duration().Seconds() },
-			Volume:        func() float64 { return p.Volume() },
-			Speed:         func() float64 { return p.Speed() },
-			Mono:          func() bool { return p.Mono() },
-			RepeatMode:    func() string { return pl.Repeat().String() },
-			Shuffle:       func() bool { return pl.Shuffled() },
-			EQBands:       func() [10]float64 { return p.EQBands() },
-			TrackTitle:    func() string { t, _ := pl.Current(); return t.Title },
-			TrackArtist:   func() string { t, _ := pl.Current(); return t.Artist },
-			TrackAlbum:    func() string { t, _ := pl.Current(); return t.Album },
-			TrackGenre:    func() string { t, _ := pl.Current(); return t.Genre },
-			TrackYear:     func() int { t, _ := pl.Current(); return t.Year },
-			TrackNumber:   func() int { t, _ := pl.Current(); return t.TrackNumber },
-			TrackPath:     func() string { t, _ := pl.Current(); return t.Path },
-			TrackIsStream: func() bool { t, _ := pl.Current(); return t.Stream },
-			TrackDuration: func() int { t, _ := pl.Current(); return t.DurationSecs },
-			PlaylistCount: func() int { return pl.Len() },
-			CurrentIndex:  func() int { return pl.Index() },
-			HasNext:       pl.HasNext,
-			QueueList: func() []luaplugin.QueueEntry {
-				tracks := pl.Tracks()
-				out := make([]luaplugin.QueueEntry, len(tracks))
-				for i, t := range tracks {
-					out[i] = luaplugin.QueueEntry{
-						Title:  t.Title,
-						Artist: t.Artist,
-						Album:  t.Album,
-						Path:   t.Path,
-						Index:  i,
-						Queued: pl.QueuePosition(i) > 0, // 1-based; 0 means not queued
-					}
-				}
-				return out
-			},
-		})
-	}
-
-	if luaMgr != nil {
-		if names := luaMgr.Visualizers(); len(names) > 0 {
-			m.RegisterLuaVisualizers(names, luaMgr.RenderVis)
-		}
-	}
-
 	m.SetSeekStepLarge(cfg.SeekStepLargeDuration())
 	m.SetLyricsOffset(cfg.LyricsOffsetMs)
 	m.SetInitialDirectory(cfg.InitialDirectory)
 	m.SetDownloadsDirectory(cfg.Downloads.Directory)
-	m.SetPendingURLs(resolved.Pending)
-	if cfg.Playlist != "" && len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 {
-		m.SetLoadedPlaylist(cfg.Playlist)
-	}
-	if len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 && pl.Len() == 0 {
-		m.StartInProvider()
-	}
 	if cfg.EQPreset != "" && cfg.EQPreset != "Custom" {
 		m.SetEQPreset(cfg.EQPreset, nil)
 	}
 	if cfg.Theme != "" {
 		m.SetTheme(cfg.Theme)
 	}
+	if headless {
+		// The default visualizer stays, because it serves spectrum.get.
+		m.SetHeadless(true)
+		return
+	}
+	m.SetVisRows(cfg.VisRows)
+	m.SetVisualizer60FPS(visualizer60FPS)
 	if cfg.Visualizer != "" {
 		m.SetVisualizer(cfg.Visualizer)
-	}
-	if cfg.AutoPlay && !restoredJellyfinChoice {
-		m.SetAutoPlay(true)
 	}
 	if cfg.LowPower {
 		m.SetLowPower(true)
@@ -595,145 +347,158 @@ func run(overrides config.Overrides, positional []string, daemon, visualizer60FP
 	if cfg.Expanded {
 		m.SetExpanded(true)
 	}
-
-	if resumeState.Path != "" && resumeState.PositionSec > 0 {
-		// Jellyfin resumes the restored context above. Mixcloud is also commonly
-		// opened from its provider browser rather than a positional URL; preserve
-		// cliamp's existing positional-file behavior for other providers.
-		switch {
-		case restoredResumePath != "":
-			m.SetResume(restoredResumePath, resumeState.PositionSec)
-		case playlist.IsMixcloudURL(resumeState.Path) || (!defaultRadio && len(positional) > 0):
-			m.SetResume(resumeState.Path, resumeState.PositionSec)
-		}
-	}
-
-	progOpts := []tea.ProgramOption{tea.WithFPS(defaultUIFPS)}
-	if cfg.LowPower {
-		progOpts[0] = tea.WithFPS(lowPowerUIFPS)
-	}
-	prog := tea.NewProgram(m, progOpts...)
-
-	if spotifyProv != nil {
-		spotify.SetAuthURLObserver(func(u string) {
-			prog.Send(model.ProvAuthURLMsg{ProviderName: spotifyProv.Name(), URL: u})
-		})
-		defer spotify.SetAuthURLObserver(nil)
-	}
-	if qobuzProv != nil {
-		qobuz.SetAuthURLObserver(func(u string) {
-			prog.Send(model.ProvAuthURLMsg{ProviderName: qobuzProv.Name(), URL: u})
-		})
-		defer qobuz.SetAuthURLObserver(nil)
-	}
-	if tidalProv != nil {
-		tidal.SetAuthURLObserver(func(u string) {
-			prog.Send(model.ProvAuthURLMsg{ProviderName: tidalProv.Name(), URL: u})
-		})
-		defer tidal.SetAuthURLObserver(nil)
-	}
-
-	svc, svcErr := wireMediaCtl(prog)
-	if svcErr != nil {
-		applog.Warn("media control (MPRIS/NowPlaying) unavailable: %v", svcErr)
-	} else if svc != nil {
-		defer svc.Close()
-	}
-
-	if luaMgr != nil {
-		luaMgr.SetControlProvider(luaplugin.ControlProvider{
-			SetVolume:   func(db float64) { p.SetVolume(db) },
-			SetSpeed:    func(ratio float64) { p.SetSpeed(ratio) },
-			SetEQBand:   func(band int, db float64) { prog.Send(model.SetEQBandMsg{Band: band, Gain: db}) },
-			ToggleMono:  func() { p.ToggleMono() },
-			TogglePause: func() { prog.Send(playback.PlayPauseMsg{}) },
-			Stop:        func() { prog.Send(playback.StopMsg{}) },
-			Seek: func(secs float64) {
-				prog.Send(playback.SeekMsg{Offset: time.Duration(secs * float64(time.Second))})
-			},
-			SetEQPreset: func(name string, bands *[10]float64) {
-				prog.Send(model.SetEQPresetMsg{Name: name, Bands: bands})
-			},
-			Next: func() { prog.Send(playback.NextMsg{}) },
-			Prev: func() { prog.Send(playback.PrevMsg{}) },
-			QueueAdd: func(path string) {
-				prog.Send(model.PluginQueueMsg{Op: "add", Path: path})
-			},
-			QueueJump: func(index int) {
-				prog.Send(model.PluginQueueMsg{Op: "jump", Index: index})
-			},
-			QueueRemove: func(index int) {
-				prog.Send(model.PluginQueueMsg{Op: "remove", Index: index})
-			},
-			QueueMove: func(from, to int) {
-				prog.Send(model.PluginQueueMsg{Op: "move", Index: from, To: to})
-			},
-		})
-		luaMgr.SetUIProvider(luaplugin.UIProvider{
-			ShowMessage: func(text string, duration time.Duration) {
-				prog.Send(model.ShowStatusMsg{Text: text, Duration: duration})
-			},
-		})
-	}
-
-	ipcSrv, ipcErr := ipc.NewServerWithBroker(ipc.DefaultSocketPath(), pluginBroker)
-	if ipcErr != nil {
-		fmt.Fprintf(os.Stderr, "ipc: %v\n", ipcErr)
-	} else {
-		defer ipcSrv.Close()
-		ipcSrv.SetV2Dispatcher(newTUIV2Dispatcher(prog, ipcSrv.JobStore(), luaMgr))
-		if luaMgr == nil {
-			operations := ipc.DefaultOperationRegistry()
-			operations.Unregister("plugin.call", "plugin.commands")
-			ipcSrv.SetOperationRegistry(operations)
-		}
-		go publishV2JobEvents(ipcSrv.Done(), ipcSrv.JobStore(), pluginBroker)
-	}
-
-	finalModel, err := mediactl.Run(prog, svc)
-	if err != nil {
-		return err
-	}
-
-	if fm, ok := finalModel.(model.Model); ok {
-		themeName := fm.ThemeName()
-		if themeName == theme.DefaultName {
-			themeName = ""
-		}
-		_ = config.Save("theme", fmt.Sprintf("%q", themeName))
-
-		if path, secs, playlistName := fm.ResumeState(); path != "" && secs > 0 {
-			if defaultProvider == "jellyfin" && jellyfin.IsStreamURL(path) {
-				context, index := fm.ResumeContext()
-				resume.SaveState(resume.State{
-					Path: path, PositionSec: secs, Playlist: playlistName,
-					Context: context, ContextIndex: index,
-				})
-			} else {
-				resume.Save(path, secs, playlistName)
-			}
-		}
-	}
-
-	return nil
 }
 
-func newTUIV2Dispatcher(prog *tea.Program, jobs *ipc.JobStore, plugins *luaplugin.Manager) ipc.V2Dispatcher {
-	return ipc.V2DispatcherFunc(func(ctx context.Context, request ipc.V2Request) (ipc.V2Result, *ipc.V2Error) {
-		if request.Operation == "runtime.snapshot" || request.Operation == "runtime.status" {
-			request.Method = "state.get"
-			request.Operation = ""
+// startIPC serves the socket and sends its requests to the program through
+// send. Headless mode is controlled only through the socket, so there a
+// failure is an error. The TUI reports the failure and runs without the
+// socket.
+func startIPC(send func(tea.Msg), broker *ipc.Broker, plugins *luaplugin.Manager, headless bool) (stop func(), err error) {
+	srv, err := ipc.NewServerWithBroker(ipc.DefaultSocketPath(), broker)
+	if err != nil {
+		// The errors of the ipc package already start with "ipc: ".
+		if headless {
+			return nil, err
 		}
+		fmt.Fprintln(os.Stderr, err)
+		return func() {}, nil
+	}
+	// Program.Send may wait for the update loop, so the requests go through
+	// an ordered queue and the socket can acknowledge a job at once.
+	queue, stopQueue := newOrderedSender(send)
+	srv.SetV2Dispatcher(newV2Dispatcher(queue, srv.JobStore(), plugins))
+	srv.SetOperationRegistry(v2Operations(headless, plugins != nil))
+	go publishV2JobEvents(srv.Done(), srv.JobStore(), broker)
+	return func() {
+		_ = srv.Close()
+		stopQueue()
+	}, nil
+}
+
+// saveOnExit keeps the theme and the resume position of the final Model.
+// When a Jellyfin or Emby server is the default provider, it also keeps the
+// list that the track played from.
+func saveOnExit(final tea.Model, headless bool, resumeServer *embyapi.Provider) {
+	fm, ok := final.(model.Model)
+	if !ok {
+		return
+	}
+	// Headless mode has no theme keys, so it keeps the saved theme.
+	if !headless {
+		themeName := fm.ThemeName()
+		if theme.IsDefaultName(themeName) {
+			themeName = ""
+		}
+		_ = config.SaveString("theme", themeName)
+	}
+
+	path, secs, playlistName := fm.ResumeState()
+	saveExitResume(path, secs, playlistName, fm.ResumeContext, resumeServer)
+}
+
+// saveExitResume saves the track and the position of the exit. When
+// resumeServer is set and path is a Jellyfin or Emby stream, it also saves
+// the list that resumeContext returns. A track with no position saves
+// nothing.
+func saveExitResume(path string, secs int, playlistName string, resumeContext func() ([]playlist.Track, int), resumeServer *embyapi.Provider) {
+	if path == "" || secs <= 0 {
+		return
+	}
+	if resumeServer != nil && embyapi.IsStreamURL(path) {
+		tracks, index := resumeContext()
+		resume.SaveState(resume.State{
+			Path: path, PositionSec: secs, Playlist: playlistName,
+			Context: tracks, ContextIndex: index,
+		})
+		return
+	}
+	resume.Save(path, secs, playlistName)
+}
+
+// programOptions returns the Bubbletea options of the TUI, or of headless
+// mode. run handles the signals itself in both modes, see quitOnSignals.
+func programOptions(headless, lowPower bool) []tea.ProgramOption {
+	switch {
+	case headless:
+		return headlessProgramOptions()
+	case lowPower:
+		return []tea.ProgramOption{tea.WithFPS(lowPowerUIFPS), tea.WithoutSignalHandler()}
+	}
+	return []tea.ProgramOption{tea.WithFPS(defaultUIFPS), tea.WithoutSignalHandler()}
+}
+
+// headlessProgramOptions build a program with no terminal: no renderer, no
+// input and no output. The frame ticker runs at its lowest rate.
+func headlessProgramOptions() []tea.ProgramOption {
+	return []tea.ProgramOption{
+		tea.WithoutRenderer(),
+		tea.WithInput(nil),
+		tea.WithOutput(io.Discard),
+		tea.WithFPS(1),
+		tea.WithoutSignalHandler(),
+	}
+}
+
+// quitOnSignals sends SIGINT, SIGTERM and SIGHUP to quitOnSignal until stop
+// is called.
+func quitOnSignals(send func(tea.Msg)) (stop func()) {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	go quitOnSignal(signals, send)
+	return func() {
+		signal.Stop(signals)
+		close(signals)
+	}
+}
+
+// quitOnSignal asks the Model to quit on the first SIGINT, SIGTERM or
+// SIGHUP, so it saves the resume position as the q key does. A closed
+// terminal sends SIGHUP. The signal handler of Bubbletea ends the program
+// with no Update, and on SIGINT it also returns an error. After the first
+// signal the default action is back, so a second signal ends a program that
+// does not quit.
+func quitOnSignal(signals chan os.Signal, send func(tea.Msg)) {
+	if _, ok := <-signals; ok {
+		signal.Stop(signals)
+		send(playback.QuitMsg{})
+	}
+}
+
+// v2Operations returns the V2 operations that this runtime serves. Headless
+// mode has no theme or visualizer to change. The plugin operations need the
+// plugin manager.
+func v2Operations(headless, plugins bool) *ipc.OperationRegistry {
+	operations := ipc.DefaultOperationRegistry()
+	if headless {
+		operations.Unregister("theme", "vis")
+	}
+	if !plugins {
+		operations.Unregister("plugin.call", "plugin.commands")
+	}
+	return operations
+}
+
+// v2ReplyTimeout bounds the wait for the Model to answer state.get and
+// spectrum.get.
+var v2ReplyTimeout = 3 * time.Second
+
+// newV2Dispatcher answers the V2 requests of the TUI and of headless mode.
+// send delivers a request to the Model. It must return at once and keep the
+// order of the requests, as the queue of newOrderedSender does, so a job is
+// acknowledged before the Model reads it and jobs run in the order they came
+// in. The plugin jobs run against plugins.
+func newV2Dispatcher(send func(tea.Msg), jobs *ipc.JobStore, plugins *luaplugin.Manager) ipc.V2Dispatcher {
+	return ipc.V2DispatcherFunc(func(ctx context.Context, request ipc.V2Request) (ipc.V2Result, *ipc.V2Error) {
 		switch request.Method {
 		case "state.get", "spectrum.get":
 			reply := make(chan model.V2RequestResult, 1)
-			go prog.Send(model.V2RequestMsg{Request: request, Reply: reply})
+			send(model.V2RequestMsg{Request: request, Reply: reply})
 			select {
 			case result := <-reply:
 				return result.Result, result.Error
 			case <-ctx.Done():
 				return ipc.V2Result{}, &ipc.V2Error{Code: ipc.V2ErrorCodeCanceled, Message: ipc.V2MessageCanceled}
-			case <-time.After(3 * time.Second):
+			case <-time.After(v2ReplyTimeout):
 				return ipc.V2Result{}, &ipc.V2Error{Code: ipc.V2ErrorCodeUnavailable, Message: ipc.V2MessageUnavailable}
 			}
 		}
@@ -746,9 +511,7 @@ func newTUIV2Dispatcher(prog *tea.Program, jobs *ipc.JobStore, plugins *luaplugi
 			go runV2PluginJob(jobs, job.ID, request, plugins)
 			return ipc.V2Result{Job: &job}, nil
 		}
-		// Program.Send may wait for the TUI update loop. Job submission itself
-		// stays non-blocking so the IPC response can always acknowledge the job.
-		go prog.Send(model.V2RequestMsg{Request: request, Jobs: jobs, JobID: job.ID})
+		send(model.V2RequestMsg{Request: request, Jobs: jobs, JobID: job.ID})
 		return ipc.V2Result{Job: &job}, nil
 	})
 }
@@ -777,7 +540,7 @@ func runV2PluginJob(jobs *ipc.JobStore, jobID string, request ipc.V2Request, plu
 		_ = jobs.Fail(jobID, ipc.V2Error{Code: ipc.V2ErrorCodeInvalidParams, Message: ipc.V2MessageInvalidParams})
 		return
 	}
-	output, err := plugins.EmitCommand(params.Name, params.Sub, params.Args)
+	output, err := plugins.EmitCommand(ctx, params.Name, params.Sub, params.Args)
 	if err != nil {
 		_ = jobs.Fail(jobID, ipc.V2Error{Code: ipc.V2ErrorCodeInternal, Message: ipc.V2MessageInternal, Detail: err.Error()})
 		return
@@ -834,102 +597,8 @@ func wireMediaCtl(prog *tea.Program) (*mediactl.Service, error) {
 	return svc, nil
 }
 
-// userIPCError renders ipc.ErrNotRunning as the wording users see. The ipc
-// package returns a bare sentinel, so all CLI copy stays in the command layer.
-func userIPCError(err error) error {
-	if errors.Is(err, ipc.ErrNotRunning) {
-		return fmt.Errorf("cliamp is not running (no socket at %s)", ipc.DefaultSocketPath())
-	}
-	return err
-}
-
-func ipcSend(operation string, params ipc.Request) (ipc.Response, error) {
-	return ipcSendWithContext(context.Background(), operation, params)
-}
-
-// ipcSendLong waits for a V2 job under the supplied deadline. Plugin commands
-// can legitimately run for minutes (for example, yt-dlp downloads).
-func ipcSendLong(operation string, params ipc.Request, deadline time.Duration) (ipc.Response, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), deadline)
-	defer cancel()
-	return ipcSendWithContext(ctx, operation, params)
-}
-
-func ipcSendWithContext(ctx context.Context, operation string, params ipc.Request) (ipc.Response, error) {
-	raw, err := json.Marshal(params)
-	if err != nil {
-		return ipc.Response{}, fmt.Errorf("marshal %s parameters: %w", operation, err)
-	}
-	response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{
-		ID:        json.RawMessage(`"cliamp"`),
-		Method:    "operation.submit",
-		Operation: operation,
-		Params:    raw,
-	})
-	if err != nil {
-		return ipc.Response{}, userIPCError(err)
-	}
-	if err := v2ResponseError(response); err != nil {
-		return ipc.Response{}, err
-	}
-	if response.Job == nil {
-		return ipc.Response{}, fmt.Errorf("%s returned no job", operation)
-	}
-	response, err = waitForV2Job(ctx, response.Job.ID)
-	if err != nil {
-		return ipc.Response{}, err
-	}
-	if response.Job == nil {
-		return ipc.Response{}, fmt.Errorf("%s completed without a job", operation)
-	}
-	var result ipc.Response
-	if err := json.Unmarshal(response.Job.Result, &result); err != nil {
-		return ipc.Response{}, fmt.Errorf("decode %s result: %w", operation, err)
-	}
-	if !result.OK {
-		return result, fmt.Errorf("%s", result.Error)
-	}
-	return result, nil
-}
-
-func ipcState() (ipc.RuntimeSnapshot, error) {
-	response, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{ID: json.RawMessage(`"cliamp"`), Method: "state.get"})
-	if err != nil {
-		return ipc.RuntimeSnapshot{}, userIPCError(err)
-	}
-	if err := v2ResponseError(response); err != nil {
-		return ipc.RuntimeSnapshot{}, err
-	}
-	if response.Snapshot == nil {
-		return ipc.RuntimeSnapshot{}, fmt.Errorf("state response has no snapshot")
-	}
-	return *response.Snapshot, nil
-}
-
-func stateResult(snapshot ipc.RuntimeSnapshot) ipc.Response {
-	return ipc.Response{
-		OK:         true,
-		State:      snapshot.State,
-		Track:      snapshot.Track,
-		Position:   snapshot.Position,
-		Duration:   snapshot.Duration,
-		Volume:     snapshot.Volume,
-		Playlist:   snapshot.Playlist,
-		Index:      snapshot.Index,
-		Total:      snapshot.Total,
-		Visualizer: snapshot.Visualizer,
-		Shuffle:    snapshot.Shuffle,
-		Repeat:     snapshot.Repeat,
-		Mono:       snapshot.Mono,
-		Speed:      snapshot.Speed,
-		EQPreset:   snapshot.EQPreset,
-		Theme:      snapshot.Theme,
-		EQBands:    snapshot.EQBands,
-	}
-}
-
 func main() {
-	appmeta.SetVersion(version)
+	appmeta.SetVersion(buildVersion())
 	app := buildApp()
 	if err := app.Run(context.Background(), os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)

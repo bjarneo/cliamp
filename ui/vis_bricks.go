@@ -9,13 +9,14 @@ func (v *Visualizer) renderBricks(bands []float64) string {
 	height := v.Rows
 	lines := make([]string, height)
 	bandCount := len(bands)
+	width := v.columns()
 
 	for row := range height {
 		var content strings.Builder
 		rowThreshold := float64(height-1-row) / float64(height)
 
 		for i, level := range bands {
-			bw := visBandWidth(bandCount, i)
+			bw := visBandWidth(bandCount, i, width)
 			if level > rowThreshold {
 				for range bw {
 					content.WriteString("▄")
@@ -25,7 +26,7 @@ func (v *Visualizer) renderBricks(bands []float64) string {
 					content.WriteByte(' ')
 				}
 			}
-			if i < bandCount-1 {
+			if bandGapAfter(bandCount, i, width) {
 				content.WriteByte(' ')
 			}
 		}

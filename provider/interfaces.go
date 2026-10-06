@@ -230,6 +230,13 @@ type PlaylistWriter interface {
 	AddTrackToPlaylist(ctx context.Context, playlistID string, track playlist.Track) error
 }
 
+// PlaylistTargetFilter is implemented by PlaylistWriters whose playlist list
+// includes entries that cannot take new tracks, such as saved albums or
+// playlists that another user owns.
+type PlaylistTargetFilter interface {
+	CanAddToPlaylist(pl playlist.PlaylistInfo) bool
+}
+
 // PlaylistBatchWriter is implemented by providers that support adding multiple
 // tracks to existing playlists in one operation.
 type PlaylistBatchWriter interface {
@@ -281,13 +288,6 @@ type PlaylistDocumenter interface {
 	RestorePlaylistDocument(name string, data []byte) error
 }
 
-// BookmarkSetter is implemented by providers that support toggling
-// track bookmarks and persisting them.
-type BookmarkSetter interface {
-	SetBookmark(playlistName string, idx int) error
-	SetBookmarkByPath(playlistName string, path string) error
-}
-
 // PlaylistDirSourceManager is implemented by providers whose playlists can
 // reference directory sources that are re-scanned on each load. The local
 // TOML provider implements this for its [[dir]] sections; other providers
@@ -306,6 +306,19 @@ type CustomStreamer interface {
 	URISchemes() []string
 	// NewStreamer creates a decoder for the given URI.
 	NewStreamer(uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error)
+}
+
+// TrackFavoriter is implemented by providers that keep a favorite state for
+// tracks on their own service, such as liked or starred songs. The local
+// favorites store stays the source of truth. The UI copies each change to the
+// provider that owns the track.
+type TrackFavoriter interface {
+	// CanFavoriteTrack reports whether track belongs to this provider. It must
+	// not do I/O because the UI calls it on the Update goroutine.
+	CanFavoriteTrack(track playlist.Track) bool
+	// SetTrackFavorite sets or clears the favorite state of track on the
+	// provider's service.
+	SetTrackFavorite(ctx context.Context, track playlist.Track, favorite bool) error
 }
 
 // FavoriteToggler is implemented by providers that support marking items
@@ -384,19 +397,6 @@ type GenreLabeler interface {
 // connections) that should be released on shutdown.
 type Closer interface {
 	Close()
-}
-
-// FavoritesManager is implemented by providers that support a cross-playlist
-// favorites virtual playlist. The UI uses this to toggle favorites from the
-// track list without going through the per-playlist write path.
-type FavoritesManager interface {
-	// ToggleFavorite toggles the given track in the favorites store.
-	// Returns true when the track is now favorited after the call.
-	ToggleFavorite(track playlist.Track) (bool, error)
-	// IsFavorited reports whether the given path is in the favorites store.
-	IsFavorited(path string) bool
-	// FavoritesCount returns the number of favorited tracks.
-	FavoritesCount() int
 }
 
 // TrackPager is implemented by providers that can return a playlist's tracks

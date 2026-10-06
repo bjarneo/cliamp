@@ -3,6 +3,7 @@ package tidal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -271,4 +272,52 @@ func TestNoteDowngradeOncePerSession(t *testing.T) {
 	if flac.downgradeNoticed.Load() {
 		t.Error("delivered FLAC must not warn")
 	}
+}
+
+// TestAuthenticateCancelsEarlierFlow runs three overlapping sign-ins. Each
+// new call must cancel the one before it, also after an older call returns
+// late, and Close must cancel the last one.
+func TestAuthenticateCancelsEarlierFlow(t *testing.T) {
+	type flow struct {
+		ctx     context.Context
+		release chan struct{}
+	}
+	started := make(chan flow)
+	orig := signIn
+	t.Cleanup(func() { signIn = orig })
+	signIn = func(ctx context.Context, _, _ string) (*client, error) {
+		f := flow{ctx, make(chan struct{})}
+		started <- f
+		<-f.release
+		return nil, ctx.Err()
+	}
+
+	p := New("lossless", "", "")
+	errs := make(chan error, 3)
+	var flows []flow
+	// finish lets flow i return and checks that it ended as canceled.
+	finish := func(i int) {
+		t.Helper()
+		close(flows[i].release)
+		if err := <-errs; !errors.Is(err, context.Canceled) {
+			t.Fatalf("sign-in %d error = %v, want context.Canceled", i+1, err)
+		}
+	}
+	for i := range 3 {
+		go func() { errs <- p.Authenticate() }()
+		flows = append(flows, <-started)
+		if i == 0 {
+			continue
+		}
+		if flows[i-1].ctx.Err() == nil {
+			t.Fatalf("sign-in %d did not cancel sign-in %d", i+1, i)
+		}
+		// The older call returns after the newer call took over.
+		finish(i - 1)
+	}
+	p.Close()
+	if flows[2].ctx.Err() == nil {
+		t.Fatal("Close did not cancel the last sign-in")
+	}
+	finish(2)
 }

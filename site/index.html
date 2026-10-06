@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>cliamp — terminal music player</title>
-<meta name="description" content="A full music player that lives in your terminal. Play local files, podcasts, Spotify, Qobuz, Tidal, YouTube Music, Plex, Jellyfin, Emby, Navidrome, Lyrion, SoundCloud, Mixcloud, NetEase, Yandex Music, and about 58,000 radio stations, with a 10-band equalizer, visualizers, synced lyrics, and Lua plugins.">
+<meta name="description" content="A full music player that lives in your terminal. Play local files, podcasts, Spotify, Qobuz, Tidal, YouTube Music, Plex, Jellyfin, Emby, Navidrome, Lyrion, Audiobookshelf, SoundCloud, Mixcloud, NetEase, Yandex Music, and about 58,000 radio stations, with a 10-band equalizer, visualizers, synced lyrics, and Lua plugins.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg" id="favicon">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#0b0c0d">
@@ -254,14 +254,6 @@ kbd{font-family:var(--mono);font-size:12px;color:var(--fg);border:1px solid var(
 .row .bar{height:4px;background:var(--line-2);border-radius:2px;margin-top:5px;overflow:hidden}
 .row .bar i{display:block;height:100%;background:var(--accent)}
 .row .v{color:var(--fg-2);min-width:48px;text-align:right}
-.tiles{border-top:1px solid var(--line-2);padding-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
-.tile .v{font-family:var(--mono);font-size:19px;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tile .l{font-family:var(--mono);font-size:11.5px;color:var(--fg-2)}
-.daily{border-top:1px solid var(--line-2);padding-top:14px}
-#daily{display:flex;align-items:flex-end;gap:2px;height:48px}
-#daily i{flex:1;display:block;background:var(--accent);opacity:.75;border-radius:1px 1px 0 0;min-height:2px}
-#daily i:hover{opacity:1}
-.daily-l{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--mute);margin-top:6px}
 .err{font-family:var(--mono);font-size:12px;color:var(--rose);margin:12px 0 0;min-height:0}
 
 /* ── keys ────────────────────────────────────────────────────────── */
@@ -339,7 +331,7 @@ footer a{color:var(--fg-2)}
       <div class="eyebrow">~/audio/cliamp</div>
       <h1>cliamp</h1>
       <p class="tagline">A full <em>music player</em> that lives in your terminal. No browser tab required.</p>
-      <p class="lede">Playlists, a 10-band equalizer, 31 visualizers, synced lyrics, podcasts, remote control, and Lua plugins. Stream from <b>Spotify, Qobuz, Tidal, YouTube Music, Plex, Jellyfin, Emby, Navidrome, Lyrion, Yandex Music</b> — plus podcast feeds and about 58,000 internet radio stations.</p>
+      <p class="lede">Playlists, a 10-band equalizer, 33 visualizers, synced lyrics, podcasts, remote control, and Lua plugins. Stream from <b>Spotify, Qobuz, Tidal, YouTube Music, SoundCloud, Mixcloud, NetEase Cloud Music, Yandex Music, Plex, Jellyfin, Emby, Navidrome, Lyrion, Audiobookshelf</b> — plus podcast feeds and about 58,000 internet radio stations.</p>
       <div class="btns">
         <a href="#install" class="btn go">$ install</a>
         <a href="https://github.com/bjarneo/cliamp" class="btn">view source</a>
@@ -417,7 +409,7 @@ footer a{color:var(--fg-2)}
         <span class="cc-cmd">go install github.com/bjarneo/cliamp@latest</span>
       </button>
     </div>
-    <p class="note">then just run <b>cliamp</b> — <b>cliamp setup</b> walks you through streaming services and media servers. Optional: <i>ffmpeg</i> for AAC, ALAC, Opus and WMA, <i>yt-dlp</i> for YouTube, SoundCloud, Mixcloud, Bandcamp, Bilibili and NetEase. GNOME Keyring browser cookies also require Python <i>secretstorage</i> on Linux. Windows builds are in <a href="https://github.com/bjarneo/cliamp/releases/latest">Releases</a>.</p>
+    <p class="note">then just run <b>cliamp</b> — <b>cliamp setup</b> walks you through streaming services and media servers. Optional: <i>ffmpeg</i> for AAC, ALAC, Opus and WMA, <i>yt-dlp</i> for YouTube, YouTube Music, SoundCloud, Mixcloud, Bandcamp, Bilibili and NetEase. GNOME Keyring browser cookies also require Python <i>secretstorage</i> on Linux. Behind a proxy? cliamp reads <i>HTTP_PROXY</i>, <i>HTTPS_PROXY</i>, <i>ALL_PROXY</i> and <i>NO_PROXY</i>, and SOCKS5 proxies work (<a href="https://github.com/bjarneo/cliamp/blob/main/docs/configuration.md#proxy">proxy docs</a>). Windows builds are in <a href="https://github.com/bjarneo/cliamp/releases/latest">Releases</a>.</p>
   </section>
 
   <!-- ═══ SOURCES ═══ -->
@@ -430,11 +422,7 @@ footer a{color:var(--fg-2)}
       <div class="filters" id="filters" role="group" aria-label="Filter sources"></div>
     </div>
     <div class="grid g-sources" id="sources-grid"></div>
-    <p class="sub">Radio favorites follow the station: press <kbd>f</kbd> in Catalog, search results, or the playback playlist after browsing countries or genres. Stations are saved locally under Radio → Favorites by URL, using the station name rather than the current song and retaining station details, including the region, after restart. The header’s star badge counts all starred rows, including offscreen rows, with the same meaning as the row markers. Radio favorites do not reserve a star column in playlists containing no favorited stations. M3U/PLS wrappers keep their original station URL after playback resolution. Toggling a favorite preserves the selected station and completed catalog pages, including during loading. Favoriting does not fetch more catalog stations or interrupt an in-progress station load. IPC clients use the stable URL-based favorite IDs returned by provider.playlists; positional favorite IDs are not supported. On Linux and macOS, favorite mutations preserve other cliamp instances’ changes through a shared file lock. The action follows the displayed star: it favorites an unstarred station or unfavorites a starred station, without reversing the same change already made by another instance. Other instances’ changes become visible in another open player on its next favorite mutation or restart, not through live refresh. Windows assumes one writer per config directory. Press <kbd>f</kbd> again to remove one. In saved local playlists, <kbd>f</kbd> still bookmarks the track; <kbd>n</kbd> remains the separate heart favorite, available when the playback playlist has focus. Remote account favorites are unchanged. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/radio.md#station-favorites">Radio favorites guide</a>.</p>
-    <p class="sub">Choose where TUI <kbd>Ctrl+S</kbd> saves yt-dlp downloads and temporary audio files: set <code>directory = "/media/usb/CLAPt/Music"</code> under <code>[downloads]</code> in config.toml and restart cliamp. Empty uses <code>~/Music/cliamp</code>. Relative paths are rejected (literal ~ is not expanded). Mount external drives first; missing directories are created without checking mount status. The setting also applies to IPC Save in the TUI; headless daemon saving is unchanged. Saved files can be opened locally and are not automatically substituted into online playlists.</p>
-    <p class="sub">Navidrome uses the player's transcoding settings, or streams the original file if none are configured. Set <code>format = "raw"</code> under <code>[navidrome]</code> to always request the original. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/navidrome.md#transcoding">Navidrome guide</a>.</p>
-    <p class="sub">With Jellyfin as the default provider, reopen cliamp without files, URLs, or a playlist to restore the last track, position, and complete source list. Queued tracks keep their own album context. Press <kbd>Enter</kbd> to resume; restored sessions stay silent even with <code>auto_play</code>. Playback is checkpointed every two seconds and on normal exit, without saving unfinished seeks. Stream URLs use current API-key or password authentication when playback starts. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/jellyfin.md">Jellyfin guide</a>.</p>
-    <p class="sub">Large Spotify playlists fill in as they load: the first tracks appear right away, later pages append in the background, and playback works while the list is still arriving. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/spotify.md">Spotify guide</a>.</p>
+    <p class="sub">Setup steps and limits for each source are in the <a href="https://docs.cliamp.stream">docs ↗</a>. Guides: <a href="https://github.com/bjarneo/cliamp/blob/main/docs/radio.md#station-favorites">radio favorites</a>, <a href="https://github.com/bjarneo/cliamp/blob/main/docs/playlists.md#favorites">track favorites</a>, <a href="https://github.com/bjarneo/cliamp/blob/main/docs/configuration.md#download-directory">download directory</a>, <a href="https://github.com/bjarneo/cliamp/blob/main/docs/navidrome.md#transcoding">Navidrome transcoding</a>, <a href="https://github.com/bjarneo/cliamp/blob/main/docs/jellyfin.md">Jellyfin</a>, <a href="https://github.com/bjarneo/cliamp/blob/main/docs/spotify.md">Spotify</a>.</p>
   </section>
 
   <!-- ═══ FEATURES ═══ -->
@@ -443,11 +431,11 @@ footer a{color:var(--fg-2)}
     <div class="grid g-feat">
       <div class="feat">
         <div class="feat-k">10-BAND EQ</div>
-        <p>Parametric equalizer with 14 presets — Rock, Jazz, Classical, Bass Boost, Vocal, Podcast and more — or dial in your own curve. The Custom preset survives restarts.</p>
+        <p>Parametric equalizer with 16 presets — Rock, Jazz, Classical, Bass Boost, Vocal, Podcast and more — or dial in your own curve. The Custom preset survives restarts.</p>
       </div>
       <div class="feat">
         <div class="feat-k">VISUALIZERS</div>
-        <p>31 built-in modes rendered in the terminal from live FFT data: spectrum bars, scope, wave, matrix, flame, and a true-stereo LED peak meter. ClassicPeak uses smooth bars and floating peak caps, with sampling aligned to audible playback and adaptive redraws for smooth motion. Neighboring bands are averaged into each bar. <kbd>v</kbd> cycles, <kbd>V</kbd> goes full screen.</p>
+        <p>33 built-in modes rendered in the terminal from live FFT data: spectrum bars, scope, wave, matrix, flame, and a true-stereo LED peak meter. ClassicPeak uses smooth bars and floating peak caps, with sampling aligned to audible playback and adaptive redraws for smooth motion. ClassicLED redraws at 30 FPS during playback. Neighboring bands are averaged into each bar. YinYang koi chase each other across a wide strip, leaving on the right and coming back on the left; taller panels have them circle a lily pad whose lotus follows recent bass levels, including after silence or time in the strip. <kbd>v</kbd> cycles, <kbd>V</kbd> goes full screen.</p>
       </div>
       <div class="feat">
         <div class="feat-k">SYNCED LYRICS</div>
@@ -455,11 +443,11 @@ footer a{color:var(--fg-2)}
       </div>
       <div class="feat">
         <div class="feat-k">PLAYLISTS &amp; QUEUE</div>
-        <p>TOML playlists with live <b>[[dir]]</b> folder sources, M3U/M3U8/PLS import and export, cross-playlist favorites, a play-next queue that reads like the playlist and toggles in place with <kbd>A</kbd>, saved playlists you can append to what is playing or put the current track at the front of, and undo.</p>
+        <p>TOML playlists with live <b>[[dir]]</b> folder sources, M3U/M3U8/PLS import and export, cross-playlist favorites, a play-next queue that reads like the playlist and toggles in place with <kbd>A</kbd>, a shuffle view that lists tracks in the order they play, saved playlists you can append to what is playing or put the current track at the front of, and undo.</p>
       </div>
       <div class="feat">
         <div class="feat-k">REMOTE CONTROL</div>
-        <p>Newline-delimited JSON over a local Unix socket, with full state snapshots and push events for scripts, status bars, and GUIs. Media keys via MPRIS on Linux and Now Playing on macOS. Run <b>--daemon</b> for headless playback.</p>
+        <p>Newline-delimited JSON over a local Unix socket, with full state snapshots and push events for scripts, status bars, and GUIs. Media keys via MPRIS on Linux, Now Playing on macOS, and global hotkeys on Windows. Run <b>--daemon</b> for headless playback with the same plugins, scrobbling, and history as the TUI.</p>
       </div>
       <div class="feat">
         <div class="feat-k">THEMES</div>
@@ -481,7 +469,7 @@ footer a{color:var(--fg-2)}
     <div class="sec-head">
       <div>
         <h2>cliamp radio</h2>
-        <p class="sub">Fourteen channels we run ourselves — always on, no account. Play any of them in the player above, or pipe the URL straight into cliamp or any player of your choice.</p>
+        <p class="sub">Fourteen channels we run ourselves — always on, no account. Play any of them in the player above, or pipe the URL straight into cliamp or any player of your choice. In cliamp, a channel with a song library opens as a playlist of its songs.</p>
       </div>
       <a href="https://github.com/bjarneo/cliamp/blob/main/docs/radio.md" class="link-btn">read the radio docs ↗</a>
     </div>
@@ -493,10 +481,11 @@ footer a{color:var(--fg-2)}
     <div class="sec-head">
       <div>
         <h2>Who's listening right now</h2>
-        <p class="sub">Live connections to the cliamp radio channels, by country. Drag the globe to spin it, or hover a country for its count.</p>
+        <p class="sub">Live connections to the cliamp radio channels and their playlists, by country. Drag the globe to spin it, or hover a country for its count.</p>
       </div>
       <div class="big" aria-live="polite">
         <div><div class="n" id="n-listeners">–</div><div class="l">LISTENERS</div></div>
+        <div><div class="n fg" id="n-playlists">–</div><div class="l">ON PLAYLISTS</div></div>
         <div><div class="n fg" id="n-countries">–</div><div class="l">COUNTRIES</div></div>
       </div>
     </div>
@@ -514,17 +503,6 @@ footer a{color:var(--fg-2)}
       <div class="side">
         <div class="side-h"><span id="countries-h">TOP COUNTRIES</span><span id="countries-u">LISTENERS</span></div>
         <div id="countries"></div>
-        <div class="tiles">
-          <div class="tile"><div class="v" id="t-busiest">–</div><div class="l" id="t-busiest-l">busiest channel</div></div>
-          <div class="tile"><div class="v" id="t-peak">–</div><div class="l">all-time high</div></div>
-          <div class="tile"><div class="v" id="t-sessions">–</div><div class="l">sessions</div></div>
-          <div class="tile"><div class="v" id="t-hours">–</div><div class="l">hours streamed</div></div>
-        </div>
-        <div class="daily">
-          <div class="side-h"><span>LISTENING HOURS · LAST 31 DAYS</span></div>
-          <div id="daily" style="margin-top:10px" aria-hidden="true"></div>
-          <div class="daily-l"><span id="daily-a"></span><span id="daily-b"></span></div>
-        </div>
       </div>
     </div>
   </section>
@@ -533,7 +511,7 @@ footer a{color:var(--fg-2)}
   <section id="keys" class="keys">
     <div>
       <h2>Keyboard first</h2>
-      <p class="sub">Everything is one keystroke away — no mouse, no menus. Vim-style <code>j</code>/<code>k</code> movement, <kbd>Tab</kbd> cycles the controls, and <kbd>?</kbd> or <kbd>Ctrl+K</kbd> shows the full keymap for the screen you are on. <a href="https://docs.cliamp.stream/docs/cliamp/keybindings">All keybindings ↗</a></p>
+      <p class="sub">Everything is one keystroke away — no mouse, no menus. Vim-style <code>j</code>/<code>k</code> movement, <kbd>Tab</kbd> cycles the controls, and <kbd>?</kbd> or <kbd>Ctrl+K</kbd> shows the full keymap for the screen you are on. Select a command and press <kbd>Enter</kbd> to run it. <a href="https://docs.cliamp.stream/docs/cliamp/keybindings">All keybindings ↗</a></p>
     </div>
     <div id="keys-grid" class="keys-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;align-content:start"></div>
   </section>
@@ -570,11 +548,19 @@ p:<span class="k">on</span>(<span class="s">"track.change"</span>, <span class="
       <div class="api">
         <div class="api-i">
           <div class="sig">track.change · playback.state · queue.end</div>
-          <div class="d">Eleven events to subscribe to: track changes, scrobbles, seeks, volume, EQ, shuffle and repeat, queue edits, end of queue, start and quit. Track-change events fire after playback starts successfully, including YouTube, SoundCloud, and gapless transitions. Buffering, failed, or superseded starts do not emit a track change. End-of-queue events report the last track that started playing; a manual stop, a stream still buffering, or a failed start does not emit one.</div>
+          <div class="d">12 events to subscribe to: track changes, scrobbles, seeks, volume, EQ, shuffle and repeat, queue edits, end of queue, explicit stops, start and quit. Each plugin gets its events in the order they happen. Track-change events fire after playback starts successfully, including YouTube, SoundCloud, and gapless transitions. Buffering, failed, or superseded starts do not emit a track change. End-of-queue events report the last track that started playing; a manual stop, a stream still buffering, or a failed start does not emit one. Playback-state events fire once for each change, and once per second while a track plays. A hook reads the state that includes the change its event reports. Ask <code>cliamp.track.is_live()</code> before treating a track as one that ends.</div>
         </div>
         <div class="api-i">
           <div class="sig">cliamp.queue.has_next()</div>
           <div class="d">Reports whether another playable track exists, honoring the play-next queue, repeat, and shuffle.</div>
+        </div>
+        <div class="api-i">
+          <div class="sig">cliamp.queue.add({ path, title, artist, … })</div>
+          <div class="d">Queue a track exactly as described, such as a Spotify track with its title and artist, without resolving its path.</div>
+        </div>
+        <div class="api-i">
+          <div class="sig">cliamp.queue.move(from, to) · cliamp.queue.remove(i)</div>
+          <div class="d">Edit the queue by the rules of the keys and IPC. While shuffle is on, a move changes nothing. A loaded saved playlist gets the same edit.</div>
         </div>
         <div class="api-i">
           <div class="sig">p:bind("ctrl+n", fn) · p:command("name", fn)</div>
@@ -586,7 +572,7 @@ p:<span class="k">on</span>(<span class="s">"track.change"</span>, <span class="
         </div>
         <div class="api-i">
           <div class="sig">type = "visualizer" → p:render(bands, frame, rows, cols)</div>
-          <div class="d">Draw your own visualizer from the live spectrum bands. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/plugins.md">Plugin API reference ↗</a></div>
+          <div class="d">Draw your own visualizer from the smoothed spectrum bands. Optional <code>p:init</code> and <code>p:destroy</code> run when the mode is selected and left. <a href="https://github.com/bjarneo/cliamp/blob/main/docs/plugins.md">Plugin API reference ↗</a></div>
         </div>
       </div>
     </div>
@@ -628,6 +614,7 @@ var $=function(s,r){return (r||document).querySelector(s)};
 var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))};
 var reduce=!!(window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 var STATS_URL="https://radio.cliamp.stream/statistics";
+var TRACK_STATS_URL="https://radio.cliamp.stream/tracks/statistics";
 var ATLAS_URL="https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json";
 var BASE="https://radio.cliamp.stream/";
 
@@ -655,7 +642,7 @@ var SOURCES=[
   {name:"Qobuz",kind:"streaming",note:"lossless FLAC · OAuth"},
   {name:"Tidal",kind:"streaming",note:"lossless FLAC · device code"},
   {name:"YouTube",kind:"streaming",note:"search & play · yt-dlp"},
-  {name:"YouTube Music",kind:"streaming",note:"playlists & likes · cookies"},
+  {name:"YouTube Music",kind:"streaming",note:"playlists & likes · cookies or OAuth"},
   {name:"SoundCloud",kind:"streaming",note:"search & genres · yt-dlp"},
   {name:"Mixcloud",kind:"streaming",note:"shows & creators · yt-dlp"},
   {name:"NetEase Cloud Music",kind:"streaming",note:"browser session · yt-dlp"},
@@ -664,7 +651,7 @@ var SOURCES=[
   {name:"Bilibili",kind:"streaming",note:"video audio · yt-dlp"},
   {name:"Plex",kind:"self-hosted",note:"server token"},
   {name:"Jellyfin",kind:"self-hosted",note:"API key / password, gapless, resume"},
-  {name:"Emby",kind:"self-hosted",note:"API key"},
+  {name:"Emby",kind:"self-hosted",note:"API key / password, resume"},
   {name:"Navidrome",kind:"self-hosted",note:"Subsonic API · lyrics"},
   {name:"Lyrion",kind:"self-hosted",note:"LMS"},
   {name:"Audiobookshelf",kind:"self-hosted",note:"audiobooks & podcasts"},
@@ -673,15 +660,16 @@ var SOURCES=[
   {name:"SSH",kind:"local",note:"ssh:// paths, no mount needed"},
   {name:"Internet radio",kind:"radio",note:"~58,000 stations · Radio Browser"},
   {name:"cliamp radio",kind:"radio",note:"14 channels we run ourselves"},
-  {name:"Podcasts",kind:"podcast",note:"Apple charts + RSS · no account"}
+  {name:"Podcasts",kind:"podcast",note:"Apple charts + RSS · shorter episode titles · no account"},
+  {name:"Xiaoyuzhou",kind:"podcast",note:"paste an episode URL"}
 ];
 var KIND={streaming:"var(--accent)","self-hosted":"var(--warm)",local:"var(--blue)",radio:"var(--rose)",podcast:"var(--purple)"};
 
 var KEYS=[
   ["Space","play / pause"],["> / <","next / prev"],["+ / -","volume"],["← / →","seek 5s"],
   ["e","EQ preset"],["v / V","visualizer / full screen"],["t","theme, or hide the title in full screen"],["y","lyrics"],
-  ["/","search playlist"],["Ctrl+F","search provider"],["z / r","shuffle / repeat"],["a","queue next"],
-  ["o","file browser"],["R / O","radio / podcasts"],["?","all keybindings"]
+  ["/","filter playlist"],["Ctrl+F","search provider or YouTube"],["z / r","shuffle / repeat"],["a","queue next"],["f","favorite ♥"],
+  ["o","file browser"],["R / O","radio / podcasts"],["? / Ctrl+K","find and run commands"]
 ];
 
 var COMMUNITY=[
@@ -692,7 +680,8 @@ var COMMUNITY=[
   {name:"cliamp-plugin-nova",url:"https://github.com/8bit64k/cliamp-plugin-nova",desc:"Concentric-ring spectrum visualizer",author:"8bit64k"},
   {name:"cliamp-plugin-gpodder-sync",url:"https://github.com/sollymay/cliamp-plugin-gpodder-sync",desc:"gpodder.net subscription, progress, and download sync",author:"sollymay"},
   {name:"cliamp-plugin-discord-rpc",url:"https://github.com/fazaimron27/cliamp-plugin-discord-rpc",desc:"Discord Rich Presence",author:"fazaimron27"},
-  {name:"herdr-cliamp",url:"https://github.com/coryshaw1/herdr-cliamp",desc:"Floating cliamp for the herdr multiplexer, with now-playing and transport key bindings",author:"coryshaw1"}
+  {name:"herdr-cliamp",url:"https://github.com/coryshaw1/herdr-cliamp",desc:"Floating cliamp for the herdr multiplexer, with now-playing and transport key bindings",author:"coryshaw1"},
+  {name:"cliamp-plugin-mac-notify",url:"https://github.com/dbarrerap/cliamp-plugin-mac-notify",desc:"macOS Now Playing notifications with local cover art and YouTube thumbnails",author:"dbarrerap"}
 ];
 
 /* ISO 3166-1 alpha-2 → numeric, for the countries in world-atlas 110m. */
@@ -1047,34 +1036,35 @@ function loop(){
 
 /* ---------- live statistics ---------- */
 function fmt(n){return Math.round(n).toLocaleString("en-US")}
-function fmtDate(iso){var p=iso.split("-"),m=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];return m[+p[1]-1]+" "+(+p[2])}
-function nameOf(slug){for(var i=0;i<STATIONS.length;i++)if(STATIONS[i].slug===slug)return STATIONS[i].name;return slug}
+function getJSON(url){
+  return fetch(url,{cache:"no-store"}).then(function(r){if(!r.ok)throw new Error(String(r.status));return r.json()});
+}
 function loadStats(){
-  fetch(STATS_URL,{cache:"no-store"})
-    .then(function(r){if(!r.ok)throw new Error(String(r.status));return r.json()})
-    .then(function(d){$("#stats-err").textContent="";renderStats(d)})
+  /* Playlist listeners add to the radio numbers, so a failed request counts as nobody on the playlists. */
+  Promise.all([getJSON(STATS_URL),getJSON(TRACK_STATS_URL).catch(function(){return {}})])
+    .then(function(r){$("#stats-err").textContent="";renderStats(r[0],r[1])})
     .catch(function(){
       $("#stats-err").textContent="Live statistics from radio.cliamp.stream are unavailable right now.";
       globe.setEmpty("live statistics unavailable");
     });
 }
-function renderStats(d){
-  var st=d.stations||{},now=0,active={},alltime={},daily={},busiest=null,busiestAll=null;
+function renderStats(d,t){
+  var st=d.stations||{},ts=t.stations||{},now=0,onPlaylists=0,active={},alltime={};
   counts={};
+  function addActive(k,name,n){if(!k)return;active[k]=active[k]||{code:k,name:name,n:0};active[k].n+=n}
   Object.keys(st).forEach(function(slug){
     var s=st[slug],a=s.active_listeners||0;
-    counts[slug]=a;now+=a;
-    if(!busiest||a>busiest.n)busiest={slug:slug,n:a};
-    if(!busiestAll||(s.total_sessions||0)>busiestAll.n)busiestAll={slug:slug,n:s.total_sessions||0};
-    (s.active_listener_countries||[]).forEach(function(c){
-      var k=c.country_code;if(!k)return;
-      active[k]=active[k]||{code:k,name:c.country,n:0};active[k].n+=c.sessions||0;
-    });
+    counts[slug]=(counts[slug]||0)+a;now+=a;
+    (s.active_listener_countries||[]).forEach(function(c){addActive(c.country_code,c.country,c.sessions||0)});
     (s.top_countries||[]).forEach(function(c){
       var k=c.country_code;if(!k)return;
       alltime[k]=alltime[k]||{code:k,name:c.country,n:0};alltime[k].n+=c.sessions||0;
     });
-    (s.daily||[]).forEach(function(x){daily[x.date]=(daily[x.date]||0)+(x.listen_hours||0)});
+  });
+  Object.keys(ts).forEach(function(slug){
+    var s=ts[slug],a=s.active_listeners||0;
+    counts[slug]=(counts[slug]||0)+a;now+=a;onPlaylists+=a;
+    (s.active_listener_countries||[]).forEach(function(c){addActive(c.country_code,c.country,c.listeners||0)});
   });
   var byN=function(a,b){return b.n-a.n};
   var act=Object.keys(active).map(function(k){return active[k]}).sort(byN);
@@ -1082,19 +1072,12 @@ function renderStats(d){
   var live=act.length>0,rows=live?act:all;
 
   $("#n-listeners").textContent=fmt(now);
+  $("#n-playlists").textContent=fmt(onPlaylists);
   $("#n-countries").textContent=fmt(act.length);
   $("#countries-h").textContent=live?"TOP COUNTRIES":"TOP COUNTRIES · ALL-TIME";
   $("#countries-u").textContent=live?"LISTENERS":"SESSIONS";
   $("#globe-live").textContent=live?"● live":"○ all-time";
   renderCountries(rows.slice(0,10));
-
-  var b=(busiest&&busiest.n>0)?busiest:busiestAll;
-  $("#t-busiest").textContent=b?nameOf(b.slug):"–";
-  $("#t-busiest-l").textContent=(busiest&&busiest.n>0)?"busiest channel now":"busiest channel · all-time";
-  $("#t-peak").textContent=fmt(d.peak_listeners||0);
-  $("#t-sessions").textContent=fmt(d.total_sessions||0);
-  $("#t-hours").textContent=fmt(d.total_listen_hours||0);
-  renderDaily(daily);
 
   paintList();paintChannels();updateLive();
   globe.setData(rows,live);
@@ -1114,19 +1097,6 @@ function renderCountries(rows){
     el.querySelector(".v").textContent=fmt(c.n);
     wrap.appendChild(el);
   });
-}
-function renderDaily(daily){
-  var dates=Object.keys(daily).sort().slice(-31),wrap=$("#daily");wrap.textContent="";
-  if(!dates.length){$("#daily-a").textContent="";$("#daily-b").textContent="";return}
-  var max=Math.max.apply(null,dates.map(function(k){return daily[k]}))||1;
-  dates.forEach(function(k){
-    var i=document.createElement("i");
-    i.style.height=Math.max(4,Math.round(daily[k]/max*100))+"%";
-    i.title=fmtDate(k)+" · "+daily[k].toFixed(1)+" h";
-    wrap.appendChild(i);
-  });
-  $("#daily-a").textContent=fmtDate(dates[0]);
-  $("#daily-b").textContent=fmtDate(dates[dates.length-1]);
 }
 
 /* ---------- listeners globe (d3-geo + world-atlas) ---------- */

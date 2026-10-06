@@ -2,11 +2,12 @@
 //
 // It authenticates via the interactive OAuth browser flow, scrapes the
 // app_id / signing secrets / OAuth private key from the Qobuz web player
-// bundle.js, and resolves signed CDN stream URLs through the legacy
+// bundle.js, and gives tracks qobuz://track/<id> paths. When a track starts,
+// ResolveSource gets a signed CDN stream URL through the legacy
 // track/getFileUrl endpoint. Those URLs are routed through cliamp's
-// buffer-while-playing + ffmpeg pipeline (see IsStreamURL and
-// RegisterBufferedURLMatcher in main.go), the same path used by the
-// Navidrome, Jellyfin, Emby and Plex providers.
+// buffer-while-playing + ffmpeg pipeline (see the Buffered source that
+// providers.go registers), the same path used by the Navidrome, Jellyfin,
+// Emby and Plex providers.
 //
 // Source material consulted for the reverse-engineered API surface:
 //

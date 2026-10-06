@@ -7,7 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
 const statsFixture = `{
@@ -53,8 +57,8 @@ const statsFixture = `{
 
 func TestFetchStatistics(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if ua := r.Header.Get("User-Agent"); !strings.HasPrefix(ua, "cliamp/") {
-			t.Errorf("User-Agent = %q", ua)
+		if ua := r.Header.Get("User-Agent"); ua != httpclient.UserAgent {
+			t.Errorf("User-Agent = %q, want %q", ua, httpclient.UserAgent)
 		}
 		w.Write([]byte(statsFixture))
 	}))
@@ -186,5 +190,137 @@ func TestSummarizeDailyWindow(t *testing.T) {
 	}
 	if sum.Daily[0].Date != "2026-07-10" || sum.Daily[DailyWindow-1].Date != "2026-07-40" {
 		t.Errorf("window = %s .. %s", sum.Daily[0].Date, sum.Daily[DailyWindow-1].Date)
+	}
+}
+
+func TestSummaryWithPlaylists(t *testing.T) {
+	radioStats := Statistics{Stations: map[string]StationStats{
+		"edm": {
+			ActiveListeners: 2, TotalSessions: 10,
+			ActiveListenerCountries: []CountryStats{{Country: "United States", CountryCode: "US", Sessions: 2}},
+		},
+	}}
+	playlists := TrackStatistics{Stations: map[string]TrackStationStats{
+		"omarchy": {
+			ActiveListeners: 3,
+			ActiveListenerCountries: []TrackListenerCountry{
+				{Country: "United States", CountryCode: "US", Listeners: 2},
+				{Country: "Norway", CountryCode: "no", Listeners: 1},
+			},
+		},
+		"edm": {ActiveListeners: 1, ActiveListenerCountries: []TrackListenerCountry{{Country: "Germany", CountryCode: "DE", Listeners: 1}}},
+	}}
+	names := map[string]string{"edm": "EDM", "omarchy": "Omarchy"}
+
+	radioOnly := radioStats.Summarize(names)
+	sum := radioOnly.WithPlaylists(playlists, names)
+
+	if sum.Listeners != 6 || sum.Playlists != 4 {
+		t.Errorf("listeners = %d, playlists = %d, want 6 and 4", sum.Listeners, sum.Playlists)
+	}
+	wantCountries := []CountryCount{{"US", "United States", 4}, {"DE", "Germany", 1}, {"NO", "Norway", 1}}
+	if len(sum.Countries) != len(wantCountries) {
+		t.Fatalf("countries = %+v, want %+v", sum.Countries, wantCountries)
+	}
+	for i, want := range wantCountries {
+		if sum.Countries[i] != want {
+			t.Errorf("countries[%d] = %+v, want %+v", i, sum.Countries[i], want)
+		}
+	}
+	if len(sum.Channels) != 2 || sum.Channels[0].Name != "EDM" || sum.Channels[0].Listeners != 3 ||
+		sum.Channels[1].Name != "Omarchy" || sum.Channels[1].Listeners != 3 {
+		t.Errorf("channels = %+v, want EDM and Omarchy with 3 listeners each", sum.Channels)
+	}
+	if radioOnly.Listeners != 2 || len(radioOnly.Countries) != 1 || radioOnly.Channels[0].Listeners != 2 {
+		t.Errorf("WithPlaylists changed the summary it was called on: %+v", radioOnly)
+	}
+}
+
+func TestFetchListenerCountsFetchesBothDocumentsTogether(t *testing.T) {
+	mainHit := make(chan struct{})
+	var mainOnce sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/statistics":
+			mainOnce.Do(func() { close(mainHit) })
+			fmt.Fprint(w, `{"peak_listeners":10,"stations":{"edm":{"active_listeners":2}}}`)
+		case "/tracks/statistics":
+			// A sequential fetch would deadlock here: the tracks request
+			// only starts after the main one finishes. The 5s timeout
+			// turns a regression into a failure instead of a hang.
+			select {
+			case <-mainHit:
+			case <-time.After(5 * time.Second):
+				http.Error(w, "main document never requested", http.StatusGatewayTimeout)
+				return
+			}
+			fmt.Fprint(w, `{"stations":{"edm":{"active_listeners":3}}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	installCatalogClient(t, srv.URL)
+
+	counts, err := FetchListenerCounts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts["edm"] != 5 {
+		t.Errorf("counts = %+v, want edm 5 (2 live + 3 playlist)", counts)
+	}
+}
+
+func TestSummarizeListenerCounts(t *testing.T) {
+	main := Statistics{Stations: map[string]StationStats{
+		"edm":     {ActiveListeners: 2},
+		"quiet":   {ActiveListeners: 0},
+		"omarchy": {ActiveListeners: 1},
+	}}
+	playlists := &TrackStatistics{Stations: map[string]TrackStationStats{
+		"edm": {ActiveListeners: 3},
+	}}
+
+	t.Run("both documents add up", func(t *testing.T) {
+		got := summarizeListenerCounts(main, playlists)
+		want := map[string]int{"edm": 5, "quiet": 0, "omarchy": 1}
+		if len(got) != len(want) {
+			t.Fatalf("counts = %+v, want %+v", got, want)
+		}
+		for slug, n := range want {
+			if got[slug] != n {
+				t.Errorf("counts[%q] = %d, want %d", slug, got[slug], n)
+			}
+		}
+	})
+
+	t.Run("missing playlist document keeps live counts", func(t *testing.T) {
+		got := summarizeListenerCounts(main, nil)
+		if got["edm"] != 2 || got["omarchy"] != 1 {
+			t.Errorf("counts = %+v, want edm 2 and omarchy 1", got)
+		}
+	})
+}
+
+func TestFetchTrackStatistics(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/tracks/statistics" {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprint(w, `{"total_plays":345,"peak_listeners":4,"stations":{"omarchy":{"total_plays":321,"active_listeners":2,
+			"active_listener_countries":[{"country":"Norway","country_code":"NO","listeners":2}]}}}`)
+	}))
+	defer srv.Close()
+	installCatalogClient(t, srv.URL)
+
+	stats, err := FetchTrackStatistics(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	omarchy := stats.Stations["omarchy"]
+	if stats.TotalPlays != 345 || omarchy.ActiveListeners != 2 || len(omarchy.ActiveListenerCountries) != 1 ||
+		omarchy.ActiveListenerCountries[0].Listeners != 2 {
+		t.Errorf("stats = %+v", stats)
 	}
 }

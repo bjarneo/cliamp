@@ -1,9 +1,6 @@
 package ui
 
-import (
-	"math"
-	"strings"
-)
+import "math"
 
 // renderHeartbeat draws a scrolling ECG/pulse-monitor trace using Braille dots.
 // Bass energy triggers sharp QRS-complex spikes; silence produces a flat line.
@@ -11,13 +8,13 @@ import (
 func (v *Visualizer) renderHeartbeat() string {
 	height := v.Rows
 	dotRows := height * 4
-	dotCols := PanelWidth * 2
+	dotCols := v.columns() * 2
 
 	samples := v.waveBuf
 	n := len(samples)
 
 	// Build a y-position for each dot column from raw audio.
-	ypos := make([]int, dotCols)
+	ypos := v.traceYs(dotCols)
 	centerY := float64(dotRows) / 2.0
 	amplitude := float64(dotRows) * 0.45
 
@@ -37,68 +34,37 @@ func (v *Visualizer) renderHeartbeat() string {
 		ypos[x] = max(0, min(dotRows-1, y))
 	}
 
-	grid := make([]bool, dotRows*dotCols)
+	// The trace is red (high tier) and the baseline green (low tier). A trace
+	// dot on the baseline row counts as baseline, so a cell turns red only
+	// where the trace leaves the baseline.
+	baseY := dotRows / 2
+	traceTier := func(y int) int8 {
+		if y == baseY {
+			return 1
+		}
+		return 3
+	}
+	grid := &v.dotGrid
+	grid.ensure(dotRows, dotCols)
 
 	// Draw the ECG trace with continuous line connections.
 	for x := range dotCols {
 		y := ypos[x]
-		grid[y*dotCols+x] = true
+		grid.set(x, y, traceTier(y))
 		if x > 0 {
 			lo, hi := min(y, ypos[x-1]), max(y, ypos[x-1])
 			for fy := lo; fy <= hi; fy++ {
-				grid[fy*dotCols+x] = true
+				grid.set(x, fy, traceTier(fy))
 			}
 		}
 	}
 
-	// Draw a faint baseline at center.
-	baseY := dotRows / 2
+	// Draw a faint baseline at center. Dashed baseline: on for 6, off for 4.
 	for x := range dotCols {
-		if !grid[baseY*dotCols+x] {
-			// Dashed baseline: on for 6, off for 4.
-			if (x/6)%2 == 0 {
-				grid[baseY*dotCols+x] = true
-			}
+		if (x/6)%2 == 0 {
+			grid.set(x, baseY, 1)
 		}
 	}
 
-	// Render braille characters.
-	lines := make([]string, height)
-	for row := range height {
-		var sb, run strings.Builder
-		tag := -1
-
-		for ch := range PanelWidth {
-			var braille rune = '\u2800'
-			hasTrace := false
-
-			for dr := range 4 {
-				for dc := range 2 {
-					dy := row*4 + dr
-					dx := ch*2 + dc
-					if grid[dy*dotCols+dx] {
-						braille |= brailleBit[dr][dc]
-						// Check if this is part of the trace (not baseline).
-						if dy != baseY {
-							hasTrace = true
-						}
-					}
-				}
-			}
-
-			newTag := 0 // green baseline
-			if hasTrace {
-				newTag = 2 // red trace
-			}
-			if newTag != tag {
-				flushStyleRun(&sb, &run, tag)
-				tag = newTag
-			}
-			run.WriteRune(braille)
-		}
-		flushStyleRun(&sb, &run, tag)
-		lines[row] = sb.String()
-	}
-
-	return strings.Join(lines, "\n")
+	return grid.render(height, v.columns())
 }

@@ -79,7 +79,7 @@ url             = "http://nas.local:9000"
 show_unplayable = true
 ```
 
-Set `LYRION_SHOW_UNPLAYABLE=true` for the same behavior with environment configuration.
+With environment configuration, set `LYRION_SHOW_UNPLAYABLE=true` for the same behavior. A `[lyrion]` block with `show_unplayable = true` and no `url` also works with the environment variables.
 
 An *album* that contains only plugin tracks still appears in the browser and opens empty. Cliamp filters playlists because the server reports their origin in the same response. Classifying albums would need one extra request per album.
 
@@ -96,6 +96,8 @@ With credentials, Cliamp uses HTTP Basic authentication. The LMS web interface u
 **"authentication failed".** The server rejected the credentials. Check the username and password in the LMS web interface. If the server has no password protection, remove `user` and `password`. Do not leave them blank.
 
 **Connection refused or timed out.** Check the port. LMS serves its web UI and this API on 9000 by default. Open `http://your-server:9000` in a browser to test it.
+
+**macOS: "no route to host".** If `curl` works with the same URL, macOS likely denies Local Network access to the app. cliamp then adds a hint to the error. Open **System Settings > Privacy & Security > Local Network**, enable access for the terminal app, and restart cliamp. For more steps, see [Plex troubleshooting](plex.md#troubleshooting).
 
 **Tracks appear but will not play.** Cliamp might not decode the file format. Install `ffmpeg` and try again.
 

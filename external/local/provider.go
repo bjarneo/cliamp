@@ -11,8 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/history"
@@ -21,22 +21,20 @@ import (
 	"github.com/bjarneo/cliamp/internal/fuzzy"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
-	"github.com/bjarneo/cliamp/resolve"
 )
 
 // Compile-time interface checks.
 var (
 	_ provider.PlaylistWriter           = (*Provider)(nil)
 	_ provider.PlaylistBatchWriter      = (*Provider)(nil)
+	_ provider.PlaylistTargetFilter     = (*Provider)(nil)
 	_ provider.PlaylistPrepender        = (*Provider)(nil)
 	_ provider.PlaylistCreator          = (*Provider)(nil)
 	_ provider.PlaylistSaver            = (*Provider)(nil)
 	_ provider.PlaylistDeleter          = (*Provider)(nil)
 	_ provider.PlaylistRenamer          = (*Provider)(nil)
-	_ provider.BookmarkSetter           = (*Provider)(nil)
 	_ provider.Searcher                 = (*Provider)(nil)
 	_ provider.PlaylistDirSourceManager = (*Provider)(nil)
-	_ provider.FavoritesManager         = (*Provider)(nil)
 )
 
 // Provider reads and writes TOML-based playlists stored on disk.
@@ -44,18 +42,23 @@ type Provider struct {
 	dir       string // e.g. ~/.config/cliamp/playlists/
 	history   *history.Store
 	favorites *favorites.Store
+
+	mu sync.Mutex // see lock
 }
 
-// New creates a Provider using ~/.config/cliamp/playlists/ as the base directory.
-func New() *Provider {
+// New creates a Provider using ~/.config/cliamp/playlists/ as the base
+// directory. It lists the virtual Favorites and Recently Played playlists
+// from favs and hist, which the caller owns. Either store can be nil. It
+// returns nil when the config directory is unavailable.
+func New(favs *favorites.Store, hist *history.Store) *Provider {
 	dir, err := appdir.Dir()
 	if err != nil {
 		return nil
 	}
 	return &Provider{
 		dir:       filepath.Join(dir, "playlists"),
-		history:   history.New(),
-		favorites: favorites.New(),
+		history:   hist,
+		favorites: favs,
 	}
 }
 
@@ -80,6 +83,29 @@ func validateNewName(name string) error {
 		return fmt.Errorf("invalid playlist name %q", name)
 	}
 	return nil
+}
+
+// lock serializes the load-modify-save cycles of playlist writes. The mutex
+// covers goroutines that share this Provider. The file lock covers other
+// Provider values and other cliamp processes, such as the `cliamp playlist`
+// CLI next to the TUI. A method that holds the lock must not call another
+// method that takes it.
+func (p *Provider) lock() (func(), error) {
+	p.mu.Lock()
+	path := p.dir + ".lock"
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		p.mu.Unlock()
+		return nil, fmt.Errorf("creating config dir: %w", err)
+	}
+	unlock, err := fileutil.LockFile(path)
+	if err != nil {
+		p.mu.Unlock()
+		return nil, err
+	}
+	return func() {
+		_ = unlock()
+		p.mu.Unlock()
+	}, nil
 }
 
 func isHistoryName(name string) bool {
@@ -115,12 +141,10 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 			continue
 		}
 		fileName := e.Name()
-		// Migrate a physical Favorites.toml to a safe name before the
-		// virtual Favorites playlist reserves it; once migrated the
-		// renamed file is listed like any other playlist.
-		if fileName == "Favorites.toml" {
-			p.migrateFavoritesToml()
-			fileName = favoritesLegacyName + ".toml"
+		// The virtual Favorites playlist reserves the name. A Favorites.toml
+		// that MigrateFavoritesFile could not move stays hidden.
+		if fileName == favoritesFileName {
+			continue
 		}
 		name := strings.TrimSuffix(fileName, filepath.Ext(fileName))
 		doc, err := p.loadDoc(filepath.Join(p.dir, fileName))
@@ -143,21 +167,45 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	return lists, nil
 }
 
-const favoritesLegacyName = "Favorites (Local)"
+// favoritesFileName is the playlist file that the virtual Favorites
+// playlist hides. favoritesLegacyName is the name it moves to.
+const (
+	favoritesFileName   = favorites.PlaylistName + ".toml"
+	favoritesLegacyName = "Favorites (Local)"
+)
 
-// migrateFavoritesToml renames a physical Favorites.toml playlist to a safe
-// name so the virtual Favorites playlist can reserve it. The rename is
-// best-effort: if the destination already exists the source is left in place.
-func (p *Provider) migrateFavoritesToml() {
-	src := filepath.Join(p.dir, "Favorites.toml")
+// MigrateFavoritesFile renames a playlist file named Favorites.toml to
+// "Favorites (Local).toml", because the virtual Favorites playlist reserves
+// the name. It keeps both files when the new name is taken. Call it once at
+// startup, before MigrateBookmarks.
+func (p *Provider) MigrateFavoritesFile() error {
+	if p == nil {
+		return nil
+	}
+	src := filepath.Join(p.dir, favoritesFileName)
+	if _, err := os.Stat(src); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	unlock, err := p.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if _, err := os.Stat(src); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("check %s: %w", favoritesFileName, err)
+	}
 	dst := filepath.Join(p.dir, favoritesLegacyName+".toml")
-	if _, err := os.Stat(src); err != nil {
-		return
+	if _, err := os.Lstat(dst); err == nil {
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("check %s.toml: %w", favoritesLegacyName, err)
 	}
-	if _, err := os.Stat(dst); err == nil {
-		return
+	if err := os.Rename(src, dst); err != nil {
+		return fmt.Errorf("move %s: %w", favoritesFileName, err)
 	}
-	os.Rename(src, dst)
+	return nil
 }
 
 // historyInfo returns the synthetic PlaylistInfo entry for "Recently Played",
@@ -221,15 +269,6 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	return doc.expand(true), nil
 }
 
-// expandedTracks loads a named playlist and expands its directory sources.
-func (p *Provider) expandedTracks(name string) ([]playlist.Track, error) {
-	doc, err := p.loadDocByName(name)
-	if err != nil {
-		return nil, err
-	}
-	return doc.expand(true), nil
-}
-
 // AddTrack appends a track to the named playlist, creating the directory and
 // file if needed.
 func (p *Provider) AddTrack(playlistName string, track playlist.Track) error {
@@ -241,12 +280,14 @@ func (p *Provider) AddTrack(playlistName string, track playlist.Track) error {
 // provided by the playlist (explicit [[track]] entries or [[dir]] sources) or
 // repeated in the input. It creates the playlist file if needed.
 func (p *Provider) AddTracks(playlistName string, tracks []playlist.Track) (added, skipped int, err error) {
-	if isHistoryName(playlistName) {
-		return 0, 0, errReservedHistoryName
+	if err := writable(playlistName); err != nil {
+		return 0, 0, err
 	}
-	if isFavoritesName(playlistName) {
-		return 0, 0, errReservedFavoritesName
+	unlock, err := p.lock()
+	if err != nil {
+		return 0, 0, err
 	}
+	defer unlock()
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
 		return 0, 0, err
 	}
@@ -270,19 +311,10 @@ func (p *Provider) AddTracks(playlistName string, tracks []playlist.Track) (adde
 	for _, t := range doc.tracks {
 		seen[t.Path] = struct{}{}
 	}
-	for _, src := range doc.dirs {
-		files, err := resolve.AudioFiles(ExpandPath(src.Path), src.Recursive)
-		if err != nil {
-			continue
-		}
-		for _, f := range files {
-			seen[f] = struct{}{}
-		}
-	}
 
 	existing := doc.tracks
 	for _, t := range tracks {
-		if _, ok := seen[t.Path]; ok {
+		if _, ok := seen[t.Path]; ok || doc.suppliesFile(t.Path) {
 			skipped++
 			continue
 		}
@@ -315,15 +347,17 @@ func (p *Provider) AddTracks(playlistName string, tracks []playlist.Track) (adde
 // [[dir]] source cannot move, since the entry is generated at load time, so it
 // is skipped the way AddTracks skips it.
 func (p *Provider) PrependTracks(playlistName string, tracks []playlist.Track) (added, moved, skipped int, err error) {
-	if isHistoryName(playlistName) {
-		return 0, 0, 0, errReservedHistoryName
-	}
-	if isFavoritesName(playlistName) {
-		return 0, 0, 0, errReservedFavoritesName
+	if err := writable(playlistName); err != nil {
+		return 0, 0, 0, err
 	}
 	if len(tracks) == 0 {
 		return 0, 0, 0, nil
 	}
+	unlock, err := p.lock()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	defer unlock()
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
 		return 0, 0, 0, fmt.Errorf("creating playlist dir: %w", err)
 	}
@@ -350,16 +384,6 @@ func (p *Provider) PrependTracks(playlistName string, tracks []playlist.Track) (
 	for _, t := range doc.tracks {
 		explicit[t.Path] = t
 	}
-	dirSourced := make(map[string]struct{})
-	for _, src := range doc.dirs {
-		files, err := resolve.AudioFiles(ExpandPath(src.Path), src.Recursive)
-		if err != nil {
-			continue
-		}
-		for _, f := range files {
-			dirSourced[f] = struct{}{}
-		}
-	}
 
 	front := make([]playlist.Track, 0, len(tracks))
 	relocated := make(map[string]struct{}, len(tracks))
@@ -372,7 +396,7 @@ func (p *Provider) PrependTracks(playlistName string, tracks []playlist.Track) (
 		if stored, ok := explicit[t.Path]; ok {
 			moved++
 			t = stored
-		} else if _, ok := dirSourced[t.Path]; ok {
+		} else if doc.suppliesFile(t.Path) {
 			skipped++
 			continue
 		} else {
@@ -434,11 +458,8 @@ func (p *Provider) PrependTracksToPlaylist(_ context.Context, playlistID string,
 
 // CreatePlaylist creates an empty playlist file.
 func (p *Provider) CreatePlaylist(_ context.Context, name string) (string, error) {
-	if isHistoryName(name) {
-		return "", errReservedHistoryName
-	}
-	if isFavoritesName(name) {
-		return "", errReservedFavoritesName
+	if err := writable(name); err != nil {
+		return "", err
 	}
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
 		return "", err
@@ -468,11 +489,8 @@ func (p *Provider) CreatePlaylist(_ context.Context, name string) (string, error
 // when the playlist already exists or a directory does not exist, leaving no
 // file behind.
 func (p *Provider) CreateDirPlaylist(name string, dirs []string) error {
-	if isHistoryName(name) {
-		return errReservedHistoryName
-	}
-	if isFavoritesName(name) {
-		return errReservedFavoritesName
+	if err := writable(name); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
 		return fmt.Errorf("creating playlist dir: %w", err)
@@ -524,17 +542,19 @@ func (p *Provider) CreateDirPlaylist(name string, dirs []string) error {
 // All directories are validated before anything is persisted, so a failing
 // input leaves the playlist untouched. Returns the directories that were added.
 func (p *Provider) AddDirSources(name string, dirs []string) ([]string, error) {
-	if isHistoryName(name) {
-		return nil, errReservedHistoryName
-	}
-	if isFavoritesName(name) {
-		return nil, errReservedFavoritesName
+	if err := writable(name); err != nil {
+		return nil, err
 	}
 	for _, dir := range dirs {
 		if err := validateDirSource(dir); err != nil {
 			return nil, err
 		}
 	}
+	unlock, err := p.lock()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating playlist dir: %w", err)
 	}
@@ -587,11 +607,8 @@ func (p *Provider) AddDirSource(name, dir string) (bool, error) {
 
 // DirSources returns the directory sources referenced by a playlist.
 func (p *Provider) DirSources(name string) ([]playlist.DirSource, error) {
-	if isHistoryName(name) {
-		return nil, errReservedHistoryName
-	}
-	if isFavoritesName(name) {
-		return nil, errReservedFavoritesName
+	if err := writable(name); err != nil {
+		return nil, err
 	}
 	doc, err := p.loadDocByName(name)
 	if err != nil {
@@ -619,12 +636,14 @@ func dirIndexByPath(doc *playlistDoc, dir string) int {
 // missing source (or a missing playlist) is a no-op rather than an error, so
 // callers can remove without first checking existence.
 func (p *Provider) RemoveDirSource(name, dir string) error {
-	if isHistoryName(name) {
-		return errReservedHistoryName
+	if err := writable(name); err != nil {
+		return err
 	}
-	if isFavoritesName(name) {
-		return errReservedFavoritesName
+	unlock, err := p.lock()
+	if err != nil {
+		return err
 	}
+	defer unlock()
 	path, err := p.safePath(name)
 	if err != nil {
 		return fmt.Errorf("resolving playlist path: %w", err)
@@ -662,12 +681,14 @@ func (p *Provider) RemoveDirSource(name, dir string) error {
 // source is missing, the playlist is missing, or the flag is already the
 // requested value, so callers can toggle without first checking state.
 func (p *Provider) SetDirRecursive(name, dir string, recursive bool) error {
-	if isHistoryName(name) {
-		return errReservedHistoryName
+	if err := writable(name); err != nil {
+		return err
 	}
-	if isFavoritesName(name) {
-		return errReservedFavoritesName
+	unlock, err := p.lock()
+	if err != nil {
+		return err
 	}
+	defer unlock()
 	path, err := p.safePath(name)
 	if err != nil {
 		return fmt.Errorf("resolving playlist path: %w", err)
@@ -812,54 +833,18 @@ var errReservedHistoryName = errors.New(`"Recently Played" is a virtual history 
 // otherwise mutate the synthetic favorites playlist.
 var errReservedFavoritesName = errors.New(`"Favorites" is a virtual favorites playlist and cannot be modified`)
 
-// SetBookmark toggles the bookmark flag on a track and rewrites the playlist.
-// The index refers to the expanded track list (explicit entries plus
-// directory-scanned ones). Bookmarking a directory-scanned track materializes
-// it as an explicit [[track]] entry so the bookmark persists; it then loads
-// after the directory-sourced tracks.
-func (p *Provider) SetBookmark(playlistName string, idx int) error {
-	if isHistoryName(playlistName) {
+// writable returns the error for a name that belongs to a virtual playlist,
+// or nil when a write to the name can go to a playlist file. Every method
+// that writes a playlist file checks it first, because a file under a
+// virtual name is hidden behind the virtual playlist.
+func writable(name string) error {
+	switch {
+	case isHistoryName(name):
 		return errReservedHistoryName
-	}
-	if isFavoritesName(playlistName) {
+	case isFavoritesName(name):
 		return errReservedFavoritesName
 	}
-	tracks, err := p.expandedTracks(playlistName)
-	if err != nil {
-		return err
-	}
-	if idx < 0 || idx >= len(tracks) {
-		return fmt.Errorf("index %d out of range (playlist has %d tracks)", idx, len(tracks))
-	}
-	tracks[idx].Bookmark = !tracks[idx].Bookmark
-	tracks[idx].DirSourced = false // materialize so the change persists
-	return p.savePlaylist(playlistName, tracks)
-}
-
-// SetBookmarkByPath toggles the bookmark flag on the first track with path and
-// rewrites the playlist. This avoids corrupting saved playlists when the live
-// queue has been filtered, reordered, or otherwise diverged from file order.
-// Directory-scanned tracks are materialized as explicit entries so the
-// bookmark persists.
-func (p *Provider) SetBookmarkByPath(playlistName string, path string) error {
-	if isHistoryName(playlistName) {
-		return errReservedHistoryName
-	}
-	if isFavoritesName(playlistName) {
-		return errReservedFavoritesName
-	}
-	tracks, err := p.expandedTracks(playlistName)
-	if err != nil {
-		return err
-	}
-	for i := range tracks {
-		if tracks[i].Path == path {
-			tracks[i].Bookmark = !tracks[i].Bookmark
-			tracks[i].DirSourced = false // materialize so the change persists
-			return p.savePlaylist(playlistName, tracks)
-		}
-	}
-	return fmt.Errorf("track path %q not found in playlist %q", path, playlistName)
+	return nil
 }
 
 // loadDocByName loads a named playlist's parsed document.
@@ -873,11 +858,44 @@ func (p *Provider) loadDocByName(name string) (*playlistDoc, error) {
 
 // SavePlaylist overwrites a playlist with the given tracks.
 func (p *Provider) SavePlaylist(name string, tracks []playlist.Track) error {
-	if isHistoryName(name) {
-		return errReservedHistoryName
+	if err := writable(name); err != nil {
+		return err
 	}
-	if isFavoritesName(name) {
-		return errReservedFavoritesName
+	unlock, err := p.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return p.savePlaylist(name, tracks)
+}
+
+// UpdatePlaylist runs fn on the tracks of the named playlist and saves the
+// tracks that fn returns. The read, fn and the save run under the playlist
+// lock, so no other writer can change the file in between. fn gets the
+// explicit [[track]] entries in document order and may change the slice.
+// It gets no tracks from directory sources, because the save drops them and
+// a directory scan must not hold the lock. The save keeps the [[dir]]
+// sections. When fn returns playlist.ErrPlaylistUnchanged, nothing is saved
+// and the result is nil.
+func (p *Provider) UpdatePlaylist(name string, fn func([]playlist.Track) ([]playlist.Track, error)) error {
+	if err := writable(name); err != nil {
+		return err
+	}
+	unlock, err := p.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	doc, err := p.loadDocByName(name)
+	if err != nil {
+		return err
+	}
+	tracks, err := fn(doc.tracks)
+	if errors.Is(err, playlist.ErrPlaylistUnchanged) {
+		return nil
+	}
+	if err != nil {
+		return err
 	}
 	return p.savePlaylist(name, tracks)
 }
@@ -892,6 +910,13 @@ func (p *Provider) AddTrackToPlaylist(_ context.Context, playlistID string, trac
 // Implements provider.PlaylistBatchWriter.
 func (p *Provider) AddTracksToPlaylist(_ context.Context, playlistID string, tracks []playlist.Track) (int, int, error) {
 	return p.AddTracks(playlistID, tracks)
+}
+
+// CanAddToPlaylist reports whether tracks can be added to pl. Recently
+// Played and Favorites are virtual and reject every add.
+// Implements provider.PlaylistTargetFilter.
+func (p *Provider) CanAddToPlaylist(pl playlist.PlaylistInfo) bool {
+	return writable(pl.ID) == nil
 }
 
 // SearchTracks does a case-insensitive fuzzy search across every saved playlist
@@ -920,6 +945,10 @@ func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]p
 	seen := make(map[string]struct{})
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".toml") {
+			continue
+		}
+		// Playlists hides this file, so a search must not show its tracks.
+		if e.Name() == favoritesFileName {
 			continue
 		}
 		doc, err := p.loadDoc(filepath.Join(p.dir, e.Name()))
@@ -971,12 +1000,17 @@ func trackMatchScore(t playlist.Track, query string) (int, bool) {
 // RenamePlaylist renames a playlist by renaming its TOML file.
 // The reserved "Recently Played" history playlist cannot be renamed.
 func (p *Provider) RenamePlaylist(oldName, newName string) error {
-	if isHistoryName(oldName) || isHistoryName(newName) {
-		return errReservedHistoryName
+	if err := writable(oldName); err != nil {
+		return err
 	}
-	if isFavoritesName(oldName) || isFavoritesName(newName) {
-		return errReservedFavoritesName
+	if err := writable(newName); err != nil {
+		return err
 	}
+	unlock, err := p.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	oldPath, err := p.safePath(oldName)
 	if err != nil {
 		return fmt.Errorf("invalid playlist name %q: %w", oldName, err)
@@ -1000,14 +1034,18 @@ func (p *Provider) RenamePlaylist(oldName, newName string) error {
 }
 
 // DeletePlaylist removes the TOML file for the named playlist.
-// "Recently Played" cannot be deleted via this method — use ClearHistory.
+// The virtual playlists cannot be deleted. Clear Recently Played with
+// history.Store.Clear. A track leaves Favorites only through
+// favorites.Store.Toggle.
 func (p *Provider) DeletePlaylist(name string) error {
-	if isHistoryName(name) {
-		return errReservedHistoryName
+	if err := writable(name); err != nil {
+		return err
 	}
-	if isFavoritesName(name) {
-		return errReservedFavoritesName
+	unlock, err := p.lock()
+	if err != nil {
+		return err
 	}
+	defer unlock()
 	path, err := p.safePath(name)
 	if err != nil {
 		return err
@@ -1032,9 +1070,14 @@ func (p *Provider) PlaylistDocument(name string) ([]byte, error) {
 // RestorePlaylistDocument overwrites the playlist with raw TOML bytes so an
 // undo can put back exactly what a delete removed, [[dir]] sections included.
 func (p *Provider) RestorePlaylistDocument(name string, data []byte) error {
-	if isHistoryName(name) {
-		return errReservedHistoryName
+	if err := writable(name); err != nil {
+		return err
 	}
+	unlock, err := p.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
 		return fmt.Errorf("creating playlist dir: %w", err)
 	}
@@ -1048,71 +1091,26 @@ func (p *Provider) RestorePlaylistDocument(name string, data []byte) error {
 	return nil
 }
 
-// ClearHistory wipes the recorded play history. Returns nil if no history
-// exists yet.
-func (p *Provider) ClearHistory() error {
-	if p.history == nil {
-		return nil
-	}
-	return p.history.Clear()
-}
-
-// ClearFavorites wipes the favorites list. Returns nil if no favorites exist.
-func (p *Provider) ClearFavorites() error {
-	if p.favorites == nil {
-		return nil
-	}
-	return p.favorites.Clear()
-}
-
-// FavoritesStore returns the underlying favorites store so the UI can toggle
-// favorites without going through the playlist write path.
-func (p *Provider) FavoritesStore() *favorites.Store {
-	return p.favorites
-}
-
-// ToggleFavorite toggles a track in the favorites store.
-// Implements provider.FavoritesManager.
-func (p *Provider) ToggleFavorite(track playlist.Track) (bool, error) {
-	if p.favorites == nil {
-		return false, nil
-	}
-	return p.favorites.Toggle(track)
-}
-
-// IsFavorited reports whether the given path is in the favorites store.
-// Implements provider.FavoritesManager.
-func (p *Provider) IsFavorited(path string) bool {
-	if p.favorites == nil {
-		return false
-	}
-	return p.favorites.IsFavorited(path)
-}
-
-// FavoritesCount returns the number of favorited tracks.
-// Implements provider.FavoritesManager.
-func (p *Provider) FavoritesCount() int {
-	if p.favorites == nil {
-		return 0
-	}
-	return p.favorites.Count()
-}
-
 // RemoveTrack removes a track by index from the named playlist.
 // The index refers to the expanded track list. Directory-scanned tracks
 // cannot be removed: they are re-derived from the [[dir]] source on every
 // load. Empty playlists are kept on disk; deleting a playlist remains explicit.
 func (p *Provider) RemoveTrack(name string, index int) error {
-	if isHistoryName(name) {
-		return errReservedHistoryName
+	if err := writable(name); err != nil {
+		return err
 	}
-	if isFavoritesName(name) {
-		return errReservedFavoritesName
-	}
-	tracks, err := p.expandedTracks(name)
+	unlock, err := p.lock()
 	if err != nil {
 		return err
 	}
+	defer unlock()
+	doc, err := p.loadDocByName(name)
+	if err != nil {
+		return err
+	}
+	// The index needs only the paths and the DirSourced flags. A tag read
+	// of every directory file must not hold the lock.
+	tracks := doc.expand(false)
 	if index < 0 || index >= len(tracks) {
 		return fmt.Errorf("track index %d out of range", index)
 	}
@@ -1138,49 +1136,13 @@ func (p *Provider) RemoveTrack(name string, index int) error {
 	return p.savePlaylist(name, kept)
 }
 
-// writeTrack writes a single [[track]] TOML section to w.
+// writeTrack writes a single [[track]] TOML section to w: the track fields
+// that favorites and history also keep, then the keys only playlists keep.
 func writeTrack(w io.Writer, t playlist.Track) {
 	fmt.Fprintln(w, "[[track]]")
-	fmt.Fprintf(w, "path = %q\n", t.Path)
-	fmt.Fprintf(w, "title = %q\n", t.Title)
-	if t.Feed {
-		fmt.Fprintln(w, "feed = true")
-	}
-	if t.Realtime {
-		fmt.Fprintln(w, "realtime = true")
-	}
-	if t.Artist != "" {
-		fmt.Fprintf(w, "artist = %q\n", t.Artist)
-	}
-	if t.Album != "" {
-		fmt.Fprintf(w, "album = %q\n", t.Album)
-	}
-	if t.Genre != "" {
-		fmt.Fprintf(w, "genre = %q\n", t.Genre)
-	}
-	if t.Year != 0 {
-		fmt.Fprintf(w, "year = %d\n", t.Year)
-	}
-	if t.TrackNumber != 0 {
-		fmt.Fprintf(w, "track_number = %d\n", t.TrackNumber)
-	}
-	// The podcast feed and GUID are what make an episode recognizable after a
-	// restart: the feed marks it as seekable, and the GUID keys its listening
-	// position. Nothing else in ProviderMeta survives a save.
-	if feed := t.Meta(provider.MetaPodcastFeed); feed != "" {
-		fmt.Fprintf(w, "podcast_feed = %q\n", feed)
-	}
-	if guid := t.Meta(provider.MetaPodcastGUID); guid != "" {
-		fmt.Fprintf(w, "podcast_guid = %q\n", guid)
-	}
-	if t.DurationSecs != 0 {
-		fmt.Fprintf(w, "duration_secs = %d\n", t.DurationSecs)
-	}
+	playlist.WriteTrackTOML(w, t)
 	if t.EmbeddedLyrics != "" {
 		fmt.Fprintf(w, "embedded_lyrics = %q\n", t.EmbeddedLyrics)
-	}
-	if t.AlbumArtURL != "" {
-		fmt.Fprintf(w, "album_art_url = %q\n", t.AlbumArtURL)
 	}
 	if t.Bookmark {
 		fmt.Fprintln(w, "bookmark = true")
@@ -1189,36 +1151,22 @@ func writeTrack(w io.Writer, t playlist.Track) {
 
 // parseTrackFields converts a parsed [[track]] section into a Track.
 func parseTrackFields(f map[string]string) playlist.Track {
-	t := playlist.Track{
-		Path:     f["path"],
-		Title:    f["title"],
-		Artist:   f["artist"],
-		Album:    f["album"],
-		Genre:    f["genre"],
-		Feed:     f["feed"] == "true",
-		Realtime: f["realtime"] == "true",
-	}
+	t := playlist.TrackFromTOML(f)
 	t.EmbeddedLyrics = f["embedded_lyrics"]
-	t.AlbumArtURL = f["album_art_url"]
-	t.Stream = playlist.IsURL(t.Path)
 	// "favorite" is the pre-rename alias for "bookmark"; prefer bookmark.
 	bookmark, ok := f["bookmark"]
 	if !ok {
 		bookmark = f["favorite"]
 	}
 	t.Bookmark = bookmark == "true"
-	if n, err := strconv.Atoi(f["year"]); err == nil {
-		t.Year = n
-	}
-	if n, err := strconv.Atoi(f["track_number"]); err == nil {
-		t.TrackNumber = n
-	}
-	if n, err := strconv.Atoi(f["duration_secs"]); err == nil {
-		t.DurationSecs = n
-	}
-	if feed := f["podcast_feed"]; feed != "" {
-		t.ProviderMeta = map[string]string{provider.MetaPodcastFeed: feed}
-		if guid := f["podcast_guid"]; guid != "" {
+	// Older versions kept only the podcast feed and GUID, as podcast_feed and
+	// podcast_guid. A GUID without its feed was never read back.
+	if feed := f["podcast_feed"]; feed != "" && t.Meta(provider.MetaPodcastFeed) == "" {
+		if t.ProviderMeta == nil {
+			t.ProviderMeta = make(map[string]string, 2)
+		}
+		t.ProviderMeta[provider.MetaPodcastFeed] = feed
+		if guid := f["podcast_guid"]; guid != "" && t.Meta(provider.MetaPodcastGUID) == "" {
 			t.ProviderMeta[provider.MetaPodcastGUID] = guid
 		}
 	}

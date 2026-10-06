@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+
+	"github.com/bjarneo/cliamp/playlist"
 )
 
 var (
@@ -15,7 +17,7 @@ var (
 // SetForHost associates a browser cookie source with a URL host. Passing an
 // empty browser removes the association.
 func SetForHost(host, browser string) {
-	host = normalizeHost(host)
+	host = playlist.NormalizeHost(host)
 	if host == "" {
 		return
 	}
@@ -58,12 +60,5 @@ func hostForURL(rawURL string) string {
 	if err != nil {
 		return ""
 	}
-	return normalizeHost(u.Hostname())
-}
-
-func normalizeHost(host string) string {
-	host = strings.ToLower(strings.TrimSpace(host))
-	host = strings.TrimPrefix(host, "www.")
-	host = strings.TrimPrefix(host, "m.")
-	return host
+	return playlist.NormalizeHost(u.Hostname())
 }

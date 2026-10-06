@@ -8,6 +8,7 @@ func (v *Visualizer) renderBarsOutline(bands []float64) string {
 	height := v.Rows
 	lines := make([]string, height)
 	bandCount := len(bands)
+	width := v.columns()
 
 	for row := range height {
 		var content strings.Builder
@@ -15,7 +16,7 @@ func (v *Visualizer) renderBarsOutline(bands []float64) string {
 		rowTop := float64(height-row) / float64(height)
 
 		for i, level := range bands {
-			bw := visBandWidth(bandCount, i)
+			bw := visBandWidth(bandCount, i, width)
 			if level >= rowTop {
 				// Fully below the peak — empty inside.
 				for range bw {
@@ -32,7 +33,7 @@ func (v *Visualizer) renderBarsOutline(bands []float64) string {
 					content.WriteByte(' ')
 				}
 			}
-			if i < bandCount-1 {
+			if bandGapAfter(bandCount, i, width) {
 				content.WriteByte(' ')
 			}
 		}

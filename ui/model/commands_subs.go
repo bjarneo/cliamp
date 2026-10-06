@@ -207,9 +207,7 @@ func (m *Model) addLatestSweep(msg subsLatestAllMsg) bool {
 		m.subs.err = "No episodes found across your subscriptions."
 		return false
 	}
-	m.playlist.Add(msg.tracks...)
-	m.loadedPlaylist = ""
-	m.addToHeaderState(msg.tracks)
+	m.appendTracks(msg.tracks...)
 	if len(msg.failed) > 0 {
 		m.subs.err = fmt.Sprintf("%d show(s) failed to load: %s", len(msg.failed), msg.failed[0])
 	}
@@ -222,5 +220,5 @@ func (m *Model) handleSubsLatestAll(msg subsLatestAllMsg) tea.Cmd {
 	if !m.addLatestSweep(msg) {
 		return nil
 	}
-	return m.rearmPreload()
+	return m.rearmStalePreload()
 }

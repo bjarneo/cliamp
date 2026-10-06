@@ -15,9 +15,7 @@ func (m *Model) addTracksToCurrentPlaylist(tracks []playlist.Track, what string)
 		return false, false
 	}
 	wasEmpty = m.playlist.Len() == 0
-	m.playlist.Add(tracks...)
-	m.loadedPlaylist = ""
-	m.addToHeaderState(tracks)
+	m.appendTracks(tracks...)
 	m.status.Showf(statusTTLDefault, "Added %d track(s) from %s", len(tracks), what)
 	return wasEmpty, true
 }
@@ -34,12 +32,10 @@ func (m *Model) appendTracksToPlaylist(tracks []playlist.Track, what string) tea
 		m.plCursor = 0
 		m.playlist.SetIndex(0)
 		m.adjustScroll()
-		cmd := m.playCurrentTrack()
-		m.notifyPlayback()
-		return cmd
+		return m.playCurrentTrack()
 	}
 	m.adjustScroll()
-	return m.rearmPreload()
+	return m.rearmStalePreload()
 }
 
 // plMgrAppendPlaylist appends every track of the highlighted saved playlist to

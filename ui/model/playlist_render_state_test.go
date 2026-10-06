@@ -11,7 +11,6 @@ import (
 )
 
 func TestRenderQueueBodyPreservesVisibleQueuePositions(t *testing.T) {
-	withFrameWidth(t, 80)
 	p := playlist.New()
 	for i := range 10 {
 		p.Add(playlist.Track{Title: fmt.Sprintf("Track %d", i+1)})
@@ -19,6 +18,7 @@ func TestRenderQueueBodyPreservesVisibleQueuePositions(t *testing.T) {
 	}
 	m := Model{
 		playlist:  p,
+		layout:    frameLayout{panelWidth: 74},
 		plVisible: 3,
 		queue: queueOverlay{
 			cursor: 5,
@@ -45,7 +45,6 @@ func TestRenderQueueBodyPreservesVisibleQueuePositions(t *testing.T) {
 }
 
 func TestPlaylistManagerCachesMissingLocalStateOutsideRender(t *testing.T) {
-	withFrameWidth(t, 80)
 	dir := t.TempDir()
 	existing := filepath.Join(dir, "existing.mp3")
 	missing := filepath.Join(dir, "missing.mp3")
@@ -53,7 +52,7 @@ func TestPlaylistManagerCachesMissingLocalStateOutsideRender(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := Model{plVisible: 5, plManager: plManagerState{screen: plMgrScreenTracks}}
+	m := Model{layout: frameLayout{panelWidth: 74}, plVisible: 5, plManager: plManagerState{screen: plMgrScreenTracks}}
 	m.plMgrLoadTracks([]playlist.Track{
 		{Path: existing, Title: "Existing"},
 		{Path: missing, Title: "Missing"},

@@ -1,9 +1,6 @@
 package ui
 
-import (
-	"strings"
-	"time"
-)
+import "strings"
 
 // mosaicDriver renders a static heatmap of small tiles. The grid never
 // scrolls: each tile sits in a fixed (row, column) position and lights up or
@@ -12,6 +9,8 @@ import (
 // while quiet passages light only the most-sensitive ones — producing a
 // speckled, gradually-saturating pattern that tracks the music.
 type mosaicDriver struct {
+	spectrumDriverBase
+
 	rows, tiles int
 	cells       []mosaicCellState
 	rng         uint64
@@ -25,10 +24,6 @@ type mosaicCellState struct {
 
 func newMosaicDriver() visModeDriver {
 	return &mosaicDriver{rng: 0xC1AB1A1015D5}
-}
-
-func (*mosaicDriver) AnalysisSpec(*Visualizer) VisAnalysisSpec {
-	return spectrumAnalysisSpec(DefaultSpectrumBands)
 }
 
 const (
@@ -106,8 +101,7 @@ func (d *mosaicDriver) ensureGrid(rows, tiles, bandCount int) {
 			baseBand = (rows - 1 - r) * (bandCount - 1) / (rows - 1)
 		}
 		for c := 0; c < tiles; c++ {
-			d.rng = d.rng*6364136223846793005 + 1442695040888963407
-			jitter := int((d.rng>>33)%5) - 2 // -2..+2
+			jitter := int(lcgNext(&d.rng)%5) - 2 // -2..+2
 			band := baseBand + jitter
 			if band < 0 {
 				band = 0
@@ -115,8 +109,7 @@ func (d *mosaicDriver) ensureGrid(rows, tiles, bandCount int) {
 			if band >= bandCount {
 				band = bandCount - 1
 			}
-			d.rng = d.rng*6364136223846793005 + 1442695040888963407
-			th := 0.04 + float64((d.rng>>33)%1000)/1000.0*0.74
+			th := 0.04 + float64(lcgNext(&d.rng)%1000)/1000.0*0.74
 			d.cells[r*tiles+c] = mosaicCellState{
 				bandIdx:   band,
 				threshold: th,
@@ -128,7 +121,7 @@ func (d *mosaicDriver) ensureGrid(rows, tiles, bandCount int) {
 
 func (d *mosaicDriver) Render(v *Visualizer) string {
 	rows := v.Rows
-	tiles := mosaicTileCount(PanelWidth)
+	tiles := mosaicTileCount(v.columns())
 	if rows <= 0 || tiles <= 0 {
 		return strings.Repeat("\n", max(0, rows-1))
 	}
@@ -171,7 +164,7 @@ func (d *mosaicDriver) Tick(v *Visualizer, ctx VisTickContext) {
 		return
 	}
 	rows := v.Rows
-	tiles := mosaicTileCount(PanelWidth)
+	tiles := mosaicTileCount(v.columns())
 	if rows <= 0 || tiles <= 0 {
 		return
 	}
@@ -207,10 +200,6 @@ func (d *mosaicDriver) Tick(v *Visualizer, ctx VisTickContext) {
 	}
 }
 
-func (*mosaicDriver) TickInterval(_ *Visualizer, ctx VisTickContext) time.Duration {
-	return defaultDriverTickInterval(ctx)
-}
-
 func (d *mosaicDriver) OnEnter(*Visualizer) {
 	// Force the grid to be regenerated on next Render/Tick so each visit
 	// reshuffles thresholds and band assignments — keeps the visualizer fresh.
@@ -218,5 +207,3 @@ func (d *mosaicDriver) OnEnter(*Visualizer) {
 	d.rows = 0
 	d.tiles = 0
 }
-
-func (*mosaicDriver) OnLeave(*Visualizer) {}

@@ -1,7 +1,9 @@
 package model
 
 import (
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/theme"
 	"github.com/bjarneo/cliamp/ui"
 )
@@ -81,12 +84,12 @@ func TestResponsiveViewsFitTerminal(t *testing.T) {
 	// state matters for the same reason at the full tier.
 	variants := []struct {
 		name      string
-		providers []ProviderEntry
+		providers []provider.Entry
 		hidePane  bool
 	}{
-		{name: "one provider", providers: []ProviderEntry{{Name: "Local"}}},
-		{name: "many providers", providers: []ProviderEntry{{Name: "Local"}, {Name: "Radio"}, {Name: "Navidrome"}}},
-		{name: "many providers, pane closed", providers: []ProviderEntry{{Name: "Local"}, {Name: "Radio"}}, hidePane: true},
+		{name: "one provider", providers: []provider.Entry{{Name: "Local"}}},
+		{name: "many providers", providers: []provider.Entry{{Name: "Local"}, {Name: "Radio"}, {Name: "Navidrome"}}},
+		{name: "many providers, pane closed", providers: []provider.Entry{{Name: "Local"}, {Name: "Radio"}}, hidePane: true},
 	}
 
 	for _, size := range []struct{ width, height int }{
@@ -161,7 +164,7 @@ func TestExpandedPlaylistWithoutVisualizerFillsTerminal(t *testing.T) {
 			for i := 16; i < 100; i++ {
 				m.playlist.Add(playlist.Track{Path: fmt.Sprintf("/tmp/track-%d.mp3", i), Title: "Track"})
 			}
-			m.providers = []ProviderEntry{{Name: "Local"}, {Name: "Radio"}}
+			m.providers = []provider.Entry{{Name: "Local"}, {Name: "Radio"}}
 			m.vis.Mode = ui.VisNone
 			m.heightExpanded = true
 			m.recomputeLayout()
@@ -203,7 +206,7 @@ func TestCollapsedPlaylistCentersFrameVertically(t *testing.T) {
 	m := newLayoutTestModel(80, 50)
 	body := ui.FitRect(m.renderMainBody(), m.layout.panelWidth, m.layout.bodyRows)
 	content := strings.Join(m.mainSections(body, true, false), "\n")
-	frameHeight := lipgloss.Height(ui.FrameStyle.Render(content))
+	frameHeight := lipgloss.Height(m.layout.frameStyle().Render(content))
 	wantTopPadding := (m.height - frameHeight) / 2
 
 	out := m.View().Content
@@ -231,8 +234,8 @@ func TestResizeClampsActiveOverlayCursor(t *testing.T) {
 	if m.themePicker.cursor >= len(m.themes)+1 {
 		t.Fatalf("theme cursor = %d, want within %d entries", m.themePicker.cursor, len(m.themes)+1)
 	}
-	if m.themePicker.cursor < m.themePicker.scroll || m.themePicker.cursor >= m.themePicker.scroll+m.themePickerVisible() {
-		t.Fatalf("theme cursor %d outside viewport [%d,%d)", m.themePicker.cursor, m.themePicker.scroll, m.themePicker.scroll+m.themePickerVisible())
+	if m.themePicker.cursor < m.themePicker.scroll || m.themePicker.cursor >= m.themePicker.scroll+m.effectivePlaylistVisible() {
+		t.Fatalf("theme cursor %d outside viewport [%d,%d)", m.themePicker.cursor, m.themePicker.scroll, m.themePicker.scroll+m.effectivePlaylistVisible())
 	}
 }
 
@@ -430,19 +433,94 @@ func TestAsyncSearchResultLayoutUsesContentFirstRows(t *testing.T) {
 	}
 }
 
-func TestLayoutClampsConfiguredPadding(t *testing.T) {
-	previousStyle := ui.FrameStyle
-	previousPanelWidth := ui.PanelWidth
-	previousPaddingH := ui.PaddingH
-	previousPaddingV := ui.VerticalPadding()
-	ui.SetPadding(10, 5)
-	t.Cleanup(func() {
-		ui.SetPadding(previousPaddingH, previousPaddingV)
-		ui.FrameStyle = previousStyle
-		ui.PanelWidth = previousPanelWidth
-	})
+// The frame padding belongs to the Model. A Model that nobody configured
+// uses the config defaults. A headless Model keeps the padding for the
+// width of its visualizer.
+func TestSetPadding(t *testing.T) {
+	tests := []struct {
+		name               string
+		setup              func(*Model)
+		wantH, wantV, cols int
+	}{
+		{name: "unset", setup: func(*Model) {}, wantH: 3, wantV: 1, cols: 74},
+		{name: "zero", setup: func(m *Model) { m.SetPadding(0, 0) }, wantH: 0, wantV: 0, cols: 80},
+		{name: "configured", setup: func(m *Model) { m.SetPadding(5, 2) }, wantH: 5, wantV: 2, cols: 70},
+		{name: "headless", setup: func(m *Model) {
+			m.width, m.height = 0, 0
+			m.SetPadding(5, 2)
+			m.SetHeadless(true)
+		}, wantH: 5, wantV: 2, cols: 70},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newLayoutTestModel(80, 24)
+			tt.setup(&m)
+			if m.layout.paddingH != tt.wantH || m.layout.paddingV != tt.wantV {
+				t.Fatalf("padding = %d, %d; want %d, %d", m.layout.paddingH, m.layout.paddingV, tt.wantH, tt.wantV)
+			}
+			if m.vis.Cols != tt.cols {
+				t.Fatalf("visualizer columns = %d, want %d", m.vis.Cols, tt.cols)
+			}
+		})
+	}
+}
 
+// lifecycleLuaHost records the init and render calls of the Lua visualizers.
+type lifecycleLuaHost struct{ calls []string }
+
+func (h *lifecycleLuaHost) RenderVis(name string, _ [ui.DefaultSpectrumBands]float64, rows, cols int, _ uint64) string {
+	h.calls = append(h.calls, fmt.Sprintf("render %s %dx%d", name, rows, cols))
+	return ""
+}
+
+func (h *lifecycleLuaHost) InitVis(name string, rows, cols int) {
+	h.calls = append(h.calls, fmt.Sprintf("init %s %dx%d", name, rows, cols))
+}
+
+func (h *lifecycleLuaHost) DestroyVis(name string) {
+	h.calls = append(h.calls, "destroy "+name)
+}
+
+// Bubbletea draws the first frame before the first WindowSizeMsg. A Lua
+// visualizer from the config must not get its init with the placeholder
+// size of that frame. It gets its init with the real size of the terminal.
+func TestLuaVisualizerInitWaitsForWindowSize(t *testing.T) {
+	tests := []struct {
+		width, height int
+		want          []string
+	}{
+		{200, 50, []string{"init myvis 7x194", "render myvis 7x194"}},
+		{100, 30, []string{"init myvis 7x94", "render myvis 7x94"}},
+		{60, 18, []string{"init myvis 5x54", "render myvis 5x54"}},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%dx%d", tt.width, tt.height), func(t *testing.T) {
+			host := &lifecycleLuaHost{}
+			m := New(&playbackFakeEngine{}, playlist.New(), nil, "", nil, nil, nil, nil, nil, nil)
+			m.RegisterLuaVisualizers([]string{"myvis"}, host)
+			m.SetVisRows(0)
+			if !m.SetVisualizer("myvis") {
+				t.Fatal("SetVisualizer(myvis) = false")
+			}
+
+			m.View()
+			if len(host.calls) != 0 {
+				t.Fatalf("calls before the window size = %q, want none", host.calls)
+			}
+
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: tt.width, Height: tt.height})
+			m = updated.(Model)
+			m.View()
+			if !slices.Equal(host.calls, tt.want) {
+				t.Fatalf("calls = %q, want %q", host.calls, tt.want)
+			}
+		})
+	}
+}
+
+func TestLayoutClampsConfiguredPadding(t *testing.T) {
 	m := newLayoutTestModel(40, 10)
+	m.SetPadding(10, 5)
 	if m.layout.panelWidth <= 0 {
 		t.Fatalf("panel width = %d, want positive", m.layout.panelWidth)
 	}
@@ -452,16 +530,6 @@ func TestLayoutClampsConfiguredPadding(t *testing.T) {
 }
 
 func TestViewsFitConfiguredPaddingExtremes(t *testing.T) {
-	previousStyle := ui.FrameStyle
-	previousPanelWidth := ui.PanelWidth
-	previousPaddingH := ui.PaddingH
-	previousPaddingV := ui.VerticalPadding()
-	t.Cleanup(func() {
-		ui.SetPadding(previousPaddingH, previousPaddingV)
-		ui.FrameStyle = previousStyle
-		ui.PanelWidth = previousPanelWidth
-	})
-
 	for _, tt := range []struct {
 		name     string
 		paddingH int
@@ -472,8 +540,8 @@ func TestViewsFitConfiguredPaddingExtremes(t *testing.T) {
 		{name: "maximum", paddingH: 10, paddingV: 5},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ui.SetPadding(tt.paddingH, tt.paddingV)
 			m := newLayoutTestModel(80, 24)
+			m.SetPadding(tt.paddingH, tt.paddingV)
 			assertViewFits(t, m.View().Content, 80, 24)
 		})
 	}
@@ -487,7 +555,7 @@ func TestLongUnicodeContentFitsTerminal(t *testing.T) {
 			track.Title = strings.Repeat("界e\u0301", 48)
 			track.Album = strings.Repeat("https://provider.example/playlist/", 8)
 			m.playlist.SetTrack(0, track)
-			m.providers = []ProviderEntry{
+			m.providers = []provider.Entry{
 				{Name: strings.Repeat("Very Long Provider ", 8)},
 				{Name: "Local"},
 			}
@@ -506,6 +574,30 @@ func TestTooSmallLayoutBlocksHiddenMutations(t *testing.T) {
 	}
 }
 
+// The too-small message wraps to the width, so the required and the current
+// size stay in view.
+func TestTooSmallMessageWraps(t *testing.T) {
+	for _, size := range []struct{ width, height int }{{39, 9}, {30, 8}, {20, 5}, {30, 3}} {
+		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
+			m := newLayoutTestModel(size.width, size.height)
+			out := m.View().Content
+			lines := strings.Split(out, "\n")
+			if len(lines) > size.height {
+				t.Fatalf("message has %d lines, want <= %d:\n%s", len(lines), size.height, out)
+			}
+			for _, line := range lines {
+				if got := lipgloss.Width(line); got > size.width {
+					t.Fatalf("line width = %d, want <= %d: %q", got, size.width, line)
+				}
+			}
+			want := fmt.Sprintf("Terminal too small. Resize to at least 40x10 (current: %dx%d).", size.width, size.height)
+			if got := strings.Join(strings.Fields(out), " "); got != want {
+				t.Fatalf("message = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestTrackInfoScrollsWithinBodyBudget(t *testing.T) {
 	m := newLayoutTestModel(40, 10)
 	track := m.playlist.Tracks()[0]
@@ -515,10 +607,10 @@ func TestTrackInfoScrollsWithinBodyBudget(t *testing.T) {
 	track.Year = 2026
 	track.TrackNumber = 1
 	m.playlist.SetTrack(0, track)
-	m.showInfo = true
+	m.info.visible = true
 
 	m.handleKey(tea.KeyPressMsg{Text: "j"})
-	if m.infoScroll == 0 {
+	if m.info.scroll == 0 {
 		t.Fatal("info scroll = 0 after down, want a later metadata row")
 	}
 	if got := m.renderInfoBody(); !strings.Contains(got, "Artist") {
@@ -537,14 +629,14 @@ func TestInlineOverlaysFitResponsiveTerminal(t *testing.T) {
 		{name: "device", set: func(m *Model) { m.devicePicker.visible = true }},
 		{name: "playlist picker", set: func(m *Model) { m.plPicker.visible = true }},
 		{name: "file browser", set: func(m *Model) { m.fileBrowser.visible = true }},
-		{name: "provider search", set: func(m *Model) { m.spotSearch.visible = true }},
+		{name: "provider search", set: func(m *Model) { m.searchOverlay.visible = true }},
 		{name: "navigation", set: func(m *Model) { m.navBrowser.visible = true }},
 		{name: "playlist manager", set: func(m *Model) { m.plManager.visible = true }},
 		{name: "queue", set: func(m *Model) { m.queue.visible = true }},
-		{name: "info", set: func(m *Model) { m.showInfo = true }},
+		{name: "info", set: func(m *Model) { m.info.visible = true }},
 		{name: "lyrics", set: func(m *Model) { m.lyrics.visible = true }},
-		{name: "jump", set: func(m *Model) { m.jumping = true }},
-		{name: "url", set: func(m *Model) { m.urlInputting = true }},
+		{name: "jump", set: func(m *Model) { m.jump.active = true }},
+		{name: "url", set: func(m *Model) { m.urlInput.active = true }},
 		{name: "search", set: func(m *Model) { m.search.active = true }},
 		{name: "online search", set: func(m *Model) { m.netSearch.active = true }},
 	}
@@ -554,6 +646,7 @@ func TestInlineOverlaysFitResponsiveTerminal(t *testing.T) {
 			t.Run(fmt.Sprintf("%s_%dx%d", overlay.name, size.width, size.height), func(t *testing.T) {
 				m := newLayoutTestModel(size.width, size.height)
 				overlay.set(&m)
+				m.recomputeLayout()
 				assertViewFits(t, m.View().Content, size.width, size.height)
 			})
 		}
@@ -650,5 +743,61 @@ func TestSetExpandedIsInertOnTheSimplifiedPlaybackScreen(t *testing.T) {
 	m.SetExpanded(true)
 	if m.plVisible != 0 {
 		t.Fatalf("simplified playback playlist rows = %d, want 0", m.plVisible)
+	}
+}
+
+// TestUpdateKeepsLayoutCurrent checks that the layout that View reads is the
+// one the state asks for after every message, so that View does not have to
+// lay out the frame itself.
+func TestUpdateKeepsLayoutCurrent(t *testing.T) {
+	m := newLayoutTestModel(80, 24)
+	openDevicePicker := func(m *Model) {
+		m.devicePicker.visible, m.devicePicker.loading = true, true
+		m.recomputeLayout()
+	}
+	msgs := []struct {
+		name   string
+		before func(*Model)
+		msg    tea.Msg
+	}{
+		{name: "resize to the compact tier", msg: tea.WindowSizeMsg{Width: 60, Height: 18}},
+		{name: "resize to the full tier", msg: tea.WindowSizeMsg{Width: 120, Height: 40}},
+		{name: "open the keymap", msg: tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl}},
+		{name: "close the keymap", msg: tea.KeyPressMsg{Code: tea.KeyEscape}},
+		{name: "full-screen visualizer", msg: tea.KeyPressMsg{Code: 'V', Text: "V"}},
+		{name: "leave the full-screen visualizer", msg: tea.KeyPressMsg{Code: tea.KeyEscape}},
+		{name: "status message", msg: ShowStatusMsg{Text: "Saved"}},
+		// A failed device list closes the picker outside the key path.
+		{name: "device list failed", before: openDevicePicker, msg: devicesListedMsg{err: errors.New("no devices")}},
+		{name: "resize to the minimal tier", msg: tea.WindowSizeMsg{Width: 45, Height: 12}},
+	}
+	for _, step := range msgs {
+		if step.before != nil {
+			step.before(&m)
+		}
+		updated, _ := m.Update(step.msg)
+		m = updated.(Model)
+		want := m
+		want.recomputeLayout()
+		if m.layout != want.layout || m.plVisible != want.plVisible {
+			t.Fatalf("after %s: layout = %+v, plVisible %d; want %+v, plVisible %d", step.name, m.layout, m.plVisible, want.layout, want.plVisible)
+		}
+	}
+}
+
+// TestViewLeavesLayoutState checks that View reads the layout and the
+// visualizer size and never writes them.
+func TestViewLeavesLayoutState(t *testing.T) {
+	m := newLayoutTestModel(100, 30)
+	layout := m.layout
+	m.vis.Cols, m.vis.Rows = 7, 3
+
+	m.View()
+
+	if m.vis.Cols != 7 || m.vis.Rows != 3 {
+		t.Fatalf("visualizer size after View = %dx%d, want 7x3", m.vis.Cols, m.vis.Rows)
+	}
+	if m.layout != layout {
+		t.Fatalf("layout after View = %+v, want %+v", m.layout, layout)
 	}
 }

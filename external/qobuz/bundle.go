@@ -5,10 +5,14 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
 // bundleBaseURL is the Qobuz web player origin that ships the JS bundle.
@@ -49,16 +53,17 @@ type bundle struct {
 	content string
 }
 
-// fetchBundle downloads the Qobuz login page and its bundle.js. ctx cancels the
-// requests.
-func fetchBundle(ctx context.Context) (*bundle, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
+// bundleClient fetches the login page and the bundle.
+var bundleClient = httpclient.NewAPI(30 * time.Second)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, bundleBaseURL+"/login", nil)
+// fetchBundle downloads the login page at baseURL and its bundle.js. ctx
+// cancels the requests.
+func fetchBundle(ctx context.Context, baseURL string) (*bundle, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/login", nil)
 	if err != nil {
 		return nil, fmt.Errorf("qobuz: build login request: %w", err)
 	}
-	resp, err := client.Do(req)
+	resp, err := bundleClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("qobuz: get login page: %w", err)
 	}
@@ -77,11 +82,11 @@ func fetchBundle(ctx context.Context) (*bundle, error) {
 	}
 	bundlePath := string(match[1])
 
-	req2, err := http.NewRequestWithContext(ctx, http.MethodGet, bundleBaseURL+bundlePath, nil)
+	req2, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+bundlePath, nil)
 	if err != nil {
 		return nil, fmt.Errorf("qobuz: build bundle request: %w", err)
 	}
-	resp2, err := client.Do(req2)
+	resp2, err := bundleClient.Do(req2)
 	if err != nil {
 		return nil, fmt.Errorf("qobuz: get bundle.js: %w", err)
 	}
@@ -139,15 +144,9 @@ func (b *bundle) secrets() (map[string]string, error) {
 		return nil, fmt.Errorf("qobuz: no seeds found in bundle")
 	}
 
-	// Replicate the Python OrderedDict + move_to_end ordering used by spoofbuz.
-	tzList := make([]string, 0, len(seeds))
-	for tz := range seeds {
-		tzList = append(tzList, tz)
-	}
-	if len(tzList) >= 2 {
-		tzList[0], tzList[1] = tzList[1], tzList[0]
-	}
-
+	// The order of the names in the alternation does not change which
+	// entries match. validateSecret tries every decoded secret in turn.
+	tzList := slices.Sorted(maps.Keys(seeds))
 	capitalised := make([]string, len(tzList))
 	for i, tz := range tzList {
 		capitalised[i] = capitalizeFirst(tz)
@@ -185,10 +184,11 @@ func (b *bundle) secrets() (map[string]string, error) {
 	return secrets, nil
 }
 
-// scrapeCredentials fetches the bundle and returns the app_id, the list of
-// candidate signing secrets, and the OAuth private key.
-func scrapeCredentials(ctx context.Context) (string, []string, string, error) {
-	b, err := fetchBundle(ctx)
+// scrapeCredentials fetches the bundle from the web player at baseURL and
+// returns the app_id, the list of candidate signing secrets, and the OAuth
+// private key.
+func scrapeCredentials(ctx context.Context, baseURL string) (string, []string, string, error) {
+	b, err := fetchBundle(ctx, baseURL)
 	if err != nil {
 		return "", nil, "", err
 	}

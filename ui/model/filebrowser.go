@@ -9,7 +9,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/internal/fuzzy"
-	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/resolve"
 )
@@ -29,27 +28,19 @@ type fbTracksResolvedMsg struct {
 	replace        bool
 	toPlaylist     bool
 	targetPlaylist string
+	queue          uint64 // the queue generation when a replace started
+	err            error
 }
 
 func (m *Model) fbCount() int {
-	if m.fileBrowser.searching || m.fileBrowser.search != "" {
-		return len(m.fileBrowser.filtered)
-	}
-	return len(m.fileBrowser.entries)
+	return m.fileBrowser.viewCount(len(m.fileBrowser.entries))
 }
 
 func (m *Model) fbEntry(idx int) fbEntry {
-	if m.fileBrowser.searching || m.fileBrowser.search != "" {
+	if m.fileBrowser.isFiltered() {
 		return m.fileBrowser.entries[m.fileBrowser.filtered[idx]]
 	}
 	return m.fileBrowser.entries[idx]
-}
-
-func (m Model) fbHelpLine() string {
-	if m.fileBrowser.searching {
-		return m.commandHelp(commandModeFileBrowserSearch)
-	}
-	return m.commandHelp(commandModeFileBrowser)
 }
 
 // fbVisible returns the file-browser list height. The browser renders inline in
@@ -88,13 +79,9 @@ func (m *Model) openFileBrowser() {
 			}
 		}
 	}
-	m.fileBrowser.cursor = 0
-	m.fileBrowser.scroll = 0
+	m.fileBrowser.filterList = filterList{}
 	m.fileBrowser.selected = make(map[string]bool)
 	m.fileBrowser.err = ""
-	m.fileBrowser.searching = false
-	m.fileBrowser.search = ""
-	m.fileBrowser.filtered = nil
 	m.fileBrowser.targetPlaylist = ""
 	m.fileBrowser.confirmReplace = false
 	m.loadFBDir()
@@ -109,11 +96,7 @@ func (m *Model) openFileBrowserForPlaylist(name string) {
 // loadFBDir reads the current directory and populates fbEntries.
 func (m *Model) loadFBDir() {
 	m.fileBrowser.err = ""
-	m.fileBrowser.cursor = 0
-	m.fileBrowser.scroll = 0
-	m.fileBrowser.searching = false
-	m.fileBrowser.search = ""
-	m.fileBrowser.filtered = nil
+	m.fileBrowser.filterList = filterList{}
 	clear(m.fileBrowser.selected)
 
 	// Reuse internal memory buffer of m.fileBrowser.entries.
@@ -150,7 +133,7 @@ func (m *Model) loadFBDir() {
 		if e.IsDir() {
 			dirType = "/"
 		} else if !e.Type().IsRegular() {
-			if e.Type()&os.ModeSymlink != 0 && !player.SupportedExts[strings.ToLower(filepath.Ext(name))] {
+			if e.Type()&os.ModeSymlink != 0 && !playlist.IsAudioFile(name) {
 				// Treat symlink as a directory unless it points to media file.
 				// os.DirEntry has no option to test the type of object symlink points to.
 				dirType = "@"
@@ -175,7 +158,7 @@ func (m *Model) loadFBDir() {
 			files = append(files, fbEntry{
 				name:    name,
 				path:    filepath.Join(m.fileBrowser.dir, name),
-				isAudio: player.SupportedExts[strings.ToLower(filepath.Ext(name))],
+				isAudio: playlist.IsAudioFile(name),
 			})
 		}
 	}
@@ -190,7 +173,7 @@ func (m *Model) fbUpdateFilter() {
 	m.fileBrowser.filtered = nil
 	m.fileBrowser.cursor = 0
 	m.fileBrowser.scroll = 0
-	if m.fileBrowser.search == "" {
+	if m.fileBrowser.filter == "" {
 		for i, e := range m.fileBrowser.entries {
 			if !e.isParent {
 				m.fileBrowser.filtered = append(m.fileBrowser.filtered, i)
@@ -204,7 +187,7 @@ func (m *Model) fbUpdateFilter() {
 		if e.isParent {
 			continue
 		}
-		if score, ok := fuzzy.Match(m.fileBrowser.search, e.name); ok {
+		if score, ok := fuzzy.Match(m.fileBrowser.filter, e.name); ok {
 			matches = append(matches, match{i, score})
 		}
 	}
@@ -217,57 +200,15 @@ func (m *Model) fbUpdateFilter() {
 }
 
 func (m *Model) handleFileBrowserSearchKey(msg tea.KeyPressMsg) tea.Cmd {
-	switch msg.String() {
-	case "ctrl+c":
-		m.fileBrowser.visible = false
-		return m.quit()
-	case "esc":
-		m.fileBrowser.searching = false
-		m.fileBrowser.search = ""
-		m.fileBrowser.filtered = nil
-		m.fileBrowser.cursor = m.fileBrowser.savedCursor
-		m.fileBrowser.scroll = m.fileBrowser.savedScroll
-		return nil
-	case "enter":
-		m.fileBrowser.searching = false
-		if m.fileBrowser.search == "" {
-			m.fileBrowser.cursor = m.fileBrowser.savedCursor
-			m.fileBrowser.scroll = m.fileBrowser.savedScroll
-		}
-		return nil
-	case "down":
-		m.fileBrowser.searching = false
-		if m.fbCount() > 0 {
-			m.fileBrowser.cursor = 0
-			m.fbMaybeAdjustScroll(m.fbVisible())
-		}
-		return nil
-	case "backspace":
-		if m.fileBrowser.search != "" {
-			m.editText("file-browser-search", &m.fileBrowser.search, msg)
-			m.fbUpdateFilter()
-		} else {
-			m.fileBrowser.searching = false
-			m.fileBrowser.cursor = m.fileBrowser.savedCursor
-			m.fileBrowser.scroll = m.fileBrowser.savedScroll
-		}
-		return nil
-	}
-
-	if msg.Code == tea.KeySpace && msg.Text == "" {
-		m.insertText("file-browser-search", &m.fileBrowser.search, " ")
-		m.fbUpdateFilter()
-		return nil
-	}
-	if m.editText("file-browser-search", &m.fileBrowser.search, msg) {
-		m.fbUpdateFilter()
+	if m.filterKey(&m.fileBrowser.filterList, "file-browser-search", msg, len(m.fileBrowser.entries), m.fbUpdateFilter) {
+		m.fbMaybeAdjustScroll(m.fbVisible())
 	}
 	return nil
 }
 
 // handleFileBrowserKey processes key presses while the file browser is open.
 func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
-	if m.fileBrowser.searching {
+	if m.fileBrowser.filtering {
 		return m.handleFileBrowserSearchKey(msg)
 	}
 	if m.fileBrowser.confirmReplace {
@@ -277,21 +218,26 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.fbConfirm(true)
 		case "esc", "R":
 			m.fileBrowser.confirmReplace = false
+		default:
+			m.status.Show("Enter confirms replace, Esc cancels.", statusTTLShort)
 		}
 		return nil
 	}
 
+	key := msg.String()
+	if (key == "up" || key == "k") && m.fileBrowser.filter != "" && m.fileBrowser.cursor == 0 {
+		m.fileBrowser.filtering = true
+		return nil
+	}
+	if visible := m.fbVisible(); stepListCursor(key, &m.fileBrowser.cursor, m.fbCount(), visible) {
+		m.fbMaybeAdjustScroll(visible)
+		return nil
+	}
 	var cd string
-	switch msg.String() {
-	case "ctrl+c":
-		m.fileBrowser.visible = false
-		return m.quit()
-
+	switch key {
 	case "esc", "o", "q":
 		m.fileBrowser.visible = false
-		m.fileBrowser.searching = false
-		m.fileBrowser.search = ""
-		m.fileBrowser.filtered = nil
+		m.fileBrowser.clearFilter()
 		if m.fileBrowser.targetPlaylist != "" {
 			// Esc acts as "done": commit anything still selected, then
 			// refresh the provider pane so track/dir counts update.
@@ -303,49 +249,9 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.fbMaybeAdjustScroll(m.fbVisible())
 
 	case "/":
-		m.fileBrowser.savedCursor = m.fileBrowser.cursor
-		m.fileBrowser.savedScroll = m.fileBrowser.scroll
-		m.fileBrowser.searching = true
-		m.fileBrowser.search = ""
+		m.fileBrowser.beginFilter()
 		m.fbUpdateFilter()
 		return nil
-
-	case "up", "k":
-		if m.fileBrowser.search != "" && m.fileBrowser.cursor == 0 {
-			m.fileBrowser.searching = true
-			return nil
-		}
-		count := m.fbCount()
-		if m.fileBrowser.cursor > 0 {
-			m.fileBrowser.cursor--
-		} else if count > 0 {
-			m.fileBrowser.cursor = count - 1
-		}
-		m.fbMaybeAdjustScroll(m.fbVisible())
-
-	case "down", "j":
-		count := m.fbCount()
-		if m.fileBrowser.cursor < count-1 {
-			m.fileBrowser.cursor++
-		} else if count > 0 {
-			m.fileBrowser.cursor = 0
-		}
-		m.fbMaybeAdjustScroll(m.fbVisible())
-
-	case "pgup", "ctrl+u":
-		if m.fileBrowser.cursor > 0 {
-			visible := m.fbVisible()
-			m.fileBrowser.cursor -= min(m.fileBrowser.cursor, visible)
-			m.fbMaybeAdjustScroll(visible)
-		}
-
-	case "pgdown", "ctrl+d":
-		count := m.fbCount()
-		if m.fileBrowser.cursor < count-1 {
-			visible := m.fbVisible()
-			m.fileBrowser.cursor = min(count-1, m.fileBrowser.cursor+visible)
-			m.fbMaybeAdjustScroll(visible)
-		}
 
 	case "right", "l":
 		return m.fbDescend()
@@ -425,25 +331,19 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 			}
 		}
 
-	case "home", "g":
-		m.fileBrowser.cursor = 0
-		m.fbMaybeAdjustScroll(m.fbVisible())
-
-	case "end", "G":
-		count := m.fbCount()
-		if count > 0 {
-			m.fileBrowser.cursor = count - 1
-		}
-		m.fbMaybeAdjustScroll(m.fbVisible())
-
 	case "R":
-		if len(m.fileBrowser.selected) > 0 && m.fileBrowser.targetPlaylist == "" {
-			if m.playlist != nil && m.playlist.Len() > 0 {
-				m.fileBrowser.confirmReplace = true
-				return nil
-			}
-			return m.fbConfirm(true)
+		if m.fileBrowser.targetPlaylist != "" {
+			return nil
 		}
+		if len(m.fileBrowser.selected) == 0 {
+			m.status.Warning("Select files first (Space).", statusTTLDefault)
+			return nil
+		}
+		if m.playlist != nil && m.playlist.Len() > 0 {
+			m.fileBrowser.confirmReplace = true
+			return nil
+		}
+		return m.fbConfirm(true)
 
 	case "w":
 		if len(m.fileBrowser.selected) > 0 && m.fileBrowser.targetPlaylist == "" {
@@ -546,12 +446,16 @@ func (m *Model) fbConfirm(replace bool) tea.Cmd {
 		}
 	}
 
+	var queue uint64
+	if replace {
+		queue = nextRequest(&m.requests.queue)
+	}
 	return func() tea.Msg {
 		r, err := resolve.Args(paths)
 		if err != nil {
-			return err
+			return fbTracksResolvedMsg{err: err, replace: replace, queue: queue}
 		}
-		return fbTracksResolvedMsg{tracks: r.Tracks, replace: replace, targetPlaylist: target}
+		return fbTracksResolvedMsg{tracks: r.Tracks, replace: replace, targetPlaylist: target, queue: queue}
 	}
 }
 
@@ -590,7 +494,7 @@ func (m *Model) fbConfirmToPlaylist() tea.Cmd {
 	return func() tea.Msg {
 		r, err := resolve.Args(paths)
 		if err != nil {
-			return err
+			return fbTracksResolvedMsg{err: err}
 		}
 		return fbTracksResolvedMsg{tracks: r.Tracks, toPlaylist: true}
 	}

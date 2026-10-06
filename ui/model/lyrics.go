@@ -3,8 +3,6 @@ package model
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -13,23 +11,35 @@ import (
 	"github.com/bjarneo/cliamp/playlist"
 )
 
-// spotifyLyricFetcher matches providers that can fetch synced lyrics for a
-// track by its Spotify ID (satisfied by *spotify.SpotifyProvider).
-type spotifyLyricFetcher interface {
-	TrackLyrics(ctx context.Context, trackID string) ([]lyrics.Line, error)
+// trackLyricsSource is a provider that has synced lyrics for its own tracks,
+// as the Spotify provider has. It returns lyrics.ErrNotFound at once for a
+// track that is not its own.
+type trackLyricsSource interface {
+	TrackLyrics(ctx context.Context, track playlist.Track) ([]lyrics.Line, error)
 }
 
-// spotifyLyricFetcher returns the configured Spotify provider, or nil when it
-// is not configured or does not implement lyric lookups.
-func (m *Model) spotifyLyricFetcher() spotifyLyricFetcher {
+// trackLyricsSources returns the registered providers that have synced
+// lyrics, in provider order.
+func (m Model) trackLyricsSources() []trackLyricsSource {
+	var sources []trackLyricsSource
 	for _, entry := range m.providers {
-		if entry.Key != "spotify" || entry.Provider == nil {
-			continue
+		if s, ok := entry.Provider.(trackLyricsSource); ok {
+			sources = append(sources, s)
 		}
-		f, _ := entry.Provider.(spotifyLyricFetcher)
-		return f
 	}
-	return nil
+	return sources
+}
+
+// lyricsLookups returns the lyrics lookups of sources for track, in the
+// order of sources.
+func lyricsLookups(track playlist.Track, sources []trackLyricsSource) []lyrics.Source {
+	lookups := make([]lyrics.Source, 0, len(sources))
+	for _, source := range sources {
+		lookups = append(lookups, func(ctx context.Context) ([]lyrics.Line, error) {
+			return source.TrackLyrics(ctx, track)
+		})
+	}
+	return lookups
 }
 
 // lyricsArtistTitle resolves the best artist and title for a lyrics lookup.
@@ -42,8 +52,8 @@ func (m *Model) lyricsArtistTitle() (artist, title string) {
 	}
 	// For streams, prefer the live ICY stream title which updates per-song.
 	if m.streamTitle != "" && track.Stream {
-		if a, t, ok := strings.Cut(m.streamTitle, " - "); ok {
-			return strings.TrimSpace(a), strings.TrimSpace(t)
+		if a, t, ok := splitStreamTitle(m.streamTitle); ok {
+			return a, t
 		}
 	}
 	return track.Artist, track.Title
@@ -159,7 +169,7 @@ func (m *Model) nudgeLyricsOffset(delta time.Duration) tea.Cmd {
 	}
 	m.lyrics.offset = offset
 	m.status.Warningf(statusTTLDefault, "Lyrics offset: %s", formatLyricsOffset(offset))
-	m.saveConfigKey("lyrics_offset_ms", strconv.Itoa(int(offset.Milliseconds())))
+	_ = m.saveConfigFloat("lyrics_offset_ms", float64(offset.Milliseconds()), 0)
 	return nil
 }
 

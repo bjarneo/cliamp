@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"strings"
@@ -14,11 +15,33 @@ import (
 // render the user-facing message themselves.
 var ErrNotRunning = errors.New("no listener on socket")
 
+// maxSocketPathLen is the longest socket path that the platform accepts.
+// The sun_path field of the address also holds the NUL that ends the path.
+const maxSocketPathLen = len(syscall.RawSockaddrUnix{}.Path) - 1
+
+// errSocketPathTooLong reports a socket path longer than maxSocketPathLen.
+// The kernel reports such a path only as an invalid argument.
+var errSocketPathTooLong = errors.New("socket path is too long")
+
+func checkSocketPath(sockPath string) error {
+	if len(sockPath) <= maxSocketPathLen {
+		return nil
+	}
+	return fmt.Errorf("%w: %d bytes, the limit is %d. Set CLIAMP_CONFIG_DIR or XDG_CONFIG_HOME to a shorter directory",
+		errSocketPathTooLong, len(sockPath), maxSocketPathLen)
+}
+
 func dialSocket(sockPath string, timeout time.Duration) (net.Conn, error) {
+	if err := checkSocketPath(sockPath); err != nil {
+		return nil, err
+	}
 	return net.DialTimeout("unix", sockPath, timeout)
 }
 
 func listenSocket(sockPath string) (net.Listener, error) {
+	if err := checkSocketPath(sockPath); err != nil {
+		return nil, err
+	}
 	return net.Listen("unix", sockPath)
 }
 

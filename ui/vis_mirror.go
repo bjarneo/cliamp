@@ -9,7 +9,7 @@ const mirrorSpanPercent = 84
 // small terminal panel.
 func (v *Visualizer) renderMirror(bands []float64) string {
 	dotRows := v.Rows * 4
-	dotCols := PanelWidth * 2
+	dotCols := v.columns() * 2
 	span := max(2, dotCols*mirrorSpanPercent/100)
 	span = min(dotCols, span-span%2)
 	barCount := max(1, span/2)
@@ -17,9 +17,10 @@ func (v *Visualizer) renderMirror(bands []float64) string {
 	axisY := dotRows / 2
 	maxRadius := min(axisY, dotRows-1-axisY)
 
-	v.mirrorGrid.ensure(dotRows, dotCols)
+	grid := &v.dotGrid
+	grid.ensure(dotRows, dotCols)
 	for x := x0; x < x0+span; x++ {
-		v.mirrorGrid.set(x, axisY, 1)
+		grid.set(x, axisY, 1)
 	}
 
 	env := 0.0
@@ -51,9 +52,9 @@ func (v *Visualizer) renderMirror(bands []float64) string {
 			if float64(distanceToAxis)/float64(radius) >= 0.75 {
 				tier = 3
 			}
-			v.mirrorGrid.set(x, y, tier)
+			grid.set(x, y, tier)
 		}
 	}
 
-	return v.mirrorGrid.render(v.Rows)
+	return grid.render(v.Rows, v.columns())
 }

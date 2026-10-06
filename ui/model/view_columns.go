@@ -43,11 +43,10 @@ func (m Model) renderBodyRegion() string {
 }
 
 // renderPlaylistColumn renders the body against the playlist column width
-// rather than the full frame. The package renders against the ui.PanelWidth
-// global, so the width is handed over by narrowing it for the call; the
-// restore is deferred because overlay bodies run arbitrary code.
+// rather than the full frame. The render helpers draw to m.layout.panelWidth,
+// so it narrows that width on its own copy of the Model.
 func (m Model) renderPlaylistColumn() string {
-	defer ui.WithPanelWidth(m.layout.playlistWidth)()
+	m.layout.panelWidth = m.layout.playlistWidth
 	return m.renderMainBody()
 }
 
@@ -57,12 +56,12 @@ func (m Model) renderPlaylistColumn() string {
 // stays open from the header down.
 func (m Model) renderColumnHeaders() string {
 	// Both headers are fitted to their own column below, so neither needs
-	// ui.PanelWidth narrowed first: the headers that reach this layout render
+	// the panel width narrowed first: the headers that reach this layout render
 	// against their own column width, and the settings separator is re-fitted
 	// either way. The queue's header arrives here when it is toggled on.
 	return fillSeparator(m.renderPlaylistHeader(), m.layout.playlistWidth) +
 		columnGutter +
-		fillSeparator(sepHeader("Settings"), m.layout.settingsWidth)
+		fillSeparator(sepHeader("Settings", m.layout.panelWidth), m.layout.settingsWidth)
 }
 
 // settingsPaneMaxRows is the pane's full height: source, volume, EQ preset,

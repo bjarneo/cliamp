@@ -3,6 +3,7 @@ package yandex
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -13,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
 const (
@@ -23,6 +26,9 @@ const (
 	dlTimeout      = 30 * time.Second
 	timestampFmt   = "2006-01-02T15:04:05.999Z"
 )
+
+// downloadInfoClient fetches the download info documents, which need no token.
+var downloadInfoClient = httpclient.NewAPI(dlTimeout)
 
 // fullDownloadInfoGuard validates the API-provided download info URL before
 // it is fetched (token-free). Tests override it to point at httptest servers.
@@ -48,7 +54,7 @@ type client struct {
 
 func newClient(token string) *client {
 	return &client{
-		http:    &http.Client{Timeout: apiTimeout},
+		http:    httpclient.NewAPI(apiTimeout),
 		token:   token,
 		apiBase: defaultAPIBase,
 	}
@@ -56,12 +62,12 @@ func newClient(token string) *client {
 
 // apiGet performs an authenticated GET against the Yandex Music API and
 // decodes the "result" envelope into out.
-func (c *client) apiGet(path string, params url.Values, out any) error {
+func (c *client) apiGet(ctx context.Context, path string, params url.Values, out any) error {
 	endpoint := c.apiBase + path
 	if params != nil {
 		endpoint += "?" + params.Encode()
 	}
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("yandex: build request %s: %w", path, err)
 	}
@@ -76,8 +82,8 @@ func (c *client) apiGet(path string, params url.Values, out any) error {
 }
 
 // apiPost performs an authenticated form POST against the Yandex Music API.
-func (c *client) apiPost(path string, params url.Values, out any) error {
-	req, err := http.NewRequest(http.MethodPost, c.apiBase+path, strings.NewReader(params.Encode()))
+func (c *client) apiPost(ctx context.Context, path string, params url.Values, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiBase+path, strings.NewReader(params.Encode()))
 	if err != nil {
 		return fmt.Errorf("yandex: build request %s: %w", path, err)
 	}
@@ -93,7 +99,7 @@ func (c *client) apiPost(path string, params url.Values, out any) error {
 }
 
 // apiPostJSON performs an authenticated JSON POST against the Yandex Music API.
-func (c *client) apiPostJSON(path string, params url.Values, body any, out any) error {
+func (c *client) apiPostJSON(ctx context.Context, path string, params url.Values, body any, out any) error {
 	endpoint := c.apiBase + path
 	if params != nil {
 		endpoint += "?" + params.Encode()
@@ -102,7 +108,7 @@ func (c *client) apiPostJSON(path string, params url.Values, body any, out any) 
 	if err != nil {
 		return fmt.Errorf("yandex: encode request %s: %w", path, err)
 	}
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("yandex: build request %s: %w", path, err)
 	}
@@ -120,7 +126,7 @@ func (c *client) apiPostJSON(path string, params url.Values, body any, out any) 
 // rotorStartWave starts a "Моя волна" (My Wave) personal radio session and
 // returns its initial track batch together with the session and batch ids
 // needed for continuations and feedback.
-func (c *client) rotorStartWave() ([]track, string, string, error) {
+func (c *client) rotorStartWave(ctx context.Context) ([]track, string, string, error) {
 	body := map[string]any{
 		"includeTracksInResponse": true,
 		"includeWaveModel":        false,
@@ -128,7 +134,7 @@ func (c *client) rotorStartWave() ([]track, string, string, error) {
 		"seeds":                   []string{"user:onyourwave"},
 	}
 	var session rotorSession
-	if err := c.apiPostJSON("/rotor/session/new", nil, body, &session); err != nil {
+	if err := c.apiPostJSON(ctx, "/rotor/session/new", nil, body, &session); err != nil {
 		return nil, "", "", err
 	}
 	tracks := sessionTracks(session)
@@ -141,7 +147,7 @@ func (c *client) rotorStartWave() ([]track, string, string, error) {
 // rotorWaveTracks fetches the next wave batch for an ongoing session. The
 // queue lists previously served tracks in "trackId:albumId" form so the
 // service does not repeat them; feedbacks may be nil.
-func (c *client) rotorWaveTracks(sessionID string, feedbacks []rotorFeedback, queue []string) ([]track, string, error) {
+func (c *client) rotorWaveTracks(ctx context.Context, sessionID string, feedbacks []rotorFeedback, queue []string) ([]track, string, error) {
 	if feedbacks == nil {
 		feedbacks = []rotorFeedback{}
 	}
@@ -150,7 +156,7 @@ func (c *client) rotorWaveTracks(sessionID string, feedbacks []rotorFeedback, qu
 	}
 	body := map[string]any{"feedbacks": feedbacks, "queue": queue}
 	var session rotorSession
-	if err := c.apiPostJSON("/rotor/session/"+sessionID+"/tracks", nil, body, &session); err != nil {
+	if err := c.apiPostJSON(ctx, "/rotor/session/"+sessionID+"/tracks", nil, body, &session); err != nil {
 		return nil, "", err
 	}
 	tracks := sessionTracks(session)
@@ -159,7 +165,7 @@ func (c *client) rotorWaveTracks(sessionID string, feedbacks []rotorFeedback, qu
 
 // rotorWaveFeedback posts a track playback event (trackStarted, trackFinished)
 // for the wave session so future batches adapt to real listening.
-func (c *client) rotorWaveFeedback(sessionID, batchID, eventType, trackKey string, lengthSecs, playedSecs float64) error {
+func (c *client) rotorWaveFeedback(ctx context.Context, sessionID, batchID, eventType, trackKey string, lengthSecs, playedSecs float64) error {
 	event := rotorFeedbackEvent{
 		Timestamp: time.Now().Format(timestampFmt),
 		Type:      eventType,
@@ -174,7 +180,7 @@ func (c *client) rotorWaveFeedback(sessionID, batchID, eventType, trackKey strin
 		event.TotalPlayedSeconds = playedSecs
 	}
 	feedback := rotorFeedback{From: waveFrom, BatchID: batchID, Event: event}
-	return c.apiPostJSON("/rotor/session/"+sessionID+"/feedback", nil, feedback, nil)
+	return c.apiPostJSON(ctx, "/rotor/session/"+sessionID+"/feedback", nil, feedback, nil)
 }
 
 func sessionTracks(s rotorSession) []track {
@@ -252,13 +258,13 @@ func decodeAPIResponse(resp *http.Response, out any) error {
 }
 
 // accountStatus verifies the token and returns the account user id.
-func (c *client) accountStatus() (uint64, error) {
+func (c *client) accountStatus(ctx context.Context) (uint64, error) {
 	var status struct {
 		Account struct {
 			UID uint64 `json:"uid"`
 		} `json:"account"`
 	}
-	if err := c.apiGet("/account/status", nil, &status); err != nil {
+	if err := c.apiGet(ctx, "/account/status", nil, &status); err != nil {
 		return 0, err
 	}
 	if status.Account.UID == 0 {
@@ -268,21 +274,21 @@ func (c *client) accountStatus() (uint64, error) {
 }
 
 // playlists returns the signed-in user's playlists.
-func (c *client) playlists(userID uint64) ([]remotePlaylist, error) {
+func (c *client) playlists(ctx context.Context, userID uint64) ([]remotePlaylist, error) {
 	var lists []remotePlaylist
-	err := c.apiGet(fmt.Sprintf("/users/%d/playlists/list", userID), nil, &lists)
+	err := c.apiGet(ctx, fmt.Sprintf("/users/%d/playlists/list", userID), nil, &lists)
 	return lists, err
 }
 
 // playlistTracks returns the full track list of one playlist.
-func (c *client) playlistTracks(userID, kind uint64) ([]track, error) {
+func (c *client) playlistTracks(ctx context.Context, userID, kind uint64) ([]track, error) {
 	params := url.Values{
 		"kinds":       {strconv.FormatUint(kind, 10)},
 		"mixed":       {"false"},
 		"rich-tracks": {"true"},
 	}
 	var lists []remotePlaylist
-	if err := c.apiGet(fmt.Sprintf("/users/%d/playlists", userID), params, &lists); err != nil {
+	if err := c.apiGet(ctx, fmt.Sprintf("/users/%d/playlists", userID), params, &lists); err != nil {
 		return nil, err
 	}
 	if len(lists) != 1 {
@@ -296,7 +302,7 @@ func (c *client) playlistTracks(userID, kind uint64) ([]track, error) {
 }
 
 // likedTracks returns the user's liked track ids (in "trackId:albumId" form).
-func (c *client) likedTracks(userID uint64) ([]string, error) {
+func (c *client) likedTracks(ctx context.Context, userID uint64) ([]string, error) {
 	var desc struct {
 		Library struct {
 			Tracks []struct {
@@ -304,7 +310,7 @@ func (c *client) likedTracks(userID uint64) ([]string, error) {
 			} `json:"tracks"`
 		} `json:"library"`
 	}
-	if err := c.apiGet(fmt.Sprintf("/users/%d/likes/tracks", userID), nil, &desc); err != nil {
+	if err := c.apiGet(ctx, fmt.Sprintf("/users/%d/likes/tracks", userID), nil, &desc); err != nil {
 		return nil, err
 	}
 	ids := make([]string, 0, len(desc.Library.Tracks))
@@ -315,7 +321,7 @@ func (c *client) likedTracks(userID uint64) ([]string, error) {
 }
 
 // tracks resolves track details for the given ids in one batched request.
-func (c *client) tracks(ids []string) ([]track, error) {
+func (c *client) tracks(ctx context.Context, ids []string) ([]track, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -327,7 +333,7 @@ func (c *client) tracks(ids []string) ([]track, error) {
 			end = len(ids)
 		}
 		var batch []track
-		err := c.apiPost("/tracks", url.Values{
+		err := c.apiPost(ctx, "/tracks", url.Values{
 			"track-ids":      ids[start:end],
 			"with-positions": {"false"},
 		}, &batch)
@@ -340,7 +346,7 @@ func (c *client) tracks(ids []string) ([]track, error) {
 }
 
 // search performs a track search.
-func (c *client) search(query string, limit int) ([]track, error) {
+func (c *client) search(ctx context.Context, query string, limit int) ([]track, error) {
 	perPage := 20
 	if limit > 0 && limit <= 50 {
 		perPage = limit
@@ -356,7 +362,7 @@ func (c *client) search(query string, limit int) ([]track, error) {
 			Results []track `json:"results"`
 		} `json:"tracks"`
 	}
-	if err := c.apiGet("/search", params, &result); err != nil {
+	if err := c.apiGet(ctx, "/search", params, &result); err != nil {
 		return nil, err
 	}
 	return result.Tracks.Results, nil
@@ -364,9 +370,9 @@ func (c *client) search(query string, limit int) ([]track, error) {
 
 // streamURL resolves a direct, signed CDN URL for one track. The returned URL
 // is self-authorizing and stays valid for a limited time.
-func (c *client) streamURL(trackID string) (string, error) {
+func (c *client) streamURL(ctx context.Context, trackID string) (string, error) {
 	var infos []downloadInfo
-	if err := c.apiGet("/tracks/"+trackID+"/download-info", nil, &infos); err != nil {
+	if err := c.apiGet(ctx, "/tracks/"+trackID+"/download-info", nil, &infos); err != nil {
 		return "", err
 	}
 	info, ok := bestDownloadInfo(infos)
@@ -374,7 +380,7 @@ func (c *client) streamURL(trackID string) (string, error) {
 		return "", fmt.Errorf("yandex: no suitable download info for track %s", trackID)
 	}
 
-	full, err := c.fullDownloadInfo(info.DownloadInfoURL)
+	full, err := c.fullDownloadInfo(ctx, info.DownloadInfoURL)
 	if err != nil {
 		return "", err
 	}
@@ -388,7 +394,7 @@ func buildStreamURL(info downloadInfo, full fullDownloadInfo) string {
 	return "https://" + full.Host + "/get-" + info.Codec + "/" + hash + "/" + full.Ts + full.Path
 }
 
-func (c *client) fullDownloadInfo(infoURL string) (fullDownloadInfo, error) {
+func (c *client) fullDownloadInfo(ctx context.Context, infoURL string) (fullDownloadInfo, error) {
 	var full fullDownloadInfo
 	// infoURL comes from the API response and may point at an unexpected
 	// host. The guard refuses non-Yandex HTTPS URLs; the request itself
@@ -396,7 +402,7 @@ func (c *client) fullDownloadInfo(infoURL string) (fullDownloadInfo, error) {
 	if err := fullDownloadInfoGuard(infoURL); err != nil {
 		return full, err
 	}
-	req, err := http.NewRequest(http.MethodGet, infoURL+"&format=json", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, infoURL+"&format=json", nil)
 	if err != nil {
 		return full, err
 	}
@@ -404,8 +410,7 @@ func (c *client) fullDownloadInfo(infoURL string) (fullDownloadInfo, error) {
 	req.Header.Set("X-Yandex-Music-Client", "YandexMusicAndroid/24024312")
 	req.Header.Set("User-Agent", "okhttp/4.12.0")
 
-	dl := &http.Client{Timeout: dlTimeout}
-	resp, err := dl.Do(req)
+	resp, err := downloadInfoClient.Do(req)
 	if err != nil {
 		return full, err
 	}
@@ -425,7 +430,7 @@ func (c *client) fullDownloadInfo(infoURL string) (fullDownloadInfo, error) {
 // reportPlayback posts play-audio feedback so the service tracks listening.
 // trackLengthSeconds is the full track duration; playedSeconds is how much of
 // it was actually played. Yandex treats the two as distinct values.
-func (c *client) reportPlayback(userID uint64, trackID string, trackLengthSeconds, playedSeconds int) error {
+func (c *client) reportPlayback(ctx context.Context, userID uint64, trackID string, trackLengthSeconds, playedSeconds int) error {
 	params := url.Values{
 		"uid":                  {strconv.FormatUint(userID, 10)},
 		"track-id":             {trackID},
@@ -435,7 +440,7 @@ func (c *client) reportPlayback(userID uint64, trackID string, trackLengthSecond
 		"total-played-seconds": {strconv.Itoa(playedSeconds)},
 		"timestamp":            {time.Now().Format(timestampFmt)},
 	}
-	return c.apiPost("/play-audio", params, nil)
+	return c.apiPost(ctx, "/play-audio", params, nil)
 }
 
 // IsStreamURL reports whether u is a Yandex Music signed stream endpoint.

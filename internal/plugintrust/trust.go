@@ -24,6 +24,15 @@ var (
 type Manifest struct {
 	Version int               `json:"version"`
 	Plugins map[string]string `json:"plugins"`
+	// Permissions holds the permissions that the approval prompt showed for
+	// each plugin. An approval from Approve or from an older cliamp has no
+	// entry.
+	Permissions map[string][]string `json:"permissions,omitempty"`
+}
+
+// ManifestPath returns the path of the trust manifest in the plugin dir.
+func ManifestPath(dir string) string {
+	return filepath.Join(dir, manifestName)
 }
 
 func HashFile(path string) (string, error) {
@@ -39,9 +48,15 @@ func HashFile(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// Hash returns the hash of plugin content, in the form that HashFile returns.
+func Hash(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
 func Load(dir string) (Manifest, error) {
 	m := Manifest{Version: 1, Plugins: make(map[string]string)}
-	data, err := os.ReadFile(filepath.Join(dir, manifestName))
+	data, err := os.ReadFile(ManifestPath(dir))
 	if errors.Is(err, os.ErrNotExist) {
 		return m, nil
 	}
@@ -64,23 +79,70 @@ func Save(dir string, m Manifest) error {
 		return fmt.Errorf("encode plugin trust manifest: %w", err)
 	}
 	data = append(data, '\n')
-	return fileutil.WriteFileAtomic(filepath.Join(dir, manifestName), data, 0o600)
+	return fileutil.WriteFileAtomic(ManifestPath(dir), data, 0o600)
 }
 
+// Approve approves the current content of the plugin file at path. It
+// records no permissions, so the player reads them from the content, as for
+// an approval from an older cliamp.
 func Approve(dir, name, path string) (string, error) {
 	hash, err := HashFile(path)
 	if err != nil {
 		return "", err
 	}
-	m, err := Load(dir)
-	if err != nil {
-		return "", err
-	}
-	m.Plugins[name] = hash
-	if err := Save(dir, m); err != nil {
+	if err := approve(dir, name, path, hash, nil); err != nil {
 		return "", err
 	}
 	return hash, nil
+}
+
+// ApproveHash approves the content with hash and the permissions that the
+// user saw. It fails with ErrHashMismatch when the file at path no longer has
+// that hash. Thus a change to the file while the prompt waits is not
+// approved.
+func ApproveHash(dir, name, path, hash string, permissions []string) error {
+	return approve(dir, name, path, hash, append([]string{}, permissions...))
+}
+
+// approve records hash for name. It records permissions when they are not
+// nil, and removes the recorded permissions otherwise.
+func approve(dir, name, path, hash string, permissions []string) error {
+	got, err := HashFile(path)
+	if err != nil {
+		return err
+	}
+	if got != hash {
+		return ErrHashMismatch
+	}
+	m, err := Load(dir)
+	if err != nil {
+		return err
+	}
+	m.Plugins[name] = hash
+	if permissions == nil {
+		delete(m.Permissions, name)
+	} else {
+		if m.Permissions == nil {
+			m.Permissions = make(map[string][]string)
+		}
+		m.Permissions[name] = permissions
+	}
+	return Save(dir, m)
+}
+
+// Revoke removes the approval of name. It leaves the manifest as it is when
+// the manifest has no approval for name.
+func Revoke(dir, name string) error {
+	m, err := Load(dir)
+	if err != nil {
+		return err
+	}
+	if _, ok := m.Plugins[name]; !ok {
+		return nil
+	}
+	delete(m.Plugins, name)
+	delete(m.Permissions, name)
+	return Save(dir, m)
 }
 
 func Verify(m Manifest, name, path string) error {

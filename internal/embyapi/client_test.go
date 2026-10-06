@@ -3,16 +3,25 @@ package embyapi
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/bjarneo/cliamp/internal/appmeta"
+	"github.com/bjarneo/cliamp/internal/httpclient"
+	"github.com/bjarneo/cliamp/internal/netdiag"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
@@ -782,5 +791,291 @@ func TestIsStreamURL(t *testing.T) {
 	}
 	if IsStreamURL("https://x/Items/abc") {
 		t.Fatal("non-download URL should not be a stream URL")
+	}
+}
+
+// TestGetReportsOversizedResponse verifies that a response body over the read
+// limit fails with the size error instead of a truncated JSON error.
+func TestGetReportsOversizedResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A valid JSON document with padding that crosses the limit.
+		io.WriteString(w, `{"Items":[],"Pad":"`)
+		io.Copy(w, io.LimitReader(zeroReader{}, maxResponseBody))
+		io.WriteString(w, `"}`)
+	}))
+	defer srv.Close()
+
+	c := NewJellyfinClient(srv.URL, "tok", "user-1", "", "")
+	_, err := c.AlbumsByLibrary("lib-1")
+	if !errors.Is(err, httpclient.ErrTooLarge) {
+		t.Fatalf("AlbumsByLibrary() error = %v, want httpclient.ErrTooLarge", err)
+	}
+	if !strings.Contains(err.Error(), "jellyfin: /Items") {
+		t.Fatalf("error %q does not name the dialect and path", err)
+	}
+}
+
+// zeroReader returns an endless stream of ASCII zero digits.
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = '0'
+	}
+	return len(p), nil
+}
+
+// TestAlbumsByLibraryPages verifies that AlbumsByLibrary walks the library in
+// pages of albumPageSize and stops after the first short page.
+func TestAlbumsByLibraryPages(t *testing.T) {
+	const total = 2*albumPageSize + 7
+	for _, tc := range []struct {
+		name      string
+		newClient func(baseURL string) *Client
+	}{
+		{"jellyfin", func(u string) *Client { return NewJellyfinClient(u, "tok", "user-1", "", "") }},
+		{"emby", func(u string) *Client { return NewEmbyClient(u, "tok", "user-1", "", "") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var starts []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				q := r.URL.Query()
+				if r.URL.Path != "/Items" || q.Get("parentId") != "lib-1" || q.Get("includeItemTypes") != "MusicAlbum" {
+					t.Errorf("unexpected request %s?%s", r.URL.Path, r.URL.RawQuery)
+				}
+				if got := q.Get("limit"); got != strconv.Itoa(albumPageSize) {
+					t.Errorf("limit = %q, want %d", got, albumPageSize)
+				}
+				starts = append(starts, q.Get("startIndex"))
+				start, _ := strconv.Atoi(q.Get("startIndex"))
+				end := min(start+albumPageSize, total)
+				resp := itemsResponseDTO{}
+				for i := start; i < end; i++ {
+					resp.Items = append(resp.Items, itemDTO{ID: "album-" + strconv.Itoa(i), Name: "Album", AlbumArtist: "Artist"})
+				}
+				json.NewEncoder(w).Encode(resp)
+			}))
+			defer srv.Close()
+
+			albums, err := tc.newClient(srv.URL).AlbumsByLibrary("lib-1")
+			if err != nil {
+				t.Fatalf("AlbumsByLibrary() error: %v", err)
+			}
+			if len(albums) != total {
+				t.Fatalf("got %d albums, want %d", len(albums), total)
+			}
+			for i, a := range albums {
+				if want := "album-" + strconv.Itoa(i); a.ID != want {
+					t.Fatalf("albums[%d].ID = %q, want %q", i, a.ID, want)
+				}
+			}
+			wantStarts := []string{"0", strconv.Itoa(albumPageSize), strconv.Itoa(2 * albumPageSize)}
+			if !slices.Equal(starts, wantStarts) {
+				t.Fatalf("startIndex values = %v, want %v", starts, wantStarts)
+			}
+		})
+	}
+}
+
+// TestAlbumsByLibraryStopsWhenServerIgnoresPaging verifies that
+// AlbumsByLibrary stops paging when a server ignores limit or startIndex.
+func TestAlbumsByLibraryStopsWhenServerIgnoresPaging(t *testing.T) {
+	tests := []struct {
+		name string
+		// pageLen is the number of albums the server sends on every
+		// request. Each response starts at album-0.
+		pageLen      int
+		wantAlbums   int
+		wantRequests int
+		wantErr      string
+	}{
+		{
+			name:         "server ignores limit",
+			pageLen:      albumPageSize + 1,
+			wantAlbums:   albumPageSize + 1,
+			wantRequests: 1,
+		},
+		{
+			name:         "server ignores startIndex",
+			pageLen:      albumPageSize,
+			wantRequests: 2,
+			wantErr:      "jellyfin: /Items: server ignored startIndex",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requests := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				resp := itemsResponseDTO{}
+				for i := range tt.pageLen {
+					resp.Items = append(resp.Items, itemDTO{ID: "album-" + strconv.Itoa(i)})
+				}
+				json.NewEncoder(w).Encode(resp)
+			}))
+			defer srv.Close()
+
+			albums, err := NewJellyfinClient(srv.URL, "tok", "user-1", "", "").AlbumsByLibrary("lib-1")
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("AlbumsByLibrary() error = %v, want %q", err, tt.wantErr)
+				}
+			} else if err != nil {
+				t.Fatalf("AlbumsByLibrary() error: %v", err)
+			}
+			if len(albums) != tt.wantAlbums || requests != tt.wantRequests {
+				t.Fatalf("got %d albums in %d requests, want %d albums in %d requests", len(albums), requests, tt.wantAlbums, tt.wantRequests)
+			}
+		})
+	}
+}
+
+// TestUserIDFromUsersList verifies how both dialects pick a user from the
+// /Users listing after /Users/Me rejects a server-level API key.
+func TestUserIDFromUsersList(t *testing.T) {
+	tests := []struct {
+		name    string
+		user    string
+		users   string
+		status  int
+		want    string
+		wantErr string
+	}{
+		{name: "configured user", user: "BOB", users: `[{"Id":"user-1","Name":"Alice"},{"Id":"user-2","Name":"Bob"}]`, want: "user-2"},
+		{name: "first user without a configured name", users: `[{"Id":"user-1","Name":"Alice"},{"Id":"user-2","Name":"Bob"}]`, want: "user-1"},
+		{name: "configured user missing", user: "carol", users: `[{"Id":"user-1","Name":"Alice"}]`, wantErr: `user "carol" not found`},
+		{name: "empty listing", users: `[]`, wantErr: "could not discover user id"},
+		{name: "listing rejected", status: http.StatusUnauthorized, wantErr: "could not discover user id (set user_id in config)"},
+	}
+	for _, d := range providerDialects {
+		for _, tt := range tests {
+			t.Run(d.name+"/"+tt.name, func(t *testing.T) {
+				c := mock(d.newClient("https://media.example.com", "tok", "", tt.user, ""), func(req *http.Request) (*http.Response, error) {
+					switch req.URL.Path {
+					case "/Users/Me":
+						return &http.Response{StatusCode: 400, Status: "400 Bad Request", Body: io.NopCloser(bytes.NewBuffer(nil))}, nil
+					case "/Users":
+						if tt.status != 0 {
+							return &http.Response{StatusCode: tt.status, Status: http.StatusText(tt.status), Body: io.NopCloser(bytes.NewBuffer(nil))}, nil
+						}
+						return jsonResponse(tt.users), nil
+					default:
+						t.Fatalf("unexpected path %s", req.URL.Path)
+						return nil, nil
+					}
+				})
+				got, err := c.UserID()
+				if tt.wantErr != "" {
+					if err == nil || !strings.Contains(err.Error(), tt.wantErr) || !strings.HasPrefix(err.Error(), d.name+": ") {
+						t.Fatalf("UserID() = (%q, %v), want an error with prefix %q that contains %q", got, err, d.name+": ", tt.wantErr)
+					}
+					return
+				}
+				if err != nil || got != tt.want {
+					t.Fatalf("UserID() = (%q, %v), want %q", got, err, tt.want)
+				}
+				if again, _ := c.UserID(); again != tt.want {
+					t.Fatalf("second UserID() = %q, want the stored id %q", again, tt.want)
+				}
+			})
+		}
+	}
+}
+
+// TestDefaultClientSendsUserAgent verifies that the default HTTP client sends
+// the cliamp User-Agent on the auth, GET and POST paths of both dialects.
+func TestDefaultClientSendsUserAgent(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		newClient func(baseURL string) *Client
+	}{
+		{"jellyfin", func(u string) *Client { return NewJellyfinClient(u, "", "", "user", "pw") }},
+		{"emby", func(u string) *Client { return NewEmbyClient(u, "", "", "user", "pw") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var mu sync.Mutex
+			agents := map[string]string{}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				agents[r.Method+" "+r.URL.Path] = r.UserAgent()
+				mu.Unlock()
+				if r.URL.Path == "/Users/AuthenticateByName" {
+					io.WriteString(w, `{"AccessToken":"tok","User":{"Id":"user-1"}}`)
+					return
+				}
+				io.WriteString(w, `{}`)
+			}))
+			defer srv.Close()
+
+			c := tc.newClient(srv.URL)
+			if err := c.Ping(); err != nil {
+				t.Fatalf("Ping() error: %v", err)
+			}
+			if err := c.ReportNowPlaying(playlist.Track{}, 0, false); err != nil {
+				t.Fatalf("ReportNowPlaying() error: %v", err)
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			for _, req := range []string{"POST /Users/AuthenticateByName", "POST /Sessions/Playing"} {
+				if _, ok := agents[req]; !ok {
+					t.Errorf("server got no %s request, got %v", req, agents)
+				}
+			}
+			if len(agents) != 3 {
+				t.Errorf("server got %d distinct requests, want auth, ping and report: %v", len(agents), agents)
+			}
+			for req, ua := range agents {
+				if ua != httpclient.UserAgent {
+					t.Errorf("%s User-Agent = %q, want %q", req, ua, httpclient.UserAgent)
+				}
+			}
+		})
+	}
+}
+
+// TestDialErrorGetsNetdiagHint verifies that the auth, GET and POST paths of
+// both dialects pass a dial failure through netdiag.Explain. On macOS the error
+// then carries the Local Network hint. On other systems it stays the same.
+func TestDialErrorGetsNetdiagHint(t *testing.T) {
+	dialErr := &net.OpError{
+		Op:   "dial",
+		Net:  "tcp",
+		Addr: &net.TCPAddr{IP: net.ParseIP("192.168.1.20"), Port: 8096},
+		Err:  os.NewSyscallError("connect", syscall.EHOSTUNREACH),
+	}
+	want := netdiag.Explain(dialErr).Error()
+
+	dialects := []struct {
+		name      string
+		newClient func(baseURL, token, userID, user, password string) *Client
+	}{
+		{"jellyfin", NewJellyfinClient},
+		{"emby", NewEmbyClient},
+	}
+	calls := []struct {
+		name  string
+		token string
+		call  func(*Client) error
+	}{
+		{"auth", "", (*Client).Ping},
+		{"get", "tok", (*Client).Ping},
+		{"post", "tok", func(c *Client) error { return c.ReportNowPlaying(playlist.Track{}, 0, false) }},
+	}
+	for _, d := range dialects {
+		for _, tc := range calls {
+			t.Run(d.name+"/"+tc.name, func(t *testing.T) {
+				c := mock(d.newClient("http://192.168.1.20:8096", tc.token, "user-1", "user", "pw"), func(*http.Request) (*http.Response, error) {
+					return nil, dialErr
+				})
+				err := tc.call(c)
+				if !errors.Is(err, syscall.EHOSTUNREACH) {
+					t.Fatalf("error = %v, want the dial error in the chain", err)
+				}
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %q, want it to contain %q", err, want)
+				}
+			})
+		}
 	}
 }

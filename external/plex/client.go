@@ -2,14 +2,14 @@
 package plex
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/bjarneo/cliamp/internal/httpclient"
 	"github.com/bjarneo/cliamp/internal/netdiag"
 )
 
@@ -18,7 +18,7 @@ const maxResponseBody = 10 << 20
 
 // apiClient is used for all Plex API calls with a finite timeout.
 // It is distinct from httpclient.Streaming (which has no timeout) used for audio streams.
-var apiClient = &http.Client{Timeout: 30 * time.Second}
+var apiClient = httpclient.NewAPI(30 * time.Second)
 
 // Client speaks to a Plex Media Server over its HTTP API.
 type Client struct {
@@ -101,11 +101,10 @@ func (c *Client) get(path string, params url.Values, result any) error {
 		return fmt.Errorf("plex: %s: HTTP %s", path, resp.Status)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
-	if err != nil {
+	if err := httpclient.ReadJSON(resp.Body, maxResponseBody, result); err != nil {
 		return fmt.Errorf("plex: %s: %w", path, err)
 	}
-	return json.Unmarshal(body, result)
+	return nil
 }
 
 // Ping checks that the server is reachable and the token is valid.
@@ -168,6 +167,10 @@ func (c *Client) includeLibrary(title string) bool {
 // server may return as few as one item.
 const pageSize = 300
 
+// maxPages stops a paging loop if a server never sends an empty page and
+// omits totalSize.
+const maxPages = 1000
+
 // Albums returns all albums in the given music section (identified by its key).
 // It requests type=9 (album) directly rather than walking artists, and paginates
 // through the full result set using X-Plex-Container-Start / Size.
@@ -188,7 +191,8 @@ func (c *Client) Albums(sectionKey string) ([]Album, error) {
 	}
 
 	var albums []Album
-	for offset := 0; ; {
+	var prevFirstKey string
+	for offset, n := 0, 0; n < maxPages; n++ {
 		params := url.Values{
 			"type":                   {"9"}, // 9 = album
 			"X-Plex-Container-Start": {fmt.Sprintf("%d", offset)},
@@ -197,6 +201,15 @@ func (c *Client) Albums(sectionKey string) ([]Album, error) {
 		var page albumPage
 		if err := c.get("/library/sections/"+sectionKey+"/all", params, &page); err != nil {
 			return nil, err
+		}
+		// A page that starts with the album that started the page before
+		// it means that the server ignored the start. Each further page
+		// would repeat the first one.
+		if md := page.MediaContainer.Metadata; len(md) > 0 {
+			if md[0].RatingKey != "" && md[0].RatingKey == prevFirstKey {
+				return nil, fmt.Errorf("plex: section %s albums: server ignored X-Plex-Container-Start %d", sectionKey, offset)
+			}
+			prevFirstKey = md[0].RatingKey
 		}
 		for _, m := range page.MediaContainer.Metadata {
 			albums = append(albums, Album{
@@ -269,13 +282,18 @@ const playlistPageSize = 1000
 func (c *Client) PlaylistTracks(playlistRatingKey string) ([]Track, error) {
 	type trackPage struct {
 		MediaContainer struct {
-			TotalSize *int        `json:"totalSize"`
-			Metadata  []trackJSON `json:"Metadata"`
+			TotalSize *int `json:"totalSize"`
+			Metadata  []struct {
+				trackJSON
+				// PlaylistItemID tells two entries of one track apart.
+				PlaylistItemID int64 `json:"playlistItemID"`
+			} `json:"Metadata"`
 		} `json:"MediaContainer"`
 	}
 
 	var tracks []Track
-	for offset := 0; ; {
+	var prevFirstKey string
+	for offset, n := 0, 0; n < maxPages; n++ {
 		params := url.Values{
 			"X-Plex-Container-Start": {fmt.Sprintf("%d", offset)},
 			"X-Plex-Container-Size":  {fmt.Sprintf("%d", playlistPageSize)},
@@ -284,8 +302,21 @@ func (c *Client) PlaylistTracks(playlistRatingKey string) ([]Track, error) {
 		if err := c.get("/playlists/"+playlistRatingKey+"/items", params, &page); err != nil {
 			return nil, fmt.Errorf("plex: playlist %s items: %w", playlistRatingKey, err)
 		}
+		// A playlist can hold one track twice, so the entry ID marks the
+		// first item when the server sends it. A repeated first item means
+		// that the server ignored the start.
+		if md := page.MediaContainer.Metadata; len(md) > 0 {
+			key := md[0].RatingKey
+			if md[0].PlaylistItemID != 0 {
+				key = strconv.FormatInt(md[0].PlaylistItemID, 10)
+			}
+			if key != "" && key == prevFirstKey {
+				return nil, fmt.Errorf("plex: playlist %s items: server ignored X-Plex-Container-Start %d", playlistRatingKey, offset)
+			}
+			prevFirstKey = key
+		}
 		for _, m := range page.MediaContainer.Metadata {
-			tracks = append(tracks, trackFromJSON(m))
+			tracks = append(tracks, trackFromJSON(m.trackJSON))
 		}
 		count := len(page.MediaContainer.Metadata)
 		if count == 0 {

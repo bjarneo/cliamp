@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"golang.org/x/oauth2"
 )
 
 type searchRequest struct {
@@ -25,8 +23,7 @@ func devModeSpotify(t *testing.T, total, failOffset int) (*SpotifyProvider, *[]s
 	t.Helper()
 	var requests []searchRequest
 
-	originalTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.URL.Path != "/v1/search" {
 			return nil, fmt.Errorf("unexpected Spotify API path %q", req.URL.Path)
 		}
@@ -76,13 +73,13 @@ func devModeSpotify(t *testing.T, total, failOffset int) (*SpotifyProvider, *[]s
 			Request:    req,
 		}, nil
 	})
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 
-	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
+	sess := stubSession(rt)
 	return New(sess, "client", 320), &requests
 }
 
 func TestSearchTracksDevModePagination(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		total        int
@@ -139,6 +136,7 @@ func TestSearchTracksDevModePagination(t *testing.T) {
 }
 
 func TestSearchTracksReturnsLaterPageError(t *testing.T) {
+	t.Parallel()
 	p, requests := devModeSpotify(t, 100, 10)
 
 	got, err := p.SearchTracks(context.Background(), "radiohead", 25)
@@ -158,9 +156,9 @@ func TestSearchTracksReturnsLaterPageError(t *testing.T) {
 }
 
 func TestSearchTracksSharedClientKeepsSingleRequest(t *testing.T) {
+	t.Parallel()
 	var requests []searchRequest
-	originalTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
 		offset, _ := strconv.Atoi(req.URL.Query().Get("offset"))
 		requests = append(requests, searchRequest{limit: limit, offset: offset})
@@ -172,9 +170,8 @@ func TestSearchTracksSharedClientKeepsSingleRequest(t *testing.T) {
 			Request:    req,
 		}, nil
 	})
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 
-	sess := &Session{tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})}
+	sess := stubSession(rt)
 	p := New(sess, DefaultClientID, 320)
 	if _, err := p.SearchTracks(context.Background(), "radiohead", 20); err != nil {
 		t.Fatalf("SearchTracks() error = %v", err)

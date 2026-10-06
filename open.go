@@ -63,7 +63,7 @@ func openDeepLink(ctx context.Context, uri string) error {
 		return err
 	}
 	if ipcRunning() {
-		return dispatchDeepLink(action)
+		return dispatchDeepLink(action, ipcSendWithin)
 	}
 	return coldStartDeepLink(action)
 }
@@ -73,7 +73,7 @@ func openDeepLink(ctx context.Context, uri string) error {
 // mistaken for "not running" and answered by starting a second player.
 func ipcRunning() bool {
 	_, err := ipc.SendV2(ipc.DefaultSocketPath(), ipc.V2Request{
-		ID:     json.RawMessage(`"cliamp"`),
+		ID:     json.RawMessage(cliRequestID),
 		Method: "capabilities",
 	})
 	return !errors.Is(err, ipc.ErrNotRunning)
@@ -95,7 +95,7 @@ func coldStartDeepLink(action deeplink.Action) error {
 			applog.UserError("cliamp:// %s timed out waiting for the player to start", action.Verb)
 			return
 		}
-		if err := dispatchDeepLink(action); err != nil {
+		if err := dispatchDeepLink(action, ipcSendWithin); err != nil {
 			applog.UserError("cliamp:// %s failed: %v", action.Verb, err)
 		}
 	}()
@@ -114,9 +114,13 @@ func waitForIPC(timeout time.Duration) bool {
 	return false
 }
 
+// ipcSender submits one operation and waits up to timeout for its result.
+// ipcSendWithin is the production sender. Tests pass a recorder.
+type ipcSender func(operation string, params ipc.Request, timeout time.Duration) (ipc.Response, error)
+
 // dispatchDeepLink maps a validated action onto IPC operations. The operation
 // names are literals here and never come from the URI.
-func dispatchDeepLink(action deeplink.Action) error {
+func dispatchDeepLink(action deeplink.Action, send ipcSender) error {
 	play := action.Verb == deeplink.Play
 
 	switch action.Target {
@@ -125,31 +129,31 @@ func dispatchDeepLink(action deeplink.Action) error {
 		// and drops non-http entries from remote playlists. That is the same
 		// path `cliamp queue` uses, so a link cannot reach anything typing a
 		// URL could not.
-		_, err := ipcSend("url.load", ipc.Request{Path: action.URL, Play: play})
+		_, err := send("url.load", ipc.Request{Path: action.URL, Play: play}, ipcLoadWait)
 		return err
 
 	case deeplink.TargetAlbum:
 		if !play {
 			return errors.New("queueing a provider album is not supported; use cliamp://play")
 		}
-		_, err := ipcSend("provider.load_album", ipc.Request{
+		_, err := send("provider.load_album", ipc.Request{
 			Provider: action.Provider,
 			Album:    action.Album,
-		})
+		}, ipcLoadWait)
 		return err
 
 	case deeplink.TargetPlaylist:
 		if !play {
 			return errors.New("queueing a provider playlist is not supported; use cliamp://play")
 		}
-		_, err := ipcSend("provider.load", ipc.Request{
+		_, err := send("provider.load", ipc.Request{
 			Provider: action.Provider,
 			Playlist: action.Playlist,
-		})
+		}, ipcLoadWait)
 		return err
 
 	case deeplink.TargetSearch:
-		return dispatchDeepLinkSearch(action, play)
+		return dispatchDeepLinkSearch(action, play, send)
 	}
 	return fmt.Errorf("unsupported cliamp:// target")
 }
@@ -161,8 +165,8 @@ func dispatchDeepLink(action deeplink.Action) error {
 // authenticated against, so their results carry the same trust as browsing
 // them in the TUI; only the query text originates with the link, and it is
 // used solely as a search term.
-func dispatchDeepLinkSearch(action deeplink.Action, play bool) error {
-	response, err := ipcSendLong("provider.search", ipc.Request{
+func dispatchDeepLinkSearch(action deeplink.Action, play bool, send ipcSender) error {
+	response, err := send("provider.search", ipc.Request{
 		Provider: action.Provider,
 		Query:    action.Query,
 		Limit:    1,
@@ -185,6 +189,6 @@ func dispatchDeepLinkSearch(action deeplink.Action, play bool) error {
 	if play {
 		operation = "track.play"
 	}
-	_, err = ipcSend(operation, ipc.Request{Track: &response.Tracks[0]})
+	_, err = send(operation, ipc.Request{Track: &response.Tracks[0]}, ipcWait)
 	return err
 }

@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"maps"
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
 // StatsURL serves live and all-time listener statistics for the cliamp radio
@@ -17,6 +19,11 @@ import (
 // from. Countries come from the server's own view of its listeners; cliamp
 // sends nothing about where it is running.
 const StatsURL = "https://radio.cliamp.stream/statistics"
+
+// TrackStatsURL serves the statistics for the channel playlists: the songs
+// that cliamp radio channels expose as files. Listeners there play songs one
+// by one instead of the live stream.
+const TrackStatsURL = "https://radio.cliamp.stream/tracks/statistics"
 
 // maxStatsBody bounds the statistics document; it is tens of kilobytes.
 const maxStatsBody = 8 << 20
@@ -66,6 +73,37 @@ type DailyStats struct {
 	ListenHours float64 `json:"listen_hours"`
 }
 
+// TrackStatistics is the document served by TrackStatsURL.
+type TrackStatistics struct {
+	TotalPlays    int                          `json:"total_plays"`
+	PeakListeners int                          `json:"peak_listeners"`
+	Stations      map[string]TrackStationStats `json:"stations"`
+}
+
+// TrackStationStats is one channel's share of TrackStatistics, keyed upstream
+// by the channel slug.
+type TrackStationStats struct {
+	TotalPlays              int                    `json:"total_plays"`
+	ActiveListeners         int                    `json:"active_listeners"`
+	ActiveListenerCountries []TrackListenerCountry `json:"active_listener_countries"`
+}
+
+// TrackListenerCountry counts the playlist listeners from one country now.
+type TrackListenerCountry struct {
+	Country     string `json:"country"`
+	CountryCode string `json:"country_code"`
+	Listeners   int    `json:"listeners"`
+}
+
+// FetchTrackStatistics downloads the playlist statistics document.
+func FetchTrackStatistics(ctx context.Context) (TrackStatistics, error) {
+	var stats TrackStatistics
+	if err := getJSON(ctx, catalogClient, TrackStatsURL, maxStatsBody, &stats); err != nil {
+		return TrackStatistics{}, fmt.Errorf("playlist statistics: %w", err)
+	}
+	return stats, nil
+}
+
 // FetchStatistics downloads the statistics document. The raw body comes back
 // alongside the decoded form so callers can pass it through verbatim.
 func FetchStatistics(ctx context.Context) (Statistics, []byte, error) {
@@ -82,7 +120,7 @@ func fetchStatistics(ctx context.Context, client *http.Client, u string) (Statis
 		return Statistics{}, nil, err
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxStatsBody))
+	raw, err := httpclient.ReadBody(resp.Body, maxStatsBody)
 	if err != nil {
 		return Statistics{}, nil, err
 	}
@@ -93,9 +131,55 @@ func fetchStatistics(ctx context.Context, client *http.Client, u string) (Statis
 	return stats, raw, nil
 }
 
+// summarizeListenerCounts reduces both statistics documents to live
+// listeners per channel slug. A nil tracks document keeps the live-stream
+// counts. Pure, so the website-identical aggregation is unit-testable.
+func summarizeListenerCounts(main Statistics, tracks *TrackStatistics) map[string]int {
+	sum := main.Summarize(nil)
+	if tracks != nil {
+		sum = sum.WithPlaylists(*tracks, nil)
+	}
+	out := make(map[string]int, len(sum.Channels))
+	for _, c := range sum.Channels {
+		out[c.Slug] = c.Listeners
+	}
+	return out
+}
+
+// FetchListenerCounts downloads both statistics documents concurrently and
+// returns live listeners per channel slug. Fetching in parallel keeps one
+// slow document from delaying the other. A failed playlist document still
+// yields the live-stream counts; an error returns only when the main
+// document fails, and callers treat that as "unknown" rather than zero.
+func FetchListenerCounts(ctx context.Context) (map[string]int, error) {
+	var mainDoc Statistics
+	var mainErr error
+	var tracksDoc TrackStatistics
+	var tracksErr error
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		mainDoc, _, mainErr = FetchStatistics(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		tracksDoc, tracksErr = FetchTrackStatistics(ctx)
+	}()
+	wg.Wait()
+	if mainErr != nil {
+		return nil, mainErr
+	}
+	if tracksErr != nil {
+		return summarizeListenerCounts(mainDoc, nil), nil
+	}
+	return summarizeListenerCounts(mainDoc, &tracksDoc), nil
+}
+
 // Summary is Statistics boiled down to what the statistics views show.
 type Summary struct {
-	Listeners int              // listeners connected right now, all channels
+	Listeners int              // listeners right now, all channels, live streams and playlists
+	Playlists int              // the part of Listeners playing channel playlists
 	Countries []CountryCount   // listeners now per country, heaviest first; empty when nobody is connected
 	AllTime   []CountryCount   // sessions per country over all time, heaviest first
 	Channels  []ChannelSummary // busiest first
@@ -151,9 +235,7 @@ func (s Statistics) Summarize(names map[string]string) Summary {
 			daily[d.Date] += d.ListenHours
 		}
 	}
-	slices.SortFunc(sum.Channels, func(a, b ChannelSummary) int {
-		return cmp.Or(cmp.Compare(b.Listeners, a.Listeners), cmp.Compare(b.Sessions, a.Sessions), strings.Compare(a.Name, b.Name))
-	})
+	sortChannels(sum.Channels)
 	sum.Countries = sortedCountries(live)
 	sum.AllTime = sortedCountries(allTime)
 	dates := slices.Sorted(maps.Keys(daily))
@@ -164,6 +246,40 @@ func (s Statistics) Summarize(names map[string]string) Summary {
 		sum.Daily = append(sum.Daily, DailyPoint{Date: date, Hours: daily[date]})
 	}
 	return sum
+}
+
+// WithPlaylists adds the listeners of the channel playlists to a summary of
+// the live streams: to the total, to the countries they listen from, and to
+// their channels. The all-time numbers stay those of the live streams.
+func (s Summary) WithPlaylists(t TrackStatistics, names map[string]string) Summary {
+	live := make(map[string]*CountryCount, len(s.Countries))
+	for _, c := range s.Countries {
+		live[c.Code] = &c
+	}
+	channels := slices.Clone(s.Channels)
+	for slug, st := range t.Stations {
+		s.Listeners += st.ActiveListeners
+		s.Playlists += st.ActiveListeners
+		for _, c := range st.ActiveListenerCountries {
+			addCountries(live, []CountryStats{{Country: c.Country, CountryCode: c.CountryCode, Sessions: c.Listeners}})
+		}
+		i := slices.IndexFunc(channels, func(c ChannelSummary) bool { return c.Slug == slug })
+		if i < 0 {
+			channels = append(channels, ChannelSummary{Slug: slug, Name: cmp.Or(names[slug], slug)})
+			i = len(channels) - 1
+		}
+		channels[i].Listeners += st.ActiveListeners
+	}
+	sortChannels(channels)
+	s.Channels = channels
+	s.Countries = sortedCountries(live)
+	return s
+}
+
+func sortChannels(channels []ChannelSummary) {
+	slices.SortFunc(channels, func(a, b ChannelSummary) int {
+		return cmp.Or(cmp.Compare(b.Listeners, a.Listeners), cmp.Compare(b.Sessions, a.Sessions), strings.Compare(a.Name, b.Name))
+	})
 }
 
 func addCountries(into map[string]*CountryCount, rows []CountryStats) {

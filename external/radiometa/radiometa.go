@@ -9,16 +9,15 @@ package radiometa
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
-var client = &http.Client{Timeout: 8 * time.Second}
-
-const userAgent = "cliamp/1.0 (https://github.com/bjarneo/cliamp)"
+var client = httpclient.NewAPI(8 * time.Second)
 
 // Resolver reports how to fetch now-playing metadata for streamURL, or ok=false
 // when the URL is not a recognized broadcaster. It satisfies
@@ -40,12 +39,17 @@ func Resolver(streamURL string) (fetch func(ctx context.Context) (string, error)
 	return nil, 0, false
 }
 
+// maxMetaBody limits a now-playing response. The documents are a few KB.
+const maxMetaBody = 1 << 20
+
+// getJSON performs one GET under ctx and decodes the response body into v. A
+// body over maxMetaBody returns httpclient.ErrTooLarge.
 func getJSON(ctx context.Context, url string, v any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("User-Agent", httpclient.UserAgent)
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -54,7 +58,7 @@ func getJSON(ctx context.Context, url string, v any) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("%s: HTTP %d", url, resp.StatusCode)
 	}
-	return json.NewDecoder(resp.Body).Decode(v)
+	return httpclient.ReadJSON(resp.Body, maxMetaBody, v)
 }
 
 // --- NTS -------------------------------------------------------------------

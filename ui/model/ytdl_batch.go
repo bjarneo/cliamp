@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/resolve"
 
 	tea "charm.land/bubbletea/v2"
@@ -22,14 +23,6 @@ func (m *Model) resetYTDLBatch() {
 	m.ytdlBatch.loading = false
 }
 
-// isYTMusicHost reports whether the parsed URL belongs to music.youtube.com.
-func isYTMusicHost(parsed *url.URL) bool {
-	host := strings.ToLower(parsed.Hostname())
-	host = strings.TrimPrefix(host, "www.")
-	host = strings.TrimPrefix(host, "m.")
-	return host == "music.youtube.com"
-}
-
 // initYTDLBatch detects YouTube URLs with a list= parameter among the given
 // source URLs and kicks off incremental batch loading. It triggers for any
 // YouTube Music URL with a playlist (list=) and for any URL with an RD-prefix
@@ -46,7 +39,7 @@ func (m *Model) initYTDLBatch(urls []string) tea.Cmd {
 		if list == "" {
 			continue
 		}
-		if isYTMusicHost(parsed) || strings.HasPrefix(list, "RD") {
+		if playlist.IsYouTubeMusicURL(u) || strings.HasPrefix(list, "RD") {
 			m.ytdlBatch.gen++
 			m.ytdlBatch.url = u
 			m.ytdlBatch.offset = resolve.YTDLRadioInitialItems

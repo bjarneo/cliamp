@@ -17,8 +17,9 @@ import (
 // the same Lua<->JSON conversion as cliamp.json, so tables, numbers, strings,
 // and booleans all survive a restart.
 //
-// The store is scoped to one plugin: a plugin can never read another plugin's
-// keys, which preserves the no-inter-plugin-communication invariant.
+// The cliamp.store functions reach only the store of their own plugin, keyed
+// by the installed name. The store is not secret: cliamp.fs can read and write
+// the store file of any plugin.
 type pluginStore struct {
 	mu     sync.Mutex
 	path   string         // store.json path; empty if the data dir is unavailable
@@ -112,7 +113,7 @@ func registerStoreAPI(L *lua.LState, cliamp *lua.LTable, pluginName string) {
 			L.Push(lua.LNil)
 			return 1
 		}
-		L.Push(jsonToLua(L, v))
+		L.Push(toLua(L, v))
 		return 1
 	}))
 
@@ -120,12 +121,17 @@ func registerStoreAPI(L *lua.LState, cliamp *lua.LTable, pluginName string) {
 	L.SetField(tbl, "set", L.NewFunction(func(L *lua.LState) int {
 		key := L.CheckString(1)
 		val := luaToGo(L.CheckAny(2))
+		// Reject a value that JSON cannot hold, such as NaN, before it goes
+		// into the map. Otherwise each later save fails on it.
+		if _, err := json.Marshal(val); err != nil {
+			return pushErr(L, err.Error())
+		}
 		store.mu.Lock()
 		store.load()
 		store.data[key] = val
 		err := store.save()
 		store.mu.Unlock()
-		return pushStoreResult(L, err)
+		return pushResult(L, err)
 	}))
 
 	// cliamp.store.delete(key) -> true or (nil, error)
@@ -136,7 +142,7 @@ func registerStoreAPI(L *lua.LState, cliamp *lua.LTable, pluginName string) {
 		delete(store.data, key)
 		err := store.save()
 		store.mu.Unlock()
-		return pushStoreResult(L, err)
+		return pushResult(L, err)
 	}))
 
 	// cliamp.store.keys() -> array of keys (sorted for stable iteration)
@@ -164,20 +170,8 @@ func registerStoreAPI(L *lua.LState, cliamp *lua.LTable, pluginName string) {
 		store.loaded = true
 		err := store.save()
 		store.mu.Unlock()
-		return pushStoreResult(L, err)
+		return pushResult(L, err)
 	}))
 
 	L.SetField(cliamp, "store", tbl)
-}
-
-// pushStoreResult pushes true on success or (nil, error) on failure, matching
-// the convention used by cliamp.fs.
-func pushStoreResult(L *lua.LState, err error) int {
-	if err != nil {
-		L.Push(lua.LNil)
-		L.Push(lua.LString(err.Error()))
-		return 2
-	}
-	L.Push(lua.LTrue)
-	return 1
 }

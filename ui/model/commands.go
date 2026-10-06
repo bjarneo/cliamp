@@ -9,8 +9,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/external/radio"
-	"github.com/bjarneo/cliamp/external/spotify"
-	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/lyrics"
 	"github.com/bjarneo/cliamp/player"
@@ -80,11 +78,16 @@ type feedsLoadedMsg struct {
 	tracks   []playlist.Track
 	urls     []string // original source URLs that produced these tracks
 	autoPlay bool     // whether to start playback automatically
+	err      error
 }
 
-// feedTrackResolvedMsg carries episodes resolved from a feed track in the playlist.
+// feedTrackResolvedMsg carries episodes resolved from a feed track in the
+// playlist. gen and queue hold the stream and queue generations at the start.
 type feedTrackResolvedMsg struct {
 	tracks []playlist.Track
+	err    error
+	gen    uint64
+	queue  uint64
 }
 
 // lyricsLoadedMsg carries parsed LRC output.
@@ -104,27 +107,21 @@ type netSearchResultsMsg struct {
 	gen    uint64
 }
 
-// streamPlayedMsg signals that async stream Play() completed.
+// streamPlayedMsg signals that an async PlayAtForGeneration completed.
 type streamPlayedMsg struct {
 	path string
 	gen  uint64
 	err  error
 }
 
-// streamPreloadedMsg signals that async stream Preload() completed.
+// streamPreloadedMsg signals that an async PreloadForGeneration completed.
 type streamPreloadedMsg struct {
 	path string
 	gen  uint64
+	err  error
 }
 
 type attachNotifierMsg struct{ notifier playback.Notifier }
-
-// ytdlResolvedMsg carries a lazily resolved yt-dlp track (direct audio URL).
-type ytdlResolvedMsg struct {
-	index int
-	track playlist.Track
-	err   error
-}
 
 // ytdlBatchMsg carries an incrementally loaded batch of yt-dlp tracks.
 // The gen field ties the response to a specific batch session so stale
@@ -135,10 +132,11 @@ type ytdlBatchMsg struct {
 	err    error
 }
 
-// ytdlSavedMsg signals that an async yt-dlp download-to-disk completed.
-type ytdlSavedMsg struct {
-	path string
-	err  error
+// trackSavedMsg reports the result of an async track save.
+type trackSavedMsg struct {
+	path     string
+	err      error
+	download bool // the save ran yt-dlp and counts as a pending download
 }
 
 // — Navidrome browser message types —
@@ -229,30 +227,47 @@ func fetchPlaylistsCmd(prov playlist.Provider, gen uint64) tea.Cmd {
 	}
 }
 
+// radioListenersLoadedMsg carries live listener counts per cliamp channel
+// slug. A nil map means the fetch failed: rows show no counts, never zero.
+type radioListenersLoadedMsg struct {
+	counts map[string]int
+	gen    uint64
+}
+
+// radioListenersTimeout bounds both statistics documents behind one fetch.
+// A failure stays silent: the provider rows simply show no listener counts.
+const radioListenersTimeout = 30 * time.Second
+
+func fetchRadioListenersCmd(gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), radioListenersTimeout)
+		defer cancel()
+		counts, err := radio.FetchListenerCounts(ctx)
+		if err != nil {
+			return radioListenersLoadedMsg{gen: gen}
+		}
+		return radioListenersLoadedMsg{counts: counts, gen: gen}
+	}
+}
+
 func fetchYTDLBatchCmd(gen uint64, pageURL string, start, count int) tea.Cmd {
 	return func() tea.Msg {
-		tracks, err := resolve.ResolveYTDLBatch(pageURL, start, count)
+		tracks, err := resolve.ResolveYTDLBatch(pageURL, start, count, "")
 		return ytdlBatchMsg{gen: gen, tracks: tracks, err: err}
 	}
 }
 
-func resolveFeedTrackCmd(feedURL string) tea.Cmd {
+func resolveFeedTrackCmd(feedURL string, gen, queue uint64) tea.Cmd {
 	return func() tea.Msg {
 		tracks, err := resolve.Remote([]string{feedURL})
-		if err != nil {
-			return err
-		}
-		return feedTrackResolvedMsg{tracks: tracks}
+		return feedTrackResolvedMsg{tracks: tracks, err: err, gen: gen, queue: queue}
 	}
 }
 
 func resolveRemoteCmd(urls []string, autoPlay bool) tea.Cmd {
 	return func() tea.Msg {
 		tracks, err := resolve.Remote(urls)
-		if err != nil {
-			return err
-		}
-		return feedsLoadedMsg{tracks: tracks, urls: urls, autoPlay: autoPlay}
+		return feedsLoadedMsg{tracks: tracks, urls: urls, autoPlay: autoPlay, err: err}
 	}
 }
 
@@ -263,35 +278,16 @@ func resolveURLCmd(rawURL string, autoPlay bool) tea.Cmd {
 	return func() tea.Msg {
 		tracks, err := resolve.URL(rawURL)
 		if err != nil {
-			return fmt.Errorf("resolving URL: %w", err)
+			return feedsLoadedMsg{err: fmt.Errorf("resolving URL: %w", err)}
 		}
 		return feedsLoadedMsg{tracks: tracks, urls: []string{rawURL}, autoPlay: autoPlay}
 	}
 }
 
-func fetchLyricsCmd(artist, title, query string, gen uint64) tea.Cmd {
+func fetchTrackLyricsCmd(track playlist.Track, artist, title, query string, gen uint64, sources []trackLyricsSource) tea.Cmd {
+	lookups := lyricsLookups(track, sources)
 	return func() tea.Msg {
-		lines, err := lyrics.Fetch(artist, title)
-		return lyricsLoadedMsg{lines: lines, err: err, query: query, gen: gen}
-	}
-}
-
-func fetchTrackLyricsCmd(track playlist.Track, artist, title, query string, gen uint64, sp spotifyLyricFetcher) tea.Cmd {
-	return func() tea.Msg {
-		if lines := lyrics.ParseEmbedded(track.EmbeddedLyrics); len(lines) > 0 {
-			return lyricsLoadedMsg{lines: lines, query: query, gen: gen}
-		}
-		// Spotify tracks: synced lyrics straight from Spotify before the
-		// generic artist/title lookup. Failures fall through silently.
-		if id := spotify.TrackIDFromPath(track.Path); sp != nil && id != "" {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			lines, err := sp.TrackLyrics(ctx, id)
-			cancel()
-			if err == nil && len(lines) > 0 {
-				return lyricsLoadedMsg{lines: lines, query: query, gen: gen}
-			}
-		}
-		lines, err := lyrics.Fetch(artist, title)
+		lines, err := lyrics.Lookup(context.Background(), track.EmbeddedLyrics, artist, title, lookups...)
 		return lyricsLoadedMsg{lines: lines, err: err, query: query, gen: gen}
 	}
 }
@@ -311,35 +307,8 @@ func playStreamCmd(p player.Engine, path string, knownDuration time.Duration, st
 
 func preloadStreamCmd(p player.Engine, path string, knownDuration time.Duration, gen, preloadGen uint64) tea.Cmd {
 	return func() tea.Msg {
-		p.PreloadForGeneration(path, knownDuration, preloadGen) // errors silently ignored
-		return streamPreloadedMsg{path: path, gen: gen}
-	}
-}
-
-func preloadLocalCmd(p player.Engine, path string, knownDuration time.Duration, gen, preloadGen uint64) tea.Cmd {
-	return func() tea.Msg {
-		p.PreloadForGeneration(path, knownDuration, preloadGen)
-		return streamPreloadedMsg{path: path, gen: gen}
-	}
-}
-
-func playYTDLStreamCmd(p player.Engine, pageURL string, knownDuration time.Duration, gen uint64) tea.Cmd {
-	return func() tea.Msg {
-		return streamPlayedMsg{path: pageURL, gen: gen, err: p.PlayYTDLForGeneration(pageURL, knownDuration, gen)}
-	}
-}
-
-func preloadYTDLStreamCmd(p player.Engine, pageURL string, knownDuration time.Duration, gen, preloadGen uint64) tea.Cmd {
-	return func() tea.Msg {
-		p.PreloadYTDLForGeneration(pageURL, knownDuration, preloadGen) // errors silently ignored
-		return streamPreloadedMsg{path: pageURL, gen: gen}
-	}
-}
-
-func saveYTDLCmd(pageURL string, saveDir string) tea.Cmd {
-	return func() tea.Msg {
-		path, err := resolve.DownloadYTDL(pageURL, saveDir)
-		return ytdlSavedMsg{path: path, err: err}
+		err := p.PreloadForGeneration(path, knownDuration, preloadGen)
+		return streamPreloadedMsg{path: path, gen: gen, err: err}
 	}
 }
 
@@ -523,9 +492,9 @@ func fetchCatalogBatchCmd(loader provider.CatalogLoader, offset, limit int, prov
 	}
 }
 
-// — Spotify search + add-to-playlist messages —
+// — provider search overlay + add-to-playlist messages —
 
-type spotSearchResultsMsg struct {
+type searchOverlayResultsMsg struct {
 	tracks       []playlist.Track
 	err          error
 	providerName string
@@ -533,27 +502,27 @@ type spotSearchResultsMsg struct {
 	gen          uint64
 }
 
-// spotAlbumAction is what to do with an album's tracks once they arrive.
-type spotAlbumAction int
+// searchOverlayAlbumAction is what to do with an album's tracks once they arrive.
+type searchOverlayAlbumAction int
 
 const (
-	spotAlbumPlay      spotAlbumAction = iota // start the album now
-	spotAlbumAppend                           // add to the end of the queue
-	spotAlbumQueueNext                        // play right after the current track
+	searchOverlayAlbumPlay      searchOverlayAlbumAction = iota // start the album now
+	searchOverlayAlbumAppend                                    // add to the end of the queue
+	searchOverlayAlbumQueueNext                                 // play right after the current track
 )
 
-type spotAlbumTracksMsg struct {
+type searchOverlayAlbumTracksMsg struct {
 	tracks []playlist.Track
 	album  playlist.Track
-	action spotAlbumAction
+	action searchOverlayAlbumAction
 	err    error
 	gen    uint64
 }
 
-// fetchSpotAlbumTracksCmd expands an album placeholder from the search results
+// fetchSearchOverlayAlbumTracksCmd expands an album placeholder from the search results
 // into its tracks. Album entries carry no streamable path of their own, so this
 // runs before the album can reach the player.
-func fetchSpotAlbumTracksCmd(ctx context.Context, loader provider.AlbumTrackLoader, album playlist.Track, action spotAlbumAction, gen uint64) tea.Cmd {
+func fetchSearchOverlayAlbumTracksCmd(ctx context.Context, loader provider.AlbumTrackLoader, album playlist.Track, action searchOverlayAlbumAction, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		var tracks []playlist.Track
 		var err error
@@ -564,68 +533,67 @@ func fetchSpotAlbumTracksCmd(ctx context.Context, loader provider.AlbumTrackLoad
 		} else {
 			tracks, err = loader.AlbumTracks(album.AlbumID())
 		}
-		return spotAlbumTracksMsg{tracks: tracks, album: album, action: action, err: err, gen: gen}
+		return searchOverlayAlbumTracksMsg{tracks: tracks, album: album, action: action, err: err, gen: gen}
 	}
 }
 
-type spotPlaylistsMsg struct {
+type searchOverlayPlaylistsMsg struct {
 	playlists    []playlist.PlaylistInfo
 	err          error
 	providerName string
 	gen          uint64
 }
 
-type spotAddedMsg struct {
+type searchOverlayAddedMsg struct {
 	name         string
 	err          error
 	providerName string
 	gen          uint64
 }
 
-type spotCreatedMsg struct {
+type searchOverlayCreatedMsg struct {
 	name         string
 	err          error
 	providerName string
 	gen          uint64
 }
 
-func fetchSpotSearchCmd(ctx context.Context, s provider.Searcher, providerName, query string, gen uint64) tea.Cmd {
+func fetchSearchOverlayCmd(ctx context.Context, s provider.Searcher, providerName, query string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		tracks, err := s.SearchTracks(ctx, query, 20)
-		return spotSearchResultsMsg{tracks: tracks, err: err, providerName: providerName, query: query, gen: gen}
+		return searchOverlayResultsMsg{tracks: tracks, err: err, providerName: providerName, query: query, gen: gen}
 	}
 }
 
-func fetchSpotPlaylistsCmd(prov playlist.Provider, gen uint64) tea.Cmd {
+func fetchSearchOverlayPlaylistsCmd(prov playlist.Provider, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		playlists, err := prov.Playlists()
-		if err == nil && prov.Name() == "Local" {
-			filtered := playlists[:0]
-			for _, pl := range playlists {
-				if pl.Name != history.PlaylistName {
-					filtered = append(filtered, pl)
-				}
-			}
-			playlists = filtered
+		if err != nil && len(playlists) > 0 {
+			// A partial list, such as playlists without saved albums, still
+			// holds every target the picker needs.
+			err = nil
 		}
-		return spotPlaylistsMsg{playlists: playlists, err: err, providerName: prov.Name(), gen: gen}
+		if err == nil {
+			playlists = playlistTargets(prov, playlists)
+		}
+		return searchOverlayPlaylistsMsg{playlists: playlists, err: err, providerName: prov.Name(), gen: gen}
 	}
 }
 
-func addToSpotPlaylistCmd(ctx context.Context, w provider.PlaylistWriter, playlistID string, track playlist.Track, providerName, name string, gen uint64) tea.Cmd {
+func addToSearchOverlayPlaylistCmd(ctx context.Context, w provider.PlaylistWriter, playlistID string, track playlist.Track, providerName, name string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		err := w.AddTrackToPlaylist(ctx, playlistID, track)
-		return spotAddedMsg{name: name, err: err, providerName: providerName, gen: gen}
+		return searchOverlayAddedMsg{name: name, err: err, providerName: providerName, gen: gen}
 	}
 }
 
-func createSpotPlaylistCmd(ctx context.Context, c provider.PlaylistCreator, w provider.PlaylistWriter, providerName, name string, track playlist.Track, gen uint64) tea.Cmd {
+func createSearchOverlayPlaylistCmd(ctx context.Context, c provider.PlaylistCreator, w provider.PlaylistWriter, providerName, name string, track playlist.Track, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		id, err := c.CreatePlaylist(ctx, name)
 		if err != nil {
-			return spotCreatedMsg{name: name, err: err, providerName: providerName, gen: gen}
+			return searchOverlayCreatedMsg{name: name, err: err, providerName: providerName, gen: gen}
 		}
 		err = w.AddTrackToPlaylist(ctx, id, track)
-		return spotCreatedMsg{name: name, err: err, providerName: providerName, gen: gen}
+		return searchOverlayCreatedMsg{name: name, err: err, providerName: providerName, gen: gen}
 	}
 }

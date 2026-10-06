@@ -1,9 +1,6 @@
 package ui
 
-import (
-	"math"
-	"strings"
-)
+import "math"
 
 // logoGlyphs holds 5×7 pixel bitmaps for each letter in "CLIAMP".
 // Each row is 5 bits wide; bit 4 (0x10) is the leftmost pixel.
@@ -31,9 +28,9 @@ const (
 func (v *Visualizer) renderLogo(bands []float64) string {
 	height := v.Rows
 	dotRows := height * 4
-	dotCols := PanelWidth * 2
+	dotCols := v.columns() * 2
 
-	grid := make([]bool, dotRows*dotCols)
+	grid := v.dotMaskFor(dotRows * dotCols)
 
 	// Scale letters to fill the panel (75% of height for bounce headroom).
 	scaleX := dotCols / logoTotalW
@@ -93,23 +90,5 @@ func (v *Visualizer) renderLogo(bands []float64) string {
 		}
 	}
 
-	// Convert dot grid to Braille characters.
-	lines := make([]string, height)
-	for row := range height {
-		var content strings.Builder
-		for ch := range PanelWidth {
-			var braille rune = '\u2800'
-			for dr := range 4 {
-				for dc := range 2 {
-					if grid[(row*4+dr)*dotCols+ch*2+dc] {
-						braille |= brailleBit[dr][dc]
-					}
-				}
-			}
-			content.WriteRune(braille)
-		}
-		lines[row] = specWrap(float64(height-1-row)/float64(height), content.String())
-	}
-
-	return strings.Join(lines, "\n")
+	return packBraille(grid, dotCols, height, v.columns(), specRowLevel)
 }

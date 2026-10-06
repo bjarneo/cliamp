@@ -1,10 +1,7 @@
 package main
 
 import (
-	"context"
 	"testing"
-
-	"github.com/urfave/cli/v3"
 
 	"github.com/bjarneo/cliamp/external/lyrion"
 )
@@ -44,32 +41,5 @@ func TestIsBufferedProviderURLRejectsLiveStreams(t *testing.T) {
 		if isBufferedProviderURL(u) {
 			t.Errorf("isBufferedProviderURL(%q) = true, want false", u)
 		}
-	}
-}
-
-// The --provider flag validates against an explicit allowlist, so a new
-// provider must be added there as well as registered in run(). Missing it
-// makes `--provider lyrion` and `default_provider = "lyrion"` fail even though
-// the provider itself works.
-func TestProviderFlagAcceptsLyrion(t *testing.T) {
-	app := buildApp()
-	var flagErr error
-	var got string
-	app.Action = func(_ context.Context, c *cli.Command) error {
-		ov, err := overridesFromFlags(c)
-		flagErr = err
-		if err == nil && ov.Provider != nil {
-			got = *ov.Provider
-		}
-		return nil
-	}
-	if err := app.Run(context.Background(), []string{"cliamp", "--provider", "lyrion"}); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if flagErr != nil {
-		t.Fatalf("--provider lyrion rejected: %v", flagErr)
-	}
-	if got != "lyrion" {
-		t.Errorf("resolved provider = %q, want lyrion", got)
 	}
 }

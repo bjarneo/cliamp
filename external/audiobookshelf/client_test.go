@@ -2,10 +2,19 @@ package audiobookshelf
 
 import (
 	"bytes"
+	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
+	"os"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
+	"github.com/bjarneo/cliamp/internal/netdiag"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -514,5 +523,96 @@ func TestSendJSONRetriesOnceAfterUnauthorized(t *testing.T) {
 	}
 	if logins != 2 || patches != 2 {
 		t.Fatalf("logins = %d, patches = %d; want 2 and 2", logins, patches)
+	}
+}
+
+// TestDefaultClientSendsUserAgent verifies that the default HTTP client sends
+// the cliamp User-Agent on the login, GET and PATCH paths.
+func TestDefaultClientSendsUserAgent(t *testing.T) {
+	var mu sync.Mutex
+	agents := map[string]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		agents[r.Method+" "+r.URL.Path] = r.UserAgent()
+		mu.Unlock()
+		switch r.URL.Path {
+		case "/login":
+			io.WriteString(w, `{"user":{"token":"tok"}}`)
+		case "/api/libraries":
+			io.WriteString(w, librariesJSON)
+		default:
+			io.WriteString(w, `{}`)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "", "user", "pw", nil)
+	if err := c.Ping(); err != nil {
+		t.Fatalf("Ping() error: %v", err)
+	}
+	if err := c.UpdateProgress("item-1", "", 10, 100, false); err != nil {
+		t.Fatalf("UpdateProgress() error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{"POST /login", "GET /api/libraries", "PATCH /api/me/progress/item-1"}
+	for _, req := range want {
+		ua, ok := agents[req]
+		if !ok {
+			t.Errorf("server got no %s request, got %v", req, agents)
+			continue
+		}
+		if ua != httpclient.UserAgent {
+			t.Errorf("%s User-Agent = %q, want %q", req, ua, httpclient.UserAgent)
+		}
+	}
+}
+
+// TestDialErrorGetsNetdiagHint verifies that the login, GET and PATCH paths
+// pass a dial failure through netdiag.Explain. On macOS the error then carries
+// the Local Network hint. On other systems it stays the same.
+func TestDialErrorGetsNetdiagHint(t *testing.T) {
+	dialErr := &net.OpError{
+		Op:   "dial",
+		Net:  "tcp",
+		Addr: &net.TCPAddr{IP: net.ParseIP("192.168.1.20"), Port: 13378},
+		Err:  os.NewSyscallError("connect", syscall.EHOSTUNREACH),
+	}
+	want := netdiag.Explain(dialErr).Error()
+
+	tests := []struct {
+		name  string
+		token string
+		call  func(*Client) error
+	}{
+		{"login", "", (*Client).Ping},
+		{"get", "tok", (*Client).Ping},
+		{"patch", "tok", func(c *Client) error { return c.UpdateProgress("item-1", "", 10, 100, false) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := mockClient(tt.token, "user", "pw", nil, func(*http.Request) (*http.Response, error) {
+				return nil, dialErr
+			})
+			err := tt.call(c)
+			if !errors.Is(err, syscall.EHOSTUNREACH) {
+				t.Fatalf("error = %v, want the dial error in the chain", err)
+			}
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error = %q, want it to contain %q", err, want)
+			}
+		})
+	}
+}
+
+func TestPingRejectsOversizedBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"libraries":[{"id":"` + strings.Repeat("x", maxResponseBody) + `"}]}`))
+	}))
+	defer srv.Close()
+
+	if err := NewClient(srv.URL, "token", "", "", nil).Ping(); !errors.Is(err, httpclient.ErrTooLarge) {
+		t.Fatalf("Ping() error = %v, want httpclient.ErrTooLarge", err)
 	}
 }

@@ -17,22 +17,85 @@ import (
 	"github.com/bjarneo/cliamp/tracksave"
 )
 
+// ipcLibraryRequest carries a provider or saved-playlist operation to
+// handleIPCLibrary. Reply receives the result of the job.
+type ipcLibraryRequest struct {
+	Op       string
+	Provider string
+	Playlist string
+	Query    string
+	Artist   string
+	Album    string
+	Sort     string
+	Offset   int
+	Limit    int
+	Index    int
+	NewName  string
+	Track    *ipc.TrackInfo
+	Tracks   []ipc.TrackInfo
+	Context  context.Context
+	Reply    chan ipc.Response
+}
+
+// ipcURLRequest carries url.load to handleIPCURL. Play starts the first
+// added track even when something already plays. Without it the URL is
+// appended and plays only when the player was idle.
+type ipcURLRequest struct {
+	URL     string
+	Play    bool
+	Context context.Context
+	Reply   chan ipc.Response
+}
+
+// ipcSaveRequest, ipcLyricsRequest and ipcHistoryRequest carry the save,
+// lyrics, history and history.clear operations.
+type ipcSaveRequest struct {
+	Context context.Context
+	Reply   chan ipc.Response
+}
+
+type ipcLyricsRequest struct {
+	Context context.Context
+	Reply   chan ipc.Response
+}
+
+type ipcHistoryRequest struct {
+	Op    string
+	Limit int
+	Reply chan ipc.Response
+}
+
 type ipcProviderLoadResult struct {
-	request ipc.LibraryRequestMsg
-	tracks  []playlist.Track
-	loaded  string
-	err     error
+	request  ipcLibraryRequest
+	tracks   []playlist.Track
+	provider string // Name of the provider that served the tracks
+	loaded   string
+	source   string // Provider key and ID for the runtime snapshot
+	err      error
+}
+
+// ipcPlaylistRenamedMsg tells Update that an IPC rename of a playlist of the
+// named provider succeeded. Update follows the rename, then replies.
+type ipcPlaylistRenamedMsg struct {
+	provider         string
+	oldName, newName string
+	reply            chan ipc.Response
+}
+
+// ipcHistoryClearedMsg tells Update that IPC history.clear emptied the
+// history. Update refreshes the views of it, then replies.
+type ipcHistoryClearedMsg struct {
+	reply chan ipc.Response
 }
 
 type ipcURLLoadResult struct {
-	request ipc.URLRequestMsg
+	request ipcURLRequest
 	tracks  []playlist.Track
 	err     error
 }
 
 type ipcFeedLoadResult struct {
-	ctx      context.Context
-	request  ipc.QueueRequestMsg
+	op       string
 	feed     playlist.Track
 	jobs     *ipc.JobStore
 	jobID    string
@@ -41,9 +104,12 @@ type ipcFeedLoadResult struct {
 	err      error
 }
 
-func (m *Model) handleIPCURL(request ipc.URLRequestMsg) tea.Cmd {
+// handleIPCURL resolves the URL of request in a command. A job.cancel request
+// or an IPC server shutdown cancels the request context, which stops the
+// resolve.
+func (m *Model) handleIPCURL(request ipcURLRequest) tea.Cmd {
 	return func() tea.Msg {
-		tracks, err := resolve.URL(request.URL)
+		tracks, err := resolve.URLContext(requestContext(request.Context), request.URL)
 		return ipcURLLoadResult{request: request, tracks: tracks, err: err}
 	}
 }
@@ -64,14 +130,11 @@ func (m *Model) handleIPCURLResult(result ipcURLLoadResult) tea.Cmd {
 	// asked to play a URL hears it even when something is already playing.
 	// Without it the tracks are appended and only start when the player is
 	// idle, which is the right default for a plain append.
-	start := m.playlist.Len()
 	wasStopped := !m.player.IsPlaying()
-	m.playlist.Add(result.tracks...)
-	m.loadedPlaylist = ""
-	m.addToHeaderState(result.tracks)
-	result.request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(result.tracks), Total: len(result.tracks)}
+	start := m.appendTracks(result.tracks...)
+	result.request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(result.tracks, m.trackFavoriteLookup(true)), Total: len(result.tracks)}
 	if result.request.Play {
-		m.player.Stop()
+		m.stopPlayback()
 		m.player.ClearPreload()
 		m.playlist.SetIndex(start)
 		m.plCursor = start
@@ -84,7 +147,7 @@ func (m *Model) handleIPCURLResult(result ipcURLLoadResult) tea.Cmd {
 	return nil
 }
 
-func (m *Model) handleIPCSave(request ipc.SaveRequestMsg) tea.Cmd {
+func (m *Model) handleIPCSave(request ipcSaveRequest) tea.Cmd {
 	track, index := m.currentPlaybackTrack()
 	if index < 0 {
 		request.Reply <- ipc.Response{OK: false, Error: "nothing to save"}
@@ -92,7 +155,7 @@ func (m *Model) handleIPCSave(request ipc.SaveRequestMsg) tea.Cmd {
 	}
 	directory := m.downloadsDirectory
 	return func() tea.Msg {
-		path, err := tracksave.SaveTo(track, directory)
+		path, err := tracksave.SaveTo(requestContext(request.Context), track, directory)
 		if err != nil {
 			request.Reply <- ipc.Response{OK: false, Error: err.Error()}
 		} else {
@@ -102,74 +165,7 @@ func (m *Model) handleIPCSave(request ipc.SaveRequestMsg) tea.Cmd {
 	}
 }
 
-func (m *Model) handleIPCQueue(request ipc.QueueRequestMsg) tea.Cmd {
-	switch request.Op {
-	case "queue.list":
-		request.Reply <- m.ipcQueueResponse()
-	case "queue.play":
-		if request.Index < 0 || request.Index >= m.playlist.Len() {
-			request.Reply <- ipc.Response{OK: false, Error: "queue index out of range"}
-			return nil
-		}
-		m.playlist.SetIndex(request.Index)
-		m.plCursor = request.Index
-		request.Reply <- m.ipcQueueResponse()
-		return m.playCurrentTrack()
-	case "queue.enqueue":
-		if request.Index < 0 || request.Index >= m.playlist.Len() {
-			request.Reply <- ipc.Response{OK: false, Error: "queue index out of range"}
-			return nil
-		}
-		m.playlist.Queue(request.Index)
-		m.normalizeQueueOverlay()
-		request.Reply <- m.ipcQueueResponse()
-		return m.rearmPreload()
-	case "queue.remove":
-		if request.Index == m.playlist.Index() {
-			m.stopPlayback()
-		}
-		if !m.playlist.Remove(request.Index) {
-			request.Reply <- ipc.Response{OK: false, Error: "queue index out of range"}
-			return nil
-		}
-		m.normalizeQueueOverlay()
-		request.Reply <- m.ipcQueueResponse()
-		return m.rearmPreload()
-	case "queue.move":
-		if !m.playlist.Move(request.Index, request.To) {
-			request.Reply <- ipc.Response{OK: false, Error: "invalid queue move"}
-			return nil
-		}
-		m.normalizeQueueOverlay()
-		request.Reply <- m.ipcQueueResponse()
-		return m.rearmPreload()
-	case "queue.clear":
-		m.stopPlayback()
-		m.retireTracksPaging()
-		m.replacePlaylist(nil)
-		m.loadedPlaylist = ""
-		request.Reply <- m.ipcQueueResponse()
-	case "track.play", "track.queue":
-		if request.Track == nil || request.Track.Path == "" {
-			request.Reply <- ipc.Response{OK: false, Error: "track is required"}
-			return nil
-		}
-		track := ipcTrackFromInfo(*request.Track)
-		if track.Feed {
-			return ipcFeedLoadCmd(context.Background(), request, track, nil, "", 0)
-		}
-		request.Reply <- ipc.Response{OK: true}
-		if request.Op == "track.play" {
-			return m.playTrackImmediate(track)
-		}
-		return m.queueTrackNext(track)
-	default:
-		request.Reply <- ipc.Response{OK: false, Error: "unknown queue operation"}
-	}
-	return nil
-}
-
-func ipcFeedLoadCmd(ctx context.Context, request ipc.QueueRequestMsg, feed playlist.Track, jobs *ipc.JobStore, jobID string, revision uint64) tea.Cmd {
+func ipcFeedLoadCmd(ctx context.Context, op string, feed playlist.Track, jobs *ipc.JobStore, jobID string, revision uint64) tea.Cmd {
 	return func() tea.Msg {
 		resolveCtx, cancel := context.WithTimeout(requestContext(ctx), 30*time.Second)
 		defer cancel()
@@ -178,67 +174,44 @@ func ipcFeedLoadCmd(ctx context.Context, request ipc.QueueRequestMsg, feed playl
 			err = resolveCtx.Err()
 		}
 		return ipcFeedLoadResult{
-			ctx: ctx, request: request, feed: feed, jobs: jobs, jobID: jobID, revision: revision,
+			op: op, feed: feed, jobs: jobs, jobID: jobID, revision: revision,
 			tracks: tracks, err: err,
 		}
 	}
 }
 
 func (m *Model) handleIPCFeedLoad(result ipcFeedLoadResult) tea.Cmd {
-	if result.jobs != nil {
-		ctx, ok := result.jobs.Context(result.jobID)
-		if !ok || ctx.Err() != nil {
-			return nil
-		}
-	} else if result.ctx != nil && result.ctx.Err() != nil {
-		result.request.Reply <- ipcResponseError(result.ctx.Err())
+	ctx, ok := result.jobs.Context(result.jobID)
+	if !ok || ctx.Err() != nil {
 		return nil
 	}
 	if result.err == nil && len(result.tracks) == 0 {
 		result.err = fmt.Errorf("no playable episodes found in feed")
 	}
 	if result.err != nil {
-		if result.jobs != nil {
-			err := v2InternalError()
-			err.Detail = result.err.Error()
-			m.failV2Job(result.jobs, result.jobID, err)
-		} else {
-			result.request.Reply <- ipcResponseError(result.err)
-		}
+		err := v2InternalError()
+		err.Detail = result.err.Error()
+		m.failV2Job(result.jobs, result.jobID, err)
 		return nil
 	}
-	if result.jobs != nil && result.revision != 0 && result.revision != m.playlist.Revision() {
+	if result.revision != 0 && result.revision != m.playlist.Revision() {
 		m.failV2Job(result.jobs, result.jobID, v2ConflictError())
 		return nil
 	}
 	// Expand before touching the playlist: playing a feed placeholder would
 	// invoke the legacy feed resolver, which replaces the entire playlist.
 	var cmd tea.Cmd
-	if result.request.Op == "track.play" {
+	if result.op == "track.play" {
 		cmd = m.playAlbumImmediate(result.feed, result.tracks)
 	} else {
 		cmd = m.queueAlbumNext(result.feed, result.tracks)
 	}
-	response := m.v2PlaylistResponse()
-	if result.jobs != nil {
-		// Capture completion with this mutation, not in a later waiter update.
-		m.completeV2Job(result.jobs, result.jobID, response)
-	} else {
-		result.request.Reply <- response
-	}
+	// Capture completion with this mutation, not in a later waiter update.
+	m.completeV2Job(result.jobs, result.jobID, m.v2PlaylistResponse())
 	return cmd
 }
 
-func (m *Model) ipcQueueResponse() ipc.Response {
-	tracks := m.playlist.Tracks()
-	items := make([]ipc.TrackInfo, len(tracks))
-	for i, track := range tracks {
-		items[i] = ipcTrackInfo(track, i, m.playlist.QueuePosition(i))
-	}
-	return ipc.Response{OK: true, Tracks: items, Index: m.playlist.Index(), Total: len(items)}
-}
-
-func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
+func (m *Model) handleIPCLibrary(request ipcLibraryRequest) tea.Cmd {
 	if request.Context != nil && request.Context.Err() != nil {
 		return nil
 	}
@@ -246,7 +219,7 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 		items := make([]ipc.ProviderInfo, 0, len(m.providers))
 		for _, entry := range m.providers {
 			_, searchable := entry.Provider.(provider.Searcher)
-			if _, ok := entry.Provider.(provider.CatalogSearcher); ok {
+			if _, ok := entry.Provider.(stationSearcher); ok {
 				searchable = true
 			}
 			_, browseArtists := entry.Provider.(provider.ArtistBrowser)
@@ -285,7 +258,16 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 			request.Reply <- ipc.Response{OK: false, Error: "provider does not support playlist renaming"}
 			return nil
 		}
-		return ipcMutationCmd(request.Context, request.Reply, func() error { return renamer.RenamePlaylist(request.Playlist, request.NewName) })
+		return func() tea.Msg {
+			if request.Context != nil && request.Context.Err() != nil {
+				return nil
+			}
+			if err := renamer.RenamePlaylist(request.Playlist, request.NewName); err != nil {
+				request.Reply <- ipcResponseError(err)
+				return nil
+			}
+			return ipcPlaylistRenamedMsg{provider: entry.Provider.Name(), oldName: request.Playlist, newName: request.NewName, reply: request.Reply}
+		}
 	case "playlist.delete":
 		deleter, ok := entry.Provider.(provider.PlaylistDeleter)
 		if !ok {
@@ -319,33 +301,18 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 		for i, info := range request.Tracks {
 			tracks[i] = ipcTrackFromInfo(info)
 		}
-		if writer, ok := entry.Provider.(provider.PlaylistBatchWriter); ok {
-			return func() tea.Msg {
-				if request.Context != nil && request.Context.Err() != nil {
-					return nil
-				}
-				added, skipped, err := writer.AddTracksToPlaylist(requestContext(request.Context), request.Playlist, tracks)
-				if err != nil {
-					request.Reply <- ipcResponseError(err)
-				} else {
-					request.Reply <- ipc.Response{OK: true, Total: added, Items: []string{fmt.Sprintf("skipped:%d", skipped)}}
-				}
+		return func() tea.Msg {
+			if request.Context != nil && request.Context.Err() != nil {
 				return nil
 			}
-		}
-		writer, ok := entry.Provider.(provider.PlaylistWriter)
-		if !ok {
-			request.Reply <- ipc.Response{OK: false, Error: "provider does not support adding tracks"}
-			return nil
-		}
-		return ipcMutationCmd(request.Context, request.Reply, func() error {
-			for _, track := range tracks {
-				if err := writer.AddTrackToPlaylist(requestContext(request.Context), request.Playlist, track); err != nil {
-					return err
-				}
+			added, skipped, err := provider.AddTracks(requestContext(request.Context), entry.Provider, request.Playlist, tracks)
+			if err != nil {
+				request.Reply <- ipcResponseError(err)
+			} else {
+				request.Reply <- ipc.Response{OK: true, Total: added, Items: []string{fmt.Sprintf("skipped:%d", skipped)}}
 			}
 			return nil
-		})
+		}
 	case "playlist.replace":
 		saver, ok := entry.Provider.(provider.PlaylistSaver)
 		if !ok {
@@ -358,12 +325,17 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 		}
 		return ipcMutationCmd(request.Context, request.Reply, func() error { return saver.SavePlaylist(request.Playlist, tracks) })
 	case "playlist.bookmark":
-		bookmarks, ok := entry.Provider.(provider.BookmarkSetter)
-		if !ok || request.Track == nil {
-			request.Reply <- ipc.Response{OK: false, Error: "provider does not support bookmarks"}
+		// playlist.bookmark keeps its name for old scripts. It toggles the ♥
+		// favorite of the track, as f does. The track can come from the queue
+		// or from a provider list, so the saved rule applies only to a queue row.
+		if request.Track == nil {
+			request.Reply <- ipc.Response{OK: false, Error: "track is required"}
 			return nil
 		}
-		return ipcMutationCmd(request.Context, request.Reply, func() error { return bookmarks.SetBookmarkByPath(request.Playlist, request.Track.Path) })
+		track := ipcTrackFromInfo(*request.Track)
+		cmd, err := m.togglePlaylistTrackFavorite(track, m.savedPlaylistRow(track))
+		request.Reply <- ipcResponseError(err)
+		return cmd
 	case "provider.playlists":
 		return func() tea.Msg {
 			items, err := ipcProviderPlaylistInfos(entry)
@@ -400,22 +372,25 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 			return nil
 		}
 	case "provider.tracks":
+		favorite := m.trackFavoriteLookup(false)
 		return func() tea.Msg {
 			tracks, err := entry.Provider.Tracks(request.Playlist)
 			if err != nil {
 				request.Reply <- ipc.Response{OK: false, Error: err.Error()}
 			} else {
 				page, total := ipcPage(tracks, request.Offset, request.Limit, 200)
-				request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(page), Total: total}
+				request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(page, favorite), Playlist: request.Playlist, Total: total}
 			}
 			return nil
 		}
 	case "provider.load":
+		name := entry.Provider.Name()
 		return func() tea.Msg {
 			tracks, err := entry.Provider.Tracks(request.Playlist)
-			return ipcProviderLoadResult{request: request, tracks: tracks, loaded: request.Playlist, err: err}
+			return ipcProviderLoadResult{request: request, tracks: tracks, provider: name, loaded: request.Playlist, source: entry.Key + ":" + request.Playlist, err: err}
 		}
 	case "provider.search":
+		favorite := m.trackFavoriteLookup(false)
 		return func() tea.Msg {
 			limit := request.Limit
 			if limit <= 0 || limit > 100 {
@@ -426,7 +401,7 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 				request.Reply <- ipc.Response{OK: false, Error: err.Error()}
 			} else {
 				page, total := ipcPage(tracks, request.Offset, limit, 100)
-				request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(page), Total: total}
+				request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(page, favorite), Total: total}
 			}
 			return nil
 		}
@@ -500,16 +475,18 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 			request.Reply <- ipc.Response{OK: false, Error: "provider does not support album tracks"}
 			return nil
 		}
+		favorite := m.trackFavoriteLookup(false)
+		name := entry.Provider.Name()
 		return func() tea.Msg {
 			tracks, err := loader.AlbumTracks(request.Album)
 			if request.Op == "provider.load_album" {
-				return ipcProviderLoadResult{request: request, tracks: tracks, loaded: "album:" + request.Album, err: err}
+				return ipcProviderLoadResult{request: request, tracks: tracks, provider: name, loaded: "album:" + request.Album, source: entry.Key + ":album:" + request.Album, err: err}
 			}
 			if err != nil {
 				request.Reply <- ipcResponseError(err)
 			} else {
 				page, total := ipcPage(tracks, request.Offset, request.Limit, 200)
-				request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(page), Total: total}
+				request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(page, favorite), Total: total}
 			}
 			return nil
 		}
@@ -530,17 +507,16 @@ func (m *Model) handleIPCLibrary(request ipc.LibraryRequestMsg) tea.Cmd {
 	}
 }
 
-func ipcProviderPlaylistInfos(entry ProviderEntry) ([]ipc.PlaylistInfo, error) {
+func ipcProviderPlaylistInfos(entry provider.Entry) ([]ipc.PlaylistInfo, error) {
 	lists, err := entry.Provider.Playlists()
 	if err != nil {
 		return nil, err
 	}
 	items := make([]ipc.PlaylistInfo, len(lists))
 	for i, list := range lists {
-		items[i] = ipc.PlaylistInfo{ID: list.ID, Name: list.Name, Provider: entry.Key, Section: list.Section, TrackCount: list.TrackCount, DurationSecs: list.DurationSecs}
+		items[i] = ipc.PlaylistInfo{ID: list.ID, Name: list.Name, Provider: entry.Key, Section: list.Section, TrackCount: list.TrackCount, DurationSecs: list.DurationSecs, Favorite: list.Favorite}
 		if sectioned, ok := entry.Provider.(provider.SectionedList); ok {
 			items[i].Favoritable = sectioned.IsFavoritableID(list.ID)
-			items[i].Favorite = strings.HasPrefix(list.ID, "f:")
 		}
 	}
 	return items, nil
@@ -563,35 +539,26 @@ func ipcResponseError(err error) ipc.Response {
 	return ipc.Response{OK: true}
 }
 
+// stationSearcher is a station catalog that can search without the search
+// state of its pane, as the radio provider does with SearchStations.
+type stationSearcher interface {
+	SearchStations(ctx context.Context, query string, limit int) ([]playlist.Track, error)
+}
+
+// ipcSearchProvider runs an IPC search on source with SearchTracks or
+// SearchStations. Neither one changes the search of the pane. A provider with
+// only a catalog search gets an error, because that search replaces the pane
+// search.
 func ipcSearchProvider(ctx context.Context, source playlist.Provider, query string, limit int) ([]playlist.Track, error) {
+	ctx, cancel := context.WithTimeout(requestContext(ctx), 30*time.Second)
+	defer cancel()
 	if searcher, ok := source.(provider.Searcher); ok {
-		ctx, cancel := context.WithTimeout(requestContext(ctx), 30*time.Second)
-		defer cancel()
 		return searcher.SearchTracks(ctx, query, limit)
 	}
-	catalog, ok := source.(provider.CatalogSearcher)
-	if !ok {
-		return nil, fmt.Errorf("provider does not support search")
+	if stations, ok := source.(stationSearcher); ok {
+		return stations.SearchStations(ctx, query, limit)
 	}
-	if _, err := catalog.SearchCatalog(query); err != nil {
-		return nil, err
-	}
-	defer catalog.ClearSearch()
-	lists, err := source.Playlists()
-	if err != nil {
-		return nil, err
-	}
-	if len(lists) > limit {
-		lists = lists[:limit]
-	}
-	tracks := make([]playlist.Track, 0, len(lists))
-	for _, list := range lists {
-		items, err := source.Tracks(list.ID)
-		if err == nil && len(items) > 0 {
-			tracks = append(tracks, items[0])
-		}
-	}
-	return tracks, nil
+	return nil, fmt.Errorf("provider does not support search")
 }
 
 func (m *Model) handleIPCProviderLoad(result ipcProviderLoadResult) tea.Cmd {
@@ -607,12 +574,24 @@ func (m *Model) handleIPCProviderLoad(result ipcProviderLoadResult) tea.Cmd {
 	// append onto the list loaded here.
 	m.retireTracksPaging()
 	m.replacePlaylist(result.tracks)
-	m.loadedPlaylist = result.loaded
+	m.setLoadedLocalPlaylist(result.provider, result.loaded)
+	if m.loadedPlaylist == "" {
+		m.playlistSource = result.source
+	}
 	m.setHeaderStateFromTracks(result.tracks)
 	m.playlist.SetIndex(0)
 	m.plCursor = 0
-	result.request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(result.tracks), Playlist: result.request.Playlist, Total: len(result.tracks)}
+	result.request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(result.tracks, m.trackFavoriteLookup(true)), Playlist: result.request.Playlist, Total: len(result.tracks)}
 	return m.playCurrentTrack()
+}
+
+// handleIPCPlaylistRenamed moves the loaded playlist to the new name when
+// the local provider renamed it, as the manager rename key does.
+func (m *Model) handleIPCPlaylistRenamed(msg ipcPlaylistRenamedMsg) {
+	if m.localProvider != nil && msg.provider == m.localProvider.Name() {
+		m.renameLoadedPlaylist(msg.oldName, msg.newName)
+	}
+	msg.reply <- ipc.Response{OK: true}
 }
 
 func requestContext(ctx context.Context) context.Context {
@@ -634,18 +613,19 @@ func ipcPage[T any](items []T, offset, limit, max int) ([]T, int) {
 	return items[offset:end], total
 }
 
-func (m *Model) handleIPCLyrics(request ipc.LyricsRequestMsg) tea.Cmd {
+// handleIPCLyrics looks up the lyrics of the track that plays in the same
+// order and with the same artist and title as the lyrics overlay.
+func (m *Model) handleIPCLyrics(request ipcLyricsRequest) tea.Cmd {
 	track, idx := m.currentPlaybackTrack()
 	if idx < 0 {
 		request.Reply <- ipc.Response{OK: false, Error: "no current track"}
 		return nil
 	}
+	artist, title := m.lyricsArtistTitle()
+	lookups := lyricsLookups(track, m.trackLyricsSources())
+	ctx := requestContext(request.Context)
 	return func() tea.Msg {
-		lines := lyrics.ParseEmbedded(track.EmbeddedLyrics)
-		var err error
-		if len(lines) == 0 {
-			lines, err = lyrics.Fetch(track.Artist, track.Title)
-		}
+		lines, err := lyrics.Lookup(ctx, track.EmbeddedLyrics, artist, title, lookups...)
 		if err != nil {
 			request.Reply <- ipc.Response{OK: false, Error: err.Error()}
 			return nil
@@ -659,15 +639,19 @@ func (m *Model) handleIPCLyrics(request ipc.LyricsRequestMsg) tea.Cmd {
 	}
 }
 
-func (m *Model) handleIPCHistory(request ipc.HistoryRequestMsg) tea.Cmd {
+func (m *Model) handleIPCHistory(request ipcHistoryRequest) tea.Cmd {
+	favorite := m.trackFavoriteLookup(false)
 	return func() tea.Msg {
 		if m.historyStore == nil {
 			request.Reply <- ipc.Response{OK: true}
 			return nil
 		}
 		if request.Op == "history.clear" {
-			request.Reply <- ipcResponseError(m.historyStore.Clear())
-			return nil
+			if err := m.historyStore.Clear(); err != nil {
+				request.Reply <- ipcResponseError(err)
+				return nil
+			}
+			return ipcHistoryClearedMsg{reply: request.Reply}
 		}
 		entries, err := m.historyStore.Recent(request.Limit)
 		if err != nil {
@@ -676,26 +660,36 @@ func (m *Model) handleIPCHistory(request ipc.HistoryRequestMsg) tea.Cmd {
 		}
 		items := make([]ipc.HistoryInfo, len(entries))
 		for i, entry := range entries {
-			items[i] = ipc.HistoryInfo{Track: ipcTrackInfo(entry.Track, i, 0), PlayedAt: entry.PlayedAt.Format(time.RFC3339)}
+			items[i] = ipc.HistoryInfo{Track: ipcTrackInfo(entry.Track, i, 0, favorite(entry.Track)), PlayedAt: entry.PlayedAt.Format(time.RFC3339)}
 		}
 		request.Reply <- ipc.Response{OK: true, History: items}
 		return nil
 	}
 }
 
-func (m *Model) ipcProvider(key string) (ProviderEntry, bool) {
+// handleIPCHistoryCleared refreshes the views of the emptied history, as a
+// history write does, then replies to history.clear.
+func (m *Model) handleIPCHistoryCleared(msg ipcHistoryClearedMsg) tea.Cmd {
+	cmd := m.refreshHistoryViews()
+	msg.reply <- ipc.Response{OK: true}
+	return cmd
+}
+
+func (m *Model) ipcProvider(key string) (provider.Entry, bool) {
 	for _, entry := range m.providers {
 		if strings.EqualFold(entry.Key, key) {
 			return entry, true
 		}
 	}
-	return ProviderEntry{}, false
+	return provider.Entry{}, false
 }
 
-func ipcTrackInfos(tracks []playlist.Track) []ipc.TrackInfo {
+// ipcTrackInfos converts tracks for IPC. favorite reports the ♥ state of a
+// track, see trackFavoriteLookup.
+func ipcTrackInfos(tracks []playlist.Track, favorite func(playlist.Track) bool) []ipc.TrackInfo {
 	items := make([]ipc.TrackInfo, len(tracks))
 	for i, track := range tracks {
-		items[i] = ipcTrackInfo(track, i, 0)
+		items[i] = ipcTrackInfo(track, i, 0, favorite(track))
 	}
 	return items
 }
@@ -708,13 +702,15 @@ func ipcAlbumInfos(albums []provider.AlbumInfo) []ipc.AlbumInfo {
 	return items
 }
 
-func ipcTrackInfo(track playlist.Track, index, queuePosition int) ipc.TrackInfo {
+// ipcTrackInfo converts a track for IPC. The bookmark field keeps its JSON
+// name for old scripts and reports the ♥ favorite state.
+func ipcTrackInfo(track playlist.Track, index, queuePosition int, favorite bool) ipc.TrackInfo {
 	return ipc.TrackInfo{
 		Title: track.Title, Artist: track.Artist, Album: track.Album, Genre: track.Genre,
 		Path: track.Path, AlbumArtURL: track.AlbumArtURL, Year: track.Year,
 		TrackNumber: track.TrackNumber, DurationSecs: track.DurationSecs, Index: index,
 		QueuePosition: queuePosition, Stream: track.Stream, Realtime: track.Realtime,
-		Feed: track.Feed, Bookmark: track.Bookmark, Unplayable: track.Unplayable,
+		Restricted: track.Restricted, Feed: track.Feed, Bookmark: favorite, Unplayable: track.Unplayable,
 		DirSourced: track.DirSourced, ProviderMeta: maps.Clone(track.ProviderMeta),
 	}
 }
@@ -725,7 +721,7 @@ func ipcTrackFromInfo(info ipc.TrackInfo) playlist.Track {
 		Path: info.Path, AlbumArtURL: info.AlbumArtURL, Year: info.Year,
 		TrackNumber: info.TrackNumber, DurationSecs: info.DurationSecs,
 		Stream: info.Stream || playlist.IsURL(info.Path), Realtime: info.Realtime,
-		Feed: info.Feed, Bookmark: info.Bookmark, Unplayable: info.Unplayable,
+		Restricted: info.Restricted, Feed: info.Feed, Unplayable: info.Unplayable,
 		DirSourced: info.DirSourced, ProviderMeta: maps.Clone(info.ProviderMeta),
 	}
 }

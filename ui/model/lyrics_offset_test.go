@@ -65,7 +65,7 @@ func TestSetLyricsOffset(t *testing.T) {
 }
 
 func TestNudgeLyricsOffsetPersists(t *testing.T) {
-	saver := &recordingConfigSaver{}
+	saver := &recordingSaver{}
 	m := Model{configSaver: saver}
 	m.nudgeLyricsOffset(250 * time.Millisecond)
 	m.nudgeLyricsOffset(250 * time.Millisecond)
@@ -73,7 +73,7 @@ func TestNudgeLyricsOffsetPersists(t *testing.T) {
 	if m.lyrics.offset != 500*time.Millisecond {
 		t.Fatalf("offset = %v, want 0.5s", m.lyrics.offset)
 	}
-	if got := saver.values["lyrics_offset_ms"]; got != "500" {
+	if got := saver.saved["lyrics_offset_ms"]; got != "500" {
 		t.Fatalf("saved value = %q, want 500", got)
 	}
 }

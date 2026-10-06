@@ -1,15 +1,21 @@
 package luaplugin
 
 import (
+	"context"
 	"os/exec"
+	"time"
 
 	lua "github.com/yuin/gopher-lua"
 )
 
+// notifyTimeout bounds one run of notify-send. The time limit of the calling
+// callback can end it sooner.
+const notifyTimeout = 2 * time.Second
+
 // registerNotifyAPI adds cliamp.notify(title, body) which sends a desktop
 // notification via notify-send. Safe alternative to os.execute for this
 // specific use case.
-func registerNotifyAPI(L *lua.LState, cliamp *lua.LTable, logger *pluginLogger, pluginName string) {
+func registerNotifyAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin) {
 	L.SetField(cliamp, "notify", L.NewFunction(func(L *lua.LState) int {
 		title := L.CheckString(1)
 		body := L.OptString(2, "")
@@ -21,13 +27,15 @@ func registerNotifyAPI(L *lua.LState, cliamp *lua.LTable, logger *pluginLogger, 
 
 		path, err := exec.LookPath("notify-send")
 		if err != nil {
-			logger.log(pluginName, "warn", "notify-send not found: %v", err)
+			p.logger.log(p.installName, "warn", "notify-send not found: %v", err)
 			return 0
 		}
 
-		cmd := exec.Command(path, args...)
+		ctx, cancel := context.WithTimeout(callContext(L), notifyTimeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, path, args...)
 		if err := cmd.Run(); err != nil {
-			logger.log(pluginName, "error", "notify-send failed: %v", err)
+			p.logger.log(p.installName, "error", "notify-send failed: %v", err)
 		}
 		return 0
 	}))

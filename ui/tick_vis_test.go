@@ -15,7 +15,7 @@ func TestTickIntervalClassicPeakSettlingUsesAdaptiveCadence(t *testing.T) {
 	driver.peakPos = repeatedClassicPeakSlice(8, 0.5)
 	driver.peakVel = repeatedClassicPeakSlice(8, 0)
 
-	withPanelWidth(t, 8)
+	v.Cols = 8
 
 	if !driver.animating(v) {
 		t.Fatal("animating() = false, want true while ClassicPeak caps are still settling")
@@ -63,7 +63,7 @@ func TestTickClassicPeakStoppedDecayKeepsAnimatingTowardSilence(t *testing.T) {
 	driver.peakVel = repeatedClassicPeakSlice(8, 0)
 	driver.peakHold = repeatedClassicPeakSlice(8, 0)
 
-	withPanelWidth(t, 8)
+	v.Cols = 8
 
 	calls := 0
 	driver.Tick(v, VisTickContext{

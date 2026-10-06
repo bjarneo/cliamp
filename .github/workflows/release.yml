@@ -68,13 +68,15 @@ jobs:
         if: matrix.goos == 'darwin' && matrix.goarch == 'arm64'
         run: brew install flac libvorbis libogg mpg123 pkg-config
 
-      - name: Install deps (macOS amd64 cross)
+      - name: Build static codec libs (macOS amd64 cross)
         if: matrix.goos == 'darwin' && matrix.goarch == 'amd64'
         run: |
-          # Install x86_64 Homebrew under /usr/local via Rosetta 2
-          NONINTERACTIVE=1 arch -x86_64 /bin/bash -c \
-            "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          arch -x86_64 /usr/local/bin/brew install flac libvorbis libogg mpg123 pkg-config
+          # Homebrew no longer installs on Intel macOS, so the x86_64 codec
+          # libraries are built from source and linked statically.
+          brew install pkg-config
+          CODEC_PREFIX="${RUNNER_TEMP}/darwin-amd64-prefix"
+          .github/scripts/build-darwin-amd64-codecs.sh "$CODEC_PREFIX"
+          echo "CODEC_PREFIX=$CODEC_PREFIX" >> "$GITHUB_ENV"
 
       - name: Set up MinGW toolchain (Windows)
         if: matrix.goos == 'windows'
@@ -192,15 +194,21 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           if [ "$GOARCH" = "amd64" ]; then
-            # Cross-compile for x86_64 using Rosetta 2 installed libs
+            # Cross-compile for x86_64 against the static codec libs.
             export CC="clang -arch x86_64"
-            export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig"
-            export CGO_CFLAGS="-I/usr/local/include"
-            export CGO_LDFLAGS="-L/usr/local/lib"
+            export PKG_CONFIG_PATH="${CODEC_PREFIX}/lib/pkgconfig"
+            export MACOSX_DEPLOYMENT_TARGET=11.0
           fi
           BINARY="cliamp-darwin-${GOARCH}"
           VERSION="${GITHUB_REF#refs/tags/}"
           go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "$BINARY" .
+          if [ "$GOARCH" = "amd64" ]; then
+            lipo "$BINARY" -verify_arch x86_64
+            if otool -L "$BINARY" | grep -E '(FLAC|vorbis|ogg|mpg123)'; then
+              echo "codec libraries must be statically linked" >&2
+              exit 1
+            fi
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7.0.1

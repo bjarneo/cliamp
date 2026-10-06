@@ -11,6 +11,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/bjarneo/cliamp/history"
+	"github.com/bjarneo/cliamp/internal/playback"
+	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/ui"
 )
@@ -26,12 +28,14 @@ type playbackFakeEngine struct {
 	position            time.Duration
 	duration            time.Duration
 	lastPlayedDuration  time.Duration
+	seekErr             error
 	seekYTDLErr         error
 	playCalls           []string
 	seekCalls           []time.Duration
 	seekYTDLCalls       []time.Duration
 	playAtOffsets       []time.Duration
 	preloadCalls        []string
+	preloadErr          error
 	clearPreloadCalls   int
 	cancelSeekYTDLCalls int
 	stopCalls           int
@@ -39,19 +43,27 @@ type playbackFakeEngine struct {
 	preloadGeneration   uint64
 	hasPreload          bool
 	eqBands             [eqBandCount]float64
+	speed               float64 // 0 reads as the default speed 1.0
+	volume              float64
+	mono                bool
+	streamTitle         string
+	playErr             error // PlayAt and PlayAtForGeneration fail with it
+	startsAtOffset      bool  // PlayAt moves position to its offset, as a seekable decoder does
 }
 
-func (f *playbackFakeEngine) Play(path string, _ time.Duration) error {
+func (f *playbackFakeEngine) PlayAt(path string, _, offset time.Duration) error {
+	if f.playErr != nil {
+		return f.playErr
+	}
+	f.playAtOffsets = append(f.playAtOffsets, offset)
+	if f.startsAtOffset {
+		f.position = offset
+	}
 	f.playing = true
 	f.paused = false
 	f.playCalls = append(f.playCalls, path)
 	return nil
 }
-func (f *playbackFakeEngine) PlayAt(path string, dur, offset time.Duration) error {
-	f.playAtOffsets = append(f.playAtOffsets, offset)
-	return f.Play(path, dur)
-}
-func (f *playbackFakeEngine) PlayYTDL(string, time.Duration) error { return nil }
 func (f *playbackFakeEngine) SetPlaybackGeneration(generation uint64) {
 	f.playGeneration = generation
 }
@@ -61,37 +73,21 @@ func (f *playbackFakeEngine) PlayAtForGeneration(path string, dur, offset time.D
 	}
 	return f.PlayAt(path, dur, offset)
 }
-func (f *playbackFakeEngine) PlayYTDLForGeneration(_ string, _ time.Duration, generation uint64) error {
-	if f.playGeneration != generation {
-		return nil
-	}
-	return nil
-}
-func (f *playbackFakeEngine) Preload(path string, _ time.Duration) error {
-	f.preloadCalls = append(f.preloadCalls, path)
-	return nil
-}
-func (f *playbackFakeEngine) PreloadYTDL(string, time.Duration) error { return nil }
 func (f *playbackFakeEngine) BeginPreload() uint64 {
 	f.preloadGeneration++
 	return f.preloadGeneration
 }
-func (f *playbackFakeEngine) PreloadForGeneration(path string, dur time.Duration, generation uint64) error {
-	if f.preloadGeneration != generation {
-		return nil
-	}
-	return f.Preload(path, dur)
-}
-func (f *playbackFakeEngine) PreloadYTDLForGeneration(path string, _ time.Duration, generation uint64) error {
+func (f *playbackFakeEngine) PreloadForGeneration(path string, _ time.Duration, generation uint64) error {
 	if f.preloadGeneration != generation {
 		return nil
 	}
 	f.preloadCalls = append(f.preloadCalls, path)
-	return nil
+	return f.preloadErr
 }
 func (f *playbackFakeEngine) ClearPreload() {
 	f.clearPreloadCalls++
 	f.preloadGeneration++
+	f.hasPreload = false
 }
 func (f *playbackFakeEngine) Stop() {
 	f.stopCalls++
@@ -101,7 +97,7 @@ func (f *playbackFakeEngine) Close()       {}
 func (f *playbackFakeEngine) TogglePause() { f.paused = !f.paused }
 func (f *playbackFakeEngine) Seek(d time.Duration) error {
 	f.seekCalls = append(f.seekCalls, d)
-	return nil
+	return f.seekErr
 }
 func (f *playbackFakeEngine) SeekYTDL(d time.Duration) error {
 	f.seekYTDLCalls = append(f.seekYTDLCalls, d)
@@ -113,7 +109,6 @@ func (f *playbackFakeEngine) IsPaused() bool     { return f.paused }
 func (f *playbackFakeEngine) Drained() bool      { return f.drained }
 func (f *playbackFakeEngine) HasPreload() bool   { return f.hasPreload }
 func (f *playbackFakeEngine) Seekable() bool     { return f.seekable }
-func (f *playbackFakeEngine) IsStreamSeek() bool { return false }
 func (f *playbackFakeEngine) IsYTDLSeek() bool   { return f.ytdlSeek }
 func (f *playbackFakeEngine) IsLiveStream() bool { return f.live }
 func (f *playbackFakeEngine) GaplessAdvanced() bool {
@@ -131,21 +126,28 @@ func (f *playbackFakeEngine) PositionAndDuration() (time.Duration, time.Duration
 }
 func (f *playbackFakeEngine) SetVolumeMin(float64)                   {}
 func (f *playbackFakeEngine) VolumeMin() float64                     { return -50 }
-func (f *playbackFakeEngine) SetVolume(float64)                      {}
-func (f *playbackFakeEngine) Volume() float64                        { return 0 }
-func (f *playbackFakeEngine) SetSpeed(float64)                       {}
-func (f *playbackFakeEngine) Speed() float64                         { return 1 }
-func (f *playbackFakeEngine) ToggleMono()                            {}
-func (f *playbackFakeEngine) Mono() bool                             { return false }
+func (f *playbackFakeEngine) SetVolume(db float64)                   { f.volume = db }
+func (f *playbackFakeEngine) Volume() float64                        { return f.volume }
+func (f *playbackFakeEngine) ToggleMono()                            { f.mono = !f.mono }
+func (f *playbackFakeEngine) Mono() bool                             { return f.mono }
 func (f *playbackFakeEngine) SetEQBand(band int, gain float64)       { f.eqBands[band] = gain }
 func (f *playbackFakeEngine) EQBands() [10]float64                   { return f.eqBands }
 func (f *playbackFakeEngine) StreamErr() error                       { return nil }
-func (f *playbackFakeEngine) StreamTitle() string                    { return "" }
+func (f *playbackFakeEngine) StreamTitle() string                    { return f.streamTitle }
 func (f *playbackFakeEngine) StreamBytes() (downloaded, total int64) { return 0, 0 }
 func (f *playbackFakeEngine) SamplesInto([]float64) int              { return 0 }
 func (f *playbackFakeEngine) WaveformSamplesInto([]float64) int      { return 0 }
 func (f *playbackFakeEngine) StereoSamplesInto([][2]float64) int     { return 0 }
 func (f *playbackFakeEngine) SampleRate() int                        { return 44100 }
+
+// SetSpeed clamps like player.Player, so the speed keys see the same limits.
+func (f *playbackFakeEngine) SetSpeed(ratio float64) { f.speed = max(min(ratio, 2.0), 0.25) }
+func (f *playbackFakeEngine) Speed() float64 {
+	if f.speed == 0 {
+		return 1
+	}
+	return f.speed
+}
 
 func TestApplyResumeRestartsMixcloudAtSavedPosition(t *testing.T) {
 	track := playlist.Track{
@@ -320,6 +322,58 @@ func TestQuitCapturesMixcloudResumePosition(t *testing.T) {
 	gotContext, gotIndex := m.ResumeContext()
 	if len(gotContext) != 3 || gotIndex != 1 || gotContext[gotIndex].Path != track.Path {
 		t.Fatalf("exit context = len:%d index:%d tracks:%+v", len(gotContext), gotIndex, gotContext)
+	}
+}
+
+// Quit keeps a resume position only for a track that can seek back to it. A
+// live stream has no position to return to, also when only the player knows
+// that it is live.
+func TestQuitResumeSkipsLiveStreams(t *testing.T) {
+	tests := []struct {
+		name   string
+		track  playlist.Track
+		engine playbackFakeEngine
+		want   bool
+	}{
+		{name: "local file", track: playlist.Track{Path: "/music/song.flac"}, want: true},
+		{name: "podcast stream", track: playlist.Track{Path: "https://cdn.example.com/ep.mp3", Stream: true}, engine: playbackFakeEngine{duration: time.Hour}, want: true},
+		{name: "radio station", track: playlist.Track{Path: "https://radio.example.com/live", Stream: true, Realtime: true}},
+		{name: "stream the player found live", track: playlist.Track{Path: "https://radio.example.com/live", Stream: true}, engine: playbackFakeEngine{live: true}},
+		{name: "youtube video", track: playlist.Track{Path: "https://www.youtube.com/watch?v=a", Stream: true}, engine: playbackFakeEngine{duration: time.Hour}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := tt.engine
+			engine.playing, engine.position = true, 42*time.Second
+			m := Model{player: &engine, playingTrack: tt.track, playingTrackActive: true}
+
+			m.quit()
+			if saved := m.exitResume.path == tt.track.Path && m.exitResume.secs == 42; saved != tt.want {
+				t.Fatalf("exit resume = (%q, %d), want saved %v", m.exitResume.path, m.exitResume.secs, tt.want)
+			}
+		})
+	}
+}
+
+// The quit message of media controls and headless signals keeps the resume
+// position, as the q key does.
+func TestQuitMsgCapturesResumePosition(t *testing.T) {
+	track := playlist.Track{Title: "Song", Path: "/music/song.flac", DurationSecs: 240}
+	pl := playlist.New()
+	pl.Add(track)
+	player := &playbackFakeEngine{playing: true, position: 42 * time.Second}
+	m := Model{player: player, playlist: pl}
+
+	updated, cmd := m.Update(playback.QuitMsg{})
+	m = updated.(Model)
+	if path, secs, _ := m.ResumeState(); path != track.Path || secs != 42 {
+		t.Fatalf("resume state = (%q, %d), want (%q, 42)", path, secs, track.Path)
+	}
+	if cmd == nil {
+		t.Fatal("QuitMsg returned no command, want tea.Quit")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok || !m.quitting {
+		t.Fatalf("quitting = %v, want a quit", m.quitting)
 	}
 }
 
@@ -510,11 +564,109 @@ func TestTogglePlayPauseReconnectsLongPausedYTDLAtCurrentPosition(t *testing.T) 
 	if len(player.seekYTDLCalls) != 1 || player.seekYTDLCalls[0] != 0 {
 		t.Fatalf("seekYTDLCalls = %v, want [0]", player.seekYTDLCalls)
 	}
-	if player.paused {
-		t.Fatal("player stayed paused after reconnect command")
+	if !player.paused {
+		t.Fatal("reconnect command unpaused the player, want the Update loop to do it")
 	}
 	if !m.seek.active || m.seek.targetPos != 90*time.Second {
 		t.Fatalf("seek state = active:%v target:%s, want active target 1m30s", m.seek.active, m.seek.targetPos)
+	}
+}
+
+// The unpause of a yt-dlp reconnect belongs to the track that it reconnected.
+// A skip or a stop while yt-dlp restarts keeps the engine and the seek state
+// that the skip or the stop left.
+func TestYTDLUnpauseReconnectFollowsThePlayback(t *testing.T) {
+	var second tea.Cmd
+	tests := []struct {
+		name           string
+		during         func(m *Model)
+		wantPlaying    bool
+		wantPaused     bool
+		wantSeekActive bool
+		wantSeekTimer  int
+		wantPath       string
+	}{
+		{
+			name:        "reconnect lands",
+			during:      func(*Model) {},
+			wantPlaying: true,
+			wantPath:    "https://music.youtube.com/watch?v=dQw4w9WgXcQ",
+		},
+		{
+			name: "skip during the reconnect",
+			during: func(m *Model) {
+				m.skipNext()
+				// A debounced seek waits on the new track.
+				m.seek.active = true
+				m.seek.timer = seekDebounceTicks
+			},
+			wantPlaying:    true,
+			wantSeekActive: true,
+			wantSeekTimer:  seekDebounceTicks,
+			wantPath:       "two.mp3",
+		},
+		{
+			name:   "stop during the reconnect",
+			during: func(m *Model) { m.stopByUser() },
+		},
+		{
+			name:        "second unpause during the reconnect",
+			during:      func(m *Model) { second = m.togglePlayPause() },
+			wantPlaying: true,
+			wantPath:    "https://music.youtube.com/watch?v=dQw4w9WgXcQ",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			player := &playbackFakeEngine{playing: true, paused: true, ytdlSeek: true, position: 90 * time.Second}
+			p := playlist.New()
+			p.Replace([]playlist.Track{
+				{Title: "One", Path: "https://music.youtube.com/watch?v=dQw4w9WgXcQ", Stream: true, DurationSecs: 180},
+				{Title: "Two", Path: "two.mp3"},
+			})
+			p.SetIndex(0)
+			m := Model{
+				player:   player,
+				playlist: p,
+				vis:      ui.NewVisualizer(float64(player.SampleRate())),
+				pausedAt: time.Now().Add(-ytdlReconnectPauseThreshold),
+			}
+			m.setPlaybackTrack(p.Tracks()[0])
+
+			cmd := m.togglePlayPause()
+			if cmd == nil {
+				t.Fatal("togglePlayPause() = nil, want reconnect command")
+			}
+			second = nil
+			tt.during(&m)
+			for _, c := range []tea.Cmd{cmd, second} {
+				if c == nil {
+					continue
+				}
+				msg, ok := c().(ytdlUnpauseReconnectMsg)
+				if !ok {
+					t.Fatal("reconnect command did not return ytdlUnpauseReconnectMsg")
+				}
+				m.handleYTDLUnpauseReconnect(msg)
+			}
+
+			if player.playing != tt.wantPlaying || player.paused != tt.wantPaused {
+				t.Fatalf("engine = playing %v paused %v, want playing %v paused %v",
+					player.playing, player.paused, tt.wantPlaying, tt.wantPaused)
+			}
+			if m.seek.active != tt.wantSeekActive || m.seek.timer != tt.wantSeekTimer {
+				t.Fatalf("seek = active %v timer %d, want active %v timer %d",
+					m.seek.active, m.seek.timer, tt.wantSeekActive, tt.wantSeekTimer)
+			}
+			if tt.wantPlaying {
+				if track, _ := m.currentPlaybackTrack(); track.Path != tt.wantPath {
+					t.Fatalf("playing %q, want %q", track.Path, tt.wantPath)
+				}
+				if !m.pausedAt.IsZero() {
+					t.Fatal("pausedAt still set, want it cleared for the playing track")
+				}
+			}
+		})
 	}
 }
 
@@ -796,6 +948,198 @@ func TestDrainedLiveStreamReconnectsCurrentStation(t *testing.T) {
 	}
 }
 
+func newYTDLLiveDrainModel(player *playbackFakeEngine) Model {
+	p := playlist.New()
+	p.Replace([]playlist.Track{
+		{Title: "Live", Path: "https://music.youtube.com/watch?v=live1", Stream: true, Realtime: true},
+		{Title: "Next", Path: "https://music.youtube.com/watch?v=next1", Stream: true, DurationSecs: 100},
+	})
+	p.SetIndex(0)
+	m := Model{
+		player:   player,
+		playlist: p,
+		vis:      ui.NewVisualizer(float64(player.SampleRate())),
+	}
+	m.SetVisualizer("none")
+	return m
+}
+
+func TestDrainedYTDLLiveStreamReconnectsInPlace(t *testing.T) {
+	m := newYTDLLiveDrainModel(&playbackFakeEngine{playing: true, drained: true})
+
+	now := time.Now()
+	updated, _ := m.Update(tickMsg(now))
+	m = updated.(Model)
+
+	if got := m.playlist.Index(); got != 0 {
+		t.Fatalf("playlist index = %d, want 0 after live stream drained", got)
+	}
+	if m.reconnect.at.IsZero() || !m.reconnect.at.After(now) {
+		t.Fatalf("reconnect time = %v, want a future retry", m.reconnect.at)
+	}
+}
+
+// The live flag is a listing-time snapshot that favorites and saved playlists
+// keep. Once the URL serves the finished recording the player knows its
+// duration, and the drain is a normal end of track.
+func TestDrainedYTDLRecordingWithStaleLiveFlagAdvances(t *testing.T) {
+	m := newYTDLLiveDrainModel(&playbackFakeEngine{playing: true, drained: true, duration: 90 * time.Minute})
+
+	updated, _ := m.Update(tickMsg(time.Now()))
+	m = updated.(Model)
+
+	if got := m.playlist.Index(); got != 1 {
+		t.Fatalf("playlist index = %d, want 1 after the recording finished", got)
+	}
+	if !m.reconnect.at.IsZero() {
+		t.Fatalf("reconnect time = %v, want none", m.reconnect.at)
+	}
+}
+
+// failYTDLLiveRestart fires the pending reconnect and reports the restart as failed.
+func failYTDLLiveRestart(t *testing.T, m Model, path string) Model {
+	t.Helper()
+	if m.reconnect.at.IsZero() {
+		t.Fatal("no restart scheduled")
+	}
+	updated, _ := m.Update(tickMsg(m.reconnect.at.Add(time.Millisecond)))
+	m = updated.(Model)
+	updated, _ = m.Update(streamPlayedMsg{path: path, gen: m.requests.stream, err: errors.New("This live stream recording is not available.")})
+	return updated.(Model)
+}
+
+// A failed restart may be a network outage rather than the end of the
+// broadcast, so the stream gets backed-off retries before playback advances.
+func TestYTDLLiveStreamThatCannotRestartRetriesThenAdvances(t *testing.T) {
+	player := &playbackFakeEngine{playing: true, drained: true}
+	m := newYTDLLiveDrainModel(player)
+	livePath := m.playlist.Tracks()[0].Path
+
+	now := time.Now()
+	updated, _ := m.Update(tickMsg(now))
+	m = updated.(Model)
+	player.drained = false
+
+	var delays []time.Duration
+	for i := 0; i < ytdlLiveDrainRestarts; i++ {
+		if got := m.playlist.Index(); got != 0 {
+			t.Fatalf("playlist index = %d before restart %d, want 0", got, i+1)
+		}
+		before := time.Now()
+		if i == 0 {
+			before = now
+		}
+		delays = append(delays, m.reconnect.at.Sub(before).Round(time.Second))
+		m = failYTDLLiveRestart(t, m, livePath)
+	}
+
+	if want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second}; !slices.Equal(delays, want) {
+		t.Fatalf("restart delays = %v, want %v", delays, want)
+	}
+	if got := m.playlist.Index(); got != 1 {
+		t.Fatalf("playlist index = %d, want 1 after %d failed restarts", got, ytdlLiveDrainRestarts)
+	}
+	if m.reconnect.ytdlLiveDrain || m.reconnect.attempts != 0 {
+		t.Fatalf("reconnect state = %+v, want cleared for the next track", m.reconnect)
+	}
+}
+
+func TestYTDLLiveStreamRestartThatSucceedsStaysOnStream(t *testing.T) {
+	player := &playbackFakeEngine{playing: true, drained: true}
+	m := newYTDLLiveDrainModel(player)
+	livePath := m.playlist.Tracks()[0].Path
+
+	updated, _ := m.Update(tickMsg(time.Now()))
+	m = updated.(Model)
+	player.drained = false
+	m = failYTDLLiveRestart(t, m, livePath)
+	updated, _ = m.Update(tickMsg(m.reconnect.at.Add(time.Millisecond)))
+	m = updated.(Model)
+	updated, _ = m.Update(streamPlayedMsg{path: livePath, gen: m.requests.stream})
+	m = updated.(Model)
+
+	if got := m.playlist.Index(); got != 0 {
+		t.Fatalf("playlist index = %d, want 0 after the stream came back", got)
+	}
+	if m.reconnect.ytdlLiveDrain || m.reconnect.attempts != 0 || !m.reconnect.at.IsZero() {
+		t.Fatalf("reconnect state = %+v, want cleared after a successful restart", m.reconnect)
+	}
+}
+
+// When the ended stream was the last track nothing else will report the
+// stop, so the media controls must already show it.
+func TestYTDLLiveStreamThatEndsTheQueueNotifiesStopped(t *testing.T) {
+	player := &playbackFakeEngine{playing: true, drained: true}
+	m := newYTDLLiveDrainModel(player)
+	m.playlist.Replace(m.playlist.Tracks()[:1])
+	m.playlist.SetIndex(0)
+	notifier := &fakeNotifier{}
+	m.notifier = notifier
+	livePath := m.playlist.Tracks()[0].Path
+
+	updated, _ := m.Update(tickMsg(time.Now()))
+	m = updated.(Model)
+	player.drained = false
+	for i := 0; i < ytdlLiveDrainRestarts; i++ {
+		m = failYTDLLiveRestart(t, m, livePath)
+	}
+
+	if len(notifier.updates) == 0 {
+		t.Fatal("no playback notification after the last restart failed and the queue ended")
+	}
+	last := notifier.updates[len(notifier.updates)-1]
+	if last.Status != playback.StatusStopped {
+		t.Fatalf("last notified status = %v, want stopped", last.Status)
+	}
+	if _, now := m.playbackState(); last.Track != now.Track {
+		t.Fatalf("last notified track = %+v, want the current %+v", last.Track, now.Track)
+	}
+}
+
+// A start the user asked for that fails stays put, as before.
+func TestYTDLLiveStreamFailedFirstStartDoesNotAdvance(t *testing.T) {
+	player := &playbackFakeEngine{}
+	m := newYTDLLiveDrainModel(player)
+	track, _ := m.playlist.Current()
+
+	m.playTrack(track)
+	updated, _ := m.Update(streamPlayedMsg{path: track.Path, gen: m.requests.stream, err: errors.New("unavailable")})
+	m = updated.(Model)
+
+	if got := m.playlist.Index(); got != 0 {
+		t.Fatalf("playlist index = %d, want 0 after a failed first start", got)
+	}
+}
+
+// Playing another track while a drained live stream waits to restart ends the
+// retries, so that track's own failed start stays put like any other.
+func TestPlayDuringYTDLLiveRestartWaitDoesNotInheritRetries(t *testing.T) {
+	player := &playbackFakeEngine{playing: true, drained: true}
+	m := newYTDLLiveDrainModel(player)
+	livePath := m.playlist.Tracks()[0].Path
+
+	updated, _ := m.Update(tickMsg(time.Now()))
+	m = updated.(Model)
+	player.drained = false
+	m = failYTDLLiveRestart(t, m, livePath)
+
+	m.playlist.SetIndex(1)
+	next, _ := m.playlist.Current()
+	m.playTrack(next)
+	updated, _ = m.Update(streamPlayedMsg{path: next.Path, gen: m.requests.stream, err: errors.New("unavailable")})
+	m = updated.(Model)
+
+	if got := m.playlist.Index(); got != 1 {
+		t.Fatalf("playlist index = %d, want 1 after the chosen track failed to start", got)
+	}
+	if m.reconnect.ytdlLiveDrain || !m.reconnect.at.IsZero() {
+		t.Fatalf("reconnect state = %+v, want no retry for a track the user started", m.reconnect)
+	}
+	if m.err == nil {
+		t.Fatal("err = nil, want the failed start reported")
+	}
+}
+
 func TestGaplessAdvanceDoesNotAlsoDrainNextTrack(t *testing.T) {
 	player := &playbackFakeEngine{playing: true, gaplessAdvanced: true, drained: true}
 	p := playlist.New()
@@ -994,7 +1338,7 @@ func TestGaplessAdvanceRecordsNewTrackEvenWithoutDuration(t *testing.T) {
 }
 
 func TestQueueToggleRearmsGaplessPreload(t *testing.T) {
-	player := &playbackFakeEngine{playing: true}
+	player := &playbackFakeEngine{playing: true, hasPreload: true}
 	p := playlist.New()
 	p.Replace([]playlist.Track{
 		{Title: "Playing", Path: "a.mp3", DurationSecs: 180},
@@ -1002,9 +1346,10 @@ func TestQueueToggleRearmsGaplessPreload(t *testing.T) {
 		{Title: "Queued", Path: "c.mp3", DurationSecs: 180},
 	})
 	m := Model{
-		player:   player,
-		playlist: p,
-		plCursor: 2,
+		player:     player,
+		playlist:   p,
+		plCursor:   2,
+		preloadFor: "b.mp3",
 	}
 
 	cmd := m.handleKey(tea.KeyPressMsg{Text: "a"})
@@ -1020,5 +1365,258 @@ func TestQueueToggleRearmsGaplessPreload(t *testing.T) {
 	cmd()
 	if len(player.preloadCalls) != 1 || player.preloadCalls[0] != "c.mp3" {
 		t.Fatalf("preloadCalls = %v, want [c.mp3] (queued track, not order-next b.mp3)", player.preloadCalls)
+	}
+}
+
+// A preload that fails is not retried on every tick. A new track starting gives
+// it another try, and a different next track is still armed.
+func TestFailedPreloadIsNotRetriedEveryTick(t *testing.T) {
+	failed := func(t *testing.T) (Model, *playbackFakeEngine) {
+		t.Helper()
+		player := &playbackFakeEngine{playing: true, preloadErr: errors.New("decode failed")}
+		p := playlist.New()
+		p.Replace([]playlist.Track{
+			{Title: "A", Path: "a.mp3", DurationSecs: 180},
+			{Title: "B", Path: "b.mp3", DurationSecs: 180},
+			{Title: "C", Path: "c.mp3", DurationSecs: 180},
+		})
+		p.SetIndex(0)
+		m := Model{player: player, playlist: p, vis: ui.NewVisualizer(float64(player.SampleRate()))}
+		m.SetVisualizer("none")
+		m.setPlaybackTrack(p.Tracks()[0])
+
+		cmd := m.preloadNext()
+		if cmd == nil {
+			t.Fatal("preloadNext() = nil, want b.mp3 preload")
+		}
+		updated, _ := m.Update(cmd())
+		m = updated.(Model)
+		for range 3 {
+			updated, _ = m.Update(tickMsg(time.Now()))
+			m = updated.(Model)
+			if m.preloading {
+				t.Fatal("tick started the failed b.mp3 preload again")
+			}
+		}
+		if len(player.preloadCalls) != 1 || player.preloadCalls[0] != "b.mp3" {
+			t.Fatalf("preloadCalls = %v, want one failed attempt for b.mp3", player.preloadCalls)
+		}
+		return m, player
+	}
+
+	t.Run("new track retries", func(t *testing.T) {
+		m, _ := failed(t)
+		updated, _ := m.Update(PluginQueueMsg{Op: "jump", Index: 0})
+		if !updated.(Model).preloading {
+			t.Fatal("b.mp3 was not preloaded again after a new track started")
+		}
+	})
+
+	t.Run("different next track is armed", func(t *testing.T) {
+		m, player := failed(t)
+		player.preloadErr = nil
+		updated, _ := m.Update(PluginQueueMsg{Op: "remove", Index: 1})
+		updated, _ = updated.(Model).Update(tickMsg(time.Now()))
+		if !updated.(Model).preloading {
+			t.Fatal("tick did not arm c.mp3 after the failed b.mp3 was removed")
+		}
+	})
+}
+
+// A reconnect already scheduled when the user stops must not start playback
+// again once its timer fires.
+func TestStopCancelsScheduledReconnect(t *testing.T) {
+	player := &playbackFakeEngine{playing: true, drained: true}
+	p := playlist.New()
+	p.Replace([]playlist.Track{
+		{Title: "Station 1", Path: "https://example.com/one", Stream: true, Realtime: true},
+		{Title: "Station 2", Path: "https://example.com/two", Stream: true, Realtime: true},
+	})
+	p.SetIndex(0)
+
+	m := Model{
+		player:   player,
+		playlist: p,
+		vis:      ui.NewVisualizer(float64(player.SampleRate())),
+	}
+	m.SetVisualizer("none")
+
+	updated, _ := m.Update(tickMsg(time.Now()))
+	m = updated.(Model)
+	retryAt := m.reconnect.at
+	if retryAt.IsZero() {
+		t.Fatal("no reconnect scheduled after the live stream drained")
+	}
+	m.handleKey(tea.KeyPressMsg{Text: "s"})
+	player.drained = false
+	updated, _ = m.Update(tickMsg(retryAt.Add(time.Millisecond)))
+	m = updated.(Model)
+
+	if len(player.playCalls) != 0 || m.buffering {
+		t.Fatalf("play calls = %v, buffering = %v after stop; want nothing started", player.playCalls, m.buffering)
+	}
+	if m.err != nil {
+		t.Fatalf("err = %v after stop, want the pending reconnect message cleared", m.err)
+	}
+}
+
+// Stopping while a drained yt-dlp live stream waits to retry ends the retries
+// instead of letting them restart it or advance to the next track.
+func TestStopCancelsYTDLLiveRestartRetries(t *testing.T) {
+	player := &playbackFakeEngine{playing: true, drained: true}
+	m := newYTDLLiveDrainModel(player)
+	livePath := m.playlist.Tracks()[0].Path
+
+	updated, _ := m.Update(tickMsg(time.Now()))
+	m = updated.(Model)
+	player.drained = false
+	m = failYTDLLiveRestart(t, m, livePath)
+	retryAt := m.reconnect.at
+	playsBeforeStop := len(player.playCalls)
+
+	m.handleKey(tea.KeyPressMsg{Text: "s"})
+	updated, _ = m.Update(tickMsg(retryAt.Add(time.Millisecond)))
+	m = updated.(Model)
+
+	if got := m.playlist.Index(); got != 0 {
+		t.Fatalf("playlist index = %d after stop, want 0", got)
+	}
+	if len(player.playCalls) != playsBeforeStop || m.buffering {
+		t.Fatalf("play calls = %v, buffering = %v after stop; want nothing started", player.playCalls, m.buffering)
+	}
+	if m.reconnect != (reconnectState{}) {
+		t.Fatalf("reconnect state = %+v after stop, want cleared", m.reconnect)
+	}
+}
+
+// Stop clears only the reconnect's own message, not an error shown after it.
+func TestStopKeepsErrorShownDuringReconnect(t *testing.T) {
+	player := &playbackFakeEngine{playing: true, drained: true}
+	p := playlist.New()
+	p.Replace([]playlist.Track{
+		{Title: "Station 1", Path: "https://example.com/one", Stream: true, Realtime: true},
+	})
+	p.SetIndex(0)
+
+	m := Model{
+		player:   player,
+		playlist: p,
+		vis:      ui.NewVisualizer(float64(player.SampleRate())),
+	}
+	m.SetVisualizer("none")
+
+	updated, _ := m.Update(tickMsg(time.Now()))
+	m = updated.(Model)
+	if m.reconnect.at.IsZero() {
+		t.Fatal("no reconnect scheduled after the live stream drained")
+	}
+	player.drained = false
+	failure := errors.New("provider failed")
+	updated, _ = m.Update(feedTrackResolvedMsg{err: failure})
+	m = updated.(Model)
+	m.handleKey(tea.KeyPressMsg{Text: "s"})
+
+	if m.err == nil || !strings.Contains(m.err.Error(), "provider failed") {
+		t.Fatalf("err = %v after stop, want provider failed kept", m.err)
+	}
+}
+
+// cliamp.track.is_live() and the Model share this rule, so a plugin sees a
+// finished recording with a stale yt-dlp live flag as the finite track it is.
+func TestPlaysLive(t *testing.T) {
+	ytdl := "https://music.youtube.com/watch?v=live1"
+	tests := []struct {
+		name   string
+		track  playlist.Track
+		engine *playbackFakeEngine
+		want   bool
+	}{
+		{"yt-dlp live stream", playlist.Track{Path: ytdl, Stream: true, Realtime: true}, &playbackFakeEngine{}, true},
+		{"yt-dlp recording with a stale live flag", playlist.Track{Path: ytdl, Stream: true, Realtime: true}, &playbackFakeEngine{duration: 90 * time.Minute}, false},
+		{"radio station", playlist.Track{Path: "https://example.com/radio", Stream: true, Realtime: true}, &playbackFakeEngine{duration: time.Minute}, true},
+		{"stream the player detected as live", playlist.Track{Path: "https://example.com/stream", Stream: true}, &playbackFakeEngine{live: true}, true},
+		{"ordinary track", playlist.Track{Path: "/music/song.flac"}, &playbackFakeEngine{duration: 3 * time.Minute}, false},
+		{"yt-dlp live stream with no player", playlist.Track{Path: ytdl, Stream: true, Realtime: true}, nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var engine player.Engine
+			if tt.engine != nil {
+				engine = tt.engine
+			}
+			if got := playsLive(tt.track, engine); got != tt.want {
+				t.Fatalf("playsLive() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestNextTrackRulesAgree checks that the preload, a skip or drain through
+// nextTrack, and a gapless switch all pick the same next track. After a
+// replace detached the playing track, that is the selected row of the new
+// list, or the first playable row after it.
+func TestNextTrackRulesAgree(t *testing.T) {
+	playing := playlist.Track{Title: "Playing", Path: "playing.mp3"}
+	missing := playlist.Track{Title: "Missing", Path: "missing.mp3", Unplayable: true}
+	a := playlist.Track{Title: "A", Path: "a.mp3"}
+	b := playlist.Track{Title: "B", Path: "b.mp3"}
+	tests := []struct {
+		name     string
+		tracks   []playlist.Track // the list the playing track came from
+		detachTo []playlist.Track // the list that replaced it, when not nil
+		want     string           // the path that plays next, or "" at the end
+	}{
+		{name: "next in order", tracks: []playlist.Track{playing, a}, want: "a.mp3"},
+		{name: "unplayable row skipped", tracks: []playlist.Track{playing, missing, a}, want: "a.mp3"},
+		{name: "end of the list", tracks: []playlist.Track{playing}},
+		{name: "detached first row", tracks: []playlist.Track{playing}, detachTo: []playlist.Track{a, b}, want: "a.mp3"},
+		{name: "detached unplayable first row", tracks: []playlist.Track{playing}, detachTo: []playlist.Track{missing, b}, want: "b.mp3"},
+		{name: "detached with nothing playable", tracks: []playlist.Track{playing}, detachTo: []playlist.Track{missing}},
+		{name: "detached empty list", tracks: []playlist.Track{playing}, detachTo: []playlist.Track{}},
+	}
+	for _, tt := range tests {
+		setup := func(engine *playbackFakeEngine) Model {
+			p := playlist.New()
+			p.Replace(tt.tracks)
+			m := Model{player: engine, playlist: p, vis: ui.NewVisualizer(float64(engine.SampleRate()))}
+			m.SetVisualizer("none")
+			startedPlaybackTrack(&m, playing)
+			if tt.detachTo != nil {
+				m.detachPlaybackTrack()
+				m.replacePlaylist(tt.detachTo)
+			}
+			return m
+		}
+		t.Run(tt.name, func(t *testing.T) {
+			m := setup(&playbackFakeEngine{playing: true})
+			preloaded := ""
+			if next, ok := m.preloadTarget(); ok {
+				preloaded = next.Path
+			}
+			if preloaded != tt.want {
+				t.Errorf("preloadTarget = %q, want %q", preloaded, tt.want)
+			}
+
+			engine := &playbackFakeEngine{playing: true}
+			m = setup(engine)
+			m.nextTrack()
+			if got := strings.Join(engine.playCalls, ","); got != tt.want {
+				t.Errorf("nextTrack plays %q, want %q", got, tt.want)
+			}
+
+			m = setup(&playbackFakeEngine{playing: true, gaplessAdvanced: true})
+			updated, _ := m.Update(tickMsg(time.Now()))
+			m = updated.(Model)
+			got := ""
+			if track, idx := m.currentPlaybackTrack(); idx >= 0 && m.playingTrackActive {
+				got = track.Path
+			}
+			if got != tt.want {
+				t.Errorf("gapless switch plays %q, want %q", got, tt.want)
+			}
+			if m.playbackDetached {
+				t.Error("playbackDetached = true after the advance, want false")
+			}
+		})
 	}
 }

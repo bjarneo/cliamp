@@ -27,10 +27,21 @@ type StreamerFactory func(uri string) (beep.StreamSeekCloser, beep.Format, time.
 
 // Player is the audio engine managing the playback pipeline:
 //
-//	[Gapless] -> [10x Biquad EQ] -> [Volume] -> [Tap] -> [Ctrl] -> speaker
+//	[Gapless] -> [Speed] -> [10x Biquad EQ] -> [Tap] -> [Volume + Mono] -> [Ctrl] -> speaker
 //	     ↑
 //	     ├─ current: [Decode A] → [Resample A]
 //	     └─ next:    [Decode B] → [Resample B]  (preloaded)
+//
+// The tap sits before volume, so the visualizer sees the level before the
+// volume gain and the mono downmix.
+//
+// Lock order: lifecycleMu, then the speaker lock, then mu, then
+// gaplessStreamer.mu. A path can skip a lock, but it must not take them in a
+// different order. The audio goroutine holds the speaker lock while it
+// streams, and the gapless swap callback takes mu on that goroutine. So a
+// path that holds mu must not call speaker.Lock. suspendMu is taken with no
+// lock held or with only lifecycleMu held. navBuffer.mu is a leaf lock.
+// Close pipelines and wait for processes only after these locks are released.
 type Player struct {
 	mu              sync.Mutex
 	lifecycleMu     sync.Mutex // serializes source commits without covering setup or process waits
@@ -64,10 +75,14 @@ type Player struct {
 
 	lastPlayedDuration time.Duration // real duration of the track finished by the last gapless swap
 
-	streamTitle      atomic.Value               // stores string, set by ICY reader callback
+	streamTitle atomic.Value // stores string, set by ICY reader callback
+
+	// The source registries are guarded by mu. Register writes them, and
+	// buildPipeline reads them when a track starts.
 	customFactories  map[string]StreamerFactory // URI scheme prefix -> factory (e.g. "spotify:" -> fn)
 	bufferedURLMatch func(string) bool          // optional: returns true for URLs needing navBuffer pipeline
 	sourceResolvers  map[string]SourceResolver  // URI scheme prefix -> play-time source resolver (e.g. "tidal://")
+	ytdlURLMatch     func(string) bool          // optional: returns true for page URLs that play through yt-dlp
 
 	streamMetaResolver StreamMetadataResolver // optional: API-based now-playing for streams without ICY
 	metaCancel         context.CancelFunc     // cancels the active metadata poller; guarded by mu
@@ -118,7 +133,7 @@ func New(q Quality) (*Player, error) {
 	p.speed.Store(math.Float64bits(1.0))
 	p.gapless = &gaplessStreamer{}
 	// Suspend the speaker immediately; the ALSA audio callback goroutine
-	// burns ~2% CPU even on silence. Resume is called on every Play().
+	// burns ~2% CPU even on silence. Resume is called on every track start.
 	//
 	// Suspend is also where a failed device open first becomes visible: oto
 	// opens the device on a background goroutine and only stores the error,
@@ -175,19 +190,16 @@ func (p *Player) LastPlayedDuration() time.Duration {
 	return p.lastPlayedDuration
 }
 
-// Play opens and starts playing an audio file. On the first call it builds
-// the long-lived EQ → volume → tap → ctrl chain and starts the speaker.
-// Subsequent calls swap only the track source via the gapless streamer.
-// knownDuration is the metadata duration (use 0 if unknown); it is used as a
-// fallback when the decoder cannot determine the length (e.g. HTTP streams).
-func (p *Player) Play(path string, knownDuration time.Duration) error {
-	return p.PlayAt(path, knownDuration, 0)
-}
-
-// PlayAt is Play, starting at offset. The decoder is positioned before the
-// pipeline reaches the speaker, so no audio plays from 0:00.
+// PlayAt opens path and starts playing it at offset. On the first call it
+// builds the long-lived speed → EQ → tap → volume → ctrl chain and starts the
+// speaker. Subsequent calls swap only the track source via the gapless
+// streamer. knownDuration is the metadata duration (use 0 if unknown); it is
+// used as a fallback when the decoder cannot determine the length (e.g. HTTP
+// streams). A seekable decoder is positioned before the pipeline reaches the
+// speaker, so no audio plays from 0:00. A yt-dlp page starts at 0, and the
+// caller seeks it by restart. buildSource picks the pipeline.
 func (p *Player) PlayAt(path string, knownDuration, offset time.Duration) error {
-	return p.playAt(path, knownDuration, offset, 0, false)
+	return p.playAt(path, knownDuration, offset, 0)
 }
 
 // SetPlaybackGeneration invalidates asynchronous playback starts from older
@@ -199,81 +211,26 @@ func (p *Player) SetPlaybackGeneration(generation uint64) {
 	p.lifecycleMu.Unlock()
 }
 
-// PlayAtForGeneration starts a stream only when generation is still current.
+// PlayAtForGeneration is PlayAt that starts path only when generation is
+// still current.
 func (p *Player) PlayAtForGeneration(path string, knownDuration, offset time.Duration, generation uint64) error {
-	return p.playAt(path, knownDuration, offset, generation, true)
+	return p.playAt(path, knownDuration, offset, generation)
 }
 
-func (p *Player) playAt(path string, knownDuration, offset time.Duration, generation uint64, requireCurrent bool) error {
-	tp, err := p.buildPipeline(path)
-	if err != nil {
-		return fmt.Errorf("play at %v: %w", offset, err)
-	}
-	tp.setKnownDuration(knownDuration)
-	if offset > 0 && tp.seekable && !tp.ytdlSeek {
-		if sample := relativeSeekSample(tp, offset); sample > 0 {
-			// Ignored deliberately: a failed seek should start the track from
-			// the beginning, not refuse to play it.
-			_ = tp.decoder.Seek(sample)
-		}
-	}
-	if requireCurrent {
-		return p.playPipelineForGeneration(tp, generation)
-	}
-	return p.playPipeline(tp)
-}
-
-// PlayYTDL starts playing a yt-dlp page URL via a piped yt-dlp | ffmpeg chain.
-// Playback starts as soon as the first PCM samples arrive (~1-3s). Not seekable.
-func (p *Player) PlayYTDL(pageURL string, knownDuration time.Duration) error {
-	return p.playYTDL(pageURL, knownDuration, 0, false)
-}
-
-// PlayYTDLForGeneration starts a yt-dlp stream only when generation is still current.
-func (p *Player) PlayYTDLForGeneration(pageURL string, knownDuration time.Duration, generation uint64) error {
-	return p.playYTDL(pageURL, knownDuration, generation, true)
-}
-
-func (p *Player) playYTDL(pageURL string, knownDuration time.Duration, generation uint64, requireCurrent bool) error {
-	// Probe duration concurrently with pipeline setup so it doesn't delay playback.
-	probeCh := make(chan time.Duration, 1)
-	if knownDuration == 0 {
-		go func() { probeCh <- probeYTDLDuration(pageURL) }()
-	}
-	tp, err := p.buildYTDLPipeline(pageURL, 0)
+// playAt builds the pipeline for path and plays it. A generation of 0 plays
+// it without the check.
+func (p *Player) playAt(path string, knownDuration, offset time.Duration, generation uint64) error {
+	tp, err := p.buildSource(path, knownDuration, offset, true)
 	if err != nil {
 		return err
 	}
-	if knownDuration == 0 {
-		// The probe ran concurrently with buildYTDLPipeline. Try to
-		// collect the result, but don't block playback for more than 2s.
-		// A hung probeYTDLDuration (e.g. yt-dlp zombie keeping pipes
-		// open) previously blocked here forever, leaving the UI stuck
-		// at "Buffering...".
-		select {
-		case d := <-probeCh:
-			if d > 0 {
-				knownDuration = d
-			}
-		case <-time.After(2 * time.Second):
-			// Probe still running — start playback without duration.
-			// The seek bar won't show progress but audio plays immediately.
-		}
-	}
-	tp.knownDuration = knownDuration
-	if requireCurrent {
-		return p.playPipelineForGeneration(tp, generation)
-	}
-	return p.playPipeline(tp)
+	return p.playPipelineForGeneration(tp, generation)
 }
 
-// playPipeline wires a ready-to-play trackPipeline into the speaker chain.
-// On the first call it builds the long-lived EQ → volume → tap → ctrl chain.
+// playPipelineForGeneration wires a ready-to-play trackPipeline into the
+// speaker chain, unless generation is not 0 and no longer current. On the
+// first call it builds the long-lived speed → EQ → tap → volume → ctrl chain.
 // Subsequent calls swap only the track source via the gapless streamer.
-func (p *Player) playPipeline(tp *trackPipeline) error {
-	return p.playPipelineForGeneration(tp, 0)
-}
-
 func (p *Player) playPipelineForGeneration(tp *trackPipeline, generation uint64) error {
 	p.lifecycleMu.Lock()
 	if generation != 0 && p.playGen.Load() != generation {
@@ -316,6 +273,9 @@ func (p *Player) playPipelineForGeneration(tp *trackPipeline, generation uint64)
 		p.mu.Unlock()
 		speaker.Unlock()
 	} else {
+		// TogglePause and Stop read p.ctrl under the speaker lock, so the
+		// first start writes it under that lock too.
+		speaker.Lock()
 		p.mu.Lock()
 		p.gapless.Replace(tp.stream)
 		p.gaplessAdvance.Store(false)
@@ -330,17 +290,17 @@ func (p *Player) playPipelineForGeneration(tp *trackPipeline, generation uint64)
 
 		p.tap = newTap(s, p.tapBufferFrames, int(p.sr), p.speakerBufferFrames)
 		s = &volumeStreamer{s: p.tap, vol: &p.volume, mono: &p.mono, cachedDB: math.NaN()}
-		p.ctrl = &beep.Ctrl{Streamer: s}
+		ctrl := &beep.Ctrl{Streamer: s}
+		p.ctrl = ctrl
 		p.started = true
 		p.current = tp
 		p.nextPipeline = nil
 		p.playing.Store(true)
 		p.paused.Store(false)
 		p.mu.Unlock()
-	}
-
-	if !started {
-		speaker.Play(p.ctrl)
+		speaker.Unlock()
+		// speaker.Play takes the speaker lock itself.
+		speaker.Play(ctrl)
 	}
 	p.lifecycleMu.Unlock()
 	// Start API-based now-playing polling for streams without ICY metadata
@@ -353,57 +313,25 @@ func (p *Player) playPipelineForGeneration(tp *trackPipeline, generation uint64)
 	return nil
 }
 
-// Preload builds a pipeline for the next track and queues it for gapless transition.
-// knownDuration is the metadata duration (use 0 if unknown).
-func (p *Player) Preload(path string, knownDuration time.Duration) error {
-	tp, err := p.buildPipeline(path)
-	if err != nil {
-		return err
-	}
-	tp.setKnownDuration(knownDuration)
-	return p.preloadPipeline(tp)
-}
-
-// PreloadYTDL builds a yt-dlp pipe pipeline and queues it for gapless transition.
-func (p *Player) PreloadYTDL(pageURL string, knownDuration time.Duration) error {
-	tp, err := p.buildYTDLPipeline(pageURL, 0)
-	if err != nil {
-		return err
-	}
-	tp.knownDuration = knownDuration
-	return p.preloadPipeline(tp)
-}
-
 // BeginPreload invalidates older preload work and returns the current token.
 func (p *Player) BeginPreload() uint64 {
 	return p.preloadGen.Add(1)
 }
 
-// PreloadForGeneration queues a stream only when generation is still current.
+// PreloadForGeneration builds the pipeline for the next track and queues it
+// for gapless transition, only when generation is still current.
+// knownDuration is the metadata duration (use 0 if unknown). buildSource
+// picks the pipeline.
 func (p *Player) PreloadForGeneration(path string, knownDuration time.Duration, generation uint64) error {
-	tp, err := p.buildPipeline(path)
+	tp, err := p.buildSource(path, knownDuration, 0, false)
 	if err != nil {
 		return err
 	}
-	tp.setKnownDuration(knownDuration)
 	return p.preloadPipelineForGeneration(tp, generation)
 }
 
-// PreloadYTDLForGeneration queues a yt-dlp stream only when generation is still current.
-func (p *Player) PreloadYTDLForGeneration(pageURL string, knownDuration time.Duration, generation uint64) error {
-	tp, err := p.buildYTDLPipeline(pageURL, 0)
-	if err != nil {
-		return err
-	}
-	tp.knownDuration = knownDuration
-	return p.preloadPipelineForGeneration(tp, generation)
-}
-
-// preloadPipeline queues a ready trackPipeline for gapless transition.
-func (p *Player) preloadPipeline(tp *trackPipeline) error {
-	return p.preloadPipelineForGeneration(tp, 0)
-}
-
+// preloadPipelineForGeneration queues a ready trackPipeline for gapless
+// transition, unless generation is not 0 and no longer current.
 func (p *Player) preloadPipelineForGeneration(tp *trackPipeline, generation uint64) error {
 	// Lock speaker to atomically swap the gapless next stream, ensuring no
 	// in-flight transition reads from the old pipeline we're about to close.
@@ -431,7 +359,9 @@ func (p *Player) preloadPipelineForGeneration(tp *trackPipeline, generation uint
 
 // ClearPreload discards the preloaded next track (e.g., when shuffle/repeat changes).
 // Speaker is locked to ensure no in-flight gapless transition can reference the
-// pipeline we're about to close.
+// pipeline we're about to close. The old pipeline closes asynchronously, as in
+// playPipelineForGeneration, because ClearPreload runs on the UI goroutine and
+// a close can wait for an ffmpeg or yt-dlp process to exit.
 func (p *Player) ClearPreload() {
 	p.preloadGen.Add(1)
 	speaker.Lock()
@@ -444,7 +374,7 @@ func (p *Player) ClearPreload() {
 	p.mu.Unlock()
 
 	if old != nil {
-		old.close()
+		go old.close()
 	}
 }
 
@@ -475,8 +405,11 @@ func (p *Player) TogglePause() {
 
 // Stop halts playback and releases resources. The speaker is suspended so
 // the ALSA audio callback goroutine blocks (zero CPU) instead of streaming
-// silence. Resume is called automatically on the next Play().
+// silence. Resume is called automatically on the next track start.
 func (p *Player) Stop() {
+	// Reject a preload still loading in the background, as ClearPreload does,
+	// so it cannot arm a next track on the stopped player.
+	p.preloadGen.Add(1)
 	p.lifecycleMu.Lock()
 	p.mu.Lock()
 	active := p.current
@@ -574,7 +507,9 @@ func (p *Player) Seek(d time.Duration) error {
 	speaker.Unlock()
 	p.lifecycleMu.Unlock()
 	if old != nil {
-		old.close()
+		// Seek runs on the UI goroutine, and a close can wait for an ffmpeg
+		// or yt-dlp process to exit, as in ClearPreload.
+		go old.close()
 	}
 	return nil
 }
@@ -632,7 +567,9 @@ func (p *Player) commitPreparedSeek(cur *trackPipeline, seeker preparedFFmpegSee
 	p.lifecycleMu.Unlock()
 
 	_ = oldPipe.stop()
-	closePipelines(oldNext)
+	// A local track seeks on the UI goroutine, and the preload close can wait
+	// for an ffmpeg or yt-dlp process to exit, as in ClearPreload.
+	go closePipelines(oldNext)
 	return nil
 }
 
@@ -661,11 +598,11 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 	// silence while the new pipeline is being built (which blocks on Peek
 	// waiting for yt-dlp data). Without this, the old audio keeps playing
 	// at the pre-seek position during the rebuild.
-	speaker.Lock()
-	curPos := cur.format.SampleRate.D(cur.decoder.Position()) + cur.streamOffset
-	p.gapless.Replace(nil)
-	p.gaplessAdvance.Store(false)
-	speaker.Unlock()
+	curPos, ok := p.muteYTDLSeekSource(cur, gen)
+	if !ok {
+		// Another track or a newer seek replaced cur after the snapshot.
+		return nil
+	}
 
 	newPos := max(curPos+d, 0)
 	if cur.knownDuration > 0 && newPos >= cur.knownDuration {
@@ -688,6 +625,26 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 		go closePipelines(tp)
 	}
 	return nil
+}
+
+// muteYTDLSeekSource reads the position of cur and silences it while SeekYTDL
+// builds the replacement. It returns false and leaves the source alone when
+// another track or a newer seek replaced cur after the snapshot. It checks
+// under the same locks that commitYTDLSeek uses.
+func (p *Player) muteYTDLSeekSource(cur *trackPipeline, gen int64) (time.Duration, bool) {
+	speaker.Lock()
+	defer speaker.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.current != cur || p.seekGen.Load() != gen {
+		return 0, false
+	}
+	p.gapless.Replace(nil)
+	p.gaplessAdvance.Store(false)
+	// The decoder of a prefetched pipeline reads ahead of the speaker. Seek
+	// from the audio that played, as the Position that the caller read does.
+	pos, _ := cur.positionAndDuration()
+	return pos, true
 }
 
 // commitYTDLSeek swaps in a rebuilt seek pipeline only when it still belongs
@@ -741,26 +698,13 @@ func (p *Player) IsYTDLSeek() bool {
 	return cur != nil && cur.ytdlSeek
 }
 
-// IsStreamSeek reports whether seeking requires a slow HTTP reconnect.
-func (p *Player) IsStreamSeek() bool {
-	return false
-}
-
 // Position returns the current playback position.
 // streamOffset is added for yt-dlp streams restarted at a time offset.
 func (p *Player) Position() time.Duration {
 	speaker.Lock()
 	defer speaker.Unlock()
-	p.mu.Lock()
-	cur := p.current
-	p.mu.Unlock()
-	if cur == nil {
-		return 0
-	}
-	if cur.livePrefetch != nil {
-		return cur.livePrefetch.Position() + cur.streamOffset
-	}
-	return cur.format.SampleRate.D(cur.decoder.Position()) + cur.streamOffset
+	pos, _ := p.positionAndDurationLocked()
+	return pos
 }
 
 // Duration returns the total duration of the current track.
@@ -770,22 +714,8 @@ func (p *Player) Position() time.Duration {
 func (p *Player) Duration() time.Duration {
 	speaker.Lock()
 	defer speaker.Unlock()
-	p.mu.Lock()
-	cur := p.current
-	p.mu.Unlock()
-	if cur == nil {
-		return 0
-	}
-	if cur.livePrefetch != nil {
-		if cur.knownDuration > 0 {
-			return cur.knownDuration
-		}
-		return cur.decodedDuration
-	}
-	if n := cur.decoder.Len(); n > 0 {
-		return cur.format.SampleRate.D(n)
-	}
-	return cur.knownDuration
+	_, dur := p.positionAndDurationLocked()
+	return dur
 }
 
 // PositionAndDuration returns both position and duration under a single
@@ -793,32 +723,29 @@ func (p *Player) Duration() time.Duration {
 func (p *Player) PositionAndDuration() (time.Duration, time.Duration) {
 	speaker.Lock()
 	defer speaker.Unlock()
+	return p.positionAndDurationLocked()
+}
+
+// positionAndDurationLocked is the rule of Position, Duration and
+// PositionAndDuration: the clock of the current pipeline. The caller holds
+// the speaker lock.
+func (p *Player) positionAndDurationLocked() (time.Duration, time.Duration) {
 	p.mu.Lock()
 	cur := p.current
 	p.mu.Unlock()
 	if cur == nil {
 		return 0, 0
 	}
-	if cur.livePrefetch != nil {
-		dur := cur.knownDuration
-		if dur <= 0 {
-			dur = cur.decodedDuration
-		}
-		return cur.livePrefetch.Position() + cur.streamOffset, dur
-	}
-	pos := cur.format.SampleRate.D(cur.decoder.Position()) + cur.streamOffset
-	var dur time.Duration
-	if n := cur.decoder.Len(); n > 0 {
-		dur = cur.format.SampleRate.D(n)
-	} else {
-		dur = cur.knownDuration
-	}
-	return pos, dur
+	return cur.positionAndDuration()
 }
 
 // SetVolumeMin sets the minimum volume floor in dB, clamped to [-90, 0].
 // If the current volume is below the new floor it is immediately raised to match.
+// A NaN floor is ignored.
 func (p *Player) SetVolumeMin(db float64) {
+	if math.IsNaN(db) {
+		return
+	}
 	newMin := max(min(db, 0), -90)
 	p.volMin.Store(math.Float64bits(newMin))
 	for {
@@ -839,7 +766,11 @@ func (p *Player) VolumeMin() float64 {
 }
 
 // SetVolume sets the volume in dB, clamped to [VolumeMin, +6].
+// A NaN volume is ignored.
 func (p *Player) SetVolume(db float64) {
+	if math.IsNaN(db) {
+		return
+	}
 	p.volume.Store(math.Float64bits(max(min(db, 6), p.VolumeMin())))
 }
 
@@ -849,8 +780,11 @@ func (p *Player) Volume() float64 {
 }
 
 // SetSpeed sets the playback speed ratio, clamped to [0.25, 2.0].
-// 1.0 is normal speed, 2.0 is double speed, etc.
+// 1.0 is normal speed, 2.0 is double speed, etc. A NaN ratio is ignored.
 func (p *Player) SetSpeed(ratio float64) {
+	if math.IsNaN(ratio) {
+		return
+	}
 	p.speed.Store(math.Float64bits(max(min(ratio, 2.0), 0.25)))
 }
 
@@ -870,8 +804,9 @@ func (p *Player) Mono() bool {
 }
 
 // SetEQBand sets a single EQ band's gain in dB, clamped to [-12, +12].
+// A NaN gain is ignored.
 func (p *Player) SetEQBand(band int, dB float64) {
-	if band < 0 || band >= 10 {
+	if band < 0 || band >= 10 || math.IsNaN(dB) {
 		return
 	}
 	p.eqBands[band].Store(math.Float64bits(max(min(dB, 12), -12)))
@@ -1105,13 +1040,25 @@ func (p *Player) RegisterBufferedURLMatcher(match func(string) bool) {
 	p.bufferedURLMatch = match
 }
 
+// RegisterYTDLMatcher registers a function that identifies page URLs, such
+// as YouTube or SoundCloud pages, that play through the yt-dlp | ffmpeg
+// pipe chain.
+func (p *Player) RegisterYTDLMatcher(match func(string) bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.ytdlURLMatch = match
+}
+
 // ResolvedSource is a playable source produced by a SourceResolver at play
 // time: either a direct HTTP URL, or an ordered list of media segment URLs
 // whose concatenated bytes form one progressive stream (e.g. unencrypted
-// DASH fMP4 segments).
+// DASH fMP4 segments). Buffered sends URL to the buffered download and
+// ffmpeg pipeline, for a finite file at a signed URL that no buffered-URL
+// matcher can recognize.
 type ResolvedSource struct {
 	URL      string
 	Segments []string
+	Buffered bool
 }
 
 // SourceResolver turns a custom URI (e.g. "tidal://track/123") into a
@@ -1129,6 +1076,12 @@ func (p *Player) RegisterSourceResolver(scheme string, r SourceResolver) {
 		p.sourceResolvers = make(map[string]SourceResolver)
 	}
 	p.sourceResolvers[scheme] = r
+}
+
+// HasSourceResolver reports whether a registered SourceResolver claims path.
+// Such a path opens over the network when playback starts.
+func (p *Player) HasSourceResolver(path string) bool {
+	return p.matchSourceResolver(path) != nil
 }
 
 // suspendSpeaker suspends the ALSA audio callback goroutine so it blocks

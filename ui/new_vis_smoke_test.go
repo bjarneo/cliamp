@@ -5,11 +5,10 @@ import (
 	"testing"
 )
 
-// TestCharmVisualizersRender exercises each of the recently added visualizers
-// (Vinyl through VUMeter). It guards against regressions where the mode isn't
-// registered in visNameMap, the renderer panics on combined silence + signal
-// transitions, or the output lines don't match v.Rows (which would corrupt
-// the panel layout).
+// TestCharmVisualizersRender exercises the visualizers listed below. It guards
+// against regressions where the mode isn't registered in visNameMap, the
+// renderer panics on combined silence + signal transitions, or the output
+// lines don't match v.Rows (which would corrupt the panel layout).
 func TestCharmVisualizersRender(t *testing.T) {
 	cases := []string{
 		"Firefly",
@@ -18,6 +17,7 @@ func TestCharmVisualizersRender(t *testing.T) {
 		"ClassicLED",
 		"Omarchy",
 		"RedSector",
+		"YinYang",
 	}
 
 	signal := make([]float64, 2048)
@@ -33,6 +33,7 @@ func TestCharmVisualizersRender(t *testing.T) {
 				t.Fatalf("mode %q not registered in visNameMap", name)
 			}
 			v := NewVisualizer(44100)
+			v.Cols = 74
 			v.Rows = 5
 			v.Mode = mode
 

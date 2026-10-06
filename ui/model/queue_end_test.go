@@ -75,6 +75,18 @@ func TestQueueEndEvent(t *testing.T) {
 			want: true,
 		},
 		{
+			name:   "playlist replaced by unplayable tracks while the track played",
+			player: &playbackFakeEngine{playing: true, drained: true},
+			tracks: []playlist.Track{last},
+			load: func(_ *testing.T, m *Model) {
+				startedPlaybackTrack(m, last)
+				m.detachPlaybackTrack()
+				m.replacePlaylist([]playlist.Track{{Path: "/music/missing.flac", Unplayable: true}})
+			},
+			msgs: []tea.Msg{tickMsg(time.Now())},
+			want: true,
+		},
+		{
 			name:   "next pressed with nothing loaded",
 			player: &playbackFakeEngine{},
 			tracks: []playlist.Track{first, last},
@@ -87,7 +99,7 @@ func TestQueueEndEvent(t *testing.T) {
 		},
 		{
 			name:   "next pressed while the last track still buffers",
-			player: &nowPlayingEngine{},
+			player: &playbackFakeEngine{},
 			tracks: []playlist.Track{last},
 			load: func(t *testing.T, m *Model) {
 				if m.playTrack(last) == nil {
@@ -101,7 +113,7 @@ func TestQueueEndEvent(t *testing.T) {
 		},
 		{
 			name:   "next pressed after a local start failed",
-			player: &nowPlayingEngine{startErr: startErr},
+			player: &playbackFakeEngine{playErr: startErr},
 			tracks: []playlist.Track{local},
 			load: func(t *testing.T, m *Model) {
 				m.playTrack(local)
@@ -113,7 +125,7 @@ func TestQueueEndEvent(t *testing.T) {
 		},
 		{
 			name:   "next pressed after a stream start failed",
-			player: &nowPlayingEngine{startErr: startErr},
+			player: &playbackFakeEngine{playErr: startErr},
 			tracks: []playlist.Track{last},
 			load: func(t *testing.T, m *Model) {
 				msg, ok := m.playTrack(last)().(streamPlayedMsg)
@@ -177,7 +189,7 @@ func TestQueueEndStaleStreamAfterEndDoesNotReport(t *testing.T) {
 	track := playlist.Track{Path: "https://example.com/pending.mp3", Stream: true, Title: "Pending"}
 	pl := playlist.New()
 	pl.Add(track)
-	m := Model{player: &nowPlayingEngine{}, playlist: pl, luaMgr: mgr}
+	m := Model{player: &playbackFakeEngine{}, playlist: pl, luaMgr: mgr}
 	cmd := m.playTrack(track)
 	if cmd == nil {
 		t.Fatal("stream playback did not return a command")

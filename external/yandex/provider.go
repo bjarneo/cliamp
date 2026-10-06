@@ -103,19 +103,23 @@ func (p *Provider) CanRefreshPlaylist(id string) bool {
 	return id == wavePlaylistID
 }
 
-// userID returns the account user id, verifying the token on first use.
-// It takes p.mu itself: all callers must not hold the lock.
-func (p *Provider) accountUserID() (uint64, error) {
+// accountUserID returns the account user id, verifying the token on first use.
+// It takes p.mu itself: all callers must not hold the lock. The network call
+// runs without the lock, so a slow first check does not stall ResolveSource.
+func (p *Provider) accountUserID(ctx context.Context) (uint64, error) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.userID != 0 {
-		return p.userID, nil
+	uid := p.userID
+	p.mu.Unlock()
+	if uid != 0 {
+		return uid, nil
 	}
-	uid, err := p.api.accountStatus()
+	uid, err := p.api.accountStatus(ctx)
 	if err != nil {
 		return 0, err
 	}
+	p.mu.Lock()
 	p.userID = uid
+	p.mu.Unlock()
 	return uid, nil
 }
 
@@ -130,11 +134,12 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	}
 	p.mu.Unlock()
 
-	uid, err := p.accountUserID()
+	ctx := context.Background()
+	uid, err := p.accountUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	lists, err := p.api.playlists(uid)
+	lists, err := p.api.playlists(ctx, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +195,8 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 // the user's playlists.
 func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	playlistID = strings.TrimSpace(playlistID)
-	uid, err := p.accountUserID()
+	ctx := context.Background()
+	uid, err := p.accountUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +204,7 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	var remote []track
 	switch {
 	case playlistID == likedPlaylistID:
-		ids, err := p.api.likedTracks(uid)
+		ids, err := p.api.likedTracks(ctx, uid)
 		if err != nil {
 			return nil, err
 		}
@@ -206,12 +212,12 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 		for _, id := range ids {
 			plain = append(plain, plainID(id))
 		}
-		remote, err = p.api.tracks(plain)
+		remote, err = p.api.tracks(ctx, plain)
 		if err != nil {
 			return nil, err
 		}
 	case playlistID == wavePlaylistID:
-		return p.loadWave()
+		return p.loadWave(ctx)
 	case strings.HasPrefix(playlistID, playlistIDPrefix):
 		// ID format: pl:<owner-uid>:<kind>. Use the playlist owner, not the
 		// signed-in user — saved playlists belong to someone else.
@@ -227,7 +233,7 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 		if err != nil {
 			return nil, fmt.Errorf("yandex: invalid playlist id %q", playlistID)
 		}
-		remote, err = p.api.playlistTracks(owner, kind)
+		remote, err = p.api.playlistTracks(ctx, owner, kind)
 		if err != nil {
 			return nil, err
 		}
@@ -240,7 +246,7 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 // loadWave starts a wave session and loads its initial batch plus up to two
 // continuation batches, so one load gives roughly fifteen tracks. Refresh()
 // discards the session; the next load starts a fresh wave.
-func (p *Provider) loadWave() ([]playlist.Track, error) {
+func (p *Provider) loadWave(ctx context.Context) ([]playlist.Track, error) {
 	p.mu.Lock()
 	if p.wave != nil {
 		out := append([]playlist.Track(nil), p.wave.tracks...)
@@ -249,7 +255,7 @@ func (p *Provider) loadWave() ([]playlist.Track, error) {
 	}
 	p.mu.Unlock()
 
-	initial, sessionID, batchID, err := p.api.rotorStartWave()
+	initial, sessionID, batchID, err := p.api.rotorStartWave(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +265,7 @@ func (p *Provider) loadWave() ([]playlist.Track, error) {
 
 	const extraBatches = 2
 	for range extraBatches {
-		batch, bid, err := p.api.rotorWaveTracks(sessionID, nil, w.keys)
+		batch, bid, err := p.api.rotorWaveTracks(ctx, sessionID, nil, w.keys)
 		if err != nil || len(batch) == 0 {
 			// Continuation is best-effort; keep whatever was loaded.
 			break
@@ -284,7 +290,7 @@ func (p *Provider) SearchTracks(ctx context.Context, query string, limit int) ([
 	if q == "" {
 		return nil, nil
 	}
-	found, err := p.api.search(q, limit)
+	found, err := p.api.search(ctx, q, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -346,7 +352,8 @@ func waveKeyFor(keys []string, id string) string {
 }
 
 // ResolveSource resolves a yandex:track: URI to a fresh signed stream URL at
-// play time. Registered as a player.SourceResolver in main.go.
+// play time. registerPlayerHooks in providers.go registers it as the
+// player's SourceResolver.
 func (p *Provider) ResolveSource(uri string) (string, error) {
 	id, ok := strings.CutPrefix(uri, TrackURIPrefix)
 	if !ok || id == "" || strings.ContainsAny(id, "/?#") {
@@ -367,7 +374,7 @@ func (p *Provider) resolveStreamURL(trackID string, force bool) (string, error) 
 	}
 	p.mu.Unlock()
 
-	u, err := p.api.streamURL(trackID)
+	u, err := p.api.streamURL(context.Background(), trackID)
 	if err != nil {
 		return "", err
 	}
@@ -414,14 +421,15 @@ func (p *Provider) report(track playlist.Track, playedSeconds int, waveEvent str
 	if uid == 0 {
 		return nil
 	}
-	if err := p.api.reportPlayback(uid, id, track.DurationSecs, playedSeconds); err != nil {
+	ctx := context.Background()
+	if err := p.api.reportPlayback(ctx, uid, id, track.DurationSecs, playedSeconds); err != nil {
 		return fmt.Errorf("report playback: %w", err)
 	}
 	if wave == nil {
 		return nil
 	}
 	return p.api.rotorWaveFeedback(
-		wave.sessionID, wave.batchID, waveEvent,
+		ctx, wave.sessionID, wave.batchID, waveEvent,
 		waveKeyFor(wave.keys, id),
 		float64(track.DurationSecs), float64(playedSeconds),
 	)

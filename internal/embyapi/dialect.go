@@ -1,6 +1,7 @@
 package embyapi
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,7 +15,7 @@ import (
 // Jellyfin. Everything else in Client is shared.
 type dialect interface {
 	name() string                                                // error-wrapping prefix
-	pingPath() string                                            // endpoint Ping hits
+	ping(c *Client) error                                        // reachability and token check
 	metaKey() string                                             // playlist.Track ProviderMeta key
 	applyAuth(req *http.Request, token, userID, deviceID string) // set auth headers
 	discoverUserID(c *Client) (string, error)                    // user-id discovery strategy
@@ -24,9 +25,14 @@ type dialect interface {
 // user id with an API-key fallback.
 type embyDialect struct{}
 
-func (embyDialect) name() string     { return "emby" }
-func (embyDialect) pingPath() string { return "/System/Info" }
-func (embyDialect) metaKey() string  { return provider.MetaEmbyID }
+func (embyDialect) name() string    { return "emby" }
+func (embyDialect) metaKey() string { return provider.MetaEmbyID }
+
+// ping checks /System/Info, which accepts a session token and an API key.
+func (embyDialect) ping(c *Client) error {
+	var raw json.RawMessage
+	return c.get("/System/Info", nil, &raw)
+}
 
 func (embyDialect) applyAuth(req *http.Request, token, userID, deviceID string) {
 	if token != "" {
@@ -46,25 +52,7 @@ func (embyDialect) discoverUserID(c *Client) (string, error) {
 	}
 
 	// Fall back to /Users for API key auth (server-level key has no "me").
-	var users []userDTO
-	if err := c.get("/Users", nil, &users); err != nil {
-		return "", fmt.Errorf("emby: could not discover user id (set user_id in config): %w", err)
-	}
-	// Prefer user matching the configured username; otherwise take first entry.
-	for _, u := range users {
-		if strings.EqualFold(u.Name, c.user) {
-			c.setUserID(u.ID)
-			return u.ID, nil
-		}
-	}
-	if c.user != "" {
-		return "", fmt.Errorf("emby: user %q not found — check the user name in config", c.user)
-	}
-	if len(users) > 0 && users[0].ID != "" {
-		c.setUserID(users[0].ID)
-		return users[0].ID, nil
-	}
-	return "", fmt.Errorf("emby: could not discover user id — set user_id in config")
+	return c.userIDFromList()
 }
 
 // unauthHeader / authHeader build Emby's Authorization header values.
@@ -90,8 +78,20 @@ func embyAuthHeader(userID, token, deviceID string) string {
 // We send both.
 type jellyfinDialect struct{}
 
-func (jellyfinDialect) name() string     { return "jellyfin" }
-func (jellyfinDialect) pingPath() string { return "/Users/Me" }
+func (jellyfinDialect) name() string { return "jellyfin" }
+
+// ping checks /Users/Me. API keys aren't owned by a user, so /Users/Me
+// returns a 400 (documented as "Token is not owned by a user.", sent without
+// a body), even when a username is configured alongside the key. For that
+// case, ping lists /Users to prove the key is valid.
+func (jellyfinDialect) ping(c *Client) error {
+	var raw json.RawMessage
+	err := c.get("/Users/Me", nil, &raw)
+	if err != nil && c.password == "" && c.authToken() != "" && isHTTPStatus(err, http.StatusBadRequest) {
+		return c.get("/Users", nil, &raw)
+	}
+	return err
+}
 
 // metaKey returns the ProviderMeta key Jellyfin item ids are stored under.
 func (jellyfinDialect) metaKey() string { return provider.MetaJellyfinID }
@@ -127,30 +127,42 @@ func (jellyfinDialect) discoverUserID(c *Client) (string, error) {
 	// API-key auth is the only case where /Users/Me legitimately fails (a key
 	// isn't owned by a user, so it returns 400). Preserve every other error so
 	// 401/403/5xx responses surface through UserID instead of being masked.
-	var httpErr *httpError
-	if !(errors.As(meErr, &httpErr) && httpErr.statusCode == http.StatusBadRequest) {
+	if !isHTTPStatus(meErr, http.StatusBadRequest) {
 		return "", fmt.Errorf("jellyfin: could not discover user id: %w", meErr)
 	}
 
 	// Fall back to /Users for API key auth (a key isn't owned by a user, so
 	// /Users/Me returns 400).
+	return c.userIDFromList()
+}
+
+// userIDFromList discovers the user id from the /Users listing, which is the
+// API-key fallback of both dialects. It prefers the user that matches the
+// configured user name. Without a configured name it takes the first entry.
+func (c *Client) userIDFromList() (string, error) {
+	name := c.dialect.name()
 	var users []userDTO
 	if err := c.get("/Users", nil, &users); err != nil {
-		return "", fmt.Errorf("jellyfin: could not discover user id (set user_id in config): %w", err)
+		return "", fmt.Errorf("%s: could not discover user id (set user_id in config): %w", name, err)
 	}
-	// Prefer user matching the configured username; otherwise take first entry.
-	for _, user := range users {
-		if strings.EqualFold(user.Name, c.user) {
-			c.setUserID(user.ID)
-			return user.ID, nil
+	for _, u := range users {
+		if strings.EqualFold(u.Name, c.user) {
+			c.setUserID(u.ID)
+			return u.ID, nil
 		}
 	}
 	if c.user != "" {
-		return "", fmt.Errorf("jellyfin: user %q not found — check the user name in config", c.user)
+		return "", fmt.Errorf("%s: user %q not found — check the user name in config", name, c.user)
 	}
 	if len(users) > 0 && users[0].ID != "" {
 		c.setUserID(users[0].ID)
 		return users[0].ID, nil
 	}
-	return "", fmt.Errorf("jellyfin: could not discover user id — set user_id in config")
+	return "", fmt.Errorf("%s: could not discover user id — set user_id in config", name)
+}
+
+// isHTTPStatus reports whether err is an httpError with the given status code.
+func isHTTPStatus(err error, code int) bool {
+	var httpErr *httpError
+	return errors.As(err, &httpErr) && httpErr.statusCode == code
 }

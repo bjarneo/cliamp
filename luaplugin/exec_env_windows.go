@@ -2,7 +2,10 @@
 
 package luaplugin
 
-import "os"
+import (
+	"os"
+	"os/exec"
+)
 
 func minimalExecEnv() []string {
 	home := homeEnv()
@@ -20,3 +23,7 @@ func minimalExecEnv() []string {
 	}
 	return env
 }
+
+// killProcessGroup does nothing on Windows. The cancel of cmd kills only the
+// binary, and the exec manager closes the pipes after execPipeGrace.
+func killProcessGroup(*exec.Cmd) {}

@@ -11,12 +11,13 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/bjarneo/cliamp/internal/httpclient"
+	"github.com/bjarneo/cliamp/internal/ytdlp"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/resolve"
@@ -99,7 +100,7 @@ func NewFromConfig(cfg Config) *Provider {
 func New(cfg Config) *Provider {
 	return &Provider{
 		apiBase:     defaultAPIBase,
-		httpClient:  &http.Client{Timeout: apiTimeout},
+		httpClient:  httpclient.NewAPI(apiTimeout),
 		cookiesFrom: strings.TrimSpace(cfg.CookiesFrom),
 		userID:      strings.TrimSpace(cfg.UserID),
 	}
@@ -435,7 +436,7 @@ func (p *Provider) ensureCookieHeader(ctx context.Context) (string, error) {
 
 func extractBrowserCookieHeader(ctx context.Context, browser string) (string, error) {
 	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		return "", fmt.Errorf("yt-dlp not found. Install with: %s", ytDLPInstallHint())
+		return "", fmt.Errorf("yt-dlp not found. Install with: %s", ytdlp.InstallHint())
 	}
 	tmp, err := os.CreateTemp("", "cliamp-netease-cookies-*.txt")
 	if err != nil {
@@ -475,25 +476,6 @@ func extractBrowserCookieHeader(ctx context.Context, browser string) (string, er
 		return "", fmt.Errorf("netease: no NetEase cookies found in browser session")
 	}
 	return header, nil
-}
-
-func ytDLPInstallHint() string {
-	switch runtime.GOOS {
-	case "darwin":
-		return "brew install yt-dlp"
-	case "linux":
-		if _, err := exec.LookPath("apt-get"); err == nil {
-			return "sudo apt install yt-dlp"
-		}
-		if _, err := exec.LookPath("pacman"); err == nil {
-			return "sudo pacman -S yt-dlp"
-		}
-		return "pip install yt-dlp"
-	case "windows":
-		return "winget install yt-dlp"
-	default:
-		return "pip install yt-dlp"
-	}
 }
 
 func cookieHeaderFromNetscapeFile(path string) (string, error) {

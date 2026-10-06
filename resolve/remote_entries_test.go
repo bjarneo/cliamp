@@ -6,7 +6,7 @@ import (
 	"github.com/bjarneo/cliamp/playlist"
 )
 
-func TestUriScheme(t *testing.T) {
+func TestURIScheme(t *testing.T) {
 	tests := []struct {
 		path string
 		want string
@@ -31,8 +31,8 @@ func TestUriScheme(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			if got := uriScheme(tt.path); got != tt.want {
-				t.Errorf("uriScheme(%q) = %q, want %q", tt.path, got, tt.want)
+			if got := URIScheme(tt.path); got != tt.want {
+				t.Errorf("URIScheme(%q) = %q, want %q", tt.path, got, tt.want)
 			}
 		})
 	}

@@ -1,8 +1,8 @@
 // Package cmd implements interactive subcommands invoked from the CLI.
 // setup.go contains the provider onboarding wizard reachable via
 // `cliamp setup`. It walks the user through configuring each remote
-// provider (Navidrome, Plex, Jellyfin, Spotify, Qobuz, Tidal, Mixcloud,
-// NetEase, YouTube Music),
+// provider (Navidrome, Lyrion, Plex, Jellyfin, Emby, Audiobookshelf,
+// Spotify, Qobuz, Tidal, NetEase, Mixcloud, YouTube Music),
 // validates the connection where possible, and writes the resulting
 // TOML section to ~/.config/cliamp/config.toml.
 //
@@ -12,12 +12,10 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
+	"maps"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +24,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/external/audiobookshelf"
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
@@ -34,7 +33,6 @@ import (
 	"github.com/bjarneo/cliamp/external/navidrome"
 	"github.com/bjarneo/cliamp/external/netease"
 	"github.com/bjarneo/cliamp/external/plex"
-	"github.com/bjarneo/cliamp/internal/appdir"
 )
 
 // Setup launches the interactive wizard. Returns nil on clean exit.
@@ -67,8 +65,12 @@ type providerSpec struct {
 	fields  []fieldSpec
 	// validate runs a probe against the live server. Nil skips validation.
 	validate func(map[string]string) error
-	// body returns the TOML block body (no header).
-	body func(map[string]string) string
+	// body returns the keys that setup writes into the section.
+	body func(map[string]string) []config.KeyValue
+	// owned lists every key that setup manages in the section. A save
+	// removes each owned key that body leaves out, such as token when
+	// Jellyfin moves to password login. All other keys and comments stay.
+	owned []string
 	// extraValidate runs after the form before validate, e.g. to enforce
 	// "token OR (user+password)" for Jellyfin.
 	extraValidate func(map[string]string) error
@@ -120,12 +122,13 @@ func providers() []providerSpec {
 			validate: func(v map[string]string) error {
 				return navidrome.New(v["url"], v["user"], v["password"]).Ping()
 			},
-			body: func(v map[string]string) string {
-				return strings.Join([]string{
-					fmt.Sprintf("url      = %q", v["url"]),
-					fmt.Sprintf("user     = %q", v["user"]),
-					fmt.Sprintf("password = %q", v["password"]),
-				}, "\n")
+			owned: []string{"url", "user", "password"},
+			body: func(v map[string]string) []config.KeyValue {
+				return []config.KeyValue{
+					quotedKV("url", v["url"]),
+					quotedKV("user", v["user"]),
+					quotedKV("password", v["password"]),
+				}
 			},
 		},
 		{
@@ -145,12 +148,13 @@ func providers() []providerSpec {
 			validate: func(v map[string]string) error {
 				return lyrion.New(v["url"], v["user"], v["password"]).Ping()
 			},
-			body: func(v map[string]string) string {
-				return strings.Join([]string{
-					fmt.Sprintf("url      = %q", v["url"]),
-					fmt.Sprintf("user     = %q", v["user"]),
-					fmt.Sprintf("password = %q", v["password"]),
-				}, "\n")
+			owned: []string{"url", "user", "password"},
+			body: func(v map[string]string) []config.KeyValue {
+				return []config.KeyValue{
+					quotedKV("url", v["url"]),
+					quotedKV("user", v["user"]),
+					quotedKV("password", v["password"]),
+				}
 			},
 		},
 		{
@@ -169,15 +173,16 @@ func providers() []providerSpec {
 			validate: func(v map[string]string) error {
 				return plex.NewClient(v["url"], v["token"]).Ping()
 			},
-			body: func(v map[string]string) string {
-				lines := []string{
-					fmt.Sprintf("url   = %q", v["url"]),
-					fmt.Sprintf("token = %q", v["token"]),
+			owned: []string{"url", "token", "libraries"},
+			body: func(v map[string]string) []config.KeyValue {
+				kv := []config.KeyValue{
+					quotedKV("url", v["url"]),
+					quotedKV("token", v["token"]),
 				}
 				if libraries := setupStringList(v["libraries"]); libraries != "" {
-					lines = append(lines, "libraries = "+libraries)
+					kv = append(kv, rawKV("libraries", libraries))
 				}
-				return strings.Join(lines, "\n")
+				return kv
 			},
 		},
 		{
@@ -208,17 +213,19 @@ func providers() []providerSpec {
 			validate: func(v map[string]string) error {
 				return jellyfin.NewClient(v["url"], v["token"], "", v["user"], v["password"]).Ping()
 			},
-			body: func(v map[string]string) string {
-				lines := []string{fmt.Sprintf("url      = %q", v["url"])}
+			// user_id belongs to the account of the old credentials.
+			owned: []string{"url", "token", "user", "password", "user_id"},
+			body: func(v map[string]string) []config.KeyValue {
+				kv := []config.KeyValue{quotedKV("url", v["url"])}
 				if v[keyJellyfinAuth] == "token" {
-					lines = append(lines, fmt.Sprintf("token    = %q", v["token"]))
+					kv = append(kv, quotedKV("token", v["token"]))
 				} else {
-					lines = append(lines,
-						fmt.Sprintf("user     = %q", v["user"]),
-						fmt.Sprintf("password = %q", v["password"]),
+					kv = append(kv,
+						quotedKV("user", v["user"]),
+						quotedKV("password", v["password"]),
 					)
 				}
-				return strings.Join(lines, "\n")
+				return kv
 			},
 		},
 		{
@@ -254,20 +261,22 @@ func providers() []providerSpec {
 				}
 				return nil
 			},
-			body: func(v map[string]string) string {
-				lines := []string{fmt.Sprintf("url      = %q", v["url"])}
+			// user_id belongs to the account of the old credentials.
+			owned: []string{"url", "token", "user", "password", "user_id"},
+			body: func(v map[string]string) []config.KeyValue {
+				kv := []config.KeyValue{quotedKV("url", v["url"])}
 				if v[keyEmbyAuth] == "token" {
-					lines = append(lines, fmt.Sprintf("token    = %q", v["token"]))
+					kv = append(kv, quotedKV("token", v["token"]))
 					if v["user"] != "" {
-						lines = append(lines, fmt.Sprintf("user     = %q", v["user"]))
+						kv = append(kv, quotedKV("user", v["user"]))
 					}
 				} else {
-					lines = append(lines,
-						fmt.Sprintf("user     = %q", v["user"]),
-						fmt.Sprintf("password = %q", v["password"]),
+					kv = append(kv,
+						quotedKV("user", v["user"]),
+						quotedKV("password", v["password"]),
 					)
 				}
-				return strings.Join(lines, "\n")
+				return kv
 			},
 		},
 		{
@@ -302,17 +311,18 @@ func providers() []providerSpec {
 				}
 				return nil
 			},
-			body: func(v map[string]string) string {
-				lines := []string{fmt.Sprintf("url      = %q", v["url"])}
+			owned: []string{"url", "token", "user", "password"},
+			body: func(v map[string]string) []config.KeyValue {
+				kv := []config.KeyValue{quotedKV("url", v["url"])}
 				if v[keyABSAuth] == "token" {
-					lines = append(lines, fmt.Sprintf("token    = %q", v["token"]))
+					kv = append(kv, quotedKV("token", v["token"]))
 				} else {
-					lines = append(lines,
-						fmt.Sprintf("user     = %q", v["user"]),
-						fmt.Sprintf("password = %q", v["password"]),
+					kv = append(kv,
+						quotedKV("user", v["user"]),
+						quotedKV("password", v["password"]),
 					)
 				}
-				return strings.Join(lines, "\n")
+				return kv
 			},
 		},
 		{
@@ -358,17 +368,18 @@ func providers() []providerSpec {
 				}
 				return nil
 			},
-			body: func(v map[string]string) string {
+			// enabled is owned, so setup removes an old enabled = false.
+			owned: []string{"enabled", "client_id", "bitrate"},
+			body: func(v map[string]string) []config.KeyValue {
 				br := v["bitrate"]
 				if br == "" {
 					br = "320"
 				}
-				lines := []string{}
+				var kv []config.KeyValue
 				if v[keySpotifyMode] == "custom" && v["client_id"] != "" {
-					lines = append(lines, fmt.Sprintf("client_id = %q", v["client_id"]))
+					kv = append(kv, quotedKV("client_id", v["client_id"]))
 				}
-				lines = append(lines, fmt.Sprintf("bitrate   = %s", br))
-				return strings.Join(lines, "\n")
+				return append(kv, rawKV("bitrate", br))
 			},
 		},
 		{
@@ -393,15 +404,13 @@ func providers() []providerSpec {
 					{value: "5", label: "MP3 320kbps"},
 				},
 			},
-			body: func(v map[string]string) string {
+			owned: []string{"enabled", "quality"},
+			body: func(v map[string]string) []config.KeyValue {
 				q := v[keyQobuzQuality]
 				if q == "" {
 					q = "6"
 				}
-				return strings.Join([]string{
-					"enabled = true",
-					fmt.Sprintf("quality = %s", q),
-				}, "\n")
+				return []config.KeyValue{rawKV("enabled", "true"), rawKV("quality", q)}
 			},
 		},
 		{
@@ -426,15 +435,13 @@ func providers() []providerSpec {
 					{value: "low", label: "AAC 96kbps"},
 				},
 			},
-			body: func(v map[string]string) string {
+			owned: []string{"enabled", "quality"},
+			body: func(v map[string]string) []config.KeyValue {
 				q := v[keyTidalQuality]
 				if q == "" {
 					q = "lossless"
 				}
-				return strings.Join([]string{
-					"enabled = true",
-					fmt.Sprintf("quality = %q", q),
-				}, "\n")
+				return []config.KeyValue{rawKV("enabled", "true"), quotedKV("quality", q)}
 			},
 		},
 		{
@@ -478,16 +485,16 @@ func providers() []providerSpec {
 				v["user_id"] = acc.UserID
 				return nil
 			},
-			body: func(v map[string]string) string {
-				browser := netEaseCookiesFrom(v)
-				lines := []string{
-					"enabled      = true",
-					fmt.Sprintf("cookies_from = %q", browser),
+			owned: []string{"enabled", "cookies_from", "user_id"},
+			body: func(v map[string]string) []config.KeyValue {
+				kv := []config.KeyValue{
+					rawKV("enabled", "true"),
+					quotedKV("cookies_from", netEaseCookiesFrom(v)),
 				}
 				if v["user_id"] != "" {
-					lines = append(lines, fmt.Sprintf("user_id      = %q", v["user_id"]))
+					kv = append(kv, quotedKV("user_id", v["user_id"]))
 				}
-				return strings.Join(lines, "\n")
+				return kv
 			},
 		},
 		{
@@ -546,19 +553,20 @@ func providers() []providerSpec {
 				}
 				return nil
 			},
-			body: func(v map[string]string) string {
-				lines := []string{"enabled = true"}
+			owned: []string{"enabled", "username", "access_token", "cookies_from", "styles", "max_items", "stream_creators"},
+			body: func(v map[string]string) []config.KeyValue {
+				kv := []config.KeyValue{rawKV("enabled", "true")}
 				if username := strings.TrimSpace(v["username"]); username != "" {
-					lines = append(lines, fmt.Sprintf("username = %q", username))
+					kv = append(kv, quotedKV("username", username))
 				}
 				if token := strings.TrimSpace(v["access_token"]); token != "" {
-					lines = append(lines, fmt.Sprintf("access_token = %q", token))
+					kv = append(kv, quotedKV("access_token", token))
 				}
 				if browser := mixcloudCookiesFrom(v); browser != "" {
-					lines = append(lines, fmt.Sprintf("cookies_from = %q", browser))
+					kv = append(kv, quotedKV("cookies_from", browser))
 				}
 				if styles := setupStringList(v["styles"]); styles != "" {
-					lines = append(lines, "styles = "+styles)
+					kv = append(kv, rawKV("styles", styles))
 				}
 				maxItems := strings.TrimSpace(v["max_items"])
 				if maxItems == "" {
@@ -568,8 +576,7 @@ func providers() []providerSpec {
 				if streamCreators == "" {
 					streamCreators = strconv.Itoa(mixcloud.DefaultStreamCreators)
 				}
-				lines = append(lines, "max_items = "+maxItems, "stream_creators = "+streamCreators)
-				return strings.Join(lines, "\n")
+				return append(kv, rawKV("max_items", maxItems), rawKV("stream_creators", streamCreators))
 			},
 		},
 		{
@@ -597,28 +604,29 @@ func providers() []providerSpec {
 				{key: "client_secret", label: "OAuth Client Secret", secret: true, required: true,
 					onlyIf: func(v map[string]string) bool { return v[keyYTMusicMode] == "custom" }},
 			},
-			body: func(v map[string]string) string {
+			owned: []string{"enabled", "client_id", "client_secret", "cookies_from"},
+			body: func(v map[string]string) []config.KeyValue {
 				switch v[keyYTMusicMode] {
 				case "off":
-					return "enabled = false"
+					return []config.KeyValue{rawKV("enabled", "false")}
 				case "custom":
-					lines := []string{"enabled = true"}
+					kv := []config.KeyValue{rawKV("enabled", "true")}
 					if v["client_id"] != "" {
-						lines = append(lines, fmt.Sprintf("client_id     = %q", v["client_id"]))
+						kv = append(kv, quotedKV("client_id", v["client_id"]))
 					}
 					if v["client_secret"] != "" {
-						lines = append(lines, fmt.Sprintf("client_secret = %q", v["client_secret"]))
+						kv = append(kv, quotedKV("client_secret", v["client_secret"]))
 					}
 					if v["cookies_from"] != "" {
-						lines = append(lines, fmt.Sprintf("cookies_from  = %q", v["cookies_from"]))
+						kv = append(kv, quotedKV("cookies_from", v["cookies_from"]))
 					}
-					return strings.Join(lines, "\n")
+					return kv
 				default:
 					browser := strings.TrimSpace(v["cookies_from"])
 					if browser == "" {
 						browser = "chrome"
 					}
-					return fmt.Sprintf("enabled      = true\ncookies_from = %q", browser)
+					return []config.KeyValue{rawKV("enabled", "true"), quotedKV("cookies_from", browser)}
 				}
 			},
 		},
@@ -644,11 +652,22 @@ func mixcloudCookiesFrom(v map[string]string) string {
 	return picked
 }
 
+// quotedKV returns a body key with value written as a TOML string.
+func quotedKV(key, value string) config.KeyValue {
+	return config.KeyValue{Key: key, Value: config.QuoteString(value)}
+}
+
+// rawKV returns a body key with value written as is, such as a number, a
+// bool or a list.
+func rawKV(key, value string) config.KeyValue {
+	return config.KeyValue{Key: key, Value: value}
+}
+
 func setupStringList(value string) string {
 	var quoted []string
 	for _, part := range strings.Split(value, ",") {
 		if part = strings.TrimSpace(part); part != "" {
-			quoted = append(quoted, strconv.Quote(part))
+			quoted = append(quoted, config.QuoteString(part))
 		}
 	}
 	if len(quoted) == 0 {
@@ -702,7 +721,7 @@ type setupModel struct {
 }
 
 func newSetupModel() *setupModel {
-	cfgPath, _ := configFilePath()
+	cfgPath, _ := config.Path()
 	return &setupModel{
 		provs:   providers(),
 		stage:   stageMenu,
@@ -718,7 +737,13 @@ func (m *setupModel) Init() tea.Cmd {
 
 // ----- Messages -----------------------------------------------------------
 
-type validateDoneMsg struct{ err error }
+// validateDoneMsg is the result of a probe. found holds each key that the
+// probe added or changed in its copy of the form values, such as the NetEase
+// user_id.
+type validateDoneMsg struct {
+	err   error
+	found map[string]string
+}
 
 type spinTickMsg struct{}
 
@@ -731,7 +756,15 @@ func runValidateCmd(spec providerSpec, values map[string]string) tea.Cmd {
 		if spec.validate == nil {
 			return validateDoneMsg{}
 		}
-		return validateDoneMsg{err: spec.validate(values)}
+		before := maps.Clone(values)
+		err := spec.validate(values)
+		found := make(map[string]string)
+		for k, v := range values {
+			if old, ok := before[k]; !ok || old != v {
+				found[k] = v
+			}
+		}
+		return validateDoneMsg{err: err, found: found}
 	}
 }
 
@@ -757,7 +790,7 @@ func (m *setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case validateDoneMsg:
-		return m.onValidateDone(msg.err)
+		return m.onValidateDone(msg.err, msg.found)
 	}
 	return m, nil
 }
@@ -949,12 +982,21 @@ func (m *setupModel) submitForm() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Required-field check (only for visible fields).
+	// Field check (only for visible fields). config.Load reads a $NAME
+	// value from the environment, so a reference to an unset or empty
+	// variable loads as an empty value.
 	for i, idx := range m.visible {
 		f := spec.fields[idx]
-		if f.required && strings.TrimSpace(m.values[f.key]) == "" {
+		v := m.values[f.key]
+		var err error
+		if f.required && strings.TrimSpace(v) == "" {
+			err = fmt.Errorf("%s is required", f.label)
+		} else if name, ok := config.EnvRef(v); ok && os.Getenv(name) == "" {
+			err = fmt.Errorf("%s names an unset or empty environment variable. cliamp reads a $NAME or ${NAME} value from the environment", f.label)
+		}
+		if err != nil {
 			m.fcursor = i
-			m.resultErr = fmt.Errorf("%s is required", f.label)
+			m.resultErr = err
 			m.resultText = ""
 			m.stage = stageResult
 			return m, nil
@@ -969,15 +1011,22 @@ func (m *setupModel) submitForm() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Light URL sanity check before any network call.
+	// Light URL sanity check before any network call. A $NAME value stays
+	// as typed, and the check reads the variable.
 	if u, ok := m.values["url"]; ok && u != "" {
+		name, isRef := config.EnvRef(u)
+		if isRef {
+			u = os.Getenv(name)
+		}
 		clean := strings.TrimRight(u, "/")
 		if !looksLikeHTTPURL(clean) {
 			m.resultErr = fmt.Errorf("URL must start with http:// or https://")
 			m.stage = stageResult
 			return m, nil
 		}
-		m.values["url"] = clean
+		if !isRef {
+			m.values["url"] = clean
+		}
 	}
 
 	if spec.validate == nil {
@@ -987,10 +1036,32 @@ func (m *setupModel) submitForm() (tea.Model, tea.Cmd) {
 
 	m.stage = stageValidating
 	m.spinFrame = 0
-	return m, tea.Batch(spinTickCmd(), runValidateCmd(spec, m.values))
+	return m, tea.Batch(spinTickCmd(), runValidateCmd(spec, envResolved(m.values)))
 }
 
-func (m *setupModel) onValidateDone(err error) (tea.Model, tea.Cmd) {
+// envResolved returns a copy of values in which each $NAME or ${NAME} value
+// holds the value of that environment variable. The probe then checks the
+// value that config.Load reads, and the save keeps the reference.
+func envResolved(values map[string]string) map[string]string {
+	out := make(map[string]string, len(values))
+	for k, v := range values {
+		if name, ok := config.EnvRef(v); ok {
+			v = os.Getenv(name)
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// onValidateDone takes the keys that the probe found into the form values,
+// so the save writes them. A key that holds a $NAME or ${NAME} value keeps
+// that reference.
+func (m *setupModel) onValidateDone(err error, found map[string]string) (tea.Model, tea.Cmd) {
+	for k, v := range found {
+		if _, ok := config.EnvRef(m.values[k]); !ok {
+			m.values[k] = v
+		}
+	}
 	if err == nil {
 		return m, m.persistAndDone(false)
 	}
@@ -1004,8 +1075,7 @@ func (m *setupModel) onValidateDone(err error) (tea.Model, tea.Cmd) {
 // indicates the user opted to save despite a failed probe.
 func (m *setupModel) persistAndDone(warn bool) tea.Cmd {
 	spec := m.provs[m.pidx]
-	body := spec.body(m.values)
-	if err := saveSection(spec.section, body); err != nil {
+	if err := config.SaveSection(spec.section, spec.body(m.values), spec.owned); err != nil {
 		m.saveFailed = err
 		m.stage = stageResult
 		m.awaitingSave = false
@@ -1308,14 +1378,6 @@ func looksLikeHTTPURL(s string) bool {
 	return u.Scheme == "http" || u.Scheme == "https"
 }
 
-func configFilePath() (string, error) {
-	dir, err := appdir.Dir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "config.toml"), nil
-}
-
 // removeLastRune trims the final UTF-8 rune from s.
 func removeLastRune(s string) string {
 	if len(s) > 0 {
@@ -1323,93 +1385,4 @@ func removeLastRune(s string) string {
 		return s[:len(s)-size]
 	}
 	return s
-}
-
-// saveSection rewrites or appends a [section] block in config.toml. The
-// body is the raw TOML between the header and the next section/EOF; it
-// must not contain a header line itself. Existing content for the same
-// section is replaced; everything else is preserved as-is.
-func saveSection(section, body string) error {
-	path, err := configFilePath()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-
-	header := "[" + section + "]"
-	block := header + "\n" + strings.TrimRight(body, "\n") + "\n"
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		return writeConfigFile(path, block)
-	}
-
-	lines := strings.Split(string(data), "\n")
-	start, end := findSection(lines, section)
-	if start < 0 {
-		out := strings.TrimRight(string(data), "\n")
-		if out != "" {
-			out += "\n\n"
-		}
-		out += block
-		return writeConfigFile(path, out)
-	}
-
-	before := strings.TrimRight(strings.Join(lines[:start], "\n"), "\n")
-	after := ""
-	if end < len(lines) {
-		after = strings.TrimLeft(strings.Join(lines[end:], "\n"), "\n")
-	}
-	var b strings.Builder
-	if before != "" {
-		b.WriteString(before)
-		b.WriteString("\n\n")
-	}
-	b.WriteString(block)
-	if after != "" {
-		b.WriteString("\n")
-		b.WriteString(after)
-		if !strings.HasSuffix(after, "\n") {
-			b.WriteString("\n")
-		}
-	}
-	return writeConfigFile(path, b.String())
-}
-
-func writeConfigFile(path, contents string) error {
-	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
-		return err
-	}
-	return os.Chmod(path, 0o600)
-}
-
-// findSection returns [start, end) line indices for the [name] block in
-// lines, where start points at the header line and end points at the
-// next section header (or len(lines) if it's the last block). Returns
-// (-1, -1) if the section is absent.
-func findSection(lines []string, name string) (int, int) {
-	target := "[" + strings.ToLower(name) + "]"
-	start := -1
-	for i, l := range lines {
-		t := strings.ToLower(strings.TrimSpace(l))
-		if t == target {
-			start = i
-			break
-		}
-	}
-	if start < 0 {
-		return -1, -1
-	}
-	for i := start + 1; i < len(lines); i++ {
-		t := strings.TrimSpace(lines[i])
-		if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
-			return start, i
-		}
-	}
-	return start, len(lines)
 }

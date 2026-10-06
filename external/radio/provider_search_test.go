@@ -1,9 +1,11 @@
 package radio
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -112,6 +114,67 @@ func TestProviderSearchCatalogPendingLookup(t *testing.T) {
 			}
 			if len(infos) != 1 || infos[0].ID != tt.wantID || infos[0].Name != tt.wantName {
 				t.Fatalf("Playlists = %+v, want %s (%s)", infos, tt.wantName, tt.wantID)
+			}
+		})
+	}
+}
+
+func TestProviderSearchStations(t *testing.T) {
+	const body = `[
+		{"name":"Jazz One","url_resolved":"https://one.example/stream","country":"Norway","bitrate":128},
+		{"name":"Bad","url_resolved":"ssh://attacker.example/cmd"},
+		{"name":"Jazz Two","url_resolved":"http://two.example/stream"}]`
+	for _, tt := range []struct {
+		name      string
+		limit     int
+		cancelled bool
+		want      []string
+		wantErr   bool
+	}{
+		{name: "streamable stations", limit: 10, want: []string{"Jazz One", "Jazz Two"}},
+		{name: "limit", limit: 1, want: []string{"Jazz One"}},
+		{name: "no limit", limit: 0, want: []string{"Jazz One", "Jazz Two"}},
+		{name: "cancelled", limit: 10, cancelled: true, wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				q := r.URL.Query()
+				if q.Get("name") != "jazz" || q.Get("order") != string(SortVotes) || q.Get("limit") != "200" {
+					t.Errorf("query = %v, want name jazz, order votes and limit 200", q)
+				}
+				_, _ = w.Write([]byte(body))
+			}))
+			defer srv.Close()
+			installCatalogClient(t, srv.URL)
+			p := newTestProvider(t)
+			p.SetSearchResults([]CatalogStation{{Name: "pane", URL: "https://pane.example/stream"}})
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tt.cancelled {
+				cancel()
+			}
+			tracks, err := p.SearchStations(ctx, "jazz", tt.limit)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("SearchStations() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			var names []string
+			for _, track := range tracks {
+				if !track.Stream || !track.Realtime || track.ProviderMeta["radio.url"] != track.Path {
+					t.Errorf("track = %+v, want a live stream with its radio.url", track)
+				}
+				names = append(names, track.Title)
+			}
+			if !slices.Equal(names, tt.want) {
+				t.Errorf("SearchStations() titles = %q, want %q", names, tt.want)
+			}
+			// The pane search keeps its own results.
+			lists, err := p.Playlists()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(lists) != 1 || lists[0].Name != "pane" {
+				t.Errorf("pane rows = %+v, want the pane search row", lists)
 			}
 		})
 	}

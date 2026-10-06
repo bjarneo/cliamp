@@ -4,12 +4,8 @@ package playlist
 import (
 	"maps"
 	"math/rand"
-	"net/url"
-	pathpkg "path"
-	"path/filepath"
 	"reflect"
 	"slices"
-	"strings"
 	"sync"
 )
 
@@ -33,327 +29,6 @@ func (r RepeatMode) String() string {
 	}
 }
 
-// Track represents a single audio file or HTTP stream.
-type Track struct {
-	Path         string
-	Title        string
-	Artist       string
-	Album        string
-	Genre        string
-	Year         int
-	TrackNumber  int
-	Stream       bool // true for HTTP/HTTPS URLs
-	Realtime     bool // true for real-time/live streams (e.g. radio)
-	Feed         bool // true for RSS/podcast feed URLs (resolved before playback)
-	DurationSecs int  // known duration in seconds (0 = unknown)
-	Bookmark     bool // user-bookmarked track
-
-	Unplayable bool // true when the track is known not playable in the current playback context
-
-	DirSourced bool // true when expanded from a [[dir]] playlist section; re-derived on load, never persisted
-
-	EmbeddedLyrics string // embedded lyrics from local file tags, when present
-	AlbumArtURL    string // file:// URL for cached embedded album art, when present
-
-	// ProviderMeta holds provider-specific key-value pairs.
-	// Keys are namespaced by provider, e.g. "navidrome.id", "jellyfin.id".
-	ProviderMeta map[string]string
-
-	// Runtime-only provenance shared by tracks selected from the same source.
-	playbackContext      []Track
-	playbackContextIndex int
-}
-
-// Meta returns the value for a provider-specific metadata key, or "" if unset.
-func (t Track) Meta(key string) string {
-	if t.ProviderMeta == nil {
-		return ""
-	}
-	return t.ProviderMeta[key]
-}
-
-// TotalDurationSecs sums DurationSecs across a slice of tracks, skipping
-// entries with unknown duration (zero).
-func TotalDurationSecs(tracks []Track) int {
-	total := 0
-	for _, t := range tracks {
-		if t.DurationSecs > 0 {
-			total += t.DurationSecs
-		}
-	}
-	return total
-}
-
-// IsURL reports whether path is an HTTP or HTTPS URL, or a yt-dlp search protocol string.
-func IsURL(path string) bool {
-	return strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") ||
-		IsYTSearch(path)
-}
-
-// IsYTSearch reports whether path is a yt-dlp search expression
-// (ytsearch:, ytsearchN:, scsearch:, scsearchN:).
-func IsYTSearch(path string) bool {
-	return matchSearchPrefix(path, "ytsearch") || matchSearchPrefix(path, "scsearch")
-}
-
-func matchSearchPrefix(path, name string) bool {
-	if !strings.HasPrefix(path, name) {
-		return false
-	}
-	rest := path[len(name):]
-	colon := strings.IndexByte(rest, ':')
-	if colon < 0 {
-		return false
-	}
-	for _, c := range rest[:colon] {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return true
-}
-
-// IsM3U reports whether the path points to an M3U playlist file (URL or local).
-func IsM3U(path string) bool {
-	if IsURL(path) {
-		u, err := url.Parse(path)
-		if err != nil {
-			return false
-		}
-		ext := strings.ToLower(pathpkg.Ext(u.Path))
-		return ext == ".m3u" || ext == ".m3u8"
-	}
-	ext := strings.ToLower(filepath.Ext(path))
-	return ext == ".m3u" || ext == ".m3u8"
-}
-
-// IsLocalM3U reports whether the path is a local (non-URL) M3U file.
-func IsLocalM3U(path string) bool {
-	return !IsURL(path) && IsM3U(path)
-}
-
-// IsPLS reports whether the path points to a PLS playlist file (URL or local).
-func IsPLS(path string) bool {
-	if IsURL(path) {
-		u, err := url.Parse(path)
-		if err != nil {
-			return false
-		}
-		return strings.ToLower(pathpkg.Ext(u.Path)) == ".pls"
-	}
-	return strings.ToLower(filepath.Ext(path)) == ".pls"
-}
-
-// IsLocalPLS reports whether the path is a local (non-URL) PLS file.
-func IsLocalPLS(path string) bool {
-	return !IsURL(path) && IsPLS(path)
-}
-
-// IsYouTubeURL reports whether the URL points to YouTube (youtube.com or youtu.be).
-// YouTube Music (music.youtube.com) is excluded — use IsYouTubeMusicURL for that.
-func IsYouTubeURL(path string) bool {
-	if !IsURL(path) {
-		return false
-	}
-	// ytsearch: protocols are handled by yt-dlp, not the native YouTube client.
-	if IsYTSearch(path) {
-		return false
-	}
-	u, err := url.Parse(path)
-	if err != nil {
-		return false
-	}
-	host := strings.ToLower(u.Hostname())
-	host = strings.TrimPrefix(host, "www.")
-	host = strings.TrimPrefix(host, "m.")
-	switch host {
-	case "youtube.com", "youtu.be":
-		return true
-	}
-	return false
-}
-
-// IsYouTubeMusicURL reports whether the URL points to YouTube Music (music.youtube.com).
-// These URLs require yt-dlp rather than the native YouTube API client.
-func IsYouTubeMusicURL(path string) bool {
-	if !IsURL(path) {
-		return false
-	}
-	u, err := url.Parse(path)
-	if err != nil {
-		return false
-	}
-	host := strings.ToLower(u.Hostname())
-	host = strings.TrimPrefix(host, "www.")
-	host = strings.TrimPrefix(host, "m.")
-	return host == "music.youtube.com"
-}
-
-// IsMixcloudURL reports whether path is a Mixcloud website URL.
-func IsMixcloudURL(path string) bool {
-	if !IsURL(path) {
-		return false
-	}
-	u, err := url.Parse(path)
-	if err != nil {
-		return false
-	}
-	host := strings.ToLower(u.Hostname())
-	host = strings.TrimPrefix(host, "www.")
-	host = strings.TrimPrefix(host, "m.")
-	return host == "mixcloud.com"
-}
-
-// IsYTDL reports whether the URL points to a site supported by yt-dlp
-// (YouTube, SoundCloud, Bandcamp, ytsearch: protocol, etc.).
-func IsYTDL(path string) bool {
-	if !IsURL(path) {
-		return false
-	}
-	// YouTube and YouTube Music URLs are handled by yt-dlp for playback.
-	if IsYouTubeURL(path) || IsYouTubeMusicURL(path) {
-		return true
-	}
-	if IsYTSearch(path) {
-		return true
-	}
-	u, err := url.Parse(path)
-	if err != nil {
-		return false
-	}
-	host := strings.ToLower(u.Hostname())
-	host = strings.TrimPrefix(host, "www.")
-	host = strings.TrimPrefix(host, "m.")
-	switch host {
-	case "soundcloud.com",
-		"mixcloud.com",
-		"bandcamp.com",
-		"music.163.com",
-		"bilibili.com",
-		"b23.tv":
-		return true
-	}
-	// Bilibili subdomains (e.g. space.bilibili.com)
-	if strings.HasSuffix(host, ".bilibili.com") {
-		return true
-	}
-	// Bandcamp artist subdomains (e.g. artist.bandcamp.com)
-	if strings.HasSuffix(host, ".bandcamp.com") {
-		return true
-	}
-	return false
-}
-
-// IsXiaoyuzhouEpisode reports whether the URL points to a Xiaoyuzhou episode page.
-func IsXiaoyuzhouEpisode(path string) bool {
-	if !IsURL(path) {
-		return false
-	}
-	u, err := url.Parse(path)
-	if err != nil {
-		return false
-	}
-	host := strings.ToLower(u.Hostname())
-	host = strings.TrimPrefix(host, "www.")
-	host = strings.TrimPrefix(host, "m.")
-	if host != "xiaoyuzhoufm.com" {
-		return false
-	}
-	return strings.HasPrefix(strings.ToLower(u.Path), "/episode/")
-}
-
-// IsFeed reports whether the URL points to a podcast RSS/XML feed.
-func IsFeed(path string) bool {
-	if !IsURL(path) {
-		return false
-	}
-	u, err := url.Parse(path)
-	if err != nil {
-		return false
-	}
-	ext := strings.ToLower(pathpkg.Ext(u.Path))
-	return ext == ".xml" || ext == ".rss" || ext == ".atom"
-}
-
-// TrackFromPath creates a Track by parsing the filename or URL.
-// For local files, embedded tags (ID3v2, Vorbis, MP4) are tried first,
-// falling back to "Artist - Title" filename parsing.
-func TrackFromPath(path string) Track {
-	if IsURL(path) {
-		return trackFromURL(path)
-	}
-	return readTags(path)
-}
-
-// trackFromURL creates a Track from an HTTP/HTTPS URL, extracting a clean
-// display title from the URL path (ignoring query parameters).
-func trackFromURL(rawURL string) Track {
-	t := Track{Path: rawURL, Stream: true}
-
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		t.Title = rawURL
-		return t
-	}
-
-	// Extract filename from URL path using slash semantics, not OS-specific
-	// filepath rules. URL paths always use '/'.
-	base := pathpkg.Base(u.Path)
-	if base != "" && base != "." && base != "/" {
-		name := strings.TrimSuffix(base, pathpkg.Ext(base))
-		if name != "" && name != "stream" && name != "rest" {
-			t.Title = name
-			return t
-		}
-	}
-
-	// Fallback: use hostname
-	t.Title = u.Hostname()
-	return t
-}
-
-// IsLive reports whether the track is a live stream (e.g. Icecast radio)
-func (t Track) IsLive() bool {
-	return t.Realtime
-}
-
-// DisplayName returns a formatted display string for the track.
-func (t Track) DisplayName() string {
-	if t.Artist != "" {
-		return t.Artist + " - " + t.Title
-	}
-	return t.Title
-}
-
-// ProviderMeta keys shared across providers. Unlike the provider-namespaced
-// keys (e.g. "navidrome.id"), these describe what a Track stands for, so the
-// UI can handle it without knowing which provider produced it.
-const (
-	// MetaKind marks a Track that is not a plain playable track.
-	MetaKind = "kind"
-	// MetaKindAlbum is the MetaKind value for an album placeholder: a search
-	// result standing for a whole album, expanded to its tracks when chosen.
-	MetaKindAlbum = "album"
-	// MetaAlbumID carries the provider-side album id of an album placeholder.
-	MetaAlbumID = "albumID"
-)
-
-// IsAlbum reports whether the track is an album placeholder rather than
-// something playable on its own. Callers must expand it with the provider's
-// AlbumTracks before handing it to the player.
-func (t Track) IsAlbum() bool {
-	return t.ProviderMeta[MetaKind] == MetaKindAlbum
-}
-
-// AlbumID returns the provider-side album id of an album placeholder, or ""
-// when the track is not one.
-func (t Track) AlbumID() string {
-	if !t.IsAlbum() {
-		return ""
-	}
-	return t.ProviderMeta[MetaAlbumID]
-}
-
 // Playlist manages an ordered list of tracks with shuffle and repeat support.
 // All exported methods are safe for concurrent use: the Bubbletea UI loop
 // mutates the playlist while Lua plugin goroutines read state through it.
@@ -368,7 +43,6 @@ type Playlist struct {
 	queue          []int       // track indices queued to play next
 	queuePositions map[int]int // first 1-based queue position by track index
 	queuedIdx      int         // track index currently playing from queue, -1 if none
-	bookmarkCount  int         // number of tracks with Bookmark set
 }
 
 // Snapshot preserves the complete mutable playback state for later restoration.
@@ -404,15 +78,6 @@ func (p *Playlist) rebuildQueuePositions() {
 	for i, idx := range p.queue {
 		if _, exists := p.queuePositions[idx]; !exists {
 			p.queuePositions[idx] = i + 1
-		}
-	}
-}
-
-func (p *Playlist) rebuildBookmarkCount() {
-	p.bookmarkCount = 0
-	for _, track := range p.tracks {
-		if track.Bookmark {
-			p.bookmarkCount++
 		}
 	}
 }
@@ -462,9 +127,9 @@ func windowBounds(length, start, limit int) (int, int) {
 	return start, end
 }
 
-func (p *Playlist) cloneQueuedTracks(queue []int) []Track {
-	tracks := make([]Track, len(queue))
-	for i, idx := range queue {
+func (p *Playlist) cloneTracksAt(indices []int) []Track {
+	tracks := make([]Track, len(indices))
+	for i, idx := range indices {
 		tracks[i] = cloneTrack(p.tracks[idx])
 	}
 	return tracks
@@ -485,7 +150,6 @@ func (p *Playlist) Replace(tracks []Track) {
 	p.queue = nil
 	p.queuePositions = nil
 	p.queuedIdx = -1
-	p.rebuildBookmarkCount()
 	if p.shuffle && len(tracks) > 0 {
 		p.doShuffle()
 	}
@@ -504,11 +168,6 @@ func (p *Playlist) Add(tracks ...Track) {
 	}
 	start := len(p.tracks)
 	p.tracks = append(p.tracks, tracks...)
-	for _, track := range tracks {
-		if track.Bookmark {
-			p.bookmarkCount++
-		}
-	}
 	for i := start; i < len(p.tracks); i++ {
 		p.order = append(p.order, i)
 	}
@@ -685,6 +344,18 @@ type SelectionActivation struct {
 	Track   Track
 	Index   int
 	Skipped bool
+}
+
+// PeekSelected returns the track that ActivateSelected would activate,
+// without a change to the playlist.
+func (p *Playlist) PeekSelected() (Track, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_, idx, ok := p.resolveSelectedPlayablePos()
+	if !ok {
+		return Track{}, false
+	}
+	return cloneTrack(p.tracks[idx]), true
 }
 
 // ActivateSelected promotes the selected row to the active playable track.
@@ -936,7 +607,7 @@ func (p *Playlist) QueueLen() int {
 func (p *Playlist) QueueTracks() []Track {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.cloneQueuedTracks(p.queue)
+	return p.cloneTracksAt(p.queue)
 }
 
 // QueueEntries returns copies of play-next entries in their playback order.
@@ -958,7 +629,7 @@ func (p *Playlist) QueueWindow(start, limit int) []Track {
 	if start == end {
 		return nil
 	}
-	return p.cloneQueuedTracks(p.queue[start:end])
+	return p.cloneTracksAt(p.queue[start:end])
 }
 
 // ClearQueue removes all entries from the play-next queue.
@@ -1015,7 +686,6 @@ func (p *Playlist) Restore(snapshot Snapshot) {
 	p.queue = slices.Clone(snapshot.queue)
 	p.queuedIdx = snapshot.queuedIdx
 	p.rebuildQueuePositions()
-	p.rebuildBookmarkCount()
 	if !p.matches(before) {
 		p.revision++
 	}
@@ -1106,9 +776,6 @@ func (p *Playlist) Remove(idx int) bool {
 	if idx < 0 || idx >= len(p.tracks) {
 		return false
 	}
-	if p.tracks[idx].Bookmark {
-		p.bookmarkCount--
-	}
 
 	p.tracks = slices.Delete(p.tracks, idx, idx+1)
 
@@ -1169,24 +836,26 @@ func (p *Playlist) SetTrack(i int, t Track) {
 		if equalTrack(p.tracks[i], t) {
 			return
 		}
-		if p.tracks[i].Bookmark != t.Bookmark {
-			if t.Bookmark {
-				p.bookmarkCount++
-			} else {
-				p.bookmarkCount--
-			}
-		}
 		p.tracks[i] = t
 		p.revision++
 	}
 }
 
 // Tracks returns an independent snapshot of all tracks in the playlist.
-// Render paths should use TrackWindow to avoid copying the full playlist.
+// Render paths should use OrderWindow to avoid copying the full playlist.
 func (p *Playlist) Tracks() []Track {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return cloneTracks(p.tracks)
+}
+
+// TracksAndQueue returns an independent snapshot of all tracks and the track
+// indices of the play-next queue in queue order. It reads both under one
+// lock, so the indices always refer to the returned tracks.
+func (p *Playlist) TracksAndQueue() ([]Track, []int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return cloneTracks(p.tracks), slices.Clone(p.queue)
 }
 
 // Track returns an independent copy of the track at index.
@@ -1199,38 +868,34 @@ func (p *Playlist) Track(index int) (Track, bool) {
 	return cloneTrack(p.tracks[index]), true
 }
 
-// TrackWindow returns independent copies of at most limit tracks starting at
-// start. It is intended for bounded render windows.
-func (p *Playlist) TrackWindow(start, limit int) []Track {
+// OrderWindow returns the track indices and independent track copies at no
+// more than limit play order positions from position start. While shuffle is
+// on, the play order is the shuffle order. Otherwise, it is the track order.
+// It is intended for bounded render windows.
+func (p *Playlist) OrderWindow(start, limit int) ([]int, []Track) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	start, end := windowBounds(len(p.tracks), start, limit)
+	start, end := windowBounds(len(p.order), start, limit)
 	if start == end {
-		return nil
+		return nil, nil
 	}
-	return cloneTracks(p.tracks[start:end])
+	indices := slices.Clone(p.order[start:end])
+	return indices, p.cloneTracksAt(indices)
 }
 
-// ToggleBookmark flips the Bookmark flag on the track at the given index.
-func (p *Playlist) ToggleBookmark(idx int) {
+// OrderPosition returns the play order position of the track at index idx.
+// It returns -1 if idx is out of range.
+func (p *Playlist) OrderPosition(idx int) int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if idx >= 0 && idx < len(p.tracks) {
-		p.tracks[idx].Bookmark = !p.tracks[idx].Bookmark
-		if p.tracks[idx].Bookmark {
-			p.bookmarkCount++
-		} else {
-			p.bookmarkCount--
-		}
-		p.revision++
+	if idx < 0 || idx >= len(p.tracks) {
+		return -1
 	}
-}
-
-// BookmarkCount returns the number of bookmarked tracks.
-func (p *Playlist) BookmarkCount() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.bookmarkCount
+	if !p.shuffle {
+		// Without shuffle, the play order is the track order.
+		return idx
+	}
+	return slices.Index(p.order, idx)
 }
 
 // ToggleShuffle enables or disables shuffle mode.

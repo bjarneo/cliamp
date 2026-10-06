@@ -1,6 +1,9 @@
 package radio
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // Until the listener answers, the Countries section leads with the offer and
 // no country of theirs appears anywhere.
@@ -17,7 +20,7 @@ func TestPlaylistsOffersLocationBeforeItIsAnswered(t *testing.T) {
 		t.Fatalf("first row = %+v, want the location offer", lists[0])
 	}
 	for _, list := range lists {
-		if list.ID == "p:0" {
+		if strings.HasPrefix(list.ID, "p:") {
 			t.Errorf("a country row appeared before the question was answered: %+v", list)
 		}
 	}
@@ -75,10 +78,10 @@ func TestPlaylistsListsPlacesBeforeStations(t *testing.T) {
 		t.Fatalf("lists = %+v, want two places and the built-in station", lists)
 	}
 	// The home country leads and says why it is there; pins follow, starred.
-	if lists[0].ID != "p:0" || lists[0].Name != "Norway (near you)" {
+	if lists[0].ID != "p:NO" || lists[0].Name != "Norway (near you)" {
 		t.Errorf("first row = %+v, want the home country", lists[0])
 	}
-	if lists[1].ID != "p:1" || lists[1].Name != "★ Germany" {
+	if lists[1].ID != "p:DE" || lists[1].Name != "★ Germany" {
 		t.Errorf("second row = %+v, want the pinned country", lists[1])
 	}
 	if lists[2].ID != "l:0" || lists[2].Name != builtinName {
@@ -105,7 +108,7 @@ func TestTracksExpandsAPlaceIntoItsStations(t *testing.T) {
 	d.serve(t)
 
 	p := newPlaceProvider(t, "NO")
-	tracks, err := p.Tracks("p:0")
+	tracks, err := p.Tracks("p:NO")
 	if err != nil {
 		t.Fatalf("Tracks: %v", err)
 	}
@@ -116,8 +119,56 @@ func TestTracksExpandsAPlaceIntoItsStations(t *testing.T) {
 		t.Errorf("query = %v, want it narrowed to NO", d.lastQuery)
 	}
 
-	if _, err := p.Tracks("p:9"); err == nil {
-		t.Error("Tracks should reject an out-of-range place index")
+	if _, err := p.Tracks("p:XX"); err == nil {
+		t.Error("Tracks should reject an unknown place")
+	}
+}
+
+// A place row keeps its ID when another pin goes away, as favorite rows do. A
+// selection or a track request for the row then still names the same place.
+func TestPlaceIDsSurviveAPinChange(t *testing.T) {
+	d := &directory{}
+	d.serve(t)
+
+	p := newPlaceProvider(t, "NO")
+	germany := Place{Code: "DE", Name: "Germany"}
+	oslo := Place{Code: "NO", Name: "Oslo, Norway", State: "Oslo"}
+	for _, place := range []Place{germany, oslo} {
+		if _, err := p.pins.Toggle(place); err != nil {
+			t.Fatalf("pin %s: %v", place.ID(), err)
+		}
+	}
+	rowIDs := func() map[string]string {
+		t.Helper()
+		lists, err := p.Playlists()
+		if err != nil {
+			t.Fatalf("Playlists: %v", err)
+		}
+		ids := make(map[string]string)
+		for _, list := range lists {
+			if strings.HasPrefix(list.ID, "p:") {
+				ids[list.Name] = list.ID
+			}
+		}
+		return ids
+	}
+	before := rowIDs()
+
+	if _, err := p.pins.Toggle(germany); err != nil {
+		t.Fatalf("unpin Germany: %v", err)
+	}
+	after := rowIDs()
+	for _, name := range []string{"Norway (near you)", "★ Oslo, Norway"} {
+		if before[name] == "" || after[name] != before[name] {
+			t.Errorf("row %q: ID %q before the unpin, %q after, want the same ID", name, before[name], after[name])
+		}
+	}
+
+	if _, err := p.Tracks(before["★ Oslo, Norway"]); err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	if d.lastQuery.Get("countrycode") != "NO" || d.lastQuery.Get("state") != "Oslo" {
+		t.Errorf("query = %v, want it narrowed to Oslo, NO", d.lastQuery)
 	}
 }
 
@@ -163,7 +214,7 @@ func TestIsFavoritableIDExcludesPlaces(t *testing.T) {
 	p := newPlaceProvider(t, "")
 	for id, want := range map[string]bool{
 		"c:0": true, "f:https://radio.example/live": true, "s:0": true,
-		"p:0": false, "l:0": false, "browse:countries": false,
+		"p:NO": false, "l:0": false, "browse:countries": false,
 	} {
 		if got := p.IsFavoritableID(id); got != want {
 			t.Errorf("IsFavoritableID(%q) = %v, want %v", id, got, want)

@@ -17,6 +17,7 @@ import (
 func sampleSummary() radio.Summary {
 	return radio.Summary{
 		Listeners: 197,
+		Playlists: 12,
 		Countries: []radio.CountryCount{
 			{Code: "US", Name: "United States", Count: 48},
 			{Code: "DE", Name: "Germany", Count: 22},
@@ -43,6 +44,7 @@ func TestStatsReport(t *testing.T) {
 	for _, want := range []string{
 		"who's listening right now",
 		"listening now           197",
+		"on playlists             12",
 		"countries                 4",
 		"busiest channel  EDM (52 listening)",
 		"all-time high           280",
@@ -155,6 +157,42 @@ func newTestGlobeModel(t *testing.T) *globeModel {
 	return newGlobeModel(world, globeStylesFromTheme(theme.Default()))
 }
 
+// TestGlobeStylesFromTheme checks that the globe draws with the palette of
+// its theme and leaves the ui color variables alone.
+func TestGlobeStylesFromTheme(t *testing.T) {
+	world, err := worldmap.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name  string
+		theme theme.Theme
+	}{
+		{"default without background", theme.Default()},
+		{"custom with background", theme.Theme{
+			Name: "custom", BG: "#101010", Accent: "#ff8800", BrightFG: "#f0f0f0",
+			FG: "#909090", Green: "#00ff00", Yellow: "#ffff00", Red: "#ff0000",
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			text, background := ui.ColorText, ui.ColorBackground
+			m := newGlobeModel(world, globeStylesFromTheme(tt.theme))
+			if ui.ColorText != text || ui.ColorBackground != background {
+				t.Error("globe styles changed the ui color variables")
+			}
+			p := ui.PaletteFor(tt.theme)
+			v := m.View()
+			if v.BackgroundColor != p.Background {
+				t.Errorf("view background = %v, want %v", v.BackgroundColor, p.Background)
+			}
+			if p.Background != nil && v.ForegroundColor != p.Text {
+				t.Errorf("view foreground = %v, want %v", v.ForegroundColor, p.Text)
+			}
+		})
+	}
+}
+
 func TestGlobeModelView(t *testing.T) {
 	m := newTestGlobeModel(t)
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -174,7 +212,7 @@ func TestGlobeModelView(t *testing.T) {
 			t.Errorf("line %d is %d cells wide, want <= %d", i, w, m.width)
 		}
 	}
-	for _, want := range []string{"cliamp radio", "LISTENERS", "United States", "EDM", "783,681", "LISTENING HOURS · LAST 31 DAYS", "q quit", "● live"} {
+	for _, want := range []string{"cliamp radio", "LISTENERS", "12 on playlists", "United States", "EDM", "783,681", "LISTENING HOURS · LAST 31 DAYS", "q quit", "● live"} {
 		if !strings.Contains(view.Content, want) {
 			t.Errorf("view lacks %q", want)
 		}
@@ -185,12 +223,12 @@ func TestGlobeModelView(t *testing.T) {
 	if !strings.Contains(view.Content, "US 48") {
 		t.Error("heaviest country should be labelled on the globe")
 	}
-	if !strings.Contains(view.Content, ansi.Style{}.ForegroundColor(ui.ColorText).String()) {
+	if !strings.Contains(view.Content, ansi.Style{}.ForegroundColor(ui.PaletteFor(theme.Default()).Text).String()) {
 		t.Error("countries with listeners should be lit")
 	}
 
 	m.Update(tea.WindowSizeMsg{Width: 70, Height: 30})
-	if content := ansi.Strip(m.View().Content); !strings.Contains(content, "197 listening") || strings.Contains(content, "LISTENING HOURS") {
+	if content := ansi.Strip(m.View().Content); !strings.Contains(content, "197 listening") || !strings.Contains(content, "12 on playlists") || strings.Contains(content, "LISTENING HOURS") {
 		t.Errorf("narrow view should swap the panel for the strip:\n%s", content)
 	}
 	if lines := strings.Split(m.View().Content, "\n"); len(lines) != 30 {

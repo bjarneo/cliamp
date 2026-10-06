@@ -184,19 +184,10 @@ func terminalTitleValuesForTrack(track playlist.Track, streamTitle string, playi
 
 	values.path = track.Path
 
-	switch {
-	case track.Stream && streamTitle != "":
+	if track.Stream {
 		values.streamTitle = streamTitle
-		if artist, title, ok := strings.Cut(streamTitle, " - "); ok && artist != "" && title != "" {
-			values.artist = artist
-			values.title = title
-		} else {
-			values.title = streamTitle
-		}
-	default:
-		values.title = track.Title
-		values.artist = track.Artist
 	}
+	values.artist, values.title = streamDisplay(track, streamTitle)
 
 	values.metadata = terminalTitleMetadata(values.title, values.artist, values.path)
 	return values

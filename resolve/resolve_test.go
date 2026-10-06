@@ -1,6 +1,8 @@
 package resolve
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -199,7 +201,7 @@ func TestResolveM3U_HLS_ReturnsSingleStream(t *testing.T) {
 	defer srv.Close()
 
 	u := srv.URL + "/primary/gaucha_rbs.sdp/playlist.m3u8"
-	tracks, err := resolveM3U(u)
+	tracks, err := resolveM3U(t.Context(), u)
 	if err != nil {
 		t.Fatalf("resolveM3U: %v", err)
 	}
@@ -224,7 +226,7 @@ func TestResolveM3U_PlainPlaylist_StillParsesTracks(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	tracks, err := resolveM3U(srv.URL + "/list.m3u")
+	tracks, err := resolveM3U(t.Context(), srv.URL+"/list.m3u")
 	if err != nil {
 		t.Fatalf("resolveM3U: %v", err)
 	}
@@ -292,7 +294,7 @@ func TestResolveYTDLBatchCookieSelection(t *testing.T) {
 
 	// 1. Fall back to cookies configured for the URL's host.
 	SetYTDLCookiesForHost("example.com", "firefox")
-	_, _ = ResolveYTDLBatch("https://example.com/playlist", 0, 0)
+	_, _ = ResolveYTDLBatch("https://example.com/playlist", 0, 0, "")
 
 	logged, err := os.ReadFile(logFile)
 	if err != nil {
@@ -313,6 +315,65 @@ func TestResolveYTDLBatchCookieSelection(t *testing.T) {
 	}
 	if strings.Contains(string(logged), "--cookies-from-browser firefox") {
 		t.Errorf("did not expect host cookies 'firefox' in args, got: %s", string(logged))
+	}
+}
+
+// TestYTDLRangeFlags pins the yt-dlp range flags that each entry point sends.
+// yt-dlp counts from 1, and count 0 means all remaining entries.
+func TestYTDLRangeFlags(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping Unix shell script test on Windows")
+	}
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "ytdlp_args.log")
+	script := "#!/bin/sh\necho \"$@\" > \"" + logFile + "\"\n" +
+		"echo '{\"webpage_url\":\"https://example.com/v1\",\"title\":\"One\"}'\n" +
+		"echo '{malformed}'\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "yt-dlp"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	const page = "https://example.com/playlist"
+	tests := []struct {
+		name string
+		run  func() ([]playlist.Track, error)
+		want string
+	}{
+		{"batch all", func() ([]playlist.Track, error) { return ResolveYTDLBatch(page, 0, 0, "") }, ""},
+		{"batch first 5", func() ([]playlist.Track, error) { return ResolveYTDLBatch(page, 0, 5, "") }, "--playlist-end 5"},
+		{"batch from 20", func() ([]playlist.Track, error) { return ResolveYTDLBatch(page, 20, 0, "") }, "--playlist-start 21"},
+		{"batch 20 to 30", func() ([]playlist.Track, error) { return ResolveYTDLBatch(page, 20, 10, "") }, "--playlist-start 21 --playlist-end 30"},
+		{"page context", func() ([]playlist.Track, error) {
+			tracks, entries, err := ResolveYTDLBatchPageContext(t.Context(), page, 2, 3, "")
+			if err == nil && entries != 2 {
+				err = fmt.Errorf("entries = %d, want 2", entries)
+			}
+			return tracks, err
+		}, "--playlist-start 3 --playlist-end 5"},
+		{"remote first items", func() ([]playlist.Track, error) {
+			return resolveYTDL(t.Context(), page, YTDLRadioInitialItems)
+		}, "--playlist-end 20"},
+		{"remote all", func() ([]playlist.Track, error) { return resolveYTDL(t.Context(), page, 0) }, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tracks, err := tt.run()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(tracks) != 1 || tracks[0].Path != "https://example.com/v1" {
+				t.Fatalf("tracks = %+v, want the one valid entry", tracks)
+			}
+			logged, err := os.ReadFile(logFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := strings.Join(strings.Fields("--flat-playlist -j --socket-timeout 15 "+tt.want+" -- "+page), " ")
+			if got := strings.Join(strings.Fields(string(logged)), " "); got != want {
+				t.Fatalf("yt-dlp args = %q, want %q", got, want)
+			}
+		})
 	}
 }
 
@@ -363,7 +424,7 @@ func TestResolvePLSCapsBody(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			tracks, err := resolvePLS(srv.URL + "/stations.pls")
+			tracks, err := resolvePLS(t.Context(), srv.URL+"/stations.pls")
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("resolvePLS accepted a %d-byte body and returned %d tracks, want an error",
@@ -411,7 +472,7 @@ func TestResolvePLSStopsReadingAtTheCap(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := resolvePLS(srv.URL + "/endless.pls"); err == nil {
+	if _, err := resolvePLS(t.Context(), srv.URL+"/endless.pls"); err == nil {
 		t.Fatal("resolvePLS accepted an oversized body, want an error")
 	}
 
@@ -419,6 +480,75 @@ func TestResolvePLSStopsReadingAtTheCap(t *testing.T) {
 	// server drains all 32 MB.
 	if got := written.Load(); got >= served/2 {
 		t.Fatalf("server wrote %d bytes before the client stopped, want well under %d", got, served)
+	}
+}
+
+// TestResolveM3UCapsBody pins the size rule for remote M3U bodies. A plain
+// M3U over the cap is an error, as for PLS, because truncation cuts the last
+// entry into a bogus track. An HLS body only decides the stream type, so a
+// long VOD media playlist over the cap still plays as one stream.
+func TestResolveM3UCapsBody(t *testing.T) {
+	plain := func(entries int) string {
+		var sb strings.Builder
+		sb.WriteString("#EXTM3U\n")
+		for i := 1; i <= entries; i++ {
+			fmt.Fprintf(&sb, "#EXTINF:120,Track %d\nhttps://example.com/%d.mp3\n", i, i)
+		}
+		return sb.String()
+	}
+	var hls strings.Builder
+	hls.WriteString("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:6\n")
+	for i := 0; hls.Len() <= maxPlaylistBody; i++ {
+		fmt.Fprintf(&hls, "#EXTINF:6.0,\nsegment_%08d.ts\n", i)
+	}
+	live := hls.String()
+	hls.WriteString("#EXT-X-ENDLIST\n")
+
+	tests := []struct {
+		name         string
+		body         string
+		wantErr      bool
+		wantTracks   int
+		wantRealtime bool
+	}{
+		{name: "plain under the cap", body: plain(10), wantTracks: 10},
+		{name: "plain over the cap", body: plain(30000), wantErr: true},
+		{name: "hls vod over the cap", body: hls.String(), wantTracks: 1},
+		{name: "hls live over the cap", body: live, wantTracks: 1, wantRealtime: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if strings.HasSuffix(tt.name, "over the cap") && len(tt.body) <= maxPlaylistBody {
+				t.Fatalf("fixture is %d bytes, needs to exceed maxPlaylistBody (%d)", len(tt.body), maxPlaylistBody)
+			}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				io.WriteString(w, tt.body)
+			}))
+			defer srv.Close()
+
+			u := srv.URL + "/list.m3u8"
+			tracks, err := resolveM3U(t.Context(), u)
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "exceeds") {
+					t.Fatalf("resolveM3U = %d tracks, err %v, want an error that names the cap", len(tracks), err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveM3U: %v", err)
+			}
+			if len(tracks) != tt.wantTracks {
+				t.Fatalf("got %d tracks, want %d", len(tracks), tt.wantTracks)
+			}
+			for i, tr := range tracks {
+				if !playlist.IsURL(tr.Path) {
+					t.Fatalf("tracks[%d].Path = %q, want a URL", i, tr.Path)
+				}
+				if tr.Realtime != tt.wantRealtime {
+					t.Errorf("tracks[%d].Realtime = %v, want %v", i, tr.Realtime, tt.wantRealtime)
+				}
+			}
+		})
 	}
 }
 
@@ -443,5 +573,113 @@ func TestRemoteRequiresClassifiedURLs(t *testing.T) {
 
 	if _, err := Remote([]string{srv.URL + "/live"}); err == nil {
 		t.Fatal("Remote accepted an unclassified stream URL; URL is no longer needed")
+	}
+}
+
+// TestClassifyRemote pins the one URL list that Args and Remote share,
+// including the order rules between overlapping predicates.
+func TestClassifyRemote(t *testing.T) {
+	tests := []struct {
+		url  string
+		want remoteKind
+	}{
+		{"https://www.xiaoyuzhoufm.com/episode/abc123", kindXiaoyuzhou},
+		{"https://music.youtube.com/watch?v=abc", kindYouTubeMusic},
+		{"https://music.youtube.com/playlist?list=PLx", kindYouTubeMusic},
+		{"https://www.youtube.com/watch?v=abc", kindYouTube},
+		{"https://youtu.be/abc", kindYouTube},
+		{"ytsearch5:lofi", kindYTDL},
+		{"scsearch:artist", kindYTDL},
+		{"https://soundcloud.com/artist/track", kindYTDL},
+		{"https://www.mixcloud.com/creator/show/", kindYTDL},
+		{"https://artist.bandcamp.com/album/name", kindYTDL},
+		{"https://example.com/podcast.rss", kindFeed},
+		{"https://example.com/feed.XML", kindFeed},
+		{"https://example.com/list.m3u8", kindM3U},
+		{"https://example.com/list.m3u", kindM3U},
+		{"https://example.com/stations.pls", kindPLS},
+		// Order rules: a yt-dlp site wins over a file extension.
+		{"https://www.youtube.com/list.m3u8", kindYouTube},
+		{"https://soundcloud.com/artist/feed.xml", kindYTDL},
+		{"https://music.youtube.com/stations.pls", kindYouTubeMusic},
+		// No resolver claims these. Args sniffs them for a feed.
+		{"https://example.com/stream.mp3", kindStream},
+		{"https://radio.example/live", kindStream},
+		{"https://www.xiaoyuzhoufm.com/podcast/abc123", kindStream},
+	}
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			if got := classifyRemote(tt.url); got != tt.want {
+				t.Fatalf("classifyRemote(%q) = %d, want %d", tt.url, got, tt.want)
+			}
+			if tt.want == kindStream {
+				return // Args would send a HEAD request to sniff for a feed.
+			}
+			r, err := Args([]string{tt.url})
+			if err != nil {
+				t.Fatalf("Args: %v", err)
+			}
+			if len(r.Pending) != 1 || r.Pending[0] != tt.url || len(r.Tracks) != 0 {
+				t.Fatalf("Args = %+v, want %q pending for Remote", r, tt.url)
+			}
+		})
+	}
+}
+
+// TestURLContextCancelsRemoteFetch pins that URLContext stops a slow remote
+// resolve or feed sniff when the caller cancels, well before the client
+// limits of 30 s and 5 s.
+func TestURLContextCancelsRemoteFetch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping Unix shell script test on Windows")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(10 * time.Second):
+		}
+	}))
+	defer srv.Close()
+	target, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldClient, oldSniff := httpClient, sniffClient
+	httpClient = &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: rewriteHostTransport{target: target, rt: http.DefaultTransport},
+	}
+	sniffClient = &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: rewriteHostTransport{target: target, rt: http.DefaultTransport},
+	}
+	t.Cleanup(func() { httpClient, sniffClient = oldClient, oldSniff })
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "yt-dlp"), []byte("#!/bin/sh\nexec sleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	for _, rawURL := range []string{
+		"https://example.com/list.m3u",
+		"https://example.com/stations.pls",
+		"https://example.com/podcast.rss",
+		"https://www.xiaoyuzhoufm.com/episode/abc123",
+		"ytsearch:slow query",
+		"https://example.com/live", // no resolver claims it, so Args sniffs it
+	} {
+		t.Run(rawURL, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			time.AfterFunc(100*time.Millisecond, cancel)
+			start := time.Now()
+			_, err := URLContext(ctx, rawURL)
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("URLContext error = %v, want context.Canceled", err)
+			}
+			if elapsed := time.Since(start); elapsed > 5*time.Second {
+				t.Fatalf("URLContext returned after %v, want it to stop at the cancel", elapsed)
+			}
+		})
 	}
 }

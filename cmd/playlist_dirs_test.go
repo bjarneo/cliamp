@@ -143,27 +143,28 @@ func TestPlaylistRemoveDirSourcedTrackFails(t *testing.T) {
 	}
 }
 
-func TestPlaylistBookmarkMaterializesDirTrack(t *testing.T) {
+func TestPlaylistFavoriteDirTrack(t *testing.T) {
 	setupTestEnv(t)
 	audio := t.TempDir()
 	writeAudioFile(t, audio+"/a.mp3")
 	if err := PlaylistCreate("Music", nil, "", []string{audio}); err != nil {
 		t.Fatalf("PlaylistCreate: %v", err)
 	}
-	out, err := captureStdout(t, func() error { return PlaylistBookmark("Music", 1) })
+	out, err := captureStdout(t, func() error { return PlaylistFavorite("Music", 1) })
 	if err != nil {
-		t.Fatalf("PlaylistBookmark: %v", err)
+		t.Fatalf("PlaylistFavorite: %v", err)
 	}
-	if !strings.Contains(out, "★") {
-		t.Errorf("output = %q, want bookmarked marker", out)
+	if !strings.Contains(out, "♥") {
+		t.Errorf("output = %q, want favorite marker", out)
 	}
-	// The bookmark persists after reload because the track was materialized.
-	out, err = captureStdout(t, func() error { return PlaylistBookmarks() })
+	// The favorite lives in the favorites store, so the directory track
+	// needs no explicit entry in the playlist.
+	out, err = captureStdout(t, func() error { return PlaylistFavorites() })
 	if err != nil {
-		t.Fatalf("PlaylistBookmarks: %v", err)
+		t.Fatalf("PlaylistFavorites: %v", err)
 	}
-	if !strings.Contains(out, "1 bookmarks") {
-		t.Errorf("PlaylistBookmarks = %q, want 1 bookmark", out)
+	if !strings.Contains(out, "1 favorites") {
+		t.Errorf("PlaylistFavorites = %q, want 1 favorite", out)
 	}
 }
 

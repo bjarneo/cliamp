@@ -10,7 +10,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/bjarneo/cliamp/playlist"
-	"github.com/bjarneo/cliamp/ui"
 )
 
 func TestSettingsFocusCycle(t *testing.T) {
@@ -81,19 +80,12 @@ func TestSettingsFocusMatchesShedRows(t *testing.T) {
 }
 
 func TestSettingsFocusMatchesHeaderWithPadding(t *testing.T) {
-	previousStyle, previousWidth := ui.FrameStyle, ui.PanelWidth
-	previousH, previousV := ui.PaddingH, ui.VerticalPadding()
-	ui.SetPadding(8, 1)
-	t.Cleanup(func() {
-		ui.SetPadding(previousH, previousV)
-		ui.FrameStyle, ui.PanelWidth = previousStyle, previousWidth
-	})
-
 	// At 41 columns Repeat fits only while unfocused; at 42 it must remain
 	// reachable even from Shuffle, whose expanded badge temporarily hides it.
 	for _, width := range []int{56, 57, 58} {
 		t.Run(fmt.Sprintf("panel=%d", width-16), func(t *testing.T) {
 			m := newColumnTestModel(width, 16)
+			m.SetPadding(8, 1)
 			m.playlist.SetRepeat(playlist.RepeatAll)
 			wantRepeat := width == 58
 			want := []focusArea{focusPlaylist, focusProvPill, focusVolume, focusEQ, focusShuffle}
@@ -247,17 +239,6 @@ func TestSettingsFocusVisibleInEveryLayout(t *testing.T) {
 	}
 }
 
-type settingsFocusEngine struct {
-	playbackFakeEngine
-	volume float64
-	mono   bool
-}
-
-func (p *settingsFocusEngine) SetVolume(volume float64) { p.volume = volume }
-func (p *settingsFocusEngine) Volume() float64          { return p.volume }
-func (p *settingsFocusEngine) ToggleMono()              { p.mono = !p.mono }
-func (p *settingsFocusEngine) Mono() bool               { return p.mono }
-
 func TestSettingsFocusActions(t *testing.T) {
 	for _, focus := range []focusArea{focusVolume, focusShuffle, focusRepeat} {
 		for _, key := range []tea.KeyPressMsg{
@@ -267,12 +248,13 @@ func TestSettingsFocusActions(t *testing.T) {
 		} {
 			t.Run(focus.label()+"/"+key.String(), func(t *testing.T) {
 				m := newColumnTestModel(100, 30)
-				p := &settingsFocusEngine{}
+				p := &playbackFakeEngine{}
 				notifier := &fakeNotifier{}
-				saver := &recordingConfigSaver{}
+				saver := &recordingSaver{}
 				m.player, m.notifier, m.configSaver, m.focus = p, notifier, saver, focus
 				m.plCursor = 2
-				cmd := m.handleKey(key)
+				next, cmd := m.Update(key)
+				m = next.(Model)
 				s := key.String()
 				back := slices.Contains([]string{"left", "down", "h", "j"}, s)
 				arrow := back || slices.Contains([]string{"right", "up", "l", "k"}, s)
@@ -288,8 +270,8 @@ func TestSettingsFocusActions(t *testing.T) {
 					}
 				case s == "z" || focus == focusShuffle && (arrow || s == "enter"):
 					modeChanged = true
-					if !m.playlist.Shuffled() || saver.values["shuffle"] != "true" {
-						t.Fatalf("shuffle was not toggled and persisted: %v", saver.values)
+					if !m.playlist.Shuffled() || saver.saved["shuffle"] != "true" {
+						t.Fatalf("shuffle was not toggled and persisted: %v", saver.saved)
 					}
 				case s == "r" || focus == focusRepeat && (arrow || s == "enter"):
 					modeChanged = true
@@ -297,16 +279,17 @@ func TestSettingsFocusActions(t *testing.T) {
 					if back {
 						want = playlist.RepeatOne
 					}
-					if m.playlist.Repeat() != want || saver.values["repeat"] != fmt.Sprintf("%q", want.String()) {
-						t.Fatalf("repeat = %s, saved = %v, want %s", m.playlist.Repeat(), saver.values, want)
+					if m.playlist.Repeat() != want || saver.saved["repeat"] != fmt.Sprintf("%q", want.String()) {
+						t.Fatalf("repeat = %s, saved = %v, want %s", m.playlist.Repeat(), saver.saved, want)
 					}
 				case s == "m":
 					if !p.mono {
 						t.Fatal("global mono toggle was swallowed")
 					}
 				}
-				if modeChanged && (cmd == nil || p.clearPreloadCalls != 1 || !m.preloading) {
-					t.Fatal("mode change did not clear and rearm gapless preload")
+				// Nothing plays, so a mode change arms no gapless preload.
+				if modeChanged && (cmd != nil || m.preloading || len(p.preloadCalls) != 0) {
+					t.Fatal("mode change armed a gapless preload while nothing plays")
 				}
 				if m.plCursor != 2 || len(p.seekCalls) != 0 || m.buffering || m.focus != focus {
 					t.Fatal("focused action moved the playlist, sought, played, or changed focus")
@@ -324,8 +307,8 @@ func TestSettingsFocusDoesNotStealOverlayTabs(t *testing.T) {
 		{"keymap", func(m *Model) { m.openKeymap() }},
 		{"search", func(m *Model) { m.handleKey(tea.KeyPressMsg{Text: "/"}) }},
 		{"provider filter", func(m *Model) { m.focus = focusProvider; m.provSearch.active = true }},
-		{"URL", func(m *Model) { m.urlInputting = true }},
-		{"track info", func(m *Model) { m.showInfo = true }},
+		{"URL", func(m *Model) { m.urlInput.active = true }},
+		{"track info", func(m *Model) { m.info.visible = true }},
 	} {
 		t.Run(setup.name, func(t *testing.T) {
 			m := newColumnTestModel(100, 30)
@@ -363,7 +346,7 @@ func TestSettingsFocusHelpAndReservation(t *testing.T) {
 			t.Fatalf("keymap did not start with the focused %s context", label)
 		}
 	}
-	m := New(&playbackFakeEngine{}, playlist.New(), nil, "", nil, nil, nil, nil)
+	m := New(&playbackFakeEngine{}, playlist.New(), nil, "", nil, nil, nil, nil, nil, nil)
 	if m.focus != focusPlaylist {
 		t.Fatalf("startup focus = %s, want unchanged playlist focus", m.focus.label())
 	}

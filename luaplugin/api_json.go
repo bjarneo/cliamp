@@ -15,11 +15,9 @@ func registerJSONAPI(L *lua.LState, cliamp *lua.LTable) {
 		str := L.CheckString(1)
 		var v any
 		if err := json.Unmarshal([]byte(str), &v); err != nil {
-			L.Push(lua.LNil)
-			L.Push(lua.LString(err.Error()))
-			return 2
+			return pushErr(L, err.Error())
 		}
-		L.Push(jsonToLua(L, v))
+		L.Push(toLua(L, v))
 		return 1
 	}))
 
@@ -29,42 +27,13 @@ func registerJSONAPI(L *lua.LState, cliamp *lua.LTable) {
 		goVal := luaToGo(val)
 		data, err := json.Marshal(goVal)
 		if err != nil {
-			L.Push(lua.LNil)
-			L.Push(lua.LString(err.Error()))
-			return 2
+			return pushErr(L, err.Error())
 		}
 		L.Push(lua.LString(string(data)))
 		return 1
 	}))
 
 	L.SetField(cliamp, "json", tbl)
-}
-
-func jsonToLua(L *lua.LState, v any) lua.LValue {
-	switch val := v.(type) {
-	case nil:
-		return lua.LNil
-	case bool:
-		return lua.LBool(val)
-	case float64:
-		return lua.LNumber(val)
-	case string:
-		return lua.LString(val)
-	case []any:
-		tbl := L.NewTable()
-		for i, item := range val {
-			tbl.RawSetInt(i+1, jsonToLua(L, item))
-		}
-		return tbl
-	case map[string]any:
-		tbl := L.NewTable()
-		for k, item := range val {
-			tbl.RawSetString(k, jsonToLua(L, item))
-		}
-		return tbl
-	default:
-		return lua.LNil
-	}
 }
 
 // maxLuaConvertDepth bounds table nesting accepted by luaToGo. Lua can build a

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
 const (
@@ -53,7 +55,7 @@ func newClient(accessToken string) *client {
 	return &client{
 		baseURL:     defaultAPIBase,
 		accessToken: strings.TrimSpace(accessToken),
-		httpClient:  &http.Client{Timeout: 30 * time.Second},
+		httpClient:  httpclient.NewAPI(30 * time.Second),
 	}
 }
 

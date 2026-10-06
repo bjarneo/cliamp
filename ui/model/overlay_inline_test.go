@@ -11,11 +11,11 @@ import (
 	"github.com/bjarneo/cliamp/ui"
 )
 
-// newInlineOverlayModel builds a Model with a real player/playlist/visualizer
+// newInlineOverlayModel builds a Model with a fake engine, playlist and visualizer
 // for exercising the inline overlay render path.
 func newInlineOverlayModel(t *testing.T, w, h int) Model {
 	t.Helper()
-	sharedPlayer.Stop()
+	p := &playbackFakeEngine{}
 
 	pl := playlist.New()
 	for i := range 8 {
@@ -26,9 +26,9 @@ func newInlineOverlayModel(t *testing.T, w, h int) Model {
 	}
 
 	m := Model{
-		player:    sharedPlayer,
+		player:    p,
 		playlist:  pl,
-		vis:       ui.NewVisualizer(float64(sharedPlayer.SampleRate())),
+		vis:       ui.NewVisualizer(float64(p.SampleRate())),
 		width:     w,
 		height:    h,
 		focus:     focusPlaylist,
@@ -45,10 +45,6 @@ func newInlineOverlayModel(t *testing.T, w, h int) Model {
 // playlist region beneath the live now-playing/visualizer/controls chrome, so
 // the total frame must still fit.
 func TestInlineOverlaysFitTerminal(t *testing.T) {
-	if sharedPlayer == nil {
-		t.Skip("audio hardware unavailable")
-	}
-
 	sizes := []struct{ w, h int }{
 		{80, 24},
 		{80, 20},
@@ -62,14 +58,14 @@ func TestInlineOverlaysFitTerminal(t *testing.T) {
 		{"themePicker", func(m *Model) { m.themePicker.visible = true }},
 		{"devicePicker", func(m *Model) { m.devicePicker.visible = true }},
 		{"queue", func(m *Model) { m.queue.visible = true }},
-		{"info", func(m *Model) { m.showInfo = true }},
+		{"info", func(m *Model) { m.info.visible = true }},
 		{"search", func(m *Model) { m.search.active = true }},
 		{"keymap", func(m *Model) { m.keymap.visible = true; m.keymap.entries = m.buildKeymapEntries() }},
 		{"netSearch", func(m *Model) { m.netSearch.active = true }},
-		{"urlInput", func(m *Model) { m.urlInputting = true }},
+		{"urlInput", func(m *Model) { m.urlInput.active = true }},
 		{"lyrics", func(m *Model) { m.lyrics.visible = true }},
-		{"jump", func(m *Model) { m.jumping = true }},
-		{"spotSearch", func(m *Model) { m.spotSearch.visible = true }},
+		{"jump", func(m *Model) { m.jump.active = true }},
+		{"searchOverlay", func(m *Model) { m.searchOverlay.visible = true }},
 		{"navBrowser", func(m *Model) { m.navBrowser.visible = true; m.navBrowser.mode = navBrowseModeMenu }},
 		{"playlistManager", func(m *Model) { m.plManager.visible = true; m.plManager.screen = plMgrScreenList }},
 		{"fileBrowser", func(m *Model) { m.fileBrowser.visible = true }},
@@ -79,9 +75,9 @@ func TestInlineOverlaysFitTerminal(t *testing.T) {
 	for _, sz := range sizes {
 		for _, ov := range overlays {
 			t.Run(fmt.Sprintf("%s_%dx%d", ov.name, sz.w, sz.h), func(t *testing.T) {
-				withFrameWidth(t, sz.w)
 				m := newInlineOverlayModel(t, sz.w, sz.h)
 				ov.set(&m)
+				m.recomputeLayout()
 
 				out := m.View().Content
 				if got := lipgloss.Height(out); got > sz.h {

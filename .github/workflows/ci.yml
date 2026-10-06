@@ -23,10 +23,31 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev libflac-dev libvorbis-dev libogg-dev libmpg123-dev shellcheck
-      - run: go install honnef.co/go/tools/cmd/staticcheck@v0.6.1
-      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
-      - run: make ci
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev libflac-dev libvorbis-dev libogg-dev libmpg123-dev
+      - name: Install shellcheck
+        # Keep SHELLCHECK_VERSION equal to the shellcheck line in mise.toml.
+        env:
+          SHELLCHECK_VERSION: v0.10.0
+          SHELLCHECK_SHA256: 6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -fsSLo shellcheck.tar.xz "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          echo "${SHELLCHECK_SHA256}  shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf shellcheck.tar.xz
+          sudo install -m 755 "shellcheck-${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck
+          shellcheck --version
+      - run: make tools
+      - name: make ci
+        # shell: bash sets pipefail, so a failure of make ci fails the step.
+        shell: bash
+        run: make ci TESTFLAGS=-v 2>&1 | tee "$RUNNER_TEMP/ci.log"
+      - name: List skipped tests
+        # make ci ran the tests once with -v. Each package prints its tests
+        # and then its ok line, so each skip gets the package of that line.
+        run: >-
+          awk '/^[[:space:]]*--- SKIP: / { skips[n++] = $3 }
+          /^ok[[:space:]]/ { for (i = 0; i < n; i++) print $2 " " skips[i]; n = 0 }'
+          "$RUNNER_TEMP/ci.log"
 
   build:
     strategy:

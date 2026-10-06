@@ -7,15 +7,11 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/bjarneo/cliamp/playlist"
-	"github.com/bjarneo/cliamp/ui"
+	"github.com/bjarneo/cliamp/provider"
 )
 
 func TestCommandHelpKeepsEssentialHintsAtMinimumWidth(t *testing.T) {
-	oldPanelWidth := ui.PanelWidth
-	ui.PanelWidth = 40
-	t.Cleanup(func() { ui.PanelWidth = oldPanelWidth })
-
-	m := Model{width: 40, playlist: playlist.New()}
+	m := Model{width: 40, layout: frameLayout{panelWidth: 40}, playlist: playlist.New()}
 	m.playlist.Add(playlist.Track{Title: "Track"})
 	m.playlist.Queue(0)
 
@@ -29,7 +25,7 @@ func TestCommandHelpKeepsEssentialHintsAtMinimumWidth(t *testing.T) {
 		{name: "equalizer", mode: commandModeEQ, keys: []string{"Space", "Ctrl+K"}},
 		{name: "speed", mode: commandModeSpeed, keys: []string{"Space", "Ctrl+K"}},
 		{name: "provider pill", mode: commandModeProviderPill, keys: []string{"Esc", "Enter", "Ctrl+K"}},
-		{name: "keymap", mode: commandModeKeymap, keys: []string{"Esc", "/", "Ctrl+K"}},
+		{name: "keymap", mode: commandModeKeymap, keys: []string{"Esc", "Enter", "Ctrl+K"}},
 		{name: "keymap search", mode: commandModeKeymapSearch, keys: []string{"Esc", "Enter", "Ctrl+K"}},
 		{name: "file browser", mode: commandModeFileBrowser, keys: []string{"Esc", "Enter", "Ctrl+K"}},
 		{name: "file search", mode: commandModeFileBrowserSearch, keys: []string{"Esc", "Enter", "Ctrl+K"}},
@@ -42,7 +38,7 @@ func TestCommandHelpKeepsEssentialHintsAtMinimumWidth(t *testing.T) {
 		{name: "queue", mode: commandModeQueue, keys: []string{"Esc", "d", "Ctrl+K"}},
 		{name: "text input", mode: commandModeSearch, keys: []string{"Esc", "Enter", "Ctrl+K"}},
 		{name: "network search", mode: commandModeNetSearch, keys: []string{"Esc", "Enter", "Ctrl+K"}},
-		{name: "provider search", mode: commandModeSpotSearch, keys: []string{"Esc", "Enter", "Ctrl+K"}},
+		{name: "provider search", mode: commandModeSearchOverlay, keys: []string{"Esc", "Enter", "Ctrl+K"}},
 		{name: "jump", mode: commandModeJump, keys: []string{"Esc", "Enter", "Ctrl+K"}},
 		{name: "URL", mode: commandModeURL, keys: []string{"Esc", "Enter", "Ctrl+K"}},
 		{name: "lyrics", mode: commandModeLyrics, keys: []string{"Esc", "r", "Ctrl+K"}},
@@ -91,14 +87,11 @@ func TestMixcloudShortcutRegistryEntry(t *testing.T) {
 }
 
 func TestContextHelpAdvertisesProviderBrowsing(t *testing.T) {
-	oldPanelWidth := ui.PanelWidth
-	ui.PanelWidth = 80
-	t.Cleanup(func() { ui.PanelWidth = oldPanelWidth })
-
 	browse := trackArtistBrowseProvider{interactionBrowseProvider{commandsTestProvider{name: "Mixcloud"}}}
 	m := keybindingTestModel()
+	m.layout.panelWidth = 80
 	m.provider = browse
-	m.providers = append(m.providers, ProviderEntry{Key: "mixcloud", Name: "Mixcloud", Provider: browse})
+	m.providers = append(m.providers, provider.Entry{Key: "mixcloud", Name: "Mixcloud", Provider: browse})
 	m.playlist.Add(playlist.Track{
 		Title: "A Show", Artist: "Creator",
 		ProviderMeta: map[string]string{"test.creator": "creator"},
@@ -111,7 +104,7 @@ func TestContextHelpAdvertisesProviderBrowsing(t *testing.T) {
 	m.focus = focusProvider
 	paneBrowse := providerPaneBrowseProvider{interactionBrowseProvider{commandsTestProvider{name: "Mixcloud"}}}
 	m.provider = paneBrowse
-	m.providerLists = providerListsWithBrowse(paneBrowse, nil)
+	m.provPane.lists = providerListsWithBrowse(paneBrowse, nil)
 	if help := m.commandHelp(commandModeProvider); !strings.Contains(help, "N") || !strings.Contains(help, "Browse provider") || !strings.Contains(help, "Open") {
 		t.Fatalf("provider help does not advertise provider browse: %q", help)
 	}

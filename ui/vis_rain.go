@@ -9,6 +9,7 @@ func (v *Visualizer) renderRain(bands []float64) string {
 	height := v.Rows
 	lines := make([]string, height)
 	bandCount := len(bands)
+	width := v.columns()
 
 	for row := range height {
 		var sb, run strings.Builder
@@ -16,7 +17,7 @@ func (v *Visualizer) renderRain(bands []float64) string {
 		col := 0
 
 		for b := range bandCount {
-			bw := visBandWidth(bandCount, b)
+			bw := visBandWidth(bandCount, b, width)
 			level := bands[b]
 			rowNorm := float64(height-1-row) / float64(height)
 
@@ -95,7 +96,7 @@ func (v *Visualizer) renderRain(bands []float64) string {
 				}
 				col++
 			}
-			if b < bandCount-1 {
+			if bandGapAfter(bandCount, b, width) {
 				if curTag != -1 {
 					flushStyleRun(&sb, &run, curTag)
 					curTag = -1

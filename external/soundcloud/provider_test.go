@@ -2,6 +2,10 @@ package soundcloud
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -113,6 +117,25 @@ func TestSearchTracksEmptyQuery(t *testing.T) {
 	}
 	if len(tracks) != 0 {
 		t.Errorf("SearchTracks(empty) returned %d tracks, want 0", len(tracks))
+	}
+}
+
+func TestSearchTracksHonorsCancellation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping Unix shell script test on Windows")
+	}
+	tmpDir := t.TempDir()
+	fakeYTDL := filepath.Join(tmpDir, "yt-dlp")
+	if err := os.WriteFile(fakeYTDL, []byte("#!/bin/sh\nexec sleep 10\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := NewFromConfig(Config{Enabled: true}).SearchTracks(ctx, "query", 10)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("SearchTracks() error = %v, want context.Canceled", err)
 	}
 }
 

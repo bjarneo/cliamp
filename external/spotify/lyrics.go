@@ -18,15 +18,11 @@ import (
 // maxLyricsBody limits color-lyrics responses to 2 MB.
 const maxLyricsBody = 2 << 20
 
-// TrackIDFromPath extracts the Spotify track ID from a track path of the
+// trackIDFromPath extracts the Spotify track ID from a track path of the
 // form "spotify:track:<id>". It returns "" for anything else.
-func TrackIDFromPath(path string) string {
-	const prefix = "spotify:track:"
-	if !strings.HasPrefix(path, prefix) {
-		return ""
-	}
-	id := strings.TrimPrefix(path, prefix)
-	if id == "" {
+func trackIDFromPath(path string) string {
+	id, ok := strings.CutPrefix(path, trackURIPrefix)
+	if !ok {
 		return ""
 	}
 	return id
@@ -35,8 +31,13 @@ func TrackIDFromPath(path string) string {
 // TrackLyrics fetches synced lyrics for a Spotify track using Spotify's
 // internal color-lyrics endpoint (the one powering the web player's lyrics
 // view). This endpoint is undocumented and may change without notice; callers
-// must treat failures as a signal to fall back to other lyric sources.
-func (p *SpotifyProvider) TrackLyrics(ctx context.Context, trackID string) ([]lyrics.Line, error) {
+// must treat failures as a signal to fall back to other lyric sources. A
+// track that is not a Spotify track returns lyrics.ErrNotFound at once.
+func (p *SpotifyProvider) TrackLyrics(ctx context.Context, track playlist.Track) ([]lyrics.Line, error) {
+	trackID := trackIDFromPath(track.Path)
+	if trackID == "" {
+		return nil, lyrics.ErrNotFound
+	}
 	p.mu.Lock()
 	sess := p.session
 	p.mu.Unlock()
@@ -51,15 +52,9 @@ func (s *Session) trackLyrics(ctx context.Context, trackID string) ([]lyrics.Lin
 		return nil, lyrics.ErrNotFound
 	}
 
-	s.mu.RLock()
-	ts := s.tokenSource
-	s.mu.RUnlock()
-	if ts == nil {
-		return nil, fmt.Errorf("spotify: web api token unavailable, run 'cliamp spotify reset' and sign in again: %w", playlist.ErrNeedsAuth)
-	}
-	tok, err := ts.Token()
+	token, err := s.bearer(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("refresh access token: %w", err)
+		return nil, err
 	}
 
 	u := "https://spclient.wg.spotify.com/color-lyrics/v2/track/" + url.PathEscape(trackID)
@@ -68,11 +63,11 @@ func (s *Session) trackLyrics(ctx context.Context, trackID string) ([]lyrics.Lin
 		return nil, fmt.Errorf("build spotify lyrics request: %w", err)
 	}
 	// The color-lyrics endpoint rejects tokens without this platform marker.
-	req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("app-platform", "WebPlayer")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := s.webClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("spotify lyrics request: %w", err)
 	}

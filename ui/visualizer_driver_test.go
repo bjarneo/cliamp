@@ -219,9 +219,8 @@ func TestAdvanceSmoothingResizesOnBandCountChange(t *testing.T) {
 }
 
 func TestPausedBarsDecayToRestThenSuspend(t *testing.T) {
-	withPanelWidth(t, 16)
-
 	v := NewVisualizer(44100)
+	v.Cols = 16
 	activateMode(t, v, VisBars)
 	v.bands = uniformBands(0.8)
 	v.smoothedBands = append([]float64(nil), v.bands...)
@@ -274,6 +273,7 @@ func TestPausedBarsDecayToRestThenSuspend(t *testing.T) {
 
 func TestPausedRawSampleModeClearsWaveform(t *testing.T) {
 	v := NewVisualizer(44100)
+	v.Cols = 74
 	activateMode(t, v, VisWave)
 	v.waveBuf = []float64{-0.5, 0.5}
 	ctx := VisTickContext{Paused: true}
@@ -302,8 +302,8 @@ func TestModeSwitchClearsSmoothedBands(t *testing.T) {
 }
 
 func TestPausedGeyserWaitsForParticles(t *testing.T) {
-	withPanelWidth(t, 16)
 	v := NewVisualizer(44100)
+	v.Cols = 16
 	v.Rows = 5
 	activateMode(t, v, VisGeyser)
 	driver := v.driverFor(VisGeyser).(*geyserDriver)
@@ -325,12 +325,12 @@ func TestPausedGeyserWaitsForParticles(t *testing.T) {
 }
 
 func TestPausedSandWaitsForExplosion(t *testing.T) {
-	withPanelWidth(t, 16)
 	v := NewVisualizer(44100)
+	v.Cols = 16
 	v.Rows = 5
 	activateMode(t, v, VisSand)
 	driver := v.driverFor(VisSand).(*sandDriver)
-	driver.ensure(v.Rows*4, PanelWidth*2)
+	driver.grid.resize(v.Rows*4, v.Cols*2)
 	driver.particles = []sandParticle{{x: 1, y: float64(v.Rows * 4), tier: 1}}
 	driver.explosionTTL = 1
 	v.bands = uniformBands(0)
@@ -351,6 +351,7 @@ func TestPausedSandWaitsForExplosion(t *testing.T) {
 
 func TestDefaultDriverTickGatesAnalyzeAtAnalyzeCadence(t *testing.T) {
 	v := NewVisualizer(44100)
+	v.Cols = 74
 	activateMode(t, v, VisBars)
 
 	calls := 0
@@ -394,6 +395,7 @@ func TestRenderOnlyDriverSkipsAnalyzeUnderOverlay(t *testing.T) {
 
 func TestRenderOnlyDriverRequestsConfiguredBandCount(t *testing.T) {
 	v := NewVisualizer(44100)
+	v.Cols = 74
 	activateMode(t, v, VisBars)
 
 	var requested VisAnalysisSpec
@@ -415,6 +417,7 @@ func TestRenderOnlyDriverRequestsConfiguredBandCount(t *testing.T) {
 
 func TestClassicPeakRequestsHighResBands(t *testing.T) {
 	v := NewVisualizer(44100)
+	v.Cols = 74
 	activateMode(t, v, VisClassicPeak)
 
 	var requested VisAnalysisSpec
@@ -427,7 +430,7 @@ func TestClassicPeakRequestsHighResBands(t *testing.T) {
 		},
 	})
 
-	want := VisAnalysisSpec{BandCount: classicPeakSpectrumBands, FFTSize: classicPeakFFTSize}
+	want := VisAnalysisSpec{BandCount: classicPeakSpectrumBands, FFTSize: classicPeakFFTSize, Tap: VisTapAudible}
 	if requested != want {
 		t.Fatalf("Analyze() requested %+v, want %+v", requested, want)
 	}
@@ -438,6 +441,7 @@ func TestClassicPeakRequestsHighResBands(t *testing.T) {
 
 func TestRawSampleModesRefreshWaveBufAtZeroBandCount(t *testing.T) {
 	v := NewVisualizer(44100)
+	v.Cols = 74
 	activateMode(t, v, VisWave)
 
 	samples := []float64{-0.5, -0.1, 0.25, 0.75}
@@ -450,7 +454,7 @@ func TestRawSampleModesRefreshWaveBufAtZeroBandCount(t *testing.T) {
 		},
 	})
 
-	want := spectrumAnalysisSpec(0)
+	want := VisAnalysisSpec{FFTSize: defaultFFTSize, Tap: VisTapAudible}
 	if requested != want {
 		t.Fatalf("Analyze() requested %+v, want %+v for raw-sample modes", requested, want)
 	}
@@ -506,9 +510,8 @@ func TestRawSampleModesClearSpectrumHistoryOnModeSwitch(t *testing.T) {
 }
 
 func TestTerrainPreservesStateAcrossModeSwitch(t *testing.T) {
-	withPanelWidth(t, 8)
-
 	v := NewVisualizer(44100)
+	v.Cols = 8
 	activateMode(t, v, VisTerrain)
 	driver := terrainDriverFor(t, v)
 	bands := uniformBands(0.6)
@@ -516,8 +519,8 @@ func TestTerrainPreservesStateAcrossModeSwitch(t *testing.T) {
 
 	v.Tick(VisTickContext{})
 	snapshot := append([]float64(nil), driver.buf...)
-	if len(snapshot) != PanelWidth*2 {
-		t.Fatalf("terrain buffer len = %d, want %d", len(snapshot), PanelWidth*2)
+	if len(snapshot) != v.Cols*2 {
+		t.Fatalf("terrain buffer len = %d, want %d", len(snapshot), v.Cols*2)
 	}
 
 	activateMode(t, v, VisBars)
@@ -534,9 +537,8 @@ func TestTerrainPreservesStateAcrossModeSwitch(t *testing.T) {
 }
 
 func TestTerrainRenderDoesNotAdvanceWithoutTick(t *testing.T) {
-	withPanelWidth(t, 8)
-
 	v := NewVisualizer(44100)
+	v.Cols = 8
 	activateMode(t, v, VisTerrain)
 	driver := terrainDriverFor(t, v)
 	v.bands = uniformBands(0.6)
@@ -553,9 +555,8 @@ func TestTerrainRenderDoesNotAdvanceWithoutTick(t *testing.T) {
 }
 
 func TestTerrainTickSkipsAnalyzeUnderOverlay(t *testing.T) {
-	withPanelWidth(t, 8)
-
 	v := NewVisualizer(44100)
+	v.Cols = 8
 	activateMode(t, v, VisTerrain)
 	driver := terrainDriverFor(t, v)
 	driver.buf = append([]float64(nil), []float64{
@@ -580,5 +581,95 @@ func TestTerrainTickSkipsAnalyzeUnderOverlay(t *testing.T) {
 	}
 	if !reflect.DeepEqual(driver.buf, snapshot) {
 		t.Fatalf("terrain buffer changed under overlay: got %v want %v", driver.buf, snapshot)
+	}
+}
+
+// The stateful spectrum drivers and the Lua driver take their analysis spec
+// and cadence from spectrumDriverBase.
+func TestSpectrumDriverBaseDefaults(t *testing.T) {
+	v := NewVisualizer(44100)
+	v.RegisterLuaVisualizers([]string{"plugin"}, nil)
+	contexts := []VisTickContext{
+		{Playing: true},
+		{},
+		{Playing: true, OverlayActive: true},
+	}
+	for _, mode := range []VisMode{VisFlame, VisTerrain, VisMosaic, VisSand, VisGeyser, VisRedSector, VisCount} {
+		driver := v.driverFor(mode)
+		v.Mode = mode
+		t.Run(v.ModeName(), func(t *testing.T) {
+			if got, want := driver.AnalysisSpec(v), spectrumAnalysisSpec(DefaultSpectrumBands); got != want {
+				t.Errorf("AnalysisSpec = %+v, want %+v", got, want)
+			}
+			for _, ctx := range contexts {
+				if got, want := driver.TickInterval(v, ctx), defaultDriverTickInterval(ctx); got != want {
+					t.Errorf("TickInterval(%+v) = %v, want %v", ctx, got, want)
+				}
+			}
+		})
+	}
+}
+
+// Each mode declares which audio tap feeds its analysis and whether the model
+// ticks it at its own cadence. The model reads both from the visualizer and
+// no longer checks for a mode by name.
+func TestModesDeclareTapAndCadence(t *testing.T) {
+	audible := map[VisMode]bool{
+		VisClassicPeak: true,
+		VisWave:        true,
+		VisScope:       true,
+		VisHeartbeat:   true,
+	}
+	for mode := range VisCount {
+		t.Run(visModes[mode].name, func(t *testing.T) {
+			v := NewVisualizer(44100)
+			v.Mode = mode
+			v.Cols = 40
+			v.Rows = 5
+			var taps []VisTap
+			v.Tick(VisTickContext{
+				Now:     time.Unix(1, 0),
+				Playing: true,
+				Analyze: func(spec VisAnalysisSpec) []float64 {
+					taps = append(taps, NormalizeAnalysisSpec(spec).Tap)
+					return nil
+				},
+			})
+			if analyzes := mode != VisStereo && mode != VisNone; analyzes && len(taps) == 0 {
+				t.Fatal("Tick did not call Analyze")
+			}
+			want := VisTapLatest
+			if audible[mode] {
+				want = VisTapAudible
+			}
+			for _, tap := range taps {
+				if tap != want {
+					t.Errorf("Analyze tap = %v, want %v", tap, want)
+				}
+			}
+			if got, want := v.DriverOwnsCadence(), mode == VisClassicPeak || mode == VisClassicLED; got != want {
+				t.Errorf("DriverOwnsCadence() = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestNormalizeAnalysisSpecTap(t *testing.T) {
+	tests := []struct {
+		name string
+		spec VisAnalysisSpec
+		want VisTap
+	}{
+		{name: "raw samples read the audible tap", spec: VisAnalysisSpec{}, want: VisTapAudible},
+		{name: "negative band count reads the audible tap", spec: VisAnalysisSpec{BandCount: -1}, want: VisTapAudible},
+		{name: "spectrum keeps the latest tap", spec: VisAnalysisSpec{BandCount: 10}, want: VisTapLatest},
+		{name: "spectrum keeps a declared audible tap", spec: VisAnalysisSpec{BandCount: 64, Tap: VisTapAudible}, want: VisTapAudible},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NormalizeAnalysisSpec(tt.spec).Tap; got != tt.want {
+				t.Fatalf("Tap = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

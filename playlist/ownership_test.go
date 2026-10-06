@@ -19,15 +19,12 @@ func TestReplaceOwnsInputTracks(t *testing.T) {
 	if got.Title != "Original" || !got.Bookmark || got.ProviderMeta["provider.id"] != "original" {
 		t.Fatalf("track after caller mutation = %#v, want original values", got)
 	}
-	if got := p.BookmarkCount(); got != 1 {
-		t.Fatalf("BookmarkCount() = %d after caller mutation, want 1", got)
-	}
 
 	returned := p.Tracks()
 	returned[0].Bookmark = false
 	returned[0].ProviderMeta["provider.id"] = "returned"
-	if got := p.BookmarkCount(); got != 1 {
-		t.Fatalf("BookmarkCount() = %d after Tracks mutation, want 1", got)
+	if !p.Tracks()[0].Bookmark {
+		t.Fatal("Bookmark after Tracks mutation = false, want true")
 	}
 	if got := p.Tracks()[0].ProviderMeta["provider.id"]; got != "original" {
 		t.Fatalf("metadata after Tracks mutation = %q, want original", got)

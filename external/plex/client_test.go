@@ -1,11 +1,16 @@
 package plex
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/bjarneo/cliamp/internal/httpclient"
 )
 
 // newTestClient returns a Client pointed at the given test server.
@@ -414,6 +419,112 @@ func TestPlaylistTracks_PaginatesWithoutTotalSize(t *testing.T) {
 	}
 }
 
+// TestPagingStopsWhenServerIgnoresStart covers a server or proxy that drops
+// X-Plex-Container-Start. Each page then repeats the first one, and without
+// a totalSize no page ends the loop.
+func TestPagingStopsWhenServerIgnoresStart(t *testing.T) {
+	albums := func(c *Client) (int, error) {
+		got, err := c.Albums("7")
+		return len(got), err
+	}
+	playlistTracks := func(c *Client) (int, error) {
+		got, err := c.PlaylistTracks("42")
+		return len(got), err
+	}
+	tests := []struct {
+		name      string
+		fetch     func(c *Client) (int, error)
+		page      func(start int) string // the Metadata items for a start
+		total     string                 // the totalSize key, or empty to omit it
+		wantItems int
+		wantErr   string
+		wantCalls int
+	}{
+		{
+			name:      "albums repeat the first page",
+			fetch:     albums,
+			page:      func(int) string { return `{"ratingKey":"1"},{"ratingKey":"2"}` },
+			wantErr:   "plex: section 7 albums: server ignored X-Plex-Container-Start 2",
+			wantCalls: 2,
+		},
+		{
+			name:      "albums repeat the first page with a totalSize",
+			fetch:     albums,
+			page:      func(int) string { return `{"ratingKey":"1"},{"ratingKey":"2"}` },
+			total:     `"totalSize":10,`,
+			wantErr:   "server ignored X-Plex-Container-Start 2",
+			wantCalls: 2,
+		},
+		{
+			name:      "albums stop at the page cap",
+			fetch:     albums,
+			page:      func(start int) string { return fmt.Sprintf(`{"ratingKey":"%d"}`, start) },
+			wantItems: maxPages,
+			wantCalls: maxPages,
+		},
+		{
+			name:      "playlist items repeat the first page",
+			fetch:     playlistTracks,
+			page:      func(int) string { return `{"ratingKey":"1","playlistItemID":11},{"ratingKey":"2","playlistItemID":12}` },
+			wantErr:   "plex: playlist 42 items: server ignored X-Plex-Container-Start 2",
+			wantCalls: 2,
+		},
+		{
+			name:      "playlist items without entry IDs repeat the first page",
+			fetch:     playlistTracks,
+			page:      func(int) string { return `{"ratingKey":"1"}` },
+			wantErr:   "server ignored X-Plex-Container-Start 1",
+			wantCalls: 2,
+		},
+		{
+			name:  "one track at the start of two pages",
+			fetch: playlistTracks,
+			page: func(start int) string {
+				if start > 2 {
+					return ""
+				}
+				return fmt.Sprintf(`{"ratingKey":"1","playlistItemID":%d}`, 100+start)
+			},
+			wantItems: 3,
+			wantCalls: 4,
+		},
+		{
+			name:      "playlist items stop at the page cap",
+			fetch:     playlistTracks,
+			page:      func(start int) string { return fmt.Sprintf(`{"ratingKey":"%d"}`, start) },
+			wantItems: maxPages,
+			wantCalls: maxPages,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				start, _ := strconv.Atoi(r.URL.Query().Get("X-Plex-Container-Start"))
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprintf(w, `{"MediaContainer":{%s"Metadata":[%s]}}`, tt.total, tt.page(start))
+			}))
+			defer srv.Close()
+
+			n, err := tt.fetch(newTestClient(srv))
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %v, want %q", err, tt.wantErr)
+				}
+			} else if err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if n != tt.wantItems {
+				t.Errorf("items = %d, want %d", n, tt.wantItems)
+			}
+			if calls != tt.wantCalls {
+				t.Errorf("requests = %d, want %d", calls, tt.wantCalls)
+			}
+		})
+	}
+}
+
 func TestTracks_MapsAllFields(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/library/metadata/456/children") {
@@ -581,4 +692,31 @@ func TestRequestHeaders(t *testing.T) {
 	defer srv.Close()
 
 	_ = newTestClient(srv).Ping()
+}
+
+func TestClientSendsUserAgent(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.UserAgent()
+		w.Write([]byte(`{"MediaContainer":{"friendlyName":"test"}}`))
+	}))
+	defer srv.Close()
+
+	if err := NewClient(srv.URL, "tok").Ping(); err != nil {
+		t.Fatalf("Ping() error: %v", err)
+	}
+	if got != httpclient.UserAgent {
+		t.Errorf("User-Agent = %q, want %q", got, httpclient.UserAgent)
+	}
+}
+
+func TestPingRejectsOversizedBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"MediaContainer":{"friendlyName":"` + strings.Repeat("x", maxResponseBody) + `"}}`))
+	}))
+	defer srv.Close()
+
+	if err := newTestClient(srv).Ping(); !errors.Is(err, httpclient.ErrTooLarge) {
+		t.Fatalf("Ping() error = %v, want httpclient.ErrTooLarge", err)
+	}
 }
