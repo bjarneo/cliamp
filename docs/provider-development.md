@@ -164,7 +164,7 @@ are in `provider/interfaces.go`.
 | Interface | What it enables | Methods |
 |---|---|---|
 | `Searcher` | Track search overlay and IPC search | `SearchTracks(ctx, query, limit)` |
-| `Relater` | Find up to `n` songs related to one of the provider's tracks, never the track itself. `CanRelate` must answer without network access | `CanRelate(track)`, `RelatedTracks(ctx, seed, n)` |
+| `Relater` | Song radio with `c` on a highlighted song: up to `n` related songs, never the song itself. `CanRelate` must answer without network access | `CanRelate(track)`, `RelatedTracks(ctx, seed, n)` |
 | `ArtistBrowser` | Hierarchical artist browsing | `Artists()`, `ArtistAlbums(id)` |
 | `TrackArtistResolver` | Jump from a highlighted provider track to its artist or creator with `N` | `ArtistForTrack(track)` |
 | `BrowseEntryProvider` | Add non-playable shortcuts into the provider playlist pane | `BrowseEntries()`. Each entry can set `AfterID`, `AfterSection`, and `OpenInPlaylist` |

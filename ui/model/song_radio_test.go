@@ -37,7 +37,6 @@ func songRadioModel() (Model, *playbackFakeEngine, *fakeRelater) {
 	player := &playbackFakeEngine{playing: true}
 	relater := &fakeRelater{tracks: []playlist.Track{
 		{Title: "R1", Path: "fake:r1"},
-		{Title: "Seed again", Path: "fake:seed"},
 		{Title: "R2", Path: "fake:r2"},
 	}}
 	p := playlist.New()
@@ -123,7 +122,7 @@ func TestSongRadioFailureKeepsQueue(t *testing.T) {
 		status string
 	}{
 		{name: "error", err: errors.New("station unavailable"), status: "Song radio failed for Seed: station unavailable"},
-		{name: "nothing found", tracks: []playlist.Track{{Path: "fake:seed"}}, status: "No songs found like Seed"},
+		{name: "nothing found", status: "No songs found like Seed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, player, relater := songRadioModel()
@@ -281,6 +280,11 @@ func TestSongRadioOnlyForRelatableSongs(t *testing.T) {
 	}
 	if _, cmd := m.Update(songRadioKey); cmd != nil {
 		t.Fatal("c on a local file started a lookup")
+	}
+	m.playlist.Replace([]playlist.Track{{Path: "https://youtu.be/5NV6Rdv1a3I"}})
+	m.plCursor = 0
+	if !commandEnabled(m, commandModeMain, "c") {
+		t.Fatal("c not offered on a YouTube video, which no provider owns")
 	}
 }
 

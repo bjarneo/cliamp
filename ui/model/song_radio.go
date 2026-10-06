@@ -28,25 +28,20 @@ func (m *Model) SetSongRadioSize(n int) {
 	m.songRadioSize = n
 }
 
-// relaters returns every source that can find songs related to a track: the
-// configured providers that support it, then YouTube, which no provider owns.
-func (m Model) relaters() []provider.Relater {
-	var relaters []provider.Relater
-	for _, pe := range m.providers {
-		if r, ok := pe.Provider.(provider.Relater); ok {
-			relaters = append(relaters, r)
-		}
-	}
-	return append(relaters, resolve.YouTubeRelater{})
-}
-
-// songRadioRelater returns the source that can start a song radio from track.
+// songRadioRelater returns the source that can start a song radio from track:
+// a configured provider that supports it, or YouTube, which no provider owns.
 // Album placeholders in search results are not songs, so they cannot.
 func (m Model) songRadioRelater(track playlist.Track) (provider.Relater, bool) {
 	if track.IsAlbum() {
 		return nil, false
 	}
-	return provider.RelaterFor(track, m.relaters()...)
+	if r, _ := findCapable(&m, func(r provider.Relater) bool { return r.CanRelate(track) }); r != nil {
+		return r, true
+	}
+	if yt := (resolve.YouTubeRelater{}); yt.CanRelate(track) {
+		return yt, true
+	}
+	return nil, false
 }
 
 func (m Model) canSongRadio(track playlist.Track) bool {
@@ -97,7 +92,7 @@ func (m *Model) startSongRadio(seed playlist.Track) tea.Cmd {
 	m.status.Activityf(statusTTLLong, "Finding songs like %s...", seed.DisplayName())
 	return func() tea.Msg {
 		defer cancel()
-		tracks, err := provider.Related(ctx, r, seed, n)
+		tracks, err := r.RelatedTracks(ctx, seed, n)
 		return songRadioMsg{id: id, seed: seed, tracks: tracks, err: err}
 	}
 }
