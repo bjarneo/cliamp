@@ -614,7 +614,7 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "c":
 		if track, ok := m.selectedPlaylistTrack(); ok {
-			return m.startSongRadio(track)
+			return m.startSongMix(track)
 		}
 
 	case "w":

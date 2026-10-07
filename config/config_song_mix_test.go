@@ -6,16 +6,16 @@ import (
 	"testing"
 )
 
-func TestLoadSongRadioSize(t *testing.T) {
+func TestLoadSongMixSize(t *testing.T) {
 	tests := []struct {
 		name   string
 		config string
 		want   int
 	}{
 		{name: "default", config: "", want: 30},
-		{name: "set", config: "song_radio_size = 50\n", want: 50},
-		{name: "clamps low", config: "song_radio_size = 0\n", want: 1},
-		{name: "clamps high", config: "song_radio_size = 500\n", want: 100},
+		{name: "set", config: "song_mix_size = 50\n", want: 50},
+		{name: "clamps low", config: "song_mix_size = 0\n", want: 1},
+		{name: "clamps high", config: "song_mix_size = 500\n", want: 100},
 	}
 
 	for _, tt := range tests {
@@ -34,8 +34,8 @@ func TestLoadSongRadioSize(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Load: %v", err)
 			}
-			if cfg.SongRadioSize != tt.want {
-				t.Fatalf("SongRadioSize = %d, want %d", cfg.SongRadioSize, tt.want)
+			if cfg.SongMixSize != tt.want {
+				t.Fatalf("SongMixSize = %d, want %d", cfg.SongMixSize, tt.want)
 			}
 		})
 	}

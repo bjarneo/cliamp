@@ -383,9 +383,9 @@ func (m *Model) handleNetSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.favoriteTrackKey(m.netSearch.results[m.netSearch.cursor])
 		}
 	case "c":
-		if track, ok := m.selectedSearchResult(); ok && m.canSongRadio(track) {
+		if track, ok := m.selectedSearchResult(); ok && m.canSongMix(track) {
 			m.closeNetSearch()
-			return m.startSongRadio(track)
+			return m.startSongMix(track)
 		}
 	case "esc", "backspace":
 		m.netSearch.screen = netSearchInput

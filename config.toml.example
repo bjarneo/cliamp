@@ -32,8 +32,8 @@ mono = false
 # Shift+Left/Right seek jump in seconds (6-600)
 seek_large_step_sec = 30
 
-# Related songs a song radio (c) adds after the chosen song (1-100)
-song_radio_size = 30
+# Related songs a song mix (c) adds after the chosen song (1-100)
+song_mix_size = 30
 
 # Lyric timestamp adjustment in milliseconds (-10000 to 10000).
 # Tune with [ and ] while the lyrics overlay is open. Default 0.

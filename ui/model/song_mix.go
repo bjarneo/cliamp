@@ -11,27 +11,27 @@ import (
 	"github.com/bjarneo/cliamp/resolve"
 )
 
-// songRadioTimeout bounds one lookup of related songs.
-const songRadioTimeout = 30 * time.Second
+// songMixTimeout bounds one lookup of related songs.
+const songMixTimeout = 30 * time.Second
 
-// songRadioMsg carries the songs found for a song radio back to Update.
-type songRadioMsg struct {
+// songMixMsg carries the songs found for a song mix back to Update.
+type songMixMsg struct {
 	id     uint64
 	seed   playlist.Track
 	tracks []playlist.Track
 	err    error
 }
 
-// SetSongRadioSize sets how many related songs a song radio adds after the
+// SetSongMixSize sets how many related songs a song mix adds after the
 // seed. The config keeps it between 1 and 100.
-func (m *Model) SetSongRadioSize(n int) {
-	m.songRadioSize = n
+func (m *Model) SetSongMixSize(n int) {
+	m.songMixSize = n
 }
 
-// songRadioRelater returns the source that can start a song radio from track:
+// songMixRelater returns the source that can start a song mix from track:
 // a configured provider that supports it, or YouTube, which no provider owns.
 // Album placeholders in search results are not songs, so they cannot.
-func (m Model) songRadioRelater(track playlist.Track) (provider.Relater, bool) {
+func (m Model) songMixRelater(track playlist.Track) (provider.Relater, bool) {
 	if track.IsAlbum() {
 		return nil, false
 	}
@@ -44,8 +44,8 @@ func (m Model) songRadioRelater(track playlist.Track) (provider.Relater, bool) {
 	return nil, false
 }
 
-func (m Model) canSongRadio(track playlist.Track) bool {
-	_, ok := m.songRadioRelater(track)
+func (m Model) canSongMix(track playlist.Track) bool {
+	_, ok := m.songMixRelater(track)
 	return ok
 }
 
@@ -74,40 +74,40 @@ func (m Model) selectedSearchResult() (playlist.Track, bool) {
 	return playlist.Track{}, false
 }
 
-// startSongRadio looks up songs related to seed. The queue is left alone until
+// startSongMix looks up songs related to seed. The queue is left alone until
 // they arrive. A newer request stops this lookup; any newer queue makes its
 // answer stale.
-func (m *Model) startSongRadio(seed playlist.Track) tea.Cmd {
-	r, ok := m.songRadioRelater(seed)
+func (m *Model) startSongMix(seed playlist.Track) tea.Cmd {
+	r, ok := m.songMixRelater(seed)
 	if !ok {
 		return nil
 	}
-	if m.songRadioCancel != nil {
-		m.songRadioCancel()
+	if m.songMixCancel != nil {
+		m.songMixCancel()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), songRadioTimeout)
-	m.songRadioCancel = cancel
+	ctx, cancel := context.WithTimeout(context.Background(), songMixTimeout)
+	m.songMixCancel = cancel
 	id := nextRequest(&m.requests.queue)
-	n := m.songRadioSize
+	n := m.songMixSize
 	m.status.Activityf(statusTTLLong, "Finding songs like %s...", seed.DisplayName())
 	return func() tea.Msg {
 		defer cancel()
 		tracks, err := r.RelatedTracks(ctx, seed, n)
-		return songRadioMsg{id: id, seed: seed, tracks: tracks, err: err}
+		return songMixMsg{id: id, seed: seed, tracks: tracks, err: err}
 	}
 }
 
-// handleSongRadio replaces the queue with the seed and its related songs and
+// handleSongMix replaces the queue with the seed and its related songs and
 // plays the seed from the top. Ctrl+Z brings the old queue back, unlinked from
 // the playlist it came from. The new queue comes from no playlist, so it keeps
 // no link to the old one either. On failure the queue and playback are left
 // alone.
-func (m *Model) handleSongRadio(msg songRadioMsg) tea.Cmd {
+func (m *Model) handleSongMix(msg songMixMsg) tea.Cmd {
 	if msg.id != m.requests.queue {
 		return nil
 	}
 	if msg.err != nil {
-		m.status.Errorf(statusTTLMedium, "Song radio failed for %s: %s", msg.seed.DisplayName(), msg.err)
+		m.status.Errorf(statusTTLMedium, "Song mix failed for %s: %s", msg.seed.DisplayName(), msg.err)
 		return nil
 	}
 	if len(msg.tracks) == 0 {
@@ -124,7 +124,7 @@ func (m *Model) handleSongRadio(msg songRadioMsg) tea.Cmd {
 	m.activeProviderPlaylistID = ""
 	m.setHeaderStateFromTracks(tracks)
 	m.focus = focusPlaylist
-	m.status.Successf(statusTTLDefault, "Song radio: %s and %d related songs (Ctrl+Z to undo)", msg.seed.DisplayName(), len(msg.tracks))
+	m.status.Successf(statusTTLDefault, "Song mix: %s and %d related songs (Ctrl+Z to undo)", msg.seed.DisplayName(), len(msg.tracks))
 	cmd := m.playCurrentTrack()
 	m.recordPlaylistUndo(playlistUndo{snapshot: snapshot})
 	return cmd

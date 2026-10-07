@@ -380,7 +380,7 @@ func (m *Model) undoPlaylistMutation() tea.Cmd {
 		}
 	}
 	m.playlist.Restore(undo.snapshot)
-	// After a song radio the restored queue need not hold the playing song
+	// After a song mix the restored queue need not hold the playing song
 	// at its current row. Playback then goes on detached, and the queue
 	// resumes from its current row when the song ends.
 	if m.playingTrackActive {

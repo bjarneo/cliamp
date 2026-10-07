@@ -136,9 +136,9 @@ func (m *Model) handleSearchOverlayResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 			}
 		}
 	case "c":
-		if track, ok := m.selectedSearchResult(); ok && m.canSongRadio(track) {
+		if track, ok := m.selectedSearchResult(); ok && m.canSongMix(track) {
 			m.closeSearchOverlay()
-			return m.startSongRadio(track)
+			return m.startSongMix(track)
 		}
 	case "esc", "backspace":
 		m.invalidateSearchOverlayAlbumRequest()

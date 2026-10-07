@@ -31,9 +31,9 @@ func (f *fakeRelater) RelatedTracks(ctx context.Context, _ playlist.Track, n int
 	return f.tracks, f.err
 }
 
-// songRadioModel plays a.mp3 from a playlist of a.mp3, the fake:seed song and
-// b.mp3, with the cursor on the seed and a song radio size of 5.
-func songRadioModel() (Model, *playbackFakeEngine, *fakeRelater) {
+// songMixModel plays a.mp3 from a playlist of a.mp3, the fake:seed song and
+// b.mp3, with the cursor on the seed and a song mix size of 5.
+func songMixModel() (Model, *playbackFakeEngine, *fakeRelater) {
 	player := &playbackFakeEngine{playing: true}
 	relater := &fakeRelater{tracks: []playlist.Track{
 		{Title: "R1", Path: "fake:r1"},
@@ -53,11 +53,11 @@ func songRadioModel() (Model, *playbackFakeEngine, *fakeRelater) {
 		focus:     focusPlaylist,
 		plCursor:  1,
 	}
-	m.SetSongRadioSize(5)
+	m.SetSongMixSize(5)
 	return m, player, relater
 }
 
-var songRadioKey = tea.KeyPressMsg{Text: "c", Code: 'c'}
+var songMixKey = tea.KeyPressMsg{Text: "c", Code: 'c'}
 
 // commandEnabled reports whether key is offered in mode's context help.
 func commandEnabled(m Model, mode commandMode, key string) bool {
@@ -79,10 +79,10 @@ func paths(tracks []playlist.Track) []string {
 
 // Pressing c looks the songs up first; when they arrive, the queue becomes the
 // seed plus its related songs, without repeats, and the seed plays from the top.
-func TestSongRadioReplacesQueueWithSeedAndRelated(t *testing.T) {
-	m, player, relater := songRadioModel()
+func TestSongMixReplacesQueueWithSeedAndRelated(t *testing.T) {
+	m, player, relater := songMixModel()
 
-	next, cmd := m.Update(songRadioKey)
+	next, cmd := m.Update(songMixKey)
 	m = next.(Model)
 	if cmd == nil {
 		t.Fatal("c on a relatable song started no lookup")
@@ -114,21 +114,21 @@ func TestSongRadioReplacesQueueWithSeedAndRelated(t *testing.T) {
 
 // A failed lookup, or one that finds nothing, leaves the queue and playback
 // alone and says so.
-func TestSongRadioFailureKeepsQueue(t *testing.T) {
+func TestSongMixFailureKeepsQueue(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		tracks []playlist.Track
 		err    error
 		status string
 	}{
-		{name: "error", err: errors.New("station unavailable"), status: "Song radio failed for Seed: station unavailable"},
+		{name: "error", err: errors.New("station unavailable"), status: "Song mix failed for Seed: station unavailable"},
 		{name: "nothing found", status: "No songs found like Seed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m, player, relater := songRadioModel()
+			m, player, relater := songMixModel()
 			relater.tracks, relater.err = tc.tracks, tc.err
 
-			next, cmd := m.Update(songRadioKey)
+			next, cmd := m.Update(songMixKey)
 			next, _ = next.(Model).Update(cmd())
 			m = next.(Model)
 			if got := paths(m.playlist.Tracks()); strings.Join(got, " ") != "a.mp3 fake:seed b.mp3" || m.playlist.Index() != 0 || player.stopCalls != 0 {
@@ -143,14 +143,14 @@ func TestSongRadioFailureKeepsQueue(t *testing.T) {
 
 // A newer c press replaces a lookup still in flight: the older lookup is
 // stopped and its answer ignored.
-func TestSongRadioNewerRequestWins(t *testing.T) {
-	m, player, relater := songRadioModel()
+func TestSongMixNewerRequestWins(t *testing.T) {
+	m, player, relater := songMixModel()
 	m.playlist.Replace(append(m.playlist.Tracks(), playlist.Track{Title: "Seed 2", Path: "fake:seed2"}))
 
-	next, first := m.Update(songRadioKey)
+	next, first := m.Update(songMixKey)
 	m = next.(Model)
 	m.plCursor = 3
-	next, second := m.Update(songRadioKey)
+	next, second := m.Update(songMixKey)
 	m = next.(Model)
 
 	next, _ = m.Update(first())
@@ -166,17 +166,17 @@ func TestSongRadioNewerRequestWins(t *testing.T) {
 	}
 }
 
-// Ctrl+Z after a song radio brings back the old queue, unlinked, while the seed
+// Ctrl+Z after a song mix brings back the old queue, unlinked, while the seed
 // keeps playing outside it. When the seed ends, the old current song plays.
-func TestSongRadioUndoRestoresOldQueue(t *testing.T) {
-	m, player, _ := songRadioModel()
+func TestSongMixUndoRestoresOldQueue(t *testing.T) {
+	m, player, _ := songMixModel()
 	m.loadedPlaylist, m.activeProviderPlaylistID = "mine", "p1"
 
-	next, cmd := m.Update(songRadioKey)
+	next, cmd := m.Update(songMixKey)
 	next, _ = next.(Model).Update(cmd())
 	m = next.(Model)
 	if m.loadedPlaylist != "" || m.activeProviderPlaylistID != "" {
-		t.Fatalf("radio queue still linked to %q / %q", m.loadedPlaylist, m.activeProviderPlaylistID)
+		t.Fatalf("mix queue still linked to %q / %q", m.loadedPlaylist, m.activeProviderPlaylistID)
 	}
 
 	next, _ = m.Update(tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl})
@@ -207,12 +207,12 @@ func (*pagedPlaylists) TracksPage(string, int) ([]playlist.Track, int, error) {
 }
 
 // A queue loaded or opened while the songs are being looked up wins: the
-// radio's late answer is ignored. Moving to another song in the same queue does
+// mix's late answer is ignored. Moving to another song in the same queue does
 // not cancel it.
-func TestSongRadioSupersededByNewQueue(t *testing.T) {
+func TestSongMixSupersededByNewQueue(t *testing.T) {
 	t.Run("new queue", func(t *testing.T) {
-		m, _, _ := songRadioModel()
-		next, lookup := m.Update(songRadioKey)
+		m, _, _ := songMixModel()
+		next, lookup := m.Update(songMixKey)
 		m = next.(Model)
 		m.plManager.tracks = []playlist.Track{{Title: "X", Path: "x.mp3"}, {Title: "Y", Path: "y.mp3"}}
 		m.plMgrLoadAndPlay(0)
@@ -222,15 +222,15 @@ func TestSongRadioSupersededByNewQueue(t *testing.T) {
 		}
 	})
 	t.Run("provider playlist opened", func(t *testing.T) {
-		m, _, _ := songRadioModel()
+		m, _, _ := songMixModel()
 		pager := &pagedPlaylists{}
 		m.providers = append(m.providers, provider.Entry{Name: "Paged", Provider: pager})
 		m.provider = pager
 		m.provPane.lists = []playlist.PlaylistInfo{{ID: "pl1", Name: "PL"}}
-		next, lookup := m.Update(songRadioKey)
+		next, lookup := m.Update(songMixKey)
 		m = next.(Model)
 		open := m.openProviderList(0)
-		next, _ = m.Update(lookup()) // the radio answers before the first page
+		next, _ = m.Update(lookup()) // the mix answers before the first page
 		next, _ = next.(Model).Update(open())
 		m = next.(Model)
 		if got := paths(m.playlist.Tracks()); strings.Join(got, " ") != "p1.mp3 p2.mp3" || m.provPane.loading {
@@ -238,39 +238,39 @@ func TestSongRadioSupersededByNewQueue(t *testing.T) {
 		}
 	})
 	t.Run("same queue", func(t *testing.T) {
-		m, _, _ := songRadioModel()
-		next, lookup := m.Update(songRadioKey)
+		m, _, _ := songMixModel()
+		next, lookup := m.Update(songMixKey)
 		next, _ = next.(Model).Update(PluginQueueMsg{Op: "jump", Index: 2})
 		next, _ = next.(Model).Update(lookup())
 		if got := next.(Model).playlist.Tracks()[0].Path; got != "fake:seed" {
-			t.Fatalf("queue starts with %s, want the radio applied", got)
+			t.Fatalf("queue starts with %s, want the mix applied", got)
 		}
 	})
 }
 
-// Late pages or batches of the old queue's loads do not land on the radio.
-func TestSongRadioDropsOldQueueLoads(t *testing.T) {
-	m, _, relater := songRadioModel()
+// Late pages or batches of the old queue's loads do not land on the mix.
+func TestSongMixDropsOldQueueLoads(t *testing.T) {
+	m, _, relater := songMixModel()
 	m.provider = relater
 	m.tracksPaging = true
 	pageGen := nextRequest(&m.requests.tracks)
 	m.ytdlBatch.loading = true
 	batchGen := m.ytdlBatch.gen
 
-	next, lookup := m.Update(songRadioKey)
+	next, lookup := m.Update(songMixKey)
 	next, _ = next.(Model).Update(lookup())
 	late := []playlist.Track{{Title: "Late", Path: "late.mp3"}}
 	next, _ = next.(Model).Update(tracksLoadedMsg{tracks: late, providerName: relater.Name(), gen: pageGen, offset: 3})
 	next, _ = next.(Model).Update(ytdlBatchMsg{gen: batchGen, tracks: late})
 	if got := paths(next.(Model).playlist.Tracks()); strings.Join(got, " ") != "fake:seed fake:r1 fake:r2" {
-		t.Fatalf("queue = %v, want the radio without the old loads' songs", got)
+		t.Fatalf("queue = %v, want the mix without the old loads' songs", got)
 	}
 }
 
 // c only works, and is only offered, on a song some source can find related
 // songs for; on anything else it does nothing.
-func TestSongRadioOnlyForRelatableSongs(t *testing.T) {
-	m, _, _ := songRadioModel()
+func TestSongMixOnlyForRelatableSongs(t *testing.T) {
+	m, _, _ := songMixModel()
 	if !commandEnabled(m, commandModeMain, "c") {
 		t.Fatal("c not offered on a relatable song")
 	}
@@ -278,7 +278,7 @@ func TestSongRadioOnlyForRelatableSongs(t *testing.T) {
 	if commandEnabled(m, commandModeMain, "c") {
 		t.Fatal("c offered on a local file")
 	}
-	if _, cmd := m.Update(songRadioKey); cmd != nil {
+	if _, cmd := m.Update(songMixKey); cmd != nil {
 		t.Fatal("c on a local file started a lookup")
 	}
 	m.playlist.Replace([]playlist.Track{{Path: "https://youtu.be/5NV6Rdv1a3I"}})
@@ -288,11 +288,11 @@ func TestSongRadioOnlyForRelatableSongs(t *testing.T) {
 	}
 }
 
-// In search results, c starts a song radio from the highlighted song and
+// In search results, c starts a song mix from the highlighted song and
 // closes the search; an album placeholder is not a seed.
-func TestSongRadioFromSearchResults(t *testing.T) {
+func TestSongMixFromSearchResults(t *testing.T) {
 	t.Run("provider search", func(t *testing.T) {
-		m, _, relater := songRadioModel()
+		m, _, relater := songMixModel()
 		m.searchOverlay = searchOverlayState{prov: relater, visible: true, screen: searchOverlayResults, results: []playlist.Track{
 			{Title: "Album", Path: "fake:album", ProviderMeta: map[string]string{playlist.MetaKind: playlist.MetaKindAlbum}},
 			{Title: "Hit", Path: "fake:hit"},
@@ -301,7 +301,7 @@ func TestSongRadioFromSearchResults(t *testing.T) {
 		if commandEnabled(m, commandModeSearchOverlay, "c") {
 			t.Fatal("c offered on an album placeholder")
 		}
-		if next, cmd := m.Update(songRadioKey); cmd != nil || !next.(Model).searchOverlay.visible {
+		if next, cmd := m.Update(songMixKey); cmd != nil || !next.(Model).searchOverlay.visible {
 			t.Fatal("c on an album placeholder started a lookup or closed the search")
 		}
 
@@ -309,7 +309,7 @@ func TestSongRadioFromSearchResults(t *testing.T) {
 		if !commandEnabled(m, commandModeSearchOverlay, "c") {
 			t.Fatal("c not offered on a song result")
 		}
-		next, cmd := m.Update(songRadioKey)
+		next, cmd := m.Update(songMixKey)
 		m = next.(Model)
 		if cmd == nil || m.searchOverlay.visible {
 			t.Fatalf("lookup %v, search visible %v; want a lookup and the search closed", cmd != nil, m.searchOverlay.visible)
@@ -321,20 +321,20 @@ func TestSongRadioFromSearchResults(t *testing.T) {
 	})
 
 	t.Run("online search", func(t *testing.T) {
-		m, _, _ := songRadioModel()
+		m, _, _ := songMixModel()
 		m.netSearch = netSearchState{active: true, screen: netSearchResults, results: []playlist.Track{
 			{Title: "Other", Path: "https://soundcloud.com/a/b"},
 			{Title: "Hit", Path: "fake:hit"},
 		}}
 		m.focus = focusNetSearch
-		if next, cmd := m.Update(songRadioKey); cmd != nil || !next.(Model).netSearch.active {
+		if next, cmd := m.Update(songMixKey); cmd != nil || !next.(Model).netSearch.active {
 			t.Fatal("c on an unrelatable online result started a lookup or closed the search")
 		}
 		m.netSearch.cursor = 1
 		if !commandEnabled(m, commandModeNetSearch, "c") {
 			t.Fatal("c not offered on an online result")
 		}
-		next, cmd := m.Update(songRadioKey)
+		next, cmd := m.Update(songMixKey)
 		if cmd == nil || next.(Model).netSearch.active {
 			t.Fatal("c on an online result did not start a lookup and close the search")
 		}

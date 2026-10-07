@@ -728,7 +728,7 @@ type Config struct {
 	Speed            float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
 	AutoPlay         bool                         // start playback automatically on launch (radio streams, CLI tracks)
 	SeekStepLarge    int                          // seconds for Shift+Left/Right seek jumps
-	SongRadioSize    int                          // related songs a song radio adds after the seed
+	SongMixSize      int                          // related songs a song mix adds after the seed
 	Provider         string                       // default provider key, a value that --provider accepts (default "cliamp")
 	Theme            string                       // theme name, or "" for ANSI default
 	Visualizer       string                       // visualizer mode name, or "" for default (Bars)
@@ -781,7 +781,7 @@ func defaultConfig() Config {
 		AutoPlay:        false,
 		Speed:           1.0,
 		SeekStepLarge:   30,
-		SongRadioSize:   30,
+		SongMixSize:     30,
 		SampleRate:      0,
 		BufferMs:        250,
 		ResampleQuality: 4,
@@ -998,9 +998,9 @@ func (c *Config) setTopLevel(key, val string) {
 		if v, ok := parseInt(val); ok {
 			c.SeekStepLarge = v
 		}
-	case "song_radio_size":
+	case "song_mix_size":
 		if v, ok := parseInt(val); ok {
-			c.SongRadioSize = v
+			c.SongMixSize = v
 		}
 	case "lyrics_offset_ms":
 		if v, ok := parseInt(val); ok {
@@ -1379,7 +1379,7 @@ func (c *Config) clamp() {
 		c.Speed = 1.0
 	}
 	c.SeekStepLarge = max(min(c.SeekStepLarge, 600), 6)
-	c.SongRadioSize = max(min(c.SongRadioSize, 100), 1)
+	c.SongMixSize = max(min(c.SongMixSize, 100), 1)
 	c.LyricsOffsetMs = max(min(c.LyricsOffsetMs, 10000), -10000)
 	c.SampleRate = clampSampleRate(c.SampleRate)
 	c.BufferMs = max(min(c.BufferMs, 5000), 50)
