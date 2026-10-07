@@ -52,6 +52,14 @@ mono = false
 # See "Audio output device" below.
 audio_device = ""
 
+# Loudness normalisation from ReplayGain tags: "off", "track" or "album".
+# Album mode uses the track gain when a file has no album gain, and the reverse.
+replaygain = "off"
+
+# dB added on top of the ReplayGain adjustment (-15 to 15). The adjustment is
+# lowered where needed so a track's peak never clips.
+replaygain_preamp = 0
+
 # Initial directory for the file browser ('o' key)
 initial_directory = "~/Music"
 
@@ -392,6 +400,33 @@ The default, `cliamp`, opens on the cliamp radio channels. See [radio.md](radio.
 Valid values: `cliamp` (default), `radio`, `podcast`, `navidrome`, `lyrion`, `plex`, `jellyfin`, `emby`, `spotify`, `qobuz`, `tidal`, `soundcloud`, `mixcloud`, `netease`, `yandex`, `audiobookshelf`, `yt`, `youtube`, `ytmusic`. The `--provider` flag also accepts `abs` for `audiobookshelf`.
 
 You can also override this setting on the CLI: `cliamp --provider jellyfin`.
+
+## Volume Normalization (ReplayGain)
+
+cliamp can even out loudness between tracks using ReplayGain values:
+
+```toml
+replaygain = "track"      # "off" (default), "track" or "album"
+replaygain_preamp = 0     # dB added on top, -15 to 15
+```
+
+- **Local files**: read from the file's tags when the track starts — ID3v2
+  `TXXX` frames (MP3), Vorbis comments (FLAC, Ogg), MP4 freeform atoms, and
+  Opus `R128_TRACK_GAIN` / `R128_ALBUM_GAIN` when no ReplayGain tag is present.
+- **Streams** that cliamp downloads as it plays, such as Navidrome tracks: the
+  same tags, read from the start of the stream before playback. Navidrome sends
+  them whether it transcodes or not, so tracks played from a saved playlist,
+  favorites or history keep their gain. Tags stored at the end of a file, as in
+  some MP4 files, are not read from a stream.
+- **Spotify** normalizes on its own and ignores this setting.
+
+`album` keeps the level differences within an album; `track` levels every track
+on its own. Each mode falls back to the other value when a track has only one.
+The adjustment is lowered where needed so a track's peak never clips, and a
+track with no values plays unchanged. Track Info (`i`) and the Metadata section
+show the gain applied to the playing track, or `none` when it has no values.
+The gain belongs to the track, so a gapless transition switches it on the
+first sample of the next one.
 
 ## Podcasts
 
