@@ -93,11 +93,22 @@ func (c commandSpec) runKey() string {
 	return ""
 }
 
+// label is what the keymap shows for this command, which some commands
+// decide from the state the model is in.
 func (c commandSpec) label(m Model) string {
 	if c.LabelFor != nil {
 		return c.LabelFor(m)
 	}
 	return c.Label
+}
+
+// quitLabel names what the quit keys do: in a detached session they hand the
+// terminal back and the music keeps playing.
+func quitLabel(m Model) string {
+	if m.sessionDetach != nil {
+		return "Detach (the session keeps playing)"
+	}
+	return "Quit"
 }
 
 // commandRegistry deliberately lists every core-reserved key, including text
@@ -196,10 +207,10 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"esc", "backspace", "b"}, KeyLabel: "Esc", RunKey: "esc", Label: "Back to provider", Keymap: true, ContextHelp: true, Cancel: true},
 	{Mode: commandModeAny, Keys: []string{"ctrl+k"}, KeyLabel: "Ctrl+K", Label: "Help", Keymap: true, ContextHelp: true, Help: true},
 	{Mode: commandModeMain, Keys: []string{"?"}, KeyLabel: "?", Label: "Help", Keymap: true},
-	{Mode: commandModeAny, Keys: []string{"ctrl+c"}, KeyLabel: "Ctrl+C", Label: "Quit", Keymap: true},
+	{Mode: commandModeAny, Keys: []string{"ctrl+c"}, KeyLabel: "Ctrl+C", Label: "Quit", LabelFor: quitLabel, Keymap: true},
 	// q quits only from the player and its focused controls. Overlays use it
 	// to close or to queue, so the keymap must not run it as quit there.
-	{Mode: commandModeMain | commandModeProvider | commandModeProviderPill | commandModeEQ | commandModeVolume | commandModeShuffle | commandModeRepeat | commandModeSpeed, Keys: []string{"q"}, KeyLabel: "q", Label: "Quit", Keymap: true, Enabled: func(m Model) bool { return !m.subs.visible }},
+	{Mode: commandModeMain | commandModeProvider | commandModeProviderPill | commandModeEQ | commandModeVolume | commandModeShuffle | commandModeRepeat | commandModeSpeed, Keys: []string{"q"}, KeyLabel: "q", Label: "Quit", LabelFor: quitLabel, Keymap: true, Enabled: func(m Model) bool { return !m.subs.visible }},
 	{Mode: commandModeAny, Keys: []string{"ctrl+z"}, KeyLabel: "Ctrl+Z", Label: "Undo latest playlist or queue mutation"},
 	{Mode: commandModeProvider, Keys: []string{"ctrl+r"}, KeyLabel: "Ctrl+R", Label: "Refresh provider", Keymap: true, ContextHelp: true},
 

@@ -61,7 +61,7 @@ func TestCheckTerminalOutput(t *testing.T) {
 		t.Fatalf("TUI with pipe output error = %v, want stdout is not a terminal", err)
 	}
 	if err := checkTerminalOutput(true, writeEnd); err != nil {
-		t.Fatalf("headless with pipe output error = %v, want nil", err)
+		t.Fatalf("daemon with pipe output error = %v, want nil", err)
 	}
 }
 

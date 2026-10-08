@@ -130,15 +130,15 @@ func TestRadioListenersOptimisticBump(t *testing.T) {
 }
 
 func TestMaybeFetchRadioListeners(t *testing.T) {
-	t.Run("other providers and headless skip", func(t *testing.T) {
+	t.Run("other providers and detached skip", func(t *testing.T) {
 		m := keybindingTestModel()
 		if cmd := m.maybeFetchRadioListeners(); cmd != nil {
 			t.Error("non-channels provider returned a fetch command")
 		}
 		m = channelsListenerTestModel()
-		m.headless = true
+		m.detached = true
 		if cmd := m.maybeFetchRadioListeners(); cmd != nil {
-			t.Error("headless model returned a fetch command")
+			t.Error("detached model returned a fetch command")
 		}
 	})
 

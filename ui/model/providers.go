@@ -72,10 +72,9 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	return listsCmd
 }
 
-// fetchProviderPlaylists reloads the rows of the provider pane. A headless
-// Model has no pane, so it skips the provider call.
+// fetchProviderPlaylists reloads the rows of the provider pane.
 func (m *Model) fetchProviderPlaylists() tea.Cmd {
-	if m.provider == nil || m.headless {
+	if m.provider == nil {
 		return nil
 	}
 	gen := nextRequest(&m.requests.provider)
@@ -87,10 +86,10 @@ func (m *Model) fetchProviderPlaylists() tea.Cmd {
 
 // maybeFetchRadioListeners starts one listener-counts fetch for the cliamp
 // radio channel rows when the cache is missing or stale. It returns nil for
-// every other provider, in headless mode, and while fresh, so failures stay
+// every other provider, while detached, and while fresh, so failures stay
 // silent and rows simply show no counts.
 func (m *Model) maybeFetchRadioListeners() tea.Cmd {
-	if m.headless {
+	if m.detached {
 		return nil
 	}
 	if _, ok := m.provider.(*radio.ChannelProvider); !ok {

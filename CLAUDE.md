@@ -12,12 +12,12 @@
 
 ## What cliamp is
 
-A TUI music player inspired by Winamp. It plays local files, `ssh://` paths, HTTP streams, HLS, podcasts and internet radio. It also plays from these providers: Spotify, Qobuz, Tidal, YouTube, YouTube Music, SoundCloud, Mixcloud, NetEase Cloud Music, Yandex Music, Navidrome, Lyrion, Plex, Jellyfin, Emby and Audiobookshelf. yt-dlp adds Bandcamp and Bilibili URLs. `resolve/` plays Xiaoyuzhou episode URLs. cliamp has built-in visualizers, a 10-band parametric EQ, synced lyrics, Lua plugins, V2 IPC remote control and a headless mode. Media controls use MPRIS on Linux, NowPlaying on macOS and media-key hotkeys on Windows.
+A TUI music player inspired by Winamp. It plays local files, `ssh://` paths, HTTP streams, HLS, podcasts and internet radio. It also plays from these providers: Spotify, Qobuz, Tidal, YouTube, YouTube Music, SoundCloud, Mixcloud, NetEase Cloud Music, Yandex Music, Navidrome, Lyrion, Plex, Jellyfin, Emby and Audiobookshelf. yt-dlp adds Bandcamp and Bilibili URLs. `resolve/` plays Xiaoyuzhou episode URLs. cliamp has built-in visualizers, a 10-band parametric EQ, synced lyrics, Lua plugins, V2 IPC remote control and a detached mode (`--daemon`, `cliamp attach`). Media controls use MPRIS on Linux, NowPlaying on macOS and media-key hotkeys on Windows.
 
 - Site: https://cliamp.stream
 - Install: `curl -fsSL https://cliamp.stream/install.sh | sh`
 - Module: `github.com/bjarneo/cliamp`. Package `main` sits at the repo root.
-- Entry point: `main.go` → `run(...)`. The TUI and headless mode both start there.
+- Entry point: `main.go` → `run(...)`. The TUI and detached mode both start there.
 - CLI: `urfave/cli/v3` in `commands.go`.
 
 ---
@@ -28,7 +28,7 @@ Package `main` at the repo root:
 
 | File | Responsibility |
 |------|----------------|
-| `main.go` | `run(...)` for the TUI and headless mode: config, player, playlist, Model, Bubbletea program, IPC server and exit save. It also holds the V2 dispatcher `newV2Dispatcher`, the operation set `v2Operations` and the plugin jobs |
+| `main.go` | `run(...)` for the TUI and detached mode: config, player, playlist, Model, Bubbletea program, IPC server and exit save. It also holds the V2 dispatcher `newV2Dispatcher`, the operation set `v2Operations` and the plugin jobs |
 | `providers.go` | `buildProviders` and the `providerKeys` table that `--provider` reads. The player hooks `registerPlayerHooks` and `isBufferedProviderURL`. The sign-in URL observers, the Jellyfin and Emby resume context and the yt-dlp install prompt |
 | `lua_wiring.go` | The Lua state, control and UI providers. `newLuaSender` queues the plugin messages for `prog.Send`, so a plugin never waits on the event loop |
 | `commands.go` | The root flags and every subcommand |
@@ -53,7 +53,8 @@ Each directory below is a Go package:
 | `luaplugin/` | The Gopher-Lua VMs, the sandbox, the per-plugin event queues, the plugin visualizers and the plugin APIs in `api_*.go` |
 | `plugins/` | First-party example plugins. `luaplugin/regression_bundled_test.go` loads each one |
 | `pluginmgr/` | `cliamp plugins install`, `remove`, `list` and `trust`. Resolves GitHub, GitLab, Codeberg and direct URL sources |
-| `ipc/` | The V2 protocol over a Unix socket: the envelope, the operation registry, jobs and the event broker. See [IPC](#ipc) |
+| `ipc/` | The V2 protocol over a Unix socket: the envelope, the operation registry, jobs and the event broker. `attach.go` hands a connection over to the session host. See [IPC](#ipc) |
+| `session/` | Detached mode: `host.go` is the virtual terminal the TUI renders into with no client attached, `client.go` is `cliamp attach`, `protocol.go` the frame stream between them |
 | `mediactl/` | Media controls: MPRIS over D-Bus on Linux, NowPlaying on macOS with cgo, media-key hotkeys on Windows, and `service_stub.go` for the other builds |
 | `lyrics/` | The lyrics lookup: embedded lyrics, the provider sources, LRCLIB and NetEase |
 | `theme/` | The theme loader and the built-in themes in `themes/` |
@@ -67,27 +68,26 @@ Other directories: `docs/` holds the user docs, one `.md` per feature. `site/` i
 ### Runtime flow (read this before touching `main.go`)
 
 1. `main()` sets the version and runs `buildApp()` from `commands.go`. Most subcommands are thin V2 clients in `ipc_client.go`. They talk to the running instance over the socket.
-2. `run(overrides, positional, headless, visualizer60FPS)` is the path of the TUI and of headless mode:
-   1. Load `config.toml`, apply the CLI overrides and open `cliamp.log`. In headless mode `checkNotRunning` ends the run when another instance serves the socket.
+2. `run(overrides, positional, daemon, visualizer60FPS)` is the path of the TUI and of detached mode:
+   1. Load `config.toml`, apply the CLI overrides and open `cliamp.log`. With `--daemon` `checkNotRunning` ends the run when another instance serves the socket.
    2. Call `buildProviders` in `providers.go`. cliamp radio, Radio, Local and Podcasts always register. The other providers register when they are configured. YouTube also needs credentials and yt-dlp.
    3. Resolve the positional arguments with `resolve.Args`. Feeds, M3U, PLS and yt-dlp pages go to `Pending` and resolve after start.
    4. Build the start playlist from `--playlist`, the cliamp radio channels or a saved Jellyfin or Emby context.
    5. Open the `player.Player` in `newPlayer`. `registerPlayerHooks` adds the stream factories, source resolvers and URL matchers of the providers.
    6. Create the IPC event broker and load the Lua plugins with `luaplugin.New`.
-   7. Build the Model with `model.New` and `config.SaveFunc{}`. `configureModel` applies the settings. In headless mode it calls `SetHeadless(true)`.
-   8. Create the Bubbletea program with `programOptions`. In both modes `quitOnSignals` turns SIGINT, SIGTERM and SIGHUP into `playback.QuitMsg`, so the exit save runs.
+   7. Build the Model with `model.New` and `config.SaveFunc{}`. `configureModel` applies the settings. With `--daemon`, `run` creates a `session.Host` and calls `SetDetached(true)` and `SetSessionDetach(host.Detach)`.
+   8. Create the Bubbletea program with `programOptions`, plus `sessionProgramOptions` with `--daemon`. In both modes `quitOnSignals` turns SIGINT, SIGTERM and SIGHUP into `playback.QuitMsg`, so the exit save runs.
    9. Attach the sign-in URL observers, the media controls in `wireMediaCtl`, and the Lua control and UI providers from `lua_wiring.go`.
-   10. Start the IPC server in `startIPC`. In headless mode a failed bind ends the run.
+   10. Start the IPC server in `startIPC`. With `--daemon` a failed bind ends the run, and the host takes the `attach` requests.
    11. `mediactl.Run` runs the program until it quits. `saveOnExit` then saves the theme and the resume position.
 
-### Headless mode
+### Detached mode
 
-`cliamp --daemon` or `cliamp -d` runs the same `model.Model` as the TUI. The program has no renderer and no input. `SetHeadless(true)` makes `View` return nothing and uses the low-power tick. Headless mode loads the Lua plugins, sends now-playing and scrobble reports, records history when a track starts and preloads the next track, as the TUI does. It differs from the TUI in these ways:
+`cliamp --daemon` or `cliamp -d` runs the TUI against a `session.Host`, a virtual terminal, instead of the terminal it started from. `cliamp attach` lends a real terminal to it over the socket; `q` detaches, and `cliamp quit` (or a signal) ends the session. While no client is attached, `SetDetachedMsg` makes `View` return nothing, hides the visualizer and drops the tick to `ui.TickDetached`. `spectrum.get` then analyzes on demand. It differs from the TUI in these ways:
 
-- It does not open the provider browser at start or restore a Jellyfin or Emby context.
 - It never offers to install yt-dlp.
-- `v2Operations` removes the `theme` and `vis` operations.
-- It keeps the saved theme at exit.
+- With the cliamp provider and no arguments it starts with the live channel streams, as `--auto-play` does.
+- The `q` and `Ctrl+C` keys detach instead of quitting. `playback.QuitMsg` from signals and media controls still shuts down.
 
 `docs/headless.md` is the user guide.
 
@@ -111,7 +111,7 @@ To add an operation:
 2. Put new parameter fields on `ipc.Request` in `ipc/protocol.go` when the existing fields do not fit.
 3. Handle it in `handleV2Request` in `ui/model/ipc_runtime.go`, or in `ui/model/ipc_extended.go`. `handleV2Request` sends only `provider.*` and `playlist.*` names to `ipc_extended.go` by itself. For another name, add it to the case that calls `handleV2DeferredRequest`, and add a case to the switch in `handleV2DeferredRequest`. `handleV2Request` fails an unknown name with `unavailable`.
 4. For a queue edit, add the name to `v2MutatesLivePlaylist` in `ui/model/ipc_runtime.go`. The revision check then covers it.
-5. When headless mode cannot serve the operation, unregister it in `v2Operations` in `main.go`.
+5. When the runtime cannot serve the operation, unregister it in `v2Operations` in `main.go`.
 6. Add a CLI command in `commands.go` when users need one.
 7. Add table-driven tests in `ui/model/`, and in `ipc/` for a protocol change.
 8. Document it in `docs/remote-control.md`.
@@ -120,7 +120,7 @@ To add an operation:
 
 | Concern | Files |
 |---------|-------|
-| State and setup | `model.go` holds the `Model` struct, the screens, the focus areas and the `ConfigSaver` seam. `state.go` groups the sub-structs. `init.go` holds `New`, the setters, `SetHeadless` and `Init` |
+| State and setup | `model.go` holds the `Model` struct, the screens, the focus areas and the `ConfigSaver` seam. `state.go` groups the sub-structs. `init.go` holds `New`, the setters and `Init`. `detached.go` holds `SetDetached`, `SetSessionDetach` and `SetDetachedMsg` |
 | Update loop | `update.go` is one type switch. After each message it lays out the frame, drops a stale preload, tells the media controls, emits the plugin events and publishes the IPC and plugin state. `update_load.go`, `update_nav.go`, `update_playback.go`, `update_provider.go` and `update_search.go` hold the message bodies. `tick.go` runs the frame tick. `commands.go` holds the `tea.Cmd` constructors and their messages |
 | Actions | `actions.go` holds one verb for each user intent that more than one entry point starts: keys, media controls, Lua and IPC. `queue_ops.go` holds the one queue edit rule for keys, IPC and Lua. `playback.go`, `playback_state.go`, `preload.go`, `seek.go` and `audio.go` run playback, the gapless preload, seek, EQ and speed. `eq_presets.go` holds the built-in EQ presets. `ytdl_batch.go` loads a long YouTube playlist in batches |
 | Reports | `notifications.go` updates the media controls. At track start it records history and sends the now-playing report. When a track that played past half its length is left, it sends the scrobble. `report_queue.go` keeps the provider reports in order. `favorites.go` copies a ♥ favorite to the service |
@@ -226,7 +226,7 @@ Golden path for a non-trivial change:
 | Where does a key, IPC or Lua action land? | `ui/model/actions.go` and `ui/model/queue_ops.go` |
 | How do I add a provider? | `docs/provider-development.md`, `provider/interfaces.go`, `providers.go` |
 | How does IPC work? | `ipc/v2.go`, `ipc/operations.go`, `ipc/server.go`, `ui/model/ipc_runtime.go`, `docs/remote-control.md` |
-| How does headless mode work? | `configureModel`, `programOptions` and `v2Operations` in `main.go`, `SetHeadless` in `ui/model/init.go`, and `docs/headless.md` |
+| How do `--daemon` and `cliamp attach` work? | `session/host.go`, `session/client.go`, the `daemon` branch of `run` in `main.go`, `ui/model/detached.go`, and `docs/headless.md` |
 | How do Lua plugins reach the Model? | `lua_wiring.go`, `ui/model/plugin_state.go`, `ui/model/plugin_events.go` |
 | How are Lua plugins sandboxed? | `luaplugin/sandbox.go`, the write rules in `luaplugin/api_fs.go`, the queues and timeouts in `luaplugin/hooks.go`, and `internal/plugintrust/` |
 | Where are bundled plugins? | `plugins/` |

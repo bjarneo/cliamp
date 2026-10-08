@@ -37,12 +37,12 @@ func (r quitRecorder) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (quitRecorder) View() tea.View { return tea.NewView("") }
 
 // A real SIGINT, SIGTERM or SIGHUP reaches the Model as a quit message in
-// headless mode and in the TUI, so the Model keeps the resume position. The
+// the TUI and in a detached session, so the Model keeps the resume position. The
 // program then ends with no error. The signal handler of Bubbletea would end
 // the program with no Update, and on SIGINT with an error. A closed terminal
 // sends SIGHUP.
 func TestSignalQuitsThroughTheModel(t *testing.T) {
-	// The TUI program runs with no terminal here, as headless mode does.
+	// The TUI program runs with no terminal here.
 	noTerminal := []tea.ProgramOption{tea.WithInput(nil), tea.WithoutRenderer(), tea.WithOutput(io.Discard)}
 	type signalCase struct {
 		name    string
@@ -51,9 +51,8 @@ func TestSignalQuitsThroughTheModel(t *testing.T) {
 	}
 	var cases []signalCase
 	for _, mode := range []signalCase{
-		{name: "headless", options: programOptions(true, false)},
-		{name: "TUI", options: append(programOptions(false, false), noTerminal...)},
-		{name: "low-power TUI", options: append(programOptions(false, true), noTerminal...)},
+		{name: "TUI", options: append(programOptions(false), noTerminal...)},
+		{name: "low-power TUI", options: append(programOptions(true), noTerminal...)},
 	} {
 		for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP} {
 			cases = append(cases, signalCase{name: mode.name + " " + sig.String(), options: mode.options, sig: sig})

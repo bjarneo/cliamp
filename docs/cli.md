@@ -64,15 +64,23 @@ To make this persistent, set it in `~/.config/cliamp/config.toml`:
 low_power = true
 ```
 
-## Headless daemon mode
+## Detached mode
 
 ```sh
-cliamp --daemon                              # no TUI, IPC only
+cliamp --daemon                              # detached: no terminal of its own
 cliamp --daemon --auto-play --playlist Lofi  # start playing on launch
 cliamp -d ~/Music --auto-play                # short flag form
+
+cliamp attach                                # lend this terminal to the session
 ```
 
-Run cliamp without a UI. It runs the same player as the TUI and listens on the Unix socket that the TUI uses. All `cliamp <subcommand>` IPC clients work. Plugins, scrobbling, and Recently Played work as in the TUI. `cliamp theme <name>` and `cliamp vis <name|next>` return an error. The `list` forms still work. See [Headless Daemon Mode](headless.md) for use cases and configuration examples for Waybar, Hyprland, systemd, and cron.
+Run the whole player without a terminal of its own: playback survives every
+terminal, and all `cliamp <subcommand>` IPC clients work. Plugins, scrobbling,
+and Recently Played work as in the TUI. `cliamp attach` borrows a terminal to
+the running player when you want the UI. Press `q` to
+detach and leave it playing; `cliamp quit` stops the session itself. See
+[Detached Mode](headless.md) for use cases and configuration examples for
+Waybar, Hyprland, systemd, and cron.
 
 ## Search
 
@@ -157,7 +165,7 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--log-level` | string | info | debug, info, warn, error |
 | `--expand-playlist` / `--no-expand-playlist` | bool | true | expand YouTube and YouTube Music `list=` URLs to the full playlist. `--no-expand-playlist` plays only the video. |
 | `--low-power` / `--no-low-power` | bool | false | lower UI cadence; disable visualization |
-| `--daemon` / `-d` | bool | false | run headless; IPC only, no TUI |
+| `--daemon` / `-d` | bool | false | run detached: no terminal of its own, serving IPC and `cliamp attach` |
 
 CLI flags override config file values for the current session only. Persisted boolean options accept matching `--no-*` flags, such as `--no-shuffle` and `--no-low-power`. cliamp does not save them.
 
@@ -260,6 +268,7 @@ Control a running cliamp instance from another terminal:
 ```sh
 cliamp play / pause / toggle / stop    # playback control
 cliamp next / prev                     # track navigation
+cliamp quit                            # stop the running cliamp entirely
 cliamp status                          # current state
 cliamp status --json                   # machine-readable state
 cliamp volume -5                       # set the volume to -5 dB

@@ -390,6 +390,7 @@ services control matching rules.
 | Key | Action |
 |---|---|
 | `?` / `Ctrl+K` | Show keymap. `Enter` runs the selected command. `Esc` or `q` closes it. |
-| `q` / `Ctrl+C` | Quit |
+| `q` / `Ctrl+C` | Quit. In a terminal attached to a `--daemon` session it detaches instead, leaving the session playing -- stop that with `cliamp quit` (see [Detached Mode](headless.md)) |
+| `Ctrl+\` | Detach without asking the player -- handled by `cliamp attach` itself, so it works even if the session stops responding |
 
-cliamp also quits as the `q` key does when it gets `SIGINT`, `SIGTERM` or `SIGHUP`. It then saves the resume position. The terminal sends `SIGHUP` when you close its window.
+cliamp also quits when it gets `SIGINT`, `SIGTERM` or `SIGHUP`, a detached session included. It then saves the resume position, as the `q` key does outside a session. The terminal sends `SIGHUP` when you close its window.

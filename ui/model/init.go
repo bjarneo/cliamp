@@ -142,21 +142,6 @@ func (m *Model) SetAutoPlay(v bool) { m.autoPlay = v }
 // SetLowPower lowers UI cadences without affecting normal mode.
 func (m *Model) SetLowPower(v bool) { m.lowPower = v }
 
-// SetHeadless runs the Model with no screen, as cliamp --daemon does. View
-// returns an empty view, Init does not ask for the window size, and the tick
-// uses the low-power cadence. The layout is the one of an 80x24 terminal
-// with the focus on the playlist, so the visualizer keeps a size and stays
-// in the layout for spectrum.get.
-func (m *Model) SetHeadless(v bool) {
-	m.headless = v
-	if v {
-		m.lowPower = true
-		m.termTitle.introActive = false
-		m.focus = focusPlaylist
-		m.recomputeLayout()
-	}
-}
-
 // SetVisualizer60FPS enables the 60 FPS visualizer cadence while it is active.
 func (m *Model) SetVisualizer60FPS(v bool) { m.visualizer60FPS = v }
 
@@ -321,24 +306,21 @@ func (m Model) ThemeName() string {
 	return m.themes[m.themeIdx].Name
 }
 
-// Init starts the tick timer and requests the terminal size. A headless
-// Model skips the size and the provider pane, which only a screen shows.
+// Init starts the tick timer and requests the terminal size.
 // main.go configures the Model after New, so app.start publishes the plugin
 // state again before its hooks run.
 func (m Model) Init() tea.Cmd {
 	m.emitPlugin(luaplugin.EventAppStart, nil)
 	cmds := []tea.Cmd{tickCmd()}
-	if !m.headless {
-		cmds = append(cmds, func() tea.Msg { return tea.RequestWindowSize() })
-		if m.provider != nil {
-			// Init has a value receiver, so it must not advance a request generation
-			// on its private model copy. The initial zero generation is current until
-			// the user starts another provider request.
-			cmds = append(cmds, fetchPlaylistsCmd(m.provider, m.requests.provider))
-		}
-		if m.openDefaultProviderOnce {
-			cmds = append(cmds, func() tea.Msg { return openDefaultProviderBrowserMsg{} })
-		}
+	cmds = append(cmds, func() tea.Msg { return tea.RequestWindowSize() })
+	if m.provider != nil {
+		// Init has a value receiver, so it must not advance a request generation
+		// on its private model copy. The initial zero generation is current until
+		// the user starts another provider request.
+		cmds = append(cmds, fetchPlaylistsCmd(m.provider, m.requests.provider))
+	}
+	if m.openDefaultProviderOnce {
+		cmds = append(cmds, func() tea.Msg { return openDefaultProviderBrowserMsg{} })
 	}
 	if len(m.pendingURLs) > 0 {
 		cmds = append(cmds, resolveRemoteCmd(m.pendingURLs, m.autoPlay))
