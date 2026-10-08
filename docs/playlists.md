@@ -178,7 +178,8 @@ cliamp returns directory tracks in document order and sorts each directory by
 path. An explicit `[[track]]` with the same path overrides a directory scan. Use
 this to save custom metadata for a file. A favorite needs no explicit entry,
 because favorites.toml stores it. Unreadable or missing directories add no
-tracks.
+tracks. Files and subdirectories whose name starts with `.` are skipped, so
+sidecars such as macOS `._` AppleDouble files never become tracks.
 
 Use `--dir` to create or extend these playlists on the CLI:
 
