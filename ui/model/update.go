@@ -159,6 +159,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.handleFeedTrackResolved(msg)
 		return m, cmd
 
+	case songMixMsg:
+		cmd := m.handleSongMix(msg)
+		return m, cmd
+
 	case subsEpisodesMsg:
 		cmd := m.handleSubsEpisodes(msg)
 		return m, cmd
