@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/term"
 
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/config"
@@ -54,7 +56,20 @@ const (
 	lowPowerUIFPS = 5
 )
 
+// checkTerminalOutput rejects a TUI that would render escape sequences to a
+// non-terminal stdout. Headless mode intentionally has no terminal output.
+func checkTerminalOutput(headless bool, stdout *os.File) error {
+	if !headless && !term.IsTerminal(stdout.Fd()) {
+		return errors.New("cliamp: stdout is not a terminal")
+	}
+	return nil
+}
+
 func run(overrides config.Overrides, positional []string, headless, visualizer60FPS bool) error {
+	if err := checkTerminalOutput(headless, os.Stdout); err != nil {
+		return err
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
