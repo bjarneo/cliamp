@@ -103,6 +103,7 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 			return refresh
 		default:
 			m.plManager.confirmDel = false
+			m.status.Show("Delete cancelled.", statusTTLShort)
 		}
 		return nil
 	}
@@ -220,7 +221,7 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.plManager.confirmDel = true
 	case "u":
 		return m.plMgrUndoLast()
-	case "esc", "p":
+	case "esc", "p", "q":
 		if m.plManager.filter != "" {
 			// First Esc clears an active filter rather than closing.
 			m.plMgrResetFilter()
@@ -380,8 +381,11 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	case "space":
 		realIdx := m.plMgrTrackRealIndex(m.plManager.cursor)
+		wasMarked := m.plManager.marked[realIdx]
 		m.plMgrToggleMark(realIdx)
-		if m.plManager.cursor < count-1 {
+		// Advance only when checking: the walk-down rhythm keeps going while
+		// marking, and unchecking stays on the row under review.
+		if !wasMarked && m.plManager.cursor < count-1 {
 			m.plManager.cursor++
 			m.plMgrTracksMaybeAdjustScroll(m.effectivePlaylistVisible())
 		}
@@ -430,7 +434,7 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.plMgrRemoveSelectedTracks()
 	case "u":
 		return m.plMgrUndoLast()
-	case "esc", "backspace", "h", "left":
+	case "esc", "backspace", "h", "left", "q":
 		if m.plManager.filter != "" {
 			m.plMgrResetFilter()
 			return nil
@@ -574,7 +578,7 @@ func (m *Model) handlePlMgrDirsKey(msg tea.KeyPressMsg) tea.Cmd {
 				m.status.Showf(statusTTLDefault, "Set %q %s", src.Path, mode)
 			}
 		}
-	case "esc", "backspace", "h", "left":
+	case "esc", "backspace", "h", "left", "q":
 		// Back to the tracks screen; reload tracks so dir changes are shown.
 		m.plMgrEnterTrackList(m.plManager.selPlaylist)
 	}
@@ -856,7 +860,7 @@ func (m *Model) plMgrRemoveSelectedTracks() {
 		return
 	}
 	if m.plManager.selPlaylist == favorites.PlaylistName {
-		m.status.Warning("Use n to remove tracks from Favorites", statusTTLDefault)
+		m.status.Warning("Use f to remove tracks from Favorites", statusTTLDefault)
 		return
 	}
 	if m.plManager.selPlaylist == history.PlaylistName {

@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/bjarneo/cliamp/internal/httpclient"
 )
@@ -232,6 +234,72 @@ func TestSummaryWithPlaylists(t *testing.T) {
 	if radioOnly.Listeners != 2 || len(radioOnly.Countries) != 1 || radioOnly.Channels[0].Listeners != 2 {
 		t.Errorf("WithPlaylists changed the summary it was called on: %+v", radioOnly)
 	}
+}
+
+func TestFetchListenerCountsFetchesBothDocumentsTogether(t *testing.T) {
+	mainHit := make(chan struct{})
+	var mainOnce sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/statistics":
+			mainOnce.Do(func() { close(mainHit) })
+			fmt.Fprint(w, `{"peak_listeners":10,"stations":{"edm":{"active_listeners":2}}}`)
+		case "/tracks/statistics":
+			// A sequential fetch would deadlock here: the tracks request
+			// only starts after the main one finishes. The 5s timeout
+			// turns a regression into a failure instead of a hang.
+			select {
+			case <-mainHit:
+			case <-time.After(5 * time.Second):
+				http.Error(w, "main document never requested", http.StatusGatewayTimeout)
+				return
+			}
+			fmt.Fprint(w, `{"stations":{"edm":{"active_listeners":3}}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	installCatalogClient(t, srv.URL)
+
+	counts, err := FetchListenerCounts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts["edm"] != 5 {
+		t.Errorf("counts = %+v, want edm 5 (2 live + 3 playlist)", counts)
+	}
+}
+
+func TestSummarizeListenerCounts(t *testing.T) {
+	main := Statistics{Stations: map[string]StationStats{
+		"edm":     {ActiveListeners: 2},
+		"quiet":   {ActiveListeners: 0},
+		"omarchy": {ActiveListeners: 1},
+	}}
+	playlists := &TrackStatistics{Stations: map[string]TrackStationStats{
+		"edm": {ActiveListeners: 3},
+	}}
+
+	t.Run("both documents add up", func(t *testing.T) {
+		got := summarizeListenerCounts(main, playlists)
+		want := map[string]int{"edm": 5, "quiet": 0, "omarchy": 1}
+		if len(got) != len(want) {
+			t.Fatalf("counts = %+v, want %+v", got, want)
+		}
+		for slug, n := range want {
+			if got[slug] != n {
+				t.Errorf("counts[%q] = %d, want %d", slug, got[slug], n)
+			}
+		}
+	})
+
+	t.Run("missing playlist document keeps live counts", func(t *testing.T) {
+		got := summarizeListenerCounts(main, nil)
+		if got["edm"] != 2 || got["omarchy"] != 1 {
+			t.Errorf("counts = %+v, want edm 2 and omarchy 1", got)
+		}
+	})
 }
 
 func TestFetchTrackStatistics(t *testing.T) {

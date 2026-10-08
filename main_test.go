@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -43,6 +44,24 @@ func TestSearchArgs(t *testing.T) {
 				t.Fatalf("searchArgs(%q) = %q, want %q", tt.args, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCheckTerminalOutput(t *testing.T) {
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		readEnd.Close()
+		writeEnd.Close()
+	})
+
+	if err := checkTerminalOutput(false, writeEnd); err == nil || !strings.Contains(err.Error(), "stdout is not a terminal") {
+		t.Fatalf("TUI with pipe output error = %v, want stdout is not a terminal", err)
+	}
+	if err := checkTerminalOutput(true, writeEnd); err != nil {
+		t.Fatalf("daemon with pipe output error = %v, want nil", err)
 	}
 }
 

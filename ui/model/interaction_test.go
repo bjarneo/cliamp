@@ -879,6 +879,7 @@ func TestUndoRestoresClearedQueue(t *testing.T) {
 	}
 
 	m.handleQueueKey(tea.KeyPressMsg{Text: "c"})
+	m.handleQueueKey(tea.KeyPressMsg{Text: "c"})
 	if got := p.QueueLen(); got != 0 {
 		t.Fatalf("queue length after clear = %d, want 0", got)
 	}
@@ -892,6 +893,89 @@ func TestUndoRestoresClearedQueue(t *testing.T) {
 	if m.queue.cursor != 0 || m.queue.scroll != 0 {
 		t.Fatalf("queue state after undo = cursor %d, scroll %d; want 0, 0", m.queue.cursor, m.queue.scroll)
 	}
+}
+
+// Clearing more than one queued track needs a second c press; Esc cancels
+// and the overlay stays open so the result (or Ctrl+Z) is visible.
+func TestQueueClearNeedsConfirm(t *testing.T) {
+	newQueueModel := func(tracks ...playlist.Track) (*playlist.Playlist, *Model) {
+		t.Helper()
+		p := playlist.New()
+		p.Add(tracks...)
+		for i := range tracks {
+			p.Queue(i)
+		}
+		m := &Model{
+			player:    &playbackFakeEngine{},
+			playlist:  p,
+			plVisible: 1,
+			queue:     queueOverlay{visible: true},
+		}
+		return p, m
+	}
+
+	t.Run("single track clears at once and stays open", func(t *testing.T) {
+		p, m := newQueueModel(playlist.Track{Title: "One"})
+		m.handleQueueKey(tea.KeyPressMsg{Text: "c"})
+		if got := p.QueueLen(); got != 0 {
+			t.Fatalf("queue length after clear = %d, want 0", got)
+		}
+		if !m.queue.visible {
+			t.Fatal("queue overlay closed after clear; want it to stay open")
+		}
+	})
+
+	t.Run("first c only arms", func(t *testing.T) {
+		p, m := newQueueModel(playlist.Track{Title: "One"}, playlist.Track{Title: "Two"})
+		m.handleQueueKey(tea.KeyPressMsg{Text: "c"})
+		if got := p.QueueLen(); got != 2 {
+			t.Fatalf("queue length after first c = %d, want 2 (confirm first)", got)
+		}
+		if !m.queue.confirmClear {
+			t.Fatal("confirmClear = false after first c, want true")
+		}
+		if !m.queue.visible {
+			t.Fatal("queue overlay closed while confirming; want it open")
+		}
+	})
+
+	t.Run("second c clears and stays open", func(t *testing.T) {
+		p, m := newQueueModel(playlist.Track{Title: "One"}, playlist.Track{Title: "Two"})
+		m.handleQueueKey(tea.KeyPressMsg{Text: "c"})
+		m.handleQueueKey(tea.KeyPressMsg{Text: "c"})
+		if got := p.QueueLen(); got != 0 {
+			t.Fatalf("queue length after second c = %d, want 0", got)
+		}
+		if !m.queue.visible {
+			t.Fatal("queue overlay closed after clear; want it to stay open")
+		}
+	})
+
+	t.Run("esc cancels and closes", func(t *testing.T) {
+		p, m := newQueueModel(playlist.Track{Title: "One"}, playlist.Track{Title: "Two"})
+		m.handleQueueKey(tea.KeyPressMsg{Text: "c"})
+		m.handleQueueKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+		if got := p.QueueLen(); got != 2 {
+			t.Fatalf("queue length after esc = %d, want 2", got)
+		}
+		if m.queue.confirmClear {
+			t.Fatal("confirmClear still armed after esc")
+		}
+		if m.queue.visible {
+			t.Fatal("queue overlay still open after esc; want it closed")
+		}
+	})
+
+	t.Run("empty queue warns", func(t *testing.T) {
+		p, m := newQueueModel()
+		m.handleQueueKey(tea.KeyPressMsg{Text: "c"})
+		if got := p.QueueLen(); got != 0 {
+			t.Fatalf("queue length = %d, want 0", got)
+		}
+		if m.status.text == "" {
+			t.Fatal("expected a status notice for clearing an empty queue")
+		}
+	})
 }
 
 func TestNextTrackNormalizesQueueAfterSkippingUnavailableEntry(t *testing.T) {

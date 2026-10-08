@@ -110,7 +110,7 @@ func (m *Model) handleDeviceKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.devicePicker.visible = false
 			return switchDeviceCmd(dev.Name)
 		}
-	case "esc", "d":
+	case "esc", "d", "q":
 		m.devicePicker.visible = false
 	}
 	return nil

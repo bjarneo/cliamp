@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/bjarneo/cliamp/external/radio"
 	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
@@ -58,6 +59,7 @@ func favRemovedMark() string { return favRemovedStyle.Render(favHeart) }
 // providerEmptyStateHint, keyed by lowercase provider Name(), returns the
 // remediation hint shown under the generic "No playlists in X" message.
 var providerEmptyStateHint = map[string]string{
+	"cliamp radio":        "Press Ctrl+R to reload, or pick another provider with Tab + Source.",
 	"local playlists":     "Add .toml playlists to ~/.config/cliamp/playlists/.",
 	"local":               "Add .toml playlists to ~/.config/cliamp/playlists/.",
 	"spotify":             "Press Ctrl+R to reload, or run `cliamp spotify reset` to sign in again.",
@@ -66,9 +68,12 @@ var providerEmptyStateHint = map[string]string{
 	"emby":                "Verify [emby] url and token or username/password in config.toml.",
 	"audiobookshelf":      "Verify [audiobookshelf] url and token or username/password in config.toml.",
 	"plex":                "Verify [plex] server URL and token or library filter in config.toml.",
+	"youtube":             "Install yt-dlp for video audio, then press Ctrl+R to reload.",
+	"youtube (all)":       "Install yt-dlp for video audio, then press Ctrl+R to reload.",
 	"youtube music":       "Run `cliamp ytmusic-login` to authorize, then refresh.",
 	"ytmusic":             "Run `cliamp ytmusic-login` to authorize, then refresh.",
 	"soundcloud":          "Set [soundcloud] user in config.toml to browse a profile.",
+	"netease":             "Run `cliamp setup` and configure NetEase browser cookies.",
 	"netease cloud music": "Run `cliamp setup` and configure NetEase browser cookies.",
 	"qobuz":               "Press Ctrl+R to retry, or run `cliamp qobuz reset`.",
 	"tidal":               "Press Ctrl+R to retry, or run `cliamp tidal reset`.",
@@ -109,6 +114,8 @@ func (m Model) renderProviderEmptyState(budget int) string {
 	if m.provider != nil {
 		if hint, ok := providerEmptyStateHint[strings.ToLower(m.provider.Name())]; ok {
 			lines = append(lines, dimStyle.Render("  "+hint))
+		} else {
+			lines = append(lines, dimStyle.Render("  Press Ctrl+R to reload, or run `cliamp setup` to configure services."))
 		}
 	}
 	return strings.Join(fitLines(lines, budget), "\n")
@@ -137,6 +144,55 @@ func (m Model) isProviderRowActive(p playlist.PlaylistInfo) bool {
 		return true
 	}
 	return false
+}
+
+// providerRowLabel formats a provider-list row, appending live listener
+// counts on cliamp radio channel rows. Any other provider renders the plain
+// playlist label.
+func (m Model) providerRowLabel(prefix string, p playlist.PlaylistInfo) string {
+	if _, ok := m.provider.(*radio.ChannelProvider); !ok {
+		return playlistLabel(prefix, p)
+	}
+	if suffix := m.radioListenerSuffix(p.ID); suffix != "" {
+		return playlistLabel(prefix, p) + " · " + suffix
+	}
+	return playlistLabel(prefix, p)
+}
+
+// radioListenerSuffix names the live audience of one cliamp channel: the
+// fetched count plus one optimistic listener while that channel plays, since
+// the server only learns about this listener on its next poll. Unknown
+// counts (never fetched or failed) show nothing, never zero; a known zero
+// reads as quiet.
+func (m Model) radioListenerSuffix(id string) string {
+	count := 0
+	known := false
+	if m.radioListeners != nil {
+		count, known = m.radioListeners[id], true
+	}
+	if m.radioPlayingHere(id) {
+		count++
+		known = true
+	}
+	if !known {
+		return ""
+	}
+	if count > 0 {
+		return fmt.Sprintf("● %d listening now", count)
+	}
+	return "○ quiet right now"
+}
+
+// radioPlayingHere reports whether the given cliamp channel is the audible
+// one. It guards a nil engine so empty test models can render rows.
+func (m Model) radioPlayingHere(id string) bool {
+	if m.activeProviderPlaylistID == "" || m.activeProviderPlaylistID != id {
+		return false
+	}
+	if m.player == nil {
+		return false
+	}
+	return m.player.IsPlaying() || m.buffering
 }
 
 // playlistLabel formats a playlist entry, omitting fields the provider didn't
@@ -224,6 +280,29 @@ func trimTrailingEmpty(sections []string) []string {
 	return sections
 }
 
+// frameHasSlackForTransient reports whether an empty transient row still fits
+// in the terminal after rows content rows plus frame padding. Reserving the
+// row only when it fits keeps a message from shifting the frame, without
+// hiding the message on exactly-full screens (where appearing and idle states
+// already share the same top padding).
+func (m Model) frameHasSlackForTransient(rows int) bool {
+	if m.height <= 0 {
+		return true
+	}
+	return rows+1+2*m.layout.paddingV <= m.height
+}
+
+// renderedRows counts the terminal rows that sections paint, including the
+// embedded newlines of multi-line sections such as the spectrum and the
+// playlist body.
+func renderedRows(sections []string) int {
+	rows := 0
+	for _, s := range sections {
+		rows += strings.Count(s, "\n") + 1
+	}
+	return rows
+}
+
 // mainSections builds the stacked rows of the playback screen for the active
 // layout tier, ending with the status line and, unless it is hidden, the hint
 // bar above it.
@@ -234,8 +313,9 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 			m.renderTimeStatus(),
 			m.renderSeekBar(),
 		}
+		sections = trimTrailingEmpty(sections)
 		if includeTransient {
-			if line := m.renderTransient(); line != "" {
+			if line := m.renderTransient(); line != "" || m.frameHasSlackForTransient(renderedRows(sections)) {
 				sections = append(sections, line)
 			}
 		}
@@ -335,13 +415,14 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 		sections = append(sections, m.renderBottomStatus())
 	}
 
+	sections = trimTrailingEmpty(sections)
 	if includeTransient {
-		if line := m.renderTransient(); line != "" {
+		if line := m.renderTransient(); line != "" || m.frameHasSlackForTransient(renderedRows(sections)) {
 			sections = append(sections, line)
 		}
 	}
 
-	return trimTrailingEmpty(sections)
+	return sections
 }
 
 func (m Model) renderSimplifiedTrackInfo() string {
@@ -424,9 +505,8 @@ func (m *Model) advanceTitleScroll(now time.Time) {
 }
 
 func (m Model) renderTransient() string {
-	if m.err != nil {
-		return ui.FitRect(errorStyle.Render(fmt.Sprintf("ERR: %s", m.err)), m.layout.panelWidth, 1)
-	}
+	// Fresh status wins over a sticky m.err so confirmations are not masked
+	// by an older network error; the error reappears once status expires.
 	if text := m.save.activityText(); text != "" {
 		return ui.FitRect(feedbackActivityStyle.Render(text), m.layout.panelWidth, 1)
 	}
@@ -444,6 +524,9 @@ func (m Model) renderTransient() string {
 			text = "ERR: " + text
 		}
 		return ui.FitRect(style.Render(text), m.layout.panelWidth, 1)
+	}
+	if m.err != nil {
+		return ui.FitRect(errorStyle.Render(fmt.Sprintf("ERR: %s", m.err)), m.layout.panelWidth, 1)
 	}
 	if n := len(m.logLines); n > 0 {
 		return ui.FitRect(dimStyle.Render(m.logLines[n-1].text), m.layout.panelWidth, 1)
@@ -923,7 +1006,7 @@ func (m Model) renderProviderList() string {
 					idx := m.provSearch.results[j]
 					p := m.provPane.lists[idx]
 					prefix, style := m.providerRowStyle(p, j == m.provSearch.cursor)
-					lines = append(lines, style.Render(playlistLabel(prefix, p)))
+					lines = append(lines, style.Render(m.providerRowLabel(prefix, p)))
 				}
 				lines = append(lines, dimStyle.Render(fmt.Sprintf("  %d/%d playlists", len(m.provSearch.results), len(m.provPane.lists))))
 			}
@@ -985,7 +1068,7 @@ func (m Model) renderProviderList() string {
 			}
 
 			prefix, style := m.providerRowStyle(p, j == m.provPane.cursor)
-			lines = append(lines, style.Render(playlistLabel(prefix, p)))
+			lines = append(lines, style.Render(m.providerRowLabel(prefix, p)))
 		}
 	}
 

@@ -119,6 +119,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.handlePlaylistsLoaded(msg)
 		return m, cmd
 
+	case radioListenersLoadedMsg:
+		m.handleRadioListenersLoaded(msg)
+		return m, nil
+
 	case tracksLoadedMsg:
 		cmd := m.handleTracksLoaded(msg)
 		return m, cmd

@@ -51,6 +51,11 @@ func (m *Model) toggleTrackFavorite(track playlist.Track) (tea.Cmd, error) {
 		return nil, err
 	}
 	m.refreshFavSet()
+	if favorite {
+		m.status.Showf(statusTTLMedium, "Favorited: %s", track.DisplayName())
+	} else {
+		m.status.Showf(statusTTLMedium, "Unfavorited: %s", track.DisplayName())
+	}
 	// The Local pane renders Favorites counts from Playlists(). The
 	// manager list refreshes itself on open.
 	return tea.Batch(m.syncTrackFavoriteCmd(track, favorite), m.refreshPaneAfterLocalWrite()), nil

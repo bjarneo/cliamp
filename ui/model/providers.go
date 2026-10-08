@@ -3,6 +3,7 @@ package model
 import (
 	"slices"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -12,6 +13,11 @@ import (
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
+
+// radioListenersTTL is how long fetched listener counts stay fresh. A failed
+// fetch stamps the same time, so an offline start does not retry on every
+// pane load; Ctrl+R forces a refresh through refreshActiveProvider.
+const radioListenersTTL = 5 * time.Minute
 
 // resetProviderNav resets provider navigation and search state to the top.
 func (m *Model) resetProviderNav() {
@@ -76,6 +82,23 @@ func (m *Model) fetchProviderPlaylists() tea.Cmd {
 		return m.refreshRadioLists()
 	}
 	return fetchPlaylistsCmd(m.provider, gen)
+}
+
+// maybeFetchRadioListeners starts one listener-counts fetch for the cliamp
+// radio channel rows when the cache is missing or stale. It returns nil for
+// every other provider, while detached, and while fresh, so failures stay
+// silent and rows simply show no counts.
+func (m *Model) maybeFetchRadioListeners() tea.Cmd {
+	if m.detached {
+		return nil
+	}
+	if _, ok := m.provider.(*radio.ChannelProvider); !ok {
+		return nil
+	}
+	if time.Since(m.radioListenersAt) < radioListenersTTL {
+		return nil
+	}
+	return fetchRadioListenersCmd(nextRequest(&m.requests.radioListeners))
 }
 
 // refreshRadioLists projects local Radio state on the Update owner. Only
@@ -202,6 +225,9 @@ func (m *Model) refreshActiveProvider(tracksOnly bool) tea.Cmd {
 	nextRequest(&m.requests.catalog)
 	m.catalogBatch = catalogBatchState{}
 	m.provPane.loading = true
+	// A manual refresh also refreshes the listener counts: the next lists
+	// arrival finds a stale cache and refetches.
+	m.radioListenersAt = time.Time{}
 	m.status.Activityf(statusTTLShort, "Refreshing %s…", m.provider.Name())
 	if inPlace {
 		return m.fetchProviderTracks(m.activeProviderPlaylistID)
@@ -312,11 +338,15 @@ func (m *Model) fetchCatalogBatch(loader provider.CatalogLoader) tea.Cmd {
 // quickSwitchProvider closes any browser overlays and jumps to the provider
 // matched by key. It takes every key of providerKeyForShortcut, N included.
 // ok is false when key is no shortcut. A shortcut of a provider that is not
-// configured still closes the overlays, and cmd is nil then.
+// configured leaves the overlays alone: there is nowhere to land, so only
+// the setup hint applies.
 func (m *Model) quickSwitchProvider(key string) (cmd tea.Cmd, ok bool) {
 	provKey := providerKeyForShortcut(key)
 	if provKey == "" {
 		return nil, false
+	}
+	if !m.hasProvider(provKey) {
+		return m.switchToProvider(provKey), true
 	}
 	// Close any open overlays so the user lands on the provider pane.
 	m.cancelNavRequests()
@@ -379,14 +409,41 @@ func providerKeyForShortcut(key string) string {
 }
 
 // switchToProvider finds a provider by config key and switches to it.
-// Returns nil if the provider is not configured.
+// Returns nil if the provider is not configured, leaving a status hint so
+// a Shift+letter shortcut never dies silently on a fresh config.
 func (m *Model) switchToProvider(key string) tea.Cmd {
 	for i, pe := range m.providers {
 		if pe.Key == key {
 			return m.switchProvider(i)
 		}
 	}
+	m.status.Warning(unconfiguredProviderHint(key), statusTTLLong)
 	return nil
+}
+
+// hasProvider reports whether a provider with the config key registered.
+func (m Model) hasProvider(key string) bool {
+	for _, pe := range m.providers {
+		if pe.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// unconfiguredProviderHint names the setup step for a provider shortcut
+// whose provider did not register (fresh config, missing credentials).
+func unconfiguredProviderHint(key string) string {
+	switch key {
+	case "yt", "youtube", "ytmusic":
+		return "YouTube not configured — run `cliamp ytmusic-login` (needs yt-dlp)"
+	case "spotify":
+		return "Spotify not configured — run `cliamp setup` to sign in"
+	case "local":
+		return "Local source unavailable"
+	default:
+		return "Provider not configured — run `cliamp setup`"
+	}
 }
 
 type browseEntryGroup struct {

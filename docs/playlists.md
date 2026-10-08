@@ -178,7 +178,8 @@ cliamp returns directory tracks in document order and sorts each directory by
 path. An explicit `[[track]]` with the same path overrides a directory scan. Use
 this to save custom metadata for a file. A favorite needs no explicit entry,
 because favorites.toml stores it. Unreadable or missing directories add no
-tracks.
+tracks. Files and subdirectories whose name starts with `.` are skipped, so
+sidecars such as macOS `._` AppleDouble files never become tracks.
 
 Use `--dir` to create or extend these playlists on the CLI:
 
@@ -321,7 +322,7 @@ other view to open it as an overlay:
 4. **Create playlist**: Press `a`, enter a name, and press `Enter`. The file browser opens at `~` for the new playlist. Use `Space` to select folders or files. Folders become live `[[dir]]` sources. Press `Enter` to confirm or `Esc` to finish.
 5. **Rename playlist**: Press `r` on the list screen.
 6. **Delete playlist**: Press `d`, then `y` to confirm.
-7. **Mark tracks**: Open a playlist. Press `Space` to mark a track and advance, or `a` to mark or unmark all visible tracks.
+7. **Mark tracks**: Open a playlist. Press `Space` to mark a track and advance, or unmark it and stay on the row. Press `a` to mark or unmark all visible tracks.
 8. **Move tracks**: Press `[` or `]`. cliamp saves the playlist immediately.
 9. **Sort tracks**: Press `s` to cycle `track`, `title`, `artist`, `album`, `artist+album`, and `path`.
 10. **Remove tracks**: Press `d` to remove marked tracks, or the selected track when none are marked.

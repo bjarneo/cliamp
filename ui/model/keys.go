@@ -279,6 +279,8 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.answerLocationPrompt(true)
 		case "n", "N", "esc":
 			return m.answerLocationPrompt(false)
+		default:
+			m.status.Show("Answer y for yes, n for no.", statusTTLShort)
 		}
 		return nil
 	}
@@ -296,7 +298,7 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "a":
 		return m.appendShowFromProviderList()
 	case "p":
-		if m.activeProviderKey() == providerKeyLocal && m.localProvider != nil {
+		if m.localProvider != nil {
 			m.openPlaylistManager()
 		}
 	case "up", "k":
@@ -334,9 +336,10 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.providerCatalogSearching() {
 			return m.restoreCatalog(m.provider.(provider.CatalogSearcher))
 		}
-		if m.playlist.Len() > 0 {
-			m.focus = focusPlaylist
-		}
+		// Leave even with an empty playlist. Starting with nothing to play
+		// is what opens this view (StartInProvider), so gating the way out
+		// on a loaded playlist made the launch screen inescapable.
+		m.focus = focusPlaylist
 	case "/":
 		m.provSearch.active = true
 		m.provSearch.query = ""
@@ -635,6 +638,7 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.queue.visible = true
 			m.queue.cursor = 0
 			m.queue.scroll = 0
+			m.queue.confirmClear = false
 		}
 
 	case "F":
@@ -765,7 +769,7 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 // handleInfoKey processes key presses while the track info overlay is open.
 func (m *Model) handleInfoKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
-	case "esc", "i":
+	case "esc", "i", "q":
 		m.info.visible = false
 	case "ctrl+i":
 		m.info.visible = false
@@ -784,7 +788,7 @@ func (m *Model) handleInfoKey(msg tea.KeyPressMsg) tea.Cmd {
 // handleLyricsKey processes key presses while the lyrics overlay is open.
 func (m *Model) handleLyricsKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
-	case "esc", "y":
+	case "esc", "y", "q":
 		nextRequest(&m.requests.lyrics)
 		m.lyrics.loading = false
 		m.lyrics.query = ""
@@ -823,9 +827,7 @@ func (m *Model) exitFullVisualizer() {
 
 func (m *Model) handleFullVisualizerKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
-	case "q":
-		return m.quit()
-	case "esc", "backspace", "b", "V":
+	case "esc", "backspace", "b", "V", "q":
 		m.exitFullVisualizer()
 	case "space":
 		return m.togglePlayPause()

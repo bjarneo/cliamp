@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/term"
 
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/config"
@@ -59,11 +61,25 @@ const (
 	detachedRows = 30
 )
 
+// checkTerminalOutput rejects a TUI that would render escape sequences to a
+// non-terminal stdout. A detached session renders into a virtual terminal
+// instead, so it needs none.
+func checkTerminalOutput(daemon bool, stdout *os.File) error {
+	if !daemon && !term.IsTerminal(stdout.Fd()) {
+		return errors.New("cliamp: stdout is not a terminal")
+	}
+	return nil
+}
+
 // run starts the player: config and providers, the audio engine, the
 // Bubble Tea model, IPC, and media controls. With daemon set it renders into
 // a virtual terminal instead of this process's own, so `cliamp attach` can
 // lend it one later.
 func run(overrides config.Overrides, positional []string, daemon, visualizer60FPS bool) error {
+	if err := checkTerminalOutput(daemon, os.Stdout); err != nil {
+		return err
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)

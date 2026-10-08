@@ -19,7 +19,11 @@ func (m *Model) scheduleReconnect(now time.Time) {
 	delay := time.Second << m.reconnect.attempts
 	m.reconnect.at = now.Add(delay)
 	m.reconnect.attempts++
-	m.reconnect.notice = fmt.Errorf("reconnecting in %s", delay)
+	if err := m.player.StreamErr(); err != nil {
+		m.reconnect.notice = fmt.Errorf("reconnecting in %s (cause: %v)", delay, err)
+	} else {
+		m.reconnect.notice = fmt.Errorf("reconnecting in %s", delay)
+	}
 	m.err = m.reconnect.notice
 }
 

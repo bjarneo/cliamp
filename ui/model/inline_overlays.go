@@ -260,6 +260,9 @@ func (m Model) renderQueueBody() string {
 			m.pressKeyHint(commandModeMain, "a", "on a playlist track to play it next."),
 		}, budget)
 	}
+	if m.queue.confirmClear {
+		return bodyMessage(fmt.Sprintf("%d tracks will be removed from the queue. c confirms; Esc cancels.", total), budget)
+	}
 
 	var stateReporters []provider.PlaybackStateReporter
 	if m.hasPlaybackState() {

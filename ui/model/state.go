@@ -162,6 +162,8 @@ type queueOverlay struct {
 	visible bool
 	cursor  int
 	scroll  int
+	// confirmClear arms the second c press that clears a non-trivial queue.
+	confirmClear bool
 }
 
 // subsOverlay holds state for the subscribed-shows overlay. Subscriptions come
@@ -308,6 +310,7 @@ type requestState struct {
 	searchOverlayMutation uint64
 	auth                  uint64
 	catalog               uint64
+	radioListeners        uint64
 	stream                uint64
 	preload               uint64
 	queue                 uint64

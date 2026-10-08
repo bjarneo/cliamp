@@ -45,7 +45,7 @@ func (m *Model) handleFeedTrackResolved(msg feedTrackResolvedMsg) tea.Cmd {
 		return nil
 	}
 	if msg.err != nil {
-		m.err = msg.err
+		m.err = withRetryHint(msg.err)
 		return nil
 	}
 	if len(msg.tracks) == 0 {
@@ -69,7 +69,7 @@ func (m *Model) handleFeedTrackResolved(msg feedTrackResolvedMsg) tea.Cmd {
 func (m *Model) handleFeedsLoaded(msg feedsLoadedMsg) tea.Cmd {
 	m.feedLoading = false
 	if msg.err != nil {
-		m.err = msg.err
+		m.err = withRetryHint(msg.err)
 		applog.Warn("load URLs: %v", msg.err)
 		return nil
 	}
@@ -106,7 +106,7 @@ func (m *Model) handleFBTracksResolved(msg fbTracksResolvedMsg) tea.Cmd {
 		return nil
 	}
 	if msg.err != nil {
-		m.err = msg.err
+		m.err = withRetryHint(msg.err)
 		return nil
 	}
 	if len(msg.tracks) == 0 {

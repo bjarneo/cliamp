@@ -187,7 +187,7 @@ func (m Model) renderPlMgrTracksBody() string {
 		hint := "Press o to add files, or D to add directory sources."
 		switch m.plManager.selPlaylist {
 		case favorites.PlaylistName:
-			hint = "Press n on a track in the playlist to add it here."
+			hint = "Press f on a track in the playlist to add it here."
 		case history.PlaylistName:
 			hint = "Tracks show here after you play them."
 		}
@@ -265,7 +265,7 @@ func (m Model) plMgrTrackLabel(realIdx int) string {
 	t := m.plManager.tracks[realIdx]
 	mark := "  "
 	if m.plManager.marked[realIdx] {
-		mark = "* "
+		mark = "✓ "
 	}
 	missing := ""
 	if realIdx < len(m.plManager.missingLocal) && m.plManager.missingLocal[realIdx] {

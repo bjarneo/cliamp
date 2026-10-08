@@ -107,13 +107,13 @@ list.
 | `t` | Choose theme |
 | `v` | Cycle visualizer and save the choice in `config.toml` |
 | `Ctrl+V` | Pick visualizer from a list (live preview) |
-| `V` | Full screen visualizer. Inside it, `v` cycles modes and saves the choice, `<`/`>` change track, `+`/`-` change volume, and `t` hides the episode name, leaving only the bracketed source. |
+| `V` | Full screen visualizer. Inside it, `v` cycles modes and saves the choice, `<`/`>` change track, `+`/`-` change volume, and `t` hides the episode name, leaving only the bracketed source. `q` or `Esc` exits back to the player; `Ctrl+C` quits. |
 | `Ctrl+H` | Toggle album headers |
 | `Ctrl+G` | Toggle the key-binding hint bar (remembered in `hide_help_bar`) |
 | `Ctrl+B` | Open/close the settings pane (remembered in `hide_settings_pane`) |
 
 Theme and visualizer pickers support `/` filtering. While you browse, arrow
-keys preview the selected option. `Enter` keeps it. `Esc` restores the option
+keys preview the selected option. `Enter` keeps it. `Esc` or `q` restores the option
 active when the picker opened. While you type a filter, `Enter` completes it
 and `Esc` clears it.
 
@@ -128,12 +128,12 @@ and `Esc` clears it.
 | `y` | Show or close lyrics |
 | `r` | Retry lyrics lookup while lyrics are open |
 | `[` / `]` | Adjust synced-lyrics timing offset (−/+250 ms) while lyrics show timestamped lines |
-| `i` | From the playlist, open full info for the highlighted item, including Path (`Up`/`Down` or `j`/`k` scroll; `i`/`Esc` closes) |
+| `i` | From the playlist, open full info for the highlighted item, including Path (`Up`/`Down` or `j`/`k` scroll; `i`/`Esc`/`q` closes) |
 | `Ctrl+I` | Toggle Metadata below Settings for the highlighted playlist item (remembered in `show_metadata`; requires a terminal that distinguishes Ctrl+I from Tab) |
 | `Ctrl+S` | Save track to `[downloads].directory` (default `~/Music/cliamp`) |
 | `w` | Write the highlighted track to a local playlist |
 | `N` | Open the active provider browser. On a selected Mixcloud show, open that creator's Uploads/Favorites. In the radio pane, open the country browser. |
-| `L` | Browse local playlists (with cliamp radio) |
+| `L` | Open Local provider |
 | `R` | Open radio provider |
 | `O` (`Shift+O`) | Open Podcasts provider |
 | `S` | Open Spotify provider |
@@ -160,6 +160,8 @@ preference remains saved for a wider layout. See
 |---|---|
 | `a` | Toggle the queue (play next) |
 | `A` | Queue manager |
+| `c` | In the queue manager: clear the queue (press again to confirm when more than one track) |
+| `d` | In the queue manager: remove the highlighted track |
 | `F` | Subscribed shows overlay (any provider that keeps subscriptions) |
 | `x` | Remove the highlighted track from the current playlist |
 | `p` | Playlist |
@@ -216,7 +218,7 @@ reordered, so `p` leaves them alone and reports them as skipped.
 | `Enter` / `→` | List screen: open the selected playlist. Tracks screen: play the **selected** track. |
 | `p` | Tracks screen: play all from the top |
 | `w` | List: save the current queue with the playlist picker. Tracks: copy marked or selected tracks to another playlist. |
-| `Space` | Tracks: mark/unmark highlighted track and advance |
+| `Space` | Tracks: mark/unmark highlighted track (advances on mark, stays on unmark) |
 | `[` `]` | Tracks: move highlighted track and save the playlist |
 | `f` | Tracks: toggle the favorite ♥ on the highlighted track. In "Favorites", an unfavorite removes the row. |
 | `s` | Tracks: sort and save, cycling `track`, `title`, `artist`, `album`, `artist+album`, `path` |
@@ -227,8 +229,8 @@ reordered, so `p` leaves them alone and reports them as skipped.
 | `d` | List: delete playlist (confirms; `Recently Played` cannot be deleted). Tracks: remove marked tracks, or highlighted track when none are marked |
 | `A` | List: append the selected playlist to the current one, keeping what is loaded. Tracks: append the marked tracks, or the highlighted one. |
 | `u` | Undo the last manager edit |
-| `←` `Backspace` `h` | Tracks screen: go back to the list |
-| `Esc` | Close the playlist or go back |
+| `←` `Backspace` `h` `q` | Tracks screen: go back to the list |
+| `Esc` `q` | Close the playlist or go back |
 
 Shift-letter keys switch providers. Playlist-manager track actions use lowercase
 or punctuation keys. `D` is the exception. It opens the directory-sources
@@ -258,7 +260,7 @@ other key cancels. The Shift-letter keys do not switch providers then.
 | `w` | Write selected files to a local playlist |
 | `D` | Add selected folders as live `[[dir]]` sources to the target playlist. If none are selected, add the selected folder or the open directory. The browser stays open. |
 | `~` `.` | Jump to home / current working directory |
-| `Esc` `o` | Close file browser |
+| `Esc` `q` `o` | Close file browser |
 
 When the browser adds to a playlist, selected folders become `[[dir]]` sources.
 Selected audio files become explicit tracks. This mode starts when you open the
@@ -387,7 +389,7 @@ services control matching rules.
 
 | Key | Action |
 |---|---|
-| `?` / `Ctrl+K` | Show keymap. `Enter` runs the selected command. |
+| `?` / `Ctrl+K` | Show keymap. `Enter` runs the selected command. `Esc` or `q` closes it. |
 | `q` / `Ctrl+C` | Quit. In a terminal attached to a `--daemon` session it detaches instead, leaving the session playing -- stop that with `cliamp quit` (see [Detached Mode](headless.md)) |
 | `Ctrl+\` | Detach without asking the player -- handled by `cliamp attach` itself, so it works even if the session stops responding |
 

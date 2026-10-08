@@ -1516,8 +1516,8 @@ func TestStopKeepsErrorShownDuringReconnect(t *testing.T) {
 	m = updated.(Model)
 	m.handleKey(tea.KeyPressMsg{Text: "s"})
 
-	if m.err != failure {
-		t.Fatalf("err = %v after stop, want %v kept", m.err, failure)
+	if m.err == nil || !strings.Contains(m.err.Error(), "provider failed") {
+		t.Fatalf("err = %v after stop, want provider failed kept", m.err)
 	}
 }
 

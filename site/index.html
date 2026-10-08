@@ -409,7 +409,7 @@ footer a{color:var(--fg-2)}
         <span class="cc-cmd">go install github.com/bjarneo/cliamp@latest</span>
       </button>
     </div>
-    <p class="note">then just run <b>cliamp</b> — <b>cliamp setup</b> walks you through streaming services and media servers. Optional: <i>ffmpeg</i> for AAC, ALAC, Opus and WMA, <i>yt-dlp</i> for YouTube, YouTube Music, SoundCloud, Mixcloud, Bandcamp, Bilibili and NetEase. Behind a proxy? cliamp reads <i>HTTP_PROXY</i>, <i>HTTPS_PROXY</i>, <i>ALL_PROXY</i> and <i>NO_PROXY</i>, and SOCKS5 proxies work (<a href="https://github.com/bjarneo/cliamp/blob/main/docs/configuration.md#proxy">proxy docs</a>). Windows builds are in <a href="https://github.com/bjarneo/cliamp/releases/latest">Releases</a>.</p>
+    <p class="note">then just run <b>cliamp</b> — <b>cliamp setup</b> walks you through streaming services and media servers. Optional: <i>ffmpeg</i> for AAC, ALAC, Opus and WMA, <i>yt-dlp</i> for YouTube, YouTube Music, SoundCloud, Mixcloud, Bandcamp, Bilibili and NetEase. GNOME Keyring browser cookies also require Python <i>secretstorage</i> on Linux. Behind a proxy? cliamp reads <i>HTTP_PROXY</i>, <i>HTTPS_PROXY</i>, <i>ALL_PROXY</i> and <i>NO_PROXY</i>, and SOCKS5 proxies work (<a href="https://github.com/bjarneo/cliamp/blob/main/docs/configuration.md#proxy">proxy docs</a>). Windows builds are in <a href="https://github.com/bjarneo/cliamp/releases/latest">Releases</a>.</p>
   </section>
 
   <!-- ═══ SOURCES ═══ -->
@@ -444,6 +444,7 @@ footer a{color:var(--fg-2)}
       <div class="feat">
         <div class="feat-k">PLAYLISTS &amp; QUEUE</div>
         <p>TOML playlists with live <b>[[dir]]</b> folder sources, M3U/M3U8/PLS import and export, cross-playlist favorites, a play-next queue that reads like the playlist and toggles in place with <kbd>A</kbd>, a shuffle view that lists tracks in the order they play, saved playlists you can append to what is playing or put the current track at the front of, and undo.</p>
+        <p>Folder scans skip files and subdirectories whose names start with <code>.</code>, including macOS AppleDouble sidecars. Explicit file arguments still work.</p>
       </div>
       <div class="feat">
         <div class="feat-k">REMOTE CONTROL</div>

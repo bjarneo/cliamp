@@ -488,6 +488,8 @@ func (m *Model) handleNavReplacePromptKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.replacePlaylistFromNav()
 	case "esc", "R":
 		m.navBrowser.confirmReplace = false
+	default:
+		m.status.Show("Enter confirms replace, Esc cancels.", statusTTLShort)
 	}
 	return nil
 }
