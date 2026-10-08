@@ -323,9 +323,10 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.providerCatalogSearching() {
 			return m.restoreCatalog(m.provider.(provider.CatalogSearcher))
 		}
-		if m.playlist.Len() > 0 {
-			m.focus = focusPlaylist
-		}
+		// Leave even with an empty playlist. Starting with nothing to play
+		// is what opens this view (StartInProvider), so gating the way out
+		// on a loaded playlist made the launch screen inescapable.
+		m.focus = focusPlaylist
 	case "/":
 		m.provSearch.active = true
 		m.provSearch.query = ""
