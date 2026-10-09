@@ -135,6 +135,32 @@ func QuoteString(s string) string {
 	return `"` + quoteEscaper.Replace(s) + `"`
 }
 
+// stripInlineComment removes a trailing, unquoted '#' comment from a raw
+// config value, e.g. `"http://x"   # note` -> `"http://x"`. A '#' that
+// appears inside a quoted string is left alone, since that's valid TOML.
+// Inside a double-quoted string, a backslash escapes the next character
+// (so `\"` doesn't end the string early), matching TOML basic-string rules;
+// single-quoted literal strings have no escapes.
+func stripInlineComment(s string) string {
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote == '"' && c == '\\':
+			i++
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '#':
+			return strings.TrimSpace(s[:i])
+		}
+	}
+	return s
+}
+
 func isEnvName(s string) bool {
 	if s == "" {
 		return false
@@ -850,7 +876,7 @@ func Load() (Config, error) {
 			continue
 		}
 		key = strings.TrimSpace(key)
-		val = strings.TrimSpace(val)
+		val = stripInlineComment(strings.TrimSpace(val))
 
 		switch section {
 		case "downloads":
