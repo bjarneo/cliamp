@@ -27,6 +27,9 @@ const (
 // queue.
 func (m *Model) replacePlaylist(tracks []playlist.Track) {
 	nextRequest(&m.requests.queue)
+	// The new queue no longer holds the provider playlist loaded before it.
+	// A provider load sets its own after replacing.
+	m.activeProviderPlaylistID = ""
 	m.resetYTDLBatch()
 	m.playlistUndo = playlistUndo{}
 	if m.resumeSaver != nil {

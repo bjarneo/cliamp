@@ -82,7 +82,6 @@ func (m *Model) handleNavTracksLoaded(msg navTracksLoadedMsg) {
 		}
 		m.retireTracksPaging()
 		m.replacePlayerPlaylist(msg.tracks)
-		m.activeProviderPlaylistID = ""
 		if pr, ok := m.navBrowser.prov.(playlist.RefreshablePlaylist); ok &&
 			m.isActiveProvider(m.navBrowser.prov.Name()) && pr.CanRefreshPlaylist(m.navBrowser.selAlbum.ID) {
 			m.activeProviderPlaylistID = m.navBrowser.selAlbum.ID

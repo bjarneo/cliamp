@@ -107,6 +107,7 @@ func (m *Model) handleTracksLoaded(msg tracksLoadedMsg) tea.Cmd {
 		}
 	} else {
 		m.replacePlayerPlaylist(msg.tracks)
+		m.activeProviderPlaylistID = msg.playlistID
 		if msg.playlistExact {
 			m.setLoadedLocalPlaylist(msg.providerName, msg.playlistID)
 		}
