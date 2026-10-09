@@ -655,8 +655,19 @@ func (m Model) renderFullVisualizer() string {
 		"",
 		m.renderSpectrum(),
 		m.renderSeekBar(),
-		"",
-		helpKey("V", "Exit ") + helpKey("v", "Mode:"+m.vis.ModeName()+" ") + helpKey("Spc", "▶❚❚ ") + helpKey("<>", "Trk ") + helpKey("+-", "Vol ") + helpKey("t", "Title ") + helpKey("?", "Keys"),
+	}
+	if !m.hideHelpBar {
+		sections = append(
+			sections,
+			"",
+			helpKey("V", "Exit ")+
+				helpKey("v", "Mode:"+m.vis.ModeName()+" ")+
+				helpKey("Spc", "▶❚❚ ")+
+				helpKey("<>", "Trk ")+
+				helpKey("+-", "Vol ")+
+				helpKey("t", "Title ")+
+				helpKey("?", "Keys"),
+		)
 	}
 
 	return strings.Join(sections, "\n")
