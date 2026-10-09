@@ -64,6 +64,7 @@ func (m *Model) cycleVisualizer() error {
 // setVolume sets the volume in dB. The player clamps db to its range.
 func (m *Model) setVolume(db float64) {
 	m.player.SetVolume(db)
+	m.scheduleVolumeSave()
 }
 
 // adjustVolume changes the volume by delta dB. See setVolume.
