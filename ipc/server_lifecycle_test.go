@@ -12,8 +12,11 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/bjarneo/cliamp/internal/fileutil"
 )
 
 func shortTempDir(t *testing.T) string {
@@ -73,14 +76,110 @@ func TestNewServerSocketLifecycle(t *testing.T) {
 	}
 }
 
-func TestNewServerRejectsLivePID(t *testing.T) {
-	dir := shortTempDir(t)
-	sock := filepath.Join(dir, "cliamp.sock")
+// leaveStaleSocket leaves a socket inode at sock with no listener behind, the
+// way a killed daemon does.
+func leaveStaleSocket(t *testing.T, sock string) {
+	t.Helper()
+	stale, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale.(*net.UnixListener).SetUnlinkOnClose(false)
+	if err := stale.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A live server holding the socket must never be displaced. This is the
+// protection that actually matters, and it comes from the failed bind.
+func TestNewServerRejectsLiveServer(t *testing.T) {
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+	server, err := NewServer(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+
+	if _, err := NewServer(sock); err == nil || !strings.Contains(err.Error(), "already running") {
+		t.Fatalf("NewServer() against a live server = %v, want already running", err)
+	}
+}
+
+// A PID file left behind by an unclean exit can name a live process that is not
+// cliamp, because PIDs are reused. That must not stop the daemon from binding,
+// or it never recovers without manual cleanup. See #591.
+func TestNewServerIgnoresStalePIDOfUnrelatedProcess(t *testing.T) {
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+	// A leftover socket inode with no listener, plus a PID file pointing at a
+	// live process that is not this one.
+	leaveStaleSocket(t, sock)
 	if err := os.WriteFile(sock+".pid", []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewServer(sock); err == nil || !strings.Contains(err.Error(), "already running") {
-		t.Fatalf("NewServer() error = %v", err)
+
+	server, err := NewServer(sock)
+	if err != nil {
+		t.Fatalf("NewServer() with a stale PID file = %v, want it to start", err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+
+	pid, err := os.ReadFile(sock + ".pid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(string(pid)), strconv.Itoa(os.Getpid()); got != want {
+		t.Fatalf("PID file = %q, want %q", got, want)
+	}
+}
+
+// Two daemons starting at once must not both succeed, and the loser must not
+// leave the winner unreachable on an unlinked socket.
+func TestNewServerConcurrentStartsYieldOneServer(t *testing.T) {
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+
+	const starters = 8
+	var (
+		wg        sync.WaitGroup
+		mu        sync.Mutex
+		succeeded []*Server
+	)
+	start := make(chan struct{})
+	for i := 0; i < starters; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			server, err := NewServer(sock)
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			succeeded = append(succeeded, server)
+			mu.Unlock()
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if len(succeeded) == 0 {
+		t.Fatal("no server acquired the socket")
+	}
+	t.Cleanup(func() {
+		for _, server := range succeeded {
+			_ = server.Close()
+		}
+	})
+	if len(succeeded) != 1 {
+		t.Fatalf("%d of %d starters acquired %s, want exactly 1", len(succeeded), starters, sock)
+	}
+
+	// The winner must still be reachable at the published path.
+	listening, err := Listening(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !listening {
+		t.Fatal("socket is not accepting connections after a concurrent start")
 	}
 }
 
@@ -189,5 +288,52 @@ func TestListening(t *testing.T) {
 				t.Fatalf("Listening = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// The probe-remove-rebind sequence must run under the cross-process lock, or a
+// starter can delete a socket another starter just bound. This asserts the lock
+// is genuinely held for that sequence: while a competing holder owns it,
+// listenExclusive cannot proceed past its failed bind.
+func TestListenExclusiveHoldsLockAcrossStaleReplacement(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fileutil.LockFile takes no lock on Windows")
+	}
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+	leaveStaleSocket(t, sock)
+
+	hold, err := fileutil.LockFile(sock + ".lock")
+	if err != nil {
+		t.Fatalf("take competing lock: %v", err)
+	}
+
+	// The worker reports the startup error, so a startup that fails after the
+	// lock is released cannot be mistaken for a successful one.
+	result := make(chan error, 1)
+	go func() {
+		server, err := NewServer(sock)
+		if err == nil {
+			_ = server.Close()
+		}
+		result <- err
+	}()
+
+	select {
+	case err := <-result:
+		t.Fatalf("listenExclusive proceeded while another holder owned the lock: %v", err)
+	case <-time.After(250 * time.Millisecond):
+	}
+
+	if err := hold(); err != nil {
+		t.Fatalf("release competing lock: %v", err)
+	}
+
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("listenExclusive did not acquire the socket after the lock was released: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("listenExclusive did not proceed after the lock was released")
 	}
 }
