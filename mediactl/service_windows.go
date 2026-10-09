@@ -21,6 +21,7 @@ const (
 	vkMediaPlayPause = 0xB3
 
 	modNoRepeat = 0x4000
+	modWin      = 0x0008
 
 	wmHotkey = 0x0312
 
@@ -28,6 +29,18 @@ const (
 	hotkeyIDNext      = 2
 	hotkeyIDPrev      = 3
 	hotkeyIDStop      = 4
+
+	// Win-held variants of the same four keys. Some keyboard remappers (e.g.
+	// kanata layers bound to a held Win/Super key) re-emit the real Windows
+	// key as held output while sending the media VK, so the OS reports Win
+	// as down at the moment the media key fires. RegisterHotKey only matches
+	// the exact modifier set it was given, so registering these VKs with
+	// modWin as well means cliamp responds whether or not Win happens to be
+	// held, without needing a second no-modifier registration to guess right.
+	hotkeyIDPlayPauseWin = 5
+	hotkeyIDNextWin      = 6
+	hotkeyIDPrevWin      = 7
+	hotkeyIDStopWin      = 8
 )
 
 var hotkeyVKs = map[int]uint32{
@@ -35,6 +48,22 @@ var hotkeyVKs = map[int]uint32{
 	hotkeyIDNext:      vkMediaNextTrack,
 	hotkeyIDPrev:      vkMediaPrevTrack,
 	hotkeyIDStop:      vkMediaStop,
+
+	hotkeyIDPlayPauseWin: vkMediaPlayPause,
+	hotkeyIDNextWin:      vkMediaNextTrack,
+	hotkeyIDPrevWin:      vkMediaPrevTrack,
+	hotkeyIDStopWin:      vkMediaStop,
+}
+
+// hotkeyModifiers returns the fsModifiers to register each hotkey ID with.
+// The Win-held IDs need modWin added; everything else just gets modNoRepeat.
+func hotkeyModifiers(id int) uint32 {
+	switch id {
+	case hotkeyIDPlayPauseWin, hotkeyIDNextWin, hotkeyIDPrevWin, hotkeyIDStopWin:
+		return modNoRepeat | modWin
+	default:
+		return modNoRepeat
+	}
 }
 
 var (
@@ -130,13 +159,13 @@ func (s *Service) runMessageLoop(ready chan<- uint32) {
 // playback command it represents.
 func hotkeyMsg(id int32) (tea.Msg, bool) {
 	switch id {
-	case hotkeyIDPlayPause:
+	case hotkeyIDPlayPause, hotkeyIDPlayPauseWin:
 		return playback.PlayPauseMsg{}, true
-	case hotkeyIDNext:
+	case hotkeyIDNext, hotkeyIDNextWin:
 		return playback.NextMsg{}, true
-	case hotkeyIDPrev:
+	case hotkeyIDPrev, hotkeyIDPrevWin:
 		return playback.PrevMsg{}, true
-	case hotkeyIDStop:
+	case hotkeyIDStop, hotkeyIDStopWin:
 		return playback.StopMsg{}, true
 	default:
 		return nil, false
@@ -146,7 +175,7 @@ func hotkeyMsg(id int32) (tea.Msg, bool) {
 // registerHotKey best-effort registers a media key: failure (e.g. another
 // process already holds it) just means that key won't control cliamp.
 func registerHotKey(id int, vk uint32) {
-	procRegisterHotKey.Call(0, uintptr(id), uintptr(modNoRepeat), uintptr(vk))
+	procRegisterHotKey.Call(0, uintptr(id), uintptr(hotkeyModifiers(id)), uintptr(vk))
 }
 
 func unregisterHotKey(id int) {
