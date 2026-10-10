@@ -13,7 +13,7 @@ pipeline. Put `yt-dlp` and `ffmpeg` on `PATH`.
 | Live category catalogue and Latest/Popular genre charts | Provider enabled | **Genres** in the provider pane or `N` browser |
 | Genre/tag search and local genre favorites | Provider enabled and writable config file | `/`, `Enter`, and `f` in **Genres** |
 | Public profile activity, uploads, show favorites, listening history, and collections | Public profile `username`, or an `access_token` | **Your Mixcloud** and **Collections** sections |
-| Following stream and followed-creator browser | Public profile `username`, or an `access_token` | **Stream (Following Releases)** and **Creators** |
+| Following stream and followed-creator browser | Public profile `username`, or an `access_token`; Stream also needs `cookies_from` | **Stream (New Shows)** and **Creators** |
 | Open a highlighted show's creator Uploads/Favorites | Provider enabled; account not required | Press `N` on a Mixcloud show |
 | Listen Later | Developer OAuth `access_token` | **Your Mixcloud** section |
 | Signed-in or subscriber-gated playback | `cookies_from` for a supported browser with a Mixcloud session | Playback through yt-dlp |
@@ -65,7 +65,7 @@ Press `X` to select Mixcloud. The provider pane has these sections.
 
 | Section | Entry | Behaviour |
 |---|---|---|
-| **Your Mixcloud** | **Stream (Following Releases)** | Merges recent uploads from followed creators. See [Limits and tuning](#limits-and-tuning). |
+| **Your Mixcloud** | **Stream (New Shows)** | Reads the signed-in browser account's feed. See [Limits and tuning](#limits-and-tuning). |
 | **Your Mixcloud** | **Favorites** | Reads the configured public account or the token owner `/me/` connections |
 | **Your Mixcloud** | **Creators** | Lists the configured account and followed creators. Separates each creator **Uploads** and **Favorites**. |
 | **Your Mixcloud** | **Uploads**, **Profile Activity**, **Listening History** | Reads the configured public account or the token owner `/me/` connections |
@@ -202,15 +202,15 @@ configuration levels:
 | `enabled = true` | Public discovery, shows, genres, genre/tag search, and show search |
 | `username` | Public account connections: following, activity, uploads, show favorites, listening history, and collections |
 | `access_token` | Resolves the authorized user through `/me/` and adds Listen Later |
-| `cookies_from` | Gives yt-dlp a signed-in browser session for playback only |
+| `cookies_from` | Enables Stream and signed-in playback using the browser session |
 
 If both `username` and `access_token` are set, the access-token owner `/me/`
-identity controls all account views. This prevents a stale or different public
+identity controls REST account views. This prevents a stale or different public
 username from mixing two accounts in one menu.
 
-Browser cookies do not authenticate the JSON API, reveal private library data,
+Browser cookies do not authenticate the public JSON API
 or replace a developer token. cliamp has no generic "logged in" badge for
-cookie playback. It reads cookies only when yt-dlp starts a show.
+cookie playback. Stream uses the browser account; yt-dlp also uses its cookies.
 
 ## Access token and Listen Later
 
@@ -319,10 +319,9 @@ the player silent.
 | `enabled` | `false` | Registers the Mixcloud provider |
 | `username` | empty | Public profile URL username for account views when no token is set |
 | `access_token` | empty | Developer OAuth token for `/me/` and Listen Later |
-| `cookies_from` | empty | Browser/profile sent to yt-dlp for signed-in playback |
+| `cookies_from` | empty | Browser/profile used for Stream and signed-in playback |
 | `styles` | cliamp default style list | Local genre favorites. Each produces Latest and Popular provider rows and show sort modes. |
 | `max_items` | `100` | Maximum shows, creators, or collections per view. Setup accepts 1 to 500. Manual values at or below zero use the default. Values above 500 use 500. |
-| `stream_creators` | `20` | Maximum followed creators for the following stream. Setup accepts 1 to 100. Manual values at or below zero use the default. Values above 100 use 100. |
 
 Use this complete example:
 
@@ -336,17 +335,13 @@ access_token = "${MIXCLOUD_ACCESS_TOKEN}"
 cookies_from = "firefox"
 styles = ["chillout", "deep-house", "drum-bass", "electronica", "house", "techno"]
 max_items = 100
-stream_creators = 20
 ```
 
 ## Limits and tuning
 
-The API does not expose the exact personalized Mixcloud website home feed.
-**Stream (Following Releases)** is an approximation. It gets the first
-`stream_creators` followed accounts, merges their newest uploads, sorts by
-publication time, removes duplicates, and returns at most `max_items` shows.
-Lower these values if you encounter API rate limits. cliamp includes the
-Mixcloud `Retry-After` value in the error it shows.
+**Stream (New Shows)** reads the website's New Shows feed in order, using
+`cookies_from`. `max_items` limits the total. Lower it if you encounter API rate limits.
+cliamp includes the Mixcloud `Retry-After` value in the error it shows.
 
 Mixcloud does not provide audio streams through its JSON API. The official
 third-party playback method is the visible web widget. Terminal playback depends

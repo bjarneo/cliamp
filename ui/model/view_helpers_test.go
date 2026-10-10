@@ -165,8 +165,14 @@ func TestPlaylistLabel(t *testing.T) {
 		{
 			"favorites shows zero count",
 			"  ",
-			playlist.PlaylistInfo{Name: favorites.PlaylistName},
+			playlist.PlaylistInfo{ID: favorites.PlaylistName, Name: favorites.PlaylistName},
 			"  Favorites · 0 tracks",
+		},
+		{
+			"provider favorites with unknown count",
+			"  ",
+			playlist.PlaylistInfo{ID: "account:favorites", Name: favorites.PlaylistName},
+			"  Favorites",
 		},
 		{
 			"favorites with tracks",
