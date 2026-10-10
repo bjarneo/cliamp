@@ -125,7 +125,6 @@ access_token = mc#token
 cookies_from = "brave"
 styles = ["ambient", "deep-house"]
 max_items = 50
-stream_creators = 10
 
 [netease]
 enabled = true
@@ -258,14 +257,13 @@ func TestLoadGolden(t *testing.T) {
 	sectionsWant.Podcast = PodcastConfig{Country: "no"}
 	sectionsWant.SoundCloud = SoundCloudConfig{Enabled: true, User: "sc-user", CookiesFrom: "chrome"}
 	sectionsWant.Mixcloud = MixcloudConfig{
-		Enabled:        true,
-		Username:       "mc-user",
-		AccessToken:    "mc#token",
-		CookiesFrom:    "brave",
-		Styles:         []string{"ambient", "deep-house"},
-		StylesSet:      true,
-		MaxItems:       50,
-		StreamCreators: 10,
+		Enabled:     true,
+		Username:    "mc-user",
+		AccessToken: "mc#token",
+		CookiesFrom: "brave",
+		Styles:      []string{"ambient", "deep-house"},
+		StylesSet:   true,
+		MaxItems:    50,
 	}
 	sectionsWant.NetEase = NetEaseConfig{Enabled: true, CookiesFrom: "chrome:Profile 1", UserID: "42"}
 	sectionsWant.Yandex = YandexConfig{Enabled: true, Token: "y0_token"}
@@ -337,14 +335,13 @@ func TestLoadGolden(t *testing.T) {
 	allWant.Lyrion = LyrionConfig{URL: "http://nas.local:9000", User: "alice", Password: "secret", ShowUnplayable: true}
 	allWant.SoundCloud = SoundCloudConfig{Enabled: true, User: "yourname", CookiesFrom: "firefox"}
 	allWant.Mixcloud = MixcloudConfig{
-		Enabled:        true,
-		Username:       "yourname",
-		AccessToken:    "mc-env-token",
-		CookiesFrom:    "firefox",
-		Styles:         []string{"ambient", "deep-house", "house", "jazz", "techno"},
-		StylesSet:      true,
-		MaxItems:       100,
-		StreamCreators: 20,
+		Enabled:     true,
+		Username:    "yourname",
+		AccessToken: "mc-env-token",
+		CookiesFrom: "firefox",
+		Styles:      []string{"ambient", "deep-house", "house", "jazz", "techno"},
+		StylesSet:   true,
+		MaxItems:    100,
 	}
 	allWant.NetEase = NetEaseConfig{Enabled: true, CookiesFrom: "chrome", UserID: "optional-account-user-id"}
 	allWant.Yandex = YandexConfig{Enabled: true, Token: "y0_YourPersonalOAuthToken"}

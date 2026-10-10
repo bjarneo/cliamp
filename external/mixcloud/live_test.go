@@ -75,11 +75,10 @@ func TestLivePublicAccount(t *testing.T) {
 	}
 
 	p := NewFromConfig(Config{
-		Enabled:        true,
-		Username:       username,
-		StylesSet:      true,
-		MaxItems:       3,
-		StreamCreators: 2,
+		Enabled:   true,
+		Username:  username,
+		StylesSet: true,
+		MaxItems:  3,
 	})
 	lists, err := p.Playlists()
 	if err != nil {
@@ -92,6 +91,9 @@ func TestLivePublicAccount(t *testing.T) {
 		}
 	}
 	for _, id := range wantLists {
+		if id == streamID {
+			continue // New Shows requires browser cookies, not public REST access.
+		}
 		if _, err := p.Tracks(id); err != nil {
 			t.Errorf("account view %q: %v", id, err)
 		}
