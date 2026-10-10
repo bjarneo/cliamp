@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/bjarneo/cliamp/internal/httpclient"
+	"github.com/bjarneo/cliamp/internal/ytdlcookies"
 )
 
 const (
@@ -49,6 +50,8 @@ type client struct {
 	baseURL     string
 	accessToken string
 	httpClient  *http.Client
+	feedURL     string
+	loadCookies func(context.Context, string) (http.CookieJar, error)
 }
 
 func newClient(accessToken string) *client {
@@ -56,6 +59,8 @@ func newClient(accessToken string) *client {
 		baseURL:     defaultAPIBase,
 		accessToken: strings.TrimSpace(accessToken),
 		httpClient:  httpclient.NewAPI(30 * time.Second),
+		feedURL:     "https://app.mixcloud.com/graphql",
+		loadCookies: ytdlcookies.FromBrowser,
 	}
 }
 

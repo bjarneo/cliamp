@@ -213,15 +213,14 @@ func buildProviders(cfg config.Config, interactive bool) *providerSet {
 		add("soundcloud", p)
 	}
 	if p := mixcloud.NewFromConfig(mixcloud.Config{
-		Enabled:        cfg.Mixcloud.Enabled,
-		Username:       cfg.Mixcloud.Username,
-		AccessToken:    cfg.Mixcloud.AccessToken,
-		CookiesFrom:    cfg.Mixcloud.CookiesFrom,
-		Styles:         cfg.Mixcloud.Styles,
-		StylesSet:      cfg.Mixcloud.StylesSet,
-		MaxItems:       cfg.Mixcloud.MaxItems,
-		StreamCreators: cfg.Mixcloud.StreamCreators,
-		SaveStyles:     config.SaveMixcloudStyles,
+		Enabled:     cfg.Mixcloud.Enabled,
+		Username:    cfg.Mixcloud.Username,
+		AccessToken: cfg.Mixcloud.AccessToken,
+		CookiesFrom: cfg.Mixcloud.CookiesFrom,
+		Styles:      cfg.Mixcloud.Styles,
+		StylesSet:   cfg.Mixcloud.StylesSet,
+		MaxItems:    cfg.Mixcloud.MaxItems,
+		SaveStyles:  config.SaveMixcloudStyles,
 	}); p != nil {
 		add("mixcloud", p)
 	}

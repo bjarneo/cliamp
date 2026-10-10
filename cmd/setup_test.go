@@ -477,7 +477,6 @@ func TestMixcloudSetupBody(t *testing.T) {
 		"access_token":     "token",
 		"styles":           "ambient, deep-house",
 		"max_items":        " 75 ",
-		"stream_creators":  "15",
 	}
 	if err := spec.extraValidate(values); err != nil {
 		t.Fatalf("extraValidate: %v", err)
@@ -485,12 +484,11 @@ func TestMixcloudSetupBody(t *testing.T) {
 	checkBody(t, spec.body(values), map[string]string{
 		"enabled": "true", "username": `"alice"`, "access_token": `"token"`,
 		"cookies_from": `"firefox"`, "styles": `["ambient", "deep-house"]`,
-		"max_items": "75", "stream_creators": "15",
+		"max_items": "75",
 	})
 	publicOnly := spec.body(map[string]string{
 		keyMixcloudBrowser: "none",
 		"max_items":        "100",
-		"stream_creators":  "20",
 	})
 	if _, ok := bodyValues(publicOnly)["cookies_from"]; ok {
 		t.Fatalf("public-only session must not write cookies_from: %q", publicOnly)
@@ -499,16 +497,15 @@ func TestMixcloudSetupBody(t *testing.T) {
 		keyMixcloudBrowser: "custom",
 		"cookies_from":     "chrome:Profile 1",
 		"max_items":        "100",
-		"stream_creators":  "20",
 	})
 	checkBody(t, custom, map[string]string{"cookies_from": `"chrome:Profile 1"`})
 	if spec.validate != nil {
 		t.Fatal("mixcloud setup should not claim a live validation probe")
 	}
 
-	err := spec.extraValidate(map[string]string{"max_items": "bad", "stream_creators": "also bad"})
+	err := spec.extraValidate(map[string]string{"max_items": "bad"})
 	if err == nil || !strings.Contains(err.Error(), "items per view") {
-		t.Fatalf("validation order error = %v, want items per view first", err)
+		t.Fatalf("validation error = %v, want items per view", err)
 	}
 }
 

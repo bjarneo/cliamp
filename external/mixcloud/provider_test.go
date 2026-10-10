@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
@@ -46,8 +45,8 @@ func TestNewFromConfigAndStyles(t *testing.T) {
 	if got, want := p.styles, []string{"deep-house", "drum-bass"}; !slices.Equal(got, want) {
 		t.Fatalf("styles = %v, want %v", got, want)
 	}
-	if p.maxItems != DefaultMaxItems || p.streamCreators != DefaultStreamCreators {
-		t.Fatalf("defaults = max %d stream %d", p.maxItems, p.streamCreators)
+	if p.maxItems != DefaultMaxItems {
+		t.Fatalf("max items = %d, want %d", p.maxItems, DefaultMaxItems)
 	}
 }
 
@@ -95,11 +94,6 @@ func TestBrowseEntriesExposeShowsCreatorsAndGenres(t *testing.T) {
 	}
 	if entries[0].AfterID != favoritesID {
 		t.Fatalf("creators placement = %+v, want immediately after Favorites", entries[0])
-	}
-
-	publicEntries := NewFromConfig(Config{Enabled: true}).BrowseEntries()
-	if len(publicEntries) != 3 || publicEntries[0].ID != browseCreatorsID || !publicEntries[0].OpenInPlaylist {
-		t.Fatalf("public browse capabilities = %+v, want config-independent creator behavior", publicEntries)
 	}
 }
 
@@ -414,71 +408,6 @@ func TestAccountPlaylistsUseMeWithToken(t *testing.T) {
 	}
 	if len(artists) != 1 || artists[0].ID != "token-owner" {
 		t.Fatalf("token-backed account identity = %+v, want token owner", artists)
-	}
-}
-
-func TestFollowingStreamMergesNewestAndDeduplicates(t *testing.T) {
-	handler := func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/alice/following/":
-			writeJSON(t, w, map[string]any{"data": []any{
-				map[string]any{"username": "one"}, map[string]any{"username": "two"},
-			}})
-		case "/one/cloudcasts/":
-			writeJSON(t, w, map[string]any{"data": []any{
-				map[string]any{"key": "/one/old/", "name": "Old", "created_time": "2026-01-01T00:00:00Z", "user": map[string]any{"username": "one"}},
-				map[string]any{"key": "/shared/show/", "name": "Shared", "created_time": "2026-03-01T00:00:00Z", "user": map[string]any{"username": "shared"}},
-			}})
-		case "/two/cloudcasts/":
-			writeJSON(t, w, map[string]any{"data": []any{
-				map[string]any{"key": "/two/new/", "name": "New", "created_time": "2026-04-01T00:00:00Z", "user": map[string]any{"username": "two"}},
-				map[string]any{"key": "/shared/show/", "name": "Shared", "created_time": "2026-03-01T00:00:00Z", "user": map[string]any{"username": "shared"}},
-			}})
-		default:
-			http.NotFound(w, r)
-		}
-	}
-	p, server := providerWithServer(t, Config{Enabled: true, Username: "alice", MaxItems: 10, StreamCreators: 2}, handler)
-	defer server.Close()
-
-	tracks, err := p.Tracks(streamID)
-	if err != nil {
-		t.Fatalf("Tracks(stream): %v", err)
-	}
-	if len(tracks) != 3 {
-		t.Fatalf("tracks = %d, want 3 merged and deduplicated shows", len(tracks))
-	}
-	if got := []string{tracks[0].Title, tracks[1].Title, tracks[2].Title}; !slices.Equal(got, []string{"New", "Shared", "Old"}) {
-		t.Fatalf("titles = %v", got)
-	}
-}
-
-func TestFollowingStreamPreservesPartialRateLimit(t *testing.T) {
-	handler := func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/alice/following/":
-			writeJSON(t, w, map[string]any{"data": []any{
-				map[string]any{"username": "working"}, map[string]any{"username": "limited"},
-			}})
-		case "/working/cloudcasts/":
-			writeJSON(t, w, map[string]any{"data": []any{
-				map[string]any{"key": "/working/show/", "name": "Show", "user": map[string]any{"username": "working"}},
-			}})
-		case "/limited/cloudcasts/":
-			w.Header().Set("Retry-After", "12")
-			w.WriteHeader(http.StatusForbidden)
-			writeJSON(t, w, map[string]any{"error": map[string]any{"type": "RateLimitException", "message": "slow down"}})
-		default:
-			http.NotFound(w, r)
-		}
-	}
-	p, server := providerWithServer(t, Config{Enabled: true, Username: "alice", MaxItems: 10, StreamCreators: 2}, handler)
-	defer server.Close()
-
-	_, err := p.Tracks(streamID)
-	var apiErr *APIError
-	if !errors.As(err, &apiErr) || apiErr.RetryAfter != 12*time.Second {
-		t.Fatalf("error = %T %v, want preserved rate limit", err, err)
 	}
 }
 
