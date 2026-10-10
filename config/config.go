@@ -483,18 +483,17 @@ func (s *SoundCloudConfig) set(key, val string) {
 
 // MixcloudConfig holds settings for the Mixcloud provider. Public discovery
 // works with only enabled=true. Username adds public account views; an access
-// token adds /me and Listen Later; browser cookies are used only by yt-dlp for
-// playback that needs the listener's signed-in Mixcloud session.
+// token adds /me and Listen Later; browser cookies enable Stream and signed-in
+// playback.
 // Enable rule: opt-in.
 type MixcloudConfig struct {
-	Enabled        bool
-	Username       string
-	AccessToken    string
-	CookiesFrom    string
-	Styles         []string
-	StylesSet      bool // distinguishes omitted styles (defaults) from an explicit empty list
-	MaxItems       int
-	StreamCreators int
+	Enabled     bool
+	Username    string
+	AccessToken string
+	CookiesFrom string
+	Styles      []string
+	StylesSet   bool // distinguishes omitted styles (defaults) from an explicit empty list
+	MaxItems    int
 }
 
 // IsSet reports whether the Mixcloud provider should be shown.
@@ -519,10 +518,6 @@ func (m *MixcloudConfig) set(key, val string) {
 	case "max_items":
 		if v, ok := parseInt(val); ok {
 			m.MaxItems = v
-		}
-	case "stream_creators":
-		if v, ok := parseInt(val); ok {
-			m.StreamCreators = v
 		}
 	}
 }

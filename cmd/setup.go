@@ -505,7 +505,7 @@ func providers() []providerSpec {
 				"Browse and play Mixcloud shows through its public API and yt-dlp.",
 				"A username adds your public library, following stream, and creators.",
 				"An optional developer access token adds /me and Listen Later.",
-				"Choose browser cookies for subscriber-only or signed-in playback.",
+				"Choose browser cookies for Stream and signed-in playback.",
 				"Docs: cliamp.stream → docs/mixcloud.md",
 			},
 			picker: &pickerSpec{
@@ -532,7 +532,6 @@ func providers() []providerSpec {
 					onlyIf: func(v map[string]string) bool { return v[keyMixcloudBrowser] == "custom" }},
 				{key: "styles", label: "Music styles (optional)", help: "comma-separated; blank uses cliamp defaults"},
 				{key: "max_items", label: "Items per view", help: fmt.Sprintf("%d-%d", mixcloud.MinItems, mixcloud.MaxItemsLimit), defaultV: strconv.Itoa(mixcloud.DefaultMaxItems)},
-				{key: "stream_creators", label: "Creators in Stream", help: fmt.Sprintf("%d-%d", mixcloud.MinItems, mixcloud.MaxStreamCreators), defaultV: strconv.Itoa(mixcloud.DefaultStreamCreators)},
 			},
 			extraValidate: func(v map[string]string) error {
 				limits := []struct {
@@ -540,7 +539,6 @@ func providers() []providerSpec {
 					max        int
 				}{
 					{key: "max_items", label: "items per view", max: mixcloud.MaxItemsLimit},
-					{key: "stream_creators", label: "stream creators", max: mixcloud.MaxStreamCreators},
 				}
 				for _, field := range limits {
 					n, err := strconv.Atoi(strings.TrimSpace(v[field.key]))
@@ -553,7 +551,7 @@ func providers() []providerSpec {
 				}
 				return nil
 			},
-			owned: []string{"enabled", "username", "access_token", "cookies_from", "styles", "max_items", "stream_creators"},
+			owned: []string{"enabled", "username", "access_token", "cookies_from", "styles", "max_items"},
 			body: func(v map[string]string) []config.KeyValue {
 				kv := []config.KeyValue{rawKV("enabled", "true")}
 				if username := strings.TrimSpace(v["username"]); username != "" {
@@ -572,11 +570,7 @@ func providers() []providerSpec {
 				if maxItems == "" {
 					maxItems = strconv.Itoa(mixcloud.DefaultMaxItems)
 				}
-				streamCreators := strings.TrimSpace(v["stream_creators"])
-				if streamCreators == "" {
-					streamCreators = strconv.Itoa(mixcloud.DefaultStreamCreators)
-				}
-				return append(kv, rawKV("max_items", maxItems), rawKV("stream_creators", streamCreators))
+				return append(kv, rawKV("max_items", maxItems))
 			},
 		},
 		{

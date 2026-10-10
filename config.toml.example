@@ -243,7 +243,7 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # for your following stream, profile activity, uploads, read-only show favorites,
 # listening history, collections, and followed-creator browsing. A developer
 # OAuth access_token makes /me the account identity and adds Listen Later.
-# cookies_from is used by yt-dlp for signed-in playback only. styles is the
+# cookies_from enables Stream and signed-in playback through yt-dlp. styles is the
 # local genre-favorites list; toggle it with [f] in Mixcloud's Genres browser.
 # [mixcloud]
 # enabled = true
@@ -252,7 +252,6 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # cookies_from = "firefox"   # chrome, brave, edge, chromium, opera, safari, vivaldi, whale…
 # styles = ["ambient", "deep-house", "house", "jazz", "techno"]
 # max_items = 100
-# stream_creators = 20
 
 # ---
 # NetEase Cloud Music (optional, opt-in)
