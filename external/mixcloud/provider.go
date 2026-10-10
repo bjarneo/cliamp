@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -35,18 +34,15 @@ const (
 	stylePrefix        = "style:"
 	creatorUploadsID   = "creator:uploads:"
 	creatorFavoritesID = "creator:favorites:"
-	streamConcurrency  = 6
 	accountSection     = "Your Mixcloud"
 )
 
 // Setup and provider limits are exported so the onboarding UI and runtime
 // normalization cannot drift apart.
 const (
-	MinItems              = 1
-	DefaultMaxItems       = 100
-	MaxItemsLimit         = 500
-	DefaultStreamCreators = 20
-	MaxStreamCreators     = 100
+	MinItems        = 1
+	DefaultMaxItems = 100
+	MaxItemsLimit   = 500
 )
 
 var (
@@ -73,15 +69,14 @@ var DefaultStyles = []string{
 
 // Config holds settings for the Mixcloud provider.
 type Config struct {
-	Enabled        bool
-	Username       string
-	AccessToken    string
-	CookiesFrom    string
-	Styles         []string
-	StylesSet      bool
-	MaxItems       int
-	StreamCreators int
-	SaveStyles     func([]string) error
+	Enabled     bool
+	Username    string
+	AccessToken string
+	CookiesFrom string
+	Styles      []string
+	StylesSet   bool
+	MaxItems    int
+	SaveStyles  func([]string) error
 }
 
 // IsSet reports whether Mixcloud should be registered.
@@ -91,12 +86,12 @@ func (c Config) IsSet() bool { return c.Enabled }
 // stable Mixcloud page URLs rather than extracted media URLs; yt-dlp resolves
 // the current stream only when playback begins, so queue entries do not expire.
 type Provider struct {
-	client         *client
-	username       string
-	styles         []string
-	maxItems       int
-	streamCreators int
-	saveStyles     func([]string) error
+	client      *client
+	username    string
+	cookiesFrom string
+	styles      []string
+	maxItems    int
+	saveStyles  func([]string) error
 
 	mu               sync.Mutex
 	resolvedUsername string
@@ -113,23 +108,18 @@ func NewFromConfig(cfg Config) *Provider {
 		maxItems = DefaultMaxItems
 	}
 	maxItems = min(maxItems, MaxItemsLimit)
-	streamCreators := cfg.StreamCreators
-	if streamCreators <= 0 {
-		streamCreators = DefaultStreamCreators
-	}
-	streamCreators = min(streamCreators, MaxStreamCreators)
 
 	styles := normalizeStyles(cfg.Styles)
 	if len(styles) == 0 && !cfg.StylesSet {
 		styles = slices.Clone(DefaultStyles)
 	}
 	return &Provider{
-		client:         newClient(cfg.AccessToken),
-		username:       strings.TrimSpace(cfg.Username),
-		styles:         styles,
-		maxItems:       maxItems,
-		streamCreators: streamCreators,
-		saveStyles:     cfg.SaveStyles,
+		client:      newClient(cfg.AccessToken),
+		username:    strings.TrimSpace(cfg.Username),
+		cookiesFrom: strings.TrimSpace(cfg.CookiesFrom),
+		styles:      styles,
+		maxItems:    maxItems,
+		saveStyles:  cfg.SaveStyles,
 	}
 }
 
@@ -189,7 +179,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	}
 
 	lists := []playlist.PlaylistInfo{
-		{ID: streamID, Name: "Stream (Following Releases)", Section: accountSection},
+		{ID: streamID, Name: "Stream (New Shows)", Section: accountSection},
 		{ID: favoritesID, Name: "Favorites", Section: accountSection},
 		{ID: uploadsID, Name: "Uploads", Section: accountSection},
 		{ID: activityID, Name: "Profile Activity", Section: accountSection},
@@ -237,7 +227,7 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	case popularID:
 		shows, err = p.client.cloudcasts(ctx, "/discover/all/popular/", p.maxItems)
 	case streamID:
-		shows, err = p.followingStream(ctx)
+		shows, err = p.client.newShows(ctx, p.cookiesFrom, p.maxItems)
 	case activityID:
 		shows, err = p.profileActivity(ctx)
 	case uploadsID:
@@ -615,81 +605,6 @@ func (p *Provider) profileActivity(ctx context.Context) ([]apiCloudcast, error) 
 	for _, activity := range activities {
 		shows = append(shows, activity.Cloudcasts...)
 	}
-	return dedupeCloudcasts(shows, p.maxItems), nil
-}
-
-// followingStream approximates Mixcloud's website stream using the documented
-// API: fetch followed creators, then merge each creator's newest uploads.
-func (p *Provider) followingStream(ctx context.Context) ([]apiCloudcast, error) {
-	username, err := p.accountUsername(ctx)
-	if err != nil {
-		return nil, err
-	}
-	users, err := p.client.users(ctx, p.accountConnection(username, "following"), p.streamCreators)
-	if err != nil {
-		return nil, fmt.Errorf("mixcloud: load followed creators for stream: %w", err)
-	}
-	if len(users) == 0 {
-		return nil, nil
-	}
-	perCreator := max(2, (p.maxItems+len(users)-1)/len(users))
-
-	type result struct {
-		shows []apiCloudcast
-		err   error
-	}
-	results := make(chan result, len(users))
-	sem := make(chan struct{}, streamConcurrency)
-	var wg sync.WaitGroup
-	for _, user := range users {
-		if user.Username == "" {
-			continue
-		}
-		wg.Add(1)
-		go func(username string) {
-			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				results <- result{err: ctx.Err()}
-				return
-			}
-			defer func() { <-sem }()
-			shows, err := p.client.cloudcasts(ctx, userPath(username, "cloudcasts"), perCreator)
-			results <- result{shows: shows, err: err}
-		}(user.Username)
-	}
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	var (
-		shows    []apiCloudcast
-		firstErr error
-	)
-	for result := range results {
-		if result.err != nil {
-			if errors.Is(result.err, context.Canceled) || errors.Is(result.err, context.DeadlineExceeded) {
-				return nil, result.err
-			}
-			var apiErr *APIError
-			if errors.As(result.err, &apiErr) && apiErr.StatusCode == 404 {
-				// A followed creator may have disappeared between listing and
-				// loading. Treat only that expected race as an empty source.
-				continue
-			}
-			if firstErr == nil {
-				firstErr = result.err
-			}
-			continue
-		}
-		shows = append(shows, result.shows...)
-	}
-	if firstErr != nil {
-		return nil, fmt.Errorf("mixcloud: build following stream: %w", firstErr)
-	}
-	sort.SliceStable(shows, func(i, j int) bool { return shows[i].CreatedTime.After(shows[j].CreatedTime) })
 	return dedupeCloudcasts(shows, p.maxItems), nil
 }
 
