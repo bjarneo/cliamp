@@ -217,7 +217,7 @@ reordered, so `p` leaves them alone and reports them as skipped.
 | `/` | Filter (incremental); `Esc` clears |
 | `Enter` / `→` | List screen: open the selected playlist. Tracks screen: play the **selected** track. |
 | `p` | Tracks screen: play all from the top |
-| `w` | List: save the current queue with the playlist picker. Tracks: copy marked or selected tracks to another playlist. |
+| `w` | List: save the entire current queue with the playlist picker. Tracks: copy marked or selected tracks to another playlist. |
 | `Space` | Tracks: mark/unmark highlighted track (advances on mark, stays on unmark) |
 | `[` `]` | Tracks: move highlighted track and save the playlist |
 | `f` | Tracks: toggle the favorite ♥ on the highlighted track. In "Favorites", an unfavorite removes the row. |

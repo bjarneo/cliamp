@@ -60,5 +60,9 @@ func hostForURL(rawURL string) string {
 	if err != nil {
 		return ""
 	}
-	return playlist.NormalizeHost(u.Hostname())
+	host := playlist.NormalizeHost(u.Hostname())
+	if host == "soundcloud.com" || strings.HasSuffix(host, ".soundcloud.com") {
+		return "soundcloud.com"
+	}
+	return host
 }
