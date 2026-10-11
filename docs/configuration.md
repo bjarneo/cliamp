@@ -74,7 +74,7 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # keeps it available, and both values are restored after restart.
 
 # Visualizer mode (leave empty for default Bars)
-# Options: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, Mirror, Omarchy, RedSector, YinYang, None
+# Options: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, Mirror, Omarchy, RedSector, YinYang, Fifths, None
 # Mirror draws tapered Braille bars around a persistent horizontal center axis.
 # ClassicPeak uses smooth bars and floating peak caps, with sampling aligned
 # to audible playback and adaptive redraws for smooth motion.
@@ -83,6 +83,9 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # YinYang koi chase each other across a wide strip, leaving on the right and
 # coming back on the left. Taller panels have them circle a lily pad whose
 # lotus follows recent bass levels, including after silence or time in the strip.
+# Fifths puts every note of every octave on the circle of fifths, the octaves
+# stacked into a turning cylinder; louder notes sit further out and grow. It uses
+# the terminal's ANSI colours.
 visualizer = "Bars"
 
 # Visualizer volume linking (default: true)

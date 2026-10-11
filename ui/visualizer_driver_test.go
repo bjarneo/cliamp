@@ -619,6 +619,7 @@ func TestModesDeclareTapAndCadence(t *testing.T) {
 		VisWave:        true,
 		VisScope:       true,
 		VisHeartbeat:   true,
+		VisFifths:      true,
 	}
 	for mode := range VisCount {
 		t.Run(visModes[mode].name, func(t *testing.T) {
