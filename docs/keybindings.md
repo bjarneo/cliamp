@@ -104,6 +104,7 @@ list.
 | Key | Action |
 |---|---|
 | `e` | Cycle EQ preset, including the saved Custom curve |
+| `Alt+E` | Cycle to the previous EQ preset, including the saved Custom curve |
 | `t` | Choose theme |
 | `v` | Cycle visualizer and save the choice in `config.toml` |
 | `Ctrl+V` | Pick visualizer from a list (live preview) |

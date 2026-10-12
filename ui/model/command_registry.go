@@ -117,6 +117,7 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain | commandModeVolume | commandModeShuffle | commandModeRepeat, Keys: []string{"r"}, KeyLabel: "r", Label: "Cycle repeat", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"m"}, KeyLabel: "m", Label: "Toggle mono", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"e"}, KeyLabel: "e", Label: "Cycle EQ preset", Enabled: func(m Model) bool { return !m.simplified }, Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"alt+e"}, KeyLabel: "Alt+E", Label: "Previous EQ preset", Enabled: func(m Model) bool { return !m.simplified && m.layout.tier != layoutMinimal }, Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"t"}, KeyLabel: "t", Label: "Choose theme", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"v"}, KeyLabel: "v", Label: "Cycle visualizer", Enabled: func(m Model) bool { return !m.simplified }, Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+v"}, KeyLabel: "Ctrl+V", Label: "Choose visualizer", Enabled: func(m Model) bool { return !m.simplified }, Keymap: true},

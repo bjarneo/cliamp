@@ -72,6 +72,21 @@ func TestProviderShortcutsSwitchFromEveryFocus(t *testing.T) {
 	}
 }
 
+func TestAltEDoesNotTriggerEmbyShortcut(t *testing.T) {
+	m := shortcutTestModel()
+	m.eqPresetIdx = 1
+	m.applyEQPreset()
+
+	m.handleKey(tea.KeyPressMsg{Code: 'e', Mod: tea.ModAlt})
+
+	if got := m.provider.Name(); got != "Other" {
+		t.Fatalf("active provider = %q, want Other", got)
+	}
+	if got := m.eqPresetIdx; got != 0 {
+		t.Fatalf("EQ preset index = %d, want 0", got)
+	}
+}
+
 // quickSwitchProvider takes every key that providerKeyForShortcut maps, so an
 // overlay returns after the switch even when the switch has no command. A
 // provider that is not configured keeps the overlays open: there is nowhere

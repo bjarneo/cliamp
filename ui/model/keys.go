@@ -604,6 +604,13 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.cycleEQPreset()
 		m.scheduleEQSave()
 
+	case "alt+e":
+		if m.simplified || m.layout.tier == layoutMinimal {
+			break
+		}
+		m.previousEQPreset()
+		m.scheduleEQSave()
+
 	case "a":
 		if m.focus == focusPlaylist {
 			if !m.playlist.Dequeue(m.plCursor) {

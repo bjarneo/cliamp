@@ -87,6 +87,22 @@ func (m *Model) cycleEQPreset() {
 	m.applyEQPreset()
 }
 
+func (m *Model) previousEQPreset() {
+	switch {
+	case m.eqPresetIdx < 0:
+		m.eqPresetIdx = len(eqPresets) - 1
+	case m.eqPresetIdx == 0:
+		m.eqPresetIdx = -1
+	default:
+		m.eqPresetIdx--
+	}
+	if m.eqPresetIdx < 0 {
+		m.applyEQBands(m.eqCustomBands)
+		return
+	}
+	m.applyEQPreset()
+}
+
 // saveEQ persists the current EQ state (preset name and band values) to config.
 func (m *Model) saveEQ() {
 	_ = m.saveConfigString("eq_preset", m.EQPresetName())
