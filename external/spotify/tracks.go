@@ -44,7 +44,11 @@ func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 	}
 
 	if albumID, ok := isSavedAlbumID(playlistID); ok {
-		return p.AlbumTracks(albumID)
+		tracks, err := p.AlbumTracks(albumID)
+		if err != nil {
+			return nil, fmt.Errorf("spotify: list saved album tracks: %w", err)
+		}
+		return tracks, nil
 	}
 	// Check cache — if we have tracks and the snapshot_id hasn't changed, return cached.
 	p.mu.Lock()
@@ -115,7 +119,7 @@ func (p *SpotifyProvider) fetchTracksPage(ctx context.Context, playlistID string
 	resp, err := p.webAPI(ctx, "GET", path, query)
 	if err != nil {
 		if playlistID != savedTracksPlaylistID && hasStatus(err, http.StatusForbidden) {
-			return nil, 0, fmt.Errorf("spotify: Spotify lets apps read only playlists you own or collaborate on. Add the tracks to your own playlist in Spotify, then open that playlist: %w", err)
+			return nil, 0, fmt.Errorf("spotify: Development Mode apps can read only playlists you own or collaborate on. Remove client_id from [spotify] to use the built-in client, or add the tracks to your own playlist in Spotify: %w", err)
 		}
 		return nil, 0, fmt.Errorf("spotify: list tracks: %w", err)
 	}
@@ -243,7 +247,10 @@ func (p *SpotifyProvider) TracksPage(playlistID string, offset int) ([]playlist.
 	// leaving them out here would build a playlist-items URL from an album ID.
 	if albumID, ok := isSavedAlbumID(playlistID); ok {
 		tracks, err := p.AlbumTracks(albumID)
-		return tracks, 0, err
+		if err != nil {
+			return nil, 0, fmt.Errorf("spotify: list saved album tracks: %w", err)
+		}
+		return tracks, 0, nil
 	}
 	p.mu.Lock()
 	var tracks []playlist.Track
