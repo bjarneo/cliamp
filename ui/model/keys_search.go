@@ -35,6 +35,7 @@ func (m *Model) openProviderSearchWith(prov playlist.Provider) {
 	m.netSearch = netSearchState{
 		active: true,
 		screen: netSearchInput,
+		mode:   m.netSearch.mode, // the source chosen with Tab stays for the session
 		from:   providerName(prov),
 	}
 	m.prevFocus = m.focus
@@ -312,11 +313,15 @@ func (m *Model) handleNetSearchInputKey(msg tea.KeyPressMsg) tea.Cmd {
 	case tea.KeyEnter:
 		if strings.TrimSpace(m.netSearch.query) == "" {
 			m.netSearch.err = "Enter a search query."
+			m.netSearch.sections = nil
 			return nil
 		}
 		if !m.netSearch.loading {
+			if m.netSearch.mode == netSearchAll {
+				return m.startNetSearchAll(strings.TrimSpace(m.netSearch.query))
+			}
 			prefix := "ytsearch10:"
-			if m.netSearch.soundcloud {
+			if m.netSearch.mode == netSearchSoundCloud {
 				prefix = "scsearch10:"
 			}
 			m.netSearch.loading = true
@@ -324,6 +329,13 @@ func (m *Model) handleNetSearchInputKey(msg tea.KeyPressMsg) tea.Cmd {
 			query := prefix + strings.TrimSpace(m.netSearch.query)
 			m.netSearch.request = query
 			return fetchNetSearchCmd(query, nextRequest(&m.requests.netSearch))
+		}
+
+	case tea.KeyTab:
+		if !m.netSearch.loading {
+			m.netSearch.mode = m.netSearch.mode.next()
+			m.netSearch.err = ""
+			m.netSearch.sections = nil
 		}
 
 	default:
@@ -336,6 +348,15 @@ func (m *Model) handleNetSearchInputKey(msg tea.KeyPressMsg) tea.Cmd {
 
 func (m *Model) netSearchResultsMaybeAdjustScroll(visible int) {
 	clampScroll(&m.netSearch.cursor, &m.netSearch.scroll, len(m.netSearch.results), visible)
+	if m.netSearch.mode != netSearchAll {
+		return
+	}
+	// Section separators take rows of their own, so a window sized purely by
+	// result count can push the cursor off the bottom.
+	for m.netSearch.scroll < m.netSearch.cursor &&
+		sectionRowsToCursor(m.netSearch.results, m.netSearch.scroll, m.netSearch.cursor, m.netSearchResultSection) > visible {
+		m.netSearch.scroll++
+	}
 }
 
 // handleNetSearchResultsKey handles navigation through net search results.
@@ -345,21 +366,23 @@ func (m *Model) handleNetSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "ctrl+x":
 		m.toggleExpandedView()
-		m.netSearchResultsMaybeAdjustScroll(m.effectivePlaylistVisible())
+		m.netSearchResultsMaybeAdjustScroll(m.netSearchResultsVisible())
 	case "up", "k", "ctrl+p":
 		if m.netSearch.cursor > 0 {
 			m.netSearch.cursor--
 		} else if count > 0 {
 			m.netSearch.cursor = count - 1
 		}
-		m.netSearchResultsMaybeAdjustScroll(m.effectivePlaylistVisible())
+		m.netSearch.cursorMoved = true
+		m.netSearchResultsMaybeAdjustScroll(m.netSearchResultsVisible())
 	case "down", "j", "ctrl+n":
 		if m.netSearch.cursor < count-1 {
 			m.netSearch.cursor++
 		} else if count > 0 {
 			m.netSearch.cursor = 0
 		}
-		m.netSearchResultsMaybeAdjustScroll(m.effectivePlaylistVisible())
+		m.netSearch.cursorMoved = true
+		m.netSearchResultsMaybeAdjustScroll(m.netSearchResultsVisible())
 	case "enter":
 		if count > 0 && !m.netSearch.loading {
 			track := m.netSearch.results[m.netSearch.cursor]
@@ -383,13 +406,22 @@ func (m *Model) handleNetSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.favoriteTrackKey(m.netSearch.results[m.netSearch.cursor])
 		}
 	case "esc", "backspace":
+		// Drop the answers of sources that are still searching, so they
+		// cannot reopen the results over the query.
+		m.cancelNetSearchRequest()
+		nextRequest(&m.requests.netSearch)
 		m.netSearch.screen = netSearchInput
 		m.netSearch.results = nil
+		m.netSearch.sections = nil
+		m.netSearch.resultSection = nil
+		m.netSearch.pending = 0
+		m.netSearch.cursorMoved = false
+		m.netSearch.loading = false
 		m.netSearch.cursor = 0
 		m.netSearch.scroll = 0
 		m.netSearch.err = ""
 	case "ctrl+u":
-		step := m.effectivePlaylistVisible()
+		step := m.netSearchResultsVisible()
 		if step < 1 {
 			step = 1
 		}
@@ -398,9 +430,10 @@ func (m *Model) handleNetSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 		} else {
 			m.netSearch.cursor = 0
 		}
-		m.netSearchResultsMaybeAdjustScroll(m.effectivePlaylistVisible())
+		m.netSearch.cursorMoved = true
+		m.netSearchResultsMaybeAdjustScroll(m.netSearchResultsVisible())
 	case "ctrl+d":
-		step := m.effectivePlaylistVisible()
+		step := m.netSearchResultsVisible()
 		if step < 1 {
 			step = 1
 		}
@@ -408,7 +441,8 @@ func (m *Model) handleNetSearchResultsKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.netSearch.cursor >= count {
 			m.netSearch.cursor = max(0, count-1)
 		}
-		m.netSearchResultsMaybeAdjustScroll(m.effectivePlaylistVisible())
+		m.netSearch.cursorMoved = true
+		m.netSearchResultsMaybeAdjustScroll(m.netSearchResultsVisible())
 	}
 	return nil
 }

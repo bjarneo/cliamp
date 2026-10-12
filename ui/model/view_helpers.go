@@ -143,6 +143,15 @@ func truncate(s string, maxW int) string {
 	return ansi.Truncate(s, maxW, "…")
 }
 
+// fitPanel truncates s to the panel width less indent columns. Before the
+// first layout the width is unknown, and s stays whole.
+func (m Model) fitPanel(s string, indent int) string {
+	if w := m.layout.panelWidth - indent; w > 0 {
+		return truncate(s, w)
+	}
+	return s
+}
+
 // wrapText breaks s into lines no wider than maxW, splitting on spaces.
 // Widths are measured with lipgloss so wide glyphs and accents count once.
 // A single word longer than maxW is truncated rather than left to overflow
@@ -380,9 +389,9 @@ func (m Model) playlistRows(tracks []playlist.Track, scroll int, showHeaders boo
 	}
 }
 
-// searchOverlayRow is one rendered row of the provider search results: a section
+// sectionRow is one rendered row of a sectioned result list: a section
 // separator when Index is negative, otherwise the result at Index.
-type searchOverlayRow struct {
+type sectionRow struct {
 	Index   int
 	Track   playlist.Track
 	Section string
@@ -401,36 +410,49 @@ func searchOverlaySection(t playlist.Track) string {
 // whenever the section changes. The provider returns albums first, so this
 // yields at most two headers, plus a sticky one at the top of the viewport so
 // the section stays named while scrolling through a long run of results.
-func searchOverlayRows(results []playlist.Track, scroll int) iter.Seq[searchOverlayRow] {
-	return func(yield func(searchOverlayRow) bool) {
+func searchOverlayRows(results []playlist.Track, scroll int) iter.Seq[sectionRow] {
+	return sectionRows(results, scroll, func(i int) string { return searchOverlaySection(results[i]) })
+}
+
+// searchOverlayRowsToCursor counts rendered rows from scroll to cursor inclusive,
+// separators included, so scrolling can account for the space they take.
+func searchOverlayRowsToCursor(results []playlist.Track, scroll, cursor int) int {
+	return sectionRowsToCursor(results, scroll, cursor, func(i int) string { return searchOverlaySection(results[i]) })
+}
+
+// sectionRows walks results from scroll and emits a separator whenever
+// section, called with the result index, changes. The first row is always a
+// separator, so the section stays named at the top of the viewport.
+func sectionRows(results []playlist.Track, scroll int, section func(int) string) iter.Seq[sectionRow] {
+	return func(yield func(sectionRow) bool) {
 		if len(results) == 0 || scroll < 0 || scroll >= len(results) {
 			return
 		}
 
 		prev := ""
 		for i := scroll; i < len(results); i++ {
-			section := searchOverlaySection(results[i])
-			if section != prev {
-				if !yield(searchOverlayRow{Index: -1, Section: section}) {
+			name := section(i)
+			if name != prev {
+				if !yield(sectionRow{Index: -1, Section: name}) {
 					return
 				}
 			}
-			if !yield(searchOverlayRow{Index: i, Track: results[i]}) {
+			if !yield(sectionRow{Index: i, Track: results[i]}) {
 				return
 			}
-			prev = section
+			prev = name
 		}
 	}
 }
 
-// searchOverlayRowsToCursor counts rendered rows from scroll to cursor inclusive,
+// sectionRowsToCursor counts rendered rows from scroll to cursor inclusive,
 // separators included, so scrolling can account for the space they take.
-func searchOverlayRowsToCursor(results []playlist.Track, scroll, cursor int) int {
+func sectionRowsToCursor(results []playlist.Track, scroll, cursor int, section func(int) string) int {
 	if len(results) == 0 || scroll < 0 || cursor < scroll || cursor >= len(results) {
 		return 0
 	}
 	rows := 0
-	for row := range searchOverlayRows(results, scroll) {
+	for row := range sectionRows(results, scroll, section) {
 		rows++
 		if row.Index == cursor {
 			break

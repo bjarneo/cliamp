@@ -175,6 +175,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleNetSearchResults(msg)
 		return m, nil
 
+	case netSearchSourceResultsMsg:
+		m.handleNetSearchSourceResults(msg)
+		return m, nil
+
 	case lyricsLoadedMsg:
 		if msg.gen != m.requests.lyrics || !m.lyrics.visible || msg.query != m.lyrics.query {
 			return m, nil

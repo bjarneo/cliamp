@@ -47,19 +47,47 @@ const (
 	netSearchResults                            // browsing search results
 )
 
+// netSearchMode names what the net search overlay searches. Tab cycles it.
+type netSearchMode int
+
+const (
+	netSearchYouTube    netSearchMode = iota // ytsearch
+	netSearchSoundCloud                      // scsearch
+	netSearchAll                             // every source at once, see netSearchAllSources
+)
+
+// netSearchSection is one source of an all-sources search. Sections keep the
+// order of netSearchAllSources, whatever order the answers arrive in.
+type netSearchSection struct {
+	name   string
+	tracks []playlist.Track
+	err    error
+	done   bool
+}
+
 // netSearchState holds state for the internet search overlay.
 type netSearchState struct {
-	active     bool
-	screen     netSearchScreenType
-	query      string
-	soundcloud bool   // true = SoundCloud (scsearch), false = YouTube (ytsearch)
-	from       string // provider without a Ctrl+F search that fell back here
-	loading    bool
-	results    []playlist.Track
-	cursor     int
-	scroll     int
-	err        string
-	request    string
+	active  bool
+	screen  netSearchScreenType
+	query   string
+	mode    netSearchMode
+	from    string // provider without a Ctrl+F search that fell back here
+	loading bool
+	results []playlist.Track
+	cursor  int
+	scroll  int
+	err     string
+	request string
+	// An all-sources search keeps one section per source. results then
+	// holds the tracks of every section in order, and resultSection names the
+	// section of each result. pending counts the sources still searching.
+	// Once cursorMoved, a later source keeps the cursor on its track;
+	// before that, the cursor stays on the first result.
+	sections      []netSearchSection
+	resultSection []int
+	pending       int
+	cursorMoved   bool
+	cancel        func()
 }
 
 // provSearchState holds state for filtering the provider playlist list.
