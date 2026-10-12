@@ -714,6 +714,37 @@ func (d *DownloadsConfig) set(key, val string) {
 	}
 }
 
+// MassConfig holds settings for a Music Assistant server. cliamp browses the
+// library over the API and plays through a Sendspin player it registers with
+// the server.
+type MassConfig struct {
+	URL          string // web UI URL, e.g. "http://homeassistant.local:8095"
+	Token        string // long-lived API token from the Music Assistant profile page
+	PlayerName   string // name of cliamp's player in Music Assistant (default "cliamp")
+	SendspinPort int    // Sendspin port on the Music Assistant host (default 8927)
+}
+
+// IsSet reports whether the Music Assistant provider is configured.
+func (m MassConfig) IsSet() bool {
+	return m.URL != "" && m.Token != ""
+}
+
+// set applies one key of the [mass] section.
+func (m *MassConfig) set(key, val string) {
+	switch key {
+	case "url":
+		m.URL = parseString(val)
+	case "token":
+		m.Token = parseString(val)
+	case "player_name":
+		m.PlayerName = parseString(val)
+	case "sendspin_port":
+		if v, ok := parseInt(val); ok {
+			m.SendspinPort = v
+		}
+	}
+}
+
 // Config holds user preferences loaded from the config file.
 type Config struct {
 	Downloads        DownloadsConfig
@@ -763,6 +794,7 @@ type Config struct {
 	Mixcloud         MixcloudConfig               // Mixcloud provider (opt-in via enabled = true)
 	NetEase          NetEaseConfig                // NetEase Cloud Music provider (opt-in via enabled = true)
 	Yandex           YandexConfig                 // Yandex Music provider (opt-in via enabled = true)
+	Mass             MassConfig                   // optional Music Assistant server
 	Plugins          map[string]map[string]string // per-plugin config from [plugins.*] sections
 	LogLevel         string                       // log level: debug, info, warn, error (default "info")
 	LowPower         bool                         // reduce CPU by lowering UI cadence and disabling visualization
@@ -881,6 +913,8 @@ func Load() (Config, error) {
 			cfg.NetEase.set(key, val)
 		case "yandex":
 			cfg.Yandex.set(key, val)
+		case "mass":
+			cfg.Mass.set(key, val)
 		case "jellyfin":
 			cfg.Jellyfin.set(key, val)
 		case "emby":

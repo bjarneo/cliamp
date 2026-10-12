@@ -30,6 +30,7 @@ func everyProviderConfig() config.Config {
 		Mixcloud:       config.MixcloudConfig{Enabled: true},
 		NetEase:        config.NetEaseConfig{Enabled: true},
 		Yandex:         config.YandexConfig{Enabled: true, Token: "token"},
+		Mass:           config.MassConfig{URL: "http://music-assistant.local:8095", Token: "token"},
 	}
 }
 

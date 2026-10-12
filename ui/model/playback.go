@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/applog"
+	"github.com/bjarneo/cliamp/external/mass"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
@@ -389,10 +390,20 @@ func (m *Model) undoPlaylistMutation() tea.Cmd {
 	return m.rearmStalePreload()
 }
 
-// playTrack plays a track. A stream, a provider URI, and a local file start
+// playTrack plays a track. A Music Assistant row plays through Music
+// Assistant; any other track takes the speaker back from it.
+func (m *Model) playTrack(track playlist.Track) tea.Cmd {
+	var release tea.Cmd
+	if !mass.IsTrackPath(track.Path) {
+		release = m.releaseMusicAssistant()
+	}
+	return tea.Batch(release, m.startTrack(track))
+}
+
+// startTrack plays a track. A stream, a provider URI, and a local file start
 // in a command, so a slow open does not freeze the UI. The player picks the
 // pipeline, such as the yt-dlp | ffmpeg chain for a yt-dlp page URL.
-func (m *Model) playTrack(track playlist.Track) tea.Cmd {
+func (m *Model) startTrack(track playlist.Track) tea.Cmd {
 	m.pausedAt = time.Time{}
 	if track.Feed || playlist.IsFeed(track.Path) {
 		m.feedLoading = true
@@ -406,6 +417,9 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		m.playingProvider = m.provider.Name()
 	}
 	track, fetchCmd := m.beginPlaybackTrack(track)
+	if cmd, ok := m.playOnMusicAssistant(track); ok {
+		return tea.Batch(cmd, fetchCmd)
+	}
 
 	dur := time.Duration(track.DurationSecs) * time.Second
 	// A stream, a yt-dlp page, a provider URI, or a local file can block
@@ -595,6 +609,15 @@ func (m *Model) fetchLyricsForTrack(track playlist.Track, artist, title string) 
 func (m *Model) togglePlayPause() tea.Cmd {
 	if m.buffering {
 		return nil
+	}
+	// Music Assistant's stream: pause its queue along with the speaker.
+	if m.massOwnsSpeaker() && m.player.IsPlaying() {
+		kind := "pause"
+		if m.player.IsPaused() {
+			kind = "resume"
+		}
+		m.togglePlayerPause()
+		return m.massTransport(kind)
 	}
 	if !m.player.IsPlaying() {
 		if m.playlist.CurrentIsQueued() {

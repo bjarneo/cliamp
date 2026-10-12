@@ -69,6 +69,12 @@ func init() {
 			view:    overlayView{(*Model).deviceHeaderLine, (*Model).renderDeviceBody},
 		},
 		{
+			screen:  screenMassGroup,
+			key:     (*Model).handleMassGroupKey,
+			context: fixedContext(commandModeSpeakers, "Speakers"),
+			view:    overlayView{(*Model).massGroupHeader, (*Model).renderMassGroup},
+		},
+		{
 			screen: screenPlaylistPicker,
 			key:    (*Model).handlePlaylistPickerKey,
 			paste: func(m *Model, s string) {
@@ -320,6 +326,8 @@ func (m *Model) overlayOpen(screen topLevelScreen) bool {
 		return m.lyrics.visible
 	case screenJump:
 		return m.jump.active
+	case screenMassGroup:
+		return m.massGroup.visible
 	case screenURLInput:
 		return m.urlInput.active
 	case screenSearch:

@@ -32,7 +32,7 @@ import (
 func isolateProviderEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	for _, name := range []string{"CLIAMP_CONFIG_DIR", "XDG_CONFIG_HOME", "NAVIDROME_URL", "LYRION_URL"} {
+	for _, name := range []string{"CLIAMP_CONFIG_DIR", "XDG_CONFIG_HOME", "NAVIDROME_URL", "LYRION_URL", "MUSIC_ASSISTANT_URL"} {
 		t.Setenv(name, "")
 	}
 }

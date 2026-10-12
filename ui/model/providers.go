@@ -405,6 +405,8 @@ func providerKeyForShortcut(key string) string {
 		return "radio"
 	case "O":
 		return "podcast"
+	case "H":
+		return "mass"
 	}
 	return ""
 }

@@ -17,12 +17,16 @@
 //
 // Init must be called once at startup. Calls before Init are silently
 // dropped on the file side; the footer buffer always works.
+//
+// The standard library logger, which some dependencies use, is routed to the
+// file sink at debug level so it never writes over the TUI.
 package applog
 
 import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -60,6 +64,16 @@ var (
 
 func init() {
 	logger.Store(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	log.SetFlags(0)
+	log.SetOutput(stdlibWriter{})
+}
+
+// stdlibWriter forwards the standard library logger to the file sink.
+type stdlibWriter struct{}
+
+func (stdlibWriter) Write(p []byte) (int, error) {
+	Debug("%s", strings.TrimRight(string(p), "\n"))
+	return len(p), nil
 }
 
 // Init opens path for append, installs a slog text handler at the given

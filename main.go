@@ -169,6 +169,7 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 	}
 
 	m := model.New(p, pl, providers.entries, defaultProvider, providers.localPlaylists(), providers.favorites, providers.history, theme.LoadAll(), luaMgr, config.SaveFunc{})
+	defer startSendspin(p, &m, providers.musicAssistant(), cfg.Mass)()
 	m.SetRadioFavorites(providers.radioFavorites)
 	if resumeServer != nil {
 		m.SetResumeSaver(serverResumeSaver(resumeServer))

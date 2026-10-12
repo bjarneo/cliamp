@@ -60,7 +60,7 @@ eq_preset = "Flat"
 # Saved Custom curve; applied when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-# Default provider on startup: "cliamp" (the cliamp radio channels), "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "soundcloud", "mixcloud", "netease", "yandex", "audiobookshelf", or a YouTube provider
+# Default provider on startup: "cliamp" (the cliamp radio channels), "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "plex", "jellyfin", "emby", "mass", "soundcloud", "mixcloud", "netease", "yandex", "audiobookshelf", or a YouTube provider
 # provider = "cliamp"
 
 # Simplified mode: artist/title and time strip without a visualizer or playlist.
@@ -337,6 +337,19 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 #
 # Restrict to specific libraries (default: all).
 # libraries = ["Audiobooks", "Podcasts"]
+
+# ---
+# Music Assistant (optional)
+# Browse and search the library, and play through a Sendspin speaker that
+# cliamp registers with the server. Create the token in the Music Assistant
+# web UI under Settings -> Profile -> Long-lived access tokens.
+# These values take precedence over the MUSIC_ASSISTANT_URL /
+# MUSIC_ASSISTANT_TOKEN environment variables. See docs/music-assistant.md.
+# [mass]
+# url = "http://homeassistant.local:8095"
+# token = "your-token"
+# player_name = "cliamp"
+# sendspin_port = 8927
 
 # Destination for TUI Ctrl+S saves. Empty uses ~/Music/cliamp.
 # Use an absolute path; mount external drives before saving.
