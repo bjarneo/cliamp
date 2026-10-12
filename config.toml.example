@@ -25,6 +25,14 @@ shuffle = false
 # Start with mono output (L+R downmix)
 mono = false
 
+# Loudness normalisation from ReplayGain tags: "off", "track" or "album".
+# Album mode uses the track gain when a file has no album gain, and the reverse.
+replaygain = "off"
+
+# dB added on top of the ReplayGain adjustment (-15 to 15). The adjustment is
+# lowered where needed so a track's peak never clips.
+replaygain_preamp = 0
+
 # Initial directory for the file browser ('o' key). 
 # Supports environment variables ($HOME) and tilde expansion (~/Music).
 # initial_directory = "~/Music"
