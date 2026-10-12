@@ -2,7 +2,7 @@
 
 Use Cliamp to stream your [Spotify](https://www.spotify.com/) library through its audio pipeline. EQ, the visualizer, and other effects apply. You need a [Spotify Premium](https://www.spotify.com/premium/) account.
 
-> **Windows:** Build cliamp with CGO enabled and a MinGW toolchain for Spotify support. See [Building from source](../README.md#building-from-source) in the README. Pre-built Windows binaries from Releases include Spotify support.
+> **Windows:** Every Windows source build needs CGO enabled and the MSYS2 MinGW64 toolchain because the Spotify provider is compiled in even when it is not configured. See [Building from source](../README.md#building-from-source) in the README. Pre-built Windows binaries from Releases include Spotify support.
 >
 > **Quick start:** Run `cliamp setup`, select Spotify, and follow the prompts. Register a Spotify Developer app and enter its `client_id` to get a private Web API rate-limit quota, including for search. Cliamp authorizes playback separately with the built-in Spotify identity. You can instead use the built-in shared `client_id` without registering an app.
 

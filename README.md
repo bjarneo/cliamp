@@ -190,9 +190,7 @@ sudo pacman -S alsa-lib flac libvorbis libogg mpg123
 brew install flac libvorbis libogg mpg123 pkg-config
 ```
 
-**Windows:** The core player needs no extra SDKs. It uses pure-Go audio decoding. `ffmpeg.exe` and `yt-dlp.exe` remain optional runtime dependencies for the same formats and providers as other platforms.
-
-Spotify support uses `go-librespot`. It needs CGO and a MinGW toolchain:
+**Windows source builds:** Every Windows source build needs CGO and the MSYS2 MinGW64 toolchain because the Spotify provider is compiled in even when it is not configured. `ffmpeg.exe` and `yt-dlp.exe` remain optional runtime dependencies for the same formats and providers as other platforms.
 
 1. Install [MSYS2](https://www.msys2.org/).
 2. Open the **MSYS2 MinGW64** terminal, not the standard MSYS2 terminal. Install the toolchain and codec libraries:
