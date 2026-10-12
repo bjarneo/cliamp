@@ -613,6 +613,11 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.rearmStalePreload()
 		}
 
+	case "c":
+		if track, ok := m.selectedPlaylistTrack(); ok {
+			return m.startSongMix(track)
+		}
+
 	case "w":
 		if m.focus == focusPlaylist && m.plCursor >= 0 && m.plCursor < m.playlist.Len() {
 			if track, ok := m.playlist.Track(m.plCursor); ok {
