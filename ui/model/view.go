@@ -204,7 +204,7 @@ func (m Model) radioPlayingHere(id string) bool {
 func playlistLabel(prefix string, p playlist.PlaylistInfo) string {
 	out := prefix + p.Name
 	var parts []string
-	if p.TrackCount > 0 || p.Name == favorites.PlaylistName {
+	if p.TrackCount > 0 || p.ID == favorites.PlaylistName {
 		parts = append(parts, fmt.Sprintf("%d tracks", p.TrackCount))
 	}
 	if p.DirSourceCount == 0 {

@@ -466,7 +466,7 @@ Add `username` for your following stream, activity, uploads, read-only show
 favorites, listening history, collections, and followed-creator browsing. An
 optional developer `access_token` sets `/me/` as the account identity and adds
 Listen Later. `cookies_from` gives yt-dlp your signed-in browser session for
-playback that requires it.
+Stream and playback that requires it.
 
 ```toml
 [mixcloud]
@@ -476,7 +476,6 @@ access_token = "${MIXCLOUD_ACCESS_TOKEN}"
 cookies_from = "firefox"
 styles = ["ambient", "deep-house", "jazz", "techno"]
 max_items = 100
-stream_creators = 20
 ```
 
 The `styles` list is also the local genre-favorites list for the provider. In
