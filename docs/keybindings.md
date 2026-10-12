@@ -84,8 +84,8 @@ The Metadata shortcut is inactive while a text input is active.
 ### Search and filter modes
 
 `/` filters the list on the screen. `Ctrl+F` searches the active provider. In
-Radio and Podcasts, `/` sends the query to the provider when you press
-`Enter`.
+Radio, Podcasts and Music Assistant, `/` sends the query to the provider when
+you press `Enter`.
 
 While a search or filter input is open, its line starts with a badge that
 names the mode and the source, such as `[Filter: Playlist]`, `[Filter: Files]`,
@@ -95,7 +95,7 @@ names the mode and the source, such as `[Filter: Playlist]`, `[Filter: Files]`,
 If the active provider has no `Ctrl+F` search, `Ctrl+F` searches YouTube. The
 overlay shows `[Search: YouTube]` and names the provider that has no search.
 
-After a Radio or Podcasts search, the provider header shows `Search results`
+After a Radio, Podcasts or Music Assistant search, the provider header shows `Search results`
 and the hint bar shows `Esc Clear search`. Press `Esc` to go back to the full
 list.
 

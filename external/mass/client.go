@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/rand/v2"
 	"net/http"
 	"os"
@@ -27,6 +28,8 @@ var (
 	_ provider.AlbumBrowser     = (*Provider)(nil)
 	_ provider.AlbumTrackLoader = (*Provider)(nil)
 	_ provider.Searcher         = (*Provider)(nil)
+	_ provider.CatalogSearcher  = (*Provider)(nil)
+	_ provider.TrackPager       = (*Provider)(nil)
 	_ playlist.Provider         = (*Provider)(nil)
 )
 
@@ -66,6 +69,8 @@ type Provider struct {
 	mu            sync.Mutex
 	playlistCache []playlist.PlaylistInfo
 	trackCache    map[string][]playlist.Track
+	search        *librarySearch // set while search results replace the library
+	searchGen     int
 }
 
 // NewFromConfig creates a Provider for cfg. Returns nil when the URL or token
@@ -150,9 +155,12 @@ func (p *Provider) rpcRequest(ctx context.Context, command string, args map[stri
 }
 
 // Playlists lists the library folders (recently played, artists, albums,
-// tracks, genres, radio stations) followed by the user's playlists.
-// Implements playlist.Provider.
+// tracks, genres, radio stations) followed by the user's playlists, or the
+// results of a library search. Implements playlist.Provider.
 func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
+	if lists, ok := p.searchLists(); ok {
+		return lists, nil
+	}
 	p.mu.Lock()
 	if p.playlistCache != nil {
 		out := p.playlistCache
@@ -169,7 +177,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	}
 	infos := make([]playlist.PlaylistInfo, 0, len(libraryFolders)+len(items))
 	for _, f := range libraryFolders {
-		infos = append(infos, playlist.PlaylistInfo{ID: folderPrefix + f.key, Name: f.name})
+		infos = append(infos, playlist.PlaylistInfo{ID: folderPrefix + f.key, Name: f.name, Section: "Library"})
 	}
 	for _, it := range items {
 		if it.Name == "" {
@@ -179,6 +187,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 			ID:         it.URI,
 			Name:       it.Name,
 			TrackCount: it.TrackCount,
+			Section:    "Playlists",
 		})
 	}
 
@@ -192,6 +201,9 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 // playlist, album, artist or genre whose URI is id (with or without the
 // mass:// prefix). Implements playlist.Provider.
 func (p *Provider) Tracks(id string) ([]playlist.Track, error) {
+	if id == searchTracksID {
+		return p.searchTracks()
+	}
 	if strings.HasPrefix(id, folderPrefix) {
 		return p.folderTracks(id)
 	}
@@ -235,29 +247,6 @@ func (p *Provider) Tracks(id string) ([]playlist.Track, error) {
 	p.mu.Lock()
 	p.trackCache[itemURI] = out
 	p.mu.Unlock()
-	return out, nil
-}
-
-// folderTracks lists a library folder as rows. Rows may be artists, albums or
-// playlists as well as tracks: Music Assistant plays any of them. Folder
-// entries cannot be played and are left out.
-func (p *Provider) folderTracks(id string) ([]playlist.Track, error) {
-	items, err := p.openFolder(context.Background(), id)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]playlist.Track, 0, len(items))
-	for _, item := range items {
-		if item.URI == "" || item.Kind == kindFolder {
-			continue
-		}
-		out = append(out, playlist.Track{
-			Path:         pathPrefix + item.URI,
-			Title:        item.Name,
-			Artist:       item.Subtitle,
-			ProviderMeta: map[string]string{MetaURI: item.URI},
-		})
-	}
 	return out, nil
 }
 
@@ -378,7 +367,7 @@ type massTrack struct {
 	URI         string      `json:"uri"`
 	ItemID      string      `json:"item_id"`
 	Name        string      `json:"name"`
-	Duration    int         `json:"duration"`
+	Duration    float64     `json:"duration"` // seconds; library tracks have fractions
 	TrackNumber int         `json:"track_number"`
 	Album       *massAlbum  `json:"album"`
 	Artists     []massNamed `json:"artists"`
@@ -405,7 +394,7 @@ func (p *Provider) trackFromMass(t massTrack) playlist.Track {
 		Path:         pathPrefix + uri,
 		Title:        t.Name,
 		Artist:       t.artistStr(),
-		DurationSecs: t.Duration,
+		DurationSecs: int(math.Round(t.Duration)),
 		TrackNumber:  t.TrackNumber,
 		ProviderMeta: map[string]string{MetaURI: uri},
 	}

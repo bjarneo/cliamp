@@ -4,65 +4,114 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/bjarneo/cliamp/playlist"
 )
-
-// kindFolder is the media_type of folder rows, which cannot be played.
-const kindFolder = "folder"
-
-// browseItem is one row of a library folder: an artist, album, track,
-// playlist, genre or radio station.
-type browseItem struct {
-	URI      string
-	Name     string
-	Kind     string
-	Subtitle string // artist line
-}
-
-// massBrowseItem mirrors a media item returned by the library commands.
-type massBrowseItem struct {
-	URI       string      `json:"uri"`
-	Name      string      `json:"name"`
-	MediaType string      `json:"media_type"`
-	Artists   []massNamed `json:"artists"`
-}
 
 // folderPrefix marks the synthetic playlist ids of library folders.
 const folderPrefix = pathPrefix + "home/"
 
+// folderPageSize is how many rows one page of a library folder holds.
+const folderPageSize = 500
+
 // libraryFolder is a library section listed ahead of the user's playlists.
 type libraryFolder struct {
 	key, name, command string
+	paged              bool // the command takes offset and limit
 }
 
 var libraryFolders = []libraryFolder{
-	{"recent", "Recently played", "music/recently_played_items"},
-	{"artists", "Artists", "music/artists/library_items"},
-	{"albums", "Albums", "music/albums/library_items"},
-	{"tracks", "Tracks", "music/tracks/library_items"},
-	{"genres", "Genres", "music/genres/library_items"},
-	{"radios", "Radio stations", "music/radios/library_items"},
+	{"recent", "Recently played", "music/recently_played_items", false},
+	{"artists", "Artists", "music/artists/library_items", true},
+	{"albums", "Albums", "music/albums/library_items", true},
+	{"tracks", "Tracks", "music/tracks/library_items", true},
+	{"genres", "Genres", "music/genres/library_items", true},
+	{"radios", "Radio stations", "music/radios/library_items", true},
 }
 
-func folderArgs(key string) map[string]any {
-	if key == "recent" {
-		return map[string]any{
+func findFolder(id string) (libraryFolder, error) {
+	key := strings.TrimPrefix(id, folderPrefix)
+	for _, f := range libraryFolders {
+		if f.key == key {
+			return f, nil
+		}
+	}
+	return libraryFolder{}, fmt.Errorf("mass: unknown library folder %q", id)
+}
+
+// folderItem is a row of a library folder. Track rows carry their length and
+// album; artist, album, playlist, genre and radio rows carry what they have.
+type folderItem struct {
+	massTrack
+	MediaType string `json:"media_type"`
+}
+
+// folderPage returns one page of the library folder id as rows, and the
+// offset of the next page, or 0 after the last one. Rows can be artists,
+// albums or playlists as well as tracks: Music Assistant plays any of them.
+// Folder entries cannot be played and are left out.
+func (p *Provider) folderPage(ctx context.Context, id string, offset int) ([]playlist.Track, int, error) {
+	f, err := findFolder(id)
+	if err != nil {
+		return nil, 0, err
+	}
+	args := map[string]any{"limit": folderPageSize, "offset": offset, "summary": true}
+	if !f.paged {
+		if offset > 0 {
+			return nil, 0, nil
+		}
+		args = map[string]any{
 			"limit":               50,
 			"media_types":         []string{"album", "track", "playlist", "artist", "genre"},
 			"user_initiated_only": true,
 		}
 	}
-	return map[string]any{"limit": 200, "offset": 0, "summary": true}
+	var raw []folderItem
+	if err := p.rpcRequest(ctx, f.command, args, &raw); err != nil {
+		return nil, 0, err
+	}
+	out := make([]playlist.Track, 0, len(raw))
+	for _, it := range raw {
+		if it.URI == "" || it.Name == "" || it.MediaType == "folder" {
+			continue
+		}
+		out = append(out, p.trackFromMass(it.massTrack))
+	}
+	next := 0
+	if f.paged && len(raw) == folderPageSize {
+		next = offset + folderPageSize
+	}
+	return out, next, nil
 }
 
-// openFolder lists the library folder with playlist id id.
-func (p *Provider) openFolder(ctx context.Context, id string) ([]browseItem, error) {
-	key := strings.TrimPrefix(id, folderPrefix)
-	for _, f := range libraryFolders {
-		if f.key == key {
-			return p.browse(ctx, f.command, folderArgs(key))
+// folderTracks returns every row of the library folder id.
+func (p *Provider) folderTracks(id string) ([]playlist.Track, error) {
+	var out []playlist.Track
+	for offset := 0; ; {
+		rows, next, err := p.folderPage(context.Background(), id, offset)
+		if err != nil {
+			return nil, err
 		}
+		out = append(out, rows...)
+		if next == 0 {
+			return out, nil
+		}
+		offset = next
 	}
-	return nil, fmt.Errorf("mass: unknown library folder %q", id)
+}
+
+// TracksPage loads library folders one page at a time, so a large library
+// fills the playlist progressively. Other lists load whole. Implements
+// provider.TrackPager.
+func (p *Provider) TracksPage(id string, offset int) ([]playlist.Track, int, error) {
+	if strings.HasPrefix(id, folderPrefix) {
+		return p.folderPage(context.Background(), id, offset)
+	}
+	if offset > 0 {
+		return nil, 0, nil
+	}
+	tracks, err := p.Tracks(id)
+	return tracks, 0, err
 }
 
 // itemArgs builds the item_id / provider_instance_id_or_domain pair for a
@@ -76,19 +125,4 @@ func itemArgs(uri string) map[string]any {
 		"item_id":                        itemIDFromURI(uri),
 		"provider_instance_id_or_domain": provider,
 	}
-}
-
-func (p *Provider) browse(ctx context.Context, command string, args map[string]any) ([]browseItem, error) {
-	var raw []massBrowseItem
-	if err := p.rpcRequest(ctx, command, args, &raw); err != nil {
-		return nil, err
-	}
-	out := make([]browseItem, 0, len(raw))
-	for _, it := range raw {
-		if it.Name == "" {
-			continue
-		}
-		out = append(out, browseItem{URI: it.URI, Name: it.Name, Kind: it.MediaType, Subtitle: namedJoin(it.Artists)})
-	}
-	return out, nil
 }

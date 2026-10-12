@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -56,6 +57,9 @@ func newFakeMA(t *testing.T, results map[string]any) *fakeMA {
 		if !ok {
 			http.Error(w, "Invalid Command: "+req.Command, http.StatusBadRequest)
 			return
+		}
+		if fn, ok := res.(func(args map[string]any) any); ok {
+			res = fn(req.Args)
 		}
 		_ = json.NewEncoder(w).Encode(res)
 	}))
@@ -300,5 +304,87 @@ func TestPlayerCommandsMatchMusicAssistant(t *testing.T) {
 		if got := f.last(); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("sent %+v, want %+v", got, c.want)
 		}
+	}
+}
+
+// rows returns n library track rows numbered from first.
+func rows(first, n int) []map[string]any {
+	out := make([]map[string]any, n)
+	for i := range out {
+		id := first + i
+		out[i] = map[string]any{"uri": fmt.Sprintf("library://track/%d", id), "name": fmt.Sprintf("T%d", id), "media_type": "track", "duration": 59.8}
+	}
+	return out
+}
+
+// A folder larger than one page loads page by page until a short page.
+func TestFolderLoadsEveryPage(t *testing.T) {
+	f := newFakeMA(t, map[string]any{"music/tracks/library_items": func(args map[string]any) any {
+		switch args["offset"] {
+		case float64(0):
+			return rows(0, folderPageSize)
+		case float64(folderPageSize):
+			return rows(folderPageSize, 7)
+		}
+		return []map[string]any{}
+	}})
+	p := f.provider()
+
+	first, next, err := p.TracksPage(folderPrefix+"tracks", 0)
+	if err != nil || len(first) != folderPageSize || next != folderPageSize {
+		t.Fatalf("page 1: %d rows, next %d, %v", len(first), next, err)
+	}
+	if first[0].DurationSecs != 60 {
+		t.Errorf("folder track row lost its length: %+v", first[0])
+	}
+	second, next, err := p.TracksPage(folderPrefix+"tracks", next)
+	if err != nil || len(second) != 7 || next != 0 || second[6].Title != fmt.Sprintf("T%d", folderPageSize+6) {
+		t.Fatalf("page 2: %d rows, next %d, %v", len(second), next, err)
+	}
+
+	all, err := p.Tracks(folderPrefix + "tracks")
+	if err != nil || len(all) != folderPageSize+7 {
+		t.Fatalf("Tracks = %d rows, %v; want every page", len(all), err)
+	}
+}
+
+// A search replaces the library rows with the results until it is cleared.
+func TestSearchCatalogReplacesLibraryUntilCleared(t *testing.T) {
+	f := newFakeMA(t, map[string]any{
+		cmdLibraryPlaylists: []map[string]any{{"uri": "library://playlist/1", "name": "Mine"}},
+		cmdSearch: map[string]any{
+			"tracks":    rows(1, 3),
+			"artists":   []map[string]any{{"uri": "library://artist/9", "name": "Jimi Hendrix"}},
+			"albums":    []map[string]any{{"uri": "library://album/4", "name": "Axis", "artists": []map[string]any{{"name": "Jimi Hendrix"}}, "track_count": 13}},
+			"playlists": []map[string]any{},
+		},
+	})
+	p := f.provider()
+
+	n, err := p.SearchCatalog("hendrix")
+	if err != nil || n != 3 || !p.IsSearching() {
+		t.Fatalf("SearchCatalog = %d, %v; searching %v", n, err, p.IsSearching())
+	}
+	if args := f.last().Args; args["search_query"] != "hendrix" || args["library_only"] != true {
+		t.Errorf("search args = %v", args)
+	}
+	lists, _ := p.Playlists()
+	var got []string
+	for _, l := range lists {
+		got = append(got, l.Section+": "+l.Name)
+	}
+	want := []string{"Tracks: All 3 matching tracks", "Artists: Jimi Hendrix", "Albums: Axis — Jimi Hendrix"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("results = %q, want %q", got, want)
+	}
+	tracks, err := p.Tracks(lists[0].ID)
+	if err != nil || len(tracks) != 3 || !IsTrackPath(tracks[0].Path) {
+		t.Fatalf("matching tracks = %+v, %v", tracks, err)
+	}
+
+	p.ClearSearch()
+	lists, _ = p.Playlists()
+	if p.IsSearching() || lists[0].Name != "Recently played" || lists[len(lists)-1].Name != "Mine" {
+		t.Errorf("after ClearSearch: searching %v, rows %+v", p.IsSearching(), lists)
 	}
 }

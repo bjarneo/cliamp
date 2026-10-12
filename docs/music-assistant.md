@@ -37,10 +37,11 @@ Cliamp reads the library through the Music Assistant API (`POST /api`). At start
 
 Music Assistant serves full tracks only to its speakers, so **Music Assistant rows play only while the Sendspin speaker is connected**. Its API offers clients nothing but 30-second previews, and Cliamp does not use them.
 
-Press `H` to open Music Assistant, or set it as the startup provider with `cliamp --provider mass` or `provider = "mass"`. The list starts with the library folders (Recently played, Artists, Albums, Tracks, Genres, Radio stations), followed by your playlists.
+Press `H` to open Music Assistant, or set it as the startup provider with `cliamp --provider mass` or `provider = "mass"`. The list starts with the library folders (Recently played, Artists, Albums, Tracks, Genres, Radio stations), followed by your playlists. A folder loads in full, 500 rows at a time, however large the library is.
 
 - **Enter** plays a row. Music Assistant queues it and the rows after it on the Cliamp speaker, so playback continues past the selected row. A folder row can be an artist, album, playlist or radio station; Enter plays all of it.
-- **`N`** opens the album browser. **`Ctrl+F`** searches the server.
+- **`/`** searches the whole library on the server, not just the rows loaded in Cliamp. Type a query and press Enter: the list shows one row with the matching tracks, then the matching artists, albums and playlists (up to 100 of each). Enter loads one; `Esc` returns to the library.
+- **`N`** opens the album browser. **`Ctrl+F`** searches the server, including the music services connected to it.
 - While the Music Assistant stream plays, play/pause, next and previous (keys, media keys, remote control) drive the Music Assistant queue. The track title, artist, album, artwork and length come from Music Assistant.
 - Playing anything else in Cliamp pauses the Music Assistant queue.
 - When Cliamp is idle, a stream that another Music Assistant app starts on the Cliamp speaker plays right away.
