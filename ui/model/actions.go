@@ -15,14 +15,22 @@ import (
 // and plugins about each change.
 
 // skipNext starts the next track. playTrack or stopPlayback scrobbles the
-// track that it leaves.
+// track that it leaves. While Music Assistant's stream plays, its queue
+// skips instead.
 func (m *Model) skipNext() tea.Cmd {
+	if cmd := m.massTransport("next"); cmd != nil {
+		return cmd
+	}
 	return m.nextTrack()
 }
 
 // skipPrev goes to the previous track. Past 3 seconds into a track, it
-// restarts that track instead. A restart also scrobbles the track.
+// restarts that track instead. A restart also scrobbles the track. While
+// Music Assistant's stream plays, its queue goes back instead.
 func (m *Model) skipPrev() tea.Cmd {
+	if cmd := m.massTransport("previous"); cmd != nil {
+		return cmd
+	}
 	return m.prevTrack()
 }
 

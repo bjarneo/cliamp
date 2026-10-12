@@ -320,6 +320,7 @@ func (m *Model) handleTick(msg tickMsg) tea.Cmd {
 	dt := m.tickDelta(now)
 
 	m.tickSampleClock()
+	m.applyMassNowPlaying()
 	m.tickVisualizer(now)
 	m.tickProgressReport(now)
 	var cmds []tea.Cmd

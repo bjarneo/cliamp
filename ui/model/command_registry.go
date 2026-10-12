@@ -50,6 +50,7 @@ const (
 	commandModeSubs
 	commandModeSubsFilter
 	commandModeFullVis
+	commandModeSpeakers
 )
 
 const commandModeAny = ^commandMode(0)
@@ -168,6 +169,8 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"J"}, KeyLabel: "J", Label: "Open Jellyfin provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"E"}, KeyLabel: "E", Label: "Open Emby provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"B"}, KeyLabel: "B", Label: "Open Audiobookshelf provider", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"H"}, KeyLabel: "H", Label: "Open Music Assistant", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"D"}, KeyLabel: "D", Label: "Music Assistant speakers", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"Q"}, KeyLabel: "Q", Label: "Open Qobuz provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"T"}, KeyLabel: "T", Label: "Open Tidal provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+j"}, KeyLabel: "Ctrl+J", Label: "Jump to time", Keymap: true},
@@ -265,11 +268,14 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeProviderPill, Keys: []string{"esc", "backspace"}, KeyLabel: "Esc", RunKey: "esc", Label: "Back", ContextHelp: true, Cancel: true},
 	{Mode: commandModeNavBrowser, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
 	{Mode: commandModeDevicePicker, Keys: []string{"esc", "q"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
+	{Mode: commandModeSpeakers, Keys: []string{"esc", "q", "D"}, KeyLabel: "Esc", RunKey: "esc", Label: "Back", ContextHelp: true, Cancel: true},
+	{Mode: commandModeSpeakers, Keys: []string{"space"}, KeyLabel: "Space", Label: "Add or remove speaker", ContextHelp: true, Primary: true},
+	{Mode: commandModeSpeakers, Keys: []string{"u"}, KeyLabel: "u", Label: "Leave the group", ContextHelp: true},
 	{Mode: commandModePlaylistManager | commandModeQueue, Keys: []string{"esc", "q"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
 	{Mode: commandModeKeymap | commandModeFileBrowser | commandModePlaylistPicker, Keys: []string{"esc", "q"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
 	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSearchOverlay | commandModeJump | commandModeURL | commandModeProviderSearch, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Cancel", ContextHelp: true, Cancel: true},
 	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSearchOverlay | commandModeJump | commandModeURL | commandModeProviderSearch, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Confirm", ContextHelp: true, Primary: true},
-	{Mode: commandModeNavBrowser | commandModePlaylistManager | commandModePlaylistPicker | commandModeQueue | commandModeDevicePicker, Keys: []string{"up", "down", "k", "j"}, KeyLabel: "Up Down", Label: "Navigate", ContextHelp: true},
+	{Mode: commandModeNavBrowser | commandModePlaylistManager | commandModePlaylistPicker | commandModeQueue | commandModeDevicePicker | commandModeSpeakers, Keys: []string{"up", "down", "k", "j"}, KeyLabel: "Up Down", Label: "Navigate", ContextHelp: true},
 	// k and j type into the provider filter.
 	{Mode: commandModeProviderSearch, Keys: []string{"up", "down"}, KeyLabel: "Up Down", Label: "Navigate", ContextHelp: true},
 	{Mode: commandModeFileBrowser | commandModeNavBrowser | commandModePlaylistManager | commandModePlaylistPicker | commandModeDevicePicker, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Select", ContextHelp: true, Primary: true},

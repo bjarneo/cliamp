@@ -726,6 +726,8 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 			return cmd
 		}
 
+	case "D":
+		return m.openMassGroup()
 	case "d":
 		m.devicePicker.visible = true
 		m.devicePicker.cursor = 0

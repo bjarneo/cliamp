@@ -217,6 +217,7 @@ const (
 	screenURLInput
 	screenLyrics
 	screenJump
+	screenMassGroup
 	// screenFullVisualizer stays last. TestOverlayStackOrder checks that
 	// overlayStack holds each screen up to it.
 	screenFullVisualizer
@@ -256,6 +257,8 @@ func (s topLevelScreen) label() string {
 		return "Lyrics"
 	case screenJump:
 		return "Jump to Time"
+	case screenMassGroup:
+		return "Speakers"
 	case screenFullVisualizer:
 		return "Visualizer"
 	default:
@@ -322,6 +325,8 @@ type Model struct {
 	vis           *ui.Visualizer
 	seekStepLarge time.Duration
 	pausedAt      time.Time
+	massLink      *massLink
+	massGroup     massGroupState
 
 	// Primed Nj seek: digit sets pct, next `j` completes.
 	pendingSeekActive    bool

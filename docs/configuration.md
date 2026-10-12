@@ -339,6 +339,10 @@ token = "${EMBY_TOKEN}"
 url = "https://abs.example.com"
 token = "${AUDIOBOOKSHELF_TOKEN}"
 
+[mass]
+url = "http://homeassistant.local:8095"
+token = "${MUSIC_ASSISTANT_TOKEN}"
+
 [ytmusic]
 client_id = "${YTMUSIC_CLIENT_ID}"
 client_secret = "${YTMUSIC_CLIENT_SECRET}"
@@ -364,7 +368,7 @@ Each provider section turns on its provider in one of three ways:
 
 | Rule | Providers | The provider starts when |
 | --- | --- | --- |
-| Credentials | Navidrome, Lyrion, Plex, Jellyfin, Emby, Audiobookshelf | The section holds the required credentials. Lyrion needs only `url`. |
+| Credentials | Navidrome, Lyrion, Plex, Jellyfin, Emby, Audiobookshelf, Music Assistant | The section holds the required credentials. Lyrion needs only `url`. |
 | Section | Spotify, Qobuz, Tidal, YouTube Music | The section header exists. Set `enabled = false` to turn the provider off. |
 | Opt-in | SoundCloud, Mixcloud, NetEase, Yandex | The section sets `enabled = true`. Yandex also needs `token`. |
 
@@ -389,7 +393,7 @@ provider = "cliamp"
 
 The default, `cliamp`, opens on the cliamp radio channels. See [radio.md](radio.md#cliamp-radio).
 
-Valid values: `cliamp` (default), `radio`, `podcast`, `navidrome`, `lyrion`, `plex`, `jellyfin`, `emby`, `spotify`, `qobuz`, `tidal`, `soundcloud`, `mixcloud`, `netease`, `yandex`, `audiobookshelf`, `yt`, `youtube`, `ytmusic`. The `--provider` flag also accepts `abs` for `audiobookshelf`.
+Valid values: `cliamp` (default), `radio`, `podcast`, `navidrome`, `lyrion`, `plex`, `jellyfin`, `emby`, `mass`, `spotify`, `qobuz`, `tidal`, `soundcloud`, `mixcloud`, `netease`, `yandex`, `audiobookshelf`, `yt`, `youtube`, `ytmusic`. The `--provider` flag also accepts `abs` for `audiobookshelf`.
 
 You can also override this setting on the CLI: `cliamp --provider jellyfin`.
 

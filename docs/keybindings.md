@@ -84,8 +84,8 @@ The Metadata shortcut is inactive while a text input is active.
 ### Search and filter modes
 
 `/` filters the list on the screen. `Ctrl+F` searches the active provider. In
-Radio and Podcasts, `/` sends the query to the provider when you press
-`Enter`.
+Radio, Podcasts and Music Assistant, `/` sends the query to the provider when
+you press `Enter`.
 
 While a search or filter input is open, its line starts with a badge that
 names the mode and the source, such as `[Filter: Playlist]`, `[Filter: Files]`,
@@ -95,7 +95,7 @@ names the mode and the source, such as `[Filter: Playlist]`, `[Filter: Files]`,
 If the active provider has no `Ctrl+F` search, `Ctrl+F` searches YouTube. The
 overlay shows `[Search: YouTube]` and names the provider that has no search.
 
-After a Radio or Podcasts search, the provider header shows `Search results`
+After a Radio, Podcasts or Music Assistant search, the provider header shows `Search results`
 and the hint bar shows `Esc Clear search`. Press `Esc` to go back to the full
 list.
 
@@ -122,9 +122,10 @@ and `Esc` clears it.
 | Key | Action |
 |---|---|
 | `f` | Toggle the favorite ♥ on the selected track. Favorites appear in the "Favorites" virtual playlist, and cliamp also saves them on Spotify and Navidrome. For directory radio stations outside saved local playlists, toggle Radio Favorites from the browser or playback playlist, including country and genre results. In the country browser, pin the selected country or region. On a podcast show, subscribe or unsubscribe. |
-| `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, SoundCloud, Yandex Music, Local), or search YouTube. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
+| `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, SoundCloud, Yandex Music, Music Assistant, Local), or search YouTube. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
 | `u` | Load URL (stream/playlist) |
 | `d` | Open the audio device picker |
+| `D` | Open the Music Assistant speakers: add or remove speakers that play in sync with this computer. See [Music Assistant](music-assistant.md#speakers). |
 | `y` | Show or close lyrics |
 | `r` | Retry lyrics lookup while lyrics are open |
 | `[` / `]` | Adjust synced-lyrics timing offset (−/+250 ms) while lyrics show timestamped lines |
@@ -147,6 +148,7 @@ and `Esc` clears it.
 | `Q` | Open Qobuz provider |
 | `T` | Open Tidal provider |
 | `B` | Open Audiobookshelf provider |
+| `H` | Open Music Assistant provider |
 
 Metadata belongs to the main playback view, not provider browsers, and follows
 the highlighted playlist row even when another item is playing. Enabling it
@@ -271,13 +273,14 @@ commits pending selections before it closes the browser.
 ## Provider browser (`N` key)
 
 Press `N` to open a provider. These providers share the browser keys below:
-Navidrome, Lyrion, Plex, Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz,
-Tidal, Mixcloud, Podcasts, and YouTube Music. Artist and album screens exist
-only where the provider implements them: Navidrome, Lyrion, Jellyfin, Emby,
-Audiobookshelf, Qobuz, Tidal, and Mixcloud. Podcasts reuses those screens for
-categories and shows. Plex, Spotify, and YouTube Music have no artist or album
-screens; their playlists — and, for Plex and Spotify, saved albums — appear in
-the provider pane.
+Navidrome, Lyrion, Plex, Jellyfin, Emby, Audiobookshelf, Music Assistant,
+Spotify, Qobuz, Tidal, Mixcloud, Podcasts, and YouTube Music. Artist and album
+screens exist only where the provider implements them: Navidrome, Lyrion,
+Jellyfin, Emby, Audiobookshelf, Qobuz, Tidal, and Mixcloud. Music Assistant
+has the album screens; its artists are a folder in the provider pane. Podcasts
+reuses those screens for categories and shows. Plex, Spotify, and YouTube
+Music have no artist or album screens; their playlists — and, for Plex and
+Spotify, saved albums — appear in the provider pane.
 
 | Key | Action |
 |---|---|
@@ -382,7 +385,7 @@ This applies to:
 
 Other `Ctrl+F` providers, including Spotify, Qobuz, Tidal, Navidrome, Lyrion,
 Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, SoundCloud, Yandex
-Music, Podcasts, and YouTube, send the query to their search API. Their
+Music, Music Assistant, Podcasts, and YouTube, send the query to their search API. Their
 services control matching rules.
 
 ## General

@@ -18,6 +18,7 @@ import (
 	"github.com/bjarneo/cliamp/external/jellyfin"
 	"github.com/bjarneo/cliamp/external/local"
 	"github.com/bjarneo/cliamp/external/lyrion"
+	"github.com/bjarneo/cliamp/external/mass"
 	"github.com/bjarneo/cliamp/external/mixcloud"
 	"github.com/bjarneo/cliamp/external/navidrome"
 	"github.com/bjarneo/cliamp/external/netease"
@@ -81,6 +82,7 @@ var providerKeys = []providerKey{
 	{key: "plex", name: "Plex", optional: true},
 	{key: "jellyfin", name: "Jellyfin", optional: true},
 	{key: "emby", name: "Emby", optional: true},
+	{key: "mass", name: "Music Assistant", optional: true},
 	{key: "spotify", name: "Spotify", optional: true},
 	{key: "qobuz", name: "Qobuz", optional: true},
 	{key: "tidal", name: "Tidal", optional: true},
@@ -191,6 +193,13 @@ func buildProviders(cfg config.Config, interactive bool) *providerSet {
 	}
 	if p := emby.NewFromConfig(cfg.Emby); p != nil {
 		add("emby", p)
+	}
+	ma := mass.NewFromConfig(cfg.Mass)
+	if ma == nil {
+		ma = mass.NewFromEnv(cfg.Mass)
+	}
+	if ma != nil {
+		add("mass", ma)
 	}
 	if p := audiobookshelf.NewFromConfig(cfg.Audiobookshelf); p != nil {
 		add("audiobookshelf", p)
@@ -341,6 +350,17 @@ func (s *providerSet) resumeServer(key string) *embyapi.Provider {
 			return p.Provider
 		case *emby.Provider:
 			return p.Provider
+		}
+	}
+	return nil
+}
+
+// musicAssistant returns the Music Assistant provider, or nil when it is not
+// configured.
+func (s *providerSet) musicAssistant() *mass.Provider {
+	for _, e := range s.entries {
+		if p, ok := e.Provider.(*mass.Provider); ok {
+			return p
 		}
 	}
 	return nil

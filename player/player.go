@@ -718,6 +718,21 @@ func (p *Player) Duration() time.Duration {
 	return dur
 }
 
+// SetKnownDuration records a metadata duration for the current stream.
+// Sendspin reports length after playback has already started.
+func (p *Player) SetKnownDuration(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	speaker.Lock()
+	defer speaker.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.current != nil {
+		p.current.knownDuration = d
+	}
+}
+
 // PositionAndDuration returns both position and duration under a single
 // speaker lock, avoiding two separate lock acquisitions per tick.
 func (p *Player) PositionAndDuration() (time.Duration, time.Duration) {

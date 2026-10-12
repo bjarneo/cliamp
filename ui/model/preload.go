@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/external/mass"
 	"github.com/bjarneo/cliamp/playlist"
 )
 
@@ -48,7 +49,8 @@ func (m *Model) rearmStalePreload() tea.Cmd {
 // and the tick loop will retry on the next pass.
 func (m *Model) preloadNext() tea.Cmd {
 	next, ok := m.preloadTarget()
-	if !ok || next.Path == m.preloadFailed || (m.preloading && m.preloadFor == next.Path) {
+	// Music Assistant keeps its own queue playing; there is nothing to open.
+	if !ok || mass.IsTrackPath(next.Path) || next.Path == m.preloadFailed || (m.preloading && m.preloadFor == next.Path) {
 		return nil
 	}
 	isYTDL := playlist.IsYTDL(next.Path)

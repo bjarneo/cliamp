@@ -252,6 +252,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case massPlayersMsg:
+		m.applyMassPlayers(msg)
+		return m, nil
+
 	case deviceSwitchedMsg:
 		if msg.err != nil {
 			m.status.Errorf(statusTTLDefault, "Switch failed: %s", msg.err)
@@ -282,6 +286,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case playback.PauseMsg:
 		if m.player.IsPlaying() && !m.player.IsPaused() {
 			m.togglePlayerPause()
+			return m, m.massTransport("pause")
 		}
 		return m, nil
 

@@ -136,6 +136,12 @@ user_id = "42"
 enabled = true
 token = "y0_token"
 
+[mass]
+url = "http://ma.local:8095"
+token = ma#token
+player_name = "Den cliamp"
+sendspin_port = 9927
+
 [plugins]
 disabled = webhook, discord-rpc
 
@@ -269,6 +275,7 @@ func TestLoadGolden(t *testing.T) {
 	}
 	sectionsWant.NetEase = NetEaseConfig{Enabled: true, CookiesFrom: "chrome:Profile 1", UserID: "42"}
 	sectionsWant.Yandex = YandexConfig{Enabled: true, Token: "y0_token"}
+	sectionsWant.Mass = MassConfig{URL: "http://ma.local:8095", Token: "ma#token", PlayerName: "Den cliamp", SendspinPort: 9927}
 	sectionsWant.Plugins = map[string]map[string]string{
 		"": {"disabled": "webhook, discord-rpc"},
 		"lastfm": {
@@ -348,6 +355,7 @@ func TestLoadGolden(t *testing.T) {
 	}
 	allWant.NetEase = NetEaseConfig{Enabled: true, CookiesFrom: "chrome", UserID: "optional-account-user-id"}
 	allWant.Yandex = YandexConfig{Enabled: true, Token: "y0_YourPersonalOAuthToken"}
+	allWant.Mass = MassConfig{URL: "http://homeassistant.local:8095", Token: "your-token", PlayerName: "cliamp", SendspinPort: 8927}
 	allWant.Plex = PlexConfig{URL: "http://192.168.1.10:32400", Token: "xxxxxxxxxxxxxxxxxxxx", Libraries: []string{"Music", "Jazz"}}
 	allWant.Jellyfin = JellyfinConfig{
 		URL:      "https://jellyfin.example.com",
