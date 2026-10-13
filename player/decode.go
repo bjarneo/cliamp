@@ -17,7 +17,6 @@ import (
 
 	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/flac"
-	"github.com/gopxl/beep/v2/mp3"
 	"github.com/gopxl/beep/v2/vorbis"
 	"github.com/gopxl/beep/v2/wav"
 
@@ -335,6 +334,6 @@ func decodeWithExt(rc io.ReadCloser, ext string) (beep.StreamSeekCloser, beep.Fo
 	case ".ogg":
 		return vorbis.Decode(rc)
 	default:
-		return mp3.Decode(rc)
+		return decodeMP3(rc)
 	}
 }
