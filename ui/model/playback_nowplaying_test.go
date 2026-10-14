@@ -102,7 +102,7 @@ func TestPlayTrackEmitsPluginTrackChange(t *testing.T) {
 						m.providers = []provider.Entry{{Key: "p", Name: "P", Provider: prov}}
 					}
 					cmd := m.playTrack(track)
-					if track.Stream && outcome != "buffering" {
+					if outcome != "buffering" {
 						if outcome == "superseded" {
 							// A second request for the same path must invalidate the first.
 							m.playTrack(track)
@@ -175,12 +175,10 @@ func TestPlayTrackFiresNowPlayingForEverySource(t *testing.T) {
 				providers: []provider.Entry{{Key: "p", Name: "P", Provider: prov}},
 			}
 			cmd := m.playTrack(track)
-			if track.Stream {
-				if cmd == nil {
-					t.Fatal("missing stream playback command")
-				}
-				m.Update(cmd())
+			if cmd == nil {
+				t.Fatal("missing playback command")
 			}
+			m.Update(streamPlayedFrom(t, cmd))
 			select {
 			case got := <-prov.reports:
 				if got.Path != path {

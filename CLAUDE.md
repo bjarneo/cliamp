@@ -148,7 +148,7 @@ Lua plugins run in isolated `gopher-lua` VMs. A crash stays in its plugin. Each 
 
 ## Build, test, and local workflow
 
-`mise.toml` pins Go 1.26.6 and shellcheck 0.10.0. Run the targets through mise to use the pins, for example `mise exec -- make ci`.
+`mise.toml` pins Go 1.26.9 and shellcheck 0.10.0. Run the targets through mise to use the pins, for example `mise exec -- make ci`.
 
 | Target | What it does |
 |--------|--------------|
@@ -242,3 +242,9 @@ Golden path for a non-trivial change:
 - Bundled PRs for refactors in one area are preferred over many small ones (per feedback memory).
 - User-facing changes must update `docs/` *and* `site/index.html` in the same change.
 - Avoid adding new top-level dependencies casually — the dependency list in `go.mod` is intentional.
+
+## Commits
+
+Every commit must have a description body, not just a subject line.
+Subject: `area: what changed` (50 chars or less, e.g. `fix(ui): ...`). Body: what was wrong,
+what the fix does, and how it was verified (`make check`: fmt, vet, tests).

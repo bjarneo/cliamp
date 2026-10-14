@@ -22,6 +22,7 @@ cliamp opens on the cliamp radio view: the channels cliamp runs on radio.cliamp.
 - A channel marked `live` has no song library. It plays the live stream.
 - Channels with songs come first, so the cursor starts on a playlist.
 - `Ctrl+R` reloads the channel list and its track counts.
+- Each channel shows who else is listening: `● 3 listening now`, or `○ quiet right now` when nobody is. Your own listening adds one to the channel you play. The counts come from the same statistics the website renders, refresh every few minutes, and stay hidden when offline.
 - `R` opens the Radio provider. To come back, `Tab` to Source (`SRC`) and choose "cliamp radio" with `Left` and `Right`.
 
 cliamp loads the channel list from `https://radio.cliamp.stream/stations`. The view is the default provider, `cliamp`. With `auto_play = true`, cliamp starts the live channel streams instead, so the music starts without a keypress. The daemon also starts with the live streams.

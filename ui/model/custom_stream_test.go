@@ -69,6 +69,40 @@ func newCustomStreamModel(player *playbackFakeEngine) Model {
 	return m
 }
 
+// settlePlay runs a playback start command and applies its result. A command
+// that does not start playback is left alone.
+func settlePlay(t *testing.T, m *Model, cmd tea.Cmd) tea.Cmd {
+	if t != nil {
+		t.Helper()
+	}
+	msg, ok := takeStreamPlayed(cmd)
+	if !ok {
+		return cmd
+	}
+	updated, next := m.Update(msg)
+	*m = updated.(Model)
+	return next
+}
+
+// takeStreamPlayed runs cmd until it produces a streamPlayedMsg.
+func takeStreamPlayed(cmd tea.Cmd) (streamPlayedMsg, bool) {
+	pending := []tea.Cmd{cmd}
+	for len(pending) > 0 {
+		next := pending[0]
+		pending = pending[1:]
+		if next == nil {
+			continue
+		}
+		switch msg := next().(type) {
+		case streamPlayedMsg:
+			return msg, true
+		case tea.BatchMsg:
+			pending = append(pending, msg...)
+		}
+	}
+	return streamPlayedMsg{}, false
+}
+
 // streamPlayedFrom runs cmd and returns the streamPlayedMsg it produces.
 func streamPlayedFrom(t *testing.T, cmd tea.Cmd) streamPlayedMsg {
 	t.Helper()
@@ -91,8 +125,7 @@ func streamPlayedFrom(t *testing.T, cmd tea.Cmd) streamPlayedMsg {
 }
 
 // TestPlayTrackStartsSlowSourcesOffUpdate checks that a start that can wait
-// on the network or on ffmpeg runs in a command, and a native local file
-// starts in Update.
+// on the network, on ffmpeg, or on a filesystem open runs in a command.
 func TestPlayTrackStartsSlowSourcesOffUpdate(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -110,7 +143,7 @@ func TestPlayTrackStartsSlowSourcesOffUpdate(t *testing.T) {
 		// ffmpeg decodes an m4a file after an ffprobe run, which a slow
 		// mount can stall.
 		{name: "local ffmpeg format", path: "/music/local.m4a", wantAsync: true},
-		{name: "local file", path: "local.mp3", wantAsync: false},
+		{name: "local file", path: "local.mp3", wantAsync: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -146,7 +179,7 @@ func TestPlayTrackStartsSlowSourcesOffUpdate(t *testing.T) {
 // TestPlayTrackResumeSeeksOnlyWhenStartMissedHint checks that a start at the
 // resume hint spends the hint without a second seek, that a yt-dlp page,
 // which starts at 0, resumes through a seek command, and that a native local
-// file whose start seek failed seeks in place.
+// file whose start seek failed seeks in place after the start reports back.
 func TestPlayTrackResumeSeeksOnlyWhenStartMissedHint(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -165,8 +198,8 @@ func TestPlayTrackResumeSeeksOnlyWhenStartMissedHint(t *testing.T) {
 		// waits, and that is no reason to seek back.
 		{name: "local ffmpeg file, late start message", track: playlist.Track{Title: "Book", Path: "/books/book.m4b"}, lag: 2 * time.Second, wantAsync: true},
 		{name: "yt-dlp page", track: playlist.Track{Title: "Show", Path: "https://www.mixcloud.com/creator/show/", Stream: true}, ytdl: true, lag: 200 * time.Millisecond, wantAsync: true, wantResumeSeek: true},
-		{name: "native local file", track: playlist.Track{Title: "Song", Path: "/music/song.mp3"}},
-		{name: "native local file, start seek failed", track: playlist.Track{Title: "Song", Path: "/music/song.mp3"}, startMissed: true, wantSeeks: []time.Duration{10 * time.Minute}},
+		{name: "native local file", track: playlist.Track{Title: "Song", Path: "/music/song.mp3"}, wantAsync: true},
+		{name: "native local file, start seek failed", track: playlist.Track{Title: "Song", Path: "/music/song.mp3"}, startMissed: true, wantAsync: true, wantSeeks: []time.Duration{10 * time.Minute}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

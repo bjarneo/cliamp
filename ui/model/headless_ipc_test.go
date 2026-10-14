@@ -209,8 +209,8 @@ func TestHeadlessPlayRestartsLiveStation(t *testing.T) {
 	if got := m.playlist.Index(); got != 0 {
 		t.Fatalf("playlist index = %d, want the current station 0", got)
 	}
-	if engine.stopCalls != 1 || !m.buffering || m.playingTrack.Path != "https://radio.example.com/one" {
-		t.Fatalf("stops = %d, buffering %v, track %q; want a new connection to station one", engine.stopCalls, m.buffering, m.playingTrack.Path)
+	if engine.stopCalls != 1 || m.playingTrack.Path != "https://radio.example.com/one" || len(engine.playCalls) != 1 || engine.playCalls[0] != "https://radio.example.com/one" {
+		t.Fatalf("stops = %d, plays %v, track %q; want a new connection to station one", engine.stopCalls, engine.playCalls, m.playingTrack.Path)
 	}
 }
 

@@ -85,26 +85,32 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.recordPlaylistUndo(playlistUndo{snapshot: snapshot})
 			removed = true
 			m.status.Show("Removed queued track (Ctrl+Z to undo)", statusTTLDefault)
+		} else {
+			m.status.Warning("The queue is empty.", statusTTLDefault)
 		}
+		m.queue.confirmClear = false
 		m.normalizeQueueOverlay()
 		if removed {
 			return m.rearmStalePreload()
 		}
 	case "c":
-		cleared := false
-		if qLen > 0 {
+		if qLen == 0 {
+			m.status.Warning("The queue is empty.", statusTTLDefault)
+			return nil
+		}
+		if qLen == 1 || m.queue.confirmClear {
 			snapshot := m.playlist.Snapshot()
 			m.playlist.ClearQueue()
 			m.recordPlaylistUndo(playlistUndo{snapshot: snapshot})
-			cleared = true
+			m.queue.confirmClear = false
 			m.normalizeQueueOverlay()
 			m.status.Show("Cleared queue (Ctrl+Z to undo)", statusTTLDefault)
-		}
-		m.queue.visible = false
-		if cleared {
 			return m.rearmStalePreload()
 		}
-	case "esc", "A":
+		m.queue.confirmClear = true
+		m.status.Showf(statusTTLDefault, "Clear %d queued tracks? Press c again to confirm, Esc to cancel.", qLen)
+	case "esc", "A", "q":
+		m.queue.confirmClear = false
 		m.queue.visible = false
 	}
 	return nil

@@ -79,8 +79,8 @@ Download from [GitHub Releases](https://github.com/bjarneo/cliamp/releases/lates
 > sound server. See [Troubleshooting](#troubleshooting).
 >
 > **Windows:** Download and extract `cliamp-windows-amd64.zip` from Releases. It
-> includes the codec DLLs that Spotify requires. If `HOME` is not set, cliamp stores
-> its config under `%APPDATA%\cliamp`.
+> includes the codec DLLs that Spotify requires. On Windows, cliamp stores
+> its config under `%APPDATA%\cliamp` unless `HOME` names another directory.
 
 **Optional runtime dependencies** for all platforms and install methods:
 
@@ -113,7 +113,7 @@ Press `Ctrl+K` to see all keybindings.
 cliamp setup
 ```
 
-The wizard guides you through each provider. It writes the provider keys into the section of that provider in your config file (`~/.config/cliamp/config.toml`, or `%APPDATA%\cliamp\config.toml` on Windows when `HOME` is unset). It keeps your other keys and comments. It validates supported server connections during setup. The OAuth providers Spotify, Qobuz and Tidal sign in later in the player. Mixcloud checks optional browser-session or OAuth credentials when you use them. See [docs/cli.md](docs/cli.md#setup-wizard) for details.
+The wizard guides you through each provider. It writes the provider keys into the section of that provider in your config file (`~/.config/cliamp/config.toml`, or `%APPDATA%\cliamp\config.toml` on Windows unless `HOME` names another directory). It keeps your other keys and comments. It validates supported server connections during setup. The OAuth providers Spotify, Qobuz and Tidal sign in later in the player. Mixcloud checks optional browser-session or OAuth credentials when you use them. See [docs/cli.md](docs/cli.md#setup-wizard) for details.
 
 See the [Mixcloud provider guide](docs/mixcloud.md) for discovery, account,
 creator/show, genre search, local genre favorites, authentication, signed-in
@@ -155,7 +155,7 @@ stations as a playlist. cliamp does not work out where you are unless you pick
 "Use my location" and accept; it then reads your country from the system
 timezone, never from a geo-IP service. See [docs/radio.md](docs/radio.md).
 
-Add your own stations to `~/.config/cliamp/radios.toml` (or `%APPDATA%\cliamp\radios.toml` on Windows when `HOME` is unset). See [docs/configuration.md](docs/configuration.md#custom-radio-stations).
+Add your own stations to `~/.config/cliamp/radios.toml` (or `%APPDATA%\cliamp\radios.toml` on Windows unless `HOME` names another directory). See [docs/configuration.md](docs/configuration.md#custom-radio-stations).
 
 To host a radio station, use [cliamp-server](https://github.com/bjarneo/cliamp-server).
 
@@ -163,7 +163,7 @@ To host a radio station, use [cliamp-server](https://github.com/bjarneo/cliamp-s
 
 **Prerequisites:**
 
-- [Go](https://go.dev/dl/) 1.26.6 or later
+- [Go](https://go.dev/dl/) 1.26.9 or later
 - ALSA development headers (Linux only, required by the audio backend)
 
 **Linux (Debian/Ubuntu):**

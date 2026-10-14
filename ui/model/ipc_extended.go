@@ -373,6 +373,25 @@ func (m *Model) handleIPCLibrary(request ipcLibraryRequest) tea.Cmd {
 		}
 	case "provider.tracks":
 		favorite := m.trackFavoriteLookup(false)
+		if window, ok := entry.Provider.(provider.TrackWindow); ok {
+			return func() tea.Msg {
+				limit := request.Limit
+				if limit <= 0 || limit > 200 {
+					limit = 100
+				}
+				tracks, more, err := window.TracksWindow(request.Playlist, request.Offset, limit)
+				if err != nil {
+					request.Reply <- ipc.Response{OK: false, Error: err.Error()}
+					return nil
+				}
+				total := request.Offset + len(tracks)
+				if more {
+					total++
+				}
+				request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(tracks, favorite), Playlist: request.Playlist, Total: total}
+				return nil
+			}
+		}
 		return func() tea.Msg {
 			tracks, err := entry.Provider.Tracks(request.Playlist)
 			if err != nil {

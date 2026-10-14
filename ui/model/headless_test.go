@@ -153,8 +153,9 @@ func TestHeadlessZeroSizePlayNextDrain(t *testing.T) {
 			}
 
 			engine.drained = true
-			updated, _ := m.Update(tickMsg(time.Now()))
+			updated, cmd := m.Update(tickMsg(time.Now()))
 			m = updated.(Model)
+			settlePlay(t, &m, cmd)
 			want := []string{tracks[0].Path, tracks[1].Path, tracks[2].Path}
 			if !slices.Equal(engine.playCalls, want) || m.playlist.Index() != 2 {
 				t.Fatalf("play calls = %v at index %d, want %v at index 2", engine.playCalls, m.playlist.Index(), want)
@@ -281,11 +282,7 @@ func TestPlayFailureIsLogged(t *testing.T) {
 			failure := errors.New("device busy")
 			m := newHeadlessModel(t, &headlessEngine{playbackFakeEngine: playbackFakeEngine{playErr: failure}}, nil, tc.track)
 
-			m.playCurrentTrack()
-			if tc.track.Stream {
-				updated, _ := m.Update(streamPlayedMsg{path: tc.track.Path, gen: m.requests.stream, err: failure})
-				m = updated.(Model)
-			}
+			settlePlay(t, &m, m.playCurrentTrack())
 			if !errors.Is(m.err, failure) {
 				t.Fatalf("model error = %v, want %v", m.err, failure)
 			}

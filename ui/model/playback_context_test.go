@@ -30,13 +30,13 @@ func (s savedPlaybackContext) check(t *testing.T, tracks []playlist.Track, index
 	}
 }
 
-func advancePlaybackContext(m Model, engine *playbackFakeEngine, gapless bool) Model {
+func advancePlaybackContext(t *testing.T, m Model, engine *playbackFakeEngine, gapless bool) Model {
 	if gapless {
 		engine.gaplessAdvanced = true
 		updated, _ := m.Update(tickMsg(time.Now()))
 		return updated.(Model)
 	}
-	m.nextTrack()
+	settlePlay(t, &m, m.nextTrack())
 	return m
 }
 
@@ -51,7 +51,7 @@ func TestPlaybackContextOverlappingReplacement(t *testing.T) {
 			m.SetVisualizer("none")
 			var saved savedPlaybackContext
 			m.SetResumeSaver(saved.save)
-			m.playCurrentTrack()
+			settlePlay(t, &m, m.playCurrentTrack())
 			saved.check(t, old, 0)
 
 			// Even an entry carrying the old source must get fresh replacement provenance.
@@ -70,7 +70,7 @@ func TestPlaybackContextOverlappingReplacement(t *testing.T) {
 				t.Fatalf("detached quit context = (%+v, %d), want old source", context, index)
 			}
 
-			m = advancePlaybackContext(m, engine, gapless)
+			m = advancePlaybackContext(t, m, engine, gapless)
 			if m.playbackDetached || m.playingTrack.Path != "b.mp3" {
 				t.Fatalf("replacement activation = detached:%t track:%q", m.playbackDetached, m.playingTrack.Path)
 			}
@@ -95,7 +95,8 @@ func TestBrowserPlaybackContextSurvivesQueuedAlbum(t *testing.T) {
 			m.SetVisualizer("none")
 			var saved savedPlaybackContext
 			m.SetResumeSaver(saved.save)
-			m.handleNavBrowserKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+			cmd := m.handleNavBrowserKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+			settlePlay(t, &m, cmd)
 			saved.check(t, album, 1)
 			if tracks := m.playlist.Tracks(); len(tracks) != 2 || tracks[0].Path != "b.mp3" || tracks[1].Path != "c.mp3" {
 				t.Fatalf("live list = %+v, want [B C]", tracks)
@@ -107,9 +108,9 @@ func TestBrowserPlaybackContextSurvivesQueuedAlbum(t *testing.T) {
 				t.Fatal("browser q did not queue the interlude")
 			}
 			saved.check(t, album, 1)
-			m = advancePlaybackContext(m, engine, gapless)
+			m = advancePlaybackContext(t, m, engine, gapless)
 			saved.check(t, otherAlbum, 1)
-			m = advancePlaybackContext(m, engine, gapless)
+			m = advancePlaybackContext(t, m, engine, gapless)
 			saved.check(t, album, 2)
 			if m.playingTrack.Path != "c.mp3" {
 				t.Fatalf("playing %q after interlude, want C", m.playingTrack.Path)
@@ -184,7 +185,7 @@ func TestDuplicatePlaybackContextPersistenceAndRestore(t *testing.T) {
 				pl.Add(tracks...)
 			}
 			pl.SetIndex(2)
-			m.playCurrentTrack()
+			settlePlay(t, &m, m.playCurrentTrack())
 			saved.check(t, tracks, 2)
 
 			// Moving the selection to the other A must not change the active entry.
@@ -220,12 +221,12 @@ func TestDuplicatePlaybackContextPersistenceAndRestore(t *testing.T) {
 			if pl.Index() != 2 || len(engine.playCalls) != 0 {
 				t.Fatal("restore did not select the duplicate without playback")
 			}
-			m.playCurrentTrack()
+			settlePlay(t, &m, m.playCurrentTrack())
 			saved.check(t, tracks, 2)
 			if saved.position != 17 {
 				t.Fatalf("restored save position = %d, want 17", saved.position)
 			}
-			m.nextTrack()
+			settlePlay(t, &m, m.nextTrack())
 			saved.check(t, tracks, 3)
 		})
 	}
@@ -266,7 +267,7 @@ func TestPlaybackContextSelectionWithoutSaver(t *testing.T) {
 	m := Model{player: &playbackFakeEngine{position: time.Second}, playlist: pl}
 	m.SetInitialTrack(2)
 	pl.SetIndex(0)
-	m.playCurrentTrack()
+	settlePlay(t, &m, m.playCurrentTrack())
 	m.quit()
 	if context, index := m.ResumeContext(); index != 0 || !reflect.DeepEqual(context, tracks) {
 		t.Fatalf("quit context = (%+v, %d), want active duplicate at index 0", context, index)

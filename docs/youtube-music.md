@@ -137,8 +137,15 @@ like. See issue [#541](https://github.com/bjarneo/cliamp/issues/541).
 
   ```toml
   [ytmusic]
-  cookies_from = "chromium+gnomekeyring"  # or "chrome+gnomekeyring", "brave+kwallet"
+  cookies_from = "chromium+gnomekeyring"  # or "chrome+gnomekeyring", "brave+gnomekeyring", "brave+kwallet"
   ```
+
+  If yt-dlp reports `ERROR: secretstorage not available` when using `+gnomekeyring`,
+  install the optional `secretstorage` Python package for the Python environment
+  running yt-dlp. On Arch Linux, run `sudo pacman -S python-secretstorage`;
+  on Debian and Ubuntu, run `sudo apt install python3-secretstorage`.
+  Then restart cliamp and refresh the provider with `Ctrl+R`. The GNOME Keyring
+  service must also be running and unlocked.
 
 - **"ERR: waiting for audio data: EOF" / playback stops immediately**: yt-dlp did not produce a stream. cliamp shows the yt-dlp message, such as "Sign in to confirm you're not a bot", instead of only EOF. Read the full error. Common causes follow:
   - **Outdated yt-dlp**: Update it with `yt-dlp -U`, or reinstall from the [official repo](https://github.com/yt-dlp/yt-dlp). Distro and winget builds are often stale and can fail when YouTube changes.
@@ -150,6 +157,7 @@ like. See issue [#541](https://github.com/bjarneo/cliamp/issues/541).
 - **Re-authenticate**: Run `cliamp ytmusic reset` to clear stored OAuth credentials. Then restart cliamp, select YouTube Music, and sign in again. This is the same as deleting `~/.config/cliamp/ytmusic_credentials.json`. Cookie mode stores no credentials, so it needs no reset.
 - **Reset Cache**: Press `Ctrl+R` in the TUI, or remove `~/.config/cliamp/ytmusic_cache.json`.
 - **Private/deleted videos**: cliamp automatically skips these when it loads a playlist.
+- **Video unavailable at playback**: cliamp logs the yt-dlp error, shows `Skipped`, and plays the next track. A live station stays on that station so it can reconnect.
 
 ## Requirements
 

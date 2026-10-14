@@ -77,6 +77,12 @@ func TestBackfillLoadedPlaylistDuration(t *testing.T) {
 			if store.updates != 0 {
 				t.Fatalf("Update changed the playlist %d times, want none", store.updates)
 			}
+			played := streamPlayedFrom(t, cmd)
+			if got, _ := m.playlist.Track(0); got.DurationSecs != 0 {
+				t.Fatalf("queue duration before the start reported back = %d, want 0", got.DurationSecs)
+			}
+			updated, cmd := m.Update(played)
+			m = updated.(Model)
 			if got, _ := m.playlist.Track(0); got.DurationSecs != tc.wantQueue {
 				t.Fatalf("queue duration = %d, want %d", got.DurationSecs, tc.wantQueue)
 			}

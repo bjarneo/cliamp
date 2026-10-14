@@ -227,6 +227,29 @@ func fetchPlaylistsCmd(prov playlist.Provider, gen uint64) tea.Cmd {
 	}
 }
 
+// radioListenersLoadedMsg carries live listener counts per cliamp channel
+// slug. A nil map means the fetch failed: rows show no counts, never zero.
+type radioListenersLoadedMsg struct {
+	counts map[string]int
+	gen    uint64
+}
+
+// radioListenersTimeout bounds both statistics documents behind one fetch.
+// A failure stays silent: the provider rows simply show no listener counts.
+const radioListenersTimeout = 30 * time.Second
+
+func fetchRadioListenersCmd(gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), radioListenersTimeout)
+		defer cancel()
+		counts, err := radio.FetchListenerCounts(ctx)
+		if err != nil {
+			return radioListenersLoadedMsg{gen: gen}
+		}
+		return radioListenersLoadedMsg{counts: counts, gen: gen}
+	}
+}
+
 func fetchYTDLBatchCmd(gen uint64, pageURL string, start, count int) tea.Cmd {
 	return func() tea.Msg {
 		tracks, err := resolve.ResolveYTDLBatch(pageURL, start, count, "")

@@ -21,6 +21,7 @@ var (
 	_ playlist.Refresher            = (*SpotifyProvider)(nil)
 	_ provider.PlaylistTargetFilter = (*SpotifyProvider)(nil)
 	_ playlist.Authenticator        = (*SpotifyProvider)(nil)
+	_ provider.Relater              = (*SpotifyProvider)(nil)
 )
 
 // SpotifyProvider implements playlist.Provider using the Spotify Web API

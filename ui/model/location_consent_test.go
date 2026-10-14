@@ -140,6 +140,7 @@ func TestLocationPromptKeys(t *testing.T) {
 		key          tea.KeyPressMsg
 		wantAnswer   *bool
 		wantOnScreen bool
+		wantHint     bool
 	}{
 		{name: "y", key: tea.KeyPressMsg{Text: "y"}, wantAnswer: ptr(true)},
 		{name: "Y", key: tea.KeyPressMsg{Text: "Y"}, wantAnswer: ptr(true)},
@@ -147,9 +148,9 @@ func TestLocationPromptKeys(t *testing.T) {
 		{name: "n", key: tea.KeyPressMsg{Text: "n"}, wantAnswer: ptr(false)},
 		{name: "N", key: tea.KeyPressMsg{Text: "N"}, wantAnswer: ptr(false)},
 		{name: "esc", key: tea.KeyPressMsg{Code: tea.KeyEscape}, wantAnswer: ptr(false)},
-		{name: "j scrolls elsewhere", key: tea.KeyPressMsg{Text: "j"}, wantOnScreen: true},
-		{name: "f favorites elsewhere", key: tea.KeyPressMsg{Text: "f"}, wantOnScreen: true},
-		{name: "slash searches elsewhere", key: tea.KeyPressMsg{Text: "/"}, wantOnScreen: true},
+		{name: "j scrolls elsewhere", key: tea.KeyPressMsg{Text: "j"}, wantOnScreen: true, wantHint: true},
+		{name: "f favorites elsewhere", key: tea.KeyPressMsg{Text: "f"}, wantOnScreen: true, wantHint: true},
+		{name: "slash searches elsewhere", key: tea.KeyPressMsg{Text: "/"}, wantOnScreen: true, wantHint: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := &locationProvider{asking: true, detected: "Norway"}
@@ -168,6 +169,9 @@ func TestLocationPromptKeys(t *testing.T) {
 			}
 			if m.provPane.askLoc != tc.wantOnScreen {
 				t.Errorf("%s left the question on screen = %v, want %v", tc.name, m.provPane.askLoc, tc.wantOnScreen)
+			}
+			if tc.wantHint && m.status.text == "" {
+				t.Errorf("%s left no hint; want the valid keys named", tc.name)
 			}
 		})
 	}

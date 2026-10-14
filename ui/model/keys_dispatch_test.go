@@ -9,6 +9,7 @@ import (
 	"github.com/bjarneo/cliamp/external/radio"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
+	"github.com/bjarneo/cliamp/ui"
 )
 
 // shortcutTestModel registers a provider for every Shift+letter shortcut,
@@ -73,7 +74,8 @@ func TestProviderShortcutsSwitchFromEveryFocus(t *testing.T) {
 
 // quickSwitchProvider takes every key that providerKeyForShortcut maps, so an
 // overlay returns after the switch even when the switch has no command. A
-// provider that is not configured only closes the overlays.
+// provider that is not configured keeps the overlays open: there is nowhere
+// to land, so only the setup hint applies.
 func TestQuickSwitchProviderTakesEveryShortcut(t *testing.T) {
 	t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
 	// A Radio with an active search starts no catalog load, so the switch to
@@ -87,14 +89,15 @@ func TestQuickSwitchProviderTakesEveryShortcut(t *testing.T) {
 		wantOK       bool
 		wantCmd      bool
 		wantProvider string
+		wantOpen     bool // overlays stay open
 	}{
 		{name: "configured provider", key: "S", wantOK: true, wantCmd: true, wantProvider: "spotify"},
 		{name: "N names Navidrome", key: "N", wantOK: true, wantCmd: true, wantProvider: "navidrome"},
 		{name: "switch with no command", key: "R", wantOK: true, wantProvider: "Radio"},
-		{name: "provider not configured", key: "T", drop: "tidal", wantOK: true, wantProvider: "Other"},
-		{name: "lowercase letter", key: "s", wantProvider: "Other"},
-		{name: "other key", key: "ctrl+f", wantProvider: "Other"},
-		{name: "empty key", key: "", wantProvider: "Other"},
+		{name: "provider not configured keeps overlays", key: "T", drop: "tidal", wantOK: true, wantProvider: "Other", wantOpen: true},
+		{name: "lowercase letter", key: "s", wantProvider: "Other", wantOpen: true},
+		{name: "other key", key: "ctrl+f", wantProvider: "Other", wantOpen: true},
+		{name: "empty key", key: "", wantProvider: "Other", wantOpen: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -117,9 +120,8 @@ func TestQuickSwitchProviderTakesEveryShortcut(t *testing.T) {
 			if got := m.provider.Name(); got != tt.wantProvider {
 				t.Errorf("provider = %q, want %q", got, tt.wantProvider)
 			}
-			open := !tt.wantOK
-			if m.navBrowser.visible != open || m.plManager.visible != open || m.fileBrowser.visible != open {
-				t.Errorf("overlays visible = %v %v %v, want %v", m.navBrowser.visible, m.plManager.visible, m.fileBrowser.visible, open)
+			if m.navBrowser.visible != tt.wantOpen || m.plManager.visible != tt.wantOpen || m.fileBrowser.visible != tt.wantOpen {
+				t.Errorf("overlays visible = %v %v %v, want %v", m.navBrowser.visible, m.plManager.visible, m.fileBrowser.visible, tt.wantOpen)
 			}
 		})
 	}
@@ -164,14 +166,14 @@ func TestOverlayProviderShortcuts(t *testing.T) {
 		wantReplace  bool
 	}{
 		{name: "nav menu N switches to Navidrome", open: nav(navBrowseModeMenu, navBrowseScreenList), key: "N", wantProvider: "navidrome"},
-		{name: "nav menu N without Navidrome", open: nav(navBrowseModeMenu, navBrowseScreenList), key: "N", drop: "navidrome", wantProvider: "Other"},
+		{name: "nav menu N without Navidrome keeps the browser", open: nav(navBrowseModeMenu, navBrowseScreenList), key: "N", drop: "navidrome", wantProvider: "Other", wantOpen: true},
 		{name: "nav album list R switches to Radio", open: nav(navBrowseModeByAlbum, navBrowseScreenList), key: "R", wantProvider: "radio"},
 		{name: "nav track screen R asks to replace", open: nav(navBrowseModeByAlbum, navBrowseScreenTracks), key: "R", wantProvider: "Other", wantOpen: true, wantReplace: true},
-		{name: "nav S without Spotify", open: nav(navBrowseModeByAlbum, navBrowseScreenList), key: "S", drop: "spotify", wantProvider: "Other"},
+		{name: "nav S without Spotify keeps the browser", open: nav(navBrowseModeByAlbum, navBrowseScreenList), key: "S", drop: "spotify", wantProvider: "Other", wantOpen: true},
 		{name: "nav replace prompt keeps S", open: navPrompt, key: "S", wantProvider: "Other", wantOpen: true, wantReplace: true},
 		{name: "nav replace prompt keeps S without Spotify", open: navPrompt, key: "S", drop: "spotify", wantProvider: "Other", wantOpen: true, wantReplace: true},
 		{name: "manager list R switches to Radio", open: manager(plMgrScreenList), key: "R", wantProvider: "radio"},
-		{name: "manager tracks S without Spotify", open: manager(plMgrScreenTracks), key: "S", drop: "spotify", wantProvider: "Other"},
+		{name: "manager tracks S without Spotify keeps the manager", open: manager(plMgrScreenTracks), key: "S", drop: "spotify", wantProvider: "Other", wantOpen: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -245,6 +247,9 @@ func TestNavReplacePromptOwnsTheKeys(t *testing.T) {
 			}
 			if got := m.provider.Name(); got != "Other" {
 				t.Fatalf("provider = %q, want Other", got)
+			}
+			if m.status.text == "" {
+				t.Error("stray key behind the prompt left no hint; want the valid keys named")
 			}
 		})
 	}
@@ -414,6 +419,203 @@ func TestHandleGlobalKey(t *testing.T) {
 			}
 			if got := m.playlist.Len(); got != wantLen {
 				t.Errorf("playlist.Len() = %d, want %d", got, wantLen)
+			}
+		})
+	}
+}
+
+// Stray keys behind a confirm prompt name the valid keys instead of dying
+// silently. The filebrowser replace prompt stays open; the manager delete
+// prompt cancels but says so.
+func TestConfirmPromptsHintOnStrayKeys(t *testing.T) {
+	t.Run("filebrowser replace stays open with a hint", func(t *testing.T) {
+		m := keybindingTestModel()
+		m.fileBrowser.visible = true
+		m.fileBrowser.confirmReplace = true
+
+		m.handleFileBrowserKey(tea.KeyPressMsg{Text: "x"})
+
+		if !m.fileBrowser.confirmReplace {
+			t.Fatal("stray key dismissed the replace prompt; want it open")
+		}
+		if m.status.text == "" {
+			t.Fatal("stray key left no hint; want the valid keys named")
+		}
+	})
+
+	t.Run("manager delete cancels with a hint", func(t *testing.T) {
+		m := keybindingTestModel()
+		m.plManager = plManagerState{visible: true, screen: plMgrScreenList, confirmDel: true}
+
+		m.handlePlaylistManagerKey(tea.KeyPressMsg{Text: "x"})
+
+		if m.plManager.confirmDel {
+			t.Fatal("confirmDel still armed after stray key; want it cancelled")
+		}
+		if m.status.text == "" {
+			t.Fatal("stray key left no hint; want the cancellation named")
+		}
+	})
+}
+
+// A shortcut to an unconfigured provider keeps the browser open and names
+// the setup step, instead of closing the browser onto nothing.
+func TestOverlayProviderShortcutMissHintsSetup(t *testing.T) {
+	m := shortcutTestModel()
+	m.playlist.Add(playlist.Track{Path: "existing.mp3"})
+	m.providers = slices.DeleteFunc(m.providers, func(e provider.Entry) bool { return e.Key == "spotify" })
+	m.navBrowser = navBrowserState{
+		prov: commandsTestProvider{name: "Browse"}, visible: true, mode: navBrowseModeByAlbum, screen: navBrowseScreenTracks,
+		tracks: []playlist.Track{{Path: "replacement.mp3"}},
+	}
+
+	m.handleNavBrowserKey(tea.KeyPressMsg{Text: "S"})
+
+	if !m.navBrowser.visible {
+		t.Fatal("nav browser closed for an unconfigured provider; want it open")
+	}
+	if m.status.text == "" {
+		t.Fatal("no setup hint; want the status to name the setup step")
+	}
+}
+
+// q above the main screens closes the top overlay instead of quitting:
+// keymap, file browser, theme/visualizer pickers, playlist picker and
+// manager, and the queue.
+func TestOverlayQCloses(t *testing.T) {
+	tests := []struct {
+		name   string
+		setup  func(*Model)
+		isOpen func(*Model) bool
+	}{
+		{name: "keymap", setup: func(m *Model) { m.keymap.visible = true }, isOpen: func(m *Model) bool { return m.keymap.visible }},
+		{name: "file browser", setup: func(m *Model) { m.fileBrowser.visible = true }, isOpen: func(m *Model) bool { return m.fileBrowser.visible }},
+		{name: "theme picker", setup: func(m *Model) { m.themePicker.visible = true }, isOpen: func(m *Model) bool { return m.themePicker.visible }},
+		{name: "visualizer picker", setup: func(m *Model) { m.visPicker.visible = true }, isOpen: func(m *Model) bool { return m.visPicker.visible }},
+		{name: "playlist picker", setup: func(m *Model) { m.plPicker.visible = true }, isOpen: func(m *Model) bool { return m.plPicker.visible }},
+		{name: "playlist manager list", setup: func(m *Model) {
+			m.plManager = plManagerState{visible: true, screen: plMgrScreenList}
+		}, isOpen: func(m *Model) bool { return m.plManager.visible }},
+		{name: "queue", setup: func(m *Model) { m.queue.visible = true }, isOpen: func(m *Model) bool { return m.queue.visible }},
+		{name: "info", setup: func(m *Model) { m.info.visible = true }, isOpen: func(m *Model) bool { return m.info.visible }},
+		{name: "lyrics", setup: func(m *Model) { m.lyrics.visible = true }, isOpen: func(m *Model) bool { return m.lyrics.visible }},
+		{name: "device picker", setup: func(m *Model) { m.devicePicker.visible = true }, isOpen: func(m *Model) bool { return m.devicePicker.visible }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := keybindingTestModel()
+			m.vis = ui.NewVisualizer(48000)
+			tt.setup(&m)
+
+			if cmd := m.handleKey(tea.KeyPressMsg{Text: "q"}); cmd != nil {
+				t.Errorf("cmd = non-nil, want nil (close, not quit)")
+			}
+			if tt.isOpen(&m) {
+				t.Error("overlay still open, want closed")
+			}
+			if m.quitting {
+				t.Error("quitting = true, want false (q must not quit)")
+			}
+		})
+	}
+}
+
+// Space in the manager tracks screen advances only when marking: checking
+// walks down the list, unchecking stays on the row under review.
+func TestManagerSpaceAdvanceOnMarkOnly(t *testing.T) {
+	newTracksModel := func() *Model {
+		m := keybindingTestModel()
+		m.plManager = plManagerState{visible: true, screen: plMgrScreenTracks, selPlaylist: "music"}
+		m.plMgrLoadTracks([]playlist.Track{
+			{Path: "/one.mp3", Title: "One"},
+			{Path: "/two.mp3", Title: "Two"},
+		})
+		return &m
+	}
+	space := tea.KeyPressMsg{Code: tea.KeySpace}
+
+	t.Run("marking advances", func(t *testing.T) {
+		m := newTracksModel()
+		m.handlePlaylistManagerKey(space)
+		if !m.plManager.marked[0] {
+			t.Fatal("track 0 not marked after space")
+		}
+		if m.plManager.cursor != 1 {
+			t.Fatalf("cursor = %d, want 1 (advance on mark)", m.plManager.cursor)
+		}
+	})
+
+	t.Run("unmarking stays", func(t *testing.T) {
+		m := newTracksModel()
+		m.handlePlaylistManagerKey(space)
+		m.plManager.cursor = 0
+		m.handlePlaylistManagerKey(space)
+		if m.plManager.marked[0] {
+			t.Fatal("track 0 still marked after second space")
+		}
+		if m.plManager.cursor != 0 {
+			t.Fatalf("cursor = %d, want 0 (stay on unmark)", m.plManager.cursor)
+		}
+	})
+
+	t.Run("last row clamps", func(t *testing.T) {
+		m := newTracksModel()
+		m.plManager.cursor = 1
+		m.handlePlaylistManagerKey(space)
+		if !m.plManager.marked[1] {
+			t.Fatal("track 1 not marked after space")
+		}
+		if m.plManager.cursor != 1 {
+			t.Fatalf("cursor = %d, want 1 (clamp on last row)", m.plManager.cursor)
+		}
+	})
+}
+
+// q on a manager tracks screen steps back to the list, like Esc does.
+func TestManagerTracksQBacksToList(t *testing.T) {
+	m := keybindingTestModel()
+	m.localProvider = &localInlineFake{commandsTestProvider: commandsTestProvider{name: "Local"}}
+	m.plManager = plManagerState{visible: true, screen: plMgrScreenTracks, selPlaylist: "music"}
+
+	m.handleKey(tea.KeyPressMsg{Text: "q"})
+
+	if !m.plManager.visible {
+		t.Fatal("manager closed; want it open on the list screen")
+	}
+	if m.plManager.screen != plMgrScreenList {
+		t.Fatalf("screen = %v, want plMgrScreenList", m.plManager.screen)
+	}
+	if m.quitting {
+		t.Error("quitting = true, want false (q must not quit)")
+	}
+}
+
+// q in the full-screen visualizer exits back to the player instead of
+// quitting the app; quitting there stays on Ctrl+C.
+func TestFullVisualizerExitKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		key  tea.KeyPressMsg
+	}{
+		{name: "q", key: tea.KeyPressMsg{Text: "q"}},
+		{name: "esc", key: tea.KeyPressMsg{Code: tea.KeyEscape}},
+		{name: "backspace", key: tea.KeyPressMsg{Code: tea.KeyBackspace}},
+		{name: "b", key: tea.KeyPressMsg{Text: "b"}},
+		{name: "V", key: tea.KeyPressMsg{Text: "V"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := keybindingTestModel()
+			m.fullVis = true
+
+			if cmd := m.handleKey(tt.key); cmd != nil {
+				t.Errorf("cmd = non-nil, want nil (no quit command)")
+			}
+			if m.fullVis {
+				t.Error("fullVis = true, want false (exit the visualizer)")
+			}
+			if m.quitting {
+				t.Error("quitting = true, want false (q must not quit)")
 			}
 		})
 	}

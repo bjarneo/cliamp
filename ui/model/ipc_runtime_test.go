@@ -46,6 +46,9 @@ func runV2(t *testing.T, m *Model, op string, params ipc.Request) ipc.Response {
 	msg := v2Request(t, op, params)
 	updated, cmd := m.Update(msg)
 	*m = updated.(Model)
+	if op == "play" || op == "next" || op == "prev" || op == "toggle" {
+		cmd = settlePlay(t, m, cmd)
+	}
 	running := func() bool {
 		job, _ := msg.Jobs.Get(msg.JobID)
 		return job.State == ipc.JobRunning

@@ -1,0 +1,5 @@
+site/** linguist-vendored
+docs/** linguist-documentation
+.github/** linguist-vendored
+flake.lock linguist-generated
+go.sum linguist-generated

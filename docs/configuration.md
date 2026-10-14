@@ -16,10 +16,10 @@ cliamp searches for its config directory in this order:
 
 - `CLIAMP_CONFIG_DIR`
 - `XDG_CONFIG_HOME/cliamp`
+- On Windows, `%APPDATA%\cliamp`, unless `HOME` names a directory other than the profile directory. If `%APPDATA%\cliamp` has no `config.toml` and `HOME/.config/cliamp` has one, cliamp keeps the existing directory.
 - `HOME/.config/cliamp`
-- on Windows, `%APPDATA%\cliamp` when `HOME` is not set
 
-The examples below use `~/.config/cliamp`. On Windows without `HOME`, use `%APPDATA%\cliamp` instead.
+The examples below use `~/.config/cliamp`. On Windows, use `%APPDATA%\cliamp` unless you set a custom `HOME`.
 
 For other settings, copy and edit the example config:
 

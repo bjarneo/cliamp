@@ -57,7 +57,7 @@ func TestEmptyStatesNameTheNextStep(t *testing.T) {
 				m.plManager = plManagerState{visible: true, screen: plMgrScreenTracks, selPlaylist: favorites.PlaylistName}
 			},
 			body: (*Model).renderPlMgrTracksBody,
-			want: []string{"Press n on a track in the playlist to add it here."},
+			want: []string{"Press f on a track in the playlist to add it here."},
 		},
 		{
 			name: "new playlist name",
@@ -103,6 +103,11 @@ func TestProviderEmptyStateHints(t *testing.T) {
 		{"Yandex Music", "[yandex] token"},
 		{"Radio", "reload the station directory"},
 		{"Podcasts", "reload the top shows"},
+		{"cliamp radio", "pick another provider"},
+		{"YouTube", "yt-dlp"},
+		{"YouTube (All)", "yt-dlp"},
+		{"YouTube Music", "ytmusic-login"},
+		{"NetEase", "cliamp setup"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.provider, func(t *testing.T) {

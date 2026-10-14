@@ -3,12 +3,12 @@ package model
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/applog"
-	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 )
 
@@ -19,7 +19,11 @@ func (m *Model) scheduleReconnect(now time.Time) {
 	delay := time.Second << m.reconnect.attempts
 	m.reconnect.at = now.Add(delay)
 	m.reconnect.attempts++
-	m.reconnect.notice = fmt.Errorf("reconnecting in %s", delay)
+	if err := m.player.StreamErr(); err != nil {
+		m.reconnect.notice = fmt.Errorf("reconnecting in %s (cause: %v)", delay, err)
+	} else {
+		m.reconnect.notice = fmt.Errorf("reconnecting in %s", delay)
+	}
 	m.err = m.reconnect.notice
 }
 
@@ -133,10 +137,19 @@ func (m *Model) handleStreamPlayed(msg streamPlayedMsg) tea.Cmd {
 		m.err = nil
 		m.status.Warningf(statusTTLLong, "Sign-in required to play %s.", track.DisplayName())
 	} else if msg.err != nil {
-		m.err = msg.err
 		applog.Warn("play %q: %v", msg.path, msg.err)
+		// An unavailable YouTube video must not stall the queue. A live
+		// station stays put so its reconnect can run.
+		if playlist.IsYTDL(msg.path) && !m.currentPlaybackIsLive(track) && ytdlUnavailable(msg.err) {
+			if _, ok := m.playlist.PeekNext(); ok {
+				m.err = nil
+				m.status.Warningf(statusTTLDefault, "Skipped %s", track.DisplayName())
+				return m.nextTrack()
+			}
+		}
+		m.err = msg.err
 		// A local file is never gated, so m.err alone reports its failure.
-		if track, idx := m.currentPlaybackTrack(); idx >= 0 && !player.UsesLocalFFmpeg(msg.path) {
+		if track, idx := m.currentPlaybackTrack(); idx >= 0 && !plainLocalPath(msg.path) {
 			m.status.Errorf(statusTTLLong, "Couldn't play %s — track is gated, restricted, or unavailable.", track.DisplayName())
 		}
 	} else {
@@ -151,6 +164,18 @@ func (m *Model) handleStreamPlayed(msg streamPlayedMsg) tea.Cmd {
 	}
 	preloadCmd := m.preloadNext()
 	return tea.Batch(resumeCmd, preloadCmd, backfillCmd)
+}
+
+// ytdlUnavailable reports a YouTube video that will not play. A transient
+// yt-dlp failure stays on the track so the user can retry it.
+func ytdlUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "video unavailable") ||
+		strings.Contains(msg, "private video") ||
+		strings.Contains(msg, "this video has been removed")
 }
 
 // handleTrackSaved reports the result of a track save or download.

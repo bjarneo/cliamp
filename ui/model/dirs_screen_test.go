@@ -704,7 +704,8 @@ func TestFbConfirmMixedSelectionSplitsDirsAndFiles(t *testing.T) {
 	}
 }
 
-// The Local rules follow the provider key, not the display name.
+// p opens the saved-playlist manager from any provider pane, following the
+// local provider rather than the active provider key or display name.
 func TestProviderPanePUsesLocalProviderKey(t *testing.T) {
 	for _, tc := range []struct {
 		name, key, display string
@@ -712,7 +713,8 @@ func TestProviderPanePUsesLocalProviderKey(t *testing.T) {
 	}{
 		{name: "local key", key: "local", display: "Local", wantOpen: true},
 		{name: "renamed local", key: "local", display: "My Files", wantOpen: true},
-		{name: "remote named Local", key: "plex", display: "Local"},
+		{name: "remote key", key: "plex", display: "Plex", wantOpen: true},
+		{name: "remote named Local", key: "plex", display: "Local", wantOpen: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			prov := &dirSourceTestProvider{commandsTestProvider: commandsTestProvider{name: tc.display}}
@@ -743,6 +745,22 @@ func TestProviderPanePOpensPlaylistManager(t *testing.T) {
 	}
 	if m.plManager.screen != plMgrScreenList {
 		t.Fatalf("screen = %v, want plMgrScreenList", m.plManager.screen)
+	}
+}
+
+func TestProviderPanePWithoutLocalProvider(t *testing.T) {
+	prov := &dirSourceTestProvider{commandsTestProvider: commandsTestProvider{name: "Spotify"}}
+	m := newDirsScreenTestModel(t, prov)
+	m.localProvider = nil
+	m.providers = []provider.Entry{{Key: "spotify", Name: "Spotify", Provider: prov}}
+	m.provider = prov
+	m.focus = focusProvider
+	m.plManager.visible = false
+
+	m.handleKey(tea.KeyPressMsg{Text: "p"})
+
+	if m.plManager.visible {
+		t.Fatal("p without a local provider must not open the playlist manager")
 	}
 }
 

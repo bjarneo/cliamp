@@ -14,10 +14,11 @@ import (
 
 // Compile-time interface checks.
 var (
-	_ playlist.Provider  = (*CookieProvider)(nil)
-	_ provider.Searcher  = (*CookieProvider)(nil)
-	_ playlist.Refresher = (*CookieProvider)(nil)
-	_ provider.Closer    = (*CookieProvider)(nil)
+	_ playlist.Provider    = (*CookieProvider)(nil)
+	_ provider.Searcher    = (*CookieProvider)(nil)
+	_ provider.TrackWindow = (*CookieProvider)(nil)
+	_ playlist.Refresher   = (*CookieProvider)(nil)
+	_ provider.Closer      = (*CookieProvider)(nil)
 )
 
 // ProviderKind indicates the flavor of the YouTube provider.
@@ -132,6 +133,80 @@ func (b *cookieBase) fetchTracks(target string) ([]playlist.Track, error) {
 	}
 	b.mu.Unlock()
 	return tracks, nil
+}
+
+// fetchTrackWindow returns at most limit tracks from offset. It does not
+// cache a partial list, so a later full load still fetches the playlist.
+func (b *cookieBase) fetchTrackWindow(target string, offset, limit int) ([]playlist.Track, bool, error) {
+	if limit <= 0 {
+		limit = cookiePlaylistBatchSize
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	b.mu.Lock()
+	if cached, ok := b.trackCache[target]; ok {
+		b.mu.Unlock()
+		tracks, more := trackWindow(cached, offset, limit)
+		return tracks, more, nil
+	}
+	generation := b.generation
+	ctx, cancel := context.WithTimeout(context.Background(), cookiePlaylistLoadTimeout)
+	b.nextLoad++
+	loadID := b.nextLoad
+	if b.loadCancels == nil {
+		b.loadCancels = make(map[uint64]context.CancelFunc)
+	}
+	b.loadCancels[loadID] = cancel
+	b.mu.Unlock()
+	defer func() {
+		b.mu.Lock()
+		delete(b.loadCancels, loadID)
+		b.mu.Unlock()
+		cancel()
+	}()
+
+	resolveBatch := b.resolveFn
+	if resolveBatch == nil {
+		resolveBatch = resolve.ResolveYTDLBatchPageContext
+	}
+	need := offset + limit
+	var tracks []playlist.Track
+	more := false
+	for start := 0; len(tracks) < need; {
+		if ctx.Err() != nil {
+			return nil, false, fmt.Errorf("ytmusic: resolve playlist tracks: %w", ctx.Err())
+		}
+		batch, entries, err := resolveBatch(ctx, target, start, cookiePlaylistBatchSize, b.browser)
+		if err != nil {
+			return nil, false, fmt.Errorf("ytmusic: resolve playlist tracks: %w", err)
+		}
+		tracks = append(tracks, batch...)
+		if entries < cookiePlaylistBatchSize {
+			break
+		}
+		start += cookiePlaylistBatchSize
+		if len(tracks) >= need {
+			more = true
+			break
+		}
+	}
+	b.mu.Lock()
+	stale := b.generation != generation
+	b.mu.Unlock()
+	if stale {
+		return nil, false, fmt.Errorf("ytmusic: playlist load canceled")
+	}
+	page, pageMore := trackWindow(tracks, offset, limit)
+	return page, more || pageMore, nil
+}
+
+func trackWindow(tracks []playlist.Track, offset, limit int) ([]playlist.Track, bool) {
+	if offset >= len(tracks) {
+		return nil, false
+	}
+	end := min(len(tracks), offset+limit)
+	return tracks[offset:end], end < len(tracks)
 }
 
 func (b *cookieBase) refresh() {
@@ -288,6 +363,16 @@ func (p *CookieProvider) Tracks(playlistID string) ([]playlist.Track, error) {
 	}
 	target := formatPlaylistURL(playlistID, p.kind == KindMusic)
 	return p.base.fetchTracks(target)
+}
+
+// TracksWindow lists only the requested window. IPC uses it so a limit does
+// not make yt-dlp walk the rest of the playlist.
+func (p *CookieProvider) TracksWindow(playlistID string, offset, limit int) ([]playlist.Track, bool, error) {
+	if playlistID == "" {
+		return nil, false, fmt.Errorf("ytmusic: empty playlist id")
+	}
+	target := formatPlaylistURL(playlistID, p.kind == KindMusic)
+	return p.base.fetchTrackWindow(target, offset, limit)
 }
 
 // SearchTracks performs a search query using yt-dlp's ytsearch: protocol.

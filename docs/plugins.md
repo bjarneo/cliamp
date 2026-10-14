@@ -434,7 +434,7 @@ cliamp.fs.mkdir(path)             -- create directory (recursive)
 cliamp.fs.listdir(path)           --> {names}, err
 ```
 
-You can write only to the system temp directory (`/tmp/` on Unix), `~/.config/cliamp/`, `~/.local/share/cliamp/`, and `~/Music/cliamp/`. In `~/.config/cliamp/`, you cannot write to the `plugins/` directory, `config.toml`, `radios.toml`, `cliamp.sock`, `cliamp.sock.pid`, or `plugins.log`. You can read from any path. `cliamp.fs.read` reads only regular files. For a FIFO, a device, or a directory, it returns `nil` and an error, because a read of such a file can block without a limit. On Windows, when `HOME` is unset, the config directory resolves to `%APPDATA%\cliamp`.
+You can write only to the system temp directory (`/tmp/` on Unix), `~/.config/cliamp/`, `~/.local/share/cliamp/`, and `~/Music/cliamp/`. In `~/.config/cliamp/`, you cannot write to the `plugins/` directory, `config.toml`, `radios.toml`, `cliamp.sock`, `cliamp.sock.pid`, or `plugins.log`. You can read from any path. `cliamp.fs.read` reads only regular files. For a FIFO, a device, or a directory, it returns `nil` and an error, because a read of such a file can block without a limit. On Windows, the config directory resolves to `%APPDATA%\cliamp` unless `HOME` names another directory. If that directory has no `config.toml` and `HOME/.config/cliamp` has one, cliamp keeps the existing directory.
 
 ### cliamp.json
 

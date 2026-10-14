@@ -2,12 +2,24 @@ package model
 
 import (
 	"errors"
+	"fmt"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/external/radio"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
+
+// withRetryHint appends the retry remediation to a load error so sticky
+// m.err names the next step instead of showing a raw failure alone.
+func withRetryHint(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%v — Ctrl+R to retry", err)
+}
 
 // handlePlaylistsLoaded shows the lists of the active provider, or asks for
 // sign-in when the provider needs it.
@@ -23,14 +35,35 @@ func (m *Model) handlePlaylistsLoaded(msg playlistsLoadedMsg) tea.Cmd {
 			return nil
 		}
 		if len(msg.playlists) == 0 {
-			m.err = msg.err
+			m.err = withRetryHint(msg.err)
 			return nil
 		}
 		m.err = nil
 		m.status.Warningf(statusTTLLong, "%s", msg.err)
 	}
 	m.replaceProviderLists(msg.playlists)
+	if cmd := m.maybeFetchRadioListeners(); cmd != nil {
+		return tea.Batch(cmd, m.startCatalogLoading())
+	}
 	return m.startCatalogLoading()
+}
+
+// handleRadioListenersLoaded stores live listener counts for the cliamp
+// radio rows. A stale generation or a provider switch in flight drops the
+// message. Failures arrive as a nil map: the previous counts stay on screen
+// and only the backoff time is stamped, so rows never go blank on a failed
+// refresh.
+func (m *Model) handleRadioListenersLoaded(msg radioListenersLoadedMsg) {
+	if msg.gen != m.requests.radioListeners {
+		return
+	}
+	if _, ok := m.provider.(*radio.ChannelProvider); !ok {
+		return
+	}
+	if msg.counts != nil {
+		m.radioListeners = msg.counts
+	}
+	m.radioListenersAt = time.Now()
 }
 
 // handleTracksLoaded puts a loaded provider list, or one page of it, in the
@@ -55,7 +88,7 @@ func (m *Model) handleTracksLoaded(msg tracksLoadedMsg) tea.Cmd {
 			m.status.Warningf(statusTTLDefault, "Playlist changed while loading — reopen current playlist to reload")
 			return nil
 		}
-		m.err = msg.err
+		m.err = withRetryHint(msg.err)
 		return nil
 	}
 	if msg.offset > 0 {

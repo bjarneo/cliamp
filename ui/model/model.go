@@ -434,6 +434,13 @@ type Model struct {
 	// row in the provider browser. Empty when no provider playlist is active.
 	activeProviderPlaylistID string
 
+	// radioListeners holds live listener counts per cliamp radio channel slug.
+	// Nil means unknown: the fetch never ran or failed, and rows show no
+	// counts rather than zero. radioListenersAt stamps the last fetch so a
+	// failed fetch backs off instead of retrying on every pane load.
+	radioListeners   map[string]int
+	radioListenersAt time.Time
+
 	// exitResume holds the playback state captured just before player.Close()
 	// so ResumeState() can read it after the player is shut down.
 	exitResume struct {

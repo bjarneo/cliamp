@@ -223,16 +223,19 @@ func TestYTDLRelativeSeeksAccumulate(t *testing.T) {
 // reads the pending seek target, as the TUI clock does.
 func TestPreviousDuringRewindGoesBack(t *testing.T) {
 	prevMsg := func(t *testing.T, m *Model) {
-		updated, _ := m.Update(playback.PrevMsg{})
+		updated, cmd := m.Update(playback.PrevMsg{})
 		*m = updated.(Model)
+		settlePlay(t, m, cmd)
 	}
 	prevKey := func(t *testing.T, m *Model) {
-		updated, _ := m.Update(tea.KeyPressMsg{Code: '<', Text: "<"})
+		updated, cmd := m.Update(tea.KeyPressMsg{Code: '<', Text: "<"})
 		*m = updated.(Model)
+		settlePlay(t, m, cmd)
 	}
 	v2Prev := func(t *testing.T, m *Model) {
-		updated, _ := m.Update(v2Request(t, "prev", ipc.Request{}))
+		updated, cmd := m.Update(v2Request(t, "prev", ipc.Request{}))
 		*m = updated.(Model)
+		settlePlay(t, m, cmd)
 	}
 	for _, tc := range []struct {
 		name    string

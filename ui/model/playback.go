@@ -10,7 +10,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/applog"
-	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
@@ -390,8 +389,8 @@ func (m *Model) undoPlaylistMutation() tea.Cmd {
 	return m.rearmStalePreload()
 }
 
-// playTrack plays a track, using async starts for streams and local ffmpeg
-// formats, and sync I/O for other local files. The player picks the
+// playTrack plays a track. A stream, a provider URI, and a local file start
+// in a command, so a slow open does not freeze the UI. The player picks the
 // pipeline, such as the yt-dlp | ffmpeg chain for a yt-dlp page URL.
 func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 	m.pausedAt = time.Time{}
@@ -409,11 +408,10 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 	track, fetchCmd := m.beginPlaybackTrack(track)
 
 	dur := time.Duration(track.DurationSecs) * time.Second
-	// yt-dlp page URLs (YouTube, SoundCloud, Bandcamp, etc.) and custom URIs
-	// such as spotify: open over the network, which can take seconds. A
-	// local file that ffmpeg decodes waits for ffprobe and the first audio.
-	// Start them off the Update goroutine like streams.
-	if track.Stream || playlist.IsYTDL(track.Path) || m.isCustomStreamURI(track.Path) || player.UsesLocalFFmpeg(track.Path) {
+	// A stream, a yt-dlp page, a provider URI, or a local file can block
+	// the Update goroutine. A file on a network share can block for minutes.
+	// Start those opens in a command.
+	if track.Stream || playlist.IsYTDL(track.Path) || m.isCustomStreamURI(track.Path) || plainLocalPath(track.Path) {
 		m.buffering = true
 		m.bufferingAt = time.Now()
 		m.err = nil
@@ -444,6 +442,12 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 		return tea.Batch(m.preloadNext(), fetchCmd)
 	}
 	return m.preloadNext()
+}
+
+// plainLocalPath reports a filesystem path. Opening one can block on a
+// network share, so the start runs off the Update goroutine.
+func plainLocalPath(path string) bool {
+	return path != "" && !playlist.IsURL(path) && !playlist.IsYTDL(path) && !strings.HasPrefix(path, "ssh://")
 }
 
 // isCustomStreamURI reports whether a provider decodes path itself, as the

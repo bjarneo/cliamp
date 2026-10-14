@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -272,6 +273,47 @@ func TestAudioFilesSkipsUnreadableSubdir(t *testing.T) {
 	// Non-recursive mode must behave the same way (no abort either).
 	if files, err := AudioFiles(dir, false); err != nil || len(files) != 1 {
 		t.Fatalf("non-recursive AudioFiles = %v err=%v, want only a.mp3", files, err)
+	}
+}
+
+func TestAudioFilesSkipsHiddenEntries(t *testing.T) {
+	// The scanned directory may itself be hidden; only entries under it are
+	// filtered.
+	dir := filepath.Join(t.TempDir(), ".music")
+	for _, rel := range []string{
+		"01 Track.m4a",
+		"._01 Track.m4a", // macOS AppleDouble sidecar
+		".hidden/x.mp3",
+		"disc2/02 Track.mp3",
+		"disc2/._02 Track.mp3",
+	} {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte{}, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	files, err := AudioFiles(dir, true)
+	if err != nil {
+		t.Fatalf("AudioFiles: %v", err)
+	}
+	want := []string{
+		filepath.Join(dir, "01 Track.m4a"),
+		filepath.Join(dir, "disc2", "02 Track.mp3"),
+	}
+	if !slices.Equal(files, want) {
+		t.Fatalf("recursive AudioFiles = %v, want %v", files, want)
+	}
+
+	files, err = AudioFiles(dir, false)
+	if err != nil {
+		t.Fatalf("non-recursive AudioFiles: %v", err)
+	}
+	if !slices.Equal(files, want[:1]) {
+		t.Fatalf("non-recursive AudioFiles = %v, want %v", files, want[:1])
 	}
 }
 

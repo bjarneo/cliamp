@@ -59,7 +59,7 @@
                 flac
                 libogg
                 libvorbis
-                mpg123
+                libmpg123
                 ffmpeg-headless
                 yt-dlp
               ]

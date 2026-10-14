@@ -108,7 +108,7 @@ func TestFavoriteKeyDispatchByContext(t *testing.T) {
 			},
 			key:      "f",
 			wantPath: "/manager.mp3",
-			wantHelp: "Favorite",
+			wantHelp: "Favorite track",
 		},
 		{
 			name: "browser track list",
@@ -327,6 +327,25 @@ func TestTrackFavoriteSyncKeepsLastState(t *testing.T) {
 	}
 	if got := fake.recorded(); len(got) != 1 || got[0] != "remove fake:track:1" {
 		t.Fatalf("provider calls = %v, want only the last state", got)
+	}
+}
+
+// Toggling a local favorite reports through the status line, on and off.
+func TestTrackFavoriteToggleReports(t *testing.T) {
+	m, _ := favoriteKeyTestModel(t)
+	track := playlist.Track{Path: "/playlist.mp3", Title: "Song"}
+
+	if _, err := m.toggleTrackFavorite(track); err != nil {
+		t.Fatal(err)
+	}
+	if m.status.text != "Favorited: Song" {
+		t.Errorf("status = %q, want the favorite named", m.status.text)
+	}
+	if _, err := m.toggleTrackFavorite(track); err != nil {
+		t.Fatal(err)
+	}
+	if m.status.text != "Unfavorited: Song" {
+		t.Errorf("status = %q, want the unfavorite named", m.status.text)
 	}
 }
 

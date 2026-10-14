@@ -296,6 +296,31 @@ func TestCookieProviderTracksLoadsInBatches(t *testing.T) {
 	}
 }
 
+func TestCookieProviderTracksWindowStopsAtLimit(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	base := newCookieBase("firefox")
+	var starts []int
+	base.resolveFn = func(_ context.Context, _ string, start, count int, _ string) ([]playlist.Track, int, error) {
+		starts = append(starts, start)
+		tracks := make([]playlist.Track, count)
+		for i := range tracks {
+			tracks[i].Title = fmt.Sprintf("Track %d", start+i)
+		}
+		return tracks, count, nil
+	}
+	prov := &CookieProvider{base: base, kind: KindVideo}
+	tracks, more, err := prov.TracksWindow("LL", 0, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tracks) != 20 || !more {
+		t.Fatalf("window = %d more %v, want 20 and more", len(tracks), more)
+	}
+	if !slices.Equal(starts, []int{0}) {
+		t.Fatalf("batch starts = %v, want one page", starts)
+	}
+}
+
 func TestCookieProviderStopsTrackLoad(t *testing.T) {
 	tests := []struct {
 		name string

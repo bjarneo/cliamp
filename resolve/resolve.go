@@ -349,6 +349,12 @@ func CollectAudioFiles(path string) ([]string, error) {
 // AudioFiles returns sorted audio file paths under dir. When recursive is
 // false only the directory's immediate children are considered. A file path
 // with a supported extension is returned directly.
+//
+// Entries whose name starts with "." are skipped while scanning a directory,
+// matching the file browser. This keeps metadata sidecars such as macOS
+// AppleDouble files ("._01 Track.m4a"), which carry an audio extension but
+// are not playable, out of the playlist. dir itself is always scanned even
+// when its own name is hidden.
 func AudioFiles(dir string, recursive bool) ([]string, error) {
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -372,6 +378,12 @@ func AudioFiles(dir string, recursive bool) ([]string, error) {
 				}
 				return nil
 			}
+			if p != dir && isHiddenName(d.Name()) {
+				if d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
 			if !d.IsDir() && playlist.IsAudioFile(p) {
 				files = append(files, p)
 			}
@@ -391,7 +403,7 @@ func AudioFiles(dir string, recursive bool) ([]string, error) {
 	}
 	var files []string
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir() || isHiddenName(e.Name()) {
 			continue
 		}
 		p := filepath.Join(dir, e.Name())
@@ -401,6 +413,11 @@ func AudioFiles(dir string, recursive bool) ([]string, error) {
 	}
 	slices.Sort(files)
 	return files, nil
+}
+
+// isHiddenName reports whether a directory entry name is a dotfile.
+func isHiddenName(name string) bool {
+	return strings.HasPrefix(name, ".")
 }
 
 // TracksFromPaths converts file paths to Tracks concurrently with tag

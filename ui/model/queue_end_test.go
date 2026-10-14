@@ -116,7 +116,9 @@ func TestQueueEndEvent(t *testing.T) {
 			player: &playbackFakeEngine{playErr: startErr},
 			tracks: []playlist.Track{local},
 			load: func(t *testing.T, m *Model) {
-				m.playTrack(local)
+				msg := streamPlayedFrom(t, m.playTrack(local))
+				updated, _ := m.Update(msg)
+				*m = updated.(Model)
 				if !errors.Is(m.err, startErr) {
 					t.Fatalf("playback error = %v, want %v", m.err, startErr)
 				}
