@@ -89,6 +89,10 @@ const (
 	compactBaseRows = 9
 	// compactVisRows is the compact tier's fixed visualizer height.
 	compactVisRows = 5
+	// fullVisChromeRows is the full-screen visualizer's chrome without the
+	// canvas: the track line, the time line, a blank, and the seek bar.
+	// Shortcut hints are not drawn; ? still opens the keymap.
+	fullVisChromeRows = 4
 )
 
 // The frame padding of a Model that SetPadding did not configure. These
@@ -217,7 +221,7 @@ func (m *Model) recomputeLayout() {
 		layout.fixedRows -= freed
 	}
 
-	layout.fullVisualizerRows = max(1, height-6-2*paddingV)
+	layout.fullVisualizerRows = max(1, height-fullVisChromeRows-2*paddingV)
 	if !layout.tooSmall() {
 		layout.bodyRows = max(1, height-2*paddingV-layout.fixedRows-layout.footerRows)
 		if simplified {

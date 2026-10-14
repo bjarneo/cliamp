@@ -211,6 +211,30 @@ func TestFullVisualizerViewFitsTerminalWidth(t *testing.T) {
 	}
 }
 
+func TestFullVisualizerOmitsShortcutHints(t *testing.T) {
+	m := Model{
+		player:   &playbackFakeEngine{},
+		playlist: playlist.New(),
+		vis:      ui.NewVisualizer(44100),
+		width:    80,
+		height:   24,
+		fullVis:  true,
+	}
+	m.vis.Mode = ui.VisNone
+	m.recomputeLayout()
+
+	got := stripAnsi(m.renderFullVisualizer())
+	for _, hint := range []string{"Exit", "Mode:", "Trk", "Title", "Keys"} {
+		if strings.Contains(got, hint) {
+			t.Errorf("full visualizer shows shortcut hint %q:\n%s", hint, got)
+		}
+	}
+	wantRows := m.height - fullVisChromeRows - 2*m.layout.paddingV
+	if m.vis.Rows != wantRows {
+		t.Fatalf("visualizer rows = %d, want %d", m.vis.Rows, wantRows)
+	}
+}
+
 var stripAnsiRegExp = regexp.MustCompile(`\x1b\[[0-9;]*[mK]`)
 
 func stripAnsi(str string) string {
