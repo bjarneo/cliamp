@@ -104,6 +104,11 @@ func (m *Manager) callLocked(parent context.Context, p *Plugin, label string, ti
 	defer p.L.RemoveContext()
 
 	if err := p.L.CallByParam(lua.P{Fn: fn, NRet: nret, Protect: true}, args...); err != nil {
+		// Read ctx first. A cancel ends parent before ctx, so when ctx has
+		// ended and parent has not, ctx hit its own limit. In the other
+		// order a Close between the two reads turns a Lua error into a
+		// timeout, which logs it again under the timeout key.
+		ctxErr := ctx.Err()
 		if parent.Err() != nil {
 			return lua.LNil, context.Cause(parent)
 		}
@@ -111,8 +116,8 @@ func (m *Manager) callLocked(parent context.Context, p *Plugin, label string, ti
 		// the context error and not by the Lua message. A render timeout has
 		// its own slot, so one slow frame does not hide a later Lua error.
 		slot, key := label, err.Error()
-		if ctx.Err() != nil {
-			key = ctx.Err().Error()
+		if ctxErr != nil {
+			key = ctxErr.Error()
 			err = fmt.Errorf("did not finish in %v: %w", timeout, err)
 			if label == renderLabel {
 				slot = renderLabel + " timeout"

@@ -1966,6 +1966,63 @@ func TestCallbackErrorsAreLogged(t *testing.T) {
 	}
 }
 
+// endOnReadCtx is a parent context that ends with errClosed right after the
+// first read of Err once armed. It stands in for a Close that lands at a set
+// point between two reads.
+type endOnReadCtx struct {
+	context.Context
+	cancel context.CancelCauseFunc
+	armed  bool
+}
+
+func (c *endOnReadCtx) Err() error {
+	err := c.Context.Err()
+	if c.armed {
+		c.armed = false
+		c.cancel(errClosed)
+	}
+	return err
+}
+
+// A Lua error stays a Lua error when Close ends the parent context just
+// after the call returns, so it is logged once and not again as a timeout.
+func TestLuaErrorIsNotATimeoutOnClose(t *testing.T) {
+	m := newTestManager()
+	logPath := filepath.Join(t.TempDir(), pluginLogName)
+	m.logger = newPluginLogger(logPath)
+	t.Cleanup(m.Close)
+	p := loadTestPlugin(t, m, "failing", `
+		plugin.register({name = "failing", type = "hook"})
+		function fail() error("callback failed") end
+	`)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	parent := &endOnReadCtx{Context: ctx, cancel: cancel}
+
+	fn, ok := p.L.GetGlobal("fail").(*lua.LFunction)
+	if !ok {
+		t.Fatal("fail is not a function")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	// The first failure logs the error.
+	m.callLocked(m.ctx, p, "timer", hookTimeout, 0, fixedArgs(fn))
+	// callLocked reads parent before it builds the call, so arm it in the
+	// builder. The parent then ends at the first read after the Lua error.
+	_, err := m.callLocked(parent, p, "timer", hookTimeout, 0, func(*lua.LState) (*lua.LFunction, []lua.LValue) {
+		parent.armed = true
+		return fn, nil
+	})
+
+	if err == nil || strings.Contains(err.Error(), "did not finish") {
+		t.Errorf("callLocked() error = %v, want the Lua error", err)
+	}
+	data, _ := os.ReadFile(logPath)
+	if got := strings.Count(string(data), "callback failed"); got != 1 {
+		t.Errorf("plugins.log has %d entries for the error, want 1:\n%s", got, data)
+	}
+}
+
 // Callback errors go to plugins.log only. A write to stderr corrupts the TUI.
 // A render runs on each frame, so it logs its first error once, even when it
 // fails only on some frames. A render timeout has its own log entry, so it
