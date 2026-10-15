@@ -25,13 +25,19 @@ const (
 // queue. The undo of the last queue edit goes, because it restores the old
 // queue.
 func (m *Model) replacePlaylist(tracks []playlist.Track) {
+	m.replacePlaylistAt(tracks, 0)
+}
+
+// replacePlaylistAt is replacePlaylist with the queue positioned on track
+// start.
+func (m *Model) replacePlaylistAt(tracks []playlist.Track, start int) {
 	nextRequest(&m.requests.queue)
 	m.resetYTDLBatch()
 	m.playlistUndo = playlistUndo{}
 	if m.resumeSaver != nil {
 		tracks = playlist.WithPlaybackContext(tracks)
 	}
-	m.playlist.Replace(tracks)
+	m.playlist.ReplaceAt(tracks, start)
 	m.normalizeQueueOverlay()
 }
 

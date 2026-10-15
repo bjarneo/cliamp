@@ -195,6 +195,11 @@ Request provider list responses with `offset` and `limit` when the provider
 supports paging. Use `playlist.replace` to save a GUI-created order, sort, or
 deduplication result as one operation when the provider supports playlist saving.
 
+`provider.load` takes an optional zero-based `index` into the `provider.tracks`
+order. Playback starts on that track. While shuffle is on, that track plays
+first and the others follow in shuffled order. An `index` past the last track
+fails the job and does not change the live playlist. `load` takes no `index`.
+
 ## Events
 
 Subscribe with an exact topic list. The acknowledgement is V2. Later lines use
