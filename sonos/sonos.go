@@ -191,6 +191,9 @@ func (c *Client) Discover(ctx context.Context) ([]Device, error) {
 }
 
 func (c *Client) enrichDiscovered(ctx context.Context, devices []Device) ([]Device, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	out := make([]Device, 0, len(devices))
 	for _, d := range devices {
 		if err := ctx.Err(); err != nil {
@@ -983,7 +986,7 @@ func (c *Client) action(ctx context.Context, address, path, service, action stri
 		requestCtx, cancel = context.WithTimeout(ctx, c.Timeout)
 		defer cancel()
 	}
-	req, e := http.NewRequestWithContext(requestCtx, http.MethodPost, "http://"+address+":1400"+path, strings.NewReader(body.String()))
+	req, e := http.NewRequestWithContext(requestCtx, http.MethodPost, "http://"+net.JoinHostPort(address, "1400")+path, strings.NewReader(body.String()))
 	if e != nil {
 		return nil, e
 	}

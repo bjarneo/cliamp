@@ -55,6 +55,27 @@ func TestSOAPEscapesValuesAndParsesResponse(t *testing.T) {
 	}
 }
 
+func TestSOAPURLSupportsIPv4AndIPv6Addresses(t *testing.T) {
+	for _, address := range []string{"192.0.2.1", "2001:db8::1"} {
+		t.Run(address, func(t *testing.T) {
+			var host, hostname, port, path string
+			client := NewClient(&http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+				host, hostname, port, path = r.URL.Host, r.URL.Hostname(), r.URL.Port(), r.URL.Path
+				return soap(`<GetTransportInfoResponse/>`, 200), nil
+			})})
+			if err := validateAddress(address); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := client.action(t.Context(), address, avTransportPath, avTransport, "GetTransportInfo", map[string]string{"InstanceID": "0"}); err != nil {
+				t.Fatal(err)
+			}
+			if host != net.JoinHostPort(address, "1400") || hostname != address || port != "1400" || path != avTransportPath {
+				t.Fatalf("request URL host=%q hostname=%q port=%q path=%q", host, hostname, port, path)
+			}
+		})
+	}
+}
+
 func TestSOAPFaultAndCancellation(t *testing.T) {
 	c := NewClient(&http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
 		return soap(`<s:Fault><detail><UPnPError><errorCode>701</errorCode><errorDescription>Transition unavailable</errorDescription></UPnPError></detail></s:Fault>`, 500), nil
@@ -984,6 +1005,26 @@ func TestDiscoveryEnrichmentCancellationAndFallback(t *testing.T) {
 			t.Fatalf("devices=%+v caller err=%v discovery err=%v", got, ctx.Err(), err)
 		}
 	})
+}
+
+func TestDiscoveryEnrichmentEmptyHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	client := NewClient(nil)
+	got, err := client.enrichDiscovered(ctx, nil)
+	if !errors.Is(err, context.Canceled) || len(got) != 0 {
+		t.Fatalf("devices=%+v err=%v", got, err)
+	}
+}
+
+func TestDiscoveryEnrichmentEmptyHonorsExpiredDeadline(t *testing.T) {
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancel()
+	client := NewClient(nil)
+	got, err := client.enrichDiscovered(ctx, nil)
+	if !errors.Is(err, context.DeadlineExceeded) || len(got) != 0 {
+		t.Fatalf("devices=%+v err=%v", got, err)
+	}
 }
 
 func TestShareLinkDoesNotRetryHTTPFailureWithoutUPnPFault(t *testing.T) {
