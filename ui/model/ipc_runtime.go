@@ -210,6 +210,7 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 	case "load":
 		request.Cmd = "provider.load"
 		request.Provider = "local"
+		request.Index = 0 // load has no index parameter
 		return m.handleV2LibraryRequest(ctx, msg.Jobs, msg.JobID, request)
 	case "url.load", "save", "lyrics", "history", "history.clear":
 		return m.handleV2DeferredRequest(ctx, msg.Jobs, msg.JobID, request)

@@ -157,7 +157,7 @@ func DefaultOperationRegistry() *OperationRegistry {
 		{Name: "provider.list", Description: "list configured providers"},
 		{Name: "provider.playlists", Description: "list provider playlists", Async: true, Parameters: []string{"provider", "offset", "limit"}},
 		{Name: "provider.tracks", Description: "list provider tracks", Async: true, Parameters: []string{"provider", "playlist", "offset", "limit"}},
-		{Name: "provider.load", Description: "load a provider playlist", Async: true, Parameters: []string{"provider", "playlist"}},
+		{Name: "provider.load", Description: "load a provider playlist", Async: true, Parameters: []string{"provider", "playlist", "index"}},
 		{Name: "provider.search", Description: "search a provider", Async: true, Parameters: []string{"provider", "query", "offset", "limit"}},
 		{Name: "provider.artists", Description: "list provider artists", Async: true, Parameters: []string{"provider", "offset", "limit"}},
 		{Name: "provider.artist_albums", Description: "list an artist's albums", Async: true, Parameters: []string{"provider", "artist", "offset", "limit"}},

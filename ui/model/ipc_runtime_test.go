@@ -329,6 +329,53 @@ func TestV2LoadReadsLocalPlaylist(t *testing.T) {
 	}
 }
 
+// provider.load starts on its index. An index past the last track fails the
+// job before the queue or the loaded playlist change. load takes no index, so
+// it ignores one.
+func TestV2ProviderLoadIndex(t *testing.T) {
+	tracks := []playlist.Track{{Path: "/music/a.mp3", Title: "A"}, {Path: "/music/b.mp3", Title: "B"}, {Path: "/music/c.mp3", Title: "C"}}
+	old := playlist.Track{Path: "/music/old.mp3", Title: "Old"}
+	mix := []string{tracks[0].Path, tracks[1].Path, tracks[2].Path}
+	for _, tc := range []struct {
+		name        string
+		op          string
+		params      ipc.Request
+		wantErr     string
+		wantQueue   []string
+		wantLoaded  string
+		wantCurrent string
+	}{
+		{name: "last index", op: "provider.load", params: ipc.Request{Provider: "local", Playlist: "Mix", Index: 2},
+			wantQueue: mix, wantLoaded: "Mix", wantCurrent: tracks[2].Path},
+		{name: "index past the end", op: "provider.load", params: ipc.Request{Provider: "local", Playlist: "Mix", Index: 3},
+			wantErr: ipc.V2ErrorCodeInternal + ": track index out of range", wantQueue: []string{old.Path}, wantLoaded: "Old", wantCurrent: old.Path},
+		{name: "load ignores index", op: "load", params: ipc.Request{Playlist: "Mix", Index: 3},
+			wantQueue: mix, wantLoaded: "Mix", wantCurrent: tracks[0].Path},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			local := fixedTracksProvider{commandsTestProvider{name: "Local"}, tracks}
+			pl := playlist.New()
+			pl.Add(old)
+			m := Model{
+				player:         &playbackFakeEngine{},
+				playlist:       pl,
+				vis:            ui.NewVisualizer(44100),
+				localProvider:  local,
+				loadedPlaylist: "Old",
+				providers:      []provider.Entry{{Key: "local", Name: "Local", Provider: local}},
+			}
+
+			if response := runV2(t, &m, tc.op, tc.params); response.Error != tc.wantErr {
+				t.Fatalf("response = %+v, want error %q", response, tc.wantErr)
+			}
+			current, _ := m.currentPlaybackTrack()
+			if got := trackPaths(m.playlist.Tracks()); !reflect.DeepEqual(got, tc.wantQueue) || m.loadedPlaylist != tc.wantLoaded || current.Path != tc.wantCurrent {
+				t.Fatalf("queue = %v, loaded %q, current %q; want %v, %q, %q", got, m.loadedPlaylist, current.Path, tc.wantQueue, tc.wantLoaded, tc.wantCurrent)
+			}
+		})
+	}
+}
+
 // A device job records the output device for the snapshot. Only a switch
 // saves the device in the config. The list text feeds cliamp device list.
 func TestV2DeviceResponseRecordsDevice(t *testing.T) {

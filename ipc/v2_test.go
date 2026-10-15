@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -72,6 +73,42 @@ func TestOperationRegistryValidation(t *testing.T) {
 	}
 	if got := errorCode(registry.Validate("runtime.missing", nil)); got != V2ErrorCodeUnknownOperation {
 		t.Fatalf("unknown operation code = %q", got)
+	}
+}
+
+// capabilities lists the parameters of each operation, so a client can tell
+// that provider.load takes an index.
+func TestCapabilitiesListParameters(t *testing.T) {
+	sock := filepath.Join(shortTempDir(t), "cliamp.sock")
+	server, err := NewServer(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+
+	response, err := SendV2(sock, V2Request{Method: "capabilities"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var operations []Operation
+	if err := json.Unmarshal(response.Result, &operations); !response.OK || err != nil {
+		t.Fatalf("capabilities = %#v, decode error %v", response, err)
+	}
+	parameters := make(map[string][]string, len(operations))
+	for _, operation := range operations {
+		parameters[operation.Name] = operation.Parameters
+	}
+	for _, test := range []struct {
+		operation string
+		want      []string
+	}{
+		{operation: "provider.load", want: []string{"provider", "playlist", "index"}},
+		{operation: "provider.load_album", want: []string{"provider", "album"}},
+		{operation: "load", want: []string{"playlist"}},
+	} {
+		if got := parameters[test.operation]; !slices.Equal(got, test.want) {
+			t.Errorf("%s parameters = %v, want %v", test.operation, got, test.want)
+		}
 	}
 }
 

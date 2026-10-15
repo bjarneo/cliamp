@@ -138,6 +138,13 @@ func (p *Playlist) cloneTracksAt(indices []int) []Track {
 // Replace clears the playlist and loads the given tracks, resetting
 // position, queue, and shuffle order.
 func (p *Playlist) Replace(tracks []Track) {
+	p.ReplaceAt(tracks, 0)
+}
+
+// ReplaceAt is Replace with the position set to track start. With shuffle
+// on, start plays first and the other tracks follow in shuffled order. A
+// start outside tracks falls back to 0.
+func (p *Playlist) ReplaceAt(tracks []Track, start int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	before := p.snapshot()
@@ -146,7 +153,10 @@ func (p *Playlist) Replace(tracks []Track) {
 	for i := range tracks {
 		p.order[i] = i
 	}
-	p.pos = 0
+	if start < 0 || start >= len(tracks) {
+		start = 0
+	}
+	p.pos = start
 	p.queue = nil
 	p.queuePositions = nil
 	p.queuedIdx = -1

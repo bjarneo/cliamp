@@ -1,6 +1,9 @@
 package playlist
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestNextRepeatOff(t *testing.T) {
 	p := makePlaylist(3, false) // A B C
@@ -264,5 +267,65 @@ func TestReplace(t *testing.T) {
 	cur, idx := p.Current()
 	if idx != 0 || cur.Title != "X" {
 		t.Fatalf("Current() = (%q, %d), want (X, 0)", cur.Title, idx)
+	}
+}
+
+// ReplaceAt starts the new list on track start. With shuffle on, start plays
+// first and every other track follows once.
+func TestReplaceAt(t *testing.T) {
+	tracks := make([]Track, 10)
+	for i := range tracks {
+		tracks[i] = Track{Title: string(rune('K' + i))}
+	}
+	tests := []struct {
+		name    string
+		shuffle bool
+		replace func(*Playlist)
+		want    int
+	}{
+		{name: "start", replace: func(p *Playlist) { p.ReplaceAt(tracks, 6) }, want: 6},
+		{name: "zero", replace: func(p *Playlist) { p.ReplaceAt(tracks, 0) }, want: 0},
+		{name: "negative", replace: func(p *Playlist) { p.ReplaceAt(tracks, -1) }, want: 0},
+		{name: "past end", replace: func(p *Playlist) { p.ReplaceAt(tracks, 10) }, want: 0},
+		{name: "shuffle start", shuffle: true, replace: func(p *Playlist) { p.ReplaceAt(tracks, 6) }, want: 6},
+		{name: "shuffle last", shuffle: true, replace: func(p *Playlist) { p.ReplaceAt(tracks, 9) }, want: 9},
+		{name: "shuffle past end", shuffle: true, replace: func(p *Playlist) { p.ReplaceAt(tracks, 10) }, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := makePlaylist(3, tt.shuffle)
+			p.SetIndex(1)
+			p.Queue(0)
+
+			tt.replace(p)
+
+			cur, idx := p.Current()
+			if idx != tt.want || cur.Title != tracks[tt.want].Title {
+				t.Fatalf("Current() = (%q, %d), want (%q, %d)", cur.Title, idx, tracks[tt.want].Title, tt.want)
+			}
+			if p.QueueLen() != 0 || p.CurrentIsQueued() {
+				t.Fatalf("queue = %d queued=%v, want cleared", p.QueueLen(), p.CurrentIsQueued())
+			}
+			played := []int{idx}
+			for {
+				if _, ok := p.Next(); !ok {
+					break
+				}
+				_, idx = p.Current()
+				played = append(played, idx)
+			}
+			want := []int{tt.want}
+			for i := range tracks {
+				if i > tt.want || (tt.shuffle && i < tt.want) {
+					want = append(want, i)
+				}
+			}
+			if tt.shuffle {
+				slices.Sort(played[1:])
+			}
+			if !slices.Equal(played, want) {
+				t.Fatalf("played %v, want %v", played, want)
+			}
+		})
 	}
 }
