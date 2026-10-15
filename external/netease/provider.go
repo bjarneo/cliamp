@@ -46,6 +46,7 @@ var ErrNotAuthenticated = errors.New("netease: browser session is not signed in"
 type Config struct {
 	Enabled     bool
 	CookiesFrom string
+	CookiesFile string // Netscape-format cookies file; takes precedence over CookiesFrom
 	UserID      string
 }
 
@@ -76,6 +77,7 @@ type Provider struct {
 	apiBase     string
 	httpClient  *http.Client
 	cookiesFrom string
+	cookiesFile string
 	userID      string
 
 	mu           sync.Mutex
@@ -86,13 +88,15 @@ type Provider struct {
 
 // NewFromConfig returns a provider, or nil when NetEase is not enabled.
 // Registers NetEase's yt-dlp cookie source so resolution and playback use the
-// same signed-in browser session without affecting other providers.
+// same signed-in browser session, or cookies file, without affecting other
+// providers.
 func NewFromConfig(cfg Config) *Provider {
 	if !cfg.Enabled {
 		return nil
 	}
 	cfg.CookiesFrom = strings.TrimSpace(cfg.CookiesFrom)
 	resolve.SetYTDLCookiesForHost("music.163.com", cfg.CookiesFrom)
+	resolve.SetYTDLCookiesFileForHost("music.163.com", cfg.CookiesFile)
 	return New(cfg)
 }
 
@@ -102,6 +106,7 @@ func New(cfg Config) *Provider {
 		apiBase:     defaultAPIBase,
 		httpClient:  httpclient.NewAPI(apiTimeout),
 		cookiesFrom: strings.TrimSpace(cfg.CookiesFrom),
+		cookiesFile: strings.TrimSpace(cfg.CookiesFile),
 		userID:      strings.TrimSpace(cfg.UserID),
 	}
 }
@@ -183,7 +188,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	defer cancel()
 
 	var infos []playlist.PlaylistInfo
-	if userID == "" && p.cookiesFrom != "" {
+	if userID == "" && (p.cookiesFrom != "" || p.cookiesFile != "") {
 		acc, err := p.Account(ctx)
 		if err != nil {
 			return nil, err
@@ -413,7 +418,7 @@ func (p *Provider) apiGet(ctx context.Context, path string, params url.Values, o
 }
 
 func (p *Provider) ensureCookieHeader(ctx context.Context) (string, error) {
-	if p.cookiesFrom == "" {
+	if p.cookiesFrom == "" && p.cookiesFile == "" {
 		return "", nil
 	}
 	p.mu.Lock()
@@ -424,7 +429,13 @@ func (p *Provider) ensureCookieHeader(ctx context.Context) (string, error) {
 	}
 	p.mu.Unlock()
 
-	header, err := extractBrowserCookieHeader(ctx, p.cookiesFrom)
+	var header string
+	var err error
+	if p.cookiesFile != "" {
+		header, err = fileCookieHeader(p.cookiesFile)
+	} else {
+		header, err = extractBrowserCookieHeader(ctx, p.cookiesFrom)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -474,6 +485,19 @@ func extractBrowserCookieHeader(ctx context.Context, browser string) (string, er
 	}
 	if header == "" {
 		return "", fmt.Errorf("netease: no NetEase cookies found in browser session")
+	}
+	return header, nil
+}
+
+// fileCookieHeader reads the NetEase cookies from a Netscape-format cookies
+// file, without yt-dlp.
+func fileCookieHeader(path string) (string, error) {
+	header, err := cookieHeaderFromNetscapeFile(path)
+	if err != nil {
+		return "", fmt.Errorf("netease: read cookies file: %w", err)
+	}
+	if header == "" {
+		return "", fmt.Errorf("netease: no NetEase cookies found in %s", path)
 	}
 	return header, nil
 }

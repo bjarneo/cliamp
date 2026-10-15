@@ -1,6 +1,9 @@
 package ytdlcookies
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestForURLSelectsCookiesByHost(t *testing.T) {
 	SetForHost("mixcloud.com", "firefox")
@@ -47,5 +50,30 @@ func TestSetForHostEmptyBrowserRemovesSelection(t *testing.T) {
 
 	if got := ForURL("https://mixcloud.com/creator/show/"); got != "" {
 		t.Errorf("ForURL() = %q after removal, want empty", got)
+	}
+}
+
+func TestArgsPrefersCookiesFile(t *testing.T) {
+	SetForHost("music.163.com", "chrome")
+	SetForHost("mixcloud.com", "firefox")
+	SetFileForHost("music.163.com", "/tmp/cookies.txt")
+	t.Cleanup(func() {
+		SetForHost("music.163.com", "")
+		SetForHost("mixcloud.com", "")
+		SetFileForHost("music.163.com", "")
+	})
+
+	tests := []struct {
+		url  string
+		want []string
+	}{
+		{url: "https://music.163.com/#/song?id=1", want: []string{"--cookies", "/tmp/cookies.txt"}},
+		{url: "https://www.mixcloud.com/creator/show/", want: []string{"--cookies-from-browser", "firefox"}},
+		{url: "https://example.com/track", want: nil},
+	}
+	for _, test := range tests {
+		if got := Args(test.url); !slices.Equal(got, test.want) {
+			t.Errorf("Args(%q) = %q, want %q", test.url, got, test.want)
+		}
 	}
 }

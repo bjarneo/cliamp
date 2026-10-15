@@ -228,6 +228,7 @@ func buildProviders(cfg config.Config, interactive bool) *providerSet {
 	if p := netease.NewFromConfig(netease.Config{
 		Enabled:     cfg.NetEase.Enabled,
 		CookiesFrom: cfg.NetEase.CookiesFrom,
+		CookiesFile: cfg.NetEase.CookiesFile,
 		UserID:      cfg.NetEase.UserID,
 	}); p != nil {
 		add("netease", p)

@@ -40,10 +40,7 @@ func YTDLPAvailable() bool {
 }
 
 func appendYTDLCookieArgs(args []string, pageURL string) []string {
-	if browser := ytdlcookies.ForURL(pageURL); browser != "" {
-		return append(args, "--cookies-from-browser", browser)
-	}
-	return args
+	return append(args, ytdlcookies.Args(pageURL)...)
 }
 
 // probeYTDLDuration runs a quick yt-dlp --print duration to obtain

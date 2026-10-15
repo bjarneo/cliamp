@@ -507,6 +507,8 @@ user_id = "your-account-user-id"
 
 After you enable NetEase, the provider shows liked songs, created playlists, saved playlists, and public charts. Use `Ctrl+F` to search. Playback uses `yt-dlp` with the same browser cookie source.
 
+If `yt-dlp` cannot read the browser cookies, for example with the DPAPI error on Windows, export the `music.163.com` cookies to a Netscape-format `cookies.txt` file and set `cookies_file = "/path/to/cookies.txt"` instead. See [netease.md](netease.md#cookies-file).
+
 ## Radio
 
 The Radio provider is always on. The `[radio]` block only tunes it:
