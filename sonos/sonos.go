@@ -86,7 +86,9 @@ type EQ struct {
 	Loudness bool `json:"loudness"`
 }
 type Client struct {
-	HTTP    *http.Client
+	HTTP *http.Client
+	// Timeout bounds each SOAP action when positive. A zero or negative value
+	// leaves the action bounded only by ctx and the HTTP client.
 	Timeout time.Duration
 	Target  string
 }
@@ -154,12 +156,12 @@ func (c *Client) Discover(ctx context.Context) ([]Device, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		n, peer, e := conn.ReadFromUDP(buf)
+		n, peer, done, e := readDiscoveryPacket(ctx, conn, buf)
 		if e != nil {
-			if ne, ok := e.(net.Error); ok && ne.Timeout() {
-				break
-			}
-			return nil, fmt.Errorf("Sonos discovery: %w", e)
+			return nil, e
+		}
+		if done {
+			break
 		}
 		loc := ""
 		for _, line := range strings.Split(string(buf[:n]), "\r\n") {
@@ -183,14 +185,44 @@ func (c *Client) Discover(ctx context.Context) ([]Device, error) {
 	}
 	out := make([]Device, 0, len(seen))
 	for _, d := range seen {
-		if household, e := c.Household(ctx, d.Address); e == nil {
-			out = append(out, household...)
-		} else {
-			out = append(out, d)
+		out = append(out, d)
+	}
+	return c.enrichDiscovered(ctx, out)
+}
+
+func (c *Client) enrichDiscovered(ctx context.Context, devices []Device) ([]Device, error) {
+	out := make([]Device, 0, len(devices))
+	for _, d := range devices {
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
+		household, err := c.Household(ctx, d.Address)
+		if err == nil {
+			out = append(out, household...)
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
 	}
 	return sortedUnique(out), nil
 }
+
+func readDiscoveryPacket(ctx context.Context, conn *net.UDPConn, buf []byte) (int, *net.UDPAddr, bool, error) {
+	n, peer, err := conn.ReadFromUDP(buf)
+	if err == nil {
+		return n, peer, false, nil
+	}
+	if ctx.Err() != nil {
+		return 0, nil, false, ctx.Err()
+	}
+	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+		return 0, nil, true, nil
+	}
+	return 0, nil, false, fmt.Errorf("Sonos discovery: %w", err)
+}
+
 func sortedUnique(in []Device) []Device {
 	m := map[string]Device{}
 	for _, d := range in {
@@ -246,6 +278,9 @@ func (c *Client) Household(ctx context.Context, address string) ([]Device, error
 		members := []string{}
 		bondedByMember := make(map[string][]string)
 		for _, m := range g.Members {
+			if strings.EqualFold(m.Invisible, "1") {
+				continue
+			}
 			members = append(members, m.UUID)
 			for _, satellite := range m.Satellites {
 				bondedByMember[m.UUID] = append(bondedByMember[m.UUID], satellite.UUID)
@@ -284,9 +319,14 @@ func (c *Client) Household(ctx context.Context, address string) ([]Device, error
 	return sortedUnique(out), nil
 }
 func (c *Client) coordinator(ctx context.Context, address string) (Device, error) {
+	_, coordinator, err := c.roomAndCoordinator(ctx, address)
+	return coordinator, err
+}
+
+func (c *Client) roomAndCoordinator(ctx context.Context, address string) (Device, Device, error) {
 	ds, e := c.Household(ctx, address)
 	if e != nil {
-		return Device{}, e
+		return Device{}, Device{}, e
 	}
 	var member *Device
 	for _, d := range ds {
@@ -296,17 +336,17 @@ func (c *Client) coordinator(ctx context.Context, address string) (Device, error
 		}
 	}
 	if member == nil {
-		return Device{}, fmt.Errorf("Sonos address %q is not in household topology", address)
+		return Device{}, Device{}, fmt.Errorf("Sonos address %q is not in household topology", address)
 	}
 	for _, d := range ds {
 		if d.ID == member.Coordinator {
 			if d.Address == "" {
-				return Device{}, fmt.Errorf("Sonos coordinator %q has no address", d.ID)
+				return Device{}, Device{}, fmt.Errorf("Sonos coordinator %q has no address", d.ID)
 			}
-			return d, nil
+			return *member, d, nil
 		}
 	}
-	return Device{}, fmt.Errorf("Sonos coordinator %q for address %q is missing from household topology", member.Coordinator, address)
+	return Device{}, Device{}, fmt.Errorf("Sonos coordinator %q for address %q is missing from household topology", member.Coordinator, address)
 }
 func (c *Client) Control(ctx context.Context, address, action, uri string) error {
 	if err := validateAddress(address); err != nil {
@@ -414,8 +454,12 @@ func (c *Client) AppendSpotifyTracks(ctx context.Context, address string, uris [
 		return result, fmt.Errorf("Spotify handoff requires tracks")
 	}
 	for _, uri := range uris {
-		if _, err := spotifyShare(uri); err != nil {
+		share, err := spotifyShare(uri)
+		if err != nil {
 			return result, err
+		}
+		if share.prefix != "" {
+			return result, fmt.Errorf("Spotify handoff requires tracks or episodes")
 		}
 	}
 	d, err := c.coordinator(ctx, address)
@@ -484,9 +528,12 @@ func sonosTime(position time.Duration) string {
 
 func (c *Client) ReadState(ctx context.Context, address string, includeQueue bool) (State, error) {
 	state := State{QueueIndex: -1}
-	d, e := c.coordinator(ctx, address)
+	room, d, e := c.roomAndCoordinator(ctx, address)
 	if e != nil {
 		return state, e
+	}
+	if bondedSatellite(room) {
+		return state, fmt.Errorf("cannot read EQ for bonded Sonos unit %s", address)
 	}
 	state.Coordinator = d.Name
 	if value, err := c.action(ctx, d.Address, "/MediaRenderer/GroupRenderingControl/Control", groupRendering, "GetGroupVolume", map[string]string{"InstanceID": "0"}); err == nil {
@@ -494,9 +541,9 @@ func (c *Client) ReadState(ctx context.Context, address string, includeQueue boo
 			state.Volume = &volume
 		}
 	}
-	bass, bassErr := c.action(ctx, d.Address, renderingPath, renderingControl, "GetBass", map[string]string{"InstanceID": "0"})
-	treble, trebleErr := c.action(ctx, d.Address, renderingPath, renderingControl, "GetTreble", map[string]string{"InstanceID": "0"})
-	loudness, loudnessErr := c.action(ctx, d.Address, renderingPath, renderingControl, "GetLoudness", map[string]string{"InstanceID": "0", "Channel": "Master"})
+	bass, bassErr := c.action(ctx, room.Address, renderingPath, renderingControl, "GetBass", map[string]string{"InstanceID": "0"})
+	treble, trebleErr := c.action(ctx, room.Address, renderingPath, renderingControl, "GetTreble", map[string]string{"InstanceID": "0"})
+	loudness, loudnessErr := c.action(ctx, room.Address, renderingPath, renderingControl, "GetLoudness", map[string]string{"InstanceID": "0", "Channel": "Master"})
 	if bassErr == nil && trebleErr == nil && loudnessErr == nil {
 		bassValue, bassErr := strconv.Atoi(bass["CurrentBass"])
 		trebleValue, trebleErr := strconv.Atoi(treble["CurrentTreble"])
@@ -598,9 +645,12 @@ func (c *Client) SetEQ(ctx context.Context, address, setting string, value int) 
 	if setting == "Loudness" && (value < 0 || value > 1) || setting != "Loudness" && (value < -10 || value > 10) {
 		return fmt.Errorf("EQ value out of range")
 	}
-	d, e := c.coordinator(ctx, address)
+	d, _, e := c.roomAndCoordinator(ctx, address)
 	if e != nil {
 		return e
+	}
+	if bondedSatellite(d) {
+		return fmt.Errorf("cannot set EQ for bonded Sonos unit %s", address)
 	}
 	arg := map[string]string{"InstanceID": "0"}
 	action := "SetBass"
@@ -927,7 +977,13 @@ func (c *Client) action(ctx context.Context, address, path, service, action stri
 		body.WriteString("<" + k + ">" + xmlEscape(value) + "</" + k + ">")
 	}
 	body.WriteString("</u:" + action + "></s:Body></s:Envelope>")
-	req, e := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+address+":1400"+path, strings.NewReader(body.String()))
+	requestCtx := ctx
+	if c.Timeout > 0 {
+		var cancel context.CancelFunc
+		requestCtx, cancel = context.WithTimeout(ctx, c.Timeout)
+		defer cancel()
+	}
+	req, e := http.NewRequestWithContext(requestCtx, http.MethodPost, "http://"+address+":1400"+path, strings.NewReader(body.String()))
 	if e != nil {
 		return nil, e
 	}

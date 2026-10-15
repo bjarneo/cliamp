@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -73,6 +74,98 @@ func TestSOAPFaultAndCancellation(t *testing.T) {
 		t.Fatalf("cancel err=%v", e)
 	}
 }
+
+func TestSOAPTimeoutAndUnboundedContext(t *testing.T) {
+	client := NewClient(&http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		if _, ok := r.Context().Deadline(); !ok {
+			return soap(`<GetTransportInfoResponse/>`, 200), nil
+		}
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})})
+	client.Timeout = 25 * time.Millisecond
+	_, err := client.action(t.Context(), "192.0.2.1", avTransportPath, avTransport, "GetTransportInfo", map[string]string{"InstanceID": "0"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("timeout error = %v", err)
+	}
+
+	client.Timeout = 0
+	if _, err := client.action(t.Context(), "192.0.2.1", avTransportPath, avTransport, "GetTransportInfo", map[string]string{"InstanceID": "0"}); err != nil {
+		t.Fatalf("action without SOAP timeout: %v", err)
+	}
+}
+
+func TestSOAPTimeoutRespectsEarlierContextDeadline(t *testing.T) {
+	var deadline time.Time
+	var hasDeadline bool
+	client := NewClient(&http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		deadline, hasDeadline = r.Context().Deadline()
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})})
+	client.Timeout = time.Second
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	wantDeadline, _ := ctx.Deadline()
+	_, err := client.action(ctx, "192.0.2.1", avTransportPath, avTransport, "GetTransportInfo", map[string]string{"InstanceID": "0"})
+	if !errors.Is(err, context.DeadlineExceeded) || !hasDeadline || !deadline.Equal(wantDeadline) {
+		t.Fatalf("earlier context deadline=%v, request deadline=%v, err=%v", wantDeadline, deadline, err)
+	}
+}
+
+func TestSOAPTimeoutRespectsContextCancellation(t *testing.T) {
+	started := make(chan struct{})
+	client := NewClient(&http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		close(started)
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})})
+	client.Timeout = time.Second
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.action(ctx, "192.0.2.1", avTransportPath, avTransport, "GetTransportInfo", map[string]string{"InstanceID": "0"})
+		done <- err
+	}()
+	<-started
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation error = %v", err)
+	}
+}
+
+func TestDiscoveryReadTimeoutReturnsContextCancellation(t *testing.T) {
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := conn.SetReadDeadline(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, _, done, err := readDiscoveryPacket(ctx, conn, make([]byte, 64))
+	if done || !errors.Is(err, context.Canceled) {
+		t.Fatalf("done=%t err=%v", done, err)
+	}
+}
+
+func TestDiscoveryReadTimeoutEndsNormally(t *testing.T) {
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := conn.SetReadDeadline(time.Now().Add(10 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	_, _, done, err := readDiscoveryPacket(t.Context(), conn, make([]byte, 64))
+	if !done || err != nil {
+		t.Fatalf("done=%t err=%v", done, err)
+	}
+}
+
 func TestSpotifyShareAndQueueIndex(t *testing.T) {
 	var actions []string
 	var sought string
@@ -154,6 +247,42 @@ func TestAppendSpotifyTracksPreservesOrderWithoutChangingTransport(t *testing.T)
 			}
 			last = index
 		}
+	}
+}
+
+func TestAppendSpotifyTracksRejectsContainersBeforeQueueMutation(t *testing.T) {
+	requests := 0
+	client := NewClient(&http.Client{Transport: roundTrip(func(*http.Request) (*http.Response, error) {
+		requests++
+		return topologyResponse(), nil
+	})})
+	for _, uri := range []string{"spotify:playlist:abc123", "spotify:album:abc123", "spotify:show:abc123"} {
+		_, err := client.AppendSpotifyTracks(t.Context(), "192.0.2.10", []string{"spotify:track:abc123", uri})
+		if err == nil || !strings.Contains(err.Error(), "tracks or episodes") {
+			t.Errorf("AppendSpotifyTracks(%q) error = %v", uri, err)
+		}
+	}
+	if requests != 0 {
+		t.Fatalf("invalid input caused %d Sonos requests", requests)
+	}
+}
+
+func TestAppendSpotifyTracksAcceptsTrackAndEpisode(t *testing.T) {
+	adds := 0
+	client := NewClient(&http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		if strings.Contains(r.Header.Get("SOAPACTION"), "#GetZoneGroupState") {
+			return topologyResponse(), nil
+		}
+		if strings.Contains(r.Header.Get("SOAPACTION"), "#AddURIToQueue") {
+			adds++
+			return soap(fmt.Sprintf(`<AddURIToQueueResponse><FirstTrackNumberEnqueued>%d</FirstTrackNumberEnqueued><NumTracksAdded>1</NumTracksAdded><NewQueueLength>%d</NewQueueLength></AddURIToQueueResponse>`, adds, adds), 200), nil
+		}
+		t.Fatalf("unexpected action %s", r.Header.Get("SOAPACTION"))
+		return nil, nil
+	})})
+	got, err := client.AppendSpotifyTracks(t.Context(), "192.0.2.10", []string{"spotify:track:abc123", "spotify:episode:def456"})
+	if err != nil || adds != 2 || got.Appended != 2 {
+		t.Fatalf("range=%+v adds=%d err=%v", got, adds, err)
 	}
 }
 
@@ -473,6 +602,35 @@ func TestHouseholdParsesCoordinatorMembersAndBondedSatellite(t *testing.T) {
 	}
 }
 
+func TestHouseholdAndSetGroupIgnoreInvisibleMembers(t *testing.T) {
+	topology := `<ZoneGroups><ZoneGroup Coordinator="RINCON_ROOM" ID="g"><ZoneGroupMember UUID="RINCON_ROOM" ZoneName="Room" Location="http://192.0.2.10:1400/device.xml"><Satellite UUID="RINCON_SUB" ZoneName="Sub" Location="http://192.0.2.11:1400/device.xml"/></ZoneGroupMember><ZoneGroupMember UUID="RINCON_KITCHEN" ZoneName="Kitchen" Location="http://192.0.2.12:1400/device.xml"/><ZoneGroupMember UUID="RINCON_HIDDEN" ZoneName="Hidden" Location="http://192.0.2.13:1400/device.xml" Invisible="1"/></ZoneGroup></ZoneGroups>`
+	var actions []string
+	client := NewClient(&http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		actions = append(actions, r.Header.Get("SOAPACTION"))
+		return soap(`<GetZoneGroupStateResponse><ZoneGroupState>`+xmlEscape(topology)+`</ZoneGroupState></GetZoneGroupStateResponse>`, 200), nil
+	})})
+	client.Target = "192.0.2.10"
+	devices, err := client.Discover(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(devices) != 3 || !reflect.DeepEqual(devices[0].Members, []string{"RINCON_ROOM", "RINCON_KITCHEN"}) {
+		t.Fatalf("devices=%+v", devices)
+	}
+	if err := client.SetGroup(t.Context(), []string{"RINCON_ROOM", "RINCON_KITCHEN"}, "RINCON_ROOM"); err != nil {
+		t.Fatalf("visible group rejected because of invisible member: %v", err)
+	}
+	var room Device
+	for _, d := range devices {
+		if d.ID == "RINCON_ROOM" {
+			room = d
+		}
+	}
+	if !contains(room.Bonded, "RINCON_SUB") || len(actions) != 2 {
+		t.Fatalf("bonded safety or request count lost: devices=%+v actions=%v", devices, actions)
+	}
+}
+
 func TestSetGroupUsesExactCheckedRoomsAcrossSourceGroups(t *testing.T) {
 	devices := []Device{
 		{ID: "a", Address: "192.0.2.1", Name: "Alpha", Coordinator: "a", GroupID: "g1", Members: []string{"a", "b", "c"}},
@@ -618,11 +776,11 @@ func TestSetGroupStopsAtPartialFailureAndSeparateOnlyTouchesCurrentGroup(t *test
 		t.Fatalf("separate calls = %v, want only the current group", calls)
 	}
 }
-func TestReadStateUsesCoordinatorAndTransportOnlyFields(t *testing.T) {
-	var calls []struct{ action, path string }
+func TestReadStateRoutesTransportAndEQByScope(t *testing.T) {
+	var calls []struct{ action, host, path string }
 	tr := roundTrip(func(r *http.Request) (*http.Response, error) {
 		a := r.Header.Get("SOAPACTION")
-		calls = append(calls, struct{ action, path string }{a, r.URL.Path})
+		calls = append(calls, struct{ action, host, path string }{a, r.URL.Host, r.URL.Path})
 		switch {
 		case strings.Contains(a, "#GetZoneGroupState"):
 			return topologyResponse(), nil
@@ -659,25 +817,53 @@ func TestReadStateUsesCoordinatorAndTransportOnlyFields(t *testing.T) {
 	}
 	for _, call := range calls {
 		a := call.action
-		if strings.Contains(a, "192.0.2.12") {
-			t.Fatalf("non-coordinator action: %v", calls)
-		}
+		wantHost := "192.0.2.10:1400"
 		wantPath := "/MediaRenderer/GroupRenderingControl/Control"
 		switch {
 		case strings.Contains(a, "#GetZoneGroupState"):
+			wantHost = "192.0.2.12:1400"
 			wantPath = "/ZoneGroupTopology/Control"
 		case strings.Contains(a, "GroupRenderingControl:1#"):
 			wantPath = "/MediaRenderer/GroupRenderingControl/Control"
 		case strings.Contains(a, "RenderingControl:1#"):
+			wantHost = "192.0.2.12:1400"
 			wantPath = renderingPath
 		case strings.Contains(a, "AVTransport:1#"):
 			wantPath = avTransportPath
 		case strings.Contains(a, "ContentDirectory:1#"):
 			wantPath = contentPath
 		}
+		if call.host != wantHost {
+			t.Errorf("%s host=%q, want %q", a, call.host, wantHost)
+		}
 		if call.path != wantPath {
 			t.Errorf("%s request path=%q, want %q", a, call.path, wantPath)
 		}
+	}
+}
+
+func TestSetEQUsesRequestedLogicalRoomAndRejectsBondedSatellite(t *testing.T) {
+	var bassHosts []string
+	client := NewClient(&http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		if strings.Contains(r.Header.Get("SOAPACTION"), "#GetZoneGroupState") {
+			return topologyResponse(), nil
+		}
+		if strings.Contains(r.Header.Get("SOAPACTION"), "#SetBass") {
+			bassHosts = append(bassHosts, r.URL.Host)
+		}
+		return soap(`<ok/>`, 200), nil
+	})})
+	if err := client.SetEQ(t.Context(), "192.0.2.12", "Bass", 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetEQ(t.Context(), "192.0.2.11", "Bass", 2); err == nil {
+		t.Fatal("bonded satellite accepted for EQ")
+	}
+	if _, err := client.ReadState(t.Context(), "192.0.2.11", false); err == nil {
+		t.Fatal("bonded satellite accepted for EQ state")
+	}
+	if !reflect.DeepEqual(bassHosts, []string{"192.0.2.12:1400"}) {
+		t.Fatalf("EQ requests went to %v", bassHosts)
 	}
 }
 func TestJoinTargetsRequestedRoomCoordinator(t *testing.T) {
@@ -762,6 +948,42 @@ func TestSeededDiscoveryUsesHouseholdTopology(t *testing.T) {
 	if len(actions) != 1 || !strings.Contains(actions[0], "#GetZoneGroupState") {
 		t.Fatalf("actions=%v", actions)
 	}
+}
+
+func TestDiscoveryEnrichmentCancellationAndFallback(t *testing.T) {
+	device := Device{ID: "192.0.2.10", Address: "192.0.2.10"}
+	t.Run("caller cancellation returns error", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		client := NewClient(&http.Client{Transport: roundTrip(func(*http.Request) (*http.Response, error) {
+			cancel()
+			return nil, context.Canceled
+		})})
+		got, err := client.enrichDiscovered(ctx, []Device{device})
+		if !errors.Is(err, context.Canceled) || len(got) != 0 {
+			t.Fatalf("devices=%+v err=%v", got, err)
+		}
+	})
+	t.Run("ordinary SOAP failure keeps bare device", func(t *testing.T) {
+		client := NewClient(&http.Client{Transport: roundTrip(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("speaker unavailable")
+		})})
+		got, err := client.enrichDiscovered(t.Context(), []Device{device})
+		if err != nil || !reflect.DeepEqual(got, []Device{device}) {
+			t.Fatalf("devices=%+v err=%v", got, err)
+		}
+	})
+	t.Run("per-action timeout keeps bare device while caller active", func(t *testing.T) {
+		client := NewClient(&http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+			<-r.Context().Done()
+			return nil, r.Context().Err()
+		})})
+		client.Timeout = 10 * time.Millisecond
+		ctx := t.Context()
+		got, err := client.enrichDiscovered(ctx, []Device{device})
+		if err != nil || ctx.Err() != nil || !reflect.DeepEqual(got, []Device{device}) {
+			t.Fatalf("devices=%+v caller err=%v discovery err=%v", got, ctx.Err(), err)
+		}
+	})
 }
 
 func TestShareLinkDoesNotRetryHTTPFailureWithoutUPnPFault(t *testing.T) {
