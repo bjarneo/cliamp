@@ -716,6 +716,37 @@ func TestSetGroupUnchecksRoomAndExtractsSoloWithoutMovingOthers(t *testing.T) {
 	}
 }
 
+func TestSetGroupUsesRequestedPlaybackRoomAsCoordinator(t *testing.T) {
+	devices := []Device{
+		{ID: "a", Address: "192.0.2.1", Coordinator: "a", GroupID: "g", Members: []string{"a", "b"}},
+		{ID: "b", Address: "192.0.2.2", Coordinator: "a", GroupID: "g", Members: []string{"a", "b"}},
+	}
+	var calls []string
+	join := func(_ context.Context, room, playback string) error {
+		calls = append(calls, "join:"+room+":"+playback)
+		return nil
+	}
+	unjoin := func(_ context.Context, room string) error {
+		calls = append(calls, "unjoin:"+room)
+		return nil
+	}
+	if err := setGroup(t.Context(), devices, []string{"a", "b"}, "b", join, unjoin); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"unjoin:192.0.2.1", "unjoin:192.0.2.2", "join:192.0.2.1:192.0.2.2"}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("reform calls=%v, want %v", calls, want)
+	}
+
+	calls = nil
+	if err := setGroup(t.Context(), devices, []string{"a", "b"}, "a", join, unjoin); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("already-correct group mutated: %v", calls)
+	}
+}
+
 func TestSetGroupAllowsBondedRoomButNeverSatelliteAndRejectsStaleID(t *testing.T) {
 	devices := []Device{
 		{ID: "room", Address: "192.0.2.1", Coordinator: "room", GroupID: "g", Members: []string{"room", "other"}, Bonded: []string{"sub"}},
@@ -1126,7 +1157,7 @@ func TestDiscoveryDeadlineLeavesCallerTimeForTopology(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sender.Close()
-	response := "HTTP/1.1 200 OK\r\nLOCATION: http://192.0.2.10:1400/device.xml\r\n\r\n"
+	response := "HTTP/1.1 200 OK\r\nST: urn:schemas-upnp-org:device:ZonePlayer:1\r\nLOCATION: http://192.0.2.10:1400/device.xml\r\n\r\n"
 	if _, err := sender.Write([]byte(response)); err != nil {
 		t.Fatal(err)
 	}
@@ -1140,6 +1171,55 @@ func TestDiscoveryDeadlineLeavesCallerTimeForTopology(t *testing.T) {
 	devices, err := client.enrichDiscovered(ctx, []Device{seen["192.0.2.10"]})
 	if err != nil || len(devices) != 3 {
 		t.Fatalf("topology devices=%+v err=%v", devices, err)
+	}
+}
+
+func TestCollectSSDPRequiresSonosIdentityAndLocation(t *testing.T) {
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	sender, err := net.DialUDP("udp4", nil, conn.LocalAddr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sender.Close()
+	responses := []string{
+		"HTTP/1.1 200 OK\r\nsT: URN:schemas-upnp-org:device:zoneplayer:1\r\nLOCATION: http://192.0.2.10:1400/device.xml\r\n\r\n",
+		"HTTP/1.1 200 OK\r\nLOCATION: http://192.0.2.11:1400/device.xml\r\nuSn: UUID:rincon_valid::urn:schemas-upnp-org:device:ZonePlayer:1\r\n\r\n",
+		"HTTP/1.1 200 OK\r\nLOCATION: http://192.0.2.15:1400/device.xml\r\nuSn: UUID:RINCON_bareuuid\r\n\r\n",
+		"HTTP/1.1 200 OK\r\nST: urn:schemas-upnp-org:device:NotZonePlayer:1\r\nUSN: uuid:NOTRINCON_router::upnp:rootdevice\r\nLOCATION: http://192.0.2.12:1400/device.xml\r\n\r\n",
+		"HTTP/1.1 200 OK\r\nST: urn:schemas-upnp-org:device:MediaServer:1\r\nUSN: uuid:UPNP_media_server::upnp:rootdevice\r\nLOCATION: http://192.0.2.13:1400/device.xml\r\n\r\n",
+		"HTTP/1.1 200 OK\r\nUSN: uuid:RINCON_::upnp:rootdevice\r\nLOCATION: http://192.0.2.16:1400/device.xml\r\n\r\n",
+		"HTTP/1.1 200 OK\r\nUSN: RINCON_without_uuid_prefix::upnp:rootdevice\r\nLOCATION: http://192.0.2.17:1400/device.xml\r\n\r\n",
+		"HTTP/1.1 200 OK\r\nLOCATION: http://192.0.2.14:1400/device.xml\r\n\r\n",
+		"HTTP/1.1 200 OK\r\nST: urn:schemas-upnp-org:device:ZonePlayer:1\r\n\r\n",
+	}
+	for _, response := range responses {
+		if _, err := sender.Write([]byte(response)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seen, err := collectSSDP(t.Context(), conn, time.Now().Add(40*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 3 || seen["192.0.2.10"].Address == "" || seen["192.0.2.11"].Address == "" || seen["192.0.2.15"].Address == "" {
+		t.Fatalf("qualified discovery results=%+v", seen)
+	}
+
+	var requests []string
+	client := NewClient(&http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		requests = append(requests, r.URL.Hostname())
+		return nil, errors.New("offline topology")
+	})})
+	devices, err := client.enrichDiscovered(t.Context(), []Device{seen["192.0.2.10"], seen["192.0.2.11"], seen["192.0.2.15"]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(requests, []string{"192.0.2.10", "192.0.2.11", "192.0.2.15"}) || len(devices) != 3 {
+		t.Fatalf("topology requests=%v fallback devices=%+v", requests, devices)
 	}
 }
 

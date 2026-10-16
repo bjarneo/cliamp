@@ -22,6 +22,7 @@ const (
 	contentDirectory = "urn:schemas-upnp-org:service:ContentDirectory:1"
 	groupRendering   = "urn:schemas-upnp-org:service:GroupRenderingControl:1"
 	topology         = "urn:schemas-upnp-org:service:ZoneGroupTopology:1"
+	zonePlayerDevice = "urn:schemas-upnp-org:device:ZonePlayer:1"
 	avTransportPath  = "/MediaRenderer/AVTransport/Control"
 	renderingPath    = "/MediaRenderer/RenderingControl/Control"
 	contentPath      = "/MediaServer/ContentDirectory/Control"
@@ -192,14 +193,25 @@ func collectSSDP(ctx context.Context, conn *net.UDPConn, deadline time.Time) (ma
 		if done {
 			break
 		}
-		loc := ""
+		loc, sonosDevice := "", false
 		for _, line := range strings.Split(string(buf[:n]), "\r\n") {
-			if strings.HasPrefix(strings.ToLower(line), "location:") {
-				loc = strings.TrimSpace(line[len("location:"):])
-				break
+			key, value, ok := strings.Cut(line, ":")
+			if !ok {
+				continue
+			}
+			value = strings.TrimSpace(value)
+			switch strings.ToLower(strings.TrimSpace(key)) {
+			case "location":
+				loc = value
+			case "st":
+				sonosDevice = sonosDevice || strings.EqualFold(value, zonePlayerDevice)
+			case "usn":
+				identity, _, _ := strings.Cut(value, "::")
+				identity = strings.ToLower(identity)
+				sonosDevice = sonosDevice || (strings.HasPrefix(identity, "uuid:rincon_") && len(identity) > len("uuid:rincon_"))
 			}
 		}
-		if loc == "" {
+		if loc == "" || !sonosDevice {
 			continue
 		}
 		u, e := url.Parse(loc)
@@ -813,7 +825,7 @@ func setGroup(ctx context.Context, devices []Device, rooms []string, playback st
 			for _, id := range groups[groupID] {
 				allSelected = allSelected && selected[id]
 			}
-			if allSelected && len(groups) == 1 {
+			if allSelected && len(groups) == 1 && byID[playback].Coordinator == playback {
 				return nil
 			}
 		}
