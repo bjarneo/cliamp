@@ -559,7 +559,11 @@ func TestQueueIndexClockAndMetadata(t *testing.T) {
 const zones = `<ZoneGroups><ZoneGroup Coordinator="RINCON_ROOM" ID="RINCON_ROOM:0"><ZoneGroupMember UUID="RINCON_ROOM" ZoneName="Room" Location="http://192.0.2.10:1400/xml/device_description.xml"><Satellite UUID="RINCON_BASS" ZoneName="Sub" Location="http://192.0.2.11:1400/xml/device_description.xml"/></ZoneGroupMember><ZoneGroupMember UUID="RINCON_KITCHEN" ZoneName="Kitchen" Location="http://192.0.2.12:1400/xml/device_description.xml"/></ZoneGroup></ZoneGroups>`
 
 func topologyResponse() *http.Response {
-	return soap(`<GetZoneGroupStateResponse><ZoneGroupState>`+xmlEscape(zones)+`</ZoneGroupState></GetZoneGroupStateResponse>`, 200)
+	return topologyResponseFor(zones)
+}
+
+func topologyResponseFor(topology string) *http.Response {
+	return soap(`<GetZoneGroupStateResponse><ZoneGroupState>`+xmlEscape(topology)+`</ZoneGroupState></GetZoneGroupStateResponse>`, 200)
 }
 
 func TestCoordinatorSelectsRequestedGroupIncludingBondedMembers(t *testing.T) {
@@ -1024,6 +1028,118 @@ func TestDiscoveryEnrichmentEmptyHonorsExpiredDeadline(t *testing.T) {
 	got, err := client.enrichDiscovered(ctx, nil)
 	if !errors.Is(err, context.DeadlineExceeded) || len(got) != 0 {
 		t.Fatalf("devices=%+v err=%v", got, err)
+	}
+}
+
+func TestDiscoveryEnrichmentSkipsCoveredAddressesAndKeepsOtherHouseholds(t *testing.T) {
+	firstHousehold := `<ZoneGroups><ZoneGroup Coordinator="RINCON_ROOM" ID="room"><ZoneGroupMember UUID="RINCON_ROOM" ZoneName="Room" Location="http://192.0.2.10:1400/device.xml"><Satellite UUID="RINCON_SUB" ZoneName="Sub" Location="http://192.0.2.11:1400/device.xml"/></ZoneGroupMember><ZoneGroupMember UUID="RINCON_KITCHEN" ZoneName="Kitchen" Location="http://192.0.2.12:1400/device.xml"/></ZoneGroup></ZoneGroups>`
+	secondHousehold := `<ZoneGroups><ZoneGroup Coordinator="RINCON_OFFICE" ID="office"><ZoneGroupMember UUID="RINCON_OFFICE" ZoneName="Office" Location="http://192.0.2.20:1400/device.xml"/><ZoneGroupMember UUID="RINCON_GUEST" ZoneName="Guest" Location="http://192.0.2.21:1400/device.xml"/></ZoneGroup></ZoneGroups>`
+	var requests []string
+	client := NewClient(&http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		requests = append(requests, r.URL.Hostname())
+		switch r.URL.Hostname() {
+		case "192.0.2.10":
+			return topologyResponseFor(firstHousehold), nil
+		case "192.0.2.20":
+			return topologyResponseFor(secondHousehold), nil
+		default:
+			t.Fatalf("unexpected topology request to %s", r.URL.Hostname())
+			return nil, nil
+		}
+	})})
+	got, err := client.enrichDiscovered(t.Context(), []Device{
+		{ID: "192.0.2.10", Address: "192.0.2.10"},
+		{ID: "192.0.2.12", Address: "192.0.2.12"},
+		{ID: "192.0.2.20", Address: "192.0.2.20"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(requests, []string{"192.0.2.10", "192.0.2.20"}) {
+		t.Fatalf("topology requests=%v", requests)
+	}
+	ids := deviceIDs(got)
+	for _, id := range []string{"RINCON_ROOM", "RINCON_SUB", "RINCON_KITCHEN", "RINCON_OFFICE", "RINCON_GUEST"} {
+		if !contains(ids, id) {
+			t.Errorf("missing device %s from %+v", id, got)
+		}
+	}
+}
+
+func TestDiscoveryEnrichmentRemovesCoveredFallbackAndKeepsUncovered(t *testing.T) {
+	topology := `<ZoneGroups><ZoneGroup Coordinator="RINCON_ROOM" ID="room"><ZoneGroupMember UUID="RINCON_ROOM" ZoneName="Room" Location="http://192.0.2.10:1400/device.xml"/><ZoneGroupMember UUID="RINCON_RECOVERED" ZoneName="Recovered" Location="http://192.0.2.13:1400/device.xml"/></ZoneGroup></ZoneGroups>`
+	var requests []string
+	client := NewClient(&http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		address := r.URL.Hostname()
+		requests = append(requests, address)
+		if address == "192.0.2.10" {
+			return topologyResponseFor(topology), nil
+		}
+		return nil, errors.New("speaker unavailable")
+	})})
+	got, err := client.enrichDiscovered(t.Context(), []Device{
+		{ID: "192.0.2.13", Address: "192.0.2.13"},
+		{ID: "192.0.2.99", Address: "192.0.2.99"},
+		{ID: "192.0.2.10", Address: "192.0.2.10"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(requests, []string{"192.0.2.13", "192.0.2.99", "192.0.2.10"}) {
+		t.Fatalf("topology requests=%v", requests)
+	}
+	ids := deviceIDs(got)
+	if contains(ids, "192.0.2.13") || !contains(ids, "RINCON_RECOVERED") || !contains(ids, "192.0.2.99") {
+		t.Fatalf("fallback or recovered topology incorrect: %+v", got)
+	}
+}
+
+func deviceIDs(devices []Device) []string {
+	ids := make([]string, 0, len(devices))
+	for _, d := range devices {
+		ids = append(ids, d.ID)
+	}
+	return ids
+}
+
+func TestDiscoveryDeadlineLeavesCallerTimeForTopology(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 800*time.Millisecond)
+	defer cancel()
+	client := NewClient(&http.Client{Transport: roundTrip(func(*http.Request) (*http.Response, error) {
+		return topologyResponse(), nil
+	})})
+	client.Timeout = 2 * time.Second
+	callerDeadline, _ := ctx.Deadline()
+	deadline := discoveryDeadline(ctx, client.Timeout)
+	if !deadline.Before(callerDeadline) {
+		t.Fatalf("SSDP deadline %v does not leave caller time before %v", deadline, callerDeadline)
+	}
+
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	target := conn.LocalAddr().(*net.UDPAddr)
+	sender, err := net.DialUDP("udp4", nil, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sender.Close()
+	response := "HTTP/1.1 200 OK\r\nLOCATION: http://192.0.2.10:1400/device.xml\r\n\r\n"
+	if _, err := sender.Write([]byte(response)); err != nil {
+		t.Fatal(err)
+	}
+	seen, err := collectSSDP(ctx, conn, deadline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ctx.Err(); err != nil {
+		t.Fatalf("caller context expired during SSDP collection: %v", err)
+	}
+	devices, err := client.enrichDiscovered(ctx, []Device{seen["192.0.2.10"]})
+	if err != nil || len(devices) != 3 {
+		t.Fatalf("topology devices=%+v err=%v", devices, err)
 	}
 }
 

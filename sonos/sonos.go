@@ -132,15 +132,44 @@ func (c *Client) Discover(ctx context.Context) ([]Device, error) {
 		return nil, fmt.Errorf("Sonos discovery: %w", err)
 	}
 	defer conn.Close()
-	deadline := time.Now().Add(timeout)
-	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
-		deadline = d
+	deadline := discoveryDeadline(ctx, timeout)
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	_ = conn.SetDeadline(deadline)
+	_ = conn.SetWriteDeadline(deadline)
 	msg := "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\nST: urn:schemas-upnp-org:device:ZonePlayer:1\r\n\r\n"
 	if _, err = conn.WriteToUDP([]byte(msg), &net.UDPAddr{IP: net.ParseIP("239.255.255.250"), Port: 1900}); err != nil {
 		return nil, err
 	}
+	seen, err := collectSSDP(ctx, conn, deadline)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Device, 0, len(seen))
+	for _, d := range seen {
+		out = append(out, d)
+	}
+	return c.enrichDiscovered(ctx, out)
+}
+
+func discoveryDeadline(ctx context.Context, timeout time.Duration) time.Time {
+	now := time.Now()
+	deadline := now.Add(timeout)
+	if callerDeadline, ok := ctx.Deadline(); ok {
+		remaining := callerDeadline.Sub(now)
+		if remaining < timeout {
+			// Leave half of a short caller deadline for household SOAP lookups.
+			deadline = now.Add(remaining / 2)
+		}
+	}
+	return deadline
+}
+
+func collectSSDP(ctx context.Context, conn *net.UDPConn, deadline time.Time) (map[string]Device, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	_ = conn.SetReadDeadline(deadline)
 	seen := map[string]Device{}
 	buf := make([]byte, 8192)
 	stopCancel := make(chan struct{})
@@ -183,11 +212,10 @@ func (c *Client) Discover(ctx context.Context) ([]Device, error) {
 		}
 		seen[ip] = Device{ID: ip, Address: ip}
 	}
-	out := make([]Device, 0, len(seen))
-	for _, d := range seen {
-		out = append(out, d)
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	return c.enrichDiscovered(ctx, out)
+	return seen, nil
 }
 
 func (c *Client) enrichDiscovered(ctx context.Context, devices []Device) ([]Device, error) {
@@ -195,19 +223,34 @@ func (c *Client) enrichDiscovered(ctx context.Context, devices []Device) ([]Devi
 		return nil, err
 	}
 	out := make([]Device, 0, len(devices))
+	var fallback []Device
+	covered := make(map[string]bool)
 	for _, d := range devices {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		if covered[d.Address] {
+			continue
+		}
 		household, err := c.Household(ctx, d.Address)
 		if err == nil {
 			out = append(out, household...)
+			for _, member := range household {
+				if member.Address != "" {
+					covered[member.Address] = true
+				}
+			}
 			continue
 		}
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		out = append(out, d)
+		fallback = append(fallback, d)
+	}
+	for _, d := range fallback {
+		if !covered[d.Address] {
+			out = append(out, d)
+		}
 	}
 	return sortedUnique(out), nil
 }
