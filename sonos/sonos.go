@@ -290,7 +290,13 @@ func sortedUnique(in []Device) []Device {
 	for _, d := range m {
 		out = append(out, d)
 	}
-	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
+	sort.Slice(out, func(i, j int) bool {
+		nameI, nameJ := strings.ToLower(out[i].Name), strings.ToLower(out[j].Name)
+		if nameI == nameJ {
+			return out[i].ID < out[j].ID
+		}
+		return nameI < nameJ
+	})
 	return out
 }
 func (c *Client) Household(ctx context.Context, address string) ([]Device, error) {

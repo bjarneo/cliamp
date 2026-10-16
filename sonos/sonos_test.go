@@ -18,6 +18,34 @@ import (
 type roundTrip func(*http.Request) (*http.Response, error)
 
 func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestSortedUniqueUsesIDToBreakNameTies(t *testing.T) {
+	devices := []Device{
+		{ID: "z-empty"},
+		{ID: "alpha-b", Name: "ALPHA"},
+		{ID: "beta", Name: "Beta"},
+		{ID: "alpha-a", Name: "aLpHa"},
+		{ID: "a-empty"},
+		{ID: "alpha-b", Name: "ALPHA"},
+	}
+	want := []Device{
+		{ID: "a-empty"},
+		{ID: "z-empty"},
+		{ID: "alpha-a", Name: "aLpHa"},
+		{ID: "alpha-b", Name: "ALPHA"},
+		{ID: "beta", Name: "Beta"},
+	}
+
+	for _, input := range [][]Device{
+		devices,
+		{devices[5], devices[4], devices[3], devices[2], devices[1], devices[0]},
+	} {
+		if got := sortedUnique(input); !reflect.DeepEqual(got, want) {
+			t.Errorf("sortedUnique() = %+v, want %+v", got, want)
+		}
+	}
+}
+
 func httptestClient(t *testing.T, handler http.Handler) *http.Client {
 	t.Helper()
 	server := httptest.NewServer(handler)
