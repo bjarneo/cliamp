@@ -547,7 +547,10 @@ type Model struct {
 	headerTracks    int
 
 	// Audio device picker overlay
-	devicePicker devicePickerState
+	devicePicker     devicePickerState
+	sonosOutput      sonosOutputState
+	sonosBridge      sonosBridge
+	listAudioDevices func() ([]player.AudioDevice, error)
 
 	// Full-screen visualizer mode (Shift+V)
 	fullVis bool
@@ -600,9 +603,15 @@ func (m Model) visualizerDisabled() bool {
 }
 
 func (m Model) isPlaying() bool {
+	if m.sonosOutput.selected != "" {
+		return m.sonosOutput.state != nil && m.sonosOutput.state.Transport == "PLAYING"
+	}
 	return m.player != nil && m.player.IsPlaying()
 }
 
 func (m Model) isPaused() bool {
+	if m.sonosOutput.selected != "" {
+		return m.sonosOutput.state != nil && m.sonosOutput.state.Transport == "PAUSED_PLAYBACK"
+	}
 	return m.player != nil && m.player.IsPaused()
 }

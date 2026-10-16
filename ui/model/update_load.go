@@ -84,7 +84,7 @@ func (m *Model) handleFeedsLoaded(msg feedsLoadedMsg) tea.Cmd {
 		// The source URLs are carried in the message so we don't
 		// need to re-scan pendingURLs (which misses interactive loads).
 		batchCmd := m.initYTDLBatch(msg.urls)
-		if msg.autoPlay && m.playlist.Len() > 0 && !m.player.IsPlaying() {
+		if msg.autoPlay && msg.outputGen == m.requests.output && m.sonosOutput.selected == "" && m.playlist.Len() > 0 && !m.player.IsPlaying() {
 			playCmd := m.playCurrentTrack()
 			if batchCmd != nil {
 				return tea.Batch(playCmd, batchCmd)
@@ -153,7 +153,7 @@ func (m *Model) handleFBTracksResolved(msg fbTracksResolvedMsg) tea.Cmd {
 	} else {
 		m.status.Successf(statusTTLDefault, "Added %d track(s)", len(msg.tracks))
 	}
-	if !m.player.IsPlaying() && m.playlist.Len() > 0 {
+	if msg.outputGen == m.requests.output && m.sonosOutput.selected == "" && !m.player.IsPlaying() && m.playlist.Len() > 0 {
 		if msg.replace {
 			m.playlist.SetIndex(0)
 		}
