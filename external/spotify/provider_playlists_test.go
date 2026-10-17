@@ -93,3 +93,35 @@ func TestPlaylistsIncludesFollowedPlaylists(t *testing.T) {
 		t.Errorf("saved album track count = %d, want 17", album.TrackCount)
 	}
 }
+
+func TestPlaylistsCachesOnlySuccessfulResults(t *testing.T) {
+	t.Parallel()
+	calls := 0
+	routes := playlistRoutes(apiResponse(http.StatusOK, `{"items":[],"total":0}`))
+	for path, route := range routes {
+		original := route
+		routes[path] = func(req *http.Request) *http.Response {
+			calls++
+			return original(req)
+		}
+	}
+	p := stubSpotifyAPI("own", routes)
+
+	first, err := p.Playlists()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first[0].Name = "mutated"
+	requestCount := calls
+
+	second, err := p.Playlists()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != requestCount {
+		t.Fatalf("cached Playlists() made %d more requests", calls-requestCount)
+	}
+	if second[0].Name == "mutated" {
+		t.Fatal("caller mutation changed the cached playlist list")
+	}
+}

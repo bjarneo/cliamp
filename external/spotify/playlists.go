@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -44,7 +45,7 @@ func (p *SpotifyProvider) currentUserID(ctx context.Context) string {
 	return p.userID
 }
 
-// Playlists returns all playlists in the authenticated user's Spotify library.
+// Playlists returns personalized Home cards and the authenticated user's library.
 func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 	if err := p.ensureSession(); err != nil {
 		return nil, err
@@ -58,9 +59,29 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 	}
 	p.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+	personalized, discoveryErr := p.personalizedPlaylists(ctx)
+	libraryCtx, libraryCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer libraryCancel()
+	library, libraryErr := p.libraryPlaylists(libraryCtx)
+	if len(personalized) > 0 && errors.Is(libraryErr, playlist.ErrNeedsAuth) {
+		libraryErr = fmt.Errorf("spotify: library authorization: %v", libraryErr)
+	}
+	all := append(personalized, library...)
+	sectionOrder := map[string]int{madeForYouSection: 0, homeShortcutsSection: 1, "Library": 2, "Your playlists": 3, "Followed playlists": 4, savedAlbumSection: 5}
+	sort.SliceStable(all, func(i, j int) bool { return sectionOrder[all[i].Section] < sectionOrder[all[j].Section] })
+	if err := errors.Join(discoveryErr, libraryErr); err != nil {
+		return all, err
+	}
+	p.mu.Lock()
+	p.listCache = all
+	p.listCacheAt = time.Now()
+	p.mu.Unlock()
+	return slices.Clone(all), nil
+}
 
+func (p *SpotifyProvider) libraryPlaylists(ctx context.Context) ([]playlist.PlaylistInfo, error) {
 	userID := p.currentUserID(ctx)
 
 	var all []playlist.PlaylistInfo
@@ -101,7 +122,7 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 
 		resp, err := p.webAPI(ctx, "GET", "/v1/me/playlists", query)
 		if err != nil {
-			return nil, fmt.Errorf("spotify: list playlists: %w", err)
+			return all, fmt.Errorf("spotify: list playlists: %w", err)
 		}
 
 		var result struct {
@@ -109,7 +130,7 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 			Total int                   `json:"total"`
 		}
 		if err := decodeBody(resp, &result); err != nil {
-			return nil, fmt.Errorf("spotify: parse playlists: %w", err)
+			return all, fmt.Errorf("spotify: parse playlists: %w", err)
 		}
 
 		p.mu.Lock()
@@ -155,29 +176,7 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 	albums, albumsErr := p.savedAlbums(ctx)
 	all = append(all, albums...)
 
-	// Group playlists by section so the UI can emit one header per group.
-	// Library first, then owned, then followed, then saved albums; preserve
-	// API order within each section.
-	sectionOrder := map[string]int{
-		"Library":            0,
-		"Your playlists":     1,
-		"Followed playlists": 2,
-		savedAlbumSection:    3,
-	}
-	sort.SliceStable(all, func(i, j int) bool {
-		return sectionOrder[all[i].Section] < sectionOrder[all[j].Section]
-	})
-
-	if albumsErr != nil {
-		return all, albumsErr
-	}
-
-	p.mu.Lock()
-	p.listCache = all
-	p.listCacheAt = time.Now()
-	p.mu.Unlock()
-
-	return slices.Clone(all), nil
+	return all, albumsErr
 }
 
 // savedAlbums returns the authenticated user's saved albums from
