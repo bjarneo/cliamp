@@ -425,9 +425,21 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 
 func (m Model) renderSimplifiedTrackInfo() string {
 	track, _ := m.currentPlaybackTrack()
-	name := trackInfoName(track, m.streamTitle)
+	title := m.streamTitle
+	remoteDuration := time.Duration(0)
+	if m.sonosOutput.selected != "" {
+		track, title = m.sonosTrack(), ""
+		if m.sonosOutput.state != nil {
+			remoteDuration = sonosDuration(m.sonosOutput.state.Duration)
+		}
+	}
+	name := trackInfoName(track, title)
 
-	duration := formatTrackTime(int(m.cachedDur.Seconds()))
+	durationValue := m.cachedDur
+	if m.sonosOutput.selected != "" {
+		durationValue = remoteDuration
+	}
+	duration := formatTrackTime(int(durationValue.Seconds()))
 	if duration == "" {
 		duration = formatTrackTime(track.DurationSecs)
 	}
@@ -533,6 +545,13 @@ func (m Model) renderTransient() string {
 }
 
 func (m Model) renderCompactControls() string {
+	if m.sonosOutput.selected != "" {
+		volume := "--%"
+		if m.sonosOutput.state != nil && m.sonosOutput.state.Volume != nil {
+			volume = fmt.Sprintf("%d%%", *m.sonosOutput.state.Volume)
+		}
+		return labelStyle.Render("REMOTE ") + trackStyle.Render(m.sonosOutput.name) + "  " + labelStyle.Render("VOL ") + volume
+	}
 	mono := ""
 	if m.player.Mono() {
 		mono = " [M]"
@@ -590,13 +609,33 @@ func (m Model) renderTitle() string {
 
 func (m Model) renderTrackInfo() string {
 	track, _ := m.currentPlaybackTrack()
-	name := trackInfoName(track, m.streamTitle)
+	title := m.streamTitle
+	if m.sonosOutput.selected != "" {
+		track, title = m.sonosTrack(), ""
+	}
+	name := trackInfoName(track, title)
 	// The "♫ " prefix takes two cells; the rest of the row is the marquee's,
 	// so a name only scrolls once it genuinely cannot fit.
 	return trackStyle.Render("♫ " + scrollTrackName(name, m.layout.panelWidth-2, m.titleOff))
 }
 
 func (m Model) renderTimeStatus() string {
+	if m.sonosOutput.selected != "" {
+		if m.sonosOutput.state == nil {
+			return timeStyle.Render("Sonos state unavailable")
+		}
+		pos := sonosDuration(m.sonosOutput.state.Position)
+		dur := sonosDuration(m.sonosOutput.state.Duration)
+		clock := fmt.Sprintf("%02d:%02d / %02d:%02d", int(pos.Minutes()), int(pos.Seconds())%60, int(dur.Minutes()), int(dur.Seconds())%60)
+		transport := "Stopped"
+		switch m.sonosOutput.state.Transport {
+		case "PLAYING":
+			transport = "Playing"
+		case "PAUSED_PLAYBACK":
+			transport = "Paused"
+		}
+		return timeStyle.Render(clock) + strings.Repeat(" ", max(m.layout.panelWidth-lipgloss.Width(clock)-len(transport)-8, 1)) + statusStyle.Render("Sonos · "+transport)
+	}
 	// Use per-tick cached values to avoid repeated speaker.Lock() calls.
 	pos := m.cachedPos
 	dur := m.cachedDur
@@ -697,6 +736,9 @@ func (m Model) renderSeekBar() string {
 		return ""
 	}
 	// During buffering, show a dim bar — avoids speaker.Lock() contention.
+	if m.sonosOutput.selected != "" && m.sonosOutput.state == nil {
+		return seekDimStyle.Render(strings.Repeat(seekEmptyGlyph, m.layout.panelWidth))
+	}
 	if m.buffering {
 		return seekDimStyle.Render(strings.Repeat(seekEmptyGlyph, m.layout.panelWidth))
 	}
@@ -714,6 +756,10 @@ func (m Model) renderSeekBar() string {
 
 	pos := m.cachedPos
 	dur := m.cachedDur
+	if m.sonosOutput.selected != "" {
+		pos = sonosDuration(m.sonosOutput.state.Position)
+		dur = sonosDuration(m.sonosOutput.state.Duration)
+	}
 
 	var progress float64
 	if dur > 0 {
@@ -736,6 +782,9 @@ func (m Model) renderSeekBar() string {
 }
 
 func (m Model) renderControls() string {
+	if m.sonosOutput.selected != "" {
+		return m.renderSourceVolume()
+	}
 	// ── EQ [Preset] (left)  ·····  VOL bar dB [Mono] (right) ──
 
 	bands := m.player.EQBands()
@@ -794,6 +843,23 @@ func (m Model) renderControls() string {
 // pair the pane's SRC and VOL rows show, folded onto one row because a closed
 // pane is a request for playlist space.
 func (m Model) renderSourceVolume() string {
+	if m.sonosOutput.selected != "" {
+		label := labelStyle.Render("VOL ")
+		if m.focus == focusVolume {
+			label = activeToggle.Render("VOL ▸ ")
+		}
+		value := "--"
+		frac := 0.0
+		if m.sonosOutput.state != nil && m.sonosOutput.state.Volume != nil {
+			frac = float64(*m.sonosOutput.state.Volume) / 100
+			value = fmt.Sprintf("%d%%", *m.sonosOutput.state.Volume)
+		}
+		left := labelStyle.Render("OUTPUT ") + trackStyle.Render(m.sonosOutput.name)
+		barW := max(6, (m.layout.panelWidth-lipgloss.Width(left)-lipgloss.Width(label)-6)*3/4)
+		filled := int(frac * float64(barW))
+		right := label + volBarStyle.Render(strings.Repeat("█", filled)) + dimStyle.Render(strings.Repeat("░", barW-filled)) + dimStyle.Render(value)
+		return left + strings.Repeat(" ", max(1, m.layout.panelWidth-lipgloss.Width(left)-lipgloss.Width(right))) + right
+	}
 	left := m.renderProviderPill()
 	if left == "" {
 		left = labelStyle.Render("SRC ") + dimStyle.Render("[") +
@@ -878,6 +944,18 @@ func (m Model) renderPlaylistHeader() string {
 			label += " / Filter"
 		case m.providerCatalogSearching():
 			label += " / Search results"
+		}
+		return dimStyle.Render(labeledSeparator("", label, m.layout.panelWidth))
+	}
+	if m.sonosOutput.selected != "" {
+		total, cached := 0, 0
+		if m.sonosOutput.queue != nil {
+			total = m.sonosOutput.queue.QueueTotal
+			cached = len(m.sonosOutput.queue.Queue)
+		}
+		label := fmt.Sprintf("Sonos saved queue · %d cached of %d · Up/Down select · Enter play · A refresh", cached, total)
+		if m.sonosOutput.queueStale {
+			label += " · stale; Enter disabled"
 		}
 		return dimStyle.Render(labeledSeparator("", label, m.layout.panelWidth))
 	}
@@ -1125,9 +1203,40 @@ func (m Model) renderPlaylist() string {
 	if budget <= 0 {
 		return ""
 	}
-
 	if m.focus == focusProvider {
 		return m.renderProviderList()
+	}
+
+	if m.sonosOutput.selected != "" {
+		if m.sonosOutput.queue == nil {
+			if m.sonosOutput.queueLoading {
+				return loadingLine("Loading saved Sonos queue…")
+			}
+			return dimStyle.Render("  Saved Sonos queue unavailable. Press A to refresh.")
+		}
+		state := m.sonosOutput.queue
+		if len(state.Queue) == 0 {
+			return dimStyle.Render("  Saved Sonos queue is empty.")
+		}
+		start := max(0, m.sonosOutput.queueCursor-budget+1)
+		lines := make([]string, 0, budget)
+		for i := start; i < len(state.Queue) && len(lines) < budget; i++ {
+			track := state.Queue[i]
+			label := track.Title
+			if track.Artist != "" {
+				label = track.Artist + " - " + label
+			}
+			prefix := "  "
+			style := playlistItemStyle
+			if i == m.sonosOutput.queueCursor {
+				prefix, style = "▸ ", playlistSelectedStyle
+			}
+			if m.sonosOutput.state != nil && m.sonosOutput.state.Source == "Sonos queue" && i == m.sonosOutput.state.QueueIndex {
+				label += " [playing]"
+			}
+			lines = append(lines, style.Render(prefix+fmt.Sprintf("%3d  %s", i+1, label)))
+		}
+		return strings.Join(lines, "\n")
 	}
 
 	trackCount := m.playlist.Len()

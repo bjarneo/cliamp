@@ -12,7 +12,7 @@ import (
 )
 
 type tickMsg time.Time
-type autoPlayMsg struct{}
+type autoPlayMsg struct{ outputGen uint64 }
 
 // spinnerTickMsg redraws the view so that a loading spinner advances. It runs
 // beside the main tick, which can still wait up to ui.TickIdle when a load
@@ -36,7 +36,7 @@ func tickCmdAt(d time.Duration) tea.Cmd {
 }
 
 func (m Model) visualizerVisible() bool {
-	if m.simplified || m.vis == nil || m.vis.Mode == ui.VisNone || m.vis.Rows <= 0 || m.vis.Cols <= 0 || m.layout.tooSmall() {
+	if m.sonosOutput.selected != "" || m.simplified || m.vis == nil || m.vis.Mode == ui.VisNone || m.vis.Rows <= 0 || m.vis.Cols <= 0 || m.layout.tooSmall() {
 		return false
 	}
 	if m.fullVis {
@@ -323,6 +323,11 @@ func (m *Model) handleTick(msg tickMsg) tea.Cmd {
 	m.tickVisualizer(now)
 	m.tickProgressReport(now)
 	var cmds []tea.Cmd
+	if m.sonosOutput.selected != "" && !m.sonosOutput.busy && !m.sonosOutput.queueLoading && now.Sub(m.sonosOutput.attempted) >= 5*time.Second {
+		if cmd := m.refreshSonosState(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
 	// Process debounced yt-dlp seek.
 	if cmd := m.tickSeek(dt); cmd != nil {
 		cmds = append(cmds, cmd)

@@ -31,10 +31,11 @@ const subsLatestWorkers = 6
 
 // subsEpisodesMsg carries one show's episodes back to the update loop.
 type subsEpisodesMsg struct {
-	mode   subsLoadMode
-	name   string
-	tracks []playlist.Track
-	err    error
+	mode      subsLoadMode
+	name      string
+	tracks    []playlist.Track
+	outputGen uint64
+	err       error
 }
 
 // subsLatestAllMsg carries the newest episode of every subscribed show.
@@ -105,6 +106,7 @@ func (m *Model) loadShowEpisodesWith(loader provider.AlbumTrackLoader, id, name 
 	m.subs.loading = true
 	m.subs.err = ""
 	m.subs.status = "Loading " + name + "..."
+	outputGen := m.requests.output
 	if !m.subs.visible {
 		// Outside the overlay there is no status line of its own, so the
 		// player's one has to carry the wait.
@@ -119,7 +121,7 @@ func (m *Model) loadShowEpisodesWith(loader provider.AlbumTrackLoader, id, name 
 				tracks = nil
 			}
 		}
-		return subsEpisodesMsg{mode: mode, name: name, tracks: tracks, err: err}
+		return subsEpisodesMsg{mode: mode, name: name, tracks: tracks, outputGen: outputGen, err: err}
 	}
 }
 
@@ -193,6 +195,9 @@ func (m *Model) handleSubsEpisodes(msg subsEpisodesMsg) tea.Cmd {
 			m.status.Errorf(statusTTLDefault, "%s: %s", msg.name, msg.err)
 		}
 		return nil
+	}
+	if msg.mode == subsLoadPlay && (msg.outputGen != m.requests.output || m.sonosOutput.selected != "") {
+		msg.mode = subsLoadQueue
 	}
 	return m.appendSubscriptionTracks(msg.tracks, msg.mode, msg.name)
 }
