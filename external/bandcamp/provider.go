@@ -432,6 +432,11 @@ func (p *Provider) fetchRecent(gen uint64) ([]playlist.Track, bool, error) {
 		if err == nil {
 			continue
 		}
+		// Refresh cancels ctx, so a stale generation explains the failure:
+		// start over rather than reporting it or serving the stale part.
+		if p.stale(gen) {
+			return nil, false, errRefreshed
+		}
 		// Only when nothing loaded at all is there no list to show. An album
 		// that fetched fine but holds no songs still counts as loaded.
 		if loaded == 0 {
