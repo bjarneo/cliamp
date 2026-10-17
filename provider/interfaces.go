@@ -426,3 +426,9 @@ type TrackWindow interface {
 type TrackPager interface {
 	TracksPage(playlistID string, offset int) (tracks []playlist.Track, next int, err error)
 }
+
+// URLResolver loads provider links through the provider's authenticated session.
+type URLResolver interface {
+	CanResolveURL(raw string) bool
+	ResolveURL(ctx context.Context, raw string) ([]playlist.Track, error)
+}

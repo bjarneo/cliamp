@@ -123,7 +123,7 @@ and `Esc` clears it.
 |---|---|
 | `f` | Toggle the favorite ♥ on the selected track. Favorites appear in the "Favorites" virtual playlist, and cliamp also saves them on Spotify and Navidrome. For directory radio stations outside saved local playlists, toggle Radio Favorites from the browser or playback playlist, including country and genre results. In the country browser, pin the selected country or region. On a podcast show, subscribe or unsubscribe. |
 | `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, SoundCloud, Yandex Music, Local), or search YouTube. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
-| `u` | Load URL (stream/playlist) |
+| `u` | Load URL (stream/playlist); in the provider browser, load a Spotify playlist URL |
 | `d` | Open the audio device picker |
 | `y` | Show or close lyrics |
 | `r` | Retry lyrics lookup while lyrics are open |

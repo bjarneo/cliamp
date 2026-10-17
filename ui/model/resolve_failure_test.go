@@ -37,7 +37,9 @@ func TestResolveFailureClearsOnlyItsOwnLoadingFlag(t *testing.T) {
 		},
 		{
 			name: "typed url",
-			cmd:  func(*Model) tea.Cmd { return resolveURLCmd(missing, true) },
+			cmd: func(m *Model) tea.Cmd {
+				return resolveURLCmd(m.providers, missing, true, nextRequest(&m.requests.url), m.requests.queue)
+			},
 		},
 		{
 			name: "file browser",

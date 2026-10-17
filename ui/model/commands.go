@@ -78,6 +78,9 @@ type feedsLoadedMsg struct {
 	tracks   []playlist.Track
 	urls     []string // original source URLs that produced these tracks
 	autoPlay bool     // whether to start playback automatically
+	loadGen  uint64
+	queueGen uint64
+	replace  bool
 	err      error
 }
 
@@ -271,17 +274,27 @@ func resolveRemoteCmd(urls []string, autoPlay bool) tea.Cmd {
 	}
 }
 
-// resolveURLCmd resolves a single URL typed by the user. It classifies the
-// input the same way command-line arguments are classified, so raw stream and
-// audio-file addresses load as tracks instead of being parsed as feeds.
-func resolveURLCmd(rawURL string, autoPlay bool) tea.Cmd {
+// resolveURLCmd tries provider-specific authenticated resolvers before the
+// ordinary URL resolver used for streams, feeds, playlists, and video pages.
+func resolveURLCmd(entries []provider.Entry, rawURL string, autoPlay bool, loadGen, queueGen uint64) tea.Cmd {
 	return func() tea.Msg {
-		tracks, err := resolve.URL(rawURL)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		tracks, err := resolveProviderURL(ctx, entries, rawURL)
 		if err != nil {
-			return feedsLoadedMsg{err: fmt.Errorf("resolving URL: %w", err)}
+			return feedsLoadedMsg{err: fmt.Errorf("resolving URL: %w", err), loadGen: loadGen, queueGen: queueGen, replace: true}
 		}
-		return feedsLoadedMsg{tracks: tracks, urls: []string{rawURL}, autoPlay: autoPlay}
+		return feedsLoadedMsg{tracks: tracks, urls: []string{rawURL}, autoPlay: autoPlay, loadGen: loadGen, queueGen: queueGen, replace: true}
 	}
+}
+
+func resolveProviderURL(ctx context.Context, entries []provider.Entry, raw string) ([]playlist.Track, error) {
+	for _, entry := range entries {
+		if resolver, ok := entry.Provider.(provider.URLResolver); ok && resolver.CanResolveURL(raw) {
+			return resolver.ResolveURL(ctx, raw)
+		}
+	}
+	return resolve.URLContext(ctx, raw)
 }
 
 func fetchTrackLyricsCmd(track playlist.Track, artist, title, query string, gen uint64, sources []trackLyricsSource) tea.Cmd {
