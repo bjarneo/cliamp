@@ -260,6 +260,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleSonosState(msg)
 		return m, nil
 
+	case sonosQueueMsg:
+		m.handleSonosQueue(msg)
+		return m, nil
+
 	case sonosControlMsg:
 		cmd := m.handleSonosControl(msg)
 		return m, cmd

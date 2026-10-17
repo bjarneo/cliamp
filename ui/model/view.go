@@ -947,6 +947,18 @@ func (m Model) renderPlaylistHeader() string {
 		}
 		return dimStyle.Render(labeledSeparator("", label, m.layout.panelWidth))
 	}
+	if m.sonosOutput.selected != "" {
+		total, cached := 0, 0
+		if m.sonosOutput.queue != nil {
+			total = m.sonosOutput.queue.QueueTotal
+			cached = len(m.sonosOutput.queue.Queue)
+		}
+		label := fmt.Sprintf("Sonos saved queue · %d cached of %d · Up/Down select · Enter play · A refresh", cached, total)
+		if m.sonosOutput.queueStale {
+			label += " · stale; Enter disabled"
+		}
+		return dimStyle.Render(labeledSeparator("", label, m.layout.panelWidth))
+	}
 	return m.renderPlaybackHeader()
 }
 
@@ -1191,9 +1203,40 @@ func (m Model) renderPlaylist() string {
 	if budget <= 0 {
 		return ""
 	}
-
 	if m.focus == focusProvider {
 		return m.renderProviderList()
+	}
+
+	if m.sonosOutput.selected != "" {
+		if m.sonosOutput.queue == nil {
+			if m.sonosOutput.queueLoading {
+				return loadingLine("Loading saved Sonos queue…")
+			}
+			return dimStyle.Render("  Saved Sonos queue unavailable. Press A to refresh.")
+		}
+		state := m.sonosOutput.queue
+		if len(state.Queue) == 0 {
+			return dimStyle.Render("  Saved Sonos queue is empty.")
+		}
+		start := max(0, m.sonosOutput.queueCursor-budget+1)
+		lines := make([]string, 0, budget)
+		for i := start; i < len(state.Queue) && len(lines) < budget; i++ {
+			track := state.Queue[i]
+			label := track.Title
+			if track.Artist != "" {
+				label = track.Artist + " - " + label
+			}
+			prefix := "  "
+			style := playlistItemStyle
+			if i == m.sonosOutput.queueCursor {
+				prefix, style = "▸ ", playlistSelectedStyle
+			}
+			if m.sonosOutput.state != nil && m.sonosOutput.state.Source == "Sonos queue" && i == m.sonosOutput.state.QueueIndex {
+				label += " [playing]"
+			}
+			lines = append(lines, style.Render(prefix+fmt.Sprintf("%3d  %s", i+1, label)))
+		}
+		return strings.Join(lines, "\n")
 	}
 
 	trackCount := m.playlist.Len()

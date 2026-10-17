@@ -49,6 +49,12 @@ type sonosStateMsg struct {
 	err   error
 }
 
+type sonosQueueMsg struct {
+	gen   uint64
+	state spotify.SonosState
+	err   error
+}
+
 type sonosControlMsg struct {
 	gen     uint64
 	request sonosControlRequest
@@ -67,6 +73,8 @@ type sonosControlRequest struct {
 type sonosBridge interface {
 	devices(context.Context) ([]spotify.SonosDevice, error)
 	state(context.Context, string) (spotify.SonosState, error)
+	queue(context.Context, string) (spotify.SonosState, error)
+	playQueue(context.Context, string, int) error
 	control(context.Context, string, string) error
 	volume(context.Context, string, int) error
 }
@@ -78,6 +86,12 @@ func (nativeSonosBridge) devices(ctx context.Context) ([]spotify.SonosDevice, er
 }
 func (nativeSonosBridge) state(ctx context.Context, address string) (spotify.SonosState, error) {
 	return spotify.ReadSonosTransportState(ctx, address)
+}
+func (nativeSonosBridge) queue(ctx context.Context, address string) (spotify.SonosState, error) {
+	return spotify.ReadSonosState(ctx, address)
+}
+func (nativeSonosBridge) playQueue(ctx context.Context, address string, index int) error {
+	return spotify.SonosPlayFromQueue(ctx, address, index)
 }
 func (nativeSonosBridge) control(ctx context.Context, action, address string) error {
 	return spotify.SonosControl(ctx, action, address, "")
@@ -155,12 +169,15 @@ func (m *Model) selectOutput(device player.AudioDevice) tea.Cmd {
 		m.sonosOutput.selected = id
 		m.sonosOutput.name = strings.TrimPrefix(device.Description, "Sonos · ")
 		m.sonosOutput.state = nil
+		m.sonosOutput.queue = nil
+		m.sonosOutput.queueCursor = 0
+		m.sonosOutput.queueStale = false
 		m.sonosOutput.refreshed = time.Time{}
 		m.sonosOutput.attempted = time.Time{}
 		m.fullVis = false
 		m.devicePicker.visible = false
 		m.recomputeLayout()
-		return m.refreshSonosState()
+		return m.refreshSonosQueue()
 	}
 	if m.sonosOutput.selected != "" {
 		nextRequest(&m.requests.output)
@@ -169,6 +186,10 @@ func (m *Model) selectOutput(device player.AudioDevice) tea.Cmd {
 		m.sonosOutput.selected = ""
 		m.sonosOutput.name = ""
 		m.sonosOutput.state = nil
+		m.cancelSonosQueueRead()
+		m.sonosOutput.queue = nil
+		m.sonosOutput.queueCursor = 0
+		m.sonosOutput.queueStale = false
 		m.devicePicker.visible = false
 		return switchDeviceCmd(device.Name)
 	}
@@ -205,6 +226,79 @@ func (m *Model) cancelSonosRequest() {
 func (m *Model) cancelOutputRequests() {
 	m.cancelSonosRequest()
 	m.cancelSonosDiscovery()
+	m.cancelSonosQueueRead()
+}
+
+func (m *Model) cancelSonosQueueRead() {
+	if m.sonosOutput.queueCancel != nil {
+		m.sonosOutput.queueCancel()
+		m.sonosOutput.queueCancel = nil
+	}
+	m.sonosOutput.queueGen++
+	m.sonosOutput.queueLoading = false
+}
+
+func (m *Model) refreshSonosQueue() tea.Cmd {
+	if m.sonosOutput.selected == "" || m.sonosOutput.busy || m.sonosOutput.queueLoading {
+		return nil
+	}
+	m.cancelSonosQueueRead()
+	gen, address := m.sonosOutput.queueGen, m.sonosOutput.selected
+	bridge := m.outputBridge()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	m.sonosOutput.queueCancel = cancel
+	m.sonosOutput.queueLoading = true
+	return func() tea.Msg {
+		defer cancel()
+		state, err := bridge.queue(ctx, address)
+		return sonosQueueMsg{gen: gen, state: state, err: err}
+	}
+}
+
+func (m *Model) handleSonosQueue(msg sonosQueueMsg) {
+	if msg.gen != m.sonosOutput.queueGen || m.sonosOutput.selected == "" {
+		return
+	}
+	m.sonosOutput.queueCancel = nil
+	m.sonosOutput.queueLoading = false
+	if msg.err != nil {
+		m.sonosOutput.queueStale = true
+		m.status.Errorf(statusTTLDefault, "Sonos queue: %s", msg.err)
+		return
+	}
+	hadSnapshot := m.sonosOutput.queue != nil
+	m.sonosOutput.queue = &msg.state
+	m.sonosOutput.queueStale = false
+	if m.sonosOutput.state == nil && !m.sonosOutput.busy {
+		m.handleSonosState(sonosStateMsg{gen: m.sonosOutput.gen, state: msg.state})
+	}
+	if !hadSnapshot && msg.state.Source == "Sonos queue" && msg.state.QueueIndex >= 0 && msg.state.QueueIndex < len(msg.state.Queue) {
+		m.sonosOutput.queueCursor = msg.state.QueueIndex
+	} else if m.sonosOutput.queueCursor >= len(msg.state.Queue) {
+		m.sonosOutput.queueCursor = max(0, len(msg.state.Queue)-1)
+	}
+}
+
+func (m *Model) playSonosQueueItem(index int) tea.Cmd {
+	state := m.sonosOutput.queue
+	if m.sonosOutput.busy || m.sonosOutput.selected == "" || m.sonosOutput.state == nil || m.sonosOutput.state.Source != "Sonos queue" || state == nil || state.Source != "Sonos queue" || m.sonosOutput.queueStale || index < 0 || index >= len(state.Queue) {
+		m.status.Warning("Saved Sonos queue item is unavailable", statusTTLDefault)
+		return nil
+	}
+	if m.sonosOutput.cancel != nil {
+		m.sonosOutput.cancel()
+	}
+	m.cancelSonosQueueRead()
+	gen, address, bridge := m.sonosOutput.gen, m.sonosOutput.selected, m.outputBridge()
+	m.sonosOutput.busy = true
+	m.sonosOutput.busyKind = "control"
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	m.sonosOutput.cancel = cancel
+	return func() tea.Msg {
+		defer cancel()
+		err := bridge.playQueue(ctx, address, index)
+		return sonosControlMsg{gen: gen, request: sonosControlRequest{action: "play saved queue item"}, err: err}
+	}
 }
 
 func (m *Model) cancelSonosDiscovery() {
@@ -216,7 +310,7 @@ func (m *Model) cancelSonosDiscovery() {
 }
 
 func (m *Model) refreshSonosState() tea.Cmd {
-	if m.sonosOutput.selected == "" || m.sonosOutput.busy {
+	if m.sonosOutput.selected == "" || m.sonosOutput.busy || m.sonosOutput.queueLoading {
 		return nil
 	}
 	if m.sonosOutput.cancel != nil {
@@ -247,6 +341,7 @@ func (m *Model) controlSonosJob(request sonosControlRequest) tea.Cmd {
 	if request.ctx == nil && request.jobs != nil {
 		request.ctx, _ = request.jobs.Context(request.jobID)
 	}
+	m.cancelSonosQueueRead()
 	if m.sonosOutput.busy && m.sonosOutput.busyKind == "read" {
 		m.cancelSonosRequest()
 	}
@@ -265,6 +360,7 @@ func (m *Model) setSonosVolumeJob(delta int, jobs *ipc.JobStore, jobID string, r
 	if m.sonosOutput.selected == "" || m.sonosOutput.state == nil || m.sonosOutput.state.Volume == nil {
 		return nil
 	}
+	m.cancelSonosQueueRead()
 	value := m.intendedSonosVolume()
 	value = max(0, min(100, value+delta))
 	if jobs != nil {
@@ -332,6 +428,7 @@ func (m *Model) handleSonosState(msg sonosStateMsg) {
 	m.sonosOutput.busyKind = ""
 	m.sonosOutput.cancel = nil
 	if msg.err != nil {
+		m.sonosOutput.state = nil
 		m.status.Errorf(statusTTLDefault, "Sonos state: %s", msg.err)
 		return
 	}

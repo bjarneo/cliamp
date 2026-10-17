@@ -410,6 +410,12 @@ type sonosOutputState struct {
 	busyKind        string
 	pending         []sonosControlRequest
 	active          *sonosControlRequest
+	queue           *spotify.SonosState
+	queueCursor     int
+	queueGen        uint64
+	queueCancel     context.CancelFunc
+	queueLoading    bool
+	queueStale      bool
 }
 
 type saveState struct {

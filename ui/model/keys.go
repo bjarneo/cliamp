@@ -396,6 +396,23 @@ func (m *Model) handleProvPillKey(msg tea.KeyPressMsg) tea.Cmd {
 // handleMainKey processes a key press for the playlist and the focused
 // playback controls. It forwards the keys that it does not handle to plugins.
 func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
+	if m.sonosOutput.selected != "" && m.focus == focusPlaylist {
+		switch msg.String() {
+		case "up", "k":
+			m.sonosOutput.queueCursor = max(0, m.sonosOutput.queueCursor-1)
+			return nil
+		case "down", "j":
+			if m.sonosOutput.queue != nil {
+				m.sonosOutput.queueCursor = min(max(0, len(m.sonosOutput.queue.Queue)-1), m.sonosOutput.queueCursor+1)
+			}
+			return nil
+		case "enter":
+			return m.playSonosQueueItem(m.sonosOutput.queueCursor)
+		case "a", "x", "shift+up", "shift+down", "z", "r":
+			m.status.Warning("Local queue controls are unavailable while Sonos output is selected", statusTTLDefault)
+			return nil
+		}
+	}
 	// Vim-style count prefix: a digit primes a pending percentage; the next `j`
 	// jumps there (e.g. `7j` → 70%). Any other key cancels and runs normally.
 	if s := msg.String(); m.focus == focusPlaylist && len(s) == 1 && s[0] >= '0' && s[0] <= '9' {
@@ -626,6 +643,9 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "A":
 		if m.focus == focusPlaylist {
+			if m.sonosOutput.selected != "" {
+				return m.refreshSonosQueue()
+			}
 			m.queue.visible = true
 			m.queue.cursor = 0
 			m.queue.scroll = 0

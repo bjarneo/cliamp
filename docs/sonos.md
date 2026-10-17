@@ -5,6 +5,13 @@ native Sonos bridge and its cached household seed. Selecting a room attaches
 to its coordinator and reads the current track, transport, position, and group
 volume. Selection does not start, pause, or change the Sonos queue.
 
+The playlist pane shows up to 200 tracks from the saved Sonos queue and labels
+the full queue total. The snapshot stays separate from the current input track.
+Use Up/Down to select a saved item, Enter to play it, and `A` to refresh the
+snapshot. `d` still opens the output picker. Transport controls and five-second
+status updates do not reload the queue or move your selection. If refresh fails,
+cached rows stay visible, but Enter is disabled until a refresh succeeds.
+
 While a Sonos room is selected, play/pause, next/previous, and volume controls
 target that room. Previous restarts the current track if it has played for more
 than three seconds; press Previous again near the start to go to the prior
@@ -14,9 +21,9 @@ Play to start it deliberately.
 Group volume uses Sonos's integer 0–100 scale; cliamp IPC volume values and
 responses remain in dB and reflect that scale's quantized setting.
 
-This output mode does not provide Sonos queue browsing, seeking, grouping,
-Spotify Connect output control, local-to-Sonos handoff, or per-speaker volume. URL,
-provider, and queue actions cannot start local audio while Sonos owns output.
+This output mode does not provide seeking, grouping, Spotify Connect output
+control, local-to-Sonos handoff, or per-speaker volume. URL, provider, and
+queue actions cannot start local audio while Sonos owns output.
 Unsupported controls such as seek, speed, EQ, mono, shuffle, repeat, and Stop
 are reported as unavailable. The display uses Sonos track, transport, position,
 and group volume; local EQ and spectrum visualization are hidden. The local

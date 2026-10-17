@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -17,17 +18,21 @@ import (
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/ui"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type sonosBridgeFake struct {
-	deviceList []spotify.SonosDevice
-	current    spotify.SonosState
-	reads      []string
-	actions    []string
-	volumes    []int
-	err        error
-	started    chan struct{}
-	release    chan struct{}
+	deviceList   []spotify.SonosDevice
+	current      spotify.SonosState
+	reads        []string
+	queueReads   int
+	queuePlays   []int
+	actions      []string
+	volumes      []int
+	err          error
+	started      chan struct{}
+	release      chan struct{}
+	queueStarted chan struct{}
 }
 
 func (f *sonosBridgeFake) devices(context.Context) ([]spotify.SonosDevice, error) {
@@ -36,6 +41,23 @@ func (f *sonosBridgeFake) devices(context.Context) ([]spotify.SonosDevice, error
 func (f *sonosBridgeFake) state(_ context.Context, address string) (spotify.SonosState, error) {
 	f.reads = append(f.reads, address)
 	return f.current, f.err
+}
+func (f *sonosBridgeFake) queue(ctx context.Context, address string) (spotify.SonosState, error) {
+	f.queueReads++
+	f.reads = append(f.reads, "queue:"+address)
+	if f.queueStarted != nil {
+		f.queueStarted <- struct{}{}
+		<-ctx.Done()
+		return spotify.SonosState{}, ctx.Err()
+	}
+	return f.current, f.err
+}
+func (f *sonosBridgeFake) playQueue(ctx context.Context, _ string, index int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	f.queuePlays = append(f.queuePlays, index)
+	return f.err
 }
 func (f *sonosBridgeFake) control(ctx context.Context, action, _ string) error {
 	f.actions = append(f.actions, action)
@@ -87,10 +109,197 @@ func TestSonosAttachIsReadOnlyAndRetiresLocalPlayback(t *testing.T) {
 	if m.playlist.Len() != 1 {
 		t.Fatalf("local queue changed: %d tracks", m.playlist.Len())
 	}
-	msg := executeSonosCmd(t, cmd).(sonosStateMsg)
-	m.handleSonosState(msg)
+	msg := executeSonosCmd(t, cmd).(sonosQueueMsg)
+	m.handleSonosQueue(msg)
 	if len(bridge.reads) != 1 || len(bridge.actions) != 0 || len(bridge.volumes) != 0 {
 		t.Fatalf("attach was not read-only: reads=%v controls=%v volumes=%v", bridge.reads, bridge.actions, bridge.volumes)
+	}
+}
+
+func TestSonosQueueSnapshotDoesNotMutateLocalQueueOrPollWithTransport(t *testing.T) {
+	m, bridge, _ := sonosTestModel()
+	m.layout.panelWidth = 120
+	bridge.current = spotify.SonosState{Source: "Sonos virtual input", QueueTotal: 260, Queue: []spotify.SonosTrack{{Title: "saved"}}}
+	local := m.playlist.Snapshot()
+	cmd := m.selectOutput(player.AudioDevice{Name: "sonos:10.0.0.2", Description: "Sonos · Office"})
+	if cmd == nil {
+		t.Fatal("attach did not request initial state")
+	}
+	m.handleSonosQueue(cmd().(sonosQueueMsg))
+	if bridge.queueReads != 1 || len(bridge.queuePlays) != 0 || !reflect.DeepEqual(local, m.playlist.Snapshot()) {
+		t.Fatalf("attach queue reads=%d plays=%v local queue changed", bridge.queueReads, bridge.queuePlays)
+	}
+	cmd = m.refreshSonosQueue()
+	if cmd == nil {
+		t.Fatal("explicit queue read missing")
+	}
+	m.handleSonosQueue(cmd().(sonosQueueMsg))
+	if m.sonosOutput.queue == nil || m.sonosOutput.queue.QueueTotal != 260 {
+		t.Fatal("saved queue snapshot missing")
+	}
+	if header := ansi.Strip(m.renderPlaylistHeader()); !strings.Contains(header, "1 cached of 260") {
+		t.Fatalf("queue label did not report snapshot and full total: %q", header)
+	}
+	cmd = m.refreshSonosState()
+	if cmd == nil {
+		t.Fatal("transport read missing")
+	}
+	m.handleSonosState(cmd().(sonosStateMsg))
+	if bridge.queueReads != 2 {
+		t.Fatalf("transport poll fetched full queue: %d reads", bridge.queueReads)
+	}
+	m.sonosOutput.queue = &spotify.SonosState{Source: "Sonos queue", Queue: []spotify.SonosTrack{{Title: "A"}, {Title: "B"}}}
+	m.sonosOutput.queueCursor = 0
+	m.sonosOutput.state = &spotify.SonosState{Source: "Sonos queue"}
+	if cmd := m.playSonosQueueItem(2); cmd != nil {
+		t.Fatal("out-of-range saved queue index was played")
+	}
+	m.handleMainKey(tea.KeyPressMsg{Text: "j"})
+	cmd = m.handleMainKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil || !reflect.DeepEqual(local, m.playlist.Snapshot()) {
+		t.Fatal("selection failed or changed local queue")
+	}
+	msg := cmd().(sonosControlMsg)
+	if msg.err != nil || !reflect.DeepEqual(bridge.queuePlays, []int{1}) {
+		t.Fatalf("queue play=%v err=%v", bridge.queuePlays, msg.err)
+	}
+}
+
+func TestSonosTransportActionsKeepQueueSnapshotAndSelection(t *testing.T) {
+	m, bridge, _ := sonosTestModel()
+	m.sonosOutput.selected = "10.0.0.2"
+	m.sonosOutput.queue = &spotify.SonosState{Source: "Sonos queue", Queue: []spotify.SonosTrack{{Title: "A"}, {Title: "B"}, {Title: "C"}}}
+	m.sonosOutput.queueCursor = 2
+	for _, action := range []string{"play", "pause", "next", "previous"} {
+		cmd := m.controlSonos(action)
+		msg := cmd().(sonosControlMsg)
+		followup := m.handleSonosControl(msg)
+		if followup == nil {
+			t.Fatalf("%s did not request a transport refresh", action)
+		}
+		m.handleSonosState(followup().(sonosStateMsg))
+		if bridge.queueReads != 0 || m.sonosOutput.queueCursor != 2 || len(m.sonosOutput.queue.Queue) != 3 {
+			t.Fatalf("%s refreshed or moved the saved queue: reads=%d cursor=%d", action, bridge.queueReads, m.sonosOutput.queueCursor)
+		}
+	}
+}
+
+func TestSonosQueueReadCannotReleaseTransportControl(t *testing.T) {
+	m, bridge, _ := sonosTestModel()
+	m.sonosOutput.selected = "10.0.0.2"
+	bridge.queueStarted = make(chan struct{}, 1)
+	queueCmd := m.refreshSonosQueue()
+	if cmd := m.refreshSonosState(); cmd != nil {
+		t.Fatal("transport read overlapped a queue snapshot read")
+	}
+	queueResult := make(chan tea.Msg, 1)
+	go func() { queueResult <- queueCmd() }()
+	<-bridge.queueStarted
+	controlCmd := m.controlSonos("pause")
+	if !m.sonosOutput.busy || m.sonosOutput.queueLoading {
+		t.Fatal("control did not cancel the pending snapshot read")
+	}
+	late := <-queueResult
+	m.handleSonosQueue(late.(sonosQueueMsg))
+	if !m.sonosOutput.busy || m.sonosOutput.cancel == nil {
+		t.Fatal("late queue read released transport control")
+	}
+	result := controlCmd().(sonosControlMsg)
+	followup := m.handleSonosControl(result)
+	if followup == nil {
+		t.Fatal("transport control did not schedule a fresh read")
+	}
+	m.handleSonosState(followup().(sonosStateMsg))
+	if m.sonosOutput.busy || bridge.queueReads != 1 {
+		t.Fatalf("control sequencing ended busy=%t with %d full reads", m.sonosOutput.busy, bridge.queueReads)
+	}
+}
+
+func TestSonosFailedQueueRefreshKeepsCacheButDisablesSelection(t *testing.T) {
+	m, bridge, _ := sonosTestModel()
+	m.layout.panelWidth = 120
+	m.sonosOutput.selected = "10.0.0.2"
+	m.sonosOutput.state = &spotify.SonosState{Source: "Sonos queue"}
+	cached := &spotify.SonosState{Source: "Sonos queue", Queue: []spotify.SonosTrack{{Title: "Cached"}}}
+	m.sonosOutput.queue = cached
+	bridge.err = errors.New("unreachable")
+	cmd := m.refreshSonosQueue()
+	m.handleSonosQueue(cmd().(sonosQueueMsg))
+	if m.sonosOutput.queue != cached || !m.sonosOutput.queueStale {
+		t.Fatal("failed refresh discarded the cache or left it marked current")
+	}
+	if cmd := m.playSonosQueueItem(0); cmd != nil {
+		t.Fatal("selected an item from a stale snapshot")
+	}
+	if got := ansi.Strip(m.renderPlaylistHeader()); !strings.Contains(got, "stale; Enter disabled") {
+		t.Fatalf("stale snapshot status missing: %q", got)
+	}
+}
+
+func TestSonosQueueRejectsVirtualInputAndStaleRead(t *testing.T) {
+	m, _, _ := sonosTestModel()
+	m.sonosOutput.selected = "10.0.0.2"
+	m.sonosOutput.queue = &spotify.SonosState{Source: "Sonos virtual input", Queue: []spotify.SonosTrack{{Title: "not active"}}}
+	if cmd := m.playSonosQueueItem(0); cmd != nil || m.sonosOutput.busy {
+		t.Fatal("virtual input snapshot treated as active queue")
+	}
+	m.sonosOutput.queue = nil
+	cmd := m.refreshSonosQueue()
+	if cmd == nil {
+		t.Fatal("queue read missing")
+	}
+	stale := cmd().(sonosQueueMsg)
+	local := m.playlist.Snapshot()
+	m.selectOutput(player.AudioDevice{Name: "", Description: "Local (system default)"})
+	m.handleSonosQueue(stale)
+	if m.sonosOutput.queue != nil || m.sonosOutput.selected != "" || !reflect.DeepEqual(local, m.playlist.Snapshot()) {
+		t.Fatal("stale queue read affected the newer Local output")
+	}
+	m.sonosOutput.selected = "10.0.0.2"
+	m.sonosOutput.queue = &spotify.SonosState{Source: "Sonos queue", Queue: []spotify.SonosTrack{{Title: "saved"}}}
+	m.sonosOutput.state = &spotify.SonosState{Source: "Sonos queue"}
+	selection := m.playSonosQueueItem(0)
+	m.selectOutput(player.AudioDevice{Name: "", Description: "Local (system default)"})
+	result := selection().(sonosControlMsg)
+	if !errors.Is(result.err, context.Canceled) || m.handleSonosControl(result) != nil || len(m.sonosBridge.(*sonosBridgeFake).queuePlays) != 0 {
+		t.Fatal("stale queue selection affected the newer Local output")
+	}
+}
+
+func TestSonosQueueUsesCurrentTransportAndKeepsPickerAndOverlayPriority(t *testing.T) {
+	m, _, _ := sonosTestModel()
+	m.layout.panelWidth = 100
+	m.sonosOutput.selected = "10.0.0.2"
+	m.sonosOutput.queue = &spotify.SonosState{Source: "Sonos queue", QueueIndex: 0, Queue: []spotify.SonosTrack{{Title: "Cached"}}}
+	m.sonosOutput.state = &spotify.SonosState{Source: "Sonos virtual input", Track: spotify.SonosTrack{Title: "Input"}}
+	if cmd := m.playSonosQueueItem(0); cmd != nil || m.sonosOutput.busy {
+		t.Fatal("saved queue item played after transport changed to virtual input")
+	}
+	if got := ansi.Strip(m.renderPlaylist()); strings.Contains(got, "[playing]") {
+		t.Fatalf("stale snapshot marked an item playing: %q", got)
+	}
+	m.devicePicker.visible = false
+	if cmd := m.handleMainKey(tea.KeyPressMsg{Text: "d"}); cmd == nil || !m.devicePicker.visible {
+		t.Fatal("d no longer opens the output picker")
+	}
+	m.devicePicker.visible = false
+	m.sonosOutput.queueLoading = false
+	if cmd := m.handleMainKey(tea.KeyPressMsg{Text: "A"}); cmd == nil || !m.sonosOutput.queueLoading {
+		t.Fatal("A did not explicitly refresh the saved queue")
+	}
+	m.sonosOutput.queueLoading = false
+	m.themePicker.visible = true
+	if got := ansi.Strip(m.renderPlaylistHeader()); strings.Contains(got, "Sonos saved queue") {
+		t.Fatalf("Sonos header overrode active overlay: %q", got)
+	}
+	m.themePicker.visible = false
+	m.focus = focusProvider
+	m.provider = &commandsTestProvider{name: "Test provider"}
+	if got := ansi.Strip(m.renderPlaylistHeader()); !strings.Contains(got, "Test provider / Playlists") {
+		t.Fatalf("Sonos header overrode provider browser: %q", got)
+	}
+	if got := ansi.Strip(m.renderPlaylist()); strings.Contains(got, "Cached") {
+		t.Fatalf("Sonos queue overrode provider list: %q", got)
 	}
 }
 
@@ -108,7 +317,7 @@ func TestSonosStaleStateAndPickerDiscoveryAreIndependent(t *testing.T) {
 		t.Fatal("stale room state appeared under new selection")
 	}
 	executeSonosCmd(t, cmd)
-	if len(bridge.reads) != 1 || bridge.reads[0] != "10.0.0.2" {
+	if len(bridge.reads) != 1 || bridge.reads[0] != "queue:10.0.0.2" {
 		t.Fatalf("selected room read = %v", bridge.reads)
 	}
 }
@@ -672,7 +881,11 @@ func TestSonosStatePollFailureIsThrottledFromAttemptTime(t *testing.T) {
 	if m.sonosOutput.busy || len(bridge.reads) != 1 {
 		t.Fatalf("failed read retried before throttle interval: busy=%t reads=%v", m.sonosOutput.busy, bridge.reads)
 	}
-	m.handleTick(tickMsg(attempted.Add(3 * time.Second)))
+	m.handleTick(tickMsg(attempted.Add(4 * time.Second)))
+	if m.sonosOutput.busy || len(bridge.reads) != 1 {
+		t.Fatalf("failed read retried before five-second interval: busy=%t reads=%v", m.sonosOutput.busy, bridge.reads)
+	}
+	m.handleTick(tickMsg(attempted.Add(5 * time.Second)))
 	if !m.sonosOutput.busy || len(bridge.reads) != 1 {
 		t.Fatalf("poll did not retry after interval: busy=%t reads=%v", m.sonosOutput.busy, bridge.reads)
 	}

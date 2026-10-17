@@ -323,7 +323,7 @@ func (m *Model) handleTick(msg tickMsg) tea.Cmd {
 	m.tickVisualizer(now)
 	m.tickProgressReport(now)
 	var cmds []tea.Cmd
-	if m.sonosOutput.selected != "" && !m.sonosOutput.busy && now.Sub(m.sonosOutput.attempted) >= 2*time.Second {
+	if m.sonosOutput.selected != "" && !m.sonosOutput.busy && !m.sonosOutput.queueLoading && now.Sub(m.sonosOutput.attempted) >= 5*time.Second {
 		if cmd := m.refreshSonosState(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
