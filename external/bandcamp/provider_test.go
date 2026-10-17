@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/config"
@@ -239,6 +240,56 @@ func TestRecentTracks_PartialNotCached(t *testing.T) {
 	}
 }
 
+func TestRecentTracks_RestartsAfterRefresh(t *testing.T) {
+	// A Refresh landing during the album fan-out (Ctrl+R) cancels the album
+	// reads in flight. The fetch starts over instead of reporting the
+	// cancellation or serving the albums that finished first.
+	var prov atomic.Pointer[Provider]
+	var refreshed atomic.Bool
+	var albumLists atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimSuffix(r.URL.Path, ".view")
+		switch {
+		case strings.HasSuffix(path, "/rest/getAlbumList2"):
+			albumLists.Add(1)
+			w.Write([]byte(`{"subsonic-response":{"status":"ok","albumList2":{"album":[
+				{"id":"al-1","name":"LP1","artist":"A","songCount":1},
+				{"id":"al-2","name":"LP2","artist":"B","songCount":1}]}}}`))
+		case strings.HasSuffix(path, "/rest/getAlbum") && refreshed.CompareAndSwap(false, true):
+			// Hold this read until the Refresh cancels it.
+			prov.Load().Refresh()
+			select {
+			case <-r.Context().Done():
+			case <-time.After(5 * time.Second):
+				t.Error("Refresh did not cancel the album read in flight")
+			}
+		case strings.HasSuffix(path, "/rest/getAlbum"):
+			id := r.URL.Query().Get("id")
+			fmt.Fprintf(w, `{"subsonic-response":{"status":"ok","album":{"song":[
+				{"id":"s-%s","title":"T","artist":"A","album":"LP","duration":100}]}}}`, id)
+		default:
+			w.Write([]byte(`{"subsonic-response":{"status":"ok"}}`))
+		}
+	}))
+	defer srv.Close()
+
+	p := newTestProvider(srv.URL)
+	prov.Store(p)
+	tracks, err := p.Tracks(recentPurchasesID)
+	if err != nil {
+		t.Fatalf("Tracks(recent) error: %v", err)
+	}
+	if len(tracks) != 2 {
+		t.Fatalf("got %d tracks, want both albums from the fresh fetch", len(tracks))
+	}
+	if got := albumLists.Load(); got != 2 {
+		t.Errorf("getAlbumList2 calls = %d, want 2 (the abandoned fetch, then the fresh one)", got)
+	}
+	if _, err := p.Tracks(recentPurchasesID); err != nil || albumLists.Load() != 2 {
+		t.Errorf("post-refresh fetch not cached (calls=%d, err=%v)", albumLists.Load(), err)
+	}
+}
+
 func TestTracks_SyntheticRowError(t *testing.T) {
 	srv := fakeServer(t, false, true, nil)
 	defer srv.Close()
@@ -275,23 +326,54 @@ func TestRecentTracks_CachedAndRefreshed(t *testing.T) {
 	}
 }
 
-func TestPlaylists_BadAuthFailsPane(t *testing.T) {
-	// Rejected credentials must fail the whole pane so the persistent error
-	// surface shows — not degrade to the Library row with a transient
-	// warning. Mimics the live beta: ping answers ok without validating,
-	// data endpoints return a bare 500 on bad credentials.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(strings.TrimSuffix(r.URL.Path, ".view"), "/rest/ping") {
-			w.Write([]byte(`{"subsonic-response":{"status":"ok"}}`))
-			return
-		}
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv.Close()
+func TestPlaylists_CredentialFailures(t *testing.T) {
+	// Only a protocol-level rejection (Subsonic error 40) fails the whole
+	// pane into the persistent error surface. The live beta answers bad
+	// credentials with a bare 500 instead (and ping answers ok without
+	// validating), which cannot be told from a server fault: the Library
+	// rows stay, and the error names the likely cause.
+	tests := []struct {
+		name     string
+		answer   func(w http.ResponseWriter)
+		wantRows int
+		wantErr  func(error) bool
+	}{
+		{
+			name:     "bare 500 keeps the Library rows",
+			answer:   func(w http.ResponseWriter) { w.WriteHeader(http.StatusInternalServerError) },
+			wantRows: len(libraryRows),
+			wantErr: func(err error) bool {
+				return !errors.Is(err, subsonicapi.ErrBadCredentials) && strings.Contains(err.Error(), "Fan Settings")
+			},
+		},
+		{
+			name: "error 40 fails the pane",
+			answer: func(w http.ResponseWriter) {
+				w.Write([]byte(`{"subsonic-response":{"status":"failed","error":{"code":40,"message":"Wrong username or password"}}}`))
+			},
+			wantErr: func(err error) bool { return errors.Is(err, subsonicapi.ErrBadCredentials) },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(strings.TrimSuffix(r.URL.Path, ".view"), "/rest/ping") {
+					w.Write([]byte(`{"subsonic-response":{"status":"ok"}}`))
+					return
+				}
+				tt.answer(w)
+			}))
+			defer srv.Close()
 
-	p := newTestProvider(srv.URL)
-	if _, err := p.Playlists(); err == nil {
-		t.Fatal("expected error for bad credentials, got partial success")
+			p := newTestProvider(srv.URL)
+			lists, err := p.Playlists()
+			if err == nil || !tt.wantErr(err) {
+				t.Fatalf("Playlists() error = %v", err)
+			}
+			if len(lists) != tt.wantRows {
+				t.Errorf("got %d rows, want %d: %+v", len(lists), tt.wantRows, lists)
+			}
+		})
 	}
 }
 
