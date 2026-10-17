@@ -81,7 +81,9 @@ Large playlists fill in as they load. Cliamp shows the first tracks, appends the
 
 The provider lists both playlists and saved albums in the Spotify library. Playlists include those you created and saved, or followed. If a public playlist is missing, open Spotify and click **Save** first.
 
-Spotify lets apps read the tracks of only the playlists that you own or collaborate on. A followed playlist can fail to open with `403`. To play it, add its tracks to your own playlist in Spotify.
+Press `u` from the playlist or provider browser and paste a `https://open.spotify.com/playlist/...` URL or a `spotify:playlist:...` URI to load a playlist directly. Tracks load through the authenticated playback session, so followed playlists do not depend on Web API playlist access. Spotify must be configured and signed in first. Command-line positional URLs do not use this provider resolver yet.
+
+The library browser uses Spotify's Web API, which restricts playlist tracks to playlists you own or collaborate on.
 
 Saved albums appear under a **Saved albums** section, labelled `Artist - Album` and sorted alphabetically by artist. These are the albums in **Your Library**. To add one, open the album in Spotify and click **Save**. Selecting a saved album loads all of its tracks in disc and track order.
 

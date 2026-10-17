@@ -64,9 +64,18 @@ func (m *Model) handleFeedTrackResolved(msg feedTrackResolvedMsg) tea.Cmd {
 	return m.playCurrentTrack()
 }
 
-// handleFeedsLoaded appends the tracks that URLs resolved to. It can start
-// playback and the batch load of a YouTube radio playlist.
+// handleFeedsLoaded appends startup feeds or replaces the queue for an
+// interactive URL load. It can also start a YouTube radio batch load.
 func (m *Model) handleFeedsLoaded(msg feedsLoadedMsg) tea.Cmd {
+	if msg.replace {
+		if msg.loadGen != m.requests.url {
+			return nil
+		}
+		if msg.queueGen != m.requests.queue {
+			m.feedLoading = false
+			return nil
+		}
+	}
 	m.feedLoading = false
 	if msg.err != nil {
 		m.err = withRetryHint(msg.err)
@@ -74,7 +83,20 @@ func (m *Model) handleFeedsLoaded(msg feedsLoadedMsg) tea.Cmd {
 		return nil
 	}
 	if len(msg.tracks) > 0 {
-		m.appendTracks(msg.tracks...)
+		if msg.replace {
+			m.stopPlayback()
+			m.player.ClearPreload()
+			m.retireTracksPaging()
+			m.replacePlaylist(msg.tracks)
+			m.clearLoadedPlaylist()
+			m.setHeaderStateFromTracks(msg.tracks)
+			m.plCursor, m.plScroll = 0, 0
+			m.focus = focusPlaylist
+			m.applyHeightMode()
+			m.adjustScroll()
+		} else {
+			m.appendTracks(msg.tracks...)
+		}
 		m.status.Showf(statusTTLDefault, "Loaded %d track(s)", len(msg.tracks))
 	} else {
 		m.status.Warning("No tracks found at URL.", statusTTLDefault)

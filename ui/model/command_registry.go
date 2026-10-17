@@ -189,7 +189,7 @@ var commandRegistry = []commandSpec{
 	}},
 	{Mode: commandModeMain, Keys: []string{"/"}, KeyLabel: "/", Label: "Filter/search list", Keymap: true, ContextHelp: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+f"}, KeyLabel: "Ctrl+F", Label: "Search active provider or YouTube", Keymap: true, ContextHelp: true},
-	{Mode: commandModeMain, Keys: []string{"u"}, KeyLabel: "u", Label: "Load URL (stream/playlist)", Keymap: true},
+	{Mode: commandModeMain | commandModeProvider, Keys: []string{"u"}, KeyLabel: "u", Label: "Load URL (stream/playlist)", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"d"}, KeyLabel: "d", Label: "Audio device picker", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"y"}, KeyLabel: "y", Label: "Show lyrics", Keymap: true},
 	{Mode: commandModeMain | commandModeProvider | commandModeProviderPill | commandModeVolume | commandModeEQ | commandModeShuffle | commandModeRepeat | commandModeSpeed, Keys: []string{"tab", "shift+tab"}, KeyLabel: "Tab/Shift+Tab", Label: "Focus", Keymap: true, ContextHelp: true},
