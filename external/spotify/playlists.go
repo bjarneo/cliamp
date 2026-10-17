@@ -65,10 +65,13 @@ func (p *SpotifyProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 	libraryCtx, libraryCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer libraryCancel()
 	library, libraryErr := p.libraryPlaylists(libraryCtx)
-	if len(personalized) > 0 && errors.Is(libraryErr, playlist.ErrNeedsAuth) {
+	all := append(personalized, library...)
+	if len(all) > 0 && errors.Is(discoveryErr, playlist.ErrNeedsAuth) {
+		discoveryErr = fmt.Errorf("spotify: personalized discovery authorization: %v", discoveryErr)
+	}
+	if len(all) > 0 && errors.Is(libraryErr, playlist.ErrNeedsAuth) {
 		libraryErr = fmt.Errorf("spotify: library authorization: %v", libraryErr)
 	}
-	all := append(personalized, library...)
 	sectionOrder := map[string]int{madeForYouSection: 0, homeShortcutsSection: 1, "Library": 2, "Your playlists": 3, "Followed playlists": 4, savedAlbumSection: 5}
 	sort.SliceStable(all, func(i, j int) bool { return sectionOrder[all[i].Section] < sectionOrder[all[j].Section] })
 	if err := errors.Join(discoveryErr, libraryErr); err != nil {
