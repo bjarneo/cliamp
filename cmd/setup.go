@@ -1,7 +1,7 @@
 // Package cmd implements interactive subcommands invoked from the CLI.
 // setup.go contains the provider onboarding wizard reachable via
 // `cliamp setup`. It walks the user through configuring each remote
-// provider (Navidrome, Lyrion, Plex, Jellyfin, Emby, Audiobookshelf,
+// provider (Navidrome, Lyrion, Bandcamp, Plex, Jellyfin, Emby, Audiobookshelf,
 // Spotify, Qobuz, Tidal, NetEase, Mixcloud, YouTube Music),
 // validates the connection where possible, and writes the resulting
 // TOML section to ~/.config/cliamp/config.toml.
@@ -26,6 +26,7 @@ import (
 
 	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/external/audiobookshelf"
+	"github.com/bjarneo/cliamp/external/bandcamp"
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
 	"github.com/bjarneo/cliamp/external/lyrion"
@@ -154,6 +155,41 @@ func providers() []providerSpec {
 					quotedKV("url", v["url"]),
 					quotedKV("user", v["user"]),
 					quotedKV("password", v["password"]),
+				}
+			},
+		},
+		{
+			key:     "bandcamp",
+			name:    "Bandcamp",
+			section: "bandcamp",
+			intro: []string{
+				"Stream your purchased Bandcamp collection (official Subsonic API, open beta).",
+				"Generate dedicated credentials on bandcamp.com: Fan Settings → Subsonic.",
+				"These are NOT your Bandcamp login. Docs: cliamp.stream → docs/bandcamp.md",
+			},
+			fields: []fieldSpec{
+				{key: "user", label: "Subsonic username", required: true},
+				{key: "password", label: "Subsonic password", required: true, secret: true},
+			},
+			validate: func(v map[string]string) error {
+				// Bandcamp's ping answers ok even with bad credentials, so
+				// validation uses an authenticated call. Fan Settings copies
+				// credentials with a stray space, so trim before probing.
+				bc := config.BandcampConfig{User: strings.TrimSpace(v["user"]), Password: strings.TrimSpace(v["password"])}
+				// Validate against the same url override the saved block
+				// keeps, not the default endpoint.
+				if cfg, err := config.Load(); err == nil {
+					bc.URL = cfg.Bandcamp.URL
+				}
+				return bandcamp.Validate(bc)
+			},
+			// The url override and the app-saved browse_sort are not owned,
+			// so a save keeps them as written.
+			owned: []string{"user", "password"},
+			body: func(v map[string]string) []config.KeyValue {
+				return []config.KeyValue{
+					quotedKV("user", strings.TrimSpace(v["user"])),
+					quotedKV("password", strings.TrimSpace(v["password"])),
 				}
 			},
 		},

@@ -30,6 +30,15 @@ func TestSetupRewriteKeepsUserLines(t *testing.T) {
 			want:    "volume = -6\n\n# Home server\n[navidrome]\nurl = \"https://new\"\nuser = \"bob\"\npassword = \"pw2\"\n# byYear is the default\nbrowse_sort = \"alphabeticalByName\"\nformat = \"mp3\"\n\n[plex]\nurl = \"http://plex\"\n",
 		},
 		{
+			// The url override keeps its $ENV reference unexpanded, and the
+			// app-saved browse_sort survives a rerun of setup.
+			name:    "bandcamp keeps the url override and browse_sort as written",
+			section: "bandcamp",
+			values:  map[string]string{"user": " fan", "password": "secret "},
+			initial: "[bandcamp]\nuser = \"old\"\npassword = \"old\"\nurl = \"$BC_URL\"\nbrowse_sort = \"newest\"\n",
+			want:    "[bandcamp]\nuser = \"fan\"\npassword = \"secret\"\nurl = \"$BC_URL\"\nbrowse_sort = \"newest\"\n",
+		},
+		{
 			name:    "a rewritten key line drops its end comment",
 			section: "navidrome",
 			values:  map[string]string{"url": "https://new", "user": "bob", "password": "pw"},

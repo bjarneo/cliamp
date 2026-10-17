@@ -271,6 +271,40 @@ func (l *LyrionConfig) set(key, val string) {
 	}
 }
 
+// BandcampConfig holds credentials for Bandcamp's official Subsonic API
+// (open beta). The user and password are the dedicated Subsonic credentials
+// generated in Bandcamp Fan Settings — never the Bandcamp account login.
+// Enable rule: credentials, where the URL is optional.
+type BandcampConfig struct {
+	URL        string // API endpoint override; empty uses the official default
+	User       string
+	Password   string
+	BrowseSort string // album browse sort order, e.g. "newest"
+}
+
+// IsSet reports whether the Bandcamp Subsonic credentials are present.
+// The URL is optional (it defaults to the official endpoint).
+func (b BandcampConfig) IsSet() bool {
+	return b.User != "" && b.Password != ""
+}
+
+// set applies one key of the [bandcamp] section. Every value is trimmed:
+// Bandcamp's Fan Settings UI copies credentials with a stray leading space
+// that breaks auth, and the dialect's sort list is exhaustive, so a stray
+// space in browse_sort would silently drop the saved choice.
+func (b *BandcampConfig) set(key, val string) {
+	switch key {
+	case "url":
+		b.URL = strings.TrimSpace(parseString(val))
+	case "user":
+		b.User = strings.TrimSpace(parseString(val))
+	case "password":
+		b.Password = strings.TrimSpace(parseString(val))
+	case "browse_sort":
+		b.BrowseSort = strings.TrimSpace(parseString(val))
+	}
+}
+
 // SpotifyConfig holds settings for the Spotify provider. Requires a Spotify
 // Premium account. If client_id is empty, a built-in fallback (the librespot
 // keymaster ID) is used so search and catalog endpoints work even for users
@@ -749,6 +783,7 @@ type Config struct {
 	LyricsOffsetMs   int                          // lyric timestamp adjustment in ms (-10000..10000), applied to all sources
 	Navidrome        NavidromeConfig              // optional Navidrome/Subsonic server credentials
 	Lyrion           LyrionConfig                 // optional Lyrion Music Server (LMS) instance
+	Bandcamp         BandcampConfig               // optional Bandcamp Subsonic API credentials
 	Spotify          SpotifyConfig                // optional Spotify provider (requires Premium)
 	Qobuz            QobuzConfig                  // optional Qobuz provider (requires subscription)
 	Tidal            TidalConfig                  // optional Tidal provider (requires subscription)
@@ -859,6 +894,8 @@ func Load() (Config, error) {
 			cfg.Navidrome.set(key, val)
 		case "lyrion":
 			cfg.Lyrion.set(key, val)
+		case "bandcamp":
+			cfg.Bandcamp.set(key, val)
 		case "spotify":
 			cfg.Spotify.set(key, val)
 		case "qobuz":
@@ -1193,6 +1230,12 @@ func editTopLevel(data, key, line string) string {
 // If no [navidrome] section exists, one is appended along with the key.
 func SaveNavidromeSort(sortType string) error {
 	return SaveSection("navidrome", []KeyValue{{"browse_sort", QuoteString(sortType)}}, nil)
+}
+
+// SaveBandcampSort persists the given album browse sort type to the
+// [bandcamp] section of the config file.
+func SaveBandcampSort(sortType string) error {
+	return SaveSection("bandcamp", []KeyValue{{"browse_sort", QuoteString(sortType)}}, nil)
 }
 
 // SaveRadioCountry persists the listener's home country in the [radio] section

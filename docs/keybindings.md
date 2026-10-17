@@ -122,7 +122,7 @@ and `Esc` clears it.
 | Key | Action |
 |---|---|
 | `f` | Toggle the favorite ♥ on the selected track. Favorites appear in the "Favorites" virtual playlist, and cliamp also saves them on Spotify and Navidrome. For directory radio stations outside saved local playlists, toggle Radio Favorites from the browser or playback playlist, including country and genre results. In the country browser, pin the selected country or region. On a podcast show, subscribe or unsubscribe. |
-| `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, SoundCloud, Yandex Music, Local), or search YouTube. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
+| `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Bandcamp, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, SoundCloud, Yandex Music, Local), or search YouTube. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
 | `u` | Load URL (stream/playlist) |
 | `d` | Open the audio device picker |
 | `y` | Show or close lyrics |
@@ -146,6 +146,7 @@ and `Esc` clears it.
 | `M` | Open NetEase provider |
 | `Q` | Open Qobuz provider |
 | `T` | Open Tidal provider |
+| `K` | Open Bandcamp provider |
 | `B` | Open Audiobookshelf provider |
 
 Metadata belongs to the main playback view, not provider browsers, and follows
@@ -272,12 +273,12 @@ commits pending selections before it closes the browser.
 
 Press `N` to open a provider. These providers share the browser keys below:
 Navidrome, Lyrion, Plex, Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz,
-Tidal, Mixcloud, Podcasts, and YouTube Music. Artist and album screens exist
-only where the provider implements them: Navidrome, Lyrion, Jellyfin, Emby,
-Audiobookshelf, Qobuz, Tidal, and Mixcloud. Podcasts reuses those screens for
-categories and shows. Plex, Spotify, and YouTube Music have no artist or album
-screens; their playlists — and, for Plex and Spotify, saved albums — appear in
-the provider pane.
+Tidal, Bandcamp, Mixcloud, Podcasts, and YouTube Music. Artist and album
+screens exist only where the provider implements them: Navidrome, Lyrion,
+Jellyfin, Emby, Audiobookshelf, Qobuz, Tidal, Bandcamp, and Mixcloud. Podcasts
+reuses those screens for categories and shows. Plex, Spotify, and YouTube Music
+have no artist or album screens; their playlists — and, for Plex and Spotify,
+saved albums — appear in the provider pane.
 
 | Key | Action |
 |---|---|
@@ -291,7 +292,7 @@ the provider pane.
 | `R` | Replace the queue with all visible tracks (start from the top, confirm when non-empty) |
 | `q` | Queue the highlighted track to play next |
 | `s` | Cycle album sort (album list only) |
-| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `L` `R` `O` | Switch to that provider without opening the main pane. On the track screen, `R` replaces the queue instead. |
+| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `K` `L` `R` `O` | Switch to that provider without opening the main pane. On the track screen, `R` replaces the queue instead. |
 | `N` | In Jellyfin, reopen the browse-mode chooser. Elsewhere, switch to Navidrome. |
 | `Esc` `b` | Go back one level; close the browser |
 
@@ -328,7 +329,7 @@ Navidrome, Podcasts, or Local Playlists:
 | `Ctrl+F` | Run the provider online or server search (Spotify, Navidrome, NetEase, and others). |
 | `Ctrl+R` | Refresh the provider: reload the currently open playlist or starting wave in place (e.g. a fresh Yandex "Моя волна" batch), or return to the playlist list. For Mixcloud, also clear the cached `/me/` identity. |
 | `p` | Open the playlist as an overlay (the Local source shows it directly; create, rename, delete, add dirs/tracks) |
-| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `L` `R` `O` | Switch to that provider |
+| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `K` `L` `R` `O` | Switch to that provider |
 | `N` | Open the browser of the provider on screen |
 | `Tab` | Leave the provider pane and focus Source, or the first visible playback control |
 | `Shift+Tab` | Leave the provider pane and focus the last visible playback control (Speed, or Repeat with Settings closed) |
@@ -380,10 +381,10 @@ This applies to:
 - `/` file browser filter
 - `Ctrl+F` when the active provider is Local (your saved playlists)
 
-Other `Ctrl+F` providers, including Spotify, Qobuz, Tidal, Navidrome, Lyrion,
-Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, SoundCloud, Yandex
-Music, Podcasts, and YouTube, send the query to their search API. Their
-services control matching rules.
+Other `Ctrl+F` providers, including Spotify, Qobuz, Tidal, Bandcamp,
+Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase,
+SoundCloud, Yandex Music, Podcasts, and YouTube, send the query to their
+search API. Their services control matching rules.
 
 ## General
 

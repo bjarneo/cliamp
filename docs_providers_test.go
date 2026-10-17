@@ -19,6 +19,7 @@ func everyProviderConfig() config.Config {
 	return config.Config{
 		Navidrome:      config.NavidromeConfig{URL: "https://nd.example.com", User: "user", Password: "secret"},
 		Lyrion:         config.LyrionConfig{URL: "http://lms.example.com:9000"},
+		Bandcamp:       config.BandcampConfig{User: "fan", Password: "secret"},
 		Plex:           config.PlexConfig{URL: "https://plex.example.com", Token: "token"},
 		Jellyfin:       config.JellyfinConfig{URL: "https://jf.example.com", Token: "token", UserID: "user-1"},
 		Emby:           config.EmbyConfig{URL: "https://emby.example.com", Token: "token", UserID: "user-1"},
@@ -68,7 +69,7 @@ func TestDocsNameProviderCapabilities(t *testing.T) {
 		file    string
 		list    *regexp.Regexp // captures the list of provider names
 		capable func(playlist.Provider) bool
-		skip    string   // a provider key that the list leaves out on purpose
+		skip    []string // provider keys that the list leaves out on purpose
 		extra   []string // names that the list adds to the enabled providers
 	}{
 		{
@@ -80,7 +81,9 @@ func TestDocsNameProviderCapabilities(t *testing.T) {
 				return ok
 			},
 			// Podcasts keep the listening position on this computer.
-			skip: "podcast",
+			// Bandcamp's dialect turns the reports off: the beta's scrobble
+			// semantics are unverified.
+			skip: []string{"podcast", "bandcamp"},
 		},
 		{
 			name:    "Ctrl+F search",
@@ -94,7 +97,7 @@ func TestDocsNameProviderCapabilities(t *testing.T) {
 			list:    regexp.MustCompile("Other `Ctrl\\+F` providers, including ([^.]+), send the"),
 			capable: isSearcher,
 			// The list above it names Local, which matches local.
-			skip: "local",
+			skip: []string{"local"},
 			// YouTube needs yt-dlp, so everyProviderConfig leaves it off.
 			extra: []string{"YouTube"},
 		},
@@ -112,7 +115,7 @@ func TestDocsNameProviderCapabilities(t *testing.T) {
 			documented := docList(strings.Join(strings.Fields(m[1]), " "))
 			want := slices.Clone(tt.extra)
 			for _, e := range set.entries {
-				if e.Key != tt.skip && tt.capable(e.Provider) {
+				if !slices.Contains(tt.skip, e.Key) && tt.capable(e.Provider) {
 					want = append(want, e.Name)
 				}
 			}

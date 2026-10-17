@@ -641,6 +641,44 @@ func TestIPCPlaylistsReportTheProviderFavoriteMark(t *testing.T) {
 	}
 }
 
+// partialRowsProvider lists the rows it could load with the error that cut
+// the list short, as Bandcamp keeps its Library rows when the playlist
+// endpoint fails.
+type partialRowsProvider struct {
+	commandsTestProvider
+	rows []playlist.PlaylistInfo
+}
+
+func (p partialRowsProvider) Playlists() ([]playlist.PlaylistInfo, error) {
+	return p.rows, errors.New("playlists unavailable")
+}
+
+// provider.playlists sends the rows of a partial list with the error as a
+// warning. A failure with no rows fails the job.
+func TestIPCPlaylistsKeepPartialRows(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		rows     []playlist.PlaylistInfo
+		wantOK   bool
+		wantRows int
+	}{
+		{name: "partial list", rows: []playlist.PlaylistInfo{{ID: "a", Name: "A"}, {ID: "b", Name: "B"}}, wantOK: true, wantRows: 2},
+		{name: "no rows", wantOK: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prov := partialRowsProvider{commandsTestProvider{name: "Rows"}, tc.rows}
+			m := newHeadlessModel(t, &headlessEngine{}, []provider.Entry{{Key: "rows", Name: "Rows", Provider: prov}})
+			response := runV2(t, &m, "provider.playlists", ipc.Request{Provider: "rows"})
+			if response.OK != tc.wantOK || len(response.Playlists) != tc.wantRows {
+				t.Fatalf("provider.playlists = %+v, want ok=%v with %d rows", response, tc.wantOK, tc.wantRows)
+			}
+			if !strings.Contains(response.Error, "playlists unavailable") {
+				t.Errorf("error = %q, want the provider's error", response.Error)
+			}
+		})
+	}
+}
+
 func TestHeadlessPlaylistMutations(t *testing.T) {
 	prov := &writableTestProvider{commandsTestProvider: commandsTestProvider{name: "Writable"}, removed: -1}
 	m := newHeadlessModel(t, &headlessEngine{}, []provider.Entry{{Key: "local", Name: "Local", Provider: prov}})

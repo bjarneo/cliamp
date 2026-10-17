@@ -7,7 +7,10 @@ assertions at run time to detect capabilities and enable features.
 
 Use these providers as examples:
 
-- `external/navidrome/`: Subsonic API, browsing, scrobbling, starred songs
+- `external/navidrome/` and `external/bandcamp/`: two adapters over the shared
+  Subsonic client in `internal/subsonicapi/`, which puts each server's quirks
+  in a dialect. Navidrome adds browsing, scrobbling and starred songs.
+  Bandcamp adds synthetic Library rows and playlist editing
 - `external/plex/`: Plex Media Server, search, album tracks
 - `external/jellyfin/` and `external/emby/`: two small adapters over the shared
   client in `internal/embyapi/`

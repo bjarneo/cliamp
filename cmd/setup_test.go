@@ -317,6 +317,30 @@ func TestPasteIntoActiveField(t *testing.T) {
 	}
 }
 
+func TestBandcampSetupBody(t *testing.T) {
+	spec := providerSpec{}
+	for _, p := range providers() {
+		if p.section == "bandcamp" {
+			spec = p
+			break
+		}
+	}
+	if spec.section == "" {
+		t.Fatal("bandcamp spec missing")
+	}
+
+	// Fan Settings copies credentials with a stray space; the Bandcamp spec
+	// trims them itself (the wizard stores other providers' values verbatim).
+	body := spec.body(map[string]string{"user": " fan", "password": "secret "})
+	checkBody(t, body, map[string]string{"user": `"fan"`, "password": `"secret"`})
+
+	// Bandcamp's ping does not validate credentials, so the spec must define
+	// a live validate probe (it uses an authenticated call instead).
+	if spec.validate == nil {
+		t.Fatal("bandcamp spec must define a validate probe")
+	}
+}
+
 func TestNetEaseSetupBody(t *testing.T) {
 	spec := providerSpec{}
 	for _, p := range providers() {
@@ -516,7 +540,7 @@ func TestMixcloudSetupBody(t *testing.T) {
 // and docs/cli.md name as checked during setup.
 func TestSetupValidateMatchesDocs(t *testing.T) {
 	want := map[string]bool{
-		"navidrome": true, "lyrion": true, "plex": true, "jellyfin": true,
+		"navidrome": true, "lyrion": true, "bandcamp": true, "plex": true, "jellyfin": true,
 		"emby": true, "audiobookshelf": true, "netease": true,
 		"spotify": false, "qobuz": false, "tidal": false, "mixcloud": false,
 		"ytmusic": false,
