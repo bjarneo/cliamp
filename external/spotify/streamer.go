@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -50,13 +51,14 @@ type spotifyReopenFunc func(ctx context.Context, positionMs int64) (*librespotPl
 // silence while a goroutine reopens the stream at the same position. This
 // keeps the gapless streamer from treating the drop as the end of the track.
 type spotifyStreamer struct {
-	mu         sync.Mutex
-	source     librespot.AudioSource
-	buf        []float32
-	durationMs int64
-	err        error
-	closing    atomic.Bool
-	closed     bool
+	mu             sync.Mutex
+	source         librespot.AudioSource
+	buf            []float32
+	durationMs     int64
+	err            error
+	closing        atomic.Bool
+	closed         bool
+	closeNarration func()
 
 	cancelMu sync.Mutex
 	cancel   func() // cancels the I/O of the stream that feeds source
@@ -306,6 +308,10 @@ func (s *spotifyStreamer) Close() error {
 		return nil
 	}
 	s.closed = true
+	if s.closeNarration != nil {
+		s.closeNarration()
+		s.closeNarration = nil
+	}
 
 	s.source = nil
 	s.buf = nil
@@ -374,6 +380,9 @@ func (p *SpotifyProvider) URISchemes() []string { return []string{"spotify:"} }
 //
 // Implements provider.CustomStreamer.
 func (p *SpotifyProvider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error) {
+	if strings.HasPrefix(uri, djStreamPrefix) {
+		return p.newDJStreamer(uri)
+	}
 	if err := p.ensureSession(); err != nil {
 		return nil, beep.Format{}, 0, err
 	}

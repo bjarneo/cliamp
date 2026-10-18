@@ -40,6 +40,9 @@ type pendingTracks struct {
 // Results are cached by snapshot_id; unchanged playlists skip the API call.
 // Saved-album entries (savedAlbumIDPrefix) are expanded via AlbumTracks.
 func (p *SpotifyProvider) Tracks(playlistID string) ([]playlist.Track, error) {
+	if IsDJURI(playlistID) {
+		return nil, fmt.Errorf("spotify: choose DJ (Local) in the provider browser")
+	}
 	if strings.HasPrefix(playlistID, "spotify:playlist:") {
 		return p.ResolveURL(context.Background(), playlistID)
 	}
@@ -239,6 +242,9 @@ func (p *SpotifyProvider) savedTracksUnchanged(ctx context.Context, tracks []pla
 // TracksPage returns one page of playlistID's tracks plus the offset to request
 // next, or 0 when the playlist is fully loaded. Implements provider.TrackPager.
 func (p *SpotifyProvider) TracksPage(playlistID string, offset int) ([]playlist.Track, int, error) {
+	if IsDJURI(playlistID) {
+		return nil, 0, fmt.Errorf("spotify: choose DJ (Local) in the provider browser")
+	}
 	if strings.HasPrefix(playlistID, "spotify:playlist:") {
 		if offset != 0 {
 			return nil, 0, fmt.Errorf("spotify: context playlists load as a complete list")

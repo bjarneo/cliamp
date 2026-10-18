@@ -177,6 +177,7 @@ func pluginTrack(track playlist.Track) luaplugin.Track {
 // stopping, it tells plugins so they can drop any continuation they planned.
 // A queue running out never comes through here.
 func (m *Model) stopByUser() {
+	m.cancelDJ()
 	m.stopPlayback()
 	m.emitPlugin(luaplugin.EventPlaybackStop, nil)
 }

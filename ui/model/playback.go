@@ -25,6 +25,7 @@ const (
 // queue. The undo of the last queue edit goes, because it restores the old
 // queue.
 func (m *Model) replacePlaylist(tracks []playlist.Track) {
+	m.cancelDJ()
 	nextRequest(&m.requests.queue)
 	m.resetYTDLBatch()
 	m.playlistUndo = playlistUndo{}
@@ -105,6 +106,14 @@ func (m *Model) tickResumeSave(now time.Time) {
 // nextTrack advances to the next playlist track and starts playing it.
 // Unplayable tracks are skipped automatically.
 func (m *Model) nextTrack() tea.Cmd {
+	if m.spotifyDJ.loading {
+		return nil
+	}
+	if m.spotifyDJ.session != nil {
+		if _, ok := m.playlist.PeekNext(); !ok {
+			return m.nextDJBatch()
+		}
+	}
 	track, ok := m.advanceToNext()
 	if !ok {
 		return nil
@@ -393,6 +402,9 @@ func (m *Model) undoPlaylistMutation() tea.Cmd {
 // in a command, so a slow open does not freeze the UI. The player picks the
 // pipeline, such as the yt-dlp | ffmpeg chain for a yt-dlp page URL.
 func (m *Model) playTrack(track playlist.Track) tea.Cmd {
+	if track.Meta("spotify.dj") != "true" {
+		m.cancelDJ()
+	}
 	m.pausedAt = time.Time{}
 	if track.Feed || playlist.IsFeed(track.Path) {
 		m.feedLoading = true
@@ -593,6 +605,16 @@ func (m *Model) fetchLyricsForTrack(track playlist.Track, artist, title string) 
 // For live streams and long-paused yt-dlp streams, unpausing reconnects instead
 // of playing stale data sitting in OS/decoder buffers from before the pause.
 func (m *Model) togglePlayPause() tea.Cmd {
+	if m.spotifyDJ.loading {
+		m.spotifyDJ.paused = !m.spotifyDJ.paused
+		return nil
+	}
+	if m.pauseDJSetup() {
+		return nil
+	}
+	if m.spotifyDJ.cancel != nil {
+		m.spotifyDJ.paused = false
+	}
 	if m.buffering {
 		return nil
 	}

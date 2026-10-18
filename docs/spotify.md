@@ -63,6 +63,14 @@ The selector also includes **Made for You** playlists found in Spotify's persona
 
 Cliamp opens each Spotify stream in the background and shows `Buffering...` until audio starts. The UI stays responsive while it waits. If the connection drops mid-track, cliamp plays silence, reconnects, and resumes at the same position. After 5 failed attempts, it moves to the next track.
 
+## DJ (Local)
+
+Select **DJ (Local)** in Spotify's Library section to start a narrated Spotify DJ session through cliamp's local audio pipeline. Availability depends on Spotify and the account. Intro and outro narration is synthesized on demand; Spotify's internal DJ endpoints can change or become unavailable.
+
+Pause and resume work during setup and playback. Next loads another batch only after the current batch ends. Previous stays within the current batch, and shuffle and repeat stay off to preserve Spotify's order. The queue and narration metadata are kept for the current batch only. A DJ session cannot be resumed after cliamp quits.
+
+Selecting another source, loading a URL, stopping, or quitting cancels the session. DJ playlist URLs and direct context loads explain that DJ must be started from the **DJ (Local)** entry. This prototype is local playback only; Spotify Connect and Sonos DJ are unavailable. Narration setup and batch errors are shown. A narration decode failure is warned about at runtime, and Spotify's decoder may skip the failed clip.
+
 ## Controls
 
 When focused on the provider panel:

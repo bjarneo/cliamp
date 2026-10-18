@@ -115,6 +115,7 @@ func (p *SpotifyProvider) libraryPlaylists(ctx context.Context) ([]playlist.Play
 		TrackCount: result.Total,
 		Section:    "Library",
 	})
+	all = append(all, playlist.PlaylistInfo{ID: DJPlaylistID, Name: "DJ (Local)", Section: "Library"})
 
 	for {
 		query := url.Values{

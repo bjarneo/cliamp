@@ -108,6 +108,7 @@ type ipcFeedLoadResult struct {
 // or an IPC server shutdown cancels the request context, which stops the
 // resolve.
 func (m *Model) handleIPCURL(request ipcURLRequest) tea.Cmd {
+	m.cancelDJ()
 	return func() tea.Msg {
 		tracks, err := resolve.URLContext(requestContext(request.Context), request.URL)
 		return ipcURLLoadResult{request: request, tracks: tracks, err: err}

@@ -60,6 +60,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}()
 
 	switch msg := msg.(type) {
+	case djBatchMsg:
+		return m, m.handleDJBatch(msg)
 	case tea.PasteMsg:
 		cmd := m.handlePaste(msg.Content)
 		return m, cmd
@@ -277,6 +279,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case playback.PlayMsg:
+		if m.spotifyDJ.cancel != nil && m.buffering {
+			return m, nil
+		}
+		if m.spotifyDJ.loading {
+			m.spotifyDJ.paused = false
+			return m, nil
+		}
 		if !m.player.IsPlaying() || m.player.IsPaused() {
 			cmd := m.togglePlayPause()
 			return m, cmd
@@ -284,6 +293,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case playback.PauseMsg:
+		if m.pauseDJSetup() {
+			return m, nil
+		}
+		if m.spotifyDJ.loading {
+			m.spotifyDJ.paused = true
+			return m, nil
+		}
 		if m.player.IsPlaying() && !m.player.IsPaused() {
 			m.togglePlayerPause()
 		}

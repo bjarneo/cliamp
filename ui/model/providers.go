@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/external/radio"
+	"github.com/bjarneo/cliamp/external/spotify"
 	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/playlist"
@@ -54,6 +55,7 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	if idx < 0 || idx >= len(m.providers) {
 		return nil
 	}
+	m.cancelDJ()
 	m.cancelNavRequests()
 	m.navBrowser.visible = false
 	m.navBrowser.previewName = ""
@@ -195,6 +197,10 @@ func (m *Model) fetchProviderTracks(playlistID string) tea.Cmd {
 	if m.provider == nil {
 		return nil
 	}
+	if m.provider.Name() == "Spotify" && spotify.IsDJURI(playlistID) {
+		return m.startDJ()
+	}
+	m.cancelDJ()
 	gen := nextRequest(&m.requests.tracks)
 	pager, paged := m.provider.(provider.TrackPager)
 	m.tracksPaging = paged

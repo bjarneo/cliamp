@@ -15,6 +15,7 @@ import (
 
 // quit shuts down the player and signals the TUI to exit.
 func (m *Model) quit() tea.Cmd {
+	m.cancelDJ()
 	m.cancelNavRequests()
 	// Only save resume for seekable tracks:
 	// - local files (not stream)
@@ -22,7 +23,7 @@ func (m *Model) quit() tea.Cmd {
 	// - finite Mixcloud shows (yt-dlp tracks with a counted PCM position)
 	// Other yt-dlp sites and live streams remain excluded. The live check
 	// is currentPlaybackIsLive, so a stream the player finds live counts.
-	if track, _ := m.currentPlaybackTrack(); track.Path != "" &&
+	if track, _ := m.currentPlaybackTrack(); track.Path != "" && track.Meta("spotify.dj") != "true" &&
 		(!playlist.IsYTDL(track.Path) || playlist.IsMixcloudURL(track.Path)) &&
 		!m.currentPlaybackIsLive(track) &&
 		m.player.IsPlaying() && !m.buffering && !m.player.GaplessAdvanced() {
@@ -972,6 +973,7 @@ func (m *Model) handleURLInputKey(msg tea.KeyPressMsg) tea.Cmd {
 		if input != "" {
 			m.feedLoading = true
 			m.status.Activity("Loading URL...", statusTTLLong)
+			m.cancelDJ()
 			return resolveURLCmd(m.providers, input, true, nextRequest(&m.requests.url), m.requests.queue)
 		}
 		m.urlInput.active = true

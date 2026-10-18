@@ -1,6 +1,8 @@
 package model
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/playlist"
@@ -23,6 +25,14 @@ func (m *Model) skipNext() tea.Cmd {
 // skipPrev goes to the previous track. Past 3 seconds into a track, it
 // restarts that track instead. A restart also scrobbles the track.
 func (m *Model) skipPrev() tea.Cmd {
+	pos := m.player.Position()
+	if m.seek.active {
+		pos = m.seek.targetPos
+	}
+	if m.spotifyDJ.session != nil && m.playlist.Index() == 0 && pos <= 3*time.Second {
+		m.status.Warning("Previous is limited to this DJ batch", statusTTLDefault)
+		return nil
+	}
 	return m.prevTrack()
 }
 
@@ -35,6 +45,10 @@ func (m *Model) playIndex(idx int) tea.Cmd {
 // setShuffle turns shuffle on or off, saves the mode and re-arms the preload
 // for the new next track.
 func (m *Model) setShuffle(on bool) tea.Cmd {
+	if m.spotifyDJ.cancel != nil && on {
+		m.status.Warning("DJ controls its track order", statusTTLDefault)
+		return nil
+	}
 	if m.playlist.Shuffled() != on {
 		m.playlist.ToggleShuffle()
 	}
@@ -46,6 +60,10 @@ func (m *Model) setShuffle(on bool) tea.Cmd {
 // setRepeat sets the repeat mode, saves it and re-arms the preload for the
 // new next track.
 func (m *Model) setRepeat(mode playlist.RepeatMode) tea.Cmd {
+	if m.spotifyDJ.cancel != nil && mode != playlist.RepeatOff {
+		m.status.Warning("DJ continues with new batches", statusTTLDefault)
+		return nil
+	}
 	m.playlist.SetRepeat(mode)
 	_ = m.saveConfigString("repeat", m.playlist.Repeat().String())
 	return m.rearmStalePreload()

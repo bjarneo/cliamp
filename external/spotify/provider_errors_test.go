@@ -178,8 +178,8 @@ func TestPlaylistsKeepsPlaylistsWhenSavedAlbumsFail(t *testing.T) {
 	if err == nil {
 		t.Fatal("Playlists() error = nil, want the saved-albums error")
 	}
-	if len(lists) != 4 {
-		t.Fatalf("Playlists() returned %d entries, want Your Music and 3 playlists", len(lists))
+	if len(lists) != 5 {
+		t.Fatalf("Playlists() returned %d entries, want Your Music, DJ and 3 playlists", len(lists))
 	}
 	if _, err := p.Playlists(); err == nil || calls != 2 {
 		t.Fatalf("second Playlists(): err = %v, album calls = %d, want no cached partial list", err, calls)
@@ -198,6 +198,7 @@ func TestCanAddToPlaylistAcceptsOwnedAndCollaborative(t *testing.T) {
 	}
 	want := map[string]bool{
 		savedTracksPlaylistID:     false,
+		DJPlaylistID:              false,
 		"mine":                    true,
 		"shared":                  true,
 		"followed":                false,

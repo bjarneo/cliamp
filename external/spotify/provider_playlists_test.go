@@ -71,6 +71,7 @@ func TestPlaylistsIncludesFollowedPlaylists(t *testing.T) {
 		section string
 	}{
 		{id: "YOUR MUSIC", section: "Library"},
+		{id: DJPlaylistID, section: "Library"},
 		{id: "owned", section: "Your playlists"},
 		{id: "followed", section: "Followed playlists"},
 		// Saved albums sort alphabetically by artist: Bad Religion before NOFX.

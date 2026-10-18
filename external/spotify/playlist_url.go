@@ -47,6 +47,9 @@ func (p *SpotifyProvider) ResolveURL(ctx context.Context, raw string) ([]playlis
 	if !ok {
 		return nil, fmt.Errorf("spotify: invalid playlist URL or URI")
 	}
+	if IsDJURI(id) {
+		return nil, fmt.Errorf("spotify: choose DJ (Local) in the provider browser to start narrated DJ playback")
+	}
 	if err := p.ensureSession(); err != nil {
 		return nil, err
 	}
