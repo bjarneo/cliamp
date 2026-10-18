@@ -43,7 +43,7 @@ func (m *Model) previewProviderPlaylist() tea.Cmd {
 	}
 	m.navBrowser = navBrowserState{
 		prov: source, visible: true, mode: navBrowseModeByAlbum, screen: navBrowseScreenTracks,
-		loading: true, previewName: "Preview: " + item.Name, previewCancel: cancel,
+		loading: true, previewName: "Preview: " + item.Name, previewID: item.ID, previewCancel: cancel,
 	}
 	return func() tea.Msg {
 		msg := playlistPreviewLoadedMsg{gen: gen}
@@ -87,13 +87,31 @@ func (m *Model) handlePlaylistPreviewKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.navBrowser.loading || m.navBrowser.previewErr != "" || len(m.navBrowser.tracks) == 0 {
 			return nil
 		}
-		m.navBrowser.previewName = ""
-		m.navBrowser.visible = false
-		return m.playNavTrackFromCursor()
+		return m.playPlaylistPreview()
 	case "esc", "backspace", "q":
 		m.cancelNavRequests()
-		m.navBrowser.visible = false
 		m.navBrowser.previewName = ""
+		m.navBrowser.previewID = ""
+		m.navBrowser.visible = false
 	}
 	return nil
+}
+
+func (m *Model) playPlaylistPreview() tea.Cmd {
+	index := m.navBrowser.cursor
+	tracks := m.navBrowser.tracks
+	if index < 0 || index >= len(tracks) {
+		return nil
+	}
+	m.retireTracksPaging()
+	m.replacePlayerPlaylist(tracks)
+	m.activeProviderPlaylistID = m.navBrowser.previewID
+	m.playlist.SetIndex(index)
+	m.plCursor = index
+	m.adjustScroll()
+	m.navBrowser.visible = false
+	m.navBrowser.previewName = ""
+	m.navBrowser.previewID = ""
+	m.status.Showf(statusTTLMedium, "Playing: %s", tracks[index].DisplayName())
+	return m.playCurrentTrack()
 }

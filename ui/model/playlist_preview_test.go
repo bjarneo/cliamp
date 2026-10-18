@@ -19,6 +19,7 @@ type previewTestProvider struct {
 	resolved   string
 	resolveURL bool
 	started    chan struct{}
+	refreshed  bool
 }
 
 func (p *previewTestProvider) Tracks(id string) ([]playlist.Track, error) {
@@ -40,6 +41,10 @@ func (p *previewTestProvider) ResolveURL(ctx context.Context, raw string) ([]pla
 	return p.tracks, p.trackErr
 }
 
+func (p *previewTestProvider) Refresh() { p.refreshed = true }
+
+func (p *previewTestProvider) CanRefreshPlaylist(id string) bool { return id == "mix-id" }
+
 func TestProviderPlaylistPreviewUsesAuthenticatedResolverAndKeepsPlayback(t *testing.T) {
 	m := keybindingTestModel()
 	m.layout.panelWidth, m.plVisible = 80, 10
@@ -49,6 +54,7 @@ func TestProviderPlaylistPreviewUsesAuthenticatedResolverAndKeepsPlayback(t *tes
 		resolveURL:           true,
 	}
 	m.provider = source
+	m.activeProviderPlaylistID = "previous-id"
 	m.focus = focusProvider
 	m.provPane.lists = []playlist.PlaylistInfo{{ID: "spotify:playlist:canonical", Name: "Daily Mix"}}
 	m.playlist.Add(playlist.Track{Path: "/old.flac", Title: "Current"})
@@ -60,6 +66,9 @@ func TestProviderPlaylistPreviewUsesAuthenticatedResolverAndKeepsPlayback(t *tes
 	cmd := m.handleKey(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	if cmd == nil || !m.navBrowser.visible || !m.navBrowser.loading {
 		t.Fatal("v did not open a loading preview")
+	}
+	if m.activeProviderPlaylistID != "previous-id" {
+		t.Fatalf("opening preview changed active playlist ID to %q", m.activeProviderPlaylistID)
 	}
 	m.handlePlaylistPreviewLoaded(cmd().(playlistPreviewLoadedMsg))
 	if source.resolved != "spotify:playlist:canonical" || source.requested != "" {
@@ -87,24 +96,51 @@ func TestProviderPlaylistPreviewEnterStartsFromSelectedTrack(t *testing.T) {
 	tracks := []playlist.Track{{Path: "a", Title: "A"}, {Path: "b", Title: "B"}, {Path: "c", Title: "C"}}
 	source := &previewTestProvider{commandsTestProvider: commandsTestProvider{name: "Spotify"}, tracks: tracks}
 	m.provider = source
+	m.activeProviderPlaylistID = "previous-id"
 	m.focus = focusProvider
 	m.provPane.lists = []playlist.PlaylistInfo{{ID: "mix-id", Name: "Mix"}}
+	m.playlist.Add(playlist.Track{Path: "old-a", Title: "Old A"})
+	m.playlist.Add(playlist.Track{Path: "old-b", Title: "Old B"})
+	m.playlist.SetIndex(1)
+	m.player.(*playbackFakeEngine).playing = true
 	cmd := m.handleKey(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m.handlePlaylistPreviewLoaded(cmd().(playlistPreviewLoadedMsg))
+	if m.activeProviderPlaylistID != "previous-id" {
+		t.Fatalf("browsing preview changed active playlist ID to %q", m.activeProviderPlaylistID)
+	}
 	m.navBrowser.cursor = 1
 	cmd = m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("Enter did not start preview")
 	}
 	cmd()
-	if m.navBrowser.visible || m.playlist.Len() != 2 || m.playlist.Tracks()[m.playlist.Index()].Title != "B" {
+	if m.navBrowser.visible || m.playlist.Len() != 3 || m.playlist.Index() != 1 || m.playlist.Tracks()[m.playlist.Index()].Title != "B" {
 		t.Fatalf("started queue = %+v, index = %d, visible = %v", m.playlist.Tracks(), m.playlist.Index(), m.navBrowser.visible)
 	}
-	if got := m.playlist.Tracks(); got[0].Title != "B" || got[1].Title != "C" {
-		t.Fatalf("queued tracks from selection = %+v", got)
+	if got := m.playlist.Tracks(); got[0].Title != "A" || got[1].Title != "B" || got[2].Title != "C" {
+		t.Fatalf("replacement queue = %+v, want [A B C]", got)
 	}
 	if got := m.player.(*playbackFakeEngine).playCalls; len(got) != 1 || got[0] != "b" {
 		t.Fatalf("play calls = %v, want selected track b", got)
+	}
+	if m.activeProviderPlaylistID != "mix-id" {
+		t.Fatalf("active playlist ID = %q, want mix-id", m.activeProviderPlaylistID)
+	}
+	refresh := m.refreshActiveProvider(true)
+	if refresh == nil {
+		t.Fatal("refresh did not reload the active preview playlist")
+	}
+	refresh()
+	if !source.refreshed || source.requested != "mix-id" {
+		t.Fatalf("refresh = %v, requested playlist = %q, want mix-id", source.refreshed, source.requested)
+	}
+	cmd = m.handleKey(tea.KeyPressMsg{Text: "<", Code: '<'})
+	if cmd == nil {
+		t.Fatal("previous did not return the full preview playlist")
+	}
+	cmd()
+	if m.playlist.Index() != 0 || m.playlist.Tracks()[m.playlist.Index()].Title != "A" {
+		t.Fatalf("previous track = %q at %d, want A at 0", m.playlist.Tracks()[m.playlist.Index()].Title, m.playlist.Index())
 	}
 }
 

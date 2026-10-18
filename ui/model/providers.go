@@ -57,6 +57,7 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	m.cancelNavRequests()
 	m.navBrowser.visible = false
 	m.navBrowser.previewName = ""
+	m.navBrowser.previewID = ""
 	m.navBrowser.previewErr = ""
 	m.provPillIdx = idx
 	m.provider = m.providers[idx].Provider
@@ -762,6 +763,7 @@ func (m *Model) openNavBrowserWith(prov playlist.Provider) {
 	m.navBrowser.fromProvList = false
 	m.navBrowser.openInPlaylist = false
 	m.navBrowser.previewName = ""
+	m.navBrowser.previewID = ""
 	m.navBrowser.previewErr = ""
 	m.navBrowser.previewCancel = nil
 	m.navBrowser.selArtist = provider.ArtistInfo{}

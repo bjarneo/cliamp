@@ -295,6 +295,7 @@ type navBrowserState struct {
 	fromProvList    bool
 	openInPlaylist  bool
 	previewName     string
+	previewID       string
 	previewErr      string
 	previewCancel   context.CancelFunc
 }

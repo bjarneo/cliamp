@@ -57,7 +57,7 @@ cliamp uses a built-in `client_id`. [librespot](https://github.com/librespot-org
 
 After authentication, Spotify appears in the provider list. Press `Esc`/`b` to open the provider browser and select Spotify.
 
-The provider panel lists your Spotify playlists and saved albums. Use the arrow keys to select one and press `Enter` to load it. Press `v` to preview a playlist without changing current playback; `Enter` in the preview starts at the selected track and queues the rest of that playlist. Tracks stream through the cliamp audio pipeline. EQ, the visualizer, mono, and other effects work as they do for local files.
+The provider panel lists your Spotify playlists and saved albums. Use the arrow keys to select one and press `Enter` to load it. Press `v` to preview a playlist without changing current playback; `Enter` in the preview replaces the queue with the full playlist and starts at the selected track. Earlier tracks remain available with `Previous`. Tracks stream through the cliamp audio pipeline. EQ, the visualizer, mono, and other effects work as they do for local files.
 
 The selector also includes **Made for You** playlists found in Spotify's personalized hub and Home, including Daily Mixes when Spotify exposes them, plus remaining playlist cards under **Home shortcuts**. Spotify decides which mixes appear, so this is not a complete catalog. Discovery uses internal Spotify endpoints that may change; unavailable sources show a warning alongside usable results. Successful combined lists are cached for five minutes.
 
