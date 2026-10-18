@@ -12,6 +12,11 @@ snapshot. `d` still opens the output picker. Transport controls and five-second
 status updates do not reload the queue or move your selection. If refresh fails,
 cached rows stay visible, but Enter is disabled until a refresh succeeds.
 
+In the output picker, Space marks logical rooms without changing playback. `A`
+applies exactly the checked rooms, and `s` separates the currently selected
+Sonos group. Enter still attaches to a room without changing its group; Esc
+cancels the checks. Stereo pairs and home-theater bonds stay intact.
+
 While a Sonos room is selected, play/pause, next/previous, and volume controls
 target that room. Previous restarts the current track if it has played for more
 than three seconds; press Previous again near the start to go to the prior
@@ -21,8 +26,8 @@ Play to start it deliberately.
 Group volume uses Sonos's integer 0–100 scale; cliamp IPC volume values and
 responses remain in dB and reflect that scale's quantized setting.
 
-This output mode does not provide seeking, grouping, Spotify Connect output
-control, local-to-Sonos handoff, or per-speaker volume. URL, provider, and
+This output mode does not provide seeking, Spotify Connect output control,
+local-to-Sonos handoff, or per-speaker volume. URL, provider, and
 queue actions cannot start local audio while Sonos owns output.
 Unsupported controls such as seek, speed, EQ, mono, shuffle, repeat, and Stop
 are reported as unavailable. The display uses Sonos track, transport, position,

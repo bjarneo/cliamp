@@ -109,8 +109,18 @@ func (m *Model) handleDeviceKey(msg tea.KeyPressMsg) tea.Cmd {
 			dev := m.devicePicker.devices[m.devicePicker.cursor]
 			return m.selectOutput(dev)
 		}
+	case "space":
+		if m.devicePicker.cursor < len(m.devicePicker.devices) {
+			m.toggleSonosRoom(m.devicePicker.devices[m.devicePicker.cursor])
+		}
+	case "A":
+		return m.applySonosGroup()
+	case "s":
+		return m.separateSonosGroup()
 	case "esc", "d", "q":
 		m.devicePicker.visible = false
+		m.devicePicker.gen++
+		m.devicePicker.checked = nil
 		m.cancelSonosDiscovery()
 	}
 	return nil

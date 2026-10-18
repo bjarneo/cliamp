@@ -148,6 +148,10 @@ and `Esc` clears it.
 | `T` | Open Tidal provider |
 | `B` | Open Audiobookshelf provider |
 
+In the output picker, `Space` marks a Sonos room, `A` applies the checked
+rooms, and `s` separates the selected Sonos group. `Enter` attaches to a room
+without changing its group; `Esc` cancels pending checks.
+
 Metadata belongs to the main playback view, not provider browsers, and follows
 the highlighted playlist row even when another item is playing. Enabling it
 without a usable Settings sidebar opens the full info overlay instead; the

@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 type sonosDevicesMsg struct {
 	gen     uint64
 	devices []player.AudioDevice
+	sonos   []spotify.SonosDevice
 	err     error
 }
 
@@ -56,18 +58,23 @@ type sonosQueueMsg struct {
 }
 
 type sonosControlMsg struct {
-	gen     uint64
-	request sonosControlRequest
-	err     error
+	gen        uint64
+	request    sonosControlRequest
+	pickerGen  uint64
+	devices    []spotify.SonosDevice
+	refreshErr error
+	err        error
 }
 
 type sonosControlRequest struct {
-	action string
-	volume int
-	ctx    context.Context
-	jobs   *ipc.JobStore
-	jobID  string
-	result ipc.Response
+	action   string
+	volume   int
+	rooms    []string
+	playback string
+	ctx      context.Context
+	jobs     *ipc.JobStore
+	jobID    string
+	result   ipc.Response
 }
 
 type sonosBridge interface {
@@ -77,6 +84,8 @@ type sonosBridge interface {
 	playQueue(context.Context, string, int) error
 	control(context.Context, string, string) error
 	volume(context.Context, string, int) error
+	setGroup(context.Context, []string, string) error
+	separateGroup(context.Context, string) error
 }
 
 type nativeSonosBridge struct{}
@@ -99,6 +108,12 @@ func (nativeSonosBridge) control(ctx context.Context, action, address string) er
 func (nativeSonosBridge) volume(ctx context.Context, address string, value int) error {
 	return spotify.SonosSetVolume(ctx, address, value)
 }
+func (nativeSonosBridge) setGroup(ctx context.Context, rooms []string, playback string) error {
+	return spotify.SonosSetGroup(ctx, rooms, playback)
+}
+func (nativeSonosBridge) separateGroup(ctx context.Context, room string) error {
+	return spotify.SonosSeparateGroup(ctx, room)
+}
 
 func (m Model) outputBridge() sonosBridge {
 	if m.sonosBridge != nil {
@@ -120,6 +135,9 @@ func (m *Model) openOutputPicker() tea.Cmd {
 	m.devicePicker.loading = true
 	m.devicePicker.cursor = 0
 	m.devicePicker.scroll = 0
+	m.devicePicker.checked = nil
+	m.devicePicker.sonos = nil
+	m.devicePicker.gen++
 	selected := m.sonosOutput.selected
 	bridge := m.outputBridge()
 	listDevices := m.listAudioDevices
@@ -153,7 +171,7 @@ func (m *Model) openOutputPicker() tea.Cmd {
 		if remoteErr != nil && localErr != nil {
 			return sonosDevicesMsg{gen: gen, devices: rows, err: fmt.Errorf("local: %v; Sonos: %w", localErr, remoteErr)}
 		}
-		return sonosDevicesMsg{gen: gen, devices: rows, err: remoteErr}
+		return sonosDevicesMsg{gen: gen, devices: rows, sonos: devices, err: remoteErr}
 	}
 }
 
@@ -335,7 +353,8 @@ func (m *Model) controlSonos(action string) tea.Cmd {
 }
 
 func (m *Model) controlSonosJob(request sonosControlRequest) tea.Cmd {
-	if m.sonosOutput.selected == "" {
+	grouping := request.action == "group" || request.action == "separate"
+	if m.sonosOutput.selected == "" && !grouping {
 		return nil
 	}
 	if request.ctx == nil && request.jobs != nil {
@@ -386,13 +405,18 @@ func (m *Model) startSonosControl(request sonosControlRequest) tea.Cmd {
 	if parent == nil {
 		parent = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(parent, 8*time.Second)
+	timeout := 8 * time.Second
+	if request.action == "group" || request.action == "separate" {
+		timeout = 25 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	m.sonosOutput.cancel = cancel
 	gen, address := m.sonosOutput.gen, m.sonosOutput.selected
 	bridge := m.outputBridge()
 	m.sonosOutput.busy = true
 	m.sonosOutput.busyKind = "control"
 	m.sonosOutput.active = &request
+	pickerGen := m.devicePicker.gen
 	return func() tea.Msg {
 		defer cancel()
 		if err := ctx.Err(); err != nil {
@@ -401,10 +425,18 @@ func (m *Model) startSonosControl(request sonosControlRequest) tea.Cmd {
 		var err error
 		if request.action == "volume" {
 			err = bridge.volume(ctx, address, request.volume)
+		} else if request.action == "group" {
+			err = bridge.setGroup(ctx, request.rooms, request.playback)
+		} else if request.action == "separate" {
+			err = bridge.separateGroup(ctx, request.playback)
 		} else {
 			err = bridge.control(ctx, request.action, address)
 		}
-		return sonosControlMsg{gen: gen, request: request, err: err}
+		msg := sonosControlMsg{gen: gen, request: request, pickerGen: pickerGen, err: err}
+		if request.action == "group" || request.action == "separate" {
+			msg.devices, msg.refreshErr = bridge.devices(ctx)
+		}
+		return msg
 	}
 }
 
@@ -418,6 +450,117 @@ func (m *Model) handleSonosDevices(msg sonosDevicesMsg) {
 		m.status.Errorf(statusTTLDefault, "Output discovery: %s", msg.err)
 	}
 	m.devicePicker.devices = msg.devices
+	m.devicePicker.sonos = make(map[string]spotify.SonosDevice, len(msg.sonos))
+	for _, device := range msg.sonos {
+		if !device.Satellite && device.ID != "" && device.RoomID != "" {
+			m.devicePicker.sonos[device.ID] = device
+		}
+	}
+	if m.devicePicker.checked == nil {
+		m.devicePicker.checked = m.currentSonosGroup()
+	}
+}
+
+func (m Model) currentSonosGroup() map[string]bool {
+	checked := map[string]bool{}
+	for _, device := range m.devicePicker.sonos {
+		if device.ID == m.sonosOutput.selected {
+			for _, id := range device.MemberIDs {
+				for _, room := range m.devicePicker.sonos {
+					if room.RoomID == id {
+						checked[id] = true
+					}
+				}
+			}
+			break
+		}
+	}
+	return checked
+}
+
+func (m *Model) toggleSonosRoom(device player.AudioDevice) {
+	room, ok := m.devicePicker.sonos[strings.TrimPrefix(device.Name, "sonos:")]
+	if !ok || room.RoomID == "" || room.Satellite || m.devicePicker.loading || m.sonosOutput.busy {
+		return
+	}
+	if m.devicePicker.checked == nil {
+		m.devicePicker.checked = map[string]bool{}
+	}
+	if m.devicePicker.checked[room.RoomID] {
+		delete(m.devicePicker.checked, room.RoomID)
+	} else {
+		m.devicePicker.checked[room.RoomID] = true
+	}
+}
+
+func (m *Model) applySonosGroup() tea.Cmd {
+	if m.devicePicker.loading || len(m.devicePicker.checked) == 0 {
+		return nil
+	}
+	var rooms []string
+	for id := range m.devicePicker.checked {
+		for _, device := range m.devicePicker.sonos {
+			if device.RoomID == id && !device.Satellite {
+				rooms = append(rooms, id)
+				break
+			}
+		}
+	}
+	if len(rooms) == 0 {
+		return nil
+	}
+	sort.Strings(rooms)
+	playback := m.sonosPlaybackRoom(rooms)
+	if playback == "" {
+		playback = rooms[0]
+	}
+	return m.controlSonosJob(sonosControlRequest{action: "group", rooms: rooms, playback: playback})
+}
+
+func (m Model) sonosPlaybackRoom(rooms []string) string {
+	checked := make(map[string]bool, len(rooms))
+	for _, id := range rooms {
+		checked[id] = true
+	}
+	for _, device := range m.devicePicker.sonos {
+		if device.ID == m.sonosOutput.selected {
+			for _, candidate := range m.devicePicker.sonos {
+				if candidate.ID == device.Coordinator && checked[candidate.RoomID] {
+					return candidate.RoomID
+				}
+			}
+			if checked[device.RoomID] {
+				return device.RoomID
+			}
+		}
+	}
+	var candidates []spotify.SonosDevice
+	for _, device := range m.devicePicker.sonos {
+		if checked[device.RoomID] && !device.Satellite {
+			candidates = append(candidates, device)
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if strings.ToLower(candidates[i].Name) == strings.ToLower(candidates[j].Name) {
+			return candidates[i].ID < candidates[j].ID
+		}
+		return strings.ToLower(candidates[i].Name) < strings.ToLower(candidates[j].Name)
+	})
+	if len(candidates) > 0 {
+		return candidates[0].RoomID
+	}
+	return ""
+}
+
+func (m *Model) separateSonosGroup() tea.Cmd {
+	if m.sonosOutput.selected == "" || m.devicePicker.loading {
+		return nil
+	}
+	device, ok := m.devicePicker.sonos[m.sonosOutput.selected]
+	if !ok || device.RoomID == "" {
+		return nil
+	}
+	return m.controlSonosJob(sonosControlRequest{action: "separate", playback: device.RoomID})
 }
 
 func (m *Model) handleSonosState(msg sonosStateMsg) {
@@ -437,7 +580,8 @@ func (m *Model) handleSonosState(msg sonosStateMsg) {
 }
 
 func (m *Model) handleSonosControl(msg sonosControlMsg) tea.Cmd {
-	if msg.gen != m.sonosOutput.gen || m.sonosOutput.selected == "" {
+	grouping := msg.request.action == "group" || msg.request.action == "separate"
+	if msg.gen != m.sonosOutput.gen || (m.sonosOutput.selected == "" && !grouping) {
 		return nil
 	}
 	m.sonosOutput.busy = false
@@ -445,10 +589,43 @@ func (m *Model) handleSonosControl(msg sonosControlMsg) tea.Cmd {
 	m.sonosOutput.cancel = nil
 	m.sonosOutput.active = nil
 	if msg.err != nil {
-		m.status.Errorf(statusTTLDefault, "Sonos %s: %s", msg.request.action, msg.err)
+		if !grouping {
+			m.status.Errorf(statusTTLDefault, "Sonos %s: %s", msg.request.action, msg.err)
+		}
 	} else if msg.request.action == "volume" && m.sonosOutput.state != nil {
 		volume := msg.request.volume
 		m.sonosOutput.state.Volume = &volume
+	}
+	if msg.request.action == "group" || msg.request.action == "separate" {
+		if msg.refreshErr == nil {
+			for _, device := range msg.devices {
+				if msg.err == nil && m.sonosOutput.selected != "" && device.RoomID == msg.request.playback && device.ID != "" {
+					m.sonosOutput.selected, m.sonosOutput.name = device.ID, device.Name
+					break
+				}
+			}
+			if msg.pickerGen == m.devicePicker.gen && m.devicePicker.visible {
+				m.devicePicker.sonos = make(map[string]spotify.SonosDevice, len(msg.devices))
+				for _, device := range msg.devices {
+					if !device.Satellite {
+						m.devicePicker.sonos[device.ID] = device
+					}
+				}
+				m.devicePicker.checked = m.currentSonosGroup()
+			}
+		}
+		if msg.err != nil || msg.refreshErr != nil {
+			var details []string
+			if msg.err != nil {
+				details = append(details, "change may be partial: "+msg.err.Error())
+			}
+			if msg.refreshErr != nil {
+				details = append(details, "topology refresh failed: "+msg.refreshErr.Error())
+			}
+			m.status.Errorf(statusTTLDefault, "Sonos grouping: %s", strings.Join(details, "; "))
+		} else {
+			m.status.Show("Sonos grouping updated", statusTTLDefault)
+		}
 	}
 	if msg.request.jobs != nil {
 		if msg.err != nil {
@@ -464,6 +641,10 @@ func (m *Model) handleSonosControl(msg sonosControlMsg) tea.Cmd {
 			continue
 		}
 		return m.startSonosControl(request)
+	}
+	if grouping && m.sonosOutput.selected != "" {
+		m.sonosOutput.state = nil
+		return m.refreshSonosQueue()
 	}
 	return m.refreshSonosState()
 }

@@ -29,9 +29,14 @@ type sonosBridgeFake struct {
 	queuePlays   []int
 	actions      []string
 	volumes      []int
+	groups       [][]string
+	leaders      []string
+	separates    []string
 	err          error
 	started      chan struct{}
 	release      chan struct{}
+	groupStarted chan struct{}
+	groupRelease chan struct{}
 	queueStarted chan struct{}
 }
 
@@ -73,6 +78,26 @@ func (f *sonosBridgeFake) control(ctx context.Context, action, _ string) error {
 }
 func (f *sonosBridgeFake) volume(_ context.Context, _ string, value int) error {
 	f.volumes = append(f.volumes, value)
+	return f.err
+}
+func (f *sonosBridgeFake) setGroup(ctx context.Context, rooms []string, playback string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	f.groups = append(f.groups, append([]string(nil), rooms...))
+	f.leaders = append(f.leaders, playback)
+	if f.groupStarted != nil {
+		f.groupStarted <- struct{}{}
+		select {
+		case <-f.groupRelease:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return f.err
+}
+func (f *sonosBridgeFake) separateGroup(_ context.Context, room string) error {
+	f.separates = append(f.separates, room)
 	return f.err
 }
 
@@ -345,6 +370,135 @@ func TestSonosOutputPickerHandlesItsReturnedDiscoveryMessage(t *testing.T) {
 		if device.Name == "sonos:sub-1" {
 			t.Fatal("satellite appeared as a selectable output")
 		}
+	}
+}
+
+func TestSonosGroupingUsesExactCheckedRoomIDsAndPreservesPlaybackLeader(t *testing.T) {
+	m, bridge, _ := sonosTestModel()
+	bridge.deviceList = []spotify.SonosDevice{
+		{ID: "addr-a", RoomID: "uuid-a", Name: "Living", Coordinator: "addr-a", MemberIDs: []string{"uuid-a", "uuid-b"}},
+		{ID: "addr-b", RoomID: "uuid-b", Name: "Kitchen", Coordinator: "addr-a", MemberIDs: []string{"uuid-a", "uuid-b"}},
+		{ID: "addr-c", RoomID: "uuid-c", Name: "Bedroom", Coordinator: "addr-c", MemberIDs: []string{"uuid-c"}},
+		{ID: "addr-sub", RoomID: "uuid-sub", Name: "Sub", Satellite: true},
+	}
+	m.sonosOutput.selected = "addr-b"
+	m.devicePicker.visible = true
+	m.devicePicker.loading = false
+	m.devicePicker.gen = 7
+	m.handleSonosDevices(sonosDevicesMsg{gen: m.sonosOutput.discoveryGen, devices: []player.AudioDevice{{Name: "sonos:addr-a"}, {Name: "sonos:addr-b"}, {Name: "sonos:addr-c"}, {Name: "sonos:addr-sub"}}, sonos: bridge.deviceList})
+	m.devicePicker.checked = map[string]bool{"uuid-a": true, "uuid-c": true, "uuid-sub": true}
+	cmd := m.applySonosGroup()
+	msg := executeSonosCmd(t, cmd).(sonosControlMsg)
+	if msg.err != nil || !reflect.DeepEqual(bridge.groups, [][]string{{"uuid-a", "uuid-c"}}) || !reflect.DeepEqual(bridge.leaders, []string{"uuid-a"}) {
+		t.Fatalf("group rooms=%v leader=%v err=%v", bridge.groups, bridge.leaders, msg.err)
+	}
+	if m.sonosOutput.selected != "addr-b" {
+		t.Fatal("group request changed selected output before completion")
+	}
+	if result := m.handleSonosControl(msg); result == nil || !m.sonosOutput.queueLoading {
+		t.Fatal("group completion did not refresh the selected room state and queue")
+	}
+}
+
+func TestSonosPlaybackLeaderFallsBackToStableRoomOrder(t *testing.T) {
+	m, _, _ := sonosTestModel()
+	m.devicePicker.sonos = map[string]spotify.SonosDevice{
+		"addr-z": {ID: "addr-z", RoomID: "uuid-z", Name: "Bedroom"},
+		"addr-b": {ID: "addr-b", RoomID: "uuid-b", Name: "Office"},
+		"addr-a": {ID: "addr-a", RoomID: "uuid-a", Name: "Office"},
+	}
+	if got := m.sonosPlaybackRoom([]string{"uuid-z", "uuid-b", "uuid-a"}); got != "uuid-z" {
+		t.Fatalf("fallback leader = %q, want name ordering", got)
+	}
+	if got := m.sonosPlaybackRoom([]string{"uuid-b", "uuid-a"}); got != "uuid-a" {
+		t.Fatalf("same-name fallback leader = %q, want identity ordering", got)
+	}
+}
+
+func TestSonosGroupingFromLocalKeepsLocalQueueAndOutput(t *testing.T) {
+	m, bridge, _ := sonosTestModel()
+	bridge.deviceList = []spotify.SonosDevice{{ID: "addr", RoomID: "uuid", Name: "Room"}}
+	queue := m.playlist.Snapshot()
+	m.audioDevice = "local-sink"
+	m.devicePicker.checked = map[string]bool{"uuid": true}
+	m.devicePicker.sonos = map[string]spotify.SonosDevice{"addr": bridge.deviceList[0]}
+	msg := executeSonosCmd(t, m.applySonosGroup()).(sonosControlMsg)
+	if msg.err != nil || !reflect.DeepEqual(bridge.groups, [][]string{{"uuid"}}) {
+		t.Fatalf("group request = %v, err=%v", bridge.groups, msg.err)
+	}
+	m.handleSonosControl(msg)
+	if m.sonosOutput.selected != "" || m.audioDevice != "local-sink" || !reflect.DeepEqual(m.playlist.Snapshot(), queue) {
+		t.Fatal("grouping changed Local output or its queue")
+	}
+}
+
+func TestSonosPickerMarkIsReadOnlyAndEnterAttachesNormally(t *testing.T) {
+	m, bridge, engine := sonosTestModel()
+	room := spotify.SonosDevice{ID: "192.0.2.8", RoomID: "logical-room", Name: "Office"}
+	m.devicePicker.visible = true
+	m.devicePicker.devices = []player.AudioDevice{{Description: "Local"}, {Name: "sonos:192.0.2.8", Description: "Sonos · Office"}}
+	m.devicePicker.sonos = map[string]spotify.SonosDevice{room.ID: room}
+	m.devicePicker.cursor = 1
+	if cmd := m.handleDeviceKey(tea.KeyPressMsg{Code: tea.KeySpace}); cmd != nil || !m.devicePicker.checked[room.RoomID] || len(bridge.actions) != 0 || len(bridge.groups) != 0 {
+		t.Fatal("marking room caused a remote mutation")
+	}
+	if cmd := m.handleDeviceKey(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil || m.sonosOutput.selected != room.ID || m.devicePicker.visible || len(bridge.groups) != 0 || len(engine.playCalls) != 0 {
+		t.Fatal("Enter did not attach read-only to the selected room")
+	}
+}
+
+func TestSonosSplitUsesSelectedLogicalRoomAndQueuesBehindTransport(t *testing.T) {
+	m, bridge, _ := sonosTestModel()
+	bridge.deviceList = []spotify.SonosDevice{{ID: "addr", RoomID: "uuid-room", Name: "Room", MemberIDs: []string{"uuid-room", "uuid-b"}}}
+	m.sonosOutput.selected = "addr"
+	m.devicePicker.sonos = map[string]spotify.SonosDevice{"addr": bridge.deviceList[0]}
+	m.sonosOutput.busy = true
+	m.sonosOutput.busyKind = "control"
+	if cmd := m.separateSonosGroup(); cmd != nil || len(m.sonosOutput.pending) != 1 || len(bridge.separates) != 0 {
+		t.Fatal("split did not queue behind the in-flight transport control")
+	}
+	cmd := m.handleSonosControl(sonosControlMsg{gen: m.sonosOutput.gen, request: sonosControlRequest{action: "pause"}})
+	msg := executeSonosCmd(t, cmd).(sonosControlMsg)
+	if msg.request.action != "separate" || !reflect.DeepEqual(bridge.separates, []string{"uuid-room"}) {
+		t.Fatalf("split target=%v request=%s", bridge.separates, msg.request.action)
+	}
+}
+
+func TestSonosGroupingFailureReportsPartialAndStaleCompletionCannotChangeOutput(t *testing.T) {
+	m, bridge, _ := sonosTestModel()
+	bridge.err = errors.New("room unavailable")
+	bridge.deviceList = []spotify.SonosDevice{{ID: "addr-a", RoomID: "uuid-a", Name: "A"}}
+	m.sonosOutput.selected = "addr-a"
+	m.devicePicker.visible = true
+	m.devicePicker.gen = 3
+	m.devicePicker.checked = map[string]bool{"uuid-a": true}
+	m.devicePicker.sonos = map[string]spotify.SonosDevice{"addr-a": bridge.deviceList[0]}
+	cmd := m.applySonosGroup()
+	msg := executeSonosCmd(t, cmd).(sonosControlMsg)
+	if msg.err == nil || msg.refreshErr == nil {
+		t.Fatalf("mutation/refresh errors = %v/%v", msg.err, msg.refreshErr)
+	}
+	m.devicePicker.gen++
+	if m.handleSonosControl(msg) == nil || !strings.Contains(m.status.text, "partial") || m.devicePicker.sonos["addr-a"].RoomID != "uuid-a" {
+		t.Fatal("partial failure was hidden or stale picker state was applied")
+	}
+}
+
+func TestSonosGroupingCancellationCannotAffectNewOutput(t *testing.T) {
+	m, bridge, _ := sonosTestModel()
+	bridge.groupStarted, bridge.groupRelease = make(chan struct{}, 1), make(chan struct{})
+	bridge.deviceList = []spotify.SonosDevice{{ID: "addr", RoomID: "uuid", Name: "Room"}}
+	m.sonosOutput.selected = "addr"
+	m.devicePicker.checked = map[string]bool{"uuid": true}
+	m.devicePicker.sonos = map[string]spotify.SonosDevice{"addr": bridge.deviceList[0]}
+	cmd := m.applySonosGroup()
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+	<-bridge.groupStarted
+	m.selectOutput(player.AudioDevice{Name: "", Description: "Local"})
+	msg := (<-done).(sonosControlMsg)
+	if !errors.Is(msg.err, context.Canceled) || m.handleSonosControl(msg) != nil || m.sonosOutput.selected != "" || m.sonosOutput.busy {
+		t.Fatal("canceled grouping completion affected the new Local output")
 	}
 }
 

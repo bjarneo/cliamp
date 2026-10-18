@@ -391,6 +391,9 @@ type reconnectState struct {
 type devicePickerState struct {
 	visible bool
 	devices []player.AudioDevice
+	sonos   map[string]spotify.SonosDevice
+	checked map[string]bool
+	gen     uint64
 	cursor  int
 	scroll  int
 	loading bool

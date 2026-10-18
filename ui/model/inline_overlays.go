@@ -237,8 +237,25 @@ func (m Model) renderDeviceBody() string {
 		if d.Active {
 			label += " " + activeToggle.Render("●")
 		}
+		if strings.HasPrefix(d.Name, "sonos:") {
+			if room, ok := m.devicePicker.sonos[strings.TrimPrefix(d.Name, "sonos:")]; ok {
+				mark := "[ ]"
+				if m.devicePicker.checked[room.RoomID] {
+					mark = "[x]"
+				}
+				label = mark + " " + label
+				members := 0
+				for _, candidate := range m.devicePicker.sonos {
+					if candidate.Coordinator == room.Coordinator {
+						members++
+					}
+				}
+				label += fmt.Sprintf(" · group %d", members)
+			}
+		}
 		items[i] = label
 	}
+	items = append(items, dimStyle.Render("Space mark · A apply · s split · Enter attach · Esc cancel"))
 	return windowList(items, m.devicePicker.cursor, m.devicePicker.scroll, budget)
 }
 
