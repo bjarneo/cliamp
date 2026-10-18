@@ -26,8 +26,17 @@ Play to start it deliberately.
 Group volume uses Sonos's integer 0–100 scale; cliamp IPC volume values and
 responses remain in dB and reflect that scale's quantized setting.
 
+When local Spotify music is playing or buffering, selecting Sonos appends the
+current track and the remaining play-next/shuffled/sequential order to the
+Sonos queue, then starts that appended segment at the current position. The
+whole remaining batch must be Spotify tracks before anything is appended.
+Unsupported tracks leave Local playback running. Sonos keeps its existing queue;
+tracks appended before cancellation or a partial error remain there. The local
+player stops only after Sonos accepts Play. DJ and narrated sessions are not
+transferred. Idle, paused, and reconnect selection still attaches read-only.
+
 This output mode does not provide seeking, Spotify Connect output control,
-local-to-Sonos handoff, or per-speaker volume. URL, provider, and
+or per-speaker volume. URL, provider, and
 queue actions cannot start local audio while Sonos owns output.
 Unsupported controls such as seek, speed, EQ, mono, shuffle, repeat, and Stop
 are reported as unavailable. The display uses Sonos track, transport, position,

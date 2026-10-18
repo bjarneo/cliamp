@@ -92,6 +92,7 @@ func (m *Model) handleTracksLoaded(msg tracksLoadedMsg) tea.Cmd {
 		return nil
 	}
 	if msg.offset > 0 {
+		m.cancelSonosHandoff()
 		m.playlist.Add(msg.tracks...)
 		m.normalizeQueueOverlay()
 		m.addToHeaderState(msg.tracks)

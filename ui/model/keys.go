@@ -627,6 +627,7 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "a":
 		if m.focus == focusPlaylist {
+			m.cancelSonosHandoff()
 			if !m.playlist.Dequeue(m.plCursor) {
 				m.playlist.Queue(m.plCursor)
 			}

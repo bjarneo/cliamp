@@ -858,6 +858,30 @@ func (p *Playlist) TracksAndQueue() ([]Track, []int) {
 	return cloneTracks(p.tracks), slices.Clone(p.queue)
 }
 
+// PlaybackTracks returns the current track, play-next tracks, then the remaining playback order.
+func (p *Playlist) PlaybackTracks() []Track {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	current := p.currentTrackIndex()
+	if !p.isPlayable(current) {
+		return nil
+	}
+	indices := []int{current}
+	indices = append(indices, p.queue...)
+	for _, index := range p.order[p.pos+1:] {
+		if p.isPlayable(index) {
+			indices = append(indices, index)
+		}
+	}
+	tracks := make([]Track, 0, len(indices))
+	for _, index := range indices {
+		if p.isPlayable(index) {
+			tracks = append(tracks, cloneTrack(p.tracks[index]))
+		}
+	}
+	return tracks
+}
+
 // Track returns an independent copy of the track at index.
 func (p *Playlist) Track(index int) (Track, bool) {
 	p.mu.Lock()

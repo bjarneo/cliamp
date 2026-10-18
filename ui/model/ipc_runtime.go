@@ -309,6 +309,7 @@ func (m *Model) handleV2QueueRequest(ctx context.Context, jobs *ipc.JobStore, jo
 			return nil
 		}
 		m.playlist.Queue(request.Index)
+		m.cancelSonosHandoff()
 		m.normalizeQueueOverlay()
 		m.completeV2Job(jobs, jobID, m.v2PlaylistResponse())
 		return m.rearmStalePreload()
@@ -349,13 +350,16 @@ func (m *Model) handleV2PlayNext(jobs *ipc.JobStore, jobID string, request ipc.R
 			return nil
 		}
 		m.playlist.RemoveQueueAt(request.Index)
+		m.cancelSonosHandoff()
 	case "playnext.move":
 		if !m.playlist.MoveQueue(request.Index, request.To) {
 			m.failV2Job(jobs, jobID, v2InvalidParamsError())
 			return nil
 		}
+		m.cancelSonosHandoff()
 	case "playnext.clear":
 		m.playlist.ClearQueue()
+		m.cancelSonosHandoff()
 	}
 	m.normalizeQueueOverlay()
 	m.completeV2Job(jobs, jobID, m.v2PlayNextResponse())

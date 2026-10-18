@@ -419,6 +419,8 @@ type sonosOutputState struct {
 	queueCancel     context.CancelFunc
 	queueLoading    bool
 	queueStale      bool
+	handoffGen      uint64
+	handoffCancel   context.CancelFunc
 }
 
 type saveState struct {

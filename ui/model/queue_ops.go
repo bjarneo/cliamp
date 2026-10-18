@@ -29,6 +29,7 @@ var (
 // header counters include the new tracks. The caller starts playback or
 // re-arms the preload, because that depends on why the tracks came.
 func (m *Model) appendTracks(tracks ...playlist.Track) int {
+	m.cancelSonosHandoff()
 	first := m.playlist.Len()
 	m.playlist.Add(tracks...)
 	m.clearLoadedPlaylist()
@@ -52,6 +53,7 @@ func (m *Model) moveTrack(from, to int) (tea.Cmd, error) {
 	if err := m.persistLoadedPlaylistOrder(tracks); err != nil {
 		return nil, err
 	}
+	m.cancelSonosHandoff()
 	m.playlist.Move(from, to)
 	switch m.plCursor {
 	case from:
@@ -112,6 +114,7 @@ func (m *Model) removeTrack(idx int, recordUndo bool) (tea.Cmd, error) {
 	// A detached track plays outside the list, so the selected row of the
 	// list is not the playing track.
 	wasActive := !m.playbackDetached && idx == m.playlist.Index()
+	m.cancelSonosHandoff()
 	if !m.playlist.Remove(idx) {
 		return nil, errQueueIndex
 	}

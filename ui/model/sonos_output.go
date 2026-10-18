@@ -66,6 +66,34 @@ type sonosControlMsg struct {
 	err        error
 }
 
+type sonosHandoffPlan struct {
+	target      string
+	currentPath string
+	position    time.Duration
+	trackCount  int
+	playlistRev uint64
+	streamGen   uint64
+	queueGen    uint64
+	outputGen   uint64
+}
+
+type sonosHandoffAppendedMsg struct {
+	gen     uint64
+	ctx     context.Context
+	plan    sonosHandoffPlan
+	segment spotify.SonosQueueRange
+	err     error
+}
+
+type sonosHandoffStartedMsg struct {
+	gen              uint64
+	plan             sonosHandoffPlan
+	appended         int
+	started          bool
+	positionRestored bool
+	err              error
+}
+
 type sonosControlRequest struct {
 	action   string
 	volume   int
@@ -86,6 +114,8 @@ type sonosBridge interface {
 	volume(context.Context, string, int) error
 	setGroup(context.Context, []string, string) error
 	separateGroup(context.Context, string) error
+	appendSpotifyTracks(context.Context, string, []string) (spotify.SonosQueueRange, error)
+	startSpotifyQueue(context.Context, spotify.SonosQueueRange, time.Duration) (bool, bool, error)
 }
 
 type nativeSonosBridge struct{}
@@ -113,6 +143,12 @@ func (nativeSonosBridge) setGroup(ctx context.Context, rooms []string, playback 
 }
 func (nativeSonosBridge) separateGroup(ctx context.Context, room string) error {
 	return spotify.SonosSeparateGroup(ctx, room)
+}
+func (nativeSonosBridge) appendSpotifyTracks(ctx context.Context, address string, tracks []string) (spotify.SonosQueueRange, error) {
+	return spotify.SonosAppendSpotifyTracks(ctx, address, tracks)
+}
+func (nativeSonosBridge) startSpotifyQueue(ctx context.Context, segment spotify.SonosQueueRange, position time.Duration) (bool, bool, error) {
+	return spotify.SonosStartSpotifyQueue(ctx, segment, position)
 }
 
 func (m Model) outputBridge() sonosBridge {
@@ -176,11 +212,18 @@ func (m *Model) openOutputPicker() tea.Cmd {
 }
 
 func (m *Model) selectOutput(device player.AudioDevice) tea.Cmd {
+	if m.sonosOutput.handoffCancel != nil && !strings.HasPrefix(device.Name, "sonos:") {
+		m.cancelSonosHandoff()
+	}
 	if strings.HasPrefix(device.Name, "sonos:") {
 		id := strings.TrimPrefix(device.Name, "sonos:")
 		if id == "" {
 			return nil
 		}
+		if m.sonosOutput.selected == "" && m.localMusicActive() {
+			return m.beginSonosHandoff(id)
+		}
+		m.cancelSonosHandoff()
 		nextRequest(&m.requests.output)
 		m.cancelOutputRequests()
 		m.retireLocalPlayback()
@@ -198,6 +241,7 @@ func (m *Model) selectOutput(device player.AudioDevice) tea.Cmd {
 		return m.refreshSonosQueue()
 	}
 	if m.sonosOutput.selected != "" {
+		m.cancelSonosHandoff()
 		nextRequest(&m.requests.output)
 		m.cancelOutputRequests()
 		m.retireLocalPlayback()
@@ -213,6 +257,175 @@ func (m *Model) selectOutput(device player.AudioDevice) tea.Cmd {
 	}
 	m.devicePicker.visible = false
 	return switchDeviceCmd(device.Name)
+}
+
+func (m *Model) localMusicActive() bool {
+	return m.buffering || m.player != nil && m.player.IsPlaying()
+}
+
+func spotifyTrackURI(path string) bool {
+	parts := strings.Split(path, ":")
+	if len(parts) != 3 || parts[0] != "spotify" || parts[1] != "track" || len(parts[2]) != 22 {
+		return false
+	}
+	for _, r := range parts[2] {
+		if !(r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z') {
+			return false
+		}
+	}
+	return true
+}
+
+func (m *Model) beginSonosHandoff(target string) tea.Cmd {
+	tracks := m.playlist.PlaybackTracks()
+	current, _ := m.currentPlaybackTrack()
+	if len(tracks) == 0 || current.Path == "" || tracks[0].Path != current.Path {
+		m.status.Warning("The current track is not in the transferable queue; choose a Spotify track or wait for it to finish. Local playback continues", statusTTLLong)
+		return nil
+	}
+	paths := make([]string, len(tracks))
+	for i, track := range tracks {
+		if !spotifyTrackURI(track.Path) {
+			m.status.Warningf(statusTTLLong, "%s cannot be transferred to Sonos; choose Spotify tracks. Local playback continues", track.DisplayName())
+			return nil
+		}
+		paths[i] = track.Path
+	}
+	plan := sonosHandoffPlan{
+		target: target, currentPath: current.Path, trackCount: len(paths),
+		playlistRev: m.playlist.Revision(), streamGen: m.requests.stream,
+		queueGen: m.requests.queue, outputGen: m.requests.output,
+	}
+	if m.sonosOutput.busy {
+		m.status.Warning("Sonos is busy; try selecting it again", statusTTLDefault)
+		return nil
+	}
+	m.sonosOutput.busy, m.sonosOutput.busyKind = true, "handoff"
+	gen := nextRequest(&m.sonosOutput.handoffGen)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	m.sonosOutput.handoffCancel = cancel
+	bridge := m.outputBridge()
+	m.devicePicker.visible = false
+	return func() tea.Msg {
+		segment, err := bridge.appendSpotifyTracks(ctx, target, paths)
+		return sonosHandoffAppendedMsg{gen: gen, ctx: ctx, plan: plan, segment: segment, err: err}
+	}
+}
+
+func (m *Model) handoffCurrent(plan sonosHandoffPlan) bool {
+	current, _ := m.currentPlaybackTrack()
+	return m.sonosOutput.selected == "" && plan.outputGen == m.requests.output && plan.streamGen == m.requests.stream && plan.queueGen == m.requests.queue && plan.playlistRev == m.playlist.Revision() && current.Path == plan.currentPath && m.localMusicActive()
+}
+
+func (m *Model) handleSonosHandoffAppended(msg sonosHandoffAppendedMsg) tea.Cmd {
+	if msg.gen != m.sonosOutput.handoffGen {
+		if msg.segment.Appended > 0 {
+			m.status.Warningf(statusTTLLong, "Handoff canceled; %d appended tracks remain in the Sonos queue", msg.segment.Appended)
+		}
+		return m.nextSonosControl()
+	}
+	if msg.err != nil {
+		m.finishSonosHandoff()
+		m.status.Errorf(statusTTLDefault, "Sonos appended %d of %d tracks; Local playback continues: %s", msg.segment.Appended, msg.plan.trackCount, msg.err)
+		return m.nextSonosControl()
+	}
+	if msg.ctx.Err() != nil || !m.handoffCurrent(msg.plan) {
+		m.finishSonosHandoff()
+		m.status.Warningf(statusTTLLong, "%d tracks remain appended to Sonos; handoff canceled because local playback changed", msg.segment.Appended)
+		return m.nextSonosControl()
+	}
+	bridge := m.outputBridge()
+	plan := msg.plan
+	if m.player != nil {
+		plan.position = max(0, m.player.Position())
+	}
+	return func() tea.Msg {
+		if err := msg.ctx.Err(); err != nil {
+			return sonosHandoffStartedMsg{gen: msg.gen, plan: plan, appended: msg.segment.Appended, err: err}
+		}
+		started, restored, err := bridge.startSpotifyQueue(msg.ctx, msg.segment, plan.position)
+		return sonosHandoffStartedMsg{gen: msg.gen, plan: plan, appended: msg.segment.Appended, started: started, positionRestored: restored, err: err}
+	}
+}
+
+func (m *Model) finishSonosHandoff() {
+	if m.sonosOutput.handoffCancel != nil {
+		m.sonosOutput.handoffCancel()
+	}
+	m.sonosOutput.handoffCancel = nil
+	m.sonosOutput.busy, m.sonosOutput.busyKind = false, ""
+}
+
+func (m *Model) handleSonosHandoffStarted(msg sonosHandoffStartedMsg) tea.Cmd {
+	if msg.gen != m.sonosOutput.handoffGen {
+		if msg.started {
+			m.status.Warningf(statusTTLLong, "Sonos started %d transferred tracks after the handoff was canceled; newer output selection was kept", msg.appended)
+		} else if msg.appended > 0 {
+			m.status.Warningf(statusTTLLong, "Handoff canceled; %d appended tracks remain in the Sonos queue", msg.appended)
+		}
+		return m.nextSonosControl()
+	}
+	if !m.handoffCurrent(msg.plan) {
+		m.finishSonosHandoff()
+		if msg.started {
+			m.status.Warning("Sonos started the transferred tracks after local playback changed", statusTTLLong)
+		} else {
+			m.status.Warningf(statusTTLLong, "%d tracks remain appended to Sonos; Local playback continues", msg.appended)
+		}
+		return m.nextSonosControl()
+	}
+	if !msg.started {
+		m.finishSonosHandoff()
+		err := msg.err
+		if err == nil {
+			err = fmt.Errorf("playback start was not confirmed")
+		}
+		m.status.Errorf(statusTTLDefault, "Sonos did not start playback; %d tracks remain appended and Local playback continues: %s", msg.appended, err)
+		return m.nextSonosControl()
+	}
+	m.finishSonosHandoff()
+	nextRequest(&m.requests.output)
+	m.cancelSonosDiscovery()
+	m.cancelSonosQueueRead()
+	m.retireLocalPlayback()
+	m.sonosOutput.selected, m.sonosOutput.name = msg.plan.target, msg.plan.target
+	m.sonosOutput.state, m.sonosOutput.queue = nil, nil
+	m.sonosOutput.queueStale = false
+	m.devicePicker.visible = false
+	m.recomputeLayout()
+	if msg.err != nil || !msg.positionRestored {
+		m.status.Warningf(statusTTLLong, "Transferred %d tracks to Sonos; it could not restore the current position", msg.appended)
+	} else {
+		m.status.Showf(statusTTLLong, "Transferred %d tracks to Sonos", msg.appended)
+	}
+	if cmd := m.nextSonosControl(); cmd != nil {
+		return cmd
+	}
+	return m.refreshSonosQueue()
+}
+
+func (m *Model) cancelSonosHandoff() {
+	if m.sonosOutput.handoffCancel == nil {
+		return
+	}
+	m.sonosOutput.handoffCancel()
+	m.sonosOutput.handoffCancel = nil
+	m.sonosOutput.handoffGen++
+	m.sonosOutput.busy, m.sonosOutput.busyKind = false, ""
+}
+
+func (m *Model) nextSonosControl() tea.Cmd {
+	if m.sonosOutput.busy {
+		return nil
+	}
+	for len(m.sonosOutput.pending) > 0 {
+		request := m.sonosOutput.pending[0]
+		m.sonosOutput.pending = m.sonosOutput.pending[1:]
+		if request.ctx == nil || request.ctx.Err() == nil {
+			return m.startSonosControl(request)
+		}
+	}
+	return nil
 }
 
 func (m *Model) retireLocalPlayback() {
@@ -242,6 +455,7 @@ func (m *Model) cancelSonosRequest() {
 }
 
 func (m *Model) cancelOutputRequests() {
+	m.cancelSonosHandoff()
 	m.cancelSonosRequest()
 	m.cancelSonosDiscovery()
 	m.cancelSonosQueueRead()
@@ -634,13 +848,8 @@ func (m *Model) handleSonosControl(msg sonosControlMsg) tea.Cmd {
 			m.completeV2Job(msg.request.jobs, msg.request.jobID, msg.request.result)
 		}
 	}
-	for len(m.sonosOutput.pending) > 0 {
-		request := m.sonosOutput.pending[0]
-		m.sonosOutput.pending = m.sonosOutput.pending[1:]
-		if request.ctx != nil && request.ctx.Err() != nil {
-			continue
-		}
-		return m.startSonosControl(request)
+	if cmd := m.nextSonosControl(); cmd != nil {
+		return cmd
 	}
 	if grouping && m.sonosOutput.selected != "" {
 		m.sonosOutput.state = nil

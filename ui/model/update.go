@@ -268,6 +268,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.handleSonosControl(msg)
 		return m, cmd
 
+	case sonosHandoffAppendedMsg:
+		return m, m.handleSonosHandoffAppended(msg)
+
+	case sonosHandoffStartedMsg:
+		return m, m.handleSonosHandoffStarted(msg)
+
 	case deviceSwitchedMsg:
 		if msg.err != nil {
 			m.status.Errorf(statusTTLDefault, "Switch failed: %s", msg.err)

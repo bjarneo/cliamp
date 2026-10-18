@@ -31,6 +31,7 @@ func (m *Model) skipPrev() tea.Cmd {
 
 // playIndex starts the track at idx. An unplayable track is skipped forward.
 func (m *Model) playIndex(idx int) tea.Cmd {
+	m.cancelSonosHandoff()
 	m.playlist.SetIndex(idx)
 	return m.playCurrentTrack()
 }
@@ -42,6 +43,7 @@ func (m *Model) setShuffle(on bool) tea.Cmd {
 		return nil
 	}
 	if m.playlist.Shuffled() != on {
+		m.cancelSonosHandoff()
 		m.playlist.ToggleShuffle()
 	}
 	m.adjustScroll()
@@ -55,6 +57,7 @@ func (m *Model) setRepeat(mode playlist.RepeatMode) tea.Cmd {
 	if m.rejectSonosLocalControl("Repeat") {
 		return nil
 	}
+	m.cancelSonosHandoff()
 	m.playlist.SetRepeat(mode)
 	_ = m.saveConfigString("repeat", m.playlist.Repeat().String())
 	return m.rearmStalePreload()

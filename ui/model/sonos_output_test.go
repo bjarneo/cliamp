@@ -22,22 +22,30 @@ import (
 )
 
 type sonosBridgeFake struct {
-	deviceList   []spotify.SonosDevice
-	current      spotify.SonosState
-	reads        []string
-	queueReads   int
-	queuePlays   []int
-	actions      []string
-	volumes      []int
-	groups       [][]string
-	leaders      []string
-	separates    []string
-	err          error
-	started      chan struct{}
-	release      chan struct{}
-	groupStarted chan struct{}
-	groupRelease chan struct{}
-	queueStarted chan struct{}
+	deviceList     []spotify.SonosDevice
+	current        spotify.SonosState
+	reads          []string
+	queueReads     int
+	queuePlays     []int
+	actions        []string
+	volumes        []int
+	groups         [][]string
+	leaders        []string
+	separates      []string
+	err            error
+	started        chan struct{}
+	release        chan struct{}
+	groupStarted   chan struct{}
+	groupRelease   chan struct{}
+	queueStarted   chan struct{}
+	appended       [][]string
+	appendErr      error
+	segment        spotify.SonosQueueRange
+	playAccepted   bool
+	restored       bool
+	startErr       error
+	startCalls     int
+	startPositions []time.Duration
 }
 
 func (f *sonosBridgeFake) devices(context.Context) ([]spotify.SonosDevice, error) {
@@ -100,14 +108,33 @@ func (f *sonosBridgeFake) separateGroup(_ context.Context, room string) error {
 	f.separates = append(f.separates, room)
 	return f.err
 }
+func (f *sonosBridgeFake) appendSpotifyTracks(ctx context.Context, _ string, tracks []string) (spotify.SonosQueueRange, error) {
+	if err := ctx.Err(); err != nil {
+		return spotify.SonosQueueRange{}, err
+	}
+	f.appended = append(f.appended, append([]string(nil), tracks...))
+	segment := f.segment
+	if segment.Appended == 0 {
+		segment.Appended = len(tracks)
+	}
+	return segment, f.appendErr
+}
+func (f *sonosBridgeFake) startSpotifyQueue(ctx context.Context, _ spotify.SonosQueueRange, position time.Duration) (bool, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, false, err
+	}
+	f.startCalls++
+	f.startPositions = append(f.startPositions, position)
+	return f.playAccepted, f.restored, f.startErr
+}
 
 func sonosTestModel() (*Model, *sonosBridgeFake, *playbackFakeEngine) {
-	engine := &playbackFakeEngine{playing: true}
+	engine := &playbackFakeEngine{}
 	queue := playlist.New()
 	queue.Add(playlist.Track{Title: "Local track", Path: "/tmp/local.flac"})
 	volume := 35
 	bridge := &sonosBridgeFake{current: spotify.SonosState{Transport: "PLAYING", Volume: &volume}}
-	m := &Model{player: engine, playlist: queue, sonosBridge: bridge, playingTrackActive: true, playingTrack: playlist.Track{Title: "Local track"}}
+	m := &Model{player: engine, playlist: queue, sonosBridge: bridge, playingTrack: playlist.Track{Title: "Local track"}}
 	return m, bridge, engine
 }
 
@@ -138,6 +165,165 @@ func TestSonosAttachIsReadOnlyAndRetiresLocalPlayback(t *testing.T) {
 	m.handleSonosQueue(msg)
 	if len(bridge.reads) != 1 || len(bridge.actions) != 0 || len(bridge.volumes) != 0 {
 		t.Fatalf("attach was not read-only: reads=%v controls=%v volumes=%v", bridge.reads, bridge.actions, bridge.volumes)
+	}
+}
+
+func TestSonosHandoffValidatesWholeQueueBeforeAppend(t *testing.T) {
+	m, bridge, engine := sonosTestModel()
+	track := "spotify:track:53o05J0uSWOedPwN4Z0oyo"
+	m.playlist.Replace([]playlist.Track{{Path: track}, {Path: "/local.flac"}})
+	m.playingTrack = playlist.Track{Path: track}
+	m.playingTrackActive = true
+	engine.playing = true
+	if cmd := m.selectOutput(player.AudioDevice{Name: "sonos:10.0.0.2", Description: "Sonos · Office"}); cmd != nil {
+		t.Fatal("unsupported remaining track started a handoff")
+	}
+	if len(bridge.appended) != 0 || !engine.playing || m.sonosOutput.selected != "" {
+		t.Fatal("invalid queue mutated Sonos or changed local ownership")
+	}
+}
+
+func TestSonosHandoffAppendsInPlaybackOrderAndCommitsAfterPlay(t *testing.T) {
+	m, bridge, engine := sonosTestModel()
+	tracks := []playlist.Track{
+		{Path: "spotify:track:53o05J0uSWOedPwN4Z0oyo"},
+		{Path: "spotify:track:63o05J0uSWOedPwN4Z0oyo"},
+		{Path: "spotify:track:73o05J0uSWOedPwN4Z0oyo"},
+	}
+	m.playlist.Replace(tracks)
+	m.playingTrack = tracks[0]
+	m.playingTrackActive = true
+	engine.playing = true
+	m.playlist.Queue(2)
+	m.playlist.Queue(1)
+	bridge.playAccepted, bridge.restored = true, true
+	cmd := m.selectOutput(player.AudioDevice{Name: "sonos:10.0.0.2", Description: "Sonos · Office"})
+	if cmd == nil || !engine.playing || m.sonosOutput.selected != "" {
+		t.Fatal("handoff stopped local playback before append")
+	}
+	appended := cmd().(sonosHandoffAppendedMsg)
+	if got, want := bridge.appended[0], []string{tracks[0].Path, tracks[2].Path, tracks[1].Path, tracks[1].Path, tracks[2].Path}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("appended %v, want %v", got, want)
+	}
+	start := m.handleSonosHandoffAppended(appended)
+	if start == nil || !engine.playing {
+		t.Fatal("local playback retired before Sonos Play")
+	}
+	started := start().(sonosHandoffStartedMsg)
+	m.handleSonosHandoffStarted(started)
+	if engine.playing || m.sonosOutput.selected != "10.0.0.2" || bridge.startCalls != 1 || m.sonosOutput.busy {
+		t.Fatal("successful Sonos start did not transfer ownership")
+	}
+}
+
+func TestSonosHandoffAppendFailureKeepsLocalAndCountsPartial(t *testing.T) {
+	m, bridge, engine := sonosTestModel()
+	track := playlist.Track{Path: "spotify:track:53o05J0uSWOedPwN4Z0oyo"}
+	m.playlist.Replace([]playlist.Track{track})
+	m.playingTrack = track
+	m.playingTrackActive = true
+	engine.playing = true
+	bridge.segment = spotify.SonosQueueRange{Appended: 1}
+	bridge.appendErr = errors.New("speaker disconnected")
+	cmd := m.selectOutput(player.AudioDevice{Name: "sonos:10.0.0.2"})
+	msg := cmd().(sonosHandoffAppendedMsg)
+	if follow := m.handleSonosHandoffAppended(msg); follow != nil || bridge.startCalls != 0 || !engine.playing || m.sonosOutput.selected != "" || !strings.Contains(m.status.text, "1 of 1") {
+		t.Fatal("partial append incorrectly started or transferred ownership")
+	}
+}
+
+func TestSonosHandoffStaleQueueDoesNotStartObsoleteAppend(t *testing.T) {
+	m, bridge, engine := sonosTestModel()
+	track := playlist.Track{Path: "spotify:track:53o05J0uSWOedPwN4Z0oyo"}
+	m.playlist.Replace([]playlist.Track{track})
+	m.playingTrack = track
+	m.playingTrackActive = true
+	engine.playing = true
+	msg := m.selectOutput(player.AudioDevice{Name: "sonos:10.0.0.2"})().(sonosHandoffAppendedMsg)
+	m.playlist.Add(playlist.Track{Path: "spotify:track:63o05J0uSWOedPwN4Z0oyo"})
+	if cmd := m.handleSonosHandoffAppended(msg); cmd != nil || bridge.startCalls != 0 || !engine.playing {
+		t.Fatal("stale queue started Sonos or stopped local playback")
+	}
+}
+
+func TestSonosHandoffStartUsesLatestPositionAndCanceledPlanCannotPlay(t *testing.T) {
+	t.Run("latest position", func(t *testing.T) {
+		m, bridge, engine := sonosTestModel()
+		track := playlist.Track{Path: "spotify:track:53o05J0uSWOedPwN4Z0oyo"}
+		m.playlist.Replace([]playlist.Track{track})
+		m.playingTrack, m.playingTrackActive, engine.playing = track, true, true
+		engine.position = 10 * time.Second
+		appendMsg := m.selectOutput(player.AudioDevice{Name: "sonos:10.0.0.2"})().(sonosHandoffAppendedMsg)
+		engine.position = 38 * time.Second
+		startCmd := m.handleSonosHandoffAppended(appendMsg)
+		bridge.playAccepted, bridge.restored = true, true
+		started := startCmd().(sonosHandoffStartedMsg)
+		if len(bridge.startPositions) != 1 || bridge.startPositions[0] != 38*time.Second {
+			t.Fatalf("start position = %v, want 38s", bridge.startPositions)
+		}
+		m.handleSonosHandoffStarted(started)
+	})
+
+	t.Run("source changes after start command is returned", func(t *testing.T) {
+		m, bridge, engine := sonosTestModel()
+		track := playlist.Track{Path: "spotify:track:53o05J0uSWOedPwN4Z0oyo"}
+		m.playlist.Replace([]playlist.Track{track})
+		m.playingTrack, m.playingTrackActive, engine.playing = track, true, true
+		appendMsg := m.selectOutput(player.AudioDevice{Name: "sonos:10.0.0.2"})().(sonosHandoffAppendedMsg)
+		startCmd := m.handleSonosHandoffAppended(appendMsg)
+		m.replacePlaylist([]playlist.Track{{Path: "spotify:track:63o05J0uSWOedPwN4Z0oyo"}})
+		result := startCmd().(sonosHandoffStartedMsg)
+		m.handleSonosHandoffStarted(result)
+		if bridge.startCalls != 0 || !engine.playing || m.sonosOutput.selected != "" || !strings.Contains(m.status.text, "remain in the Sonos queue") {
+			t.Fatal("canceled plan issued Sonos Play, changed ownership, or hid the appended count")
+		}
+	})
+}
+
+func TestSonosHandoffLateAppendResultReportsStaleQueueCount(t *testing.T) {
+	m, _, _ := sonosTestModel()
+	m.cancelSonosHandoff()
+	gen := m.sonosOutput.handoffGen - 1
+	m.handleSonosHandoffAppended(sonosHandoffAppendedMsg{gen: gen, segment: spotify.SonosQueueRange{Appended: 3}})
+	if !strings.Contains(m.status.text, "3 appended tracks remain") || m.sonosOutput.selected != "" {
+		t.Fatal("stale append result hid queued tracks or changed output ownership")
+	}
+}
+
+func TestSonosHandoffStartFailureKeepsLocalAndLeavesAppendedTracks(t *testing.T) {
+	m, bridge, engine := sonosTestModel()
+	track := playlist.Track{Path: "spotify:track:53o05J0uSWOedPwN4Z0oyo"}
+	m.playlist.Replace([]playlist.Track{track})
+	m.playingTrack, m.playingTrackActive, engine.playing = track, true, true
+	appendMsg := m.selectOutput(player.AudioDevice{Name: "sonos:10.0.0.2"})().(sonosHandoffAppendedMsg)
+	startCmd := m.handleSonosHandoffAppended(appendMsg)
+	bridge.startErr = errors.New("Play rejected")
+	started := startCmd().(sonosHandoffStartedMsg)
+	m.handleSonosHandoffStarted(started)
+	if bridge.startCalls != 1 || !engine.playing || m.sonosOutput.selected != "" || !strings.Contains(m.status.text, "remain appended") {
+		t.Fatal("failed Play changed ownership, retried, or hid the queued tracks")
+	}
+}
+
+func TestSonosControlQueuesBehindHandoff(t *testing.T) {
+	m, bridge, engine := sonosTestModel()
+	track := playlist.Track{Path: "spotify:track:53o05J0uSWOedPwN4Z0oyo"}
+	m.playlist.Replace([]playlist.Track{track})
+	m.playingTrack, m.playingTrackActive, engine.playing = track, true, true
+	appendMsg := m.selectOutput(player.AudioDevice{Name: "sonos:10.0.0.2"})().(sonosHandoffAppendedMsg)
+	if cmd := m.controlSonosJob(sonosControlRequest{action: "group", rooms: []string{"room"}, playback: "room"}); cmd != nil || len(m.sonosOutput.pending) != 1 {
+		t.Fatal("group operation did not queue behind append")
+	}
+	startCmd := m.handleSonosHandoffAppended(appendMsg)
+	bridge.playAccepted, bridge.restored = true, true
+	started := startCmd().(sonosHandoffStartedMsg)
+	controlCmd := m.handleSonosHandoffStarted(started)
+	if len(bridge.groups) != 0 || controlCmd == nil || m.sonosOutput.selected != "10.0.0.2" {
+		t.Fatal("group control raced Sonos Play or did not remain queued")
+	}
+	control := controlCmd().(sonosControlMsg)
+	if control.err != nil || !reflect.DeepEqual(bridge.groups, [][]string{{"room"}}) {
+		t.Fatal("queued grouping did not run after handoff completed")
 	}
 }
 
@@ -914,7 +1100,7 @@ func TestSonosVolumeUnavailableAndBridgeErrorsAreReported(t *testing.T) {
 
 func TestSonosLocalReturnAndStaleLocalCompletionDoNotResumeQueue(t *testing.T) {
 	m, _, engine := sonosTestModel()
-	m.buffering = true
+	m.buffering = false
 	m.requests.stream = 8
 	oldStream := m.requests.stream
 	selectCmd := m.selectOutput(player.AudioDevice{Name: "sonos:10.0.0.2", Description: "Sonos · Office"})
