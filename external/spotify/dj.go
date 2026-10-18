@@ -95,7 +95,7 @@ func resolveDJContext(ctx context.Context, sp *spclient.Spclient) (*spclient.Con
 		}
 	}
 	spotCtx.Uri, spotCtx.Url = DJContextURI, endpoint
-	return spclient.NewContextResolver(ctx, &librespot.NullLogger{}, sp, spotCtx)
+	return spclient.NewContextResolver(requestCtx, &librespot.NullLogger{}, sp, spotCtx)
 }
 
 func (d *DJSession) Close() {

@@ -3,6 +3,7 @@ package spotify
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -146,21 +147,83 @@ func TestDJResolverUsesLexiconAndRejectsBrokenContexts(t *testing.T) {
 	}
 }
 
-func TestDJResolverHonorsCallerCancellation(t *testing.T) {
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		<-r.Context().Done()
-	}))
-	defer server.Close()
-	sp, err := spclient.NewSpclient(t.Context(), &librespot.NullLogger{}, server.Client(), func(context.Context) string {
-		return strings.TrimPrefix(server.URL, "https://")
-	}, func(context.Context, bool) (string, error) { return "test-token", nil }, "device", "client")
+func TestDJResolverBoundsFallbackAndKeepsNextPageUsable(t *testing.T) {
+	var calls int
+	fallbackDeadline := make(chan time.Duration, 1)
+	client := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/lexicon-session-provider/context-resolve/v2/session":
+			calls++
+			if calls == 1 {
+				return jsonResponse(r, `{"uri":"`+DJContextURI+`","metadata":{"playlist_number_of_tracks":"2"},"pages":[{"tracks":[{"uri":"spotify:track:2FY7b99s15jUprqC0M5NCT"}]}]}`)
+			}
+			deadline, ok := r.Context().Deadline()
+			if !ok {
+				fallbackDeadline <- -1
+			} else {
+				fallbackDeadline <- time.Until(deadline)
+			}
+			return jsonResponse(r, `{"uri":"`+DJContextURI+`","pages":[{"tracks":[{"uri":"spotify:track:2FY7b99s15jUprqC0M5NCT"}],"next_page_url":"hm://dj/next"}]}`)
+		case "/dj/next":
+			return jsonResponse(r, `{"tracks":[{"uri":"spotify:track:4uLU6hMCjMI75M1A2tKUQC"}]}`)
+		default:
+			return nil, fmt.Errorf("unexpected request path %s", r.URL.Path)
+		}
+	})
+	sp := playbackAPIClient(t, client)
+	resolver, err := resolveDJContext(t.Context(), sp)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Millisecond)
+	if remaining := <-fallbackDeadline; remaining <= 0 || remaining > 30*time.Second {
+		t.Fatalf("fallback deadline remaining = %v, want within 30 seconds", remaining)
+	}
+	first, err := resolver.Page(t.Context(), 0)
+	if err != nil || len(first) != 1 {
+		t.Fatalf("first page = %v, %v", first, err)
+	}
+	second, err := resolver.Page(t.Context(), 1)
+	if err != nil || len(second) != 1 || second[0].Uri != "spotify:track:4uLU6hMCjMI75M1A2tKUQC" {
+		t.Fatalf("next page = %v, %v", second, err)
+	}
+}
+
+func TestDJResolverFallbackHonorsCallerCancellation(t *testing.T) {
+	var calls int
+	fallbackStarted := make(chan struct{})
+	client := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/lexicon-session-provider/context-resolve/v2/session" {
+			return nil, fmt.Errorf("unexpected request path %s", r.URL.Path)
+		}
+		calls++
+		if calls == 1 {
+			return jsonResponse(r, `{"uri":"`+DJContextURI+`","metadata":{"playlist_number_of_tracks":"2"},"pages":[{"tracks":[{"uri":"spotify:track:2FY7b99s15jUprqC0M5NCT"}]}]}`)
+		}
+		close(fallbackStarted)
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})
+	sp := playbackAPIClient(t, client)
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	if _, err := resolveDJContext(ctx, sp); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("resolveDJContext() error = %v, want caller deadline", err)
+	result := make(chan error, 1)
+	go func() {
+		_, err := resolveDJContext(ctx, sp)
+		result <- err
+	}()
+	select {
+	case <-fallbackStarted:
+	case <-time.After(time.Second):
+		t.Fatal("fallback request did not start")
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("resolveDJContext() error = %v, want caller cancellation", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("fallback request outlived caller cancellation")
 	}
 }
 
