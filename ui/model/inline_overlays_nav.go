@@ -58,6 +58,9 @@ func (m Model) navView() navViewKind {
 }
 
 func (m Model) navHeaderLine() string {
+	if m.navBrowser.previewName != "" {
+		return sepHeader(m.navBrowser.previewName+" (Enter plays)", m.layout.panelWidth)
+	}
 	if m.navBrowser.confirmReplace {
 		return sepHeader("Replace current queue?", m.layout.panelWidth)
 	}
@@ -82,6 +85,16 @@ func (m Model) navHeaderLine() string {
 
 // renderNavBody renders the list for the active provider-browser route.
 func (m Model) renderNavBody() string {
+	if m.navBrowser.previewName != "" && m.navBrowser.previewErr != "" {
+		budget := m.effectivePlaylistVisible()
+		if len(m.navBrowser.tracks) == 0 || budget <= 1 {
+			return bodyMessage("Preview failed: "+m.navBrowser.previewErr, budget)
+		}
+		return bodyMessage("Preview partially loaded: "+m.navBrowser.previewErr, 1) + "\n" + m.renderNavTrackBody(budget-1)
+	}
+	if m.navBrowser.previewName != "" && m.navBrowser.loading && len(m.navBrowser.tracks) == 0 {
+		return bodyLines([]string{loadingLine("Loading preview…")}, m.effectivePlaylistVisible())
+	}
 	labels := m.navLabels()
 	budget := m.effectivePlaylistVisible()
 	if m.navBrowser.confirmReplace {

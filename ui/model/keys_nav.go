@@ -12,6 +12,9 @@ import (
 
 // handleNavBrowserKey processes key presses while the provider browser is open.
 func (m *Model) handleNavBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
+	if m.navBrowser.previewName != "" {
+		return m.handlePlaylistPreviewKey(msg)
+	}
 	if m.navBrowser.prov == nil {
 		m.navBrowser.visible = false
 		return nil
@@ -524,28 +527,7 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "enter":
 		// Play the highlighted track immediately, then enqueue everything from
 		// that position to the end of the list (capped at 500 total tracks).
-		if listLen == 0 {
-			return nil
-		}
-		tracks := m.navPlaybackTracks()
-		if index := m.navBrowser.cursor; index >= 0 && index < len(tracks) {
-			const maxAdd = 500
-			m.stopPlayback()
-			m.player.ClearPreload()
-
-			toAdd := tracks[index:min(index+maxAdd, len(tracks))]
-
-			newIdx := m.appendTracks(toAdd...)
-			m.playlist.SetIndex(newIdx)
-			m.plCursor = newIdx
-			m.adjustScroll()
-			if len(toAdd) > 1 {
-				m.status.Showf(statusTTLMedium, "Playing: %s (+%d queued)", toAdd[0].DisplayName(), len(toAdd)-1)
-			} else {
-				m.status.Showf(statusTTLMedium, "Playing: %s", toAdd[0].DisplayName())
-			}
-			return m.playCurrentTrack()
-		}
+		return m.playNavTrackFromCursor()
 	case "R":
 		if m.playlist.Len() > 0 {
 			m.navBrowser.confirmReplace = true
@@ -602,6 +584,28 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+func (m *Model) playNavTrackFromCursor() tea.Cmd {
+	tracks := m.navPlaybackTracks()
+	index := m.navBrowser.cursor
+	if index < 0 || index >= len(tracks) {
+		return nil
+	}
+	const maxAdd = 500
+	m.stopPlayback()
+	m.player.ClearPreload()
+	toAdd := tracks[index:min(index+maxAdd, len(tracks))]
+	newIdx := m.appendTracks(toAdd...)
+	m.playlist.SetIndex(newIdx)
+	m.plCursor = newIdx
+	m.adjustScroll()
+	if len(toAdd) > 1 {
+		m.status.Showf(statusTTLMedium, "Playing: %s (+%d queued)", toAdd[0].DisplayName(), len(toAdd)-1)
+	} else {
+		m.status.Showf(statusTTLMedium, "Playing: %s", toAdd[0].DisplayName())
+	}
+	return m.playCurrentTrack()
 }
 
 func (m *Model) navDisplayedTracks() []playlist.Track {

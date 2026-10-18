@@ -323,6 +323,7 @@ Navidrome, Podcasts, or Local Playlists:
 | `↑` `↓` / `j` `k` | Move cursor (wraps) |
 | `Ctrl+U` `Ctrl+D` | Scroll by page |
 | `Enter` | Load the selected playlist tracks into the queue |
+| `v` | Preview the selected playlist without changing playback; in the preview, `Enter` starts at the selected track and queues the remaining tracks |
 | `/` | Filter the playlist list. In Podcasts, type a show name or publisher RSS URL, then `Enter` to search; typing alone sends no search requests. |
 | `f` | In Podcasts, subscribe or unsubscribe from the selected show |
 | `Ctrl+F` | Run the provider online or server search (Spotify, Navidrome, NetEase, and others). |

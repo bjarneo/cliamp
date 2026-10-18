@@ -4,6 +4,7 @@
 package model
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -293,6 +294,9 @@ type navBrowserState struct {
 	directTrackJump bool
 	fromProvList    bool
 	openInPlaylist  bool
+	previewName     string
+	previewErr      string
+	previewCancel   context.CancelFunc
 }
 
 // requestState tracks the latest request in each independently asynchronous UI

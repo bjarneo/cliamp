@@ -54,6 +54,10 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	if idx < 0 || idx >= len(m.providers) {
 		return nil
 	}
+	m.cancelNavRequests()
+	m.navBrowser.visible = false
+	m.navBrowser.previewName = ""
+	m.navBrowser.previewErr = ""
 	m.provPillIdx = idx
 	m.provider = m.providers[idx].Provider
 	m.provPane.lists = nil
@@ -350,7 +354,6 @@ func (m *Model) quickSwitchProvider(key string) (cmd tea.Cmd, ok bool) {
 		return m.switchToProvider(provKey), true
 	}
 	// Close any open overlays so the user lands on the provider pane.
-	m.cancelNavRequests()
 	m.navBrowser.visible = false
 	m.plManager.visible = false
 	m.fileBrowser.visible = false
@@ -735,7 +738,7 @@ func (m Model) canOpenProviderBrowser() bool {
 
 // openNavBrowserWith resets and opens the hierarchy for prov at its root menu.
 func (m *Model) openNavBrowserWith(prov playlist.Provider) {
-	nextRequest(&m.requests.nav)
+	m.cancelNavRequests()
 	m.navBrowser.prov = prov
 	m.navBrowser.genreBrowser, _ = prov.(provider.GenreBrowser)
 	m.navBrowser.visible = true
@@ -758,6 +761,9 @@ func (m *Model) openNavBrowserWith(prov playlist.Provider) {
 	m.navBrowser.directTrackJump = false
 	m.navBrowser.fromProvList = false
 	m.navBrowser.openInPlaylist = false
+	m.navBrowser.previewName = ""
+	m.navBrowser.previewErr = ""
+	m.navBrowser.previewCancel = nil
 	m.navBrowser.selArtist = provider.ArtistInfo{}
 	m.navBrowser.selAlbum = provider.AlbumInfo{}
 	m.navBrowser.selGenre = provider.GenreInfo{}
@@ -917,6 +923,10 @@ func (m *Model) nextNavRequest() uint64 {
 
 func (m *Model) cancelNavRequests() {
 	nextRequest(&m.requests.nav)
+	if m.navBrowser.previewCancel != nil {
+		m.navBrowser.previewCancel()
+		m.navBrowser.previewCancel = nil
+	}
 	m.navBrowser.loading = false
 	m.navBrowser.albumLoading = false
 }

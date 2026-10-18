@@ -143,6 +143,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleNavTracksLoaded(msg)
 		return m, nil
 
+	case playlistPreviewLoadedMsg:
+		m.handlePlaylistPreviewLoaded(msg)
+		return m, nil
+
 	case catalogBatchMsg:
 		m.handleCatalogBatch(msg)
 		return m, nil

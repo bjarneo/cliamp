@@ -136,6 +136,7 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"a"}, KeyLabel: "a", Label: "Toggle queue (play next)", Keymap: true, ContextHelp: true},
 	{Mode: commandModeMain, Keys: []string{"A"}, KeyLabel: "A", Label: "Queue manager", Keymap: true},
 	{Mode: commandModeMain | commandModeProvider, Keys: []string{"F"}, KeyLabel: "F", Label: "Subscribed shows", Enabled: func(m Model) bool { return m.hasSubscriptions() }, Keymap: true},
+	{Mode: commandModeProvider, Keys: []string{"v"}, KeyLabel: "v", Label: "Preview playlist", ContextHelp: true, Enabled: func(m Model) bool { return m.canPreviewProviderPlaylist() }},
 
 	{Mode: commandModeSubs, Keys: []string{"up", "down", "j", "k"}, KeyLabel: "Up Down", Label: "Navigate", Keymap: true},
 	{Mode: commandModeSubs, Keys: []string{"/"}, KeyLabel: "/", Label: "Filter", Keymap: true, ContextHelp: true},

@@ -15,6 +15,7 @@ import (
 
 // quit shuts down the player and signals the TUI to exit.
 func (m *Model) quit() tea.Cmd {
+	m.cancelNavRequests()
 	// Only save resume for seekable tracks:
 	// - local files (not stream)
 	// - HTTP streams with known duration (podcast MP3s)
@@ -286,6 +287,8 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.appendShowFromProviderList()
 	case "u":
 		m.urlInput = urlInputState{active: true}
+	case "v":
+		return m.previewProviderPlaylist()
 	case "p":
 		if m.localProvider != nil {
 			m.openPlaylistManager()
