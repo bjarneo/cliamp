@@ -380,7 +380,7 @@ func (m *Model) handleSonosHandoffStarted(msg sonosHandoffStartedMsg) tea.Cmd {
 		if err == nil {
 			err = fmt.Errorf("playback start was not confirmed")
 		}
-		m.status.Errorf(statusTTLDefault, "Sonos did not start playback; %d tracks remain appended and Local playback continues: %s", msg.appended, err)
+		m.status.Errorf(statusTTLDefault, "Sonos playback was not confirmed; %d tracks remain appended and Local playback continues: %s", msg.appended, err)
 		return m.nextSonosControl()
 	}
 	m.finishSonosHandoff()
