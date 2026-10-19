@@ -341,10 +341,10 @@ func (m Model) Init() tea.Cmd {
 		}
 	}
 	if len(m.pendingURLs) > 0 {
-		cmds = append(cmds, resolveRemoteCmd(m.pendingURLs, m.autoPlay))
+		cmds = append(cmds, resolveRemoteCmd(m.pendingURLs, m.autoPlay, m.requests.output))
 	}
 	if m.autoPlay && m.playlist.Len() > 0 {
-		cmds = append(cmds, func() tea.Msg { return autoPlayMsg{} })
+		cmds = append(cmds, func() tea.Msg { return autoPlayMsg{outputGen: m.requests.output} })
 	}
 	return tea.Batch(cmds...)
 }

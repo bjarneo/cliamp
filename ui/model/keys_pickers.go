@@ -107,11 +107,11 @@ func (m *Model) handleDeviceKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "enter":
 		if len(m.devicePicker.devices) > 0 && m.devicePicker.cursor < len(m.devicePicker.devices) {
 			dev := m.devicePicker.devices[m.devicePicker.cursor]
-			m.devicePicker.visible = false
-			return switchDeviceCmd(dev.Name)
+			return m.selectOutput(dev)
 		}
 	case "esc", "d", "q":
 		m.devicePicker.visible = false
+		m.cancelSonosDiscovery()
 	}
 	return nil
 }
