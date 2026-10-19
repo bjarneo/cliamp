@@ -284,6 +284,8 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.loadLatestFromProviderList()
 	case "a":
 		return m.appendShowFromProviderList()
+	case "u":
+		m.urlInput = urlInputState{active: true}
 	case "p":
 		if m.localProvider != nil {
 			m.openPlaylistManager()
@@ -967,7 +969,7 @@ func (m *Model) handleURLInputKey(msg tea.KeyPressMsg) tea.Cmd {
 		if input != "" {
 			m.feedLoading = true
 			m.status.Activity("Loading URL...", statusTTLLong)
-			return resolveURLCmd(input, true)
+			return resolveURLCmd(m.providers, input, true, nextRequest(&m.requests.url), m.requests.queue)
 		}
 		m.urlInput.active = true
 		m.urlInput.err = "Enter a stream, track, or playlist URL."

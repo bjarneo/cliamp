@@ -1,12 +1,14 @@
 package spotify
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/bjarneo/cliamp/playlist"
 	"golang.org/x/oauth2"
 )
 
@@ -91,5 +93,76 @@ func TestPlaylistsIncludesFollowedPlaylists(t *testing.T) {
 	}
 	if album.TrackCount != 17 {
 		t.Errorf("saved album track count = %d, want 17", album.TrackCount)
+	}
+}
+
+func TestPlaylistsCachesOnlySuccessfulResults(t *testing.T) {
+	t.Parallel()
+	calls := 0
+	routes := playlistRoutes(apiResponse(http.StatusOK, `{"items":[],"total":0}`))
+	for path, route := range routes {
+		original := route
+		routes[path] = func(req *http.Request) *http.Response {
+			calls++
+			return original(req)
+		}
+	}
+	p := stubSpotifyAPI("own", routes)
+
+	first, err := p.Playlists()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first[0].Name = "mutated"
+	requestCount := calls
+
+	second, err := p.Playlists()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != requestCount {
+		t.Fatalf("cached Playlists() made %d more requests", calls-requestCount)
+	}
+	if second[0].Name == "mutated" {
+		t.Fatal("caller mutation changed the cached playlist list")
+	}
+}
+
+func TestPlaylistsKeepsRowsWhenLibraryAuthExpires(t *testing.T) {
+	t.Parallel()
+	p := stubSpotifyAPI("own", playlistRoutes(apiResponse(http.StatusOK, `{"items":[],"total":0}`)))
+	tokens := 0
+	p.session.tokenSource = tokenSourceFunc(func() (*oauth2.Token, error) {
+		tokens++
+		if tokens == 3 {
+			return nil, playlist.ErrNeedsAuth
+		}
+		return &oauth2.Token{AccessToken: "token"}, nil
+	})
+
+	lists, err := p.Playlists()
+	if err == nil || errors.Is(err, playlist.ErrNeedsAuth) {
+		t.Fatalf("Playlists() error = %v, want a partial-result warning", err)
+	}
+	if len(lists) == 0 || lists[0].ID != savedTracksPlaylistID {
+		t.Fatalf("Playlists() rows = %+v, want the usable library rows", lists)
+	}
+}
+
+func TestPersonalizedPlaylistsNeedsAuthWithoutSession(t *testing.T) {
+	p := New(nil, "client", 320)
+	if _, err := p.personalizedPlaylists(t.Context()); !errors.Is(err, playlist.ErrNeedsAuth) {
+		t.Fatalf("personalizedPlaylists() error = %v, want ErrNeedsAuth", err)
+	}
+}
+
+func TestPlaylistsNeedsAuthWhenAllSourcesNeedAuth(t *testing.T) {
+	t.Parallel()
+	p := stubSpotifyAPI("own", playlistRoutes(apiResponse(http.StatusOK, `{"items":[],"total":0}`)))
+	p.session.tokenSource = nil
+
+	lists, err := p.Playlists()
+	if len(lists) != 0 || !errors.Is(err, playlist.ErrNeedsAuth) {
+		t.Fatalf("Playlists() rows=%+v error=%v, want empty rows and ErrNeedsAuth", lists, err)
 	}
 }
