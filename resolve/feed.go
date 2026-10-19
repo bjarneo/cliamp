@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -27,10 +28,13 @@ const (
 // Feed fetches a publisher RSS feed directly, including extensionless URLs.
 // It accepts only absolute HTTP(S) URLs without userinfo, including redirects,
 // and uses the shared 30-second client with caller-controlled cancellation.
-// It reads at most 32 MiB and returns the first 300 playable episodes in feed
-// order. Parsing stops at that limit, leaving the remaining XML unvalidated.
-// Tracks retain the original feed URL and episode GUID in podcast.feed and
-// podcast.guid metadata; a missing GUID falls back to the audio URL.
+// It reads at most 32 MiB and returns the newest 300 playable episodes, newest
+// first by publication date. Feeds do not promise an order, and long-running
+// shows often list oldest-first, so the whole feed is read before the limit
+// applies. Episodes sharing a date keep their feed order, and undated episodes
+// follow the dated ones in feed order. Tracks retain the original feed URL
+// and episode GUID in podcast.feed and podcast.guid metadata; a missing GUID
+// falls back to the audio URL.
 // Valid publication dates are retained as YYYY-MM-DD in podcast.published.
 func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 	u := feedHTTPURL(feedURL)
@@ -63,11 +67,11 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 
 	dec := xml.NewDecoder(io.LimitReader(resp.Body, maxFeedBody))
 	dec.CharsetReader = charset.NewReaderLabel
-	var tracks []playlist.Track
+	var episodes []feedEpisode
 	var channelTitle, channelArt string
 	var seenRSS, seenChannel bool
 	depth := 0
-	for len(tracks) < maxFeedEpisodes {
+	for {
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("parsing feed: %w", err)
 		}
@@ -182,6 +186,8 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 						}
 						if err == nil {
 							track.ProviderMeta[provider.MetaPodcastPublished] = published.Format(time.DateOnly)
+						} else {
+							published = time.Time{}
 						}
 						for _, image := range item.Images {
 							if art := feedHTTPURL(image.Href); art != nil {
@@ -189,7 +195,7 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 								break
 							}
 						}
-						tracks = append(tracks, track)
+						episodes = append(episodes, feedEpisode{track: track, published: published})
 						break
 					}
 				default:
@@ -208,7 +214,23 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 			return nil, fmt.Errorf("parsing feed: %w", err)
 		}
 	}
-	// Channel metadata may follow items; apply it after the portion we read.
+	slices.SortStableFunc(episodes, func(a, b feedEpisode) int {
+		switch aUndated, bUndated := a.published.IsZero(), b.published.IsZero(); {
+		case aUndated && bUndated:
+			return 0
+		case aUndated:
+			return 1
+		case bUndated:
+			return -1
+		}
+		return b.published.Compare(a.published)
+	})
+	episodes = episodes[:min(len(episodes), maxFeedEpisodes)]
+	tracks := make([]playlist.Track, len(episodes))
+	for i, episode := range episodes {
+		tracks[i] = episode.track
+	}
+	// Channel metadata may follow items; apply it after the whole feed is read.
 	for i := range tracks {
 		tracks[i].Artist = strings.TrimSpace(channelTitle)
 		tracks[i].Album = tracks[i].Artist
@@ -217,6 +239,14 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 		}
 	}
 	return tracks, nil
+}
+
+// feedEpisode pairs a parsed episode with its full publication time, which
+// orders same-day episodes that the YYYY-MM-DD metadata cannot. A zero time
+// means the item had no parseable date.
+type feedEpisode struct {
+	track     playlist.Track
+	published time.Time
 }
 
 func feedHTTPURL(raw string) *url.URL {

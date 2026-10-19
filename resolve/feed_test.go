@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/bjarneo/cliamp/internal/httpclient"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 )
 
 func TestFeedMetadata(t *testing.T) {
@@ -461,23 +463,53 @@ func TestFeedLimitAndOrder(t *testing.T) {
 	}
 }
 
-func TestFeedStopsAfterLimit(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `<rss><channel>`)
-		for range 300 {
-			io.WriteString(w, `<item><enclosure url="https://example.com/audio.mp3"/></item>`)
-		}
-		io.WriteString(w, `</malformed-tail>`)
-		w.(http.Flusher).Flush()
-		// Do not finish the response: a whole-document read would hang here.
-		<-r.Context().Done()
-	}))
-	defer srv.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	tracks, err := Feed(ctx, srv.URL)
+func TestFeedOldestFirstKeepsNewest(t *testing.T) {
+	// A long-running show listing oldest-first: the newest episodes sit past
+	// the limit and must still be the ones returned, newest first.
+	start := time.Date(2020, 1, 29, 21, 26, 0, 0, time.UTC)
+	var body strings.Builder
+	body.WriteString(`<rss><channel><title>Show</title>`)
+	for i := 1; i <= 2076; i++ {
+		fmt.Fprintf(&body, `<item><title>Episode %d</title><pubDate>%s</pubDate><enclosure url="https://example.com/%d.mp3"/></item>`,
+			i, start.AddDate(0, 0, i).Format(time.RFC1123Z), i)
+	}
+	body.WriteString(`</channel></rss>`)
+	tracks, err := Feed(context.Background(), serveFeed(t, body.String()))
 	if err != nil || len(tracks) != 300 {
-		t.Fatalf("got %d tracks, err = %v; want 300 without reading the tail", len(tracks), err)
+		t.Fatalf("got %d tracks, err = %v; want 300", len(tracks), err)
+	}
+	for i, track := range tracks {
+		if want := fmt.Sprintf("Episode %d", 2076-i); track.Title != want {
+			t.Fatalf("track %d = %q, want %q", i, track.Title, want)
+		}
+	}
+	if got, want := tracks[0].Meta(provider.MetaPodcastPublished), start.AddDate(0, 0, 2076).Format(time.DateOnly); got != want {
+		t.Errorf("newest published = %q, want %q", got, want)
+	}
+}
+
+func TestFeedDateOrder(t *testing.T) {
+	// Full timestamps order same-day episodes, zones are honoured, equal
+	// times keep feed order, and undated episodes trail in feed order.
+	body := `<rss><channel>
+  <item><title>Undated A</title><enclosure url="https://example.com/a.mp3"/></item>
+  <item><title>Morning</title><pubDate>Fri, 18 Sep 2026 09:00:00 +0000</pubDate><enclosure url="https://example.com/b.mp3"/></item>
+  <item><title>Evening</title><pubDate>Fri, 18 Sep 2026 19:30:00 +0200</pubDate><enclosure url="https://example.com/c.mp3"/></item>
+  <item><title>Unparseable</title><pubDate>sometime</pubDate><enclosure url="https://example.com/d.mp3"/></item>
+  <item><title>Evening again</title><pubDate>2026-09-18T17:30:00Z</pubDate><enclosure url="https://example.com/e.mp3"/></item>
+  <item><title>Noon, earlier by zone</title><pubDate>Fri, 18 Sep 2026 12:00:00 +0400</pubDate><enclosure url="https://example.com/f.mp3"/></item>
+</channel></rss>`
+	tracks, err := Feed(context.Background(), serveFeed(t, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Evening", "Evening again", "Morning", "Noon, earlier by zone", "Undated A", "Unparseable"}
+	got := make([]string, len(tracks))
+	for i, track := range tracks {
+		got[i] = track.Title
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("order = %q, want %q", got, want)
 	}
 }
 
