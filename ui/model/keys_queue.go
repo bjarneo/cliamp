@@ -57,6 +57,7 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 		moved := false
 		if m.queue.cursor > 0 {
 			if m.playlist.MoveQueue(m.queue.cursor, m.queue.cursor-1) {
+				m.cancelSonosHandoff()
 				m.queue.cursor--
 				moved = true
 			}
@@ -69,6 +70,7 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 		moved := false
 		if m.queue.cursor < qLen-1 {
 			if m.playlist.MoveQueue(m.queue.cursor, m.queue.cursor+1) {
+				m.cancelSonosHandoff()
 				m.queue.cursor++
 				moved = true
 			}
@@ -82,6 +84,7 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 		if qLen > 0 {
 			snapshot := m.playlist.Snapshot()
 			m.playlist.RemoveQueueAt(m.queue.cursor)
+			m.cancelSonosHandoff()
 			m.recordPlaylistUndo(playlistUndo{snapshot: snapshot})
 			removed = true
 			m.status.Show("Removed queued track (Ctrl+Z to undo)", statusTTLDefault)
@@ -101,6 +104,7 @@ func (m *Model) handleQueueKey(msg tea.KeyPressMsg) tea.Cmd {
 		if qLen == 1 || m.queue.confirmClear {
 			snapshot := m.playlist.Snapshot()
 			m.playlist.ClearQueue()
+			m.cancelSonosHandoff()
 			m.recordPlaylistUndo(playlistUndo{snapshot: snapshot})
 			m.queue.confirmClear = false
 			m.normalizeQueueOverlay()

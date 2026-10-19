@@ -215,9 +215,9 @@ func (m Model) renderThemeBody() string {
 
 func (m Model) deviceHeaderLine() string {
 	if m.devicePicker.loading {
-		return sepHeader("Audio Devices", m.layout.panelWidth)
+		return sepHeader("Audio Output", m.layout.panelWidth)
 	}
-	return sepHeaderN("Audio Devices", m.devicePicker.cursor+1, len(m.devicePicker.devices), m.layout.panelWidth)
+	return sepHeaderN("Audio Output", m.devicePicker.cursor+1, len(m.devicePicker.devices), m.layout.panelWidth)
 }
 
 func (m Model) renderDeviceBody() string {
@@ -226,7 +226,7 @@ func (m Model) renderDeviceBody() string {
 		return bodyLines([]string{loadingLine("Loading devices…")}, budget)
 	}
 	if len(m.devicePicker.devices) == 0 {
-		return bodyMessage("No audio output devices found.", budget)
+		return bodyMessage("No audio output choices found.", budget)
 	}
 	items := make([]string, len(m.devicePicker.devices))
 	for i, d := range m.devicePicker.devices {
@@ -237,8 +237,25 @@ func (m Model) renderDeviceBody() string {
 		if d.Active {
 			label += " " + activeToggle.Render("●")
 		}
+		if strings.HasPrefix(d.Name, "sonos:") {
+			if room, ok := m.devicePicker.sonos[strings.TrimPrefix(d.Name, "sonos:")]; ok {
+				mark := "[ ]"
+				if m.devicePicker.checked[room.RoomID] {
+					mark = "[x]"
+				}
+				label = mark + " " + label
+				members := 0
+				for _, candidate := range m.devicePicker.sonos {
+					if candidate.Coordinator == room.Coordinator {
+						members++
+					}
+				}
+				label += fmt.Sprintf(" · group %d", members)
+			}
+		}
 		items[i] = label
 	}
+	items = append(items, dimStyle.Render("Space mark · A apply · s split · Enter attach · Esc cancel"))
 	return windowList(items, m.devicePicker.cursor, m.devicePicker.scroll, budget)
 }
 

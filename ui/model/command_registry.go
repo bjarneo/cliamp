@@ -134,7 +134,12 @@ var commandRegistry = []commandSpec{
 		return "Favorite track"
 	}, Enabled: func(m Model) bool { return m.selectedPlaylistStarAction() != starUnavailable }, Keymap: true, ContextHelp: true, Prominent: true},
 	{Mode: commandModeMain, Keys: []string{"a"}, KeyLabel: "a", Label: "Toggle queue (play next)", Keymap: true, ContextHelp: true},
-	{Mode: commandModeMain, Keys: []string{"A"}, KeyLabel: "A", Label: "Queue manager", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"A"}, KeyLabel: "A", Label: "Queue manager", LabelFor: func(m Model) string {
+		if m.sonosOutput.selected != "" {
+			return "Refresh Sonos queue snapshot"
+		}
+		return "Queue manager"
+	}, Keymap: true},
 	{Mode: commandModeMain | commandModeProvider, Keys: []string{"F"}, KeyLabel: "F", Label: "Subscribed shows", Enabled: func(m Model) bool { return m.hasSubscriptions() }, Keymap: true},
 
 	{Mode: commandModeSubs, Keys: []string{"up", "down", "j", "k"}, KeyLabel: "Up Down", Label: "Navigate", Keymap: true},
@@ -265,6 +270,9 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeProviderPill, Keys: []string{"esc", "backspace"}, KeyLabel: "Esc", RunKey: "esc", Label: "Back", ContextHelp: true, Cancel: true},
 	{Mode: commandModeNavBrowser, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
 	{Mode: commandModeDevicePicker, Keys: []string{"esc", "q"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
+	{Mode: commandModeDevicePicker, Keys: []string{"space"}, KeyLabel: "Space", Label: "Mark Sonos room", ContextHelp: true},
+	{Mode: commandModeDevicePicker, Keys: []string{"A"}, KeyLabel: "A", Label: "Apply checked Sonos rooms", ContextHelp: true},
+	{Mode: commandModeDevicePicker, Keys: []string{"s"}, KeyLabel: "s", Label: "Split selected Sonos group", ContextHelp: true},
 	{Mode: commandModePlaylistManager | commandModeQueue, Keys: []string{"esc", "q"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
 	{Mode: commandModeKeymap | commandModeFileBrowser | commandModePlaylistPicker, Keys: []string{"esc", "q"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
 	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSearchOverlay | commandModeJump | commandModeURL | commandModeProviderSearch, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Cancel", ContextHelp: true, Cancel: true},

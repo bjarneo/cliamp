@@ -259,6 +259,7 @@ func (m *Model) handleSearchKey(msg tea.KeyPressMsg) tea.Cmd {
 	case tea.KeyTab:
 		// Toggle queue for selected search result.
 		if len(m.search.results) > 0 && m.search.cursor < len(m.search.results) {
+			m.cancelSonosHandoff()
 			idx := m.search.results[m.search.cursor]
 			if !m.playlist.Dequeue(idx) {
 				m.playlist.Queue(idx)

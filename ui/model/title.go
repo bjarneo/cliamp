@@ -140,6 +140,9 @@ func (m *Model) advanceTerminalTitle() {
 }
 
 func (m Model) terminalTitleValues() terminalTitleValues {
+	if m.sonosOutput.selected != "" {
+		return terminalTitleValuesForTrack(m.sonosTrack(), "", m.isPlaying(), m.isPaused())
+	}
 	if m.playlist == nil {
 		return terminalTitleStateValues(m.isPlaying(), m.isPaused())
 	}

@@ -15,6 +15,7 @@ import (
 
 // quit shuts down the player and signals the TUI to exit.
 func (m *Model) quit() tea.Cmd {
+	m.cancelOutputRequests()
 	// Only save resume for seekable tracks:
 	// - local files (not stream)
 	// - HTTP streams with known duration (podcast MP3s)
@@ -395,6 +396,23 @@ func (m *Model) handleProvPillKey(msg tea.KeyPressMsg) tea.Cmd {
 // handleMainKey processes a key press for the playlist and the focused
 // playback controls. It forwards the keys that it does not handle to plugins.
 func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
+	if m.sonosOutput.selected != "" && m.focus == focusPlaylist {
+		switch msg.String() {
+		case "up", "k":
+			m.sonosOutput.queueCursor = max(0, m.sonosOutput.queueCursor-1)
+			return nil
+		case "down", "j":
+			if m.sonosOutput.queue != nil {
+				m.sonosOutput.queueCursor = min(max(0, len(m.sonosOutput.queue.Queue)-1), m.sonosOutput.queueCursor+1)
+			}
+			return nil
+		case "enter":
+			return m.playSonosQueueItem(m.sonosOutput.queueCursor)
+		case "a", "x", "shift+up", "shift+down", "z", "r":
+			m.status.Warning("Local queue controls are unavailable while Sonos output is selected", statusTTLDefault)
+			return nil
+		}
+	}
 	// Vim-style count prefix: a digit primes a pending percentage; the next `j`
 	// jumps there (e.g. `7j` → 70%). Any other key cancels and runs normally.
 	if s := msg.String(); m.focus == focusPlaylist && len(s) == 1 && s[0] >= '0' && s[0] <= '9' {
@@ -570,10 +588,10 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 
 	case "+", "=":
-		m.adjustVolume(1)
+		return m.adjustVolume(1)
 
 	case "-":
-		m.adjustVolume(-1)
+		return m.adjustVolume(-1)
 
 	case "r":
 		const repeatModes = playlist.RepeatOne + 1
@@ -598,6 +616,9 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 
 	case "e":
+		if m.rejectSonosLocalControl("EQ") {
+			break
+		}
 		if m.simplified || m.layout.tier == layoutMinimal {
 			break
 		}
@@ -606,6 +627,7 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "a":
 		if m.focus == focusPlaylist {
+			m.cancelSonosHandoff()
 			if !m.playlist.Dequeue(m.plCursor) {
 				m.playlist.Queue(m.plCursor)
 			}
@@ -622,6 +644,9 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "A":
 		if m.focus == focusPlaylist {
+			if m.sonosOutput.selected != "" {
+				return m.refreshSonosQueue()
+			}
 			m.queue.visible = true
 			m.queue.cursor = 0
 			m.queue.scroll = 0
@@ -635,6 +660,9 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.saveTrack()
 
 	case "m":
+		if m.rejectSonosLocalControl("Mono") {
+			break
+		}
 		m.player.ToggleMono()
 
 	case "/":
@@ -708,6 +736,9 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.openVisPicker()
 
 	case "V":
+		if m.rejectSonosLocalControl("Visualizer") {
+			break
+		}
 		if m.simplified {
 			break
 		}
@@ -727,13 +758,7 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 
 	case "d":
-		m.devicePicker.visible = true
-		m.devicePicker.cursor = 0
-		m.devicePicker.scroll = 0
-		if len(m.devicePicker.devices) == 0 {
-			m.devicePicker.loading = true
-			return listDevicesCmd()
-		}
+		return m.openOutputPicker()
 
 	case "]":
 		m.changeSpeed(0.25)
@@ -831,10 +856,13 @@ func (m *Model) handleFullVisualizerKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "shift+right":
 		return m.doSeek(m.seekStepLarge)
 	case "+", "=":
-		m.adjustVolume(1)
+		return m.adjustVolume(1)
 	case "-":
-		m.adjustVolume(-1)
+		return m.adjustVolume(-1)
 	case "v":
+		if m.rejectSonosLocalControl("Visualizer") {
+			break
+		}
 		_ = m.cycleVisualizer()
 	case "t":
 		// Hide the episode name so the full-screen visualizer can be put on a
@@ -967,7 +995,7 @@ func (m *Model) handleURLInputKey(msg tea.KeyPressMsg) tea.Cmd {
 		if input != "" {
 			m.feedLoading = true
 			m.status.Activity("Loading URL...", statusTTLLong)
-			return resolveURLCmd(input, true)
+			return resolveURLCmd(input, true, m.requests.output)
 		}
 		m.urlInput.active = true
 		m.urlInput.err = "Enter a stream, track, or playlist URL."

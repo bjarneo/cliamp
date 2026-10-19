@@ -66,6 +66,7 @@ func (m *Model) clearPlaybackTrack() {
 // the track that was playing and whether the engine had started it. It
 // scrobbles that track through leaveTrack before the engine stops.
 func (m *Model) stopPlayback() (playlist.Track, bool) {
+	m.cancelSonosHandoff()
 	m.leaveTrack(m.player.PositionAndDuration())
 	nextRequest(&m.requests.stream)
 	m.player.SetPlaybackGeneration(m.requests.stream)

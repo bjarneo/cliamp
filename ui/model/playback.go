@@ -25,6 +25,7 @@ const (
 // queue. The undo of the last queue edit goes, because it restores the old
 // queue.
 func (m *Model) replacePlaylist(tracks []playlist.Track) {
+	m.cancelSonosHandoff()
 	nextRequest(&m.requests.queue)
 	m.resetYTDLBatch()
 	m.playlistUndo = playlistUndo{}
@@ -105,6 +106,10 @@ func (m *Model) tickResumeSave(now time.Time) {
 // nextTrack advances to the next playlist track and starts playing it.
 // Unplayable tracks are skipped automatically.
 func (m *Model) nextTrack() tea.Cmd {
+	m.cancelSonosHandoff()
+	if m.sonosOutput.selected != "" {
+		return m.controlSonos("next")
+	}
 	track, ok := m.advanceToNext()
 	if !ok {
 		return nil
@@ -147,6 +152,10 @@ func (m *Model) advanceToNext() (playlist.Track, bool) {
 // prevTrack goes to the previous track, or restarts if >3s into the current one.
 // Unplayable tracks are skipped automatically.
 func (m *Model) prevTrack() tea.Cmd {
+	m.cancelSonosHandoff()
+	if m.sonosOutput.selected != "" {
+		return m.controlSonos("previous")
+	}
 	// A pending or running seek has not moved Position yet, so a rewind that
 	// is still on its way counts as done.
 	pos := m.player.Position()
@@ -198,6 +207,7 @@ func (m *Model) playCurrentLogicalTrack() tea.Cmd {
 // playCurrentTrack starts playing the selected track, skipping forward in
 // playlist order if the selection is unplayable.
 func (m *Model) playCurrentTrack() tea.Cmd {
+	m.cancelSonosHandoff()
 	m.resetTitleScroll()
 	if m.playlist.Len() == 0 {
 		return nil
@@ -379,6 +389,7 @@ func (m *Model) undoPlaylistMutation() tea.Cmd {
 		}
 	}
 	m.playlist.Restore(undo.snapshot)
+	m.cancelSonosHandoff()
 	m.normalizeQueueOverlay()
 	m.playlistUndo = playlistUndo{}
 	if m.plCursor >= m.playlist.Len() {
@@ -393,6 +404,11 @@ func (m *Model) undoPlaylistMutation() tea.Cmd {
 // in a command, so a slow open does not freeze the UI. The player picks the
 // pipeline, such as the yt-dlp | ffmpeg chain for a yt-dlp page URL.
 func (m *Model) playTrack(track playlist.Track) tea.Cmd {
+	m.cancelSonosHandoff()
+	if m.sonosOutput.selected != "" {
+		m.status.Warning("Local playback requires Local output", statusTTLDefault)
+		return nil
+	}
 	m.pausedAt = time.Time{}
 	if track.Feed || playlist.IsFeed(track.Path) {
 		m.feedLoading = true
@@ -593,6 +609,9 @@ func (m *Model) fetchLyricsForTrack(track playlist.Track, artist, title string) 
 // For live streams and long-paused yt-dlp streams, unpausing reconnects instead
 // of playing stale data sitting in OS/decoder buffers from before the pause.
 func (m *Model) togglePlayPause() tea.Cmd {
+	if m.sonosOutput.selected != "" {
+		return m.controlSonos("toggle")
+	}
 	if m.buffering {
 		return nil
 	}

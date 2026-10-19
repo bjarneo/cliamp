@@ -74,7 +74,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case autoPlayMsg:
-		if m.playlist.Len() > 0 && !m.player.IsPlaying() {
+		if msg.outputGen == m.requests.output && m.sonosOutput.selected == "" && m.playlist.Len() > 0 && !m.player.IsPlaying() {
 			cmd := m.playCurrentTrack()
 			return m, cmd
 		}
@@ -252,6 +252,28 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case sonosDevicesMsg:
+		m.handleSonosDevices(msg)
+		return m, nil
+
+	case sonosStateMsg:
+		m.handleSonosState(msg)
+		return m, nil
+
+	case sonosQueueMsg:
+		m.handleSonosQueue(msg)
+		return m, nil
+
+	case sonosControlMsg:
+		cmd := m.handleSonosControl(msg)
+		return m, cmd
+
+	case sonosHandoffAppendedMsg:
+		return m, m.handleSonosHandoffAppended(msg)
+
+	case sonosHandoffStartedMsg:
+		return m, m.handleSonosHandoffStarted(msg)
+
 	case deviceSwitchedMsg:
 		if msg.err != nil {
 			m.status.Errorf(statusTTLDefault, "Switch failed: %s", msg.err)
@@ -273,6 +295,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case playback.PlayMsg:
+		if m.sonosOutput.selected != "" {
+			return m, m.controlSonos("play")
+		}
 		if !m.player.IsPlaying() || m.player.IsPaused() {
 			cmd := m.togglePlayPause()
 			return m, cmd
@@ -280,6 +305,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case playback.PauseMsg:
+		if m.sonosOutput.selected != "" {
+			return m, m.controlSonos("pause")
+		}
 		if m.player.IsPlaying() && !m.player.IsPaused() {
 			m.togglePlayerPause()
 		}
@@ -302,14 +330,20 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case playback.SetVolumeMsg:
-		m.setVolume(msg.VolumeDB)
-		return m, nil
+		cmd := m.setVolume(msg.VolumeDB)
+		return m, cmd
 
 	case playback.SetSpeedMsg:
+		if m.rejectSonosLocalControl("Speed") {
+			return m, nil
+		}
 		m.setSpeed(msg.Ratio)
 		return m, nil
 
 	case playback.ToggleMonoMsg:
+		if m.rejectSonosLocalControl("Mono") {
+			return m, nil
+		}
 		m.player.ToggleMono()
 		return m, nil
 

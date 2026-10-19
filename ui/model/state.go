@@ -4,11 +4,13 @@
 package model
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/bjarneo/cliamp/applog"
+	"github.com/bjarneo/cliamp/external/spotify"
 	"github.com/bjarneo/cliamp/lyrics"
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
@@ -299,6 +301,7 @@ type navBrowserState struct {
 // domain. Completion messages must match their generation before they can
 // change the current screen.
 type requestState struct {
+	output                uint64
 	provider              uint64
 	tracks                uint64
 	nav                   uint64
@@ -388,9 +391,36 @@ type reconnectState struct {
 type devicePickerState struct {
 	visible bool
 	devices []player.AudioDevice
+	sonos   map[string]spotify.SonosDevice
+	checked map[string]bool
+	gen     uint64
 	cursor  int
 	scroll  int
 	loading bool
+}
+
+type sonosOutputState struct {
+	selected        string
+	name            string
+	state           *spotify.SonosState
+	refreshed       time.Time
+	attempted       time.Time
+	gen             uint64
+	discoveryGen    uint64
+	discoveryCancel context.CancelFunc
+	cancel          context.CancelFunc
+	busy            bool
+	busyKind        string
+	pending         []sonosControlRequest
+	active          *sonosControlRequest
+	queue           *spotify.SonosState
+	queueCursor     int
+	queueGen        uint64
+	queueCancel     context.CancelFunc
+	queueLoading    bool
+	queueStale      bool
+	handoffGen      uint64
+	handoffCancel   context.CancelFunc
 }
 
 type saveState struct {

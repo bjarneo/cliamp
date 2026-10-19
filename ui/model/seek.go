@@ -36,6 +36,9 @@ func (m *Model) doSeek(d time.Duration) tea.Cmd {
 }
 
 func (m *Model) seekRelative(d time.Duration, debounceTicks int) tea.Cmd {
+	if m.rejectSonosLocalControl("Seeking") {
+		return nil
+	}
 	if !m.needsDebouncedSeek() {
 		m.player.Seek(d)
 		m.finishSeek()
@@ -64,6 +67,9 @@ func (m *Model) needsDebouncedSeek() bool {
 }
 
 func (m *Model) seekAbsolute(target time.Duration) tea.Cmd {
+	if m.rejectSonosLocalControl("Seeking") {
+		return nil
+	}
 	cmd, _ := m.trySeekAbsolute(target)
 	return cmd
 }

@@ -133,6 +133,9 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 
 	switch request.Cmd {
 	case "play":
+		if m.sonosOutput.selected != "" {
+			return m.controlSonosJob(sonosControlRequest{action: "play", jobs: msg.Jobs, jobID: msg.JobID, result: ipc.Response{OK: true}})
+		}
 		var cmd tea.Cmd
 		if !m.player.IsPlaying() || m.player.IsPaused() {
 			cmd = m.togglePlayPause()
@@ -140,44 +143,77 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return cmd
 	case "pause":
+		if m.sonosOutput.selected != "" {
+			return m.controlSonosJob(sonosControlRequest{action: "pause", jobs: msg.Jobs, jobID: msg.JobID, result: ipc.Response{OK: true}})
+		}
 		if m.player.IsPlaying() && !m.player.IsPaused() {
 			m.togglePlayerPause()
 		}
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return nil
 	case "toggle":
+		if m.sonosOutput.selected != "" {
+			return m.controlSonosJob(sonosControlRequest{action: "toggle", jobs: msg.Jobs, jobID: msg.JobID, result: ipc.Response{OK: true}})
+		}
 		cmd := m.togglePlayPause()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return cmd
 	case "stop":
+		if m.sonosOutput.selected != "" {
+			m.failV2Job(msg.Jobs, msg.JobID, v2UnavailableControlError("stop is unavailable for Sonos output; use pause"))
+			m.status.Warning("Stop is unavailable for Sonos output; use pause", statusTTLDefault)
+			return nil
+		}
 		m.stopByUser()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return nil
 	case "next":
+		if m.sonosOutput.selected != "" {
+			return m.controlSonosJob(sonosControlRequest{action: "next", jobs: msg.Jobs, jobID: msg.JobID, result: ipc.Response{OK: true}})
+		}
 		cmd := m.skipNext()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return cmd
 	case "prev":
+		if m.sonosOutput.selected != "" {
+			return m.controlSonosJob(sonosControlRequest{action: "previous", jobs: msg.Jobs, jobID: msg.JobID, result: ipc.Response{OK: true}})
+		}
 		cmd := m.skipPrev()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return cmd
 	case "volume":
-		m.setVolume(request.Value)
-		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true, Volume: m.player.Volume()})
-		return nil
+		if m.sonosOutput.selected != "" && (m.sonosOutput.state == nil || m.sonosOutput.state.Volume == nil) {
+			m.failV2Job(msg.Jobs, msg.JobID, v2UnavailableControlError("Sonos group volume is unavailable"))
+			return nil
+		}
+		return m.setVolumeJob(request.Value, msg.Jobs, msg.JobID)
 	case "volume.adjust":
-		m.adjustVolume(request.Value)
-		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true, Volume: m.player.Volume()})
-		return nil
+		if m.sonosOutput.selected != "" && (m.sonosOutput.state == nil || m.sonosOutput.state.Volume == nil) {
+			m.failV2Job(msg.Jobs, msg.JobID, v2UnavailableControlError("Sonos group volume is unavailable"))
+			return nil
+		}
+		return m.adjustVolumeJob(request.Value, msg.Jobs, msg.JobID)
 	case "seek":
+		if m.rejectSonosLocalControl("Seeking") {
+			m.failV2Job(msg.Jobs, msg.JobID, v2UnavailableControlError("seeking is unavailable for Sonos output"))
+			return nil
+		}
 		cmd := m.seekRelative(secondsDuration(request.Value), 0)
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return cmd
 	case "seek.absolute":
+		if m.rejectSonosLocalControl("Seeking") {
+			m.failV2Job(msg.Jobs, msg.JobID, v2UnavailableControlError("seeking is unavailable for Sonos output"))
+			return nil
+		}
 		cmd := m.seekAbsolute(secondsDuration(request.Value))
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true})
 		return cmd
 	case "speed":
+		if m.rejectSonosLocalControl("Speed") {
+			m.failV2Job(msg.Jobs, msg.JobID, v2UnavailableControlError("speed is unavailable for Sonos output"))
+			return nil
+		}
 		if request.Value <= 0 || math.IsNaN(request.Value) || math.IsInf(request.Value, 0) {
 			m.failV2Job(msg.Jobs, msg.JobID, v2InvalidParamsError())
 			return nil
@@ -187,6 +223,10 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true, Speed: m.player.Speed()})
 		return nil
 	case "speed.adjust":
+		if m.rejectSonosLocalControl("Speed") {
+			m.failV2Job(msg.Jobs, msg.JobID, v2UnavailableControlError("speed is unavailable for Sonos output"))
+			return nil
+		}
 		m.player.SetSpeed(m.player.Speed() + request.Value)
 		m.saveSpeed()
 		m.completeV2Job(msg.Jobs, msg.JobID, ipc.Response{OK: true, Speed: m.player.Speed()})
@@ -242,7 +282,7 @@ func (m *Model) handleV2QueueRequest(ctx context.Context, jobs *ipc.JobStore, jo
 		}
 		track := ipcTrackFromInfo(*request.Track)
 		if track.Feed {
-			return ipcFeedLoadCmd(ctx, request.Cmd, track, jobs, jobID, request.Revision)
+			return ipcFeedLoadCmd(ctx, request.Cmd, track, jobs, jobID, request.Revision, m.requests.output)
 		}
 		if request.Cmd == "track.play" {
 			cmd := m.playTrackImmediate(track)
@@ -269,6 +309,7 @@ func (m *Model) handleV2QueueRequest(ctx context.Context, jobs *ipc.JobStore, jo
 			return nil
 		}
 		m.playlist.Queue(request.Index)
+		m.cancelSonosHandoff()
 		m.normalizeQueueOverlay()
 		m.completeV2Job(jobs, jobID, m.v2PlaylistResponse())
 		return m.rearmStalePreload()
@@ -309,13 +350,16 @@ func (m *Model) handleV2PlayNext(jobs *ipc.JobStore, jobID string, request ipc.R
 			return nil
 		}
 		m.playlist.RemoveQueueAt(request.Index)
+		m.cancelSonosHandoff()
 	case "playnext.move":
 		if !m.playlist.MoveQueue(request.Index, request.To) {
 			m.failV2Job(jobs, jobID, v2InvalidParamsError())
 			return nil
 		}
+		m.cancelSonosHandoff()
 	case "playnext.clear":
 		m.playlist.ClearQueue()
+		m.cancelSonosHandoff()
 	}
 	m.normalizeQueueOverlay()
 	m.completeV2Job(jobs, jobID, m.v2PlayNextResponse())
@@ -360,6 +404,10 @@ func (m *Model) handleV2Visualizer(jobs *ipc.JobStore, jobID string, request ipc
 			resp.Index = int(m.vis.Mode)
 		}
 		m.completeV2Job(jobs, jobID, resp)
+		return nil
+	}
+	if m.rejectSonosLocalControl("Visualizer") {
+		m.failV2Job(jobs, jobID, v2UnavailableControlError("visualizer is unavailable for Sonos output"))
 		return nil
 	}
 	if m.vis == nil {
@@ -449,6 +497,10 @@ func (m *Model) applyV2DeviceResponse(response ipc.Response) {
 }
 
 func (m *Model) handleV2EQ(jobs *ipc.JobStore, jobID string, request ipc.Request) tea.Cmd {
+	if m.rejectSonosLocalControl("EQ") {
+		m.failV2Job(jobs, jobID, v2UnavailableControlError("EQ is unavailable for Sonos output"))
+		return nil
+	}
 	if request.Band > 0 || (request.Band == 0 && request.Name == "") {
 		if request.Band >= eqBandCount {
 			m.failV2Job(jobs, jobID, v2InvalidParamsError())
@@ -476,6 +528,10 @@ func (m *Model) handleV2EQ(jobs *ipc.JobStore, jobID string, request ipc.Request
 // or toggle, and repeat takes off, all, one or cycle. No name toggles or
 // cycles. Any other name is an error and changes nothing.
 func (m *Model) handleV2Mode(jobs *ipc.JobStore, jobID string, request ipc.Request) tea.Cmd {
+	if m.rejectSonosLocalControl("Local playback settings") {
+		m.failV2Job(jobs, jobID, v2UnavailableControlError("shuffle, repeat, and mono are unavailable for Sonos output"))
+		return nil
+	}
 	name := strings.ToLower(request.Name)
 	switch request.Cmd {
 	case "shuffle":
@@ -541,7 +597,7 @@ func (m *Model) handleV2LibraryRequest(ctx context.Context, jobs *ipc.JobStore, 
 	cmd := m.handleIPCLibrary(ipcLibraryRequest{
 		Op: request.Cmd, Provider: request.Provider, Playlist: request.Playlist, Query: request.Query,
 		Artist: request.Artist, Album: request.Album, Sort: request.Sort, Offset: request.Offset,
-		Limit: request.Limit, Index: request.Index, NewName: request.NewName, Track: request.Track, Tracks: request.Tracks, Context: ctx, Reply: reply,
+		Limit: request.Limit, Index: request.Index, NewName: request.NewName, Track: request.Track, Tracks: request.Tracks, Context: ctx, Reply: reply, OutputGen: m.requests.output,
 	})
 	return tea.Batch(cmd, waitV2ResponseCmd(ctx, jobs, jobID, reply))
 }
@@ -551,7 +607,7 @@ func (m *Model) handleV2DeferredRequest(ctx context.Context, jobs *ipc.JobStore,
 	var cmd tea.Cmd
 	switch request.Cmd {
 	case "url.load":
-		cmd = m.handleIPCURL(ipcURLRequest{URL: request.Path, Play: request.Play, Context: ctx, Reply: reply})
+		cmd = m.handleIPCURL(ipcURLRequest{URL: request.Path, Play: request.Play, Context: ctx, Reply: reply, OutputGen: m.requests.output})
 	case "save":
 		cmd = m.handleIPCSave(ipcSaveRequest{Context: ctx, Reply: reply})
 	case "lyrics":
@@ -623,6 +679,28 @@ func (m *Model) runtimePlaylist() string {
 
 func (m *Model) runtimeSnapshot() ipc.RuntimeSnapshot {
 	snapshot := ipc.RuntimeSnapshot{Playlist: m.runtimePlaylist(), Device: m.audioDevice}
+	if m.sonosOutput.selected != "" {
+		snapshot.Playlist = ""
+		snapshot.Device = "Sonos: " + m.sonosOutput.name
+		if state := m.sonosOutput.state; state != nil {
+			switch state.Transport {
+			case "PLAYING":
+				snapshot.State = "playing"
+			case "PAUSED_PLAYBACK":
+				snapshot.State = "paused"
+			default:
+				snapshot.State = "stopped"
+			}
+			track := ipc.TrackInfo{Title: state.Track.Title, Artist: state.Track.Artist, Album: state.Track.Album}
+			snapshot.Track = &track
+			snapshot.Position = sonosDuration(state.Position).Seconds()
+			snapshot.Duration = sonosDuration(state.Duration).Seconds()
+			if state.Volume != nil {
+				snapshot.Volume = float64(*state.Volume)
+			}
+		}
+		return snapshot
+	}
 	if m.ipcRuntime != nil {
 		snapshot.Revision = m.ipcRuntime.revision
 	}
@@ -762,6 +840,9 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 
 func (m *Model) v2BandsResponse() ipc.Response {
 	response := ipc.Response{OK: true}
+	if m.sonosOutput.selected != "" {
+		return response
+	}
 	if m.headless {
 		// The low-power tick is too slow for a spectrum client, so each
 		// request analyzes the audio that plays now.
@@ -905,6 +986,10 @@ func v2ConflictError() *ipc.V2Error {
 
 func v2UnavailableError() *ipc.V2Error {
 	return &ipc.V2Error{Code: ipc.V2ErrorCodeUnavailable, Message: ipc.V2MessageUnavailable}
+}
+
+func v2UnavailableControlError(message string) *ipc.V2Error {
+	return &ipc.V2Error{Code: ipc.V2ErrorCodeUnavailable, Message: message}
 }
 
 func v2InternalError() *ipc.V2Error {

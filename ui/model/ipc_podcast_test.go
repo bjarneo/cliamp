@@ -416,7 +416,7 @@ func TestIPCPodcastResolutionContextErrors(t *testing.T) {
 			if _, err := jobs.Start(job.ID); err != nil {
 				t.Fatal(err)
 			}
-			result := ipcFeedLoadCmd(ctx, "track.play", playlist.Track{Path: srv.URL, Feed: true}, jobs, job.ID, 0)().(ipcFeedLoadResult)
+			result := ipcFeedLoadCmd(ctx, "track.play", playlist.Track{Path: srv.URL, Feed: true}, jobs, job.ID, 0, 0)().(ipcFeedLoadResult)
 			if !errors.Is(result.err, wantErr) {
 				t.Fatalf("resolution error = %v, want %v", result.err, wantErr)
 			}
