@@ -75,10 +75,11 @@ type playlistsLoadedMsg struct {
 // along with the original source URLs so downstream handlers can identify
 // the source (e.g. YouTube Radio) without re-scanning external state.
 type feedsLoadedMsg struct {
-	tracks   []playlist.Track
-	urls     []string // original source URLs that produced these tracks
-	autoPlay bool     // whether to start playback automatically
-	err      error
+	tracks    []playlist.Track
+	urls      []string // original source URLs that produced these tracks
+	autoPlay  bool     // whether to start playback automatically
+	outputGen uint64
+	err       error
 }
 
 // feedTrackResolvedMsg carries episodes resolved from a feed track in the
@@ -264,23 +265,23 @@ func resolveFeedTrackCmd(feedURL string, gen, queue uint64) tea.Cmd {
 	}
 }
 
-func resolveRemoteCmd(urls []string, autoPlay bool) tea.Cmd {
+func resolveRemoteCmd(urls []string, autoPlay bool, outputGen uint64) tea.Cmd {
 	return func() tea.Msg {
 		tracks, err := resolve.Remote(urls)
-		return feedsLoadedMsg{tracks: tracks, urls: urls, autoPlay: autoPlay, err: err}
+		return feedsLoadedMsg{tracks: tracks, urls: urls, autoPlay: autoPlay, outputGen: outputGen, err: err}
 	}
 }
 
 // resolveURLCmd resolves a single URL typed by the user. It classifies the
 // input the same way command-line arguments are classified, so raw stream and
 // audio-file addresses load as tracks instead of being parsed as feeds.
-func resolveURLCmd(rawURL string, autoPlay bool) tea.Cmd {
+func resolveURLCmd(rawURL string, autoPlay bool, outputGen uint64) tea.Cmd {
 	return func() tea.Msg {
 		tracks, err := resolve.URL(rawURL)
 		if err != nil {
-			return feedsLoadedMsg{err: fmt.Errorf("resolving URL: %w", err)}
+			return feedsLoadedMsg{outputGen: outputGen, err: fmt.Errorf("resolving URL: %w", err)}
 		}
-		return feedsLoadedMsg{tracks: tracks, urls: []string{rawURL}, autoPlay: autoPlay}
+		return feedsLoadedMsg{tracks: tracks, urls: []string{rawURL}, autoPlay: autoPlay, outputGen: outputGen}
 	}
 }
 

@@ -177,6 +177,10 @@ func pluginTrack(track playlist.Track) luaplugin.Track {
 // stopping, it tells plugins so they can drop any continuation they planned.
 // A queue running out never comes through here.
 func (m *Model) stopByUser() {
+	if m.sonosOutput.selected != "" {
+		m.status.Warning("Stop is unavailable for Sonos output; use pause", statusTTLDefault)
+		return
+	}
 	m.stopPlayback()
 	m.emitPlugin(luaplugin.EventPlaybackStop, nil)
 }

@@ -20,31 +20,33 @@ import (
 // ipcLibraryRequest carries a provider or saved-playlist operation to
 // handleIPCLibrary. Reply receives the result of the job.
 type ipcLibraryRequest struct {
-	Op       string
-	Provider string
-	Playlist string
-	Query    string
-	Artist   string
-	Album    string
-	Sort     string
-	Offset   int
-	Limit    int
-	Index    int
-	NewName  string
-	Track    *ipc.TrackInfo
-	Tracks   []ipc.TrackInfo
-	Context  context.Context
-	Reply    chan ipc.Response
+	Op        string
+	Provider  string
+	Playlist  string
+	Query     string
+	Artist    string
+	Album     string
+	Sort      string
+	Offset    int
+	Limit     int
+	Index     int
+	NewName   string
+	Track     *ipc.TrackInfo
+	Tracks    []ipc.TrackInfo
+	Context   context.Context
+	Reply     chan ipc.Response
+	OutputGen uint64
 }
 
 // ipcURLRequest carries url.load to handleIPCURL. Play starts the first
 // added track even when something already plays. Without it the URL is
 // appended and plays only when the player was idle.
 type ipcURLRequest struct {
-	URL     string
-	Play    bool
-	Context context.Context
-	Reply   chan ipc.Response
+	URL       string
+	Play      bool
+	Context   context.Context
+	Reply     chan ipc.Response
+	OutputGen uint64
 }
 
 // ipcSaveRequest, ipcLyricsRequest and ipcHistoryRequest carry the save,
@@ -95,13 +97,14 @@ type ipcURLLoadResult struct {
 }
 
 type ipcFeedLoadResult struct {
-	op       string
-	feed     playlist.Track
-	jobs     *ipc.JobStore
-	jobID    string
-	revision uint64
-	tracks   []playlist.Track
-	err      error
+	op        string
+	feed      playlist.Track
+	jobs      *ipc.JobStore
+	jobID     string
+	revision  uint64
+	outputGen uint64
+	tracks    []playlist.Track
+	err       error
 }
 
 // handleIPCURL resolves the URL of request in a command. A job.cancel request
@@ -131,9 +134,13 @@ func (m *Model) handleIPCURLResult(result ipcURLLoadResult) tea.Cmd {
 	// Without it the tracks are appended and only start when the player is
 	// idle, which is the right default for a plain append.
 	wasStopped := !m.player.IsPlaying()
+	canAutoPlay := result.request.OutputGen == m.requests.output && m.sonosOutput.selected == ""
 	start := m.appendTracks(result.tracks...)
 	result.request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(result.tracks, m.trackFavoriteLookup(true)), Total: len(result.tracks)}
 	if result.request.Play {
+		if !canAutoPlay {
+			return nil
+		}
 		m.stopPlayback()
 		m.player.ClearPreload()
 		m.playlist.SetIndex(start)
@@ -141,7 +148,7 @@ func (m *Model) handleIPCURLResult(result ipcURLLoadResult) tea.Cmd {
 		m.adjustScroll()
 		return m.playCurrentTrack()
 	}
-	if wasStopped {
+	if wasStopped && canAutoPlay {
 		return m.playCurrentTrack()
 	}
 	return nil
@@ -165,7 +172,7 @@ func (m *Model) handleIPCSave(request ipcSaveRequest) tea.Cmd {
 	}
 }
 
-func ipcFeedLoadCmd(ctx context.Context, op string, feed playlist.Track, jobs *ipc.JobStore, jobID string, revision uint64) tea.Cmd {
+func ipcFeedLoadCmd(ctx context.Context, op string, feed playlist.Track, jobs *ipc.JobStore, jobID string, revision, outputGen uint64) tea.Cmd {
 	return func() tea.Msg {
 		resolveCtx, cancel := context.WithTimeout(requestContext(ctx), 30*time.Second)
 		defer cancel()
@@ -174,7 +181,7 @@ func ipcFeedLoadCmd(ctx context.Context, op string, feed playlist.Track, jobs *i
 			err = resolveCtx.Err()
 		}
 		return ipcFeedLoadResult{
-			op: op, feed: feed, jobs: jobs, jobID: jobID, revision: revision,
+			op: op, feed: feed, jobs: jobs, jobID: jobID, revision: revision, outputGen: outputGen,
 			tracks: tracks, err: err,
 		}
 	}
@@ -196,6 +203,10 @@ func (m *Model) handleIPCFeedLoad(result ipcFeedLoadResult) tea.Cmd {
 	}
 	if result.revision != 0 && result.revision != m.playlist.Revision() {
 		m.failV2Job(result.jobs, result.jobID, v2ConflictError())
+		return nil
+	}
+	if result.op == "track.play" && (result.outputGen != m.requests.output || m.sonosOutput.selected != "") {
+		m.failV2Job(result.jobs, result.jobID, v2UnavailableControlError("playback output changed before the track was ready"))
 		return nil
 	}
 	// Expand before touching the playlist: playing a feed placeholder would
@@ -601,6 +612,9 @@ func (m *Model) handleIPCProviderLoad(result ipcProviderLoadResult) tea.Cmd {
 	m.playlist.SetIndex(0)
 	m.plCursor = 0
 	result.request.Reply <- ipc.Response{OK: true, Tracks: ipcTrackInfos(result.tracks, m.trackFavoriteLookup(true)), Playlist: result.request.Playlist, Total: len(result.tracks)}
+	if result.request.OutputGen != m.requests.output || m.sonosOutput.selected != "" {
+		return nil
+	}
 	return m.playCurrentTrack()
 }
 
