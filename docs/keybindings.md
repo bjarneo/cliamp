@@ -186,7 +186,7 @@ the queue survive.
 | `/` | Filter by show title or author; `Enter` applies, `Esc` clears |
 | `Enter` | Append the show's episodes and play the first appended |
 | `a` | Append the show's episodes, leaving playback alone |
-| `q` | Append the show's episodes and queue them in feed order |
+| `q` | Append the show's episodes and queue them newest first |
 | `l` | Append only the newest episode and add it to the end of the queue |
 | `L` | Append the newest episode of every subscribed show |
 | `Esc` `F` | Close |
@@ -365,7 +365,7 @@ search and the results list is open:
 Podcasts returns show collections (up to 20), not episodes. `Enter` appends the
 feed's episodes and starts the first; `a` appends them and starts the first if
 the playlist was empty or nothing is playing. `q` appends and queues the
-episodes in feed order after any already queued tracks, starting queued
+episodes newest first after any already queued tracks, starting queued
 playback if nothing is playing.
 
 ## Fuzzy search
