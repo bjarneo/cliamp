@@ -245,8 +245,9 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # for your following stream, profile activity, uploads, read-only show favorites,
 # listening history, collections, and followed-creator browsing. A developer
 # OAuth access_token makes /me the account identity and adds Listen Later.
-# cookies_from enables Stream and signed-in playback through yt-dlp. styles is the
-# local genre-favorites list; toggle it with [f] in Mixcloud's Genres browser.
+# cookies_from supplies browser cookies via yt-dlp for cliamp's New Shows GraphQL
+# requests and signed-in playback. yt-dlp handles playback, not feed requests.
+# styles is the local genre-favorites list; toggle it with [f] in Mixcloud's Genres browser.
 # [mixcloud]
 # enabled = true
 # username = "yourname"

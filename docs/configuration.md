@@ -469,8 +469,9 @@ enabled = true
 Add `username` for your following stream, activity, uploads, read-only show
 favorites, listening history, collections, and followed-creator browsing. An
 optional developer `access_token` sets `/me/` as the account identity and adds
-Listen Later. `cookies_from` gives yt-dlp your signed-in browser session for
-Stream and playback that requires it.
+Listen Later. For Stream (New Shows), cliamp makes GraphQL requests using browser
+cookies loaded through yt-dlp via `cookies_from`. Playback uses yt-dlp, with the
+same browser session when required.
 
 ```toml
 [mixcloud]
