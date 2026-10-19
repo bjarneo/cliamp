@@ -98,6 +98,9 @@ func (m *Model) preloadTarget() (playlist.Track, bool) {
 	// would turn a transient EOF into a gapless switch instead of reconnecting
 	// the station the user selected.
 	current, currentIdx := m.currentPlaybackTrack()
+	if current.Meta("spotify.dj") == "true" {
+		return playlist.Track{}, false
+	}
 	if currentIdx >= 0 && m.currentPlaybackIsLive(current) {
 		return playlist.Track{}, false
 	}
@@ -110,6 +113,9 @@ func (m *Model) preloadTarget() (playlist.Track, bool) {
 		next, ok = m.playlist.PeekNext()
 	}
 	if !ok || (playlist.IsYTDL(next.Path) && currentIdx >= 0 && next.Path == current.Path) {
+		return playlist.Track{}, false
+	}
+	if next.Meta("spotify.dj") == "true" {
 		return playlist.Track{}, false
 	}
 	return next, true

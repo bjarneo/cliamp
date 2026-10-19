@@ -27,6 +27,7 @@ var (
 // SpotifyProvider implements playlist.Provider using the Spotify Web API
 // for playlist/track metadata and go-librespot for audio streaming.
 type SpotifyProvider struct {
+	dj         *DJSession
 	session    *Session
 	clientID   string
 	bitrate    int
@@ -61,6 +62,11 @@ func New(session *Session, clientID string, bitrate int) *SpotifyProvider {
 // ensureSession tries to create a session using stored credentials only
 // (no browser). Returns playlist.ErrNeedsAuth if interactive sign-in is needed.
 func (p *SpotifyProvider) ensureSession() error {
+	return p.ensureSessionContext(context.Background())
+}
+
+func (p *SpotifyProvider) ensureSessionContext(ctx context.Context) error {
+	callerCtx := ctx
 	p.mu.Lock()
 	if p.session != nil {
 		p.mu.Unlock()
@@ -72,10 +78,13 @@ func (p *SpotifyProvider) ensureSession() error {
 	if clientID == "" {
 		return fmt.Errorf("spotify: no client ID available")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	sess, err := NewSessionSilent(ctx, clientID)
+	sess, err := NewSessionSilent(requestCtx, clientID)
 	if err != nil {
+		if callerCtx.Err() != nil {
+			return callerCtx.Err()
+		}
 		return playlist.ErrNeedsAuth
 	}
 	p.mu.Lock()
@@ -145,6 +154,10 @@ func (p *SpotifyProvider) Authenticate() error {
 func (p *SpotifyProvider) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.dj != nil {
+		p.dj.Close()
+		p.dj = nil
+	}
 	if p.authCancel != nil {
 		p.authCancel()
 		p.authCancel = nil

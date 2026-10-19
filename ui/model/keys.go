@@ -15,13 +15,15 @@ import (
 
 // quit shuts down the player and signals the TUI to exit.
 func (m *Model) quit() tea.Cmd {
+	m.cancelDJ()
+	m.cancelNavRequests()
 	// Only save resume for seekable tracks:
 	// - local files (not stream)
 	// - HTTP streams with known duration (podcast MP3s)
 	// - finite Mixcloud shows (yt-dlp tracks with a counted PCM position)
 	// Other yt-dlp sites and live streams remain excluded. The live check
 	// is currentPlaybackIsLive, so a stream the player finds live counts.
-	if track, _ := m.currentPlaybackTrack(); track.Path != "" &&
+	if track, _ := m.currentPlaybackTrack(); track.Path != "" && track.Meta("spotify.dj") != "true" &&
 		(!playlist.IsYTDL(track.Path) || playlist.IsMixcloudURL(track.Path)) &&
 		!m.currentPlaybackIsLive(track) &&
 		m.player.IsPlaying() && !m.buffering && !m.player.GaplessAdvanced() {
@@ -284,6 +286,10 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.loadLatestFromProviderList()
 	case "a":
 		return m.appendShowFromProviderList()
+	case "u":
+		m.urlInput = urlInputState{active: true}
+	case "v":
+		return m.previewProviderPlaylist()
 	case "p":
 		if m.localProvider != nil {
 			m.openPlaylistManager()
@@ -967,7 +973,8 @@ func (m *Model) handleURLInputKey(msg tea.KeyPressMsg) tea.Cmd {
 		if input != "" {
 			m.feedLoading = true
 			m.status.Activity("Loading URL...", statusTTLLong)
-			return resolveURLCmd(input, true)
+			m.cancelDJ()
+			return resolveURLCmd(m.providers, input, true, nextRequest(&m.requests.url), m.requests.queue)
 		}
 		m.urlInput.active = true
 		m.urlInput.err = "Enter a stream, track, or playlist URL."

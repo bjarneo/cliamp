@@ -548,6 +548,7 @@ type Model struct {
 
 	// Audio device picker overlay
 	devicePicker devicePickerState
+	spotifyDJ    spotifyDJState
 
 	// Full-screen visualizer mode (Shift+V)
 	fullVis bool
