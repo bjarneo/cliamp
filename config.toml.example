@@ -242,7 +242,7 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Mixcloud (optional, opt-in)
 # Public discovery, show search, the live genre catalogue, genre/tag search,
 # creator jumps, and Latest/Popular charts work with enabled=true. Set username
-# for your following stream, profile activity, uploads, read-only show favorites,
+# for profile activity, uploads, read-only show favorites,
 # listening history, collections, and followed-creator browsing. A developer
 # OAuth access_token makes /me the account identity and adds Listen Later.
 # cookies_from supplies browser cookies via yt-dlp for cliamp's New Shows GraphQL

@@ -466,7 +466,7 @@ native show search, direct creator jumps, and playback need no account:
 enabled = true
 ```
 
-Add `username` for your following stream, activity, uploads, read-only show
+Add `username` for activity, uploads, read-only show
 favorites, listening history, collections, and followed-creator browsing. An
 optional developer `access_token` sets `/me/` as the account identity and adds
 Listen Later. For Stream (New Shows), cliamp makes GraphQL requests using browser
