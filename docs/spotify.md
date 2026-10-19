@@ -57,7 +57,9 @@ cliamp uses a built-in `client_id`. [librespot](https://github.com/librespot-org
 
 After authentication, Spotify appears in the provider list. Press `Esc`/`b` to open the provider browser and select Spotify.
 
-The provider panel lists your Spotify playlists and saved albums. Use the arrow keys to select one and press `Enter` to load it. Tracks stream through the cliamp audio pipeline. EQ, the visualizer, mono, and other effects work as they do for local files.
+The provider panel lists your Spotify playlists and saved albums. Use the arrow keys to select one and press `Enter` to load it. Press `v` to preview a playlist without changing current playback; `Enter` in the preview replaces the queue with the full playlist and starts at the selected track. Earlier tracks remain available with `Previous`. Tracks stream through the cliamp audio pipeline. EQ, the visualizer, mono, and other effects work as they do for local files.
+
+The selector also includes **Made for You** playlists found in Spotify's personalized hub and Home, including Daily Mixes when Spotify exposes them, plus remaining playlist cards under **Home shortcuts**. Spotify decides which mixes appear, so this is not a complete catalog. Discovery uses internal Spotify endpoints that may change; unavailable sources show a warning alongside usable results. Successful combined lists are cached for five minutes.
 
 Cliamp opens each Spotify stream in the background and shows `Buffering...` until audio starts. The UI stays responsive while it waits. If the connection drops mid-track, cliamp plays silence, reconnects, and resumes at the same position. After 5 failed attempts, it moves to the next track.
 
@@ -81,7 +83,11 @@ Large playlists fill in as they load. Cliamp shows the first tracks, appends the
 
 The provider lists both playlists and saved albums in the Spotify library. Playlists include those you created and saved, or followed. If a public playlist is missing, open Spotify and click **Save** first.
 
-Spotify lets apps read the tracks of only the playlists that you own or collaborate on. A followed playlist can fail to open with `403`. To play it, add its tracks to your own playlist in Spotify.
+Press `u` from the playlist or provider browser and paste a `https://open.spotify.com/playlist/...` URL or a `spotify:playlist:...` URI to load a playlist directly. Tracks load through the authenticated playback session, so followed playlists do not depend on Web API playlist access. Spotify must be configured and signed in first. Command-line positional URLs do not use this provider resolver yet.
+
+The library browser uses Spotify's Web API, which restricts playlist tracks to playlists you own or collaborate on.
+
+Made for You entries resolve through the authenticated playback session instead. This can load canonical playlist URIs that the public Web API cannot read. Discovery requests are bounded; tracks load as a complete list with a two-minute limit and a 100-page cap. Local files, episodes, and entries without track URIs are skipped. Spotify may omit mixes or change these endpoints at any time.
 
 Saved albums appear under a **Saved albums** section, labelled `Artist - Album` and sorted alphabetically by artist. These are the albums in **Your Library**. To add one, open the album in Spotify and click **Save**. Selecting a saved album loads all of its tracks in disc and track order.
 

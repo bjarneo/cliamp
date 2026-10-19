@@ -4,6 +4,7 @@
 package model
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -293,6 +294,10 @@ type navBrowserState struct {
 	directTrackJump bool
 	fromProvList    bool
 	openInPlaylist  bool
+	previewName     string
+	previewID       string
+	previewErr      string
+	previewCancel   context.CancelFunc
 }
 
 // requestState tracks the latest request in each independently asynchronous UI
@@ -314,6 +319,7 @@ type requestState struct {
 	stream                uint64
 	preload               uint64
 	queue                 uint64
+	url                   uint64
 }
 
 func nextRequest(gen *uint64) uint64 {
