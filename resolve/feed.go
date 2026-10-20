@@ -31,10 +31,10 @@ const (
 // It reads at most 32 MiB and returns the newest 300 playable episodes, newest
 // first by publication date. Feeds do not promise an order, and long-running
 // shows often list oldest-first, so the whole feed is read before the limit
-// applies. Episodes sharing a date keep their feed order, and undated episodes
-// follow the dated ones in feed order. Tracks retain the original feed URL
-// and episode GUID in podcast.feed and podcast.guid metadata; a missing GUID
-// falls back to the audio URL.
+// applies. Episodes sharing a publication time keep their feed order, and
+// undated episodes follow the dated ones in feed order. Tracks retain the
+// original feed URL and episode GUID in podcast.feed and podcast.guid
+// metadata; a missing GUID falls back to the audio URL.
 // Valid publication dates are retained as YYYY-MM-DD in podcast.published.
 func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 	u := feedHTTPURL(feedURL)
