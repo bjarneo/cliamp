@@ -303,6 +303,7 @@ type requestState struct {
 	tracks                uint64
 	nav                   uint64
 	lyrics                uint64
+	ytdlArtist            uint64
 	netSearch             uint64
 	searchOverlay         uint64
 	searchOverlayAlbum    uint64
