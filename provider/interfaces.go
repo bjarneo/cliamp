@@ -411,6 +411,12 @@ type Closer interface {
 	Close()
 }
 
+// TrackWindow returns one window of a playlist without loading the rest.
+// more is true when entries remain after this window.
+type TrackWindow interface {
+	TracksWindow(playlistID string, offset, limit int) (tracks []playlist.Track, more bool, err error)
+}
+
 // TrackPager is implemented by providers that can return a playlist's tracks
 // one page at a time so the UI can populate the queue progressively. Pages are
 // requested sequentially: the caller feeds each returned next back in until it

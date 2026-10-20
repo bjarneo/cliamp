@@ -169,9 +169,11 @@ func omarchyNoiseAt(u, v float64) float64 {
 	const size = omarchyNoiseSize
 	u -= math.Floor(u/size) * size
 	v -= math.Floor(v/size) * size
-	x0, y0 := int(u), int(v)
+	// A tiny negative coordinate can round up to size when wrapped. Keep
+	// its index in the tile and take the fraction before wrapping the index.
+	x0, y0 := int(u)%size, int(v)%size
 	x1, y1 := (x0+1)%size, (y0+1)%size
-	fx, fy := u-float64(x0), v-float64(y0)
+	fx, fy := u-math.Floor(u), v-math.Floor(v)
 	sx := fx * fx * (3 - 2*fx)
 	sy := fy * fy * (3 - 2*fy)
 	a := omarchyNoise[y0*size+x0]

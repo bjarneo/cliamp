@@ -1,9 +1,19 @@
 package ui
 
 import (
+	"math"
 	"strings"
 	"testing"
 )
+
+func TestOmarchyNoiseWrapsNearZero(t *testing.T) {
+	for _, p := range [][2]float64{{0, -1e-16}, {-1e-16, 0}, {-1e-16, -1e-16}, {64, 64}, {-64, -64}} {
+		got := omarchyNoiseAt(p[0], p[1])
+		if want := omarchyNoiseAt(0, 0); math.IsNaN(got) || math.Abs(got-want) > 1e-12 {
+			t.Errorf("noise at (%g, %g) = %g, want %g", p[0], p[1], got, want)
+		}
+	}
+}
 
 // The wordmark arrives as half-block art, so decoding it is where a silent
 // mistake would live: an off-by-one in the row pairing puts every pixel on the

@@ -148,7 +148,7 @@ Lua plugins run in isolated `gopher-lua` VMs. A crash stays in its plugin. Each 
 
 ## Build, test, and local workflow
 
-`mise.toml` pins Go 1.26.6 and shellcheck 0.10.0. Run the targets through mise to use the pins, for example `mise exec -- make ci`.
+`mise.toml` pins Go 1.26.9 and shellcheck 0.10.0. Run the targets through mise to use the pins, for example `mise exec -- make ci`.
 
 | Target | What it does |
 |--------|--------------|

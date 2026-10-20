@@ -1,7 +1,7 @@
 [tools]
 # Match the go line in go.mod. CI reads that line through setup-go, and
 # STATICCHECK_VERSION in the Makefile must support this Go release.
-go = "1.26.6"
+go = "1.26.9"
 # make ci runs shellcheck. Keep this equal to SHELLCHECK_VERSION in
 # .github/workflows/ci.yml. 0.10.0 is the first release with a darwin.aarch64
 # build.

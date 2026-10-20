@@ -157,6 +157,7 @@ like. See issue [#541](https://github.com/bjarneo/cliamp/issues/541).
 - **Re-authenticate**: Run `cliamp ytmusic reset` to clear stored OAuth credentials. Then restart cliamp, select YouTube Music, and sign in again. This is the same as deleting `~/.config/cliamp/ytmusic_credentials.json`. Cookie mode stores no credentials, so it needs no reset.
 - **Reset Cache**: Press `Ctrl+R` in the TUI, or remove `~/.config/cliamp/ytmusic_cache.json`.
 - **Private/deleted videos**: cliamp automatically skips these when it loads a playlist.
+- **Video unavailable at playback**: cliamp logs the yt-dlp error, shows `Skipped`, and plays the next track. A live station stays on that station so it can reconnect.
 
 ## Requirements
 
