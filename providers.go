@@ -15,6 +15,7 @@ import (
 	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/external/audiobookshelf"
 	"github.com/bjarneo/cliamp/external/bandcamp"
+	"github.com/bjarneo/cliamp/external/telegram"
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
 	"github.com/bjarneo/cliamp/external/local"
@@ -78,6 +79,7 @@ var providerKeys = []providerKey{
 	{key: "radio", name: "Radio"},
 	{key: "podcast", name: "Podcasts"},
 	{key: "navidrome", name: "Navidrome", optional: true},
+	{key: "telegram", name: "Telegram", optional: true},
 	{key: "lyrion", name: "Lyrion", optional: true},
 	{key: "plex", name: "Plex", optional: true},
 	{key: "jellyfin", name: "Jellyfin", optional: true},
@@ -181,6 +183,9 @@ func buildProviders(cfg config.Config, interactive bool) *providerSet {
 	if bc := bandcamp.NewFromConfig(cfg.Bandcamp); bc != nil {
 		bc.SaveSort = config.SaveBandcampSort
 		add("bandcamp", bc)
+	}
+	if p := telegram.NewFromConfig(cfg.Telegram); p != nil {
+		add("telegram", p)
 	}
 	lyr := lyrion.NewFromConfig(cfg.Lyrion)
 	if lyr == nil {

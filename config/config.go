@@ -236,6 +236,45 @@ func (n *NavidromeConfig) set(key, val string) {
 	}
 }
 
+// TelegramConfig holds the credentials of a Telegram user account, the
+// account itself (not a bot token). Enable rule: api_id and api_hash.
+type TelegramConfig struct {
+	AppID       int    // api_id from my.telegram.org/apps
+	AppHash     string // api_hash from my.telegram.org/apps
+	Phone       string // international format, used only for the first sign-in
+	Password    string // optional 2FA password
+	Chat        string // chat or bot username to browse, e.g. deezload2bot
+	BufferMB    int    // megabytes buffered before playback starts; 0 uses 5
+	SessionFile string // session path; empty uses ~/.local/share/cliamp/telegram.session
+}
+
+// IsSet reports whether the application credentials are present.
+func (t TelegramConfig) IsSet() bool { return t.AppID != 0 && t.AppHash != "" }
+
+// set applies one key of the [telegram] section.
+func (t *TelegramConfig) set(key, val string) {
+	switch key {
+	case "api_id":
+		if v, ok := parseInt(val); ok {
+			t.AppID = v
+		}
+	case "api_hash":
+		t.AppHash = parseString(val)
+	case "phone":
+		t.Phone = parseString(val)
+	case "password":
+		t.Password = parseString(val)
+	case "chat":
+		t.Chat = parseString(val)
+	case "buffer_mb":
+		if v, ok := parseInt(val); ok {
+			t.BufferMB = v
+		}
+	case "session_file":
+		t.SessionFile = parseString(val)
+	}
+}
+
 // LyrionConfig holds settings for a Lyrion Music Server (LMS) instance.
 // User and Password are optional — they are only needed when the server has
 // password protection enabled.
@@ -782,6 +821,7 @@ type Config struct {
 	InitialDirectory string                       // initial directory for the file browser
 	LyricsOffsetMs   int                          // lyric timestamp adjustment in ms (-10000..10000), applied to all sources
 	Navidrome        NavidromeConfig              // optional Navidrome/Subsonic server credentials
+	Telegram         TelegramConfig               // optional Telegram user account provider
 	Lyrion           LyrionConfig                 // optional Lyrion Music Server (LMS) instance
 	Bandcamp         BandcampConfig               // optional Bandcamp Subsonic API credentials
 	Spotify          SpotifyConfig                // optional Spotify provider (requires Premium)
@@ -892,6 +932,8 @@ func Load() (Config, error) {
 			cfg.Downloads.set(key, val)
 		case "navidrome":
 			cfg.Navidrome.set(key, val)
+		case "telegram":
+			cfg.Telegram.set(key, val)
 		case "lyrion":
 			cfg.Lyrion.set(key, val)
 		case "bandcamp":
