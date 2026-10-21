@@ -133,6 +133,9 @@ func (p *Provider) openStream(chat string, msgID int) (beep.StreamSeekCloser, be
 
 	// Cache hit: a complete file can be decoded at once.
 	if info, statErr := os.Stat(finalPath); statErr == nil && info.Size() == doc.Size {
+		if p.coverPath(chat, msgID) == "" {
+			p.extractCoverFromFile(chat, msgID, finalPath)
+		}
 		file, openErr := os.Open(finalPath)
 		if openErr != nil {
 			return nil, beep.Format{}, 0, openErr
@@ -166,6 +169,9 @@ func (p *Provider) openStream(chat string, msgID int) (beep.StreamSeekCloser, be
 		readerFile.Close()
 		return nil, beep.Format{}, 0, err
 	}
+	// The metadata blocks are already on disk: pull the cover now, while the
+	// audio keeps downloading. No extra request to Telegram.
+	p.extractCoverFromFile(chat, msgID, partialPath)
 
 	streamer, format, err := decode(source, extension)
 	if err != nil {

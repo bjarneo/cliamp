@@ -320,6 +320,16 @@ type CustomStreamer interface {
 	NewStreamer(uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error)
 }
 
+// ArtworkProvider is implemented by providers whose album art is not known
+// when the track list is built, for example when the cover lives inside the
+// audio file and must be read while it downloads. The UI asks for it when it
+// publishes the current track, so the art resolves on demand instead of
+// blocking the list.
+type ArtworkProvider interface {
+	// ArtworkFor returns a URL for track's cover, or false when unavailable.
+	ArtworkFor(track playlist.Track) (url string, ok bool)
+}
+
 // TrackFavoriter is implemented by providers that keep a favorite state for
 // tracks on their own service, such as liked or starred songs. The local
 // favorites store stays the source of truth. The UI copies each change to the

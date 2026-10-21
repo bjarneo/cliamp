@@ -368,7 +368,7 @@ Each provider section turns on its provider in one of three ways:
 
 | Rule | Providers | The provider starts when |
 | --- | --- | --- |
-| Credentials | Navidrome, Lyrion, Bandcamp, Plex, Jellyfin, Emby, Audiobookshelf | The section holds the required credentials. Lyrion needs only `url`. Bandcamp needs `user` and `password`; its `url` is optional. |
+| Credentials | Navidrome, Lyrion, Bandcamp, Plex, Jellyfin, Emby, Audiobookshelf, Telegram | The section holds the required credentials. Lyrion needs only `url`. Bandcamp needs `user` and `password` (its `url` is optional); Telegram needs `api_id` and `api_hash`. |
 | Section | Spotify, Qobuz, Tidal, YouTube Music | The section header exists. Set `enabled = false` to turn the provider off. |
 | Opt-in | SoundCloud, Mixcloud, NetEase, Yandex | The section sets `enabled = true`. Yandex also needs `token`. |
 
@@ -393,7 +393,7 @@ provider = "cliamp"
 
 The default, `cliamp`, opens on the cliamp radio channels. See [radio.md](radio.md#cliamp-radio).
 
-Valid values: `cliamp` (default), `radio`, `podcast`, `navidrome`, `lyrion`, `plex`, `jellyfin`, `emby`, `spotify`, `qobuz`, `tidal`, `bandcamp`, `soundcloud`, `mixcloud`, `netease`, `yandex`, `audiobookshelf`, `yt`, `youtube`, `ytmusic`. The `--provider` flag also accepts `abs` for `audiobookshelf`.
+Valid values: `cliamp` (default), `radio`, `podcast`, `navidrome`, `lyrion`, `plex`, `jellyfin`, `emby`, `spotify`, `qobuz`, `tidal`, `bandcamp`, `soundcloud`, `mixcloud`, `netease`, `yandex`, `audiobookshelf`, `telegram`, `yt`, `youtube`, `ytmusic`. The `--provider` flag also accepts `abs` for `audiobookshelf`.
 
 You can also override this setting on the CLI: `cliamp --provider jellyfin`.
 

@@ -346,6 +346,13 @@ func TestLoadGolden(t *testing.T) {
 		Format:     "raw",
 		BrowseSort: "alphabeticalByName",
 	}
+	allWant.Telegram = TelegramConfig{
+		AppID:       123456,
+		AppHash:     "0123456789abcdef0123456789abcdef",
+		Phone:       "+5491100000000",
+		BufferMB:    1,
+		SessionFile: "~/.local/share/cliamp/telegram.session",
+	}
 	allWant.Lyrion = LyrionConfig{URL: "http://nas.local:9000", User: "alice", Password: "secret", ShowUnplayable: true}
 	allWant.Bandcamp = BandcampConfig{
 		URL:        "https://bandcamp.com/api/subsonic",

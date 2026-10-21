@@ -52,6 +52,8 @@ type Provider struct {
 	cacheDir    string
 	docsMu      sync.Mutex
 	docs        map[int]*tg.Document
+	artMu       sync.Mutex
+	artCache    map[int]string
 	downloadMu  sync.Mutex
 	interactive bool
 }
@@ -70,6 +72,7 @@ func NewFromConfig(cfg config.TelegramConfig, interactive bool) *Provider {
 		ready:       make(chan struct{}),
 		cacheDir:    filepath.Join(cache, "cliamp", "telegram"),
 		docs:        make(map[int]*tg.Document),
+		artCache:    make(map[int]string),
 		interactive: interactive,
 	}
 	go p.run()
@@ -272,6 +275,9 @@ func (p *Provider) TracksPage(playlistID string, offset int) ([]playlist.Track, 
 			Artist:       info.performer,
 			DurationSecs: info.duration,
 			ProviderMeta: map[string]string{"telegram.id": strconv.Itoa(msg.ID)},
+		}
+		if cover := p.coverURL(playlistID, msg.ID); cover != "" {
+			track.AlbumArtURL = cover
 		}
 		tracks = append(tracks, track)
 	}

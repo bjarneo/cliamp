@@ -143,7 +143,7 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--simplified` / `--no-simplified` | bool | false | artist/title and time strip; no visualizer or playlist |
 | `--help-bar` / `--no-help-bar` | bool | true | show or hide the key-binding hint bar; `?` still opens the full keymap |
 | `--expanded` / `--no-expanded` | bool | false | start with the playlist expanded (the `Ctrl+X` state) |
-| `--provider` | string | cliamp | provider to open at start: cliamp, radio, podcast, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, bandcamp, soundcloud, mixcloud, netease, yandex, audiobookshelf (or abs), yt, youtube, ytmusic |
+| `--provider` | string | cliamp | provider to open at start: cliamp, radio, podcast, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, bandcamp, soundcloud, mixcloud, netease, yandex, audiobookshelf (or abs), telegram, yt, youtube, ytmusic |
 | `--visualizer` | string | Bars | visualizer mode, such as Bars, Wave or None. See [configuration.md](configuration.md#options) for all modes. |
 | `--visualizer-60fps` | bool | false | render a visible visualizer at about 60 FPS |
 | `--start-theme` | string | | theme name |
