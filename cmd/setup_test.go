@@ -621,6 +621,9 @@ func TestApplyChatsWithoutSelectionKeepsTheList(t *testing.T) {
 	if m.chatNote == "" {
 		t.Fatal("a no-op apply should explain that space selects")
 	}
+	if m.stage != stageChats {
+		t.Fatalf("stage = %v; an apply with nothing picked should stay in the checklist", m.stage)
+	}
 }
 
 func TestTypedReplacesPrefilledSecret(t *testing.T) {

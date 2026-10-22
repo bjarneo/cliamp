@@ -985,8 +985,9 @@ type setupModel struct {
 	chatErr     error
 	chatWarn    error
 	chatLoading bool
-	chatTouched bool   // the user toggled something in the checklist
-	chatNote    string // one-line feedback about the selection
+	chatTouched bool              // the user toggled something in the checklist
+	chatNote    string            // one-line feedback about the selection
+	chatNames   map[string]string // peer key -> title, for the form summary
 
 	// validating
 	spinFrame int
@@ -1151,6 +1152,12 @@ func (m *setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.chatErr, m.chatWarn = msg.err, msg.warn
 		m.chatCursor = 0
+		m.chatNames = make(map[string]string, len(msg.options))
+		for _, option := range msg.options {
+			if key := chatKey(option.ID); key != "" {
+				m.chatNames[key] = option.Name
+			}
+		}
 		return m, nil
 
 	case validateDoneMsg:
@@ -1259,6 +1266,7 @@ func (m *setupModel) startProvider(idx int) {
 	m.signInLabel, m.signInAction, m.signInRequested = "", nil, false
 	m.chatItems, m.chatChecked, m.chatCursor, m.chatErr, m.chatWarn, m.chatLoading = nil, nil, 0, nil, nil, false
 	m.chatTouched, m.chatNote = false, ""
+	m.chatNames = nil
 
 	if m.provs[idx].picker != nil {
 		m.stage = stagePicker
@@ -1445,10 +1453,10 @@ func (m *setupModel) applyChats() {
 		return
 	}
 	if !m.chatTouched {
-		// Enter on a row only moves the cursor. Applying an untouched list
-		// would clear the saved chats without the user asking for it.
-		m.chatNote = "No changes: press space to select a chat."
-		m.stage = stageForm
+		// Enter on a row only moves the cursor. Staying here makes the
+		// missing selection impossible to miss; clearing the filter needs
+		// an explicit n.
+		m.chatNote = "Nothing selected yet: space marks a chat, a marks all, n removes the filter."
 		return
 	}
 	m.chatNote = ""
@@ -1492,14 +1500,28 @@ func (m *setupModel) chatsSummary() string {
 	if m.chatNote != "" {
 		return m.chatNote
 	}
-	switch n := len(setupChats(m.values["chats"])); n {
-	case 0:
+	chats := setupChats(m.values["chats"])
+	if len(chats) == 0 {
 		return "No filter: every chat, group and bot."
-	case 1:
-		return "1 chat selected."
-	default:
-		return fmt.Sprintf("%d chats selected.", n)
 	}
+	if len(chats) == 1 {
+		if name := m.chatNames[chatKey(chats[0])]; name != "" {
+			return "1 chat selected: " + name + "."
+		}
+		return "1 chat selected."
+	}
+	names := make([]string, 0, len(chats))
+	for _, chat := range chats {
+		name := m.chatNames[chatKey(chat)]
+		if name == "" {
+			return fmt.Sprintf("%d chats selected.", len(chats))
+		}
+		names = append(names, name)
+	}
+	if len(names) <= 3 {
+		return fmt.Sprintf("%d chats selected: %s.", len(names), strings.Join(names, ", "))
+	}
+	return fmt.Sprintf("%d chats selected.", len(names))
 }
 
 func (m *setupModel) submitForm() (tea.Model, tea.Cmd) {
@@ -1873,6 +1895,11 @@ func (m *setupModel) viewChats() string {
 		b.WriteString("\n\n")
 		b.WriteString(hintStyle.Render("Esc goes back to the form, where the list can be typed by hand."))
 		return m.card(b.String())
+	}
+
+	if m.chatNote != "" {
+		b.WriteString(warnStyle.Render("⚠ " + m.chatNote))
+		b.WriteString("\n\n")
 	}
 
 	if m.chatWarn != nil {
