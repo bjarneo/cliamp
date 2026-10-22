@@ -739,13 +739,13 @@ func providers() []providerSpec {
 				}
 				hash := strings.TrimSpace(v["api_hash"])
 				if len(hash) != 32 {
-					return errors.New("API hash must be 32 hexadecimal characters")
+					return errors.New("api hash must be 32 hexadecimal characters")
 				}
 				if _, err := hex.DecodeString(hash); err != nil {
 					return errors.New("API hash must be 32 hexadecimal characters")
 				}
 				if phone := digitsOnly(v["phone"]); len(phone) < 7 || len(phone) > 15 {
-					return errors.New("Phone must be in international format, e.g. +5491100000000")
+					return errors.New("phone must be in international format, e.g. +5491100000000")
 				}
 				for _, chat := range setupChats(v["chats"]) {
 					if chatKey(chat) != "" {
@@ -757,7 +757,7 @@ func providers() []providerSpec {
 				}
 				if b := strings.TrimSpace(v["buffer_mb"]); b != "" {
 					if mb, err := strconv.Atoi(b); err != nil || mb < 1 || mb > 64 {
-						return errors.New("Buffer must be a whole number of megabytes between 1 and 64")
+						return errors.New("buffer must be a whole number of megabytes between 1 and 64")
 					}
 				}
 				return nil
@@ -822,7 +822,7 @@ func providers() []providerSpec {
 				}
 				dialogs, err := p.Dialogs()
 				if err != nil {
-					return chatPick{}, fmt.Errorf("%w\nSave the section and press s to sign in, or start cliamp once.", err)
+					return chatPick{}, fmt.Errorf("%w\nsave the section and press s to sign in, or start cliamp once", err)
 				}
 				pick := chatPick{options: make([]chatOption, 0, len(dialogs))}
 				for _, dialog := range dialogs {

@@ -14,6 +14,7 @@ require (
 	github.com/gotd/td v0.162.0
 	github.com/jfreymuth/oggvorbis v1.0.5
 	github.com/kkdai/youtube/v2 v2.10.6
+	github.com/mewkiz/flac v1.0.14
 	github.com/urfave/cli/v3 v3.11.0
 	github.com/yuin/gopher-lua v1.1.2
 	golang.org/x/net v0.60.0
@@ -72,7 +73,6 @@ require (
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/mattn/go-runewidth v0.0.28 // indirect
-	github.com/mewkiz/flac v1.0.14 // indirect
 	github.com/mewkiz/pkg v0.0.0-20260703220044-4fb89b18cc87 // indirect
 	github.com/mewpkg/term v0.0.0-20241026122259-37a80af23985 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect

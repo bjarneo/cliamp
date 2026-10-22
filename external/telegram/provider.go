@@ -86,7 +86,6 @@ type Provider struct {
 	artCache   map[msgKey]string
 	chatsMu    sync.Mutex
 	chatsCache map[string]playlist.PlaylistInfo
-	downloadMu sync.Mutex
 }
 
 // NewFromConfig returns nil when [telegram] is not configured. It never
