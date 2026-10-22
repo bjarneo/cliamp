@@ -84,16 +84,16 @@ func TestLivePublicAccount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("account playlists: %v", err)
 	}
-	wantLists := []string{streamID, activityID, uploadsID, favoritesID, listensID}
+	if slices.ContainsFunc(lists, func(item playlist.PlaylistInfo) bool { return item.ID == streamID }) {
+		t.Error("Stream must be hidden without cookies_from")
+	}
+	wantLists := []string{activityID, uploadsID, favoritesID, listensID}
 	for _, id := range wantLists {
 		if !slices.ContainsFunc(lists, func(item playlist.PlaylistInfo) bool { return item.ID == id }) {
 			t.Errorf("account playlists omit %q: %+v", id, lists)
 		}
 	}
 	for _, id := range wantLists {
-		if id == streamID {
-			continue // New Shows requires browser cookies, not public REST access.
-		}
 		if _, err := p.Tracks(id); err != nil {
 			t.Errorf("account view %q: %v", id, err)
 		}

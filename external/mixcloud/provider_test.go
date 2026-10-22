@@ -72,6 +72,72 @@ func TestPublicPlaylistsNeedNoNetwork(t *testing.T) {
 	}
 }
 
+func TestAccountPlaylistsStreamRequiresBrowserCookies(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		accessToken string
+		cookiesFrom string
+		wantStream  bool
+	}{
+		{name: "username-only"},
+		{name: "token-only", accessToken: "token"},
+		{name: "blank-cookie-source", cookiesFrom: " \t "},
+		{name: "username-with-cookies", cookiesFrom: "firefox", wantStream: true},
+		{name: "token-with-cookies", accessToken: "token", cookiesFrom: "firefox", wantStream: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p, server := providerWithServer(t, Config{
+				Enabled: true, Username: "alice", AccessToken: tt.accessToken,
+				CookiesFrom: tt.cookiesFrom, StylesSet: true,
+			}, func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/me/":
+					writeJSON(t, w, map[string]any{"username": "token-owner"})
+				case "/alice/playlists/", "/me/playlists/":
+					writeJSON(t, w, map[string]any{"data": []any{}})
+				default:
+					t.Errorf("unexpected request: %s", r.URL.Path)
+					http.NotFound(w, r)
+				}
+			})
+			defer server.Close()
+			p.client.loadCookies = func(context.Context, string) (http.CookieJar, error) {
+				t.Fatal("unexpected cookie extraction")
+				return nil, nil
+			}
+
+			lists, err := p.Playlists()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var ids []string
+			for _, list := range lists {
+				ids = append(ids, list.ID)
+				if list.ID == streamID && list.Name != "Stream (New Shows)" {
+					t.Errorf("Stream label = %q", list.Name)
+				}
+			}
+			want := []string{favoritesID, uploadsID, activityID, listensID}
+			if tt.wantStream {
+				want = append([]string{streamID}, want...)
+			}
+			if tt.accessToken != "" {
+				want = append(want, listenLaterID)
+			}
+			want = append(want, recentID, popularID)
+			if !slices.Equal(ids, want) {
+				t.Errorf("playlist IDs = %v, want %v", ids, want)
+			}
+			if !tt.wantStream {
+				tracks, err := p.Tracks(streamID)
+				if !errors.Is(err, errNewShowsSession) || len(tracks) != 0 {
+					t.Fatalf("Stream tracks = %v, error = %v, want missing-session error", tracks, err)
+				}
+			}
+		})
+	}
+}
+
 func TestBrowseEntriesExposeShowsCreatorsAndGenres(t *testing.T) {
 	p := NewFromConfig(Config{Enabled: true, Username: "alice"})
 	entries := p.BrowseEntries()
@@ -385,7 +451,7 @@ func TestAccountPlaylistsUseMeWithToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Playlists: %v", err)
 	}
-	wantPrefix := []string{streamID, favoritesID, uploadsID, activityID, listensID, listenLaterID}
+	wantPrefix := []string{favoritesID, uploadsID, activityID, listensID, listenLaterID}
 	if len(lists) < len(wantPrefix) {
 		t.Fatalf("account lists = %+v", lists)
 	}
