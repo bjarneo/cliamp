@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -407,11 +408,23 @@ func TestServiceTrackIDFollowsTrackIdentity(t *testing.T) {
 
 func TestPlayerNameCandidates(t *testing.T) {
 	got := playerNameCandidates(42)
+	if len(got) != 3 {
+		t.Fatalf("playerNameCandidates(42) = %v, want three candidates", got)
+	}
 	want := []string{
 		"org.mpris.MediaPlayer2.cliamp",
 		"org.mpris.MediaPlayer2.cliamp.instance_42",
 	}
-	if !slices.Equal(got, want) {
-		t.Fatalf("playerNameCandidates(42) = %v, want %v", got, want)
+	if !slices.Equal(got[:2], want) {
+		t.Fatalf("playerNameCandidates(42)[:2] = %v, want %v", got[:2], want)
+	}
+	// The third candidate keeps the PID but adds a token that survives two
+	// processes in different PID namespaces sharing one session bus.
+	const prefix = "org.mpris.MediaPlayer2.cliamp.instance_42_"
+	if !strings.HasPrefix(got[2], prefix) || len(got[2]) == len(prefix) {
+		t.Fatalf("playerNameCandidates(42)[2] = %q, want %q plus a token", got[2], prefix)
+	}
+	if again := playerNameCandidates(42); !slices.Equal(got, again) {
+		t.Fatalf("playerNameCandidates(42) changed between calls: %v then %v", got, again)
 	}
 }

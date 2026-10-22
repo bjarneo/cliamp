@@ -3,9 +3,12 @@
 package mediactl
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -193,13 +196,27 @@ func requestPlayerName(conn *dbus.Conn) (string, error) {
 	return "", fmt.Errorf("mpris: name already taken")
 }
 
-// playerNameCandidates lists the bus names to try, in order. A live PID is
-// unique, so the instance name only fails when the process itself already owns
-// it.
+// playerNameCandidates lists the bus names to try, in order.
 func playerNameCandidates(pid int) []string {
 	const base = "org.mpris.MediaPlayer2.cliamp"
-	return []string{base, fmt.Sprintf("%s.instance_%d", base, pid)}
+	return []string{
+		base,
+		fmt.Sprintf("%s.instance_%d", base, pid),
+		fmt.Sprintf("%s.instance_%d_%s", base, pid, processToken),
+	}
 }
+
+// processToken is a random suffix that stays stable for the life of the process.
+// A PID is only unique inside its own PID namespace, and two instances running
+// in different namespaces can share one session bus, so the PID-scoped name is
+// not enough to guarantee a free bus name.
+var processToken = func() string {
+	var buf [4]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	return hex.EncodeToString(buf[:])
+}()
 
 // initialVolumeFloor is the player default volume_min in dB. A Volume Set
 // uses it until the first Update gives the engine floor.
