@@ -54,7 +54,12 @@ CLIAMP_YTDLP=~/.local/bin/yt-dlp cliamp
 `HTTP Error 403: Forbidden` means the source rejected the media URL yt-dlp
 handed to cliamp. cliamp retries a fatal 403 up to three attempts; a warning
 mentioning 403 does not trigger retries. The one-row TUI status prioritizes
-the last attempt's fatal diagnostic, clipped to the terminal width. Warnings
+the last attempt's fatal diagnostic, clipped to the terminal width. This also
+works with yt-dlp's `--color always` configuration; terminal color escapes are
+removed from the status diagnostic. At PCM EOF, the background reader waits
+up to three seconds for the process result before reporting track end. A
+yt-dlp failure is reported without waiting for ffmpeg to exit; the speaker
+callback and playback controls do not wait for either process. Warnings
 and the full captured stderr from each failed attempt are written to
 `cliamp.log` in the configuration directory, even with `log_level = "error"`.
 The location is `$CLIAMP_CONFIG_DIR/cliamp.log` when that override is set,
