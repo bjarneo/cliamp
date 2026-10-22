@@ -272,7 +272,7 @@ Returns `true` on success. Returns `false, reason` when cliamp's core UI owns th
 
 Use Bubbletea's `msg.String()` form for key strings: lowercase letters and the `ctrl+`, `shift+`, or `alt+` prefixes. For example: `"n"`, `"ctrl+y"`, and `"shift+f1"`. Key strings are case-insensitive.
 
-Plugin keys work only in the main view. Overlays such as the file browser, theme picker, and keymap capture their own input. The core reserves the keys of its own commands, in the main view and in each overlay. It also reserves the text-editor keys `Ctrl+A`, `Ctrl+E`, `Ctrl+W`, `Ctrl+U`, `Home`, `End`, `Delete`, and `Backspace`. The cursor aliases `Ctrl+N` and `Ctrl+P` stay free. A bind of a reserved key logs a warning to `plugins.log` and returns `false, reason`.
+Plugin keys work only in the main view. Overlays such as the file browser, theme picker, and keymap capture their own input. The core reserves the keys of its own commands, in the main view and in each overlay. It also reserves the text-editor keys `Ctrl+A`, `Ctrl+E`, `Ctrl+W`, `Ctrl+U`, `Home`, `End`, `Delete`, and `Backspace`. The cursor aliases that stay free: `Ctrl+N`. `Ctrl+P` belongs to the provider pane, which uses it to pick the chats or channels of providers that support it. A bind of a reserved key logs a warning to `plugins.log` and returns `false, reason`.
 
 Use `p:unbind(key)` to release a binding.
 

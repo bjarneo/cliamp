@@ -273,6 +273,20 @@ func init() {
 				(*Model).renderURLBody},
 		},
 		{
+			screen: screenAuthCode,
+			key:    (*Model).handleAuthCodeKey,
+			paste: func(m *Model, s string) {
+				m.insertText("auth-code", &m.authCode.input, s)
+				m.authCode.err = ""
+			},
+			context: func(m *Model) (commandMode, string) {
+				return commandModeAuthCode, m.authCode.name
+			},
+			view: overlayView{
+				func(m *Model) string { return m.promptHeader("auth-code", m.authCode.name, m.authCode.input) },
+				(*Model).renderAuthCodeBody},
+		},
+		{
 			screen: screenSearch,
 			key:    (*Model).handleSearchKey,
 			paste: func(m *Model, s string) {
@@ -322,6 +336,8 @@ func (m *Model) overlayOpen(screen topLevelScreen) bool {
 		return m.jump.active
 	case screenURLInput:
 		return m.urlInput.active
+	case screenAuthCode:
+		return m.authCode.active
 	case screenSearch:
 		return m.search.active
 	case screenNetSearch:

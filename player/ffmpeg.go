@@ -400,6 +400,15 @@ func decodeFFmpegPipeStream(src io.ReadCloser, sr beep.SampleRate, bitDepth int,
 	return &ffmpegPipeStreamer{ffmpegPipe: fp}, format, nil
 }
 
+// DecodeFFmpegPipeStream decodes src through ffmpeg for the codecs without a
+// native decoder (AAC, Opus, M4A, ...). It is the exported counterpart of the
+// URL pipeline for external custom streamers (provider.CustomStreamer): src
+// yields audio bytes on Read and is closed when the stream stops. Seeking is
+// not supported: Seek is a no-op, like the URL path.
+func DecodeFFmpegPipeStream(src io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error) {
+	return decodeFFmpegPipeStream(src, beep.SampleRate(44100), 16, false)
+}
+
 // decodeFFmpegLocal starts ffmpeg as a streaming pipe for local files, giving
 // instant playback start instead of buffering the entire file to memory.
 // Seeking is supported by killing and restarting ffmpeg with a -ss offset.
