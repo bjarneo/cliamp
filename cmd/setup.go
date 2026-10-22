@@ -106,6 +106,9 @@ type providerSpec struct {
 	// prefill returns the values the form starts with, so a second run edits
 	// the current config instead of blanking it.
 	prefill func() map[string]string
+	// summary, when non-nil, adds a short note to the saved result line, such
+	// as the number of chats kept.
+	summary func(map[string]string) string
 	// pickChats lists the dialogs of the account for the chats field, plus the
 	// ids the form already selects. Nil hides the picker.
 	pickChats func(map[string]string) (chatPick, error)
@@ -802,6 +805,16 @@ func providers() []providerSpec {
 					"buffer_mb": strconv.Itoa(mb),
 				}
 			},
+			summary: func(v map[string]string) string {
+				switch n := len(setupChats(v["chats"])); n {
+				case 0:
+					return "every chat"
+				case 1:
+					return "1 chat"
+				default:
+					return fmt.Sprintf("%d chats", n)
+				}
+			},
 			pickChats: func(v map[string]string) (chatPick, error) {
 				p := telegram.NewFromConfig(telegramConfigFrom(v), false)
 				if p == nil {
@@ -972,6 +985,8 @@ type setupModel struct {
 	chatErr     error
 	chatWarn    error
 	chatLoading bool
+	chatTouched bool   // the user toggled something in the checklist
+	chatNote    string // one-line feedback about the selection
 
 	// validating
 	spinFrame int
@@ -1243,6 +1258,7 @@ func (m *setupModel) startProvider(idx int) {
 	m.saveFailed = nil
 	m.signInLabel, m.signInAction, m.signInRequested = "", nil, false
 	m.chatItems, m.chatChecked, m.chatCursor, m.chatErr, m.chatWarn, m.chatLoading = nil, nil, 0, nil, nil, false
+	m.chatTouched, m.chatNote = false, ""
 
 	if m.provs[idx].picker != nil {
 		m.stage = stagePicker
@@ -1401,13 +1417,19 @@ func (m *setupModel) chatsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case " ", "space":
 		if len(m.chatItems) > 0 {
 			m.chatChecked[m.chatCursor] = !m.chatChecked[m.chatCursor]
+			m.chatTouched = true
+			m.chatNote = ""
 		}
 	case "a":
 		for i := range m.chatItems {
 			m.chatChecked[i] = true
 		}
+		m.chatTouched = true
+		m.chatNote = ""
 	case "n":
 		m.chatChecked = map[int]bool{}
+		m.chatTouched = true
+		m.chatNote = ""
 	case "enter":
 		m.applyChats()
 	}
@@ -1422,6 +1444,14 @@ func (m *setupModel) applyChats() {
 		m.stage = stageForm
 		return
 	}
+	if !m.chatTouched {
+		// Enter on a row only moves the cursor. Applying an untouched list
+		// would clear the saved chats without the user asking for it.
+		m.chatNote = "No changes: press space to select a chat."
+		m.stage = stageForm
+		return
+	}
+	m.chatNote = ""
 	selected := make([]string, 0, len(m.chatChecked))
 	for i, option := range m.chatItems {
 		if m.chatChecked[i] {
@@ -1452,7 +1482,24 @@ func (m *setupModel) openChats() (tea.Model, tea.Cmd) {
 	m.chatLoading = true
 	m.chatErr, m.chatWarn = nil, nil
 	m.chatCursor = 0
+	m.chatTouched = false
 	return m, tea.Batch(spinTickCmd(), loadChatsCmd(spec, maps.Clone(m.values)))
+}
+
+// chatsSummary says how many chats the field will keep, so an empty selection
+// is visible before saving.
+func (m *setupModel) chatsSummary() string {
+	if m.chatNote != "" {
+		return m.chatNote
+	}
+	switch n := len(setupChats(m.values["chats"])); n {
+	case 0:
+		return "No filter: every chat, group and bot."
+	case 1:
+		return "1 chat selected."
+	default:
+		return fmt.Sprintf("%d chats selected.", n)
+	}
 }
 
 func (m *setupModel) submitForm() (tea.Model, tea.Cmd) {
@@ -1569,6 +1616,11 @@ func (m *setupModel) persistAndDone(warn bool) tea.Cmd {
 	m.resultErr = nil
 	m.resultWarning = warn
 	m.resultText = fmt.Sprintf("Saved [%s] section.", spec.section)
+	if spec.summary != nil {
+		if note := spec.summary(m.values); note != "" {
+			m.resultText = fmt.Sprintf("Saved [%s] section (%s).", spec.section, note)
+		}
+	}
 	m.signInLabel, m.signInAction = "", nil
 	if spec.signIn != nil && !warn {
 		m.signInLabel, m.signInAction = spec.signIn(m.values)
@@ -1757,6 +1809,11 @@ func (m *setupModel) viewForm() string {
 				if f.help != "" {
 					line += "\n" + dimStyle.Render(f.help)
 				}
+			}
+			if summary := m.chatsSummary(); summary != "" {
+				line += "\n" + dimStyle.Render(summary)
+			}
+			if i == m.fcursor {
 				b.WriteString(activeFieldStyle.Render(line))
 			} else {
 				b.WriteString(inactiveFieldStyle.Render(line))
@@ -1797,6 +1854,8 @@ func (m *setupModel) viewForm() string {
 func (m *setupModel) viewChats() string {
 	var b strings.Builder
 	b.WriteString(accentStyle.Render("Chats"))
+	b.WriteString("\n\n")
+	b.WriteString(hintStyle.Render("Space selects a chat. Enter saves the selection."))
 	b.WriteString("\n\n")
 
 	if m.chatLoading {

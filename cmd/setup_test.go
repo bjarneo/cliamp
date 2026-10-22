@@ -590,15 +590,36 @@ func TestApplyChatsAllMeansNoFilter(t *testing.T) {
 	m.chatItems = []chatOption{{ID: "ch:1:1", Name: "A"}, {ID: "u:2:2", Name: "B"}}
 
 	m.chatChecked = map[int]bool{0: true}
+	m.chatTouched = true
 	m.applyChats()
 	if got := m.values["chats"]; got != "ch:1:1" {
 		t.Fatalf("chats = %q, want ch:1:1", got)
 	}
 
 	m.chatChecked = map[int]bool{0: true, 1: true}
+	m.chatTouched = true
 	m.applyChats()
 	if got := m.values["chats"]; got != "" {
 		t.Fatalf("chats = %q, want empty for every chat", got)
+	}
+}
+
+// TestApplyChatsWithoutSelectionKeepsTheList covers the trap of opening the
+// checklist and pressing enter on a row: it must not clear the saved chats.
+func TestApplyChatsWithoutSelectionKeepsTheList(t *testing.T) {
+	m := newSetupModel()
+	m.pidx = 0
+	m.stage = stageChats
+	m.chatItems = []chatOption{{ID: "ch:1:1", Name: "A"}, {ID: "u:2:2", Name: "B"}}
+	m.values = map[string]string{"chats": "ch:1:1"}
+
+	m.applyChats()
+
+	if got := m.values["chats"]; got != "ch:1:1" {
+		t.Fatalf("chats = %q, want the saved list untouched", got)
+	}
+	if m.chatNote == "" {
+		t.Fatal("a no-op apply should explain that space selects")
 	}
 }
 
