@@ -385,11 +385,13 @@ HTTP stream, an M3U/PLS URL, or a YouTube/yt-dlp URL. cliamp resolves it off the
 UI thread. A slow URL does not block playback.
 
 `add` also takes a track table with the same keys as the track tables in
-events: `{path, title, artist, album, genre, year, duration, stream}`. Only
-`path` is required, and other keys are ignored, so a track from an event or from
-`queue.list()` can be passed back as it is. cliamp appends the track exactly as
-described, without resolving the path. Use it for tracks a path alone can't
-describe, such as a provider track from another service:
+events: `{path, title, artist, album, genre, year, duration, stream, album_art_url}`.
+Only `path` is required. `album_art_url` is accepted but ignored, because the
+cover of a queued track is resolved from its path; any key outside this shape is
+ignored as well, so a track from an event or from `queue.list()` can be passed
+back as it is. cliamp appends the track exactly as described, without resolving
+the path. Use it for tracks a path alone can't describe, such as a provider
+track from another service:
 
 ```lua
 local ok, err = cliamp.queue.add({
