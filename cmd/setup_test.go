@@ -691,6 +691,90 @@ buffer_mb = 4
 	}
 }
 
+func TestEscapeWithChangesAsksToSave(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+
+	m := newSetupModel()
+	m.pidx = -1
+	for i, p := range m.provs {
+		if p.section == "telegram" {
+			m.pidx = i
+			break
+		}
+	}
+	if m.pidx < 0 {
+		t.Fatal("telegram spec missing")
+	}
+	m.values = map[string]string{
+		"api_id": "123456", "api_hash": "0123456789abcdef0123456789abcdef",
+		"phone": "+5491100000000", "buffer_mb": "1",
+	}
+	m.prefilled = map[string]string{}
+	m.refreshVisibleFields()
+
+	m.formKey(keyPress(tea.KeyEscape, ""))
+	if m.stage != stageConfirm {
+		t.Fatalf("stage = %v, want the save question", m.stage)
+	}
+	if view := m.viewConfirm(); !strings.Contains(view, "Save the changes") {
+		t.Fatalf("confirm view = %q", view)
+	}
+
+	// n throws the edits away and goes back to the menu.
+	m.confirmKey(keyPress('n', "n"))
+	if m.stage != stageMenu {
+		t.Fatalf("stage = %v, want the menu after discard", m.stage)
+	}
+}
+
+func TestEscapeWithChangesSavesOnYes(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+
+	m := newSetupModel()
+	m.pidx = -1
+	for i, p := range m.provs {
+		if p.section == "telegram" {
+			m.pidx = i
+			break
+		}
+	}
+	if m.pidx < 0 {
+		t.Fatal("telegram spec missing")
+	}
+	m.values = map[string]string{
+		"api_id": "123456", "api_hash": "0123456789abcdef0123456789abcdef",
+		"phone": "+5491100000000", "buffer_mb": "1",
+	}
+	m.prefilled = map[string]string{}
+	m.refreshVisibleFields()
+
+	m.formKey(keyPress(tea.KeyEscape, ""))
+	m.confirmKey(keyPress('y', "y"))
+
+	if m.stage != stageResult {
+		t.Fatalf("stage = %v, want the result screen", m.stage)
+	}
+	if m.resultErr != nil || m.saveFailed != nil {
+		t.Fatalf("save failed: resultErr=%v saveFailed=%v", m.resultErr, m.saveFailed)
+	}
+	if !strings.Contains(m.resultText, "Saved [telegram]") {
+		t.Fatalf("resultText = %q", m.resultText)
+	}
+}
+
+func TestEscapeWithoutChangesGoesToTheMenu(t *testing.T) {
+	m := newSetupModel()
+	m.pidx = 0
+	m.values = map[string]string{"api_id": "123456"}
+	m.prefilled = map[string]string{"api_id": "123456"}
+	m.refreshVisibleFields()
+
+	m.formKey(keyPress(tea.KeyEscape, ""))
+	if m.stage != stageMenu {
+		t.Fatalf("stage = %v, want the menu for an untouched form", m.stage)
+	}
+}
+
 // TestTelegramSetupOffersSignInAfterSave checks the success screen offers the
 // sign-in and that pressing s asks Setup to run it once the wizard exits.
 func TestTelegramSetupOffersSignInAfterSave(t *testing.T) {

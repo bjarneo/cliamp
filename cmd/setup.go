@@ -955,6 +955,7 @@ const (
 	stagePicker
 	stageForm
 	stageChats
+	stageConfirm
 	stageValidating
 	stageResult
 )
@@ -1220,6 +1221,8 @@ func (m *setupModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.formKey(msg)
 	case stageChats:
 		return m.chatsKey(msg)
+	case stageConfirm:
+		return m.confirmKey(msg)
 	case stageValidating:
 		// Ignore input while probing.
 		return m, nil
@@ -1328,6 +1331,11 @@ func (m *setupModel) formKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.Code {
 	case tea.KeyEscape:
+		// Leaving with edits would drop them silently: ask first.
+		if m.formDirty() {
+			m.stage = stageConfirm
+			return m, nil
+		}
 		m.stage = stageMenu
 		return m, nil
 	case tea.KeyUp:
@@ -1471,6 +1479,14 @@ func (m *setupModel) applyChats() {
 	} else {
 		m.values["chats"] = strings.Join(selected, ", ")
 	}
+	// Picking is the action the user came for: write the section right here
+	// instead of waiting for a submit that may never come.
+	if err := m.saveSection(); err != nil {
+		m.chatNote = "Not saved: " + err.Error()
+	} else {
+		m.chatNote = "Selection saved."
+		m.prefilled = maps.Clone(m.values)
+	}
 	// Leave the button so the next enter submits instead of reopening the
 	// list.
 	spec := m.provs[m.pidx]
@@ -1497,9 +1513,19 @@ func (m *setupModel) openChats() (tea.Model, tea.Cmd) {
 // chatsSummary says how many chats the field will keep, so an empty selection
 // is visible before saving.
 func (m *setupModel) chatsSummary() string {
-	if m.chatNote != "" {
-		return m.chatNote
+	note := m.chatNote
+	summary := m.chatsSelection()
+	if note == "" {
+		return summary
 	}
+	if summary == "" {
+		return note
+	}
+	return note + " " + summary
+}
+
+// chatsSelection describes the chats the field holds.
+func (m *setupModel) chatsSelection() string {
 	chats := setupChats(m.values["chats"])
 	if len(chats) == 0 {
 		return "No filter: every chat, group and bot."
@@ -1522,6 +1548,39 @@ func (m *setupModel) chatsSummary() string {
 		return fmt.Sprintf("%d chats selected: %s.", len(names), strings.Join(names, ", "))
 	}
 	return fmt.Sprintf("%d chats selected.", len(names))
+}
+
+// saveSection writes the provider section from the current form values. It
+// runs the cheap field checks first, so a half-filled first-time form does not
+// land in the config.
+func (m *setupModel) saveSection() error {
+	spec := m.provs[m.pidx]
+	if spec.extraValidate != nil {
+		if err := spec.extraValidate(m.values); err != nil {
+			return err
+		}
+	}
+	return config.SaveSection(spec.section, spec.body(m.values), spec.owned)
+}
+
+// formDirty reports whether the form holds changes against the values it
+// started from.
+func (m *setupModel) formDirty() bool {
+	return !maps.Equal(m.values, m.prefilled)
+}
+
+// confirmKey handles the save-on-exit question.
+func (m *setupModel) confirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y", "enter":
+		return m.submitForm()
+	case "n", "N":
+		m.stage = stageMenu
+		return m, nil
+	case "esc":
+		m.stage = stageForm
+	}
+	return m, nil
 }
 
 func (m *setupModel) submitForm() (tea.Model, tea.Cmd) {
@@ -1740,6 +1799,8 @@ func (m *setupModel) View() tea.View {
 		body = m.viewForm()
 	case stageChats:
 		body = m.viewChats()
+	case stageConfirm:
+		body = m.viewConfirm()
 	case stageValidating:
 		body = m.viewValidating()
 	case stageResult:
@@ -1871,6 +1932,16 @@ func (m *setupModel) viewForm() string {
 		b.WriteString("\n\n")
 	}
 	return m.card(strings.TrimRight(b.String(), "\n"))
+}
+
+func (m *setupModel) viewConfirm() string {
+	spec := m.provs[m.pidx]
+	var b strings.Builder
+	b.WriteString(accentStyle.Render(spec.name))
+	b.WriteString("\n\n")
+	b.WriteString("Save the changes to [" + spec.section + "]?\n\n")
+	b.WriteString(accentStyle.Render("y save") + "   " + "n discard" + "   " + "esc keep editing")
+	return m.card(b.String())
 }
 
 func (m *setupModel) viewChats() string {
@@ -2033,6 +2104,8 @@ func (m *setupModel) viewFooter() string {
 		} else {
 			keys = "↑/↓ move   space toggle   a all   n none   enter apply   esc back"
 		}
+	case stageConfirm:
+		keys = "y save   n discard   esc keep editing"
 	case stageValidating:
 		keys = "ctrl+c cancel"
 	case stageResult:
