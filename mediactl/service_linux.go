@@ -5,6 +5,7 @@ package mediactl
 import (
 	"fmt"
 	"math"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -158,16 +159,12 @@ func New(send func(tea.Msg)) (*Service, error) {
 		return nil, fmt.Errorf("mpris: session bus: %w", err)
 	}
 
-	reply, err := conn.RequestName("org.mpris.MediaPlayer2.cliamp",
-		dbus.NameFlagDoNotQueue)
+	name, err := requestPlayerName(conn)
 	if err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("mpris: request name: %w", err)
+		return nil, err
 	}
-	if reply != dbus.RequestNameReplyPrimaryOwner {
-		conn.Close()
-		return nil, fmt.Errorf("mpris: name already taken")
-	}
+	applog.Info("mpris: publishing as %s", name)
 
 	svc, err := newService(conn, send)
 	if err != nil {
@@ -175,6 +172,33 @@ func New(send func(tea.Msg)) (*Service, error) {
 		return nil, err
 	}
 	return svc, nil
+}
+
+// requestPlayerName claims the MPRIS bus name on conn. It prefers the canonical
+// name, so a single instance keeps the familiar org.mpris.MediaPlayer2.cliamp,
+// and falls back to a PID-scoped instance name when another player already owns
+// it. That happens when the local player runs next to the Telegram provider, or
+// when a previous instance has not released the bus yet. MPRIS allows the
+// instance form: Firefox publishes org.mpris.MediaPlayer2.firefox.instance_1_17945.
+func requestPlayerName(conn *dbus.Conn) (string, error) {
+	for _, name := range playerNameCandidates(os.Getpid()) {
+		reply, err := conn.RequestName(name, dbus.NameFlagDoNotQueue)
+		if err != nil {
+			return "", fmt.Errorf("mpris: request name: %w", err)
+		}
+		if reply == dbus.RequestNameReplyPrimaryOwner {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("mpris: name already taken")
+}
+
+// playerNameCandidates lists the bus names to try, in order. A live PID is
+// unique, so the instance name only fails when the process itself already owns
+// it.
+func playerNameCandidates(pid int) []string {
+	const base = "org.mpris.MediaPlayer2.cliamp"
+	return []string{base, fmt.Sprintf("%s.instance_%d", base, pid)}
 }
 
 // initialVolumeFloor is the player default volume_min in dB. A Volume Set

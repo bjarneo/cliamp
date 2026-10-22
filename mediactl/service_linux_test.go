@@ -5,6 +5,7 @@ package mediactl
 import (
 	"io"
 	"math"
+	"slices"
 	"testing"
 	"time"
 
@@ -401,5 +402,16 @@ func TestServiceTrackIDFollowsTrackIdentity(t *testing.T) {
 				t.Fatalf("mpris:artUrl = %v, want %v", got, next.ArtURL)
 			}
 		})
+	}
+}
+
+func TestPlayerNameCandidates(t *testing.T) {
+	got := playerNameCandidates(42)
+	want := []string{
+		"org.mpris.MediaPlayer2.cliamp",
+		"org.mpris.MediaPlayer2.cliamp.instance_42",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("playerNameCandidates(42) = %v, want %v", got, want)
 	}
 }
