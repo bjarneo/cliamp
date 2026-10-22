@@ -2,6 +2,7 @@
 package model
 
 import (
+	"context"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -390,6 +391,10 @@ type Model struct {
 	// Async feed/M3U URL resolution
 	pendingURLs []string
 	feedLoading bool
+
+	// ytdlArtistCancel stops the uploader lookup of the playing track. The
+	// next track start calls it, so a fast skip ends the yt-dlp process.
+	ytdlArtistCancel context.CancelFunc
 
 	spinnerTicking bool // a spinnerTickMsg is pending
 
