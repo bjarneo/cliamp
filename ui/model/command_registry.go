@@ -39,6 +39,7 @@ const (
 	commandModeSearchOverlay
 	commandModeJump
 	commandModeURL
+	commandModeAuthCode
 	commandModeLyrics
 	commandModeThemePicker
 	commandModeVisPicker
@@ -212,7 +213,7 @@ var commandRegistry = []commandSpec{
 
 	// Shared text editing is reserved even though these are intentionally absent
 	// from the global keymap, where they would be misleading outside a field.
-	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSearchOverlay | commandModeJump | commandModeURL | commandModeThemePickerFilter | commandModeVisPickerFilter | commandModeProviderSearch, Keys: []string{"left", "right", "home", "end", "ctrl+a", "ctrl+e", "backspace", "delete", "ctrl+w", "ctrl+u"}, KeyLabel: "Text editor", Label: "Move cursor and delete text"},
+	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSearchOverlay | commandModeJump | commandModeURL | commandModeAuthCode | commandModeThemePickerFilter | commandModeVisPickerFilter | commandModeProviderSearch, Keys: []string{"left", "right", "home", "end", "ctrl+a", "ctrl+e", "backspace", "delete", "ctrl+w", "ctrl+u"}, KeyLabel: "Text editor", Label: "Move cursor and delete text"},
 
 	{Mode: commandModeProvider, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Load", LabelFor: func(m Model) string {
 		if m.selectedProviderListIsBrowseEntry() {
@@ -274,8 +275,8 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeDevicePicker, Keys: []string{"esc", "q"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
 	{Mode: commandModePlaylistManager | commandModeQueue, Keys: []string{"esc", "q"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
 	{Mode: commandModeKeymap | commandModeFileBrowser | commandModePlaylistPicker, Keys: []string{"esc", "q"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
-	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSearchOverlay | commandModeJump | commandModeURL | commandModeProviderSearch, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Cancel", ContextHelp: true, Cancel: true},
-	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSearchOverlay | commandModeJump | commandModeURL | commandModeProviderSearch, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Confirm", ContextHelp: true, Primary: true},
+	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSearchOverlay | commandModeJump | commandModeURL | commandModeAuthCode | commandModeProviderSearch, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Cancel", ContextHelp: true, Cancel: true},
+	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSearchOverlay | commandModeJump | commandModeURL | commandModeAuthCode | commandModeProviderSearch, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Confirm", ContextHelp: true, Primary: true},
 	{Mode: commandModeNavBrowser | commandModePlaylistManager | commandModePlaylistPicker | commandModeQueue | commandModeDevicePicker, Keys: []string{"up", "down", "k", "j"}, KeyLabel: "Up Down", Label: "Navigate", ContextHelp: true},
 	// k and j type into the provider filter.
 	{Mode: commandModeProviderSearch, Keys: []string{"up", "down"}, KeyLabel: "Up Down", Label: "Navigate", ContextHelp: true},

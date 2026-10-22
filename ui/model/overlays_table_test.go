@@ -29,6 +29,7 @@ var overlayOpeners = map[topLevelScreen]func(*Model){
 	screenLyrics:          func(m *Model) { m.lyrics.visible = true },
 	screenJump:            func(m *Model) { m.jump.active = true },
 	screenURLInput:        func(m *Model) { m.urlInput.active = true },
+	screenAuthCode:        func(m *Model) { m.authCode.active = true },
 	screenSearch:          func(m *Model) { m.search.active = true },
 	screenNetSearch:       func(m *Model) { m.netSearch.active = true },
 }

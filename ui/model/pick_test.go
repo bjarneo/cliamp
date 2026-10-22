@@ -126,3 +126,75 @@ func TestChatPickerAllMeansNoFilter(t *testing.T) {
 		t.Fatalf("rows = %d, want every chat", len(m.provPane.lists))
 	}
 }
+
+// codeAuthStub signs in with a code the pane types.
+type codeAuthStub struct {
+	prompt  string
+	saved   []string
+	dialogs []playlist.PlaylistInfo
+}
+
+func (p *codeAuthStub) Name() string { return "Telegram" }
+func (p *codeAuthStub) Playlists() ([]playlist.PlaylistInfo, error) {
+	return p.dialogs, nil
+}
+func (p *codeAuthStub) Tracks(string) ([]playlist.Track, error) { return nil, nil }
+func (p *codeAuthStub) Prompt() string                          { return p.prompt }
+func (p *codeAuthStub) Authenticate(code string) error {
+	p.saved = append(p.saved, code)
+	return nil
+}
+
+func TestAuthCodeInputSendsTheCode(t *testing.T) {
+	p := &codeAuthStub{prompt: "The code was sent to your app"}
+	m := &Model{provider: p, playlist: playlist.New()}
+
+	m.provPane.signIn = true
+	m.handleProviderPaneKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !m.authCode.active {
+		t.Fatal("enter on the sign-in prompt should open the code input")
+	}
+	if m.authCode.hint != p.prompt {
+		t.Fatalf("hint = %q, want the provider prompt", m.authCode.hint)
+	}
+
+	m.handleAuthCodeKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !m.authCode.active || m.authCode.err == "" {
+		t.Fatal("empty code should keep the input with an error")
+	}
+
+	for _, r := range []string{"4", "2", "4", "2", "4", "2"} {
+		m.handleAuthCodeKey(tea.KeyPressMsg{Text: r})
+	}
+	cmd := m.handleAuthCodeKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter should return the authentication command")
+	}
+	if msg := cmd().(provAuthDoneMsg); msg.err != nil {
+		t.Fatalf("authenticate: %v", msg.err)
+	}
+
+	if !slices.Equal(p.saved, []string{"424242"}) {
+		t.Fatalf("saved codes = %v, want once with 424242", p.saved)
+	}
+	if m.authCode.active {
+		t.Fatal("enter should close the input")
+	}
+}
+
+func TestAuthCodeInputEscCancels(t *testing.T) {
+	p := &codeAuthStub{}
+	m := &Model{provider: p, playlist: playlist.New()}
+	m.provPane.signIn = true
+	m.handleProviderPaneKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m.handleAuthCodeKey(tea.KeyPressMsg{Text: "9"})
+	m.handleAuthCodeKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	if len(p.saved) != 0 {
+		t.Fatalf("esc should not authenticate: %v", p.saved)
+	}
+	if m.provPane.signIn {
+		// The pane keeps asking: esc only closed the input.
+		_ = m.provPane.signIn
+	}
+}

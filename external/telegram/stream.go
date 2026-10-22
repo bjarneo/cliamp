@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"github.com/bjarneo/cliamp/applog"
+	"github.com/bjarneo/cliamp/player"
 	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/flac"
 	"github.com/gopxl/beep/v2/mp3"
 	"github.com/gopxl/beep/v2/vorbis"
+	"github.com/gopxl/beep/v2/wav"
 	"github.com/gotd/td/telegram/downloader"
 	"github.com/gotd/td/tg"
 )
@@ -269,21 +271,37 @@ func (p *Provider) fetchDocument(ctx context.Context, chat string, msgID int) (*
 	return doc, nil
 }
 
-func decode(reader io.Reader, extension string) (beep.StreamSeekCloser, beep.Format, error) {
+// ffExt lists the extensions that have no native decoder and go through
+// ffmpeg, like the URL pipeline of the player does for these codecs.
+func ffExt(extension string) bool {
 	switch strings.ToLower(extension) {
-	case ".mp3":
-		readCloser, ok := reader.(io.ReadCloser)
-		if !ok {
-			return nil, beep.Format{}, errors.New("telegram: mp3 stream is not a ReadCloser")
-		}
-		return mp3.Decode(readCloser)
-	case ".ogg", ".oga", ".opus":
-		readCloser, ok := reader.(io.ReadCloser)
-		if !ok {
-			return nil, beep.Format{}, errors.New("telegram: ogg stream is not a ReadCloser")
-		}
-		return vorbis.Decode(readCloser)
-	default:
-		return flac.Decode(reader)
+	case ".m4a", ".mp4", ".m4b", ".aac", ".opus", ".webm":
+		return true
 	}
+	return false
+}
+
+func decode(reader io.Reader, extension string) (beep.StreamSeekCloser, beep.Format, error) {
+	readCloser, ok := reader.(io.ReadCloser)
+	ext := strings.ToLower(extension)
+	if !ok {
+		return nil, beep.Format{}, fmt.Errorf("telegram: %s stream is not a ReadCloser", ext)
+	}
+	switch ext {
+	case ".mp3":
+		return mp3.Decode(readCloser)
+	case ".wav":
+		return wav.Decode(readCloser)
+	case ".ogg", ".oga":
+		return vorbis.Decode(readCloser)
+	}
+	if ffExt(ext) {
+		// Opus and the MP4/AAC family have no native decoder; the player's
+		// ffmpeg pipe handles every one of them. It reads until the stream
+		// ends, so a download still in flight keeps feeding it.
+		return player.DecodeFFmpegPipeStream(readCloser)
+	}
+	// FLAC is by far the most common codec shared in music channels; keep it
+	// last so the fallback reads simply.
+	return flac.Decode(readCloser)
 }

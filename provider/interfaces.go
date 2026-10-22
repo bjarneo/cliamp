@@ -437,14 +437,15 @@ type TrackPager interface {
 	TracksPage(playlistID string, offset int) (tracks []playlist.Track, next int, err error)
 }
 
-// ArtworkProvider is implemented by providers whose album art is not known
-// when the track list is built, for example when the cover lives inside the
-// audio file and must be read while it downloads. The UI asks for it when it
-// publishes the current track, so the art resolves on demand instead of
-// blocking the list.
-type ArtworkProvider interface {
-	// ArtworkFor returns a URL for track's cover, or false when unavailable.
-	ArtworkFor(track playlist.Track) (url string, ok bool)
+// CodeAuthenticator is implemented by providers whose sign-in asks for a
+// one-time code instead of a browser flow. The provider pane collects the
+// code the Prompt describes and hands it to Authenticate, so the terminal is
+// never taken over mid-session.
+type CodeAuthenticator interface {
+	// Prompt returns the copy shown above the code input.
+	Prompt() string
+	// Authenticate completes the sign-in with the code the user typed.
+	Authenticate(code string) error
 }
 
 // ChatFilter is implemented by a provider whose list can be narrowed to a set

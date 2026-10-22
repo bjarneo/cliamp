@@ -64,6 +64,13 @@ func normalizePhone(phone string) string {
 	return b.String()
 }
 
+// staticCode supplies the code the provider pane collected.
+func staticCode(code string) auth.CodeAuthenticator {
+	return auth.CodeAuthenticatorFunc(func(_ context.Context, _ *tg.AuthSentCode) (string, error) {
+		return code, nil
+	})
+}
+
 // promptCode reads the login code from the terminal. Telegram sends it inside
 // the app, not by SMS.
 func promptCode() auth.CodeAuthenticator {

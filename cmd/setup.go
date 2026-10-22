@@ -816,7 +816,7 @@ func providers() []providerSpec {
 				}
 			},
 			pickChats: func(v map[string]string) (chatPick, error) {
-				p := telegram.NewFromConfig(telegramConfigFrom(v), false)
+				p := telegram.NewFromConfig(telegramConfigFrom(v))
 				if p == nil {
 					return chatPick{}, errors.New("telegram is not configured yet")
 				}

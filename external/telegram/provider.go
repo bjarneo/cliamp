@@ -28,9 +28,10 @@ import (
 
 // Compile-time interface checks.
 var (
-	_ playlist.Provider       = (*Provider)(nil)
-	_ provider.CustomStreamer = (*Provider)(nil)
-	_ provider.TrackPager     = (*Provider)(nil)
+	_ playlist.Provider          = (*Provider)(nil)
+	_ provider.CustomStreamer    = (*Provider)(nil)
+	_ provider.TrackPager        = (*Provider)(nil)
+	_ provider.CodeAuthenticator = (*Provider)(nil)
 )
 
 const (
@@ -54,27 +55,46 @@ type msgKey struct {
 	id   int
 }
 
-// Provider lists the audio of one Telegram chat and streams its documents.
-type Provider struct {
-	cfg         config.TelegramConfig
-	client      *tgclient.Client
-	api         *tg.Client
-	ready       chan struct{}
-	signIn      chan struct{}
-	signInOnce  sync.Once
-	closeOnce   sync.Once
-	connectErr  error
-	cacheDir    string
-	artMu       sync.Mutex
-	artCache    map[msgKey]string
-	chatsMu     sync.Mutex
-	chatsCache  map[string]playlist.PlaylistInfo
-	downloadMu  sync.Mutex
-	interactive bool
+// provState is where the connection stands.
+type provState int
+
+const (
+	provConnecting provState = iota
+	provNeedsAuth            // connected without a session: the pane collects the code
+	provReady
+	provFailed
+)
+
+// authRequest asks the connected client to run the sign-in with a code and
+// reports one attempt back to the caller in the pane.
+type authRequest struct {
+	code   string
+	result chan error
 }
 
-// NewFromConfig returns nil when [telegram] is not configured.
-func NewFromConfig(cfg config.TelegramConfig, interactive bool) *Provider {
+// Provider lists the audio of one Telegram chat and streams its documents.
+type Provider struct {
+	cfg        config.TelegramConfig
+	client     *tgclient.Client
+	api        *tg.Client
+	authReq    chan authRequest
+	mu         sync.Mutex // guards state and connectErr
+	state      provState
+	connectErr error
+	cacheDir   string
+	artMu      sync.Mutex
+	artCache   map[msgKey]string
+	chatsMu    sync.Mutex
+	chatsCache map[string]playlist.PlaylistInfo
+	downloadMu sync.Mutex
+}
+
+// NewFromConfig returns nil when [telegram] is not configured. It never
+// blocks: the connection comes up in the background and the first Playlists,
+// Tracks or stream call waits for it, so a slow or unreachable network does
+// not hold the interface back. Without a saved session the pane shows the
+// sign-in prompt and collects the code there (provider.CodeAuthenticator).
+func NewFromConfig(cfg config.TelegramConfig) *Provider {
 	if !cfg.IsSet() {
 		return nil
 	}
@@ -83,28 +103,12 @@ func NewFromConfig(cfg config.TelegramConfig, interactive bool) *Provider {
 		cache = os.TempDir()
 	}
 	p := &Provider{
-		cfg:         cfg,
-		ready:       make(chan struct{}),
-		signIn:      make(chan struct{}),
-		cacheDir:    filepath.Join(cache, "cliamp", "telegram"),
-		artCache:    make(map[msgKey]string),
-		interactive: interactive,
+		cfg:      cfg,
+		authReq:  make(chan authRequest),
+		cacheDir: filepath.Join(cache, "cliamp", "telegram"),
+		artCache: make(map[msgKey]string),
 	}
 	go p.run()
-	// The sign-in prompt writes to stdin/stderr and must happen before the TUI
-	// takes over the terminal. Connecting keeps the 45s budget, because a slow
-	// or unreachable network must not hold the interface back; once the sign-in
-	// starts, reading the code from the user gets its own budget so the TUI
-	// does not take the terminal while the reader is still on stdin.
-	select {
-	case <-p.ready:
-	case <-p.signIn:
-		select {
-		case <-p.ready:
-		case <-time.After(loginWait):
-		}
-	case <-time.After(connectWait):
-	}
 	return p
 }
 
@@ -138,9 +142,33 @@ func (p *Provider) SetChats(chats []string) error {
 	return nil
 }
 
+// Prompt implements provider.CodeAuthenticator.
+func (p *Provider) Prompt() string { return "Enter the code Telegram sent to your app" }
+
+// Authenticate implements provider.CodeAuthenticator: it runs the handshake
+// with the code the user typed on the live connection. The pane calls it once
+// per attempt, so a rejected code can be corrected and repeated.
+func (p *Provider) Authenticate(code string) error {
+	if err := p.wait(); err != nil && !errors.Is(err, playlist.ErrNeedsAuth) {
+		return err
+	}
+	req := authRequest{result: make(chan error, 1)}
+	select {
+	case p.authReq <- req:
+	case <-time.After(5 * time.Second):
+		return errors.New("telegram: not connected, try again")
+	}
+	select {
+	case err := <-req.result:
+		return err
+	case <-time.After(loginWait):
+		return errors.New("telegram: sign in timed out")
+	}
+}
+
 func (p *Provider) run() {
 	if err := os.MkdirAll(filepath.Dir(p.sessionPath()), 0o700); err != nil {
-		p.finish(err)
+		p.setFailed(err)
 		return
 	}
 	p.client = tgclient.NewClient(p.cfg.AppID, p.cfg.AppHash, tgclient.Options{
@@ -149,41 +177,61 @@ func (p *Provider) run() {
 	err := p.client.Run(context.Background(), func(ctx context.Context) error {
 		status, err := p.client.Auth().Status(ctx)
 		if err != nil {
+			p.setFailed(err)
 			return err
 		}
 		if !status.Authorized {
-			if !p.interactive {
-				return playlist.ErrNeedsAuth
-			}
-			if err := p.login(ctx); err != nil {
-				return err
-			}
+			// Connected without a session: keep the connection open and let
+			// the provider pane drive the sign-in with the typed code.
+			p.setNeedsAuth()
+			return p.awaitSignIn(ctx)
 		}
 		p.api = p.client.API()
-		p.finish(nil)
+		p.setReady()
 		// Keep the client (and its connection) alive for the provider lifetime.
 		<-ctx.Done()
 		return nil
 	})
 	if err != nil {
-		p.finish(err)
+		p.setFailed(err)
 	}
 }
 
-func (p *Provider) finish(err error) {
-	p.closeOnce.Do(func() {
-		p.connectErr = err
-		close(p.ready)
-	})
+// awaitSignIn serves Authenticate requests on the live connection until one
+// code signs in, the client stops, or the channel closes.
+func (p *Provider) awaitSignIn(ctx context.Context) error {
+	for {
+		var req authRequest
+		var ok bool
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case req, ok = <-p.authReq:
+		}
+		if !ok {
+			return nil
+		}
+		err := p.signInWith(ctx, req.code)
+		select {
+		case req.result <- err:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		if err == nil {
+			p.api = p.client.API()
+			p.setReady()
+			<-ctx.Done()
+			return ctx.Err()
+		}
+	}
 }
 
-func (p *Provider) login(ctx context.Context) error {
-	p.signInOnce.Do(func() { close(p.signIn) })
+func (p *Provider) signInWith(ctx context.Context, code string) error {
 	if p.cfg.Phone == "" {
 		return errors.New("telegram: [telegram] phone is required to sign in")
 	}
 	flow := auth.NewFlow(
-		auth.Constant(normalizePhone(p.cfg.Phone), p.cfg.Password, promptCode()),
+		auth.Constant(normalizePhone(p.cfg.Phone), p.cfg.Password, staticCode(code)),
 		auth.SendCodeOptions{},
 	)
 	if err := flow.Run(ctx, p.client.Auth()); err != nil {
@@ -192,19 +240,44 @@ func (p *Provider) login(ctx context.Context) error {
 	return nil
 }
 
+func (p *Provider) setStateLocked(state provState, err error) {
+	p.mu.Lock()
+	p.state = state
+	p.connectErr = err
+	p.mu.Unlock()
+}
+
+func (p *Provider) setNeedsAuth()       { p.setStateLocked(provNeedsAuth, playlist.ErrNeedsAuth) }
+func (p *Provider) setReady()           { p.setStateLocked(provReady, nil) }
+func (p *Provider) setFailed(err error) { p.setStateLocked(provFailed, err) }
+
+func (p *Provider) currentState() provState {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.state
+}
+
+// wait returns once the connection is usable. playlist.ErrNeedsAuth means the
+// pane must collect the login code; other errors keep the call retryable.
 func (p *Provider) wait() error {
-	select {
-	case <-p.ready:
-	case <-time.After(connectWait):
-		return errors.New("telegram: still connecting, try again")
+	deadline := time.Now().Add(connectWait)
+	for {
+		switch p.currentState() {
+		case provReady:
+			return nil
+		case provNeedsAuth:
+			return playlist.ErrNeedsAuth
+		case provFailed:
+			if err := p.connectErr; err != nil {
+				return err
+			}
+			return errors.New("telegram: connection failed")
+		}
+		if time.Now().After(deadline) {
+			return errors.New("telegram: still connecting, try again")
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	if p.connectErr != nil {
-		return p.connectErr
-	}
-	if p.api == nil {
-		return playlist.ErrNeedsAuth
-	}
-	return nil
 }
 
 // Name implements playlist.Provider.
@@ -887,7 +960,9 @@ func extensionFor(doc *tg.Document) string {
 	switch strings.ToLower(doc.MimeType) {
 	case "audio/mpeg":
 		return ".mp3"
-	case "audio/ogg", "audio/opus":
+	case "audio/opus":
+		return ".opus"
+	case "audio/ogg":
 		return ".ogg"
 	default:
 		return ".flac"

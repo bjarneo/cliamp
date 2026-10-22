@@ -21,9 +21,10 @@ api_hash = "0123456789abcdef0123456789abcdef"
 phone    = "+5491100000000"
 ```
 
-3. Start cliamp. When setup did not sign in, the first run asks for the login
-   code **before** the interface takes over the terminal. The code arrives inside the Telegram app, not by
-   SMS. Set `password` as well when the account has 2FA.
+3. Start cliamp. When setup did not sign in, the Telegram pane asks for it:
+   press `enter` on the pane and a small input collects the code the Telegram
+   app delivered (it is not sent by SMS). A wrong code can be corrected in
+   place. Set `password` in the config as well when the account has 2FA.
 
 The session is stored in `~/.local/share/cliamp/telegram.session` and reused
 afterwards, so the code is only asked once.
@@ -76,9 +77,16 @@ megabytes are on disk and the rest keeps downloading in the background, so a
 30 MB FLAC starts in a few seconds instead of waiting for the whole file.
 
 - `buffer_mb` (default `1`) sets how much is buffered before playback.
-- `Esc` or `s` cancels the download in flight, removes the partial file and
-  resets the player.
+- Skipping a track or stopping does not cancel its download: it keeps filling
+  the cache in the background and finishes on its own.
 - Files are cached under `~/.cache/cliamp/telegram/<chat>/`.
+
+## Codecs
+
+MP3, FLAC, Ogg Vorbis and WAV decode natively. Opus and the MP4/AAC family go
+through the same ffmpeg pipe the player uses for those codecs elsewhere, so
+they need `ffmpeg` installed; without it those files report a decode error
+while every other chat keeps playing.
 
 ## Cover art
 
@@ -101,7 +109,10 @@ screen, desktop widgets) as a `data:` URL.
 ## Limits
 
 - One account: the provider browses the dialogs of the signed-in user.
+- Startup never waits for the connection: the first list or track reports
+  "still connecting, try again" while it settles, and a later reload succeeds.
 - Telegram throttles a single connection to roughly 0.75 MB/s, so large files
   take a while; the buffer hides most of the wait.
-- The login code is requested in the terminal before the TUI starts, so the
-  first run needs a real terminal.
+- The login code is collected inside the interface: press `enter` on the
+  Telegram pane. The terminal sign-in stays available through `cliamp setup`,
+  which owns the terminal while it runs.

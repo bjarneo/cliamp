@@ -228,6 +228,44 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	return m.handleMainKey(msg)
 }
 
+// openAuthCodeInput shows the code input. Enter there runs the handshake.
+func (m *Model) openAuthCodeInput() tea.Cmd {
+	m.authCode = authCodeState{active: true, name: m.provider.Name()}
+	if ca, ok := m.provider.(provider.CodeAuthenticator); ok {
+		m.authCode.hint = ca.Prompt()
+	}
+	return nil
+}
+
+// handleAuthCodeKey owns the input of the one-time code overlay.
+func (m *Model) handleAuthCodeKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.Code {
+	case tea.KeyEscape:
+		m.authCode.active = false
+	case tea.KeyEnter:
+		code := strings.TrimSpace(m.authCode.input)
+		ca, ok := m.provider.(provider.CodeAuthenticator)
+		if !ok {
+			m.authCode.active = false
+			return nil
+		}
+		if code == "" {
+			m.authCode.err = "Enter the code the app received."
+			return nil
+		}
+		m.authCode.active = false
+		m.provPane.signIn = false
+		m.provPane.loading = true
+		m.err = nil
+		return authenticateCodeCmd(ca, code, m.authCode.name, nextRequest(&m.requests.auth))
+	default:
+		if m.editText("auth-code", &m.authCode.input, msg) {
+			m.authCode.err = ""
+		}
+	}
+	return nil
+}
+
 // handleGlobalKey processes the keys that work over every overlay and focus:
 // quit, undo and the keymap. While the terminal is too small, it takes every
 // key and quits on q or ctrl+c. The screen shows only the too-small notice
@@ -307,6 +345,11 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.maybeLoadCatalogBatch()
 	case "enter":
 		if m.provPane.signIn {
+			if _, ok := m.provider.(provider.CodeAuthenticator); ok {
+				// A typed code needs the input first; the handshake waits
+				// for it on the live connection.
+				return m.openAuthCodeInput()
+			}
 			if auth, ok := m.provider.(playlist.Authenticator); ok {
 				m.provPane.signIn = false
 				m.provPane.loading = true

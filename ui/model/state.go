@@ -124,6 +124,17 @@ type urlInputState struct {
 	err    string
 }
 
+// authCodeState collects the one-time code a provider asked for through
+// provider.CodeAuthenticator, so the sign-in runs from the pane and never
+// takes the terminal.
+type authCodeState struct {
+	active bool
+	input  string
+	err    string
+	name   string // display name of the provider asking
+	hint   string // the provider's Prompt()
+}
+
 // infoOverlay holds state for the track info overlay.
 type infoOverlay struct {
 	visible bool

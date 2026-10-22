@@ -1,8 +1,10 @@
 package telegram
 
 import (
+	"errors"
 	"testing"
 
+	"github.com/bjarneo/cliamp/playlist"
 	"github.com/gotd/td/tg"
 )
 
@@ -127,6 +129,11 @@ func TestExtensionFor(t *testing.T) {
 			want: ".ogg",
 		},
 		{
+			name: "mime opus",
+			doc:  &tg.Document{MimeType: "audio/opus"},
+			want: ".opus",
+		},
+		{
 			name: "fallback flac",
 			doc:  &tg.Document{MimeType: "audio/unknown"},
 			want: ".flac",
@@ -138,6 +145,34 @@ func TestExtensionFor(t *testing.T) {
 				t.Fatalf("extensionFor() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestWaitReflectsState(t *testing.T) {
+	p := &Provider{authReq: make(chan authRequest)}
+
+	p.setReady()
+	if err := p.wait(); err != nil {
+		t.Fatalf("ready wait: %v", err)
+	}
+
+	p.setNeedsAuth()
+	if err := p.wait(); !errors.Is(err, playlist.ErrNeedsAuth) {
+		t.Fatalf("needs auth wait = %v, want ErrNeedsAuth", err)
+	}
+
+	p.setFailed(errors.New("boom"))
+	err := p.wait()
+	if err == nil || errors.Is(err, playlist.ErrNeedsAuth) {
+		t.Fatalf("failed wait = %v, want the connect error", err)
+	}
+}
+
+func TestAuthenticateRejectsWhenUnusable(t *testing.T) {
+	p := &Provider{authReq: make(chan authRequest)}
+	p.setFailed(errors.New("boom"))
+	if err := p.Authenticate("12345"); err == nil {
+		t.Fatal("Authenticate should fail before sending when the client is gone")
 	}
 }
 
