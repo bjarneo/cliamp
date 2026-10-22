@@ -182,31 +182,79 @@ func (p *Provider) wait() error {
 // Name implements playlist.Provider.
 func (p *Provider) Name() string { return "Telegram" }
 
-// Playlists implements playlist.Provider. With [telegram] chat set it returns
-// only that chat; otherwise every dialog of the account, grouped by kind.
+// Playlists implements playlist.Provider. With [telegram] chats it returns
+// those chats; otherwise every dialog of the account, grouped by kind.
 func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
+	if len(p.cfg.Chats) == 0 {
+		return p.Dialogs()
+	}
 	if err := p.wait(); err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	if len(p.cfg.Chats) > 0 {
-		out := make([]playlist.PlaylistInfo, 0, len(p.cfg.Chats))
-		seen := make(map[string]struct{}, len(p.cfg.Chats))
-		for _, chat := range p.cfg.Chats {
-			info, err := p.resolveChatCached(ctx, chat)
+	// An id needs the dialog list for the title, the section and a current
+	// access hash; a username resolves on its own.
+	needsDialogs := false
+	for _, chat := range p.cfg.Chats {
+		if _, _, ok := peerKey(chat); ok {
+			needsDialogs = true
+			break
+		}
+	}
+	var byKey map[string]playlist.PlaylistInfo
+	if needsDialogs {
+		dialogs, err := p.dialogs(ctx)
+		if err != nil {
+			return nil, err
+		}
+		byKey = make(map[string]playlist.PlaylistInfo, len(dialogs))
+		for _, info := range dialogs {
+			if _, key, ok := peerKey(info.ID); ok {
+				byKey[key] = info
+			}
+		}
+	}
+
+	out := make([]playlist.PlaylistInfo, 0, len(p.cfg.Chats))
+	seen := make(map[string]struct{}, len(p.cfg.Chats))
+	for _, chat := range p.cfg.Chats {
+		var (
+			info playlist.PlaylistInfo
+			err  error
+		)
+		if _, key, ok := peerKey(chat); ok {
+			if found, hit := byKey[key]; hit {
+				info = found
+			} else {
+				// The chat left the dialog list. Keep the id so the entry
+				// stays visible instead of silently disappearing.
+				info = playlist.PlaylistInfo{ID: strings.TrimSpace(chat), Name: strings.TrimSpace(chat)}
+			}
+		} else {
+			info, err = p.resolveChatCached(ctx, chat)
 			if err != nil {
 				return nil, err
 			}
-			if _, duplicate := seen[info.ID]; duplicate {
-				continue
-			}
-			seen[info.ID] = struct{}{}
-			out = append(out, info)
 		}
-		return out, nil
+		if _, duplicate := seen[info.ID]; duplicate {
+			continue
+		}
+		seen[info.ID] = struct{}{}
+		out = append(out, info)
 	}
+	return out, nil
+}
+
+// Dialogs lists every dialog of the account, ignoring the chats filter. The
+// setup wizard uses it to offer the chat picker.
+func (p *Provider) Dialogs() ([]playlist.PlaylistInfo, error) {
+	if err := p.wait(); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
 	out, err := p.dialogs(ctx)
 	if err != nil {
@@ -627,6 +675,35 @@ func messagesOf(history tg.MessagesMessagesClass) []tg.MessageClass {
 	default:
 		return nil
 	}
+}
+
+// peerKey reduces a peer id to its kind and number. A stored access hash goes
+// stale when the session changes, so matching only the kind and the number
+// keeps the entry working; the dialog list supplies a fresh hash.
+func peerKey(value string) (string, string, bool) {
+	parts := strings.Split(strings.TrimSpace(value), ":")
+	if len(parts) < 2 {
+		return "", "", false
+	}
+	kind := parts[0]
+	switch kind {
+	case "u", "ch":
+		if len(parts) != 3 {
+			return "", "", false
+		}
+	case "c":
+		if len(parts) != 2 {
+			return "", "", false
+		}
+	default:
+		return "", "", false
+	}
+	for _, part := range parts[1:] {
+		if _, err := strconv.ParseInt(part, 10, 64); err != nil {
+			return "", "", false
+		}
+	}
+	return kind, kind + ":" + parts[1], true
 }
 
 // usernameOf accepts "@name", "name" and a t.me link, and returns the

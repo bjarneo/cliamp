@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/bjarneo/cliamp/config"
 )
 
 // keyPress builds a synthetic key event matching what the runtime sends.
@@ -490,6 +492,12 @@ func TestTelegramSetupBody(t *testing.T) {
 		"buffer_mb": "4",
 	})
 
+	// An id written by the picker survives as typed.
+	checkBody(t, spec.body(map[string]string{
+		"api_id": "123456", "api_hash": hash, "phone": "+5491100000000",
+		"chats": "ch:1:2, @mygroup",
+	}), map[string]string{"chats": `["ch:1:2", "mygroup"]`})
+
 	// A t.me link is accepted and reduced to the username.
 	checkBody(t, spec.body(map[string]string{
 		"api_id": "123456", "api_hash": hash, "phone": "+5491100000000",
@@ -515,7 +523,7 @@ func TestTelegramSetupBody(t *testing.T) {
 	if err := spec.extraValidate(spaced); err != nil {
 		t.Fatalf("extraValidate rejected a spaced phone: %v", err)
 	}
-	withChats := map[string]string{"api_id": "123456", "api_hash": hash, "phone": "+5491100000000", "chats": "deezload2bot, @my_group"}
+	withChats := map[string]string{"api_id": "123456", "api_hash": hash, "phone": "+5491100000000", "chats": "deezload2bot, @my_group, ch:1:2"}
 	if err := spec.extraValidate(withChats); err != nil {
 		t.Fatalf("extraValidate rejected the chat list: %v", err)
 	}
@@ -543,6 +551,119 @@ func TestTelegramSetupBody(t *testing.T) {
 	})
 	if cfg.AppID != 123456 || cfg.AppHash != hash || cfg.Phone != "+5491100000000" || cfg.BufferMB != 4 {
 		t.Fatalf("telegramConfigFrom = %+v", cfg)
+	}
+}
+
+func TestChatKey(t *testing.T) {
+	tests := map[string]string{
+		"u:123:456":    "u:123",
+		"ch:-100:99":   "ch:-100",
+		"c:42":         "c:42",
+		"c:42:9":       "",
+		"u:123":        "",
+		"deezload2bot": "",
+		"@mygroup":     "",
+	}
+	for in, want := range tests {
+		if got := chatKey(in); got != want {
+			t.Errorf("chatKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestCheckedChatsMatchesStaleHashes(t *testing.T) {
+	options := []chatOption{
+		{ID: "ch:1:111", Name: "A"},
+		{ID: "u:2:222", Name: "B"},
+		{ID: "c:3", Name: "C"},
+	}
+	checked := checkedChats(options, []string{"ch:1:999", "c:3"})
+	if !checked[0] || checked[1] || !checked[2] {
+		t.Fatalf("checked = %v, want options 0 and 2", checked)
+	}
+}
+
+func TestApplyChatsAllMeansNoFilter(t *testing.T) {
+	m := newSetupModel()
+	m.pidx = 0
+	m.stage = stageChats
+	m.chatItems = []chatOption{{ID: "ch:1:1", Name: "A"}, {ID: "u:2:2", Name: "B"}}
+
+	m.chatChecked = map[int]bool{0: true}
+	m.applyChats()
+	if got := m.values["chats"]; got != "ch:1:1" {
+		t.Fatalf("chats = %q, want ch:1:1", got)
+	}
+
+	m.chatChecked = map[int]bool{0: true, 1: true}
+	m.applyChats()
+	if got := m.values["chats"]; got != "" {
+		t.Fatalf("chats = %q, want empty for every chat", got)
+	}
+}
+
+func TestTypedReplacesPrefilledSecret(t *testing.T) {
+	secret := fieldSpec{key: "api_hash", secret: true}
+	prefilled := map[string]string{"api_hash": "old"}
+	if got := typed(secret, "old", "x", prefilled); got != "x" {
+		t.Fatalf("first keystroke = %q, want the new value only", got)
+	}
+	if got := typed(secret, "x", "y", prefilled); got != "xy" {
+		t.Fatalf("second keystroke = %q, want the value appended", got)
+	}
+	plain := fieldSpec{key: "phone"}
+	if got := typed(plain, "+54", "9", map[string]string{"phone": "+54"}); got != "+549" {
+		t.Fatalf("plain field = %q, want the value appended", got)
+	}
+}
+
+func TestTelegramSetupPrefill(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	path, err := config.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const hash = "0123456789abcdef0123456789abcdef"
+	if err := os.WriteFile(path, []byte(`
+[telegram]
+api_id = 123456
+api_hash = "`+hash+`"
+phone = "+5491100000000"
+password = "pw"
+chats = ["ch:1:2"]
+buffer_mb = 4
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newSetupModel()
+	idx := -1
+	for i, p := range m.provs {
+		if p.section == "telegram" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatal("telegram spec missing")
+	}
+	m.startProvider(idx)
+
+	want := map[string]string{
+		"api_id":    "123456",
+		"api_hash":  hash,
+		"phone":     "+5491100000000",
+		"password":  "pw",
+		"chats":     "ch:1:2",
+		"buffer_mb": "4",
+	}
+	for key, value := range want {
+		if got := m.values[key]; got != value {
+			t.Errorf("prefill %s = %q, want %q", key, got, value)
+		}
 	}
 }
 

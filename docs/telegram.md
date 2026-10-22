@@ -9,9 +9,10 @@ process.
 1. Create an application at [my.telegram.org/apps](https://my.telegram.org/apps)
    and copy its `api_id` and `api_hash`. These identify the client; they are not
    a bot token.
-2. Run `cliamp setup`, pick Telegram and fill the form. Press `s` on the result
-   screen to sign in right there. To write the section by hand instead, add it
-   to `config.toml`:
+2. Run `cliamp setup`, pick Telegram and fill the form. A second run starts
+   from the saved section, so changing one field does not blank the rest. Press
+   `s` on the result screen to sign in right there. To write the section by hand
+   instead, add it to `config.toml`:
 
 ```toml
 [telegram]
@@ -36,16 +37,28 @@ of 100 messages as you scroll; nothing is fetched ahead of time.
 ### Which chats
 
 By default the pane lists every dialog: personal chats, bots, groups and
-channels. To keep only a few, set `chats` to their usernames:
+channels. To keep only a few, run `cliamp setup`, open Telegram and press
+`Ctrl+P` on the Chats field: the wizard lists the dialogs of the account and
+you tick the ones to keep. It writes their ids:
 
 ```toml
-chats = ["deezload2bot", "@mygroup", "somechannel"]
+chats = ["u:5749294212:3552096433505666955", "ch:1006503122:-8968081580107606451"]
 ```
 
-Each entry is a public username, with or without `@`, or a `t.me` link. Private
-groups and channels have no username: leave `chats` empty and they appear with
-the rest of the dialogs. The setup wizard takes the same list as a
-comma-separated field.
+The list includes private groups and channels, which have no username. Ticking
+every chat clears the filter. An id keeps working when the chat is renamed: the
+title, the section and a current access hash come from the dialog list on every
+load.
+
+You can also write public usernames by hand, with or without `@` or as a `t.me`
+link:
+
+```toml
+chats = ["deezload2bot", "@mygroup"]
+```
+
+An empty `chats` lists every chat, group and bot, including the ones you join
+later.
 
 ## Playback
 
@@ -72,7 +85,7 @@ screen, desktop widgets) as a `data:` URL.
 | `api_hash` | yes | Application hash from my.telegram.org |
 | `phone` | for the first sign-in | International format |
 | `password` | no | 2FA password |
-| `chats` | no | Usernames to show instead of every dialog |
+| `chats` | no | Ids picked with `Ctrl+P` or usernames; empty lists every dialog |
 | `buffer_mb` | no | Megabytes buffered before playback (default 1) |
 | `session_file` | no | Session path (default `~/.local/share/cliamp/telegram.session`) |
 

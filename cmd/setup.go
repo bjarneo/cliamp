@@ -74,6 +74,13 @@ type fieldSpec struct {
 	onlyIf func(map[string]string) bool
 }
 
+// chatOption is one row of the chat picker: a dialog of the account.
+type chatOption struct {
+	ID      string
+	Name    string
+	Section string
+}
+
 type providerSpec struct {
 	key     string
 	name    string
@@ -96,6 +103,20 @@ type providerSpec struct {
 	// the Telegram sign-in. Setup runs it after the wizard exits because it
 	// may prompt on the terminal. It returns the hint label and the action.
 	signIn func(map[string]string) (string, func(context.Context) error)
+	// prefill returns the values the form starts with, so a second run edits
+	// the current config instead of blanking it.
+	prefill func() map[string]string
+	// pickChats lists the dialogs of the account for the chats field, plus the
+	// ids the form already selects. Nil hides the picker.
+	pickChats func(map[string]string) (chatPick, error)
+}
+
+// chatPick is what the picker receives: the dialogs, the ids already
+// selected, and a warning for a selection that could not be resolved.
+type chatPick struct {
+	options  []chatOption
+	selected []string
+	warn     error
 }
 
 // pickerSpec is an optional radio choice shown before the fields. The
@@ -695,13 +716,14 @@ func providers() []providerSpec {
 				"Play the audio of your own Telegram chats over MTProto.",
 				"Create an application at https://my.telegram.org/apps and copy its api_id and api_hash.",
 				"Press s after saving to sign in here; otherwise the first start of cliamp asks for the code.",
+				"Leave Chats blank to show every chat, group and bot.",
 			},
 			fields: []fieldSpec{
 				{key: "api_id", label: "API ID", help: "the numeric id from my.telegram.org/apps", required: true},
 				{key: "api_hash", label: "API hash", help: "32 hexadecimal characters", required: true, secret: true},
 				{key: "phone", label: "Phone", help: "international format, e.g. +5491100000000", required: true},
 				{key: "password", label: "2FA password", help: "only when the account has two-step verification", secret: true},
-				{key: "chats", label: "Chats", help: "optional: comma-separated usernames to show alone, e.g. deezload2bot, @mygroup; blank lists every dialog"},
+				{key: "chats", label: "Chats", help: "optional: blank shows every chat, group and bot; ctrl+p picks them from the account"},
 				{key: "buffer_mb", label: "Buffer (MB)", help: "megabytes buffered before playback starts", defaultV: "1"},
 			},
 			extraValidate: func(v map[string]string) error {
@@ -719,8 +741,11 @@ func providers() []providerSpec {
 					return errors.New("Phone must be in international format, e.g. +5491100000000")
 				}
 				for _, chat := range setupChats(v["chats"]) {
+					if chatKey(chat) != "" {
+						continue
+					}
 					if !validUsername(chat) {
-						return fmt.Errorf("%q is not a Telegram username. Use @name or a t.me link; a private group has no username, leave the list blank to show every dialog", chat)
+						return fmt.Errorf("%q is not a Telegram username. Use @name or a t.me link, pick the chats with ctrl+p, or leave the list blank to show every chat, group and bot", chat)
 					}
 				}
 				if b := strings.TrimSpace(v["buffer_mb"]); b != "" {
@@ -754,6 +779,52 @@ func providers() []providerSpec {
 				return "sign in now", func(ctx context.Context) error {
 					return telegram.SignIn(ctx, cfg)
 				}
+			},
+			prefill: func() map[string]string {
+				cfg, err := config.Load()
+				if err != nil || !cfg.Telegram.IsSet() {
+					return nil
+				}
+				mb := cfg.Telegram.BufferMB
+				if mb <= 0 {
+					mb = 1
+				}
+				return map[string]string{
+					"api_id":    strconv.Itoa(cfg.Telegram.AppID),
+					"api_hash":  cfg.Telegram.AppHash,
+					"phone":     cfg.Telegram.Phone,
+					"password":  cfg.Telegram.Password,
+					"chats":     strings.Join(cfg.Telegram.Chats, ", "),
+					"buffer_mb": strconv.Itoa(mb),
+				}
+			},
+			pickChats: func(v map[string]string) (chatPick, error) {
+				p := telegram.NewFromConfig(telegramConfigFrom(v), false)
+				if p == nil {
+					return chatPick{}, errors.New("telegram is not configured yet")
+				}
+				dialogs, err := p.Dialogs()
+				if err != nil {
+					return chatPick{}, fmt.Errorf("%w\nSave the section and press s to sign in, or start cliamp once.", err)
+				}
+				pick := chatPick{options: make([]chatOption, 0, len(dialogs))}
+				for _, dialog := range dialogs {
+					pick.options = append(pick.options, chatOption{ID: dialog.ID, Name: dialog.Name, Section: dialog.Section})
+				}
+				if len(setupChats(v["chats"])) == 0 {
+					return pick, nil
+				}
+				// The current list may hold usernames; resolve them so the
+				// picker shows them checked.
+				selected, err := p.Playlists()
+				if err != nil {
+					pick.warn = fmt.Errorf("could not resolve the current selection: %w", err)
+					return pick, nil
+				}
+				for _, item := range selected {
+					pick.selected = append(pick.selected, item.ID)
+				}
+				return pick, nil
 			},
 		},
 	}
@@ -866,6 +937,7 @@ const (
 	stageMenu stage = iota
 	stagePicker
 	stageForm
+	stageChats
 	stageValidating
 	stageResult
 )
@@ -884,9 +956,18 @@ type setupModel struct {
 	pickerCursor int
 
 	// form state
-	values  map[string]string
-	visible []int // indices into provs[pidx].fields that are currently visible
-	fcursor int
+	values    map[string]string
+	prefilled map[string]string // values a second run started from
+	visible   []int             // indices into provs[pidx].fields that are currently visible
+	fcursor   int
+
+	// chat picker
+	chatItems   []chatOption
+	chatChecked map[int]bool
+	chatCursor  int
+	chatErr     error
+	chatWarn    error
+	chatLoading bool
 
 	// validating
 	spinFrame int
@@ -955,6 +1036,69 @@ func runValidateCmd(spec providerSpec, values map[string]string) tea.Cmd {
 	}
 }
 
+type chatsLoadedMsg struct {
+	options []chatOption
+	checked map[int]bool
+	err     error
+	warn    error
+}
+
+func loadChatsCmd(spec providerSpec, values map[string]string) tea.Cmd {
+	return func() tea.Msg {
+		pick, err := spec.pickChats(values)
+		if err != nil {
+			return chatsLoadedMsg{err: err}
+		}
+		return chatsLoadedMsg{options: pick.options, checked: checkedChats(pick.options, pick.selected), warn: pick.warn}
+	}
+}
+
+// checkedChats marks the options that the configured ids select. It matches
+// by kind and number, so a stored access hash that went stale still matches.
+func checkedChats(options []chatOption, selected []string) map[int]bool {
+	wanted := make(map[string]struct{}, len(selected))
+	for _, id := range selected {
+		if key := chatKey(id); key != "" {
+			wanted[key] = struct{}{}
+		}
+	}
+	checked := make(map[int]bool, len(wanted))
+	for i, option := range options {
+		if key := chatKey(option.ID); key != "" {
+			if _, ok := wanted[key]; ok {
+				checked[i] = true
+			}
+		}
+	}
+	return checked
+}
+
+// chatKey reduces a peer id to kind:number, ignoring a stale access hash.
+func chatKey(id string) string {
+	parts := strings.Split(strings.TrimSpace(id), ":")
+	if len(parts) < 2 {
+		return ""
+	}
+	switch parts[0] {
+	case "u", "ch":
+		if len(parts) != 3 {
+			return ""
+		}
+	case "c":
+		if len(parts) != 2 {
+			return ""
+		}
+	default:
+		return ""
+	}
+	for _, part := range parts[1:] {
+		if _, err := strconv.ParseInt(part, 10, 64); err != nil {
+			return ""
+		}
+	}
+	return parts[0] + ":" + parts[1]
+}
+
 // ----- Update -------------------------------------------------------------
 
 func (m *setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -970,10 +1114,24 @@ func (m *setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handlePaste(msg.Content)
 
 	case spinTickMsg:
-		if m.stage == stageValidating {
+		if m.stage == stageValidating || (m.stage == stageChats && m.chatLoading) {
 			m.spinFrame++
 			return m, spinTickCmd()
 		}
+		return m, nil
+
+	case chatsLoadedMsg:
+		if m.stage != stageChats {
+			return m, nil
+		}
+		m.chatLoading = false
+		m.chatItems = msg.options
+		m.chatChecked = msg.checked
+		if m.chatChecked == nil {
+			m.chatChecked = map[int]bool{}
+		}
+		m.chatErr, m.chatWarn = msg.err, msg.warn
+		m.chatCursor = 0
 		return m, nil
 
 	case validateDoneMsg:
@@ -995,7 +1153,7 @@ func (m *setupModel) handlePaste(content string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	field := m.provs[m.pidx].fields[m.visible[m.fcursor]]
-	m.values[field.key] += clean
+	m.values[field.key] = typed(field, m.values[field.key], clean, m.prefilled)
 	return m, nil
 }
 
@@ -1030,6 +1188,8 @@ func (m *setupModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.pickerKey(msg)
 	case stageForm:
 		return m.formKey(msg)
+	case stageChats:
+		return m.chatsKey(msg)
 	case stageValidating:
 		// Ignore input while probing.
 		return m, nil
@@ -1060,6 +1220,12 @@ func (m *setupModel) menuKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *setupModel) startProvider(idx int) {
 	m.pidx = idx
 	m.values = map[string]string{}
+	// A second run starts from the saved section, so changing one field does
+	// not blank the rest.
+	if spec := m.provs[idx]; spec.prefill != nil {
+		maps.Copy(m.values, spec.prefill())
+	}
+	m.prefilled = maps.Clone(m.values)
 	m.fcursor = 0
 	m.pickerCursor = 0
 	m.resultErr = nil
@@ -1068,6 +1234,7 @@ func (m *setupModel) startProvider(idx int) {
 	m.awaitingSave = false
 	m.saveFailed = nil
 	m.signInLabel, m.signInAction, m.signInRequested = "", nil, false
+	m.chatItems, m.chatChecked, m.chatCursor, m.chatErr, m.chatWarn, m.chatLoading = nil, nil, 0, nil, nil, false
 
 	if m.provs[idx].picker != nil {
 		m.stage = stagePicker
@@ -1111,6 +1278,16 @@ func (m *setupModel) formKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	field := m.provs[m.pidx].fields[m.visible[m.fcursor]]
 	cur := m.values[field.key]
 
+	// The chats field can open a checklist of the account dialogs, so the
+	// usual typo-prone usernames are optional.
+	if field.key == "chats" && m.provs[m.pidx].pickChats != nil && msg.String() == "ctrl+p" {
+		m.stage = stageChats
+		m.chatLoading = true
+		m.chatErr, m.chatWarn = nil, nil
+		m.chatCursor = 0
+		return m, tea.Batch(spinTickCmd(), loadChatsCmd(m.provs[m.pidx], maps.Clone(m.values)))
+	}
+
 	switch msg.Code {
 	case tea.KeyEscape:
 		m.stage = stageMenu
@@ -1145,7 +1322,7 @@ func (m *setupModel) formKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeySpace:
-		m.values[field.key] = cur + " "
+		m.values[field.key] = typed(field, cur, " ", m.prefilled)
 		return m, nil
 	}
 
@@ -1155,9 +1332,94 @@ func (m *setupModel) formKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if len(msg.Text) > 0 {
-		m.values[field.key] = cur + msg.Text
+		m.values[field.key] = typed(field, cur, msg.Text, m.prefilled)
 	}
 	return m, nil
+}
+
+// typed appends text to cur, except in a secret field that still holds the
+// value it was prefilled with: the first keystroke replaces the secret
+// instead of appending to it.
+func typed(field fieldSpec, cur, text string, prefilled map[string]string) string {
+	if field.secret {
+		if before, ok := prefilled[field.key]; ok && cur == before {
+			return text
+		}
+	}
+	return cur + text
+}
+
+const chatPageSize = 12
+
+// chatsKey drives the chat checklist: space toggles, a and n mark everything
+// or nothing, and enter writes the picked ids into the chats field.
+func (m *setupModel) chatsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.chatLoading {
+		if msg.String() == "esc" {
+			m.chatLoading = false
+			m.stage = stageForm
+		}
+		return m, nil
+	}
+	switch msg.String() {
+	case "esc", "q":
+		m.stage = stageForm
+	case "up", "k":
+		if m.chatCursor > 0 {
+			m.chatCursor--
+		}
+	case "down", "j":
+		if m.chatCursor < len(m.chatItems)-1 {
+			m.chatCursor++
+		}
+	case "pgup":
+		m.chatCursor = max(0, m.chatCursor-chatPageSize)
+	case "pgdown":
+		if n := len(m.chatItems); n > 0 {
+			m.chatCursor = min(n-1, m.chatCursor+chatPageSize)
+		}
+	case "home":
+		m.chatCursor = 0
+	case "end":
+		if n := len(m.chatItems); n > 0 {
+			m.chatCursor = n - 1
+		}
+	case " ", "space":
+		if len(m.chatItems) > 0 {
+			m.chatChecked[m.chatCursor] = !m.chatChecked[m.chatCursor]
+		}
+	case "a":
+		for i := range m.chatItems {
+			m.chatChecked[i] = true
+		}
+	case "n":
+		m.chatChecked = map[int]bool{}
+	case "enter":
+		m.applyChats()
+	}
+	return m, nil
+}
+
+// applyChats writes the checked ids into the chats field. Picking every chat
+// means no filter, so the field stays empty and chats created later appear
+// too.
+func (m *setupModel) applyChats() {
+	if len(m.chatItems) == 0 {
+		m.stage = stageForm
+		return
+	}
+	selected := make([]string, 0, len(m.chatChecked))
+	for i, option := range m.chatItems {
+		if m.chatChecked[i] {
+			selected = append(selected, option.ID)
+		}
+	}
+	if len(selected) == len(m.chatItems) {
+		m.values["chats"] = ""
+	} else {
+		m.values["chats"] = strings.Join(selected, ", ")
+	}
+	m.stage = stageForm
 }
 
 func (m *setupModel) submitForm() (tea.Model, tea.Cmd) {
@@ -1369,6 +1631,8 @@ func (m *setupModel) View() tea.View {
 		body = m.viewPicker()
 	case stageForm:
 		body = m.viewForm()
+	case stageChats:
+		body = m.viewChats()
 	case stageValidating:
 		body = m.viewValidating()
 	case stageResult:
@@ -1483,6 +1747,78 @@ func (m *setupModel) viewForm() string {
 	return m.card(strings.TrimRight(b.String(), "\n"))
 }
 
+func (m *setupModel) viewChats() string {
+	var b strings.Builder
+	b.WriteString(accentStyle.Render("Chats"))
+	b.WriteString("\n\n")
+
+	if m.chatLoading {
+		frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+		b.WriteString(accentStyle.Render(frames[m.spinFrame%len(frames)]) + " Listing the dialogs of the account…")
+		b.WriteString("\n\n")
+		b.WriteString(hintStyle.Render("Esc cancels."))
+		return m.card(b.String())
+	}
+
+	if m.chatErr != nil {
+		b.WriteString(errStyle.Render("✗ Could not list the dialogs"))
+		b.WriteString("\n\n")
+		b.WriteString(m.chatErr.Error())
+		b.WriteString("\n\n")
+		b.WriteString(hintStyle.Render("Esc goes back to the form, where the list can be typed by hand."))
+		return m.card(b.String())
+	}
+
+	if m.chatWarn != nil {
+		b.WriteString(warnStyle.Render("⚠ " + m.chatWarn.Error()))
+		b.WriteString("\n\n")
+	}
+
+	if len(m.chatItems) == 0 {
+		b.WriteString("The account has no dialogs.")
+		b.WriteString("\n\n")
+		b.WriteString(hintStyle.Render("Esc goes back to the form."))
+		return m.card(b.String())
+	}
+
+	start := 0
+	if m.chatCursor >= chatPageSize {
+		start = m.chatCursor - chatPageSize + 1
+	}
+	end := min(start+chatPageSize, len(m.chatItems))
+	checked := 0
+	for i := range m.chatItems {
+		if m.chatChecked[i] {
+			checked++
+		}
+	}
+	for i := start; i < end; i++ {
+		option := m.chatItems[i]
+		box := "[ ]"
+		if m.chatChecked[i] {
+			box = "[x]"
+		}
+		line := box + " " + option.Name
+		if option.Section != "" {
+			line += "  " + dimStyle.Render(option.Section)
+		}
+		if i == m.chatCursor {
+			b.WriteString(accentStyle.Render("▸ ") + line)
+		} else {
+			b.WriteString("  " + line)
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render(fmt.Sprintf("%d of %d selected", checked, len(m.chatItems))))
+	if start > 0 || end < len(m.chatItems) {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("   showing %d-%d", start+1, end)))
+	}
+	b.WriteString("\n\n")
+	b.WriteString(hintStyle.Render("Picking every chat means no filter: chats created later appear too."))
+	return m.card(b.String())
+}
+
 func (m *setupModel) viewValidating() string {
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 	frame := frames[m.spinFrame%len(frames)]
@@ -1550,6 +1886,16 @@ func (m *setupModel) viewFooter() string {
 		keys = "↑/↓ pick   enter confirm   esc back"
 	case stageForm:
 		keys = "↑/↓ field   enter submit   esc back"
+		if spec := m.provs[m.pidx]; spec.pickChats != nil && len(m.visible) > 0 &&
+			spec.fields[m.visible[m.fcursor]].key == "chats" {
+			keys = "↑/↓ field   ctrl+p pick chats   enter submit   esc back"
+		}
+	case stageChats:
+		if m.chatLoading {
+			keys = "esc cancel"
+		} else {
+			keys = "↑/↓ move   space toggle   a all   n none   enter apply   esc back"
+		}
 	case stageValidating:
 		keys = "ctrl+c cancel"
 	case stageResult:
