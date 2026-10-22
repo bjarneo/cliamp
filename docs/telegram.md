@@ -37,9 +37,9 @@ of 100 messages as you scroll; nothing is fetched ahead of time.
 ### Which chats
 
 By default the pane lists every dialog: personal chats, bots, groups and
-channels. To keep only a few, run `cliamp setup`, open Telegram and press
-`Ctrl+P` on the Chats field: the wizard lists the dialogs of the account and
-you tick the ones to keep. It writes their ids:
+channels. To keep only a few, run `cliamp setup`, open Telegram and choose **Pick chats
+from the account**: the wizard lists the dialogs and you tick the ones to keep.
+(`Ctrl+P` on the Chats field opens the same list.) It writes their ids:
 
 ```toml
 chats = ["u:5749294212:3552096433505666955", "ch:1006503122:-8968081580107606451"]

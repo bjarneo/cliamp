@@ -145,6 +145,9 @@ const (
 	keyQobuzQuality    = "_qobuz_quality"
 	keyTidalQuality    = "_tidal_quality"
 	keyMixcloudBrowser = "_mixcloud_browser"
+	// keyPickChats is the form row that opens the chat checklist. It holds no
+	// value: enter runs the picker.
+	keyPickChats = "_pick"
 )
 
 func providers() []providerSpec {
@@ -723,7 +726,8 @@ func providers() []providerSpec {
 				{key: "api_hash", label: "API hash", help: "32 hexadecimal characters", required: true, secret: true},
 				{key: "phone", label: "Phone", help: "international format, e.g. +5491100000000", required: true},
 				{key: "password", label: "2FA password", help: "only when the account has two-step verification", secret: true},
-				{key: "chats", label: "Chats", help: "optional: blank shows every chat, group and bot; ctrl+p picks them from the account"},
+				{key: "chats", label: "Chats", help: "optional: blank shows every chat, group and bot"},
+				{key: keyPickChats, label: "Pick chats from the account", help: "enter opens the dialogs with checkboxes"},
 				{key: "buffer_mb", label: "Buffer (MB)", help: "megabytes buffered before playback starts", defaultV: "1"},
 			},
 			extraValidate: func(v map[string]string) error {
@@ -1153,6 +1157,10 @@ func (m *setupModel) handlePaste(content string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	field := m.provs[m.pidx].fields[m.visible[m.fcursor]]
+	if field.key == keyPickChats {
+		// A button, not a field.
+		return m, nil
+	}
 	m.values[field.key] = typed(field, m.values[field.key], clean, m.prefilled)
 	return m, nil
 }
@@ -1279,13 +1287,19 @@ func (m *setupModel) formKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	cur := m.values[field.key]
 
 	// The chats field can open a checklist of the account dialogs, so the
-	// usual typo-prone usernames are optional.
+	// usual typo-prone usernames are optional. Ctrl+P is an alias; the visible
+	// row is the reliable path, since a multiplexer can swallow the shortcut.
 	if field.key == "chats" && m.provs[m.pidx].pickChats != nil && msg.String() == "ctrl+p" {
-		m.stage = stageChats
-		m.chatLoading = true
-		m.chatErr, m.chatWarn = nil, nil
-		m.chatCursor = 0
-		return m, tea.Batch(spinTickCmd(), loadChatsCmd(m.provs[m.pidx], maps.Clone(m.values)))
+		return m.openChats()
+	}
+	if field.key == keyPickChats {
+		switch {
+		case msg.Code == tea.KeyEnter:
+			return m.openChats()
+		case msg.Code == tea.KeySpace, msg.Code == tea.KeyBackspace, len(msg.Text) > 0:
+			// It is a button, not a field: nothing is typed into it.
+			return m, nil
+		}
 	}
 
 	switch msg.Code {
@@ -1419,7 +1433,26 @@ func (m *setupModel) applyChats() {
 	} else {
 		m.values["chats"] = strings.Join(selected, ", ")
 	}
+	// Leave the button so the next enter submits instead of reopening the
+	// list.
+	spec := m.provs[m.pidx]
+	if m.fcursor < len(m.visible)-1 && spec.fields[m.visible[m.fcursor]].key == keyPickChats {
+		m.fcursor++
+	}
 	m.stage = stageForm
+}
+
+// openChats starts the chat checklist.
+func (m *setupModel) openChats() (tea.Model, tea.Cmd) {
+	spec := m.provs[m.pidx]
+	if spec.pickChats == nil {
+		return m, nil
+	}
+	m.stage = stageChats
+	m.chatLoading = true
+	m.chatErr, m.chatWarn = nil, nil
+	m.chatCursor = 0
+	return m, tea.Batch(spinTickCmd(), loadChatsCmd(spec, maps.Clone(m.values)))
 }
 
 func (m *setupModel) submitForm() (tea.Model, tea.Cmd) {
@@ -1717,6 +1750,20 @@ func (m *setupModel) viewForm() string {
 
 	for i, idx := range m.visible {
 		f := spec.fields[idx]
+		if f.key == keyPickChats {
+			line := f.label
+			if i == m.fcursor {
+				line += "  " + hintStyle.Render("enter")
+				if f.help != "" {
+					line += "\n" + dimStyle.Render(f.help)
+				}
+				b.WriteString(activeFieldStyle.Render(line))
+			} else {
+				b.WriteString(inactiveFieldStyle.Render(line))
+			}
+			b.WriteString("\n\n")
+			continue
+		}
 		val := m.values[f.key]
 		display := val
 		if f.secret {
@@ -1886,9 +1933,13 @@ func (m *setupModel) viewFooter() string {
 		keys = "↑/↓ pick   enter confirm   esc back"
 	case stageForm:
 		keys = "↑/↓ field   enter submit   esc back"
-		if spec := m.provs[m.pidx]; spec.pickChats != nil && len(m.visible) > 0 &&
-			spec.fields[m.visible[m.fcursor]].key == "chats" {
-			keys = "↑/↓ field   ctrl+p pick chats   enter submit   esc back"
+		if spec := m.provs[m.pidx]; spec.pickChats != nil && len(m.visible) > 0 {
+			switch spec.fields[m.visible[m.fcursor]].key {
+			case keyPickChats:
+				keys = "enter pick chats   ↑/↓ field   esc back"
+			case "chats":
+				keys = "↑/↓ field   ctrl+p pick chats   enter submit   esc back"
+			}
 		}
 	case stageChats:
 		if m.chatLoading {
