@@ -223,9 +223,9 @@ Up to 256 events and key presses can wait for one plugin. If a plugin falls furt
 
 | Event | Callback argument | When |
 |-------|-------------------|------|
-| `track.change` | `{title, artist, album, genre, year, path, duration, stream}` | New track starts successfully |
+| `track.change` | `{title, artist, album, genre, year, path, duration, stream, album_art_url}` | New track starts successfully |
 | `track.scrobble` | Same + `{played_secs}` | You left a track that played at least 50% of its known duration: it ended, or you skipped, stopped, removed it from the queue, rewound with previous, or started another track. Each start of a track fires this at most once |
-| `playback.state` | `{status, title, artist, album, path, duration, stream, position}` | Once for each playback state change (play, pause, stop, seek, volume, track transition, new stream title), and once per second while a track plays. A message that changes nothing does not fire it |
+| `playback.state` | `{status, title, artist, album, path, duration, stream, position, album_art_url}` | Once for each playback state change (play, pause, stop, seek, volume, track transition, new stream title), and once per second while a track plays. A message that changes nothing does not fire it |
 | `player.seek` | `{position, duration}` (seconds) | A seek completes |
 | `player.volume` | `{db}` | Volume changes |
 | `player.eq` | `{bands, preset}` | An EQ band or preset changes |
@@ -239,6 +239,8 @@ Up to 256 events and key presses can wait for one plugin. If a plugin falls furt
 In `playback.state`, `status` is `"playing"`, `"paused"`, or `"stopped"`. In `player.mode`, `repeat` is `"Off"`, `"All"`, or `"One"`, matching `cliamp.player.repeat_mode()`. In `player.eq`, `bands` is an array of 10 dB values.
 
 In `track.change`, `track.scrobble`, `playback.state` and `queue.end`, `duration` is the length in whole seconds. A track with no length in its metadata, such as a local file, gets the decoded length. `duration` is 0 when the length is unknown, as for a live stream.
+
+`album_art_url` is the cover the track already carries, when there is one. A provider that reads the cover on demand — artwork embedded in the file, or a download-backed source such as Telegram — sends it empty in `track.change` and fills it in a later `playback.state`; while a track plays, `playback.state` repeats once per second, so a cover pane can wait for the first value instead of missing it. Re-read the field on every event and treat it as changeable. `cliamp.track.album_art_url()` returns the latest value.
 
 `track.change` fires after playback starts successfully for all sources, including YouTube and SoundCloud. A stream that is still buffering, fails to start, or is superseded before it starts does not emit this event. Gapless transitions also emit `track.change`.
 
@@ -349,7 +351,7 @@ You can read the playlist without permission. To change it, declare `permissions
 
 ```lua
 -- read (no permission)
-cliamp.queue.list()        --> array of {title, artist, album, genre, year, path, duration, stream, index, queued}
+cliamp.queue.list()        --> array of {title, artist, album, genre, year, path, duration, stream, album_art_url, index, queued}
 cliamp.queue.count()       --> number of tracks
 cliamp.queue.current()     --> 0-based index of the current track
 cliamp.queue.has_next()    --> true when a playable track follows in play order (play-next queue, repeat, shuffle)
@@ -383,11 +385,13 @@ HTTP stream, an M3U/PLS URL, or a YouTube/yt-dlp URL. cliamp resolves it off the
 UI thread. A slow URL does not block playback.
 
 `add` also takes a track table with the same keys as the track tables in
-events: `{path, title, artist, album, genre, year, duration, stream}`. Only
-`path` is required, and other keys are ignored, so a track from an event or from
-`queue.list()` can be passed back as it is. cliamp appends the track exactly as
-described, without resolving the path. Use it for tracks a path alone can't
-describe, such as a provider track from another service:
+events: `{path, title, artist, album, genre, year, duration, stream, album_art_url}`.
+Only `path` is required. `album_art_url` is accepted but ignored, because the
+cover of a queued track is resolved from its path; any key outside this shape is
+ignored as well, so a track from an event or from `queue.list()` can be passed
+back as it is. cliamp appends the track exactly as described, without resolving
+the path. Use it for tracks a path alone can't describe, such as a provider
+track from another service:
 
 ```lua
 local ok, err = cliamp.queue.add({
