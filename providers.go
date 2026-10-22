@@ -36,6 +36,7 @@ import (
 	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/internal/embyapi"
 	"github.com/bjarneo/cliamp/internal/resume"
+	"github.com/bjarneo/cliamp/internal/ytdlbin"
 	"github.com/bjarneo/cliamp/internal/ytdlp"
 	"github.com/bjarneo/cliamp/player"
 	"github.com/bjarneo/cliamp/playlist"
@@ -281,15 +282,21 @@ func youTubeEntries(cfg config.Config, interactive bool) []provider.Entry {
 	}
 
 	if !player.YTDLPAvailable() {
-		fmt.Fprintf(os.Stderr, "\nYouTube requires yt-dlp for audio playback.\n")
-		fmt.Fprintf(os.Stderr, "Install command: %s\n\n", ytdlp.InstallHint())
-		if offerYTDLPInstall(interactive, os.Stdin, os.Stderr) {
-			fmt.Fprintf(os.Stderr, "Installing yt-dlp...\n")
-			if err := installYTDLP(); err != nil {
-				fmt.Fprintf(os.Stderr, "Installation failed: %v\n", err)
-				fmt.Fprintf(os.Stderr, "YouTube providers disabled. Install manually and restart.\n\n")
-			} else {
-				fmt.Fprintf(os.Stderr, "yt-dlp installed successfully!\n\n")
+		if notice := pinnedYtdlpMissingNotice(ytdlbin.Name()); notice != "" {
+			// Installing yt-dlp on PATH would not be used: the pinned
+			// binary keeps precedence. Ask for it to be fixed instead.
+			fmt.Fprintf(os.Stderr, "\n%s\n\n", notice)
+		} else {
+			fmt.Fprintf(os.Stderr, "\nYouTube requires yt-dlp for audio playback.\n")
+			fmt.Fprintf(os.Stderr, "Install command: %s\n\n", ytdlp.InstallHint())
+			if offerYTDLPInstall(interactive, os.Stdin, os.Stderr) {
+				fmt.Fprintf(os.Stderr, "Installing yt-dlp...\n")
+				if err := installYTDLP(); err != nil {
+					fmt.Fprintf(os.Stderr, "Installation failed: %v\n", err)
+					fmt.Fprintf(os.Stderr, "YouTube providers disabled. Install manually and restart.\n\n")
+				} else {
+					fmt.Fprintf(os.Stderr, "yt-dlp installed successfully!\n\n")
+				}
 			}
 		}
 	}
@@ -542,6 +549,20 @@ func logYouTubeSkipped(reason string) {
 	for _, key := range []string{"yt", "youtube", "ytmusic"} {
 		logProviderSkipped(providerName(key), key, reason)
 	}
+}
+
+// pinnedYtdlpMissingNotice explains that an explicitly selected yt-dlp binary
+// cannot be executed. It returns "" when the default PATH lookup is in effect,
+// where the normal install flow applies.
+func pinnedYtdlpMissingNotice(selected string) string {
+	if selected == ytdlbin.DefaultName {
+		return ""
+	}
+	return fmt.Sprintf(
+		"YouTube requires yt-dlp, but the selected binary is missing or not executable: %s\n"+
+			"Fix ytdlp_path in config.toml (or %s), or remove it to use yt-dlp from PATH.",
+		selected, ytdlbin.EnvVar,
+	)
 }
 
 // offerYTDLPInstall asks on in whether to install yt-dlp now. It asks only
