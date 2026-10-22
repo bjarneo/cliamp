@@ -160,6 +160,7 @@ preference remains saved for a wider layout. See
 |---|---|
 | `a` | Toggle the queue (play next) |
 | `A` | Queue manager |
+| `c` | Song mix: replace the queue with the highlighted song and related songs, and play it from the top. Spotify and YouTube songs only; see [Song mix](#song-mix) |
 | `c` | In the queue manager: clear the queue (press again to confirm when more than one track) |
 | `d` | In the queue manager: remove the highlighted track |
 | `F` | Subscribed shows overlay (any provider that keeps subscriptions) |
@@ -173,6 +174,28 @@ played before the current track are above it. The tracks that play next are
 below it. Each row keeps its original track number. When you turn off shuffle,
 the playlist returns to the original order and the cursor stays on the same
 track.
+
+### Song mix
+
+Press `c` on a Spotify or YouTube song, in the playlist or in `Ctrl+F` search
+results, to start a song mix. cliamp looks up related songs (Spotify's
+autoplay station, or the YouTube Mix through yt-dlp) while the status line
+shows "Finding songs like …". When they arrive, the queue becomes the chosen
+song followed by the related songs, and the chosen song plays from the start,
+even if it was already playing.
+
+- If the lookup fails or finds nothing, the queue and playback stay as they were.
+- Pressing `c` again, or loading, opening or refreshing a playlist, before the
+  songs arrive cancels the mix. Moving to another song in the queue does
+  not.
+- While the chosen song is still playing and the queue is unchanged, `Ctrl+Z`
+  brings the old queue back; the chosen song keeps playing, and the old
+  current song plays after it. The restored queue is no longer tied to the
+  playlist it came from.
+- `song_mix_size` in `config.toml` sets how many related songs are added
+  (default 30, 1–100).
+- The key is only offered on songs that support it: not local files, other
+  providers, or albums in search results.
 
 ### Inside the subscribed shows overlay
 
@@ -358,6 +381,7 @@ search and the results list is open:
 | `Enter` | Play the selected track now |
 | `a` | Append the selected track to the playlist |
 | `q` | Queue the selected track to play next |
+| `c` | Song mix from the selected song (Spotify and YouTube songs, not albums) |
 | `f` | Toggle the favorite ♥ on the selected track. On a podcast show, subscribe or unsubscribe. |
 | `p` | (Spotify only) Save the selected track to a Spotify playlist |
 | `Esc` `Backspace` | Back to the search input |
