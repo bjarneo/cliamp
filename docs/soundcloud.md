@@ -37,6 +37,8 @@ This replaces the curated Browse list with three playlists from `soundcloud.com/
 
 This works for any public profile. It does not require SoundCloud sign-in.
 
+yt-dlp lists these playlists without the artist of each track. When a track from them starts, cliamp looks up its artist with one more yt-dlp call. The artist then appears in the player, the media controls (MPRIS) and scrobblers that read them, about a second after playback starts.
+
 ## Sign in via browser cookies
 
 For private likes, hidden uploads, or SoundCloud Go+ subscriber-gated tracks, point yt-dlp to the browser cookie jar:

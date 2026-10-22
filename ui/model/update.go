@@ -187,6 +187,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case ytdlArtistMsg:
+		return m, m.handleYTDLArtist(msg)
+
 	case fbTracksResolvedMsg:
 		cmd := m.handleFBTracksResolved(msg)
 		return m, cmd
