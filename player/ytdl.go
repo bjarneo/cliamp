@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/gopxl/beep/v2"
 
 	"github.com/bjarneo/cliamp/applog"
@@ -29,8 +30,8 @@ const pipeBufSize = 64 * 1024
 // ytdlPipeTimeout limits how long we wait for yt-dlp to produce initial audio.
 const ytdlPipeTimeout = 30 * time.Second
 
-// ytdlCauseGrace bounds how long prefillYTDLPipe waits, after the audio pipe
-// closes with no data, for yt-dlp or ffmpeg to report why. yt-dlp typically
+// ytdlCauseGrace bounds how long prefill or the background PCM reader waits,
+// after the audio pipe closes, for yt-dlp or ffmpeg to report why. yt-dlp typically
 // exits quickly with a stderr message (bot wall, 404, DRM); this only matters
 // when the process is slow to flush and exit.
 const ytdlCauseGrace = 3 * time.Second
@@ -117,62 +118,24 @@ type ytdlPipeStreamer struct {
 	closeOnce  sync.Once
 }
 
-// Stream runs on the speaker callback goroutine while the speaker lock is
-// held, so it never waits for a process to exit: watchExitCause publishes a
-// failure that lands around PCM EOF.
+// Stream runs on the network prefetch goroutine, never the speaker callback.
+// Resolve a PCM EOF before the prefetcher snapshots Err and reports track end;
+// otherwise normal-end Stop can kill the children and discard a late failure.
 func (y *ytdlPipeStreamer) Stream(samples [][2]float64) (int, bool) {
 	n, ok := streamFromReader(y.reader, samples, &y.pcmBuf, y.f32, y.state)
 	y.state.pos.Add(int64(n))
+	if !ok && y.state.err.load() == nil && !y.closing.Load() {
+		y.state.err.publish(y.waitCause(ytdlCauseGrace))
+	}
 	return n, ok
 }
 
-// watchExitCause publishes why the pipe chain died into the error latch that
-// Player.StreamErr polls, so a failure reported around PCM EOF is not mistaken
-// for a clean end of track. The exit monitors already run off the audio
-// thread; this only forwards their result, preferring yt-dlp's reason (bot
-// wall, 404, DRM, region block) over ffmpeg's (undecodable input).
-//
-// It consumes the exit channels, so it must start only after prefill, the
-// other reader, is finished with them. The returned channel closes when the
-// watcher has finished; production ignores it, tests await it.
-func (y *ytdlPipeStreamer) watchExitCause() <-chan struct{} {
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		var ytdlErr, ffmpegErr error
-		// Each monitor reports exactly once on a buffered channel, so two
-		// receives drain both and the goroutine always finishes.
-		for range 2 {
-			select {
-			case e := <-y.ytdlErr:
-				ytdlErr = e
-			case e := <-y.ffmpegErr:
-				ffmpegErr = e
-			}
-		}
-		// Close kills both children on stop, seek, and abandoned retries, so
-		// whatever they report afterwards is teardown, not playback failure.
-		// The flag states that intent directly; an exit code cannot, because
-		// a killed process reports a signal on POSIX but status 1 on Windows.
-		if y.closing.Load() {
-			return
-		}
-		for _, err := range []error{ytdlErr, ffmpegErr} {
-			if err != nil {
-				y.state.err.publish(err)
-				return
-			}
-		}
-	}()
-	return done
-}
-
-// waitCause reports why the audio pipe closed without producing audio,
+// waitCause reports why the audio pipe closed,
 // preferring yt-dlp's reason (bot wall, 404, DRM, region block) over ffmpeg's
 // (undecodable input). With d <= 0 it polls without blocking; otherwise it
 // waits up to d for a process to report. Returns nil if neither reported an
-// error, leaving the caller to surface the bare EOF. Only prefill calls this,
-// off the audio thread and before watchExitCause takes over the channels.
+// error, leaving the caller to surface the bare EOF. Prefill and the background
+// PCM reader call this sequentially, never on the speaker callback.
 func (y *ytdlPipeStreamer) waitCause(d time.Duration) error {
 	if d <= 0 {
 		select {
@@ -212,9 +175,12 @@ func (y *ytdlPipeStreamer) waitCause(d time.Duration) error {
 func (y *ytdlPipeStreamer) Seek(int) error { return nil }
 
 // interrupt releases a blocked PCM read without waiting for yt-dlp or ffmpeg.
-// A stalled download otherwise holds Stream, and the speaker lock with it,
-// until yt-dlp gets data or gives up. Close reaps both processes later.
+// Closing the pipe unblocks the background prefetch reader on a stalled
+// download. Close reaps both processes later.
 func (y *ytdlPipeStreamer) interrupt() {
+	// Mark teardown before closing the pipe or killing either process, since
+	// Stop and source replacement interrupt before Close reaps the children.
+	y.closing.Store(true)
 	_ = y.pipe.Close()
 	if y.ytdlCmd.Process != nil {
 		_ = y.ytdlCmd.Process.Kill()
@@ -226,16 +192,7 @@ func (y *ytdlPipeStreamer) interrupt() {
 
 func (y *ytdlPipeStreamer) Close() error {
 	y.closeOnce.Do(func() {
-		// Tell watchExitCause the exits it is about to see are teardown.
-		y.closing.Store(true)
-		// Kill both processes to stop downloading/decoding.
-		if y.ytdlCmd.Process != nil {
-			y.ytdlCmd.Process.Kill()
-		}
-		if y.ffmpegCmd.Process != nil {
-			y.ffmpegCmd.Process.Kill()
-		}
-		y.pipe.Close()
+		y.interrupt()
 		// The monitor goroutines own Wait. Killing both children and waiting
 		// for their done signals guarantees Close does not leave zombies.
 		if y.ytdlDone != nil {
@@ -271,7 +228,7 @@ func (e *ytdlExitError) Unwrap() error { return e.cause }
 func ytdlFatalDiagnostic(stderr string) string {
 	var diagnostic string
 	for line := range strings.SplitSeq(stderr, "\n") {
-		if text, ok := strings.CutPrefix(line, "ERROR:"); ok {
+		if text, ok := strings.CutPrefix(ansi.Strip(line), "ERROR:"); ok {
 			diagnostic = strings.Join(strings.Fields(text), " ")
 		}
 	}
@@ -281,7 +238,7 @@ func ytdlFatalDiagnostic(stderr string) string {
 // monitorExit waits for cmd to exit, logs captured stderr on failure and reports
 // a wrapped error (or nil on clean exit). The buffered channel lets the monitor
 // finish even with no receiver, including after Close kills the process.
-// closing, when set, marks the exit as teardown from Close rather than a
+// closing, when set, marks the exit as intentional teardown rather than a
 // playback failure; it is nil for callers that never tear a process down.
 func monitorExit(cmd *exec.Cmd, stderr *limitedBuffer, name string, closing *atomic.Bool) (<-chan error, <-chan struct{}) {
 	ch := make(chan error, 1)
@@ -299,9 +256,10 @@ func monitorExit(cmd *exec.Cmd, stderr *limitedBuffer, name string, closing *ato
 			// Teardown exits remain available at debug level, not as playback
 			// failures every time the user changes tracks.
 			applog.Debug("%s: %v: %s", name, err, trimmed)
-		} else {
-			applog.Error("%s: %v: %s", name, err, trimmed)
+			ch <- nil
+			return
 		}
+		applog.Error("%s: %v: %s", name, err, trimmed)
 		switch {
 		case name == "yt-dlp":
 			ch <- &ytdlExitError{cause: err, diagnostic: ytdlFatalDiagnostic(trimmed)}
@@ -449,10 +407,6 @@ func (p *Player) buildYTDLPipeline(pageURL string, startSec int) (*trackPipeline
 			}
 			continue
 		}
-
-		// Prefill is done with the exit channels, so the streamer can now
-		// watch them for a failure that arrives during playback.
-		_ = decoder.watchExitCause()
 
 		// The prefetch reads the pipe away from the speaker callback. A
 		// stalled download then plays silence and does not hold the speaker

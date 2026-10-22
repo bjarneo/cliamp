@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -58,6 +59,10 @@ case "$YTDL_MODE" in
 		;;
 	403-always)
 		printf 'ERROR: unable to download video data: HTTP Error 403: Forbidden\n' >&2
+		exit 1
+		;;
+	403-colored)
+		printf '\033[0;31mERROR:\033[0m unable to download video data: HTTP Error 403: Forbidden\n' >&2
 		exit 1
 		;;
 	unavailable)
@@ -126,27 +131,31 @@ func TestBuildYTDLPipelineRetriesTransient403(t *testing.T) {
 // TestBuildYTDLPipelineStopsAfterTransient403RetryBudget also covers the
 // warning diagnostics in the log without hiding the fatal status message.
 func TestBuildYTDLPipelineStopsAfterTransient403RetryBudget(t *testing.T) {
-	attemptsPath, _ := installYTDLRetryFixtures(t, "403-always")
-	logPath := captureYTDLLog(t)
-	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
+	for _, mode := range []string{"403-always", "403-colored"} {
+		t.Run(mode, func(t *testing.T) {
+			attemptsPath, _ := installYTDLRetryFixtures(t, mode)
+			logPath := captureYTDLLog(t)
+			p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
 
-	_, err := p.buildYTDLPipeline("https://www.youtube.com/watch?v=retry", 0)
-	if err == nil || !strings.Contains(err.Error(), "HTTP Error 403: Forbidden") {
-		t.Fatalf("buildYTDLPipeline() error = %v, want yt-dlp 403 cause", err)
-	}
-	row := ui.FitRect(fmt.Sprintf("ERR: %s", err), 78, 1)
-	if !strings.Contains(row, "HTTP Error 403: Forbidden") || strings.Contains(row, "WARNING:") {
-		t.Errorf("status row = %q, want fatal diagnostic without warnings", row)
-	}
-	logged, readErr := os.ReadFile(logPath)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if !strings.Contains(string(logged), ytdlpWarning) || !strings.Contains(string(logged), "HTTP Error 403: Forbidden") {
-		t.Errorf("log = %q, want warning and fatal diagnostic", logged)
-	}
-	if got := fixtureLineCount(t, attemptsPath); got != 3 {
-		t.Fatalf("yt-dlp attempts = %d, want 3", got)
+			_, err := p.buildYTDLPipeline("https://www.youtube.com/watch?v=retry", 0)
+			if err == nil || !strings.Contains(err.Error(), "HTTP Error 403: Forbidden") {
+				t.Fatalf("buildYTDLPipeline() error = %v, want yt-dlp 403 cause", err)
+			}
+			row := ui.FitRect(fmt.Sprintf("ERR: %s", err), 78, 1)
+			if !strings.Contains(row, "HTTP Error 403: Forbidden") || strings.Contains(row, "WARNING:") || strings.ContainsRune(row, '\x1b') {
+				t.Errorf("status row = %q, want fatal diagnostic without warnings or ANSI escapes", row)
+			}
+			logged, readErr := os.ReadFile(logPath)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if !strings.Contains(string(logged), ytdlpWarning) || !strings.Contains(string(logged), "HTTP Error 403: Forbidden") {
+				t.Errorf("log = %q, want warning and fatal diagnostic", logged)
+			}
+			if got := fixtureLineCount(t, attemptsPath); got != 3 {
+				t.Fatalf("yt-dlp attempts = %d, want 3", got)
+			}
+		})
 	}
 }
 
@@ -301,6 +310,12 @@ func TestYTDLPipeCloseReapsBothProcesses(t *testing.T) {
 	default:
 		t.Fatal("FFmpeg process was not reaped")
 	}
+	if err := <-ytdlErr; err != nil {
+		t.Errorf("yt-dlp teardown reported a playback failure: %v", err)
+	}
+	if err := <-ffmpegErr; err != nil {
+		t.Errorf("ffmpeg teardown reported a playback failure: %v", err)
+	}
 	logged, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatal(err)
@@ -359,6 +374,10 @@ func TestMonitorExitYTDLDiagnostics(t *testing.T) {
 		{name: "unmarked warning continuation", stderr: "WARNING: extractor fallback\nHTTP Error 403: Forbidden", want: "exit status 1"},
 		{name: "no stderr", want: "exit status 1"},
 		{name: "last fatal wins", stderr: "ERROR: HTTP Error 403: Forbidden\nERROR: Video unavailable", want: "Video unavailable"},
+		{name: "colored fatal 403", stderr: "\x1b[0;31mERROR:\x1b[0m HTTP Error 403: Forbidden", want: "HTTP Error 403: Forbidden", retry: true},
+		{name: "colored warning 403", stderr: "\x1b[0;33mWARNING:\x1b[0m HTTP Error 403: Forbidden\n\x1b[0;31mERROR:\x1b[0m Video unavailable", want: "Video unavailable"},
+		{name: "colored last fatal wins", stderr: "\x1b[31mERROR:\x1b[0m HTTP Error 403: Forbidden\n\x1b[31mERROR:\x1b[0m Video unavailable", want: "Video unavailable"},
+		{name: "colored indented continuation", stderr: "\x1b[31mERROR:\x1b[0m Video unavailable\nWARNING: fallback\n    \x1b[31mERROR:\x1b[0m HTTP Error 403: Forbidden", want: "Video unavailable"},
 		{name: "ffmpeg is not yt-dlp", stderr: "ERROR: yt-dlp: HTTP Error 403: Forbidden", process: "ffmpeg", want: "HTTP Error 403: Forbidden"},
 	}
 	for _, tt := range tests {
@@ -381,7 +400,7 @@ func TestMonitorExitYTDLDiagnostics(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("error = %v, want %q", err, tt.want)
 			}
-			if strings.ContainsAny(err.Error(), "\r\n") || strings.Contains(err.Error(), "WARNING:") {
+			if strings.ContainsAny(err.Error(), "\r\n\x1b") || strings.Contains(err.Error(), "WARNING:") {
 				t.Errorf("status diagnostic = %q, want one line without warnings", err)
 			}
 			var exitErr *exec.ExitError
@@ -396,99 +415,11 @@ func TestMonitorExitYTDLDiagnostics(t *testing.T) {
 				t.Fatal(readErr)
 			}
 			for _, line := range strings.Split(tt.stderr, "\n") {
-				if !strings.Contains(string(logged), line) {
+				// The text log quotes control bytes instead of sending ANSI
+				// escapes to the terminal when the log is read.
+				if !strings.Contains(string(logged), strings.ReplaceAll(line, "\x1b", `\x1b`)) {
 					t.Errorf("log missing %q: %s", line, logged)
 				}
-			}
-		})
-	}
-}
-
-// PCM EOF can precede cmd.Wait completing; losing that failure would treat a
-// broken stream as a successful end of track. watchExitCause publishes it into
-// the same latch Player.StreamErr polls, without blocking the audio callback.
-func TestYTDLPipeWatchExitCausePublishesLateDiagnostic(t *testing.T) {
-	ytdlCh := make(chan error, 1)
-	ffmpegCh := make(chan error, 1)
-	cause := errors.New("yt-dlp: Video unavailable")
-	y := &ytdlPipeStreamer{
-		reader:  bufio.NewReader(strings.NewReader("")),
-		ytdlErr: ytdlCh, ffmpegErr: ffmpegCh, pipeReport: pipeReport{state: newPipeStreamState(0)},
-	}
-	watched := y.watchExitCause()
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		ffmpegCh <- errors.New("ffmpeg: Invalid data found when processing input")
-		ytdlCh <- cause
-	}()
-	n, ok := y.Stream(make([][2]float64, 1))
-	if n != 0 || ok {
-		t.Fatalf("Stream() = %d, %v, want EOF", n, ok)
-	}
-	<-watched
-	if err := y.Err(); !errors.Is(err, cause) {
-		t.Errorf("Err() = %v, want yt-dlp cause", err)
-	}
-}
-
-// Stream runs on the speaker callback while the speaker lock is held, so an
-// unreported process exit must not stall audio, gapless promotion, or any UI
-// action that takes that lock.
-func TestYTDLPipeStreamDoesNotBlockOnEOF(t *testing.T) {
-	y := &ytdlPipeStreamer{
-		reader:  bufio.NewReader(strings.NewReader("")),
-		ytdlErr: make(chan error), ffmpegErr: make(chan error),
-		pipeReport: pipeReport{state: newPipeStreamState(0)},
-	}
-	type streamResult struct {
-		n  int
-		ok bool
-	}
-	// The result travels back to the test goroutine: a failed assertion in the
-	// spawned one would panic after the timeout has already ended the test.
-	result := make(chan streamResult, 1)
-	go func() {
-		n, ok := y.Stream(make([][2]float64, 1))
-		result <- streamResult{n: n, ok: ok}
-	}()
-	select {
-	case got := <-result:
-		if got.n != 0 || got.ok {
-			t.Errorf("Stream() = %d, %v, want EOF", got.n, got.ok)
-		}
-	case <-time.After(time.Second):
-		t.Fatalf("Stream() blocked on EOF waiting for a process exit")
-	}
-}
-
-// Close kills both children on stop, seek, and abandoned retries. Those exits
-// are cleanup, not playback failures, so they must not reach StreamErr. A
-// killed process reports a signal on POSIX but exit status 1 on Windows, so
-// the teardown flag Close sets, not the exit code, decides.
-func TestYTDLPipeWatchExitCauseIgnoresTeardownExit(t *testing.T) {
-	for _, tt := range []struct {
-		name string
-		exit func(*testing.T) error
-	}{
-		{name: "signalled", exit: killedExitError},
-		// Guards against classifying teardown by exit code again: a Windows
-		// kill reports a plain status, indistinguishable from a real failure.
-		{name: "non-signal exit", exit: func(*testing.T) error { return errors.New("exit status 1") }},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			ytdlCh := make(chan error, 1)
-			ffmpegCh := make(chan error, 1)
-			y := &ytdlPipeStreamer{
-				reader:  bufio.NewReader(strings.NewReader("")),
-				ytdlErr: ytdlCh, ffmpegErr: ffmpegCh, pipeReport: pipeReport{state: newPipeStreamState(0)},
-			}
-			y.closing.Store(true)
-			watched := y.watchExitCause()
-			ytdlCh <- &ytdlExitError{cause: tt.exit(t)}
-			ffmpegCh <- nil
-			<-watched
-			if err := y.Err(); err != nil {
-				t.Errorf("Err() = %v, want no playback error during teardown", err)
 			}
 		})
 	}
@@ -517,14 +448,19 @@ func TestYTDLPipeDeliversTailAfterFFmpegExits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildYTDLPipeline() error = %v", err)
 	}
-	defer pipeline.decoder.Close()
+	defer pipeline.close()
+	// This output fits in the prefetch buffer. Wait for it to fill so startup
+	// silence is not counted as decoded audio.
+	select {
+	case <-pipeline.livePrefetch.fillDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("prefetch did not finish")
+	}
 
-	// Consume slower than the fixture writes, as the speaker does, so ffmpeg
-	// exits while the kernel pipe still holds undelivered PCM.
+	// All decoded frames must survive the process exit and prefetch handoff.
 	frames := 0
 	buf := make([][2]float64, 256)
 	for {
-		time.Sleep(500 * time.Microsecond)
 		n, ok := pipeline.stream.Stream(buf)
 		frames += n
 		if !ok {
@@ -537,26 +473,6 @@ func TestYTDLPipeDeliversTailAfterFFmpegExits(t *testing.T) {
 	if err := pipeline.decoder.Err(); err != nil {
 		t.Errorf("Err() = %v, want a clean end of track", err)
 	}
-}
-
-// killedExitError returns the *exec.ExitError of a signalled process.
-func killedExitError(t *testing.T) error {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("uses POSIX process fixture")
-	}
-	cmd := exec.Command("sleep", "30")
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	if err := cmd.Process.Kill(); err != nil {
-		t.Fatal(err)
-	}
-	err := cmd.Wait()
-	if err == nil {
-		t.Fatal("expected signal exit error")
-	}
-	return err
 }
 
 // When ffmpeg exits before playback has read all of its output, the rest of
@@ -599,5 +515,124 @@ func TestYTDLPipeDrainsOutputAfterFFmpegExits(t *testing.T) {
 	}
 	if err := y.Err(); err != nil {
 		t.Fatalf("Err() = %v after the output was read, want nil", err)
+	}
+}
+
+// A PCM EOF must not become a clean track end before yt-dlp's result is
+// known. ffmpeg can keep running after closing stdout; its exit must not hold
+// an already-known yt-dlp failure. The speaker-facing stream stays nonblocking.
+func TestYTDLPlaybackEOFPreservesExitCause(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX process fixtures")
+	}
+	for _, tc := range []struct {
+		name      string
+		beforeEOF bool
+		failure   bool
+	}{
+		{name: "failure before EOF with delayed ffmpeg exit", beforeEOF: true, failure: true},
+		{name: "failure after EOF with delayed ffmpeg exit", failure: true},
+		{name: "clean end"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			ytdlExit := filepath.Join(dir, "ytdl-exit")
+			ffmpegEOF := filepath.Join(dir, "ffmpeg-eof")
+			ffmpegExit := filepath.Join(dir, "ffmpeg-exit")
+			pcmEOF := filepath.Join(dir, "pcm-eof")
+			writeExecutable(t, filepath.Join(dir, "yt-dlp"), `#!/bin/sh
+printf '\000\100\000\300'
+exec 1>&-
+while [ ! -f "$YTDL_EXIT" ]; do sleep 0.01; done
+if [ "$YTDL_FAIL" = true ]; then
+    printf 'ERROR: Video unavailable\n' >&2
+    exit 1
+fi
+`)
+			writeExecutable(t, filepath.Join(dir, "ffmpeg"), `#!/bin/sh
+cat
+while [ ! -f "$FFMPEG_EOF" ]; do sleep 0.01; done
+exec 1>&-
+touch "$PCM_EOF"
+while [ ! -f "$FFMPEG_EXIT" ]; do sleep 0.01; done
+`)
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv(ytdlbin.EnvVar, "")
+			t.Setenv("YTDL_EXIT", ytdlExit)
+			t.Setenv("FFMPEG_EOF", ffmpegEOF)
+			t.Setenv("FFMPEG_EXIT", ffmpegExit)
+			t.Setenv("PCM_EOF", pcmEOF)
+			t.Setenv("YTDL_FAIL", strconv.FormatBool(tc.failure))
+			release := func(path string) {
+				t.Helper()
+				if err := os.WriteFile(path, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			p := &Player{sr: 100, bitDepth: 16}
+			pipeline, err := p.buildYTDLPipeline("https://www.youtube.com/watch?v=eof", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer pipeline.close()
+			p.current = pipeline
+			decoder := pipeline.decoder.(*ytdlPipeStreamer)
+			if tc.beforeEOF {
+				release(ytdlExit)
+				select {
+				case <-decoder.ytdlDone:
+				case <-time.After(time.Second):
+					t.Fatal("yt-dlp did not exit")
+				}
+			}
+			release(ffmpegEOF)
+			deadline := time.Now().Add(time.Second)
+			for {
+				if _, err := os.Stat(pcmEOF); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("ffmpeg did not close PCM output")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			if !tc.beforeEOF {
+				result := make(chan bool, 1)
+				go func() {
+					_, ok := pipeline.stream.Stream(make([][2]float64, 2))
+					result <- ok
+				}()
+				select {
+				case ok := <-result:
+					if !ok {
+						t.Fatal("playback ended before yt-dlp reported its exit")
+					}
+				case <-time.After(time.Second):
+					t.Fatal("speaker stream blocked waiting for yt-dlp")
+				}
+				release(ytdlExit)
+			}
+			if !tc.failure {
+				release(ffmpegExit)
+			}
+			deadline = time.Now().Add(time.Second)
+			for {
+				_, ok := pipeline.stream.Stream(make([][2]float64, 2))
+				if !ok {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("playback waited for ffmpeg instead of reporting yt-dlp's exit")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			if err := p.StreamErr(); tc.failure {
+				if err == nil || !strings.Contains(err.Error(), "Video unavailable") {
+					t.Fatalf("StreamErr() = %v, want yt-dlp failure before normal-end Stop", err)
+				}
+			} else if err != nil {
+				t.Fatalf("StreamErr() = %v, want clean EOF", err)
+			}
+		})
 	}
 }
