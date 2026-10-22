@@ -65,7 +65,7 @@ Press `X` to select Mixcloud. The provider pane has these sections.
 
 | Section | Entry | Behaviour |
 |---|---|---|
-| **Your Mixcloud** | **Stream (New Shows)** | Reads the signed-in browser account's feed. See [Limits and tuning](#limits-and-tuning). |
+| **Your Mixcloud** | **Stream (New Shows)** | Appears only when `cookies_from` is set. Reads the signed-in browser account's feed. See [Limits and tuning](#limits-and-tuning). |
 | **Your Mixcloud** | **Favorites** | Reads the configured public account or the token owner `/me/` connections |
 | **Your Mixcloud** | **Creators** | Lists the configured account and followed creators. Separates each creator **Uploads** and **Favorites**. |
 | **Your Mixcloud** | **Uploads**, **Profile Activity**, **Listening History** | Reads the configured public account or the token owner `/me/` connections |
@@ -76,8 +76,10 @@ Press `X` to select Mixcloud. The provider pane has these sections.
 | **Discover** | **Recent Releases**, **Popular** | Global public discovery. No account required. |
 | **Music Styles** | `<Style> — Latest`, `<Style> — Popular` | One pair for each entry in `[mixcloud].styles` |
 
-With a configured account, **Your Mixcloud** is first. It lists **Stream**,
-then **Favorites**, then **Creators**. Public-only and degraded-account views
+With a configured account, **Your Mixcloud** is first. It lists **Stream**
+when `cookies_from` is set, then **Favorites**, then **Creators**. Without browser
+cookies, Stream is hidden; the other account views remain available.
+Public-only and degraded-account views
 start with **Browse** and omit **Creators**. The hierarchy rows are shortcuts.
 When you back out of the top-level Shows, Creators, or Genres list, cliamp
 returns to this provider pane.
