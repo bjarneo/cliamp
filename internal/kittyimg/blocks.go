@@ -1,9 +1,7 @@
 package kittyimg
 
 import (
-	"bytes"
 	"fmt"
-	"image"
 	"math"
 	"strings"
 )
@@ -25,9 +23,9 @@ func Blocks(source string, cols, rows int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	img, _, err := image.Decode(bytes.NewReader(raw))
+	img, err := decodeImage(raw)
 	if err != nil {
-		return "", fmt.Errorf("kittyimg: decode: %w", err)
+		return "", err
 	}
 	// Fit the image inside the cell box instead of stretching it: the block is
 	// cols x rows cells, and each cell is two pixels tall, so the pixel box is

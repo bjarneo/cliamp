@@ -71,6 +71,21 @@ func NewVisualizer(sampleRate float64) *Visualizer {
 	}
 }
 
+// RenderAt renders one frame at the given column count. Plugin panes share
+// the visualizer region with the builtin, so the caller passes the pane width
+// instead of the full panel; the cached Cols keeps the full-panel value for
+// the lone-builtin render and the next mode tick.
+func (v *Visualizer) RenderAt(cols int) string {
+	if v == nil {
+		return ""
+	}
+	saved := v.Cols
+	v.Cols = cols
+	out := v.Render()
+	v.Cols = saved
+	return out
+}
+
 // Render dispatches to the active visualizer mode.
 func (v *Visualizer) Render() string {
 	if v == nil || v.Mode == VisNone || v.Rows <= 0 {

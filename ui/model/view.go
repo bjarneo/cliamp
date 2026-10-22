@@ -660,10 +660,7 @@ func (m Model) renderSpectrum() string {
 			continue
 		}
 		if pane.Pane == ui.PaneBuiltin {
-			cols := m.vis.Cols
-			m.vis.Cols = widths[i]
-			blocks[i] = m.vis.Render()
-			m.vis.Cols = cols
+			blocks[i] = m.vis.RenderAt(widths[i])
 			continue
 		}
 		blocks[i] = m.renderPluginPane(pane.Pane, m.vis.Rows, widths[i])

@@ -25,6 +25,29 @@ import (
 	"github.com/bjarneo/cliamp/applog"
 )
 
+// maxPixels caps the decoded image: a plugin can point ShowImage at a photo
+// that is far bigger than any cover art, and image.Decode would allocate the
+// full pixel buffer before the scale runs. A 32 MiB file is still accepted,
+// but a huge pixel box is rejected up front.
+const maxPixels = 32 * 1024 * 1024
+
+// decodeImage checks the pixel size with image.DecodeConfig first and only
+// then decodes the full image.
+func decodeImage(raw []byte) (image.Image, error) {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
+	if err != nil {
+		return nil, fmt.Errorf("kittyimg: decode config: %w", err)
+	}
+	if int64(cfg.Width)*int64(cfg.Height) > maxPixels {
+		return nil, fmt.Errorf("kittyimg: image is %dx%d, over the %d pixel cap", cfg.Width, cfg.Height, maxPixels)
+	}
+	img, _, err := image.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return nil, fmt.Errorf("kittyimg: decode: %w", err)
+	}
+	return img, nil
+}
+
 // placeholder is the private-use character kitty composites the image behind.
 const placeholder = '\U0010EEEE'
 
@@ -98,9 +121,9 @@ func Show(source string, cols, rows int, reuseID int) (Placement, error) {
 			applog.Warn("kittyimg: load: %v", err)
 			return
 		}
-		img, _, err := image.Decode(bytes.NewReader(raw))
+		img, err := decodeImage(raw)
 		if err != nil {
-			applog.Warn("kittyimg: decode: %v", err)
+			applog.Warn("kittyimg: %v", err)
 			return
 		}
 		// The terminal fits the image to the cell rectangle and keeps its
