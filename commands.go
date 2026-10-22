@@ -414,8 +414,8 @@ func setupCommand() *cli.Command {
 		Usage: "interactive wizard to configure remote providers",
 		Description: "Walks through configuring Navidrome, Lyrion, Bandcamp, Plex,\n" +
 			"Jellyfin, Emby, Audiobookshelf, Spotify, Qobuz, Tidal, NetEase,\n" +
-			"Mixcloud, and YouTube Music. Validates connections and writes\n" +
-			"~/.config/cliamp/config.toml.",
+			"Mixcloud, YouTube Music, and Telegram. Validates connections and\n" +
+			"writes ~/.config/cliamp/config.toml.\n",
 
 		Action: func(ctx context.Context, c *cli.Command) error {
 			return cmd.Setup()

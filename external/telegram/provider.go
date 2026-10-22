@@ -5,7 +5,6 @@
 package telegram
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -107,18 +106,7 @@ func NewFromConfig(cfg config.TelegramConfig, interactive bool) *Provider {
 	return p
 }
 
-func (p *Provider) sessionPath() string {
-	path := p.cfg.SessionFile
-	if path == "" {
-		path = "~/.local/share/cliamp/telegram.session"
-	}
-	if strings.HasPrefix(path, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			path = filepath.Join(home, path[2:])
-		}
-	}
-	return path
-}
+func (p *Provider) sessionPath() string { return sessionPath(p.cfg.SessionFile) }
 
 func (p *Provider) run() {
 	if err := os.MkdirAll(filepath.Dir(p.sessionPath()), 0o700); err != nil {
@@ -164,16 +152,8 @@ func (p *Provider) login(ctx context.Context) error {
 	if p.cfg.Phone == "" {
 		return errors.New("telegram: [telegram] phone is required to sign in")
 	}
-	code := auth.CodeAuthenticatorFunc(func(_ context.Context, _ *tg.AuthSentCode) (string, error) {
-		fmt.Fprint(os.Stderr, "Telegram login code: ")
-		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
-		if err != nil {
-			return "", err
-		}
-		return strings.TrimSpace(line), nil
-	})
 	flow := auth.NewFlow(
-		auth.Constant(p.cfg.Phone, p.cfg.Password, code),
+		auth.Constant(normalizePhone(p.cfg.Phone), p.cfg.Password, promptCode()),
 		auth.SendCodeOptions{},
 	)
 	if err := flow.Run(ctx, p.client.Auth()); err != nil {

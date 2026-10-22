@@ -456,6 +456,119 @@ func TestTidalSetupBody(t *testing.T) {
 	}
 }
 
+func TestTelegramSetupBody(t *testing.T) {
+	var spec providerSpec
+	for _, p := range providers() {
+		if p.section == "telegram" {
+			spec = p
+			break
+		}
+	}
+	if spec.section == "" {
+		t.Fatal("telegram spec missing")
+	}
+
+	// The sign-in needs the terminal, so setup offers it after the wizard
+	// instead of probing here.
+	if spec.validate != nil {
+		t.Fatal("telegram spec should not define a validate probe")
+	}
+	if spec.signIn == nil {
+		t.Fatal("telegram spec should offer the sign-in after saving")
+	}
+
+	const hash = "0123456789abcdef0123456789abcdef"
+	checkBody(t, spec.body(map[string]string{
+		"api_id": "123456", "api_hash": hash, "phone": "+5491100000000",
+		"password": "pw", "chat": "deezload2bot", "buffer_mb": "4",
+	}), map[string]string{
+		"api_id":    "123456",
+		"api_hash":  `"` + hash + `"`,
+		"phone":     `"+5491100000000"`,
+		"password":  `"pw"`,
+		"chat":      `"deezload2bot"`,
+		"buffer_mb": "4",
+	})
+
+	// The optional keys stay out, and the buffer falls back to 1 MiB.
+	checkBody(t, spec.body(map[string]string{
+		"api_id": "123456", "api_hash": hash, "phone": "+5491100000000",
+	}), map[string]string{
+		"api_id":    "123456",
+		"api_hash":  `"` + hash + `"`,
+		"phone":     `"+5491100000000"`,
+		"buffer_mb": "1",
+	})
+
+	valid := map[string]string{"api_id": "123456", "api_hash": hash, "phone": "+5491100000000"}
+	if err := spec.extraValidate(valid); err != nil {
+		t.Fatalf("extraValidate rejected a valid config: %v", err)
+	}
+	// A number copied with spaces, dashes and parentheses still counts.
+	spaced := map[string]string{"api_id": "123456", "api_hash": hash, "phone": "+54 (9) 11 1234-5678"}
+	if err := spec.extraValidate(spaced); err != nil {
+		t.Fatalf("extraValidate rejected a spaced phone: %v", err)
+	}
+	for name, values := range map[string]map[string]string{
+		"api_id is not a number": {"api_id": "abc", "api_hash": hash, "phone": "+1"},
+		"api_id is zero":         {"api_id": "0", "api_hash": hash, "phone": "+1"},
+		"api_hash is short":      {"api_id": "123456", "api_hash": "nope", "phone": "+1"},
+		"buffer is zero":         {"api_id": "123456", "api_hash": hash, "phone": "+5491100000000", "buffer_mb": "0"},
+		"phone is too short":     {"api_id": "123456", "api_hash": hash, "phone": "+1"},
+	} {
+		if err := spec.extraValidate(values); err == nil {
+			t.Errorf("extraValidate accepted %s", name)
+		}
+	}
+
+	label, action := spec.signIn(map[string]string{
+		"api_id": "123456", "api_hash": hash, "phone": "+5491100000000", "buffer_mb": "4",
+	})
+	if label == "" || action == nil {
+		t.Fatalf("signIn label = %q, action set = %v; want both", label, action != nil)
+	}
+	cfg := telegramConfigFrom(map[string]string{
+		"api_id": "123456", "api_hash": hash, "phone": "+5491100000000", "buffer_mb": "4",
+	})
+	if cfg.AppID != 123456 || cfg.AppHash != hash || cfg.Phone != "+5491100000000" || cfg.BufferMB != 4 {
+		t.Fatalf("telegramConfigFrom = %+v", cfg)
+	}
+}
+
+// TestTelegramSetupOffersSignInAfterSave checks the success screen offers the
+// sign-in and that pressing s asks Setup to run it once the wizard exits.
+func TestTelegramSetupOffersSignInAfterSave(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+
+	m := newSetupModel()
+	m.pidx = -1
+	for i, p := range m.provs {
+		if p.section == "telegram" {
+			m.pidx = i
+			break
+		}
+	}
+	if m.pidx < 0 {
+		t.Fatal("telegram spec missing")
+	}
+	m.values = map[string]string{
+		"api_id": "123456", "api_hash": "0123456789abcdef0123456789abcdef",
+		"phone": "+5491100000000", "buffer_mb": "1",
+	}
+	m.persistAndDone(false)
+	if m.signInAction == nil {
+		t.Fatal("a successful save should offer the sign-in")
+	}
+	if view := m.viewResult(); !strings.Contains(view, "Press s to sign in now") {
+		t.Fatalf("result view missing the sign-in hint: %q", view)
+	}
+
+	m.resultKey(keyPress('s', "s"))
+	if !m.signInRequested {
+		t.Fatal("pressing s should request the sign-in after the wizard exits")
+	}
+}
+
 func TestPlexSetupBody(t *testing.T) {
 	var spec providerSpec
 	for _, p := range providers() {
@@ -543,7 +656,7 @@ func TestSetupValidateMatchesDocs(t *testing.T) {
 		"navidrome": true, "lyrion": true, "bandcamp": true, "plex": true, "jellyfin": true,
 		"emby": true, "audiobookshelf": true, "netease": true,
 		"spotify": false, "qobuz": false, "tidal": false, "mixcloud": false,
-		"ytmusic": false,
+		"ytmusic": false, "telegram": false,
 	}
 	specs := providers()
 	if len(specs) != len(want) {

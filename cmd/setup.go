@@ -2,7 +2,7 @@
 // setup.go contains the provider onboarding wizard reachable via
 // `cliamp setup`. It walks the user through configuring each remote
 // provider (Navidrome, Lyrion, Bandcamp, Plex, Jellyfin, Emby, Audiobookshelf,
-// Spotify, Qobuz, Tidal, NetEase, Mixcloud, YouTube Music),
+// Spotify, Qobuz, Tidal, NetEase, Mixcloud, YouTube Music, Telegram),
 // validates the connection where possible, and writes the resulting
 // TOML section to ~/.config/cliamp/config.toml.
 //
@@ -12,6 +12,8 @@ package cmd
 
 import (
 	"context"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"maps"
 	"net/url"
@@ -34,13 +36,28 @@ import (
 	"github.com/bjarneo/cliamp/external/navidrome"
 	"github.com/bjarneo/cliamp/external/netease"
 	"github.com/bjarneo/cliamp/external/plex"
+	"github.com/bjarneo/cliamp/external/telegram"
 )
 
 // Setup launches the interactive wizard. Returns nil on clean exit.
 func Setup() error {
-	prog := tea.NewProgram(newSetupModel())
-	_, err := prog.Run()
-	return err
+	final, err := tea.NewProgram(newSetupModel()).Run()
+	if err != nil {
+		return err
+	}
+	// The sign-in prompts on the terminal, so it runs after the wizard exits
+	// and gives the terminal back.
+	sm, ok := final.(*setupModel)
+	if !ok || !sm.signInRequested || sm.signInAction == nil {
+		return nil
+	}
+	fmt.Fprintln(os.Stderr, "Connecting to Telegram...")
+	if err := sm.signInAction(context.Background()); err != nil {
+		fmt.Fprintf(os.Stderr, "Sign-in failed: %v\nRun cliamp and it will ask again.\n", err)
+		return nil
+	}
+	fmt.Fprintln(os.Stderr, "Signed in. Start cliamp when you are ready.")
+	return nil
 }
 
 // ----- Provider specs -----------------------------------------------------
@@ -75,6 +92,10 @@ type providerSpec struct {
 	// extraValidate runs after the form before validate, e.g. to enforce
 	// "token OR (user+password)" for Jellyfin.
 	extraValidate func(map[string]string) error
+	// signIn, when non-nil, offers an action on the success screen, such as
+	// the Telegram sign-in. Setup runs it after the wizard exits because it
+	// may prompt on the terminal. It returns the hint label and the action.
+	signIn func(map[string]string) (string, func(context.Context) error)
 }
 
 // pickerSpec is an optional radio choice shown before the fields. The
@@ -666,6 +687,97 @@ func providers() []providerSpec {
 				}
 			},
 		},
+		{
+			key:     "telegram",
+			name:    "Telegram",
+			section: "telegram",
+			intro: []string{
+				"Play the audio of your own Telegram chats over MTProto.",
+				"Create an application at https://my.telegram.org/apps and copy its api_id and api_hash.",
+				"Press s after saving to sign in here; otherwise the first start of cliamp asks for the code.",
+			},
+			fields: []fieldSpec{
+				{key: "api_id", label: "API ID", help: "the numeric id from my.telegram.org/apps", required: true},
+				{key: "api_hash", label: "API hash", help: "32 hexadecimal characters", required: true, secret: true},
+				{key: "phone", label: "Phone", help: "international format, e.g. +5491100000000", required: true},
+				{key: "password", label: "2FA password", help: "only when the account has two-step verification", secret: true},
+				{key: "chat", label: "Chat", help: "optional: a chat or bot username to show alone, e.g. deezload2bot"},
+				{key: "buffer_mb", label: "Buffer (MB)", help: "megabytes buffered before playback starts", defaultV: "1"},
+			},
+			extraValidate: func(v map[string]string) error {
+				if id, err := strconv.Atoi(strings.TrimSpace(v["api_id"])); err != nil || id <= 0 {
+					return errors.New("API ID must be the positive number from my.telegram.org/apps")
+				}
+				hash := strings.TrimSpace(v["api_hash"])
+				if len(hash) != 32 {
+					return errors.New("API hash must be 32 hexadecimal characters")
+				}
+				if _, err := hex.DecodeString(hash); err != nil {
+					return errors.New("API hash must be 32 hexadecimal characters")
+				}
+				if phone := digitsOnly(v["phone"]); len(phone) < 7 || len(phone) > 15 {
+					return errors.New("Phone must be in international format, e.g. +5491100000000")
+				}
+				if b := strings.TrimSpace(v["buffer_mb"]); b != "" {
+					if mb, err := strconv.Atoi(b); err != nil || mb < 1 || mb > 64 {
+						return errors.New("Buffer must be a whole number of megabytes between 1 and 64")
+					}
+				}
+				return nil
+			},
+			owned: []string{"api_id", "api_hash", "phone", "password", "chat", "buffer_mb"},
+			body: func(v map[string]string) []config.KeyValue {
+				kv := []config.KeyValue{
+					rawKV("api_id", strings.TrimSpace(v["api_id"])),
+					quotedKV("api_hash", strings.TrimSpace(v["api_hash"])),
+					quotedKV("phone", strings.TrimSpace(v["phone"])),
+				}
+				if p := strings.TrimSpace(v["password"]); p != "" {
+					kv = append(kv, quotedKV("password", p))
+				}
+				if c := strings.TrimSpace(v["chat"]); c != "" {
+					kv = append(kv, quotedKV("chat", c))
+				}
+				buffer := strings.TrimSpace(v["buffer_mb"])
+				if buffer == "" {
+					buffer = "1"
+				}
+				return append(kv, rawKV("buffer_mb", buffer))
+			},
+			signIn: func(v map[string]string) (string, func(context.Context) error) {
+				cfg := telegramConfigFrom(v)
+				return "sign in now", func(ctx context.Context) error {
+					return telegram.SignIn(ctx, cfg)
+				}
+			},
+		},
+	}
+}
+
+// digitsOnly keeps the digits of a phone number, ignoring the +, spaces,
+// dashes and parentheses that people copy from an address book.
+func digitsOnly(phone string) string {
+	var b strings.Builder
+	for _, r := range phone {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// telegramConfigFrom builds the [telegram] section the wizard writes, so
+// setup can sign in right after saving it.
+func telegramConfigFrom(v map[string]string) config.TelegramConfig {
+	id, _ := strconv.Atoi(strings.TrimSpace(v["api_id"]))
+	mb, _ := strconv.Atoi(strings.TrimSpace(v["buffer_mb"]))
+	return config.TelegramConfig{
+		AppID:    id,
+		AppHash:  strings.TrimSpace(v["api_hash"]),
+		Phone:    strings.TrimSpace(v["phone"]),
+		Password: strings.TrimSpace(v["password"]),
+		Chat:     strings.TrimSpace(v["chat"]),
+		BufferMB: mb,
 	}
 }
 
@@ -751,6 +863,11 @@ type setupModel struct {
 	resultText    string // overall message (e.g. "Saved [navidrome] section.")
 	saveFailed    error  // io error writing config (rare; shown as error result)
 	awaitingSave  bool   // true after a failed validate: waiting for y/n
+
+	// sign-in offered after a successful save (Telegram)
+	signInLabel     string
+	signInAction    func(context.Context) error
+	signInRequested bool
 
 	// cached so we don't hit os.UserHomeDir per-frame
 	cfgPath string
@@ -916,6 +1033,7 @@ func (m *setupModel) startProvider(idx int) {
 	m.resultWarning = false
 	m.awaitingSave = false
 	m.saveFailed = nil
+	m.signInLabel, m.signInAction, m.signInRequested = "", nil, false
 
 	if m.provs[idx].picker != nil {
 		m.stage = stagePicker
@@ -1122,6 +1240,10 @@ func (m *setupModel) persistAndDone(warn bool) tea.Cmd {
 	m.resultErr = nil
 	m.resultWarning = warn
 	m.resultText = fmt.Sprintf("Saved [%s] section.", spec.section)
+	m.signInLabel, m.signInAction = "", nil
+	if spec.signIn != nil && !warn {
+		m.signInLabel, m.signInAction = spec.signIn(m.values)
+	}
 	return nil
 }
 
@@ -1140,6 +1262,11 @@ func (m *setupModel) resultKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, nil
+	}
+
+	if m.signInAction != nil && strings.ToLower(msg.String()) == "s" {
+		m.signInRequested = true
+		return m, tea.Quit
 	}
 
 	switch msg.String() {
@@ -1372,6 +1499,10 @@ func (m *setupModel) viewResult() string {
 	b.WriteString("\n\n")
 	b.WriteString(dimStyle.Render(m.cfgPath))
 	b.WriteString("\n\n")
+	if m.signInAction != nil {
+		b.WriteString(hintStyle.Render(fmt.Sprintf("Press s to %s, Enter or Esc to configure another provider, or q to quit.", m.signInLabel)))
+		return m.card(b.String())
+	}
 	b.WriteString(hintStyle.Render("Press Enter or Esc to configure another provider, or q to quit."))
 	return m.card(b.String())
 }
@@ -1388,9 +1519,12 @@ func (m *setupModel) viewFooter() string {
 	case stageValidating:
 		keys = "ctrl+c cancel"
 	case stageResult:
-		if m.awaitingSave {
+		switch {
+		case m.awaitingSave:
 			keys = "y save anyway   n cancel  q quit"
-		} else {
+		case m.signInAction != nil:
+			keys = "s " + m.signInLabel + "   enter/esc continue   q quit"
+		default:
 			keys = "enter/esc continue   q quit"
 		}
 	}

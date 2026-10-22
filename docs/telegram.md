@@ -9,7 +9,9 @@ process.
 1. Create an application at [my.telegram.org/apps](https://my.telegram.org/apps)
    and copy its `api_id` and `api_hash`. These identify the client; they are not
    a bot token.
-2. Add the section to `config.toml`:
+2. Run `cliamp setup`, pick Telegram and fill the form. Press `s` on the result
+   screen to sign in right there. To write the section by hand instead, add it
+   to `config.toml`:
 
 ```toml
 [telegram]
@@ -18,8 +20,8 @@ api_hash = "0123456789abcdef0123456789abcdef"
 phone    = "+5491100000000"
 ```
 
-3. Start cliamp. The first run asks for the login code **before** the interface
-   takes over the terminal. The code arrives inside the Telegram app, not by
+3. Start cliamp. When setup did not sign in, the first run asks for the login
+   code **before** the interface takes over the terminal. The code arrives inside the Telegram app, not by
    SMS. Set `password` as well when the account has 2FA.
 
 The session is stored in `~/.local/share/cliamp/telegram.session` and reused
