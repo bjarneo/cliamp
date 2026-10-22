@@ -56,6 +56,8 @@ type Provider struct {
 	client      *tgclient.Client
 	api         *tg.Client
 	ready       chan struct{}
+	signIn      chan struct{}
+	signInOnce  sync.Once
 	closeOnce   sync.Once
 	connectErr  error
 	cacheDir    string
@@ -79,6 +81,7 @@ func NewFromConfig(cfg config.TelegramConfig, interactive bool) *Provider {
 	p := &Provider{
 		cfg:         cfg,
 		ready:       make(chan struct{}),
+		signIn:      make(chan struct{}),
 		cacheDir:    filepath.Join(cache, "cliamp", "telegram"),
 		docs:        make(map[msgKey]*tg.Document),
 		artCache:    make(map[msgKey]string),
@@ -86,16 +89,18 @@ func NewFromConfig(cfg config.TelegramConfig, interactive bool) *Provider {
 	}
 	go p.run()
 	// The sign-in prompt writes to stdin/stderr and must happen before the TUI
-	// takes over the terminal. Reading the code from the user can take longer
-	// than connectWait, so give the interactive path its own budget instead of
-	// letting the TUI take the terminal while the reader is still on stdin.
-	wait := connectWait
-	if interactive {
-		wait = loginWait
-	}
+	// takes over the terminal. Connecting keeps the 45s budget, because a slow
+	// or unreachable network must not hold the interface back; once the sign-in
+	// starts, reading the code from the user gets its own budget so the TUI
+	// does not take the terminal while the reader is still on stdin.
 	select {
 	case <-p.ready:
-	case <-time.After(wait):
+	case <-p.signIn:
+		select {
+		case <-p.ready:
+		case <-time.After(loginWait):
+		}
+	case <-time.After(connectWait):
 	}
 	return p
 }
@@ -153,6 +158,7 @@ func (p *Provider) finish(err error) {
 }
 
 func (p *Provider) login(ctx context.Context) error {
+	p.signInOnce.Do(func() { close(p.signIn) })
 	if p.cfg.Phone == "" {
 		return errors.New("telegram: [telegram] phone is required to sign in")
 	}
@@ -332,7 +338,7 @@ func (p *Provider) dialogs(ctx context.Context) ([]playlist.PlaylistInfo, error)
 		if !ok {
 			return out, nil
 		}
-		offset, offsetID, offsetDate = peer, last.TopMessage, topMessageDate(slice.Messages, last.TopMessage)
+		offset, offsetID, offsetDate = peer, last.TopMessage, topMessageDate(slice.Messages, last.Peer, last.TopMessage)
 	}
 	return out, nil
 }
@@ -449,17 +455,34 @@ func inputPeer(peer tg.PeerClass, users []tg.UserClass, chats []tg.ChatClass) (t
 }
 
 // topMessageDate returns the date of the top message of a dialog, which the
-// next getDialogs page uses as its offset date.
-func topMessageDate(messages []tg.MessageClass, id int) int {
+// next getDialogs page uses as its offset date. Message IDs are only unique
+// inside a peer, so the peer has to match too: another dialog's message in the
+// same page can carry the same ID.
+func topMessageDate(messages []tg.MessageClass, peer tg.PeerClass, id int) int {
 	for _, message := range messages {
-		if message.GetID() != id {
+		value, ok := message.(*tg.Message)
+		if !ok || value.ID != id || !samePeer(value.PeerID, peer) {
 			continue
 		}
-		if value, ok := message.(*tg.Message); ok {
-			return value.Date
-		}
+		return value.Date
 	}
 	return 0
+}
+
+// samePeer reports whether two peers point at the same chat.
+func samePeer(a, b tg.PeerClass) bool {
+	switch left := a.(type) {
+	case *tg.PeerUser:
+		right, ok := b.(*tg.PeerUser)
+		return ok && left.UserID == right.UserID
+	case *tg.PeerChat:
+		right, ok := b.(*tg.PeerChat)
+		return ok && left.ChatID == right.ChatID
+	case *tg.PeerChannel:
+		right, ok := b.(*tg.PeerChannel)
+		return ok && left.ChannelID == right.ChannelID
+	}
+	return false
 }
 
 // peerID encodes an input peer so it can round-trip through a playlist id.

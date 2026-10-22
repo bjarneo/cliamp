@@ -211,3 +211,18 @@ func TestDialogsAsPlaylistsUsesTheDialogList(t *testing.T) {
 		t.Fatalf("channel dialog = %+v, want ch:20:77 Music in Channels", got[1])
 	}
 }
+
+func TestTopMessageDateMatchesThePeer(t *testing.T) {
+	// Message IDs repeat across peers, so the offset date has to come from the
+	// message of the dialog's own peer.
+	messages := []tg.MessageClass{
+		&tg.Message{ID: 7, PeerID: &tg.PeerUser{UserID: 10}, Date: 111},
+		&tg.Message{ID: 7, PeerID: &tg.PeerChannel{ChannelID: 20}, Date: 222},
+	}
+	if got := topMessageDate(messages, &tg.PeerChannel{ChannelID: 20}, 7); got != 222 {
+		t.Fatalf("topMessageDate() = %d, want 222", got)
+	}
+	if got := topMessageDate(messages, &tg.PeerChat{ChatID: 3}, 7); got != 0 {
+		t.Fatalf("topMessageDate() = %d, want 0 when no message matches the peer", got)
+	}
+}
