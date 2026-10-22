@@ -14,6 +14,7 @@ func TestStreamSourceServesGrowingFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = file.Close() })
 	source := newStreamSource(file)
 
 	go func() {
@@ -39,6 +40,7 @@ func TestStreamSourceSeekWithinDownloadedData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = file.Close() })
 	source := newStreamSource(file)
 	writer := streamWriter{source: source, file: file}
 	if _, err := writer.Write([]byte("0123456789")); err != nil {
@@ -64,6 +66,7 @@ func TestStreamSourceReportsDownloadError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = file.Close() })
 	source := newStreamSource(file)
 	writer := streamWriter{source: source, file: file}
 	_, _ = writer.Write([]byte("part"))
