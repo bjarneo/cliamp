@@ -409,6 +409,7 @@ func (m *Model) tickExpire(now time.Time, dt time.Duration) {
 	}
 	m.tickPendingSpeedSave(dt)
 	m.tickPendingEQSave(dt)
+	m.tickPendingVolumeSave(dt)
 	if m.pendingSeekActive && !m.pendingSeekExpiresAt.IsZero() && !now.Before(m.pendingSeekExpiresAt) {
 		m.pendingSeekActive = false
 		m.pendingSeekExpiresAt = time.Time{}
