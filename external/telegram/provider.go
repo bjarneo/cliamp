@@ -37,9 +37,18 @@ var (
 const (
 	uriPrefix       = "telegram:"
 	connectWait     = 45 * time.Second
+	loginWait       = 5 * time.Minute
 	trackPageSize   = 100
 	dialogsPageSize = 100
+	dialogsMaxPages = 10
 )
+
+// msgKey identifies a document. Telegram message IDs are unique per chat, not
+// per account, so a bare ID collides between chats.
+type msgKey struct {
+	chat string
+	id   int
+}
 
 // Provider lists the audio of one Telegram chat and streams its documents.
 type Provider struct {
@@ -51,9 +60,9 @@ type Provider struct {
 	connectErr  error
 	cacheDir    string
 	docsMu      sync.Mutex
-	docs        map[int]*tg.Document
+	docs        map[msgKey]*tg.Document
 	artMu       sync.Mutex
-	artCache    map[int]string
+	artCache    map[msgKey]string
 	downloadMu  sync.Mutex
 	interactive bool
 }
@@ -71,16 +80,22 @@ func NewFromConfig(cfg config.TelegramConfig, interactive bool) *Provider {
 		cfg:         cfg,
 		ready:       make(chan struct{}),
 		cacheDir:    filepath.Join(cache, "cliamp", "telegram"),
-		docs:        make(map[int]*tg.Document),
-		artCache:    make(map[int]string),
+		docs:        make(map[msgKey]*tg.Document),
+		artCache:    make(map[msgKey]string),
 		interactive: interactive,
 	}
 	go p.run()
 	// The sign-in prompt writes to stdin/stderr and must happen before the TUI
-	// takes over the terminal.
+	// takes over the terminal. Reading the code from the user can take longer
+	// than connectWait, so give the interactive path its own budget instead of
+	// letting the TUI take the terminal while the reader is still on stdin.
+	wait := connectWait
+	if interactive {
+		wait = loginWait
+	}
 	select {
 	case <-p.ready:
-	case <-time.After(connectWait):
+	case <-time.After(wait):
 	}
 	return p
 }
@@ -99,7 +114,7 @@ func (p *Provider) sessionPath() string {
 }
 
 func (p *Provider) run() {
-	if err := os.MkdirAll(filepath.Dir(p.sessionPath()), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p.sessionPath()), 0o700); err != nil {
 		p.finish(err)
 		return
 	}
@@ -197,14 +212,10 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 		}}, nil
 	}
 
-	dialogs, err := p.api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
-		Limit:      dialogsPageSize,
-		OffsetPeer: &tg.InputPeerEmpty{},
-	})
+	out, err := p.dialogs(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("telegram: dialogs: %w", err)
+		return nil, err
 	}
-	out := dialogsAsPlaylists(dialogs)
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Section != out[j].Section {
 			return out[i].Section < out[j].Section
@@ -247,12 +258,14 @@ func (p *Provider) TracksPage(playlistID string, offset int) ([]playlist.Track, 
 	tracks := make([]playlist.Track, 0, len(raw))
 	lastID := 0
 	for _, message := range raw {
+		// The offset for the next page comes from every message class: a page
+		// with only service items (joins, pins) still advances the history.
+		if id := message.GetID(); lastID == 0 || id < lastID {
+			lastID = id
+		}
 		msg, ok := message.(*tg.Message)
 		if !ok {
 			continue
-		}
-		if lastID == 0 || msg.ID < lastID {
-			lastID = msg.ID
 		}
 		media, ok := msg.Media.(*tg.MessageMediaDocument)
 		if !ok {
@@ -267,7 +280,7 @@ func (p *Provider) TracksPage(playlistID string, offset int) ([]playlist.Track, 
 			continue
 		}
 		p.docsMu.Lock()
-		p.docs[msg.ID] = doc
+		p.docs[msgKey{chat: playlistID, id: msg.ID}] = doc
 		p.docsMu.Unlock()
 		track := playlist.Track{
 			Path:         fmt.Sprintf("%s%s:%d", uriPrefix, playlistID, msg.ID),
@@ -288,60 +301,165 @@ func (p *Provider) TracksPage(playlistID string, offset int) ([]playlist.Track, 
 	return tracks, next, nil
 }
 
+// dialogs returns every dialog of the account. Telegram caps one
+// messages.getDialogs response at dialogsPageSize and answers the rest with a
+// slice, so the list is paged until the last page.
+func (p *Provider) dialogs(ctx context.Context) ([]playlist.PlaylistInfo, error) {
+	var out []playlist.PlaylistInfo
+	offset := tg.InputPeerClass(&tg.InputPeerEmpty{})
+	offsetID, offsetDate := 0, 0
+	for range dialogsMaxPages {
+		resp, err := p.api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
+			Limit:      dialogsPageSize,
+			OffsetPeer: offset,
+			OffsetID:   offsetID,
+			OffsetDate: offsetDate,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("telegram: dialogs: %w", err)
+		}
+		out = append(out, dialogsAsPlaylists(resp)...)
+
+		slice, ok := resp.(*tg.MessagesDialogsSlice)
+		if !ok || len(slice.Dialogs) < dialogsPageSize {
+			return out, nil
+		}
+		last, ok := slice.Dialogs[len(slice.Dialogs)-1].(*tg.Dialog)
+		if !ok {
+			return out, nil
+		}
+		peer, ok := inputPeer(last.Peer, slice.Users, slice.Chats)
+		if !ok {
+			return out, nil
+		}
+		offset, offsetID, offsetDate = peer, last.TopMessage, topMessageDate(slice.Messages, last.TopMessage)
+	}
+	return out, nil
+}
+
 // dialogsAsPlaylists maps the dialogs of a getDialogs response to playlists.
+// The dialogs list is the ordered set of chats the account has open; the users
+// and chats vectors also carry entities that only the top messages reference,
+// so walking them would list chats that do not exist.
 func dialogsAsPlaylists(dialogs tg.MessagesDialogsClass) []playlist.PlaylistInfo {
 	var (
-		users  []tg.UserClass
-		chats  []tg.ChatClass
-		result []playlist.PlaylistInfo
+		dialogList []tg.DialogClass
+		users      []tg.UserClass
+		chats      []tg.ChatClass
 	)
 	switch value := dialogs.(type) {
 	case *tg.MessagesDialogs:
-		users, chats = value.Users, value.Chats
+		dialogList, users, chats = value.Dialogs, value.Users, value.Chats
 	case *tg.MessagesDialogsSlice:
-		users, chats = value.Users, value.Chats
+		dialogList, users, chats = value.Dialogs, value.Users, value.Chats
 	default:
 		return nil
 	}
+
+	usersByID := make(map[int64]*tg.User, len(users))
 	for _, entity := range users {
-		user, ok := entity.(*tg.User)
-		if !ok || user.Self || user.Deleted {
-			continue
+		if user, ok := entity.(*tg.User); ok {
+			usersByID[user.ID] = user
 		}
-		name := strings.TrimSpace(user.FirstName + " " + user.LastName)
-		if name == "" {
-			name = user.Username
-		}
-		if name == "" {
-			continue
-		}
-		section := "Chats"
-		if user.Bot {
-			section = "Bots"
-		}
-		result = append(result, playlist.PlaylistInfo{
-			ID:      fmt.Sprintf("u:%d:%d", user.ID, user.AccessHash),
-			Name:    name,
-			Section: section,
-		})
 	}
+	channelsByID := make(map[int64]*tg.Channel, len(chats))
+	groupsByID := make(map[int64]*tg.Chat, len(chats))
 	for _, entity := range chats {
 		switch chat := entity.(type) {
 		case *tg.Channel:
-			result = append(result, playlist.PlaylistInfo{
-				ID:      fmt.Sprintf("ch:%d:%d", chat.ID, chat.AccessHash),
-				Name:    chat.Title,
-				Section: "Canales",
-			})
+			channelsByID[chat.ID] = chat
 		case *tg.Chat:
+			groupsByID[chat.ID] = chat
+		}
+	}
+
+	result := make([]playlist.PlaylistInfo, 0, len(dialogList))
+	for _, entity := range dialogList {
+		dialog, ok := entity.(*tg.Dialog)
+		if !ok {
+			continue
+		}
+		switch peer := dialog.Peer.(type) {
+		case *tg.PeerUser:
+			user, ok := usersByID[peer.UserID]
+			if !ok || user.Self || user.Deleted {
+				continue
+			}
+			name := strings.TrimSpace(user.FirstName + " " + user.LastName)
+			if name == "" {
+				name = user.Username
+			}
+			if name == "" {
+				continue
+			}
+			section := "Chats"
+			if user.Bot {
+				section = "Bots"
+			}
+			result = append(result, playlist.PlaylistInfo{
+				ID:      fmt.Sprintf("u:%d:%d", user.ID, user.AccessHash),
+				Name:    name,
+				Section: section,
+			})
+		case *tg.PeerChannel:
+			channel, ok := channelsByID[peer.ChannelID]
+			if !ok || channel.Title == "" {
+				continue
+			}
+			result = append(result, playlist.PlaylistInfo{
+				ID:      fmt.Sprintf("ch:%d:%d", channel.ID, channel.AccessHash),
+				Name:    channel.Title,
+				Section: "Channels",
+			})
+		case *tg.PeerChat:
+			chat, ok := groupsByID[peer.ChatID]
+			if !ok || chat.Title == "" {
+				continue
+			}
 			result = append(result, playlist.PlaylistInfo{
 				ID:      fmt.Sprintf("c:%d", chat.ID),
 				Name:    chat.Title,
-				Section: "Grupos",
+				Section: "Groups",
 			})
 		}
 	}
 	return result
+}
+
+// inputPeer resolves a peer into the input form, using the access hash of the
+// entity that came with the dialogs page.
+func inputPeer(peer tg.PeerClass, users []tg.UserClass, chats []tg.ChatClass) (tg.InputPeerClass, bool) {
+	switch value := peer.(type) {
+	case *tg.PeerUser:
+		for _, entity := range users {
+			if user, ok := entity.(*tg.User); ok && user.ID == value.UserID {
+				return &tg.InputPeerUser{UserID: user.ID, AccessHash: user.AccessHash}, true
+			}
+		}
+	case *tg.PeerChat:
+		return &tg.InputPeerChat{ChatID: value.ChatID}, true
+	case *tg.PeerChannel:
+		for _, entity := range chats {
+			if channel, ok := entity.(*tg.Channel); ok && channel.ID == value.ChannelID {
+				return &tg.InputPeerChannel{ChannelID: channel.ID, AccessHash: channel.AccessHash}, true
+			}
+		}
+	}
+	return nil, false
+}
+
+// topMessageDate returns the date of the top message of a dialog, which the
+// next getDialogs page uses as its offset date.
+func topMessageDate(messages []tg.MessageClass, id int) int {
+	for _, message := range messages {
+		if message.GetID() != id {
+			continue
+		}
+		if value, ok := message.(*tg.Message); ok {
+			return value.Date
+		}
+	}
+	return 0
 }
 
 // peerID encodes an input peer so it can round-trip through a playlist id.

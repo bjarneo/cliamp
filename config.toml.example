@@ -351,7 +351,18 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Audiobookshelf server (optional)
 # Audiobooks and podcasts from your own Audiobookshelf server. Authenticate
 # either with an API key (Settings -> Users -> API Keys) or with your
-# username/password.#
+# username/password.
+
+# [audiobookshelf]
+# url = "https://abs.example.com"
+# token = "your-api-key"
+# user = "listener"
+# password = "secret"
+#
+# Restrict to specific libraries (default: all).
+# libraries = ["Audiobooks", "Podcasts"]
+
+# ---
 # Telegram user account. The provider browses your own chats and plays the
 # audio documents they hold. It is not a bot: create an application at
 # https://my.telegram.org/apps and use its api_id and api_hash.
@@ -367,15 +378,6 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # chat      = ""                    # optional: show one chat instead of all
 # buffer_mb = 1                     # megabytes buffered before playback starts
 # session_file = "~/.local/share/cliamp/telegram.session"
-
-# [audiobookshelf]
-# url = "https://abs.example.com"
-# token = "your-api-key"
-# user = "listener"
-# password = "secret"
-#
-# Restrict to specific libraries (default: all).
-# libraries = ["Audiobooks", "Podcasts"]
 
 # Destination for TUI Ctrl+S saves. Empty uses ~/Music/cliamp.
 # Use an absolute path; mount external drives before saving.

@@ -244,7 +244,7 @@ type TelegramConfig struct {
 	Phone       string // international format, used only for the first sign-in
 	Password    string // optional 2FA password
 	Chat        string // chat or bot username to browse, e.g. deezload2bot
-	BufferMB    int    // megabytes buffered before playback starts; 0 uses 5
+	BufferMB    int    // megabytes buffered before playback starts; 0 uses 1
 	SessionFile string // session path; empty uses ~/.local/share/cliamp/telegram.session
 }
 

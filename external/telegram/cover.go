@@ -31,7 +31,8 @@ func (p *Provider) coverPath(chat string, msgID int) string {
 // Telegram Desktop publishes.
 func (p *Provider) coverURL(chat string, msgID int) string {
 	p.artMu.Lock()
-	cached, hit := p.artCache[msgID]
+	key := msgKey{chat: chat, id: msgID}
+	cached, hit := p.artCache[key]
 	p.artMu.Unlock()
 	if hit {
 		return cached
@@ -51,7 +52,7 @@ func (p *Provider) coverURL(chat string, msgID int) string {
 	}
 	url := "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
 	p.artMu.Lock()
-	p.artCache[msgID] = url
+	p.artCache[key] = url
 	p.artMu.Unlock()
 	return url
 }

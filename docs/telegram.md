@@ -28,7 +28,7 @@ afterwards, so the code is only asked once.
 ## What it lists
 
 `Telegram` appears in the provider pane with every dialog of the account,
-grouped into Bots, Canales, Grupos and Chats. A chat loads its history in pages
+grouped into Bots, Channels, Groups and Chats. A chat loads its history in pages
 of 100 messages as you scroll; nothing is fetched ahead of time.
 
 ## Playback

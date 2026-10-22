@@ -186,3 +186,28 @@ func TestPeerIDRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+func TestDialogsAsPlaylistsUsesTheDialogList(t *testing.T) {
+	user := &tg.User{ID: 10, AccessHash: 99, FirstName: "Ada"}
+	orphan := &tg.User{ID: 30, AccessHash: 55, FirstName: "OnlyInTopMessage"}
+	channel := &tg.Channel{ID: 20, AccessHash: 77, Title: "Music"}
+
+	got := dialogsAsPlaylists(&tg.MessagesDialogsSlice{
+		Dialogs: []tg.DialogClass{
+			&tg.Dialog{Peer: &tg.PeerUser{UserID: 10}},
+			&tg.Dialog{Peer: &tg.PeerChannel{ChannelID: 20}},
+		},
+		Users: []tg.UserClass{user, orphan},
+		Chats: []tg.ChatClass{channel},
+	})
+
+	if len(got) != 2 {
+		t.Fatalf("dialogsAsPlaylists() returned %d playlists, want 2: %+v", len(got), got)
+	}
+	if got[0].ID != "u:10:99" || got[0].Section != "Chats" {
+		t.Fatalf("user dialog = %+v, want u:10:99 in Chats", got[0])
+	}
+	if got[1].ID != "ch:20:77" || got[1].Section != "Channels" || got[1].Name != "Music" {
+		t.Fatalf("channel dialog = %+v, want ch:20:77 Music in Channels", got[1])
+	}
+}

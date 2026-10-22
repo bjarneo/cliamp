@@ -120,7 +120,7 @@ func (p *Provider) openStream(chat string, msgID int) (beep.StreamSeekCloser, be
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	doc, err := p.fetchDocument(ctx, msgID)
+	doc, err := p.fetchDocument(ctx, chat, msgID)
 	if err != nil {
 		return nil, beep.Format{}, 0, err
 	}
@@ -148,11 +148,14 @@ func (p *Provider) openStream(chat string, msgID int) (beep.StreamSeekCloser, be
 		return streamer, format, time.Duration(docDuration(doc)) * time.Second, nil
 	}
 
-	partialPath := finalPath + ".part"
-	writerFile, err := os.OpenFile(partialPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	// One part file per open: a second open of the same track (a preload
+	// overlapping a manual play, or skipping back to it) must not truncate a
+	// download that is still writing.
+	writerFile, err := os.CreateTemp(dir, fmt.Sprintf("%d-*.part", msgID))
 	if err != nil {
 		return nil, beep.Format{}, 0, err
 	}
+	partialPath := writerFile.Name()
 	readerFile, err := os.Open(partialPath)
 	if err != nil {
 		writerFile.Close()
@@ -163,7 +166,7 @@ func (p *Provider) openStream(chat string, msgID int) (beep.StreamSeekCloser, be
 
 	buffer := int64(p.cfg.BufferMB) * 1024 * 1024
 	if p.cfg.BufferMB <= 0 {
-		buffer = 5 * 1024 * 1024
+		buffer = 1024 * 1024
 	}
 	if err := source.waitFor(buffer, 3*time.Minute); err != nil {
 		readerFile.Close()
@@ -224,18 +227,39 @@ func (p *Provider) downloadStream(chat string, msgID int, doc *tg.Document, sour
 	}
 }
 
-func (p *Provider) fetchDocument(ctx context.Context, msgID int) (*tg.Document, error) {
-	got, err := p.api.MessagesGetMessages(ctx, []tg.InputMessageClass{
-		&tg.InputMessageID{ID: msgID},
-	})
+func (p *Provider) fetchDocument(ctx context.Context, chat string, msgID int) (*tg.Document, error) {
+	key := msgKey{chat: chat, id: msgID}
+	p.docsMu.Lock()
+	cached, hit := p.docs[key]
+	p.docsMu.Unlock()
+	if hit {
+		return cached, nil
+	}
+
+	peer, err := parsePeerID(chat)
+	if err != nil {
+		return nil, err
+	}
+	ids := []tg.InputMessageClass{&tg.InputMessageID{ID: msgID}}
+	var got tg.MessagesMessagesClass
+	if channel, ok := peer.(*tg.InputPeerChannel); ok {
+		// Channel and supergroup message IDs are scoped to the channel, so they
+		// need channels.getMessages instead of the global messages.getMessages.
+		got, err = p.api.ChannelsGetMessages(ctx, &tg.ChannelsGetMessagesRequest{
+			Channel: &tg.InputChannel{ChannelID: channel.ChannelID, AccessHash: channel.AccessHash},
+			ID:      ids,
+		})
+	} else {
+		got, err = p.api.MessagesGetMessages(ctx, ids)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("telegram: message %d: %w", msgID, err)
 	}
-	messages, ok := got.(*tg.MessagesMessages)
-	if !ok || len(messages.Messages) == 0 {
+	messages := messagesOf(got)
+	if len(messages) == 0 {
 		return nil, fmt.Errorf("telegram: message %d not found", msgID)
 	}
-	message, ok := messages.Messages[0].(*tg.Message)
+	message, ok := messages[0].(*tg.Message)
 	if !ok {
 		return nil, fmt.Errorf("telegram: message %d is not a message", msgID)
 	}
@@ -247,6 +271,9 @@ func (p *Provider) fetchDocument(ctx context.Context, msgID int) (*tg.Document, 
 	if !ok {
 		return nil, fmt.Errorf("telegram: message %d has no document", msgID)
 	}
+	p.docsMu.Lock()
+	p.docs[key] = doc
+	p.docsMu.Unlock()
 	return doc, nil
 }
 
