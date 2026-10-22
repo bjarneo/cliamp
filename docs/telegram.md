@@ -21,7 +21,8 @@ api_hash = "0123456789abcdef0123456789abcdef"
 phone    = "+5491100000000"
 ```
 
-3. Start cliamp. When setup did not sign in, the Telegram pane asks for it:
+3. Start cliamp. In the player, `U` opens the Telegram provider directly.
+   When setup did not sign in, the Telegram pane asks for it:
    press `enter` on the pane and a small input collects the code the Telegram
    app delivered (it is not sent by SMS). A wrong code can be corrected in
    place. Set `password` in the config as well when the account has 2FA.
