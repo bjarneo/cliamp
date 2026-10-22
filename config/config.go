@@ -529,11 +529,12 @@ func (m *MixcloudConfig) set(key, val string) {
 
 // NetEaseConfig holds settings for the NetEase Cloud Music provider.
 // The provider is opt-in and can reuse an existing browser session through
-// yt-dlp's --cookies-from-browser support.
+// yt-dlp's --cookies-from-browser support, or read an exported cookies file.
 // Enable rule: opt-in.
 type NetEaseConfig struct {
 	Enabled     bool   // true only when user explicitly sets enabled = true
 	CookiesFrom string // browser name for account APIs and playback (e.g. "chrome")
+	CookiesFile string // Netscape-format cookies file; takes precedence over CookiesFrom
 	UserID      string // optional account user id; setup can discover this from cookies
 }
 
@@ -549,6 +550,8 @@ func (n *NetEaseConfig) set(key, val string) {
 		}
 	case "cookies_from":
 		n.CookiesFrom = strings.TrimSpace(parseString(val))
+	case "cookies_file":
+		n.CookiesFile = strings.TrimSpace(parseString(val))
 	case "user_id":
 		n.UserID = parseString(val)
 	}

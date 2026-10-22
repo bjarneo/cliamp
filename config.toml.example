@@ -261,6 +261,8 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Sign in to music.163.com in your browser, then run `cliamp setup` or set
 # cookies_from manually. The provider lists your account playlists, saved
 # playlists, liked songs, and public charts. Playback uses yt-dlp.
+# When yt-dlp cannot read the browser cookies (the DPAPI error on Windows),
+# set cookies_file to an exported Netscape cookies.txt instead of cookies_from.
 # [netease]
 # enabled = true
 # cookies_from = "chrome"

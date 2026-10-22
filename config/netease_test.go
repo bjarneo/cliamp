@@ -14,6 +14,7 @@ func TestLoadNetEase(t *testing.T) {
 		wantEnabled bool
 		wantIsSet   bool
 		wantCookies string
+		wantFile    string
 		wantUserID  string
 	}{
 		{
@@ -41,6 +42,16 @@ cookies_from = "$NETEASE_BROWSER"
 			wantEnabled: true,
 			wantIsSet:   true,
 			wantCookies: "chrome",
+		},
+		{
+			name: "cookies_file",
+			tomlContent: `[netease]
+enabled = true
+cookies_file = " /tmp/cookies.txt "
+`,
+			wantEnabled: true,
+			wantIsSet:   true,
+			wantFile:    "/tmp/cookies.txt",
 		},
 	}
 
@@ -74,6 +85,9 @@ cookies_from = "$NETEASE_BROWSER"
 			}
 			if cfg.NetEase.CookiesFrom != tc.wantCookies {
 				t.Errorf("CookiesFrom = %q, want %q", cfg.NetEase.CookiesFrom, tc.wantCookies)
+			}
+			if cfg.NetEase.CookiesFile != tc.wantFile {
+				t.Errorf("CookiesFile = %q, want %q", cfg.NetEase.CookiesFile, tc.wantFile)
 			}
 			if cfg.NetEase.UserID != tc.wantUserID {
 				t.Errorf("UserID = %q, want %q", cfg.NetEase.UserID, tc.wantUserID)
