@@ -466,11 +466,12 @@ native show search, direct creator jumps, and playback need no account:
 enabled = true
 ```
 
-Add `username` for your following stream, activity, uploads, read-only show
+Add `username` for activity, uploads, read-only show
 favorites, listening history, collections, and followed-creator browsing. An
 optional developer `access_token` sets `/me/` as the account identity and adds
-Listen Later. `cookies_from` gives yt-dlp your signed-in browser session for
-playback that requires it.
+Listen Later. For Stream (New Shows), cliamp makes GraphQL requests using browser
+cookies loaded through yt-dlp via `cookies_from`. Playback uses yt-dlp, with the
+same browser session when required.
 
 ```toml
 [mixcloud]
@@ -480,7 +481,6 @@ access_token = "${MIXCLOUD_ACCESS_TOKEN}"
 cookies_from = "firefox"
 styles = ["ambient", "deep-house", "jazz", "techno"]
 max_items = 100
-stream_creators = 20
 ```
 
 The `styles` list is also the local genre-favorites list for the provider. In

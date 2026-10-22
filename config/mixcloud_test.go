@@ -22,7 +22,6 @@ access_token = "${CLIAMP_TEST_MIXCLOUD_TOKEN}"
 cookies_from = "firefox"
 styles = ["ambient", "deep-house"]
 max_items = 75
-stream_creators = 15
 `)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
@@ -35,7 +34,7 @@ stream_creators = 15
 	if !cfg.Mixcloud.IsSet() || cfg.Mixcloud.Username != "alice" || cfg.Mixcloud.AccessToken != "secret-token" || cfg.Mixcloud.CookiesFrom != "firefox" {
 		t.Fatalf("Mixcloud config = %+v", cfg.Mixcloud)
 	}
-	if !slices.Equal(cfg.Mixcloud.Styles, []string{"ambient", "deep-house"}) || cfg.Mixcloud.MaxItems != 75 || cfg.Mixcloud.StreamCreators != 15 {
+	if !slices.Equal(cfg.Mixcloud.Styles, []string{"ambient", "deep-house"}) || cfg.Mixcloud.MaxItems != 75 {
 		t.Fatalf("Mixcloud limits/styles = %+v", cfg.Mixcloud)
 	}
 	if !cfg.Mixcloud.StylesSet {

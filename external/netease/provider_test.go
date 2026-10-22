@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -114,8 +116,7 @@ func TestSearchTracks(t *testing.T) {
 	}
 }
 
-func TestCookieHeaderFromNetscapeFileFiltersNetEaseCookies(t *testing.T) {
-	path := t.TempDir() + "/cookies.txt"
+func TestCookieHeaderFromNetscapeFiltersNetEaseCookies(t *testing.T) {
 	data := strings.Join([]string{
 		"# Netscape HTTP Cookie File",
 		".music.163.com\tTRUE\t/\tTRUE\t0\tMUSIC_U\tabc",
@@ -123,15 +124,87 @@ func TestCookieHeaderFromNetscapeFileFiltersNetEaseCookies(t *testing.T) {
 		".example.com\tTRUE\t/\tTRUE\t0\tOTHER\tignored",
 		"",
 	}, "\n")
-	if err := osWriteFile(path, data); err != nil {
-		t.Fatal(err)
-	}
-	header, err := cookieHeaderFromNetscapeFile(path)
+	header, err := cookieHeaderFromNetscape([]byte(data))
 	if err != nil {
-		t.Fatalf("cookieHeaderFromNetscapeFile() error = %v", err)
+		t.Fatalf("cookieHeaderFromNetscape() error = %v", err)
 	}
 	if header != "MUSIC_U=abc; __csrf=def" {
 		t.Fatalf("header = %q", header)
+	}
+}
+
+func TestExtractBrowserCookieHeaderUsesOfflineExport(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based fake yt-dlp")
+	}
+	for _, fail := range []bool{false, true} {
+		name := "success"
+		if fail {
+			name = "export-failure"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			script := `#!/bin/sh
+printf '%s\n' "$@" > "$FAKE_ARGS"
+cat > "$FAKE_STDIN"
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = '--cookies' ]; then shift; cookie_path="$1"; fi
+  shift
+done
+printf '%s' "$cookie_path" > "$FAKE_COOKIE_PATH"
+printf '%s\n' '.music.163.com	TRUE	/	TRUE	0	MUSIC_U	abc' > "$cookie_path"
+if [ "$FAKE_FAIL" = '1' ]; then
+  echo synthetic-secret >&2
+  exit 1
+fi
+`
+			if err := os.WriteFile(filepath.Join(dir, "yt-dlp"), []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			argsPath := filepath.Join(dir, "args")
+			stdinPath := filepath.Join(dir, "stdin")
+			cookiePath := filepath.Join(dir, "cookie-path")
+			t.Setenv("FAKE_ARGS", argsPath)
+			t.Setenv("FAKE_STDIN", stdinPath)
+			t.Setenv("FAKE_COOKIE_PATH", cookiePath)
+			t.Setenv("FAKE_FAIL", "0")
+			if fail {
+				t.Setenv("FAKE_FAIL", "1")
+			}
+
+			header, err := extractBrowserCookieHeader(context.Background(), "firefox:profile")
+			if fail {
+				if err == nil || header != "" || strings.Contains(err.Error(), "synthetic-secret") {
+					t.Fatalf("unsafe export failure: header=%q error=%v", header, err)
+				}
+			} else if err != nil || header != "MUSIC_U=abc" {
+				t.Fatalf("header=%q error=%v", header, err)
+			}
+			args, err := os.ReadFile(argsPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{"--ignore-config", "--no-cache-dir", "--simulate", "--cookies-from-browser\nfirefox:profile", "--load-info-json\n-"} {
+				if !strings.Contains(string(args), want) {
+					t.Errorf("missing offline cookie export option %s", want)
+				}
+			}
+			if strings.Contains(string(args), "http") {
+				t.Error("cookie export must not visit a website")
+			}
+			stdin, err := os.ReadFile(stdinPath)
+			if err != nil || string(stdin) != "[]" {
+				t.Errorf("offline input = %q, error=%v", stdin, err)
+			}
+			path, err := os.ReadFile(cookiePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(string(path)); !os.IsNotExist(err) {
+				t.Errorf("exported cookie file not removed: %v", err)
+			}
+		})
 	}
 }
 
@@ -162,8 +235,4 @@ func TestLiveCheckLoginWithBrowser(t *testing.T) {
 	if acc.UserID == "" {
 		t.Fatal("CheckLogin() returned empty user id")
 	}
-}
-
-func osWriteFile(path, data string) error {
-	return os.WriteFile(path, []byte(data), 0o644)
 }
