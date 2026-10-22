@@ -759,6 +759,8 @@ type Config struct {
 	Repeat           string      // "off", "all", or "one"
 	Shuffle          bool
 	Mono             bool
+	ReplayGain       string                       // loudness normalisation: "off" (default), "track" or "album"
+	ReplayGainPreamp float64                      // dB added to ReplayGain adjustments, range [-15, +15]
 	Speed            float64                      // playback speed ratio: 0.25–2.0 (default 1.0)
 	AutoPlay         bool                         // start playback automatically on launch (radio streams, CLI tracks)
 	SeekStepLarge    int                          // seconds for Shift+Left/Right seek jumps
@@ -811,6 +813,7 @@ func defaultConfig() Config {
 	return Config{
 		VolumeMin:       -50,
 		VisVolumeLinked: true,
+		ReplayGain:      "off",
 		Repeat:          "off",
 		AutoPlay:        false,
 		Speed:           1.0,
@@ -1024,6 +1027,15 @@ func (c *Config) setTopLevel(key, val string) {
 	case "mono":
 		if v, ok := parseBool(val); ok {
 			c.Mono = v
+		}
+	case "replaygain":
+		switch v := strings.ToLower(parseString(val)); v {
+		case "off", "track", "album":
+			c.ReplayGain = v
+		}
+	case "replaygain_preamp":
+		if v, ok := parseFloat(val); ok {
+			c.ReplayGainPreamp = v
 		}
 	case "auto_play":
 		if v, ok := parseBool(val); ok {
@@ -1417,6 +1429,7 @@ func (c *Config) clamp() {
 	}
 	c.SeekStepLarge = max(min(c.SeekStepLarge, 600), 6)
 	c.LyricsOffsetMs = max(min(c.LyricsOffsetMs, 10000), -10000)
+	c.ReplayGainPreamp = max(min(c.ReplayGainPreamp, 15), -15)
 	c.SampleRate = clampSampleRate(c.SampleRate)
 	c.BufferMs = max(min(c.BufferMs, 5000), 50)
 	c.ResampleQuality = max(min(c.ResampleQuality, 4), 1)
