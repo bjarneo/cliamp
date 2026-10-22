@@ -218,9 +218,15 @@ func TestTopMessageDateMatchesThePeer(t *testing.T) {
 	messages := []tg.MessageClass{
 		&tg.Message{ID: 7, PeerID: &tg.PeerUser{UserID: 10}, Date: 111},
 		&tg.Message{ID: 7, PeerID: &tg.PeerChannel{ChannelID: 20}, Date: 222},
+		&tg.MessageService{ID: 9, PeerID: &tg.PeerChannel{ChannelID: 20}, Date: 333},
 	}
 	if got := topMessageDate(messages, &tg.PeerChannel{ChannelID: 20}, 7); got != 222 {
 		t.Fatalf("topMessageDate() = %d, want 222", got)
+	}
+	// A dialog whose top message is a service event (a join, a pin) still has
+	// to supply the offset date; reading only regular messages left it at zero.
+	if got := topMessageDate(messages, &tg.PeerChannel{ChannelID: 20}, 9); got != 333 {
+		t.Fatalf("topMessageDate() = %d for a service message, want 333", got)
 	}
 	if got := topMessageDate(messages, &tg.PeerChat{ChatID: 3}, 7); got != 0 {
 		t.Fatalf("topMessageDate() = %d, want 0 when no message matches the peer", got)

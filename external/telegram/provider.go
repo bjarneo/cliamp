@@ -41,6 +41,11 @@ const (
 	trackPageSize   = 100
 	dialogsPageSize = 100
 	dialogsMaxPages = 10
+	// Telegram rate-limits messages.getDialogs, so pages are paced and a
+	// FLOOD_WAIT is waited out instead of failing the whole list.
+	dialogsPageDelay     = 250 * time.Millisecond
+	dialogsFloodAttempts = 3
+	dialogsMaxFloodWait  = time.Minute
 )
 
 // msgKey identifies a document. Telegram message IDs are unique per chat, not
@@ -315,16 +320,12 @@ func (p *Provider) dialogs(ctx context.Context) ([]playlist.PlaylistInfo, error)
 	offset := tg.InputPeerClass(&tg.InputPeerEmpty{})
 	offsetID, offsetDate := 0, 0
 	for range dialogsMaxPages {
-		resp, err := p.api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
-			Limit:      dialogsPageSize,
-			OffsetPeer: offset,
-			OffsetID:   offsetID,
-			OffsetDate: offsetDate,
-		})
+		resp, err := p.getDialogs(ctx, offset, offsetID, offsetDate)
 		if err != nil {
 			return nil, fmt.Errorf("telegram: dialogs: %w", err)
 		}
 		out = append(out, dialogsAsPlaylists(resp)...)
+		time.Sleep(dialogsPageDelay)
 
 		slice, ok := resp.(*tg.MessagesDialogsSlice)
 		if !ok || len(slice.Dialogs) < dialogsPageSize {
@@ -341,6 +342,33 @@ func (p *Provider) dialogs(ctx context.Context) ([]playlist.PlaylistInfo, error)
 		offset, offsetID, offsetDate = peer, last.TopMessage, topMessageDate(slice.Messages, last.Peer, last.TopMessage)
 	}
 	return out, nil
+}
+
+// getDialogs requests one page of dialogs. A FLOOD_WAIT is waited out while
+// the wait is short: Telegram answers with one when a large account is paged,
+// and failing the whole list for a few seconds of throttling is worse than
+// waiting.
+func (p *Provider) getDialogs(ctx context.Context, offset tg.InputPeerClass, offsetID, offsetDate int) (tg.MessagesDialogsClass, error) {
+	for attempt := 0; ; attempt++ {
+		resp, err := p.api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
+			Limit:      dialogsPageSize,
+			OffsetPeer: offset,
+			OffsetID:   offsetID,
+			OffsetDate: offsetDate,
+		})
+		wait, flood := tgclient.AsFloodWait(err)
+		if !flood {
+			return resp, err
+		}
+		if attempt >= dialogsFloodAttempts || wait > dialogsMaxFloodWait {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(wait + time.Second):
+		}
+	}
 }
 
 // dialogsAsPlaylists maps the dialogs of a getDialogs response to playlists.
@@ -460,13 +488,43 @@ func inputPeer(peer tg.PeerClass, users []tg.UserClass, chats []tg.ChatClass) (t
 // same page can carry the same ID.
 func topMessageDate(messages []tg.MessageClass, peer tg.PeerClass, id int) int {
 	for _, message := range messages {
-		value, ok := message.(*tg.Message)
-		if !ok || value.ID != id || !samePeer(value.PeerID, peer) {
+		if message.GetID() != id {
 			continue
 		}
-		return value.Date
+		owner, ok := messagePeer(message)
+		if !ok || !samePeer(owner, peer) {
+			continue
+		}
+		if date, ok := messageDate(message); ok {
+			return date
+		}
 	}
 	return 0
+}
+
+// messagePeer returns the peer a message belongs to.
+func messagePeer(message tg.MessageClass) (tg.PeerClass, bool) {
+	switch value := message.(type) {
+	case *tg.Message:
+		return value.PeerID, true
+	case *tg.MessageService:
+		return value.PeerID, true
+	}
+	return nil, false
+}
+
+// messageDate returns the date of a message. The top message of a dialog is a
+// service message (a join, a pin) more often than not, and it carries a date
+// too; reading only regular messages left the paging offset at zero and
+// Telegram answered with the first page again.
+func messageDate(message tg.MessageClass) (int, bool) {
+	switch value := message.(type) {
+	case *tg.Message:
+		return value.Date, true
+	case *tg.MessageService:
+		return value.Date, true
+	}
+	return 0, false
 }
 
 // samePeer reports whether two peers point at the same chat.
