@@ -66,8 +66,6 @@ type Provider struct {
 	closeOnce   sync.Once
 	connectErr  error
 	cacheDir    string
-	docsMu      sync.Mutex
-	docs        map[msgKey]*tg.Document
 	artMu       sync.Mutex
 	artCache    map[msgKey]string
 	downloadMu  sync.Mutex
@@ -88,7 +86,6 @@ func NewFromConfig(cfg config.TelegramConfig, interactive bool) *Provider {
 		ready:       make(chan struct{}),
 		signIn:      make(chan struct{}),
 		cacheDir:    filepath.Join(cache, "cliamp", "telegram"),
-		docs:        make(map[msgKey]*tg.Document),
 		artCache:    make(map[msgKey]string),
 		interactive: interactive,
 	}
@@ -290,9 +287,6 @@ func (p *Provider) TracksPage(playlistID string, offset int) ([]playlist.Track, 
 		if !ok {
 			continue
 		}
-		p.docsMu.Lock()
-		p.docs[msgKey{chat: playlistID, id: msg.ID}] = doc
-		p.docsMu.Unlock()
 		track := playlist.Track{
 			Path:         fmt.Sprintf("%s%s:%d", uriPrefix, playlistID, msg.ID),
 			Title:        info.title,

@@ -228,14 +228,9 @@ func (p *Provider) downloadStream(chat string, msgID int, doc *tg.Document, sour
 }
 
 func (p *Provider) fetchDocument(ctx context.Context, chat string, msgID int) (*tg.Document, error) {
-	key := msgKey{chat: chat, id: msgID}
-	p.docsMu.Lock()
-	cached, hit := p.docs[key]
-	p.docsMu.Unlock()
-	if hit {
-		return cached, nil
-	}
-
+	// A document carries a file reference that Telegram rotates: a cached one
+	// fails with FILE_REFERENCE_EXPIRED, so the document is fetched again for
+	// every stream. One message lookup is cheaper than a failed playback.
 	peer, err := parsePeerID(chat)
 	if err != nil {
 		return nil, err
@@ -271,9 +266,6 @@ func (p *Provider) fetchDocument(ctx context.Context, chat string, msgID int) (*
 	if !ok {
 		return nil, fmt.Errorf("telegram: message %d has no document", msgID)
 	}
-	p.docsMu.Lock()
-	p.docs[key] = doc
-	p.docsMu.Unlock()
 	return doc, nil
 }
 
