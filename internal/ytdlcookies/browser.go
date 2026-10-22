@@ -2,6 +2,7 @@ package ytdlcookies
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -14,14 +15,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bjarneo/cliamp/internal/ytdlp"
 	"golang.org/x/net/publicsuffix"
 )
 
-// FromBrowser exports cookies through yt-dlp without visiting a website or
-// downloading media. The cookie file exists only inside a private temp directory.
-func FromBrowser(ctx context.Context, browser string) (http.CookieJar, error) {
+// ExportFromBrowser exports Netscape cookies through yt-dlp without visiting a
+// website or downloading media. Its private temp directory is removed before return.
+func ExportFromBrowser(ctx context.Context, browser string) ([]byte, error) {
 	if strings.TrimSpace(browser) == "" {
 		return nil, fmt.Errorf("browser cookie source is required")
+	}
+	if _, err := exec.LookPath("yt-dlp"); err != nil {
+		return nil, fmt.Errorf("yt-dlp not found. Install with: %s", ytdlp.InstallHint())
 	}
 	dir, err := os.MkdirTemp("", "cliamp-browser-cookies-*")
 	if err != nil {
@@ -48,16 +53,24 @@ func FromBrowser(ctx context.Context, browser string) (http.CookieJar, error) {
 		}
 		return nil, fmt.Errorf("read browser cookies with yt-dlp (check browser profile and keyring): %w", err)
 	}
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read exported browser cookies: %w", err)
+	}
+	return data, nil
+}
+
+// FromBrowser loads browser cookies into a jar that preserves their scope.
+func FromBrowser(ctx context.Context, browser string) (http.CookieJar, error) {
+	data, err := ExportFromBrowser(ctx, browser)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	if err != nil {
 		return nil, err
 	}
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "#HttpOnly_") {

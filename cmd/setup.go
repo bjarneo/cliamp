@@ -587,7 +587,7 @@ func providers() []providerSpec {
 			section: "mixcloud",
 			intro: []string{
 				"Browse and play Mixcloud shows through its public API and yt-dlp.",
-				"A username adds your public library, following stream, and creators.",
+				"A username adds your public library and followed creators.",
 				"An optional developer access token adds /me and Listen Later.",
 				"Choose browser cookies for Stream and signed-in playback.",
 				"Docs: cliamp.stream → docs/mixcloud.md",

@@ -178,13 +178,16 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 		return append(publicLists, styleLists...), fmt.Errorf("mixcloud: account views unavailable: list collections: %w", err)
 	}
 
-	lists := []playlist.PlaylistInfo{
-		{ID: streamID, Name: "Stream (New Shows)", Section: accountSection},
-		{ID: favoritesID, Name: "Favorites", Section: accountSection},
-		{ID: uploadsID, Name: "Uploads", Section: accountSection},
-		{ID: activityID, Name: "Profile Activity", Section: accountSection},
-		{ID: listensID, Name: "Listening History", Section: accountSection},
+	var lists []playlist.PlaylistInfo
+	if p.cookiesFrom != "" {
+		lists = append(lists, playlist.PlaylistInfo{ID: streamID, Name: "Stream (New Shows)", Section: accountSection})
 	}
+	lists = append(lists,
+		playlist.PlaylistInfo{ID: favoritesID, Name: "Favorites", Section: accountSection},
+		playlist.PlaylistInfo{ID: uploadsID, Name: "Uploads", Section: accountSection},
+		playlist.PlaylistInfo{ID: activityID, Name: "Profile Activity", Section: accountSection},
+		playlist.PlaylistInfo{ID: listensID, Name: "Listening History", Section: accountSection},
+	)
 	if p.client.accessToken != "" {
 		lists = append(lists, playlist.PlaylistInfo{ID: listenLaterID, Name: "Listen Later", Section: accountSection})
 	}
