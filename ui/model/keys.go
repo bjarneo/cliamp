@@ -15,6 +15,7 @@ import (
 
 // quit shuts down the player and signals the TUI to exit.
 func (m *Model) quit() tea.Cmd {
+	m.cancelOutputRequests()
 	// Only save resume for seekable tracks:
 	// - local files (not stream)
 	// - HTTP streams with known duration (podcast MP3s)
@@ -570,10 +571,10 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 
 	case "+", "=":
-		m.adjustVolume(1)
+		return m.adjustVolume(1)
 
 	case "-":
-		m.adjustVolume(-1)
+		return m.adjustVolume(-1)
 
 	case "r":
 		const repeatModes = playlist.RepeatOne + 1
@@ -598,6 +599,9 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 
 	case "e":
+		if m.rejectSonosLocalControl("EQ") {
+			break
+		}
 		if m.simplified || m.layout.tier == layoutMinimal {
 			break
 		}
@@ -635,6 +639,9 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.saveTrack()
 
 	case "m":
+		if m.rejectSonosLocalControl("Mono") {
+			break
+		}
 		m.player.ToggleMono()
 
 	case "/":
@@ -708,6 +715,9 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.openVisPicker()
 
 	case "V":
+		if m.rejectSonosLocalControl("Visualizer") {
+			break
+		}
 		if m.simplified {
 			break
 		}
@@ -727,13 +737,7 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 
 	case "d":
-		m.devicePicker.visible = true
-		m.devicePicker.cursor = 0
-		m.devicePicker.scroll = 0
-		if len(m.devicePicker.devices) == 0 {
-			m.devicePicker.loading = true
-			return listDevicesCmd()
-		}
+		return m.openOutputPicker()
 
 	case "]":
 		m.changeSpeed(0.25)
@@ -831,10 +835,13 @@ func (m *Model) handleFullVisualizerKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "shift+right":
 		return m.doSeek(m.seekStepLarge)
 	case "+", "=":
-		m.adjustVolume(1)
+		return m.adjustVolume(1)
 	case "-":
-		m.adjustVolume(-1)
+		return m.adjustVolume(-1)
 	case "v":
+		if m.rejectSonosLocalControl("Visualizer") {
+			break
+		}
 		_ = m.cycleVisualizer()
 	case "t":
 		// Hide the episode name so the full-screen visualizer can be put on a
@@ -967,7 +974,7 @@ func (m *Model) handleURLInputKey(msg tea.KeyPressMsg) tea.Cmd {
 		if input != "" {
 			m.feedLoading = true
 			m.status.Activity("Loading URL...", statusTTLLong)
-			return resolveURLCmd(input, true)
+			return resolveURLCmd(input, true, m.requests.output)
 		}
 		m.urlInput.active = true
 		m.urlInput.err = "Enter a stream, track, or playlist URL."

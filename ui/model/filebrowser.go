@@ -29,6 +29,7 @@ type fbTracksResolvedMsg struct {
 	toPlaylist     bool
 	targetPlaylist string
 	queue          uint64 // the queue generation when a replace started
+	outputGen      uint64
 	err            error
 }
 
@@ -450,12 +451,13 @@ func (m *Model) fbConfirm(replace bool) tea.Cmd {
 	if replace {
 		queue = nextRequest(&m.requests.queue)
 	}
+	outputGen := m.requests.output
 	return func() tea.Msg {
 		r, err := resolve.Args(paths)
 		if err != nil {
-			return fbTracksResolvedMsg{err: err, replace: replace, queue: queue}
+			return fbTracksResolvedMsg{err: err, replace: replace, queue: queue, outputGen: outputGen}
 		}
-		return fbTracksResolvedMsg{tracks: r.Tracks, replace: replace, targetPlaylist: target, queue: queue}
+		return fbTracksResolvedMsg{tracks: r.Tracks, replace: replace, targetPlaylist: target, queue: queue, outputGen: outputGen}
 	}
 }
 

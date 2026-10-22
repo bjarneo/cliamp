@@ -33,11 +33,11 @@ func TestResolveFailureClearsOnlyItsOwnLoadingFlag(t *testing.T) {
 		},
 		{
 			name: "startup urls",
-			cmd:  func(*Model) tea.Cmd { return resolveRemoteCmd([]string{"http://127.0.0.1:1/list.m3u"}, true) },
+			cmd:  func(*Model) tea.Cmd { return resolveRemoteCmd([]string{"http://127.0.0.1:1/list.m3u"}, true, 0) },
 		},
 		{
 			name: "typed url",
-			cmd:  func(*Model) tea.Cmd { return resolveURLCmd(missing, true) },
+			cmd:  func(*Model) tea.Cmd { return resolveURLCmd(missing, true, 0) },
 		},
 		{
 			name: "file browser",

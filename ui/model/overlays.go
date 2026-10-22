@@ -104,6 +104,9 @@ func (m *Model) themePickerRecomputeFilter() {
 // playlist region while keeping the visualizer live above it for preview. The
 // cursor starts on the currently active mode.
 func (m *Model) openVisPicker() {
+	if m.rejectSonosLocalControl("Visualizer") {
+		return
+	}
 	m.visPicker.visible = true
 	m.visPicker.savedMode = int(m.vis.Mode)
 	m.visPicker.filterList = filterList{cursor: int(m.vis.Mode)}
@@ -122,6 +125,9 @@ func (m *Model) openVisPicker() {
 // the layout when crossing the VisNone boundary, since that is the sole mode
 // change that adds/removes the spectrum block (all other modes share a height).
 func (m *Model) visPickerApply() bool {
+	if m.rejectSonosLocalControl("Visualizer") {
+		return false
+	}
 	rawIdx, ok := m.visPickerRawIndex(m.visPicker.cursor)
 	if !ok {
 		return false
@@ -147,6 +153,11 @@ func (m *Model) visPickerClose() {
 
 // visPickerSelect confirms the current selection, persists it, and closes.
 func (m *Model) visPickerSelect() {
+	if m.sonosOutput.selected != "" {
+		m.rejectSonosLocalControl("Visualizer")
+		m.visPickerCancel()
+		return
+	}
 	if !m.visPickerApply() {
 		return
 	}

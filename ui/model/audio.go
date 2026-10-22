@@ -13,6 +13,9 @@ const (
 // SetEQPreset sets a built-in preset by name. Supplying bands selects the
 // persistent Custom slot and uses name as its optional label.
 func (m *Model) SetEQPreset(name string, bands *[10]float64) {
+	if m.rejectSonosLocalControl("EQ") {
+		return
+	}
 	m.eqCustomLabel = ""
 	if bands != nil {
 		m.eqPresetIdx = -1
@@ -70,6 +73,9 @@ func (m *Model) applyEQBands(bands [eqBandCount]float64) {
 }
 
 func (m *Model) setCustomEQBand(band int, gain float64) {
+	if m.rejectSonosLocalControl("EQ") {
+		return
+	}
 	m.player.SetEQBand(band, gain)
 	m.eqPresetIdx = -1
 	m.eqCustomLabel = ""
@@ -78,6 +84,9 @@ func (m *Model) setCustomEQBand(band int, gain float64) {
 }
 
 func (m *Model) cycleEQPreset() {
+	if m.rejectSonosLocalControl("EQ") {
+		return
+	}
 	if m.eqPresetIdx >= len(eqPresets)-1 {
 		m.eqPresetIdx = -1
 		m.applyEQBands(m.eqCustomBands)
@@ -105,6 +114,9 @@ func (m *Model) changeSpeed(delta float64) {
 // setSpeed changes the playback speed now and saves it after
 // speedSaveDebounce, so a run of changes writes the config once.
 func (m *Model) setSpeed(ratio float64) {
+	if m.rejectSonosLocalControl("Speed") {
+		return
+	}
 	m.player.SetSpeed(ratio)
 	m.speedSaveAfter = speedSaveDebounce
 }
