@@ -36,6 +36,9 @@ func TestForURLMapsYTDLSearchPrefixes(t *testing.T) {
 	if got := ForURL("scsearch10:ambient"); got != "firefox" {
 		t.Errorf("ForURL(scsearch) = %q, want firefox", got)
 	}
+	if got := ForURL("https://on.soundcloud.com/QSWjV6ABJR5SICzGB3"); got != "firefox" {
+		t.Errorf("ForURL(on.soundcloud.com) = %q, want firefox", got)
+	}
 	if got := ForURL("ytsearch10:ambient"); got != "chrome" {
 		t.Errorf("ForURL(ytsearch) = %q, want chrome", got)
 	}

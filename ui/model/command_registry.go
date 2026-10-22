@@ -368,7 +368,10 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModePlaylistManager, Keys: []string{"s"}, KeyLabel: "s", Label: "Sort", Keymap: true, Enabled: func(m Model) bool {
 		return m.plManager.visible && m.plManager.screen == plMgrScreenTracks
 	}},
-	{Mode: commandModePlaylistManager, Keys: []string{"w"}, KeyLabel: "w", Label: "Save to playlist", Keymap: true, Enabled: func(m Model) bool {
+	{Mode: commandModePlaylistManager, Keys: []string{"w"}, KeyLabel: "w", Label: "Save queue to playlist", Keymap: true, Enabled: func(m Model) bool {
+		return m.plManager.visible && m.plManager.screen == plMgrScreenList
+	}},
+	{Mode: commandModePlaylistManager, Keys: []string{"w"}, KeyLabel: "w", Label: "Copy tracks to playlist", Keymap: true, Enabled: func(m Model) bool {
 		return m.plManager.visible && m.plManager.screen == plMgrScreenTracks
 	}},
 	{Mode: commandModePlaylistManager, Keys: []string{"o"}, KeyLabel: "o", Label: "Add files", Keymap: true, ContextHelp: true, Enabled: func(m Model) bool {

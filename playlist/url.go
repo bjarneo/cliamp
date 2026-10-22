@@ -162,6 +162,10 @@ func IsYTDL(path string) bool {
 	if strings.HasSuffix(host, ".bandcamp.com") {
 		return true
 	}
+	// SoundCloud subdomains (e.g. on.soundcloud.com)
+	if strings.HasSuffix(host, ".soundcloud.com") {
+		return true
+	}
 	return false
 }
 

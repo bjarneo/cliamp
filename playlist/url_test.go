@@ -186,6 +186,8 @@ func TestIsYTDL(t *testing.T) {
 		{"scsearch5:multi result query", true},
 		// SoundCloud
 		{"https://soundcloud.com/artist/track", true},
+		{"https://on.soundcloud.com/QSWjV6ABJR5SICzGB3", true},
+		{"https://m.soundcloud.com/artist/track", true},
 		// Mixcloud
 		{"https://www.mixcloud.com/artist/show/", true},
 		// Bandcamp

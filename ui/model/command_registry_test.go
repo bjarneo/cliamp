@@ -86,6 +86,21 @@ func TestMixcloudShortcutRegistryEntry(t *testing.T) {
 	t.Fatal("Mixcloud shortcut is missing from the command registry")
 }
 
+func TestPlaylistManagerSaveHintsMatchScreen(t *testing.T) {
+	for _, tt := range []struct {
+		screen plMgrScreenType
+		want   string
+	}{
+		{screen: plMgrScreenList, want: "Save queue to playlist"},
+		{screen: plMgrScreenTracks, want: "Copy tracks to playlist"},
+	} {
+		m := Model{plManager: plManagerState{visible: true, screen: tt.screen}, layout: frameLayout{panelWidth: 80}}
+		if got := m.commandHint(commandModePlaylistManager, "w"); !strings.Contains(got, tt.want) {
+			t.Errorf("screen %d: command hint = %q, want %q", tt.screen, got, tt.want)
+		}
+	}
+}
+
 func TestContextHelpAdvertisesProviderBrowsing(t *testing.T) {
 	browse := trackArtistBrowseProvider{interactionBrowseProvider{commandsTestProvider{name: "Mixcloud"}}}
 	m := keybindingTestModel()
