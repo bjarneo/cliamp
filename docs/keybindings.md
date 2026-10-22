@@ -95,6 +95,14 @@ names the mode and the source, such as `[Filter: Playlist]`, `[Filter: Files]`,
 If the active provider has no `Ctrl+F` search, `Ctrl+F` searches YouTube. The
 overlay shows `[Search: YouTube]` and names the provider that has no search.
 
+In that search input, `Tab` switches between YouTube, SoundCloud and all
+sources. `[Search: All sources]` searches YouTube, SoundCloud, Bandcamp and
+every other configured provider with a `Ctrl+F` search at the same time. Podcasts and Local
+are left out, and the YouTube and SoundCloud providers count as the YouTube and
+SoundCloud sources. The results show one section per source, in that order, as
+soon as the first source answers. The last line names the sources that still
+search, found nothing, or failed. cliamp keeps the chosen source until it quits.
+
 After a Radio or Podcasts search, the provider header shows `Search results`
 and the hint bar shows `Esc Clear search`. Press `Esc` to go back to the full
 list.
@@ -122,7 +130,7 @@ and `Esc` clears it.
 | Key | Action |
 |---|---|
 | `f` | Toggle the favorite ♥ on the selected track. Favorites appear in the "Favorites" virtual playlist, and cliamp also saves them on Spotify and Navidrome. For directory radio stations outside saved local playlists, toggle Radio Favorites from the browser or playback playlist, including country and genre results. In the country browser, pin the selected country or region. On a podcast show, subscribe or unsubscribe. |
-| `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, SoundCloud, Yandex Music, Local), or search YouTube. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
+| `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, SoundCloud, Yandex Music, Local), or search YouTube. In the YouTube search, `Tab` switches to SoundCloud or all sources. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
 | `u` | Load URL (stream/playlist) |
 | `d` | Open the audio device picker |
 | `y` | Show or close lyrics |
@@ -348,8 +356,8 @@ those feeds again. See [podcasts.md](podcasts.md) for startup and country settin
 
 ## Search results overlays
 
-Use these keys when `Ctrl+F` opens provider search or YouTube/SoundCloud network
-search and the results list is open:
+Use these keys when `Ctrl+F` opens provider search or the YouTube, SoundCloud or
+all-sources network search and the results list is open:
 
 | Key | Action |
 |---|---|

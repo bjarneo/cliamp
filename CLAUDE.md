@@ -60,7 +60,7 @@ Each directory below is a Go package:
 | `cmd/` | The bodies of the `setup`, `playlist`, `history`, `radio` and `protocol` subcommands |
 | `applog/` | The log file `cliamp.log` in the config directory |
 | `upgrade/` | Self-update for `cliamp upgrade` |
-| `internal/` | Private helpers: `appdir` for the config, data and plugin directories, `appmeta` for the version, `authurl` for sign-in URLs, `browser`, `credstore` for provider credential files, `deeplink` for `cliamp://` parsing, `embyapi` for the shared Emby and Jellyfin client, `fileutil`, `fuzzy`, `globe` and `worldmap` for `cliamp radio --globe`, `httpclient` for the stream client and `NewAPI`, `netdiag`, `playback` for the shared messages and `Notifier`, `plugintrust`, `resume`, `sshurl`, `tomlutil` for `[[section]]` files, and `ytdlcookies` |
+| `internal/` | Private helpers: `appdir` for the config, data and plugin directories, `appmeta` for the version, `authurl` for sign-in URLs, `bandcamp` for the Bandcamp track search, `browser`, `credstore` for provider credential files, `deeplink` for `cliamp://` parsing, `embyapi` for the shared Emby and Jellyfin client, `fileutil`, `fuzzy`, `globe` and `worldmap` for `cliamp radio --globe`, `httpclient` for the stream client and `NewAPI`, `netdiag`, `playback` for the shared messages and `Notifier`, `plugintrust`, `resume`, `sshurl`, `tomlutil` for `[[section]]` files, and `ytdlcookies` |
 
 Other directories: `docs/` holds the user docs, one `.md` per feature. `site/` is the static website for cliamp.stream. **Keep it synced with `docs/` on user-facing changes.** `nix/package.nix` and `flake.nix` build the Nix package. `.github/workflows/` holds CI, release, AUR, Nix and Pages.
 

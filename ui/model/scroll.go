@@ -191,7 +191,7 @@ func (m *Model) clampActiveScrollState() {
 		m.searchMaybeAdjustScroll(m.effectivePlaylistVisible())
 	case screenNetSearch:
 		if m.netSearch.screen == netSearchResults {
-			m.netSearchResultsMaybeAdjustScroll(m.effectivePlaylistVisible())
+			m.netSearchResultsMaybeAdjustScroll(m.netSearchResultsVisible())
 		}
 	case screenLyrics:
 		m.lyrics.scroll = min(m.lyrics.scroll, max(0, len(m.lyrics.lines)-m.effectivePlaylistVisible()))

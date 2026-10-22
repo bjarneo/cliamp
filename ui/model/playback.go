@@ -289,8 +289,9 @@ func (m *Model) queueAlbumNext(album playlist.Track, tracks []playlist.Track) te
 // closeNetSearch fully resets the net search overlay and restores focus,
 // dropping any cached results so they don't linger between sessions.
 func (m *Model) closeNetSearch() {
+	m.cancelNetSearchRequest()
 	nextRequest(&m.requests.netSearch)
-	m.netSearch = netSearchState{}
+	m.netSearch = netSearchState{mode: m.netSearch.mode}
 	m.focus = m.prevFocus
 }
 

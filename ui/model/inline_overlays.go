@@ -499,18 +499,33 @@ func providerName(prov playlist.Provider) string {
 	return prov.Name()
 }
 
+// netSearchSource names what the net search searches, as a sentence names it.
 func (m Model) netSearchSource() string {
-	if m.netSearch.soundcloud {
+	switch m.netSearch.mode {
+	case netSearchSoundCloud:
 		return "SoundCloud"
+	case netSearchAll:
+		return "all sources"
 	}
 	return "YouTube"
 }
 
 func (m Model) netSearchHeaderLine() string {
 	if m.netSearch.screen == netSearchResults {
-		return sepHeaderN(m.netSearchSource()+" Results", m.netSearch.cursor+1, len(m.netSearch.results), m.layout.panelWidth)
+		label := m.netSearchSource() + " Results"
+		if m.netSearch.mode == netSearchAll {
+			label = "All Sources"
+			if m.netSearch.pending > 0 {
+				label += fmt.Sprintf(" (%d searching)", m.netSearch.pending)
+			}
+		}
+		return sepHeaderN(label, m.netSearch.cursor+1, len(m.netSearch.results), m.layout.panelWidth)
 	}
-	return m.filterHeader("Search: "+m.netSearchSource(), "net-search", m.netSearch.query, "")
+	label := m.netSearchSource()
+	if m.netSearch.mode == netSearchAll {
+		label = "All sources"
+	}
+	return m.filterHeader("Search: "+label, "net-search", m.netSearch.query, "")
 }
 
 func (m Model) renderNetSearchBody() string {
@@ -520,17 +535,30 @@ func (m Model) renderNetSearchBody() string {
 		if m.netSearch.from != "" {
 			lines = append(lines, dimStyle.Render(fmt.Sprintf("  %s has no Ctrl+F search. This searches %s.", m.netSearch.from, m.netSearchSource())))
 		}
-		if m.netSearch.loading {
+		switch {
+		case m.netSearch.loading && m.netSearch.mode == netSearchAll:
+			lines = append(lines, loadingLine(m.netSearchAllNote()))
+		case m.netSearch.loading:
 			lines = append(lines, loadingLine("Searching "+m.netSearchSource()+"..."))
-		} else {
-			lines = append(lines, dimStyle.Render("  Type a query and press Enter to search "+m.netSearchSource()+"."))
+		default:
+			lines = append(lines,
+				dimStyle.Render("  Type a query and press Enter to search "+m.netSearchSource()+"."),
+				dimStyle.Render("  Tab switches between YouTube, SoundCloud and all sources."))
 		}
 		if m.netSearch.err != "" {
-			lines = append(lines, "", errorStyle.Render("  "+m.netSearch.err))
+			lines = append(lines, "", errorStyle.Render("  "+m.fitPanel(m.netSearch.err, 2)))
+			if m.netSearch.mode == netSearchAll {
+				for _, problem := range m.netSearchAllProblems() {
+					lines = append(lines, dimStyle.Render("  "+m.fitPanel(problem, 2)))
+				}
+			}
 		}
 		return bodyLines(lines, budget)
 	}
 
+	if m.netSearch.mode == netSearchAll {
+		return m.renderNetSearchAllResults(budget)
+	}
 	if len(m.netSearch.results) == 0 {
 		return bodyMessage("No results", budget)
 	}

@@ -251,6 +251,9 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeNetSearch, Keys: []string{"f"}, KeyLabel: "f", Label: "Favorite track", ContextHelp: true, Enabled: func(m Model) bool {
 		return m.favStore != nil && m.netSearch.screen == netSearchResults && !m.netSearch.loading && len(m.netSearch.results) > 0
 	}},
+	{Mode: commandModeNetSearch, Keys: []string{"tab"}, KeyLabel: "Tab", Label: "Switch source", ContextHelp: true, Enabled: func(m Model) bool {
+		return m.netSearch.screen == netSearchInput && !m.netSearch.loading
+	}},
 	{Mode: commandModeSearchOverlay, Keys: []string{"p"}, KeyLabel: "p", Label: "Save to a playlist", Keymap: true, ContextHelp: true, Enabled: func(m Model) bool {
 		return m.searchOverlay.screen == searchOverlayResults && !m.searchOverlayBusy() &&
 			m.searchOverlay.cursor >= 0 && m.searchOverlay.cursor < len(m.searchOverlay.results)
