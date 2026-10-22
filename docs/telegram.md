@@ -33,6 +33,20 @@ afterwards, so the code is only asked once.
 grouped into Bots, Channels, Groups and Chats. A chat loads its history in pages
 of 100 messages as you scroll; nothing is fetched ahead of time.
 
+### Which chats
+
+By default the pane lists every dialog: personal chats, bots, groups and
+channels. To keep only a few, set `chats` to their usernames:
+
+```toml
+chats = ["deezload2bot", "@mygroup", "somechannel"]
+```
+
+Each entry is a public username, with or without `@`, or a `t.me` link. Private
+groups and channels have no username: leave `chats` empty and they appear with
+the rest of the dialogs. The setup wizard takes the same list as a
+comma-separated field.
+
 ## Playback
 
 Audio documents stream with a small buffer: playback starts once `buffer_mb`
@@ -58,7 +72,7 @@ screen, desktop widgets) as a `data:` URL.
 | `api_hash` | yes | Application hash from my.telegram.org |
 | `phone` | for the first sign-in | International format |
 | `password` | no | 2FA password |
-| `chat` | no | Show only this chat instead of every dialog |
+| `chats` | no | Usernames to show instead of every dialog |
 | `buffer_mb` | no | Megabytes buffered before playback (default 1) |
 | `session_file` | no | Session path (default `~/.local/share/cliamp/telegram.session`) |
 

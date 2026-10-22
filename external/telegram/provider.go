@@ -42,9 +42,9 @@ const (
 	dialogsMaxPages = 10
 	// Telegram rate-limits messages.getDialogs, so pages are paced and a
 	// FLOOD_WAIT is waited out instead of failing the whole list.
-	dialogsPageDelay     = 250 * time.Millisecond
-	dialogsFloodAttempts = 3
-	dialogsMaxFloodWait  = time.Minute
+	dialogsPageDelay = 250 * time.Millisecond
+	floodAttempts    = 3
+	floodMaxWait     = time.Minute
 )
 
 // msgKey identifies a document. Telegram message IDs are unique per chat, not
@@ -67,6 +67,8 @@ type Provider struct {
 	cacheDir    string
 	artMu       sync.Mutex
 	artCache    map[msgKey]string
+	chatsMu     sync.Mutex
+	chatsCache  map[string]playlist.PlaylistInfo
 	downloadMu  sync.Mutex
 	interactive bool
 }
@@ -189,15 +191,21 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	if p.cfg.Chat != "" {
-		peer, err := p.resolvePeer(ctx, p.cfg.Chat)
-		if err != nil {
-			return nil, err
+	if len(p.cfg.Chats) > 0 {
+		out := make([]playlist.PlaylistInfo, 0, len(p.cfg.Chats))
+		seen := make(map[string]struct{}, len(p.cfg.Chats))
+		for _, chat := range p.cfg.Chats {
+			info, err := p.resolveChatCached(ctx, chat)
+			if err != nil {
+				return nil, err
+			}
+			if _, duplicate := seen[info.ID]; duplicate {
+				continue
+			}
+			seen[info.ID] = struct{}{}
+			out = append(out, info)
 		}
-		return []playlist.PlaylistInfo{{
-			ID:   peerID(peer),
-			Name: p.cfg.Chat,
-		}}, nil
+		return out, nil
 	}
 
 	out, err := p.dialogs(ctx)
@@ -323,23 +331,34 @@ func (p *Provider) dialogs(ctx context.Context) ([]playlist.PlaylistInfo, error)
 // and failing the whole list for a few seconds of throttling is worse than
 // waiting.
 func (p *Provider) getDialogs(ctx context.Context, offset tg.InputPeerClass, offsetID, offsetDate int) (tg.MessagesDialogsClass, error) {
-	for attempt := 0; ; attempt++ {
-		resp, err := p.api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
+	return withFloodRetry(ctx, func() (tg.MessagesDialogsClass, error) {
+		return p.api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
 			Limit:      dialogsPageSize,
 			OffsetPeer: offset,
 			OffsetID:   offsetID,
 			OffsetDate: offsetDate,
 		})
+	})
+}
+
+// withFloodRetry runs call and waits out a short FLOOD_WAIT. Telegram answers
+// with one when a large account is paged or when several usernames are
+// resolved in a row; failing the whole list for a few seconds of throttling is
+// worse than waiting.
+func withFloodRetry[T any](ctx context.Context, call func() (T, error)) (T, error) {
+	var zero T
+	for attempt := 0; ; attempt++ {
+		resp, err := call()
 		wait, flood := tgclient.AsFloodWait(err)
 		if !flood {
 			return resp, err
 		}
-		if attempt >= dialogsFloodAttempts || wait > dialogsMaxFloodWait {
-			return nil, err
+		if attempt >= floodAttempts || wait > floodMaxWait {
+			return zero, err
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return zero, ctx.Err()
 		case <-time.After(wait + time.Second):
 		}
 	}
@@ -610,29 +629,100 @@ func messagesOf(history tg.MessagesMessagesClass) []tg.MessageClass {
 	}
 }
 
-func (p *Provider) resolvePeer(ctx context.Context, chat string) (tg.InputPeerClass, error) {
-	trimmed := strings.TrimPrefix(strings.TrimSpace(chat), "@")
-	resolved, err := p.api.ContactsResolveUsername(ctx, &tg.ContactsResolveUsernameRequest{Username: trimmed})
+// usernameOf accepts "@name", "name" and a t.me link, and returns the
+// username the resolve call takes.
+func usernameOf(chat string) string {
+	name := strings.TrimSpace(chat)
+	name = strings.TrimPrefix(name, "https://t.me/")
+	name = strings.TrimPrefix(name, "t.me/")
+	return strings.TrimPrefix(name, "@")
+}
+
+// resolveChatCached resolves a configured chat once per process. Each lookup
+// costs a request and Telegram rate-limits them, so a pane refresh must not
+// pay for the same usernames again.
+func (p *Provider) resolveChatCached(ctx context.Context, chat string) (playlist.PlaylistInfo, error) {
+	key := strings.ToLower(usernameOf(chat))
+	p.chatsMu.Lock()
+	cached, ok := p.chatsCache[key]
+	p.chatsMu.Unlock()
+	if ok {
+		return cached, nil
+	}
+	info, err := p.resolveChat(ctx, chat)
 	if err != nil {
-		return nil, fmt.Errorf("telegram: cannot resolve %q: %w", trimmed, err)
+		return playlist.PlaylistInfo{}, err
+	}
+	p.chatsMu.Lock()
+	if p.chatsCache == nil {
+		p.chatsCache = make(map[string]playlist.PlaylistInfo)
+	}
+	p.chatsCache[key] = info
+	p.chatsMu.Unlock()
+	return info, nil
+}
+
+// resolveChat resolves one entry of [telegram] chats and describes it the way
+// the dialogs list does: a stable id, the title and the section it belongs to.
+// Username lookups are rate-limited like the dialog pages, so a short
+// FLOOD_WAIT is waited out instead of failing the list.
+func (p *Provider) resolveChat(ctx context.Context, chat string) (playlist.PlaylistInfo, error) {
+	trimmed := usernameOf(chat)
+	resolved, err := withFloodRetry(ctx, func() (*tg.ContactsResolvedPeer, error) {
+		return p.api.ContactsResolveUsername(ctx, &tg.ContactsResolveUsernameRequest{Username: trimmed})
+	})
+	if err != nil {
+		return playlist.PlaylistInfo{}, fmt.Errorf("telegram: cannot resolve %q: %w", trimmed, err)
 	}
 	switch peer := resolved.Peer.(type) {
 	case *tg.PeerUser:
 		for _, entity := range resolved.Users {
-			if user, ok := entity.(*tg.User); ok && user.ID == peer.UserID {
-				return &tg.InputPeerUser{UserID: user.ID, AccessHash: user.AccessHash}, nil
+			user, ok := entity.(*tg.User)
+			if !ok || user.ID != peer.UserID {
+				continue
 			}
+			input := &tg.InputPeerUser{UserID: user.ID, AccessHash: user.AccessHash}
+			name := strings.TrimSpace(user.FirstName + " " + user.LastName)
+			if name == "" {
+				name = user.Username
+			}
+			if name == "" {
+				name = trimmed
+			}
+			section := "Chats"
+			if user.Bot {
+				section = "Bots"
+			}
+			return playlist.PlaylistInfo{ID: peerID(input), Name: name, Section: section}, nil
 		}
 	case *tg.PeerChat:
-		return &tg.InputPeerChat{ChatID: peer.ChatID}, nil
-	case *tg.PeerChannel:
+		input := &tg.InputPeerChat{ChatID: peer.ChatID}
+		name := trimmed
 		for _, entity := range resolved.Chats {
-			if channel, ok := entity.(*tg.Channel); ok && channel.ID == peer.ChannelID {
-				return &tg.InputPeerChannel{ChannelID: channel.ID, AccessHash: channel.AccessHash}, nil
+			if group, ok := entity.(*tg.Chat); ok && group.ID == peer.ChatID && group.Title != "" {
+				name = group.Title
 			}
 		}
+		return playlist.PlaylistInfo{ID: peerID(input), Name: name, Section: "Groups"}, nil
+	case *tg.PeerChannel:
+		for _, entity := range resolved.Chats {
+			channel, ok := entity.(*tg.Channel)
+			if !ok || channel.ID != peer.ChannelID {
+				continue
+			}
+			input := &tg.InputPeerChannel{ChannelID: channel.ID, AccessHash: channel.AccessHash}
+			name := channel.Title
+			if name == "" {
+				name = trimmed
+			}
+			section := "Channels"
+			if channel.Megagroup {
+				section = "Groups"
+			}
+			return playlist.PlaylistInfo{ID: peerID(input), Name: name, Section: section}, nil
+		}
 	}
-	return nil, fmt.Errorf("telegram: unsupported peer for %q", trimmed)
+	return playlist.PlaylistInfo{}, fmt.Errorf("telegram: unsupported peer for %q", trimmed)
 }
 
 // URISchemes implements provider.CustomStreamer.

@@ -480,15 +480,21 @@ func TestTelegramSetupBody(t *testing.T) {
 	const hash = "0123456789abcdef0123456789abcdef"
 	checkBody(t, spec.body(map[string]string{
 		"api_id": "123456", "api_hash": hash, "phone": "+5491100000000",
-		"password": "pw", "chat": "deezload2bot", "buffer_mb": "4",
+		"password": "pw", "chats": "deezload2bot, @mygroup", "buffer_mb": "4",
 	}), map[string]string{
 		"api_id":    "123456",
 		"api_hash":  `"` + hash + `"`,
 		"phone":     `"+5491100000000"`,
 		"password":  `"pw"`,
-		"chat":      `"deezload2bot"`,
+		"chats":     `["deezload2bot", "mygroup"]`,
 		"buffer_mb": "4",
 	})
+
+	// A t.me link is accepted and reduced to the username.
+	checkBody(t, spec.body(map[string]string{
+		"api_id": "123456", "api_hash": hash, "phone": "+5491100000000",
+		"chats": "https://t.me/deezload2bot",
+	}), map[string]string{"chats": `["deezload2bot"]`})
 
 	// The optional keys stay out, and the buffer falls back to 1 MiB.
 	checkBody(t, spec.body(map[string]string{
@@ -509,12 +515,17 @@ func TestTelegramSetupBody(t *testing.T) {
 	if err := spec.extraValidate(spaced); err != nil {
 		t.Fatalf("extraValidate rejected a spaced phone: %v", err)
 	}
+	withChats := map[string]string{"api_id": "123456", "api_hash": hash, "phone": "+5491100000000", "chats": "deezload2bot, @my_group"}
+	if err := spec.extraValidate(withChats); err != nil {
+		t.Fatalf("extraValidate rejected the chat list: %v", err)
+	}
 	for name, values := range map[string]map[string]string{
 		"api_id is not a number": {"api_id": "abc", "api_hash": hash, "phone": "+1"},
 		"api_id is zero":         {"api_id": "0", "api_hash": hash, "phone": "+1"},
 		"api_hash is short":      {"api_id": "123456", "api_hash": "nope", "phone": "+1"},
 		"buffer is zero":         {"api_id": "123456", "api_hash": hash, "phone": "+5491100000000", "buffer_mb": "0"},
 		"phone is too short":     {"api_id": "123456", "api_hash": hash, "phone": "+1"},
+		"chats has spaces":       {"api_id": "123456", "api_hash": hash, "phone": "+5491100000000", "chats": "my group"},
 	} {
 		if err := spec.extraValidate(values); err == nil {
 			t.Errorf("extraValidate accepted %s", name)

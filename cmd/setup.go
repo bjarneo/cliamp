@@ -701,7 +701,7 @@ func providers() []providerSpec {
 				{key: "api_hash", label: "API hash", help: "32 hexadecimal characters", required: true, secret: true},
 				{key: "phone", label: "Phone", help: "international format, e.g. +5491100000000", required: true},
 				{key: "password", label: "2FA password", help: "only when the account has two-step verification", secret: true},
-				{key: "chat", label: "Chat", help: "optional: a chat or bot username to show alone, e.g. deezload2bot"},
+				{key: "chats", label: "Chats", help: "optional: comma-separated usernames to show alone, e.g. deezload2bot, @mygroup; blank lists every dialog"},
 				{key: "buffer_mb", label: "Buffer (MB)", help: "megabytes buffered before playback starts", defaultV: "1"},
 			},
 			extraValidate: func(v map[string]string) error {
@@ -718,6 +718,11 @@ func providers() []providerSpec {
 				if phone := digitsOnly(v["phone"]); len(phone) < 7 || len(phone) > 15 {
 					return errors.New("Phone must be in international format, e.g. +5491100000000")
 				}
+				for _, chat := range setupChats(v["chats"]) {
+					if !validUsername(chat) {
+						return fmt.Errorf("%q is not a Telegram username. Use @name or a t.me link; a private group has no username, leave the list blank to show every dialog", chat)
+					}
+				}
 				if b := strings.TrimSpace(v["buffer_mb"]); b != "" {
 					if mb, err := strconv.Atoi(b); err != nil || mb < 1 || mb > 64 {
 						return errors.New("Buffer must be a whole number of megabytes between 1 and 64")
@@ -725,7 +730,7 @@ func providers() []providerSpec {
 				}
 				return nil
 			},
-			owned: []string{"api_id", "api_hash", "phone", "password", "chat", "buffer_mb"},
+			owned: []string{"api_id", "api_hash", "phone", "password", "chat", "chats", "buffer_mb"},
 			body: func(v map[string]string) []config.KeyValue {
 				kv := []config.KeyValue{
 					rawKV("api_id", strings.TrimSpace(v["api_id"])),
@@ -735,8 +740,8 @@ func providers() []providerSpec {
 				if p := strings.TrimSpace(v["password"]); p != "" {
 					kv = append(kv, quotedKV("password", p))
 				}
-				if c := strings.TrimSpace(v["chat"]); c != "" {
-					kv = append(kv, quotedKV("chat", c))
+				if chats := setupChats(v["chats"]); len(chats) > 0 {
+					kv = append(kv, rawKV("chats", setupStringList(strings.Join(chats, ","))))
 				}
 				buffer := strings.TrimSpace(v["buffer_mb"])
 				if buffer == "" {
@@ -752,6 +757,35 @@ func providers() []providerSpec {
 			},
 		},
 	}
+}
+
+// setupChats splits the comma-separated chats field. It accepts "@name" and
+// a t.me link, and drops the empty items a trailing comma leaves.
+func setupChats(value string) []string {
+	var out []string
+	for _, part := range strings.Split(value, ",") {
+		name := strings.TrimSpace(part)
+		name = strings.TrimPrefix(name, "https://t.me/")
+		name = strings.TrimPrefix(name, "t.me/")
+		name = strings.TrimPrefix(name, "@")
+		if name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// validUsername reports whether name looks like a public Telegram username.
+func validUsername(name string) bool {
+	if len(name) < 3 || len(name) > 32 {
+		return false
+	}
+	for _, r := range name {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 // digitsOnly keeps the digits of a phone number, ignoring the +, spaces,
@@ -776,7 +810,7 @@ func telegramConfigFrom(v map[string]string) config.TelegramConfig {
 		AppHash:  strings.TrimSpace(v["api_hash"]),
 		Phone:    strings.TrimSpace(v["phone"]),
 		Password: strings.TrimSpace(v["password"]),
-		Chat:     strings.TrimSpace(v["chat"]),
+		Chats:    setupChats(v["chats"]),
 		BufferMB: mb,
 	}
 }

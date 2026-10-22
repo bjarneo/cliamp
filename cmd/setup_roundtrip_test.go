@@ -3,6 +3,7 @@ package cmd
 import (
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/bjarneo/cliamp/config"
@@ -143,15 +144,15 @@ func TestSetupBodyRoundTrip(t *testing.T) {
 			section: "telegram",
 			values: map[string]string{
 				"api_id": "123456", "api_hash": mixed, "phone": "+54911" + backslash,
-				"password": nbsp, "chat": single, "buffer_mb": "4",
+				"password": nbsp, "chats": "deezload2bot, my_" + backslash, "buffer_mb": "4",
 			},
 			got: func(c config.Config) []string {
 				return []string{
 					strconv.Itoa(c.Telegram.AppID), c.Telegram.AppHash, c.Telegram.Phone,
-					c.Telegram.Password, c.Telegram.Chat, strconv.Itoa(c.Telegram.BufferMB),
+					c.Telegram.Password, strings.Join(c.Telegram.Chats, ","), strconv.Itoa(c.Telegram.BufferMB),
 				}
 			},
-			want: []string{"123456", mixed, "+54911" + backslash, nbsp, single, "4"},
+			want: []string{"123456", mixed, "+54911" + backslash, nbsp, "deezload2bot,my_" + backslash, "4"},
 		},
 		{
 			section: "ytmusic",

@@ -239,13 +239,13 @@ func (n *NavidromeConfig) set(key, val string) {
 // TelegramConfig holds the credentials of a Telegram user account, the
 // account itself (not a bot token). Enable rule: api_id and api_hash.
 type TelegramConfig struct {
-	AppID       int    // api_id from my.telegram.org/apps
-	AppHash     string // api_hash from my.telegram.org/apps
-	Phone       string // international format, used only for the first sign-in
-	Password    string // optional 2FA password
-	Chat        string // chat or bot username to browse, e.g. deezload2bot
-	BufferMB    int    // megabytes buffered before playback starts; 0 uses 1
-	SessionFile string // session path; empty uses ~/.local/share/cliamp/telegram.session
+	AppID       int      // api_id from my.telegram.org/apps
+	AppHash     string   // api_hash from my.telegram.org/apps
+	Phone       string   // international format, used only for the first sign-in
+	Password    string   // optional 2FA password
+	Chats       []string // usernames to show; empty lists every dialog
+	BufferMB    int      // megabytes buffered before playback starts; 0 uses 1
+	SessionFile string   // session path; empty uses ~/.local/share/cliamp/telegram.session
 }
 
 // IsSet reports whether the application credentials are present.
@@ -265,7 +265,16 @@ func (t *TelegramConfig) set(key, val string) {
 	case "password":
 		t.Password = parseString(val)
 	case "chat":
-		t.Chat = parseString(val)
+		// Single-chat key from the first version; it still works and joins
+		// the list.
+		if v := parseString(val); v != "" {
+			t.Chats = append(t.Chats, v)
+		}
+	case "chats":
+		// An empty list is the same as no list: every dialog.
+		if v := parseStringSlice(val); len(v) > 0 {
+			t.Chats = v
+		}
 	case "buffer_mb":
 		if v, ok := parseInt(val); ok {
 			t.BufferMB = v

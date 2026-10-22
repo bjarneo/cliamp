@@ -375,7 +375,7 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # api_hash  = "0123456789abcdef0123456789abcdef"
 # phone     = "+5491100000000"
 # password  = ""                    # only when the account has 2FA
-# chat      = ""                    # optional: show one chat instead of all
+# chats     = []                    # optional: usernames to show instead of every dialog
 # buffer_mb = 1                     # megabytes buffered before playback starts
 # session_file = "~/.local/share/cliamp/telegram.session"
 
