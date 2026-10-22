@@ -62,6 +62,13 @@ chats = ["deezload2bot", "@mygroup"]
 An empty `chats` lists every chat, group and bot, including the ones you join
 later.
 
+### Picking chats in the player
+
+`Ctrl+P` in the Telegram pane of cliamp lists every dialog with a checkbox:
+`space` marks, `a` marks all, `n` clears the filter, and `enter` writes the
+selection to `config.toml` and refreshes the pane. Marking every chat, or none,
+means no filter. The change applies without a restart.
+
 ## Playback
 
 Audio documents stream with a small buffer: playback starts once `buffer_mb`

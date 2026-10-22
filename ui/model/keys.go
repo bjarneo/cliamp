@@ -277,6 +277,10 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 
+	if m.provPane.picking {
+		return m.handleChatPickerKey(msg)
+	}
+
 	if cmd, ok := m.providerShortcut(msg.String()); ok {
 		return cmd
 	}
@@ -367,6 +371,10 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.toggleExpandedView()
 	case "ctrl+f":
 		m.openProviderSearch()
+	case "ctrl+p":
+		if _, ok := m.provider.(provider.ChatFilter); ok {
+			return m.startChatPicker()
+		}
 	}
 	return nil
 }

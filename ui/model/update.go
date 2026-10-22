@@ -60,6 +60,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}()
 
 	switch msg := msg.(type) {
+	case providerPickLoadedMsg:
+		m.handleChatPickerLoaded(msg)
+		return m, nil
+
 	case tea.PasteMsg:
 		cmd := m.handlePaste(msg.Content)
 		return m, cmd

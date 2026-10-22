@@ -178,6 +178,10 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeProvider, Keys: []string{"p"}, KeyLabel: "p", Label: "Playlist", Keymap: true, ContextHelp: true, Enabled: func(m Model) bool {
 		return m.localProvider != nil
 	}},
+	{Mode: commandModeProvider, Keys: []string{"ctrl+p"}, KeyLabel: "Ctrl+P", Label: "Pick chats", Keymap: true, Enabled: func(m Model) bool {
+		_, ok := m.provider.(provider.ChatFilter)
+		return ok
+	}},
 	{Mode: commandModeMain, Keys: []string{"ctrl+h"}, KeyLabel: "Ctrl+H", Label: "Toggle album headers", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+g"}, KeyLabel: "Ctrl+G", Label: "Toggle key-binding hint bar", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+b"}, KeyLabel: "Ctrl+B", Label: "Open/close the settings pane", Enabled: func(m Model) bool {

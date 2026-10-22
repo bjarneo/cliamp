@@ -446,3 +446,13 @@ type ArtworkProvider interface {
 	// ArtworkFor returns a URL for track's cover, or false when unavailable.
 	ArtworkFor(track playlist.Track) (url string, ok bool)
 }
+
+// ChatFilter is implemented by a provider whose list can be narrowed to a set
+// of sources, such as the chats of an account. Dialogs returns every source,
+// Chats the current filter, and SetChats persists and applies a new one. An
+// empty filter lists everything.
+type ChatFilter interface {
+	Dialogs() ([]playlist.PlaylistInfo, error)
+	Chats() []string
+	SetChats(chats []string) error
+}

@@ -110,6 +110,34 @@ func NewFromConfig(cfg config.TelegramConfig, interactive bool) *Provider {
 
 func (p *Provider) sessionPath() string { return sessionPath(p.cfg.SessionFile) }
 
+// Chats returns the current filter. The caller owns the slice.
+func (p *Provider) Chats() []string {
+	p.chatsMu.Lock()
+	defer p.chatsMu.Unlock()
+	return append([]string(nil), p.cfg.Chats...)
+}
+
+// SetChats writes the filter into [telegram] and applies it in memory, so the
+// running pane follows without a restart. An empty list lists every dialog.
+func (p *Provider) SetChats(chats []string) error {
+	var kv []config.KeyValue
+	if len(chats) > 0 {
+		quoted := make([]string, 0, len(chats))
+		for _, chat := range chats {
+			quoted = append(quoted, config.QuoteString(chat))
+		}
+		kv = []config.KeyValue{{Key: "chats", Value: "[" + strings.Join(quoted, ", ") + "]"}}
+	}
+	if err := config.SaveSection("telegram", kv, []string{"chats"}); err != nil {
+		return fmt.Errorf("telegram: save chats: %w", err)
+	}
+	p.chatsMu.Lock()
+	p.cfg.Chats = append([]string(nil), chats...)
+	p.chatsCache = nil
+	p.chatsMu.Unlock()
+	return nil
+}
+
 func (p *Provider) run() {
 	if err := os.MkdirAll(filepath.Dir(p.sessionPath()), 0o700); err != nil {
 		p.finish(err)
@@ -185,7 +213,8 @@ func (p *Provider) Name() string { return "Telegram" }
 // Playlists implements playlist.Provider. With [telegram] chats it returns
 // those chats; otherwise every dialog of the account, grouped by kind.
 func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
-	if len(p.cfg.Chats) == 0 {
+	chats := p.Chats()
+	if len(chats) == 0 {
 		return p.Dialogs()
 	}
 	if err := p.wait(); err != nil {
@@ -197,7 +226,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	// An id needs the dialog list for the title, the section and a current
 	// access hash; a username resolves on its own.
 	needsDialogs := false
-	for _, chat := range p.cfg.Chats {
+	for _, chat := range chats {
 		if _, _, ok := peerKey(chat); ok {
 			needsDialogs = true
 			break
@@ -217,9 +246,9 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 		}
 	}
 
-	out := make([]playlist.PlaylistInfo, 0, len(p.cfg.Chats))
-	seen := make(map[string]struct{}, len(p.cfg.Chats))
-	for _, chat := range p.cfg.Chats {
+	out := make([]playlist.PlaylistInfo, 0, len(chats))
+	seen := make(map[string]struct{}, len(chats))
+	for _, chat := range chats {
 		var (
 			info playlist.PlaylistInfo
 			err  error

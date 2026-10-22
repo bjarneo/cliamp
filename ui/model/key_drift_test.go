@@ -371,6 +371,7 @@ var unlistedKeys = map[string][]string{
 	"handleLyricsKey":               {"y"},
 	"handleNavAlbumListKey":         {"l", "right", "h", "left", "backspace"},
 	"handleNavArtistListKey":        {"l", "right", "h", "left", "backspace"},
+	"handleChatPickerKey":           {" ", "n", "space"},
 	"handleNavBrowserKey":           {"N", "ctrl+f", "S", "P", "J", "E", "B", "Y", "C", "X", "M", "Q", "T", "K", "U", "L", "O"},
 	"handleNavGenreListKey":         {"l", "right", "h", "left", "backspace"},
 	"handleNavGenreSortKey":         {"l", "right", "h", "left", "backspace"},
