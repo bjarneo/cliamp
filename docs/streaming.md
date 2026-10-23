@@ -50,8 +50,9 @@ You can also play a podcast by passing its RSS feed URL:
 cliamp https://example.com/podcast/feed.xml
 ```
 
-cliamp loads the first 300 playable episodes in feed order, retaining episode
-titles, show names, durations, artwork, and episode numbers when available.
+cliamp loads the newest 300 playable episodes, newest first by publication
+date, retaining episode titles, show names, durations, artwork, and episode
+numbers when available.
 
 ### Xiaoyuzhou (小宇宙)
 
