@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bjarneo/cliamp/external/local"
-	"github.com/bjarneo/cliamp/external/radio"
-	"github.com/bjarneo/cliamp/history"
-	"github.com/bjarneo/cliamp/internal/playback"
-	"github.com/bjarneo/cliamp/ipc"
-	"github.com/bjarneo/cliamp/playlist"
-	"github.com/bjarneo/cliamp/provider"
+	"github.com/bjarneo/cliamp/v2/external/local"
+	"github.com/bjarneo/cliamp/v2/external/radio"
+	"github.com/bjarneo/cliamp/v2/history"
+	"github.com/bjarneo/cliamp/v2/internal/playback"
+	"github.com/bjarneo/cliamp/v2/ipc"
+	"github.com/bjarneo/cliamp/v2/playlist"
+	"github.com/bjarneo/cliamp/v2/provider"
 )
 
 // The tests in this file drive a headless Model with no WindowSizeMsg. They

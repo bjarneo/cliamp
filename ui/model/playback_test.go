@@ -10,11 +10,11 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/bjarneo/cliamp/history"
-	"github.com/bjarneo/cliamp/internal/playback"
-	"github.com/bjarneo/cliamp/player"
-	"github.com/bjarneo/cliamp/playlist"
-	"github.com/bjarneo/cliamp/ui"
+	"github.com/bjarneo/cliamp/v2/history"
+	"github.com/bjarneo/cliamp/v2/internal/playback"
+	"github.com/bjarneo/cliamp/v2/player"
+	"github.com/bjarneo/cliamp/v2/playlist"
+	"github.com/bjarneo/cliamp/v2/ui"
 )
 
 type playbackFakeEngine struct {

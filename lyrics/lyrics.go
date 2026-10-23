@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bjarneo/cliamp/internal/httpclient"
+	"github.com/bjarneo/cliamp/v2/internal/httpclient"
 )
 
 // ErrNotFound is returned when no lyrics could be found from any source.

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bjarneo/cliamp/provider"
+	"github.com/bjarneo/cliamp/v2/provider"
 )
 
 // — provider browser (nav) —

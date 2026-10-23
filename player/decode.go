@@ -13,14 +13,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bjarneo/cliamp/internal/sshurl"
+	"github.com/bjarneo/cliamp/v2/internal/sshurl"
 
 	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/flac"
 	"github.com/gopxl/beep/v2/vorbis"
 	"github.com/gopxl/beep/v2/wav"
 
-	"github.com/bjarneo/cliamp/internal/httpclient"
+	"github.com/bjarneo/cliamp/v2/internal/httpclient"
 )
 
 // httpClient is the shared streaming HTTP client. See internal/httpclient

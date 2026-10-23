@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 func TestMigrateBookmarks(t *testing.T) {

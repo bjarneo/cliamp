@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 func TestCanceledSearchOverlayAlbumResponseIsIgnored(t *testing.T) {

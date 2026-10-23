@@ -7,9 +7,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/bjarneo/cliamp/internal/appdir"
-	"github.com/bjarneo/cliamp/internal/fileutil"
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/internal/appdir"
+	"github.com/bjarneo/cliamp/v2/internal/fileutil"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // State holds enough information to resume a previous playback session.

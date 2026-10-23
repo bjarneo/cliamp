@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/bjarneo/cliamp/theme"
+	"github.com/bjarneo/cliamp/v2/theme"
 )
 
 var truecolorFG = regexp.MustCompile(`\x1b\[38;2;(\d+);(\d+);(\d+)m`)

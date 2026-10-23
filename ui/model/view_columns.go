@@ -8,7 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/bjarneo/cliamp/ui"
+	"github.com/bjarneo/cliamp/v2/ui"
 )
 
 // The two-column body puts the playlist on the left and the focusable playback

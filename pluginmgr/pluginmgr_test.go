@@ -14,8 +14,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/bjarneo/cliamp/internal/plugintrust"
-	"github.com/bjarneo/cliamp/luaplugin"
+	"github.com/bjarneo/cliamp/v2/internal/plugintrust"
+	"github.com/bjarneo/cliamp/v2/luaplugin"
 )
 
 // redirectTransport rewrites every request's Host to point at target.

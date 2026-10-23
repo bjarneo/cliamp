@@ -7,10 +7,10 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/bjarneo/cliamp/lyrics"
-	"github.com/bjarneo/cliamp/playlist"
-	"github.com/bjarneo/cliamp/provider"
-	"github.com/bjarneo/cliamp/theme"
+	"github.com/bjarneo/cliamp/v2/lyrics"
+	"github.com/bjarneo/cliamp/v2/playlist"
+	"github.com/bjarneo/cliamp/v2/provider"
+	"github.com/bjarneo/cliamp/v2/theme"
 )
 
 // Inline overlays render in the playlist region while the now-playing,

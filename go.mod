@@ -1,4 +1,4 @@
-module github.com/bjarneo/cliamp
+module github.com/bjarneo/cliamp/v2
 
 go 1.26.10
 

@@ -11,7 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/bjarneo/cliamp/internal/fileutil"
+	"github.com/bjarneo/cliamp/v2/internal/fileutil"
 )
 
 const manifestName = ".trust.json"

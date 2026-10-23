@@ -8,10 +8,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/bjarneo/cliamp/external/radio"
-	"github.com/bjarneo/cliamp/internal/worldmap"
-	"github.com/bjarneo/cliamp/theme"
-	"github.com/bjarneo/cliamp/ui"
+	"github.com/bjarneo/cliamp/v2/external/radio"
+	"github.com/bjarneo/cliamp/v2/internal/worldmap"
+	"github.com/bjarneo/cliamp/v2/theme"
+	"github.com/bjarneo/cliamp/v2/ui"
 )
 
 func sampleSummary() radio.Summary {

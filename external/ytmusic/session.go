@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bjarneo/cliamp/applog"
-	"github.com/bjarneo/cliamp/internal/authurl"
-	"github.com/bjarneo/cliamp/internal/browser"
-	"github.com/bjarneo/cliamp/internal/credstore"
-	"github.com/bjarneo/cliamp/internal/httpclient"
+	"github.com/bjarneo/cliamp/v2/applog"
+	"github.com/bjarneo/cliamp/v2/internal/authurl"
+	"github.com/bjarneo/cliamp/v2/internal/browser"
+	"github.com/bjarneo/cliamp/v2/internal/credstore"
+	"github.com/bjarneo/cliamp/v2/internal/httpclient"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"

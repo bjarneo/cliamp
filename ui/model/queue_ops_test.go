@@ -10,12 +10,12 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/bjarneo/cliamp/external/local"
-	"github.com/bjarneo/cliamp/favorites"
-	"github.com/bjarneo/cliamp/ipc"
-	"github.com/bjarneo/cliamp/playlist"
-	"github.com/bjarneo/cliamp/provider"
-	"github.com/bjarneo/cliamp/ui"
+	"github.com/bjarneo/cliamp/v2/external/local"
+	"github.com/bjarneo/cliamp/v2/favorites"
+	"github.com/bjarneo/cliamp/v2/ipc"
+	"github.com/bjarneo/cliamp/v2/playlist"
+	"github.com/bjarneo/cliamp/v2/provider"
+	"github.com/bjarneo/cliamp/v2/ui"
 )
 
 // queueOpState is the part of the Model that a queue edit changes.

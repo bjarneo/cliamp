@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bjarneo/cliamp/applog"
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/applog"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // webAPI calls the Spotify Web API via the session with retry on 429.

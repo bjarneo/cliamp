@@ -5,7 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/bjarneo/cliamp/applog"
+	"github.com/bjarneo/cliamp/v2/applog"
 )
 
 // handleYTDLBatch appends a batch of a YouTube radio playlist to the queue

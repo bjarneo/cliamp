@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bjarneo/cliamp/internal/fileutil"
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/internal/fileutil"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 func newTestStore(t *testing.T) *Store {

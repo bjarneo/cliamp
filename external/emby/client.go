@@ -2,7 +2,7 @@
 // Emby server and exposes it as a playlist provider.
 package emby
 
-import "github.com/bjarneo/cliamp/internal/embyapi"
+import "github.com/bjarneo/cliamp/v2/internal/embyapi"
 
 // Client aliases the shared embyapi type so external callers keep using
 // emby.Client.

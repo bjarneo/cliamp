@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // directory is a stand-in Radio Browser server that records the query it was

@@ -3,7 +3,7 @@ package resolve
 import (
 	"strings"
 
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // filterRemoteEntries drops tracks from a network-fetched playlist whose path

@@ -7,8 +7,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/bjarneo/cliamp/lyrics"
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/lyrics"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // trackLyricsSource is a provider that has synced lyrics for its own tracks,

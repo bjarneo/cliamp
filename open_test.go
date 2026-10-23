@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bjarneo/cliamp/internal/deeplink"
-	"github.com/bjarneo/cliamp/ipc"
+	"github.com/bjarneo/cliamp/v2/internal/deeplink"
+	"github.com/bjarneo/cliamp/v2/ipc"
 )
 
 // sentOperation is one operation that dispatchDeepLink submitted.

@@ -7,7 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/bjarneo/cliamp/theme"
+	"github.com/bjarneo/cliamp/v2/theme"
 )
 
 func TestContrastingTextColor(t *testing.T) {

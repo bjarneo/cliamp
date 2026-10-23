@@ -3,7 +3,7 @@ package luaplugin
 import (
 	"strings"
 
-	"github.com/bjarneo/cliamp/internal/kittyimg"
+	"github.com/bjarneo/cliamp/v2/internal/kittyimg"
 	lua "github.com/yuin/gopher-lua"
 )
 

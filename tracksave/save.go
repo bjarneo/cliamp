@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bjarneo/cliamp/internal/fileutil"
-	"github.com/bjarneo/cliamp/playlist"
-	"github.com/bjarneo/cliamp/resolve"
+	"github.com/bjarneo/cliamp/v2/internal/fileutil"
+	"github.com/bjarneo/cliamp/v2/playlist"
+	"github.com/bjarneo/cliamp/v2/resolve"
 )
 
 // Directory resolves the configured directory, falling back to ~/Music/cliamp.

@@ -8,7 +8,7 @@ package provider
 import (
 	"strconv"
 
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // Entry pairs a display name with a key and provider implementation. The

@@ -12,7 +12,7 @@ import (
 
 	"github.com/dhowden/tag"
 
-	"github.com/bjarneo/cliamp/internal/appdir"
+	"github.com/bjarneo/cliamp/v2/internal/appdir"
 )
 
 const (

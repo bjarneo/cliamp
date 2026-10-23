@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bjarneo/cliamp/internal/httpclient"
+	"github.com/bjarneo/cliamp/v2/internal/httpclient"
 )
 
 // newTestClient returns a Client pointed at the given test server.

@@ -8,8 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/bjarneo/cliamp/applog"
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/applog"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 func (m *Model) scheduleReconnect(now time.Time) {

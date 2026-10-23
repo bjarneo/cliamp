@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/bjarneo/cliamp/provider"
+	"github.com/bjarneo/cliamp/v2/provider"
 )
 
 // catalogAlbums is the album catalog that catalogClient serves.

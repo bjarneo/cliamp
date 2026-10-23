@@ -3,7 +3,7 @@ package model
 import (
 	"strings"
 
-	"github.com/bjarneo/cliamp/provider"
+	"github.com/bjarneo/cliamp/v2/provider"
 )
 
 // navSortLabel resolves a sort-type ID to its human label for the active

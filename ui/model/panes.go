@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/bjarneo/cliamp/ui"
+	"github.com/bjarneo/cliamp/v2/ui"
 	"github.com/charmbracelet/x/ansi"
 )
 

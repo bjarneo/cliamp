@@ -9,7 +9,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/bjarneo/cliamp/applog"
+	"github.com/bjarneo/cliamp/v2/applog"
 )
 
 func TestLoadAllIncludesBuiltinThemes(t *testing.T) {

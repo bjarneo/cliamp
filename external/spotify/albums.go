@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // AlbumTracks returns every track of a Spotify album, in disc and track order.

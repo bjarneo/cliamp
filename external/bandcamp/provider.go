@@ -28,11 +28,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bjarneo/cliamp/applog"
-	"github.com/bjarneo/cliamp/config"
-	"github.com/bjarneo/cliamp/internal/subsonicapi"
-	"github.com/bjarneo/cliamp/playlist"
-	"github.com/bjarneo/cliamp/provider"
+	"github.com/bjarneo/cliamp/v2/applog"
+	"github.com/bjarneo/cliamp/v2/config"
+	"github.com/bjarneo/cliamp/v2/internal/subsonicapi"
+	"github.com/bjarneo/cliamp/v2/playlist"
+	"github.com/bjarneo/cliamp/v2/provider"
 )
 
 // Compile-time checks for the interfaces Provider overrides. The browse,

@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/bjarneo/cliamp/internal/httpclient/httpclienttest"
+	"github.com/bjarneo/cliamp/v2/internal/httpclient/httpclienttest"
 )
 
 // TestAPIUsesEnvironmentProxy checks that API calls follow ALL_PROXY.

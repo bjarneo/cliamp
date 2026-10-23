@@ -8,7 +8,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/bjarneo/cliamp/theme"
+	"github.com/bjarneo/cliamp/v2/theme"
 )
 
 // CLIAMP color palette. With no theme configured these are the standard ANSI

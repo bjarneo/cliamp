@@ -3,7 +3,7 @@ package model
 import (
 	"testing"
 
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // labelProv supplies non-music browse vocabulary.

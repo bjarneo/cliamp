@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/oauth2"
 
-	"github.com/bjarneo/cliamp/internal/httpclient/httpclienttest"
+	"github.com/bjarneo/cliamp/v2/internal/httpclient/httpclienttest"
 )
 
 // TestWebClientUsesEnvironmentProxy checks that Web API, lyrics and token

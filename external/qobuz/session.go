@@ -9,9 +9,9 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/bjarneo/cliamp/applog"
-	"github.com/bjarneo/cliamp/internal/authurl"
-	"github.com/bjarneo/cliamp/internal/browser"
+	"github.com/bjarneo/cliamp/v2/applog"
+	"github.com/bjarneo/cliamp/v2/internal/authurl"
+	"github.com/bjarneo/cliamp/v2/internal/browser"
 )
 
 // authURLObserver receives the OAuth URL when interactive auth begins.

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // ChannelsURL lists the cliamp radio channels in the order the server runs

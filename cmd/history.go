@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/bjarneo/cliamp/history"
+	"github.com/bjarneo/cliamp/v2/history"
 )
 
 // HistoryShow prints recently played tracks, newest first. limit <= 0 prints all.

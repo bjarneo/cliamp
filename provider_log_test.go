@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bjarneo/cliamp/applog"
-	"github.com/bjarneo/cliamp/provider"
+	"github.com/bjarneo/cliamp/v2/applog"
+	"github.com/bjarneo/cliamp/v2/provider"
 )
 
 // readLog opens a fresh log file for the test and returns a func that reads

@@ -7,10 +7,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/bjarneo/cliamp/internal/playback"
-	"github.com/bjarneo/cliamp/luaplugin"
-	"github.com/bjarneo/cliamp/playlist"
-	"github.com/bjarneo/cliamp/ui/model"
+	"github.com/bjarneo/cliamp/v2/internal/playback"
+	"github.com/bjarneo/cliamp/v2/luaplugin"
+	"github.com/bjarneo/cliamp/v2/playlist"
+	"github.com/bjarneo/cliamp/v2/ui/model"
 )
 
 // Each Lua control reaches the Model as a message, so the Update loop makes

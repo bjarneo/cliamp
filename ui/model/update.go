@@ -3,8 +3,8 @@ package model
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/bjarneo/cliamp/internal/playback"
-	"github.com/bjarneo/cliamp/ui"
+	"github.com/bjarneo/cliamp/v2/internal/playback"
+	"github.com/bjarneo/cliamp/v2/ui"
 )
 
 // Update handles messages: key presses, ticks, and window resizes. After each

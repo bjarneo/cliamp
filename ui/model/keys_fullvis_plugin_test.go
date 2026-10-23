@@ -7,8 +7,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/bjarneo/cliamp/internal/plugintrust"
-	"github.com/bjarneo/cliamp/luaplugin"
+	"github.com/bjarneo/cliamp/v2/internal/plugintrust"
+	"github.com/bjarneo/cliamp/v2/luaplugin"
 )
 
 // newKeyTestPlugin loads a plugin that reports the key it was given. The

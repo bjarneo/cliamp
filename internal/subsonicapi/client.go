@@ -21,10 +21,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bjarneo/cliamp/internal/httpclient"
-	"github.com/bjarneo/cliamp/internal/netdiag"
-	"github.com/bjarneo/cliamp/playlist"
-	"github.com/bjarneo/cliamp/provider"
+	"github.com/bjarneo/cliamp/v2/internal/httpclient"
+	"github.com/bjarneo/cliamp/v2/internal/netdiag"
+	"github.com/bjarneo/cliamp/v2/playlist"
+	"github.com/bjarneo/cliamp/v2/provider"
 )
 
 // Compile-time interface checks.

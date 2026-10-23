@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bjarneo/cliamp/internal/httpclient"
+	"github.com/bjarneo/cliamp/v2/internal/httpclient"
 )
 
 const (

@@ -12,7 +12,7 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/prop"
 
-	"github.com/bjarneo/cliamp/internal/playback"
+	"github.com/bjarneo/cliamp/v2/internal/playback"
 )
 
 // discardTransport is a D-Bus transport that drops every write. It lets

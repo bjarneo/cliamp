@@ -3,8 +3,8 @@ package radio_test
 import (
 	"testing"
 
-	"github.com/bjarneo/cliamp/external/radio"
-	"github.com/bjarneo/cliamp/resolve"
+	"github.com/bjarneo/cliamp/v2/external/radio"
+	"github.com/bjarneo/cliamp/v2/resolve"
 )
 
 // TestArgsBuiltinRadioURLGoesToPending pins the assumption the default startup

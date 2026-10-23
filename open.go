@@ -22,10 +22,10 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/bjarneo/cliamp/applog"
-	"github.com/bjarneo/cliamp/config"
-	"github.com/bjarneo/cliamp/internal/deeplink"
-	"github.com/bjarneo/cliamp/ipc"
+	"github.com/bjarneo/cliamp/v2/applog"
+	"github.com/bjarneo/cliamp/v2/config"
+	"github.com/bjarneo/cliamp/v2/internal/deeplink"
+	"github.com/bjarneo/cliamp/v2/ipc"
 )
 
 // deepLinkStartupTimeout bounds how long a cold start waits for its own IPC

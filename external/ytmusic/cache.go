@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/bjarneo/cliamp/internal/appdir"
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/internal/appdir"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // cacheTTL is how long cached playlist/track data is considered fresh.

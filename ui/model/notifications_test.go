@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bjarneo/cliamp/luaplugin"
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/luaplugin"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // positionCountingEngine counts the reads of the engine position.

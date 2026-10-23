@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bjarneo/cliamp/internal/httpclient"
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/internal/httpclient"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 func TestFeedMetadata(t *testing.T) {

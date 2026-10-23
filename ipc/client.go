@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/bjarneo/cliamp/internal/appdir"
+	"github.com/bjarneo/cliamp/v2/internal/appdir"
 )
 
 // DefaultSocketPath returns the default IPC socket path (~/.config/cliamp/cliamp.sock).

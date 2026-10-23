@@ -10,9 +10,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/bjarneo/cliamp/config"
-	"github.com/bjarneo/cliamp/ipc"
-	"github.com/bjarneo/cliamp/ui"
+	"github.com/bjarneo/cliamp/v2/config"
+	"github.com/bjarneo/cliamp/v2/ipc"
+	"github.com/bjarneo/cliamp/v2/ui"
 )
 
 // recordingSaver captures config writes so a test can assert what was

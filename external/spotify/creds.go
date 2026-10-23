@@ -1,6 +1,6 @@
 package spotify
 
-import "github.com/bjarneo/cliamp/internal/credstore"
+import "github.com/bjarneo/cliamp/v2/internal/credstore"
 
 // DefaultClientID is the librespot keymaster client_id, shared by spotify-player
 // and other librespot-based players. Used when the user hasn't configured their
