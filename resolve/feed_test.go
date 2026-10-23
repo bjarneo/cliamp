@@ -532,15 +532,44 @@ func TestFeedBodyLimit(t *testing.T) {
 				io.WriteString(w, suffix)
 			}))
 			defer srv.Close()
+			// Over the cap, the read stops inside the description; the
+			// episode parsed before it is kept.
 			tracks, err := Feed(context.Background(), srv.URL)
-			if size == maxFeedBody {
-				if err != nil || len(tracks) != 1 {
-					t.Fatalf("exactly 32 MiB: got %d tracks, err = %v", len(tracks), err)
-				}
-			} else if err == nil || tracks != nil {
-				t.Fatalf("oversized feed: tracks = %+v, err = %v; want nil tracks and error", tracks, err)
+			if err != nil || len(tracks) != 1 {
+				t.Fatalf("%d bytes: got %d tracks, err = %v; want 1 track", size, len(tracks), err)
 			}
 		})
+	}
+}
+
+func TestFeedBodyLimitKeepsNewestParsed(t *testing.T) {
+	// An oldest-first feed past the cap: the cap cuts an item short, and the
+	// newest 300 of the episodes parsed before it come back, newest first.
+	start := time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `<rss><channel><title>Show</title>`)
+		for i := 1; i <= 305; i++ {
+			fmt.Fprintf(w, `<item><title>Episode %d</title><pubDate>%s</pubDate><enclosure url="https://example.com/%d.mp3"/></item>`,
+				i, start.AddDate(0, 0, i).Format(time.RFC1123Z), i)
+		}
+		io.WriteString(w, `<item><title>Cut off</title><pubDate>`+start.AddDate(0, 0, 400).Format(time.RFC1123Z)+`</pubDate><description>`)
+		chunk := strings.Repeat(" ", 8192)
+		for written := 0; written <= maxFeedBody; written += len(chunk) {
+			if _, err := io.WriteString(w, chunk); err != nil {
+				return
+			}
+		}
+		io.WriteString(w, `</description><enclosure url="https://example.com/cut.mp3"/></item></channel></rss>`)
+	}))
+	defer srv.Close()
+	tracks, err := Feed(context.Background(), srv.URL)
+	if err != nil || len(tracks) != 300 {
+		t.Fatalf("got %d tracks, err = %v; want 300", len(tracks), err)
+	}
+	for i, track := range tracks {
+		if want := fmt.Sprintf("Episode %d", 305-i); track.Title != want {
+			t.Fatalf("track %d = %q, want %q", i, track.Title, want)
+		}
 	}
 }
 
