@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"html"
 	"io"
 	"mime"
 	"net/http"
@@ -155,7 +156,8 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 						default:
 							continue
 						}
-						title := strings.TrimSpace(item.Title)
+						// Publishers put HTML entities such as &quot; inside CDATA, where XML leaves them as is.
+						title := html.UnescapeString(strings.TrimSpace(item.Title))
 						if title == "" {
 							title = "Untitled episode"
 						}
@@ -210,7 +212,7 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 	}
 	// Channel metadata may follow items; apply it after the portion we read.
 	for i := range tracks {
-		tracks[i].Artist = strings.TrimSpace(channelTitle)
+		tracks[i].Artist = html.UnescapeString(strings.TrimSpace(channelTitle))
 		tracks[i].Album = tracks[i].Artist
 		if tracks[i].AlbumArtURL == "" {
 			tracks[i].AlbumArtURL = channelArt
