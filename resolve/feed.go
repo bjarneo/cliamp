@@ -28,7 +28,8 @@ const (
 // Feed fetches a publisher RSS feed directly, including extensionless URLs.
 // It accepts only absolute HTTP(S) URLs without userinfo, including redirects,
 // and uses the shared 30-second client with caller-controlled cancellation.
-// It reads at most 32 MiB and returns the newest 300 playable episodes, newest
+// It reads at most 32 MiB, keeping the episodes parsed before the cap cuts a
+// larger feed short, and returns the newest 300 playable episodes, newest
 // first by publication date. Feeds do not promise an order, and long-running
 // shows often list oldest-first, so the whole feed is read before the limit
 // applies. Episodes sharing a publication time keep their feed order, and
@@ -65,7 +66,8 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 		return nil, fmt.Errorf("http status %s", resp.Status)
 	}
 
-	dec := xml.NewDecoder(io.LimitReader(resp.Body, maxFeedBody))
+	body := &io.LimitedReader{R: resp.Body, N: maxFeedBody}
+	dec := xml.NewDecoder(body)
 	dec.CharsetReader = charset.NewReaderLabel
 	var episodes []feedEpisode
 	var channelTitle, channelArt string
@@ -83,6 +85,10 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 			break
 		}
 		if err != nil {
+			// The cap stopped the read: keep the episodes parsed before it.
+			if body.N == 0 && seenChannel {
+				break
+			}
 			return nil, fmt.Errorf("parsing feed: %w", err)
 		}
 		switch token := token.(type) {
@@ -211,6 +217,10 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 			}
 		}
 		if err != nil {
+			// The cap stopped the read: keep the episodes parsed before it.
+			if body.N == 0 && seenChannel {
+				break
+			}
 			return nil, fmt.Errorf("parsing feed: %w", err)
 		}
 	}
