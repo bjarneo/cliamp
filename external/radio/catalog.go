@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bjarneo/cliamp/internal/httpclient"
+	"github.com/bjarneo/cliamp/v2/internal/httpclient"
 )
 
 const radioBrowserBase = "https://de1.api.radio-browser.info/json"

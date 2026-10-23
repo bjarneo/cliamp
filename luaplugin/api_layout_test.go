@@ -3,7 +3,7 @@ package luaplugin
 import (
 	"testing"
 
-	"github.com/bjarneo/cliamp/ui"
+	"github.com/bjarneo/cliamp/v2/ui"
 	lua "github.com/yuin/gopher-lua"
 )
 

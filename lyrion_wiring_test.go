@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/bjarneo/cliamp/external/lyrion"
+	"github.com/bjarneo/cliamp/v2/external/lyrion"
 )
 
 // A Lyrion track is a finite file, so it must route to the buffered download

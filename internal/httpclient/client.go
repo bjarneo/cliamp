@@ -19,7 +19,7 @@ import (
 
 // UserAgent is shared by API and stream requests so Navidrome identifies them
 // as the same player when applying per-player settings.
-const UserAgent = "cliamp/1.0 (https://github.com/bjarneo/cliamp)"
+const UserAgent = "cliamp/1.0 (https://github.com/bjarneo/cliamp/v2)"
 
 // Streaming is a shared HTTP client for audio streaming connections.
 // It sets a generous header timeout but no overall timeout, so infinite

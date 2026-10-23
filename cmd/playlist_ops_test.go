@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bjarneo/cliamp/favorites"
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/favorites"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // captureStdout runs fn with os.Stdout redirected to a buffer and returns what

@@ -5,9 +5,9 @@ package navidrome
 import (
 	"os"
 
-	"github.com/bjarneo/cliamp/config"
-	"github.com/bjarneo/cliamp/internal/subsonicapi"
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/config"
+	"github.com/bjarneo/cliamp/v2/internal/subsonicapi"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // NavidromeClient aliases the shared Subsonic client so the provider layer

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bjarneo/cliamp/internal/httpclient"
+	"github.com/bjarneo/cliamp/v2/internal/httpclient"
 )
 
 // lyricsAPI holds the replies of a fake LRCLIB and a fake NetEase. A nil

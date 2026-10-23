@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // TestCloseDuringPlaylists runs Close next to a Web API load. Run it with

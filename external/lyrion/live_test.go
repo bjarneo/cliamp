@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // liveClient returns a client for a real LMS instance, or skips.

@@ -5,8 +5,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/bjarneo/cliamp/theme"
-	"github.com/bjarneo/cliamp/ui"
+	"github.com/bjarneo/cliamp/v2/theme"
+	"github.com/bjarneo/cliamp/v2/ui"
 )
 
 func TestFilterListViewCountAndRawIndex(t *testing.T) {

@@ -20,7 +20,7 @@ import (
 	librespotPlayer "github.com/devgianlu/go-librespot/player"
 	"golang.org/x/oauth2"
 
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 type tokenSourceFunc func() (*oauth2.Token, error)

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bjarneo/cliamp/ipc"
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/ipc"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 var errStubLoad = errors.New("stub load failure")

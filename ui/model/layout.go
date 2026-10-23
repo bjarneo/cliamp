@@ -3,7 +3,7 @@ package model
 import (
 	"charm.land/lipgloss/v2"
 
-	"github.com/bjarneo/cliamp/ui"
+	"github.com/bjarneo/cliamp/v2/ui"
 )
 
 type layoutTier int

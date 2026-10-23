@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // stubSpotifyAPI serves each request path from routes and fails on others.

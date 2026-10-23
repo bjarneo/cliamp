@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bjarneo/cliamp/internal/httpclient"
-	"github.com/bjarneo/cliamp/internal/netdiag"
+	"github.com/bjarneo/cliamp/v2/internal/httpclient"
+	"github.com/bjarneo/cliamp/v2/internal/netdiag"
 )
 
 // maxResponseBody limits API responses to 10 MB to prevent unbounded memory growth.

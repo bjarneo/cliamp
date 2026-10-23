@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 func TestArgsTreatsXiaoyuzhouEpisodeAsPending(t *testing.T) {

@@ -3,7 +3,7 @@ package model
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // addTracksToCurrentPlaylist appends tracks to the end of the current playlist

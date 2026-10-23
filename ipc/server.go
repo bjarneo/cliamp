@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bjarneo/cliamp/applog"
+	"github.com/bjarneo/cliamp/v2/applog"
 )
 
 const ipcRequestReadTimeout = 60 * time.Second

@@ -11,7 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"golang.org/x/sys/windows"
 
-	"github.com/bjarneo/cliamp/internal/playback"
+	"github.com/bjarneo/cliamp/v2/internal/playback"
 )
 
 const (

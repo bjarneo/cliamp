@@ -13,18 +13,18 @@ import (
 
 	"github.com/gopxl/beep/v2"
 
-	"github.com/bjarneo/cliamp/config"
-	"github.com/bjarneo/cliamp/external/bandcamp"
-	"github.com/bjarneo/cliamp/external/emby"
-	"github.com/bjarneo/cliamp/external/jellyfin"
-	"github.com/bjarneo/cliamp/external/navidrome"
-	"github.com/bjarneo/cliamp/favorites"
-	"github.com/bjarneo/cliamp/history"
-	"github.com/bjarneo/cliamp/internal/resume"
-	"github.com/bjarneo/cliamp/player"
-	"github.com/bjarneo/cliamp/playlist"
-	"github.com/bjarneo/cliamp/provider"
-	"github.com/bjarneo/cliamp/ui/model"
+	"github.com/bjarneo/cliamp/v2/config"
+	"github.com/bjarneo/cliamp/v2/external/bandcamp"
+	"github.com/bjarneo/cliamp/v2/external/emby"
+	"github.com/bjarneo/cliamp/v2/external/jellyfin"
+	"github.com/bjarneo/cliamp/v2/external/navidrome"
+	"github.com/bjarneo/cliamp/v2/favorites"
+	"github.com/bjarneo/cliamp/v2/history"
+	"github.com/bjarneo/cliamp/v2/internal/resume"
+	"github.com/bjarneo/cliamp/v2/player"
+	"github.com/bjarneo/cliamp/v2/playlist"
+	"github.com/bjarneo/cliamp/v2/provider"
+	"github.com/bjarneo/cliamp/v2/ui/model"
 )
 
 // isolateProviderEnv points every config and credential lookup at a new

@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/bjarneo/cliamp/internal/httpclient/httpclienttest"
+	"github.com/bjarneo/cliamp/v2/internal/httpclient/httpclienttest"
 )
 
 // TestClientsUseEnvironmentProxy checks that feed, sniff and YouTube page

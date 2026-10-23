@@ -6,7 +6,7 @@ package authurl
 import (
 	"sync/atomic"
 
-	"github.com/bjarneo/cliamp/applog"
+	"github.com/bjarneo/cliamp/v2/applog"
 )
 
 // Observer holds the callback that receives sign-in URLs. The zero value has

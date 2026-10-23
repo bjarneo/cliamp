@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bjarneo/cliamp/config"
-	"github.com/bjarneo/cliamp/external/emby"
-	"github.com/bjarneo/cliamp/external/jellyfin"
-	"github.com/bjarneo/cliamp/player"
-	"github.com/bjarneo/cliamp/playlist"
-	"github.com/bjarneo/cliamp/provider"
+	"github.com/bjarneo/cliamp/v2/config"
+	"github.com/bjarneo/cliamp/v2/external/emby"
+	"github.com/bjarneo/cliamp/v2/external/jellyfin"
+	"github.com/bjarneo/cliamp/v2/player"
+	"github.com/bjarneo/cliamp/v2/playlist"
+	"github.com/bjarneo/cliamp/v2/provider"
 )
 
 func TestJellyfinSourceResolutionForPlayAndPreload(t *testing.T) {

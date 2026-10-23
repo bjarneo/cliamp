@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bjarneo/cliamp/internal/ytdlcookies"
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/internal/ytdlcookies"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // ytdlPlaylistFeedEntry holds JSON fields for a single playlist item returned

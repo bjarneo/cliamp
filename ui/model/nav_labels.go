@@ -3,7 +3,7 @@ package model
 import (
 	"strings"
 
-	"github.com/bjarneo/cliamp/provider"
+	"github.com/bjarneo/cliamp/v2/provider"
 )
 
 // navLabels holds the vocabulary the browse overlay uses for the catalog

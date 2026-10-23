@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bjarneo/cliamp/applog"
-	"github.com/bjarneo/cliamp/config"
-	"github.com/bjarneo/cliamp/internal/subsonicapi"
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/applog"
+	"github.com/bjarneo/cliamp/v2/config"
+	"github.com/bjarneo/cliamp/v2/internal/subsonicapi"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // fakeServer serves the endpoints the provider uses. failPlaylists and

@@ -1,6 +1,6 @@
 package model
 
-import "github.com/bjarneo/cliamp/playlist"
+import "github.com/bjarneo/cliamp/v2/playlist"
 
 // handleNavArtistsLoaded shows the artist list in the nav browser.
 func (m *Model) handleNavArtistsLoaded(msg navArtistsLoadedMsg) {

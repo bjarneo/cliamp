@@ -3,9 +3,9 @@ package model
 import (
 	"testing"
 
-	"github.com/bjarneo/cliamp/ipc"
-	"github.com/bjarneo/cliamp/playlist"
-	"github.com/bjarneo/cliamp/resolve"
+	"github.com/bjarneo/cliamp/v2/ipc"
+	"github.com/bjarneo/cliamp/v2/playlist"
+	"github.com/bjarneo/cliamp/v2/resolve"
 )
 
 func TestInitYTDLBatchTrigger(t *testing.T) {

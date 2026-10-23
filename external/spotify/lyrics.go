@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bjarneo/cliamp/lyrics"
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/lyrics"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // maxLyricsBody limits color-lyrics responses to 2 MB.

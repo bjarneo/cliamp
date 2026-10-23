@@ -18,10 +18,10 @@ import (
 
 	cli "github.com/urfave/cli/v3"
 
-	"github.com/bjarneo/cliamp/config"
-	"github.com/bjarneo/cliamp/ipc"
-	"github.com/bjarneo/cliamp/resolve"
-	"github.com/bjarneo/cliamp/theme"
+	"github.com/bjarneo/cliamp/v2/config"
+	"github.com/bjarneo/cliamp/v2/ipc"
+	"github.com/bjarneo/cliamp/v2/resolve"
+	"github.com/bjarneo/cliamp/v2/theme"
 )
 
 func TestInverseBoolFlags(t *testing.T) {

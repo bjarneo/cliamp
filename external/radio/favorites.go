@@ -11,9 +11,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bjarneo/cliamp/internal/appdir"
-	"github.com/bjarneo/cliamp/internal/fileutil"
-	"github.com/bjarneo/cliamp/internal/tomlutil"
+	"github.com/bjarneo/cliamp/v2/internal/appdir"
+	"github.com/bjarneo/cliamp/v2/internal/fileutil"
+	"github.com/bjarneo/cliamp/v2/internal/tomlutil"
 )
 
 const favoritesFile = "radio_favorites.toml"

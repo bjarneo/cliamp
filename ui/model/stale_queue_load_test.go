@@ -9,8 +9,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/bjarneo/cliamp/playlist"
-	"github.com/bjarneo/cliamp/ui"
+	"github.com/bjarneo/cliamp/v2/playlist"
+	"github.com/bjarneo/cliamp/v2/ui"
 )
 
 func queuePaths(m Model) []string {

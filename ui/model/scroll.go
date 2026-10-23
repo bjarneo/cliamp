@@ -1,6 +1,6 @@
 package model
 
-import "github.com/bjarneo/cliamp/playlist"
+import "github.com/bjarneo/cliamp/v2/playlist"
 
 // clampScroll keeps cursor inside [0, count) and adjusts scroll so that
 // the cursor sits within the visible window of `visible` rows.

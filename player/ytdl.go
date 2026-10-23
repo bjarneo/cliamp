@@ -15,8 +15,8 @@ import (
 
 	"github.com/gopxl/beep/v2"
 
-	"github.com/bjarneo/cliamp/internal/ytdlcookies"
-	"github.com/bjarneo/cliamp/internal/ytdlp"
+	"github.com/bjarneo/cliamp/v2/internal/ytdlcookies"
+	"github.com/bjarneo/cliamp/v2/internal/ytdlp"
 )
 
 // pipeBufSize is the buffer size for audio pipe readers (yt-dlp, ffmpeg).

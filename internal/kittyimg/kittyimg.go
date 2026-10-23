@@ -22,7 +22,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/bjarneo/cliamp/applog"
+	"github.com/bjarneo/cliamp/v2/applog"
 )
 
 // maxPixels caps the decoded image: a plugin can point ShowImage at a photo

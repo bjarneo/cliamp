@@ -1,6 +1,6 @@
 package qobuz
 
-import "github.com/bjarneo/cliamp/internal/credstore"
+import "github.com/bjarneo/cliamp/v2/internal/credstore"
 
 // storedCreds holds persisted Qobuz credentials so the user only signs in once.
 // The app_id, secrets and private key are scraped from the Qobuz web player and

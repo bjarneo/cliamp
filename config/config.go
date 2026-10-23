@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bjarneo/cliamp/internal/appdir"
-	"github.com/bjarneo/cliamp/internal/fileutil"
+	"github.com/bjarneo/cliamp/v2/internal/appdir"
+	"github.com/bjarneo/cliamp/v2/internal/fileutil"
 )
 
 // maxVisRows caps the configurable visualizer height. The layout shrinks the

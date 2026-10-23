@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/v2/playlist"
 )
 
 // playlistCache holds a snapshot_id and the fetched tracks for a playlist,

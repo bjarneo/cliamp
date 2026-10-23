@@ -22,7 +22,7 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/bjarneo/cliamp/internal/plugintrust"
+	"github.com/bjarneo/cliamp/v2/internal/plugintrust"
 )
 
 // newTestManager returns a Manager ready for testing (no disk I/O).

@@ -12,7 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/bjarneo/cliamp/theme"
+	"github.com/bjarneo/cliamp/v2/theme"
 )
 
 func yinYangAt(rows, cols int) (*yinYangDriver, *Visualizer) {

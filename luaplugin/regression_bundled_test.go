@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bjarneo/cliamp/internal/plugintrust"
+	"github.com/bjarneo/cliamp/v2/internal/plugintrust"
 )
 
 // TestBundledPluginsLoad is the backward-compatibility guard for the plugin

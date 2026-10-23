@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/bjarneo/cliamp/internal/playback"
+	"github.com/bjarneo/cliamp/v2/internal/playback"
 )
 
 // A Win-held ID exists only so RegisterHotKey matches when Win happens to

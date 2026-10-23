@@ -9,7 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/v2/config"
 )
 
 // TestSetupRewriteKeepsUserLines runs setup over an existing config file and

@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/v2/config"
 )
 
 // TestSetupBodyRoundTrip saves each provider body with values that need
