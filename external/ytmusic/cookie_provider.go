@@ -307,7 +307,11 @@ func (p *CookieProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 		}
 	}
 
-	result := make([]playlist.PlaylistInfo, 0, len(customPls)+2)
+	result := make([]playlist.PlaylistInfo, 0, len(customPls)+3)
+	supermix := playlist.PlaylistInfo{
+		ID:   playlistIDSupermix,
+		Name: "My Supermix",
+	}
 	switch p.kind {
 	case KindMusic:
 		result = append(result, playlist.PlaylistInfo{
@@ -315,6 +319,7 @@ func (p *CookieProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 			Name:       "Liked Music",
 			TrackCount: lmCount,
 		})
+		result = append(result, supermix)
 	case KindVideo:
 		result = append(result, playlist.PlaylistInfo{
 			ID:         playlistIDLikedVideos,
@@ -333,6 +338,7 @@ func (p *CookieProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 				Name:       "Liked Videos",
 				TrackCount: llCount,
 			},
+			supermix,
 		)
 	}
 	result = append(result, customPls...)
@@ -348,6 +354,10 @@ func formatPlaylistURL(playlistID string, isMusic bool) string {
 		return "https://music.youtube.com/playlist?list=LM"
 	case playlistIDLikedVideos:
 		return "https://www.youtube.com/playlist?list=LL"
+	case playlistIDSupermix:
+		// Generated mix: identical ID for every account, personalized by the
+		// signed-in session. Always resolve via music.youtube.com with cookies.
+		return "https://music.youtube.com/playlist?list=" + playlistIDSupermix
 	default:
 		if isMusic {
 			return "https://music.youtube.com/playlist?list=" + playlistID
