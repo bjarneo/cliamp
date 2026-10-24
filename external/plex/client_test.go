@@ -1,6 +1,7 @@
 package plex
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +13,33 @@ import (
 
 	"github.com/bjarneo/cliamp/internal/httpclient"
 )
+
+func TestSetRating(t *testing.T) {
+	for _, rating := range []float64{10, 0} {
+		t.Run(fmt.Sprintf("rating_%g", rating), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPut || r.URL.Path != "/:/rate" {
+					t.Fatalf("request = %s %s, want PUT /:/rate", r.Method, r.URL.Path)
+				}
+				if got := r.URL.Query().Get("key"); got != "track-42" {
+					t.Errorf("key = %q, want track-42", got)
+				}
+				if got := r.URL.Query().Get("identifier"); got != "com.plexapp.plugins.library" {
+					t.Errorf("identifier = %q", got)
+				}
+				if got := r.Header.Get("X-Plex-Token"); got != "test-token" {
+					t.Errorf("X-Plex-Token = %q", got)
+				}
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer srv.Close()
+
+			if err := newTestClient(srv).SetRating(context.Background(), "track-42", rating); err != nil {
+				t.Fatalf("SetRating(%g): %v", rating, err)
+			}
+		})
+	}
+}
 
 // newTestClient returns a Client pointed at the given test server.
 func newTestClient(srv *httptest.Server) *Client {
@@ -633,6 +661,25 @@ func TestStreamURL_TokenEncoded(t *testing.T) {
 	got := c.StreamURL("/library/parts/1/2/file.mp3")
 	if !strings.Contains(got, "X-Plex-Token=tok+en%2Bspecial") {
 		t.Errorf("StreamURL token not URL-encoded: %q", got)
+	}
+}
+
+func TestTrackLoadsOneMetadataItem(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/library/metadata/42" {
+			t.Fatalf("path = %q, want /library/metadata/42", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"MediaContainer":{"Metadata":[{"ratingKey":"42","title":"Song","Media":[{"Part":[{"key":"/library/parts/4/file.flac"}]}]}]}}`))
+	}))
+	defer srv.Close()
+
+	track, err := newTestClient(srv).Track("42")
+	if err != nil {
+		t.Fatalf("Track: %v", err)
+	}
+	if track.RatingKey != "42" || track.PartKey != "/library/parts/4/file.flac" {
+		t.Fatalf("Track = %+v", track)
 	}
 }
 

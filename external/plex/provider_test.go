@@ -1,12 +1,15 @@
 package plex
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 )
 
 // sectionsHandler returns a handler that serves a single music section
@@ -220,14 +223,11 @@ func TestProvider_Tracks(t *testing.T) {
 	if !tr.Stream {
 		t.Error("Stream = false, want true")
 	}
-	if !strings.HasPrefix(tr.Path, srv.URL) {
-		t.Errorf("Path %q does not start with server URL", tr.Path)
+	if tr.Path != TrackURIPrefix+"200" {
+		t.Errorf("Path = %q, want token-free Plex URI", tr.Path)
 	}
-	if !strings.Contains(tr.Path, "X-Plex-Token=tok") {
-		t.Errorf("Path %q missing X-Plex-Token", tr.Path)
-	}
-	if !strings.Contains(tr.Path, "/library/parts/1/111/SoWhat.flac") {
-		t.Errorf("Path %q missing part key", tr.Path)
+	if tr.Meta(provider.MetaPlexID) != "200" {
+		t.Errorf("Plex metadata ID = %q, want 200", tr.Meta(provider.MetaPlexID))
 	}
 }
 
@@ -264,11 +264,53 @@ func TestProvider_Tracks_Playlist(t *testing.T) {
 	if !tr.Stream {
 		t.Error("Stream = false, want true")
 	}
-	if !strings.Contains(tr.Path, "X-Plex-Token=tok") {
-		t.Errorf("Path %q missing X-Plex-Token", tr.Path)
+	if tr.Path != TrackURIPrefix+"300" {
+		t.Errorf("Path = %q, want token-free Plex URI", tr.Path)
 	}
-	if !strings.Contains(tr.Path, "/library/parts/3/333/HighwayToHell.flac") {
-		t.Errorf("Path %q missing part key", tr.Path)
+}
+
+func TestProviderResolveSourceRestoresAfterRestart(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/library/metadata/200" {
+			t.Fatalf("path = %q, want metadata lookup", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"MediaContainer":{"Metadata":[{"ratingKey":"200","Media":[{"Part":[{"key":"/library/parts/1/111/file.flac"}]}]}]}}`))
+	}))
+	defer srv.Close()
+
+	p := newProvider(NewClient(srv.URL, "tok"))
+	got, err := p.ResolveSource(TrackURIPrefix + "200")
+	if err != nil {
+		t.Fatalf("ResolveSource: %v", err)
+	}
+	want := srv.URL + "/library/parts/1/111/file.flac?X-Plex-Token=tok"
+	if got != want {
+		t.Fatalf("ResolveSource = %q, want %q", got, want)
+	}
+}
+
+func TestProviderFavorites(t *testing.T) {
+	var gotRating string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/:/rate" {
+			t.Fatalf("path = %q, want /:/rate", r.URL.Path)
+		}
+		gotRating = r.URL.Query().Get("rating")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	p := newProvider(NewClient(srv.URL, "tok"))
+	track := playlist.Track{Path: TrackURIPrefix + "200"}
+	if !p.CanFavoriteTrack(track) {
+		t.Fatal("CanFavoriteTrack = false")
+	}
+	if err := p.SetTrackFavorite(context.Background(), track, true); err != nil {
+		t.Fatalf("SetTrackFavorite: %v", err)
+	}
+	if gotRating != "10" {
+		t.Fatalf("rating = %q, want 10", gotRating)
 	}
 }
 

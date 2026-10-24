@@ -2,7 +2,9 @@
 package plex
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -103,6 +105,46 @@ func (c *Client) get(path string, params url.Values, result any) error {
 
 	if err := httpclient.ReadJSON(resp.Body, maxResponseBody, result); err != nil {
 		return fmt.Errorf("plex: %s: %w", path, err)
+	}
+	return nil
+}
+
+// SetRating updates the current user's rating for one Plex library item.
+// Plex uses 10 for a liked track and 0 to clear the like.
+func (c *Client) SetRating(ctx context.Context, ratingKey string, rating float64) error {
+	if ratingKey == "" {
+		return fmt.Errorf("plex: rate: missing rating key")
+	}
+	params := url.Values{
+		"identifier": {"com.plexapp.plugins.library"},
+		"key":        {ratingKey},
+		"rating":     {fmt.Sprintf("%g", rating)},
+	}
+	return c.doAction(ctx, http.MethodPut, "/:/rate", params)
+}
+
+func (c *Client) doAction(ctx context.Context, method, endpoint string, params url.Values) error {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+endpoint+"?"+params.Encode(), nil)
+	if err != nil {
+		return fmt.Errorf("plex: %s: %w", strings.TrimPrefix(endpoint, "/:/"), err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Plex-Product", "cliamp")
+	req.Header.Set("X-Plex-Client-Identifier", "cliamp")
+	req.Header.Set("X-Plex-Token", c.token)
+
+	resp, err := apiClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("plex: %s: server unreachable: %w", strings.TrimPrefix(endpoint, "/:/"), netdiag.Explain(err))
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("plex: token invalid or expired")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("plex: %s: HTTP %s", strings.TrimPrefix(endpoint, "/:/"), resp.Status)
 	}
 	return nil
 }
@@ -346,6 +388,23 @@ func (c *Client) Tracks(albumRatingKey string) ([]Track, error) {
 		tracks = append(tracks, trackFromJSON(m))
 	}
 	return tracks, nil
+}
+
+// Track returns one track by its Plex ratingKey. It restores the stream-part
+// mapping for a logical Plex URI after cliamp restarts.
+func (c *Client) Track(ratingKey string) (Track, error) {
+	var result struct {
+		MediaContainer struct {
+			Metadata []trackJSON `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	if err := c.get("/library/metadata/"+ratingKey, nil, &result); err != nil {
+		return Track{}, err
+	}
+	if len(result.MediaContainer.Metadata) == 0 {
+		return Track{}, fmt.Errorf("plex: track %s not found", ratingKey)
+	}
+	return trackFromJSON(result.MediaContainer.Metadata[0]), nil
 }
 
 // Search searches the music library for tracks matching query.

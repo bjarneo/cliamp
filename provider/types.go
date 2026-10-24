@@ -72,6 +72,7 @@ func YearFromDate(date string) int {
 // ProviderMeta key constants used across providers and the UI.
 const (
 	MetaNavidromeID = "navidrome.id"
+	MetaPlexID      = "plex.id"
 	MetaJellyfinID  = "jellyfin.id"
 	MetaEmbyID      = "emby.id"
 	MetaNetEaseID   = "netease.id"

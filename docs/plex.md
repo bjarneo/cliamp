@@ -56,6 +56,9 @@ Artist - Album Title (Year)
 
 Select a playlist or album to load its tracks. Smart playlists are included. They resolve to current server content.
 
+Press `f` on a Plex track to add or remove it from cliamp Favorites. The same
+change is copied to Plex and appears in Plexamp and other Plex clients.
+
 Start cliamp with Plex as the default provider:
 
 ```bash
@@ -70,13 +73,13 @@ provider = "plex"
 
 ## How it works
 
-cliamp calls the Plex HTTP API to list audio playlists (`/playlists`) and music library albums. When you select an entry, cliamp gets its track list from the playlist-items or album-children endpoint. It then creates authenticated streaming URLs in this form:
+cliamp calls the Plex HTTP API to list audio playlists (`/playlists`) and music library albums. When you select an entry, cliamp gets its track list from the playlist-items or album-children endpoint. Queues, playlists, favorites, history, resume state, and IPC keep only a token-free logical path:
 
 ```
-http://<server>:32400/library/parts/<partID>/<timestamp>/file.<ext>?X-Plex-Token=<token>
+plex:track:<ratingKey>
 ```
 
-These URLs serve files directly. Plex serves the original file without transcoding. cliamp handles playback through its HTTP streaming pipeline. cliamp can play MP3, FLAC, AAC, OGG, OPUS, WAV, and other supported source formats.
+When playback starts, cliamp resolves that path to the Plex part URL in memory and authenticates the request with your token. The token is not written into track paths or exposed through status output. Plex serves the original file without transcoding. cliamp handles playback through its HTTP streaming pipeline and can play MP3, FLAC, AAC, OGG, OPUS, WAV, and other supported source formats.
 
 ## Troubleshooting
 

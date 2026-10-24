@@ -369,6 +369,16 @@ func (s *providerSet) registerPlayerHooks(p *player.Player) {
 			}
 		}
 		switch prov := e.Provider.(type) {
+		case *plex.Provider:
+			// Persist only a logical ratingKey and add the Plex token in memory
+			// when playback starts.
+			p.RegisterSourceResolver(plex.TrackURIPrefix, func(uri string) (player.ResolvedSource, error) {
+				u, err := prov.ResolveSource(uri)
+				if err != nil {
+					return player.ResolvedSource{}, fmt.Errorf("resolve Plex source: %w", err)
+				}
+				return player.ResolvedSource{URL: u, Buffered: true}, nil
+			})
 		case *yandex.Provider:
 			// Yandex tracks carry yandex:track: URIs; the provider resolves them
 			// to a fresh signed stream URL when playback starts.
