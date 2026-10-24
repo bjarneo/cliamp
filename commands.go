@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +15,8 @@ import (
 	"time"
 
 	cli "github.com/urfave/cli/v3"
+
+	"github.com/charmbracelet/x/term"
 
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/cmd"
@@ -1207,15 +1212,17 @@ func remoteCommand() *cli.Command {
 				ArgsUsage: "<operation>",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "params", Usage: "JSON object passed as operation parameters", Value: "{}"},
+					&cli.StringFlag{Name: "params-file", Usage: "read JSON parameters from a file, or - for stdin"},
+					&cli.BoolFlag{Name: "params-stdin", Usage: "read JSON parameters from stdin"},
 					&cli.BoolFlag{Name: "wait", Usage: "wait for a submitted job to finish"},
 				},
 				Action: func(ctx context.Context, c *cli.Command) error {
 					if c.Args().Len() == 0 {
-						return fmt.Errorf("usage: cliamp remote call <operation> [--params '{}']")
+						return fmt.Errorf("usage: cliamp remote call <operation> [--params '{}' | --params-file <path> | --params-stdin]")
 					}
-					params := json.RawMessage(c.String("params"))
-					if !json.Valid(params) {
-						return fmt.Errorf("--params must be a JSON value")
+					params, err := readRemoteCallParams(c)
+					if err != nil {
+						return err
 					}
 					response, err := sendV2(ipc.V2Request{
 						Method:    "operation.submit",
@@ -1299,4 +1306,92 @@ func remoteCommand() *cli.Command {
 			},
 		},
 	}
+}
+
+// maxRemoteParamsSize limits the byte size of parameters passed via file or stdin to 1 MiB.
+const maxRemoteParamsSize = 1 << 20
+
+var remoteStdin io.Reader = os.Stdin
+
+func readRemoteCallParams(c *cli.Command) (json.RawMessage, error) {
+	return readRemoteCallParamsFrom(c, remoteStdin)
+}
+
+func readRemoteCallParamsFrom(c *cli.Command, stdin io.Reader) (json.RawMessage, error) {
+	hasParams := c.IsSet("params")
+	hasFile := c.IsSet("params-file")
+	hasStdin := c.IsSet("params-stdin")
+
+	count := 0
+	if hasParams {
+		count++
+	}
+	if hasFile {
+		count++
+	}
+	if hasStdin {
+		count++
+	}
+	if count > 1 {
+		return nil, errors.New("--params, --params-file, and --params-stdin are mutually exclusive")
+	}
+
+	var data []byte
+	if hasStdin || (hasFile && c.String("params-file") == "-") {
+		if f, ok := stdin.(*os.File); ok && term.IsTerminal(f.Fd()) {
+			return nil, errors.New("cannot read parameters from terminal stdin; pipe data or use --params")
+		}
+		var err error
+		data, err = io.ReadAll(io.LimitReader(stdin, maxRemoteParamsSize+1))
+		if err != nil {
+			return nil, fmt.Errorf("reading parameters from stdin: %w", err)
+		}
+		if len(data) > maxRemoteParamsSize {
+			return nil, fmt.Errorf("parameters exceed maximum allowed size of %d bytes", maxRemoteParamsSize)
+		}
+		if len(bytes.TrimSpace(data)) == 0 {
+			return nil, errors.New("parameters input is empty")
+		}
+	} else if hasFile {
+		filePath := strings.TrimSpace(c.String("params-file"))
+		if filePath == "" {
+			return nil, errors.New("--params-file requires a path, or - for stdin")
+		}
+		f, err := os.Open(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("opening parameters file: %w", err)
+		}
+		defer f.Close()
+
+		data, err = io.ReadAll(io.LimitReader(f, maxRemoteParamsSize+1))
+		if err != nil {
+			return nil, fmt.Errorf("reading parameters file: %w", err)
+		}
+		if len(data) > maxRemoteParamsSize {
+			return nil, fmt.Errorf("parameters exceed maximum allowed size of %d bytes", maxRemoteParamsSize)
+		}
+		if len(bytes.TrimSpace(data)) == 0 {
+			return nil, errors.New("parameters file is empty")
+		}
+	} else if hasParams {
+		data = []byte(c.String("params"))
+		if len(data) > maxRemoteParamsSize {
+			return nil, fmt.Errorf("parameters exceed maximum allowed size of %d bytes", maxRemoteParamsSize)
+		}
+	} else {
+		data = []byte("{}")
+	}
+
+	data = bytes.TrimSpace(data)
+	if !json.Valid(data) {
+		if hasFile || hasStdin {
+			return nil, errors.New("parameters must be valid JSON")
+		}
+		return nil, errors.New("--params must be a JSON value")
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return nil, errors.New("parameters must be a JSON object")
+	}
+	return json.RawMessage(data), nil
 }

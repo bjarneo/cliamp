@@ -456,3 +456,240 @@ func TestStatusJSONKeepsZeroValues(t *testing.T) {
 		})
 	}
 }
+
+func TestReadRemoteCallParams(t *testing.T) {
+	tempDir := t.TempDir()
+	validFile := filepath.Join(tempDir, "valid.json")
+	if err := os.WriteFile(validFile, []byte(`{"value": 42}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	emptyFile := filepath.Join(tempDir, "empty.json")
+	if err := os.WriteFile(emptyFile, []byte("   \n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	invalidFile := filepath.Join(tempDir, "invalid.json")
+	if err := os.WriteFile(invalidFile, []byte(`{not json}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	arrayFile := filepath.Join(tempDir, "array.json")
+	if err := os.WriteFile(arrayFile, []byte(`[1, 2, 3]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		args    []string
+		stdin   string
+		want    string
+		wantErr string
+	}{
+		{
+			name: "default when no flags set",
+			args: []string{"cliamp", "remote", "call", "test.op"},
+			want: "{}",
+		},
+		{
+			name: "params flag valid",
+			args: []string{"cliamp", "remote", "call", "test.op", "--params", `{"volume": 5}`},
+			want: `{"volume": 5}`,
+		},
+		{
+			name:    "params flag invalid JSON",
+			args:    []string{"cliamp", "remote", "call", "test.op", "--params", `not-json`},
+			wantErr: "--params must be a JSON value",
+		},
+		{
+			name:    "params flag JSON array",
+			args:    []string{"cliamp", "remote", "call", "test.op", "--params", `[1, 2]`},
+			wantErr: "parameters must be a JSON object",
+		},
+		{
+			name:    "params flag JSON string",
+			args:    []string{"cliamp", "remote", "call", "test.op", "--params", `"text"`},
+			wantErr: "parameters must be a JSON object",
+		},
+		{
+			name: "params-file valid path",
+			args: []string{"cliamp", "remote", "call", "test.op", "--params-file", validFile},
+			want: `{"value": 42}`,
+		},
+		{
+			name:    "params-file missing path",
+			args:    []string{"cliamp", "remote", "call", "test.op", "--params-file", filepath.Join(tempDir, "nonexistent.json")},
+			wantErr: "opening parameters file",
+		},
+		{
+			name:    "params-file empty file",
+			args:    []string{"cliamp", "remote", "call", "test.op", "--params-file", emptyFile},
+			wantErr: "parameters file is empty",
+		},
+		{
+			name:    "params-file invalid JSON",
+			args:    []string{"cliamp", "remote", "call", "test.op", "--params-file", invalidFile},
+			wantErr: "parameters must be valid JSON",
+		},
+		{
+			name:    "params-file array JSON",
+			args:    []string{"cliamp", "remote", "call", "test.op", "--params-file", arrayFile},
+			wantErr: "parameters must be a JSON object",
+		},
+		{
+			name:  "params-file dash reads stdin",
+			args:  []string{"cliamp", "remote", "call", "test.op", "--params-file", "-"},
+			stdin: `{"from": "stdin"}`,
+			want:  `{"from": "stdin"}`,
+		},
+		{
+			name:    "params-file dash empty stdin",
+			args:    []string{"cliamp", "remote", "call", "test.op", "--params-file", "-"},
+			stdin:   "  \n",
+			wantErr: "parameters input is empty",
+		},
+		{
+			name:  "params-stdin flag reads stdin",
+			args:  []string{"cliamp", "remote", "call", "test.op", "--params-stdin"},
+			stdin: `{"query": "lofi"}`,
+			want:  `{"query": "lofi"}`,
+		},
+		{
+			name:    "params-stdin flag empty stdin",
+			args:    []string{"cliamp", "remote", "call", "test.op", "--params-stdin"},
+			stdin:   "",
+			wantErr: "parameters input is empty",
+		},
+		{
+			name:    "params and params-file mutually exclusive",
+			args:    []string{"cliamp", "remote", "call", "test.op", "--params", `{}`, "--params-file", validFile},
+			wantErr: "--params, --params-file, and --params-stdin are mutually exclusive",
+		},
+		{
+			name:    "params and params-stdin mutually exclusive",
+			args:    []string{"cliamp", "remote", "call", "test.op", "--params", `{}`, "--params-stdin"},
+			wantErr: "--params, --params-file, and --params-stdin are mutually exclusive",
+		},
+		{
+			name:    "params-file and params-stdin mutually exclusive",
+			args:    []string{"cliamp", "remote", "call", "test.op", "--params-file", validFile, "--params-stdin"},
+			wantErr: "--params, --params-file, and --params-stdin are mutually exclusive",
+		},
+		{
+			name:    "stdin exceeds size limit",
+			args:    []string{"cliamp", "remote", "call", "test.op", "--params-stdin"},
+			stdin:   strings.Repeat("a", maxRemoteParamsSize+2),
+			wantErr: "parameters exceed maximum allowed size",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := buildApp()
+			var gotParams json.RawMessage
+			var gotErr error
+
+			// Intercept Action in call subcommand to test readRemoteCallParamsFrom directly.
+			var callCmd *cli.Command
+			for _, c := range app.Commands {
+				if c.Name == "remote" {
+					for _, sub := range c.Commands {
+						if sub.Name == "call" {
+							callCmd = sub
+							break
+						}
+					}
+					break
+				}
+			}
+			if callCmd == nil {
+				t.Fatal("remote call command not found")
+			}
+
+			callCmd.Action = func(_ context.Context, c *cli.Command) error {
+				gotParams, gotErr = readRemoteCallParamsFrom(c, strings.NewReader(tt.stdin))
+				return gotErr
+			}
+
+			err := app.Run(t.Context(), tt.args)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %v, want substring %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if strings.ReplaceAll(string(gotParams), " ", "") != strings.ReplaceAll(tt.want, " ", "") {
+				t.Fatalf("gotParams = %s, want %s", string(gotParams), tt.want)
+			}
+		})
+	}
+}
+
+func TestRemoteCallParamsIntegration(t *testing.T) {
+	tempDir := t.TempDir()
+	paramsFile := filepath.Join(tempDir, "request.json")
+	if err := os.WriteFile(paramsFile, []byte(`{"value": 3}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var receivedParams json.RawMessage
+	var receivedOp string
+	var mu sync.Mutex
+
+	startTestIPC(t, ipc.RuntimeSnapshot{}, func(jobs *ipc.JobStore, id string, request ipc.V2Request) {
+		mu.Lock()
+		receivedOp = request.Operation
+		receivedParams = request.Params
+		mu.Unlock()
+		_, _ = jobs.Start(id)
+		_ = jobs.Succeed(id, json.RawMessage(`{"ok": true, "volume": 3}`))
+	})
+
+	// Test 1: --params-file
+	stdout, _ := captureOutput(t, func() {
+		err := buildApp().Run(t.Context(), []string{
+			"cliamp", "remote", "call", "volume.adjust",
+			"--params-file", paramsFile,
+			"--wait",
+		})
+		if err != nil {
+			t.Fatalf("remote call --params-file: %v", err)
+		}
+	})
+
+	mu.Lock()
+	if receivedOp != "volume.adjust" || strings.ReplaceAll(string(receivedParams), " ", "") != `{"value":3}` {
+		t.Fatalf("IPC received op=%q params=%s, want volume.adjust and {\"value\":3}", receivedOp, string(receivedParams))
+	}
+	mu.Unlock()
+
+	if !strings.Contains(stdout, `"ok":true`) && !strings.Contains(stdout, `"ok": true`) {
+		t.Errorf("stdout = %q, want response containing ok: true", stdout)
+	}
+
+	// Test 2: --params-stdin
+	oldStdin := remoteStdin
+	defer func() { remoteStdin = oldStdin }()
+	remoteStdin = strings.NewReader(`{"value": -3}`)
+
+	stdout, _ = captureOutput(t, func() {
+		err := buildApp().Run(t.Context(), []string{
+			"cliamp", "remote", "call", "volume.adjust",
+			"--params-stdin",
+			"--wait",
+		})
+		if err != nil {
+			t.Fatalf("remote call --params-stdin: %v", err)
+		}
+	})
+
+	mu.Lock()
+	if receivedOp != "volume.adjust" || strings.ReplaceAll(string(receivedParams), " ", "") != `{"value":-3}` {
+		t.Fatalf("IPC received op=%q params=%s, want volume.adjust and {\"value\":-3}", receivedOp, string(receivedParams))
+	}
+	mu.Unlock()
+
+	if !strings.Contains(stdout, `"ok":true`) && !strings.Contains(stdout, `"ok": true`) {
+		t.Errorf("stdout = %q, want response containing ok: true", stdout)
+	}
+}
