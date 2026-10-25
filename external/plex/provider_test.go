@@ -2,6 +2,7 @@ package plex
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -426,6 +427,88 @@ func TestProvider_Tracks_Cached(t *testing.T) {
 	}
 	if callCount != 1 {
 		t.Errorf("expected children endpoint called once, called %d times", callCount)
+	}
+}
+
+func TestProvider_Tracks_AlbumCacheTTL(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"MediaContainer":{"Metadata":[{"ratingKey":"1","title":"T%d","Media":[{"Part":[{"key":"/p/1/f.mp3"}]}]}]}}`, callCount)
+	}))
+	defer srv.Close()
+
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	p := newProvider(NewClient(srv.URL, "tok"))
+	p.now = func() time.Time { return now }
+	if _, err := p.Tracks("99"); err != nil {
+		t.Fatalf("first Tracks: %v", err)
+	}
+
+	now = now.Add(albumCacheTTL - time.Second)
+	if _, err := p.Tracks("99"); err != nil {
+		t.Fatalf("cached Tracks: %v", err)
+	}
+	if callCount != 1 {
+		t.Fatalf("request count before TTL = %d, want 1", callCount)
+	}
+
+	now = now.Add(time.Second)
+	refreshed, err := p.Tracks("99")
+	if err != nil {
+		t.Fatalf("expired Tracks: %v", err)
+	}
+	if callCount != 2 {
+		t.Fatalf("request count after TTL = %d, want 2", callCount)
+	}
+	if got := refreshed[0].Title; got != "T2" {
+		t.Fatalf("title after TTL = %q, want T2", got)
+	}
+}
+
+func TestProviderRefreshReloadsOpenList(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"MediaContainer":{"Metadata":[{"ratingKey":"1","title":"T%d","Media":[{"Part":[{"key":"/p/1/f.mp3"}]}]}]}}`, callCount)
+	}))
+	defer srv.Close()
+
+	p := newProvider(NewClient(srv.URL, "tok"))
+	if _, err := p.Tracks("99"); err != nil {
+		t.Fatalf("first Tracks: %v", err)
+	}
+	p.Refresh()
+	refreshed, err := p.Tracks("99")
+	if err != nil {
+		t.Fatalf("Tracks after Refresh: %v", err)
+	}
+	if callCount != 2 {
+		t.Fatalf("request count after Refresh = %d, want 2", callCount)
+	}
+	if got := refreshed[0].Title; got != "T2" {
+		t.Fatalf("title after Refresh = %q, want T2", got)
+	}
+}
+
+func TestProviderCanRefreshPlaylist(t *testing.T) {
+	p := newProvider(NewClient("http://localhost:32400", "tok"))
+	for _, tt := range []struct {
+		id   string
+		want bool
+	}{
+		{id: "99", want: true},
+		{id: "album_key-1", want: true},
+		{id: "pl:24872", want: true},
+		{id: "", want: false},
+		{id: "pl:", want: false},
+		{id: "browse/albums", want: false},
+	} {
+		if got := p.CanRefreshPlaylist(tt.id); got != tt.want {
+			t.Errorf("CanRefreshPlaylist(%q) = %v, want %v", tt.id, got, tt.want)
+		}
 	}
 }
 

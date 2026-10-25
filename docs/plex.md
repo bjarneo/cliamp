@@ -56,6 +56,10 @@ Artist - Album Title (Year)
 
 Select a playlist or album to load its tracks. Smart playlists are included. They resolve to current server content.
 
+Press `Ctrl+R` while an open Plex album or playlist is focused to reload it
+and pick up server-side changes. Album contents are cached for up to five
+minutes; Plex playlists are always loaded fresh so smart playlists stay current.
+
 Press `f` on a Plex track to add or remove it from cliamp Favorites. The same
 change is copied to Plex and appears in Plexamp and other Plex clients.
 

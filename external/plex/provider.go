@@ -24,14 +24,21 @@ const (
 	prefixPlaylist   = "pl:"
 	sectionAlbums    = "Albums"
 	sectionPlaylists = "Playlists"
+	albumCacheTTL    = 5 * time.Minute
 )
+
+type trackCacheEntry struct {
+	tracks   []playlist.Track
+	loadedAt time.Time
+}
 
 // Compile-time interface checks.
 var (
-	_ provider.Searcher         = (*Provider)(nil)
-	_ provider.AlbumTrackLoader = (*Provider)(nil)
-	_ provider.TrackFavoriter   = (*Provider)(nil)
-	_ provider.ProgressReporter = (*Provider)(nil)
+	_ playlist.RefreshablePlaylist = (*Provider)(nil)
+	_ provider.Searcher            = (*Provider)(nil)
+	_ provider.AlbumTrackLoader    = (*Provider)(nil)
+	_ provider.TrackFavoriter      = (*Provider)(nil)
+	_ provider.ProgressReporter    = (*Provider)(nil)
 )
 
 // Provider implements playlist.Provider for a Plex Media Server.
@@ -43,13 +50,14 @@ type Provider struct {
 	client        *Client
 	mu            sync.Mutex
 	playlistCache []playlist.PlaylistInfo
-	trackCache    map[string][]playlist.Track
+	trackCache    map[string]trackCacheEntry
 	partKeys      map[string]string
+	now           func() time.Time
 }
 
 // newProvider returns a Provider backed by the given Client.
 func newProvider(client *Client) *Provider {
-	return &Provider{client: client}
+	return &Provider{client: client, now: time.Now}
 }
 
 // NewFromConfig returns a Provider from a PlexConfig, or nil if URL or Token is missing.
@@ -132,7 +140,15 @@ func (p *Provider) Refresh() {
 	p.mu.Lock()
 	p.playlistCache = nil
 	p.trackCache = nil
+	p.partKeys = nil
 	p.mu.Unlock()
+}
+
+// CanRefreshPlaylist reports whether id is a stable Plex album or playlist
+// ratingKey that can be reloaded in place after Refresh.
+func (p *Provider) CanRefreshPlaylist(id string) bool {
+	id = strings.TrimPrefix(id, prefixPlaylist)
+	return validRatingKey(id)
 }
 
 // Tracks returns the tracks for the playlist or album identified by
@@ -140,18 +156,19 @@ func (p *Provider) Refresh() {
 // endpoint; album IDs load via the album children endpoint. Tracks with no
 // ratingKey or streamable part are silently skipped. Track paths are token-free
 // logical URIs; ResolveSource creates the authenticated URL only when playback
-// starts. Album tracks
-// are cached per album ID; playlist tracks are intentionally not cached so
-// smart playlists always reflect their current server contents.
+// starts. Album tracks are cached per album ID; playlist tracks are
+// intentionally not cached so smart playlists always reflect current server
+// contents.
 func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	isPlaylist := strings.HasPrefix(playlistID, prefixPlaylist)
 
 	p.mu.Lock()
 	if !isPlaylist && p.trackCache != nil {
-		if cached, ok := p.trackCache[playlistID]; ok {
+		if cached, ok := p.trackCache[playlistID]; ok && p.now().Sub(cached.loadedAt) < albumCacheTTL {
 			p.mu.Unlock()
-			return slices.Clone(cached), nil
+			return slices.Clone(cached.tracks), nil
 		}
+		delete(p.trackCache, playlistID)
 	}
 	p.mu.Unlock()
 
@@ -173,9 +190,9 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	if !isPlaylist {
 		p.mu.Lock()
 		if p.trackCache == nil {
-			p.trackCache = make(map[string][]playlist.Track)
+			p.trackCache = make(map[string]trackCacheEntry)
 		}
-		p.trackCache[playlistID] = tracks
+		p.trackCache[playlistID] = trackCacheEntry{tracks: tracks, loadedAt: p.now()}
 		p.mu.Unlock()
 	}
 
