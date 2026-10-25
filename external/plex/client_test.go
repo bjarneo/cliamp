@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bjarneo/cliamp/internal/httpclient"
 )
@@ -38,6 +39,49 @@ func TestSetRating(t *testing.T) {
 				t.Fatalf("SetRating(%g): %v", rating, err)
 			}
 		})
+	}
+}
+
+func TestReportTimeline(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/:/timeline" {
+			t.Fatalf("request = %s %s, want POST /:/timeline", r.Method, r.URL.Path)
+		}
+		want := map[string]string{
+			"key":       "/library/metadata/track-42",
+			"ratingKey": "track-42",
+			"state":     "playing",
+			"time":      "1234",
+			"duration":  "180000",
+		}
+		for key, value := range want {
+			if got := r.URL.Query().Get(key); got != value {
+				t.Errorf("%s = %q, want %q", key, got, value)
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if err := newTestClient(srv).ReportTimeline(t.Context(), "track-42", "playing", 1234*time.Millisecond, 3*time.Minute); err != nil {
+		t.Fatalf("ReportTimeline: %v", err)
+	}
+}
+
+func TestScrobble(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/:/scrobble" {
+			t.Fatalf("request = %s %s, want PUT /:/scrobble", r.Method, r.URL.Path)
+		}
+		if got := r.URL.Query().Get("key"); got != "track-42" {
+			t.Errorf("key = %q, want track-42", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if err := newTestClient(srv).Scrobble(t.Context(), "track-42"); err != nil {
+		t.Fatalf("Scrobble: %v", err)
 	}
 }
 

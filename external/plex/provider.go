@@ -2,10 +2,12 @@ package plex
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/playlist"
@@ -29,6 +31,7 @@ var (
 	_ provider.Searcher         = (*Provider)(nil)
 	_ provider.AlbumTrackLoader = (*Provider)(nil)
 	_ provider.TrackFavoriter   = (*Provider)(nil)
+	_ provider.ProgressReporter = (*Provider)(nil)
 )
 
 // Provider implements playlist.Provider for a Plex Media Server.
@@ -296,6 +299,47 @@ func plexTrackID(track playlist.Track) string {
 	}
 	id, _ := trackIDFromPath(track.Path)
 	return id
+}
+
+func plexTrackDuration(track playlist.Track) time.Duration {
+	return time.Duration(track.DurationSecs) * time.Second
+}
+
+// CanReportPlayback reports whether track belongs to this Plex server.
+func (p *Provider) CanReportPlayback(track playlist.Track) bool {
+	return plexTrackID(track) != ""
+}
+
+// ReportNowPlaying sends the initial playing timeline update to Plex.
+func (p *Provider) ReportNowPlaying(track playlist.Track, position time.Duration, _ bool) error {
+	id := plexTrackID(track)
+	if id == "" {
+		return nil
+	}
+	return p.client.ReportTimeline(context.Background(), id, "playing", position, plexTrackDuration(track))
+}
+
+// ReportProgress sends an interim playing timeline update to Plex.
+func (p *Provider) ReportProgress(track playlist.Track, position time.Duration) error {
+	id := plexTrackID(track)
+	if id == "" {
+		return nil
+	}
+	return p.client.ReportTimeline(context.Background(), id, "playing", position, plexTrackDuration(track))
+}
+
+// ReportScrobble sends a final stopped timeline and records one completed play.
+func (p *Provider) ReportScrobble(track playlist.Track, elapsed, duration time.Duration, _ bool) error {
+	id := plexTrackID(track)
+	if id == "" {
+		return nil
+	}
+	if duration <= 0 {
+		duration = plexTrackDuration(track)
+	}
+	timelineErr := p.client.ReportTimeline(context.Background(), id, "stopped", elapsed, duration)
+	scrobbleErr := p.client.Scrobble(context.Background(), id)
+	return errors.Join(timelineErr, scrobbleErr)
 }
 
 // AlbumTracks returns the tracks for the given album (ratingKey).

@@ -123,6 +123,33 @@ func (c *Client) SetRating(ctx context.Context, ratingKey string, rating float64
 	return c.doAction(ctx, http.MethodPut, "/:/rate", params)
 }
 
+// ReportTimeline updates Plex's view of the current playback position.
+func (c *Client) ReportTimeline(ctx context.Context, ratingKey, state string, position, duration time.Duration) error {
+	if ratingKey == "" {
+		return fmt.Errorf("plex: timeline: missing rating key")
+	}
+	params := url.Values{
+		"key":       {"/library/metadata/" + ratingKey},
+		"ratingKey": {ratingKey},
+		"state":     {state},
+		"time":      {strconv.FormatInt(max(position.Milliseconds(), 0), 10)},
+		"duration":  {strconv.FormatInt(max(duration.Milliseconds(), 0), 10)},
+	}
+	return c.doAction(ctx, http.MethodPost, "/:/timeline", params)
+}
+
+// Scrobble records one completed play in Plex.
+func (c *Client) Scrobble(ctx context.Context, ratingKey string) error {
+	if ratingKey == "" {
+		return fmt.Errorf("plex: scrobble: missing rating key")
+	}
+	params := url.Values{
+		"identifier": {"com.plexapp.plugins.library"},
+		"key":        {ratingKey},
+	}
+	return c.doAction(ctx, http.MethodPut, "/:/scrobble", params)
+}
+
 func (c *Client) doAction(ctx context.Context, method, endpoint string, params url.Values) error {
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+endpoint+"?"+params.Encode(), nil)
 	if err != nil {

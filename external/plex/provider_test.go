@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/playlist"
@@ -311,6 +312,44 @@ func TestProviderFavorites(t *testing.T) {
 	}
 	if gotRating != "10" {
 		t.Fatalf("rating = %q, want 10", gotRating)
+	}
+}
+
+func TestProviderPlaybackReporting(t *testing.T) {
+	var timelineStates []string
+	scrobbleCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/:/timeline":
+			timelineStates = append(timelineStates, r.URL.Query().Get("state"))
+			if got := r.URL.Query().Get("duration"); got != "120000" {
+				t.Errorf("timeline duration = %q, want 120000", got)
+			}
+		case "/:/scrobble":
+			scrobbleCount++
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	p := newProvider(NewClient(srv.URL, "tok"))
+	track := playlist.Track{Path: TrackURIPrefix + "200", DurationSecs: 120}
+	if err := p.ReportNowPlaying(track, 2*time.Second, true); err != nil {
+		t.Fatalf("ReportNowPlaying: %v", err)
+	}
+	if err := p.ReportProgress(track, 30*time.Second); err != nil {
+		t.Fatalf("ReportProgress: %v", err)
+	}
+	if err := p.ReportScrobble(track, 70*time.Second, 2*time.Minute, true); err != nil {
+		t.Fatalf("ReportScrobble: %v", err)
+	}
+	if got := strings.Join(timelineStates, ","); got != "playing,playing,stopped" {
+		t.Fatalf("timeline states = %q", got)
+	}
+	if scrobbleCount != 1 {
+		t.Fatalf("scrobble count = %d, want 1", scrobbleCount)
 	}
 }
 

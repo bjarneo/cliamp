@@ -59,6 +59,8 @@ Select a playlist or album to load its tracks. Smart playlists are included. The
 Press `f` on a Plex track to add or remove it from cliamp Favorites. The same
 change is copied to Plex and appears in Plexamp and other Plex clients.
 
+While a Plex track plays, cliamp reports its timeline position about every 15 seconds. After at least half of a known-duration track has played, leaving the track records one Plex play and updates Plex history. Short skips do not increment the play count.
+
 Start cliamp with Plex as the default provider:
 
 ```bash
@@ -91,7 +93,6 @@ Fix: Open **System Settings > Privacy & Security > Local Network**. Enable acces
 
 ## Known limitations
 
-- **No scrobbling**: cliamp does not report play counts to Plex.
 - **No playlist write-back**: cliamp cannot create or change Plex playlists.
 - **Token is long-lived**: Store it safely. It gives full access to the Plex account.
 - **Album list is flat**: Artist drill-down is not available. Search by scrolling or with cliamp search.
