@@ -39,32 +39,44 @@ func (m *Model) favoriteTrackKey(track playlist.Track) tea.Cmd {
 	return cmd
 }
 
-// toggleTrackFavorite toggles the ♥ favorite for track in the local store,
-// which stays the source of truth. The returned command copies the change to
-// the provider that owns the track and refreshes the provider pane counts.
+// toggleTrackFavorite toggles the displayed ♥ state. The local store and a
+// provider-owned state are updated together when they apply to the track.
 func (m *Model) toggleTrackFavorite(track playlist.Track) (tea.Cmd, error) {
 	if m.favStore == nil {
 		return nil, errFavoritesUnavailable
 	}
-	favorite, err := m.favStore.Toggle(track)
-	if err != nil {
-		return nil, err
+	favorite := !m.playlistTrackFavorited(track)
+	_, localFavorite := m.favSet[track.Path]
+	var refresh tea.Cmd
+	if localFavorite != favorite {
+		if _, err := m.favStore.Toggle(track); err != nil {
+			return nil, err
+		}
+		m.refreshFavSet()
+		// The Local pane renders Favorites counts from Playlists(). The
+		// manager list refreshes itself on open.
+		refresh = m.refreshPaneAfterLocalWrite()
 	}
-	m.refreshFavSet()
 	if favorite {
 		m.status.Showf(statusTTLMedium, "Favorited: %s", track.DisplayName())
 	} else {
 		m.status.Showf(statusTTLMedium, "Unfavorited: %s", track.DisplayName())
 	}
-	// The Local pane renders Favorites counts from Playlists(). The
-	// manager list refreshes itself on open.
-	return tea.Batch(m.syncTrackFavoriteCmd(track, favorite), m.refreshPaneAfterLocalWrite()), nil
+	return tea.Batch(m.syncTrackFavoriteCmd(track, favorite), refresh), nil
 }
 
 // findTrackFavoriter returns the first registered provider that owns track
 // and keeps its own favorite state, and the name to show for it.
 func (m *Model) findTrackFavoriter(track playlist.Track) (provider.TrackFavoriter, string) {
 	return findCapable(m, func(f provider.TrackFavoriter) bool { return f.CanFavoriteTrack(track) })
+}
+
+func (m *Model) providerTrackFavoriteState(track playlist.Track) (favorite, known bool) {
+	state, _ := findCapable(m, func(s provider.TrackFavoriteState) bool { return s.CanFavoriteTrack(track) })
+	if state == nil {
+		return false, false
+	}
+	return state.FavoriteState(track)
 }
 
 // syncTrackFavoriteCmd copies a favorite change to the provider that owns

@@ -85,7 +85,7 @@ func TestAccountServersFiltersAndSorts(t *testing.T) {
 
 func TestReachableConnectionPrefersLocal(t *testing.T) {
 	secure := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("remote connection should not be probed after local succeeds")
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer secure.Close()
 
@@ -109,6 +109,37 @@ func TestReachableConnectionPrefersLocal(t *testing.T) {
 	}
 	if connection.URI != local.URL || token != "server-token" {
 		t.Fatalf("connection = %+v, token = %q", connection, token)
+	}
+}
+
+func TestReachableConnectionDoesNotWaitForSlowLocalAddress(t *testing.T) {
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer local.Close()
+
+	remote := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer remote.Close()
+
+	api := &AccountAPI{baseURL: "unused", client: remote.Client(), pollInterval: time.Millisecond}
+	started := time.Now()
+	connection, _, err := api.ReachableConnection(t.Context(), AccountServer{
+		Name: "Home",
+		Connections: []AccountConnection{
+			{URI: local.URL, Protocol: "http", Local: true},
+			{URI: remote.URL, Protocol: "https"},
+		},
+	}, "account-token", "client-1")
+	if err != nil {
+		t.Fatalf("ReachableConnection: %v", err)
+	}
+	if connection.URI != remote.URL {
+		t.Fatalf("connection URI = %q, want %q", connection.URI, remote.URL)
+	}
+	if elapsed := time.Since(started); elapsed >= time.Second {
+		t.Fatalf("probe took %s; slow local address blocked remote fallback", elapsed)
 	}
 }
 

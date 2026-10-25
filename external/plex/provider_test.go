@@ -27,7 +27,7 @@ func sectionsHandler(t *testing.T) http.HandlerFunc {
 					"Metadata": [
 						{
 							"ratingKey":"300","title":"Highway to Hell","grandparentTitle":"AC/DC",
-							"parentTitle":"Highway to Hell","parentYear":1979,"index":1,"duration":208000,
+							"parentTitle":"Highway to Hell","parentYear":1979,"index":1,"duration":208000,"userRating":10,
 							"Media":[{"Part":[{"key":"/library/parts/3/333/HighwayToHell.flac"}]}]
 						}
 					]
@@ -269,6 +269,9 @@ func TestProvider_Tracks_Playlist(t *testing.T) {
 	if tr.Path != TrackURIPrefix+"300" {
 		t.Errorf("Path = %q, want token-free Plex URI", tr.Path)
 	}
+	if favorite, known := p.FavoriteState(tr); !favorite || !known {
+		t.Error("Plex userRating=10 was not exposed as a favorite")
+	}
 }
 
 func TestProviderResolveSourceRestoresAfterRestart(t *testing.T) {
@@ -313,6 +316,16 @@ func TestProviderFavorites(t *testing.T) {
 	}
 	if gotRating != "10" {
 		t.Fatalf("rating = %q, want 10", gotRating)
+	}
+	if favorite, known := p.FavoriteState(track); !favorite || !known {
+		t.Fatal("successful rating did not update the in-memory favorite state")
+	}
+	if err := p.SetTrackFavorite(context.Background(), track, false); err != nil {
+		t.Fatalf("SetTrackFavorite(false): %v", err)
+	}
+	favorite, known := p.FavoriteState(track)
+	if gotRating != "0" || favorite || !known {
+		t.Fatalf("cleared rating = %q, state = (%v, %v); want 0, false, true", gotRating, favorite, known)
 	}
 }
 

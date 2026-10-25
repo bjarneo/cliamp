@@ -20,6 +20,7 @@ const (
 	accountProduct         = "cliamp"
 	accountPollInterval    = time.Second
 	connectionProbeTimeout = 4 * time.Second
+	connectionSelectGrace  = 100 * time.Millisecond
 )
 
 // AccountAPI implements Plex browser sign-in and server discovery.
@@ -174,19 +175,39 @@ func (a *AccountAPI) ReachableServers(ctx context.Context, accountToken, clientI
 	if err != nil {
 		return nil, err
 	}
-	var reachable []ReachableServer
-	for _, server := range servers {
-		connection, token, err := a.ReachableConnection(ctx, server, accountToken, clientID)
-		if err != nil {
+	type probeResult struct {
+		index      int
+		connection AccountConnection
+		token      string
+		err        error
+	}
+	results := make(chan probeResult, len(servers))
+	for i, server := range servers {
+		go func() {
+			connection, token, err := a.ReachableConnection(ctx, server, accountToken, clientID)
+			results <- probeResult{index: i, connection: connection, token: token, err: err}
+		}()
+	}
+	reachableByIndex := make([]*ReachableServer, len(servers))
+	for range servers {
+		result := <-results
+		if result.err != nil {
 			continue
 		}
-		reachable = append(reachable, ReachableServer{
+		server := servers[result.index]
+		reachableByIndex[result.index] = &ReachableServer{
 			Name:             server.Name,
 			ClientIdentifier: server.ClientIdentifier,
-			URL:              connection.URI,
-			AccessToken:      token,
+			URL:              result.connection.URI,
+			AccessToken:      result.token,
 			Owned:            server.Owned,
-		})
+		}
+	}
+	reachable := make([]ReachableServer, 0, len(servers))
+	for _, server := range reachableByIndex {
+		if server != nil {
+			reachable = append(reachable, *server)
+		}
 	}
 	if len(reachable) == 0 {
 		if len(servers) == 0 {
@@ -234,17 +255,69 @@ func (a *AccountAPI) ReachableConnection(ctx context.Context, server AccountServ
 	slices.SortStableFunc(candidates, func(a, b AccountConnection) int {
 		return connectionRank(a) - connectionRank(b)
 	})
+	valid := candidates[:0]
 	for _, connection := range candidates {
 		connection.URI = strings.TrimRight(connection.URI, "/")
 		if connectionRank(connection) >= 100 || !looksLikeServerURL(connection.URI) {
 			continue
 		}
-		probeCtx, cancel := context.WithTimeout(ctx, connectionProbeTimeout)
-		err := a.probe(probeCtx, connection.URI, token, clientID)
-		cancel()
-		if err == nil {
-			return connection, token, nil
+		valid = append(valid, connection)
+	}
+	if len(valid) == 0 {
+		return AccountConnection{}, "", fmt.Errorf("plex: server %q has no reachable secure connection", server.Name)
+	}
+
+	type probeResult struct {
+		connection AccountConnection
+		rank       int
+		err        error
+	}
+	probeCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	results := make(chan probeResult, len(valid))
+	for _, connection := range valid {
+		go func() {
+			requestCtx, requestCancel := context.WithTimeout(probeCtx, connectionProbeTimeout)
+			defer requestCancel()
+			results <- probeResult{
+				connection: connection,
+				rank:       connectionRank(connection),
+				err:        a.probe(requestCtx, connection.URI, token, clientID),
+			}
+		}()
+	}
+
+	var (
+		best       AccountConnection
+		bestRank   = 101
+		grace      *time.Timer
+		graceTimer <-chan time.Time
+	)
+	for range valid {
+		select {
+		case <-ctx.Done():
+			return AccountConnection{}, "", fmt.Errorf("plex: probe server %q: %w", server.Name, ctx.Err())
+		case <-graceTimer:
+			return best, token, nil
+		case result := <-results:
+			if result.err != nil {
+				continue
+			}
+			if result.rank < bestRank {
+				best, bestRank = result.connection, result.rank
+			}
+			if bestRank == 0 {
+				return best, token, nil
+			}
+			if grace == nil {
+				grace = time.NewTimer(connectionSelectGrace)
+				defer grace.Stop()
+				graceTimer = grace.C
+			}
 		}
+	}
+	if bestRank < 101 {
+		return best, token, nil
 	}
 	return AccountConnection{}, "", fmt.Errorf("plex: server %q has no reachable secure connection", server.Name)
 }

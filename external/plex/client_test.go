@@ -614,6 +614,7 @@ func TestTracks_MapsAllFields(t *testing.T) {
 						"year": 1959,
 						"index": 1,
 						"duration": 565000,
+						"userRating": 10,
 						"Media": [{"Part": [{"key": "/library/parts/100/111/So_What.flac"}]}]
 					},
 					{
@@ -660,6 +661,9 @@ func TestTracks_MapsAllFields(t *testing.T) {
 	}
 	if tr.Duration != 565000 {
 		t.Errorf("Duration: got %d, want 565000", tr.Duration)
+	}
+	if tr.UserRating != 10 {
+		t.Errorf("UserRating: got %g, want 10", tr.UserRating)
 	}
 	if tr.PartKey != "/library/parts/100/111/So_What.flac" {
 		t.Errorf("PartKey: got %q, want /library/parts/100/111/So_What.flac", tr.PartKey)

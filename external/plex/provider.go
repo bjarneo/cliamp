@@ -38,6 +38,7 @@ var (
 	_ provider.Searcher            = (*Provider)(nil)
 	_ provider.AlbumTrackLoader    = (*Provider)(nil)
 	_ provider.TrackFavoriter      = (*Provider)(nil)
+	_ provider.TrackFavoriteState  = (*Provider)(nil)
 	_ provider.ProgressReporter    = (*Provider)(nil)
 )
 
@@ -52,6 +53,7 @@ type Provider struct {
 	playlistCache []playlist.PlaylistInfo
 	trackCache    map[string]trackCacheEntry
 	partKeys      map[string]string
+	favorites     map[string]bool
 	now           func() time.Time
 }
 
@@ -144,6 +146,7 @@ func (p *Provider) Refresh() {
 	p.playlistCache = nil
 	p.trackCache = nil
 	p.partKeys = nil
+	p.favorites = nil
 	p.mu.Unlock()
 	p.client.RefreshConnection()
 }
@@ -226,6 +229,10 @@ func (p *Provider) convertTracks(plexTracks []Track, limit int) []playlist.Track
 			p.partKeys = make(map[string]string)
 		}
 		p.partKeys[t.RatingKey] = t.PartKey
+		if p.favorites == nil {
+			p.favorites = make(map[string]bool)
+		}
+		p.favorites[t.RatingKey] = t.UserRating >= 10
 		p.mu.Unlock()
 		tracks = append(tracks, playlist.Track{
 			Path:         TrackURIPrefix + t.RatingKey,
@@ -301,7 +308,19 @@ func (p *Provider) CanFavoriteTrack(track playlist.Track) bool {
 	return plexTrackID(track) != ""
 }
 
-// SetTrackFavorite copies cliamp's local favorite state to Plex.
+// FavoriteState reports the rating returned with the latest Plex metadata.
+func (p *Provider) FavoriteState(track playlist.Track) (favorite, known bool) {
+	id := plexTrackID(track)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if id == "" {
+		return false, false
+	}
+	favorite, known = p.favorites[id]
+	return favorite, known
+}
+
+// SetTrackFavorite updates the current user's favorite state in Plex.
 func (p *Provider) SetTrackFavorite(ctx context.Context, track playlist.Track, favorite bool) error {
 	id := plexTrackID(track)
 	if id == "" {
@@ -311,7 +330,16 @@ func (p *Provider) SetTrackFavorite(ctx context.Context, track playlist.Track, f
 	if favorite {
 		rating = 10
 	}
-	return p.client.SetRating(ctx, id, rating)
+	if err := p.client.SetRating(ctx, id, rating); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	if p.favorites == nil {
+		p.favorites = make(map[string]bool)
+	}
+	p.favorites[id] = favorite
+	p.mu.Unlock()
+	return nil
 }
 
 func plexTrackID(track playlist.Track) string {

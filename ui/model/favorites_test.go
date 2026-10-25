@@ -25,6 +25,7 @@ type fakeTrackFavoriter struct {
 
 	mu    sync.Mutex
 	calls []string
+	liked map[string]bool
 }
 
 func (p *fakeTrackFavoriter) CanFavoriteTrack(track playlist.Track) bool {
@@ -39,7 +40,20 @@ func (p *fakeTrackFavoriter) SetTrackFavorite(_ context.Context, track playlist.
 		state = "add"
 	}
 	p.calls = append(p.calls, state+" "+track.Path)
+	if p.err == nil {
+		if p.liked == nil {
+			p.liked = make(map[string]bool)
+		}
+		p.liked[track.Path] = favorite
+	}
 	return p.err
+}
+
+func (p *fakeTrackFavoriter) FavoriteState(track playlist.Track) (favorite, known bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	favorite, known = p.liked[track.Path]
+	return favorite, known
 }
 
 func (p *fakeTrackFavoriter) recorded() []string {
@@ -301,6 +315,56 @@ func TestTrackFavoriteSyncRouting(t *testing.T) {
 				t.Fatalf("status = %v %q, want warning %q", m.status.kind, m.status.text, tc.wantWarning)
 			}
 		})
+	}
+}
+
+func TestProviderFavoriteStateIsDisplayedAndToggled(t *testing.T) {
+	m, store := favoriteKeyTestModel(t)
+	track := playlist.Track{Path: "fake:track:liked", Title: "Liked"}
+	fake := &fakeTrackFavoriter{
+		commandsTestProvider: commandsTestProvider{name: "Fake"},
+		prefix:               "fake:",
+		liked:                map[string]bool{track.Path: true},
+	}
+	m.provider = fake
+	m.providers = append(m.providers, provider.Entry{Key: "fake", Name: "Fake", Provider: fake})
+
+	if !m.playlistTrackFavorited(track) {
+		t.Fatal("provider favorite is not displayed")
+	}
+	cmd, err := m.toggleTrackFavorite(track)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.IsFavorited(track.Path) {
+		t.Fatal("removing a provider-only favorite added it to the local store")
+	}
+	runCmd(cmd)
+	if m.playlistTrackFavorited(track) {
+		t.Fatal("provider favorite stayed displayed after removal")
+	}
+	if got := fake.recorded(); len(got) != 1 || got[0] != "remove "+track.Path {
+		t.Fatalf("provider calls = %v, want one removal", got)
+	}
+}
+
+func TestProviderFavoriteStateOverridesStaleLocalState(t *testing.T) {
+	m, store := favoriteKeyTestModel(t)
+	track := playlist.Track{Path: "fake:track:unliked", Title: "Unliked"}
+	if _, err := store.Toggle(track); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshFavSet()
+	fake := &fakeTrackFavoriter{
+		commandsTestProvider: commandsTestProvider{name: "Fake"},
+		prefix:               "fake:",
+		liked:                map[string]bool{track.Path: false},
+	}
+	m.provider = fake
+	m.providers = append(m.providers, provider.Entry{Key: "fake", Name: "Fake", Provider: fake})
+
+	if m.playlistTrackFavorited(track) {
+		t.Fatal("stale local favorite overrode the state returned by the provider")
 	}
 }
 

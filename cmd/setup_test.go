@@ -189,6 +189,27 @@ func TestPlexAuthErrorCannotSaveIncompleteConfig(t *testing.T) {
 	}
 }
 
+func TestPlexAuthApprovalShowsServerDiscovery(t *testing.T) {
+	m := newSetupModel()
+	for i, p := range m.provs {
+		if p.section == "plex" {
+			m.pidx = i
+			break
+		}
+	}
+	m.values = map[string]string{keyPlexAuth: "account"}
+	m.stage = stageValidating
+	m.authURL = "https://app.plex.tv/auth"
+
+	_, cmd := m.Update(plexAuthApprovedMsg{api: plex.NewAccountAPI(), clientID: "client-1", token: "token"})
+	if cmd == nil || m.authURL != "" || m.authStatus != "Finding reachable Plex servers…" {
+		t.Fatalf("cmd = %v, authURL = %q, status = %q", cmd != nil, m.authURL, m.authStatus)
+	}
+	if view := m.viewValidating(); !strings.Contains(view, "Finding reachable Plex servers") {
+		t.Fatalf("view = %q", view)
+	}
+}
+
 func TestPlexSetupReusesClientIdentifier(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLIAMP_CONFIG_DIR", dir)

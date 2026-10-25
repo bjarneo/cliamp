@@ -121,6 +121,7 @@ type Track struct {
 	TrackNumber int    // index field in Plex API
 	Duration    int    // milliseconds
 	PartKey     string // relative path, e.g. "/library/parts/67890/1234567890/file.flac"
+	UserRating  float64
 }
 
 // Playlist represents a Plex playlist (smart or user-created) of audio tracks.
@@ -549,14 +550,15 @@ func IsStreamURL(urlStr string) bool {
 
 // trackJSON is the shared JSON structure for track responses (children and search).
 type trackJSON struct {
-	RatingKey        string `json:"ratingKey"`
-	Title            string `json:"title"`
-	GrandparentTitle string `json:"grandparentTitle"` // artist
-	ParentTitle      string `json:"parentTitle"`      // album
-	Year             int    `json:"year"`
-	ParentYear       int    `json:"parentYear"` // album year; tracks rarely carry their own
-	Index            int    `json:"index"`      // track number within album
-	Duration         int    `json:"duration"`   // milliseconds
+	RatingKey        string  `json:"ratingKey"`
+	Title            string  `json:"title"`
+	GrandparentTitle string  `json:"grandparentTitle"` // artist
+	ParentTitle      string  `json:"parentTitle"`      // album
+	Year             int     `json:"year"`
+	ParentYear       int     `json:"parentYear"` // album year; tracks rarely carry their own
+	Index            int     `json:"index"`      // track number within album
+	Duration         int     `json:"duration"`   // milliseconds
+	UserRating       float64 `json:"userRating"`
 	Media            []struct {
 		Part []struct {
 			Key string `json:"key"`
@@ -582,5 +584,6 @@ func trackFromJSON(m trackJSON) Track {
 		TrackNumber: m.Index,
 		Duration:    m.Duration,
 		PartKey:     partKey,
+		UserRating:  m.UserRating,
 	}
 }
