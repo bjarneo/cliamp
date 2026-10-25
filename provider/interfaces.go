@@ -353,8 +353,9 @@ type TrackRater interface {
 	SetTrackRating(ctx context.Context, track playlist.Track, rating int) error
 }
 
-// TrackFavoriteState is implemented by providers that return favorite state
-// with their track metadata. Its methods must not do I/O because list rows and
+// TrackFavoriteState is implemented by providers whose own favorite state is
+// authoritative for their tracks. Local favorites are ignored for a track
+// claimed by this interface. Its methods must not do I/O because list rows and
 // IPC snapshots call them on the Update goroutine.
 type TrackFavoriteState interface {
 	CanFavoriteTrack(track playlist.Track) bool

@@ -191,7 +191,7 @@ func (m *Model) togglePlaylistTrackFavorite(track playlist.Track, savedPlaylist 
 // shows the state that f toggles. The render path calls it, so it must not do
 // I/O.
 func (m Model) playlistTrackFavorited(track playlist.Track) bool {
-	if favorite, known := m.providerTrackFavoriteState(track); known {
+	if favorite, providerOwned := m.providerTrackFavoriteState(track); providerOwned {
 		return favorite
 	}
 	return trackFavorited(track, m.favSet, m.radioFavorites, m.loadedPlaylist != "")
@@ -205,7 +205,7 @@ func (m Model) trackFavoriteLookup(playback bool) func(playlist.Track) bool {
 	favSet, stations := m.favSet, m.radioFavorites
 	saved := playback && m.loadedPlaylist != ""
 	return func(track playlist.Track) bool {
-		if favorite, known := m.providerTrackFavoriteState(track); known {
+		if favorite, providerOwned := m.providerTrackFavoriteState(track); providerOwned {
 			return favorite
 		}
 		return trackFavorited(track, favSet, stations, saved)

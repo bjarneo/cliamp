@@ -91,10 +91,13 @@ Press `Ctrl+R` while an open Plex album or playlist is focused to reload it
 and pick up server-side changes. Album contents are cached for up to five
 minutes; Plex playlists are always loaded fresh so smart playlists stay current.
 
-Plex likes are shown as hearts in cliamp. Press `f` on a Plex track to add or
-remove it from cliamp Favorites and Plex together; the change appears in
-Plexamp and other Plex clients. Press `Ctrl+R` to pick up likes changed in
-another client while the list is open.
+Plex likes are shown as hearts in cliamp. Press `f` on a Plex track to change
+its rating on the Plex server; the change appears in Plexamp and other Plex
+clients. Plex is the source of truth for these hearts. cliamp neither reads nor
+writes its local `favorites.toml` entry when it draws or toggles a Plex heart.
+Existing local Plex favorites are left intact but do not control that heart, so
+the change does not discard old data. Press `Ctrl+R` to pick up likes changed
+in another client while the list is open.
 
 While a Plex track plays, cliamp reports its timeline position about every 15 seconds. After at least half of a known-duration track has played, leaving the track records one Plex play and updates Plex history. Short skips do not increment the play count.
 

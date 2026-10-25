@@ -280,7 +280,7 @@ func TestProviderResolveSourceRestoresAfterRestart(t *testing.T) {
 			t.Fatalf("path = %q, want metadata lookup", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"MediaContainer":{"Metadata":[{"ratingKey":"200","Media":[{"Part":[{"key":"/library/parts/1/111/file.flac"}]}]}]}}`))
+		w.Write([]byte(`{"MediaContainer":{"Metadata":[{"ratingKey":"200","userRating":10,"Media":[{"Part":[{"key":"/library/parts/1/111/file.flac"}]}]}]}}`))
 	}))
 	defer srv.Close()
 
@@ -292,6 +292,10 @@ func TestProviderResolveSourceRestoresAfterRestart(t *testing.T) {
 	want := srv.URL + "/library/parts/1/111/file.flac?X-Plex-Token=tok"
 	if got != want {
 		t.Fatalf("ResolveSource = %q, want %q", got, want)
+	}
+	track := playlist.Track{Path: TrackURIPrefix + "200"}
+	if favorite, known := p.FavoriteState(track); !favorite || !known {
+		t.Fatalf("restored favorite = (%v, %v), want true, true", favorite, known)
 	}
 }
 

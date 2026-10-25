@@ -49,7 +49,13 @@ func (p *fakeTrackFavoriter) SetTrackFavorite(_ context.Context, track playlist.
 	return p.err
 }
 
-func (p *fakeTrackFavoriter) FavoriteState(track playlist.Track) (favorite, known bool) {
+// fakeAuthoritativeFavoriter models Plex: provider state replaces local
+// favorites instead of receiving a copy of them.
+type fakeAuthoritativeFavoriter struct {
+	*fakeTrackFavoriter
+}
+
+func (p *fakeAuthoritativeFavoriter) FavoriteState(track playlist.Track) (favorite, known bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	favorite, known = p.liked[track.Path]
@@ -321,11 +327,11 @@ func TestTrackFavoriteSyncRouting(t *testing.T) {
 func TestProviderFavoriteStateIsDisplayedAndToggled(t *testing.T) {
 	m, store := favoriteKeyTestModel(t)
 	track := playlist.Track{Path: "fake:track:liked", Title: "Liked"}
-	fake := &fakeTrackFavoriter{
+	fake := &fakeAuthoritativeFavoriter{fakeTrackFavoriter: &fakeTrackFavoriter{
 		commandsTestProvider: commandsTestProvider{name: "Fake"},
 		prefix:               "fake:",
 		liked:                map[string]bool{track.Path: true},
-	}
+	}}
 	m.provider = fake
 	m.providers = append(m.providers, provider.Entry{Key: "fake", Name: "Fake", Provider: fake})
 
@@ -339,7 +345,11 @@ func TestProviderFavoriteStateIsDisplayedAndToggled(t *testing.T) {
 	if store.IsFavorited(track.Path) {
 		t.Fatal("removing a provider-only favorite added it to the local store")
 	}
-	runCmd(cmd)
+	for _, msg := range runCmd(cmd) {
+		if synced, ok := msg.(trackFavoriteSyncedMsg); ok {
+			m.handleTrackFavoriteSynced(synced)
+		}
+	}
 	if m.playlistTrackFavorited(track) {
 		t.Fatal("provider favorite stayed displayed after removal")
 	}
@@ -355,16 +365,136 @@ func TestProviderFavoriteStateOverridesStaleLocalState(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.refreshFavSet()
-	fake := &fakeTrackFavoriter{
+	fake := &fakeAuthoritativeFavoriter{fakeTrackFavoriter: &fakeTrackFavoriter{
 		commandsTestProvider: commandsTestProvider{name: "Fake"},
 		prefix:               "fake:",
 		liked:                map[string]bool{track.Path: false},
-	}
+	}}
 	m.provider = fake
 	m.providers = append(m.providers, provider.Entry{Key: "fake", Name: "Fake", Provider: fake})
 
 	if m.playlistTrackFavorited(track) {
 		t.Fatal("stale local favorite overrode the state returned by the provider")
+	}
+	cmd, err := m.toggleTrackFavorite(track)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.IsFavorited(track.Path) {
+		t.Fatal("provider toggle removed the stale local entry")
+	}
+	for _, msg := range runCmd(cmd) {
+		if synced, ok := msg.(trackFavoriteSyncedMsg); ok {
+			m.handleTrackFavoriteSynced(synced)
+		}
+	}
+	if !m.playlistTrackFavorited(track) {
+		t.Fatal("provider favorite was not displayed after the server update")
+	}
+	if !store.IsFavorited(track.Path) {
+		t.Fatal("server update changed the stale local entry")
+	}
+}
+
+func TestUnknownProviderFavoriteIgnoresLocalState(t *testing.T) {
+	m, store := favoriteKeyTestModel(t)
+	track := playlist.Track{Path: "fake:track:unknown", Title: "Unknown"}
+	if _, err := store.Toggle(track); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshFavSet()
+	fake := &fakeAuthoritativeFavoriter{fakeTrackFavoriter: &fakeTrackFavoriter{
+		commandsTestProvider: commandsTestProvider{name: "Fake"},
+		prefix:               "fake:",
+	}}
+	m.providers = append(m.providers, provider.Entry{Key: "fake", Name: "Fake", Provider: fake})
+
+	if m.playlistTrackFavorited(track) {
+		t.Fatal("unknown provider state fell back to the local favorite")
+	}
+}
+
+func TestProviderFavoriteWorksWithoutLocalStore(t *testing.T) {
+	m, _ := favoriteKeyTestModel(t)
+	m.favStore = nil
+	track := playlist.Track{Path: "fake:track:1", Title: "Remote"}
+	fake := &fakeAuthoritativeFavoriter{fakeTrackFavoriter: &fakeTrackFavoriter{
+		commandsTestProvider: commandsTestProvider{name: "Fake"},
+		prefix:               "fake:",
+		liked:                map[string]bool{track.Path: false},
+	}}
+	m.providers = append(m.providers, provider.Entry{Key: "fake", Name: "Fake", Provider: fake})
+
+	cmd := m.favoriteTrackKey(track)
+	if cmd == nil {
+		t.Fatal("provider favorite needed a local store")
+	}
+	runCmd(cmd)
+	if got := fake.recorded(); len(got) != 1 || got[0] != "add "+track.Path {
+		t.Fatalf("provider calls = %v, want one add", got)
+	}
+}
+
+func TestProviderFavoritePendingStateKeepsLastToggle(t *testing.T) {
+	m, _ := favoriteKeyTestModel(t)
+	track := playlist.Track{Path: "fake:track:1", Title: "Remote"}
+	fake := &fakeAuthoritativeFavoriter{fakeTrackFavoriter: &fakeTrackFavoriter{
+		commandsTestProvider: commandsTestProvider{name: "Fake"},
+		prefix:               "fake:",
+		liked:                map[string]bool{track.Path: false},
+	}}
+	m.providers = append(m.providers, provider.Entry{Key: "fake", Name: "Fake", Provider: fake})
+
+	first, err := m.toggleTrackFavorite(track)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := m.toggleTrackFavorite(track)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runCmd(second)
+	runCmd(first)
+	if got := fake.recorded(); len(got) != 1 || got[0] != "remove "+track.Path {
+		t.Fatalf("provider calls = %v, want only the last state", got)
+	}
+}
+
+func TestProviderFavoriteFailureRollsBackWithoutChangingLocalState(t *testing.T) {
+	m, store := favoriteKeyTestModel(t)
+	track := playlist.Track{Path: "fake:track:1", Title: "Remote"}
+	if _, err := store.Toggle(track); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshFavSet()
+	fake := &fakeAuthoritativeFavoriter{fakeTrackFavoriter: &fakeTrackFavoriter{
+		commandsTestProvider: commandsTestProvider{name: "Fake"},
+		prefix:               "fake:",
+		err:                  errors.New("offline"),
+		liked:                map[string]bool{track.Path: false},
+	}}
+	m.providers = append(m.providers, provider.Entry{Key: "fake", Name: "Fake", Provider: fake})
+
+	cmd, err := m.toggleTrackFavorite(track)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.playlistTrackFavorited(track) {
+		t.Fatal("pending provider favorite was not displayed")
+	}
+	for _, msg := range runCmd(cmd) {
+		if synced, ok := msg.(trackFavoriteSyncedMsg); ok {
+			m.handleTrackFavoriteSynced(synced)
+		}
+	}
+	if m.playlistTrackFavorited(track) {
+		t.Fatal("failed provider favorite did not roll back")
+	}
+	if !store.IsFavorited(track.Path) {
+		t.Fatal("failed provider favorite changed the stale local entry")
+	}
+	if m.status.kind != feedbackWarning || m.status.text != "Fake did not save the favorite: offline" {
+		t.Fatalf("status = %v %q", m.status.kind, m.status.text)
 	}
 }
 

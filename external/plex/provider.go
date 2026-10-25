@@ -277,6 +277,10 @@ func (p *Provider) ResolveSource(uri string) (string, error) {
 			p.partKeys = make(map[string]string)
 		}
 		p.partKeys[id] = partKey
+		if p.favorites == nil {
+			p.favorites = make(map[string]bool)
+		}
+		p.favorites[id] = track.UserRating >= 10
 		p.mu.Unlock()
 	}
 	return p.client.StreamURL(partKey), nil
@@ -309,6 +313,8 @@ func (p *Provider) CanFavoriteTrack(track playlist.Track) bool {
 }
 
 // FavoriteState reports the rating returned with the latest Plex metadata.
+// Plex is authoritative even when known is false; the UI must not fall back
+// to cliamp's local favorites for this track.
 func (p *Provider) FavoriteState(track playlist.Track) (favorite, known bool) {
 	id := plexTrackID(track)
 	p.mu.Lock()

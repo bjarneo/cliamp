@@ -184,8 +184,9 @@ other name fails the job with `invalid_params` and changes nothing.
 does not change the playlist. A radio station toggles its station favorite,
 and its `bookmark` field in provider lists changes too. A station
 that is a row of a loaded saved playlist toggles the favorites store instead.
-The `bookmark` field of that row in `queue.list` changes. cliamp matches the
-row by path.
+The `bookmark` field of that row in `queue.list` changes. Plex tracks always
+toggle the server-side like and ignore the local favorites store. cliamp
+matches the row by path.
 
 Use IDs returned by `provider.playlists` for subsequent provider operations.
 Radio favorite IDs are stable `f:<station URL>` values, not positional

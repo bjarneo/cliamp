@@ -540,6 +540,10 @@ type Model struct {
 	// favSync orders the calls that copy favorite changes to providers. It
 	// is created on first use and shared across Model value copies.
 	favSync *favorites.SyncQueue
+	// pendingTrackFavorites holds optimistic states for providers whose own
+	// favorite state is authoritative. The map is replaced, never mutated, so
+	// commands can safely capture a Model copy while a request is in flight.
+	pendingTrackFavorites map[string]bool
 	// reports orders the now-playing, progress and scrobble reports to
 	// providers. It is shared across Model value copies.
 	reports *reportQueue
