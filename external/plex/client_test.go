@@ -785,6 +785,59 @@ func TestRequestHeaders(t *testing.T) {
 	_ = newTestClient(srv).Ping()
 }
 
+func TestAccountClientRediscoversSelectedServer(t *testing.T) {
+	serverRequests := 0
+	media := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serverRequests++
+		if got := r.Header.Get("X-Plex-Client-Identifier"); got != "client-1" {
+			t.Errorf("server client identifier = %q, want client-1", got)
+		}
+		if r.URL.Path == "/identity" {
+			if got := r.Header.Get("X-Plex-Token"); got != "server-token" {
+				t.Errorf("probe token = %q, want server-token", got)
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if got := r.URL.Query().Get("X-Plex-Token"); got != "server-token" {
+			t.Errorf("request token = %q, want server-token", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"MediaContainer":{"friendlyName":"Home"}}`))
+	}))
+	defer media.Close()
+
+	discoveries := 0
+	account := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		discoveries++
+		if got := r.Header.Get("X-Plex-Client-Identifier"); got != "client-1" {
+			t.Errorf("account client identifier = %q, want client-1", got)
+		}
+		if got := r.Header.Get("X-Plex-Token"); got != "account-token" {
+			t.Errorf("account token = %q, want account-token", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `[{"name":"Home","clientIdentifier":"server-1","provides":"server","owned":true,"accessToken":"server-token","connections":[{"uri":%q,"protocol":"http","local":true}]}]`, media.URL)
+	}))
+	defer account.Close()
+
+	api := &AccountAPI{baseURL: account.URL, client: account.Client(), pollInterval: time.Millisecond}
+	client := newAccountClient("http://stale.invalid", "account-token", "client-1", "server-1", api)
+	if err := client.Ping(); err != nil {
+		t.Fatalf("first Ping: %v", err)
+	}
+	client.RefreshConnection()
+	if err := client.Ping(); err != nil {
+		t.Fatalf("second Ping: %v", err)
+	}
+	if discoveries != 2 {
+		t.Fatalf("resource discoveries = %d, want 2", discoveries)
+	}
+	if serverRequests != 4 {
+		t.Fatalf("server requests = %d, want 4", serverRequests)
+	}
+}
+
 func TestClientSendsUserAgent(t *testing.T) {
 	var got string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

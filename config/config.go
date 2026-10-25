@@ -663,18 +663,22 @@ func (y *YandexConfig) set(key, val string) {
 	}
 }
 
-// PlexConfig holds credentials for a Plex Media Server.
-// Both URL and Token must be non-empty for a client to be constructed.
+// PlexConfig holds credentials for a Plex Media Server. ClientID and ServerID
+// identify browser-authorized account setups; configs without them retain the
+// manual URL-and-token behavior.
 // Enable rule: credentials.
 type PlexConfig struct {
 	URL       string   // e.g. "http://192.168.1.10:32400"
 	Token     string   // X-Plex-Token
+	ClientID  string   // stable identifier of this cliamp installation
+	ServerID  string   // selected Plex Media Server clientIdentifier
 	Libraries []string // optional: restrict to these music library names
 }
 
-// IsSet reports whether both Plex credentials are present.
+// IsSet reports whether a manual URL or an account-discovery server is
+// configured together with a token.
 func (p PlexConfig) IsSet() bool {
-	return p.URL != "" && p.Token != ""
+	return p.Token != "" && (p.URL != "" || (p.ClientID != "" && p.ServerID != ""))
 }
 
 // set applies one key of the [plex] section.
@@ -684,6 +688,10 @@ func (p *PlexConfig) set(key, val string) {
 		p.URL = parseString(val)
 	case "token":
 		p.Token = parseString(val)
+	case "client_id":
+		p.ClientID = parseString(val)
+	case "server_id":
+		p.ServerID = parseString(val)
 	case "libraries":
 		p.Libraries = parseStringSlice(val)
 	}

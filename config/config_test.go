@@ -716,6 +716,7 @@ func TestPlexIsSet(t *testing.T) {
 		want bool
 	}{
 		{"both set", PlexConfig{URL: "http://x", Token: "t"}, true},
+		{"account discovery", PlexConfig{Token: "t", ClientID: "client", ServerID: "server"}, true},
 		{"no URL", PlexConfig{Token: "t"}, false},
 		{"no token", PlexConfig{URL: "http://x"}, false},
 		{"empty", PlexConfig{}, false},
@@ -726,6 +727,15 @@ func TestPlexIsSet(t *testing.T) {
 				t.Errorf("IsSet() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestPlexAccountFields(t *testing.T) {
+	var cfg PlexConfig
+	cfg.set("client_id", `"client-1"`)
+	cfg.set("server_id", `"server-1"`)
+	if cfg.ClientID != "client-1" || cfg.ServerID != "server-1" {
+		t.Fatalf("Plex account fields = %+v", cfg)
 	}
 }
 

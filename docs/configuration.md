@@ -8,7 +8,7 @@ cliamp setup
 
 The wizard writes the provider keys into their section. It keeps your other keys and comments, and it leaves the rest of your config unchanged. The wizard drops the comment at the end of a key line that it rewrites.
 
-The wizard checks the server connection during setup for Navidrome, Lyrion, Plex, Jellyfin, Emby, and Audiobookshelf. For Bandcamp, it checks the Subsonic credentials with an authenticated call. For NetEase, it checks the browser session. OAuth providers such as Spotify, Qobuz, and Tidal sign in later in the player. Tidal uses a `link.tidal.com` device code. The wizard does not check Mixcloud credentials. See [cli.md](cli.md#setup-wizard) for details.
+The wizard checks the server connection during setup for Navidrome, Lyrion, Plex, Jellyfin, Emby, and Audiobookshelf. Plex can sign in through the browser, discover local and remote servers, and let you select one; fixed URL-and-token setup remains available. For Bandcamp, it checks the Subsonic credentials with an authenticated call. For NetEase, it checks the browser session. OAuth providers such as Spotify, Qobuz, and Tidal sign in later in the player. Tidal uses a `link.tidal.com` device code. The wizard does not check Mixcloud credentials. See [cli.md](cli.md#setup-wizard) for details.
 
 ## Config directory
 
@@ -369,7 +369,7 @@ Each provider section turns on its provider in one of three ways:
 
 | Rule | Providers | The provider starts when |
 | --- | --- | --- |
-| Credentials | Navidrome, Lyrion, Bandcamp, Plex, Jellyfin, Emby, Audiobookshelf, Telegram | The section holds the required credentials. Lyrion needs only `url`. Bandcamp needs `user` and `password` (its `url` is optional); Telegram needs `api_id` and `api_hash`. |
+| Credentials | Navidrome, Lyrion, Bandcamp, Plex, Jellyfin, Emby, Audiobookshelf, Telegram | The section holds the required credentials. Plex browser sign-in writes its discovered server and token; manual URL-and-token setup is also supported. Lyrion needs only `url`. Bandcamp needs `user` and `password` (its `url` is optional); Telegram needs `api_id` and `api_hash`. |
 | Section | Spotify, Qobuz, Tidal, YouTube Music | The section header exists. Set `enabled = false` to turn the provider off. |
 | Opt-in | SoundCloud, Mixcloud, NetEase, Yandex | The section sets `enabled = true`. Yandex also needs `token`. |
 

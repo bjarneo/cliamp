@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bjarneo/cliamp/internal/httpclient"
@@ -24,16 +25,74 @@ var apiClient = httpclient.NewAPI(30 * time.Second)
 
 // Client speaks to a Plex Media Server over its HTTP API.
 type Client struct {
+	mu        sync.Mutex
 	baseURL   string   // e.g. "http://192.168.1.10:32400"
-	token     string   // X-Plex-Token
+	token     string   // X-Plex-Token used with the current server
+	clientID  string   // stable device identity sent with Plex requests
 	libraries []string // if non-empty, MusicSections filters to these titles (case-insensitive)
+	account   *accountBinding
+}
+
+type accountBinding struct {
+	api       *AccountAPI
+	token     string
+	clientID  string
+	serverID  string
+	connected bool
 }
 
 // NewClient returns a Client for the given server URL and authentication token.
 // libraries is an optional list of music library names to restrict MusicSections to.
 // When not provided, all music libraries will be loaded
 func NewClient(baseURL, token string, libraries ...string) *Client {
-	return &Client{baseURL: baseURL, token: token, libraries: libraries}
+	return &Client{baseURL: baseURL, token: token, clientID: accountProduct, libraries: libraries}
+}
+
+// NewAccountClient returns a client that rediscovers the selected Plex server
+// through plex.tv before its first request. baseURL is retained for display and
+// as the last known connection in config; discovery supplies the live route.
+func NewAccountClient(baseURL, accountToken, clientID, serverID string, libraries ...string) *Client {
+	return newAccountClient(baseURL, accountToken, clientID, serverID, NewAccountAPI(), libraries...)
+}
+
+func newAccountClient(baseURL, accountToken, clientID, serverID string, api *AccountAPI, libraries ...string) *Client {
+	return &Client{
+		baseURL:   baseURL,
+		token:     accountToken,
+		clientID:  clientID,
+		libraries: libraries,
+		account: &accountBinding{
+			api:      api,
+			token:    accountToken,
+			clientID: clientID,
+			serverID: serverID,
+		},
+	}
+}
+
+func (c *Client) endpoint(ctx context.Context) (string, string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.account != nil && !c.account.connected {
+		server, err := c.account.api.ConnectServer(ctx, c.account.token, c.account.clientID, c.account.serverID)
+		if err != nil {
+			return "", "", err
+		}
+		c.baseURL = server.URL
+		c.token = server.AccessToken
+		c.account.connected = true
+	}
+	return c.baseURL, c.token, nil
+}
+
+// RefreshConnection makes an account-backed client rediscover its route on
+// the next request. Manual clients keep their configured URL unchanged.
+func (c *Client) RefreshConnection() {
+	c.mu.Lock()
+	if c.account != nil {
+		c.account.connected = false
+	}
+	c.mu.Unlock()
 }
 
 // Section represents a Plex library section (e.g. a music library).
@@ -75,18 +134,22 @@ type Playlist struct {
 
 // get issues an authenticated GET request and decodes the JSON response into result.
 func (c *Client) get(path string, params url.Values, result any) error {
+	baseURL, token, err := c.endpoint(context.Background())
+	if err != nil {
+		return fmt.Errorf("plex: connect account server: %w", err)
+	}
 	if params == nil {
 		params = url.Values{}
 	}
-	params.Set("X-Plex-Token", c.token)
+	params.Set("X-Plex-Token", token)
 
-	req, err := http.NewRequest(http.MethodGet, c.baseURL+path+"?"+params.Encode(), nil)
+	req, err := http.NewRequest(http.MethodGet, baseURL+path+"?"+params.Encode(), nil)
 	if err != nil {
 		return fmt.Errorf("plex: %s: %w", path, err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Plex-Product", "cliamp")
-	req.Header.Set("X-Plex-Client-Identifier", "cliamp")
+	req.Header.Set("X-Plex-Client-Identifier", c.clientID)
 
 	resp, err := apiClient.Do(req)
 	if err != nil {
@@ -151,14 +214,18 @@ func (c *Client) Scrobble(ctx context.Context, ratingKey string) error {
 }
 
 func (c *Client) doAction(ctx context.Context, method, endpoint string, params url.Values) error {
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+endpoint+"?"+params.Encode(), nil)
+	baseURL, token, err := c.endpoint(ctx)
+	if err != nil {
+		return fmt.Errorf("plex: connect account server: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, baseURL+endpoint+"?"+params.Encode(), nil)
 	if err != nil {
 		return fmt.Errorf("plex: %s: %w", strings.TrimPrefix(endpoint, "/:/"), err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Plex-Product", "cliamp")
-	req.Header.Set("X-Plex-Client-Identifier", "cliamp")
-	req.Header.Set("X-Plex-Token", c.token)
+	req.Header.Set("X-Plex-Client-Identifier", c.clientID)
+	req.Header.Set("X-Plex-Token", token)
 
 	resp, err := apiClient.Do(req)
 	if err != nil {
@@ -464,6 +531,8 @@ func (c *Client) Search(query string) ([]Track, error) {
 // partKey is the relative path from the Part element, e.g. "/library/parts/…/file.flac".
 // The token is appended as a query parameter; Plex accepts it in either header or query form.
 func (c *Client) StreamURL(partKey string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.baseURL + partKey + "?X-Plex-Token=" + url.QueryEscape(c.token)
 }
 

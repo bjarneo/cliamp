@@ -550,6 +550,18 @@ func TestNewFromConfig_OK(t *testing.T) {
 	}
 }
 
+func TestNewFromConfig_Account(t *testing.T) {
+	cfg := config.PlexConfig{
+		URL:      "https://old.plex.direct:32400",
+		Token:    "account-token",
+		ClientID: "client-1",
+		ServerID: "server-1",
+	}
+	if p := NewFromConfig(cfg); p == nil || p.client.account == nil {
+		t.Fatal("NewFromConfig() did not create an account-backed client")
+	}
+}
+
 func TestNewFromConfig_LibrariesWired(t *testing.T) {
 	tests := []struct {
 		name      string

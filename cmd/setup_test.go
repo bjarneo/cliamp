@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/external/plex"
 )
 
 // keyPress builds a synthetic key event matching what the runtime sends.
@@ -97,6 +98,109 @@ func TestPickerSelectionFiltersFields(t *testing.T) {
 	}
 	if visibleKeys["token"] {
 		t.Fatalf("password mode should hide token; got %v", visibleKeys)
+	}
+}
+
+func TestPlexPickerSelectionFiltersFields(t *testing.T) {
+	m := newSetupModel()
+	plexIdx := -1
+	for i, p := range m.provs {
+		if p.section == "plex" {
+			plexIdx = i
+			break
+		}
+	}
+	if plexIdx < 0 {
+		t.Fatal("plex spec missing")
+	}
+
+	m.startProvider(plexIdx)
+	m.pickerCursor = 0
+	m.handleKey(keyPress(tea.KeyEnter, ""))
+	if m.stage != stageForm || len(m.visible) != 1 || m.provs[plexIdx].fields[m.visible[0]].key != "libraries" {
+		t.Fatalf("account mode visible fields = %v", m.visible)
+	}
+
+	m.stage = stagePicker
+	m.values = map[string]string{}
+	m.pickerCursor = 1
+	m.handleKey(keyPress(tea.KeyEnter, ""))
+	var keys []string
+	for _, idx := range m.visible {
+		keys = append(keys, m.provs[plexIdx].fields[idx].key)
+	}
+	if got := strings.Join(keys, ","); got != "url,token,libraries" {
+		t.Fatalf("manual mode visible fields = %q", got)
+	}
+}
+
+func TestPlexAuthServerSelectionSavesAccountConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLIAMP_CONFIG_DIR", dir)
+	m := newSetupModel()
+	for i, p := range m.provs {
+		if p.section == "plex" {
+			m.pidx = i
+			break
+		}
+	}
+	m.values = map[string]string{keyPlexAuth: "account", "libraries": "Music"}
+	m.stage = stageValidating
+
+	m.Update(plexAuthDoneMsg{
+		clientID: "client-1",
+		token:    "account-token",
+		servers: []plex.ReachableServer{
+			{Name: "Home", ClientIdentifier: "home", URL: "https://home.plex.direct:32400", Owned: true},
+			{Name: "Shared", ClientIdentifier: "shared", URL: "https://shared.plex.direct:32400"},
+		},
+	})
+	if m.stage != stagePlexServer {
+		t.Fatalf("stage = %v, want stagePlexServer", m.stage)
+	}
+	m.handleKey(keyPress(tea.KeyDown, ""))
+	m.handleKey(keyPress(tea.KeyEnter, ""))
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Plex.URL != "https://shared.plex.direct:32400" || cfg.Plex.Token != "account-token" ||
+		cfg.Plex.ClientID != "client-1" || cfg.Plex.ServerID != "shared" {
+		t.Fatalf("saved Plex config = %+v", cfg.Plex)
+	}
+	if got := strings.Join(cfg.Plex.Libraries, ","); got != "Music" {
+		t.Fatalf("libraries = %q", got)
+	}
+}
+
+func TestPlexAuthErrorCannotSaveIncompleteConfig(t *testing.T) {
+	m := newSetupModel()
+	for i, p := range m.provs {
+		if p.section == "plex" {
+			m.pidx = i
+			break
+		}
+	}
+	m.stage = stageValidating
+	m.Update(plexAuthDoneMsg{err: errors.New("sign in failed")})
+	if m.stage != stageResult || m.awaitingSave {
+		t.Fatalf("stage = %v, awaitingSave = %v", m.stage, m.awaitingSave)
+	}
+}
+
+func TestPlexSetupReusesClientIdentifier(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLIAMP_CONFIG_DIR", dir)
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[plex]\nurl = \"https://plex\"\ntoken = \"token\"\nclient_id = \"existing-client\"\nserver_id = \"server\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := plexSetupClientID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "existing-client" {
+		t.Fatalf("client ID = %q, want existing-client", got)
 	}
 }
 

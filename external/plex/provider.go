@@ -65,6 +65,9 @@ func NewFromConfig(cfg config.PlexConfig) *Provider {
 	if !cfg.IsSet() {
 		return nil
 	}
+	if cfg.ClientID != "" && cfg.ServerID != "" {
+		return newProvider(NewAccountClient(cfg.URL, cfg.Token, cfg.ClientID, cfg.ServerID, cfg.Libraries...))
+	}
 	return newProvider(NewClient(cfg.URL, cfg.Token, cfg.Libraries...))
 }
 
@@ -142,6 +145,7 @@ func (p *Provider) Refresh() {
 	p.trackCache = nil
 	p.partKeys = nil
 	p.mu.Unlock()
+	p.client.RefreshConnection()
 }
 
 // CanRefreshPlaylist reports whether id is a stable Plex album or playlist

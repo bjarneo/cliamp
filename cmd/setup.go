@@ -37,6 +37,7 @@ import (
 	"github.com/bjarneo/cliamp/external/netease"
 	"github.com/bjarneo/cliamp/external/plex"
 	"github.com/bjarneo/cliamp/external/telegram"
+	"github.com/bjarneo/cliamp/internal/browser"
 )
 
 // Setup launches the interactive wizard. Returns nil on clean exit.
@@ -140,6 +141,7 @@ type pickerOption struct {
 // leading underscore distinguishes them from TOML field names.
 const (
 	keyJellyfinAuth    = "_auth"
+	keyPlexAuth        = "_plex_auth"
 	keyEmbyAuth        = "_emby_auth"
 	keyABSAuth         = "_abs_auth"
 	keyNetEaseBrowser  = "_netease_browser"
@@ -246,22 +248,41 @@ func providers() []providerSpec {
 			name:    "Plex Media Server",
 			section: "plex",
 			intro: []string{
-				"Stream from your Plex server using an X-Plex-Token.",
-				"Find a token: https://support.plex.tv/articles/204059436",
+				"Sign in with Plex to discover local and remote servers automatically.",
+				"Manual URL and X-Plex-Token setup remains available.",
+			},
+			picker: &pickerSpec{
+				key:   keyPlexAuth,
+				label: "Authentication",
+				options: []pickerOption{
+					{value: "account", label: "Sign in with Plex in a browser (recommended)"},
+					{value: "manual", label: "Enter a server URL and X-Plex-Token"},
+				},
 			},
 			fields: []fieldSpec{
-				{key: "url", label: "Server URL", help: "e.g. http://192.168.1.10:32400", required: true},
-				{key: "token", label: "X-Plex-Token", required: true, secret: true},
+				{key: "url", label: "Server URL", help: "e.g. http://192.168.1.10:32400", required: true,
+					onlyIf: func(v map[string]string) bool { return v[keyPlexAuth] == "manual" }},
+				{key: "token", label: "X-Plex-Token", required: true, secret: true,
+					onlyIf: func(v map[string]string) bool { return v[keyPlexAuth] == "manual" }},
 				{key: "libraries", label: "Music libraries (optional)", help: "comma-separated names to include; blank loads every music library"},
 			},
 			validate: func(v map[string]string) error {
+				if v[keyPlexAuth] == "account" {
+					return nil
+				}
 				return plex.NewClient(v["url"], v["token"]).Ping()
 			},
-			owned: []string{"url", "token", "libraries"},
+			owned: []string{"url", "token", "client_id", "server_id", "libraries"},
 			body: func(v map[string]string) []config.KeyValue {
 				kv := []config.KeyValue{
 					quotedKV("url", v["url"]),
 					quotedKV("token", v["token"]),
+				}
+				if v[keyPlexAuth] == "account" {
+					kv = append(kv,
+						quotedKV("client_id", v["client_id"]),
+						quotedKV("server_id", v["server_id"]),
+					)
 				}
 				if libraries := setupStringList(v["libraries"]); libraries != "" {
 					kv = append(kv, rawKV("libraries", libraries))
@@ -946,6 +967,13 @@ func setupStringList(value string) string {
 	return "[" + strings.Join(quoted, ", ") + "]"
 }
 
+func plexSetupClientID() (string, error) {
+	if cfg, err := config.Load(); err == nil && cfg.Plex.ClientID != "" {
+		return cfg.Plex.ClientID, nil
+	}
+	return plex.NewClientIdentifier()
+}
+
 // ----- Bubbletea model ----------------------------------------------------
 
 type stage int
@@ -957,8 +985,15 @@ const (
 	stageChats
 	stageConfirm
 	stageValidating
+	stagePlexServer
 	stageResult
 )
+
+type plexServerChoice struct {
+	server   plex.ReachableServer
+	token    string
+	clientID string
+}
 
 type setupModel struct {
 	provs []providerSpec
@@ -992,6 +1027,11 @@ type setupModel struct {
 
 	// validating
 	spinFrame int
+	authURL   string
+
+	// Plex account server selection
+	plexServers      []plexServerChoice
+	plexServerCursor int
 
 	// result state
 	resultErr     error
@@ -1035,6 +1075,20 @@ type validateDoneMsg struct {
 }
 
 type spinTickMsg struct{}
+
+type plexAuthStartedMsg struct {
+	api      *plex.AccountAPI
+	session  *plex.SignInSession
+	clientID string
+	err      error
+}
+
+type plexAuthDoneMsg struct {
+	clientID string
+	token    string
+	servers  []plex.ReachableServer
+	err      error
+}
 
 func spinTickCmd() tea.Cmd {
 	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return spinTickMsg{} })
@@ -1120,6 +1174,36 @@ func chatKey(id string) string {
 	return parts[0] + ":" + parts[1]
 }
 
+func beginPlexAuthCmd(clientID string) tea.Cmd {
+	return func() tea.Msg {
+		api := plex.NewAccountAPI()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		session, err := api.BeginSignIn(ctx, clientID)
+		return plexAuthStartedMsg{api: api, session: session, clientID: clientID, err: err}
+	}
+}
+
+func waitPlexAuthCmd(api *plex.AccountAPI, session *plex.SignInSession, clientID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		token, err := session.Wait(ctx)
+		if err != nil {
+			return plexAuthDoneMsg{err: err}
+		}
+		servers, err := api.ReachableServers(ctx, token, clientID)
+		return plexAuthDoneMsg{clientID: clientID, token: token, servers: servers, err: err}
+	}
+}
+
+func openBrowserCmd(rawURL string) tea.Cmd {
+	return func() tea.Msg {
+		_ = browser.Open(rawURL)
+		return nil
+	}
+}
+
 // ----- Update -------------------------------------------------------------
 
 func (m *setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1163,6 +1247,29 @@ func (m *setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case validateDoneMsg:
 		return m.onValidateDone(msg.err, msg.found)
+
+	case plexAuthStartedMsg:
+		if msg.err != nil {
+			return m.onPlexAuthError(msg.err)
+		}
+		m.authURL = msg.session.URL()
+		return m, tea.Batch(openBrowserCmd(m.authURL), waitPlexAuthCmd(msg.api, msg.session, msg.clientID))
+
+	case plexAuthDoneMsg:
+		if msg.err != nil {
+			return m.onPlexAuthError(msg.err)
+		}
+		m.plexServers = make([]plexServerChoice, 0, len(msg.servers))
+		for _, server := range msg.servers {
+			m.plexServers = append(m.plexServers, plexServerChoice{server: server, token: msg.token, clientID: msg.clientID})
+		}
+		m.plexServerCursor = 0
+		if len(m.plexServers) == 1 {
+			m.applyPlexServer(m.plexServers[0])
+			return m, m.persistAndDone(false)
+		}
+		m.stage = stagePlexServer
+		return m, nil
 	}
 	return m, nil
 }
@@ -1226,6 +1333,8 @@ func (m *setupModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case stageValidating:
 		// Ignore input while probing.
 		return m, nil
+	case stagePlexServer:
+		return m.plexServerKey(msg)
 	case stageResult:
 		return m.resultKey(msg)
 	}
@@ -1270,6 +1379,9 @@ func (m *setupModel) startProvider(idx int) {
 	m.chatItems, m.chatChecked, m.chatCursor, m.chatErr, m.chatWarn, m.chatLoading = nil, nil, 0, nil, nil, false
 	m.chatTouched, m.chatNote = false, ""
 	m.chatNames = nil
+	m.authURL = ""
+	m.plexServers = nil
+	m.plexServerCursor = 0
 
 	if m.provs[idx].picker != nil {
 		m.stage = stagePicker
@@ -1302,6 +1414,43 @@ func (m *setupModel) pickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.stage = stageForm
 	}
+	return m, nil
+}
+
+func (m *setupModel) plexServerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.stage = stageMenu
+	case "up", "k":
+		if m.plexServerCursor > 0 {
+			m.plexServerCursor--
+		}
+	case "down", "j":
+		if m.plexServerCursor < len(m.plexServers)-1 {
+			m.plexServerCursor++
+		}
+	case "enter":
+		if len(m.plexServers) == 0 {
+			return m, nil
+		}
+		m.applyPlexServer(m.plexServers[m.plexServerCursor])
+		return m, m.persistAndDone(false)
+	}
+	return m, nil
+}
+
+func (m *setupModel) applyPlexServer(choice plexServerChoice) {
+	m.values["url"] = choice.server.URL
+	m.values["token"] = choice.token
+	m.values["client_id"] = choice.clientID
+	m.values["server_id"] = choice.server.ClientIdentifier
+	m.values[keyPlexAuth] = "account"
+}
+
+func (m *setupModel) onPlexAuthError(err error) (tea.Model, tea.Cmd) {
+	m.resultErr = err
+	m.awaitingSave = false
+	m.stage = stageResult
 	return m, nil
 }
 
@@ -1622,6 +1771,19 @@ func (m *setupModel) submitForm() (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if spec.section == "plex" && m.values[keyPlexAuth] == "account" {
+		clientID, err := plexSetupClientID()
+		if err != nil {
+			m.resultErr = err
+			m.stage = stageResult
+			return m, nil
+		}
+		m.stage = stageValidating
+		m.spinFrame = 0
+		m.authURL = ""
+		return m, tea.Batch(spinTickCmd(), beginPlexAuthCmd(clientID))
+	}
+
 	// Light URL sanity check before any network call. A $NAME value stays
 	// as typed, and the check reads the variable.
 	if u, ok := m.values["url"]; ok && u != "" {
@@ -1803,6 +1965,8 @@ func (m *setupModel) View() tea.View {
 		body = m.viewConfirm()
 	case stageValidating:
 		body = m.viewValidating()
+	case stagePlexServer:
+		body = m.viewPlexServers()
 	case stageResult:
 		body = m.viewResult()
 	}
@@ -2026,9 +2190,41 @@ func (m *setupModel) viewChats() string {
 func (m *setupModel) viewValidating() string {
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 	frame := frames[m.spinFrame%len(frames)]
-	body := accentStyle.Render(frame) + " " +
-		"Verifying connection to " + m.provs[m.pidx].name + "…"
+	message := "Verifying connection to " + m.provs[m.pidx].name + "…"
+	if m.provs[m.pidx].section == "plex" && m.values[keyPlexAuth] == "account" {
+		message = "Waiting for Plex browser sign-in…"
+		if m.authURL != "" {
+			message += "\n\nIf the browser did not open, visit:\n" + m.authURL
+		}
+	}
+	body := accentStyle.Render(frame) + " " + message
 	return cardStyle.Width(min(maxCardWidth, m.viewWidth())).Render(body)
+}
+
+func (m *setupModel) viewPlexServers() string {
+	var b strings.Builder
+	b.WriteString(accentStyle.Render("Select a Plex Media Server"))
+	b.WriteString("\n\n")
+	for i, choice := range m.plexServers {
+		marker := "  "
+		label := choice.server.Name
+		if choice.server.Owned {
+			label += " (owned)"
+		} else {
+			label += " (shared)"
+		}
+		if i == m.plexServerCursor {
+			marker = accentStyle.Render("▸ ")
+			label = accentStyle.Render(label)
+		}
+		b.WriteString(marker)
+		b.WriteString(label)
+		b.WriteString("\n")
+		b.WriteString("    ")
+		b.WriteString(dimStyle.Render(choice.server.URL))
+		b.WriteString("\n")
+	}
+	return m.card(strings.TrimRight(b.String(), "\n"))
 }
 
 func (m *setupModel) viewResult() string {
@@ -2108,6 +2304,8 @@ func (m *setupModel) viewFooter() string {
 		keys = "y save   n discard   esc keep editing"
 	case stageValidating:
 		keys = "ctrl+c cancel"
+	case stagePlexServer:
+		keys = "↑/↓ pick   enter select   esc cancel"
 	case stageResult:
 		switch {
 		case m.awaitingSave:
