@@ -389,6 +389,8 @@ func providerKeyForShortcut(key string) string {
 		return "audiobookshelf"
 	case "Y":
 		return "yt"
+	case "U":
+		return "ytmusic"
 	case "C":
 		return "soundcloud"
 	case "X":
