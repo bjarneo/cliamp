@@ -3,6 +3,7 @@ package ytmusic
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -345,8 +346,22 @@ func (p *CookieProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 	return result, nil
 }
 
+// isSupermixURL reports whether raw is a playlist URL whose list value is the
+// generated Supermix ID, regardless of host. www.youtube.com links carrying
+// the Supermix ID must still resolve through music.youtube.com with cookies.
+func isSupermixURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return u.Query().Get("list") == playlistIDSupermix
+}
+
 func formatPlaylistURL(playlistID string, isMusic bool) string {
 	if strings.HasPrefix(playlistID, "http://") || strings.HasPrefix(playlistID, "https://") {
+		if isSupermixURL(playlistID) {
+			return "https://music.youtube.com/playlist?list=" + playlistIDSupermix
+		}
 		return playlistID
 	}
 	switch playlistID {

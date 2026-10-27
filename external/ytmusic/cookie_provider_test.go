@@ -191,6 +191,8 @@ func TestFormatPlaylistURL(t *testing.T) {
 		{playlistIDSupermix, false, "https://music.youtube.com/playlist?list=" + playlistIDSupermix},
 		{"https://music.youtube.com/playlist?list=CUSTOM", true, "https://music.youtube.com/playlist?list=CUSTOM"},
 		{"http://example.com/stream", false, "http://example.com/stream"},
+		{"https://www.youtube.com/playlist?list=" + playlistIDSupermix, true, "https://music.youtube.com/playlist?list=" + playlistIDSupermix},
+		{"https://www.youtube.com/playlist?list=" + playlistIDSupermix, false, "https://music.youtube.com/playlist?list=" + playlistIDSupermix},
 	}
 
 	for _, tt := range tests {
