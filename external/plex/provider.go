@@ -348,6 +348,24 @@ func (p *Provider) SetTrackFavorite(ctx context.Context, track playlist.Track, f
 	return nil
 }
 
+// RestoreTrack claims a saved Plex track for the resume context. The path is
+// already the token-free plex:track URI, and ResolveSource adds the current
+// credentials when playback starts, so the track is only checked and tagged.
+func (p *Provider) RestoreTrack(track playlist.Track) (playlist.Track, bool) {
+	id, ok := trackIDFromPath(track.Path)
+	if !ok {
+		return playlist.Track{}, false
+	}
+	meta := make(map[string]string, len(track.ProviderMeta)+1)
+	for k, v := range track.ProviderMeta {
+		meta[k] = v
+	}
+	meta[provider.MetaPlexID] = id
+	track.ProviderMeta = meta
+	track.Stream = true
+	return track, true
+}
+
 func plexTrackID(track playlist.Track) string {
 	if id := track.Meta(provider.MetaPlexID); id != "" {
 		return id

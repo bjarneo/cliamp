@@ -643,3 +643,39 @@ func TestNewFromConfig_LibrariesWired(t *testing.T) {
 		})
 	}
 }
+
+func TestProviderRestoreTrack(t *testing.T) {
+	p := newProvider(NewClient("http://plex.example.com:32400", "token"))
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{name: "plex track", path: TrackURIPrefix + "200", want: true},
+		{name: "token URL", path: "http://plex.example.com:32400/library/parts/1/file.flac?X-Plex-Token=token"},
+		{name: "local file", path: "/music/song.mp3"},
+		{name: "bad rating key", path: TrackURIPrefix + "../200"},
+		{name: "empty rating key", path: TrackURIPrefix},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := playlist.Track{Path: tt.path, Title: "Song", ProviderMeta: map[string]string{"other": "kept"}}
+			got, ok := p.RestoreTrack(in)
+			if ok != tt.want {
+				t.Fatalf("RestoreTrack ok = %v, want %v", ok, tt.want)
+			}
+			if !ok {
+				return
+			}
+			if got.Path != tt.path || got.Title != "Song" || !got.Stream {
+				t.Fatalf("restored track = %+v", got)
+			}
+			if got.Meta(provider.MetaPlexID) != "200" || got.Meta("other") != "kept" {
+				t.Fatalf("restored meta = %v", got.ProviderMeta)
+			}
+			if in.ProviderMeta[provider.MetaPlexID] != "" {
+				t.Fatal("RestoreTrack mutated the caller's metadata map")
+			}
+		})
+	}
+}

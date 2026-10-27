@@ -29,7 +29,7 @@ Package `main` at the repo root:
 | File | Responsibility |
 |------|----------------|
 | `main.go` | `run(...)` for the TUI and headless mode: config, player, playlist, Model, Bubbletea program, IPC server and exit save. It also holds the V2 dispatcher `newV2Dispatcher`, the operation set `v2Operations` and the plugin jobs |
-| `providers.go` | `buildProviders` and the `providerKeys` table that `--provider` reads. The player hooks `registerPlayerHooks` and `isBufferedProviderURL`. The sign-in URL observers, the Jellyfin and Emby resume context and the yt-dlp install prompt |
+| `providers.go` | `buildProviders` and the `providerKeys` table that `--provider` reads. The player hooks `registerPlayerHooks` and `isBufferedProviderURL`. The sign-in URL observers, the Jellyfin, Emby and Plex resume context and the yt-dlp install prompt |
 | `lua_wiring.go` | The Lua state, control and UI providers. `newLuaSender` queues the plugin messages for `prog.Send`, so a plugin never waits on the event loop |
 | `commands.go` | The root flags and every subcommand |
 | `ipc_client.go` | The V2 client of the subcommands, `cliamp open` and `cliamp remote`. Each call waits a bounded time |
@@ -84,7 +84,7 @@ Other directories: `docs/` holds the user docs, one `.md` per feature. `site/` i
 
 `cliamp --daemon` or `cliamp -d` runs the same `model.Model` as the TUI. The program has no renderer and no input. `SetHeadless(true)` makes `View` return nothing and uses the low-power tick. Headless mode loads the Lua plugins, sends now-playing and scrobble reports, records history when a track starts and preloads the next track, as the TUI does. It differs from the TUI in these ways:
 
-- It does not open the provider browser at start or restore a Jellyfin or Emby context.
+- It does not open the provider browser at start or restore a Jellyfin, Emby or Plex context.
 - It never offers to install yt-dlp.
 - `v2Operations` removes the `theme` and `vis` operations.
 - It keeps the saved theme at exit.

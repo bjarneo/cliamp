@@ -100,7 +100,7 @@ func TestBuildProviders(t *testing.T) {
 				t.Fatal("the local provider and the radio favorites must be set")
 			}
 			for _, key := range []string{"jellyfin", "emby", "plex"} {
-				want := key != "plex" && slices.Contains(tt.want, key)
+				want := slices.Contains(tt.want, key)
 				if got := set.resumeServer(key) != nil; got != want {
 					t.Errorf("resumeServer(%q) set = %v, want %v", key, got, want)
 				}

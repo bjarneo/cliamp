@@ -9,7 +9,7 @@ import (
 
 	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/external/emby"
-	"github.com/bjarneo/cliamp/internal/embyapi"
+	"github.com/bjarneo/cliamp/external/plex"
 	"github.com/bjarneo/cliamp/internal/resume"
 	"github.com/bjarneo/cliamp/playlist"
 )
@@ -65,9 +65,9 @@ func TestCheckTerminalOutput(t *testing.T) {
 	}
 }
 
-// At exit, a Jellyfin or Emby stream saves the list it played from when such
-// a server is the default provider. Any other track saves only its position,
-// and a track with no position saves nothing.
+// At exit, a Jellyfin, Emby or Plex track saves the list it played from when
+// its server is the default provider. Any other track saves only its
+// position, and a track with no position saves nothing.
 func TestSaveExitResume(t *testing.T) {
 	server := emby.NewFromConfig(config.EmbyConfig{
 		URL: "https://emby.example.com", Token: "token", UserID: "user-1",
@@ -77,17 +77,36 @@ func TestSaveExitResume(t *testing.T) {
 		{Path: "https://emby.example.com/Items/one/Download?api_key=token", Title: "One"},
 		{Path: stream, Title: "Two"},
 	}
+	plexServer := plex.NewFromConfig(config.PlexConfig{URL: "http://plex.example.com:32400", Token: "token"})
+	plexTrack := plex.TrackURIPrefix + "200"
+	plexTracks := []playlist.Track{
+		{Path: plex.TrackURIPrefix + "100", Title: "One"},
+		{Path: plexTrack, Title: "Two"},
+	}
 	for _, tt := range []struct {
 		name       string
 		path       string
 		secs       int
-		server     *embyapi.Provider
+		server     contextServer
+		tracks     []playlist.Track
 		want       resume.State
 		useContext bool
 	}{
 		{
-			name: "server stream", path: stream, secs: 95, server: server.Provider, useContext: true,
+			name: "server stream", path: stream, secs: 95, server: server.Provider, tracks: tracks, useContext: true,
 			want: resume.State{Path: stream, PositionSec: 95, Playlist: "Mix", Context: tracks, ContextIndex: 1},
+		},
+		{
+			name: "plex track", path: plexTrack, secs: 95, server: plexServer, tracks: plexTracks, useContext: true,
+			want: resume.State{Path: plexTrack, PositionSec: 95, Playlist: "Mix", Context: plexTracks, ContextIndex: 1},
+		},
+		{
+			name: "emby stream with plex server", path: stream, secs: 95, server: plexServer,
+			want: resume.State{Path: stream, PositionSec: 95, Playlist: "Mix"},
+		},
+		{
+			name: "plex track with emby server", path: plexTrack, secs: 95, server: server.Provider,
+			want: resume.State{Path: plexTrack, PositionSec: 95, Playlist: "Mix"},
 		},
 		{
 			name: "stream without server", path: stream, secs: 95,
@@ -104,7 +123,7 @@ func TestSaveExitResume(t *testing.T) {
 			usedContext := false
 			resumeContext := func() ([]playlist.Track, int) {
 				usedContext = true
-				return tracks, 1
+				return tt.tracks, 1
 			}
 			saveExitResume(tt.path, tt.secs, "Mix", resumeContext, tt.server)
 			if got := resume.Load(); !reflect.DeepEqual(got, tt.want) {

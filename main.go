@@ -22,7 +22,6 @@ import (
 	"github.com/bjarneo/cliamp/external/radio"
 	"github.com/bjarneo/cliamp/internal/appdir"
 	"github.com/bjarneo/cliamp/internal/appmeta"
-	"github.com/bjarneo/cliamp/internal/embyapi"
 	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/internal/resume"
 	"github.com/bjarneo/cliamp/ipc"
@@ -202,7 +201,7 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 	configureModel(&m, cfg, headless, visualizer60FPS)
 
 	if resumeState.Path != "" && resumeState.PositionSec > 0 {
-		// Jellyfin and Emby resume the restored context above. Mixcloud is also commonly
+		// Jellyfin, Emby and Plex resume the restored context above. Mixcloud is also commonly
 		// opened from its provider browser rather than a positional URL; preserve
 		// cliamp's existing positional-file behavior for other providers.
 		switch {
@@ -397,9 +396,9 @@ func startIPC(send func(tea.Msg), broker *ipc.Broker, plugins *luaplugin.Manager
 }
 
 // saveOnExit keeps the theme and the resume position of the final Model.
-// When a Jellyfin or Emby server is the default provider, it also keeps the
+// When a Jellyfin, Emby or Plex server is the default provider, it also keeps the
 // list that the track played from.
-func saveOnExit(final tea.Model, headless bool, resumeServer *embyapi.Provider) {
+func saveOnExit(final tea.Model, headless bool, resumeServer contextServer) {
 	fm, ok := final.(model.Model)
 	if !ok {
 		return
@@ -418,20 +417,22 @@ func saveOnExit(final tea.Model, headless bool, resumeServer *embyapi.Provider) 
 }
 
 // saveExitResume saves the track and the position of the exit. When
-// resumeServer is set and path is a Jellyfin or Emby stream, it also saves
+// resumeServer is set and owns the track at path, it also saves
 // the list that resumeContext returns. A track with no position saves
 // nothing.
-func saveExitResume(path string, secs int, playlistName string, resumeContext func() ([]playlist.Track, int), resumeServer *embyapi.Provider) {
+func saveExitResume(path string, secs int, playlistName string, resumeContext func() ([]playlist.Track, int), resumeServer contextServer) {
 	if path == "" || secs <= 0 {
 		return
 	}
-	if resumeServer != nil && embyapi.IsStreamURL(path) {
-		tracks, index := resumeContext()
-		resume.SaveState(resume.State{
-			Path: path, PositionSec: secs, Playlist: playlistName,
-			Context: tracks, ContextIndex: index,
-		})
-		return
+	if resumeServer != nil {
+		if _, ok := resumeServer.RestoreTrack(playlist.Track{Path: path}); ok {
+			tracks, index := resumeContext()
+			resume.SaveState(resume.State{
+				Path: path, PositionSec: secs, Playlist: playlistName,
+				Context: tracks, ContextIndex: index,
+			})
+			return
+		}
 	}
 	resume.Save(path, secs, playlistName)
 }

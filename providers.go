@@ -339,11 +339,11 @@ func (s *providerSet) localPlaylists() playlist.Provider {
 	return s.local
 }
 
-// resumeServer returns the Jellyfin or Emby provider when key names one that
+// resumeServer returns the Jellyfin, Emby or Plex provider when key names one that
 // is configured. When such a server is the default provider, cliamp saves
 // the list that a track was played from and restores it at the next start.
 // It returns nil for any other key.
-func (s *providerSet) resumeServer(key string) *embyapi.Provider {
+func (s *providerSet) resumeServer(key string) contextServer {
 	for _, e := range s.entries {
 		if e.Key != key {
 			continue
@@ -353,9 +353,18 @@ func (s *providerSet) resumeServer(key string) *embyapi.Provider {
 			return p.Provider
 		case *emby.Provider:
 			return p.Provider
+		case *plex.Provider:
+			return p
 		}
 	}
 	return nil
+}
+
+// contextServer is a provider whose play context survives a restart:
+// Jellyfin, Emby and Plex. RestoreTrack reports whether a saved track is
+// its own and returns it ready to play with the current credentials.
+type contextServer interface {
+	RestoreTrack(track playlist.Track) (playlist.Track, bool)
 }
 
 // registerPlayerHooks registers with p the stream factories and source
@@ -495,7 +504,7 @@ func (s *providerSet) observeAuthURLs(send func(tea.Msg)) (restore func()) {
 
 // serverResumeSaver saves the play context of each track that server owns,
 // so the next start can restore it.
-func serverResumeSaver(server *embyapi.Provider) model.ResumeSaver {
+func serverResumeSaver(server contextServer) model.ResumeSaver {
 	return func(track playlist.Track, positionSec int, context []playlist.Track, contextIndex int) {
 		if _, ok := server.RestoreTrack(track); !ok {
 			return
@@ -507,10 +516,10 @@ func serverResumeSaver(server *embyapi.Provider) model.ResumeSaver {
 	}
 }
 
-// restoreServerContext rebuilds the saved play context of a Jellyfin or
-// Emby server. It returns the tracks, the index and the path of the track
+// restoreServerContext rebuilds the saved play context of a Jellyfin, Emby or
+// Plex server. It returns the tracks, the index and the path of the track
 // that played. It fails when that track is not from this server.
-func restoreServerContext(state resume.State, prov *embyapi.Provider) ([]playlist.Track, int, string, bool) {
+func restoreServerContext(state resume.State, prov contextServer) ([]playlist.Track, int, string, bool) {
 	if prov == nil || len(state.Context) == 0 {
 		return nil, 0, "", false
 	}

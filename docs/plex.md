@@ -101,6 +101,16 @@ in another client while the list is open.
 
 While a Plex track plays, cliamp reports its timeline position about every 15 seconds. After at least half of a known-duration track has played, leaving the track records one Plex play and updates Plex history. Short skips do not increment the play count.
 
+When Plex is the default provider (`provider = "plex"` or `--provider plex`),
+cliamp remembers the most recently played Plex track, its playback position,
+and the album or playlist it was chosen from. State is saved when a track
+starts, every two seconds during confirmed playback, and during a normal exit.
+On the next launch with no explicit files, URLs, or playlist, cliamp restores
+that list with the last track selected. Press `Enter` to continue from the saved
+position; `auto_play` is ignored for a restored list. The saved list keeps only
+token-free `plex:track:` paths, and the current Plex credentials are added when
+playback starts. This works as it does for [Jellyfin](jellyfin.md#usage).
+
 Start cliamp with Plex as the default provider:
 
 ```bash
