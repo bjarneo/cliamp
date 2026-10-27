@@ -479,3 +479,40 @@ func TestNewCookieProvidersDoesNotMutateOtherHostCookies(t *testing.T) {
 		t.Errorf("SoundCloud cookies were replaced with 'chrome': %s", string(logged))
 	}
 }
+
+func TestCookieProviderTracksSupermixURLBoundary(t *testing.T) {
+	full := "https://www.youtube.com/playlist?list=" + playlistIDSupermix
+	want := "https://music.youtube.com/playlist?list=" + playlistIDSupermix
+	// Fresh base per call: Tracks caches under the canonical target, so a
+	// shared base would serve the second call from cache without resolveFn.
+	capture := func(call func(prov *CookieProvider) error) string {
+		t.Helper()
+		t.Setenv("HOME", t.TempDir())
+		base := newCookieBase("chrome")
+		var got []string
+		base.resolveFn = func(_ context.Context, pageURL string, _, _ int, _ string) ([]playlist.Track, int, error) {
+			got = append(got, pageURL)
+			return nil, 0, nil
+		}
+		prov := &CookieProvider{base: base, kind: KindMusic}
+		if err := call(prov); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got) != 1 {
+			t.Fatalf("resolveFn called %d times, want 1", len(got))
+		}
+		return got[0]
+	}
+	if pageURL := capture(func(prov *CookieProvider) error {
+		_, err := prov.Tracks(full)
+		return err
+	}); pageURL != want {
+		t.Errorf("Tracks resolveFn got pageURL %q, want canonical %q", pageURL, want)
+	}
+	if pageURL := capture(func(prov *CookieProvider) error {
+		_, _, err := prov.TracksWindow(full, 0, 10)
+		return err
+	}); pageURL != want {
+		t.Errorf("TracksWindow resolveFn got pageURL %q, want canonical %q", pageURL, want)
+	}
+}
