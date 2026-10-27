@@ -294,7 +294,7 @@ saved albums — appear in the provider pane.
 | `R` | Replace the queue with all visible tracks (start from the top, confirm when non-empty) |
 | `q` | Queue the highlighted track to play next |
 | `s` | Cycle album sort (album list only) |
-| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `K` `L` `R` `O` | Switch to that provider without opening the main pane. On the track screen, `R` replaces the queue instead. |
+| `S` `P` `J` `E` `B` `Y` `U` `C` `X` `M` `Q` `T` `K` `L` `R` `O` | Switch to that provider without opening the main pane. On the track screen, `R` replaces the queue instead. |
 | `N` | In Jellyfin, reopen the browse-mode chooser. Elsewhere, switch to Navidrome. |
 | `Esc` `b` | Go back one level; close the browser |
 
@@ -331,7 +331,7 @@ Navidrome, Podcasts, or Local Playlists:
 | `Ctrl+F` | Run the provider online or server search (Spotify, Navidrome, NetEase, and others). |
 | `Ctrl+R` | Refresh the provider: reload the currently open playlist or starting wave in place (e.g. a fresh Yandex "Моя волна" batch), or return to the playlist list. For Mixcloud, also clear the cached `/me/` identity. |
 | `p` | Open the playlist as an overlay (the Local source shows it directly; create, rename, delete, add dirs/tracks) |
-| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `K` `L` `R` `O` | Switch to that provider |
+| `S` `P` `J` `E` `B` `Y` `U` `C` `X` `M` `Q` `T` `K` `L` `R` `O` | Switch to that provider |
 | `N` | Open the browser of the provider on screen |
 | `Tab` | Leave the provider pane and focus Source, or the first visible playback control |
 | `Shift+Tab` | Leave the provider pane and focus the last visible playback control (Speed, or Repeat with Settings closed) |
