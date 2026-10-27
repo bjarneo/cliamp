@@ -713,7 +713,7 @@ func TestTracks_MissingMedia(t *testing.T) {
 func TestStreamURL_Format(t *testing.T) {
 	c := NewClient("http://192.168.1.10:32400", "mytoken")
 	got := c.StreamURL("/library/parts/100/111/file.flac")
-	want := "http://192.168.1.10:32400/library/parts/100/111/file.flac?X-Plex-Token=mytoken"
+	want := "http://192.168.1.10:32400/library/parts/100/111/file.flac?download=1&X-Plex-Token=mytoken"
 	if got != want {
 		t.Errorf("StreamURL:\n got  %q\n want %q", got, want)
 	}
@@ -881,5 +881,35 @@ func TestPingRejectsOversizedBody(t *testing.T) {
 
 	if err := newTestClient(srv).Ping(); !errors.Is(err, httpclient.ErrTooLarge) {
 		t.Fatalf("Ping() error = %v, want httpclient.ErrTooLarge", err)
+	}
+}
+
+// A part whose analyzed stream fails Plex's generic client profile answers
+// 500 to a plain request; the original file request with download=1, as
+// Plexamp sends it, plays.
+func TestStreamURLPlaysAnalyzedFLAC(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("download") != "1" {
+			http.Error(w, "No direct play music profile exists for protocol http, with container flac", http.StatusInternalServerError)
+			return
+		}
+		if got := r.URL.Query().Get("X-Plex-Token"); got != "tok" {
+			t.Errorf("token = %q", got)
+		}
+		w.Header().Set("Content-Type", "audio/flac")
+		_, _ = w.Write([]byte("fLaC"))
+	}))
+	defer srv.Close()
+
+	resp, err := http.Get(NewClient(srv.URL, "tok").StreamURL("/library/parts/60716/1793101096/file.flac"))
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if !IsStreamURL(resp.Request.URL.String()) {
+		t.Fatal("stream URL no longer routes through the buffered pipeline")
 	}
 }

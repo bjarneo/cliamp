@@ -293,7 +293,7 @@ func TestProviderResolveSourceRestoresAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveSource: %v", err)
 	}
-	want := srv.URL + "/library/parts/1/111/file.flac?X-Plex-Token=tok"
+	want := srv.URL + "/library/parts/1/111/file.flac?download=1&X-Plex-Token=tok"
 	if got != want {
 		t.Fatalf("ResolveSource = %q, want %q", got, want)
 	}

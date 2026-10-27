@@ -551,10 +551,15 @@ func (c *Client) Search(query string) ([]Track, error) {
 // StreamURL returns the authenticated HTTP URL for streaming a track part.
 // partKey is the relative path from the Part element, e.g. "/library/parts/…/file.flac".
 // The token is appended as a query parameter; Plex accepts it in either header or query form.
+//
+// download=1 asks for the original file, as Plexamp does. Without it Plex
+// checks the part against the client's direct-play profile; cliamp has none,
+// so Plex falls back to a generic profile without FLAC and answers 500 for
+// every FLAC whose audio stream it has analyzed.
 func (c *Client) StreamURL(partKey string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.baseURL + partKey + "?X-Plex-Token=" + url.QueryEscape(c.token)
+	return c.baseURL + partKey + "?download=1&X-Plex-Token=" + url.QueryEscape(c.token)
 }
 
 // IsStreamURL reports whether the given URL looks like a Plex library part
