@@ -385,6 +385,7 @@ func TestLoadGolden(t *testing.T) {
 		ClientID:  "generated-per-installation-id",
 		ServerID:  "selected-server-id",
 		Libraries: []string{"Music", "Jazz"},
+		Stations:  []string{"Library Radio", "Random Album Radio"},
 	}
 	allWant.Jellyfin = JellyfinConfig{
 		URL:      "https://jellyfin.example.com",

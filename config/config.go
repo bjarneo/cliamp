@@ -673,6 +673,9 @@ type PlexConfig struct {
 	ClientID  string   // stable identifier of this cliamp installation
 	ServerID  string   // selected Plex Media Server clientIdentifier
 	Libraries []string // optional: restrict to these music library names
+	// Stations picks and orders the library radio stations shown in the
+	// browser by name. Nil shows every station; an empty list hides them.
+	Stations []string
 }
 
 // IsSet reports whether a manual URL or an account-discovery server is
@@ -694,6 +697,8 @@ func (p *PlexConfig) set(key, val string) {
 		p.ServerID = parseString(val)
 	case "libraries":
 		p.Libraries = parseStringSlice(val)
+	case "stations":
+		p.Stations = parseStringSlice(val)
 	}
 }
 

@@ -1124,3 +1124,33 @@ func TestLoadPluginKeysThatCliampReads(t *testing.T) {
 		})
 	}
 }
+
+// A missing stations key shows every Plex station; an empty list hides them.
+func TestPlexStationsSetting(t *testing.T) {
+	tests := []struct {
+		name    string
+		section string
+		want    []string
+		wantNil bool
+	}{
+		{name: "missing", section: "[plex]\nurl = \"http://plex\"\ntoken = \"t\"\n", wantNil: true},
+		{name: "empty", section: "[plex]\nstations = []\n", want: []string{}},
+		{name: "picked", section: "[plex]\nstations = [\"Library Radio\", \"Random Album Radio\"]\n", want: []string{"Library Radio", "Random Album Radio"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("CLIAMP_CONFIG_DIR", dir)
+			if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(tt.section), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if got := cfg.Plex.Stations; (got == nil) != tt.wantNil || (!tt.wantNil && !slices.Equal(got, tt.want)) {
+				t.Fatalf("stations = %#v, want %#v (nil %v)", got, tt.want, tt.wantNil)
+			}
+		})
+	}
+}

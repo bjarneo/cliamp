@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -78,6 +80,8 @@ func sectionsHandler(t *testing.T) http.HandlerFunc {
 					]
 				}
 			}`))
+		case strings.HasPrefix(r.URL.Path, "/hubs/sections/"):
+			w.Write([]byte(`{"MediaContainer":{"Hub":[]}}`))
 		default:
 			t.Errorf("unexpected path: %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -677,5 +681,236 @@ func TestProviderRestoreTrack(t *testing.T) {
 				t.Fatal("RestoreTrack mutated the caller's metadata map")
 			}
 		})
+	}
+}
+
+// stationServer serves one music section with four stations, the machine
+// identity, and play queues. It counts the play queues started.
+func stationServer(t *testing.T, hubStatus int) (*httptest.Server, *int) {
+	t.Helper()
+	queues := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/playlists":
+			w.Write([]byte(`{"MediaContainer":{"Metadata":[]}}`))
+		case r.URL.Path == "/library/sections":
+			w.Write([]byte(`{"MediaContainer":{"Directory":[{"key":"3","type":"artist","title":"Music"}]}}`))
+		case r.URL.Path == "/library/sections/3/all":
+			w.Write([]byte(`{"MediaContainer":{"totalSize":1,"Metadata":[{"ratingKey":"1","title":"Album","parentTitle":"Artist","leafCount":1}]}}`))
+		case r.URL.Path == "/hubs/sections/3":
+			if hubStatus != http.StatusOK {
+				w.WriteHeader(hubStatus)
+				return
+			}
+			w.Write([]byte(`{"MediaContainer":{"Hub":[
+				{"type":"album","Metadata":[{"key":"/library/metadata/1","title":"Album"}]},
+				{"type":"station","Metadata":[
+					{"key":"/library/sections/3/stations/1","title":"Library Radio"},
+					{"key":"/library/sections/3/stations/8","title":"Deep Cuts Radio"},
+					{"key":"/library/sections/3/stations/2","title":"Time Travel Radio"},
+					{"key":"/library/sections/3/stations/3","title":"Random Album Radio"}
+				]}
+			]}}`))
+		case r.URL.Path == "/identity":
+			w.Write([]byte(`{"MediaContainer":{"machineIdentifier":"machine-1"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/playQueues":
+			if got, want := r.URL.Query().Get("uri"), "server://machine-1/com.plexapp.plugins.library/library/sections/3/stations/3"; got != want {
+				t.Errorf("play queue uri = %q, want %q", got, want)
+			}
+			if got := r.URL.Query().Get("type"); got != "audio" {
+				t.Errorf("play queue type = %q", got)
+			}
+			queues++
+			fmt.Fprintf(w, `{"MediaContainer":{"playQueueID":%d}}`, 3300+queues)
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/playQueues/"):
+			q := r.URL.Query()
+			// The first window also returns the selected item; a
+			// continuation window starts after its center.
+			wantWindow, item := strconv.Itoa(stationBatch-1), 100*queues
+			if center := q.Get("center"); center != "" {
+				if q.Get("includeBefore") != "0" {
+					t.Errorf("continuation includeBefore = %q, want 0", q.Get("includeBefore"))
+				}
+				wantWindow = strconv.Itoa(stationBatch)
+				item, _ = strconv.Atoi(center)
+				item++
+			}
+			if got := q.Get("window"); got != wantWindow {
+				t.Errorf("window = %q, want %s", got, wantWindow)
+			}
+			fmt.Fprintf(w, `{"MediaContainer":{"Metadata":[
+				{"ratingKey":"7%d","title":"Song","grandparentTitle":"Band","duration":1000,"playQueueItemID":%d,"Media":[{"Part":[{"key":"/library/parts/7/file.flac"}]}]}
+			]}}`, item, item)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &queues
+}
+
+func TestProviderStationLists(t *testing.T) {
+	tests := []struct {
+		name      string
+		stations  []string
+		hubStatus int
+		want      []string
+	}{
+		{name: "all by default", hubStatus: http.StatusOK,
+			want: []string{"Library Radio", "Deep Cuts Radio", "Time Travel Radio", "Random Album Radio"}},
+		{name: "picked in setting order", stations: []string{"random album radio", "Library Radio", "Missing"}, hubStatus: http.StatusOK,
+			want: []string{"Random Album Radio", "Library Radio"}},
+		{name: "hidden", stations: []string{}, hubStatus: http.StatusOK},
+		{name: "hub error keeps the library", hubStatus: http.StatusInternalServerError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, _ := stationServer(t, tt.hubStatus)
+			p := newProvider(NewClient(srv.URL, "tok"))
+			p.stations = tt.stations
+			lists, err := p.Playlists()
+			if err != nil {
+				t.Fatalf("Playlists: %v", err)
+			}
+			var got []string
+			for _, l := range lists {
+				if l.Section == sectionRadio {
+					if !strings.HasPrefix(l.ID, prefixStation) {
+						t.Errorf("station ID %q lacks the prefix", l.ID)
+					}
+					got = append(got, l.Name)
+				}
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("stations = %v, want %v", got, tt.want)
+			}
+			if lists[len(lists)-1].ID != "1" {
+				t.Fatalf("album missing after stations: %v", lists)
+			}
+			if len(got) > 0 && lists[0].Section != sectionRadio {
+				t.Fatalf("stations are not first: %v", lists)
+			}
+		})
+	}
+}
+
+func TestProviderStationTracksStartFreshQueues(t *testing.T) {
+	srv, queues := stationServer(t, http.StatusOK)
+	p := newProvider(NewClient(srv.URL, "tok"))
+	id := prefixStation + "/library/sections/3/stations/3"
+
+	first, err := p.Tracks(id)
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	second, err := p.Tracks(id)
+	if err != nil {
+		t.Fatalf("second Tracks: %v", err)
+	}
+	if *queues != 2 {
+		t.Fatalf("play queues started = %d, want 2 (stations are never cached)", *queues)
+	}
+	if len(first) != 1 || first[0].Path != TrackURIPrefix+"7100" || second[0].Path != TrackURIPrefix+"7200" {
+		t.Fatalf("station tracks = %+v then %+v", first, second)
+	}
+}
+
+// Stations come only from the libraries the libraries setting selects, and
+// carry the library name only when more than one library is shown.
+func TestProviderStationsFollowLibraries(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/playlists":
+			w.Write([]byte(`{"MediaContainer":{"Metadata":[]}}`))
+		case r.URL.Path == "/library/sections":
+			w.Write([]byte(`{"MediaContainer":{"Directory":[
+				{"key":"3","type":"artist","title":"Music"},
+				{"key":"4","type":"artist","title":"Jazz"}
+			]}}`))
+		case strings.HasSuffix(r.URL.Path, "/all"):
+			w.Write([]byte(`{"MediaContainer":{"totalSize":1,"Metadata":[{"ratingKey":"1","title":"Album","parentTitle":"Artist","leafCount":1}]}}`))
+		case r.URL.Path == "/hubs/sections/3" || r.URL.Path == "/hubs/sections/4":
+			key := strings.TrimPrefix(r.URL.Path, "/hubs/sections/")
+			fmt.Fprintf(w, `{"MediaContainer":{"Hub":[{"type":"station","Metadata":[
+				{"key":"/library/sections/%s/stations/1","title":"Library Radio"}
+			]}]}}`, key)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	tests := []struct {
+		name      string
+		libraries []string
+		want      []string
+	}{
+		{name: "one selected library", libraries: []string{"jazz"}, want: []string{"Library Radio"}},
+		{name: "all libraries", want: []string{"Library Radio · Music", "Library Radio · Jazz"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newProvider(NewClient(srv.URL, "tok", tt.libraries...))
+			lists, err := p.Playlists()
+			if err != nil {
+				t.Fatalf("Playlists: %v", err)
+			}
+			var got []string
+			for _, l := range lists {
+				if l.Section == sectionRadio {
+					got = append(got, l.Name)
+				}
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("stations = %v, want %v", got, tt.want)
+			}
+			if tt.libraries != nil && !strings.Contains(lists[0].ID, "/sections/4/") {
+				t.Fatalf("station %q is not from the selected library", lists[0].ID)
+			}
+		})
+	}
+}
+
+// The last track of a station batch continues the same server play queue,
+// once; a failed continuation can be retried.
+func TestProviderStationContinuesAfterLastTrack(t *testing.T) {
+	srv, queues := stationServer(t, http.StatusOK)
+	p := newProvider(NewClient(srv.URL, "tok"))
+	batch, err := p.Tracks(prefixStation + "/library/sections/3/stations/3")
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	last := batch[len(batch)-1]
+	if !p.CanContinueAfter(last) || p.CanContinueAfter(playlist.Track{Path: TrackURIPrefix + "1"}) {
+		t.Fatal("CanContinueAfter does not single out the batch's last track")
+	}
+
+	next, err := p.ContinueAfter(last)
+	if err != nil {
+		t.Fatalf("ContinueAfter: %v", err)
+	}
+	if len(next) != 1 || next[0].Path != TrackURIPrefix+"7101" {
+		t.Fatalf("next batch = %+v, want the item after 100", next)
+	}
+	if *queues != 1 {
+		t.Fatalf("play queues started = %d, want 1: continuing reuses the queue", *queues)
+	}
+	if p.CanContinueAfter(last) {
+		t.Fatal("the old batch end still continues")
+	}
+	if !p.CanContinueAfter(next[0]) {
+		t.Fatal("the new batch end does not continue")
+	}
+
+	srv.Close()
+	if _, err := p.ContinueAfter(next[0]); err == nil {
+		t.Fatal("ContinueAfter succeeded against a closed server")
+	}
+	if !p.CanContinueAfter(next[0]) {
+		t.Fatal("a failed continuation dropped the queue")
 	}
 }

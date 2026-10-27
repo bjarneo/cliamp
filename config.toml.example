@@ -314,6 +314,12 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Restrict to specific music libraries (comma-separated, case-insensitive).
 # When omitted or empty, all music libraries are loaded.
 # libraries = ["Music", "Jazz"]
+#
+# Library radio stations shown in the Radio section of the Plex browser, by
+# name and in this order. When omitted, every station the server offers is
+# shown (Library Radio, Deep Cuts Radio, Time Travel Radio, Random Album
+# Radio); an empty list hides the section.
+# stations = ["Library Radio", "Random Album Radio"]
 
 # ---
 # Jellyfin server (optional)

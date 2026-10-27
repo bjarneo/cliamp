@@ -31,6 +31,7 @@ type Client struct {
 	clientID  string   // stable device identity sent with Plex requests
 	libraries []string // if non-empty, MusicSections filters to these titles (case-insensitive)
 	account   *accountBinding
+	machineID string // server identifier for play queue URIs, read once
 }
 
 type accountBinding struct {
@@ -124,6 +125,13 @@ type Track struct {
 	UserRating  float64
 }
 
+// Station is a radio station of a Plex music library, such as Library Radio
+// or Random Album Radio. Playing one asks the server for a play queue.
+type Station struct {
+	Key   string // e.g. "/library/sections/3/stations/1"
+	Title string
+}
+
 // Playlist represents a Plex playlist (smart or user-created) of audio tracks.
 type Playlist struct {
 	RatingKey    string
@@ -135,6 +143,12 @@ type Playlist struct {
 
 // get issues an authenticated GET request and decodes the JSON response into result.
 func (c *Client) get(path string, params url.Values, result any) error {
+	return c.request(http.MethodGet, path, params, result)
+}
+
+// request issues an authenticated request and decodes the JSON response into
+// result.
+func (c *Client) request(method, path string, params url.Values, result any) error {
 	baseURL, token, err := c.endpoint(context.Background())
 	if err != nil {
 		return fmt.Errorf("plex: connect account server: %w", err)
@@ -144,7 +158,7 @@ func (c *Client) get(path string, params url.Values, result any) error {
 	}
 	params.Set("X-Plex-Token", token)
 
-	req, err := http.NewRequest(http.MethodGet, baseURL+path+"?"+params.Encode(), nil)
+	req, err := http.NewRequest(method, baseURL+path+"?"+params.Encode(), nil)
 	if err != nil {
 		return fmt.Errorf("plex: %s: %w", path, err)
 	}
@@ -592,4 +606,127 @@ func trackFromJSON(m trackJSON) Track {
 		PartKey:     partKey,
 		UserRating:  m.UserRating,
 	}
+}
+
+// Stations returns the radio stations of a music section from its hubs.
+func (c *Client) Stations(sectionKey string) ([]Station, error) {
+	var result struct {
+		MediaContainer struct {
+			Hub []struct {
+				Type     string `json:"type"`
+				Metadata []struct {
+					Key   string `json:"key"`
+					Title string `json:"title"`
+				} `json:"Metadata"`
+			} `json:"Hub"`
+		} `json:"MediaContainer"`
+	}
+	params := url.Values{"count": {"20"}, "includeStations": {"1"}}
+	if err := c.get("/hubs/sections/"+sectionKey, params, &result); err != nil {
+		return nil, fmt.Errorf("plex: section %s stations: %w", sectionKey, err)
+	}
+	var stations []Station
+	for _, hub := range result.MediaContainer.Hub {
+		if hub.Type != "station" {
+			continue
+		}
+		for _, m := range hub.Metadata {
+			if m.Key != "" && m.Title != "" {
+				stations = append(stations, Station{Key: m.Key, Title: m.Title})
+			}
+		}
+	}
+	return stations, nil
+}
+
+// PlayQueuePage is one window of a server play queue. LastItemID is the
+// playQueueItemID of the last track, where the next window starts.
+type PlayQueuePage struct {
+	QueueID    int
+	LastItemID int
+	Tracks     []Track
+}
+
+// StationTracks starts a play queue for the station at stationKey and returns
+// its first limit tracks. Each call starts a new queue, so it returns a fresh
+// selection; QueueTracksAfter continues it.
+func (c *Client) StationTracks(stationKey string, limit int) (PlayQueuePage, error) {
+	machineID, err := c.machineIdentifier()
+	if err != nil {
+		return PlayQueuePage{}, err
+	}
+	var created struct {
+		MediaContainer struct {
+			PlayQueueID int `json:"playQueueID"`
+		} `json:"MediaContainer"`
+	}
+	params := url.Values{
+		"type": {"audio"},
+		"uri":  {"server://" + machineID + "/com.plexapp.plugins.library" + stationKey},
+	}
+	if err := c.request(http.MethodPost, "/playQueues", params, &created); err != nil {
+		return PlayQueuePage{}, fmt.Errorf("plex: start station: %w", err)
+	}
+	if created.MediaContainer.PlayQueueID == 0 {
+		return PlayQueuePage{}, fmt.Errorf("plex: start station: no play queue")
+	}
+	// The window counts the selected first item as well.
+	return c.playQueuePage(created.MediaContainer.PlayQueueID, url.Values{"window": {strconv.Itoa(limit - 1)}})
+}
+
+// QueueTracksAfter returns up to limit tracks of a play queue after the item
+// afterItemID. An empty page means the queue has ended.
+func (c *Client) QueueTracksAfter(queueID, afterItemID, limit int) (PlayQueuePage, error) {
+	return c.playQueuePage(queueID, url.Values{
+		"window":        {strconv.Itoa(limit)},
+		"center":        {strconv.Itoa(afterItemID)},
+		"includeBefore": {"0"},
+		"includeAfter":  {"1"},
+	})
+}
+
+func (c *Client) playQueuePage(queueID int, params url.Values) (PlayQueuePage, error) {
+	var queue struct {
+		MediaContainer struct {
+			Metadata []struct {
+				trackJSON
+				PlayQueueItemID int `json:"playQueueItemID"`
+			} `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	if err := c.get("/playQueues/"+strconv.Itoa(queueID), params, &queue); err != nil {
+		return PlayQueuePage{}, fmt.Errorf("plex: play queue: %w", err)
+	}
+	page := PlayQueuePage{QueueID: queueID}
+	for _, m := range queue.MediaContainer.Metadata {
+		page.Tracks = append(page.Tracks, trackFromJSON(m.trackJSON))
+		page.LastItemID = m.PlayQueueItemID
+	}
+	return page, nil
+}
+
+// machineIdentifier returns the server's identifier, which play queue URIs
+// name. It is read once from /identity.
+func (c *Client) machineIdentifier() (string, error) {
+	c.mu.Lock()
+	id := c.machineID
+	c.mu.Unlock()
+	if id != "" {
+		return id, nil
+	}
+	var result struct {
+		MediaContainer struct {
+			MachineIdentifier string `json:"machineIdentifier"`
+		} `json:"MediaContainer"`
+	}
+	if err := c.get("/identity", nil, &result); err != nil {
+		return "", fmt.Errorf("plex: server identity: %w", err)
+	}
+	if result.MediaContainer.MachineIdentifier == "" {
+		return "", fmt.Errorf("plex: server identity: no machine identifier")
+	}
+	c.mu.Lock()
+	c.machineID = result.MediaContainer.MachineIdentifier
+	c.mu.Unlock()
+	return result.MediaContainer.MachineIdentifier, nil
 }

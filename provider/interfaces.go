@@ -467,6 +467,16 @@ type CodeAuthenticator interface {
 	Authenticate(code string) error
 }
 
+// QueueContinuer is implemented by providers whose lists never end, such as
+// radio stations, that load them in batches. When the last track of a batch
+// starts, the UI asks for the next batch and appends it to the queue.
+// CanContinueAfter must not do I/O; ContinueAfter runs from a command
+// goroutine and returns no tracks when the list has ended.
+type QueueContinuer interface {
+	CanContinueAfter(track playlist.Track) bool
+	ContinueAfter(track playlist.Track) ([]playlist.Track, error)
+}
+
 // ChatFilter is implemented by a provider whose list can be narrowed to a set
 // of sources, such as the chats of an account. Dialogs returns every source,
 // Chats the current filter, and SetChats persists and applies a new one. An

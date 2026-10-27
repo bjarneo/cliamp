@@ -73,6 +73,7 @@ token = "xxxxxxxxxxxxxxxxxxxx"
 client_id = "generated-per-installation-id"
 server_id = "selected-server-id"
 libraries = ["Music", "Jazz"]
+stations = ["Library Radio", "Random Album Radio"]
 ```
 
 | Key | Description |
@@ -82,6 +83,7 @@ libraries = ["Music", "Jazz"]
 | `client_id` | Stable cliamp installation ID written by browser sign-in |
 | `server_id` | Selected Plex Media Server ID written by browser sign-in |
 | `libraries` | Optional comma-separated music library names to load. If omitted, cliamp loads all music libraries. Name matching is case-insensitive. |
+| `stations` | Optional library radio stations to show under **Radio**, by name and in this order. Stations come from the libraries that `libraries` selects. If omitted, every station of those libraries is shown; `[]` hides the section. Name matching is case-insensitive. |
 
 `client_id` and `server_id` enable account discovery. Omit both for a fixed
 manual URL. Do not copy them between installations; rerun browser sign-in on
@@ -91,9 +93,16 @@ the other computer so Plex lists it as a separate authorized device.
 
 After configuration, **Plex** appears in the cliamp provider list.
 
-The provider shows audio playlists and the music library under two headers:
+The provider shows the library radio stations, audio playlists, and the music
+library under three headers:
 
 ```text
+── Radio ──
+Library Radio
+Deep Cuts Radio
+Time Travel Radio
+Random Album Radio
+
 ── Playlists ──
 GOOD
 All Music
@@ -104,6 +113,12 @@ Artist - Album Title (Year)
 ```
 
 Select a playlist or album to load its tracks. Smart playlists are included. They resolve to current server content.
+
+Selecting a station asks the server for a new play queue, as Plexamp does, and
+loads it 30 tracks at a time: when the last loaded track starts, the next 30
+of the same queue are appended, so the station plays on without end. Press
+`Ctrl+R` while the station is open for a fresh selection. The `stations`
+setting picks which stations appear.
 
 Press `Ctrl+R` while an open Plex album or playlist is focused to reload it
 and pick up server-side changes. Album contents are cached for up to five

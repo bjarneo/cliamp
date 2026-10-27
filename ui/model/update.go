@@ -184,6 +184,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleCatalogSearch(msg)
 		return m, nil
 
+	case queueContinuedMsg:
+		m.handleQueueContinued(msg)
+		return m, nil
+
 	case ytdlBatchMsg:
 		cmd := m.handleYTDLBatch(msg)
 		return m, cmd
