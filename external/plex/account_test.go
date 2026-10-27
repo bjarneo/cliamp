@@ -3,6 +3,7 @@ package plex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -205,5 +206,64 @@ func TestNewClientIdentifier(t *testing.T) {
 	}
 	if len(a) != 32 || a == b {
 		t.Fatalf("identifiers = %q, %q", a, b)
+	}
+}
+
+func TestAccountSignOut(t *testing.T) {
+	tests := []struct {
+		name       string
+		signout    int
+		user       int
+		wantErr    bool
+		wantStill  bool
+		wantChecks int
+	}{
+		{name: "revoked", signout: http.StatusNoContent, user: http.StatusUnauthorized, wantChecks: 1},
+		{name: "already invalid", signout: http.StatusUnauthorized, user: http.StatusUnauthorized, wantChecks: 1},
+		{name: "still accepted", signout: http.StatusNoContent, user: http.StatusOK, wantErr: true, wantStill: true, wantChecks: 1},
+		{name: "sign-out rejected", signout: http.StatusInternalServerError, wantErr: true},
+		{name: "check fails", signout: http.StatusNoContent, user: http.StatusBadGateway, wantErr: true, wantChecks: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			checks := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if got := r.Header.Get("X-Plex-Token"); got != "account-token" {
+					t.Errorf("token = %q", got)
+				}
+				if got := r.Header.Get("X-Plex-Client-Identifier"); got != "client-1" {
+					t.Errorf("client identifier = %q", got)
+				}
+				switch {
+				case r.Method == http.MethodDelete && r.URL.Path == "/api/v2/users/signout":
+					w.WriteHeader(tt.signout)
+				case r.Method == http.MethodGet && r.URL.Path == "/api/v2/user":
+					checks++
+					w.WriteHeader(tt.user)
+				default:
+					t.Fatalf("unexpected request: %s %s", r.Method, r.URL)
+				}
+			}))
+			defer srv.Close()
+			api := &AccountAPI{baseURL: srv.URL, client: srv.Client(), pollInterval: time.Millisecond}
+
+			err := api.SignOut(context.Background(), "account-token", "client-1")
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("SignOut error = %v, want error %v", err, tt.wantErr)
+			}
+			if got := errors.Is(err, ErrTokenStillAccepted); got != tt.wantStill {
+				t.Fatalf("still accepted = %v, want %v (%v)", got, tt.wantStill, err)
+			}
+			if checks != tt.wantChecks {
+				t.Fatalf("token checks = %d, want %d", checks, tt.wantChecks)
+			}
+		})
+	}
+}
+
+func TestAccountSignOutNeedsToken(t *testing.T) {
+	api := &AccountAPI{baseURL: "unused", client: http.DefaultClient}
+	if err := api.SignOut(context.Background(), " ", "client-1"); err == nil {
+		t.Fatal("SignOut accepted an empty token")
 	}
 }

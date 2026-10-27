@@ -32,6 +32,24 @@ This means the same configuration can move between home and work without
 hard-coding a `192.168.x.x` address. Remote playback still requires the Plex
 server to advertise a reachable remote or relay connection.
 
+## Sign out
+
+Run `cliamp setup`, select **Plex Media Server**, and choose **Sign out and
+remove saved credentials**. While `[plex]` holds a token, this is the only
+option: to change the server or the login type, sign out and sign in again.
+
+- After a browser sign-in, cliamp asks Plex to revoke the token, checks that
+  Plex no longer accepts it, and removes `token`, `server_id`, `url`, and
+  `libraries` from `[plex]`.
+- A manual token was copied from Plex Web and belongs to that session, so
+  cliamp does not revoke it. It removes `token` and `libraries` and keeps the
+  server URL.
+
+`client_id` stays, so a later sign-in is the same Plex device. If Plex cannot be reached or still accepts the
+token, cliamp removes it anyway and asks you to remove the device under
+**Authorized Devices** in your Plex account. Restart a running cliamp, which
+keeps the token in memory.
+
 ## Manual token setup
 
 To configure a fixed server URL instead, select the manual option in setup or

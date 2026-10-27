@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -359,6 +360,55 @@ func (a *AccountAPI) probe(ctx context.Context, baseURL, token, clientID string)
 		return fmt.Errorf("HTTP %s", resp.Status)
 	}
 	return nil
+}
+
+// ErrTokenStillAccepted reports that plex.tv still accepts a token after the
+// sign-out request, so the token is not known to be revoked.
+var ErrTokenStillAccepted = errors.New("plex: plex.tv still accepts the token after sign-out")
+
+// SignOut revokes accountToken at plex.tv and then checks that plex.tv
+// rejects it. Only a token that cliamp obtained through browser sign-in may
+// be revoked: a token copied from Plex Web belongs to that browser session.
+func (a *AccountAPI) SignOut(ctx context.Context, accountToken, clientID string) error {
+	if strings.TrimSpace(accountToken) == "" {
+		return fmt.Errorf("plex: sign out: no token")
+	}
+	status, err := a.do(ctx, http.MethodDelete, "/api/v2/users/signout", clientID, accountToken)
+	if err != nil {
+		return fmt.Errorf("plex: sign out: %w", err)
+	}
+	// 401 means the token was already invalid, which is the goal.
+	if (status < 200 || status >= 300) && status != http.StatusUnauthorized {
+		return fmt.Errorf("plex: sign out: HTTP %d", status)
+	}
+	status, err = a.do(ctx, http.MethodGet, "/api/v2/user", clientID, accountToken)
+	if err != nil {
+		return fmt.Errorf("plex: check sign-out: %w", err)
+	}
+	switch {
+	case status == http.StatusUnauthorized:
+		return nil
+	case status >= 200 && status < 300:
+		return ErrTokenStillAccepted
+	}
+	return fmt.Errorf("plex: check sign-out: HTTP %d", status)
+}
+
+// do sends a request without a body and returns the response status. The
+// response body is drained and discarded.
+func (a *AccountAPI) do(ctx context.Context, method, path, clientID, token string) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, method, a.baseURL+path, nil)
+	if err != nil {
+		return 0, err
+	}
+	setAccountHeaders(req, clientID, token)
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
+	return resp.StatusCode, nil
 }
 
 func (a *AccountAPI) doJSON(ctx context.Context, method, path, clientID, token string, result any) error {
