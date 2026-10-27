@@ -43,28 +43,43 @@ func TestSetRating(t *testing.T) {
 }
 
 func TestReportTimeline(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/:/timeline" {
-			t.Fatalf("request = %s %s, want POST /:/timeline", r.Method, r.URL.Path)
-		}
-		want := map[string]string{
-			"key":       "/library/metadata/track-42",
-			"ratingKey": "track-42",
-			"state":     "playing",
-			"time":      "1234",
-			"duration":  "180000",
-		}
-		for key, value := range want {
-			if got := r.URL.Query().Get(key); got != value {
-				t.Errorf("%s = %q, want %q", key, got, value)
-			}
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
+	tests := []struct {
+		name               string
+		position, duration time.Duration
+		wantTime, wantDur  string
+	}{
+		{name: "within track", position: 1234 * time.Millisecond, duration: 3 * time.Minute, wantTime: "1234", wantDur: "180000"},
+		// A 202.945 s track is known as 202 s; its last second must not pass the end.
+		{name: "past whole-second duration", position: 202500 * time.Millisecond, duration: 202 * time.Second, wantTime: "202000", wantDur: "202000"},
+		{name: "unknown duration", position: 5 * time.Second, wantTime: "5000", wantDur: "0"},
+		{name: "negative position", position: -time.Second, duration: time.Minute, wantTime: "0", wantDur: "60000"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/:/timeline" {
+					t.Fatalf("request = %s %s, want POST /:/timeline", r.Method, r.URL.Path)
+				}
+				want := map[string]string{
+					"key":       "/library/metadata/track-42",
+					"ratingKey": "track-42",
+					"state":     "playing",
+					"time":      tt.wantTime,
+					"duration":  tt.wantDur,
+				}
+				for key, value := range want {
+					if got := r.URL.Query().Get(key); got != value {
+						t.Errorf("%s = %q, want %q", key, got, value)
+					}
+				}
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer srv.Close()
 
-	if err := newTestClient(srv).ReportTimeline(t.Context(), "track-42", "playing", 1234*time.Millisecond, 3*time.Minute); err != nil {
-		t.Fatalf("ReportTimeline: %v", err)
+			if err := newTestClient(srv).ReportTimeline(t.Context(), "track-42", "playing", tt.position, tt.duration); err != nil {
+				t.Fatalf("ReportTimeline: %v", err)
+			}
+		})
 	}
 }
 

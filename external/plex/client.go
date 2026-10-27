@@ -192,6 +192,12 @@ func (c *Client) ReportTimeline(ctx context.Context, ratingKey, state string, po
 	if ratingKey == "" {
 		return fmt.Errorf("plex: timeline: missing rating key")
 	}
+	// Track durations are whole seconds while the position has milliseconds,
+	// so in a track's last second the position can pass the duration. Plex
+	// rejects such a timeline with 400 Bad Request.
+	if duration > 0 {
+		position = min(position, duration)
+	}
 	params := url.Values{
 		"key":       {"/library/metadata/" + ratingKey},
 		"ratingKey": {ratingKey},
