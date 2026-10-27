@@ -93,20 +93,20 @@ the other computer so Plex lists it as a separate authorized device.
 
 After configuration, **Plex** appears in the cliamp provider list.
 
-The provider shows the library radio stations, audio playlists, and the music
+The provider shows audio playlists, the library radio stations, and the music
 library under three headers:
 
 ```text
+── Playlists ──
+GOOD
+All Music
+drums
+
 ── Radio ──
 Library Radio
 Deep Cuts Radio
 Time Travel Radio
 Random Album Radio
-
-── Playlists ──
-GOOD
-All Music
-drums
 
 ── Albums ──
 Artist - Album Title (Year)
