@@ -75,14 +75,17 @@ func TestCookieProviderPlaylists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("musicProv.Playlists() error: %v", err)
 	}
-	if len(musicPls) != 3 {
-		t.Fatalf("musicPls len = %d, want 3", len(musicPls))
+	if len(musicPls) != 4 {
+		t.Fatalf("musicPls len = %d, want 4", len(musicPls))
 	}
 	if musicPls[0].ID != "LM" || musicPls[0].Name != "Liked Music" || musicPls[0].TrackCount != 99 {
 		t.Errorf("musicPls[0] = %+v, want Liked Music (LM) with TrackCount 99", musicPls[0])
 	}
-	if musicPls[1].ID != "PL111" || musicPls[2].ID != "PL222" {
-		t.Errorf("unexpected user playlists: %+v", musicPls[1:])
+	if musicPls[1].ID != playlistIDSupermix || musicPls[1].Name != "My Supermix" {
+		t.Errorf("musicPls[1] = %+v, want My Supermix (%s)", musicPls[1], playlistIDSupermix)
+	}
+	if musicPls[2].ID != "PL111" || musicPls[3].ID != "PL222" {
+		t.Errorf("unexpected user playlists: %+v", musicPls[2:])
 	}
 
 	// 2. Video playlists (should use cached base playlists)
@@ -102,11 +105,14 @@ func TestCookieProviderPlaylists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("allProv.Playlists() error: %v", err)
 	}
-	if len(allPls) != 4 {
-		t.Fatalf("allPls len = %d, want 4", len(allPls))
+	if len(allPls) != 5 {
+		t.Fatalf("allPls len = %d, want 5", len(allPls))
 	}
 	if allPls[0].ID != "LM" || allPls[0].TrackCount != 99 || allPls[1].ID != "LL" || allPls[1].TrackCount != 42 {
 		t.Errorf("allPls pinned = %+v, %+v; want LM (99) and LL (42)", allPls[0], allPls[1])
+	}
+	if allPls[2].ID != playlistIDSupermix || allPls[2].Name != "My Supermix" {
+		t.Errorf("allPls[2] = %+v, want My Supermix (%s)", allPls[2], playlistIDSupermix)
 	}
 
 	if fetchCount != 1 {
@@ -136,15 +142,15 @@ func TestCookieProviderPlaylists_NilCaching(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Playlists() unexpected error: %v", err)
 	}
-	if len(pls1) != 1 { // Only pinned Liked Music
-		t.Errorf("len(pls1) = %d, want 1", len(pls1))
+	if len(pls1) != 2 { // Pinned Liked Music + My Supermix
+		t.Errorf("len(pls1) = %d, want 2", len(pls1))
 	}
 	pls2, err := prov.Playlists()
 	if err != nil {
 		t.Fatalf("second Playlists() unexpected error: %v", err)
 	}
-	if len(pls2) != 1 {
-		t.Errorf("len(pls2) = %d, want 1", len(pls2))
+	if len(pls2) != 2 {
+		t.Errorf("len(pls2) = %d, want 2", len(pls2))
 	}
 	if fetchCount != 1 {
 		t.Errorf("fetchCount = %d, want 1 (nil result should be cached)", fetchCount)
@@ -181,8 +187,12 @@ func TestFormatPlaylistURL(t *testing.T) {
 		{"LL", false, "https://www.youtube.com/playlist?list=LL"},
 		{"PL12345", true, "https://music.youtube.com/playlist?list=PL12345"},
 		{"PL12345", false, "https://www.youtube.com/playlist?list=PL12345"},
+		{playlistIDSupermix, true, "https://music.youtube.com/playlist?list=" + playlistIDSupermix},
+		{playlistIDSupermix, false, "https://music.youtube.com/playlist?list=" + playlistIDSupermix},
 		{"https://music.youtube.com/playlist?list=CUSTOM", true, "https://music.youtube.com/playlist?list=CUSTOM"},
 		{"http://example.com/stream", false, "http://example.com/stream"},
+		{"https://www.youtube.com/playlist?list=" + playlistIDSupermix, true, "https://music.youtube.com/playlist?list=" + playlistIDSupermix},
+		{"https://www.youtube.com/playlist?list=" + playlistIDSupermix, false, "https://music.youtube.com/playlist?list=" + playlistIDSupermix},
 	}
 
 	for _, tt := range tests {
@@ -467,5 +477,42 @@ func TestNewCookieProvidersDoesNotMutateOtherHostCookies(t *testing.T) {
 	}
 	if strings.Contains(string(logged), "--cookies-from-browser chrome") {
 		t.Errorf("SoundCloud cookies were replaced with 'chrome': %s", string(logged))
+	}
+}
+
+func TestCookieProviderTracksSupermixURLBoundary(t *testing.T) {
+	full := "https://www.youtube.com/playlist?list=" + playlistIDSupermix
+	want := "https://music.youtube.com/playlist?list=" + playlistIDSupermix
+	// Fresh base per call: Tracks caches under the canonical target, so a
+	// shared base would serve the second call from cache without resolveFn.
+	capture := func(call func(prov *CookieProvider) error) string {
+		t.Helper()
+		t.Setenv("HOME", t.TempDir())
+		base := newCookieBase("chrome")
+		var got []string
+		base.resolveFn = func(_ context.Context, pageURL string, _, _ int, _ string) ([]playlist.Track, int, error) {
+			got = append(got, pageURL)
+			return nil, 0, nil
+		}
+		prov := &CookieProvider{base: base, kind: KindMusic}
+		if err := call(prov); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got) != 1 {
+			t.Fatalf("resolveFn called %d times, want 1", len(got))
+		}
+		return got[0]
+	}
+	if pageURL := capture(func(prov *CookieProvider) error {
+		_, err := prov.Tracks(full)
+		return err
+	}); pageURL != want {
+		t.Errorf("Tracks resolveFn got pageURL %q, want canonical %q", pageURL, want)
+	}
+	if pageURL := capture(func(prov *CookieProvider) error {
+		_, _, err := prov.TracksWindow(full, 0, 10)
+		return err
+	}); pageURL != want {
+		t.Errorf("TracksWindow resolveFn got pageURL %q, want canonical %q", pageURL, want)
 	}
 }

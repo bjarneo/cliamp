@@ -3,6 +3,7 @@ package ytmusic
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -307,7 +308,11 @@ func (p *CookieProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 		}
 	}
 
-	result := make([]playlist.PlaylistInfo, 0, len(customPls)+2)
+	result := make([]playlist.PlaylistInfo, 0, len(customPls)+3)
+	supermix := playlist.PlaylistInfo{
+		ID:   playlistIDSupermix,
+		Name: "My Supermix",
+	}
 	switch p.kind {
 	case KindMusic:
 		result = append(result, playlist.PlaylistInfo{
@@ -315,6 +320,7 @@ func (p *CookieProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 			Name:       "Liked Music",
 			TrackCount: lmCount,
 		})
+		result = append(result, supermix)
 	case KindVideo:
 		result = append(result, playlist.PlaylistInfo{
 			ID:         playlistIDLikedVideos,
@@ -333,14 +339,29 @@ func (p *CookieProvider) Playlists() ([]playlist.PlaylistInfo, error) {
 				Name:       "Liked Videos",
 				TrackCount: llCount,
 			},
+			supermix,
 		)
 	}
 	result = append(result, customPls...)
 	return result, nil
 }
 
+// isSupermixURL reports whether raw is a playlist URL whose list value is the
+// generated Supermix ID, regardless of host. www.youtube.com links carrying
+// the Supermix ID must still resolve through music.youtube.com with cookies.
+func isSupermixURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return u.Query().Get("list") == playlistIDSupermix
+}
+
 func formatPlaylistURL(playlistID string, isMusic bool) string {
 	if strings.HasPrefix(playlistID, "http://") || strings.HasPrefix(playlistID, "https://") {
+		if isSupermixURL(playlistID) {
+			return "https://music.youtube.com/playlist?list=" + playlistIDSupermix
+		}
 		return playlistID
 	}
 	switch playlistID {
@@ -348,6 +369,10 @@ func formatPlaylistURL(playlistID string, isMusic bool) string {
 		return "https://music.youtube.com/playlist?list=LM"
 	case playlistIDLikedVideos:
 		return "https://www.youtube.com/playlist?list=LL"
+	case playlistIDSupermix:
+		// Generated mix: identical ID for every account, personalized by the
+		// signed-in session. Always resolve via music.youtube.com with cookies.
+		return "https://music.youtube.com/playlist?list=" + playlistIDSupermix
 	default:
 		if isMusic {
 			return "https://music.youtube.com/playlist?list=" + playlistID

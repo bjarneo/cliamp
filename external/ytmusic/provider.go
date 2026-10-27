@@ -459,6 +459,11 @@ func (b *baseProvider) fetchDurations(ctx context.Context, svc *youtube.Service,
 const (
 	playlistIDLikedMusic  = "LM" // YouTube Music liked songs
 	playlistIDLikedVideos = "LL" // YouTube liked videos
+	// playlistIDSupermix is the My Supermix generated mix. The ID is identical
+	// for every account; the contents are personalized by the signed-in
+	// session, so it must always resolve with session cookies via
+	// music.youtube.com (the Data API cannot resolve it).
+	playlistIDSupermix = "RDTMAK5uy_kset8DisdE7LSD4TNjEVvrKRTmG7a56sY"
 )
 
 // playlistCounts fetches item counts for the given playlist IDs in a single
