@@ -616,3 +616,45 @@ func TestTickReconnect(t *testing.T) {
 		})
 	}
 }
+
+// Before Enter and while the restored track buffers, the TUI clock shows the
+// saved resume position; once the track plays, it follows the engine.
+func TestTickSampleClockShowsPendingResume(t *testing.T) {
+	saved := playlist.Track{Path: "plex:track:200", Title: "Saved", DurationSecs: 300}
+	other := playlist.Track{Path: "plex:track:100", Title: "Other", DurationSecs: 200}
+	tests := []struct {
+		name      string
+		current   int
+		playing   bool
+		buffering bool
+		resume    int
+		wantPos   time.Duration
+		wantDur   time.Duration
+	}{
+		{name: "stopped on saved track", current: 1, resume: 95, wantPos: 95 * time.Second, wantDur: 300 * time.Second},
+		{name: "buffering saved track", current: 1, buffering: true, resume: 95, wantPos: 95 * time.Second, wantDur: 300 * time.Second},
+		{name: "another track selected", current: 0, resume: 95},
+		{name: "no resume", current: 1},
+		{name: "playing follows engine", current: 1, playing: true, resume: 95, wantPos: 10 * time.Second, wantDur: 300 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := &playbackFakeEngine{playing: tt.playing, position: 10 * time.Second, duration: 300 * time.Second}
+			if !tt.playing {
+				engine.position, engine.duration = 0, 0
+			}
+			pl := playlist.New()
+			pl.Replace([]playlist.Track{other, saved})
+			pl.SetIndex(tt.current)
+			m := New(engine, pl, nil, "", nil, nil, nil, nil, nil, nil)
+			m.buffering = tt.buffering
+			if tt.resume > 0 {
+				m.SetResume(saved.Path, tt.resume)
+			}
+			m.tickSampleClock()
+			if m.cachedPos != tt.wantPos || m.cachedDur != tt.wantDur {
+				t.Fatalf("clock = %v / %v, want %v / %v", m.cachedPos, m.cachedDur, tt.wantPos, tt.wantDur)
+			}
+		})
+	}
+}
