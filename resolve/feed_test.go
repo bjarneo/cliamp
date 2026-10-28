@@ -620,6 +620,39 @@ func TestFeedBoundedSelectionMatchesFullSort(t *testing.T) {
 	}
 }
 
+func TestFeedBoundedSelectionKeepsUndatedOrder(t *testing.T) {
+	// 200 dated and 500 undated episodes, more than the intermediate trim holds: the
+	// undated ones kept follow the dated ones in feed order.
+	start := time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC)
+	var body strings.Builder
+	body.WriteString(`<rss><channel><title>Show</title>`)
+	for i := range 700 {
+		if i < 200 {
+			fmt.Fprintf(&body, `<item><title>Episode %d</title><pubDate>%s</pubDate><enclosure url="https://example.com/%d.mp3"/></item>`,
+				i, start.AddDate(0, 0, i).Format(time.RFC1123Z), i)
+			continue
+		}
+		fmt.Fprintf(&body, `<item><title>Episode %d</title><enclosure url="https://example.com/%d.mp3"/></item>`, i, i)
+	}
+	body.WriteString(`</channel></rss>`)
+	tracks, err := Feed(context.Background(), serveFeed(t, body.String()))
+	if err != nil || len(tracks) != maxFeedEpisodes {
+		t.Fatalf("got %d tracks, err = %v; want %d", len(tracks), err, maxFeedEpisodes)
+	}
+	var want []string
+	for i := 199; i >= 0; i-- {
+		want = append(want, fmt.Sprintf("Episode %d", i))
+	}
+	for i := 200; i < maxFeedEpisodes; i++ {
+		want = append(want, fmt.Sprintf("Episode %d", i))
+	}
+	for i, track := range tracks {
+		if track.Title != want[i] {
+			t.Fatalf("track %d = %q, want %q", i, track.Title, want[i])
+		}
+	}
+}
+
 func serveFeed(t *testing.T, body string) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
