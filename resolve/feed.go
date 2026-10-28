@@ -3,6 +3,7 @@ package resolve
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -29,8 +30,8 @@ const (
 // It accepts only absolute HTTP(S) URLs without userinfo, including redirects,
 // and uses the shared 30-second client with caller-controlled cancellation.
 // It reads at most 32 MiB, keeping the episodes parsed before the cap cuts a
-// larger feed short, and returns the newest 300 playable episodes, newest
-// first by publication date. Feeds do not promise an order, and long-running
+// larger feed short, or before the client times out once 300 are parsed, and
+// returns the newest 300 playable episodes, newest first by publication date. Feeds do not promise an order, and long-running
 // shows often list oldest-first, so the whole feed is read before the limit
 // applies. Episodes sharing a publication time keep their feed order, and
 // undated episodes follow the dated ones in feed order. Tracks retain the
@@ -72,6 +73,15 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 	var episodes []feedEpisode
 	var channelTitle, channelArt string
 	var seenRSS, seenChannel bool
+	// keepParsed reports whether a read error only cut the feed short, so the episodes
+	// parsed so far stand: the cap stopped the read, or the client timed out after the
+	// maxFeedEpisodes that main stopped reading at. A caller cancellation stays an error.
+	keepParsed := func(err error) bool {
+		if !seenChannel || ctx.Err() != nil {
+			return false
+		}
+		return body.N == 0 || len(episodes) >= maxFeedEpisodes && errors.Is(err, context.DeadlineExceeded)
+	}
 	depth := 0
 	for {
 		if err := ctx.Err(); err != nil {
@@ -85,8 +95,7 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 			break
 		}
 		if err != nil {
-			// The cap stopped the read: keep the episodes parsed before it.
-			if body.N == 0 && seenChannel {
+			if keepParsed(err) {
 				break
 			}
 			return nil, fmt.Errorf("parsing feed: %w", err)
@@ -223,8 +232,7 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 			}
 		}
 		if err != nil {
-			// The cap stopped the read: keep the episodes parsed before it.
-			if body.N == 0 && seenChannel {
+			if keepParsed(err) {
 				break
 			}
 			return nil, fmt.Errorf("parsing feed: %w", err)

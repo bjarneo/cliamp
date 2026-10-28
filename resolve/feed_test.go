@@ -653,6 +653,43 @@ func TestFeedBoundedSelectionKeepsUndatedOrder(t *testing.T) {
 	}
 }
 
+func TestFeedClientTimeout(t *testing.T) {
+	// The server sends some episodes, then stalls until the client times out: past
+	// maxFeedEpisodes the parsed ones stand, as main returned them; before, it fails.
+	oldClient := httpClient
+	client := *httpClient
+	client.Timeout = 500 * time.Millisecond
+	httpClient = &client
+	defer func() { httpClient = oldClient }()
+	start := time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC)
+	for _, sent := range []int{305, 10} {
+		t.Run(strconv.Itoa(sent), func(t *testing.T) {
+			release := make(chan struct{})
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				io.WriteString(w, `<rss><channel><title>Show</title>`)
+				for i := 1; i <= sent; i++ {
+					fmt.Fprintf(w, `<item><title>Episode %d</title><pubDate>%s</pubDate><enclosure url="https://example.com/%d.mp3"/></item>`,
+						i, start.AddDate(0, 0, i).Format(time.RFC1123Z), i)
+				}
+				w.(http.Flusher).Flush()
+				<-release
+			}))
+			defer srv.Close()
+			defer close(release)
+			tracks, err := Feed(context.Background(), srv.URL)
+			if sent < maxFeedEpisodes {
+				if err == nil {
+					t.Fatalf("got %d tracks and no error; want the timeout", len(tracks))
+				}
+				return
+			}
+			if err != nil || len(tracks) != maxFeedEpisodes || tracks[0].Title != fmt.Sprintf("Episode %d", sent) {
+				t.Fatalf("got %d tracks, err = %v; want %d, newest first", len(tracks), err, maxFeedEpisodes)
+			}
+		})
+	}
+}
+
 func serveFeed(t *testing.T, body string) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
