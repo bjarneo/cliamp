@@ -690,6 +690,26 @@ func TestFeedClientTimeout(t *testing.T) {
 	}
 }
 
+func TestFeedNamedZones(t *testing.T) {
+	// 09:30 EST is 14:30 UTC, after 12:00 GMT, whether or not the system knows EST.
+	body := `<rss><channel>
+  <item><title>Noon GMT</title><pubDate>Thu, 01 Oct 2026 12:00:00 GMT</pubDate><enclosure url="https://example.com/a.mp3"/></item>
+  <item><title>Morning EST</title><pubDate>Thu, 01 Oct 2026 09:30:00 EST</pubDate><enclosure url="https://example.com/b.mp3"/></item>
+  <item><title>Early PDT</title><pubDate>Thu, 01 Oct 2026 05:30:00 PDT</pubDate><enclosure url="https://example.com/c.mp3"/></item>
+</channel></rss>`
+	tracks, err := Feed(context.Background(), serveFeed(t, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{tracks[0].Title, tracks[1].Title, tracks[2].Title}
+	if want := []string{"Morning EST", "Early PDT", "Noon GMT"}; !slices.Equal(got, want) {
+		t.Errorf("order = %q, want %q", got, want)
+	}
+	if got := tracks[0].Meta(provider.MetaPodcastPublished); got != "2026-10-01" {
+		t.Errorf("published = %q, want the date as written", got)
+	}
+}
+
 func serveFeed(t *testing.T, body string) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -200,6 +200,7 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 							published, err = time.Parse(time.RFC3339, pubDate)
 						}
 						if err == nil {
+							published = withRFC822Offset(published)
 							track.ProviderMeta[provider.MetaPodcastPublished] = published.Format(time.DateOnly)
 						} else {
 							published = time.Time{}
@@ -257,6 +258,23 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 // feedEpisode pairs a parsed episode with its full publication time, which
 // orders same-day episodes that the YYYY-MM-DD metadata cannot. A zero time
 // means the item had no parseable date.
+// rfc822Offsets are the named zones RFC 822 defines, in seconds east of UTC.
+var rfc822Offsets = map[string]int{
+	"EST": -5 * 3600, "EDT": -4 * 3600, "CST": -6 * 3600, "CDT": -5 * 3600,
+	"MST": -7 * 3600, "MDT": -6 * 3600, "PST": -8 * 3600, "PDT": -7 * 3600,
+}
+
+// withRFC822Offset gives a time parsed with one of those zone names its offset.
+// time.Parse sets offset zero for a zone name the local system does not know,
+// which would put 09:30 EST five hours before it happened.
+func withRFC822Offset(t time.Time) time.Time {
+	name, offset := t.Zone()
+	if fixed, ok := rfc822Offsets[name]; ok && offset == 0 {
+		return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.FixedZone(name, fixed))
+	}
+	return t
+}
+
 // newestEpisodes sorts episodes newest first, undated ones last, keeping feed order
 // for equal times, and returns the first maxFeedEpisodes of them.
 func newestEpisodes(episodes []feedEpisode) []feedEpisode {
