@@ -573,6 +573,53 @@ func TestFeedBodyLimitKeepsNewestParsed(t *testing.T) {
 	}
 }
 
+func TestFeedBoundedSelectionMatchesFullSort(t *testing.T) {
+	// More episodes than the bounded buffer holds, in scrambled order, with many equal
+	// publication times and some undated episodes: the result must equal sorting them
+	// all at once, keeping feed order for equal times and undated ones last.
+	type entry struct {
+		title  string
+		date   time.Time
+		undate bool
+	}
+	start := time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC)
+	var entries []entry
+	var body strings.Builder
+	body.WriteString(`<rss><channel><title>Show</title>`)
+	for i := range 2000 {
+		e := entry{title: fmt.Sprintf("Episode %d", i), date: start.AddDate(0, 0, (i*37)%90), undate: i%13 == 0}
+		entries = append(entries, e)
+		if e.undate {
+			fmt.Fprintf(&body, `<item><title>%s</title><enclosure url="https://example.com/%d.mp3"/></item>`, e.title, i)
+		} else {
+			fmt.Fprintf(&body, `<item><title>%s</title><pubDate>%s</pubDate><enclosure url="https://example.com/%d.mp3"/></item>`,
+				e.title, e.date.Format(time.RFC1123Z), i)
+		}
+	}
+	body.WriteString(`</channel></rss>`)
+	slices.SortStableFunc(entries, func(a, b entry) int {
+		if a.undate || b.undate {
+			switch {
+			case a.undate && b.undate:
+				return 0
+			case a.undate:
+				return 1
+			}
+			return -1
+		}
+		return b.date.Compare(a.date)
+	})
+	tracks, err := Feed(context.Background(), serveFeed(t, body.String()))
+	if err != nil || len(tracks) != maxFeedEpisodes {
+		t.Fatalf("got %d tracks, err = %v; want %d", len(tracks), err, maxFeedEpisodes)
+	}
+	for i, track := range tracks {
+		if track.Title != entries[i].title {
+			t.Fatalf("track %d = %q, want %q", i, track.Title, entries[i].title)
+		}
+	}
+}
+
 func serveFeed(t *testing.T, body string) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

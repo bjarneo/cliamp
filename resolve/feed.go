@@ -202,6 +202,12 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 							}
 						}
 						episodes = append(episodes, feedEpisode{track: track, published: published})
+						// Keep memory bounded on a feed of many small items: trimming to the
+						// newest maxFeedEpisodes at twice that size gives the same result as
+						// one sort at the end, since the sort is stable.
+						if len(episodes) == 2*maxFeedEpisodes {
+							episodes = newestEpisodes(episodes)
+						}
 						break
 					}
 				default:
@@ -224,18 +230,7 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 			return nil, fmt.Errorf("parsing feed: %w", err)
 		}
 	}
-	slices.SortStableFunc(episodes, func(a, b feedEpisode) int {
-		switch aUndated, bUndated := a.published.IsZero(), b.published.IsZero(); {
-		case aUndated && bUndated:
-			return 0
-		case aUndated:
-			return 1
-		case bUndated:
-			return -1
-		}
-		return b.published.Compare(a.published)
-	})
-	episodes = episodes[:min(len(episodes), maxFeedEpisodes)]
+	episodes = newestEpisodes(episodes)
 	tracks := make([]playlist.Track, len(episodes))
 	for i, episode := range episodes {
 		tracks[i] = episode.track
@@ -254,6 +249,23 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 // feedEpisode pairs a parsed episode with its full publication time, which
 // orders same-day episodes that the YYYY-MM-DD metadata cannot. A zero time
 // means the item had no parseable date.
+// newestEpisodes sorts episodes newest first, undated ones last, keeping feed order
+// for equal times, and returns the first maxFeedEpisodes of them.
+func newestEpisodes(episodes []feedEpisode) []feedEpisode {
+	slices.SortStableFunc(episodes, func(a, b feedEpisode) int {
+		switch aUndated, bUndated := a.published.IsZero(), b.published.IsZero(); {
+		case aUndated && bUndated:
+			return 0
+		case aUndated:
+			return 1
+		case bUndated:
+			return -1
+		}
+		return b.published.Compare(a.published)
+	})
+	return episodes[:min(len(episodes), maxFeedEpisodes)]
+}
+
 type feedEpisode struct {
 	track     playlist.Track
 	published time.Time
