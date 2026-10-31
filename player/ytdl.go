@@ -37,6 +37,13 @@ const ytdlStreamCauseGrace = 100 * time.Millisecond
 
 const ytdlPipelineMaxAttempts = 3
 
+// ytdlAudioFormat is the yt-dlp format selector for playback. It prefers
+// direct HTTPS/HTTP streams over HLS (m3u8): HLS requires segment downloading
+// and muxing, which doesn't pipe cleanly to stdout. Live streams (e.g. YouTube
+// live) expose no audio-only formats at all, only muxed video+audio over HLS,
+// so "best" is the last resort; ffmpeg outputs PCM audio and drops the video.
+const ytdlAudioFormat = "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio[protocol!=m3u8_native][protocol!=m3u8]/bestaudio/best"
+
 // YTDLPAvailable reports whether yt-dlp is installed and on PATH.
 func YTDLPAvailable() bool {
 	_, err := exec.LookPath("yt-dlp")
@@ -271,13 +278,8 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 	}
 
 	// Start yt-dlp: download best audio to stdout.
-	// Prefer direct HTTPS/HTTP streams over HLS (m3u8). HLS requires segment
-	// downloading and muxing which doesn't pipe cleanly to stdout.
-	// Live streams (e.g. YouTube live) expose no audio-only formats at all,
-	// only muxed video+audio over HLS, so fall back to "best" as a last
-	// resort; the ffmpeg stage below outputs PCM audio and drops the video.
 	ytdlArgs := []string{
-		"-f", "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio[protocol!=m3u8_native][protocol!=m3u8]/bestaudio/best",
+		"-f", ytdlAudioFormat,
 		"--no-playlist",
 		"--quiet",
 		"--no-warnings",

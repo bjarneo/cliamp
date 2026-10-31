@@ -374,8 +374,15 @@ func decodeFFmpegStream(path string, sr beep.SampleRate, bitDepth int) (*ffmpegP
 // initializes fp. When stdin is non-nil, an OS pipe feeds ffmpeg stdin via a
 // background pump so cmd.Wait never blocks on stdin reads.
 func initFFmpegPipe(fp *ffmpegPipe, input string, stdin io.ReadCloser, sr beep.SampleRate, bitDepth int) (beep.Format, error) {
+	return initFFmpegPipeArgs(fp, []string{"-i", input}, stdin, sr, bitDepth)
+}
+
+// initFFmpegPipeArgs is initFFmpegPipe with the full input arguments, for
+// callers that set input options such as -ss or request headers before -i.
+func initFFmpegPipeArgs(fp *ffmpegPipe, inputArgs []string, stdin io.ReadCloser, sr beep.SampleRate, bitDepth int) (beep.Format, error) {
 	_, _, precision := ffmpegPCMArgs(bitDepth)
-	cmd := exec.Command("ffmpeg", append([]string{"-i", input}, pcmOutputArgs(sr, bitDepth)...)...)
+	args := append(append([]string{}, inputArgs...), pcmOutputArgs(sr, bitDepth)...)
+	cmd := exec.Command("ffmpeg", args...)
 	proc := newFFmpegProcess(cmd)
 
 	pcmR, pcmW, err := os.Pipe()
