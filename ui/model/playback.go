@@ -386,6 +386,9 @@ func (m *Model) undoPlaylistMutation() tea.Cmd {
 	}
 	m.playlist.Restore(undo.snapshot)
 	m.normalizeQueueOverlay()
+	// The restored queue can be another list altogether, such as the one a
+	// song mix replaced, so its album headers follow its own tracks.
+	m.recountHeaderState(m.playlist.Tracks())
 	m.playlistUndo = playlistUndo{}
 	if m.plCursor >= m.playlist.Len() {
 		m.plCursor = max(0, m.playlist.Len()-1)
