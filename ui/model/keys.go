@@ -962,16 +962,36 @@ func (m *Model) saveTrack() tea.Cmd {
 		m.status.Warning("Nothing to save", statusTTLShort)
 		return nil
 	}
+	directory := m.downloadsDirectory
+	if save, ok := m.providerTrackSave(track); ok {
+		m.status.Clear()
+		m.save.startDownload()
+		return func() tea.Msg {
+			path, existed, err := save(context.Background(), directory)
+			return trackSavedMsg{path: path, err: err, download: true, existed: existed}
+		}
+	}
 	download := tracksave.NeedsDownload(track)
 	if download {
 		m.status.Clear()
 		m.save.startDownload()
 	}
-	directory := m.downloadsDirectory
 	return func() tea.Msg {
 		path, err := tracksave.SaveTo(context.Background(), track, directory)
 		return trackSavedMsg{path: path, err: err, download: download}
 	}
+}
+
+// providerTrackSave returns how to save track through the provider that
+// streams it, which hands over the original file, when one can.
+func (m *Model) providerTrackSave(track playlist.Track) (func(ctx context.Context, directory string) (string, bool, error), bool) {
+	d, _ := findCapable(m, func(d provider.TrackDownloader) bool { return d.CanDownloadTrack(track) })
+	if d == nil {
+		return nil, false
+	}
+	return func(ctx context.Context, directory string) (string, bool, error) {
+		return tracksave.SaveFrom(ctx, track, directory, d.OpenTrackFile)
+	}, true
 }
 
 func (m *Model) openJumpMode() {

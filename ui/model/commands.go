@@ -136,7 +136,8 @@ type ytdlBatchMsg struct {
 type trackSavedMsg struct {
 	path     string
 	err      error
-	download bool // the save ran yt-dlp and counts as a pending download
+	download bool // the save downloaded and counts as a pending download
+	existed  bool // the file was saved before, so nothing was downloaded
 }
 
 // — Navidrome browser message types —

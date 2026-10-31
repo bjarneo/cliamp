@@ -3,6 +3,7 @@ package plex
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -1029,5 +1030,36 @@ func TestProviderTrackAlbumAndArtist(t *testing.T) {
 		if _, ok := p.ArtistFilter(tr); ok {
 			t.Fatalf("ArtistFilter(%q) found a filter", tr.Path)
 		}
+	}
+}
+
+// A Plex track downloads its original part with the token in a header, and
+// names the part's extension.
+func TestProviderOpenTrackFile(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/library/parts/6/66/Windowpane.flac" || r.URL.Query().Get("download") != "1" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.Header.Get("X-Plex-Token") != "tok" || r.URL.Query().Get("X-Plex-Token") != "" {
+			t.Errorf("token header %q, query %q; want the header only", r.Header.Get("X-Plex-Token"), r.URL.Query().Get("X-Plex-Token"))
+		}
+		fmt.Fprint(w, "flac bytes")
+	}))
+	defer srv.Close()
+	p := newProvider(NewClient(srv.URL, "tok"))
+	track := p.convertTracks([]Track{{RatingKey: "6", Title: "Windowpane", PartKey: "/library/parts/6/66/Windowpane.flac"}}, 0)[0]
+
+	if !p.CanDownloadTrack(track) || p.CanDownloadTrack(playlist.Track{Path: "/local/song.flac"}) {
+		t.Fatal("CanDownloadTrack should accept only Plex tracks")
+	}
+	body, ext, err := p.OpenTrackFile(t.Context(), track)
+	if err != nil {
+		t.Fatalf("OpenTrackFile: %v", err)
+	}
+	defer body.Close()
+	got, _ := io.ReadAll(body)
+	if ext != ".flac" || string(got) != "flac bytes" {
+		t.Fatalf("OpenTrackFile = %q, %q; want .flac and the part's bytes", ext, got)
 	}
 }

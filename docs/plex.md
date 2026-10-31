@@ -126,6 +126,11 @@ brings the old queue back. `Alt+L` opens the Plex browser filtered to the
 albums of the track's artist, with the filter `^Artist — `, which you can
 edit or clear with `Esc`.
 
+`Ctrl+S` saves the playing Plex track: cliamp downloads its original file from
+the server, the one it streams, to the [download
+directory](configuration.md#download-directory) as `Artist - Title.flac` (or
+the file's own extension). A track saved before is not downloaded again.
+
 Press `Ctrl+R` while an open Plex album or playlist is focused to reload it
 and pick up server-side changes. Album contents are cached for up to five
 minutes; Plex playlists are always loaded fresh so smart playlists stay current.

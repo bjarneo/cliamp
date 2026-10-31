@@ -133,7 +133,7 @@ and `Esc` clears it.
 | `[` / `]` | Adjust synced-lyrics timing offset (−/+250 ms) while lyrics show timestamped lines |
 | `i` | From the playlist, open full info for the highlighted item, including Path (`Up`/`Down` or `j`/`k` scroll; `i`/`Esc`/`q` closes) |
 | `Ctrl+I` | Toggle Metadata below Settings for the highlighted playlist item (remembered in `show_metadata`; requires a terminal that distinguishes Ctrl+I from Tab) |
-| `Ctrl+S` | Save track to `[downloads].directory` (default `~/Music/cliamp`) |
+| `Ctrl+S` | Save track to `[downloads].directory` (default `~/Music/cliamp`). A Plex track saves its original file; one saved before is not downloaded again |
 | `w` | Write the highlighted track to a local playlist |
 | `Alt+O` | Open the album of the highlighted track: the queue becomes the album with the cursor on that track, and playback goes on. `Ctrl+Z` brings the old queue back. Plex tracks |
 | `Alt+L` | Show the albums of the highlighted track's artist: open its provider browser filtered to `^Artist — `. Edit the filter as usual; `Esc` clears it. Plex tracks |

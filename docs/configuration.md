@@ -592,8 +592,8 @@ disk or network mount.
 
 ## Download directory
 
-By default, TUI `Ctrl+S` saves yt-dlp downloads and temporary audio files in
-`~/Music/cliamp`. To use another directory, add this setting and restart cliamp:
+By default, TUI `Ctrl+S` saves yt-dlp downloads, temporary audio files, and the
+original files of Plex tracks in `~/Music/cliamp`. To use another directory, add this setting and restart cliamp:
 
 ```toml
 [downloads]

@@ -1,6 +1,8 @@
 package model
 
 import (
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +10,7 @@ import (
 
 	"github.com/bjarneo/cliamp/ipc"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 )
 
 func TestSaveUsesConfiguredDirectory(t *testing.T) {
@@ -164,5 +167,52 @@ func TestSaveTrackStartsDownloadForYTDLTracks(t *testing.T) {
 				t.Errorf("pendingDownloads = %d, want %d", m.save.pendingDownloads, tc.want)
 			}
 		})
+	}
+}
+
+// fakeDownloader streams "dl:" tracks and hands over their files as ".flac".
+type fakeDownloader struct {
+	commandsTestProvider
+	opened int
+}
+
+func (*fakeDownloader) CanDownloadTrack(t playlist.Track) bool {
+	return strings.HasPrefix(t.Path, "dl:")
+}
+func (d *fakeDownloader) OpenTrackFile(context.Context, playlist.Track) (io.ReadCloser, string, error) {
+	d.opened++
+	return io.NopCloser(strings.NewReader("original")), ".flac", nil
+}
+
+// Ctrl+S and IPC save a streamed track through its provider's original file,
+// and a second save finds the file instead of downloading it again.
+func TestSaveDownloadsProviderTrack(t *testing.T) {
+	directory := t.TempDir()
+	tracks := playlist.New()
+	tracks.Add(playlist.Track{Path: "dl:1", Title: "Song", Artist: "Artist", Stream: true})
+	downloader := &fakeDownloader{commandsTestProvider: commandsTestProvider{name: "Fake"}}
+	m := Model{playlist: tracks, providers: []provider.Entry{{Name: "Fake", Provider: downloader}}}
+	m.SetDownloadsDirectory(directory)
+
+	cmd := m.saveTrack()
+	if cmd == nil || m.save.pendingDownloads != 1 {
+		t.Fatalf("Ctrl+S started no download (pending %d)", m.save.pendingDownloads)
+	}
+	msg := cmd().(trackSavedMsg)
+	want := filepath.Join(directory, "Artist - Song.flac")
+	if data, _ := os.ReadFile(want); msg.err != nil || msg.existed || msg.path != want || string(data) != "original" {
+		t.Fatalf("saved %+v, file %q; want %s with the original file", msg, data, want)
+	}
+
+	reply := make(chan ipc.Response, 1)
+	m.handleIPCSave(ipcSaveRequest{Reply: reply})()
+	if response := <-reply; !response.OK || response.Output != want {
+		t.Fatalf("IPC save = %+v, want %s", response, want)
+	}
+
+	msg = m.saveTrack()().(trackSavedMsg)
+	m.handleTrackSaved(msg)
+	if !msg.existed || !strings.Contains(m.status.text, "Already saved to") {
+		t.Fatalf("second save existed=%v, status %q; want the file found", msg.existed, m.status.text)
 	}
 }

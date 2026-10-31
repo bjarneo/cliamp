@@ -570,6 +570,37 @@ func (c *Client) Search(query string) ([]Track, error) {
 	return tracks, nil
 }
 
+// OpenPart opens the original file of a track part, with the token in a
+// request header. The caller closes the body.
+func (c *Client) OpenPart(ctx context.Context, partKey string) (io.ReadCloser, error) {
+	if !strings.HasPrefix(partKey, "/library/parts/") {
+		return nil, fmt.Errorf("plex: download: invalid part")
+	}
+	baseURL, token, err := c.endpoint(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("plex: connect account server: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+partKey+"?download=1", nil)
+	if err != nil {
+		return nil, fmt.Errorf("plex: download: %w", err)
+	}
+	req.Header.Set("X-Plex-Product", "cliamp")
+	req.Header.Set("X-Plex-Client-Identifier", c.clientID)
+	req.Header.Set("X-Plex-Token", token)
+	resp, err := httpclient.Streaming.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("plex: download: server unreachable: %w", netdiag.Explain(err))
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusUnauthorized {
+			return nil, fmt.Errorf("plex: token invalid or expired")
+		}
+		return nil, fmt.Errorf("plex: download: HTTP %s", resp.Status)
+	}
+	return resp.Body, nil
+}
+
 // StreamURL returns the authenticated HTTP URL for streaming a track part.
 // partKey is the relative path from the Part element, e.g. "/library/parts/…/file.flac".
 // The token is appended as a query parameter; Plex accepts it in either header or query form.

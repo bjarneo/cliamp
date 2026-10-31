@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -52,6 +54,7 @@ var (
 	_ provider.TrackFavoriteLoader = (*Provider)(nil)
 	_ provider.TrackAlbumResolver  = (*Provider)(nil)
 	_ provider.TrackArtistFilter   = (*Provider)(nil)
+	_ provider.TrackDownloader     = (*Provider)(nil)
 	_ provider.ProgressReporter    = (*Provider)(nil)
 	_ provider.QueueContinuer      = (*Provider)(nil)
 )
@@ -550,6 +553,37 @@ func (p *Provider) ArtistFilter(track playlist.Track) (string, bool) {
 		return "", false
 	}
 	return "^" + track.Artist + " — ", true
+}
+
+// CanDownloadTrack reports whether track is a Plex track. It does no I/O.
+// Implements provider.TrackDownloader.
+func (p *Provider) CanDownloadTrack(track playlist.Track) bool {
+	return plexTrackID(track) != ""
+}
+
+// OpenTrackFile opens the original file of a Plex track, the one it streams,
+// and names its extension from the part path. Implements
+// provider.TrackDownloader.
+func (p *Provider) OpenTrackFile(ctx context.Context, track playlist.Track) (io.ReadCloser, string, error) {
+	id := plexTrackID(track)
+	if id == "" {
+		return nil, "", fmt.Errorf("plex: %q is not a Plex track", track.Path)
+	}
+	p.mu.Lock()
+	partKey := p.partKeys[id]
+	p.mu.Unlock()
+	if partKey == "" {
+		t, err := p.client.Track(id)
+		if err != nil {
+			return nil, "", fmt.Errorf("plex: download track %s: %w", id, err)
+		}
+		partKey = t.PartKey
+	}
+	body, err := p.client.OpenPart(ctx, partKey)
+	if err != nil {
+		return nil, "", err
+	}
+	return body, path.Ext(partKey), nil
 }
 
 // stationLists returns the radio stations of the music sections as browser
