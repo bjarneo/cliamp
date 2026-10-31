@@ -26,9 +26,10 @@ type trackPipeline struct {
 	ytdlSeek bool
 
 	// ytdlMedia is the direct media URL of a yt-dlp page, kept so a seek can
-	// restart ffmpeg at the offset without running yt-dlp again. nil until the
-	// first seek resolves it. ytdlNoDirect records that the page has no direct
-	// HTTP format, so later seeks skip the resolve.
+	// restart ffmpeg at the offset without running yt-dlp again. It is set
+	// when the pipeline reads that URL, and nil when it plays the yt-dlp pipe.
+	// ytdlNoDirect records that the page has no usable direct format, so later
+	// seeks skip the resolve.
 	ytdlMedia    *ytdlMedia
 	ytdlNoDirect bool
 
@@ -96,6 +97,15 @@ func (tp *trackPipeline) close() {
 	if tp.livePrefetch != nil {
 		tp.livePrefetch.Wait()
 	}
+}
+
+// streamErr is the error of the stream, for example a dropped connection. A
+// live prefetch reports it once the audio it buffered has played.
+func (tp *trackPipeline) streamErr() error {
+	if tp.livePrefetch != nil {
+		return tp.livePrefetch.Err()
+	}
+	return tp.decoder.Err()
 }
 
 // interrupt unblocks a pipe decoder without waiting for its process. It is

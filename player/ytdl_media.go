@@ -239,3 +239,24 @@ func (p *Player) buildYTDLDirectPipeline(pageURL string, media *ytdlMedia, start
 		streamOffset: time.Duration(startSec) * time.Second,
 	}, true), nil
 }
+
+// noteYTDLDirectFailure records the page of tp when tp read its direct media
+// URL and the read failed, so the next start of that page uses the pipe. The
+// page stays recorded until the direct read of another page fails: a page
+// that failed once plays as it did before the direct reads existed.
+func (p *Player) noteYTDLDirectFailure(tp *trackPipeline) {
+	if tp.ytdlMedia == nil || tp.streamErr() == nil {
+		return
+	}
+	p.mu.Lock()
+	p.ytdlDirectFailed = tp.path
+	p.mu.Unlock()
+}
+
+// ytdlDirectFailedFor reports whether the direct read of pageURL failed
+// mid-track.
+func (p *Player) ytdlDirectFailedFor(pageURL string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.ytdlDirectFailed == pageURL
+}

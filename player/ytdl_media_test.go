@@ -345,3 +345,66 @@ func TestBuildYTDLSourceFallsBackToThePipe(t *testing.T) {
 		})
 	}
 }
+
+// failedReadDecoder is a decoder whose read has failed.
+type failedReadDecoder struct {
+	*playbackTestDecoder
+	err error
+}
+
+func (d *failedReadDecoder) Err() error { return d.err }
+
+// A direct read that fails mid-track makes the reconnect start the page from
+// the pipe, so the failure does not repeat. A clean stop or a failed pipe
+// leaves the direct reads on.
+func TestStopAfterAFailedDirectReadStartsThePageFromThePipe(t *testing.T) {
+	const page = "https://music.youtube.com/watch?v=fail"
+	tests := []struct {
+		name     string
+		media    *ytdlMedia
+		err      error
+		wantPipe bool
+	}{
+		{name: "direct read failed", media: &ytdlMedia{url: "https://media.example/a"}, err: errors.New("ffmpeg decode: exit status 1"), wantPipe: true},
+		{name: "clean stop", media: &ytdlMedia{url: "https://media.example/a"}},
+		{name: "pipe failed", err: errors.New("yt-dlp: exit status 1")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolveLog, ffmpegLog := installYTDLSeekFixtures(t, "240\nhttps://media.example/a?expire=4000000000\n{}\n", false)
+			p := newTestPlayer()
+			p.gapless = &gaplessStreamer{}
+			p.suspended = true // Avoid a real speaker context.
+			decoder := &failedReadDecoder{playbackTestDecoder: newPlaybackTestDecoder(), err: tt.err}
+			p.current = &trackPipeline{decoder: decoder, stream: decoder, path: page, ytdlSeek: true, ytdlMedia: tt.media}
+			p.Stop()
+
+			tp, err := p.buildYTDLSource(page, time.Minute, false)
+			if err != nil {
+				t.Fatalf("buildYTDLSource() error = %v", err)
+			}
+			defer tp.close()
+			gotPipe := tp.ytdlMedia == nil
+			if gotPipe != tt.wantPipe || tp.ytdlNoDirect != tt.wantPipe {
+				t.Fatalf("pipeline media = %v, noDirect = %v, want pipe %v", tp.ytdlMedia, tp.ytdlNoDirect, tt.wantPipe)
+			}
+			if log, _ := os.ReadFile(ffmpegLog); strings.Contains(string(log), "-i pipe:0") != tt.wantPipe {
+				t.Fatalf("ffmpeg runs:\n%s\nwant the yt-dlp pipe %v", log, tt.wantPipe)
+			}
+			if tt.wantPipe {
+				if got := fixtureLineCount(t, resolveLog); got != 0 {
+					t.Fatalf("yt-dlp resolves = %d, want 0 for the pipe", got)
+				}
+				// Another page still plays from its direct URL.
+				other, err := p.buildYTDLSource("https://music.youtube.com/watch?v=other", 0, false)
+				if err != nil {
+					t.Fatalf("buildYTDLSource(other) error = %v", err)
+				}
+				defer other.close()
+				if other.ytdlMedia == nil {
+					t.Fatal("another page plays the pipe, want its direct URL")
+				}
+			}
+		})
+	}
+}

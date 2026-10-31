@@ -375,12 +375,21 @@ func (p *Player) buildYTDLPipeline(pageURL string, startSec int) (*trackPipeline
 
 // buildYTDLSource starts pageURL at 0. A YouTube page plays from its direct
 // media URL (see buildYTDLDirectSource); any other page plays through the
-// yt-dlp | ffmpeg chain.
+// yt-dlp | ffmpeg chain. So does a YouTube page whose direct read failed
+// mid-track, so that the reconnect that follows does not hit the same failure.
 func (p *Player) buildYTDLSource(pageURL string, knownDuration time.Duration, probe bool) (*trackPipeline, error) {
-	if directSeekPage(pageURL) {
+	if !directSeekPage(pageURL) {
+		return p.buildYTDLPipeSource(pageURL, knownDuration, probe)
+	}
+	if !p.ytdlDirectFailedFor(pageURL) {
 		return p.buildYTDLDirectSource(pageURL, knownDuration, probe)
 	}
-	return p.buildYTDLPipeSource(pageURL, knownDuration, probe)
+	tp, err := p.buildYTDLPipeSource(pageURL, knownDuration, probe)
+	if err != nil {
+		return nil, err
+	}
+	tp.ytdlNoDirect = true
+	return tp, nil
 }
 
 // buildYTDLPipeSource starts the yt-dlp | ffmpeg chain for pageURL at 0. With
