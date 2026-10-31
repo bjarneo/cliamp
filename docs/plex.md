@@ -120,6 +120,12 @@ of the same queue are appended, so the station plays on without end. Press
 `Ctrl+R` while the station is open for a fresh selection. The `stations`
 setting picks which stations appear.
 
+On a Plex track in the playlist, `Alt+O` opens its album: the queue becomes
+the album, the cursor lands on the track, and playback goes on; `Ctrl+Z`
+brings the old queue back. `Alt+L` opens the Plex browser filtered to the
+albums of the track's artist, with the filter `^Artist — `, which you can
+edit or clear with `Esc`.
+
 Press `Ctrl+R` while an open Plex album or playlist is focused to reload it
 and pick up server-side changes. Album contents are cached for up to five
 minutes; Plex playlists are always loaded fresh so smart playlists stay current.

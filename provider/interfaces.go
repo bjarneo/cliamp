@@ -475,6 +475,20 @@ type CodeAuthenticator interface {
 	Authenticate(code string) error
 }
 
+// TrackAlbumResolver is implemented by providers that can name the album of
+// one of their tracks as one of their lists, so the UI can open the album
+// from the track. AlbumForTrack must not do I/O.
+type TrackAlbumResolver interface {
+	AlbumForTrack(track playlist.Track) (playlist.PlaylistInfo, bool)
+}
+
+// TrackArtistFilter is implemented by providers whose list filter can show
+// the lists of a track's artist, so the UI can open them from the track.
+// ArtistFilter returns that filter query and must not do I/O.
+type TrackArtistFilter interface {
+	ArtistFilter(track playlist.Track) (string, bool)
+}
+
 // QueueContinuer is implemented by providers whose lists never end, such as
 // radio stations, that load them in batches. When the last track of a batch
 // starts, the UI asks for the next batch and appends it to the queue.

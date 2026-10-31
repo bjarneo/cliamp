@@ -390,6 +390,9 @@ func (m *Model) undoPlaylistMutation() tea.Cmd {
 	// song mix replaced, so its album headers follow its own tracks.
 	m.recountHeaderState(m.playlist.Tracks())
 	m.playlistUndo = playlistUndo{}
+	if i := trackIndexByPath(m.playlist.Tracks(), undo.cursorPath); undo.cursorPath != "" && i >= 0 {
+		m.plCursor = i
+	}
 	if m.plCursor >= m.playlist.Len() {
 		m.plCursor = max(0, m.playlist.Len()-1)
 	}

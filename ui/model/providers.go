@@ -152,6 +152,11 @@ func (m *Model) replaceProviderLists(lists []playlist.PlaylistInfo) {
 		selectedID = m.provPane.lists[m.provPane.cursor].ID
 	}
 	m.provPane.lists = providerListsWithBrowse(m.provider, lists)
+	if _, catalog := m.provider.(provider.CatalogSearcher); m.provSearch.active && m.provSearch.query != "" && !catalog {
+		// A filter set before the lists arrived, as Alt+L sets one, applies
+		// to them now.
+		m.updateProvSearch()
+	}
 	m.provPane.cursor = max(0, min(m.provPane.cursor, len(m.provPane.lists)-1))
 	if selectedID != "" {
 		for i, item := range m.provPane.lists {

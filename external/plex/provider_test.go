@@ -993,3 +993,41 @@ func TestProviderLoadFavoriteStates(t *testing.T) {
 		t.Fatalf("second load: err %v, requests %d; want none", err, len(sent()))
 	}
 }
+
+// A Plex track names its album as a list that Tracks opens, from its
+// ProviderMeta or, for a restored track saved without it, from the metadata
+// LoadFavoriteStates fetched; and it names the filter of its artist.
+func TestProviderTrackAlbumAndArtist(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"MediaContainer":{"Metadata":[{"ratingKey":"7","title":"Song","parentRatingKey":"70"}]}}`)
+	}))
+	defer srv.Close()
+	p := newProvider(NewClient(srv.URL, "tok"))
+	p.playlistCache = []playlist.PlaylistInfo{{ID: "60", Name: "Opeth — Damnation (2003)", Section: sectionAlbums}}
+
+	fresh := p.convertTracks([]Track{{RatingKey: "6", Title: "Windowpane", ArtistName: "Opeth", AlbumName: "Damnation", AlbumKey: "60", PartKey: "/p/6"}}, 0)[0]
+	if album, ok := p.AlbumForTrack(fresh); !ok || album.Name != "Opeth — Damnation (2003)" || album.ID != "60" {
+		t.Fatalf("AlbumForTrack(listed) = %+v, %v; want the cached album list", album, ok)
+	}
+
+	restored := playlist.Track{Path: TrackURIPrefix + "7", Artist: "Opeth", Album: "Ghost Reveries", ProviderMeta: map[string]string{provider.MetaPlexID: "7"}}
+	if _, ok := p.AlbumForTrack(restored); ok {
+		t.Fatal("AlbumForTrack found an album before any metadata")
+	}
+	if err := p.LoadFavoriteStates(t.Context(), []playlist.Track{restored}); err != nil {
+		t.Fatalf("LoadFavoriteStates: %v", err)
+	}
+	if album, ok := p.AlbumForTrack(restored); !ok || album.ID != "70" || album.Name != "Opeth — Ghost Reveries" {
+		t.Fatalf("AlbumForTrack(restored) = %+v, %v; want album 70", album, ok)
+	}
+
+	if q, ok := p.ArtistFilter(fresh); !ok || q != "^Opeth — " {
+		t.Fatalf("ArtistFilter = %q, %v; want ^Opeth — ", q, ok)
+	}
+	for _, tr := range []playlist.Track{{Path: "/local/song.mp3", Artist: "Opeth"}, {Path: TrackURIPrefix + "8"}} {
+		if _, ok := p.ArtistFilter(tr); ok {
+			t.Fatalf("ArtistFilter(%q) found a filter", tr.Path)
+		}
+	}
+}

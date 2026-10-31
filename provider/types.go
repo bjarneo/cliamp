@@ -73,6 +73,8 @@ func YearFromDate(date string) int {
 const (
 	MetaNavidromeID = "navidrome.id"
 	MetaPlexID      = "plex.id"
+	// MetaPlexAlbumID is the ratingKey of a Plex track's album.
+	MetaPlexAlbumID = "plex.album_id"
 	MetaJellyfinID  = "jellyfin.id"
 	MetaEmbyID      = "emby.id"
 	MetaNetEaseID   = "netease.id"

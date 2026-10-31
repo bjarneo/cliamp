@@ -160,6 +160,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.handleTracksLoaded(msg)
 		return m, cmd
 
+	case albumOpenedMsg:
+		return m, m.handleAlbumOpened(msg)
+
 	case navArtistsLoadedMsg:
 		m.handleNavArtistsLoaded(msg)
 		return m, nil

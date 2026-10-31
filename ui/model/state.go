@@ -37,6 +37,9 @@ type playlistUndo struct {
 	persisted bool
 	removed   playlist.Track
 	savedIdx  int
+	// cursorPath is the track the cursor returns to, for an edit that
+	// replaced the whole queue.
+	cursorPath string
 }
 
 // netSearchScreenType identifies which screen of the net search overlay is active.

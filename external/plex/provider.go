@@ -50,6 +50,8 @@ var (
 	_ provider.TrackFavoriter      = (*Provider)(nil)
 	_ provider.TrackFavoriteState  = (*Provider)(nil)
 	_ provider.TrackFavoriteLoader = (*Provider)(nil)
+	_ provider.TrackAlbumResolver  = (*Provider)(nil)
+	_ provider.TrackArtistFilter   = (*Provider)(nil)
 	_ provider.ProgressReporter    = (*Provider)(nil)
 	_ provider.QueueContinuer      = (*Provider)(nil)
 )
@@ -66,7 +68,10 @@ type Provider struct {
 	trackCache    map[string]trackCacheEntry
 	partKeys      map[string]string
 	favorites     map[string]bool
-	stations      []string // [plex] stations: nil shows all, empty hides all
+	// albumKeys maps a track ratingKey to its album's, for tracks whose
+	// ProviderMeta predates the album key, such as a restored list.
+	albumKeys map[string]string
+	stations  []string // [plex] stations: nil shows all, empty hides all
 	// stationQueues maps the path of the last track of each station batch
 	// to the server play queue that continues after it.
 	stationQueues map[string]stationQueue
@@ -279,7 +284,7 @@ func (p *Provider) convertTracks(plexTracks []Track, limit int) []playlist.Track
 			TrackNumber:  t.TrackNumber,
 			DurationSecs: t.Duration / 1000,
 			Stream:       true,
-			ProviderMeta: map[string]string{provider.MetaPlexID: t.RatingKey},
+			ProviderMeta: trackMeta(t),
 		})
 		if limit > 0 && len(tracks) >= limit {
 			break
@@ -320,6 +325,16 @@ func (p *Provider) ResolveSource(uri string) (string, error) {
 		p.mu.Unlock()
 	}
 	return p.client.StreamURL(partKey), nil
+}
+
+// trackMeta returns the ProviderMeta of a Plex track: its ratingKey and, when
+// known, its album's.
+func trackMeta(t Track) map[string]string {
+	meta := map[string]string{provider.MetaPlexID: t.RatingKey}
+	if validRatingKey(t.AlbumKey) {
+		meta[provider.MetaPlexAlbumID] = t.AlbumKey
+	}
+	return meta
 }
 
 func trackIDFromPath(path string) (string, bool) {
@@ -393,10 +408,14 @@ func (p *Provider) LoadFavoriteStates(ctx context.Context, tracks []playlist.Tra
 		if p.favorites == nil {
 			p.favorites = make(map[string]bool)
 		}
+		if p.albumKeys == nil {
+			p.albumKeys = make(map[string]string)
+		}
 		for _, t := range found {
 			if _, known := p.favorites[t.RatingKey]; !known {
 				p.favorites[t.RatingKey] = t.UserRating >= 10
 			}
+			p.albumKeys[t.RatingKey] = t.AlbumKey
 		}
 		p.mu.Unlock()
 	}
@@ -489,6 +508,48 @@ func (p *Provider) ContinueAfter(track playlist.Track) ([]playlist.Track, error)
 		return nil, err
 	}
 	return p.stationBatchTracks(page), nil
+}
+
+// AlbumForTrack names the album of a Plex track as a list that Tracks opens.
+// A restored track saved without the album key uses the one LoadFavoriteStates
+// fetched. It does no I/O.
+// Implements provider.TrackAlbumResolver.
+func (p *Provider) AlbumForTrack(track playlist.Track) (playlist.PlaylistInfo, bool) {
+	trackID := plexTrackID(track)
+	if trackID == "" {
+		return playlist.PlaylistInfo{}, false
+	}
+	p.mu.Lock()
+	id := track.Meta(provider.MetaPlexAlbumID)
+	if id == "" {
+		id = p.albumKeys[trackID]
+	}
+	if !validRatingKey(id) {
+		p.mu.Unlock()
+		return playlist.PlaylistInfo{}, false
+	}
+	for _, l := range p.playlistCache {
+		if l.ID == id {
+			p.mu.Unlock()
+			return l, true
+		}
+	}
+	p.mu.Unlock()
+	name := track.Album
+	if track.Artist != "" {
+		name = track.Artist + " — " + name
+	}
+	return playlist.PlaylistInfo{ID: id, Name: name, Section: sectionAlbums}, true
+}
+
+// ArtistFilter returns the browser filter that shows the albums of a Plex
+// track's artist: the album rows start with the artist and a dash. It does
+// no I/O. Implements provider.TrackArtistFilter.
+func (p *Provider) ArtistFilter(track playlist.Track) (string, bool) {
+	if plexTrackID(track) == "" || strings.TrimSpace(track.Artist) == "" {
+		return "", false
+	}
+	return "^" + track.Artist + " — ", true
 }
 
 // stationLists returns the radio stations of the music sections as browser

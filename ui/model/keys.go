@@ -283,6 +283,11 @@ func (m *Model) handleGlobalKey(msg tea.KeyPressMsg) (cmd tea.Cmd, ok bool) {
 	}
 	switch msg.String() {
 	case "ctrl+z":
+		if m.playlistUndo.cursorPath != "" {
+			// Undoing a whole-queue replace puts the cursor back on its
+			// track, not on the row it had in the replacing queue.
+			return m.undoPlaylistMutation(), true
+		}
 		m.keepPlCursorRow(func() { cmd = m.undoPlaylistMutation() })
 		return cmd, true
 	case "ctrl+k":
@@ -760,6 +765,12 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "u":
 		m.urlInput = urlInputState{active: true}
+
+	case "alt+o":
+		return m.openTrackAlbum()
+
+	case "alt+l":
+		return m.openTrackArtist()
 
 	case "N":
 		if cmd, ok := m.openSelectedTrackArtistBrowser(); ok {
