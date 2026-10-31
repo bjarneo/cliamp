@@ -1,12 +1,23 @@
-// Package fuzzy provides lightweight case-insensitive fuzzy subsequence
-// matching with relevance scoring. It ranks in-memory search results (the
-// playlist search and the file browser filter) without an external dependency:
-// a greedy subsequence scan with a few positional bonuses is enough to rank
-// track and file names, and stays small and allocation-light on the hot path
-// of every keystroke.
+// Package fuzzy provides lightweight case-insensitive fuzzy matching with
+// relevance scoring. It ranks in-memory search results (the playlist search,
+// the provider browser and the file browser filters) without an external
+// dependency, and stays small and allocation-light on the hot path of every
+// keystroke.
+//
+// A query is split into words at whitespace, and every word must match, in
+// any order. A query word matches when its characters appear in order and the
+// match enters each target word at its first character: "mtlc rld" finds
+// "Metallica - Reload" and "lst" finds "Love Story", but "opeth" does not find
+// "Polyphia - Deny the Flesh". A query word that is a literal substring of the
+// target also matches, below those.
 package fuzzy
 
-import "unicode"
+import (
+	"slices"
+	"strings"
+	"sync"
+	"unicode"
+)
 
 // Scoring weights. In order of preference, a candidate ranks higher when the
 // match starts at the very beginning of the string, follows a word boundary,
@@ -18,6 +29,9 @@ const (
 	bonusConsecutive = 4 // matched rune immediately follows the previous match
 )
 
+// noMatch marks an impossible state in the scoring table.
+const noMatch = -1
+
 // isSeparator reports whether r delimits a word for boundary scoring.
 func isSeparator(r rune) bool {
 	switch r {
@@ -27,41 +41,154 @@ func isSeparator(r rune) bool {
 	return false
 }
 
-// Match reports whether query is a case-insensitive subsequence of target and,
-// if so, a relevance score where higher is a better match. An empty query
-// matches every target with score 0. ok is false when query is not a
-// subsequence of target.
+// Match reports whether every word of query matches target and, if so, a
+// relevance score where higher is a better match. An empty query matches
+// every target with score 0.
 func Match(query, target string) (score int, ok bool) {
-	if query == "" {
+	if strings.TrimSpace(query) == "" {
 		return 0, true
 	}
-	q := []rune(query)
-	qi := 0
-	qlow := unicode.ToLower(q[0]) // current query rune, folded once per advance
-	ti := 0                       // rune index within target
-	lastMatch := -2               // rune index of the previous matched rune
-	var prev rune                 // previous target rune, for boundary detection
-	for _, r := range target {
-		if unicode.ToLower(r) == qlow {
-			score += scoreMatch
-			switch {
-			case ti == 0:
-				score += bonusFirstChar
-			case isSeparator(prev):
-				score += bonusBoundary
-			}
-			if ti == lastMatch+1 {
-				score += bonusConsecutive
-			}
-			lastMatch = ti
-			qi++
-			if qi == len(q) {
-				return score, true
-			}
-			qlow = unicode.ToLower(q[qi])
+	// Most targets miss a word altogether. Reject those before the scoring.
+	for w := range strings.FieldsSeq(query) {
+		if !isSubsequence(w, target) {
+			return 0, false
 		}
-		prev = r
-		ti++
+	}
+	sc := scratchPool.Get().(*scratch)
+	defer scratchPool.Put(sc)
+	sc.t = sc.t[:0]
+	for _, r := range target {
+		sc.t = append(sc.t, unicode.ToLower(r))
+	}
+	sc.starts = sc.starts[:0]
+	for i := range sc.t {
+		sc.starts = append(sc.starts, i == 0 || isSeparator(sc.t[i-1]))
+	}
+	for w := range strings.FieldsSeq(query) {
+		sc.q = sc.q[:0]
+		for _, r := range w {
+			sc.q = append(sc.q, unicode.ToLower(r))
+		}
+		s, ok := sc.matchWord()
+		if !ok {
+			return 0, false
+		}
+		score += s
+	}
+	return score, true
+}
+
+// scratch holds the buffers of one Match call, reused across calls so a
+// search over a long playlist does not allocate per track.
+type scratch struct {
+	q, t      []rune
+	starts    []bool
+	prev, cur []int
+}
+
+var scratchPool = sync.Pool{New: func() any { return new(scratch) }}
+
+// isSubsequence reports whether the runes of q appear in order in target,
+// ignoring case. Every match of q needs this, so it is a cheap first filter.
+func isSubsequence(q, target string) bool {
+	qr := []rune(q)
+	i := 0
+	for _, r := range target {
+		if i == len(qr) {
+			break
+		}
+		if unicode.ToLower(r) == unicode.ToLower(qr[i]) {
+			i++
+		}
+	}
+	return i == len(qr)
+}
+
+// matchWord scores the best match of the query word q in the lowered target
+// t. A query rune may match a target rune that starts a word, or one in the
+// same word as the rune before it. Of all such matches it returns the best
+// score.
+func (sc *scratch) matchWord() (int, bool) {
+	q, t, starts := sc.q, sc.t, sc.starts
+	if len(q) > len(t) {
+		return 0, false
+	}
+	// prev[j] is the best score with the previous query rune at target j.
+	prev := resize(sc.prev, len(t))
+	cur := resize(sc.cur, len(t))
+	defer func() { sc.prev, sc.cur = prev, cur }()
+	for i, qr := range q {
+		bestBefore := noMatch // best prev[k] for any k < j
+		bestInWord := noMatch // best prev[k] for k < j in the word of j
+		for j, tr := range t {
+			if starts[j] {
+				bestInWord = noMatch
+			}
+			cur[j] = noMatch
+			if tr == qr {
+				bonus := 0
+				switch {
+				case j == 0:
+					bonus = bonusFirstChar
+				case starts[j]:
+					bonus = bonusBoundary
+				}
+				if i == 0 {
+					if starts[j] {
+						cur[j] = scoreMatch + bonus
+					}
+				} else {
+					from := bestInWord
+					if starts[j] {
+						from = bestBefore
+					}
+					if j > 0 && prev[j-1] != noMatch && prev[j-1]+bonusConsecutive > from {
+						from = prev[j-1] + bonusConsecutive
+					}
+					if from != noMatch {
+						cur[j] = from + scoreMatch + bonus
+					}
+				}
+			}
+			if i > 0 && prev[j] > bestBefore {
+				bestBefore = prev[j]
+			}
+			if i > 0 && prev[j] > bestInWord {
+				bestInWord = prev[j]
+			}
+		}
+		prev, cur = cur, prev
+	}
+	best := noMatch
+	for _, s := range prev {
+		best = max(best, s)
+	}
+	if best != noMatch {
+		return best, true
+	}
+	// A literal substring that starts inside a word still matches, below the
+	// matches that follow word starts.
+	if containsRunes(t, q) {
+		return len(q)*scoreMatch + (len(q)-1)*bonusConsecutive/2, true
 	}
 	return 0, false
+}
+
+// resize returns buf with length n, reusing its storage when it is large
+// enough.
+func resize(buf []int, n int) []int {
+	if cap(buf) < n {
+		return make([]int, n)
+	}
+	return buf[:n]
+}
+
+// containsRunes reports whether q occurs in t as a contiguous run.
+func containsRunes(t, q []rune) bool {
+	for i := 0; i+len(q) <= len(t); i++ {
+		if slices.Equal(t[i:i+len(q)], q) {
+			return true
+		}
+	}
+	return false
 }

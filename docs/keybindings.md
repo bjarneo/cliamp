@@ -372,9 +372,13 @@ playback if nothing is playing.
 
 ## Fuzzy search
 
-Local search boxes use fuzzy matching. Query characters must appear in order but
-do not need to be next to each other. Results are ranked by relevance, with the
-best match first. For example, `skr` and `saku` both find a track named "Sakura".
+Local search boxes use fuzzy matching. Every word of the query must match, in
+any order. The characters of a query word must appear in order but do not need
+to be next to each other, and the match enters each word of the name at its
+first letter. Results are ranked by relevance, with the best match first. For
+example, `skr` and `saku` both find a track named "Sakura", `lst` finds "Love
+Story", and `mtlc rld` finds "Metallica - Reload". A query word that appears
+inside a word, such as `allica`, also matches, ranked lower.
 
 This applies to:
 
