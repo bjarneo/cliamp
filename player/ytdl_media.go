@@ -1,6 +1,7 @@
 package player
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -30,8 +31,9 @@ var errNoDirectYTDLMedia = errors.New("no direct http format")
 type ytdlMedia struct {
 	url       string
 	userAgent string
-	headers   string    // other request headers as "Key: Value\r\n" lines
-	expires   time.Time // zero when the URL carries no expire parameter
+	headers   string        // other request headers as "Key: Value\r\n" lines
+	expires   time.Time     // zero when the URL carries no expire parameter
+	duration  time.Duration // zero when yt-dlp reports none
 }
 
 // usable reports whether m can still be opened at now.
@@ -62,8 +64,8 @@ func (m *ytdlMedia) inputArgs(startSec int) []string {
 
 // resolveYTDLMedia asks yt-dlp for the direct URL and request headers of the
 // format that the yt-dlp pipe downloads for pageURL.
-func resolveYTDLMedia(pageURL string) (*ytdlMedia, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), ytdlPipeTimeout)
+func resolveYTDLMedia(parent context.Context, pageURL string) (*ytdlMedia, error) {
+	ctx, cancel := context.WithTimeout(parent, ytdlPipeTimeout)
 	defer cancel()
 	args := []string{
 		"-f", ytdlAudioFormat,
@@ -71,6 +73,7 @@ func resolveYTDLMedia(pageURL string) (*ytdlMedia, error) {
 		"--quiet",
 		"--no-warnings",
 		"--socket-timeout", "15",
+		"--print", "duration",
 		"--print", "urls",
 		"--print", "%(http_headers)j",
 	}
@@ -95,14 +98,20 @@ func resolveYTDLMedia(pageURL string) (*ytdlMedia, error) {
 	return parseYTDLMedia(string(out))
 }
 
-// parseYTDLMedia reads the output of `--print urls --print %(http_headers)j`:
-// one URL line, then the headers as a JSON object. A format with separate
-// video and audio prints more than one URL and is not direct.
+// parseYTDLMedia reads the output of `--print duration --print urls --print
+// %(http_headers)j`: the duration in seconds ("NA" when unknown), one URL
+// line, then the headers as a JSON object. A format with separate video and
+// audio prints more than one URL and is not direct.
 func parseYTDLMedia(out string) (*ytdlMedia, error) {
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) != 2 {
+	if len(lines) != 3 {
 		return nil, errNoDirectYTDLMedia
 	}
+	var duration time.Duration
+	if secs, err := strconv.ParseFloat(strings.TrimSpace(lines[0]), 64); err == nil && secs > 0 {
+		duration = time.Duration(secs * float64(time.Second))
+	}
+	lines = lines[1:]
 	u, err := url.Parse(strings.TrimSpace(lines[0]))
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 		return nil, errNoDirectYTDLMedia
@@ -115,7 +124,7 @@ func parseYTDLMedia(out string) (*ytdlMedia, error) {
 		return nil, fmt.Errorf("yt-dlp headers: %w", err)
 	}
 
-	m := &ytdlMedia{url: u.String()}
+	m := &ytdlMedia{url: u.String(), duration: duration}
 	keys := make([]string, 0, len(headers))
 	for k := range headers {
 		keys = append(keys, k)
@@ -163,12 +172,12 @@ func (p *Player) buildYTDLSeekPipeline(cur *trackPipeline, startSec int) (*track
 	fresh := false
 	if !noDirect && !media.usable(time.Now()) {
 		var err error
-		media, err = resolveYTDLMedia(cur.path)
+		media, err = resolveYTDLMedia(context.Background(), cur.path)
 		noDirect = errors.Is(err, errNoDirectYTDLMedia)
 		fresh = media != nil
 	}
 	if media != nil {
-		if tp, err := p.buildYTDLDirectPipeline(cur.path, media, startSec); err == nil {
+		if tp, err := p.buildYTDLDirectPipeline(context.Background(), cur.path, media, startSec); err == nil {
 			return tp, nil
 		}
 		noDirect = fresh
@@ -181,10 +190,55 @@ func (p *Player) buildYTDLSeekPipeline(cur *trackPipeline, startSec int) (*track
 	return tp, nil
 }
 
+// buildYTDLDirectSource starts a YouTube page at 0 from its direct media URL,
+// so the pipeline holds the URL from the start and the first seek needs no
+// yt-dlp run. It costs the same single yt-dlp run as the pipe, and that run
+// also reports the duration, so no separate probe runs. It falls back to the
+// pipe as buildYTDLSeekPipeline does. When stale reports true, it cancels the
+// setup as buildYTDLPipeSource does.
+func (p *Player) buildYTDLDirectSource(pageURL string, knownDuration time.Duration, probe bool, stale func() bool) (*trackPipeline, error) {
+	if stale != nil && stale() {
+		return nil, errSourceSuperseded
+	}
+	ctx, cancel := staleContext(stale)
+	defer cancel()
+	superseded := func() bool { return ctx.Err() != nil || (stale != nil && stale()) }
+
+	media, err := resolveYTDLMedia(ctx, pageURL)
+	if superseded() {
+		return nil, errSourceSuperseded
+	}
+	if media == nil {
+		tp, pipeErr := p.buildYTDLPipeSource(pageURL, knownDuration, probe, stale)
+		if pipeErr != nil {
+			return nil, pipeErr
+		}
+		tp.ytdlNoDirect = errors.Is(err, errNoDirectYTDLMedia)
+		return tp, nil
+	}
+	tp, err := p.buildYTDLDirectPipeline(ctx, pageURL, media, 0)
+	if superseded() {
+		if tp != nil {
+			tp.close()
+		}
+		return nil, errSourceSuperseded
+	}
+	if err != nil {
+		tp, err = p.buildYTDLPipeSource(pageURL, knownDuration, probe && media.duration == 0, stale)
+		if err != nil {
+			return nil, err
+		}
+		tp.ytdlNoDirect = true
+	}
+	// The pipe fallback may already hold a probed duration.
+	tp.knownDuration = cmp.Or(tp.knownDuration, knownDuration, media.duration)
+	return tp, nil
+}
+
 // buildYTDLDirectPipeline starts ffmpeg on the direct media URL of pageURL at
 // startSec and waits for its first audio, as buildYTDLPipeline does for the
 // pipe.
-func (p *Player) buildYTDLDirectPipeline(pageURL string, media *ytdlMedia, startSec int) (*trackPipeline, error) {
+func (p *Player) buildYTDLDirectPipeline(ctx context.Context, pageURL string, media *ytdlMedia, startSec int) (*trackPipeline, error) {
 	if err := requireFFmpeg(); err != nil {
 		return nil, err
 	}
@@ -193,7 +247,7 @@ func (p *Player) buildYTDLDirectPipeline(pageURL string, media *ytdlMedia, start
 	if err != nil {
 		return nil, err
 	}
-	if err := decoder.waitForInitialAudio(ytdlPipeTimeout); err != nil {
+	if err := decoder.waitForAudioBytesContext(ctx, 1, ytdlPipeTimeout); err != nil {
 		_ = decoder.Close()
 		return nil, err
 	}

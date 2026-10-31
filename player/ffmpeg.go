@@ -512,8 +512,14 @@ func (f *ffmpegPipe) waitForInitialAudio(timeout time.Duration) error {
 }
 
 func (f *ffmpegPipe) waitForAudioBytes(n int, timeout time.Duration) error {
+	return f.waitForAudioBytesContext(context.Background(), n, timeout)
+}
+
+// waitForAudioBytesContext works like waitForAudioBytes and stops when ctx
+// cancels.
+func (f *ffmpegPipe) waitForAudioBytesContext(ctx context.Context, n int, timeout time.Duration) error {
 	stop := func() { _ = f.stop() }
-	return peekWithTimeout(f.reader, n, timeout, stop, func(err error) error {
+	return peekWithTimeoutContext(ctx, f.reader, n, timeout, stop, func(err error) error {
 		if f.input != nil {
 			if in, ok := f.input.(interface{ interrupt() }); ok {
 				in.interrupt()

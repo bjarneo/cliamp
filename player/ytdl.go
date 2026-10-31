@@ -420,15 +420,20 @@ func (p *Player) buildYTDLPipelineContext(ctx context.Context, pageURL string, s
 	}
 }
 
-// buildYTDLSource starts the yt-dlp and ffmpeg chain for pageURL at 0.
-// When probe is true and knownDuration is 0, it runs a duration probe in parallel.
-// When stale reports true, it cancels the setup and the duration probe.
+// buildYTDLSource starts pageURL at 0. A YouTube page plays from its direct
+// media URL (see buildYTDLDirectSource); any other page plays through the
+// yt-dlp | ffmpeg chain. When stale reports true, it cancels the setup.
 func (p *Player) buildYTDLSource(pageURL string, knownDuration time.Duration, probe bool, stale func() bool) (*trackPipeline, error) {
-	if stale != nil && stale() {
-		return nil, errSourceSuperseded
+	if directSeekPage(pageURL) {
+		return p.buildYTDLDirectSource(pageURL, knownDuration, probe, stale)
 	}
+	return p.buildYTDLPipeSource(pageURL, knownDuration, probe, stale)
+}
+
+// staleContext returns a context that is cancelled once stale reports true.
+// A nil stale never cancels it. The caller must call the CancelFunc.
+func staleContext(stale func() bool) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	if stale != nil {
 		go func() {
 			ticker := time.NewTicker(25 * time.Millisecond)
@@ -446,6 +451,18 @@ func (p *Player) buildYTDLSource(pageURL string, knownDuration time.Duration, pr
 			}
 		}()
 	}
+	return ctx, cancel
+}
+
+// buildYTDLPipeSource starts the yt-dlp and ffmpeg chain for pageURL at 0.
+// When probe is true and knownDuration is 0, it runs a duration probe in parallel.
+// When stale reports true, it cancels the setup and the duration probe.
+func (p *Player) buildYTDLPipeSource(pageURL string, knownDuration time.Duration, probe bool, stale func() bool) (*trackPipeline, error) {
+	if stale != nil && stale() {
+		return nil, errSourceSuperseded
+	}
+	ctx, cancel := staleContext(stale)
+	defer cancel()
 
 	probe = probe && knownDuration == 0
 	// Probe duration concurrently with pipeline setup so it does not delay playback.
