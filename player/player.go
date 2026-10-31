@@ -610,8 +610,9 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 	}
 	startSec := int(newPos.Seconds())
 
-	// Build pipeline WITHOUT speaker lock (this is the slow part — spawns yt-dlp).
-	tp, err := p.buildYTDLPipeline(cur.path, startSec)
+	// Build pipeline WITHOUT speaker lock (this is the slow part — it may
+	// spawn yt-dlp).
+	tp, err := p.buildYTDLSeekPipeline(cur, startSec)
 	if err != nil {
 		p.restoreYTDLSeekSource(cur, gen)
 		return fmt.Errorf("yt-dlp seek: %w", err)

@@ -25,6 +25,13 @@ type trackPipeline struct {
 	// yt-dlp seek-by-restart: when true, seeking restarts yt-dlp with --download-sections.
 	ytdlSeek bool
 
+	// ytdlMedia is the direct media URL of a yt-dlp page, kept so a seek can
+	// restart ffmpeg at the offset without running yt-dlp again. nil until the
+	// first seek resolves it. ytdlNoDirect records that the page has no direct
+	// HTTP format, so later seeks skip the resolve.
+	ytdlMedia    *ytdlMedia
+	ytdlNoDirect bool
+
 	// Network byte counter — incremented by countingReader for HTTP streams.
 	// nil for local files.
 	bytesRead *atomic.Int64
