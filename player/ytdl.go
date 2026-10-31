@@ -422,12 +422,22 @@ func (p *Player) buildYTDLPipelineContext(ctx context.Context, pageURL string, s
 
 // buildYTDLSource starts pageURL at 0. A YouTube page plays from its direct
 // media URL (see buildYTDLDirectSource); any other page plays through the
-// yt-dlp | ffmpeg chain. When stale reports true, it cancels the setup.
+// yt-dlp | ffmpeg chain. So does a YouTube page whose direct read failed
+// mid-track, so that the reconnect that follows does not hit the same failure.
+// When stale reports true, it cancels the setup.
 func (p *Player) buildYTDLSource(pageURL string, knownDuration time.Duration, probe bool, stale func() bool) (*trackPipeline, error) {
-	if directSeekPage(pageURL) {
+	if !directSeekPage(pageURL) {
+		return p.buildYTDLPipeSource(pageURL, knownDuration, probe, stale)
+	}
+	if !p.ytdlDirectFailedFor(pageURL) {
 		return p.buildYTDLDirectSource(pageURL, knownDuration, probe, stale)
 	}
-	return p.buildYTDLPipeSource(pageURL, knownDuration, probe, stale)
+	tp, err := p.buildYTDLPipeSource(pageURL, knownDuration, probe, stale)
+	if err != nil {
+		return nil, err
+	}
+	tp.ytdlNoDirect = true
+	return tp, nil
 }
 
 // staleContext returns a context that is cancelled once stale reports true.

@@ -89,6 +89,10 @@ type Player struct {
 
 	lastPlayedDuration time.Duration // real duration of the track finished by the last gapless swap
 
+	// ytdlDirectFailed is the YouTube page whose direct media read failed
+	// mid-track. Its next start plays through the yt-dlp pipe. Guarded by mu.
+	ytdlDirectFailed string
+
 	streamTitle atomic.Value // stores string, set by ICY reader callback
 
 	// The source registries are guarded by mu. Register writes them, and
@@ -484,6 +488,8 @@ func (p *Player) Stop() {
 	}
 	p.mu.Unlock()
 	if active != nil {
+		// Read the error before interrupt, which makes ffmpeg fail by itself.
+		p.noteYTDLDirectFailure(active)
 		active.interrupt()
 	}
 	if next != nil {
