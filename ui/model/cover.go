@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"math"
-	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -50,8 +48,6 @@ type coverState struct {
 	block    string
 	imageID  int
 
-	termCols   int
-	termRows   int
 	cellWidth  float64
 	cellHeight float64
 }
@@ -179,9 +175,9 @@ func (m *Model) ensureInfoCover() tea.Cmd {
 		track.AlbumArtURL = playing.AlbumArtURL
 	}
 	key, source, fetcher, ok := m.artworkSource(track)
-	fetch := trackArtwork(fetcher, track)
-	if !ok && localFileTrack(track) {
-		key, fetch, ok = track.Path+"\x00embedded", embeddedArtwork(track), true
+	embedded := !ok && localFileTrack(track)
+	if embedded {
+		key, ok = track.Path+"\x00embedded", true
 	}
 	if !ok {
 		c.reset()
@@ -194,7 +190,10 @@ func (m *Model) ensureInfoCover() tea.Cmd {
 			c.local = m.cover.local
 			c.aspect = m.cover.aspect
 		} else {
-			return loadCoverCmd(coverSlotInfo, key, source, fetch, c.loadGen)
+			if embedded {
+				return loadEmbeddedCoverCmd(coverSlotInfo, key, track, c.loadGen)
+			}
+			return loadCoverCmd(coverSlotInfo, key, source, trackArtwork(fetcher, track), c.loadGen)
 		}
 	}
 	cols, rows, protocol, visible := m.infoCoverGeometry()
@@ -253,12 +252,9 @@ func (m Model) coverGeometry() (cols, rows int, protocol string, visible bool) {
 	return cols, rows, coverProtocol(), true
 }
 
-// cellSize returns the terminal cell size in pixels, cached per terminal size.
+// cellSize returns the terminal cell size in pixels, read on each window
+// resize; zero when the terminal does not report it.
 func (m Model) cellSize() (width, height float64) {
-	if m.cover.termCols != m.width || m.cover.termRows != m.height {
-		m.cover.termCols, m.cover.termRows = m.width, m.height
-		m.cover.cellWidth, m.cover.cellHeight, _ = kittyimg.CellSize()
-	}
 	return m.cover.cellWidth, m.cover.cellHeight
 }
 
@@ -373,19 +369,18 @@ func localFileTrack(track playlist.Track) bool {
 	return track.Path != "" && !track.Stream && !playlist.IsURL(track.Path) && !strings.HasPrefix(track.Path, "ssh://")
 }
 
-// embeddedArtwork reads the cover embedded in the tags of a local file. It
-// runs from a command goroutine, since reading the tags is file I/O.
-func embeddedArtwork(track playlist.Track) func(context.Context) ([]byte, error) {
-	return func(context.Context) ([]byte, error) {
-		art := playlist.RefreshEmbeddedMetadata(track).AlbumArtURL
-		if art == "" {
-			return nil, errNoEmbeddedArt
+// loadEmbeddedCoverCmd reads the cover embedded in the tags of a local file,
+// as playback does. Reading the tags is file I/O, so it runs as a command.
+// The tags are read each time and the image is cached under its content, so
+// a retagged file shows its new cover.
+func loadEmbeddedCoverCmd(slot coverSlot, key string, track playlist.Track, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		local := playlist.RefreshEmbeddedMetadata(track).AlbumArtURL
+		var err error
+		if local == "" {
+			err = errNoEmbeddedArt
 		}
-		u, err := url.Parse(art)
-		if err != nil {
-			return nil, err
-		}
-		return os.ReadFile(u.Path)
+		return coverLoaded(slot, key, local, gen, err)
 	}
 }
 
@@ -412,14 +407,18 @@ func loadCoverCmd(slot coverSlot, key, source string, fetch func(context.Context
 				}
 			}
 		}
-		msg := coverLoadedMsg{slot: slot, key: key, local: local, gen: gen, err: err}
-		if err == nil {
-			// The aspect only sizes the info-overlay cover; a failure keeps
-			// the cover usable for the square pane and notifications.
-			msg.aspect, _ = kittyimg.Aspect(local)
-		}
-		return msg
+		return coverLoaded(slot, key, local, gen, err)
 	}
+}
+
+func coverLoaded(slot coverSlot, key, local string, gen uint64, err error) coverLoadedMsg {
+	msg := coverLoadedMsg{slot: slot, key: key, local: local, gen: gen, err: err}
+	if err == nil {
+		// The aspect only sizes the info-overlay cover; a failure keeps
+		// the cover usable for the square pane and notifications.
+		msg.aspect, _ = kittyimg.Aspect(local)
+	}
+	return msg
 }
 
 func renderCoverCmd(slot coverSlot, key, source string, cols, rows int, protocol string, reuseID int, gen uint64) tea.Cmd {

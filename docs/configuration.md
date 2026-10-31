@@ -91,9 +91,9 @@ visualizer = "Bars"
 
 # Album cover beside the visualizer when Metadata is open: auto, on, or off
 # (default: auto).
-# Auto shows the cover only where native terminal graphics work: Kitty,
-# Ghostty, and WezTerm. Other terminals show no cover; "on" forces a blurry
-# ANSI half-block fallback there.
+# Auto shows the cover only where native terminal graphics work: Kitty and
+# Ghostty. Other terminals show no cover; "on" forces a blurry ANSI
+# half-block fallback there.
 # The square cover is as wide as the Settings pane, and the visualizer beside
 # it takes the same rows, as far as space permits.
 # The pane is shown only in the full layout (at least 80x24).

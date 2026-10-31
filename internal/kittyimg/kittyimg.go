@@ -164,9 +164,11 @@ func show(source string, cols, rows int, reuseID int, fill bool) (Placement, err
 		// Keep the source aspect. The placement rectangle is sized from the
 		// terminal's real cell geometry; stretching the PNG to an assumed 8x16
 		// grid would make square covers rectangular and reintroduce letterboxing.
-		scaled := scaleToFit(img, pixelWidth, pixelHeight)
+		var scaled *image.NRGBA
 		if fill {
 			scaled = scaleToFill(img, pixelWidth, pixelHeight)
+		} else {
+			scaled = scaleToFit(img, pixelWidth, pixelHeight)
 		}
 		if err := transmit(id, scaled, cols, rows); err != nil {
 			applog.Warn("kittyimg: transmit: %v", err)

@@ -420,9 +420,9 @@ func TestColumnCoverCols(t *testing.T) {
 	}
 }
 
-// writeTaggedMP3 writes a file that holds only an ID3v2.3 tag with a title
-// and the PNG at cover as its front cover.
-func writeTaggedMP3(t *testing.T, cover string) string {
+// writeTaggedMP3 writes a file at path that holds only an ID3v2.3 tag with a
+// title and the PNG at cover as its front cover.
+func writeTaggedMP3(t *testing.T, path, cover string) {
 	t.Helper()
 	u, err := url.Parse(cover)
 	if err != nil {
@@ -442,34 +442,41 @@ func writeTaggedMP3(t *testing.T, cover string) string {
 	body = append(body, frame("APIC", append([]byte("\x00image/png\x00\x03\x00"), png...))...)
 	n := len(body)
 	header := []byte{'I', 'D', '3', 3, 0, 0, byte(n >> 21 & 0x7f), byte(n >> 14 & 0x7f), byte(n >> 7 & 0x7f), byte(n & 0x7f)}
-	path := filepath.Join(t.TempDir(), "tagged.mp3")
 	if err := os.WriteFile(path, append(header, body...), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return path
 }
 
 // The info overlay shows the cover embedded in a local file that is not
 // playing: the playlist row does not carry it, so the overlay reads the tags.
+// It reads them each time it opens, so a retagged file shows its new cover.
 func TestInfoCoverReadsEmbeddedArt(t *testing.T) {
 	t.Setenv("TERM", "xterm-256color")
 	t.Setenv("HOME", t.TempDir())
 	m := coverTestModel(t, 120, 30)
-	path := writeTaggedMP3(t, writeCoverPNG(t, "embedded.png", 4, 4))
+	path := filepath.Join(t.TempDir(), "tagged.mp3")
 	m.playlist.Replace([]playlist.Track{{Path: "other.mp3", Title: "Other"}, {Path: path, Title: "Tagged"}})
 	m.plCursor = 1
-	m.info.visible = true
 
-	load := m.ensureInfoCover()
-	if load == nil || !m.infoCover.loading {
-		t.Fatal("info overlay did not load the embedded cover")
-	}
-	loaded, ok := load().(coverLoadedMsg)
-	if !ok || loaded.err != nil || loaded.local == "" {
-		t.Fatalf("load = %#v, want the embedded cover", loaded)
-	}
-	m.handleCoverLoaded(loaded)
-	if m.infoCover.aspect != 1 {
-		t.Fatalf("info cover aspect = %v, want 1 for a square image", m.infoCover.aspect)
+	for _, tt := range []struct {
+		width, height int
+		aspect        float64
+	}{{4, 4, 1}, {8, 4, 2}} {
+		writeTaggedMP3(t, path, writeCoverPNG(t, "embedded.png", tt.width, tt.height))
+		m.info.visible = false
+		m.ensureInfoCover()
+		m.info.visible = true
+		load := m.ensureInfoCover()
+		if load == nil || !m.infoCover.loading {
+			t.Fatal("info overlay did not load the embedded cover")
+		}
+		loaded, ok := load().(coverLoadedMsg)
+		if !ok || loaded.err != nil || loaded.local == "" {
+			t.Fatalf("load = %#v, want the embedded cover", loaded)
+		}
+		m.handleCoverLoaded(loaded)
+		if m.infoCover.aspect != tt.aspect {
+			t.Fatalf("info cover aspect = %v, want %v for a %dx%d image", m.infoCover.aspect, tt.aspect, tt.width, tt.height)
+		}
 	}
 }

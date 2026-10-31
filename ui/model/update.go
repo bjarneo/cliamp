@@ -3,6 +3,7 @@ package model
 import (
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/internal/kittyimg"
 	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/ui"
 )
@@ -118,6 +119,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		// A font change resizes the window too, so the cell size stays current.
+		m.cover.cellWidth, m.cover.cellHeight, _ = kittyimg.CellSize()
 		m.recomputeLayout()
 		m.normalizeMainFocus()
 		m.clampActiveScrollState()

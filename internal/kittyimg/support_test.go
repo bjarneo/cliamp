@@ -16,7 +16,7 @@ func TestSupportsGraphics(t *testing.T) {
 	}{
 		{name: "kitty term", term: "xterm-kitty", want: true},
 		{name: "ghostty term", term: "xterm-ghostty", want: true},
-		{name: "wezterm program", term: "xterm-256color", program: "WezTerm", want: true},
+		{name: "wezterm program", term: "xterm-256color", program: "WezTerm", want: false},
 		{name: "plain terminal", term: "xterm-256color", want: false},
 	}
 	for _, tt := range tests {

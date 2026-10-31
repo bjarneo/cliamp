@@ -108,8 +108,8 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
 # Album cover beside the visualizer while Metadata is shown: "auto", "on", or
 # "off" (default: "auto").
-# Auto shows the cover only with native graphics (Kitty, Ghostty, WezTerm);
-# other terminals show none. "on" forces a blurry ANSI half-block fallback
+# Auto shows the cover only with native graphics (Kitty, Ghostty); other
+# terminals show none. "on" forces a blurry ANSI half-block fallback
 # there. The square cover is as wide as the Settings pane, and the visualizer
 # beside it takes the same rows, as far as space permits. The pane needs the
 # full 80x24 layout and is hidden in simplified mode. The track info overlay
