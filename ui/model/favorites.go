@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
@@ -132,6 +133,43 @@ func (m *Model) syncTrackFavoriteCmd(track playlist.Track, favorite bool) tea.Cm
 			return nil
 		}
 		return trackFavoriteSyncedMsg{provider: name, path: track.Path, favorite: favorite, err: err}
+	}
+}
+
+// trackFavoritesLoadedMsg reports that the providers fetched the favorite
+// state of the start playlist. The redraw after it shows the hearts.
+type trackFavoritesLoadedMsg struct{}
+
+// loadTrackFavoritesCmd fetches the favorite state that tracks restored from
+// the last session lack, from each provider that keeps it with its listings.
+// It returns nil when no provider does.
+func (m *Model) loadTrackFavoritesCmd(tracks []playlist.Track) tea.Cmd {
+	if len(tracks) == 0 {
+		return nil
+	}
+	// The active provider is also in m.providers. A second call finds
+	// every state known and sends no request.
+	var loaders []provider.TrackFavoriteLoader
+	if l, ok := m.provider.(provider.TrackFavoriteLoader); ok {
+		loaders = append(loaders, l)
+	}
+	for _, pe := range m.providers {
+		if l, ok := pe.Provider.(provider.TrackFavoriteLoader); ok {
+			loaders = append(loaders, l)
+		}
+	}
+	if len(loaders) == 0 {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), trackFavoriteSyncTimeout)
+		defer cancel()
+		for _, l := range loaders {
+			if err := l.LoadFavoriteStates(ctx, tracks); err != nil {
+				applog.Warn("load favorites: %v", err)
+			}
+		}
+		return trackFavoritesLoadedMsg{}
 	}
 }
 

@@ -388,6 +388,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleTrackRatingSynced(msg)
 		return m, nil
 
+	case trackFavoritesLoadedMsg:
+		// The provider now knows the state; the redraw shows it.
+		return m, nil
+
 	case ShowStatusMsg:
 		ttl := statusTTLDefault
 		if msg.Duration > 0 {

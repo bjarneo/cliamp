@@ -522,6 +522,27 @@ func (c *Client) Track(ratingKey string) (Track, error) {
 	return trackFromJSON(result.MediaContainer.Metadata[0]), nil
 }
 
+// TracksByKey returns the tracks with the given ratingKeys in one request.
+// Keys the server does not know are left out.
+func (c *Client) TracksByKey(ratingKeys []string) ([]Track, error) {
+	if len(ratingKeys) == 0 {
+		return nil, nil
+	}
+	var result struct {
+		MediaContainer struct {
+			Metadata []trackJSON `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	if err := c.get("/library/metadata/"+strings.Join(ratingKeys, ","), nil, &result); err != nil {
+		return nil, err
+	}
+	tracks := make([]Track, 0, len(result.MediaContainer.Metadata))
+	for _, item := range result.MediaContainer.Metadata {
+		tracks = append(tracks, trackFromJSON(item))
+	}
+	return tracks, nil
+}
+
 // Search searches the music library for tracks matching query.
 // Returns nil without making an HTTP call when query is empty.
 func (c *Client) Search(query string) ([]Track, error) {

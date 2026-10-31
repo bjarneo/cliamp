@@ -712,3 +712,49 @@ func runCmds(cmd tea.Cmd) {
 		}
 	}
 }
+
+// fakeFavoriteLoader is a provider.TrackFavoriteLoader that records the
+// tracks it was asked about.
+type fakeFavoriteLoader struct {
+	commandsTestProvider
+	mu     sync.Mutex
+	loaded [][]string
+}
+
+func (p *fakeFavoriteLoader) LoadFavoriteStates(_ context.Context, tracks []playlist.Track) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var paths []string
+	for _, t := range tracks {
+		paths = append(paths, t.Path)
+	}
+	p.loaded = append(p.loaded, paths)
+	return nil
+}
+
+// Tracks restored from the last session have no provider favorite state, so
+// the start loads it in the background and redraws.
+func TestLoadTrackFavoritesCmd(t *testing.T) {
+	tracks := []playlist.Track{{Path: "plex:track:1"}, {Path: "plex:track:2"}}
+	loader := &fakeFavoriteLoader{commandsTestProvider: commandsTestProvider{name: "Plex"}}
+
+	m := keybindingTestModel()
+	if cmd := m.loadTrackFavoritesCmd(tracks); cmd != nil {
+		t.Fatal("command without a loading provider")
+	}
+	m.providers = []provider.Entry{{Name: "Plex", Provider: loader}}
+	if cmd := m.loadTrackFavoritesCmd(nil); cmd != nil {
+		t.Fatal("command without tracks")
+	}
+
+	msgs := runCmd(m.loadTrackFavoritesCmd(tracks))
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %v, want one", msgs)
+	}
+	if _, ok := msgs[0].(trackFavoritesLoadedMsg); !ok {
+		t.Fatalf("message = %T, want trackFavoritesLoadedMsg", msgs[0])
+	}
+	if len(loader.loaded) != 1 || strings.Join(loader.loaded[0], " ") != "plex:track:1 plex:track:2" {
+		t.Fatalf("loaded = %v, want the two tracks once", loader.loaded)
+	}
+}

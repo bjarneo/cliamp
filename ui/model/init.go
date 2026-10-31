@@ -346,6 +346,9 @@ func (m Model) Init() tea.Cmd {
 	if m.autoPlay && m.playlist.Len() > 0 {
 		cmds = append(cmds, func() tea.Msg { return autoPlayMsg{} })
 	}
+	if cmd := m.loadTrackFavoritesCmd(m.playlist.Tracks()); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	return tea.Batch(cmds...)
 }
 

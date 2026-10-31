@@ -362,6 +362,14 @@ type TrackFavoriteState interface {
 	FavoriteState(track playlist.Track) (favorite, known bool)
 }
 
+// TrackFavoriteLoader is implemented by a TrackFavoriteState provider whose
+// favorite state comes with its track listings, so tracks restored from the
+// last session have none. LoadFavoriteStates fetches the state of its own
+// tracks among tracks. It does I/O, so the UI runs it in a command.
+type TrackFavoriteLoader interface {
+	LoadFavoriteStates(ctx context.Context, tracks []playlist.Track) error
+}
+
 // FavoriteToggler is implemented by providers that support marking items
 // as favorites (e.g. radio station favorites).
 type FavoriteToggler interface {

@@ -140,7 +140,9 @@ and the album or playlist it was chosen from. State is saved when a track
 starts, every two seconds during confirmed playback, and during a normal exit.
 On the next launch with no explicit files, URLs, or playlist, cliamp restores
 that list with the last track selected; the time and seek bar already show the
-saved position. Press `Enter` to continue from it; `auto_play` is ignored for a restored list. The saved list keeps only
+saved position. Press `Enter` to continue from it; `auto_play` is ignored for a restored list. The hearts of the
+restored tracks appear once cliamp has asked the server for their likes, right
+after start. The saved list keeps only
 token-free `plex:track:` paths, and the current Plex credentials are added when
 playback starts. This works as it does for [Jellyfin](jellyfin.md#usage).
 

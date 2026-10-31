@@ -205,6 +205,7 @@ are in `provider/interfaces.go`.
 | `TrackFavoriter` | Copy the ♥ favorite of a track to the service, such as liked or starred songs. The UI calls it in a `tea.Cmd` and keeps the local favorite when it fails | `CanFavoriteTrack(track)`, `SetTrackFavorite(ctx, track, favorite) error` |
 | `TrackRater` | Set or clear a provider-owned numeric track rating | `CanRateTrack(track)`, `SetTrackRating(ctx, track, rating) error` |
 | `TrackFavoriteState` | Make provider metadata authoritative for a track's ♥ state. Local favorites are ignored for tracks claimed by this interface | `CanFavoriteTrack(track)`, `FavoriteState(track)` |
+| `TrackFavoriteLoader` | Fetch the ♥ state of tracks that have none, such as the start playlist restored from the last session. The UI calls it in a `tea.Cmd` at start | `LoadFavoriteStates(ctx, tracks) error` |
 | `CatalogLoader` | Lazy paging of a large catalog | `LoadCatalogPage(offset, limit)` |
 | `CatalogSearcher` | Server-side catalog search that fills the pane | `SearchCatalog(query)`, `ClearSearch()`, `IsSearching()` |
 | `LocationConsenter` | Ask before the provider uses the location of the listener | `NeedsLocationConsent()`, `LocationConsentID()`, `LocationPrompt()`, `SetLocationConsent(allowed)` |

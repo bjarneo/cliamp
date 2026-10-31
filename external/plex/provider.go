@@ -31,7 +31,9 @@ const (
 	// stationBatch is how many tracks a station loads at a time. When the
 	// last one starts, the next batch is appended; Ctrl+R on the open
 	// station starts it again for a fresh selection.
-	stationBatch  = 30
+	stationBatch = 30
+	// favoriteBatch is how many tracks one request asks the rating of.
+	favoriteBatch = 100
 	albumCacheTTL = 5 * time.Minute
 )
 
@@ -47,6 +49,7 @@ var (
 	_ provider.AlbumTrackLoader    = (*Provider)(nil)
 	_ provider.TrackFavoriter      = (*Provider)(nil)
 	_ provider.TrackFavoriteState  = (*Provider)(nil)
+	_ provider.TrackFavoriteLoader = (*Provider)(nil)
 	_ provider.ProgressReporter    = (*Provider)(nil)
 	_ provider.QueueContinuer      = (*Provider)(nil)
 )
@@ -357,6 +360,47 @@ func (p *Provider) FavoriteState(track playlist.Track) (favorite, known bool) {
 	}
 	favorite, known = p.favorites[id]
 	return favorite, known
+}
+
+// LoadFavoriteStates fetches the Plex rating of the tracks among tracks whose
+// state is unknown, such as the tracks restored from the last session. A
+// state set meanwhile, by a listing or a toggle, is kept.
+func (p *Provider) LoadFavoriteStates(ctx context.Context, tracks []playlist.Track) error {
+	var ids []string
+	seen := make(map[string]bool)
+	p.mu.Lock()
+	for _, track := range tracks {
+		id := plexTrackID(track)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		if _, known := p.favorites[id]; !known {
+			ids = append(ids, id)
+		}
+	}
+	p.mu.Unlock()
+
+	for batch := range slices.Chunk(ids, favoriteBatch) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		found, err := p.client.TracksByKey(batch)
+		if err != nil {
+			return fmt.Errorf("plex: load favorites: %w", err)
+		}
+		p.mu.Lock()
+		if p.favorites == nil {
+			p.favorites = make(map[string]bool)
+		}
+		for _, t := range found {
+			if _, known := p.favorites[t.RatingKey]; !known {
+				p.favorites[t.RatingKey] = t.UserRating >= 10
+			}
+		}
+		p.mu.Unlock()
+	}
+	return nil
 }
 
 // SetTrackFavorite updates the current user's favorite state in Plex.

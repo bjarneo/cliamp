@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -922,5 +923,73 @@ func TestProviderStationContinuesAfterLastTrack(t *testing.T) {
 	}
 	if !p.CanContinueAfter(next[0]) {
 		t.Fatal("a failed continuation dropped the queue")
+	}
+}
+
+func TestProviderLoadFavoriteStates(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		requests []string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		keys, ok := strings.CutPrefix(r.URL.Path, "/library/metadata/")
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		mu.Lock()
+		requests = append(requests, keys)
+		mu.Unlock()
+		var items []string
+		for _, k := range strings.Split(keys, ",") {
+			rating := 0
+			if n, _ := strconv.Atoi(k); n%2 == 0 {
+				rating = 10
+			}
+			items = append(items, fmt.Sprintf(`{"ratingKey":%q,"title":"T%s","userRating":%d}`, k, k, rating))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"MediaContainer":{"Metadata":[%s]}}`, strings.Join(items, ","))
+	}))
+	defer srv.Close()
+	sent := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(requests)
+	}
+
+	p := newProvider(NewClient(srv.URL, "tok"))
+	// A state known before the load, as from a toggle, is kept and not asked.
+	p.favorites = map[string]bool{"1": true}
+
+	var tracks []playlist.Track
+	for i := 1; i <= favoriteBatch+2; i++ {
+		tracks = append(tracks, playlist.Track{Path: TrackURIPrefix + strconv.Itoa(i)})
+	}
+	tracks = append(tracks, tracks[1], playlist.Track{Path: "/local/song.mp3"})
+	if err := p.LoadFavoriteStates(t.Context(), tracks); err != nil {
+		t.Fatalf("LoadFavoriteStates: %v", err)
+	}
+
+	got := sent()
+	if len(got) != 2 {
+		t.Fatalf("requests = %d, want 2 batches", len(got))
+	}
+	if first := strings.Split(got[0], ","); len(first) != favoriteBatch || first[0] != "2" {
+		t.Fatalf("first batch = %d keys from %q, want %d from \"2\"", len(first), first[0], favoriteBatch)
+	}
+	for _, tt := range []struct {
+		id   string
+		want bool
+	}{{"1", true}, {"2", true}, {"3", false}, {strconv.Itoa(favoriteBatch + 2), true}} {
+		got, known := p.FavoriteState(playlist.Track{Path: TrackURIPrefix + tt.id})
+		if !known || got != tt.want {
+			t.Errorf("FavoriteState(%s) = %v, %v; want %v, true", tt.id, got, known, tt.want)
+		}
+	}
+
+	// Every state is known now, so a second load sends nothing.
+	if err := p.LoadFavoriteStates(t.Context(), tracks); err != nil || len(sent()) != 2 {
+		t.Fatalf("second load: err %v, requests %d; want none", err, len(sent()))
 	}
 }
