@@ -25,6 +25,13 @@ func TestMatch(t *testing.T) {
 		{"literal substring inside a word", "allica", "Metallica", true},
 		{"separator inside a query word", "ac/dc", "AC/DC - Thunderstruck", true},
 		{"whitespace-only query matches", "  ", "anything", true},
+		{"prefix phrase", "^queens of the stone age", "Queens of the Stone Age — Villains (2017)", true},
+		{"prefix phrase is not fuzzy", "^opeth", "Eyes Wide Open — Through Life and Death (2021)", false},
+		{"prefix phrase must start the name", "^stone age", "Queens of the Stone Age — R (2000)", false},
+		{"prefix phrase keeps its separator", "^Opeth — ", "Opethian — Demo (2020)", false},
+		{"contains phrase", "'stone age", "Queens of the Stone Age — R (2000)", true},
+		{"contains phrase is not fuzzy", "'mtl", "Metallica — Reload (1997)", false},
+		{"lone marker matches", "^", "anything", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -49,6 +56,7 @@ func TestMatchRanking(t *testing.T) {
 		{"start beats later", "fo", "Foo Bar", "Bar Foo"},
 		{"word start beats a later letter", "load", "Metallica — Load (1996)", "Metallica — Reload (1997)"},
 		{"word start beats substring", "lica", "Lica Lu", "Metallica"},
+		{"contains phrase at a word start beats mid-word", "'load", "Metallica — Load (1996)", "Metallica — Reload (1997)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -10,6 +10,10 @@
 // "Metallica - Reload" and "lst" finds "Love Story", but "opeth" does not find
 // "Polyphia - Deny the Flesh". A query word that is a literal substring of the
 // target also matches, below those.
+//
+// A query that starts with ^ or ' is one literal phrase instead, spaces
+// included and case ignored: "^queens of the stone age" finds the names that
+// start with it, "'reload" the names that contain it.
 package fuzzy
 
 import (
@@ -48,6 +52,12 @@ func Match(query, target string) (score int, ok bool) {
 	if strings.TrimSpace(query) == "" {
 		return 0, true
 	}
+	switch trimmed := strings.TrimLeft(query, " "); trimmed[0] {
+	case '^':
+		return matchPhrase(trimmed[1:], target, true)
+	case '\'':
+		return matchPhrase(trimmed[1:], target, false)
+	}
 	// Most targets miss a word altogether. Reject those before the scoring.
 	for w := range strings.FieldsSeq(query) {
 		if !isSubsequence(w, target) {
@@ -56,19 +66,13 @@ func Match(query, target string) (score int, ok bool) {
 	}
 	sc := scratchPool.Get().(*scratch)
 	defer scratchPool.Put(sc)
-	sc.t = sc.t[:0]
-	for _, r := range target {
-		sc.t = append(sc.t, unicode.ToLower(r))
-	}
+	sc.t = appendLower(sc.t[:0], target)
 	sc.starts = sc.starts[:0]
 	for i := range sc.t {
 		sc.starts = append(sc.starts, i == 0 || isSeparator(sc.t[i-1]))
 	}
 	for w := range strings.FieldsSeq(query) {
-		sc.q = sc.q[:0]
-		for _, r := range w {
-			sc.q = append(sc.q, unicode.ToLower(r))
-		}
+		sc.q = appendLower(sc.q[:0], w)
 		s, ok := sc.matchWord()
 		if !ok {
 			return 0, false
@@ -76,6 +80,45 @@ func Match(query, target string) (score int, ok bool) {
 		score += s
 	}
 	return score, true
+}
+
+// matchPhrase reports whether target starts with phrase, or with prefix
+// false contains it, ignoring case. A match at the start ranks highest, then
+// one at a word start.
+func matchPhrase(phrase, target string, prefix bool) (int, bool) {
+	sc := scratchPool.Get().(*scratch)
+	defer scratchPool.Put(sc)
+	sc.q = appendLower(sc.q[:0], phrase)
+	sc.t = appendLower(sc.t[:0], target)
+	q, t := sc.q, sc.t
+	if len(q) == 0 {
+		return 0, true
+	}
+	for i := 0; i+len(q) <= len(t); i++ {
+		if !slices.Equal(t[i:i+len(q)], q) {
+			if prefix {
+				break
+			}
+			continue
+		}
+		score := len(q) * scoreMatch
+		switch {
+		case i == 0:
+			score += bonusFirstChar
+		case isSeparator(t[i-1]):
+			score += bonusBoundary
+		}
+		return score, true
+	}
+	return 0, false
+}
+
+// appendLower appends the lowered runes of s to buf.
+func appendLower(buf []rune, s string) []rune {
+	for _, r := range s {
+		buf = append(buf, unicode.ToLower(r))
+	}
+	return buf
 }
 
 // scratch holds the buffers of one Match call, reused across calls so a

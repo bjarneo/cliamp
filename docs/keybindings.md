@@ -380,6 +380,10 @@ example, `skr` and `saku` both find a track named "Sakura", `lst` finds "Love
 Story", and `mtlc rld` finds "Metallica - Reload". A query word that appears
 inside a word, such as `allica`, also matches, ranked lower.
 
+Start the query with `^` or `'` to match one literal phrase instead, spaces
+included and case ignored. `^queens of the stone age` finds the names that
+start with that phrase, and `'stone age` the names that contain it anywhere.
+
 This applies to:
 
 - `/` playlist search
