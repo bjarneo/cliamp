@@ -688,3 +688,31 @@ func TestClosedSettingsHeaderSpansFullWidth(t *testing.T) {
 		})
 	}
 }
+
+// An emoji with the emoji variation selector is counted two cells wide but
+// drawn one wide by some terminals, which shifted the pane beside it. The
+// terminals that draw it two wide keep it.
+func TestColumnLinesEmojiVariationSelector(t *testing.T) {
+	tests := []struct {
+		name, line, want string
+		wide             bool
+	}{
+		{name: "selector dropped", line: "❤\uFE0F Tracks", want: "❤ Tracks  "},
+		{name: "selector kept where wide", line: "❤\uFE0F Tracks", want: "❤\uFE0F Tracks ", wide: true},
+		{name: "wide emoji kept", line: "😀\uFE0F hi", want: "😀 hi     "},
+		{name: "text selector kept", line: "♥\uFE0E fav", want: "♥\uFE0E fav     "},
+	}
+	old := emojiSelectorWide
+	t.Cleanup(func() { emojiSelectorWide = old })
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			emojiSelectorWide = tt.wide
+			if got := columnLines(tt.line, 10, 1)[0]; got != tt.want {
+				t.Errorf("columnLines = %q, want %q", got, tt.want)
+			}
+			if got := joinPanesRow([]string{tt.line, "|"}, []int{10, 1}, 1); got != tt.want+"|" {
+				t.Errorf("joinPanesRow = %q, want %q", got, tt.want+"|")
+			}
+		})
+	}
+}

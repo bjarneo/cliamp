@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/bjarneo/cliamp/lyrics"
 	"github.com/bjarneo/cliamp/playlist"
@@ -364,19 +365,51 @@ func clampedScroll(scroll, cursor, count, budget int) int {
 
 func (m Model) renderInfoBody() string {
 	budget := m.effectivePlaylistVisible()
-	lines := m.infoLines()
+	cols, rows, _, coverVisible := m.infoCoverGeometry()
+	if coverVisible {
+		budget -= infoCoverTop
+	}
+	width := m.infoWidth()
+	if coverVisible {
+		width -= infoCoverMargin + cols + infoCoverGap
+	}
+	lines := m.infoLinesAt(width)
 	start := min(m.info.scroll, max(0, len(lines)-budget))
 	end := min(start+budget, len(lines))
-	return bodyLines(lines[start:end], budget)
+	text := bodyLines(lines[start:end], budget)
+	if !coverVisible || budget <= 0 {
+		return text
+	}
+	// The cover stays in place while the fields scroll beside it. Until the
+	// render arrives its column is blank, so the text does not reflow.
+	cover := ""
+	if m.infoCover.cols == cols && m.infoCover.rows == rows {
+		cover = m.infoCover.render()
+	}
+	return strings.Repeat("\n", infoCoverTop) + joinPanesRow(
+		[]string{"", cover, "", text},
+		[]int{infoCoverMargin, cols, infoCoverGap, width},
+		budget,
+	)
 }
 
+// infoLines returns the field lines wrapped to the width the renderer uses.
 func (m Model) infoLines() []string {
-	var lines []string
-	for _, field := range m.metadataFields() {
-		lines = append(lines, dimStyle.Render("  "+field.label+": ")+trackStyle.Render(field.value))
-	}
+	return m.infoLinesAt(m.infoTextWidth())
+}
+
+func (m Model) infoLinesAt(width int) []string {
+	fields := m.metadataFields()
 	if path := metadataText(m.selectedMetadataTrack().Path); path != "" {
-		lines = append(lines, dimStyle.Render("  Path: ")+trackStyle.Render(path))
+		fields = append(fields, metadataField{label: "Path", value: path})
+	}
+	labelWidth := 0
+	for _, field := range fields {
+		labelWidth = max(labelWidth, lipgloss.Width(field.label))
+	}
+	var lines []string
+	for _, field := range fields {
+		lines = append(lines, infoFieldLines(field.label, field.value, labelWidth, width)...)
 	}
 	if len(lines) == 0 {
 		lines = append(lines, dimStyle.Render("  No track metadata available."))
@@ -384,8 +417,47 @@ func (m Model) infoLines() []string {
 	return lines
 }
 
+// infoWidth is the width of the info body. The two-column view renders the
+// body against the playlist column, so key handlers that count wrapped lines
+// must use the same width as the renderer.
+func (m Model) infoWidth() int {
+	if m.layout.twoColumn && m.layout.playlistWidth > 0 {
+		return m.layout.playlistWidth
+	}
+	return m.layout.panelWidth
+}
+
+// infoMinValueWidth keeps a value column readable; below it the value stays
+// on one line and the frame clips it as before.
+const infoMinValueWidth = 12
+
+// infoFieldLines renders one "Label: value" field. The label is right-aligned
+// in labelWidth, so the colons and the values of all fields line up. A value wider
+// than the body wraps under itself, so long paths and URLs stay readable
+// instead of being clipped at the frame edge. Paths break after a slash where
+// possible.
+func infoFieldLines(label, value string, labelWidth, width int) []string {
+	prefix := "  " + strings.Repeat(" ", max(0, labelWidth-lipgloss.Width(label))) + label + ": "
+	prefixWidth := lipgloss.Width(prefix)
+	valueWidth := width - prefixWidth
+	if valueWidth < infoMinValueWidth || lipgloss.Width(value) <= valueWidth {
+		return []string{dimStyle.Render(prefix) + trackStyle.Render(value)}
+	}
+	parts := strings.Split(ansi.Wrap(value, valueWidth, "/"), "\n")
+	lines := make([]string, len(parts))
+	indent := strings.Repeat(" ", prefixWidth)
+	for i, part := range parts {
+		lead := indent
+		if i == 0 {
+			lead = dimStyle.Render(prefix)
+		}
+		lines[i] = lead + trackStyle.Render(part)
+	}
+	return lines
+}
+
 func (m *Model) infoMaybeAdjustScroll() {
-	m.info.scroll = min(m.info.scroll, max(0, len(m.infoLines())-m.effectivePlaylistVisible()))
+	m.info.scroll = min(m.info.scroll, max(0, len(m.infoLines())-m.infoBudget()))
 }
 
 // — URL input —

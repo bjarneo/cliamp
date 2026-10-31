@@ -346,6 +346,7 @@ func configureModel(m *model.Model, cfg config.Config, headless, visualizer60FPS
 		return
 	}
 	m.SetVisRows(cfg.VisRows)
+	m.SetCoverArtMode(cfg.CoverArt)
 	m.SetVisualizer60FPS(visualizer60FPS)
 	if cfg.Visualizer != "" {
 		m.SetVisualizer(cfg.Visualizer)

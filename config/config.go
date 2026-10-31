@@ -765,6 +765,7 @@ type Config struct {
 	Provider         string                       // default provider key, a value that --provider accepts (default "cliamp")
 	Theme            string                       // theme name, or "" for ANSI default
 	Visualizer       string                       // visualizer mode name, or "" for default (Bars)
+	CoverArt         string                       // album-art pane: "auto", "on", or "off"
 	VisRows          int                          // visualizer height in rows at the full layout tier, or 0 for the built-in default
 	SampleRate       int                          // output sample rate: 22050, 44100, 48000, 96000, 192000
 	BufferMs         int                          // speaker buffer in milliseconds (50-5000)
@@ -819,6 +820,7 @@ func defaultConfig() Config {
 		BufferMs:        250,
 		ResampleQuality: 4,
 		BitDepth:        16,
+		CoverArt:        "auto",
 		PaddingH:        3,
 		PaddingV:        1,
 		Spotify:         SpotifyConfig{Bitrate: 320},
@@ -1047,6 +1049,8 @@ func (c *Config) setTopLevel(key, val string) {
 		c.Provider = strings.ToLower(parseString(val))
 	case "visualizer":
 		c.Visualizer = parseString(val)
+	case "cover_art":
+		c.CoverArt = strings.ToLower(parseString(val))
 	case "vis_rows":
 		if v, ok := parseInt(val); ok {
 			c.VisRows = v
@@ -1426,6 +1430,11 @@ func (c *Config) clamp() {
 	c.PaddingV = max(min(c.PaddingV, 5), 0)
 	if c.VisRows != 0 {
 		c.VisRows = max(min(c.VisRows, maxVisRows), 1)
+	}
+	switch c.CoverArt {
+	case "auto", "on", "off":
+	default:
+		c.CoverArt = "auto"
 	}
 	if c.LowPower {
 		c.Visualizer = "none"

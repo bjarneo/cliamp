@@ -32,6 +32,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.BitDepth != 16 {
 		t.Errorf("BitDepth = %d, want 16", cfg.BitDepth)
 	}
+	if cfg.CoverArt != "auto" {
+		t.Errorf("CoverArt = %q, want auto", cfg.CoverArt)
+	}
 	if cfg.PaddingH != 3 {
 		t.Errorf("PaddingH = %d, want 3", cfg.PaddingH)
 	}
@@ -49,6 +52,25 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.Mono {
 		t.Error("Mono should be false by default")
+	}
+}
+
+func TestCoverArtMode(t *testing.T) {
+	tests := []struct {
+		value string
+		want  string
+	}{
+		{value: "on", want: "on"},
+		{value: "OFF", want: "off"},
+		{value: "invalid", want: "auto"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			cfg := loadConfigText(t, "cover_art = \""+tt.value+"\"\n")
+			if cfg.CoverArt != tt.want {
+				t.Fatalf("CoverArt = %q, want %q", cfg.CoverArt, tt.want)
+			}
+		})
 	}
 }
 

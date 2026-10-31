@@ -646,13 +646,30 @@ func (m Model) renderSpectrum() string {
 	if m.visualizerDisabled() {
 		return ""
 	}
+	cover := m.renderCover()
+	if cover != "" && !m.fullVis && m.cover.cols > 0 && m.cover.rows == m.layout.coverRows {
+		visWidth := m.layout.panelWidth - m.cover.cols - 1
+		visualizer := m.renderSpectrumAt(visWidth)
+		return joinPanesRow(
+			[]string{visualizer, "", cover},
+			[]int{visWidth, 1, m.cover.cols},
+			m.cover.rows,
+		)
+	}
+	return m.renderSpectrumAt(m.layout.panelWidth)
+}
+
+func (m Model) renderSpectrumAt(width int) string {
 	panes := m.regionPanes(ui.RegionVisualizer)
 	if len(panes) == 1 && panes[0].Pane == ui.PaneBuiltin {
 		// The shortcut only applies when the builtin is the whole region: at
 		// 100% the only pane can be a plugin, and it still has to render.
-		return m.vis.Render()
+		if width == m.layout.panelWidth {
+			return m.vis.Render()
+		}
+		return m.vis.RenderAt(width)
 	}
-	widths := ui.SplitWeights(m.layout.panelWidth, paneWeights(panes))
+	widths := ui.SplitWeights(width, paneWeights(panes))
 	blocks := make([]string, len(panes))
 	for i, pane := range panes {
 		if pane.Vis != "" {

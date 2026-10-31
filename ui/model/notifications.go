@@ -96,14 +96,26 @@ func (m *Model) playbackState() (playlist.Track, playback.State) {
 	}
 }
 
-// artworkURL resolves the cover of the current track. Providers that keep the
-// art inside the audio file expose it on demand, so the image can appear
-// without blocking the track list.
+// artworkURL returns only artwork that is already safe for local consumers.
+// Remote and authenticated sources are resolved asynchronously by ensureCover,
+// so neither MPRIS nor a desktop notification daemon receives provider URLs or
+// credentials.
 //
 // The track can outlive a provider switch: the tracks queued from the previous
 // provider keep playing while m.provider points at the new one. Ask the
 // provider that owns the track, and fall back to the active one.
 func (m *Model) artworkURL(track playlist.Track) string {
+	if track.Path != "" && m.cover.key != "" && strings.HasPrefix(m.cover.key, track.Path+"\x00") && m.cover.local != "" {
+		return m.cover.local
+	}
+	source := m.baseArtworkURL(track)
+	if strings.HasPrefix(source, "file://") || strings.HasPrefix(source, "data:") {
+		return source
+	}
+	return ""
+}
+
+func (m *Model) baseArtworkURL(track playlist.Track) string {
 	prov := m.provider
 	if name := m.playingProvider; name != "" && (prov == nil || prov.Name() != name) {
 		for _, entry := range m.providers {

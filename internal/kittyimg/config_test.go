@@ -3,6 +3,7 @@ package kittyimg
 import (
 	"encoding/binary"
 	"hash/crc32"
+	"image"
 	"strings"
 	"testing"
 )
@@ -23,6 +24,27 @@ func pngDims(width, height uint32) []byte {
 	ihdr = binary.BigEndian.AppendUint32(ihdr, crc32.ChecksumIEEE(append([]byte("IHDR"), data...)))
 	out = append(out, ihdr...)
 	return append(out, 0, 0, 0, 0, 'I', 'E', 'N', 'D', 0xAE, 0x42, 0x60, 0x82)
+}
+
+func TestScaleToFitPreservesAspect(t *testing.T) {
+	tests := []struct {
+		name         string
+		source       image.Rectangle
+		maxW, maxH   int
+		wantW, wantH int
+	}{
+		{name: "square in short box", source: image.Rect(0, 0, 100, 100), maxW: 256, maxH: 224, wantW: 224, wantH: 224},
+		{name: "wide", source: image.Rect(0, 0, 200, 100), maxW: 256, maxH: 224, wantW: 256, wantH: 128},
+		{name: "tall", source: image.Rect(0, 0, 100, 200), maxW: 256, maxH: 224, wantW: 112, wantH: 224},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := scaleToFit(image.NewNRGBA(tt.source), tt.maxW, tt.maxH).Bounds()
+			if got.Dx() != tt.wantW || got.Dy() != tt.wantH {
+				t.Fatalf("size = %dx%d, want %dx%d", got.Dx(), got.Dy(), tt.wantW, tt.wantH)
+			}
+		})
+	}
 }
 
 func TestDecodeImageRejectsHugePixels(t *testing.T) {

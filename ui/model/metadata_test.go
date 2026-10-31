@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -319,8 +320,8 @@ func TestMetadataLayoutAndFocusBudget(t *testing.T) {
 
 func TestMetadataTinyRowBudgets(t *testing.T) {
 	for _, tt := range []struct{ providers, rows, metadata int }{
-		{2, -1, 0}, {2, 0, 0}, {2, 1, 0}, {2, 2, 0}, {2, 6, 0}, {2, 8, 0},
-		{2, 9, 3}, {2, 14, 8}, {1, 7, 0}, {1, 8, 3},
+		{2, -1, 0}, {2, 0, 0}, {2, 1, 0}, {2, 2, 0}, {2, 6, 0}, {2, 9, 0},
+		{2, 10, 4}, {2, 14, 8}, {2, 16, 9}, {1, 8, 0}, {1, 9, 4},
 	} {
 		t.Run(fmt.Sprintf("providers=%d/rows=%d", tt.providers, tt.rows), func(t *testing.T) {
 			m := newColumnTestModel(100, 30)
@@ -417,14 +418,14 @@ func TestMetadataMoreDetailsFromSettingsFocus(t *testing.T) {
 			if !m.info.visible || !m.showMetadata || m.info.scroll != 0 || m.plCursor != 1 {
 				t.Fatalf("i from %s: info=%v metadata=%v scroll=%d cursor=%d", focus.label(), m.info.visible, m.showMetadata, m.info.scroll, m.plCursor)
 			}
-			if info := ansi.Strip(m.renderInfoBody()); !strings.Contains(info, "Title: Selected") {
+			if info := ansi.Strip(m.renderInfoBody()); !regexp.MustCompile(`Title: +Selected`).MatchString(info) {
 				t.Fatalf("full info does not describe the highlighted track:\n%s", info)
 			}
 			for range len(m.infoLines()) {
 				updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 				m = updated.(Model)
 			}
-			if info := ansi.Strip(m.renderInfoBody()); m.info.scroll == 0 || !strings.Contains(info, "Path: /selected.mp3") {
+			if info := ansi.Strip(m.renderInfoBody()); m.info.scroll == 0 || !regexp.MustCompile(`Path: +/selected.mp3`).MatchString(info) {
 				t.Fatalf("full info did not scroll to Path: scroll=%d\n%s", m.info.scroll, info)
 			}
 			updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
@@ -494,4 +495,23 @@ func TestMetadataDoesNotEnableDisabledVisualizer(t *testing.T) {
 		t.Fatal("metadata changed a disabled visualizer or its row budget")
 	}
 	assertViewFits(t, m.View().Content, 80, 24)
+}
+
+// The sidebar right-aligns the labels, so the values start in one column.
+func TestMetadataPaneAlignsValues(t *testing.T) {
+	m := newLayoutTestModel(100, 30)
+	m.playlist.SetTrack(0, playlist.Track{Path: "a.mp3", Title: "Song", Artist: "Band", Album: "Record", Year: 2001})
+	m.showMetadata = true
+	var cols []int
+	for _, line := range m.renderMetadataPane(9)[2:] {
+		line = ansi.Strip(line)
+		for _, value := range []string{"Song", "Band", "Record", "2001"} {
+			if i := strings.Index(line, " "+value); i >= 0 {
+				cols = append(cols, i)
+			}
+		}
+	}
+	if len(cols) != 4 || cols[0] != cols[1] || cols[1] != cols[2] || cols[2] != cols[3] {
+		t.Fatalf("value columns = %v, want four in one column", cols)
+	}
 }

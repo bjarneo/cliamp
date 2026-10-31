@@ -169,7 +169,7 @@ func joinPanesRow(blocks []string, widths []int, rows int) string {
 			}
 			// A plugin can return a wider line; clip it so it cannot push the
 			// next pane out of place.
-			text = ansi.Truncate(text, widths[i], "")
+			text = ansi.Truncate(textPresentation(text), widths[i], "")
 			b.WriteString(text)
 			if pad := widths[i] - lipglossWidth(text); pad > 0 {
 				b.WriteString(strings.Repeat(" ", pad))

@@ -168,6 +168,7 @@ eq_preset = "Custom"
 theme = "Tokyo Night"
 provider = "Jellyfin"
 visualizer = "Wave"
+cover_art = "off"
 sample_rate = 48000
 buffer_ms = 500
 resample_quality = 2
@@ -306,6 +307,7 @@ func TestLoadGolden(t *testing.T) {
 	topWant.Theme = "Tokyo Night"
 	topWant.Provider = "jellyfin"
 	topWant.Visualizer = "Wave"
+	topWant.CoverArt = "off"
 	topWant.SampleRate = 48000
 	topWant.BufferMs = 500
 	topWant.ResampleQuality = 2
@@ -335,6 +337,7 @@ func TestLoadGolden(t *testing.T) {
 	allWant.Expanded = true
 	allWant.Theme = "Tokyo Night"
 	allWant.Visualizer = "Bars"
+	allWant.CoverArt = "auto"
 	allWant.Podcast = PodcastConfig{Country: "no"}
 	allWant.Spotify = SpotifyConfig{Enabled: true, ClientID: "your-spotify-app-client-id", Bitrate: 320}
 	allWant.Qobuz = QobuzConfig{Enabled: true, Quality: 6}

@@ -25,6 +25,7 @@ type frameLayout struct {
 	footerRows         int
 	bodyRows           int
 	visualizerRows     int
+	coverRows          int
 	baseVisualizerRows int
 	fullVisualizerRows int
 	// twoColumn splits the body region into the playlist (left) and the
@@ -205,16 +206,40 @@ func (m *Model) recomputeLayout() {
 		layout.fixedRows = max(0, layout.fixedRows-1)
 	}
 	if layout.twoColumn && m.showMetadata && !m.visualizerDisabled() {
-		// Opening details can borrow visualizer rows, never hide direct settings.
-		// The configured height stays intact and returns when details close.
+		// Opening details can borrow visualizer rows, never hide direct settings
+		// or shrink an enabled cover below its useful minimum. The configured
+		// height stays intact and returns when details close.
 		bodyRows := height - 2*paddingV - layout.fixedRows - layout.footerRows
 		needed := 5 + metadataPaneMaxRows
 		if len(m.providers) > 1 {
 			needed++
 		}
-		freed := min(max(0, needed-bodyRows), max(0, layout.visualizerRows-1))
+		minVisualizerRows := 1
+		if m.coverEnabled() && layout.visualizerRows >= coverMinRows {
+			minVisualizerRows = coverMinRows
+		}
+		freed := min(max(0, needed-bodyRows), max(0, layout.visualizerRows-minVisualizerRows))
 		layout.visualizerRows -= freed
 		layout.fixedRows -= freed
+	}
+	layout.coverRows = layout.visualizerRows
+	if layout.twoColumn && m.showMetadata && m.cover.local != "" && m.coverEnabled() &&
+		!m.headless && !m.fullVis && !m.visualizerDisabled() {
+		// Once artwork is ready, the cover becomes a square as wide as the
+		// settings column, so it lines up with the column, and the visualizer
+		// beside it takes the same rows. It grows only into rows that every
+		// direct setting and a usable Metadata section leave free.
+		bodyRows := height - 2*paddingV - layout.fixedRows - layout.footerRows
+		controls := 5
+		if len(m.providers) > 1 {
+			controls++
+		}
+		cellWidth, cellHeight := m.cellSize()
+		rows := min(squareCoverRows(layout.settingsWidth, cellWidth, cellHeight),
+			layout.coverRows+max(0, bodyRows-controls-metadataPaneMinRows))
+		layout.fixedRows += rows - layout.coverRows
+		layout.coverRows = rows
+		layout.visualizerRows = rows
 	}
 
 	layout.fullVisualizerRows = max(1, height-6-2*paddingV)

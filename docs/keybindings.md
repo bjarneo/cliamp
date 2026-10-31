@@ -129,8 +129,8 @@ and `Esc` clears it.
 | `y` | Show or close lyrics |
 | `r` | Retry lyrics lookup while lyrics are open |
 | `[` / `]` | Adjust synced-lyrics timing offset (−/+250 ms) while lyrics show timestamped lines |
-| `i` | From the playlist, open full info for the highlighted item, including Path (`Up`/`Down` or `j`/`k` scroll; `i`/`Esc`/`q` closes) |
-| `Ctrl+I` | Toggle Metadata below Settings for the highlighted playlist item (remembered in `show_metadata`; requires a terminal that distinguishes Ctrl+I from Tab) |
+| `i` | From the playlist, open full info for the highlighted item, including Path and its cover; long values wrap (`Up`/`Down` or `j`/`k` scroll; `i`/`Esc`/`q` closes) |
+| `Ctrl+I` | Toggle Metadata below Settings and the album cover beside the visualizer (remembered in `show_metadata`; requires a terminal that distinguishes Ctrl+I from Tab) |
 | `Ctrl+S` | Save track to `[downloads].directory` (default `~/Music/cliamp`) |
 | `w` | Write the highlighted track to a local playlist |
 | `N` | Open the active provider browser. On a selected Mixcloud show, open that creator's Uploads/Favorites. In the radio pane, open the country browser. |
@@ -150,7 +150,8 @@ and `Esc` clears it.
 | `K` | Open Bandcamp provider |
 | `B` | Open Audiobookshelf provider |
 
-Metadata belongs to the main playback view, not provider browsers, and follows
+Metadata and the cover belong to the main playback view, not provider browsers.
+Metadata follows
 the highlighted playlist row even when another item is playing. Enabling it
 without a usable Settings sidebar opens the full info overlay instead; the
 preference remains saved for a wider layout. See

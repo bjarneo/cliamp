@@ -185,7 +185,8 @@ func (m *Model) SetHideSettingsPane(v bool) {
 	m.refreshChrome()
 }
 
-// SetShowMetadata expands the highlighted-track details below Settings.
+// SetShowMetadata expands the highlighted-track details below Settings and
+// makes the album cover beside the visualizer eligible for display.
 func (m *Model) SetShowMetadata(v bool) {
 	m.showMetadata = v
 	m.refreshChrome()

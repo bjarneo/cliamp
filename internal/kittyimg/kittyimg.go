@@ -17,10 +17,13 @@ import (
 	_ "image/jpeg"
 	"image/png"
 	"io"
+	"math"
+	"net/url"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/bjarneo/cliamp/applog"
 )
@@ -48,6 +51,24 @@ func decodeImage(raw []byte) (image.Image, error) {
 	return img, nil
 }
 
+// Aspect returns the width-to-height ratio of source (a data: URL, a file://
+// URL, or a path). It reads only the image header, so callers can size a cell
+// box to the image before rendering it.
+func Aspect(source string) (float64, error) {
+	raw, err := load(source)
+	if err != nil {
+		return 0, err
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
+	if err != nil {
+		return 0, fmt.Errorf("kittyimg: decode config: %w", err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return 0, fmt.Errorf("kittyimg: image has no size")
+	}
+	return float64(cfg.Width) / float64(cfg.Height), nil
+}
+
 // placeholder is the private-use character kitty composites the image behind.
 const placeholder = '\U0010EEEE'
 
@@ -67,7 +88,6 @@ var (
 	placed = map[int]Placement{}
 	lastID = 1000
 
-	pulse   atomic.Bool
 	writeMu sync.Mutex
 	ttyOnce sync.Once
 	ttyFile *os.File
@@ -78,6 +98,16 @@ var (
 // pixel size of a cols x rows cell block, and transmits it as a virtual
 // placement. Call Block to get the text that displays it.
 func Show(source string, cols, rows int, reuseID int) (Placement, error) {
+	return show(source, cols, rows, reuseID, false)
+}
+
+// ShowFill is Show for an image that covers the whole block: it is scaled to
+// fill both sides, and the overflow is cut evenly from the two ends.
+func ShowFill(source string, cols, rows int, reuseID int) (Placement, error) {
+	return show(source, cols, rows, reuseID, true)
+}
+
+func show(source string, cols, rows int, reuseID int, fill bool) (Placement, error) {
 	if cols <= 0 || rows <= 0 {
 		return Placement{}, fmt.Errorf("kittyimg: bad size %dx%d", cols, rows)
 	}
@@ -126,9 +156,18 @@ func Show(source string, cols, rows int, reuseID int) (Placement, error) {
 			applog.Warn("kittyimg: %v", err)
 			return
 		}
-		// The terminal fits the image to the cell rectangle and keeps its
-		// aspect, so the pixel size only has to match the rectangle's shape.
-		scaled := scale(img, cols*8, rows*16)
+		pixelWidth, pixelHeight := cols*8, rows*16
+		if cellWidth, cellHeight, ok := CellSize(); ok {
+			pixelWidth = max(1, int(math.Round(float64(cols)*cellWidth)))
+			pixelHeight = max(1, int(math.Round(float64(rows)*cellHeight)))
+		}
+		// Keep the source aspect. The placement rectangle is sized from the
+		// terminal's real cell geometry; stretching the PNG to an assumed 8x16
+		// grid would make square covers rectangular and reintroduce letterboxing.
+		scaled := scaleToFit(img, pixelWidth, pixelHeight)
+		if fill {
+			scaled = scaleToFill(img, pixelWidth, pixelHeight)
+		}
 		if err := transmit(id, scaled, cols, rows); err != nil {
 			applog.Warn("kittyimg: transmit: %v", err)
 		}
@@ -143,7 +182,6 @@ func (p Placement) Block() string {
 	if p.ID == 0 || p.Cols <= 0 || p.Rows <= 0 {
 		return ""
 	}
-	pulse.Store(!pulse.Load())
 	color := fmt.Sprintf("\x1b[38;2;%d;%d;%dm", (p.ID>>16)&0xff, (p.ID>>8)&0xff, p.ID&0xff)
 	var b strings.Builder
 	for row := 0; row < p.Rows; row++ {
@@ -153,21 +191,37 @@ func (p Placement) Block() string {
 			b.WriteRune(diacritic(row))
 			b.WriteRune(diacritic(col))
 		}
-		// The renderer redraws only the lines whose bytes changed. A placeholder
-		// block is static, so without a change the terminal never re-emits the
-		// cells and kitty drops the placement: the image disappears until some
-		// other update repaints that line. Alternating an invisible reset changes
-		// the bytes without changing the drawing and keeps the image alive.
-		if pulse.Load() {
-			b.WriteString("\x1b[0m")
-		} else {
-			b.WriteString("\x1b[0;0m")
-		}
+		b.WriteString("\x1b[0m")
 		if row < p.Rows-1 {
 			b.WriteByte('\n')
 		}
 	}
 	return b.String()
+}
+
+func scaleToFit(src image.Image, maxWidth, maxHeight int) *image.NRGBA {
+	bounds := src.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	if width <= 0 || height <= 0 || maxWidth <= 0 || maxHeight <= 0 {
+		return image.NewNRGBA(image.Rect(0, 0, max(0, maxWidth), max(0, maxHeight)))
+	}
+	ratio := math.Min(float64(maxWidth)/float64(width), float64(maxHeight)/float64(height))
+	return scale(src, max(1, int(math.Round(float64(width)*ratio))), max(1, int(math.Round(float64(height)*ratio))))
+}
+
+// scaleToFill scales src to cover a width x height box and cuts the overflow
+// evenly from both ends of the longer side.
+func scaleToFill(src image.Image, width, height int) *image.NRGBA {
+	bounds := src.Bounds()
+	srcW, srcH := bounds.Dx(), bounds.Dy()
+	if srcW <= 0 || srcH <= 0 || width <= 0 || height <= 0 {
+		return image.NewNRGBA(image.Rect(0, 0, max(0, width), max(0, height)))
+	}
+	ratio := math.Max(float64(width)/float64(srcW), float64(height)/float64(srcH))
+	w := max(width, int(math.Round(float64(srcW)*ratio)))
+	h := max(height, int(math.Round(float64(srcH)*ratio)))
+	x, y := (w-width)/2, (h-height)/2
+	return scale(src, w, h).SubImage(image.Rect(x, y, x+width, y+height)).(*image.NRGBA)
 }
 
 // Clear deletes a transmitted image. Placeholders that remain on screen stop
@@ -220,11 +274,33 @@ func load(source string) ([]byte, error) {
 		}
 		return data, nil
 	case strings.HasPrefix(source, "file://"):
-		return readFile(strings.TrimPrefix(source, "file://"))
+		path, err := fileURLPath(source)
+		if err != nil {
+			return nil, err
+		}
+		return readFile(path)
 	case source != "":
 		return readFile(source)
 	}
 	return nil, fmt.Errorf("kittyimg: empty source")
+}
+
+func fileURLPath(source string) (string, error) {
+	u, err := url.Parse(source)
+	if err != nil || u.Scheme != "file" {
+		return "", fmt.Errorf("kittyimg: malformed file URL")
+	}
+	if u.Host != "" && u.Host != "localhost" {
+		return "", fmt.Errorf("kittyimg: remote file URL is not allowed")
+	}
+	path, err := url.PathUnescape(u.EscapedPath())
+	if err != nil || path == "" {
+		return "", fmt.Errorf("kittyimg: malformed file URL")
+	}
+	if runtime.GOOS == "windows" && len(path) >= 3 && path[0] == '/' && path[2] == ':' {
+		path = path[1:]
+	}
+	return filepath.FromSlash(path), nil
 }
 
 // maxImageBytes caps what a plugin can read as an image. A plugin with only the

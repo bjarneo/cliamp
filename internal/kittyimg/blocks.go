@@ -11,6 +11,16 @@ import (
 // no graphics protocol, so it works in any terminal, and it is the text-only
 // fallback for the image panes.
 func Blocks(source string, cols, rows int) (string, error) {
+	return blocks(source, cols, rows, false)
+}
+
+// BlocksFill is Blocks for an image that covers the whole block: it is scaled
+// to fill both sides, and the overflow is cut evenly from the two ends.
+func BlocksFill(source string, cols, rows int) (string, error) {
+	return blocks(source, cols, rows, true)
+}
+
+func blocks(source string, cols, rows int, fill bool) (string, error) {
 	if cols <= 0 || rows <= 0 {
 		return "", fmt.Errorf("kittyimg: bad size %dx%d", cols, rows)
 	}
@@ -34,8 +44,15 @@ func Blocks(source string, cols, rows int) (string, error) {
 	srcW, srcH := bounds.Dx(), bounds.Dy()
 	boxW, boxH := cols, rows*2
 	ratio := math.Min(float64(boxW)/float64(srcW), float64(boxH)/float64(srcH))
+	if fill {
+		ratio = math.Max(float64(boxW)/float64(srcW), float64(boxH)/float64(srcH))
+	}
 	w := max(1, int(float64(srcW)*ratio))
 	h := max(1, int(float64(srcH)*ratio))
+	if fill {
+		// Rounding down must not leave an empty edge.
+		w, h = max(w, boxW), max(h, boxH)
+	}
 	scaled := scale(img, w, h)
 	offX, offY := (boxW-w)/2, (boxH-h)/2
 

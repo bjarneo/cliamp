@@ -11,7 +11,9 @@ import (
 	"github.com/bjarneo/cliamp/playlist"
 )
 
-const metadataPaneMaxRows = 8
+// metadataPaneMaxRows counts the blank row above the Metadata header, the
+// header and the fields.
+const metadataPaneMaxRows = 9
 
 type metadataField struct {
 	label string
@@ -100,7 +102,7 @@ func (m Model) metadataPaneRows(rows int) int {
 		controls++
 	}
 	available := rows - controls
-	if available < 3 {
+	if available < metadataPaneMinRows {
 		return 0
 	}
 	return min(metadataPaneMaxRows, available)
@@ -111,17 +113,25 @@ func (m Model) renderMetadataPane(rows int) []string {
 		return nil
 	}
 	w := m.layout.settingsWidth
-	lines := []string{fillSeparator(sepHeader("Metadata [Ctrl+I]", m.layout.panelWidth), w)}
+	// A blank row sets Metadata apart from the settings above.
+	lines := []string{"", fillSeparator(sepHeader("Metadata [Ctrl+I]", m.layout.panelWidth), w)}
 	fields := m.metadataFields()
 	if len(fields) == 0 {
 		return append(lines, dimStyle.Render(truncate("No metadata available", w)))
 	}
-	count := rows - 1
+	count := rows - len(lines)
 	if len(fields) > count {
 		count-- // keep a route to the complete, scrollable inspector
 	}
-	for _, field := range fields[:min(len(fields), max(0, count))] {
-		label := labelStyle.Render(field.label + " ")
+	shown := fields[:min(len(fields), max(0, count))]
+	// Right-align the labels, so the values start in one column.
+	labelWidth := 0
+	for _, field := range shown {
+		labelWidth = max(labelWidth, lipgloss.Width(field.label))
+	}
+	for _, field := range shown {
+		pad := strings.Repeat(" ", labelWidth-lipgloss.Width(field.label))
+		label := labelStyle.Render(pad + field.label + " ")
 		lines = append(lines, label+trackStyle.Render(truncate(field.value, max(1, w-lipgloss.Width(label)))))
 	}
 	if len(fields) > count {

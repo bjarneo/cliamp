@@ -25,6 +25,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		nm.recomputeLayout()
 		nm.dropStalePreload()
 		nm.notifyPlaybackChange()
+		if coverCmd := nm.ensureCover(); coverCmd != nil {
+			cmd = tea.Batch(cmd, coverCmd)
+		}
+		if coverCmd := nm.ensureInfoCover(); coverCmd != nil {
+			cmd = tea.Batch(cmd, coverCmd)
+		}
 		// A load that starts now gets its own redraws at once. The main tick
 		// can still wait up to ui.TickIdle before it runs at the spinner rate.
 		if !spinning && !nm.spinnerTicking && nm.spinnerVisible() {
@@ -371,6 +377,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case trackFavoriteSyncedMsg:
 		m.handleTrackFavoriteSynced(msg)
+		return m, nil
+
+	case coverLoadedMsg:
+		m.handleCoverLoaded(msg)
+		return m, nil
+
+	case coverRenderedMsg:
+		m.handleCoverRendered(msg)
 		return m, nil
 
 	case ShowStatusMsg:

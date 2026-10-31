@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
@@ -613,8 +614,50 @@ func TestTrackInfoScrollsWithinBodyBudget(t *testing.T) {
 	if m.info.scroll == 0 {
 		t.Fatal("info scroll = 0 after down, want a later metadata row")
 	}
-	if got := m.renderInfoBody(); !strings.Contains(got, "Artist") {
-		t.Fatalf("track info body = %q, want scrolled metadata", got)
+	// A long value wraps, so one step can land inside it; keep scrolling
+	// until the next field shows.
+	for range len(m.infoLines()) {
+		if strings.Contains(m.renderInfoBody(), "Artist") {
+			return
+		}
+		m.handleKey(tea.KeyPressMsg{Text: "j"})
+	}
+	t.Fatalf("track info body = %q, want scrolled metadata", m.renderInfoBody())
+}
+
+func TestInfoFieldLinesWrapLongValues(t *testing.T) {
+	path := "/home/user/Music/Some Artist/Some Album (2026)/03 - A Very Long Track Title.flac"
+	tests := []struct {
+		name      string
+		width     int
+		wantLines int
+	}{
+		{name: "fits", width: 200, wantLines: 1},
+		{name: "wraps", width: 40, wantLines: 3},
+		{name: "too narrow keeps one line", width: 10, wantLines: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lines := infoFieldLines("Path", path, 4, tt.width)
+			if len(lines) < tt.wantLines || (tt.wantLines == 1 && len(lines) != 1) {
+				t.Fatalf("lines = %d, want %d:\n%s", len(lines), tt.wantLines, strings.Join(lines, "\n"))
+			}
+			var joined strings.Builder
+			for i, line := range lines {
+				plain := ansi.Strip(line)
+				if tt.wantLines > 1 && lipgloss.Width(plain) > tt.width {
+					t.Fatalf("line %d is %d cells, wider than %d: %q", i, lipgloss.Width(plain), tt.width, plain)
+				}
+				if i > 0 && !strings.HasPrefix(plain, strings.Repeat(" ", len("  Path: "))) {
+					t.Fatalf("continuation line %d is not indented under the value: %q", i, plain)
+				}
+				joined.WriteString(strings.TrimLeft(strings.TrimPrefix(plain, "  Path: "), " "))
+			}
+			// A break at a space drops that space, so compare without spaces.
+			if got, want := strings.ReplaceAll(joined.String(), " ", ""), strings.ReplaceAll(path, " ", ""); got != want {
+				t.Fatalf("wrapped value = %q, want %q", got, want)
+			}
+		})
 	}
 }
 
@@ -799,5 +842,19 @@ func TestViewLeavesLayoutState(t *testing.T) {
 	}
 	if m.layout != layout {
 		t.Fatalf("layout after View = %+v, want %+v", m.layout, layout)
+	}
+}
+
+// The info labels are right-aligned: the colons and the values of all fields
+// line up, whatever the label.
+func TestInfoFieldsAlignValues(t *testing.T) {
+	var colons, values []int
+	for _, label := range []string{"Title", "Artist", "Length"} {
+		line := ansi.Strip(infoFieldLines(label, "value", 6, 80)[0])
+		colons = append(colons, strings.Index(line, ":"))
+		values = append(values, strings.Index(line, "value"))
+	}
+	if colons[0] != colons[1] || colons[1] != colons[2] || values[0] != values[1] || values[1] != values[2] {
+		t.Fatalf("colon columns %v, value columns %v, want one of each", colons, values)
 	}
 }
