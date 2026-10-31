@@ -373,10 +373,20 @@ func (p *Player) buildYTDLPipeline(pageURL string, startSec int) (*trackPipeline
 	}
 }
 
-// buildYTDLSource starts the yt-dlp | ffmpeg chain for pageURL at 0. With
+// buildYTDLSource starts pageURL at 0. A YouTube page plays from its direct
+// media URL (see buildYTDLDirectSource); any other page plays through the
+// yt-dlp | ffmpeg chain.
+func (p *Player) buildYTDLSource(pageURL string, knownDuration time.Duration, probe bool) (*trackPipeline, error) {
+	if directSeekPage(pageURL) {
+		return p.buildYTDLDirectSource(pageURL, knownDuration, probe)
+	}
+	return p.buildYTDLPipeSource(pageURL, knownDuration, probe)
+}
+
+// buildYTDLPipeSource starts the yt-dlp | ffmpeg chain for pageURL at 0. With
 // probe and no known duration, it asks yt-dlp for the duration while the chain
 // starts.
-func (p *Player) buildYTDLSource(pageURL string, knownDuration time.Duration, probe bool) (*trackPipeline, error) {
+func (p *Player) buildYTDLPipeSource(pageURL string, knownDuration time.Duration, probe bool) (*trackPipeline, error) {
 	probe = probe && knownDuration == 0
 	// Probe duration concurrently with pipeline setup so it doesn't delay playback.
 	probeCh := make(chan time.Duration, 1)

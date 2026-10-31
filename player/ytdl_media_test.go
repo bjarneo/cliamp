@@ -23,23 +23,25 @@ func TestParseYTDLMedia(t *testing.T) {
 		wantUA      string
 		wantHeaders string
 		wantExpires time.Time
+		wantDur     time.Duration
 	}{
 		{
 			name:        "direct url with expire",
-			out:         "https://media.example/videoplayback?expire=1800000000&itag=251\n" + headers + "\n",
+			out:         "213.5\nhttps://media.example/videoplayback?expire=1800000000&itag=251\n" + headers + "\n",
 			wantURL:     "https://media.example/videoplayback?expire=1800000000&itag=251",
 			wantUA:      "UA/1",
 			wantHeaders: "Accept: */*\r\nAccept-Language: en-us,en;q=0.5\r\n",
 			wantExpires: time.Unix(1800000000, 0),
+			wantDur:     213500 * time.Millisecond,
 		},
 		{
 			name:    "direct url without expire",
-			out:     "http://media.example/a.webm\n{}",
+			out:     "NA\nhttp://media.example/a.webm\n{}",
 			wantURL: "http://media.example/a.webm",
 		},
-		{name: "separate video and audio", out: "https://v.example/v\nhttps://v.example/a\n{}", wantErr: errNoDirectYTDLMedia},
-		{name: "hls", out: "https://v.example/index.m3u8\n{}", wantErr: errNoDirectYTDLMedia},
-		{name: "not http", out: "file:///etc/passwd\n{}", wantErr: errNoDirectYTDLMedia},
+		{name: "separate video and audio", out: "60\nhttps://v.example/v\nhttps://v.example/a\n{}", wantErr: errNoDirectYTDLMedia},
+		{name: "hls", out: "60\nhttps://v.example/index.m3u8\n{}", wantErr: errNoDirectYTDLMedia},
+		{name: "not http", out: "60\nfile:///etc/passwd\n{}", wantErr: errNoDirectYTDLMedia},
 		{name: "empty", out: "", wantErr: errNoDirectYTDLMedia},
 	}
 	for _, tt := range tests {
@@ -54,7 +56,7 @@ func TestParseYTDLMedia(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parseYTDLMedia() error = %v", err)
 			}
-			if m.url != tt.wantURL || m.userAgent != tt.wantUA || m.headers != tt.wantHeaders || !m.expires.Equal(tt.wantExpires) {
+			if m.url != tt.wantURL || m.userAgent != tt.wantUA || m.headers != tt.wantHeaders || !m.expires.Equal(tt.wantExpires) || m.duration != tt.wantDur {
 				t.Fatalf("parseYTDLMedia() = %+v", *m)
 			}
 		})
@@ -62,7 +64,7 @@ func TestParseYTDLMedia(t *testing.T) {
 }
 
 func TestParseYTDLMediaRejectsBadHeaders(t *testing.T) {
-	if _, err := parseYTDLMedia("https://media.example/a\nnot json"); err == nil || errors.Is(err, errNoDirectYTDLMedia) {
+	if _, err := parseYTDLMedia("60\nhttps://media.example/a\nnot json"); err == nil || errors.Is(err, errNoDirectYTDLMedia) {
 		t.Fatalf("parseYTDLMedia() error = %v, want a headers error", err)
 	}
 }
@@ -173,7 +175,7 @@ func TestDirectSeekPage(t *testing.T) {
 // A kept URL that stopped working, for example after it expired, is resolved
 // again rather than abandoned.
 func TestBuildYTDLSeekPipelineResolvesAgainWhenAKeptURLFails(t *testing.T) {
-	resolveLog, _ := installYTDLSeekFixtures(t, "https://media.example/a\n{}\n", true)
+	resolveLog, _ := installYTDLSeekFixtures(t, "240\nhttps://media.example/a\n{}\n", true)
 	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
 	cur := &trackPipeline{
 		path:      "https://music.youtube.com/watch?v=seek",
@@ -195,7 +197,7 @@ func TestBuildYTDLSeekPipelineResolvesAgainWhenAKeptURLFails(t *testing.T) {
 }
 
 func TestBuildYTDLSeekPipelineKeepsThePipeForOtherSites(t *testing.T) {
-	resolveLog, ffmpegLog := installYTDLSeekFixtures(t, "https://media.example/a\n{}\n", false)
+	resolveLog, ffmpegLog := installYTDLSeekFixtures(t, "240\nhttps://media.example/a\n{}\n", false)
 	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
 	cur := &trackPipeline{path: "https://www.mixcloud.com/creator/show/", ytdlSeek: true}
 
@@ -213,7 +215,7 @@ func TestBuildYTDLSeekPipelineKeepsThePipeForOtherSites(t *testing.T) {
 }
 
 func TestBuildYTDLSeekPipelineReusesTheResolvedURL(t *testing.T) {
-	resolveLog, ffmpegLog := installYTDLSeekFixtures(t, "https://media.example/a?expire=4000000000\n{\"User-Agent\": \"UA/1\"}\n", false)
+	resolveLog, ffmpegLog := installYTDLSeekFixtures(t, "240\nhttps://media.example/a?expire=4000000000\n{\"User-Agent\": \"UA/1\"}\n", false)
 	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
 	cur := &trackPipeline{path: "https://www.youtube.com/watch?v=seek", ytdlSeek: true}
 
@@ -247,8 +249,8 @@ func TestBuildYTDLSeekPipelineFallsBackToThePipe(t *testing.T) {
 		directFails  bool
 		wantNoDirect bool
 	}{
-		{name: "no direct format", resolveOut: "https://v.example/index.m3u8\n{}\n", wantNoDirect: true},
-		{name: "direct read fails", resolveOut: "https://media.example/a\n{}\n", directFails: true, wantNoDirect: true},
+		{name: "no direct format", resolveOut: "240\nhttps://v.example/index.m3u8\n{}\n", wantNoDirect: true},
+		{name: "direct read fails", resolveOut: "240\nhttps://media.example/a\n{}\n", directFails: true, wantNoDirect: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -276,6 +278,69 @@ func TestBuildYTDLSeekPipelineFallsBackToThePipe(t *testing.T) {
 			defer next.close()
 			if got := fixtureLineCount(t, resolveLog); got != 1 {
 				t.Fatalf("yt-dlp resolves = %d, want 1", got)
+			}
+		})
+	}
+}
+
+// A YouTube track starts from its direct URL, takes the duration from the same
+// yt-dlp run, and its first seek runs no yt-dlp at all.
+func TestBuildYTDLSourceStartsYouTubeFromTheMediaURL(t *testing.T) {
+	resolveLog, ffmpegLog := installYTDLSeekFixtures(t, "240\nhttps://media.example/a?expire=4000000000\n{}\n", false)
+	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
+
+	tp, err := p.buildYTDLSource("https://music.youtube.com/watch?v=start", 0, true)
+	if err != nil {
+		t.Fatalf("buildYTDLSource() error = %v", err)
+	}
+	defer tp.close()
+	if tp.ytdlMedia == nil || !tp.ytdlSeek || tp.knownDuration != 240*time.Second {
+		t.Fatalf("pipeline media = %v, ytdlSeek = %v, duration = %v, want the direct URL, seek-by-restart and 240s", tp.ytdlMedia, tp.ytdlSeek, tp.knownDuration)
+	}
+
+	seek, err := p.buildYTDLSeekPipeline(tp, 90)
+	if err != nil {
+		t.Fatalf("seek error = %v", err)
+	}
+	defer seek.close()
+	if got := fixtureLineCount(t, resolveLog); got != 1 {
+		t.Fatalf("yt-dlp resolves = %d, want 1 for the start and a seek", got)
+	}
+	if log, _ := os.ReadFile(ffmpegLog); strings.Contains(string(log), "pipe:0") {
+		t.Fatalf("ffmpeg runs:\n%s\nwant no yt-dlp pipe", log)
+	}
+}
+
+func TestBuildYTDLSourceFallsBackToThePipe(t *testing.T) {
+	tests := []struct {
+		name        string
+		page        string
+		resolveOut  string
+		directFails bool
+		wantResolve int
+	}{
+		{name: "direct read fails", page: "https://www.youtube.com/watch?v=a", resolveOut: "240\nhttps://media.example/a\n{}\n", directFails: true, wantResolve: 1},
+		{name: "no direct format", page: "https://www.youtube.com/watch?v=a", resolveOut: "240\nhttps://v.example/index.m3u8\n{}\n", wantResolve: 1},
+		{name: "other site", page: "https://www.mixcloud.com/creator/show/", resolveOut: "240\nhttps://media.example/a\n{}\n", wantResolve: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolveLog, ffmpegLog := installYTDLSeekFixtures(t, tt.resolveOut, tt.directFails)
+			p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
+
+			tp, err := p.buildYTDLSource(tt.page, time.Minute, false)
+			if err != nil {
+				t.Fatalf("buildYTDLSource() error = %v", err)
+			}
+			defer tp.close()
+			if tp.ytdlMedia != nil || tp.knownDuration != time.Minute {
+				t.Fatalf("pipeline media = %v, duration = %v, want the pipe with the known 1m", tp.ytdlMedia, tp.knownDuration)
+			}
+			if log, _ := os.ReadFile(ffmpegLog); !strings.Contains(string(log), "-i pipe:0") {
+				t.Fatalf("ffmpeg runs:\n%s\nwant the yt-dlp pipe", log)
+			}
+			if got := fixtureLineCount(t, resolveLog); got != tt.wantResolve {
+				t.Fatalf("yt-dlp resolves = %d, want %d", got, tt.wantResolve)
 			}
 		})
 	}

@@ -1,6 +1,7 @@
 package player
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -30,8 +31,9 @@ var errNoDirectYTDLMedia = errors.New("no direct http format")
 type ytdlMedia struct {
 	url       string
 	userAgent string
-	headers   string    // other request headers as "Key: Value\r\n" lines
-	expires   time.Time // zero when the URL carries no expire parameter
+	headers   string        // other request headers as "Key: Value\r\n" lines
+	expires   time.Time     // zero when the URL carries no expire parameter
+	duration  time.Duration // zero when yt-dlp reports none
 }
 
 // usable reports whether m can still be opened at now.
@@ -68,6 +70,7 @@ func resolveYTDLMedia(pageURL string) (*ytdlMedia, error) {
 		"--quiet",
 		"--no-warnings",
 		"--socket-timeout", "15",
+		"--print", "duration",
 		"--print", "urls",
 		"--print", "%(http_headers)j",
 	}
@@ -88,14 +91,20 @@ func resolveYTDLMedia(pageURL string) (*ytdlMedia, error) {
 	return parseYTDLMedia(string(out))
 }
 
-// parseYTDLMedia reads the output of `--print urls --print %(http_headers)j`:
-// one URL line, then the headers as a JSON object. A format with separate
-// video and audio prints more than one URL and is not direct.
+// parseYTDLMedia reads the output of `--print duration --print urls --print
+// %(http_headers)j`: the duration in seconds ("NA" when unknown), one URL
+// line, then the headers as a JSON object. A format with separate video and
+// audio prints more than one URL and is not direct.
 func parseYTDLMedia(out string) (*ytdlMedia, error) {
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) != 2 {
+	if len(lines) != 3 {
 		return nil, errNoDirectYTDLMedia
 	}
+	var duration time.Duration
+	if secs, err := strconv.ParseFloat(strings.TrimSpace(lines[0]), 64); err == nil && secs > 0 {
+		duration = time.Duration(secs * float64(time.Second))
+	}
+	lines = lines[1:]
 	u, err := url.Parse(strings.TrimSpace(lines[0]))
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 		return nil, errNoDirectYTDLMedia
@@ -108,7 +117,7 @@ func parseYTDLMedia(out string) (*ytdlMedia, error) {
 		return nil, fmt.Errorf("yt-dlp headers: %w", err)
 	}
 
-	m := &ytdlMedia{url: u.String()}
+	m := &ytdlMedia{url: u.String(), duration: duration}
 	keys := make([]string, 0, len(headers))
 	for k := range headers {
 		keys = append(keys, k)
@@ -171,6 +180,35 @@ func (p *Player) buildYTDLSeekPipeline(cur *trackPipeline, startSec int) (*track
 		return nil, err
 	}
 	tp.ytdlNoDirect = noDirect
+	return tp, nil
+}
+
+// buildYTDLDirectSource starts a YouTube page at 0 from its direct media URL,
+// so the pipeline holds the URL from the start and the first seek needs no
+// yt-dlp run. It costs the same single yt-dlp run as the pipe, and that run
+// also reports the duration, so no separate probe runs. It falls back to the
+// pipe as buildYTDLSeekPipeline does.
+func (p *Player) buildYTDLDirectSource(pageURL string, knownDuration time.Duration, probe bool) (*trackPipeline, error) {
+	p.streamTitle.Store("")
+	media, err := resolveYTDLMedia(pageURL)
+	if media == nil {
+		tp, pipeErr := p.buildYTDLPipeSource(pageURL, knownDuration, probe)
+		if pipeErr != nil {
+			return nil, pipeErr
+		}
+		tp.ytdlNoDirect = errors.Is(err, errNoDirectYTDLMedia)
+		return tp, nil
+	}
+	tp, err := p.buildYTDLDirectPipeline(pageURL, media, 0)
+	if err != nil {
+		tp, err = p.buildYTDLPipeSource(pageURL, knownDuration, probe && media.duration == 0)
+		if err != nil {
+			return nil, err
+		}
+		tp.ytdlNoDirect = true
+	}
+	// The pipe fallback may already hold a probed duration.
+	tp.knownDuration = cmp.Or(tp.knownDuration, knownDuration, media.duration)
 	return tp, nil
 }
 
