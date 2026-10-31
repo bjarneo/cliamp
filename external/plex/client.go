@@ -399,8 +399,9 @@ type trackJSON struct {
 	GrandparentTitle string `json:"grandparentTitle"` // artist
 	ParentTitle      string `json:"parentTitle"`      // album
 	Year             int    `json:"year"`
-	Index            int    `json:"index"`    // track number within album
-	Duration         int    `json:"duration"` // milliseconds
+	ParentYear       int    `json:"parentYear"` // album year; tracks rarely carry their own
+	Index            int    `json:"index"`      // track number within album
+	Duration         int    `json:"duration"`   // milliseconds
 	Media            []struct {
 		Part []struct {
 			Key string `json:"key"`
@@ -413,12 +414,16 @@ func trackFromJSON(m trackJSON) Track {
 	if len(m.Media) > 0 && len(m.Media[0].Part) > 0 {
 		partKey = m.Media[0].Part[0].Key
 	}
+	year := m.Year
+	if year == 0 {
+		year = m.ParentYear
+	}
 	return Track{
 		RatingKey:   m.RatingKey,
 		Title:       m.Title,
 		ArtistName:  m.GrandparentTitle,
 		AlbumName:   m.ParentTitle,
-		Year:        m.Year,
+		Year:        year,
 		TrackNumber: m.Index,
 		Duration:    m.Duration,
 		PartKey:     partKey,
