@@ -974,6 +974,9 @@ func TestClientFailsOverFromDeadRoute(t *testing.T) {
 		t.Cleanup(dead.Close)
 		c, alive, _ := failoverFixture(t, dead)
 
+		if _, err := doWithHeaderDeadline(http.DefaultClient, mustRequest(t, dead.URL)); err == nil || err.Error() != "no response in 50ms" {
+			t.Fatalf("hanging route error = %v, want no response in 50ms", err)
+		}
 		start := time.Now()
 		if err := c.ReportTimeline(t.Context(), "42", "playing", time.Second, time.Minute); err != nil {
 			t.Fatalf("ReportTimeline: %v", err)
@@ -1005,8 +1008,20 @@ func TestClientKeepsRouteOnHTTPError(t *testing.T) {
 func TestManualClientDoesNotFailOver(t *testing.T) {
 	dead := httptest.NewServer(http.NotFoundHandler())
 	dead.Close()
-	_, err := NewClient(dead.URL, "tok").MusicSections()
+	_, err := NewClient(dead.URL, "secret-token").MusicSections()
 	if err == nil || !strings.Contains(err.Error(), "server unreachable") {
 		t.Fatalf("MusicSections error = %v, want server unreachable", err)
 	}
+	if strings.Contains(err.Error(), "secret-token") {
+		t.Fatalf("MusicSections error = %v names the token", err)
+	}
+}
+
+func mustRequest(t *testing.T, target string) *http.Request {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return req
 }

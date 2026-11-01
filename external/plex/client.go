@@ -3,6 +3,7 @@ package plex
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -111,6 +112,10 @@ func (c *Client) send(ctx context.Context, client *http.Client, label string, bu
 		if err == nil {
 			return resp, nil
 		}
+		// A url.Error names the request URL, and with it the token.
+		if uerr, ok := errors.AsType[*url.Error](err); ok {
+			err = uerr.Err
+		}
 		if retried || ctx.Err() != nil || !c.dropRoute(baseURL) {
 			return nil, fmt.Errorf("plex: %s: server unreachable: %w", label, netdiag.Explain(err))
 		}
@@ -137,11 +142,15 @@ func (c *Client) dropRoute(baseURL string) bool {
 // arrive within responseHeaderTimeout. The body read is not limited by it.
 func doWithHeaderDeadline(client *http.Client, req *http.Request) (*http.Response, error) {
 	ctx, cancel := context.WithCancel(req.Context())
-	timer := time.AfterFunc(responseHeaderTimeout, cancel)
+	timeout := responseHeaderTimeout
+	timer := time.AfterFunc(timeout, cancel)
 	resp, err := client.Do(req.WithContext(ctx))
-	timer.Stop()
+	fired := !timer.Stop()
 	if err != nil {
 		cancel()
+		if fired && req.Context().Err() == nil {
+			return nil, fmt.Errorf("no response in %s", timeout)
+		}
 		return nil, err
 	}
 	resp.Body = cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
