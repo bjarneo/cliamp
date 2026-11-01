@@ -120,11 +120,17 @@ func (s *lineScanner) next(line string) bool {
 	}
 	for i := 0; i < len(line); i++ {
 		if s.closer != "" {
-			j := strings.Index(line[i:], s.closer)
-			if j < 0 {
+			// In a """ string a backslash escapes the next character, so
+			// \""" is a quote followed by "" and does not close it.
+			for ; i < len(line) && !strings.HasPrefix(line[i:], s.closer); i++ {
+				if s.closer == `"""` && line[i] == '\\' {
+					i++
+				}
+			}
+			if i >= len(line) {
 				return outside
 			}
-			i += j + len(s.closer) - 1
+			i += len(s.closer) - 1
 			s.closer = ""
 			continue
 		}

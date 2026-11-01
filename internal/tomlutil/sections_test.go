@@ -182,12 +182,19 @@ notes = """
 [Live]
 """
 url = "http://a/"
+[[station]]
+name = "B"
+notes = """
+Say \"""hi
+[Live]
+"""
+url = "http://b/"
 `)
 	var got []string
 	ParseNamedSections(data, []string{"station"}, func(_ string, f map[string]string) {
 		got = append(got, f["name"]+":"+f["url"])
 	})
-	if want := []string{"A:http://a/"}; !reflect.DeepEqual(got, want) {
+	if want := []string{"A:http://a/", "B:http://b/"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("ParseNamedSections = %v, want %v", got, want)
 	}
 	if got := UnknownHeaders(data, "station"); got != nil {
