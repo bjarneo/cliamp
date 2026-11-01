@@ -271,6 +271,12 @@ func (m *Model) SetResume(path string, secs int) {
 	m.resume.secs = secs
 }
 
+// SetProviderPlaylist names the open provider playlist of a restored queue,
+// so Ctrl+R reloads it in place.
+func (m *Model) SetProviderPlaylist(id string) {
+	m.activeProviderPlaylistID = id
+}
+
 // SetResumeSaver enables continuous playback-context persistence.
 func (m *Model) SetResumeSaver(save ResumeSaver) {
 	m.resumeSaver = save
@@ -308,9 +314,10 @@ func (m Model) ResumeState() (path string, secs int, playlist string) {
 	return m.exitResume.path, m.exitResume.secs, m.exitResume.playlist
 }
 
-// ResumeContext returns the complete list the active track was selected from.
-func (m Model) ResumeContext() ([]playlist.Track, int) {
-	return cloneTracks(m.exitResume.context), m.exitResume.contextIndex
+// ResumeContext returns the complete list the active track was selected from,
+// and the provider playlist it reloads from, if any.
+func (m Model) ResumeContext() ([]playlist.Track, int, string) {
+	return cloneTracks(m.exitResume.context), m.exitResume.contextIndex, m.exitResume.playlistID
 }
 
 // ThemeName returns the current theme name.

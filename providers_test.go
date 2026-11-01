@@ -293,7 +293,7 @@ func TestServerResumeSaver(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
-			serverResumeSaver(server.Provider)(playlist.Track{Path: tt.path, Title: "Two"}, 42, context, 1)
+			serverResumeSaver(server.Provider)(playlist.Track{Path: tt.path, Title: "Two"}, 42, context, 1, "")
 			if got := resume.Load(); !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("saved state = %+v, want %+v", got, tt.want)
 			}

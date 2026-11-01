@@ -32,6 +32,7 @@ func (m *Model) quit() tea.Cmd {
 			m.exitResume.playlist = m.loadedPlaylist
 			m.exitResume.context = cloneTracks(context)
 			m.exitResume.contextIndex = contextIndex
+			m.exitResume.playlistID = m.resumePlaylistID()
 		}
 	}
 

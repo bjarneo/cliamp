@@ -94,11 +94,11 @@ func TestSaveExitResume(t *testing.T) {
 	}{
 		{
 			name: "server stream", path: stream, secs: 95, server: server.Provider, tracks: tracks, useContext: true,
-			want: resume.State{Path: stream, PositionSec: 95, Playlist: "Mix", Context: tracks, ContextIndex: 1},
+			want: resume.State{Path: stream, PositionSec: 95, Playlist: "Mix", Context: tracks, ContextIndex: 1, PlaylistID: "4242"},
 		},
 		{
 			name: "plex track", path: plexTrack, secs: 95, server: plexServer, tracks: plexTracks, useContext: true,
-			want: resume.State{Path: plexTrack, PositionSec: 95, Playlist: "Mix", Context: plexTracks, ContextIndex: 1},
+			want: resume.State{Path: plexTrack, PositionSec: 95, Playlist: "Mix", Context: plexTracks, ContextIndex: 1, PlaylistID: "4242"},
 		},
 		{
 			name: "emby stream with plex server", path: stream, secs: 95, server: plexServer,
@@ -121,9 +121,9 @@ func TestSaveExitResume(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
 			usedContext := false
-			resumeContext := func() ([]playlist.Track, int) {
+			resumeContext := func() ([]playlist.Track, int, string) {
 				usedContext = true
-				return tt.tracks, 1
+				return tt.tracks, 1, "4242"
 			}
 			saveExitResume(tt.path, tt.secs, "Mix", resumeContext, tt.server)
 			if got := resume.Load(); !reflect.DeepEqual(got, tt.want) {

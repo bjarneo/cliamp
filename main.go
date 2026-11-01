@@ -180,6 +180,7 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 	}
 	if restoredContext {
 		m.SetInitialTrack(restoredIndex)
+		m.SetProviderPlaylist(resumeState.PlaylistID)
 	}
 	m.SetIPCBroker(pluginBroker)
 	if luaMgr != nil {
@@ -420,16 +421,16 @@ func saveOnExit(final tea.Model, headless bool, resumeServer contextServer) {
 // resumeServer is set and owns the track at path, it also saves
 // the list that resumeContext returns. A track with no position saves
 // nothing.
-func saveExitResume(path string, secs int, playlistName string, resumeContext func() ([]playlist.Track, int), resumeServer contextServer) {
+func saveExitResume(path string, secs int, playlistName string, resumeContext func() ([]playlist.Track, int, string), resumeServer contextServer) {
 	if path == "" || secs <= 0 {
 		return
 	}
 	if resumeServer != nil {
 		if _, ok := resumeServer.RestoreTrack(playlist.Track{Path: path}); ok {
-			tracks, index := resumeContext()
+			tracks, index, playlistID := resumeContext()
 			resume.SaveState(resume.State{
 				Path: path, PositionSec: secs, Playlist: playlistName,
-				Context: tracks, ContextIndex: index,
+				Context: tracks, ContextIndex: index, PlaylistID: playlistID,
 			})
 			return
 		}

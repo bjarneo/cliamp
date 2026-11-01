@@ -78,6 +78,15 @@ func (m *Model) playbackContextFor(track playlist.Track) ([]playlist.Track, int)
 	return context, trackIndexByPath(context, track.Path)
 }
 
+// resumePlaylistID names the open provider playlist that the playing track
+// comes from when it reloads in place, so a restored queue keeps Ctrl+R.
+func (m *Model) resumePlaylistID() string {
+	if m.playbackDetached || !m.refreshesInPlace() {
+		return ""
+	}
+	return m.activeProviderPlaylistID
+}
+
 func (m *Model) persistPlaybackContext(track playlist.Track, positionSec int, now time.Time) {
 	if m.resumeSaver == nil {
 		return
@@ -86,7 +95,7 @@ func (m *Model) persistPlaybackContext(track playlist.Track, positionSec int, no
 	if index < 0 {
 		return
 	}
-	m.resumeSaver(track, positionSec, cloneTracks(context), index)
+	m.resumeSaver(track, positionSec, cloneTracks(context), index, m.resumePlaylistID())
 	m.lastResumeSave = now
 }
 

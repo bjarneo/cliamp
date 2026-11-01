@@ -505,13 +505,14 @@ func (s *providerSet) observeAuthURLs(send func(tea.Msg)) (restore func()) {
 // serverResumeSaver saves the play context of each track that server owns,
 // so the next start can restore it.
 func serverResumeSaver(server contextServer) model.ResumeSaver {
-	return func(track playlist.Track, positionSec int, context []playlist.Track, contextIndex int) {
+	return func(track playlist.Track, positionSec int, context []playlist.Track, contextIndex int, playlistID string) {
 		if _, ok := server.RestoreTrack(track); !ok {
 			return
 		}
 		resume.SaveState(resume.State{
 			Path: track.Path, PositionSec: positionSec,
 			Context: context, ContextIndex: contextIndex,
+			PlaylistID: playlistID,
 		})
 	}
 }

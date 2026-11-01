@@ -29,7 +29,9 @@ type ConfigSaver interface {
 }
 
 // ResumeSaver persists the active track, timeline position, and source context.
-type ResumeSaver func(track playlist.Track, positionSec int, context []playlist.Track, contextIndex int)
+// playlistID names the provider playlist of the context when it reloads in
+// place, or is empty.
+type ResumeSaver func(track playlist.Track, positionSec int, context []playlist.Track, contextIndex int, playlistID string)
 
 // The saveConfig* helpers persist a top-level config key and show a write
 // failure in the status line. They return the error, so an IPC job can fail
@@ -476,6 +478,7 @@ type Model struct {
 		playlist     string
 		context      []playlist.Track
 		contextIndex int
+		playlistID   string
 	}
 
 	// preloading is true while a preloadStreamCmd goroutine is in-flight.
