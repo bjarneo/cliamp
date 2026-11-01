@@ -913,3 +913,100 @@ func TestStreamURLPlaysAnalyzedFLAC(t *testing.T) {
 		t.Fatal("stream URL no longer routes through the buffered pipeline")
 	}
 }
+
+// failoverFixture builds an account client whose current route is dead and
+// whose plex.tv lists that route and a live one. discoveries counts the
+// plex.tv lookups.
+func failoverFixture(t *testing.T, dead *httptest.Server) (*Client, *httptest.Server, *int) {
+	t.Helper()
+	alive := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/identity":
+			w.Write([]byte(`{"MediaContainer":{"machineIdentifier":"server-1"}}`))
+		case "/library/sections":
+			w.Write([]byte(`{"MediaContainer":{"Directory":[{"key":"3","type":"artist","title":"Music"}]}}`))
+		case "/:/timeline":
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(alive.Close)
+	discoveries := 0
+	tv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		discoveries++
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `[{"name":"Home","clientIdentifier":"server-1","provides":"server","owned":true,"accessToken":"server-token",
+			"connections":[{"uri":%q,"protocol":"http","local":true},{"uri":%q,"protocol":"http","local":true}]}]`, dead.URL, alive.URL)
+	}))
+	t.Cleanup(tv.Close)
+	api := &AccountAPI{baseURL: tv.URL, client: tv.Client(), pollInterval: time.Millisecond}
+	c := newAccountClient(dead.URL, "account-token", "client-1", "server-1", api)
+	// The dead route was the working one when the session found it.
+	c.account.connected = true
+	c.token = "server-token"
+	return c, alive, &discoveries
+}
+
+func TestClientFailsOverFromDeadRoute(t *testing.T) {
+	t.Run("connection refused", func(t *testing.T) {
+		dead := httptest.NewServer(http.NotFoundHandler())
+		dead.Close()
+		c, alive, discoveries := failoverFixture(t, dead)
+
+		sections, err := c.MusicSections()
+		if err != nil || len(sections) != 1 {
+			t.Fatalf("MusicSections = %v, %v; want the live route's library", sections, err)
+		}
+		if c.baseURL != alive.URL || *discoveries != 1 {
+			t.Fatalf("route = %q after %d discoveries, want %q after 1", c.baseURL, *discoveries, alive.URL)
+		}
+	})
+
+	t.Run("no response", func(t *testing.T) {
+		old := responseHeaderTimeout
+		responseHeaderTimeout = 50 * time.Millisecond
+		t.Cleanup(func() { responseHeaderTimeout = old })
+		dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			<-r.Context().Done()
+		}))
+		t.Cleanup(dead.Close)
+		c, alive, _ := failoverFixture(t, dead)
+
+		start := time.Now()
+		if err := c.ReportTimeline(t.Context(), "42", "playing", time.Second, time.Minute); err != nil {
+			t.Fatalf("ReportTimeline: %v", err)
+		}
+		if c.baseURL != alive.URL {
+			t.Fatalf("route = %q, want %q", c.baseURL, alive.URL)
+		}
+		if elapsed := time.Since(start); elapsed > 5*time.Second {
+			t.Fatalf("failover took %v", elapsed)
+		}
+	})
+}
+
+func TestClientKeepsRouteOnHTTPError(t *testing.T) {
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	t.Cleanup(failing.Close)
+	c, _, discoveries := failoverFixture(t, failing)
+
+	if _, err := c.MusicSections(); err == nil || !strings.Contains(err.Error(), "500") {
+		t.Fatalf("MusicSections error = %v, want the server's HTTP 500", err)
+	}
+	if *discoveries != 0 || c.baseURL != failing.URL {
+		t.Fatalf("an HTTP error rediscovered the route: %d discoveries, route %q", *discoveries, c.baseURL)
+	}
+}
+
+func TestManualClientDoesNotFailOver(t *testing.T) {
+	dead := httptest.NewServer(http.NotFoundHandler())
+	dead.Close()
+	_, err := NewClient(dead.URL, "tok").MusicSections()
+	if err == nil || !strings.Contains(err.Error(), "server unreachable") {
+		t.Fatalf("MusicSections error = %v, want server unreachable", err)
+	}
+}

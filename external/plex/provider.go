@@ -327,6 +327,11 @@ func (p *Provider) ResolveSource(uri string) (string, error) {
 		p.favorites[id] = track.UserRating >= 10
 		p.mu.Unlock()
 	}
+	// A request that found the route dead dropped it; find the new one
+	// before building the stream URL on it.
+	if _, _, err := p.client.endpoint(context.Background()); err != nil {
+		return "", fmt.Errorf("plex: resolve track %s: connect account server: %w", id, err)
+	}
 	return p.client.StreamURL(partKey), nil
 }
 

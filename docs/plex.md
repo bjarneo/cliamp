@@ -28,6 +28,11 @@ addresses. It prefers a reachable local address, then a secure direct remote
 address, and finally a secure relay. Public plain-HTTP addresses are never
 selected. Pressing `Ctrl+R` also repeats connection discovery.
 
+If the chosen address stops answering during a session, for example after a
+network change, the next Plex request notices within about 10 seconds, asks
+Plex for the current addresses again, and retries once on the best one that
+answers. Playback moves on to the next track without a restart or `Ctrl+R`.
+
 This means the same configuration can move between home and work without
 hard-coding a `192.168.x.x` address. Remote playback still requires the Plex
 server to advertise a reachable remote or relay connection.

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/internal/httpclient"
 	"github.com/bjarneo/cliamp/internal/netdiag"
 )
@@ -86,6 +87,79 @@ func (c *Client) endpoint(ctx context.Context) (string, string, error) {
 	return c.baseURL, c.token, nil
 }
 
+// responseHeaderTimeout bounds the wait for a server's response headers on
+// one attempt. A dead route then fails in seconds instead of after the full
+// request timeout, and send can move to another route. Tests shorten it.
+var responseHeaderTimeout = 10 * time.Second
+
+// send runs one request against the current server route; build makes it for
+// a base URL and token. When an account-backed client cannot reach its route,
+// send drops the route, rediscovers one through plex.tv and retries once, so
+// a dead local, remote or relay connection does not stall playback. HTTP
+// error responses are returned as they are. label names the call in errors.
+func (c *Client) send(ctx context.Context, client *http.Client, label string, build func(baseURL, token string) (*http.Request, error)) (*http.Response, error) {
+	for retried := false; ; retried = true {
+		baseURL, token, err := c.endpoint(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("plex: connect account server: %w", err)
+		}
+		req, err := build(baseURL, token)
+		if err != nil {
+			return nil, fmt.Errorf("plex: %s: %w", label, err)
+		}
+		resp, err := doWithHeaderDeadline(client, req)
+		if err == nil {
+			return resp, nil
+		}
+		if retried || ctx.Err() != nil || !c.dropRoute(baseURL) {
+			return nil, fmt.Errorf("plex: %s: server unreachable: %w", label, netdiag.Explain(err))
+		}
+		applog.Info("plex: %s: %v; finding another server route", label, netdiag.Explain(err))
+	}
+}
+
+// dropRoute makes the next request rediscover the route when baseURL is still
+// the current one. It reports whether rediscovery is possible: manual clients
+// have only their configured URL.
+func (c *Client) dropRoute(baseURL string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.account == nil {
+		return false
+	}
+	if c.baseURL == baseURL {
+		c.account.connected = false
+	}
+	return true
+}
+
+// doWithHeaderDeadline sends req and cancels it when no response headers
+// arrive within responseHeaderTimeout. The body read is not limited by it.
+func doWithHeaderDeadline(client *http.Client, req *http.Request) (*http.Response, error) {
+	ctx, cancel := context.WithCancel(req.Context())
+	timer := time.AfterFunc(responseHeaderTimeout, cancel)
+	resp, err := client.Do(req.WithContext(ctx))
+	timer.Stop()
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	resp.Body = cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
+	return resp, nil
+}
+
+// cancelOnClose releases a request context when its response body closes.
+type cancelOnClose struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b cancelOnClose) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
+}
+
 // RefreshConnection makes an account-backed client rediscover its route on
 // the next request. Manual clients keep their configured URL unchanged.
 func (c *Client) RefreshConnection() {
@@ -150,26 +224,23 @@ func (c *Client) get(path string, params url.Values, result any) error {
 // request issues an authenticated request and decodes the JSON response into
 // result.
 func (c *Client) request(method, path string, params url.Values, result any) error {
-	baseURL, token, err := c.endpoint(context.Background())
+	resp, err := c.send(context.Background(), apiClient, path, func(baseURL, token string) (*http.Request, error) {
+		query := url.Values{}
+		for k, v := range params {
+			query[k] = v
+		}
+		query.Set("X-Plex-Token", token)
+		req, err := http.NewRequest(method, baseURL+path+"?"+query.Encode(), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-Plex-Product", "cliamp")
+		req.Header.Set("X-Plex-Client-Identifier", c.clientID)
+		return req, nil
+	})
 	if err != nil {
-		return fmt.Errorf("plex: connect account server: %w", err)
-	}
-	if params == nil {
-		params = url.Values{}
-	}
-	params.Set("X-Plex-Token", token)
-
-	req, err := http.NewRequest(method, baseURL+path+"?"+params.Encode(), nil)
-	if err != nil {
-		return fmt.Errorf("plex: %s: %w", path, err)
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Plex-Product", "cliamp")
-	req.Header.Set("X-Plex-Client-Identifier", c.clientID)
-
-	resp, err := apiClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("plex: %s: server unreachable: %w", path, netdiag.Explain(err))
+		return err
 	}
 	defer resp.Body.Close()
 
@@ -236,22 +307,19 @@ func (c *Client) Scrobble(ctx context.Context, ratingKey string) error {
 }
 
 func (c *Client) doAction(ctx context.Context, method, endpoint string, params url.Values) error {
-	baseURL, token, err := c.endpoint(ctx)
+	resp, err := c.send(ctx, apiClient, strings.TrimPrefix(endpoint, "/:/"), func(baseURL, token string) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, method, baseURL+endpoint+"?"+params.Encode(), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-Plex-Product", "cliamp")
+		req.Header.Set("X-Plex-Client-Identifier", c.clientID)
+		req.Header.Set("X-Plex-Token", token)
+		return req, nil
+	})
 	if err != nil {
-		return fmt.Errorf("plex: connect account server: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, baseURL+endpoint+"?"+params.Encode(), nil)
-	if err != nil {
-		return fmt.Errorf("plex: %s: %w", strings.TrimPrefix(endpoint, "/:/"), err)
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Plex-Product", "cliamp")
-	req.Header.Set("X-Plex-Client-Identifier", c.clientID)
-	req.Header.Set("X-Plex-Token", token)
-
-	resp, err := apiClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("plex: %s: server unreachable: %w", strings.TrimPrefix(endpoint, "/:/"), netdiag.Explain(err))
+		return err
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
@@ -576,20 +644,18 @@ func (c *Client) OpenPart(ctx context.Context, partKey string) (io.ReadCloser, e
 	if !strings.HasPrefix(partKey, "/library/parts/") {
 		return nil, fmt.Errorf("plex: download: invalid part")
 	}
-	baseURL, token, err := c.endpoint(ctx)
+	resp, err := c.send(ctx, httpclient.Streaming, "download", func(baseURL, token string) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+partKey+"?download=1", nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("X-Plex-Product", "cliamp")
+		req.Header.Set("X-Plex-Client-Identifier", c.clientID)
+		req.Header.Set("X-Plex-Token", token)
+		return req, nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("plex: connect account server: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+partKey+"?download=1", nil)
-	if err != nil {
-		return nil, fmt.Errorf("plex: download: %w", err)
-	}
-	req.Header.Set("X-Plex-Product", "cliamp")
-	req.Header.Set("X-Plex-Client-Identifier", c.clientID)
-	req.Header.Set("X-Plex-Token", token)
-	resp, err := httpclient.Streaming.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("plex: download: server unreachable: %w", netdiag.Explain(err))
+		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		resp.Body.Close()
