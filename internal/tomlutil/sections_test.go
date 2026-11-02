@@ -224,3 +224,25 @@ url = "http://c/"
 		t.Fatalf("UnknownHeaders = %v, want %v", got, want)
 	}
 }
+
+func TestParseNamedSectionsHeaderSpacingAndQuotes(t *testing.T) {
+	data := []byte(`[[ station ]]
+name = "A"
+
+[["station"]]
+name = "B"
+
+[[ 'station' ]]
+name = "C"
+`)
+	var got []string
+	ParseNamedSections(data, []string{"station"}, func(_ string, f map[string]string) {
+		got = append(got, f["name"])
+	})
+	if want := []string{"A", "B", "C"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ParseNamedSections = %v, want %v", got, want)
+	}
+	if got := UnknownHeaders(data, "station"); got != nil {
+		t.Fatalf("UnknownHeaders = %v, want nil", got)
+	}
+}

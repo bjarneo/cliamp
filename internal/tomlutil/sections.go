@@ -39,7 +39,7 @@ func ParseNamedSections(data []byte, sections []string, emit func(section string
 			flush()
 			fields = nil
 			cur = ""
-			if name, ok := headers[tableHeader(line)]; ok {
+			if name, ok := headers[headerKey(tableHeader(line))]; ok {
 				fields = make(map[string]string)
 				cur = name
 			}
@@ -75,7 +75,7 @@ func UnknownHeaders(data []byte, sections ...string) []string {
 		if !lines.next(line) || !strings.HasPrefix(line, "[") {
 			continue
 		}
-		if header := tableHeader(line); !known[header] {
+		if header := tableHeader(line); !known[headerKey(header)] {
 			unknown = append(unknown, header)
 		}
 	}
@@ -101,6 +101,22 @@ func tableHeader(line string) string {
 		}
 	}
 	return line
+}
+
+// headerKey returns an array-table header in the [[name]] form, so that
+// [[ name ]], [["name"]] and [['name']] match it too. Other headers are
+// returned unchanged.
+func headerKey(header string) string {
+	if !strings.HasPrefix(header, "[[") || !strings.HasSuffix(header, "]]") {
+		return header
+	}
+	key := strings.TrimSpace(header[2 : len(header)-2])
+	if len(key) >= 2 && key[0] == '\'' && key[len(key)-1] == '\'' {
+		key = key[1 : len(key)-1]
+	} else {
+		key = Unquote(key)
+	}
+	return "[[" + key + "]]"
 }
 
 // lineScanner tracks multi-line strings and arrays, so that a line inside one,
