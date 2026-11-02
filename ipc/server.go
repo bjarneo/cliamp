@@ -23,6 +23,8 @@ const ipcRequestReadTimeout = 60 * time.Second
 type Server struct {
 	listener    net.Listener
 	sockPath    string
+	socketInfo  os.FileInfo
+	pidInfo     os.FileInfo
 	broker      *Broker
 	brokerOwned bool
 
@@ -130,19 +132,30 @@ func newServer(sockPath string, broker *Broker, brokerOwned bool) (*Server, erro
 	if err != nil {
 		return nil, fmt.Errorf("ipc: listen: %w", err)
 	}
+	// net.UnixListener.Close normally unlinks its path without checking
+	// ownership. A different server may now own that pathname.
+	if unixListener, ok := ln.(*net.UnixListener); ok {
+		unixListener.SetUnlinkOnClose(false)
+	}
+	socketInfo, err := os.Lstat(sockPath)
+	if err != nil {
+		_ = ln.Close()
+		return nil, fmt.Errorf("ipc: stat socket: %w", err)
+	}
 
 	// Restrict socket permissions to owner only.
 	if err := os.Chmod(sockPath, 0600); err != nil {
-		ln.Close()
-		os.Remove(sockPath)
+		_ = ln.Close()
+		removeOwnedSocket(sockPath, socketInfo, nil)
 		return nil, fmt.Errorf("ipc: chmod: %w", err)
 	}
 
-	// Write PID file.
-	pidPath := sockPath + ".pid"
-	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
-		ln.Close()
-		os.Remove(sockPath)
+	// Publish a new PID inode, so a previous instance can distinguish its
+	// PID file from one belonging to a replacement with the same numeric PID.
+	pidInfo, err := publishPID(sockPath + ".pid")
+	if err != nil {
+		_ = ln.Close()
+		removeOwnedSocket(sockPath, socketInfo, nil)
 		return nil, fmt.Errorf("ipc: write pid: %w", err)
 	}
 
@@ -150,6 +163,8 @@ func newServer(sockPath string, broker *Broker, brokerOwned bool) (*Server, erro
 	s := &Server{
 		listener:    ln,
 		sockPath:    sockPath,
+		socketInfo:  socketInfo,
+		pidInfo:     pidInfo,
 		broker:      broker,
 		brokerOwned: brokerOwned,
 		operations:  DefaultOperationRegistry(),
@@ -165,7 +180,7 @@ func newServer(sockPath string, broker *Broker, brokerOwned bool) (*Server, erro
 	return s, nil
 }
 
-// Close shuts down the server, removes socket and PID file.
+// Close shuts down the server and removes only its own socket and PID file.
 func (s *Server) Close() error {
 	s.closeOnce.Do(func() {
 		if s.cancel != nil {
@@ -188,11 +203,63 @@ func (s *Server) Close() error {
 			s.broker.Close()
 		}
 		if s.sockPath != "" {
-			_ = os.Remove(s.sockPath)
-			_ = os.Remove(s.sockPath + ".pid")
+			removeOwnedSocket(s.sockPath, s.socketInfo, s.pidInfo)
 		}
 	})
 	return s.closeErr
+}
+
+// publishPID atomically replaces the stale PID file with a new inode.
+func publishPID(pidPath string) (os.FileInfo, error) {
+	f, err := os.CreateTemp(filepath.Dir(pidPath), ".cliamp-pid-*")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.WriteString(strconv.Itoa(os.Getpid())); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	if err := f.Close(); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(f.Name(), pidPath); err != nil {
+		return nil, err
+	}
+	return os.Lstat(pidPath)
+}
+
+// removeOwnedSocket uses the same stale-socket lock as startup, and only
+// unlinks a socket whose file identity still belongs to this server. Socket
+// ownership also gates removal of the PID file. The PID inode must match as
+// well, since another process may have replaced it independently.
+func removeOwnedSocket(sockPath string, socketInfo, pidInfo os.FileInfo) {
+	if socketInfo == nil {
+		return
+	}
+	unlock, err := lockSocketStale(sockPath)
+	if err != nil {
+		applog.Warn("ipc: lock socket cleanup: %v", err)
+		return
+	}
+	defer func() { _ = unlock() }()
+
+	current, err := os.Lstat(sockPath)
+	if err != nil || !os.SameFile(current, socketInfo) {
+		return
+	}
+	if err := os.Remove(sockPath); err != nil {
+		applog.Warn("ipc: remove socket: %v", err)
+		return
+	}
+	if pidInfo != nil {
+		currentPID, err := os.Lstat(sockPath + ".pid")
+		if err == nil && os.SameFile(currentPID, pidInfo) {
+			if err := os.Remove(sockPath + ".pid"); err != nil {
+				applog.Warn("ipc: remove pid file: %v", err)
+			}
+		}
+	}
 }
 
 // acceptLoop accepts incoming connections until the server is closed.
@@ -619,7 +686,7 @@ func listenStaleLocked(sockPath string, unlock func() error) (net.Listener, erro
 		return nil, err
 	}
 	if listening {
-		return nil, fmt.Errorf("ipc: cliamp is already running")
+		return nil, fmt.Errorf("cliamp is already running")
 	}
 
 	// Re-check the bind under the lock: another starter may have bound between
