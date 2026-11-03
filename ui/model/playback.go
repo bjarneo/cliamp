@@ -399,6 +399,13 @@ func (m *Model) undoPlaylistMutation() tea.Cmd {
 // in a command, so a slow open does not freeze the UI. The player picks the
 // pipeline, such as the yt-dlp | ffmpeg chain for a yt-dlp page URL.
 func (m *Model) playTrack(track playlist.Track) tea.Cmd {
+	if output, ok := m.player.(interface{ SupportsOutputTrack(string) bool }); ok && !output.SupportsOutputTrack(track.Path) {
+		m.err = errors.New("Tidal Connect only plays Tidal tracks; select This computer for other sources")
+		if m.player.IsPlaying() {
+			m.playbackDetached = true
+		}
+		return nil
+	}
 	m.pausedAt = time.Time{}
 	if track.Feed || playlist.IsFeed(track.Path) {
 		m.feedLoading = true
@@ -614,7 +621,7 @@ func (m *Model) togglePlayPause() tea.Cmd {
 		if !m.pausedAt.IsZero() {
 			pausedFor = time.Since(m.pausedAt)
 		}
-		if m.currentPlaybackIsLive(track) || shouldReconnectOnUnpause(track, idx, pausedFor) {
+		if !m.remoteOutput() && (m.currentPlaybackIsLive(track) || shouldReconnectOnUnpause(track, idx, pausedFor)) {
 			if playlist.IsYTDL(track.Path) && m.player.IsYTDLSeek() {
 				return m.reconnectYTDLOnUnpause()
 			}

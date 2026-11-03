@@ -20,6 +20,7 @@ import (
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/external/radio"
+	"github.com/bjarneo/cliamp/external/tidal"
 	"github.com/bjarneo/cliamp/internal/appdir"
 	"github.com/bjarneo/cliamp/internal/appmeta"
 	"github.com/bjarneo/cliamp/internal/embyapi"
@@ -169,7 +170,16 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 		defer luaMgr.Close()
 	}
 
-	m := model.New(p, pl, providers.entries, defaultProvider, providers.localPlaylists(), providers.favorites, providers.history, theme.LoadAll(), luaMgr, config.SaveFunc{})
+	var engine player.Engine = p
+	for _, entry := range providers.entries {
+		if tp, ok := entry.Provider.(*tidal.TidalProvider); ok {
+			output := tidal.NewConnectOutput(p, tp)
+			defer output.Close()
+			engine = output
+			break
+		}
+	}
+	m := model.New(engine, pl, providers.entries, defaultProvider, providers.localPlaylists(), providers.favorites, providers.history, theme.LoadAll(), luaMgr, config.SaveFunc{})
 	panes := ui.NewPaneSet()
 	m.SetPaneSet(panes)
 	if luaMgr != nil {
@@ -184,7 +194,7 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 	}
 	m.SetIPCBroker(pluginBroker)
 	if luaMgr != nil {
-		luaMgr.SetStateProvider(luaStateProvider(p, m.PluginStateLoader()))
+		luaMgr.SetStateProvider(luaStateProvider(engine, m.PluginStateLoader()))
 		if names := luaMgr.Visualizers(); len(names) > 0 {
 			m.RegisterLuaVisualizers(names, luaMgr)
 		}

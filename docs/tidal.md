@@ -84,6 +84,49 @@ When focused on the provider panel:
 
 After you load a playlist or album, cliamp returns to the standard playlist view. Use the usual controls for seek, volume, EQ, shuffle, repeat, queue, search, and lyrics.
 
+## Tidal Connect
+
+Press `d` to open the audio device picker and select a **Tidal Connect** receiver
+on the same local network. When a Tidal track is playing, cliamp transfers it at
+its current position, preserving pause state. With no track playing, selecting a
+receiver chooses the output for the next Tidal track. Select **This computer** to
+return to local playback.
+
+The same controls work in headless mode through IPC:
+
+```sh
+cliamp device list
+cliamp device 'tidal:192.168.1.50:2019' # use the ID from the device list
+cliamp pause
+cliamp play
+cliamp seek 30
+cliamp device local
+```
+
+The receiver streams directly from Tidal. cliamp sends playback commands and
+reads its position, duration and volume. Pause, seek, next/previous, volume,
+shuffle, repeat and play-next use the normal cliamp controls. Connect selection
+lasts for this run; it does not replace the saved local audio device.
+
+cliamp owns the queue and sends one track at a time. Keep cliamp running to
+advance through the queue. Quitting disconnects the controller and lets the
+current remote track finish. Remote playback does not use cliamp's EQ, mono,
+speed effects, audio visualizers or gapless preload. Volume controls adjust the
+receiver, with 0 dB corresponding to its maximum volume. Non-Tidal tracks require
+switching back to **This computer**.
+
+If another controller replaces the receiver's queue or track, cliamp reports the
+change and stops advancing its queue. Select a track in cliamp to take control
+again. If the receiver disconnects, select its output again to reconnect; cliamp
+does not unexpectedly restart audio on this computer.
+
+Connect uses the unofficial Tidal controller protocol and the existing Tidal
+sign-in. Discovery, track loading, seeking and playback controls have been tested
+on a WiiM Pro Plus. Other Connect receivers may differ. If discovery is blocked by
+your network, pass `tidal:host:port` directly using the receiver's Connect port.
+The WiiM may ignore seeks into the final few seconds of a track. cliamp waits for
+the new position and reports a failed seek if it does not arrive.
+
 ## Troubleshooting
 
 - **Sign-in fails immediately / "client_id may be revoked"**: Tidal sometimes revokes the shared cliamp client credentials. Set `client_id` and `client_secret` in `[tidal]`, run `cliamp tidal reset`, and sign in again.

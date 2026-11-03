@@ -45,6 +45,7 @@ const tokenSlack = time.Minute
 type client struct {
 	clientID     string
 	clientSecret string
+	queueURL     string // Connect cloud queue API; overridden in tests
 	baseURL      string // apiBaseURL in production; overridden in tests
 	tokenURL     string // defaultTokenURL in production; overridden in tests
 	http         *http.Client
@@ -64,6 +65,7 @@ func newClient(clientID, clientSecret string) *client {
 		clientID:     clientID,
 		clientSecret: clientSecret,
 		baseURL:      apiBaseURL,
+		queueURL:     connectQueueURL,
 		tokenURL:     defaultTokenURL,
 		http:         httpclient.NewAPI(30 * time.Second),
 	}

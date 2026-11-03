@@ -36,7 +36,7 @@ func tickCmdAt(d time.Duration) tea.Cmd {
 }
 
 func (m Model) visualizerVisible() bool {
-	if m.simplified || m.vis == nil || m.vis.Mode == ui.VisNone || m.vis.Rows <= 0 || m.vis.Cols <= 0 || m.layout.tooSmall() {
+	if m.remoteOutput() || m.simplified || m.vis == nil || m.vis.Mode == ui.VisNone || m.vis.Rows <= 0 || m.vis.Cols <= 0 || m.layout.tooSmall() {
 		return false
 	}
 	if m.fullVis {
@@ -431,7 +431,7 @@ func (m *Model) tickStreamHealth(now time.Time) {
 		return
 	}
 	track, idx := m.currentPlaybackTrack()
-	isStream := idx >= 0 && (track.Stream || playlist.IsYouTubeURL(track.Path) || playlist.IsYTDL(track.Path))
+	isStream := !m.remoteOutput() && idx >= 0 && (track.Stream || playlist.IsYouTubeURL(track.Path) || playlist.IsYTDL(track.Path))
 	if isStream && m.reconnect.attempts < 5 {
 		m.scheduleReconnect(now)
 	} else {

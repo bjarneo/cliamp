@@ -287,7 +287,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status.Showf(statusTTLDefault, "Audio output: %s", msg.name)
 			m.audioDevice = msg.name
-			_ = m.saveConfigString("audio_device", msg.name)
+			m.saveNativeOutput(msg.name)
 		}
 		// Invalidate cached list so the next open refreshes Active markers.
 		m.devicePicker.devices = nil
@@ -339,7 +339,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case playback.ToggleMonoMsg:
-		m.player.ToggleMono()
+		if !m.remoteEffect() {
+			m.player.ToggleMono()
+		}
 		return m, nil
 
 	case playback.StopMsg:

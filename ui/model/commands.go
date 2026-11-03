@@ -192,16 +192,19 @@ func AttachNotifier(notifier playback.Notifier) tea.Msg {
 	return attachNotifierMsg{notifier: notifier}
 }
 
-func listDevicesCmd() tea.Cmd {
+func (m *Model) listDevicesCmd() tea.Cmd {
+	engine := m.player
 	return func() tea.Msg {
-		devices, err := player.ListAudioDevices()
+		devices, err := outputDevices(engine)
 		return devicesListedMsg{devices: devices, err: err}
 	}
 }
 
-func switchDeviceCmd(name string) tea.Cmd {
+func (m *Model) switchDeviceCmd(name string) tea.Cmd {
+	engine := m.player
+	track, _ := m.currentPlaybackTrack()
 	return func() tea.Msg {
-		err := player.SwitchAudioDevice(name)
+		err := switchOutput(engine, name, track.Path)
 		return deviceSwitchedMsg{name: name, err: err}
 	}
 }

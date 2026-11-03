@@ -94,6 +94,9 @@ func (m *Model) preloadNext() tea.Cmd {
 // false when nothing should be armed: a live stream is playing, the queue ends
 // here, or the next yt-dlp track is the one already playing.
 func (m *Model) preloadTarget() (playlist.Track, bool) {
+	if m.remoteOutput() {
+		return playlist.Track{}, false
+	}
 	// Live streams do not have a track boundary. Preloading another station
 	// would turn a transient EOF into a gapless switch instead of reconnecting
 	// the station the user selected.

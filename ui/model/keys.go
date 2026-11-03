@@ -647,7 +647,9 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.saveTrack()
 
 	case "m":
-		m.player.ToggleMono()
+		if !m.remoteEffect() {
+			m.player.ToggleMono()
+		}
 
 	case "/":
 		m.search.active = true
@@ -744,7 +746,7 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.devicePicker.scroll = 0
 		if len(m.devicePicker.devices) == 0 {
 			m.devicePicker.loading = true
-			return listDevicesCmd()
+			return m.listDevicesCmd()
 		}
 
 	case "]":

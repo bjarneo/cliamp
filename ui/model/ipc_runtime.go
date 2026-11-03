@@ -131,6 +131,10 @@ func (m *Model) handleV2Request(msg V2RequestMsg) tea.Cmd {
 		return nil
 	}
 
+	if m.remoteOutput() && (request.Cmd == "eq" || request.Cmd == "mono" || request.Cmd == "speed" || request.Cmd == "speed.adjust" || request.Cmd == "vis") {
+		m.failV2Job(msg.Jobs, msg.JobID, v2UnavailableError())
+		return nil
+	}
 	switch request.Cmd {
 	case "play":
 		var cmd tea.Cmd
@@ -396,9 +400,11 @@ func (m *Model) saveVisualizerChoice() error {
 }
 
 func (m *Model) handleV2Device(jobs *ipc.JobStore, jobID string, request ipc.Request) tea.Cmd {
+	engine := m.player
+	track, _ := m.currentPlaybackTrack()
 	if strings.EqualFold(request.Name, "list") {
 		return func() tea.Msg {
-			devices, err := player.ListAudioDevices()
+			devices, err := outputDevices(engine)
 			if err != nil {
 				return ipcV2ResponseMsg{Jobs: jobs, JobID: jobID, Operation: "device", Response: ipc.Response{OK: false, Error: err.Error()}}
 			}
@@ -406,7 +412,7 @@ func (m *Model) handleV2Device(jobs *ipc.JobStore, jobID string, request ipc.Req
 		}
 	}
 	return func() tea.Msg {
-		err := player.SwitchAudioDevice(request.Name)
+		err := switchOutput(engine, request.Name, track.Path)
 		response := ipc.Response{OK: true, Device: request.Name}
 		if err != nil {
 			response = ipc.Response{OK: false, Error: err.Error()}
@@ -444,7 +450,7 @@ func (m *Model) applyV2DeviceResponse(response ipc.Response) {
 	}
 	if response.Device != "" {
 		m.audioDevice = response.Device
-		_ = m.saveConfigString("audio_device", response.Device)
+		m.saveNativeOutput(response.Device)
 		m.devicePicker.devices = nil
 	}
 }

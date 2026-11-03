@@ -267,3 +267,17 @@ Frames are limited to 1 MiB. Use paging for large provider or playlist results.
 Jobs are process-local, bounded, and retained for 15 minutes after completion.
 cliamp cancels them during an orderly server shutdown. They are not available
 after a restart.
+
+## Tidal Connect outputs
+
+With Tidal enabled, the `device` operation lists local outputs and discovered
+Tidal Connect receivers. Use `{"name":"list"}` to list them, then pass a receiver
+ID such as `{"name":"tidal:192.168.1.50:2019"}` to transfer the current Tidal
+track at its current position. `{"name":"local"}` returns playback to this
+computer. The device picker and `cliamp device` command use the same operations.
+
+Playback state, position and volume come from the receiver. Local audio effects
+(`eq`, `mono`, `speed`, `speed.adjust`, and `vis`) return `unavailable` while a
+Connect output is selected. cliamp keeps ownership of queue ordering and must
+remain running to advance tracks. See [Tidal Connect](tidal.md#tidal-connect) for
+handoff, disconnect and external-controller behavior.
