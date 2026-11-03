@@ -79,6 +79,7 @@ var providerEmptyStateHint = map[string]string{
 	"tidal":               "Press Ctrl+R to retry, or run `cliamp tidal reset`.",
 	"mixcloud":            "Set [mixcloud] username in config.toml for account views.",
 	"lyrion":              "Only saved server playlists show here. Press N to browse.",
+	"applemusic":          "Press Ctrl+F to search the Apple Music catalog.",
 	"yandex music":        "Verify [yandex] token in config.toml.",
 	"radio":               "Press Ctrl+R to reload the station directory.",
 	"podcasts":            "Press Ctrl+R to reload the top shows.",

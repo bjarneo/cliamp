@@ -71,16 +71,17 @@ func YearFromDate(date string) int {
 
 // ProviderMeta key constants used across providers and the UI.
 const (
-	MetaNavidromeID = "navidrome.id"
-	MetaJellyfinID  = "jellyfin.id"
-	MetaEmbyID      = "emby.id"
-	MetaNetEaseID   = "netease.id"
-	MetaYandexID    = "yandex.id"
-	MetaQobuzID     = "qobuz.id"
-	MetaTidalID     = "tidal.id"
-	MetaBandcampID  = "bandcamp.id"
-	MetaLyrionID    = "lyrion.id"
-	MetaMixcloudKey = "mixcloud.key"
+	MetaNavidromeID  = "navidrome.id"
+	MetaJellyfinID   = "jellyfin.id"
+	MetaEmbyID       = "emby.id"
+	MetaNetEaseID    = "netease.id"
+	MetaYandexID     = "yandex.id"
+	MetaQobuzID      = "qobuz.id"
+	MetaAppleMusicID = "applemusic.id"
+	MetaTidalID      = "tidal.id"
+	MetaBandcampID   = "bandcamp.id"
+	MetaLyrionID     = "lyrion.id"
+	MetaMixcloudKey  = "mixcloud.key"
 	// MetaMixcloudCreator is the profile username that owns a Mixcloud show.
 	MetaMixcloudCreator = "mixcloud.creator"
 

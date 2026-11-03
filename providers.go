@@ -13,6 +13,7 @@ import (
 
 	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/external/applemusic"
 	"github.com/bjarneo/cliamp/external/audiobookshelf"
 	"github.com/bjarneo/cliamp/external/bandcamp"
 	"github.com/bjarneo/cliamp/external/emby"
@@ -82,6 +83,7 @@ var providerKeys = []providerKey{
 	{key: "plex", name: "Plex", optional: true},
 	{key: "jellyfin", name: "Jellyfin", optional: true},
 	{key: "emby", name: "Emby", optional: true},
+	{key: "applemusic", name: "Apple Music", optional: true},
 	{key: "spotify", name: "Spotify", optional: true},
 	{key: "qobuz", name: "Qobuz", optional: true},
 	{key: "tidal", name: "Tidal", optional: true},
@@ -200,6 +202,9 @@ func buildProviders(cfg config.Config, interactive bool) *providerSet {
 	}
 	if p := audiobookshelf.NewFromConfig(cfg.Audiobookshelf); p != nil {
 		add("audiobookshelf", p)
+	}
+	if p := applemusic.New(); p != nil {
+		add("applemusic", p)
 	}
 	if cfg.Spotify.IsSet() {
 		clientID := cfg.Spotify.ResolveClientID(spotify.DefaultClientID)

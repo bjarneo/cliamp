@@ -59,7 +59,8 @@ func TestDocsNameProviderCapabilities(t *testing.T) {
 		keys = append(keys, e.Key)
 	}
 	for _, pk := range providerKeys {
-		if !slices.Contains([]string{"yt", "youtube", "ytmusic"}, pk.key) && !slices.Contains(keys, pk.key) {
+		// Apple Music registers only where its macOS helpers are installed.
+		if !slices.Contains([]string{"yt", "youtube", "ytmusic", "applemusic"}, pk.key) && !slices.Contains(keys, pk.key) {
 			t.Fatalf("everyProviderConfig does not enable %s", pk.key)
 		}
 	}

@@ -383,6 +383,24 @@ func (p *Player) GaplessAdvanced() bool {
 	return p.gaplessAdvance.CompareAndSwap(true, false)
 }
 
+// PauseObserver is implemented by a live decoder whose source must stop and
+// resume with the player, such as audio from another application.
+type PauseObserver interface {
+	SetPaused(paused bool)
+}
+
+func (p *Player) notifyPause(paused bool) {
+	p.mu.Lock()
+	cur := p.current
+	p.mu.Unlock()
+	if cur == nil {
+		return
+	}
+	if o, ok := cur.decoder.(PauseObserver); ok {
+		o.SetPaused(paused)
+	}
+}
+
 // TogglePause toggles between paused and playing states.
 // When pausing, the speaker is suspended to save CPU; when unpausing
 // it is resumed so the audio callback drains the queued samples.
@@ -398,6 +416,7 @@ func (p *Player) TogglePause() {
 		} else {
 			p.resumeSpeaker()
 		}
+		p.notifyPause(paused)
 	} else {
 		speaker.Unlock()
 	}
