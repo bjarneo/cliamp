@@ -14,7 +14,7 @@ import (
 // browseTagsID is the provider-pane shortcut into the tag browser.
 const browseTagsID = "browse:tags"
 
-// tagTrackLimit caps one tag result at the same navigable size as a country.
+// tagTrackLimit caps one tag result at a navigable playlist size.
 const tagTrackLimit = 200
 
 // tagBrowser adapts the directory's tag index to the shared category browser

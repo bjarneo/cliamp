@@ -86,7 +86,8 @@ Pick a country and choose how to order its stations:
 | By Name | Station name, A to Z |
 | Random | Nothing; a different set each time |
 
-The result replaces your playlist with up to 200 stations from that place.
+The result replaces your playlist with every station in that place. A large
+country can contribute thousands of stations.
 
 ## Browsing by genre or tag
 
