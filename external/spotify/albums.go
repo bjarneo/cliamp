@@ -15,8 +15,8 @@ import (
 // SearchTracks can be expanded into a playable list.
 //
 // /v1/albums/{id}/tracks returns simplified track objects that omit the album
-// they belong to, so the album's own name, artist and release year are fetched
-// once and filled in on every track for display.
+// they belong to, so the album's own name, artist, release year and cover are
+// fetched once and filled in on every track for display.
 func (p *SpotifyProvider) AlbumTracks(albumID string) ([]playlist.Track, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -49,6 +49,9 @@ func (p *SpotifyProvider) AlbumTracksContext(ctx context.Context, albumID string
 			track.Year = placeholder.Year
 			if track.Artist == "" {
 				track.Artist = placeholder.Artist
+			}
+			if track.AlbumArtURL == "" {
+				track.AlbumArtURL = placeholder.AlbumArtURL
 			}
 			tracks = append(tracks, track)
 		}
