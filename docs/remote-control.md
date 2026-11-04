@@ -230,13 +230,18 @@ frame with `spectrum.get`.
 cliamp remote state
 cliamp remote capabilities
 cliamp remote call queue.enqueue --params '{"index":4,"if_revision":18}' --wait
+cliamp remote call provider.search --params-file params.json --wait
+printf '{"index":4,"if_revision":18}\n' | cliamp remote call queue.enqueue --params-stdin --wait
 cliamp remote job JOB_ID
 cliamp remote cancel JOB_ID
 cliamp remote events runtime.state runtime.job
 ```
 
 `remote call` prints the V2 response as JSON and can submit every listed
-operation. Use it in scripts and to validate a GUI integration.
+operation. Use it in scripts and to validate a GUI integration. Pass parameters
+via `--params '<json>'`, from a file via `--params-file <path>`, or via stdin
+using `--params-file -` or `--params-stdin` to avoid exposing sensitive
+parameters in process argument lists (`ps` / `/proc`).
 
 Named CLI commands such as `cliamp volume`, `cliamp seek`, `cliamp load`, and
 `cliamp plugins call` use V2 jobs internally. `volume` sets an absolute dB
