@@ -213,6 +213,14 @@ func authenticateProviderCmd(auth playlist.Authenticator, providerName string, g
 	}
 }
 
+// authenticateCodeCmd completes a provider.CodeAuthenticator sign-in with the
+// code the user typed in the pane.
+func authenticateCodeCmd(ca provider.CodeAuthenticator, code, providerName string, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		return provAuthDoneMsg{providerName: providerName, gen: gen, err: ca.Authenticate(code)}
+	}
+}
+
 // radioListsRefreshMsg requests a projection of current in-memory Radio state.
 // Unlike remote provider results it never carries a potentially stale row snapshot.
 type radioListsRefreshMsg struct{ gen uint64 }
