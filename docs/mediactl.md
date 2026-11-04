@@ -41,8 +41,10 @@ playerctl --list-all
 playerctl --player=cliamp.instance48213 metadata title
 ```
 
-`--player=cliamp` addresses the first one only. Without the flag, `playerctl`
-follows the most recently active player, which is usually the one you want.
+`--player=cliamp` matches both names, because `playerctl` also matches a
+name against its instances. To control 1 instance, give its full name, as the
+last command shows. Without `--player`, `playerctl` controls the first player
+that it finds. When `playerctld` runs, that is the most recently active player.
 
 ### Playback Control
 
