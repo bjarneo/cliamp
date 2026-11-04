@@ -400,7 +400,7 @@ func (m *Model) undoPlaylistMutation() tea.Cmd {
 // pipeline, such as the yt-dlp | ffmpeg chain for a yt-dlp page URL.
 func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 	if output, ok := m.player.(interface{ SupportsOutputTrack(string) bool }); ok && !output.SupportsOutputTrack(track.Path) {
-		m.err = errors.New("Tidal Connect only plays Tidal tracks; select This computer for other sources")
+		m.err = errors.New("tidal connect: this output only plays Tidal tracks; select This computer for other sources")
 		if m.player.IsPlaying() {
 			m.playbackDetached = true
 		}
