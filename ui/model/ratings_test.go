@@ -217,36 +217,27 @@ func TestRatingSuccessUpdatesRowAndMatchingActivePlayback(t *testing.T) {
 	}
 }
 
-func TestRatingStaleRowAndOlderRequestResultsAreIgnored(t *testing.T) {
+func TestRatingRepliesUpdateTrackBySongIDAfterCursorMoveOrLaterRequest(t *testing.T) {
 	p := &ratingTestProvider{name: "Navidrome", accept: true}
 	first := ratingTrack("one", 1)
 	second := ratingTrack("two", 2)
 	m := ratingTestModel(p, first, second)
 
-	staleRow := m.rateSelectedTrack(5)().(trackRatingSyncedMsg)
+	firstReply := m.rateSelectedTrack(5)().(trackRatingSyncedMsg)
 	m.plCursor = 1
-	m.handleTrackRatingSynced(staleRow)
-	got, _ := m.playlist.Track(0)
-	if got.UserRating != 1 {
-		t.Fatalf("stale row result changed rating to %d", got.UserRating)
-	}
+	secondReply := m.rateSelectedTrack(4)().(trackRatingSyncedMsg)
 
-	m.plCursor = 0
-	older := m.rateSelectedTrack(3)().(trackRatingSyncedMsg)
-	newer := m.rateSelectedTrack(4)().(trackRatingSyncedMsg)
-	m.handleTrackRatingSynced(older)
-	got, _ = m.playlist.Track(0)
-	if got.UserRating != 1 {
-		t.Fatalf("older request changed rating to %d", got.UserRating)
-	}
-	m.handleTrackRatingSynced(newer)
-	got, _ = m.playlist.Track(0)
-	if got.UserRating != 4 {
-		t.Fatalf("newer request rating = %d, want 4", got.UserRating)
+	m.handleTrackRatingSynced(firstReply)
+	m.handleTrackRatingSynced(secondReply)
+
+	gotFirst, _ := m.playlist.Track(0)
+	gotSecond, _ := m.playlist.Track(1)
+	if gotFirst.UserRating != 5 || gotSecond.UserRating != 4 {
+		t.Fatalf("ratings after replies = %d/%d, want 5/4", gotFirst.UserRating, gotSecond.UserRating)
 	}
 }
 
-func TestStaleRatingFailureIsIgnored(t *testing.T) {
+func TestRatingFailureWarnsAfterCursorMove(t *testing.T) {
 	p := &ratingTestProvider{name: "Navidrome", accept: true, err: errors.New("late failure")}
 	m := ratingTestModel(p, ratingTrack("one", 1), ratingTrack("two", 2))
 	msg := m.rateSelectedTrack(5)().(trackRatingSyncedMsg)
@@ -254,8 +245,8 @@ func TestStaleRatingFailureIsIgnored(t *testing.T) {
 
 	m.handleTrackRatingSynced(msg)
 
-	if m.status.text != "" {
-		t.Fatalf("stale failure status = %q, want empty", m.status.text)
+	if !strings.Contains(m.status.text, "Navidrome did not save rating: late failure") {
+		t.Fatalf("status = %q, want rating failure warning", m.status.text)
 	}
 }
 

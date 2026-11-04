@@ -340,7 +340,6 @@ type Model struct {
 	// Primed rating chord: `*` followed by 0..5 rates the selected track.
 	pendingRatingActive    bool
 	pendingRatingExpiresAt time.Time
-	ratingRequest          uint64
 	ratingSync             *favorites.SyncQueue
 
 	// UI navigation

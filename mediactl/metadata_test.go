@@ -55,14 +55,14 @@ func TestMakeMetadataMapsPlaybackTrackToMPRISFields(t *testing.T) {
 func TestMakeMetadataOmitsEmptyOptionalFields(t *testing.T) {
 	got := makeMetadata(playback.Track{}, trackPath(1))
 
-	if len(got) != 2 {
-		t.Fatalf("metadata field count = %d, want 2", len(got))
+	if len(got) != 1 {
+		t.Fatalf("metadata field count = %d, want 1", len(got))
 	}
 	if !reflect.DeepEqual(got["mpris:trackid"], dbus.MakeVariant(dbus.ObjectPath("/org/mpris/MediaPlayer2/Track/1"))) {
 		t.Fatalf("track id = %#v, want default track id", got["mpris:trackid"])
 	}
-	if !reflect.DeepEqual(got["xesam:userRating"], dbus.MakeVariant(0.0)) {
-		t.Fatalf("userRating = %#v, want 0", got["xesam:userRating"])
+	if _, ok := got["xesam:userRating"]; ok {
+		t.Fatal("metadata unexpectedly included xesam:userRating for an unrated track")
 	}
 	for _, key := range []string{
 		"xesam:title",
@@ -149,7 +149,6 @@ func TestMakeMetadataUserRating(t *testing.T) {
 		rating int
 		want   float64
 	}{
-		{name: "unrated", rating: 0, want: 0.0},
 		{name: "four stars", rating: 4, want: 0.8},
 		{name: "five stars", rating: 5, want: 1.0},
 		{name: "clamped high", rating: 9, want: 1.0},

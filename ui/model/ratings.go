@@ -2,7 +2,6 @@ package model
 
 import (
 	"context"
-	"maps"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -17,14 +16,12 @@ const trackRatingTimeout = 30 * time.Second
 type trackRatingSyncedMsg struct {
 	provider string
 	track    playlist.Track
-	cursor   int
-	request  uint64
 	rating   int
 	err      error
 }
 
-func sameRatingTrack(a, b playlist.Track) bool {
-	return a.Path == b.Path && maps.Equal(a.ProviderMeta, b.ProviderMeta)
+func ratingSongID(track playlist.Track) string {
+	return track.Meta(provider.MetaNavidromeID)
 }
 
 func (m *Model) findTrackRater(track playlist.Track) (provider.TrackRater, string) {
@@ -44,9 +41,6 @@ func (m *Model) rateSelectedTrack(rating int) tea.Cmd {
 		m.status.Warningf(statusTTLMedium, "Rating is not available for %s", track.DisplayName())
 		return nil
 	}
-	m.ratingRequest++
-	request := m.ratingRequest
-	cursor := m.plCursor
 	if m.ratingSync == nil {
 		m.ratingSync = &favorites.SyncQueue{}
 	}
@@ -68,8 +62,6 @@ func (m *Model) rateSelectedTrack(rating int) tea.Cmd {
 		return trackRatingSyncedMsg{
 			provider: name,
 			track:    track,
-			cursor:   cursor,
-			request:  request,
 			rating:   rating,
 			err:      err,
 		}
@@ -77,11 +69,24 @@ func (m *Model) rateSelectedTrack(rating int) tea.Cmd {
 }
 
 func (m *Model) handleTrackRatingSynced(msg trackRatingSyncedMsg) {
-	if msg.request != m.ratingRequest || m.playlist == nil || msg.cursor != m.plCursor {
+	if m.playlist == nil {
 		return
 	}
-	track, ok := m.playlist.Track(msg.cursor)
-	if !ok || !sameRatingTrack(track, msg.track) {
+	songID := ratingSongID(msg.track)
+	if songID == "" {
+		return
+	}
+	var index int
+	var track playlist.Track
+	found := false
+	for i := 0; i < m.playlist.Len(); i++ {
+		candidate, ok := m.playlist.Track(i)
+		if ok && ratingSongID(candidate) == songID {
+			index, track, found = i, candidate, true
+			break
+		}
+	}
+	if !found {
 		return
 	}
 	if msg.err != nil {
@@ -89,8 +94,8 @@ func (m *Model) handleTrackRatingSynced(msg trackRatingSyncedMsg) {
 		return
 	}
 	track.UserRating = msg.rating
-	m.playlist.SetTrack(msg.cursor, track)
-	if m.playingTrackActive && !m.playbackDetached && m.playlist.Index() == msg.cursor && sameRatingTrack(m.playingTrack, msg.track) {
+	m.playlist.SetTrack(index, track)
+	if m.playingTrackActive && !m.playbackDetached && ratingSongID(m.playingTrack) == songID {
 		m.playingTrack.UserRating = msg.rating
 	}
 	if msg.rating == 0 {
