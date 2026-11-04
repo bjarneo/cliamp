@@ -22,7 +22,7 @@ func sectionsHandler(t *testing.T) http.HandlerFunc {
 					"Metadata": [
 						{
 							"ratingKey":"300","title":"Highway to Hell","grandparentTitle":"AC/DC",
-							"parentTitle":"Highway to Hell","year":1979,"index":1,"duration":208000,
+							"parentTitle":"Highway to Hell","parentYear":1979,"index":1,"duration":208000,
 							"Media":[{"Part":[{"key":"/library/parts/3/333/HighwayToHell.flac"}]}]
 						}
 					]
@@ -253,6 +253,10 @@ func TestProvider_Tracks_Playlist(t *testing.T) {
 	}
 	if tr.Album != "Highway to Hell" {
 		t.Errorf("Album = %q, want %q", tr.Album, "Highway to Hell")
+	}
+	// Playlist items carry the album year as parentYear, with no year.
+	if tr.Year != 1979 {
+		t.Errorf("Year = %d, want the album's 1979", tr.Year)
 	}
 	if tr.DurationSecs != 208 {
 		t.Errorf("DurationSecs = %d, want 208", tr.DurationSecs)
