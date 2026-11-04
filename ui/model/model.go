@@ -396,6 +396,10 @@ type Model struct {
 	// Async feed/M3U URL resolution
 	pendingURLs []string
 	feedLoading bool
+	// feedRequest is the queue request of the latest feed resolve. Only its
+	// answer clears feedLoading, so a stale answer leaves a newer resolve
+	// marked as loading.
+	feedRequest uint64
 
 	spinnerTicking bool // a spinnerTickMsg is pending
 

@@ -36,6 +36,7 @@ entries, a status message tells you which key to press.
 | `PageUp` `PageDown` / `Ctrl+U` `Ctrl+D` | Scroll playlist/file browser by page (outside text input) |
 | `Home` `End` / `g` `G` | Go to top/end of playlist/file browser |
 | `Shift+Up` `Shift+Down` | Move track up/down in playlist/queue. Turn off shuffle to move a playlist track. |
+| `Ctrl+O` | Reverse the playlist order, for example to play the newest added tracks first. The playing track keeps playing. A loaded local playlist saves the new order. Tracks from its directory source keep their scan order. Turn off shuffle first, and wait until a provider playlist has finished loading. |
 | `h` `l` | Adjust the focused setting (EQ: select band) |
 | `Enter` | Play selected track |
 | `/` | Filter the playlist (navigate results with `↑` `↓` / `Ctrl+N` `Ctrl+P`; `Ctrl+U` clears the query; `Tab` toggles the queue for the selected result) |

@@ -776,6 +776,37 @@ func (p *Playlist) Move(from, to int) bool {
 	return true
 }
 
+// Reverse flips the track order. The current track, the play-next queue
+// and, with shuffle on, the play order keep pointing at the same tracks.
+// With shuffle off, playback follows the new visual order.
+func (p *Playlist) Reverse() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := len(p.tracks)
+	if n < 2 {
+		return
+	}
+	slices.Reverse(p.tracks)
+	for i, idx := range p.order {
+		p.order[i] = n - 1 - idx
+	}
+	for i, idx := range p.queue {
+		p.queue[i] = n - 1 - idx
+	}
+	p.rebuildQueuePositions()
+	if p.queuedIdx >= 0 {
+		p.queuedIdx = n - 1 - p.queuedIdx
+	}
+	if !p.shuffle {
+		cur := p.order[p.pos]
+		for i := range p.order {
+			p.order[i] = i
+		}
+		p.pos = cur
+	}
+	p.revision++
+}
+
 // Remove deletes the track at index idx, updating order, queue, and position
 // references so playback state is preserved when possible. Returns true if a
 // track was removed. If the removed track was the active one, the position

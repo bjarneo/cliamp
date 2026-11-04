@@ -519,6 +519,12 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 			return cmd
 		}
 
+	case "ctrl+o":
+		if m.focus == focusPlaylist {
+			cmd, _ := m.reverseTracks()
+			return cmd
+		}
+
 	case "up", "k":
 		if m.focus == focusEQ {
 			bands := m.player.EQBands()
