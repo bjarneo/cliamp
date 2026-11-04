@@ -36,6 +36,7 @@ entries, a status message tells you which key to press.
 | `PageUp` `PageDown` / `Ctrl+U` `Ctrl+D` | Scroll playlist/file browser by page (outside text input) |
 | `Home` `End` / `g` `G` | Go to top/end of playlist/file browser |
 | `Shift+Up` `Shift+Down` | Move track up/down in playlist/queue. Turn off shuffle to move a playlist track. |
+| `Ctrl+O` | Reverse the playlist order, for example to play the newest added tracks first. The playing track keeps playing. A loaded local playlist saves the new order. Tracks from its directory source keep their scan order. Turn off shuffle first, and wait until a provider playlist has finished loading. |
 | `h` `l` | Adjust the focused setting (EQ: select band) |
 | `Enter` | Play selected track |
 | `/` | Filter the playlist (navigate results with `↑` `↓` / `Ctrl+N` `Ctrl+P`; `Ctrl+U` clears the query; `Tab` toggles the queue for the selected result) |
@@ -149,6 +150,7 @@ and `Esc` clears it.
 | `Q` | Open Qobuz provider |
 | `T` | Open Tidal provider |
 | `K` | Open Bandcamp provider |
+| `U` | Open Telegram provider |
 | `B` | Open Audiobookshelf provider |
 
 Metadata belongs to the main playback view, not provider browsers, and follows
@@ -294,8 +296,9 @@ saved albums — appear in the provider pane.
 | `R` | Replace the queue with all visible tracks (start from the top, confirm when non-empty) |
 | `q` | Queue the highlighted track to play next |
 | `s` | Cycle album sort (album list only) |
-| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `K` `L` `R` `O` | Switch to that provider without opening the main pane. On the track screen, `R` replaces the queue instead. |
+| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `K` `U` `L` `R` `O` | Switch to that provider without opening the main pane. On the track screen, `R` replaces the queue instead. |
 | `N` | In Jellyfin, reopen the browse-mode chooser. Elsewhere, switch to Navidrome. |
+| `Ctrl+P` | In Telegram, pick the chats, groups and bots that show up in the list. |
 | `Esc` `b` | Go back one level; close the browser |
 
 While you type in the `/` filter, the Shift+letter switches and `N` do not

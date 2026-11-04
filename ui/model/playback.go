@@ -402,8 +402,9 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 	m.pausedAt = time.Time{}
 	if track.Feed || playlist.IsFeed(track.Path) {
 		m.feedLoading = true
+		m.feedRequest = nextRequest(&m.requests.queue)
 		m.status.Activity("Loading feed...", statusTTLLong)
-		return resolveFeedTrackCmd(track.Path, m.requests.stream, nextRequest(&m.requests.queue))
+		return resolveFeedTrackCmd(track.Path, m.requests.stream, m.feedRequest)
 	}
 	// The track that plays now is left, so it can scrobble before the
 	// engine moves on.

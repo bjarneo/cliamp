@@ -8,6 +8,8 @@ package model
 // shuffleMoveWarning tells the user why Shift+Up and Shift+Down do not move
 // a track while shuffle is on.
 const shuffleMoveWarning = "Turn off shuffle to move tracks"
+const shuffleReverseWarning = "Turn off shuffle to reverse the playlist"
+const pagingReverseWarning = "Wait for the playlist to finish loading"
 
 // plCursorRow returns the view row of the playlist cursor.
 func (m Model) plCursorRow() int {

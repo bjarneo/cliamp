@@ -401,6 +401,8 @@ func providerKeyForShortcut(key string) string {
 		return "tidal"
 	case "K":
 		return "bandcamp"
+	case "U":
+		return "telegram"
 	case "L":
 		return "local"
 	case "R":

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -294,6 +295,145 @@ func TestQueueMoveKeepsOtherWriters(t *testing.T) {
 	}
 }
 
+// Ctrl+O writes the reversed order to the loaded playlist file. Two rows of
+// one path keep the saved rows they were loaded from, so the file and the
+// queue agree. A track that another writer added stays last in the file.
+func TestQueueReverseSavesTheLoadedPlaylist(t *testing.T) {
+	a1 := playlist.Track{Path: "/music/a.mp3", Title: "A1"}
+	b := playlist.Track{Path: "/music/b.mp3", Title: "B"}
+	a2 := playlist.Track{Path: "/music/a.mp3", Title: "A2"}
+	added := playlist.Track{Path: "/music/added.mp3", Title: "Added"}
+	for _, tc := range []struct {
+		name string
+		// other runs after the load as a second writer of the file.
+		other     func(t *testing.T, other *local.Provider)
+		wantFile  []string
+		wantQueue []string
+	}{
+		{
+			name:      "only this writer",
+			wantFile:  []string{"A2", "B", "A1"},
+			wantQueue: []string{"A2", "B", "A1"},
+		},
+		{
+			name: "another writer added a track",
+			other: func(t *testing.T, other *local.Provider) {
+				if _, _, err := other.AddTracks("Mix", []playlist.Track{added}); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantFile:  []string{"A2", "B", "A1", "Added"},
+			wantQueue: []string{"A2", "B", "A1"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+			lp := local.New(nil, nil)
+			if err := lp.SavePlaylist("Mix", []playlist.Track{a1, b, a2}); err != nil {
+				t.Fatal(err)
+			}
+			m := Model{
+				player:        &playbackFakeEngine{},
+				playlist:      playlist.New(),
+				vis:           ui.NewVisualizer(44100),
+				provider:      lp,
+				localProvider: lp,
+				providers:     []provider.Entry{{Key: "local", Name: "Local", Provider: lp}},
+			}
+			if response := runV2(t, &m, "provider.load", ipc.Request{Provider: "local", Playlist: "Mix"}); !response.OK {
+				t.Fatalf("provider.load = %+v", response)
+			}
+			if tc.other != nil {
+				tc.other(t, local.New(nil, nil))
+			}
+
+			m.focus = focusPlaylist
+			m.plCursor = 0
+			m.handleKey(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+			if m.status.kind == feedbackError {
+				t.Fatalf("unexpected error: %s", m.status.text)
+			}
+			mix, err := lp.Tracks("Mix")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := trackTitles(mix); !reflect.DeepEqual(got, tc.wantFile) {
+				t.Fatalf("Mix after the reverse = %v, want %v", got, tc.wantFile)
+			}
+			if got := trackTitles(m.playlist.Tracks()); !reflect.DeepEqual(got, tc.wantQueue) {
+				t.Fatalf("queue after the reverse = %v, want %v", got, tc.wantQueue)
+			}
+			if m.plCursor != 2 {
+				t.Fatalf("plCursor = %d, want 2", m.plCursor)
+			}
+		})
+	}
+}
+
+// Ctrl+O is refused with a warning while shuffle is on or while tracks are
+// still loading. The queue and the loaded playlist file keep their order.
+func TestQueueReverseRefusedWhileLoading(t *testing.T) {
+	a := playlist.Track{Path: "/music/a.mp3", Title: "A"}
+	b := playlist.Track{Path: "/music/b.mp3", Title: "B"}
+	for _, tc := range []struct {
+		name  string
+		setup func(m *Model)
+		want  string
+	}{
+		{name: "shuffle", setup: func(m *Model) { m.playlist.ToggleShuffle() }, want: shuffleReverseWarning},
+		{name: "provider pages", setup: func(m *Model) { m.tracksPaging = true }, want: pagingReverseWarning},
+		{name: "yt-dlp batch", setup: func(m *Model) { m.ytdlBatch.loading = true }, want: pagingReverseWarning},
+		{name: "provider playlist", setup: func(m *Model) { m.provPane.loading = true }, want: pagingReverseWarning},
+		{name: "feed", setup: func(m *Model) { m.feedLoading = true }, want: pagingReverseWarning},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+			lp := local.New(nil, nil)
+			if err := lp.SavePlaylist("Mix", []playlist.Track{a, b}); err != nil {
+				t.Fatal(err)
+			}
+			m := Model{
+				player:        &playbackFakeEngine{},
+				playlist:      playlist.New(),
+				vis:           ui.NewVisualizer(44100),
+				provider:      lp,
+				localProvider: lp,
+				providers:     []provider.Entry{{Key: "local", Name: "Local", Provider: lp}},
+			}
+			if response := runV2(t, &m, "provider.load", ipc.Request{Provider: "local", Playlist: "Mix"}); !response.OK {
+				t.Fatalf("provider.load = %+v", response)
+			}
+			order := trackTitles(m.playlist.Tracks())
+			tc.setup(&m)
+
+			m.focus = focusPlaylist
+			m.handleKey(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+			if m.status.kind != feedbackWarning || m.status.text != tc.want {
+				t.Fatalf("status = %v %q, want warning %q", m.status.kind, m.status.text, tc.want)
+			}
+			if got := trackTitles(m.playlist.Tracks()); !reflect.DeepEqual(got, order) {
+				t.Fatalf("queue = %v, want %v", got, order)
+			}
+			mix, err := lp.Tracks("Mix")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := trackTitles(mix); !reflect.DeepEqual(got, []string{"A", "B"}) {
+				t.Fatalf("Mix = %v, want [A B]", got)
+			}
+		})
+	}
+}
+
+// trackTitles returns the titles of tracks in order.
+func trackTitles(tracks []playlist.Track) []string {
+	titles := make([]string, len(tracks))
+	for i, track := range tracks {
+		titles[i] = track.Title
+	}
+	return titles
+}
+
 func TestOrderByRows(t *testing.T) {
 	track := func(path, title string, secs int) playlist.Track {
 		return playlist.Track{Path: path, Title: title, DurationSecs: secs}
@@ -340,6 +480,17 @@ func TestOrderByRows(t *testing.T) {
 				t.Fatalf("orderByRows = %+v, want %+v", got, tc.want)
 			}
 		})
+	}
+
+	// A reverse names the rows before it flips the queue, so each row keeps
+	// the saved row it came from even when a path repeats.
+	saved := []playlist.Track{track("/a", "A1", 0), track("/b", "B", 0), track("/a", "A2", 0)}
+	order := []playlist.Track{track("/a", "A2", 0), track("/b", "B", 0), track("/a", "A1", 0)}
+	rows := pathRowsOf(saved)
+	slices.Reverse(rows)
+	want := []playlist.Track{track("/a", "A2", 0), track("/b", "B", 0), track("/a", "A1", 0)}
+	if got := orderByRowKeys(saved, order, rows); !reflect.DeepEqual(got, want) {
+		t.Fatalf("orderByRowKeys with reversed rows = %+v, want %+v", got, want)
 	}
 }
 

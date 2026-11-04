@@ -217,6 +217,7 @@ const (
 	screenURLInput
 	screenLyrics
 	screenJump
+	screenAuthCode
 	// screenFullVisualizer stays last. TestOverlayStackOrder checks that
 	// overlayStack holds each screen up to it.
 	screenFullVisualizer
@@ -256,6 +257,8 @@ func (s topLevelScreen) label() string {
 		return "Lyrics"
 	case screenJump:
 		return "Jump to Time"
+	case screenAuthCode:
+		return "Sign In"
 	case screenFullVisualizer:
 		return "Visualizer"
 	default:
@@ -399,9 +402,15 @@ type Model struct {
 	jump     jumpState
 	urlInput urlInputState
 
+	authCode authCodeState
+
 	// Async feed/M3U URL resolution
 	pendingURLs []string
 	feedLoading bool
+	// feedRequest is the queue request of the latest feed resolve. Only its
+	// answer clears feedLoading, so a stale answer leaves a newer resolve
+	// marked as loading.
+	feedRequest uint64
 
 	spinnerTicking bool // a spinnerTickMsg is pending
 

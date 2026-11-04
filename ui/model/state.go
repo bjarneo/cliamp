@@ -98,6 +98,15 @@ type providerPane struct {
 	signIn  bool   // true when provider needs interactive sign-in
 	askLoc  bool   // true while the location question is on screen
 	authURL string // OAuth URL to display while interactive auth is in flight
+
+	// Chat picker: the pane swaps its rows for every dialog of the provider
+	// and marks the current filter.
+	picking  bool
+	pickLoad bool
+	picked   map[string]bool
+	pickPrev []playlist.PlaylistInfo
+	pickCur  int
+	pickScr  int
 }
 
 // jumpState holds the jump-to-time input.
@@ -113,6 +122,17 @@ type urlInputState struct {
 	active bool
 	input  string
 	err    string
+}
+
+// authCodeState collects the one-time code a provider asked for through
+// provider.CodeAuthenticator, so the sign-in runs from the pane and never
+// takes the terminal.
+type authCodeState struct {
+	active bool
+	input  string
+	err    string
+	name   string // display name of the provider asking
+	hint   string // the provider's Prompt()
 }
 
 // infoOverlay holds state for the track info overlay.

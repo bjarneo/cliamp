@@ -13,6 +13,16 @@ import (
 	"testing"
 )
 
+// albumImages is the cover the fake album offers, largest first as Spotify
+// lists it; pickCoverImage chooses albumCoverURL from it.
+var albumImages = []map[string]any{
+	{"url": "https://i.scdn.co/album-640", "width": 640, "height": 640},
+	{"url": albumCoverURL, "width": 300, "height": 300},
+	{"url": "https://i.scdn.co/album-64", "width": 64, "height": 64},
+}
+
+const albumCoverURL = "https://i.scdn.co/album-300"
+
 // albumSpotify fakes the album endpoints plus a search that returns both albums
 // and tracks. It records the search type parameter so the query itself is
 // covered: asking for tracks only is exactly the bug this guards against.
@@ -35,6 +45,7 @@ func albumSpotify(t *testing.T, albumHits, trackHits, albumTracks int) (*Spotify
 					"uri":          fmt.Sprintf("spotify:album:al%d", i),
 					"release_date": "1994-07-19",
 					"artists":      []map[string]any{{"name": "NOFX"}},
+					"images":       albumImages,
 				})
 			}
 			tracks := []map[string]any{}
@@ -75,6 +86,7 @@ func albumSpotify(t *testing.T, albumHits, trackHits, albumTracks int) (*Spotify
 				"uri":          "spotify:album:al0",
 				"release_date": "1994-07-19",
 				"artists":      []map[string]any{{"name": "NOFX"}},
+				"images":       albumImages,
 			}
 
 		default:
@@ -172,5 +184,41 @@ func TestAlbumTracksPagesAndFillsAlbumMetadata(t *testing.T) {
 	}
 	if got[0].Path != "spotify:track:at0" {
 		t.Errorf("first track path = %q, want %q", got[0].Path, "spotify:track:at0")
+	}
+}
+
+// /v1/albums/{id}/tracks returns simplified tracks, which carry no album and so
+// no cover. Without the album's own, album playback reached Now Playing and the
+// IPC with no art, while the same songs played from a playlist had it.
+func TestAlbumTracksCarryAlbumCover(t *testing.T) {
+	const total = spotifyTrackPageSize + 3
+	p, _ := albumSpotify(t, 0, 0, total)
+
+	got, err := p.AlbumTracks("al0")
+	if err != nil {
+		t.Fatalf("AlbumTracks() error = %v", err)
+	}
+	if len(got) != total {
+		t.Fatalf("got %d tracks, want %d", len(got), total)
+	}
+	for i, tr := range got {
+		if tr.AlbumArtURL != albumCoverURL {
+			t.Fatalf("track %d art = %q, want the album's %q", i, tr.AlbumArtURL, albumCoverURL)
+		}
+	}
+}
+
+func TestSearchAlbumHitCarriesCover(t *testing.T) {
+	p, _ := albumSpotify(t, 1, 0, 0)
+
+	got, err := p.SearchTracks(context.Background(), "nofx", 10)
+	if err != nil {
+		t.Fatalf("SearchTracks() error = %v", err)
+	}
+	if len(got) != 1 || !got[0].IsAlbum() {
+		t.Fatalf("got %+v, want one album hit", got)
+	}
+	if got[0].AlbumArtURL != albumCoverURL {
+		t.Errorf("album hit art = %q, want %q", got[0].AlbumArtURL, albumCoverURL)
 	}
 }

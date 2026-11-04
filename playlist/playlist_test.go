@@ -729,3 +729,61 @@ func TestTotalDurationSecs(t *testing.T) {
 		t.Errorf("TotalDurationSecs(nil) = %d, want 0", got)
 	}
 }
+
+func TestReverseKeepsCurrentAndQueue(t *testing.T) {
+	p := makePlaylist(4, false) // A B C D
+	p.SetIndex(1)               // playing B
+	p.Queue(3)                  // D plays next
+
+	p.Reverse()
+
+	if got, want := titles(p), []string{"D", "C", "B", "A"}; !sliceEq(got, want) {
+		t.Fatalf("tracks = %v, want %v", got, want)
+	}
+	if cur, idx := p.Current(); cur.Title != "B" || idx != 2 {
+		t.Errorf("current = %s at %d, want B at 2", cur.Title, idx)
+	}
+	if q := p.QueueTracks(); len(q) != 1 || q[0].Title != "D" {
+		t.Errorf("queue = %v, want [D]", q)
+	}
+	if next, ok := p.Next(); !ok || next.Title != "D" {
+		t.Errorf("next = %s, want queued D", next.Title)
+	}
+	if next, ok := p.Next(); !ok || next.Title != "A" {
+		t.Errorf("next after queue = %s, want A (follows the new order)", next.Title)
+	}
+}
+
+func TestReverseTwiceRestoresOrder(t *testing.T) {
+	p := makePlaylist(5, false)
+	p.SetIndex(3)
+	p.Reverse()
+	p.Reverse()
+	if got, want := titles(p), []string{"A", "B", "C", "D", "E"}; !sliceEq(got, want) {
+		t.Fatalf("tracks = %v, want %v", got, want)
+	}
+	if cur, idx := p.Current(); cur.Title != "D" || idx != 3 {
+		t.Errorf("current = %s at %d, want D at 3", cur.Title, idx)
+	}
+}
+
+func TestReverseShuffledKeepsPlayOrder(t *testing.T) {
+	p := makePlaylist(6, true)
+	playOrder := func() []string {
+		out := make([]string, len(p.order))
+		for i, idx := range p.order {
+			out[i] = p.tracks[idx].Title
+		}
+		return out
+	}
+	before, pos := playOrder(), p.pos
+
+	p.Reverse()
+
+	if got := playOrder(); !sliceEq(got, before) {
+		t.Errorf("play order = %v, want unchanged %v", got, before)
+	}
+	if p.pos != pos {
+		t.Errorf("pos = %d, want %d", p.pos, pos)
+	}
+}

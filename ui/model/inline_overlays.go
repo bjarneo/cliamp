@@ -55,6 +55,7 @@ func (m Model) promptHeader(field, label, value string) string {
 // still shows Esc.
 func (m Model) filterHeader(label, field, query, count string) string {
 	const minInput, minLabel = 8, 12
+	label = terminalText(label)
 	input := m.textWithCursor(field, query)
 	exit := "  " + helpKey("Esc", "Exit")
 	tail := exit
@@ -102,7 +103,7 @@ func bodyLines(lines []string, budget int) string {
 
 // bodyMessage renders a single dim message line into the budget.
 func bodyMessage(msg string, budget int) string {
-	return bodyLines([]string{dimStyle.Render("  " + msg)}, budget)
+	return bodyLines([]string{dimStyle.Render("  " + terminalText(msg))}, budget)
 }
 
 // renderSearchOverlayResults renders the search results grouped into labeled
@@ -399,6 +400,20 @@ func (m Model) renderURLBody() string {
 	return bodyLines(lines, budget)
 }
 
+// — provider sign-in code —
+
+func (m Model) renderAuthCodeBody() string {
+	budget := m.effectivePlaylistVisible()
+	lines := []string{dimStyle.Render("  Type the code and press enter; esc closes.")}
+	if m.authCode.hint != "" {
+		lines = append(lines, dimStyle.Render("  "+m.authCode.hint))
+	}
+	if m.authCode.err != "" {
+		lines = append(lines, errorStyle.Render("  "+m.authCode.err))
+	}
+	return bodyLines(lines, budget)
+}
+
 // — jump to time —
 
 func (m Model) renderJumpBody() string {
@@ -466,7 +481,7 @@ func (m Model) renderLyricsBody() string {
 			startIdx = max(endIdx-visible, 0)
 		}
 		for i := startIdx; i < endIdx; i++ {
-			text := m.lyrics.lines[i].Text
+			text := terminalText(m.lyrics.lines[i].Text)
 			if text == "" {
 				text = "♪"
 			}
@@ -479,7 +494,7 @@ func (m Model) renderLyricsBody() string {
 	default:
 		endIdx := min(m.lyrics.scroll+visible, len(m.lyrics.lines))
 		for i := m.lyrics.scroll; i < endIdx; i++ {
-			text := m.lyrics.lines[i].Text
+			text := terminalText(m.lyrics.lines[i].Text)
 			if text == "" {
 				text = "♪"
 			}
@@ -526,7 +541,7 @@ func (m Model) renderNetSearchBody() string {
 			lines = append(lines, dimStyle.Render("  Type a query and press Enter to search "+m.netSearchSource()+"."))
 		}
 		if m.netSearch.err != "" {
-			lines = append(lines, "", errorStyle.Render("  "+m.netSearch.err))
+			lines = append(lines, "", errorStyle.Render("  "+terminalText(m.netSearch.err)))
 		}
 		return bodyLines(lines, budget)
 	}
@@ -580,12 +595,12 @@ func (m Model) renderSearchOverlayBody() string {
 			break
 		}
 		track := m.searchOverlay.selTrack
-		head := dimStyle.Render("  " + truncate(fmt.Sprintf("%s - %s", track.Artist, track.Title), m.layout.panelWidth-2))
+		head := dimStyle.Render("  " + truncate(terminalText(fmt.Sprintf("%s - %s", track.Artist, track.Title)), m.layout.panelWidth-2))
 		count := len(m.searchOverlay.playlists) + 1
 		items := make([]string, count)
 		for i := range count {
 			if i < len(m.searchOverlay.playlists) {
-				items[i] = m.searchOverlay.playlists[i].Name
+				items[i] = terminalText(m.searchOverlay.playlists[i].Name)
 			} else {
 				items[i] = "+ New Playlist..."
 			}
@@ -604,7 +619,7 @@ func (m Model) renderSearchOverlayBody() string {
 		body = bodyLines(lines, bodyBudget)
 	}
 	if showError {
-		errLine := errorStyle.Render("  " + m.searchOverlay.err)
+		errLine := errorStyle.Render("  " + terminalText(m.searchOverlay.err))
 		if body == "" {
 			return errLine
 		}
