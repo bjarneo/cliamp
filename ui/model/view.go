@@ -209,7 +209,7 @@ func (m Model) radioPlayingHere(id string) bool {
 // hide the duration: their track counts are cheap estimates, so a runtime
 // total would be misleading.
 func playlistLabel(prefix string, p playlist.PlaylistInfo) string {
-	out := prefix + p.Name
+	out := prefix + terminalText(p.Name)
 	var parts []string
 	if p.TrackCount > 0 || p.Name == favorites.PlaylistName {
 		parts = append(parts, fmt.Sprintf("%d tracks", p.TrackCount))
@@ -455,7 +455,7 @@ func (m Model) renderSimplifiedTrackInfo() string {
 
 func trackInfoName(track playlist.Track, streamTitle string) string {
 	if streamTitle != "" && track.Stream {
-		return streamTitle
+		return terminalText(streamTitle)
 	}
 
 	name := trackViewName(track)
@@ -471,7 +471,7 @@ func trackInfoName(track playlist.Track, streamTitle string) string {
 	if track.Album != "" {
 		name += " · " + track.Album
 	}
-	return name
+	return terminalText(name)
 }
 
 // scrollTrackName returns the width-cell window of name at the given tick.
@@ -516,10 +516,10 @@ func (m Model) renderTransient() string {
 	// Fresh status wins over a sticky m.err so confirmations are not masked
 	// by an older network error; the error reappears once status expires.
 	if text := m.save.activityText(); text != "" {
-		return ui.FitRect(feedbackActivityStyle.Render(text), m.layout.panelWidth, 1)
+		return ui.FitRect(feedbackActivityStyle.Render(terminalText(text)), m.layout.panelWidth, 1)
 	}
 	if m.status.text != "" {
-		text := m.status.text
+		text := terminalText(m.status.text)
 		style := feedbackSuccessStyle
 		switch m.status.kind {
 		case feedbackActivity:
@@ -534,10 +534,10 @@ func (m Model) renderTransient() string {
 		return ui.FitRect(style.Render(text), m.layout.panelWidth, 1)
 	}
 	if m.err != nil {
-		return ui.FitRect(errorStyle.Render(fmt.Sprintf("ERR: %s", m.err)), m.layout.panelWidth, 1)
+		return ui.FitRect(errorStyle.Render(terminalText(fmt.Sprintf("ERR: %s", m.err))), m.layout.panelWidth, 1)
 	}
 	if n := len(m.logLines); n > 0 {
-		return ui.FitRect(dimStyle.Render(m.logLines[n-1].text), m.layout.panelWidth, 1)
+		return ui.FitRect(dimStyle.Render(terminalText(m.logLines[n-1].text)), m.layout.panelWidth, 1)
 	}
 	return ""
 }
@@ -1294,7 +1294,7 @@ func (m Model) renderPlaylist() string {
 			if remaining >= len(" (unavailable)") {
 				albumSuffix = truncate(" (unavailable)", remaining)
 			}
-		} else if album := t.Album; album != "" && !m.showAlbumHeaders && m.layout.panelWidth >= 56 {
+		} else if album := terminalText(t.Album); album != "" && !m.showAlbumHeaders && m.layout.panelWidth >= 56 {
 			remaining := m.layout.panelWidth - linePrefixWidth - nameLen - queueLen - durationGap - 3 // 3 = " · "
 			if remaining >= 4 {
 				albumSuffix = " · " + truncate(album, remaining)
