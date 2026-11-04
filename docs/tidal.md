@@ -113,7 +113,9 @@ advance through the queue. Quitting disconnects the controller and lets the
 current remote track finish. Remote playback does not use cliamp's EQ, mono,
 speed effects, audio visualizers or gapless preload. Volume controls adjust the
 receiver, with 0 dB corresponding to its maximum volume. Non-Tidal tracks require
-switching back to **This computer**.
+switching back to **This computer**. Relative volume steps wait until the receiver
+reports its volume; an explicit volume setting works immediately. A rejected
+control command shows a warning without stopping playback or queue advancement.
 
 If another controller replaces the receiver's queue or track, cliamp reports the
 change and stops advancing its queue. Select a track in cliamp to take control

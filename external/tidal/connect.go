@@ -28,15 +28,16 @@ const connectTimeout = 15 * time.Second
 var connectCA []byte
 
 type connectState struct {
-	QueueID  string
-	ItemID   string
-	TrackID  string
-	State    string
-	Position time.Duration
-	Duration time.Duration
-	Volume   float64
-	Muted    bool
-	Err      error
+	QueueID     string
+	ItemID      string
+	TrackID     string
+	State       string
+	Position    time.Duration
+	Duration    time.Duration
+	VolumeKnown bool
+	Volume      float64
+	Muted       bool
+	Err         error
 }
 
 type connectSession struct {
@@ -152,9 +153,9 @@ func (s *connectSession) read(ctx context.Context) {
 				MediaID string `json:"mediaId"`
 				ItemID  string `json:"itemId"`
 			} `json:"mediaInfo"`
-			Volume struct {
-				Level float64 `json:"level"`
-				Mute  bool    `json:"mute"`
+			Volume *struct {
+				Level *float64 `json:"level"`
+				Mute  bool     `json:"mute"`
 			} `json:"volume"`
 		}
 		if err := wsjson.Read(ctx, s.conn, &msg); err != nil {
@@ -195,8 +196,11 @@ func (s *connectSession) read(ctx context.Context) {
 			s.state.TrackID = msg.MediaInfo.MediaID
 			s.state.ItemID = msg.MediaInfo.ItemID
 		case "notifyDeviceStatusChanged":
-			s.state.Volume = msg.Volume.Level
-			s.state.Muted = msg.Volume.Mute
+			if msg.Volume != nil && msg.Volume.Level != nil && *msg.Volume.Level >= 0 && *msg.Volume.Level <= 1 {
+				s.state.Volume = *msg.Volume.Level
+				s.state.Muted = msg.Volume.Mute
+				s.state.VolumeKnown = true
+			}
 		}
 		s.mu.Unlock()
 		if msg.Command == "notifySessionError" || msg.Command == "notifySessionEnded" {

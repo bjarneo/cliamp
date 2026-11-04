@@ -16,6 +16,7 @@ type remoteTestEngine struct {
 	remote         bool
 	selected, path string
 	streamErr      error
+	volumeKnown    bool
 }
 
 func (e *remoteTestEngine) RemoteOutput() bool { return e.remote }
@@ -28,7 +29,8 @@ func (e *remoteTestEngine) SwitchOutput(_ context.Context, name, path string) er
 	e.remote = name != "local"
 	return nil
 }
-func (e *remoteTestEngine) StreamErr() error { return e.streamErr }
+func (e *remoteTestEngine) StreamErr() error  { return e.streamErr }
+func (e *remoteTestEngine) VolumeKnown() bool { return !e.remote || e.volumeKnown }
 
 func TestRemoteOutputSkipsLocalPreloadAndReconnect(t *testing.T) {
 	engine := &remoteTestEngine{remote: true, streamErr: errors.New("receiver lost")}
@@ -79,5 +81,30 @@ func TestRemoteEffectsUnavailable(t *testing.T) {
 	m.setCustomEQBand(0, 6)
 	if engine.Speed() != 1 || engine.eqBands[0] != 0 {
 		t.Fatal("remote effect modified saved local settings")
+	}
+}
+
+func TestRemoteVolumeAdjustmentWaitsForReceiver(t *testing.T) {
+	engine := &remoteTestEngine{remote: true}
+	engine.volume = engine.VolumeMin()
+	m := newHeadlessModel(t, engine, nil)
+	m.adjustVolume(1)
+	response := runV2(t, &m, "volume.adjust", ipc.Request{Value: 1})
+	if !response.OK || engine.Volume() != engine.VolumeMin() {
+		t.Fatal("relative adjustment used an unknown volume")
+	}
+	response = runV2(t, &m, "volume", ipc.Request{Value: -12})
+	if !response.OK || engine.Volume() != -12 {
+		t.Fatal("absolute volume should work without a receiver report")
+	}
+	engine.volumeKnown = true
+	response = runV2(t, &m, "volume.adjust", ipc.Request{Value: 1})
+	if !response.OK || engine.Volume() != -11 {
+		t.Fatal("relative adjustment ignored a known volume")
+	}
+	engine.remote, engine.volumeKnown = false, false
+	m.adjustVolume(1)
+	if engine.Volume() != -10 {
+		t.Fatal("local volume adjustment was blocked")
 	}
 }

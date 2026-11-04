@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,11 +21,12 @@ import (
 )
 
 type connectFixture struct {
-	server   *httptest.Server
-	mu       sync.Mutex
-	commands []string
-	reject   string
-	hold     string
+	server      *httptest.Server
+	mu          sync.Mutex
+	commands    []string
+	reject      string
+	hold        string
+	startVolume any
 }
 
 func newConnectFixture(t *testing.T) *connectFixture {
@@ -71,6 +73,7 @@ func newConnectFixture(t *testing.T) *connectFixture {
 			f.mu.Unlock()
 			if command == "startSession" {
 				send(map[string]any{"command": "notifySessionStarted", "sessionId": 123})
+				send(map[string]any{"command": "notifyDeviceStatusChanged", "volume": f.startVolume})
 				status()
 				continue
 			}
@@ -249,6 +252,7 @@ type connectLocalFake struct {
 	onPlay          func()
 }
 
+func (f *connectLocalFake) VolumeMin() float64             { return -50 }
 func (f *connectLocalFake) Close()                         { f.mu.Lock(); f.closed = true; f.mu.Unlock() }
 func (f *connectLocalFake) SetPlaybackGeneration(g uint64) { f.mu.Lock(); f.gen = g; f.mu.Unlock() }
 func (f *connectLocalFake) PlayAtForGeneration(_ string, _ time.Duration, position time.Duration, _ uint64) error {
@@ -469,5 +473,114 @@ func TestConnectTLSRejectsUntrustedCertificates(t *testing.T) {
 		if err := config.VerifyConnection(tls.ConnectionState{PeerCertificates: certs}); err == nil {
 			t.Fatal("accepted an untrusted receiver")
 		}
+	}
+}
+
+func TestConnectControlFailuresKeepPlaybackState(t *testing.T) {
+	for _, control := range []string{"volume", "pause", "timeout", "busy"} {
+		t.Run(control, func(t *testing.T) {
+			f := newConnectFixture(t)
+			f.reject = "setVolume"
+			if control == "pause" {
+				f.reject = "pause"
+			}
+			s := f.open(t)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			if err := s.wait(ctx, func(st connectState) bool { return st.State == "PLAYING" }); err != nil {
+				t.Fatal(err)
+			}
+			s.mu.Lock()
+			s.state.QueueID, s.state.TrackID = "q", "42"
+			s.mu.Unlock()
+			o := NewConnectOutput(&connectLocalFake{}, nil)
+			defer o.Close()
+			o.mu.Lock()
+			o.session, o.queue, o.path = s, "q", TrackURIPrefix+"42"
+			o.mu.Unlock()
+			switch control {
+			case "volume":
+				o.SetVolume(-6)
+			case "pause":
+				o.TogglePause()
+			case "timeout":
+				o.async(func(ctx context.Context) error {
+					ctx, cancel := context.WithTimeout(ctx, time.Millisecond)
+					defer cancel()
+					return s.wait(ctx, func(st connectState) bool { return st.State == "PAUSED" })
+				})
+			case "busy":
+				entered, release, drained := make(chan struct{}), make(chan struct{}), make(chan struct{})
+				o.async(func(context.Context) error { close(entered); <-release; return nil })
+				<-entered
+				for i := range cap(o.work) {
+					o.async(func(context.Context) error {
+						if i == cap(o.work)-1 {
+							close(drained)
+						}
+						return nil
+					})
+				}
+				o.SetVolume(-6) // The queue is full; this must not fail the session.
+				close(release)
+				<-drained
+			}
+			if err := o.submit(ctx, func(context.Context) error { return nil }, true); err != nil {
+				t.Fatal(err)
+			}
+			if !o.IsPlaying() || o.StreamErr() != nil {
+				t.Fatalf("control failure stopped playback: %v", o.StreamErr())
+			}
+			// A rejected pause must also restore its intent, allowing the next
+			// natural completion to advance the queue.
+			s.mu.Lock()
+			s.state.State, s.state.Position = "PAUSED", s.state.Duration
+			s.mu.Unlock()
+			if !o.Drained() {
+				t.Fatal("control failure blocked queue advancement")
+			}
+		})
+	}
+}
+
+func TestConnectVolumeKnown(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		volume any
+		known  bool
+		want   float64
+	}{
+		{"missing volume", nil, false, -50},
+		{"missing level", map[string]any{"mute": false}, false, -50},
+		{"negative level", map[string]any{"level": -0.1}, false, -50},
+		{"above maximum", map[string]any{"level": 1.1}, false, -50},
+		{"zero", map[string]any{"level": 0}, true, -50},
+		{"half", map[string]any{"level": 0.5}, true, 20 * math.Log10(0.5)},
+		{"maximum", map[string]any{"level": 1}, true, 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newConnectFixture(t)
+			f.startVolume = tt.volume
+			s := f.open(t)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			if err := s.wait(ctx, func(st connectState) bool { return st.State == "PLAYING" }); err != nil {
+				t.Fatal(err)
+			}
+			o := &ConnectOutput{Engine: &connectLocalFake{}, session: s}
+			if o.VolumeKnown() != tt.known || math.Abs(o.Volume()-tt.want) > 1e-6 {
+				t.Fatalf("known=%v volume=%v", o.VolumeKnown(), o.Volume())
+			}
+			// Absolute settings still work before the initial volume report.
+			if err := s.command(ctx, "setVolume", map[string]any{"level": 0.25}); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.wait(ctx, func(st connectState) bool { return st.VolumeKnown && st.Volume == 0.25 }); err != nil {
+				t.Fatal(err)
+			}
+			if !o.VolumeKnown() {
+				t.Fatal("volume did not become known")
+			}
+		})
 	}
 }

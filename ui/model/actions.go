@@ -68,5 +68,9 @@ func (m *Model) setVolume(db float64) {
 
 // adjustVolume changes the volume by delta dB. See setVolume.
 func (m *Model) adjustVolume(delta float64) {
+	if output, ok := m.player.(interface{ VolumeKnown() bool }); ok && !output.VolumeKnown() {
+		m.status.Warning("Waiting for receiver volume", statusTTLDefault)
+		return
+	}
 	m.setVolume(m.player.Volume() + delta)
 }

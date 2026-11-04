@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/player"
 )
 
@@ -34,7 +35,6 @@ type ConnectOutput struct {
 	queue           string
 	pausedIntent    bool
 	stopped         bool
-	err             error
 	generation      atomic.Uint64
 	operationCancel context.CancelFunc
 	work            chan outputWork
@@ -83,10 +83,10 @@ func (o *ConnectOutput) run() {
 			}
 			o.mu.Lock()
 			o.operationCancel = nil
-			if err != nil && task.result == nil && !errors.Is(err, context.Canceled) {
-				o.err = err
-			}
 			o.mu.Unlock()
+			if err != nil && task.result == nil && !errors.Is(err, context.Canceled) {
+				applog.UserWarn("Tidal Connect control failed: %v", err)
+			}
 			stop()
 			cancel()
 			if task.result != nil {
@@ -123,9 +123,7 @@ func (o *ConnectOutput) submit(ctx context.Context, run func(context.Context) er
 }
 func (o *ConnectOutput) async(run func(context.Context) error) {
 	if err := o.submit(o.ctx, run, false); err != nil {
-		o.mu.Lock()
-		o.err = err
-		o.mu.Unlock()
+		applog.UserWarn("Tidal Connect control failed: %v", err)
 	}
 }
 func (o *ConnectOutput) SupportsOutputTrack(path string) bool {
@@ -139,15 +137,12 @@ func (o *ConnectOutput) RemoteOutput() bool {
 }
 func (o *ConnectOutput) remote() (*connectSession, connectState, bool) {
 	o.mu.Lock()
-	s, queue, path, stopped, err := o.session, o.queue, o.path, o.stopped, o.err
+	s, queue, path, stopped := o.session, o.queue, o.path, o.stopped
 	o.mu.Unlock()
 	if s == nil {
 		return nil, connectState{}, false
 	}
 	st := s.snapshot()
-	if err != nil {
-		st.Err = err
-	}
 	owned := queue != "" && !stopped
 	if owned && (st.QueueID != queue || st.TrackID != strings.TrimPrefix(path, TrackURIPrefix)) {
 		st.Err = errors.New("tidal connect: playback changed in another controller; select a track in cliamp to take control")
@@ -241,7 +236,6 @@ func (o *ConnectOutput) switchOutput(ctx context.Context, name, trackPath string
 		o.session = nil
 		o.name = ""
 		o.queue = ""
-		o.err = nil
 		o.mu.Unlock()
 		old.close()
 		return nil
@@ -321,7 +315,6 @@ func (o *ConnectOutput) switchOutput(ctx context.Context, name, trackPath string
 	o.queue = queue
 	o.pausedIntent = paused
 	o.stopped = !playing
-	o.err = nil
 	o.mu.Unlock()
 	committed = true
 	if old != nil {
@@ -356,7 +349,6 @@ func (o *ConnectOutput) PlayAtForGeneration(path string, duration, offset time.D
 				o.mu.Lock()
 				o.path = path
 				o.duration = duration
-				o.err = nil
 				o.mu.Unlock()
 			}
 			return err
@@ -366,7 +358,6 @@ func (o *ConnectOutput) PlayAtForGeneration(path string, duration, offset time.D
 		}
 		o.mu.Lock()
 		o.stopped = true
-		o.err = nil
 		o.mu.Unlock()
 		queue, err := o.provider.loadConnectTrack(ctx, s, path, offset, false)
 		if err != nil {
@@ -385,7 +376,6 @@ func (o *ConnectOutput) PlayAtForGeneration(path string, duration, offset time.D
 		o.queue = queue
 		o.stopped = false
 		o.pausedIntent = false
-		o.err = nil
 		o.mu.Unlock()
 		return nil
 	}, true)
@@ -408,15 +398,23 @@ func (o *ConnectOutput) TogglePause() {
 		o.Engine.TogglePause()
 		return
 	}
-	o.async(func(ctx context.Context) error {
+	o.async(func(ctx context.Context) (err error) {
 		s, st, owned := o.remote()
 		if !owned || st.Err != nil {
 			return st.Err
 		}
 		pause := st.State == "PLAYING"
 		o.mu.Lock()
+		previous := o.pausedIntent
 		o.pausedIntent = pause
 		o.mu.Unlock()
+		defer func() {
+			if err != nil {
+				o.mu.Lock()
+				o.pausedIntent = previous
+				o.mu.Unlock()
+			}
+		}()
 		cmd := "play"
 		if pause {
 			cmd = "pause"
@@ -595,6 +593,16 @@ func (o *ConnectOutput) SetVolume(db float64) {
 		return s.command(ctx, "setVolume", map[string]any{"level": level})
 	})
 }
+
+// VolumeKnown reports whether relative adjustments can use the current level.
+// Local volume is always known; a receiver must first report a valid level.
+func (o *ConnectOutput) VolumeKnown() bool {
+	if s, st, _ := o.remote(); s != nil {
+		return st.VolumeKnown
+	}
+	return true
+}
+
 func (o *ConnectOutput) Volume() float64 {
 	if s, st, _ := o.remote(); s != nil {
 		if st.Muted || st.Volume <= 0 {
