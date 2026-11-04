@@ -150,6 +150,13 @@ func (m Model) isProviderRowActive(p playlist.PlaylistInfo) bool {
 // counts on cliamp radio channel rows. Any other provider renders the plain
 // playlist label.
 func (m Model) providerRowLabel(prefix string, p playlist.PlaylistInfo) string {
+	if m.provPane.picking && !m.provPane.pickLoad {
+		box := "[ ] "
+		if m.provPane.picked[p.ID] {
+			box = "[x] "
+		}
+		prefix += box
+	}
 	if _, ok := m.provider.(*radio.ChannelProvider); !ok {
 		return playlistLabel(prefix, p)
 	}

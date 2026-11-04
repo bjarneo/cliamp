@@ -399,6 +399,20 @@ func (m Model) renderURLBody() string {
 	return bodyLines(lines, budget)
 }
 
+// — provider sign-in code —
+
+func (m Model) renderAuthCodeBody() string {
+	budget := m.effectivePlaylistVisible()
+	lines := []string{dimStyle.Render("  Type the code and press enter; esc closes.")}
+	if m.authCode.hint != "" {
+		lines = append(lines, dimStyle.Render("  "+m.authCode.hint))
+	}
+	if m.authCode.err != "" {
+		lines = append(lines, errorStyle.Render("  "+m.authCode.err))
+	}
+	return bodyLines(lines, budget)
+}
+
 // — jump to time —
 
 func (m Model) renderJumpBody() string {
