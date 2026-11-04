@@ -328,6 +328,7 @@ func TestLoadGolden(t *testing.T) {
 	allWant.VisRows = 7
 	allWant.InitialDirectory = "~/Music"
 	allWant.AudioDevice = "alsa_output.usb-FiiO_K5_Pro-00.analog-stereo"
+	allWant.YtdlpPath = "~/.local/bin/yt-dlp"
 	allWant.Provider = "cliamp"
 	allWant.Simplified = true
 	allWant.HideHelpBar = true

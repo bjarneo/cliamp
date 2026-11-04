@@ -1,6 +1,6 @@
 # SoundCloud Integration
 
-Enable [SoundCloud](https://soundcloud.com) to search, paste URLs to play, browse profiles, and stream subscriber-gated tracks with browser cookies. Playback uses [yt-dlp](https://github.com/yt-dlp/yt-dlp). Put `yt-dlp` on `PATH`.
+Enable [SoundCloud](https://soundcloud.com) to search, paste URLs to play, browse profiles, and stream subscriber-gated tracks with browser cookies. Playback uses [yt-dlp](https://github.com/yt-dlp/yt-dlp). Put `yt-dlp` on `PATH`, or select one with `ytdlp_path`/`CLIAMP_YTDLP` ([yt-dlp.md](yt-dlp.md)).
 
 > SoundCloud closed its OAuth program to new applications in 2014. You cannot use the Spotify-style bring-your-own-`client_id` pattern. cliamp uses the existing SoundCloud session in your browser. See [Sign in via browser cookies](#sign-in-via-browser-cookies).
 
@@ -74,5 +74,5 @@ If this occurs for an expected track, set `cookies_from` and confirm SoundCloud 
 
 ## Requirements
 
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) on `PATH`
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) on `PATH`, or selected by `ytdlp_path`/`CLIAMP_YTDLP`
 - Optional: a browser with an active SoundCloud session, for `cookies_from`

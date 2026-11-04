@@ -5,9 +5,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/bjarneo/cliamp/internal/ytdlbin"
 	"github.com/bjarneo/cliamp/internal/ytdlp"
 	"github.com/bjarneo/cliamp/provider"
 )
@@ -137,16 +139,32 @@ func TestCookieHeaderFromNetscapeFileFiltersNetEaseCookies(t *testing.T) {
 
 func TestExtractBrowserCookieHeaderMissingYTDLPShowsInstallHint(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
+	t.Setenv(ytdlbin.EnvVar, "")
 	_, err := extractBrowserCookieHeader(context.Background(), "chrome")
 	if err == nil {
 		t.Fatal("extractBrowserCookieHeader() error = nil, want missing yt-dlp error")
 	}
 	msg := err.Error()
-	if !strings.HasPrefix(msg, "yt-dlp not found. Install with: ") {
+	const prefix = "yt-dlp not found in PATH — install with: "
+	if !strings.HasPrefix(msg, prefix) {
 		t.Fatalf("error = %q", msg)
 	}
-	if got, want := strings.TrimPrefix(msg, "yt-dlp not found. Install with: "), ytdlp.InstallHint(); got != want {
+	if got, want := strings.TrimPrefix(msg, prefix), ytdlp.InstallHint(); got != want {
 		t.Fatalf("install hint = %q, want %q", got, want)
+	}
+}
+
+// A missing binary chosen by ytdlp_path or CLIAMP_YTDLP must not read as a
+// missing installation: the configured path is the thing to fix.
+func TestExtractBrowserCookieHeaderNamesSelectedYTDLP(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv(ytdlbin.EnvVar, filepath.Join(t.TempDir(), "absent-yt-dlp"))
+	_, err := extractBrowserCookieHeader(context.Background(), "chrome")
+	if err == nil {
+		t.Fatal("extractBrowserCookieHeader() error = nil, want missing yt-dlp error")
+	}
+	if !strings.Contains(err.Error(), "absent-yt-dlp") || !strings.Contains(err.Error(), ytdlbin.EnvVar) {
+		t.Fatalf("error = %q, want the selected binary and its source", err)
 	}
 }
 
