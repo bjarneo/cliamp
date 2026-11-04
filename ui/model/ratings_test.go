@@ -237,6 +237,51 @@ func TestRatingRepliesUpdateTrackBySongIDAfterCursorMoveOrLaterRequest(t *testin
 	}
 }
 
+func TestRatingReplyMatchesTrackByPathWithoutNavidromeID(t *testing.T) {
+	p := &ratingTestProvider{name: "Generic", accept: true}
+	track := playlist.Track{Path: "provider://song/one", Title: "Track one", UserRating: 1}
+	m := ratingTestModel(p, track)
+
+	msg := trackRatingSyncedMsg{provider: p.name, track: track, rating: 4}
+	m.handleTrackRatingSynced(msg)
+
+	got, _ := m.playlist.Track(0)
+	if got.UserRating != 4 {
+		t.Fatalf("rating after path-matched reply = %d, want 4", got.UserRating)
+	}
+}
+
+func TestRatingReplyIgnoresOlderRequestForSameSong(t *testing.T) {
+	p := &ratingTestProvider{name: "Navidrome", accept: true}
+	m := ratingTestModel(p, ratingTrack("one", 1))
+
+	older := m.rateSelectedTrack(3)().(trackRatingSyncedMsg)
+	newer := m.rateSelectedTrack(5)().(trackRatingSyncedMsg)
+	m.handleTrackRatingSynced(newer)
+	m.handleTrackRatingSynced(older)
+
+	got, _ := m.playlist.Track(0)
+	if got.UserRating != 5 {
+		t.Fatalf("rating after reverse replies = %d, want latest 5", got.UserRating)
+	}
+}
+
+func TestRatingSuccessUpdatesEveryMatchingPlaylistRow(t *testing.T) {
+	p := &ratingTestProvider{name: "Navidrome", accept: true}
+	first := ratingTrack("one", 1)
+	second := first
+	second.Path += "&duplicate=1"
+	m := ratingTestModel(p, first, second)
+
+	m.handleTrackRatingSynced(m.rateSelectedTrack(4)().(trackRatingSyncedMsg))
+
+	gotFirst, _ := m.playlist.Track(0)
+	gotSecond, _ := m.playlist.Track(1)
+	if gotFirst.UserRating != 4 || gotSecond.UserRating != 4 {
+		t.Fatalf("duplicate ratings = %d/%d, want 4/4", gotFirst.UserRating, gotSecond.UserRating)
+	}
+}
+
 func TestRatingFailureWarnsAfterCursorMove(t *testing.T) {
 	p := &ratingTestProvider{name: "Navidrome", accept: true, err: errors.New("late failure")}
 	m := ratingTestModel(p, ratingTrack("one", 1), ratingTrack("two", 2))

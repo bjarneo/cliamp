@@ -16,12 +16,16 @@ const trackRatingTimeout = 30 * time.Second
 type trackRatingSyncedMsg struct {
 	provider string
 	track    playlist.Track
+	request  uint64
 	rating   int
 	err      error
 }
 
-func ratingSongID(track playlist.Track) string {
-	return track.Meta(provider.MetaNavidromeID)
+func ratingTrackIdentity(track playlist.Track) string {
+	if songID := track.Meta(provider.MetaNavidromeID); songID != "" {
+		return songID
+	}
+	return track.Path
 }
 
 func (m *Model) findTrackRater(track playlist.Track) (provider.TrackRater, string) {
@@ -44,11 +48,14 @@ func (m *Model) rateSelectedTrack(rating int) tea.Cmd {
 	if m.ratingSync == nil {
 		m.ratingSync = &favorites.SyncQueue{}
 	}
-	songID := track.Meta(provider.MetaNavidromeID)
-	if songID == "" {
-		songID = track.Path
+	identity := ratingTrackIdentity(track)
+	syncKey := name + "\x00" + identity
+	if m.ratingLatest == nil {
+		m.ratingLatest = make(map[string]uint64)
 	}
-	syncKey := name + "\x00" + songID
+	m.ratingRequest++
+	request := m.ratingRequest
+	m.ratingLatest[syncKey] = request
 	run := m.ratingSync.Enqueue(syncKey, func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), trackRatingTimeout)
 		defer cancel()
@@ -62,6 +69,7 @@ func (m *Model) rateSelectedTrack(rating int) tea.Cmd {
 		return trackRatingSyncedMsg{
 			provider: name,
 			track:    track,
+			request:  request,
 			rating:   rating,
 			err:      err,
 		}
@@ -72,35 +80,43 @@ func (m *Model) handleTrackRatingSynced(msg trackRatingSyncedMsg) {
 	if m.playlist == nil {
 		return
 	}
-	songID := ratingSongID(msg.track)
-	if songID == "" {
+	identity := ratingTrackIdentity(msg.track)
+	if identity == "" {
 		return
 	}
-	var index int
-	var track playlist.Track
-	found := false
+	syncKey := msg.provider + "\x00" + identity
+	if msg.request != 0 && m.ratingLatest[syncKey] > msg.request {
+		return
+	}
+	var matched []int
+	var displayTrack playlist.Track
 	for i := 0; i < m.playlist.Len(); i++ {
 		candidate, ok := m.playlist.Track(i)
-		if ok && ratingSongID(candidate) == songID {
-			index, track, found = i, candidate, true
-			break
+		if ok && ratingTrackIdentity(candidate) == identity {
+			if len(matched) == 0 {
+				displayTrack = candidate
+			}
+			matched = append(matched, i)
 		}
 	}
-	if !found {
+	if len(matched) == 0 {
 		return
 	}
 	if msg.err != nil {
 		m.status.Warningf(statusTTLMedium, "%s did not save rating: %s", msg.provider, msg.err)
 		return
 	}
-	track.UserRating = msg.rating
-	m.playlist.SetTrack(index, track)
-	if m.playingTrackActive && !m.playbackDetached && ratingSongID(m.playingTrack) == songID {
+	for _, index := range matched {
+		track, _ := m.playlist.Track(index)
+		track.UserRating = msg.rating
+		m.playlist.SetTrack(index, track)
+	}
+	if m.playingTrackActive && !m.playbackDetached && ratingTrackIdentity(m.playingTrack) == identity {
 		m.playingTrack.UserRating = msg.rating
 	}
 	if msg.rating == 0 {
-		m.status.Showf(statusTTLMedium, "Cleared rating: %s", track.DisplayName())
+		m.status.Showf(statusTTLMedium, "Cleared rating: %s", displayTrack.DisplayName())
 	} else {
-		m.status.Showf(statusTTLMedium, "Rated %d/5: %s", msg.rating, track.DisplayName())
+		m.status.Showf(statusTTLMedium, "Rated %d/5: %s", msg.rating, displayTrack.DisplayName())
 	}
 }
