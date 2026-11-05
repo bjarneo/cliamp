@@ -525,7 +525,7 @@ cliamp.player.toggle_mono()       -- toggle mono output
 cliamp.player.set_eq_preset("Rock") -- switch to built-in preset (sets bands + UI label)
 cliamp.player.set_eq_preset("Metal", {6,4,1,-1,-2,2,4,6,6,5}) -- custom preset with bands
 cliamp.player.set_eq_band(1, 6)   -- set EQ band 1 to +6 dB (bands 1-10, -12 to +12)
-cliamp.player.set_stream_title("Artist - Song") -- set stream title; requires control permission
+cliamp.player.set_stream_title("Artist - Song") -- set stream title
 ```
 
 If a plugin does not declare `permissions = {"control"}`, these functions log a warning and do nothing.

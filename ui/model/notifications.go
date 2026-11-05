@@ -48,10 +48,11 @@ func (m *Model) notifyPlaybackChange() {
 	m.artRef.set(state.Track.ArtURL)
 	key := state
 	key.Position = key.Position.Truncate(time.Second)
-	if m.notice.sent && key == m.notice.state && m.effectiveStreamTitle() == m.notice.streamTitle {
+	streamTitle := m.effectiveStreamTitle()
+	if m.notice.sent && key == m.notice.state && streamTitle == m.notice.streamTitle {
 		return
 	}
-	m.notice = playbackNotice{sent: true, state: key, streamTitle: m.effectiveStreamTitle()}
+	m.notice = playbackNotice{sent: true, state: key, streamTitle: streamTitle}
 	if m.notifier != nil {
 		m.notifier.Update(state)
 	}
@@ -63,7 +64,7 @@ func (m *Model) notifyPlaybackChange() {
 		data["status"] = m.playerStatus()
 		data["title"] = state.Track.Title
 		data["artist"] = state.Track.Artist
-		data["stream_title"] = m.effectiveStreamTitle()
+		data["stream_title"] = streamTitle
 		data["position"] = state.Position.Seconds()
 		m.emitPlugin(luaplugin.EventPlaybackState, data)
 	}

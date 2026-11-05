@@ -75,7 +75,9 @@ func (m *Model) handlePluginStreamTitle(msg PluginStreamTitleMsg) tea.Cmd {
 	}
 	// A plugin override wins over ICY metadata, but a station that already
 	// sends inline ICY StreamTitle refuses the override.
-	if m.streamTitle != "" {
+	// A station already sending ICY metadata refuses an override; an existing
+	// plugin override also refuses a new one.
+	if m.pluginStreamTitle != "" || m.streamTitle != "" {
 		// Stream already carries ICY metadata; refuse to override it.
 		applog.Warn("set_stream_title: stream already has ICY metadata, refusing override")
 		return nil
