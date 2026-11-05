@@ -22,7 +22,7 @@ import (
 const ytdlMediaExpiryMargin = time.Minute
 
 // errNoDirectYTDLMedia reports that yt-dlp picked a format ffmpeg cannot open
-// by itself: HLS, or separate video and audio URLs.
+// by itself: separate video and audio URLs, or a scheme other than http(s).
 var errNoDirectYTDLMedia = errors.New("no direct http format")
 
 // ytdlMedia is the direct media URL that yt-dlp resolved for a page, with the
@@ -83,6 +83,9 @@ func resolveYTDLMedia(pageURL string) (*ytdlMedia, error) {
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			err = fmt.Errorf("timed out after %v: %w", ytdlPipeTimeout, err)
+		}
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
 			return nil, fmt.Errorf("yt-dlp: %w: %s", err, msg)
 		}
@@ -91,10 +94,23 @@ func resolveYTDLMedia(pageURL string) (*ytdlMedia, error) {
 	return parseYTDLMedia(string(out))
 }
 
+// isPermanentYTDLError reports whether a failed resolve already answers for
+// the page. The resolve runs the same extraction as the yt-dlp pipe, with the
+// same format selector and cookies, so when yt-dlp itself fails (a dead or
+// private video, a bot wall, a timeout) the pipe would fail the same way. The
+// caller reports the error instead of running yt-dlp again. Two failures still
+// go to the pipe: a 403, which the pipe retries, and a yt-dlp that did not run,
+// which the pipe reports with an install hint.
+func isPermanentYTDLError(err error) bool {
+	var exit *exec.ExitError
+	return errors.As(err, &exit) && !isTransientYTDL403(err)
+}
+
 // parseYTDLMedia reads the output of `--print duration --print urls --print
 // %(http_headers)j`: the duration in seconds ("NA" when unknown), one URL
 // line, then the headers as a JSON object. A format with separate video and
-// audio prints more than one URL and is not direct.
+// audio prints more than one URL and is not direct. An HLS URL, the only
+// format of a live stream, is direct: ffmpeg fetches its segments itself.
 func parseYTDLMedia(out string) (*ytdlMedia, error) {
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) != 3 {
@@ -107,9 +123,6 @@ func parseYTDLMedia(out string) (*ytdlMedia, error) {
 	lines = lines[1:]
 	u, err := url.Parse(strings.TrimSpace(lines[0]))
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-		return nil, errNoDirectYTDLMedia
-	}
-	if strings.Contains(u.Path, ".m3u8") {
 		return nil, errNoDirectYTDLMedia
 	}
 	var headers map[string]string
@@ -159,13 +172,17 @@ func directSeekPage(pageURL string) bool {
 // read fails. A kept URL that fails, for example after it expired, is resolved
 // again on the next seek. A URL that fails right after it was resolved stops
 // the direct reads for this track, so a seek never pays for a resolve, a
-// failed read and the pipe each time.
+// failed read and the pipe each time. A permanent resolve error fails the seek
+// without running yt-dlp again.
 func (p *Player) buildYTDLSeekPipeline(cur *trackPipeline, startSec int) (*trackPipeline, error) {
 	media, noDirect := cur.ytdlMedia, cur.ytdlNoDirect || !directSeekPage(cur.path)
 	fresh := false
 	if !noDirect && !media.usable(time.Now()) {
 		var err error
 		media, err = resolveYTDLMedia(cur.path)
+		if isPermanentYTDLError(err) {
+			return nil, err
+		}
 		noDirect = errors.Is(err, errNoDirectYTDLMedia)
 		fresh = media != nil
 	}
@@ -187,10 +204,14 @@ func (p *Player) buildYTDLSeekPipeline(cur *trackPipeline, startSec int) (*track
 // so the pipeline holds the URL from the start and the first seek needs no
 // yt-dlp run. It costs the same single yt-dlp run as the pipe, and that run
 // also reports the duration, so no separate probe runs. It falls back to the
-// pipe as buildYTDLSeekPipeline does.
+// pipe as buildYTDLSeekPipeline does, and also returns a permanent resolve
+// error without running yt-dlp again.
 func (p *Player) buildYTDLDirectSource(pageURL string, knownDuration time.Duration, probe bool) (*trackPipeline, error) {
 	p.streamTitle.Store("")
 	media, err := resolveYTDLMedia(pageURL)
+	if isPermanentYTDLError(err) {
+		return nil, err
+	}
 	if media == nil {
 		tp, pipeErr := p.buildYTDLPipeSource(pageURL, knownDuration, probe)
 		if pipeErr != nil {

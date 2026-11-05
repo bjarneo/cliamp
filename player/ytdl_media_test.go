@@ -39,8 +39,12 @@ func TestParseYTDLMedia(t *testing.T) {
 			out:     "NA\nhttp://media.example/a.webm\n{}",
 			wantURL: "http://media.example/a.webm",
 		},
+		{
+			name:    "live hls url",
+			out:     "NA\nhttps://manifest.example/hls_playlist/expire/1800000000/index.m3u8\n{}",
+			wantURL: "https://manifest.example/hls_playlist/expire/1800000000/index.m3u8",
+		},
 		{name: "separate video and audio", out: "60\nhttps://v.example/v\nhttps://v.example/a\n{}", wantErr: errNoDirectYTDLMedia},
-		{name: "hls", out: "60\nhttps://v.example/index.m3u8\n{}", wantErr: errNoDirectYTDLMedia},
 		{name: "not http", out: "60\nfile:///etc/passwd\n{}", wantErr: errNoDirectYTDLMedia},
 		{name: "empty", out: "", wantErr: errNoDirectYTDLMedia},
 	}
@@ -108,9 +112,10 @@ func TestYTDLMediaInputArgs(t *testing.T) {
 }
 
 // installYTDLSeekFixtures puts fake yt-dlp and ffmpeg on PATH. yt-dlp answers
-// a --print resolve with resolveOut and a pipe download with PCM bytes. ffmpeg
-// copies stdin for the pipe and, for a direct URL, writes PCM unless
-// directFails is set. Each run appends its arguments to a log in dir.
+// a --print resolve with resolveOut, or fails with $RESOLVE_ERROR when a test
+// sets it, and answers a pipe download with PCM bytes. ffmpeg copies stdin for
+// the pipe and, for a direct URL, writes PCM unless directFails is set. Each
+// run appends its arguments to a log in dir.
 func installYTDLSeekFixtures(t *testing.T, resolveOut string, directFails bool) (resolveLog, ffmpegLog string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -124,6 +129,10 @@ func installYTDLSeekFixtures(t *testing.T, resolveOut string, directFails bool) 
 case " $* " in
 *" --print "*)
 	printf 'resolve\n' >> "$RESOLVE_LOG"
+	if [ -n "$RESOLVE_ERROR" ]; then
+		printf '%s\n' "$RESOLVE_ERROR" >&2
+		exit 1
+	fi
 	cat "$RESOLVE_OUT"
 	exit 0
 	;;
@@ -249,7 +258,7 @@ func TestBuildYTDLSeekPipelineFallsBackToThePipe(t *testing.T) {
 		directFails  bool
 		wantNoDirect bool
 	}{
-		{name: "no direct format", resolveOut: "240\nhttps://v.example/index.m3u8\n{}\n", wantNoDirect: true},
+		{name: "no direct format", resolveOut: "240\nhttps://v.example/v\nhttps://v.example/a\n{}\n", wantNoDirect: true},
 		{name: "direct read fails", resolveOut: "240\nhttps://media.example/a\n{}\n", directFails: true, wantNoDirect: true},
 	}
 	for _, tt := range tests {
@@ -320,7 +329,7 @@ func TestBuildYTDLSourceFallsBackToThePipe(t *testing.T) {
 		wantResolve int
 	}{
 		{name: "direct read fails", page: "https://www.youtube.com/watch?v=a", resolveOut: "240\nhttps://media.example/a\n{}\n", directFails: true, wantResolve: 1},
-		{name: "no direct format", page: "https://www.youtube.com/watch?v=a", resolveOut: "240\nhttps://v.example/index.m3u8\n{}\n", wantResolve: 1},
+		{name: "no direct format", page: "https://www.youtube.com/watch?v=a", resolveOut: "240\nhttps://v.example/v\nhttps://v.example/a\n{}\n", wantResolve: 1},
 		{name: "other site", page: "https://www.mixcloud.com/creator/show/", resolveOut: "240\nhttps://media.example/a\n{}\n", wantResolve: 0},
 	}
 	for _, tt := range tests {
@@ -343,6 +352,114 @@ func TestBuildYTDLSourceFallsBackToThePipe(t *testing.T) {
 				t.Fatalf("yt-dlp resolves = %d, want %d", got, tt.wantResolve)
 			}
 		})
+	}
+}
+
+// A live stream offers only an HLS URL. ffmpeg opens it, so the start runs
+// yt-dlp once: no pipe, and no probe for the duration a live stream lacks.
+func TestBuildYTDLSourceOpensALiveStreamFromItsHLSURL(t *testing.T) {
+	const hls = "https://manifest.example/hls_playlist/index.m3u8"
+	resolveLog, ffmpegLog := installYTDLSeekFixtures(t, "NA\n"+hls+"\n{}\n", false)
+	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
+
+	tp, err := p.buildYTDLSource("https://www.youtube.com/watch?v=live", 0, true)
+	if err != nil {
+		t.Fatalf("buildYTDLSource() error = %v", err)
+	}
+	defer tp.close()
+	if tp.ytdlMedia == nil || tp.knownDuration != 0 {
+		t.Fatalf("pipeline media = %v, duration = %v, want the HLS URL and no duration", tp.ytdlMedia, tp.knownDuration)
+	}
+	if got := fixtureLineCount(t, resolveLog); got != 1 {
+		t.Fatalf("yt-dlp resolves = %d, want 1", got)
+	}
+	log, _ := os.ReadFile(ffmpegLog)
+	if !strings.Contains(string(log), "-i "+hls) || strings.Contains(string(log), "pipe:0") {
+		t.Fatalf("ffmpeg runs:\n%s\nwant the HLS URL and no yt-dlp pipe", log)
+	}
+}
+
+// ytdlResolveEntries are the two paths that resolve a YouTube page.
+var ytdlResolveEntries = []struct {
+	name  string
+	build func(p *Player) (*trackPipeline, error)
+}{
+	{name: "start", build: func(p *Player) (*trackPipeline, error) {
+		return p.buildYTDLSource("https://www.youtube.com/watch?v=a", time.Minute, false)
+	}},
+	{name: "seek", build: func(p *Player) (*trackPipeline, error) {
+		return p.buildYTDLSeekPipeline(&trackPipeline{path: "https://www.youtube.com/watch?v=a", ytdlSeek: true}, 30)
+	}},
+}
+
+// A failed resolve already answers for the page: the pipe would run the same
+// extraction, so it does not start.
+func TestFailedResolveReportsYTDLPsAnswer(t *testing.T) {
+	const reason = "ERROR: [youtube] a: This video is unavailable"
+	for _, entry := range ytdlResolveEntries {
+		t.Run(entry.name, func(t *testing.T) {
+			resolveLog, ffmpegLog := installYTDLSeekFixtures(t, "", false)
+			t.Setenv("RESOLVE_ERROR", reason)
+			p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
+
+			tp, err := entry.build(p)
+			if err == nil {
+				tp.close()
+				t.Fatal("build succeeded, want yt-dlp's error")
+			}
+			if !strings.Contains(err.Error(), reason) {
+				t.Fatalf("build error = %v, want %q", err, reason)
+			}
+			if got := fixtureLineCount(t, resolveLog); got != 1 {
+				t.Fatalf("yt-dlp resolves = %d, want 1", got)
+			}
+			if got := fixtureLineCount(t, ffmpegLog); got != 0 {
+				t.Fatal("ffmpeg ran after the failed resolve, want no pipe")
+			}
+		})
+	}
+}
+
+// A 403 goes on to the pipe, which retries it. The pipeline stays free to
+// resolve again on a later seek.
+func TestResolve403GoesToThePipe(t *testing.T) {
+	for _, entry := range ytdlResolveEntries {
+		t.Run(entry.name, func(t *testing.T) {
+			resolveLog, ffmpegLog := installYTDLSeekFixtures(t, "", false)
+			t.Setenv("RESOLVE_ERROR", "ERROR: [youtube] a: HTTP Error 403: Forbidden")
+			p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
+
+			tp, err := entry.build(p)
+			if err != nil {
+				t.Fatalf("build error = %v, want the pipe", err)
+			}
+			defer tp.close()
+			if tp.ytdlMedia != nil || tp.ytdlNoDirect {
+				t.Fatalf("pipeline media = %v, noDirect = %v, want a pipe that may resolve again", tp.ytdlMedia, tp.ytdlNoDirect)
+			}
+			if got := fixtureLineCount(t, resolveLog); got != 1 {
+				t.Fatalf("yt-dlp resolves = %d, want 1", got)
+			}
+			if log, _ := os.ReadFile(ffmpegLog); !strings.Contains(string(log), "-i pipe:0") {
+				t.Fatalf("ffmpeg runs:\n%s\nwant the yt-dlp pipe", log)
+			}
+		})
+	}
+}
+
+// A yt-dlp that cannot run is not an answer about the page. The pipe reports it
+// with the install hint.
+func TestBuildYTDLSourceReportsAMissingYTDLP(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
+
+	tp, err := p.buildYTDLSource("https://www.youtube.com/watch?v=a", 0, false)
+	if err == nil {
+		tp.close()
+		t.Fatal("buildYTDLSource() succeeded without yt-dlp")
+	}
+	if !strings.Contains(err.Error(), "yt-dlp is required") {
+		t.Fatalf("buildYTDLSource() error = %v, want the install hint", err)
 	}
 }
 
