@@ -51,8 +51,8 @@ func (m *Model) lyricsArtistTitle() (artist, title string) {
 		return "", ""
 	}
 	// For streams, prefer the live ICY stream title which updates per-song.
-	if m.streamTitle != "" && track.Stream {
-		if a, t, ok := splitStreamTitle(m.streamTitle); ok {
+	if streamTitle := m.effectiveStreamTitle(); streamTitle != "" && track.Stream {
+		if a, t, ok := splitStreamTitle(streamTitle); ok {
 			return a, t
 		}
 	}

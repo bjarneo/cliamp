@@ -84,6 +84,11 @@ func (m *Model) handlePluginStreamTitle(msg PluginStreamTitleMsg) tea.Cmd {
 	}
 	m.pluginStreamTitle = msg.Title
 	m.refreshStreamTitleUI()
+	// An open lyrics view must refresh with the effective title now that the
+	// plugin override is set. Keep tickStreamTitle's ICY polling intact.
+	if m.lyrics.visible && !m.lyrics.loading {
+		return m.retryLyrics()
+	}
 	return nil
 }
 
