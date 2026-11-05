@@ -13,12 +13,14 @@ jobs:
     strategy:
       matrix:
         include:
+          # Ubuntu 24.04 keeps the glibc floor of the Linux binaries at 2.39,
+          # and its arm64 ports match the amd64 packages of the image.
           - goos: linux
             goarch: amd64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
           - goos: linux
             goarch: arm64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
           - goos: darwin
             goarch: amd64
             runner: macos-latest
@@ -268,14 +270,23 @@ jobs:
           fi
 
           CHANGELOG=""
+          # GitHub refuses a release body over 125000 characters. Stop the
+          # list at this size and link to the full changelog for the rest.
+          MAX_CHANGELOG=110000
+          LISTED=0
 
           if [ -z "$PREV_TAG" ]; then
             RANGE="$TAG"
           else
             RANGE="${PREV_TAG}..${TAG}"
           fi
+          TOTAL=$(git rev-list --count --no-merges "$RANGE")
 
           while IFS='|' read -r hash title author || [ -n "$hash" ]; do
+            if [ "${#CHANGELOG}" -ge "$MAX_CHANGELOG" ]; then
+              break
+            fi
+            LISTED=$((LISTED + 1))
             short_hash="${hash:0:7}"
             username=$(gh api "repos/${REPO}/commits/$hash" --jq '.author.login' 2>/dev/null || echo "")
 
@@ -286,7 +297,11 @@ jobs:
             fi
 
             CHANGELOG="${CHANGELOG}- $title by $author_info ([\`$short_hash\`](https://github.com/${REPO}/commit/$hash))"$'\n'
-          done < <(git log "$RANGE" --pretty=format:"%H|%s|%an")
+          done < <(git log --no-merges "$RANGE" --pretty=format:"%H|%s|%an")
+
+          if [ "$LISTED" -lt "$TOTAL" ]; then
+            CHANGELOG="${CHANGELOG}- $((TOTAL - LISTED)) older commits are not listed. The full changelog link below shows all commits."$'\n'
+          fi
 
           {
             echo "## What's Changed"
