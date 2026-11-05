@@ -532,9 +532,9 @@ If a plugin does not declare `permissions = {"control"}`, these functions log a 
 
 Each control returns at once. cliamp applies the controls in the order that the plugin calls them, on the same loop that handles the keys. Thus a read such as `cliamp.player.volume()` right after `set_volume` can still return the old value. cliamp saves a speed change to `config.toml` after one second, as the speed keys do. A volume change updates the volume of the media controls at once.
 
-`cliamp.player.set_stream_title(title)` sets the display title of the current live stream. It requires `permissions = {control}`.
+`cliamp.player.set_stream_title(title)` sets the display title of the current live stream. It requires `permissions = {"control"}`.
 
-The override only takes effect on a stream that has no ICY metadata. If the station already sends inline ICY `StreamTitle`, the call is a no-op and cliamp logs a warning to `plugins.log`. Non-stream tracks are ignored. The override is cleared whenever a new track starts, so a plugin that wants a persistent title on a single long-running stream should re-set it after each track change.
+ The override only takes effect on a stream that has no ICY metadata. If the station already sends inline ICY `StreamTitle`, the call is a no-op and cliamp logs a warning to `cliamp.log`. Non-stream tracks are ignored. The override is cleared whenever a new track starts, so a plugin that wants a persistent title on a single long-running stream should re-set it after each track change.
 
 ### cliamp.notify
 

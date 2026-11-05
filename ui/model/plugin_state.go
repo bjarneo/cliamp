@@ -73,7 +73,7 @@ func (m *Model) publishPluginState() {
 		Count:       m.playlist.Len(),
 		Index:       m.playlist.Index(),
 		HasNext:     m.playlist.HasNext(),
-		StreamTitle: m.streamTitle,
+		StreamTitle: m.effectiveStreamTitle(),
 		revision:    m.playlist.Revision(),
 	}
 	state.Track.Artist, state.Track.Title = m.resolveTrackDisplay(track)

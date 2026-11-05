@@ -666,7 +666,7 @@ func (m *Model) runtimeSnapshot() ipc.RuntimeSnapshot {
 			info.Artist, info.Title = artist, title
 		}
 		if track.Stream {
-			info.StreamTitle = m.streamTitle
+			info.StreamTitle = m.effectiveStreamTitle()
 		}
 		snapshot.Track = &info
 	}
@@ -732,7 +732,7 @@ func (m *Model) runtimeFingerprint() ipcRuntimeFingerprint {
 	fingerprint.eq = m.player.EQBands()
 	fingerprint.eqPreset = m.EQPresetName()
 	fingerprint.detached = m.playbackDetached
-	fingerprint.streamTitle = m.streamTitle
+	fingerprint.streamTitle = m.effectiveStreamTitle()
 	fingerprint.buffering = m.buffering
 	_, duration := m.playbackClock()
 	fingerprint.durationSecs = int64(duration / time.Second)

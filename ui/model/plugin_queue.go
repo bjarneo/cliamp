@@ -67,16 +67,20 @@ func (m *Model) handlePluginQueue(msg PluginQueueMsg) tea.Cmd {
 // The title is cleared whenever a new track starts (see setPlaybackTrack).
 func (m *Model) handlePluginStreamTitle(msg PluginStreamTitleMsg) tea.Cmd {
 	track, _ := m.currentPlaybackTrack()
-	if !track.Stream {
-		// Not a stream: ignore.
+	// Only an active live stream can take a plugin title override. A
+	// non-stream, a stopped player, or a track still buffering must be
+	// ignored so the override never leaks onto unrelated playback.
+	if !track.Stream || !m.playingTrackActive || !m.player.IsPlaying() {
 		return nil
 	}
+	// A plugin override wins over ICY metadata, but a station that already
+	// sends inline ICY StreamTitle refuses the override.
 	if m.streamTitle != "" {
 		// Stream already carries ICY metadata; refuse to override it.
 		applog.Warn("set_stream_title: stream already has ICY metadata, refusing override")
 		return nil
 	}
-	m.streamTitle = msg.Title
+	m.pluginStreamTitle = msg.Title
 	m.refreshStreamTitleUI()
 	return nil
 }
