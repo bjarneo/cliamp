@@ -29,6 +29,7 @@ func TestNeedsFFmpeg(t *testing.T) {
 		{ext: ".aac", want: true},
 		{ext: ".aacp", want: true},
 		{ext: ".mp4", want: true},
+		{ext: ".webm", want: true},
 		{ext: ".opus", want: true},
 		{ext: ".mp3", want: false},
 		{ext: ".ogg", want: false},
@@ -48,6 +49,7 @@ func TestUsesLocalFFmpeg(t *testing.T) {
 	}{
 		{path: "/music/track.m4a", want: true},
 		{path: "/music/track.mp4", want: true},
+		{path: "/music/track.webm", want: true},
 		{path: "/music/Track.OPUS", want: true},
 		{path: "relative/track.wma", want: true},
 		{path: "/music/track.mp3", want: false},
