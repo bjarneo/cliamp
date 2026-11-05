@@ -569,7 +569,8 @@ WSLg must be active. `echo $PULSE_SERVER` should print a path. If it is empty, u
 
 ## ffmpeg (optional)
 
-AAC, ALAC (`.m4a`), Opus, and WMA playback require [ffmpeg](https://ffmpeg.org/):
+AAC, ALAC (`.m4a`), Opus, WMA, and the audio stream of an `.mp4` file require
+[ffmpeg](https://ffmpeg.org/):
 
 ```sh
 # Arch
