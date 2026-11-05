@@ -401,6 +401,10 @@ type Model struct {
 	eqSaveAfter    time.Duration
 	termTitle      terminalTitleState
 
+	// Song mix: how many related songs it adds, and the lookup in flight.
+	songMixSize   int
+	songMixCancel context.CancelFunc
+
 	jump     jumpState
 	urlInput urlInputState
 
