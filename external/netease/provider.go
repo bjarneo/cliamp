@@ -3,6 +3,7 @@ package netease
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,14 +11,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/bjarneo/cliamp/internal/httpclient"
-	"github.com/bjarneo/cliamp/internal/ytdlp"
+	"github.com/bjarneo/cliamp/internal/ytdlcookies"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/resolve"
@@ -30,7 +30,6 @@ var (
 
 const (
 	defaultAPIBase = "https://music.163.com"
-	probeURL       = "https://music.163.com/#/playlist?id=3778678"
 	apiTimeout     = 15 * time.Second
 	// neteaseCodeOK is the application-level success code in NetEase API
 	// responses. It happens to share the value of HTTP 200 but is a distinct
@@ -446,40 +445,11 @@ func (p *Provider) ensureCookieHeader(ctx context.Context) (string, error) {
 }
 
 func extractBrowserCookieHeader(ctx context.Context, browser string) (string, error) {
-	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		return "", fmt.Errorf("yt-dlp not found. Install with: %s", ytdlp.InstallHint())
-	}
-	tmp, err := os.CreateTemp("", "cliamp-netease-cookies-*.txt")
+	data, err := ytdlcookies.ExportFromBrowser(ctx, browser)
 	if err != nil {
 		return "", err
 	}
-	path := tmp.Name()
-	tmp.Close()
-	os.Remove(path)
-	defer os.Remove(path)
-
-	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(cmdCtx, "yt-dlp",
-		"--cookies-from-browser", browser,
-		"--cookies", path,
-		"--flat-playlist",
-		"--playlist-end", "1",
-		"--socket-timeout", "15",
-		"--print", "title",
-		"--",
-		probeURL,
-	)
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg != "" {
-			return "", fmt.Errorf("netease: load browser cookies: %s: %w", msg, err)
-		}
-		return "", fmt.Errorf("netease: load browser cookies: %w", err)
-	}
-	header, err := cookieHeaderFromNetscapeFile(path)
+	header, err := cookieHeaderFromNetscape(data)
 	if err != nil {
 		return "", err
 	}
@@ -502,20 +472,22 @@ func fileCookieHeader(path string) (string, error) {
 	return header, nil
 }
 
-// cookieHeaderFromNetscapeFile builds a Cookie header from the NetEase cookies
-// in a Netscape cookies file. Expired entries are skipped before the first
-// entry of each name is kept.
 func cookieHeaderFromNetscapeFile(path string) (string, error) {
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	return cookieHeaderFromNetscape(data)
+}
 
+// cookieHeaderFromNetscape builds a Cookie header from the NetEase cookies in
+// Netscape data. Expired entries are skipped before the first entry of each
+// name is kept, for both browser exports and cookies files.
+func cookieHeaderFromNetscape(data []byte) (string, error) {
 	now := time.Now().Unix()
 	seen := map[string]bool{}
 	var pairs []string
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "# Netscape") || strings.HasPrefix(line, "# This file") {

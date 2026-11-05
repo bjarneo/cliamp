@@ -75,17 +75,19 @@ func TestLivePublicAccount(t *testing.T) {
 	}
 
 	p := NewFromConfig(Config{
-		Enabled:        true,
-		Username:       username,
-		StylesSet:      true,
-		MaxItems:       3,
-		StreamCreators: 2,
+		Enabled:   true,
+		Username:  username,
+		StylesSet: true,
+		MaxItems:  3,
 	})
 	lists, err := p.Playlists()
 	if err != nil {
 		t.Fatalf("account playlists: %v", err)
 	}
-	wantLists := []string{streamID, activityID, uploadsID, favoritesID, listensID}
+	if slices.ContainsFunc(lists, func(item playlist.PlaylistInfo) bool { return item.ID == streamID }) {
+		t.Error("Stream must be hidden without cookies_from")
+	}
+	wantLists := []string{activityID, uploadsID, favoritesID, listensID}
 	for _, id := range wantLists {
 		if !slices.ContainsFunc(lists, func(item playlist.PlaylistInfo) bool { return item.ID == id }) {
 			t.Errorf("account playlists omit %q: %+v", id, lists)
