@@ -488,6 +488,10 @@ type Model struct {
 
 	// Live stream title from ICY metadata (e.g., "Artist - Song")
 	streamTitle string
+	// pluginStreamTitle is a title override set by a Lua plugin via
+	// cliamp.player.set_stream_title. It takes precedence over streamTitle
+	// when set, and is cleared whenever a new track starts.
+	pluginStreamTitle string
 
 	// playingTrack is the track currently owned by the audio engine. It can differ
 	// from playlist.Current() after browsing loads a new provider playlist while

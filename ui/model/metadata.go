@@ -82,8 +82,9 @@ func (m Model) metadataFields() []metadataField {
 		} else {
 			add("Type", "Live radio")
 		}
+		title := m.effectiveStreamTitle()
 		if playing, _ := m.currentPlaybackTrack(); m.player != nil && m.player.IsPlaying() && track.Path != "" && track.Path == playing.Path {
-			add("Playing", m.streamTitle)
+			add("Playing", title)
 		}
 	}
 	return fields

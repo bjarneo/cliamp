@@ -3,6 +3,7 @@ package model
 import (
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/resolve"
 )
@@ -17,6 +18,13 @@ type PluginQueueMsg struct {
 	Track playlist.Track // add_track
 	Index int            // jump, remove, move (from)
 	To    int            // move (to)
+}
+
+// PluginStreamTitleMsg is sent by Lua plugins (cliamp.player.set_stream_title)
+// to override the display title of a live stream. Mutations are routed
+// through the Update loop so the model's derived state stays consistent.
+type PluginStreamTitleMsg struct {
+	Title string // new stream title; "" clears any plugin override
 }
 
 // pluginQueueAddedMsg carries tracks resolved for a cliamp.queue.add() call
@@ -51,6 +59,46 @@ func (m *Model) handlePluginQueue(msg PluginQueueMsg) tea.Cmd {
 		return cmd
 	}
 	return nil
+}
+
+// handlePluginStreamTitle applies a stream title override requested by a plugin.
+// It only succeeds on a live stream that has no ICY stream title metadata.
+// Streams that carry ICY metadata reject the override; non-streams are ignored.
+// The title is cleared whenever a new track starts (see setPlaybackTrack).
+func (m *Model) handlePluginStreamTitle(msg PluginStreamTitleMsg) tea.Cmd {
+	track, _ := m.currentPlaybackTrack()
+	// Only an active live stream can take a plugin title override. A
+	// non-stream, a stopped player, or a track still buffering must be
+	// ignored so the override never leaks onto unrelated playback.
+	if !track.Stream || !m.playingTrackActive || !m.player.IsPlaying() {
+		return nil
+	}
+	// A plugin override wins over ICY metadata, but a station that already
+	// sends inline ICY StreamTitle refuses the override.
+	// A station already sending ICY metadata refuses an override; an existing
+	// plugin override also refuses a new one.
+	if m.pluginStreamTitle != "" || m.streamTitle != "" {
+		// Stream already carries ICY metadata; refuse to override it.
+		applog.Warn("set_stream_title: stream already has ICY metadata, refusing override")
+		return nil
+	}
+	m.pluginStreamTitle = msg.Title
+	m.refreshStreamTitleUI()
+	// An open lyrics view must refresh with the effective title now that the
+	// plugin override is set. Keep tickStreamTitle's ICY polling intact.
+	if m.lyrics.visible && !m.lyrics.loading {
+		return m.retryLyrics()
+	}
+	return nil
+}
+
+// refreshStreamTitleUI reapplies the layout and scroll after a stream title
+// change. tickStreamTitle and handlePluginStreamTitle both set m.streamTitle,
+// so they share these three calls instead of repeating them.
+func (m *Model) refreshStreamTitleUI() {
+	m.resetTitleScroll()
+	m.applyHeightMode()
+	m.adjustScroll()
 }
 
 // appendPluginTracks appends tracks a plugin added to the end of the playlist
