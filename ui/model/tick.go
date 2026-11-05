@@ -453,9 +453,7 @@ func (m *Model) tickStreamTitle() tea.Cmd {
 		return nil
 	}
 	m.streamTitle = title
-	m.resetTitleScroll()
-	m.applyHeightMode()
-	m.adjustScroll()
+	m.refreshStreamTitleUI()
 	if !m.lyrics.visible || m.lyrics.loading {
 		return nil
 	}

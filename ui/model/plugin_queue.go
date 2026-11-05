@@ -4,7 +4,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/applog"
-	"github.com/bjarneo/cliamp/luaplugin"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/resolve"
 )
@@ -78,13 +77,17 @@ func (m *Model) handlePluginStreamTitle(msg PluginStreamTitleMsg) tea.Cmd {
 		return nil
 	}
 	m.streamTitle = msg.Title
+	m.refreshStreamTitleUI()
+	return nil
+}
+
+// refreshStreamTitleUI reapplies the layout and scroll after a stream title
+// change. tickStreamTitle and handlePluginStreamTitle both set m.streamTitle,
+// so they share these three calls instead of repeating them.
+func (m *Model) refreshStreamTitleUI() {
 	m.resetTitleScroll()
 	m.applyHeightMode()
 	m.adjustScroll()
-	if m.luaMgr != nil && m.luaMgr.HasHook(luaplugin.EventPlaybackState) {
-		m.notifyPlaybackChange()
-	}
-	return nil
 }
 
 // appendPluginTracks appends tracks a plugin added to the end of the playlist
