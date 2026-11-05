@@ -122,3 +122,63 @@ func TestSocketPathTooLong(t *testing.T) {
 		_ = server.Close()
 	})
 }
+
+func TestIsAddrInUse(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "nil error",
+			err:  nil,
+			want: false,
+		},
+		{
+			name: "unrelated error",
+			err:  errors.New("listen: some other error"),
+			want: false,
+		},
+		{
+			name: "permission denied",
+			err:  fmt.Errorf("bind: %w", os.ErrPermission),
+			want: false,
+		},
+		{
+			name: "wrapped EADDRINUSE",
+			err:  fmt.Errorf("bind: %w", syscall.EADDRINUSE),
+			want: true,
+		},
+		{
+			// Windows bind collision. This must not depend on the host
+			// platform, since errors.Is against syscall.EADDRINUSE cannot
+			// match WSAEADDRINUSE on Windows.
+			name: "WSAEADDRINUSE error",
+			err:  syscall.Errno(10048),
+			want: true,
+		},
+		{
+			name: "wrapped WSAEADDRINUSE error",
+			err:  fmt.Errorf("bind: %w", syscall.Errno(10048)),
+			want: true,
+		},
+		{
+			name: "untyped address-in-use message",
+			err:  errors.New("bind unix: address already in use"),
+			want: true,
+		},
+		{
+			name: "untyped WSA usage message",
+			err:  errors.New("Only one usage of each socket address is normally permitted"),
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isAddrInUse(tt.err); got != tt.want {
+				t.Fatalf("isAddrInUse(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}

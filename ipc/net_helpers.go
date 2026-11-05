@@ -49,6 +49,27 @@ func listenSocket(sockPath string) (net.Listener, error) {
 // AF_UNIX socket nobody is listening on.
 const wsaeConnRefused = syscall.Errno(10061)
 
+// wsaeAddrInUse is Windows' WSAEADDRINUSE, returned when binding an AF_UNIX
+// address that is already occupied.
+const wsaeAddrInUse = syscall.Errno(10048)
+
+// isAddrInUse reports whether err means the socket path was occupied at bind
+// time. Windows reports an AF_UNIX bind collision as WSAEADDRINUSE, which does
+// not compare equal to syscall.EADDRINUSE: on Windows that constant is derived
+// from APPLICATION_ERROR, not from the WSA numeric space, so errors.Is misses
+// it. The text fallback covers untyped forms, the way isSocketUnavailable does.
+func isAddrInUse(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, syscall.EADDRINUSE) || errors.Is(err, wsaeAddrInUse) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "address already in use") ||
+		strings.Contains(msg, "only one usage of each socket address")
+}
+
 func isSocketUnavailable(err error) bool {
 	if err == nil {
 		return false
