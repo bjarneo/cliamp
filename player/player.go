@@ -75,6 +75,10 @@ type Player struct {
 
 	lastPlayedDuration time.Duration // real duration of the track finished by the last gapless swap
 
+	// ytdlDirectFailed is the YouTube page whose direct media read failed
+	// mid-track. Its next start plays through the yt-dlp pipe. Guarded by mu.
+	ytdlDirectFailed string
+
 	streamTitle atomic.Value // stores string, set by ICY reader callback
 
 	// The source registries are guarded by mu. Register writes them, and
@@ -415,6 +419,8 @@ func (p *Player) Stop() {
 	active := p.current
 	p.mu.Unlock()
 	if active != nil {
+		// Read the error before interrupt, which makes ffmpeg fail by itself.
+		p.noteYTDLDirectFailure(active)
 		p.gapless.SetNext(nil)
 		active.interrupt()
 	}
@@ -610,8 +616,9 @@ func (p *Player) SeekYTDL(d time.Duration) error {
 	}
 	startSec := int(newPos.Seconds())
 
-	// Build pipeline WITHOUT speaker lock (this is the slow part — spawns yt-dlp).
-	tp, err := p.buildYTDLPipeline(cur.path, startSec)
+	// Build pipeline WITHOUT speaker lock (this is the slow part — it may
+	// spawn yt-dlp).
+	tp, err := p.buildYTDLSeekPipeline(cur, startSec)
 	if err != nil {
 		p.restoreYTDLSeekSource(cur, gen)
 		return fmt.Errorf("yt-dlp seek: %w", err)
@@ -955,10 +962,7 @@ func (p *Player) StreamErr() error {
 	if cur == nil {
 		return nil
 	}
-	if cur.livePrefetch != nil {
-		return cur.livePrefetch.Err()
-	}
-	return cur.decoder.Err()
+	return cur.streamErr()
 }
 
 // SamplesInto copies the latest audio samples into dst, avoiding allocation.
