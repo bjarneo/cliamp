@@ -36,6 +36,15 @@ type trackPipeline struct {
 
 	live bool
 
+	// replayGainDB is the gain applied to this track, and replayGainFrom the
+	// value it came from; "" when none was applied.
+	replayGainDB   float64
+	replayGainFrom string
+
+	// download is the buffered HTTP download behind the pipeline, nil for
+	// other sources. applyReplayGain reads the stream's tags from it.
+	download *navBuffer
+
 	// livePrefetch is set when stream is wrapped in a livePrefetchStreamer
 	// (non-seekable HTTP sources and yt-dlp pages). close() stops its fill
 	// goroutine.
@@ -159,6 +168,7 @@ func (p *Player) bufferedPipeline(path string, nb *navBuffer, contentLen int64) 
 		path:          path,
 		bytesRead:     &nb.bytesIn,
 		contentLength: contentLen,
+		download:      nb,
 	}, nil
 }
 
@@ -213,6 +223,7 @@ func (p *Player) buildSource(path string, knownDuration, offset time.Duration, p
 	if err != nil {
 		return nil, fmt.Errorf("play at %v: %w", offset, err)
 	}
+	p.applyReplayGain(tp)
 	tp.setKnownDuration(knownDuration)
 	if offset > 0 && tp.seekable {
 		if sample := relativeSeekSample(tp, offset); sample > 0 {
