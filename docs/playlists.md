@@ -79,6 +79,8 @@ http://example.com/live
 
 If `radio.m3u` is in `~/playlists/`, cliamp resolves `../Music/song.mp3` to `~/Music/song.mp3`.
 
+A local PLS file works the same way: cliamp resolves relative `File1=` entries from the PLS file directory.
+
 ### Edge Cases Handled
 
 - UTF-8 BOM (common in Windows-created files)

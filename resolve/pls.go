@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -201,10 +202,10 @@ func resolveLocalPLS(path string) ([]playlist.Track, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Relative entries are relative to the playlist's folder, as in M3U.
+	baseDir := filepath.Dir(path)
 	for i, e := range entries {
-		if path, ok := fileURIPath(e.File); ok {
-			entries[i].File = path
-		}
+		entries[i].File = resolveM3UPath(baseDir, e.File)
 	}
 	return plsEntriesToTracks(entries), nil
 }

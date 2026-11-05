@@ -1,6 +1,8 @@
 package resolve
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -251,5 +253,37 @@ func TestHumanizeBasename(t *testing.T) {
 				t.Errorf("humanizeBasename(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestResolveLocalPLSRelativePaths(t *testing.T) {
+	dir := t.TempDir()
+	plsDir := filepath.Join(dir, "playlists")
+	if err := os.Mkdir(plsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(plsDir, "mix.pls")
+	content := "[playlist]\nFile1=song.mp3\nFile2=../music/other.mp3\nFile3=/abs/track.mp3\nFile4=http://example.com/stream\nNumberOfEntries=4\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tracks, err := resolveLocalPLS(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		filepath.Join(plsDir, "song.mp3"),
+		filepath.Join(dir, "music", "other.mp3"),
+		"/abs/track.mp3",
+		"http://example.com/stream",
+	}
+	if len(tracks) != len(want) {
+		t.Fatalf("got %d tracks, want %d", len(tracks), len(want))
+	}
+	for i, w := range want {
+		if tracks[i].Path != w {
+			t.Errorf("track %d path = %q, want %q", i, tracks[i].Path, w)
+		}
 	}
 }
