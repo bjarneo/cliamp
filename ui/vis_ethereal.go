@@ -1,20 +1,13 @@
 package ui
 
 import (
+	"image/color"
 	"math"
 	"strings"
 	"time"
-
-	"charm.land/lipgloss/v2"
 )
 
-// Ethereal follows Omarchy's Ethereal cosmic wallpaper: midnight blue clouds,
-// violet rims and peach starlight. Its own palette keeps that identity under
-// any UI theme; no installed Omarchy files are needed at runtime.
-var etherealColors = [...]string{
-	"#304577", "#6d7db6", "#7d82d9", "#c89dc1", "#ffcead", "#a3bfd1", "#dfeaf0",
-}
-
+// Ethereal follows Omarchy's cosmic wallpaper with drifting clouds and stars.
 const (
 	etherealStarDim  = 2
 	etherealStarCool = 6
@@ -22,12 +15,15 @@ const (
 )
 
 // Only foreground dots are painted, like Flame; the terminal background stays
-// untouched. Unlike the theme-derived spectrum styles these colours never change.
-var etherealANSI [len(etherealColors)]styleANSI
+// untouched. ApplyThemeColors rebuilds the styles from the shared palette.
+var etherealANSI [etherealStarLit]styleANSI
 
-func init() {
-	for i, c := range etherealColors {
-		etherealANSI[i] = foregroundANSI(lipgloss.Color(c))
+func refreshEtherealANSI() {
+	colors := [etherealStarLit]color.Color{
+		ColorDim, SpectrumLow, SpectrumMid, SpectrumHigh, ColorText, ColorAccent, ColorText,
+	}
+	for i, c := range colors {
+		etherealANSI[i] = foregroundANSI(c)
 	}
 }
 

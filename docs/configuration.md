@@ -83,10 +83,11 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # YinYang koi chase each other across a wide strip, leaving on the right and
 # coming back on the left. Taller panels have them circle a lily pad whose
 # lotus follows recent bass levels, including after silence or time in the strip.
-# Ethereal draws Flame-style Braille pixels: drifting blue-violet clouds with
-# peach highlights and treble-reactive stars, leaving the background untouched.
+# Ethereal draws Flame-style Braille pixels: drifting clouds with bright
+# highlights and treble-reactive stars, leaving the background untouched.
 # Inspired by Omarchy's Ethereal cosmic wallpaper.
-# It keeps its own palette under any UI theme; Omarchy is not required.
+# It follows terminal colors by default and the selected UI theme.
+# Omarchy is not required.
 visualizer = "Bars"
 
 # Visualizer volume linking (default: true)

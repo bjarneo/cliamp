@@ -102,7 +102,7 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # and coming back on the left; taller panels have them circle a lily pad
 # whose lotus opens with the music.
 # Ethereal: Flame-style Braille clouds and stars, with no painted background.
-# Keeps Omarchy Ethereal's cosmic palette under any UI theme; no Omarchy needed.
+# Follows terminal colors by default and the selected UI theme; no Omarchy needed.
 # visualizer = "Bars"
 
 # Reduce CPU usage by lowering UI cadence and disabling visualization.
