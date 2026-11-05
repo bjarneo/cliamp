@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/bjarneo/cliamp/internal/httpclient"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 )
 
 func TestFeedMetadata(t *testing.T) {
@@ -461,23 +463,53 @@ func TestFeedLimitAndOrder(t *testing.T) {
 	}
 }
 
-func TestFeedStopsAfterLimit(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `<rss><channel>`)
-		for range 300 {
-			io.WriteString(w, `<item><enclosure url="https://example.com/audio.mp3"/></item>`)
-		}
-		io.WriteString(w, `</malformed-tail>`)
-		w.(http.Flusher).Flush()
-		// Do not finish the response: a whole-document read would hang here.
-		<-r.Context().Done()
-	}))
-	defer srv.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	tracks, err := Feed(ctx, srv.URL)
+func TestFeedOldestFirstKeepsNewest(t *testing.T) {
+	// A long-running show listing oldest-first: the newest episodes sit past
+	// the limit and must still be the ones returned, newest first.
+	start := time.Date(2020, 1, 29, 21, 26, 0, 0, time.UTC)
+	var body strings.Builder
+	body.WriteString(`<rss><channel><title>Show</title>`)
+	for i := 1; i <= 2076; i++ {
+		fmt.Fprintf(&body, `<item><title>Episode %d</title><pubDate>%s</pubDate><enclosure url="https://example.com/%d.mp3"/></item>`,
+			i, start.AddDate(0, 0, i).Format(time.RFC1123Z), i)
+	}
+	body.WriteString(`</channel></rss>`)
+	tracks, err := Feed(context.Background(), serveFeed(t, body.String()))
 	if err != nil || len(tracks) != 300 {
-		t.Fatalf("got %d tracks, err = %v; want 300 without reading the tail", len(tracks), err)
+		t.Fatalf("got %d tracks, err = %v; want 300", len(tracks), err)
+	}
+	for i, track := range tracks {
+		if want := fmt.Sprintf("Episode %d", 2076-i); track.Title != want {
+			t.Fatalf("track %d = %q, want %q", i, track.Title, want)
+		}
+	}
+	if got, want := tracks[0].Meta(provider.MetaPodcastPublished), start.AddDate(0, 0, 2076).Format(time.DateOnly); got != want {
+		t.Errorf("newest published = %q, want %q", got, want)
+	}
+}
+
+func TestFeedDateOrder(t *testing.T) {
+	// Full timestamps order same-day episodes, zones are honoured, equal
+	// times keep feed order, and undated episodes trail in feed order.
+	body := `<rss><channel>
+  <item><title>Undated A</title><enclosure url="https://example.com/a.mp3"/></item>
+  <item><title>Morning</title><pubDate>Fri, 18 Sep 2026 09:00:00 +0000</pubDate><enclosure url="https://example.com/b.mp3"/></item>
+  <item><title>Evening</title><pubDate>Fri, 18 Sep 2026 19:30:00 +0200</pubDate><enclosure url="https://example.com/c.mp3"/></item>
+  <item><title>Unparseable</title><pubDate>sometime</pubDate><enclosure url="https://example.com/d.mp3"/></item>
+  <item><title>Evening again</title><pubDate>2026-09-18T17:30:00Z</pubDate><enclosure url="https://example.com/e.mp3"/></item>
+  <item><title>Noon, earlier by zone</title><pubDate>Fri, 18 Sep 2026 12:00:00 +0400</pubDate><enclosure url="https://example.com/f.mp3"/></item>
+</channel></rss>`
+	tracks, err := Feed(context.Background(), serveFeed(t, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Evening", "Evening again", "Morning", "Noon, earlier by zone", "Undated A", "Unparseable"}
+	got := make([]string, len(tracks))
+	for i, track := range tracks {
+		got[i] = track.Title
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("order = %q, want %q", got, want)
 	}
 }
 
@@ -500,15 +532,181 @@ func TestFeedBodyLimit(t *testing.T) {
 				io.WriteString(w, suffix)
 			}))
 			defer srv.Close()
+			// Over the cap, the read stops inside the description; the
+			// episode parsed before it is kept.
 			tracks, err := Feed(context.Background(), srv.URL)
-			if size == maxFeedBody {
-				if err != nil || len(tracks) != 1 {
-					t.Fatalf("exactly 32 MiB: got %d tracks, err = %v", len(tracks), err)
-				}
-			} else if err == nil || tracks != nil {
-				t.Fatalf("oversized feed: tracks = %+v, err = %v; want nil tracks and error", tracks, err)
+			if err != nil || len(tracks) != 1 {
+				t.Fatalf("%d bytes: got %d tracks, err = %v; want 1 track", size, len(tracks), err)
 			}
 		})
+	}
+}
+
+func TestFeedBodyLimitKeepsNewestParsed(t *testing.T) {
+	// An oldest-first feed past the cap: the cap cuts an item short, and the
+	// newest 300 of the episodes parsed before it come back, newest first.
+	start := time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `<rss><channel><title>Show</title>`)
+		for i := 1; i <= 305; i++ {
+			fmt.Fprintf(w, `<item><title>Episode %d</title><pubDate>%s</pubDate><enclosure url="https://example.com/%d.mp3"/></item>`,
+				i, start.AddDate(0, 0, i).Format(time.RFC1123Z), i)
+		}
+		io.WriteString(w, `<item><title>Cut off</title><pubDate>`+start.AddDate(0, 0, 400).Format(time.RFC1123Z)+`</pubDate><description>`)
+		chunk := strings.Repeat(" ", 8192)
+		for written := 0; written <= maxFeedBody; written += len(chunk) {
+			if _, err := io.WriteString(w, chunk); err != nil {
+				return
+			}
+		}
+		io.WriteString(w, `</description><enclosure url="https://example.com/cut.mp3"/></item></channel></rss>`)
+	}))
+	defer srv.Close()
+	tracks, err := Feed(context.Background(), srv.URL)
+	if err != nil || len(tracks) != 300 {
+		t.Fatalf("got %d tracks, err = %v; want 300", len(tracks), err)
+	}
+	for i, track := range tracks {
+		if want := fmt.Sprintf("Episode %d", 305-i); track.Title != want {
+			t.Fatalf("track %d = %q, want %q", i, track.Title, want)
+		}
+	}
+}
+
+func TestFeedBoundedSelectionMatchesFullSort(t *testing.T) {
+	// More episodes than the bounded buffer holds, in scrambled order, with many equal
+	// publication times and some undated episodes: the result must equal sorting them
+	// all at once, keeping feed order for equal times and undated ones last.
+	type entry struct {
+		title  string
+		date   time.Time
+		undate bool
+	}
+	start := time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC)
+	var entries []entry
+	var body strings.Builder
+	body.WriteString(`<rss><channel><title>Show</title>`)
+	for i := range 2000 {
+		e := entry{title: fmt.Sprintf("Episode %d", i), date: start.AddDate(0, 0, (i*37)%90), undate: i%13 == 0}
+		entries = append(entries, e)
+		if e.undate {
+			fmt.Fprintf(&body, `<item><title>%s</title><enclosure url="https://example.com/%d.mp3"/></item>`, e.title, i)
+		} else {
+			fmt.Fprintf(&body, `<item><title>%s</title><pubDate>%s</pubDate><enclosure url="https://example.com/%d.mp3"/></item>`,
+				e.title, e.date.Format(time.RFC1123Z), i)
+		}
+	}
+	body.WriteString(`</channel></rss>`)
+	slices.SortStableFunc(entries, func(a, b entry) int {
+		if a.undate || b.undate {
+			switch {
+			case a.undate && b.undate:
+				return 0
+			case a.undate:
+				return 1
+			}
+			return -1
+		}
+		return b.date.Compare(a.date)
+	})
+	tracks, err := Feed(context.Background(), serveFeed(t, body.String()))
+	if err != nil || len(tracks) != maxFeedEpisodes {
+		t.Fatalf("got %d tracks, err = %v; want %d", len(tracks), err, maxFeedEpisodes)
+	}
+	for i, track := range tracks {
+		if track.Title != entries[i].title {
+			t.Fatalf("track %d = %q, want %q", i, track.Title, entries[i].title)
+		}
+	}
+}
+
+func TestFeedBoundedSelectionKeepsUndatedOrder(t *testing.T) {
+	// 200 dated and 500 undated episodes, more than the intermediate trim holds: the
+	// undated ones kept follow the dated ones in feed order.
+	start := time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC)
+	var body strings.Builder
+	body.WriteString(`<rss><channel><title>Show</title>`)
+	for i := range 700 {
+		if i < 200 {
+			fmt.Fprintf(&body, `<item><title>Episode %d</title><pubDate>%s</pubDate><enclosure url="https://example.com/%d.mp3"/></item>`,
+				i, start.AddDate(0, 0, i).Format(time.RFC1123Z), i)
+			continue
+		}
+		fmt.Fprintf(&body, `<item><title>Episode %d</title><enclosure url="https://example.com/%d.mp3"/></item>`, i, i)
+	}
+	body.WriteString(`</channel></rss>`)
+	tracks, err := Feed(context.Background(), serveFeed(t, body.String()))
+	if err != nil || len(tracks) != maxFeedEpisodes {
+		t.Fatalf("got %d tracks, err = %v; want %d", len(tracks), err, maxFeedEpisodes)
+	}
+	var want []string
+	for i := 199; i >= 0; i-- {
+		want = append(want, fmt.Sprintf("Episode %d", i))
+	}
+	for i := 200; i < maxFeedEpisodes; i++ {
+		want = append(want, fmt.Sprintf("Episode %d", i))
+	}
+	for i, track := range tracks {
+		if track.Title != want[i] {
+			t.Fatalf("track %d = %q, want %q", i, track.Title, want[i])
+		}
+	}
+}
+
+func TestFeedClientTimeout(t *testing.T) {
+	// The server sends some episodes, then stalls until the client times out: past
+	// maxFeedEpisodes the parsed ones stand, as main returned them; before, it fails.
+	oldClient := httpClient
+	client := *httpClient
+	client.Timeout = 500 * time.Millisecond
+	httpClient = &client
+	defer func() { httpClient = oldClient }()
+	start := time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC)
+	for _, sent := range []int{305, 10} {
+		t.Run(strconv.Itoa(sent), func(t *testing.T) {
+			release := make(chan struct{})
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				io.WriteString(w, `<rss><channel><title>Show</title>`)
+				for i := 1; i <= sent; i++ {
+					fmt.Fprintf(w, `<item><title>Episode %d</title><pubDate>%s</pubDate><enclosure url="https://example.com/%d.mp3"/></item>`,
+						i, start.AddDate(0, 0, i).Format(time.RFC1123Z), i)
+				}
+				w.(http.Flusher).Flush()
+				<-release
+			}))
+			defer srv.Close()
+			defer close(release)
+			tracks, err := Feed(context.Background(), srv.URL)
+			if sent < maxFeedEpisodes {
+				if err == nil {
+					t.Fatalf("got %d tracks and no error; want the timeout", len(tracks))
+				}
+				return
+			}
+			if err != nil || len(tracks) != maxFeedEpisodes || tracks[0].Title != fmt.Sprintf("Episode %d", sent) {
+				t.Fatalf("got %d tracks, err = %v; want %d, newest first", len(tracks), err, maxFeedEpisodes)
+			}
+		})
+	}
+}
+
+func TestFeedNamedZones(t *testing.T) {
+	// 09:30 EST is 14:30 UTC, after 12:00 GMT, whether or not the system knows EST.
+	body := `<rss><channel>
+  <item><title>Noon GMT</title><pubDate>Thu, 01 Oct 2026 12:00:00 GMT</pubDate><enclosure url="https://example.com/a.mp3"/></item>
+  <item><title>Morning EST</title><pubDate>Thu, 01 Oct 2026 09:30:00 EST</pubDate><enclosure url="https://example.com/b.mp3"/></item>
+  <item><title>Early PDT</title><pubDate>Thu, 01 Oct 2026 05:30:00 PDT</pubDate><enclosure url="https://example.com/c.mp3"/></item>
+</channel></rss>`
+	tracks, err := Feed(context.Background(), serveFeed(t, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{tracks[0].Title, tracks[1].Title, tracks[2].Title}
+	if want := []string{"Morning EST", "Early PDT", "Noon GMT"}; !slices.Equal(got, want) {
+		t.Errorf("order = %q, want %q", got, want)
+	}
+	if got := tracks[0].Meta(provider.MetaPodcastPublished); got != "2026-10-01" {
+		t.Errorf("published = %q, want the date as written", got)
 	}
 }
 
