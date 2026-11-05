@@ -2,6 +2,7 @@
 package model
 
 import (
+	"context"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -405,6 +406,10 @@ type Model struct {
 	// answer clears feedLoading, so a stale answer leaves a newer resolve
 	// marked as loading.
 	feedRequest uint64
+
+	// ytdlArtistCancel stops the uploader lookup of the playing track. The
+	// next track start calls it, so a fast skip ends the yt-dlp process.
+	ytdlArtistCancel context.CancelFunc
 
 	spinnerTicking bool // a spinnerTickMsg is pending
 
