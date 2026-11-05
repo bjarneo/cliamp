@@ -135,6 +135,51 @@ func TestCookieHeaderFromNetscapeFileFiltersNetEaseCookies(t *testing.T) {
 	}
 }
 
+func TestCookieHeaderFromNetscapeFileSkipsExpiredCookies(t *testing.T) {
+	path := t.TempDir() + "/cookies.txt"
+	data := strings.Join([]string{
+		".music.163.com\tTRUE\t/\tTRUE\t1\tMUSIC_U\tstale",
+		".music.163.com\tTRUE\t/\tTRUE\t4102444800\tMUSIC_U\tfresh",
+		".163.com\tTRUE\t/\tTRUE\t0\t__csrf\tsession",
+		".163.com\tTRUE\t/\tTRUE\t0\t__csrf\tsecond",
+		"",
+	}, "\n")
+	if err := osWriteFile(path, data); err != nil {
+		t.Fatal(err)
+	}
+	header, err := cookieHeaderFromNetscapeFile(path)
+	if err != nil {
+		t.Fatalf("cookieHeaderFromNetscapeFile() error = %v", err)
+	}
+	if want := "MUSIC_U=fresh; __csrf=session"; header != want {
+		t.Fatalf("header = %q, want %q", header, want)
+	}
+}
+
+func TestAccountReadsCookiesFileWithoutYTDLP(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	path := t.TempDir() + "/cookies.txt"
+	if err := osWriteFile(path, ".music.163.com\tTRUE\t/\tTRUE\t0\tMUSIC_U\tabc\n"); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Cookie"); got != "MUSIC_U=abc" {
+			t.Errorf("Cookie = %q, want MUSIC_U=abc", got)
+		}
+		w.Write([]byte(`{"code":200,"account":{"id":42}}`))
+	}))
+	defer srv.Close()
+
+	p := newWithBase(Config{Enabled: true, CookiesFrom: "chrome", CookiesFile: path}, srv.URL)
+	acc, err := p.Account(context.Background())
+	if err != nil {
+		t.Fatalf("Account() error = %v", err)
+	}
+	if acc.UserID != "42" {
+		t.Fatalf("UserID = %q, want 42", acc.UserID)
+	}
+}
+
 func TestExtractBrowserCookieHeaderMissingYTDLPShowsInstallHint(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	_, err := extractBrowserCookieHeader(context.Background(), "chrome")

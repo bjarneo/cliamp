@@ -136,6 +136,7 @@ stream_creators = 10
 [netease]
 enabled = true
 cookies_from = "chrome:Profile 1"
+cookies_file = "/home/user/cookies.txt"
 user_id = "42"
 
 [yandex]
@@ -279,7 +280,7 @@ func TestLoadGolden(t *testing.T) {
 		MaxItems:       50,
 		StreamCreators: 10,
 	}
-	sectionsWant.NetEase = NetEaseConfig{Enabled: true, CookiesFrom: "chrome:Profile 1", UserID: "42"}
+	sectionsWant.NetEase = NetEaseConfig{Enabled: true, CookiesFrom: "chrome:Profile 1", CookiesFile: "/home/user/cookies.txt", UserID: "42"}
 	sectionsWant.Yandex = YandexConfig{Enabled: true, Token: "y0_token"}
 	sectionsWant.Plugins = map[string]map[string]string{
 		"": {"disabled": "webhook, discord-rpc"},
@@ -371,7 +372,12 @@ func TestLoadGolden(t *testing.T) {
 		MaxItems:       100,
 		StreamCreators: 20,
 	}
-	allWant.NetEase = NetEaseConfig{Enabled: true, CookiesFrom: "chrome", UserID: "optional-account-user-id"}
+	allWant.NetEase = NetEaseConfig{
+		Enabled:     true,
+		CookiesFrom: "chrome",
+		CookiesFile: "/path/to/cookies.txt",
+		UserID:      "optional-account-user-id",
+	}
 	allWant.Yandex = YandexConfig{Enabled: true, Token: "y0_YourPersonalOAuthToken"}
 	allWant.Plex = PlexConfig{URL: "http://192.168.1.10:32400", Token: "xxxxxxxxxxxxxxxxxxxx", Libraries: []string{"Music", "Jazz"}}
 	allWant.Jellyfin = JellyfinConfig{

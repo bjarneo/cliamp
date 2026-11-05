@@ -40,6 +40,13 @@ func SetYTDLCookiesForHost(host, browser string) {
 	ytdlcookies.SetForHost(host, browser)
 }
 
+// SetYTDLCookiesFileForHost configures yt-dlp to read cookies from a
+// Netscape-format file when resolving or playing URLs for host. It takes
+// precedence over browser cookies. Passing an empty path disables it.
+func SetYTDLCookiesFileForHost(host, path string) {
+	ytdlcookies.SetFileForHost(host, path)
+}
+
 // httpClient is used for feed, M3U and YouTube page resolution. It has a
 // generous but finite timeout to prevent hanging on unresponsive servers.
 // httpclient.NewAPI sends the cliamp User-Agent and follows the proxy
@@ -709,12 +716,15 @@ func ResolveYTDLBatchPageContext(ctx context.Context, pageURL string, start, cou
 	}
 
 	args := []string{"--flat-playlist", "-j", "--socket-timeout", "15"}
-	b := strings.TrimSpace(browser)
-	if b == "" {
-		b = ytdlcookies.ForURL(pageURL)
-	}
-	if b != "" {
+	if b := strings.TrimSpace(browser); b != "" {
 		args = append(args, "--cookies-from-browser", b)
+	} else {
+		cookieArgs, cleanup, err := ytdlcookies.Args(pageURL)
+		defer cleanup()
+		if err != nil {
+			return nil, 0, fmt.Errorf("yt-dlp: %w", err)
+		}
+		args = append(args, cookieArgs...)
 	}
 	if start > 0 {
 		args = append(args, "--playlist-start", strconv.Itoa(start+1)) // yt-dlp is 1-based
@@ -815,9 +825,12 @@ func DownloadYTDLContext(ctx context.Context, pageURL, saveDir string) (string, 
 		"--print-json",
 		"-o", outTemplate,
 	}
-	if browser := ytdlcookies.ForURL(pageURL); browser != "" {
-		args = append(args, "--cookies-from-browser", browser)
+	cookieArgs, cleanup, err := ytdlcookies.Args(pageURL)
+	defer cleanup()
+	if err != nil {
+		return "", fmt.Errorf("yt-dlp: %w", err)
 	}
+	args = append(args, cookieArgs...)
 	args = append(args, "--", pageURL)
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 	cmd.WaitDelay = 3 * time.Second

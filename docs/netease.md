@@ -34,6 +34,19 @@ cliamp passes `cookies_from` to `yt-dlp --cookies-from-browser`. Supported names
 
 `user_id` is optional with valid cookies. If you omit it, cliamp gets it from the signed-in account.
 
+## Cookies File
+
+If `yt-dlp` cannot read the browser cookies, set `cookies_file` to a Netscape-format `cookies.txt` file. This works around the `Failed to decrypt with DPAPI` error on Windows ([yt-dlp#10927](https://github.com/yt-dlp/yt-dlp/issues/10927)) and suits machines with no browser. Export the cookies of a signed-in `music.163.com` session with a browser extension, then set:
+
+```toml
+[netease]
+enabled = true
+cookies_file = "/path/to/cookies.txt"
+user_id = "78819429"
+```
+
+cliamp reads the account cookies from the file and passes it to `yt-dlp --cookies` for playback. `cookies_file` takes precedence over `cookies_from`. Use an absolute path. The file holds your session, so keep it private.
+
 ## Usage
 
 Start cliamp with NetEase selected:
