@@ -358,6 +358,18 @@ func TestResolveYTDLBatchCookieSelection(t *testing.T) {
 	if strings.Contains(string(logged), "--cookies-from-browser firefox") {
 		t.Errorf("did not expect host cookies 'firefox' in args, got: %s", string(logged))
 	}
+
+	// 3. Subdomains like on.soundcloud.com inherit parent domain cookies.
+	SetYTDLCookiesForHost("soundcloud.com", "firefox")
+	t.Cleanup(func() { SetYTDLCookiesForHost("soundcloud.com", "") })
+	_, _ = ResolveYTDLBatch("https://on.soundcloud.com/xyz", 0, 0, "")
+	logged, err = os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logged), "--cookies-from-browser firefox") {
+		t.Errorf("expected soundcloud cookies 'firefox' for on.soundcloud.com in args, got: %s", string(logged))
+	}
 }
 
 // TestYTDLRangeFlags pins the yt-dlp range flags that each entry point sends.
@@ -633,6 +645,7 @@ func TestClassifyRemote(t *testing.T) {
 		{"ytsearch5:lofi", kindYTDL},
 		{"scsearch:artist", kindYTDL},
 		{"https://soundcloud.com/artist/track", kindYTDL},
+		{"https://on.soundcloud.com/QSWjV6ABJR5SICzGB3", kindYTDL},
 		{"https://www.mixcloud.com/creator/show/", kindYTDL},
 		{"https://artist.bandcamp.com/album/name", kindYTDL},
 		{"https://example.com/podcast.rss", kindFeed},
