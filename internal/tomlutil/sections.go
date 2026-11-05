@@ -29,23 +29,22 @@ func ParseNamedSections(data []byte, sections []string, emit func(section string
 			emit(cur, fields)
 		}
 	}
+	var lines lineScanner
 	for rawLine := range strings.SplitSeq(string(data), "\n") {
 		line := strings.TrimSpace(rawLine)
-		if line == "" || strings.HasPrefix(line, "#") {
+		if !lines.next(line) || line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		if name, ok := headers[line]; ok {
-			flush()
-			fields = make(map[string]string)
-			cur = name
-			continue
-		}
-		if strings.HasPrefix(line, "[[") && strings.HasSuffix(line, "]]") {
-			// Unrecognized array-table header: flush the section we were in so
-			// its fields cannot leak into the next recognized section.
+		if strings.HasPrefix(line, "[") {
 			flush()
 			fields = nil
 			cur = ""
+			if name, ok := headers[headerKey(tableHeader(line))]; ok {
+				fields = make(map[string]string)
+				cur = name
+			}
+			// An unrecognized or malformed header still ends the section we
+			// were in, so its fields cannot leak into the previous section.
 			continue
 		}
 		if fields == nil {
@@ -58,4 +57,121 @@ func ParseNamedSections(data []byte, sections []string, emit func(section string
 		fields[strings.TrimSpace(key)] = Unquote(strings.TrimSpace(val))
 	}
 	flush()
+}
+
+// UnknownHeaders returns the table headers in data that ParseNamedSections
+// would skip for the given section names, in document order: other names such
+// as [[stations]] or [station], and malformed ones such as [[station. Callers
+// use it to warn about sections that are ignored.
+func UnknownHeaders(data []byte, sections ...string) []string {
+	known := make(map[string]bool, len(sections))
+	for _, s := range sections {
+		known["[["+s+"]]"] = true
+	}
+	var unknown []string
+	var lines lineScanner
+	for rawLine := range strings.SplitSeq(string(data), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if !lines.next(line) || !strings.HasPrefix(line, "[") {
+			continue
+		}
+		if header := tableHeader(line); !known[headerKey(header)] {
+			unknown = append(unknown, header)
+		}
+	}
+	return unknown
+}
+
+// tableHeader returns a header line such as [[station]] # note without its
+// trailing comment. A # inside a quoted key is part of the key.
+func tableHeader(line string) string {
+	var quote byte
+	for i := 0; i < len(line); i++ {
+		switch c := line[i]; {
+		case quote == '"' && c == '\\':
+			i++
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '#':
+			return strings.TrimSpace(line[:i])
+		}
+	}
+	return line
+}
+
+// headerKey returns an array-table header in the [[name]] form, so that
+// [[ name ]], [["name"]] and [['name']] match it too. Other headers are
+// returned unchanged.
+func headerKey(header string) string {
+	if !strings.HasPrefix(header, "[[") || !strings.HasSuffix(header, "]]") {
+		return header
+	}
+	key := strings.TrimSpace(header[2 : len(header)-2])
+	if len(key) >= 2 && key[0] == '\'' && key[len(key)-1] == '\'' {
+		key = key[1 : len(key)-1]
+	} else {
+		key = Unquote(key)
+	}
+	return "[[" + key + "]]"
+}
+
+// lineScanner tracks multi-line strings and arrays, so that a line inside one,
+// such as ["Jazz"] in an array or [Live] in a string, is not read as a header.
+type lineScanner struct {
+	closer string // closing delimiter of an open multi-line string
+	depth  int    // brackets still open in a multi-line array
+}
+
+// next reports whether line starts outside any multi-line value, then
+// consumes it. line must already be trimmed.
+func (s *lineScanner) next(line string) bool {
+	outside := s.closer == "" && s.depth == 0
+	if outside && strings.HasPrefix(line, "[") {
+		// A header line; its brackets open no array.
+		return true
+	}
+	for i := 0; i < len(line); i++ {
+		if s.closer != "" {
+			// In a """ string a backslash escapes the next character, so
+			// \""" is a quote followed by "" and does not close it.
+			for ; i < len(line) && !strings.HasPrefix(line[i:], s.closer); i++ {
+				if s.closer == `"""` && line[i] == '\\' {
+					i++
+				}
+			}
+			if i >= len(line) {
+				return outside
+			}
+			i += len(s.closer) - 1
+			s.closer = ""
+			continue
+		}
+		switch c := line[i]; c {
+		case '#':
+			return outside
+		case '[':
+			s.depth++
+		case ']':
+			if s.depth > 0 {
+				s.depth--
+			}
+		case '"', '\'':
+			if strings.HasPrefix(line[i:], strings.Repeat(string(c), 3)) {
+				s.closer = strings.Repeat(string(c), 3)
+				i += 2
+				continue
+			}
+			// A single-line string: skip to its closing quote.
+			for i++; i < len(line) && line[i] != c; i++ {
+				if c == '"' && line[i] == '\\' {
+					i++
+				}
+			}
+		}
+	}
+	return outside
 }

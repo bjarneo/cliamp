@@ -542,7 +542,7 @@ name = "Ambient Radio"
 url = "https://ambient.example.com/stream.m3u"
 ```
 
-These stations appear with the built-in cliamp radio in the Radio provider.
+These stations appear with the built-in cliamp radio in the Radio provider. Each one needs its own `[[station]]` header. cliamp warns about any other section header in this file, such as `[[stations]]`, and skips the entries under it.
 
 See [audio-quality.md](audio-quality.md) for sample rate, buffer, bit depth, and resample quality settings.
 

@@ -128,3 +128,121 @@ title = "B"
 		t.Fatalf("ParseNamedSections = %v, want %v (unknown section fields leaked)", got, want)
 	}
 }
+
+func TestUnknownHeaders(t *testing.T) {
+	data := []byte(`[[station]]
+name = "A"
+
+[[stations]]
+name = "B"
+
+  [station]
+url = "http://c/"
+# [[comment]]
+`)
+	got := UnknownHeaders(data, "station")
+	want := []string{"[[stations]]", "[station]"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("UnknownHeaders = %v, want %v", got, want)
+	}
+	if got := UnknownHeaders([]byte("[[station]]\nname = \"A\"\n"), "station"); got != nil {
+		t.Fatalf("UnknownHeaders = %v, want nil", got)
+	}
+}
+
+func TestParseNamedSectionsHeaderComments(t *testing.T) {
+	data := []byte(`[[station]] # first
+name = "A"
+
+[station] # not an array table
+name = "leaked"
+
+[[stations]] # typo
+name = "B"
+`)
+	var got []string
+	ParseNamedSections(data, []string{"station"}, func(_ string, f map[string]string) {
+		got = append(got, f["name"])
+	})
+	if want := []string{"A"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ParseNamedSections = %v, want %v", got, want)
+	}
+	if got, want := UnknownHeaders(data, "station"), []string{"[station]", "[[stations]]"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("UnknownHeaders = %v, want %v", got, want)
+	}
+}
+
+func TestParseNamedSectionsMultilineValues(t *testing.T) {
+	data := []byte(`[[station]]
+name = "A"
+tags = [
+  ["Jazz"],
+]
+notes = """
+[Live]
+"""
+url = "http://a/"
+[[station]]
+name = "B"
+notes = """
+Say \"""hi
+[Live]
+"""
+url = "http://b/"
+`)
+	var got []string
+	ParseNamedSections(data, []string{"station"}, func(_ string, f map[string]string) {
+		got = append(got, f["name"]+":"+f["url"])
+	})
+	if want := []string{"A:http://a/", "B:http://b/"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ParseNamedSections = %v, want %v", got, want)
+	}
+	if got := UnknownHeaders(data, "station"); got != nil {
+		t.Fatalf("UnknownHeaders = %v, want nil", got)
+	}
+}
+
+func TestParseNamedSectionsMalformedHeaders(t *testing.T) {
+	data := []byte(`[[station]]
+name = "A"
+url = "http://a/"
+
+[["jazz#extra"]]
+url = "http://b/"
+
+[[station
+url = "http://c/"
+`)
+	var got []string
+	ParseNamedSections(data, []string{"station"}, func(_ string, f map[string]string) {
+		got = append(got, f["name"]+":"+f["url"])
+	})
+	if want := []string{"A:http://a/"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ParseNamedSections = %v, want %v", got, want)
+	}
+	if got, want := UnknownHeaders(data, "station"), []string{`[["jazz#extra"]]`, "[[station"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("UnknownHeaders = %v, want %v", got, want)
+	}
+}
+
+func TestParseNamedSectionsHeaderSpacingAndQuotes(t *testing.T) {
+	data := []byte(`[[ station ]]
+name = "A"
+
+[["station"]]
+name = "B"
+
+[[ 'station' ]]
+name = "C"
+`)
+	var got []string
+	ParseNamedSections(data, []string{"station"}, func(_ string, f map[string]string) {
+		got = append(got, f["name"])
+	})
+	if want := []string{"A", "B", "C"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ParseNamedSections = %v, want %v", got, want)
+	}
+	if got := UnknownHeaders(data, "station"); got != nil {
+		t.Fatalf("UnknownHeaders = %v, want nil", got)
+	}
+}
