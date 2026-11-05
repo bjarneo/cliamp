@@ -448,9 +448,20 @@ func (m Model) renderSimplifiedTrackInfo() string {
 		}
 	}
 
-	name = scrollTrackName(name, max(1, m.layout.panelWidth-lipgloss.Width(duration)-1), m.titleOff)
-	gap := max(1, m.layout.panelWidth-lipgloss.Width(name)-lipgloss.Width(duration))
-	return trackStyle.Render(name) + strings.Repeat(" ", gap) + dimStyle.Render(duration)
+	suffix := duration
+	if rating := trackRatingLabel(track); rating != "" {
+		suffix = rating + " " + suffix
+	}
+	name = scrollTrackName(name, max(1, m.layout.panelWidth-lipgloss.Width(suffix)-1), m.titleOff)
+	gap := max(1, m.layout.panelWidth-lipgloss.Width(name)-lipgloss.Width(suffix))
+	return trackStyle.Render(name) + strings.Repeat(" ", gap) + dimStyle.Render(suffix)
+}
+
+func trackRatingLabel(track playlist.Track) string {
+	if track.UserRating <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("★%d", track.UserRating)
 }
 
 func trackInfoName(track playlist.Track, streamTitle string) string {
@@ -603,7 +614,11 @@ func (m Model) renderTrackInfo() string {
 	name := trackInfoName(track, m.streamTitle)
 	// The "♫ " prefix takes two cells; the rest of the row is the marquee's,
 	// so a name only scrolls once it genuinely cannot fit.
-	return trackStyle.Render("♫ " + scrollTrackName(name, m.layout.panelWidth-2, m.titleOff))
+	suffix := ""
+	if rating := trackRatingLabel(track); rating != "" {
+		suffix = " " + dimStyle.Render(rating)
+	}
+	return trackStyle.Render("♫ "+scrollTrackName(name, max(1, m.layout.panelWidth-2-lipgloss.Width(suffix)), m.titleOff)) + suffix
 }
 
 func (m Model) renderTimeStatus() string {

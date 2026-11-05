@@ -380,6 +380,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleTrackFavoriteSynced(msg)
 		return m, nil
 
+	case trackRatingSyncedMsg:
+		m.handleTrackRatingSynced(msg)
+		return m, nil
+
 	case ShowStatusMsg:
 		ttl := statusTTLDefault
 		if msg.Duration > 0 {

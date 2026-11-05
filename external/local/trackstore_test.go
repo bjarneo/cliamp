@@ -29,6 +29,7 @@ func TestTrackSurvivesEveryStore(t *testing.T) {
 		Feed:           true,
 		Restricted:     true,
 		DurationSecs:   208,
+		UserRating:     4,
 		Bookmark:       true,
 		Unplayable:     true,
 		DirSourced:     true,
@@ -62,6 +63,7 @@ func TestTrackSurvivesEveryStore(t *testing.T) {
 		Feed:         true,
 		Restricted:   true,
 		DurationSecs: full.DurationSecs,
+		UserRating:   full.UserRating,
 		AlbumArtURL:  full.AlbumArtURL,
 		ProviderMeta: full.ProviderMeta,
 	}

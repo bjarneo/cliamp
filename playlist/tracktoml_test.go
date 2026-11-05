@@ -23,6 +23,7 @@ func fullTOMLTrack() Track {
 		Realtime:       true,
 		Feed:           true,
 		DurationSecs:   208,
+		UserRating:     4,
 		Bookmark:       true,
 		Restricted:     true,
 		Unplayable:     true,
@@ -86,6 +87,7 @@ func TestTrackTOMLRoundTrip(t *testing.T) {
 				Realtime:     true,
 				Feed:         true,
 				DurationSecs: full.DurationSecs,
+				UserRating:   full.UserRating,
 				Restricted:   true,
 				AlbumArtURL:  full.AlbumArtURL,
 				ProviderMeta: full.ProviderMeta,
@@ -156,6 +158,7 @@ genre = "Rock"
 year = 1979
 track_number = 3
 duration_secs = 208
+user_rating = 4
 feed = true
 realtime = true
 restricted = true

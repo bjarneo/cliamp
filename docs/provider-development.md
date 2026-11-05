@@ -203,6 +203,7 @@ are in `provider/interfaces.go`.
 | `CustomStreamer` | Custom URI decode pipeline | `URISchemes()`, `NewStreamer(uri)` |
 | `FavoriteToggler` | Favorite toggling for provider list items, such as stations and shows | `ToggleFavorite(id)` |
 | `TrackFavoriter` | Copy the ♥ favorite of a track to the service, such as liked or starred songs. The UI calls it in a `tea.Cmd` and keeps the local favorite when it fails | `CanFavoriteTrack(track)`, `SetTrackFavorite(ctx, track, favorite) error` |
+| `TrackRater` | Set or clear a provider-owned numeric track rating | `CanRateTrack(track)`, `SetTrackRating(ctx, track, rating) error` |
 | `CatalogLoader` | Lazy paging of a large catalog | `LoadCatalogPage(offset, limit)` |
 | `CatalogSearcher` | Server-side catalog search that fills the pane | `SearchCatalog(query)`, `ClearSearch()`, `IsSearching()` |
 | `LocationConsenter` | Ask before the provider uses the location of the listener | `NeedsLocationConsent()`, `LocationConsentID()`, `LocationPrompt()`, `SetLocationConsent(allowed)` |

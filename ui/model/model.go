@@ -338,6 +338,13 @@ type Model struct {
 	pendingSeekPct       int
 	pendingSeekExpiresAt time.Time
 
+	// Primed rating chord: `*` followed by 0..5 rates the selected track.
+	pendingRatingActive    bool
+	pendingRatingExpiresAt time.Time
+	ratingSync             *favorites.SyncQueue
+	ratingRequest          uint64
+	ratingLatest           map[string]uint64
+
 	// UI navigation
 	focus           focusArea
 	prevFocus       focusArea // focus to restore on cancel (search, net search)

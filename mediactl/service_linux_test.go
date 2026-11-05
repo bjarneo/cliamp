@@ -381,6 +381,7 @@ func TestServiceTrackIDFollowsTrackIdentity(t *testing.T) {
 	}{
 		{name: "duration", change: func(tr *playback.Track) { tr.Duration = 3*time.Minute + 2*time.Second }},
 		{name: "art url", change: func(tr *playback.Track) { tr.ArtURL = "file:///tmp/cover.jpg" }},
+		{name: "user rating", change: func(tr *playback.Track) { tr.UserRating = 5 }},
 		{name: "title", change: func(tr *playback.Track) { tr.Title = "Other" }, wantNewID: true},
 		{name: "url", change: func(tr *playback.Track) { tr.URL = "https://example.com/other" }, wantNewID: true},
 	}
@@ -404,6 +405,28 @@ func TestServiceTrackIDFollowsTrackIdentity(t *testing.T) {
 				t.Fatalf("mpris:artUrl = %v, want %v", got, next.ArtURL)
 			}
 		})
+	}
+}
+
+func TestSameTrackUserRatingPreservesIdentity(t *testing.T) {
+	const playerName = "org.mpris.MediaPlayer2.Player"
+	first := playback.Track{Title: "Song", Artist: "Artist", URL: "https://example.com/song", Duration: 3 * time.Minute}
+	svc := newTestService(t, func(tea.Msg) {})
+	svc.Update(playback.State{Track: first})
+	firstID := svc.props.GetMust(playerName, "Metadata").(map[string]dbus.Variant)["mpris:trackid"].Value()
+
+	next := first
+	next.UserRating = 4
+	svc.Update(playback.State{Track: next})
+	metadata := svc.props.GetMust(playerName, "Metadata").(map[string]dbus.Variant)
+	if id := metadata["mpris:trackid"].Value(); id != firstID {
+		t.Fatalf("mpris:trackid changed on rating-only update: got %v, want %v", id, firstID)
+	}
+	if got := metadata["xesam:userRating"].Value().(float64); got != 0.8 {
+		t.Fatalf("xesam:userRating = %v, want 0.8", got)
+	}
+	if !sameTrack(first, next) {
+		t.Fatal("sameTrack returned false for rating-only change")
 	}
 }
 

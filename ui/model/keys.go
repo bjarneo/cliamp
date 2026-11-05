@@ -451,6 +451,23 @@ func (m *Model) handleProvPillKey(msg tea.KeyPressMsg) tea.Cmd {
 // handleMainKey processes a key press for the playlist and the focused
 // playback controls. It forwards the keys that it does not handle to plugins.
 func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
+	if m.pendingRatingActive {
+		m.pendingRatingActive = false
+		m.pendingRatingExpiresAt = time.Time{}
+		m.status.Clear()
+		if s := msg.String(); m.focus == focusPlaylist && len(s) == 1 && s[0] >= '0' && s[0] <= '5' {
+			return m.rateSelectedTrack(int(s[0] - '0'))
+		}
+	}
+	if msg.String() == "*" && m.focus == focusPlaylist {
+		m.pendingSeekActive = false
+		m.pendingSeekExpiresAt = time.Time{}
+		m.pendingRatingActive = true
+		m.pendingRatingExpiresAt = time.Now().Add(time.Duration(statusTTLMedium))
+		m.status.Activityf(statusTTLMedium, "* then 0-5 -> rate selected track")
+		return nil
+	}
+
 	// Vim-style count prefix: a digit primes a pending percentage; the next `j`
 	// jumps there (e.g. `7j` → 70%). Any other key cancels and runs normally.
 	if s := msg.String(); m.focus == focusPlaylist && len(s) == 1 && s[0] >= '0' && s[0] <= '9' {

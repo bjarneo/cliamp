@@ -302,6 +302,33 @@ func TestRenderSimplifiedTrackInfoLeavesRoomForDuration(t *testing.T) {
 	}
 }
 
+func TestRenderTrackInfoShowsRatingWithinMarqueeBudget(t *testing.T) {
+	for _, rating := range []int{0, 4} {
+		p := playlist.New()
+		p.Add(playlist.Track{
+			Artist:       "An Artist With A Very Long Name",
+			Title:        "An Equally Long Title",
+			DurationSecs: 1,
+			UserRating:   rating,
+		})
+		m := Model{layout: frameLayout{panelWidth: 30}, playlist: p, titleOff: marqueeHoldTicks + 2}
+		for name, row := range map[string]string{
+			"full":       ansi.Strip(m.renderTrackInfo()),
+			"simplified": ansi.Strip(m.renderSimplifiedTrackInfo()),
+		} {
+			if got := lipgloss.Width(row); got > m.layout.panelWidth {
+				t.Fatalf("%s rating %d row width = %d, want at most %d: %q", name, rating, got, m.layout.panelWidth, row)
+			}
+			if rating > 0 && !strings.Contains(row, "★4") {
+				t.Fatalf("%s row %q lost the rating", name, row)
+			}
+			if rating == 0 && strings.Contains(row, "★") {
+				t.Fatalf("%s unrated row = %q", name, row)
+			}
+		}
+	}
+}
+
 // TestTitleScrollAdvancesWhilePlaying checks the tick gate: the marquee moves
 // only while playback is running, and no faster than its interval.
 func TestTitleScrollAdvancesWhilePlaying(t *testing.T) {

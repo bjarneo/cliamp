@@ -343,6 +343,17 @@ type TrackFavoriter interface {
 	SetTrackFavorite(ctx context.Context, track playlist.Track, favorite bool) error
 }
 
+// TrackRater is implemented by providers that store a numeric rating for
+// tracks on their own service. A rating of 0 removes the rating.
+type TrackRater interface {
+	// CanRateTrack reports whether track belongs to this provider. It must not
+	// do I/O because callers may invoke it on the Update goroutine.
+	CanRateTrack(track playlist.Track) bool
+	// SetTrackRating sets track's rating on the provider's service. rating must
+	// be between 0 and 5; 0 removes the rating.
+	SetTrackRating(ctx context.Context, track playlist.Track, rating int) error
+}
+
 // FavoriteToggler is implemented by providers that support marking items
 // as favorites (e.g. radio station favorites).
 type FavoriteToggler interface {

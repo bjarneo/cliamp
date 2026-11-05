@@ -417,6 +417,10 @@ func (m *Model) tickExpire(now time.Time, dt time.Duration) {
 		m.pendingSeekActive = false
 		m.pendingSeekExpiresAt = time.Time{}
 	}
+	if m.pendingRatingActive && !m.pendingRatingExpiresAt.IsZero() && !now.Before(m.pendingRatingExpiresAt) {
+		m.pendingRatingActive = false
+		m.pendingRatingExpiresAt = time.Time{}
+	}
 	// Decrement seek grace period.
 	advanceTickUnits(&m.seek.grace, &m.seek.graceFor, dt, ui.TickFast)
 }

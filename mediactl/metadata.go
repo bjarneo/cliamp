@@ -42,6 +42,16 @@ func makeMetadata(t playback.Track, trackID dbus.ObjectPath) map[string]dbus.Var
 	if t.TrackNumber > 0 {
 		m["xesam:trackNumber"] = dbus.MakeVariant(t.TrackNumber)
 	}
+	if t.UserRating != 0 {
+		rating := float64(t.UserRating) / 5.0
+		if rating < 0 {
+			rating = 0
+		}
+		if rating > 1 {
+			rating = 1
+		}
+		m["xesam:userRating"] = dbus.MakeVariant(rating)
+	}
 	if t.URL != "" {
 		m["xesam:url"] = dbus.MakeVariant(t.URL)
 	}

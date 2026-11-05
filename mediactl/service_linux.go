@@ -410,13 +410,14 @@ func (s *Service) Update(state playback.State) {
 	}
 }
 
-// sameTrack reports whether a and b differ at most in Duration and ArtURL. A
-// buffered track gets its probed length while it plays, and its art can come
-// later. Neither starts a new track, so the track id stays the same, and a
-// client SetPosition with that id still applies.
+// sameTrack reports whether a and b differ at most in Duration, ArtURL or
+// UserRating. Those values can change while a track plays; none starts a new
+// track, so the track id stays the same, and a client SetPosition with that id
+// still applies. Update still republishes metadata when any of them changes.
 func sameTrack(a, b playback.Track) bool {
 	a.Duration, b.Duration = 0, 0
 	a.ArtURL, b.ArtURL = "", ""
+	a.UserRating, b.UserRating = 0, 0
 	return a == b
 }
 

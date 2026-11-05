@@ -30,6 +30,9 @@ type dialect interface {
 	// starSupported gates TrackFavoriter: when false the provider never
 	// claims tracks for the server-side star/unstar copy of a favorite.
 	starSupported() bool
+	// ratingSupported gates TrackRater: when false the provider never claims
+	// tracks for server-side numeric ratings.
+	ratingSupported() bool
 	// singleSongPlaylistAdd works around servers that honor only the last
 	// songIdToAdd in a multi-value updatePlaylist call (Bandcamp's beta,
 	// verified live 2026-08-25): batch adds become one call per song.
@@ -67,6 +70,7 @@ func (navidromeDialect) apiVersion() string          { return "1.0.0" }
 func (navidromeDialect) endpointSuffix() string      { return "" }
 func (navidromeDialect) scrobbleSupported() bool     { return true }
 func (navidromeDialect) starSupported() bool         { return true }
+func (navidromeDialect) ratingSupported() bool       { return true }
 func (navidromeDialect) singleSongPlaylistAdd() bool { return false }
 func (navidromeDialect) defaultSort() string         { return SortAlphabeticalByName }
 func (navidromeDialect) sortListExhaustive() bool    { return false }
@@ -114,6 +118,7 @@ func (bandcampDialect) apiVersion() string          { return "1.16.1" }
 func (bandcampDialect) endpointSuffix() string      { return ".view" }
 func (bandcampDialect) scrobbleSupported() bool     { return false }
 func (bandcampDialect) starSupported() bool         { return false }
+func (bandcampDialect) ratingSupported() bool       { return false }
 func (bandcampDialect) singleSongPlaylistAdd() bool { return true }
 func (bandcampDialect) defaultSort() string         { return SortNewest }
 func (bandcampDialect) sortListExhaustive() bool    { return true }
