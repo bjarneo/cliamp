@@ -1,6 +1,7 @@
 package lyrics
 
 import (
+	"slices"
 	"testing"
 	"time"
 )
@@ -121,5 +122,46 @@ func TestCleanQuery(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("cleanQuery(%q) = %q, want %q", tt.input, got, tt.want)
 		}
+	}
+}
+
+func TestParseLRCRepeatedTimestamps(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []Line
+	}{
+		{
+			name:  "repeated tags in time order",
+			input: "[00:01.00]One\n[00:03.50][00:09.25]Chorus\n[00:07]Plain\n[00:02.00]Two",
+			want: []Line{
+				{Start: time.Second, Text: "One"},
+				{Start: 2 * time.Second, Text: "Two"},
+				{Start: 3500 * time.Millisecond, Text: "Chorus"},
+				{Start: 7 * time.Second, Text: "Plain"},
+				{Start: 9250 * time.Millisecond, Text: "Chorus"},
+			},
+		},
+		{
+			name:  "one-digit fraction",
+			input: "[00:01.5]One",
+			want:  []Line{{Start: 1500 * time.Millisecond, Text: "One"}},
+		},
+		{
+			name:  "leading BOM",
+			input: "\ufeff[00:01.00]One\n[00:02.00]Two",
+			want: []Line{
+				{Start: time.Second, Text: "One"},
+				{Start: 2 * time.Second, Text: "Two"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lines := parseLRC(tt.input)
+			if !slices.Equal(lines, tt.want) {
+				t.Fatalf("parseLRC(%q) = %+v, want %+v", tt.input, lines, tt.want)
+			}
+		})
 	}
 }
