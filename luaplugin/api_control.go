@@ -137,4 +137,15 @@ func registerControlAPI(L *lua.LState, cliamp *lua.LTable, loadCtrl func() *Cont
 		}
 		return 0
 	}))
+	L.SetField(tbl, "set_stream_title", L.NewFunction(func(L *lua.LState) int {
+		ctrl := loadCtrl()
+		if !guard("set_stream_title") {
+			return 0
+		}
+		title := L.CheckString(1)
+		if ctrl.SetStreamTitle != nil {
+			ctrl.SetStreamTitle(title)
+		}
+		return 0
+	}))
 }

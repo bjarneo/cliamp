@@ -28,6 +28,7 @@ func luaStateProvider(clock engineClock, load func() model.PluginState) luaplugi
 		RepeatMode:    func() string { return load().Repeat },
 		Shuffle:       func() bool { return load().Shuffle },
 		EQBands:       func() [10]float64 { return load().EQBands },
+		StreamTitle:   func() string { return load().StreamTitle },
 		CurrentTrack:  func() luaplugin.Track { return load().Track },
 		PlaylistCount: func() int { return load().Count },
 		CurrentIndex:  func() int { return load().Index },
@@ -83,6 +84,9 @@ func luaControlProvider(send func(tea.Msg)) luaplugin.ControlProvider {
 		},
 		QueueMove: func(from, to int) {
 			send(model.PluginQueueMsg{Op: "move", Index: from, To: to})
+		},
+		SetStreamTitle: func(title string) {
+			send(model.PluginStreamTitleMsg{Title: title})
 		},
 	}
 }

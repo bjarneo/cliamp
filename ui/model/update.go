@@ -371,6 +371,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case PluginQueueMsg:
 		cmd := m.handlePluginQueue(msg)
 		return m, cmd
+	case PluginStreamTitleMsg:
+		return m.handlePluginStreamTitle(msg)
 
 	case pluginQueueAddedMsg:
 		cmd := m.appendPluginTracks(msg.tracks...)

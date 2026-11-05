@@ -58,6 +58,7 @@ func (m *Model) notifyPlaybackChange() {
 		data["status"] = m.playerStatus()
 		data["title"] = state.Track.Title
 		data["artist"] = state.Track.Artist
+		data["stream_title"] = m.streamTitle
 		data["position"] = state.Position.Seconds()
 		m.emitPlugin(luaplugin.EventPlaybackState, data)
 	}

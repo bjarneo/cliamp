@@ -25,6 +25,9 @@ type PluginState struct {
 	Count   int
 	Index   int
 	HasNext bool
+	// StreamTitle is the raw ICY metadata from live radio streams (e.g., "Artist - Song").
+	// This is the unprocessed stream title that may override the track title/artist.
+	StreamTitle string
 	// Queue returns the playlist. The first call builds the rows on the
 	// goroutine of the caller, from the playlist at that time, so an Update
 	// does not copy a long playlist that no plugin reads. The states share
@@ -59,18 +62,19 @@ func (m *Model) publishPluginState() {
 	}
 	track, _ := m.currentPlaybackTrack()
 	state := &PluginState{
-		Status:   m.playerStatus(),
-		Volume:   m.player.Volume(),
-		Speed:    m.player.Speed(),
-		Mono:     m.player.Mono(),
-		Repeat:   m.playlist.Repeat().String(),
-		Shuffle:  m.playlist.Shuffled(),
-		EQBands:  m.player.EQBands(),
-		Track:    pluginTrack(track),
-		Count:    m.playlist.Len(),
-		Index:    m.playlist.Index(),
-		HasNext:  m.playlist.HasNext(),
-		revision: m.playlist.Revision(),
+		Status:      m.playerStatus(),
+		Volume:      m.player.Volume(),
+		Speed:       m.player.Speed(),
+		Mono:        m.player.Mono(),
+		Repeat:      m.playlist.Repeat().String(),
+		Shuffle:     m.playlist.Shuffled(),
+		EQBands:     m.player.EQBands(),
+		Track:       pluginTrack(track),
+		Count:       m.playlist.Len(),
+		Index:       m.playlist.Index(),
+		HasNext:     m.playlist.HasNext(),
+		StreamTitle: m.streamTitle,
+		revision:    m.playlist.Revision(),
 	}
 	state.Track.Artist, state.Track.Title = m.resolveTrackDisplay(track)
 	// Providers resolve the cover on demand, so the playlist row may not have it.
