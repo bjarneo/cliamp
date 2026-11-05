@@ -15,6 +15,7 @@ var audioExtensions = map[string]bool{
 	".flac": true,
 	".ogg":  true,
 	".m4a":  true,
+	".mp4":  true,
 	".aac":  true,
 	".aacp": true,
 	".m4b":  true,

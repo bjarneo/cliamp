@@ -17,6 +17,7 @@ func TestIsAudioFile(t *testing.T) {
 		{"/podcasts/episode.m4b", true},
 		{"stream.aacp", true},
 		{"/music/clip.webm", true},
+		{"/music/clip.mp4", true},
 		{"/music/a.b/song.opus", true},
 		{"/music/cover.jpg", false},
 		{"/music/playlist.m3u", false},
