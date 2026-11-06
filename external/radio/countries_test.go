@@ -311,6 +311,9 @@ func TestGenreTracksQueriesOnePlace(t *testing.T) {
 	if d.lastQuery.Get("order") != SortClicks {
 		t.Errorf("order = %q, want %q", d.lastQuery.Get("order"), SortClicks)
 	}
+	if d.lastQuery.Get("limit") != "100000" {
+		t.Errorf("limit = %q, want 100000", d.lastQuery.Get("limit"))
+	}
 	// The non-HTTP entry is a command-execution risk, not a station.
 	if len(tracks) != 1 {
 		t.Fatalf("tracks = %+v, want only the streamable station", tracks)

@@ -15,12 +15,6 @@ const browseCountriesID = "browse:countries"
 // listener's country. Selecting it raises the question; it is not a playlist.
 const locationConsentID = "loc:ask"
 
-// countryTrackLimit caps how many stations one country or region contributes
-// to a playlist. The largest country in the directory has ~8000 entries, which
-// is not a playlist anyone navigates; the top few hundred by the chosen order
-// is.
-const countryTrackLimit = 200
-
 // GenreLabel names the category level. The browse overlay calls these
 // "genres"; for a radio directory they are places.
 func (*Provider) GenreLabel() string { return "Countries" }
@@ -148,7 +142,7 @@ func (p *Provider) GenreTracks(genreID, sortType string) ([]playlist.Track, erro
 		CountryCode: code,
 		State:       state,
 		Order:       sortType,
-		Limit:       countryTrackLimit,
+		Limit:       stationListLimit,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("radio: list stations for %s: %w", genreID, err)
