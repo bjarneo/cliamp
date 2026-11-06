@@ -91,6 +91,30 @@ func TestSargamAxisLabelsKeepRowsDistinct(t *testing.T) {
 	}
 }
 
+func TestSargamTierColors(t *testing.T) {
+	tests := []struct {
+		tier  int
+		style styleANSI
+	}{
+		{1, dimANSI},     // swara guide and rest playhead
+		{2, specANSI[0]}, // low contour
+		{3, specANSI[1]}, // mid contour
+		{4, specANSI[2]}, // high contour and live playhead
+	}
+	for _, tt := range tests {
+		var sb, run strings.Builder
+		run.WriteString("x")
+		sargamFlush(&sb, &run, tt.tier)
+		want := tt.style.prefix + "x" + tt.style.suffix
+		if got := sb.String(); got != want {
+			t.Errorf("tier %d = %q, want %q", tt.tier, got, want)
+		}
+	}
+	if dimANSI.prefix == specANSI[0].prefix {
+		t.Error("guide and low contour share a colour")
+	}
+}
+
 func TestSargamSweepsAndRenders(t *testing.T) {
 	v := NewVisualizer(44100)
 	v.Cols = 48

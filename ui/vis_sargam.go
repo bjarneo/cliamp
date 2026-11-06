@@ -99,6 +99,21 @@ func (d *sargamDriver) OnEnter(*Visualizer) {
 
 func (*sargamDriver) OnLeave(*Visualizer) {}
 
+// sargamFlush colors the Sargam grid by tier: 1 is the dim swara guide, 2 to 4
+// are the low, mid and high spectrum colors. The contour starts at tier 2, so
+// even its lowest notes stay distinct from the guides.
+func sargamFlush(sb, run *strings.Builder, tier int) {
+	if tier < 1 || tier > 4 {
+		writeStyledRun(sb, run, styleANSI{})
+		return
+	}
+	if tier == 1 {
+		writeStyledRun(sb, run, dimANSI)
+		return
+	}
+	writeStyledRun(sb, run, specANSI[tier-2])
+}
+
 // sargamGutter is the width of the note-label margin, including its trailing
 // space. Narrow panels drop the labels rather than crowd the contour.
 func sargamGutter(cols int) int {
@@ -412,9 +427,11 @@ func (d *sargamDriver) Render(v *Visualizer) string {
 
 	grid := &v.dotGrid
 	grid.ensure(dotRows, dotCols)
+	grid.flush = sargamFlush
+	defer func() { grid.flush = nil }()
 
-	// Faint swara guides every three semitones. They stay out of the way of the
-	// contour, which always uses a brighter tier.
+	// Dim swara guides every three semitones. The contour uses tiers 2 to 4,
+	// so it never blends into a guide, even on its lowest notes.
 	if dotRows >= 12 {
 		for note := int(sargamLowMidi); note <= int(sargamHighMidi); note += 3 {
 			y := sargamY(float64(note), dotRows)
@@ -435,7 +452,7 @@ func (d *sargamDriver) Render(v *Visualizer) string {
 			continue
 		}
 		y := sargamY(float64(note), dotRows)
-		tier := int8(1 + specTag((float64(note)-sargamLowMidi)/(sargamHighMidi-sargamLowMidi)))
+		tier := int8(2 + specTag((float64(note)-sargamLowMidi)/(sargamHighMidi-sargamLowMidi)))
 		grid.set(x, y, tier)
 		if prevY >= 0 {
 			for yy := min(prevY, y); yy <= max(prevY, y); yy++ {
@@ -455,7 +472,7 @@ func (d *sargamDriver) Render(v *Visualizer) string {
 		dotY = d.lastY
 	}
 	d.lastY = dotY
-	dotTier := int8(3)
+	dotTier := int8(4)
 	if !d.noteOK {
 		dotTier = 1
 	}
