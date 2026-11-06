@@ -40,7 +40,7 @@ cliamp --visualizer Wave ~/Music             # start with one visualizer mode
 cliamp --visualizer-60fps ~/Music            # smoother visualizer animation (higher CPU use)
 ```
 
-`--visualizer-60fps` renders a visible visualizer at about 60 FPS during playback. `Wave`, `Scope`, `Heartbeat`, and `Stereo` already use this rate because they draw from audio samples. The flag does not affect overlays or low-power mode.
+`--visualizer-60fps` renders a visible visualizer at about 60 FPS during playback. `Wave`, `Scope`, `Heartbeat`, `Stereo`, and `Sargam` already use this rate because they draw from audio samples. The flag does not affect overlays or low-power mode.
 
 ## Diagnostics
 
