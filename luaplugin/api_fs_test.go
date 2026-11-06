@@ -6,8 +6,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/bjarneo/cliamp/ipc"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -231,6 +233,8 @@ func TestIsWriteAllowed(t *testing.T) {
 				{name: "radios.toml", path: filepath.Join(cfg, "radios.toml")},
 				{name: "IPC socket", path: filepath.Join(cfg, "cliamp.sock")},
 				{name: "IPC PID file", path: filepath.Join(cfg, "cliamp.sock.pid")},
+				{name: "IPC socket lock", path: filepath.Join(cfg, "cliamp.sock.lock")},
+				{name: "IPC socket lock subtree", path: filepath.Join(cfg, "cliamp.sock.lock", "blocking")},
 				{name: "plugin log", path: filepath.Join(cfg, "plugins.log")},
 				{name: "plugins dir with other case", path: filepath.Join(cfg, "PLUGINS", "evil.lua"), want: !caseFolded},
 				{name: "config.toml with other case", path: filepath.Join(cfg, "Config.toml"), want: !caseFolded},
@@ -333,6 +337,24 @@ func TestFSMkdirAndListdir(t *testing.T) {
 	}
 	if n := names.Len(); n != 3 {
 		t.Fatalf("listdir returned %d entries, want 3", n)
+	}
+}
+
+func TestFSMkdirRejectsIPCLock(t *testing.T) {
+	lockPath := ipc.DefaultSocketPath() + ".lock"
+	if isWriteAllowed(lockPath) {
+		t.Fatalf("IPC socket lock path %q must be denied", lockPath)
+	}
+
+	L := lua.NewState()
+	defer L.Close()
+	cliamp := L.NewTable()
+	registerFSAPI(L, cliamp)
+	L.SetGlobal("cliamp", cliamp)
+	L.SetGlobal("lockPath", lua.LString(lockPath))
+
+	if err := L.DoString(`cliamp.fs.mkdir(lockPath)`); err == nil || !strings.Contains(err.Error(), "mkdir not allowed for this path") {
+		t.Fatalf("fs.mkdir on IPC socket lock returned %v, want access denial", err)
 	}
 }
 

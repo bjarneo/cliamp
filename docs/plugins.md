@@ -434,7 +434,7 @@ cliamp.fs.mkdir(path)             -- create directory (recursive)
 cliamp.fs.listdir(path)           --> {names}, err
 ```
 
-You can write only to the system temp directory (`/tmp/` on Unix), `~/.config/cliamp/`, `~/.local/share/cliamp/`, and `~/Music/cliamp/`. In `~/.config/cliamp/`, you cannot write to the `plugins/` directory, `config.toml`, `radios.toml`, `cliamp.sock`, `cliamp.sock.pid`, or `plugins.log`. You can read from any path. `cliamp.fs.read` reads only regular files. For a FIFO, a device, or a directory, it returns `nil` and an error, because a read of such a file can block without a limit. On Windows, when `HOME` is unset, the config directory resolves to `%APPDATA%\cliamp`.
+You can write only to the system temp directory (`/tmp/` on Unix), `~/.config/cliamp/`, `~/.local/share/cliamp/`, and `~/Music/cliamp/`. In `~/.config/cliamp/`, you cannot write to the `plugins/` directory, `config.toml`, `radios.toml`, `cliamp.sock`, `cliamp.sock.pid`, `cliamp.sock.lock`, or `plugins.log`. You can read from any path. `cliamp.fs.read` reads only regular files. For a FIFO, a device, or a directory, it returns `nil` and an error, because a read of such a file can block without a limit. On Windows, when `HOME` is unset, the config directory resolves to `%APPDATA%\cliamp`.
 
 ### cliamp.json
 
@@ -741,6 +741,7 @@ These paths in `~/.config/cliamp/` stay read-only for `cliamp.fs` and for the `c
 - `radios.toml`
 - `cliamp.sock`
 - `cliamp.sock.pid`
+- `cliamp.sock.lock`
 - `plugins.log`
 
 Thus a plugin cannot use `cliamp.fs` to approve plugins, change the exec allowlist, stop the next start of cliamp, or hide its log. A plugin with the exec permission can still write to any path that you can write through `yt-dlp` or `ffmpeg`. Approve a plugin that declares the exec permission only when you trust it.
