@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+// sargamTestSamples builds a two-harmonic tone at freq.
 func sargamTestSamples(freq, sr float64, n int) []float64 {
 	samples := make([]float64, n)
 	for i := range samples {
@@ -18,6 +19,7 @@ func sargamTestSamples(freq, sr float64, n int) []float64 {
 	return samples
 }
 
+// TestSargamPitchDetection checks the harmonic-sum detector across octaves.
 func TestSargamPitchDetection(t *testing.T) {
 	tests := []struct {
 		freq     float64
@@ -43,6 +45,7 @@ func TestSargamPitchDetection(t *testing.T) {
 	}
 }
 
+// TestSargamPitchDetectionSilence rejects silence and sub-threshold signals.
 func TestSargamPitchDetectionSilence(t *testing.T) {
 	v := NewVisualizer(44100)
 	d := &sargamDriver{}
@@ -58,6 +61,7 @@ func TestSargamPitchDetectionSilence(t *testing.T) {
 	}
 }
 
+// TestSargamLabel checks the Roman swara names and octave markers.
 func TestSargamLabel(t *testing.T) {
 	tests := []struct {
 		midi int
@@ -78,6 +82,8 @@ func TestSargamLabel(t *testing.T) {
 	}
 }
 
+// TestSargamAxisLabelsKeepRowsDistinct ensures labels do not collide on a
+// short panel.
 func TestSargamAxisLabelsKeepRowsDistinct(t *testing.T) {
 	labels := sargamAxisLabels(36, 9, 4)
 	seen := 0
@@ -91,6 +97,8 @@ func TestSargamAxisLabelsKeepRowsDistinct(t *testing.T) {
 	}
 }
 
+// TestSargamTierColors maps guides to the dim tier and the contour to the
+// spectrum tiers.
 func TestSargamTierColors(t *testing.T) {
 	tests := []struct {
 		tier  int
@@ -115,6 +123,8 @@ func TestSargamTierColors(t *testing.T) {
 	}
 }
 
+// TestSargamSweepsAndRenders checks that the playhead advances and every frame
+// keeps the panel size.
 func TestSargamSweepsAndRenders(t *testing.T) {
 	v := NewVisualizer(44100)
 	v.Cols = 48
@@ -161,6 +171,7 @@ func TestSargamSweepsAndRenders(t *testing.T) {
 	}
 }
 
+// TestSargamPauseFreezesPlayhead checks that pausing stops the sweep.
 func TestSargamPauseFreezesPlayhead(t *testing.T) {
 	v := NewVisualizer(44100)
 	v.Cols = 48

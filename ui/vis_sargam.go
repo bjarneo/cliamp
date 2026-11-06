@@ -75,14 +75,18 @@ type sargamDriver struct {
 	scores [sargamCandidateCount]float64
 }
 
+// newSargamDriver returns a Sargam driver.
 func newSargamDriver() visModeDriver {
 	return &sargamDriver{}
 }
 
+// AnalysisSpec requests raw audible samples; the driver runs its own FFT for
+// pitch instead of asking for spectrum bands.
 func (*sargamDriver) AnalysisSpec(*Visualizer) VisAnalysisSpec {
 	return VisAnalysisSpec{FFTSize: sargamFFTSize}
 }
 
+// TickInterval follows the fast animation cadence while audio plays.
 func (*sargamDriver) TickInterval(_ *Visualizer, ctx VisTickContext) time.Duration {
 	if ctx.OverlayActive {
 		return TickSlow
@@ -93,10 +97,12 @@ func (*sargamDriver) TickInterval(_ *Visualizer, ctx VisTickContext) time.Durati
 	return TickSlow
 }
 
+// OnEnter clears the trace and puts the idle playhead at mid-height.
 func (d *sargamDriver) OnEnter(*Visualizer) {
 	*d = sargamDriver{lastY: -1}
 }
 
+// OnLeave is a no-op; OnEnter resets the driver when it is selected again.
 func (*sargamDriver) OnLeave(*Visualizer) {}
 
 // sargamFlush colors the Sargam grid by tier: 1 is the dim swara guide, 2 to 4
@@ -189,6 +195,7 @@ func sargamAxisLabels(dotRows, rows, maxWidth int) []string {
 	return labels
 }
 
+// resize clears the trace when the plot width changes.
 func (d *sargamDriver) resize(dotCols int) {
 	if dotCols <= 0 || len(d.track) == dotCols {
 		return
@@ -216,6 +223,7 @@ func (d *sargamDriver) writeColumns(upTo int) {
 	d.filled = max(d.filled, upTo+1)
 }
 
+// Tick refreshes the pitch on its own clock and advances the playhead.
 func (d *sargamDriver) Tick(v *Visualizer, ctx VisTickContext) {
 	if ctx.OverlayActive {
 		d.lastTick = time.Time{}
@@ -410,6 +418,7 @@ func sargamMagAt(mags []float64, pos float64) float64 {
 	return mags[i]*(1-frac) + mags[i+1]*frac
 }
 
+// Render draws the guides, the melody trace, and the playhead.
 func (d *sargamDriver) Render(v *Visualizer) string {
 	rows, cols := v.Rows, v.columns()
 	if rows <= 0 || cols <= 0 {
