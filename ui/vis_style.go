@@ -38,10 +38,15 @@ func colorANSI(style lipgloss.Style) styleANSI {
 // by specTag. ApplyThemeColors rebuilds it through refreshSpecANSI.
 var specANSI [3]styleANSI
 
+// dimANSI colours the quiet chrome that some modes draw beside their content,
+// such as the note labels on the Sargam axis.
+var dimANSI styleANSI
+
 func refreshSpecANSI() {
 	for i, c := range [3]color.Color{SpectrumLow, SpectrumMid, SpectrumHigh} {
 		specANSI[i] = foregroundANSI(c)
 	}
+	dimANSI = foregroundANSI(ColorDim)
 }
 
 // fracBlock returns the fractional Unicode block character for a band level

@@ -74,7 +74,7 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # keeps it available, and both values are restored after restart.
 
 # Visualizer mode (leave empty for default Bars)
-# Options: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, Mirror, Omarchy, RedSector, YinYang, Ethereal, None
+# Options: Bars, BarsDot, Rain, BarsOutline, Bricks, Columns, ClassicPeak, Wave, Scatter, Flame, Retro, Pulse, Matrix, Binary, Sakura, Firework, Bubbles, Logo, Terrain, Scope, Heartbeat, Butterfly, Ascii, Firefly, Mosaic, Sand, Geyser, ClassicLED, Stereo, Mirror, Omarchy, RedSector, YinYang, Ethereal, Sargam, None
 # Mirror draws tapered Braille bars around a persistent horizontal center axis.
 # ClassicPeak uses smooth bars and floating peak caps, with sampling aligned
 # to audible playback and adaptive redraws for smooth motion.
@@ -88,6 +88,9 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Inspired by Omarchy's Ethereal cosmic wallpaper.
 # It follows terminal colors by default and the selected UI theme.
 # Omarchy is not required.
+# Sargam draws the melody instead of the spectrum: the playhead sweeps left to
+# right, the dot rises for high notes and falls for low ones, and the axis is a
+# two-octave swara ladder labelled with Roman names (Sa Re Ga Ma Pa Dha Ni).
 visualizer = "Bars"
 
 # Visualizer volume linking (default: true)

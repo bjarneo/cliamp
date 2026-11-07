@@ -136,6 +136,10 @@ Ethereal 48x9 3fb94d5eb733b7ce
 Ethereal 13x3 c0dc6b6f63118086
 Ethereal 40x1 0322fc4422039a63
 Ethereal 140x16 0eabe79c63ed72d9
+Sargam 48x9 9ff64e313190e679
+Sargam 13x3 1eaf739088940dc7
+Sargam 40x1 d359b709f29ea4d1
+Sargam 140x16 8090a3cffd948455
 None 48x9 a09d945a1cd8d6e5
 None 13x3 a09d945a1cd8d6e5
 None 40x1 a09d945a1cd8d6e5

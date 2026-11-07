@@ -195,7 +195,7 @@ func TestCadenceOwnerPlaybackHonorsDriverCadence(t *testing.T) {
 // The raw-sample modes run at about 60 FPS during playback without the
 // 60 FPS setting. docs/cli.md names the same modes.
 func TestTickIntervalRawSampleVisualizerUsesWaveCadence(t *testing.T) {
-	for _, mode := range []string{"Wave", "Scope", "Heartbeat", "Stereo"} {
+	for _, mode := range []string{"Wave", "Scope", "Heartbeat", "Stereo", "Sargam"} {
 		t.Run(mode, func(t *testing.T) {
 			p := &playbackFakeEngine{playing: true}
 			m := Model{
