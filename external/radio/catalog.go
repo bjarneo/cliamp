@@ -54,11 +54,13 @@ type Tag struct {
 	StationCount int    `json:"stationcount"`
 }
 
-var catalogClient = httpclient.NewAPI(10 * time.Second)
-
 // stationListLimit asks the directory for every row in a listing. The largest
 // country in the directory has ~8000 stations.
 const stationListLimit = 100000
+
+// catalogClient talks to the Radio Browser directory. The timeout is long
+// enough for large country listings that can return thousands of stations.
+var catalogClient = httpclient.NewAPI(30 * time.Second)
 
 // StationQuery narrows a station listing. The zero value lists everything.
 //

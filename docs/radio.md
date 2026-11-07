@@ -84,7 +84,7 @@ Pick a country and choose how to order its stations:
 | Most Listened | Total clicks |
 | Trending | Recent click growth |
 | By Name | Station name, A to Z |
-| Random | Nothing; a different set each time |
+| Random | Random order |
 
 The result replaces your playlist with every station in that place. A large
 country can contribute thousands of stations.
