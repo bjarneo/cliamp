@@ -32,6 +32,11 @@ func TestMatch(t *testing.T) {
 		{"contains phrase", "'stone age", "Queens of the Stone Age — R (2000)", true},
 		{"contains phrase is not fuzzy", "'mtl", "Metallica — Reload (1997)", false},
 		{"lone marker matches", "^", "anything", true},
+		{"han and kana runes start words", "天使テーゼ", "残酷な天使のテーゼ", true},
+		{"cjk runes in order", "テーゼ天使", "残酷な天使のテーゼ", false},
+		{"hiragana rune starts a word", "なの", "残酷な天使のテーゼ", true},
+		{"hangul syllables start words", "방탄", "방탄소년단 — 봄날", true},
+		{"cjk word among latin words", "yoko 天使", "Yoko Takahashi — 残酷な天使のテーゼ", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -57,6 +62,7 @@ func TestMatchRanking(t *testing.T) {
 		{"word start beats a later letter", "load", "Metallica — Load (1996)", "Metallica — Reload (1997)"},
 		{"word start beats substring", "lica", "Lica Lu", "Metallica"},
 		{"contains phrase at a word start beats mid-word", "'load", "Metallica — Load (1996)", "Metallica — Reload (1997)"},
+		{"adjacent cjk runes beat scattered ones", "天使", "残酷な天使のテーゼ", "天の使い"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

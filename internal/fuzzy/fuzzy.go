@@ -11,6 +11,10 @@
 // "Polyphia - Deny the Flesh". A query word that is a literal substring of the
 // target also matches, below those.
 //
+// Chinese, Japanese and Korean titles have no spaces between words, so each
+// Han, Hiragana, Katakana and Hangul rune starts a word of its own: "天使テーゼ"
+// finds "残酷な天使のテーゼ".
+//
 // A query that starts with ^ or ' is one literal phrase instead, spaces
 // included and case ignored: "^queens of the stone age" finds the names that
 // start with it, "'reload" the names that contain it.
@@ -45,6 +49,17 @@ func isSeparator(r rune) bool {
 	return false
 }
 
+// startsWord reports whether t[i] starts a word: it is the first rune, it
+// follows a separator, or it is a CJK rune, which is a word by itself.
+func startsWord(t []rune, i int) bool {
+	return i == 0 || isSeparator(t[i-1]) || isCJK(t[i])
+}
+
+// isCJK reports whether r is a Han, Hiragana, Katakana or Hangul rune.
+func isCJK(r rune) bool {
+	return r >= 0x1100 && unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul)
+}
+
 // Match reports whether every word of query matches target and, if so, a
 // relevance score where higher is a better match. An empty query matches
 // every target with score 0.
@@ -69,7 +84,7 @@ func Match(query, target string) (score int, ok bool) {
 	sc.t = appendLower(sc.t[:0], target)
 	sc.starts = sc.starts[:0]
 	for i := range sc.t {
-		sc.starts = append(sc.starts, i == 0 || isSeparator(sc.t[i-1]))
+		sc.starts = append(sc.starts, startsWord(sc.t, i))
 	}
 	for w := range strings.FieldsSeq(query) {
 		sc.q = appendLower(sc.q[:0], w)
@@ -105,7 +120,7 @@ func matchPhrase(phrase, target string, prefix bool) (int, bool) {
 		switch {
 		case i == 0:
 			score += bonusFirstChar
-		case isSeparator(t[i-1]):
+		case startsWord(t, i):
 			score += bonusBoundary
 		}
 		return score, true
