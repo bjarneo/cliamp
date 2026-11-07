@@ -56,6 +56,10 @@ type Tag struct {
 
 var catalogClient = httpclient.NewAPI(10 * time.Second)
 
+// stationListLimit asks the directory for every row in a listing. The largest
+// country in the directory has ~8000 stations.
+const stationListLimit = 100000
+
 // StationQuery narrows a station listing. The zero value lists everything.
 //
 // Location is expressed as a country code and optional state rather than a
@@ -226,7 +230,7 @@ func FetchTags() ([]Tag, error) {
 	v.Set("order", "stationcount")
 	v.Set("reverse", "true")
 	v.Set("hidebroken", "true")
-	v.Set("limit", "100000")
+	v.Set("limit", strconv.Itoa(stationListLimit))
 
 	var raw []Tag
 	if err := fetchJSON(context.Background(), radioBrowserBase+"/tags?"+v.Encode(), &raw); err != nil {
