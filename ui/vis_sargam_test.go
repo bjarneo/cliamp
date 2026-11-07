@@ -150,6 +150,9 @@ func TestSargamReadsAudibleSamplesDirectly(t *testing.T) {
 	if reads == 0 {
 		t.Fatal("driver never read the audible tap")
 	}
+	if want := 4; reads != want {
+		t.Fatalf("tap reads = %d, want %d at the %v pitch interval", reads, want, sargamPitchInterval)
+	}
 	d := v.driverFor(VisSargam).(*sargamDriver)
 	if !d.noteOK || math.Abs(d.note-57) > 0.6 {
 		t.Fatalf("note = %.2f ok=%v, want around MIDI 57", d.note, d.noteOK)
