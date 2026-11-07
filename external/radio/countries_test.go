@@ -2,11 +2,13 @@ package radio
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -324,6 +326,50 @@ func TestGenreTracksQueriesOnePlace(t *testing.T) {
 	}
 	if !reflect.DeepEqual(tracks[0], want) {
 		t.Errorf("track = %+v, want %+v", tracks[0], want)
+	}
+}
+
+// TestGenreTracksReturnsMoreThanTwoHundredStations guards against reintroducing
+// the old 200-station cap. The mock server honors the limit parameter the same
+// way the real directory does, so a limit below 201 would make the assertion fail.
+func TestGenreTracksReturnsMoreThanTwoHundredStations(t *testing.T) {
+	const stationCount = 201
+	stations := make([]CatalogStation, stationCount)
+	for i := range stations {
+		stations[i] = CatalogStation{
+			Name:    fmt.Sprintf("Station %d", i),
+			URL:     fmt.Sprintf("https://example.test/radio/%d", i),
+			Country: "Norway",
+			Bitrate: 128,
+			Codec:   "MP3",
+		}
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		limit := stationListLimit
+		if r.URL.Query().Has("limit") {
+			if parsed, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && parsed > 0 && parsed < limit {
+				limit = parsed
+			}
+		}
+		if limit > len(stations) {
+			limit = len(stations)
+		}
+		if err := json.NewEncoder(w).Encode(stations[:limit]); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	installCatalogClient(t, srv.URL)
+
+	p := newPlaceProvider(t, "")
+	tracks, err := p.GenreTracks("NO", SortClicks)
+	if err != nil {
+		t.Fatalf("GenreTracks: %v", err)
+	}
+	if len(tracks) != stationCount {
+		t.Fatalf("tracks = %d, want %d", len(tracks), stationCount)
 	}
 }
 
