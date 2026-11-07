@@ -123,6 +123,42 @@ func TestSargamTierColors(t *testing.T) {
 	}
 }
 
+// TestSargamReadsAudibleSamplesDirectly checks the pane path: the driver pulls
+// its own audible window instead of relying on the primary's sample buffer.
+func TestSargamReadsAudibleSamplesDirectly(t *testing.T) {
+	v := NewVisualizer(44100)
+	v.Cols = 48
+	v.Rows = 9
+	v.Mode = VisSargam
+
+	tone := sargamTestSamples(220, v.sr, sargamFFTSize)
+	reads := 0
+	now := time.Unix(1_700_000_000, 0)
+	ctx := VisTickContext{
+		Now:     now,
+		Playing: true,
+		WaveSamplesInto: func(dst []float64) int {
+			reads++
+			return copy(dst, tone)
+		},
+	}
+	for i := range 8 {
+		ctx.Now = now.Add(time.Duration(i) * TickFast)
+		v.Tick(ctx)
+	}
+
+	if reads == 0 {
+		t.Fatal("driver never read the audible tap")
+	}
+	d := v.driverFor(VisSargam).(*sargamDriver)
+	if !d.noteOK || math.Abs(d.note-57) > 0.6 {
+		t.Fatalf("note = %.2f ok=%v, want around MIDI 57", d.note, d.noteOK)
+	}
+	if len(v.WaveSamples()) == 0 {
+		t.Fatal("driver did not refresh the shared wave buffer")
+	}
+}
+
 // TestSargamSweepsAndRenders checks that the playhead advances and every frame
 // keeps the panel size.
 func TestSargamSweepsAndRenders(t *testing.T) {

@@ -99,6 +99,19 @@ func (m *Model) visualizerTickContext(now time.Time) ui.VisTickContext {
 			}
 			return n
 		},
+		WaveSamplesInto: func(dst []float64) int {
+			if m.player == nil || m.vis == nil || m.vis.Mode == ui.VisNone || m.player.IsPaused() {
+				return 0
+			}
+			n := m.player.WaveformSamplesInto(dst)
+			if m.visVolumeLinked {
+				gain := math.Pow(10, m.player.Volume()/20)
+				for i := range n {
+					dst[i] *= gain
+				}
+			}
+			return n
+		},
 		Analyze: func(spec ui.VisAnalysisSpec) []float64 {
 			spec = ui.NormalizeAnalysisSpec(spec)
 			if m.player == nil || m.vis == nil || m.vis.Mode == ui.VisNone {

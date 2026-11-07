@@ -71,8 +71,9 @@ type sargamDriver struct {
 	track    []int16
 	lastY    int
 	// FFT scratch.
-	mags   []float64
-	scores [sargamCandidateCount]float64
+	mags    []float64
+	samples []float64
+	scores  [sargamCandidateCount]float64
 }
 
 // newSargamDriver returns a Sargam driver.
@@ -246,10 +247,23 @@ func (d *sargamDriver) Tick(v *Visualizer, ctx VisTickContext) {
 
 	now := ctx.Now
 	if !now.IsZero() && (d.lastPitchAt.IsZero() || now.Sub(d.lastPitchAt) >= sargamPitchInterval) {
-		if ctx.Analyze != nil {
+		switch {
+		case ctx.WaveSamplesInto != nil:
+			// Read the same audible tap directly. A pane then gets this tick's
+			// audio instead of the primary's copied window, which is stale or
+			// empty when the primary is Stereo.
+			if cap(d.samples) < sargamFFTSize {
+				d.samples = make([]float64, sargamFFTSize)
+			} else {
+				d.samples = d.samples[:sargamFFTSize]
+			}
+			n := ctx.WaveSamplesInto(d.samples)
+			v.SetWaveSamples(d.samples[:n])
+			d.analyse(v, d.samples[:n], now)
+		case ctx.Analyze != nil:
 			ctx.Analyze(d.AnalysisSpec(v))
+			d.analyse(v, v.waveBuf, now)
 		}
-		d.analyse(v, now)
 		d.lastPitchAt = now
 	}
 
@@ -275,8 +289,8 @@ func (d *sargamDriver) Tick(v *Visualizer, ctx VisTickContext) {
 
 // analyse runs the detector and applies note hysteresis: a small drift smooths
 // the current note, while a real leap has to repeat before the contour moves.
-func (d *sargamDriver) analyse(v *Visualizer, now time.Time) {
-	midi, ok := d.detect(v, v.waveBuf)
+func (d *sargamDriver) analyse(v *Visualizer, samples []float64, now time.Time) {
+	midi, ok := d.detect(v, samples)
 	if ok {
 		switch {
 		case !d.noteOK:
