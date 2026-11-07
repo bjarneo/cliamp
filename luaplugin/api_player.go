@@ -106,7 +106,7 @@ func registerPlayerAPI(L *lua.LState, cliamp *lua.LTable, loadState func() *Stat
 		return 1
 	}))
 
-	// cliamp.player.stream_title() -> string (raw ICY stream title)
+	// cliamp.player.stream_title() -> string (raw stream title, no plugin override)
 	L.SetField(tbl, "stream_title", L.NewFunction(func(L *lua.LState) int {
 		state := loadState()
 		if state.StreamTitle != nil {

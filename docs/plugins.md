@@ -323,7 +323,7 @@ cliamp.player.mono()          --> boolean
 cliamp.player.repeat_mode()   --> "Off" | "All" | "One"
 cliamp.player.shuffle()       --> boolean
 cliamp.player.eq_bands()      --> table of 10 dB values
-cliamp.player.stream_title()  --> string (raw ICY stream title; "" when none)
+cliamp.player.stream_title()  --> string (raw stream title without a plugin override; "" when none)
 ```
 
 ### cliamp.track (read-only)
@@ -534,7 +534,9 @@ Each control returns at once. cliamp applies the controls in the order that the 
 
 `cliamp.player.set_stream_title(title)` sets the display title of the current live stream. It requires `permissions = {"control"}`.
 
- The override only takes effect on a stream that has no ICY metadata. If the station already sends inline ICY `StreamTitle`, the call is a no-op and cliamp logs a warning to `cliamp.log`. Non-stream tracks are ignored. The override is cleared whenever a new track starts, so a plugin that wants a persistent title on a single long-running stream should re-set it after each track change.
+The override only takes effect on a stream that has no inline ICY metadata. If the station already sends inline ICY `StreamTitle`, the call is a no-op and cliamp logs a warning to `cliamp.log`. Non-stream tracks are ignored. A plugin can call it again to update the title, or pass `""` to clear the override. The override wins over a title from a station's now-playing API, and inline ICY metadata that arrives later replaces it. The override is cleared when playback stops or a new track starts, so a plugin that wants a persistent title on a single long-running stream should re-set it after each track change.
+
+`cliamp.player.stream_title()` never returns the override. The `stream_title` field of `playback.state` is the title on display, so it does include the override.
 
 ### cliamp.notify
 

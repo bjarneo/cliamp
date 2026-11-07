@@ -25,7 +25,8 @@ type PluginState struct {
 	Count   int
 	Index   int
 	HasNext bool
-	// StreamTitle is the raw ICY metadata from live radio streams (e.g., "Artist - Song").
+	// StreamTitle is the raw title from live radio streams (e.g., "Artist - Song"),
+	// without a plugin override.
 	// This is the unprocessed stream title that may override the track title/artist.
 	StreamTitle string
 	// Queue returns the playlist. The first call builds the rows on the
@@ -73,7 +74,7 @@ func (m *Model) publishPluginState() {
 		Count:       m.playlist.Len(),
 		Index:       m.playlist.Index(),
 		HasNext:     m.playlist.HasNext(),
-		StreamTitle: m.effectiveStreamTitle(),
+		StreamTitle: m.streamTitle,
 		revision:    m.playlist.Revision(),
 	}
 	state.Track.Artist, state.Track.Title = m.resolveTrackDisplay(track)

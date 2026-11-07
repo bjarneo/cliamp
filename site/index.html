@@ -581,11 +581,11 @@ p:<span class="k">on</span>(<span class="s">"track.change"</span>, <span class="
         </div>
         <div class="api-i">
           <div class="sig">cliamp.player.stream_title()</div>
-          <div class="d">The raw ICY stream title from live radio (e.g. "Artist - Song"). Empty when no inline metadata arrives.</div>
+          <div class="d">The raw stream title from live radio (e.g. "Artist - Song"), without a plugin override. Empty when no metadata arrives.</div>
         </div>
         <div class="api-i">
           <div class="sig">cliamp.player.set_stream_title(title)</div>
-          <div class="d">Overrides the stream title on a live stream without ICY metadata. Requires the <code>control</code> permission. Cleared on track change.</div>
+          <div class="d">Overrides the stream title on a live stream without inline ICY metadata. Pass <code>""</code> to clear it. Requires the <code>control</code> permission. Cleared on stop, on track change and when ICY metadata arrives.</div>
         </div>
         <div class="api-i">
           <div class="sig">type = "visualizer" → p:render(bands, frame, rows, cols)</div>

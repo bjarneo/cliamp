@@ -148,8 +148,9 @@ func (m *Model) resolveTrackDisplay(track playlist.Track) (artist, title string)
 }
 
 // effectiveStreamTitle returns the stream title to display: a plugin override
-// set via cliamp.player.set_stream_title wins when present; otherwise the ICY
-// stream title from live radio. The caller is responsible for checking
+// set via cliamp.player.set_stream_title wins when present; otherwise the
+// title the player reports. tickStreamTitle drops the override once inline ICY
+// metadata arrives, so ICY metadata is never hidden. The caller is responsible for checking
 // track.Stream before showing it.
 func (m *Model) effectiveStreamTitle() string {
 	if m.pluginStreamTitle != "" {
