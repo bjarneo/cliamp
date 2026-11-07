@@ -376,14 +376,26 @@ playback if nothing is playing.
 
 ## Fuzzy search
 
-Local search boxes use fuzzy matching. Query characters must appear in order but
-do not need to be next to each other. Results are ranked by relevance, with the
-best match first. For example, `skr` and `saku` both find a track named "Sakura".
+Local search boxes use fuzzy matching. Every word of the query must match, in
+any order. The characters of a query word must appear in order but do not need
+to be next to each other, and the match enters each word of the name at its
+first letter. Results are ranked by relevance, with the best match first. For
+example, `skr` and `saku` both find a track named "Sakura", `lst` finds "Love
+Story", and `mtlc rld` finds "Metallica - Reload". A query word that appears
+inside a word, such as `allica`, also matches, ranked lower. Chinese, Japanese
+and Korean names have no spaces, so each of their characters starts a word:
+`天使テーゼ` finds "残酷な天使のテーゼ".
+
+Start the query with `^` or `'` to match one literal phrase instead, spaces
+included and case ignored. `^queens of the stone age` finds the names that
+start with that phrase, and `'stone age` the names that contain it anywhere.
 
 This applies to:
 
 - `/` playlist search
 - `/` file browser filter
+- `/` provider browser filter, such as `metallica reload` for the album
+  "Metallica — Reload"
 - `Ctrl+F` when the active provider is Local (your saved playlists)
 
 Other `Ctrl+F` providers, including Spotify, Qobuz, Tidal, Bandcamp,
