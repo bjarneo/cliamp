@@ -55,7 +55,7 @@ var (
 	_ provider.TrackAlbumResolver  = (*Provider)(nil)
 	_ provider.TrackArtistFilter   = (*Provider)(nil)
 	_ provider.TrackDownloader     = (*Provider)(nil)
-	_ provider.ProgressReporter    = (*Provider)(nil)
+	_ provider.TimelineReporter    = (*Provider)(nil)
 	_ provider.QueueContinuer      = (*Provider)(nil)
 )
 
@@ -663,6 +663,26 @@ func (p *Provider) ReportProgress(track playlist.Track, position time.Duration) 
 		return nil
 	}
 	return p.client.ReportTimeline(context.Background(), id, "playing", position, plexTrackDuration(track))
+}
+
+// ReportPaused sends a paused timeline update, so Plex stops counting the
+// position on.
+func (p *Provider) ReportPaused(track playlist.Track, position time.Duration) error {
+	id := plexTrackID(track)
+	if id == "" {
+		return nil
+	}
+	return p.client.ReportTimeline(context.Background(), id, "paused", position, plexTrackDuration(track))
+}
+
+// ReportStopped sends a stopped timeline update, so Plex ends the session of
+// a track left before it counts as played.
+func (p *Provider) ReportStopped(track playlist.Track, position time.Duration) error {
+	id := plexTrackID(track)
+	if id == "" {
+		return nil
+	}
+	return p.client.ReportTimeline(context.Background(), id, "stopped", position, plexTrackDuration(track))
 }
 
 // ReportScrobble sends a final stopped timeline and records one completed play.

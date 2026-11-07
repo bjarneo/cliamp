@@ -366,10 +366,16 @@ func TestProviderPlaybackReporting(t *testing.T) {
 	if err := p.ReportProgress(track, 30*time.Second); err != nil {
 		t.Fatalf("ReportProgress: %v", err)
 	}
+	if err := p.ReportPaused(track, 31*time.Second); err != nil {
+		t.Fatalf("ReportPaused: %v", err)
+	}
+	if err := p.ReportStopped(track, 32*time.Second); err != nil {
+		t.Fatalf("ReportStopped: %v", err)
+	}
 	if err := p.ReportScrobble(track, 70*time.Second, 2*time.Minute, true); err != nil {
 		t.Fatalf("ReportScrobble: %v", err)
 	}
-	if got := strings.Join(timelineStates, ","); got != "playing,playing,stopped" {
+	if got := strings.Join(timelineStates, ","); got != "playing,playing,paused,stopped,stopped" {
 		t.Fatalf("timeline states = %q", got)
 	}
 	if scrobbleCount != 1 {

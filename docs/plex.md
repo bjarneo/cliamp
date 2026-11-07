@@ -148,7 +148,7 @@ Existing local Plex favorites are left intact but do not control that heart, so
 the change does not discard old data. Press `Ctrl+R` to pick up likes changed
 in another client while the list is open.
 
-While a Plex track plays, cliamp reports its timeline position about every 15 seconds. After at least half of a known-duration track has played, leaving the track records one Plex play and updates Plex history. Short skips do not increment the play count.
+While a Plex track plays, cliamp reports its timeline position about every 15 seconds, so the Plex dashboard shows what plays. A pause, a resume, and a seek reach Plex at once. Leaving a track, by skipping, stopping, or quitting, ends its session on the dashboard. After at least half of a known-duration track has played, leaving the track records one Plex play and updates Plex history. Short skips do not increment the play count.
 
 When Plex is the default provider (`provider = "plex"` or `--provider plex`),
 cliamp remembers the most recently played Plex track, its playback position,

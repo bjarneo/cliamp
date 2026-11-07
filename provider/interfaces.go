@@ -159,6 +159,20 @@ type ProgressReporter interface {
 	ReportProgress(track playlist.Track, position time.Duration) error
 }
 
+// TimelineReporter is implemented by progress reporters whose server shows
+// the state of each listen, such as a dashboard of what plays now. Without
+// these reports, such a server counts a paused track on as playing, and
+// keeps a track left before ReportScrobble qualifies as playing until the
+// session times out.
+type TimelineReporter interface {
+	ProgressReporter
+	// ReportPaused sends the position of a paused track.
+	ReportPaused(track playlist.Track, position time.Duration) error
+	// ReportStopped ends the listen of a track that was left at position
+	// without a scrobble.
+	ReportStopped(track playlist.Track, position time.Duration) error
+}
+
 // TrackPosition is implemented by providers that can report where a single
 // track should resume from.
 type TrackPosition interface {

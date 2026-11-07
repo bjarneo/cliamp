@@ -446,7 +446,9 @@ type Model struct {
 	resumeSaver          ResumeSaver
 	lastResumeSave       time.Time
 
-	lastProgressReport time.Time // last interim provider progress report
+	lastProgressReport time.Time     // last interim provider progress report
+	progressPos        time.Duration // position in that report
+	progressPaused     bool          // the last report said the track was paused
 
 	// loadedPlaylist names the saved local list that the queue mirrors, for
 	// resume. When it is set, the ♥ rule treats station rows as tracks.
