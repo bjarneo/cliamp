@@ -2,6 +2,7 @@
 package plex
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -348,30 +349,74 @@ func (c *Client) Tracks(albumRatingKey string) ([]Track, error) {
 	return tracks, nil
 }
 
-// Search searches the music library for tracks matching query.
+// searchHubLimit is how many results Search requests from each hub. Plex
+// applies the limit per hub, so this also caps the tracks Search can return.
+// It is above the result count the UI shows so that dropping tracks from
+// libraries outside the filter does not leave the list short.
+const searchHubLimit = 100
+
+// Search searches the server for tracks matching query. It uses the hub search,
+// whose "track" hub holds full track items. /library/search is not used: current
+// servers answer it with a SearchResult list that mixes albums, artists and
+// episodes in with the tracks and carries no library section ID.
 // Returns nil without making an HTTP call when query is empty.
+// When the client has a library filter, tracks that belong to a library outside
+// the filter are dropped, because the hub search covers every library.
 func (c *Client) Search(query string) ([]Track, error) {
 	if query == "" {
 		return nil, nil
 	}
 	var result struct {
 		MediaContainer struct {
-			Metadata []trackJSON `json:"Metadata"`
+			Hub []struct {
+				Type     string      `json:"type"`
+				Metadata []trackJSON `json:"Metadata"`
+			} `json:"Hub"`
 		} `json:"MediaContainer"`
 	}
 	params := url.Values{
 		"query": {query},
-		"type":  {"10"}, // 10 = track
+		"limit": {strconv.Itoa(searchHubLimit)},
 	}
-	if err := c.get("/library/search", params, &result); err != nil {
+	if err := c.get("/hubs/search", params, &result); err != nil {
 		return nil, err
 	}
 
-	tracks := make([]Track, 0, len(result.MediaContainer.Metadata))
-	for _, m := range result.MediaContainer.Metadata {
-		tracks = append(tracks, trackFromJSON(m))
+	allowed, err := c.allowedSectionKeys()
+	if err != nil {
+		return nil, err
+	}
+
+	var tracks []Track
+	for _, hub := range result.MediaContainer.Hub {
+		if hub.Type != "track" {
+			continue
+		}
+		for _, m := range hub.Metadata {
+			if allowed != nil && m.LibrarySectionID != "" && !allowed[string(m.LibrarySectionID)] {
+				continue
+			}
+			tracks = append(tracks, trackFromJSON(m))
+		}
 	}
 	return tracks, nil
+}
+
+// allowedSectionKeys returns the section keys that pass the library filter, or
+// nil when no filter is configured and every result should be kept.
+func (c *Client) allowedSectionKeys() (map[string]bool, error) {
+	if len(c.libraries) == 0 {
+		return nil, nil
+	}
+	sections, err := c.MusicSections()
+	if err != nil {
+		return nil, err
+	}
+	allowed := make(map[string]bool, len(sections))
+	for _, s := range sections {
+		allowed[s.Key] = true
+	}
+	return allowed, nil
 }
 
 // StreamURL returns the authenticated HTTP URL for streaming a track part.
@@ -402,6 +447,9 @@ type trackJSON struct {
 	ParentYear       int    `json:"parentYear"` // album year; tracks rarely carry their own
 	Index            int    `json:"index"`      // track number within album
 	Duration         int    `json:"duration"`   // milliseconds
+	// LibrarySectionID is the library the track belongs to. Search results carry
+	// it; a json.Number accepts both 3 and "3".
+	LibrarySectionID json.Number `json:"librarySectionID"`
 	Media            []struct {
 		Part []struct {
 			Key string `json:"key"`
