@@ -758,3 +758,22 @@ func TestLoadTrackFavoritesCmd(t *testing.T) {
 		t.Fatalf("loaded = %v, want the two tracks once", loader.loaded)
 	}
 }
+
+// Refresh drops a provider's favorite states, so Ctrl+R loads them again for
+// the queue tracks that no listing reloads.
+func TestRefreshReloadsTrackFavorites(t *testing.T) {
+	loader := &fakeFavoriteLoader{commandsTestProvider: commandsTestProvider{name: "Plex"}}
+	refreshes := 0
+	m := keybindingTestModel()
+	m.provider = refresherOnlyProvider{commandsTestProvider: commandsTestProvider{name: "Plex"}, refreshes: &refreshes}
+	m.providers = []provider.Entry{{Name: "Plex", Provider: loader}}
+	m.playlist.Add(playlist.Track{Path: "plex:track:1"})
+
+	runCmd(m.refreshActiveProvider(false))
+	if refreshes != 1 {
+		t.Fatalf("refreshes = %d, want 1", refreshes)
+	}
+	if len(loader.loaded) != 1 || strings.Join(loader.loaded[0], " ") != "plex:track:1" {
+		t.Fatalf("loaded = %v, want the queue track once", loader.loaded)
+	}
+}
