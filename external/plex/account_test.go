@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -84,21 +85,26 @@ func TestAccountServersFiltersAndSorts(t *testing.T) {
 	}
 }
 
+// identityHandler answers /identity as the server machineID.
+func identityHandler(machineID string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"MediaContainer":{"machineIdentifier":%q}}`, machineID)
+	}
+}
+
 func TestReachableConnectionPrefersLocal(t *testing.T) {
-	secure := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
+	secure := httptest.NewTLSServer(identityHandler("server-1"))
 	defer secure.Close()
 
-	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
+	local := httptest.NewServer(identityHandler("server-1"))
 	defer local.Close()
 
 	api := &AccountAPI{baseURL: "unused", client: secure.Client(), pollInterval: time.Millisecond}
 	server := AccountServer{
-		Name:        "Home",
-		AccessToken: "server-token",
+		Name:             "Home",
+		ClientIdentifier: "server-1",
+		AccessToken:      "server-token",
 		Connections: []AccountConnection{
 			{URI: local.URL, Protocol: "http", Local: true},
 			{URI: secure.URL, Protocol: "https"},
@@ -119,15 +125,14 @@ func TestReachableConnectionDoesNotWaitForSlowLocalAddress(t *testing.T) {
 	}))
 	defer local.Close()
 
-	remote := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
+	remote := httptest.NewTLSServer(identityHandler("server-1"))
 	defer remote.Close()
 
 	api := &AccountAPI{baseURL: "unused", client: remote.Client(), pollInterval: time.Millisecond}
 	started := time.Now()
 	connection, _, err := api.ReachableConnection(t.Context(), AccountServer{
-		Name: "Home",
+		Name:             "Home",
+		ClientIdentifier: "server-1",
 		Connections: []AccountConnection{
 			{URI: local.URL, Protocol: "http", Local: true},
 			{URI: remote.URL, Protocol: "https"},
@@ -146,13 +151,10 @@ func TestReachableConnectionDoesNotWaitForSlowLocalAddress(t *testing.T) {
 
 func TestReachableConnectionFallsBackToRemoteHTTPS(t *testing.T) {
 	secure := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("X-Plex-Token"); got != "server-token" {
-			t.Errorf("token = %q, want server-token", got)
-		}
 		if got := r.Header.Get("X-Plex-Client-Identifier"); got != "client-1" {
 			t.Errorf("client identifier = %q, want client-1", got)
 		}
-		w.WriteHeader(http.StatusOK)
+		identityHandler("server-1")(w, r)
 	}))
 	defer secure.Close()
 
@@ -163,8 +165,9 @@ func TestReachableConnectionFallsBackToRemoteHTTPS(t *testing.T) {
 
 	api := &AccountAPI{baseURL: "unused", client: secure.Client(), pollInterval: time.Millisecond}
 	server := AccountServer{
-		Name:        "Home",
-		AccessToken: "server-token",
+		Name:             "Home",
+		ClientIdentifier: "server-1",
+		AccessToken:      "server-token",
 		Connections: []AccountConnection{
 			{URI: local.URL, Protocol: "http", Local: true},
 			{URI: secure.URL, Protocol: "https"},
@@ -192,6 +195,60 @@ func TestReachableConnectionRejectsPublicHTTP(t *testing.T) {
 	}, "account-token", "client-1")
 	if err == nil || !strings.Contains(err.Error(), "no reachable secure connection") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+// TestReachableConnectionChecksServerIdentity keeps the token from a host
+// that holds the local address on another network: the probe sends no token,
+// and a host that answers as another server is not a route.
+func TestReachableConnectionChecksServerIdentity(t *testing.T) {
+	probe := func(w http.ResponseWriter, r *http.Request, machineID string) {
+		if got := r.Header.Get("X-Plex-Token"); got != "" {
+			t.Errorf("probe of %s sent token %q", machineID, got)
+		}
+		identityHandler(machineID)(w, r)
+	}
+	stranger := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probe(w, r, "other-server")
+	}))
+	defer stranger.Close()
+	remote := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probe(w, r, "server-1")
+	}))
+	defer remote.Close()
+
+	tests := []struct {
+		name        string
+		connections []AccountConnection
+		want        string
+	}{
+		{"skips a stranger", []AccountConnection{
+			{URI: stranger.URL, Protocol: "http", Local: true},
+			{URI: remote.URL, Protocol: "https"},
+		}, remote.URL},
+		{"only a stranger", []AccountConnection{
+			{URI: stranger.URL, Protocol: "http", Local: true},
+		}, ""},
+	}
+	api := &AccountAPI{baseURL: "unused", client: remote.Client(), pollInterval: time.Millisecond}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			connection, _, err := api.ReachableConnection(t.Context(), AccountServer{
+				Name:             "Home",
+				ClientIdentifier: "server-1",
+				AccessToken:      "server-token",
+				Connections:      tt.connections,
+			}, "account-token", "client-1")
+			if tt.want == "" {
+				if err == nil {
+					t.Fatalf("connection = %+v, want an error", connection)
+				}
+				return
+			}
+			if err != nil || connection.URI != tt.want {
+				t.Fatalf("connection = %+v, err = %v, want %s", connection, err, tt.want)
+			}
+		})
 	}
 }
 

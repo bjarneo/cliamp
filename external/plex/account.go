@@ -283,7 +283,7 @@ func (a *AccountAPI) ReachableConnection(ctx context.Context, server AccountServ
 			results <- probeResult{
 				connection: connection,
 				rank:       connectionRank(connection),
-				err:        a.probe(requestCtx, connection.URI, token, clientID),
+				err:        a.probe(requestCtx, connection.URI, server.ClientIdentifier, clientID),
 			}
 		}()
 	}
@@ -344,20 +344,34 @@ func looksLikeServerURL(raw string) bool {
 	return err == nil && u.Host != "" && (u.Scheme == "http" || u.Scheme == "https")
 }
 
-func (a *AccountAPI) probe(ctx context.Context, baseURL, token, clientID string) error {
+// probe checks that baseURL answers as the server serverID. It sends no
+// token: a plain-HTTP local address can belong to another host on another
+// network, and /identity needs no sign-in.
+func (a *AccountAPI) probe(ctx context.Context, baseURL, serverID, clientID string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/identity", nil)
 	if err != nil {
 		return err
 	}
-	setAccountHeaders(req, clientID, token)
+	setAccountHeaders(req, clientID, "")
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
 		return fmt.Errorf("HTTP %s", resp.Status)
+	}
+	var identity struct {
+		MediaContainer struct {
+			MachineIdentifier string `json:"machineIdentifier"`
+		} `json:"MediaContainer"`
+	}
+	if err := httpclient.ReadJSON(resp.Body, maxResponseBody, &identity); err != nil {
+		return err
+	}
+	if got := identity.MediaContainer.MachineIdentifier; got == "" || got != serverID {
+		return fmt.Errorf("answers as server %q, not %q", got, serverID)
 	}
 	return nil
 }
