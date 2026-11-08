@@ -777,3 +777,53 @@ func TestRefreshReloadsTrackFavorites(t *testing.T) {
 		t.Fatalf("loaded = %v, want the queue track once", loader.loaded)
 	}
 }
+
+// loadingAuthoritativeFavoriter knows the ♥ state of a track only after
+// LoadFavoriteStates fetched it from server.
+type loadingAuthoritativeFavoriter struct {
+	*fakeAuthoritativeFavoriter
+	server map[string]bool
+}
+
+func (p *loadingAuthoritativeFavoriter) LoadFavoriteStates(_ context.Context, tracks []playlist.Track) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.liked == nil {
+		p.liked = make(map[string]bool)
+	}
+	for _, t := range tracks {
+		if liked, ok := p.server[t.Path]; ok {
+			p.liked[t.Path] = liked
+		}
+	}
+	return nil
+}
+
+// f on a track whose ♥ state has not loaded yet, such as just after Ctrl+R,
+// loads it instead of toggling: a liked track would be liked again. The next
+// f toggles the loaded state.
+func TestUnknownProviderFavoriteLoadsBeforeToggle(t *testing.T) {
+	m, _ := favoriteKeyTestModel(t)
+	track := playlist.Track{Path: "fake:track:1", Title: "Remote"}
+	fake := &loadingAuthoritativeFavoriter{
+		fakeAuthoritativeFavoriter: &fakeAuthoritativeFavoriter{fakeTrackFavoriter: &fakeTrackFavoriter{
+			commandsTestProvider: commandsTestProvider{name: "Fake"},
+			prefix:               "fake:",
+		}},
+		server: map[string]bool{track.Path: true},
+	}
+	m.providers = append(m.providers, provider.Entry{Key: "fake", Name: "Fake", Provider: fake})
+
+	runCmd(m.favoriteTrackKey(track))
+	if got := fake.recorded(); len(got) != 0 {
+		t.Fatalf("provider calls = %v, want none before the state loads", got)
+	}
+	if !m.playlistTrackFavorited(track) {
+		t.Fatal("the loaded state shows no ♥")
+	}
+
+	runCmd(m.favoriteTrackKey(track))
+	if got := fake.recorded(); len(got) != 1 || got[0] != "remove "+track.Path {
+		t.Fatalf("provider calls = %v, want one remove", got)
+	}
+}

@@ -48,6 +48,12 @@ func (m *Model) favoriteTrackKey(track playlist.Track) tea.Cmd {
 // Other providers receive a copy of the local favorite change.
 func (m *Model) toggleTrackFavorite(track playlist.Track) (tea.Cmd, error) {
 	if current, providerOwned := m.providerTrackFavoriteState(track); providerOwned {
+		if m.trackFavoriteUnknown(track) {
+			// Toggling an unknown state could like a liked track again. The
+			// state loads first, and the next f toggles it.
+			m.status.Warning("Loading the favorite state, press again", statusTTLMedium)
+			return m.loadTrackFavoritesCmd([]playlist.Track{track}), nil
+		}
 		favorite := !current
 		cmd := m.syncTrackFavoriteCmd(track, favorite)
 		if cmd == nil {
@@ -108,6 +114,20 @@ func (m *Model) providerTrackFavoriteState(track playlist.Track) (favorite, prov
 	// of falling back to a stale entry in favorites.toml.
 	favorite, _ = state.FavoriteState(track)
 	return favorite, true
+}
+
+// trackFavoriteUnknown reports whether the provider that owns the ♥ state of
+// track has not loaded it yet, such as just after Ctrl+R or at start.
+func (m *Model) trackFavoriteUnknown(track playlist.Track) bool {
+	state, _ := findCapable(m, func(s provider.TrackFavoriteState) bool { return s.CanFavoriteTrack(track) })
+	if state == nil {
+		return false
+	}
+	if _, ok := m.pendingTrackFavorites[track.Path]; ok {
+		return false
+	}
+	_, known := state.FavoriteState(track)
+	return !known
 }
 
 // syncTrackFavoriteCmd copies a favorite change to the provider that owns
