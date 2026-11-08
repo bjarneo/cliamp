@@ -15,8 +15,7 @@ import (
 const shuffleRowsTrackCount = 8
 
 // shuffleRowsTestModel returns a model with the cursor on the playing track.
-// With shuffle on, no row after the first lists the track with the same
-// index, so a test fails if an action reads a view row as a track index.
+// The shuffled playback order differs from the stored display order.
 func shuffleRowsTestModel(t *testing.T, shuffle bool) Model {
 	t.Helper()
 	tracks := make([]playlist.Track, shuffleRowsTrackCount)
@@ -66,10 +65,8 @@ func TestPlaylistRowMapping(t *testing.T) {
 	for _, shuffle := range []bool{false, true} {
 		t.Run(fmt.Sprintf("shuffle=%t", shuffle), func(t *testing.T) {
 			m := shuffleRowsTestModel(t, shuffle)
-			order, tracks := m.playlist.OrderWindow(0, shuffleRowsTrackCount)
-			if !shuffle && !slices.Equal(order, []int{0, 1, 2, 3, 4, 5, 6, 7}) {
-				t.Fatalf("play order without shuffle = %v, want the track order", order)
-			}
+			order := []int{0, 1, 2, 3, 4, 5, 6, 7}
+			tracks := m.playlist.TrackWindow(0, shuffleRowsTrackCount)
 
 			for row, want := range order {
 				m.setPlCursorRow(row)
@@ -90,7 +87,7 @@ func TestPlaylistRowMapping(t *testing.T) {
 	}
 }
 
-func TestPlaylistCursorActionsFollowShuffleOrder(t *testing.T) {
+func TestPlaylistCursorActionsFollowStoredOrder(t *testing.T) {
 	tests := []struct {
 		name  string
 		keys  []tea.KeyPressMsg
@@ -178,7 +175,7 @@ func TestPlaylistCursorActionsFollowShuffleOrder(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := shuffleRowsTestModel(t, true)
-			order, _ := m.playlist.OrderWindow(0, shuffleRowsTrackCount)
+			order := []int{0, 1, 2, 3, 4, 5, 6, 7}
 			before := m.playlist.Tracks()
 			if m.plCursorRow() != 0 {
 				t.Fatalf("cursor starts at row %d, want row 0", m.plCursorRow())
@@ -203,5 +200,15 @@ func TestShuffleOffKeepsCursorOnTrack(t *testing.T) {
 	}
 	if m.plCursor != want || m.plCursorRow() != want {
 		t.Fatalf("cursor on track %d at row %d, want track %d at row %d", m.plCursor, m.plCursorRow(), want, want)
+	}
+}
+
+func TestShuffleKeepsPlaylistDisplayOrder(t *testing.T) {
+	m := shuffleRowsTestModel(t, true)
+	lines := strings.Split(ansi.Strip(m.renderPlaylist()), "\n")
+	for i, track := range m.playlist.Tracks() {
+		if !strings.Contains(lines[i], track.Title) {
+			t.Fatalf("row %d = %q, want stored track %q", i, lines[i], track.Title)
+		}
 	}
 }

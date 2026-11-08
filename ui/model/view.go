@@ -1193,7 +1193,7 @@ func (m Model) renderPlaylist() string {
 	currentIdx := m.playlist.Index()
 	scroll := m.playlistScroll(budget)
 	windowStart := max(0, scroll-1)
-	indices, tracks := m.playlist.OrderWindow(windowStart, budget+1)
+	tracks := m.playlist.TrackWindow(windowStart, budget+1)
 	localScroll := scroll - windowStart
 
 	lines := make([]string, 0, budget)
@@ -1217,7 +1217,7 @@ func (m Model) renderPlaylist() string {
 			break
 		}
 
-		i, t := indices[row.Index], row.Track
+		i, t := windowStart+row.Index, row.Track
 		style := playlistItemStyle
 		selected := m.focus == focusPlaylist && i == m.plCursor
 		playing := !m.playbackDetached && i == currentIdx && m.player.IsPlaying()

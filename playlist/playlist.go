@@ -909,6 +909,15 @@ func (p *Playlist) Track(index int) (Track, bool) {
 	return cloneTrack(p.tracks[index]), true
 }
 
+// TrackWindow returns independent track copies in stored order, starting at
+// start and bounded by limit, regardless of shuffle.
+func (p *Playlist) TrackWindow(start, limit int) []Track {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	start, end := windowBounds(len(p.tracks), start, limit)
+	return cloneTracks(p.tracks[start:end])
+}
+
 // OrderWindow returns the track indices and independent track copies at no
 // more than limit play order positions from position start. While shuffle is
 // on, the play order is the shuffle order. Otherwise, it is the track order.

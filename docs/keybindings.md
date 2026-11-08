@@ -173,11 +173,9 @@ preference remains saved for a wider layout. See
 | `r` | Cycle repeat mode (Off / All / One) |
 | `z` | Toggle shuffle |
 
-While shuffle is on, the playlist lists tracks in play order. The tracks that
-played before the current track are above it. The tracks that play next are
-below it. Each row keeps its original track number. When you turn off shuffle,
-the playlist returns to the original order and the cursor stays on the same
-track.
+Shuffle changes playback order only. The playlist keeps its stored order,
+so track numbers remain sequential and album headers stay grouped. The cursor
+stays on the same track when you toggle shuffle.
 
 ### Inside the subscribed shows overlay
 
