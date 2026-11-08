@@ -100,6 +100,51 @@ func TestOpenTrackAlbum(t *testing.T) {
 	}
 }
 
+// Alt+O makes the album the open provider playlist, or none when its
+// provider is not the active one, so Ctrl+R and the resume context do not
+// bring back the replaced playlist. Ctrl+Z reopens that playlist while its
+// provider is still active.
+func TestOpenTrackAlbumOpenPlaylist(t *testing.T) {
+	navidrome := commandsTestProvider{name: "Navidrome"}
+	tests := []struct {
+		name      string
+		active    string // "fake" or "navidrome"
+		switchTo  bool   // another provider becomes active before Ctrl+Z
+		wantAlbum string
+		wantUndo  string
+	}{
+		{name: "album provider active", active: "fake", wantAlbum: "alb", wantUndo: "pl-x"},
+		{name: "other provider active", active: "navidrome", wantAlbum: "", wantUndo: "pl-x"},
+		{name: "provider switched before undo", active: "navidrome", switchTo: true, wantAlbum: "", wantUndo: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, _, fake := trackJumpModel()
+			m.provider = fake
+			if tt.active == "navidrome" {
+				m.provider = navidrome
+			}
+			m.activeProviderPlaylistID = "pl-x"
+
+			next, cmd := m.Update(altO)
+			m = next.(Model)
+			next, _ = m.Update(cmd())
+			m = next.(Model)
+			if m.activeProviderPlaylistID != tt.wantAlbum {
+				t.Fatalf("open playlist after Alt+O = %q, want %q", m.activeProviderPlaylistID, tt.wantAlbum)
+			}
+			if tt.switchTo {
+				m.provider = commandsTestProvider{name: "Radio"}
+			}
+			next, _ = m.Update(tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl})
+			m = next.(Model)
+			if m.activeProviderPlaylistID != tt.wantUndo {
+				t.Fatalf("open playlist after Ctrl+Z = %q, want %q", m.activeProviderPlaylistID, tt.wantUndo)
+			}
+		})
+	}
+}
+
 // Ctrl+Z after Alt+O brings back the album headers of the old queue too: a
 // list of single tracks from many albums shows none.
 func TestOpenTrackAlbumUndoRestoresHeaders(t *testing.T) {

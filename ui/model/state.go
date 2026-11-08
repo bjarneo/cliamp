@@ -40,6 +40,11 @@ type playlistUndo struct {
 	// cursorPath is the track the cursor returns to, for an edit that
 	// replaced the whole queue.
 	cursorPath string
+	// providerName and providerPlaylistID name the open provider playlist
+	// that an edit replacing the whole queue closed. Undo reopens it while
+	// that provider is still the active one.
+	providerName       string
+	providerPlaylistID string
 }
 
 // netSearchScreenType identifies which screen of the net search overlay is active.

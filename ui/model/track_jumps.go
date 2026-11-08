@@ -109,6 +109,10 @@ func (m *Model) handleAlbumOpened(msg albumOpenedMsg) tea.Cmd {
 		return nil
 	}
 	snapshot := m.playlist.Snapshot()
+	undo := playlistUndo{snapshot: snapshot, cursorPath: msg.from, providerPlaylistID: m.activeProviderPlaylistID}
+	if m.provider != nil {
+		undo.providerName = m.provider.Name()
+	}
 	m.retireTracksPaging()
 	m.replacePlayerPlaylist(msg.tracks)
 	if i := trackIndexByPath(msg.tracks, m.playingTrack.Path); m.playingTrackActive && i >= 0 {
@@ -121,12 +125,16 @@ func (m *Model) handleAlbumOpened(msg albumOpenedMsg) tea.Cmd {
 	if i := trackIndexByPath(msg.tracks, msg.from); i >= 0 {
 		m.plCursor = i
 	}
+	// The queue is the album now, so the open playlist is the album, or none
+	// when the album's provider is not the active one: Ctrl+R and the saved
+	// resume context must not bring back the playlist the album replaced.
+	m.activeProviderPlaylistID = ""
 	if m.isActiveProvider(msg.provider) {
 		m.activeProviderPlaylistID = msg.album.ID
 	}
 	m.adjustScroll()
 	m.status.Successf(statusTTLDefault, "Album: %s (Ctrl+Z to undo)", msg.album.Name)
-	m.recordPlaylistUndo(playlistUndo{snapshot: snapshot, cursorPath: msg.from})
+	m.recordPlaylistUndo(undo)
 	return m.rearmStalePreload()
 }
 
