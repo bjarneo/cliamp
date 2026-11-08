@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -812,10 +813,10 @@ func TestAccountClientRediscoversSelectedServer(t *testing.T) {
 			t.Errorf("server client identifier = %q, want client-1", got)
 		}
 		if r.URL.Path == "/identity" {
-			if got := r.Header.Get("X-Plex-Token"); got != "server-token" {
-				t.Errorf("probe token = %q, want server-token", got)
+			if got := r.Header.Get("X-Plex-Token"); got != "" {
+				t.Errorf("probe token = %q, want none", got)
 			}
-			w.WriteHeader(http.StatusOK)
+			identityHandler("server-1")(w, r)
 			return
 		}
 		if got := r.URL.Query().Get("X-Plex-Token"); got != "server-token" {
@@ -978,8 +979,8 @@ func TestClientFailsOverFromDeadRoute(t *testing.T) {
 			t.Fatalf("hanging route error = %v, want no response in 50ms", err)
 		}
 		start := time.Now()
-		if err := c.ReportTimeline(t.Context(), "42", "playing", time.Second, time.Minute); err != nil {
-			t.Fatalf("ReportTimeline: %v", err)
+		if _, err := c.MusicSections(); err != nil {
+			t.Fatalf("MusicSections: %v", err)
 		}
 		if c.baseURL != alive.URL {
 			t.Fatalf("route = %q, want %q", c.baseURL, alive.URL)
@@ -988,6 +989,35 @@ func TestClientFailsOverFromDeadRoute(t *testing.T) {
 			t.Fatalf("failover took %v", elapsed)
 		}
 	})
+}
+
+// TestClientDoesNotResendWriteAfterTimeout keeps a play from counting twice:
+// a route that took a scrobble and never answered may have applied it.
+func TestClientDoesNotResendWriteAfterTimeout(t *testing.T) {
+	old := responseHeaderTimeout
+	responseHeaderTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { responseHeaderTimeout = old })
+	var scrobbles atomic.Int32
+	hanging := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/:/scrobble" {
+			scrobbles.Add(1)
+		}
+		<-r.Context().Done()
+	}))
+	t.Cleanup(hanging.Close)
+	c, alive, _ := failoverFixture(t, hanging)
+
+	// A resend would reach the live route, which does not know /:/scrobble.
+	if err := c.Scrobble(t.Context(), "42"); err == nil || !strings.Contains(err.Error(), "no response") {
+		t.Fatalf("Scrobble error = %v, want no response", err)
+	}
+	if n := scrobbles.Load(); n != 1 {
+		t.Fatalf("scrobbles sent = %d, want 1", n)
+	}
+	// The route is dropped all the same, so the next request finds another.
+	if _, err := c.MusicSections(); err != nil || c.baseURL != alive.URL {
+		t.Fatalf("MusicSections = %v on route %q, want %q", err, c.baseURL, alive.URL)
+	}
 }
 
 func TestClientKeepsRouteOnHTTPError(t *testing.T) {

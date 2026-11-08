@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -116,11 +117,22 @@ func (c *Client) send(ctx context.Context, client *http.Client, label string, bu
 		if uerr, ok := errors.AsType[*url.Error](err); ok {
 			err = uerr.Err
 		}
-		if retried || ctx.Err() != nil || !c.dropRoute(baseURL) {
+		if retried || ctx.Err() != nil || !c.dropRoute(baseURL) || !retrySafe(req.Method, err) {
 			return nil, fmt.Errorf("plex: %s: server unreachable: %w", label, netdiag.Explain(err))
 		}
 		applog.Info("plex: %s: %v; finding another server route", label, netdiag.Explain(err))
 	}
+}
+
+// retrySafe reports whether a failed request may be sent again. A read may.
+// A write, such as a scrobble or a new play queue, may only when it never left
+// this computer: after a timeout the server may already have applied it.
+func retrySafe(method string, err error) bool {
+	if method == http.MethodGet || method == http.MethodHead {
+		return true
+	}
+	opErr, ok := errors.AsType[*net.OpError](err)
+	return ok && opErr.Op == "dial"
 }
 
 // dropRoute makes the next request rediscover the route when baseURL is still
