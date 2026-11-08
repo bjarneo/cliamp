@@ -146,7 +146,8 @@ clients. Plex is the source of truth for these hearts. cliamp neither reads nor
 writes its local `favorites.toml` entry when it draws or toggles a Plex heart.
 Existing local Plex favorites are left intact but do not control that heart, so
 the change does not discard old data. Press `Ctrl+R` to pick up likes changed
-in another client while the list is open. Until the like of a track has loaded,
+in another client while the list is open. A station is a new play queue each
+time, so `Ctrl+R` in its queue does nothing; press it in the Plex browser. Until the like of a track has loaded,
 right after start or `Ctrl+R`, `f` asks the server for it instead of changing
 it; press `f` again to change it.
 
