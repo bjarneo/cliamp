@@ -23,6 +23,7 @@ func shuffleRowsTestModel(t *testing.T, shuffle bool) Model {
 		tracks[i] = playlist.Track{
 			Path:  fmt.Sprintf("/music/track-%d.mp3", i),
 			Title: fmt.Sprintf("Song %c", 'A'+i),
+			Album: fmt.Sprintf("Album %d", i/4+1),
 		}
 	}
 	m := playlistScrollTestModel(tracks, 0, 0, false)
@@ -205,10 +206,30 @@ func TestShuffleOffKeepsCursorOnTrack(t *testing.T) {
 
 func TestShuffleKeepsPlaylistDisplayOrder(t *testing.T) {
 	m := shuffleRowsTestModel(t, true)
-	lines := strings.Split(ansi.Strip(m.renderPlaylist()), "\n")
-	for i, track := range m.playlist.Tracks() {
-		if !strings.Contains(lines[i], track.Title) {
-			t.Fatalf("row %d = %q, want stored track %q", i, lines[i], track.Title)
+	m.showAlbumHeaders = true
+	m.plVisible = 5
+
+	assertView := func(wantAlbum string, wantTracks []playlist.Track) {
+		t.Helper()
+		view := ansi.Strip(m.renderPlaylist())
+		if got := strings.Count(view, wantAlbum); got != 1 {
+			t.Fatalf("album header %q appears %d times, want once in:\n%s", wantAlbum, got, view)
+		}
+		last := -1
+		for _, track := range wantTracks {
+			pos := strings.Index(view, track.Title)
+			if pos < 0 {
+				t.Fatalf("stored track %q is missing from:\n%s", track.Title, view)
+			}
+			if pos <= last {
+				t.Fatalf("stored track %q appears out of order in:\n%s", track.Title, view)
+			}
+			last = pos
 		}
 	}
+
+	tracks := m.playlist.Tracks()
+	assertView("Album 1", tracks[:4])
+	m.setPlCursorRow(7)
+	assertView("Album 2", tracks[4:])
 }
