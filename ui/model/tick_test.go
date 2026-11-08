@@ -3,6 +3,7 @@ package model
 import (
 	"math"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/bjarneo/cliamp/ui"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type stereoFakeEngine struct {
@@ -654,6 +656,35 @@ func TestTickSampleClockShowsPendingResume(t *testing.T) {
 			m.tickSampleClock()
 			if m.cachedPos != tt.wantPos || m.cachedDur != tt.wantDur {
 				t.Fatalf("clock = %v / %v, want %v / %v", m.cachedPos, m.cachedDur, tt.wantPos, tt.wantDur)
+			}
+		})
+	}
+}
+
+// A streamed track waiting to resume shows its length, not LIVE: the engine
+// cannot seek it only because it does not play it yet. A live stream still
+// shows LIVE.
+func TestTimeStatusOfPendingResumeStream(t *testing.T) {
+	saved := playlist.Track{Path: "plex:track:200", Title: "Saved", DurationSecs: 300, Stream: true}
+	for _, tt := range []struct {
+		name   string
+		resume int
+		want   string
+	}{
+		{name: "waiting to resume", resume: 95, want: "01:35 / 05:00"},
+		{name: "live stream", want: "00:00 / LIVE"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pl := playlist.New()
+			pl.Replace([]playlist.Track{saved})
+			pl.SetIndex(0)
+			m := New(&playbackFakeEngine{}, pl, nil, "", nil, nil, nil, nil, nil, nil)
+			if tt.resume > 0 {
+				m.SetResume(saved.Path, tt.resume)
+			}
+			m.tickSampleClock()
+			if got := ansi.Strip(m.renderTimeStatus()); !strings.Contains(got, tt.want) {
+				t.Fatalf("time status = %q, want %q", got, tt.want)
 			}
 		})
 	}
