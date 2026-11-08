@@ -1001,6 +1001,55 @@ func TestProviderLoadFavoriteStates(t *testing.T) {
 	}
 }
 
+// A track removed from the server has no like, and its state is known. Plex
+// leaves removed keys out of a batch, and answers 404 when none of them
+// exists, as the real server does.
+func TestProviderLoadFavoriteStatesOfRemovedTracks(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		keys, _ := strings.CutPrefix(r.URL.Path, "/library/metadata/")
+		var items []string
+		for _, k := range strings.Split(keys, ",") {
+			if k == "1" {
+				items = append(items, `{"ratingKey":"1","title":"T1","userRating":10}`)
+			}
+		}
+		if len(items) == 0 {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"MediaContainer":{"Metadata":[%s]}}`, strings.Join(items, ","))
+	}))
+	defer srv.Close()
+
+	tests := []struct {
+		name  string
+		ids   []string
+		liked map[string]bool
+	}{
+		{"some removed", []string{"1", "2"}, map[string]bool{"1": true, "2": false}},
+		{"all removed", []string{"2", "3"}, map[string]bool{"2": false, "3": false}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newProvider(NewClient(srv.URL, "tok"))
+			var tracks []playlist.Track
+			for _, id := range tt.ids {
+				tracks = append(tracks, playlist.Track{Path: TrackURIPrefix + id})
+			}
+			if err := p.LoadFavoriteStates(t.Context(), tracks); err != nil {
+				t.Fatalf("LoadFavoriteStates: %v", err)
+			}
+			for id, want := range tt.liked {
+				got, known := p.FavoriteState(playlist.Track{Path: TrackURIPrefix + id})
+				if !known || got != want {
+					t.Errorf("FavoriteState(%s) = %v, %v; want %v, true", id, got, known, want)
+				}
+			}
+		})
+	}
+}
+
 // A Plex track names its album as a list that Tracks opens, from its
 // ProviderMeta or, for a restored track saved without it, from the metadata
 // LoadFavoriteStates fetched; and it names the filter of its artist.

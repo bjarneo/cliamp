@@ -237,6 +237,9 @@ type Playlist struct {
 	Smart        bool
 }
 
+// errNotFound reports an HTTP 404: the server has no such item.
+var errNotFound = errors.New("HTTP 404 Not Found")
+
 // get issues an authenticated GET request and decodes the JSON response into result.
 func (c *Client) get(path string, params url.Values, result any) error {
 	return c.request(http.MethodGet, path, params, result)
@@ -270,6 +273,8 @@ func (c *Client) request(method, path string, params url.Values, result any) err
 		// ok
 	case http.StatusUnauthorized:
 		return fmt.Errorf("plex: token invalid or expired")
+	case http.StatusNotFound:
+		return fmt.Errorf("plex: %s: %w", path, errNotFound)
 	default:
 		return fmt.Errorf("plex: %s: HTTP %s", path, resp.Status)
 	}
@@ -623,7 +628,13 @@ func (c *Client) TracksByKey(ratingKeys []string) ([]Track, error) {
 			Metadata []trackJSON `json:"Metadata"`
 		} `json:"MediaContainer"`
 	}
-	if err := c.get("/library/metadata/"+strings.Join(ratingKeys, ","), nil, &result); err != nil {
+	err := c.get("/library/metadata/"+strings.Join(ratingKeys, ","), nil, &result)
+	if errors.Is(err, errNotFound) {
+		// Plex answers 404 only when none of the keys exists; a batch with
+		// some removed tracks returns the others.
+		return nil, nil
+	}
+	if err != nil {
 		return nil, err
 	}
 	tracks := make([]Track, 0, len(result.MediaContainer.Metadata))

@@ -425,6 +425,13 @@ func (p *Provider) LoadFavoriteStates(ctx context.Context, tracks []playlist.Tra
 			}
 			p.albumKeys[t.RatingKey] = t.AlbumKey
 		}
+		// A track removed from the server has no like. Its state is known,
+		// so f does not wait for a state that never loads.
+		for _, id := range batch {
+			if _, known := p.favorites[id]; !known {
+				p.favorites[id] = false
+			}
+		}
 		p.mu.Unlock()
 	}
 	return nil
