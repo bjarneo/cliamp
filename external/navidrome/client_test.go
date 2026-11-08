@@ -45,7 +45,7 @@ func subsonicHandler(t *testing.T) http.HandlerFunc {
 					"playlist": {
 						"entry": [
 							{
-								"id":"song-1","title":"So What","artist":"Miles Davis",
+								"id":"song-1","coverArt":"cover-1","title":"So What","artist":"Miles Davis",
 								"album":"Kind of Blue","year":1959,"track":1,"genre":"Jazz","duration":565
 							},
 							{
@@ -107,7 +107,7 @@ func subsonicHandler(t *testing.T) http.HandlerFunc {
 					"album": {
 						"song": [
 							{
-								"id":"song-1","title":"So What","artist":"Miles Davis",
+								"id":"song-1","coverArt":"cover-1","title":"So What","artist":"Miles Davis",
 								"album":"Kind of Blue","year":1959,"track":1,"genre":"Jazz","duration":565
 							}
 						]
@@ -121,7 +121,7 @@ func subsonicHandler(t *testing.T) http.HandlerFunc {
 					"searchResult3": {
 						"song": [
 							{
-								"id":"song-1","title":"So What","artist":"Miles Davis",
+								"id":"song-1","coverArt":"cover-1","title":"So What","artist":"Miles Davis",
 								"album":"Kind of Blue","year":1959,"track":1,"genre":"Jazz","duration":565
 							},
 							{
@@ -364,6 +364,13 @@ func TestSearchTracks(t *testing.T) {
 	}
 	if tracks[0].Meta(provider.MetaNavidromeID) != "song-1" {
 		t.Errorf("tracks[0] meta navidrome id = %q, want song-1", tracks[0].Meta(provider.MetaNavidromeID))
+	}
+	artURL, err := url.Parse(tracks[0].AlbumArtURL)
+	if err != nil {
+		t.Fatalf("parse tracks[0].AlbumArtURL: %v", err)
+	}
+	if !strings.HasSuffix(artURL.Path, "/rest/getCoverArt") || artURL.Query().Get("id") != "cover-1" {
+		t.Errorf("tracks[0].AlbumArtURL = %q, want authenticated getCoverArt URL for cover-1", tracks[0].AlbumArtURL)
 	}
 }
 

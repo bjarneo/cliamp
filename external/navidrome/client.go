@@ -497,6 +497,7 @@ func (c *NavidromeClient) SearchTracks(_ context.Context, query string, limit in
 // for tracks in both getPlaylist and getAlbum responses.
 type subsonicSong struct {
 	ID          string `json:"id"`
+	CoverArt    string `json:"coverArt"`
 	Title       string `json:"title"`
 	Artist      string `json:"artist"`
 	Album       string `json:"album"`
@@ -509,6 +510,7 @@ type subsonicSong struct {
 func (c *NavidromeClient) songToTrack(s subsonicSong) playlist.Track {
 	return playlist.Track{
 		Path:         c.streamURL(s.ID),
+		AlbumArtURL:  c.coverArtURL(s.CoverArt),
 		Title:        s.Title,
 		Artist:       s.Artist,
 		Album:        s.Album,
@@ -519,6 +521,14 @@ func (c *NavidromeClient) songToTrack(s subsonicSong) playlist.Track {
 		DurationSecs: s.Duration,
 		ProviderMeta: map[string]string{provider.MetaNavidromeID: s.ID},
 	}
+}
+
+// coverArtURL generates the authenticated Subsonic cover-art URL for a song.
+func (c *NavidromeClient) coverArtURL(id string) string {
+	if id == "" {
+		return ""
+	}
+	return c.buildURL("getCoverArt", url.Values{"id": {id}})
 }
 
 // subsonicAlbum holds the common JSON fields returned by the Subsonic API

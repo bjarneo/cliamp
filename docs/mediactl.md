@@ -89,7 +89,7 @@ cliamp publishes track metadata with standard MPRIS keys:
 | `xesam:artist` | Artist name as a list with one entry |
 | `xesam:album` | Album name, when available |
 | `xesam:url` | File path or stream URL |
-| `mpris:artUrl` | Embedded album art from local files, when available |
+| `mpris:artUrl` | Album art from local files and providers such as Navidrome, when available |
 | `mpris:length` | Duration in microseconds |
 
 Query metadata:
@@ -138,8 +138,8 @@ On macOS, cliamp publishes now-playing information to the system MPNowPlayingInf
 - Hardware media keys (play/pause, next, previous)
 - Bluetooth headphone buttons
 
-Local files with embedded cover art publish that art to Control Centre and Lock
-Screen media controls. cliamp caches art by content in
+Local files with embedded cover art and providers that expose artwork publish it
+to Control Centre and Lock Screen media controls. cliamp caches local-file art by content in
 `~/.local/share/cliamp/album-art/`. It removes cached art as needed to keep the
 cache near 100 MB.
 
