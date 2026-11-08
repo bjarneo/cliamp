@@ -209,14 +209,14 @@ func TestShuffleKeepsPlaylistDisplayOrder(t *testing.T) {
 	m.showAlbumHeaders = true
 	m.plVisible = 5
 
-	assertView := func(wantAlbum string, wantTracks []playlist.Track) {
+	assertView := func(wantAlbum string, start int, wantTracks []playlist.Track) {
 		t.Helper()
 		view := ansi.Strip(m.renderPlaylist())
 		if got := strings.Count(view, wantAlbum); got != 1 {
 			t.Fatalf("album header %q appears %d times, want once in:\n%s", wantAlbum, got, view)
 		}
 		last := -1
-		for _, track := range wantTracks {
+		for i, track := range wantTracks {
 			pos := strings.Index(view, track.Title)
 			if pos < 0 {
 				t.Fatalf("stored track %q is missing from:\n%s", track.Title, view)
@@ -224,12 +224,24 @@ func TestShuffleKeepsPlaylistDisplayOrder(t *testing.T) {
 			if pos <= last {
 				t.Fatalf("stored track %q appears out of order in:\n%s", track.Title, view)
 			}
+			lineStart := strings.LastIndex(view[:pos], "\n") + 1
+			lineEnd := strings.Index(view[pos:], "\n")
+			if lineEnd < 0 {
+				lineEnd = len(view)
+			} else {
+				lineEnd += pos
+			}
+			line := view[lineStart:lineEnd]
+			wantNumber := fmt.Sprintf("%d. ", start+i+1)
+			if !strings.Contains(line, wantNumber) {
+				t.Fatalf("stored track %q line = %q, want number %q", track.Title, line, wantNumber)
+			}
 			last = pos
 		}
 	}
 
 	tracks := m.playlist.Tracks()
-	assertView("Album 1", tracks[:4])
+	assertView("Album 1", 0, tracks[:4])
 	m.setPlCursorRow(7)
-	assertView("Album 2", tracks[4:])
+	assertView("Album 2", 4, tracks[4:])
 }
