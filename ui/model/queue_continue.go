@@ -38,17 +38,20 @@ func (m *Model) continueQueueCmd(track playlist.Track) tea.Cmd {
 
 // handleQueueContinued appends the next batch when the queue still ends with
 // the track it continues; a queue replaced in the meantime keeps its content.
-func (m *Model) handleQueueContinued(msg queueContinuedMsg) {
+// The first new track is preloaded at once: the batch can arrive just before
+// the last track ends.
+func (m *Model) handleQueueContinued(msg queueContinuedMsg) tea.Cmd {
 	if msg.err != nil {
 		applog.Warn("continue queue: %v", msg.err)
-		return
+		return nil
 	}
 	if len(msg.tracks) == 0 || m.playlist == nil {
-		return
+		return nil
 	}
 	tracks := m.playlist.Tracks()
 	if len(tracks) == 0 || tracks[len(tracks)-1].Path != msg.after {
-		return
+		return nil
 	}
 	m.playlist.Add(msg.tracks...)
+	return m.rearmStalePreload()
 }

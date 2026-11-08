@@ -188,8 +188,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case queueContinuedMsg:
-		m.handleQueueContinued(msg)
-		return m, nil
+		return m, m.handleQueueContinued(msg)
 
 	case ytdlBatchMsg:
 		cmd := m.handleYTDLBatch(msg)
