@@ -135,8 +135,8 @@ and `Esc` clears it.
 | `Ctrl+I` | Toggle Metadata below Settings for the highlighted playlist item (remembered in `show_metadata`; requires a terminal that distinguishes Ctrl+I from Tab) |
 | `Ctrl+S` | Save track to `[downloads].directory` (default `~/Music/cliamp`). A Plex track saves its original file; one saved before is not downloaded again |
 | `w` | Write the highlighted track to a local playlist |
-| `Alt+O` | Open the album of the highlighted track: the queue becomes the album with the cursor on that track, and playback goes on. `Ctrl+Z` brings the old queue back. Plex tracks |
-| `Alt+L` | Show the albums of the highlighted track's artist: open its provider browser filtered to `^Artist — `. Edit the filter as usual; `Esc` clears it. Plex tracks |
+| `Alt+O` | Open the album of the highlighted track: the queue becomes the album with the cursor on that track, and playback goes on. `Ctrl+Z` brings the old queue back. Only Plex tracks have an album to open; on other tracks the key does nothing |
+| `Alt+L` | Show the albums of the highlighted track's artist: open its provider browser filtered to `^Artist — `. Edit the filter as usual; `Esc` clears it. Only Plex tracks name their artist this way; on other tracks the key does nothing |
 | `N` | Open the active provider browser. On a selected Mixcloud show, open that creator's Uploads/Favorites. In the radio pane, open the country browser. |
 | `L` | Open Local provider |
 | `R` | Open radio provider |

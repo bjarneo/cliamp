@@ -183,6 +183,7 @@ are in `provider/interfaces.go`.
 | `AlbumTrackLoader` | Album track listing | `AlbumTracks(albumID)` |
 | `PlaybackReporter` | Playback reporting at track start and finish | `CanReportPlayback(track)`, `ReportNowPlaying(track, position, canSeek) error`, `ReportScrobble(track, elapsed, duration, canSeek) error` |
 | `ProgressReporter` | Interim position updates while playing, in addition to the start and finish reports of `PlaybackReporter` | `ReportProgress(track, position) error` |
+| `TimelineReporter` | A `ProgressReporter` whose server shows the state of each listen. The UI reports a pause, a resume or a seek at once, and ends a listen left without a scrobble | `ReportPaused(track, position) error`, `ReportStopped(track, position) error` |
 | `TrackPosition` | Server-side position for one track, read on every play | `CanTrackPosition(track)`, `TrackPosition(track)` |
 | `ResumeTarget` | Server-side resume position of a playlist | `ResumeTarget(playlistID, tracks)` |
 | `PlaybackStateReporter` | Played and in-progress markers from local state. It must do no I/O | `HasPlaybackState()`, `PlaybackState(track)` |
@@ -200,6 +201,7 @@ are in `provider/interfaces.go`.
 | `PlaylistDocumenter` | Snapshot and restore a playlist document for undo | `PlaylistDocument(name)`, `RestorePlaylistDocument(name, data)` |
 | `PlaylistDirSourceManager` | Directory sources of a playlist | `DirSources`, `AddDirSource`, `RemoveDirSource`, `SetDirRecursive` |
 | `TrackPager` | Fill the queue one page at a time | `TracksPage(playlistID, offset)` |
+| `QueueContinuer` | Lists that never end, such as radio stations, loaded in batches. When the last track of a batch starts, the UI appends the next batch. `CanContinueAfter` must not do I/O | `CanContinueAfter(track)`, `ContinueAfter(track)` |
 | `CustomStreamer` | Custom URI decode pipeline | `URISchemes()`, `NewStreamer(uri)` |
 | `FavoriteToggler` | Favorite toggling for provider list items, such as stations and shows | `ToggleFavorite(id)` |
 | `TrackFavoriter` | Copy the ♥ favorite of a track to the service, such as liked or starred songs. The UI calls it in a `tea.Cmd` and keeps the local favorite when it fails | `CanFavoriteTrack(track)`, `SetTrackFavorite(ctx, track, favorite) error` |
