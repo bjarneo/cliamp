@@ -3,6 +3,7 @@ package resolve
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -105,7 +106,8 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 			switch depth {
 			case 0:
 				if seenRSS || token.Name != (xml.Name{Local: "rss"}) {
-					return nil, fmt.Errorf("parsing feed: expected a single RSS root")
+					err = errors.New("expected a single RSS root")
+					break
 				}
 				seenRSS = true
 				depth++
@@ -115,7 +117,8 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 					break
 				}
 				if seenChannel {
-					return nil, fmt.Errorf("parsing feed: multiple RSS channels")
+					err = errors.New("multiple RSS channels")
+					break
 				}
 				seenChannel = true
 				depth++
@@ -232,7 +235,7 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 		case xml.CharData:
 			text := strings.TrimSpace(string(token))
 			if depth == 0 && text != "" && !(!seenRSS && text == "\ufeff") {
-				return nil, fmt.Errorf("parsing feed: text outside RSS root")
+				err = errors.New("text outside RSS root")
 			}
 		}
 		if err != nil {
