@@ -74,10 +74,10 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 	var channelTitle, channelArt string
 	var seenRSS, seenChannel bool
 	// keepParsed reports whether an error only cut the feed short, so the episodes
-	// parsed so far stand: the cap stopped the read, or any error came after
-	// maxFeedEpisodes, where parsing used to stop. A caller cancellation stays an error.
+	// parsed so far stand: the cap stopped the read, or any error, a deadline included,
+	// came after maxFeedEpisodes, where parsing used to stop. A cancellation stays an error.
 	keepParsed := func() bool {
-		if !seenChannel || ctx.Err() != nil {
+		if !seenChannel || errors.Is(ctx.Err(), context.Canceled) {
 			return false
 		}
 		return body.N == 0 || len(episodes) >= maxFeedEpisodes
@@ -85,6 +85,9 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 	depth := 0
 	for {
 		if err := ctx.Err(); err != nil {
+			if keepParsed() {
+				break
+			}
 			return nil, fmt.Errorf("parsing feed: %w", err)
 		}
 		token, err := dec.Token()

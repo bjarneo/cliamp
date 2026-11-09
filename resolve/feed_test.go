@@ -750,6 +750,40 @@ func TestFeedStructureErrorAfterLimit(t *testing.T) {
 	}
 }
 
+func TestFeedCallerDeadline(t *testing.T) {
+	// The server stalls after some episodes until the caller's deadline: past
+	// maxFeedEpisodes the parsed ones stand; before, the deadline is the error.
+	start := time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC)
+	for _, sent := range []int{305, 10} {
+		t.Run(strconv.Itoa(sent), func(t *testing.T) {
+			release := make(chan struct{})
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				io.WriteString(w, `<rss><channel><title>Show</title>`)
+				for i := 1; i <= sent; i++ {
+					fmt.Fprintf(w, `<item><title>Episode %d</title><pubDate>%s</pubDate><enclosure url="https://example.com/%d.mp3"/></item>`,
+						i, start.AddDate(0, 0, i).Format(time.RFC1123Z), i)
+				}
+				w.(http.Flusher).Flush()
+				<-release
+			}))
+			defer srv.Close()
+			defer close(release)
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
+			tracks, err := Feed(ctx, srv.URL)
+			if sent < maxFeedEpisodes {
+				if !errors.Is(err, context.DeadlineExceeded) {
+					t.Fatalf("got %d tracks, err = %v; want context.DeadlineExceeded", len(tracks), err)
+				}
+				return
+			}
+			if err != nil || len(tracks) != maxFeedEpisodes || tracks[0].Title != fmt.Sprintf("Episode %d", sent) {
+				t.Fatalf("got %d tracks, err = %v; want %d, newest first", len(tracks), err, maxFeedEpisodes)
+			}
+		})
+	}
+}
+
 func TestFeedNamedZones(t *testing.T) {
 	// 09:30 EST is 14:30 UTC, after 12:00 GMT, whether or not the system knows EST.
 	body := `<rss><channel>
