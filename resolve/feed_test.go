@@ -717,6 +717,39 @@ func TestFeedXMLErrorAfterLimit(t *testing.T) {
 	}
 }
 
+func TestFeedStructureErrorAfterLimit(t *testing.T) {
+	// Bad structure past maxFeedEpisodes keeps the parsed episodes, as the old
+	// 300-item read never reached it; before that, the feed fails.
+	start := time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC)
+	for name, tail := range map[string]string{
+		"text after root": `</channel></rss>trailing text`,
+		"second root":     `</channel></rss><rss></rss>`,
+		"second channel":  `</channel><channel></channel></rss>`,
+	} {
+		for _, sent := range []int{305, 10} {
+			t.Run(fmt.Sprintf("%s/%d", name, sent), func(t *testing.T) {
+				var b strings.Builder
+				b.WriteString(`<rss><channel><title>Show</title>`)
+				for i := 1; i <= sent; i++ {
+					fmt.Fprintf(&b, `<item><title>Episode %d</title><pubDate>%s</pubDate><enclosure url="https://example.com/%d.mp3"/></item>`,
+						i, start.AddDate(0, 0, i).Format(time.RFC1123Z), i)
+				}
+				b.WriteString(tail)
+				tracks, err := Feed(context.Background(), serveFeed(t, b.String()))
+				if sent < maxFeedEpisodes {
+					if err == nil {
+						t.Fatalf("got %d tracks and no error; want the structure error", len(tracks))
+					}
+					return
+				}
+				if err != nil || len(tracks) != maxFeedEpisodes || tracks[0].Title != fmt.Sprintf("Episode %d", sent) {
+					t.Fatalf("got %d tracks, err = %v; want %d, newest first", len(tracks), err, maxFeedEpisodes)
+				}
+			})
+		}
+	}
+}
+
 func TestFeedNamedZones(t *testing.T) {
 	// 09:30 EST is 14:30 UTC, after 12:00 GMT, whether or not the system knows EST.
 	body := `<rss><channel>
