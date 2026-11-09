@@ -265,8 +265,7 @@ func (m Model) View() tea.View {
 
 	// Every screen now renders within the main frame, so frame and center
 	// uniformly.
-	rendered := m.centerFrame(m.layout.frameStyle().Render(content))
-	rendered = ui.FitRect(rendered, m.layout.frameWidth, max(1, m.height))
+	rendered := m.renderFrame(content)
 
 	if box := m.renderLuaSelect(); box != "" {
 		rendered = overlayCentered(rendered, box, m.layout.frameWidth, m.height)
@@ -576,23 +575,40 @@ func (m Model) renderCompactSource() string {
 	return m.settingsSource(m.layout.panelWidth)
 }
 
-// centerFrame centers a pre-rendered frame in the terminal.
-func (m Model) centerFrame(frame string) string {
-	frameW := lipgloss.Width(frame)
-	frameH := lipgloss.Height(frame)
-	padLeft := max(0, (m.width-frameW)/2)
-	padTop := max(0, (m.height-frameH)/2)
+// renderFrame pads content into the frame, centres it and fits it to the
+// terminal in one pass. It draws what frameStyle().Render, centring and
+// ui.FitRect drew, except that a line wider than the panel is cut, not wrapped.
+func (m Model) renderFrame(content string) string {
+	l := m.layout
+	content = strings.ReplaceAll(content, "\t", "    ") // as lipgloss did
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	lines := strings.Split(content, "\n")
+	height := max(1, m.height)
+	inner := max(1, l.frameWidth-2*l.paddingH)
+	side := strings.Repeat(" ", l.paddingH)
+	blank := strings.Repeat(" ", l.frameWidth)
 
-	if padLeft == 0 {
-		return strings.Repeat("\n", padTop) + frame
+	out := make([]string, max(0, (height-len(lines)-2*l.paddingV)/2))
+	for range l.paddingV {
+		out = append(out, blank)
 	}
-	// Indent every line by padLeft spaces.
-	prefix := strings.Repeat(" ", padLeft)
-	lines := strings.Split(frame, "\n")
-	for i, l := range lines {
-		lines[i] = prefix + l
+	for _, line := range lines {
+		out = append(out, side+fitLine(line, inner)+side)
 	}
-	return strings.Repeat("\n", padTop) + strings.Join(lines, "\n")
+	for range l.paddingV {
+		out = append(out, blank)
+	}
+	return strings.Join(out[:min(len(out), height)], "\n")
+}
+
+// fitLine pads or cuts s to exactly width cells.
+func fitLine(s string, width int) string {
+	w := ansi.StringWidth(s)
+	if w > width {
+		s = ansi.Truncate(s, width, "")
+		w = ansi.StringWidth(s)
+	}
+	return s + strings.Repeat(" ", max(0, width-w))
 }
 
 func (m Model) renderTitle() string {
@@ -704,17 +720,34 @@ func (m Model) renderFullVisualizer() string {
 		sections = append(
 			sections,
 			"",
-			helpKey("V", "Exit ")+
-				helpKey("v", "Mode:"+m.vis.ModeName()+" ")+
-				helpKey("Spc", "▶❚❚ ")+
-				helpKey("<>", "Trk ")+
-				helpKey("+-", "Vol ")+
-				helpKey("t", "Title ")+
-				helpKey("?", "Keys"),
+			m.fullVisHelp(),
 		)
 	}
 
 	return strings.Join(sections, "\n")
+}
+
+// fullVisHelp keeps as many whole hints as fit the panel.
+func (m Model) fullVisHelp() string {
+	var b strings.Builder
+	width := 0
+	for _, h := range []string{
+		helpKey("V", "Exit "),
+		helpKey("v", "Mode:"+m.vis.ModeName()+" "),
+		helpKey("Spc", "▶❚❚ "),
+		helpKey("<>", "Trk "),
+		helpKey("+-", "Vol "),
+		helpKey("t", "Title "),
+		helpKey("?", "Keys"),
+	} {
+		w := lipgloss.Width(h)
+		if width > 0 && width+w > m.layout.panelWidth {
+			break
+		}
+		b.WriteString(h)
+		width += w
+	}
+	return b.String()
 }
 
 // fullVisTopLine names what is playing, or just the source when the track has
