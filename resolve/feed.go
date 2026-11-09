@@ -105,6 +105,8 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 				switch token.Name {
 				case xml.Name{Local: "title"}:
 					err = dec.DecodeElement(&channelTitle, &token)
+					// Decoded once here, so the tracks share one string.
+					channelTitle = html.UnescapeString(channelTitle)
 				case xml.Name{Local: "image"}, xml.Name{Space: itunesNS, Local: "image"}:
 					var image struct {
 						Href string `xml:"href,attr"`
@@ -212,7 +214,7 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 	}
 	// Channel metadata may follow items; apply it after the portion we read.
 	for i := range tracks {
-		tracks[i].Artist = html.UnescapeString(strings.TrimSpace(channelTitle))
+		tracks[i].Artist = strings.TrimSpace(channelTitle)
 		tracks[i].Album = tracks[i].Artist
 		if tracks[i].AlbumArtURL == "" {
 			tracks[i].AlbumArtURL = channelArt
