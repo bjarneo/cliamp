@@ -3,7 +3,6 @@ package resolve
 import (
 	"context"
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -73,14 +72,14 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 	var episodes []feedEpisode
 	var channelTitle, channelArt string
 	var seenRSS, seenChannel bool
-	// keepParsed reports whether a read error only cut the feed short, so the episodes
-	// parsed so far stand: the cap stopped the read, or the client timed out after the
-	// maxFeedEpisodes that main stopped reading at. A caller cancellation stays an error.
-	keepParsed := func(err error) bool {
+	// keepParsed reports whether an error only cut the feed short, so the episodes
+	// parsed so far stand: the cap stopped the read, or any error came after
+	// maxFeedEpisodes, where parsing used to stop. A caller cancellation stays an error.
+	keepParsed := func() bool {
 		if !seenChannel || ctx.Err() != nil {
 			return false
 		}
-		return body.N == 0 || len(episodes) >= maxFeedEpisodes && errors.Is(err, context.DeadlineExceeded)
+		return body.N == 0 || len(episodes) >= maxFeedEpisodes
 	}
 	depth := 0
 	for {
@@ -95,7 +94,7 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 			break
 		}
 		if err != nil {
-			if keepParsed(err) {
+			if keepParsed() {
 				break
 			}
 			return nil, fmt.Errorf("parsing feed: %w", err)
@@ -233,7 +232,7 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 			}
 		}
 		if err != nil {
-			if keepParsed(err) {
+			if keepParsed() {
 				break
 			}
 			return nil, fmt.Errorf("parsing feed: %w", err)
@@ -255,9 +254,6 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 	return tracks, nil
 }
 
-// feedEpisode pairs a parsed episode with its full publication time, which
-// orders same-day episodes that the YYYY-MM-DD metadata cannot. A zero time
-// means the item had no parseable date.
 // rfc822Offsets are the named zones RFC 822 defines, in seconds east of UTC.
 var rfc822Offsets = map[string]int{
 	"EST": -5 * 3600, "EDT": -4 * 3600, "CST": -6 * 3600, "CDT": -5 * 3600,
@@ -292,6 +288,9 @@ func newestEpisodes(episodes []feedEpisode) []feedEpisode {
 	return episodes[:min(len(episodes), maxFeedEpisodes)]
 }
 
+// feedEpisode pairs a parsed episode with its full publication time, which
+// orders same-day episodes that the YYYY-MM-DD metadata cannot. A zero time
+// means the item had no parseable date.
 type feedEpisode struct {
 	track     playlist.Track
 	published time.Time
