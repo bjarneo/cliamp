@@ -12,6 +12,7 @@ import (
 
 	"github.com/bjarneo/cliamp/external/radio"
 	"github.com/bjarneo/cliamp/favorites"
+	"github.com/bjarneo/cliamp/internal/cellwidth"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/ui"
@@ -603,10 +604,10 @@ func (m Model) renderFrame(content string) string {
 
 // fitLine pads or cuts s to exactly width cells.
 func fitLine(s string, width int) string {
-	w := ansi.StringWidth(s)
+	w := cellwidth.String(s)
 	if w > width {
 		s = ansi.Truncate(s, width, "")
-		w = ansi.StringWidth(s)
+		w = cellwidth.String(s)
 	}
 	return s + strings.Repeat(" ", max(0, width-w))
 }
