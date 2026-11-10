@@ -360,6 +360,8 @@ type Model struct {
 	height          int
 	layout          frameLayout
 	textInput       textEditor
+	layoutText      string // what the layout typed for the key physicalKey rewrote, while it is handled
+	layoutKeysOff   bool   // the terminal can't send the typed text with key positions; see handleKeyboardEnhancements
 	playlistUndo    playlistUndo
 
 	// Provider state

@@ -10,6 +10,20 @@ list first. The keymap cannot run key pairs such as `Left` `Right`, the `N`
 then `j` seek, or a player command while another screen is open. For these
 entries, a status message tells you which key to press.
 
+## Non-Latin keyboard layouts
+
+The keys also work from a layout that does not type Latin letters, such as
+Russian, Greek, Arabic or Hebrew, in a terminal with the full
+[Kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)
+(for example kitty, foot or Ghostty). A key that types a non-Latin character
+runs the command of the key in the same place on a US layout: `й` is `q`,
+`Ctrl+л` is `Ctrl+K`, and `Shift+؟` is `?`. Search and filter fields still get
+the characters of your layout. Other terminals send keys as before.
+
+Keys that type ASCII characters or Latin letters keep their meaning, so
+AZERTY, QWERTZ and Dvorak work as before. On a Russian layout, `?` is
+`Shift+7`, where that layout types it.
+
 ## Playback
 
 | Key | Action |

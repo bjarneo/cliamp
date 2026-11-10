@@ -68,6 +68,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.handlePaste(msg.Content)
 		return m, cmd
 
+	case tea.KeyboardEnhancementsMsg:
+		m.handleKeyboardEnhancements(msg)
+		return m, nil
+
 	case tea.KeyPressMsg:
 		cmd := m.handleKey(msg)
 		if m.quitting {
