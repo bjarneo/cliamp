@@ -591,6 +591,26 @@ func TestSetStreamTitle(t *testing.T) {
 	}
 }
 
+func TestStreamTitleICYTracksTheSource(t *testing.T) {
+	p := newTestPlayer()
+	p.setStreamTitle("Resolver - Song")
+	if p.StreamTitleICY() {
+		t.Error("StreamTitleICY() = true after a resolver title")
+	}
+	p.setICYStreamTitle("Artist - Song")
+	if !p.StreamTitleICY() {
+		t.Error("StreamTitleICY() = false after an ICY title")
+	}
+	p.setStreamTitle("Resolver - Song")
+	if !p.StreamTitleICY() {
+		t.Error("StreamTitleICY() = false after a resolver title followed ICY")
+	}
+	p.clearStreamTitle()
+	if p.StreamTitleICY() || p.StreamTitle() != "" {
+		t.Errorf("after clear: ICY = %v, title = %q", p.StreamTitleICY(), p.StreamTitle())
+	}
+}
+
 func TestRegisterStreamerFactory(t *testing.T) {
 	p := newTestPlayer()
 	var noop StreamerFactory // nil factory is fine for this storage-only test

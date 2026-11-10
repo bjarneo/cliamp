@@ -75,7 +75,8 @@ type Player struct {
 
 	lastPlayedDuration time.Duration // real duration of the track finished by the last gapless swap
 
-	streamTitle atomic.Value // stores string, set by ICY reader callback
+	streamTitle    atomic.Value // stores string, set by ICY reader callback or the metadata poller
+	streamTitleICY atomic.Bool  // inline ICY metadata has arrived for the current stream
 
 	// The source registries are guarded by mu. Register writes them, and
 	// buildPipeline reads them when a track starts.
@@ -858,9 +859,27 @@ func (p *Player) StreamTitle() string {
 	return v
 }
 
-// setStreamTitle is the ICY onMeta callback, called from the reader goroutine.
+// StreamTitleICY reports whether the current stream has sent inline ICY
+// metadata, as opposed to a title from the metadata resolver or none at all.
+func (p *Player) StreamTitleICY() bool {
+	return p.streamTitleICY.Load()
+}
+
+// setStreamTitle publishes a title from the metadata poller.
 func (p *Player) setStreamTitle(title string) {
 	p.streamTitle.Store(title)
+}
+
+// setICYStreamTitle is the ICY onMeta callback, called from the reader goroutine.
+func (p *Player) setICYStreamTitle(title string) {
+	p.streamTitle.Store(title)
+	p.streamTitleICY.Store(true)
+}
+
+// clearStreamTitle forgets the title and its source when a new pipeline builds.
+func (p *Player) clearStreamTitle() {
+	p.streamTitle.Store("")
+	p.streamTitleICY.Store(false)
 }
 
 // RegisterStreamMetadataResolver installs a resolver used to pull now-playing

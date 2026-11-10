@@ -435,7 +435,7 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 
 func (m Model) renderSimplifiedTrackInfo() string {
 	track, _ := m.currentPlaybackTrack()
-	name := trackInfoName(track, m.streamTitle)
+	name := trackInfoName(track, m.effectiveStreamTitle())
 
 	duration := formatTrackTime(int(m.cachedDur.Seconds()))
 	if duration == "" {
@@ -611,7 +611,7 @@ func (m Model) renderTitle() string {
 
 func (m Model) renderTrackInfo() string {
 	track, _ := m.currentPlaybackTrack()
-	name := trackInfoName(track, m.streamTitle)
+	name := trackInfoName(track, m.effectiveStreamTitle())
 	// The "♫ " prefix takes two cells; the rest of the row is the marquee's,
 	// so a name only scrolls once it genuinely cannot fit.
 	suffix := ""

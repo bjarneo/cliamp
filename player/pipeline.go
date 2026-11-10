@@ -230,7 +230,7 @@ func (p *Player) buildSource(path string, knownDuration, offset time.Duration, p
 // duration (use 0 if unknown).
 func (p *Player) buildPipeline(path string, knownDuration time.Duration) (*trackPipeline, error) {
 	// Clear stream title on each new pipeline build.
-	p.streamTitle.Store("")
+	p.clearStreamTitle()
 
 	// Custom URI schemes (e.g., spotify:track:xxx) are handled by a
 	// registered StreamerFactory, bypassing normal file/HTTP decoding.
@@ -303,7 +303,7 @@ func (p *Player) buildPipeline(path string, knownDuration time.Duration) (*track
 	// For HTTP URLs, pass the ICY metadata callback; for local files, nil.
 	var onMeta func(string)
 	if remote {
-		onMeta = p.setStreamTitle
+		onMeta = p.setICYStreamTitle
 	}
 	src, err := openSource(path, onMeta)
 	if err != nil {

@@ -127,7 +127,7 @@ inline as SHOUTcast/Icecast ICY metadata:
 | `title` | Current song from the ICY tag. A tag without the ` - ` separator is the whole title. Before a tag arrives, and while the tag has an empty artist or title part, this is the station name. |
 | `artist` | Current artist when the ICY tag uses `"Artist - Title"` and both parts are set. cliamp trims both parts. |
 | `station` | Station name. Present only after a song replaces `title`. |
-| `stream_title` | Raw, unsplit ICY value |
+| `stream_title` | Raw, unsplit ICY value, or the title a plugin set with `cliamp.player.set_stream_title` |
 
 A status bar can show the station and song together:
 

@@ -47,6 +47,7 @@ type playbackFakeEngine struct {
 	volume              float64
 	mono                bool
 	streamTitle         string
+	streamTitleICY      bool
 	playErr             error // PlayAt and PlayAtForGeneration fail with it
 	startsAtOffset      bool  // PlayAt moves position to its offset, as a seekable decoder does
 }
@@ -134,6 +135,7 @@ func (f *playbackFakeEngine) SetEQBand(band int, gain float64)       { f.eqBands
 func (f *playbackFakeEngine) EQBands() [10]float64                   { return f.eqBands }
 func (f *playbackFakeEngine) StreamErr() error                       { return nil }
 func (f *playbackFakeEngine) StreamTitle() string                    { return f.streamTitle }
+func (f *playbackFakeEngine) StreamTitleICY() bool                   { return f.streamTitleICY }
 func (f *playbackFakeEngine) StreamBytes() (downloaded, total int64) { return 0, 0 }
 func (f *playbackFakeEngine) SamplesInto([]float64) int              { return 0 }
 func (f *playbackFakeEngine) WaveformSamplesInto([]float64) int      { return 0 }

@@ -448,14 +448,19 @@ func (m *Model) tickStreamHealth(now time.Time) {
 // the song changes while the lyrics overlay is open, it returns the command
 // that fetches the new lyrics.
 func (m *Model) tickStreamTitle() tea.Cmd {
-	title := m.player.StreamTitle()
-	if title == "" || title == m.streamTitle {
+	before := m.effectiveStreamTitle()
+	if title := m.player.StreamTitle(); title != "" {
+		m.streamTitle = title
+	}
+	// Inline ICY metadata replaces a plugin override. A resolver title does not.
+	if m.player.StreamTitleICY() {
+		m.pluginStreamTitle = ""
+	}
+	title := m.effectiveStreamTitle()
+	if title == before {
 		return nil
 	}
-	m.streamTitle = title
-	m.resetTitleScroll()
-	m.applyHeightMode()
-	m.adjustScroll()
+	m.refreshStreamTitleUI()
 	if !m.lyrics.visible || m.lyrics.loading {
 		return nil
 	}

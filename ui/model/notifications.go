@@ -19,6 +19,11 @@ import (
 type playbackNotice struct {
 	sent  bool
 	state playback.State
+	// streamTitle is tracked separately because playback.State doesn't
+	// include it, yet a plugin can change the stream title without changing
+	// any other playback state. The dedup must catch that change so plugins
+	// and media controls are notified.
+	streamTitle string
 }
 
 // attachNotifier sets the media controls notifier. Update then sends it the
@@ -43,10 +48,11 @@ func (m *Model) notifyPlaybackChange() {
 	m.artRef.set(state.Track.ArtURL)
 	key := state
 	key.Position = key.Position.Truncate(time.Second)
-	if m.notice.sent && key == m.notice.state {
+	streamTitle := m.effectiveStreamTitle()
+	if m.notice.sent && key == m.notice.state && streamTitle == m.notice.streamTitle {
 		return
 	}
-	m.notice = playbackNotice{sent: true, state: key}
+	m.notice = playbackNotice{sent: true, state: key, streamTitle: streamTitle}
 	if m.notifier != nil {
 		m.notifier.Update(state)
 	}
@@ -58,6 +64,7 @@ func (m *Model) notifyPlaybackChange() {
 		data["status"] = m.playerStatus()
 		data["title"] = state.Track.Title
 		data["artist"] = state.Track.Artist
+		data["stream_title"] = streamTitle
 		data["position"] = state.Position.Seconds()
 		m.emitPlugin(luaplugin.EventPlaybackState, data)
 	}
@@ -137,7 +144,19 @@ func (m *Model) playerStatus() string {
 // resolveTrackDisplay returns the display artist and title, applying ICY
 // stream title override for radio streams.
 func (m *Model) resolveTrackDisplay(track playlist.Track) (artist, title string) {
-	return streamDisplay(track, m.streamTitle)
+	return streamDisplay(track, m.effectiveStreamTitle())
+}
+
+// effectiveStreamTitle returns the stream title to display: a plugin override
+// set via cliamp.player.set_stream_title wins when present; otherwise the
+// title the player reports. tickStreamTitle drops the override once inline ICY
+// metadata arrives, so ICY metadata is never hidden. The caller is responsible for checking
+// track.Stream before showing it.
+func (m *Model) effectiveStreamTitle() string {
+	if m.pluginStreamTitle != "" {
+		return m.pluginStreamTitle
+	}
+	return m.streamTitle
 }
 
 // streamDisplay returns the artist and title to show for track while its
