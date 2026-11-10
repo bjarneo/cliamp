@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"html"
 	"io"
 	"mime"
 	"net/http"
@@ -104,6 +105,8 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 				switch token.Name {
 				case xml.Name{Local: "title"}:
 					err = dec.DecodeElement(&channelTitle, &token)
+					// Decoded once here, so the tracks share one string.
+					channelTitle = html.UnescapeString(channelTitle)
 				case xml.Name{Local: "image"}, xml.Name{Space: itunesNS, Local: "image"}:
 					var image struct {
 						Href string `xml:"href,attr"`
@@ -155,7 +158,8 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 						default:
 							continue
 						}
-						title := strings.TrimSpace(item.Title)
+						// Publishers put HTML entities such as &quot; inside CDATA, where XML leaves them as is.
+						title := html.UnescapeString(strings.TrimSpace(item.Title))
 						if title == "" {
 							title = "Untitled episode"
 						}
