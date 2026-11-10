@@ -100,6 +100,27 @@ func TestFeedMetadata(t *testing.T) {
 	}
 }
 
+func TestFeedTitleEntities(t *testing.T) {
+	// HTML entities inside CDATA reach the decoder as literal text.
+	body := `<rss><channel><title><![CDATA[Show &amp; Tell]]></title>
+  <item><title><![CDATA[Hans Kloss w &quot;Wieczorze&quot; &#8211; part 1]]></title><enclosure url="https://example.com/a.mp3"/></item>
+  <item><title>AT&amp;T &lt;live&gt;</title><enclosure url="https://example.com/b.mp3"/></item>
+</channel></rss>`
+	tracks, err := Feed(context.Background(), serveFeed(t, body))
+	if err != nil || len(tracks) != 2 {
+		t.Fatalf("got %d tracks, err = %v; want 2", len(tracks), err)
+	}
+	if got, want := tracks[0].Title, `Hans Kloss w "Wieczorze" – part 1`; got != want {
+		t.Errorf("title = %q, want %q", got, want)
+	}
+	if got, want := tracks[1].Title, "AT&T <live>"; got != want {
+		t.Errorf("plain title = %q, want %q", got, want)
+	}
+	if got, want := tracks[0].Artist, "Show & Tell"; got != want {
+		t.Errorf("show = %q, want %q", got, want)
+	}
+}
+
 func TestFeedPublicationDates(t *testing.T) {
 	for _, tt := range []struct {
 		name, pubDate, want string
