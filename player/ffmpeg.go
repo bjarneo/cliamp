@@ -232,8 +232,15 @@ func decodeFFmpegStream(path string, sr beep.SampleRate, bitDepth int) (*ffmpegP
 // wired to the process. Callers add the concrete Seek behavior by embedding the
 // returned ffmpegPipe in a streamer type.
 func startFFmpegPipe(input string, stdin io.ReadCloser, sr beep.SampleRate, bitDepth int) (ffmpegPipe, beep.Format, error) {
+	return startFFmpegPipeArgs([]string{"-i", input}, stdin, sr, bitDepth)
+}
+
+// startFFmpegPipeArgs is startFFmpegPipe with the full input arguments, for
+// callers that set input options such as -ss or request headers before -i.
+func startFFmpegPipeArgs(inputArgs []string, stdin io.ReadCloser, sr beep.SampleRate, bitDepth int) (ffmpegPipe, beep.Format, error) {
 	_, _, precision := ffmpegPCMArgs(bitDepth)
-	cmd := exec.Command("ffmpeg", append([]string{"-i", input}, pcmOutputArgs(sr, bitDepth)...)...)
+	args := append(append([]string{}, inputArgs...), pcmOutputArgs(sr, bitDepth)...)
+	cmd := exec.Command("ffmpeg", args...)
 	cmd.Stdin = stdin
 	proc := newFFmpegProcess(cmd)
 
