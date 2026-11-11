@@ -374,10 +374,32 @@ func (m *Model) playbackClock() (time.Duration, time.Duration) {
 	return m.player.PositionAndDuration()
 }
 
+// pendingResumeClock is the TUI clock of a track that will resume at a saved
+// position. Until playback reaches it, before Enter and while the track
+// buffers, the time and seek bar show where playback continues instead of
+// 0:00. The media controls and IPC keep reporting the engine position.
+func (m *Model) pendingResumeClock() (time.Duration, time.Duration, bool) {
+	if m.resume.path == "" || m.resume.secs <= 0 || m.seek.active {
+		return 0, 0, false
+	}
+	if !m.buffering && m.player != nil && m.player.IsPlaying() {
+		return 0, 0, false
+	}
+	track, _ := m.currentPlaybackTrack()
+	if track.Path != m.resume.path {
+		return 0, 0, false
+	}
+	return time.Duration(m.resume.secs) * time.Second, time.Duration(track.DurationSecs) * time.Second, true
+}
+
 // tickSampleClock caches the position and duration once per tick, so that
 // the View render functions do not take speaker.Lock() several times.
 // PositionAndDuration() batches both reads under one speaker lock.
 func (m *Model) tickSampleClock() {
+	if pos, dur, ok := m.pendingResumeClock(); ok {
+		m.cachedPos, m.cachedDur = pos, dur
+		return
+	}
 	if m.buffering {
 		m.cachedPos, m.cachedDur = m.playbackClock()
 		return

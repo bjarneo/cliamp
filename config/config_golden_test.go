@@ -379,7 +379,14 @@ func TestLoadGolden(t *testing.T) {
 		UserID:      "optional-account-user-id",
 	}
 	allWant.Yandex = YandexConfig{Enabled: true, Token: "y0_YourPersonalOAuthToken"}
-	allWant.Plex = PlexConfig{URL: "http://192.168.1.10:32400", Token: "xxxxxxxxxxxxxxxxxxxx", Libraries: []string{"Music", "Jazz"}}
+	allWant.Plex = PlexConfig{
+		URL:       "http://192.168.1.10:32400",
+		Token:     "xxxxxxxxxxxxxxxxxxxx",
+		ClientID:  "generated-per-installation-id",
+		ServerID:  "selected-server-id",
+		Libraries: []string{"Music", "Jazz"},
+		Stations:  []string{"Library Radio", "Random Album Radio"},
+	}
 	allWant.Jellyfin = JellyfinConfig{
 		URL:      "https://jellyfin.example.com",
 		Token:    "optional-api-token",

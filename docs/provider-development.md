@@ -183,6 +183,7 @@ are in `provider/interfaces.go`.
 | `AlbumTrackLoader` | Album track listing | `AlbumTracks(albumID)` |
 | `PlaybackReporter` | Playback reporting at track start and finish | `CanReportPlayback(track)`, `ReportNowPlaying(track, position, canSeek) error`, `ReportScrobble(track, elapsed, duration, canSeek) error` |
 | `ProgressReporter` | Interim position updates while playing, in addition to the start and finish reports of `PlaybackReporter` | `ReportProgress(track, position) error` |
+| `TimelineReporter` | A `ProgressReporter` whose server shows the state of each listen. The UI reports a pause, a resume or a seek at once, and ends a listen left without a scrobble | `ReportPaused(track, position) error`, `ReportStopped(track, position) error` |
 | `TrackPosition` | Server-side position for one track, read on every play | `CanTrackPosition(track)`, `TrackPosition(track)` |
 | `ResumeTarget` | Server-side resume position of a playlist | `ResumeTarget(playlistID, tracks)` |
 | `PlaybackStateReporter` | Played and in-progress markers from local state. It must do no I/O | `HasPlaybackState()`, `PlaybackState(track)` |
@@ -200,10 +201,16 @@ are in `provider/interfaces.go`.
 | `PlaylistDocumenter` | Snapshot and restore a playlist document for undo | `PlaylistDocument(name)`, `RestorePlaylistDocument(name, data)` |
 | `PlaylistDirSourceManager` | Directory sources of a playlist | `DirSources`, `AddDirSource`, `RemoveDirSource`, `SetDirRecursive` |
 | `TrackPager` | Fill the queue one page at a time | `TracksPage(playlistID, offset)` |
+| `QueueContinuer` | Lists that never end, such as radio stations, loaded in batches. When the last track of a batch starts, the UI appends the next batch. `CanContinueAfter` must not do I/O | `CanContinueAfter(track)`, `ContinueAfter(track)` |
 | `CustomStreamer` | Custom URI decode pipeline | `URISchemes()`, `NewStreamer(uri)` |
 | `FavoriteToggler` | Favorite toggling for provider list items, such as stations and shows | `ToggleFavorite(id)` |
 | `TrackFavoriter` | Copy the ♥ favorite of a track to the service, such as liked or starred songs. The UI calls it in a `tea.Cmd` and keeps the local favorite when it fails | `CanFavoriteTrack(track)`, `SetTrackFavorite(ctx, track, favorite) error` |
 | `TrackRater` | Set or clear a provider-owned numeric track rating | `CanRateTrack(track)`, `SetTrackRating(ctx, track, rating) error` |
+| `TrackFavoriteState` | Make provider metadata authoritative for a track's ♥ state. Local favorites are ignored for tracks claimed by this interface | `CanFavoriteTrack(track)`, `FavoriteState(track)` |
+| `TrackAlbumResolver` | Name the album of a track as one of the provider's lists, for `Alt+O`. Must not do I/O | `AlbumForTrack(track)` |
+| `TrackArtistFilter` | Name the list filter that shows a track's artist, for `Alt+L`. Must not do I/O | `ArtistFilter(track)` |
+| `TrackDownloader` | Hand over the original file of a streamed track, for `Ctrl+S` and the `save` operation. `CanDownloadTrack` must not do I/O | `CanDownloadTrack(track)`, `OpenTrackFile(ctx, track) (io.ReadCloser, ext, error)` |
+| `TrackFavoriteLoader` | Fetch the ♥ state of tracks that have none, such as the start playlist restored from the last session. The UI calls it in a `tea.Cmd` at start | `LoadFavoriteStates(ctx, tracks) error` |
 | `CatalogLoader` | Lazy paging of a large catalog | `LoadCatalogPage(offset, limit)` |
 | `CatalogSearcher` | Server-side catalog search that fills the pane | `SearchCatalog(query)`, `ClearSearch()`, `IsSearching()` |
 | `LocationConsenter` | Ask before the provider uses the location of the listener | `NeedsLocationConsent()`, `LocationConsentID()`, `LocationPrompt()`, `SetLocationConsent(allowed)` |

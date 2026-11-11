@@ -160,6 +160,8 @@ var commandRegistry = []commandSpec{
 		}
 		return "Browse provider"
 	}, Enabled: func(m Model) bool { return m.canOpenProviderBrowser() }, Keymap: true, ContextHelp: true, Prominent: true},
+	{Mode: commandModeMain, Keys: []string{"alt+o"}, KeyLabel: "Alt+O", Label: "Open the track's album", Enabled: func(m Model) bool { return m.canOpenTrackAlbum() }, Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"alt+l"}, KeyLabel: "Alt+L", Label: "List the track's artist", Enabled: func(m Model) bool { return m.canOpenTrackArtist() }, Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"L"}, KeyLabel: "L", Label: "Open Local provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"R"}, KeyLabel: "R", Label: "Open radio provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"O"}, KeyLabel: "O", Label: "Open Podcasts provider", Keymap: true},

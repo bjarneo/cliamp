@@ -78,6 +78,15 @@ func (m *Model) playbackContextFor(track playlist.Track) ([]playlist.Track, int)
 	return context, trackIndexByPath(context, track.Path)
 }
 
+// resumePlaylistID names the open provider playlist that the playing track
+// comes from when it reloads in place, so a restored queue keeps Ctrl+R.
+func (m *Model) resumePlaylistID() string {
+	if m.playbackDetached || !m.refreshesInPlace() {
+		return ""
+	}
+	return m.activeProviderPlaylistID
+}
+
 func (m *Model) persistPlaybackContext(track playlist.Track, positionSec int, now time.Time) {
 	if m.resumeSaver == nil {
 		return
@@ -86,7 +95,7 @@ func (m *Model) persistPlaybackContext(track playlist.Track, positionSec int, no
 	if index < 0 {
 		return
 	}
-	m.resumeSaver(track, positionSec, cloneTracks(context), index)
+	m.resumeSaver(track, positionSec, cloneTracks(context), index, m.resumePlaylistID())
 	m.lastResumeSave = now
 }
 
@@ -386,7 +395,19 @@ func (m *Model) undoPlaylistMutation() tea.Cmd {
 	}
 	m.playlist.Restore(undo.snapshot)
 	m.normalizeQueueOverlay()
+	// The restored queue can be another list altogether, such as the one a
+	// song mix replaced, so its album headers follow its own tracks.
+	m.recountHeaderState(m.playlist.Tracks())
 	m.playlistUndo = playlistUndo{}
+	if undo.providerName != "" {
+		m.activeProviderPlaylistID = ""
+		if m.isActiveProvider(undo.providerName) {
+			m.activeProviderPlaylistID = undo.providerPlaylistID
+		}
+	}
+	if i := trackIndexByPath(m.playlist.Tracks(), undo.cursorPath); undo.cursorPath != "" && i >= 0 {
+		m.plCursor = i
+	}
 	if m.plCursor >= m.playlist.Len() {
 		m.plCursor = max(0, m.playlist.Len()-1)
 	}
@@ -569,7 +590,7 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 		positionSec = m.resume.secs
 	}
 	m.persistPlaybackContext(track, positionSec, time.Now())
-	cmd := tea.Batch(m.recordListenedTrack(track), m.ytdlArtistCmd(track))
+	cmd := tea.Batch(m.recordListenedTrack(track), m.ytdlArtistCmd(track), m.continueQueueCmd(track))
 	m.reconnect.attempts = 0
 	m.reconnect.at = time.Time{}
 	m.reconnect.ytdlLiveDrain = false

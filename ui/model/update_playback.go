@@ -184,6 +184,8 @@ func (m *Model) handleTrackSaved(msg trackSavedMsg) {
 		m.save.finishDownload()
 	}
 	switch {
+	case msg.err == nil && msg.existed:
+		m.status.Showf(statusTTLMedium, "Already saved to %s", msg.path)
 	case msg.err == nil:
 		m.status.Showf(statusTTLMedium, "Saved to %s", msg.path)
 	case msg.download:

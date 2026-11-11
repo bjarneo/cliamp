@@ -633,8 +633,10 @@ func (m Model) renderTimeStatus() string {
 
 	timeStr := fmt.Sprintf("%02d:%02d / %02d:%02d", posMin, posSec, durMin, durSec)
 
+	// A streamed track waiting to resume is not live: the engine cannot seek
+	// it only because it does not play it yet.
 	track, _ := m.currentPlaybackTrack()
-	if track.Stream && !m.player.Seekable() {
+	if _, _, pending := m.pendingResumeClock(); !pending && track.Stream && !m.player.Seekable() {
 		timeStr = fmt.Sprintf("%02d:%02d / LIVE", posMin, posSec)
 	}
 

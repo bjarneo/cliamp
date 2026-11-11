@@ -29,7 +29,9 @@ type ConfigSaver interface {
 }
 
 // ResumeSaver persists the active track, timeline position, and source context.
-type ResumeSaver func(track playlist.Track, positionSec int, context []playlist.Track, contextIndex int)
+// playlistID names the provider playlist of the context when it reloads in
+// place, or is empty.
+type ResumeSaver func(track playlist.Track, positionSec int, context []playlist.Track, contextIndex int, playlistID string)
 
 // The saveConfig* helpers persist a top-level config key and show a write
 // failure in the status line. They return the error, so an IPC job can fail
@@ -444,7 +446,9 @@ type Model struct {
 	resumeSaver          ResumeSaver
 	lastResumeSave       time.Time
 
-	lastProgressReport time.Time // last interim provider progress report
+	lastProgressReport time.Time     // last interim provider progress report
+	progressPos        time.Duration // position in that report
+	progressPaused     bool          // the last report said the track was paused
 
 	// loadedPlaylist names the saved local list that the queue mirrors, for
 	// resume. When it is set, the ♥ rule treats station rows as tracks.
@@ -476,6 +480,7 @@ type Model struct {
 		playlist     string
 		context      []playlist.Track
 		contextIndex int
+		playlistID   string
 	}
 
 	// preloading is true while a preloadStreamCmd goroutine is in-flight.
@@ -540,6 +545,10 @@ type Model struct {
 	// favSync orders the calls that copy favorite changes to providers. It
 	// is created on first use and shared across Model value copies.
 	favSync *favorites.SyncQueue
+	// pendingTrackFavorites holds optimistic states for providers whose own
+	// favorite state is authoritative. The map is replaced, never mutated, so
+	// commands can safely capture a Model copy while a request is in flight.
+	pendingTrackFavorites map[string]bool
 	// reports orders the now-playing, progress and scrobble reports to
 	// providers. It is shared across Model value copies.
 	reports *reportQueue

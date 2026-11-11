@@ -2,15 +2,63 @@
 
 Use cliamp to stream music from Plex Media Server, including any library served by PlexAmp. Streaming uses the Plex HTTP API. You do not need extra software.
 
-> **Quick start:** Run `cliamp setup`. Enter the server URL and `X-Plex-Token`, and optionally a comma-separated list of music libraries to include. The TUI checks the token and writes the `[plex]` block. Manual steps follow.
+> **Quick start:** Run `cliamp setup`, select **Sign in with Plex**, approve
+> cliamp in the browser, and select a server. cliamp discovers and verifies
+> local, remote, and relay connections automatically. Manual setup remains
+> available.
 
 ## Prerequisites
 
-- Plex Media Server running and reachable on your network (or remotely)
+- Plex Media Server running and signed in to your Plex account
 - At least one music library configured in Plex
-- Your `X-Plex-Token` (see below)
 
-## Finding your X-Plex-Token
+For access away from home, enable Plex Remote Access. Plex Relay is used as a
+fallback when the account advertises no reachable direct connection.
+
+## Browser sign-in
+
+Run `cliamp setup`, select **Plex Media Server**, and keep the recommended
+browser sign-in option. cliamp opens the Plex-hosted authorization page and
+waits for approval. If more than one server is available, select one in the
+wizard. The chosen server and a stable identifier for this cliamp installation
+are saved in `[plex]`.
+
+On every start, cliamp asks Plex for the selected server's current connection
+addresses. It prefers a reachable local address, then a secure direct remote
+address, and finally a secure relay. Public plain-HTTP addresses are never
+selected. Pressing `Ctrl+R` also repeats connection discovery.
+
+If the chosen address stops answering during a session, for example after a
+network change, the next Plex request notices within about 10 seconds, asks
+Plex for the current addresses again, and retries once on the best one that
+answers. Playback moves on to the next track without a restart or `Ctrl+R`.
+
+This means the same configuration can move between home and work without
+hard-coding a `192.168.x.x` address. Remote playback still requires the Plex
+server to advertise a reachable remote or relay connection.
+
+## Sign out
+
+Run `cliamp setup`, select **Plex Media Server**, and choose **Sign out and
+remove saved credentials**. While `[plex]` holds a token, this is the only
+option: to change the server or the login type, sign out and sign in again.
+
+- After a browser sign-in, cliamp asks Plex to revoke the token, checks that
+  Plex no longer accepts it, and removes `token`, `server_id`, `url`, and
+  `libraries` from `[plex]`.
+- A manual token was copied from Plex Web and belongs to that session, so
+  cliamp does not revoke it. It removes `token` and `libraries` and keeps the
+  server URL.
+
+`client_id` stays, so a later sign-in is the same Plex device. If Plex cannot be reached or still accepts the
+token, cliamp removes it anyway and asks you to remove the device under
+**Authorized Devices** in your Plex account. Restart a running cliamp, which
+keeps the token in memory.
+
+## Manual token setup
+
+To configure a fixed server URL instead, select the manual option in setup or
+find an `X-Plex-Token`:
 
 1. Open Plex Web in a browser and sign in.
 2. Browse to an item in the music library.
@@ -27,22 +75,31 @@ Add a `[plex]` section to `~/.config/cliamp/config.toml`:
 [plex]
 url   = "http://192.168.1.10:32400"
 token = "xxxxxxxxxxxxxxxxxxxx"
+client_id = "generated-per-installation-id"
+server_id = "selected-server-id"
 libraries = ["Music", "Jazz"]
+stations = ["Library Radio", "Random Album Radio"]
 ```
 
 | Key | Description |
 |-----|-------------|
 | `url` | Plex Media Server base URL, including port (default `32400`) |
 | `token` | `X-Plex-Token` for authentication |
+| `client_id` | Stable cliamp installation ID written by browser sign-in |
+| `server_id` | Selected Plex Media Server ID written by browser sign-in |
 | `libraries` | Optional comma-separated music library names to load. If omitted, cliamp loads all music libraries. Name matching is case-insensitive. |
+| `stations` | Optional library radio stations to show under **Radio**, by name and in this order. Stations come from the libraries that `libraries` selects. If omitted, every station of those libraries is shown; `[]` hides the section. Name matching is case-insensitive. |
 
-If you access Plex remotely through `app.plex.tv`, use a direct server URL when remote access is enabled. You can also use the server `plex.direct` URL from the Plex Web address bar.
+`client_id` and `server_id` enable account discovery. Omit both for a fixed
+manual URL. Do not copy them between installations; rerun browser sign-in on
+the other computer so Plex lists it as a separate authorized device.
 
 ## Usage
 
 After configuration, **Plex** appears in the cliamp provider list.
 
-The provider shows audio playlists and the music library under two headers:
+The provider shows audio playlists, the library radio stations, and the music
+library under three headers:
 
 ```text
 ── Playlists ──
@@ -50,11 +107,63 @@ GOOD
 All Music
 drums
 
+── Radio ──
+Library Radio
+Deep Cuts Radio
+Time Travel Radio
+Random Album Radio
+
 ── Albums ──
 Artist - Album Title (Year)
 ```
 
 Select a playlist or album to load its tracks. Smart playlists are included. They resolve to current server content.
+
+Selecting a station asks the server for a new play queue, as Plexamp does, and
+loads it 30 tracks at a time: when the last loaded track starts, the next 30
+of the same queue are appended, so the station plays on without end. Press
+`Ctrl+R` while the station is open for a fresh selection. The `stations`
+setting picks which stations appear.
+
+On a Plex track in the playlist, `Alt+O` opens its album: the queue becomes
+the album, the cursor lands on the track, and playback goes on; `Ctrl+Z`
+brings the old queue back. `Alt+L` opens the Plex browser filtered to the
+albums of the track's artist, with the filter `^Artist — `, which you can
+edit or clear with `Esc`.
+
+`Ctrl+S` saves the playing Plex track: cliamp downloads its original file from
+the server, the one it streams, to the [download
+directory](configuration.md#download-directory) as `Artist - Title.flac` (or
+the file's own extension). A track saved before is not downloaded again.
+
+Press `Ctrl+R` while an open Plex album or playlist is focused to reload it
+and pick up server-side changes. Album contents are cached for up to five
+minutes; Plex playlists are always loaded fresh so smart playlists stay current.
+
+Plex likes are shown as hearts in cliamp. Press `f` on a Plex track to change
+its rating on the Plex server; the change appears in Plexamp and other Plex
+clients. Plex is the source of truth for these hearts. cliamp neither reads nor
+writes its local `favorites.toml` entry when it draws or toggles a Plex heart.
+Existing local Plex favorites are left intact but do not control that heart, so
+the change does not discard old data. Press `Ctrl+R` to pick up likes changed
+in another client while the list is open. A station is a new play queue each
+time, so `Ctrl+R` in its queue does nothing; press it in the Plex browser. Until the like of a track has loaded,
+right after start or `Ctrl+R`, `f` asks the server for it instead of changing
+it; press `f` again to change it.
+
+While a Plex track plays, cliamp reports its timeline position about every 15 seconds, so the Plex dashboard shows what plays. A pause, a resume, and a seek reach Plex at once. Leaving a track, by skipping, stopping, or quitting, ends its session on the dashboard. After at least half of a known-duration track has played, leaving the track records one Plex play and updates Plex history. Short skips do not increment the play count.
+
+When Plex is the default provider (`provider = "plex"` or `--provider plex`),
+cliamp remembers the most recently played Plex track, its playback position,
+and the album or playlist it was chosen from. State is saved when a track
+starts, every two seconds during confirmed playback, and during a normal exit.
+On the next launch with no explicit files, URLs, or playlist, cliamp restores
+that list with the last track selected; the time and seek bar already show the
+saved position. Press `Enter` to continue from it; `auto_play` is ignored for a restored list. The hearts of the
+restored tracks appear once cliamp has asked the server for their likes, right
+after start. The saved list keeps only
+token-free `plex:track:` paths, and the current Plex credentials are added when
+playback starts. This works as it does for [Jellyfin](jellyfin.md#usage).
 
 Start cliamp with Plex as the default provider:
 
@@ -70,13 +179,13 @@ provider = "plex"
 
 ## How it works
 
-cliamp calls the Plex HTTP API to list audio playlists (`/playlists`) and music library albums. When you select an entry, cliamp gets its track list from the playlist-items or album-children endpoint. It then creates authenticated streaming URLs in this form:
+cliamp calls the Plex HTTP API to list audio playlists (`/playlists`) and music library albums. When you select an entry, cliamp gets its track list from the playlist-items or album-children endpoint. Queues, playlists, favorites, history, resume state, and IPC keep only a token-free logical path:
 
 ```
-http://<server>:32400/library/parts/<partID>/<timestamp>/file.<ext>?X-Plex-Token=<token>
+plex:track:<ratingKey>
 ```
 
-These URLs serve files directly. Plex serves the original file without transcoding. cliamp handles playback through its HTTP streaming pipeline. cliamp can play MP3, FLAC, AAC, OGG, OPUS, WAV, and other supported source formats.
+When playback starts, cliamp resolves that path to the Plex part URL in memory and authenticates the request with your token. The token is not written into track paths or exposed through status output. Plex serves the original file without transcoding: cliamp asks for it with `download=1`, as Plexamp does, so Plex does not check the file against a client profile. Without it Plex refuses FLAC files it has analyzed with HTTP 500. cliamp handles playback through its HTTP streaming pipeline and can play MP3, FLAC, AAC, OGG, OPUS, WAV, and other supported source formats.
 
 ## Troubleshooting
 
@@ -88,7 +197,6 @@ Fix: Open **System Settings > Privacy & Security > Local Network**. Enable acces
 
 ## Known limitations
 
-- **No scrobbling**: cliamp does not report play counts to Plex.
 - **No playlist write-back**: cliamp cannot create or change Plex playlists.
 - **Token is long-lived**: Store it safely. It gives full access to the Plex account.
 - **Album list is flat**: Artist drill-down is not available. Search by scrolling or with cliamp search.

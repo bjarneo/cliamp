@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/gopxl/beep/v2"
@@ -156,6 +157,20 @@ type ProgressReporter interface {
 	PlaybackReporter
 	// ReportProgress sends an interim position update for a playing track.
 	ReportProgress(track playlist.Track, position time.Duration) error
+}
+
+// TimelineReporter is implemented by progress reporters whose server shows
+// the state of each listen, such as a dashboard of what plays now. Without
+// these reports, such a server counts a paused track on as playing, and
+// keeps a track left before ReportScrobble qualifies as playing until the
+// session times out.
+type TimelineReporter interface {
+	ProgressReporter
+	// ReportPaused sends the position of a paused track.
+	ReportPaused(track playlist.Track, position time.Duration) error
+	// ReportStopped ends the listen of a track that was left at position
+	// without a scrobble.
+	ReportStopped(track playlist.Track, position time.Duration) error
 }
 
 // TrackPosition is implemented by providers that can report where a single
@@ -331,9 +346,8 @@ type ArtworkProvider interface {
 }
 
 // TrackFavoriter is implemented by providers that keep a favorite state for
-// tracks on their own service, such as liked or starred songs. The local
-// favorites store stays the source of truth. The UI copies each change to the
-// provider that owns the track.
+// tracks on their own service, such as liked or starred songs. The UI copies
+// each change to the provider that owns the track.
 type TrackFavoriter interface {
 	// CanFavoriteTrack reports whether track belongs to this provider. It must
 	// not do I/O because the UI calls it on the Update goroutine.
@@ -352,6 +366,23 @@ type TrackRater interface {
 	// SetTrackRating sets track's rating on the provider's service. rating must
 	// be between 0 and 5; 0 removes the rating.
 	SetTrackRating(ctx context.Context, track playlist.Track, rating int) error
+}
+
+// TrackFavoriteState is implemented by providers whose own favorite state is
+// authoritative for their tracks. Local favorites are ignored for a track
+// claimed by this interface. Its methods must not do I/O because list rows and
+// IPC snapshots call them on the Update goroutine.
+type TrackFavoriteState interface {
+	CanFavoriteTrack(track playlist.Track) bool
+	FavoriteState(track playlist.Track) (favorite, known bool)
+}
+
+// TrackFavoriteLoader is implemented by a TrackFavoriteState provider whose
+// favorite state comes with its track listings, so tracks restored from the
+// last session have none. LoadFavoriteStates fetches the state of its own
+// tracks among tracks. It does I/O, so the UI runs it in a command.
+type TrackFavoriteLoader interface {
+	LoadFavoriteStates(ctx context.Context, tracks []playlist.Track) error
 }
 
 // FavoriteToggler is implemented by providers that support marking items
@@ -457,6 +488,38 @@ type CodeAuthenticator interface {
 	Prompt() string
 	// Authenticate completes the sign-in with the code the user typed.
 	Authenticate(code string) error
+}
+
+// TrackAlbumResolver is implemented by providers that can name the album of
+// one of their tracks as one of their lists, so the UI can open the album
+// from the track. AlbumForTrack must not do I/O.
+type TrackAlbumResolver interface {
+	AlbumForTrack(track playlist.Track) (playlist.PlaylistInfo, bool)
+}
+
+// TrackArtistFilter is implemented by providers whose list filter can show
+// the lists of a track's artist, so the UI can open them from the track.
+// ArtistFilter returns that filter query and must not do I/O.
+type TrackArtistFilter interface {
+	ArtistFilter(track playlist.Track) (string, bool)
+}
+
+// TrackDownloader is implemented by providers that can download the file of
+// one of their streamed tracks, for Ctrl+S. CanDownloadTrack must not do I/O.
+// OpenTrackFile returns the file's body and its extension, such as ".flac".
+type TrackDownloader interface {
+	CanDownloadTrack(track playlist.Track) bool
+	OpenTrackFile(ctx context.Context, track playlist.Track) (io.ReadCloser, string, error)
+}
+
+// QueueContinuer is implemented by providers whose lists never end, such as
+// radio stations, that load them in batches. When the last track of a batch
+// starts, the UI asks for the next batch and appends it to the queue.
+// CanContinueAfter must not do I/O; ContinueAfter runs from a command
+// goroutine and returns no tracks when the list has ended.
+type QueueContinuer interface {
+	CanContinueAfter(track playlist.Track) bool
+	ContinueAfter(track playlist.Track) ([]playlist.Track, error)
 }
 
 // ChatFilter is implemented by a provider whose list can be narrowed to a set

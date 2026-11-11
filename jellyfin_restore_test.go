@@ -8,6 +8,7 @@ import (
 	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
+	"github.com/bjarneo/cliamp/external/plex"
 	"github.com/bjarneo/cliamp/internal/resume"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
@@ -127,6 +128,54 @@ func TestRestoreServerContextValidatesActiveEntry(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if _, _, _, ok := restoreServerContext(tt.state, prov.Provider); ok != tt.want {
 				t.Fatalf("restored = %v, want %v", ok, tt.want)
+			}
+		})
+	}
+}
+
+// A Plex context keeps its token-free plex:track paths and restores only when
+// the active track is a Plex track.
+func TestRestoreServerContextRestoresPlexContext(t *testing.T) {
+	prov := plex.NewFromConfig(config.PlexConfig{URL: "http://plex.example.com:32400", Token: "token"})
+	one, two := plex.TrackURIPrefix+"100", plex.TrackURIPrefix+"200"
+	tests := []struct {
+		name  string
+		state resume.State
+		want  bool
+	}{
+		{
+			name: "album",
+			state: resume.State{Path: two, PositionSec: 42, ContextIndex: 1,
+				Context: []playlist.Track{{Path: one, Title: "One"}, {Path: two, Title: "Two"}}},
+			want: true,
+		},
+		{
+			name: "active track from another source",
+			state: resume.State{Path: "/music/two.mp3", PositionSec: 42,
+				Context: []playlist.Track{{Path: one}, {Path: "/music/two.mp3"}}},
+		},
+		{
+			name: "legacy token URL",
+			state: resume.State{Path: "http://plex.example.com:32400/library/parts/1/file.flac?X-Plex-Token=old", PositionSec: 42,
+				Context: []playlist.Track{{Path: "http://plex.example.com:32400/library/parts/1/file.flac?X-Plex-Token=old"}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tracks, index, activePath, ok := restoreServerContext(tt.state, prov)
+			if ok != tt.want {
+				t.Fatalf("restoreServerContext() ok = %v, want %v", ok, tt.want)
+			}
+			if !ok {
+				return
+			}
+			if index != 1 || activePath != two || tracks[index].Title != "Two" {
+				t.Fatalf("restored index=%d path=%q tracks=%+v", index, activePath, tracks)
+			}
+			for _, track := range tracks {
+				if !strings.HasPrefix(track.Path, plex.TrackURIPrefix) || track.Meta(provider.MetaPlexID) == "" || !track.Stream {
+					t.Fatalf("restored track %+v is not a tagged token-free Plex stream", track)
+				}
 			}
 		})
 	}

@@ -155,8 +155,15 @@ func (m *Model) handleIPCSave(request ipcSaveRequest) tea.Cmd {
 		return nil
 	}
 	directory := m.downloadsDirectory
+	save := func(ctx context.Context, directory string) (string, bool, error) {
+		path, err := tracksave.SaveTo(ctx, track, directory)
+		return path, false, err
+	}
+	if s, ok := m.providerTrackSave(track); ok {
+		save = s
+	}
 	return func() tea.Msg {
-		path, err := tracksave.SaveTo(requestContext(request.Context), track, directory)
+		path, _, err := save(requestContext(request.Context), directory)
 		if err != nil {
 			request.Reply <- ipc.Response{OK: false, Error: err.Error()}
 		} else {

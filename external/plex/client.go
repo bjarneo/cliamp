@@ -2,13 +2,19 @@
 package plex
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/internal/httpclient"
 	"github.com/bjarneo/cliamp/internal/netdiag"
 )
@@ -22,16 +28,167 @@ var apiClient = httpclient.NewAPI(30 * time.Second)
 
 // Client speaks to a Plex Media Server over its HTTP API.
 type Client struct {
+	mu        sync.Mutex
 	baseURL   string   // e.g. "http://192.168.1.10:32400"
-	token     string   // X-Plex-Token
+	token     string   // X-Plex-Token used with the current server
+	clientID  string   // stable device identity sent with Plex requests
 	libraries []string // if non-empty, MusicSections filters to these titles (case-insensitive)
+	account   *accountBinding
+	machineID string // server identifier for play queue URIs, read once
+}
+
+type accountBinding struct {
+	api       *AccountAPI
+	token     string
+	clientID  string
+	serverID  string
+	connected bool
 }
 
 // NewClient returns a Client for the given server URL and authentication token.
 // libraries is an optional list of music library names to restrict MusicSections to.
 // When not provided, all music libraries will be loaded
 func NewClient(baseURL, token string, libraries ...string) *Client {
-	return &Client{baseURL: baseURL, token: token, libraries: libraries}
+	return &Client{baseURL: baseURL, token: token, clientID: accountProduct, libraries: libraries}
+}
+
+// NewAccountClient returns a client that rediscovers the selected Plex server
+// through plex.tv before its first request. baseURL is retained for display and
+// as the last known connection in config; discovery supplies the live route.
+func NewAccountClient(baseURL, accountToken, clientID, serverID string, libraries ...string) *Client {
+	return newAccountClient(baseURL, accountToken, clientID, serverID, NewAccountAPI(), libraries...)
+}
+
+func newAccountClient(baseURL, accountToken, clientID, serverID string, api *AccountAPI, libraries ...string) *Client {
+	return &Client{
+		baseURL:   baseURL,
+		token:     accountToken,
+		clientID:  clientID,
+		libraries: libraries,
+		account: &accountBinding{
+			api:      api,
+			token:    accountToken,
+			clientID: clientID,
+			serverID: serverID,
+		},
+	}
+}
+
+func (c *Client) endpoint(ctx context.Context) (string, string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.account != nil && !c.account.connected {
+		server, err := c.account.api.ConnectServer(ctx, c.account.token, c.account.clientID, c.account.serverID)
+		if err != nil {
+			return "", "", err
+		}
+		c.baseURL = server.URL
+		c.token = server.AccessToken
+		c.account.connected = true
+	}
+	return c.baseURL, c.token, nil
+}
+
+// responseHeaderTimeout bounds the wait for a server's response headers on
+// one attempt. A dead route then fails in seconds instead of after the full
+// request timeout, and send can move to another route. Tests shorten it.
+var responseHeaderTimeout = 10 * time.Second
+
+// send runs one request against the current server route; build makes it for
+// a base URL and token. When an account-backed client cannot reach its route,
+// send drops the route, rediscovers one through plex.tv and retries once, so
+// a dead local, remote or relay connection does not stall playback. HTTP
+// error responses are returned as they are. label names the call in errors.
+func (c *Client) send(ctx context.Context, client *http.Client, label string, build func(baseURL, token string) (*http.Request, error)) (*http.Response, error) {
+	for retried := false; ; retried = true {
+		baseURL, token, err := c.endpoint(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("plex: connect account server: %w", err)
+		}
+		req, err := build(baseURL, token)
+		if err != nil {
+			return nil, fmt.Errorf("plex: %s: %w", label, err)
+		}
+		resp, err := doWithHeaderDeadline(client, req)
+		if err == nil {
+			return resp, nil
+		}
+		// A url.Error names the request URL, and with it the token.
+		if uerr, ok := errors.AsType[*url.Error](err); ok {
+			err = uerr.Err
+		}
+		if retried || ctx.Err() != nil || !c.dropRoute(baseURL) || !retrySafe(req.Method, err) {
+			return nil, fmt.Errorf("plex: %s: server unreachable: %w", label, netdiag.Explain(err))
+		}
+		applog.Info("plex: %s: %v; finding another server route", label, netdiag.Explain(err))
+	}
+}
+
+// retrySafe reports whether a failed request may be sent again. A read may.
+// A write, such as a scrobble or a new play queue, may only when it never left
+// this computer: after a timeout the server may already have applied it.
+func retrySafe(method string, err error) bool {
+	if method == http.MethodGet || method == http.MethodHead {
+		return true
+	}
+	opErr, ok := errors.AsType[*net.OpError](err)
+	return ok && opErr.Op == "dial"
+}
+
+// dropRoute makes the next request rediscover the route when baseURL is still
+// the current one. It reports whether rediscovery is possible: manual clients
+// have only their configured URL.
+func (c *Client) dropRoute(baseURL string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.account == nil {
+		return false
+	}
+	if c.baseURL == baseURL {
+		c.account.connected = false
+	}
+	return true
+}
+
+// doWithHeaderDeadline sends req and cancels it when no response headers
+// arrive within responseHeaderTimeout. The body read is not limited by it.
+func doWithHeaderDeadline(client *http.Client, req *http.Request) (*http.Response, error) {
+	ctx, cancel := context.WithCancel(req.Context())
+	timeout := responseHeaderTimeout
+	timer := time.AfterFunc(timeout, cancel)
+	resp, err := client.Do(req.WithContext(ctx))
+	fired := !timer.Stop()
+	if err != nil {
+		cancel()
+		if fired && req.Context().Err() == nil {
+			return nil, fmt.Errorf("no response in %s", timeout)
+		}
+		return nil, err
+	}
+	resp.Body = cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
+	return resp, nil
+}
+
+// cancelOnClose releases a request context when its response body closes.
+type cancelOnClose struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b cancelOnClose) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
+}
+
+// RefreshConnection makes an account-backed client rediscover its route on
+// the next request. Manual clients keep their configured URL unchanged.
+func (c *Client) RefreshConnection() {
+	c.mu.Lock()
+	if c.account != nil {
+		c.account.connected = false
+	}
+	c.mu.Unlock()
 }
 
 // Section represents a Plex library section (e.g. a music library).
@@ -56,10 +213,19 @@ type Track struct {
 	Title       string
 	ArtistName  string // grandparentTitle
 	AlbumName   string // parentTitle
+	AlbumKey    string // parentRatingKey
 	Year        int
 	TrackNumber int    // index field in Plex API
 	Duration    int    // milliseconds
 	PartKey     string // relative path, e.g. "/library/parts/67890/1234567890/file.flac"
+	UserRating  float64
+}
+
+// Station is a radio station of a Plex music library, such as Library Radio
+// or Random Album Radio. Playing one asks the server for a play queue.
+type Station struct {
+	Key   string // e.g. "/library/sections/3/stations/1"
+	Title string
 }
 
 // Playlist represents a Plex playlist (smart or user-created) of audio tracks.
@@ -71,24 +237,34 @@ type Playlist struct {
 	Smart        bool
 }
 
+// errNotFound reports an HTTP 404: the server has no such item.
+var errNotFound = errors.New("HTTP 404 Not Found")
+
 // get issues an authenticated GET request and decodes the JSON response into result.
 func (c *Client) get(path string, params url.Values, result any) error {
-	if params == nil {
-		params = url.Values{}
-	}
-	params.Set("X-Plex-Token", c.token)
+	return c.request(http.MethodGet, path, params, result)
+}
 
-	req, err := http.NewRequest(http.MethodGet, c.baseURL+path+"?"+params.Encode(), nil)
+// request issues an authenticated request and decodes the JSON response into
+// result.
+func (c *Client) request(method, path string, params url.Values, result any) error {
+	resp, err := c.send(context.Background(), apiClient, path, func(baseURL, token string) (*http.Request, error) {
+		query := url.Values{}
+		for k, v := range params {
+			query[k] = v
+		}
+		query.Set("X-Plex-Token", token)
+		req, err := http.NewRequest(method, baseURL+path+"?"+query.Encode(), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-Plex-Product", "cliamp")
+		req.Header.Set("X-Plex-Client-Identifier", c.clientID)
+		return req, nil
+	})
 	if err != nil {
-		return fmt.Errorf("plex: %s: %w", path, err)
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Plex-Product", "cliamp")
-	req.Header.Set("X-Plex-Client-Identifier", "cliamp")
-
-	resp, err := apiClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("plex: %s: server unreachable: %w", path, netdiag.Explain(err))
+		return err
 	}
 	defer resp.Body.Close()
 
@@ -97,12 +273,88 @@ func (c *Client) get(path string, params url.Values, result any) error {
 		// ok
 	case http.StatusUnauthorized:
 		return fmt.Errorf("plex: token invalid or expired")
+	case http.StatusNotFound:
+		return fmt.Errorf("plex: %s: %w", path, errNotFound)
 	default:
 		return fmt.Errorf("plex: %s: HTTP %s", path, resp.Status)
 	}
 
 	if err := httpclient.ReadJSON(resp.Body, maxResponseBody, result); err != nil {
 		return fmt.Errorf("plex: %s: %w", path, err)
+	}
+	return nil
+}
+
+// SetRating updates the current user's rating for one Plex library item.
+// Plex uses 10 for a liked track and 0 to clear the like.
+func (c *Client) SetRating(ctx context.Context, ratingKey string, rating float64) error {
+	if ratingKey == "" {
+		return fmt.Errorf("plex: rate: missing rating key")
+	}
+	params := url.Values{
+		"identifier": {"com.plexapp.plugins.library"},
+		"key":        {ratingKey},
+		"rating":     {fmt.Sprintf("%g", rating)},
+	}
+	return c.doAction(ctx, http.MethodPut, "/:/rate", params)
+}
+
+// ReportTimeline updates Plex's view of the current playback position.
+func (c *Client) ReportTimeline(ctx context.Context, ratingKey, state string, position, duration time.Duration) error {
+	if ratingKey == "" {
+		return fmt.Errorf("plex: timeline: missing rating key")
+	}
+	// Track durations are whole seconds while the position has milliseconds,
+	// so in a track's last second the position can pass the duration. Plex
+	// rejects such a timeline with 400 Bad Request.
+	if duration > 0 {
+		position = min(position, duration)
+	}
+	params := url.Values{
+		"key":       {"/library/metadata/" + ratingKey},
+		"ratingKey": {ratingKey},
+		"state":     {state},
+		"time":      {strconv.FormatInt(max(position.Milliseconds(), 0), 10)},
+		"duration":  {strconv.FormatInt(max(duration.Milliseconds(), 0), 10)},
+	}
+	return c.doAction(ctx, http.MethodPost, "/:/timeline", params)
+}
+
+// Scrobble records one completed play in Plex.
+func (c *Client) Scrobble(ctx context.Context, ratingKey string) error {
+	if ratingKey == "" {
+		return fmt.Errorf("plex: scrobble: missing rating key")
+	}
+	params := url.Values{
+		"identifier": {"com.plexapp.plugins.library"},
+		"key":        {ratingKey},
+	}
+	return c.doAction(ctx, http.MethodPut, "/:/scrobble", params)
+}
+
+func (c *Client) doAction(ctx context.Context, method, endpoint string, params url.Values) error {
+	resp, err := c.send(ctx, apiClient, strings.TrimPrefix(endpoint, "/:/"), func(baseURL, token string) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, method, baseURL+endpoint+"?"+params.Encode(), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-Plex-Product", "cliamp")
+		req.Header.Set("X-Plex-Client-Identifier", c.clientID)
+		req.Header.Set("X-Plex-Token", token)
+		return req, nil
+	})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("plex: token invalid or expired")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("plex: %s: HTTP %s", strings.TrimPrefix(endpoint, "/:/"), resp.Status)
 	}
 	return nil
 }
@@ -348,6 +600,50 @@ func (c *Client) Tracks(albumRatingKey string) ([]Track, error) {
 	return tracks, nil
 }
 
+// Track returns one track by its Plex ratingKey. It restores the stream-part
+// mapping for a logical Plex URI after cliamp restarts.
+func (c *Client) Track(ratingKey string) (Track, error) {
+	var result struct {
+		MediaContainer struct {
+			Metadata []trackJSON `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	if err := c.get("/library/metadata/"+ratingKey, nil, &result); err != nil {
+		return Track{}, err
+	}
+	if len(result.MediaContainer.Metadata) == 0 {
+		return Track{}, fmt.Errorf("plex: track %s not found", ratingKey)
+	}
+	return trackFromJSON(result.MediaContainer.Metadata[0]), nil
+}
+
+// TracksByKey returns the tracks with the given ratingKeys in one request.
+// Keys the server does not know are left out.
+func (c *Client) TracksByKey(ratingKeys []string) ([]Track, error) {
+	if len(ratingKeys) == 0 {
+		return nil, nil
+	}
+	var result struct {
+		MediaContainer struct {
+			Metadata []trackJSON `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	err := c.get("/library/metadata/"+strings.Join(ratingKeys, ","), nil, &result)
+	if errors.Is(err, errNotFound) {
+		// Plex answers 404 only when none of the keys exists; a batch with
+		// some removed tracks returns the others.
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	tracks := make([]Track, 0, len(result.MediaContainer.Metadata))
+	for _, item := range result.MediaContainer.Metadata {
+		tracks = append(tracks, trackFromJSON(item))
+	}
+	return tracks, nil
+}
+
 // Search searches the music library for tracks matching query.
 // Returns nil without making an HTTP call when query is empty.
 func (c *Client) Search(query string) ([]Track, error) {
@@ -374,11 +670,47 @@ func (c *Client) Search(query string) ([]Track, error) {
 	return tracks, nil
 }
 
+// OpenPart opens the original file of a track part, with the token in a
+// request header. The caller closes the body.
+func (c *Client) OpenPart(ctx context.Context, partKey string) (io.ReadCloser, error) {
+	if !strings.HasPrefix(partKey, "/library/parts/") {
+		return nil, fmt.Errorf("plex: download: invalid part")
+	}
+	resp, err := c.send(ctx, httpclient.Streaming, "download", func(baseURL, token string) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+partKey+"?download=1", nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("X-Plex-Product", "cliamp")
+		req.Header.Set("X-Plex-Client-Identifier", c.clientID)
+		req.Header.Set("X-Plex-Token", token)
+		return req, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusUnauthorized {
+			return nil, fmt.Errorf("plex: token invalid or expired")
+		}
+		return nil, fmt.Errorf("plex: download: HTTP %s", resp.Status)
+	}
+	return resp.Body, nil
+}
+
 // StreamURL returns the authenticated HTTP URL for streaming a track part.
 // partKey is the relative path from the Part element, e.g. "/library/parts/…/file.flac".
 // The token is appended as a query parameter; Plex accepts it in either header or query form.
+//
+// download=1 asks for the original file, as Plexamp does. Without it Plex
+// checks the part against the client's direct-play profile; cliamp has none,
+// so Plex falls back to a generic profile without FLAC and answers 500 for
+// every FLAC whose audio stream it has analyzed.
 func (c *Client) StreamURL(partKey string) string {
-	return c.baseURL + partKey + "?X-Plex-Token=" + url.QueryEscape(c.token)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.baseURL + partKey + "?download=1&X-Plex-Token=" + url.QueryEscape(c.token)
 }
 
 // IsStreamURL reports whether the given URL looks like a Plex library part
@@ -394,14 +726,16 @@ func IsStreamURL(urlStr string) bool {
 
 // trackJSON is the shared JSON structure for track responses (children and search).
 type trackJSON struct {
-	RatingKey        string `json:"ratingKey"`
-	Title            string `json:"title"`
-	GrandparentTitle string `json:"grandparentTitle"` // artist
-	ParentTitle      string `json:"parentTitle"`      // album
-	Year             int    `json:"year"`
-	ParentYear       int    `json:"parentYear"` // album year; tracks rarely carry their own
-	Index            int    `json:"index"`      // track number within album
-	Duration         int    `json:"duration"`   // milliseconds
+	RatingKey        string  `json:"ratingKey"`
+	Title            string  `json:"title"`
+	GrandparentTitle string  `json:"grandparentTitle"` // artist
+	ParentTitle      string  `json:"parentTitle"`      // album
+	ParentRatingKey  string  `json:"parentRatingKey"`  // album
+	Year             int     `json:"year"`
+	ParentYear       int     `json:"parentYear"` // album year; tracks rarely carry their own
+	Index            int     `json:"index"`      // track number within album
+	Duration         int     `json:"duration"`   // milliseconds
+	UserRating       float64 `json:"userRating"`
 	Media            []struct {
 		Part []struct {
 			Key string `json:"key"`
@@ -423,9 +757,134 @@ func trackFromJSON(m trackJSON) Track {
 		Title:       m.Title,
 		ArtistName:  m.GrandparentTitle,
 		AlbumName:   m.ParentTitle,
+		AlbumKey:    m.ParentRatingKey,
 		Year:        year,
 		TrackNumber: m.Index,
 		Duration:    m.Duration,
 		PartKey:     partKey,
+		UserRating:  m.UserRating,
 	}
+}
+
+// Stations returns the radio stations of a music section from its hubs.
+func (c *Client) Stations(sectionKey string) ([]Station, error) {
+	var result struct {
+		MediaContainer struct {
+			Hub []struct {
+				Type     string `json:"type"`
+				Metadata []struct {
+					Key   string `json:"key"`
+					Title string `json:"title"`
+				} `json:"Metadata"`
+			} `json:"Hub"`
+		} `json:"MediaContainer"`
+	}
+	params := url.Values{"count": {"20"}, "includeStations": {"1"}}
+	if err := c.get("/hubs/sections/"+sectionKey, params, &result); err != nil {
+		return nil, fmt.Errorf("plex: section %s stations: %w", sectionKey, err)
+	}
+	var stations []Station
+	for _, hub := range result.MediaContainer.Hub {
+		if hub.Type != "station" {
+			continue
+		}
+		for _, m := range hub.Metadata {
+			if m.Key != "" && m.Title != "" {
+				stations = append(stations, Station{Key: m.Key, Title: m.Title})
+			}
+		}
+	}
+	return stations, nil
+}
+
+// PlayQueuePage is one window of a server play queue. LastItemID is the
+// playQueueItemID of the last track, where the next window starts.
+type PlayQueuePage struct {
+	QueueID    int
+	LastItemID int
+	Tracks     []Track
+}
+
+// StationTracks starts a play queue for the station at stationKey and returns
+// its first limit tracks. Each call starts a new queue, so it returns a fresh
+// selection; QueueTracksAfter continues it.
+func (c *Client) StationTracks(stationKey string, limit int) (PlayQueuePage, error) {
+	machineID, err := c.machineIdentifier()
+	if err != nil {
+		return PlayQueuePage{}, err
+	}
+	var created struct {
+		MediaContainer struct {
+			PlayQueueID int `json:"playQueueID"`
+		} `json:"MediaContainer"`
+	}
+	params := url.Values{
+		"type": {"audio"},
+		"uri":  {"server://" + machineID + "/com.plexapp.plugins.library" + stationKey},
+	}
+	if err := c.request(http.MethodPost, "/playQueues", params, &created); err != nil {
+		return PlayQueuePage{}, fmt.Errorf("plex: start station: %w", err)
+	}
+	if created.MediaContainer.PlayQueueID == 0 {
+		return PlayQueuePage{}, fmt.Errorf("plex: start station: no play queue")
+	}
+	// The window counts the selected first item as well.
+	return c.playQueuePage(created.MediaContainer.PlayQueueID, url.Values{"window": {strconv.Itoa(limit - 1)}})
+}
+
+// QueueTracksAfter returns up to limit tracks of a play queue after the item
+// afterItemID. An empty page means the queue has ended.
+func (c *Client) QueueTracksAfter(queueID, afterItemID, limit int) (PlayQueuePage, error) {
+	return c.playQueuePage(queueID, url.Values{
+		"window":        {strconv.Itoa(limit)},
+		"center":        {strconv.Itoa(afterItemID)},
+		"includeBefore": {"0"},
+		"includeAfter":  {"1"},
+	})
+}
+
+func (c *Client) playQueuePage(queueID int, params url.Values) (PlayQueuePage, error) {
+	var queue struct {
+		MediaContainer struct {
+			Metadata []struct {
+				trackJSON
+				PlayQueueItemID int `json:"playQueueItemID"`
+			} `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	if err := c.get("/playQueues/"+strconv.Itoa(queueID), params, &queue); err != nil {
+		return PlayQueuePage{}, fmt.Errorf("plex: play queue: %w", err)
+	}
+	page := PlayQueuePage{QueueID: queueID}
+	for _, m := range queue.MediaContainer.Metadata {
+		page.Tracks = append(page.Tracks, trackFromJSON(m.trackJSON))
+		page.LastItemID = m.PlayQueueItemID
+	}
+	return page, nil
+}
+
+// machineIdentifier returns the server's identifier, which play queue URIs
+// name. It is read once from /identity.
+func (c *Client) machineIdentifier() (string, error) {
+	c.mu.Lock()
+	id := c.machineID
+	c.mu.Unlock()
+	if id != "" {
+		return id, nil
+	}
+	var result struct {
+		MediaContainer struct {
+			MachineIdentifier string `json:"machineIdentifier"`
+		} `json:"MediaContainer"`
+	}
+	if err := c.get("/identity", nil, &result); err != nil {
+		return "", fmt.Errorf("plex: server identity: %w", err)
+	}
+	if result.MediaContainer.MachineIdentifier == "" {
+		return "", fmt.Errorf("plex: server identity: no machine identifier")
+	}
+	c.mu.Lock()
+	c.machineID = result.MediaContainer.MachineIdentifier
+	c.mu.Unlock()
+	return result.MediaContainer.MachineIdentifier, nil
 }

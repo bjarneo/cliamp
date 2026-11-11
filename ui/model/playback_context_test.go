@@ -17,10 +17,11 @@ type savedPlaybackContext struct {
 	tracks   []playlist.Track
 	index    int
 	position int
+	listID   string
 }
 
-func (s *savedPlaybackContext) save(track playlist.Track, position int, tracks []playlist.Track, index int) {
-	s.track, s.position, s.tracks, s.index = track, position, tracks, index
+func (s *savedPlaybackContext) save(track playlist.Track, position int, tracks []playlist.Track, index int, playlistID string) {
+	s.track, s.position, s.tracks, s.index, s.listID = track, position, tracks, index, playlistID
 }
 
 func (s savedPlaybackContext) check(t *testing.T, tracks []playlist.Track, index int) {
@@ -66,7 +67,7 @@ func TestPlaybackContextOverlappingReplacement(t *testing.T) {
 			saved.check(t, old, 0)
 			detached := m
 			detached.quit()
-			if context, index := detached.ResumeContext(); index != 0 || !reflect.DeepEqual(context, old) {
+			if context, index, _ := detached.ResumeContext(); index != 0 || !reflect.DeepEqual(context, old) {
 				t.Fatalf("detached quit context = (%+v, %d), want old source", context, index)
 			}
 
@@ -198,7 +199,7 @@ func TestDuplicatePlaybackContextPersistenceAndRestore(t *testing.T) {
 				t.Fatalf("periodic save position = %d, want 17", saved.position)
 			}
 			m.quit()
-			context, index := m.ResumeContext()
+			context, index, _ := m.ResumeContext()
 			if index != 2 || !reflect.DeepEqual(context, tracks) {
 				t.Fatalf("quit context = (%+v, %d), want duplicate at index 2", context, index)
 			}
@@ -244,7 +245,7 @@ func TestSetResumeSaverPreservesPlaylistState(t *testing.T) {
 	want := playlist.New()
 	want.Restore(pl.Snapshot())
 	m := Model{playlist: pl}
-	m.SetResumeSaver(func(playlist.Track, int, []playlist.Track, int) {})
+	m.SetResumeSaver(func(playlist.Track, int, []playlist.Track, int, string) {})
 	if pl.Index() != want.Index() || !pl.CurrentIsQueued() || !pl.Shuffled() || pl.Repeat() != playlist.RepeatAll || pl.QueueLen() != 1 {
 		t.Fatal("enabling context tracking changed playback state")
 	}
@@ -269,7 +270,42 @@ func TestPlaybackContextSelectionWithoutSaver(t *testing.T) {
 	pl.SetIndex(0)
 	settlePlay(t, &m, m.playCurrentTrack())
 	m.quit()
-	if context, index := m.ResumeContext(); index != 0 || !reflect.DeepEqual(context, tracks) {
+	if context, index, _ := m.ResumeContext(); index != 0 || !reflect.DeepEqual(context, tracks) {
 		t.Fatalf("quit context = (%+v, %d), want active duplicate at index 0", context, index)
+	}
+}
+
+// The saved context names the open provider playlist when it reloads in
+// place, so Ctrl+R works on the queue restored from it; a queue that only
+// plays on beside another open playlist names none.
+func TestResumeSaveNamesRefreshablePlaylist(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		id       string
+		detached bool
+		want     string
+	}{
+		{name: "stable playlist", id: "wave", want: "wave"},
+		{name: "positional ID", id: "station-3"},
+		{name: "detached playback", id: "wave", detached: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tracks := []playlist.Track{{Path: "a.mp3"}, {Path: "b.mp3"}}
+			m := keybindingTestModel()
+			refreshes := 0
+			m.provider = refreshTestProvider{commandsTestProvider: commandsTestProvider{name: "Wave"}, refreshes: &refreshes, stable: map[string]bool{"wave": true}}
+			m.playlist.Replace(tracks)
+			m.playlist.SetIndex(1)
+			m.activeProviderPlaylistID = tt.id
+			m.playbackDetached = tt.detached
+			var saved savedPlaybackContext
+			m.SetResumeSaver(saved.save)
+
+			m.persistPlaybackContext(tracks[1], 5, time.Now())
+
+			if saved.listID != tt.want {
+				t.Fatalf("saved playlist ID %q, want %q", saved.listID, tt.want)
+			}
+		})
 	}
 }

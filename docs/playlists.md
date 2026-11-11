@@ -491,6 +491,11 @@ song. The local file stays the source of truth. If the service call fails, the
 local favorite stays and the status bar shows a warning with the provider
 name. See [spotify.md](spotify.md) and [navidrome.md](navidrome.md).
 
+Plex tracks are different: the heart and `f` use only the like stored on the
+Plex server. A local `favorites.toml` entry for a Plex track does not control
+that heart and is not changed. Existing entries remain in the file so
+upgrading does not discard data. See [plex.md](plex.md).
+
 On a radio station, `f` toggles the station favorite. On a podcast show, `f`
 subscribes or unsubscribes. In the country browser, `f` pins a country.
 
@@ -509,7 +514,7 @@ contain `bookmark = true` still load.
 `cliamp playlist bookmark` and `cliamp playlist bookmarks` still work. They
 are aliases of `cliamp playlist favorite` and `cliamp playlist favorites`.
 These CLI commands change only the local favorites. They do not call Spotify
-or Navidrome:
+or Navidrome, and they do not change server-side Plex likes:
 
 ```sh
 cliamp playlist favorite "gym" --index 3

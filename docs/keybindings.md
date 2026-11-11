@@ -123,7 +123,7 @@ and `Esc` clears it.
 
 | Key | Action |
 |---|---|
-| `f` | Toggle the favorite ♥ on the selected track. Favorites appear in the "Favorites" virtual playlist, and cliamp also saves them on Spotify and Navidrome. For directory radio stations outside saved local playlists, toggle Radio Favorites from the browser or playback playlist, including country and genre results. In the country browser, pin the selected country or region. On a podcast show, subscribe or unsubscribe. |
+| `f` | Toggle the favorite ♥ on the selected track. Favorites appear in the "Favorites" virtual playlist, and cliamp also saves them on Spotify and Navidrome. Plex tracks use only the server-side like and ignore local favorites. For directory radio stations outside saved local playlists, toggle Radio Favorites from the browser or playback playlist, including country and genre results. In the country browser, pin the selected country or region. On a podcast show, subscribe or unsubscribe. |
 | `*` then `0`-`5` | Set the selected Navidrome track's rating. `0` clears it. The playing track shows `★N`, and Linux MPRIS reports the normalized rating. |
 | `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Bandcamp, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, SoundCloud, Yandex Music, Local), or search YouTube. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
 | `u` | Load URL (stream/playlist) |
@@ -133,8 +133,10 @@ and `Esc` clears it.
 | `[` / `]` | Adjust synced-lyrics timing offset (−/+250 ms) while lyrics show timestamped lines |
 | `i` | From the playlist, open full info for the highlighted item, including Path (`Up`/`Down` or `j`/`k` scroll; `i`/`Esc`/`q` closes) |
 | `Ctrl+I` | Toggle Metadata below Settings for the highlighted playlist item (remembered in `show_metadata`; requires a terminal that distinguishes Ctrl+I from Tab) |
-| `Ctrl+S` | Save track to `[downloads].directory` (default `~/Music/cliamp`) |
+| `Ctrl+S` | Save track to `[downloads].directory` (default `~/Music/cliamp`). A Plex track saves its original file; one saved before is not downloaded again |
 | `w` | Write the highlighted track to a local playlist |
+| `Alt+O` | Open the album of the highlighted track: the queue becomes the album with the cursor on that track, and playback goes on. `Ctrl+Z` brings the old queue back. Only Plex tracks have an album to open; on other tracks the key does nothing |
+| `Alt+L` | Show the albums of the highlighted track's artist: open its provider browser filtered to `^Artist — `. Edit the filter as usual; `Esc` clears it. Only Plex tracks name their artist this way; on other tracks the key does nothing |
 | `N` | Open the active provider browser. On a selected Mixcloud show, open that creator's Uploads/Favorites. In the radio pane, open the country browser. |
 | `L` | Open Local provider |
 | `R` | Open radio provider |

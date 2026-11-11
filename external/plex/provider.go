@@ -2,11 +2,16 @@ package plex
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"path"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
@@ -16,15 +21,42 @@ import (
 // the browse view. Playlist IDs are prefixed so they can be told apart from
 // album ratingKeys (both live in the same server-side metadata key space).
 const (
+	// TrackURIPrefix is the token-free path stored in queues, history,
+	// favorites, playlists, resume state, and IPC responses.
+	TrackURIPrefix   = "plex:track:"
 	prefixPlaylist   = "pl:"
+	prefixStation    = "st:"
 	sectionAlbums    = "Albums"
 	sectionPlaylists = "Playlists"
+	sectionRadio     = "Radio"
+
+	// stationBatch is how many tracks a station loads at a time. When the
+	// last one starts, the next batch is appended; Ctrl+R on the open
+	// station starts it again for a fresh selection.
+	stationBatch = 30
+	// favoriteBatch is how many tracks one request asks the rating of.
+	favoriteBatch = 100
+	albumCacheTTL = 5 * time.Minute
 )
+
+type trackCacheEntry struct {
+	tracks   []playlist.Track
+	loadedAt time.Time
+}
 
 // Compile-time interface checks.
 var (
-	_ provider.Searcher         = (*Provider)(nil)
-	_ provider.AlbumTrackLoader = (*Provider)(nil)
+	_ playlist.RefreshablePlaylist = (*Provider)(nil)
+	_ provider.Searcher            = (*Provider)(nil)
+	_ provider.AlbumTrackLoader    = (*Provider)(nil)
+	_ provider.TrackFavoriter      = (*Provider)(nil)
+	_ provider.TrackFavoriteState  = (*Provider)(nil)
+	_ provider.TrackFavoriteLoader = (*Provider)(nil)
+	_ provider.TrackAlbumResolver  = (*Provider)(nil)
+	_ provider.TrackArtistFilter   = (*Provider)(nil)
+	_ provider.TrackDownloader     = (*Provider)(nil)
+	_ provider.TimelineReporter    = (*Provider)(nil)
+	_ provider.QueueContinuer      = (*Provider)(nil)
 )
 
 // Provider implements playlist.Provider for a Plex Media Server.
@@ -36,12 +68,28 @@ type Provider struct {
 	client        *Client
 	mu            sync.Mutex
 	playlistCache []playlist.PlaylistInfo
-	trackCache    map[string][]playlist.Track
+	trackCache    map[string]trackCacheEntry
+	partKeys      map[string]string
+	favorites     map[string]bool
+	// albumKeys maps a track ratingKey to its album's, for tracks whose
+	// ProviderMeta predates the album key, such as a restored list.
+	albumKeys map[string]string
+	stations  []string // [plex] stations: nil shows all, empty hides all
+	// stationQueues maps the path of the last track of each station batch
+	// to the server play queue that continues after it.
+	stationQueues map[string]stationQueue
+	now           func() time.Time
+}
+
+// stationQueue is where a station's server play queue continues.
+type stationQueue struct {
+	queueID    int
+	lastItemID int
 }
 
 // newProvider returns a Provider backed by the given Client.
 func newProvider(client *Client) *Provider {
-	return &Provider{client: client}
+	return &Provider{client: client, now: time.Now}
 }
 
 // NewFromConfig returns a Provider from a PlexConfig, or nil if URL or Token is missing.
@@ -49,7 +97,14 @@ func NewFromConfig(cfg config.PlexConfig) *Provider {
 	if !cfg.IsSet() {
 		return nil
 	}
-	return newProvider(NewClient(cfg.URL, cfg.Token, cfg.Libraries...))
+	var p *Provider
+	if cfg.ClientID != "" && cfg.ServerID != "" {
+		p = newProvider(NewAccountClient(cfg.URL, cfg.Token, cfg.ClientID, cfg.ServerID, cfg.Libraries...))
+	} else {
+		p = newProvider(NewClient(cfg.URL, cfg.Token, cfg.Libraries...))
+	}
+	p.stations = cfg.Stations
+	return p
 }
 
 // Name returns the display name used in the provider selector.
@@ -88,6 +143,8 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Playlists, then radio stations, then albums.
+	lists = append(lists, p.stationLists(sections)...)
 	for _, sec := range sections {
 		albums, err := p.client.Albums(sec.Key)
 		if err != nil {
@@ -124,25 +181,45 @@ func (p *Provider) Refresh() {
 	p.mu.Lock()
 	p.playlistCache = nil
 	p.trackCache = nil
+	p.partKeys = nil
+	p.favorites = nil
 	p.mu.Unlock()
+	p.client.RefreshConnection()
+}
+
+// CanRefreshPlaylist reports whether id is a stable Plex album or playlist
+// ratingKey that can be reloaded in place after Refresh.
+func (p *Provider) CanRefreshPlaylist(id string) bool {
+	id = strings.TrimPrefix(id, prefixPlaylist)
+	return validRatingKey(id)
 }
 
 // Tracks returns the tracks for the playlist or album identified by
 // playlistID. Playlist IDs (prefixed "pl:") load via the server playlists
-// endpoint; album IDs load via the album children endpoint. Each track's Path
-// is a complete authenticated HTTP URL ready for the player. Tracks with no
-// streamable part (missing Media/Part data) are silently skipped. Album tracks
-// are cached per album ID; playlist tracks are intentionally not cached so
-// smart playlists always reflect their current server contents.
+// endpoint; album IDs load via the album children endpoint. Tracks with no
+// ratingKey or streamable part are silently skipped. Track paths are token-free
+// logical URIs; ResolveSource creates the authenticated URL only when playback
+// starts. Album tracks are cached per album ID; playlist tracks are
+// intentionally not cached so smart playlists always reflect current server
+// contents.
 func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
+	if key, ok := strings.CutPrefix(playlistID, prefixStation); ok {
+		// A station is a new play queue each time, never a cached list.
+		page, err := p.client.StationTracks(key, stationBatch)
+		if err != nil {
+			return nil, err
+		}
+		return p.stationBatchTracks(page), nil
+	}
 	isPlaylist := strings.HasPrefix(playlistID, prefixPlaylist)
 
 	p.mu.Lock()
 	if !isPlaylist && p.trackCache != nil {
-		if cached, ok := p.trackCache[playlistID]; ok {
+		if cached, ok := p.trackCache[playlistID]; ok && p.now().Sub(cached.loadedAt) < albumCacheTTL {
 			p.mu.Unlock()
-			return slices.Clone(cached), nil
+			return slices.Clone(cached.tracks), nil
 		}
+		delete(p.trackCache, playlistID)
 	}
 	p.mu.Unlock()
 
@@ -164,9 +241,9 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	if !isPlaylist {
 		p.mu.Lock()
 		if p.trackCache == nil {
-			p.trackCache = make(map[string][]playlist.Track)
+			p.trackCache = make(map[string]trackCacheEntry)
 		}
-		p.trackCache[playlistID] = tracks
+		p.trackCache[playlistID] = trackCacheEntry{tracks: tracks, loadedAt: p.now()}
 		p.mu.Unlock()
 	}
 
@@ -188,11 +265,21 @@ func (p *Provider) SearchTracks(_ context.Context, query string, limit int) ([]p
 func (p *Provider) convertTracks(plexTracks []Track, limit int) []playlist.Track {
 	tracks := make([]playlist.Track, 0, len(plexTracks))
 	for _, t := range plexTracks {
-		if t.PartKey == "" {
+		if t.RatingKey == "" || t.PartKey == "" {
 			continue
 		}
+		p.mu.Lock()
+		if p.partKeys == nil {
+			p.partKeys = make(map[string]string)
+		}
+		p.partKeys[t.RatingKey] = t.PartKey
+		if p.favorites == nil {
+			p.favorites = make(map[string]bool)
+		}
+		p.favorites[t.RatingKey] = t.UserRating >= 10
+		p.mu.Unlock()
 		tracks = append(tracks, playlist.Track{
-			Path:         p.client.StreamURL(t.PartKey),
+			Path:         TrackURIPrefix + t.RatingKey,
 			Title:        t.Title,
 			Artist:       t.ArtistName,
 			Album:        t.AlbumName,
@@ -200,12 +287,423 @@ func (p *Provider) convertTracks(plexTracks []Track, limit int) []playlist.Track
 			TrackNumber:  t.TrackNumber,
 			DurationSecs: t.Duration / 1000,
 			Stream:       true,
+			ProviderMeta: trackMeta(t),
 		})
 		if limit > 0 && len(tracks) >= limit {
 			break
 		}
 	}
 	return tracks
+}
+
+// ResolveSource turns a token-free Plex track URI into an authenticated
+// stream URL at play time. A restored entry fetches its part metadata when
+// the in-memory mapping is absent after a restart.
+func (p *Provider) ResolveSource(uri string) (string, error) {
+	id, ok := trackIDFromPath(uri)
+	if !ok {
+		return "", fmt.Errorf("plex: invalid track uri %q", uri)
+	}
+	p.mu.Lock()
+	partKey := p.partKeys[id]
+	p.mu.Unlock()
+	if partKey == "" {
+		track, err := p.client.Track(id)
+		if err != nil {
+			return "", fmt.Errorf("plex: resolve track %s: %w", id, err)
+		}
+		if track.PartKey == "" {
+			return "", fmt.Errorf("plex: track %s has no streamable part", id)
+		}
+		partKey = track.PartKey
+		p.mu.Lock()
+		if p.partKeys == nil {
+			p.partKeys = make(map[string]string)
+		}
+		p.partKeys[id] = partKey
+		if p.favorites == nil {
+			p.favorites = make(map[string]bool)
+		}
+		p.favorites[id] = track.UserRating >= 10
+		p.mu.Unlock()
+	}
+	// A request that found the route dead dropped it; find the new one
+	// before building the stream URL on it.
+	if _, _, err := p.client.endpoint(context.Background()); err != nil {
+		return "", fmt.Errorf("plex: resolve track %s: connect account server: %w", id, err)
+	}
+	return p.client.StreamURL(partKey), nil
+}
+
+// trackMeta returns the ProviderMeta of a Plex track: its ratingKey and, when
+// known, its album's.
+func trackMeta(t Track) map[string]string {
+	meta := map[string]string{provider.MetaPlexID: t.RatingKey}
+	if validRatingKey(t.AlbumKey) {
+		meta[provider.MetaPlexAlbumID] = t.AlbumKey
+	}
+	return meta
+}
+
+func trackIDFromPath(path string) (string, bool) {
+	id, ok := strings.CutPrefix(path, TrackURIPrefix)
+	if !ok || !validRatingKey(id) {
+		return "", false
+	}
+	return id, true
+}
+
+func validRatingKey(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') &&
+			(r < '0' || r > '9') && r != '-' && r != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+// CanFavoriteTrack reports whether track came from this Plex provider.
+func (p *Provider) CanFavoriteTrack(track playlist.Track) bool {
+	return plexTrackID(track) != ""
+}
+
+// FavoriteState reports the rating returned with the latest Plex metadata.
+// Plex is authoritative even when known is false; the UI must not fall back
+// to cliamp's local favorites for this track.
+func (p *Provider) FavoriteState(track playlist.Track) (favorite, known bool) {
+	id := plexTrackID(track)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if id == "" {
+		return false, false
+	}
+	favorite, known = p.favorites[id]
+	return favorite, known
+}
+
+// LoadFavoriteStates fetches the Plex rating of the tracks among tracks whose
+// state is unknown, such as the tracks restored from the last session. A
+// state set meanwhile, by a listing or a toggle, is kept.
+func (p *Provider) LoadFavoriteStates(ctx context.Context, tracks []playlist.Track) error {
+	var ids []string
+	seen := make(map[string]bool)
+	p.mu.Lock()
+	for _, track := range tracks {
+		id := plexTrackID(track)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		if _, known := p.favorites[id]; !known {
+			ids = append(ids, id)
+		}
+	}
+	p.mu.Unlock()
+
+	for batch := range slices.Chunk(ids, favoriteBatch) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		found, err := p.client.TracksByKey(batch)
+		if err != nil {
+			return fmt.Errorf("plex: load favorites: %w", err)
+		}
+		p.mu.Lock()
+		if p.favorites == nil {
+			p.favorites = make(map[string]bool)
+		}
+		if p.albumKeys == nil {
+			p.albumKeys = make(map[string]string)
+		}
+		for _, t := range found {
+			if _, known := p.favorites[t.RatingKey]; !known {
+				p.favorites[t.RatingKey] = t.UserRating >= 10
+			}
+			p.albumKeys[t.RatingKey] = t.AlbumKey
+		}
+		// A track removed from the server has no like. Its state is known,
+		// so f does not wait for a state that never loads.
+		for _, id := range batch {
+			if _, known := p.favorites[id]; !known {
+				p.favorites[id] = false
+			}
+		}
+		p.mu.Unlock()
+	}
+	return nil
+}
+
+// SetTrackFavorite updates the current user's favorite state in Plex.
+func (p *Provider) SetTrackFavorite(ctx context.Context, track playlist.Track, favorite bool) error {
+	id := plexTrackID(track)
+	if id == "" {
+		return fmt.Errorf("plex: track has no rating key")
+	}
+	rating := float64(0)
+	if favorite {
+		rating = 10
+	}
+	if err := p.client.SetRating(ctx, id, rating); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	if p.favorites == nil {
+		p.favorites = make(map[string]bool)
+	}
+	p.favorites[id] = favorite
+	p.mu.Unlock()
+	return nil
+}
+
+// RestoreTrack claims a saved Plex track for the resume context. The path is
+// already the token-free plex:track URI, and ResolveSource adds the current
+// credentials when playback starts, so the track is only checked and tagged.
+func (p *Provider) RestoreTrack(track playlist.Track) (playlist.Track, bool) {
+	id, ok := trackIDFromPath(track.Path)
+	if !ok {
+		return playlist.Track{}, false
+	}
+	meta := make(map[string]string, len(track.ProviderMeta)+1)
+	for k, v := range track.ProviderMeta {
+		meta[k] = v
+	}
+	meta[provider.MetaPlexID] = id
+	track.ProviderMeta = meta
+	track.Stream = true
+	return track, true
+}
+
+// stationBatchTracks converts one station batch and remembers that its last
+// track continues the server play queue.
+func (p *Provider) stationBatchTracks(page PlayQueuePage) []playlist.Track {
+	tracks := p.convertTracks(page.Tracks, 0)
+	if len(tracks) == 0 || page.LastItemID == 0 {
+		return tracks
+	}
+	p.mu.Lock()
+	if p.stationQueues == nil {
+		p.stationQueues = make(map[string]stationQueue)
+	}
+	p.stationQueues[tracks[len(tracks)-1].Path] = stationQueue{queueID: page.QueueID, lastItemID: page.LastItemID}
+	p.mu.Unlock()
+	return tracks
+}
+
+// CanContinueAfter reports whether track ends a station batch. It does no I/O.
+func (p *Provider) CanContinueAfter(track playlist.Track) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_, ok := p.stationQueues[track.Path]
+	return ok
+}
+
+// ContinueAfter returns the next station batch after track, the last track
+// of the batch before. No tracks means the station's queue has ended.
+func (p *Provider) ContinueAfter(track playlist.Track) ([]playlist.Track, error) {
+	p.mu.Lock()
+	queue, ok := p.stationQueues[track.Path]
+	delete(p.stationQueues, track.Path)
+	p.mu.Unlock()
+	if !ok {
+		return nil, nil
+	}
+	page, err := p.client.QueueTracksAfter(queue.queueID, queue.lastItemID, stationBatch)
+	if err != nil {
+		// Keep the queue so a later start of the same track can retry.
+		p.mu.Lock()
+		if p.stationQueues == nil {
+			p.stationQueues = make(map[string]stationQueue)
+		}
+		p.stationQueues[track.Path] = queue
+		p.mu.Unlock()
+		return nil, err
+	}
+	return p.stationBatchTracks(page), nil
+}
+
+// AlbumForTrack names the album of a Plex track as a list that Tracks opens.
+// A restored track saved without the album key uses the one LoadFavoriteStates
+// fetched. It does no I/O.
+// Implements provider.TrackAlbumResolver.
+func (p *Provider) AlbumForTrack(track playlist.Track) (playlist.PlaylistInfo, bool) {
+	trackID := plexTrackID(track)
+	if trackID == "" {
+		return playlist.PlaylistInfo{}, false
+	}
+	p.mu.Lock()
+	id := track.Meta(provider.MetaPlexAlbumID)
+	if id == "" {
+		id = p.albumKeys[trackID]
+	}
+	if !validRatingKey(id) {
+		p.mu.Unlock()
+		return playlist.PlaylistInfo{}, false
+	}
+	for _, l := range p.playlistCache {
+		if l.ID == id {
+			p.mu.Unlock()
+			return l, true
+		}
+	}
+	p.mu.Unlock()
+	name := track.Album
+	if track.Artist != "" {
+		name = track.Artist + " — " + name
+	}
+	return playlist.PlaylistInfo{ID: id, Name: name, Section: sectionAlbums}, true
+}
+
+// ArtistFilter returns the browser filter that shows the albums of a Plex
+// track's artist: the album rows start with the artist and a dash. It does
+// no I/O. Implements provider.TrackArtistFilter.
+func (p *Provider) ArtistFilter(track playlist.Track) (string, bool) {
+	if plexTrackID(track) == "" || strings.TrimSpace(track.Artist) == "" {
+		return "", false
+	}
+	return "^" + track.Artist + " — ", true
+}
+
+// CanDownloadTrack reports whether track is a Plex track. It does no I/O.
+// Implements provider.TrackDownloader.
+func (p *Provider) CanDownloadTrack(track playlist.Track) bool {
+	return plexTrackID(track) != ""
+}
+
+// OpenTrackFile opens the original file of a Plex track, the one it streams,
+// and names its extension from the part path. Implements
+// provider.TrackDownloader.
+func (p *Provider) OpenTrackFile(ctx context.Context, track playlist.Track) (io.ReadCloser, string, error) {
+	id := plexTrackID(track)
+	if id == "" {
+		return nil, "", fmt.Errorf("plex: %q is not a Plex track", track.Path)
+	}
+	p.mu.Lock()
+	partKey := p.partKeys[id]
+	p.mu.Unlock()
+	if partKey == "" {
+		t, err := p.client.Track(id)
+		if err != nil {
+			return nil, "", fmt.Errorf("plex: download track %s: %w", id, err)
+		}
+		partKey = t.PartKey
+	}
+	body, err := p.client.OpenPart(ctx, partKey)
+	if err != nil {
+		return nil, "", err
+	}
+	return body, path.Ext(partKey), nil
+}
+
+// stationLists returns the radio stations of the music sections as browser
+// entries, picked and ordered by the stations setting. A section whose
+// stations cannot be read is skipped: stations are an extra, not the library.
+func (p *Provider) stationLists(sections []Section) []playlist.PlaylistInfo {
+	if p.stations != nil && len(p.stations) == 0 {
+		return nil
+	}
+	var lists []playlist.PlaylistInfo
+	titles := make(map[string]string) // station ID -> title without the library
+	for _, sec := range sections {
+		stations, err := p.client.Stations(sec.Key)
+		if err != nil {
+			applog.Warn("plex: %v", err)
+			continue
+		}
+		for _, st := range stations {
+			name := st.Title
+			if len(sections) > 1 {
+				name += " · " + sec.Title
+			}
+			id := prefixStation + st.Key
+			lists = append(lists, playlist.PlaylistInfo{ID: id, Name: name, Section: sectionRadio})
+			titles[id] = st.Title
+		}
+	}
+	if p.stations == nil {
+		return lists
+	}
+	var picked []playlist.PlaylistInfo
+	for _, want := range p.stations {
+		for _, l := range lists {
+			if strings.EqualFold(titles[l.ID], want) {
+				picked = append(picked, l)
+			}
+		}
+	}
+	return picked
+}
+
+func plexTrackID(track playlist.Track) string {
+	if id := track.Meta(provider.MetaPlexID); id != "" {
+		return id
+	}
+	id, _ := trackIDFromPath(track.Path)
+	return id
+}
+
+func plexTrackDuration(track playlist.Track) time.Duration {
+	return time.Duration(track.DurationSecs) * time.Second
+}
+
+// CanReportPlayback reports whether track belongs to this Plex server.
+func (p *Provider) CanReportPlayback(track playlist.Track) bool {
+	return plexTrackID(track) != ""
+}
+
+// ReportNowPlaying sends the initial playing timeline update to Plex.
+func (p *Provider) ReportNowPlaying(track playlist.Track, position time.Duration, _ bool) error {
+	id := plexTrackID(track)
+	if id == "" {
+		return nil
+	}
+	return p.client.ReportTimeline(context.Background(), id, "playing", position, plexTrackDuration(track))
+}
+
+// ReportProgress sends an interim playing timeline update to Plex.
+func (p *Provider) ReportProgress(track playlist.Track, position time.Duration) error {
+	id := plexTrackID(track)
+	if id == "" {
+		return nil
+	}
+	return p.client.ReportTimeline(context.Background(), id, "playing", position, plexTrackDuration(track))
+}
+
+// ReportPaused sends a paused timeline update, so Plex stops counting the
+// position on.
+func (p *Provider) ReportPaused(track playlist.Track, position time.Duration) error {
+	id := plexTrackID(track)
+	if id == "" {
+		return nil
+	}
+	return p.client.ReportTimeline(context.Background(), id, "paused", position, plexTrackDuration(track))
+}
+
+// ReportStopped sends a stopped timeline update, so Plex ends the session of
+// a track left before it counts as played.
+func (p *Provider) ReportStopped(track playlist.Track, position time.Duration) error {
+	id := plexTrackID(track)
+	if id == "" {
+		return nil
+	}
+	return p.client.ReportTimeline(context.Background(), id, "stopped", position, plexTrackDuration(track))
+}
+
+// ReportScrobble sends a final stopped timeline and records one completed play.
+func (p *Provider) ReportScrobble(track playlist.Track, elapsed, duration time.Duration, _ bool) error {
+	id := plexTrackID(track)
+	if id == "" {
+		return nil
+	}
+	if duration <= 0 {
+		duration = plexTrackDuration(track)
+	}
+	timelineErr := p.client.ReportTimeline(context.Background(), id, "stopped", elapsed, duration)
+	scrobbleErr := p.client.Scrobble(context.Background(), id)
+	return errors.Join(timelineErr, scrobbleErr)
 }
 
 // AlbumTracks returns the tracks for the given album (ratingKey).
