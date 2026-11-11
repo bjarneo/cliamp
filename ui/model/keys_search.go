@@ -188,12 +188,10 @@ func (m *Model) updateProvSearch() {
 	if m.provSearch.query == "" {
 		return
 	}
-	q := strings.ToLower(m.provSearch.query)
-	for i, pl := range m.provPane.lists {
-		if strings.Contains(strings.ToLower(pl.Name), q) {
-			m.provSearch.results = append(m.provSearch.results, i)
-		}
-	}
+	lists := m.provPane.lists
+	m.provSearch.results = fuzzyRank(m.provSearch.query, len(lists), func(i int) string {
+		return lists[i].Name
+	})
 }
 
 func (m *Model) searchMaybeAdjustScroll(visible int) {
