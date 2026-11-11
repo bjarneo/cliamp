@@ -118,6 +118,7 @@ In the global album list, press `s` to cycle through sort modes:
 | `starred` | Starred / favourited |
 | `byYear` | Chronological by release year |
 | `byGenre` | Grouped by genre |
+| `random` | Random |
 
 Cliamp saves the selected sort as `browse_sort` in the `[navidrome]` section of `~/.config/cliamp/config.toml`. It restores the sort at the next start.
 
