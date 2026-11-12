@@ -636,16 +636,26 @@ func TestStreamURL_TokenEncoded(t *testing.T) {
 	}
 }
 
-func TestSearch_SendsCorrectParams(t *testing.T) {
+func TestSearch_UsesTrackHub(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/hubs/search" {
+			t.Errorf("expected /hubs/search, got %q", r.URL.Path)
+		}
 		if r.URL.Query().Get("query") != "Miles Davis" {
 			t.Errorf("expected query=Miles Davis, got %q", r.URL.Query().Get("query"))
 		}
-		if r.URL.Query().Get("type") != "10" {
-			t.Errorf("expected type=10, got %q", r.URL.Query().Get("type"))
+		if r.URL.Query().Get("limit") != strconv.Itoa(searchHubLimit) {
+			t.Errorf("expected limit=%d, got %q", searchHubLimit, r.URL.Query().Get("limit"))
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"MediaContainer":{"Metadata":[]}}`))
+		w.Write([]byte(`{"MediaContainer":{"Hub":[
+			{"type":"album","Metadata":[{"ratingKey":"10","title":"An album"}]},
+			{"type":"track","Metadata":[{
+				"ratingKey":"11","title":"So What","grandparentTitle":"Miles Davis",
+				"parentTitle":"Kind of Blue","index":1,"duration":545000,
+				"Media":[{"Part":[{"key":"/library/parts/11/1/file.flac"}]}]}]},
+			{"type":"episode","Metadata":[{"ratingKey":"12","title":"An episode"}]}
+		]}}`))
 	}))
 	defer srv.Close()
 
@@ -653,8 +663,110 @@ func TestSearch_SendsCorrectParams(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search() error: %v", err)
 	}
+	if len(tracks) != 1 {
+		t.Fatalf("expected only the track hub's 1 track, got %d: %+v", len(tracks), tracks)
+	}
+	got := tracks[0]
+	if got.RatingKey != "11" || got.Title != "So What" || got.ArtistName != "Miles Davis" ||
+		got.AlbumName != "Kind of Blue" || got.PartKey != "/library/parts/11/1/file.flac" {
+		t.Errorf("unexpected track: %+v", got)
+	}
+}
+
+func TestSearch_NoTrackHub(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"MediaContainer":{"Hub":[{"type":"album","Metadata":[{"ratingKey":"10"}]}]}}`))
+	}))
+	defer srv.Close()
+
+	tracks, err := newTestClient(srv).Search("nothing")
+	if err != nil {
+		t.Fatalf("Search() error: %v", err)
+	}
 	if len(tracks) != 0 {
 		t.Errorf("expected 0 tracks, got %d", len(tracks))
+	}
+}
+
+func TestSearch_LibraryFilter(t *testing.T) {
+	const searchBody = `{"MediaContainer":{"Hub":[
+		{"type":"album","Metadata":[{"ratingKey":"9","title":"Album hit","librarySectionID":2}]},
+		{"type":"track","Metadata":[
+			{"ratingKey":"1","title":"Music track","librarySectionID":1},
+			{"ratingKey":"2","title":"Audiobook track","librarySectionID":2},
+			{"ratingKey":"3","title":"Quoted id","librarySectionID":"1"},
+			{"ratingKey":"4","title":"No section id"}
+		]}
+	]}}`
+	const sectionsBody = `{"MediaContainer":{"Directory":[
+		{"key":"1","type":"artist","title":"Music"},
+		{"key":"2","type":"artist","title":"Audiobooks"},
+		{"key":"3","type":"movie","title":"Movies"}
+	]}}`
+
+	tests := []struct {
+		name         string
+		libraries    []string
+		wantTitles   []string
+		wantSections bool
+	}{
+		{
+			name:       "no filter keeps every library",
+			wantTitles: []string{"Music track", "Audiobook track", "Quoted id", "No section id"},
+		},
+		{
+			name:         "filter drops tracks from other libraries",
+			libraries:    []string{"music"},
+			wantTitles:   []string{"Music track", "Quoted id", "No section id"},
+			wantSections: true,
+		},
+		{
+			name:         "filter naming two libraries keeps both",
+			libraries:    []string{"Music", "Audiobooks"},
+			wantTitles:   []string{"Music track", "Audiobook track", "Quoted id", "No section id"},
+			wantSections: true,
+		},
+		{
+			name:         "filter matching no library drops every labelled track",
+			libraries:    []string{"DoesNotExist"},
+			wantTitles:   []string{"No section id"},
+			wantSections: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sectionsCalled := false
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/hubs/search":
+					w.Write([]byte(searchBody))
+				case "/library/sections":
+					sectionsCalled = true
+					w.Write([]byte(sectionsBody))
+				default:
+					t.Errorf("unexpected request %q", r.URL.Path)
+				}
+			}))
+			defer srv.Close()
+
+			tracks, err := NewClient(srv.URL, "test-token", tt.libraries...).Search("anything")
+			if err != nil {
+				t.Fatalf("Search() error: %v", err)
+			}
+			var got []string
+			for _, tr := range tracks {
+				got = append(got, tr.Title)
+			}
+			if !slices.Equal(got, tt.wantTitles) {
+				t.Errorf("titles = %q, want %q", got, tt.wantTitles)
+			}
+			if sectionsCalled != tt.wantSections {
+				t.Errorf("/library/sections requested = %v, want %v", sectionsCalled, tt.wantSections)
+			}
+		})
 	}
 }
 
