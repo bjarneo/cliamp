@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/gopxl/beep/v2"
-	"github.com/gopxl/beep/v2/speaker"
 )
 
 // Quality holds configurable audio output parameters.
@@ -40,7 +39,8 @@ type StreamerFactory func(uri string) (beep.StreamSeekCloser, beep.Format, time.
 // different order. The audio goroutine holds the speaker lock while it
 // streams, and the gapless swap callback takes mu on that goroutine. So a
 // path that holds mu must not call speaker.Lock. suspendMu is taken with no
-// lock held or with only lifecycleMu held. navBuffer.mu is a leaf lock.
+// lock held or with only lifecycleMu held. speaker.Drop takes the speaker lock
+// under suspendMu. navBuffer.mu is a leaf lock.
 // Close pipelines and wait for processes only after these locks are released.
 type Player struct {
 	mu              sync.Mutex
@@ -50,8 +50,9 @@ type Player struct {
 	current         *trackPipeline // active track's resources
 	nextPipeline    *trackPipeline // preloaded track's resources
 	started         bool           // true after first speaker.Play()
-	suspendMu       sync.Mutex     // guards suspended and speaker suspend/resume calls
+	suspendMu       sync.Mutex     // guards suspended, dropQueued and speaker suspend/resume/drop calls
 	suspended       bool           // true when speaker.Suspend() has been called
+	dropQueued      bool           // the suspended speaker holds samples of a stopped track; resumeSpeaker drops them
 	ctrl            *beep.Ctrl
 	volMin          atomic.Uint64     // dB floor stored as Float64bits, range [-90, 0]
 	volume          atomic.Uint64     // dB stored as Float64bits, range [volMin, +6]
@@ -238,7 +239,9 @@ func (p *Player) playPipelineForGeneration(tp *trackPipeline, generation uint64)
 		go tp.close()
 		return nil
 	}
-	p.resumeSpeaker()
+	// The suspended speaker still holds the samples of a paused track. Only
+	// a plain resume of that track may play them.
+	p.resumeSpeaker(p.paused.Load())
 
 	// Collect old pipelines to close after releasing locks.
 	var oldCurrent, oldNext *trackPipeline
@@ -384,8 +387,8 @@ func (p *Player) GaplessAdvanced() bool {
 }
 
 // TogglePause toggles between paused and playing states.
-// When pausing, the speaker is suspended to save CPU; when unpausing
-// it is resumed so the audio callback drains the queued samples.
+// When pausing, the speaker is suspended to save CPU. It keeps the samples
+// that it queued, so a resume continues the track from where it paused.
 func (p *Player) TogglePause() {
 	speaker.Lock()
 	if p.ctrl != nil {
@@ -394,9 +397,9 @@ func (p *Player) TogglePause() {
 		speaker.Unlock()
 		p.paused.Store(paused)
 		if paused {
-			p.suspendSpeaker()
+			p.suspendSpeaker(false)
 		} else {
-			p.resumeSpeaker()
+			p.resumeSpeaker(false)
 		}
 	} else {
 		speaker.Unlock()
@@ -405,12 +408,16 @@ func (p *Player) TogglePause() {
 
 // Stop halts playback and releases resources. The speaker is suspended so
 // the ALSA audio callback goroutine blocks (zero CPU) instead of streaming
-// silence. Resume is called automatically on the next track start.
+// silence. Resume is called automatically on the next track start. The next
+// start drops the samples that the speaker queued. When the track played to
+// its end, they are its last samples, and the next start plays them.
 func (p *Player) Stop() {
 	// Reject a preload still loading in the background, as ClearPreload does,
 	// so it cannot arm a next track on the stopped player.
 	p.preloadGen.Add(1)
 	p.lifecycleMu.Lock()
+	// Read this before the interrupt below, which can end the track early.
+	drained := p.gapless.Drained()
 	p.mu.Lock()
 	active := p.current
 	p.mu.Unlock()
@@ -444,7 +451,7 @@ func (p *Player) Stop() {
 	p.stopStreamMetadata()
 	closePipelines(oldCurrent, oldNext)
 
-	p.suspendSpeaker()
+	p.suspendSpeaker(!drained)
 }
 
 // Seek moves the playback position by the given duration (positive or negative).
@@ -1086,12 +1093,14 @@ func (p *Player) HasSourceResolver(path string) bool {
 
 // suspendSpeaker suspends the ALSA audio callback goroutine so it blocks
 // on a condition variable instead of busy-looping. Safe to call multiple
-// times; subsequent calls are no-ops.
-func (p *Player) suspendSpeaker() {
+// times. The speaker keeps the samples that it queued. When drop is true,
+// they belong to a track that stopped, and the next resume drops them.
+func (p *Player) suspendSpeaker(drop bool) {
 	p.suspendMu.Lock()
 	defer p.suspendMu.Unlock()
 
 	if p.suspended {
+		p.dropQueued = p.dropQueued || drop
 		return
 	}
 	if err := speaker.Suspend(); err != nil {
@@ -1101,16 +1110,24 @@ func (p *Player) suspendSpeaker() {
 		return
 	}
 	p.suspended = true
+	p.dropQueued = drop
 }
 
 // resumeSpeaker resumes the ALSA audio callback goroutine. Safe to call
-// multiple times; subsequent calls are no-ops.
-func (p *Player) resumeSpeaker() {
+// multiple times; subsequent calls are no-ops. When drop is true, or when
+// Stop marked the queued samples, it drops them first. The speaker then reads
+// new samples at once, so drop only while the chain sends silence: before a
+// new source starts, or after Stop cleared the source.
+func (p *Player) resumeSpeaker(drop bool) {
 	p.suspendMu.Lock()
 	defer p.suspendMu.Unlock()
 
 	if !p.suspended {
 		return
+	}
+	if drop || p.dropQueued {
+		speaker.Drop()
+		p.dropQueued = false
 	}
 	if err := speaker.Resume(); err != nil {
 		return

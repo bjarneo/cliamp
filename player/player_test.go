@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/gopxl/beep/v2"
-	"github.com/gopxl/beep/v2/speaker"
 )
 
 // newTestPlayer returns a Player with only the atomic accessors wired up.
