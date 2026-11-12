@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"strings"
@@ -171,7 +172,8 @@ func ipcFeedLoadCmd(ctx context.Context, op string, feed playlist.Track, jobs *i
 		resolveCtx, cancel := context.WithTimeout(requestContext(ctx), 30*time.Second)
 		defer cancel()
 		tracks, err := resolve.Feed(resolveCtx, feed.Path)
-		if err == nil {
+		// A deadline past the first episodes still returns them; only a cancellation drops them.
+		if err == nil && errors.Is(resolveCtx.Err(), context.Canceled) {
 			err = resolveCtx.Err()
 		}
 		return ipcFeedLoadResult{
