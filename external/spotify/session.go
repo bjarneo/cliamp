@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -82,18 +83,97 @@ func (s *Session) webClient() *http.Client {
 	return webHTTPClient
 }
 
+// chunkStallTimeout bounds how long a chunk request waits for its response
+// headers or for the next bytes of its body. A network path change, such as
+// a VPN that goes up or down, can leave the connection half-open. A read on
+// it then blocks for minutes, and the decoder read that waits for the chunk
+// holds the speaker lock. The timeout cancels the request. librespot retries
+// a request that got no response. A failed body read fails the decoder read,
+// and spotifyStreamer then reopens the stream at the same position.
+const chunkStallTimeout = 10 * time.Second
+
+// errChunkStalled reports a chunk request that got no data for the stall
+// timeout.
+var errChunkStalled = errors.New("spotify: chunk download stalled")
+
+// chunkTransport sends the chunk requests of all streams. It is a clone of
+// http.DefaultTransport, so the proxy settings do not change. A cancelled
+// request does not close its HTTP/2 connection, so a retry can use the same
+// dead connection. The ping health check closes a dead HTTP/2 connection
+// within the stall timeout.
+var chunkTransport = newChunkTransport(chunkStallTimeout)
+
+func newChunkTransport(stall time.Duration) *http.Transport {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.HTTP2 = &http.HTTP2Config{SendPingTimeout: stall / 2, PingTimeout: stall / 2}
+	return tr
+}
+
 type streamContextTransport struct {
-	ctx  context.Context
-	base http.RoundTripper
+	ctx   context.Context
+	base  http.RoundTripper
+	stall time.Duration
 }
 
-// RoundTrip attaches the stream lifetime to librespot's context-free chunk requests.
+// RoundTrip attaches the stream lifetime to librespot's chunk requests. It
+// cancels a request that gets no response headers within the stall timeout.
+// The response body applies the same timeout to each read.
 func (t streamContextTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	return t.base.RoundTrip(req.Clone(t.ctx))
+	ctx, cancel := context.WithCancelCause(t.ctx)
+	timer := time.AfterFunc(t.stall, func() { cancel(errChunkStalled) })
+	resp, err := t.base.RoundTrip(req.Clone(ctx))
+	timer.Stop()
+	if err != nil {
+		err = t.requestErr(ctx, err)
+		cancel(nil)
+		return nil, err
+	}
+	resp.Body = &stallBody{ReadCloser: resp.Body, t: t, ctx: ctx, cancel: cancel, timer: timer}
+	return resp, nil
 }
 
-func newSpotifyStreamHTTPClient(ctx context.Context, transport http.RoundTripper) *http.Client {
-	return &http.Client{Transport: streamContextTransport{ctx: ctx, base: transport}}
+// requestErr explains why a chunk request failed. After the stream closes,
+// the error wraps net.ErrClosed, so librespot does not retry the request and
+// a blocked decoder read returns at once.
+func (t streamContextTransport) requestErr(ctx context.Context, err error) error {
+	if t.ctx.Err() != nil {
+		return fmt.Errorf("spotify: stream closed: %w: %w", net.ErrClosed, err)
+	}
+	if errors.Is(context.Cause(ctx), errChunkStalled) {
+		return fmt.Errorf("%w: no data for %v: %w", errChunkStalled, t.stall, err)
+	}
+	return err
+}
+
+// stallBody cancels its chunk request when a read gets no data for the stall
+// timeout.
+type stallBody struct {
+	io.ReadCloser
+	t      streamContextTransport
+	ctx    context.Context
+	cancel context.CancelCauseFunc
+	timer  *time.Timer
+}
+
+func (b *stallBody) Read(p []byte) (int, error) {
+	b.timer.Reset(b.t.stall)
+	n, err := b.ReadCloser.Read(p)
+	b.timer.Stop()
+	if err != nil && !errors.Is(err, io.EOF) {
+		err = b.t.requestErr(b.ctx, err)
+	}
+	return n, err
+}
+
+func (b *stallBody) Close() error {
+	b.timer.Stop()
+	err := b.ReadCloser.Close()
+	b.cancel(nil)
+	return err
+}
+
+func newSpotifyStreamHTTPClient(ctx context.Context, transport http.RoundTripper, stall time.Duration) *http.Client {
+	return &http.Client{Transport: streamContextTransport{ctx: ctx, base: transport, stall: stall}}
 }
 
 func awaitSpotifyStream(ctx context.Context, cancel context.CancelFunc, open func() (*librespotPlayer.Stream, error)) (*librespotPlayer.Stream, context.CancelFunc, error) {
@@ -619,7 +699,7 @@ func (s *Session) initPlayer() error {
 // not during its HTTP call.
 func (s *Session) NewStream(ctx context.Context, spotID librespot.SpotifyId, bitrate int, positionMs int64) (*librespotPlayer.Stream, context.CancelFunc, error) {
 	streamCtx, cancel := context.WithCancel(context.Background())
-	client := newSpotifyStreamHTTPClient(streamCtx, http.DefaultTransport)
+	client := newSpotifyStreamHTTPClient(streamCtx, chunkTransport, chunkStallTimeout)
 
 	return awaitSpotifyStream(ctx, cancel, func() (*librespotPlayer.Stream, error) {
 		s.mu.RLock()

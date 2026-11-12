@@ -289,16 +289,24 @@ func (s *spotifyStreamer) Seek(p int) error {
 	return s.source.SetPositionMs(ms)
 }
 
+// Interrupt ends the stream without taking mu. A decoder read may wait on a
+// chunk request while Stream holds mu and the player holds the speaker lock.
+// Interrupt cancels that request, so the read fails and Stream ends the track
+// without a reconnect. The player calls it before Stop or a track change takes
+// the speaker lock. Implements player.Interrupter.
+func (s *spotifyStreamer) Interrupt() {
+	if s.closing.CompareAndSwap(false, true) {
+		s.stop()
+		s.cancelStream()
+	}
+}
+
 // Close cancels stream I/O and releases cliamp's references. AudioSource does
 // not expose Close intentionally; calling the concrete C-backed decoder Close
 // methods during a track handoff can crash go-librespot.
 func (s *spotifyStreamer) Close() error {
-	if s.closing.CompareAndSwap(false, true) {
-		// A decoder read may be waiting on a chunk request while holding mu.
-		// Cancel it before waiting to close the decoder.
-		s.stop()
-		s.cancelStream()
-	}
+	// Cancel a blocked decoder read before waiting for mu.
+	s.Interrupt()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

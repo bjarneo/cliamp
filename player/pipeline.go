@@ -91,11 +91,15 @@ func (tp *trackPipeline) close() {
 	}
 }
 
-// interrupt unblocks a pipe decoder without waiting for its process. It is
-// safe to call before speaker.Lock; close reaps the interrupted process later.
+// interrupt unblocks a pipe decoder without waiting for its process, or a
+// custom streamer that implements Interrupter. It is safe to call before
+// speaker.Lock; close reaps the interrupted process later.
 func (tp *trackPipeline) interrupt() {
-	if decoder, ok := tp.decoder.(interface{ interrupt() }); ok {
+	switch decoder := tp.decoder.(type) {
+	case interface{ interrupt() }:
 		decoder.interrupt()
+	case Interrupter:
+		decoder.Interrupt()
 	}
 }
 

@@ -24,6 +24,15 @@ type Quality struct {
 // duration, and any error.
 type StreamerFactory func(uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error)
 
+// Interrupter is an optional interface of a streamer from a StreamerFactory
+// whose Stream can block on network I/O. Stop and a track change call
+// Interrupt before they take the speaker lock. Interrupt makes a blocked
+// Stream return, and Stream then ends the track. Interrupt must not wait for
+// Stream or take a lock that Stream holds. Close follows it.
+type Interrupter interface {
+	Interrupt()
+}
+
 // Player is the audio engine managing the playback pipeline:
 //
 //	[Gapless] -> [Speed] -> [10x Biquad EQ] -> [Tap] -> [Volume + Mono] -> [Ctrl] -> speaker
@@ -40,7 +49,8 @@ type StreamerFactory func(uri string) (beep.StreamSeekCloser, beep.Format, time.
 // streams, and the gapless swap callback takes mu on that goroutine. So a
 // path that holds mu must not call speaker.Lock. suspendMu is taken with no
 // lock held or with only lifecycleMu held. speaker.Drop takes the speaker lock
-// under suspendMu. navBuffer.mu is a leaf lock.
+// under suspendMu. navBuffer.mu is a leaf lock. A decoder interrupt runs
+// before speaker.Lock, so it must not take a lock that Stream holds.
 // Close pipelines and wait for processes only after these locks are released.
 type Player struct {
 	mu              sync.Mutex
