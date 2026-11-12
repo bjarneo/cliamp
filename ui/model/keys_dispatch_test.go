@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -574,6 +575,74 @@ func TestOverlayProviderShortcutMissHintsSetup(t *testing.T) {
 	}
 	if m.status.text == "" {
 		t.Fatal("no setup hint; want the status to name the setup step")
+	}
+}
+
+// A default provider that did not register, such as --provider qobuz with no
+// [qobuz] section, falls back to the first provider and shows the warning of
+// the provider shortcuts. Headless mode shows nothing, and the tick expires
+// the warning. See issue #428.
+func TestNewHintsUnregisteredDefaultProvider(t *testing.T) {
+	entries := []provider.Entry{
+		{Key: "cliamp", Name: "cliamp radio", Provider: commandsTestProvider{name: "cliamp radio"}},
+		{Key: "spotify", Name: "Spotify", Provider: commandsTestProvider{name: "Spotify"}},
+	}
+	tests := []struct {
+		name         string
+		provider     string
+		headless     bool
+		wantProvider string
+		want         []string // the warning names these. Empty means no warning.
+	}{
+		{name: "unconfigured qobuz", provider: "qobuz", wantProvider: "cliamp radio", want: []string{"not configured", "cliamp setup"}},
+		{name: "unconfigured ytmusic", provider: "ytmusic", wantProvider: "cliamp radio", want: []string{"YouTube", "cliamp setup", "yt-dlp"}},
+		{name: "unknown name", provider: "nosuch", wantProvider: "cliamp radio", want: []string{"not configured", "cliamp setup"}},
+		{name: "headless unconfigured", provider: "qobuz", headless: true, wantProvider: "cliamp radio", want: []string{"cliamp setup"}},
+		{name: "configured provider", provider: "spotify", wantProvider: "Spotify"},
+		{name: "no default", wantProvider: "cliamp radio"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+			m := New(&playbackFakeEngine{}, playlist.New(), entries, tt.provider, nil, nil, nil, nil, nil, nil)
+			if tt.headless {
+				m.SetHeadless(true)
+			}
+
+			if got := m.provider.Name(); got != tt.wantProvider {
+				t.Fatalf("provider = %q, want %q", got, tt.wantProvider)
+			}
+			if len(tt.want) == 0 {
+				if m.status.text != "" {
+					t.Fatalf("status = %q, want none", m.status.text)
+				}
+				return
+			}
+			shortcut := Model{providers: entries}
+			shortcut.switchToProvider(tt.provider)
+			if m.status.kind != feedbackWarning || m.status.text != shortcut.status.text {
+				t.Fatalf("status = %q (kind %d), want the shortcut warning %q", m.status.text, m.status.kind, shortcut.status.text)
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(m.status.text, want) {
+					t.Errorf("status = %q, want %q", m.status.text, want)
+				}
+			}
+			if !tt.headless {
+				m.layout.panelWidth = 100
+				if got := stripAnsi(m.renderTransient()); !strings.Contains(got, "WARN: "+m.status.text) {
+					t.Fatalf("status line = %q, want the warning", got)
+				}
+				return
+			}
+			if view := m.View(); view.Content != "" {
+				t.Fatalf("headless view = %q, want an empty view", view.Content)
+			}
+			updated, _ := m.Update(tickMsg(time.Now().Add(time.Minute)))
+			if got := updated.(Model).status.text; got != "" {
+				t.Fatalf("status after the tick = %q, want none", got)
+			}
+		})
 	}
 }
 
