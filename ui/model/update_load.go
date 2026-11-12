@@ -136,20 +136,13 @@ func (m *Model) handleFBTracksResolved(msg fbTracksResolvedMsg) tea.Cmd {
 		return nil
 	}
 	if msg.replace {
-		m.stopPlayback()
-		m.player.ClearPreload()
-		m.retireTracksPaging()
-		m.replacePlaylist(msg.tracks)
-		m.clearLoadedPlaylist()
-		m.setHeaderStateFromTracks(msg.tracks)
-		m.plCursor = 0
-		m.plScroll = 0
+		m.replaceQueue(msg.tracks)
 	} else {
 		m.appendTracks(msg.tracks...)
+		m.focus = focusPlaylist
+		m.applyHeightMode()
+		m.adjustScroll()
 	}
-	m.focus = focusPlaylist
-	m.applyHeightMode()
-	m.adjustScroll()
 	if msg.replace {
 		m.status.Successf(statusTTLDefault, "Replaced queue with %d track(s)", len(msg.tracks))
 	} else {

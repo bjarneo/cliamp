@@ -364,6 +364,7 @@ search and the results list is open:
 | `Enter` | Play the selected track now |
 | `a` | Append the selected track to the playlist |
 | `q` | Queue the selected track to play next |
+| `R` | (Provider search only) Replace the playlist with the selected track or album and play it |
 | `f` | Toggle the favorite ♥ on the selected track. On a podcast show, subscribe or unsubscribe. |
 | `p` | (Spotify only) Save the selected track to a Spotify playlist |
 | `Esc` `Backspace` | Back to the search input |
@@ -373,6 +374,11 @@ feed's episodes and starts the first; `a` appends them and starts the first if
 the playlist was empty or nothing is playing. `q` appends and queues the
 episodes in feed order after any already queued tracks, starting queued
 playback if nothing is playing.
+
+On an album result, `Enter` appends the album's tracks to the playlist and
+starts the first one, so the playlist you built up stays. `R` replaces the
+playlist with the album instead. When the playlist is not empty, `R` asks first:
+`Enter` confirms and `Esc` cancels, because the replace cannot be undone.
 
 ## Fuzzy search
 

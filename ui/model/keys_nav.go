@@ -630,17 +630,8 @@ func (m *Model) replacePlaylistFromNav() tea.Cmd {
 	if len(tracks) == 0 {
 		return nil
 	}
-	m.stopPlayback()
-	m.player.ClearPreload()
-	m.retireTracksPaging()
-	m.replacePlaylist(tracks)
-	m.clearLoadedPlaylist()
-	m.setHeaderStateFromTracks(tracks)
-	m.plCursor = 0
-	m.plScroll = 0
-	m.playlist.SetIndex(0)
-	m.focus = focusPlaylist
 	m.navBrowser.visible = false
+	m.replaceQueue(tracks)
 	m.status.Successf(statusTTLDefault, "Replaced queue with %d tracks", len(tracks))
 	return m.playCurrentTrack()
 }
