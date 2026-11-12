@@ -53,6 +53,21 @@ cliamp uses a built-in `client_id`. [librespot](https://github.com/librespot-org
 
 > **Shared rate limit:** The built-in `client_id` is shared by librespot, spotify-player, and cliamp users worldwide. Spotify applies its per-app quota globally. A busy pool can cause `429 Too Many Requests` during search or playlist loading. Cliamp retries with backoff. Persistent 429 errors indicate a busy pool. Your own `client_id` has a separate quota.
 
+### Sign in on a remote machine
+
+The sign-in callback listens on `127.0.0.1:19872` of the machine that runs cliamp. When cliamp runs on a remote machine over SSH, the browser on your computer cannot reach this callback. To sign in, forward the port from your computer to the remote machine:
+
+```sh
+ssh -L 19872:127.0.0.1:19872 user@remote-host
+```
+
+1. Connect with the command above.
+2. In this SSH session, run `cliamp`, select Spotify, and press `Enter`.
+3. Open the sign-in URL from the provider panel in the browser on your computer. The panel wraps a long URL over several rows. Join the rows when you copy them. cliamp also writes the URL to `~/.config/cliamp/cliamp.log` on the remote machine.
+4. Approve the sign-in. Spotify sends the browser to `http://127.0.0.1:19872/login`, and SSH forwards this request to cliamp on the remote machine.
+
+cliamp stores the credentials on the remote machine. You need the forwarded port again only for a new sign-in.
+
 ## Usage
 
 After authentication, Spotify appears in the provider list. Press `Esc`/`b` to open the provider browser and select Spotify.
@@ -109,7 +124,7 @@ Podcast episodes work as tracks. Press `Ctrl+F` to search Spotify. Matching epis
 
 ## Troubleshooting
 
-- **"OAuth failed"**: Ensure the Spotify dashboard redirect URI is exactly `http://127.0.0.1:19872/login`, without a trailing slash. The temporary callback server listens only on this local address and does not accept connections from the network.
+- **"OAuth failed"**: Ensure the Spotify dashboard redirect URI is exactly `http://127.0.0.1:19872/login`, without a trailing slash. The temporary callback server listens only on this local address and does not accept connections from the network. On a remote machine, see [Sign in on a remote machine](#sign-in-on-a-remote-machine).
 - **Two authorization steps**: This is expected with your own `client_id`. After you approve Web API access, the same browser tab redirects to create a playback credential with the required Spotify built-in identity.
 - **Playlist not showing**: Save or follow the playlist in Spotify. The provider lists only library playlists.
 - **Playback issues**: Spotify integration needs a Premium account. Free accounts cannot stream.
