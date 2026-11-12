@@ -4,45 +4,51 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	librespot "github.com/devgianlu/go-librespot"
 	"github.com/devgianlu/go-librespot/ap"
 	"github.com/devgianlu/go-librespot/audio"
+
+	"github.com/bjarneo/cliamp/playlist"
 )
 
-// TestIsAuthError pins down which errors trigger Spotify re-authentication.
-// Rapid track skipping cancels in-flight stream creation, surfacing
-// context.DeadlineExceeded / context.Canceled — these MUST NOT be treated as
-// auth errors, otherwise the streamer escalates to a browser re-auth flow
-// even though the session is healthy. See the regression discussion in
-// fix/spotify-rapid-skip-reauth.
-func TestIsAuthError(t *testing.T) {
-	wrappedDeadline := fmt.Errorf("librespot: fetch chunk: %w", context.DeadlineExceeded)
-	wrappedCanceled := fmt.Errorf("librespot: fetch chunk: %w", context.Canceled)
-	keyErr := &audio.KeyProviderError{Code: 1}
-	wrappedKeyErr := fmt.Errorf("spotify: %w", keyErr)
+// TestStreamErrorClassification pins down which stream errors rebuild the
+// session and which ask for sign-in. Spotify refuses an audio key on a
+// session that is signed in, so a refusal must do neither. Rapid track
+// skipping cancels a stream setup, and that must not rebuild the session.
+func TestStreamErrorClassification(t *testing.T) {
+	// go-librespot's player.NewStream wraps the key error this way.
+	keyErr := fmt.Errorf("failed retrieving audio key: %w", &audio.KeyProviderError{Code: 1})
 
 	tests := []struct {
-		name string
-		err  error
-		want bool
+		name        string
+		err         error
+		wantLost    bool
+		wantRefused bool
 	}{
-		{"nil", nil, false},
-		{"context.DeadlineExceeded (skip cancellation)", context.DeadlineExceeded, false},
-		{"wrapped DeadlineExceeded", wrappedDeadline, false},
-		{"context.Canceled (skip cancellation)", context.Canceled, false},
-		{"wrapped Canceled", wrappedCanceled, false},
-		{"plain network error", errors.New("connection reset by peer"), false},
-		{"KeyProviderError (real auth signal)", keyErr, true},
-		{"wrapped KeyProviderError", wrappedKeyErr, true},
+		{"audio key refused", keyErr, false, true},
+		{"closed access point", fmt.Errorf("failed retrieving audio key: %w", ap.ErrAccesspointClosed), true, false},
+		{"setup timeout", fmt.Errorf("librespot: fetch chunk: %w", context.DeadlineExceeded), false, false},
+		{"skip cancellation", context.Canceled, false, false},
+		{"plain network error", errors.New("connection reset by peer"), false, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isAuthError(tt.err)
-			if got != tt.want {
-				t.Fatalf("isAuthError(%v) = %v, want %v", tt.err, got, tt.want)
+			if got := isSessionLost(tt.err); got != tt.wantLost {
+				t.Fatalf("isSessionLost(%v) = %v, want %v", tt.err, got, tt.wantLost)
+			}
+			got := streamError(tt.err)
+			if !errors.Is(got, tt.err) {
+				t.Fatalf("streamError(%v) = %v, want it to wrap the cause", tt.err, got)
+			}
+			if errors.Is(got, playlist.ErrNeedsAuth) {
+				t.Fatalf("streamError(%v) = %v, want no sign-in request", tt.err, got)
+			}
+			if refused := strings.Contains(got.Error(), "Spotify refused the audio key for this track"); refused != tt.wantRefused {
+				t.Fatalf("streamError(%v) = %q, want refusal message %v", tt.err, got, tt.wantRefused)
 			}
 		})
 	}
