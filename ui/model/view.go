@@ -1204,7 +1204,8 @@ func (m Model) renderPlaylist() string {
 		stateReporters = m.playbackStateReporters()
 	}
 
-	for row := range m.playlistRows(tracks, localScroll, m.showAlbumHeaders) {
+	showHeaders := m.plShowsAlbumHeaders()
+	for row := range m.playlistRows(tracks, localScroll, showHeaders) {
 		if row.Index < 0 {
 			if len(lines)+1 >= budget {
 				break
@@ -1309,7 +1310,7 @@ func (m Model) renderPlaylist() string {
 			if remaining >= len(" (unavailable)") {
 				albumSuffix = truncate(" (unavailable)", remaining)
 			}
-		} else if album := terminalText(t.Album); album != "" && !m.showAlbumHeaders && m.layout.panelWidth >= 56 {
+		} else if album := terminalText(t.Album); album != "" && !showHeaders && m.layout.panelWidth >= 56 {
 			remaining := m.layout.panelWidth - linePrefixWidth - nameLen - queueLen - durationGap - 3 // 3 = " · "
 			if remaining >= 4 {
 				albumSuffix = " · " + truncate(album, remaining)
