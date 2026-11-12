@@ -91,6 +91,8 @@ After authentication, **YouTube** and **YouTube Music** appear as separate provi
 
 Both use the same Google account sign-in. cliamp classifies playlists by video category and stores the result on disk. Later launches use the cached result.
 
+Press `Y` to open **YouTube (All)**. Press `Y` again to open **YouTube**, and again to open **YouTube Music**. The key also works in simplified mode and in a small terminal, where the Source pills do not show.
+
 ## Controls
 
 When focused on the provider panel:
