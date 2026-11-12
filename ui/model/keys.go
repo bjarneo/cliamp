@@ -770,6 +770,10 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 
 	case "ctrl+h":
+		if m.playlist.Shuffled() {
+			m.status.Warning(shuffleHeadersWarning, statusTTLShort)
+			return nil
+		}
 		m.toggleAlbumHeadersManual()
 		m.adjustScroll()
 

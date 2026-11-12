@@ -175,9 +175,9 @@ preference remains saved for a wider layout. See
 
 While shuffle is on, the playlist lists tracks in play order. The tracks that
 played before the current track are above it. The tracks that play next are
-below it. Each row keeps its original track number. When you turn off shuffle,
-the playlist returns to the original order and the cursor stays on the same
-track.
+below it. Each row keeps its original track number. The album headers stay
+hidden until you turn off shuffle. When you turn off shuffle, the playlist
+returns to the original order and the cursor stays on the same track.
 
 ### Inside the subscribed shows overlay
 
