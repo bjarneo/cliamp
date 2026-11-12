@@ -1,6 +1,6 @@
 module github.com/bjarneo/cliamp
 
-go 1.26.10
+go 1.26.11
 
 require (
 	charm.land/bubbletea/v2 v2.0.9
@@ -30,7 +30,7 @@ require (
 	cloud.google.com/go/auth v0.23.2 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
-	github.com/andybalholm/brotli v1.2.1 // indirect
+	github.com/andybalholm/brotli v1.2.7 // indirect
 	github.com/bitly/go-simplejson v0.5.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -68,7 +68,7 @@ require (
 	github.com/icza/bitio v1.1.0 // indirect
 	github.com/jfreymuth/pulse v0.1.3 // indirect
 	github.com/jfreymuth/vorbis v1.0.2 // indirect
-	github.com/klauspost/compress v1.19.1 // indirect
+	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect

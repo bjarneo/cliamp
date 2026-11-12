@@ -28,7 +28,7 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          # go.mod requires Go >= 1.26.10. The default go_1_26 in the pinned
+          # go.mod requires Go >= 1.26.11. The default go_1_26 in the pinned
           # nixpkgs is 1.26.7, and the Nix sandbox builds with GOTOOLCHAIN=local,
           # so point the package at the latest toolchain the flake provides.
           cliamp = pkgs.callPackage ./nix/package.nix {
