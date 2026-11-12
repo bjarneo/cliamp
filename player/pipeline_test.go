@@ -326,7 +326,7 @@ func TestBuildPipelineRoutes(t *testing.T) {
 				tt.register(p)
 			}
 
-			tp, err := p.buildPipeline(tt.path, 0)
+			tp, err := p.buildPipeline(tt.path, 0, nil)
 			if tt.wantErr != "" {
 				if tp != nil {
 					tp.close()
@@ -486,7 +486,7 @@ printf 'page bytes'
 				tt.register(t, p)
 			}
 
-			tp, err := p.buildSource(tt.path, tt.known, tt.offset, tt.probe)
+			tp, err := p.buildSource(tt.path, tt.known, tt.offset, tt.probe, nil)
 			if tt.wantErr != "" {
 				if tp != nil {
 					tp.close()
@@ -538,7 +538,7 @@ func TestBuildSourceKnownDurationEndsICYFileCleanly(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := &Player{sr: beep.SampleRate(44100), bitDepth: 16, resampleQuality: 1}
-			tp, err := p.buildSource(srv.URL+"/radio-length.aac", tt.known, 0, false)
+			tp, err := p.buildSource(srv.URL+"/radio-length.aac", tt.known, 0, false, nil)
 			if err != nil {
 				t.Fatalf("buildSource() error = %v", err)
 			}
@@ -601,7 +601,7 @@ func TestBuildPipelineSendsFFmpegFormatsPastNativeDecoders(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(ext+"/"+tt.name, func(t *testing.T) {
 				p := &Player{sr: beep.SampleRate(44100), bitDepth: 16, resampleQuality: 1}
-				tp, err := p.buildPipeline(tt.path, 0)
+				tp, err := p.buildPipeline(tt.path, 0, nil)
 				if tt.wantErr != "" {
 					if tp != nil {
 						tp.close()
