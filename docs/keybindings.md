@@ -143,7 +143,7 @@ and `Esc` clears it.
 | `P` | Open Plex provider |
 | `J` | Open Jellyfin provider |
 | `E` | Open Emby provider |
-| `Y` | Open YouTube provider |
+| `Y` | Open YouTube (All). Press `Y` again to open YouTube, then YouTube Music |
 | `C` | Open SoundCloud provider |
 | `X` | Open Mixcloud provider |
 | `M` | Open NetEase provider |
@@ -296,7 +296,7 @@ saved albums — appear in the provider pane.
 | `R` | Replace the queue with all visible tracks (start from the top, confirm when non-empty) |
 | `q` | Queue the highlighted track to play next |
 | `s` | Cycle album sort (album list only) |
-| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `K` `U` `L` `R` `O` | Switch to that provider without opening the main pane. On the track screen, `R` replaces the queue instead. |
+| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `K` `U` `L` `R` `O` | Switch to that provider without opening the main pane. `Y` opens the next YouTube provider, as in the main view. On the track screen, `R` replaces the queue instead. |
 | `N` | In Jellyfin, reopen the browse-mode chooser. Elsewhere, switch to Navidrome. |
 | `Ctrl+P` | In Telegram, pick the chats, groups and bots that show up in the list. |
 | `Esc` `b` | Go back one level; close the browser |

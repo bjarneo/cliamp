@@ -231,11 +231,20 @@ func (p *Player) PlayAtForGeneration(path string, knownDuration, offset time.Dur
 // playAt builds the pipeline for path and plays it. A generation of 0 plays
 // it without the check.
 func (p *Player) playAt(path string, knownDuration, offset time.Duration, generation uint64) error {
-	tp, err := p.buildSource(path, knownDuration, offset, true)
+	tp, err := p.buildSource(path, knownDuration, offset, true, staleFor(&p.playGen, generation))
 	if err != nil {
 		return err
 	}
 	return p.playPipelineForGeneration(tp, generation)
+}
+
+// staleFor returns a check that reports true once current no longer holds
+// generation. It returns nil for a generation of 0, which is never stale.
+func staleFor(current *atomic.Uint64, generation uint64) func() bool {
+	if generation == 0 {
+		return nil
+	}
+	return func() bool { return current.Load() != generation }
 }
 
 // playPipelineForGeneration wires a ready-to-play trackPipeline into the
@@ -336,7 +345,7 @@ func (p *Player) BeginPreload() uint64 {
 // knownDuration is the metadata duration (use 0 if unknown). buildSource
 // picks the pipeline.
 func (p *Player) PreloadForGeneration(path string, knownDuration time.Duration, generation uint64) error {
-	tp, err := p.buildSource(path, knownDuration, 0, false)
+	tp, err := p.buildSource(path, knownDuration, 0, false, staleFor(&p.preloadGen, generation))
 	if err != nil {
 		return err
 	}
