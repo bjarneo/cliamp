@@ -731,6 +731,7 @@ func TestPlayerBlockedPipeStreamCanBeInterruptedBeforeSpeakerLock(t *testing.T) 
 	}{
 		{name: "nav", blocked: blockedNavPlayback},
 		{name: "yt-dlp", blocked: blockedYTDLPlayback},
+		{name: "custom", blocked: blockedCustomPlayback},
 	}
 	tests := []struct {
 		name string
@@ -848,6 +849,49 @@ func blockedYTDLPlayback(t *testing.T) (*trackPipeline, <-chan struct{}, <-chan 
 		close(done)
 	}()
 	return tp, started, done, func() { _ = decoder.Close() }
+}
+
+// interruptibleTestDecoder is a custom streamer whose Stream blocks until
+// Interrupt, as a network read on a dead connection does.
+type interruptibleTestDecoder struct {
+	playbackTestDecoder
+	once        sync.Once
+	interrupted chan struct{}
+}
+
+func (d *interruptibleTestDecoder) Stream([][2]float64) (int, bool) {
+	<-d.interrupted
+	return 0, false
+}
+
+func (d *interruptibleTestDecoder) Interrupt() {
+	d.once.Do(func() { close(d.interrupted) })
+}
+
+// blockedCustomPlayback starts a custom streamer, such as the Spotify one,
+// that blocks in Stream while the audio goroutine holds the speaker lock.
+func blockedCustomPlayback(t *testing.T) (*trackPipeline, <-chan struct{}, <-chan struct{}, func()) {
+	t.Helper()
+	decoder := &interruptibleTestDecoder{
+		playbackTestDecoder: playbackTestDecoder{closed: make(chan struct{})},
+		interrupted:         make(chan struct{}),
+	}
+	tp := &trackPipeline{
+		decoder:  decoder,
+		stream:   decoder,
+		format:   beep.Format{SampleRate: 100, NumChannels: 2, Precision: 2},
+		seekable: true,
+	}
+	started := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		speaker.Lock()
+		close(started)
+		decoder.Stream(make([][2]float64, 1))
+		speaker.Unlock()
+		close(done)
+	}()
+	return tp, started, done, decoder.Interrupt
 }
 
 func blockedNavPlayback(t *testing.T) (*trackPipeline, <-chan struct{}, <-chan struct{}, func()) {

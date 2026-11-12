@@ -3,6 +3,7 @@ package spotify
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"runtime"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	librespotPlayer "github.com/devgianlu/go-librespot/player"
+
+	"github.com/bjarneo/cliamp/player"
 )
 
 type closeErrorSource struct {
@@ -133,7 +136,7 @@ func TestSpotifyStreamerCloseCancelsTransport(t *testing.T) {
 		return nil, req.Context().Err()
 	})
 	streamCtx, cancel := context.WithCancel(context.Background())
-	client := newSpotifyStreamHTTPClient(streamCtx, transport)
+	client := newSpotifyStreamHTTPClient(streamCtx, transport, chunkStallTimeout)
 
 	source := &closeErrorSource{}
 	s := newSpotifyStreamer(&librespotPlayer.Stream{Source: source}, cancel)
@@ -170,6 +173,79 @@ func TestSpotifyStreamerCloseCancelsTransport(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("transport request was not canceled")
+	}
+}
+
+var _ player.Interrupter = (*spotifyStreamer)(nil)
+
+// stalledSource blocks in Read until its stream context ends, as a decoder
+// read that waits on a stalled chunk request does.
+type stalledSource struct {
+	ctx         context.Context
+	readStarted chan struct{}
+}
+
+func (s *stalledSource) Read([]float32) (int, error) {
+	close(s.readStarted)
+	<-s.ctx.Done()
+	return 0, fmt.Errorf("failed reading chunk 1: %w", net.ErrClosed)
+}
+
+func (*stalledSource) SetPositionMs(int64) error { return nil }
+func (*stalledSource) PositionMs() int64         { return 0 }
+
+// The player interrupts a track before Stop or a track change takes the
+// speaker lock. Interrupt must not wait for the blocked Stream, which holds
+// mu, and the track must end without a reconnect.
+func TestSpotifyStreamerInterruptUnblocksRead(t *testing.T) {
+	streamCtx, cancel := context.WithCancel(context.Background())
+	source := &stalledSource{ctx: streamCtx, readStarted: make(chan struct{})}
+	s := newSpotifyStreamer(&librespotPlayer.Stream{Source: source}, cancel)
+	s.reopen = func(context.Context, int64) (*librespotPlayer.Stream, context.CancelFunc, error) {
+		return nil, nil, errors.New("reopen after interrupt")
+	}
+
+	type result struct {
+		n  int
+		ok bool
+	}
+	streamDone := make(chan result, 1)
+	go func() {
+		n, ok := s.Stream(make([][2]float64, 8))
+		streamDone <- result{n, ok}
+	}()
+	<-source.readStarted
+
+	interruptDone := make(chan struct{})
+	go func() {
+		s.Interrupt()
+		close(interruptDone)
+	}()
+	select {
+	case <-interruptDone:
+	case <-time.After(time.Second):
+		t.Fatal("Interrupt waited for the blocked Stream")
+	}
+	select {
+	case got := <-streamDone:
+		if got.n != 0 || got.ok {
+			t.Fatalf("Stream() after Interrupt = (%d, %v), want (0, false)", got.n, got.ok)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Stream did not return after Interrupt")
+	}
+
+	s.mu.Lock()
+	recoveries := s.recoveries
+	s.mu.Unlock()
+	if recoveries != 0 {
+		t.Errorf("Interrupt started %d reconnects, want 0", recoveries)
+	}
+	if err := s.Err(); err != nil {
+		t.Errorf("Err() after Interrupt = %v, want nil", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Errorf("Close() after Interrupt error = %v", err)
 	}
 }
 
