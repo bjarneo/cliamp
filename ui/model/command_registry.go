@@ -249,20 +249,24 @@ var commandRegistry = []commandSpec{
 	}},
 	{Mode: commandModeSearchOverlay, Keys: []string{"f"}, KeyLabel: "f", Label: "Favorite album", ContextHelp: true, Prominent: true, Enabled: func(m Model) bool {
 		_, ok := m.searchOverlay.prov.(provider.FavoriteToggler)
-		return ok && m.searchOverlay.screen == searchOverlayResults && !m.searchOverlayBusy() &&
+		return ok && m.searchOverlay.screen == searchOverlayResults && !m.searchOverlayBusy() && !m.searchOverlay.confirmReplace &&
 			m.searchOverlay.cursor >= 0 && m.searchOverlay.cursor < len(m.searchOverlay.results) &&
 			m.searchOverlay.results[m.searchOverlay.cursor].IsAlbum() && m.searchOverlay.results[m.searchOverlay.cursor].AlbumID() != ""
 	}},
 	{Mode: commandModeSearchOverlay, Keys: []string{"f"}, KeyLabel: "f", Label: "Favorite track", ContextHelp: true, Prominent: true, Enabled: func(m Model) bool {
-		return m.favStore != nil && m.searchOverlay.screen == searchOverlayResults && !m.searchOverlayBusy() &&
+		return m.favStore != nil && m.searchOverlay.screen == searchOverlayResults && !m.searchOverlayBusy() && !m.searchOverlay.confirmReplace &&
 			m.searchOverlay.cursor >= 0 && m.searchOverlay.cursor < len(m.searchOverlay.results) &&
 			!m.searchOverlay.results[m.searchOverlay.cursor].IsAlbum()
 	}},
 	{Mode: commandModeNetSearch, Keys: []string{"f"}, KeyLabel: "f", Label: "Favorite track", ContextHelp: true, Enabled: func(m Model) bool {
 		return m.favStore != nil && m.netSearch.screen == netSearchResults && !m.netSearch.loading && len(m.netSearch.results) > 0
 	}},
+	{Mode: commandModeSearchOverlay, Keys: []string{"R"}, KeyLabel: "R", Label: "Replace queue", Destructive: true, Keymap: true, ContextHelp: true, Enabled: func(m Model) bool {
+		return m.searchOverlay.screen == searchOverlayResults && !m.searchOverlayBusy() && !m.searchOverlay.confirmReplace &&
+			m.searchOverlay.cursor >= 0 && m.searchOverlay.cursor < len(m.searchOverlay.results)
+	}},
 	{Mode: commandModeSearchOverlay, Keys: []string{"p"}, KeyLabel: "p", Label: "Save to a playlist", Keymap: true, ContextHelp: true, Enabled: func(m Model) bool {
-		return m.searchOverlay.screen == searchOverlayResults && !m.searchOverlayBusy() &&
+		return m.searchOverlay.screen == searchOverlayResults && !m.searchOverlayBusy() && !m.searchOverlay.confirmReplace &&
 			m.searchOverlay.cursor >= 0 && m.searchOverlay.cursor < len(m.searchOverlay.results)
 	}},
 	{Mode: commandModeEQ, Keys: []string{"up", "down"}, KeyLabel: "Up Down", Label: "Gain", ContextHelp: true},

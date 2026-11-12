@@ -85,6 +85,8 @@ Spotify lets apps read the tracks of only the playlists that you own or collabor
 
 Saved albums appear under a **Saved albums** section, labelled `Artist - Album` and sorted alphabetically by artist. These are the albums in **Your Library**. To add one, open the album in Spotify and click **Save**. Selecting a saved album loads all of its tracks in disc and track order.
 
+An album in the <kbd>Ctrl+F</kbd> results is added to the end of the playlist when you press `Enter`, and its first track starts. Press `R` instead to replace the playlist with the album. When the playlist is not empty, `R` asks first, and `Enter` confirms.
+
 ## Add tracks to a playlist
 
 In the <kbd>Ctrl+F</kbd> results, select a track and press `p`. The picker lists only the playlists that you own or collaborate on. Select `+ New Playlist...` to create a private playlist. If the add fails, the error shows on the picker.
