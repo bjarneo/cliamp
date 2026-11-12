@@ -163,7 +163,7 @@ To host a radio station, use [cliamp-server](https://github.com/bjarneo/cliamp-s
 
 **Prerequisites:**
 
-- [Go](https://go.dev/dl/) 1.26.10 or later
+- [Go](https://go.dev/dl/) 1.26.11 or later
 - ALSA development headers (Linux only, required by the audio backend)
 
 **Linux (Debian/Ubuntu):**
