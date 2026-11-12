@@ -436,12 +436,13 @@ func (m Model) hasProvider(key string) bool {
 	return false
 }
 
-// unconfiguredProviderHint names the setup step for a provider shortcut
-// whose provider did not register (fresh config, missing credentials).
+// unconfiguredProviderHint names the setup step for a provider that did not
+// register, for example on a fresh config or with no credentials. A provider
+// shortcut and a default provider that name it show the hint.
 func unconfiguredProviderHint(key string) string {
 	switch key {
 	case "yt", "youtube", "ytmusic":
-		return "YouTube not configured — run `cliamp ytmusic-login` (needs yt-dlp)"
+		return "YouTube not configured. Run `cliamp setup` and install yt-dlp."
 	case "spotify":
 		return "Spotify not configured — run `cliamp setup` to sign in"
 	case "local":
