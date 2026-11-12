@@ -63,7 +63,7 @@ ssh -L 19872:127.0.0.1:19872 user@remote-host
 
 1. Connect with the command above.
 2. In this SSH session, run `cliamp`, select Spotify, and press `Enter`.
-3. Open the sign-in URL from the provider panel in the browser on your computer. The panel wraps a long URL over several rows. Join the rows when you copy them. cliamp also writes the URL to `~/.config/cliamp/cliamp.log` on the remote machine.
+3. Open the sign-in URL from the provider panel in the browser on your computer. The panel wraps a long URL over several rows. In a terminal that supports OSC 8 hyperlinks, click any row of the URL to open the full URL. Some terminals need a modifier key, such as `Ctrl` or `Cmd`. In other terminals, join the rows when you copy them. cliamp also writes the URL to `~/.config/cliamp/cliamp.log` on the remote machine.
 4. Approve the sign-in. Spotify sends the browser to `http://127.0.0.1:19872/login`, and SSH forwards this request to cliamp on the remote machine.
 
 cliamp stores the credentials on the remote machine. You need the forwarded port again only for a new sign-in.

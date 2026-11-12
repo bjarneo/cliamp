@@ -1128,12 +1128,26 @@ func (m Model) renderProviderList() string {
 
 // authURLLines shows the URL of an interactive sign-in in at most budget rows.
 // The URL breaks at the panel width with no indent and no added characters,
-// so the rows hold the URL and nothing else. When the rows cannot hold the
-// whole URL, one message points to cliamp.log, which logs each sign-in URL.
+// so the rows hold the URL and nothing else. Each row is an OSC 8 hyperlink
+// to the full URL, so a click on any row opens the whole URL. When the rows
+// cannot hold the whole URL, one message points to cliamp.log.
 func (m Model) authURLLines(budget int) []string {
 	width := m.layout.panelWidth
+	url := m.provPane.authURL
+	// OSC 8 allows only printable ASCII in the target. A URL with other
+	// bytes stays plain text.
+	linked := !strings.ContainsFunc(url, func(r rune) bool { return r < 0x20 || r > 0x7e })
 	lines := dimWrapped("If your browser didn't open, visit this URL to sign in:", width)
-	lines = append(lines, strings.Split(ansi.Hardwrap(m.provPane.authURL, width, true), "\n")...)
+	for row := range strings.SplitSeq(ansi.Hardwrap(url, width, true), "\n") {
+		if linked {
+			// Each row closes its own link, so a row that is cut or
+			// dropped never leaves a link open on the rows after it.
+			row = ansi.SetHyperlink(url) + row + ansi.ResetHyperlink()
+		}
+		lines = append(lines, row)
+	}
+	// authurl.Notify logs the URL at the info level. This text is true for
+	// the default log_level and not for warn or error.
 	lines = append(lines, dimWrapped("The full URL is also in cliamp.log.", width)...)
 	switch {
 	case len(lines) > budget:
