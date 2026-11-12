@@ -40,6 +40,7 @@ const (
 	VisRedSector                  // tumbling wireframe equalizer over a drifting starfield
 	VisYinYang                    // two koi chasing round a lily pad, flicking their tails to the drums
 	VisEthereal                   // blue-violet nebula clouds and warm, twinkling starlight
+	VisSargam                     // left-to-right melody contour on a two-octave swara ladder
 	VisNone                       // hidden — no visualizer
 	VisCount                      // sentinel for cycling
 )
@@ -87,6 +88,7 @@ var visModes = [VisCount]visEntry{
 	VisRedSector:   {"RedSector", newRedSectorDriver},
 	VisYinYang:     {"YinYang", newYinYangDriver},
 	VisEthereal:    {"Ethereal", newEtherealDriver},
+	VisSargam:      {"Sargam", newSargamDriver},
 	VisNone:        {"None", newNoOpDriver},
 }
 

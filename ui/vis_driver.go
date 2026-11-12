@@ -9,6 +9,10 @@ type VisTickContext struct {
 	OverlayActive     bool
 	Analyze           func(VisAnalysisSpec) []float64
 	StereoSamplesInto func([][2]float64) int
+	// WaveSamplesInto copies the audible mono samples into dst and returns how
+	// many it wrote. It gives raw drivers their own window, so a pane does not
+	// depend on the primary visualizer's sample buffer.
+	WaveSamplesInto func([]float64) int
 }
 
 // VisTap picks the audio tap that feeds an analysis.
