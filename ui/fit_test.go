@@ -17,6 +17,8 @@ func TestFitRect(t *testing.T) {
 		{name: "rows", text: "one\ntwo\nthree", width: 10, height: 2, want: "one\ntwo"},
 		{name: "wide", text: "ab音c", width: 4, height: 1, want: "ab音"},
 		{name: "ansi", text: "\x1b[31mabcdef\x1b[0m", width: 3, height: 1, want: "\x1b[31mabc\x1b[0m"},
+		// A cut keeps both OSC 8 sequences whole, so the link stays closed.
+		{name: "hyperlink", text: "\x1b]8;;https://a.example/x\x07abcdef\x1b]8;;\x07", width: 3, height: 1, want: "\x1b]8;;https://a.example/x\x07abc\x1b]8;;\x07"},
 	}
 
 	for _, tt := range tests {
