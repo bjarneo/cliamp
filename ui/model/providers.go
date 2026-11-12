@@ -342,7 +342,7 @@ func (m *Model) fetchCatalogBatch(loader provider.CatalogLoader) tea.Cmd {
 // configured leaves the overlays alone: there is nowhere to land, so only
 // the setup hint applies.
 func (m *Model) quickSwitchProvider(key string) (cmd tea.Cmd, ok bool) {
-	provKey := providerKeyForShortcut(key)
+	provKey := m.shortcutProviderKey(key)
 	if provKey == "" {
 		return nil, false
 	}
@@ -364,11 +364,39 @@ func (m *Model) providerShortcut(key string) (cmd tea.Cmd, ok bool) {
 	if key == "N" {
 		return nil, false
 	}
-	provKey := providerKeyForShortcut(key)
+	provKey := m.shortcutProviderKey(key)
 	if provKey == "" {
 		return nil, false
 	}
 	return m.switchToProvider(provKey), true
+}
+
+// youTubeProviderKeys lists the YouTube providers in the order that Y opens
+// them.
+var youTubeProviderKeys = []string{"yt", "youtube", "ytmusic"}
+
+// shortcutProviderKey returns the config key of the provider that the
+// Shift+letter key opens, or "" when key is no shortcut. Y opens the next
+// registered YouTube provider when a YouTube provider is active, and the
+// first one otherwise. With no YouTube provider registered, Y names yt, so
+// the setup hint shows.
+func (m Model) shortcutProviderKey(key string) string {
+	provKey := providerKeyForShortcut(key)
+	if provKey != youTubeProviderKeys[0] {
+		return provKey
+	}
+	var registered []string
+	for _, k := range youTubeProviderKeys {
+		if m.hasProvider(k) {
+			registered = append(registered, k)
+		}
+	}
+	if len(registered) == 0 {
+		return provKey
+	}
+	// Index is -1 when no YouTube provider is active: Y opens the first.
+	i := slices.Index(registered, m.activeProviderKey())
+	return registered[(i+1)%len(registered)]
 }
 
 // providerKeyForShortcut maps the Shift+letter provider shortcuts to the

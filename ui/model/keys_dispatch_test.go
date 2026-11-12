@@ -2,6 +2,7 @@ package model
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -149,6 +150,88 @@ func TestQuickSwitchProviderTakesEveryShortcut(t *testing.T) {
 			}
 		}
 	})
+}
+
+// Y opens the YouTube providers in turn, so YouTube Music has a key in every
+// layout, also where the Source pills do not show. Y skips a YouTube
+// provider that is not registered.
+func TestYouTubeShortcutCycles(t *testing.T) {
+	layouts := []struct {
+		name          string
+		width, height int
+		simplified    bool
+		pills         bool // the Source pills take the focus
+	}{
+		{name: "full", width: 100, height: 30, pills: true},
+		{name: "simplified", width: 100, height: 30, simplified: true},
+		{name: "minimal", width: 40, height: 10},
+	}
+	tests := []struct {
+		name       string
+		registered []string // YouTube provider keys
+		from       string   // key of the active provider
+		want       string   // key of the provider that Y opens
+	}{
+		{name: "one from other", registered: []string{"yt"}, from: "other", want: "yt"},
+		{name: "one from yt", registered: []string{"yt"}, from: "yt", want: "yt"},
+		{name: "two from other", registered: []string{"yt", "ytmusic"}, from: "other", want: "yt"},
+		{name: "two from yt", registered: []string{"yt", "ytmusic"}, from: "yt", want: "ytmusic"},
+		{name: "two from ytmusic", registered: []string{"yt", "ytmusic"}, from: "ytmusic", want: "yt"},
+		{name: "two without yt from other", registered: []string{"youtube", "ytmusic"}, from: "other", want: "youtube"},
+		{name: "two without yt from youtube", registered: []string{"youtube", "ytmusic"}, from: "youtube", want: "ytmusic"},
+		{name: "three from other", registered: youTubeProviderKeys, from: "other", want: "yt"},
+		{name: "three from yt", registered: youTubeProviderKeys, from: "yt", want: "youtube"},
+		{name: "three from youtube", registered: youTubeProviderKeys, from: "youtube", want: "ytmusic"},
+		{name: "three from ytmusic", registered: youTubeProviderKeys, from: "ytmusic", want: "yt"},
+		{name: "none", from: "other", want: "other"},
+	}
+	setup := func(t *testing.T, width, height int, simplified bool, registered []string, from string) Model {
+		t.Helper()
+		m := shortcutTestModel()
+		m.providers = slices.DeleteFunc(m.providers, func(e provider.Entry) bool { return e.Key == "yt" })
+		for _, key := range registered {
+			m.providers = append(m.providers, provider.Entry{Key: key, Name: key, Provider: commandsTestProvider{name: key}})
+		}
+		m.width, m.height, m.simplified = width, height, simplified
+		m.recomputeLayout()
+		if from != "other" {
+			i := slices.IndexFunc(m.providers, func(e provider.Entry) bool { return e.Key == from })
+			m.switchProvider(i)
+		}
+		if got := m.activeProviderKey(); got != from {
+			t.Fatalf("active provider = %q, want %q", got, from)
+		}
+		return m
+	}
+	for _, l := range layouts {
+		for _, tt := range tests {
+			t.Run(l.name+"/"+tt.name, func(t *testing.T) {
+				m := setup(t, l.width, l.height, l.simplified, tt.registered, tt.from)
+				if got := slices.Contains(m.mainFocusAreas(), focusProvPill); got != l.pills {
+					t.Fatalf("Source pills focusable = %v, want %v", got, l.pills)
+				}
+
+				m.handleKey(tea.KeyPressMsg{Text: "Y"})
+
+				if got := m.activeProviderKey(); got != tt.want {
+					t.Errorf("main view: Y opened %q, want %q", got, tt.want)
+				}
+				if tt.registered == nil && !strings.Contains(m.status.text, "YouTube not configured") {
+					t.Errorf("status = %q, want the YouTube setup hint", m.status.text)
+				}
+
+				// The nav browser and the playlist manager switch through
+				// quickSwitchProvider.
+				m = setup(t, l.width, l.height, l.simplified, tt.registered, tt.from)
+				if _, ok := m.quickSwitchProvider("Y"); !ok {
+					t.Fatal("quickSwitchProvider(\"Y\") ok = false")
+				}
+				if got := m.activeProviderKey(); got != tt.want {
+					t.Errorf("browser: Y opened %q, want %q", got, tt.want)
+				}
+			})
+		}
+	}
 }
 
 // The nav browser and the playlist manager return after a provider shortcut
