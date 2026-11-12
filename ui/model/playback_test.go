@@ -501,10 +501,11 @@ func TestTogglePlayPauseRestartsQueuedCurrentTrack(t *testing.T) {
 	p := playlist.New()
 	p.Replace([]playlist.Track{
 		{Title: "Base", Path: "base.mp3", DurationSecs: 180},
+		{Title: "Other", Path: "other.mp3", DurationSecs: 180},
 		{Title: "Queued", Path: "queued.mp3", DurationSecs: 180},
 	})
 	p.SetIndex(0)
-	p.Queue(1)
+	p.Queue(2)
 	if track, ok := p.Next(); !ok || track.Title != "Queued" {
 		t.Fatalf("Next() = (%q,%t), want (\"Queued\",true)", track.Title, ok)
 	}
@@ -525,8 +526,8 @@ func TestTogglePlayPauseRestartsQueuedCurrentTrack(t *testing.T) {
 	if len(player.playCalls) != 1 || player.playCalls[0] != "queued.mp3" {
 		t.Fatalf("playCalls = %v, want [queued.mp3]", player.playCalls)
 	}
-	if current, idx := m.playlist.Current(); current.Title != "Queued" || idx != 1 {
-		t.Fatalf("current = (%q,%d), want (\"Queued\",1)", current.Title, idx)
+	if current, idx := m.playlist.Current(); current.Title != "Queued" || idx != 2 {
+		t.Fatalf("current = (%q,%d), want (\"Queued\",2)", current.Title, idx)
 	}
 }
 
@@ -1575,6 +1576,75 @@ func TestPlaysLive(t *testing.T) {
 			}
 			if got := playsLive(tt.track, engine); got != tt.want {
 				t.Fatalf("playsLive() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestNextKeyPlaysQueuedTrackOnce checks that > does not play a queued
+// track again when the track was also next in play order. Before, the
+// second > restarted the track that the first > started.
+func TestNextKeyPlaysQueuedTrackOnce(t *testing.T) {
+	a := playlist.Track{Title: "A", Path: "a.mp3"}
+	b := playlist.Track{Title: "B", Path: "b.mp3"}
+	c := playlist.Track{Title: "C", Path: "c.mp3"}
+	d := playlist.Track{Title: "D", Path: "d.mp3"}
+	x := playlist.Track{Title: "X", Path: "x.mp3"}
+	tests := []struct {
+		name   string
+		tracks []playlist.Track
+		start  int
+		queue  func(m *Model)
+		want   []string // the track that plays after each >, or "" when stopped
+	}{
+		{
+			name:   "a on the next row",
+			tracks: []playlist.Track{a, b, c},
+			queue: func(m *Model) {
+				m.handleKey(tea.KeyPressMsg{Code: tea.KeyDown})
+				m.handleKey(tea.KeyPressMsg{Text: "a"})
+			},
+			want: []string{"b.mp3", "c.mp3"},
+		},
+		{
+			name:   "search result queued after the last row",
+			tracks: []playlist.Track{a, b},
+			start:  1,
+			queue:  func(m *Model) { m.queueTrackNext(x) },
+			want:   []string{"x.mp3", ""},
+		},
+		{
+			name:   "a on a later row keeps the play order",
+			tracks: []playlist.Track{a, b, c, d},
+			queue: func(m *Model) {
+				m.handleKey(tea.KeyPressMsg{Code: tea.KeyDown})
+				m.handleKey(tea.KeyPressMsg{Code: tea.KeyDown})
+				m.handleKey(tea.KeyPressMsg{Text: "a"})
+			},
+			want: []string{"c.mp3", "b.mp3"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := playlist.New()
+			p.Replace(tt.tracks)
+			engine := &playbackFakeEngine{}
+			m := Model{player: engine, playlist: p, vis: ui.NewVisualizer(float64(engine.SampleRate()))}
+			m.SetVisualizer("none")
+			settlePlay(t, &m, m.playIndex(tt.start))
+			tt.queue(&m)
+
+			var got []string
+			for range tt.want {
+				settlePlay(t, &m, m.handleKey(tea.KeyPressMsg{Text: ">"}))
+				playing := ""
+				if m.playingTrackActive {
+					playing = m.playingTrack.Path
+				}
+				got = append(got, playing)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("> plays %q, want %q", got, tt.want)
 			}
 		})
 	}
