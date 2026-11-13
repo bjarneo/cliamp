@@ -108,7 +108,8 @@ func TestPlaybackContextSurvivesPlaylistMutations(t *testing.T) {
 		t.Fatal("undo did not restore selection and queue")
 	}
 	check(track, 2)
-	for _, wantIndex := range []int{3, 2, 3} {
+	// Track 3 was next in order, so the order moved onto it.
+	for _, wantIndex := range []int{3, 2} {
 		track, ok := p.Next()
 		if !ok {
 			t.Fatal("Next failed")

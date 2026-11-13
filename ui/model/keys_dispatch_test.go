@@ -2,7 +2,9 @@ package model
 
 import (
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -149,6 +151,88 @@ func TestQuickSwitchProviderTakesEveryShortcut(t *testing.T) {
 			}
 		}
 	})
+}
+
+// Y opens the YouTube providers in turn, so YouTube Music has a key in every
+// layout, also where the Source pills do not show. Y skips a YouTube
+// provider that is not registered.
+func TestYouTubeShortcutCycles(t *testing.T) {
+	layouts := []struct {
+		name          string
+		width, height int
+		simplified    bool
+		pills         bool // the Source pills take the focus
+	}{
+		{name: "full", width: 100, height: 30, pills: true},
+		{name: "simplified", width: 100, height: 30, simplified: true},
+		{name: "minimal", width: 40, height: 10},
+	}
+	tests := []struct {
+		name       string
+		registered []string // YouTube provider keys
+		from       string   // key of the active provider
+		want       string   // key of the provider that Y opens
+	}{
+		{name: "one from other", registered: []string{"yt"}, from: "other", want: "yt"},
+		{name: "one from yt", registered: []string{"yt"}, from: "yt", want: "yt"},
+		{name: "two from other", registered: []string{"yt", "ytmusic"}, from: "other", want: "yt"},
+		{name: "two from yt", registered: []string{"yt", "ytmusic"}, from: "yt", want: "ytmusic"},
+		{name: "two from ytmusic", registered: []string{"yt", "ytmusic"}, from: "ytmusic", want: "yt"},
+		{name: "two without yt from other", registered: []string{"youtube", "ytmusic"}, from: "other", want: "youtube"},
+		{name: "two without yt from youtube", registered: []string{"youtube", "ytmusic"}, from: "youtube", want: "ytmusic"},
+		{name: "three from other", registered: youTubeProviderKeys, from: "other", want: "yt"},
+		{name: "three from yt", registered: youTubeProviderKeys, from: "yt", want: "youtube"},
+		{name: "three from youtube", registered: youTubeProviderKeys, from: "youtube", want: "ytmusic"},
+		{name: "three from ytmusic", registered: youTubeProviderKeys, from: "ytmusic", want: "yt"},
+		{name: "none", from: "other", want: "other"},
+	}
+	setup := func(t *testing.T, width, height int, simplified bool, registered []string, from string) Model {
+		t.Helper()
+		m := shortcutTestModel()
+		m.providers = slices.DeleteFunc(m.providers, func(e provider.Entry) bool { return e.Key == "yt" })
+		for _, key := range registered {
+			m.providers = append(m.providers, provider.Entry{Key: key, Name: key, Provider: commandsTestProvider{name: key}})
+		}
+		m.width, m.height, m.simplified = width, height, simplified
+		m.recomputeLayout()
+		if from != "other" {
+			i := slices.IndexFunc(m.providers, func(e provider.Entry) bool { return e.Key == from })
+			m.switchProvider(i)
+		}
+		if got := m.activeProviderKey(); got != from {
+			t.Fatalf("active provider = %q, want %q", got, from)
+		}
+		return m
+	}
+	for _, l := range layouts {
+		for _, tt := range tests {
+			t.Run(l.name+"/"+tt.name, func(t *testing.T) {
+				m := setup(t, l.width, l.height, l.simplified, tt.registered, tt.from)
+				if got := slices.Contains(m.mainFocusAreas(), focusProvPill); got != l.pills {
+					t.Fatalf("Source pills focusable = %v, want %v", got, l.pills)
+				}
+
+				m.handleKey(tea.KeyPressMsg{Text: "Y"})
+
+				if got := m.activeProviderKey(); got != tt.want {
+					t.Errorf("main view: Y opened %q, want %q", got, tt.want)
+				}
+				if tt.registered == nil && !strings.Contains(m.status.text, "YouTube not configured") {
+					t.Errorf("status = %q, want the YouTube setup hint", m.status.text)
+				}
+
+				// The nav browser and the playlist manager switch through
+				// quickSwitchProvider.
+				m = setup(t, l.width, l.height, l.simplified, tt.registered, tt.from)
+				if _, ok := m.quickSwitchProvider("Y"); !ok {
+					t.Fatal("quickSwitchProvider(\"Y\") ok = false")
+				}
+				if got := m.activeProviderKey(); got != tt.want {
+					t.Errorf("browser: Y opened %q, want %q", got, tt.want)
+				}
+			})
+		}
+	}
 }
 
 // The nav browser and the playlist manager return after a provider shortcut
@@ -491,6 +575,74 @@ func TestOverlayProviderShortcutMissHintsSetup(t *testing.T) {
 	}
 	if m.status.text == "" {
 		t.Fatal("no setup hint; want the status to name the setup step")
+	}
+}
+
+// A default provider that did not register, such as --provider qobuz with no
+// [qobuz] section, falls back to the first provider and shows the warning of
+// the provider shortcuts. Headless mode shows nothing, and the tick expires
+// the warning. See issue #428.
+func TestNewHintsUnregisteredDefaultProvider(t *testing.T) {
+	entries := []provider.Entry{
+		{Key: "cliamp", Name: "cliamp radio", Provider: commandsTestProvider{name: "cliamp radio"}},
+		{Key: "spotify", Name: "Spotify", Provider: commandsTestProvider{name: "Spotify"}},
+	}
+	tests := []struct {
+		name         string
+		provider     string
+		headless     bool
+		wantProvider string
+		want         []string // the warning names these. Empty means no warning.
+	}{
+		{name: "unconfigured qobuz", provider: "qobuz", wantProvider: "cliamp radio", want: []string{"not configured", "cliamp setup"}},
+		{name: "unconfigured ytmusic", provider: "ytmusic", wantProvider: "cliamp radio", want: []string{"YouTube", "cliamp setup", "yt-dlp"}},
+		{name: "unknown name", provider: "nosuch", wantProvider: "cliamp radio", want: []string{"not configured", "cliamp setup"}},
+		{name: "headless unconfigured", provider: "qobuz", headless: true, wantProvider: "cliamp radio", want: []string{"cliamp setup"}},
+		{name: "configured provider", provider: "spotify", wantProvider: "Spotify"},
+		{name: "no default", wantProvider: "cliamp radio"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+			m := New(&playbackFakeEngine{}, playlist.New(), entries, tt.provider, nil, nil, nil, nil, nil, nil)
+			if tt.headless {
+				m.SetHeadless(true)
+			}
+
+			if got := m.provider.Name(); got != tt.wantProvider {
+				t.Fatalf("provider = %q, want %q", got, tt.wantProvider)
+			}
+			if len(tt.want) == 0 {
+				if m.status.text != "" {
+					t.Fatalf("status = %q, want none", m.status.text)
+				}
+				return
+			}
+			shortcut := Model{providers: entries}
+			shortcut.switchToProvider(tt.provider)
+			if m.status.kind != feedbackWarning || m.status.text != shortcut.status.text {
+				t.Fatalf("status = %q (kind %d), want the shortcut warning %q", m.status.text, m.status.kind, shortcut.status.text)
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(m.status.text, want) {
+					t.Errorf("status = %q, want %q", m.status.text, want)
+				}
+			}
+			if !tt.headless {
+				m.layout.panelWidth = 100
+				if got := stripAnsi(m.renderTransient()); !strings.Contains(got, "WARN: "+m.status.text) {
+					t.Fatalf("status line = %q, want the warning", got)
+				}
+				return
+			}
+			if view := m.View(); view.Content != "" {
+				t.Fatalf("headless view = %q, want an empty view", view.Content)
+			}
+			updated, _ := m.Update(tickMsg(time.Now().Add(time.Minute)))
+			if got := updated.(Model).status.text; got != "" {
+				t.Fatalf("status after the tick = %q, want none", got)
+			}
+		})
 	}
 }
 

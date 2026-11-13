@@ -106,7 +106,7 @@ func TestProviderEmptyStateHints(t *testing.T) {
 		{"cliamp radio", "pick another provider"},
 		{"YouTube", "yt-dlp"},
 		{"YouTube (All)", "yt-dlp"},
-		{"YouTube Music", "ytmusic-login"},
+		{"YouTube Music", "cliamp setup"},
 		{"NetEase", "cliamp setup"},
 	}
 	for _, tt := range tests {
@@ -117,6 +117,43 @@ func TestProviderEmptyStateHints(t *testing.T) {
 			}
 		})
 	}
+}
+
+// cliamp has no ytmusic-login command. The YouTube hints name cliamp setup.
+// The hint for a YouTube that did not register also names yt-dlp, which the
+// YouTube providers need. See issue #428.
+func TestYouTubeHintsNameTheSetupPath(t *testing.T) {
+	tests := []struct {
+		name string
+		hint string
+		want []string
+	}{
+		{"shortcut yt", unconfiguredProviderHint("yt"), []string{"cliamp setup", "yt-dlp"}},
+		{"shortcut youtube", unconfiguredProviderHint("youtube"), []string{"cliamp setup", "yt-dlp"}},
+		{"shortcut ytmusic", unconfiguredProviderHint("ytmusic"), []string{"cliamp setup", "yt-dlp"}},
+		{"empty YouTube Music", providerEmptyStateHint["youtube music"], []string{"cliamp setup"}},
+		{"empty ytmusic", providerEmptyStateHint["ytmusic"], []string{"cliamp setup"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, want := range tt.want {
+				if !strings.Contains(tt.hint, want) {
+					t.Errorf("hint = %q, want %q", tt.hint, want)
+				}
+			}
+		})
+	}
+	t.Run("no hint names ytmusic-login", func(t *testing.T) {
+		hints := []string{unconfiguredProviderHint("yt"), unconfiguredProviderHint("youtube"), unconfiguredProviderHint("ytmusic")}
+		for _, hint := range providerEmptyStateHint {
+			hints = append(hints, hint)
+		}
+		for _, hint := range hints {
+			if strings.Contains(hint, "ytmusic-login") {
+				t.Errorf("hint = %q, names the missing command ytmusic-login", hint)
+			}
+		}
+	})
 }
 
 // TestEmptyPlaylistManagerKeysDoWhatTheTextSays ties the empty-state text to

@@ -295,6 +295,58 @@ func TestStreamPlayedNeedsAuthAsksForSignIn(t *testing.T) {
 	}
 }
 
+// TestRefusedSpotifyStartIsNotRetried checks that a Spotify start that fails
+// with a refused audio key shows the error, does not ask for sign-in, and
+// does not start again from the tick loop.
+func TestRefusedSpotifyStartIsNotRetried(t *testing.T) {
+	prev := teaTick
+	t.Cleanup(func() { teaTick = prev })
+	teaTick = func(time.Duration, func(time.Time) tea.Msg) tea.Cmd { return nil }
+
+	refused := errors.New("custom streamer: spotify: Spotify refused the audio key for this track: failed retrieving audio key: failed retrieving aes key with code 1")
+	m := newCustomStreamModel(&playbackFakeEngine{playErr: refused, preloadErr: refused})
+	track, _ := m.playlist.Current()
+
+	starts := 0
+	pending := []tea.Cmd{m.playTrack(track)}
+	for range 20 {
+		for len(pending) > 0 {
+			cmd := pending[0]
+			pending = pending[1:]
+			if cmd == nil {
+				continue
+			}
+			msg := cmd()
+			switch msg := msg.(type) {
+			case tea.BatchMsg:
+				pending = append(pending, msg...)
+				continue
+			case streamPlayedMsg:
+				starts++
+			case streamPreloadedMsg:
+			default:
+				continue
+			}
+			updated, next := m.Update(msg)
+			m = updated.(Model)
+			pending = append(pending, next)
+		}
+		updated, next := m.Update(tickMsg(time.Now()))
+		m = updated.(Model)
+		pending = append(pending, next)
+	}
+
+	if starts != 1 {
+		t.Fatalf("track starts = %d, want 1", starts)
+	}
+	if m.provPane.signIn || strings.Contains(m.status.text, "Sign-in") {
+		t.Fatalf("provPane.signIn = %v, status = %q, want no sign-in prompt", m.provPane.signIn, m.status.text)
+	}
+	if !errors.Is(m.err, refused) {
+		t.Fatalf("err = %v, want the refusal", m.err)
+	}
+}
+
 // TestStreamPlayedFailureStatus checks that a failed start shows the gated
 // hint only for a source that can gate a track.
 func TestStreamPlayedFailureStatus(t *testing.T) {

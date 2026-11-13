@@ -91,11 +91,15 @@ func (tp *trackPipeline) close() {
 	}
 }
 
-// interrupt unblocks a pipe decoder without waiting for its process. It is
-// safe to call before speaker.Lock; close reaps the interrupted process later.
+// interrupt unblocks a pipe decoder without waiting for its process, or a
+// custom streamer that implements Interrupter. It is safe to call before
+// speaker.Lock; close reaps the interrupted process later.
 func (tp *trackPipeline) interrupt() {
-	if decoder, ok := tp.decoder.(interface{ interrupt() }); ok {
+	switch decoder := tp.decoder.(type) {
+	case interface{ interrupt() }:
 		decoder.interrupt()
+	case Interrupter:
+		decoder.Interrupt()
 	}
 }
 
@@ -144,9 +148,22 @@ func (p *Player) prefetchNetworkPipeline(tp *trackPipeline, enabled bool) *track
 // ffmpeg reads from the buffer through stdin and produces PCM as soon as the
 // first frames arrive, so playback does not wait for the full download.
 // navFFmpegStreamer.Seek restarts ffmpeg from the buffered header with a time
-// offset, so a seek needs no HTTP reconnect.
-func (p *Player) bufferedPipeline(path string, nb *navBuffer, contentLen int64) (*trackPipeline, error) {
-	decoder, format, err := decodeNavFFmpeg(nb, p.sr, p.bitDepth)
+// offset, so a seek needs no HTTP reconnect. An MP4 file with its moov box
+// after its audio cannot play from a pipe, so decodeDownloaded plays it after
+// the download. stale is as in decodeDownloaded.
+func (p *Player) bufferedPipeline(path string, nb *navBuffer, contentLen int64, stale func() bool) (*trackPipeline, error) {
+	head := nb.newReader()
+	mdatFirst := readMdatFirst(head)
+	head.Close()
+
+	var decoder beep.StreamSeekCloser
+	var format beep.Format
+	var err error
+	if mdatFirst {
+		decoder, format, err = decodeDownloaded(nb, p.sr, p.bitDepth, stale)
+	} else {
+		decoder, format, err = decodeNavFFmpeg(nb, p.sr, p.bitDepth)
+	}
 	if err != nil {
 		nb.Close()
 		return nil, fmt.Errorf("decode source: %w", err)
@@ -205,11 +222,13 @@ func (p *Player) localFFmpegPipeline(path string) (*trackPipeline, error) {
 // through buildPipeline and starts at offset when its decoder can seek.
 // knownDuration is the metadata duration (use 0 if unknown). With
 // probeDuration, a yt-dlp source with no known duration asks yt-dlp for one.
-func (p *Player) buildSource(path string, knownDuration, offset time.Duration, probeDuration bool) (*trackPipeline, error) {
+// stale reports that a newer request replaced this one. A nil stale never
+// does.
+func (p *Player) buildSource(path string, knownDuration, offset time.Duration, probeDuration bool, stale func() bool) (*trackPipeline, error) {
 	if p.isYTDLURL(path) {
 		return p.buildYTDLSource(path, knownDuration, probeDuration)
 	}
-	tp, err := p.buildPipeline(path, knownDuration)
+	tp, err := p.buildPipeline(path, knownDuration, stale)
 	if err != nil {
 		return nil, fmt.Errorf("play at %v: %w", offset, err)
 	}
@@ -227,8 +246,8 @@ func (p *Player) buildSource(path string, knownDuration, offset time.Duration, p
 // buildPipeline opens and decodes a track, returning a ready-to-play pipeline.
 // bufferedPipeline, ffmpegURLPipeline and localFFmpegPipeline build the
 // routes that more than one source type shares. knownDuration is the metadata
-// duration (use 0 if unknown).
-func (p *Player) buildPipeline(path string, knownDuration time.Duration) (*trackPipeline, error) {
+// duration (use 0 if unknown). stale is as in buildSource.
+func (p *Player) buildPipeline(path string, knownDuration time.Duration, stale func() bool) (*trackPipeline, error) {
 	// Clear stream title on each new pipeline build.
 	p.streamTitle.Store("")
 
@@ -265,7 +284,7 @@ func (p *Player) buildPipeline(path string, knownDuration time.Duration) (*track
 			if err != nil {
 				return nil, fmt.Errorf("segment buffer: %w", err)
 			}
-			return p.bufferedPipeline(path, nb, contentLen)
+			return p.bufferedPipeline(path, nb, contentLen, stale)
 		}
 		if src.URL == "" {
 			return nil, fmt.Errorf("resolve source: empty result for %s", path)
@@ -283,7 +302,7 @@ func (p *Player) buildPipeline(path string, knownDuration time.Duration) (*track
 		if err != nil {
 			return nil, fmt.Errorf("buffer source: %w", err)
 		}
-		return p.bufferedPipeline(path, nb, contentLen)
+		return p.bufferedPipeline(path, nb, contentLen, stale)
 	}
 
 	ext := formatExt(path)
@@ -324,7 +343,7 @@ func (p *Player) buildPipeline(path string, knownDuration time.Duration) (*track
 		if err != nil {
 			return nil, fmt.Errorf("buffer source: %w", err)
 		}
-		return p.bufferedPipeline(path, nb, contentLen)
+		return p.bufferedPipeline(path, nb, contentLen, stale)
 	}
 
 	rc := src.body

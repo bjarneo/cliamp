@@ -70,8 +70,8 @@ var providerEmptyStateHint = map[string]string{
 	"plex":                "Verify [plex] server URL and token or library filter in config.toml.",
 	"youtube":             "Install yt-dlp for video audio, then press Ctrl+R to reload.",
 	"youtube (all)":       "Install yt-dlp for video audio, then press Ctrl+R to reload.",
-	"youtube music":       "Run `cliamp ytmusic-login` to authorize, then refresh.",
-	"ytmusic":             "Run `cliamp ytmusic-login` to authorize, then refresh.",
+	"youtube music":       "Press Ctrl+R to reload, or run `cliamp setup` to set up YouTube Music.",
+	"ytmusic":             "Press Ctrl+R to reload, or run `cliamp setup` to set up YouTube Music.",
 	"soundcloud":          "Set [soundcloud] user in config.toml to browse a profile.",
 	"netease":             "Run `cliamp setup` and configure NetEase browser cookies.",
 	"netease cloud music": "Run `cliamp setup` and configure NetEase browser cookies.",
@@ -1012,16 +1012,9 @@ func (m Model) renderProviderList() string {
 		}
 		lines := []string{loadingLine(label)}
 		if m.provPane.authURL != "" {
-			lines = append(lines,
-				"",
-				dimStyle.Render("  If your browser didn't open, visit this URL to sign in:"),
-				"  "+m.provPane.authURL,
-			)
+			lines = append(lines, m.authURLLines(visibleBudget-len(lines))...)
 		}
-		for len(lines) < visibleBudget {
-			lines = append(lines, "")
-		}
-		return strings.Join(lines, "\n")
+		return strings.Join(fitLines(lines, visibleBudget), "\n")
 	}
 	if m.provPane.askLoc {
 		return m.renderLocationPrompt(visibleBudget)
@@ -1133,6 +1126,50 @@ func (m Model) renderProviderList() string {
 	return strings.Join(fitLines(lines, visibleBudget), "\n")
 }
 
+// authURLLines shows the URL of an interactive sign-in in at most budget rows.
+// The URL breaks at the panel width with no indent and no added characters,
+// so the rows hold the URL and nothing else. Each row is an OSC 8 hyperlink
+// to the full URL, so a click on any row opens the whole URL. When the rows
+// cannot hold the whole URL, one message points to cliamp.log.
+func (m Model) authURLLines(budget int) []string {
+	width := m.layout.panelWidth
+	url := m.provPane.authURL
+	// OSC 8 allows only printable ASCII in the target. A URL with other
+	// bytes stays plain text.
+	linked := !strings.ContainsFunc(url, func(r rune) bool { return r < 0x20 || r > 0x7e })
+	lines := dimWrapped("If your browser didn't open, visit this URL to sign in:", width)
+	for row := range strings.SplitSeq(ansi.Hardwrap(url, width, true), "\n") {
+		if linked {
+			// Each row closes its own link, so a row that is cut or
+			// dropped never leaves a link open on the rows after it.
+			row = ansi.SetHyperlink(url) + row + ansi.ResetHyperlink()
+		}
+		lines = append(lines, row)
+	}
+	// authurl.Notify logs the URL at the info level. This text is true for
+	// the default log_level and not for warn or error.
+	lines = append(lines, dimWrapped("The full URL is also in cliamp.log.", width)...)
+	switch {
+	case len(lines) > budget:
+		return dimWrapped("The sign-in URL does not fit. Make the terminal larger, or copy the URL from cliamp.log.", width)
+	case len(lines) < budget:
+		// A blank row separates the sign-in hint from the loading line when
+		// the budget has room for it.
+		return append([]string{""}, lines...)
+	}
+	return lines
+}
+
+// dimWrapped word-wraps text to width cells, indents each row by two cells and
+// renders it dim.
+func dimWrapped(text string, width int) []string {
+	rows := wrapText(text, width-2)
+	for i, row := range rows {
+		rows[i] = dimStyle.Render("  " + row)
+	}
+	return rows
+}
+
 // renderLocationPrompt puts the provider's location question to the listener.
 // The wording comes from the provider, which is the only thing that knows what
 // it would do with the answer and where the location would come from.
@@ -1204,7 +1241,8 @@ func (m Model) renderPlaylist() string {
 		stateReporters = m.playbackStateReporters()
 	}
 
-	for row := range m.playlistRows(tracks, localScroll, m.showAlbumHeaders) {
+	showHeaders := m.plShowsAlbumHeaders()
+	for row := range m.playlistRows(tracks, localScroll, showHeaders) {
 		if row.Index < 0 {
 			if len(lines)+1 >= budget {
 				break
@@ -1309,7 +1347,7 @@ func (m Model) renderPlaylist() string {
 			if remaining >= len(" (unavailable)") {
 				albumSuffix = truncate(" (unavailable)", remaining)
 			}
-		} else if album := terminalText(t.Album); album != "" && !m.showAlbumHeaders && m.layout.panelWidth >= 56 {
+		} else if album := terminalText(t.Album); album != "" && !showHeaders && m.layout.panelWidth >= 56 {
 			remaining := m.layout.panelWidth - linePrefixWidth - nameLen - queueLen - durationGap - 3 // 3 = " · "
 			if remaining >= 4 {
 				albumSuffix = " · " + truncate(album, remaining)

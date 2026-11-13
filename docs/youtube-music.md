@@ -82,6 +82,12 @@ Run `cliamp`, `cliamp --provider ytmusic`, or `cliamp --provider youtube`. Selec
 
 If no browser opens, the provider view shows the sign-in URL. Open it in a browser on the same machine. Google sends the sign-in result to `http://127.0.0.1:19873/callback`.
 
+When cliamp runs on a remote machine over SSH, forward the callback port from your computer before you sign in. Then open the sign-in URL in the browser on your computer:
+
+```sh
+ssh -L 19873:127.0.0.1:19873 user@remote-host
+```
+
 ## Usage
 
 After authentication, **YouTube** and **YouTube Music** appear as separate providers. Press `Esc`/`b` to open the provider browser.
@@ -90,6 +96,8 @@ After authentication, **YouTube** and **YouTube Music** appear as separate provi
 - **YouTube** shows all other playlists, such as podcasts, vlogs, and tutorials.
 
 Both use the same Google account sign-in. cliamp classifies playlists by video category and stores the result on disk. Later launches use the cached result.
+
+Press `Y` to open **YouTube (All)**. Press `Y` again to open **YouTube**, and again to open **YouTube Music**. The key also works in simplified mode and in a small terminal, where the Source pills do not show.
 
 ## Controls
 
