@@ -263,6 +263,41 @@ func (m *Model) playAlbumImmediate(album playlist.Track, tracks []playlist.Track
 	return m.playCurrentTrack()
 }
 
+// replaceWithAlbum replaces the queue with an expanded album and starts it at
+// its first track, for a listener who wants the album alone rather than added
+// to the queue that playAlbumImmediate keeps.
+func (m *Model) replaceWithAlbum(album playlist.Track, tracks []playlist.Track) tea.Cmd {
+	m.replaceQueue(tracks)
+	m.status.Successf(statusTTLMedium, "Replaced queue with album: %s (%d tracks)", album.Title, len(tracks))
+	return m.playCurrentTrack()
+}
+
+// replaceWithTrack replaces the queue with a single track and plays it.
+func (m *Model) replaceWithTrack(track playlist.Track) tea.Cmd {
+	m.replaceQueue([]playlist.Track{track})
+	m.status.Successf(statusTTLMedium, "Replaced queue with: %s", track.DisplayName())
+	return m.playCurrentTrack()
+}
+
+// replaceQueue stops playback, replaces the queue with tracks positioned on
+// the first one and moves focus to the playlist. The replace has no undo
+// snapshot, so callers confirm first when the queue is non-empty. It sets no
+// status and starts nothing: callers set their status before they start
+// playback, so a warning from the start is not overwritten.
+func (m *Model) replaceQueue(tracks []playlist.Track) {
+	m.stopPlayback()
+	m.player.ClearPreload()
+	m.retireTracksPaging()
+	m.replacePlaylist(tracks)
+	m.clearLoadedPlaylist()
+	m.setHeaderStateFromTracks(tracks)
+	m.plCursor = 0
+	m.plScroll = 0 // adjustScroll keeps it when the playlist has no rows yet
+	m.focus = focusPlaylist
+	m.applyHeightMode()
+	m.adjustScroll()
+}
+
 // appendAlbum appends an expanded album to the queue; auto-plays from its first
 // track if nothing is playing.
 func (m *Model) appendAlbum(album playlist.Track, tracks []playlist.Track) tea.Cmd {

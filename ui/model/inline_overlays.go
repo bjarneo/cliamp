@@ -561,6 +561,9 @@ func (m Model) renderNetSearchBody() string {
 func (m Model) searchOverlayHeaderLine() string {
 	switch m.searchOverlay.screen {
 	case searchOverlayResults:
+		if m.searchOverlay.confirmReplace {
+			return sepHeader("Replace current queue?", m.layout.panelWidth)
+		}
 		return sepHeaderN("Results", m.searchOverlay.cursor+1, len(m.searchOverlay.results), m.layout.panelWidth)
 	case searchOverlayPlaylist:
 		return sepHeaderN("Add to Playlist", m.searchOverlay.cursor+1, len(m.searchOverlay.playlists)+1, m.layout.panelWidth)
@@ -582,6 +585,8 @@ func (m Model) renderSearchOverlayBody() string {
 	switch m.searchOverlay.screen {
 	case searchOverlayResults:
 		switch {
+		case m.searchOverlay.confirmReplace:
+			body = bodyMessage("The selected result will replace the current queue. Enter confirms; Esc cancels.", bodyBudget)
 		case m.searchOverlay.albumLoading:
 			body = bodyLines([]string{loadingLine("Loading album…")}, bodyBudget)
 		case len(m.searchOverlay.results) == 0:

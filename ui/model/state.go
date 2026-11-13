@@ -365,11 +365,14 @@ type searchOverlayState struct {
 	// albumLoading is separate from loading so the results screen can say an
 	// album is being expanded without claiming so during the playlist fetch.
 	albumLoading bool
-	playlists    []playlist.PlaylistInfo // playlists of the searched provider for the picker
-	selTrack     playlist.Track          // track selected to add
-	newName      string                  // new playlist name input
-	err          string
-	cancel       func()
+	// confirmReplace holds the "Replace current queue?" prompt that R opens
+	// when the queue is non-empty.
+	confirmReplace bool
+	playlists      []playlist.PlaylistInfo // playlists of the searched provider for the picker
+	selTrack       playlist.Track          // track selected to add
+	newName        string                  // new playlist name input
+	err            string
+	cancel         func()
 }
 
 // catalogBatchState holds state for lazy-loading catalog entries from a provider.CatalogLoader.
