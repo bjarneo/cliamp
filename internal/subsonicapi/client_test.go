@@ -576,8 +576,8 @@ func TestRetryOn429(t *testing.T) {
 func TestAlbumSortTypes(t *testing.T) {
 	c := NewNavidromeClient(Config{BaseURL: "http://localhost", User: "u", Password: "p"})
 	sorts := c.AlbumSortTypes()
-	if len(sorts) != 8 {
-		t.Fatalf("expected 8 sort types, got %d", len(sorts))
+	if len(sorts) != 9 {
+		t.Fatalf("expected 9 sort types, got %d", len(sorts))
 	}
 }
 
