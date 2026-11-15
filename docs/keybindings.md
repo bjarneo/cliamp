@@ -90,7 +90,7 @@ Radio and Podcasts, `/` sends the query to the provider when you press
 
 While a search or filter input is open, its line starts with a badge that
 names the mode and the source, such as `[Filter: Playlist]`, `[Filter: Files]`,
-`[Search: Spotify]` or `[Search: Radio]`. The line ends with `Esc Exit`. Press
+`[Search: Files]`, `[Search: Spotify]` or `[Search: Radio]`. The line ends with `Esc Exit`. Press
 `Esc` to leave the input. On a narrow panel, the hint bar still shows `Esc`.
 
 If the active provider has no `Ctrl+F` search, `Ctrl+F` searches YouTube. The
@@ -258,7 +258,7 @@ other key cancels. The Shift-letter keys do not switch providers then.
 |---|---|
 | `↑` `↓` / `j` `k` | Move cursor |
 | `←` `→` / `h` `l` / `Enter` | Go back; open a directory or file |
-| `/` | Filter files |
+| `/` `Ctrl+F` | Search the open folder and everything below it. Folders come first, then files, and each row shows its path from the open folder |
 | `Space` | Select or unselect file/directory |
 | `a` | Select/unselect all visible audio files |
 | `R` | Replace the current queue with selected files (confirm when it is non-empty) |
@@ -380,10 +380,17 @@ Local search boxes use fuzzy matching. Query characters must appear in order but
 do not need to be next to each other. Results are ranked by relevance, with the
 best match first. For example, `skr` and `saku` both find a track named "Sakura".
 
+The file browser is the one exception. Its search reaches every subfolder of the
+open folder, so it matches the query as a substring instead: over a whole music
+library, subsequence matching turns a short query into hundreds of weak hits.
+Folders that match come before files, and both groups are ranked by where the
+match falls: a name that starts with the query first, then a match at a word
+boundary, then any other match.
+
 This applies to:
 
 - `/` playlist search
-- `/` file browser filter
+- `/` file browser search over the open folder and its subfolders
 - `Ctrl+F` when the active provider is Local (your saved playlists)
 
 Other `Ctrl+F` providers, including Spotify, Qobuz, Tidal, Bandcamp,

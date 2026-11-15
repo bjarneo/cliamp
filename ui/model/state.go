@@ -281,6 +281,20 @@ type fileBrowserState struct {
 	err            string
 	targetPlaylist string
 	confirmReplace bool
+
+	// index holds every entry below dir, so the filter can match names in
+	// subfolders the way a file manager's search does. It is built once per
+	// directory, in the background, and dropped when the browser moves.
+	index        []fbEntry
+	indexDir     string
+	indexGen     uint64
+	indexLoading bool
+}
+
+// usesIndex reports whether the filtered rows come from the recursive index
+// rather than from the current directory's listing.
+func (s *fileBrowserState) usesIndex() bool {
+	return s.filter != "" && len(s.index) > 0
 }
 
 // navBrowserState holds state for the provider browser overlay.

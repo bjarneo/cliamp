@@ -203,9 +203,16 @@ func (m Model) fbHeaderLine() string {
 		return sepHeader("Replace current queue?", m.layout.panelWidth)
 	}
 	if m.fileBrowser.filtering {
-		return m.filterHeader("Filter: Files", "file-browser-search", m.fileBrowser.filter, "")
+		count := ""
+		if m.fileBrowser.usesIndex() {
+			count = fmt.Sprintf("%d found", m.fbCount())
+		}
+		return m.filterHeader("Search: Files", "file-browser-search", m.fileBrowser.filter, count)
 	}
 	label := "Files: " + m.fileBrowser.dir
+	if m.fileBrowser.filter != "" && m.fileBrowser.usesIndex() {
+		label = fmt.Sprintf("Files: %s  [%d matches, subfolders included]", m.fileBrowser.dir, m.fbCount())
+	}
 	if n := len(m.fileBrowser.selected); n > 0 {
 		label += fmt.Sprintf("  [%d selected]", n)
 	}
@@ -228,9 +235,12 @@ func (m Model) renderFileBrowserBody() string {
 
 	count := m.fbCount()
 	if count == 0 {
-		if m.fileBrowser.filter != "" {
+		switch {
+		case m.fileBrowser.indexLoading && m.fileBrowser.filter != "":
+			lines = append(lines, loadingLine("Searching subfolders…"))
+		case m.fileBrowser.filter != "":
 			lines = append(lines, dimStyle.Render("  No matches"))
-		} else {
+		default:
 			lines = append(lines, dimStyle.Render("  (empty)"))
 		}
 		return bodyLines(lines, budget)
@@ -240,6 +250,8 @@ func (m Model) renderFileBrowserBody() string {
 	if scroll > count-1 {
 		scroll = max(0, count-1)
 	}
+	// An index row is labelled by its path from the browsed directory, so two
+	// files with the same name stay distinguishable.
 	for i := scroll; i < count && len(lines) < budget; i++ {
 		e := m.fbEntry(i)
 		check := "  "
