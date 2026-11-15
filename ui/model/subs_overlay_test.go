@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -160,6 +161,25 @@ func TestSubsFilter(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSubsFilterRanksMatches(t *testing.T) {
+	m := &Model{subs: subsOverlay{shows: []provider.SubscriptionInfo{
+		{Name: "Reload"},
+		{Name: "Weekly", Author: "Load"},
+		{Name: "Load"},
+	}}}
+	m.subs.filter = "load"
+	m.updateSubsFilter()
+
+	var got []string
+	for _, idx := range m.subs.filtered {
+		got = append(got, m.subs.shows[idx].Name)
+	}
+	want := []string{"Weekly", "Load", "Reload"}
+	if !slices.Equal(got, want) {
+		t.Errorf("matches = %v, want %v", got, want)
 	}
 }
 

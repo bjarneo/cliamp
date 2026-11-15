@@ -24,11 +24,19 @@ func (m *Model) updateSearch() {
 // fuzzyRank returns the indices of the n items whose text fuzzy-matches
 // query, best match first; equal scores keep their list order.
 func fuzzyRank(query string, n int, text func(int) string) []int {
+	return rankMatches(n, func(i int) (int, bool) {
+		return fuzzy.Match(query, text(i))
+	})
+}
+
+// rankMatches returns the indices of the n items that score reports as
+// matches, best score first; equal scores keep their list order.
+func rankMatches(n int, score func(int) (int, bool)) []int {
 	type match struct{ idx, score int }
 	matches := make([]match, 0, n)
 	for i := range n {
-		if score, ok := fuzzy.Match(query, text(i)); ok {
-			matches = append(matches, match{i, score})
+		if s, ok := score(i); ok {
+			matches = append(matches, match{i, s})
 		}
 	}
 	sort.SliceStable(matches, func(a, b int) bool {

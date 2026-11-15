@@ -75,25 +75,25 @@ func (m Model) subsVisibleShows() []int {
 	return m.subs.filtered
 }
 
-// updateSubsFilter rebuilds the filtered index set from the current query.
+// updateSubsFilter rebuilds the filtered index set from the current query,
+// best match of the title or the author first.
 func (m *Model) updateSubsFilter() {
 	m.subs.filtered = nil
+	m.subs.cursor, m.subs.scroll = 0, 0
 	if m.subs.filter == "" {
-		m.subs.cursor, m.subs.scroll = 0, 0
 		return
 	}
-	for i, s := range m.subs.shows {
-		if _, ok := fuzzy.Match(m.subs.filter, s.Name); ok {
-			m.subs.filtered = append(m.subs.filtered, i)
-			continue
+	query, shows := m.subs.filter, m.subs.shows
+	m.subs.filtered = rankMatches(len(shows), func(i int) (int, bool) {
+		score, ok := fuzzy.Match(query, shows[i].Name)
+		if shows[i].Author == "" {
+			return score, ok
 		}
-		if s.Author != "" {
-			if _, ok := fuzzy.Match(m.subs.filter, s.Author); ok {
-				m.subs.filtered = append(m.subs.filtered, i)
-			}
+		if s, aok := fuzzy.Match(query, shows[i].Author); aok && (!ok || s > score) {
+			return s, true
 		}
-	}
-	m.subs.cursor, m.subs.scroll = 0, 0
+		return score, ok
+	})
 }
 
 // selectedSubscription returns the highlighted show.
