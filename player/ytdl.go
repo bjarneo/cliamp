@@ -39,11 +39,9 @@ func YTDLPAvailable() bool {
 	return err == nil
 }
 
-func appendYTDLCookieArgs(args []string, pageURL string) []string {
-	if browser := ytdlcookies.ForURL(pageURL); browser != "" {
-		return append(args, "--cookies-from-browser", browser)
-	}
-	return args
+func appendYTDLCookieArgs(args []string, pageURL string) ([]string, func(), error) {
+	cookieArgs, cleanup, err := ytdlcookies.Args(pageURL)
+	return append(args, cookieArgs...), cleanup, err
 }
 
 // probeYTDLDuration runs a quick yt-dlp --print duration to obtain
@@ -52,7 +50,11 @@ func probeYTDLDuration(pageURL string) time.Duration {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	args := []string{"--skip-download", "--no-playlist", "--socket-timeout", "10", "--print", "duration"}
-	args = appendYTDLCookieArgs(args, pageURL)
+	args, cleanup, err := appendYTDLCookieArgs(args, pageURL)
+	defer cleanup()
+	if err != nil {
+		return 0
+	}
 	// "--" stops yt-dlp parsing pageURL as a flag. Callers gate on
 	// playlist.IsURL, but keep the terminator so a future caller cannot turn
 	// a crafted URL into --exec and reach arbitrary command execution.
@@ -257,7 +259,19 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 		"--socket-timeout", "15",
 		"-o", "-",
 	}
-	ytdlArgs = appendYTDLCookieArgs(ytdlArgs, pageURL)
+	ytdlArgs, cookieCleanup, err := appendYTDLCookieArgs(ytdlArgs, pageURL)
+	// The cookie copy outlives this call only once yt-dlp is running.
+	ownCookies := true
+	defer func() {
+		if ownCookies {
+			cookieCleanup()
+		}
+	}()
+	if err != nil {
+		pr.Close()
+		pw.Close()
+		return nil, beep.Format{}, fmt.Errorf("yt-dlp cookies: %w", err)
+	}
 	ytdlArgs = append(ytdlArgs, "--", pageURL)
 	ytdlCmd := exec.Command("yt-dlp", ytdlArgs...)
 	ytdlCmd.Stdout = pw
@@ -316,6 +330,11 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 	// process's stderr is only safe to read after Wait() returns, so the
 	// capture happens inside monitorExit.
 	ytdlErrCh, ytdlDone := monitorExit(ytdlCmd, &ytdlStderr, "yt-dlp")
+	ownCookies = false
+	go func() {
+		<-ytdlDone
+		cookieCleanup()
+	}()
 	ffmpegErrCh, ffmpegDone := monitorExit(ffmpegCmd, &ffmpegStderr, "ffmpeg")
 
 	format := beep.Format{

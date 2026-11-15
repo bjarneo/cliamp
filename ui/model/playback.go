@@ -402,8 +402,9 @@ func (m *Model) playTrack(track playlist.Track) tea.Cmd {
 	m.pausedAt = time.Time{}
 	if track.Feed || playlist.IsFeed(track.Path) {
 		m.feedLoading = true
+		m.feedRequest = nextRequest(&m.requests.queue)
 		m.status.Activity("Loading feed...", statusTTLLong)
-		return resolveFeedTrackCmd(track.Path, m.requests.stream, nextRequest(&m.requests.queue))
+		return resolveFeedTrackCmd(track.Path, m.requests.stream, m.feedRequest)
 	}
 	// The track that plays now is left, so it can scrobble before the
 	// engine moves on.
@@ -568,7 +569,7 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 		positionSec = m.resume.secs
 	}
 	m.persistPlaybackContext(track, positionSec, time.Now())
-	historyCmd := m.recordListenedTrack(track)
+	cmd := tea.Batch(m.recordListenedTrack(track), m.ytdlArtistCmd(track))
 	m.reconnect.attempts = 0
 	m.reconnect.at = time.Time{}
 	m.reconnect.ytdlLiveDrain = false
@@ -581,14 +582,14 @@ func (m *Model) beginPlaybackTrack(track playlist.Track) (playlist.Track, tea.Cm
 	if m.lyrics.visible {
 		q := lyricsLookupKey(track, track.Artist, track.Title)
 		if q == "" {
-			return track, historyCmd
+			return track, cmd
 		}
 		m.lyrics.loading = true
 		m.lyrics.query = q
-		return track, tea.Batch(historyCmd, m.fetchLyricsForTrack(track, track.Artist, track.Title))
+		return track, tea.Batch(cmd, m.fetchLyricsForTrack(track, track.Artist, track.Title))
 	}
 	m.lyrics.loading = false
-	return track, historyCmd
+	return track, cmd
 }
 
 func (m *Model) fetchLyricsForTrack(track playlist.Track, artist, title string) tea.Cmd {

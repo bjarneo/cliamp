@@ -40,7 +40,9 @@ func (m *Model) handleYTDLBatch(msg ytdlBatchMsg) tea.Cmd {
 // and plays the first one. It drops the episodes when a track started or
 // stopped, or another queue replace started, after the feed resolve began.
 func (m *Model) handleFeedTrackResolved(msg feedTrackResolvedMsg) tea.Cmd {
-	m.feedLoading = false
+	if msg.queue == m.feedRequest {
+		m.feedLoading = false
+	}
 	if msg.gen != m.requests.stream || msg.queue != m.requests.queue {
 		return nil
 	}

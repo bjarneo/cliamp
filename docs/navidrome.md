@@ -96,6 +96,14 @@ The local favorite is the source of truth. If the server rejects the call, the
 local favorite stays and the status bar shows a warning. A song that you star in
 the Navidrome web UI does not appear as a favorite in cliamp.
 
+### Ratings
+
+In the playlist, press `*` and then `0` through `5` to rate the selected
+Navidrome track. `0` removes its rating. cliamp waits for Navidrome to accept the
+change before updating the playlist, the `★N` playing-track label, and Linux
+MPRIS `xesam:userRating`. A failed request leaves the prior rating in place and
+names the error in the status line.
+
 ### Album sort order
 
 In the global album list, press `s` to cycle through sort modes:

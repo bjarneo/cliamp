@@ -320,6 +320,16 @@ type CustomStreamer interface {
 	NewStreamer(uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error)
 }
 
+// ArtworkProvider is implemented by providers whose album art is not known
+// when the track list is built, for example when the cover lives inside the
+// audio file and must be read while it downloads. The UI asks for it when it
+// publishes the current track, so the art resolves on demand instead of
+// blocking the list.
+type ArtworkProvider interface {
+	// ArtworkFor returns a URL for track's cover, or false when unavailable.
+	ArtworkFor(track playlist.Track) (url string, ok bool)
+}
+
 // TrackFavoriter is implemented by providers that keep a favorite state for
 // tracks on their own service, such as liked or starred songs. The local
 // favorites store stays the source of truth. The UI copies each change to the
@@ -331,6 +341,17 @@ type TrackFavoriter interface {
 	// SetTrackFavorite sets or clears the favorite state of track on the
 	// provider's service.
 	SetTrackFavorite(ctx context.Context, track playlist.Track, favorite bool) error
+}
+
+// TrackRater is implemented by providers that store a numeric rating for
+// tracks on their own service. A rating of 0 removes the rating.
+type TrackRater interface {
+	// CanRateTrack reports whether track belongs to this provider. It must not
+	// do I/O because callers may invoke it on the Update goroutine.
+	CanRateTrack(track playlist.Track) bool
+	// SetTrackRating sets track's rating on the provider's service. rating must
+	// be between 0 and 5; 0 removes the rating.
+	SetTrackRating(ctx context.Context, track playlist.Track, rating int) error
 }
 
 // FavoriteToggler is implemented by providers that support marking items
@@ -427,12 +448,23 @@ type TrackPager interface {
 	TracksPage(playlistID string, offset int) (tracks []playlist.Track, next int, err error)
 }
 
-// ArtworkProvider is implemented by providers whose album art is not known
-// when the track list is built, for example when the cover lives inside the
-// audio file and must be read while it downloads. The UI asks for it when it
-// publishes the current track, so the art resolves on demand instead of
-// blocking the list.
-type ArtworkProvider interface {
-	// ArtworkFor returns a URL for track's cover, or false when unavailable.
-	ArtworkFor(track playlist.Track) (url string, ok bool)
+// CodeAuthenticator is implemented by providers whose sign-in asks for a
+// one-time code instead of a browser flow. The provider pane collects the
+// code the Prompt describes and hands it to Authenticate, so the terminal is
+// never taken over mid-session.
+type CodeAuthenticator interface {
+	// Prompt returns the copy shown above the code input.
+	Prompt() string
+	// Authenticate completes the sign-in with the code the user typed.
+	Authenticate(code string) error
+}
+
+// ChatFilter is implemented by a provider whose list can be narrowed to a set
+// of sources, such as the chats of an account. Dialogs returns every source,
+// Chats the current filter, and SetChats persists and applies a new one. An
+// empty filter lists everything.
+type ChatFilter interface {
+	Dialogs() ([]playlist.PlaylistInfo, error)
+	Chats() []string
+	SetChats(chats []string) error
 }

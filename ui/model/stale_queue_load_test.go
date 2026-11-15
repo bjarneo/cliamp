@@ -36,6 +36,8 @@ func TestFeedTrackResolvedDropsStaleResult(t *testing.T) {
 		during    func(m *Model)
 		wantQueue []string
 		wantPlay  string
+		// wantLoading is set when a newer feed resolve is still running.
+		wantLoading bool
 	}{
 		{
 			name:      "current result",
@@ -64,10 +66,11 @@ func TestFeedTrackResolvedDropsStaleResult(t *testing.T) {
 			wantQueue: []string{"current.mp3", feed.Path},
 		},
 		{
-			name:      "newer feed during the resolve",
-			during:    func(m *Model) { m.playIndex(1) },
-			wantQueue: []string{"current.mp3", feed.Path},
-			wantPlay:  "current.mp3",
+			name:        "newer feed during the resolve",
+			during:      func(m *Model) { m.playIndex(1) },
+			wantQueue:   []string{"current.mp3", feed.Path},
+			wantPlay:    "current.mp3",
+			wantLoading: true,
 		},
 	}
 	for _, tt := range tests {
@@ -95,8 +98,8 @@ func TestFeedTrackResolvedDropsStaleResult(t *testing.T) {
 			if got, _ := m.currentPlaybackTrack(); m.playingTrackActive != (tt.wantPlay != "") || m.playingTrackActive && got.Path != tt.wantPlay {
 				t.Fatalf("playing %q active %v, want %q", got.Path, m.playingTrackActive, tt.wantPlay)
 			}
-			if m.feedLoading {
-				t.Fatal("feedLoading still set after the resolve")
+			if m.feedLoading != tt.wantLoading {
+				t.Fatalf("feedLoading = %v after the resolve, want %v", m.feedLoading, tt.wantLoading)
 			}
 		})
 	}

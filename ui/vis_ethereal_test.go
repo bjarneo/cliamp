@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 	"math"
 	"slices"
 	"strings"
@@ -164,25 +165,42 @@ func TestEtherealSuspendsClock(t *testing.T) {
 	}
 }
 
-func TestEtherealKeepsItsPalette(t *testing.T) {
+func TestEtherealFollowsThemeColors(t *testing.T) {
 	t.Cleanup(func() { ApplyThemeColors(theme.Default()) })
 	v := NewVisualizer(44100)
 	v.Cols, v.Rows = 76, 7
 	d := &etherealDriver{}
 	ApplyThemeColors(theme.Default())
-	before := d.Render(v)
-	ApplyThemeColors(testTheme)
-	if got := d.Render(v); got != before {
-		t.Fatal("changing the UI theme recoloured the nebula")
-	}
-	for i, c := range etherealColors {
-		var sb, run strings.Builder
-		run.WriteString("⠂")
-		flushEtherealRun(&sb, &run, i+1)
-		want := lipgloss.NewStyle().Foreground(lipgloss.Color(c)).Render("⠂")
-		if got := sb.String(); got != want {
-			t.Fatalf("style [%d] = %q, want %q", i, got, want)
-		}
+	terminalFrame := d.Render(v)
+	for _, th := range []theme.Theme{theme.Default(), testTheme, theme.Default()} {
+		t.Run(th.Name, func(t *testing.T) {
+			ApplyThemeColors(th)
+			p := PaletteFor(th)
+			colors := [...]color.Color{p.Dim, p.SpectrumLow, p.SpectrumMid, p.SpectrumHigh, p.Text, p.Accent, p.Text}
+			for i, c := range colors {
+				var sb, run strings.Builder
+				run.WriteString("⠂")
+				flushEtherealRun(&sb, &run, i+1)
+				want := lipgloss.NewStyle().Foreground(c).Render("⠂")
+				if got := sb.String(); got != want {
+					t.Errorf("style [%d] = %q, want %q", i, got, want)
+				}
+			}
+			frame := d.Render(v)
+			if stripSGR(frame) != stripSGR(terminalFrame) {
+				t.Fatal("changing the theme changed the clouds or stars")
+			}
+			if th.IsDefault() {
+				if frame != terminalFrame {
+					t.Fatal("returning to the default theme did not restore terminal colors")
+				}
+				if strings.Contains(frame, "38;2;") {
+					t.Fatal("the default theme did not use the terminal's ANSI palette")
+				}
+			} else if frame == terminalFrame {
+				t.Fatal("changing the theme did not recolor the nebula")
+			}
+		})
 	}
 }
 

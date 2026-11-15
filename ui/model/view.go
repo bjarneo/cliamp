@@ -70,8 +70,8 @@ var providerEmptyStateHint = map[string]string{
 	"plex":                "Verify [plex] server URL and token or library filter in config.toml.",
 	"youtube":             "Install yt-dlp for video audio, then press Ctrl+R to reload.",
 	"youtube (all)":       "Install yt-dlp for video audio, then press Ctrl+R to reload.",
-	"youtube music":       "Run `cliamp ytmusic-login` to authorize, then refresh.",
-	"ytmusic":             "Run `cliamp ytmusic-login` to authorize, then refresh.",
+	"youtube music":       "Press Ctrl+R to reload, or run `cliamp setup` to set up YouTube Music.",
+	"ytmusic":             "Press Ctrl+R to reload, or run `cliamp setup` to set up YouTube Music.",
 	"soundcloud":          "Set [soundcloud] user in config.toml to browse a profile.",
 	"netease":             "Run `cliamp setup` and configure NetEase browser cookies.",
 	"netease cloud music": "Run `cliamp setup` and configure NetEase browser cookies.",
@@ -150,6 +150,13 @@ func (m Model) isProviderRowActive(p playlist.PlaylistInfo) bool {
 // counts on cliamp radio channel rows. Any other provider renders the plain
 // playlist label.
 func (m Model) providerRowLabel(prefix string, p playlist.PlaylistInfo) string {
+	if m.provPane.picking && !m.provPane.pickLoad {
+		box := "[ ] "
+		if m.provPane.picked[p.ID] {
+			box = "[x] "
+		}
+		prefix += box
+	}
 	if _, ok := m.provider.(*radio.ChannelProvider); !ok {
 		return playlistLabel(prefix, p)
 	}
@@ -202,7 +209,7 @@ func (m Model) radioPlayingHere(id string) bool {
 // hide the duration: their track counts are cheap estimates, so a runtime
 // total would be misleading.
 func playlistLabel(prefix string, p playlist.PlaylistInfo) string {
-	out := prefix + p.Name
+	out := prefix + terminalText(p.Name)
 	var parts []string
 	if p.TrackCount > 0 || p.Name == favorites.PlaylistName {
 		parts = append(parts, fmt.Sprintf("%d tracks", p.TrackCount))
@@ -441,14 +448,25 @@ func (m Model) renderSimplifiedTrackInfo() string {
 		}
 	}
 
-	name = scrollTrackName(name, max(1, m.layout.panelWidth-lipgloss.Width(duration)-1), m.titleOff)
-	gap := max(1, m.layout.panelWidth-lipgloss.Width(name)-lipgloss.Width(duration))
-	return trackStyle.Render(name) + strings.Repeat(" ", gap) + dimStyle.Render(duration)
+	suffix := duration
+	if rating := trackRatingLabel(track); rating != "" {
+		suffix = rating + " " + suffix
+	}
+	name = scrollTrackName(name, max(1, m.layout.panelWidth-lipgloss.Width(suffix)-1), m.titleOff)
+	gap := max(1, m.layout.panelWidth-lipgloss.Width(name)-lipgloss.Width(suffix))
+	return trackStyle.Render(name) + strings.Repeat(" ", gap) + dimStyle.Render(suffix)
+}
+
+func trackRatingLabel(track playlist.Track) string {
+	if track.UserRating <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("★%d", track.UserRating)
 }
 
 func trackInfoName(track playlist.Track, streamTitle string) string {
 	if streamTitle != "" && track.Stream {
-		return streamTitle
+		return terminalText(streamTitle)
 	}
 
 	name := trackViewName(track)
@@ -464,7 +482,7 @@ func trackInfoName(track playlist.Track, streamTitle string) string {
 	if track.Album != "" {
 		name += " · " + track.Album
 	}
-	return name
+	return terminalText(name)
 }
 
 // scrollTrackName returns the width-cell window of name at the given tick.
@@ -509,10 +527,10 @@ func (m Model) renderTransient() string {
 	// Fresh status wins over a sticky m.err so confirmations are not masked
 	// by an older network error; the error reappears once status expires.
 	if text := m.save.activityText(); text != "" {
-		return ui.FitRect(feedbackActivityStyle.Render(text), m.layout.panelWidth, 1)
+		return ui.FitRect(feedbackActivityStyle.Render(terminalText(text)), m.layout.panelWidth, 1)
 	}
 	if m.status.text != "" {
-		text := m.status.text
+		text := terminalText(m.status.text)
 		style := feedbackSuccessStyle
 		switch m.status.kind {
 		case feedbackActivity:
@@ -527,10 +545,10 @@ func (m Model) renderTransient() string {
 		return ui.FitRect(style.Render(text), m.layout.panelWidth, 1)
 	}
 	if m.err != nil {
-		return ui.FitRect(errorStyle.Render(fmt.Sprintf("ERR: %s", m.err)), m.layout.panelWidth, 1)
+		return ui.FitRect(errorStyle.Render(terminalText(fmt.Sprintf("ERR: %s", m.err))), m.layout.panelWidth, 1)
 	}
 	if n := len(m.logLines); n > 0 {
-		return ui.FitRect(dimStyle.Render(m.logLines[n-1].text), m.layout.panelWidth, 1)
+		return ui.FitRect(dimStyle.Render(terminalText(m.logLines[n-1].text)), m.layout.panelWidth, 1)
 	}
 	return ""
 }
@@ -596,7 +614,11 @@ func (m Model) renderTrackInfo() string {
 	name := trackInfoName(track, m.streamTitle)
 	// The "♫ " prefix takes two cells; the rest of the row is the marquee's,
 	// so a name only scrolls once it genuinely cannot fit.
-	return trackStyle.Render("♫ " + scrollTrackName(name, m.layout.panelWidth-2, m.titleOff))
+	suffix := ""
+	if rating := trackRatingLabel(track); rating != "" {
+		suffix = " " + dimStyle.Render(rating)
+	}
+	return trackStyle.Render("♫ "+scrollTrackName(name, max(1, m.layout.panelWidth-2-lipgloss.Width(suffix)), m.titleOff)) + suffix
 }
 
 func (m Model) renderTimeStatus() string {
@@ -990,16 +1012,9 @@ func (m Model) renderProviderList() string {
 		}
 		lines := []string{loadingLine(label)}
 		if m.provPane.authURL != "" {
-			lines = append(lines,
-				"",
-				dimStyle.Render("  If your browser didn't open, visit this URL to sign in:"),
-				"  "+m.provPane.authURL,
-			)
+			lines = append(lines, m.authURLLines(visibleBudget-len(lines))...)
 		}
-		for len(lines) < visibleBudget {
-			lines = append(lines, "")
-		}
-		return strings.Join(lines, "\n")
+		return strings.Join(fitLines(lines, visibleBudget), "\n")
 	}
 	if m.provPane.askLoc {
 		return m.renderLocationPrompt(visibleBudget)
@@ -1111,6 +1126,50 @@ func (m Model) renderProviderList() string {
 	return strings.Join(fitLines(lines, visibleBudget), "\n")
 }
 
+// authURLLines shows the URL of an interactive sign-in in at most budget rows.
+// The URL breaks at the panel width with no indent and no added characters,
+// so the rows hold the URL and nothing else. Each row is an OSC 8 hyperlink
+// to the full URL, so a click on any row opens the whole URL. When the rows
+// cannot hold the whole URL, one message points to cliamp.log.
+func (m Model) authURLLines(budget int) []string {
+	width := m.layout.panelWidth
+	url := m.provPane.authURL
+	// OSC 8 allows only printable ASCII in the target. A URL with other
+	// bytes stays plain text.
+	linked := !strings.ContainsFunc(url, func(r rune) bool { return r < 0x20 || r > 0x7e })
+	lines := dimWrapped("If your browser didn't open, visit this URL to sign in:", width)
+	for row := range strings.SplitSeq(ansi.Hardwrap(url, width, true), "\n") {
+		if linked {
+			// Each row closes its own link, so a row that is cut or
+			// dropped never leaves a link open on the rows after it.
+			row = ansi.SetHyperlink(url) + row + ansi.ResetHyperlink()
+		}
+		lines = append(lines, row)
+	}
+	// authurl.Notify logs the URL at the info level. This text is true for
+	// the default log_level and not for warn or error.
+	lines = append(lines, dimWrapped("The full URL is also in cliamp.log.", width)...)
+	switch {
+	case len(lines) > budget:
+		return dimWrapped("The sign-in URL does not fit. Make the terminal larger, or copy the URL from cliamp.log.", width)
+	case len(lines) < budget:
+		// A blank row separates the sign-in hint from the loading line when
+		// the budget has room for it.
+		return append([]string{""}, lines...)
+	}
+	return lines
+}
+
+// dimWrapped word-wraps text to width cells, indents each row by two cells and
+// renders it dim.
+func dimWrapped(text string, width int) []string {
+	rows := wrapText(text, width-2)
+	for i, row := range rows {
+		rows[i] = dimStyle.Render("  " + row)
+	}
+	return rows
+}
+
 // renderLocationPrompt puts the provider's location question to the listener.
 // The wording comes from the provider, which is the only thing that knows what
 // it would do with the answer and where the location would come from.
@@ -1182,7 +1241,8 @@ func (m Model) renderPlaylist() string {
 		stateReporters = m.playbackStateReporters()
 	}
 
-	for row := range m.playlistRows(tracks, localScroll, m.showAlbumHeaders) {
+	showHeaders := m.plShowsAlbumHeaders()
+	for row := range m.playlistRows(tracks, localScroll, showHeaders) {
 		if row.Index < 0 {
 			if len(lines)+1 >= budget {
 				break
@@ -1287,7 +1347,7 @@ func (m Model) renderPlaylist() string {
 			if remaining >= len(" (unavailable)") {
 				albumSuffix = truncate(" (unavailable)", remaining)
 			}
-		} else if album := t.Album; album != "" && !m.showAlbumHeaders && m.layout.panelWidth >= 56 {
+		} else if album := terminalText(t.Album); album != "" && !showHeaders && m.layout.panelWidth >= 56 {
 			remaining := m.layout.panelWidth - linePrefixWidth - nameLen - queueLen - durationGap - 3 // 3 = " · "
 			if remaining >= 4 {
 				albumSuffix = " · " + truncate(album, remaining)

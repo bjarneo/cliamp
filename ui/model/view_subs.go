@@ -24,9 +24,9 @@ func (m Model) renderSubsBody() string {
 	var notice string
 	switch {
 	case m.subs.loading && m.subs.status != "":
-		notice = activeToggle.Render("  "+spinnerFrame()) + dimStyle.Render(" "+m.subs.status)
+		notice = activeToggle.Render("  "+spinnerFrame()) + dimStyle.Render(" "+terminalText(m.subs.status))
 	case m.subs.err != "":
-		notice = playlistUnavailableStyle.Render("  " + truncate(m.subs.err, m.layout.panelWidth-2))
+		notice = playlistUnavailableStyle.Render("  " + truncate(terminalText(m.subs.err), m.layout.panelWidth-2))
 	}
 	if notice != "" {
 		budget--
@@ -48,6 +48,7 @@ func (m Model) renderSubsBody() string {
 			if show.Author != "" {
 				label += " · " + show.Author
 			}
+			label = terminalText(label)
 			// cursorLine styles the whole row, so keep this plain: truncate
 			// counts characters and would cut an escape sequence in half.
 			items[i] = truncate(label, m.layout.panelWidth-4)

@@ -287,7 +287,7 @@ func formatExt(path string) string {
 // needsFFmpeg reports whether the given extension requires ffmpeg to decode.
 func needsFFmpeg(ext string) bool {
 	switch ext {
-	case ".m4a", ".aac", ".aacp", ".m4b", ".alac", ".wma", ".opus", ".webm":
+	case ".m4a", ".mp4", ".aac", ".aacp", ".m4b", ".alac", ".wma", ".opus", ".webm":
 		return true
 	}
 	return false

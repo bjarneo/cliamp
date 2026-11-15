@@ -39,6 +39,7 @@ const (
 	commandModeSearchOverlay
 	commandModeJump
 	commandModeURL
+	commandModeAuthCode
 	commandModeLyrics
 	commandModeThemePicker
 	commandModeVisPicker
@@ -111,6 +112,7 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"left", "right"}, KeyLabel: "Left Right", Label: "Seek +/-5s", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"shift+left", "shift+right"}, KeyLabel: "Shift+Left Right", Label: "Seek +/-large step", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "j"}, KeyLabel: "Nj", Label: "Seek to N x 10% of track (e.g. 7j = 70%)", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"*", "0", "1", "2", "3", "4", "5"}, KeyLabel: "* then 0-5", Label: "Rate selected track", Keymap: true},
 	{Mode: commandModeMain | commandModeVolume | commandModeShuffle | commandModeRepeat, Keys: []string{"+", "=", "-"}, KeyLabel: "+ -", Label: "Volume up/down", Keymap: true},
 	{Mode: commandModeMain | commandModeSpeed, Keys: []string{"]", "["}, KeyLabel: "] [", Label: "Speed up/down (+/-0.25x)", Keymap: true},
 	{Mode: commandModeMain | commandModeVolume | commandModeShuffle | commandModeRepeat, Keys: []string{"z"}, KeyLabel: "z", Label: "Toggle shuffle", Keymap: true},
@@ -126,6 +128,7 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"pgup", "pgdown", "ctrl+u", "ctrl+d"}, KeyLabel: "PgUp PgDn / Ctrl+U D", Label: "Scroll playlist/browser by page", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"home", "end", "g", "G"}, KeyLabel: "Home End / g G", Label: "Go to top/end of playlist/browser", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"shift+up", "shift+down"}, KeyLabel: "Shift+Up Down", Label: "Move track up/down", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"ctrl+o"}, KeyLabel: "Ctrl+O", Label: "Reverse playlist order", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"h", "l"}, KeyLabel: "h l", Label: "EQ cursor left/right", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Play selected track", Keymap: true, ContextHelp: true, Primary: true},
 	{Mode: commandModeMain, Keys: []string{"f"}, KeyLabel: "f", Label: "Favorite track / station", LabelFor: func(m Model) string {
@@ -162,7 +165,7 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"O"}, KeyLabel: "O", Label: "Open Podcasts provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"S"}, KeyLabel: "S", Label: "Open Spotify provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"P"}, KeyLabel: "P", Label: "Open Plex provider", Keymap: true},
-	{Mode: commandModeMain, Keys: []string{"Y"}, KeyLabel: "Y", Label: "Open YouTube provider", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"Y"}, KeyLabel: "Y", Label: "Open YouTube provider, again for YouTube and YouTube Music", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"C"}, KeyLabel: "C", Label: "Open SoundCloud provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"X"}, KeyLabel: "X", Label: "Open Mixcloud provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"M"}, KeyLabel: "M", Label: "Open NetEase provider", Keymap: true},
@@ -172,10 +175,15 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeMain, Keys: []string{"Q"}, KeyLabel: "Q", Label: "Open Qobuz provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"T"}, KeyLabel: "T", Label: "Open Tidal provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"K"}, KeyLabel: "K", Label: "Open Bandcamp provider", Keymap: true},
+	{Mode: commandModeMain, Keys: []string{"U"}, KeyLabel: "U", Label: "Open Telegram provider", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+j"}, KeyLabel: "Ctrl+J", Label: "Jump to time", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"p"}, KeyLabel: "p", Label: "Playlist", Keymap: true},
 	{Mode: commandModeProvider, Keys: []string{"p"}, KeyLabel: "p", Label: "Playlist", Keymap: true, ContextHelp: true, Enabled: func(m Model) bool {
 		return m.localProvider != nil
+	}},
+	{Mode: commandModeProvider, Keys: []string{"ctrl+p"}, KeyLabel: "Ctrl+P", Label: "Pick chats", Keymap: true, Enabled: func(m Model) bool {
+		_, ok := m.provider.(provider.ChatFilter)
+		return ok
 	}},
 	{Mode: commandModeMain, Keys: []string{"ctrl+h"}, KeyLabel: "Ctrl+H", Label: "Toggle album headers", Keymap: true},
 	{Mode: commandModeMain, Keys: []string{"ctrl+g"}, KeyLabel: "Ctrl+G", Label: "Toggle key-binding hint bar", Keymap: true},
@@ -207,7 +215,7 @@ var commandRegistry = []commandSpec{
 
 	// Shared text editing is reserved even though these are intentionally absent
 	// from the global keymap, where they would be misleading outside a field.
-	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSearchOverlay | commandModeJump | commandModeURL | commandModeThemePickerFilter | commandModeVisPickerFilter | commandModeProviderSearch, Keys: []string{"left", "right", "home", "end", "ctrl+a", "ctrl+e", "backspace", "delete", "ctrl+w", "ctrl+u"}, KeyLabel: "Text editor", Label: "Move cursor and delete text"},
+	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSearchOverlay | commandModeJump | commandModeURL | commandModeAuthCode | commandModeThemePickerFilter | commandModeVisPickerFilter | commandModeProviderSearch, Keys: []string{"left", "right", "home", "end", "ctrl+a", "ctrl+e", "backspace", "delete", "ctrl+w", "ctrl+u"}, KeyLabel: "Text editor", Label: "Move cursor and delete text"},
 
 	{Mode: commandModeProvider, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Load", LabelFor: func(m Model) string {
 		if m.selectedProviderListIsBrowseEntry() {
@@ -269,8 +277,8 @@ var commandRegistry = []commandSpec{
 	{Mode: commandModeDevicePicker, Keys: []string{"esc", "q"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
 	{Mode: commandModePlaylistManager | commandModeQueue, Keys: []string{"esc", "q"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
 	{Mode: commandModeKeymap | commandModeFileBrowser | commandModePlaylistPicker, Keys: []string{"esc", "q"}, KeyLabel: "Esc", Label: "Back", ContextHelp: true, Cancel: true},
-	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSearchOverlay | commandModeJump | commandModeURL | commandModeProviderSearch, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Cancel", ContextHelp: true, Cancel: true},
-	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSearchOverlay | commandModeJump | commandModeURL | commandModeProviderSearch, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Confirm", ContextHelp: true, Primary: true},
+	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSearchOverlay | commandModeJump | commandModeURL | commandModeAuthCode | commandModeProviderSearch, Keys: []string{"esc"}, KeyLabel: "Esc", Label: "Cancel", ContextHelp: true, Cancel: true},
+	{Mode: commandModeKeymapSearch | commandModeFileBrowserSearch | commandModeNavSearch | commandModePlaylistManagerInput | commandModePlaylistPickerInput | commandModeSearch | commandModeNetSearch | commandModeSearchOverlay | commandModeJump | commandModeURL | commandModeAuthCode | commandModeProviderSearch, Keys: []string{"enter"}, KeyLabel: "Enter", Label: "Confirm", ContextHelp: true, Primary: true},
 	{Mode: commandModeNavBrowser | commandModePlaylistManager | commandModePlaylistPicker | commandModeQueue | commandModeDevicePicker, Keys: []string{"up", "down", "k", "j"}, KeyLabel: "Up Down", Label: "Navigate", ContextHelp: true},
 	// k and j type into the provider filter.
 	{Mode: commandModeProviderSearch, Keys: []string{"up", "down"}, KeyLabel: "Up Down", Label: "Navigate", ContextHelp: true},

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/bjarneo/cliamp/applog"
 	"github.com/bjarneo/cliamp/internal/appdir"
 	"github.com/bjarneo/cliamp/internal/tomlutil"
 	"github.com/bjarneo/cliamp/playlist"
@@ -607,7 +608,9 @@ func formatCatalogName(s CatalogStation) string {
 	return name
 }
 
-// loadStations parses a TOML file with [[station]] sections.
+// loadStations parses a TOML file with [[station]] sections. Other section
+// headers are skipped with a warning, so a typo like [[stations]] doesn't
+// silently drop the stations under it.
 func loadStations(path string) ([]station, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -615,6 +618,10 @@ func loadStations(path string) ([]station, error) {
 			return nil, nil
 		}
 		return nil, err
+	}
+
+	for _, h := range tomlutil.UnknownHeaders(data, "station") {
+		applog.UserWarn("%s: ignoring unknown section %s, stations go under [[station]]", filepath.Base(path), h)
 	}
 
 	var stations []station

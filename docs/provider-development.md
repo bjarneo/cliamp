@@ -203,6 +203,7 @@ are in `provider/interfaces.go`.
 | `CustomStreamer` | Custom URI decode pipeline | `URISchemes()`, `NewStreamer(uri)` |
 | `FavoriteToggler` | Favorite toggling for provider list items, such as stations and shows | `ToggleFavorite(id)` |
 | `TrackFavoriter` | Copy the ♥ favorite of a track to the service, such as liked or starred songs. The UI calls it in a `tea.Cmd` and keeps the local favorite when it fails | `CanFavoriteTrack(track)`, `SetTrackFavorite(ctx, track, favorite) error` |
+| `TrackRater` | Set or clear a provider-owned numeric track rating | `CanRateTrack(track)`, `SetTrackRating(ctx, track, rating) error` |
 | `CatalogLoader` | Lazy paging of a large catalog | `LoadCatalogPage(offset, limit)` |
 | `CatalogSearcher` | Server-side catalog search that fills the pane | `SearchCatalog(query)`, `ClearSearch()`, `IsSearching()` |
 | `LocationConsenter` | Ask before the provider uses the location of the listener | `NeedsLocationConsent()`, `LocationConsentID()`, `LocationPrompt()`, `SetLocationConsent(allowed)` |
@@ -359,7 +360,9 @@ You do not register the capabilities that follow. `providers.go` finds them in
 the provider list:
 
 - For each provider that implements `CustomStreamer`, cliamp registers
-  `NewStreamer` for each scheme that `URISchemes` returns.
+  `NewStreamer` for each scheme that `URISchemes` returns. When `Stream` can
+  wait on the network, also implement `player.Interrupter` on the streamer.
+  Stop and a track change call `Interrupt` before they take the speaker lock.
 - At shutdown, cliamp calls `Close` on each provider that implements `Closer`.
 
 If the provider resolves its own URI scheme when playback starts, such as

@@ -314,7 +314,7 @@ printf '2.5\n'
 		t.Fatal(err)
 	}
 	p := &Player{sr: beep.SampleRate(100), bitDepth: 16}
-	tp, err := p.buildPipeline(path, 0)
+	tp, err := p.buildPipeline(path, 0, nil)
 	if err != nil {
 		t.Fatalf("buildPipeline() error = %v", err)
 	}

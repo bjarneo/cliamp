@@ -47,7 +47,7 @@ func TestAwaitSpotifyStreamTimeoutCancelsTransportAndReleasesReadLock(t *testing
 			<-req.Context().Done()
 			requestCanceled <- req.Context().Err()
 			return nil, req.Context().Err()
-		}))
+		}), chunkStallTimeout)
 
 		var session Session
 		openDone := make(chan struct{})

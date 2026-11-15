@@ -395,7 +395,8 @@ func (p *Playlist) ActivateSelected() (SelectionActivation, bool) {
 
 // Next advances to the next track according to queue, repeat, and shuffle.
 // Unplayable queued entries are pruned as playback advances. RepeatOne still
-// limits playback to the current track.
+// limits playback to the current track. A queued track that is also the next
+// track in play order moves the position onto it, so it plays once.
 func (p *Playlist) Next() (Track, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -409,6 +410,15 @@ func (p *Playlist) Next() (Track, bool) {
 		p.queue = remaining
 		p.rebuildQueuePositions()
 		p.queuedIdx = idx
+		// The play order resumes after the queue. Without this, it plays the
+		// queued track again when that track was next in the order. With
+		// queuedIdx set, advanceFromOrder does not reshuffle.
+		if p.repeat != RepeatOne {
+			if orderPos, next, ok := p.advanceFromOrder(); ok && next == idx {
+				p.pos = orderPos
+				p.queuedIdx = -1
+			}
+		}
 		p.revision++
 		return cloneTrack(p.tracks[idx]), true
 	}
@@ -774,6 +784,37 @@ func (p *Playlist) Move(from, to int) bool {
 
 	p.revision++
 	return true
+}
+
+// Reverse flips the track order. The current track, the play-next queue
+// and, with shuffle on, the play order keep pointing at the same tracks.
+// With shuffle off, playback follows the new visual order.
+func (p *Playlist) Reverse() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := len(p.tracks)
+	if n < 2 {
+		return
+	}
+	slices.Reverse(p.tracks)
+	for i, idx := range p.order {
+		p.order[i] = n - 1 - idx
+	}
+	for i, idx := range p.queue {
+		p.queue[i] = n - 1 - idx
+	}
+	p.rebuildQueuePositions()
+	if p.queuedIdx >= 0 {
+		p.queuedIdx = n - 1 - p.queuedIdx
+	}
+	if !p.shuffle {
+		cur := p.order[p.pos]
+		for i := range p.order {
+			p.order[i] = i
+		}
+		p.pos = cur
+	}
+	p.revision++
 }
 
 // Remove deletes the track at index idx, updating order, queue, and position

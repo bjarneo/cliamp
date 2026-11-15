@@ -1,0 +1,969 @@
+// Package telegram implements a playlist.Provider backed by a Telegram chat.
+//
+// It talks MTProto directly through gotd/td: no daemon, no helper process.
+// The chat is configured in config.toml under [telegram].
+package telegram
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
+	"github.com/gopxl/beep/v2"
+	"github.com/gotd/td/session"
+	tgclient "github.com/gotd/td/telegram"
+	"github.com/gotd/td/telegram/auth"
+	"github.com/gotd/td/tg"
+)
+
+// Compile-time interface checks.
+var (
+	_ playlist.Provider          = (*Provider)(nil)
+	_ provider.CustomStreamer    = (*Provider)(nil)
+	_ provider.TrackPager        = (*Provider)(nil)
+	_ provider.CodeAuthenticator = (*Provider)(nil)
+)
+
+const (
+	uriPrefix       = "telegram:"
+	connectWait     = 45 * time.Second
+	loginWait       = 5 * time.Minute
+	trackPageSize   = 100
+	dialogsPageSize = 100
+	dialogsMaxPages = 10
+	// Telegram rate-limits messages.getDialogs, so pages are paced and a
+	// FLOOD_WAIT is waited out instead of failing the whole list.
+	dialogsPageDelay = 250 * time.Millisecond
+	floodAttempts    = 3
+	floodMaxWait     = time.Minute
+)
+
+// msgKey identifies a document. Telegram message IDs are unique per chat, not
+// per account, so a bare ID collides between chats.
+type msgKey struct {
+	chat string
+	id   int
+}
+
+// provState is where the connection stands.
+type provState int
+
+const (
+	provConnecting provState = iota
+	provNeedsAuth            // connected without a session: the pane collects the code
+	provReady
+	provFailed
+)
+
+// authRequest asks the connected client to run the sign-in with a code and
+// reports one attempt back to the caller in the pane.
+type authRequest struct {
+	code   string
+	result chan error
+}
+
+// Provider lists the audio of one Telegram chat and streams its documents.
+type Provider struct {
+	cfg        config.TelegramConfig
+	client     *tgclient.Client
+	api        *tg.Client
+	authReq    chan authRequest
+	mu         sync.Mutex // guards state and connectErr
+	state      provState
+	connectErr error
+	cacheDir   string
+	artMu      sync.Mutex
+	artCache   map[msgKey]string
+	chatsMu    sync.Mutex
+	chatsCache map[string]playlist.PlaylistInfo
+}
+
+// NewFromConfig returns nil when [telegram] is not configured. It never
+// blocks: the connection comes up in the background and the first Playlists,
+// Tracks or stream call waits for it, so a slow or unreachable network does
+// not hold the interface back. Without a saved session the pane shows the
+// sign-in prompt and collects the code there (provider.CodeAuthenticator).
+func NewFromConfig(cfg config.TelegramConfig) *Provider {
+	if !cfg.IsSet() {
+		return nil
+	}
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		cache = os.TempDir()
+	}
+	p := &Provider{
+		cfg:      cfg,
+		authReq:  make(chan authRequest),
+		cacheDir: filepath.Join(cache, "cliamp", "telegram"),
+		artCache: make(map[msgKey]string),
+	}
+	go p.run()
+	return p
+}
+
+func (p *Provider) sessionPath() string { return sessionPath(p.cfg.SessionFile) }
+
+// Chats returns the current filter. The caller owns the slice.
+func (p *Provider) Chats() []string {
+	p.chatsMu.Lock()
+	defer p.chatsMu.Unlock()
+	return append([]string(nil), p.cfg.Chats...)
+}
+
+// SetChats writes the filter into [telegram] and applies it in memory, so the
+// running pane follows without a restart. An empty list lists every dialog.
+func (p *Provider) SetChats(chats []string) error {
+	var kv []config.KeyValue
+	if len(chats) > 0 {
+		quoted := make([]string, 0, len(chats))
+		for _, chat := range chats {
+			quoted = append(quoted, config.QuoteString(chat))
+		}
+		kv = []config.KeyValue{{Key: "chats", Value: "[" + strings.Join(quoted, ", ") + "]"}}
+	}
+	if err := config.SaveSection("telegram", kv, []string{"chats"}); err != nil {
+		return fmt.Errorf("telegram: save chats: %w", err)
+	}
+	p.chatsMu.Lock()
+	p.cfg.Chats = append([]string(nil), chats...)
+	p.chatsCache = nil
+	p.chatsMu.Unlock()
+	return nil
+}
+
+// Prompt implements provider.CodeAuthenticator.
+func (p *Provider) Prompt() string { return "Enter the code Telegram sent to your app" }
+
+// Authenticate implements provider.CodeAuthenticator: it runs the handshake
+// with the code the user typed on the live connection. The pane calls it once
+// per attempt, so a rejected code can be corrected and repeated.
+func (p *Provider) Authenticate(code string) error {
+	if err := p.wait(); err != nil && !errors.Is(err, playlist.ErrNeedsAuth) {
+		return err
+	}
+	req := authRequest{result: make(chan error, 1)}
+	select {
+	case p.authReq <- req:
+	case <-time.After(5 * time.Second):
+		return errors.New("telegram: not connected, try again")
+	}
+	select {
+	case err := <-req.result:
+		return err
+	case <-time.After(loginWait):
+		return errors.New("telegram: sign in timed out")
+	}
+}
+
+func (p *Provider) run() {
+	if err := os.MkdirAll(filepath.Dir(p.sessionPath()), 0o700); err != nil {
+		p.setFailed(err)
+		return
+	}
+	p.client = tgclient.NewClient(p.cfg.AppID, p.cfg.AppHash, tgclient.Options{
+		SessionStorage: &session.FileStorage{Path: p.sessionPath()},
+	})
+	err := p.client.Run(context.Background(), func(ctx context.Context) error {
+		status, err := p.client.Auth().Status(ctx)
+		if err != nil {
+			p.setFailed(err)
+			return err
+		}
+		if !status.Authorized {
+			// Connected without a session: keep the connection open and let
+			// the provider pane drive the sign-in with the typed code.
+			p.setNeedsAuth()
+			return p.awaitSignIn(ctx)
+		}
+		p.api = p.client.API()
+		p.setReady()
+		// Keep the client (and its connection) alive for the provider lifetime.
+		<-ctx.Done()
+		return nil
+	})
+	if err != nil {
+		p.setFailed(err)
+	}
+}
+
+// awaitSignIn serves Authenticate requests on the live connection until one
+// code signs in, the client stops, or the channel closes.
+func (p *Provider) awaitSignIn(ctx context.Context) error {
+	for {
+		var req authRequest
+		var ok bool
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case req, ok = <-p.authReq:
+		}
+		if !ok {
+			return nil
+		}
+		err := p.signInWith(ctx, req.code)
+		select {
+		case req.result <- err:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		if err == nil {
+			p.api = p.client.API()
+			p.setReady()
+			<-ctx.Done()
+			return ctx.Err()
+		}
+	}
+}
+
+func (p *Provider) signInWith(ctx context.Context, code string) error {
+	if p.cfg.Phone == "" {
+		return errors.New("telegram: [telegram] phone is required to sign in")
+	}
+	flow := auth.NewFlow(
+		auth.Constant(normalizePhone(p.cfg.Phone), p.cfg.Password, staticCode(code)),
+		auth.SendCodeOptions{},
+	)
+	if err := flow.Run(ctx, p.client.Auth()); err != nil {
+		return fmt.Errorf("telegram: sign in failed: %w", err)
+	}
+	return nil
+}
+
+func (p *Provider) setStateLocked(state provState, err error) {
+	p.mu.Lock()
+	p.state = state
+	p.connectErr = err
+	p.mu.Unlock()
+}
+
+func (p *Provider) setNeedsAuth()       { p.setStateLocked(provNeedsAuth, playlist.ErrNeedsAuth) }
+func (p *Provider) setReady()           { p.setStateLocked(provReady, nil) }
+func (p *Provider) setFailed(err error) { p.setStateLocked(provFailed, err) }
+
+func (p *Provider) currentState() provState {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.state
+}
+
+// wait returns once the connection is usable. playlist.ErrNeedsAuth means the
+// pane must collect the login code; other errors keep the call retryable.
+func (p *Provider) wait() error {
+	deadline := time.Now().Add(connectWait)
+	for {
+		switch p.currentState() {
+		case provReady:
+			return nil
+		case provNeedsAuth:
+			return playlist.ErrNeedsAuth
+		case provFailed:
+			if err := p.connectErr; err != nil {
+				return err
+			}
+			return errors.New("telegram: connection failed")
+		}
+		if time.Now().After(deadline) {
+			return errors.New("telegram: still connecting, try again")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// Name implements playlist.Provider.
+func (p *Provider) Name() string { return "Telegram" }
+
+// Playlists implements playlist.Provider. With [telegram] chats it returns
+// those chats; otherwise every dialog of the account, grouped by kind.
+func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
+	chats := p.Chats()
+	if len(chats) == 0 {
+		return p.Dialogs()
+	}
+	if err := p.wait(); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// An id needs the dialog list for the title, the section and a current
+	// access hash; a username resolves on its own.
+	needsDialogs := false
+	for _, chat := range chats {
+		if _, _, ok := peerKey(chat); ok {
+			needsDialogs = true
+			break
+		}
+	}
+	var byKey map[string]playlist.PlaylistInfo
+	if needsDialogs {
+		dialogs, err := p.dialogs(ctx)
+		if err != nil {
+			return nil, err
+		}
+		byKey = make(map[string]playlist.PlaylistInfo, len(dialogs))
+		for _, info := range dialogs {
+			if _, key, ok := peerKey(info.ID); ok {
+				byKey[key] = info
+			}
+		}
+	}
+
+	out := make([]playlist.PlaylistInfo, 0, len(chats))
+	seen := make(map[string]struct{}, len(chats))
+	for _, chat := range chats {
+		var (
+			info playlist.PlaylistInfo
+			err  error
+		)
+		if _, key, ok := peerKey(chat); ok {
+			if found, hit := byKey[key]; hit {
+				info = found
+			} else {
+				// The chat left the dialog list. Keep the id so the entry
+				// stays visible instead of silently disappearing.
+				info = playlist.PlaylistInfo{ID: strings.TrimSpace(chat), Name: strings.TrimSpace(chat)}
+			}
+		} else {
+			info, err = p.resolveChatCached(ctx, chat)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if _, duplicate := seen[info.ID]; duplicate {
+			continue
+		}
+		seen[info.ID] = struct{}{}
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+// Dialogs lists every dialog of the account, ignoring the chats filter. The
+// setup wizard uses it to offer the chat picker.
+func (p *Provider) Dialogs() ([]playlist.PlaylistInfo, error) {
+	if err := p.wait(); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	out, err := p.dialogs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Section != out[j].Section {
+			return out[i].Section < out[j].Section
+		}
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out, nil
+}
+
+// Tracks implements playlist.Provider.
+func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
+	tracks, _, err := p.TracksPage(playlistID, 0)
+	return tracks, err
+}
+
+// TracksPage implements provider.TrackPager: it walks the chat history in
+// pages of trackPageSize messages and returns the id of the last message as
+// the next offset (0 when the history is exhausted).
+func (p *Provider) TracksPage(playlistID string, offset int) ([]playlist.Track, int, error) {
+	if err := p.wait(); err != nil {
+		return nil, 0, err
+	}
+	peer, err := parsePeerID(playlistID)
+	if err != nil {
+		return nil, 0, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	history, err := p.api.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
+		Peer:     peer,
+		OffsetID: offset,
+		Limit:    trackPageSize,
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("telegram: history of %q: %w", playlistID, err)
+	}
+
+	raw := messagesOf(history)
+	tracks := make([]playlist.Track, 0, len(raw))
+	lastID := 0
+	for _, message := range raw {
+		// The offset for the next page comes from every message class: a page
+		// with only service items (joins, pins) still advances the history.
+		if id := message.GetID(); lastID == 0 || id < lastID {
+			lastID = id
+		}
+		msg, ok := message.(*tg.Message)
+		if !ok {
+			continue
+		}
+		media, ok := msg.Media.(*tg.MessageMediaDocument)
+		if !ok {
+			continue
+		}
+		doc, ok := media.Document.(*tg.Document)
+		if !ok {
+			continue
+		}
+		info, ok := audioInfo(doc)
+		if !ok {
+			continue
+		}
+		track := playlist.Track{
+			Path:         fmt.Sprintf("%s%s:%d", uriPrefix, playlistID, msg.ID),
+			Title:        info.title,
+			Artist:       info.performer,
+			DurationSecs: info.duration,
+			ProviderMeta: map[string]string{"telegram.id": strconv.Itoa(msg.ID)},
+		}
+		if cover := p.coverURL(playlistID, msg.ID); cover != "" {
+			track.AlbumArtURL = cover
+		}
+		tracks = append(tracks, track)
+	}
+	next := 0
+	if len(raw) >= trackPageSize {
+		next = lastID
+	}
+	return tracks, next, nil
+}
+
+// dialogs returns every dialog of the account. Telegram caps one
+// messages.getDialogs response at dialogsPageSize and answers the rest with a
+// slice, so the list is paged until the last page.
+func (p *Provider) dialogs(ctx context.Context) ([]playlist.PlaylistInfo, error) {
+	var out []playlist.PlaylistInfo
+	offset := tg.InputPeerClass(&tg.InputPeerEmpty{})
+	offsetID, offsetDate := 0, 0
+	for range dialogsMaxPages {
+		resp, err := p.getDialogs(ctx, offset, offsetID, offsetDate)
+		if err != nil {
+			return nil, fmt.Errorf("telegram: dialogs: %w", err)
+		}
+		out = append(out, dialogsAsPlaylists(resp)...)
+		time.Sleep(dialogsPageDelay)
+
+		slice, ok := resp.(*tg.MessagesDialogsSlice)
+		if !ok || len(slice.Dialogs) < dialogsPageSize {
+			return out, nil
+		}
+		last, ok := slice.Dialogs[len(slice.Dialogs)-1].(*tg.Dialog)
+		if !ok {
+			return out, nil
+		}
+		peer, ok := inputPeer(last.Peer, slice.Users, slice.Chats)
+		if !ok {
+			return out, nil
+		}
+		offset, offsetID, offsetDate = peer, last.TopMessage, topMessageDate(slice.Messages, last.Peer, last.TopMessage)
+	}
+	return out, nil
+}
+
+// getDialogs requests one page of dialogs. A FLOOD_WAIT is waited out while
+// the wait is short: Telegram answers with one when a large account is paged,
+// and failing the whole list for a few seconds of throttling is worse than
+// waiting.
+func (p *Provider) getDialogs(ctx context.Context, offset tg.InputPeerClass, offsetID, offsetDate int) (tg.MessagesDialogsClass, error) {
+	return withFloodRetry(ctx, func() (tg.MessagesDialogsClass, error) {
+		return p.api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
+			Limit:      dialogsPageSize,
+			OffsetPeer: offset,
+			OffsetID:   offsetID,
+			OffsetDate: offsetDate,
+		})
+	})
+}
+
+// withFloodRetry runs call and waits out a short FLOOD_WAIT. Telegram answers
+// with one when a large account is paged or when several usernames are
+// resolved in a row; failing the whole list for a few seconds of throttling is
+// worse than waiting.
+func withFloodRetry[T any](ctx context.Context, call func() (T, error)) (T, error) {
+	var zero T
+	for attempt := 0; ; attempt++ {
+		resp, err := call()
+		wait, flood := tgclient.AsFloodWait(err)
+		if !flood {
+			return resp, err
+		}
+		if attempt >= floodAttempts || wait > floodMaxWait {
+			return zero, err
+		}
+		select {
+		case <-ctx.Done():
+			return zero, ctx.Err()
+		case <-time.After(wait + time.Second):
+		}
+	}
+}
+
+// dialogsAsPlaylists maps the dialogs of a getDialogs response to playlists.
+// The dialogs list is the ordered set of chats the account has open; the users
+// and chats vectors also carry entities that only the top messages reference,
+// so walking them would list chats that do not exist.
+func dialogsAsPlaylists(dialogs tg.MessagesDialogsClass) []playlist.PlaylistInfo {
+	var (
+		dialogList []tg.DialogClass
+		users      []tg.UserClass
+		chats      []tg.ChatClass
+	)
+	switch value := dialogs.(type) {
+	case *tg.MessagesDialogs:
+		dialogList, users, chats = value.Dialogs, value.Users, value.Chats
+	case *tg.MessagesDialogsSlice:
+		dialogList, users, chats = value.Dialogs, value.Users, value.Chats
+	default:
+		return nil
+	}
+
+	usersByID := make(map[int64]*tg.User, len(users))
+	for _, entity := range users {
+		if user, ok := entity.(*tg.User); ok {
+			usersByID[user.ID] = user
+		}
+	}
+	channelsByID := make(map[int64]*tg.Channel, len(chats))
+	groupsByID := make(map[int64]*tg.Chat, len(chats))
+	for _, entity := range chats {
+		switch chat := entity.(type) {
+		case *tg.Channel:
+			channelsByID[chat.ID] = chat
+		case *tg.Chat:
+			groupsByID[chat.ID] = chat
+		}
+	}
+
+	result := make([]playlist.PlaylistInfo, 0, len(dialogList))
+	for _, entity := range dialogList {
+		dialog, ok := entity.(*tg.Dialog)
+		if !ok {
+			continue
+		}
+		switch peer := dialog.Peer.(type) {
+		case *tg.PeerUser:
+			user, ok := usersByID[peer.UserID]
+			if !ok || user.Self || user.Deleted {
+				continue
+			}
+			name := strings.TrimSpace(user.FirstName + " " + user.LastName)
+			if name == "" {
+				name = user.Username
+			}
+			if name == "" {
+				continue
+			}
+			section := "Chats"
+			if user.Bot {
+				section = "Bots"
+			}
+			result = append(result, playlist.PlaylistInfo{
+				ID:      fmt.Sprintf("u:%d:%d", user.ID, user.AccessHash),
+				Name:    name,
+				Section: section,
+			})
+		case *tg.PeerChannel:
+			channel, ok := channelsByID[peer.ChannelID]
+			if !ok || channel.Title == "" {
+				continue
+			}
+			result = append(result, playlist.PlaylistInfo{
+				ID:      fmt.Sprintf("ch:%d:%d", channel.ID, channel.AccessHash),
+				Name:    channel.Title,
+				Section: "Channels",
+			})
+		case *tg.PeerChat:
+			chat, ok := groupsByID[peer.ChatID]
+			if !ok || chat.Title == "" {
+				continue
+			}
+			result = append(result, playlist.PlaylistInfo{
+				ID:      fmt.Sprintf("c:%d", chat.ID),
+				Name:    chat.Title,
+				Section: "Groups",
+			})
+		}
+	}
+	return result
+}
+
+// inputPeer resolves a peer into the input form, using the access hash of the
+// entity that came with the dialogs page.
+func inputPeer(peer tg.PeerClass, users []tg.UserClass, chats []tg.ChatClass) (tg.InputPeerClass, bool) {
+	switch value := peer.(type) {
+	case *tg.PeerUser:
+		for _, entity := range users {
+			if user, ok := entity.(*tg.User); ok && user.ID == value.UserID {
+				return &tg.InputPeerUser{UserID: user.ID, AccessHash: user.AccessHash}, true
+			}
+		}
+	case *tg.PeerChat:
+		return &tg.InputPeerChat{ChatID: value.ChatID}, true
+	case *tg.PeerChannel:
+		for _, entity := range chats {
+			if channel, ok := entity.(*tg.Channel); ok && channel.ID == value.ChannelID {
+				return &tg.InputPeerChannel{ChannelID: channel.ID, AccessHash: channel.AccessHash}, true
+			}
+		}
+	}
+	return nil, false
+}
+
+// topMessageDate returns the date of the top message of a dialog, which the
+// next getDialogs page uses as its offset date. Message IDs are only unique
+// inside a peer, so the peer has to match too: another dialog's message in the
+// same page can carry the same ID.
+func topMessageDate(messages []tg.MessageClass, peer tg.PeerClass, id int) int {
+	for _, message := range messages {
+		if message.GetID() != id {
+			continue
+		}
+		owner, ok := messagePeer(message)
+		if !ok || !samePeer(owner, peer) {
+			continue
+		}
+		if date, ok := messageDate(message); ok {
+			return date
+		}
+	}
+	return 0
+}
+
+// messagePeer returns the peer a message belongs to.
+func messagePeer(message tg.MessageClass) (tg.PeerClass, bool) {
+	switch value := message.(type) {
+	case *tg.Message:
+		return value.PeerID, true
+	case *tg.MessageService:
+		return value.PeerID, true
+	}
+	return nil, false
+}
+
+// messageDate returns the date of a message. The top message of a dialog is a
+// service message (a join, a pin) more often than not, and it carries a date
+// too; reading only regular messages left the paging offset at zero and
+// Telegram answered with the first page again.
+func messageDate(message tg.MessageClass) (int, bool) {
+	switch value := message.(type) {
+	case *tg.Message:
+		return value.Date, true
+	case *tg.MessageService:
+		return value.Date, true
+	}
+	return 0, false
+}
+
+// samePeer reports whether two peers point at the same chat.
+func samePeer(a, b tg.PeerClass) bool {
+	switch left := a.(type) {
+	case *tg.PeerUser:
+		right, ok := b.(*tg.PeerUser)
+		return ok && left.UserID == right.UserID
+	case *tg.PeerChat:
+		right, ok := b.(*tg.PeerChat)
+		return ok && left.ChatID == right.ChatID
+	case *tg.PeerChannel:
+		right, ok := b.(*tg.PeerChannel)
+		return ok && left.ChannelID == right.ChannelID
+	}
+	return false
+}
+
+// peerID encodes an input peer so it can round-trip through a playlist id.
+func peerID(peer tg.InputPeerClass) string {
+	switch value := peer.(type) {
+	case *tg.InputPeerUser:
+		return fmt.Sprintf("u:%d:%d", value.UserID, value.AccessHash)
+	case *tg.InputPeerChannel:
+		return fmt.Sprintf("ch:%d:%d", value.ChannelID, value.AccessHash)
+	case *tg.InputPeerChat:
+		return fmt.Sprintf("c:%d", value.ChatID)
+	default:
+		return ""
+	}
+}
+
+// parsePeerID decodes the ids produced by peerID and dialogsAsPlaylists.
+func parsePeerID(id string) (tg.InputPeerClass, error) {
+	parts := strings.Split(id, ":")
+	switch parts[0] {
+	case "u", "ch":
+		if len(parts) != 3 {
+			break
+		}
+		entityID, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			break
+		}
+		accessHash, err := strconv.ParseInt(parts[2], 10, 64)
+		if err != nil {
+			break
+		}
+		if parts[0] == "u" {
+			return &tg.InputPeerUser{UserID: entityID, AccessHash: accessHash}, nil
+		}
+		return &tg.InputPeerChannel{ChannelID: entityID, AccessHash: accessHash}, nil
+	case "c":
+		if len(parts) != 2 {
+			break
+		}
+		chatID, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			break
+		}
+		return &tg.InputPeerChat{ChatID: chatID}, nil
+	}
+	return nil, fmt.Errorf("telegram: invalid playlist id %q", id)
+}
+
+type audioMetadata struct {
+	title     string
+	performer string
+	duration  int
+}
+
+func audioInfo(doc *tg.Document) (audioMetadata, bool) {
+	var meta audioMetadata
+	filename := ""
+	isAudio := strings.HasPrefix(doc.MimeType, "audio/")
+	for _, attribute := range doc.Attributes {
+		switch attr := attribute.(type) {
+		case *tg.DocumentAttributeAudio:
+			meta.title = attr.Title
+			meta.performer = attr.Performer
+			meta.duration = attr.Duration
+			isAudio = true
+		case *tg.DocumentAttributeFilename:
+			filename = attr.FileName
+		}
+	}
+	if !isAudio {
+		return meta, false
+	}
+	if meta.title == "" && filename != "" {
+		meta.title = strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
+	}
+	if meta.title == "" {
+		meta.title = "Telegram audio"
+	}
+	return meta, true
+}
+
+func messagesOf(history tg.MessagesMessagesClass) []tg.MessageClass {
+	switch value := history.(type) {
+	case *tg.MessagesMessages:
+		return value.Messages
+	case *tg.MessagesMessagesSlice:
+		return value.Messages
+	case *tg.MessagesChannelMessages:
+		return value.Messages
+	default:
+		return nil
+	}
+}
+
+// peerKey reduces a peer id to its kind and number. A stored access hash goes
+// stale when the session changes, so matching only the kind and the number
+// keeps the entry working; the dialog list supplies a fresh hash.
+func peerKey(value string) (string, string, bool) {
+	parts := strings.Split(strings.TrimSpace(value), ":")
+	if len(parts) < 2 {
+		return "", "", false
+	}
+	kind := parts[0]
+	switch kind {
+	case "u", "ch":
+		if len(parts) != 3 {
+			return "", "", false
+		}
+	case "c":
+		if len(parts) != 2 {
+			return "", "", false
+		}
+	default:
+		return "", "", false
+	}
+	for _, part := range parts[1:] {
+		if _, err := strconv.ParseInt(part, 10, 64); err != nil {
+			return "", "", false
+		}
+	}
+	return kind, kind + ":" + parts[1], true
+}
+
+// usernameOf accepts "@name", "name" and a t.me link, and returns the
+// username the resolve call takes.
+func usernameOf(chat string) string {
+	name := strings.TrimSpace(chat)
+	name = strings.TrimPrefix(name, "https://t.me/")
+	name = strings.TrimPrefix(name, "t.me/")
+	return strings.TrimPrefix(name, "@")
+}
+
+// resolveChatCached resolves a configured chat once per process. Each lookup
+// costs a request and Telegram rate-limits them, so a pane refresh must not
+// pay for the same usernames again.
+func (p *Provider) resolveChatCached(ctx context.Context, chat string) (playlist.PlaylistInfo, error) {
+	key := strings.ToLower(usernameOf(chat))
+	p.chatsMu.Lock()
+	cached, ok := p.chatsCache[key]
+	p.chatsMu.Unlock()
+	if ok {
+		return cached, nil
+	}
+	info, err := p.resolveChat(ctx, chat)
+	if err != nil {
+		return playlist.PlaylistInfo{}, err
+	}
+	p.chatsMu.Lock()
+	if p.chatsCache == nil {
+		p.chatsCache = make(map[string]playlist.PlaylistInfo)
+	}
+	p.chatsCache[key] = info
+	p.chatsMu.Unlock()
+	return info, nil
+}
+
+// resolveChat resolves one entry of [telegram] chats and describes it the way
+// the dialogs list does: a stable id, the title and the section it belongs to.
+// Username lookups are rate-limited like the dialog pages, so a short
+// FLOOD_WAIT is waited out instead of failing the list.
+func (p *Provider) resolveChat(ctx context.Context, chat string) (playlist.PlaylistInfo, error) {
+	trimmed := usernameOf(chat)
+	resolved, err := withFloodRetry(ctx, func() (*tg.ContactsResolvedPeer, error) {
+		return p.api.ContactsResolveUsername(ctx, &tg.ContactsResolveUsernameRequest{Username: trimmed})
+	})
+	if err != nil {
+		return playlist.PlaylistInfo{}, fmt.Errorf("telegram: cannot resolve %q: %w", trimmed, err)
+	}
+	switch peer := resolved.Peer.(type) {
+	case *tg.PeerUser:
+		for _, entity := range resolved.Users {
+			user, ok := entity.(*tg.User)
+			if !ok || user.ID != peer.UserID {
+				continue
+			}
+			input := &tg.InputPeerUser{UserID: user.ID, AccessHash: user.AccessHash}
+			name := strings.TrimSpace(user.FirstName + " " + user.LastName)
+			if name == "" {
+				name = user.Username
+			}
+			if name == "" {
+				name = trimmed
+			}
+			section := "Chats"
+			if user.Bot {
+				section = "Bots"
+			}
+			return playlist.PlaylistInfo{ID: peerID(input), Name: name, Section: section}, nil
+		}
+	case *tg.PeerChat:
+		input := &tg.InputPeerChat{ChatID: peer.ChatID}
+		name := trimmed
+		for _, entity := range resolved.Chats {
+			if group, ok := entity.(*tg.Chat); ok && group.ID == peer.ChatID && group.Title != "" {
+				name = group.Title
+			}
+		}
+		return playlist.PlaylistInfo{ID: peerID(input), Name: name, Section: "Groups"}, nil
+	case *tg.PeerChannel:
+		for _, entity := range resolved.Chats {
+			channel, ok := entity.(*tg.Channel)
+			if !ok || channel.ID != peer.ChannelID {
+				continue
+			}
+			input := &tg.InputPeerChannel{ChannelID: channel.ID, AccessHash: channel.AccessHash}
+			name := channel.Title
+			if name == "" {
+				name = trimmed
+			}
+			section := "Channels"
+			if channel.Megagroup {
+				section = "Groups"
+			}
+			return playlist.PlaylistInfo{ID: peerID(input), Name: name, Section: section}, nil
+		}
+	}
+	return playlist.PlaylistInfo{}, fmt.Errorf("telegram: unsupported peer for %q", trimmed)
+}
+
+// URISchemes implements provider.CustomStreamer.
+func (p *Provider) URISchemes() []string { return []string{"telegram"} }
+
+// NewStreamer implements provider.CustomStreamer: it starts playback as soon
+// as the configured buffer is on disk and keeps downloading in the background.
+func (p *Provider) NewStreamer(uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error) {
+	if err := p.wait(); err != nil {
+		return nil, beep.Format{}, 0, err
+	}
+	chat, msgID, err := parseURI(uri)
+	if err != nil {
+		return nil, beep.Format{}, 0, err
+	}
+	return p.openStream(chat, msgID)
+}
+
+func parseURI(uri string) (string, int, error) {
+	if !strings.HasPrefix(uri, uriPrefix) {
+		return "", 0, fmt.Errorf("telegram: invalid track uri %q", uri)
+	}
+	rest := strings.TrimPrefix(uri, uriPrefix)
+	sep := strings.LastIndex(rest, ":")
+	if sep <= 0 {
+		return "", 0, fmt.Errorf("telegram: invalid track uri %q", uri)
+	}
+	id, err := strconv.Atoi(rest[sep+1:])
+	if err != nil {
+		return "", 0, fmt.Errorf("telegram: invalid message id in %q", uri)
+	}
+	return rest[:sep], id, nil
+}
+
+func docDuration(doc *tg.Document) int {
+	for _, attribute := range doc.Attributes {
+		if audio, ok := attribute.(*tg.DocumentAttributeAudio); ok {
+			return audio.Duration
+		}
+	}
+	return 0
+}
+
+func safeChat(chat string) string {
+	return strings.NewReplacer("/", "_", "\\", "_", ":", "_", "@", "").Replace(chat)
+}
+
+func extensionFor(doc *tg.Document) string {
+	for _, attribute := range doc.Attributes {
+		if filename, ok := attribute.(*tg.DocumentAttributeFilename); ok {
+			if ext := strings.ToLower(filepath.Ext(filename.FileName)); ext != "" {
+				return ext
+			}
+		}
+	}
+	switch strings.ToLower(doc.MimeType) {
+	case "audio/mpeg":
+		return ".mp3"
+	case "audio/opus":
+		return ".opus"
+	case "audio/ogg":
+		return ".ogg"
+	default:
+		return ".flac"
+	}
+}

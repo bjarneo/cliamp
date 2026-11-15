@@ -60,6 +60,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}()
 
 	switch msg := msg.(type) {
+	case providerPickLoadedMsg:
+		m.handleChatPickerLoaded(msg)
+		return m, nil
+
 	case tea.PasteMsg:
 		cmd := m.handlePaste(msg.Content)
 		return m, cmd
@@ -216,6 +220,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case ytdlArtistMsg:
+		return m, m.handleYTDLArtist(msg)
+
 	case fbTracksResolvedMsg:
 		cmd := m.handleFBTracksResolved(msg)
 		return m, cmd
@@ -371,6 +378,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case trackFavoriteSyncedMsg:
 		m.handleTrackFavoriteSynced(msg)
+		return m, nil
+
+	case trackRatingSyncedMsg:
+		m.handleTrackRatingSynced(msg)
 		return m, nil
 
 	case ShowStatusMsg:

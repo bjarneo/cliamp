@@ -2,6 +2,7 @@ package playlist
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -77,6 +78,44 @@ func TestNextWithQueue(t *testing.T) {
 	track, ok = p.Next()
 	if !ok || track.Title != "B" {
 		t.Fatalf("Next() after queue = (%q, %v), want (B, true)", track.Title, ok)
+	}
+}
+
+// TestNextPlaysQueuedNextTrackOnce checks that a queued track that is also
+// next in play order plays once, and that the order then goes on after it.
+func TestNextPlaysQueuedNextTrackOnce(t *testing.T) {
+	tests := []struct {
+		name   string
+		repeat RepeatMode
+		queue  []int
+		want   string // titles that Next returns, "-" when it returns false
+	}{
+		{name: "next track", queue: []int{1}, want: "BCD-"},
+		{name: "next tracks in order", queue: []int{1, 2}, want: "BCD-"},
+		{name: "later track", queue: []int{2}, want: "CBCD-"},
+		{name: "later then next track", queue: []int{2, 1}, want: "CBCD-"},
+		{name: "repeat all", repeat: RepeatAll, queue: []int{1}, want: "BCDA"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := makePlaylist(4, false) // A B C D
+			p.SetRepeat(tt.repeat)
+			for _, idx := range tt.queue {
+				p.Queue(idx)
+			}
+			var got strings.Builder
+			for range len(tt.want) {
+				track, ok := p.Next()
+				if !ok {
+					got.WriteString("-")
+					break
+				}
+				got.WriteString(track.Title)
+			}
+			if got.String() != tt.want {
+				t.Fatalf("Next() plays %q, want %q", got.String(), tt.want)
+			}
+		})
 	}
 }
 

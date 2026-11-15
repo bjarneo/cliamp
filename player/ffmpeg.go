@@ -400,6 +400,15 @@ func decodeFFmpegPipeStream(src io.ReadCloser, sr beep.SampleRate, bitDepth int,
 	return &ffmpegPipeStreamer{ffmpegPipe: fp}, format, nil
 }
 
+// DecodeFFmpegPipeStream decodes src through ffmpeg for the codecs without a
+// native decoder (AAC, Opus, M4A, ...). It is the exported counterpart of the
+// URL pipeline for external custom streamers (provider.CustomStreamer): src
+// yields audio bytes on Read and is closed when the stream stops. Seeking is
+// not supported: Seek is a no-op, like the URL path.
+func DecodeFFmpegPipeStream(src io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error) {
+	return decodeFFmpegPipeStream(src, beep.SampleRate(44100), 16, false)
+}
+
 // decodeFFmpegLocal starts ffmpeg as a streaming pipe for local files, giving
 // instant playback start instead of buffering the entire file to memory.
 // Seeking is supported by killing and restarting ffmpeg with a -ss offset.
@@ -434,6 +443,18 @@ type localFFmpegStreamer struct {
 	ffmpegPipe
 	path string
 	sr   beep.SampleRate
+	// owner, when set, owns the file at path. A finished navBuffer download
+	// is the owner of its temporary file.
+	owner io.Closer
+}
+
+// Close stops ffmpeg, then closes the owner of the input file.
+func (s *localFFmpegStreamer) Close() error {
+	_ = s.stop()
+	if s.owner != nil {
+		return s.owner.Close()
+	}
+	return nil
 }
 
 func (s *localFFmpegStreamer) startPipe(seekPos int) (ffmpegPipe, error) {
@@ -572,6 +593,30 @@ func decodeNavFFmpeg(nb *navBuffer, sr beep.SampleRate, bitDepth int) (*navFFmpe
 		NumChannels: 2,
 		Precision:   precision,
 	}
+	return s, format, nil
+}
+
+// decodeDownloaded decodes an MP4 file whose moov box comes after its audio.
+// ffmpeg cannot read such a moov box from a pipe, so this waits for the whole
+// download and decodes the temporary file, which ffmpeg can seek. The caller
+// shows the buffering state during the wait. stale ends the wait when it
+// reports true, because a newer request replaced this one. A nil stale never
+// ends it. The decoder removes the file when it closes.
+func decodeDownloaded(nb *navBuffer, sr beep.SampleRate, bitDepth int, stale func() bool) (*localFFmpegStreamer, beep.Format, error) {
+	// Check before the wait, so a missing ffmpeg fails before a whole book
+	// downloads.
+	if err := requireFFmpeg(); err != nil {
+		return nil, beep.Format{}, err
+	}
+	file, err := nb.waitComplete(stale)
+	if err != nil {
+		return nil, beep.Format{}, err
+	}
+	s, format, err := decodeFFmpegLocal(file, sr, bitDepth)
+	if err != nil {
+		return nil, beep.Format{}, err
+	}
+	s.owner = nb
 	return s, format, nil
 }
 

@@ -24,10 +24,11 @@ func (f *fakeNotifier) Seeked(position time.Duration) {
 func TestAttachNotifierPublishesCurrentPlaybackState(t *testing.T) {
 	pl := playlist.New()
 	pl.Add(playlist.Track{
-		Title:  "Song",
-		Artist: "Artist",
-		Album:  "Album",
-		Path:   "/tmp/song.mp3",
+		Title:      "Song",
+		Artist:     "Artist",
+		Album:      "Album",
+		Path:       "/tmp/song.mp3",
+		UserRating: 4,
 	})
 
 	notifier := &fakeNotifier{}
@@ -48,11 +49,12 @@ func TestAttachNotifierPublishesCurrentPlaybackState(t *testing.T) {
 	want := playback.State{
 		Status: playback.StatusPlaying,
 		Track: playback.Track{
-			Title:    "Song",
-			Artist:   "Artist",
-			Album:    "Album",
-			URL:      "/tmp/song.mp3",
-			Duration: time.Hour,
+			Title:      "Song",
+			Artist:     "Artist",
+			Album:      "Album",
+			UserRating: 4,
+			URL:        "/tmp/song.mp3",
+			Duration:   time.Hour,
 		},
 		VolumeMinDB: -50,
 	}

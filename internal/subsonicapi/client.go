@@ -119,6 +119,7 @@ type Client struct {
 	mu            sync.Mutex
 	playlistCache []playlist.PlaylistInfo
 	trackCache    map[string][]playlist.Track
+	trackCacheGen uint64
 	unsupported   map[string]error // endpoints the server rejects, memoized until Refresh
 }
 
@@ -441,6 +442,7 @@ func (c *Client) Tracks(id string) ([]playlist.Track, error) {
 			return slices.Clone(cached), nil
 		}
 	}
+	cacheGen := c.trackCacheGen
 	c.mu.Unlock()
 
 	var result struct {
@@ -460,10 +462,12 @@ func (c *Client) Tracks(id string) ([]playlist.Track, error) {
 	}
 
 	c.mu.Lock()
-	if c.trackCache == nil {
-		c.trackCache = make(map[string][]playlist.Track)
+	if c.trackCacheGen == cacheGen {
+		if c.trackCache == nil {
+			c.trackCache = make(map[string][]playlist.Track)
+		}
+		c.trackCache[id] = tracks
 	}
-	c.trackCache[id] = tracks
 	c.mu.Unlock()
 
 	return slices.Clone(tracks), nil
@@ -475,6 +479,7 @@ func (c *Client) Refresh() {
 	c.mu.Lock()
 	c.playlistCache = nil
 	c.trackCache = nil
+	c.trackCacheGen++
 	c.unsupported = nil
 	c.mu.Unlock()
 }
@@ -697,6 +702,7 @@ func (c *Client) AddTracksToPlaylist(ctx context.Context, playlistID string, tra
 		c.mu.Lock()
 		c.playlistCache = nil
 		delete(c.trackCache, playlistID)
+		c.trackCacheGen++
 		if added > 0 {
 			c.clearPlaylistMemo()
 		}
@@ -740,6 +746,7 @@ type subsonicSong struct {
 	TrackNumber int    `json:"track"`
 	Genre       string `json:"genre"`
 	Duration    int    `json:"duration"`
+	UserRating  int    `json:"userRating"`
 }
 
 func (c *Client) songToTrack(s subsonicSong) playlist.Track {
@@ -753,6 +760,7 @@ func (c *Client) songToTrack(s subsonicSong) playlist.Track {
 		Genre:        s.Genre,
 		Stream:       true,
 		DurationSecs: s.Duration,
+		UserRating:   s.UserRating,
 		ProviderMeta: map[string]string{c.d.metaKey(): s.ID},
 	}
 }

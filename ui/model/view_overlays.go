@@ -294,6 +294,9 @@ func (m Model) renderSearchList() string {
 	currentIdx := m.playlist.Index()
 	isPlaying := m.player.IsPlaying()
 	scroll := m.search.scroll
+	// Pad numbers to the widest one, as the playlist does, so the names line
+	// up whatever the results are.
+	numWidth := len(fmt.Sprintf("%d", m.playlist.Len()))
 
 	lines := make([]string, 0, budget)
 	for j := scroll; j < len(m.search.results) && len(lines) < budget; j++ {
@@ -314,9 +317,10 @@ func (m Model) renderSearchList() string {
 		if qp := m.playlist.QueuePosition(i); qp > 0 {
 			queueSuffix = fmt.Sprintf(" [Q%d]", qp)
 		}
-		name = truncate(name, m.layout.panelWidth-8-len([]rune(queueSuffix)))
+		// The cursor and row prefixes take two cells each, ". " two more.
+		name = truncate(name, m.layout.panelWidth-6-numWidth-len([]rune(queueSuffix)))
 
-		line := fmt.Sprintf("%s%d. %s", prefix, i+1, name)
+		line := fmt.Sprintf("%s%*d. %s", prefix, numWidth, i+1, name)
 		item := style.Render(line)
 		if queueSuffix != "" {
 			item += activeToggle.Render(queueSuffix)

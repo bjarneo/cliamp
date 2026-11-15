@@ -409,7 +409,7 @@ footer a{color:var(--fg-2)}
         <span class="cc-cmd">go install github.com/bjarneo/cliamp@latest</span>
       </button>
     </div>
-    <p class="note">then just run <b>cliamp</b> — <b>cliamp setup</b> walks you through streaming services and media servers. Optional: <i>ffmpeg</i> for AAC, ALAC, Opus and WMA, <i>yt-dlp</i> for YouTube, YouTube Music, SoundCloud, Mixcloud, Bandcamp, Bilibili and NetEase. GNOME Keyring browser cookies also require Python <i>secretstorage</i> on Linux. Behind a proxy? cliamp reads <i>HTTP_PROXY</i>, <i>HTTPS_PROXY</i>, <i>ALL_PROXY</i> and <i>NO_PROXY</i>, and SOCKS5 proxies work (<a href="https://github.com/bjarneo/cliamp/blob/main/docs/configuration.md#proxy">proxy docs</a>). Windows builds are in <a href="https://github.com/bjarneo/cliamp/releases/latest">Releases</a>. Windows source builds need CGO and MSYS2 MinGW64 even when Spotify is not configured; see the <a href="https://github.com/bjarneo/cliamp/blob/main/README.md#building-from-source">source-build instructions</a>.</p>
+    <p class="note">then just run <b>cliamp</b> — <b>cliamp setup</b> walks you through streaming services and media servers. Optional: <i>ffmpeg</i> for AAC, ALAC, Opus, WMA, and the audio streams of MP4 and WebM, <i>yt-dlp</i> for YouTube, YouTube Music, SoundCloud, Mixcloud, Bandcamp, Bilibili and NetEase. GNOME Keyring browser cookies also require Python <i>secretstorage</i> on Linux. Behind a proxy? cliamp reads <i>HTTP_PROXY</i>, <i>HTTPS_PROXY</i>, <i>ALL_PROXY</i> and <i>NO_PROXY</i>, and SOCKS5 proxies work (<a href="https://github.com/bjarneo/cliamp/blob/main/docs/configuration.md#proxy">proxy docs</a>). Windows builds are in <a href="https://github.com/bjarneo/cliamp/releases/latest">Releases</a>. Windows source builds need CGO and MSYS2 MinGW64 even when Spotify is not configured; see the <a href="https://github.com/bjarneo/cliamp/blob/main/README.md#building-from-source">source-build instructions</a>.</p>
   </section>
 
   <!-- ═══ SOURCES ═══ -->
@@ -435,7 +435,7 @@ footer a{color:var(--fg-2)}
       </div>
       <div class="feat">
         <div class="feat-k">VISUALIZERS</div>
-        <p>34 built-in modes rendered in the terminal from live FFT data: spectrum bars, scope, wave, matrix, flame, and a true-stereo LED peak meter. ClassicPeak uses smooth bars and floating peak caps, with sampling aligned to audible playback and adaptive redraws for smooth motion. ClassicLED redraws at 30 FPS during playback. Neighboring bands are averaged into each bar. YinYang koi chase each other across a wide strip, leaving on the right and coming back on the left; taller panels have them circle a lily pad whose lotus follows recent bass levels, including after silence or time in the strip. Ethereal brings Omarchy's cosmic wallpaper to life with Flame-style Braille pixels and an untouched background: bass swells blue-violet clouds, mids lift peach highlights, and treble brightens twinkling stars. It keeps its own palette under any theme, with no Omarchy installation required. <kbd>v</kbd> cycles, <kbd>V</kbd> goes full screen.</p>
+        <p>34 built-in modes rendered in the terminal from live FFT data: spectrum bars, scope, wave, matrix, flame, and a true-stereo LED peak meter. ClassicPeak uses smooth bars and floating peak caps, with sampling aligned to audible playback and adaptive redraws for smooth motion. ClassicLED redraws at 30 FPS during playback. Neighboring bands are averaged into each bar. YinYang koi chase each other across a wide strip, leaving on the right and coming back on the left; taller panels have them circle a lily pad whose lotus follows recent bass levels, including after silence or time in the strip. Ethereal brings Omarchy's cosmic wallpaper to life with Flame-style Braille pixels and an untouched background: bass swells drifting clouds, mids lift bright highlights, and treble brightens twinkling stars. Its colors follow the terminal palette by default and the selected cliamp theme, with no Omarchy installation required. <kbd>v</kbd> cycles, <kbd>V</kbd> goes full screen.</p>
       </div>
       <div class="feat">
         <div class="feat-k">SYNCED LYRICS</div>
@@ -654,8 +654,9 @@ var SOURCES=[
   {name:"YouTube Music",kind:"streaming",note:"playlists & likes · cookies or OAuth"},
   {name:"SoundCloud",kind:"streaming",note:"search & genres · yt-dlp"},
   {name:"Mixcloud",kind:"streaming",note:"shows & creators · yt-dlp"},
-  {name:"NetEase Cloud Music",kind:"streaming",note:"browser session · yt-dlp"},
+  {name:"NetEase Cloud Music",kind:"streaming",note:"browser session or cookies file · yt-dlp"},
   {name:"Yandex Music",kind:"streaming",note:"OAuth token"},
+  {name:"Telegram",kind:"streaming",note:"MTProto · phone login"},
   {name:"Bandcamp",kind:"streaming",note:"your purchases · Subsonic API"},
   {name:"Bilibili",kind:"streaming",note:"video audio · yt-dlp"},
   {name:"Plex",kind:"self-hosted",note:"server token"},
@@ -664,7 +665,7 @@ var SOURCES=[
   {name:"Navidrome",kind:"self-hosted",note:"Subsonic API · lyrics"},
   {name:"Lyrion",kind:"self-hosted",note:"LMS"},
   {name:"Audiobookshelf",kind:"self-hosted",note:"audiobooks & podcasts"},
-  {name:"Local files",kind:"local",note:"mp3 flac ogg opus wav aac alac wma"},
+  {name:"Local files",kind:"local",note:"mp3 flac ogg opus wav aac alac mp4 webm wma"},
   {name:"M3U / PLS",kind:"local",note:"local & remote playlists · HLS"},
   {name:"SSH",kind:"local",note:"ssh:// paths, no mount needed"},
   {name:"Internet radio",kind:"radio",note:"~58,000 stations · Radio Browser"},
@@ -677,7 +678,7 @@ var KIND={streaming:"var(--accent)","self-hosted":"var(--warm)",local:"var(--blu
 var KEYS=[
   ["Space","play / pause"],["> / <","next / prev"],["+ / -","volume"],["← / →","seek 5s"],
   ["e / Alt+E","next / previous EQ preset"],["v / V","visualizer / full screen"],["t","theme, or hide the title in full screen"],["y","lyrics"],
-  ["/","filter playlist"],["Ctrl+F","search provider or YouTube"],["z / r","shuffle / repeat"],["a","queue next"],["f","favorite ♥"],
+  ["/","filter playlist"],["Ctrl+F","search provider or YouTube"],["z / r","shuffle / repeat"],["a","queue next"],["f","favorite ♥"],["Ctrl+O","reverse playlist"],["* then 0–5","rate Navidrome track"],
   ["o","file browser"],["R / O","radio / podcasts"],["? / Ctrl+K","find and run commands"]
 ];
 

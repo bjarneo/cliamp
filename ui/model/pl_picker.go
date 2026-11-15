@@ -84,7 +84,7 @@ func (m Model) renderPlaylistPickerBody() string {
 	if m.plPicker.screen == plPickerNewName {
 		msg := "Create an empty playlist."
 		if n := len(m.plPicker.tracks); n == 1 {
-			msg = "Create and add: " + truncate(m.plPicker.tracks[0].DisplayName(), max(1, m.layout.panelWidth-18))
+			msg = "Create and add: " + truncate(terminalText(m.plPicker.tracks[0].DisplayName()), max(1, m.layout.panelWidth-18))
 		} else if n > 1 {
 			msg = fmt.Sprintf("Create and add %d tracks.", n)
 		}
@@ -108,11 +108,11 @@ func (m Model) renderPlaylistPickerBody() string {
 	case n == 0:
 		head = "No tracks selected. Choose + New Playlist to create an empty one."
 	case n == 1:
-		head = "Track: " + m.plPicker.tracks[0].DisplayName()
+		head = "Track: " + terminalText(m.plPicker.tracks[0].DisplayName())
 	default:
 		head = fmt.Sprintf("%d tracks selected", n)
 	}
-	head = dimStyle.Render("  " + truncate(head, max(1, m.layout.panelWidth-2)))
+	head = dimStyle.Render("  " + truncate(terminalText(head), max(1, m.layout.panelWidth-2)))
 	list := windowList(items, m.plPicker.cursor, m.plPicker.scroll, max(0, budget-1))
 	return strings.Join([]string{head, list}, "\n")
 }

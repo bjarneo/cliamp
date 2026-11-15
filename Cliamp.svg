@@ -1,20 +1,70 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <defs>
-    <pattern id="scanlines" width="512" height="3" patternUnits="userSpaceOnUse">
-      <rect width="512" height="1" fill="#000" opacity=".42"/>
-    </pattern>
-  </defs>
-  <rect width="512" height="512" fill="#050505"/>
-  <g shape-rendering="crispEdges">
-    <rect x="51.2" y="220.16" width="20.48" height="71.68" fill="#00ff41"/>
-    <rect x="102.4" y="168.96" width="20.48" height="174.08" fill="#ffe000"/>
-    <rect x="153.6" y="117.76" width="20.48" height="276.48" fill="#ff9500"/>
-    <rect x="204.8" y="189.44" width="20.48" height="133.12" fill="#00ff41"/>
-    <rect x="256" y="97.28" width="20.48" height="317.44" fill="#ff3b1f"/>
-    <rect x="307.2" y="179.2" width="20.48" height="153.6" fill="#00ff41"/>
-    <rect x="358.4" y="138.24" width="20.48" height="235.52" fill="#ff9500"/>
-    <rect x="409.6" y="209.92" width="20.48" height="92.16" fill="#00ff41"/>
+  <title>cliamp</title>
+  <desc>A terminal window seen from the front, with an equalizer drawn in stacked blocks the way a terminal draws them, in the main color with peaks in the highlight, with a hard shadow.</desc>
+  <g transform="translate(256 256) scale(1.2) translate(-256 -256)">
+    <!-- The terminal; one hard shadow, as Hype's slides. -->
+    <rect x="76" y="92" width="360" height="328" rx="22" fill="#0e0e14" transform="translate(0 8)"/>
+    <rect x="76" y="92" width="360" height="328" rx="22" fill="#1a1b26" stroke="#414868" stroke-width="3"/>
+    <!-- The equalizer, one column of blocks per band. -->
+    <g transform="translate(0 -33)">
+      <rect x="104" y="372" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="104" y="352" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="104" y="332" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="104" y="312" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="138" y="372" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="138" y="352" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="138" y="332" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="138" y="312" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="138" y="292" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="138" y="272" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="138" y="252" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="172" y="372" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="172" y="352" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="172" y="332" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="172" y="312" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="172" y="292" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="172" y="272" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="172" y="252" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="172" y="232" width="26" height="14" rx="4" fill="#bb9af7"/>
+      <rect x="172" y="212" width="26" height="14" rx="4" fill="#bb9af7"/>
+      <rect x="172" y="192" width="26" height="14" rx="4" fill="#bb9af7"/>
+      <rect x="206" y="372" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="206" y="352" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="206" y="332" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="206" y="312" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="206" y="292" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="206" y="272" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="240" y="372" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="240" y="352" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="240" y="332" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="240" y="312" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="240" y="292" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="240" y="272" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="240" y="252" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="240" y="232" width="26" height="14" rx="4" fill="#bb9af7"/>
+      <rect x="240" y="212" width="26" height="14" rx="4" fill="#bb9af7"/>
+      <rect x="274" y="372" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="274" y="352" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="274" y="332" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="274" y="312" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="274" y="292" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="308" y="372" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="308" y="352" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="308" y="332" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="308" y="312" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="308" y="292" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="308" y="272" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="308" y="252" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="308" y="232" width="26" height="14" rx="4" fill="#bb9af7"/>
+      <rect x="342" y="372" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="342" y="352" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="342" y="332" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="376" y="372" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="376" y="352" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="376" y="332" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="376" y="312" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="376" y="292" width="26" height="14" rx="4" fill="#7aa2f7"/>
+      <rect x="376" y="272" width="26" height="14" rx="4" fill="#7aa2f7"/>
+    </g>
   </g>
-  <rect width="512" height="512" fill="url(#scanlines)"/>
-  <rect x=".5" y=".5" width="511" height="511" fill="none" stroke="#fff" stroke-opacity=".1"/>
 </svg>

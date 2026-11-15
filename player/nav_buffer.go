@@ -23,6 +23,7 @@ const readStallTimeout = 5 * time.Second
 var (
 	errNavBufferClosed      = errors.New("nav buffer: closed")
 	errNavBufferReadStalled = errors.New("nav buffer: read stalled waiting for data")
+	errSourceSuperseded     = errors.New("nav buffer: a newer request replaced this one")
 )
 
 const navBufferChunkSize = 32 * 1024
@@ -438,6 +439,33 @@ func (b *navBuffer) completedPath() (string, bool) {
 		return "", false
 	}
 	return b.path, true
+}
+
+// waitComplete blocks until the whole download is in the temporary file and
+// returns the path of the file. It calls stale before the wait and each time
+// data arrives, and returns errSourceSuperseded when stale reports true. A nil
+// stale never reports true. As with a read, the wait fails when the download
+// fails or gets no data for the stall timeout.
+func (b *navBuffer) waitComplete(stale func() bool) (string, error) {
+	for {
+		if stale != nil && stale() {
+			return "", errSourceSuperseded
+		}
+		b.mu.Lock()
+		done, next := b.done, b.downloaded+1
+		b.mu.Unlock()
+		if err := b.waitFor(next, nil); err != nil {
+			return "", err
+		}
+		if done {
+			break
+		}
+	}
+	path, ok := b.completedPath()
+	if !ok {
+		return "", errors.New("nav buffer: download ended early")
+	}
+	return path, nil
 }
 
 // Close cancels the download, unblocks waiters, and removes the temporary file.

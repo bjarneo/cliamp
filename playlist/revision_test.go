@@ -23,8 +23,8 @@ func TestRevisionIncrementsForStateChanges(t *testing.T) {
 		{
 			name: "activate selected queued track",
 			setup: func(p *Playlist) func() {
-				p.Add(Track{Title: "A"}, Track{Title: "B"})
-				p.Queue(1)
+				p.Add(Track{Title: "A"}, Track{Title: "B"}, Track{Title: "C"})
+				p.Queue(2)
 				p.Next()
 				return func() { p.ActivateSelected() }
 			},

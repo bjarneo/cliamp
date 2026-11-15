@@ -36,6 +36,7 @@ entries, a status message tells you which key to press.
 | `PageUp` `PageDown` / `Ctrl+U` `Ctrl+D` | Scroll playlist/file browser by page (outside text input) |
 | `Home` `End` / `g` `G` | Go to top/end of playlist/file browser |
 | `Shift+Up` `Shift+Down` | Move track up/down in playlist/queue. Turn off shuffle to move a playlist track. |
+| `Ctrl+O` | Reverse the playlist order, for example to play the newest added tracks first. The playing track keeps playing. A loaded local playlist saves the new order. Tracks from its directory source keep their scan order. Turn off shuffle first, and wait until a provider playlist has finished loading. |
 | `h` `l` | Adjust the focused setting (EQ: select band) |
 | `Enter` | Play selected track |
 | `/` | Filter the playlist (navigate results with `↑` `↓` / `Ctrl+N` `Ctrl+P`; `Ctrl+U` clears the query; `Tab` toggles the queue for the selected result) |
@@ -123,6 +124,7 @@ and `Esc` clears it.
 | Key | Action |
 |---|---|
 | `f` | Toggle the favorite ♥ on the selected track. Favorites appear in the "Favorites" virtual playlist, and cliamp also saves them on Spotify and Navidrome. For directory radio stations outside saved local playlists, toggle Radio Favorites from the browser or playback playlist, including country and genre results. In the country browser, pin the selected country or region. On a podcast show, subscribe or unsubscribe. |
+| `*` then `0`-`5` | Set the selected Navidrome track's rating. `0` clears it. The playing track shows `★N`, and Linux MPRIS reports the normalized rating. |
 | `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Bandcamp, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, SoundCloud, Yandex Music, Local), or search YouTube. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
 | `u` | Load URL (stream/playlist) |
 | `d` | Open the audio device picker |
@@ -141,13 +143,14 @@ and `Esc` clears it.
 | `P` | Open Plex provider |
 | `J` | Open Jellyfin provider |
 | `E` | Open Emby provider |
-| `Y` | Open YouTube provider |
+| `Y` | Open YouTube (All). Press `Y` again to open YouTube, then YouTube Music |
 | `C` | Open SoundCloud provider |
 | `X` | Open Mixcloud provider |
 | `M` | Open NetEase provider |
 | `Q` | Open Qobuz provider |
 | `T` | Open Tidal provider |
 | `K` | Open Bandcamp provider |
+| `U` | Open Telegram provider |
 | `B` | Open Audiobookshelf provider |
 
 Metadata belongs to the main playback view, not provider browsers, and follows
@@ -172,9 +175,9 @@ preference remains saved for a wider layout. See
 
 While shuffle is on, the playlist lists tracks in play order. The tracks that
 played before the current track are above it. The tracks that play next are
-below it. Each row keeps its original track number. When you turn off shuffle,
-the playlist returns to the original order and the cursor stays on the same
-track.
+below it. Each row keeps its original track number. The album headers stay
+hidden until you turn off shuffle. When you turn off shuffle, the playlist
+returns to the original order and the cursor stays on the same track.
 
 ### Inside the subscribed shows overlay
 
@@ -293,8 +296,9 @@ saved albums — appear in the provider pane.
 | `R` | Replace the queue with all visible tracks (start from the top, confirm when non-empty) |
 | `q` | Queue the highlighted track to play next |
 | `s` | Cycle album sort (album list only) |
-| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `K` `L` `R` `O` | Switch to that provider without opening the main pane. On the track screen, `R` replaces the queue instead. |
+| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `K` `U` `L` `R` `O` | Switch to that provider without opening the main pane. `Y` opens the next YouTube provider, as in the main view. On the track screen, `R` replaces the queue instead. |
 | `N` | In Jellyfin, reopen the browse-mode chooser. Elsewhere, switch to Navidrome. |
+| `Ctrl+P` | In Telegram, pick the chats, groups and bots that show up in the list. |
 | `Esc` `b` | Go back one level; close the browser |
 
 While you type in the `/` filter, the Shift+letter switches and `N` do not

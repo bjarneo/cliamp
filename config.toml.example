@@ -60,7 +60,7 @@ eq_preset = "Flat"
 # Saved Custom curve; applied when eq_preset is "Custom" or empty
 eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-# Default provider on startup: "cliamp" (the cliamp radio channels), "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "bandcamp", "plex", "jellyfin", "emby", "soundcloud", "mixcloud", "netease", "yandex", "audiobookshelf", or a YouTube provider
+# Default provider on startup: "cliamp" (the cliamp radio channels), "radio", "podcast", "navidrome", "lyrion", "spotify", "qobuz", "tidal", "bandcamp", "plex", "jellyfin", "emby", "soundcloud", "mixcloud", "netease", "yandex", "audiobookshelf", "telegram", or a YouTube provider
 # provider = "cliamp"
 
 # Simplified mode: artist/title and time strip without a visualizer or playlist.
@@ -102,7 +102,7 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # and coming back on the left; taller panels have them circle a lily pad
 # whose lotus opens with the music.
 # Ethereal: Flame-style Braille clouds and stars, with no painted background.
-# Keeps Omarchy Ethereal's cosmic palette under any UI theme; no Omarchy needed.
+# Follows terminal colors by default and the selected UI theme; no Omarchy needed.
 # visualizer = "Bars"
 
 # Reduce CPU usage by lowering UI cadence and disabling visualization.
@@ -282,9 +282,12 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Sign in to music.163.com in your browser, then run `cliamp setup` or set
 # cookies_from manually. The provider lists your account playlists, saved
 # playlists, liked songs, and public charts. Playback uses yt-dlp.
+# When yt-dlp cannot read the browser cookies (the DPAPI error on Windows),
+# set cookies_file to an exported Netscape cookies.txt instead of cookies_from.
 # [netease]
 # enabled = true
 # cookies_from = "chrome"
+# cookies_file = "/path/to/cookies.txt"
 # user_id = "optional-account-user-id"
 
 # ---
@@ -352,6 +355,7 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # Audiobooks and podcasts from your own Audiobookshelf server. Authenticate
 # either with an API key (Settings -> Users -> API Keys) or with your
 # username/password.
+
 # [audiobookshelf]
 # url = "https://abs.example.com"
 # token = "your-api-key"
@@ -360,6 +364,23 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 #
 # Restrict to specific libraries (default: all).
 # libraries = ["Audiobooks", "Podcasts"]
+
+# ---
+# Telegram user account. The provider browses your own chats and plays the
+# audio documents they hold. It is not a bot: create an application at
+# https://my.telegram.org/apps and use its api_id and api_hash.
+#
+# The first run asks for the login code before the interface starts and stores
+# the session in session_file.
+#
+# [telegram]
+# api_id    = 123456
+# api_hash  = "0123456789abcdef0123456789abcdef"
+# phone     = "+5491100000000"
+# password  = ""                    # only when the account has 2FA
+# chats     = []                    # optional: ids picked with ctrl+p in setup, or usernames; empty = every dialog
+# buffer_mb = 1                     # megabytes buffered before playback starts
+# session_file = "~/.local/share/cliamp/telegram.session"
 
 # Destination for TUI Ctrl+S saves. Empty uses ~/Music/cliamp.
 # Use an absolute path; mount external drives before saving.

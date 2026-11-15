@@ -47,7 +47,7 @@ func subsonicHandler(t *testing.T) http.HandlerFunc {
 						"entry": [
 							{
 								"id":"song-1","title":"So What","artist":"Miles Davis",
-								"album":"Kind of Blue","year":1959,"track":1,"genre":"Jazz","duration":565
+								"album":"Kind of Blue","year":1959,"track":1,"genre":"Jazz","duration":565,"userRating":4
 							},
 							{
 								"id":"song-2","title":"Blue in Green","artist":"Miles Davis",
@@ -236,6 +236,9 @@ func TestTracks(t *testing.T) {
 	}
 	if tr.DurationSecs != 565 {
 		t.Errorf("DurationSecs = %d, want 565", tr.DurationSecs)
+	}
+	if tr.UserRating != 4 {
+		t.Errorf("UserRating = %d, want 4", tr.UserRating)
 	}
 	if !tr.Stream {
 		t.Error("Stream = false, want true")

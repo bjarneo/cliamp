@@ -31,6 +31,7 @@ func everyProviderConfig() config.Config {
 		Mixcloud:       config.MixcloudConfig{Enabled: true},
 		NetEase:        config.NetEaseConfig{Enabled: true},
 		Yandex:         config.YandexConfig{Enabled: true, Token: "token"},
+		Telegram:       config.TelegramConfig{AppID: 1, AppHash: "hash"},
 	}
 }
 

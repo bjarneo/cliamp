@@ -121,6 +121,7 @@ func ApplyThemeColors(t theme.Theme) {
 	refreshSpecANSI()
 	refreshRedSectorANSI()
 	refreshYinYangANSI()
+	refreshEtherealANSI()
 }
 
 func contrastingTextColor(hex string) string {
