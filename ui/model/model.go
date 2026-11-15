@@ -555,6 +555,10 @@ type Model struct {
 	// initialDir is the starting path for the file browser ('o' key).
 	initialDir string
 
+	// startInFileBrowser opens the file browser once the program starts,
+	// instead of landing in the provider browse view.
+	startInFileBrowser bool
+
 	// Theme state: -1 = Default (ANSI), 0+ = index into themes
 	themes   []theme.Theme
 	themeIdx int

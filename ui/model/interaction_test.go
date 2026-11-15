@@ -251,6 +251,40 @@ func TestStartInProviderQueuesPreferredBrowser(t *testing.T) {
 	}
 }
 
+func TestStartInFileBrowserOpensBrowser(t *testing.T) {
+	m := keybindingTestModel()
+	m.SetInitialDirectory(t.TempDir())
+
+	m.StartInFileBrowser()
+	if !m.startInFileBrowser {
+		t.Fatal("StartInFileBrowser did not flag the startup browser")
+	}
+	updated, _ := m.Update(openStartupFileBrowserMsg{})
+	got := updated.(Model)
+	if !got.fileBrowser.visible {
+		t.Fatal("startup file browser did not open")
+	}
+	if got.fileBrowser.dir != m.initialDir {
+		t.Fatalf("file browser dir = %q, want %q", got.fileBrowser.dir, m.initialDir)
+	}
+	if got.startInFileBrowser {
+		t.Fatal("startup file browser flag stayed set")
+	}
+}
+
+func TestStartInHomeKeepsPlaylistFocus(t *testing.T) {
+	m := keybindingTestModel()
+	m.focus = focusProvider
+
+	m.StartInHome()
+	if m.focus != focusPlaylist {
+		t.Fatalf("focus = %v, want focusPlaylist", m.focus)
+	}
+	if m.plManager.visible {
+		t.Fatal("home start opened the playlist manager")
+	}
+}
+
 func TestPreferredProviderNOpensModeChooser(t *testing.T) {
 	jellyfin := &preferredBrowseProvider{
 		providerPaneBrowseProvider: providerPaneBrowseProvider{

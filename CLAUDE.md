@@ -180,6 +180,19 @@ Tests are colocated with sources (`*_test.go`). Favor table-driven tests — the
 
 Config lives at `~/.config/cliamp/config.toml` (example at `config.toml.example`); plugins at `~/.config/cliamp/plugins/`; custom radios at `~/.config/cliamp/radios.toml`; themes at `~/.config/cliamp/themes/`. The IPC socket is `~/.config/cliamp/cliamp.sock`, and the log is `~/.config/cliamp/cliamp.log`. Set HOME and every `XDG_*` directory to a temp directory when you run a cliamp binary. Build the binary first in the normal environment, for example with `mise exec -- make build`. Do not run `mise exec` or `go` under the isolated HOME. mise then loses its installed tools, and go loses its build cache and module cache. `CLIAMP_CONFIG_DIR` and `XDG_CONFIG_HOME` move only the config directory, which holds the socket and the log. The data directory `~/.local/share/cliamp`, the `~/Music/cliamp` save directory and `~` in local music paths still follow HOME.
 
+### Add or change a config key
+
+A user asking for a setting that `config.toml` does not have follows the path below. `start_in` is a worked example of a setting that has no CLI flag.
+
+1. Add the field to `Config` in `config/config.go`, with a comment that names the default.
+2. Parse it in `setTopLevel` (`config/config.go`) or in the `set` method of a section struct. Normalize user input there: lowercase, and accept only the documented values.
+3. Clamp or validate it in `clamp()`, so a bad value falls back to the default instead of reaching the UI. Report it through the default, not an error: cliamp starts on the fallback.
+4. Wire it into `run(...)` in `main.go`, or into `configureModel`, with a `Set...` method on `Model` when the setting changes UI behavior.
+5. Add `*T` fields to `config.Overrides` and `Apply` in `config/flags.go`, plus a root flag in `buildApp` in `commands.go`, when the setting also makes sense for one session. Leave both out when the setting is a preference, and say so in the docs.
+6. Uncomment it in `config.toml.example`. `config/config_golden_test.go` loads every key of that file, so a key that is only documented there still needs the expected value in that test.
+7. Document it in `docs/configuration.md` under Options, and add a section of its own when the value needs explanation. Link it from `docs/keybindings.md` when it changes what the keys do.
+8. Add a table-driven test next to the parser, in the style of `config/config_visrows_test.go`.
+
 ---
 
 ## Conventions to follow

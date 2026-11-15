@@ -814,6 +814,7 @@ type Config struct {
 	AutoPlay         bool                         // start playback automatically on launch (radio streams, CLI tracks)
 	SeekStepLarge    int                          // seconds for Shift+Left/Right seek jumps
 	Provider         string                       // default provider key, a value that --provider accepts (default "cliamp")
+	StartIn          string                       // startup screen when nothing is queued: "provider" (default), "home", or "files"
 	Theme            string                       // theme name, or "" for ANSI default
 	Visualizer       string                       // visualizer mode name, or "" for default (Bars)
 	VisRows          int                          // visualizer height in rows at the full layout tier, or 0 for the built-in default
@@ -1147,6 +1148,10 @@ func (c *Config) setTopLevel(key, val string) {
 		}
 	case "audio_device":
 		c.AudioDevice = parseString(val)
+	case "start_in":
+		if v := strings.ToLower(parseString(val)); v != "" {
+			c.StartIn = v
+		}
 	case "initial_directory":
 		c.InitialDirectory = parseString(val)
 	case "padding_horizontal":
@@ -1483,6 +1488,13 @@ func (c *Config) clamp() {
 	}
 	if c.LowPower {
 		c.Visualizer = "none"
+	}
+	switch c.StartIn {
+	case "", "provider":
+		c.StartIn = ""
+	case "home", "files":
+	default:
+		c.StartIn = ""
 	}
 }
 

@@ -55,6 +55,13 @@ audio_device = ""
 # Initial directory for the file browser ('o' key)
 initial_directory = "~/Music"
 
+# Screen shown when cliamp starts with nothing to play:
+#   "provider" (default) opens the provider browse view.
+#   "home" stays on the empty playlist screen, where 'o', 'u' and Ctrl+F start.
+#   "files" opens the file browser on initial_directory.
+# See "Startup screen" below.
+# start_in = "provider"
+
 # Shift+Left/Right seek jump in seconds
 seek_large_step_sec = 30
 
@@ -399,6 +406,28 @@ Valid values: `cliamp` (default), `radio`, `podcast`, `navidrome`, `lyrion`, `pl
 You can also override this setting on the CLI: `cliamp --provider jellyfin`.
 
 When `provider` names a provider that is not configured, cliamp opens on cliamp radio. The status line then shows the setup step for that provider.
+
+## Startup screen
+
+When cliamp starts with nothing to play, `start_in` picks the screen it shows:
+
+```toml
+start_in = "files"
+```
+
+| Value | Startup screen |
+|---|---|
+| `provider` (default) | The provider browse view of [Default Provider](#default-provider). |
+| `home` | The empty playlist screen, with the hints for `o`, `u` and `Ctrl+F`. Nothing loads until you pick something. |
+| `files` | The file browser, opened on `initial_directory`, so you start by picking files or folders. `Esc` leaves it for the home screen. |
+
+The setting only applies when the start has nothing to play. cliamp opens the
+queue instead when you pass a file, a directory or a URL, when `playlist` names
+a saved playlist, when `auto_play` starts a radio channel, and when a Jellyfin or
+Emby context is restored. Headless mode ignores it.
+
+This setting has no CLI flag: edit `config.toml`. An unknown value falls back to
+`provider`.
 
 ## Podcasts
 
