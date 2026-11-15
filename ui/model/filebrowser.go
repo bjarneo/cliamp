@@ -1,6 +1,7 @@
 package model
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,11 +16,20 @@ import (
 
 // fbEntry is a single item in the file browser listing.
 type fbEntry struct {
-	name     string
+	name     string // label shown in the list, relative to the browsed directory in an index row
+	base     string // file name without the parent path; empty means name
 	path     string
 	isDir    bool
 	isAudio  bool
 	isParent bool
+}
+
+// matchName returns the file name used for matching and display priority.
+func (e fbEntry) matchName() string {
+	if e.base != "" {
+		return e.base
+	}
+	return e.name
 }
 
 // fbTracksResolvedMsg carries tracks resolved from file browser selections.
@@ -32,15 +42,45 @@ type fbTracksResolvedMsg struct {
 	err            error
 }
 
+// fbIndexMsg carries the recursive listing of a directory for the file
+// browser filter. gen guards against an index that arrives after the browser
+// moved to another directory.
+type fbIndexMsg struct {
+	gen     uint64
+	dir     string
+	entries []fbEntry
+	err     error
+}
+
+// fbSource returns the rows the browser draws from: the recursive index while
+// a query is active, and the current directory's listing otherwise.
+func (m *Model) fbSource() []fbEntry {
+	if m.fileBrowser.usesIndex() {
+		return m.fileBrowser.index
+	}
+	return m.fileBrowser.entries
+}
+
 func (m *Model) fbCount() int {
-	return m.fileBrowser.viewCount(len(m.fileBrowser.entries))
+	return m.fileBrowser.viewCount(len(m.fbSource()))
 }
 
 func (m *Model) fbEntry(idx int) fbEntry {
+	rows := m.fbSource()
 	if m.fileBrowser.isFiltered() {
-		return m.fileBrowser.entries[m.fileBrowser.filtered[idx]]
+		if idx < 0 || idx >= len(m.fileBrowser.filtered) {
+			return fbEntry{}
+		}
+		raw := m.fileBrowser.filtered[idx]
+		if raw < 0 || raw >= len(rows) {
+			return fbEntry{}
+		}
+		return rows[raw]
 	}
-	return m.fileBrowser.entries[idx]
+	if idx < 0 || idx >= len(rows) {
+		return fbEntry{}
+	}
+	return rows[idx]
 }
 
 // fbVisible returns the file-browser list height. The browser renders inline in
@@ -111,6 +151,12 @@ func (m *Model) restoreLocalFileBrowser() {
 func (m *Model) loadFBDir() {
 	m.fileBrowser.err = ""
 	m.fileBrowser.filterList = filterList{}
+	// The recursive index is rooted at the directory that was being listed;
+	// relative paths in it no longer apply once the browser moves.
+	m.fileBrowser.index = nil
+	m.fileBrowser.indexDir = ""
+	m.fileBrowser.indexLoading = false
+	nextRequest(&m.fileBrowser.indexGen)
 	clear(m.fileBrowser.selected)
 
 	// Reuse internal memory buffer of m.fileBrowser.entries.
@@ -180,32 +226,44 @@ func (m *Model) loadFBDir() {
 }
 
 // fbUpdateFilter rebuilds the filtered view from the current search query.
-// With no query, entries keep their natural directory order; otherwise matches
-// are ranked by fuzzy relevance (best match first). The parent ("..") entry is
-// never shown while filtering.
+// With no query, rows keep their natural directory order. Otherwise the
+// recursive index answers, so a name in a subfolder matches too, and results
+// come grouped the way a file manager shows them: folders first, then files,
+// each group ranked by fuzzy relevance.
 func (m *Model) fbUpdateFilter() {
 	m.fileBrowser.filtered = nil
 	m.fileBrowser.cursor = 0
 	m.fileBrowser.scroll = 0
+	rows := m.fbSource()
 	if m.fileBrowser.filter == "" {
-		for i, e := range m.fileBrowser.entries {
+		for i, e := range rows {
 			if !e.isParent {
 				m.fileBrowser.filtered = append(m.fileBrowser.filtered, i)
 			}
 		}
 		return
 	}
-	type match struct{ idx, score int }
-	matches := make([]match, 0, len(m.fileBrowser.entries))
-	for i, e := range m.fileBrowser.entries {
+	type match struct {
+		idx   int
+		score int
+	}
+	matches := make([]match, 0, len(rows))
+	substring := m.fileBrowser.usesIndex()
+	for i, e := range rows {
 		if e.isParent {
 			continue
 		}
-		if score, ok := fuzzy.Match(m.fileBrowser.filter, e.name); ok {
+		if score, ok := fbMatchScore(m.fileBrowser.filter, e, substring); ok {
 			matches = append(matches, match{i, score})
 		}
 	}
+	// Folders first, so the directories that hold a match stay reachable
+	// while the query is active. Stable, so equal scores keep path order.
 	sort.SliceStable(matches, func(a, b int) bool {
+		aDir, bDir := rows[matches[a].idx].isDir, rows[matches[b].idx].isDir
+		if aDir != bDir {
+			return aDir
+		}
 		return matches[a].score > matches[b].score
 	})
 	for _, mt := range matches {
@@ -213,8 +271,146 @@ func (m *Model) fbUpdateFilter() {
 	}
 }
 
+// startFBIndex builds the recursive index of the browsed directory in the
+// background. The filter searches it, so a query reaches subfolders instead of
+// only the listing on screen. A directory already indexed is reused.
+func (m *Model) startFBIndex() tea.Cmd {
+	dir := m.fileBrowser.dir
+	if dir == "" {
+		return nil
+	}
+	if m.fileBrowser.indexDir == dir && len(m.fileBrowser.index) > 0 {
+		return nil
+	}
+	gen := nextRequest(&m.fileBrowser.indexGen)
+	m.fileBrowser.indexLoading = true
+	return func() tea.Msg {
+		entries, err := indexDirRecursive(dir)
+		return fbIndexMsg{gen: gen, dir: dir, entries: entries, err: err}
+	}
+}
+
+// fbIndexMaxEntries bounds the recursive index, so a query in a home directory
+// full of source trees cannot spend the UI loop's time on hundreds of
+// thousands of rows. It is far above a music library.
+const fbIndexMaxEntries = 200_000
+
+// fbMatchScore matches query against the entry's own name, as a file manager's
+// search does: a file inside a matching folder is only listed when its own name
+// matches too, so a query on a folder name does not return everything below it.
+//
+// The directory listing keeps the fuzzy matcher it has always used. The
+// recursive index uses a substring test instead, because a subsequence matcher
+// across a whole library turns a short query into hundreds of weak hits:
+// "intro" alone reaches every "Tranquility" album below it.
+func fbMatchScore(query string, e fbEntry, substring bool) (int, bool) {
+	if e.isParent {
+		return 0, false
+	}
+	name := e.matchName()
+	if !substring {
+		return fuzzy.Match(query, name)
+	}
+	return fbSubstringScore(query, name)
+}
+
+// fbSubstringScore reports whether query is a case-insensitive substring of
+// name, scored so a prefix ranks first, then a word boundary, then the rest,
+// with an earlier match ahead of a later one.
+func fbSubstringScore(query, name string) (int, bool) {
+	q := strings.ToLower(query)
+	n := strings.ToLower(name)
+	at := strings.Index(n, q)
+	if at < 0 {
+		return 0, false
+	}
+	score := len(q) * 4
+	switch {
+	case at == 0:
+		score += 40
+	case at > 0 && (n[at-1] == ' ' || n[at-1] == '-' || n[at-1] == '_' || n[at-1] == '.' || n[at-1] == '(' || n[at-1] == '['):
+		score += 20
+	}
+	// Earlier matches win ties, and a shorter name wins over a longer one.
+	score -= min(at, 10)
+	score -= min(len(n)/16, 5)
+	return score, true
+}
+
+// indexDirRecursive lists every entry below root, with names relative to root
+// so the filter can show where a match lives. Dot files and dot directories are
+// skipped, as in the directory listing, and so are unreadable subtrees.
+func indexDirRecursive(root string) ([]fbEntry, error) {
+	var entries []fbEntry
+	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			// A permission error on one subtree must not lose the rest.
+			if d != nil && d.IsDir() && p != root {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		name := d.Name()
+		if p != root && strings.HasPrefix(name, ".") {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if p == root {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, p)
+		if relErr != nil {
+			return nil
+		}
+		isDir := d.IsDir()
+		display := rel
+		if isDir {
+			display += "/"
+		}
+		entries = append(entries, fbEntry{
+			name:    display,
+			base:    name,
+			path:    p,
+			isDir:   isDir,
+			isAudio: !isDir && playlist.IsAudioFile(name),
+		})
+		if len(entries) >= fbIndexMaxEntries {
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return entries, err
+}
+
+// fbSelectedInOrder returns the selected paths in listing order, followed by
+// any selection that the current view no longer holds, so an index result and
+// the directory listing agree on playback order.
+func (m *Model) fbSelectedInOrder() []string {
+	paths := make([]string, 0, len(m.fileBrowser.selected))
+	seen := make(map[string]struct{}, len(m.fileBrowser.selected))
+	for _, e := range m.fbSource() {
+		if m.fileBrowser.selected[e.path] {
+			paths = append(paths, e.path)
+			seen[e.path] = struct{}{}
+		}
+	}
+	if len(seen) == len(m.fileBrowser.selected) {
+		return paths
+	}
+	rest := make([]string, 0, len(m.fileBrowser.selected)-len(seen))
+	for p := range m.fileBrowser.selected {
+		if _, ok := seen[p]; !ok {
+			rest = append(rest, p)
+		}
+	}
+	sort.Strings(rest)
+	return append(paths, rest...)
+}
+
 func (m *Model) handleFileBrowserSearchKey(msg tea.KeyPressMsg) tea.Cmd {
-	if m.filterKey(&m.fileBrowser.filterList, "file-browser-search", msg, len(m.fileBrowser.entries), m.fbUpdateFilter) {
+	if m.filterKey(&m.fileBrowser.filterList, "file-browser-search", msg, len(m.fbSource()), m.fbUpdateFilter) {
 		m.fbMaybeAdjustScroll(m.fbVisible())
 	}
 	return nil
@@ -272,10 +468,10 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.toggleExpandedView()
 		m.fbMaybeAdjustScroll(m.fbVisible())
 
-	case "/":
+	case "/", "ctrl+f":
 		m.fileBrowser.beginFilter()
 		m.fbUpdateFilter()
-		return nil
+		return m.startFBIndex()
 
 	case "right", "l":
 		return m.fbDescend()
@@ -454,12 +650,7 @@ func (m *Model) fbDescend() tea.Cmd {
 // sources instead of being expanded into explicit tracks; only audio files
 // are resolved as tracks.
 func (m *Model) fbConfirm(replace bool) tea.Cmd {
-	paths := make([]string, 0, len(m.fileBrowser.selected))
-	for _, e := range m.fileBrowser.entries {
-		if m.fileBrowser.selected[e.path] {
-			paths = append(paths, e.path)
-		}
-	}
+	paths := m.fbSelectedInOrder()
 	m.fileBrowser.visible = false
 	if m.fileBrowser.targetPlaylist != "" {
 		m.fileBrowser.resumeLocal = false
@@ -491,9 +682,19 @@ func (m *Model) fbConfirm(replace bool) tea.Cmd {
 // entry in the current listing nor directories (e.g. loose files already
 // gone from disk) stay untouched for resolution to report.
 func (m *Model) fbSplitDirSources(target string, paths []string) []string {
-	isDir := make(map[string]bool, len(m.fileBrowser.entries))
-	for _, e := range m.fileBrowser.entries {
+	isDir := make(map[string]bool, len(m.fileBrowser.selected))
+	for _, e := range m.fbSource() {
 		isDir[e.path] = e.isDir && !e.isParent
+	}
+	// A selection can outlive the view that made it (an index result, then a
+	// step back to the listing), so fall back to the filesystem for the rest.
+	for _, p := range paths {
+		if _, ok := isDir[p]; ok {
+			continue
+		}
+		if info, err := os.Stat(p); err == nil {
+			isDir[p] = info.IsDir()
+		}
 	}
 	var dirs, files []string
 	for _, p := range paths {
@@ -510,12 +711,7 @@ func (m *Model) fbSplitDirSources(target string, paths []string) []string {
 }
 
 func (m *Model) fbConfirmToPlaylist() tea.Cmd {
-	paths := make([]string, 0, len(m.fileBrowser.selected))
-	for _, e := range m.fileBrowser.entries {
-		if m.fileBrowser.selected[e.path] {
-			paths = append(paths, e.path)
-		}
-	}
+	paths := m.fbSelectedInOrder()
 	m.fileBrowser.visible = false
 	m.fileBrowser.resumeLocal = false
 

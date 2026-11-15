@@ -1201,9 +1201,9 @@ var commandRegistry = []commandSpec{
 	},
 	{
 		Mode:     commandModeFileBrowser,
-		Keys:     []string{"/"},
+		Keys:     []string{"/", "ctrl+f"},
 		KeyLabel: "/",
-		Label:    "Filter",
+		Label:    "Search",
 		Keymap:   true,
 	},
 	{
