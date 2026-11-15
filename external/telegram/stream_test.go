@@ -1,11 +1,15 @@
 package telegram
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
+
+	"github.com/bjarneo/cliamp/player"
 )
 
 func TestStreamSourceServesGrowingFile(t *testing.T) {
@@ -75,4 +79,51 @@ func TestStreamSourceReportsDownloadError(t *testing.T) {
 	if _, err := io.ReadAll(source); err == nil {
 		t.Fatal("expected the download error to surface")
 	}
+}
+
+// A native decoder waits in Stream for the download while the player holds
+// the speaker lock. Interrupt must end that wait, and every later Read must
+// fail, also after the download goes on.
+func TestStreamSourceInterruptEndsWaitingRead(t *testing.T) {
+	file, err := os.OpenFile(filepath.Join(t.TempDir(), "track.flac"), os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = file.Close() })
+
+	synctest.Test(t, func(t *testing.T) {
+		source := newStreamSource(file)
+		var streamer player.Interrupter = interruptibleStreamer{source: source}
+		readDone := make(chan error, 1)
+		go func() {
+			_, err := source.Read(make([]byte, 4))
+			readDone <- err
+		}()
+		synctest.Wait()
+		select {
+		case err := <-readDone:
+			t.Fatalf("Read() returned %v before the download had data", err)
+		default:
+		}
+
+		streamer.Interrupt()
+		synctest.Wait()
+		select {
+		case err := <-readDone:
+			if !errors.Is(err, errStreamInterrupted) {
+				t.Fatalf("Read() after Interrupt error = %v, want %v", err, errStreamInterrupted)
+			}
+		default:
+			t.Fatal("Read() still waits for the download after Interrupt")
+		}
+
+		writer := streamWriter{source: source, file: file}
+		if _, err := writer.Write([]byte("more")); err != nil {
+			t.Fatal(err)
+		}
+		writer.finish(nil)
+		if _, err := source.Read(make([]byte, 4)); !errors.Is(err, errStreamInterrupted) {
+			t.Fatalf("Read() after the download error = %v, want %v", err, errStreamInterrupted)
+		}
+	})
 }

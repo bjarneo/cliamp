@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/gopxl/beep/v2"
-	"github.com/gopxl/beep/v2/speaker"
 )
 
 // Quality holds configurable audio output parameters.
@@ -24,6 +23,15 @@ type Quality struct {
 // (e.g., spotify:track:xxx). Returns the streamer, its format, the track
 // duration, and any error.
 type StreamerFactory func(uri string) (beep.StreamSeekCloser, beep.Format, time.Duration, error)
+
+// Interrupter is an optional interface of a streamer from a StreamerFactory
+// whose Stream can block on network I/O. Stop and a track change call
+// Interrupt before they take the speaker lock. Interrupt makes a blocked
+// Stream return, and Stream then ends the track. Interrupt must not wait for
+// Stream or take a lock that Stream holds. Close follows it.
+type Interrupter interface {
+	Interrupt()
+}
 
 // Player is the audio engine managing the playback pipeline:
 //
@@ -40,7 +48,9 @@ type StreamerFactory func(uri string) (beep.StreamSeekCloser, beep.Format, time.
 // different order. The audio goroutine holds the speaker lock while it
 // streams, and the gapless swap callback takes mu on that goroutine. So a
 // path that holds mu must not call speaker.Lock. suspendMu is taken with no
-// lock held or with only lifecycleMu held. navBuffer.mu is a leaf lock.
+// lock held or with only lifecycleMu held. speaker.Drop takes the speaker lock
+// under suspendMu. navBuffer.mu is a leaf lock. A decoder interrupt runs
+// before speaker.Lock, so it must not take a lock that Stream holds.
 // Close pipelines and wait for processes only after these locks are released.
 type Player struct {
 	mu              sync.Mutex
@@ -50,8 +60,9 @@ type Player struct {
 	current         *trackPipeline // active track's resources
 	nextPipeline    *trackPipeline // preloaded track's resources
 	started         bool           // true after first speaker.Play()
-	suspendMu       sync.Mutex     // guards suspended and speaker suspend/resume calls
+	suspendMu       sync.Mutex     // guards suspended, dropQueued and speaker suspend/resume/drop calls
 	suspended       bool           // true when speaker.Suspend() has been called
+	dropQueued      bool           // the suspended speaker holds samples of a stopped track; resumeSpeaker drops them
 	ctrl            *beep.Ctrl
 	volMin          atomic.Uint64     // dB floor stored as Float64bits, range [-90, 0]
 	volume          atomic.Uint64     // dB stored as Float64bits, range [volMin, +6]
@@ -220,11 +231,20 @@ func (p *Player) PlayAtForGeneration(path string, knownDuration, offset time.Dur
 // playAt builds the pipeline for path and plays it. A generation of 0 plays
 // it without the check.
 func (p *Player) playAt(path string, knownDuration, offset time.Duration, generation uint64) error {
-	tp, err := p.buildSource(path, knownDuration, offset, true)
+	tp, err := p.buildSource(path, knownDuration, offset, true, staleFor(&p.playGen, generation))
 	if err != nil {
 		return err
 	}
 	return p.playPipelineForGeneration(tp, generation)
+}
+
+// staleFor returns a check that reports true once current no longer holds
+// generation. It returns nil for a generation of 0, which is never stale.
+func staleFor(current *atomic.Uint64, generation uint64) func() bool {
+	if generation == 0 {
+		return nil
+	}
+	return func() bool { return current.Load() != generation }
 }
 
 // playPipelineForGeneration wires a ready-to-play trackPipeline into the
@@ -238,7 +258,9 @@ func (p *Player) playPipelineForGeneration(tp *trackPipeline, generation uint64)
 		go tp.close()
 		return nil
 	}
-	p.resumeSpeaker()
+	// The suspended speaker still holds the samples of a paused track. Only
+	// a plain resume of that track may play them.
+	p.resumeSpeaker(p.paused.Load())
 
 	// Collect old pipelines to close after releasing locks.
 	var oldCurrent, oldNext *trackPipeline
@@ -323,7 +345,7 @@ func (p *Player) BeginPreload() uint64 {
 // knownDuration is the metadata duration (use 0 if unknown). buildSource
 // picks the pipeline.
 func (p *Player) PreloadForGeneration(path string, knownDuration time.Duration, generation uint64) error {
-	tp, err := p.buildSource(path, knownDuration, 0, false)
+	tp, err := p.buildSource(path, knownDuration, 0, false, staleFor(&p.preloadGen, generation))
 	if err != nil {
 		return err
 	}
@@ -384,8 +406,8 @@ func (p *Player) GaplessAdvanced() bool {
 }
 
 // TogglePause toggles between paused and playing states.
-// When pausing, the speaker is suspended to save CPU; when unpausing
-// it is resumed so the audio callback drains the queued samples.
+// When pausing, the speaker is suspended to save CPU. It keeps the samples
+// that it queued, so a resume continues the track from where it paused.
 func (p *Player) TogglePause() {
 	speaker.Lock()
 	if p.ctrl != nil {
@@ -394,9 +416,9 @@ func (p *Player) TogglePause() {
 		speaker.Unlock()
 		p.paused.Store(paused)
 		if paused {
-			p.suspendSpeaker()
+			p.suspendSpeaker(false)
 		} else {
-			p.resumeSpeaker()
+			p.resumeSpeaker(false)
 		}
 	} else {
 		speaker.Unlock()
@@ -405,12 +427,16 @@ func (p *Player) TogglePause() {
 
 // Stop halts playback and releases resources. The speaker is suspended so
 // the ALSA audio callback goroutine blocks (zero CPU) instead of streaming
-// silence. Resume is called automatically on the next track start.
+// silence. Resume is called automatically on the next track start. The next
+// start drops the samples that the speaker queued. When the track played to
+// its end, they are its last samples, and the next start plays them.
 func (p *Player) Stop() {
 	// Reject a preload still loading in the background, as ClearPreload does,
 	// so it cannot arm a next track on the stopped player.
 	p.preloadGen.Add(1)
 	p.lifecycleMu.Lock()
+	// Read this before the interrupt below, which can end the track early.
+	drained := p.gapless.Drained()
 	p.mu.Lock()
 	active := p.current
 	p.mu.Unlock()
@@ -444,7 +470,7 @@ func (p *Player) Stop() {
 	p.stopStreamMetadata()
 	closePipelines(oldCurrent, oldNext)
 
-	p.suspendSpeaker()
+	p.suspendSpeaker(!drained)
 }
 
 // Seek moves the playback position by the given duration (positive or negative).
@@ -1086,12 +1112,14 @@ func (p *Player) HasSourceResolver(path string) bool {
 
 // suspendSpeaker suspends the ALSA audio callback goroutine so it blocks
 // on a condition variable instead of busy-looping. Safe to call multiple
-// times; subsequent calls are no-ops.
-func (p *Player) suspendSpeaker() {
+// times. The speaker keeps the samples that it queued. When drop is true,
+// they belong to a track that stopped, and the next resume drops them.
+func (p *Player) suspendSpeaker(drop bool) {
 	p.suspendMu.Lock()
 	defer p.suspendMu.Unlock()
 
 	if p.suspended {
+		p.dropQueued = p.dropQueued || drop
 		return
 	}
 	if err := speaker.Suspend(); err != nil {
@@ -1101,16 +1129,24 @@ func (p *Player) suspendSpeaker() {
 		return
 	}
 	p.suspended = true
+	p.dropQueued = drop
 }
 
 // resumeSpeaker resumes the ALSA audio callback goroutine. Safe to call
-// multiple times; subsequent calls are no-ops.
-func (p *Player) resumeSpeaker() {
+// multiple times; subsequent calls are no-ops. When drop is true, or when
+// Stop marked the queued samples, it drops them first. The speaker then reads
+// new samples at once, so drop only while the chain sends silence: before a
+// new source starts, or after Stop cleared the source.
+func (p *Player) resumeSpeaker(drop bool) {
 	p.suspendMu.Lock()
 	defer p.suspendMu.Unlock()
 
 	if !p.suspended {
 		return
+	}
+	if drop || p.dropQueued {
+		speaker.Drop()
+		p.dropQueued = false
 	}
 	if err := speaker.Resume(); err != nil {
 		return

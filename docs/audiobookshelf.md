@@ -85,9 +85,16 @@ cliamp authenticates with the configured token or username and password. It list
 
 The buffered pipeline downloads the full stream into memory during playback. It makes no partial-range requests. A book stored as one large file, such as one `.m4b` for the full book, uses memory proportional to its size. Resuming far into that book waits until the download reaches the saved position. Per-chapter files avoid both limits because each file is smaller.
 
+An `.m4b` or `.m4a` file can store its index, the MP4 `moov` box, after the audio. ffmpeg writes this layout by default. ffmpeg cannot read this index while the download continues. For such a file, cliamp waits for the full download and then starts playback. The status line shows `Buffering...` during the wait. To start such a file at once, move the index to the front of the file:
+
+```sh
+ffmpeg -i book.m4b -c copy -movflags +faststart book-faststart.m4b
+```
+
 ## Troubleshooting
 
 - **Empty provider pane**: Check `url` and either `token` or `user`/`password` in `[audiobookshelf]`.
 - **No audio**: Confirm that the server serves the item file endpoint. A proxy or reverse-proxy configuration error is a common cause.
+- **Long `Buffering...` before an `.m4b` starts**: The file stores its index after the audio, so cliamp downloads all of it first. See [How it works](#how-it-works).
 - **Missing chapter titles**: This is expected when a file covers several chapters. cliamp then uses the embedded title or file name.
 - **macOS `no route to host`**: If `curl` works with the same URL, macOS likely denies Local Network access to the app. cliamp then adds a hint to the error. Open **System Settings > Privacy & Security > Local Network**, enable access for the terminal app, and restart cliamp. For more steps, see [Plex troubleshooting](plex.md#troubleshooting).

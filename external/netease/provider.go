@@ -36,6 +36,14 @@ const (
 	// responses. It happens to share the value of HTTP 200 but is a distinct
 	// field, so it gets its own constant rather than comparing to http.StatusOK.
 	neteaseCodeOK = 200
+	// tracksTimeout bounds one playlist load. A long playlist needs one song
+	// detail request for each songDetailBatchSize tracks. The HTTP client
+	// limits each request to apiTimeout.
+	tracksTimeout = 2 * time.Minute
+	// songDetailBatchSize is the number of song IDs in one /api/song/detail
+	// request. The endpoint returns at most about 200 songs for one request
+	// and drops the other IDs without an error, so keep this value low.
+	songDetailBatchSize = 100
 )
 
 // ErrNotAuthenticated is returned when browser cookies do not contain a
@@ -216,18 +224,92 @@ func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), tracksTimeout)
 	defer cancel()
 
-	params := url.Values{"id": {id}}
-	var resp playlistDetailResponse
-	if err := p.apiGet(ctx, "/api/playlist/detail", params, &resp); err != nil {
+	songs, err := p.playlistSongs(ctx, id)
+	if err != nil {
 		return nil, err
+	}
+	return songsToTracks(songs), nil
+}
+
+// playlistSongs returns every song of the playlist in playlist order. The v6
+// detail endpoint returns all the track IDs but only a preview of the songs.
+// /api/song/detail supplies the songs that the preview does not cover. An ID
+// that the song lookup does not return is left out.
+func (p *Provider) playlistSongs(ctx context.Context, id string) ([]song, error) {
+	params := url.Values{"id": {id}, "n": {"100000"}, "s": {"0"}}
+	var resp playlistDetailResponse
+	if err := p.apiGet(ctx, "/api/v6/playlist/detail", params, &resp); err != nil {
+		return nil, fmt.Errorf("netease: playlist detail: %w", err)
 	}
 	if resp.Code != neteaseCodeOK {
 		return nil, fmt.Errorf("netease: playlist detail failed with code %d", resp.Code)
 	}
-	return songsToTracks(resp.Result.Tracks), nil
+	known := make(map[int64]song, len(resp.Playlist.TrackIDs))
+	preview := make([]song, 0, len(resp.Playlist.Tracks))
+	for _, t := range resp.Playlist.Tracks {
+		s := song(t)
+		known[s.ID] = s
+		preview = append(preview, s)
+	}
+	if len(resp.Playlist.TrackIDs) == 0 {
+		return preview, nil
+	}
+
+	var missing []int64
+	queued := map[int64]bool{}
+	for _, t := range resp.Playlist.TrackIDs {
+		if _, ok := known[t.ID]; !ok && !queued[t.ID] {
+			queued[t.ID] = true
+			missing = append(missing, t.ID)
+		}
+	}
+	if err := p.songDetails(ctx, missing, known); err != nil {
+		return nil, err
+	}
+
+	songs := make([]song, 0, len(resp.Playlist.TrackIDs))
+	for _, t := range resp.Playlist.TrackIDs {
+		if s, ok := known[t.ID]; ok {
+			songs = append(songs, s)
+		}
+	}
+	return songs, nil
+}
+
+// songDetails looks up the songs of ids in batches of songDetailBatchSize and
+// adds each song to into. A failed batch fails the whole lookup.
+func (p *Provider) songDetails(ctx context.Context, ids []int64, into map[int64]song) error {
+	for start := 0; start < len(ids); start += songDetailBatchSize {
+		batch := ids[start:min(start+songDetailBatchSize, len(ids))]
+		params := url.Values{"ids": {idList(batch)}}
+		var resp songDetailResponse
+		if err := p.apiGet(ctx, "/api/song/detail", params, &resp); err != nil {
+			return fmt.Errorf("netease: song detail: %w", err)
+		}
+		if resp.Code != neteaseCodeOK {
+			return fmt.Errorf("netease: song detail failed with code %d", resp.Code)
+		}
+		for _, s := range resp.Songs {
+			into[s.ID] = s
+		}
+	}
+	return nil
+}
+
+// idList formats ids as the JSON array that /api/song/detail reads.
+func idList(ids []int64) string {
+	b := make([]byte, 0, 2+len(ids)*12)
+	b = append(b, '[')
+	for i, id := range ids {
+		if i > 0 {
+			b = append(b, ',')
+		}
+		b = strconv.AppendInt(b, id, 10)
+	}
+	return string(append(b, ']'))
 }
 
 // SearchTracks searches NetEase songs.
@@ -578,11 +660,32 @@ type playlistItem struct {
 	SpecialType int    `json:"specialType"`
 }
 
+// playlistDetailResponse is the /api/v6/playlist/detail response. Tracks is a
+// preview. TrackIDs lists every track in playlist order.
 type playlistDetailResponse struct {
-	Code   int `json:"code"`
-	Result struct {
-		Tracks []song `json:"tracks"`
-	} `json:"result"`
+	Code     int `json:"code"`
+	Playlist struct {
+		Tracks   []v6Song `json:"tracks"`
+		TrackIDs []struct {
+			ID int64 `json:"id"`
+		} `json:"trackIds"`
+	} `json:"playlist"`
+}
+
+type songDetailResponse struct {
+	Code  int    `json:"code"`
+	Songs []song `json:"songs"`
+}
+
+// v6Song is a song in the v6 format, which uses short JSON names. It has the
+// same fields as song, so song(v) converts it.
+type v6Song struct {
+	ID          int64    `json:"id"`
+	Name        string   `json:"name"`
+	DurationMS  int      `json:"dt"`
+	TrackNumber int      `json:"no"`
+	Artists     []artist `json:"ar"`
+	Album       album    `json:"al"`
 }
 
 type searchResponse struct {

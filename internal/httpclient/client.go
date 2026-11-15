@@ -6,15 +6,20 @@ package httpclient
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
+	"sync"
 	"time"
 
 	"golang.org/x/net/http/httpproxy"
 	"golang.org/x/net/proxy"
+
+	"github.com/bjarneo/cliamp/applog"
 )
 
 // UserAgent is shared by API and stream requests so Navidrome identifies them
@@ -232,6 +237,11 @@ func newStreamingTransport() *http.Transport {
 		}
 		return newICYConn(conn), nil
 	}
+	// Behind an http or https proxy, Transport runs the TLS handshake with
+	// the stream server itself, through a CONNECT tunnel and with
+	// TLSClientConfig. The legacy TLS fallback below does not cover that
+	// handshake.
+	var legacy legacyTLSAddrs
 	tr.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		config := &tls.Config{}
 		if tr.TLSClientConfig != nil {
@@ -247,18 +257,121 @@ func newStreamingTransport() *http.Transport {
 		// Icecast and SHOUTcast servers only support HTTP/1.x.
 		config.NextProtos = nil
 
-		rawConn, err := dialWithDecision(ctx, network, addr)
+		tlsConn, err := dialStreamTLS(ctx, network, addr, config, &legacy)
 		if err != nil {
-			return nil, fmt.Errorf("dial TLS %s: %w", addr, err)
-		}
-		tlsConn := tls.Client(rawConn, config)
-		if err := tlsConn.HandshakeContext(ctx); err != nil {
-			_ = rawConn.Close()
-			return nil, fmt.Errorf("dial TLS %s: %w", addr, err)
+			return nil, err
 		}
 		return newICYConn(tlsConn), nil
 	}
 	return tr
+}
+
+// dialStreamTLS dials addr with config. When the server rejects config with
+// a handshake_failure alert, it dials again with legacyTLSConfig and records
+// addr in legacy. The next dial of addr then uses legacyTLSConfig at once.
+func dialStreamTLS(ctx context.Context, network, addr string, config *tls.Config, legacy *legacyTLSAddrs) (*tls.Conn, error) {
+	if legacy.has(addr) {
+		return dialTLS(ctx, network, addr, legacyTLSConfig(config))
+	}
+	conn, err := dialTLS(ctx, network, addr, config)
+	if err == nil || !isHandshakeFailure(err) {
+		return conn, err
+	}
+	conn, fbErr := dialTLS(ctx, network, addr, legacyTLSConfig(config))
+	if fbErr != nil {
+		return nil, fmt.Errorf("%w (legacy TLS retry: %w)", err, fbErr)
+	}
+	if legacy.add(addr) {
+		suite := tls.CipherSuiteName(conn.ConnectionState().CipherSuite)
+		applog.Warn("httpclient: %s rejects the default TLS config. Using TLS 1.2 with %s", addr, suite)
+	}
+	return conn, nil
+}
+
+// dialTLS dials addr and runs the TLS handshake with config.
+func dialTLS(ctx context.Context, network, addr string, config *tls.Config) (*tls.Conn, error) {
+	rawConn, err := dialWithDecision(ctx, network, addr)
+	if err != nil {
+		return nil, fmt.Errorf("dial TLS %s: %w", addr, err)
+	}
+	tlsConn := tls.Client(rawConn, config)
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
+		_ = rawConn.Close()
+		return nil, fmt.Errorf("dial TLS %s: %w", addr, err)
+	}
+	return tlsConn, nil
+}
+
+// isHandshakeFailure reports whether err holds a handshake_failure alert
+// from the server. crypto/tls returns a received alert as an unexported type
+// inside a "remote error" *net.OpError, not as tls.AlertError. The check
+// therefore compares the alert text with the text of tls.AlertError.
+func isHandshakeFailure(err error) bool {
+	const alertHandshakeFailure = tls.AlertError(40)
+	opErr, ok := errors.AsType[*net.OpError](err)
+	return ok && opErr.Op == "remote error" && opErr.Err != nil &&
+		opErr.Err.Error() == alertHandshakeFailure.Error()
+}
+
+// legacyCipherSuites holds the secure TLS 1.2 suites of crypto/tls and the
+// 2 RSA key exchange suites that legacy Icecast servers accept. Go 1.22
+// removed RSA key exchange from the default suites, because RSA key exchange
+// has no forward secrecy. Only the streaming fallback uses these suites.
+var legacyCipherSuites = func() []uint16 {
+	var ids []uint16
+	for _, s := range tls.CipherSuites() {
+		if slices.Contains(s.SupportedVersions, tls.VersionTLS12) {
+			ids = append(ids, s.ID)
+		}
+	}
+	return append(ids, tls.TLS_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_RSA_WITH_AES_256_GCM_SHA384)
+}()
+
+// legacyTLSConfig returns a copy of config for servers that reject the
+// default TLS config. Certificate verification stays on.
+func legacyTLSConfig(config *tls.Config) *tls.Config {
+	legacy := config.Clone()
+	legacy.MaxVersion = tls.VersionTLS12
+	legacy.CipherSuites = legacyCipherSuites
+	return legacy
+}
+
+// maxLegacyTLSAddrs limits legacyTLSAddrs. An address that drops out costs
+// 1 failed handshake on its next dial.
+const maxLegacyTLSAddrs = 64
+
+// legacyTLSAddrs holds the "host:port" addresses that need the legacy TLS
+// config. It is safe for concurrent use.
+type legacyTLSAddrs struct {
+	mu    sync.Mutex
+	addrs map[string]struct{}
+}
+
+func (l *legacyTLSAddrs) has(addr string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	_, ok := l.addrs[addr]
+	return ok
+}
+
+// add records addr and reports whether addr is new.
+func (l *legacyTLSAddrs) add(addr string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if _, ok := l.addrs[addr]; ok {
+		return false
+	}
+	if l.addrs == nil {
+		l.addrs = make(map[string]struct{})
+	}
+	if len(l.addrs) >= maxLegacyTLSAddrs {
+		for k := range l.addrs {
+			delete(l.addrs, k)
+			break
+		}
+	}
+	l.addrs[addr] = struct{}{}
+	return true
 }
 
 // dialWithDecision dials addr directly, unless ctx carries a *dialDecision

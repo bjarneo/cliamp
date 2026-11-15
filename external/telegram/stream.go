@@ -26,14 +26,18 @@ import (
 // current end of file until the downloader appends more data or finishes, so
 // the audio decoder can start before the whole document is on disk.
 type streamSource struct {
-	mu   sync.Mutex
-	cond *sync.Cond
-	file *os.File
-	size int64
-	pos  int64
-	done bool
-	err  error
+	mu          sync.Mutex
+	cond        *sync.Cond
+	file        *os.File
+	size        int64
+	pos         int64
+	done        bool
+	err         error
+	interrupted bool
 }
+
+// errStreamInterrupted is the error of a Read after interrupt.
+var errStreamInterrupted = errors.New("telegram: stream interrupted")
 
 func newStreamSource(file *os.File) *streamSource {
 	source := &streamSource{file: file}
@@ -45,8 +49,12 @@ func newStreamSource(file *os.File) *streamSource {
 // the data written so far and the download has not finished.
 func (s *streamSource) Read(p []byte) (int, error) {
 	s.mu.Lock()
-	for s.pos >= s.size && !s.done && s.err == nil {
+	for s.pos >= s.size && !s.done && s.err == nil && !s.interrupted {
 		s.cond.Wait()
+	}
+	if s.interrupted {
+		s.mu.Unlock()
+		return 0, errStreamInterrupted
 	}
 	if s.err != nil {
 		err := s.err
@@ -90,6 +98,29 @@ func (s *streamSource) Seek(offset int64, whence int) (int64, error) {
 
 // Close implements io.Closer.
 func (s *streamSource) Close() error { return s.file.Close() }
+
+// interrupt makes a Read that waits for the download, and every later Read,
+// fail at once. The download goes on, so the file still reaches the cache.
+func (s *streamSource) interrupt() {
+	s.mu.Lock()
+	s.interrupted = true
+	s.cond.Broadcast()
+	s.mu.Unlock()
+}
+
+// interruptibleStreamer is a native decoder that reads a streamSource. Its
+// Stream waits for the download while the player holds the speaker lock.
+// Interrupt ends that wait, so Stop and a track change do not block on a
+// stalled download.
+type interruptibleStreamer struct {
+	beep.StreamSeekCloser
+	source *streamSource
+}
+
+var _ player.Interrupter = interruptibleStreamer{}
+
+// Interrupt implements player.Interrupter.
+func (s interruptibleStreamer) Interrupt() { s.source.interrupt() }
 
 // streamWriter writes the download at an explicit offset and wakes the reader.
 // It owns a dedicated write descriptor so closing the playback stream (when the
@@ -182,6 +213,10 @@ func (p *Provider) openStream(chat string, msgID int) (beep.StreamSeekCloser, be
 	if err != nil {
 		readerFile.Close()
 		return nil, beep.Format{}, 0, err
+	}
+	if !ffExt(extension) {
+		// The ffmpeg pipe has its own interrupt in the player.
+		streamer = interruptibleStreamer{StreamSeekCloser: streamer, source: source}
 	}
 	return streamer, format, time.Duration(docDuration(doc)) * time.Second, nil
 }
