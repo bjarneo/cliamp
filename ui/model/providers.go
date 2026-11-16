@@ -647,8 +647,10 @@ func (m *Model) openProviderList(index int) tea.Cmd {
 		return cmd
 	}
 	m.provPane.loading = true
-	m.providerOpenPrevID = m.activeProviderPlaylistID
-	m.providerOpenPrevSet = true
+	if !m.providerOpenPrevSet {
+		m.providerOpenPrevID = m.activeProviderPlaylistID
+		m.providerOpenPrevSet = true
+	}
 	m.activeProviderPlaylistID = item.ID
 	cmd := m.fetchProviderTracks(item.ID)
 	if _, ok := m.provider.(*radio.ChannelProvider); ok {

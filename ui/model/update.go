@@ -129,7 +129,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case LuaInputSuggestionsMsg:
-		if m.luaInput == nil {
+		if m.luaInput == nil || msg.Query != m.luaInput.value {
 			return m, nil
 		}
 		if len(msg.Options) != len(m.luaInput.suggestions) {

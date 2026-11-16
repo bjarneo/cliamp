@@ -241,3 +241,19 @@ func TestWaitReplyResultUsesContextDeadline(t *testing.T) {
 		t.Fatalf("timeout = %v, want the remaining context deadline", f.timeout)
 	}
 }
+
+func TestReplyResultIncludesButtonQuery(t *testing.T) {
+	out := replyResult(provider.ChatReply{Buttons: []provider.ChatButton{{
+		Text:  "Switch",
+		Kind:  "switch_inline",
+		Query: "daft punk",
+	}}})
+	buttons, ok := out["buttons"].([]any)
+	if !ok || len(buttons) != 1 {
+		t.Fatalf("buttons = %#v", out["buttons"])
+	}
+	row, ok := buttons[0].(map[string]any)
+	if !ok || row["query"] != "daft punk" {
+		t.Fatalf("row = %#v, want query", buttons[0])
+	}
+}

@@ -200,3 +200,24 @@ func TestLuaInputWindowFollowsCursor(t *testing.T) {
 		t.Fatalf("cursor is not visible at the end of a long value:\n%s", box)
 	}
 }
+
+func TestLuaInputIgnoresSuggestionsForAnOldQuery(t *testing.T) {
+	m := Model{}
+	m.openLuaInput("Message", "", "new", nil, nil, nil, nil, nil)
+	m.Update(LuaInputSuggestionsMsg{
+		Query:   "old",
+		Options: []luaplugin.SelectOption{{Title: "Stale"}},
+		Live:    true,
+	})
+	if len(m.luaInput.suggestions) != 0 {
+		t.Fatalf("stale suggestions were installed: %#v", m.luaInput.suggestions)
+	}
+	m.Update(LuaInputSuggestionsMsg{
+		Query:   "new",
+		Options: []luaplugin.SelectOption{{Title: "Fresh"}},
+		Live:    true,
+	})
+	if len(m.luaInput.suggestions) != 1 || m.luaInput.suggestions[0].Title != "Fresh" {
+		t.Fatalf("fresh suggestions were not installed: %#v", m.luaInput.suggestions)
+	}
+}

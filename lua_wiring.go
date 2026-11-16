@@ -144,13 +144,14 @@ func newOrderedSender(send func(tea.Msg)) (queue func(tea.Msg), stop func()) {
 
 // luaUIProvider lets Lua plugins show a status message.
 func luaUIProvider(send func(tea.Msg), headless bool) luaplugin.UIProvider {
+	var inputQuery string
 	return luaplugin.UIProvider{
 		ShowMessage: func(text string, duration time.Duration) {
 			send(model.ShowStatusMsg{Text: text, Duration: duration})
 		},
 		ShowSelect:  showSelectFor(send, headless),
-		ShowInput:   showInputFor(send, headless),
-		UpdateInput: updateInputFor(send, headless),
+		ShowInput:   showInputFor(send, headless, &inputQuery),
+		UpdateInput: updateInputFor(send, headless, &inputQuery),
 		ShowText:    showTextFor(send, headless),
 		SetVis: func(name string) {
 			send(model.SetVisMsg{Name: name})
@@ -170,17 +171,24 @@ func showTextFor(send func(tea.Msg), headless bool) func(string, string, func())
 	}
 }
 
-func showInputFor(send func(tea.Msg), headless bool) func(string, string, string, []luaplugin.SelectOption, func(string), func(string), func(int), func()) {
+func showInputFor(send func(tea.Msg), headless bool, current *string) func(string, string, string, []luaplugin.SelectOption, func(string), func(string), func(int), func()) {
 	if headless {
 		return nil
 	}
 	return func(title, placeholder, value string, suggestions []luaplugin.SelectOption, onChange, onSubmit func(string), onSelect func(int), onCancel func()) {
+		*current = value
+		update := func(text string) {
+			*current = text
+			if onChange != nil {
+				onChange(text)
+			}
+		}
 		send(model.LuaInputMsg{
 			Title:       title,
 			Placeholder: placeholder,
 			Value:       value,
 			Suggestions: suggestions,
-			OnChange:    onChange,
+			OnChange:    update,
 			OnSubmit:    onSubmit,
 			OnSelect:    onSelect,
 			OnCancel:    onCancel,
@@ -188,12 +196,12 @@ func showInputFor(send func(tea.Msg), headless bool) func(string, string, string
 	}
 }
 
-func updateInputFor(send func(tea.Msg), headless bool) func([]luaplugin.SelectOption, bool) {
+func updateInputFor(send func(tea.Msg), headless bool, current *string) func([]luaplugin.SelectOption, bool) {
 	if headless {
 		return nil
 	}
 	return func(options []luaplugin.SelectOption, live bool) {
-		send(model.LuaInputSuggestionsMsg{Options: options, Live: live})
+		send(model.LuaInputSuggestionsMsg{Options: options, Live: live, Query: *current})
 	}
 }
 
@@ -212,6 +220,7 @@ func showSelectFor(send func(tea.Msg), headless bool) func(string, string, []lua
 // The provider call runs on the caller's goroutine, so a blocking reply never
 // holds the UI.
 func luaProviderProvider(entries []provider.Entry, load func() model.PluginState, send func(tea.Msg)) luaplugin.ProviderProvider {
+	var addChatMu sync.Mutex
 	return luaplugin.ProviderProvider{
 		Current: func() luaplugin.ProviderInfo { return load().Provider },
 		Open: func(info luaplugin.ProviderInfo) error {
@@ -295,6 +304,8 @@ func luaProviderProvider(entries []provider.Entry, load func() model.PluginState
 					"section": info.Section,
 				}, nil
 			case "add_chat":
+				addChatMu.Lock()
+				defer addChatMu.Unlock()
 				filter, ok := prov.(provider.ChatFilter)
 				if !ok {
 					return nil, fmt.Errorf("provider %q has no chat filter", name)
@@ -405,6 +416,9 @@ func replyResult(reply provider.ChatReply) map[string]any {
 			}
 			if button.SendText {
 				row["send_text"] = true
+			}
+			if button.Query != "" {
+				row["query"] = button.Query
 			}
 			buttons = append(buttons, row)
 		}

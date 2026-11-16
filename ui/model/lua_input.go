@@ -30,6 +30,9 @@ type LuaInputMsg struct {
 type LuaInputSuggestionsMsg struct {
 	Options []luaplugin.SelectOption
 	Live    bool
+	// Query is the text the results belong to. A message for an older query
+	// is ignored after the input changed.
+	Query string
 }
 
 // luaInputState is the open plugin input.
