@@ -113,6 +113,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case LuaInputMsg:
+		if prev := m.luaInput; prev != nil && prev.onCancel != nil {
+			prev.onCancel()
+		}
+		m.openLuaInput(msg.Title, msg.Placeholder, msg.Value, msg.OnSubmit, msg.OnCancel)
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height

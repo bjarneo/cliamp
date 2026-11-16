@@ -120,6 +120,31 @@ func registerQueueAPI(L *lua.LState, cliamp *lua.LTable, loadState func() *State
 		return 0
 	}))
 
+	// cliamp.queue.insert(index, track) -> true | nil, err — insert a track at
+	// index. The core remaps the play order, the play-next queue and the
+	// current position.
+	L.SetField(tbl, "insert", L.NewFunction(func(L *lua.LState) int {
+		ctrl := loadCtrl()
+		index := L.CheckInt(1)
+		table, ok := L.Get(2).(*lua.LTable)
+		if !ok {
+			return pushErr(L, "queue.insert: track table required")
+		}
+		if !guard("insert") {
+			return pushErr(L, "queue.insert: requires permissions = {\"control\"}")
+		}
+		if ctrl.QueueInsert == nil {
+			return pushErr(L, "queue.insert: unavailable")
+		}
+		track, err := trackFromTable(table)
+		if err != nil {
+			return pushErr(L, "queue.insert: "+err.Error())
+		}
+		ctrl.QueueInsert(index, track)
+		L.Push(lua.LTrue)
+		return 1
+	}))
+
 	// cliamp.queue.move(from, to) — reorder a track.
 	L.SetField(tbl, "move", L.NewFunction(func(L *lua.LState) int {
 		ctrl := loadCtrl()

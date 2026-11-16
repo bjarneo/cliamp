@@ -49,6 +49,12 @@ func (m *Model) handlePluginQueue(msg PluginQueueMsg) tea.Cmd {
 	case "move":
 		cmd, _ := m.moveTrack(msg.Index, msg.To)
 		return cmd
+
+	case "insert":
+		m.playlist.Insert(msg.Index, msg.Track)
+		m.normalizeQueueOverlay()
+		m.adjustScroll()
+		return m.rearmStalePreload()
 	}
 	return nil
 }

@@ -43,12 +43,14 @@ const (
 // Permission strings declared via plugin.register({ permissions = {...} }).
 // Kept as named constants so the guard call sites and docs don't drift.
 const (
-	PermControl = "control"
-	PermExec    = "exec"
-	PermImage   = "image"
-	PermLayout  = "layout"
-	PermUI      = "ui"
-	PermKeymap  = "keymap"
+	PermControl      = "control"
+	PermExec         = "exec"
+	PermImage        = "image"
+	PermLayout       = "layout"
+	PermUI           = "ui"
+	PermKeymap       = "keymap"
+	PermProvider     = "provider"
+	PermProviderSend = "provider-send"
 )
 
 // luaHook is a single event callback registered by a plugin.

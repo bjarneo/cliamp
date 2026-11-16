@@ -1,6 +1,10 @@
 package main
 
 import (
+	"context"
+	"encoding/base64"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -9,6 +13,7 @@ import (
 	"github.com/bjarneo/cliamp/internal/playback"
 	"github.com/bjarneo/cliamp/luaplugin"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/ui/model"
 )
 
@@ -84,6 +89,13 @@ func luaControlProvider(send func(tea.Msg)) luaplugin.ControlProvider {
 		QueueMove: func(from, to int) {
 			send(model.PluginQueueMsg{Op: "move", Index: from, To: to})
 		},
+		QueueInsert: func(index int, t luaplugin.Track) {
+			send(model.PluginQueueMsg{Op: "insert", Index: index, Track: playlist.Track{
+				Path: t.Path, Title: t.Title, Artist: t.Artist, Album: t.Album,
+				Genre: t.Genre, Year: t.Year, DurationSecs: t.Duration, Stream: t.Stream,
+				AlbumArtURL: t.ArtURL,
+			}})
+		},
 	}
 }
 
@@ -137,6 +149,7 @@ func luaUIProvider(send func(tea.Msg), headless bool) luaplugin.UIProvider {
 			send(model.ShowStatusMsg{Text: text, Duration: duration})
 		},
 		ShowSelect: showSelectFor(send, headless),
+		ShowInput:  showInputFor(send, headless),
 		SetVis: func(name string) {
 			send(model.SetVisMsg{Name: name})
 		},
@@ -146,6 +159,15 @@ func luaUIProvider(send func(tea.Msg), headless bool) luaplugin.UIProvider {
 // showSelectFor returns nil in headless mode: there is no UI to answer a
 // selector, and the API reports it as unavailable instead of accepting a
 // request nobody can complete.
+func showInputFor(send func(tea.Msg), headless bool) func(string, string, string, func(string), func()) {
+	if headless {
+		return nil
+	}
+	return func(title, placeholder, value string, onSubmit func(string), onCancel func()) {
+		send(model.LuaInputMsg{Title: title, Placeholder: placeholder, Value: value, OnSubmit: onSubmit, OnCancel: onCancel})
+	}
+}
+
 func showSelectFor(send func(tea.Msg), headless bool) func(string, []string, int, func(int), func()) {
 	if headless {
 		return nil
@@ -153,4 +175,150 @@ func showSelectFor(send func(tea.Msg), headless bool) func(string, []string, int
 	return func(title string, options []string, cursor int, onDone func(index int), onCancel func()) {
 		send(model.LuaSelectMsg{Title: title, Options: options, Cursor: cursor, OnDone: onDone, OnCancel: onCancel})
 	}
+}
+
+// luaProviderProvider exposes the provider context and the chat actions a
+// provider supports. The dispatcher keeps the Lua API generic: a plugin asks
+// for "telegram.send" and the provider that implements ChatCommander runs it.
+// The provider call runs on the caller's goroutine, so a blocking reply never
+// holds the UI.
+func luaProviderProvider(entries []provider.Entry, load func() model.PluginState) luaplugin.ProviderProvider {
+	return luaplugin.ProviderProvider{
+		Current: func() luaplugin.ProviderInfo { return load().Provider },
+		Call: func(ctx context.Context, action string, params map[string]any) (map[string]any, error) {
+			name, verb, ok := strings.Cut(action, ".")
+			if !ok || name == "" || verb == "" {
+				return nil, fmt.Errorf("unknown provider action %q", action)
+			}
+			var prov playlist.Provider
+			for _, entry := range entries {
+				if strings.EqualFold(entry.Name, name) || strings.EqualFold(entry.Key, name) {
+					prov = entry.Provider
+					break
+				}
+			}
+			if prov == nil {
+				return nil, fmt.Errorf("provider %q is not available", name)
+			}
+			chat, _ := params["chat"].(string)
+			if chat == "" {
+				return nil, fmt.Errorf("%s: chat is required", action)
+			}
+			commander, ok := prov.(provider.ChatCommander)
+			if !ok {
+				return nil, fmt.Errorf("provider %q does not support chat actions", name)
+			}
+			switch verb {
+			case "commands":
+				commands, err := commander.BotCommands(ctx, chat)
+				if err != nil {
+					return nil, err
+				}
+				rows := make([]any, 0, len(commands))
+				for _, command := range commands {
+					rows = append(rows, map[string]any{
+						"command":     command.Command,
+						"description": command.Description,
+					})
+				}
+				return map[string]any{"commands": rows}, nil
+			case "send":
+				text, _ := params["text"].(string)
+				id, err := commander.SendCommand(ctx, chat, text)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{"id": id}, nil
+			case "ask":
+				text, _ := params["text"].(string)
+				id, err := commander.SendCommand(ctx, chat, text)
+				if err != nil {
+					return nil, err
+				}
+				return waitReplyResult(ctx, commander, chat, id, params)
+			case "reply":
+				return waitReplyResult(ctx, commander, chat, intParam(params, "after"), params)
+			case "callback":
+				data, err := base64.StdEncoding.DecodeString(stringParam(params, "data_b64"))
+				if err != nil {
+					return nil, fmt.Errorf("%s: data_b64: %w", action, err)
+				}
+				if err := commander.BotCallback(ctx, chat, intParam(params, "message_id"), data); err != nil {
+					return nil, err
+				}
+				return map[string]any{"ok": true}, nil
+			default:
+				return nil, fmt.Errorf("unknown provider action %q", action)
+			}
+		},
+	}
+}
+
+func waitReplyResult(ctx context.Context, commander provider.ChatCommander, chat string, after int, params map[string]any) (map[string]any, error) {
+	timeout := 20 * time.Second
+	if seconds, ok := params["timeout"].(float64); ok && seconds > 0 {
+		timeout = time.Duration(seconds * float64(time.Second))
+	}
+	reply, err := commander.WaitReply(ctx, chat, after, timeout)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{
+		"id":         after,
+		"kind":       reply.Kind,
+		"text":       reply.Text,
+		"from":       reply.From,
+		"message_id": reply.MessageID,
+	}
+	if reply.Kind == "audio" {
+		out["track"] = luaplugin.TrackData(pluginTrackFromPlaylist(reply.Track))
+	}
+	if len(reply.Buttons) > 0 {
+		buttons := make([]any, 0, len(reply.Buttons))
+		for _, button := range reply.Buttons {
+			row := map[string]any{"text": button.Text, "kind": button.Kind}
+			if len(button.Data) > 0 {
+				row["data_b64"] = base64.StdEncoding.EncodeToString(button.Data)
+			}
+			if button.URL != "" {
+				row["url"] = button.URL
+			}
+			if button.SendText {
+				row["send_text"] = true
+			}
+			buttons = append(buttons, row)
+		}
+		out["buttons"] = buttons
+	}
+	return out, nil
+}
+
+func pluginTrackFromPlaylist(track playlist.Track) luaplugin.Track {
+	return luaplugin.Track{
+		Title:    track.Title,
+		Artist:   track.Artist,
+		Album:    track.Album,
+		Genre:    track.Genre,
+		Path:     track.Path,
+		Year:     track.Year,
+		Number:   track.TrackNumber,
+		Duration: track.DurationSecs,
+		Stream:   track.Stream,
+		ArtURL:   track.AlbumArtURL,
+	}
+}
+
+func stringParam(params map[string]any, key string) string {
+	value, _ := params[key].(string)
+	return value
+}
+
+func intParam(params map[string]any, key string) int {
+	switch value := params[key].(type) {
+	case float64:
+		return int(value)
+	case int:
+		return value
+	}
+	return 0
 }

@@ -190,6 +190,13 @@ func normalizeShiftedLetter(msg tea.KeyPressMsg) tea.KeyPressMsg {
 func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	msg = normalizeShiftedLetter(msg)
 
+	if m.luaInput != nil {
+		m.handleLuaInputKey(msg)
+		return nil
+	}
+	if m.actionPane.visible {
+		return m.handleActionPaneKey(msg)
+	}
 	if m.luaSelect != nil {
 		m.handleLuaSelectKey(msg)
 		return nil
@@ -418,6 +425,8 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		if _, ok := m.provider.(provider.ChatFilter); ok {
 			return m.startChatPicker()
 		}
+	case "!":
+		m.openActionPane()
 	}
 	return nil
 }
@@ -833,6 +842,9 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "?":
 		m.openKeymap()
+
+	case "!":
+		m.openActionPane()
 
 	default:
 		if m.luaMgr != nil {
