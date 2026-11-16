@@ -24,11 +24,12 @@ func (m Model) keyboardEnhancements() tea.KeyboardEnhancements {
 }
 
 // handleKeyboardEnhancements turns the layout keys off when the terminal
-// reports key positions but not the typed text. The key parser then fills the
-// text of a shifted key with its US-layout position (Shift+A on AZERTY would
-// type q), so keys are better left as the terminal sent them before.
+// reports key positions, or sends every key as an escape code, but not the
+// typed text. The key parser then guesses the text of a shifted key from its
+// code (Shift+A on AZERTY would type q, and Shift+/ would type /), so keys are
+// better left as the terminal sent them before.
 func (m *Model) handleKeyboardEnhancements(msg tea.KeyboardEnhancementsMsg) {
-	if msg.SupportsAlternateKeys() && !msg.SupportsAssociatedText() {
+	if (msg.SupportsAlternateKeys() || msg.SupportsAllKeysAsEscapeCodes()) && !msg.SupportsAssociatedText() {
 		m.layoutKeysOff = true
 	}
 }
@@ -65,18 +66,25 @@ func physicalKey(msg tea.KeyPressMsg) (key tea.KeyPressMsg, layoutText string) {
 	layoutText = msg.Text
 	msg.Code = base
 	msg.ShiftedCode = 0
-	if msg.Mod.Contains(tea.ModShift) {
-		if shifted, ok := usShifted[base]; ok {
+	shift := msg.Mod.Contains(tea.ModShift)
+	text := base
+	if shifted, ok := usShifted[base]; ok {
+		if shift {
 			msg.ShiftedCode = shifted
-		} else {
+			text = shifted
+		}
+	} else {
+		if shift {
 			msg.ShiftedCode = unicode.ToUpper(base)
+		}
+		// CapsLock types capitals as it does on a US layout, and Shift
+		// turns them back into small letters.
+		if shift != msg.Mod.Contains(tea.ModCapsLock) {
+			text = unicode.ToUpper(base)
 		}
 	}
 	if msg.Text != "" {
-		msg.Text = string(base)
-		if msg.ShiftedCode != 0 {
-			msg.Text = string(msg.ShiftedCode)
-		}
+		msg.Text = string(text)
 	}
 	return msg, layoutText
 }

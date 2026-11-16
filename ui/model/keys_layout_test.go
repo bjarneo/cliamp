@@ -32,6 +32,9 @@ func TestPhysicalKey(t *testing.T) {
 	}{
 		{"Cyrillic letter is its US key", ruQ, "q", "й"},
 		{"Cyrillic Shift+letter is the US capital", ruShiftQ, "Q", "Й"},
+		{"Cyrillic letter with CapsLock is the US capital", tea.KeyPressMsg{Code: 'й', ShiftedCode: 'q', BaseCode: 'q', Mod: tea.ModCapsLock, Text: "Й"}, "Q", "Й"},
+		{"Cyrillic Shift+letter with CapsLock is the US letter", tea.KeyPressMsg{Code: 'й', ShiftedCode: 'q', BaseCode: 'q', Mod: tea.ModShift | tea.ModCapsLock, Text: "й"}, "q", "й"},
+		{"Arabic question mark with CapsLock is ?", tea.KeyPressMsg{Code: 'ظ', ShiftedCode: '/', BaseCode: '/', Mod: tea.ModShift | tea.ModCapsLock, Text: "؟"}, "?", "؟"},
 		{"Ctrl with a Cyrillic letter", ruCtrlK, "ctrl+k", ""},
 		{"Alt with a Cyrillic letter", tea.KeyPressMsg{Code: 'у', ShiftedCode: 'e', BaseCode: 'e', Mod: tea.ModAlt}, "alt+e", ""},
 		{"Arabic letter is its US key", arQ, "q", "ض"},
@@ -143,6 +146,8 @@ func TestKeyboardEnhancements(t *testing.T) {
 	}{
 		{"all flags on", base | ansi.KittyReportAssociatedKeys, want},
 		{"no associated text", base, tea.KeyboardEnhancements{}},
+		{"all keys without associated text", ansi.KittyDisambiguateEscapeCodes | ansi.KittyReportAllKeysAsEscapeCodes, tea.KeyboardEnhancements{}},
+		{"alternate keys without associated text", ansi.KittyDisambiguateEscapeCodes | ansi.KittyReportAlternateKeys, tea.KeyboardEnhancements{}},
 		{"no alternate keys", ansi.KittyDisambiguateEscapeCodes, want},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
