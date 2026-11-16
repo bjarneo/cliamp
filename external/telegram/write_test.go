@@ -422,3 +422,21 @@ func TestMessageWindowStartsAtTheRequestedID(t *testing.T) {
 		t.Fatalf("OffsetID = %d, want 8", got)
 	}
 }
+
+func TestWaitReplyRestartsGraceForANewMessageWithTheSameText(t *testing.T) {
+	first := &tg.Message{ID: 6, Message: "Searching"}
+	second := &tg.Message{ID: 7, Message: "Searching"}
+	api := &fakeWriteAPI{history: []tg.MessagesMessagesClass{
+		&tg.MessagesMessages{Messages: []tg.MessageClass{first}},
+		&tg.MessagesMessages{Messages: []tg.MessageClass{second}},
+	}}
+	p := readyProvider(api)
+
+	reply, err := p.WaitReply(context.Background(), "u:1:2", 5, 1300*time.Millisecond)
+	if err != nil {
+		t.Fatalf("WaitReply: %v", err)
+	}
+	if reply.MessageID != 7 {
+		t.Fatalf("message id = %d, want the newer message", reply.MessageID)
+	}
+}

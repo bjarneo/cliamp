@@ -284,7 +284,7 @@ func (p *Provider) waitReply(ctx context.Context, chatID string, afterID int, ti
 			}
 		}
 		if value, ok := textReply(afterID, messagesOf(history)); ok {
-			changed := !hasPending || value.Text != pending.Text
+			changed := !hasPending || value.Text != pending.Text || value.MessageID != pending.MessageID
 			pending, hasPending = value, true
 			if !audioOnly && changed {
 				textUntil = time.Now().Add(replyGrace)
