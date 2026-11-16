@@ -190,6 +190,9 @@ func normalizeShiftedLetter(msg tea.KeyPressMsg) tea.KeyPressMsg {
 func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	msg = normalizeShiftedLetter(msg)
 
+	if msg.String() == "ctrl+c" {
+		return m.quit()
+	}
 	if m.luaInput != nil {
 		m.handleLuaInputKey(msg)
 		return nil

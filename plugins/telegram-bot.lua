@@ -43,6 +43,24 @@ end
 
 local busy = {}
 
+local function is_busy(chat)
+    local untilTime = busy[chat]
+    if not untilTime then
+        return false
+    end
+    if untilTime <= os.time() then
+        busy[chat] = nil
+        return false
+    end
+    return true
+end
+
+local function set_busy(chat)
+    -- Longer than the 60s ask plus the 30s audio follow-up. A canceled
+    -- command cannot run its cleanup, so the deadline is the safety net.
+    busy[chat] = os.time() + 180
+end
+
 local function finish(chat)
     busy[chat] = nil
 end
@@ -120,11 +138,11 @@ p:action{
             title = "Message → " .. (name or chat),
             placeholder = "/search ...",
             on_submit = function(text)
-                if busy[chat] then
+                if is_busy(chat) then
                     cliamp.message("Wait for the bot to finish this chat first.", 6)
                     return
                 end
-                busy[chat] = true
+                set_busy(chat)
                 cliamp.message("Sent. Waiting for the bot…", 3)
                 local waitForAudio = text:sub(1, 1) ~= "/"
                 local ok, err = cliamp.provider.call("telegram.ask", {
@@ -168,10 +186,10 @@ p:command("ask", function(args)
     if not chat or chat == "" or text == "" then
         return "usage: ask <chat-id> <message>"
     end
-    if busy[chat] then
+    if is_busy(chat) then
         return "busy: wait for the bot to finish this chat"
     end
-    busy[chat] = true
+    set_busy(chat)
     local reply, err = cliamp.provider.call("telegram.ask", {
         chat = chat,
         text = text,
