@@ -237,6 +237,10 @@ func (p *Provider) WaitAudio(ctx context.Context, chatID string, afterID int, ti
 	return p.waitReply(ctx, chatID, afterID, timeout, true)
 }
 
+// replyGrace is how long a text reply waits for a newer message before it is
+// returned as the final answer. It is a var so tests can shorten it.
+var replyGrace = 3 * time.Second
+
 func (p *Provider) waitReply(ctx context.Context, chatID string, afterID int, timeout time.Duration, audioOnly bool) (provider.ChatReply, error) {
 	if err := p.waitContext(ctx); err != nil {
 		return provider.ChatReply{}, err
@@ -251,7 +255,6 @@ func (p *Provider) waitReply(ctx context.Context, chatID string, afterID int, ti
 	deadline := time.Now().Add(timeout)
 	pollCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	const replyGrace = 3 * time.Second
 	var (
 		pending    provider.ChatReply
 		hasPending bool

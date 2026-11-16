@@ -14,9 +14,10 @@ type fakeWriteAPI struct {
 	sendResp tg.UpdatesClass
 	sendErr  error
 
-	history  []tg.MessagesMessagesClass
-	histErr  error
-	histReqs []*tg.MessagesGetHistoryRequest
+	history   []tg.MessagesMessagesClass
+	histErr   error
+	histReqs  []*tg.MessagesGetHistoryRequest
+	histTimes []time.Time
 
 	full    *tg.UsersUserFull
 	fullErr error
@@ -40,6 +41,7 @@ func (f *fakeWriteAPI) MessagesSendMessage(_ context.Context, request *tg.Messag
 
 func (f *fakeWriteAPI) MessagesGetHistory(_ context.Context, request *tg.MessagesGetHistoryRequest) (tg.MessagesMessagesClass, error) {
 	f.histReqs = append(f.histReqs, request)
+	f.histTimes = append(f.histTimes, time.Now())
 	if f.histErr != nil {
 		return nil, f.histErr
 	}
@@ -424,6 +426,10 @@ func TestMessageWindowStartsAtTheRequestedID(t *testing.T) {
 }
 
 func TestWaitReplyRestartsGraceForANewMessageWithTheSameText(t *testing.T) {
+	oldGrace := replyGrace
+	replyGrace = 50 * time.Millisecond
+	t.Cleanup(func() { replyGrace = oldGrace })
+
 	first := &tg.Message{ID: 6, Message: "Searching"}
 	second := &tg.Message{ID: 7, Message: "Searching"}
 	api := &fakeWriteAPI{history: []tg.MessagesMessagesClass{
@@ -432,11 +438,17 @@ func TestWaitReplyRestartsGraceForANewMessageWithTheSameText(t *testing.T) {
 	}}
 	p := readyProvider(api)
 
-	reply, err := p.WaitReply(context.Background(), "u:1:2", 5, 1300*time.Millisecond)
+	reply, err := p.WaitReply(context.Background(), "u:1:2", 5, 500*time.Millisecond)
 	if err != nil {
 		t.Fatalf("WaitReply: %v", err)
 	}
 	if reply.MessageID != 7 {
 		t.Fatalf("message id = %d, want the newer message", reply.MessageID)
+	}
+	if len(api.histTimes) < 2 {
+		t.Fatalf("history calls = %d, want at least 2", len(api.histTimes))
+	}
+	if since := time.Since(api.histTimes[1]); since < 40*time.Millisecond {
+		t.Fatalf("returned %v after the newer message, want a restarted grace period", since)
 	}
 }
