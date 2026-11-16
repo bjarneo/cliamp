@@ -21,6 +21,7 @@ var mainKeyPath = []string{"handleKey", "handleGlobalKey", "handleMainKey"}
 var modalKeyHandlers = map[string]bool{
 	"handleLuaSelectKey":  true,
 	"handleLuaInputKey":   true,
+	"handleLuaTextKey":    true,
 	"handleActionPaneKey": true,
 }
 

@@ -320,6 +320,7 @@ type Model struct {
 	paneCache          *paneCache
 	luaSelect          *luaSelectState
 	luaInput           *luaInputState
+	luaText            *luaTextState
 	actionPane         actionPaneState
 	artRef             *artRef
 	slotVis            *slotVisualizers

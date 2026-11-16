@@ -148,8 +148,10 @@ func luaUIProvider(send func(tea.Msg), headless bool) luaplugin.UIProvider {
 		ShowMessage: func(text string, duration time.Duration) {
 			send(model.ShowStatusMsg{Text: text, Duration: duration})
 		},
-		ShowSelect: showSelectFor(send, headless),
-		ShowInput:  showInputFor(send, headless),
+		ShowSelect:  showSelectFor(send, headless),
+		ShowInput:   showInputFor(send, headless),
+		UpdateInput: updateInputFor(send, headless),
+		ShowText:    showTextFor(send, headless),
 		SetVis: func(name string) {
 			send(model.SetVisMsg{Name: name})
 		},
@@ -159,21 +161,48 @@ func luaUIProvider(send func(tea.Msg), headless bool) luaplugin.UIProvider {
 // showSelectFor returns nil in headless mode: there is no UI to answer a
 // selector, and the API reports it as unavailable instead of accepting a
 // request nobody can complete.
-func showInputFor(send func(tea.Msg), headless bool) func(string, string, string, func(string), func()) {
+func showTextFor(send func(tea.Msg), headless bool) func(string, string, func()) {
 	if headless {
 		return nil
 	}
-	return func(title, placeholder, value string, onSubmit func(string), onCancel func()) {
-		send(model.LuaInputMsg{Title: title, Placeholder: placeholder, Value: value, OnSubmit: onSubmit, OnCancel: onCancel})
+	return func(title, text string, onClose func()) {
+		send(model.LuaTextMsg{Title: title, Text: text, OnClose: onClose})
 	}
 }
 
-func showSelectFor(send func(tea.Msg), headless bool) func(string, []string, int, func(int), func()) {
+func showInputFor(send func(tea.Msg), headless bool) func(string, string, string, []luaplugin.SelectOption, func(string), func(string), func(int), func()) {
 	if headless {
 		return nil
 	}
-	return func(title string, options []string, cursor int, onDone func(index int), onCancel func()) {
-		send(model.LuaSelectMsg{Title: title, Options: options, Cursor: cursor, OnDone: onDone, OnCancel: onCancel})
+	return func(title, placeholder, value string, suggestions []luaplugin.SelectOption, onChange, onSubmit func(string), onSelect func(int), onCancel func()) {
+		send(model.LuaInputMsg{
+			Title:       title,
+			Placeholder: placeholder,
+			Value:       value,
+			Suggestions: suggestions,
+			OnChange:    onChange,
+			OnSubmit:    onSubmit,
+			OnSelect:    onSelect,
+			OnCancel:    onCancel,
+		})
+	}
+}
+
+func updateInputFor(send func(tea.Msg), headless bool) func([]luaplugin.SelectOption, bool) {
+	if headless {
+		return nil
+	}
+	return func(options []luaplugin.SelectOption, live bool) {
+		send(model.LuaInputSuggestionsMsg{Options: options, Live: live})
+	}
+}
+
+func showSelectFor(send func(tea.Msg), headless bool) func(string, string, []luaplugin.SelectOption, int, func(int), func()) {
+	if headless {
+		return nil
+	}
+	return func(title, body string, options []luaplugin.SelectOption, cursor int, onDone func(index int), onCancel func()) {
+		send(model.LuaSelectMsg{Title: title, Body: body, Options: options, Cursor: cursor, OnDone: onDone, OnCancel: onCancel})
 	}
 }
 
@@ -238,6 +267,50 @@ func luaProviderProvider(entries []provider.Entry, load func() model.PluginState
 				return waitReplyResult(ctx, commander, chat, id, params)
 			case "reply":
 				return waitReplyResult(ctx, commander, chat, intParam(params, "after"), params)
+			case "inline":
+				bot := stringParam(params, "bot")
+				if bot == "" {
+					bot = chat
+				}
+				inline, err := commander.InlineResults(ctx, chat, bot, stringParam(params, "query"), stringParam(params, "offset"))
+				if err != nil {
+					return nil, err
+				}
+				rows := make([]any, 0, len(inline.Results))
+				for _, result := range inline.Results {
+					rows = append(rows, map[string]any{
+						"id":          result.ID,
+						"type":        result.Type,
+						"kind":        result.Kind,
+						"title":       result.Title,
+						"description": result.Description,
+						"url":         result.URL,
+						"thumb_url":   result.ThumbURL,
+					})
+				}
+				return map[string]any{
+					// Lua 5.1 numbers are float64 and cannot hold a 64-bit
+					// query id exactly. Keep it a string across the boundary.
+					"query_id":    fmt.Sprintf("%d", inline.QueryID),
+					"next_offset": inline.NextOffset,
+					"results":     rows,
+				}, nil
+			case "send_inline":
+				bot := stringParam(params, "bot")
+				if bot == "" {
+					bot = chat
+				}
+				id, err := commander.SendInlineResult(ctx, chat, bot, int64Param(params, "query_id"), stringParam(params, "result_id"))
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{"id": id}, nil
+			case "message":
+				reply, err := commander.Message(ctx, chat, intParam(params, "message_id"))
+				if err != nil {
+					return nil, err
+				}
+				return replyResult(reply), nil
 			case "callback":
 				data, err := base64.StdEncoding.DecodeString(stringParam(params, "data_b64"))
 				if err != nil {
@@ -252,6 +325,42 @@ func luaProviderProvider(entries []provider.Entry, load func() model.PluginState
 			}
 		},
 	}
+}
+
+func replyResult(reply provider.ChatReply) map[string]any {
+	out := map[string]any{
+		"kind":       reply.Kind,
+		"text":       reply.Text,
+		"from":       reply.From,
+		"message_id": reply.MessageID,
+	}
+	if reply.Kind == "audio" {
+		out["track"] = luaplugin.TrackData(pluginTrackFromPlaylist(reply.Track))
+	}
+	if len(reply.Links) > 0 {
+		out["links"] = reply.Links
+	}
+	if len(reply.Buttons) > 0 {
+		buttons := make([]any, 0, len(reply.Buttons))
+		for _, button := range reply.Buttons {
+			row := map[string]any{"text": button.Text, "kind": button.Kind}
+			if len(button.Data) > 0 {
+				row["data_b64"] = base64.StdEncoding.EncodeToString(button.Data)
+			}
+			if button.DataText != "" {
+				row["data_text"] = button.DataText
+			}
+			if button.URL != "" {
+				row["url"] = button.URL
+			}
+			if button.SendText {
+				row["send_text"] = true
+			}
+			buttons = append(buttons, row)
+		}
+		out["buttons"] = buttons
+	}
+	return out
 }
 
 func waitReplyResult(ctx context.Context, commander provider.ChatCommander, chat string, after int, params map[string]any) (map[string]any, error) {
@@ -271,33 +380,8 @@ func waitReplyResult(ctx context.Context, commander provider.ChatCommander, chat
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]any{
-		"id":         after,
-		"kind":       reply.Kind,
-		"text":       reply.Text,
-		"from":       reply.From,
-		"message_id": reply.MessageID,
-	}
-	if reply.Kind == "audio" {
-		out["track"] = luaplugin.TrackData(pluginTrackFromPlaylist(reply.Track))
-	}
-	if len(reply.Buttons) > 0 {
-		buttons := make([]any, 0, len(reply.Buttons))
-		for _, button := range reply.Buttons {
-			row := map[string]any{"text": button.Text, "kind": button.Kind}
-			if len(button.Data) > 0 {
-				row["data_b64"] = base64.StdEncoding.EncodeToString(button.Data)
-			}
-			if button.URL != "" {
-				row["url"] = button.URL
-			}
-			if button.SendText {
-				row["send_text"] = true
-			}
-			buttons = append(buttons, row)
-		}
-		out["buttons"] = buttons
-	}
+	out := replyResult(reply)
+	out["id"] = after
 	return out, nil
 }
 
@@ -319,6 +403,22 @@ func pluginTrackFromPlaylist(track playlist.Track) luaplugin.Track {
 func stringParam(params map[string]any, key string) string {
 	value, _ := params[key].(string)
 	return value
+}
+
+func int64Param(params map[string]any, key string) int64 {
+	switch value := params[key].(type) {
+	case float64:
+		return int64(value)
+	case int64:
+		return value
+	case int:
+		return int64(value)
+	case string:
+		var out int64
+		fmt.Sscan(value, &out)
+		return out
+	}
+	return 0
 }
 
 func intParam(params map[string]any, key string) int {

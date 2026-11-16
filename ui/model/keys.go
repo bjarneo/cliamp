@@ -193,6 +193,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	if msg.String() == "ctrl+c" {
 		return m.quit()
 	}
+	if m.luaText != nil {
+		m.handleLuaTextKey(msg)
+		return nil
+	}
 	if m.luaInput != nil {
 		m.handleLuaInputKey(msg)
 		return nil

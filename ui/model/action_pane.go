@@ -89,9 +89,9 @@ func (m *Model) handleActionPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		action := pane.filtered[pane.cursor]
 		m.actionPane = actionPaneState{}
 		if action.Prompt != "" {
-			m.openLuaInput(action.Prompt, "", "", func(text string) {
+			m.openLuaInput(action.Prompt, "", "", nil, nil, func(text string) {
 				action.Run(text)
-			}, nil)
+			}, nil, nil)
 			return nil
 		}
 		action.Run("")

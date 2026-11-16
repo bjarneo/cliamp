@@ -125,6 +125,18 @@ type ControlProvider struct {
 	QueueInsert   func(index int, track Track) // insert a track at index
 }
 
+// SelectOption is one row of cliamp.ui.select. A plain string option uses
+// Title only; a table can add the subtitle and description lines Telegram uses
+// for a track: title, artist and album.
+type SelectOption struct {
+	Title       string
+	Subtitle    string
+	Description string
+	// Image is a pre-rendered ANSI block, one image line per row. The plugin
+	// downloads and converts it; the core only lays it out.
+	Image string
+}
+
 // UIProvider supplies callbacks that surface plugin output in the TUI.
 // Not permission-gated — these are low-risk, output-only operations. Like
 // the ControlProvider funcs, ShowMessage must return at once.
@@ -133,11 +145,16 @@ type UIProvider struct {
 	// ShowSelect opens a selector with options and calls onDone with the chosen
 	// index, or -1 when the user cancels. It must return at once; onDone runs on
 	// the UI goroutine and the manager turns it into a plugin callback.
-	ShowSelect func(title string, options []string, cursor int, onDone func(index int), onCancel func())
+	ShowSelect func(title, body string, options []SelectOption, cursor int, onDone func(index int), onCancel func())
 	// ShowInput opens a text input. It must return at once; onSubmit and
 	// onCancel run on the UI goroutine and the manager turns them into plugin
 	// callbacks.
-	ShowInput func(title, placeholder, value string, onSubmit func(text string), onCancel func())
+	ShowInput func(title, placeholder, value string, suggestions []SelectOption, onChange func(text string), onSubmit func(text string), onSelect func(index int), onCancel func())
+	// UpdateInput replaces the suggestions of the open input. live means the
+	// rows are search results that Enter selects, not command completions.
+	UpdateInput func(options []SelectOption, live bool)
+	// ShowText opens a scrollable text panel. It must return at once.
+	ShowText func(title, text string, onClose func())
 	// SetVis switches the active visualizer by name. It must return at once: the
 	// UI applies the change on its own goroutine.
 	SetVis func(name string)

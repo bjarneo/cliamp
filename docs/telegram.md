@@ -111,10 +111,11 @@ screen, desktop widgets) as a `data:` URL.
 
 A chat with a bot is a normal playlist: the provider lists its audio documents
 and plays them. A plugin can also write into that chat: send a command as the
-signed-in user, wait for the bot's reply, or press an inline button. The write
-actions live in the plugin API (`cliamp.provider.call`), not in a fixed key, so
-the plugin decides the prompt and how to show the reply. See
-[Plugins](plugins.md) and the bundled `telegram-bot.lua`.
+signed-in user, wait for the bot's reply, press an inline button, or ask an
+inline bot for results and send one. The write actions live in the plugin API
+(`cliamp.provider.call`), not in a fixed key, so the plugin decides the prompt
+and how to show the reply. See [Plugins](plugins.md) and the bundled
+`telegram-bot.lua`.
 
 Writes use the same MTProto session as reads and act as the signed-in user. A
 bot sees a normal message from you; a command sent to a group is visible to

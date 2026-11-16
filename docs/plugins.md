@@ -475,7 +475,9 @@ budget, so a waiting call from a key binding needs `on_reply`.
 Telegram actions at this layer are `telegram.commands` (the commands a bot
 advertises), `telegram.send` (send text and return the message id),
 `telegram.ask` (send and wait for the reply), `telegram.reply` (wait for the
-next message after an id), and `telegram.callback` (press an inline button).
+next message after an id), `telegram.callback` (press an inline button),
+`telegram.message` (re-read one message), `telegram.inline` (ask an inline bot
+for results) and `telegram.send_inline` (send one of those results).
 
 ### cliamp.http
 
@@ -741,8 +743,13 @@ panes.
 
 ```lua
 cliamp.ui.select{
-    title = "Which visualizer?",
-    options = { "Bars", "Scatter", "None" },
+    title = "Track",
+    body = "2:34 · 7 options",       -- optional text above the list
+    options = {
+        "Bars",                       -- title only
+        {title = "Get Lucky", subtitle = "Daft Punk", description = "3:09",
+         image = "/tmp/cover.png"},   -- optional image path or URL
+    },
     cursor = 2,                       -- optional, 1-based
     on_select = function(index) ... end,
     on_cancel = function() ... end,   -- optional, Esc
@@ -751,21 +758,46 @@ cliamp.ui.select{
 
 Returns true when the request was accepted. With no interactive UI (headless
 mode) it returns an error. Closing the selector calls `on_cancel` when given, or
-`on_select(-1)` otherwise.
+`on_select(-1)` otherwise. A table row can carry `title`, `subtitle`,
+`description` and `image`; the image is rendered with the terminal's image
+protocol when it supports one, and ignored otherwise.
 
 ```lua
 cliamp.ui.input{
     title = "Message",
-    placeholder = "/search ...",
+    placeholder = "song, artist or link",
     value = "",                       -- optional
+    suggestions = {                   -- optional, same row shape as select
+        {title = "/start", description = "Start the bot"},
+    },
+    on_change = function(text) ... end, -- optional, every edit
+    on_select = function(index) ... end, -- optional, Enter on a live row
     on_submit = function(text) ... end,
     on_cancel = function() ... end,   -- optional, Esc
 }
 ```
 
 `ui.input` asks for one line of text. `Enter` calls `on_submit` with the text;
-`Esc` calls `on_cancel` when given. It returns true when the request was
-accepted; headless mode returns an error.
+`Esc` calls `on_cancel` when given. `on_change` runs on every edit and
+`on_select` runs when `Enter` picks a live suggestion. It returns true when the
+request was accepted; headless mode returns an error.
+
+While an input is open, `cliamp.ui.suggestions(options, {live = true})` replaces
+the list under it. This is how a plugin turns the input into a live search or a
+command palette. `live = true` (the default) marks the rows as results: `Enter`
+selects one and calls `on_select` instead of submitting the typed text.
+`live = false` makes them plain suggestions again, so `Enter` submits the text.
+
+```lua
+cliamp.ui.text{
+    title = "Bot reply",
+    text = "long text ...",
+    on_close = function() ... end,    -- optional
+}
+```
+
+`ui.text` opens a scrollable read-only panel. `↑`/`↓`, `PageUp`/`PageDown`,
+`Home`/`End` scroll it; `Esc` or `q` closes it and calls `on_close`.
 
 ### cliamp.vis
 
