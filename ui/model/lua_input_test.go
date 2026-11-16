@@ -85,3 +85,12 @@ func TestLuaInputSuggestionsKeepImage(t *testing.T) {
 		t.Fatalf("box does not contain the image lines:\n%s", box)
 	}
 }
+
+func TestPasteGoesToOpenLuaInput(t *testing.T) {
+	m := Model{}
+	m.openLuaInput("Message", "", "", nil, nil, nil, nil, nil)
+	m.handlePaste("daft punk")
+	if m.luaInput == nil || m.luaInput.value != "daft punk" {
+		t.Fatalf("input = %#v, want pasted text", m.luaInput)
+	}
+}

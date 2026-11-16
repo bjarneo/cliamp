@@ -143,22 +143,28 @@ func (m *Model) handleLuaInputKey(msg tea.KeyPressMsg) bool {
 	default:
 		if m.editText("lua-input", &input.value, msg) {
 			input.cursor = m.textInput.cursor
-			// A live result belongs to the previous text. Clear it until the
-			// plugin sends the results for this query.
-			if input.live {
-				input.live = false
-				input.suggestions = nil
-				input.filtered = nil
-				input.choice = 0
-			} else {
-				input.filter()
-			}
-			if input.onChange != nil {
-				input.onChange(input.value)
-			}
+			input.afterEdit()
 		}
 	}
 	return true
+}
+
+// afterEdit applies the state changes that every edit shares, whether it came
+// from a key or a paste.
+func (input *luaInputState) afterEdit() {
+	// A live result belongs to the previous text. Clear it until the plugin
+	// sends the results for this query.
+	if input.live {
+		input.live = false
+		input.suggestions = nil
+		input.filtered = nil
+		input.choice = 0
+	} else {
+		input.filter()
+	}
+	if input.onChange != nil {
+		input.onChange(input.value)
+	}
 }
 
 // inputRows is the number of lines one option needs in the input.

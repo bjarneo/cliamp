@@ -1047,6 +1047,12 @@ func (m *Model) handlePaste(content string) tea.Cmd {
 	if content == "" {
 		return nil
 	}
+	if m.luaInput != nil {
+		m.insertText("lua-input", &m.luaInput.value, content)
+		m.luaInput.cursor = m.textInput.cursor
+		m.luaInput.afterEdit()
+		return nil
+	}
 	if spec, ok := m.topOverlay(); ok {
 		if spec.paste != nil {
 			spec.paste(m, content)
