@@ -60,6 +60,8 @@ func (m *Model) openLuaInput(title, placeholder, value string, suggestions []lua
 		onCancel:    onCancel,
 	}
 	m.luaInput.filter()
+	m.textInput.begin("lua-input", value)
+	m.textInput.cursor = len(value)
 }
 
 // filter keeps command suggestions that match a prefix. Live search results
@@ -118,6 +120,8 @@ func (m *Model) handleLuaInputKey(msg tea.KeyPressMsg) bool {
 				input.value += " "
 			}
 			input.cursor = len(input.value)
+			m.textInput.begin("lua-input", input.value)
+			m.textInput.cursor = input.cursor
 			input.filter()
 		}
 	case "enter":
@@ -196,9 +200,9 @@ func (m Model) renderLuaInput() string {
 	width := max(40, lipgloss.Width(input.title)+4)
 	width = max(width, lipgloss.Width(input.placeholder)+8)
 	for _, suggestion := range input.filtered {
-		width = max(width, lipgloss.Width(suggestion.Title)+6)
-		width = max(width, lipgloss.Width(suggestion.Subtitle)+6)
-		width = max(width, lipgloss.Width(suggestion.Description)+6)
+		width = max(width, lipgloss.Width(oneLine(suggestion.Title))+6)
+		width = max(width, lipgloss.Width(oneLine(suggestion.Subtitle))+6)
+		width = max(width, lipgloss.Width(oneLine(suggestion.Description))+6)
 		for _, line := range imageLines(suggestion.Image) {
 			width = max(width, lipgloss.Width(line)+4)
 		}
@@ -297,12 +301,12 @@ func (m Model) renderLiveInputRows(b *strings.Builder, input *luaInputState, wid
 		if i == input.choice {
 			marker = "▸ "
 		}
-		b.WriteString(marker + truncate(option.Title, width-6))
+		b.WriteString(marker + truncate(oneLine(option.Title), width-6))
 		if option.Subtitle != "" {
-			b.WriteString("\n  " + dimStyle.Render(truncate(option.Subtitle, width-6)))
+			b.WriteString("\n  " + dimStyle.Render(truncate(oneLine(option.Subtitle), width-6)))
 		}
 		if option.Description != "" {
-			b.WriteString("\n  " + dimStyle.Render(truncate(option.Description, width-6)))
+			b.WriteString("\n  " + dimStyle.Render(truncate(oneLine(option.Description), width-6)))
 		}
 	}
 	if end < len(input.filtered) {

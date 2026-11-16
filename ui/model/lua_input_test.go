@@ -94,3 +94,47 @@ func TestPasteGoesToOpenLuaInput(t *testing.T) {
 		t.Fatalf("input = %#v, want pasted text", m.luaInput)
 	}
 }
+
+func TestLuaInputCursorAfterTab(t *testing.T) {
+	m := Model{}
+	m.openLuaInput("Message", "", "", []luaplugin.SelectOption{{Title: "/help", Description: "Help"}}, nil, nil, nil, nil)
+	m.luaInput.value = "/h"
+	m.luaInput.filter()
+	m.luaInput.choice = 0
+	m.handleLuaInputKey(tea.KeyPressMsg{Code: tea.KeyTab})
+	m.handleLuaInputKey(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	if got := m.luaInput.value; got != "/help x" {
+		t.Fatalf("value = %q, want %q", got, "/help x")
+	}
+}
+
+func TestLuaInputCursorOnPrefilledValue(t *testing.T) {
+	m := Model{}
+	m.openLuaInput("Message", "", "abc", nil, nil, nil, nil, nil)
+	m.handleLuaInputKey(tea.KeyPressMsg{Code: 'd', Text: "d"})
+	if got := m.luaInput.value; got != "abcd" {
+		t.Fatalf("value = %q, want %q", got, "abcd")
+	}
+}
+
+func TestPasteIgnoredUnderTextPanel(t *testing.T) {
+	m := Model{}
+	m.openLuaText("Reply", "body", nil)
+	m.openLuaInput("Message", "", "", nil, nil, nil, nil, nil)
+	m.handlePaste("hidden")
+	if got := m.luaInput.value; got != "" {
+		t.Fatalf("value = %q, want empty", got)
+	}
+}
+
+func TestLuaInputLiveRowsAreOneLine(t *testing.T) {
+	m := Model{}
+	m.openLuaInput("Message", "", "", nil, nil, nil, nil, nil)
+	m.luaInput.live = true
+	m.luaInput.suggestions = []luaplugin.SelectOption{{Title: "one\ntwo"}}
+	m.luaInput.filter()
+	box := m.renderLuaInput()
+	if strings.Contains(box, "one\ntwo") {
+		t.Fatalf("live row kept a newline:\n%s", box)
+	}
+}
