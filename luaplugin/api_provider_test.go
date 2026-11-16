@@ -15,11 +15,13 @@ func TestProviderCurrent(t *testing.T) {
 	m.SetProviderProvider(ProviderProvider{
 		Current: func() ProviderInfo {
 			return ProviderInfo{
-				Name:          "Telegram",
-				PlaylistID:    "u:1:2",
-				PlaylistName:  "DeezLoad",
-				SelectionID:   "u:3:4",
-				SelectionName: "Other",
+				Name:             "Telegram",
+				PlaylistID:       "u:1:2",
+				PlaylistName:     "DeezLoad",
+				PlaylistSection:  "Bots",
+				SelectionID:      "u:3:4",
+				SelectionName:    "Other",
+				SelectionSection: "Chats",
 			}
 		},
 	})
@@ -28,7 +30,9 @@ func TestProviderCurrent(t *testing.T) {
 		local c = cliamp.provider.current()
 		_G.name = c.name
 		_G.playlist = c.playlist_name
+		_G.playlist_section = c.playlist_section
 		_G.selection = c.selection_name
+		_G.selection_section = c.selection_section
 	`)
 
 	p := m.plugins[0]
@@ -40,6 +44,12 @@ func TestProviderCurrent(t *testing.T) {
 	}
 	if got := p.L.GetGlobal("selection").String(); got != "Other" {
 		t.Errorf("selection = %q", got)
+	}
+	if got := p.L.GetGlobal("playlist_section").String(); got != "Bots" {
+		t.Errorf("playlist_section = %q", got)
+	}
+	if got := p.L.GetGlobal("selection_section").String(); got != "Chats" {
+		t.Errorf("selection_section = %q", got)
 	}
 }
 
