@@ -187,13 +187,23 @@ func inputWindow(value string, cursor, width int) string {
 		cursorRune = len(runes)
 	}
 	budget := width - 1
-	start := 0
-	for start < cursorRune && lipgloss.Width(string(runes[start:cursorRune])) >= budget {
-		start++
+	start, used := cursorRune, 0
+	for start > 0 {
+		w := lipgloss.Width(string(runes[start-1]))
+		if used+w > budget {
+			break
+		}
+		start--
+		used += w
 	}
-	end := len(runes)
-	for end > cursorRune && lipgloss.Width(string(runes[start:end])) > budget {
-		end--
+	end := cursorRune
+	for end < len(runes) {
+		w := lipgloss.Width(string(runes[end]))
+		if used+w > budget {
+			break
+		}
+		end++
+		used += w
 	}
 	var b strings.Builder
 	b.WriteString(string(runes[start:cursorRune]))
