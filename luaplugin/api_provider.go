@@ -12,11 +12,13 @@ import (
 // playlist is the one open in the provider pane; selection is the row under
 // the cursor in the provider list. Either id may be empty.
 type ProviderInfo struct {
-	Name          string
-	PlaylistID    string
-	PlaylistName  string
-	SelectionID   string
-	SelectionName string
+	Name             string
+	PlaylistID       string
+	PlaylistName     string
+	PlaylistSection  string
+	SelectionID      string
+	SelectionName    string
+	SelectionSection string
 }
 
 // ProviderProvider exposes the active provider context and the chat actions a
@@ -24,6 +26,9 @@ type ProviderInfo struct {
 type ProviderProvider struct {
 	Current func() ProviderInfo
 	Call    func(ctx context.Context, action string, params map[string]any) (map[string]any, error)
+	// Open asks the UI to load a playlist the plugin resolved, such as a bot
+	// chat that was just created.
+	Open func(info ProviderInfo) error
 }
 
 // providerWrites reports whether an action changes the remote account. Write
@@ -60,12 +65,43 @@ func (m *Manager) registerProviderAPI(L *lua.LState, cliamp *lua.LTable, p *Plug
 		}
 		info := pp.Current()
 		L.Push(dataToTable(L, map[string]any{
-			"name":           info.Name,
-			"playlist_id":    info.PlaylistID,
-			"playlist_name":  info.PlaylistName,
-			"selection_id":   info.SelectionID,
-			"selection_name": info.SelectionName,
+			"name":              info.Name,
+			"playlist_id":       info.PlaylistID,
+			"playlist_name":     info.PlaylistName,
+			"playlist_section":  info.PlaylistSection,
+			"selection_id":      info.SelectionID,
+			"selection_name":    info.SelectionName,
+			"selection_section": info.SelectionSection,
 		}))
+		return 1
+	}))
+
+	// cliamp.provider.open{provider, playlist_id, playlist_name, playlist_section}
+	L.SetField(tbl, "open", L.NewFunction(func(L *lua.LState) int {
+		if !p.permitted(PermProvider, "cliamp.provider.open") {
+			return pushErr(L, "provider permission required")
+		}
+		opts := L.CheckTable(1)
+		info := ProviderInfo{
+			Name:            strings.TrimSpace(rawString(L, opts, "provider")),
+			PlaylistID:      strings.TrimSpace(rawString(L, opts, "playlist_id")),
+			PlaylistName:    strings.TrimSpace(rawString(L, opts, "playlist_name")),
+			PlaylistSection: strings.TrimSpace(rawString(L, opts, "playlist_section")),
+		}
+		pp := m.provider.Load()
+		if pp == nil || pp.Open == nil {
+			return pushErr(L, "provider: not available")
+		}
+		if info.Name == "" && pp.Current != nil {
+			info.Name = pp.Current().Name
+		}
+		if info.PlaylistID == "" {
+			return pushErr(L, "cliamp.provider.open: playlist_id is required")
+		}
+		if err := pp.Open(info); err != nil {
+			return pushErr(L, err.Error())
+		}
+		L.Push(lua.LTrue)
 		return 1
 	}))
 

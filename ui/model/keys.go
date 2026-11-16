@@ -190,9 +190,12 @@ func normalizeShiftedLetter(msg tea.KeyPressMsg) tea.KeyPressMsg {
 func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	msg = normalizeShiftedLetter(msg)
 
+	// Ctrl+C quits over every plugin modal too. The modal handlers below own
+	// the keyboard, so the global handler never sees the key otherwise.
 	if msg.String() == "ctrl+c" {
 		return m.quit()
 	}
+
 	if m.luaText != nil {
 		m.handleLuaTextKey(msg)
 		return nil

@@ -211,9 +211,23 @@ func showSelectFor(send func(tea.Msg), headless bool) func(string, string, []lua
 // for "telegram.send" and the provider that implements ChatCommander runs it.
 // The provider call runs on the caller's goroutine, so a blocking reply never
 // holds the UI.
-func luaProviderProvider(entries []provider.Entry, load func() model.PluginState) luaplugin.ProviderProvider {
+func luaProviderProvider(entries []provider.Entry, load func() model.PluginState, send func(tea.Msg)) luaplugin.ProviderProvider {
 	return luaplugin.ProviderProvider{
 		Current: func() luaplugin.ProviderInfo { return load().Provider },
+		Open: func(info luaplugin.ProviderInfo) error {
+			if send == nil {
+				return fmt.Errorf("ui: not available")
+			}
+			send(model.PluginOpenProviderMsg{
+				ProviderName: info.Name,
+				Playlist: playlist.PlaylistInfo{
+					ID:      info.PlaylistID,
+					Name:    info.PlaylistName,
+					Section: info.PlaylistSection,
+				},
+			})
+			return nil
+		},
 		Call: func(ctx context.Context, action string, params map[string]any) (map[string]any, error) {
 			name, verb, ok := strings.Cut(action, ".")
 			if !ok || name == "" || verb == "" {
@@ -230,7 +244,7 @@ func luaProviderProvider(entries []provider.Entry, load func() model.PluginState
 				return nil, fmt.Errorf("provider %q is not available", name)
 			}
 			chat, _ := params["chat"].(string)
-			if chat == "" {
+			if chat == "" && verb != "resolve" {
 				return nil, fmt.Errorf("%s: chat is required", action)
 			}
 			commander, ok := prov.(provider.ChatCommander)
@@ -267,6 +281,39 @@ func luaProviderProvider(entries []provider.Entry, load func() model.PluginState
 				return waitReplyResult(ctx, commander, chat, id, params)
 			case "reply":
 				return waitReplyResult(ctx, commander, chat, intParam(params, "after"), params)
+			case "resolve":
+				info, err := commander.ResolveChat(ctx, stringParam(params, "username"))
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{
+					"id":      info.ID,
+					"name":    info.Name,
+					"section": info.Section,
+				}, nil
+			case "add_chat":
+				filter, ok := prov.(provider.ChatFilter)
+				if !ok {
+					return nil, fmt.Errorf("provider %q has no chat filter", name)
+				}
+				chat := stringParam(params, "chat")
+				chats := filter.Chats()
+				found := false
+				for _, existing := range chats {
+					if existing == chat {
+						found = true
+						break
+					}
+				}
+				added := false
+				if !found && len(chats) > 0 {
+					chats = append(chats, chat)
+					if err := filter.SetChats(chats); err != nil {
+						return nil, err
+					}
+					added = true
+				}
+				return map[string]any{"added": added, "filtered": len(chats) > 0}, nil
 			case "inline":
 				bot := stringParam(params, "bot")
 				if bot == "" {

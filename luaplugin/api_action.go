@@ -22,6 +22,7 @@ type Action struct {
 	Provider    string
 	Key         string
 	Prompt      string
+	Context     string // "chat", "chats" or empty for both
 
 	run func(text string)
 }
@@ -80,6 +81,7 @@ func (m *Manager) registerActionAPI(L *lua.LState, obj *lua.LTable, p *Plugin) {
 			Provider:    strings.TrimSpace(rawString(L, opts, "provider")),
 			Key:         key,
 			Prompt:      strings.TrimSpace(rawString(L, opts, "prompt")),
+			Context:     strings.TrimSpace(rawString(L, opts, "context")),
 			run: func(text string) {
 				label := "action " + id
 				m.mu.RLock()

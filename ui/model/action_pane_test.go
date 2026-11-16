@@ -165,3 +165,42 @@ func TestActionPaneResizeClampsScroll(t *testing.T) {
 		t.Fatalf("scroll = %d, want 2", got.actionPane.scroll)
 	}
 }
+
+func TestActionPaneFiltersByChatContext(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv("CLIAMP_CONFIG_DIR", configDir)
+	pluginDir := filepath.Join(configDir, "plugins")
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pluginPath := filepath.Join(pluginDir, "action-context.lua")
+	script := `
+local p = plugin.register({name = "action-context", type = "hook", permissions = {"ui"}})
+p:action{key = "!", id = "chat", label = "Chat action", context = "chat", on_submit = function() end}
+p:action{key = "!", id = "chats", label = "Chats action", context = "chats", on_submit = function() end}
+`
+	if err := os.WriteFile(pluginPath, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := plugintrust.Approve(pluginDir, "action-context", pluginPath); err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := luaplugin.New(nil, nil, ReservedKeys())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(sync.OnceFunc(mgr.Close))
+
+	m := Model{luaMgr: mgr}
+	m.openActionPane()
+	if len(m.actionPane.filtered) != 1 || m.actionPane.filtered[0].Label != "Chats action" {
+		t.Fatalf("chats pane = %#v", m.actionPane.filtered)
+	}
+
+	m.actionPane = actionPaneState{}
+	m.activeProviderPlaylistID = "u:1:2"
+	m.openActionPane()
+	if len(m.actionPane.filtered) != 1 || m.actionPane.filtered[0].Label != "Chat action" {
+		t.Fatalf("chat pane = %#v", m.actionPane.filtered)
+	}
+}

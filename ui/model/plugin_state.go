@@ -64,6 +64,7 @@ func (m *Model) providerInfo() luaplugin.ProviderInfo {
 	for _, row := range m.provPane.lists {
 		if row.ID == info.PlaylistID {
 			info.PlaylistName = row.Name
+			info.PlaylistSection = row.Section
 			break
 		}
 	}
@@ -71,6 +72,7 @@ func (m *Model) providerInfo() luaplugin.ProviderInfo {
 		row := m.provPane.lists[m.provPane.cursor]
 		info.SelectionID = row.ID
 		info.SelectionName = row.Name
+		info.SelectionSection = row.Section
 	}
 	return info
 }

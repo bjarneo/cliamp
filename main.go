@@ -185,7 +185,6 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 	m.SetIPCBroker(pluginBroker)
 	if luaMgr != nil {
 		luaMgr.SetStateProvider(luaStateProvider(p, m.PluginStateLoader()))
-		luaMgr.SetProviderProvider(luaProviderProvider(providers.entries, m.PluginStateLoader()))
 		if names := luaMgr.Visualizers(); len(names) > 0 {
 			m.RegisterLuaVisualizers(names, luaMgr)
 		}
@@ -231,6 +230,7 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 		defer stopLuaSend()
 		luaMgr.SetControlProvider(luaControlProvider(luaSend))
 		luaMgr.SetUIProvider(luaUIProvider(luaSend, headless))
+		luaMgr.SetProviderProvider(luaProviderProvider(providers.entries, m.PluginStateLoader(), luaSend))
 	}
 
 	stopIPC, err := startIPC(prog.Send, pluginBroker, luaMgr, headless)

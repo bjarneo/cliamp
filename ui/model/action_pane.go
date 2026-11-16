@@ -34,11 +34,23 @@ func (m *Model) openActionPane() {
 	if m.provider != nil {
 		providerName = m.provider.Name()
 	}
+	chatOpen := m.activeProviderPlaylistID != ""
 	available := make([]luaplugin.Action, 0, len(entries))
 	for _, action := range entries {
-		if action.Provider == "" || strings.EqualFold(action.Provider, providerName) {
-			available = append(available, action)
+		if action.Provider != "" && !strings.EqualFold(action.Provider, providerName) {
+			continue
 		}
+		switch action.Context {
+		case "chat":
+			if !chatOpen {
+				continue
+			}
+		case "chats":
+			if chatOpen {
+				continue
+			}
+		}
+		available = append(available, action)
 	}
 	entries = available
 	if len(entries) == 0 {

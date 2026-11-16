@@ -304,6 +304,7 @@ p:action{
     label = "Send message",
     description = "Ask the bot for a track",
     provider = "Telegram",        -- optional
+    context = "chat",             -- optional: "chat" or "chats"
     prompt = "Message",           -- optional: ask for text first
     on_submit = function(text) ... end,
 }
@@ -314,6 +315,10 @@ Actions are namespaced by plugin, so two plugins can use the same `id`.
 or the id is already registered. The action pane filters by provider and by the
 text typed in the pane. An action with `prompt` runs `on_submit` with the text;
 without it, `on_submit` gets an empty string.
+
+`context` narrows the action to the provider list or to open content:
+`"chats"` shows it only while the provider list has no open playlist, and
+`"chat"` only while one is open. Leave it out to show the action in both.
 
 ## Lua API
 
@@ -438,13 +443,16 @@ lacks the `control` permission. An HTTP URL is always marked as a stream.
 {
     name = "Telegram",
     playlist_id = "u:1:2",   playlist_name = "DeezLoad",
+    playlist_section = "Bots",
     selection_id = "u:1:2",  selection_name = "DeezLoad",
+    selection_section = "Bots",
 }
 ```
 
 `playlist_id` is the playlist open in the pane; `selection_id` is the row under
-the cursor. Either can be empty. `name` is the same string the provider uses in
-the UI.
+the cursor. Either can be empty. `playlist_section` and `selection_section` are
+the headings the provider uses, such as `Bots` or `Groups`. `name` is the same
+string the provider uses in the UI.
 
 `cliamp.provider.call(action, params[, options])` calls a provider action.
 Reads need `permissions = {"provider"}`; actions that change the remote account
@@ -477,7 +485,15 @@ advertises), `telegram.send` (send text and return the message id),
 `telegram.ask` (send and wait for the reply), `telegram.reply` (wait for the
 next message after an id), `telegram.callback` (press an inline button),
 `telegram.message` (re-read one message), `telegram.inline` (ask an inline bot
-for results) and `telegram.send_inline` (send one of those results).
+for results), `telegram.send_inline` (send one of those results),
+`telegram.resolve` (turn a username or `t.me` link into a playlist id) and
+`telegram.add_chat` (add a chat to the provider's `chats` filter when one is
+set).
+
+`cliamp.provider.open{provider, playlist_id, playlist_name, playlist_section}`
+asks the UI to load a playlist that the plugin resolved, such as a bot chat it
+just created. It returns true, or an error when the provider is not active or
+the UI is not available.
 
 ### cliamp.http
 

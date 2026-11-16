@@ -399,6 +399,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setCustomEQBand(msg.Band, msg.Gain)
 		return m, nil
 
+	case PluginOpenProviderMsg:
+		return m, m.handlePluginOpenProvider(msg)
+
 	case PluginQueueMsg:
 		cmd := m.handlePluginQueue(msg)
 		return m, cmd
