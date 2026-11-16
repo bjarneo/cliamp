@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf16"
 	"unicode/utf8"
 
 	"github.com/bjarneo/cliamp/playlist"
@@ -56,7 +57,7 @@ func (p *Provider) writer() writeAPI {
 // BotCommands returns the commands the bot of a user chat advertises. Groups,
 // channels and users that are not bots return none.
 func (p *Provider) BotCommands(ctx context.Context, chatID string) ([]provider.BotCommand, error) {
-	if err := p.wait(); err != nil {
+	if err := p.waitContext(ctx); err != nil {
 		return nil, err
 	}
 	peer, _, err := p.resolveChatID(ctx, chatID)
@@ -95,7 +96,7 @@ func (p *Provider) BotCommands(ctx context.Context, chatID string) ([]provider.B
 // SendCommand sends text to chatID as the signed-in user and returns the id
 // of the message Telegram created.
 func (p *Provider) SendCommand(ctx context.Context, chatID, text string) (int, error) {
-	if err := p.wait(); err != nil {
+	if err := p.waitContext(ctx); err != nil {
 		return 0, err
 	}
 	text = strings.TrimSpace(text)
@@ -128,7 +129,7 @@ func (p *Provider) SendCommand(ctx context.Context, chatID, text string) (int, e
 
 // BotCallback presses an inline button on a bot message.
 func (p *Provider) BotCallback(ctx context.Context, chatID string, messageID int, data []byte) error {
-	if err := p.wait(); err != nil {
+	if err := p.waitContext(ctx); err != nil {
 		return err
 	}
 	peer, _, err := p.resolveChatID(ctx, chatID)
@@ -155,7 +156,7 @@ func (p *Provider) BotCallback(ctx context.Context, chatID string, messageID int
 // Message reads one message by id. It is used after a callback that edits a
 // menu in place: the id stays the same, so WaitReply cannot see the change.
 func (p *Provider) Message(ctx context.Context, chatID string, messageID int) (provider.ChatReply, error) {
-	if err := p.wait(); err != nil {
+	if err := p.waitContext(ctx); err != nil {
 		return provider.ChatReply{}, err
 	}
 	peer, canonicalID, err := p.resolveChatID(ctx, chatID)
@@ -198,8 +199,11 @@ func replyFromMessage(chatID string, msg *tg.Message) (provider.ChatReply, bool)
 				return provider.ChatReply{
 					Kind:      "audio",
 					Track:     track,
+					Text:      strings.TrimSpace(msg.Message),
 					From:      senderOf(msg),
 					MessageID: msg.ID,
+					Buttons:   buttonsOf(msg),
+					Links:     linksOf(msg),
 				}, true
 			}
 		}
@@ -233,7 +237,7 @@ func (p *Provider) WaitAudio(ctx context.Context, chatID string, afterID int, ti
 }
 
 func (p *Provider) waitReply(ctx context.Context, chatID string, afterID int, timeout time.Duration, audioOnly bool) (provider.ChatReply, error) {
-	if err := p.wait(); err != nil {
+	if err := p.waitContext(ctx); err != nil {
 		return provider.ChatReply{}, err
 	}
 	peer, canonicalID, err := p.resolveChatID(ctx, chatID)
@@ -244,6 +248,8 @@ func (p *Provider) waitReply(ctx context.Context, chatID string, afterID int, ti
 		timeout = 20 * time.Second
 	}
 	deadline := time.Now().Add(timeout)
+	pollCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
 	const replyGrace = 3 * time.Second
 	var (
 		pending    provider.ChatReply
@@ -251,12 +257,21 @@ func (p *Provider) waitReply(ctx context.Context, chatID string, afterID int, ti
 		textUntil  time.Time
 	)
 	for {
-		history, err := p.writer().MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
+		history, err := p.writer().MessagesGetHistory(pollCtx, &tg.MessagesGetHistoryRequest{
 			Peer:  peer,
 			MinID: afterID,
 			Limit: 20,
 		})
 		if err != nil {
+			if ctx.Err() != nil {
+				return provider.ChatReply{}, ctx.Err()
+			}
+			if pollCtx.Err() != nil {
+				if hasPending {
+					return pending, nil
+				}
+				return provider.ChatReply{Kind: "none"}, nil
+			}
 			return provider.ChatReply{}, fmt.Errorf("telegram: reply of %q: %w", chatID, err)
 		}
 		if audio, ok := audioReply(canonicalID, afterID, messagesOf(history)); ok {
@@ -266,17 +281,12 @@ func (p *Provider) waitReply(ctx context.Context, chatID string, afterID int, ti
 			if keyboard, ok := keyboardReply(afterID, messagesOf(history)); ok {
 				return keyboard, nil
 			}
-			if !hasPending {
-				if value, ok := textReply(afterID, messagesOf(history)); ok {
-					pending, hasPending = value, true
-					textUntil = time.Now().Add(replyGrace)
-				}
-			}
-		} else if !hasPending {
-			// Keep the newest text as a fallback when the timeout ends, but
-			// never return it while the bot may still send the audio.
-			if value, ok := textReply(afterID, messagesOf(history)); ok {
-				pending, hasPending = value, true
+		}
+		if value, ok := textReply(afterID, messagesOf(history)); ok {
+			changed := !hasPending || value.Text != pending.Text
+			pending, hasPending = value, true
+			if !audioOnly && changed {
+				textUntil = time.Now().Add(replyGrace)
 			}
 		}
 		now := time.Now()
@@ -332,7 +342,15 @@ func audioReply(chatID string, afterID int, messages []tg.MessageClass) (provide
 			DurationSecs: info.duration,
 			ProviderMeta: map[string]string{"telegram.id": fmt.Sprint(msg.ID)},
 		}
-		return provider.ChatReply{Kind: "audio", Track: track, From: senderOf(msg), MessageID: msg.ID}, true
+		return provider.ChatReply{
+			Kind:      "audio",
+			Track:     track,
+			Text:      strings.TrimSpace(msg.Message),
+			From:      senderOf(msg),
+			MessageID: msg.ID,
+			Buttons:   buttonsOf(msg),
+			Links:     linksOf(msg),
+		}, true
 	}
 	return provider.ChatReply{}, false
 }
@@ -390,7 +408,10 @@ func linksOf(msg *tg.Message) []string {
 	if len(msg.Entities) == 0 {
 		return nil
 	}
-	runes := []rune(msg.Message)
+	// Telegram entity offsets and lengths count UTF-16 code units. A rune
+	// slice counts code points, so an emoji before a URL would make the end
+	// index too large and drop the link.
+	units := utf16.Encode([]rune(msg.Message))
 	var out []string
 	for _, entity := range msg.Entities {
 		switch value := entity.(type) {
@@ -400,8 +421,8 @@ func linksOf(msg *tg.Message) []string {
 			}
 		case *tg.MessageEntityURL:
 			start, end := value.Offset, value.Offset+value.Length
-			if start >= 0 && end <= len(runes) && start < end {
-				out = append(out, string(runes[start:end]))
+			if start >= 0 && end <= len(units) && start < end {
+				out = append(out, string(utf16.Decode(units[start:end])))
 			}
 		}
 	}
@@ -516,7 +537,7 @@ func randomMessageID() (int64, error) {
 // ResolveChat resolves a username or t.me link into the playlist description
 // the dialog list uses. It also creates the peer without sending a message.
 func (p *Provider) ResolveChat(ctx context.Context, username string) (playlist.PlaylistInfo, error) {
-	if err := p.wait(); err != nil {
+	if err := p.waitContext(ctx); err != nil {
 		return playlist.PlaylistInfo{}, err
 	}
 	return p.resolveChatCached(ctx, username)
@@ -526,7 +547,7 @@ func (p *Provider) ResolveChat(ctx context.Context, username string) (playlist.P
 // behind a switch_inline button: the user picks one result, and
 // SendInlineResult sends it as a normal message.
 func (p *Provider) InlineResults(ctx context.Context, chatID, botID, query, offset string) (provider.InlineResults, error) {
-	if err := p.wait(); err != nil {
+	if err := p.waitContext(ctx); err != nil {
 		return provider.InlineResults{}, err
 	}
 	peer, _, err := p.resolveChatID(ctx, chatID)
@@ -622,7 +643,7 @@ func inlineMessageKind(message tg.BotInlineMessageClass) string {
 
 // SendInlineResult sends one result of an inline query to the chat.
 func (p *Provider) SendInlineResult(ctx context.Context, chatID, botID string, queryID int64, resultID string) (int, error) {
-	if err := p.wait(); err != nil {
+	if err := p.waitContext(ctx); err != nil {
 		return 0, err
 	}
 	peer, _, err := p.resolveChatID(ctx, chatID)

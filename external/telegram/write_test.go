@@ -335,3 +335,54 @@ func TestMessageReadsEditedMenu(t *testing.T) {
 		t.Fatalf("buttons = %#v", reply.Buttons)
 	}
 }
+
+func TestLinksOfUsesUTF16Offsets(t *testing.T) {
+	msg := &tg.Message{
+		Message: "😀 https://example.com",
+		Entities: []tg.MessageEntityClass{
+			&tg.MessageEntityURL{Offset: 3, Length: 19},
+		},
+	}
+	links := linksOf(msg)
+	if len(links) != 1 || links[0] != "https://example.com" {
+		t.Fatalf("links = %#v, want the URL after the emoji", links)
+	}
+}
+
+func TestAudioReplyKeepsButtonsAndCaption(t *testing.T) {
+	msg := &tg.Message{
+		ID:      9,
+		Message: "Here is the track",
+		Media: &tg.MessageMediaDocument{Document: &tg.Document{
+			MimeType: "audio/flac",
+			Attributes: []tg.DocumentAttributeClass{
+				&tg.DocumentAttributeAudio{Title: "Walk", Performer: "Foo Fighters", Duration: 260},
+			},
+		}},
+		ReplyMarkup: &tg.ReplyInlineMarkup{Rows: []tg.KeyboardInlineButtonRow{{
+			Buttons: []tg.KeyboardInlineButton{{
+				Text: "FLAC",
+				Type: &tg.InlineButtonTypeCallback{Data: []byte("flac")},
+			}},
+		}}},
+	}
+	reply, ok := replyFromMessage("u:1:2", msg)
+	if !ok {
+		t.Fatal("replyFromMessage returned false")
+	}
+	if reply.Kind != "audio" || reply.Text != "Here is the track" {
+		t.Fatalf("reply = %#v", reply)
+	}
+	if len(reply.Buttons) != 1 || reply.Buttons[0].Text != "FLAC" {
+		t.Fatalf("buttons = %#v", reply.Buttons)
+	}
+}
+
+func TestWaitContextHonorsCancellation(t *testing.T) {
+	p := &Provider{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := p.waitContext(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("waitContext = %v, want context.Canceled", err)
+	}
+}
