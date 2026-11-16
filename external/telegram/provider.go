@@ -32,6 +32,7 @@ var (
 	_ provider.CustomStreamer    = (*Provider)(nil)
 	_ provider.TrackPager        = (*Provider)(nil)
 	_ provider.CodeAuthenticator = (*Provider)(nil)
+	_ provider.ChatCommander     = (*Provider)(nil)
 )
 
 const (
@@ -77,6 +78,7 @@ type Provider struct {
 	cfg        config.TelegramConfig
 	client     *tgclient.Client
 	api        *tg.Client
+	write      writeAPI // tests inject a fake; production uses api
 	authReq    chan authRequest
 	mu         sync.Mutex // guards state and connectErr
 	state      provState
