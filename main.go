@@ -194,7 +194,16 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 		m.SetLoadedPlaylist(cfg.Playlist)
 	}
 	if !headless && len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 && pl.Len() == 0 {
-		m.StartInProvider()
+		switch cfg.StartIn {
+		case "home":
+			// The empty queue is already the home screen: no provider focus,
+			// no Local playlist manager.
+			m.StartInHome()
+		case "files":
+			m.StartInFileBrowser()
+		default:
+			m.StartInProvider()
+		}
 	}
 	if cfg.AutoPlay && !restoredContext {
 		m.SetAutoPlay(true)

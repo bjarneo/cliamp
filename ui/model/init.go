@@ -20,6 +20,11 @@ import (
 
 type openDefaultProviderBrowserMsg struct{}
 
+// openStartupFileBrowserMsg opens the file browser on the first update, the
+// way the 'o' key does. Init has a value receiver, so the browser cannot open
+// there: the change would land on a model copy.
+type openStartupFileBrowserMsg struct{}
+
 // applyThemeAll updates colors, spectrum styles, and model-specific styles.
 func applyThemeAll(t theme.Theme) {
 	ui.ApplyThemeColors(t)
@@ -211,6 +216,14 @@ func (m *Model) SetExpanded(v bool) {
 // SetInitialDirectory sets the initial directory for the file browser.
 func (m *Model) SetInitialDirectory(dir string) { m.initialDir = dir }
 
+// StartInFileBrowser opens the file browser on the first frame, so the player
+// begins on a file picker instead of the provider browse view.
+func (m *Model) StartInFileBrowser() { m.startInFileBrowser = true }
+
+// StartInHome leaves the model on the empty playlist screen. That screen is
+// what the keys 'o', 'u' and Ctrl+F start from, so no provider focus is set.
+func (m *Model) StartInHome() { m.focus = focusPlaylist }
+
 // SetSeekStepLarge configures the Shift+Left/Right seek jump amount.
 func (m *Model) SetSeekStepLarge(d time.Duration) {
 	switch {
@@ -343,6 +356,9 @@ func (m Model) Init() tea.Cmd {
 		}
 		if m.openDefaultProviderOnce {
 			cmds = append(cmds, func() tea.Msg { return openDefaultProviderBrowserMsg{} })
+		}
+		if m.startInFileBrowser {
+			cmds = append(cmds, func() tea.Msg { return openStartupFileBrowserMsg{} })
 		}
 	}
 	if len(m.pendingURLs) > 0 {

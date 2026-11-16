@@ -168,6 +168,51 @@ func TestProviderFlag(t *testing.T) {
 	})
 }
 
+func TestStartInFlag(t *testing.T) {
+	parse := func(t *testing.T, args ...string) (config.Overrides, error) {
+		t.Helper()
+		app := buildApp()
+		var got config.Overrides
+		var flagErr error
+		app.Action = func(_ context.Context, c *cli.Command) error {
+			got, flagErr = overridesFromFlags(c)
+			return nil
+		}
+		runArgs := append([]string{"cliamp"}, args...)
+		if err := app.Run(t.Context(), runArgs); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		return got, flagErr
+	}
+
+	for _, tc := range []struct {
+		arg  string
+		want string
+	}{
+		{"provider", "provider"},
+		{"PROVIDER", "provider"},
+		{"home", "home"},
+		{"files", "files"},
+	} {
+		t.Run(tc.arg, func(t *testing.T) {
+			got, err := parse(t, "--start-in", tc.arg)
+			if err != nil {
+				t.Fatalf("--start-in %s: %v", tc.arg, err)
+			}
+			if got.StartIn == nil || *got.StartIn != tc.want {
+				t.Fatalf("StartIn = %v, want %q", got.StartIn, tc.want)
+			}
+		})
+	}
+
+	t.Run("unknown", func(t *testing.T) {
+		_, err := parse(t, "--start-in", "queue")
+		if err == nil || !strings.Contains(err.Error(), `--start-in must be provider, home, or files`) {
+			t.Fatalf("error = %v", err)
+		}
+	})
+}
+
 func TestRadioCommandFlags(t *testing.T) {
 	app := buildApp()
 	radioCmd := app.Command("radio")

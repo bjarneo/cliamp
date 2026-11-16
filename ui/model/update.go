@@ -141,6 +141,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.openDefaultProviderBrowser()
 		return m, cmd
 
+	case openStartupFileBrowserMsg:
+		if !m.startInFileBrowser {
+			return m, nil
+		}
+		m.startInFileBrowser = false
+		m.focus = focusPlaylist
+		m.openFileBrowser()
+		return m, nil
+
 	case radioListsRefreshMsg:
 		if msg.gen != m.requests.provider || m.activeProviderKey() != providerKeyRadio {
 			return m, nil

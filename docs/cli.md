@@ -13,9 +13,12 @@ cliamp --no-mono track.mp3            # force stereo
 cliamp --auto-play ~/Music            # start playback immediately
 cliamp --playlist "Blade Runner"      # load a local TOML playlist (add --auto-play to start playback)
 cliamp --provider podcast             # open on one provider for this session
+cliamp --start-in files               # open the file browser when the queue is empty
 ```
 
 `--provider` overrides `provider` in config.toml. It accepts the values in [Default Provider](configuration.md#default-provider), plus `abs` for `audiobookshelf`. Run `cliamp --help` to see the list.
+
+`--start-in` overrides `start_in` when nothing is queued. Values: `provider`, `home`, or `files`. See [Startup screen](configuration.md#startup-screen).
 
 ## Audio engine
 
@@ -144,6 +147,7 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--help-bar` / `--no-help-bar` | bool | true | show or hide the key-binding hint bar; `?` still opens the full keymap |
 | `--expanded` / `--no-expanded` | bool | false | start with the playlist expanded (the `Ctrl+X` state) |
 | `--provider` | string | cliamp | provider to open at start: cliamp, radio, local, podcast, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, bandcamp, soundcloud, mixcloud, netease, yandex, audiobookshelf (or abs), telegram, yt, youtube, ytmusic |
+| `--start-in` | string | provider | startup screen when nothing is queued: provider, home, files |
 | `--visualizer` | string | Bars | visualizer mode, such as Bars, Wave or None. See [configuration.md](configuration.md#options) for all modes. |
 | `--visualizer-60fps` | bool | false | render a visible visualizer at about 60 FPS |
 | `--start-theme` | string | | theme name |
@@ -197,7 +201,7 @@ cliamp playlist export "Name" --format pls     # export as PLS to stdout
 cliamp playlist import mix.m3u --name "Name"   # import local M3U/M3U8/PLS
 cliamp playlist favorite "Name" --index 3      # toggle the favorite of a track
 cliamp playlist favorites                       # list favorite tracks
-cliamp playlist enrich "Name"                   # probe duration/album 
+cliamp playlist enrich "Name"                   # probe duration/album
 cliamp playlist enrich "Name" --source metadata   # probe duration/album (forces to use the file's metadata as source)
 cliamp playlist delete "Name"                   # delete entire playlist
 ```

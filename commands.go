@@ -47,6 +47,7 @@ func buildApp() *cli.Command {
 		&cli.BoolWithInverseFlag{Name: "help-bar", Usage: "show the key-binding hint bar (? still opens the full keymap)", Value: true},
 		&cli.BoolWithInverseFlag{Name: "expanded", Usage: "start with the playlist expanded (the Ctrl+X state)"},
 		&cli.StringFlag{Name: "provider", Usage: providerFlagUsage()},
+		&cli.StringFlag{Name: "start-in", Usage: "startup screen when nothing is queued: provider, home, or files"},
 		&cli.StringFlag{Name: "start-theme", Usage: "UI theme name"},
 		&cli.StringFlag{Name: "visualizer", Usage: "visualizer mode"},
 		&cli.BoolFlag{Name: "visualizer-60fps", Usage: "render visualizer at 60 FPS (higher CPU use)"},
@@ -182,6 +183,15 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 			return ov, err
 		}
 		ov.Provider = &v
+	}
+	if c.IsSet("start-in") {
+		v := strings.ToLower(c.String("start-in"))
+		switch v {
+		case "provider", "home", "files":
+			ov.StartIn = &v
+		default:
+			return ov, fmt.Errorf("--start-in must be provider, home, or files (got %q)", v)
+		}
 	}
 	if c.IsSet("start-theme") {
 		v := c.String("start-theme")

@@ -25,9 +25,14 @@ shuffle = false
 # Start with mono output (L+R downmix)
 mono = false
 
-# Initial directory for the file browser ('o' key). 
+# Initial directory for the file browser ('o' key).
 # Supports environment variables ($HOME) and tilde expansion (~/Music).
 # initial_directory = "~/Music"
+
+# Screen shown when cliamp starts with nothing to play.
+# "provider" (default) opens the provider browse view, "home" stays on the empty
+# playlist screen, and "files" opens the file browser on initial_directory.
+# start_in = "provider"
 
 # Shift+Left/Right seek jump in seconds (6-600)
 seek_large_step_sec = 30
