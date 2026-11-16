@@ -75,6 +75,10 @@ func (m *Model) handleTracksLoaded(msg tracksLoadedMsg) tea.Cmd {
 	m.provPane.loading = false
 	m.tracksPaging = msg.err == nil && msg.next > 0
 	if msg.err != nil {
+		if msg.offset == 0 && m.providerOpenPrevSet {
+			m.activeProviderPlaylistID = m.providerOpenPrevID
+			m.providerOpenPrevSet = false
+		}
 		if errors.Is(msg.err, playlist.ErrNeedsAuth) {
 			m.provPane.signIn = true
 			m.err = nil
@@ -90,6 +94,9 @@ func (m *Model) handleTracksLoaded(msg tracksLoadedMsg) tea.Cmd {
 		}
 		m.err = withRetryHint(msg.err)
 		return nil
+	}
+	if msg.offset == 0 {
+		m.providerOpenPrevSet = false
 	}
 	if msg.offset > 0 {
 		m.playlist.Add(msg.tracks...)

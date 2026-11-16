@@ -463,6 +463,11 @@ type Model struct {
 	// from a non-local provider (Spotify, Navidrome, …). Used to highlight that
 	// row in the provider browser. Empty when no provider playlist is active.
 	activeProviderPlaylistID string
+	// providerOpenPrevID is the playlist that was open before a provider row
+	// started loading. It restores the highlight and action context when the
+	// load fails.
+	providerOpenPrevID  string
+	providerOpenPrevSet bool
 
 	// radioListeners holds live listener counts per cliamp radio channel slug.
 	// Nil means unknown: the fetch never ran or failed, and rows show no

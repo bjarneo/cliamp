@@ -31,6 +31,8 @@ func (m *Model) handlePluginOpenProvider(msg PluginOpenProviderMsg) tea.Cmd {
 		m.provPane.cursor = len(m.provPane.lists) - 1
 	}
 	m.provPane.loading = true
+	m.providerOpenPrevID = m.activeProviderPlaylistID
+	m.providerOpenPrevSet = true
 	m.activeProviderPlaylistID = msg.Playlist.ID
 	m.focus = focusPlaylist
 	m.applyHeightMode()

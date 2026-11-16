@@ -194,12 +194,24 @@ p:command("commands", function(args)
     return table.concat(out, "\n")
 end)
 
+local function canonical_chat(chat)
+    if chat:match("^u:") or chat:match("^c:") or chat:match("^ch:") then
+        return chat
+    end
+    local info = cliamp.provider.call("telegram.resolve", {username = chat})
+    if info and info.id and info.id ~= "" then
+        return info.id
+    end
+    return chat
+end
+
 p:command("ask", function(args)
     local chat = args[1]
     local text = table.concat(args, " ", 2)
     if not chat or chat == "" or text == "" then
         return "usage: ask <chat-id> <message>"
     end
+    chat = canonical_chat(chat)
     local token = reserve(chat)
     if not token then
         return "busy: wait for the bot to finish this chat"

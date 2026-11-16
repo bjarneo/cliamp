@@ -204,3 +204,38 @@ p:action{key = "!", id = "chats", label = "Chats action", context = "chats", on_
 		t.Fatalf("chat pane = %#v", m.actionPane.filtered)
 	}
 }
+
+func TestActionPaneUsesVisibleProviderListForContext(t *testing.T) {
+	m := Model{luaMgr: nil}
+	// Use a manager so the pane has actions to filter.
+	configDir := t.TempDir()
+	t.Setenv("CLIAMP_CONFIG_DIR", configDir)
+	pluginDir := filepath.Join(configDir, "plugins")
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pluginPath := filepath.Join(pluginDir, "action-visible.lua")
+	script := `
+local p = plugin.register({name = "action-visible", type = "hook", permissions = {"ui"}})
+p:action{key = "!", id = "chat", label = "Chat action", context = "chat", on_submit = function() end}
+p:action{key = "!", id = "chats", label = "Chats action", context = "chats", on_submit = function() end}
+`
+	if err := os.WriteFile(pluginPath, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := plugintrust.Approve(pluginDir, "action-visible", pluginPath); err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := luaplugin.New(nil, nil, ReservedKeys())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(sync.OnceFunc(mgr.Close))
+	m.luaMgr = mgr
+	m.activeProviderPlaylistID = "u:1:2"
+	m.focus = focusProvider
+	m.openActionPane()
+	if len(m.actionPane.filtered) != 1 || m.actionPane.filtered[0].Label != "Chats action" {
+		t.Fatalf("provider list pane = %#v", m.actionPane.filtered)
+	}
+}

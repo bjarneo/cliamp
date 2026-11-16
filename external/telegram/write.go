@@ -282,8 +282,8 @@ func (p *Provider) waitReply(ctx context.Context, chatID string, afterID int, ti
 			return audio, nil
 		}
 		if !audioOnly {
-			if keyboard, ok := keyboardReply(afterID, messagesOf(history)); ok {
-				return keyboard, nil
+			if newest, ok := newestReplyWithButtons(afterID, messagesOf(history)); ok {
+				return newest, nil
 			}
 		}
 		if value, ok := textReply(afterID, messagesOf(history)); ok {
@@ -359,22 +359,27 @@ func audioReply(chatID string, afterID int, messages []tg.MessageClass) (provide
 	return provider.ChatReply{}, false
 }
 
-// keyboardReply returns the newest message with an inline or reply keyboard,
-// even when it carries no text. Bots often send the options as a keyboard on
-// a separate message.
-func keyboardReply(afterID int, messages []tg.MessageClass) (provider.ChatReply, bool) {
+// newestReplyWithButtons returns the newest text/keyboard message only when
+// it carries buttons. A newer text reply without a keyboard supersedes an
+// older menu, so WaitReply reports the newer failure instead of the stale
+// options.
+func newestReplyWithButtons(afterID int, messages []tg.MessageClass) (provider.ChatReply, bool) {
 	for _, entity := range messages {
 		msg, ok := entity.(*tg.Message)
 		if !ok || msg.ID <= afterID || msg.Out {
 			continue
 		}
 		buttons := buttonsOf(msg)
-		if len(buttons) == 0 {
+		text := strings.TrimSpace(msg.Message)
+		if text == "" && len(buttons) == 0 {
 			continue
+		}
+		if len(buttons) == 0 {
+			return provider.ChatReply{}, false
 		}
 		return provider.ChatReply{
 			Kind:      "text",
-			Text:      strings.TrimSpace(msg.Message),
+			Text:      text,
 			From:      senderOf(msg),
 			MessageID: msg.ID,
 			Buttons:   buttons,

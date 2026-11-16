@@ -201,15 +201,18 @@ type fakeChatCommander struct {
 	provider.ChatCommander
 	replyCalled bool
 	audioCalled bool
+	timeout     time.Duration
 }
 
-func (f *fakeChatCommander) WaitReply(context.Context, string, int, time.Duration) (provider.ChatReply, error) {
+func (f *fakeChatCommander) WaitReply(_ context.Context, _ string, _ int, timeout time.Duration) (provider.ChatReply, error) {
 	f.replyCalled = true
+	f.timeout = timeout
 	return provider.ChatReply{Kind: "text"}, nil
 }
 
-func (f *fakeChatCommander) WaitAudio(context.Context, string, int, time.Duration) (provider.ChatReply, error) {
+func (f *fakeChatCommander) WaitAudio(_ context.Context, _ string, _ int, timeout time.Duration) (provider.ChatReply, error) {
 	f.audioCalled = true
+	f.timeout = timeout
 	return provider.ChatReply{Kind: "audio"}, nil
 }
 
@@ -224,5 +227,17 @@ func TestWaitReplyResultHonorsAudioOnly(t *testing.T) {
 	}
 	if out["kind"] != "audio" {
 		t.Fatalf("kind = %v", out["kind"])
+	}
+}
+
+func TestWaitReplyResultUsesContextDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	f := &fakeChatCommander{}
+	if _, err := waitReplyResult(ctx, f, "u:1:2", 5, nil); err != nil {
+		t.Fatalf("waitReplyResult: %v", err)
+	}
+	if f.timeout < time.Second || f.timeout > 2*time.Second {
+		t.Fatalf("timeout = %v, want the remaining context deadline", f.timeout)
 	}
 }

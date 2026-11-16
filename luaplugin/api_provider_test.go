@@ -193,3 +193,25 @@ func TestProviderCallSyncUsesTimeout(t *testing.T) {
 		t.Errorf("err = %q", got)
 	}
 }
+
+func TestProviderCallReplyIsRead(t *testing.T) {
+	m := newTestManager()
+	called := false
+	m.SetProviderProvider(ProviderProvider{
+		Call: func(context.Context, string, map[string]any) (map[string]any, error) {
+			called = true
+			return map[string]any{"kind": "text"}, nil
+		},
+	})
+	loadTestPlugin(t, m, "provider-reply", `
+		local p = plugin.register({name = "provider-reply", type = "hook", permissions = {"provider"}})
+		local res = cliamp.provider.call("telegram.reply", {chat = "u:1:2", after = 5})
+		_G.kind = res.kind
+	`)
+	if !called {
+		t.Fatal("telegram.reply should be callable with only the provider permission")
+	}
+	if got := m.plugins[0].L.GetGlobal("kind").String(); got != "text" {
+		t.Errorf("kind = %q", got)
+	}
+}

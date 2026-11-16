@@ -146,7 +146,11 @@ func (m Model) renderLuaSelect() string {
 		if i > start {
 			b.WriteString("\n")
 		}
-		for _, line := range imageLines(option.Image) {
+		lines := imageLines(option.Image)
+		if budget := maxRows - (linesOf(option) - len(lines)); len(lines) > budget {
+			lines = lines[:max(0, budget)]
+		}
+		for _, line := range lines {
 			b.WriteString("  " + line + imageResetSuffix() + "\n")
 		}
 		marker := "  "

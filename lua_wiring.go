@@ -218,6 +218,9 @@ func luaProviderProvider(entries []provider.Entry, load func() model.PluginState
 			if send == nil {
 				return fmt.Errorf("ui: not available")
 			}
+			if current := load().Provider.Name; current != "" && info.Name != "" && !strings.EqualFold(current, info.Name) {
+				return fmt.Errorf("provider.open: switch to %s first", info.Name)
+			}
 			send(model.PluginOpenProviderMsg{
 				ProviderName: info.Name,
 				Playlist: playlist.PlaylistInfo{
@@ -414,6 +417,11 @@ func waitReplyResult(ctx context.Context, commander provider.ChatCommander, chat
 	timeout := 20 * time.Second
 	if seconds, ok := params["timeout"].(float64); ok && seconds > 0 {
 		timeout = time.Duration(seconds * float64(time.Second))
+	} else if deadline, ok := ctx.Deadline(); ok {
+		timeout = time.Until(deadline)
+		if timeout <= 0 {
+			timeout = time.Millisecond
+		}
 	}
 	var (
 		reply provider.ChatReply

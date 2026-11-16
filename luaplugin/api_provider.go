@@ -41,7 +41,7 @@ func providerWrites(action string) bool {
 		return false
 	}
 	switch strings.ToLower(verb) {
-	case "send", "ask", "reply", "callback", "send_inline", "add_chat":
+	case "send", "ask", "callback", "send_inline", "add_chat":
 		return true
 	}
 	return false

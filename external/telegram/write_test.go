@@ -452,3 +452,29 @@ func TestWaitReplyRestartsGraceForANewMessageWithTheSameText(t *testing.T) {
 		t.Fatalf("returned %v after the newer message, want a restarted grace period", since)
 	}
 }
+
+func TestWaitReplyPrefersNewerTextOverOlderKeyboard(t *testing.T) {
+	keyboard := &tg.Message{
+		ID:      7,
+		Message: "Menu",
+		ReplyMarkup: &tg.ReplyInlineMarkup{Rows: []tg.KeyboardInlineButtonRow{{
+			Buttons: []tg.KeyboardInlineButton{{
+				Text: "FLAC",
+				Type: &tg.InlineButtonTypeCallback{Data: []byte("flac")},
+			}},
+		}}},
+	}
+	text := &tg.Message{ID: 8, Message: "Track not found"}
+	api := &fakeWriteAPI{history: []tg.MessagesMessagesClass{
+		&tg.MessagesMessages{Messages: []tg.MessageClass{text, keyboard}},
+	}}
+	p := readyProvider(api)
+
+	reply, err := p.WaitReply(context.Background(), "u:1:2", 5, 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("WaitReply: %v", err)
+	}
+	if reply.Kind != "text" || reply.Text != "Track not found" {
+		t.Fatalf("reply = %#v, want the newer text", reply)
+	}
+}
