@@ -141,6 +141,7 @@ p:action{
     label = "Send message to this chat",
     description = "Ask the bot for a track",
     provider = "Telegram",
+    context = "chat",
     on_submit = function()
         local chat, name = current_chat()
         if not chat then
