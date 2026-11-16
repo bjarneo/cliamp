@@ -146,3 +146,22 @@ func TestActionPaneVisibleRowsFitsHeight(t *testing.T) {
 		}
 	}
 }
+
+func TestActionPaneResizeClampsScroll(t *testing.T) {
+	m := Model{}
+	m.actionPane = actionPaneState{
+		visible:  true,
+		entries:  []luaplugin.Action{{Label: "One"}, {Label: "Two"}, {Label: "Three"}},
+		filtered: []luaplugin.Action{{Label: "One"}, {Label: "Two"}, {Label: "Three"}},
+		cursor:   2,
+		height:   55,
+	}
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
+	got := next.(Model)
+	if got.actionPane.height != 10 {
+		t.Fatalf("height = %d, want 10", got.actionPane.height)
+	}
+	if got.actionPane.scroll != 2 {
+		t.Fatalf("scroll = %d, want 2", got.actionPane.scroll)
+	}
+}

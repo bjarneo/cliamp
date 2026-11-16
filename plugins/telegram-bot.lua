@@ -42,26 +42,39 @@ local function current_chat()
 end
 
 local busy = {}
+local requestSeq = 0
 
 local function is_busy(chat)
-    local untilTime = busy[chat]
-    if not untilTime then
+    local entry = busy[chat]
+    if not entry then
         return false
     end
-    if untilTime <= os.time() then
+    if entry.untilTime <= os.time() then
         busy[chat] = nil
         return false
     end
     return true
 end
 
-local function set_busy(chat)
+local function reserve(chat)
+    if is_busy(chat) then
+        return nil
+    end
+    requestSeq = requestSeq + 1
     -- Longer than the 60s ask plus the 30s audio follow-up. A canceled
     -- command cannot run its cleanup, so the deadline is the safety net.
-    busy[chat] = os.time() + 180
+    busy[chat] = {token = requestSeq, untilTime = os.time() + 180}
+    return requestSeq
 end
 
-local function finish(chat)
+local function finish(chat, token)
+    local entry = busy[chat]
+    if not entry then
+        return
+    end
+    if token and entry.token ~= token then
+        return
+    end
     busy[chat] = nil
 end
 
@@ -74,7 +87,7 @@ local function insert_audio(reply)
     return false
 end
 
-local function wait_audio(chat, afterID)
+local function wait_audio(chat, afterID, token)
     cliamp.provider.call("telegram.reply", {
         chat = chat,
         after = afterID,
@@ -91,20 +104,20 @@ local function wait_audio(chat, afterID)
                     cliamp.message("No audio yet. Ctrl+R to reload.", 5)
                 end
             end
-            finish(chat)
+            finish(chat, token)
         end,
         timeout = 30,
     })
 end
 
-local function add_reply(chat, reply, err, waitForAudio)
+local function add_reply(chat, reply, err, waitForAudio, token)
     if not reply then
         cliamp.message("Telegram: " .. tostring(err or "no reply"), 8)
-        finish(chat)
+        finish(chat, token)
         return
     end
     if insert_audio(reply) then
-        finish(chat)
+        finish(chat, token)
         return
     end
     if reply.kind == "text" then
@@ -112,14 +125,14 @@ local function add_reply(chat, reply, err, waitForAudio)
         if waitForAudio and reply.message_id and reply.message_id > 0 then
             -- The bot often sends "Downloading..." first and the audio after
             -- WaitReply's grace period. Keep waiting for the audio.
-            wait_audio(chat, reply.message_id)
+            wait_audio(chat, reply.message_id, token)
         else
-            finish(chat)
+            finish(chat, token)
         end
         return
     end
     cliamp.message("No reply yet. Ctrl+R to reload.", 5)
-    finish(chat)
+    finish(chat, token)
 end
 
 p:action{
@@ -138,11 +151,11 @@ p:action{
             title = "Message → " .. (name or chat),
             placeholder = "/search ...",
             on_submit = function(text)
-                if is_busy(chat) then
+                local token = reserve(chat)
+                if not token then
                     cliamp.message("Wait for the bot to finish this chat first.", 6)
                     return
                 end
-                set_busy(chat)
                 cliamp.message("Sent. Waiting for the bot…", 3)
                 local waitForAudio = text:sub(1, 1) ~= "/"
                 local ok, err = cliamp.provider.call("telegram.ask", {
@@ -151,12 +164,12 @@ p:action{
                     timeout = 60,
                 }, {
                     on_reply = function(reply, replyErr)
-                        add_reply(chat, reply, replyErr, waitForAudio)
+                        add_reply(chat, reply, replyErr, waitForAudio, token)
                     end,
                     timeout = 90,
                 })
                 if not ok then
-                    finish(chat)
+                    finish(chat, token)
                     cliamp.message("Send failed: " .. tostring(err), 8)
                 end
             end,
@@ -186,16 +199,16 @@ p:command("ask", function(args)
     if not chat or chat == "" or text == "" then
         return "usage: ask <chat-id> <message>"
     end
-    if is_busy(chat) then
+    local token = reserve(chat)
+    if not token then
         return "busy: wait for the bot to finish this chat"
     end
-    set_busy(chat)
     local reply, err = cliamp.provider.call("telegram.ask", {
         chat = chat,
         text = text,
         timeout = 60,
     })
-    busy[chat] = nil
+    finish(chat, token)
     if not reply then
         return "error: " .. tostring(err)
     end

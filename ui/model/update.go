@@ -123,6 +123,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.actionPane.visible {
+			m.actionPane.height = msg.Height
+			m.actionPane.adjustScroll()
+		}
 		m.recomputeLayout()
 		m.normalizeMainFocus()
 		m.clampActiveScrollState()
