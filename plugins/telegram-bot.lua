@@ -62,6 +62,8 @@ local function wait_audio(chat, afterID)
             if not insert_audio(reply) then
                 if err then
                     cliamp.message("Telegram: " .. tostring(err), 8)
+                elseif reply and reply.kind == "text" and reply.text and reply.text ~= "" then
+                    cliamp.message(reply.text, 8)
                 else
                     cliamp.message("No audio yet. Ctrl+R to reload.", 5)
                 end
