@@ -386,3 +386,21 @@ func TestWaitContextHonorsCancellation(t *testing.T) {
 		t.Fatalf("waitContext = %v, want context.Canceled", err)
 	}
 }
+
+func TestWaitAudioKeepsTheLatestText(t *testing.T) {
+	first := &tg.Message{ID: 6, Message: "Searching"}
+	second := &tg.Message{ID: 7, Message: "Track not found"}
+	api := &fakeWriteAPI{history: []tg.MessagesMessagesClass{
+		&tg.MessagesMessages{Messages: []tg.MessageClass{first}},
+		&tg.MessagesMessages{Messages: []tg.MessageClass{second}},
+	}}
+	p := readyProvider(api)
+
+	reply, err := p.WaitAudio(context.Background(), "u:1:2", 5, 1300*time.Millisecond)
+	if err != nil {
+		t.Fatalf("WaitAudio: %v", err)
+	}
+	if reply.Kind != "text" || reply.Text != "Track not found" {
+		t.Fatalf("reply = %#v, want the latest text", reply)
+	}
+}
