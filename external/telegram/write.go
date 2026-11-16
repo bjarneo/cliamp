@@ -604,11 +604,8 @@ func webDocumentURL(document tg.WebDocumentClass) string {
 // message is usually an audio or a document; the plugin can prefer it over an
 // article.
 func inlineMessageKind(message tg.BotInlineMessageClass) string {
-	switch value := message.(type) {
+	switch message.(type) {
 	case *tg.BotInlineMessageMediaAuto:
-		if value.Message != "" {
-			return "media"
-		}
 		return "media"
 	case *tg.BotInlineMessageText:
 		return "text"
