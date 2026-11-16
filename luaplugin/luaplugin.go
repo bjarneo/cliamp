@@ -149,11 +149,11 @@ type UIProvider struct {
 	// ShowInput opens a text input. It must return at once; onSubmit and
 	// onCancel run on the UI goroutine and the manager turns them into plugin
 	// callbacks.
-	ShowInput func(title, placeholder, value string, suggestions []SelectOption, onChange func(text string), onSubmit func(text string), onSelect func(index int), onCancel func())
+	ShowInput func(title, placeholder, value string, suggestions []SelectOption, onChange func(text string), onSubmit func(text string), onSelect func(index int), onCancel func()) uint64
 	// UpdateInput replaces the suggestions of the open input. live means the
 	// rows are search results that Enter selects, not command completions.
 	// query is the text the results belong to, when the plugin reports it.
-	UpdateInput func(options []SelectOption, live bool, query string)
+	UpdateInput func(options []SelectOption, live bool, query string, querySet bool, token uint64)
 	// ShowText opens a scrollable text panel. It must return at once.
 	ShowText func(title, text string, onClose func())
 	// SetVis switches the active visualizer by name. It must return at once: the

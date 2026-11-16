@@ -205,19 +205,57 @@ func TestLuaInputIgnoresSuggestionsForAnOldQuery(t *testing.T) {
 	m := Model{}
 	m.openLuaInput("Message", "", "new", nil, nil, nil, nil, nil)
 	m.Update(LuaInputSuggestionsMsg{
-		Query:   "old",
-		Options: []luaplugin.SelectOption{{Title: "Stale"}},
-		Live:    true,
+		Query:    "old",
+		QuerySet: true,
+		Options:  []luaplugin.SelectOption{{Title: "Stale"}},
+		Live:     true,
 	})
 	if len(m.luaInput.suggestions) != 0 {
 		t.Fatalf("stale suggestions were installed: %#v", m.luaInput.suggestions)
 	}
 	m.Update(LuaInputSuggestionsMsg{
-		Query:   "new",
+		Query:    "new",
+		QuerySet: true,
+		Options:  []luaplugin.SelectOption{{Title: "Fresh"}},
+		Live:     true,
+	})
+	if len(m.luaInput.suggestions) != 1 || m.luaInput.suggestions[0].Title != "Fresh" {
+		t.Fatalf("fresh suggestions were not installed: %#v", m.luaInput.suggestions)
+	}
+}
+
+func TestLuaInputIgnoresSuggestionsForAnOldToken(t *testing.T) {
+	m := Model{}
+	m.openLuaInput("Message", "", "new", nil, nil, nil, nil, nil)
+	m.luaInput.token = 2
+	m.Update(LuaInputSuggestionsMsg{
+		Token:   1,
+		Options: []luaplugin.SelectOption{{Title: "Stale"}},
+		Live:    true,
+	})
+	if len(m.luaInput.suggestions) != 0 {
+		t.Fatalf("suggestions from an old input were installed: %#v", m.luaInput.suggestions)
+	}
+	m.Update(LuaInputSuggestionsMsg{
+		Token:   2,
 		Options: []luaplugin.SelectOption{{Title: "Fresh"}},
 		Live:    true,
 	})
 	if len(m.luaInput.suggestions) != 1 || m.luaInput.suggestions[0].Title != "Fresh" {
-		t.Fatalf("fresh suggestions were not installed: %#v", m.luaInput.suggestions)
+		t.Fatalf("suggestions = %#v", m.luaInput.suggestions)
+	}
+}
+
+func TestLuaInputExplicitEmptyQueryRejectsStaleResults(t *testing.T) {
+	m := Model{}
+	m.openLuaInput("Message", "", "new", nil, nil, nil, nil, nil)
+	m.Update(LuaInputSuggestionsMsg{
+		Query:    "",
+		QuerySet: true,
+		Options:  []luaplugin.SelectOption{{Title: "Stale"}},
+		Live:     true,
+	})
+	if len(m.luaInput.suggestions) != 0 {
+		t.Fatalf("explicit empty query was treated as omitted: %#v", m.luaInput.suggestions)
 	}
 }

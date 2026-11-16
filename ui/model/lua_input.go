@@ -14,6 +14,7 @@ import (
 // OnSubmit runs with the text the user typed; OnSelect runs with the 0-based
 // index of a live result; OnCancel runs on Esc.
 type LuaInputMsg struct {
+	Token       uint64
 	Title       string
 	Placeholder string
 	Value       string
@@ -28,15 +29,18 @@ type LuaInputMsg struct {
 // Live rows are search results: Enter selects one instead of submitting the
 // text.
 type LuaInputSuggestionsMsg struct {
+	Token   uint64
 	Options []luaplugin.SelectOption
 	Live    bool
-	// Query is the text the results belong to. A message for an older query
-	// is ignored after the input changed.
-	Query string
+	// Query is the text the results belong to. QuerySet distinguishes an
+	// omitted query from an explicitly empty one.
+	Query    string
+	QuerySet bool
 }
 
 // luaInputState is the open plugin input.
 type luaInputState struct {
+	token       uint64
 	title       string
 	placeholder string
 	value       string

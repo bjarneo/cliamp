@@ -795,17 +795,20 @@ cliamp.ui.input{
 
 `ui.input` asks for one line of text. `Enter` calls `on_submit` with the text;
 `Esc` calls `on_cancel` when given. `on_change` runs on every edit and
-`on_select` runs when `Enter` picks a live suggestion. It returns true when the
-request was accepted; headless mode returns an error.
+`on_select` runs when `Enter` picks a live suggestion. It returns `true, token`
+when the request was accepted; keep that token for `cliamp.ui.suggestions`.
+Headless mode returns an error.
 
 While an input is open, `cliamp.ui.suggestions(options, {live = true})` replaces
 the list under it. This is how a plugin turns the input into a live search or a
 command palette. `live = true` (the default) marks the rows as results: `Enter`
 selects one and calls `on_select` instead of submitting the typed text.
 `live = false` makes them plain suggestions again, so `Enter` submits the text.
-Pass `query = "..."` with the text the results belong to; cliamp drops a result
-for a query the input has already left. Without `query`, newer results apply to
-the current input.
+Pass `query = "..."` with the text the results belong to and `token` from the
+matching `ui.input` call; cliamp drops a result for a query or input that has
+already been replaced. An empty `query` is compared too: only omit it when the
+results are not tied to the text. Without `token`, newer results apply to the
+most recent input from that plugin.
 
 ```lua
 cliamp.ui.text{

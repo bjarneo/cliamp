@@ -49,6 +49,7 @@ func parseSelectOptions(L *lua.LState, value lua.LValue) []SelectOption {
 // Gated on permissions = {"ui"}.
 func registerUIAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin, m *Manager) {
 	tbl := L.NewTable()
+	var inputToken uint64
 
 	// cliamp.ui.select{title = "...", options = {"a", "b"}, on_select = fn}
 	L.SetField(tbl, "select", L.NewFunction(func(L *lua.LState) int {
@@ -140,13 +141,14 @@ func registerUIAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin, m *Manager) {
 				})
 			}
 		}
-		up.ShowInput(title, placeholder, value, suggestions, onChange, func(text string) {
+		inputToken = up.ShowInput(title, placeholder, value, suggestions, onChange, func(text string) {
 			m.enqueue(p, "ui.input", func() {
 				m.call(p, "ui.input", hookTimeout, 0, fixedArgs(fn, lua.LString(text)))
 			})
 		}, onSelect, onCancel)
 		L.Push(lua.LTrue)
-		return 1
+		L.Push(lua.LNumber(inputToken))
+		return 2
 	}))
 
 	// cliamp.ui.suggestions(options, {live = true}) replaces the list under the
@@ -159,17 +161,25 @@ func registerUIAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin, m *Manager) {
 		options := parseSelectOptions(L, L.Get(1))
 		live := true
 		query := ""
+		querySet := false
+		token := inputToken
 		if opts, ok := L.Get(2).(*lua.LTable); ok {
 			if value, ok := opts.RawGetString("live").(lua.LBool); ok {
 				live = bool(value)
 			}
-			query = rawString(L, opts, "query")
+			if value := opts.RawGetString("query"); value != lua.LNil {
+				querySet = true
+				query = strings.TrimSpace(value.String())
+			}
+			if value, ok := opts.RawGetString("token").(lua.LNumber); ok {
+				token = uint64(value)
+			}
 		}
 		up := m.ui.Load()
 		if up == nil || up.UpdateInput == nil {
 			return pushErr(L, "ui: not available")
 		}
-		up.UpdateInput(options, live, query)
+		up.UpdateInput(options, live, query, querySet, token)
 		L.Push(lua.LTrue)
 		return 1
 	}))

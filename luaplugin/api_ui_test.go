@@ -6,9 +6,10 @@ func TestUIInputPassesSuggestions(t *testing.T) {
 	m := newTestManager()
 	var got []SelectOption
 	m.SetUIProvider(UIProvider{
-		ShowInput: func(_ string, _, _ string, suggestions []SelectOption, _ func(string), onSubmit func(string), _ func(int), _ func()) {
+		ShowInput: func(_ string, _, _ string, suggestions []SelectOption, _ func(string), onSubmit func(string), _ func(int), _ func()) uint64 {
 			got = suggestions
 			onSubmit("x")
+			return 1
 		},
 	})
 	loadTestPlugin(t, m, "input-suggestions", `
@@ -82,7 +83,7 @@ func TestUISuggestionsPassesImage(t *testing.T) {
 	m := newTestManager()
 	var got []SelectOption
 	m.SetUIProvider(UIProvider{
-		UpdateInput: func(options []SelectOption, live bool, query string) {
+		UpdateInput: func(options []SelectOption, live bool, query string, querySet bool, token uint64) {
 			got = options
 		},
 	})

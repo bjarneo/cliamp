@@ -126,10 +126,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			prev.onCancel()
 		}
 		m.openLuaInput(msg.Title, msg.Placeholder, msg.Value, msg.Suggestions, msg.OnChange, msg.OnSubmit, msg.OnSelect, msg.OnCancel)
+		m.luaInput.token = msg.Token
 		return m, nil
 
 	case LuaInputSuggestionsMsg:
-		if m.luaInput == nil || (msg.Query != "" && msg.Query != m.luaInput.value) {
+		if m.luaInput == nil || msg.Token != m.luaInput.token {
+			return m, nil
+		}
+		if msg.QuerySet && msg.Query != m.luaInput.value {
 			return m, nil
 		}
 		if len(msg.Options) != len(m.luaInput.suggestions) {

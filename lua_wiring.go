@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -144,12 +145,13 @@ func newOrderedSender(send func(tea.Msg)) (queue func(tea.Msg), stop func()) {
 
 // luaUIProvider lets Lua plugins show a status message.
 func luaUIProvider(send func(tea.Msg), headless bool) luaplugin.UIProvider {
+	var inputSeq atomic.Uint64
 	return luaplugin.UIProvider{
 		ShowMessage: func(text string, duration time.Duration) {
 			send(model.ShowStatusMsg{Text: text, Duration: duration})
 		},
 		ShowSelect:  showSelectFor(send, headless),
-		ShowInput:   showInputFor(send, headless),
+		ShowInput:   showInputFor(send, headless, &inputSeq),
 		UpdateInput: updateInputFor(send, headless),
 		ShowText:    showTextFor(send, headless),
 		SetVis: func(name string) {
@@ -170,12 +172,14 @@ func showTextFor(send func(tea.Msg), headless bool) func(string, string, func())
 	}
 }
 
-func showInputFor(send func(tea.Msg), headless bool) func(string, string, string, []luaplugin.SelectOption, func(string), func(string), func(int), func()) {
+func showInputFor(send func(tea.Msg), headless bool, seq *atomic.Uint64) func(string, string, string, []luaplugin.SelectOption, func(string), func(string), func(int), func()) uint64 {
 	if headless {
 		return nil
 	}
-	return func(title, placeholder, value string, suggestions []luaplugin.SelectOption, onChange, onSubmit func(string), onSelect func(int), onCancel func()) {
+	return func(title, placeholder, value string, suggestions []luaplugin.SelectOption, onChange, onSubmit func(string), onSelect func(int), onCancel func()) uint64 {
+		token := seq.Add(1)
 		send(model.LuaInputMsg{
+			Token:       token,
 			Title:       title,
 			Placeholder: placeholder,
 			Value:       value,
@@ -185,15 +189,22 @@ func showInputFor(send func(tea.Msg), headless bool) func(string, string, string
 			OnSelect:    onSelect,
 			OnCancel:    onCancel,
 		})
+		return token
 	}
 }
 
-func updateInputFor(send func(tea.Msg), headless bool) func([]luaplugin.SelectOption, bool, string) {
+func updateInputFor(send func(tea.Msg), headless bool) func([]luaplugin.SelectOption, bool, string, bool, uint64) {
 	if headless {
 		return nil
 	}
-	return func(options []luaplugin.SelectOption, live bool, query string) {
-		send(model.LuaInputSuggestionsMsg{Options: options, Live: live, Query: query})
+	return func(options []luaplugin.SelectOption, live bool, query string, querySet bool, token uint64) {
+		send(model.LuaInputSuggestionsMsg{
+			Token:    token,
+			Options:  options,
+			Live:     live,
+			Query:    query,
+			QuerySet: querySet,
+		})
 	}
 }
 
