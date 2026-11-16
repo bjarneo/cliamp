@@ -158,16 +158,18 @@ func registerUIAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin, m *Manager) {
 		}
 		options := parseSelectOptions(L, L.Get(1))
 		live := true
+		query := ""
 		if opts, ok := L.Get(2).(*lua.LTable); ok {
 			if value, ok := opts.RawGetString("live").(lua.LBool); ok {
 				live = bool(value)
 			}
+			query = rawString(L, opts, "query")
 		}
 		up := m.ui.Load()
 		if up == nil || up.UpdateInput == nil {
 			return pushErr(L, "ui: not available")
 		}
-		up.UpdateInput(options, live)
+		up.UpdateInput(options, live, query)
 		L.Push(lua.LTrue)
 		return 1
 	}))

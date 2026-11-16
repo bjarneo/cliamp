@@ -803,6 +803,9 @@ the list under it. This is how a plugin turns the input into a live search or a
 command palette. `live = true` (the default) marks the rows as results: `Enter`
 selects one and calls `on_select` instead of submitting the typed text.
 `live = false` makes them plain suggestions again, so `Enter` submits the text.
+Pass `query = "..."` with the text the results belong to; cliamp drops a result
+for a query the input has already left. Without `query`, newer results apply to
+the current input.
 
 ```lua
 cliamp.ui.text{

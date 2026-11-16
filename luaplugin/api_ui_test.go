@@ -82,7 +82,7 @@ func TestUISuggestionsPassesImage(t *testing.T) {
 	m := newTestManager()
 	var got []SelectOption
 	m.SetUIProvider(UIProvider{
-		UpdateInput: func(options []SelectOption, live bool) {
+		UpdateInput: func(options []SelectOption, live bool, query string) {
 			got = options
 		},
 	})

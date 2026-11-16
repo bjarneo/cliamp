@@ -152,7 +152,8 @@ type UIProvider struct {
 	ShowInput func(title, placeholder, value string, suggestions []SelectOption, onChange func(text string), onSubmit func(text string), onSelect func(index int), onCancel func())
 	// UpdateInput replaces the suggestions of the open input. live means the
 	// rows are search results that Enter selects, not command completions.
-	UpdateInput func(options []SelectOption, live bool)
+	// query is the text the results belong to, when the plugin reports it.
+	UpdateInput func(options []SelectOption, live bool, query string)
 	// ShowText opens a scrollable text panel. It must return at once.
 	ShowText func(title, text string, onClose func())
 	// SetVis switches the active visualizer by name. It must return at once: the

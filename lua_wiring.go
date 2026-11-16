@@ -144,14 +144,13 @@ func newOrderedSender(send func(tea.Msg)) (queue func(tea.Msg), stop func()) {
 
 // luaUIProvider lets Lua plugins show a status message.
 func luaUIProvider(send func(tea.Msg), headless bool) luaplugin.UIProvider {
-	var inputQuery string
 	return luaplugin.UIProvider{
 		ShowMessage: func(text string, duration time.Duration) {
 			send(model.ShowStatusMsg{Text: text, Duration: duration})
 		},
 		ShowSelect:  showSelectFor(send, headless),
-		ShowInput:   showInputFor(send, headless, &inputQuery),
-		UpdateInput: updateInputFor(send, headless, &inputQuery),
+		ShowInput:   showInputFor(send, headless),
+		UpdateInput: updateInputFor(send, headless),
 		ShowText:    showTextFor(send, headless),
 		SetVis: func(name string) {
 			send(model.SetVisMsg{Name: name})
@@ -171,24 +170,17 @@ func showTextFor(send func(tea.Msg), headless bool) func(string, string, func())
 	}
 }
 
-func showInputFor(send func(tea.Msg), headless bool, current *string) func(string, string, string, []luaplugin.SelectOption, func(string), func(string), func(int), func()) {
+func showInputFor(send func(tea.Msg), headless bool) func(string, string, string, []luaplugin.SelectOption, func(string), func(string), func(int), func()) {
 	if headless {
 		return nil
 	}
 	return func(title, placeholder, value string, suggestions []luaplugin.SelectOption, onChange, onSubmit func(string), onSelect func(int), onCancel func()) {
-		*current = value
-		update := func(text string) {
-			*current = text
-			if onChange != nil {
-				onChange(text)
-			}
-		}
 		send(model.LuaInputMsg{
 			Title:       title,
 			Placeholder: placeholder,
 			Value:       value,
 			Suggestions: suggestions,
-			OnChange:    update,
+			OnChange:    onChange,
 			OnSubmit:    onSubmit,
 			OnSelect:    onSelect,
 			OnCancel:    onCancel,
@@ -196,12 +188,12 @@ func showInputFor(send func(tea.Msg), headless bool, current *string) func(strin
 	}
 }
 
-func updateInputFor(send func(tea.Msg), headless bool, current *string) func([]luaplugin.SelectOption, bool) {
+func updateInputFor(send func(tea.Msg), headless bool) func([]luaplugin.SelectOption, bool, string) {
 	if headless {
 		return nil
 	}
-	return func(options []luaplugin.SelectOption, live bool) {
-		send(model.LuaInputSuggestionsMsg{Options: options, Live: live, Query: *current})
+	return func(options []luaplugin.SelectOption, live bool, query string) {
+		send(model.LuaInputSuggestionsMsg{Options: options, Live: live, Query: query})
 	}
 }
 

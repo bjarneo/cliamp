@@ -80,7 +80,11 @@ end
 
 local function insert_audio(reply)
     if reply and reply.kind == "audio" and reply.track then
-        cliamp.queue.insert(0, reply.track)
+        local ok, err = cliamp.queue.insert(0, reply.track)
+        if not ok then
+            cliamp.message("Telegram: " .. tostring(err or "could not queue the track"), 8)
+            return false
+        end
         cliamp.message("Added: " .. reply.track.title, 5)
         return true
     end
@@ -95,14 +99,14 @@ local function wait_audio(chat, afterID, token)
         audio_only = true,
     }, {
         on_reply = function(reply, err)
-            if not insert_audio(reply) then
-                if err then
-                    cliamp.message("Telegram: " .. tostring(err), 8)
-                elseif reply and reply.kind == "text" and reply.text and reply.text ~= "" then
-                    cliamp.message(reply.text, 8)
-                else
-                    cliamp.message("No audio yet. Ctrl+R to reload.", 5)
-                end
+            if reply and reply.kind == "audio" then
+                insert_audio(reply)
+            elseif err then
+                cliamp.message("Telegram: " .. tostring(err), 8)
+            elseif reply and reply.kind == "text" and reply.text and reply.text ~= "" then
+                cliamp.message(reply.text, 8)
+            else
+                cliamp.message("No audio yet. Ctrl+R to reload.", 5)
             end
             finish(chat, token)
         end,
@@ -116,7 +120,8 @@ local function add_reply(chat, reply, err, waitForAudio, token)
         finish(chat, token)
         return
     end
-    if insert_audio(reply) then
+    if reply.kind == "audio" then
+        insert_audio(reply)
         finish(chat, token)
         return
     end
@@ -221,6 +226,19 @@ p:command("ask", function(args)
         text = text,
         timeout = 60,
     })
+    if reply and reply.kind == "text" and text:sub(1, 1) ~= "/" and reply.message_id and reply.message_id > 0 then
+        -- A plain query can return "Downloading..." before the audio. Keep
+        -- the reservation until the audio arrives or the follow-up times out.
+        local audio = cliamp.provider.call("telegram.reply", {
+            chat = chat,
+            after = reply.message_id,
+            timeout = 20,
+            audio_only = true,
+        })
+        if audio and audio.kind == "audio" then
+            reply = audio
+        end
+    end
     finish(chat, token)
     if not reply then
         return "error: " .. tostring(err)

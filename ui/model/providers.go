@@ -60,6 +60,7 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	m.provPane.signIn = false
 	m.catalogBatch = catalogBatchState{}
 	m.activeProviderPlaylistID = ""
+	m.providerOpenPrevSet = false
 	m.resetProviderNav()
 	m.focus = focusProvider
 	// The Local source shows the playlist manager instead of the old
