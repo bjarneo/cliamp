@@ -141,3 +141,26 @@ func TestProviderCallAsyncReply(t *testing.T) {
 		t.Fatal("the on_reply callback never ran")
 	}
 }
+
+func TestProviderCallWriteRejectsMixedCaseAction(t *testing.T) {
+	m := newTestManager()
+	m.SetProviderProvider(ProviderProvider{
+		Call: func(context.Context, string, map[string]any) (map[string]any, error) {
+			t.Fatal("the call should not run without provider-send")
+			return nil, nil
+		},
+	})
+	loadTestPlugin(t, m, "provider-mixed", `
+		local p = plugin.register({name = "provider-mixed", type = "hook", permissions = {"provider"}})
+		local ok, err = cliamp.provider.call("Telegram.send", {chat = "u:1:2", text = "/start"})
+		_G.ok = ok
+		_G.err = err
+	`)
+	p := m.plugins[0]
+	if p.L.GetGlobal("ok") != lua.LNil {
+		t.Error("call should return nil")
+	}
+	if got := p.L.GetGlobal("err").String(); !strings.Contains(got, "provider-send") {
+		t.Errorf("err = %q", got)
+	}
+}

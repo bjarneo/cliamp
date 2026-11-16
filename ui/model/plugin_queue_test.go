@@ -94,3 +94,13 @@ func TestAppendsCountAlbumHeaders(t *testing.T) {
 		})
 	}
 }
+
+func TestPluginQueueInsertNormalizesStream(t *testing.T) {
+	p := playlist.New()
+	m := Model{player: &playbackFakeEngine{}, playlist: p}
+	m.Update(PluginQueueMsg{Op: "insert", Index: 0, Track: playlist.Track{Path: "https://example.com/live"}})
+	tracks := p.Tracks()
+	if len(tracks) != 1 || !tracks[0].Stream {
+		t.Fatalf("tracks = %#v, want one stream track", tracks)
+	}
+}

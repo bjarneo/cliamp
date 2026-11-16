@@ -36,21 +36,65 @@ local function current_chat()
     return chat, name
 end
 
-local function add_reply(reply, err)
-    if not reply then
-        cliamp.message("Telegram: " .. tostring(err or "no reply"), 8)
-        return
-    end
-    if reply.kind == "audio" and reply.track then
+local busy = {}
+
+local function finish(chat)
+    busy[chat] = nil
+end
+
+local function insert_audio(reply)
+    if reply and reply.kind == "audio" and reply.track then
         cliamp.queue.insert(0, reply.track)
         cliamp.message("Added: " .. reply.track.title, 5)
+        return true
+    end
+    return false
+end
+
+local function wait_audio(chat, afterID)
+    cliamp.provider.call("telegram.reply", {
+        chat = chat,
+        after = afterID,
+        timeout = 20,
+        audio_only = true,
+    }, {
+        on_reply = function(reply, err)
+            if not insert_audio(reply) then
+                if err then
+                    cliamp.message("Telegram: " .. tostring(err), 8)
+                else
+                    cliamp.message("No audio yet. Ctrl+R to reload.", 5)
+                end
+            end
+            finish(chat)
+        end,
+        timeout = 30,
+    })
+end
+
+local function add_reply(chat, reply, err, waitForAudio)
+    if not reply then
+        cliamp.message("Telegram: " .. tostring(err or "no reply"), 8)
+        finish(chat)
+        return
+    end
+    if insert_audio(reply) then
+        finish(chat)
         return
     end
     if reply.kind == "text" then
         cliamp.message(reply.text, 8)
+        if waitForAudio and reply.message_id and reply.message_id > 0 then
+            -- The bot often sends "Downloading..." first and the audio after
+            -- WaitReply's grace period. Keep waiting for the audio.
+            wait_audio(chat, reply.message_id)
+        else
+            finish(chat)
+        end
         return
     end
     cliamp.message("No reply yet. Ctrl+R to reload.", 5)
+    finish(chat)
 end
 
 p:action{
@@ -69,16 +113,25 @@ p:action{
             title = "Message → " .. (name or chat),
             placeholder = "/search ...",
             on_submit = function(text)
+                if busy[chat] then
+                    cliamp.message("Wait for the bot to finish this chat first.", 6)
+                    return
+                end
+                busy[chat] = true
                 cliamp.message("Sent. Waiting for the bot…", 3)
+                local waitForAudio = text:sub(1, 1) ~= "/"
                 local ok, err = cliamp.provider.call("telegram.ask", {
                     chat = chat,
                     text = text,
                     timeout = 60,
                 }, {
-                    on_reply = add_reply,
+                    on_reply = function(reply, replyErr)
+                        add_reply(chat, reply, replyErr, waitForAudio)
+                    end,
                     timeout = 90,
                 })
                 if not ok then
+                    finish(chat)
                     cliamp.message("Send failed: " .. tostring(err), 8)
                 end
             end,

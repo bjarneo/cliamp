@@ -400,6 +400,11 @@ func (m *Manager) cleanupPlugin(p *Plugin) {
 			delete(m.names, name)
 		}
 	}
+	for key, action := range m.actions {
+		if action.Plugin == p.installName {
+			delete(m.actions, key)
+		}
+	}
 	for event, hooks := range m.hooks {
 		m.hooks[event] = filterOutPlugin(hooks, p)
 	}

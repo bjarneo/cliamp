@@ -27,10 +27,16 @@ type ProviderProvider struct {
 }
 
 // providerWrites reports whether an action changes the remote account. Write
-// actions need permissions = {"provider-send"}; reads need "provider".
+// actions need permissions = {"provider-send"}; reads need "provider". The
+// check looks at the verb, so "Telegram.send" and "telegram.SEND" cannot
+// bypass the permission by changing the provider or verb case.
 func providerWrites(action string) bool {
-	switch action {
-	case "telegram.send", "telegram.ask", "telegram.reply", "telegram.callback":
+	_, verb, ok := strings.Cut(action, ".")
+	if !ok {
+		return false
+	}
+	switch strings.ToLower(verb) {
+	case "send", "ask", "reply", "callback", "send_inline", "add_chat":
 		return true
 	}
 	return false
@@ -131,6 +137,11 @@ func (m *Manager) runProviderCall(p *Plugin, call func(context.Context, string, 
 	defer cancel()
 	result, err := call(ctx, action, params)
 	label := "provider.call " + action
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.closing {
+		return
+	}
 	m.enqueue(p, label, func() {
 		m.call(p, label, hookTimeout, 0, func(L *lua.LState) (*lua.LFunction, []lua.LValue) {
 			if err != nil {

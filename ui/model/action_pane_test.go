@@ -114,3 +114,25 @@ end
 		t.Fatalf("filtered = %#v", m.actionPane.filtered)
 	}
 }
+
+func TestActionPaneFilterKeepsEntries(t *testing.T) {
+	m := Model{}
+	m.actionPane = actionPaneState{
+		entries: []luaplugin.Action{
+			{Label: "Alpha"},
+			{Label: "Beta"},
+			{Label: "Gamma"},
+		},
+	}
+	m.actionPane.filtered = m.actionPane.entries
+	m.actionPane.query = "beta"
+	m.filterActions()
+	if len(m.actionPane.filtered) != 1 || m.actionPane.filtered[0].Label != "Beta" {
+		t.Fatalf("filtered = %#v", m.actionPane.filtered)
+	}
+	m.actionPane.query = ""
+	m.filterActions()
+	if len(m.actionPane.filtered) != 3 || m.actionPane.filtered[0].Label != "Alpha" {
+		t.Fatalf("cleared filter = %#v", m.actionPane.filtered)
+	}
+}

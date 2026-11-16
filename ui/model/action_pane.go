@@ -33,7 +33,7 @@ func (m *Model) openActionPane() {
 	if m.provider != nil {
 		providerName = m.provider.Name()
 	}
-	available := entries[:0]
+	available := make([]luaplugin.Action, 0, len(entries))
 	for _, action := range entries {
 		if action.Provider == "" || strings.EqualFold(action.Provider, providerName) {
 			available = append(available, action)
@@ -64,7 +64,7 @@ func (m *Model) handleActionPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "esc":
 		m.actionPane = actionPaneState{}
 		return nil
-	case "up", "k":
+	case "up":
 		if pane.cursor > 0 {
 			pane.cursor--
 		} else {
@@ -72,7 +72,7 @@ func (m *Model) handleActionPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		pane.adjustScroll()
 		return nil
-	case "down", "j":
+	case "down":
 		if pane.cursor < len(pane.filtered)-1 {
 			pane.cursor++
 		} else {
@@ -124,13 +124,14 @@ func (m *Model) filterActions() {
 	if query == "" {
 		pane.filtered = pane.entries
 	} else {
-		pane.filtered = pane.filtered[:0]
+		filtered := make([]luaplugin.Action, 0, len(pane.entries))
 		for _, action := range pane.entries {
 			text := strings.ToLower(action.Label + " " + action.Description + " " + action.Plugin)
 			if strings.Contains(text, query) {
-				pane.filtered = append(pane.filtered, action)
+				filtered = append(filtered, action)
 			}
 		}
+		pane.filtered = filtered
 	}
 	pane.cursor = 0
 	pane.scroll = 0

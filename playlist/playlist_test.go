@@ -843,3 +843,12 @@ func TestInsertRemapsThePlayNextQueue(t *testing.T) {
 		t.Fatalf("queue entry = %#v, want C at 3", entries[0])
 	}
 }
+
+func TestInsertIntoEmptyPlaylistKeepsCurrentAtZero(t *testing.T) {
+	p := New()
+	p.ReplaceAt(nil, 0)
+	p.Insert(0, Track{Title: "A"})
+	if _, idx := p.Current(); idx != 0 {
+		t.Fatalf("current index = %d, want 0", idx)
+	}
+}

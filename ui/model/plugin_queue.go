@@ -51,6 +51,7 @@ func (m *Model) handlePluginQueue(msg PluginQueueMsg) tea.Cmd {
 		return cmd
 
 	case "insert":
+		msg.Track.Stream = msg.Track.Stream || playlist.IsURL(msg.Track.Path)
 		m.playlist.Insert(msg.Index, msg.Track)
 		m.normalizeQueueOverlay()
 		m.adjustScroll()

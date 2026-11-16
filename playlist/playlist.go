@@ -246,7 +246,7 @@ func (p *Playlist) Insert(index int, track Track) {
 	p.order = append(p.order, 0)
 	copy(p.order[insertAt+1:], p.order[insertAt:])
 	p.order[insertAt] = index
-	if !p.shuffle && index <= p.pos {
+	if !p.shuffle && len(p.tracks) > 1 && index <= p.pos {
 		p.pos++
 	}
 	for i, idx := range p.queue {

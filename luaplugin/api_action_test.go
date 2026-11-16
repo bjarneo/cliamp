@@ -16,3 +16,15 @@ func TestActionRegisters(t *testing.T) {
 		t.Fatalf("action = %#v", actions[0])
 	}
 }
+
+func TestFailedPluginActionsRemoved(t *testing.T) {
+	m := newTestManager()
+	loadTestPluginExpectError(t, m, "bad-action", `
+		local p = plugin.register({name = "bad-action", type = "hook", permissions = {"ui"}})
+		p:action{key = "!", id = "ghost", label = "Ghost", on_submit = function() end}
+		error("boom")
+	`)
+	if got := m.Actions("!"); len(got) != 0 {
+		t.Fatalf("actions = %#v, want none after a failed load", got)
+	}
+}
