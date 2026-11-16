@@ -404,3 +404,21 @@ func TestWaitAudioKeepsTheLatestText(t *testing.T) {
 		t.Fatalf("reply = %#v, want the latest text", reply)
 	}
 }
+
+func TestMessageWindowStartsAtTheRequestedID(t *testing.T) {
+	msg := &tg.Message{ID: 7, Message: "Settings"}
+	api := &fakeWriteAPI{history: []tg.MessagesMessagesClass{
+		&tg.MessagesMessages{Messages: []tg.MessageClass{msg}},
+	}}
+	p := readyProvider(api)
+
+	if _, err := p.Message(context.Background(), "u:1:2", 7); err != nil {
+		t.Fatalf("Message: %v", err)
+	}
+	if len(api.histReqs) != 1 {
+		t.Fatalf("history requests = %d, want 1", len(api.histReqs))
+	}
+	if got := api.histReqs[0].OffsetID; got != 8 {
+		t.Fatalf("OffsetID = %d, want 8", got)
+	}
+}

@@ -164,10 +164,11 @@ func (p *Provider) Message(ctx context.Context, chatID string, messageID int) (p
 		return provider.ChatReply{}, err
 	}
 	history, err := p.writer().MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
-		Peer:  peer,
-		MinID: messageID - 1,
-		MaxID: messageID + 1,
-		Limit: 1,
+		Peer:     peer,
+		OffsetID: messageID + 1,
+		MinID:    messageID - 1,
+		MaxID:    messageID + 1,
+		Limit:    1,
 	})
 	if err != nil {
 		return provider.ChatReply{}, fmt.Errorf("telegram: message %d of %q: %w", messageID, chatID, err)
