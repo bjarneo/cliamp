@@ -2,6 +2,7 @@ package model
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -145,9 +146,12 @@ func (m *Model) handleLuaInputKey(msg tea.KeyPressMsg) bool {
 			input.onSubmit(text)
 		}
 	default:
+		before := input.value
 		if m.editText("lua-input", &input.value, msg) {
 			input.cursor = m.textInput.cursor
-			input.afterEdit()
+			if input.value != before {
+				input.afterEdit()
+			}
 		}
 	}
 	return true
@@ -169,6 +173,33 @@ func (input *luaInputState) afterEdit() {
 	if input.onChange != nil {
 		input.onChange(input.value)
 	}
+}
+
+// inputWindow shows the part of value around cursor that fits in width cells.
+// The cursor marker takes one cell, so the text budget is width-1.
+func inputWindow(value string, cursor, width int) string {
+	if width < 1 {
+		width = 1
+	}
+	runes := []rune(value)
+	cursorRune := utf8.RuneCountInString(value[:min(cursor, len(value))])
+	if cursorRune > len(runes) {
+		cursorRune = len(runes)
+	}
+	budget := width - 1
+	start := 0
+	for start < cursorRune && lipgloss.Width(string(runes[start:cursorRune])) >= budget {
+		start++
+	}
+	end := len(runes)
+	for end > cursorRune && lipgloss.Width(string(runes[start:end])) > budget {
+		end--
+	}
+	var b strings.Builder
+	b.WriteString(string(runes[start:cursorRune]))
+	b.WriteString("▏")
+	b.WriteString(string(runes[cursorRune:end]))
+	return b.String()
 }
 
 // inputRows is the number of lines one option needs in the input.
@@ -209,10 +240,7 @@ func (m Model) renderLuaInput() string {
 	}
 	width = min(width, max(20, m.layout.frameWidth-4))
 
-	shown := input.value
-	if input.cursor >= 0 && input.cursor <= len(shown) {
-		shown = shown[:input.cursor] + "▏" + shown[input.cursor:]
-	}
+	shown := inputWindow(input.value, input.cursor, width-4)
 	if strings.TrimSpace(input.value) == "" && input.placeholder != "" {
 		shown = dimStyle.Render(truncate(input.placeholder, width-4))
 	}

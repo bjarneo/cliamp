@@ -174,3 +174,29 @@ func TestLuaInputCapsTallResultImage(t *testing.T) {
 		t.Fatalf("selected title missing:\n%s", out)
 	}
 }
+
+func TestLuaInputCursorMoveKeepsLiveResults(t *testing.T) {
+	changed := 0
+	m := Model{}
+	m.openLuaInput("Message", "", "abc", nil, func(string) { changed++ }, nil, nil, nil)
+	m.luaInput.live = true
+	m.luaInput.suggestions = []luaplugin.SelectOption{{Title: "Get Lucky"}}
+	m.luaInput.filter()
+	m.handleLuaInputKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	if changed != 0 {
+		t.Fatalf("onChange ran %d times on a cursor move", changed)
+	}
+	if len(m.luaInput.filtered) != 1 {
+		t.Fatalf("live results cleared on a cursor move: %#v", m.luaInput.filtered)
+	}
+}
+
+func TestLuaInputWindowFollowsCursor(t *testing.T) {
+	m := Model{width: 80}
+	value := strings.Repeat("a", 80) + "z"
+	m.openLuaInput("Message", "", value, nil, nil, nil, nil, nil)
+	box := m.renderLuaInput()
+	if !strings.Contains(box, "z▏") {
+		t.Fatalf("cursor is not visible at the end of a long value:\n%s", box)
+	}
+}
