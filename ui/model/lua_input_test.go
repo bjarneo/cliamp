@@ -138,3 +138,39 @@ func TestLuaInputLiveRowsAreOneLine(t *testing.T) {
 		t.Fatalf("live row kept a newline:\n%s", box)
 	}
 }
+
+func TestLuaInputTabNotifiesChange(t *testing.T) {
+	var got string
+	m := Model{}
+	m.openLuaInput("Message", "", "", []luaplugin.SelectOption{{Title: "/help", Description: "Help"}}, func(text string) {
+		got = text
+	}, nil, nil, nil)
+	m.luaInput.value = "/h"
+	m.luaInput.filter()
+	m.luaInput.choice = 0
+	m.handleLuaInputKey(tea.KeyPressMsg{Code: tea.KeyTab})
+	if got != "/help " {
+		t.Fatalf("onChange = %q, want %q", got, "/help ")
+	}
+}
+
+func TestLuaInputCapsTallResultImage(t *testing.T) {
+	m := Model{height: 24}
+	m.openLuaInput("Message", "", "", nil, nil, nil, nil, nil)
+	lines := make([]string, 20)
+	for i := range lines {
+		lines[i] = "IMG"
+	}
+	m.luaInput.live = true
+	m.luaInput.suggestions = []luaplugin.SelectOption{{Title: "Title", Image: strings.Join(lines, "\n")}}
+	m.luaInput.filter()
+	var b strings.Builder
+	m.renderLiveInputRows(&b, m.luaInput, 40)
+	out := b.String()
+	if strings.Count(out, "IMG") > 9 {
+		t.Fatalf("image was not capped:\n%s", out)
+	}
+	if !strings.Contains(out, "Title") {
+		t.Fatalf("selected title missing:\n%s", out)
+	}
+}

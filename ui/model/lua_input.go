@@ -122,7 +122,7 @@ func (m *Model) handleLuaInputKey(msg tea.KeyPressMsg) bool {
 			input.cursor = len(input.value)
 			m.textInput.begin("lua-input", input.value)
 			m.textInput.cursor = input.cursor
-			input.filter()
+			input.afterEdit()
 		}
 	case "enter":
 		if input.live && len(input.filtered) > 0 {
@@ -294,7 +294,11 @@ func (m Model) renderLiveInputRows(b *strings.Builder, input *luaInputState, wid
 		if i > start {
 			b.WriteString("\n")
 		}
-		for _, line := range imageLines(option.Image) {
+		lines := imageLines(option.Image)
+		if budget := maxRows - (inputRows(option) - len(lines)); len(lines) > budget {
+			lines = lines[:max(0, budget)]
+		}
+		for _, line := range lines {
 			b.WriteString("  " + line + imageResetSuffix() + "\n")
 		}
 		marker := "  "
