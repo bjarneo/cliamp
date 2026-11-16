@@ -81,9 +81,11 @@ func (m *Manager) registerProviderAPI(L *lua.LState, cliamp *lua.LTable, p *Plug
 			if !ok {
 				return pushErr(L, "cliamp.provider.call: params must be a table")
 			}
-			if converted, ok := luaToGo(table).(map[string]any); ok {
-				params = converted
+			converted, ok := luaToGo(table).(map[string]any)
+			if !ok {
+				return pushErr(L, "cliamp.provider.call: params must be a table with string keys")
 			}
+			params = converted
 		}
 		pp := m.provider.Load()
 		if pp == nil || pp.Call == nil {

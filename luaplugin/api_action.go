@@ -113,8 +113,8 @@ func (m *Manager) addAction(action Action) error {
 	return nil
 }
 
-// Actions returns the actions registered for key, in load order. The slice is
-// a copy; the caller can sort or filter it.
+// Actions returns the actions registered for key. The slice is a copy and the
+// order is unspecified; the caller sorts or filters it.
 func (m *Manager) Actions(key string) []Action {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
