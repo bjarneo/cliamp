@@ -104,3 +104,17 @@ func TestPluginQueueInsertNormalizesStream(t *testing.T) {
 		t.Fatalf("tracks = %#v, want one stream track", tracks)
 	}
 }
+
+func TestPluginQueueInsertKeepsSelectionAndHeaderState(t *testing.T) {
+	p := playlist.New()
+	p.Replace([]playlist.Track{{Title: "A", Path: "a.mp3"}, {Title: "B", Path: "b.mp3"}})
+	m := Model{player: &playbackFakeEngine{}, playlist: p, plCursor: 1}
+	next, _ := m.Update(PluginQueueMsg{Op: "insert", Index: 0, Track: playlist.Track{Title: "X", Path: "x.mp3"}})
+	got := next.(Model)
+	if got.plCursor != 2 {
+		t.Fatalf("plCursor = %d, want 2", got.plCursor)
+	}
+	if got.headerTracks != 3 {
+		t.Fatalf("headerTracks = %d, want 3", got.headerTracks)
+	}
+}

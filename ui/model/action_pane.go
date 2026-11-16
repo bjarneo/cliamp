@@ -20,6 +20,7 @@ type actionPaneState struct {
 	cursor   int
 	scroll   int
 	query    string
+	height   int
 }
 
 // openActionPane collects the actions registered for "!" and shows them.
@@ -54,6 +55,7 @@ func (m *Model) openActionPane() {
 		visible:  true,
 		entries:  entries,
 		filtered: entries,
+		height:   m.height,
 	}
 }
 
@@ -113,7 +115,11 @@ func (p *actionPaneState) adjustScroll() {
 }
 
 func (p *actionPaneState) visibleRows() int {
-	return 10
+	if p.height <= 0 {
+		return 10
+	}
+	const chrome = 9 // heading, query, footer, blanks and borders
+	return max(1, min(10, p.height-chrome))
 }
 
 // filterActions keeps the actions whose label, description or plugin contains

@@ -117,7 +117,8 @@ func (m *Manager) registerProviderAPI(L *lua.LState, cliamp *lua.LTable, p *Plug
 			return 1
 		}
 
-		ctx := callContext(L)
+		ctx, cancel := context.WithTimeout(callContext(L), timeout)
+		defer cancel()
 		result, err := pp.Call(ctx, action, params)
 		if err != nil {
 			return pushErr(L, err.Error())
@@ -137,12 +138,7 @@ func (m *Manager) runProviderCall(p *Plugin, call func(context.Context, string, 
 	defer cancel()
 	result, err := call(ctx, action, params)
 	label := "provider.call " + action
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.closing {
-		return
-	}
-	m.enqueue(p, label, func() {
+	m.enqueueCompletion(p, label, func() {
 		m.call(p, label, hookTimeout, 0, func(L *lua.LState) (*lua.LFunction, []lua.LValue) {
 			if err != nil {
 				return fn, []lua.LValue{lua.LNil, lua.LString(err.Error())}

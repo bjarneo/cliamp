@@ -164,3 +164,22 @@ func TestProviderCallWriteRejectsMixedCaseAction(t *testing.T) {
 		t.Errorf("err = %q", got)
 	}
 }
+
+func TestProviderCallSyncUsesTimeout(t *testing.T) {
+	m := newTestManager()
+	m.SetProviderProvider(ProviderProvider{
+		Call: func(ctx context.Context, action string, params map[string]any) (map[string]any, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	})
+	loadTestPlugin(t, m, "provider-timeout", `
+		local p = plugin.register({name = "provider-timeout", type = "hook", permissions = {"provider"}})
+		local res, err = cliamp.provider.call("telegram.commands", {chat = "u:1:2"}, {timeout = 0.05})
+		_G.err = err
+	`)
+	p := m.plugins[0]
+	if got := p.L.GetGlobal("err").String(); !strings.Contains(got, "deadline exceeded") {
+		t.Errorf("err = %q", got)
+	}
+}

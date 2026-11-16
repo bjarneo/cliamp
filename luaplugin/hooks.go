@@ -204,6 +204,34 @@ func (m *Manager) enqueue(p *Plugin, label string, fn func()) bool {
 	}
 }
 
+// enqueueCompletion delivers an asynchronous provider completion without
+// dropping it when the plugin queue is full. It holds m.mu only for the
+// non-blocking send, so Close cannot close the queue underneath the send. The
+// caller already returned true to Lua, so losing the completion would leave a
+// plugin waiting forever.
+func (m *Manager) enqueueCompletion(p *Plugin, label string, fn func()) bool {
+	for {
+		m.mu.RLock()
+		if m.closing {
+			m.mu.RUnlock()
+			return false
+		}
+		select {
+		case p.queue <- fn:
+			p.dropping.Store(false)
+			m.mu.RUnlock()
+			return true
+		default:
+			m.mu.RUnlock()
+		}
+		select {
+		case <-m.ctx.Done():
+			return false
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
 // runQueue runs the queued calls of p one at a time until Close closes the
 // queue. Thus the events and key presses of one plugin keep their order. When
 // Close sets dropQueued, it drops the calls that still wait.

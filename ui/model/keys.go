@@ -194,12 +194,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.handleLuaInputKey(msg)
 		return nil
 	}
-	if m.actionPane.visible {
-		return m.handleActionPaneKey(msg)
-	}
 	if m.luaSelect != nil {
 		m.handleLuaSelectKey(msg)
 		return nil
+	}
+	if m.actionPane.visible {
+		return m.handleActionPaneKey(msg)
 	}
 
 	if cmd, ok := m.handleGlobalKey(msg); ok {

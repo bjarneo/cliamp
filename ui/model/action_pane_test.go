@@ -136,3 +136,13 @@ func TestActionPaneFilterKeepsEntries(t *testing.T) {
 		t.Fatalf("cleared filter = %#v", m.actionPane.filtered)
 	}
 }
+
+func TestActionPaneVisibleRowsFitsHeight(t *testing.T) {
+	cases := map[int]int{0: 10, 10: 1, 15: 6, 55: 10}
+	for height, want := range cases {
+		pane := actionPaneState{height: height}
+		if got := pane.visibleRows(); got != want {
+			t.Fatalf("height %d: visibleRows = %d, want %d", height, got, want)
+		}
+	}
+}

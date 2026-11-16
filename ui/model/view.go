@@ -271,10 +271,10 @@ func (m Model) View() tea.View {
 	if box := m.renderActionPane(); box != "" {
 		rendered = overlayCentered(rendered, box, m.layout.frameWidth, m.height)
 	}
-	if box := m.renderLuaInput(); box != "" {
+	if box := m.renderLuaSelect(); box != "" {
 		rendered = overlayCentered(rendered, box, m.layout.frameWidth, m.height)
 	}
-	if box := m.renderLuaSelect(); box != "" {
+	if box := m.renderLuaInput(); box != "" {
 		rendered = overlayCentered(rendered, box, m.layout.frameWidth, m.height)
 	}
 	view := tea.NewView(rendered)

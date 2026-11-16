@@ -52,7 +52,11 @@ func (m *Model) handlePluginQueue(msg PluginQueueMsg) tea.Cmd {
 
 	case "insert":
 		msg.Track.Stream = msg.Track.Stream || playlist.IsURL(msg.Track.Path)
+		if m.plCursor >= 0 && msg.Index <= m.plCursor && m.plCursor < m.playlist.Len() {
+			m.plCursor++
+		}
 		m.playlist.Insert(msg.Index, msg.Track)
+		m.recountHeaderState(m.playlist.Tracks())
 		m.normalizeQueueOverlay()
 		m.adjustScroll()
 		return m.rearmStalePreload()

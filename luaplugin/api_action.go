@@ -82,6 +82,11 @@ func (m *Manager) registerActionAPI(L *lua.LState, obj *lua.LTable, p *Plugin) {
 			Prompt:      strings.TrimSpace(rawString(L, opts, "prompt")),
 			run: func(text string) {
 				label := "action " + id
+				m.mu.RLock()
+				defer m.mu.RUnlock()
+				if m.closing {
+					return
+				}
 				m.enqueue(p, label, func() {
 					m.call(p, label, hookTimeout, 0, fixedArgs(fn, lua.LString(text)))
 				})

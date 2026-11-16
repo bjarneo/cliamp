@@ -6,8 +6,13 @@
 -- that answers a text command with an audio document works without code
 -- changes.
 --
--- The action appears under "!" when the Telegram provider is open. The
--- p:command("ask") form is for scripts and the MCP:
+-- The action appears under "!" when the Telegram provider is open.
+-- A plain text query keeps waiting for the audio after an interim
+-- "downloading" reply. Slash commands are treated as menu commands and do not
+-- wait for delayed audio; use a plain query if the bot sends the audio after a
+-- slash-command reply.
+--
+-- The p:command("ask") form is for scripts and the MCP:
 --
 --   cliamp plugins call telegram-bot ask <chat-id> /search daft punk
 
@@ -163,11 +168,16 @@ p:command("ask", function(args)
     if not chat or chat == "" or text == "" then
         return "usage: ask <chat-id> <message>"
     end
+    if busy[chat] then
+        return "busy: wait for the bot to finish this chat"
+    end
+    busy[chat] = true
     local reply, err = cliamp.provider.call("telegram.ask", {
         chat = chat,
         text = text,
         timeout = 60,
     })
+    busy[chat] = nil
     if not reply then
         return "error: " .. tostring(err)
     end
