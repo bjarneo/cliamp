@@ -259,7 +259,15 @@ func waitReplyResult(ctx context.Context, commander provider.ChatCommander, chat
 	if seconds, ok := params["timeout"].(float64); ok && seconds > 0 {
 		timeout = time.Duration(seconds * float64(time.Second))
 	}
-	reply, err := commander.WaitReply(ctx, chat, after, timeout)
+	var (
+		reply provider.ChatReply
+		err   error
+	)
+	if audioOnly, _ := params["audio_only"].(bool); audioOnly {
+		reply, err = commander.WaitAudio(ctx, chat, after, timeout)
+	} else {
+		reply, err = commander.WaitReply(ctx, chat, after, timeout)
+	}
 	if err != nil {
 		return nil, err
 	}
