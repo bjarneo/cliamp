@@ -175,9 +175,11 @@ func TestDecodeYTDLPipeNamesSelectedBinary(t *testing.T) {
 		t.Fatalf("error = %q, want no install advice for an explicit selection", err)
 	}
 	// The guard replaces the os/exec failure with its own message, so the
-	// lookup cause has to stay reachable for callers matching on it.
+	// lookup cause has to stay reachable for callers matching on it. Windows
+	// reports a missing extensionless path as exec.ErrNotFound, POSIX as
+	// fs.ErrNotExist.
 	var execErr *exec.Error
-	if !errors.As(err, &execErr) || !errors.Is(err, fs.ErrNotExist) {
+	if !errors.As(err, &execErr) || !(errors.Is(err, fs.ErrNotExist) || errors.Is(err, exec.ErrNotFound)) {
 		t.Fatalf("error %v does not unwrap to the exec lookup failure", err)
 	}
 }
