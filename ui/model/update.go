@@ -115,6 +115,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case LuaTextMsg:
+		if prev := m.luaText; prev != nil && prev.onClose != nil {
+			prev.onClose()
+		}
 		m.openLuaText(msg.Title, msg.Text, msg.OnClose)
 		return m, nil
 

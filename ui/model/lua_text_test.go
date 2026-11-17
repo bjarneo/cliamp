@@ -30,3 +30,17 @@ func TestWrapBlockKeepsBlankLines(t *testing.T) {
 		t.Fatalf("lines = %#v", lines)
 	}
 }
+
+func TestLuaTextReplacementClosesPrevious(t *testing.T) {
+	m := Model{}
+	closed := false
+	m.openLuaText("First", "one", func() { closed = true })
+	next, _ := m.Update(LuaTextMsg{Title: "Second", Text: "two"})
+	got := next.(Model)
+	if !closed {
+		t.Fatal("replacing the panel did not call the previous on_close")
+	}
+	if got.luaText == nil || got.luaText.title != "Second" {
+		t.Fatalf("panel = %#v", got.luaText)
+	}
+}
