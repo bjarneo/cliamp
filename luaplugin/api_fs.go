@@ -62,6 +62,16 @@ func loadWriteRules() writeRules {
 	if configErr == nil {
 		add(&r.deny, filepath.Join(configDir, "config.toml"))
 		add(&r.deny, filepath.Join(configDir, "radios.toml"))
+		// The savers lock "<file>.lock" before each write. A plugin that
+		// holds or removes a lock file can make every save fail.
+		add(&r.deny, filepath.Join(configDir, "config.toml.lock"))
+		add(&r.deny, filepath.Join(configDir, "favorites.toml.lock"))
+		add(&r.deny, filepath.Join(configDir, "history.toml.lock"))
+		add(&r.deny, filepath.Join(configDir, "radio_favorites.toml.lock"))
+		add(&r.deny, filepath.Join(configDir, "radio_countries.toml.lock"))
+		// The local provider locks "<config>/playlists.lock", a sibling of
+		// the playlists directory, which stays writable.
+		add(&r.deny, filepath.Join(configDir, "playlists.lock"))
 		add(&r.deny, filepath.Join(configDir, pluginLogName))
 	}
 	add(&r.deny, ipc.DefaultSocketPath())
