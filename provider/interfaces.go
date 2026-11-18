@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"io"
 	"time"
 
 	"github.com/gopxl/beep/v2"
@@ -502,14 +501,6 @@ type TrackAlbumResolver interface {
 // ArtistFilter returns that filter query and must not do I/O.
 type TrackArtistFilter interface {
 	ArtistFilter(track playlist.Track) (string, bool)
-}
-
-// TrackDownloader is implemented by providers that can download the file of
-// one of their streamed tracks, for Ctrl+S. CanDownloadTrack must not do I/O.
-// OpenTrackFile returns the file's body and its extension, such as ".flac".
-type TrackDownloader interface {
-	CanDownloadTrack(track playlist.Track) bool
-	OpenTrackFile(ctx context.Context, track playlist.Track) (io.ReadCloser, string, error)
 }
 
 // QueueContinuer is implemented by providers whose lists never end, such as
