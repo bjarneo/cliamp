@@ -277,6 +277,10 @@ type ffmpegPipe struct {
 	pcmBuf []byte    // reusable block buffer for decoded PCM bytes
 	f32    bool      // true = f32le, false = s16le
 	live   bool      // true for infinite radio streams: EOF means the upstream died
+	// minFrames, when above zero, is the audio a finite input must produce.
+	// ffmpeg exits 0 when an HTTP input ends early and its reconnect fails, so
+	// an EOF before minFrames means the input was cut short.
+	minFrames int64
 }
 
 func (f *ffmpegPipe) Stream(samples [][2]float64) (int, bool) {
@@ -295,6 +299,9 @@ func (f *ffmpegPipe) Stream(samples [][2]float64) (int, bool) {
 		// connection dropped (e.g. the stall timeout cancelled it). Surface it
 		// so StreamErr()/auto-reconnect fires instead of treating it as
 		// end-of-track and stopping playback.
+		f.state.err.publish(io.ErrUnexpectedEOF)
+	}
+	if !ok && f.state.pos.Load() < f.minFrames && f.state.err.load() == nil {
 		f.state.err.publish(io.ErrUnexpectedEOF)
 	}
 	return n, ok

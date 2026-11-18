@@ -17,33 +17,32 @@ import (
 func TestParseYTDLMedia(t *testing.T) {
 	headers := `{"User-Agent": "UA/1", "Accept": "*/*", "Accept-Language": "en-us,en;q=0.5", "X-Bad": "a\r\nInjected: 1"}`
 	tests := []struct {
-		name        string
-		out         string
-		wantErr     error
-		wantURL     string
-		wantUA      string
-		wantHeaders string
-		wantExpires time.Time
-		wantDur     time.Duration
+		name    string
+		out     string
+		want    ytdlMedia
+		wantErr error
 	}{
 		{
-			name:        "direct url with expire",
-			out:         "213.5\nhttps://media.example/videoplayback?expire=1800000000&itag=251\n" + headers + "\n",
-			wantURL:     "https://media.example/videoplayback?expire=1800000000&itag=251",
-			wantUA:      "UA/1",
-			wantHeaders: "Accept: */*\r\nAccept-Language: en-us,en;q=0.5\r\n",
-			wantExpires: time.Unix(1800000000, 0),
-			wantDur:     213500 * time.Millisecond,
+			name: "direct url with expire and dur",
+			out:  "213.5\nhttps://media.example/videoplayback?expire=1800000000&itag=251&dur=213.461\n" + headers + "\n",
+			want: ytdlMedia{
+				url:       "https://media.example/videoplayback?expire=1800000000&itag=251&dur=213.461",
+				userAgent: "UA/1",
+				headers:   "Accept: */*\r\nAccept-Language: en-us,en;q=0.5\r\n",
+				expires:   time.Unix(1800000000, 0),
+				duration:  213500 * time.Millisecond,
+				length:    213461 * time.Millisecond,
+			},
 		},
 		{
-			name:    "direct url without expire",
-			out:     "NA\nhttp://media.example/a.webm\n{}",
-			wantURL: "http://media.example/a.webm",
+			name: "direct url without expire",
+			out:  "NA\nhttp://media.example/a.webm\n{}",
+			want: ytdlMedia{url: "http://media.example/a.webm"},
 		},
 		{
-			name:    "live hls url",
-			out:     "NA\nhttps://manifest.example/hls_playlist/expire/1800000000/index.m3u8\n{}",
-			wantURL: "https://manifest.example/hls_playlist/expire/1800000000/index.m3u8",
+			name: "live hls url",
+			out:  "NA\nhttps://manifest.example/hls_playlist/expire/1800000000/index.m3u8\n{}",
+			want: ytdlMedia{url: "https://manifest.example/hls_playlist/expire/1800000000/index.m3u8"},
 		},
 		{name: "separate video and audio", out: "60\nhttps://v.example/v\nhttps://v.example/a\n{}", wantErr: errNoDirectYTDLMedia},
 		{name: "not http", out: "60\nfile:///etc/passwd\n{}", wantErr: errNoDirectYTDLMedia},
@@ -61,8 +60,8 @@ func TestParseYTDLMedia(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parseYTDLMedia() error = %v", err)
 			}
-			if m.url != tt.wantURL || m.userAgent != tt.wantUA || m.headers != tt.wantHeaders || !m.expires.Equal(tt.wantExpires) || m.duration != tt.wantDur {
-				t.Fatalf("parseYTDLMedia() = %+v", *m)
+			if *m != tt.want {
+				t.Fatalf("parseYTDLMedia() = %+v, want %+v", *m, tt.want)
 			}
 		})
 	}
@@ -538,6 +537,54 @@ func TestBuildYTDLSourceReportsAMissingYTDLP(t *testing.T) {
 	if !strings.Contains(err.Error(), "yt-dlp is required") {
 		t.Fatalf("buildYTDLSource() error = %v, want the install hint", err)
 	}
+}
+
+// TestDirectReadCutShortIsAStreamError checks the end of a direct read
+// against the exact length of its URL. The fake ffmpeg ends after one frame.
+func TestDirectReadCutShortIsAStreamError(t *testing.T) {
+	tests := []struct {
+		name     string
+		length   time.Duration
+		startSec int
+		wantErr  bool
+	}{
+		{name: "cut short", length: 240 * time.Second, wantErr: true},
+		{name: "cut short after a seek", length: 240 * time.Second, startSec: 200, wantErr: true},
+		{name: "ends within the slack", length: 500 * time.Millisecond},
+		{name: "seek into the last second", length: 240 * time.Second, startSec: 239},
+		{name: "no length", length: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			installYTDLSeekFixtures(t, "", false)
+			p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
+			media := &ytdlMedia{url: "https://media.example/a", length: tt.length}
+
+			tp, err := p.buildYTDLDirectPipeline("https://www.youtube.com/watch?v=a", media, tt.startSec)
+			if err != nil {
+				t.Fatalf("buildYTDLDirectPipeline() error = %v", err)
+			}
+			defer tp.close()
+			playToEnd(t, tp)
+			if err := tp.streamErr(); (err != nil) != tt.wantErr {
+				t.Fatalf("streamErr() = %v, want an error: %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// playToEnd reads the stream of tp as the speaker does until it ends. The
+// prefetch returns silence while it waits for the decoder.
+func playToEnd(t *testing.T, tp *trackPipeline) {
+	t.Helper()
+	buf := make([][2]float64, 512)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := tp.stream.Stream(buf); !ok {
+			return
+		}
+	}
+	t.Fatal("the stream did not end")
 }
 
 // failedReadDecoder is a decoder whose read has failed.

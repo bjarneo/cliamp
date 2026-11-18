@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"os/exec"
 	"sort"
@@ -21,6 +22,11 @@ import (
 // rather than starting a read that the server may cut off.
 const ytdlMediaExpiryMargin = time.Minute
 
+// ytdlMediaEndSlack is how much shorter than its exact length a direct read
+// may end without counting as cut short. It covers the start of a seek and the
+// padding at the end of the encoded audio.
+const ytdlMediaEndSlack = time.Second
+
 // errNoDirectYTDLMedia reports that yt-dlp picked a format ffmpeg cannot open
 // by itself: separate video and audio URLs, or a scheme other than http(s).
 var errNoDirectYTDLMedia = errors.New("no direct http format")
@@ -34,11 +40,22 @@ type ytdlMedia struct {
 	headers   string        // other request headers as "Key: Value\r\n" lines
 	expires   time.Time     // zero when the URL carries no expire parameter
 	duration  time.Duration // zero when yt-dlp reports none
+	length    time.Duration // exact length from the dur parameter; zero when absent
 }
 
 // usable reports whether m can still be opened at now.
 func (m *ytdlMedia) usable(now time.Time) bool {
 	return m != nil && (m.expires.IsZero() || now.Before(m.expires.Add(-ytdlMediaExpiryMargin)))
+}
+
+// remaining is the audio that a read from startSec must produce before it may
+// end: the exact length less startSec and ytdlMediaEndSlack. It is zero when
+// the length is unknown, as for the HLS URL of a live stream.
+func (m *ytdlMedia) remaining(startSec int) time.Duration {
+	if m.length <= 0 {
+		return 0
+	}
+	return max(m.length-time.Duration(startSec)*time.Second-ytdlMediaEndSlack, 0)
 }
 
 // inputArgs returns the ffmpeg input arguments that open m at startSec.
@@ -163,6 +180,10 @@ func parseYTDLMedia(out string) (*ytdlMedia, error) {
 	if exp, err := strconv.ParseInt(u.Query().Get("expire"), 10, 64); err == nil && exp > 0 {
 		m.expires = time.Unix(exp, 0)
 	}
+	// dur carries milliseconds, where yt-dlp rounds the duration to seconds.
+	if secs, err := strconv.ParseFloat(u.Query().Get("dur"), 64); err == nil && secs > 0 {
+		m.length = time.Duration(math.Round(secs*1000)) * time.Millisecond
+	}
 	return m, nil
 }
 
@@ -254,6 +275,7 @@ func (p *Player) buildYTDLDirectPipeline(pageURL string, media *ytdlMedia, start
 	if err != nil {
 		return nil, err
 	}
+	fp.minFrames = int64(format.SampleRate.N(media.remaining(startSec)))
 	decoder := &ffmpegPipeStreamer{ffmpegPipe: fp}
 	if err := decoder.waitForInitialAudio(ytdlPipeTimeout); err != nil {
 		_ = decoder.Close()
