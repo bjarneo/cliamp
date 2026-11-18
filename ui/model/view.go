@@ -12,7 +12,6 @@ import (
 
 	"github.com/bjarneo/cliamp/external/radio"
 	"github.com/bjarneo/cliamp/favorites"
-	"github.com/bjarneo/cliamp/internal/cellwidth"
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 	"github.com/bjarneo/cliamp/ui"
@@ -587,27 +586,28 @@ func (m Model) renderFrame(content string) string {
 	height := max(1, m.height)
 	inner := max(1, l.frameWidth-2*l.paddingH)
 	side := strings.Repeat(" ", l.paddingH)
+	left := strings.Repeat(" ", max(0, (m.width-l.frameWidth)/2))
 	blank := strings.Repeat(" ", l.frameWidth)
 
 	out := make([]string, max(0, (height-len(lines)-2*l.paddingV)/2))
 	for range l.paddingV {
-		out = append(out, blank)
+		out = append(out, left+blank)
 	}
 	for _, line := range lines {
-		out = append(out, side+fitLine(line, inner)+side)
+		out = append(out, left+side+fitLine(line, inner)+side)
 	}
 	for range l.paddingV {
-		out = append(out, blank)
+		out = append(out, left+blank)
 	}
 	return strings.Join(out[:min(len(out), height)], "\n")
 }
 
 // fitLine pads or cuts s to exactly width cells.
 func fitLine(s string, width int) string {
-	w := cellwidth.String(s)
+	w := ansi.StringWidth(s)
 	if w > width {
 		s = ansi.Truncate(s, width, "")
-		w = cellwidth.String(s)
+		w = ansi.StringWidth(s)
 	}
 	return s + strings.Repeat(" ", max(0, width-w))
 }

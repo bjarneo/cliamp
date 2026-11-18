@@ -4,8 +4,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
-
-	"github.com/bjarneo/cliamp/internal/cellwidth"
 )
 
 func fitVisualizerFrame(frame string, cols, rows int) string {
@@ -21,7 +19,7 @@ func fitVisualizerFrame(frame string, cols, rows int) string {
 			out.WriteByte('\n')
 		}
 		line, next, _ := strings.Cut(rest, "\n")
-		width := cellwidth.String(line)
+		width := ansi.StringWidth(line)
 		if width <= cols {
 			out.WriteString(line)
 		} else { // only a line that has to be cut needs walking

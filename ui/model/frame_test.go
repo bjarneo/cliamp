@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/ui"
@@ -64,8 +65,8 @@ func lipglossFrame(m Model, content string) string {
 	return ui.FitRect(strings.Repeat("\n", padTop)+strings.Join(lines, "\n"), m.layout.frameWidth, max(1, m.height))
 }
 
-// renderFrame draws the same bytes as before on every screen, at every size,
-// in every visualizer mode, with the help bar shown and hidden.
+// renderFrame draws the same bytes as before: every screen at every size,
+// every visualizer mode on the two screens that draw it, help shown and hidden.
 func TestRenderFrameMatchesLipgloss(t *testing.T) {
 	screens := map[string]func(*Model){
 		"main":               func(*Model) {},
@@ -91,24 +92,36 @@ func TestRenderFrameMatchesLipgloss(t *testing.T) {
 		"simplified":         func(m *Model) { m.simplified = true },
 	}
 	sizes := [][2]int{{205, 102}, {200, 52}, {160, 45}, {120, 40}, {100, 30}, {80, 24}, {79, 23}, {72, 22}, {60, 18}, {56, 16}, {50, 14}, {40, 10}}
+	check := func(name string, open func(*Model), mode ui.VisMode, help bool, sz [2]int) {
+		m, _ := newFrameModel(sz[0], sz[1], mode)
+		m.hideHelpBar = !help
+		open(&m)
+		m.recomputeLayout()
+		if m.layout.tooSmall() {
+			return
+		}
+		content := m.renderFullVisualizer()
+		if m.activeScreen() != screenFullVisualizer {
+			content = strings.Join(m.mainSections(m.renderBodyRegion(), true, m.usesContentFirstLayout()), "\n")
+		}
+		if m.renderFrame(content) != lipglossFrame(m, content) {
+			t.Errorf("%s, mode %d, help %v, %dx%d: frames differ", name, mode, help, sz[0], sz[1])
+		}
+	}
+	// Every screen at every size and help state, in one mode.
 	for name, open := range screens {
+		for _, help := range []bool{true, false} {
+			for _, sz := range sizes {
+				check(name, open, ui.VisBars, help, sz)
+			}
+		}
+	}
+	// Every mode at two sizes on the screens that draw the visualizer.
+	for _, name := range []string{"main", "full visualizer"} {
 		for mode := ui.VisMode(0); mode < ui.VisCount; mode++ {
 			for _, help := range []bool{true, false} {
-				for _, sz := range sizes {
-					m, _ := newFrameModel(sz[0], sz[1], mode)
-					m.hideHelpBar = !help
-					open(&m)
-					m.recomputeLayout()
-					if m.layout.tooSmall() {
-						continue
-					}
-					content := m.renderFullVisualizer()
-					if m.activeScreen() != screenFullVisualizer {
-						content = strings.Join(m.mainSections(m.renderBodyRegion(), true, m.usesContentFirstLayout()), "\n")
-					}
-					if m.renderFrame(content) != lipglossFrame(m, content) {
-						t.Errorf("%s, mode %d, help %v, %dx%d: frames differ", name, mode, help, sz[0], sz[1])
-					}
+				for _, sz := range [][2]int{{205, 102}, {80, 24}} {
+					check(name, screens[name], mode, help, sz)
 				}
 			}
 		}
@@ -116,6 +129,34 @@ func TestRenderFrameMatchesLipgloss(t *testing.T) {
 	m, _ := newFrameModel(80, 24, ui.VisBars)
 	if content := "a\tb\r\nc\t\td\nend\r\n"; m.renderFrame(content) != lipglossFrame(m, content) {
 		t.Error("tabs and CRLF: frames differ")
+	}
+}
+
+// A frame narrower than the terminal is centred: every row, padding rows
+// included, starts with (width-frameWidth)/2 spaces and ends at frameWidth.
+func TestRenderFrameCentresNarrowFrame(t *testing.T) {
+	m, _ := newFrameModel(100, 24, ui.VisBars)
+	m.layout.frameWidth = 61 // odd, so the indent rounds down: (100-61)/2 = 19
+	const indent = 19
+	frame := m.renderFrame("first\nsecond")
+	rows := strings.Split(frame, "\n")
+	if len(rows) > m.height {
+		t.Fatalf("%d rows, want at most %d", len(rows), m.height)
+	}
+	var content int
+	for i, row := range rows {
+		if row == "" {
+			continue // rows above the content are empty, as before
+		}
+		if !strings.HasPrefix(row, strings.Repeat(" ", indent)) || ansi.StringWidth(row) != indent+m.layout.frameWidth {
+			t.Fatalf("row %d = %q: want %d spaces then %d cells", i, row, indent, m.layout.frameWidth)
+		}
+		if strings.TrimSpace(row) != "" {
+			content++
+		}
+	}
+	if content != 2 || !strings.Contains(frame, strings.Repeat(" ", indent)+strings.Repeat(" ", m.layout.paddingH)+"first") {
+		t.Errorf("content rows = %d, frame = %q", content, frame)
 	}
 }
 
