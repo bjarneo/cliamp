@@ -4,11 +4,15 @@ import "time"
 
 // Tick intervals: fast for visualizer animation, slow for time/seek display.
 const (
-	TickAnim    = 16 * time.Millisecond  // ~60 FPS — smooth bar/wave/scope animation cadence
-	TickWave    = TickAnim               // ~60 FPS — waveform modes (no FFT)
-	TickFast    = 50 * time.Millisecond  // 20 FPS — per-frame-animated spectrum modes
-	TickAnalyze = 33 * time.Millisecond  // ~30 Hz — FFT analysis cadence (independent of animation)
-	TickSlow    = 200 * time.Millisecond // 5 FPS — visualizer off or overlay
+	TickAnim = 16 * time.Millisecond // ~60 FPS — smooth bar/wave/scope animation cadence
+	TickWave = TickAnim              // ~60 FPS — frame clock of the waveform modes, not their redraw rate
+	TickFast = 50 * time.Millisecond // 20 FPS — per-frame-animated spectrum modes
+	// TickRawSample is the model tick of the raw-sample modes during playback.
+	// It is half of the 50 ms renderer frame at defaultUIFPS in main.go, so
+	// each frame on the screen gets a new waveform.
+	TickRawSample = 25 * time.Millisecond  // 40 FPS
+	TickAnalyze   = 33 * time.Millisecond  // ~30 Hz — FFT analysis cadence (independent of animation)
+	TickSlow      = 200 * time.Millisecond // 5 FPS — visualizer off or overlay
 	// TickLowPowerPlaying keeps playback bookkeeping responsive while avoiding
 	// the 20 FPS time/seek refresh cost when low-power mode is enabled.
 	TickLowPowerPlaying = 500 * time.Millisecond // 2 FPS — low-power playback UI cadence

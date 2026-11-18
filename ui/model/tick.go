@@ -199,7 +199,7 @@ func (m *Model) tickInterval() time.Duration {
 			return ui.TickLowPowerPlaying
 		}
 		if m.visualizerVisible() && m.vis.UsesRawSamples() {
-			return ui.TickAnim
+			return ui.TickRawSample
 		}
 		if m.visualizerVisible() && m.vis.DriverOwnsCadence() {
 			return min(d, ui.TickFast)

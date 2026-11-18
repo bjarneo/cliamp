@@ -6,12 +6,14 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bjarneo/cliamp/config"
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/internal/embyapi"
 	"github.com/bjarneo/cliamp/internal/resume"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/ui"
 )
 
 // cliamp search and cliamp search-sc play the first match of the query. Any
@@ -114,5 +116,13 @@ func TestSaveExitResume(t *testing.T) {
 				t.Fatalf("context read = %v, want %v", usedContext, tt.useContext)
 			}
 		})
+	}
+}
+
+// The raw-sample modes tick twice for each renderer frame, so that each frame
+// on the screen gets a new waveform.
+func TestRawSampleTickFitsRendererFrame(t *testing.T) {
+	if frame := time.Second / defaultUIFPS; 2*ui.TickRawSample > frame {
+		t.Fatalf("2*TickRawSample = %v, want at most the renderer frame %v", 2*ui.TickRawSample, frame)
 	}
 }
