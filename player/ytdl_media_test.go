@@ -201,6 +201,10 @@ func installYTDLSeekFixtures(t *testing.T, resolveOut string, directFails bool) 
 	writeExecutable(t, filepath.Join(dir, "yt-dlp"), `#!/bin/sh
 case " $* " in
 *" --print "*)
+	case " $* " in
+	*" --simulate "*) ;;
+	*) printf 'resolve without --simulate\n' >&2; exit 1 ;;
+	esac
 	printf 'resolve\n' >> "$RESOLVE_LOG"
 	if [ -n "$RESOLVE_ERROR" ]; then
 		printf '%s\n' "$RESOLVE_ERROR" >&2

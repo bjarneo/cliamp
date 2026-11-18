@@ -73,6 +73,9 @@ func resolveYTDLMedia(pageURL string) (*ytdlMedia, error) {
 		"--quiet",
 		"--no-warnings",
 		"--socket-timeout", "15",
+		// --print implies --simulate, but a --no-simulate in the user's
+		// yt-dlp config would make the resolve download the media.
+		"--simulate",
 		"--print", "duration",
 		"--print", "urls",
 		"--print", "%(http_headers)j",
