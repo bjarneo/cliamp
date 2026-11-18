@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bjarneo/cliamp/applog"
+	"github.com/bjarneo/cliamp/internal/fileutil"
 )
 
 const ipcRequestReadTimeout = 60 * time.Second
@@ -22,6 +23,8 @@ const ipcRequestReadTimeout = 60 * time.Second
 type Server struct {
 	listener    net.Listener
 	sockPath    string
+	socketInfo  os.FileInfo
+	pidInfo     os.FileInfo
 	broker      *Broker
 	brokerOwned bool
 
@@ -120,32 +123,49 @@ func NewServerWithBroker(sockPath string, broker *Broker) (*Server, error) {
 }
 
 func newServer(sockPath string, broker *Broker, brokerOwned bool) (*Server, error) {
-	if err := cleanStaleSocket(sockPath); err != nil {
-		return nil, err
-	}
-
 	// Ensure the parent directory exists.
 	if err := os.MkdirAll(filepath.Dir(sockPath), 0700); err != nil {
 		return nil, fmt.Errorf("ipc: mkdir: %w", err)
 	}
 
-	ln, err := listenSocket(sockPath)
+	// Serialize the first bind, socket permissions, and PID publication.
+	// Otherwise another starter could mistake a bound but not yet listening
+	// socket for a stale path and unlink it.
+	unlock, err := lockSocketStale(sockPath)
+	if err != nil {
+		return nil, fmt.Errorf("ipc: socket lock: %w", err)
+	}
+	defer func() { _ = unlock() }()
+
+	ln, err := listenExclusive(sockPath)
 	if err != nil {
 		return nil, fmt.Errorf("ipc: listen: %w", err)
+	}
+	// net.UnixListener.Close normally unlinks its path without checking
+	// ownership. A different server may now own that pathname.
+	if unixListener, ok := ln.(*net.UnixListener); ok {
+		unixListener.SetUnlinkOnClose(false)
+	}
+	socketInfo, err := os.Lstat(sockPath)
+	if err != nil {
+		_ = ln.Close()
+		_ = os.Remove(sockPath)
+		return nil, fmt.Errorf("ipc: stat socket: %w", err)
 	}
 
 	// Restrict socket permissions to owner only.
 	if err := os.Chmod(sockPath, 0600); err != nil {
-		ln.Close()
-		os.Remove(sockPath)
+		_ = ln.Close()
+		_ = os.Remove(sockPath)
 		return nil, fmt.Errorf("ipc: chmod: %w", err)
 	}
 
-	// Write PID file.
-	pidPath := sockPath + ".pid"
-	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
-		ln.Close()
-		os.Remove(sockPath)
+	// Publish a new PID inode, so a previous instance can distinguish its
+	// PID file from one belonging to a replacement with the same numeric PID.
+	pidInfo, err := publishPID(sockPath + ".pid")
+	if err != nil {
+		_ = ln.Close()
+		_ = os.Remove(sockPath)
 		return nil, fmt.Errorf("ipc: write pid: %w", err)
 	}
 
@@ -153,6 +173,8 @@ func newServer(sockPath string, broker *Broker, brokerOwned bool) (*Server, erro
 	s := &Server{
 		listener:    ln,
 		sockPath:    sockPath,
+		socketInfo:  socketInfo,
+		pidInfo:     pidInfo,
 		broker:      broker,
 		brokerOwned: brokerOwned,
 		operations:  DefaultOperationRegistry(),
@@ -168,7 +190,7 @@ func newServer(sockPath string, broker *Broker, brokerOwned bool) (*Server, erro
 	return s, nil
 }
 
-// Close shuts down the server, removes socket and PID file.
+// Close shuts down the server and removes only its own socket and PID file.
 func (s *Server) Close() error {
 	s.closeOnce.Do(func() {
 		if s.cancel != nil {
@@ -191,11 +213,63 @@ func (s *Server) Close() error {
 			s.broker.Close()
 		}
 		if s.sockPath != "" {
-			_ = os.Remove(s.sockPath)
-			_ = os.Remove(s.sockPath + ".pid")
+			removeOwnedSocket(s.sockPath, s.socketInfo, s.pidInfo)
 		}
 	})
 	return s.closeErr
+}
+
+// publishPID atomically replaces the stale PID file with a new inode.
+func publishPID(pidPath string) (os.FileInfo, error) {
+	f, err := os.CreateTemp(filepath.Dir(pidPath), ".cliamp-pid-*")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.WriteString(strconv.Itoa(os.Getpid())); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	if err := f.Close(); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(f.Name(), pidPath); err != nil {
+		return nil, err
+	}
+	return os.Lstat(pidPath)
+}
+
+// removeOwnedSocket uses the same stale-socket lock as startup, and only
+// unlinks a socket whose file identity still belongs to this server. Socket
+// ownership also gates removal of the PID file. The PID inode must match as
+// well, since another process may have replaced it independently.
+func removeOwnedSocket(sockPath string, socketInfo, pidInfo os.FileInfo) {
+	if socketInfo == nil {
+		return
+	}
+	unlock, err := lockSocketStale(sockPath)
+	if err != nil {
+		applog.Warn("ipc: lock socket cleanup: %v", err)
+		return
+	}
+	defer func() { _ = unlock() }()
+
+	current, err := os.Lstat(sockPath)
+	if err != nil || !os.SameFile(current, socketInfo) {
+		return
+	}
+	if err := os.Remove(sockPath); err != nil {
+		applog.Warn("ipc: remove socket: %v", err)
+		return
+	}
+	if pidInfo != nil {
+		currentPID, err := os.Lstat(sockPath + ".pid")
+		if err == nil && os.SameFile(currentPID, pidInfo) {
+			if err := os.Remove(sockPath + ".pid"); err != nil {
+				applog.Warn("ipc: remove pid file: %v", err)
+			}
+		}
+	}
 }
 
 // acceptLoop accepts incoming connections until the server is closed.
@@ -558,44 +632,33 @@ func Listening(sockPath string) (bool, error) {
 	return false, fmt.Errorf("ipc: probe socket %s: %w", sockPath, err)
 }
 
-// cleanStaleSocket removes a leftover socket and PID file from a dead process.
-// A connect probe always runs before deleting either path, so a live server is
-// never displaced because its PID file is missing, stale, or malformed.
-func cleanStaleSocket(sockPath string) error {
+// listenExclusive binds sockPath, clearing an inode left by a dead process.
+// The caller holds cliamp.sock.lock from before the first bind through
+// socket permission changes and PID publication. A successful bind wins;
+// an occupied path is probed, removed only if no server is listening, and
+// bound once more. A PID is never used to decide whether the server is live.
+func listenExclusive(sockPath string) (net.Listener, error) {
+	ln, err := listenSocket(sockPath)
+	if err == nil || !isAddrInUse(err) {
+		return ln, err
+	}
+
 	listening, err := Listening(sockPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if listening {
-		return fmt.Errorf("ipc: cliamp is already running")
+		return nil, fmt.Errorf("cliamp is already running")
 	}
 
-	pidPath := sockPath + ".pid"
-	pidData, err := os.ReadFile(pidPath)
-	if err != nil {
-		// No PID file — remove socket if it exists (orphan from crash).
-		os.Remove(sockPath)
-		return nil
+	if err := os.Remove(sockPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
+	return listenSocket(sockPath)
+}
 
-	pid, err := strconv.Atoi(strings.TrimSpace(string(pidData)))
-	if err != nil {
-		// Corrupt PID file — clean up.
-		os.Remove(pidPath)
-		os.Remove(sockPath)
-		return nil
-	}
-
-	alive, err := processAlive(pid)
-	if err != nil {
-		return fmt.Errorf("ipc: checking process liveness for socket %s: %w", sockPath, err)
-	}
-	if !alive {
-		// Process is dead — clean up stale files.
-		os.Remove(pidPath)
-		os.Remove(sockPath)
-		return nil
-	}
-
-	return fmt.Errorf("ipc: cliamp is already running (pid %d)", pid)
+// lockSocketStale serializes socket startup and shutdown with the same
+// file lock used by the config writers.
+func lockSocketStale(sockPath string) (func() error, error) {
+	return fileutil.LockFile(sockPath + ".lock")
 }
