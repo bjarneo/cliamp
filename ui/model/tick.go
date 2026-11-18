@@ -39,10 +39,12 @@ func (m Model) visualizerVisible() bool {
 	if m.simplified || m.vis == nil || m.vis.Mode == ui.VisNone || m.vis.Rows <= 0 || m.vis.Cols <= 0 || m.layout.tooSmall() {
 		return false
 	}
-	if m.fullVis {
+	// A headless Model draws no frame, but spectrum.get still reads the
+	// visualizer.
+	if m.fullVis || m.headless {
 		return true
 	}
-	return m.layout.visualizerRows > 0 && !m.usesContentFirstLayout()
+	return m.layout.spectrumRows > 0
 }
 
 func (m *Model) visualizerPlaying() bool {

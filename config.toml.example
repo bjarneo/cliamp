@@ -11,9 +11,8 @@ volume = 0
 # Set to false to keep bars visible at low volumes.
 # vis_volume_linked = true
 
-# Visualizer height in rows on a terminal of at least 80x24 (default: 7).
-# Extra rows come out of the playlist below, and the layout shrinks the value
-# when the terminal cannot spare them. Range 1-40.
+# Visualizer height in rows (default: 7). In small screen the visualizer height will be reduced.
+# Range 1-40.
 # vis_rows = 7
 
 # Repeat mode: "off", "all", or "one"
@@ -25,7 +24,7 @@ shuffle = false
 # Start with mono output (L+R downmix)
 mono = false
 
-# Initial directory for the file browser ('o' key). 
+# Initial directory for the file browser ('o' key).
 # Supports environment variables ($HOME) and tilde expansion (~/Music).
 # initial_directory = "~/Music"
 
@@ -67,15 +66,15 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # No visualizer or playback controls are shown.
 # simplified = true
 
-# Hide the key-binding hint bar above the status line. The row is given back to
-# the playlist. Press "?" for the full keymap, or Ctrl+G to toggle the bar.
-# Simplified mode has no hint bar or playlist, so it is unaffected.
+# Hide the key-binding help bar at the bottom of the frame. The row is given
+# back to the playlist. Press "?" for the full keymap, or Ctrl+G to toggle the bar.
+# Simplified mode has no help bar or playlist, so it is unaffected.
 # hide_help_bar = true
 
-# Close the settings pane beside the playlist at the 80x24-and-up layout. The
-# playlist then gets the full frame width, with one row above it showing the
-# source and the volume meter; the EQ, speed, and download readouts are not
-# drawn. The pane is open unless this is set; Ctrl+B toggles it and saves here.
+# Close the settings pane beside the playlist on frames of at least 80 columns.
+# The playlist then gets the full frame width, and the settings move to one or
+# two rows below the seek bar. The pane is open unless this is set; Ctrl+B
+# toggles it and saves here.
 # hide_settings_pane = true
 
 # Show read-only metadata below Settings for the highlighted playlist item.
@@ -83,15 +82,21 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # section opens full info instead. Closing Settings preserves this preference.
 # show_metadata = false
 
-# Start with the playlist at the expanded height, the state Ctrl+X toggles: the
-# list gets every body row the terminal has left instead of the shorter default.
+# Start with the frame at the full terminal height, the state Ctrl+X toggles:
+# the list gets every row the terminal has left instead of 24 plus vis_rows.
 # The key keeps working and collapses the view as before.
 # expanded = true
 
-# Empty space around the UI: columns on the left and right (0-10, default 3)
-# and rows above and below (0-5, default 1).
-# padding_horizontal = 3
-# padding_vertical = 1
+# Default frame size before Ctrl+X: columns and body rows without vis_rows
+# (40-500 and 10-200, defaults 150 and 24). Wider or taller terminals center
+# the frame until expanded = true.
+# base_width = 150
+# base_height = 24
+
+# Optional empty space around the UI: columns on the left and right (0-10,
+# default 0) and rows above and below (0-5, default 0).
+# padding_horizontal = 0
+# padding_vertical = 0
 
 # UI theme name (check ~/.config/cliamp/themes/ for available themes)
 # theme = "Tokyo Night"

@@ -780,7 +780,6 @@ func TestTrackFavoriteHelpRequiresPlaylistFocus(t *testing.T) {
 			hearts := localProv.useFavorites(t)
 			m.favStore, m.localProvider = hearts, localProv
 			m.focus = tc.focus
-			m.layout.tier = layoutMinimal
 			found := false
 			for _, entry := range m.buildKeymapEntries() {
 				found = found || entry.action == "Favorite"

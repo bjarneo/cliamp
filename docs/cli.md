@@ -140,8 +140,12 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--mono` / `--no-mono` | bool | false | |
 | `--auto-play` / `--no-auto-play` | bool | false | |
 | `--simplified` / `--no-simplified` | bool | false | artist/title and time strip; no visualizer or playlist |
-| `--help-bar` / `--no-help-bar` | bool | true | show or hide the key-binding hint bar; `?` still opens the full keymap |
-| `--expanded` / `--no-expanded` | bool | false | start with the playlist expanded (the `Ctrl+X` state) |
+| `--help-bar` / `--no-help-bar` | bool | true | show or hide the key-binding help bar; `?` still opens the full keymap |
+| `--expanded` / `--no-expanded` | bool | false | start with the frame expanded to full terminal size (the `Ctrl+X` state) |
+| `--base-width` | int | 150 | default frame width in columns before `Ctrl+X` (40-500) |
+| `--base-height` | int | 24 | default frame height in rows without `vis_rows` before `Ctrl+X` (10-200) |
+| `--padding-horizontal` | int | 0 | empty columns left and right of the frame (0-10) |
+| `--padding-vertical` | int | 0 | empty rows above and below the frame (0-5) |
 | `--provider` | string | cliamp | provider to open at start: cliamp, radio, podcast, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, bandcamp, soundcloud, mixcloud, netease, yandex, audiobookshelf (or abs), telegram, yt, youtube, ytmusic |
 | `--visualizer` | string | Bars | visualizer mode, such as Bars, Wave or None. See [configuration.md](configuration.md#options) for all modes. |
 | `--start-theme` | string | | theme name |

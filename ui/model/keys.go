@@ -693,14 +693,14 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 
 	case "e":
-		if m.simplified || m.layout.tier == layoutMinimal {
+		if m.simplified {
 			break
 		}
 		m.cycleEQPreset()
 		m.scheduleEQSave()
 
 	case "alt+e":
-		if m.simplified || m.layout.tier == layoutMinimal {
+		if m.simplified {
 			break
 		}
 		m.previousEQPreset()
@@ -1024,7 +1024,8 @@ func (m *Model) handleJumpKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-// toggleExpandedView toggles the UI between default and expanded height.
+// toggleExpandedView toggles the UI between the default frame size and the
+// full terminal height and width.
 func (m *Model) toggleExpandedView() {
 	m.heightExpanded = !m.heightExpanded
 	m.applyHeightMode()

@@ -296,8 +296,8 @@ func TestPickerNameScreenKeepsTheVisualizerOverTheManager(t *testing.T) {
 			if m.usesContentFirstLayout() {
 				t.Fatal("usesContentFirstLayout() = true, want the playback chrome")
 			}
-			if m.layout.visualizerRows == 0 {
-				t.Fatal("visualizerRows = 0, want the visualizer kept")
+			if m.layout.spectrumRows == 0 {
+				t.Fatal("spectrumRows = 0, want the visualizer kept")
 			}
 		})
 	}

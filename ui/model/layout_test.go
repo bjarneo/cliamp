@@ -35,53 +35,115 @@ func newLayoutTestModel(width, height int) Model {
 		focus:    focusPlaylist,
 	}
 	m.vis.Mode = ui.VisBars
+	m.SetFrameBase(defaultFrameBaseWidth, defaultFrameBaseHeight)
 	m.recomputeLayout()
 	return m
 }
 
-func TestFrameLayoutTiers(t *testing.T) {
+// TestFrameLayoutRows pins the row budget: the frame is defaultFrameBaseHeight
+// rows plus vis_rows, and defaultFrameBaseWidth columns, or the whole
+// terminal when expanded, the spectrum never takes more rows than the body,
+// and the body takes what the other sections leave.
+func TestFrameLayoutRows(t *testing.T) {
+	type rows struct{ height, title, spectrum, settings, gap, help, body int }
 	tests := []struct {
-		name        string
-		width       int
-		height      int
-		wantTier    layoutTier
-		wantVisRows int
+		name          string
+		width, height int
+		setup         func(*Model)
+		want          rows
+		twoColumn     bool
 	}{
-		{name: "too small", width: 39, height: 9, wantTier: layoutTooSmall},
-		{name: "minimal", width: 40, height: 10, wantTier: layoutMinimal},
-		{name: "compact", width: 56, height: 16, wantTier: layoutCompact, wantVisRows: compactVisRows},
-		{name: "full", width: 80, height: 24, wantTier: layoutFull, wantVisRows: ui.DefaultVisRows},
+		{name: "stacked settings hide under 10 rows", width: 40, height: 10, want: rows{height: 10, help: 1, body: 5}},
+		{name: "compact spectrum under 25 rows", width: 80, height: 24, twoColumn: true, want: rows{height: 24, title: 1, spectrum: 3, help: 1, body: 15}},
+		{name: "default frame", width: 100, height: 30, twoColumn: true, want: rows{height: 30, title: 1, spectrum: 7, gap: 1, help: 1, body: 16}},
+		{name: "tall terminal keeps the frame", width: 100, height: 60, twoColumn: true, want: rows{height: 31, title: 1, spectrum: 7, gap: 1, help: 1, body: 17}},
+		{name: "one stacked row over 90 columns", width: 100, height: 30, setup: func(m *Model) { m.hideSettings = true },
+			want: rows{height: 30, title: 1, spectrum: 7, settings: 1, gap: 1, help: 1, body: 15}},
+		{name: "one stacked row from 80 columns", width: 80, height: 30, setup: func(m *Model) { m.hideSettings = true },
+			want: rows{height: 30, title: 1, spectrum: 7, settings: 1, gap: 1, help: 1, body: 15}},
+		{name: "expanded", width: 120, height: 50, twoColumn: true, setup: func(m *Model) { m.heightExpanded = true },
+			want: rows{height: 50, title: 1, spectrum: ui.DefaultVisRows, gap: 1, help: 1, body: 36}},
+		{name: "tall vis_rows", width: 120, height: 50, twoColumn: true, setup: func(m *Model) { m.visRows = 12 },
+			want: rows{height: 36, title: 1, spectrum: 12, gap: 1, help: 1, body: 17}},
+		{name: "spectrum never outgrows the body", width: 100, height: 31, twoColumn: true, setup: func(m *Model) { m.visRows = 20 },
+			want: rows{height: 31, title: 1, spectrum: 12, gap: 1, help: 1, body: 12}},
+		{name: "visualizer off", width: 100, height: 30, twoColumn: true, setup: func(m *Model) { m.vis.Mode = ui.VisNone },
+			want: rows{height: 30, title: 1, gap: 1, help: 1, body: 23}},
+		{name: "help bar hidden", width: 100, height: 30, twoColumn: true, setup: func(m *Model) { m.hideHelpBar = true },
+			want: rows{height: 30, title: 1, spectrum: 7, gap: 1, body: 17}},
+		{name: "list view", width: 100, height: 30, setup: func(m *Model) { m.focus = focusProvider; m.provider = &readOnlyGenreProvider{} },
+			want: rows{height: 30, title: 1, gap: 1, help: 1, body: 23}},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := newLayoutTestModel(tt.width, tt.height)
-			if m.layout.tier != tt.wantTier {
-				t.Fatalf("layout tier = %v, want %v", m.layout.tier, tt.wantTier)
+			if tt.setup != nil {
+				tt.setup(&m)
+				m.recomputeLayout()
 			}
-			if tt.wantTier == layoutTooSmall {
-				if m.layout.bodyRows != 0 {
-					t.Fatalf("body rows = %d, want 0", m.layout.bodyRows)
-				}
-				return
+			l := m.layout
+			got := rows{l.height, l.titleRows, l.spectrumRows, l.settingsRows, l.gapRows, l.helpRows, l.bodyRows}
+			if got != tt.want || l.twoColumn != tt.twoColumn {
+				t.Fatalf("rows = %+v, twoColumn = %v; want %+v, %v", got, l.twoColumn, tt.want, tt.twoColumn)
 			}
-			if m.layout.bodyRows < 1 {
-				t.Fatalf("body rows = %d, want at least one", m.layout.bodyRows)
+			if m.plVisible != l.listRows() {
+				t.Fatalf("playlist rows = %d, want %d", m.plVisible, l.listRows())
 			}
-			if m.vis.Rows != tt.wantVisRows {
-				t.Fatalf("visualizer rows = %d, want %d", m.vis.Rows, tt.wantVisRows)
+			if l.spectrumRows > 0 && m.vis.Rows != l.spectrumRows {
+				t.Fatalf("visualizer rows = %d, want %d", m.vis.Rows, l.spectrumRows)
 			}
-			if m.vis.Cols != m.layout.panelWidth {
-				t.Fatalf("visualizer columns = %d, want %d", m.vis.Cols, m.layout.panelWidth)
+			if m.vis.Cols != l.panelWidth {
+				t.Fatalf("visualizer columns = %d, want %d", m.vis.Cols, l.panelWidth)
 			}
 		})
+	}
+}
+
+// TestFrameFillsLayoutHeight checks that the sections render exactly the
+// layout height, so the transient and the help bar sit at the bottom.
+func TestFrameFillsLayoutHeight(t *testing.T) {
+	for _, size := range []struct{ width, height int }{{40, 10}, {56, 16}, {80, 24}, {100, 30}, {120, 50}} {
+		for _, hide := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%dx%d/hidePane=%v", size.width, size.height, hide), func(t *testing.T) {
+				m := newColumnTestModel(size.width, size.height)
+				m.SetHideSettingsPane(hide)
+				content := strings.Join(m.mainSections(m.renderBodyRegion()), "\n")
+				if got := lipgloss.Height(content); got != m.layout.height {
+					t.Fatalf("frame rows = %d, want %d\n%s", got, m.layout.height, content)
+				}
+			})
+		}
+	}
+}
+
+func TestFrameLayoutWidthCap(t *testing.T) {
+	m := newLayoutTestModel(160, 30)
+	if m.layout.frameWidth != defaultFrameBaseWidth {
+		t.Fatalf("frame width = %d, want %d", m.layout.frameWidth, defaultFrameBaseWidth)
+	}
+	wantPanel := defaultFrameBaseWidth
+	if m.layout.panelWidth != wantPanel {
+		t.Fatalf("panel width = %d, want %d", m.layout.panelWidth, wantPanel)
+	}
+
+	m.heightExpanded = true
+	m.recomputeLayout()
+	if m.layout.frameWidth != 160 {
+		t.Fatalf("expanded frame width = %d, want 160", m.layout.frameWidth)
+	}
+}
+
+func TestTooSmallLayout(t *testing.T) {
+	m := newLayoutTestModel(39, 9)
+	if !m.layout.tooSmall() || m.effectivePlaylistVisible() != 0 {
+		t.Fatalf("tooSmall = %v, playlist rows = %d; want true, 0", m.layout.tooSmall(), m.effectivePlaylistVisible())
 	}
 }
 
 func TestResponsiveViewsFitTerminal(t *testing.T) {
 	// Provider count matters: the source row is only drawn with more than one,
 	// so a single-provider model never exercises the tallest chrome. Pane
-	// state matters for the same reason at the full tier.
+	// state matters for the same reason on wide frames.
 	variants := []struct {
 		name      string
 		providers []provider.Entry
@@ -123,42 +185,32 @@ func TestResponsiveViewsFitTerminal(t *testing.T) {
 
 func TestExpandedPlaylistUsesAvailableRows(t *testing.T) {
 	m := newLayoutTestModel(80, 50)
-	// The two-column body hands the playlist the rows its settings pane freed.
-	wantCollapsed := maxPlVisible
-	if m.layout.twoColumn {
-		wantCollapsed += twoColumnChromeRows
-	}
-	if m.plVisible != wantCollapsed {
-		t.Fatalf("collapsed playlist rows = %d, want %d", m.plVisible, wantCollapsed)
-	}
+	collapsed := m.plVisible
 
 	m.heightExpanded = true
 	m.recomputeLayout()
-	if m.plVisible != m.layout.bodyRows {
-		t.Fatalf("expanded playlist rows = %d, want available body rows %d", m.plVisible, m.layout.bodyRows)
+	if m.layout.height != 50 {
+		t.Fatalf("expanded frame rows = %d, want the terminal's 50", m.layout.height)
 	}
-	if m.plVisible <= maxPlExpandVisible {
-		t.Fatalf("expanded playlist rows = %d, want more than previous cap %d", m.plVisible, maxPlExpandVisible)
+	if m.plVisible != m.layout.listRows() || m.plVisible <= collapsed {
+		t.Fatalf("expanded playlist rows = %d, want %d and more than %d", m.plVisible, m.layout.listRows(), collapsed)
 	}
 }
 
 func TestExpandedPlaylistWithoutVisualizerFillsTerminal(t *testing.T) {
 	for _, size := range []struct {
 		width, height int
-		wantFixed     int
-		extraBodyRows int
 	}{
-		// extraBodyRows is what turning the visualizer off gives back: its
-		// height plus the blank row that framed it at the full tier.
-		{width: 80, height: 50, wantFixed: 10, extraBodyRows: ui.DefaultVisRows + 1},
-		{width: 80, height: 24, wantFixed: 10, extraBodyRows: ui.DefaultVisRows + 1},
-		{width: 56, height: 20, wantFixed: 9, extraBodyRows: compactVisRows},
+		{width: 80, height: 50},
+		{width: 80, height: 30},
+		{width: 56, height: 20},
 	} {
 		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
 			mWithVis := newLayoutTestModel(size.width, size.height)
 			mWithVis.heightExpanded = true
 			mWithVis.recomputeLayout()
 			bodyRowsWithVis := mWithVis.layout.bodyRows
+			spectrumRows := mWithVis.layout.spectrumRows
 
 			m := newLayoutTestModel(size.width, size.height)
 			for i := 16; i < 100; i++ {
@@ -169,20 +221,11 @@ func TestExpandedPlaylistWithoutVisualizerFillsTerminal(t *testing.T) {
 			m.heightExpanded = true
 			m.recomputeLayout()
 
-			wantFixed := size.wantFixed
-			if m.layout.twoColumn {
-				// EQ/volume, source, and the status line moved into the
-				// settings pane beside the playlist.
-				wantFixed -= twoColumnChromeRows
+			if m.layout.bodyRows != bodyRowsWithVis+spectrumRows {
+				t.Fatalf("body rows = %d, want %d (%d more than with visualizer)", m.layout.bodyRows, bodyRowsWithVis+spectrumRows, spectrumRows)
 			}
-			if m.layout.fixedRows != wantFixed {
-				t.Fatalf("fixed rows = %d, want %d", m.layout.fixedRows, wantFixed)
-			}
-			if m.layout.bodyRows != bodyRowsWithVis+size.extraBodyRows {
-				t.Fatalf("body rows = %d, want %d (%d more than with visualizer)", m.layout.bodyRows, bodyRowsWithVis+size.extraBodyRows, size.extraBodyRows)
-			}
-			if m.plVisible != m.layout.bodyRows {
-				t.Fatalf("expanded playlist rows = %d, want available body rows %d", m.plVisible, m.layout.bodyRows)
+			if m.plVisible != m.layout.listRows() {
+				t.Fatalf("expanded playlist rows = %d, want available list rows %d", m.plVisible, m.layout.listRows())
 			}
 
 			// View without transient status message should not have empty top padding lines
@@ -204,8 +247,7 @@ func TestExpandedPlaylistWithoutVisualizerFillsTerminal(t *testing.T) {
 
 func TestCollapsedPlaylistCentersFrameVertically(t *testing.T) {
 	m := newLayoutTestModel(80, 50)
-	body := ui.FitRect(m.renderMainBody(), m.layout.panelWidth, m.layout.bodyRows)
-	content := strings.Join(m.mainSections(body, true, false), "\n")
+	content := strings.Join(m.mainSections(m.renderBodyRegion()), "\n")
 	frameHeight := lipgloss.Height(m.layout.frameStyle().Render(content))
 	wantTopPadding := (m.height - frameHeight) / 2
 
@@ -240,8 +282,8 @@ func TestResizeClampsActiveOverlayCursor(t *testing.T) {
 }
 
 func TestContentFirstLayoutPrioritizesLists(t *testing.T) {
-	playback := newLayoutTestModel(80, 24)
-	browse := newLayoutTestModel(80, 24)
+	playback := newLayoutTestModel(100, 30)
+	browse := newLayoutTestModel(100, 30)
 	browse.keymap.visible = true
 	browse.keymap.entries = browse.buildKeymapEntries()
 	browse.recomputeLayout()
@@ -252,27 +294,30 @@ func TestContentFirstLayoutPrioritizesLists(t *testing.T) {
 	if browse.layout.bodyRows <= playback.layout.bodyRows {
 		t.Fatalf("content-first body rows = %d, want more than playback rows %d", browse.layout.bodyRows, playback.layout.bodyRows)
 	}
-	if browse.layout.visualizerRows != 0 {
-		t.Fatalf("content-first visualizer rows = %d, want 0", browse.layout.visualizerRows)
+	if browse.layout.spectrumRows != 0 || browse.layout.twoColumn || browse.layout.settingsRows != 0 {
+		t.Fatalf("content-first layout = %+v, want no spectrum and no settings", browse.layout)
+	}
+	if browse.layout.height != playback.layout.height {
+		t.Fatalf("content-first frame rows = %d, want the playback frame's %d", browse.layout.height, playback.layout.height)
 	}
 	if browse.vis.Rows < 1 {
 		t.Fatalf("content-first visualizer canvas rows = %d, want positive", browse.vis.Rows)
 	}
 
-	preview := newLayoutTestModel(80, 24)
+	preview := newLayoutTestModel(100, 30)
 	preview.visPicker.visible = true
 	preview.visPicker.modes = preview.vis.AllModeNames()
 	preview.recomputeLayout()
 	if preview.usesContentFirstLayout() {
 		t.Fatal("visualizer picker must retain the live preview layout")
 	}
-	if preview.layout.visualizerRows == 0 {
+	if preview.layout.spectrumRows == 0 {
 		t.Fatal("visualizer picker must retain visualizer rows")
 	}
 }
 
-func TestResizeHidesMinimalVisualizerAndRestoresCanvas(t *testing.T) {
-	m := newLayoutTestModel(80, 24)
+func TestResizeHidesVisualizerAndRestoresCanvas(t *testing.T) {
+	m := newLayoutTestModel(100, 30)
 	p := m.player.(*playbackFakeEngine)
 	p.playing = true
 	m.vis.Mode = ui.VisScope
@@ -280,26 +325,26 @@ func TestResizeHidesMinimalVisualizerAndRestoresCanvas(t *testing.T) {
 	m.tickVisualizer(t0)
 	before := m.vis.Frame()
 
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 10})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 19})
 	m = updated.(Model)
 	if m.visualizerVisible() {
-		t.Fatal("visualizerVisible() = true in minimal layout, want false")
+		t.Fatal("visualizerVisible() = true under 20 frame rows, want false")
 	}
-	if m.vis.Rows != 0 {
-		t.Fatalf("minimal visualizer rows = %d, want 0", m.vis.Rows)
+	if m.vis.Rows < 1 {
+		t.Fatalf("hidden visualizer canvas rows = %d, want positive", m.vis.Rows)
 	}
 	m.tickVisualizer(t0.Add(time.Second))
 	if got := m.vis.Frame(); got != before {
 		t.Fatalf("hidden visualizer frame = %d, want %d", got, before)
 	}
 
-	updated, _ = m.Update(tea.WindowSizeMsg{Width: 56, Height: 16})
+	updated, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = updated.(Model)
 	if !m.visualizerVisible() {
-		t.Fatal("visualizerVisible() = false after compact resize, want true")
+		t.Fatal("visualizerVisible() = false after resize, want true")
 	}
-	if m.vis.Rows != compactVisRows {
-		t.Fatalf("restored visualizer rows = %d, want %d", m.vis.Rows, compactVisRows)
+	if m.vis.Rows != ui.DefaultVisRows {
+		t.Fatalf("restored visualizer rows = %d, want %d", m.vis.Rows, ui.DefaultVisRows)
 	}
 	m.tickVisualizer(t0.Add(2 * time.Second))
 	if got := m.vis.Frame(); got != before+1 {
@@ -307,38 +352,28 @@ func TestResizeHidesMinimalVisualizerAndRestoresCanvas(t *testing.T) {
 	}
 }
 
-func TestMinimalLayoutRejectsHiddenMainFocus(t *testing.T) {
+func TestTooSmallLayoutRejectsHiddenMainFocus(t *testing.T) {
 	m := newLayoutTestModel(80, 24)
 	m.focus = focusEQ
 	m.prevFocus = focusProvPill
 
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 10})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 39, Height: 9})
 	m = updated.(Model)
 	if m.focus != focusPlaylist {
-		t.Fatalf("focus = %v, want playlist at minimal size", m.focus)
+		t.Fatalf("focus = %v, want playlist on a too-small terminal", m.focus)
 	}
 	if m.prevFocus != focusPlaylist {
-		t.Fatalf("previous focus = %v, want playlist at minimal size", m.prevFocus)
-	}
-
-	m.handleKey(tea.KeyPressMsg{Code: tea.KeyTab})
-	if m.focus != focusPlaylist {
-		t.Fatalf("focus after Tab = %v, want playlist at minimal size", m.focus)
-	}
-	beforePreset := m.eqPresetIdx
-	m.handleKey(tea.KeyPressMsg{Text: "e"})
-	if m.eqPresetIdx != beforePreset {
-		t.Fatalf("EQ preset = %d after hidden shortcut, want %d", m.eqPresetIdx, beforePreset)
+		t.Fatalf("previous focus = %v, want playlist on a too-small terminal", m.prevFocus)
 	}
 }
 
-func TestCompactEqualizerShowsActiveBand(t *testing.T) {
+func TestStackedEqualizerShowsActiveBand(t *testing.T) {
 	m := newLayoutTestModel(56, 16)
 	m.focus = focusEQ
 	m.eqCursor = 4
 
-	if plain := lipgloss.NewStyle().Render(m.renderCompactControls()); !strings.Contains(plain, "1k") {
-		t.Fatalf("compact controls = %q, want active EQ band", plain)
+	if plain := stripAnsi(m.renderSettingsStacked()); !strings.Contains(plain, "1k") {
+		t.Fatalf("stacked settings = %q, want active EQ band", plain)
 	}
 }
 
@@ -365,8 +400,8 @@ func TestSimplifiedLayoutShowsTrackSummaryAndTimeStrip(t *testing.T) {
 	if m.plVisible != 0 {
 		t.Fatalf("simplified playlist rows = %d, want 0", m.plVisible)
 	}
-	if m.layout.fixedRows != 3 {
-		t.Fatalf("simplified fixed rows = %d, want track, time, and seek", m.layout.fixedRows)
+	if got := len(m.mainSections("")); m.layout.bodyRows != 0 || got != 4 {
+		t.Fatalf("simplified body rows = %d, sections = %d; want 0 and track, time, seek, transient", m.layout.bodyRows, got)
 	}
 
 	plain := stripAnsi(m.View().Content)
@@ -442,7 +477,7 @@ func TestSetPadding(t *testing.T) {
 		setup              func(*Model)
 		wantH, wantV, cols int
 	}{
-		{name: "unset", setup: func(*Model) {}, wantH: 3, wantV: 1, cols: 74},
+		{name: "unset", setup: func(*Model) {}, wantH: 0, wantV: 0, cols: 80},
 		{name: "zero", setup: func(m *Model) { m.SetPadding(0, 0) }, wantH: 0, wantV: 0, cols: 80},
 		{name: "configured", setup: func(m *Model) { m.SetPadding(5, 2) }, wantH: 5, wantV: 2, cols: 70},
 		{name: "headless", setup: func(m *Model) {
@@ -489,9 +524,8 @@ func TestLuaVisualizerInitWaitsForWindowSize(t *testing.T) {
 		width, height int
 		want          []string
 	}{
-		{200, 50, []string{"init myvis 7x194", "render myvis 7x194"}},
-		{100, 30, []string{"init myvis 7x94", "render myvis 7x94"}},
-		{60, 18, []string{"init myvis 5x54", "render myvis 5x54"}},
+		{200, 50, []string{"init myvis 7x150", "render myvis 7x150"}},
+		{100, 30, []string{"init myvis 7x100", "render myvis 7x100"}},
 	}
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("%dx%d", tt.width, tt.height), func(t *testing.T) {
@@ -599,7 +633,7 @@ func TestTooSmallMessageWraps(t *testing.T) {
 }
 
 func TestTrackInfoScrollsWithinBodyBudget(t *testing.T) {
-	m := newLayoutTestModel(40, 10)
+	m := newLayoutTestModel(40, 11)
 	track := m.playlist.Tracks()[0]
 	track.Artist = "Artist"
 	track.Album = "Album"
@@ -667,33 +701,34 @@ func assertViewFits(t *testing.T, view string, width, height int) {
 
 func TestConfiguredVisualizerRows(t *testing.T) {
 	tests := []struct {
-		name    string
-		width   int
-		height  int
-		visRows int
-		want    int
+		name     string
+		width    int
+		height   int
+		visRows  int
+		expanded bool
+		want     int
 	}{
-		{name: "unset keeps the default", width: 120, height: 50, visRows: 0, want: ui.DefaultVisRows},
-		{name: "taller than the default", width: 120, height: 50, visRows: 20, want: 20},
-		{name: "shorter than the default", width: 120, height: 50, visRows: 2, want: 2},
-		{name: "capped by a short terminal", width: 120, height: 24, visRows: 40, want: 9},
-		{name: "compact tier is unaffected", width: 60, height: 16, visRows: 20, want: compactVisRows},
+		{name: "the default", width: 120, height: 50, visRows: 0, want: ui.DefaultVisRows},
+		{name: "expanded keeps the default", width: 120, height: 50, visRows: 0, expanded: true, want: ui.DefaultVisRows},
+		{name: "taller than the body", width: 120, height: 50, visRows: 20, want: 18},
+		{name: "a frame of 34 rows", width: 120, height: 50, visRows: 10, want: 10},
+		{name: "a small vis_rows", width: 120, height: 50, visRows: 2, want: 2},
+		{name: "a short terminal", width: 120, height: 24, visRows: 40, want: compactSpectrumRows},
+		{name: "a terminal under 46 rows", width: 120, height: 30, visRows: 20, want: 11},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := newLayoutTestModel(tt.width, tt.height)
+			m.heightExpanded = tt.expanded
 			m.SetVisRows(tt.visRows)
-			if m.vis.Rows != tt.want {
-				t.Fatalf("visualizer rows = %d, want %d", m.vis.Rows, tt.want)
+			if m.layout.spectrumRows != tt.want {
+				t.Fatalf("spectrum rows = %d, want %d", m.layout.spectrumRows, tt.want)
 			}
 			if m.layout.bodyRows < 1 {
 				t.Fatalf("body rows = %d, want at least one", m.layout.bodyRows)
 			}
-			out := m.View().Content
-			if got := lipgloss.Height(out); got > tt.height {
-				t.Fatalf("view height = %d, want <= %d", got, tt.height)
-			}
+			assertViewFits(t, m.View().Content, tt.width, tt.height)
 		})
 	}
 }
@@ -717,8 +752,8 @@ func TestSetExpandedAppliesToSimplifiedProviderLists(t *testing.T) {
 	if !m.heightExpanded {
 		t.Fatal("SetExpanded did not set the expanded height in simplified mode")
 	}
-	if m.plVisible != m.layout.bodyRows {
-		t.Fatalf("expanded provider list rows = %d, want available body rows %d", m.plVisible, m.layout.bodyRows)
+	if m.plVisible != m.layout.listRows() {
+		t.Fatalf("expanded provider list rows = %d, want available list rows %d", m.plVisible, m.layout.listRows())
 	}
 	if m.plVisible <= collapsed {
 		t.Fatalf("expanded provider list rows = %d, want more than collapsed %d", m.plVisible, collapsed)
@@ -760,8 +795,8 @@ func TestUpdateKeepsLayoutCurrent(t *testing.T) {
 		before func(*Model)
 		msg    tea.Msg
 	}{
-		{name: "resize to the compact tier", msg: tea.WindowSizeMsg{Width: 60, Height: 18}},
-		{name: "resize to the full tier", msg: tea.WindowSizeMsg{Width: 120, Height: 40}},
+		{name: "resize to a small terminal", msg: tea.WindowSizeMsg{Width: 60, Height: 18}},
+		{name: "resize to a large terminal", msg: tea.WindowSizeMsg{Width: 120, Height: 40}},
 		{name: "open the keymap", msg: tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl}},
 		{name: "close the keymap", msg: tea.KeyPressMsg{Code: tea.KeyEscape}},
 		{name: "full-screen visualizer", msg: tea.KeyPressMsg{Code: 'V', Text: "V"}},
@@ -769,7 +804,7 @@ func TestUpdateKeepsLayoutCurrent(t *testing.T) {
 		{name: "status message", msg: ShowStatusMsg{Text: "Saved"}},
 		// A failed device list closes the picker outside the key path.
 		{name: "device list failed", before: openDevicePicker, msg: devicesListedMsg{err: errors.New("no devices")}},
-		{name: "resize to the minimal tier", msg: tea.WindowSizeMsg{Width: 45, Height: 12}},
+		{name: "resize to a tiny terminal", msg: tea.WindowSizeMsg{Width: 45, Height: 12}},
 	}
 	for _, step := range msgs {
 		if step.before != nil {

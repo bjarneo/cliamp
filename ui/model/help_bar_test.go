@@ -8,9 +8,7 @@ import (
 )
 
 // TestHideHelpBarReleasesFixedRow checks that hiding the help bar hands its row
-// back to the body on every tier that draws it. bodyRows is asserted in
-// TestToggleHelpBar, where the terminal is large enough that the row is not
-// clamped by the one-row floor.
+// back to the body at every size.
 func TestHideHelpBarReleasesFixedRow(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -28,18 +26,15 @@ func TestHideHelpBarReleasesFixedRow(t *testing.T) {
 			hidden := newLayoutTestModel(tt.width, tt.height)
 			hidden.SetHideHelpBar(true)
 
-			if got, want := hidden.layout.fixedRows, shown.layout.fixedRows-1; got != want {
-				t.Fatalf("fixed rows with hidden help bar = %d, want %d", got, want)
-			}
-			if hidden.layout.bodyRows < shown.layout.bodyRows {
-				t.Fatalf("body rows shrank from %d to %d", shown.layout.bodyRows, hidden.layout.bodyRows)
+			if got, want := hidden.layout.bodyRows, shown.layout.bodyRows+1; got != want {
+				t.Fatalf("body rows with hidden help bar = %d, want %d", got, want)
 			}
 		})
 	}
 }
 
 // TestHideHelpBarLeavesSimplifiedLayoutAlone checks that the simplified view,
-// which never draws the help bar, keeps its row budget when the option is set.
+// which never draws the help bar, renders the same when the option is set.
 func TestHideHelpBarLeavesSimplifiedLayoutAlone(t *testing.T) {
 	shown := newLayoutTestModel(80, 24)
 	shown.simplified = true
@@ -49,8 +44,8 @@ func TestHideHelpBarLeavesSimplifiedLayoutAlone(t *testing.T) {
 	hidden.simplified = true
 	hidden.SetHideHelpBar(true)
 
-	if got, want := hidden.layout.fixedRows, shown.layout.fixedRows; got != want {
-		t.Fatalf("simplified fixed rows = %d, want %d", got, want)
+	if got, want := hidden.mainSections(""), shown.mainSections(""); !slices.Equal(got, want) {
+		t.Fatalf("simplified sections = %q, want %q", got, want)
 	}
 }
 
@@ -66,14 +61,14 @@ func TestHideHelpBarOmitsHelpSection(t *testing.T) {
 		t.Fatal("expected the test model to render a help bar")
 	}
 
-	for _, section := range hidden.mainSections("", false, false) {
+	for _, section := range hidden.mainSections("") {
 		if section == help {
 			t.Fatal("help bar rendered while hide_help_bar is set")
 		}
 	}
 
-	shownSections := shown.mainSections("", false, false)
-	hiddenSections := hidden.mainSections("", false, false)
+	shownSections := shown.mainSections("")
+	hiddenSections := hidden.mainSections("")
 	if got, want := len(hiddenSections), len(shownSections)-1; got != want {
 		t.Fatalf("sections with hidden help bar = %d, want %d", got, want)
 	}
@@ -120,7 +115,7 @@ func TestToggleHelpBar(t *testing.T) {
 // the config, so the help bar comes back the way it was left.
 func TestToggleHelpBarPersists(t *testing.T) {
 	saver := &recordingSaver{}
-	m := newColumnTestModel(80, 24)
+	m := newColumnTestModel(86, 24)
 	m.configSaver = saver
 
 	m.toggleHelpBar()
@@ -167,7 +162,7 @@ func TestHelpBarFollowsFocusOnEveryTier(t *testing.T) {
 				if tc.want != commandModeMain && want == m.helpBar(commandModeMain) {
 					t.Fatalf("the %s hints equal the main hints, so the test proves nothing", tc.name)
 				}
-				if !slices.Contains(m.mainSections("", false, false), want) {
+				if !slices.Contains(m.mainSections(""), want) {
 					t.Errorf("help bar does not show the %s hints %q", tc.name, want)
 				}
 			})

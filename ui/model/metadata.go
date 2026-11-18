@@ -89,13 +89,14 @@ func (m Model) metadataFields() []metadataField {
 	return fields
 }
 
-// metadataPaneRows reserves details only after every direct setting can fit.
-// This budget is shared by rendering and Tab navigation.
+// metadataPaneRows reserves details only after every direct setting can fit,
+// with shuffle, repeat, and speed sharing a row. This budget is shared by
+// rendering and Tab navigation.
 func (m Model) metadataPaneRows(rows int) int {
 	if !m.showMetadata {
 		return 0
 	}
-	controls := 5
+	controls := 3
 	if len(m.providers) > 1 {
 		controls++
 	}
@@ -106,12 +107,27 @@ func (m Model) metadataPaneRows(rows int) int {
 	return min(metadataPaneMaxRows, available)
 }
 
+// metadataPaneBudget returns a blank row before the metadata block when the
+// settings column has the full metadata height budget, and how many rows
+// metadata may use after that. A cramped pane omits the gap so every field
+// row can stay.
+func (m Model) metadataPaneBudget(rows int) (gap, metaRows int) {
+	metaRows = m.metadataPaneRows(rows)
+	if metaRows == 0 || metaRows < metadataPaneMaxRows || m.layout.height < gapMinHeight {
+		return 0, metaRows
+	}
+	if withGap := m.metadataPaneRows(rows - 1); withGap > 0 {
+		return 1, withGap
+	}
+	return 0, metaRows
+}
+
 func (m Model) renderMetadataPane(rows int) []string {
 	if rows <= 0 {
 		return nil
 	}
 	w := m.layout.settingsWidth
-	lines := []string{fillSeparator(sepHeader("Metadata [Ctrl+I]", m.layout.panelWidth), w)}
+	lines := []string{fillSeparator(sepHeader("Metadata", m.layout.panelWidth), w)}
 	fields := m.metadataFields()
 	if len(fields) == 0 {
 		return append(lines, dimStyle.Render(truncate("No metadata available", w)))
@@ -133,7 +149,7 @@ func (m Model) renderMetadataPane(rows int) []string {
 func (m *Model) toggleMetadata() {
 	m.SetShowMetadata(!m.showMetadata)
 	_ = m.saveConfigBool("show_metadata", m.showMetadata)
-	if m.showMetadata && (!m.layout.twoColumn || m.metadataPaneRows(m.effectivePlaylistVisible()) == 0) {
+	if m.showMetadata && (!m.layout.twoColumn || m.metadataPaneRows(m.layout.listRows()) == 0) {
 		m.info = infoOverlay{visible: true}
 		m.refreshChrome()
 	}

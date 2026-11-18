@@ -3,7 +3,6 @@ package model
 
 import (
 	"context"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -113,46 +112,36 @@ func (f focusArea) label() string {
 	}
 }
 
-// mainFocusAreas returns only controls rendered in the current density tier.
+// mainFocusAreas returns the settings the playback view renders, in reading
+// order: the rows the settings pane keeps in the two-column layout, or every
+// stacked setting.
 // Secondary screens own their input independently, so this applies to the
 // main playback screen and the provider playlist pane.
 func (m Model) mainFocusAreas() []focusArea {
 	areas := []focusArea{focusPlaylist}
-	if m.simplified || m.layout.tier == layoutMinimal || m.layout.tier == layoutTooSmall {
+	if m.simplified || m.layout.tooSmall() || !m.layout.twoColumn && m.layout.height < stackedSettingsMinHeight {
 		return areas
 	}
 	if m.layout.twoColumn {
-		rows := m.effectivePlaylistVisible()
-		for _, row := range m.settingsPaneRows(rows - m.metadataPaneRows(rows)) {
-			if row.focus != focusPlaylist {
-				areas = append(areas, row.focus)
-			}
+		rows := m.layout.listRows()
+		gap, metaRows := m.metadataPaneBudget(rows)
+		for _, row := range m.settingsPaneRows(rows - gap - metaRows) {
+			areas = append(areas, row.focus...)
 		}
 		return areas
 	}
 	if len(m.providers) > 1 {
 		areas = append(areas, focusProvPill)
 	}
-	areas = append(areas, focusVolume)
-	// The closed pane keeps source/volume and the playlist mode badges, but
-	// draws no EQ or speed readout. Both stay reachable by their global keys.
-	if !m.layout.closedSettings {
-		areas = append(areas, focusEQ)
-	}
+	var modes []focusArea
 	if m.playlist != nil {
-		// Probe each focused badge: its extra label must fit too, independent
-		// of the current focus or an overlay temporarily replacing the header.
-		for _, area := range []focusArea{focusShuffle, focusRepeat} {
-			m.focus = area
-			if strings.Contains(m.renderPlaybackHeader(), "["+area.label()+" ") {
-				areas = append(areas, area)
-			}
-		}
+		modes = []focusArea{focusShuffle, focusRepeat}
 	}
-	if !m.layout.closedSettings {
-		areas = append(areas, focusSpeed)
+	if m.layout.settingsOneRow() {
+		areas = append(append(append(areas, focusEQ), modes...), focusSpeed)
+		return append(areas, focusVolume)
 	}
-	return areas
+	return append(append(areas, focusVolume, focusSpeed, focusEQ), modes...)
 }
 
 func (m Model) mainFocusAllowed(focus focusArea) bool {
@@ -266,13 +255,6 @@ func (s topLevelScreen) label() string {
 		return ""
 	}
 }
-
-// maxPlVisible caps the playlist at a readable height even on tall terminals.
-// maxPlExpandVisible is the higher cap used by content-first list screens.
-const (
-	maxPlVisible       = 12
-	maxPlExpandVisible = 24
-)
 
 type plMgrScreenType int
 
@@ -424,9 +406,11 @@ type Model struct {
 
 	visVolumeLinked bool // when true, visualizer samples are scaled by volume gain
 	visRows         int  // configured visualizer height at the full tier; 0 uses ui.DefaultVisRows
+	frameBaseWidth  int  // default frame width before Ctrl+X; zero uses 150
+	frameBaseHeight int  // default frame height before vis_rows, before Ctrl+X; zero uses 24
 	paddingH        int  // configured frame padding left and right; used when paddingSet
 	paddingV        int  // configured frame padding above and below; used when paddingSet
-	paddingSet      bool // false uses defaultPaddingH and defaultPaddingV
+	paddingSet      bool // false uses zero padding
 
 	// Async stream buffering (true while HTTP connect is in progress)
 	buffering   bool

@@ -248,32 +248,28 @@ func (m Model) View() tea.View {
 		return view
 	}
 
-	screen := m.activeScreen()
-	contentFirst := m.usesContentFirstLayout()
 	if m.visualizerVisible() {
 		m.refreshVisualizerIfPending()
 	}
 
 	var content string
-	switch screen {
+	switch m.activeScreen() {
 	case screenFullVisualizer:
 		content = m.renderFullVisualizer()
 	default:
-		// Overlays render in the playlist region (renderMainBody), with their
-		// header/help supplied by renderPlaylistHeader / renderHelp. List-heavy
-		// tasks collapse to a compact now-playing summary so they can use the
-		// reclaimed rows for browsing.
-		body := m.renderBodyRegion()
-		content = strings.Join(m.mainSections(body, true, contentFirst), "\n")
+		// Overlays render in the body region (renderMainBody), with their
+		// header supplied by renderPlaylistHeader.
+		content = strings.Join(m.mainSections(m.renderBodyRegion()), "\n")
 	}
 
 	// Every screen now renders within the main frame, so frame and center
 	// uniformly.
 	rendered := m.centerFrame(m.layout.frameStyle().Render(content))
-	rendered = ui.FitRect(rendered, m.layout.frameWidth, max(1, m.height))
+	termW := max(1, m.width)
+	rendered = ui.FitRect(rendered, termW, max(1, m.height))
 
 	if box := m.renderLuaSelect(); box != "" {
-		rendered = overlayCentered(rendered, box, m.layout.frameWidth, m.height)
+		rendered = overlayCentered(rendered, box, termW, m.height)
 	}
 	view := tea.NewView(rendered)
 	view.BackgroundColor = ui.ColorBackground
@@ -286,155 +282,42 @@ func (m Model) View() tea.View {
 	return view
 }
 
-func trimTrailingEmpty(sections []string) []string {
-	for len(sections) > 0 && sections[len(sections)-1] == "" {
-		sections = sections[:len(sections)-1]
-	}
-	return sections
-}
-
-// frameHasSlackForTransient reports whether an empty transient row still fits
-// in the terminal after rows content rows plus frame padding. Reserving the
-// row only when it fits keeps a message from shifting the frame, without
-// hiding the message on exactly-full screens (where appearing and idle states
-// already share the same top padding).
-func (m Model) frameHasSlackForTransient(rows int) bool {
-	if m.height <= 0 {
-		return true
-	}
-	return rows+1+2*m.layout.paddingV <= m.height
-}
-
-// renderedRows counts the terminal rows that sections paint, including the
-// embedded newlines of multi-line sections such as the spectrum and the
-// playlist body.
-func renderedRows(sections []string) int {
-	rows := 0
-	for _, s := range sections {
-		rows += strings.Count(s, "\n") + 1
-	}
-	return rows
-}
-
-// mainSections builds the stacked rows of the playback screen for the active
-// layout tier, ending with the status line and, unless it is hidden, the hint
-// bar above it.
-func (m Model) mainSections(playlist string, includeTransient, contentFirst bool) []string {
+// mainSections builds the stacked rows of the frame. Each section has the
+// height the layout gave it, so the body ends right above the transient and
+// the help bar.
+func (m Model) mainSections(body string) []string {
 	if m.usesSimplifiedLayout() {
-		sections := []string{
+		return []string{
 			m.renderSimplifiedTrackInfo(),
 			m.renderTimeStatus(),
 			m.renderSeekBar(),
+			m.renderTransient(),
 		}
-		sections = trimTrailingEmpty(sections)
-		if includeTransient {
-			if line := m.renderTransient(); line != "" || m.frameHasSlackForTransient(renderedRows(sections)) {
-				sections = append(sections, line)
-			}
-		}
-		return sections
 	}
 
+	l := m.layout
 	var sections []string
-	if contentFirst {
-		if m.layout.tier == layoutMinimal {
-			sections = []string{
-				m.renderTrackInfo(),
-				m.renderTimeStatus(),
-				m.renderSeekBar(),
-				m.renderPlaylistHeader(),
-			}
-		} else {
-			sections = []string{
-				m.renderTitle(),
-				m.renderTrackInfo(),
-				m.renderTimeStatus(),
-				m.renderSeekBar(),
-				m.renderPlaylistHeader(),
-			}
-		}
-	} else {
-		switch m.layout.tier {
-		case layoutCompact:
-			sections = []string{
-				m.renderTitle(),
-				m.renderTrackInfo(),
-				m.renderTimeStatus(),
-			}
-			if !m.visualizerDisabled() {
-				sections = append(sections, m.renderSpectrum())
-			}
-			sections = append(sections,
-				m.renderSeekBar(),
-				m.renderCompactControls(),
-				m.renderCompactSource(),
-				m.renderPlaylistHeader(),
-			)
-		case layoutMinimal:
-			sections = []string{
-				m.renderTrackInfo(),
-				m.renderTimeStatus(),
-				m.renderSeekBar(),
-				m.renderPlaylistHeader(),
-			}
-		default:
-			sections = []string{
-				m.renderTitle(),
-				m.renderTrackInfo(),
-				m.renderTimeStatus(),
-				"",
-			}
-			if !m.visualizerDisabled() {
-				sections = append(sections, m.renderSpectrum())
-			}
-			sections = append(sections, m.renderSeekBar())
-			switch {
-			case m.layout.twoColumn:
-				// EQ, volume, source, and speed move into the settings pane
-				// beside the playlist, so only the shared header row is left.
-				sections = append(sections, m.renderColumnHeaders())
-			case m.layout.closedSettings:
-				// Closing the pane keeps the two readouts worth a row of their
-				// own and drops the rest; "e" still cycles the EQ preset and
-				// "[" / "]" still change speed. With no pane to stop at, the
-				// playlist header rule runs the whole frame width.
-				sections = append(sections,
-					m.renderSourceVolume(),
-					fillSeparator(m.renderPlaylistHeader(), m.layout.panelWidth))
-			default:
-				sections = append(sections, m.renderControls())
-				if source := m.renderProviderPill(); source != "" {
-					sections = append(sections, source)
-				}
-				sections = append(sections, m.renderPlaylistHeader())
-			}
-		}
+	if l.titleRows > 0 {
+		sections = append(sections, m.renderTitle())
 	}
-	if playlist != "" {
-		sections = append(sections, playlist)
+	sections = append(sections, m.renderTrackInfo(), m.renderTimeStatus())
+	if l.spectrumRows > 0 {
+		sections = append(sections, m.renderSpectrum())
 	}
-	if !m.layout.twoColumn && m.layout.tier != layoutCompact {
-		// The two-column body needs no spacer above the help bar: the settings
-		// pane's own blank tail already separates the footer from the columns.
-		// Compact chrome also omits it so the speed row stays on-screen.
+	sections = append(sections, m.renderSeekBar())
+	if l.settingsRows > 0 {
+		sections = append(sections, m.renderSettingsStacked())
+	}
+	if l.gapRows > 0 {
 		sections = append(sections, "")
 	}
-	if !m.hideHelpBar {
+	if l.bodyRows > 0 {
+		sections = append(sections, body)
+	}
+	sections = append(sections, m.renderTransient())
+	if l.helpRows > 0 {
 		sections = append(sections, m.renderHelpBar())
 	}
-	// The two-column pane carries speed and the download counters, and the
-	// closed layout deliberately shows neither.
-	if !m.layout.twoColumn && !m.layout.closedSettings {
-		sections = append(sections, m.renderBottomStatus())
-	}
-
-	sections = trimTrailingEmpty(sections)
-	if includeTransient {
-		if line := m.renderTransient(); line != "" || m.frameHasSlackForTransient(renderedRows(sections)) {
-			sections = append(sections, line)
-		}
-	}
-
 	return sections
 }
 
@@ -556,29 +439,6 @@ func (m Model) renderTransient() string {
 		return ui.FitRect(dimStyle.Render(terminalText(m.logLines[n-1].text)), m.layout.panelWidth, 1)
 	}
 	return ""
-}
-
-func (m Model) renderCompactControls() string {
-	mono := ""
-	if m.player.Mono() {
-		mono = " [M]"
-	}
-	eqLabel := labelStyle.Render("EQ ")
-	eqValue := activeToggle.Render("[" + m.EQPresetName() + "]")
-	if m.focus == focusEQ {
-		eqLabel = activeToggle.Render("EQ ▸ ")
-		bands := m.player.EQBands()
-		eqValue += " " + eqActiveStyle.Render(fmt.Sprintf("%s %+.0fdB", eqBandLabels[m.eqCursor], bands[m.eqCursor]))
-	}
-	volLabel := labelStyle.Render("VOL ")
-	if m.focus == focusVolume {
-		volLabel = activeToggle.Render("VOL ▸ ")
-	}
-	return eqLabel + eqValue + " " + volLabel + fmt.Sprintf("%+.0fdB", m.player.Volume()) + mono
-}
-
-func (m Model) renderCompactSource() string {
-	return m.settingsSource(m.layout.panelWidth)
 }
 
 // centerFrame centers a pre-rendered frame in the terminal.
@@ -793,135 +653,6 @@ func (m Model) renderSeekBar() string {
 	return b.String()
 }
 
-func (m Model) renderControls() string {
-	// ── EQ [Preset] (left)  ·····  VOL bar dB [Mono] (right) ──
-
-	bands := m.player.EQBands()
-	presetName := m.EQPresetName()
-
-	eqParts := make([]string, len(eqBandLabels))
-	for i, label := range eqBandLabels {
-		style := eqInactiveStyle
-		if bands[i] != 0 {
-			label = fmt.Sprintf("%+.0f", bands[i])
-		}
-		if m.focus == focusEQ && i == m.eqCursor {
-			style = eqActiveStyle
-		}
-		eqParts[i] = style.Render(label)
-	}
-
-	eqLabel := labelStyle.Render("EQ ")
-	if m.focus == focusEQ {
-		eqLabel = activeToggle.Render("EQ ▸ ")
-	}
-	left := eqLabel + dimStyle.Render("[") + activeToggle.Render(presetName) + dimStyle.Render("] ") + strings.Join(eqParts, " ")
-
-	vol := m.player.Volume()
-	volMin := m.player.VolumeMin()
-	frac := max(0, min(1, (vol-volMin)/(6-volMin)))
-	dbStr := fmt.Sprintf(" %+.0fdB", vol)
-	monoStr := ""
-	if m.player.Mono() {
-		monoStr = " " + activeToggle.Render("[M]")
-	}
-
-	leftW := lipgloss.Width(left)
-	volLabel := labelStyle.Render("VOL ")
-	if m.focus == focusVolume {
-		volLabel = activeToggle.Render("VOL ▸ ")
-	}
-	volSuffix := dimStyle.Render(dbStr) + monoStr
-	volLabelW := lipgloss.Width(volLabel)
-	volSuffixW := lipgloss.Width(volSuffix)
-	barW := max(6, (m.layout.panelWidth-leftW-2-volLabelW-volSuffixW)*3/4)
-	filled := int(frac * float64(barW))
-
-	bar := volBarStyle.Render(strings.Repeat("█", filled)) +
-		dimStyle.Render(strings.Repeat("░", barW-filled))
-
-	right := volLabel + bar + volSuffix
-	rightW := lipgloss.Width(right)
-	gap := max(1, m.layout.panelWidth-leftW-rightW)
-
-	return left + strings.Repeat(" ", gap) + right
-}
-
-// renderSourceVolume is the single chrome row of the closed-pane layout: the
-// active source on the left and the volume meter on the right. It is the same
-// pair the pane's SRC and VOL rows show, folded onto one row because a closed
-// pane is a request for playlist space.
-func (m Model) renderSourceVolume() string {
-	left := m.renderProviderPill()
-	if left == "" {
-		left = labelStyle.Render("SRC ") + dimStyle.Render("[") +
-			trackStyle.Render(m.providerName()) + dimStyle.Render("]")
-	}
-
-	vol := m.player.Volume()
-	volMin := m.player.VolumeMin()
-	frac := max(0, min(1, (vol-volMin)/(6-volMin)))
-
-	dbStr := fmt.Sprintf(" %+.0fdB", vol)
-	mono := ""
-	if m.player.Mono() {
-		mono = " " + activeToggle.Render("[M]")
-	}
-	label := labelStyle.Render("VOL ")
-	if m.focus == focusVolume {
-		label = activeToggle.Render("VOL ▸ ")
-	}
-
-	leftW := lipgloss.Width(left)
-	fixedW := lipgloss.Width(label) + lipgloss.Width(dbStr) + lipgloss.Width(mono)
-	barW := max(6, (m.layout.panelWidth-leftW-2-fixedW)*3/4)
-	filled := int(frac * float64(barW))
-
-	right := label + volBarStyle.Render(strings.Repeat("█", filled)) +
-		dimStyle.Render(strings.Repeat("░", barW-filled)) + dimStyle.Render(dbStr) + mono
-
-	gap := max(1, m.layout.panelWidth-leftW-lipgloss.Width(right))
-	return left + strings.Repeat(" ", gap) + right
-}
-
-// providerName names the active provider for chrome that always shows a source
-// row, even when there is only one provider to name.
-func (m Model) providerName() string {
-	if m.provider != nil {
-		return m.provider.Name()
-	}
-	return "Unknown"
-}
-
-func (m Model) renderProviderPill() string {
-	if len(m.providers) <= 1 {
-		return ""
-	}
-
-	srcLabel := labelStyle.Render("SRC ")
-	if m.focus == focusProvPill {
-		srcLabel = activeToggle.Render("SRC ▸ ")
-	}
-	current := m.providers[m.provPillIdx].Name
-	indicator := dimStyle.Render("[") + trackStyle.Render(current) + dimStyle.Render("]") +
-		dimStyle.Render(fmt.Sprintf(" %d/%d", m.provPillIdx+1, len(m.providers)))
-	if m.focus == focusProvPill {
-		indicator = activeToggle.Render("["+current+"]") + dimStyle.Render(fmt.Sprintf(" %d/%d", m.provPillIdx+1, len(m.providers)))
-	}
-	if m.layout.panelWidth < 110 {
-		return srcLabel + indicator
-	}
-
-	var neighbors []string
-	if m.provPillIdx > 0 {
-		neighbors = append(neighbors, dimStyle.Render("["+m.providers[m.provPillIdx-1].Name+"]"))
-	}
-	if m.provPillIdx+1 < len(m.providers) {
-		neighbors = append(neighbors, dimStyle.Render("["+m.providers[m.provPillIdx+1].Name+"]"))
-	}
-	return srcLabel + strings.Join(append([]string{indicator}, neighbors...), " ")
-}
-
 func (m Model) renderPlaylistHeader() string {
 	if ov, ok := m.activeOverlay(); ok {
 		return ov.header(&m)
@@ -942,36 +673,12 @@ func (m Model) renderPlaylistHeader() string {
 	return m.renderPlaybackHeader()
 }
 
-// renderPlaybackHeader is also used to probe playback focus beneath overlays.
+// renderPlaybackHeader renders the playlist header with its counts. Shuffle
+// and repeat live with the other settings.
 func (m Model) renderPlaybackHeader() string {
 	// Badges in display order. A narrow pane drops whole badges off the tail
 	// rather than letting the separator slice one mid-token.
-	badges := make([]string, 0, 6)
-
-	// The two-column body carries shuffle and repeat in its settings pane, so
-	// the header only shows them when there is no pane to hold them.
-	if !m.layout.twoColumn {
-		if m.focus == focusShuffle {
-			value := "Off"
-			if m.playlist.Shuffled() {
-				value = "On"
-			}
-			badges = append(badges, activeToggle.Render("[Shuffle ▸ "+value+"]"))
-		} else if m.playlist.Shuffled() {
-			badges = append(badges, activeToggle.Render("[Shuffle]"))
-		} else {
-			badges = append(badges, dimStyle.Render("[")+trackStyle.Render("Shuffle")+dimStyle.Render("]"))
-		}
-
-		repeatVal := m.playlist.Repeat().String()
-		if m.focus == focusRepeat {
-			badges = append(badges, activeToggle.Render(fmt.Sprintf("[Repeat ▸ %s]", repeatVal)))
-		} else if m.playlist.Repeat() != 0 {
-			badges = append(badges, activeToggle.Render(fmt.Sprintf("[Repeat: %s]", repeatVal)))
-		} else {
-			badges = append(badges, dimStyle.Render("[")+trackStyle.Render("Repeat")+dimStyle.Render(": ")+dimStyle.Render(repeatVal)+dimStyle.Render("]"))
-		}
-	}
+	badges := make([]string, 0, 3)
 
 	if qLen := m.playlist.QueueLen(); qLen > 0 {
 		badges = append(badges, activeToggle.Render(fmt.Sprintf("[Next: %d]", qLen)))
@@ -1008,7 +715,7 @@ func (m Model) renderPlaybackHeader() string {
 		out += badge
 		width += w
 	}
-	return out + dimStyle.Render(trailer)
+	return fillSeparator(out+dimStyle.Render(trailer), m.layout.panelWidth)
 }
 
 func (m Model) renderProviderList() string {
@@ -1393,66 +1100,48 @@ func (m Model) renderHelpBar() string {
 	return m.helpBar(mode)
 }
 
-// renderBottomStatus renders the bottom status line: speed (left) and
-// network stats (right) on the same row.
-func (m Model) renderBottomStatus() string {
-	// Left: speed indicator.
-	speed := m.player.Speed()
-	if speed == 0 {
-		speed = 1.0
-	}
-	speedVal := fmt.Sprintf("%.2gx", speed)
-
-	var left string
-	speedLabel := labelStyle.Render("SPD ")
-	if m.focus == focusSpeed {
-		speedLabel = activeToggle.Render("SPD ▸ ")
-		left = speedLabel + activeToggle.Render("["+speedVal+"]")
-	} else if speed != 1.0 {
-		left = speedLabel + activeToggle.Render("["+speedVal+"]")
-	} else {
-		left = speedLabel + dimStyle.Render("[") + trackStyle.Render(speedVal) + dimStyle.Render("]")
-	}
-
-	// Right: network stream stats (empty for local files).
-	var right string
-	if stats := m.networkStatsText(); stats != "" {
-		right = dimStyle.Render(stats)
-	}
-
-	leftW := lipgloss.Width(left)
-	rightW := lipgloss.Width(right)
-	gap := max(1, m.layout.panelWidth-leftW-rightW)
-
-	if right == "" {
-		return left
-	}
-	return left + strings.Repeat(" ", gap) + right
+// streamDownloadComplete reports a buffered stream whose bytes are fully local.
+func (m Model) streamDownloadComplete() bool {
+	downloaded, total := m.player.StreamBytes()
+	return total > 0 && downloaded >= total
 }
 
-// networkStatsText formats the live stream download counters, or "" for local
-// playback where there is nothing to report. Shared by the bottom status line
-// and the two-column settings pane.
-func (m Model) networkStatsText() string {
+// networkProgressText formats the downloaded bytes, or "" for local playback.
+func (m Model) networkProgressText() string {
 	downloaded, total := m.player.StreamBytes()
 	if downloaded <= 0 && total <= 0 {
 		return ""
 	}
-
 	mb := float64(downloaded) / (1024 * 1024)
-	text := fmt.Sprintf("↓ %.1f MB", mb)
 	if total > 0 {
 		totalMB := float64(total) / (1024 * 1024)
-		pct := float64(downloaded) / float64(total) * 100
-		text = fmt.Sprintf("↓ %.1f / %.1f MB (%.0f%%)", mb, totalMB, pct)
+		return fmt.Sprintf("%.1f/%.1f MB", mb, totalMB)
 	}
-	if m.network.speed > 0 {
-		kbs := m.network.speed / 1024
-		if kbs >= 1024 {
-			text += fmt.Sprintf("  %.1f MB/s", kbs/1024)
-		} else {
-			text += fmt.Sprintf("  %.0f KB/s", kbs)
-		}
+	return fmt.Sprintf("%.1f MB", mb)
+}
+
+// networkSpeedText formats the live download speed, or "" when it is idle or
+// the stream is already complete.
+func (m Model) networkSpeedText() string {
+	if m.streamDownloadComplete() || m.network.speed <= 0 {
+		return ""
 	}
-	return text
+	kbs := m.network.speed / 1024
+	if kbs >= 1024 {
+		return fmt.Sprintf("↓%.1f MB/s", kbs/1024)
+	}
+	return fmt.Sprintf("↓%.0f KB/s", kbs)
+}
+
+// networkStatsText formats the live stream download counters, or "" for local
+// playback where there is nothing to report.
+func (m Model) networkStatsText() string {
+	progress := m.networkProgressText()
+	if progress == "" {
+		return ""
+	}
+	if speed := m.networkSpeedText(); speed != "" {
+		return progress + " " + speed
+	}
+	return progress
 }
