@@ -703,3 +703,54 @@ func TestRemoteCallParamsIntegration(t *testing.T) {
 		t.Errorf("stdout = %q, want response containing ok: true", stdout)
 	}
 }
+
+// TestRetiredRootFlags checks that each hidden root flag stays out of --help
+// and has no effect. Delete this test with the last retired flag.
+func TestRetiredRootFlags(t *testing.T) {
+	var names []string
+	for _, f := range buildApp().Flags {
+		if vf, ok := f.(cli.VisibleFlag); ok && !vf.IsVisible() {
+			names = append(names, f.Names()[0])
+		}
+	}
+	if len(names) == 0 {
+		t.Fatal("no retired root flag: delete TestRetiredRootFlags")
+	}
+
+	run := func(t *testing.T, args ...string) (config.Overrides, []string) {
+		t.Helper()
+		app := buildApp()
+		var ov config.Overrides
+		var pos []string
+		app.Action = func(_ context.Context, c *cli.Command) error {
+			var err error
+			ov, err = overridesFromFlags(c)
+			pos = c.Args().Slice()
+			return err
+		}
+		if err := app.Run(context.Background(), append([]string{"cliamp"}, args...)); err != nil {
+			t.Fatalf("Run %v: %v", args, err)
+		}
+		return ov, pos
+	}
+
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			var help strings.Builder
+			app := buildApp()
+			app.Writer = &help
+			if err := app.Run(context.Background(), []string{"cliamp", "--help"}); err != nil {
+				t.Fatalf("--help: %v", err)
+			}
+			if strings.Contains(help.String(), "--"+name) {
+				t.Errorf("--help shows the retired flag --%s", name)
+			}
+
+			wantOv, wantPos := run(t, "track.mp3")
+			gotOv, gotPos := run(t, "--"+name, "track.mp3")
+			if !reflect.DeepEqual(gotOv, wantOv) || !reflect.DeepEqual(gotPos, wantPos) {
+				t.Errorf("--%s changes the overrides or the arguments", name)
+			}
+		})
+	}
+}

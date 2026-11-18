@@ -198,7 +198,7 @@ func (m *Model) tickInterval() time.Duration {
 		if m.lowPower {
 			return ui.TickLowPowerPlaying
 		}
-		if m.visualizerVisible() && (m.visualizer60FPS || m.vis.UsesRawSamples()) {
+		if m.visualizerVisible() && m.vis.UsesRawSamples() {
 			return ui.TickAnim
 		}
 		if m.visualizerVisible() && m.vis.DriverOwnsCadence() {
@@ -210,9 +210,6 @@ func (m *Model) tickInterval() time.Duration {
 	// so the bars fall smoothly instead of in ~5 fps steps, then drop to idle
 	// once the content has settled.
 	if m.visualizerSettlingPaused() {
-		if m.visualizer60FPS {
-			return ui.TickAnim
-		}
 		return ui.TickFast
 	}
 	return max(d, ui.TickFast)

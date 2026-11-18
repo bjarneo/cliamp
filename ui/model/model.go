@@ -581,16 +581,15 @@ type Model struct {
 	// Full-screen visualizer mode (Shift+V)
 	fullVis bool
 
-	autoPlay        bool // start playing immediately on launch
-	lowPower        bool // lower UI/render cadences in low-power mode
-	headless        bool // no screen: cliamp --daemon runs without a renderer
-	visualizer60FPS bool // render a visible visualizer at the animation cadence
-	simplified      bool // simplified playback view: track summary and time strip
-	hideTrackInfo   bool // full-screen visualizer: show the source instead of the track
-	hideHelpBar     bool // hide the key-binding hint bar above the status line
-	hideSettings    bool // close the two-column settings pane beside the playlist
-	showMetadata    bool // expand highlighted-track metadata below settings
-	heightExpanded  bool // tracks whether manual 'x' expansion is active
+	autoPlay       bool // start playing immediately on launch
+	lowPower       bool // lower UI/render cadences in low-power mode
+	headless       bool // no screen: cliamp --daemon runs without a renderer
+	simplified     bool // simplified playback view: track summary and time strip
+	hideTrackInfo  bool // full-screen visualizer: show the source instead of the track
+	hideHelpBar    bool // hide the key-binding hint bar above the status line
+	hideSettings   bool // close the two-column settings pane beside the playlist
+	showMetadata   bool // expand highlighted-track metadata below settings
+	heightExpanded bool // tracks whether manual 'x' expansion is active
 
 	// Cached per-tick to avoid repeated speaker.Lock() calls in View().
 	cachedPos  time.Duration

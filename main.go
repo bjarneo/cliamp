@@ -66,7 +66,7 @@ func checkTerminalOutput(headless bool, stdout *os.File) error {
 	return nil
 }
 
-func run(overrides config.Overrides, positional []string, headless, visualizer60FPS bool) error {
+func run(overrides config.Overrides, positional []string, headless bool) error {
 	if err := checkTerminalOutput(headless, os.Stdout); err != nil {
 		return err
 	}
@@ -199,7 +199,7 @@ func run(overrides config.Overrides, positional []string, headless, visualizer60
 	if cfg.AutoPlay && !restoredContext {
 		m.SetAutoPlay(true)
 	}
-	configureModel(&m, cfg, headless, visualizer60FPS)
+	configureModel(&m, cfg, headless)
 
 	if resumeState.Path != "" && resumeState.PositionSec > 0 {
 		// Jellyfin and Emby resume the restored context above. Mixcloud is also commonly
@@ -326,7 +326,7 @@ func newPlayer(cfg config.Config) (p *player.Player, closePlayer func(), err err
 
 // configureModel applies the settings of cfg to m. Headless mode has no
 // screen, so the view settings do not apply there.
-func configureModel(m *model.Model, cfg config.Config, headless, visualizer60FPS bool) {
+func configureModel(m *model.Model, cfg config.Config, headless bool) {
 	m.SetCustomEQBands(cfg.EQ)
 	m.SetPadding(cfg.PaddingH, cfg.PaddingV)
 	m.SetVisVolumeLinked(cfg.VisVolumeLinked)
@@ -346,7 +346,6 @@ func configureModel(m *model.Model, cfg config.Config, headless, visualizer60FPS
 		return
 	}
 	m.SetVisRows(cfg.VisRows)
-	m.SetVisualizer60FPS(visualizer60FPS)
 	if cfg.Visualizer != "" {
 		m.SetVisualizer(cfg.Visualizer)
 	}

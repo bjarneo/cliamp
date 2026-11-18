@@ -162,9 +162,6 @@ func (m *Model) SetHeadless(v bool) {
 	}
 }
 
-// SetVisualizer60FPS enables the 60 FPS visualizer cadence while it is active.
-func (m *Model) SetVisualizer60FPS(v bool) { m.visualizer60FPS = v }
-
 // SetSimplified enables the sparse playback view without a visualizer.
 func (m *Model) SetSimplified(v bool) {
 	m.simplified = v

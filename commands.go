@@ -49,7 +49,9 @@ func buildApp() *cli.Command {
 		&cli.StringFlag{Name: "provider", Usage: providerFlagUsage()},
 		&cli.StringFlag{Name: "start-theme", Usage: "UI theme name"},
 		&cli.StringFlag{Name: "visualizer", Usage: "visualizer mode"},
-		&cli.BoolFlag{Name: "visualizer-60fps", Usage: "render visualizer at 60 FPS (higher CPU use)"},
+		// Retired: cliamp ignores this flag, so that old scripts still start.
+		// Remove it in a later release.
+		&cli.BoolFlag{Name: "visualizer-60fps", Hidden: true},
 		&cli.StringFlag{Name: "eq-preset", Usage: "EQ preset name"},
 		&cli.IntFlag{Name: "sample-rate", Usage: "output sample rate in Hz (0=auto)", HideDefault: true},
 		&cli.IntFlag{Name: "buffer-ms", Usage: "speaker buffer in milliseconds (50-5000)", HideDefault: true},
@@ -77,7 +79,7 @@ func buildApp() *cli.Command {
 			if err != nil {
 				return err
 			}
-			return run(ov, c.Args().Slice(), c.Bool("daemon"), c.Bool("visualizer-60fps"))
+			return run(ov, c.Args().Slice(), c.Bool("daemon"))
 		},
 		Commands: []*cli.Command{
 			upgradeCommand(),

@@ -67,7 +67,7 @@ type visPauseSettler interface {
 // visCadenceOwner marks a driver whose TickInterval the model follows during
 // playback, even when it is faster than TickFast. The model ticks the
 // raw-sample modes at TickAnim during playback. It ticks every other driver
-// no faster than TickFast, unless the 60 FPS setting is on.
+// no faster than TickFast.
 type visCadenceOwner interface {
 	ownsCadence()
 }
