@@ -26,9 +26,10 @@ main playlist with its episodes, without starting playback. Then select an
 episode and press `Enter` to play, or `a` to toggle its play-next queue entry.
 `Esc` or `b` returns from the playlist to the provider list.
 
-Feeds load the first 300 playable episodes in feed order. Episode titles, show
-names, durations, artwork, and episode numbers are retained when available.
-Items without playable audio are skipped.
+Feeds load the newest 300 playable episodes, newest first by publication date,
+whatever order the feed lists them in. Episodes without a date follow the dated
+ones in feed order. Episode titles, show names, durations, artwork, and episode
+numbers are retained when available. Items without playable audio are skipped.
 The playlist shows podcast episode titles without repeating the show name on
 every row. If a publisher also puts the show name at the start of each episode
 title (for example, `Show Name - Episode`), that prefix is hidden too. The show
@@ -48,7 +49,7 @@ Its actions differ from opening a show in the main provider list:
 | --- | --- |
 | `Enter` | Append the feed's episodes to the playlist and start its first episode |
 | `a` | Append the feed's episodes; start its first episode if the playlist was empty or nothing is playing |
-| `q` | Append the feed's episodes and queue them in feed order, after any already queued tracks; start queued playback if nothing is playing |
+| `q` | Append the feed's episodes and queue them newest first, after any already queued tracks; start queued playback if nothing is playing |
 | `f` | Subscribe or unsubscribe |
 | `Esc` | Return to the search input; press again to close |
 
@@ -95,7 +96,7 @@ drops the queue, while this overlay adds to what you already have.
 | `/` | Filter by title or author |
 | `Enter` | Append the episodes and play the first appended |
 | `a` | Append the episodes without disturbing playback |
-| `q` | Append the episodes and queue them in feed order |
+| `q` | Append the episodes and queue them newest first |
 | `l` | Append the newest episode and add it to the end of the queue |
 | `L` | Append the newest episode of every subscribed show |
 
