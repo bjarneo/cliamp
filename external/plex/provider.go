@@ -48,10 +48,15 @@ func newProvider(client *Client) *Provider {
 	return &Provider{client: client}
 }
 
-// NewFromConfig returns a Provider from a PlexConfig, or nil if URL or Token is missing.
+// NewFromConfig returns a Provider from a PlexConfig, or nil when it holds no
+// credentials. A browser sign-in, with client_id and server_id, finds the
+// server's route through plex.tv; a manual setup uses its URL.
 func NewFromConfig(cfg config.PlexConfig) *Provider {
 	if !cfg.IsSet() {
 		return nil
+	}
+	if cfg.ClientID != "" && cfg.ServerID != "" {
+		return newProvider(NewAccountClient(cfg.URL, cfg.Token, cfg.ClientID, cfg.ServerID, cfg.Libraries...))
 	}
 	return newProvider(NewClient(cfg.URL, cfg.Token, cfg.Libraries...))
 }
@@ -123,13 +128,15 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 }
 
 // Refresh clears cached playlist and track data so the next call re-fetches
-// from the server. Implements playlist.Refresher.
+// from the server. A browser sign-in also finds the server's route again.
+// Implements playlist.Refresher.
 func (p *Provider) Refresh() {
 	p.mu.Lock()
 	p.playlistCache = nil
 	p.trackCache = nil
 	p.partKeys = nil
 	p.mu.Unlock()
+	p.client.RefreshConnection()
 }
 
 // Tracks returns the tracks for the playlist or album identified by
@@ -248,6 +255,10 @@ func (p *Provider) ResolveSource(uri string) (string, error) {
 		}
 		p.partKeys[id] = partKey
 		p.mu.Unlock()
+	}
+	// The route may have died while the last track played.
+	if err := p.client.CheckRoute(); err != nil {
+		return "", fmt.Errorf("plex: resolve track %s: %w", id, err)
 	}
 	return p.client.StreamURL(partKey), nil
 }

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bjarneo/cliamp/internal/httpclient"
 )
@@ -718,5 +719,196 @@ func TestPingRejectsOversizedBody(t *testing.T) {
 
 	if err := newTestClient(srv).Ping(); !errors.Is(err, httpclient.ErrTooLarge) {
 		t.Fatalf("Ping() error = %v, want httpclient.ErrTooLarge", err)
+	}
+}
+
+func TestAccountClientRediscoversSelectedServer(t *testing.T) {
+	serverRequests := 0
+	media := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serverRequests++
+		if got := r.Header.Get("X-Plex-Client-Identifier"); got != "client-1" {
+			t.Errorf("server client identifier = %q, want client-1", got)
+		}
+		if r.URL.Path == "/identity" {
+			if got := r.Header.Get("X-Plex-Token"); got != "" {
+				t.Errorf("probe token = %q, want none", got)
+			}
+			identityHandler("server-1")(w, r)
+			return
+		}
+		if got := r.URL.Query().Get("X-Plex-Token"); got != "server-token" {
+			t.Errorf("request token = %q, want server-token", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"MediaContainer":{"friendlyName":"Home"}}`))
+	}))
+	defer media.Close()
+
+	discoveries := 0
+	account := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		discoveries++
+		if got := r.Header.Get("X-Plex-Client-Identifier"); got != "client-1" {
+			t.Errorf("account client identifier = %q, want client-1", got)
+		}
+		if got := r.Header.Get("X-Plex-Token"); got != "account-token" {
+			t.Errorf("account token = %q, want account-token", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `[{"name":"Home","clientIdentifier":"server-1","provides":"server","owned":true,"accessToken":"server-token","connections":[{"uri":%q,"protocol":"http","local":true}]}]`, media.URL)
+	}))
+	defer account.Close()
+
+	api := &AccountAPI{baseURL: account.URL, client: account.Client(), pollInterval: time.Millisecond}
+	client := newAccountClient("http://stale.invalid", "account-token", "client-1", "server-1", api)
+	if err := client.Ping(); err != nil {
+		t.Fatalf("first Ping: %v", err)
+	}
+	client.RefreshConnection()
+	if err := client.Ping(); err != nil {
+		t.Fatalf("second Ping: %v", err)
+	}
+	if discoveries != 2 {
+		t.Fatalf("resource discoveries = %d, want 2", discoveries)
+	}
+	if serverRequests != 4 {
+		t.Fatalf("server requests = %d, want 4", serverRequests)
+	}
+}
+
+func failoverFixture(t *testing.T, dead *httptest.Server) (*Client, *httptest.Server, *int) {
+	t.Helper()
+	alive := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/identity":
+			w.Write([]byte(`{"MediaContainer":{"machineIdentifier":"server-1"}}`))
+		case "/library/sections":
+			w.Write([]byte(`{"MediaContainer":{"Directory":[{"key":"3","type":"artist","title":"Music"}]}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(alive.Close)
+	discoveries := 0
+	tv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		discoveries++
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `[{"name":"Home","clientIdentifier":"server-1","provides":"server","owned":true,"accessToken":"server-token",
+			"connections":[{"uri":%q,"protocol":"http","local":true},{"uri":%q,"protocol":"http","local":true}]}]`, dead.URL, alive.URL)
+	}))
+	t.Cleanup(tv.Close)
+	api := &AccountAPI{baseURL: tv.URL, client: tv.Client(), pollInterval: time.Millisecond}
+	c := newAccountClient(dead.URL, "account-token", "client-1", "server-1", api)
+	// The dead route was the working one when the session found it.
+	c.account.connected = true
+	c.token = "server-token"
+	return c, alive, &discoveries
+}
+
+func TestClientFailsOverFromDeadRoute(t *testing.T) {
+	t.Run("connection refused", func(t *testing.T) {
+		dead := httptest.NewServer(http.NotFoundHandler())
+		dead.Close()
+		c, alive, discoveries := failoverFixture(t, dead)
+
+		sections, err := c.MusicSections()
+		if err != nil || len(sections) != 1 {
+			t.Fatalf("MusicSections = %v, %v; want the live route's library", sections, err)
+		}
+		if c.baseURL != alive.URL || *discoveries != 1 {
+			t.Fatalf("route = %q after %d discoveries, want %q after 1", c.baseURL, *discoveries, alive.URL)
+		}
+	})
+
+	t.Run("no response", func(t *testing.T) {
+		old := responseHeaderTimeout
+		responseHeaderTimeout = 50 * time.Millisecond
+		t.Cleanup(func() { responseHeaderTimeout = old })
+		dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			<-r.Context().Done()
+		}))
+		t.Cleanup(dead.Close)
+		c, alive, _ := failoverFixture(t, dead)
+
+		if _, err := doWithHeaderDeadline(http.DefaultClient, mustRequest(t, dead.URL)); err == nil || err.Error() != "no response in 50ms" {
+			t.Fatalf("hanging route error = %v, want no response in 50ms", err)
+		}
+		start := time.Now()
+		if _, err := c.MusicSections(); err != nil {
+			t.Fatalf("MusicSections: %v", err)
+		}
+		if c.baseURL != alive.URL {
+			t.Fatalf("route = %q, want %q", c.baseURL, alive.URL)
+		}
+		if elapsed := time.Since(start); elapsed > 5*time.Second {
+			t.Fatalf("failover took %v", elapsed)
+		}
+	})
+}
+
+func TestClientKeepsRouteOnHTTPError(t *testing.T) {
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	t.Cleanup(failing.Close)
+	c, _, discoveries := failoverFixture(t, failing)
+
+	if _, err := c.MusicSections(); err == nil || !strings.Contains(err.Error(), "500") {
+		t.Fatalf("MusicSections error = %v, want the server's HTTP 500", err)
+	}
+	if *discoveries != 0 || c.baseURL != failing.URL {
+		t.Fatalf("an HTTP error rediscovered the route: %d discoveries, route %q", *discoveries, c.baseURL)
+	}
+}
+
+func TestManualClientDoesNotFailOver(t *testing.T) {
+	dead := httptest.NewServer(http.NotFoundHandler())
+	dead.Close()
+	_, err := NewClient(dead.URL, "secret-token").MusicSections()
+	if err == nil || !strings.Contains(err.Error(), "server unreachable") {
+		t.Fatalf("MusicSections error = %v, want server unreachable", err)
+	}
+	if strings.Contains(err.Error(), "secret-token") {
+		t.Fatalf("MusicSections error = %v names the token", err)
+	}
+}
+
+func mustRequest(t *testing.T, target string) *http.Request {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return req
+}
+
+// A route that died while a track played is found before the next track:
+// ResolveSource builds its URL on the route that answers.
+func TestResolveSourceMovesOffDeadRoute(t *testing.T) {
+	dead := httptest.NewServer(http.NotFoundHandler())
+	dead.Close()
+	c, alive, discoveries := failoverFixture(t, dead)
+	p := newProvider(c)
+	p.partKeys = map[string]string{"200": "/library/parts/1/111/file.flac"}
+
+	got, err := p.ResolveSource(TrackURIPrefix + "200")
+	if err != nil {
+		t.Fatalf("ResolveSource: %v", err)
+	}
+	if !strings.HasPrefix(got, alive.URL+"/library/parts/1/111/file.flac?") || *discoveries != 1 {
+		t.Fatalf("ResolveSource = %q after %d discoveries, want the live route after 1", got, *discoveries)
+	}
+}
+
+// A manual client checks no route before a track.
+func TestManualResolveSourceSendsNoRequest(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected request %s", r.URL.Path)
+	}))
+	defer srv.Close()
+	p := newProvider(NewClient(srv.URL, "tok"))
+	p.partKeys = map[string]string{"200": "/library/parts/1/111/file.flac"}
+	if _, err := p.ResolveSource(TrackURIPrefix + "200"); err != nil {
+		t.Fatalf("ResolveSource: %v", err)
 	}
 }
