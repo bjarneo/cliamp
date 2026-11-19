@@ -64,7 +64,8 @@ type StateProvider struct {
 	RepeatMode    func() string // "Off", "All", "One"
 	Shuffle       func() bool
 	EQBands       func() [10]float64
-	CurrentTrack  func() Track // the track of cliamp.track.*; the zero Track when there is none
+	StreamTitle   func() string // current ICY stream title from live radio; "" when none
+	CurrentTrack  func() Track  // the track of cliamp.track.*; the zero Track when there is none
 	PlaylistCount func() int
 	CurrentIndex  func() int          // 0-based
 	HasNext       func() bool         // a track follows in play order (queue, repeat, shuffle)
@@ -107,21 +108,22 @@ type QueueEntry struct {
 // Update loop in each one, so the Model applies every change and keeps
 // derived state consistent.
 type ControlProvider struct {
-	SetVolume     func(db float64)
-	SetSpeed      func(ratio float64)
-	SetEQBand     func(band int, db float64)
-	ToggleMono    func()
-	TogglePause   func()
-	Stop          func()
-	Seek          func(secs float64)
-	SetEQPreset   func(name string, bands *[10]float64)
-	Next          func()
-	Prev          func()
-	QueueAdd      func(path string)  // resolve path/URL and append
-	QueueAddTrack func(track Track)  // append a track table as given, without resolving its path
-	QueueJump     func(index int)    // make index current and play it
-	QueueRemove   func(index int)    // remove track at index
-	QueueMove     func(from, to int) // reorder
+	SetVolume      func(db float64)
+	SetSpeed       func(ratio float64)
+	SetEQBand      func(band int, db float64)
+	ToggleMono     func()
+	TogglePause    func()
+	Stop           func()
+	Seek           func(secs float64)
+	SetEQPreset    func(name string, bands *[10]float64)
+	Next           func()
+	Prev           func()
+	QueueAdd       func(path string)  // resolve path/URL and append
+	QueueAddTrack  func(track Track)  // append a track table as given, without resolving its path
+	QueueJump      func(index int)    // make index current and play it
+	QueueRemove    func(index int)    // remove track at index
+	QueueMove      func(from, to int) // reorder
+	SetStreamTitle func(title string) // set the stream title (requires control permission)
 }
 
 // UIProvider supplies callbacks that surface plugin output in the TUI.

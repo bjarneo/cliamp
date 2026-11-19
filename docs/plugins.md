@@ -225,7 +225,7 @@ Up to 256 events and key presses can wait for one plugin. If a plugin falls furt
 |-------|-------------------|------|
 | `track.change` | `{title, artist, album, genre, year, path, duration, stream, album_art_url}` | New track starts successfully |
 | `track.scrobble` | Same + `{played_secs}` | You left a track that played at least 50% of its known duration: it ended, or you skipped, stopped, removed it from the queue, rewound with previous, or started another track. Each start of a track fires this at most once |
-| `playback.state` | `{status, title, artist, album, path, duration, stream, position, album_art_url}` | Once for each playback state change (play, pause, stop, seek, volume, track transition, new stream title), and once per second while a track plays. A message that changes nothing does not fire it |
+| `playback.state` | `{status, title, artist, album, path, duration, stream, position, album_art_url, stream_title}` | Once for each playback state change (play, pause, stop, seek, volume, track transition, new stream title), and once per second while a track plays. A message that changes nothing does not fire it |
 | `player.seek` | `{position, duration}` (seconds) | A seek completes |
 | `player.volume` | `{db}` | Volume changes |
 | `player.eq` | `{bands, preset}` | An EQ band or preset changes |
@@ -323,6 +323,7 @@ cliamp.player.mono()          --> boolean
 cliamp.player.repeat_mode()   --> "Off" | "All" | "One"
 cliamp.player.shuffle()       --> boolean
 cliamp.player.eq_bands()      --> table of 10 dB values
+cliamp.player.stream_title()  --> string (raw stream title without a plugin override; "" when none)
 ```
 
 ### cliamp.track (read-only)
@@ -524,11 +525,18 @@ cliamp.player.toggle_mono()       -- toggle mono output
 cliamp.player.set_eq_preset("Rock") -- switch to built-in preset (sets bands + UI label)
 cliamp.player.set_eq_preset("Metal", {6,4,1,-1,-2,2,4,6,6,5}) -- custom preset with bands
 cliamp.player.set_eq_band(1, 6)   -- set EQ band 1 to +6 dB (bands 1-10, -12 to +12)
+cliamp.player.set_stream_title("Artist - Song") -- set stream title
 ```
 
 If a plugin does not declare `permissions = {"control"}`, these functions log a warning and do nothing.
 
 Each control returns at once. cliamp applies the controls in the order that the plugin calls them, on the same loop that handles the keys. Thus a read such as `cliamp.player.volume()` right after `set_volume` can still return the old value. cliamp saves a speed change to `config.toml` after one second, as the speed keys do. A volume change updates the volume of the media controls at once.
+
+`cliamp.player.set_stream_title(title)` sets the display title of the current live stream. It requires `permissions = {"control"}`.
+
+The override only takes effect on a stream that has no inline ICY metadata. If the station already sends inline ICY `StreamTitle`, the call is a no-op and cliamp logs a warning to `cliamp.log`. Non-stream tracks are ignored. A plugin can call it again to update the title, or pass `""` to clear the override. The override wins over a title from a station's now-playing API, and inline ICY metadata that arrives later replaces it. The override is cleared when playback stops or a new track starts, so a plugin that wants a persistent title on a single long-running stream should re-set it after each track change.
+
+`cliamp.player.stream_title()` never returns the override. The `stream_title` field of `playback.state` is the title on display, so it does include the override.
 
 ### cliamp.notify
 

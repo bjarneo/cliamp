@@ -742,6 +742,52 @@ func TestControlWithoutPermissionIsNoop(t *testing.T) {
 	}
 }
 
+// set_stream_title requires the control permission and is a no-op before the
+// ControlProvider is set.
+func TestControlStreamTitleWithoutPermission(t *testing.T) {
+	m := newTestManager()
+	m.logger = newPluginLogger(filepath.Join(t.TempDir(), "test.log"))
+	called := false
+	m.SetControlProvider(ControlProvider{
+		SetStreamTitle: func(title string) { called = true },
+	})
+
+	loadTestPlugin(t, m, "no-perm", `
+		plugin.register({name = "no-perm", type = "hook"})
+		cliamp.player.set_stream_title("Artist - Song")
+	`)
+
+	if called {
+		t.Fatal("SetStreamTitle was called without control permission")
+	}
+}
+
+func TestControlStreamTitleWithProvider(t *testing.T) {
+	m := newTestManager()
+	var gotTitle string
+	m.SetControlProvider(ControlProvider{
+		SetStreamTitle: func(title string) { gotTitle = title },
+	})
+
+	loadTestPlugin(t, m, "with-perm", `
+		plugin.register({name = "with-perm", type = "hook", permissions = {"control"}})
+		cliamp.player.set_stream_title("Artist - Song")
+	`)
+
+	if gotTitle != "Artist - Song" {
+		t.Fatalf("SetStreamTitle called with %q, want %q", gotTitle, "Artist - Song")
+	}
+}
+
+func TestControlStreamTitleBeforeProviderIsNoop(t *testing.T) {
+	m := newTestManager()
+	m.Close()
+	loadTestPlugin(t, m, "early-stream", `
+		plugin.register({name = "early-stream", type = "hook", permissions = {"control"}})
+		cliamp.player.set_stream_title("Artist - Song")
+	`)
+}
+
 func TestStateProviderDefaultsWhenNil(t *testing.T) {
 	m := newTestManager()
 	// No state provider set — all callbacks are nil.
@@ -1265,6 +1311,35 @@ func TestPlayerEQBands(t *testing.T) {
 			}
 			if got := luaToGo(tbl); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("eq_bands() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPlayerStreamTitle(t *testing.T) {
+	title := "Artist - Song"
+	tests := []struct {
+		name  string
+		state StateProvider
+		want  string
+	}{
+		{"no provider", StateProvider{}, ""},
+		{"provider", StateProvider{StreamTitle: func() string { return title }}, title},
+		{"empty provider", StateProvider{StreamTitle: func() string { return "" }}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			L := lua.NewState()
+			defer L.Close()
+			cliamp := L.NewTable()
+			registerPlayerAPI(L, cliamp, fixed(&tt.state))
+			L.SetGlobal("cliamp", cliamp)
+			if err := L.DoString(`_G.t = cliamp.player.stream_title()`); err != nil {
+				t.Fatal(err)
+			}
+			got := L.GetGlobal("t").String()
+			if got != tt.want {
+				t.Errorf("stream_title() = %q, want %q", got, tt.want)
 			}
 		})
 	}

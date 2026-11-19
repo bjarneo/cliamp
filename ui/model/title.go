@@ -147,7 +147,7 @@ func (m Model) terminalTitleValues() terminalTitleValues {
 	if idx < 0 {
 		return terminalTitleStateValues(m.isPlaying(), m.isPaused())
 	}
-	return terminalTitleValuesForTrack(track, m.streamTitle, m.isPlaying(), m.isPaused())
+	return terminalTitleValuesForTrack(track, m.effectiveStreamTitle(), m.isPlaying(), m.isPaused())
 }
 
 func terminalTitleStateValues(playing, paused bool) terminalTitleValues {

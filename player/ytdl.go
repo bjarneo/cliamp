@@ -360,8 +360,6 @@ func decodeYTDLPipe(pageURL string, sr beep.SampleRate, bitDepth, startSec int) 
 // buildYTDLPipeline creates a trackPipeline for a yt-dlp URL.
 // If startSec > 0, playback begins at that offset (seek-by-restart).
 func (p *Player) buildYTDLPipeline(pageURL string, startSec int) (*trackPipeline, error) {
-	p.streamTitle.Store("")
-
 	for attempt := 1; ; attempt++ {
 		decoder, format, err := decodeYTDLPipe(pageURL, p.sr, p.bitDepth, startSec)
 		if err != nil {
@@ -386,6 +384,7 @@ func (p *Player) buildYTDLPipeline(pageURL string, startSec int) (*trackPipeline
 			path:         pageURL,
 			ytdlSeek:     true,
 			streamOffset: time.Duration(startSec) * time.Second,
+			meta:         new(streamMeta),
 		}, true), nil
 	}
 }
