@@ -3,6 +3,7 @@ package resolve
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -28,10 +30,14 @@ const (
 // Feed fetches a publisher RSS feed directly, including extensionless URLs.
 // It accepts only absolute HTTP(S) URLs without userinfo, including redirects,
 // and uses the shared 30-second client with caller-controlled cancellation.
-// It reads at most 32 MiB and returns the first 300 playable episodes in feed
-// order. Parsing stops at that limit, leaving the remaining XML unvalidated.
-// Tracks retain the original feed URL and episode GUID in podcast.feed and
-// podcast.guid metadata; a missing GUID falls back to the audio URL.
+// It reads at most 32 MiB, keeping the episodes parsed before the cap cuts a
+// larger feed short, or before the client times out once 300 are parsed, and
+// returns the newest 300 playable episodes, newest first by publication date. Feeds do not promise an order, and long-running
+// shows often list oldest-first, so the whole feed is read before the limit
+// applies. Episodes sharing a publication time keep their feed order, and
+// undated episodes follow the dated ones in feed order. Tracks retain the
+// original feed URL and episode GUID in podcast.feed and podcast.guid
+// metadata; a missing GUID falls back to the audio URL.
 // Valid publication dates are retained as YYYY-MM-DD in podcast.published.
 func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 	u := feedHTTPURL(feedURL)
@@ -62,14 +68,27 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 		return nil, fmt.Errorf("http status %s", resp.Status)
 	}
 
-	dec := xml.NewDecoder(io.LimitReader(resp.Body, maxFeedBody))
+	body := &io.LimitedReader{R: resp.Body, N: maxFeedBody}
+	dec := xml.NewDecoder(body)
 	dec.CharsetReader = charset.NewReaderLabel
-	var tracks []playlist.Track
+	var episodes []feedEpisode
 	var channelTitle, channelArt string
 	var seenRSS, seenChannel bool
+	// keepParsed reports whether an error only cut the feed short, so the episodes
+	// parsed so far stand: the cap stopped the read, or any error, a deadline included,
+	// came after maxFeedEpisodes, where parsing used to stop. A cancellation stays an error.
+	keepParsed := func() bool {
+		if !seenChannel || errors.Is(ctx.Err(), context.Canceled) {
+			return false
+		}
+		return body.N == 0 || len(episodes) >= maxFeedEpisodes
+	}
 	depth := 0
-	for len(tracks) < maxFeedEpisodes {
+	for {
 		if err := ctx.Err(); err != nil {
+			if keepParsed() {
+				break
+			}
 			return nil, fmt.Errorf("parsing feed: %w", err)
 		}
 		token, err := dec.Token()
@@ -80,6 +99,9 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 			break
 		}
 		if err != nil {
+			if keepParsed() {
+				break
+			}
 			return nil, fmt.Errorf("parsing feed: %w", err)
 		}
 		switch token := token.(type) {
@@ -87,7 +109,8 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 			switch depth {
 			case 0:
 				if seenRSS || token.Name != (xml.Name{Local: "rss"}) {
-					return nil, fmt.Errorf("parsing feed: expected a single RSS root")
+					err = errors.New("expected a single RSS root")
+					break
 				}
 				seenRSS = true
 				depth++
@@ -97,7 +120,8 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 					break
 				}
 				if seenChannel {
-					return nil, fmt.Errorf("parsing feed: multiple RSS channels")
+					err = errors.New("multiple RSS channels")
+					break
 				}
 				seenChannel = true
 				depth++
@@ -185,7 +209,10 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 							published, err = time.Parse(time.RFC3339, pubDate)
 						}
 						if err == nil {
+							published = withRFC822Offset(published)
 							track.ProviderMeta[provider.MetaPodcastPublished] = published.Format(time.DateOnly)
+						} else {
+							published = time.Time{}
 						}
 						for _, image := range item.Images {
 							if art := feedHTTPURL(image.Href); art != nil {
@@ -193,7 +220,13 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 								break
 							}
 						}
-						tracks = append(tracks, track)
+						episodes = append(episodes, feedEpisode{track: track, published: published})
+						// Keep memory bounded on a feed of many small items: trimming to the
+						// newest maxFeedEpisodes at twice that size gives the same result as
+						// one sort at the end, since the sort is stable.
+						if len(episodes) == 2*maxFeedEpisodes {
+							episodes = newestEpisodes(episodes)
+						}
 						break
 					}
 				default:
@@ -205,14 +238,22 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 		case xml.CharData:
 			text := strings.TrimSpace(string(token))
 			if depth == 0 && text != "" && !(!seenRSS && text == "\ufeff") {
-				return nil, fmt.Errorf("parsing feed: text outside RSS root")
+				err = errors.New("text outside RSS root")
 			}
 		}
 		if err != nil {
+			if keepParsed() {
+				break
+			}
 			return nil, fmt.Errorf("parsing feed: %w", err)
 		}
 	}
-	// Channel metadata may follow items; apply it after the portion we read.
+	episodes = newestEpisodes(episodes)
+	tracks := make([]playlist.Track, len(episodes))
+	for i, episode := range episodes {
+		tracks[i] = episode.track
+	}
+	// Channel metadata may follow items; apply it after the whole feed is read.
 	for i := range tracks {
 		tracks[i].Artist = strings.TrimSpace(channelTitle)
 		tracks[i].Album = tracks[i].Artist
@@ -221,6 +262,48 @@ func Feed(ctx context.Context, feedURL string) ([]playlist.Track, error) {
 		}
 	}
 	return tracks, nil
+}
+
+// rfc822Offsets are the named zones RFC 822 defines, in seconds east of UTC.
+var rfc822Offsets = map[string]int{
+	"EST": -5 * 3600, "EDT": -4 * 3600, "CST": -6 * 3600, "CDT": -5 * 3600,
+	"MST": -7 * 3600, "MDT": -6 * 3600, "PST": -8 * 3600, "PDT": -7 * 3600,
+}
+
+// withRFC822Offset gives a time parsed with one of those zone names its offset.
+// time.Parse sets offset zero for a zone name the local system does not know,
+// which would put 09:30 EST five hours before it happened.
+func withRFC822Offset(t time.Time) time.Time {
+	name, offset := t.Zone()
+	if fixed, ok := rfc822Offsets[name]; ok && offset == 0 {
+		return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.FixedZone(name, fixed))
+	}
+	return t
+}
+
+// newestEpisodes sorts episodes newest first, undated ones last, keeping feed order
+// for equal times, and returns the first maxFeedEpisodes of them.
+func newestEpisodes(episodes []feedEpisode) []feedEpisode {
+	slices.SortStableFunc(episodes, func(a, b feedEpisode) int {
+		switch aUndated, bUndated := a.published.IsZero(), b.published.IsZero(); {
+		case aUndated && bUndated:
+			return 0
+		case aUndated:
+			return 1
+		case bUndated:
+			return -1
+		}
+		return b.published.Compare(a.published)
+	})
+	return episodes[:min(len(episodes), maxFeedEpisodes)]
+}
+
+// feedEpisode pairs a parsed episode with its full publication time, which
+// orders same-day episodes that the YYYY-MM-DD metadata cannot. A zero time
+// means the item had no parseable date.
+type feedEpisode struct {
+	track     playlist.Track
+	published time.Time
 }
 
 func feedHTTPURL(raw string) *url.URL {
