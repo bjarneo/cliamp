@@ -789,6 +789,8 @@ cliamp calls `init` before the first frame after you select the visualizer, with
 
 `render` has a 50 ms limit for each frame. If it runs longer or fails, cliamp shows the previous frame. cliamp also shows the previous frame while another callback of the same plugin runs, so a slow hook does not delay the UI. cliamp runs `init` and `destroy` in order with the events of the plugin, and `render` shows the previous frame until `init` has run.
 
+`bands` belong to the sound that plays now while the plugin is the selected visualizer. In a layout pane (`cliamp.layout.set_vis`), the plugin gets the bands of the selected visualizer.
+
 ## Sandbox
 
 For security, plugins have restricted access. The sandbox removes unsafe standard-library functions and limits file-system access.
