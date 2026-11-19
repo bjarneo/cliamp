@@ -582,31 +582,42 @@ func TestStreamTitleEmpty(t *testing.T) {
 	}
 }
 
-func TestSetStreamTitle(t *testing.T) {
+// The player reads the title and its source from the active pipeline only.
+func TestStreamTitleFollowsTheActivePipeline(t *testing.T) {
 	p := newTestPlayer()
-	p.setStreamTitle("Artist - Song")
-	if got := p.StreamTitle(); got != "Artist - Song" {
-		t.Errorf("StreamTitle() = %q, want 'Artist - Song'", got)
-	}
-}
+	active := &trackPipeline{meta: new(streamMeta)}
+	p.current = active
 
-func TestStreamTitleICYTracksTheSource(t *testing.T) {
-	p := newTestPlayer()
-	p.setStreamTitle("Resolver - Song")
-	if p.StreamTitleICY() {
-		t.Error("StreamTitleICY() = true after a resolver title")
+	active.meta.SetTitle("Resolver - Song")
+	if got := p.StreamTitle(); got != "Resolver - Song" || p.StreamTitleICY() {
+		t.Errorf("after a resolver title: (%q, ICY %v), want (%q, false)", got, p.StreamTitleICY(), "Resolver - Song")
 	}
-	p.setICYStreamTitle("Artist - Song")
-	if !p.StreamTitleICY() {
-		t.Error("StreamTitleICY() = false after an ICY title")
+	active.meta.SetICYTitle("Artist - Song")
+	if got := p.StreamTitle(); got != "Artist - Song" || !p.StreamTitleICY() {
+		t.Errorf("after an ICY title: (%q, ICY %v), want (%q, true)", got, p.StreamTitleICY(), "Artist - Song")
 	}
-	p.setStreamTitle("Resolver - Song")
+	active.meta.SetTitle("Resolver - Song")
 	if !p.StreamTitleICY() {
 		t.Error("StreamTitleICY() = false after a resolver title followed ICY")
 	}
-	p.clearStreamTitle()
-	if p.StreamTitleICY() || p.StreamTitle() != "" {
-		t.Errorf("after clear: ICY = %v, title = %q", p.StreamTitleICY(), p.StreamTitle())
+
+	// A pipeline that builds or preloads beside the active one leaves it alone.
+	next := &trackPipeline{meta: new(streamMeta)}
+	p.nextPipeline = next
+	next.meta.SetTitle("Next - Song")
+	if got := p.StreamTitle(); got != "Resolver - Song" || !p.StreamTitleICY() {
+		t.Errorf("after the next pipeline's title: (%q, ICY %v), want the active one", got, p.StreamTitleICY())
+	}
+
+	// Once the next pipeline plays, its own title and source apply.
+	p.current, p.nextPipeline = next, nil
+	if got := p.StreamTitle(); got != "Next - Song" || p.StreamTitleICY() {
+		t.Errorf("after the swap: (%q, ICY %v), want (%q, false)", got, p.StreamTitleICY(), "Next - Song")
+	}
+
+	p.current = nil
+	if got := p.StreamTitle(); got != "" || p.StreamTitleICY() {
+		t.Errorf("stopped: (%q, ICY %v), want empty", got, p.StreamTitleICY())
 	}
 }
 

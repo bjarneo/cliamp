@@ -324,9 +324,41 @@ func TestStopPlaybackClearsPluginStreamTitle(t *testing.T) {
 	if m.pluginStreamTitle == "" {
 		t.Fatal("override not set before the stop")
 	}
+	m.streamTitle = "Resolver - Song"
 	m.stopPlayback()
 	if m.pluginStreamTitle != "" {
 		t.Errorf("pluginStreamTitle after stop = %q, want empty", m.pluginStreamTitle)
+	}
+	if m.streamTitle != "" {
+		t.Errorf("streamTitle after stop = %q, want empty", m.streamTitle)
+	}
+}
+
+// A plugin title that changes while lyrics load for the old one starts a new
+// lookup, and the result of the old lookup is dropped.
+func TestPluginStreamTitleRefreshesLoadingLyrics(t *testing.T) {
+	station := playlist.Track{Title: "Station", Path: "https://radio.example.com/live", Stream: true}
+	m := newPluginStateModel(&playbackFakeEngine{playing: true}, station)
+	m.setPlaybackTrack(station)
+	m.lyrics.visible = true
+	m.handlePluginStreamTitle(PluginStreamTitleMsg{Title: "Artist - One"})
+	if !m.lyrics.loading || m.lyrics.query != "Artist\nOne" {
+		t.Fatalf("first lookup: loading %v, query %q", m.lyrics.loading, m.lyrics.query)
+	}
+	oldGen := m.requests.lyrics
+
+	if cmd := m.handlePluginStreamTitle(PluginStreamTitleMsg{Title: "Artist - Two"}); cmd == nil {
+		t.Fatal("title change during a lookup returned no command")
+	}
+	if !m.lyrics.loading || m.lyrics.query != "Artist\nTwo" {
+		t.Errorf("second lookup: loading %v, query %q, want the new title", m.lyrics.loading, m.lyrics.query)
+	}
+	if m.requests.lyrics == oldGen {
+		t.Fatal("lyrics request generation unchanged")
+	}
+	next, _ := m.Update(lyricsLoadedMsg{query: "Artist\nOne", gen: oldGen})
+	if got := next.(Model); !got.lyrics.loading {
+		t.Error("the old lookup's result ended the new lookup")
 	}
 }
 

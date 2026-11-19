@@ -66,7 +66,7 @@ func (m *Model) handlePluginQueue(msg PluginQueueMsg) tea.Cmd {
 // metadata refuses a new override, while a title from the metadata resolver
 // does not. Non-streams are ignored. The override ends when inline ICY metadata
 // arrives (see tickStreamTitle) and when the track ends (see setPlaybackTrack
-// and clearPlaybackTrack).
+// and clearPlaybackTrack, which also drops the raw title).
 func (m *Model) handlePluginStreamTitle(msg PluginStreamTitleMsg) tea.Cmd {
 	track, _ := m.currentPlaybackTrack()
 	// Only an active live stream can take a plugin title override. A
@@ -85,8 +85,13 @@ func (m *Model) handlePluginStreamTitle(msg PluginStreamTitleMsg) tea.Cmd {
 	m.pluginStreamTitle = msg.Title
 	m.refreshStreamTitleUI()
 	// An open lyrics view must refresh with the effective title now that the
-	// plugin override changed. Keep tickStreamTitle's ICY polling intact.
-	if m.lyrics.visible && !m.lyrics.loading {
+	// plugin override changed. A lookup still loading is for the old title, so
+	// a new request generation drops its result.
+	if m.lyrics.visible {
+		if m.lyrics.loading {
+			nextRequest(&m.requests.lyrics)
+			m.lyrics.loading = false
+		}
 		return m.retryLyrics()
 	}
 	return nil

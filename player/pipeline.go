@@ -40,6 +40,47 @@ type trackPipeline struct {
 	// (non-seekable HTTP sources and yt-dlp pages). close() stops its fill
 	// goroutine.
 	livePrefetch *livePrefetchStreamer
+
+	// meta holds the titles this pipeline's stream reports. Each pipeline owns
+	// its own, so a pipeline that is building or preloading never changes the
+	// title of the one that plays. nil reads as no metadata.
+	meta *streamMeta
+}
+
+// streamMeta is the now-playing title of one pipeline. The ICY reader, the
+// chained Ogg decoder and the metadata poller write it from their goroutines.
+type streamMeta struct {
+	title atomic.Value // string
+	icy   atomic.Bool  // inline ICY metadata has arrived
+}
+
+// Title returns the latest title, or "" when none has arrived.
+func (m *streamMeta) Title() string {
+	if m == nil {
+		return ""
+	}
+	v, _ := m.title.Load().(string)
+	return v
+}
+
+// ICY reports whether the stream has sent inline ICY metadata.
+func (m *streamMeta) ICY() bool {
+	return m != nil && m.icy.Load()
+}
+
+// SetTitle stores a title from Vorbis comments or the metadata poller.
+func (m *streamMeta) SetTitle(title string) {
+	if m != nil {
+		m.title.Store(title)
+	}
+}
+
+// SetICYTitle stores a title from inline ICY metadata.
+func (m *streamMeta) SetICYTitle(title string) {
+	if m != nil {
+		m.title.Store(title)
+		m.icy.Store(true)
+	}
 }
 
 // positionAndDuration is the clock of the pipeline. The caller holds the
@@ -246,11 +287,20 @@ func (p *Player) buildSource(path string, knownDuration, offset time.Duration, p
 // buildPipeline opens and decodes a track, returning a ready-to-play pipeline.
 // bufferedPipeline, ffmpegURLPipeline and localFFmpegPipeline build the
 // routes that more than one source type shares. knownDuration is the metadata
-// duration (use 0 if unknown). stale is as in buildSource.
+// duration (use 0 if unknown). stale is as in buildSource. The pipeline gets
+// its own stream metadata, so building it leaves the active title alone.
 func (p *Player) buildPipeline(path string, knownDuration time.Duration, stale func() bool) (*trackPipeline, error) {
-	// Clear stream title on each new pipeline build.
-	p.clearStreamTitle()
+	meta := new(streamMeta)
+	tp, err := p.openPipeline(path, knownDuration, stale, meta)
+	if err != nil {
+		return nil, err
+	}
+	tp.meta = meta
+	return tp, nil
+}
 
+// openPipeline is buildPipeline. Remote sources report their titles to meta.
+func (p *Player) openPipeline(path string, knownDuration time.Duration, stale func() bool, meta *streamMeta) (*trackPipeline, error) {
 	// Custom URI schemes (e.g., spotify:track:xxx) are handled by a
 	// registered StreamerFactory, bypassing normal file/HTTP decoding.
 	if factory := p.matchCustomURI(path); factory != nil {
@@ -322,7 +372,7 @@ func (p *Player) buildPipeline(path string, knownDuration time.Duration, stale f
 	// For HTTP URLs, pass the ICY metadata callback; for local files, nil.
 	var onMeta func(string)
 	if remote {
-		onMeta = p.setICYStreamTitle
+		onMeta = meta.SetICYTitle
 	}
 	src, err := openSource(path, onMeta)
 	if err != nil {
@@ -366,7 +416,8 @@ func (p *Player) buildPipeline(path string, knownDuration time.Duration, stale f
 	// continues across song boundaries instead of stopping at EOS.
 	// If Vorbis init fails (e.g. OggFLAC or OggOpus), fall back to ffmpeg.
 	if remote && ext == ".ogg" {
-		tp, err := p.buildChainedOggPipeline(rc, onMeta)
+		// Vorbis comments are not inline ICY metadata.
+		tp, err := p.buildChainedOggPipeline(rc, meta.SetTitle)
 		if err != nil {
 			// buildChainedOggPipeline has closed rc.
 			tp, err := p.ffmpegURLPipeline(path, src.live, src.prefetch)
