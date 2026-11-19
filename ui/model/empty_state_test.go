@@ -8,6 +8,7 @@ import (
 
 	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/playlist"
+	"github.com/bjarneo/cliamp/provider"
 )
 
 func TestEmptyStatesNameTheNextStep(t *testing.T) {
@@ -94,24 +95,29 @@ func TestEmptyStatesNameTheNextStep(t *testing.T) {
 
 func TestProviderEmptyStateHints(t *testing.T) {
 	tests := []struct {
-		provider, want string
+		key, name, want string
 	}{
-		{"Qobuz", "cliamp qobuz reset"},
-		{"Tidal", "cliamp tidal reset"},
-		{"Mixcloud", "[mixcloud] username"},
-		{"lyrion", "Press N to browse."},
-		{"Yandex Music", "[yandex] token"},
-		{"Radio", "reload the station directory"},
-		{"Podcasts", "reload the top shows"},
-		{"cliamp radio", "pick another provider"},
-		{"YouTube", "yt-dlp"},
-		{"YouTube (All)", "yt-dlp"},
-		{"YouTube Music", "cliamp setup"},
-		{"NetEase", "cliamp setup"},
+		{"qobuz", "Qobuz", "cliamp qobuz reset"},
+		{"tidal", "Tidal", "cliamp tidal reset"},
+		{"mixcloud", "Mixcloud", "[mixcloud] username"},
+		{"lyrion", "Lyrion", "Press N to browse."},
+		{"yandex", "Yandex Music", "[yandex] token"},
+		{providerKeyRadio, "Radios", "reload the station directory"},
+		{"podcast", "Podcasts", "reload the top shows"},
+		{"cliamp", "Cliamp Radios", "pick another provider"},
+		{"youtube", "YouTube", "yt-dlp"},
+		{"yt", "YouTube (All)", "yt-dlp"},
+		{"ytmusic", "YouTube Music", "cliamp setup"},
+		{"netease", "NetEase Cloud Music", "cliamp setup"},
 	}
 	for _, tt := range tests {
-		t.Run(tt.provider, func(t *testing.T) {
-			m := Model{provider: commandsTestProvider{name: tt.provider}}
+		t.Run(tt.key, func(t *testing.T) {
+			prov := commandsTestProvider{name: tt.name}
+			m := Model{
+				provider:    prov,
+				providers:   []provider.Entry{{Key: tt.key, Name: tt.name, Provider: prov}},
+				provPillIdx: 0,
+			}
 			if body := stripAnsi(m.renderProviderEmptyState(8)); !strings.Contains(body, tt.want) {
 				t.Fatalf("empty state = %q, want %q", body, tt.want)
 			}
@@ -131,7 +137,6 @@ func TestYouTubeHintsNameTheSetupPath(t *testing.T) {
 		{"shortcut yt", unconfiguredProviderHint("yt"), []string{"cliamp setup", "yt-dlp"}},
 		{"shortcut youtube", unconfiguredProviderHint("youtube"), []string{"cliamp setup", "yt-dlp"}},
 		{"shortcut ytmusic", unconfiguredProviderHint("ytmusic"), []string{"cliamp setup", "yt-dlp"}},
-		{"empty YouTube Music", providerEmptyStateHint["youtube music"], []string{"cliamp setup"}},
 		{"empty ytmusic", providerEmptyStateHint["ytmusic"], []string{"cliamp setup"}},
 	}
 	for _, tt := range tests {

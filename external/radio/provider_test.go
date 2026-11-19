@@ -21,8 +21,8 @@ func newTestProvider(t *testing.T) *Provider {
 
 func TestProviderNewHasBuiltinStation(t *testing.T) {
 	p := newTestProvider(t)
-	if p.Name() != "Radio" {
-		t.Errorf("Name() = %q, want Radio", p.Name())
+	if p.Name() != "Radios" {
+		t.Errorf("Name() = %q, want Radios", p.Name())
 	}
 	infos, err := p.Playlists()
 	if err != nil {

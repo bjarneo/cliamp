@@ -114,22 +114,23 @@ func TestCtrlFFallbackNamesTheProviderWithoutSearch(t *testing.T) {
 }
 
 func TestProviderSearchHelpShowsHowToLeave(t *testing.T) {
-	cs := &catalogTestProvider{commandsTestProvider: commandsTestProvider{name: "Radio"}}
+	cs := &catalogTestProvider{commandsTestProvider: commandsTestProvider{name: "Radios"}}
 	tests := []struct {
 		name      string
 		setup     func(*Model)
 		want      string
 		wantLabel string
 	}{
-		{name: "typing a query", setup: func(m *Model) { m.provSearch.active = true }, want: "Cancel", wantLabel: "Radio / Playlists / Search"},
-		{name: "search results", setup: func(m *Model) { cs.results = []playlist.PlaylistInfo{{ID: "s:1", Name: "Hit"}} }, want: "Clear search", wantLabel: "Radio / Playlists / Search results"},
-		{name: "search in flight", setup: func(m *Model) { cs.results = nil; m.provSearch.loading = true }, want: "Clear search", wantLabel: "Radio / Playlists / Search results"},
+		{name: "typing a query", setup: func(m *Model) { m.provSearch.active = true }, want: "Cancel", wantLabel: "Radios / Search"},
+		{name: "search results", setup: func(m *Model) { cs.results = []playlist.PlaylistInfo{{ID: "s:1", Name: "Hit"}} }, want: "Clear search", wantLabel: "Radios / Search results"},
+		{name: "search in flight", setup: func(m *Model) { cs.results = nil; m.provSearch.loading = true }, want: "Clear search", wantLabel: "Radios / Search results"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := keybindingTestModel()
 			m.layout.panelWidth = 80
 			m.provider = cs
+			m.provPillIdx = 0
 			m.focus = focusProvider
 			tt.setup(&m)
 			if help := ansi.Strip(m.renderHelpBar()); !strings.Contains(help, "Esc") || !strings.Contains(help, tt.want) {

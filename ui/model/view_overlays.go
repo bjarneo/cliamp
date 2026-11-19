@@ -31,7 +31,7 @@ func (m Model) visPickerHeaderLine() string {
 
 func (m Model) plMgrHeaderLine() string {
 	if m.plManager.filtering {
-		label := "Filter: Playlist"
+		label := "Filter: Playlists"
 		if m.plManager.screen == plMgrScreenTracks {
 			label = "Filter: Tracks"
 		}
@@ -53,11 +53,7 @@ func (m Model) plMgrHeaderLine() string {
 	case plMgrScreenRename:
 		return m.promptHeader("playlist-manager-rename", "Rename "+m.plManager.renameOldName, m.plManager.renameName)
 	default:
-		total := len(m.plManager.playlists)
-		if m.plManager.filter != "" {
-			total = len(m.plManager.filtered)
-		}
-		return sepHeaderN("Playlist", m.plManager.cursor+1, total, m.layout.panelWidth)
+		return sepHeader("Playlists", m.layout.panelWidth)
 	}
 }
 

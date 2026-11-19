@@ -70,8 +70,8 @@ func TestSafePathRejectsSlash(t *testing.T) {
 
 func TestProviderName(t *testing.T) {
 	p := newTestProvider(t)
-	if got := p.Name(); got != "Local" {
-		t.Fatalf("Name() = %q, want %q", got, "Local")
+	if got := p.Name(); got != "Playlists" {
+		t.Fatalf("Name() = %q, want %q", got, "Playlists")
 	}
 }
 

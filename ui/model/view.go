@@ -56,32 +56,29 @@ func favAddedMark() string { return favMarkerStyle.Render(favHeart) }
 
 func favRemovedMark() string { return favRemovedStyle.Render(favHeart) }
 
-// providerEmptyStateHint, keyed by lowercase provider Name(), returns the
-// remediation hint shown under the generic "No playlists in X" message.
+// providerEmptyStateHint, keyed by provider config key (activeProviderKey),
+// returns the remediation hint under the generic "No playlists in X" message.
 var providerEmptyStateHint = map[string]string{
-	"cliamp radio":        "Press Ctrl+R to reload, or pick another provider with Tab + Source.",
-	"local playlists":     "Add .toml playlists to ~/.config/cliamp/playlists/.",
-	"local":               "Add .toml playlists to ~/.config/cliamp/playlists/.",
-	"spotify":             "Press Ctrl+R to reload, or run `cliamp spotify reset` to sign in again.",
-	"navidrome":           "Verify [navidrome] url/username/password in config.toml.",
-	"jellyfin":            "Verify [jellyfin] url and token in config.toml.",
-	"emby":                "Verify [emby] url and token or username/password in config.toml.",
-	"audiobookshelf":      "Verify [audiobookshelf] url and token or username/password in config.toml.",
-	"plex":                "Verify [plex] server URL and token or library filter in config.toml.",
-	"youtube":             "Install yt-dlp for video audio, then press Ctrl+R to reload.",
-	"youtube (all)":       "Install yt-dlp for video audio, then press Ctrl+R to reload.",
-	"youtube music":       "Press Ctrl+R to reload, or run `cliamp setup` to set up YouTube Music.",
-	"ytmusic":             "Press Ctrl+R to reload, or run `cliamp setup` to set up YouTube Music.",
-	"soundcloud":          "Set [soundcloud] user in config.toml to browse a profile.",
-	"netease":             "Run `cliamp setup` and configure NetEase browser cookies.",
-	"netease cloud music": "Run `cliamp setup` and configure NetEase browser cookies.",
-	"qobuz":               "Press Ctrl+R to retry, or run `cliamp qobuz reset`.",
-	"tidal":               "Press Ctrl+R to retry, or run `cliamp tidal reset`.",
-	"mixcloud":            "Set [mixcloud] username in config.toml for account views.",
-	"lyrion":              "Only saved server playlists show here. Press N to browse.",
-	"yandex music":        "Verify [yandex] token in config.toml.",
-	"radio":               "Press Ctrl+R to reload the station directory.",
-	"podcasts":            "Press Ctrl+R to reload the top shows.",
+	"cliamp":         "Press Ctrl+R to reload, or pick another provider with Tab + Source.",
+	providerKeyLocal: "Add .toml playlists to ~/.config/cliamp/playlists/.",
+	providerKeyRadio: "Press Ctrl+R to reload the station directory.",
+	"podcast":        "Press Ctrl+R to reload the top shows.",
+	"spotify":        "Press Ctrl+R to reload, or run `cliamp spotify reset` to sign in again.",
+	"navidrome":      "Verify [navidrome] url/username/password in config.toml.",
+	"jellyfin":       "Verify [jellyfin] url and token in config.toml.",
+	"emby":           "Verify [emby] url and token or username/password in config.toml.",
+	"audiobookshelf": "Verify [audiobookshelf] url and token or username/password in config.toml.",
+	"plex":           "Verify [plex] server URL and token or library filter in config.toml.",
+	"yt":             "Install yt-dlp for video audio, then press Ctrl+R to reload.",
+	"youtube":        "Install yt-dlp for video audio, then press Ctrl+R to reload.",
+	"ytmusic":        "Press Ctrl+R to reload, or run `cliamp setup` to set up YouTube Music.",
+	"soundcloud":     "Set [soundcloud] user in config.toml to browse a profile.",
+	"netease":        "Run `cliamp setup` and configure NetEase browser cookies.",
+	"qobuz":          "Press Ctrl+R to retry, or run `cliamp qobuz reset`.",
+	"tidal":          "Press Ctrl+R to retry, or run `cliamp tidal reset`.",
+	"mixcloud":       "Set [mixcloud] username in config.toml for account views.",
+	"lyrion":         "Only saved server playlists show here. Press N to browse.",
+	"yandex":         "Verify [yandex] token in config.toml.",
 }
 
 // renderProviderEmptyState explains why the playlists pane is empty for the
@@ -114,8 +111,8 @@ func (m Model) renderProviderEmptyState(budget int) string {
 		lines = append(lines,
 			dimStyle.Render("  Press ")+helpKeyStyle.Render(" Ctrl+F ")+dimStyle.Render(" to search."))
 	}
-	if m.provider != nil {
-		if hint, ok := providerEmptyStateHint[strings.ToLower(m.provider.Name())]; ok {
+	if key := m.activeProviderKey(); key != "" {
+		if hint, ok := providerEmptyStateHint[key]; ok {
 			lines = append(lines, dimStyle.Render("  "+hint))
 		} else {
 			lines = append(lines, dimStyle.Render("  Press Ctrl+R to reload, or run `cliamp setup` to configure services."))
@@ -465,9 +462,7 @@ func (m Model) titleBarContextLabel() string {
 		return screen.label()
 	}
 	if m.focus == focusProvider && m.provider != nil {
-		if name := m.provider.Name(); name != "" {
-			return name
-		}
+		return m.provider.Name()
 	}
 	return m.focus.label()
 }
@@ -658,7 +653,7 @@ func (m Model) renderPlaylistHeader() string {
 		return ov.header(&m)
 	}
 	if m.focus == focusProvider {
-		label := m.provider.Name() + " / Playlists"
+		label := m.provider.Name()
 		_, catalog := m.provider.(provider.CatalogSearcher)
 		switch {
 		case m.provSearch.active && catalog:

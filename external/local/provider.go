@@ -62,7 +62,7 @@ func New(favs *favorites.Store, hist *history.Store) *Provider {
 	}
 }
 
-func (p *Provider) Name() string { return "Local" }
+func (p *Provider) Name() string { return "Playlists" }
 
 // safePath validates a playlist name and returns the absolute path to its TOML
 // file, ensuring the result stays within p.dir. This prevents path traversal

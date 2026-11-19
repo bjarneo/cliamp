@@ -110,7 +110,7 @@ func TestQuickSwitchProviderTakesEveryShortcut(t *testing.T) {
 	}{
 		{name: "configured provider", key: "S", wantOK: true, wantCmd: true, wantProvider: "spotify"},
 		{name: "N names Navidrome", key: "N", wantOK: true, wantCmd: true, wantProvider: "navidrome"},
-		{name: "switch with no command", key: "R", wantOK: true, wantProvider: "Radio"},
+		{name: "switch with no command", key: "R", wantOK: true, wantProvider: "Radios"},
 		{name: "provider not configured keeps overlays", key: "T", drop: "tidal", wantOK: true, wantProvider: "Other", wantOpen: true},
 		{name: "lowercase letter", key: "s", wantProvider: "Other", wantOpen: true},
 		{name: "other key", key: "ctrl+f", wantProvider: "Other", wantOpen: true},

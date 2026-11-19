@@ -138,7 +138,7 @@ and `Esc` clears it.
 |---|---|
 | `f` | Toggle the favorite ♥ on the selected track. Favorites appear in the "Favorites" virtual playlist, and cliamp also saves them on Spotify and Navidrome. For directory radio stations outside saved local playlists, toggle Radio Favorites from the browser or playback playlist, including country and genre results. In the country browser, pin the selected country or region. On a podcast show, subscribe or unsubscribe. |
 | `*` then `0`-`5` | Set the selected Navidrome track's rating. `0` clears it. The playing track shows `★N`, and Linux MPRIS reports the normalized rating. |
-| `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Bandcamp, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, SoundCloud, Yandex Music, Local), or search YouTube. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
+| `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Bandcamp, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase Cloud Music, SoundCloud, Yandex Music, Playlists), or search YouTube. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
 | `u` | Load URL (stream/playlist) |
 | `d` | Open the audio device picker |
 | `y` | Show or close lyrics |
@@ -414,7 +414,7 @@ This applies to:
 - `Ctrl+F` when the active provider is Local (your saved playlists)
 
 Other `Ctrl+F` providers, including Spotify, Qobuz, Tidal, Bandcamp,
-Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase,
+Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase Cloud Music,
 SoundCloud, Yandex Music, Podcasts, and YouTube, send the query to their
 search API. Their services control matching rules.
 
