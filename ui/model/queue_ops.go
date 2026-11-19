@@ -186,6 +186,50 @@ func (m *Model) removeTrack(idx int, recordUndo bool) (tea.Cmd, error) {
 	return m.rearmStalePreload(), nil
 }
 
+// clearLivePlaylist removes every track from the playback queue. With
+// recordUndo, Ctrl+Z restores the previous queue. A second c press confirms
+// when more than one track is loaded.
+func (m *Model) clearLivePlaylist(recordUndo bool) tea.Cmd {
+	if m.playlist == nil || m.playlist.Len() == 0 {
+		m.confirmClearPlaylist = false
+		m.status.Warning("The queue is empty.", statusTTLDefault)
+		return nil
+	}
+	n := m.playlist.Len()
+	if recordUndo && n > 1 && !m.confirmClearPlaylist {
+		m.confirmClearPlaylist = true
+		m.status.Showf(statusTTLDefault, "Clear %d tracks? Press c again to confirm, Esc to cancel.", n)
+		return nil
+	}
+	m.confirmClearPlaylist = false
+	snapshot := m.playlist.Snapshot()
+	m.stopPlayback()
+	m.retireTracksPaging()
+	nextRequest(&m.requests.queue)
+	m.resetYTDLBatch()
+	if !recordUndo {
+		m.playlistUndo = playlistUndo{}
+	}
+	tracks := []playlist.Track(nil)
+	if m.resumeSaver != nil {
+		tracks = playlist.WithPlaybackContext(tracks)
+	}
+	m.playlist.ReplaceAt(tracks, 0)
+	m.normalizeQueueOverlay()
+	m.setHeaderStateFromTracks(nil)
+	m.plCursor, m.plScroll = 0, 0
+	m.player.ClearPreload()
+	if recordUndo {
+		m.recordPlaylistUndo(playlistUndo{snapshot: snapshot})
+		m.loadedPlaylist = ""
+		m.playlistSource = ""
+		m.status.Show("Cleared queue (Ctrl+Z to undo)", statusTTLDefault)
+	} else {
+		m.clearLoadedPlaylist()
+	}
+	return m.rearmStalePreload()
+}
+
 // pathRow names a row of a track list by its path and by the count of
 // earlier rows with that path, so two rows of one path stay apart.
 type pathRow struct {

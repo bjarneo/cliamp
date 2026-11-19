@@ -332,23 +332,24 @@ type Model struct {
 	ratingLatest           map[string]uint64
 
 	// UI navigation
-	focus           focusArea
-	prevFocus       focusArea // focus to restore on cancel (search, net search)
-	eqCursor        int       // selected EQ band (0-9)
-	plCursor        int       // selected playlist item
-	plScroll        int       // scroll offset for playlist view
-	plVisible       int       // desired max visible playlist lines
-	titleOff        int       // scroll offset for the now-playing marquee
-	titleLastScroll time.Time // last time the title scrolled
-	err             error
-	quitting        bool
-	width           int
-	height          int
-	layout          frameLayout
-	textInput       textEditor
-	layoutText      string // what the layout typed for the key physicalKey rewrote, while it is handled
-	layoutKeysOff   bool   // the terminal can't send the typed text with key positions; see handleKeyboardEnhancements
-	playlistUndo    playlistUndo
+	focus                focusArea
+	prevFocus            focusArea // focus to restore on cancel (search, net search)
+	eqCursor             int       // selected EQ band (0-9)
+	plCursor             int       // selected playlist item
+	plScroll             int       // scroll offset for playlist view
+	confirmClearPlaylist bool      // second c press to clear the live queue
+	plVisible            int       // desired max visible playlist lines
+	titleOff             int       // scroll offset for the now-playing marquee
+	titleLastScroll      time.Time // last time the title scrolled
+	err                  error
+	quitting             bool
+	width                int
+	height               int
+	layout               frameLayout
+	textInput            textEditor
+	layoutText           string // what the layout typed for the key physicalKey rewrote, while it is handled
+	layoutKeysOff        bool   // the terminal can't send the typed text with key positions; see handleKeyboardEnhancements
+	playlistUndo         playlistUndo
 
 	// Provider state
 	provider                playlist.Provider
