@@ -128,6 +128,7 @@ func (p *Provider) Refresh() {
 	p.mu.Lock()
 	p.playlistCache = nil
 	p.trackCache = nil
+	p.partKeys = nil
 	p.mu.Unlock()
 }
 
@@ -135,10 +136,10 @@ func (p *Provider) Refresh() {
 // playlistID. Playlist IDs (prefixed "pl:") load via the server playlists
 // endpoint; album IDs load via the album children endpoint. Each track's Path
 // is a token-free plex:track:<ratingKey> URI that ResolveSource turns into a
-// stream URL at play time. Tracks with no
-// streamable part (missing Media/Part data) are silently skipped. Album tracks
-// are cached per album ID; playlist tracks are intentionally not cached so
-// smart playlists always reflect their current server contents.
+// stream URL at play time. Tracks with no streamable part (missing Media/Part
+// data) are silently skipped. Album tracks are cached per album ID; playlist
+// tracks are intentionally not cached so smart playlists always reflect their
+// current server contents.
 func (p *Provider) Tracks(playlistID string) ([]playlist.Track, error) {
 	isPlaylist := strings.HasPrefix(playlistID, prefixPlaylist)
 

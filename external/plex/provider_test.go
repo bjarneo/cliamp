@@ -294,6 +294,31 @@ func TestProviderResolveSourceRestoresAfterRestart(t *testing.T) {
 	}
 }
 
+// Refresh forgets the cached parts: a file replaced in Plex keeps its
+// ratingKey but gets a new part, and the next play must use the new one.
+func TestProviderRefreshForgetsParts(t *testing.T) {
+	part := "/library/parts/1/111/old.flac"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"MediaContainer":{"Metadata":[{"ratingKey":"200","Media":[{"Part":[{"key":"` + part + `"}]}]}]}}`))
+	}))
+	defer srv.Close()
+
+	p := newProvider(NewClient(srv.URL, "tok"))
+	if _, err := p.ResolveSource(TrackURIPrefix + "200"); err != nil {
+		t.Fatalf("ResolveSource: %v", err)
+	}
+	part = "/library/parts/2/222/new.flac"
+	p.Refresh()
+	got, err := p.ResolveSource(TrackURIPrefix + "200")
+	if err != nil {
+		t.Fatalf("ResolveSource after Refresh: %v", err)
+	}
+	if !strings.HasPrefix(got, srv.URL+part+"?") {
+		t.Fatalf("ResolveSource after Refresh = %q, want the new part", got)
+	}
+}
+
 // A path that is not a plain ratingKey never reaches the server.
 func TestProviderResolveSourceRejectsBadPaths(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

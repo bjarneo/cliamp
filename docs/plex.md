@@ -76,7 +76,7 @@ cliamp calls the Plex HTTP API to list audio playlists (`/playlists`) and music 
 plex:track:<ratingKey>
 ```
 
-When playback starts, cliamp resolves that path to the Plex part URL in memory and adds your token to the request. The token is not written into track paths. The part URLs serve files directly. Plex serves the original file without transcoding. cliamp handles playback through its HTTP streaming pipeline. cliamp can play MP3, FLAC, AAC, OGG, OPUS, WAV, and other supported source formats.
+When playback starts, cliamp resolves that path to the Plex part URL in memory and adds your token to the request. The token is not written into new track paths. Entries saved by an earlier cliamp version keep the full stream URL, token included, until you remove them. The part URLs serve files directly. Plex serves the original file without transcoding. cliamp handles playback through its HTTP streaming pipeline. cliamp can play MP3, FLAC, AAC, OGG, OPUS, WAV, and other supported source formats.
 
 ## Troubleshooting
 
