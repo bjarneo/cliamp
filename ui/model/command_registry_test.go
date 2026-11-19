@@ -125,9 +125,14 @@ func TestBackToProviderContextHelpLabel(t *testing.T) {
 	m.provider = local
 	m.localProvider = local
 	m.providers = []provider.Entry{{Key: providerKeyLocal, Name: "Local", Provider: local}}
-	if got := labelFor(); got != "Back to playlists" {
-		t.Fatalf("local playlists view = %q, want Back to playlists", got)
+	if got := labelFor(); got != "Back to Local" {
+		t.Fatalf("local provider = %q, want Back to Local", got)
 	}
+	m.fileBrowser.resumeLocal = true
+	if got := labelFor(); got != "Back to files" {
+		t.Fatalf("file browser return = %q, want Back to files", got)
+	}
+	m.fileBrowser.resumeLocal = false
 	m.provider = nil
 	if got := labelFor(); got != "Back to provider" {
 		t.Fatalf("no provider = %q, want Back to provider", got)
@@ -317,6 +322,9 @@ func TestFileBrowserHelpOrder(t *testing.T) {
 	m.fileBrowser.selected = nil
 	m.fileBrowser.cursor = 2
 	help = m.helpBar(commandModeFileBrowser)
+	if !strings.Contains(help, "Add to queue") {
+		t.Fatalf("audio row without selection should say Add to queue: %q", help)
+	}
 	for _, key := range []string{"Esc", "Space", "Enter", "?"} {
 		if !strings.Contains(help, key) {
 			t.Fatalf("file browser help %q missing %q", help, key)

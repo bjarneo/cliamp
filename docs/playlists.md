@@ -4,12 +4,16 @@ cliamp supports local **TOML playlists** that you manage in the TUI or CLI. It a
 
 ## Loading a Saved Playlist
 
-Select the **Local** source to manage playlists. It shows the playlist
-directly with its full add, remove, rename and edit actions — there is no
-separate read-only Local list. `Esc` there leaves the playlist for the live
-queue; `Esc` from the queue returns to the playlist.
+Select the **Local** provider. The page lists **Open local files** and
+**Playlists**. `Enter` on **Open local files** opens the file
+browser. `Enter` on **Playlists**, or press `p`, opens the playlist
+manager (create, rename, delete, and edit tracks).
 
-In the playlist (`p`):
+From the queue, while Local is the active provider, `N` opens the file
+browser. If you start a track from that browser, `Esc` returns to the same
+directory. `Esc` inside the browser returns to the Local page.
+
+In the playlist manager (`p`):
 
 - `Enter` opens a playlist, and `p` on its track screen plays it from the top.
   Both **replace** what is loaded, which clears the queue.
@@ -313,7 +317,7 @@ a playlist. Its tracks replace the current playlist and start playback. Press
 `Esc` or `b` to return to the now-playing playlist without loading it again.
 
 If you also configure Navidrome, both sources appear in one list with provider
-labels, such as `[Navidrome] Jazz` and `[Local Playlists] favorites`.
+labels, such as `[Navidrome] Jazz` and `[Local] favorites`.
 
 You can start with CLI files and browse playlists later:
 
@@ -323,8 +327,7 @@ cliamp song.mp3                    # starts playing, Esc opens browser
 
 ### Managing Playlists
 
-The **Local** source opens the playlist in place. Press `p` in any
-other view to open it as an overlay:
+Press `p` to open the playlist manager:
 
 1. **Browse**: View all playlists and their track counts.
 2. **Filter**: Press `/` to filter the list as you type. This works on the playlists and tracks screens. `Esc` clears the filter.

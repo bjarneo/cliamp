@@ -70,8 +70,8 @@ func TestSafePathRejectsSlash(t *testing.T) {
 
 func TestProviderName(t *testing.T) {
 	p := newTestProvider(t)
-	if got := p.Name(); got != "Playlists" {
-		t.Fatalf("Name() = %q, want %q", got, "Playlists")
+	if got := p.Name(); got != "Local" {
+		t.Fatalf("Name() = %q, want %q", got, "Local")
 	}
 }
 
@@ -272,6 +272,9 @@ func TestPlaylistsLists(t *testing.T) {
 
 	counts := map[string]int{}
 	for _, l := range lists {
+		if l.Section != SectionPlaylists {
+			t.Fatalf("playlist %q section = %q, want %q", l.Name, l.Section, SectionPlaylists)
+		}
 		counts[l.Name] = l.TrackCount
 	}
 	if counts["rock"] != 1 {
@@ -818,9 +821,6 @@ func TestPlaylistsIncludesFavoritesWhenNonEmpty(t *testing.T) {
 	}
 	if len(lists) != 1 || lists[0].ID != "Favorites" {
 		t.Fatalf("Playlists = %+v, want [Favorites]", lists)
-	}
-	if lists[0].Section != "Favorites" {
-		t.Errorf("Section = %q, want %q", lists[0].Section, "Favorites")
 	}
 }
 

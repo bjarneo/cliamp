@@ -44,7 +44,6 @@ func (m *Model) StartInProvider() {
 		m.focus = focusProvider
 		m.resetProviderNav()
 		_, m.openDefaultProviderOnce = m.provider.(provider.DefaultBrowseModeProvider)
-		m.ensureLocalManager()
 		m.recomputeLayout()
 	}
 }
@@ -62,9 +61,11 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	m.activeProviderPlaylistID = ""
 	m.resetProviderNav()
 	m.focus = focusProvider
-	// The Local source shows the playlist manager instead of the old
-	// read-only provider pane list.
-	m.ensureLocalManager()
+	// Shift+L and the provider pill land on the Local page. A file browser
+	// left open by playback is restored only by Esc from the queue.
+	if m.providers[idx].Key == providerKeyLocal {
+		m.fileBrowser.resumeLocal = false
+	}
 	listsCmd := m.fetchProviderPlaylists()
 	if _, ok := m.provider.(provider.DefaultBrowseModeProvider); ok {
 		return tea.Batch(listsCmd, m.openDefaultProviderBrowser())
@@ -152,6 +153,9 @@ func (m *Model) replaceProviderLists(lists []playlist.PlaylistInfo) {
 		selectedID = m.provPane.lists[m.provPane.cursor].ID
 	}
 	m.provPane.lists = providerListsWithBrowse(m.provider, lists)
+	if m.showingLocalProvider() {
+		m.provPane.lists = localProviderLists()
+	}
 	m.provPane.cursor = max(0, min(m.provPane.cursor, len(m.provPane.lists)-1))
 	if selectedID != "" {
 		for i, item := range m.provPane.lists {
@@ -628,6 +632,9 @@ func (m *Model) openProviderList(index int) tea.Cmd {
 		return nil
 	}
 	item := m.provPane.lists[index]
+	if action := localPaneActionForID(item.ID); action != localPaneNone {
+		return m.runLocalPaneAction(action)
+	}
 	// The location offer is a question, not a list. Selecting it raises the
 	// question; nothing about the listener's location is worked out until they
 	// answer it.

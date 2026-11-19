@@ -223,7 +223,7 @@ cliamp history clear                          # wipe ~/.config/cliamp/history.to
 ```
 
 cliamp adds a track to the history when the track starts. In the TUI, the Local
-Playlists provider shows this data in the virtual "Recently Played" entry. See
+provider shows this data in the virtual "Recently Played" entry. See
 [history.md](history.md).
 
 ## Provider credentials

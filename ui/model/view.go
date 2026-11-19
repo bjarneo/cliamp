@@ -149,6 +149,11 @@ func (m Model) isProviderRowActive(p playlist.PlaylistInfo) bool {
 // providerRowLabel formats a provider-list row, appending live listener
 // counts on cliamp radio channel rows. Any other provider renders the plain
 // playlist label.
+func (m Model) formatProviderRowLine(p playlist.PlaylistInfo, isCursor bool) string {
+	prefix, style := m.providerRowStyle(p, isCursor)
+	return style.Render(m.providerRowLabel(prefix, p))
+}
+
 func (m Model) providerRowLabel(prefix string, p playlist.PlaylistInfo) string {
 	if m.provPane.picking && !m.provPane.pickLoad {
 		box := "[ ] "
@@ -763,8 +768,7 @@ func (m Model) renderProviderList() string {
 				for j := scroll; j < scroll+visible && j < len(m.provSearch.results); j++ {
 					idx := m.provSearch.results[j]
 					p := m.provPane.lists[idx]
-					prefix, style := m.providerRowStyle(p, j == m.provSearch.cursor)
-					lines = append(lines, style.Render(m.providerRowLabel(prefix, p)))
+					lines = append(lines, m.formatProviderRowLine(p, j == m.provSearch.cursor))
 				}
 				lines = append(lines, dimStyle.Render(fmt.Sprintf("  %d/%d playlists", len(m.provSearch.results), len(m.provPane.lists))))
 			}
@@ -805,6 +809,15 @@ func (m Model) renderProviderList() string {
 		for j := scroll; j < len(m.provPane.lists) && len(lines) < visibleBudget; j++ {
 			p := m.provPane.lists[j]
 
+			if m.showingLocalProvider() && !m.provSearch.active {
+				for range localProviderBlankLinesBefore(m.provPane.lists, j, scroll) {
+					if len(lines) >= visibleBudget {
+						break
+					}
+					lines = append(lines, "")
+				}
+			}
+
 			if sectioned {
 				title := m.providerSectionTitle(sl.IDPrefix(p.ID))
 				if title != prevTitle {
@@ -825,8 +838,7 @@ func (m Model) renderProviderList() string {
 				break
 			}
 
-			prefix, style := m.providerRowStyle(p, j == m.provPane.cursor)
-			lines = append(lines, style.Render(m.providerRowLabel(prefix, p)))
+			lines = append(lines, m.formatProviderRowLine(p, j == m.provPane.cursor))
 		}
 	}
 

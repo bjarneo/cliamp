@@ -761,7 +761,7 @@ func historyCommand() *cli.Command {
 		Name:  "history",
 		Usage: "show recently played tracks",
 		Description: "Lists recently played tracks. A track is recorded when it starts to play.\n" +
-			"Browse the same data inside the TUI under Local Playlists →\n" +
+			"Browse the same data inside the TUI under Local provider or Playlists →\n" +
 			"\"Recently Played\".",
 		Flags: []cli.Flag{
 			&cli.IntFlag{Name: "limit", Usage: "max entries to show (0 = all)", Value: 50},

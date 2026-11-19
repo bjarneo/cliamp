@@ -84,6 +84,7 @@ func (m *Model) openFileBrowser() {
 	m.fileBrowser.err = ""
 	m.fileBrowser.targetPlaylist = ""
 	m.fileBrowser.confirmReplace = false
+	m.fileBrowser.resumeLocal = m.showingLocalProvider()
 	m.loadFBDir()
 	m.fileBrowser.visible = true
 }
@@ -91,6 +92,18 @@ func (m *Model) openFileBrowser() {
 func (m *Model) openFileBrowserForPlaylist(name string) {
 	m.openFileBrowser()
 	m.fileBrowser.targetPlaylist = name
+	m.fileBrowser.resumeLocal = false
+}
+
+// restoreLocalFileBrowser reopens the Local file browser at the directory
+// and cursor left behind when playback closed it.
+func (m *Model) restoreLocalFileBrowser() {
+	cursor, scroll := m.fileBrowser.cursor, m.fileBrowser.scroll
+	m.focus = focusProvider
+	m.openFileBrowser()
+	m.fileBrowser.cursor = cursor
+	m.fileBrowser.scroll = scroll
+	m.fbMaybeAdjustScroll(m.fbVisible())
 }
 
 // loadFBDir reads the current directory and populates fbEntries.
@@ -237,6 +250,7 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch key {
 	case "esc", "o", "q":
 		m.fileBrowser.visible = false
+		m.fileBrowser.resumeLocal = false
 		m.fileBrowser.clearFilter()
 		if m.fileBrowser.targetPlaylist != "" {
 			// Esc acts as "done": commit anything still selected, then
@@ -437,6 +451,9 @@ func (m *Model) fbConfirm(replace bool) tea.Cmd {
 		}
 	}
 	m.fileBrowser.visible = false
+	if m.fileBrowser.targetPlaylist != "" {
+		m.fileBrowser.resumeLocal = false
+	}
 
 	target := m.fileBrowser.targetPlaylist
 	if target != "" && plMgrVirtualPlaylistName(target) == "" {
@@ -490,6 +507,7 @@ func (m *Model) fbConfirmToPlaylist() tea.Cmd {
 		}
 	}
 	m.fileBrowser.visible = false
+	m.fileBrowser.resumeLocal = false
 
 	return func() tea.Msg {
 		r, err := resolve.Args(paths)

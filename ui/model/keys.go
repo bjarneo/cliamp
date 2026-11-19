@@ -113,6 +113,9 @@ func (m *Model) providerRowsFromScroll(scroll, cursor int) int {
 	}
 
 	for i := scroll; i <= cursor && i < total; i++ {
+		if m.showingLocalProvider() && !m.provSearch.active {
+			rows += localProviderBlankLinesBefore(m.provPane.lists, i, scroll)
+		}
 		header := headerAt(i)
 		if header != "" && header != prevHeader {
 			rows++ // section header row
@@ -408,6 +411,9 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "o":
 		m.openFileBrowser()
 	case "N":
+		if m.tryOpenLocalFileBrowser() {
+			return nil
+		}
 		// Provider-pane browsing must stay scoped to the provider being
 		// viewed. Falling back to another registered browser can otherwise
 		// send (for example) Spotify's pane into Mixcloud.
@@ -546,9 +552,10 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "esc", "backspace", "b":
 		if m.focus == focusPlaylist {
 			// Keep current expanded/collapsed height mode when switching focus.
+			if m.tryRestoreLocalFileBrowserFromQueue() {
+				return nil
+			}
 			m.focus = focusProvider
-			// The Local source has no provider pane list; show its manager.
-			m.ensureLocalManager()
 		} else {
 			m.focus = m.previousMainFocus(m.focus)
 		}
@@ -778,6 +785,9 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.urlInput = urlInputState{active: true}
 
 	case "N":
+		if m.tryOpenLocalFileBrowser() {
+			return nil
+		}
 		if cmd, ok := m.openSelectedTrackArtistBrowser(); ok {
 			return cmd
 		}

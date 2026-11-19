@@ -227,10 +227,6 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.plMgrResetFilter()
 			return nil
 		}
-		if m.localManagerInline() {
-			m.closePlManagerListInline()
-			return nil
-		}
 		m.plManager.visible = false
 	}
 	return nil

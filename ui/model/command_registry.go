@@ -127,15 +127,16 @@ var commandRegistry = []commandSpec{
 		RunKey:   "esc",
 		Label:    "Back to provider",
 		LabelFor: func(m Model) string {
-			if m.localManagerInline() {
-				return "Back to playlists"
+			if m.fileBrowser.resumeLocal {
+				return "Back to files"
 			}
 			if m.provider != nil {
 				return "Back to " + m.provider.Name()
 			}
 			return "Back to provider"
 		},
-		Keymap: true,
+		Keymap:  true,
+		Enabled: func(m Model) bool { return m.mainPlaylistEscHelp() },
 	},
 	// q quits only from the player and its focused controls. Overlays use it
 	// to close or to queue, so the keymap must not run it as quit there.
@@ -538,14 +539,9 @@ var commandRegistry = []commandSpec{
 		Keys:     []string{"N"},
 		KeyLabel: "N",
 		Label:    "Browse provider",
-		LabelFor: func(m Model) string {
-			if _, ok := m.selectedTrackArtistBrowserTarget(); ok {
-				return "Browse creator"
-			}
-			return "Browse provider"
-		},
-		Enabled: func(m Model) bool { return m.canOpenProviderBrowser() },
-		Keymap:  true,
+		LabelFor: func(m Model) string { return m.localBrowseKeyLabel() },
+		Enabled:  func(m Model) bool { return m.localBrowseKeyEnabled() },
+		Keymap:   true,
 	},
 	{
 		Mode:     commandModeMain,
@@ -861,16 +857,8 @@ var commandRegistry = []commandSpec{
 		Keys:     []string{"enter"},
 		KeyLabel: "Enter",
 		Label:    "Load / Open",
-		LabelFor: func(m Model) string {
-			if m.selectedProviderListIsBrowseEntry() {
-				return "Open"
-			}
-			if _, _, ok := m.selectedProviderShow(); ok {
-				return "Open episodes"
-			}
-			return "Load"
-		},
-		Keymap: true,
+		LabelFor: func(m Model) string { return m.providerEnterLabel() },
+		Keymap:   true,
 	},
 	{
 		Mode:     commandModeProvider,
@@ -1160,15 +1148,17 @@ var commandRegistry = []commandSpec{
 				}
 				return "Add to queue"
 			}
-			if m.fileBrowser.targetPlaylist != "" {
-				if m.fileBrowser.cursor >= m.fbCount() {
-					return ""
-				}
-				if m.fbEntry(m.fileBrowser.cursor).isAudio {
-					return "Add to playlist"
-				}
+			if m.fileBrowser.cursor >= m.fbCount() {
+				return ""
 			}
-			return ""
+			e := m.fbEntry(m.fileBrowser.cursor)
+			if !e.isAudio {
+				return ""
+			}
+			if m.fileBrowser.targetPlaylist != "" {
+				return "Add to playlist"
+			}
+			return "Add to queue"
 		},
 		Enabled: func(m Model) bool {
 			if len(m.fileBrowser.selected) > 0 {

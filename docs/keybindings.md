@@ -102,7 +102,7 @@ Radio and Podcasts, `/` sends the query to the provider when you press
 `Enter`.
 
 While a search or filter input is open, its line starts with a badge that
-names the mode and the source, such as `[Filter: Playlist]`, `[Filter: Files]`,
+names the mode and the source, such as `[Filter: Queue]`, `[Filter: Files]`,
 `[Search: Spotify]` or `[Search: Radio]`. The line ends with `Esc Exit`. Press
 `Esc` to leave the input.
 
@@ -138,7 +138,7 @@ and `Esc` clears it.
 |---|---|
 | `f` | Toggle the favorite ♥ on the selected track. Favorites appear in the "Favorites" virtual playlist, and cliamp also saves them on Spotify and Navidrome. For directory radio stations outside saved local playlists, toggle Radio Favorites from the browser or playback playlist, including country and genre results. In the country browser, pin the selected country or region. On a podcast show, subscribe or unsubscribe. |
 | `*` then `0`-`5` | Set the selected Navidrome track's rating. `0` clears it. The playing track shows `★N`, and Linux MPRIS reports the normalized rating. |
-| `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Bandcamp, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase Cloud Music, SoundCloud, Yandex Music, Playlists), or search YouTube. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
+| `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Bandcamp, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase Cloud Music, SoundCloud, Yandex Music, Local), or search YouTube. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
 | `u` | Load URL (stream/playlist) |
 | `d` | Open the audio device picker |
 | `y` | Show or close lyrics |
@@ -148,7 +148,7 @@ and `Esc` clears it.
 | `Ctrl+I` | Toggle Metadata below Settings for the highlighted playlist item (remembered in `show_metadata`; requires a terminal that distinguishes Ctrl+I from Tab) |
 | `Ctrl+S` | Save track to `[downloads].directory` (default `~/Music/cliamp`) |
 | `w` | Add the highlighted track to a saved playlist |
-| `N` | Open the active provider browser. On a selected Mixcloud show, open that creator's Uploads/Favorites. In the radio pane, open the country browser. |
+| `N` | Open the active provider browser. On Local, open the file browser; after you play a file from it, `Esc` returns to that directory. On a selected Mixcloud show, open that creator's Uploads/Favorites. In the radio pane, open the country browser. |
 | `L` | Open Local provider |
 | `R` | Open radio provider |
 | `O` (`Shift+O`) | Open Podcasts provider |
@@ -180,6 +180,7 @@ preference remains saved for a wider layout. See
 | `A` | Open play next list |
 | `c` | In the play next overlay: clear play next (press again to confirm when more than one track) |
 | `d` | In the play next overlay: remove the highlighted track |
+| `Shift+Up` `Shift+Down` / `[` `]` | In the play next overlay: move the highlighted track |
 | `F` | Subscribed shows overlay (any provider that keeps subscriptions) |
 | `x` | Remove the highlighted track from the current playlist |
 | `p` | Playlists |
@@ -237,7 +238,7 @@ reordered, so `p` leaves them alone and reports them as skipped.
 | `p` | Tracks screen: play all from the top |
 | `w` | List: save the current queue with the playlist picker. Tracks: copy marked or selected tracks to another playlist. |
 | `Space` | Tracks: mark/unmark highlighted track (advances on mark, stays on unmark) |
-| `[` `]` | Tracks: move highlighted track and save the playlist |
+| `Shift+Up` `Shift+Down` / `[` `]` | Tracks: move highlighted track and save the playlist |
 | `f` | Tracks: toggle the favorite ♥ on the highlighted track. In "Favorites", an unfavorite removes the row. |
 | `s` | Tracks: sort and save, cycling `track`, `title`, `artist`, `album`, `artist+album`, `path` |
 | `o` | Tracks: open file browser to add files to this playlist |
@@ -336,20 +337,23 @@ Then `Enter` plays an episode and `a` toggles its play-next queue entry.
 ## Provider playlist list
 
 The playlists pane appears when the focus is on a provider, such as Spotify,
-Navidrome, Podcasts, or Local Playlists:
+Navidrome, Podcasts, or Local. On Local, the pane lists **Open local files**
+and **Playlists**; `Enter` opens the file browser or the manager
+instead of loading a playlist from the pane. Other providers list their
+playlists here:
 
 | Key | Action |
 |---|---|
 | `↑` `↓` / `j` `k` | Move cursor (wraps) |
 | `Ctrl+U` `Ctrl+D` | Scroll by page |
-| `Enter` | Load the selected playlist tracks into the queue |
+| `Enter` | Load the selected playlist tracks into the queue (Local: open files or manager) |
 | `/` | Filter the playlist list. In Podcasts, type a show name or publisher RSS URL, then `Enter` to search; typing alone sends no search requests. |
 | `f` | In Podcasts, subscribe or unsubscribe from the selected show |
 | `Ctrl+F` | Run the provider online or server search (Spotify, Navidrome, NetEase, and others). |
 | `Ctrl+R` | Refresh the provider: reload the currently open playlist or starting wave in place (e.g. a fresh Yandex "Моя волна" batch), or return to the playlist list. For Mixcloud, also clear the cached `/me/` identity. |
-| `p` | Open Playlists (the Local source shows it directly; create, rename, delete, add dirs/tracks) |
+| `p` | Open the playlist manager (create, rename, delete, add dirs/tracks) |
 | `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `K` `L` `R` `O` | Switch to that provider |
-| `N` | Open the browser of the provider on screen |
+| `N` | Open the browser of the provider on screen. On Local, open the file browser |
 | `Tab` | Leave the provider pane and focus Source, or the first visible playback control |
 | `Shift+Tab` | Leave the provider pane and focus the last visible playback control (Speed, or Repeat with Settings closed) |
 | `Esc` `b` | Back to the playlist pane; in Podcasts, clear show search first |
