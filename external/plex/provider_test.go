@@ -220,14 +220,15 @@ func TestProvider_Tracks(t *testing.T) {
 	if !tr.Stream {
 		t.Error("Stream = false, want true")
 	}
-	if !strings.HasPrefix(tr.Path, srv.URL) {
-		t.Errorf("Path %q does not start with server URL", tr.Path)
+	if tr.Path != TrackURIPrefix+"200" {
+		t.Errorf("Path = %q, want %q", tr.Path, TrackURIPrefix+"200")
 	}
-	if !strings.Contains(tr.Path, "X-Plex-Token=tok") {
-		t.Errorf("Path %q missing X-Plex-Token", tr.Path)
+	got, err := p.ResolveSource(tr.Path)
+	if err != nil {
+		t.Fatalf("ResolveSource: %v", err)
 	}
-	if !strings.Contains(tr.Path, "/library/parts/1/111/SoWhat.flac") {
-		t.Errorf("Path %q missing part key", tr.Path)
+	if !strings.HasPrefix(got, srv.URL+"/library/parts/1/111/SoWhat.flac?") || !strings.Contains(got, "X-Plex-Token=tok") {
+		t.Errorf("ResolveSource = %q, want the authenticated part URL", got)
 	}
 }
 
@@ -264,11 +265,47 @@ func TestProvider_Tracks_Playlist(t *testing.T) {
 	if !tr.Stream {
 		t.Error("Stream = false, want true")
 	}
-	if !strings.Contains(tr.Path, "X-Plex-Token=tok") {
-		t.Errorf("Path %q missing X-Plex-Token", tr.Path)
+	if tr.Path != TrackURIPrefix+"300" {
+		t.Errorf("Path = %q, want %q", tr.Path, TrackURIPrefix+"300")
 	}
-	if !strings.Contains(tr.Path, "/library/parts/3/333/HighwayToHell.flac") {
-		t.Errorf("Path %q missing part key", tr.Path)
+}
+
+// After a restart the queue holds only plex:track: paths. ResolveSource
+// reads the track's part from the server and adds the token.
+func TestProviderResolveSourceRestoresAfterRestart(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/library/metadata/200" {
+			t.Errorf("path = %q, want the metadata lookup", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"MediaContainer":{"Metadata":[{"ratingKey":"200","Media":[{"Part":[{"key":"/library/parts/1/111/file.flac"}]}]}]}}`))
+	}))
+	defer srv.Close()
+
+	p := newProvider(NewClient(srv.URL, "tok"))
+	got, err := p.ResolveSource(TrackURIPrefix + "200")
+	if err != nil {
+		t.Fatalf("ResolveSource: %v", err)
+	}
+	if !strings.HasPrefix(got, srv.URL+"/library/parts/1/111/file.flac?") || !strings.Contains(got, "X-Plex-Token=tok") {
+		t.Fatalf("ResolveSource = %q, want the authenticated part URL", got)
+	}
+}
+
+// A path that is not a plain ratingKey never reaches the server.
+func TestProviderResolveSourceRejectsBadPaths(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected request %s", r.URL.Path)
+	}))
+	defer srv.Close()
+
+	p := newProvider(NewClient(srv.URL, "tok"))
+	for _, path := range []string{TrackURIPrefix, TrackURIPrefix + "../200", TrackURIPrefix + "200?x=1", "yandex:track:200"} {
+		if _, err := p.ResolveSource(path); err == nil {
+			t.Errorf("ResolveSource(%q): got no error", path)
+		}
 	}
 }
 
