@@ -100,8 +100,10 @@ func TestRenderFrameMatchesLipgloss(t *testing.T) {
 		if m.layout.tooSmall() {
 			return
 		}
-		content := m.renderFullVisualizer()
-		if m.activeScreen() != screenFullVisualizer {
+		var content string
+		if m.activeScreen() == screenFullVisualizer {
+			content = m.renderFullVisualizer()
+		} else {
 			content = strings.Join(m.mainSections(m.renderBodyRegion(), true, m.usesContentFirstLayout()), "\n")
 		}
 		if m.renderFrame(content) != lipglossFrame(m, content) {
