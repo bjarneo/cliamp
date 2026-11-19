@@ -200,7 +200,7 @@ func TestTickIntervalRawSampleVisualizerUsesRawSampleCadence(t *testing.T) {
 }
 
 func TestVisualizerSelectsAudibleTap(t *testing.T) {
-	for _, mode := range []string{"Wave", "ClassicPeak", "ClassicLED", "Bars"} {
+	for _, mode := range []string{"Wave", "ClassicPeak", "ClassicLED", "Bars", "plugin"} {
 		t.Run(mode, func(t *testing.T) {
 			p := &samplingFakeEngine{playbackFakeEngine: &playbackFakeEngine{playing: true}}
 			m := Model{
@@ -211,10 +211,13 @@ func TestVisualizerSelectsAudibleTap(t *testing.T) {
 				height:   24,
 			}
 			m.recomputeLayout()
-			m.SetVisualizer(mode)
+			m.RegisterLuaVisualizers([]string{"plugin"}, nil)
+			if !m.SetVisualizer(mode) {
+				t.Fatalf("no visualizer %q", mode)
+			}
 			m.tickVisualizer(time.Unix(1, 0))
 			wantAudible := 0
-			if mode == "Wave" || mode == "ClassicPeak" {
+			if mode == "Wave" || mode == "ClassicPeak" || mode == "plugin" {
 				wantAudible = 1
 			}
 			if p.waveformSampleCalls != wantAudible || p.sampleCalls != 1-wantAudible {
