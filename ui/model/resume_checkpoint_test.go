@@ -30,7 +30,7 @@ func TestResumeCheckpointWaitsForConfirmedPlayback(t *testing.T) {
 				buffering: tt.buffering, seek: tt.seek, cachedPos: 600 * time.Second,
 			}
 			var positions []int
-			m.SetResumeSaver(func(_ playlist.Track, seconds int, _ []playlist.Track, _ int) {
+			m.SetResumeSaver(func(_ playlist.Track, seconds int, _ []playlist.Track, _ int, _ string) {
 				positions = append(positions, seconds)
 			})
 			m.tickResumeSave(time.Now())
@@ -57,7 +57,7 @@ func TestResumeCheckpointAfterFailedSeek(t *testing.T) {
 		seek: seekState{active: true, inFlight: true, targetPos: 600 * time.Second},
 	}
 	position := -1
-	m.SetResumeSaver(func(_ playlist.Track, seconds int, _ []playlist.Track, _ int) { position = seconds })
+	m.SetResumeSaver(func(_ playlist.Track, seconds int, _ []playlist.Track, _ int, _ string) { position = seconds })
 	updated, _ := m.Update(seekTickMsg{target: 600 * time.Second, err: errors.New("seek failed")})
 	m = updated.(Model)
 	m.tickResumeSave(time.Now())
@@ -76,7 +76,7 @@ func TestResumeCheckpointReconcilesGaplessTrackFirst(t *testing.T) {
 	}
 	m.SetVisualizer("none")
 	var savedPositions []int
-	m.SetResumeSaver(func(track playlist.Track, seconds int, _ []playlist.Track, _ int) {
+	m.SetResumeSaver(func(track playlist.Track, seconds int, _ []playlist.Track, _ int, _ string) {
 		if track.Path == jellyfinTrack.Path {
 			savedPositions = append(savedPositions, seconds)
 		}

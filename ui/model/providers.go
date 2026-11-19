@@ -152,6 +152,11 @@ func (m *Model) replaceProviderLists(lists []playlist.PlaylistInfo) {
 		selectedID = m.provPane.lists[m.provPane.cursor].ID
 	}
 	m.provPane.lists = providerListsWithBrowse(m.provider, lists)
+	if _, catalog := m.provider.(provider.CatalogSearcher); m.provSearch.active && m.provSearch.query != "" && !catalog {
+		// A filter set before the lists arrived, as Alt+L sets one, applies
+		// to them now.
+		m.updateProvSearch()
+	}
 	m.provPane.cursor = max(0, min(m.provPane.cursor, len(m.provPane.lists)-1))
 	if selectedID != "" {
 		for i, item := range m.provPane.lists {
@@ -230,11 +235,14 @@ func (m *Model) refreshActiveProvider(tracksOnly bool) tea.Cmd {
 	// arrival finds a stale cache and refetches.
 	m.radioListenersAt = time.Time{}
 	m.status.Activityf(statusTTLShort, "Refreshing %s…", m.provider.Name())
+	// Refresh drops the favorite states too. The queue tracks that no
+	// listing reloads get theirs back, so a ♥ does not vanish.
+	favorites := m.loadTrackFavoritesCmd(m.playlist.Tracks())
 	if inPlace {
-		return m.fetchProviderTracks(m.activeProviderPlaylistID)
+		return tea.Batch(m.fetchProviderTracks(m.activeProviderPlaylistID), favorites)
 	}
 	m.activeProviderPlaylistID = ""
-	return m.fetchProviderPlaylists()
+	return tea.Batch(m.fetchProviderPlaylists(), favorites)
 }
 
 // applyTracksResume positions the cursor on the in-progress track and arms the

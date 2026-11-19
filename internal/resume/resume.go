@@ -19,6 +19,9 @@ type State struct {
 	Playlist     string           `json:"playlist,omitempty"`
 	Context      []playlist.Track `json:"context,omitempty"`
 	ContextIndex int              `json:"context_index,omitempty"`
+	// PlaylistID names the provider playlist of Context when it reloads in
+	// place, so Ctrl+R works on the restored queue.
+	PlaylistID string `json:"playlist_id,omitempty"`
 }
 
 func stateFile() (string, error) {

@@ -1,15 +1,18 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/config"
+	"github.com/bjarneo/cliamp/external/plex"
 )
 
 // keyPress builds a synthetic key event matching what the runtime sends.
@@ -97,6 +100,132 @@ func TestPickerSelectionFiltersFields(t *testing.T) {
 	}
 	if visibleKeys["token"] {
 		t.Fatalf("password mode should hide token; got %v", visibleKeys)
+	}
+}
+
+func TestPlexPickerSelectionFiltersFields(t *testing.T) {
+	// No saved token, so the picker offers the two sign-in modes.
+	t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+	m := newSetupModel()
+	plexIdx := -1
+	for i, p := range m.provs {
+		if p.section == "plex" {
+			plexIdx = i
+			break
+		}
+	}
+	if plexIdx < 0 {
+		t.Fatal("plex spec missing")
+	}
+
+	m.startProvider(plexIdx)
+	m.pickerCursor = 0
+	m.handleKey(keyPress(tea.KeyEnter, ""))
+	if m.stage != stageForm || len(m.visible) != 1 || m.provs[plexIdx].fields[m.visible[0]].key != "libraries" {
+		t.Fatalf("account mode visible fields = %v", m.visible)
+	}
+
+	m.stage = stagePicker
+	m.values = map[string]string{}
+	m.pickerCursor = 1
+	m.handleKey(keyPress(tea.KeyEnter, ""))
+	var keys []string
+	for _, idx := range m.visible {
+		keys = append(keys, m.provs[plexIdx].fields[idx].key)
+	}
+	if got := strings.Join(keys, ","); got != "url,token,libraries" {
+		t.Fatalf("manual mode visible fields = %q", got)
+	}
+}
+
+func TestPlexAuthServerSelectionSavesAccountConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLIAMP_CONFIG_DIR", dir)
+	m := newSetupModel()
+	for i, p := range m.provs {
+		if p.section == "plex" {
+			m.pidx = i
+			break
+		}
+	}
+	m.values = map[string]string{keyPlexAuth: "account", "libraries": "Music"}
+	m.stage = stageValidating
+
+	m.Update(plexAuthDoneMsg{
+		clientID: "client-1",
+		token:    "account-token",
+		servers: []plex.ReachableServer{
+			{Name: "Home", ClientIdentifier: "home", URL: "https://home.plex.direct:32400", Owned: true},
+			{Name: "Shared", ClientIdentifier: "shared", URL: "https://shared.plex.direct:32400"},
+		},
+	})
+	if m.stage != stagePlexServer {
+		t.Fatalf("stage = %v, want stagePlexServer", m.stage)
+	}
+	m.handleKey(keyPress(tea.KeyDown, ""))
+	m.handleKey(keyPress(tea.KeyEnter, ""))
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Plex.URL != "https://shared.plex.direct:32400" || cfg.Plex.Token != "account-token" ||
+		cfg.Plex.ClientID != "client-1" || cfg.Plex.ServerID != "shared" {
+		t.Fatalf("saved Plex config = %+v", cfg.Plex)
+	}
+	if got := strings.Join(cfg.Plex.Libraries, ","); got != "Music" {
+		t.Fatalf("libraries = %q", got)
+	}
+}
+
+func TestPlexAuthErrorCannotSaveIncompleteConfig(t *testing.T) {
+	m := newSetupModel()
+	for i, p := range m.provs {
+		if p.section == "plex" {
+			m.pidx = i
+			break
+		}
+	}
+	m.stage = stageValidating
+	m.Update(plexAuthDoneMsg{err: errors.New("sign in failed")})
+	if m.stage != stageResult || m.awaitingSave {
+		t.Fatalf("stage = %v, awaitingSave = %v", m.stage, m.awaitingSave)
+	}
+}
+
+func TestPlexAuthApprovalShowsServerDiscovery(t *testing.T) {
+	m := newSetupModel()
+	for i, p := range m.provs {
+		if p.section == "plex" {
+			m.pidx = i
+			break
+		}
+	}
+	m.values = map[string]string{keyPlexAuth: "account"}
+	m.stage = stageValidating
+	m.authURL = "https://app.plex.tv/auth"
+
+	_, cmd := m.Update(plexAuthApprovedMsg{api: plex.NewAccountAPI(), clientID: "client-1", token: "token"})
+	if cmd == nil || m.authURL != "" || m.authStatus != "Finding reachable Plex servers…" {
+		t.Fatalf("cmd = %v, authURL = %q, status = %q", cmd != nil, m.authURL, m.authStatus)
+	}
+	if view := m.viewValidating(); !strings.Contains(view, "Finding reachable Plex servers") {
+		t.Fatalf("view = %q", view)
+	}
+}
+
+func TestPlexSetupReusesClientIdentifier(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLIAMP_CONFIG_DIR", dir)
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[plex]\nurl = \"https://plex\"\ntoken = \"token\"\nclient_id = \"existing-client\"\nserver_id = \"server\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := plexSetupClientID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "existing-client" {
+		t.Fatalf("client ID = %q, want existing-client", got)
 	}
 }
 
@@ -987,4 +1116,119 @@ func TestYTMusicCustomModeIncludesOptionalCookies(t *testing.T) {
 	}
 
 	checkBody(t, spec.body(values), map[string]string{"cookies_from": `"firefox"`})
+}
+
+func plexSetupIndex(t *testing.T, m *setupModel) int {
+	t.Helper()
+	for i, p := range m.provs {
+		if p.section == "plex" {
+			return i
+		}
+	}
+	t.Fatal("plex spec missing")
+	return -1
+}
+
+func TestPlexPickerOffersSignInOrSignOut(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		config string
+		want   bool
+	}{
+		{name: "no config", want: false},
+		{name: "signed in", config: "[plex]\nurl = \"https://plex\"\ntoken = \"t\"\n", want: true},
+		{name: "signed out", config: "[plex]\nclient_id = \"c\"\nlibraries = [\"Music\"]\n", want: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("CLIAMP_CONFIG_DIR", dir)
+			if tt.config != "" {
+				if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(tt.config), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			m := newSetupModel()
+			m.startProvider(plexSetupIndex(t, m))
+			var got []string
+			for _, o := range m.pickerOpts {
+				got = append(got, o.value)
+			}
+			want := "account,manual"
+			if tt.want {
+				want = "signout"
+			}
+			if strings.Join(got, ",") != want {
+				t.Fatalf("picker options = %v, want %s", got, want)
+			}
+		})
+	}
+}
+
+func TestPlexSignOutRemovesCredentials(t *testing.T) {
+	const account = "[plex]\nurl = \"https://home.plex.direct:32400\"\ntoken = \"account-token\"\nclient_id = \"client-1\"\nserver_id = \"server-1\"\nlibraries = [\"Music\"]\n"
+	const manual = "[plex]\nurl = \"http://192.168.1.10:32400\"\ntoken = \"web-token\"\nlibraries = [\"Music\"]\n"
+	for _, tt := range []struct {
+		name       string
+		config     string
+		revokeErr  error
+		wantRevoke bool
+		wantURL    string
+		wantClient string
+		wantWarn   bool
+	}{
+		{name: "browser sign-in", config: account, wantRevoke: true, wantClient: "client-1"},
+		{name: "revoke fails", config: account, revokeErr: errors.New("offline"), wantRevoke: true, wantClient: "client-1", wantWarn: true},
+		{name: "manual token", config: manual, wantURL: "http://192.168.1.10:32400"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("CLIAMP_CONFIG_DIR", dir)
+			if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(tt.config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			revoked := ""
+			orig := plexSignOut
+			plexSignOut = func(_ context.Context, token, clientID string) error {
+				revoked = token + "/" + clientID
+				return tt.revokeErr
+			}
+			t.Cleanup(func() { plexSignOut = orig })
+
+			m := newSetupModel()
+			m.startProvider(plexSetupIndex(t, m))
+			m.pickerCursor = slices.IndexFunc(m.pickerOpts, func(o pickerOption) bool { return o.value == "signout" })
+			_, cmd := m.handleKey(keyPress(tea.KeyEnter, ""))
+			if m.stage != stageValidating || cmd == nil {
+				t.Fatalf("stage = %v, want stageValidating; resultErr = %v", m.stage, m.resultErr)
+			}
+			for _, c := range cmd().(tea.BatchMsg) {
+				if msg, ok := c().(plexSignOutDoneMsg); ok {
+					m.Update(msg)
+				}
+			}
+
+			if got := revoked != ""; got != tt.wantRevoke {
+				t.Fatalf("revoked = %q, want revoke %v", revoked, tt.wantRevoke)
+			}
+			if tt.wantRevoke && revoked != "account-token/client-1" {
+				t.Fatalf("revoked %q, want the saved token and client", revoked)
+			}
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.Plex.Token != "" || cfg.Plex.ServerID != "" || cfg.Plex.URL != tt.wantURL || cfg.Plex.ClientID != tt.wantClient {
+				t.Fatalf("Plex config after sign-out = %+v", cfg.Plex)
+			}
+			if len(cfg.Plex.Libraries) != 0 {
+				t.Fatalf("libraries = %v, want removed", cfg.Plex.Libraries)
+			}
+			if m.stage != stageResult || m.resultWarning != tt.wantWarn || m.saveFailed != nil {
+				t.Fatalf("result stage=%v warning=%v saveFailed=%v", m.stage, m.resultWarning, m.saveFailed)
+			}
+			if view := m.viewResult(); !strings.Contains(view, "Restart cliamp") {
+				t.Fatalf("result does not mention the restart:\n%s", view)
+			}
+		})
+	}
 }

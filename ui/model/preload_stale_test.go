@@ -131,6 +131,20 @@ func TestPreloadNextKeepsAnInFlightPreload(t *testing.T) {
 	}
 }
 
+// The next batch of a station arrives while its last track plays. Its first
+// track is preloaded at once, so the end of the batch stays gapless.
+func TestQueueContinuedArmsNextTrack(t *testing.T) {
+	m, player := armedModel()
+	m.playlist.SetIndex(2)
+	player.hasPreload, m.preloadFor = false, ""
+
+	next, _ := m.Update(queueContinuedMsg{after: "c.mp3", tracks: []playlist.Track{{Title: "D", Path: "d.mp3", DurationSecs: 180}}})
+	m = next.(Model)
+	if !m.preloading || m.preloadFor != "d.mp3" {
+		t.Fatalf("preloading %v for %q, want d.mp3 in flight at once", m.preloading, m.preloadFor)
+	}
+}
+
 // Appending over IPC while the last track plays with repeat-all puts the new
 // track next instead of the first one.
 func TestUpdateDropsStalePreloadOnRepeatAllAppend(t *testing.T) {

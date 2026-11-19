@@ -319,7 +319,7 @@ func TestQuitCapturesMixcloudResumePosition(t *testing.T) {
 	if m.exitResume.path != track.Path || m.exitResume.secs != 754 {
 		t.Fatalf("exit resume = (%q, %d), want (%q, 754)", m.exitResume.path, m.exitResume.secs, track.Path)
 	}
-	gotContext, gotIndex := m.ResumeContext()
+	gotContext, gotIndex, _ := m.ResumeContext()
 	if len(gotContext) != 3 || gotIndex != 1 || gotContext[gotIndex].Path != track.Path {
 		t.Fatalf("exit context = len:%d index:%d tracks:%+v", len(gotContext), gotIndex, gotContext)
 	}
@@ -394,7 +394,7 @@ func TestNavTrackPlaybackKeepsCompleteAlbumContext(t *testing.T) {
 			cursor: 1,
 		},
 	}
-	m.SetResumeSaver(func(playlist.Track, int, []playlist.Track, int) {})
+	m.SetResumeSaver(func(playlist.Track, int, []playlist.Track, int, string) {})
 
 	if cmd := m.handleNavTrackListKey(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil {
 		t.Fatal("handleNavTrackListKey(Enter) = nil, want playback command")
@@ -418,7 +418,7 @@ func TestBeginPlaybackPersistsActualTrackAndCompleteContextImmediately(t *testin
 	var savedTrack playlist.Track
 	var savedContext []playlist.Track
 	var savedIndex, savedPosition int
-	m.SetResumeSaver(func(track playlist.Track, positionSec int, context []playlist.Track, contextIndex int) {
+	m.SetResumeSaver(func(track playlist.Track, positionSec int, context []playlist.Track, contextIndex int, _ string) {
 		savedTrack = track
 		savedPosition = positionSec
 		savedContext = context
@@ -444,7 +444,7 @@ func TestTickResumeSavePersistsPositionAndThrottlesWrites(t *testing.T) {
 	pl.Add(track)
 	m := Model{player: player, playlist: pl, playingTrack: track, playingTrackActive: true, playbackContext: []playlist.Track{track}}
 	var positions []int
-	m.SetResumeSaver(func(_ playlist.Track, positionSec int, _ []playlist.Track, _ int) {
+	m.SetResumeSaver(func(_ playlist.Track, positionSec int, _ []playlist.Track, _ int, _ string) {
 		positions = append(positions, positionSec)
 	})
 	base := time.Now()

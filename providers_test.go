@@ -18,6 +18,7 @@ import (
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
 	"github.com/bjarneo/cliamp/external/navidrome"
+	"github.com/bjarneo/cliamp/external/plex"
 	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/internal/resume"
@@ -99,7 +100,7 @@ func TestBuildProviders(t *testing.T) {
 				t.Fatal("the local provider and the radio favorites must be set")
 			}
 			for _, key := range []string{"jellyfin", "emby", "plex"} {
-				want := key != "plex" && slices.Contains(tt.want, key)
+				want := slices.Contains(tt.want, key)
 				if got := set.resumeServer(key) != nil; got != want {
 					t.Errorf("resumeServer(%q) set = %v, want %v", key, got, want)
 				}
@@ -209,6 +210,16 @@ func TestProviderSetUsesCapabilities(t *testing.T) {
 	}
 }
 
+func TestProviderSetRegistersPlexSourceResolver(t *testing.T) {
+	prov := plex.NewFromConfig(config.PlexConfig{URL: "http://127.0.0.1:1", Token: "token"})
+	set := &providerSet{entries: []provider.Entry{{Key: "plex", Name: "Plex", Provider: prov}}}
+	engine := &player.Player{}
+	set.registerPlayerHooks(engine)
+	if !engine.HasSourceResolver(plex.TrackURIPrefix + "42") {
+		t.Fatal("Plex source resolver was not registered")
+	}
+}
+
 // A page URL that playlist.IsYTDL accepts opens through yt-dlp, also when a
 // Jellyfin server registers a source resolver for every https URL.
 func TestPlayerHooksSendYTDLPagesToYTDLP(t *testing.T) {
@@ -282,7 +293,7 @@ func TestServerResumeSaver(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
-			serverResumeSaver(server.Provider)(playlist.Track{Path: tt.path, Title: "Two"}, 42, context, 1)
+			serverResumeSaver(server.Provider)(playlist.Track{Path: tt.path, Title: "Two"}, 42, context, 1, "")
 			if got := resume.Load(); !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("saved state = %+v, want %+v", got, tt.want)
 			}

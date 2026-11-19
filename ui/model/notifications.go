@@ -228,6 +228,8 @@ func (m *Model) nowPlaying(track playlist.Track) {
 	}
 	canSeek := m.player.Seekable()
 	position := m.player.Position()
+	// The now-playing report is the first position report of the listen.
+	m.lastProgressReport, m.progressPos, m.progressPaused = time.Now(), position, false
 	m.queueReport("", func() {
 		if err := reporter.ReportNowPlaying(track, position, canSeek); err != nil {
 			applog.Warn("now-playing report failed for %q: %v", track.Title, err)
@@ -290,14 +292,15 @@ func (m *Model) refreshHistoryViews() tea.Cmd {
 // maybeScrobble fires a playback-complete report for the given track when it
 // is left (skip, stop, natural end) and past 50% of its known duration,
 // matching Last.fm-style play-count conventions. Local history is recorded
-// separately at track start via recordListenedTrack.
-func (m *Model) maybeScrobble(track playlist.Track, elapsed, duration time.Duration) {
+// separately at track start via recordListenedTrack. It reports whether a
+// provider got the scrobble.
+func (m *Model) maybeScrobble(track playlist.Track, elapsed, duration time.Duration) bool {
 	if duration <= 0 {
 		// Unknown duration: use DurationSecs metadata as fallback.
 		duration = time.Duration(track.DurationSecs) * time.Second
 	}
 	if duration <= 0 || elapsed < duration/2 {
-		return // unknown duration, or less than 50% played
+		return false // unknown duration, or less than 50% played
 	}
 
 	// Emit scrobble event to Lua plugins for all tracks (not just Navidrome).
@@ -309,7 +312,7 @@ func (m *Model) maybeScrobble(track playlist.Track, elapsed, duration time.Durat
 
 	reporter := m.findPlaybackReporter(track)
 	if reporter == nil {
-		return
+		return false
 	}
 	canSeek := m.player.Seekable()
 	m.queueReport("", func() {
@@ -317,10 +320,26 @@ func (m *Model) maybeScrobble(track playlist.Track, elapsed, duration time.Durat
 			applog.Warn("scrobble failed for %q: %v", track.Title, err)
 		}
 	})
+	return true
+}
+
+// reportStopped ends the listen of track at position on a provider that
+// shows each listen, for a track left without a scrobble.
+func (m *Model) reportStopped(track playlist.Track, position time.Duration) {
+	reporter, ok := m.findPlaybackReporter(track).(provider.TimelineReporter)
+	if !ok {
+		return
+	}
+	m.queueReport("", func() {
+		if err := reporter.ReportStopped(track, position); err != nil {
+			applog.Warn("stop report failed for %q: %v", track.Title, err)
+		}
+	})
 }
 
 // leaveTrack reports that the listener left the track that plays after
-// elapsed of dur, and scrobbles it when it qualifies. stopPlayback and
+// elapsed of dur: it scrobbles it when it qualifies, and otherwise ends the
+// listen on a provider that shows it. stopPlayback and
 // playTrack call it with the engine position before the engine moves on.
 // It reports only a track that the engine started, and each start once, so
 // a stop or a start that follows the end of a track does not report the
@@ -330,7 +349,11 @@ func (m *Model) leaveTrack(elapsed, dur time.Duration) {
 		return
 	}
 	m.playingTrackLeft = true
-	m.maybeScrobble(m.playingTrack, elapsed, dur)
+	// A replay of the track after a rewind reports its position at once.
+	m.lastProgressReport, m.progressPaused = time.Time{}, false
+	if !m.maybeScrobble(m.playingTrack, elapsed, dur) {
+		m.reportStopped(m.playingTrack, elapsed)
+	}
 }
 
 // findTrackPosition returns the provider that can report track's saved
@@ -351,13 +374,24 @@ func (m *Model) findPlaybackReporter(track playlist.Track) provider.PlaybackRepo
 // pushed to providers that accept them.
 const progressReportInterval = 15 * time.Second
 
+// progressJump is how far the position may stray from the one the last
+// report implies before a report goes out at once, as after a seek.
+const progressJump = 2 * time.Second
+
 // tickProgressReport pushes an interim position update for the playing track to
-// providers that accept them, at most once per progressReportInterval.
+// providers that accept them, at most once per progressReportInterval, and at
+// once after a seek. A TimelineReporter also hears of a pause and a resume at
+// once and keeps getting the paused position; the others hear nothing while
+// paused. No report goes out while the track buffers, since its position
+// is not settled yet.
 func (m *Model) tickProgressReport(now time.Time) {
-	if m.player == nil || !m.player.IsPlaying() || m.player.IsPaused() {
+	if m.player == nil || !m.player.IsPlaying() || m.buffering {
 		return
 	}
-	if !m.lastProgressReport.IsZero() && now.Sub(m.lastProgressReport) < progressReportInterval {
+	paused := m.player.IsPaused()
+	position := m.player.Position()
+	due := m.lastProgressReport.IsZero() || now.Sub(m.lastProgressReport) >= progressReportInterval
+	if !due && paused == m.progressPaused && !m.progressJumped(now, position) {
 		return
 	}
 	track, idx := m.currentPlaybackTrack()
@@ -368,13 +402,30 @@ func (m *Model) tickProgressReport(now time.Time) {
 	if !ok {
 		return
 	}
-	m.lastProgressReport = now
-	position := m.player.Position()
+	report := reporter.ReportProgress
+	if paused {
+		timeline, ok := reporter.(provider.TimelineReporter)
+		if !ok {
+			return
+		}
+		report = timeline.ReportPaused
+	}
+	m.lastProgressReport, m.progressPos, m.progressPaused = now, position, paused
 	m.queueReport(track.Path, func() {
-		if err := reporter.ReportProgress(track, position); err != nil {
+		if err := report(track, position); err != nil {
 			applog.Warn("progress report failed for %q: %v", track.Title, err)
 		}
 	})
+}
+
+// progressJumped reports whether position strays from the one the last
+// report implies at now by more than progressJump.
+func (m *Model) progressJumped(now time.Time, position time.Duration) bool {
+	want := m.progressPos
+	if !m.progressPaused {
+		want += time.Duration(float64(now.Sub(m.lastProgressReport)) * m.player.Speed())
+	}
+	return position > want+progressJump || position < want-progressJump
 }
 
 // hasPlaybackState reports whether any provider stores local listening state,

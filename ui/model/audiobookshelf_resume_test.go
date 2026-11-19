@@ -237,3 +237,151 @@ func TestTickProgressReportSkipsWhenPaused(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 }
+
+// timelineProv records the reports of a TimelineReporter as "kind position".
+type timelineProv struct {
+	progressProv
+	timeline chan string
+}
+
+func newTimelineProv() *timelineProv {
+	return &timelineProv{progressProv: progressProv{reports: make(chan time.Duration, 8)}, timeline: make(chan string, 8)}
+}
+
+func (p *timelineProv) ReportProgress(_ playlist.Track, position time.Duration) error {
+	p.timeline <- "playing " + position.String()
+	return nil
+}
+
+func (p *timelineProv) ReportPaused(_ playlist.Track, position time.Duration) error {
+	p.timeline <- "paused " + position.String()
+	return nil
+}
+
+func (p *timelineProv) ReportStopped(_ playlist.Track, position time.Duration) error {
+	p.timeline <- "stopped " + position.String()
+	return nil
+}
+
+func (p *timelineProv) ReportScrobble(_ playlist.Track, elapsed, _ time.Duration, _ bool) error {
+	p.timeline <- "scrobble " + elapsed.String()
+	return nil
+}
+
+// expect fails unless the next report is want, or, for want "", unless no
+// report comes.
+func (p *timelineProv) expect(t *testing.T, want string) {
+	t.Helper()
+	if want == "" {
+		select {
+		case got := <-p.timeline:
+			t.Fatalf("unexpected report %q", got)
+		case <-time.After(50 * time.Millisecond):
+		}
+		return
+	}
+	select {
+	case got := <-p.timeline:
+		if got != want {
+			t.Fatalf("report = %q, want %q", got, want)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("no report, want %q", want)
+	}
+}
+
+func timelineModel(prov *timelineProv, engine *playbackFakeEngine) Model {
+	return Model{
+		player:              engine,
+		provider:            prov,
+		providers:           []provider.Entry{{Key: "stub", Name: "Plain", Provider: prov}},
+		playingTrack:        stubTracks()[0],
+		playingTrackActive:  true,
+		playingTrackStarted: true,
+	}
+}
+
+// A TimelineReporter hears of a pause and of the resume at once, inside the
+// throttle window, and gets the paused position after it.
+func TestTickProgressReportsPause(t *testing.T) {
+	prov := newTimelineProv()
+	engine := &playbackFakeEngine{playing: true, position: 10 * time.Second}
+	m := timelineModel(prov, engine)
+
+	now := time.Now()
+	m.tickProgressReport(now)
+	prov.expect(t, "playing 10s")
+
+	engine.paused = true
+	m.tickProgressReport(now.Add(time.Second))
+	prov.expect(t, "paused 10s")
+	m.tickProgressReport(now.Add(2 * time.Second))
+	prov.expect(t, "")
+	m.tickProgressReport(now.Add(time.Second + progressReportInterval))
+	prov.expect(t, "paused 10s")
+
+	engine.paused = false
+	m.tickProgressReport(now.Add(2*time.Second + progressReportInterval))
+	prov.expect(t, "playing 10s")
+}
+
+// A seek reports the new position at once; the position moving on with
+// playback, at the playback speed, waits for the interval.
+func TestTickProgressReportsSeek(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		speed  float64
+		paused bool
+		at     time.Duration // position one second after the first report
+		want   string
+	}{
+		{name: "plays on", at: 11 * time.Second},
+		{name: "plays on faster", speed: 2, at: 12 * time.Second},
+		{name: "seek forward", at: 70 * time.Second, want: "playing 1m10s"},
+		{name: "seek back", at: 3 * time.Second, want: "playing 3s"},
+		{name: "seek while paused", paused: true, at: 70 * time.Second, want: "paused 1m10s"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			prov := newTimelineProv()
+			engine := &playbackFakeEngine{playing: true, paused: tt.paused, position: 10 * time.Second, speed: tt.speed}
+			m := timelineModel(prov, engine)
+			now := time.Now()
+			m.tickProgressReport(now)
+			<-prov.timeline
+			engine.position = tt.at
+			m.tickProgressReport(now.Add(time.Second))
+			prov.expect(t, tt.want)
+		})
+	}
+}
+
+// No report goes out while the track buffers.
+func TestTickProgressReportWaitsForBuffering(t *testing.T) {
+	prov := newTimelineProv()
+	m := timelineModel(prov, &playbackFakeEngine{playing: true})
+	m.buffering = true
+	m.tickProgressReport(time.Now())
+	prov.expect(t, "")
+}
+
+// Leaving a track scrobbles it past half its length; before that, a
+// TimelineReporter hears that the listen stopped, so the server does not
+// show it as playing on.
+func TestLeaveTrackEndsListen(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		elapsed time.Duration
+		want    string
+	}{
+		{name: "skipped early", elapsed: 20 * time.Second, want: "stopped 20s"},
+		{name: "played past half", elapsed: 150 * time.Second, want: "scrobble 2m30s"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			prov := newTimelineProv()
+			m := timelineModel(prov, &playbackFakeEngine{playing: true})
+			m.leaveTrack(tt.elapsed, 200*time.Second)
+			prov.expect(t, tt.want)
+			prov.expect(t, "")
+		})
+	}
+}

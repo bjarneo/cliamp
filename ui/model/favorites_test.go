@@ -25,6 +25,7 @@ type fakeTrackFavoriter struct {
 
 	mu    sync.Mutex
 	calls []string
+	liked map[string]bool
 }
 
 func (p *fakeTrackFavoriter) CanFavoriteTrack(track playlist.Track) bool {
@@ -39,7 +40,26 @@ func (p *fakeTrackFavoriter) SetTrackFavorite(_ context.Context, track playlist.
 		state = "add"
 	}
 	p.calls = append(p.calls, state+" "+track.Path)
+	if p.err == nil {
+		if p.liked == nil {
+			p.liked = make(map[string]bool)
+		}
+		p.liked[track.Path] = favorite
+	}
 	return p.err
+}
+
+// fakeAuthoritativeFavoriter models Plex: provider state replaces local
+// favorites instead of receiving a copy of them.
+type fakeAuthoritativeFavoriter struct {
+	*fakeTrackFavoriter
+}
+
+func (p *fakeAuthoritativeFavoriter) FavoriteState(track playlist.Track) (favorite, known bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	favorite, known = p.liked[track.Path]
+	return favorite, known
 }
 
 func (p *fakeTrackFavoriter) recorded() []string {
@@ -304,6 +324,180 @@ func TestTrackFavoriteSyncRouting(t *testing.T) {
 	}
 }
 
+func TestProviderFavoriteStateIsDisplayedAndToggled(t *testing.T) {
+	m, store := favoriteKeyTestModel(t)
+	track := playlist.Track{Path: "fake:track:liked", Title: "Liked"}
+	fake := &fakeAuthoritativeFavoriter{fakeTrackFavoriter: &fakeTrackFavoriter{
+		commandsTestProvider: commandsTestProvider{name: "Fake"},
+		prefix:               "fake:",
+		liked:                map[string]bool{track.Path: true},
+	}}
+	m.provider = fake
+	m.providers = append(m.providers, provider.Entry{Key: "fake", Name: "Fake", Provider: fake})
+
+	if !m.playlistTrackFavorited(track) {
+		t.Fatal("provider favorite is not displayed")
+	}
+	cmd, err := m.toggleTrackFavorite(track)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.IsFavorited(track.Path) {
+		t.Fatal("removing a provider-only favorite added it to the local store")
+	}
+	for _, msg := range runCmd(cmd) {
+		if synced, ok := msg.(trackFavoriteSyncedMsg); ok {
+			m.handleTrackFavoriteSynced(synced)
+		}
+	}
+	if m.playlistTrackFavorited(track) {
+		t.Fatal("provider favorite stayed displayed after removal")
+	}
+	if got := fake.recorded(); len(got) != 1 || got[0] != "remove "+track.Path {
+		t.Fatalf("provider calls = %v, want one removal", got)
+	}
+}
+
+func TestProviderFavoriteStateOverridesStaleLocalState(t *testing.T) {
+	m, store := favoriteKeyTestModel(t)
+	track := playlist.Track{Path: "fake:track:unliked", Title: "Unliked"}
+	if _, err := store.Toggle(track); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshFavSet()
+	fake := &fakeAuthoritativeFavoriter{fakeTrackFavoriter: &fakeTrackFavoriter{
+		commandsTestProvider: commandsTestProvider{name: "Fake"},
+		prefix:               "fake:",
+		liked:                map[string]bool{track.Path: false},
+	}}
+	m.provider = fake
+	m.providers = append(m.providers, provider.Entry{Key: "fake", Name: "Fake", Provider: fake})
+
+	if m.playlistTrackFavorited(track) {
+		t.Fatal("stale local favorite overrode the state returned by the provider")
+	}
+	cmd, err := m.toggleTrackFavorite(track)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.IsFavorited(track.Path) {
+		t.Fatal("provider toggle removed the stale local entry")
+	}
+	for _, msg := range runCmd(cmd) {
+		if synced, ok := msg.(trackFavoriteSyncedMsg); ok {
+			m.handleTrackFavoriteSynced(synced)
+		}
+	}
+	if !m.playlistTrackFavorited(track) {
+		t.Fatal("provider favorite was not displayed after the server update")
+	}
+	if !store.IsFavorited(track.Path) {
+		t.Fatal("server update changed the stale local entry")
+	}
+}
+
+func TestUnknownProviderFavoriteIgnoresLocalState(t *testing.T) {
+	m, store := favoriteKeyTestModel(t)
+	track := playlist.Track{Path: "fake:track:unknown", Title: "Unknown"}
+	if _, err := store.Toggle(track); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshFavSet()
+	fake := &fakeAuthoritativeFavoriter{fakeTrackFavoriter: &fakeTrackFavoriter{
+		commandsTestProvider: commandsTestProvider{name: "Fake"},
+		prefix:               "fake:",
+	}}
+	m.providers = append(m.providers, provider.Entry{Key: "fake", Name: "Fake", Provider: fake})
+
+	if m.playlistTrackFavorited(track) {
+		t.Fatal("unknown provider state fell back to the local favorite")
+	}
+}
+
+func TestProviderFavoriteWorksWithoutLocalStore(t *testing.T) {
+	m, _ := favoriteKeyTestModel(t)
+	m.favStore = nil
+	track := playlist.Track{Path: "fake:track:1", Title: "Remote"}
+	fake := &fakeAuthoritativeFavoriter{fakeTrackFavoriter: &fakeTrackFavoriter{
+		commandsTestProvider: commandsTestProvider{name: "Fake"},
+		prefix:               "fake:",
+		liked:                map[string]bool{track.Path: false},
+	}}
+	m.providers = append(m.providers, provider.Entry{Key: "fake", Name: "Fake", Provider: fake})
+
+	cmd := m.favoriteTrackKey(track)
+	if cmd == nil {
+		t.Fatal("provider favorite needed a local store")
+	}
+	runCmd(cmd)
+	if got := fake.recorded(); len(got) != 1 || got[0] != "add "+track.Path {
+		t.Fatalf("provider calls = %v, want one add", got)
+	}
+}
+
+func TestProviderFavoritePendingStateKeepsLastToggle(t *testing.T) {
+	m, _ := favoriteKeyTestModel(t)
+	track := playlist.Track{Path: "fake:track:1", Title: "Remote"}
+	fake := &fakeAuthoritativeFavoriter{fakeTrackFavoriter: &fakeTrackFavoriter{
+		commandsTestProvider: commandsTestProvider{name: "Fake"},
+		prefix:               "fake:",
+		liked:                map[string]bool{track.Path: false},
+	}}
+	m.providers = append(m.providers, provider.Entry{Key: "fake", Name: "Fake", Provider: fake})
+
+	first, err := m.toggleTrackFavorite(track)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := m.toggleTrackFavorite(track)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runCmd(second)
+	runCmd(first)
+	if got := fake.recorded(); len(got) != 1 || got[0] != "remove "+track.Path {
+		t.Fatalf("provider calls = %v, want only the last state", got)
+	}
+}
+
+func TestProviderFavoriteFailureRollsBackWithoutChangingLocalState(t *testing.T) {
+	m, store := favoriteKeyTestModel(t)
+	track := playlist.Track{Path: "fake:track:1", Title: "Remote"}
+	if _, err := store.Toggle(track); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshFavSet()
+	fake := &fakeAuthoritativeFavoriter{fakeTrackFavoriter: &fakeTrackFavoriter{
+		commandsTestProvider: commandsTestProvider{name: "Fake"},
+		prefix:               "fake:",
+		err:                  errors.New("offline"),
+		liked:                map[string]bool{track.Path: false},
+	}}
+	m.providers = append(m.providers, provider.Entry{Key: "fake", Name: "Fake", Provider: fake})
+
+	cmd, err := m.toggleTrackFavorite(track)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.playlistTrackFavorited(track) {
+		t.Fatal("pending provider favorite was not displayed")
+	}
+	for _, msg := range runCmd(cmd) {
+		if synced, ok := msg.(trackFavoriteSyncedMsg); ok {
+			m.handleTrackFavoriteSynced(synced)
+		}
+	}
+	if m.playlistTrackFavorited(track) {
+		t.Fatal("failed provider favorite did not roll back")
+	}
+	if !store.IsFavorited(track.Path) {
+		t.Fatal("failed provider favorite changed the stale local entry")
+	}
+	if m.status.kind != feedbackWarning || m.status.text != "Fake did not save the favorite: offline" {
+		t.Fatalf("status = %v %q", m.status.kind, m.status.text)
+	}
+}
+
 // A second toggle made before the first provider call runs wins, so the
 // provider ends with the local state.
 func TestTrackFavoriteSyncKeepsLastState(t *testing.T) {
@@ -516,5 +710,120 @@ func runCmds(cmd tea.Cmd) {
 		for _, c := range batch {
 			runCmds(c)
 		}
+	}
+}
+
+// fakeFavoriteLoader is a provider.TrackFavoriteLoader that records the
+// tracks it was asked about.
+type fakeFavoriteLoader struct {
+	commandsTestProvider
+	mu     sync.Mutex
+	loaded [][]string
+}
+
+func (p *fakeFavoriteLoader) LoadFavoriteStates(_ context.Context, tracks []playlist.Track) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var paths []string
+	for _, t := range tracks {
+		paths = append(paths, t.Path)
+	}
+	p.loaded = append(p.loaded, paths)
+	return nil
+}
+
+// Tracks restored from the last session have no provider favorite state, so
+// the start loads it in the background and redraws.
+func TestLoadTrackFavoritesCmd(t *testing.T) {
+	tracks := []playlist.Track{{Path: "plex:track:1"}, {Path: "plex:track:2"}}
+	loader := &fakeFavoriteLoader{commandsTestProvider: commandsTestProvider{name: "Plex"}}
+
+	m := keybindingTestModel()
+	if cmd := m.loadTrackFavoritesCmd(tracks); cmd != nil {
+		t.Fatal("command without a loading provider")
+	}
+	m.providers = []provider.Entry{{Name: "Plex", Provider: loader}}
+	if cmd := m.loadTrackFavoritesCmd(nil); cmd != nil {
+		t.Fatal("command without tracks")
+	}
+
+	msgs := runCmd(m.loadTrackFavoritesCmd(tracks))
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %v, want one", msgs)
+	}
+	if _, ok := msgs[0].(trackFavoritesLoadedMsg); !ok {
+		t.Fatalf("message = %T, want trackFavoritesLoadedMsg", msgs[0])
+	}
+	if len(loader.loaded) != 1 || strings.Join(loader.loaded[0], " ") != "plex:track:1 plex:track:2" {
+		t.Fatalf("loaded = %v, want the two tracks once", loader.loaded)
+	}
+}
+
+// Refresh drops a provider's favorite states, so Ctrl+R loads them again for
+// the queue tracks that no listing reloads.
+func TestRefreshReloadsTrackFavorites(t *testing.T) {
+	loader := &fakeFavoriteLoader{commandsTestProvider: commandsTestProvider{name: "Plex"}}
+	refreshes := 0
+	m := keybindingTestModel()
+	m.provider = refresherOnlyProvider{commandsTestProvider: commandsTestProvider{name: "Plex"}, refreshes: &refreshes}
+	m.providers = []provider.Entry{{Name: "Plex", Provider: loader}}
+	m.playlist.Add(playlist.Track{Path: "plex:track:1"})
+
+	runCmd(m.refreshActiveProvider(false))
+	if refreshes != 1 {
+		t.Fatalf("refreshes = %d, want 1", refreshes)
+	}
+	if len(loader.loaded) != 1 || strings.Join(loader.loaded[0], " ") != "plex:track:1" {
+		t.Fatalf("loaded = %v, want the queue track once", loader.loaded)
+	}
+}
+
+// loadingAuthoritativeFavoriter knows the ♥ state of a track only after
+// LoadFavoriteStates fetched it from server.
+type loadingAuthoritativeFavoriter struct {
+	*fakeAuthoritativeFavoriter
+	server map[string]bool
+}
+
+func (p *loadingAuthoritativeFavoriter) LoadFavoriteStates(_ context.Context, tracks []playlist.Track) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.liked == nil {
+		p.liked = make(map[string]bool)
+	}
+	for _, t := range tracks {
+		if liked, ok := p.server[t.Path]; ok {
+			p.liked[t.Path] = liked
+		}
+	}
+	return nil
+}
+
+// f on a track whose ♥ state has not loaded yet, such as just after Ctrl+R,
+// loads it instead of toggling: a liked track would be liked again. The next
+// f toggles the loaded state.
+func TestUnknownProviderFavoriteLoadsBeforeToggle(t *testing.T) {
+	m, _ := favoriteKeyTestModel(t)
+	track := playlist.Track{Path: "fake:track:1", Title: "Remote"}
+	fake := &loadingAuthoritativeFavoriter{
+		fakeAuthoritativeFavoriter: &fakeAuthoritativeFavoriter{fakeTrackFavoriter: &fakeTrackFavoriter{
+			commandsTestProvider: commandsTestProvider{name: "Fake"},
+			prefix:               "fake:",
+		}},
+		server: map[string]bool{track.Path: true},
+	}
+	m.providers = append(m.providers, provider.Entry{Key: "fake", Name: "Fake", Provider: fake})
+
+	runCmd(m.favoriteTrackKey(track))
+	if got := fake.recorded(); len(got) != 0 {
+		t.Fatalf("provider calls = %v, want none before the state loads", got)
+	}
+	if !m.playlistTrackFavorited(track) {
+		t.Fatal("the loaded state shows no ♥")
+	}
+
+	runCmd(m.favoriteTrackKey(track))
+	if got := fake.recorded(); len(got) != 1 || got[0] != "remove "+track.Path {
+		t.Fatalf("provider calls = %v, want one remove", got)
 	}
 }

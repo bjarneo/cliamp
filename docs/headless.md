@@ -44,7 +44,7 @@ Headless mode runs the same player as the TUI. These features work the same
 way in both modes:
 
 - Lua plugins load from `~/.config/cliamp/plugins/`. Their hooks see playback events.
-- Navidrome, Jellyfin, Emby, Audiobookshelf, and Yandex Music get now-playing and scrobble reports. Plex gets none.
+- Navidrome, Plex, Jellyfin, Emby, Audiobookshelf, and Yandex Music get now-playing and scrobble reports.
 - A track enters Recently Played when it starts. See [Recently Played](history.md).
 - The IPC `save` operation, for example `cliamp remote call save --wait`, writes to the `[downloads]` directory. See [configuration.md](configuration.md#download-directory).
 - The next track preloads, so playback is gapless.
