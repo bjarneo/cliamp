@@ -136,6 +136,10 @@ Ethereal 48x9 3fb94d5eb733b7ce
 Ethereal 13x3 c0dc6b6f63118086
 Ethereal 40x1 0322fc4422039a63
 Ethereal 140x16 0eabe79c63ed72d9
+Wormhole 48x9 9bce12c1ac94f400
+Wormhole 13x3 bb6e118b5a7043af
+Wormhole 40x1 10c3e7f0ee69f4d1
+Wormhole 140x16 23a7b8ee3ad8de0a
 None 48x9 a09d945a1cd8d6e5
 None 13x3 a09d945a1cd8d6e5
 None 40x1 a09d945a1cd8d6e5

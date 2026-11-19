@@ -623,6 +623,7 @@ func TestModesDeclareTapAndCadence(t *testing.T) {
 		VisWave:        true,
 		VisScope:       true,
 		VisHeartbeat:   true,
+		VisWormhole:    true,
 	}
 	for mode := range VisCount {
 		t.Run(visModes[mode].name, func(t *testing.T) {
@@ -651,7 +652,7 @@ func TestModesDeclareTapAndCadence(t *testing.T) {
 					t.Errorf("Analyze tap = %v, want %v", tap, want)
 				}
 			}
-			if got, want := v.DriverOwnsCadence(), mode == VisClassicPeak || mode == VisClassicLED; got != want {
+			if got, want := v.DriverOwnsCadence(), mode == VisClassicPeak || mode == VisClassicLED || mode == VisWormhole; got != want {
 				t.Errorf("DriverOwnsCadence() = %v, want %v", got, want)
 			}
 		})

@@ -19,6 +19,7 @@ func TestCharmVisualizersRender(t *testing.T) {
 		"RedSector",
 		"YinYang",
 		"Ethereal",
+		"Wormhole",
 	}
 
 	signal := make([]float64, 2048)
