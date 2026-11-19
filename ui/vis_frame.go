@@ -19,7 +19,12 @@ func fitVisualizerFrame(frame string, cols, rows int) string {
 			out.WriteByte('\n')
 		}
 		line, next, _ := strings.Cut(rest, "\n")
-		width := writeVisualizerLine(&out, line, cols)
+		width := ansi.StringWidth(line)
+		if width <= cols {
+			out.WriteString(line)
+		} else { // only a line that has to be cut needs walking
+			width = writeVisualizerLine(&out, line, cols)
+		}
 		for range cols - width {
 			out.WriteByte(' ')
 		}
