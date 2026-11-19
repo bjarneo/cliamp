@@ -134,7 +134,8 @@ func (p *Provider) Refresh() {
 // Tracks returns the tracks for the playlist or album identified by
 // playlistID. Playlist IDs (prefixed "pl:") load via the server playlists
 // endpoint; album IDs load via the album children endpoint. Each track's Path
-// is a complete authenticated HTTP URL ready for the player. Tracks with no
+// is a token-free plex:track:<ratingKey> URI that ResolveSource turns into a
+// stream URL at play time. Tracks with no
 // streamable part (missing Media/Part data) are silently skipped. Album tracks
 // are cached per album ID; playlist tracks are intentionally not cached so
 // smart playlists always reflect their current server contents.
