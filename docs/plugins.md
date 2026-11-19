@@ -749,8 +749,8 @@ local p = plugin.register({
 })
 
 -- Called every frame (~20 FPS during playback).
--- bands: table of 10 numbers (0.0-1.0), indices 1-10, eased between
---        analyses as in the built-in spectrum modes
+-- bands: table of 10 numbers (0.0-1.0), indices 1-10, of the sound that
+--        plays now, eased between analyses as in the built-in spectrum modes
 -- frame: monotonic counter
 -- rows: available terminal rows (changes in fullscreen mode)
 -- cols: available terminal columns

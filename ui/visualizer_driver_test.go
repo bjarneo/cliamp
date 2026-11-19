@@ -589,7 +589,7 @@ func TestTerrainTickSkipsAnalyzeUnderOverlay(t *testing.T) {
 }
 
 // The stateful spectrum drivers and the Lua driver take their analysis spec
-// and cadence from spectrumDriverBase.
+// and cadence from spectrumDriverBase. The Lua driver reads the audible tap.
 func TestSpectrumDriverBaseDefaults(t *testing.T) {
 	v := NewVisualizer(44100)
 	v.RegisterLuaVisualizers([]string{"plugin"}, nil)
@@ -602,7 +602,11 @@ func TestSpectrumDriverBaseDefaults(t *testing.T) {
 		driver := v.driverFor(mode)
 		v.Mode = mode
 		t.Run(v.ModeName(), func(t *testing.T) {
-			if got, want := driver.AnalysisSpec(v), spectrumAnalysisSpec(DefaultSpectrumBands); got != want {
+			want := spectrumAnalysisSpec(DefaultSpectrumBands)
+			if mode >= VisCount {
+				want.Tap = VisTapAudible
+			}
+			if got := driver.AnalysisSpec(v); got != want {
 				t.Errorf("AnalysisSpec = %+v, want %+v", got, want)
 			}
 			for _, ctx := range contexts {
