@@ -188,6 +188,11 @@ func normalizeShiftedLetter(msg tea.KeyPressMsg) tea.KeyPressMsg {
 // the focused area owns the key. The provider filter takes keys only while
 // the provider pane has the focus, where commandContext shows it.
 func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
+	if isModifierKey(msg.Code) {
+		return nil
+	}
+	msg, m.layoutText = physicalKey(msg)
+	defer func() { m.layoutText = "" }()
 	msg = normalizeShiftedLetter(msg)
 
 	if m.luaSelect != nil {
@@ -770,6 +775,10 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 
 	case "ctrl+h":
+		if m.playlist.Shuffled() {
+			m.status.Warning(shuffleHeadersWarning, statusTTLShort)
+			return nil
+		}
 		m.toggleAlbumHeadersManual()
 		m.adjustScroll()
 

@@ -74,3 +74,5 @@ cliamp 'https://music.163.com/#/playlist?id=3778678'
 ## Limits
 
 NetEase playback depends on the account, region, and track rights. If a song is unavailable upstream, cliamp shows the `yt-dlp` error. `cookies_from` gives `yt-dlp` the same account context as the browser. This can improve access to tracks that the account can play.
+
+A playlist in the NetEase provider loads all of its tracks. A direct playlist URL loads at most 500 tracks, because the `yt-dlp` NetEase extractor asks for 500. To load a longer playlist, save it to your account and open it in the provider.

@@ -19,3 +19,4 @@ These plugins are maintained by the community. To add a plugin, open a PR.
 | [cliamp-plugin-pomodoro](https://github.com/gaurabxkc/cliamp-plugin-pomodoro) | Focus timer that pauses playback during breaks, with a countdown clock visualizer | [@gaurabxkc](https://github.com/gaurabxkc) |
 | [cliamp-plugin-save-song](https://github.com/dorobica/cliamp-plugin-save-song) | One key saves the playing song, including the live title on radio streams, to a dated list you can search and replay | [@dorobica](https://github.com/dorobica) |
 | [cliamp-plugin-mac-notify](https://github.com/dbarrerap/cliamp-plugin-mac-notify) | macOS Now Playing desktop notifications with local cover art and YouTube thumbnails | [@dbarrerap](https://github.com/dbarrerap) |
+| [cliamp-plugin-hanami](https://github.com/niteover/cliamp-plugin-hanami) | Pixel cherry blossom visualizer: petals pile up in drifts that glow with the spectrum and jump on the beat | [@niteover](https://github.com/niteover) |

@@ -2,6 +2,7 @@ package player
 
 import (
 	"io"
+	"regexp"
 	"strings"
 )
 
@@ -69,7 +70,7 @@ func (ir *icyReader) consumeMeta() error {
 
 	// Metadata is null-padded; trim before parsing.
 	meta := strings.TrimRight(string(buf), "\x00")
-	if title := parseStreamTitle(meta); title != "" && ir.onMeta != nil {
+	if title := cleanStreamTitle(parseStreamTitle(meta)); title != "" && ir.onMeta != nil {
 		ir.onMeta(title)
 	}
 	return nil
@@ -92,4 +93,28 @@ func parseStreamTitle(meta string) string {
 		}
 	}
 	return after[:j]
+}
+
+// iheartRecord matches the cart record that iHeartRadio stations send as the
+// StreamTitle: `Artist - text="Title" song_spot="M" length="00:04:15" ...`.
+// The title ends at the last quote before the key="value" pairs, so a title
+// can hold a quote or " - ".
+var iheartRecord = regexp.MustCompile(`^(.*?)\s*-\s+text="(.*?)"(?:\s+\w+="[^"]*")+\s*$`)
+
+// cleanStreamTitle reduces an iHeartRadio cart record to "Artist - Title".
+// When one part is empty, it returns the other part. When both parts are
+// empty, it returns "". It returns any other title unchanged.
+func cleanStreamTitle(title string) string {
+	m := iheartRecord.FindStringSubmatch(title)
+	if m == nil {
+		return title
+	}
+	artist, song := strings.TrimSpace(m[1]), strings.TrimSpace(m[2])
+	switch {
+	case artist == "":
+		return song
+	case song == "":
+		return artist
+	}
+	return artist + " - " + song
 }

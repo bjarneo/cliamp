@@ -360,7 +360,9 @@ You do not register the capabilities that follow. `providers.go` finds them in
 the provider list:
 
 - For each provider that implements `CustomStreamer`, cliamp registers
-  `NewStreamer` for each scheme that `URISchemes` returns.
+  `NewStreamer` for each scheme that `URISchemes` returns. When `Stream` can
+  wait on the network, also implement `player.Interrupter` on the streamer.
+  Stop and a track change call `Interrupt` before they take the speaker lock.
 - At shutdown, cliamp calls `Close` on each provider that implements `Closer`.
 
 If the provider resolves its own URI scheme when playback starts, such as

@@ -37,10 +37,9 @@ cliamp --simplified ~/Music                  # no visualizer or playlist
 cliamp --expanded ~/Music                    # start with the playlist expanded (Ctrl+X state)
 cliamp --eq-preset "Bass Boost" ~/Music
 cliamp --visualizer Wave ~/Music             # start with one visualizer mode
-cliamp --visualizer-60fps ~/Music            # smoother visualizer animation (higher CPU use)
 ```
 
-`--visualizer-60fps` renders a visible visualizer at about 60 FPS during playback. `Wave`, `Scope`, `Heartbeat`, and `Stereo` already use this rate because they draw from audio samples. The flag does not affect overlays or low-power mode.
+The visualizer redraws at a maximum of 20 FPS on the screen.
 
 ## Diagnostics
 
@@ -145,7 +144,6 @@ cliamp track.mp3 --repeat all --mono ~/Music
 | `--expanded` / `--no-expanded` | bool | false | start with the playlist expanded (the `Ctrl+X` state) |
 | `--provider` | string | cliamp | provider to open at start: cliamp, radio, podcast, navidrome, lyrion, plex, jellyfin, emby, spotify, qobuz, tidal, bandcamp, soundcloud, mixcloud, netease, yandex, audiobookshelf (or abs), telegram, yt, youtube, ytmusic |
 | `--visualizer` | string | Bars | visualizer mode, such as Bars, Wave or None. See [configuration.md](configuration.md#options) for all modes. |
-| `--visualizer-60fps` | bool | false | render a visible visualizer at about 60 FPS |
 | `--start-theme` | string | | theme name |
 | `--eq-preset` | string | | preset name |
 | `--sample-rate` | int | 0 | 0, 22050, 44100, 48000, 96000, 192000. 0 reads the rate of the default output device on macOS and uses 44100 on other platforms. |

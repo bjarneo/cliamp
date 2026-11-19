@@ -137,7 +137,7 @@ func TestFiniteHTTPSourceIsSeekableWithoutAMatcher(t *testing.T) {
 	}
 	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
 
-	tp, err := p.buildPipeline(srv.URL, 0)
+	tp, err := p.buildPipeline(srv.URL, 0, nil)
 	if err != nil {
 		t.Fatalf("buildPipeline() error = %v", err)
 	}
@@ -169,7 +169,7 @@ func TestChunkedHTTPSourceStaysLive(t *testing.T) {
 
 	p := &Player{sr: beep.SampleRate(44100), bitDepth: 16}
 
-	tp, err := p.buildPipeline(srv.URL, 0)
+	tp, err := p.buildPipeline(srv.URL, 0, nil)
 	if err != nil {
 		t.Fatalf("buildPipeline() error = %v", err)
 	}

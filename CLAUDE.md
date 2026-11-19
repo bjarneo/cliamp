@@ -67,7 +67,7 @@ Other directories: `docs/` holds the user docs, one `.md` per feature. `site/` i
 ### Runtime flow (read this before touching `main.go`)
 
 1. `main()` sets the version and runs `buildApp()` from `commands.go`. Most subcommands are thin V2 clients in `ipc_client.go`. They talk to the running instance over the socket.
-2. `run(overrides, positional, headless, visualizer60FPS)` is the path of the TUI and of headless mode:
+2. `run(overrides, positional, headless)` is the path of the TUI and of headless mode:
    1. Load `config.toml`, apply the CLI overrides and open `cliamp.log`. In headless mode `checkNotRunning` ends the run when another instance serves the socket.
    2. Call `buildProviders` in `providers.go`. cliamp radio, Radio, Local and Podcasts always register. The other providers register when they are configured. YouTube also needs credentials and yt-dlp.
    3. Resolve the positional arguments with `resolve.Args`. Feeds, M3U, PLS and yt-dlp pages go to `Pending` and resolve after start.
@@ -148,7 +148,7 @@ Lua plugins run in isolated `gopher-lua` VMs. A crash stays in its plugin. Each 
 
 ## Build, test, and local workflow
 
-`mise.toml` pins Go 1.26.10 and shellcheck 0.10.0. Run the targets through mise to use the pins, for example `mise exec -- make ci`.
+`mise.toml` pins Go 1.26.11 and shellcheck 0.10.0. Run the targets through mise to use the pins, for example `mise exec -- make ci`.
 
 | Target | What it does |
 |--------|--------------|

@@ -71,8 +71,14 @@ func (m *Model) editText(field string, value *string, msg tea.KeyPressMsg) bool 
 		if msg.Text == "" {
 			return false
 		}
-		*value = (*value)[:editor.cursor] + msg.Text + (*value)[editor.cursor:]
-		editor.cursor += len(msg.Text)
+		// physicalKey matched the key by its position; type what the
+		// keyboard layout typed, so non-Latin text still works here.
+		text := msg.Text
+		if m.layoutText != "" {
+			text = m.layoutText
+		}
+		*value = (*value)[:editor.cursor] + text + (*value)[editor.cursor:]
+		editor.cursor += len(text)
 	}
 	return true
 }

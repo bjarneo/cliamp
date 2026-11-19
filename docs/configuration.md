@@ -398,6 +398,8 @@ Valid values: `cliamp` (default), `radio`, `podcast`, `navidrome`, `lyrion`, `pl
 
 You can also override this setting on the CLI: `cliamp --provider jellyfin`.
 
+When `provider` names a provider that is not configured, cliamp opens on cliamp radio. The status line then shows the setup step for that provider.
+
 ## Podcasts
 
 Podcasts is always registered: no `enabled` setting, API key, account, or setup

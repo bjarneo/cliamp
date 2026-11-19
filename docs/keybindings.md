@@ -10,6 +10,20 @@ list first. The keymap cannot run key pairs such as `Left` `Right`, the `N`
 then `j` seek, or a player command while another screen is open. For these
 entries, a status message tells you which key to press.
 
+## Non-Latin keyboard layouts
+
+The keys also work from a layout that does not type Latin letters, such as
+Russian, Greek, Arabic or Hebrew, in a terminal with the full
+[Kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)
+(for example kitty, foot or Ghostty). A key that types a non-Latin character
+runs the command of the key in the same place on a US layout: `й` is `q`,
+`Ctrl+л` is `Ctrl+K`, and `Shift+؟` is `?`. Search and filter fields still get
+the characters of your layout. Other terminals send keys as before.
+
+Keys that type ASCII characters or Latin letters keep their meaning, so
+AZERTY, QWERTZ and Dvorak work as before. On a Russian layout, `?` is
+`Shift+7`, where that layout types it.
+
 ## Playback
 
 | Key | Action |
@@ -143,7 +157,7 @@ and `Esc` clears it.
 | `P` | Open Plex provider |
 | `J` | Open Jellyfin provider |
 | `E` | Open Emby provider |
-| `Y` | Open YouTube provider |
+| `Y` | Open YouTube (All). Press `Y` again to open YouTube, then YouTube Music |
 | `C` | Open SoundCloud provider |
 | `X` | Open Mixcloud provider |
 | `M` | Open NetEase provider |
@@ -175,9 +189,9 @@ preference remains saved for a wider layout. See
 
 While shuffle is on, the playlist lists tracks in play order. The tracks that
 played before the current track are above it. The tracks that play next are
-below it. Each row keeps its original track number. When you turn off shuffle,
-the playlist returns to the original order and the cursor stays on the same
-track.
+below it. Each row keeps its original track number. The album headers stay
+hidden until you turn off shuffle. When you turn off shuffle, the playlist
+returns to the original order and the cursor stays on the same track.
 
 ### Inside the subscribed shows overlay
 
@@ -296,7 +310,7 @@ saved albums — appear in the provider pane.
 | `R` | Replace the queue with all visible tracks (start from the top, confirm when non-empty) |
 | `q` | Queue the highlighted track to play next |
 | `s` | Cycle album sort (album list only) |
-| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `K` `U` `L` `R` `O` | Switch to that provider without opening the main pane. On the track screen, `R` replaces the queue instead. |
+| `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `K` `U` `L` `R` `O` | Switch to that provider without opening the main pane. `Y` opens the next YouTube provider, as in the main view. On the track screen, `R` replaces the queue instead. |
 | `N` | In Jellyfin, reopen the browse-mode chooser. Elsewhere, switch to Navidrome. |
 | `Ctrl+P` | In Telegram, pick the chats, groups and bots that show up in the list. |
 | `Esc` `b` | Go back one level; close the browser |
@@ -376,14 +390,27 @@ playback if nothing is playing.
 
 ## Fuzzy search
 
-Local search boxes use fuzzy matching. Query characters must appear in order but
-do not need to be next to each other. Results are ranked by relevance, with the
-best match first. For example, `skr` and `saku` both find a track named "Sakura".
+Local search boxes use fuzzy matching. Every word of the query must match, in
+any order. The characters of a query word must appear in order but do not need
+to be next to each other, and the match enters each word of the name at its
+first letter. Results are ranked by relevance, with the best match first. For
+example, `skr` and `saku` both find a track named "Sakura", `lst` finds "Love
+Story", and `mtlc rld` finds "Metallica - Reload". A query word that appears
+inside a word, such as `allica`, also matches, ranked lower. Chinese, Japanese
+and Korean names have no spaces, so each of their characters starts a word:
+`天使テーゼ` finds "残酷な天使のテーゼ".
+
+Start the query with `^` or `'` to match one literal phrase instead, spaces
+included and case ignored. `^queens of the stone age` finds the names that
+start with that phrase, and `'stone age` the names that contain it anywhere.
 
 This applies to:
 
 - `/` playlist search
 - `/` file browser filter
+- `/` provider playlist list filter, such as `metallica reload` for the
+  album "Metallica — Reload"
+- `/` subscribed shows filter, which matches the title or the author
 - `Ctrl+F` when the active provider is Local (your saved playlists)
 
 Other `Ctrl+F` providers, including Spotify, Qobuz, Tidal, Bandcamp,
