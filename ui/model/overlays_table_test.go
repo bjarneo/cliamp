@@ -271,9 +271,8 @@ func TestGlobalKeysReachEveryOverlay(t *testing.T) {
 	}
 }
 
-// The playlist picker opens over the playlist manager to name a new
-// playlist. Its name screen keeps the visualizer, as it does alone.
-func TestPickerNameScreenKeepsTheVisualizerOverTheManager(t *testing.T) {
+// The playlist picker name screen is content-first like the other overlays.
+func TestPickerNameScreenUsesContentFirstOverTheManager(t *testing.T) {
 	tests := []struct {
 		name  string
 		under func(m *Model)
@@ -293,11 +292,11 @@ func TestPickerNameScreenKeepsTheVisualizerOverTheManager(t *testing.T) {
 			m.plPicker = playlistPickerState{visible: true, screen: plPickerNewName}
 			m.recomputeLayout()
 
-			if m.usesContentFirstLayout() {
-				t.Fatal("usesContentFirstLayout() = true, want the playback chrome")
+			if !m.usesContentFirstLayout() {
+				t.Fatal("usesContentFirstLayout() = false, want content-first")
 			}
-			if m.layout.spectrumRows == 0 {
-				t.Fatal("spectrumRows = 0, want the visualizer kept")
+			if m.layout.spectrumRows != 0 {
+				t.Fatalf("spectrumRows = %d, want 0", m.layout.spectrumRows)
 			}
 		})
 	}

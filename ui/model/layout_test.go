@@ -445,13 +445,16 @@ func TestSimplifiedLayoutDisablesHiddenPlaybackChrome(t *testing.T) {
 	}
 }
 
-func TestAsyncSearchResultLayoutUsesContentFirstRows(t *testing.T) {
+func TestNetSearchUsesContentFirstLayout(t *testing.T) {
 	m := newLayoutTestModel(80, 24)
 	m.netSearch.active = true
 	m.netSearch.screen = netSearchInput
 	m.netSearch.request = "ambient"
 	m.requests.netSearch = 1
 	m.recomputeLayout()
+	if !m.usesContentFirstLayout() {
+		t.Fatal("search input must use the content-first layout")
+	}
 	inputRows := m.layout.bodyRows
 
 	updated, _ := m.Update(netSearchResultsMsg{
@@ -463,8 +466,8 @@ func TestAsyncSearchResultLayoutUsesContentFirstRows(t *testing.T) {
 	if !m.usesContentFirstLayout() {
 		t.Fatal("search results must use the content-first layout")
 	}
-	if m.layout.bodyRows <= inputRows {
-		t.Fatalf("result body rows = %d, want more than input rows %d", m.layout.bodyRows, inputRows)
+	if m.layout.bodyRows != inputRows {
+		t.Fatalf("result body rows = %d, want same as input rows %d", m.layout.bodyRows, inputRows)
 	}
 }
 
