@@ -72,7 +72,8 @@ func (m *Model) handlePluginStreamTitle(msg PluginStreamTitleMsg) tea.Cmd {
 	// Only an active live stream can take a plugin title override. A
 	// non-stream, a stopped player, or a track still buffering must be
 	// ignored so the override never leaks onto unrelated playback.
-	if !track.Stream || !m.playingTrackActive || !m.player.IsPlaying() {
+	// The engine still reports the previous stream while a track buffers.
+	if !track.Stream || !m.playingTrackActive || m.buffering || !m.player.IsPlaying() {
 		return nil
 	}
 	if msg.Title != "" && m.player.StreamTitleICY() {

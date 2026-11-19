@@ -445,6 +445,11 @@ func (m *Model) tickStreamHealth(now time.Time) {
 // the song changes while the lyrics overlay is open, it returns the command
 // that fetches the new lyrics.
 func (m *Model) tickStreamTitle() tea.Cmd {
+	// While a new track buffers, the engine still plays the previous one, so
+	// its title must not land on the new track.
+	if m.buffering {
+		return nil
+	}
 	before := m.effectiveStreamTitle()
 	if title := m.player.StreamTitle(); title != "" {
 		m.streamTitle = title

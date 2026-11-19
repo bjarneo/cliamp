@@ -313,6 +313,37 @@ func TestPluginStreamTitle(t *testing.T) {
 	}
 }
 
+// While station B buffers, the engine still plays station A. A tick then must
+// not copy A's title onto B, and once B plays without metadata, B shows none.
+func TestStreamTitleSkipsTheBufferingTrack(t *testing.T) {
+	stationA := playlist.Track{Title: "A", Path: "https://a.example.com/live", Stream: true}
+	stationB := playlist.Track{Title: "B", Path: "https://b.example.com/live", Stream: true}
+	engine := &playbackFakeEngine{playing: true, streamTitle: "Icy - A", streamTitleICY: true}
+	m := newPluginStateModel(engine, stationA, stationB)
+	m.setPlaybackTrack(stationA)
+	m.tickStreamTitle()
+	if m.streamTitle != "Icy - A" {
+		t.Fatalf("station A title = %q, want %q", m.streamTitle, "Icy - A")
+	}
+
+	m.setPlaybackTrack(stationB)
+	m.streamTitle = ""
+	m.buffering = true
+	m.tickStreamTitle()
+	m.handlePluginStreamTitle(PluginStreamTitleMsg{Title: "Plugin - B"})
+	if m.streamTitle != "" || m.pluginStreamTitle != "" {
+		t.Fatalf("while B buffers: streamTitle %q, plugin %q, want both empty", m.streamTitle, m.pluginStreamTitle)
+	}
+
+	// B plays and sends no metadata.
+	m.buffering = false
+	engine.streamTitle, engine.streamTitleICY = "", false
+	m.tickStreamTitle()
+	if got := m.effectiveStreamTitle(); got != "" {
+		t.Errorf("station B title = %q, want empty", got)
+	}
+}
+
 // Stopping forgets the override, so it cannot show on the stopped view or on
 // the next stream.
 func TestStopPlaybackClearsPluginStreamTitle(t *testing.T) {
