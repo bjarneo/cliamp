@@ -197,6 +197,47 @@ func TestBuildYTDLPipelineDoesNotRetryPermanentYTDLError(t *testing.T) {
 	}
 }
 
+// The speaker reads a yt-dlp page under its lock. A stalled download must not
+// hold that read, or every control waits until yt-dlp gets data or gives up.
+func TestBuildYTDLPipelineStreamDoesNotWaitForAStalledDownload(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX process fixtures")
+	}
+	dir := t.TempDir()
+	// yt-dlp sends one frame and then stalls.
+	writeExecutable(t, filepath.Join(dir, "yt-dlp"), "#!/bin/sh\nprintf '\\000\\100\\000\\300'\nexec sleep 30\n")
+	writeExecutable(t, filepath.Join(dir, "ffmpeg"), "#!/bin/sh\nexec cat\n")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(ytdlbin.EnvVar, "")
+	p := &Player{sr: beep.SampleRate(100), bitDepth: 16}
+
+	tp, err := p.buildYTDLPipeline("https://www.youtube.com/watch?v=stall", 0)
+	if err != nil {
+		t.Fatalf("buildYTDLPipeline() error = %v", err)
+	}
+	defer tp.close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// More than one frame: a direct pipe read waits for the second one.
+		out := make([][2]float64, 8)
+		if n, ok := tp.stream.Stream(out); !ok || n != len(out) {
+			t.Errorf("Stream() = (%d, %v), want (%d, true)", n, ok, len(out))
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		tp.close()
+		<-done
+		t.Fatal("Stream waited for the stalled download")
+	}
+	if pos, _ := tp.positionAndDuration(); pos != 0 {
+		t.Fatalf("position = %v after silence, want 0", pos)
+	}
+}
+
 func TestWaitCause(t *testing.T) {
 	ytdlErr := errors.New("yt-dlp: Sign in to confirm you're not a bot")
 	ffmpegErr := errors.New("ffmpeg: Invalid data found when processing input")
