@@ -135,9 +135,10 @@ type pickerSpec struct {
 type pickerOption struct {
 	value string
 	label string
-	// show, when non-nil, hides the option unless it returns true when the
-	// provider opens, such as Plex sign-out without saved credentials.
-	show func() bool
+	// show, when non-nil, hides the option unless it returns true for the
+	// config loaded when the provider opens, such as Plex sign-out without
+	// saved credentials.
+	show func(config.Config) bool
 }
 
 // Picker keys are stored in the values map alongside real field keys; the
@@ -285,11 +286,13 @@ func providers() []providerSpec {
 					quotedKV("url", v["url"]),
 					quotedKV("token", v["token"]),
 				}
+				// A manual setup keeps the saved client_id, so a later
+				// browser sign-in is the same Plex device.
+				if v["client_id"] != "" {
+					kv = append(kv, quotedKV("client_id", v["client_id"]))
+				}
 				if v[keyPlexAuth] == "account" {
-					kv = append(kv,
-						quotedKV("client_id", v["client_id"]),
-						quotedKV("server_id", v["server_id"]),
-					)
+					kv = append(kv, quotedKV("server_id", v["server_id"]))
 				}
 				if libraries := setupStringList(v["libraries"]); libraries != "" {
 					kv = append(kv, rawKV("libraries", libraries))
@@ -975,12 +978,9 @@ func setupStringList(value string) string {
 }
 
 // plexSignedIn reports whether [plex] holds a token that sign-out can remove.
-func plexSignedIn() bool {
-	cfg, err := config.Load()
-	return err == nil && cfg.Plex.Token != ""
-}
+func plexSignedIn(cfg config.Config) bool { return cfg.Plex.Token != "" }
 
-func plexSignedOut() bool { return !plexSignedIn() }
+func plexSignedOut(cfg config.Config) bool { return !plexSignedIn(cfg) }
 
 // plexSignOut revokes an account token at plex.tv. Tests replace it.
 var plexSignOut = func(ctx context.Context, token, clientID string) error {
@@ -1327,8 +1327,14 @@ func (m *setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case plexSignOutDoneMsg:
 		return m.finishPlexSignOut(msg)
 
+	case plexDiscardDoneMsg:
+		return m.finishPlexDiscard(msg)
+
 	case plexAuthDoneMsg:
 		if msg.err != nil {
+			if msg.token != "" {
+				return m.discardPlexSignIn(msg.token, msg.clientID, msg.err, false)
+			}
 			return m.onPlexAuthError(msg.err)
 		}
 		m.plexServers = make([]plexServerChoice, 0, len(msg.servers))
@@ -1388,6 +1394,10 @@ func sanitizePaste(s string) string {
 
 func (m *setupModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
+		if m.stage == stagePlexServer && len(m.plexServers) > 0 {
+			choice := m.plexServers[0]
+			return m.discardPlexSignIn(choice.token, choice.clientID, nil, true)
+		}
 		return m, tea.Quit
 	}
 
@@ -1460,8 +1470,11 @@ func (m *setupModel) startProvider(idx int) {
 
 	if p := m.provs[idx].picker; p != nil {
 		m.pickerOpts = m.pickerOpts[:0]
+		// One snapshot for every option, so the options agree with each
+		// other. A config that does not load shows the signed-out options.
+		cfg, _ := config.Load()
 		for _, opt := range p.options {
-			if opt.show == nil || opt.show() {
+			if opt.show == nil || opt.show(cfg) {
 				m.pickerOpts = append(m.pickerOpts, opt)
 			}
 		}
@@ -1487,6 +1500,9 @@ func (m *setupModel) pickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.pickerCursor++
 		}
 	case "enter":
+		if m.pickerCursor >= len(m.pickerOpts) {
+			return m, nil
+		}
 		m.values[p.key] = m.pickerOpts[m.pickerCursor].value
 		// Pickers can short-circuit with no fields (e.g. ytmusic "default" / "off").
 		m.refreshVisibleFields()
@@ -1501,7 +1517,12 @@ func (m *setupModel) pickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *setupModel) plexServerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		m.stage = stageMenu
+		if len(m.plexServers) == 0 {
+			m.stage = stageMenu
+			return m, nil
+		}
+		choice := m.plexServers[0]
+		return m.discardPlexSignIn(choice.token, choice.clientID, nil, false)
 	case "up", "k":
 		if m.plexServerCursor > 0 {
 			m.plexServerCursor--
@@ -1554,8 +1575,74 @@ func (m *setupModel) finishPlexSignOut(msg plexSignOutDoneMsg) (tea.Model, tea.C
 		m.resultNote = "Plex revoked the token, and it is removed from [plex].\n" + restart
 	default:
 		m.resultWarning = true
-		m.warnText = "Removed the token from [plex], but Plex did not revoke it"
-		m.resultNote = msg.err.Error() + "\nRemove this device under Authorized Devices in your Plex account.\n" + restart
+		m.warnText = plexRevokeWarning(msg.err, "Removed the token from [plex]")
+		m.resultNote = msg.err.Error() + "\n" + plexRemoveDeviceHint + "\n" + restart
+	}
+	return m, nil
+}
+
+const plexRemoveDeviceHint = "Check Authorized Devices in your Plex account and remove this device if it is listed."
+
+// plexRevokeWarning names what is known after a failed revoke: plex.tv
+// still accepting the token means it was not revoked; any other failure
+// leaves it unknown.
+func plexRevokeWarning(err error, done string) string {
+	if errors.Is(err, plex.ErrTokenStillAccepted) {
+		return done + ", but Plex did not revoke the token"
+	}
+	return done + ", but could not confirm that Plex revoked the token"
+}
+
+// plexDiscardDoneMsg ends the revoke of an approved sign-in that setup did
+// not save. cause is why it was not saved; nil means the user cancelled.
+type plexDiscardDoneMsg struct {
+	cause error
+	err   error
+	quit  bool
+}
+
+// plexDiscardCmd revokes a token that browser sign-in approved but setup
+// will not save, so no unused device stays in the Plex account.
+func plexDiscardCmd(token, clientID string, cause error, quit bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), plexSignOutTimeout)
+		defer cancel()
+		return plexDiscardDoneMsg{cause: cause, err: plexSignOut(ctx, token, clientID), quit: quit}
+	}
+}
+
+// discardPlexSignIn starts the revoke of an approved, unsaved sign-in.
+func (m *setupModel) discardPlexSignIn(token, clientID string, cause error, quit bool) (tea.Model, tea.Cmd) {
+	m.plexServers = nil
+	m.stage = stageValidating
+	m.spinFrame = 0
+	m.authURL = ""
+	m.authStatus = "Revoking the unused Plex sign-in…"
+	return m, tea.Batch(spinTickCmd(), plexDiscardCmd(token, clientID, cause, quit))
+}
+
+func (m *setupModel) finishPlexDiscard(msg plexDiscardDoneMsg) (tea.Model, tea.Cmd) {
+	if msg.quit {
+		return m, tea.Quit
+	}
+	m.stage = stageResult
+	m.awaitingSave = false
+	m.resultErr = msg.cause
+	m.resultText = "Plex sign-in cancelled."
+	m.resultNote = "Plex revoked the new token; nothing was saved."
+	m.resultWarning = false
+	if msg.err != nil {
+		what := "Plex sign-in cancelled"
+		if msg.cause != nil {
+			what = "Plex sign-in not saved"
+		}
+		m.resultErr = nil
+		m.resultWarning = true
+		m.warnText = plexRevokeWarning(msg.err, what)
+		m.resultNote = msg.err.Error() + "\n" + plexRemoveDeviceHint
+		if msg.cause != nil {
+			m.resultNote = msg.cause.Error() + "\n" + m.resultNote
+		}
 	}
 	return m, nil
 }
@@ -1909,6 +1996,12 @@ func (m *setupModel) submitForm() (tea.Model, tea.Cmd) {
 		m.authURL = ""
 		m.authStatus = "Starting Plex sign-in…"
 		return m, tea.Batch(spinTickCmd(), beginPlexAuthCmd(clientID))
+	}
+
+	if spec.section == "plex" && m.values[keyPlexAuth] == "manual" {
+		if cfg, err := config.Load(); err == nil {
+			m.values["client_id"] = cfg.Plex.ClientID
+		}
 	}
 
 	// Light URL sanity check before any network call. A $NAME value stays
@@ -2335,7 +2428,14 @@ func (m *setupModel) viewPlexServers() string {
 	var b strings.Builder
 	b.WriteString(accentStyle.Render("Select a Plex Media Server"))
 	b.WriteString("\n\n")
-	for i, choice := range m.plexServers {
+	first, last := plexServerWindow(len(m.plexServers), m.plexServerCursor, m.h)
+	if first > 0 {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  ↑ %d more", first)))
+		b.WriteString("\n")
+	}
+	urlWidth := min(maxCardWidth, m.viewWidth()) - 10
+	for i := first; i < last; i++ {
+		choice := m.plexServers[i]
 		marker := "  "
 		label := choice.server.Name
 		if choice.server.Owned {
@@ -2351,10 +2451,40 @@ func (m *setupModel) viewPlexServers() string {
 		b.WriteString(label)
 		b.WriteString("\n")
 		b.WriteString("    ")
-		b.WriteString(dimStyle.Render(choice.server.URL))
+		b.WriteString(dimStyle.Render(truncateRunes(choice.server.URL, urlWidth)))
 		b.WriteString("\n")
 	}
+	if more := len(m.plexServers) - last; more > 0 {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  ↓ %d more", more)))
+	}
 	return m.card(strings.TrimRight(b.String(), "\n"))
+}
+
+// plexServerChrome is the screen height around the server rows: the logo,
+// the card border and padding, the title, the scroll markers and the footer.
+const plexServerChrome = 12
+
+// plexServerWindow returns the rows [first, last) of the server list that
+// fit a terminal of the given height, two lines per server, with the cursor
+// always inside. An unknown height shows every row.
+func plexServerWindow(count, cursor, height int) (first, last int) {
+	rows := (height - plexServerChrome) / 2
+	if height <= 0 || rows >= count {
+		return 0, count
+	}
+	rows = max(rows, 1)
+	first = min(max(cursor-rows/2, 0), count-rows)
+	return first, first + rows
+}
+
+// truncateRunes shortens s to width runes, ending with an ellipsis, so a
+// long server URL takes one line.
+func truncateRunes(s string, width int) string {
+	r := []rune(s)
+	if width < 2 || len(r) <= width {
+		return s
+	}
+	return string(r[:width-1]) + "…"
 }
 
 func (m *setupModel) viewResult() string {

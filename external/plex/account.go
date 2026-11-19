@@ -86,14 +86,17 @@ func (s *SignInSession) URL() string {
 	return "https://app.plex.tv/auth#?" + params.Encode()
 }
 
-// Wait polls Plex until the browser sign-in is approved or ctx ends.
+// Wait polls Plex until the browser sign-in is approved or ctx ends. A
+// network failure or a server error from plex.tv is retried on the next
+// poll; any other HTTP error ends the sign-in.
 func (s *SignInSession) Wait(ctx context.Context) (string, error) {
 	path := fmt.Sprintf("/api/v2/pins/%d?code=%s", s.id, url.QueryEscape(s.code))
 	for {
 		var pin struct {
 			AuthToken string `json:"authToken"`
 		}
-		if err := s.api.doJSON(ctx, http.MethodGet, path, s.clientID, "", &pin); err != nil {
+		err := s.api.doJSON(ctx, http.MethodGet, path, s.clientID, "", &pin)
+		if err != nil && (ctx.Err() != nil || !transient(err)) {
 			return "", fmt.Errorf("plex: wait for sign in: %w", err)
 		}
 		if pin.AuthToken != "" {
@@ -324,7 +327,13 @@ func (a *AccountAPI) ReachableConnection(ctx context.Context, server AccountServ
 }
 
 func connectionRank(connection AccountConnection) int {
-	secure := strings.EqualFold(connection.Protocol, "https") || strings.HasPrefix(connection.URI, "https://")
+	// The scheme of the URI decides: it is what the request uses, and the
+	// protocol field can disagree with it.
+	u, err := url.Parse(connection.URI)
+	if err != nil {
+		return 100
+	}
+	secure := u.Scheme == "https"
 	switch {
 	case secure && connection.Local:
 		return 0
@@ -353,7 +362,7 @@ func (a *AccountAPI) probe(ctx context.Context, baseURL, serverID, clientID stri
 		return err
 	}
 	setAccountHeaders(req, clientID, "")
-	resp, err := a.client.Do(req)
+	resp, err := a.sameOriginClient().Do(req)
 	if err != nil {
 		return err
 	}
@@ -416,7 +425,7 @@ func (a *AccountAPI) do(ctx context.Context, method, path, clientID, token strin
 		return 0, err
 	}
 	setAccountHeaders(req, clientID, token)
-	resp, err := a.client.Do(req)
+	resp, err := a.sameOriginClient().Do(req)
 	if err != nil {
 		return 0, err
 	}
@@ -431,14 +440,14 @@ func (a *AccountAPI) doJSON(ctx context.Context, method, path, clientID, token s
 		return err
 	}
 	setAccountHeaders(req, clientID, token)
-	resp, err := a.client.Do(req)
+	resp, err := a.sameOriginClient().Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
-		return fmt.Errorf("HTTP %s", resp.Status)
+		return &statusError{code: resp.StatusCode, status: resp.Status}
 	}
 	if err := httpclient.ReadJSON(resp.Body, maxResponseBody, result); err != nil {
 		return err
@@ -453,4 +462,42 @@ func setAccountHeaders(req *http.Request, clientID, token string) {
 	if token != "" {
 		req.Header.Set("X-Plex-Token", token)
 	}
+}
+
+// sameOriginClient returns the account HTTP client with a redirect rule:
+// it follows a redirect only to the same scheme and host. Go copies custom
+// headers such as X-Plex-Token to a redirect target, and a probe that
+// followed a redirect would vouch for the original address with another
+// host's identity. A refused redirect returns the 3xx response, which the
+// callers treat as an error.
+func (a *AccountAPI) sameOriginClient() *http.Client {
+	client := *a.client
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		first := via[0].URL
+		if req.URL.Scheme != first.Scheme || !strings.EqualFold(req.URL.Host, first.Host) {
+			return http.ErrUseLastResponse
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return &client
+}
+
+// statusError is an HTTP error response from plex.tv.
+type statusError struct {
+	code   int
+	status string
+}
+
+func (e *statusError) Error() string { return "HTTP " + e.status }
+
+// transient reports whether a plex.tv request may succeed when sent again:
+// a network failure or a server error.
+func transient(err error) bool {
+	if se, ok := errors.AsType[*statusError](err); ok {
+		return se.code >= 500
+	}
+	return true
 }

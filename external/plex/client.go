@@ -115,7 +115,9 @@ func (c *Client) send(ctx context.Context, client *http.Client, label string, bu
 		if uerr, ok := errors.AsType[*url.Error](err); ok {
 			err = uerr.Err
 		}
-		if retried || ctx.Err() != nil || !c.dropRoute(baseURL) {
+		// The route goes even when this was the retry, so the next request
+		// does not wait on it again.
+		if ctx.Err() != nil || !c.dropRoute(baseURL) || retried {
 			return nil, fmt.Errorf("plex: %s: server unreachable: %w", label, netdiag.Explain(err))
 		}
 		applog.Info("plex: %s: %v; finding another server route", label, netdiag.Explain(err))
@@ -168,19 +170,40 @@ func (b cancelOnClose) Close() error {
 	return err
 }
 
-// CheckRoute makes sure an account-backed client has a route that answers.
-// A stream goes to the player, not through send, so a route that died
-// during playback is found here, before the next track's URL is built on it.
-// A manual client has no other route and makes no request.
+// CheckRoute makes sure an account-backed client has a route that answers
+// as its server. A stream goes to the player, not through send, so a route
+// that died during playback is found here, before the next track's URL is
+// built on it. The check sends no token: after a network change the cached
+// local address can belong to another host. When the route fails, CheckRoute
+// rediscovers once. A manual client has no other route and makes no request.
 func (c *Client) CheckRoute() error {
 	c.mu.Lock()
-	account := c.account != nil
+	account := c.account
 	c.mu.Unlock()
-	if !account {
+	if account == nil {
 		return nil
 	}
-	var identity struct{}
-	return c.get("/identity", nil, &identity)
+	ctx := context.Background()
+	for retried := false; ; retried = true {
+		baseURL, _, err := c.endpoint(ctx)
+		if err != nil {
+			return fmt.Errorf("plex: connect account server: %w", err)
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, responseHeaderTimeout)
+		err = account.api.probe(probeCtx, baseURL, account.serverID, account.clientID)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		if uerr, ok := errors.AsType[*url.Error](err); ok {
+			err = uerr.Err
+		}
+		c.dropRoute(baseURL)
+		if retried {
+			return fmt.Errorf("plex: check server route: %w", netdiag.Explain(err))
+		}
+		applog.Info("plex: check server route: %v; finding another server route", netdiag.Explain(err))
+	}
 }
 
 // RefreshConnection makes an account-backed client rediscover its route on

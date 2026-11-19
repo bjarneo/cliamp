@@ -912,3 +912,60 @@ func TestManualResolveSourceSendsNoRequest(t *testing.T) {
 		t.Fatalf("ResolveSource: %v", err)
 	}
 }
+
+// After a network change the cached local address can belong to another
+// Plex server. The check before a track sends it no token and moves to the
+// route that answers as the selected server.
+func TestResolveSourceChecksIdentityWithoutToken(t *testing.T) {
+	stranger := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("X-Plex-Token") + r.Header.Get("X-Plex-Token"); got != "" {
+			t.Errorf("other server got token %q on %s", got, r.URL.Path)
+		}
+		identityHandler("other-server")(w, r)
+	}))
+	t.Cleanup(stranger.Close)
+	c, alive, discoveries := failoverFixture(t, stranger)
+	p := newProvider(c)
+	p.partKeys = map[string]string{"200": "/library/parts/1/111/file.flac"}
+
+	got, err := p.ResolveSource(TrackURIPrefix + "200")
+	if err != nil {
+		t.Fatalf("ResolveSource: %v", err)
+	}
+	if !strings.HasPrefix(got, alive.URL+"/library/parts/1/111/file.flac?") || *discoveries != 1 {
+		t.Fatalf("ResolveSource = %q after %d discoveries, want the selected server after 1", got, *discoveries)
+	}
+}
+
+// When the retry fails too, its route is dropped as well, so the next
+// request rediscovers instead of waiting on a known dead route.
+func TestClientDropsRouteWhenRetryFails(t *testing.T) {
+	dead := httptest.NewServer(http.NotFoundHandler())
+	dead.Close()
+	flaky := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/identity" {
+			identityHandler("server-1")(w, r)
+			return
+		}
+		if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+			conn.Close()
+		}
+	}))
+	t.Cleanup(flaky.Close)
+	tv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `[{"name":"Home","clientIdentifier":"server-1","provides":"server","owned":true,"accessToken":"server-token",
+			"connections":[{"uri":%q,"protocol":"http","local":true}]}]`, flaky.URL)
+	}))
+	t.Cleanup(tv.Close)
+	api := &AccountAPI{baseURL: tv.URL, client: tv.Client(), pollInterval: time.Millisecond}
+	c := newAccountClient(dead.URL, "account-token", "client-1", "server-1", api)
+	c.account.connected = true
+
+	if _, err := c.MusicSections(); err == nil {
+		t.Fatal("MusicSections: want an error from the failing retry")
+	}
+	if c.account.connected {
+		t.Fatalf("route %q stays connected after the retry failed", c.baseURL)
+	}
+}

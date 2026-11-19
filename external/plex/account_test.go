@@ -182,19 +182,133 @@ func TestReachableConnectionFallsBackToRemoteHTTPS(t *testing.T) {
 	}
 }
 
+// A public plain-HTTP route is never probed, even when the server would
+// answer as the right one, and even when its metadata claims https.
 func TestReachableConnectionRejectsPublicHTTP(t *testing.T) {
+	for _, protocol := range []string{"http", "https"} {
+		t.Run(protocol, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				t.Errorf("public HTTP route got a request: %s", r.URL.Path)
+				identityHandler("server-1")(w, r)
+			}))
+			defer srv.Close()
+
+			api := &AccountAPI{baseURL: "unused", client: srv.Client(), pollInterval: time.Millisecond}
+			_, _, err := api.ReachableConnection(context.Background(), AccountServer{
+				Name:             "Unsafe",
+				ClientIdentifier: "server-1",
+				Connections:      []AccountConnection{{URI: srv.URL, Protocol: protocol}},
+			}, "account-token", "client-1")
+			if err == nil || !strings.Contains(err.Error(), "no reachable secure connection") {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+// A probe does not follow a redirect to another host: the original address
+// has not shown that it is the server.
+func TestReachableConnectionRejectsRedirectedIdentity(t *testing.T) {
+	target := httptest.NewServer(identityHandler("server-1"))
+	defer target.Close()
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/identity", http.StatusFound)
+	}))
+	defer redirector.Close()
+
+	api := &AccountAPI{baseURL: "unused", client: redirector.Client(), pollInterval: time.Millisecond}
+	_, _, err := api.ReachableConnection(t.Context(), AccountServer{
+		Name:             "Home",
+		ClientIdentifier: "server-1",
+		Connections:      []AccountConnection{{URI: redirector.URL, Protocol: "http", Local: true}},
+	}, "account-token", "client-1")
+	if err == nil {
+		t.Fatal("a redirected identity was accepted")
+	}
+}
+
+// The account token never follows a redirect off the plex.tv origin.
+func TestAccountKeepsTokenOnOrigin(t *testing.T) {
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("redirect target got a request, token %q", r.Header.Get("X-Plex-Token"))
+		w.Write([]byte(`[]`))
+	}))
+	defer other.Close()
+	tv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	defer tv.Close()
+
+	api := &AccountAPI{baseURL: tv.URL, client: tv.Client(), pollInterval: time.Millisecond}
+	if _, err := api.Servers(t.Context(), "account-token", "client-1"); err == nil {
+		t.Fatal("Servers: a cross-origin redirect was followed")
+	}
+	if err := api.SignOut(t.Context(), "account-token", "client-1"); err == nil {
+		t.Fatal("SignOut: a cross-origin redirect was followed")
+	}
+}
+
+// A failed poll while the user approves the PIN does not end the sign-in;
+// an HTTP client error such as an expired PIN does.
+func TestAccountSignInRetriesTransientPolls(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		failure int
+		wantErr bool
+	}{
+		{"server error", http.StatusBadGateway, false},
+		{"expired PIN", http.StatusNotFound, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			polls := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				polls++
+				if polls == 1 {
+					w.WriteHeader(tc.failure)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"authToken":"account-token"}`))
+			}))
+			defer srv.Close()
+
+			api := &AccountAPI{baseURL: srv.URL, client: srv.Client(), pollInterval: time.Millisecond}
+			session := &SignInSession{api: api, id: 42, code: "code", clientID: "client-1"}
+			token, err := session.Wait(t.Context())
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("Wait = %q, want an error", token)
+				}
+				return
+			}
+			if err != nil || token != "account-token" {
+				t.Fatalf("Wait = %q, %v; want account-token", token, err)
+			}
+		})
+	}
+}
+
+// A dropped connection during a poll is retried too.
+func TestAccountSignInRetriesNetworkFailure(t *testing.T) {
+	polls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		polls++
+		if polls == 1 {
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				conn.Close()
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"authToken":"account-token"}`))
 	}))
 	defer srv.Close()
 
-	api := &AccountAPI{baseURL: "unused", client: srv.Client(), pollInterval: time.Millisecond}
-	_, _, err := api.ReachableConnection(context.Background(), AccountServer{
-		Name:        "Unsafe",
-		Connections: []AccountConnection{{URI: srv.URL, Protocol: "http"}},
-	}, "account-token", "client-1")
-	if err == nil || !strings.Contains(err.Error(), "no reachable secure connection") {
-		t.Fatalf("error = %v", err)
+	api := &AccountAPI{baseURL: srv.URL, client: srv.Client(), pollInterval: time.Millisecond}
+	session := &SignInSession{api: api, id: 42, code: "code", clientID: "client-1"}
+	if token, err := session.Wait(t.Context()); err != nil || token != "account-token" {
+		t.Fatalf("Wait = %q, %v; want account-token", token, err)
 	}
 }
 
