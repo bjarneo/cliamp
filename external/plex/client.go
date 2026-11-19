@@ -374,6 +374,22 @@ func (c *Client) Search(query string) ([]Track, error) {
 	return tracks, nil
 }
 
+// Track returns one track by its ratingKey.
+func (c *Client) Track(ratingKey string) (Track, error) {
+	var result struct {
+		MediaContainer struct {
+			Metadata []trackJSON `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	if err := c.get("/library/metadata/"+ratingKey, nil, &result); err != nil {
+		return Track{}, err
+	}
+	if len(result.MediaContainer.Metadata) == 0 {
+		return Track{}, fmt.Errorf("plex: track %s not found", ratingKey)
+	}
+	return trackFromJSON(result.MediaContainer.Metadata[0]), nil
+}
+
 // StreamURL returns the authenticated HTTP URL for streaming a track part.
 // partKey is the relative path from the Part element, e.g. "/library/parts/…/file.flac".
 // The token is appended as a query parameter; Plex accepts it in either header or query form.

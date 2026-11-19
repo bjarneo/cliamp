@@ -18,6 +18,7 @@ import (
 	"github.com/bjarneo/cliamp/external/emby"
 	"github.com/bjarneo/cliamp/external/jellyfin"
 	"github.com/bjarneo/cliamp/external/navidrome"
+	"github.com/bjarneo/cliamp/external/plex"
 	"github.com/bjarneo/cliamp/favorites"
 	"github.com/bjarneo/cliamp/history"
 	"github.com/bjarneo/cliamp/internal/resume"
@@ -206,6 +207,16 @@ func TestProviderSetUsesCapabilities(t *testing.T) {
 	set.Close()
 	if fake.closes != 1 {
 		t.Fatalf("Close calls = %d, want 1", fake.closes)
+	}
+}
+
+func TestProviderSetRegistersPlexSourceResolver(t *testing.T) {
+	prov := plex.NewFromConfig(config.PlexConfig{URL: "http://127.0.0.1:1", Token: "token"})
+	set := &providerSet{entries: []provider.Entry{{Key: "plex", Name: "Plex", Provider: prov}}}
+	engine := &player.Player{}
+	set.registerPlayerHooks(engine)
+	if !engine.HasSourceResolver(plex.TrackURIPrefix + "42") {
+		t.Fatal("Plex source resolver was not registered")
 	}
 }
 
