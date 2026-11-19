@@ -347,16 +347,12 @@ func TestFavoriteToggleKeepsTitleColumnStable(t *testing.T) {
 // TestPlaylistHeaderDropsBadgesThatDoNotFit checks that a narrow pane sheds
 // whole badges off the tail instead of letting one be sliced mid-token.
 func TestPlaylistHeaderDropsBadgesThatDoNotFit(t *testing.T) {
-	// Enough badges that they cannot all fit a 40-column playlist pane. A
-	// six-digit favorite count makes the heart badge wide.
-	favSet := make(map[string]struct{}, 100000)
-	for i := range 100000 {
-		favSet[fmt.Sprintf("/tmp/fav-%d.mp3", i)] = struct{}{}
-	}
+	// A long play-next count makes the Next badge too wide for a narrow pane.
 	withBadges := func(width, height int) Model {
 		m := newColumnTestModel(width, height)
-		m.playlist.Queue(1)
-		m.favSet = favSet
+		for range 999999 {
+			m.playlist.Queue(0)
+		}
 		return m
 	}
 	headerAt := func(m Model, width int) string {
@@ -364,7 +360,7 @@ func TestPlaylistHeaderDropsBadgesThatDoNotFit(t *testing.T) {
 		return ansi.Strip(m.renderPlaylistHeader())
 	}
 
-	const narrowWidth = 40
+	const narrowWidth = 32
 	m := withBadges(86, 24)
 	header := headerAt(m, narrowWidth)
 
@@ -377,12 +373,14 @@ func TestPlaylistHeaderDropsBadgesThatDoNotFit(t *testing.T) {
 	if !strings.HasSuffix(header, "──") {
 		t.Fatalf("header should end in separator fill, not a clipped badge: %q", header)
 	}
+	if strings.Contains(header, "[1/") {
+		t.Fatalf("narrow header should drop the tail badge, got %q", header)
+	}
 
-	// Same state in a pane with room keeps more badges, so the narrow header
-	// really is dropping them rather than never having built them.
+	// Same state in a pane with room keeps the position badge.
 	wide := withBadges(200, 40)
-	if narrow, all := strings.Count(header, "["), strings.Count(headerAt(wide, wide.layout.playlistWidth), "["); narrow >= all {
-		t.Fatalf("narrow header kept %d badges, wide kept %d", narrow, all)
+	if wideHeader := headerAt(wide, wide.layout.playlistWidth); !strings.Contains(wideHeader, "[1/") {
+		t.Fatalf("wide header should keep the position badge, got %q", wideHeader)
 	}
 }
 

@@ -678,14 +678,10 @@ func (m Model) renderPlaylistHeader() string {
 func (m Model) renderPlaybackHeader() string {
 	// Badges in display order. A narrow pane drops whole badges off the tail
 	// rather than letting the separator slice one mid-token.
-	badges := make([]string, 0, 3)
+	badges := make([]string, 0, 2)
 
 	if qLen := m.playlist.QueueLen(); qLen > 0 {
 		badges = append(badges, activeToggle.Render(fmt.Sprintf("[Next: %d]", qLen)))
-	}
-	// Render from the cached favSet: the render path must not hit disk.
-	if count := len(m.favSet); count > 0 {
-		badges = append(badges, activeToggle.Render(fmt.Sprintf("[%s %d]", favHeart, count)))
 	}
 	if total := m.playlist.Len(); total > 0 {
 		badges = append(badges, dimStyle.Render(fmt.Sprintf("[%d/%d]", m.playlist.Index()+1, total)))

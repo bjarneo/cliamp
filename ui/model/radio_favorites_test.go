@@ -797,24 +797,6 @@ func TestTrackFavoriteHelpRequiresPlaylistFocus(t *testing.T) {
 	}
 }
 
-// The header shows the ♥ count of the favorites store and never a star badge,
-// also for playlists with legacy bookmarks or station favorites.
-func TestPlaybackHeaderShowsOnlyHeartBadge(t *testing.T) {
-	m, p, tracks := radioFavoriteTestModel(t)
-	if _, _, err := p.ToggleFavorite("c:0"); err != nil {
-		t.Fatal(err)
-	}
-	legacyBookmark := playlist.Track{Path: "/music/local.mp3", Title: "Local", Bookmark: true}
-	m.replacePlayerPlaylist(append(tracks, legacyBookmark))
-	if header := ansi.Strip(m.renderPlaybackHeader()); strings.Contains(header, "★") {
-		t.Fatalf("header shows a star badge: %s", header)
-	}
-	m.favSet = map[string]struct{}{"/music/local.mp3": {}}
-	if header := ansi.Strip(m.renderPlaybackHeader()); !strings.Contains(header, "♥") || !strings.Contains(header, " 1]") {
-		t.Fatalf("header = %s, want the heart badge", header)
-	}
-}
-
 func TestRadioFavoriteKeyFollowsDisplayedState(t *testing.T) {
 	for _, pane := range []string{"playback", "provider"} {
 		for _, remove := range []bool{false, true} {
