@@ -67,7 +67,7 @@ The provider shows your Tidal library:
 
 `Favorite Artists` and `Favorite Albums` open the hierarchical browser, also reachable with `N`.
 
-Press `Ctrl+F` while Tidal is active to search the Tidal catalog for tracks and albums. Album results appear first. When you select an album, it expands to its track list. Enter plays, `a` appends, and `q` queues the next track.
+Press `Ctrl+F` while Tidal is active to search the Tidal catalog for tracks and albums. Album results appear first. When you select an album, it expands to its track list. Enter plays, `a` appends, `q` queues the next track, and `R` replaces the playlist with the album.
 
 ## Controls
 
