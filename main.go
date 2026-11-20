@@ -230,6 +230,7 @@ func run(overrides config.Overrides, positional []string, headless bool) error {
 		defer stopLuaSend()
 		luaMgr.SetControlProvider(luaControlProvider(luaSend))
 		luaMgr.SetUIProvider(luaUIProvider(luaSend, headless))
+		luaMgr.SetProviderProvider(luaProviderProvider(providers.entries, m.PluginStateLoader(), luaSend))
 	}
 
 	stopIPC, err := startIPC(prog.Send, pluginBroker, luaMgr, headless)

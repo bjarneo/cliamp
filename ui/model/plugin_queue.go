@@ -11,6 +11,13 @@ import (
 // Mutations are routed through the Update loop rather than applied directly
 // from the plugin goroutine so the model's derived state (cursor, current
 // index, playback) stays consistent. Indices are 0-based.
+// PluginOpenProviderMsg asks the UI to load a provider playlist the plugin
+// resolved, such as a bot chat that was just created.
+type PluginOpenProviderMsg struct {
+	ProviderName string
+	Playlist     playlist.PlaylistInfo
+}
+
 type PluginQueueMsg struct {
 	Op    string         // "add" | "add_track" | "jump" | "remove" | "move"
 	Path  string         // add
@@ -49,6 +56,17 @@ func (m *Model) handlePluginQueue(msg PluginQueueMsg) tea.Cmd {
 	case "move":
 		cmd, _ := m.moveTrack(msg.Index, msg.To)
 		return cmd
+
+	case "insert":
+		msg.Track.Stream = msg.Track.Stream || playlist.IsURL(msg.Track.Path)
+		if m.plCursor >= 0 && msg.Index <= m.plCursor && m.plCursor < m.playlist.Len() {
+			m.plCursor++
+		}
+		m.playlist.Insert(msg.Index, msg.Track)
+		m.recountHeaderState(m.playlist.Tracks())
+		m.normalizeQueueOverlay()
+		m.adjustScroll()
+		return m.rearmStalePreload()
 	}
 	return nil
 }

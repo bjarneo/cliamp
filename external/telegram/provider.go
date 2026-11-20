@@ -32,6 +32,7 @@ var (
 	_ provider.CustomStreamer    = (*Provider)(nil)
 	_ provider.TrackPager        = (*Provider)(nil)
 	_ provider.CodeAuthenticator = (*Provider)(nil)
+	_ provider.ChatCommander     = (*Provider)(nil)
 )
 
 const (
@@ -77,6 +78,7 @@ type Provider struct {
 	cfg        config.TelegramConfig
 	client     *tgclient.Client
 	api        *tg.Client
+	write      writeAPI // tests inject a fake; production uses api
 	authReq    chan authRequest
 	mu         sync.Mutex // guards state and connectErr
 	state      provState
@@ -259,7 +261,19 @@ func (p *Provider) currentState() provState {
 // wait returns once the connection is usable. playlist.ErrNeedsAuth means the
 // pane must collect the login code; other errors keep the call retryable.
 func (p *Provider) wait() error {
+	return p.waitContext(context.Background())
+}
+
+// waitContext is wait with a caller that can give up. The provider can spend
+// up to connectWait settling, and a canceled UI action should not stay blocked
+// in the polling loop until that deadline.
+func (p *Provider) waitContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	deadline := time.Now().Add(connectWait)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
 	for {
 		switch p.currentState() {
 		case provReady:
@@ -275,7 +289,11 @@ func (p *Provider) wait() error {
 		if time.Now().After(deadline) {
 			return errors.New("telegram: still connecting, try again")
 		}
-		time.Sleep(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
 }
 

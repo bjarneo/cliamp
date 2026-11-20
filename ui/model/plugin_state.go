@@ -31,6 +31,8 @@ type PluginState struct {
 	// the rows until the playlist changes, so a caller must not change
 	// them. A state from PluginStateLoader always has a Queue.
 	Queue func() []luaplugin.QueueEntry
+	// Provider is the provider and playlist context for cliamp.provider.current.
+	Provider luaplugin.ProviderInfo
 
 	revision uint64 // the playlist revision at publish
 }
@@ -49,6 +51,30 @@ func (m *Model) PluginStateLoader() func() PluginState {
 		}
 		return PluginState{Status: "stopped", Speed: 1, Queue: func() []luaplugin.QueueEntry { return nil }}
 	}
+}
+
+// providerInfo describes the provider the user is browsing and the row under
+// the cursor. The playlist is the one open in the provider pane, not the track
+// that happens to play.
+func (m *Model) providerInfo() luaplugin.ProviderInfo {
+	info := luaplugin.ProviderInfo{PlaylistID: m.activeProviderPlaylistID}
+	if m.provider != nil {
+		info.Name = m.provider.Name()
+	}
+	for _, row := range m.provPane.lists {
+		if row.ID == info.PlaylistID {
+			info.PlaylistName = row.Name
+			info.PlaylistSection = row.Section
+			break
+		}
+	}
+	if m.provPane.cursor >= 0 && m.provPane.cursor < len(m.provPane.lists) {
+		row := m.provPane.lists[m.provPane.cursor]
+		info.SelectionID = row.ID
+		info.SelectionName = row.Name
+		info.SelectionSection = row.Section
+	}
+	return info
 }
 
 // publishPluginState stores the state that Lua plugins read. It makes a new
@@ -70,6 +96,7 @@ func (m *Model) publishPluginState() {
 		Count:    m.playlist.Len(),
 		Index:    m.playlist.Index(),
 		HasNext:  m.playlist.HasNext(),
+		Provider: m.providerInfo(),
 		revision: m.playlist.Revision(),
 	}
 	state.Track.Artist, state.Track.Title = m.resolveTrackDisplay(track)

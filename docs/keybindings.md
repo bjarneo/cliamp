@@ -58,6 +58,7 @@ AZERTY, QWERTZ and Dvorak work as before. On a Russian layout, `?` is
 | `Ctrl+Z` | Undo the last playlist or queue change |
 | `o` | Open file browser |
 | `b` `Esc` | Back to provider |
+| `!` | Plugin actions for the active provider |
 
 In full and compact playback layouts, the first `Tab` from the playlist focuses
 Source (`SRC`); `Shift+Tab` starts at Speed when it is visible. Source is skipped

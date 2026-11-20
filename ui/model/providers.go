@@ -60,6 +60,7 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	m.provPane.signIn = false
 	m.catalogBatch = catalogBatchState{}
 	m.activeProviderPlaylistID = ""
+	m.providerOpenPrevSet = false
 	m.resetProviderNav()
 	m.focus = focusProvider
 	// The Local source shows the playlist manager instead of the old
@@ -639,6 +640,7 @@ func (m *Model) openProviderList(index int) tea.Cmd {
 	}
 	if entry, ok := providerBrowseEntryForID(m.provider, item.ID); ok {
 		m.activeProviderPlaylistID = ""
+		m.providerOpenPrevSet = false
 		cmd := m.openNavBrowserEntry(m.provider, entry)
 		if m.navBrowser.visible {
 			m.navBrowser.fromProvList = true
@@ -646,6 +648,10 @@ func (m *Model) openProviderList(index int) tea.Cmd {
 		return cmd
 	}
 	m.provPane.loading = true
+	if !m.providerOpenPrevSet {
+		m.providerOpenPrevID = m.activeProviderPlaylistID
+		m.providerOpenPrevSet = true
+	}
 	m.activeProviderPlaylistID = item.ID
 	cmd := m.fetchProviderTracks(item.ID)
 	if _, ok := m.provider.(*radio.ChannelProvider); ok {
