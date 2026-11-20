@@ -24,7 +24,7 @@ type Metadata struct {
 
 // knownPermissions holds the names that plugin.register() accepts in
 // permissions.
-var knownPermissions = map[string]bool{PermControl: true, PermExec: true, PermImage: true, PermLayout: true, PermUI: true, PermKeymap: true}
+var knownPermissions = map[string]bool{PermControl: true, PermExec: true, PermImage: true, PermLayout: true, PermUI: true, PermKeymap: true, PermProvider: true, PermProviderSend: true}
 
 // errRegisteredTwice is the error of a second plugin.register() call. A
 // later call could otherwise replace the permissions that install and trust

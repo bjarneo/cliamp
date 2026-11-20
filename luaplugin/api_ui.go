@@ -62,6 +62,42 @@ func registerUIAPI(L *lua.LState, cliamp *lua.LTable, p *Plugin, m *Manager) {
 		return 1
 	}))
 
+	// cliamp.ui.input{title = "...", placeholder = "...", value = "...",
+	//                 on_submit = fn, on_cancel = fn}
+	L.SetField(tbl, "input", L.NewFunction(func(L *lua.LState) int {
+		if !p.permitted(PermUI, "cliamp.ui.input") {
+			return pushErr(L, "ui permission required")
+		}
+		opts := L.CheckTable(1)
+		fn, ok := opts.RawGetString("on_submit").(*lua.LFunction)
+		if !ok {
+			return pushErr(L, "cliamp.ui.input: on_submit is required")
+		}
+		up := m.ui.Load()
+		if up == nil || up.ShowInput == nil {
+			return pushErr(L, "ui: not available")
+		}
+		title := strings.TrimSpace(rawString(L, opts, "title"))
+		placeholder := strings.TrimSpace(rawString(L, opts, "placeholder"))
+		value := rawString(L, opts, "value")
+		cancelFn, _ := opts.RawGetString("on_cancel").(*lua.LFunction)
+		onCancel := func() {}
+		if cancelFn != nil {
+			onCancel = func() {
+				m.enqueue(p, "ui.input cancel", func() {
+					m.call(p, "ui.input cancel", hookTimeout, 0, fixedArgs(cancelFn))
+				})
+			}
+		}
+		up.ShowInput(title, placeholder, value, func(text string) {
+			m.enqueue(p, "ui.input", func() {
+				m.call(p, "ui.input", hookTimeout, 0, fixedArgs(fn, lua.LString(text)))
+			})
+		}, onCancel)
+		L.Push(lua.LTrue)
+		return 1
+	}))
+
 	vis := L.NewTable()
 	// cliamp.vis.set("Scatter")
 	L.SetField(vis, "set", L.NewFunction(func(L *lua.LState) int {

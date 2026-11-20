@@ -291,6 +291,30 @@ The callback can return a string. The CLI client prints it. Invoke commands from
 
 List registered commands with `cliamp plugins commands`. A command can run for up to 5 minutes before it times out. cliamp also stops a command when its IPC job is canceled and when cliamp quits.
 
+### `p:action{...}` - plugin action pane (requires `permissions = {"ui"}`)
+
+The `!` key opens a pane with the actions the loaded plugins registered for the
+active provider. An action can run immediately or ask for one line of text
+first. `provider` limits it to a provider, by name.
+
+```lua
+p:action{
+    key = "!",                    -- optional, default "!"
+    id = "send",                  -- unique per plugin
+    label = "Send message",
+    description = "Ask the bot for a track",
+    provider = "Telegram",        -- optional
+    prompt = "Message",           -- optional: ask for text first
+    on_submit = function(text) ... end,
+}
+```
+
+Actions are namespaced by plugin, so two plugins can use the same `id`.
+`p:action` returns `true`, or `false, reason` when the UI permission is missing
+or the id is already registered. The action pane filters by provider and by the
+text typed in the pane. An action with `prompt` runs `on_submit` with the text;
+without it, `on_submit` gets an empty string.
+
 ## Lua API
 
 All APIs are in the global `cliamp` table.
@@ -358,13 +382,14 @@ cliamp.queue.has_next()    --> true when a playable track follows in play order 
 
 -- mutate (requires "control")
 cliamp.queue.add(path)         -- resolve a file/dir/URL and append
+cliamp.queue.insert(index, track) --> true | nil, err -- insert at index
 cliamp.queue.add(track)        --> true | nil, err  -- append a track table as given
 cliamp.queue.jump(index)       -- make index current and play it
 cliamp.queue.remove(index)     -- remove the track at index
 cliamp.queue.move(from, to)    -- swap the tracks at from and to
 ```
 
-`add`, `remove`, and `move` follow the rules of the `Shift+Up`, `Shift+Down`,
+`add`, `insert`, `remove`, and `move` follow the rules of the `Shift+Up`, `Shift+Down`,
 and `x` keys and of IPC:
 
 - While shuffle is on, `move` changes nothing.
@@ -372,7 +397,7 @@ and `x` keys and of IPC:
   that playlist. `remove` removes the track from it too. When that save fails,
   the edit changes nothing. Favorites is not a playlist file, so an edit of a
   loaded Favorites list changes only the queue.
-- `add`, `move`, and `remove` record no undo. After one of them, `Ctrl+Z` does
+- `add`, `insert`, `move`, and `remove` record no undo. After one of them, `Ctrl+Z` does
   not undo the last TUI edit, because that undo would drop the new change.
 - While the queue mirrors a saved local playlist, `remove` does not remove a
   track that a directory source of that playlist supplies. A removal of the
@@ -404,6 +429,53 @@ if not ok then cliamp.log.warn(err) end
 It returns `true`, or `nil` and an error message when the table is invalid (for
 example, a missing path or a title that is not a string) or when the plugin
 lacks the `control` permission. An HTTP URL is always marked as a stream.
+
+### cliamp.provider (requires permissions)
+
+`cliamp.provider.current()` returns the provider and the playlist context:
+
+```lua
+{
+    name = "Telegram",
+    playlist_id = "u:1:2",   playlist_name = "DeezLoad",
+    selection_id = "u:1:2",  selection_name = "DeezLoad",
+}
+```
+
+`playlist_id` is the playlist open in the pane; `selection_id` is the row under
+the cursor. Either can be empty. `name` is the same string the provider uses in
+the UI.
+
+`cliamp.provider.call(action, params[, options])` calls a provider action.
+Reads need `permissions = {"provider"}`; actions that change the remote account
+need `permissions = {"provider-send"}`. The provider must implement
+`provider.ChatCommander`; a provider without it returns an error.
+
+```lua
+-- block until the bot replies, or return the error
+local reply, err = cliamp.provider.call("telegram.ask", {
+    chat = chat,
+    text = "/search daft punk",
+    timeout = 60,
+})
+
+-- keep the UI responsive while a bot takes its time
+cliamp.provider.call("telegram.ask", {chat = chat, text = text}, {
+    on_reply = function(reply, err) ... end,
+    timeout = 90,
+})
+```
+
+Options are `on_reply = function(result, err)` and `timeout = seconds` (default
+60). With `on_reply` the call runs off the UI goroutine and delivers the result
+to the callback; use it for calls that wait for a bot. Without it the call
+blocks the Lua hook and returns the result. A key binding has a five-second
+budget, so a waiting call from a key binding needs `on_reply`.
+
+Telegram actions at this layer are `telegram.commands` (the commands a bot
+advertises), `telegram.send` (send text and return the message id),
+`telegram.ask` (send and wait for the reply), `telegram.reply` (wait for the
+next message after an id), and `telegram.callback` (press an inline button).
 
 ### cliamp.http
 
@@ -680,6 +752,20 @@ cliamp.ui.select{
 Returns true when the request was accepted. With no interactive UI (headless
 mode) it returns an error. Closing the selector calls `on_cancel` when given, or
 `on_select(-1)` otherwise.
+
+```lua
+cliamp.ui.input{
+    title = "Message",
+    placeholder = "/search ...",
+    value = "",                       -- optional
+    on_submit = function(text) ... end,
+    on_cancel = function() ... end,   -- optional, Esc
+}
+```
+
+`ui.input` asks for one line of text. `Enter` calls `on_submit` with the text;
+`Esc` calls `on_cancel` when given. It returns true when the request was
+accepted; headless mode returns an error.
 
 ### cliamp.vis
 
