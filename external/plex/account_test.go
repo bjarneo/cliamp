@@ -8,12 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 func TestAccountSignIn(t *testing.T) {
-	polls := 0
+	var polls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("X-Plex-Client-Identifier"); got != "client-1" {
 			t.Errorf("client identifier = %q, want client-1", got)
@@ -26,17 +28,18 @@ func TestAccountSignIn(t *testing.T) {
 			}
 			w.Write([]byte(`{"id":42,"code":"long-code"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/pins/42":
-			polls++
+			n := polls.Add(1)
 			if got := r.URL.Query().Get("code"); got != "long-code" {
 				t.Errorf("code = %q, want long-code", got)
 			}
-			if polls == 1 {
+			if n == 1 {
 				w.Write([]byte(`{"authToken":null}`))
 			} else {
 				w.Write([]byte(`{"authToken":"account-token"}`))
 			}
 		default:
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.String())
+			http.Error(w, "unexpected request", http.StatusBadRequest)
 		}
 	}))
 	defer srv.Close()
@@ -61,7 +64,9 @@ func TestAccountSignIn(t *testing.T) {
 func TestAccountServersFiltersAndSorts(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v2/resources" {
-			t.Fatalf("path = %q", r.URL.Path)
+			t.Errorf("path = %q", r.URL.Path)
+			http.NotFound(w, r)
+			return
 		}
 		if got := r.Header.Get("X-Plex-Token"); got != "account-token" {
 			t.Errorf("token = %q, want account-token", got)
@@ -94,11 +99,25 @@ func identityHandler(machineID string) http.HandlerFunc {
 }
 
 func TestReachableConnectionPrefersLocal(t *testing.T) {
-	secure := httptest.NewTLSServer(identityHandler("server-1"))
-	defer secure.Close()
-
-	local := httptest.NewServer(identityHandler("server-1"))
+	// The remote route answers only after the local one has, so the test
+	// does not depend on which loopback server the scheduler runs first.
+	localAnswered := make(chan struct{})
+	var once sync.Once
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		identityHandler("server-1")(w, r)
+		once.Do(func() { close(localAnswered) })
+	}))
 	defer local.Close()
+
+	secure := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-localAnswered:
+		case <-r.Context().Done():
+			return
+		}
+		identityHandler("server-1")(w, r)
+	}))
+	defer secure.Close()
 
 	api := &AccountAPI{baseURL: "unused", client: secure.Client(), pollInterval: time.Millisecond}
 	server := AccountServer{
@@ -260,10 +279,9 @@ func TestAccountSignInRetriesTransientPolls(t *testing.T) {
 		{"expired PIN", http.StatusNotFound, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			polls := 0
+			var polls atomic.Int32
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				polls++
-				if polls == 1 {
+				if polls.Add(1) == 1 {
 					w.WriteHeader(tc.failure)
 					return
 				}
@@ -290,10 +308,9 @@ func TestAccountSignInRetriesTransientPolls(t *testing.T) {
 
 // A dropped connection during a poll is retried too.
 func TestAccountSignInRetriesNetworkFailure(t *testing.T) {
-	polls := 0
+	var polls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		polls++
-		if polls == 1 {
+		if polls.Add(1) == 1 {
 			conn, _, err := w.(http.Hijacker).Hijack()
 			if err == nil {
 				conn.Close()
@@ -397,7 +414,7 @@ func TestAccountSignOut(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			checks := 0
+			var checks atomic.Int32
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if got := r.Header.Get("X-Plex-Token"); got != "account-token" {
 					t.Errorf("token = %q", got)
@@ -409,10 +426,11 @@ func TestAccountSignOut(t *testing.T) {
 				case r.Method == http.MethodDelete && r.URL.Path == "/api/v2/users/signout":
 					w.WriteHeader(tt.signout)
 				case r.Method == http.MethodGet && r.URL.Path == "/api/v2/user":
-					checks++
+					checks.Add(1)
 					w.WriteHeader(tt.user)
 				default:
-					t.Fatalf("unexpected request: %s %s", r.Method, r.URL)
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+					http.Error(w, "unexpected request", http.StatusBadRequest)
 				}
 			}))
 			defer srv.Close()
@@ -425,8 +443,8 @@ func TestAccountSignOut(t *testing.T) {
 			if got := errors.Is(err, ErrTokenStillAccepted); got != tt.wantStill {
 				t.Fatalf("still accepted = %v, want %v (%v)", got, tt.wantStill, err)
 			}
-			if checks != tt.wantChecks {
-				t.Fatalf("token checks = %d, want %d", checks, tt.wantChecks)
+			if got := int(checks.Load()); got != tt.wantChecks {
+				t.Fatalf("token checks = %d, want %d", got, tt.wantChecks)
 			}
 		})
 	}

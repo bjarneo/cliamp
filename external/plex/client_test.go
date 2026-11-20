@@ -3,11 +3,13 @@ package plex
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -723,9 +725,9 @@ func TestPingRejectsOversizedBody(t *testing.T) {
 }
 
 func TestAccountClientRediscoversSelectedServer(t *testing.T) {
-	serverRequests := 0
+	var serverRequests atomic.Int32
 	media := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		serverRequests++
+		serverRequests.Add(1)
 		if got := r.Header.Get("X-Plex-Client-Identifier"); got != "client-1" {
 			t.Errorf("server client identifier = %q, want client-1", got)
 		}
@@ -744,9 +746,9 @@ func TestAccountClientRediscoversSelectedServer(t *testing.T) {
 	}))
 	defer media.Close()
 
-	discoveries := 0
+	var discoveries atomic.Int32
 	account := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		discoveries++
+		discoveries.Add(1)
 		if got := r.Header.Get("X-Plex-Client-Identifier"); got != "client-1" {
 			t.Errorf("account client identifier = %q, want client-1", got)
 		}
@@ -767,15 +769,15 @@ func TestAccountClientRediscoversSelectedServer(t *testing.T) {
 	if err := client.Ping(); err != nil {
 		t.Fatalf("second Ping: %v", err)
 	}
-	if discoveries != 2 {
-		t.Fatalf("resource discoveries = %d, want 2", discoveries)
+	if got := discoveries.Load(); got != 2 {
+		t.Fatalf("resource discoveries = %d, want 2", got)
 	}
-	if serverRequests != 4 {
-		t.Fatalf("server requests = %d, want 4", serverRequests)
+	if got := serverRequests.Load(); got != 4 {
+		t.Fatalf("server requests = %d, want 4", got)
 	}
 }
 
-func failoverFixture(t *testing.T, dead *httptest.Server) (*Client, *httptest.Server, *int) {
+func failoverFixture(t *testing.T, dead *httptest.Server) (*Client, *httptest.Server, *atomic.Int32) {
 	t.Helper()
 	alive := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -789,9 +791,9 @@ func failoverFixture(t *testing.T, dead *httptest.Server) (*Client, *httptest.Se
 		}
 	}))
 	t.Cleanup(alive.Close)
-	discoveries := 0
+	discoveries := new(atomic.Int32)
 	tv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		discoveries++
+		discoveries.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `[{"name":"Home","clientIdentifier":"server-1","provides":"server","owned":true,"accessToken":"server-token",
 			"connections":[{"uri":%q,"protocol":"http","local":true},{"uri":%q,"protocol":"http","local":true}]}]`, dead.URL, alive.URL)
@@ -802,7 +804,7 @@ func failoverFixture(t *testing.T, dead *httptest.Server) (*Client, *httptest.Se
 	// The dead route was the working one when the session found it.
 	c.account.connected = true
 	c.token = "server-token"
-	return c, alive, &discoveries
+	return c, alive, discoveries
 }
 
 func TestClientFailsOverFromDeadRoute(t *testing.T) {
@@ -815,8 +817,8 @@ func TestClientFailsOverFromDeadRoute(t *testing.T) {
 		if err != nil || len(sections) != 1 {
 			t.Fatalf("MusicSections = %v, %v; want the live route's library", sections, err)
 		}
-		if c.baseURL != alive.URL || *discoveries != 1 {
-			t.Fatalf("route = %q after %d discoveries, want %q after 1", c.baseURL, *discoveries, alive.URL)
+		if c.baseURL != alive.URL || discoveries.Load() != 1 {
+			t.Fatalf("route = %q after %d discoveries, want %q after 1", c.baseURL, discoveries.Load(), alive.URL)
 		}
 	})
 
@@ -856,8 +858,8 @@ func TestClientKeepsRouteOnHTTPError(t *testing.T) {
 	if _, err := c.MusicSections(); err == nil || !strings.Contains(err.Error(), "500") {
 		t.Fatalf("MusicSections error = %v, want the server's HTTP 500", err)
 	}
-	if *discoveries != 0 || c.baseURL != failing.URL {
-		t.Fatalf("an HTTP error rediscovered the route: %d discoveries, route %q", *discoveries, c.baseURL)
+	if discoveries.Load() != 0 || c.baseURL != failing.URL {
+		t.Fatalf("an HTTP error rediscovered the route: %d discoveries, route %q", discoveries.Load(), c.baseURL)
 	}
 }
 
@@ -895,8 +897,8 @@ func TestResolveSourceMovesOffDeadRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveSource: %v", err)
 	}
-	if !strings.HasPrefix(got, alive.URL+"/library/parts/1/111/file.flac?") || *discoveries != 1 {
-		t.Fatalf("ResolveSource = %q after %d discoveries, want the live route after 1", got, *discoveries)
+	if !strings.HasPrefix(got, alive.URL+"/library/parts/1/111/file.flac?") || discoveries.Load() != 1 {
+		t.Fatalf("ResolveSource = %q after %d discoveries, want the live route after 1", got, discoveries.Load())
 	}
 }
 
@@ -932,8 +934,8 @@ func TestResolveSourceChecksIdentityWithoutToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveSource: %v", err)
 	}
-	if !strings.HasPrefix(got, alive.URL+"/library/parts/1/111/file.flac?") || *discoveries != 1 {
-		t.Fatalf("ResolveSource = %q after %d discoveries, want the selected server after 1", got, *discoveries)
+	if !strings.HasPrefix(got, alive.URL+"/library/parts/1/111/file.flac?") || discoveries.Load() != 1 {
+		t.Fatalf("ResolveSource = %q after %d discoveries, want the selected server after 1", got, discoveries.Load())
 	}
 }
 
@@ -967,5 +969,48 @@ func TestClientDropsRouteWhenRetryFails(t *testing.T) {
 	}
 	if c.account.connected {
 		t.Fatalf("route %q stays connected after the retry failed", c.baseURL)
+	}
+}
+
+// A manual client has no other route, so a slow server keeps the full API
+// timeout instead of the account client's header deadline.
+func TestManualClientWaitsPastHeaderDeadline(t *testing.T) {
+	old := responseHeaderTimeout
+	responseHeaderTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { responseHeaderTimeout = old })
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"MediaContainer":{"friendlyName":"Home"}}`))
+	}))
+	defer srv.Close()
+	if err := NewClient(srv.URL, "tok").Ping(); err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+}
+
+// lateTransport returns a response after the header deadline has fired,
+// ignoring the cancel, as a response that races the timer would.
+type lateTransport struct{ delay time.Duration }
+
+func (lt lateTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	time.Sleep(lt.delay)
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}")), Request: req}, nil
+}
+
+// A response that arrives after the deadline fired is not returned: its
+// body could already be cancelled.
+func TestHeaderDeadlineWinsOverLateResponse(t *testing.T) {
+	old := responseHeaderTimeout
+	responseHeaderTimeout = 10 * time.Millisecond
+	t.Cleanup(func() { responseHeaderTimeout = old })
+	client := &http.Client{Transport: lateTransport{delay: 50 * time.Millisecond}}
+	resp, err := doWithHeaderDeadline(client, mustRequest(t, "http://plex.invalid/"))
+	if err == nil {
+		resp.Body.Close()
+		t.Fatal("a response after the deadline was returned")
+	}
+	if err.Error() != "no response in 10ms" {
+		t.Fatalf("error = %v, want no response in 10ms", err)
 	}
 }

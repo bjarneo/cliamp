@@ -139,6 +139,7 @@ func TestPlexAuthServerSelectionSavesAccountConfig(t *testing.T) {
 	m.pidx = plexSetupIndex(t, m)
 	m.values = map[string]string{keyPlexAuth: "account", "libraries": "Music"}
 	m.stage = stageValidating
+	m.plexPending = &plexPendingSignIn{token: "account-token", clientID: "client-1"}
 
 	m.Update(plexAuthDoneMsg{
 		clientID: "client-1",
@@ -167,13 +168,44 @@ func TestPlexAuthServerSelectionSavesAccountConfig(t *testing.T) {
 	}
 }
 
-func TestPlexAuthErrorCannotSaveIncompleteConfig(t *testing.T) {
+// Ctrl+C while servers are being found revokes the approved sign-in, and
+// the discovery result that arrives later is not saved.
+func TestPlexQuitDuringDiscoveryRevokes(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLIAMP_CONFIG_DIR", dir)
+	revoked := ""
+	orig := plexSignOut
+	plexSignOut = func(_ context.Context, token, clientID string) error {
+		revoked = token + "/" + clientID
+		return nil
+	}
+	t.Cleanup(func() { plexSignOut = orig })
+
 	m := newSetupModel()
 	m.pidx = plexSetupIndex(t, m)
+	m.values = map[string]string{keyPlexAuth: "account"}
 	m.stage = stageValidating
-	m.Update(plexAuthDoneMsg{err: errors.New("sign in failed")})
-	if m.stage != stageResult || m.awaitingSave {
-		t.Fatalf("stage = %v, awaitingSave = %v", m.stage, m.awaitingSave)
+	m.Update(plexAuthApprovedMsg{api: plex.NewAccountAPI(), clientID: "client-1", token: "account-token"})
+	_, cmd := m.handleKey(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
+	if cmd == nil || m.stage != stageValidating {
+		t.Fatalf("stage = %v, want the revoke to run", m.stage)
+	}
+	m.Update(plexAuthDoneMsg{clientID: "client-1", token: "account-token", servers: []plex.ReachableServer{
+		{Name: "Home", ClientIdentifier: "home", URL: "https://home.plex.direct:32400", Owned: true},
+	}})
+	if _, err := os.Stat(filepath.Join(dir, "config.toml")); !os.IsNotExist(err) {
+		t.Fatalf("a cancelled sign-in was saved: %v", err)
+	}
+	var quit bool
+	for _, c := range cmd().(tea.BatchMsg) {
+		if msg, ok := c().(plexDiscardDoneMsg); ok {
+			if _, next := m.Update(msg); next != nil {
+				_, quit = next().(tea.QuitMsg)
+			}
+		}
+	}
+	if revoked != "account-token/client-1" || !quit {
+		t.Fatalf("revoked %q, quit %v; want the approved token revoked, then quit", revoked, quit)
 	}
 }
 
@@ -1239,6 +1271,7 @@ func TestPlexDiscardsUnsavedSignIn(t *testing.T) {
 		{name: "esc at server choice", done: plexAuthDoneMsg{clientID: "client-1", token: "account-token", servers: servers}, key: keyPress(tea.KeyEscape, "")},
 		{name: "ctrl+c at server choice", done: plexAuthDoneMsg{clientID: "client-1", token: "account-token", servers: servers}, key: tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}), wantQuit: true},
 		{name: "revoke unconfirmed", done: plexAuthDoneMsg{clientID: "client-1", token: "account-token", servers: servers}, key: keyPress(tea.KeyEscape, ""), revokeErr: errors.New("offline"), wantWarn: "could not confirm"},
+		{name: "ctrl+c, revoke unconfirmed", done: plexAuthDoneMsg{clientID: "client-1", token: "account-token", servers: servers}, key: tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}), revokeErr: errors.New("offline"), wantWarn: "could not confirm"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -1255,6 +1288,7 @@ func TestPlexDiscardsUnsavedSignIn(t *testing.T) {
 			m.pidx = plexSetupIndex(t, m)
 			m.values = map[string]string{keyPlexAuth: "account"}
 			m.stage = stageValidating
+			m.plexPending = &plexPendingSignIn{token: tt.done.token, clientID: tt.done.clientID}
 			_, cmd := m.Update(tt.done)
 			if tt.key.Code != 0 {
 				if m.stage != stagePlexServer {
@@ -1388,5 +1422,83 @@ func TestPlexServerWindow(t *testing.T) {
 	}
 	if !strings.Contains(view, "Server 11") || strings.Contains(view, "Server 00") {
 		t.Fatalf("view does not follow the cursor:\n%s", view)
+	}
+}
+
+// When the config cannot be written, the approved sign-in is revoked and
+// the write error stays visible.
+func TestPlexRevokesSignInWhenSaveFails(t *testing.T) {
+	notDir := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(notDir, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLIAMP_CONFIG_DIR", filepath.Join(notDir, "cliamp"))
+	revoked := ""
+	orig := plexSignOut
+	plexSignOut = func(_ context.Context, token, clientID string) error {
+		revoked = token + "/" + clientID
+		return nil
+	}
+	t.Cleanup(func() { plexSignOut = orig })
+
+	m := newSetupModel()
+	m.pidx = plexSetupIndex(t, m)
+	m.values = map[string]string{keyPlexAuth: "account"}
+	m.stage = stageValidating
+	m.plexPending = &plexPendingSignIn{token: "account-token", clientID: "client-1"}
+	_, cmd := m.Update(plexAuthDoneMsg{clientID: "client-1", token: "account-token", servers: []plex.ReachableServer{
+		{Name: "Home", ClientIdentifier: "home", URL: "https://home.plex.direct:32400", Owned: true},
+	}})
+	if cmd == nil || m.stage != stageValidating {
+		t.Fatalf("stage = %v, saveFailed = %v; want the revoke to run", m.stage, m.saveFailed)
+	}
+	for _, c := range cmd().(tea.BatchMsg) {
+		if msg, ok := c().(plexDiscardDoneMsg); ok {
+			m.Update(msg)
+		}
+	}
+	if revoked != "account-token/client-1" {
+		t.Fatalf("revoked %q, want the approved token", revoked)
+	}
+	view := m.viewResult()
+	if !strings.Contains(view, "write config") || !strings.Contains(view, "Plex revoked the new token") {
+		t.Fatalf("result does not show the write error and the revoke:\n%s", view)
+	}
+}
+
+// Ctrl+C during sign-out waits for the revoke and the config write, so a
+// revoked token does not stay in the config.
+func TestPlexSignOutFinishesBeforeQuit(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLIAMP_CONFIG_DIR", dir)
+	const account = "[plex]\nurl = \"https://home.plex.direct:32400\"\ntoken = \"account-token\"\nclient_id = \"client-1\"\nserver_id = \"server-1\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(account), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	orig := plexSignOut
+	plexSignOut = func(context.Context, string, string) error { return nil }
+	t.Cleanup(func() { plexSignOut = orig })
+
+	m := newSetupModel()
+	m.startProvider(plexSetupIndex(t, m))
+	m.pickerCursor = slices.IndexFunc(m.pickerOpts, func(o pickerOption) bool { return o.value == "signout" })
+	_, cmd := m.handleKey(keyPress(tea.KeyEnter, ""))
+	if _, early := m.handleKey(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl})); early != nil {
+		t.Fatal("Ctrl+C quit before the sign-out finished")
+	}
+	var quit bool
+	for _, c := range cmd().(tea.BatchMsg) {
+		if msg, ok := c().(plexSignOutDoneMsg); ok {
+			if _, next := m.Update(msg); next != nil {
+				_, quit = next().(tea.QuitMsg)
+			}
+		}
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Plex.Token != "" || !quit {
+		t.Fatalf("token left = %v, quit = %v; want the token removed, then quit", cfg.Plex.Token != "", quit)
 	}
 }

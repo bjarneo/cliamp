@@ -107,7 +107,7 @@ func (c *Client) send(ctx context.Context, client *http.Client, label string, bu
 		if err != nil {
 			return nil, fmt.Errorf("plex: %s: %w", label, err)
 		}
-		resp, err := doWithHeaderDeadline(client, req)
+		resp, err := c.do(client, req)
 		if err == nil {
 			return resp, nil
 		}
@@ -139,18 +139,39 @@ func (c *Client) dropRoute(baseURL string) bool {
 	return true
 }
 
+// do sends one request. An account-backed client bounds the wait for
+// headers, so it can move to another route; a manual client has no other
+// route and keeps the client's own timeout.
+func (c *Client) do(client *http.Client, req *http.Request) (*http.Response, error) {
+	c.mu.Lock()
+	account := c.account != nil
+	c.mu.Unlock()
+	if !account {
+		return client.Do(req)
+	}
+	return doWithHeaderDeadline(client, req)
+}
+
 // doWithHeaderDeadline sends req and cancels it when no response headers
 // arrive within responseHeaderTimeout. The body read is not limited by it.
+// When the deadline fires, the request fails even if headers arrived at the
+// same moment: the cancel may already be on its way to the body.
 func doWithHeaderDeadline(client *http.Client, req *http.Request) (*http.Response, error) {
 	ctx, cancel := context.WithCancel(req.Context())
 	timeout := responseHeaderTimeout
 	timer := time.AfterFunc(timeout, cancel)
 	resp, err := client.Do(req.WithContext(ctx))
 	fired := !timer.Stop()
-	if err != nil {
+	if err == nil && fired {
+		resp.Body.Close()
+	}
+	if err != nil || fired {
 		cancel()
 		if fired && req.Context().Err() == nil {
 			return nil, fmt.Errorf("no response in %s", timeout)
+		}
+		if err == nil {
+			err = req.Context().Err()
 		}
 		return nil, err
 	}
