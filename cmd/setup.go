@@ -1483,6 +1483,8 @@ func (m *setupModel) startProvider(idx int) {
 	m.authStatus = ""
 	m.plexServers = nil
 	m.plexServerCursor = 0
+	// A Ctrl+C that ended in a warning must not quit a later run.
+	m.quitRequested = false
 
 	if p := m.provs[idx].picker; p != nil {
 		m.pickerOpts = m.pickerOpts[:0]

@@ -1502,3 +1502,58 @@ func TestPlexSignOutFinishesBeforeQuit(t *testing.T) {
 		t.Fatalf("token left = %v, quit = %v; want the token removed, then quit", cfg.Plex.Token != "", quit)
 	}
 }
+
+// Ctrl+C whose revoke was not confirmed leaves setup open with a warning.
+// A later sign-in cancelled with Esc must then stay open too.
+func TestPlexQuitRequestDoesNotOutliveItsRun(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+	revokeErr := errors.New("offline")
+	orig := plexSignOut
+	plexSignOut = func(context.Context, string, string) error { return revokeErr }
+	t.Cleanup(func() { plexSignOut = orig })
+	servers := []plex.ReachableServer{
+		{Name: "Home", ClientIdentifier: "home", URL: "https://home.plex.direct:32400", Owned: true},
+		{Name: "Shared", ClientIdentifier: "shared", URL: "https://shared.plex.direct:32400"},
+	}
+	// reachServerChoice approves a sign-in and shows the server choice.
+	reachServerChoice := func(m *setupModel) {
+		m.values = map[string]string{keyPlexAuth: "account"}
+		m.stage = stageValidating
+		m.plexPending = &plexPendingSignIn{token: "account-token", clientID: "client-1"}
+		m.Update(plexAuthDoneMsg{clientID: "client-1", token: "account-token", servers: servers})
+		if m.stage != stagePlexServer {
+			t.Fatalf("stage = %v, want stagePlexServer", m.stage)
+		}
+	}
+	// finish runs the revoke and reports whether setup quit.
+	finish := func(m *setupModel, cmd tea.Cmd) (quit bool) {
+		for _, c := range cmd().(tea.BatchMsg) {
+			if msg, ok := c().(plexDiscardDoneMsg); ok {
+				if _, next := m.Update(msg); next != nil {
+					_, quit = next().(tea.QuitMsg)
+				}
+			}
+		}
+		return quit
+	}
+
+	m := newSetupModel()
+	plexIdx := plexSetupIndex(t, m)
+	m.startProvider(plexIdx)
+	reachServerChoice(m)
+	_, cmd := m.handleKey(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
+	if finish(m, cmd) || !m.resultWarning {
+		t.Fatalf("an unconfirmed revoke must keep setup open with a warning; warning = %v", m.resultWarning)
+	}
+
+	revokeErr = nil
+	m.startProvider(plexIdx)
+	reachServerChoice(m)
+	_, cmd = m.handleKey(keyPress(tea.KeyEscape, ""))
+	if finish(m, cmd) {
+		t.Fatal("Esc quit setup: the earlier Ctrl+C was remembered")
+	}
+	if m.stage != stageResult {
+		t.Fatalf("stage = %v, want stageResult", m.stage)
+	}
+}

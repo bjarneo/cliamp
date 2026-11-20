@@ -35,6 +35,12 @@ answers. Before each track starts, cliamp checks the address with one small
 request, so playback moves on to the next track without a restart or
 `Ctrl+R`. A manual setup has one fixed URL and makes no such check.
 
+A local address can be plain HTTP when the server offers no secure one. The
+token then travels unencrypted inside the local network. Before each request
+to such an address, cliamp first asks it, without the token, whether it is
+still the selected server; another host at the same address gets no token.
+A secure address needs no such check: its certificate belongs to the server.
+
 This means the same configuration can move between home and work without
 hard-coding a `192.168.x.x` address. Remote playback still requires the Plex
 server to advertise a reachable remote or relay connection.

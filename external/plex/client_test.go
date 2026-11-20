@@ -772,8 +772,10 @@ func TestAccountClientRediscoversSelectedServer(t *testing.T) {
 	if got := discoveries.Load(); got != 2 {
 		t.Fatalf("resource discoveries = %d, want 2", got)
 	}
-	if got := serverRequests.Load(); got != 4 {
-		t.Fatalf("server requests = %d, want 4", got)
+	// Each Ping on this plain-HTTP route: the discovery probe, the
+	// tokenless check before the token is sent, and the request.
+	if got := serverRequests.Load(); got != 6 {
+		t.Fatalf("server requests = %d, want 6", got)
 	}
 }
 
@@ -786,6 +788,8 @@ func failoverFixture(t *testing.T, dead *httptest.Server) (*Client, *httptest.Se
 			w.Write([]byte(`{"MediaContainer":{"machineIdentifier":"server-1"}}`))
 		case "/library/sections":
 			w.Write([]byte(`{"MediaContainer":{"Directory":[{"key":"3","type":"artist","title":"Music"}]}}`))
+		case "/library/metadata/200":
+			w.Write([]byte(`{"MediaContainer":{"Metadata":[{"ratingKey":"200","Media":[{"Part":[{"key":"/library/parts/1/111/file.flac"}]}]}]}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -850,6 +854,10 @@ func TestClientFailsOverFromDeadRoute(t *testing.T) {
 
 func TestClientKeepsRouteOnHTTPError(t *testing.T) {
 	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/identity" {
+			identityHandler("server-1")(w, r)
+			return
+		}
 		http.Error(w, "boom", http.StatusInternalServerError)
 	}))
 	t.Cleanup(failing.Close)
@@ -915,27 +923,132 @@ func TestManualResolveSourceSendsNoRequest(t *testing.T) {
 	}
 }
 
-// After a network change the cached local address can belong to another
-// Plex server. The check before a track sends it no token and moves to the
-// route that answers as the selected server.
-func TestResolveSourceChecksIdentityWithoutToken(t *testing.T) {
-	stranger := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.Query().Get("X-Plex-Token") + r.Header.Get("X-Plex-Token"); got != "" {
-			t.Errorf("other server got token %q on %s", got, r.URL.Path)
-		}
-		identityHandler("other-server")(w, r)
-	}))
-	t.Cleanup(stranger.Close)
-	c, alive, discoveries := failoverFixture(t, stranger)
-	p := newProvider(c)
-	p.partKeys = map[string]string{"200": "/library/parts/1/111/file.flac"}
+// After a network change the cached plain-HTTP address can belong to
+// another Plex server. No request sends it the token: not a library request,
+// not the metadata lookup of a track whose part is unknown, not the check
+// before a track. Each moves to the route that answers as the selected
+// server.
+func TestPlainRouteGetsNoTokenFromAnotherServer(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		run  func(t *testing.T, c *Client) string
+	}{
+		{"library request", func(t *testing.T, c *Client) string {
+			sections, err := c.MusicSections()
+			if err != nil || len(sections) != 1 {
+				t.Fatalf("MusicSections = %v, %v", sections, err)
+			}
+			return ""
+		}},
+		{"track with a known part", func(t *testing.T, c *Client) string {
+			p := newProvider(c)
+			p.partKeys = map[string]string{"200": "/library/parts/1/111/file.flac"}
+			got, err := p.ResolveSource(TrackURIPrefix + "200")
+			if err != nil {
+				t.Fatalf("ResolveSource: %v", err)
+			}
+			return got
+		}},
+		{"track after a restart", func(t *testing.T, c *Client) string {
+			got, err := newProvider(c).ResolveSource(TrackURIPrefix + "200")
+			if err != nil {
+				t.Fatalf("ResolveSource: %v", err)
+			}
+			return got
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			stranger := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if got := r.URL.Query().Get("X-Plex-Token") + r.Header.Get("X-Plex-Token"); got != "" {
+					t.Errorf("other server got token %q on %s", got, r.URL.Path)
+				}
+				identityHandler("other-server")(w, r)
+			}))
+			t.Cleanup(stranger.Close)
+			c, alive, discoveries := failoverFixture(t, stranger)
 
-	got, err := p.ResolveSource(TrackURIPrefix + "200")
-	if err != nil {
-		t.Fatalf("ResolveSource: %v", err)
+			got := tt.run(t, c)
+			if got != "" && !strings.HasPrefix(got, alive.URL+"/library/parts/1/111/file.flac?") {
+				t.Fatalf("stream URL = %q, want the selected server", got)
+			}
+			if c.baseURL != alive.URL || discoveries.Load() != 1 {
+				t.Fatalf("route = %q after %d discoveries, want %q after 1", c.baseURL, discoveries.Load(), alive.URL)
+			}
+		})
 	}
-	if !strings.HasPrefix(got, alive.URL+"/library/parts/1/111/file.flac?") || discoveries.Load() != 1 {
-		t.Fatalf("ResolveSource = %q after %d discoveries, want the selected server after 1", got, discoveries.Load())
+}
+
+// An HTTPS route needs no identity check: its certificate belongs to the
+// server. A manual client makes none either.
+func TestVerifyPlainRouteSkipsHTTPSAndManual(t *testing.T) {
+	probed := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probed = true
+	}))
+	defer srv.Close()
+	api := &AccountAPI{baseURL: "unused", client: srv.Client(), pollInterval: time.Millisecond}
+	account := newAccountClient("", "account-token", "client-1", "server-1", api)
+	if err := account.verifyPlainRoute(t.Context(), "https://192-168-1-10.abc.plex.direct:32400"); err != nil {
+		t.Fatalf("https route: %v", err)
+	}
+	if err := NewClient(srv.URL, "tok").verifyPlainRoute(t.Context(), srv.URL); err != nil || probed {
+		t.Fatalf("manual client: err = %v, probed = %v", err, probed)
+	}
+	if err := account.verifyPlainRoute(t.Context(), srv.URL); err == nil {
+		t.Fatal("plain route with no identity passed the check")
+	}
+}
+
+// Ctrl+R calls RefreshConnection on the UI goroutine. It returns at once
+// even while a discovery holds the client, and the next request rediscovers.
+func TestRefreshConnectionDoesNotWaitForDiscovery(t *testing.T) {
+	media := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/identity" {
+			identityHandler("server-1")(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"MediaContainer":{"friendlyName":"Home"}}`))
+	}))
+	defer media.Close()
+	var discoveries atomic.Int32
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	tv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if discoveries.Add(1) == 1 {
+			close(entered)
+			<-release
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `[{"name":"Home","clientIdentifier":"server-1","provides":"server","owned":true,"accessToken":"server-token","connections":[{"uri":%q,"protocol":"http","local":true}]}]`, media.URL)
+	}))
+	defer tv.Close()
+	api := &AccountAPI{baseURL: tv.URL, client: tv.Client(), pollInterval: time.Millisecond}
+	c := newAccountClient("http://stale.invalid", "account-token", "client-1", "server-1", api)
+
+	pinged := make(chan error, 1)
+	go func() { pinged <- c.Ping() }()
+	<-entered
+	refreshed := make(chan struct{})
+	go func() {
+		c.RefreshConnection()
+		close(refreshed)
+	}()
+	select {
+	case <-refreshed:
+	case <-time.After(2 * time.Second):
+		close(release)
+		t.Fatal("RefreshConnection waited for the discovery")
+	}
+	close(release)
+	if err := <-pinged; err != nil {
+		t.Fatalf("first Ping: %v", err)
+	}
+	if err := c.Ping(); err != nil {
+		t.Fatalf("second Ping: %v", err)
+	}
+	if got := discoveries.Load(); got != 2 {
+		t.Fatalf("discoveries = %d, want 2: the refresh must reach the next request", got)
 	}
 }
 

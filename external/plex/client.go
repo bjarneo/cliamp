@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bjarneo/cliamp/applog"
@@ -33,6 +34,10 @@ type Client struct {
 	clientID  string   // stable device identity sent with Plex requests
 	libraries []string // if non-empty, MusicSections filters to these titles (case-insensitive)
 	account   *accountBinding
+	// refresh asks endpoint to rediscover the route. RefreshConnection sets
+	// it without c.mu, which endpoint holds for a whole discovery, so the
+	// UI goroutine never waits on plex.tv.
+	refresh atomic.Bool
 }
 
 type accountBinding struct {
@@ -75,6 +80,9 @@ func newAccountClient(baseURL, accountToken, clientID, serverID string, api *Acc
 func (c *Client) endpoint(ctx context.Context) (string, string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.account != nil && c.refresh.Swap(false) {
+		c.account.connected = false
+	}
 	if c.account != nil && !c.account.connected {
 		server, err := c.account.api.ConnectServer(ctx, c.account.token, c.account.clientID, c.account.serverID)
 		if err != nil {
@@ -97,6 +105,12 @@ var responseHeaderTimeout = 10 * time.Second
 // send drops the route, rediscovers one through plex.tv and retries once, so
 // a dead local, remote or relay connection does not stall playback. HTTP
 // error responses are returned as they are. label names the call in errors.
+//
+// On a plain-HTTP route of an account-backed client, send first checks
+// without the token that the address still answers as the server: after a
+// network change another host can hold it. An HTTPS route needs no check,
+// since its certificate belongs to the server. A failed check counts as an
+// unreachable route.
 func (c *Client) send(ctx context.Context, client *http.Client, label string, build func(baseURL, token string) (*http.Request, error)) (*http.Response, error) {
 	for retried := false; ; retried = true {
 		baseURL, token, err := c.endpoint(ctx)
@@ -107,9 +121,12 @@ func (c *Client) send(ctx context.Context, client *http.Client, label string, bu
 		if err != nil {
 			return nil, fmt.Errorf("plex: %s: %w", label, err)
 		}
-		resp, err := c.do(client, req)
+		err = c.verifyPlainRoute(ctx, baseURL)
 		if err == nil {
-			return resp, nil
+			var resp *http.Response
+			if resp, err = c.do(client, req); err == nil {
+				return resp, nil
+			}
 		}
 		// A url.Error names the request URL, and with it the token.
 		if uerr, ok := errors.AsType[*url.Error](err); ok {
@@ -210,14 +227,9 @@ func (c *Client) CheckRoute() error {
 		if err != nil {
 			return fmt.Errorf("plex: connect account server: %w", err)
 		}
-		probeCtx, cancel := context.WithTimeout(ctx, responseHeaderTimeout)
-		err = account.api.probe(probeCtx, baseURL, account.serverID, account.clientID)
-		cancel()
+		err = account.verify(ctx, baseURL)
 		if err == nil {
 			return nil
-		}
-		if uerr, ok := errors.AsType[*url.Error](err); ok {
-			err = uerr.Err
 		}
 		c.dropRoute(baseURL)
 		if retried {
@@ -227,14 +239,32 @@ func (c *Client) CheckRoute() error {
 	}
 }
 
-// RefreshConnection makes an account-backed client rediscover its route on
-// the next request. Manual clients keep their configured URL unchanged.
-func (c *Client) RefreshConnection() {
-	c.mu.Lock()
-	if c.account != nil {
-		c.account.connected = false
+// verify checks without a token that baseURL answers as the selected
+// server. The error does not name the URL.
+func (a *accountBinding) verify(ctx context.Context, baseURL string) error {
+	ctx, cancel := context.WithTimeout(ctx, responseHeaderTimeout)
+	defer cancel()
+	err := a.api.probe(ctx, baseURL, a.serverID, a.clientID)
+	if uerr, ok := errors.AsType[*url.Error](err); ok {
+		return uerr.Err
 	}
-	c.mu.Unlock()
+	return err
+}
+
+// verifyPlainRoute runs verify for an account-backed client on a route
+// that is not HTTPS. Other routes need no check and return nil.
+func (c *Client) verifyPlainRoute(ctx context.Context, baseURL string) error {
+	if c.account == nil || strings.HasPrefix(baseURL, "https://") {
+		return nil
+	}
+	return c.account.verify(ctx, baseURL)
+}
+
+// RefreshConnection makes an account-backed client rediscover its route on
+// the next request. Manual clients keep their configured URL unchanged. It
+// does not block: the UI goroutine calls it, also while a discovery runs.
+func (c *Client) RefreshConnection() {
+	c.refresh.Store(true)
 }
 
 // Section represents a Plex library section (e.g. a music library).

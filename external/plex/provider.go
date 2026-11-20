@@ -237,6 +237,11 @@ func (p *Provider) ResolveSource(uri string) (string, error) {
 	if !ok || !validRatingKey(id) {
 		return "", fmt.Errorf("plex: invalid track uri %q", uri)
 	}
+	// The route may have died while the last track played. The check comes
+	// before any request that carries the token.
+	if err := p.client.CheckRoute(); err != nil {
+		return "", fmt.Errorf("plex: resolve track %s: %w", id, err)
+	}
 	p.mu.Lock()
 	partKey := p.partKeys[id]
 	p.mu.Unlock()
@@ -255,10 +260,6 @@ func (p *Provider) ResolveSource(uri string) (string, error) {
 		}
 		p.partKeys[id] = partKey
 		p.mu.Unlock()
-	}
-	// The route may have died while the last track played.
-	if err := p.client.CheckRoute(); err != nil {
-		return "", fmt.Errorf("plex: resolve track %s: %w", id, err)
 	}
 	return p.client.StreamURL(partKey), nil
 }
