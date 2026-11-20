@@ -232,8 +232,15 @@ func decodeFFmpegStream(path string, sr beep.SampleRate, bitDepth int) (*ffmpegP
 // wired to the process. Callers add the concrete Seek behavior by embedding the
 // returned ffmpegPipe in a streamer type.
 func startFFmpegPipe(input string, stdin io.ReadCloser, sr beep.SampleRate, bitDepth int) (ffmpegPipe, beep.Format, error) {
+	return startFFmpegPipeArgs([]string{"-i", input}, stdin, sr, bitDepth)
+}
+
+// startFFmpegPipeArgs is startFFmpegPipe with the full input arguments, for
+// callers that set input options such as -ss or request headers before -i.
+func startFFmpegPipeArgs(inputArgs []string, stdin io.ReadCloser, sr beep.SampleRate, bitDepth int) (ffmpegPipe, beep.Format, error) {
 	_, _, precision := ffmpegPCMArgs(bitDepth)
-	cmd := exec.Command("ffmpeg", append([]string{"-i", input}, pcmOutputArgs(sr, bitDepth)...)...)
+	args := append(append([]string{}, inputArgs...), pcmOutputArgs(sr, bitDepth)...)
+	cmd := exec.Command("ffmpeg", args...)
 	cmd.Stdin = stdin
 	proc := newFFmpegProcess(cmd)
 
@@ -270,6 +277,10 @@ type ffmpegPipe struct {
 	pcmBuf []byte    // reusable block buffer for decoded PCM bytes
 	f32    bool      // true = f32le, false = s16le
 	live   bool      // true for infinite radio streams: EOF means the upstream died
+	// minFrames, when above zero, is the audio a finite input must produce.
+	// ffmpeg exits 0 when an HTTP input ends early and its reconnect fails, so
+	// an EOF before minFrames means the input was cut short.
+	minFrames int64
 }
 
 func (f *ffmpegPipe) Stream(samples [][2]float64) (int, bool) {
@@ -288,6 +299,9 @@ func (f *ffmpegPipe) Stream(samples [][2]float64) (int, bool) {
 		// connection dropped (e.g. the stall timeout cancelled it). Surface it
 		// so StreamErr()/auto-reconnect fires instead of treating it as
 		// end-of-track and stopping playback.
+		f.state.err.publish(io.ErrUnexpectedEOF)
+	}
+	if !ok && f.state.pos.Load() < f.minFrames && f.state.err.load() == nil {
 		f.state.err.publish(io.ErrUnexpectedEOF)
 	}
 	return n, ok
