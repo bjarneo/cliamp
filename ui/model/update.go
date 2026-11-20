@@ -110,6 +110,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.luaSelect = &luaSelectState{
 			title:    msg.Title,
+			body:     msg.Body,
 			options:  msg.Options,
 			cursor:   cursor,
 			onDone:   msg.OnDone,
@@ -117,9 +118,39 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case LuaTextMsg:
+		if prev := m.luaText; prev != nil && prev.onClose != nil {
+			prev.onClose()
+		}
+		m.openLuaText(msg.Title, msg.Text, msg.OnClose)
+		return m, nil
+
+	case LuaInputMsg:
+		if prev := m.luaInput; prev != nil && prev.onCancel != nil {
+			prev.onCancel()
+		}
+		m.openLuaInput(msg.Title, msg.Placeholder, msg.Value, msg.Suggestions, msg.OnChange, msg.OnSubmit, msg.OnSelect, msg.OnCancel)
+		return m, nil
+
+	case LuaInputSuggestionsMsg:
+		if m.luaInput == nil {
+			return m, nil
+		}
+		if len(msg.Options) != len(m.luaInput.suggestions) {
+			m.luaInput.choice = 0
+		}
+		m.luaInput.suggestions = msg.Options
+		m.luaInput.live = msg.Live
+		m.luaInput.filter()
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.actionPane.visible {
+			m.actionPane.height = msg.Height
+			m.actionPane.adjustScroll()
+		}
 		m.recomputeLayout()
 		m.normalizeMainFocus()
 		m.clampActiveScrollState()

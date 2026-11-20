@@ -319,6 +319,9 @@ type Model struct {
 	panes              *ui.PaneSet
 	paneCache          *paneCache
 	luaSelect          *luaSelectState
+	luaInput           *luaInputState
+	luaText            *luaTextState
+	actionPane         actionPaneState
 	artRef             *artRef
 	slotVis            *slotVisualizers
 	downloadsDirectory string

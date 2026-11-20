@@ -195,9 +195,23 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	defer func() { m.layoutText = "" }()
 	msg = normalizeShiftedLetter(msg)
 
+	if msg.String() == "ctrl+c" {
+		return m.quit()
+	}
+	if m.luaText != nil {
+		m.handleLuaTextKey(msg)
+		return nil
+	}
+	if m.luaInput != nil {
+		m.handleLuaInputKey(msg)
+		return nil
+	}
 	if m.luaSelect != nil {
 		m.handleLuaSelectKey(msg)
 		return nil
+	}
+	if m.actionPane.visible {
+		return m.handleActionPaneKey(msg)
 	}
 
 	if cmd, ok := m.handleGlobalKey(msg); ok {
@@ -423,6 +437,8 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		if _, ok := m.provider.(provider.ChatFilter); ok {
 			return m.startChatPicker()
 		}
+	case "!":
+		m.openActionPane()
 	}
 	return nil
 }
@@ -839,6 +855,9 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "?":
 		m.openKeymap()
 
+	case "!":
+		m.openActionPane()
+
 	default:
 		if m.luaMgr != nil {
 			m.luaMgr.EmitKey(msg.String())
@@ -1031,6 +1050,15 @@ func (m *Model) toggleExpandedView() {
 // while the provider pane has the focus.
 func (m *Model) handlePaste(content string) tea.Cmd {
 	if content == "" {
+		return nil
+	}
+	if m.luaText != nil {
+		return nil
+	}
+	if m.luaInput != nil {
+		m.insertText("lua-input", &m.luaInput.value, content)
+		m.luaInput.cursor = m.textInput.cursor
+		m.luaInput.afterEdit()
 		return nil
 	}
 	if spec, ok := m.topOverlay(); ok {

@@ -43,12 +43,14 @@ const (
 // Permission strings declared via plugin.register({ permissions = {...} }).
 // Kept as named constants so the guard call sites and docs don't drift.
 const (
-	PermControl = "control"
-	PermExec    = "exec"
-	PermImage   = "image"
-	PermLayout  = "layout"
-	PermUI      = "ui"
-	PermKeymap  = "keymap"
+	PermControl      = "control"
+	PermExec         = "exec"
+	PermImage        = "image"
+	PermLayout       = "layout"
+	PermUI           = "ui"
+	PermKeymap       = "keymap"
+	PermProvider     = "provider"
+	PermProviderSend = "provider-send"
 )
 
 // luaHook is a single event callback registered by a plugin.
@@ -199,6 +201,34 @@ func (m *Manager) enqueue(p *Plugin, label string, fn func()) bool {
 			m.logger.log(p.installName, "warn", "%s dropped. %d events and key presses are waiting. cliamp drops new ones until the plugin catches up.", label, eventQueueSize)
 		}
 		return false
+	}
+}
+
+// enqueueCompletion delivers an asynchronous provider completion without
+// dropping it when the plugin queue is full. It holds m.mu only for the
+// non-blocking send, so Close cannot close the queue underneath the send. The
+// caller already returned true to Lua, so losing the completion would leave a
+// plugin waiting forever.
+func (m *Manager) enqueueCompletion(p *Plugin, label string, fn func()) bool {
+	for {
+		m.mu.RLock()
+		if m.closing {
+			m.mu.RUnlock()
+			return false
+		}
+		select {
+		case p.queue <- fn:
+			p.dropping.Store(false)
+			m.mu.RUnlock()
+			return true
+		default:
+			m.mu.RUnlock()
+		}
+		select {
+		case <-m.ctx.Done():
+			return false
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
 }
 
