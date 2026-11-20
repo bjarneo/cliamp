@@ -280,6 +280,7 @@ type fileBrowserState struct {
 	selected       map[string]bool
 	err            string
 	targetPlaylist string
+	targetPurpose  fbTargetPurpose
 	confirmReplace bool
 	// resumeLocal is set when this browser was opened for the Local provider
 	// (the page row, N, or o). Playing from it leaves the flag set so Esc

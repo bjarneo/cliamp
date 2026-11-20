@@ -210,8 +210,21 @@ func (m Model) fbHeaderLine() string {
 		return m.filterHeader("Search: Files", "file-browser-search", m.fileBrowser.filter, count)
 	}
 	label := "Files: " + m.fileBrowser.dir
+	dir := m.fileBrowser.dir
+	if name := m.fileBrowser.targetPlaylist; name != "" {
+		switch m.fileBrowser.targetPurpose {
+		case fbTargetAddFiles:
+			label = fmt.Sprintf(`Add files to "%s": %s`, name, dir)
+		case fbTargetAddDirSource:
+			label = fmt.Sprintf(`Add dir source to "%s": %s`, name, dir)
+		}
+	}
 	if m.fileBrowser.filter != "" && m.fileBrowser.usesIndex() {
-		label = fmt.Sprintf("Files: %s  [%d matches, subfolders included]", m.fileBrowser.dir, m.fbCount())
+		if m.fileBrowser.targetPlaylist != "" && m.fileBrowser.targetPurpose != fbTargetNone {
+			label = fmt.Sprintf("%s  [%d matches, subfolders included]", label, m.fbCount())
+		} else {
+			label = fmt.Sprintf("Files: %s  [%d matches, subfolders included]", m.fileBrowser.dir, m.fbCount())
+		}
 	}
 	if n := len(m.fileBrowser.selected); n > 0 {
 		label += fmt.Sprintf("  [%d selected]", n)

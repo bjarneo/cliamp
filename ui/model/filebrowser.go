@@ -14,6 +14,15 @@ import (
 	"github.com/bjarneo/cliamp/resolve"
 )
 
+// fbTargetPurpose distinguishes playlist-targeted file browsers.
+type fbTargetPurpose uint8
+
+const (
+	fbTargetNone fbTargetPurpose = iota
+	fbTargetAddFiles
+	fbTargetAddDirSource
+)
+
 // fbEntry is a single item in the file browser listing.
 type fbEntry struct {
 	name     string // label shown in the list, relative to the browsed directory in an index row
@@ -123,15 +132,17 @@ func (m *Model) openFileBrowser() {
 	m.fileBrowser.selected = make(map[string]bool)
 	m.fileBrowser.err = ""
 	m.fileBrowser.targetPlaylist = ""
+	m.fileBrowser.targetPurpose = fbTargetNone
 	m.fileBrowser.confirmReplace = false
 	m.fileBrowser.resumeLocal = m.showingLocalProvider()
 	m.loadFBDir()
 	m.fileBrowser.visible = true
 }
 
-func (m *Model) openFileBrowserForPlaylist(name string) {
+func (m *Model) openFileBrowserForPlaylist(name string, purpose fbTargetPurpose) {
 	m.openFileBrowser()
 	m.fileBrowser.targetPlaylist = name
+	m.fileBrowser.targetPurpose = purpose
 	m.fileBrowser.resumeLocal = false
 }
 

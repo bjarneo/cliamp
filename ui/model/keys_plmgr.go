@@ -187,7 +187,7 @@ func (m *Model) handlePlMgrListKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.status.Showf(statusTTLDefault, "%q is a virtual playlist with no directory sources", name)
 			return nil
 		}
-		m.openFileBrowserForPlaylist(name)
+		m.openFileBrowserForPlaylist(name, fbTargetAddDirSource)
 	case "w":
 		tracks := m.playlist.Tracks()
 		if len(tracks) == 0 {
@@ -401,7 +401,7 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.openPlaylistPicker(tracks, title)
 		}
 	case "o":
-		m.openFileBrowserForPlaylist(m.plManager.selPlaylist)
+		m.openFileBrowserForPlaylist(m.plManager.selPlaylist, fbTargetAddFiles)
 	case "D":
 		m.plMgrOpenDirs()
 	case "f":
@@ -547,7 +547,7 @@ func (m *Model) handlePlMgrDirsKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "a":
 		// Open the file browser to pick a directory; the browser's D action
 		// adds the picked directory as a [[dir]] source to this playlist.
-		m.openFileBrowserForPlaylist(m.plManager.selPlaylist)
+		m.openFileBrowserForPlaylist(m.plManager.selPlaylist, fbTargetAddDirSource)
 		return nil
 	case "d":
 		if count == 0 {
@@ -605,7 +605,7 @@ func (m *Model) handlePlMgrNewNameKey(msg tea.KeyPressMsg) tea.Cmd {
 		if home, err := os.UserHomeDir(); err == nil && home != "" {
 			m.fileBrowser.dir = home
 		}
-		m.openFileBrowserForPlaylist(name)
+		m.openFileBrowserForPlaylist(name, fbTargetAddFiles)
 		m.status.Showf(statusTTLDefault, "Created %q — Space to select, Esc when done", name)
 		return cmd
 	default:

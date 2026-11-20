@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -246,4 +247,22 @@ func TestFBSelectedInOrderFollowsViewOrder(t *testing.T) {
 func (m *Model) startFBIndexCmdForTest() fbIndexMsg {
 	entries, err := indexDirRecursive(m.fileBrowser.dir)
 	return fbIndexMsg{gen: m.fileBrowser.indexGen, dir: m.fileBrowser.dir, entries: entries, err: err}
+}
+
+func TestFbHeaderLinePlaylistTarget(t *testing.T) {
+	m := Model{layout: frameLayout{panelWidth: 80}}
+	m.fileBrowser.dir = "/home/sebastian/Music"
+
+	m.fileBrowser.targetPlaylist = "Mix"
+	m.fileBrowser.targetPurpose = fbTargetAddFiles
+	wantFiles := `Add files to "Mix": /home/sebastian/Music`
+	if got := m.fbHeaderLine(); !strings.Contains(got, wantFiles) {
+		t.Fatalf("add files header = %q, want %q", got, wantFiles)
+	}
+
+	m.fileBrowser.targetPurpose = fbTargetAddDirSource
+	wantDir := `Add dir source to "Mix": /home/sebastian/Music`
+	if got := m.fbHeaderLine(); !strings.Contains(got, wantDir) {
+		t.Fatalf("add dir header = %q, want %q", got, wantDir)
+	}
 }
