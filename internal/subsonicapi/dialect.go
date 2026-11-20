@@ -85,6 +85,7 @@ func (navidromeDialect) albumSortTypes() []provider.SortType {
 		{ID: SortStarred, Label: "Starred"},
 		{ID: SortByYear, Label: "By Year"},
 		{ID: SortByGenre, Label: "By Genre"},
+		{ID: SortRandom, Label: "Random"},
 	}
 }
 

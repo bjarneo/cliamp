@@ -89,6 +89,7 @@ const (
 	SortStarred              = "starred"
 	SortByYear               = "byYear"
 	SortByGenre              = "byGenre"
+	SortRandom               = "random"
 )
 
 // Config carries the per-server settings for a Client.

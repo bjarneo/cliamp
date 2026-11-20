@@ -653,8 +653,8 @@ func TestBrowseSortValidation(t *testing.T) {
 	// Bandcamp's beta answers an unsupported getAlbumList2 type with an
 	// empty, error-free album list, so its dialect declares its sort list
 	// exhaustive and unknown values fall back. Navidrome takes the full
-	// Subsonic set (random, highest, ...) even though the picker lists a
-	// subset, so a hand-edited value must survive.
+	// Subsonic set (highest, ...) even though the picker lists a subset, so
+	// a hand-edited value must survive.
 	tests := []struct {
 		name string
 		make func(Config) *Client
@@ -664,7 +664,8 @@ func TestBrowseSortValidation(t *testing.T) {
 		{"bandcamp keeps a supported sort", NewBandcampClient, SortAlphabeticalByArtist, SortAlphabeticalByArtist},
 		{"bandcamp falls back on an unsupported sort", NewBandcampClient, SortRecent, SortNewest},
 		{"bandcamp falls back when unset", NewBandcampClient, "", SortNewest},
-		{"navidrome keeps a sort the picker omits", NewNavidromeClient, "random", "random"},
+		{"navidrome keeps a sort the picker omits", NewNavidromeClient, "highest", "highest"},
+		{"navidrome keeps random", NewNavidromeClient, SortRandom, SortRandom},
 		{"navidrome keeps a listed sort", NewNavidromeClient, SortByYear, SortByYear},
 		{"navidrome falls back when unset", NewNavidromeClient, "", SortAlphabeticalByName},
 	}
