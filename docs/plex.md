@@ -34,7 +34,7 @@ libraries = ["Music", "Jazz"]
 |-----|-------------|
 | `url` | Plex Media Server base URL, including port (default `32400`) |
 | `token` | `X-Plex-Token` for authentication |
-| `libraries` | Optional comma-separated music library names to load. If omitted, cliamp loads all music libraries. Name matching is case-insensitive. |
+| `libraries` | Optional comma-separated music library names to load. If omitted, cliamp loads all music libraries. Name matching is case-insensitive. Search results are limited to these libraries too. |
 
 If you access Plex remotely through `app.plex.tv`, use a direct server URL when remote access is enabled. You can also use the server `plex.direct` URL from the Plex Web address bar.
 
