@@ -475,17 +475,21 @@ var commandRegistry = []commandSpec{
 		Keymap:   true,
 	},
 	{
-		Mode:     commandModeMain,
+		Mode: commandModeMain | commandModeProviderPill | commandModeVolume | commandModeEQ |
+			commandModeShuffle | commandModeRepeat | commandModeSpeed | commandModeProvider,
 		Keys:     []string{"o"},
 		KeyLabel: "o",
 		Label:    "Open file browser",
 		Keymap:   true,
 	},
 	{
-		Mode:     commandModeMain,
+		Mode: commandModeMain | commandModeProviderPill | commandModeVolume | commandModeEQ |
+			commandModeShuffle | commandModeRepeat | commandModeSpeed | commandModeProvider |
+			commandModeFileBrowser,
 		Keys:     []string{"p"},
 		KeyLabel: "p",
 		Label:    "Playlists",
+		Enabled:  func(m Model) bool { return m.localProvider != nil },
 		Keymap:   true,
 	},
 	{
@@ -939,17 +943,6 @@ var commandRegistry = []commandSpec{
 			return ok
 		},
 	},
-	{
-		Mode:     commandModeProvider,
-		Keys:     []string{"p"},
-		KeyLabel: "p",
-		Label:    "Playlists",
-		Keymap:   true,
-		Enabled: func(m Model) bool {
-			return m.localProvider != nil
-		},
-	},
-
 	// k and j type into the provider filter.
 	{
 		Mode:     commandModeProviderSearch,

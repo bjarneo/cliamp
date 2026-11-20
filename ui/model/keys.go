@@ -59,6 +59,10 @@ func (m *Model) handleSpeedKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.focus = m.previousMainFocus(focusSpeed)
 	case "space":
 		return m.togglePlayPause()
+	case "o", "p":
+		if m.browsePaneKeys(msg.String()) {
+			return nil
+		}
 	}
 	return nil
 }
@@ -316,6 +320,23 @@ func (m *Model) handleGlobalKey(msg tea.KeyPressMsg) (cmd tea.Cmd, ok bool) {
 	return nil, false
 }
 
+// browsePaneKeys opens the file browser or the local playlist manager from any
+// main-screen focus (playlist, source pill, playback controls, provider pane).
+func (m *Model) browsePaneKeys(key string) bool {
+	switch key {
+	case "o":
+		m.openFileBrowser()
+		return true
+	case "p":
+		if m.localProvider != nil {
+			m.openPlaylistManager()
+		}
+		return true
+	default:
+		return false
+	}
+}
+
 // handleProviderPaneKey processes a key press while the provider pane has
 // the focus.
 func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
@@ -350,9 +371,9 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.loadLatestFromProviderList()
 	case "a":
 		return m.appendShowFromProviderList()
-	case "p":
-		if m.localProvider != nil {
-			m.openPlaylistManager()
+	case "o", "p":
+		if m.browsePaneKeys(msg.String()) {
+			return nil
 		}
 	case "up", "k":
 		m.providerMoveUp()
@@ -408,8 +429,6 @@ func (m *Model) handleProviderPaneKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.refreshActiveProvider(false)
 	case "f":
 		return m.toggleProviderFavorite()
-	case "o":
-		m.openFileBrowser()
 	case "N":
 		if m.tryOpenLocalFileBrowser() {
 			return nil
@@ -466,6 +485,10 @@ func (m *Model) handleProvPillKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.focus = m.previousMainFocus(focusProvPill)
 	case "space":
 		return m.togglePlayPause()
+	case "o", "p":
+		if m.browsePaneKeys(msg.String()) {
+			return nil
+		}
 	}
 	return nil
 }
@@ -764,9 +787,9 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case "ctrl+j":
 		m.openJumpMode()
-	case "p":
-		if m.localProvider != nil {
-			m.openPlaylistManager()
+	case "o", "p":
+		if m.browsePaneKeys(key) {
+			return nil
 		}
 
 	case "t":
@@ -777,9 +800,6 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.lyrics.visible {
 			return m.retryLyrics()
 		}
-
-	case "o":
-		m.openFileBrowser()
 
 	case "u":
 		m.urlInput = urlInputState{active: true}

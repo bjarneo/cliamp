@@ -57,6 +57,7 @@ AZERTY, QWERTZ and Dvorak work as before. On a Russian layout, `?` is
 | `Ctrl+X` | Expand/collapse the frame to the full terminal size (remembered in `expanded`) |
 | `Ctrl+Z` | Undo last queue change |
 | `o` | File browser |
+| `p` | Local playlist manager |
 | `b` `Esc` | Back to the active provider |
 
 On the playback screen, the first `Tab` from the playlist focuses Source
@@ -279,6 +280,7 @@ other key cancels. The Shift-letter keys do not switch providers then.
 | `w` | Add selected files to a saved playlist |
 | `D` | Add folder as live source for a playlist (`[[dir]]` sources). If none are selected, use the selected folder or the open directory. The browser stays open. |
 | `~` `.` | Jump to home / current working directory |
+| `p` | Open the playlist manager |
 | `Esc` `q` `o` | Close file browser |
 
 When the browser adds to a playlist, the help bar shows **Add to playlist** on

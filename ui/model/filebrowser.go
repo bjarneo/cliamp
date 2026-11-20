@@ -248,6 +248,15 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	var cd string
 	switch key {
+	case "p":
+		if m.localProvider == nil {
+			break
+		}
+		m.fileBrowser.visible = false
+		m.fileBrowser.resumeLocal = false
+		m.fileBrowser.clearFilter()
+		m.openPlaylistManager()
+
 	case "esc", "o", "q":
 		m.fileBrowser.visible = false
 		m.fileBrowser.resumeLocal = false

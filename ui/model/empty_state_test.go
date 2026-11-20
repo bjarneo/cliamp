@@ -20,9 +20,10 @@ func TestEmptyStatesNameTheNextStep(t *testing.T) {
 		reject []string
 	}{
 		{
-			name: "no tracks loaded",
-			body: (*Model).renderPlaylist,
-			want: []string{"No tracks loaded.", "Esc", "Back", "Open file browser", "Playlist", "Load URL", "Ctrl+f"},
+			name:  "no tracks loaded",
+			setup: func(m *Model) { m.localProvider = m.provider },
+			body:  (*Model).renderPlaylist,
+			want:  []string{"No tracks loaded.", "Esc", "Back to Local", "Open file browser", "Playlists", "Load URL", "Ctrl+f"},
 		},
 		{
 			name: "catalog search without results",
