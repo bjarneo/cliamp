@@ -773,6 +773,22 @@ func TestSetExpandedAppliesToSimplifiedProviderLists(t *testing.T) {
 	}
 }
 
+func TestToggleExpandedPersists(t *testing.T) {
+	saver := &recordingSaver{}
+	m := newLayoutTestModel(100, 50)
+	m.configSaver = saver
+
+	m.toggleExpandedView()
+	if got := saver.saved["expanded"]; got != "true" {
+		t.Fatalf("saved expanded = %q, want %q", got, "true")
+	}
+
+	m.toggleExpandedView()
+	if got := saver.saved["expanded"]; got != "false" {
+		t.Fatalf("saved expanded = %q, want %q", got, "false")
+	}
+}
+
 // The playback screen has no playlist in simplified mode, so the height is
 // carried but ignored rather than blocked.
 func TestSetExpandedIsInertOnTheSimplifiedPlaybackScreen(t *testing.T) {

@@ -518,10 +518,26 @@ func TestHeaderStateManualOverride(t *testing.T) {
 		t.Fatalf("manual override should suppress heuristic after Add")
 	}
 
-	// A fresh load via setHeaderStateFromTracks clears the manual flag.
+	// A fresh playlist load keeps a pinned manual or config choice.
 	m.setHeaderStateFromTracks([]playlist.Track{mk("B"), mk("B"), mk("B"), mk("B")})
-	if !m.showAlbumHeaders {
-		t.Fatalf("setHeaderStateFromTracks should clear manual flag and re-run heuristic")
+	if m.showAlbumHeaders {
+		t.Fatalf("setHeaderStateFromTracks should keep manual headers hidden")
+	}
+}
+
+func TestToggleAlbumHeadersPersists(t *testing.T) {
+	saver := &recordingSaver{}
+	m := &Model{configSaver: saver}
+	m.setHeaderStateFromTracks([]playlist.Track{{Album: "A"}, {Album: "A"}, {Album: "A"}})
+
+	m.toggleAlbumHeadersManual()
+	if got := saver.saved["show_album_headers"]; got != "false" {
+		t.Fatalf("saved show_album_headers = %q, want %q", got, "false")
+	}
+
+	m.toggleAlbumHeadersManual()
+	if got := saver.saved["show_album_headers"]; got != "true" {
+		t.Fatalf("saved show_album_headers = %q, want %q", got, "true")
 	}
 }
 

@@ -82,9 +82,13 @@ eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 # section opens full info instead. Closing Settings preserves this preference.
 # show_metadata = false
 
+# Pin playlist album separator headers. Omitted keys keep the cohesion heuristic;
+# Ctrl+H toggles and saves here.
+# show_album_headers = true
+
 # Start with the frame at the full terminal height, the state Ctrl+X toggles:
 # the list gets every row the terminal has left instead of 24 plus vis_rows.
-# The key keeps working and collapses the view as before.
+# Ctrl+X toggles and saves here.
 # expanded = true
 
 # Default frame size before Ctrl+X: columns and body rows without vis_rows

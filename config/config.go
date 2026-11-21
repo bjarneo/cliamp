@@ -1147,6 +1147,11 @@ func (c *Config) setTopLevel(key, val string) {
 		if v, ok := parseBool(val); ok {
 			c.ShowMetadata = v
 		}
+	case "show_album_headers":
+		if v, ok := parseBool(val); ok {
+			c.ShowAlbumHeadersSet = true
+			c.ShowAlbumHeaders = v
+		}
 	case "expanded":
 		if v, ok := parseBool(val); ok {
 			c.Expanded = v

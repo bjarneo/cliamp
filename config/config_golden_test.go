@@ -178,6 +178,7 @@ simplified = true
 hide_help_bar = true
 hide_settings_pane = true
 show_metadata = true
+show_album_headers = true
 expanded = true
 audio_device = "USB DAC #2"
 initial_directory = ~/Music#Mixes
@@ -316,6 +317,8 @@ func TestLoadGolden(t *testing.T) {
 	topWant.HideHelpBar = true
 	topWant.HideSettingsPane = true
 	topWant.ShowMetadata = true
+	topWant.ShowAlbumHeaders = true
+	topWant.ShowAlbumHeadersSet = true
 	topWant.Expanded = true
 	topWant.AudioDevice = "USB DAC #2"
 	topWant.InitialDirectory = "~/Music#Mixes"
@@ -333,6 +336,8 @@ func TestLoadGolden(t *testing.T) {
 	allWant.Simplified = true
 	allWant.HideHelpBar = true
 	allWant.HideSettingsPane = true
+	allWant.ShowAlbumHeaders = true
+	allWant.ShowAlbumHeadersSet = true
 	allWant.Expanded = true
 	allWant.Theme = "Tokyo Night"
 	allWant.Visualizer = "Bars"

@@ -312,6 +312,7 @@ func fitHelpLine(s string, width int) string {
 func (m *Model) toggleAlbumHeadersManual() {
 	m.showAlbumHeaders = !m.showAlbumHeaders
 	m.headerManual = true
+	_ = m.saveConfigBool("show_album_headers", m.showAlbumHeaders)
 }
 
 // toggleHelpBar shows or hides the key-binding hint bar and persists the
@@ -337,9 +338,9 @@ func (m *Model) toggleSettingsPane() {
 const minTracksPerAlbum = 3.0
 
 // setHeaderStateFromTracks resets the running counters and re-runs the
-// cohesion heuristic. A fresh load also clears any manual override.
+// cohesion heuristic. A fresh load clears a session-only override, not a
+// choice pinned with Ctrl+H and saved in show_album_headers.
 func (m *Model) setHeaderStateFromTracks(tracks []playlist.Track) {
-	m.headerManual = false
 	m.recountHeaderState(tracks)
 }
 
