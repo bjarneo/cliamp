@@ -270,6 +270,26 @@ type playlistPickerState struct {
 	inputErr  string
 }
 
+// fbSortMode is the directory listing order when no search filter is active.
+type fbSortMode uint8
+
+const (
+	fbSortName fbSortMode = iota
+	fbSortNewest
+	fbSortOldest
+)
+
+func (m fbSortMode) label() string {
+	switch m {
+	case fbSortNewest:
+		return "Newest"
+	case fbSortOldest:
+		return "Oldest"
+	default:
+		return ""
+	}
+}
+
 // fileBrowserState holds state for the file browser overlay. The raw rows
 // are the entries.
 type fileBrowserState struct {
@@ -294,6 +314,7 @@ type fileBrowserState struct {
 	indexDir     string
 	indexGen     uint64
 	indexLoading bool
+	sortMode     fbSortMode
 }
 
 // usesIndex reports whether the filtered rows come from the recursive index

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -31,6 +32,7 @@ type fbEntry struct {
 	isDir    bool
 	isAudio  bool
 	isParent bool
+	modTime  time.Time
 }
 
 // matchName returns the file name used for matching and display priority.
@@ -184,7 +186,6 @@ func (m *Model) loadFBDir() {
 		isParent: true,
 	})
 
-	// Get entries sorted by name, dirs and files mixed
 	entries, err := os.ReadDir(m.fileBrowser.dir)
 	if err != nil {
 		m.fileBrowser.err = err.Error()
@@ -215,12 +216,14 @@ func (m *Model) loadFBDir() {
 			}
 		}
 		// Add entry to m.fileBrowser.entries or to files slice
+		modTime := fbEntryModTime(e)
 		if dirType != "" {
 			full := name + dirType
 			m.fileBrowser.entries = append(m.fileBrowser.entries, fbEntry{
-				name:  full,
-				path:  filepath.Join(m.fileBrowser.dir, name),
-				isDir: true,
+				name:    full,
+				path:    filepath.Join(m.fileBrowser.dir, name),
+				isDir:   true,
+				modTime: modTime,
 			})
 		} else {
 			if files == nil {
@@ -230,10 +233,75 @@ func (m *Model) loadFBDir() {
 				name:    name,
 				path:    filepath.Join(m.fileBrowser.dir, name),
 				isAudio: playlist.IsAudioFile(name),
+				modTime: modTime,
 			})
 		}
 	}
 	m.fileBrowser.entries = append(m.fileBrowser.entries, files...)
+	m.fbSortEntries()
+}
+
+func fbEntryModTime(e os.DirEntry) time.Time {
+	info, err := e.Info()
+	if err != nil || info == nil {
+		return time.Time{}
+	}
+	return info.ModTime()
+}
+
+// fbSortEntries orders directory rows: .. first, then directories, then files.
+// Name is the default; newest and oldest sort by modification time within each group.
+func (m *Model) fbSortEntries() {
+	ents := m.fileBrowser.entries
+	if len(ents) <= 1 {
+		return
+	}
+	parent, rest := ents[0], ents[1:]
+	var dirs, files []fbEntry
+	for _, e := range rest {
+		if e.isDir {
+			dirs = append(dirs, e)
+		} else {
+			files = append(files, e)
+		}
+	}
+	lessName := func(a, b fbEntry) bool {
+		return strings.ToLower(a.matchName()) < strings.ToLower(b.matchName())
+	}
+	less := lessName
+	switch m.fileBrowser.sortMode {
+	case fbSortNewest:
+		less = func(a, b fbEntry) bool {
+			if !a.modTime.Equal(b.modTime) {
+				return a.modTime.After(b.modTime)
+			}
+			return lessName(a, b)
+		}
+	case fbSortOldest:
+		less = func(a, b fbEntry) bool {
+			if !a.modTime.Equal(b.modTime) {
+				return a.modTime.Before(b.modTime)
+			}
+			return lessName(a, b)
+		}
+	}
+	sort.SliceStable(dirs, func(i, j int) bool { return less(dirs[i], dirs[j]) })
+	sort.SliceStable(files, func(i, j int) bool { return less(files[i], files[j]) })
+	m.fileBrowser.entries = append(ents[:0], parent)
+	m.fileBrowser.entries = append(m.fileBrowser.entries, dirs...)
+	m.fileBrowser.entries = append(m.fileBrowser.entries, files...)
+}
+
+func (m *Model) fbCycleSort() {
+	switch m.fileBrowser.sortMode {
+	case fbSortName:
+		m.fileBrowser.sortMode = fbSortNewest
+	case fbSortNewest:
+		m.fileBrowser.sortMode = fbSortOldest
+	default:
+		m.fileBrowser.sortMode = fbSortName
+	}
+	m.fbSortEntries()
 }
 
 // fbUpdateFilter rebuilds the filtered view from the current search query.
@@ -386,6 +454,7 @@ func indexDirRecursive(root string) ([]fbEntry, error) {
 			path:    p,
 			isDir:   isDir,
 			isAudio: !isDir && playlist.IsAudioFile(name),
+			modTime: fbEntryModTime(d),
 		})
 		if len(entries) >= fbIndexMaxEntries {
 			return fs.SkipAll
@@ -478,6 +547,9 @@ func (m *Model) handleFileBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "ctrl+x":
 		m.toggleExpandedView()
 		m.fbMaybeAdjustScroll(m.fbVisible())
+
+	case "s":
+		m.fbCycleSort()
 
 	case "/", "ctrl+f":
 		m.fileBrowser.beginFilter()

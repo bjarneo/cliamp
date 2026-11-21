@@ -229,6 +229,11 @@ func (m Model) fbHeaderLine() string {
 	if n := len(m.fileBrowser.selected); n > 0 {
 		label += fmt.Sprintf("  [%d selected]", n)
 	}
+	if sort := m.fileBrowser.sortMode.label(); sort != "" {
+		head := dimStyle.Render("── "+terminalText(label)+" · ") +
+			trackStyle.Render(terminalText("Sort: "+sort)) + " "
+		return fillSeparator(head, m.layout.panelWidth)
+	}
 	return sepHeader(label, m.layout.panelWidth)
 }
 

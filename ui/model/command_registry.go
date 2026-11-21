@@ -1218,6 +1218,16 @@ var commandRegistry = []commandSpec{
 	},
 	{
 		Mode:     commandModeFileBrowser,
+		Keys:     []string{"s"},
+		KeyLabel: "s",
+		Label:    "Sort",
+		Keymap:   true,
+		Enabled: func(m Model) bool {
+			return !m.fileBrowser.filtering && !m.fileBrowser.confirmReplace
+		},
+	},
+	{
+		Mode:     commandModeFileBrowser,
 		Keys:     []string{"a"},
 		KeyLabel: "a",
 		Label:    "Select/unselect all",

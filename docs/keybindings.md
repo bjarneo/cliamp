@@ -276,6 +276,7 @@ other key cancels. The Shift-letter keys do not switch providers then.
 | `R` | Replace the queue with the selection (confirms when it is non-empty) |
 | `/` `Ctrl+F` | Search the open folder and everything below it. Folders come first, then files, and each row shows its path from the open folder |
 | `Space` | Select or unselect file/directory |
+| `s` | Cycle sort: default name order, then **Newest**, then **Oldest** (modification time). Directories stay above files |
 | `a` | Select/unselect all visible audio files |
 | `w` | Add selected files to a saved playlist |
 | `D` | Add folder as live source for a playlist (`[[dir]]` sources). If none are selected, use the selected folder or the open directory. The browser stays open. |

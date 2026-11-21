@@ -171,7 +171,7 @@ func TestFBFilterKeepsDirectoryListingWithoutQuery(t *testing.T) {
 	m.fbUpdateFilter()
 
 	got := fbRowNames(m)
-	want := []string{"..", "Albums/", "Podcasts/", "Root Track.mp3", "notes.txt"}
+	want := []string{"..", "Albums/", "Podcasts/", "notes.txt", "Root Track.mp3"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("rows = %v, want %v", got, want)
 	}
