@@ -657,7 +657,7 @@ func (m Model) renderPlaylistHeader() string {
 	if ov, ok := m.activeOverlay(); ok {
 		return ov.header(&m)
 	}
-	if m.focus == focusProvider {
+	if m.focus == focusProvider && m.provider != nil {
 		label := m.provider.Name()
 		_, catalog := m.provider.(provider.CatalogSearcher)
 		switch {
@@ -931,7 +931,7 @@ func (m Model) renderPlaylist() string {
 		return ""
 	}
 
-	if m.focus == focusProvider {
+	if m.focus == focusProvider && m.provider != nil {
 		return m.renderProviderList()
 	}
 

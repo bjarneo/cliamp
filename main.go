@@ -106,16 +106,16 @@ func run(overrides config.Overrides, positional []string, headless bool) error {
 		return err
 	}
 
-	defaultProvider := cfg.Provider
-	if defaultProvider == "" {
-		defaultProvider = "cliamp"
+	effectiveProvider := cfg.Provider
+	if effectiveProvider == "" {
+		effectiveProvider = "cliamp"
 	}
-	defaultRadio := len(positional) == 0 && defaultProvider == "radio"
+	defaultRadio := len(positional) == 0 && effectiveProvider == "radio"
 	// The cliamp radio view waits for the listener to pick a channel. Headless
 	// mode has no view, and auto-play expects sound without a keypress, so
 	// both start with the live channel streams instead.
 	liveChannels := defaultRadio ||
-		(len(positional) == 0 && defaultProvider == "cliamp" && (headless || cfg.AutoPlay))
+		(len(positional) == 0 && effectiveProvider == "cliamp" && (headless || cfg.AutoPlay))
 	resumeState := resume.Load()
 
 	pl := playlist.New()
@@ -136,7 +136,7 @@ func run(overrides config.Overrides, positional []string, headless bool) error {
 	}
 	pl.Add(resolved.Tracks...)
 
-	resumeServer := providers.resumeServer(defaultProvider)
+	resumeServer := providers.resumeServer(effectiveProvider)
 	restoredContext := false
 	restoredIndex := 0
 	restoredResumePath := ""
@@ -169,7 +169,7 @@ func run(overrides config.Overrides, positional []string, headless bool) error {
 		defer luaMgr.Close()
 	}
 
-	m := model.New(p, pl, providers.entries, defaultProvider, providers.localPlaylists(), providers.favorites, providers.history, theme.LoadAll(), luaMgr, config.SaveFunc{})
+	m := model.New(p, pl, providers.entries, cfg.Provider, providers.localPlaylists(), providers.favorites, providers.history, theme.LoadAll(), luaMgr, config.SaveFunc{})
 	panes := ui.NewPaneSet()
 	m.SetPaneSet(panes)
 	if luaMgr != nil {
@@ -193,7 +193,7 @@ func run(overrides config.Overrides, positional []string, headless bool) error {
 	if cfg.Playlist != "" && len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 {
 		m.SetLoadedPlaylist(cfg.Playlist)
 	}
-	if !headless && len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 && pl.Len() == 0 {
+	if !headless && cfg.Provider != "" && len(resolved.Tracks) == 0 && len(resolved.Pending) == 0 && pl.Len() == 0 {
 		m.StartInProvider()
 	}
 	if cfg.AutoPlay && !restoredContext {

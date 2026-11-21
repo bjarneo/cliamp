@@ -77,6 +77,12 @@ func (c commandSpec) enabled(m Model) bool {
 	return c.Enabled == nil || c.Enabled(m)
 }
 
+// mainPlaylistEscHelp reports whether the main-screen help bar should list Esc
+// as the way back into the provider playlist pane.
+func (m Model) mainPlaylistEscHelp() bool {
+	return m.provider != nil && m.providerPaneSeen
+}
+
 // runKey returns the key that the keymap sends to run the command. It
 // returns "" when one key press cannot run the command.
 func (c commandSpec) runKey() string {

@@ -178,6 +178,10 @@ func (m Model) previousMainFocus(current focusArea) focusArea {
 func (m *Model) normalizeMainFocus() {
 	for _, focus := range []*focusArea{&m.focus, &m.prevFocus} {
 		switch *focus {
+		case focusProvider:
+			if m.provider == nil {
+				*focus = focusPlaylist
+			}
 		case focusProvPill, focusVolume, focusEQ, focusShuffle, focusRepeat, focusSpeed:
 			if !m.mainFocusAllowed(*focus) {
 				*focus = focusPlaylist
@@ -351,6 +355,7 @@ type Model struct {
 	localProvider           playlist.Provider // local playlist provider for file-based playlist management (always available)
 	provPane                providerPane
 	openDefaultProviderOnce bool             // open the provider's preferred hierarchy after Init
+	providerPaneSeen        bool             // user opened the provider playlist pane at least once
 	providers               []provider.Entry // all available providers
 	provPillIdx             int              // selected pill index
 	eqPresetIdx             int              // -1 = custom, 0+ = index into eqPresets

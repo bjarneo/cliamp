@@ -423,13 +423,13 @@ Set the provider that cliamp opens at start:
 provider = "cliamp"
 ```
 
-The default, `cliamp`, opens on the cliamp radio channels. See [radio.md](radio.md#cliamp-radio).
+When `provider` is unset, cliamp starts on the queue. Set `provider = "cliamp"` to open the cliamp radio channels at start. See [radio.md](radio.md#cliamp-radio).
 
-Valid values: `cliamp` (default), `radio`, `podcast`, `navidrome`, `lyrion`, `plex`, `jellyfin`, `emby`, `spotify`, `qobuz`, `tidal`, `bandcamp`, `soundcloud`, `mixcloud`, `netease`, `yandex`, `audiobookshelf`, `telegram`, `yt`, `youtube`, `ytmusic`. The `--provider` flag also accepts `abs` for `audiobookshelf`.
+Valid values: `cliamp`, `radio`, `podcast`, `navidrome`, `lyrion`, `plex`, `jellyfin`, `emby`, `spotify`, `qobuz`, `tidal`, `bandcamp`, `soundcloud`, `mixcloud`, `netease`, `yandex`, `audiobookshelf`, `telegram`, `yt`, `youtube`, `ytmusic`. The `--provider` flag also accepts `abs` for `audiobookshelf`.
 
 You can also override this setting on the CLI: `cliamp --provider jellyfin`.
 
-When `provider` names a provider that is not configured, cliamp opens on cliamp radio. The status line then shows the setup step for that provider.
+When `provider` names a provider that is not configured, cliamp opens on the first available provider. The status line then shows the setup step for that provider.
 
 ## Podcasts
 

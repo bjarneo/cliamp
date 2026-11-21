@@ -600,7 +600,7 @@ func TestNewHintsUnregisteredDefaultProvider(t *testing.T) {
 		{name: "unknown name", provider: "nosuch", wantProvider: "cliamp radio", want: []string{"not configured", "cliamp setup"}},
 		{name: "headless unconfigured", provider: "qobuz", headless: true, wantProvider: "cliamp radio", want: []string{"cliamp setup"}},
 		{name: "configured provider", provider: "spotify", wantProvider: "Spotify"},
-		{name: "no default", wantProvider: "cliamp radio"},
+		{name: "no default"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -610,12 +610,19 @@ func TestNewHintsUnregisteredDefaultProvider(t *testing.T) {
 				m.SetHeadless(true)
 			}
 
-			if got := m.provider.Name(); got != tt.wantProvider {
-				t.Fatalf("provider = %q, want %q", got, tt.wantProvider)
+			gotName := ""
+			if m.provider != nil {
+				gotName = m.provider.Name()
+			}
+			if gotName != tt.wantProvider {
+				t.Fatalf("provider = %q, want %q", gotName, tt.wantProvider)
 			}
 			if len(tt.want) == 0 {
 				if m.status.text != "" {
 					t.Fatalf("status = %q, want none", m.status.text)
+				}
+				if tt.provider == "" && m.focus == focusProvider {
+					t.Fatalf("focus = focusProvider, want queue when no default provider is set")
 				}
 				return
 			}

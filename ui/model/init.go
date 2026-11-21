@@ -70,13 +70,14 @@ func New(p player.Engine, pl *playlist.Playlist, providers []provider.Entry, def
 			break
 		}
 	}
-	// Fallback: select first available provider. When the default names no
-	// registered provider, such as --provider qobuz with no [qobuz] section,
-	// show the setup hint of the provider shortcuts. See issue #428.
-	if m.provider == nil && len(providers) > 0 {
+	// When a default was requested but did not register, such as --provider qobuz
+	// with no [qobuz] section, select the first provider and show the setup hint.
+	// With no default configured, stay on the queue and let the user pick a
+	// provider. See issue #428.
+	if m.provider == nil && defaultProvider != "" && len(providers) > 0 {
 		m.provPillIdx = 0
 		m.provider = providers[0].Provider
-		if defaultProvider != "" && !m.hasProvider(defaultProvider) {
+		if !m.hasProvider(defaultProvider) {
 			m.status.Warning(unconfiguredProviderHint(defaultProvider), statusTTLLong)
 		}
 	}

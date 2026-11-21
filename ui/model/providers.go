@@ -39,8 +39,13 @@ func (m *Model) resetProviderNav() {
 
 // StartInProvider configures the model to begin in the provider browse view.
 // Call this from main when no CLI tracks or pending URLs were given.
+func (m *Model) noteProviderPaneVisit() {
+	m.providerPaneSeen = true
+}
+
 func (m *Model) StartInProvider() {
 	if m.provider != nil {
+		m.noteProviderPaneVisit()
 		m.focus = focusProvider
 		m.resetProviderNav()
 		_, m.openDefaultProviderOnce = m.provider.(provider.DefaultBrowseModeProvider)
@@ -60,6 +65,7 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	m.catalogBatch = catalogBatchState{}
 	m.activeProviderPlaylistID = ""
 	m.resetProviderNav()
+	m.noteProviderPaneVisit()
 	m.focus = focusProvider
 	// Shift+L and the provider pill land on the Local page. A file browser
 	// left open by playback is restored only by Esc from the queue.
