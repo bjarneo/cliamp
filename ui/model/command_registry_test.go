@@ -346,6 +346,9 @@ func TestFileBrowserHelpOrder(t *testing.T) {
 	m.fileBrowser.selected = nil
 	m.fileBrowser.cursor = 2
 	help = m.helpBar(commandModeFileBrowser)
+	if !strings.Contains(help, "Add to queue") {
+		t.Fatalf("audio row without selection should say Add to queue: %q", help)
+	}
 	for _, key := range []string{"Esc", "Space", "Enter", "?"} {
 		if !strings.Contains(help, key) {
 			t.Fatalf("file browser help %q missing %q", help, key)

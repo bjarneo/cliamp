@@ -55,7 +55,7 @@ AZERTY, QWERTZ and Dvorak work as before. On a Russian layout, `?` is
 | `Enter` | Play selected track |
 | `/` | Filter the playlist (navigate results with `↑` `↓` / `Ctrl+N` `Ctrl+P`; `Ctrl+U` clears the query; `Tab` toggles play next for the selected result) |
 | `Ctrl+X` | Expand/collapse the frame to the full terminal size (remembered in `expanded`) |
-| `Ctrl+Z` | Undo last queue change |
+| `Ctrl+Z` | Undo last queue change, or restore a podcast subscription or radio favorite you just removed |
 | `o` | File browser |
 | `p` | Local playlist manager |
 | `b` `Esc` | Back to the active provider |

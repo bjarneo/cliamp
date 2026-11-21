@@ -93,7 +93,7 @@ func TestFavoriteFromProviderAlbumsAndSearch(t *testing.T) {
 				}
 				wantStatus := "Favorited: Target Show"
 				if outcome == "remove" {
-					wantStatus = "Removed: Target Show"
+					wantStatus = "Removed: Target Show (Ctrl+Z to undo)"
 				} else if outcome == "error" {
 					wantStatus = "Favorite save failed: " + p.err.Error()
 					if m.status.kind != feedbackError {

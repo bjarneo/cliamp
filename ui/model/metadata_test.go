@@ -236,8 +236,8 @@ func TestMetadataShortcutLeavesTabNavigationIntact(t *testing.T) {
 	}{
 		{tea.KeyPressMsg{Code: tea.KeyTab}, focusProvPill},
 		{tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}, focusSpeed},
-		{tea.KeyPressMsg{Text: "I"}, focusPlaylist},
-		{tea.KeyPressMsg{Code: 'i', ShiftedCode: 'I', Mod: tea.ModShift}, focusPlaylist},
+		{tea.KeyPressMsg{Text: "H"}, focusPlaylist},
+		{tea.KeyPressMsg{Code: 'h', ShiftedCode: 'H', Mod: tea.ModShift}, focusPlaylist},
 	} {
 		t.Run(tt.key.String(), func(t *testing.T) {
 			m := newColumnTestModel(86, 24)

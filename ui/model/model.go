@@ -350,6 +350,7 @@ type Model struct {
 	layoutText           string // what the layout typed for the key physicalKey rewrote, while it is handled
 	layoutKeysOff        bool   // the terminal can't send the typed text with key positions; see handleKeyboardEnhancements
 	playlistUndo         playlistUndo
+	providerFavoriteUndo providerFavoriteUndo
 
 	// Provider state
 	provider                playlist.Provider

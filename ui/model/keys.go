@@ -295,7 +295,11 @@ func (m *Model) handleGlobalKey(msg tea.KeyPressMsg) (cmd tea.Cmd, ok bool) {
 	}
 	switch msg.String() {
 	case "ctrl+z":
-		m.keepPlCursorRow(func() { cmd = m.undoPlaylistMutation() })
+		if m.playlistUndo.active {
+			m.keepPlCursorRow(func() { cmd = m.undoPlaylistMutation() })
+			return cmd, true
+		}
+		cmd = m.undoProviderFavoriteRemoval()
 		return cmd, true
 	case "ctrl+k":
 		if !m.keymap.visible {

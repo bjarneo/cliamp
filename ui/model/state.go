@@ -39,6 +39,18 @@ type playlistUndo struct {
 	savedIdx  int
 }
 
+// providerFavoriteUndo is Ctrl+Z undo of the last provider favorite removal,
+// such as a podcast unsubscribe or a radio favorite. stationURL names a
+// playback-row station favorite when providerKey is empty.
+type providerFavoriteUndo struct {
+	active      bool
+	providerKey string
+	id          string
+	name        string
+	stationURL  string
+	stationName string
+}
+
 // netSearchScreenType identifies which screen of the net search overlay is active.
 type netSearchScreenType int
 

@@ -1,6 +1,8 @@
 package model
 
 import (
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/bjarneo/cliamp/external/radio"
@@ -88,11 +90,116 @@ func (m *Model) toggleFavorite(prov playlist.Provider, id string) bool {
 		return false
 	}
 	if added {
+		m.providerFavoriteUndo = providerFavoriteUndo{}
 		m.status.Showf(statusTTLMedium, "Favorited: %s", name)
 	} else {
-		m.status.Showf(statusTTLMedium, "Removed: %s", name)
+		m.recordProviderFavoriteUndo(m.providerKeyFor(prov), id, name)
+		m.status.Showf(statusTTLMedium, "Removed: %s (Ctrl+Z to undo)", name)
 	}
 	return true
+}
+
+func (m *Model) recordProviderFavoriteUndo(providerKey, id, name string) {
+	m.playlistUndo = playlistUndo{}
+	// A favorite-row ID (f:url) no longer resolves once the station is removed;
+	// undo re-adds through the favorites store instead of ToggleFavorite.
+	if providerKey == providerKeyRadio && strings.HasPrefix(id, "f:") {
+		m.providerFavoriteUndo = providerFavoriteUndo{
+			active:      true,
+			stationURL:  strings.TrimPrefix(id, "f:"),
+			stationName: name,
+			name:        name,
+		}
+		return
+	}
+	m.providerFavoriteUndo = providerFavoriteUndo{
+		active:      true,
+		providerKey: providerKey,
+		id:          id,
+		name:        name,
+	}
+}
+
+func (m *Model) recordRadioStationFavoriteUndo(station radio.CatalogStation) {
+	m.playlistUndo = playlistUndo{}
+	m.providerFavoriteUndo = providerFavoriteUndo{
+		active:      true,
+		stationURL:  station.URL,
+		stationName: station.Name,
+		name:        station.Name,
+	}
+}
+
+// undoProviderFavoriteRemoval re-favorites a removed provider item or radio
+// station. Ctrl+Z runs when no queue undo is pending.
+func (m *Model) undoProviderFavoriteRemoval() tea.Cmd {
+	undo := m.providerFavoriteUndo
+	if !undo.active {
+		m.status.Warning("Nothing to undo", statusTTLShort)
+		return nil
+	}
+	if undo.stationURL != "" {
+		if m.radioFavorites == nil {
+			m.status.Warning("Undo unavailable", statusTTLDefault)
+			return nil
+		}
+		station := radio.CatalogStation{Name: undo.stationName, URL: undo.stationURL}
+		added, err := m.radioFavorites.Toggle(station)
+		if err != nil {
+			m.status.Errorf(statusTTLDefault, "Undo failed: %s", err)
+			return nil
+		}
+		if !added {
+			m.status.Warning("Undo failed: station still unfavorited", statusTTLDefault)
+			return nil
+		}
+		if m.activeProviderKey() == providerKeyRadio {
+			m.refreshProviderListsAfterMutation()
+			m.selectProviderListID("f:" + undo.stationURL)
+		}
+	} else {
+		prov := m.providerByKey(undo.providerKey)
+		ft, ok := prov.(provider.FavoriteToggler)
+		if !ok {
+			m.status.Warning("Undo unavailable", statusTTLDefault)
+			return nil
+		}
+		added, _, err := ft.ToggleFavorite(undo.id)
+		if err != nil {
+			m.status.Errorf(statusTTLDefault, "Undo failed: %s", err)
+			return nil
+		}
+		if !added {
+			m.status.Warning("Undo failed: still removed", statusTTLDefault)
+			return nil
+		}
+		if m.provider != nil && m.providerKeyFor(prov) == undo.providerKey {
+			m.refreshProviderListsAfterMutation()
+			m.selectProviderListID(undo.id)
+		}
+	}
+	m.providerFavoriteUndo = providerFavoriteUndo{}
+	m.status.Showf(statusTTLDefault, "Restored: %s", undo.name)
+	return nil
+}
+
+func (m Model) providerByKey(key string) playlist.Provider {
+	for _, e := range m.providers {
+		if e.Key == key {
+			return e.Provider
+		}
+	}
+	return nil
+}
+
+func (m *Model) selectProviderListID(id string) {
+	for i, item := range m.provPane.lists {
+		if item.ID == id {
+			m.provPane.cursor = i
+			m.providerMaybeAdjustScroll()
+			return
+		}
+	}
 }
 
 // playlistStarAction keeps the key handler and its help scoped to the same
@@ -173,9 +280,11 @@ func (m *Model) togglePlaylistTrackFavorite(track playlist.Track, savedPlaylist 
 		return nil, err
 	}
 	if added {
+		m.providerFavoriteUndo = providerFavoriteUndo{}
 		m.status.Showf(statusTTLMedium, "Favorited station: %s", station.Name)
 	} else {
-		m.status.Showf(statusTTLMedium, "Removed station: %s", station.Name)
+		m.recordRadioStationFavoriteUndo(station)
+		m.status.Showf(statusTTLMedium, "Removed station: %s (Ctrl+Z to undo)", station.Name)
 	}
 	// Only the displayed Radio pane needs refreshing. Switching back from
 	// another provider fetches its list normally; never replace that provider's

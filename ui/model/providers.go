@@ -485,6 +485,17 @@ func (m *Model) switchToProvider(key string) tea.Cmd {
 	return nil
 }
 
+// providerKeyFor returns the config key of prov, or "" when it is not
+// registered.
+func (m Model) providerKeyFor(prov playlist.Provider) string {
+	for _, e := range m.providers {
+		if e.Provider == prov {
+			return e.Key
+		}
+	}
+	return ""
+}
+
 // hasProvider reports whether a provider with the config key registered.
 func (m Model) hasProvider(key string) bool {
 	for _, pe := range m.providers {
