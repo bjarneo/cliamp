@@ -937,6 +937,13 @@ var commandRegistry = []commandSpec{
 	},
 	{
 		Mode:     commandModeProvider,
+		Keys:     []string{"/"},
+		KeyLabel: "/",
+		Label:    "Filter",
+		Keymap:   true,
+	},
+	{
+		Mode:     commandModeProvider,
 		Keys:     []string{"ctrl+p"},
 		KeyLabel: "Ctrl+P",
 		Label:    "Pick chats",
@@ -1278,6 +1285,16 @@ var commandRegistry = []commandSpec{
 		ContextHelp: true,
 		Enabled: func(m Model) bool {
 			return m.plManager.visible && m.plManager.screen == plMgrScreenTracks
+		},
+	},
+	{
+		Mode:     commandModePlaylistManager,
+		Keys:     []string{"/"},
+		KeyLabel: "/",
+		Label:    "Filter",
+		Enabled: func(m Model) bool {
+			return m.plManager.visible && !m.plManager.filtering &&
+				(m.plManager.screen == plMgrScreenList || m.plManager.screen == plMgrScreenTracks)
 		},
 	},
 	{
