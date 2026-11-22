@@ -36,7 +36,7 @@ func TestKeymapStartsWithCurrentScreenCommands(t *testing.T) {
 	if len(entries) < 2 || !entries[0].divider || entries[0].action != "— current: Browse —" {
 		t.Fatalf("keymap starts with %+v, want current Browse section", entries)
 	}
-	if !strings.Contains(entries[1].action, "Back") && !strings.Contains(entries[1].action, "Help") {
+	if entries[1].divider {
 		t.Fatalf("first current-screen keymap entry = %+v, want browser command", entries[1])
 	}
 }

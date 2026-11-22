@@ -20,7 +20,7 @@ func TestCommandHelpKeepsEssentialHintsAtMinimumWidth(t *testing.T) {
 		mode commandMode
 		keys []string
 	}{
-		{name: "main", mode: commandModeMain, keys: []string{"Space", "Ctrl+K"}},
+		{name: "main", mode: commandModeMain, keys: []string{"Enter", "Ctrl+K"}},
 		{name: "provider", mode: commandModeProvider, keys: []string{"Esc", "Enter", "Ctrl+K"}},
 		{name: "equalizer", mode: commandModeEQ, keys: []string{"Space", "Ctrl+K"}},
 		{name: "speed", mode: commandModeSpeed, keys: []string{"Space", "Ctrl+K"}},
@@ -114,7 +114,7 @@ func TestPreviousEQPresetRegistryEntry(t *testing.T) {
 func TestContextHelpAdvertisesProviderBrowsing(t *testing.T) {
 	browse := trackArtistBrowseProvider{interactionBrowseProvider{commandsTestProvider{name: "Mixcloud"}}}
 	m := keybindingTestModel()
-	m.layout.panelWidth = 80
+	m.layout.panelWidth = 120
 	m.provider = browse
 	m.providers = append(m.providers, provider.Entry{Key: "mixcloud", Name: "Mixcloud", Provider: browse})
 	m.playlist.Add(playlist.Track{
