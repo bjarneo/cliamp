@@ -95,7 +95,7 @@ func TestVisualizerPickerFilterPreservesModeIndex(t *testing.T) {
 
 func TestPickerFilterHelpDescribesFilterInput(t *testing.T) {
 	m := Model{themePicker: themePickerState{visible: true, filterList: filterList{filtering: true}}}
-	plain := ansi.Strip(m.renderHelp())
+	plain := ansi.Strip(m.renderHelpBar())
 	if !strings.Contains(plain, "Cancel filter") || !strings.Contains(plain, "Finish filter") {
 		t.Fatalf("theme filter help = %q, want filter actions", plain)
 	}

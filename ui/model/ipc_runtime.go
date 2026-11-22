@@ -288,12 +288,9 @@ func (m *Model) handleV2QueueRequest(ctx context.Context, jobs *ipc.JobStore, jo
 		m.completeV2Job(jobs, jobID, m.v2PlaylistResponse())
 		return cmd
 	case "queue.clear":
-		m.stopPlayback()
-		m.retireTracksPaging()
-		m.replacePlaylist(nil)
-		m.clearLoadedPlaylist()
-		m.setHeaderStateFromTracks(nil)
-		m.plCursor, m.plScroll = 0, 0
+		cmd := m.clearLivePlaylist(false)
+		m.completeV2Job(jobs, jobID, m.v2PlaylistResponse())
+		return cmd
 	}
 	m.completeV2Job(jobs, jobID, m.v2PlaylistResponse())
 	return nil

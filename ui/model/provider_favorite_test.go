@@ -79,7 +79,7 @@ func TestFavoriteFromProviderAlbumsAndSearch(t *testing.T) {
 					m.provider = commandsTestProvider{name: "Other"}
 				}
 				mode, _ := m.keymapContext()
-				if help := m.commandHelp(mode); !strings.Contains(help, "Favorite") {
+				if help := m.helpBar(mode); !strings.Contains(help, "Favorite") {
 					t.Fatalf("favorite-capable selection has no command help: %q", help)
 				}
 				albums := slices.Clone(m.navBrowser.albums)
@@ -93,7 +93,7 @@ func TestFavoriteFromProviderAlbumsAndSearch(t *testing.T) {
 				}
 				wantStatus := "Favorited: Target Show"
 				if outcome == "remove" {
-					wantStatus = "Removed: Target Show"
+					wantStatus = "Removed: Target Show (Ctrl+Z to undo)"
 				} else if outcome == "error" {
 					wantStatus = "Favorite save failed: " + p.err.Error()
 					if m.status.kind != feedbackError {
@@ -159,7 +159,7 @@ func TestFavoriteActionAndHelpGuardSelection(t *testing.T) {
 			m, p := favoriteAlbumTestModel(tt.view)
 			tt.setup(&m)
 			mode, _ := m.keymapContext()
-			if help := m.commandHelp(mode); strings.Contains(help, "Favorite") {
+			if help := m.helpBar(mode); strings.Contains(help, "Favorite") {
 				t.Fatalf("ineligible selection advertises favorite: %q", help)
 			}
 			if cmd := m.handleKey(tea.KeyPressMsg{Text: "f"}); cmd != nil || len(p.toggled) != 0 || m.status.text != "" {

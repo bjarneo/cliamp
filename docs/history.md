@@ -6,7 +6,7 @@ at the top of the list. A track that you skip stays in the list.
 
 ## Browsing in the TUI
 
-Open the **Local Playlists** provider. After cliamp records at least one play,
+Open the **Local** provider. After cliamp records at least one play,
 a virtual `Recently Played` entry appears at the top. Open it like any other
 playlist. Tracks are newest first. The list is read-only. cliamp rejects
 track removal and playlist deletion requests with an error. `f` still toggles

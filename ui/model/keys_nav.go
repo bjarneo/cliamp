@@ -38,6 +38,25 @@ func (m *Model) handleNavBrowserKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 
+	if !m.navBrowser.searching && key == "ctrl+r" {
+		if m.navBrowser.screen == navBrowseScreenTracks && m.refreshesInPlace() {
+			if r, ok := m.navBrowser.prov.(playlist.Refresher); ok {
+				r.Refresh()
+			}
+			nextRequest(&m.requests.catalog)
+			m.catalogBatch = catalogBatchState{}
+			m.navBrowser.loading = true
+			if l, ok := m.navBrowser.prov.(provider.AlbumTrackLoader); ok {
+				m.status.Activityf(statusTTLShort, "Refreshing %s…", m.navBrowser.prov.Name())
+				return fetchNavAlbumTracksCmd(l, m.activeProviderPlaylistID, m.nextNavRequest())
+			}
+		}
+		if m.navBrowser.prov == m.provider {
+			return m.refreshActiveProvider(false)
+		}
+		return nil
+	}
+
 	// Shift+letter quick-switch to another provider — only when not typing
 	// into the filter, so users can still type capital letters in queries.
 	if !m.navBrowser.searching && (key != "R" || m.navBrowser.screen != navBrowseScreenTracks) {
@@ -485,6 +504,9 @@ func (m *Model) handleNavReplacePromptKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "enter":
 		m.navBrowser.confirmReplace = false
+		if m.navTrackListFileStyle() {
+			return m.navConfirmSelectedTracks(true, false)
+		}
 		return m.replacePlaylistFromNav()
 	case "esc", "R":
 		m.navBrowser.confirmReplace = false
@@ -496,6 +518,9 @@ func (m *Model) handleNavReplacePromptKey(msg tea.KeyPressMsg) tea.Cmd {
 
 // handleNavTrackListKey handles the final track-list screen (used by all modes).
 func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
+	if m.navTrackListFileStyle() {
+		return m.handleNavTrackListFileStyleKey(msg)
+	}
 	// Determine effective list length (filtered or full).
 	listLen := len(m.navBrowser.tracks)
 	if m.navBrowser.search != "" {
@@ -586,8 +611,18 @@ func (m *Model) handleNavTrackListKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.favoriteTrackKey(m.navBrowser.tracks[idx])
 		}
 	case "esc", "h", "left", "backspace":
-		// Navigate back one level depending on the mode and how we got here.
 		m.navClearSearch()
+		if m.navBrowser.directTrackJump {
+			m.cancelNavRequests()
+			m.navBrowser.directTrackJump = false
+			if m.navBrowser.fromProvList {
+				m.navBackFromRoot()
+			} else {
+				m.navBrowser.visible = false
+			}
+			return nil
+		}
+		// Navigate back one level depending on the mode and how we got here.
 		m.navBrowser.cursor = 0
 		m.navBrowser.scroll = 0
 		switch m.navBrowser.mode {

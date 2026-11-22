@@ -3,7 +3,6 @@ package model
 
 import (
 	"context"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -113,46 +112,36 @@ func (f focusArea) label() string {
 	}
 }
 
-// mainFocusAreas returns only controls rendered in the current density tier.
+// mainFocusAreas returns the settings the playback view renders, in reading
+// order: the rows the settings pane keeps in the two-column layout, or every
+// stacked setting.
 // Secondary screens own their input independently, so this applies to the
 // main playback screen and the provider playlist pane.
 func (m Model) mainFocusAreas() []focusArea {
 	areas := []focusArea{focusPlaylist}
-	if m.simplified || m.layout.tier == layoutMinimal || m.layout.tier == layoutTooSmall {
+	if m.simplified || m.layout.tooSmall() || !m.layout.twoColumn && m.layout.height < stackedSettingsMinHeight {
 		return areas
 	}
 	if m.layout.twoColumn {
-		rows := m.effectivePlaylistVisible()
-		for _, row := range m.settingsPaneRows(rows - m.metadataPaneRows(rows)) {
-			if row.focus != focusPlaylist {
-				areas = append(areas, row.focus)
-			}
+		rows := m.layout.listRows()
+		gap, metaRows := m.metadataPaneBudget(rows)
+		for _, row := range m.settingsPaneRows(rows - gap - metaRows) {
+			areas = append(areas, row.focus...)
 		}
 		return areas
 	}
 	if len(m.providers) > 1 {
 		areas = append(areas, focusProvPill)
 	}
-	areas = append(areas, focusVolume)
-	// The closed pane keeps source/volume and the playlist mode badges, but
-	// draws no EQ or speed readout. Both stay reachable by their global keys.
-	if !m.layout.closedSettings {
-		areas = append(areas, focusEQ)
-	}
+	var modes []focusArea
 	if m.playlist != nil {
-		// Probe each focused badge: its extra label must fit too, independent
-		// of the current focus or an overlay temporarily replacing the header.
-		for _, area := range []focusArea{focusShuffle, focusRepeat} {
-			m.focus = area
-			if strings.Contains(m.renderPlaybackHeader(), "["+area.label()+" ") {
-				areas = append(areas, area)
-			}
-		}
+		modes = []focusArea{focusShuffle, focusRepeat}
 	}
-	if !m.layout.closedSettings {
-		areas = append(areas, focusSpeed)
+	if m.layout.settingsOneRow() {
+		areas = append(append(append(areas, focusEQ), modes...), focusSpeed)
+		return append(areas, focusVolume)
 	}
-	return areas
+	return append(append(areas, focusVolume, focusSpeed, focusEQ), modes...)
 }
 
 func (m Model) mainFocusAllowed(focus focusArea) bool {
@@ -189,6 +178,10 @@ func (m Model) previousMainFocus(current focusArea) focusArea {
 func (m *Model) normalizeMainFocus() {
 	for _, focus := range []*focusArea{&m.focus, &m.prevFocus} {
 		switch *focus {
+		case focusProvider:
+			if m.provider == nil {
+				*focus = focusPlaylist
+			}
 		case focusProvPill, focusVolume, focusEQ, focusShuffle, focusRepeat, focusSpeed:
 			if !m.mainFocusAllowed(*focus) {
 				*focus = focusPlaylist
@@ -267,13 +260,6 @@ func (s topLevelScreen) label() string {
 	}
 }
 
-// maxPlVisible caps the playlist at a readable height even on tall terminals.
-// maxPlExpandVisible is the higher cap used by content-first list screens.
-const (
-	maxPlVisible       = 12
-	maxPlExpandVisible = 24
-)
-
 type plMgrScreenType int
 
 const (
@@ -346,29 +332,32 @@ type Model struct {
 	ratingLatest           map[string]uint64
 
 	// UI navigation
-	focus           focusArea
-	prevFocus       focusArea // focus to restore on cancel (search, net search)
-	eqCursor        int       // selected EQ band (0-9)
-	plCursor        int       // selected playlist item
-	plScroll        int       // scroll offset for playlist view
-	plVisible       int       // desired max visible playlist lines
-	titleOff        int       // scroll offset for the now-playing marquee
-	titleLastScroll time.Time // last time the title scrolled
-	err             error
-	quitting        bool
-	width           int
-	height          int
-	layout          frameLayout
-	textInput       textEditor
-	layoutText      string // what the layout typed for the key physicalKey rewrote, while it is handled
-	layoutKeysOff   bool   // the terminal can't send the typed text with key positions; see handleKeyboardEnhancements
-	playlistUndo    playlistUndo
+	focus                focusArea
+	prevFocus            focusArea // focus to restore on cancel (search, net search)
+	eqCursor             int       // selected EQ band (0-9)
+	plCursor             int       // selected playlist item
+	plScroll             int       // scroll offset for playlist view
+	confirmClearPlaylist bool      // second c press to clear the live queue
+	plVisible            int       // desired max visible playlist lines
+	titleOff             int       // scroll offset for the now-playing marquee
+	titleLastScroll      time.Time // last time the title scrolled
+	err                  error
+	quitting             bool
+	width                int
+	height               int
+	layout               frameLayout
+	textInput            textEditor
+	layoutText           string // what the layout typed for the key physicalKey rewrote, while it is handled
+	layoutKeysOff        bool   // the terminal can't send the typed text with key positions; see handleKeyboardEnhancements
+	playlistUndo         playlistUndo
+	providerFavoriteUndo providerFavoriteUndo
 
 	// Provider state
 	provider                playlist.Provider
 	localProvider           playlist.Provider // local playlist provider for file-based playlist management (always available)
 	provPane                providerPane
 	openDefaultProviderOnce bool             // open the provider's preferred hierarchy after Init
+	providerPaneSeen        bool             // user opened the provider playlist pane at least once
 	providers               []provider.Entry // all available providers
 	provPillIdx             int              // selected pill index
 	eqPresetIdx             int              // -1 = custom, 0+ = index into eqPresets
@@ -424,9 +413,11 @@ type Model struct {
 
 	visVolumeLinked bool // when true, visualizer samples are scaled by volume gain
 	visRows         int  // configured visualizer height at the full tier; 0 uses ui.DefaultVisRows
+	frameBaseWidth  int  // default frame width before Ctrl+X; zero uses 150
+	frameBaseHeight int  // default frame height before vis_rows, before Ctrl+X; zero uses 24
 	paddingH        int  // configured frame padding left and right; used when paddingSet
 	paddingV        int  // configured frame padding above and below; used when paddingSet
-	paddingSet      bool // false uses defaultPaddingH and defaultPaddingV
+	paddingSet      bool // false uses zero padding
 
 	// Async stream buffering (true while HTTP connect is in progress)
 	buffering   bool

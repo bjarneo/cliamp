@@ -13,33 +13,118 @@ import (
 
 // The two-column body puts the playlist on the left and the focusable playback
 // settings on the right, separated by blank space rather than a drawn rule.
-// The stacked EQ/volume, source, and bottom status rows move into the settings
-// pane, so the rows they used go to the playlist.
+// The one-column playback view stacks the same settings below the seek bar.
 
 // eqBandLabels names the ten EQ bands. A band sitting at 0 dB shows its
 // frequency instead of a gain, so the row doubles as the band legend.
 var eqBandLabels = [10]string{"70", "180", "320", "600", "1k", "3k", "6k", "12k", "14k", "16k"}
 
-// renderBodyRegion renders the playlist region: the playlist beside the
-// settings pane in the two-column layout, or the full-width body otherwise.
+// renderBodyRegion renders the body: its header row, then the playlist beside
+// the settings pane in the two-column layout, or the full-width body otherwise.
+// It always fills the layout's body rows.
 func (m Model) renderBodyRegion() string {
-	if !m.layout.twoColumn {
-		return ui.FitRect(m.renderMainBody(), m.layout.panelWidth, m.layout.bodyRows)
-	}
-
-	rows := m.effectivePlaylistVisible()
-	if rows <= 0 {
+	if m.layout.bodyRows <= 0 {
 		return ""
+	}
+	rows := m.layout.listRows()
+	if !m.layout.twoColumn {
+		header := m.renderPlaylistHeader()
+		if rows == 0 {
+			return header
+		}
+		return header + "\n" + ui.FitRect(m.renderMainBody(), m.layout.panelWidth, rows)
 	}
 
 	left := columnLines(m.renderPlaylistColumn(), m.layout.playlistWidth, rows)
 	right := columnLines(m.renderSettingsPane(rows), m.layout.settingsWidth, rows)
 
-	joined := make([]string, rows)
-	for i := range joined {
-		joined[i] = left[i] + columnGutter + right[i]
+	joined := make([]string, 0, rows+1)
+	joined = append(joined, m.renderColumnHeaders())
+	for i := range rows {
+		joined = append(joined, left[i]+columnGutter+right[i])
 	}
 	return strings.Join(joined, "\n")
+}
+
+// stackedGap separates the items of a stacked settings row.
+const stackedGap = " "
+
+// The one-row stacked settings draw the volume meter between these widths
+// when the row has room to spare.
+const (
+	stackedVolumeBarMinWidth = 8
+	stackedVolumeBarMaxWidth = 20
+)
+
+// renderSettingsStacked renders the settings below the seek bar, on one row
+// when the frame is wide enough and on two aligned rows otherwise: source,
+// volume, and speed, then EQ, shuffle, repeat, and network.
+func (m Model) renderSettingsStacked() string {
+	w := m.layout.panelWidth
+	if m.layout.settingsRows == 1 {
+		return m.renderSettingsOneRow(w)
+	}
+	label, db := m.volumeReadout()
+	return alignSettings(w, [][]string{
+		{m.settingsSource(w, false), label + db, m.settingsSpeed(), m.settingsNetworkProgress(w)},
+		{m.settingsEQPreset("EQ  "), m.settingsShuffle(), m.settingsRepeat(), m.settingsNetworkSpeed(w)},
+	})
+}
+
+// renderSettingsOneRow lays out source, EQ, shuffle, repeat, and speed from
+// the left and the volume against the right edge. Spare room brings the volume
+// meter back and appends the network counters when they fit.
+func (m Model) renderSettingsOneRow(w int) string {
+	modes := joinSettings(stackedGap, m.settingsEQPreset("EQ "), m.settingsShuffle(), m.settingsRepeat(), m.settingsSpeed())
+	left := joinSettings(stackedGap, m.settingsSource(w, false), modes)
+	label, db := m.volumeReadout()
+	right := label + db
+	spare := w - lipgloss.Width(left) - len(stackedGap) - lipgloss.Width(right)
+	if barW := min(stackedVolumeBarMaxWidth, spare-1); barW >= stackedVolumeBarMinWidth {
+		right = label + m.volumeBar(barW) + db
+		spare -= barW + 1
+	}
+	if net := m.settingsNetwork(w); net != "" && spare > len(stackedGap) {
+		left += stackedGap + ansi.Truncate(net, spare-len(stackedGap), "")
+	}
+
+	left = ansi.Truncate(left, max(0, w-lipgloss.Width(right)-len(stackedGap)), "")
+	pad := max(len(stackedGap), w-lipgloss.Width(left)-lipgloss.Width(right))
+	return ansi.Truncate(left+strings.Repeat(" ", pad)+right, w, "")
+}
+
+// alignSettings lays rows of settings out in columns, so the labels of each
+// column line up from one row to the next.
+func alignSettings(w int, rows [][]string) string {
+	var widths []int
+	for i, row := range rows {
+		row = slices.DeleteFunc(row, func(s string) bool { return s == "" })
+		rows[i] = row
+		for col, cell := range row {
+			if col == len(widths) {
+				widths = append(widths, 0)
+			}
+			widths[col] = max(widths[col], lipgloss.Width(cell))
+		}
+	}
+	lines := make([]string, len(rows))
+	for i, row := range rows {
+		var b strings.Builder
+		for col, cell := range row {
+			b.WriteString(cell)
+			if col < len(row)-1 {
+				b.WriteString(strings.Repeat(" ", widths[col]-lipgloss.Width(cell)) + stackedGap)
+			}
+		}
+		lines[i] = ansi.Truncate(b.String(), w, "")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// joinSettings joins the non-empty settings items with sep.
+func joinSettings(sep string, items ...string) string {
+	items = slices.DeleteFunc(items, func(s string) bool { return s == "" })
+	return strings.Join(items, sep)
 }
 
 // renderPlaylistColumn renders the body against the playlist column width
@@ -53,15 +138,13 @@ func (m Model) renderPlaylistColumn() string {
 // renderColumnHeaders renders the single header row above the two columns: the
 // playlist header on the left and the settings label on the right, each
 // separator running to its own column edge so the blank gutter between them
-// stays open from the header down.
+// stays open from the header down. The playlist header renders against its
+// column width, so it drops the badges the column cannot hold.
 func (m Model) renderColumnHeaders() string {
-	// Both headers are fitted to their own column below, so neither needs
-	// the panel width narrowed first: the headers that reach this layout render
-	// against their own column width, and the settings separator is re-fitted
-	// either way. The queue's header arrives here when it is toggled on.
+	m.layout.panelWidth = m.layout.playlistWidth
 	return fillSeparator(m.renderPlaylistHeader(), m.layout.playlistWidth) +
 		columnGutter +
-		fillSeparator(sepHeader("Settings", m.layout.panelWidth), m.layout.settingsWidth)
+		fillSeparator(sepHeader("Settings", m.layout.settingsWidth), m.layout.settingsWidth)
 }
 
 // settingsPaneMaxRows is the pane's full height: source, volume, EQ preset,
@@ -73,12 +156,12 @@ const settingsPaneMaxRows = 9
 type paneRow struct {
 	line  string
 	rank  int
-	focus focusArea // focusPlaylist marks non-focusable detail/info rows
+	focus []focusArea // the controls on the row; none for detail/info rows
 }
 
 const (
 	rankControl = iota // a setting the listener reaches for directly
-	rankMode           // shuffle and repeat
+	rankMode           // shuffle, repeat, and speed, merged onto one row when short
 	rankDetail         // the EQ band gains behind the preset name
 	rankInfo           // read-only network counters
 )
@@ -88,11 +171,11 @@ const (
 // EQ), how the list plays (SHF, RPT, SPD), and last what the stream is doing
 // (NET).
 //
-// A short body — a tall vis_rows can leave it only a few rows — sheds rows by
-// rank rather than by position, so the read-only counters and the band detail
-// go before anything the listener can change. Ranks are dropped whole: half an
-// EQ curve, or shuffle without repeat, would read as a rendering bug rather
-// than a compromise, so the pane can end up a row shorter than it was given.
+// A short body sheds rows by rank rather than by position, so the read-only
+// counters and the band detail go before anything the listener can change.
+// Ranks are dropped whole: half an EQ curve would read as a rendering bug
+// rather than a compromise, so the pane can end up a row shorter than it was
+// given. Still short, it puts shuffle, repeat, and speed on one row.
 func (m Model) renderSettingsPane(rows int) string {
 	panes := m.regionPanes(ui.RegionSettings)
 	if len(panes) == 1 && panes[0].Pane == ui.PaneBuiltin {
@@ -128,11 +211,14 @@ func (m Model) renderSettingsPane(rows int) string {
 }
 
 func (m Model) renderSettingsBuiltin(rows int) string {
-	metadataRows := m.metadataPaneRows(rows)
-	pane := m.settingsPaneRows(rows - metadataRows)
-	lines := make([]string, 0, len(pane))
+	gap, metadataRows := m.metadataPaneBudget(rows)
+	pane := m.settingsPaneRows(rows - gap - metadataRows)
+	lines := make([]string, 0, len(pane)+gap+metadataRows)
 	for _, r := range pane {
 		lines = append(lines, r.line)
+	}
+	for range gap {
+		lines = append(lines, "")
 	}
 	lines = append(lines, m.renderMetadataPane(metadataRows)...)
 	return bodyLines(lines, rows)
@@ -144,7 +230,7 @@ func (m Model) settingsPaneRows(rows int) []paneRow {
 	w := m.layout.settingsWidth
 
 	pane := make([]paneRow, 0, settingsPaneMaxRows)
-	add := func(rank int, focus focusArea, lines ...string) {
+	add := func(rank int, focus []focusArea, lines ...string) {
 		for _, line := range lines {
 			if line != "" {
 				pane = append(pane, paneRow{line: line, rank: rank, focus: focus})
@@ -152,17 +238,28 @@ func (m Model) settingsPaneRows(rows int) []paneRow {
 		}
 	}
 
-	add(rankControl, focusProvPill, m.settingsSource(w))
-	add(rankControl, focusVolume, m.settingsVolume(w))
-	add(rankControl, focusEQ, m.settingsEQPreset())
-	add(rankDetail, focusPlaylist, m.settingsEQBands()...)
-	add(rankMode, focusShuffle, m.settingsShuffle())
-	add(rankMode, focusRepeat, m.settingsRepeat())
-	add(rankControl, focusSpeed, m.settingsSpeed())
-	add(rankInfo, focusPlaylist, m.settingsNetwork(w))
+	add(rankControl, []focusArea{focusProvPill}, m.settingsSource(w, true))
+	add(rankControl, []focusArea{focusVolume}, m.settingsVolume(w))
+	add(rankControl, []focusArea{focusEQ}, m.settingsEQPreset("EQ  "))
+	add(rankDetail, nil, m.settingsEQBands()...)
+	add(rankMode, []focusArea{focusShuffle}, m.settingsShuffle())
+	add(rankMode, []focusArea{focusRepeat}, m.settingsRepeat())
+	add(rankMode, []focusArea{focusSpeed}, m.settingsSpeed())
+	add(rankInfo, nil, m.settingsNetwork(w))
 
-	for rank := rankInfo; rank > rankControl && len(pane) > rows; rank-- {
+	for rank := rankInfo; rank > rankMode && len(pane) > rows; rank-- {
 		pane = slices.DeleteFunc(pane, func(r paneRow) bool { return r.rank == rank })
+	}
+	if first := slices.IndexFunc(pane, func(r paneRow) bool { return r.rank == rankMode }); first >= 0 && len(pane) > rows {
+		merged := paneRow{rank: rankMode}
+		var lines []string
+		end := first
+		for ; end < len(pane) && pane[end].rank == rankMode; end++ {
+			lines = append(lines, pane[end].line)
+			merged.focus = append(merged.focus, pane[end].focus...)
+		}
+		merged.line = joinSettings(" ", lines...)
+		pane = slices.Replace(pane, first, end, merged)
 	}
 
 	return pane[:min(len(pane), max(0, rows))]
@@ -171,7 +268,25 @@ func (m Model) settingsPaneRows(rows int) []paneRow {
 // settingsNetwork renders the live stream counters, or "" for local playback
 // where there is nothing to report.
 func (m Model) settingsNetwork(w int) string {
-	stats := m.networkStatsText()
+	return m.settingsNetworkParts(w, m.networkStatsText())
+}
+
+// settingsNetworkProgress renders the NET label and the byte counters.
+func (m Model) settingsNetworkProgress(w int) string {
+	return m.settingsNetworkParts(w, m.networkProgressText())
+}
+
+// settingsNetworkSpeed renders the live download speed for the stacked second
+// row, or "" when the stream is idle or already complete.
+func (m Model) settingsNetworkSpeed(w int) string {
+	speed := m.networkSpeedText()
+	if speed == "" {
+		return ""
+	}
+	return dimStyle.Render(truncate(speed, max(1, w)))
+}
+
+func (m Model) settingsNetworkParts(w int, stats string) string {
 	if stats == "" {
 		return ""
 	}
@@ -179,9 +294,9 @@ func (m Model) settingsNetwork(w int) string {
 	return label + dimStyle.Render(truncate(stats, max(1, w-lipgloss.Width(label))))
 }
 
-// settingsEQPreset renders the "EQ [Preset]" row.
-func (m Model) settingsEQPreset() string {
-	label := labelStyle.Render("EQ  ")
+// settingsEQPreset renders the "EQ [Preset]" row behind the given label.
+func (m Model) settingsEQPreset(label string) string {
+	label = labelStyle.Render(label)
 	if m.focus == focusEQ {
 		label = activeToggle.Render("EQ ▸ ")
 		// The band rows may be shed for space; editing must still show which
@@ -229,30 +344,36 @@ func (m Model) settingsEQBands() []string {
 
 // settingsVolume renders the volume bar sized to the column width.
 func (m Model) settingsVolume(w int) string {
-	vol := m.player.Volume()
+	label, db := m.volumeReadout()
+	return label + m.volumeBar(max(6, w-lipgloss.Width(label)-1-lipgloss.Width(db))) + db
+}
+
+// volumeBar renders the volume meter barW cells wide, followed by a space.
+func (m Model) volumeBar(barW int) string {
 	volMin := m.player.VolumeMin()
-	frac := max(0, min(1, (vol-volMin)/(6-volMin)))
+	frac := max(0, min(1, (m.player.Volume()-volMin)/(6-volMin)))
+	filled := int(frac * float64(barW))
+	return volBarStyle.Render(strings.Repeat("█", filled)) +
+		dimStyle.Render(strings.Repeat("░", barW-filled)+" ")
+}
 
-	dbStr := fmt.Sprintf(" %+.0fdB", vol)
-	mono := ""
-	if m.player.Mono() {
-		mono = " " + activeToggle.Render("[M]")
-	}
-
-	label := labelStyle.Render("VOL ")
+// volumeReadout returns the VOL label and the gain, with the mono marker.
+func (m Model) volumeReadout() (label, db string) {
+	label = labelStyle.Render("VOL ")
 	if m.focus == focusVolume {
 		label = activeToggle.Render("VOL ▸ ")
 	}
-	barW := max(6, w-lipgloss.Width(label)-lipgloss.Width(dbStr)-lipgloss.Width(mono))
-	filled := int(frac * float64(barW))
-
-	return label + volBarStyle.Render(strings.Repeat("█", filled)) +
-		dimStyle.Render(strings.Repeat("░", barW-filled)) + dimStyle.Render(dbStr) + mono
+	db = dimStyle.Render(fmt.Sprintf("%+.0fdB", m.player.Volume()))
+	if m.player.Mono() {
+		db += " " + activeToggle.Render("[M]")
+	}
+	return label, db
 }
 
-// settingsSource renders the active provider, or "" when there is only one
-// source to pick from and the row would say nothing.
-func (m Model) settingsSource(w int) string {
+// settingsSource renders the active provider, with its position among the
+// providers when count is set, or "" when there is only one source to pick
+// from and the row would say nothing.
+func (m Model) settingsSource(w int, count bool) string {
 	if len(m.providers) <= 1 {
 		return ""
 	}
@@ -262,9 +383,12 @@ func (m Model) settingsSource(w int) string {
 		label = activeToggle.Render("SRC ▸ ")
 		nameStyle = activeToggle
 	}
-	count := fmt.Sprintf(" %d/%d", m.provPillIdx+1, len(m.providers))
-	name := truncate(m.providers[m.provPillIdx].Name, max(1, w-lipgloss.Width(label)-2-lipgloss.Width(count)))
-	return label + dimStyle.Render("[") + nameStyle.Render(name) + dimStyle.Render("]") + dimStyle.Render(count)
+	position := ""
+	if count {
+		position = fmt.Sprintf(" %d/%d", m.provPillIdx+1, len(m.providers))
+	}
+	name := truncate(m.providers[m.provPillIdx].Name, max(1, w-lipgloss.Width(label)-2-lipgloss.Width(position)))
+	return label + dimStyle.Render("[") + nameStyle.Render(name) + dimStyle.Render("]") + dimStyle.Render(position)
 }
 
 // settingsSpeed renders the playback-speed row.

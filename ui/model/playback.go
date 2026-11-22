@@ -351,6 +351,7 @@ func (m *Model) recordPlaylistUndo(undo playlistUndo) {
 	undo.revision = m.playlist.Revision()
 	undo.loaded = m.loadedPlaylist
 	m.playlistUndo = undo
+	m.providerFavoriteUndo = providerFavoriteUndo{}
 }
 
 func (m *Model) undoPlaylistMutation() tea.Cmd {

@@ -57,26 +57,110 @@ func (m *Model) closePlaylistPicker() {
 	m.applyHeightMode()
 }
 
+func (m Model) plPickerItems() []string {
+	n := len(m.plPicker.playlists)
+	items := make([]string, 0, n+2)
+	for _, pl := range m.plPicker.playlists {
+		items = append(items, playlistLabel("", pl))
+	}
+	if n > 0 {
+		items = append(items, "")
+	}
+	items = append(items, "+ New Playlist...")
+	return items
+}
+
+func (m Model) plPickerBlankIdx() int {
+	if len(m.plPicker.playlists) == 0 {
+		return -1
+	}
+	return len(m.plPicker.playlists)
+}
+
+func (m Model) plPickerNewIdx() int {
+	return len(m.plPickerItems()) - 1
+}
+
 func (m *Model) plPickerCount() int {
-	return len(m.plPicker.playlists) + 1
+	return len(m.plPickerItems())
 }
 
 func (m *Model) plPickerVisible() int {
-	if m.plPicker.screen == plPickerChoose {
-		return max(1, m.effectivePlaylistVisible()-1)
-	}
 	return m.effectivePlaylistVisible()
 }
 
+func (m *Model) plPickerSkipBlank(idx int) int {
+	blank := m.plPickerBlankIdx()
+	if blank >= 0 && idx == blank {
+		return m.plPickerNewIdx()
+	}
+	return idx
+}
+
+func (m *Model) plPickerStepCursor(delta int) {
+	count := m.plPickerCount()
+	if count == 0 {
+		return
+	}
+	blank := m.plPickerBlankIdx()
+	c := m.plPicker.cursor
+	if delta > 0 {
+		if c < count-1 {
+			c++
+			if blank >= 0 && c == blank {
+				c++
+			}
+		} else {
+			c = 0
+		}
+	} else {
+		if c > 0 {
+			c--
+			if blank >= 0 && c == blank {
+				c--
+			}
+		} else {
+			c = count - 1
+			if blank >= 0 && c == blank {
+				c--
+			}
+		}
+	}
+	m.plPicker.cursor = c
+}
+
 func (m *Model) plPickerMaybeAdjustScroll(visible int) {
+	m.plPicker.cursor = m.plPickerSkipBlank(m.plPicker.cursor)
 	clampScroll(&m.plPicker.cursor, &m.plPicker.scroll, m.plPickerCount(), visible)
+	m.plPicker.cursor = m.plPickerSkipBlank(m.plPicker.cursor)
+}
+
+func plPickerTrackDetail(tracks []playlist.Track, title string) string {
+	if title != "" {
+		if after, ok := strings.CutPrefix(title, "Track: "); ok {
+			return after
+		}
+		return title
+	}
+	switch n := len(tracks); {
+	case n == 0:
+		return ""
+	case n == 1:
+		return tracks[0].DisplayName()
+	default:
+		return fmt.Sprintf("%d tracks selected", n)
+	}
 }
 
 func (m Model) plPickerHeaderLine() string {
 	if m.plPicker.screen == plPickerNewName {
 		return m.promptHeader("playlist-picker-name", "New Playlist", m.plPicker.newName)
 	}
-	return sepHeaderN("Write to Playlist", m.plPicker.cursor+1, m.plPickerCount(), m.layout.panelWidth)
+	label := "Add to playlist"
+	if detail := plPickerTrackDetail(m.plPicker.tracks, m.plPicker.title); detail != "" {
+		label += " : " + terminalText(detail)
+	}
+	return sepHeader(label, m.layout.panelWidth)
 }
 
 func (m Model) renderPlaylistPickerBody() string {
@@ -95,26 +179,22 @@ func (m Model) renderPlaylistPickerBody() string {
 		return bodyLines(lines, budget)
 	}
 
-	items := make([]string, len(m.plPicker.playlists)+1)
-	for i, pl := range m.plPicker.playlists {
-		items[i] = playlistLabel("", pl)
-	}
-	items[len(items)-1] = "+ New Playlist..."
+	return plPickerWindowList(m.plPickerItems(), m.plPicker.cursor, m.plPicker.scroll, budget)
+}
 
-	var head string
-	switch n := len(m.plPicker.tracks); {
-	case m.plPicker.title != "":
-		head = m.plPicker.title
-	case n == 0:
-		head = "No tracks selected. Choose + New Playlist to create an empty one."
-	case n == 1:
-		head = "Track: " + terminalText(m.plPicker.tracks[0].DisplayName())
-	default:
-		head = fmt.Sprintf("%d tracks selected", n)
+func plPickerWindowList(items []string, cursor, scroll, budget int) string {
+	if budget <= 0 {
+		return ""
 	}
-	head = dimStyle.Render("  " + truncate(terminalText(head), max(1, m.layout.panelWidth-2)))
-	list := windowList(items, m.plPicker.cursor, m.plPicker.scroll, max(0, budget-1))
-	return strings.Join([]string{head, list}, "\n")
+	lines := make([]string, 0, budget)
+	for i := scroll; i < len(items) && len(lines) < budget; i++ {
+		if items[i] == "" {
+			lines = append(lines, "")
+			continue
+		}
+		lines = append(lines, cursorLine(items[i], i == cursor))
+	}
+	return strings.Join(padLines(lines, budget, len(lines)), "\n")
 }
 
 func (m *Model) handlePlaylistPickerKey(msg tea.KeyPressMsg) tea.Cmd {
@@ -130,29 +210,29 @@ func (m *Model) handlePlaylistPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.toggleExpandedView()
 		m.plPickerMaybeAdjustScroll(m.plPickerVisible())
 	case "up", "k":
-		if m.plPicker.cursor > 0 {
-			m.plPicker.cursor--
-		} else if count > 0 {
-			m.plPicker.cursor = count - 1
-		}
+		m.plPickerStepCursor(-1)
 		m.plPickerMaybeAdjustScroll(m.plPickerVisible())
 	case "down", "j":
-		if m.plPicker.cursor < count-1 {
-			m.plPicker.cursor++
-		} else if count > 0 {
-			m.plPicker.cursor = 0
-		}
+		m.plPickerStepCursor(1)
 		m.plPickerMaybeAdjustScroll(m.plPickerVisible())
 	case "pgup", "ctrl+u":
 		if m.plPicker.cursor > 0 {
 			visible := m.plPickerVisible()
-			m.plPicker.cursor -= min(m.plPicker.cursor, visible)
+			prev := m.plPicker.cursor
+			for range min(prev, visible) {
+				m.plPickerStepCursor(-1)
+			}
 			m.plPickerMaybeAdjustScroll(visible)
 		}
 	case "pgdown", "ctrl+d":
 		if m.plPicker.cursor < count-1 {
 			visible := m.plPickerVisible()
-			m.plPicker.cursor = min(count-1, m.plPicker.cursor+visible)
+			for range visible {
+				if m.plPicker.cursor >= count-1 {
+					break
+				}
+				m.plPickerStepCursor(1)
+			}
 			m.plPickerMaybeAdjustScroll(visible)
 		}
 	case "home", "g":
@@ -160,7 +240,7 @@ func (m *Model) handlePlaylistPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.plPickerMaybeAdjustScroll(m.plPickerVisible())
 	case "end", "G":
 		if count > 0 {
-			m.plPicker.cursor = count - 1
+			m.plPicker.cursor = m.plPickerNewIdx()
 		}
 		m.plPickerMaybeAdjustScroll(m.plPickerVisible())
 	case "p":
@@ -194,7 +274,7 @@ func (m *Model) handlePlaylistPickerNewNameKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.Code {
 	case tea.KeyEscape:
 		m.plPicker.screen = plPickerChoose
-		m.plPicker.cursor = len(m.plPicker.playlists)
+		m.plPicker.cursor = m.plPickerNewIdx()
 		m.plPickerMaybeAdjustScroll(m.plPickerVisible())
 	case tea.KeyEnter:
 		name := strings.TrimSpace(m.plPicker.newName)

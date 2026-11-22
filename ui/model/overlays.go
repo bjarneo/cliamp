@@ -218,6 +218,15 @@ func (m *Model) plMgrTracksMaybeAdjustScroll(visible int) {
 	m.plManager.scroll = m.fitHeaderScroll(tracks, m.plManager.scroll, m.plManager.cursor, visible, true)
 }
 
+// openLocalNewPlaylist opens the same new-playlist name prompt as the
+// manager's "+ New Playlist..." row.
+func (m *Model) openLocalNewPlaylist() {
+	m.openPlaylistManager()
+	m.plManager.screen = plMgrScreenNewName
+	m.plManager.newName = ""
+	m.plManager.inputErr = ""
+}
+
 // openPlaylistManager loads playlist metadata and opens the manager overlay.
 func (m *Model) openPlaylistManager() {
 	m.plMgrResetFilter()
@@ -230,32 +239,6 @@ func (m *Model) openPlaylistManager() {
 	m.plManager.renameName = ""
 	m.plManager.visible = true
 	m.plMgrListMaybeAdjustScroll(m.effectivePlaylistVisible())
-}
-
-// localManagerInline reports whether the Local source shows the playlist
-// manager in place of the provider pane list. The Local pane list (Favorites,
-// Recently Played, saved lists as a read-only picker) is removed; selecting
-// the Local source shows the manager with its full add/remove/rename/edit
-// actions instead of requiring a separate `p` step.
-func (m Model) localManagerInline() bool {
-	return m.activeProviderKey() == providerKeyLocal && m.localProvider != nil
-}
-
-// ensureLocalManager opens the manager when the Local source is active but
-// its list is not showing. Call after landing on the Local provider pane so
-// the old read-only list never appears.
-func (m *Model) ensureLocalManager() {
-	if m.localManagerInline() && !m.plManager.visible {
-		m.openPlaylistManager()
-	}
-}
-
-// closePlManagerListInline leaves the manager list for the live queue when
-// the manager is the Local source view. The old provider pane list is gone,
-// so closing must not reveal it.
-func (m *Model) closePlManagerListInline() {
-	m.plManager.visible = false
-	m.focus = focusPlaylist
 }
 
 // plMgrEnterTrackList loads the tracks for a playlist and switches to screen 1.

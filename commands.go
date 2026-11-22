@@ -44,8 +44,12 @@ func buildApp() *cli.Command {
 		&cli.BoolWithInverseFlag{Name: "mono", Usage: "mono output"},
 		&cli.BoolWithInverseFlag{Name: "auto-play", Usage: "start playback immediately"},
 		&cli.BoolWithInverseFlag{Name: "simplified", Usage: "simplified playback view (no visualizer or playlist)"},
-		&cli.BoolWithInverseFlag{Name: "help-bar", Usage: "show the key-binding hint bar (? still opens the full keymap)", Value: true},
-		&cli.BoolWithInverseFlag{Name: "expanded", Usage: "start with the playlist expanded (the Ctrl+X state)"},
+		&cli.BoolWithInverseFlag{Name: "help-bar", Usage: "show the key-binding help bar (? still opens the full keymap)", Value: true},
+		&cli.BoolWithInverseFlag{Name: "expanded", Usage: "start with the frame expanded to full terminal size (the Ctrl+X state)"},
+		&cli.IntFlag{Name: "base-width", Usage: "default frame width in columns before Ctrl+X (40-500)", HideDefault: true},
+		&cli.IntFlag{Name: "base-height", Usage: "default frame height in rows without vis_rows before Ctrl+X (10-200)", HideDefault: true},
+		&cli.IntFlag{Name: "padding-horizontal", Usage: "empty columns left and right of the frame (0-10)", HideDefault: true},
+		&cli.IntFlag{Name: "padding-vertical", Usage: "empty rows above and below the frame (0-5)", HideDefault: true},
 		&cli.StringFlag{Name: "provider", Usage: providerFlagUsage()},
 		&cli.StringFlag{Name: "start-theme", Usage: "UI theme name"},
 		&cli.StringFlag{Name: "visualizer", Usage: "visualizer mode"},
@@ -177,6 +181,22 @@ func overridesFromFlags(c *cli.Command) (config.Overrides, error) {
 	if c.IsSet("expanded") {
 		v := c.Bool("expanded")
 		ov.Expanded = &v
+	}
+	if c.IsSet("base-width") {
+		v := int(c.Int("base-width"))
+		ov.BaseWidth = &v
+	}
+	if c.IsSet("base-height") {
+		v := int(c.Int("base-height"))
+		ov.BaseHeight = &v
+	}
+	if c.IsSet("padding-horizontal") {
+		v := int(c.Int("padding-horizontal"))
+		ov.PaddingH = &v
+	}
+	if c.IsSet("padding-vertical") {
+		v := int(c.Int("padding-vertical"))
+		ov.PaddingV = &v
 	}
 	if c.IsSet("provider") {
 		v, err := parseProviderKey(c.String("provider"))
@@ -741,7 +761,7 @@ func historyCommand() *cli.Command {
 		Name:  "history",
 		Usage: "show recently played tracks",
 		Description: "Lists recently played tracks. A track is recorded when it starts to play.\n" +
-			"Browse the same data inside the TUI under Local Playlists →\n" +
+			"Browse the same data inside the TUI under Local provider or Playlists →\n" +
 			"\"Recently Played\".",
 		Flags: []cli.Flag{
 			&cli.IntFlag{Name: "limit", Usage: "max entries to show (0 = all)", Value: 50},

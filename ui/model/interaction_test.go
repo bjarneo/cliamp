@@ -866,6 +866,27 @@ func TestLyricsRetryStartsNewRequest(t *testing.T) {
 	}
 }
 
+func TestLiveQueueClearFromMainKey(t *testing.T) {
+	p := playlist.New()
+	p.Add(playlist.Track{Title: "One"}, playlist.Track{Title: "Two"})
+	m := Model{
+		player:    &playbackFakeEngine{},
+		playlist:  p,
+		plVisible: 1,
+		focus:     focusPlaylist,
+	}
+
+	m.handleMainKey(tea.KeyPressMsg{Text: "c"})
+	m.handleMainKey(tea.KeyPressMsg{Text: "c"})
+	if got := p.Len(); got != 0 {
+		t.Fatalf("playlist length after clear = %d, want 0", got)
+	}
+	m.handleKey(tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl})
+	if got := p.Tracks(); len(got) != 2 || got[0].Title != "One" || got[1].Title != "Two" {
+		t.Fatalf("playlist after undo = %#v, want original tracks", got)
+	}
+}
+
 func TestUndoRestoresClearedQueue(t *testing.T) {
 	p := playlist.New()
 	p.Add(playlist.Track{Title: "One"}, playlist.Track{Title: "Two"})
@@ -1010,7 +1031,7 @@ func TestNextTrackNormalizesQueueAfterSkippingUnavailableEntry(t *testing.T) {
 		t.Fatal("queue overlay is not active after Next")
 	}
 	header := stripAnsi(view.header(&m))
-	if !strings.Contains(header, "Queue  1/1") {
+	if !strings.Contains(header, "Play next  1/1") {
 		t.Fatalf("queue header after Next = %q, want valid 1/1 selection", header)
 	}
 }

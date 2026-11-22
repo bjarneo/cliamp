@@ -39,12 +39,16 @@ func (m *Model) resetProviderNav() {
 
 // StartInProvider configures the model to begin in the provider browse view.
 // Call this from main when no CLI tracks or pending URLs were given.
+func (m *Model) noteProviderPaneVisit() {
+	m.providerPaneSeen = true
+}
+
 func (m *Model) StartInProvider() {
 	if m.provider != nil {
+		m.noteProviderPaneVisit()
 		m.focus = focusProvider
 		m.resetProviderNav()
 		_, m.openDefaultProviderOnce = m.provider.(provider.DefaultBrowseModeProvider)
-		m.ensureLocalManager()
 		m.recomputeLayout()
 	}
 }
@@ -61,10 +65,13 @@ func (m *Model) switchProvider(idx int) tea.Cmd {
 	m.catalogBatch = catalogBatchState{}
 	m.activeProviderPlaylistID = ""
 	m.resetProviderNav()
+	m.noteProviderPaneVisit()
 	m.focus = focusProvider
-	// The Local source shows the playlist manager instead of the old
-	// read-only provider pane list.
-	m.ensureLocalManager()
+	// Shift+L and the provider pill land on the Local page. A file browser
+	// left open by playback is restored only by Esc from the queue.
+	if m.providers[idx].Key == providerKeyLocal {
+		m.fileBrowser.resumeLocal = false
+	}
 	listsCmd := m.fetchProviderPlaylists()
 	if _, ok := m.provider.(provider.DefaultBrowseModeProvider); ok {
 		return tea.Batch(listsCmd, m.openDefaultProviderBrowser())
@@ -152,6 +159,9 @@ func (m *Model) replaceProviderLists(lists []playlist.PlaylistInfo) {
 		selectedID = m.provPane.lists[m.provPane.cursor].ID
 	}
 	m.provPane.lists = providerListsWithBrowse(m.provider, lists)
+	if m.showingLocalProvider() {
+		m.provPane.lists = localProviderLists()
+	}
 	m.provPane.cursor = max(0, min(m.provPane.cursor, len(m.provPane.lists)-1))
 	if selectedID != "" {
 		for i, item := range m.provPane.lists {
@@ -399,6 +409,25 @@ func (m Model) shortcutProviderKey(key string) string {
 	return registered[(i+1)%len(registered)]
 }
 
+// providerShortcutKeyLabel returns the Shift+letter key label for a registered
+// provider config key, or false when the provider has no playlist shortcut.
+func providerShortcutKeyLabel(configKey string) (string, bool) {
+	if configKey == providerKeyLocal {
+		return "", false
+	}
+	if slices.Contains(youTubeProviderKeys, configKey) {
+		return "Y", true
+	}
+	for _, key := range []string{
+		"S", "N", "P", "J", "E", "B", "C", "X", "M", "Q", "T", "K", "U", "I", "R", "O",
+	} {
+		if providerKeyForShortcut(key) == configKey {
+			return key, true
+		}
+	}
+	return "", false
+}
+
 // providerKeyForShortcut maps the Shift+letter provider shortcuts to the
 // config key used by switchToProvider, or "" when the key is unrelated.
 func providerKeyForShortcut(key string) string {
@@ -435,6 +464,8 @@ func providerKeyForShortcut(key string) string {
 		return "local"
 	case "R":
 		return "radio"
+	case "I":
+		return "cliamp"
 	case "O":
 		return "podcast"
 	}
@@ -452,6 +483,17 @@ func (m *Model) switchToProvider(key string) tea.Cmd {
 	}
 	m.status.Warning(unconfiguredProviderHint(key), statusTTLLong)
 	return nil
+}
+
+// providerKeyFor returns the config key of prov, or "" when it is not
+// registered.
+func (m Model) providerKeyFor(prov playlist.Provider) string {
+	for _, e := range m.providers {
+		if e.Provider == prov {
+			return e.Key
+		}
+	}
+	return ""
 }
 
 // hasProvider reports whether a provider with the config key registered.
@@ -628,6 +670,9 @@ func (m *Model) openProviderList(index int) tea.Cmd {
 		return nil
 	}
 	item := m.provPane.lists[index]
+	if action := localPaneActionForID(item.ID); action != localPaneNone {
+		return m.runLocalPaneAction(action)
+	}
 	// The location offer is a question, not a list. Selecting it raises the
 	// question; nothing about the listener's location is worked out until they
 	// answer it.
@@ -644,6 +689,14 @@ func (m *Model) openProviderList(index int) tea.Cmd {
 			m.navBrowser.fromProvList = true
 		}
 		return cmd
+	}
+	if sl, ok := m.provider.(provider.ShowLister); ok && sl.IsShowID(item.ID) {
+		if loader, ok := m.provider.(provider.AlbumTrackLoader); ok {
+			m.activeProviderPlaylistID = ""
+			cmd := m.openProviderShowInNavBrowser(loader, item.ID, item.Name)
+			m.navBrowser.fromProvList = true
+			return cmd
+		}
 	}
 	m.provPane.loading = true
 	m.activeProviderPlaylistID = item.ID
@@ -791,6 +844,7 @@ func (m *Model) openNavBrowserWith(prov playlist.Provider) {
 	m.navBrowser.directTrackJump = false
 	m.navBrowser.fromProvList = false
 	m.navBrowser.openInPlaylist = false
+	m.navClearTrackSelection()
 	m.navBrowser.selArtist = provider.ArtistInfo{}
 	m.navBrowser.selAlbum = provider.AlbumInfo{}
 	m.navBrowser.selGenre = provider.GenreInfo{}
@@ -923,6 +977,20 @@ func (m Model) selectedTrackArtistBrowserTarget() (selectedTrackArtistTarget, bo
 		}
 	}
 	return selectedTrackArtistTarget{}, false
+}
+
+// openProviderShowInNavBrowser fetches a show's episodes into the nav browser
+// instead of replacing the main playlist from the provider pane.
+func (m *Model) openProviderShowInNavBrowser(loader provider.AlbumTrackLoader, id, name string) tea.Cmd {
+	m.openNavBrowserWith(m.provider)
+	m.navBrowser.mode = navBrowseModeByArtistAlbum
+	m.navBrowser.screen = navBrowseScreenAlbums
+	m.navBrowser.selAlbum = provider.AlbumInfo{ID: id, Name: name}
+	m.navBrowser.directTrackJump = true
+	m.navBrowser.openInPlaylist = false
+	m.navBrowser.loading = true
+	m.navClearSearch()
+	return fetchNavAlbumTracksCmd(loader, id, m.nextNavRequest())
 }
 
 // openSelectedTrackArtistBrowser jumps from the highlighted track to its

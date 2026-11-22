@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/bjarneo/cliamp/config"
 )
@@ -987,4 +988,38 @@ func TestYTMusicCustomModeIncludesOptionalCookies(t *testing.T) {
 	}
 
 	checkBody(t, spec.body(values), map[string]string{"cookies_from": `"firefox"`})
+}
+
+func TestSetupWrapText(t *testing.T) {
+	text := "Stream your purchased Bandcamp collection (official Subsonic API, open beta)."
+	for maxW, want := range map[int]int{30: 3, 45: 2, 80: 1} {
+		lines := setupWrapText(text, maxW)
+		if len(lines) != want {
+			t.Fatalf("maxW=%d: got %d lines %v, want %d", maxW, len(lines), lines, want)
+		}
+	}
+}
+
+func TestViewMenuIntroWrapIndent(t *testing.T) {
+	m := newSetupModel()
+	m.w, m.h = 80, 40
+
+	plain := ansi.Strip(m.View().Content)
+	if !strings.Contains(plain, "Bandcamp") {
+		t.Fatalf("menu missing providers:\n%s", plain)
+	}
+	if !strings.Contains(plain, "beta).") {
+		t.Fatal("bandcamp intro missing from menu")
+	}
+	// Wrapped continuations must not start at the provider name column.
+	if strings.Contains(plain, "Bandcamp\nopen") || strings.Contains(plain, "OAuth\nsetup") {
+		t.Fatalf("wrapped intro flush left in:\n%s", plain)
+	}
+	if strings.Contains(plain, "API, open\n    beta") {
+		return // wrapped with indent
+	}
+	if strings.Contains(plain, "API, open beta") {
+		return // fits on one line
+	}
+	t.Fatalf("unexpected bandcamp wrap in:\n%s", plain)
 }

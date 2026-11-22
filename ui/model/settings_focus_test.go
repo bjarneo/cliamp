@@ -14,21 +14,23 @@ import (
 
 func TestSettingsFocusCycle(t *testing.T) {
 	full := []focusArea{focusPlaylist, focusProvPill, focusVolume, focusEQ, focusShuffle, focusRepeat, focusSpeed}
+	oneRow := []focusArea{focusPlaylist, focusProvPill, focusEQ, focusShuffle, focusRepeat, focusSpeed, focusVolume}
+	twoRows := []focusArea{focusPlaylist, focusProvPill, focusVolume, focusSpeed, focusEQ, focusShuffle, focusRepeat}
 	tests := []struct {
 		name          string
 		width, height int
 		setup         func(*Model)
 		want          []focusArea
 	}{
-		{name: "full", width: 100, height: 30, want: full},
-		{name: "compact", width: 56, height: 16, want: full},
+		{name: "two columns", width: 100, height: 30, want: full},
+		{name: "stacked", width: 56, height: 16, want: twoRows},
 		{name: "single source", width: 100, height: 30, setup: func(m *Model) { m.providers = m.providers[:1] },
 			want: []focusArea{focusPlaylist, focusVolume, focusEQ, focusShuffle, focusRepeat, focusSpeed}},
-		{name: "closed", width: 80, height: 24, setup: func(m *Model) { m.hideSettings = true },
-			want: []focusArea{focusPlaylist, focusProvPill, focusVolume, focusShuffle, focusRepeat}},
-		{name: "short pane", width: 80, height: 24, setup: func(m *Model) { m.visRows = 100 },
-			want: []focusArea{focusPlaylist, focusProvPill, focusVolume, focusEQ, focusSpeed}},
-		{name: "minimal", width: 40, height: 10, want: []focusArea{focusPlaylist}},
+		{name: "closed", width: 86, height: 24, setup: func(m *Model) { m.hideSettings = true }, want: oneRow},
+		{name: "merged modes", width: 100, height: 12, want: full},
+		{name: "short pane", width: 100, height: 10, want: full},
+		{name: "smallest stacked", width: 40, height: 16, want: twoRows},
+		{name: "stacked settings hidden", width: 40, height: 13, want: []focusArea{focusPlaylist}},
 		{name: "too small", width: 39, height: 9, want: []focusArea{focusPlaylist}},
 		{name: "simplified", width: 100, height: 30, setup: func(m *Model) { m.simplified = true }, want: []focusArea{focusPlaylist}},
 	}
@@ -66,7 +68,7 @@ func TestSettingsFocusCycle(t *testing.T) {
 func TestSettingsFocusMatchesShedRows(t *testing.T) {
 	m := newColumnTestModel(100, 30)
 	for rows := 1; rows <= settingsPaneMaxRows; rows++ {
-		m.plVisible = rows
+		m.layout.bodyRows = rows + 1
 		pane := ansi.Strip(m.renderSettingsPane(rows))
 		for _, setting := range []struct {
 			focus focusArea
@@ -79,73 +81,8 @@ func TestSettingsFocusMatchesShedRows(t *testing.T) {
 	}
 }
 
-func TestSettingsFocusMatchesHeaderWithPadding(t *testing.T) {
-	// At 41 columns Repeat fits only while unfocused; at 42 it must remain
-	// reachable even from Shuffle, whose expanded badge temporarily hides it.
-	for _, width := range []int{56, 57, 58} {
-		t.Run(fmt.Sprintf("panel=%d", width-16), func(t *testing.T) {
-			m := newColumnTestModel(width, 16)
-			m.SetPadding(8, 1)
-			m.playlist.SetRepeat(playlist.RepeatAll)
-			wantRepeat := width == 58
-			want := []focusArea{focusPlaylist, focusProvPill, focusVolume, focusEQ, focusShuffle}
-			if wantRepeat {
-				want = append(want, focusRepeat)
-			}
-			want = append(want, focusSpeed)
-			for _, current := range []focusArea{focusPlaylist, focusShuffle, focusRepeat} {
-				m.focus = current
-				if got := m.mainFocusAreas(); !slices.Equal(got, want) {
-					t.Fatalf("from %s: focus areas = %v, want %v", current.label(), got, want)
-				}
-			}
-			if header := ansi.Strip(m.renderPlaylistHeader()); strings.Contains(header, "[Repeat \u25b8 All]") != wantRepeat {
-				t.Fatalf("focused Repeat visibility differs from eligibility: %q", header)
-			}
-
-			m.focus = focusPlaylist
-			for _, reverse := range []bool{false, true} {
-				key := tea.KeyPressMsg{Code: tea.KeyTab}
-				if reverse {
-					key.Mod = tea.ModShift
-				}
-				for i := 1; i <= len(want); i++ {
-					idx := i % len(want)
-					if reverse {
-						idx = (len(want) - idx) % len(want)
-					}
-					updated, _ := m.Update(key)
-					m = updated.(Model)
-					if m.focus != want[idx] {
-						t.Fatalf("%s step %d: focus = %s, want %s", key.String(), i, m.focus.label(), want[idx].label())
-					}
-					if m.focus == focusShuffle || m.focus == focusRepeat {
-						if header := ansi.Strip(m.renderPlaylistHeader()); !strings.Contains(header, "["+m.focus.label()+" \u25b8 ") {
-							t.Fatalf("%s reached an invisible %s: %q", key.String(), m.focus.label(), header)
-						}
-					}
-				}
-			}
-
-			m.focus, m.prevFocus = focusRepeat, focusRepeat
-			m.normalizeMainFocus()
-			wantFocus := focusPlaylist
-			if wantRepeat {
-				wantFocus = focusRepeat
-			}
-			if m.focus != wantFocus || m.prevFocus != wantFocus {
-				t.Fatalf("normalized focus = %s, previous = %s, want %s", m.focus.label(), m.prevFocus.label(), wantFocus.label())
-			}
-			m.openKeymap()
-			if m.focus != wantFocus {
-				t.Fatalf("opening help changed underlying focus from %s to %s", wantFocus.label(), m.focus.label())
-			}
-		})
-	}
-}
-
 func TestSettingsFocusWithoutPlaylist(t *testing.T) {
-	m := Model{layout: frameLayout{tier: layoutCompact}}
+	m := Model{}
 	for _, focus := range []focusArea{focusShuffle, focusRepeat} {
 		if m.mainFocusAllowed(focus) {
 			t.Fatalf("%s is focusable without a playlist", focus.label())
@@ -157,7 +94,7 @@ func TestSettingsFocusFromProviderPane(t *testing.T) {
 	for _, closed := range []bool{false, true} {
 		for _, reverse := range []bool{false, true} {
 			t.Run(fmt.Sprintf("closed=%v/reverse=%v", closed, reverse), func(t *testing.T) {
-				m := newColumnTestModel(80, 24)
+				m := newColumnTestModel(86, 24)
 				m.hideSettings = closed
 				m.focus = focusProvider
 				m.recomputeLayout()
@@ -168,9 +105,9 @@ func TestSettingsFocusFromProviderPane(t *testing.T) {
 				want := focusProvPill
 				if reverse {
 					key.Mod = tea.ModShift
-					want = focusSpeed
+					want = focusSpeed // the pane ends with speed, the stacked row with volume
 					if closed {
-						want = focusRepeat
+						want = focusVolume
 					}
 				}
 				updated, _ := m.Update(key)
@@ -188,18 +125,18 @@ func TestSettingsFocusNormalizesHiddenControls(t *testing.T) {
 		t.Run(focus.label(), func(t *testing.T) {
 			m := newColumnTestModel(100, 30)
 			m.focus, m.prevFocus = focus, focus
-			updated, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 10})
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: 39, Height: 9})
 			m = updated.(Model)
 			if m.focus != focusPlaylist || m.prevFocus != focusPlaylist {
 				t.Fatalf("hidden focus survived resize: current=%s previous=%s", m.focus.label(), m.prevFocus.label())
 			}
 		})
 	}
-	for _, focus := range []focusArea{focusShuffle, focusRepeat} {
+	for _, focus := range []focusArea{focusShuffle, focusRepeat, focusSpeed} {
 		m := newColumnTestModel(100, 30)
 		m.focus, m.prevFocus = focus, focus
-		m.visRows = 100
-		m.applyHeightMode()
+		updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 9})
+		m = updated.(Model)
 		if m.focus != focusPlaylist || m.prevFocus != focusPlaylist {
 			t.Fatalf("shed %s kept focus", focus.label())
 		}
@@ -211,7 +148,7 @@ func TestSettingsFocusVisibleInEveryLayout(t *testing.T) {
 		name          string
 		width, height int
 		closed        bool
-	}{{"full", 80, 24, false}, {"compact", 56, 16, false}, {"closed", 80, 24, true}} {
+	}{{"two columns", 86, 24, false}, {"stacked", 56, 16, false}, {"closed", 86, 24, true}} {
 		t.Run(tt.name, func(t *testing.T) {
 			m := newColumnTestModel(tt.width, tt.height)
 			m.hideSettings = tt.closed
@@ -219,13 +156,6 @@ func TestSettingsFocusVisibleInEveryLayout(t *testing.T) {
 			for _, focus := range m.mainFocusAreas()[1:] {
 				m.focus = focus
 				label := map[focusArea]string{focusProvPill: "SRC", focusVolume: "VOL", focusEQ: "EQ", focusShuffle: "SHF", focusRepeat: "RPT", focusSpeed: "SPD"}[focus]
-				if !m.layout.twoColumn {
-					if focus == focusShuffle {
-						label = "Shuffle"
-					} else if focus == focusRepeat {
-						label = "Repeat"
-					}
-				}
 				if frame := ansi.Strip(m.View().Content); !strings.Contains(frame, label+" \u25b8") {
 					t.Fatalf("no focus marker for %s:\n%s", focus.label(), frame)
 				}
@@ -336,10 +266,12 @@ func TestSettingsFocusHelpAndReservation(t *testing.T) {
 		if label != focus.label() {
 			t.Fatalf("keymap context = %q, want %q", label, focus.label())
 		}
-		for _, hint := range []string{"Shift+Tab", "Arrows", strings.ToLower(focus.label())} {
-			if help := ansi.Strip(m.renderHelp()); !strings.Contains(strings.ToLower(help), strings.ToLower(hint)) {
-				t.Fatalf("%s help is missing %q: %q", focus.label(), hint, help)
-			}
+		if help := ansi.Strip(m.renderHelpBar()); !strings.Contains(help, "Tab") || !strings.Contains(help, "Settings") {
+			t.Fatalf("%s help should advertise Tab Settings: %q", focus.label(), help)
+		}
+		help := ansi.Strip(m.renderHelpBar())
+		if !strings.Contains(help, "↑↓") && !strings.Contains(help, "←→") {
+			t.Fatalf("%s help is missing adjustment keys: %q", focus.label(), help)
 		}
 		entries := m.buildKeymapEntries()
 		if len(entries) == 0 || !entries[0].divider || !strings.Contains(entries[0].action, label) {

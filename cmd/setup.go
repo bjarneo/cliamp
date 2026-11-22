@@ -1761,17 +1761,13 @@ func (m *setupModel) refreshVisibleFields() {
 var (
 	// Color choices match the existing player palette; ANSI numbers give
 	// good contrast against any terminal theme.
-	titleStyle  = lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(10)).Bold(true)
-	hintStyle   = lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(7))
-	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(8))
-	accentStyle = lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(11)).Bold(true)
-	errStyle    = lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(9)).Bold(true)
-	okStyle     = lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(10)).Bold(true)
-	warnStyle   = lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(11)).Bold(true)
-	cardStyle   = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.ANSIColor(8)).
-			Padding(1, 2)
+	titleStyle       = lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(10)).Bold(true)
+	hintStyle        = lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(8))
+	dimStyle         = lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(7))
+	accentStyle      = lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(11)).Bold(true)
+	errStyle         = lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(9)).Bold(true)
+	okStyle          = lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(10)).Bold(true)
+	warnStyle        = lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(11)).Bold(true)
 	activeFieldStyle = lipgloss.NewStyle().
 				Border(lipgloss.NormalBorder(), false, false, false, true).
 				BorderForeground(lipgloss.ANSIColor(11)).
@@ -1779,52 +1775,54 @@ var (
 	inactiveFieldStyle = lipgloss.NewStyle().PaddingLeft(2)
 )
 
-const (
-	maxCardWidth = 78
-	logoLine1    = "  cliamp setup"
-	logoLine2    = "  configure remote providers"
-)
+const maxCardWidth = 78
 
 func (m *setupModel) View() tea.View {
-	header := titleStyle.Render(logoLine1) + "\n" +
-		hintStyle.Render(logoLine2) + "\n"
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("C L I A M P Setup"))
+	b.WriteString("\n\n")
 
-	var body string
 	switch m.stage {
 	case stageMenu:
-		body = m.viewMenu()
-	case stagePicker:
-		body = m.viewPicker()
-	case stageForm:
-		body = m.viewForm()
-	case stageChats:
-		body = m.viewChats()
-	case stageConfirm:
-		body = m.viewConfirm()
-	case stageValidating:
-		body = m.viewValidating()
-	case stageResult:
-		body = m.viewResult()
+		b.WriteString(accentStyle.Render("Pick a provider to configure"))
+		b.WriteString("\n\n")
+		b.WriteString(m.viewMenuList())
+	default:
+		switch m.stage {
+		case stagePicker:
+			b.WriteString(m.viewPicker())
+		case stageForm:
+			b.WriteString(m.viewForm())
+		case stageChats:
+			b.WriteString(m.viewChats())
+		case stageConfirm:
+			b.WriteString(m.viewConfirm())
+		case stageValidating:
+			b.WriteString(m.viewValidating())
+		case stageResult:
+			b.WriteString(m.viewResult())
+		}
 	}
 
-	footer := "\n" + m.viewFooter()
-	view := tea.NewView(header + "\n" + body + footer)
+	b.WriteString("\n")
+	b.WriteString(hintStyle.Render(m.viewFooterKeys()))
+	b.WriteString(hintStyle.Render("\n\nconfig: " + m.cfgPath))
+
+	view := tea.NewView(b.String())
 	view.AltScreen = true
 	return view
 }
 
-// card wraps body in the standard rounded-border card sized to the terminal.
-func (m *setupModel) card(body string) string {
-	return cardStyle.Width(min(maxCardWidth, m.viewWidth())).Render(body)
-}
-
-func (m *setupModel) viewMenu() string {
+func (m *setupModel) viewMenuList() string {
 	var b strings.Builder
-	b.WriteString(accentStyle.Render("Pick a provider to configure"))
-	b.WriteString("\n\n")
+	descIndent := "    "
+	descWidth := m.contentWidth() - lipgloss.Width(descIndent)
+	if descWidth < 1 {
+		descWidth = 1
+	}
 	for i, p := range m.provs {
 		marker := "  "
-		nameRender := p.name
+		nameRender := dimStyle.Render(p.name)
 		if i == m.menuCursor {
 			marker = accentStyle.Render("▸ ")
 			nameRender = accentStyle.Render(p.name)
@@ -1832,17 +1830,15 @@ func (m *setupModel) viewMenu() string {
 		b.WriteString(marker)
 		b.WriteString(nameRender)
 		b.WriteString("\n")
-		// Render the first intro line as a one-liner per item, faintly.
 		if len(p.intro) > 0 {
-			indent := "    "
-			b.WriteString(indent)
-			b.WriteString(hintStyle.Render(p.intro[0]))
-			b.WriteString("\n")
+			for _, row := range setupWrapText(p.intro[0], descWidth) {
+				b.WriteString(descIndent)
+				b.WriteString(hintStyle.Render(row))
+				b.WriteString("\n")
+			}
 		}
 	}
-	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("config: " + m.cfgPath))
-	return m.card(b.String())
+	return b.String()
 }
 
 func (m *setupModel) viewPicker() string {
@@ -1869,7 +1865,7 @@ func (m *setupModel) viewPicker() string {
 		b.WriteString(text)
 		b.WriteString("\n")
 	}
-	return m.card(b.String())
+	return b.String()
 }
 
 func (m *setupModel) viewForm() string {
@@ -1931,7 +1927,7 @@ func (m *setupModel) viewForm() string {
 		}
 		b.WriteString("\n\n")
 	}
-	return m.card(strings.TrimRight(b.String(), "\n"))
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func (m *setupModel) viewConfirm() string {
@@ -1941,7 +1937,7 @@ func (m *setupModel) viewConfirm() string {
 	b.WriteString("\n\n")
 	b.WriteString("Save the changes to [" + spec.section + "]?\n\n")
 	b.WriteString(accentStyle.Render("y save") + "   " + "n discard" + "   " + "esc keep editing")
-	return m.card(b.String())
+	return b.String()
 }
 
 func (m *setupModel) viewChats() string {
@@ -1956,7 +1952,7 @@ func (m *setupModel) viewChats() string {
 		b.WriteString(accentStyle.Render(frames[m.spinFrame%len(frames)]) + " Listing the dialogs of the account…")
 		b.WriteString("\n\n")
 		b.WriteString(hintStyle.Render("Esc cancels."))
-		return m.card(b.String())
+		return b.String()
 	}
 
 	if m.chatErr != nil {
@@ -1965,7 +1961,7 @@ func (m *setupModel) viewChats() string {
 		b.WriteString(m.chatErr.Error())
 		b.WriteString("\n\n")
 		b.WriteString(hintStyle.Render("Esc goes back to the form, where the list can be typed by hand."))
-		return m.card(b.String())
+		return b.String()
 	}
 
 	if m.chatNote != "" {
@@ -1982,7 +1978,7 @@ func (m *setupModel) viewChats() string {
 		b.WriteString("The account has no dialogs.")
 		b.WriteString("\n\n")
 		b.WriteString(hintStyle.Render("Esc goes back to the form."))
-		return m.card(b.String())
+		return b.String()
 	}
 
 	start := 0
@@ -2020,15 +2016,14 @@ func (m *setupModel) viewChats() string {
 	}
 	b.WriteString("\n\n")
 	b.WriteString(hintStyle.Render("Picking every chat means no filter: chats created later appear too."))
-	return m.card(b.String())
+	return b.String()
 }
 
 func (m *setupModel) viewValidating() string {
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 	frame := frames[m.spinFrame%len(frames)]
-	body := accentStyle.Render(frame) + " " +
+	return accentStyle.Render(frame) + " " +
 		"Verifying connection to " + m.provs[m.pidx].name + "…"
-	return cardStyle.Width(min(maxCardWidth, m.viewWidth())).Render(body)
 }
 
 func (m *setupModel) viewResult() string {
@@ -2043,7 +2038,7 @@ func (m *setupModel) viewResult() string {
 		b.WriteString(m.saveFailed.Error())
 		b.WriteString("\n\n")
 		b.WriteString(hintStyle.Render("Press Enter or Esc to return to the menu, or q to quit."))
-		return m.card(b.String())
+		return b.String()
 	}
 
 	if m.awaitingSave {
@@ -2054,7 +2049,7 @@ func (m *setupModel) viewResult() string {
 		b.WriteString(hintStyle.Render("The config will still load on next launch — useful when the server is offline now."))
 		b.WriteString("\n\n")
 		b.WriteString(accentStyle.Render("Save anyway?  ") + "[y/N]  q quit")
-		return m.card(b.String())
+		return b.String()
 	}
 
 	if m.resultErr != nil {
@@ -2062,7 +2057,7 @@ func (m *setupModel) viewResult() string {
 		b.WriteString(m.resultErr.Error())
 		b.WriteString("\n\n")
 		b.WriteString(hintStyle.Render("Press Enter or Esc to return to the menu, or q to quit."))
-		return m.card(b.String())
+		return b.String()
 	}
 
 	if m.resultWarning {
@@ -2075,13 +2070,13 @@ func (m *setupModel) viewResult() string {
 	b.WriteString("\n\n")
 	if m.signInAction != nil {
 		b.WriteString(hintStyle.Render(fmt.Sprintf("Press s to %s, Enter or Esc to configure another provider, or q to quit.", m.signInLabel)))
-		return m.card(b.String())
+		return b.String()
 	}
 	b.WriteString(hintStyle.Render("Press Enter or Esc to configure another provider, or q to quit."))
-	return m.card(b.String())
+	return b.String()
 }
 
-func (m *setupModel) viewFooter() string {
+func (m *setupModel) viewFooterKeys() string {
 	var keys string
 	switch m.stage {
 	case stageMenu:
@@ -2118,7 +2113,7 @@ func (m *setupModel) viewFooter() string {
 			keys = "enter/esc continue   q quit"
 		}
 	}
-	return dimStyle.Render(keys)
+	return keys
 }
 
 func (m *setupModel) viewWidth() int {
@@ -2126,6 +2121,41 @@ func (m *setupModel) viewWidth() int {
 		return maxCardWidth
 	}
 	return m.w - 2
+}
+
+// contentWidth is the maximum text width for wrapped setup copy.
+func (m *setupModel) contentWidth() int {
+	w := min(maxCardWidth, m.viewWidth())
+	if w < 20 {
+		return 20
+	}
+	return w
+}
+
+// setupWrapText splits s into lines no wider than maxW, on spaces. Widths use
+// lipgloss so wide runes count once; a single word wider than maxW is kept as one
+// line and may clip when rendered.
+func setupWrapText(s string, maxW int) []string {
+	if maxW <= 0 {
+		return nil
+	}
+	var lines []string
+	line := ""
+	for _, word := range strings.Fields(s) {
+		switch {
+		case line == "":
+			line = word
+		case lipgloss.Width(line)+1+lipgloss.Width(word) <= maxW:
+			line += " " + word
+		default:
+			lines = append(lines, line)
+			line = word
+		}
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 // ----- Helpers ------------------------------------------------------------

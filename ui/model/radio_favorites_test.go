@@ -68,7 +68,7 @@ func TestRadioFavoriteAfterBrowseLoadsPlaylist(t *testing.T) {
 			m.playlist.SetIndex(0)
 			m.player.(*playbackFakeEngine).playing = true
 			m.plCursor = 1
-			if help := m.commandHelp(commandModeMain); !strings.Contains(help, "Favorite station") {
+			if help := m.helpBar(commandModeMain); !strings.Contains(help, "Favorite") {
 				t.Fatalf("missing station action: %q", help)
 			}
 			cmd := m.handleKey(tea.KeyPressMsg{Text: "f"})
@@ -162,9 +162,9 @@ func TestRadioRowFavoriteDispatch(t *testing.T) {
 		wantStation bool
 		wantTrack   bool
 	}{
-		{name: "unsaved playlist", wantHelp: "Favorite station", wantStation: true},
-		{name: "saved playlist", saved: true, wantHelp: "Favorite track", wantTrack: true},
-		{name: "saved playlist write failure", saved: true, fail: true, wantHelp: "Favorite track"},
+		{name: "unsaved playlist", wantHelp: "Favorite", wantStation: true},
+		{name: "saved playlist", saved: true, wantHelp: "Favorite", wantTrack: true},
+		{name: "saved playlist write failure", saved: true, fail: true, wantHelp: "Favorite"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, _, tracks := radioFavoriteTestModel(t)
@@ -178,7 +178,7 @@ func TestRadioRowFavoriteDispatch(t *testing.T) {
 				local.favs = failingFavorites(t)
 			}
 			m.localProvider, m.favStore = local, local.favs
-			if help := m.commandHelp(commandModeMain); !strings.Contains(help, tc.wantHelp) {
+			if help := m.helpBar(commandModeMain); !strings.Contains(help, tc.wantHelp) {
 				t.Fatalf("help = %q, want %q", help, tc.wantHelp)
 			}
 
@@ -765,13 +765,12 @@ func TestRadioPlaybackFavoritePreservesPendingTrackLoad(t *testing.T) {
 
 func TestTrackFavoriteHelpRequiresPlaylistFocus(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		focus   focusArea
-		enabled bool
+		name  string
+		focus focusArea
 	}{
-		{"playlist", focusPlaylist, true},
-		{"provider", focusProvider, false},
-		{"volume", focusVolume, false},
+		{"playlist", focusPlaylist},
+		{"provider", focusProvider},
+		{"volume", focusVolume},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, _, _ := radioFavoriteTestModel(t)
@@ -781,13 +780,12 @@ func TestTrackFavoriteHelpRequiresPlaylistFocus(t *testing.T) {
 			hearts := localProv.useFavorites(t)
 			m.favStore, m.localProvider = hearts, localProv
 			m.focus = tc.focus
-			m.layout.tier = layoutMinimal
 			found := false
 			for _, entry := range m.buildKeymapEntries() {
-				found = found || entry.action == "Favorite track"
+				found = found || entry.action == "Favorite"
 			}
-			if found != tc.enabled {
-				t.Fatalf("track favorite keymap visibility = %v, want %v", found, tc.enabled)
+			if !found {
+				t.Fatal("keymap should list Favorite regardless of focus")
 			}
 			if tc.focus == focusPlaylist {
 				m.handleKey(tea.KeyPressMsg{Text: "f"})
@@ -796,24 +794,6 @@ func TestTrackFavoriteHelpRequiresPlaylistFocus(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// The header shows the ♥ count of the favorites store and never a star badge,
-// also for playlists with legacy bookmarks or station favorites.
-func TestPlaybackHeaderShowsOnlyHeartBadge(t *testing.T) {
-	m, p, tracks := radioFavoriteTestModel(t)
-	if _, _, err := p.ToggleFavorite("c:0"); err != nil {
-		t.Fatal(err)
-	}
-	legacyBookmark := playlist.Track{Path: "/music/local.mp3", Title: "Local", Bookmark: true}
-	m.replacePlayerPlaylist(append(tracks, legacyBookmark))
-	if header := ansi.Strip(m.renderPlaybackHeader()); strings.Contains(header, "★") {
-		t.Fatalf("header shows a star badge: %s", header)
-	}
-	m.favSet = map[string]struct{}{"/music/local.mp3": {}}
-	if header := ansi.Strip(m.renderPlaybackHeader()); !strings.Contains(header, "♥") || !strings.Contains(header, " 1]") {
-		t.Fatalf("header = %s, want the heart badge", header)
 	}
 }
 

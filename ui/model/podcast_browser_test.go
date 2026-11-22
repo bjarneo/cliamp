@@ -28,7 +28,7 @@ func TestPodcastBrowserOnlyOpensCategoryShows(t *testing.T) {
 	}
 	next, _ := m.Update(cmd())
 	m = next.(Model)
-	if len(m.navBrowser.artists) != 19 || !m.navBrowser.openInPlaylist {
+	if len(m.navBrowser.artists) != 19 || m.navBrowser.openInPlaylist {
 		t.Fatalf("category browser = %+v", m.navBrowser)
 	}
 
@@ -37,8 +37,9 @@ func TestPodcastBrowserOnlyOpensCategoryShows(t *testing.T) {
 	m.navBrowser.selAlbum = provider.AlbumInfo{ID: feedURL}
 	next, _ = m.Update(navTracksLoadedMsg{gen: m.requests.nav, tracks: []playlist.Track{{Title: "Episode", Path: "https://example.com/episode.mp3"}}})
 	m = next.(Model)
-	if m.navBrowser.visible || m.focus != focusPlaylist || m.activeProviderPlaylistID != feedURL {
-		t.Fatalf("opened show state = visible %v, focus %v, playlist %q", m.navBrowser.visible, m.focus, m.activeProviderPlaylistID)
+	if !m.navBrowser.visible || m.navBrowser.screen != navBrowseScreenTracks || m.playlist.Len() != 0 ||
+		m.activeProviderPlaylistID != feedURL {
+		t.Fatalf("opened show state = visible %v screen %v tracks %d playlist %q", m.navBrowser.visible, m.navBrowser.screen, m.playlist.Len(), m.activeProviderPlaylistID)
 	}
 	m.catalogBatch = catalogBatchState{offset: 100, done: true}
 	if cmd := m.handleKey(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl}); cmd == nil {
@@ -78,8 +79,31 @@ func TestPodcastCategoryRouteDuringSearch(t *testing.T) {
 		t.Fatal("browse shortcuts should not be shown as search results")
 	}
 	m := Model{provider: p}
-	if cmd := m.openNavBrowserAt(p, provider.BrowseArtistAlbums); cmd == nil || !m.navBrowser.openInPlaylist {
+	if cmd := m.openNavBrowserAt(p, provider.BrowseArtistAlbums); cmd == nil || m.navBrowser.openInPlaylist {
 		t.Fatal("search visibility changed the category route's show-opening behavior")
+	}
+}
+
+func TestPodcastProviderListOpensEpisodesInBrowser(t *testing.T) {
+	t.Setenv("CLIAMP_CONFIG_DIR", t.TempDir())
+	p := podcast.New("")
+	m := Model{provider: p, playlist: playlist.New(), player: &playbackFakeEngine{}, focus: focusProvider}
+	feedURL := "c:https://example.com/feed"
+	m.provPane.lists = []playlist.PlaylistInfo{{ID: feedURL, Name: "Fresh Show"}}
+	cmd := m.openProviderList(0)
+	if cmd == nil || !m.navBrowser.visible || !m.navBrowser.directTrackJump || m.navBrowser.openInPlaylist {
+		t.Fatalf("open show = %+v", m.navBrowser)
+	}
+	next, _ := m.Update(navTracksLoadedMsg{
+		gen: m.requests.nav,
+		tracks: []playlist.Track{
+			{Title: "Episode 1", Path: "https://example.com/1.mp3"},
+			{Title: "Episode 2", Path: "https://example.com/2.mp3"},
+		},
+	})
+	m = next.(Model)
+	if len(m.navBrowser.tracks) != 2 || m.navBrowser.screen != navBrowseScreenTracks || m.playlist.Len() != 0 {
+		t.Fatalf("episode browser = %+v, tracks %d", m.navBrowser, m.playlist.Len())
 	}
 }
 

@@ -19,25 +19,33 @@ To open it by default, set the top-level `provider = "podcast"` in
 
 Press `a` on a show in the provider list to append every episode, or `l` to
 append only its newest episode and add it to the end of the queue. Both leave the playlist and the
-queue intact, which is what separates them from `Enter`.
+queue intact.
 
-Press `Enter` on a show in the provider list or category browser to replace the
-main playlist with its episodes, without starting playback. Then select an
-episode and press `Enter` to play, or `a` to toggle its play-next queue entry.
-`Esc` or `b` returns from the playlist to the provider list.
+Press `Enter` on a show in the provider list or category browser to open its
+episode list in the browse overlay without replacing the main playlist. The
+episode list follows the same selection rules as **Open local files**: `Space`
+marks episodes, `Enter` adds the marked episodes and returns to the main
+playlist (playing the first added when nothing is playing), `R` replaces the
+queue with the marked episodes, and `w` saves them to a saved playlist. With
+nothing marked, `Enter` and `w` act on the highlighted episode only. `a`
+toggles every visible episode marked or unmarked. `q` queues one episode to
+play next without closing the browser.
 
 Feeds load the newest 300 playable episodes, newest first by publication date,
 whatever order the feed lists them in. Episodes without a date follow the dated
-ones in feed order. Episode titles, show names, durations, artwork, and episode
-numbers are retained when available. Items without playable audio are skipped.
+ones in feed order. Episode titles, show names, durations, publication dates,
+artwork, and episode numbers are retained when available. In the episode list,
+dates appear as `15 Nov · 5:22` (current year) or `15 Nov 25 · 5:22` (earlier
+years). Items without playable audio are skipped.
 The playlist shows podcast episode titles without repeating the show name on
 every row. If a publisher also puts the show name at the start of each episode
 title (for example, `Show Name - Episode`), that prefix is hidden too. The show
 name and original episode title remain in the track metadata.
 
-`Ctrl+R` reloads a show opened from the provider list or category browser. In
-the provider list with no show open, it refreshes the top chart. Reopen a show
-from `Ctrl+F` results to fetch that feed again without replacing a mixed queue.
+`Ctrl+R` reloads a show while its episode list is open in the browse overlay, or
+after you loaded one into the main playlist. In the provider list with no show
+open, it refreshes the top chart. Reopen a show from `Ctrl+F` results to fetch
+that feed again without replacing a mixed queue.
 
 ## Search Overlay
 
@@ -87,9 +95,7 @@ Press `F` to list your subscriptions. The list comes from the local store, so
 it opens without a network call and works for shows Apple's directory does not
 carry.
 
-Every action appends rather than replacing, which is the difference that
-matters: `Enter` on a show in the provider list calls a playlist replace and
-drops the queue, while this overlay adds to what you already have.
+Every action appends rather than replacing the current playlist.
 
 | Key | Action |
 | --- | --- |

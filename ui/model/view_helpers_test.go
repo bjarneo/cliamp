@@ -183,6 +183,29 @@ func TestPlaylistLabel(t *testing.T) {
 	}
 }
 
+func TestFormatPodcastEpisodeDate(t *testing.T) {
+	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.Local)
+	tests := []struct {
+		in, want string
+	}{
+		{"2026-09-15", "15 Sep"},
+		{"2025-11-15", "15 Nov 25"},
+		{"", ""},
+		{"not-a-date", ""},
+	}
+	for _, tt := range tests {
+		if got := formatPodcastEpisodeDate(tt.in, now); got != tt.want {
+			t.Errorf("formatPodcastEpisodeDate(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+	if tail := podcastEpisodeRowTail(playlist.Track{
+		DurationSecs: 322,
+		ProviderMeta: map[string]string{provider.MetaPodcastPublished: "2026-09-15"},
+	}, now); tail != "15 Sep · 5:22" {
+		t.Errorf("podcastEpisodeRowTail = %q, want %q", tail, "15 Sep · 5:22")
+	}
+}
+
 func TestFormatTrackRow(t *testing.T) {
 	// No duration: returns just "N. title".
 	row := formatTrackRow(3, "Song", 0, 80)
@@ -495,10 +518,26 @@ func TestHeaderStateManualOverride(t *testing.T) {
 		t.Fatalf("manual override should suppress heuristic after Add")
 	}
 
-	// A fresh load via setHeaderStateFromTracks clears the manual flag.
+	// A fresh playlist load keeps a pinned manual or config choice.
 	m.setHeaderStateFromTracks([]playlist.Track{mk("B"), mk("B"), mk("B"), mk("B")})
-	if !m.showAlbumHeaders {
-		t.Fatalf("setHeaderStateFromTracks should clear manual flag and re-run heuristic")
+	if m.showAlbumHeaders {
+		t.Fatalf("setHeaderStateFromTracks should keep manual headers hidden")
+	}
+}
+
+func TestToggleAlbumHeadersPersists(t *testing.T) {
+	saver := &recordingSaver{}
+	m := &Model{configSaver: saver}
+	m.setHeaderStateFromTracks([]playlist.Track{{Album: "A"}, {Album: "A"}, {Album: "A"}})
+
+	m.toggleAlbumHeadersManual()
+	if got := saver.saved["show_album_headers"]; got != "false" {
+		t.Fatalf("saved show_album_headers = %q, want %q", got, "false")
+	}
+
+	m.toggleAlbumHeadersManual()
+	if got := saver.saved["show_album_headers"]; got != "true" {
+		t.Fatalf("saved show_album_headers = %q, want %q", got, "true")
 	}
 }
 
@@ -512,6 +551,7 @@ func TestProviderKeyForShortcut(t *testing.T) {
 		"X": "mixcloud",
 		"K": "bandcamp",
 		"L": "local",
+		"I": "cliamp",
 		"R": "radio",
 		"O": "podcast",
 		"o": "",

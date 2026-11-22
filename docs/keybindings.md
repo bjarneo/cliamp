@@ -28,7 +28,7 @@ AZERTY, QWERTZ and Dvorak work as before. On a Russian layout, `?` is
 
 | Key | Action |
 |---|---|
-| `Space` | Play / Pause |
+| `Space` | Pause or resume the loaded track |
 | `s` | Stop |
 | `>` `.` | Next track |
 | `<` `,` | Previous track |
@@ -44,32 +44,32 @@ AZERTY, QWERTZ and Dvorak work as before. On a Russian layout, `?` is
 
 | Key | Action |
 |---|---|
-| `Tab` | Cycle visible controls: Playlist / Source / Volume / EQ / Shuffle / Repeat / Speed / Playlist |
+| `Tab` | Cycle settings focus from Playlist through the visible settings in reading order, then back to Playlist (help bar: **Settings**) |
 | `Shift+Tab` | Cycle the same controls in reverse |
 | `j` `k` / `Up` `Down` | Move playlist cursor (wraps); see focused settings below for control actions |
 | `PageUp` `PageDown` / `Ctrl+U` `Ctrl+D` | Scroll playlist/file browser by page (outside text input) |
-| `Home` `End` / `g` `G` | Go to top/end of playlist/file browser |
+| `Home` `End` / `g` `G` | Go to top/end of list (queue or file browser) |
 | `Shift+Up` `Shift+Down` | Move track up/down in playlist/queue. Turn off shuffle to move a playlist track. |
-| `Ctrl+O` | Reverse the playlist order, for example to play the newest added tracks first. The playing track keeps playing. A loaded local playlist saves the new order. Tracks from its directory source keep their scan order. Turn off shuffle first, and wait until a provider playlist has finished loading. |
+| `Ctrl+O` | Reverse the queue order, for example to play the newest added tracks first. The playing track keeps playing. A loaded local playlist saves the new order. Tracks from its directory source keep their scan order. Turn off shuffle first, and wait until a provider playlist has finished loading. |
 | `h` `l` | Adjust the focused setting (EQ: select band) |
 | `Enter` | Play selected track |
-| `/` | Filter the playlist (navigate results with `↑` `↓` / `Ctrl+N` `Ctrl+P`; `Ctrl+U` clears the query; `Tab` toggles the queue for the selected result) |
-| `Ctrl+X` | Expand/collapse playlist |
-| `Ctrl+Z` | Undo the last playlist or queue change |
-| `o` | Open file browser |
-| `b` `Esc` | Back to provider |
+| `/` | Filter the playlist (navigate results with `↑` `↓` / `Ctrl+N` `Ctrl+P`; `Ctrl+U` clears the query; `Tab` toggles play next for the selected result) |
+| `Ctrl+X` | Expand/collapse the frame to the full terminal size (remembered in `expanded`) |
+| `Ctrl+Z` | Undo last queue change, or restore a podcast subscription or radio favorite you just removed |
+| `o` | File browser |
+| `p` | Local playlist manager |
+| `b` `Esc` | Back to the active provider |
 
-In full and compact playback layouts, the first `Tab` from the playlist focuses
-Source (`SRC`); `Shift+Tab` starts at Speed when it is visible. Source is skipped
-when only one provider is available. Closing Settings skips EQ and Speed. A
-short sidebar can omit Shuffle and Repeat together, removing both Tab stops.
-Metadata is read-only and never a separate Tab stop.
+On the playback screen, the first `Tab` from the playlist focuses Source
+(`SRC`); `Shift+Tab` starts at the last visible setting: Speed in the pane,
+Volume on one stacked row, Repeat on two. Source is skipped when only one
+provider is available. A short sidebar puts Shuffle, Repeat, and Speed on one
+row, and a shorter one omits that row, removing its three Tab stops. Metadata is read-only and never a separate
+Tab stop.
 
-In the minimal (`40x10`) and simplified layouts, `Tab` and `Shift+Tab` keep
-playback focus on the playlist, even though simplified mode hides the list.
-`Esc` still opens the separate provider-list view. In the minimal layout, the
-hint bar then shows the provider keys. Below `40x10`, only a resize message is
-shown.
+In the simplified layout, `Tab` and `Shift+Tab` keep playback focus on the
+playlist, even though simplified mode hides the list. `Esc` still opens the
+separate provider-list view. Below `40x10`, only a resize message is shown.
 
 ### Focused Settings
 
@@ -103,15 +103,15 @@ Radio and Podcasts, `/` sends the query to the provider when you press
 `Enter`.
 
 While a search or filter input is open, its line starts with a badge that
-names the mode and the source, such as `[Filter: Playlist]`, `[Filter: Files]`,
-`[Search: Spotify]` or `[Search: Radio]`. The line ends with `Esc Exit`. Press
+names the mode and the source, such as `[Filter: Queue]`, `[Filter: Files]`,
+`[Search: Files]`, `[Search: Spotify]` or `[Search: Radio]`. The line ends with `Esc Exit`. Press
 `Esc` to leave the input. On a narrow panel, the hint bar still shows `Esc`.
 
 If the active provider has no `Ctrl+F` search, `Ctrl+F` searches YouTube. The
 overlay shows `[Search: YouTube]` and names the provider that has no search.
 
 After a Radio or Podcasts search, the provider header shows `Search results`
-and the hint bar shows `Esc Clear search`. Press `Esc` to go back to the full
+and the help bar shows `Esc Clear search`. Press `Esc` to go back to the full
 list.
 
 ## EQ and Appearance
@@ -124,8 +124,8 @@ list.
 | `v` | Cycle visualizer and save the choice in `config.toml` |
 | `Ctrl+V` | Pick visualizer from a list (live preview) |
 | `V` | Full screen visualizer. Inside it, `v` cycles modes and saves the choice, `<`/`>` change track, `+`/`-` change volume, and `t` hides the episode name, leaving only the bracketed source. `q` or `Esc` exits back to the player; `Ctrl+C` quits. |
-| `Ctrl+H` | Toggle album headers |
-| `Ctrl+G` | Toggle the key-binding hint bar (remembered in `hide_help_bar`) |
+| `Ctrl+H` | Toggle album headers (remembered in `show_album_headers`) |
+| `Ctrl+G` | Toggle the key-binding help bar (remembered in `hide_help_bar`) |
 | `Ctrl+B` | Open/close the settings pane (remembered in `hide_settings_pane`) |
 
 Theme and visualizer pickers support `/` filtering. While you browse, arrow
@@ -139,7 +139,7 @@ and `Esc` clears it.
 |---|---|
 | `f` | Toggle the favorite ♥ on the selected track. Favorites appear in the "Favorites" virtual playlist, and cliamp also saves them on Spotify and Navidrome. For directory radio stations outside saved local playlists, toggle Radio Favorites from the browser or playback playlist, including country and genre results. In the country browser, pin the selected country or region. On a podcast show, subscribe or unsubscribe. |
 | `*` then `0`-`5` | Set the selected Navidrome track's rating. `0` clears it. The playing track shows `★N`, and Linux MPRIS reports the normalized rating. |
-| `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Bandcamp, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase, SoundCloud, Yandex Music, Local), or search YouTube. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
+| `Ctrl+F` | Search with the active provider (Podcasts, Spotify, Qobuz, Tidal, Bandcamp, Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase Cloud Music, SoundCloud, Yandex Music, Local), or search YouTube. Available in playlist and provider-browser views. The search line names the source. See [Search and filter modes](#search-and-filter-modes). |
 | `u` | Load URL (stream/playlist) |
 | `d` | Open the audio device picker |
 | `y` | Show or close lyrics |
@@ -148,9 +148,10 @@ and `Esc` clears it.
 | `i` | From the playlist, open full info for the highlighted item, including Path (`Up`/`Down` or `j`/`k` scroll; `i`/`Esc`/`q` closes) |
 | `Ctrl+I` | Toggle Metadata below Settings for the highlighted playlist item (remembered in `show_metadata`; requires a terminal that distinguishes Ctrl+I from Tab) |
 | `Ctrl+S` | Save track to `[downloads].directory` (default `~/Music/cliamp`) |
-| `w` | Write the highlighted track to a local playlist |
-| `N` | Open the active provider browser. On a selected Mixcloud show, open that creator's Uploads/Favorites. In the radio pane, open the country browser. |
+| `w` | Add the highlighted track to a saved playlist |
+| `N` | Open the active provider browser. On Local, open the file browser; after you play a file from it, `Esc` returns to that directory. On a selected Mixcloud show, open that creator's Uploads/Favorites. In the radio pane, open the country browser. |
 | `L` | Open Local provider |
+| `I` | Open Cliamp Radios provider |
 | `R` | Open radio provider |
 | `O` (`Shift+O`) | Open Podcasts provider |
 | `S` | Open Spotify provider |
@@ -173,17 +174,19 @@ without a usable Settings sidebar opens the full info overlay instead; the
 preference remains saved for a wider layout. See
 [Metadata](configuration.md#metadata) for fields and layout behavior.
 
-## Playlist and Queue
+## Playlist and play next
 
 | Key | Action |
 |---|---|
-| `a` | Toggle the queue (play next) |
-| `A` | Queue manager |
-| `c` | In the queue manager: clear the queue (press again to confirm when more than one track) |
-| `d` | In the queue manager: remove the highlighted track |
+| `a` | Toggle play next |
+| `A` | Open play next list |
+| `c` | In the play next overlay: clear play next (press again to confirm when more than one track) |
+| `d` | In the play next overlay: remove the highlighted track |
+| `Shift+Up` `Shift+Down` / `[` `]` | In the play next overlay: move the highlighted track |
 | `F` | Subscribed shows overlay (any provider that keeps subscriptions) |
+| `c` | Clear the playback queue (press again to confirm when more than one track) |
 | `x` | Remove the highlighted track from the current playlist |
-| `p` | Playlist |
+| `p` | Playlists |
 | `r` | Cycle repeat mode (Off / All / One) |
 | `z` | Toggle shuffle |
 
@@ -238,7 +241,7 @@ reordered, so `p` leaves them alone and reports them as skipped.
 | `p` | Tracks screen: play all from the top |
 | `w` | List: save the current queue with the playlist picker. Tracks: copy marked or selected tracks to another playlist. |
 | `Space` | Tracks: mark/unmark highlighted track (advances on mark, stays on unmark) |
-| `[` `]` | Tracks: move highlighted track and save the playlist |
+| `Shift+Up` `Shift+Down` / `[` `]` | Tracks: move highlighted track and save the playlist |
 | `f` | Tracks: toggle the favorite ♥ on the highlighted track. In "Favorites", an unfavorite removes the row. |
 | `s` | Tracks: sort and save, cycling `track`, `title`, `artist`, `album`, `artist+album`, `path` |
 | `o` | Tracks: open file browser to add files to this playlist |
@@ -246,7 +249,7 @@ reordered, so `p` leaves them alone and reports them as skipped.
 | `a` | List: create a playlist. After naming it, the file browser opens at `~`. Use `Enter` to enter a directory, `Space` to select folders or files, `Enter` to confirm, or `Esc` to finish. Tracks: mark or unmark all visible tracks. |
 | `r` | List: rename the playlist (`Recently Played` cannot be renamed) |
 | `d` | List: delete playlist (confirms; `Recently Played` cannot be deleted). Tracks: remove marked tracks, or highlighted track when none are marked |
-| `A` | List: append the selected playlist to the current one, keeping what is loaded. Tracks: append the marked tracks, or the highlighted one. |
+| `A` | Add to queue: list — append the selected playlist; tracks — append marked tracks, or the highlighted one. Keeps what is already loaded. |
 | `u` | Undo the last manager edit |
 | `←` `Backspace` `h` `q` | Tracks screen: go back to the list |
 | `Esc` `q` | Close the playlist or go back |
@@ -271,17 +274,20 @@ other key cancels. The Shift-letter keys do not switch providers then.
 | Key | Action |
 |---|---|
 | `↑` `↓` / `j` `k` | Move cursor |
-| `←` `→` / `h` `l` / `Enter` | Go back; open a directory or file |
-| `/` | Filter files |
+| `←` `→` / `h` `l` / `Enter` | Go back; open a directory; add selection to the queue or to the target playlist |
+| `R` | Replace the queue with the selection (confirms when it is non-empty) |
+| `/` `Ctrl+F` | Search the open folder and everything below it. Folders come first, then files, and each row shows its path from the open folder |
 | `Space` | Select or unselect file/directory |
+| `s` | Cycle sort: default name order, then **Newest**, then **Oldest** (modification time). Directories stay above files |
 | `a` | Select/unselect all visible audio files |
-| `R` | Replace the current queue with selected files (confirm when it is non-empty) |
-| `w` | Write selected files to a local playlist |
-| `D` | Add selected folders as live `[[dir]]` sources to the target playlist. If none are selected, add the selected folder or the open directory. The browser stays open. |
+| `w` | Add selected files to a saved playlist |
+| `D` | Add folder as live source for a playlist (`[[dir]]` sources). If none are selected, use the selected folder or the open directory. The browser stays open. |
 | `~` `.` | Jump to home / current working directory |
+| `p` | Open the playlist manager |
 | `Esc` `q` `o` | Close file browser |
 
-When the browser adds to a playlist, selected folders become `[[dir]]` sources.
+When the browser adds to a playlist, the help bar shows **Add to playlist** on
+`Enter` instead of **Add to queue**. Selected folders become `[[dir]]` sources.
 Selected audio files become explicit tracks. This mode starts when you open the
 browser with `D` from the manager list, with `o` from the tracks screen, or
 after you create a playlist with `a`. In this mode, `Esc` means "done". cliamp
@@ -330,26 +336,30 @@ genre Latest/Popular view replaces the main playlist and closes the browser. An
 empty result leaves the current playlist and browser unchanged.
 
 For Podcasts, **Browse Categories** opens **Genre**, then **Show**. `Enter` on a
-show replaces the main playlist with its episodes without starting playback.
-Then `Enter` plays an episode and `a` toggles its play-next queue entry.
+show opens its episode list in the browse overlay. On episodes, use the same
+keys as **Open local files**: `Space` to select, `Enter` to add, `R` to replace
+the queue, `w` to save to a playlist.
 
 ## Provider playlist list
 
 The playlists pane appears when the focus is on a provider, such as Spotify,
-Navidrome, Podcasts, or Local Playlists:
+Navidrome, Podcasts, or Local. On Local, the pane lists **Open local files**
+and **Playlists**; `Enter` opens the file browser or the manager
+instead of loading a playlist from the pane. Other providers list their
+playlists here:
 
 | Key | Action |
 |---|---|
 | `↑` `↓` / `j` `k` | Move cursor (wraps) |
 | `Ctrl+U` `Ctrl+D` | Scroll by page |
-| `Enter` | Load the selected playlist tracks into the queue |
+| `Enter` | Load the selected playlist tracks into the queue (Local: open files or manager; Podcasts show: open episode list) |
 | `/` | Filter the playlist list. In Podcasts, type a show name or publisher RSS URL, then `Enter` to search; typing alone sends no search requests. |
 | `f` | In Podcasts, subscribe or unsubscribe from the selected show |
 | `Ctrl+F` | Run the provider online or server search (Spotify, Navidrome, NetEase, and others). |
 | `Ctrl+R` | Refresh the provider: reload the currently open playlist or starting wave in place (e.g. a fresh Yandex "Моя волна" batch), or return to the playlist list. For Mixcloud, also clear the cached `/me/` identity. |
-| `p` | Open the playlist as an overlay (the Local source shows it directly; create, rename, delete, add dirs/tracks) |
+| `p` | Open the playlist manager (create, rename, delete, add dirs/tracks) |
 | `S` `P` `J` `E` `B` `Y` `C` `X` `M` `Q` `T` `K` `L` `R` `O` | Switch to that provider |
-| `N` | Open the browser of the provider on screen |
+| `N` | Open the browser of the provider on screen. On Local, open the file browser |
 | `Tab` | Leave the provider pane and focus Source, or the first visible playback control |
 | `Shift+Tab` | Leave the provider pane and focus the last visible playback control (Speed, or Repeat with Settings closed) |
 | `Esc` `b` | Back to the playlist pane; in Podcasts, clear show search first |
@@ -362,9 +372,9 @@ Latest/Popular pair for each locally favorited genre under Music Styles. Leaving
 a provider-pane Browse shortcut returns to the provider pane.
 
 Podcasts lists subscriptions and Apple's top shows. `/` searches up to 100 shows;
-`Enter` on a show replaces the playlist without playing. `Ctrl+R` reloads a show
-opened from this list or the category browser; reopen `Ctrl+F` shows to fetch
-those feeds again. See [podcasts.md](podcasts.md) for startup and country settings.
+`Enter` on a show opens its episodes in the browse overlay; `a` and `l` still
+append from the provider list. `Ctrl+R` reloads a show whose episode list is
+open; reopen `Ctrl+F` shows to fetch those feeds again. See [podcasts.md](podcasts.md) for startup and country settings.
 
 ## Search results overlays
 
@@ -404,17 +414,24 @@ Start the query with `^` or `'` to match one literal phrase instead, spaces
 included and case ignored. `^queens of the stone age` finds the names that
 start with that phrase, and `'stone age` the names that contain it anywhere.
 
+The file browser is the one exception. Its search reaches every subfolder of the
+open folder, so it matches the query as a substring instead: over a whole music
+library, subsequence matching turns a short query into hundreds of weak hits.
+Folders that match come before files, and both groups are ranked by where the
+match falls: a name that starts with the query first, then a match at a word
+boundary, then any other match.
+
 This applies to:
 
 - `/` playlist search
-- `/` file browser filter
+- `/` file browser search over the open folder and its subfolders
 - `/` provider playlist list filter, such as `metallica reload` for the
   album "Metallica — Reload"
 - `/` subscribed shows filter, which matches the title or the author
 - `Ctrl+F` when the active provider is Local (your saved playlists)
 
 Other `Ctrl+F` providers, including Spotify, Qobuz, Tidal, Bandcamp,
-Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase,
+Navidrome, Lyrion, Jellyfin, Emby, Plex, Audiobookshelf, Mixcloud, NetEase Cloud Music,
 SoundCloud, Yandex Music, Podcasts, and YouTube, send the query to their
 search API. Their services control matching rules.
 
