@@ -24,7 +24,7 @@ func TestSearchInputsShowModeAndExitKey(t *testing.T) {
 			name:   "playlist search",
 			setup:  func(m *Model) { m.search.active = true; m.search.query = "jazz" },
 			header: (*Model).searchHeaderLine,
-			want:   "[Filter: Playlist] jazz_",
+			want:   "[Filter: Queue] jazz_",
 		},
 		{
 			name:   "file browser filter",
@@ -132,7 +132,7 @@ func TestProviderSearchHelpShowsHowToLeave(t *testing.T) {
 			m.provider = cs
 			m.focus = focusProvider
 			tt.setup(&m)
-			if help := ansi.Strip(m.renderHelp()); !strings.Contains(help, "Esc") || !strings.Contains(help, tt.want) {
+			if help := ansi.Strip(m.renderHelpBar()); !strings.Contains(help, "Esc") || !strings.Contains(help, tt.want) {
 				t.Fatalf("help = %q, want Esc %s", help, tt.want)
 			}
 			if header := ansi.Strip(m.renderPlaylistHeader()); !strings.Contains(header, tt.wantLabel) {

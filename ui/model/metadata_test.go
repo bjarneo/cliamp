@@ -227,8 +227,8 @@ func TestMetadataToggleDefaultsAndPersistence(t *testing.T) {
 			t.Errorf("metadata key %q is not reserved", key)
 		}
 	}
-	if ReservedKeys()["I"] {
-		t.Error("the removed Shift+I shortcut is still reserved")
+	if !ReservedKeys()["I"] {
+		t.Error("Shift+I Cliamp Radios shortcut is not reserved")
 	}
 }
 

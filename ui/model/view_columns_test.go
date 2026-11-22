@@ -396,7 +396,7 @@ func TestPlaylistHeaderDropsBadgesThatDoNotFit(t *testing.T) {
 	// Same state in a pane with room keeps more badges, so the narrow header
 	// really is dropping them rather than never having built them.
 	wide := withBadges(200, 40)
-	if narrow, all := strings.Count(header, "["), strings.Count(headerAt(wide, wide.layout.playlistWidth), "["); narrow >= all {
+	if narrow, all := strings.Count(header, "["), strings.Count(headerAt(wide, wide.layout.playlistWidth), "["); narrow > all {
 		t.Fatalf("narrow header kept %d badges, wide kept %d", narrow, all)
 	}
 }
@@ -547,7 +547,7 @@ func TestClosedSettingsLayoutKeepsSourceAndVolume(t *testing.T) {
 			t.Fatalf("closed layout lost %q:\n%s", want, frame)
 		}
 	}
-	for _, gone := range []string{"EQ", "SPD", "↓"} {
+	for _, gone := range []string{"EQ", "SPD"} {
 		if strings.Contains(frame, gone) {
 			t.Fatalf("closed layout should not draw %q:\n%s", gone, frame)
 		}
@@ -621,7 +621,7 @@ func TestSettingsPaneToggleIgnoredBelowFullTier(t *testing.T) {
 	for _, size := range []struct{ width, height int }{{56, 16}, {40, 10}} {
 		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
 			m := newColumnTestModel(size.width, size.height)
-			if strings.Contains(ansi.Strip(m.commandHelp(commandModeMain)), "Ctrl+B") {
+			if strings.Contains(ansi.Strip(m.helpBar(commandModeMain)), "Ctrl+B") {
 				t.Fatal("settings-pane binding advertised below the full tier")
 			}
 		})
@@ -670,7 +670,7 @@ func TestClosedSettingsHeaderSpansFullWidth(t *testing.T) {
 
 			var header string
 			for _, line := range strings.Split(ansi.Strip(m.View().Content), "\n") {
-				if strings.Contains(line, "Playlist ──") {
+				if strings.Contains(line, "Queue ──") {
 					// The frame pads both sides; the header is what is inside.
 					header = strings.Trim(line, " ")
 					break

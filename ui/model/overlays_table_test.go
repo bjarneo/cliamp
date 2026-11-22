@@ -142,8 +142,8 @@ func TestOverlayRoutesAgree(t *testing.T) {
 			if mode, name := m.commandContext(); mode != wantMode || name != wantName {
 				t.Errorf("commandContext() = %v %q, want %v %q", mode, name, wantMode, wantName)
 			}
-			if got, w := m.renderHelp(), m.commandHelp(wantMode); got != w {
-				t.Errorf("renderHelp() = %q, want %q", got, w)
+			if got, w := m.renderHelpBar(), m.helpBar(wantMode); got != w {
+				t.Errorf("renderHelpBar() = %q, want %q", got, w)
 			}
 			// The keymap lists the context under it.
 			if want == screenKeymap && c.under != nil {

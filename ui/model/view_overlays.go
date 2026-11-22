@@ -315,7 +315,7 @@ func (m Model) renderSearchList() string {
 		name := trackViewName(track)
 		queueSuffix := ""
 		if qp := m.playlist.QueuePosition(i); qp > 0 {
-			queueSuffix = fmt.Sprintf(" [Q%d]", qp)
+			queueSuffix = fmt.Sprintf(" [N%d]", qp)
 		}
 		// The cursor and row prefixes take two cells each, ". " two more.
 		name = truncate(name, m.layout.panelWidth-6-numWidth-len([]rune(queueSuffix)))

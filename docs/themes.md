@@ -66,7 +66,7 @@ text switches between black and white for readable contrast.
 A line that starts with `#` is a comment. A `#` after a value and a space also
 starts a comment, for example `red = "#dc322f" # errors`.
 
-Important UI states also use stable text markers: `>`, `Q`, `♥`, `!`, `WARN:`,
+Important UI states also use stable text markers: `>`, `N`, `♥`, `!`, `WARN:`,
 and `ERR:`. These markers keep state and feedback distinct in monochrome
 terminals.
 
