@@ -30,8 +30,8 @@ func TestPlaylistStateMarkersStayVisibleWithoutColor(t *testing.T) {
 	}
 
 	plain := ansi.Strip(m.renderPlaylist())
-	if !strings.Contains(plain, ">▶N"+favHeart) {
-		t.Fatalf("playlist markers = %q, want cursor, playback, play next, and favorite columns", plain)
+	if !strings.Contains(plain, ">▶Q"+favHeart) {
+		t.Fatalf("playlist markers = %q, want cursor, playback, queue, and favorite columns", plain)
 	}
 	if !strings.Contains(plain, "!") {
 		t.Fatalf("playlist markers = %q, want unavailable marker", plain)
