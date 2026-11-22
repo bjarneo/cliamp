@@ -50,7 +50,12 @@ func TestCommandHelpKeepsEssentialHintsAtMinimumWidth(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			help := m.commandHelp(tt.mode)
+			helpModel := m
+			if tt.mode == commandModePlaylistManager {
+				helpModel.plManager.visible = true
+				helpModel.plManager.screen = plMgrScreenList
+			}
+			help := helpModel.commandHelp(tt.mode)
 			if got := lipgloss.Width(help); got > 40 {
 				t.Fatalf("help width = %d, want <= 40: %q", got, help)
 			}

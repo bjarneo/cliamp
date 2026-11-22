@@ -240,16 +240,30 @@ var commandRegistry = []commandSpec{
 	},
 	{
 		Mode:     commandModeMain,
-		Keys:     []string{"pgup", "pgdown", "ctrl+u", "ctrl+d"},
-		KeyLabel: "PgUp PgDn / Ctrl+U D",
-		Label:    "Scroll playlist/browser by page",
+		Keys:     []string{"pgdown", "ctrl+d"},
+		KeyLabel: "PgDn Ctrl+d",
+		Label:    "Scroll to next page",
 		Keymap:   true,
 	},
 	{
 		Mode:     commandModeMain,
-		Keys:     []string{"home", "end", "g", "G"},
-		KeyLabel: "Home End / g G",
-		Label:    "Go to top/end of playlist/browser",
+		Keys:     []string{"pgup", "ctrl+u"},
+		KeyLabel: "PgUp Ctrl+u",
+		Label:    "Scroll to previous page",
+		Keymap:   true,
+	},
+	{
+		Mode:     commandModeMain,
+		Keys:     []string{"end", "G"},
+		KeyLabel: "End G",
+		Label:    "Go to bottom of playlist",
+		Keymap:   true,
+	},
+	{
+		Mode:     commandModeMain,
+		Keys:     []string{"home", "g"},
+		KeyLabel: "Home g",
+		Label:    "Go to top of playlist",
 		Keymap:   true,
 	},
 	{
@@ -447,15 +461,6 @@ var commandRegistry = []commandSpec{
 	},
 	{
 		Mode:     commandModeMain,
-		Keys:     []string{"ctrl+x"},
-		KeyLabel: "Ctrl+X",
-		Label:    "Expand",
-		Enabled: func(m Model) bool {
-			return !m.simplified && !m.heightExpanded && m.layout.bodyRows > m.plVisible
-		},
-	},
-	{
-		Mode:     commandModeMain,
 		Keys:     []string{"y"},
 		KeyLabel: "y",
 		Label:    "Show lyrics",
@@ -479,10 +484,10 @@ var commandRegistry = []commandSpec{
 		Keymap: true,
 	},
 	{
-		Mode:        commandModeMain | commandModeInfo,
+		Mode:        commandModeMain,
 		Keys:        []string{"ctrl+i"},
 		KeyLabel:    "Ctrl+I",
-		Label:       "Metadata",
+		Label:       "Toggle Track info pane",
 		Keymap:      true,
 		ContextHelp: true,
 	},
@@ -675,13 +680,19 @@ var commandRegistry = []commandSpec{
 		Keymap:   true,
 	},
 	{
-		Mode:        commandModeProviderPill,
+		Mode:        commandModeProviderPill | commandModeEQ | commandModeSpeed | commandModeShuffle | commandModeRepeat | commandModeVolume,
 		Keys:        []string{"esc", "backspace"},
 		KeyLabel:    "Esc",
 		RunKey:      "esc",
 		Label:       "Back",
 		ContextHelp: true,
 		Cancel:      true,
+	},
+	{
+		Mode:     commandModeEQ,
+		Keys:     []string{"left", "right", "h", "l"},
+		KeyLabel: "Left Right",
+		Label:    "Select band",
 	},
 	{
 		Mode:        commandModeEQ,
@@ -709,18 +720,11 @@ var commandRegistry = []commandSpec{
 	},
 	{
 		Mode:        commandModeRepeat,
-		Keys:        []string{"enter"},
-		KeyLabel:    "Enter",
+		Keys:        []string{"enter", "left", "right", "up", "down", "h", "l", "k", "j"},
+		KeyLabel:    "Enter / Arrows",
 		Label:       "Cycle repeat",
 		ContextHelp: true,
 		Primary:     true,
-	},
-	{
-		Mode:        commandModeRepeat,
-		Keys:        []string{"left", "right", "up", "down", "h", "l", "k", "j"},
-		KeyLabel:    "Arrows",
-		Label:       "Repeat next/previous",
-		ContextHelp: true,
 	},
 	{
 		Mode:        commandModeSpeed,
@@ -1056,7 +1060,7 @@ var commandRegistry = []commandSpec{
 		Cancel:      true,
 	},
 	{
-		Mode:        commandModeFileBrowser | commandModeNavBrowser | commandModePlaylistManager | commandModePlaylistPicker | commandModeDevicePicker,
+		Mode:        commandModeNavBrowser | commandModePlaylistPicker | commandModeDevicePicker,
 		Keys:        []string{"enter"},
 		KeyLabel:    "Enter",
 		Label:       "Select",
@@ -1148,6 +1152,14 @@ var commandRegistry = []commandSpec{
 	},
 	{
 		Mode:        commandModeFileBrowser,
+		Keys:        []string{"enter"},
+		KeyLabel:    "Enter",
+		Label:       "Add to queue",
+		ContextHelp: true,
+		Primary:     true,
+	},
+	{
+		Mode:        commandModeFileBrowser,
 		Keys:        []string{"space"},
 		KeyLabel:    "Space",
 		Label:       "Select",
@@ -1194,6 +1206,28 @@ var commandRegistry = []commandSpec{
 		KeyLabel: "a",
 		Label:    "Select/unselect all audio",
 		Keymap:   true,
+	},
+	{
+		Mode:     commandModePlaylistManager,
+		Keys:     []string{"enter"},
+		KeyLabel: "Enter",
+		Label:    "Play",
+		Enabled: func(m Model) bool {
+			return m.plManager.visible && m.plManager.screen == plMgrScreenTracks
+		},
+		ContextHelp: true,
+		Primary:     true,
+	},
+	{
+		Mode:     commandModePlaylistManager,
+		Keys:     []string{"enter"},
+		KeyLabel: "Enter",
+		Label:    "Select",
+		Enabled: func(m Model) bool {
+			return m.plManager.visible && m.plManager.screen == plMgrScreenList
+		},
+		ContextHelp: true,
+		Primary:     true,
 	},
 	{
 		Mode:        commandModePlaylistManager,
@@ -1486,6 +1520,14 @@ var commandRegistry = []commandSpec{
 		Label:       "Close",
 		ContextHelp: true,
 		Cancel:      true,
+	},
+	{
+		Mode:        commandModeInfo,
+		Keys:        []string{"ctrl+i"},
+		KeyLabel:    "Ctrl+I",
+		Label:       "Track info",
+		Keymap:      true,
+		ContextHelp: true,
 	},
 	{
 		Mode:        commandModeVisPicker,
