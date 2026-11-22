@@ -108,21 +108,7 @@ var commandRegistry = []commandSpec{
 		Keymap:   true,
 	},
 	{
-		Mode:     commandModeMain,
-		Keys:     []string{"?"},
-		KeyLabel: "?",
-		Label:    "Help",
-		Keymap:   true,
-	},
-	{
-		Mode:     commandModeQueue,
-		Keys:     []string{"?"},
-		KeyLabel: "?",
-		Label:    "Help",
-		Keymap:   true,
-	},
-	{
-		Mode:     commandModeFullVis,
+		Mode:     commandModeAny,
 		Keys:     []string{"?"},
 		KeyLabel: "?",
 		Label:    "Help",
@@ -1632,7 +1618,7 @@ func (m Model) commandHelp(mode commandMode) string {
 		}
 	}
 	var helpSuffix string
-	if command, ok := m.findCommand(mode, "ctrl+k"); ok {
+	if command, ok := m.findCommand(mode, "?"); ok {
 		helpSuffix = helpKey(command.KeyLabel, command.label(m))
 	}
 	return fitHelpBar(commands, m.helpWidth(), m, helpSuffix)

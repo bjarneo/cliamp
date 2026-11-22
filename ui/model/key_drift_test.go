@@ -367,7 +367,7 @@ var unlistedKeys = map[string][]string{
 	"handleDeviceKey":               {"d"},
 	"handleFileBrowserKey":          {"o", "right", "l", "backspace", "left", "h", "~", "."},
 	"handleInfoKey":                 {"i"},
-	"handleKeymapKey":               {"?", "backspace", "h", "l"},
+	"handleKeymapKey":               {"backspace", "h", "l"},
 	"handleLyricsKey":               {"y"},
 	"handleNavAlbumListKey":         {"l", "right", "h", "left", "backspace"},
 	"handleNavArtistListKey":        {"l", "right", "h", "left", "backspace"},
@@ -391,7 +391,6 @@ var unlistedKeys = map[string][]string{
 	"handleSearchKey":               {"ctrl+n", "ctrl+p"},
 	"handleSpeedKey":                {"l", "h"},
 	"handleSearchOverlayResultsKey": {"ctrl+p", "ctrl+n", "a", "q"},
-	"handleSubsKey":                 {"?"},
 	"handleThemeKey":                {"t"},
 	"handleVisPickerKey":            {"ctrl+v"},
 }

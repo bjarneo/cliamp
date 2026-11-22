@@ -480,6 +480,7 @@ func TestHandleGlobalKey(t *testing.T) {
 		{name: "ctrl+c quits", key: tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}, wantOK: true, wantQuit: true},
 		{name: "ctrl+z undoes", key: tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl}, wantOK: true, wantUndo: true},
 		{name: "ctrl+k opens the keymap", key: tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl}, wantOK: true, wantKeymap: true},
+		{name: "? opens the keymap", key: tea.KeyPressMsg{Text: "?"}, wantOK: true, wantKeymap: true},
 		{name: "ctrl+k over the keymap goes on", key: tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl}, keymap: true, wantKeymap: true},
 		{name: "q goes on", key: tea.KeyPressMsg{Text: "q"}},
 		{name: "q quits when too small", key: tea.KeyPressMsg{Text: "q"}, tooSmall: true, wantOK: true, wantQuit: true},
