@@ -199,11 +199,11 @@ func TestMetadataMissingSelectionAndPathPrivacy(t *testing.T) {
 }
 
 func TestMetadataToggleDefaultsAndPersistence(t *testing.T) {
-	m := newColumnTestModel(80, 24)
+	m := newColumnTestModel(86, 24)
 	saver := &recordingSaver{}
 	m.configSaver = saver
 	before := m.layout
-	if m.showMetadata || m.metadataPaneRows(20) != 0 || strings.Contains(ansi.Strip(m.View().Content), "Metadata [Ctrl+I]") {
+	if m.showMetadata || m.metadataPaneRows(20) != 0 || strings.Contains(ansi.Strip(m.View().Content), "Metadata") {
 		t.Fatal("metadata is not collapsed by default")
 	}
 	for _, want := range []bool{true, false} {
@@ -215,7 +215,7 @@ func TestMetadataToggleDefaultsAndPersistence(t *testing.T) {
 		if len(saver.saved) != 1 || saver.saved["show_metadata"] != strconv.FormatBool(want) {
 			t.Fatalf("saved config = %v, want only show_metadata=%v", saver.saved, want)
 		}
-		if got := strings.Contains(ansi.Strip(m.View().Content), "Metadata [Ctrl+I]"); got != want {
+		if got := strings.Contains(ansi.Strip(m.View().Content), "Metadata"); got != want {
 			t.Fatalf("metadata header visible = %v, want %v", got, want)
 		}
 	}
@@ -243,7 +243,7 @@ func TestMetadataShortcutLeavesTabNavigationIntact(t *testing.T) {
 		{tea.KeyPressMsg{Code: 'i', ShiftedCode: 'I', Mod: tea.ModShift}, focusPlaylist},
 	} {
 		t.Run(tt.key.String(), func(t *testing.T) {
-			m := newColumnTestModel(80, 24)
+			m := newColumnTestModel(86, 24)
 			saver := &recordingSaver{}
 			m.configSaver = saver
 			updated, _ := m.Update(tt.key)
@@ -258,9 +258,8 @@ func TestMetadataShortcutLeavesTabNavigationIntact(t *testing.T) {
 func TestMetadataLayoutAndFocusBudget(t *testing.T) {
 	for _, tt := range []struct {
 		width, height, visRows int
-		borrow                 bool
 	}{
-		{80, 24, 12, true}, {100, 30, 12, true}, {160, 48, 12, false}, {80, 24, 1, false},
+		{86, 24, 12}, {100, 30, 12}, {160, 48, 12}, {86, 24, 1},
 	} {
 		t.Run(fmt.Sprintf("%dx%d/vis=%d", tt.width, tt.height, tt.visRows), func(t *testing.T) {
 			m := newColumnTestModel(tt.width, tt.height)
@@ -274,19 +273,16 @@ func TestMetadataLayoutAndFocusBudget(t *testing.T) {
 			if !m.layout.twoColumn || m.info.visible || m.visRows != tt.visRows || m.vis.Rows < 1 {
 				t.Fatalf("metadata layout: twoColumn=%v info=%v configured=%d canvas=%d", m.layout.twoColumn, m.info.visible, m.visRows, m.vis.Rows)
 			}
-			if got := m.layout.visualizerRows < before.visualizerRows; got != tt.borrow {
-				t.Fatalf("borrowed visualizer rows = %v, want %v", got, tt.borrow)
+			if m.layout != before {
+				t.Fatalf("metadata changed the layout: %+v, want %+v", m.layout, before)
 			}
-			if m.layout.bodyRows-before.bodyRows != before.visualizerRows-m.layout.visualizerRows {
-				t.Fatal("borrowed visualizer rows did not reach the body")
-			}
-			rows := m.effectivePlaylistVisible()
+			rows := m.layout.listRows()
 			pane := m.renderSettingsPane(rows)
-			if !strings.Contains(ansi.Strip(pane), "Metadata [Ctrl+I]") {
+			if !strings.Contains(ansi.Strip(pane), "Metadata") {
 				t.Fatalf("metadata absent from sidebar:\n%s", ansi.Strip(pane))
 			}
 			assertViewFits(t, pane, m.layout.settingsWidth, rows)
-			assertViewFits(t, m.renderBodyRegion(), m.layout.panelWidth, rows)
+			assertViewFits(t, m.renderBodyRegion(), m.layout.panelWidth, m.layout.bodyRows)
 			assertViewFits(t, m.View().Content, tt.width, tt.height)
 			want := []focusArea{focusPlaylist, focusProvPill, focusVolume, focusEQ, focusShuffle, focusRepeat, focusSpeed}
 			if got := m.mainFocusAreas(); !slices.Equal(got, want) {
@@ -310,8 +306,38 @@ func TestMetadataLayoutAndFocusBudget(t *testing.T) {
 				}
 			}
 			m.SetShowMetadata(false)
-			if m.layout != before || m.plVisible != visible || m.vis.Rows != before.visualizerRows || m.visRows != tt.visRows || len(saver.saved) != 0 {
+			if m.layout != before || m.plVisible != visible || m.visRows != tt.visRows || len(saver.saved) != 0 {
 				t.Fatal("SetShowMetadata did not restore configured layout without saving")
+			}
+		})
+	}
+}
+
+func TestMetadataPaneGap(t *testing.T) {
+	for _, tt := range []struct {
+		rows    int
+		frame   int
+		wantGap bool
+	}{
+		{8, 30, false},
+		{9, 30, false},
+		{14, 30, true},
+		{14, 20, false},
+	} {
+		t.Run(fmt.Sprintf("rows=%d/frame=%d", tt.rows, tt.frame), func(t *testing.T) {
+			m := newColumnTestModel(100, tt.frame)
+			m.SetShowMetadata(true)
+			m.layout.bodyRows = max(0, tt.rows+1)
+			m.layout.height = tt.frame
+			m.playlist.SetTrack(0, playlist.Track{Title: "Papaoutai", Artist: "Stromae", Album: "Racine", Genre: "Pop", Year: 2013})
+			lines := strings.Split(ansi.Strip(m.renderSettingsPane(tt.rows)), "\n")
+			idx := slices.IndexFunc(lines, func(s string) bool { return strings.Contains(s, "Metadata") })
+			if idx < 0 {
+				t.Fatal("metadata header missing")
+			}
+			gotGap := idx > 0 && lines[idx-1] == ""
+			if gotGap != tt.wantGap {
+				t.Fatalf("gap before metadata = %v, want %v\n%s", gotGap, tt.wantGap, strings.Join(lines, "\n"))
 			}
 		})
 	}
@@ -319,14 +345,14 @@ func TestMetadataLayoutAndFocusBudget(t *testing.T) {
 
 func TestMetadataTinyRowBudgets(t *testing.T) {
 	for _, tt := range []struct{ providers, rows, metadata int }{
-		{2, -1, 0}, {2, 0, 0}, {2, 1, 0}, {2, 2, 0}, {2, 6, 0}, {2, 8, 0},
-		{2, 9, 3}, {2, 14, 8}, {1, 7, 0}, {1, 8, 3},
+		{2, -1, 0}, {2, 0, 0}, {2, 1, 0}, {2, 2, 0}, {2, 6, 0}, {2, 7, 3},
+		{2, 9, 5}, {2, 14, 8}, {1, 5, 0}, {1, 6, 3},
 	} {
 		t.Run(fmt.Sprintf("providers=%d/rows=%d", tt.providers, tt.rows), func(t *testing.T) {
 			m := newColumnTestModel(100, 30)
 			m.providers = m.providers[:tt.providers]
 			m.SetShowMetadata(true)
-			m.plVisible = tt.rows
+			m.layout.bodyRows = max(0, tt.rows+1)
 			if got := m.metadataPaneRows(tt.rows); got != tt.metadata {
 				t.Fatalf("metadata rows = %d, want %d", got, tt.metadata)
 			}
@@ -337,7 +363,7 @@ func TestMetadataTinyRowBudgets(t *testing.T) {
 				}
 				return
 			}
-			if len(strings.Split(pane, "\n")) != tt.rows || strings.Contains(pane, "Metadata [Ctrl+I]") != (tt.metadata > 0) {
+			if len(strings.Split(pane, "\n")) != tt.rows || strings.Contains(pane, "Metadata") != (tt.metadata > 0) {
 				t.Fatalf("sidebar does not respect %d rows:\n%s", tt.rows, pane)
 			}
 			for _, setting := range []struct {
@@ -358,8 +384,8 @@ func TestMetadataFallbackAndPreference(t *testing.T) {
 		width, height int
 		setup         func(*Model)
 	}{
-		{"compact", 56, 16, func(*Model) {}},
-		{"minimal", 40, 10, func(*Model) {}},
+		{"narrow", 56, 16, func(*Model) {}},
+		{"small", 40, 10, func(*Model) {}},
 		{"simplified", 80, 24, func(m *Model) { m.SetSimplified(true) }},
 		{"closed settings", 80, 24, func(m *Model) { m.SetHideSettingsPane(true) }},
 	} {
@@ -383,14 +409,14 @@ func TestMetadataFallbackAndPreference(t *testing.T) {
 			if m.info.visible || !m.showMetadata || saver.saved["show_metadata"] != "true" || m.layout != before || m.visRows != 12 {
 				t.Fatal("Esc did not retain preference and restore the non-sidebar layout")
 			}
-			if strings.Contains(ansi.Strip(m.View().Content), "Metadata [Ctrl+I]") {
+			if strings.Contains(ansi.Strip(m.View().Content), "Metadata") {
 				t.Fatal("metadata sidebar appeared outside the full two-column layout")
 			}
 			updated, _ = m.Update(tea.WindowSizeMsg{Width: 160, Height: 48})
 			m = updated.(Model)
 			m.SetSimplified(false)
 			m.SetHideSettingsPane(false)
-			if m.info.visible || !m.showMetadata || !strings.Contains(ansi.Strip(m.View().Content), "Metadata [Ctrl+I]") {
+			if m.info.visible || !m.showMetadata || !strings.Contains(ansi.Strip(m.View().Content), "Metadata") {
 				t.Fatal("saved preference did not restore metadata in the wide sidebar")
 			}
 		})
@@ -400,7 +426,7 @@ func TestMetadataFallbackAndPreference(t *testing.T) {
 func TestMetadataMoreDetailsFromSettingsFocus(t *testing.T) {
 	for _, focus := range []focusArea{focusPlaylist, focusProvPill, focusVolume, focusEQ, focusShuffle, focusRepeat, focusSpeed} {
 		t.Run(focus.label(), func(t *testing.T) {
-			m := newColumnTestModel(80, 24)
+			m := newColumnTestModel(86, 17)
 			m.focus, m.plCursor = focus, 1
 			m.playlist.SetTrack(1, playlist.Track{Path: "/selected.mp3", Title: "Selected", Artist: "Artist", Album: "Album",
 				Genre: "Genre", Year: 2026, TrackNumber: 2, DurationSecs: 123})
@@ -408,7 +434,7 @@ func TestMetadataMoreDetailsFromSettingsFocus(t *testing.T) {
 			if !m.showMetadata || m.info.visible || m.focus != focus {
 				t.Fatal("Ctrl+I failed to open metadata without changing setting focus")
 			}
-			if pane := ansi.Strip(m.renderSettingsPane(m.effectivePlaylistVisible())); !strings.Contains(pane, "i: more details") {
+			if pane := ansi.Strip(m.renderSettingsPane(m.layout.listRows())); !strings.Contains(pane, "i: more details") {
 				t.Fatalf("truncated sidebar omitted the full-info hint:\n%s", pane)
 			}
 			m.info.scroll = 99
@@ -424,8 +450,8 @@ func TestMetadataMoreDetailsFromSettingsFocus(t *testing.T) {
 				updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 				m = updated.(Model)
 			}
-			if info := ansi.Strip(m.renderInfoBody()); m.info.scroll == 0 || !strings.Contains(info, "Path: /selected.mp3") {
-				t.Fatalf("full info did not scroll to Path: scroll=%d\n%s", m.info.scroll, info)
+			if info := ansi.Strip(m.renderInfoBody()); !strings.Contains(info, "Path: /selected.mp3") {
+				t.Fatalf("full info did not reach Path: scroll=%d\n%s", m.info.scroll, info)
 			}
 			updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 			m = updated.(Model)
@@ -485,13 +511,13 @@ func TestMetadataKeyStaysLiteralInTextInputs(t *testing.T) {
 }
 
 func TestMetadataDoesNotEnableDisabledVisualizer(t *testing.T) {
-	m := newColumnTestModel(80, 24)
+	m := newColumnTestModel(86, 24)
 	m.vis.Mode = ui.VisNone
 	m.recomputeLayout()
 	before := m.layout
 	m.SetShowMetadata(true)
-	if m.layout.visualizerRows != 0 || m.layout.bodyRows != before.bodyRows || m.vis.Mode != ui.VisNone {
+	if m.layout.spectrumRows != 0 || m.layout.bodyRows != before.bodyRows || m.vis.Mode != ui.VisNone {
 		t.Fatal("metadata changed a disabled visualizer or its row budget")
 	}
-	assertViewFits(t, m.View().Content, 80, 24)
+	assertViewFits(t, m.View().Content, 86, 24)
 }

@@ -23,21 +23,20 @@ func TestMainViewShrinksPlaylistForFooterMessages(t *testing.T) {
 	}
 
 	m := Model{
-		player:    &playbackFakeEngine{},
-		playlist:  pl,
-		vis:       ui.NewVisualizer(44100),
-		width:     80,
-		plVisible: 3,
+		player:   &playbackFakeEngine{},
+		playlist: pl,
+		vis:      ui.NewVisualizer(44100),
+		width:    100,
 	}
 	m.vis.Mode = ui.VisNone
 	m.save.startDownload()
 	m.status.Show("Saved", statusTTLDefault)
-	m.recomputeLayout()
-	m.height = m.mainFrameFixedLines(true) + 1
+	m.SetFrameBase(defaultFrameBaseWidth, defaultFrameBaseHeight)
+	m.height = heightForListRows(t, m, 4)
 	m.recomputeLayout()
 
-	if got := m.effectivePlaylistVisible(); got != m.layout.bodyRows {
-		t.Fatalf("effectivePlaylistVisible() = %d, want body budget %d", got, m.layout.bodyRows)
+	if got := m.effectivePlaylistVisible(); got != 4 {
+		t.Fatalf("effectivePlaylistVisible() = %d, want body budget 4", got)
 	}
 	if got := lipgloss.Height(m.View().Content); got > m.height {
 		t.Fatalf("View() height = %d, want <= %d after footer lines shrink playlist", got, m.height)
@@ -95,24 +94,23 @@ func TestRenderPlaylistKeepsCursorVisibleWhenFooterShrinksBudget(t *testing.T) {
 	}
 
 	m := Model{
-		player:    &playbackFakeEngine{},
-		playlist:  pl,
-		vis:       ui.NewVisualizer(44100),
-		width:     80,
-		focus:     focusPlaylist,
-		plVisible: 3,
-		plScroll:  7,
-		plCursor:  9,
+		player:   &playbackFakeEngine{},
+		playlist: pl,
+		vis:      ui.NewVisualizer(44100),
+		width:    100,
+		focus:    focusPlaylist,
+		plScroll: 7,
+		plCursor: 9,
 	}
 	m.vis.Mode = ui.VisNone
 	m.save.startDownload()
 	m.status.Show("Saved", statusTTLDefault)
-	m.recomputeLayout()
-	m.height = m.mainFrameFixedLines(true) + 2
+	m.SetFrameBase(defaultFrameBaseWidth, defaultFrameBaseHeight)
+	m.height = heightForListRows(t, m, 4)
 	m.recomputeLayout()
 
-	if got := m.effectivePlaylistVisible(); got != m.layout.bodyRows {
-		t.Fatalf("effectivePlaylistVisible() = %d, want body budget %d", got, m.layout.bodyRows)
+	if got := m.effectivePlaylistVisible(); got != 4 {
+		t.Fatalf("effectivePlaylistVisible() = %d, want body budget 4", got)
 	}
 
 	out := m.renderPlaylist()
@@ -126,8 +124,8 @@ func TestViewConsumesInitialVisualizerRefresh(t *testing.T) {
 		player:   &playbackFakeEngine{},
 		playlist: playlist.New(),
 		vis:      ui.NewVisualizer(44100),
-		width:    80,
-		height:   24,
+		width:    100,
+		height:   30,
 	}
 	m.recomputeLayout()
 
@@ -234,8 +232,7 @@ func TestRenderPlaylistAddsPaddingToTrackNumber(t *testing.T) {
 		heightExpanded: true,
 	}
 	m.vis.Mode = ui.VisNone
-	m.recomputeLayout()
-	m.height = m.mainFrameFixedLines(true) + 120
+	m.height = heightForListRows(t, m, 120)
 	m.recomputeLayout()
 
 	out := m.renderPlaylist()
@@ -259,4 +256,17 @@ Line 9: %q (index %d)
 Line 99: %q (index %d)
 Line 119: %q (index %d)`, line9, ninthLineTrackIndex, line99, ninetyNinthLineTrackIndex, line119, oneHundredNineteenthLineTrackIndex)
 	}
+}
+
+// heightForListRows returns the terminal height that leaves m rows list rows.
+func heightForListRows(t *testing.T, m Model, rows int) int {
+	t.Helper()
+	for m.height = 10; m.height < 1000; m.height++ {
+		m.recomputeLayout()
+		if m.layout.listRows() == rows {
+			return m.height
+		}
+	}
+	t.Fatalf("no terminal height leaves %d list rows", rows)
+	return 0
 }

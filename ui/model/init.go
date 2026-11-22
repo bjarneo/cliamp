@@ -94,9 +94,9 @@ func (m *Model) SetVisVolumeLinked(linked bool) {
 	m.visVolumeLinked = linked
 }
 
-// SetVisRows sets the visualizer height in rows for the full layout tier.
-// Zero keeps the built-in default. The layout caps it at what the terminal
-// can spare.
+// SetVisRows sets the visualizer height in rows. Zero keeps the built-in
+// default. The frame is base_height rows plus this height, and a frame cut
+// short by the terminal shrinks the visualizer.
 func (m *Model) SetVisRows(rows int) {
 	m.visRows = rows
 	m.recomputeLayout()
@@ -106,6 +106,13 @@ func (m *Model) SetVisRows(rows int) {
 // above and below. The layout clamps it to the terminal size.
 func (m *Model) SetPadding(h, v int) {
 	m.paddingH, m.paddingV, m.paddingSet = h, v, true
+	m.recomputeLayout()
+}
+
+// SetFrameBase sets the default frame width and height before Ctrl+X
+// expansion. Zero width or height keeps the built-in default of 150 or 24.
+func (m *Model) SetFrameBase(width, height int) {
+	m.frameBaseWidth, m.frameBaseHeight = width, height
 	m.recomputeLayout()
 }
 
@@ -193,8 +200,17 @@ func (m *Model) SetShowMetadata(v bool) {
 	m.refreshChrome()
 }
 
-// SetExpanded starts the UI in the expanded playlist height, the state the
-// Ctrl+X binding toggles. It sets the same field toggleExpandedView does and
+// SetAlbumHeadersPreference pins album header visibility from config or a prior
+// Ctrl+H toggle, so later playlist loads keep the choice instead of the
+// cohesion heuristic.
+func (m *Model) SetAlbumHeadersPreference(v bool) {
+	m.showAlbumHeaders = v
+	m.headerManual = true
+}
+
+// SetExpanded starts the UI in the expanded frame size (full terminal height
+// and width), the state the Ctrl+X binding toggles. It sets the same field
+// toggleExpandedView does and
 // takes no view into account: usesSimplifiedLayout() is transient (it drops as
 // soon as the provider or an overlay takes focus), and recomputeLayout already
 // ignores the height while it holds, so a guard here would only make the flag

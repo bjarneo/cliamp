@@ -47,6 +47,8 @@ type playbackFakeEngine struct {
 	volume              float64
 	mono                bool
 	streamTitle         string
+	streamDownloaded    int64
+	streamTotal         int64
 	playErr             error // PlayAt and PlayAtForGeneration fail with it
 	startsAtOffset      bool  // PlayAt moves position to its offset, as a seekable decoder does
 }
@@ -124,21 +126,23 @@ func (f *playbackFakeEngine) Duration() time.Duration           { return f.durat
 func (f *playbackFakeEngine) PositionAndDuration() (time.Duration, time.Duration) {
 	return f.position, f.duration
 }
-func (f *playbackFakeEngine) SetVolumeMin(float64)                   {}
-func (f *playbackFakeEngine) VolumeMin() float64                     { return -50 }
-func (f *playbackFakeEngine) SetVolume(db float64)                   { f.volume = db }
-func (f *playbackFakeEngine) Volume() float64                        { return f.volume }
-func (f *playbackFakeEngine) ToggleMono()                            { f.mono = !f.mono }
-func (f *playbackFakeEngine) Mono() bool                             { return f.mono }
-func (f *playbackFakeEngine) SetEQBand(band int, gain float64)       { f.eqBands[band] = gain }
-func (f *playbackFakeEngine) EQBands() [10]float64                   { return f.eqBands }
-func (f *playbackFakeEngine) StreamErr() error                       { return nil }
-func (f *playbackFakeEngine) StreamTitle() string                    { return f.streamTitle }
-func (f *playbackFakeEngine) StreamBytes() (downloaded, total int64) { return 0, 0 }
-func (f *playbackFakeEngine) SamplesInto([]float64) int              { return 0 }
-func (f *playbackFakeEngine) WaveformSamplesInto([]float64) int      { return 0 }
-func (f *playbackFakeEngine) StereoSamplesInto([][2]float64) int     { return 0 }
-func (f *playbackFakeEngine) SampleRate() int                        { return 44100 }
+func (f *playbackFakeEngine) SetVolumeMin(float64)             {}
+func (f *playbackFakeEngine) VolumeMin() float64               { return -50 }
+func (f *playbackFakeEngine) SetVolume(db float64)             { f.volume = db }
+func (f *playbackFakeEngine) Volume() float64                  { return f.volume }
+func (f *playbackFakeEngine) ToggleMono()                      { f.mono = !f.mono }
+func (f *playbackFakeEngine) Mono() bool                       { return f.mono }
+func (f *playbackFakeEngine) SetEQBand(band int, gain float64) { f.eqBands[band] = gain }
+func (f *playbackFakeEngine) EQBands() [10]float64             { return f.eqBands }
+func (f *playbackFakeEngine) StreamErr() error                 { return nil }
+func (f *playbackFakeEngine) StreamTitle() string              { return f.streamTitle }
+func (f *playbackFakeEngine) StreamBytes() (downloaded, total int64) {
+	return f.streamDownloaded, f.streamTotal
+}
+func (f *playbackFakeEngine) SamplesInto([]float64) int          { return 0 }
+func (f *playbackFakeEngine) WaveformSamplesInto([]float64) int  { return 0 }
+func (f *playbackFakeEngine) StereoSamplesInto([][2]float64) int { return 0 }
+func (f *playbackFakeEngine) SampleRate() int                    { return 44100 }
 
 // SetSpeed clamps like player.Player, so the speed keys see the same limits.
 func (f *playbackFakeEngine) SetSpeed(ratio float64) { f.speed = max(min(ratio, 2.0), 0.25) }

@@ -329,6 +329,7 @@ func newPlayer(cfg config.Config) (p *player.Player, closePlayer func(), err err
 func configureModel(m *model.Model, cfg config.Config, headless bool) {
 	m.SetCustomEQBands(cfg.EQ)
 	m.SetPadding(cfg.PaddingH, cfg.PaddingV)
+	m.SetFrameBase(cfg.BaseWidth, cfg.BaseHeight)
 	m.SetVisVolumeLinked(cfg.VisVolumeLinked)
 	m.SetSeekStepLarge(cfg.SeekStepLargeDuration())
 	m.SetLyricsOffset(cfg.LyricsOffsetMs)

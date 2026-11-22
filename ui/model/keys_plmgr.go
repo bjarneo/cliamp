@@ -338,9 +338,9 @@ func (m *Model) handlePlMgrTracksKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.plManager.cursor = 0
 		}
 		m.plMgrTracksMaybeAdjustScroll(m.effectivePlaylistVisible())
-	case "[":
+	case "shift+up", "[":
 		m.plMgrMoveTrack(-1)
-	case "]":
+	case "shift+down", "]":
 		m.plMgrMoveTrack(1)
 	case "ctrl+x":
 		m.toggleExpandedView()

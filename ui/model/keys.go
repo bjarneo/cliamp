@@ -298,6 +298,17 @@ func (m *Model) handleGlobalKey(msg tea.KeyPressMsg) (cmd tea.Cmd, ok bool) {
 			m.openKeymap()
 			return nil, true
 		}
+	case "?":
+		if !m.keymap.visible {
+			if _, ok := m.topOverlay(); ok {
+				return nil, false
+			}
+			if m.fullVis {
+				m.exitFullVisualizer()
+			}
+			m.openKeymap()
+			return nil, true
+		}
 	}
 	return nil, false
 }
@@ -682,14 +693,14 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 
 	case "e":
-		if m.simplified || m.layout.tier == layoutMinimal {
+		if m.simplified {
 			break
 		}
 		m.cycleEQPreset()
 		m.scheduleEQSave()
 
 	case "alt+e":
-		if m.simplified || m.layout.tier == layoutMinimal {
+		if m.simplified {
 			break
 		}
 		m.previousEQPreset()
@@ -836,9 +847,6 @@ func (m *Model) handleMainKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "[":
 		m.changeSpeed(-0.25)
 
-	case "?":
-		m.openKeymap()
-
 	default:
 		if m.luaMgr != nil {
 			m.luaMgr.EmitKey(msg.String())
@@ -935,9 +943,6 @@ func (m *Model) handleFullVisualizerKey(msg tea.KeyPressMsg) tea.Cmd {
 		// Hide the episode name so the full-screen visualizer can be put on a
 		// shared screen without naming what is playing.
 		m.hideTrackInfo = !m.hideTrackInfo
-	case "?":
-		m.exitFullVisualizer()
-		m.openKeymap()
 
 	default:
 		// Plugin bindings are global: a pomodoro or sleep-timer key is about
@@ -1019,7 +1024,8 @@ func (m *Model) handleJumpKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-// toggleExpandedView toggles the UI between default and expanded height.
+// toggleExpandedView toggles the UI between the default frame size and the
+// full terminal height and width.
 func (m *Model) toggleExpandedView() {
 	m.heightExpanded = !m.heightExpanded
 	m.applyHeightMode()

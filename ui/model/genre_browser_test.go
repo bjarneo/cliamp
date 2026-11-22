@@ -297,7 +297,7 @@ func TestReadOnlyGenreBrowserDoesNotAdvertiseFavorite(t *testing.T) {
 			genres:  slices.Clone(p.genres),
 		},
 	}
-	if help := m.commandHelp(commandModeNavBrowser); strings.Contains(help, "Favorite genre") {
+	if help := m.helpBar(commandModeNavBrowser); strings.Contains(help, "Favorite genre") {
 		t.Fatalf("read-only genre browser advertised favorite action: %q", help)
 	}
 	if cmd := m.handleNavBrowserKey(tea.KeyPressMsg{Text: "f"}); cmd != nil {

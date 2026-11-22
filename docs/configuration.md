@@ -96,9 +96,10 @@ visualizer = "Bars"
 # even at very low volume levels.
 vis_volume_linked = true
 
-# Visualizer height in rows (default: 7), used at the full layout tier.
-# Extra rows are taken from the playlist below, and the layout caps the value
-# at what the terminal can spare, always leaving one playlist row. Range 1-40.
+# Visualizer height in rows (default: 7), used when the frame has at least 25
+# rows. The frame is 24 rows plus this value. A shorter frame shows three rows,
+# and one under 20 rows shows none. The visualizer never takes more rows than
+# the body below it. Range 1-40.
 # The full screen visualizer (V) is unaffected: it always fills the terminal.
 vis_rows = 7
 
@@ -110,9 +111,10 @@ low_power = false
 # No visualizer or playback controls are shown.
 simplified = false
 
-# Hide the key-binding hint bar above the status line.
+# Hide the key-binding help bar at the bottom of the frame.
 hide_help_bar = false
-# Start with the playlist expanded, the state Ctrl+X toggles (default: false).
+# Start with the frame at the full terminal height, the state Ctrl+X toggles
+# (default: false).
 # The simplified playback screen has no playlist, but its provider and overlay
 # lists do, and they start expanded too.
 expanded = false
@@ -123,10 +125,17 @@ hide_settings_pane = false
 # Show highlighted-playlist metadata below Settings (Ctrl+I toggles and saves).
 show_metadata = false
 
-# Empty space around the UI: columns on the left and right (0-10, default 3)
-# and rows above and below (0-5, default 1).
-padding_horizontal = 3
-padding_vertical = 1
+# Pin playlist album separator headers. When this key is omitted, cliamp picks
+# headers from playlist cohesion; Ctrl+H toggles and saves.
+# show_album_headers = true
+
+# Default frame size before Ctrl+X (wider or taller terminals center the frame).
+# base_width = 150
+# base_height = 24
+
+# Optional empty space around the UI (0-10 columns, 0-5 rows; default 0).
+# padding_horizontal = 0
+# padding_vertical = 0
 
 # UI theme name (see available themes in ~/.config/cliamp/themes/)
 theme = "Tokyo Night"
@@ -141,81 +150,105 @@ log_level = "info"
 
 ## Terminal Layout
 
-cliamp adapts its playback screen to the terminal size:
+The frame stacks these rows from top to bottom: the title, the track line, the
+time, the visualizer, the seek bar, the stacked settings, a blank gap, the
+body, the status message line, and the help bar. Each row has a fixed height,
+and the body (the playlist or the open list) takes the rest, so the status
+line and the help bar always sit at the bottom.
 
-| Terminal size | Layout |
+`base_height` and `base_width` set the default frame size: 24 rows plus
+`vis_rows` high and 150 columns wide. On a smaller terminal the frame shrinks
+to fit; on a larger one cliamp centers the frame until you expand it.
+`Ctrl+X` (or `expanded = true`) gives the frame the whole terminal height and
+width. Every screen uses the same frame size.
+
+| Frame height | Rows |
 | --- | --- |
-| At least `80x24` | Two columns below the seek bar, seven visualizer rows (see `vis_rows`), and detailed source controls |
-| At least `56x16` | Compact controls and five visualizer rows |
-| At least `40x10` | Minimal playback, list, seek bar, and help layout |
-| Smaller than `40x10` | Resize message only |
+| Under 14 rows | No title, no visualizer, and no stacked settings |
+| Under 20 rows | No title and no visualizer |
+| 20 to 24 rows | The title and a three-row visualizer |
+| 25 rows or more | The title, `vis_rows` visualizer rows, and a blank row above the body |
 
-The tiers use the full terminal size. `padding_horizontal` and
-`padding_vertical` set the empty space between the terminal edge and the UI,
-in columns and rows. The defaults are 3 and 1. cliamp clamps
-`padding_horizontal` to 0-10 and `padding_vertical` to 0-5. On a small
+The visualizer never takes more rows than the body, so a tall `vis_rows` on a
+short terminal shrinks the visualizer rather than the playlist.
+| Terminal smaller than `40x10` | Resize message only |
+
+`padding_horizontal` and `padding_vertical` add optional empty space between the
+terminal edge and the UI, in columns and rows. The defaults are 0. cliamp
+clamps `padding_horizontal` to 0-10 and `padding_vertical` to 0-5. On a small
 terminal, cliamp reduces the padding so that the UI keeps at least one column
-and one row.
+and one row. Without padding, a small terminal uses the full area; on a large
+one `base_width` and `base_height` bound the interface instead.
 
-At the full tier the playback screen splits below the seek bar: the playlist
-fills the left column and a `Settings` pane fills the right one. The pane reads
-as a signal chain: the source (`SRC`), then volume (`VOL`) and the EQ preset
-with its ten bands, then how the list plays — shuffle (`SHF`), repeat (`RPT`),
-and speed (`SPD`) — and last the live network counters for a stream (`NET`).
-Shuffle and repeat move out of the playlist header here, which keeps its
-counts: queue, favorites, and position. The rows those
-controls used to occupy above and below the playlist go to the playlist itself.
-The title, track line, time, visualizer, seek bar, and hint bar stay full width.
-Narrower terminals, simplified mode, overlays, and list views keep the stacked
-single-column layout, with shuffle and repeat back in the header.
+The settings are the source (`SRC`), volume (`VOL`), the EQ preset (`EQ`),
+shuffle (`SHF`), repeat (`RPT`), speed (`SPD`), and the live network counters
+for a stream (`NET`). On the playback screen they take one of three places:
 
-In full and compact playback layouts, `Tab` cycles from Playlist through Source,
-Volume, EQ, Shuffle, Repeat, and Speed, then returns to Playlist. `Shift+Tab`
-reverses the order. Only visible controls participate; Source is skipped when
-only one provider is available. See [keybindings](keybindings.md#navigation) for
-each control's keys.
+| Frame width | Settings |
+| --- | --- |
+| At least 80 columns, pane open | A 30-column `Settings` pane right of the playlist, with the ten EQ bands |
+| At least 76 columns, pane closed | One row below the seek bar: source, EQ, shuffle, repeat, and speed, with the volume on the right edge |
+| Otherwise | Two rows below the seek bar: source, volume, and speed, then EQ, shuffle, and repeat, in aligned columns |
+
+The stacked rows show the volume as its gain alone, never the source position
+among the providers, and a single row with room to spare can still show the
+volume meter. On two stacked rows the byte counters stay on the first line and
+the live download speed, when there is one, sits on the second.
+
+The pane reads as a signal chain: where the audio comes from, how loud it is
+and how it is shaped, how the list plays, and last what the stream is doing.
+The playlist header keeps its counts: queue, favorites, and position.
+
+`Tab` cycles from Playlist through the settings in reading order, then returns
+to Playlist: Source, Volume, EQ, Shuffle, Repeat, and Speed in the pane; Source,
+EQ, Shuffle, Repeat, Speed, and Volume on one stacked row; Source, Volume,
+Speed, EQ, Shuffle, and Repeat on two. `Shift+Tab` reverses the order. Only visible
+controls participate; Source is skipped when only one provider is available.
+See [keybindings](keybindings.md#navigation) for each control's keys.
 
 The pane is open unless `hide_settings_pane = true`. `Ctrl+B` toggles it and
 writes the new value back to that key, so it comes back the way you left it.
-With the pane closed the playlist takes the full
-frame width and one chrome row is kept above it: the active source on the left
-and the volume meter on the right. The EQ readout, the speed indicator, and the
-download counters are not drawn — `e` still cycles the EQ preset and `[` / `]`
-still change speed, but their readouts are gone, so `Tab` skips the EQ and
-speed stops rather than landing on a control you cannot see. Shuffle and repeat
-return to the playlist header. The two rows this frees go to the playlist.
 Closing Settings also hides Metadata without changing `show_metadata`.
 
-A short body — a tall `vis_rows` leaves the pane few rows — sheds rows by how
-readily they are missed rather than by position: the network counters go first,
-then the EQ band gains, then shuffle and repeat together. Hidden controls are
-also skipped by `Tab` and `Shift+Tab`. Those groups drop whole, so the pane can end
-up a row shorter than it was given. A playlist header too narrow for all its
-badges drops whole badges off the tail rather than clipping one mid-word.
+A short body sheds pane rows by how readily they are missed rather than by
+position: the network counters go first, then the EQ band gains. Shuffle,
+repeat, and speed then share one row, and that row goes last. The Metadata
+pane below Settings claims its rows the same way, once the settings fit with
+shuffle, repeat, and speed on one row. Hidden controls
+are also skipped by `Tab` and `Shift+Tab`. Those groups drop whole, so the pane
+can end up a row shorter than it was given. A playlist header too narrow for all its badges drops whole
+badges off the tail rather than clipping one mid-word.
 
 `simplified = true` replaces the main playback view with the current track
 artist/title, time, and seek-progress strip. It hides the visualizer, playback
 controls, and playlist. Provider browsing and overlays keep their list-focused
 layout. Start one session with `cliamp --simplified`.
 
-`hide_help_bar = true` removes the key-binding hint bar above the status line
-and gives that row back to the playlist. The full keymap stays available with
+`hide_help_bar = true` removes the key-binding help bar at the bottom of the
+frame and gives that row back to the playlist. The full keymap stays available with
 `?`. `Ctrl+G` toggles the bar and writes the new value back to this key, so the
 bar comes back the way you left it. Use `cliamp --no-help-bar` to hide it for
 one session, or `cliamp --help-bar` to show it despite this setting. Simplified
-mode draws neither the hint bar nor a playlist, so it is unaffected by this
+mode draws neither the help bar nor a playlist, so it is unaffected by this
 setting.
 
-`expanded = true` starts with the playlist at the expanded height, so the list
-gets every body row the terminal has left instead of the shorter default, and
-`Ctrl+X` is not needed on every launch. The key keeps working and collapses the
-view as before. Start one session with `cliamp --expanded`, or `--no-expanded`
-to start collapsed despite this setting.
+`expanded = true` starts with the frame at the full terminal height and width,
+so the list gets every row and column the terminal has left instead of the
+`base_height` plus `vis_rows` and `base_width` default, and `Ctrl+X` is not
+needed on every launch. `Ctrl+X` toggles the expanded size and writes the new
+value back to this key, so the frame comes back the way you left it. Start one
+session with `cliamp --expanded`, or `--no-expanded` to start collapsed despite
+this setting.
 
-List views such as provider browsing, file selection, queues, playlists, search
-results, themes, and keybindings use a content-first layout. This layout replaces
-the visualizer and detailed controls with a compact now-playing summary. It leaves
-more rows for navigation. The visualizer picker keeps its live preview.
+When the playlist lists tracks with an `album` field, cliamp can draw separator
+headers between albums. Without `show_album_headers` in the config, it turns
+headers on only for cohesive lists. `Ctrl+H` toggles headers and writes
+`show_album_headers`, so later sessions and playlist loads keep your choice.
+
+List views such as provider browsing, file selection, playlists, search results,
+themes, and keybindings use a content-first layout. It drops the visualizer and
+the settings and gives their rows to the list. The visualizer picker and the
+play-next queue keep the playback layout.
 
 ### Metadata
 
@@ -242,10 +275,8 @@ kbps, and Type: Live radio. A yt-dlp stream that is live shows Type: Live
 stream. Live now-playing text appears as Playing only when the selected stream
 is the one playing. Unknown fields are omitted.
 
-In the full two-column layout, opening Metadata can borrow visualizer rows,
-keeping at least one row when the visualizer is enabled. It does not overwrite
-`vis_rows`; closing Metadata restores the configured height as space allows.
-It never removes the six direct settings (Source, Volume, EQ, Shuffle, Repeat,
+In the two-column layout, Metadata takes the pane rows below the settings. It
+never removes the six direct settings (Source, Volume, EQ, Shuffle, Repeat,
 Speed) to make room. If there is no room for details after those controls, the
 section stays hidden. When fields exceed the section's row budget, it shows
 `i: more details`.

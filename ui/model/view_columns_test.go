@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -12,8 +13,8 @@ import (
 	"github.com/bjarneo/cliamp/provider"
 )
 
-// newColumnTestModel builds a full-tier model with several providers so the
-// settings pane renders every row it can.
+// newColumnTestModel builds a model with several providers so the settings
+// render every row they can.
 func newColumnTestModel(width, height int) Model {
 	m := newLayoutTestModel(width, height)
 	m.providers = []provider.Entry{{Name: "Local"}, {Name: "Navidrome"}, {Name: "Radio"}}
@@ -23,9 +24,9 @@ func newColumnTestModel(width, height int) Model {
 	return m
 }
 
-// TestTwoColumnLayoutTiers checks that the split engages only where there is
-// room for it and the playback chrome it replaces is actually drawn.
-func TestTwoColumnLayoutTiers(t *testing.T) {
+// TestTwoColumnLayoutSizes checks that the split engages only from an 80-column
+// frame, and only on the playback view.
+func TestTwoColumnLayoutSizes(t *testing.T) {
 	tests := []struct {
 		name   string
 		width  int
@@ -33,17 +34,17 @@ func TestTwoColumnLayoutTiers(t *testing.T) {
 		setup  func(*Model)
 		want   bool
 	}{
-		{name: "full", width: 80, height: 24, want: true},
+		{name: "80-column frame", width: 86, height: 24, want: true},
 		{name: "wide", width: 160, height: 48, want: true},
-		{name: "compact", width: 56, height: 16, want: false},
-		{name: "minimal", width: 40, height: 10, want: false},
+		{name: "79-column frame", width: 79, height: 24, want: false},
+		{name: "small", width: 40, height: 10, want: false},
 		{name: "too small", width: 20, height: 5, want: false},
-		{name: "simplified", width: 80, height: 24, want: false, setup: func(m *Model) { m.simplified = true }},
-		{name: "overlay", width: 80, height: 24, want: false, setup: func(m *Model) { m.fileBrowser.visible = true }},
+		{name: "pane closed", width: 160, height: 48, want: false, setup: func(m *Model) { m.hideSettings = true }},
+		{name: "simplified", width: 86, height: 24, want: false, setup: func(m *Model) { m.simplified = true }},
+		{name: "overlay", width: 86, height: 24, want: false, setup: func(m *Model) { m.fileBrowser.visible = true }},
 		// The queue is a view of the playlist, so it keeps the split and the
 		// settings pane rather than taking the frame.
-		{name: "queue", width: 80, height: 24, want: true, setup: func(m *Model) { m.queue.visible = true }},
-		{name: "full screen visualizer", width: 80, height: 24, want: false, setup: func(m *Model) { m.fullVis = true }},
+		{name: "queue", width: 86, height: 24, want: true, setup: func(m *Model) { m.queue.visible = true }},
 	}
 
 	for _, tt := range tests {
@@ -62,8 +63,8 @@ func TestTwoColumnLayoutTiers(t *testing.T) {
 			if sum := m.layout.playlistWidth + columnGutterWidth + m.layout.settingsWidth; sum != m.layout.panelWidth {
 				t.Fatalf("column widths sum to %d, want panel width %d", sum, m.layout.panelWidth)
 			}
-			if m.layout.playlistWidth < playlistMinWidth {
-				t.Fatalf("playlist column = %d, want at least %d", m.layout.playlistWidth, playlistMinWidth)
+			if m.layout.settingsWidth != settingsColumnWidth || m.layout.settingsRows != 0 {
+				t.Fatalf("settings column = %d, stacked rows = %d; want %d, 0", m.layout.settingsWidth, m.layout.settingsRows, settingsColumnWidth)
 			}
 		})
 	}
@@ -86,10 +87,10 @@ func cells(row string) []rune {
 // rule: the gutter columns are empty on the header and on every body row, so
 // the blank channel between the columns runs unbroken down the body.
 func TestTwoColumnGutterStaysBlank(t *testing.T) {
-	for _, size := range []struct{ width, height int }{{80, 24}, {100, 30}, {160, 48}} {
+	for _, size := range []struct{ width, height int }{{86, 24}, {100, 30}, {160, 48}} {
 		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
 			m := newColumnTestModel(size.width, size.height)
-			rows := append([]string{m.renderColumnHeaders()}, strings.Split(m.renderBodyRegion(), "\n")...)
+			rows := strings.Split(m.renderBodyRegion(), "\n")
 
 			for i, row := range rows {
 				got := cells(row)
@@ -109,9 +110,9 @@ func TestTwoColumnGutterStaysBlank(t *testing.T) {
 // rows, which is what keeps the rule unbroken as the playlist grows.
 func TestTwoColumnBodyRowsMatch(t *testing.T) {
 	m := newColumnTestModel(100, 30)
-	rows := m.effectivePlaylistVisible()
-	if got := len(strings.Split(m.renderBodyRegion(), "\n")); got != rows {
-		t.Fatalf("body rows = %d, want %d", got, rows)
+	rows := m.layout.listRows()
+	if got := len(strings.Split(m.renderBodyRegion(), "\n")); got != m.layout.bodyRows {
+		t.Fatalf("body rows = %d, want %d", got, m.layout.bodyRows)
 	}
 	if got := len(strings.Split(m.renderSettingsPane(rows), "\n")); got != rows {
 		t.Fatalf("settings pane rows = %d, want %d", got, rows)
@@ -193,28 +194,11 @@ func TestTwoColumnDropsStackedChrome(t *testing.T) {
 		t.Fatal("expected the two-column layout at 100x30")
 	}
 
-	sections := m.mainSections(m.renderBodyRegion(), false, false)
-	for _, unwanted := range []string{m.renderControls(), m.renderProviderPill(), m.renderBottomStatus()} {
-		if unwanted == "" {
-			continue
+	body := m.renderBodyRegion()
+	for _, section := range m.mainSections(body) {
+		if section != body && strings.Contains(ansi.Strip(section), "VOL") {
+			t.Fatalf("stacked settings still rendered: %q", ansi.Strip(section))
 		}
-		for _, section := range sections {
-			if section == unwanted {
-				t.Fatalf("stacked chrome row still rendered: %q", ansi.Strip(section))
-			}
-		}
-	}
-}
-
-// TestTwoColumnPlaylistUsesReclaimedRows checks that the rows freed by moving
-// the controls into the pane go to the playlist instead of staying blank.
-func TestTwoColumnPlaylistUsesReclaimedRows(t *testing.T) {
-	m := newColumnTestModel(100, 60)
-	if !m.layout.twoColumn {
-		t.Fatal("expected the two-column layout at 100x60")
-	}
-	if got, want := m.plVisible, maxPlVisible+twoColumnChromeRows; got != want {
-		t.Fatalf("playlist rows = %d, want %d", got, want)
 	}
 }
 
@@ -363,16 +347,12 @@ func TestFavoriteToggleKeepsTitleColumnStable(t *testing.T) {
 // TestPlaylistHeaderDropsBadgesThatDoNotFit checks that a narrow pane sheds
 // whole badges off the tail instead of letting one be sliced mid-token.
 func TestPlaylistHeaderDropsBadgesThatDoNotFit(t *testing.T) {
-	// Enough badges that they cannot all fit a 45-column playlist pane. A
-	// six-digit favorite count makes the heart badge wide.
-	favSet := make(map[string]struct{}, 100000)
-	for i := range 100000 {
-		favSet[fmt.Sprintf("/tmp/fav-%d.mp3", i)] = struct{}{}
-	}
+	// A long play-next count makes the Next badge too wide for a narrow pane.
 	withBadges := func(width, height int) Model {
 		m := newColumnTestModel(width, height)
-		m.playlist.Queue(1)
-		m.favSet = favSet
+		for range 999999 {
+			m.playlist.Queue(0)
+		}
 		return m
 	}
 	headerAt := func(m Model, width int) string {
@@ -380,11 +360,12 @@ func TestPlaylistHeaderDropsBadgesThatDoNotFit(t *testing.T) {
 		return ansi.Strip(m.renderPlaylistHeader())
 	}
 
-	m := withBadges(80, 24)
-	header := headerAt(m, m.layout.playlistWidth)
+	const narrowWidth = 32
+	m := withBadges(86, 24)
+	header := headerAt(m, narrowWidth)
 
-	if got := lipgloss.Width(header); got > m.layout.playlistWidth {
-		t.Fatalf("header width = %d, want at most %d: %q", got, m.layout.playlistWidth, header)
+	if got := lipgloss.Width(header); got > narrowWidth {
+		t.Fatalf("header width = %d, want at most %d: %q", got, narrowWidth, header)
 	}
 	if strings.Count(header, "[") != strings.Count(header, "]") {
 		t.Fatalf("header has an unclosed badge: %q", header)
@@ -392,12 +373,14 @@ func TestPlaylistHeaderDropsBadgesThatDoNotFit(t *testing.T) {
 	if !strings.HasSuffix(header, "──") {
 		t.Fatalf("header should end in separator fill, not a clipped badge: %q", header)
 	}
+	if strings.Contains(header, "[1/") {
+		t.Fatalf("narrow header should drop the tail badge, got %q", header)
+	}
 
-	// Same state in a pane with room keeps more badges, so the narrow header
-	// really is dropping them rather than never having built them.
+	// Same state in a pane with room keeps the position badge.
 	wide := withBadges(200, 40)
-	if narrow, all := strings.Count(header, "["), strings.Count(headerAt(wide, wide.layout.playlistWidth), "["); narrow >= all {
-		t.Fatalf("narrow header kept %d badges, wide kept %d", narrow, all)
+	if wideHeader := headerAt(wide, wide.layout.playlistWidth); !strings.Contains(wideHeader, "[1/") {
+		t.Fatalf("wide header should keep the position badge, got %q", wideHeader)
 	}
 }
 
@@ -434,8 +417,10 @@ func TestSettingsPaneShedsByRankNotPosition(t *testing.T) {
 		{rows: 8, wantKept: []string{"SRC", "VOL", "EQ", "SHF", "RPT", "SPD"}},
 		// Too short for the band rows: they go, the controls and modes stay.
 		{rows: 6, wantKept: []string{"SRC", "VOL", "EQ", "SHF", "RPT", "SPD"}, wantGone: []string{"+5"}},
-		// Shorter still: the modes go before anything focusable.
-		{rows: 4, wantKept: []string{"SRC", "VOL", "EQ", "SPD"}, wantGone: []string{"+5", "SHF", "RPT"}},
+		// Shorter still: shuffle, repeat, and speed share one row.
+		{rows: 4, wantKept: []string{"SRC", "VOL", "EQ", "SHF [Off] RPT [Off] SPD [1x]"}, wantGone: []string{"+5"}},
+		// Too short for the merged row: the modes go before the other controls.
+		{rows: 3, wantKept: []string{"SRC", "VOL", "EQ"}, wantGone: []string{"SHF", "RPT", "SPD"}},
 	}
 
 	for _, tt := range tests {
@@ -485,7 +470,7 @@ func TestSettingsPaneShedsRankGroupsWhole(t *testing.T) {
 // TestSettingsPaneToggleClosesAndReopens checks that Ctrl+B reaches the toggle
 // through the main key path and that it round-trips the layout.
 func TestSettingsPaneToggleClosesAndReopens(t *testing.T) {
-	m := newColumnTestModel(80, 24)
+	m := newColumnTestModel(86, 24)
 	m.configSaver = &recordingSaver{}
 	if !m.layout.twoColumn {
 		t.Fatal("expected the pane open at 80x24")
@@ -505,7 +490,7 @@ func TestSettingsPaneToggleClosesAndReopens(t *testing.T) {
 // the pane comes back the way it was left.
 func TestSettingsPaneTogglePersists(t *testing.T) {
 	saver := &recordingSaver{}
-	m := newColumnTestModel(80, 24)
+	m := newColumnTestModel(86, 24)
 	m.configSaver = saver
 
 	m.toggleSettingsPane()
@@ -521,7 +506,7 @@ func TestSettingsPaneTogglePersists(t *testing.T) {
 // TestSettingsPaneOpensByDefault checks the startup state: with no
 // hide_settings_pane in the config, the pane is drawn.
 func TestSettingsPaneOpensByDefault(t *testing.T) {
-	m := newColumnTestModel(80, 24)
+	m := newColumnTestModel(86, 24)
 	if m.hideSettings {
 		t.Fatal("hideSettings defaults to true, want the pane open")
 	}
@@ -530,106 +515,76 @@ func TestSettingsPaneOpensByDefault(t *testing.T) {
 	}
 }
 
-// TestClosedSettingsLayoutKeepsSourceAndVolume pins what the closed pane
-// draws: the source and volume readouts share one row, and the EQ, speed, and
-// download readouts are gone. Shuffle and repeat return to the playlist header
-// because there is no pane holding them.
-func TestClosedSettingsLayoutKeepsSourceAndVolume(t *testing.T) {
-	m := newColumnTestModel(80, 24)
-	m.SetHideSettingsPane(true)
-	if m.layout.twoColumn || !m.layout.closedSettings {
-		t.Fatalf("want the closed-pane layout, got twoColumn=%v closed=%v", m.layout.twoColumn, m.layout.closedSettings)
-	}
-
-	frame := ansi.Strip(m.View().Content)
-	for _, want := range []string{"SRC", "VOL", "Shuffle", "Repeat"} {
-		if !strings.Contains(frame, want) {
-			t.Fatalf("closed layout lost %q:\n%s", want, frame)
-		}
-	}
-	for _, gone := range []string{"EQ", "SPD", "↓"} {
-		if strings.Contains(frame, gone) {
-			t.Fatalf("closed layout should not draw %q:\n%s", gone, frame)
-		}
-	}
-
-	// Source and volume share a row rather than taking one each.
-	var rows int
-	for _, line := range strings.Split(frame, "\n") {
-		if strings.Contains(line, "SRC") || strings.Contains(line, "VOL") {
-			rows++
-		}
-	}
-	if rows != 1 {
-		t.Fatalf("source and volume span %d rows, want 1:\n%s", rows, frame)
-	}
-}
-
-// TestClosedSettingsLayoutDropsHiddenFocusStops checks that Tab cannot land on
-// the EQ or speed while the closed layout draws no readout for them.
-func TestClosedSettingsLayoutDropsHiddenFocusStops(t *testing.T) {
-	m := newColumnTestModel(80, 24)
-	m.SetHideSettingsPane(true)
-
-	for _, gone := range []focusArea{focusEQ, focusSpeed} {
-		if m.mainFocusAllowed(gone) {
-			t.Fatalf("%v is a Tab stop with no readout drawn", gone.label())
-		}
-	}
-	if !m.mainFocusAllowed(focusProvPill) {
-		t.Fatal("the source row is drawn, so it should stay a Tab stop")
-	}
-
-	// Focus restored from the open layout is cleared rather than left stranded.
-	m.focus = focusEQ
-	m.normalizeMainFocus()
-	if m.focus != focusPlaylist {
-		t.Fatalf("focus = %v, want it reset to the playlist", m.focus.label())
-	}
-}
-
-// TestClosedSettingsLayoutHandsRowsToPlaylist checks that the rows the dropped
-// chrome frees actually show tracks.
-func TestClosedSettingsLayoutHandsRowsToPlaylist(t *testing.T) {
-	stacked := newColumnTestModel(80, 24)
-	stacked.simplified = false
-	stacked.recomputeLayout()
-	openRows := stacked.layout.bodyRows
-
-	closed := newColumnTestModel(80, 24)
-	closed.SetHideSettingsPane(true)
-
-	if closed.layout.chromeRowsFreed() != closedSettingsChromeRows {
-		t.Fatalf("freed rows = %d, want %d", closed.layout.chromeRowsFreed(), closedSettingsChromeRows)
-	}
-	// The pane frees more rows than the closed layout, so the open pane still
-	// shows the taller playlist; the closed one must beat the plain stacked
-	// layout it replaces.
-	if closed.layout.bodyRows >= openRows {
-		t.Fatalf("closed body rows = %d, want fewer than the pane's %d", closed.layout.bodyRows, openRows)
-	}
-	plain := closed
-	plain.layout.closedSettings = false
-	if closed.layout.bodyRows <= plain.layout.bodyRows-closedSettingsChromeRows {
-		t.Fatalf("closed layout did not reclaim its %d rows", closedSettingsChromeRows)
-	}
-}
-
-// TestSettingsPaneToggleIgnoredBelowFullTier checks that the binding is not
-// advertised where there is no pane to open.
-func TestSettingsPaneToggleIgnoredBelowFullTier(t *testing.T) {
-	for _, size := range []struct{ width, height int }{{56, 16}, {40, 10}} {
-		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
-			m := newColumnTestModel(size.width, size.height)
-			if strings.Contains(ansi.Strip(m.commandHelp(commandModeMain)), "Ctrl+B") {
-				t.Fatal("settings-pane binding advertised below the full tier")
+// TestClosedSettingsStacksEverySetting checks that closing the pane moves
+// every setting below the seek bar: two aligned rows on a frame under 76
+// columns, one row with the volume on the right edge on a wider one.
+func TestClosedSettingsStacksEverySetting(t *testing.T) {
+	for _, tt := range []struct {
+		width, height, rows int
+	}{
+		{75, 24, 2}, {80, 24, 1}, {81, 24, 1}, {160, 48, 1},
+	} {
+		t.Run(fmt.Sprintf("%dx%d", tt.width, tt.height), func(t *testing.T) {
+			m := newColumnTestModel(tt.width, tt.height)
+			m.SetHideSettingsPane(true)
+			if m.layout.twoColumn || m.layout.settingsRows != tt.rows {
+				t.Fatalf("twoColumn=%v settingsRows=%d, want false, %d", m.layout.twoColumn, m.layout.settingsRows, tt.rows)
+			}
+			stacked := m.renderSettingsStacked()
+			if got := len(strings.Split(stacked, "\n")); got != tt.rows {
+				t.Fatalf("stacked rows = %d, want %d", got, tt.rows)
+			}
+			assertViewFits(t, stacked, m.layout.panelWidth, tt.rows)
+			plain := ansi.Strip(stacked)
+			lines := strings.Split(plain, "\n")
+			col := func(line, label string) int { return lipgloss.Width(line[:strings.Index(line, label)]) }
+			want := []focusArea{focusPlaylist, focusProvPill, focusEQ, focusShuffle, focusRepeat, focusSpeed, focusVolume}
+			switch {
+			case tt.rows == 2:
+				if !strings.Contains(plain, "VOL +0dB") || strings.ContainsAny(plain, "█░") || strings.Contains(plain, "1/3") {
+					t.Fatalf("two rows want a bare volume readout and no source count:\n%s", plain)
+				}
+				if col(lines[0], "[") != col(lines[1], "[") {
+					t.Fatalf("two rows want the values aligned under SRC and EQ:\n%s", plain)
+				}
+				want = []focusArea{focusPlaylist, focusProvPill, focusVolume, focusSpeed, focusEQ, focusShuffle, focusRepeat}
+			case lipgloss.Width(plain) != m.layout.panelWidth || !strings.HasSuffix(plain, "dB"):
+				t.Fatalf("one row wants the volume on the right edge:\n%s", plain)
+			case tt.width >= 160 && strings.Contains(plain, "1/3"):
+				t.Fatalf("stacked settings never show the source count:\n%s", plain)
+			case tt.width >= 160 && !strings.Contains(plain, "█"):
+				t.Fatalf("a wide row wants the volume meter:\n%s", plain)
+			}
+			if got := lipgloss.Width(m.renderPlaylistHeader()); got != m.layout.panelWidth {
+				t.Fatalf("playlist header width = %d, want the full panel %d", got, m.layout.panelWidth)
+			}
+			frame := ansi.Strip(m.View().Content)
+			for _, want := range []string{"SRC", "VOL", "EQ", "SHF", "RPT", "SPD"} {
+				if !strings.Contains(frame, want) {
+					t.Fatalf("closed layout lost %q:\n%s", want, frame)
+				}
+			}
+			if got := m.mainFocusAreas(); !slices.Equal(got, want) {
+				t.Fatalf("Tab stops = %v, want %v", got, want)
 			}
 		})
 	}
 }
 
-// TestFillSeparator covers the helper the column and closed-pane headers rely
-// on: extend to the width, clip past it, and style the fill so it continues
+// TestSettingsPaneToggleIgnoredOnNarrowFrames checks that the binding is not
+// advertised where there is no pane to open.
+func TestSettingsPaneToggleIgnoredOnNarrowFrames(t *testing.T) {
+	for _, size := range []struct{ width, height int }{{56, 16}, {40, 10}} {
+		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
+			m := newColumnTestModel(size.width, size.height)
+			if strings.Contains(ansi.Strip(m.helpBar(commandModeMain)), "Ctrl+b") {
+				t.Fatal("settings-pane binding advertised on a narrow frame")
+			}
+		})
+	}
+}
+
+// TestFillSeparator covers the helper the column headers rely on: extend to the width, clip past it, and style the fill so it continues
 // the rule it is added to rather than reverting to the terminal foreground.
 func TestFillSeparator(t *testing.T) {
 	tests := []struct {
@@ -657,34 +612,4 @@ func TestFillSeparator(t *testing.T) {
 			t.Fatalf("fill = %q, want the dim-styled run %q", got, want)
 		}
 	})
-}
-
-// TestClosedSettingsHeaderSpansFullWidth checks that with no pane to stop at,
-// the playlist header rule runs the whole frame width instead of ending a few
-// cells after the badges.
-func TestClosedSettingsHeaderSpansFullWidth(t *testing.T) {
-	for _, size := range []struct{ width, height int }{{80, 24}, {120, 40}} {
-		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
-			m := newColumnTestModel(size.width, size.height)
-			m.SetHideSettingsPane(true)
-
-			var header string
-			for _, line := range strings.Split(ansi.Strip(m.View().Content), "\n") {
-				if strings.Contains(line, "Playlist ──") {
-					// The frame pads both sides; the header is what is inside.
-					header = strings.Trim(line, " ")
-					break
-				}
-			}
-			if header == "" {
-				t.Fatal("no playlist header rendered")
-			}
-			if got := lipgloss.Width(header); got != m.layout.panelWidth {
-				t.Fatalf("header width = %d, want the full panel width %d: %q", got, m.layout.panelWidth, header)
-			}
-			if !strings.HasSuffix(header, "─") {
-				t.Fatalf("header should end in rule fill: %q", header)
-			}
-		})
-	}
 }

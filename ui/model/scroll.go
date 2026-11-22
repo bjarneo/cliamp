@@ -62,7 +62,7 @@ func stepListCursor(key string, cursor *int, count, page int) bool {
 	return true
 }
 
-// applyHeightMode sets plVisible based on the current heightExpanded state.
+// applyHeightMode lays the frame out again for the current heightExpanded state.
 func (m *Model) applyHeightMode() {
 	m.recomputeLayout()
 	m.normalizeMainFocus()
@@ -126,25 +126,16 @@ func (m Model) fitHeaderScroll(tracks []playlist.Track, scroll, cursor, visible 
 	return scroll
 }
 
-func (m Model) mainFrameFixedLines(includeTransient bool) int {
-	fixed := 2*m.layout.paddingV + m.layout.fixedRows
-	if includeTransient {
-		fixed += m.layout.footerRows
-	}
-	return fixed
-}
-
+// effectivePlaylistVisible is the list height of the body. A Model that never
+// laid out a frame uses plVisible.
 func (m Model) effectivePlaylistVisible() int {
 	if m.layout.frameWidth == 0 {
-		if m.plVisible > 0 {
-			return m.plVisible
-		}
+		return max(0, m.plVisible)
+	}
+	if m.layout.tooSmall() {
 		return 0
 	}
-	if m.layout.tooSmall() || m.layout.bodyRows <= 0 {
-		return 0
-	}
-	return min(m.plVisible, m.layout.bodyRows)
+	return min(m.plVisible, m.layout.listRows())
 }
 
 func (m *Model) refreshChrome() {
