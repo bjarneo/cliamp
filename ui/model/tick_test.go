@@ -114,8 +114,8 @@ func TestTickIntervalPlayingUsesFastCadence(t *testing.T) {
 		player:   p,
 		vis:      ui.NewVisualizer(float64(p.SampleRate())),
 		playlist: playlist.New(),
-		width:    80,
-		height:   24,
+		width:    100,
+		height:   30,
 	}
 	m.recomputeLayout()
 	m.SetVisualizer("none")
@@ -131,8 +131,8 @@ func TestTickIntervalClampsFastVisualizerCadence(t *testing.T) {
 		player:   p,
 		vis:      ui.NewVisualizer(float64(p.SampleRate())),
 		playlist: playlist.New(),
-		width:    80,
-		height:   24,
+		width:    100,
+		height:   30,
 	}
 	m.recomputeLayout()
 
@@ -150,7 +150,7 @@ func TestCadenceOwnerPlaybackHonorsDriverCadence(t *testing.T) {
 			p := &playbackFakeEngine{playing: true}
 			m := Model{
 				player: p, vis: ui.NewVisualizer(float64(p.SampleRate())),
-				playlist: playlist.New(), width: 80, height: 24,
+				playlist: playlist.New(), width: 100, height: 30,
 			}
 			m.recomputeLayout()
 			m.SetVisualizer(mode)
@@ -176,8 +176,8 @@ func TestTickIntervalRawSampleVisualizerUsesRawSampleCadence(t *testing.T) {
 				player:   p,
 				vis:      ui.NewVisualizer(float64(p.SampleRate())),
 				playlist: playlist.New(),
-				width:    80,
-				height:   24,
+				width:    100,
+				height:   30,
 			}
 			m.recomputeLayout()
 			m.SetVisualizer(mode)
@@ -207,8 +207,8 @@ func TestVisualizerSelectsAudibleTap(t *testing.T) {
 				player:   p,
 				vis:      ui.NewVisualizer(float64(p.SampleRate())),
 				playlist: playlist.New(),
-				width:    80,
-				height:   24,
+				width:    100,
+				height:   30,
 			}
 			m.recomputeLayout()
 			m.SetVisualizer(mode)
@@ -245,8 +245,8 @@ func chargedPausedModel(t *testing.T) (Model, *samplingFakeEngine) {
 		player:   p,
 		vis:      ui.NewVisualizer(float64(p.SampleRate())),
 		playlist: playlist.New(),
-		width:    80,
-		height:   24,
+		width:    100,
+		height:   30,
 	}
 	m.recomputeLayout()
 	m.vis.Mode = ui.VisBars
@@ -308,14 +308,14 @@ func TestVisualizerVisibility(t *testing.T) {
 		zeroRows      bool
 		want          bool
 	}{
-		{name: "main", width: 80, height: 24, set: func(*Model) {}, want: true},
-		{name: "content first", width: 80, height: 24, set: func(m *Model) { m.keymap.visible = true }, want: false},
-		{name: "picker preview", width: 80, height: 24, set: func(m *Model) { m.visPicker.visible = true }, want: true},
+		{name: "main", width: 100, height: 30, set: func(*Model) {}, want: true},
+		{name: "content first", width: 100, height: 30, set: func(m *Model) { m.keymap.visible = true }, want: false},
+		{name: "picker preview", width: 100, height: 30, set: func(m *Model) { m.visPicker.visible = true }, want: true},
 		{name: "full visualizer", width: 40, height: 10, set: func(m *Model) { m.fullVis = true }, want: true},
 		{name: "minimal", width: 40, height: 10, set: func(*Model) {}, want: false},
 		{name: "too small", width: 39, height: 9, set: func(*Model) {}, want: false},
-		{name: "disabled", width: 80, height: 24, set: func(m *Model) { m.vis.Mode = ui.VisNone }, want: false},
-		{name: "zero row canvas", width: 80, height: 24, set: func(*Model) {}, zeroRows: true, want: false},
+		{name: "disabled", width: 100, height: 30, set: func(m *Model) { m.vis.Mode = ui.VisNone }, want: false},
+		{name: "zero row canvas", width: 100, height: 30, set: func(*Model) {}, zeroRows: true, want: false},
 	}
 
 	for _, tt := range tests {
@@ -351,8 +351,8 @@ func TestTickVisualizerSkipsContentFirstLayouts(t *testing.T) {
 				player: p,
 				vis:    ui.NewVisualizer(float64(p.SampleRate())),
 				keymap: keymapOverlay{visible: true},
-				width:  80,
-				height: 24,
+				width:  100,
+				height: 30,
 			}
 			m.vis.Mode = tt.mode
 			m.recomputeLayout()
@@ -433,8 +433,8 @@ func TestVisualizerTickContextProcessesStereoOutput(t *testing.T) {
 func TestRefreshVisualizerIfPendingConsumesOneShotRequest(t *testing.T) {
 	m := Model{
 		vis:    ui.NewVisualizer(44100),
-		width:  80,
-		height: 24,
+		width:  100,
+		height: 30,
 	}
 	m.recomputeLayout()
 
@@ -457,8 +457,8 @@ func TestRefreshVisualizerIfPendingConsumesOneShotRequest(t *testing.T) {
 func TestLyricsScreenKeepsVisualizerLive(t *testing.T) {
 	m := Model{
 		vis:    ui.NewVisualizer(44100),
-		width:  80,
-		height: 24,
+		width:  100,
+		height: 30,
 		lyrics: lyricsState{
 			visible: true,
 		},

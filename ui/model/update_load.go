@@ -100,6 +100,23 @@ func (m *Model) handleFeedsLoaded(msg feedsLoadedMsg) tea.Cmd {
 	return nil
 }
 
+// handleFBIndex installs a completed recursive listing, and re-runs the filter
+// so a query typed while the walk ran now reaches the subfolders.
+func (m *Model) handleFBIndex(msg fbIndexMsg) tea.Cmd {
+	if msg.gen != m.fileBrowser.indexGen {
+		return nil
+	}
+	m.fileBrowser.indexLoading = false
+	if msg.err != nil || msg.dir != m.fileBrowser.dir {
+		return nil
+	}
+	m.fileBrowser.index = msg.entries
+	m.fileBrowser.indexDir = msg.dir
+	m.fbUpdateFilter()
+	m.fbMaybeAdjustScroll(m.fbVisible())
+	return nil
+}
+
 // handleFBTracksResolved adds the tracks that the file browser picked to a
 // playlist file, to the playlist picker or to the queue. It drops a replace
 // when another queue replace started after the walk began.

@@ -74,10 +74,9 @@ shows the code for the main items.
 
 ### Registration in providers.go
 
-- [ ] `providerKeys`: add the key, the display name, an optional alias, and
-  `optional: true` when the provider registers only when it is configured.
-  The `--provider` flag, its help text and the log of skipped providers read
-  this table.
+- [ ] `providerKeys`: add the key, an optional alias, and `optional: true`
+  when the provider registers only when it is configured. The `--provider`
+  flag, its help text and the log of skipped providers read this table.
 - [ ] `buildProviders`: register the provider with `add(key, p)` when
   `NewFromConfig` returns a provider.
 - [ ] `providers_test.go`: add a case to `TestBuildProviders`. The test fails
@@ -101,7 +100,7 @@ the provider list.
   compare the keys that the handlers take with the registry. Add the key to
   the table test of `providerKeyForShortcut` in `ui/model/view_helpers_test.go`.
 - [ ] `providerEmptyStateHint` in `ui/model/view.go`: add the hint that shows
-  under "No playlists in X". The map key is the lowercase `Name()`.
+  under "No playlists in X". The map key is the provider config key.
 - [ ] For synced lyrics, add a
   `TrackLyrics(ctx context.Context, track playlist.Track) ([]lyrics.Line, error)`
   method. `trackLyricsSource` in `ui/model/lyrics.go` finds it. Return
@@ -396,14 +395,13 @@ func isBufferedProviderURL(u string) bool {
 
 ### 5. Add a provider key
 
-Add the key and the display name to `providerKeys` in `providers.go`. The
-`--provider` flag and its help text then accept the key. `buildProviders`
-takes the display name from the table. Set `optional` when the provider
-registers only when it is configured. The log then names the provider when it
-is not configured.
+Add the key to `providerKeys` in `providers.go`. The `--provider` flag and its
+help text then accept the key. `buildProviders` sets `provider.Entry.Name` from
+`p.Name()`. Set `optional` when the provider registers only when it is
+configured. The skip log names the provider key when it is not configured.
 
 ```go
-{key: "myservice", name: "My Service", optional: true},
+{key: "myservice", optional: true},
 ```
 
 ## What the UI Does Automatically

@@ -18,6 +18,10 @@ type Overrides struct {
 	Simplified      *bool
 	HideHelpBar     *bool
 	Expanded        *bool
+	BaseWidth       *int
+	BaseHeight      *int
+	PaddingH        *int
+	PaddingV        *int
 	AudioDevice     *string
 	Playlist        *string
 	LogLevel        *string
@@ -71,6 +75,18 @@ func (o Overrides) Apply(cfg *Config) {
 	}
 	if o.Expanded != nil {
 		cfg.Expanded = *o.Expanded
+	}
+	if o.BaseWidth != nil {
+		cfg.BaseWidth = *o.BaseWidth
+	}
+	if o.BaseHeight != nil {
+		cfg.BaseHeight = *o.BaseHeight
+	}
+	if o.PaddingH != nil {
+		cfg.PaddingH = *o.PaddingH
+	}
+	if o.PaddingV != nil {
+		cfg.PaddingV = *o.PaddingV
 	}
 	if o.Play != nil {
 		cfg.AutoPlay = *o.Play

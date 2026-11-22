@@ -93,7 +93,7 @@ func TestFavoriteKeyDispatchByContext(t *testing.T) {
 			setup:    func(*Model) {},
 			key:      "f",
 			wantPath: "/playlist.mp3",
-			wantHelp: "Favorite track",
+			wantHelp: "Favorite",
 		},
 		{
 			name:  "n is unbound",
@@ -108,7 +108,7 @@ func TestFavoriteKeyDispatchByContext(t *testing.T) {
 			},
 			key:      "f",
 			wantPath: "/manager.mp3",
-			wantHelp: "Favorite track",
+			wantHelp: "Favorite",
 		},
 		{
 			name: "browser track list",
@@ -122,7 +122,7 @@ func TestFavoriteKeyDispatchByContext(t *testing.T) {
 			},
 			key:      "f",
 			wantPath: "/browser.mp3",
-			wantHelp: "Favorite track",
+			wantHelp: "Favorite",
 		},
 		{
 			name: "filtered browser track list",
@@ -137,7 +137,7 @@ func TestFavoriteKeyDispatchByContext(t *testing.T) {
 			},
 			key:      "f",
 			wantPath: "/match.mp3",
-			wantHelp: "Favorite track",
+			wantHelp: "Favorite",
 		},
 		{
 			name: "search results track",
@@ -149,7 +149,7 @@ func TestFavoriteKeyDispatchByContext(t *testing.T) {
 			},
 			key:      "f",
 			wantPath: "spotify:track:1",
-			wantHelp: "Favorite track",
+			wantHelp: "Favorite",
 		},
 		{
 			name: "network search results",
@@ -161,7 +161,7 @@ func TestFavoriteKeyDispatchByContext(t *testing.T) {
 			},
 			key:      "f",
 			wantPath: "https://youtube.com/watch?v=1",
-			wantHelp: "Favorite track",
+			wantHelp: "Favorite",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

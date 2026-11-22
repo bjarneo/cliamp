@@ -26,6 +26,7 @@ func TestSearchOverlayResultVisibleWithOneBodyRow(t *testing.T) {
 		results: []playlist.Track{albumResult("Selected Album")},
 	}
 	m.recomputeLayout()
+	m.plVisible = 1
 	if got := m.effectivePlaylistVisible(); got != 1 {
 		t.Fatalf("body rows = %d, want 1", got)
 	}

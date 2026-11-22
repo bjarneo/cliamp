@@ -37,6 +37,14 @@ var (
 	_ provider.PlaylistDirSourceManager = (*Provider)(nil)
 )
 
+// UI-only provider-pane row IDs. The model inserts these; Playlists() never
+// returns them.
+const (
+	BrowseFilesID     = "local:files"
+	PlaylistManagerID = "local:plmgr"
+	SectionPlaylists  = "Playlists"
+)
+
 // Provider reads and writes TOML-based playlists stored on disk.
 type Provider struct {
 	dir       string // e.g. ~/.config/cliamp/playlists/
@@ -159,6 +167,7 @@ func (p *Provider) Playlists() ([]playlist.PlaylistInfo, error) {
 		lists = append(lists, playlist.PlaylistInfo{
 			ID:             name,
 			Name:           name,
+			Section:        SectionPlaylists,
 			TrackCount:     len(tracks),
 			DurationSecs:   playlist.TotalDurationSecs(tracks),
 			DirSourceCount: len(doc.dirs),
@@ -221,6 +230,7 @@ func (p *Provider) historyInfo() (playlist.PlaylistInfo, bool) {
 	return playlist.PlaylistInfo{
 		ID:           history.PlaylistName,
 		Name:         history.PlaylistName,
+		Section:      SectionPlaylists,
 		TrackCount:   len(tracks),
 		DurationSecs: playlist.TotalDurationSecs(tracks),
 	}, true
@@ -240,7 +250,7 @@ func (p *Provider) favoritesInfo() (playlist.PlaylistInfo, bool) {
 	return playlist.PlaylistInfo{
 		ID:           favorites.PlaylistName,
 		Name:         favorites.PlaylistName,
-		Section:      "Favorites",
+		Section:      SectionPlaylists,
 		TrackCount:   len(tracks),
 		DurationSecs: playlist.TotalDurationSecs(tracks),
 	}, true

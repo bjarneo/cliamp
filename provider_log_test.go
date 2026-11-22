@@ -50,7 +50,7 @@ func TestLogProviderRegistered(t *testing.T) {
 func TestLogProviderSkipped(t *testing.T) {
 	readBack := readLog(t)
 
-	logProviderSkipped("Spotify", "spotify", "not configured")
+	logProviderSkipped("spotify", "not configured")
 
 	got := readBack()
 	if !strings.Contains(got, "provider skipped") {

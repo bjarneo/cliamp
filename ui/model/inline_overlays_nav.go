@@ -203,11 +203,36 @@ func (m Model) fbHeaderLine() string {
 		return sepHeader("Replace current queue?", m.layout.panelWidth)
 	}
 	if m.fileBrowser.filtering {
-		return m.filterHeader("Filter: Files", "file-browser-search", m.fileBrowser.filter, "")
+		count := ""
+		if m.fileBrowser.usesIndex() {
+			count = fmt.Sprintf("%d found", m.fbCount())
+		}
+		return m.filterHeader("Search: Files", "file-browser-search", m.fileBrowser.filter, count)
 	}
 	label := "Files: " + m.fileBrowser.dir
+	dir := m.fileBrowser.dir
+	if name := m.fileBrowser.targetPlaylist; name != "" {
+		switch m.fileBrowser.targetPurpose {
+		case fbTargetAddFiles:
+			label = fmt.Sprintf(`Add files to "%s": %s`, name, dir)
+		case fbTargetAddDirSource:
+			label = fmt.Sprintf(`Add dir source to "%s": %s`, name, dir)
+		}
+	}
+	if m.fileBrowser.filter != "" && m.fileBrowser.usesIndex() {
+		if m.fileBrowser.targetPlaylist != "" && m.fileBrowser.targetPurpose != fbTargetNone {
+			label = fmt.Sprintf("%s  [%d matches, subfolders included]", label, m.fbCount())
+		} else {
+			label = fmt.Sprintf("Files: %s  [%d matches, subfolders included]", m.fileBrowser.dir, m.fbCount())
+		}
+	}
 	if n := len(m.fileBrowser.selected); n > 0 {
 		label += fmt.Sprintf("  [%d selected]", n)
+	}
+	if sort := m.fileBrowser.sortMode.label(); sort != "" {
+		head := dimStyle.Render("── "+terminalText(label)+" · ") +
+			trackStyle.Render(terminalText("Sort: "+sort)) + " "
+		return fillSeparator(head, m.layout.panelWidth)
 	}
 	return sepHeader(label, m.layout.panelWidth)
 }
@@ -228,9 +253,12 @@ func (m Model) renderFileBrowserBody() string {
 
 	count := m.fbCount()
 	if count == 0 {
-		if m.fileBrowser.filter != "" {
+		switch {
+		case m.fileBrowser.indexLoading && m.fileBrowser.filter != "":
+			lines = append(lines, loadingLine("Searching subfolders…"))
+		case m.fileBrowser.filter != "":
 			lines = append(lines, dimStyle.Render("  No matches"))
-		} else {
+		default:
 			lines = append(lines, dimStyle.Render("  (empty)"))
 		}
 		return bodyLines(lines, budget)
@@ -240,6 +268,8 @@ func (m Model) renderFileBrowserBody() string {
 	if scroll > count-1 {
 		scroll = max(0, count-1)
 	}
+	// An index row is labelled by its path from the browsed directory, so two
+	// files with the same name stay distinguishable.
 	for i := scroll; i < count && len(lines) < budget; i++ {
 		e := m.fbEntry(i)
 		check := "  "
@@ -258,7 +288,7 @@ func (m Model) renderFileBrowserBody() string {
 		case i == m.fileBrowser.cursor:
 			lines = append(lines, playlistSelectedStyle.Render("> "+label))
 		case e.isDir:
-			lines = append(lines, trackStyle.Render("  "+label))
+			lines = append(lines, playlistItemStyle.Render("  "+label))
 		case e.isAudio:
 			lines = append(lines, playlistItemStyle.Render("  "+label))
 		default:
