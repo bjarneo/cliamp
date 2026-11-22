@@ -108,7 +108,7 @@ func (m Model) buildKeymapEntries() []keymapEntry {
 	if mode != commandModeMain {
 		out = append(out, keymapEntry{action: "— current: " + screen + " —", divider: true})
 		for _, command := range commandRegistry {
-			if command.Mode != commandModeAny && (command.Keymap || command.ContextHelp) && command.enabled(m) && command.Mode&mode != 0 {
+			if command.Mode != commandModeAny && command.Keymap && command.enabled(m) && command.Mode&mode != 0 {
 				add(command)
 			}
 		}

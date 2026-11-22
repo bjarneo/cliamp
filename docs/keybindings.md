@@ -105,7 +105,7 @@ Radio and Podcasts, `/` sends the query to the provider when you press
 While a search or filter input is open, its line starts with a badge that
 names the mode and the source, such as `[Filter: Playlist]`, `[Filter: Files]`,
 `[Search: Spotify]` or `[Search: Radio]`. The line ends with `Esc Exit`. Press
-`Esc` to leave the input. On a narrow panel, the hint bar still shows `Esc`.
+`Esc` to leave the input.
 
 If the active provider has no `Ctrl+F` search, `Ctrl+F` searches YouTube. The
 overlay shows `[Search: YouTube]` and names the provider that has no search.
