@@ -925,6 +925,33 @@ func (m Model) providerSectionTitle(prefix string) string {
 	return titler.SectionTitle(prefix)
 }
 
+// emptyPlaylistHelpLines lists the add-music shortcuts shown on an empty queue.
+func (m Model) emptyPlaylistHelpLines() []string {
+	var lines []string
+	if command, ok := m.findCommand(commandModeMain, "o"); ok {
+		lines = append(lines, fitHelpLine("  "+helpKey(command.KeyLabel, command.label(m)), m.layout.panelWidth))
+	}
+	for _, pe := range m.providers {
+		if pe.Key == providerKeyLocal {
+			continue
+		}
+		keyLabel, ok := providerShortcutKeyLabel(pe.Key)
+		if !ok {
+			continue
+		}
+		lines = append(lines, fitHelpLine("  "+helpKey(keyLabel, pe.Name), m.layout.panelWidth))
+	}
+	if command, ok := m.findCommand(commandModeMain, "p"); ok {
+		lines = append(lines, fitHelpLine("  "+helpKey(command.KeyLabel, command.label(m)), m.layout.panelWidth))
+	}
+	return lines
+}
+
+func (m Model) emptyPlaylistSettingsHint() string {
+	return dimStyle.Render("  Press ") + helpKeyStyle.Render(" Tab ") +
+		dimStyle.Render(" to cycle through settings (SRC, VOL, EQ, SHF, RPT, SPD)")
+}
+
 func (m Model) renderPlaylist() string {
 	budget := m.effectivePlaylistVisible()
 	if budget <= 0 {
@@ -941,12 +968,9 @@ func (m Model) renderPlaylist() string {
 		if m.feedLoading || (m.provPane.loading && m.activeProviderPlaylistID != "") {
 			lines = append(lines, loadingLine("Loading feed…"))
 		} else {
-			lines = append(lines, dimStyle.Render("  No tracks loaded."), dimStyle.Render("  To add music, press one of these keys:"), "")
-			for _, key := range []string{"esc", "o", "p", "u", "ctrl+f"} {
-				if command, ok := m.findCommand(commandModeMain, key); ok {
-					lines = append(lines, fitHelpLine("  "+helpKey(command.KeyLabel, command.label(m)), m.layout.panelWidth))
-				}
-			}
+			lines = append(lines, dimStyle.Render("  To add music, press one of these keys:"), "")
+			lines = append(lines, m.emptyPlaylistHelpLines()...)
+			lines = append(lines, "", fitHelpLine(m.emptyPlaylistSettingsHint(), m.layout.panelWidth))
 		}
 		return strings.Join(fitLines(lines, budget), "\n")
 	}

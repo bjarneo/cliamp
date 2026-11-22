@@ -222,13 +222,10 @@ func TestMetadataToggleDefaultsAndPersistence(t *testing.T) {
 	if m.layout != before {
 		t.Fatalf("closing metadata changed layout: %+v, want %+v", m.layout, before)
 	}
-	for _, key := range []string{"i", "ctrl+i"} {
+	for _, key := range []string{"i", "ctrl+i", "I"} {
 		if !ReservedKeys()[key] {
-			t.Errorf("metadata key %q is not reserved", key)
+			t.Errorf("key %q is not reserved", key)
 		}
-	}
-	if ReservedKeys()["I"] {
-		t.Error("the removed Shift+I shortcut is still reserved")
 	}
 }
 

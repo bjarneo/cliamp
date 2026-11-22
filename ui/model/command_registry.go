@@ -485,7 +485,7 @@ var commandRegistry = []commandSpec{
 			commandModeShuffle | commandModeRepeat | commandModeSpeed | commandModeProvider,
 		Keys:     []string{"o"},
 		KeyLabel: "o",
-		Label:    "Open file browser",
+		Label:    "Local files",
 		Keymap:   true,
 	},
 	{
@@ -663,6 +663,13 @@ var commandRegistry = []commandSpec{
 		Keys:     []string{"Y"},
 		KeyLabel: "Y",
 		Label:    "Open YouTube provider, again for YouTube Music",
+		Keymap:   true,
+	},
+	{
+		Mode:     commandModeMain,
+		Keys:     []string{"I"},
+		KeyLabel: "I",
+		Label:    "Open Cliamp Radios provider",
 		Keymap:   true,
 	},
 	{

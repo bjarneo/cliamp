@@ -409,6 +409,25 @@ func (m Model) shortcutProviderKey(key string) string {
 	return registered[(i+1)%len(registered)]
 }
 
+// providerShortcutKeyLabel returns the Shift+letter key label for a registered
+// provider config key, or false when the provider has no playlist shortcut.
+func providerShortcutKeyLabel(configKey string) (string, bool) {
+	if configKey == providerKeyLocal {
+		return "", false
+	}
+	if slices.Contains(youTubeProviderKeys, configKey) {
+		return "Y", true
+	}
+	for _, key := range []string{
+		"S", "N", "P", "J", "E", "B", "C", "X", "M", "Q", "T", "K", "U", "I", "R", "O",
+	} {
+		if providerKeyForShortcut(key) == configKey {
+			return key, true
+		}
+	}
+	return "", false
+}
+
 // providerKeyForShortcut maps the Shift+letter provider shortcuts to the
 // config key used by switchToProvider, or "" when the key is unrelated.
 func providerKeyForShortcut(key string) string {
@@ -445,6 +464,8 @@ func providerKeyForShortcut(key string) string {
 		return "local"
 	case "R":
 		return "radio"
+	case "I":
+		return "cliamp"
 	case "O":
 		return "podcast"
 	}
