@@ -30,14 +30,29 @@ func TestNavHeaderIncludesSourceBreadcrumb(t *testing.T) {
 	}
 }
 
+func TestKeymapMainStartsWithQueueSection(t *testing.T) {
+	entries := Model{}.buildKeymapEntries()
+	if len(entries) == 0 || !entries[0].divider || entries[0].action != "Queue" {
+		t.Fatalf("keymap on main = %+v, want Queue section first", entries)
+	}
+}
+
 func TestKeymapStartsWithCurrentScreenCommands(t *testing.T) {
 	m := Model{navBrowser: navBrowserState{visible: true, mode: navBrowseModeMenu}}
 	entries := m.buildKeymapEntries()
-	if len(entries) < 2 || !entries[0].divider || entries[0].action != "— current: Browse —" {
+	if len(entries) < 2 || !entries[0].divider || entries[0].action != "Browse" || !entries[0].dividerCurrent {
 		t.Fatalf("keymap starts with %+v, want current Browse section", entries)
 	}
-	if entries[1].divider {
-		t.Fatalf("first current-screen keymap entry = %+v, want browser command", entries[1])
+	queueAt := -1
+	for i := 1; i < len(entries); i++ {
+		e := entries[i]
+		if e.divider && !e.dividerCurrent && e.action == "Queue" {
+			queueAt = i
+			break
+		}
+	}
+	if queueAt < 0 {
+		t.Fatalf("keymap after browse context = %+v, want Queue section", entries)
 	}
 }
 
@@ -67,7 +82,7 @@ func TestNavFilterHeaderKeepsInputVisible(t *testing.T) {
 func TestKeymapIdentifiesProviderFilter(t *testing.T) {
 	m := Model{focus: focusProvider, provSearch: provSearchState{active: true}}
 	entries := m.buildKeymapEntries()
-	if len(entries) == 0 || entries[0].action != "— current: Provider Filter —" {
+	if len(entries) == 0 || entries[0].action != "Provider Filter" || !entries[0].dividerCurrent {
 		t.Fatalf("keymap starts with %+v, want provider-filter context", entries)
 	}
 }

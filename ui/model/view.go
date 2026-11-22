@@ -97,7 +97,10 @@ func (m Model) renderProviderEmptyState(budget int) string {
 		if m.provSearch.query != "" {
 			found = fmt.Sprintf("  No results for %q.", m.provSearch.query)
 		}
-		lines := []string{dimStyle.Render(found), "", m.pressKeyHint(commandModeProvider, "esc", "to clear the search.")}
+		lines := []string{dimStyle.Render(found), ""}
+		if command, ok := m.findCommand(commandModeProvider, "esc"); ok {
+			lines = append(lines, fitHelpLine(dimStyle.Render("  Press ")+helpKeyStyle.Render(" "+command.KeyLabel+" ")+dimStyle.Render(" to clear the search."), m.layout.panelWidth))
+		}
 		return strings.Join(fitLines(lines, budget), "\n")
 	}
 	lines := []string{
@@ -411,13 +414,13 @@ func (m Model) mainSections(playlist string, includeTransient, contentFirst bool
 		sections = append(sections, playlist)
 	}
 	if !m.layout.twoColumn && m.layout.tier != layoutCompact {
-		// The two-column body needs no spacer above the hint bar: the settings
+		// The two-column body needs no spacer above the help bar: the settings
 		// pane's own blank tail already separates the footer from the columns.
 		// Compact chrome also omits it so the speed row stays on-screen.
 		sections = append(sections, "")
 	}
 	if !m.hideHelpBar {
-		sections = append(sections, m.renderHelp())
+		sections = append(sections, m.renderHelpBar())
 	}
 	// The two-column pane carries speed and the download counters, and the
 	// closed layout deliberately shows neither.
@@ -597,12 +600,21 @@ func (m Model) centerFrame(frame string) string {
 	return strings.Repeat("\n", padTop) + strings.Join(lines, "\n")
 }
 
+func (m Model) titleBarContextLabel() string {
+	if screen := m.activeScreen(); screen != screenMain {
+		return screen.label()
+	}
+	if m.focus == focusProvider && m.provider != nil {
+		if name := m.provider.Name(); name != "" {
+			return name
+		}
+	}
+	return m.focus.label()
+}
+
 func (m Model) renderTitle() string {
 	title := titleStyle.Render("C L I A M P")
-	label := m.focus.label()
-	if screen := m.activeScreen(); screen != screenMain {
-		label = screen.label()
-	}
+	label := m.titleBarContextLabel()
 	if label == "" {
 		return title
 	}
@@ -962,7 +974,7 @@ func (m Model) renderPlaybackHeader() string {
 	}
 
 	if qLen := m.playlist.QueueLen(); qLen > 0 {
-		badges = append(badges, activeToggle.Render(fmt.Sprintf("[Queue: %d]", qLen)))
+		badges = append(badges, activeToggle.Render(fmt.Sprintf("[Next: %d]", qLen)))
 	}
 	// Render from the cached favSet: the render path must not hit disk.
 	if count := len(m.favSet); count > 0 {
@@ -973,10 +985,10 @@ func (m Model) renderPlaybackHeader() string {
 	}
 
 	headerStyle := dimStyle
-	headerLabel := "── Playlist ── "
+	headerLabel := "── Queue ── "
 	if m.focus == focusPlaylist {
 		headerStyle = activeToggle
-		headerLabel = "▸─ Playlist ── "
+		headerLabel = "▸─ Queue ── "
 	}
 
 	const trailer = " ──"
@@ -1220,9 +1232,9 @@ func (m Model) renderPlaylist() string {
 			lines = append(lines, loadingLine("Loading feed…"))
 		} else {
 			lines = append(lines, dimStyle.Render("  No tracks loaded."), dimStyle.Render("  To add music, press one of these keys:"), "")
-			for _, key := range []string{"esc", "o", "u", "ctrl+f"} {
-				if hint := m.commandHint(commandModeMain, key); hint != "" {
-					lines = append(lines, hint)
+			for _, key := range []string{"esc", "o", "p", "u", "ctrl+f"} {
+				if command, ok := m.findCommand(commandModeMain, key); ok {
+					lines = append(lines, fitHelpLine("  "+helpKey(command.KeyLabel, command.label(m)), m.layout.panelWidth))
 				}
 			}
 		}
@@ -1294,7 +1306,7 @@ func (m Model) renderPlaylist() string {
 		if cols.queue {
 			mark := " "
 			if queuePosition > 0 {
-				mark = "Q"
+				mark = "N"
 			}
 			markers += mark
 			styledMarkers += activeToggle.Render(mark)
@@ -1326,7 +1338,7 @@ func (m Model) renderPlaylist() string {
 		name := trackViewName(t)
 		queueSuffix := ""
 		if queuePosition > 0 && m.layout.panelWidth >= 64 {
-			queueSuffix = fmt.Sprintf(" [Q%d]", queuePosition)
+			queueSuffix = fmt.Sprintf(" [N%d]", queuePosition)
 		}
 		queueLen := lipgloss.Width(queueSuffix)
 		duration := formatTrackTime(t.DurationSecs)
@@ -1375,10 +1387,10 @@ func (m Model) renderPlaylist() string {
 	return strings.Join(padLines(lines, budget, len(lines)), "\n")
 }
 
-// renderHelp renders the key hints of what owns the keys.
-func (m Model) renderHelp() string {
+// renderHelpBar renders the key-binding help bar for what owns the keys.
+func (m Model) renderHelpBar() string {
 	mode, _ := m.commandContext()
-	return m.commandHelp(mode)
+	return m.helpBar(mode)
 }
 
 // renderBottomStatus renders the bottom status line: speed (left) and

@@ -65,6 +65,7 @@ const (
 	settingsMinWidth  = 22
 	settingsMaxWidth  = 30
 	playlistMinWidth  = 40
+	twoColumnMinWidth = 80
 	// twoColumnChromeRows counts the stacked rows the two-column body does not
 	// draw: the EQ/volume row, the source row, and the status line, which all
 	// move into the settings pane, plus the blank spacer above the hint bar,

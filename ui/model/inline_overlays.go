@@ -256,10 +256,11 @@ func (m Model) renderQueueBody() string {
 	}
 	total := m.playlist.QueueLen()
 	if total == 0 {
-		return bodyLines([]string{
-			dimStyle.Render("  The queue is empty."),
-			m.pressKeyHint(commandModeMain, "a", "on a playlist track to play it next."),
-		}, budget)
+		lines := []string{dimStyle.Render("  The queue is empty.")}
+		if command, ok := m.findCommand(commandModeMain, "a"); ok {
+			lines = append(lines, fitHelpLine(dimStyle.Render("  Press ")+helpKeyStyle.Render(" "+command.KeyLabel+" ")+dimStyle.Render(" on a playlist track to play it next."), m.layout.panelWidth))
+		}
+		return bodyLines(lines, budget)
 	}
 	if m.queue.confirmClear {
 		return bodyMessage(fmt.Sprintf("%d tracks will be removed from the queue. c confirms; Esc cancels.", total), budget)

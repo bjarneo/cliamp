@@ -123,17 +123,17 @@ func TestKeymapEnterRunsSelectedCommand(t *testing.T) {
 		},
 		{
 			name: "playlist search from the playlist",
-			key:  "/", action: "Filter/search list",
+			key:  "/", action: "Filter",
 			check: func(m *Model) bool { return m.search.active },
 		},
 		{
 			name: "jump to time from the playlist",
-			key:  "Ctrl+J", action: "Jump to time",
+			key:  "Ctrl+j", action: "Jump to time",
 			check: func(m *Model) bool { return m.jump.active },
 		},
 		{
-			name: "queue manager from the playlist",
-			key:  "A", action: "Queue manager",
+			name: "play next overlay from the playlist",
+			key:  "A", action: "Open play next list",
 			check: func(m *Model) bool { return m.queue.visible },
 		},
 		{
@@ -142,14 +142,18 @@ func TestKeymapEnterRunsSelectedCommand(t *testing.T) {
 				m.playlist.Add(playlist.Track{Title: "Song"})
 				m.focus = focusProvider
 			},
-			key: "Esc", action: "Back",
-			check: func(m *Model) bool { return m.focus == focusPlaylist },
+			key: "Ctrl+r", action: "Refresh",
+			check: func(m *Model) bool { return m.focus == focusProvider },
 		},
 		{
-			name:  "cancel an open playlist search",
-			setup: func(m *Model) { m.search.active = true; m.focus = focusSearch },
-			key:   "Esc", action: "Cancel",
-			check: func(m *Model) bool { return !m.search.active },
+			name: "toggle play next while filtering the playlist",
+			setup: func(m *Model) {
+				m.playlist.Add(playlist.Track{Title: "Song"})
+				m.search.active = true
+				m.focus = focusSearch
+			},
+			key: "Tab", action: "Toggle play next for result",
+			check: func(m *Model) bool { return m.search.active },
 		},
 	}
 	for _, tt := range tests {
@@ -179,7 +183,7 @@ func TestKeymapEnterExplainsCommandsItCannotRun(t *testing.T) {
 		key, action string
 		want        string
 	}{
-		{name: "key pair", key: "Left Right", action: "Seek +/-5s", want: "Close the keymap. Then press Left Right."},
+		{name: "key pair", key: "←→", action: "Seek +/-5s", want: "Close the keymap. Then press ←→."},
 		{name: "count prefix", key: "Nj", action: "Seek to N x 10% of track (e.g. 7j = 70%)", want: "Then press Nj."},
 		{
 			name:  "player command over the file browser",
@@ -226,13 +230,12 @@ func TestKeymapContextFollowsPlaylistManagerScreen(t *testing.T) {
 		wantRuns    []string
 		wantMissing []string
 	}{
-		{name: "list", screen: plMgrScreenList, wantMode: commandModePlaylistManager, wantLabel: "Playlist", wantRuns: []string{"Select"}},
-		{name: "tracks", screen: plMgrScreenTracks, wantMode: commandModePlaylistManager, wantLabel: "Playlist", wantRuns: []string{"Play"}},
+		{name: "list", screen: plMgrScreenList, wantMode: commandModePlaylistManager, wantLabel: "Playlist Manager", wantRuns: []string{"Select"}},
+		{name: "tracks", screen: plMgrScreenTracks, wantMode: commandModePlaylistManager, wantLabel: "Playlist Manager", wantRuns: []string{"Select"}},
 		{
 			name: "dirs", screen: plMgrScreenDirs,
 			wantMode: commandModePlaylistManagerDirs, wantLabel: "Directory Sources",
-			wantRuns:    []string{"Add dir", "Remove", "Toggle recursive"},
-			wantMissing: []string{"Select", "Add to the current playlist"},
+			wantMissing: []string{"Select", "Add to queue", "Add files"},
 		},
 		{name: "new name", screen: plMgrScreenNewName, wantMode: commandModePlaylistManagerInput, wantLabel: "Playlist Name"},
 		{name: "rename", screen: plMgrScreenRename, wantMode: commandModePlaylistManagerInput, wantLabel: "Playlist Name"},

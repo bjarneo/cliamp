@@ -6,13 +6,37 @@ import (
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
+func keymapKeyColWidth(entries []keymapEntry) int {
+	maxW := 0
+	for _, e := range entries {
+		if e.divider {
+			continue
+		}
+		if w := lipgloss.Width(e.key); w > maxW {
+			maxW = w
+		}
+	}
+	return maxW + 1
+}
+
+func padDisplayWidth(s string, width int) string {
+	w := lipgloss.Width(s)
+	if w >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-w)
+}
+
 // keymapEntry is a row in the Ctrl+K overlay. Rows with `divider = true` are
-// unselectable section headers (e.g. "— plugins —").
+// unselectable section headers (e.g. "—— Plugins ———").
 type keymapEntry struct {
-	key, action string
-	divider     bool
+	key, action    string
+	divider        bool
+	dividerCurrent bool
 	// run is the key that Enter sends to run the entry. When run is empty,
 	// Enter shows hint instead.
 	run, hint string
@@ -80,14 +104,14 @@ func ReservedKeys() map[string]bool {
 }
 
 // buildKeymapEntries starts with commands for the screen that opened Ctrl+K,
-// then lists global player and library commands. The result is cached on open
-// so navigation (which calls keymapCount many times per frame) is allocation-free.
+// then lists main-screen queue commands. The result is cached on open so
+// navigation (which calls keymapCount many times per frame) is allocation-free.
 func (m Model) buildKeymapEntries() []keymapEntry {
 	out := make([]keymapEntry, 0, len(commandRegistry)+6)
 	seen := make(map[string]bool)
 	mode, screen := m.keymapContext()
 	add := func(command commandSpec) {
-		label := command.label(m)
+		label := command.Label
 		id := command.KeyLabel + "\x00" + label
 		if seen[id] {
 			return
@@ -106,16 +130,16 @@ func (m Model) buildKeymapEntries() []keymapEntry {
 	}
 
 	if mode != commandModeMain {
-		out = append(out, keymapEntry{action: "— current: " + screen + " —", divider: true})
+		out = append(out, keymapEntry{action: screen, divider: true, dividerCurrent: true})
 		for _, command := range commandRegistry {
-			if command.Mode != commandModeAny && command.Keymap && command.enabled(m) && command.Mode&mode != 0 {
+			if command.Mode != commandModeAny && command.Keymap && command.Mode&mode != 0 {
 				add(command)
 			}
 		}
-		out = append(out, keymapEntry{action: "— player & library —", divider: true})
 	}
+	out = append(out, keymapEntry{action: "Queue", divider: true})
 	for _, command := range commandRegistry {
-		if command.Keymap && command.enabled(m) {
+		if command.Keymap && command.Mode&commandModeMain != 0 {
 			add(command)
 		}
 	}
@@ -126,7 +150,7 @@ func (m Model) buildKeymapEntries() []keymapEntry {
 	if len(binds) == 0 {
 		return out
 	}
-	out = append(out, keymapEntry{action: "— plugins —", divider: true})
+	out = append(out, keymapEntry{action: "Plugins", divider: true})
 	for _, b := range binds {
 		label := b.Description
 		if b.Plugin != "" {
@@ -146,7 +170,7 @@ func (m Model) keymapContext() (commandMode, string) {
 
 // commandContext returns the command mode and the screen name of what owns
 // the keys: the top overlay, or else the focused control of the main screen.
-// The help line and the keymap both use it.
+// The help bar and the keymap both use it.
 func (m Model) commandContext() (commandMode, string) {
 	if spec, ok := m.topOverlay(); ok && spec.context != nil {
 		return spec.context(&m)
@@ -159,17 +183,17 @@ func (m Model) commandContext() (commandMode, string) {
 		}
 		return commandModeProvider, "Provider"
 	case focusEQ:
-		return commandModeEQ, "Equalizer"
+		return commandModeEQ, focusEQ.label()
 	case focusVolume:
-		return commandModeVolume, "Volume"
+		return commandModeVolume, focusVolume.label()
 	case focusShuffle:
-		return commandModeShuffle, "Shuffle"
+		return commandModeShuffle, focusShuffle.label()
 	case focusRepeat:
-		return commandModeRepeat, "Repeat"
+		return commandModeRepeat, focusRepeat.label()
 	case focusSpeed:
-		return commandModeSpeed, "Speed"
+		return commandModeSpeed, focusSpeed.label()
 	case focusProvPill:
-		return commandModeProviderPill, "Source"
+		return commandModeProviderPill, focusProvPill.label()
 	default:
 		return commandModeMain, "Playlist"
 	}
@@ -177,6 +201,25 @@ func (m Model) commandContext() (commandMode, string) {
 
 func (m *Model) keymapCount() int {
 	return m.keymap.viewCount(len(m.keymap.entries))
+}
+
+// keymapSectionLine renders a full-width keymap section title: —— Label ———.
+func keymapSectionLine(label string, current bool, width int) string {
+	if current {
+		label += " (current)"
+	}
+	prefix := "  —— " + terminalText(label) + " "
+	if width <= 0 {
+		return dimStyle.Render(prefix)
+	}
+	switch w := lipgloss.Width(prefix); {
+	case w < width:
+		return dimStyle.Render(prefix + strings.Repeat("—", width-w))
+	case w > width:
+		return dimStyle.Render(ansi.Truncate(prefix, width, ""))
+	default:
+		return dimStyle.Render(prefix)
+	}
 }
 
 // keymapHeaderLine renders the keymap's single-line header for the playlist
@@ -323,6 +366,7 @@ func (m Model) renderKeymapList() string {
 	}
 
 	visible := shownRows(&m.keymap.filterList, m.keymap.entries)
+	keyColW := keymapKeyColWidth(visible)
 	if len(visible) == 0 {
 		msg := "(empty)"
 		if m.keymap.filter != "" {
@@ -335,10 +379,10 @@ func (m Model) renderKeymapList() string {
 	for i := m.keymap.scroll; i < len(visible) && len(lines) < budget; i++ {
 		entry := visible[i]
 		if entry.divider {
-			lines = append(lines, dimStyle.Render("  "+entry.action))
+			lines = append(lines, keymapSectionLine(entry.action, entry.dividerCurrent, m.layout.panelWidth))
 			continue
 		}
-		line := fmt.Sprintf("%-10s %s", entry.key, entry.action)
+		line := padDisplayWidth(entry.key, keyColW) + " " + entry.action
 		if m.keymap.filtering {
 			lines = append(lines, dimStyle.Render("  "+line))
 		} else {

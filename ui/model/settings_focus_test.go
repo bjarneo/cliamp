@@ -87,7 +87,7 @@ func TestSettingsFocusMatchesHeaderWithPadding(t *testing.T) {
 			m := newColumnTestModel(width, 16)
 			m.SetPadding(8, 1)
 			m.playlist.SetRepeat(playlist.RepeatAll)
-			wantRepeat := width == 58
+			wantRepeat := width >= 56
 			want := []focusArea{focusPlaylist, focusProvPill, focusVolume, focusEQ, focusShuffle}
 			if wantRepeat {
 				want = append(want, focusRepeat)
@@ -336,8 +336,17 @@ func TestSettingsFocusHelpAndReservation(t *testing.T) {
 		if label != focus.label() {
 			t.Fatalf("keymap context = %q, want %q", label, focus.label())
 		}
-		for _, hint := range []string{"Shift+Tab", "Arrows", strings.ToLower(focus.label())} {
-			if help := ansi.Strip(m.renderHelp()); !strings.Contains(strings.ToLower(help), strings.ToLower(hint)) {
+		hints := []string{"Tab", "Settings"}
+		switch focus {
+		case focusVolume:
+			hints = append(hints, "volume")
+		case focusShuffle:
+			hints = append(hints, "shuffle")
+		case focusRepeat:
+			hints = append(hints, "all/one/off")
+		}
+		for _, hint := range hints {
+			if help := ansi.Strip(m.renderHelpBar()); !strings.Contains(strings.ToLower(help), strings.ToLower(hint)) {
 				t.Fatalf("%s help is missing %q: %q", focus.label(), hint, help)
 			}
 		}
