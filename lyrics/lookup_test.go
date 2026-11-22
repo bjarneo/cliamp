@@ -18,7 +18,7 @@ import (
 // handler answers 404.
 type lyricsAPI struct {
 	lrclib http.HandlerFunc // /api/search on LRCLIB
-	search http.HandlerFunc // /api/search/get/web on NetEase
+	search http.HandlerFunc // /api/search/get on NetEase
 	lyric  http.HandlerFunc // /api/song/lyric on NetEase
 }
 
@@ -58,7 +58,7 @@ func serveLyrics(t *testing.T, api lyricsAPI, down bool) *apiLog {
 	lrclib := http.NewServeMux()
 	lrclib.HandleFunc("/api/search", handle(api.lrclib))
 	netease := http.NewServeMux()
-	netease.HandleFunc("/api/search/get/web", handle(api.search))
+	netease.HandleFunc("/api/search/get", handle(api.search))
 	netease.HandleFunc("/api/song/lyric", handle(api.lyric))
 	lrclibSrv := httptest.NewServer(lrclib)
 	neteaseSrv := httptest.NewServer(netease)
@@ -156,7 +156,7 @@ func TestLookup(t *testing.T) {
 				lyric:  reply(`{"lrc":{"lyric":"[00:10.00]From NetEase"}}`),
 			},
 			want:      []Line{{Start: 10 * time.Second, Text: "From NetEase"}},
-			wantPaths: []string{"/api/search", "/api/search/get/web", "/api/song/lyric"},
+			wantPaths: []string{"/api/search", "/api/search/get", "/api/song/lyric"},
 		},
 		{
 			name:   "NetEase after an LRCLIB error",
@@ -179,14 +179,14 @@ func TestLookup(t *testing.T) {
 			artist: "Artist", title: "Song",
 			api:          lyricsAPI{lrclib: reply(`[]`), search: reply(`{"result":"35b1748964af"}`)},
 			wantNotFound: true,
-			wantPaths:    []string{"/api/search", "/api/search/get/web"},
+			wantPaths:    []string{"/api/search", "/api/search/get"},
 		},
 		{
 			name:   "a NetEase song id that is not a number has no songs",
 			artist: "Artist", title: "Song",
 			api:          lyricsAPI{lrclib: reply(`[]`), search: reply(`{"result":{"songs":[{"id":"42"}]}}`)},
 			wantNotFound: true,
-			wantPaths:    []string{"/api/search", "/api/search/get/web"},
+			wantPaths:    []string{"/api/search", "/api/search/get"},
 		},
 		{
 			name:   "a NetEase search reply that is not JSON is an error",
