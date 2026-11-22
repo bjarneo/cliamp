@@ -353,6 +353,7 @@ type navBrowserState struct {
 	directTrackJump bool
 	fromProvList    bool
 	openInPlaylist  bool
+	selected        map[string]bool
 }
 
 // requestState tracks the latest request in each independently asynchronous UI

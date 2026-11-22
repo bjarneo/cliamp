@@ -28,7 +28,7 @@ AZERTY, QWERTZ and Dvorak work as before. On a Russian layout, `?` is
 
 | Key | Action |
 |---|---|
-| `Space` | Play / Pause |
+| `Space` | Pause or resume the loaded track |
 | `s` | Stop |
 | `>` `.` | Next track |
 | `<` `,` | Previous track |
@@ -44,7 +44,7 @@ AZERTY, QWERTZ and Dvorak work as before. On a Russian layout, `?` is
 
 | Key | Action |
 |---|---|
-| `Tab` | Cycle settings focus from Playlist through the visible settings in reading order, then back to Playlist (help bar: **Cycle settings**) |
+| `Tab` | Cycle settings focus from Playlist through the visible settings in reading order, then back to Playlist (help bar: **Settings**) |
 | `Shift+Tab` | Cycle the same controls in reverse |
 | `j` `k` / `Up` `Down` | Move playlist cursor (wraps); see focused settings below for control actions |
 | `PageUp` `PageDown` / `Ctrl+U` `Ctrl+D` | Scroll playlist/file browser by page (outside text input) |
@@ -124,7 +124,7 @@ list.
 | `v` | Cycle visualizer and save the choice in `config.toml` |
 | `Ctrl+V` | Pick visualizer from a list (live preview) |
 | `V` | Full screen visualizer. Inside it, `v` cycles modes and saves the choice, `<`/`>` change track, `+`/`-` change volume, and `t` hides the episode name, leaving only the bracketed source. `q` or `Esc` exits back to the player; `Ctrl+C` quits. |
-| `Ctrl+H` | Toggle album headers |
+| `Ctrl+H` | Toggle album headers (remembered in `show_album_headers`) |
 | `Ctrl+G` | Toggle the key-binding help bar (remembered in `hide_help_bar`) |
 | `Ctrl+B` | Open/close the settings pane (remembered in `hide_settings_pane`) |
 
@@ -151,6 +151,7 @@ and `Esc` clears it.
 | `w` | Add the highlighted track to a saved playlist |
 | `N` | Open the active provider browser. On Local, open the file browser; after you play a file from it, `Esc` returns to that directory. On a selected Mixcloud show, open that creator's Uploads/Favorites. In the radio pane, open the country browser. |
 | `L` | Open Local provider |
+| `I` | Open Cliamp Radios provider |
 | `R` | Open radio provider |
 | `O` (`Shift+O`) | Open Podcasts provider |
 | `S` | Open Spotify provider |
@@ -183,6 +184,7 @@ preference remains saved for a wider layout. See
 | `d` | In the play next overlay: remove the highlighted track |
 | `Shift+Up` `Shift+Down` / `[` `]` | In the play next overlay: move the highlighted track |
 | `F` | Subscribed shows overlay (any provider that keeps subscriptions) |
+| `c` | Clear the playback queue (press again to confirm when more than one track) |
 | `x` | Remove the highlighted track from the current playlist |
 | `p` | Playlists |
 | `r` | Cycle repeat mode (Off / All / One) |
@@ -334,8 +336,9 @@ genre Latest/Popular view replaces the main playlist and closes the browser. An
 empty result leaves the current playlist and browser unchanged.
 
 For Podcasts, **Browse Categories** opens **Genre**, then **Show**. `Enter` on a
-show replaces the main playlist with its episodes without starting playback.
-Then `Enter` plays an episode and `a` toggles its play-next queue entry.
+show opens its episode list in the browse overlay. On episodes, use the same
+keys as **Open local files**: `Space` to select, `Enter` to add, `R` to replace
+the queue, `w` to save to a playlist.
 
 ## Provider playlist list
 
@@ -349,7 +352,7 @@ playlists here:
 |---|---|
 | `↑` `↓` / `j` `k` | Move cursor (wraps) |
 | `Ctrl+U` `Ctrl+D` | Scroll by page |
-| `Enter` | Load the selected playlist tracks into the queue (Local: open files or manager) |
+| `Enter` | Load the selected playlist tracks into the queue (Local: open files or manager; Podcasts show: open episode list) |
 | `/` | Filter the playlist list. In Podcasts, type a show name or publisher RSS URL, then `Enter` to search; typing alone sends no search requests. |
 | `f` | In Podcasts, subscribe or unsubscribe from the selected show |
 | `Ctrl+F` | Run the provider online or server search (Spotify, Navidrome, NetEase, and others). |
@@ -369,9 +372,9 @@ Latest/Popular pair for each locally favorited genre under Music Styles. Leaving
 a provider-pane Browse shortcut returns to the provider pane.
 
 Podcasts lists subscriptions and Apple's top shows. `/` searches up to 100 shows;
-`Enter` on a show replaces the playlist without playing. `Ctrl+R` reloads a show
-opened from this list or the category browser; reopen `Ctrl+F` shows to fetch
-those feeds again. See [podcasts.md](podcasts.md) for startup and country settings.
+`Enter` on a show opens its episodes in the browse overlay; `a` and `l` still
+append from the provider list. `Ctrl+R` reloads a show whose episode list is
+open; reopen `Ctrl+F` shows to fetch those feeds again. See [podcasts.md](podcasts.md) for startup and country settings.
 
 ## Search results overlays
 

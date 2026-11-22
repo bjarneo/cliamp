@@ -3,7 +3,10 @@ package model
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	"charm.land/lipgloss/v2"
+	"github.com/bjarneo/cliamp/playlist"
 	"github.com/bjarneo/cliamp/provider"
 )
 
@@ -70,7 +73,14 @@ func (m Model) navHeaderLine() string {
 	case navViewAlbums:
 		return sepHeaderN(m.navBreadcrumb(), m.navBrowser.cursor+1, len(m.navBrowser.albums), m.layout.panelWidth)
 	case navViewTracks:
-		return sepHeaderN(m.navBreadcrumb(), m.navBrowser.cursor+1, len(m.navBrowser.tracks), m.layout.panelWidth)
+		label := m.navBreadcrumb()
+		if m.navTrackListFileStyle() {
+			if n := len(m.navBrowser.selected); n > 0 {
+				label += fmt.Sprintf("  [%d selected]", n)
+			}
+			return sepHeaderN(label, m.navBrowser.cursor+1, len(m.navBrowser.tracks), m.layout.panelWidth)
+		}
+		return sepHeaderN(label, m.navBrowser.cursor+1, len(m.navBrowser.tracks), m.layout.panelWidth)
 	case navViewGenres:
 		return sepHeaderN(m.navBreadcrumb(), m.navBrowser.cursor+1, len(m.navBrowser.genres), m.layout.panelWidth)
 	case navViewGenreSorts:
@@ -85,7 +95,11 @@ func (m Model) renderNavBody() string {
 	labels := m.navLabels()
 	budget := m.effectivePlaylistVisible()
 	if m.navBrowser.confirmReplace {
-		return bodyMessage("Displayed tracks will replace the current queue. Enter confirms; Esc cancels.", budget)
+		msg := "Displayed tracks will replace the current queue. Enter confirms; Esc cancels."
+		if m.navTrackListFileStyle() {
+			msg = "Selected episodes will replace the current queue. Enter confirms; Esc cancels."
+		}
+		return bodyMessage(msg, budget)
 	}
 	switch m.navView() {
 	case navViewArtists:
@@ -185,6 +199,10 @@ func (m Model) renderNavTrackBody(budget int) string {
 		return bodyMessage("No matches.", budget)
 	}
 
+	if m.navTrackListFileStyle() {
+		return m.renderNavTrackRowsWithSelection(budget)
+	}
+
 	if m.navBrowser.search != "" {
 		items := m.navScrollItems(len(m.navBrowser.tracks), func(i int) string {
 			t := m.navBrowser.tracks[i]
@@ -194,6 +212,93 @@ func (m Model) renderNavTrackBody(budget int) string {
 	}
 
 	return m.renderTrackRowsBody(m.navBrowser.tracks, m.navBrowser.cursor, m.navBrowser.scroll, budget)
+}
+
+func (m Model) renderNavTrackRowsWithSelection(budget int) string {
+	indices := m.navTrackViewIndices()
+	if len(indices) == 0 {
+		return bodyMessage("No matches.", budget)
+	}
+	tracks := m.navBrowser.tracks
+	numWidth := len(fmt.Sprintf("%d", len(indices)))
+	var reporters []provider.PlaybackStateReporter
+	if m.hasPlaybackState() {
+		reporters = m.playbackStateReporters()
+	}
+	lines := make([]string, 0, budget)
+	scroll := max(m.navBrowser.scroll, 0)
+	if scroll > len(indices)-1 {
+		scroll = max(0, len(indices)-1)
+	}
+	for viewPos := scroll; viewPos < len(indices) && len(lines) < budget; viewPos++ {
+		rawIdx := indices[viewPos]
+		if rawIdx < 0 || rawIdx >= len(tracks) {
+			continue
+		}
+		t := tracks[rawIdx]
+		selected := m.navBrowser.selected[navTrackSelectKey(t)]
+		lines = append(lines, m.navTrackRow(t, viewPos+1, numWidth, selected, viewPos == m.navBrowser.cursor, reporters))
+	}
+	return bodyLines(lines, budget)
+}
+
+// navTrackRow renders one nav-browser episode row with cursor, selection, and
+// listened-state markers—the same glyphs as the main playlist.
+func (m Model) navTrackRow(t playlist.Track, num, numWidth int, marked, cursor bool, reporters []provider.PlaybackStateReporter) string {
+	style := playlistItemStyle
+	if cursor {
+		style = playlistSelectedStyle
+	}
+	cursorMarker := " "
+	if cursor {
+		cursorMarker = ">"
+	}
+	selectMarker, selectStyle := " ", dimStyle
+	if marked {
+		selectMarker, selectStyle = "✓", activeToggle
+	}
+	stateMarker, stateStyle := " ", dimStyle
+	if state, ok := playbackStateFrom(reporters, t); ok {
+		switch {
+		case state.Played:
+			stateMarker, stateStyle = playedMarker, activeToggle
+		case state.Position > 0:
+			stateMarker, stateStyle = partialMarker, dimStyle
+		}
+	}
+	prefix := cursorMarker + selectMarker + stateMarker + " "
+	styledPrefix := dimStyle.Render(cursorMarker) + selectStyle.Render(selectMarker) + stateStyle.Render(stateMarker) + " "
+
+	name := trackViewName(t) + trackAlbumSuffix(t, m.showAlbumHeaders)
+	tail := podcastEpisodeRowTail(t, time.Now())
+	tailLen := lipgloss.Width(tail)
+	prefixWidth := lipgloss.Width(prefix) + numWidth + 2
+	titleBudget := m.layout.panelWidth - prefixWidth
+	if tail != "" {
+		titleBudget -= tailLen + 1
+	}
+	if titleBudget < 4 {
+		titleBudget = 4
+	}
+	name = truncate(name, titleBudget)
+
+	line := styledPrefix + style.Render(fmt.Sprintf("%*d. ", numWidth, num)) + style.Render(name)
+	if tail != "" {
+		padding := max(1, m.layout.panelWidth-lipgloss.Width(line)-tailLen)
+		line += strings.Repeat(" ", padding) + dimStyle.Render(tail)
+	}
+	return line
+}
+
+func (m Model) navTrackViewIndices() []int {
+	if m.navBrowser.search != "" {
+		return m.navBrowser.searchIdx
+	}
+	out := make([]int, len(m.navBrowser.tracks))
+	for i := range out {
+		out[i] = i
+	}
+	return out
 }
 
 // — file browser —

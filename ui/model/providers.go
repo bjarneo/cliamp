@@ -679,6 +679,14 @@ func (m *Model) openProviderList(index int) tea.Cmd {
 		}
 		return cmd
 	}
+	if sl, ok := m.provider.(provider.ShowLister); ok && sl.IsShowID(item.ID) {
+		if loader, ok := m.provider.(provider.AlbumTrackLoader); ok {
+			m.activeProviderPlaylistID = ""
+			cmd := m.openProviderShowInNavBrowser(loader, item.ID, item.Name)
+			m.navBrowser.fromProvList = true
+			return cmd
+		}
+	}
 	m.provPane.loading = true
 	m.activeProviderPlaylistID = item.ID
 	cmd := m.fetchProviderTracks(item.ID)
@@ -825,6 +833,7 @@ func (m *Model) openNavBrowserWith(prov playlist.Provider) {
 	m.navBrowser.directTrackJump = false
 	m.navBrowser.fromProvList = false
 	m.navBrowser.openInPlaylist = false
+	m.navClearTrackSelection()
 	m.navBrowser.selArtist = provider.ArtistInfo{}
 	m.navBrowser.selAlbum = provider.AlbumInfo{}
 	m.navBrowser.selGenre = provider.GenreInfo{}
@@ -957,6 +966,20 @@ func (m Model) selectedTrackArtistBrowserTarget() (selectedTrackArtistTarget, bo
 		}
 	}
 	return selectedTrackArtistTarget{}, false
+}
+
+// openProviderShowInNavBrowser fetches a show's episodes into the nav browser
+// instead of replacing the main playlist from the provider pane.
+func (m *Model) openProviderShowInNavBrowser(loader provider.AlbumTrackLoader, id, name string) tea.Cmd {
+	m.openNavBrowserWith(m.provider)
+	m.navBrowser.mode = navBrowseModeByArtistAlbum
+	m.navBrowser.screen = navBrowseScreenAlbums
+	m.navBrowser.selAlbum = provider.AlbumInfo{ID: id, Name: name}
+	m.navBrowser.directTrackJump = true
+	m.navBrowser.openInPlaylist = false
+	m.navBrowser.loading = true
+	m.navClearSearch()
+	return fetchNavAlbumTracksCmd(loader, id, m.nextNavRequest())
 }
 
 // openSelectedTrackArtistBrowser jumps from the highlighted track to its

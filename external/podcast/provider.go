@@ -262,7 +262,7 @@ func (*Provider) BrowseModes() []provider.BrowseMode {
 func (*Provider) BrowseEntries() []provider.BrowseEntry {
 	return []provider.BrowseEntry{{
 		ID: "browse:categories", Name: "Browse Categories", Section: "Discover",
-		Mode: provider.BrowseArtistAlbums, OpenInPlaylist: true,
+		Mode: provider.BrowseArtistAlbums, OpenInPlaylist: false,
 	}}
 }
 

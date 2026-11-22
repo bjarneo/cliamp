@@ -77,6 +77,11 @@ func (c commandSpec) enabled(m Model) bool {
 	return c.Enabled == nil || c.Enabled(m)
 }
 
+// mainPlaylistHasTracks matches renderPlaylist's empty-queue shortcut help state.
+func (m Model) mainPlaylistHasTracks() bool {
+	return m.playlist != nil && m.playlist.Len() > 0
+}
+
 // mainPlaylistEscHelp reports whether the main-screen help bar should list Esc
 // as the way back into the provider playlist pane.
 func (m Model) mainPlaylistEscHelp() bool {
@@ -123,7 +128,7 @@ var commandRegistry = []commandSpec{
 		Mode:     commandModeAny,
 		Keys:     []string{"ctrl+z"},
 		KeyLabel: "Ctrl+z",
-		Label:    "Undo last queue change",
+		Label:    "Undo last queue or favorite change",
 		Keymap:   true,
 	},
 	{
@@ -159,18 +164,28 @@ var commandRegistry = []commandSpec{
 		Keys:     []string{"enter"},
 		KeyLabel: "Enter",
 		Label:    "Play selected track",
-		Keymap:   true,
+		LabelFor: func(Model) string { return "Play" },
+		Enabled: func(m Model) bool {
+			return m.focus == focusPlaylist && m.mainPlaylistHasTracks() && m.plCursor != m.playlist.Index()
+		},
+		Keymap: true,
 	},
 	{
 		Mode:     commandModeMain | commandModeEQ | commandModeSpeed,
 		Keys:     []string{"space"},
 		KeyLabel: "Space",
-		Label:    "Play / Pause",
+		Label:    "Pause / Resume",
 		LabelFor: func(m Model) string {
-			if m.player != nil && m.player.IsPlaying() && !m.player.IsPaused() {
+			if m.player == nil || !m.player.IsPlaying() {
+				return "Play"
+			}
+			if !m.player.IsPaused() {
 				return "Pause"
 			}
-			return "Play"
+			return "Resume"
+		},
+		Enabled: func(m Model) bool {
+			return m.mainPlaylistHasTracks() && m.player != nil && m.player.IsPlaying()
 		},
 		Keymap: true,
 	},
@@ -264,7 +279,9 @@ var commandRegistry = []commandSpec{
 		Mode:     commandModeMain,
 		Keys:     []string{"shift+up", "shift+down"},
 		KeyLabel: "Shift+↑↓",
-		Label:    "Move",
+		Label:    "Move selected track in the list",
+		LabelFor: func(m Model) string { return "Move" },
+		Enabled:  func(m Model) bool { return m.mainPlaylistHasTracks() },
 		Keymap:   true,
 	},
 	{
@@ -278,7 +295,18 @@ var commandRegistry = []commandSpec{
 		Mode:        commandModeMain,
 		Keys:        []string{"x"},
 		KeyLabel:    "x",
-		Label:       "Remove",
+		Label:       "Remove selected track from the list",
+		LabelFor:    func(m Model) string { return "Remove" },
+		Destructive: true,
+		Enabled:     func(m Model) bool { return m.mainPlaylistHasTracks() },
+		Keymap:      true,
+	},
+	{
+		Mode:        commandModeMain,
+		Keys:        []string{"c"},
+		KeyLabel:    "c",
+		Label:       "Clear the list",
+		LabelFor:    func(m Model) string { return "Clear" },
 		Destructive: true,
 		Keymap:      true,
 	},
@@ -287,8 +315,10 @@ var commandRegistry = []commandSpec{
 		Keys:     []string{"f"},
 		KeyLabel: "f",
 		Label:    "Favorite",
-		Enabled:  func(m Model) bool { return m.selectedPlaylistStarAction() != starUnavailable },
-		Keymap:   true,
+		Enabled: func(m Model) bool {
+			return m.mainPlaylistHasTracks() && m.selectedPlaylistStarAction() != starUnavailable
+		},
+		Keymap: true,
 	},
 	{
 		Mode:     commandModeMain,
@@ -302,6 +332,7 @@ var commandRegistry = []commandSpec{
 		Keys:     []string{"w"},
 		KeyLabel: "w",
 		Label:    "Add to playlist",
+		Enabled:  func(m Model) bool { return m.mainPlaylistHasTracks() },
 		Keymap:   true,
 	},
 	{
@@ -322,7 +353,7 @@ var commandRegistry = []commandSpec{
 		Mode:     commandModeMain | commandModeProvider | commandModeProviderPill | commandModeVolume | commandModeEQ | commandModeShuffle | commandModeRepeat | commandModeSpeed,
 		Keys:     []string{"tab", "shift+tab"},
 		KeyLabel: "Tab",
-		Label:    "Cycle settings",
+		Label:    "Settings",
 	},
 	{
 		Mode:     commandModeMain | commandModeProvider | commandModeProviderPill | commandModeVolume | commandModeEQ | commandModeShuffle | commandModeRepeat | commandModeSpeed,
@@ -677,6 +708,13 @@ var commandRegistry = []commandSpec{
 		Keys:     []string{"R"},
 		KeyLabel: "R",
 		Label:    "Open radio provider",
+		Keymap:   true,
+	},
+	{
+		Mode:     commandModeMain,
+		Keys:     []string{"I"},
+		KeyLabel: "I",
+		Label:    "Open Cliamp Radios provider",
 		Keymap:   true,
 	},
 	{
@@ -1050,10 +1088,20 @@ var commandRegistry = []commandSpec{
 		Keymap:   true,
 	},
 	{
-		Mode:     commandModeNavBrowser | commandModePlaylistPicker | commandModeDevicePicker,
+		Mode:     commandModeNavBrowser | commandModeDevicePicker,
 		Keys:     []string{"enter"},
 		KeyLabel: "Enter",
 		Label:    "Select",
+		Enabled: func(m Model) bool {
+			return m.navView() != navViewTracks || !m.navTrackListFileStyle()
+		},
+		Keymap: true,
+	},
+	{
+		Mode:     commandModePlaylistPicker,
+		Keys:     []string{"enter"},
+		KeyLabel: "Enter",
+		Label:    "Add",
 		Keymap:   true,
 	},
 	{
@@ -1117,8 +1165,87 @@ var commandRegistry = []commandSpec{
 		KeyLabel:    "R",
 		Label:       "Replace queue",
 		Destructive: true,
-		Enabled:     func(m Model) bool { return m.navView() == navViewTracks },
-		Keymap:      true,
+		Enabled: func(m Model) bool {
+			if m.navView() != navViewTracks {
+				return false
+			}
+			if m.navTrackListFileStyle() {
+				return len(m.navBrowser.selected) > 0
+			}
+			return true
+		},
+		Keymap: true,
+	},
+	{
+		Mode:     commandModeNavBrowser,
+		Keys:     []string{"space"},
+		KeyLabel: "Space",
+		Label:    "Select",
+		Enabled:  func(m Model) bool { return m.navTrackListFileStyle() },
+		Keymap:   true,
+	},
+	{
+		Mode:     commandModeNavBrowser,
+		Keys:     []string{"enter"},
+		KeyLabel: "Enter",
+		Label:    "Add to queue",
+		Enabled: func(m Model) bool {
+			if !m.navTrackListFileStyle() || m.navBrowser.confirmReplace {
+				return false
+			}
+			return len(m.navBrowser.selected) > 0 || m.navBrowser.cursor < len(m.navBrowser.tracks)
+		},
+		Keymap: true,
+	},
+	{
+		Mode:     commandModeNavBrowser,
+		Keys:     []string{"q"},
+		KeyLabel: "q",
+		Label:    "Queue next",
+		Enabled:  func(m Model) bool { return m.navTrackListFileStyle() && !m.navBrowser.confirmReplace },
+		Keymap:   true,
+	},
+	{
+		Mode:     commandModeNavBrowser,
+		Keys:     []string{"w"},
+		KeyLabel: "w",
+		Label:    "Add to playlist",
+		Enabled: func(m Model) bool {
+			return m.navTrackListFileStyle() && !m.navBrowser.confirmReplace &&
+				(len(m.navBrowser.selected) > 0 || m.navBrowser.cursor < len(m.navBrowser.tracks))
+		},
+		Keymap: true,
+	},
+	{
+		Mode:     commandModeNavBrowser,
+		Keys:     []string{"a"},
+		KeyLabel: "a",
+		Label:    "Select/unselect all",
+		Enabled:  func(m Model) bool { return m.navTrackListFileStyle() && !m.navBrowser.confirmReplace },
+		Keymap:   true,
+	},
+	{
+		Mode:     commandModeNavBrowser,
+		Keys:     []string{"a"},
+		KeyLabel: "a",
+		Label:    "Append all",
+		Enabled: func(m Model) bool {
+			return m.navView() == navViewTracks && !m.navTrackListFileStyle() && !m.navBrowser.confirmReplace
+		},
+		Keymap: true,
+	},
+	{
+		Mode:     commandModeNavBrowser,
+		Keys:     []string{"ctrl+r"},
+		KeyLabel: "Ctrl+r",
+		Label:    "Refresh",
+		Keymap:   true,
+		Enabled: func(m Model) bool {
+			if m.navBrowser.screen == navBrowseScreenTracks && m.refreshesInPlace() {
+				return true
+			}
+			return m.navBrowser.prov == m.provider
+		},
 	},
 	{
 		Mode:     commandModeNavBrowser,
@@ -1592,7 +1719,7 @@ var commandRegistry = []commandSpec{
 		Mode:     commandModeFullVis,
 		Keys:     []string{"space"},
 		KeyLabel: "Space",
-		Label:    "Play / Pause",
+		Label:    "Pause / Resume",
 		Keymap:   true,
 	},
 	{
@@ -1652,7 +1779,7 @@ var commandRegistry = []commandSpec{
 // display order. Each key resolves to the first matching command in
 // commandRegistry for that mode.
 var helpBarKeyOrder = map[commandMode][]string{
-	commandModeMain:                 {"esc", "space", "shift+up", "x", "f", "w", "tab"},
+	commandModeMain:                 {"esc", "tab", "space", "enter", "shift+up", "x", "f", "w"},
 	commandModeProvider:             {"esc", "enter", "l", "f", "ctrl+r", "/"},
 	commandModeEQ:                   {"esc", "left", "up", "tab"},
 	commandModeVolume:               {"esc", "left", "tab"},
@@ -1664,7 +1791,7 @@ var helpBarKeyOrder = map[commandMode][]string{
 	commandModeKeymapSearch:         {"esc", "enter"},
 	commandModeFileBrowser:          {"esc", "space", "enter", "R", "w", "/"},
 	commandModeFileBrowserSearch:    {"esc", "enter"},
-	commandModeNavBrowser:           {"esc", "enter", "f", "s", "R", "/"},
+	commandModeNavBrowser:           {"esc", "space", "enter", "f", "R", "w", "ctrl+r", "/"},
 	commandModeNavSearch:            {"esc", "enter"},
 	commandModePlaylistManager:      {"esc", "enter", "space", "A", "shift+up", "d", "o", "/"},
 	commandModePlaylistManagerInput: {"esc", "enter"},

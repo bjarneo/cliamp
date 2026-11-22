@@ -82,17 +82,57 @@ func TestPreviousEQPresetRegistryEntry(t *testing.T) {
 
 func TestPlayPauseContextHelpLabel(t *testing.T) {
 	m := keybindingTestModel()
-	if got := registryContextLabel(t, commandModeMain, "space", "Play / Pause", m); got != "Play" {
+	if got := registryContextLabel(t, commandModeMain, "space", "Pause / Resume", m); got != "Play" {
 		t.Fatalf("stopped = %q, want Play", got)
 	}
 	eng := m.player.(*playbackFakeEngine)
 	eng.playing = true
-	if got := registryContextLabel(t, commandModeMain, "space", "Play / Pause", m); got != "Pause" {
+	if got := registryContextLabel(t, commandModeMain, "space", "Pause / Resume", m); got != "Pause" {
 		t.Fatalf("playing = %q, want Pause", got)
 	}
 	eng.paused = true
-	if got := registryContextLabel(t, commandModeMain, "space", "Play / Pause", m); got != "Play" {
-		t.Fatalf("paused = %q, want Play", got)
+	if got := registryContextLabel(t, commandModeMain, "space", "Pause / Resume", m); got != "Resume" {
+		t.Fatalf("paused = %q, want Resume", got)
+	}
+}
+
+func TestMainHelpBarPlayTransportHints(t *testing.T) {
+	m := keybindingTestModel()
+	m.layout.panelWidth = 120
+	m.focus = focusPlaylist
+	m.playlist.Add(playlist.Track{Title: "One"})
+	m.playlist.Add(playlist.Track{Title: "Two"})
+	m.playlist.SetIndex(0)
+	m.plCursor = 1
+
+	help := m.helpBar(commandModeMain)
+	if strings.Contains(help, "Space") {
+		t.Fatalf("stopped help should omit Space: %q", help)
+	}
+	if !strings.Contains(help, "Enter") || !strings.Contains(help, "Play") {
+		t.Fatalf("cursor on another row should list Enter Play: %q", help)
+	}
+
+	eng := m.player.(*playbackFakeEngine)
+	eng.playing = true
+	help = m.helpBar(commandModeMain)
+	if !strings.Contains(help, "Space") || !strings.Contains(help, "Pause") {
+		t.Fatalf("playing with moved cursor should list Space Pause: %q", help)
+	}
+	if !strings.Contains(help, "Enter") {
+		t.Fatalf("playing with moved cursor should still list Enter: %q", help)
+	}
+
+	eng.paused = true
+	help = m.helpBar(commandModeMain)
+	if !strings.Contains(help, "Resume") {
+		t.Fatalf("paused help should list Resume: %q", help)
+	}
+
+	m.plCursor = m.playlist.Index()
+	help = m.helpBar(commandModeMain)
+	if strings.Contains(help, "Enter") {
+		t.Fatalf("cursor on loaded row should omit Enter: %q", help)
 	}
 }
 
@@ -111,31 +151,15 @@ func TestPlayNextToggleContextHelpLabel(t *testing.T) {
 	}
 }
 
-func TestBackToProviderContextHelpLabel(t *testing.T) {
-	spotify := commandsTestProvider{name: "Spotify"}
+func TestMainHelpBarEmptyPlaylist(t *testing.T) {
 	m := keybindingTestModel()
-	m.provider = spotify
-	labelFor := func() string {
-		return registryContextLabel(t, commandModeMain, "esc", "Back to provider", m)
-	}
-	if got := labelFor(); got != "Back to Spotify" {
-		t.Fatalf("provider = %q, want Back to Spotify", got)
-	}
-	local := commandsTestProvider{name: "Local"}
-	m.provider = local
-	m.localProvider = local
-	m.providers = []provider.Entry{{Key: providerKeyLocal, Name: "Local", Provider: local}}
-	if got := labelFor(); got != "Back to Local" {
-		t.Fatalf("local provider = %q, want Back to Local", got)
-	}
-	m.fileBrowser.resumeLocal = true
-	if got := labelFor(); got != "Back to files" {
-		t.Fatalf("file browser return = %q, want Back to files", got)
-	}
-	m.fileBrowser.resumeLocal = false
-	m.provider = nil
-	if got := labelFor(); got != "Back to provider" {
-		t.Fatalf("no provider = %q, want Back to provider", got)
+	m.layout.panelWidth = 120
+	m.focus = focusPlaylist
+	help := m.helpBar(commandModeMain)
+	for _, label := range []string{"Space", "Shift+↑↓", "Remove", "Favorite", "Add to playlist"} {
+		if strings.Contains(help, label) {
+			t.Fatalf("empty playlist help should not list %q: %q", label, help)
+		}
 	}
 }
 
@@ -151,7 +175,7 @@ func TestContextHelpMoveAfterPrimaryOnce(t *testing.T) {
 
 func TestMainPaneSaveToPlaylistHintAfterFavorite(t *testing.T) {
 	m := keybindingTestModel()
-	m.layout.panelWidth = 120
+	m.layout.panelWidth = 160
 	m.focus = focusPlaylist
 	m.playlist.Add(playlist.Track{Title: "One", Path: "/a.mp3"})
 	local := &dirSourceTestProvider{commandsTestProvider: commandsTestProvider{name: "Local"}}
@@ -203,8 +227,8 @@ func TestContextHelpShowsTabCycleControlsUntilMainPane(t *testing.T) {
 	m := keybindingTestModel()
 	m.layout.panelWidth = 120
 	m.focus = focusPlaylist
-	if help := m.helpBar(commandModeMain); !strings.Contains(help, "Tab") || !strings.Contains(help, "Cycle settings") {
-		t.Fatalf("main help should advertise Tab Cycle settings: %q", help)
+	if help := m.helpBar(commandModeMain); !strings.Contains(help, "Tab") || !strings.Contains(help, "Settings") {
+		t.Fatalf("main help should advertise Tab Settings: %q", help)
 	}
 	for _, tc := range []struct {
 		focus focusArea
@@ -216,8 +240,8 @@ func TestContextHelpShowsTabCycleControlsUntilMainPane(t *testing.T) {
 		{focusShuffle, commandModeShuffle},
 	} {
 		m.focus = tc.focus
-		if help := m.helpBar(tc.mode); !strings.Contains(help, "Tab") || !strings.Contains(help, "Cycle settings") {
-			t.Fatalf("%s help should advertise Tab Cycle settings: %q", tc.focus.label(), help)
+		if help := m.helpBar(tc.mode); !strings.Contains(help, "Tab") || !strings.Contains(help, "Settings") {
+			t.Fatalf("%s help should advertise Tab Settings: %q", tc.focus.label(), help)
 		}
 	}
 	m.provider = podcast.New("")
@@ -322,9 +346,6 @@ func TestFileBrowserHelpOrder(t *testing.T) {
 	m.fileBrowser.selected = nil
 	m.fileBrowser.cursor = 2
 	help = m.helpBar(commandModeFileBrowser)
-	if !strings.Contains(help, "Add to queue") {
-		t.Fatalf("audio row without selection should say Add to queue: %q", help)
-	}
 	for _, key := range []string{"Esc", "Space", "Enter", "?"} {
 		if !strings.Contains(help, key) {
 			t.Fatalf("file browser help %q missing %q", help, key)

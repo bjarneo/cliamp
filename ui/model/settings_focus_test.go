@@ -266,8 +266,8 @@ func TestSettingsFocusHelpAndReservation(t *testing.T) {
 		if label != focus.label() {
 			t.Fatalf("keymap context = %q, want %q", label, focus.label())
 		}
-		if help := ansi.Strip(m.renderHelpBar()); !strings.Contains(help, "Tab") || !strings.Contains(help, "Cycle settings") {
-			t.Fatalf("%s help should advertise Tab Cycle settings: %q", focus.label(), help)
+		if help := ansi.Strip(m.renderHelpBar()); !strings.Contains(help, "Tab") || !strings.Contains(help, "Settings") {
+			t.Fatalf("%s help should advertise Tab Settings: %q", focus.label(), help)
 		}
 		help := ansi.Strip(m.renderHelpBar())
 		if !strings.Contains(help, "↑↓") && !strings.Contains(help, "←→") {
